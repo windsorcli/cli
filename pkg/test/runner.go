@@ -520,8 +520,19 @@ func (r *TestRunner) matchBlueprint(bp *blueprintv1alpha1.Blueprint, expect *blu
 			continue
 		}
 
-		kustomizeDiffs := r.matchKustomization(found, expectK)
+		kustomizeDiffs := r.matchKustomization(found, expectK, expectK.Name)
 		diffs = append(diffs, kustomizeDiffs...)
+	}
+
+	for _, expectSys := range expect.FluxSystems {
+		found := r.findFluxSystem(bp, expectSys)
+		if found == nil {
+			diffs = append(diffs, fmt.Sprintf("flux system not found: %s", expectSys.Name))
+			continue
+		}
+
+		fluxDiffs := r.matchFluxSystem(found, expectSys)
+		diffs = append(diffs, fluxDiffs...)
 	}
 
 	for _, ref := range expect.Crds {
@@ -564,6 +575,18 @@ func (r *TestRunner) matchExclusions(bp *blueprintv1alpha1.Blueprint, exclude *b
 		}
 	}
 
+	for _, excludeSys := range exclude.FluxSystems {
+		found := r.findFluxSystem(bp, excludeSys)
+		if found == nil {
+			continue
+		}
+		if excludeSys.Install == nil && len(excludeSys.Resources) == 0 {
+			diffs = append(diffs, fmt.Sprintf("flux system should not exist: %s", excludeSys.Name))
+			continue
+		}
+		diffs = append(diffs, r.matchFluxSystemExclusions(found, excludeSys)...)
+	}
+
 	for _, ref := range exclude.Crds {
 		if blueprintInstallsCrd(bp, ref) {
 			diffs = append(diffs, fmt.Sprintf("crd reference should not exist: %s", ref))
@@ -592,17 +615,63 @@ func (r *TestRunner) findTerraformComponent(bp *blueprintv1alpha1.Blueprint, exp
 }
 
 // findKustomization searches the blueprint's Kustomizations for a kustomization matching the expected
-// kustomization's name. It performs a linear search through all Kustomizations, comparing names exactly.
-// Returns a pointer to the matching kustomization if found, or nil if no kustomization with the
-// specified name exists in the blueprint.
+// kustomization's name, across both plain kustomize: entries and the install/resources tiers compiled
+// from flux: systems. It performs a linear search over AllKustomizations, comparing names exactly.
+// Returns a pointer to a copy of the matching kustomization if found, or nil if no kustomization with
+// the specified name exists in the blueprint.
 func (r *TestRunner) findKustomization(bp *blueprintv1alpha1.Blueprint, expect blueprintv1alpha1.Kustomization) *blueprintv1alpha1.Kustomization {
-	for i := range bp.Kustomizations {
-		k := &bp.Kustomizations[i]
+	for _, k := range bp.AllKustomizations() {
 		if k.Name == expect.Name {
-			return k
+			match := k
+			return &match
 		}
 	}
 	return nil
+}
+
+// findFluxSystem searches the blueprint's FluxSystems for a system matching the expected system's name.
+// bp.FluxSystems holds each system after facet merging and when-expression evaluation but before tier
+// compilation, so this is the author's own flux: shape rather than the compiled Kustomization output.
+// Returns a pointer to the matching system if found, or nil if no system with that name exists.
+func (r *TestRunner) findFluxSystem(bp *blueprintv1alpha1.Blueprint, expect blueprintv1alpha1.FluxSystem) *blueprintv1alpha1.FluxSystem {
+	for i := range bp.FluxSystems {
+		if bp.FluxSystems[i].Name == expect.Name {
+			return &bp.FluxSystems[i]
+		}
+	}
+	return nil
+}
+
+// findFluxVariant searches actual for a resources variant matching expect: by Name when the expectation
+// sets one, otherwise by expect.Components being a subset of a variant's Components so an unnamed or
+// facet-merged variant can still be identified. When expect gives neither a name nor components and
+// actual holds exactly one variant, that variant is returned. Returns nil if no variant matches.
+func (r *TestRunner) findFluxVariant(actual []blueprintv1alpha1.FluxVariant, expect blueprintv1alpha1.FluxVariant) *blueprintv1alpha1.FluxVariant {
+	for i := range actual {
+		v := &actual[i]
+		if expect.Name != "" {
+			if v.Name == expect.Name {
+				return v
+			}
+			continue
+		}
+		if len(expect.Components) > 0 && containsAll(v.Components, expect.Components) {
+			return v
+		}
+	}
+	if expect.Name == "" && len(expect.Components) == 0 && len(actual) == 1 {
+		return &actual[0]
+	}
+	return nil
+}
+
+// fluxVariantIdentifier returns a human-readable label for a resources variant expectation, for use in
+// diff messages: the variant's Name when set, otherwise its Components joined for display.
+func fluxVariantIdentifier(v blueprintv1alpha1.FluxVariant) string {
+	if v.Name != "" {
+		return v.Name
+	}
+	return strings.Join(v.Components, ",")
 }
 
 // matchTerraformComponent compares an actual Terraform component against expected properties and returns
@@ -655,24 +724,24 @@ func (r *TestRunner) matchTerraformComponent(actual *blueprintv1alpha1.Terraform
 // are validated. The function checks path, source, dependsOn, components, and substitutions fields. For
 // dependsOn and components, it verifies that all expected items are present in the actual kustomization's
 // lists. For substitutions, it performs strict value equality checking - each expected key must exist with
-// the exact expected value. Returns an empty slice if all specified properties match, or a list of
-// formatted difference messages describing mismatches, with each message prefixed by the kustomization
-// name for clarity.
-func (r *TestRunner) matchKustomization(actual *blueprintv1alpha1.Kustomization, expect blueprintv1alpha1.Kustomization) []string {
+// the exact expected value. label prefixes each diff message so callers nested under a flux system (Install,
+// a Resources variant) can identify the field's origin without borrowing the kustomization's own Name.
+// Returns an empty slice if all specified properties match.
+func (r *TestRunner) matchKustomization(actual *blueprintv1alpha1.Kustomization, expect blueprintv1alpha1.Kustomization, label string) []string {
 	var diffs []string
 
 	if expect.Path != "" && actual.Path != expect.Path {
-		diffs = append(diffs, fmt.Sprintf("kustomize[%s].path: expected %q, got %q", expect.Name, expect.Path, actual.Path))
+		diffs = append(diffs, fmt.Sprintf("kustomize[%s].path: expected %q, got %q", label, expect.Path, actual.Path))
 	}
 
 	if expect.Source != "" && actual.Source != expect.Source {
-		diffs = append(diffs, fmt.Sprintf("kustomize[%s].source: expected %q, got %q", expect.Name, expect.Source, actual.Source))
+		diffs = append(diffs, fmt.Sprintf("kustomize[%s].source: expected %q, got %q", label, expect.Source, actual.Source))
 	}
 
 	if len(expect.DependsOn) > 0 {
 		for _, dep := range expect.DependsOn {
 			if !contains(actual.DependsOn, dep) {
-				diffs = append(diffs, fmt.Sprintf("kustomize[%s].dependsOn: missing %q", expect.Name, dep))
+				diffs = append(diffs, fmt.Sprintf("kustomize[%s].dependsOn: missing %q", label, dep))
 			}
 		}
 	}
@@ -680,7 +749,7 @@ func (r *TestRunner) matchKustomization(actual *blueprintv1alpha1.Kustomization,
 	if len(expect.Components) > 0 {
 		for _, comp := range expect.Components {
 			if !contains(actual.Components, comp) {
-				diffs = append(diffs, fmt.Sprintf("kustomize[%s].components: missing %q", expect.Name, comp))
+				diffs = append(diffs, fmt.Sprintf("kustomize[%s].components: missing %q", label, comp))
 			}
 		}
 	}
@@ -689,12 +758,111 @@ func (r *TestRunner) matchKustomization(actual *blueprintv1alpha1.Kustomization,
 		for key, expectedValue := range expect.Substitutions {
 			actualValue, exists := actual.Substitutions[key]
 			if !exists {
-				diffs = append(diffs, fmt.Sprintf("kustomize[%s].substitutions[%s]: key not found", expect.Name, key))
+				diffs = append(diffs, fmt.Sprintf("kustomize[%s].substitutions[%s]: key not found", label, key))
 				continue
 			}
 			if expectedValue != actualValue {
-				diffs = append(diffs, fmt.Sprintf("kustomize[%s].substitutions[%s]: expected %q, got %q", expect.Name, key, expectedValue, actualValue))
+				diffs = append(diffs, fmt.Sprintf("kustomize[%s].substitutions[%s]: expected %q, got %q", label, key, expectedValue, actualValue))
 			}
+		}
+	}
+
+	return diffs
+}
+
+// matchFluxSystem compares an actual FluxSystem (from bp.FluxSystems, post facet-merge and
+// when-expression evaluation) against expected properties and returns a list of differences. It uses
+// partial matching: only properties set in the expect system are validated. Path, source, when, strategy,
+// and dependsOn are compared as the author wrote them (dependsOn is the system's own cross-layer edges,
+// not a composer-computed one). Ordinal and globalDependency compare when the expectation sets them;
+// globalDependency only asserts the true direction, since false is indistinguishable from unset. Install
+// and each Resources variant delegate to matchKustomization for their Kustomization fields. Enabled and
+// Destroy are not compared: neither is evaluated during composition, so they carry only the raw authored
+// expression at this stage, not a rendering outcome. Returns an empty slice if all specified properties
+// match.
+func (r *TestRunner) matchFluxSystem(actual *blueprintv1alpha1.FluxSystem, expect blueprintv1alpha1.FluxSystem) []string {
+	var diffs []string
+	name := expect.Name
+
+	if expect.Path != "" && actual.Path != expect.Path {
+		diffs = append(diffs, fmt.Sprintf("flux[%s].path: expected %q, got %q", name, expect.Path, actual.Path))
+	}
+
+	if expect.Source != "" && actual.Source != expect.Source {
+		diffs = append(diffs, fmt.Sprintf("flux[%s].source: expected %q, got %q", name, expect.Source, actual.Source))
+	}
+
+	if expect.When != "" && actual.When != expect.When {
+		diffs = append(diffs, fmt.Sprintf("flux[%s].when: expected %q, got %q", name, expect.When, actual.When))
+	}
+
+	if expect.Strategy != "" && actual.Strategy != expect.Strategy {
+		diffs = append(diffs, fmt.Sprintf("flux[%s].strategy: expected %q, got %q", name, expect.Strategy, actual.Strategy))
+	}
+
+	if len(expect.DependsOn) > 0 {
+		for _, dep := range expect.DependsOn {
+			if !contains(actual.DependsOn, dep) {
+				diffs = append(diffs, fmt.Sprintf("flux[%s].dependsOn: missing %q", name, dep))
+			}
+		}
+	}
+
+	if expect.Ordinal != nil {
+		switch {
+		case actual.Ordinal == nil:
+			diffs = append(diffs, fmt.Sprintf("flux[%s].ordinal: expected %d, got unset", name, *expect.Ordinal))
+		case *actual.Ordinal != *expect.Ordinal:
+			diffs = append(diffs, fmt.Sprintf("flux[%s].ordinal: expected %d, got %d", name, *expect.Ordinal, *actual.Ordinal))
+		}
+	}
+
+	if expect.GlobalDependency && !actual.GlobalDependency {
+		diffs = append(diffs, fmt.Sprintf("flux[%s].globalDependency: expected true, got false", name))
+	}
+
+	if expect.Install != nil {
+		if actual.Install == nil {
+			diffs = append(diffs, fmt.Sprintf("flux[%s].install: expected present, got absent", name))
+		} else {
+			diffs = append(diffs, r.matchKustomization(actual.Install, *expect.Install, name+".install")...)
+		}
+	}
+
+	for _, expectVariant := range expect.Resources {
+		identifier := fluxVariantIdentifier(expectVariant)
+		actualVariant := r.findFluxVariant(actual.Resources, expectVariant)
+		if actualVariant == nil {
+			diffs = append(diffs, fmt.Sprintf("flux[%s].resources: variant not found: %s", name, identifier))
+			continue
+		}
+		if expectVariant.When != "" && actualVariant.When != expectVariant.When {
+			diffs = append(diffs, fmt.Sprintf("flux[%s].resources[%s].when: expected %q, got %q", name, identifier, expectVariant.When, actualVariant.When))
+		}
+		label := fmt.Sprintf("%s.resources[%s]", name, identifier)
+		diffs = append(diffs, r.matchKustomization(&actualVariant.Kustomization, expectVariant.Kustomization, label)...)
+	}
+
+	return diffs
+}
+
+// matchFluxSystemExclusions verifies that specific parts of an actual FluxSystem (found by name) are
+// absent: the install tier when exclude.Install is set, and each named/matched resources variant in
+// exclude.Resources. Used when a fixture wants to assert a system is still partially present (e.g. its
+// install tier remains while one resources variant is gated off) rather than absent entirely, which
+// matchExclusions handles by name lookup alone before calling this. Returns an empty slice if every
+// excluded part is absent.
+func (r *TestRunner) matchFluxSystemExclusions(actual *blueprintv1alpha1.FluxSystem, exclude blueprintv1alpha1.FluxSystem) []string {
+	var diffs []string
+	name := exclude.Name
+
+	if exclude.Install != nil && actual.Install != nil {
+		diffs = append(diffs, fmt.Sprintf("flux[%s].install: should not exist", name))
+	}
+
+	for _, excludeVariant := range exclude.Resources {
+		if r.findFluxVariant(actual.Resources, excludeVariant) != nil {
+			diffs = append(diffs, fmt.Sprintf("flux[%s].resources: variant should not exist: %s", name, fluxVariantIdentifier(excludeVariant)))
 		}
 	}
 
@@ -965,6 +1133,16 @@ func contains(slice []string, item string) bool {
 		}
 	}
 	return false
+}
+
+// containsAll reports whether every item in needles is present in haystack, via contains.
+func containsAll(haystack []string, needles []string) bool {
+	for _, n := range needles {
+		if !contains(haystack, n) {
+			return false
+		}
+	}
+	return true
 }
 
 // blueprintInstallsCrd reports whether the composed blueprint installs ref — either from its own

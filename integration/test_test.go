@@ -63,3 +63,22 @@ func TestWindsorTest_TerraformOutputUnregisteredFixture(t *testing.T) {
 		t.Errorf("expected PASS or ✓ in output: %s", out)
 	}
 }
+
+// TestWindsorTest_FluxSystemTiersFixture exercises expect.flux/exclude.flux against the
+// facet-tiers fixture's tiers.test.yaml: a system merged across facets (install components
+// accumulate, same-ordinal resources variants merge), and a when:-gated system whose install
+// tier and resources variant can be asserted present or absent independently, in the author's
+// own flux: vocabulary rather than compiled tier names.
+func TestWindsorTest_FluxSystemTiersFixture(t *testing.T) {
+	t.Parallel()
+	dir, env := helpers.PrepareFixture(t, "facet-tiers")
+	env = append(env, "WINDSOR_CONTEXT=default")
+	stdout, stderr, err := helpers.RunCLI(dir, []string{"test"}, env)
+	if err != nil {
+		t.Fatalf("windsor test: %v\nstdout: %s\nstderr: %s", err, stdout, stderr)
+	}
+	out := string(stdout) + string(stderr)
+	if !strings.Contains(out, "PASS") && !strings.Contains(out, "✓") {
+		t.Errorf("expected PASS or ✓ in output: %s", out)
+	}
+}

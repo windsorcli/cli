@@ -1,0 +1,21 @@
+kind: Facet
+apiVersion: blueprints.windsorcli.dev/v1alpha1
+metadata:
+  name: policy
+  description: A conditionally-gated flux system, and a resources variant gated by its own condition, to exercise expect.flux/exclude.flux assertions on flux system rendering.
+
+flux:
+
+- name: policy
+  when: (policy.enabled ?? false) == true
+  install:
+    components:
+    - kyverno
+    timeout: 5m
+    interval: 5m
+  resources:
+  - when: (policy.strict ?? false) == true
+    components:
+    - kyverno/strict-policies
+    timeout: 5m
+    interval: 5m

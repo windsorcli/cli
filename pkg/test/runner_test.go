@@ -1141,6 +1141,125 @@ func TestTestRunner_matchBlueprint(t *testing.T) {
 			t.Errorf("Expected no diffs when expect is empty, got: %v", diffs)
 		}
 	})
+
+	t.Run("ReturnsDiffsWhenFluxSystemNotFound", func(t *testing.T) {
+		// Given a blueprint missing the expected flux: system
+		mocks := setupTestRunnerMocks(t)
+		runner := createRunnerWithMockGenerator(mocks)
+
+		blueprint := &blueprintv1alpha1.Blueprint{}
+
+		expect := &blueprintv1alpha1.Blueprint{
+			FluxSystems: []blueprintv1alpha1.FluxSystem{
+				{Name: "missing-system"},
+			},
+		}
+
+		// When matching the blueprint
+		diffs := runner.matchBlueprint(blueprint, expect)
+
+		// Then diffs should indicate the missing system
+		if len(diffs) != 1 || !strings.Contains(diffs[0], "flux system not found: missing-system") {
+			t.Errorf("Expected flux system not found diff, got: %v", diffs)
+		}
+	})
+
+	t.Run("MatchesFluxSystemInstallAndNamedResourcesVariant", func(t *testing.T) {
+		// Given a composed blueprint carrying a flux: system with an install tier and a named resources variant
+		mocks := setupTestRunnerMocks(t)
+		runner := createRunnerWithMockGenerator(mocks)
+
+		blueprint := &blueprintv1alpha1.Blueprint{
+			FluxSystems: []blueprintv1alpha1.FluxSystem{
+				{
+					Name:      "cert-manager",
+					DependsOn: []string{"policy-resources"},
+					Install:   &blueprintv1alpha1.Kustomization{Components: []string{"cert-manager"}},
+					Resources: []blueprintv1alpha1.FluxVariant{
+						{Kustomization: blueprintv1alpha1.Kustomization{Name: "wildcard", Components: []string{"private-issuer/wildcard"}}},
+					},
+				},
+			},
+		}
+
+		// When the expectation asserts the system in the author's own vocabulary — name, dependsOn,
+		// install components, and a named resources variant's components
+		expect := &blueprintv1alpha1.Blueprint{
+			FluxSystems: []blueprintv1alpha1.FluxSystem{
+				{
+					Name:      "cert-manager",
+					DependsOn: []string{"policy-resources"},
+					Install:   &blueprintv1alpha1.Kustomization{Components: []string{"cert-manager"}},
+					Resources: []blueprintv1alpha1.FluxVariant{
+						{Kustomization: blueprintv1alpha1.Kustomization{Name: "wildcard", Components: []string{"private-issuer/wildcard"}}},
+					},
+				},
+			},
+		}
+
+		// Then no diffs should be returned
+		diffs := runner.matchBlueprint(blueprint, expect)
+		if len(diffs) != 0 {
+			t.Errorf("Expected no diffs, got: %v", diffs)
+		}
+	})
+
+	t.Run("ReturnsDiffsWhenFluxSystemInstallAbsent", func(t *testing.T) {
+		// Given a flux: system whose install tier was excluded by a when: condition
+		mocks := setupTestRunnerMocks(t)
+		runner := createRunnerWithMockGenerator(mocks)
+
+		blueprint := &blueprintv1alpha1.Blueprint{
+			FluxSystems: []blueprintv1alpha1.FluxSystem{
+				{Name: "cert-manager"},
+			},
+		}
+
+		expect := &blueprintv1alpha1.Blueprint{
+			FluxSystems: []blueprintv1alpha1.FluxSystem{
+				{Name: "cert-manager", Install: &blueprintv1alpha1.Kustomization{}},
+			},
+		}
+
+		// When matching the blueprint
+		diffs := runner.matchBlueprint(blueprint, expect)
+
+		// Then diffs should indicate the install tier is absent
+		if len(diffs) != 1 || !strings.Contains(diffs[0], "flux[cert-manager].install: expected present, got absent") {
+			t.Errorf("Expected install-absent diff, got: %v", diffs)
+		}
+	})
+
+	t.Run("ReturnsDiffsWhenFluxSystemResourcesVariantNotFound", func(t *testing.T) {
+		// Given a flux: system whose expected resources variant was gated off by when:
+		mocks := setupTestRunnerMocks(t)
+		runner := createRunnerWithMockGenerator(mocks)
+
+		blueprint := &blueprintv1alpha1.Blueprint{
+			FluxSystems: []blueprintv1alpha1.FluxSystem{
+				{Name: "cert-manager"},
+			},
+		}
+
+		expect := &blueprintv1alpha1.Blueprint{
+			FluxSystems: []blueprintv1alpha1.FluxSystem{
+				{
+					Name: "cert-manager",
+					Resources: []blueprintv1alpha1.FluxVariant{
+						{Kustomization: blueprintv1alpha1.Kustomization{Components: []string{"private-issuer/ca"}}},
+					},
+				},
+			},
+		}
+
+		// When matching the blueprint
+		diffs := runner.matchBlueprint(blueprint, expect)
+
+		// Then diffs should indicate the variant is missing
+		if len(diffs) != 1 || !strings.Contains(diffs[0], "flux[cert-manager].resources: variant not found") {
+			t.Errorf("Expected variant-not-found diff, got: %v", diffs)
+		}
+	})
 }
 
 func TestTestRunner_matchExclusions(t *testing.T) {
@@ -1264,6 +1383,124 @@ func TestTestRunner_matchExclusions(t *testing.T) {
 			t.Errorf("Expected 1 diff, got: %d", len(diffs))
 		}
 	})
+
+	t.Run("CatchesExcludedComponentCompiledFromFluxSystem", func(t *testing.T) {
+		// Given a resources tier compiled from a flux: system carries the component a fixture excludes —
+		// this is the scenario that silently passed before findKustomization searched AllKustomizations()
+		mocks := setupTestRunnerMocks(t)
+		runner := createRunnerWithMockGenerator(mocks)
+
+		blueprint := &blueprintv1alpha1.Blueprint{
+			FluxSystems: []blueprintv1alpha1.FluxSystem{
+				{
+					Name: "pki",
+					Resources: []blueprintv1alpha1.FluxVariant{
+						{Kustomization: blueprintv1alpha1.Kustomization{Components: []string{"private-issuer/ca"}}},
+					},
+				},
+			},
+		}
+
+		exclude := &blueprintv1alpha1.Blueprint{
+			Kustomizations: []blueprintv1alpha1.Kustomization{
+				{Name: "pki-resources", Components: []string{"private-issuer/ca"}},
+			},
+		}
+
+		// When matching exclusions
+		diffs := runner.matchExclusions(blueprint, exclude)
+
+		// Then a diff must be reported, not silently pass
+		if len(diffs) != 1 || !strings.Contains(diffs[0], "kustomization should not exist: pki-resources") {
+			t.Errorf("Expected excluded compiled kustomization diff, got: %v", diffs)
+		}
+	})
+
+	t.Run("ReturnsNoDiffsWhenExcludedFluxSystemAbsent", func(t *testing.T) {
+		// Given a blueprint without the excluded flux: system at all
+		mocks := setupTestRunnerMocks(t)
+		runner := createRunnerWithMockGenerator(mocks)
+
+		blueprint := &blueprintv1alpha1.Blueprint{}
+
+		exclude := &blueprintv1alpha1.Blueprint{
+			FluxSystems: []blueprintv1alpha1.FluxSystem{
+				{Name: "should-not-exist"},
+			},
+		}
+
+		// When matching exclusions
+		diffs := runner.matchExclusions(blueprint, exclude)
+
+		// Then no diffs should be returned
+		if len(diffs) != 0 {
+			t.Errorf("Expected no diffs, got: %v", diffs)
+		}
+	})
+
+	t.Run("ReturnsDiffsWhenExcludedFluxSystemExistsEntirely", func(t *testing.T) {
+		// Given a blueprint carrying a flux: system a fixture asserts must not exist at all
+		mocks := setupTestRunnerMocks(t)
+		runner := createRunnerWithMockGenerator(mocks)
+
+		blueprint := &blueprintv1alpha1.Blueprint{
+			FluxSystems: []blueprintv1alpha1.FluxSystem{
+				{Name: "should-not-exist"},
+			},
+		}
+
+		exclude := &blueprintv1alpha1.Blueprint{
+			FluxSystems: []blueprintv1alpha1.FluxSystem{
+				{Name: "should-not-exist"},
+			},
+		}
+
+		// When matching exclusions
+		diffs := runner.matchExclusions(blueprint, exclude)
+
+		// Then diffs should indicate the whole system should not exist
+		if len(diffs) != 1 || !strings.Contains(diffs[0], "flux system should not exist: should-not-exist") {
+			t.Errorf("Expected whole-system exclusion diff, got: %v", diffs)
+		}
+	})
+
+	t.Run("ReturnsDiffsWhenExcludedResourcesVariantExistsWithinPresentSystem", func(t *testing.T) {
+		// Given a flux: system whose install tier legitimately remains while one resources variant
+		// should have been gated off by when: — the system itself must not be reported as excludable
+		mocks := setupTestRunnerMocks(t)
+		runner := createRunnerWithMockGenerator(mocks)
+
+		blueprint := &blueprintv1alpha1.Blueprint{
+			FluxSystems: []blueprintv1alpha1.FluxSystem{
+				{
+					Name:    "pki",
+					Install: &blueprintv1alpha1.Kustomization{Components: []string{"trust-manager"}},
+					Resources: []blueprintv1alpha1.FluxVariant{
+						{Kustomization: blueprintv1alpha1.Kustomization{Components: []string{"private-issuer/ca"}}},
+					},
+				},
+			},
+		}
+
+		exclude := &blueprintv1alpha1.Blueprint{
+			FluxSystems: []blueprintv1alpha1.FluxSystem{
+				{
+					Name: "pki",
+					Resources: []blueprintv1alpha1.FluxVariant{
+						{Kustomization: blueprintv1alpha1.Kustomization{Components: []string{"private-issuer/ca"}}},
+					},
+				},
+			},
+		}
+
+		// When matching exclusions
+		diffs := runner.matchExclusions(blueprint, exclude)
+
+		// Then diffs should identify the variant, not the whole system
+		if len(diffs) != 1 || !strings.Contains(diffs[0], "flux[pki].resources: variant should not exist") {
+			t.Errorf("Expected variant-level exclusion diff, got: %v", diffs)
+		}
+	})
 }
 
 func TestTestRunner_findTerraformComponent(t *testing.T) {
@@ -1358,6 +1595,61 @@ func TestTestRunner_findKustomization(t *testing.T) {
 		// Then nil should be returned
 		if found != nil {
 			t.Error("Expected nil for nonexistent kustomization")
+		}
+	})
+
+	t.Run("FindsInstallTierCompiledFromFluxSystem", func(t *testing.T) {
+		// Given a blueprint whose only kustomization comes from a flux: system's install tier
+		mocks := setupTestRunnerMocks(t)
+		runner := createRunnerWithMockGenerator(mocks)
+
+		blueprint := &blueprintv1alpha1.Blueprint{
+			FluxSystems: []blueprintv1alpha1.FluxSystem{
+				{
+					Name:    "cert-manager",
+					Install: &blueprintv1alpha1.Kustomization{Components: []string{"cert-manager"}},
+				},
+			},
+		}
+
+		// When finding the compiled install tier by name
+		found := runner.findKustomization(blueprint, blueprintv1alpha1.Kustomization{Name: "cert-manager-install"})
+
+		// Then the compiled kustomization should be found
+		if found == nil {
+			t.Fatal("Expected compiled install tier to be found")
+		}
+		if !contains(found.Components, "cert-manager") {
+			t.Errorf("Expected compiled install tier to carry components, got %v", found.Components)
+		}
+	})
+
+	t.Run("FindsResourcesTierCompiledFromFluxSystem", func(t *testing.T) {
+		// Given a blueprint whose flux: system has both an install and a resources tier
+		mocks := setupTestRunnerMocks(t)
+		runner := createRunnerWithMockGenerator(mocks)
+
+		blueprint := &blueprintv1alpha1.Blueprint{
+			FluxSystems: []blueprintv1alpha1.FluxSystem{
+				{
+					Name:    "cert-manager",
+					Install: &blueprintv1alpha1.Kustomization{Components: []string{"cert-manager"}},
+					Resources: []blueprintv1alpha1.FluxVariant{
+						{Kustomization: blueprintv1alpha1.Kustomization{Components: []string{"private-issuer/ca"}}},
+					},
+				},
+			},
+		}
+
+		// When finding the compiled resources tier by name
+		found := runner.findKustomization(blueprint, blueprintv1alpha1.Kustomization{Name: "cert-manager-resources"})
+
+		// Then the compiled kustomization should be found, depending on the install tier
+		if found == nil {
+			t.Fatal("Expected compiled resources tier to be found")
+		}
+		if !contains(found.DependsOn, "cert-manager-install") {
+			t.Errorf("Expected compiled resources tier to depend on install tier, got %v", found.DependsOn)
 		}
 	})
 }
@@ -1596,7 +1888,7 @@ func TestTestRunner_matchKustomization(t *testing.T) {
 		}
 
 		// When matching
-		diffs := runner.matchKustomization(actual, expect)
+		diffs := runner.matchKustomization(actual, expect, expect.Name)
 
 		// Then no diffs should be returned
 		if len(diffs) != 0 {
@@ -1620,7 +1912,7 @@ func TestTestRunner_matchKustomization(t *testing.T) {
 		}
 
 		// When matching
-		diffs := runner.matchKustomization(actual, expect)
+		diffs := runner.matchKustomization(actual, expect, expect.Name)
 
 		// Then diffs should indicate path mismatch
 		if len(diffs) != 1 {
@@ -1644,7 +1936,7 @@ func TestTestRunner_matchKustomization(t *testing.T) {
 		}
 
 		// When matching
-		diffs := runner.matchKustomization(actual, expect)
+		diffs := runner.matchKustomization(actual, expect, expect.Name)
 
 		// Then diffs should indicate source mismatch
 		if len(diffs) != 1 {
@@ -1668,7 +1960,7 @@ func TestTestRunner_matchKustomization(t *testing.T) {
 		}
 
 		// When matching
-		diffs := runner.matchKustomization(actual, expect)
+		diffs := runner.matchKustomization(actual, expect, expect.Name)
 
 		// Then diffs should indicate missing dependency
 		if len(diffs) != 1 {
@@ -1692,7 +1984,7 @@ func TestTestRunner_matchKustomization(t *testing.T) {
 		}
 
 		// When matching
-		diffs := runner.matchKustomization(actual, expect)
+		diffs := runner.matchKustomization(actual, expect, expect.Name)
 
 		// Then diffs should indicate missing component
 		if len(diffs) != 1 {
@@ -1721,7 +2013,7 @@ func TestTestRunner_matchKustomization(t *testing.T) {
 		}
 
 		// When matching
-		diffs := runner.matchKustomization(actual, expect)
+		diffs := runner.matchKustomization(actual, expect, expect.Name)
 
 		// Then no diffs should be returned
 		if len(diffs) != 0 {
@@ -1749,7 +2041,7 @@ func TestTestRunner_matchKustomization(t *testing.T) {
 		}
 
 		// When matching
-		diffs := runner.matchKustomization(actual, expect)
+		diffs := runner.matchKustomization(actual, expect, expect.Name)
 
 		// Then diffs should indicate value mismatch
 		if len(diffs) != 1 {
@@ -1775,11 +2067,391 @@ func TestTestRunner_matchKustomization(t *testing.T) {
 		}
 
 		// When matching
-		diffs := runner.matchKustomization(actual, expect)
+		diffs := runner.matchKustomization(actual, expect, expect.Name)
 
 		// Then diffs should indicate missing key
 		if len(diffs) != 1 {
 			t.Errorf("Expected 1 diff, got: %d", len(diffs))
+		}
+	})
+}
+
+func TestTestRunner_findFluxSystem(t *testing.T) {
+	t.Run("FindsByName", func(t *testing.T) {
+		// Given a blueprint with a flux: system
+		mocks := setupTestRunnerMocks(t)
+		runner := createRunnerWithMockGenerator(mocks)
+
+		blueprint := &blueprintv1alpha1.Blueprint{
+			FluxSystems: []blueprintv1alpha1.FluxSystem{
+				{Name: "cert-manager"},
+			},
+		}
+
+		// When finding by name
+		found := runner.findFluxSystem(blueprint, blueprintv1alpha1.FluxSystem{Name: "cert-manager"})
+
+		// Then the system should be found
+		if found == nil {
+			t.Error("Expected flux system to be found")
+		}
+	})
+
+	t.Run("ReturnsNilWhenNotFound", func(t *testing.T) {
+		// Given a blueprint without the named system
+		mocks := setupTestRunnerMocks(t)
+		runner := createRunnerWithMockGenerator(mocks)
+
+		blueprint := &blueprintv1alpha1.Blueprint{}
+
+		// When finding a nonexistent system
+		found := runner.findFluxSystem(blueprint, blueprintv1alpha1.FluxSystem{Name: "nonexistent"})
+
+		// Then nil should be returned
+		if found != nil {
+			t.Error("Expected nil for nonexistent flux system")
+		}
+	})
+}
+
+func TestTestRunner_findFluxVariant(t *testing.T) {
+	t.Run("FindsByName", func(t *testing.T) {
+		// Given actual variants including one with a matching name
+		mocks := setupTestRunnerMocks(t)
+		runner := createRunnerWithMockGenerator(mocks)
+
+		actual := []blueprintv1alpha1.FluxVariant{
+			{Kustomization: blueprintv1alpha1.Kustomization{Name: "wildcard", Components: []string{"private-issuer/wildcard"}}},
+			{Kustomization: blueprintv1alpha1.Kustomization{Name: "ca", Components: []string{"private-issuer/ca"}}},
+		}
+
+		// When finding by name
+		found := runner.findFluxVariant(actual, blueprintv1alpha1.FluxVariant{Kustomization: blueprintv1alpha1.Kustomization{Name: "ca"}})
+
+		// Then the matching variant should be found
+		if found == nil || found.Name != "ca" {
+			t.Errorf("Expected to find variant \"ca\", got: %+v", found)
+		}
+	})
+
+	t.Run("FindsByComponentSubsetWhenNameUnset", func(t *testing.T) {
+		// Given multiple unnamed/merged variants distinguished only by their components
+		mocks := setupTestRunnerMocks(t)
+		runner := createRunnerWithMockGenerator(mocks)
+
+		actual := []blueprintv1alpha1.FluxVariant{
+			{Kustomization: blueprintv1alpha1.Kustomization{Components: []string{"kyverno/policies", "kyverno/extra"}}},
+			{Kustomization: blueprintv1alpha1.Kustomization{Components: []string{"private-issuer/ca"}}},
+		}
+
+		// When finding by a component subset
+		found := runner.findFluxVariant(actual, blueprintv1alpha1.FluxVariant{Kustomization: blueprintv1alpha1.Kustomization{Components: []string{"kyverno/policies"}}})
+
+		// Then the variant containing that component should be found
+		if found == nil || !contains(found.Components, "kyverno/extra") {
+			t.Errorf("Expected to find the kyverno variant, got: %+v", found)
+		}
+	})
+
+	t.Run("FallsBackToSoleVariantWhenNeitherNameNorComponentsGiven", func(t *testing.T) {
+		// Given exactly one actual variant and an expectation identifying it by neither name nor components
+		mocks := setupTestRunnerMocks(t)
+		runner := createRunnerWithMockGenerator(mocks)
+
+		actual := []blueprintv1alpha1.FluxVariant{
+			{Kustomization: blueprintv1alpha1.Kustomization{Components: []string{"private-issuer/ca"}}},
+		}
+
+		// When finding with an empty expectation
+		found := runner.findFluxVariant(actual, blueprintv1alpha1.FluxVariant{})
+
+		// Then the sole variant should be returned
+		if found == nil {
+			t.Error("Expected the sole variant to be returned")
+		}
+	})
+
+	t.Run("ReturnsNilWhenNoVariantMatches", func(t *testing.T) {
+		// Given actual variants that share nothing with the expectation
+		mocks := setupTestRunnerMocks(t)
+		runner := createRunnerWithMockGenerator(mocks)
+
+		actual := []blueprintv1alpha1.FluxVariant{
+			{Kustomization: blueprintv1alpha1.Kustomization{Name: "ca", Components: []string{"private-issuer/ca"}}},
+		}
+
+		// When finding by a name that doesn't exist
+		found := runner.findFluxVariant(actual, blueprintv1alpha1.FluxVariant{Kustomization: blueprintv1alpha1.Kustomization{Name: "wildcard"}})
+
+		// Then nil should be returned
+		if found != nil {
+			t.Error("Expected nil when no variant matches")
+		}
+	})
+}
+
+func TestTestRunner_matchFluxSystem(t *testing.T) {
+	t.Run("ReturnsNoDiffsWhenAllFieldsMatch", func(t *testing.T) {
+		// Given an actual system matching every asserted field
+		mocks := setupTestRunnerMocks(t)
+		runner := createRunnerWithMockGenerator(mocks)
+
+		ordinal := 5
+		actual := &blueprintv1alpha1.FluxSystem{
+			Name:      "policy",
+			Path:      "policy",
+			Source:    "core",
+			When:      "${cluster.driver == 'talos'}",
+			Strategy:  "merge",
+			DependsOn: []string{"telemetry-install"},
+			Ordinal:   &ordinal,
+		}
+
+		expect := blueprintv1alpha1.FluxSystem{
+			Name:      "policy",
+			Path:      "policy",
+			Source:    "core",
+			When:      "${cluster.driver == 'talos'}",
+			Strategy:  "merge",
+			DependsOn: []string{"telemetry-install"},
+			Ordinal:   &ordinal,
+		}
+
+		// When matching
+		diffs := runner.matchFluxSystem(actual, expect)
+
+		// Then no diffs should be returned
+		if len(diffs) != 0 {
+			t.Errorf("Expected no diffs, got: %v", diffs)
+		}
+	})
+
+	t.Run("ReturnsDiffWhenPathMismatches", func(t *testing.T) {
+		mocks := setupTestRunnerMocks(t)
+		runner := createRunnerWithMockGenerator(mocks)
+
+		actual := &blueprintv1alpha1.FluxSystem{Name: "policy", Path: "wrong"}
+		expect := blueprintv1alpha1.FluxSystem{Name: "policy", Path: "expected"}
+
+		diffs := runner.matchFluxSystem(actual, expect)
+
+		if len(diffs) != 1 {
+			t.Errorf("Expected 1 diff, got: %d", len(diffs))
+		}
+	})
+
+	t.Run("ReturnsDiffWhenSourceMismatches", func(t *testing.T) {
+		mocks := setupTestRunnerMocks(t)
+		runner := createRunnerWithMockGenerator(mocks)
+
+		actual := &blueprintv1alpha1.FluxSystem{Name: "policy", Source: "wrong"}
+		expect := blueprintv1alpha1.FluxSystem{Name: "policy", Source: "expected"}
+
+		diffs := runner.matchFluxSystem(actual, expect)
+
+		if len(diffs) != 1 {
+			t.Errorf("Expected 1 diff, got: %d", len(diffs))
+		}
+	})
+
+	t.Run("ReturnsDiffWhenWhenMismatches", func(t *testing.T) {
+		mocks := setupTestRunnerMocks(t)
+		runner := createRunnerWithMockGenerator(mocks)
+
+		actual := &blueprintv1alpha1.FluxSystem{Name: "policy", When: "wrong"}
+		expect := blueprintv1alpha1.FluxSystem{Name: "policy", When: "expected"}
+
+		diffs := runner.matchFluxSystem(actual, expect)
+
+		if len(diffs) != 1 {
+			t.Errorf("Expected 1 diff, got: %d", len(diffs))
+		}
+	})
+
+	t.Run("ReturnsDiffWhenStrategyMismatches", func(t *testing.T) {
+		mocks := setupTestRunnerMocks(t)
+		runner := createRunnerWithMockGenerator(mocks)
+
+		actual := &blueprintv1alpha1.FluxSystem{Name: "policy", Strategy: "merge"}
+		expect := blueprintv1alpha1.FluxSystem{Name: "policy", Strategy: "remove"}
+
+		diffs := runner.matchFluxSystem(actual, expect)
+
+		if len(diffs) != 1 {
+			t.Errorf("Expected 1 diff, got: %d", len(diffs))
+		}
+	})
+
+	t.Run("ReturnsDiffWhenDependsOnMissing", func(t *testing.T) {
+		mocks := setupTestRunnerMocks(t)
+		runner := createRunnerWithMockGenerator(mocks)
+
+		actual := &blueprintv1alpha1.FluxSystem{Name: "policy", DependsOn: []string{"telemetry-install"}}
+		expect := blueprintv1alpha1.FluxSystem{Name: "policy", DependsOn: []string{"telemetry-install", "csi"}}
+
+		diffs := runner.matchFluxSystem(actual, expect)
+
+		if len(diffs) != 1 {
+			t.Errorf("Expected 1 diff, got: %d", len(diffs))
+		}
+	})
+
+	t.Run("ReturnsDiffWhenOrdinalUnset", func(t *testing.T) {
+		mocks := setupTestRunnerMocks(t)
+		runner := createRunnerWithMockGenerator(mocks)
+
+		ordinal := 3
+		actual := &blueprintv1alpha1.FluxSystem{Name: "policy"}
+		expect := blueprintv1alpha1.FluxSystem{Name: "policy", Ordinal: &ordinal}
+
+		diffs := runner.matchFluxSystem(actual, expect)
+
+		if len(diffs) != 1 {
+			t.Errorf("Expected 1 diff, got: %d", len(diffs))
+		}
+	})
+
+	t.Run("ReturnsDiffWhenOrdinalMismatches", func(t *testing.T) {
+		mocks := setupTestRunnerMocks(t)
+		runner := createRunnerWithMockGenerator(mocks)
+
+		actualOrdinal, expectOrdinal := 1, 2
+		actual := &blueprintv1alpha1.FluxSystem{Name: "policy", Ordinal: &actualOrdinal}
+		expect := blueprintv1alpha1.FluxSystem{Name: "policy", Ordinal: &expectOrdinal}
+
+		diffs := runner.matchFluxSystem(actual, expect)
+
+		if len(diffs) != 1 {
+			t.Errorf("Expected 1 diff, got: %d", len(diffs))
+		}
+	})
+
+	t.Run("ReturnsDiffWhenGlobalDependencyExpectedTrueButActualFalse", func(t *testing.T) {
+		mocks := setupTestRunnerMocks(t)
+		runner := createRunnerWithMockGenerator(mocks)
+
+		actual := &blueprintv1alpha1.FluxSystem{Name: "policy", GlobalDependency: false}
+		expect := blueprintv1alpha1.FluxSystem{Name: "policy", GlobalDependency: true}
+
+		diffs := runner.matchFluxSystem(actual, expect)
+
+		if len(diffs) != 1 {
+			t.Errorf("Expected 1 diff, got: %d", len(diffs))
+		}
+	})
+
+	t.Run("ReturnsNoDiffWhenGlobalDependencyNotAsserted", func(t *testing.T) {
+		// The zero value (false) is indistinguishable from "not asserted" — a documented limitation
+		mocks := setupTestRunnerMocks(t)
+		runner := createRunnerWithMockGenerator(mocks)
+
+		actual := &blueprintv1alpha1.FluxSystem{Name: "policy", GlobalDependency: true}
+		expect := blueprintv1alpha1.FluxSystem{Name: "policy"}
+
+		diffs := runner.matchFluxSystem(actual, expect)
+
+		if len(diffs) != 0 {
+			t.Errorf("Expected no diffs, got: %v", diffs)
+		}
+	})
+
+	t.Run("DelegatesInstallMismatchesToMatchKustomization", func(t *testing.T) {
+		// Given an install tier missing an expected component
+		mocks := setupTestRunnerMocks(t)
+		runner := createRunnerWithMockGenerator(mocks)
+
+		actual := &blueprintv1alpha1.FluxSystem{
+			Name:    "cert-manager",
+			Install: &blueprintv1alpha1.Kustomization{Components: []string{"cert-manager"}},
+		}
+		expect := blueprintv1alpha1.FluxSystem{
+			Name:    "cert-manager",
+			Install: &blueprintv1alpha1.Kustomization{Components: []string{"cert-manager", "cert-manager/prometheus"}},
+		}
+
+		diffs := runner.matchFluxSystem(actual, expect)
+
+		if len(diffs) != 1 || !strings.Contains(diffs[0], "kustomize[cert-manager.install].components") {
+			t.Errorf("Expected labeled install component diff, got: %v", diffs)
+		}
+	})
+
+	t.Run("ReturnsDiffWhenResourcesVariantWhenMismatches", func(t *testing.T) {
+		// Given a matched resources variant whose when: differs from expectation
+		mocks := setupTestRunnerMocks(t)
+		runner := createRunnerWithMockGenerator(mocks)
+
+		actual := &blueprintv1alpha1.FluxSystem{
+			Name: "pki",
+			Resources: []blueprintv1alpha1.FluxVariant{
+				{Kustomization: blueprintv1alpha1.Kustomization{Name: "ca", Components: []string{"private-issuer/ca"}}, When: "${addons.private_ca.enabled}"},
+			},
+		}
+		expect := blueprintv1alpha1.FluxSystem{
+			Name: "pki",
+			Resources: []blueprintv1alpha1.FluxVariant{
+				{Kustomization: blueprintv1alpha1.Kustomization{Name: "ca"}, When: "${private_ca.enabled}"},
+			},
+		}
+
+		diffs := runner.matchFluxSystem(actual, expect)
+
+		if len(diffs) != 1 || !strings.Contains(diffs[0], "flux[pki].resources[ca].when") {
+			t.Errorf("Expected variant when: mismatch diff, got: %v", diffs)
+		}
+	})
+}
+
+func TestTestRunner_matchFluxSystemExclusions(t *testing.T) {
+	t.Run("ReturnsNoDiffsWhenNeitherInstallNorResourcesPresent", func(t *testing.T) {
+		mocks := setupTestRunnerMocks(t)
+		runner := createRunnerWithMockGenerator(mocks)
+
+		actual := &blueprintv1alpha1.FluxSystem{Name: "pki"}
+		exclude := blueprintv1alpha1.FluxSystem{Name: "pki", Install: &blueprintv1alpha1.Kustomization{}}
+
+		diffs := runner.matchFluxSystemExclusions(actual, exclude)
+
+		if len(diffs) != 0 {
+			t.Errorf("Expected no diffs, got: %v", diffs)
+		}
+	})
+
+	t.Run("ReturnsDiffWhenExcludedInstallExists", func(t *testing.T) {
+		mocks := setupTestRunnerMocks(t)
+		runner := createRunnerWithMockGenerator(mocks)
+
+		actual := &blueprintv1alpha1.FluxSystem{Name: "pki", Install: &blueprintv1alpha1.Kustomization{Components: []string{"cert-manager"}}}
+		exclude := blueprintv1alpha1.FluxSystem{Name: "pki", Install: &blueprintv1alpha1.Kustomization{}}
+
+		diffs := runner.matchFluxSystemExclusions(actual, exclude)
+
+		if len(diffs) != 1 || !strings.Contains(diffs[0], "flux[pki].install: should not exist") {
+			t.Errorf("Expected install-should-not-exist diff, got: %v", diffs)
+		}
+	})
+
+	t.Run("ReturnsDiffWhenExcludedResourcesVariantExists", func(t *testing.T) {
+		mocks := setupTestRunnerMocks(t)
+		runner := createRunnerWithMockGenerator(mocks)
+
+		actual := &blueprintv1alpha1.FluxSystem{
+			Name: "pki",
+			Resources: []blueprintv1alpha1.FluxVariant{
+				{Kustomization: blueprintv1alpha1.Kustomization{Name: "ca", Components: []string{"private-issuer/ca"}}},
+			},
+		}
+		exclude := blueprintv1alpha1.FluxSystem{
+			Name: "pki",
+			Resources: []blueprintv1alpha1.FluxVariant{
+				{Kustomization: blueprintv1alpha1.Kustomization{Name: "ca"}},
+			},
+		}
+
+		diffs := runner.matchFluxSystemExclusions(actual, exclude)
+
+		if len(diffs) != 1 || !strings.Contains(diffs[0], "flux[pki].resources: variant should not exist: ca") {
+			t.Errorf("Expected variant-should-not-exist diff, got: %v", diffs)
 		}
 	})
 }
@@ -2529,6 +3201,47 @@ func TestContains(t *testing.T) {
 		// Then false should be returned
 		if result {
 			t.Error("Expected false for empty slice")
+		}
+	})
+}
+
+func TestContainsAll(t *testing.T) {
+	t.Run("ReturnsTrueWhenEveryNeedleIsPresent", func(t *testing.T) {
+		// Given a haystack containing every needle
+		haystack := []string{"a", "b", "c"}
+
+		// When checking a subset
+		result := containsAll(haystack, []string{"a", "c"})
+
+		// Then true should be returned
+		if !result {
+			t.Error("Expected true when every needle is present")
+		}
+	})
+
+	t.Run("ReturnsFalseWhenAnyNeedleIsMissing", func(t *testing.T) {
+		// Given a haystack missing one needle
+		haystack := []string{"a", "b"}
+
+		// When checking a set including the missing item
+		result := containsAll(haystack, []string{"a", "c"})
+
+		// Then false should be returned
+		if result {
+			t.Error("Expected false when a needle is missing")
+		}
+	})
+
+	t.Run("ReturnsTrueForEmptyNeedles", func(t *testing.T) {
+		// Given an empty set of needles
+		haystack := []string{"a"}
+
+		// When checking with no needles
+		result := containsAll(haystack, []string{})
+
+		// Then true should be returned vacuously
+		if !result {
+			t.Error("Expected true for empty needles")
 		}
 	})
 }
