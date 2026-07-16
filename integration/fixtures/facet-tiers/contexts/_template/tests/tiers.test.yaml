@@ -1,0 +1,78 @@
+# flux: facet rendering assertions for the facet-tiers fixture.
+# Exercises expect.flux/exclude.flux against bp.FluxSystems directly, in the
+# author's own vocabulary, rather than requiring compiled tier names.
+
+cases:
+
+  # cert-manager (pki.yaml + pki-extra.yaml + addon-cert-manager-extra.yaml) merges
+  # install components across ordinals and merges same-ordinal unnamed resources
+  # variants into one entry, alongside a separately named variant.
+  - name: cert_manager_system_merges_across_facets
+    values: {}
+    expect:
+      flux:
+        - name: cert-manager
+          path: pki/cert-manager
+          install:
+            components:
+              - helm-release
+              - helm-release-extra-metrics
+          resources:
+            - components:
+                - private-issuer/ca
+                - private-issuer/wildcard
+            - name: extra
+              components:
+                - public-issuer
+      kustomize:
+        - name: cert-manager-resources
+          dependsOn:
+            - cert-manager-install
+
+  # policy's install tier renders and its resources variant is present when both
+  # when: conditions evaluate true.
+  - name: policy_system_and_strict_variant_included_when_enabled
+    values:
+      policy:
+        enabled: true
+        strict: true
+    expect:
+      flux:
+        - name: policy
+          install:
+            components:
+              - kyverno
+          resources:
+            - components:
+                - kyverno/strict-policies
+
+  # policy's install tier still renders when only the system is enabled, but its
+  # resources variant is gated off by its own when: -- install remaining present
+  # while one resources variant is absent is the realistic "addon disabled" shape.
+  - name: policy_strict_variant_excluded_when_its_own_condition_is_false
+    values:
+      policy:
+        enabled: true
+        strict: false
+    expect:
+      flux:
+        - name: policy
+          install:
+            components:
+              - kyverno
+    exclude:
+      flux:
+        - name: policy
+          resources:
+            - components:
+                - kyverno/strict-policies
+
+  # The whole policy system is absent -- not just its resources tier -- when the
+  # system's own when: is false.
+  - name: policy_system_excluded_entirely_when_disabled
+    values:
+      policy:
+        enabled: false
+    exclude:
+      flux:
+        - name: policy
