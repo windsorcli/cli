@@ -3355,6 +3355,119 @@ func TestComposer_validateReservedNames(t *testing.T) {
 	})
 }
 
+func TestComposer_validateFluxFlatExclusivity(t *testing.T) {
+	t.Run("RejectsFlatComponentsAlongsideInstall", func(t *testing.T) {
+		// Given a system that sets both flat components and an install tier
+		mocks := setupComposerMocks(t)
+		composer := NewBlueprintComposer(mocks.Runtime)
+		bp := &blueprintv1alpha1.Blueprint{
+			FluxSystems: []blueprintv1alpha1.FluxSystem{{
+				Name:    "cert-manager",
+				Install: &blueprintv1alpha1.Kustomization{Components: []string{"cert-manager"}},
+				Flat:    &blueprintv1alpha1.Kustomization{Components: []string{"stray"}},
+			}},
+		}
+
+		// When validating
+		err := composer.validateFluxFlatExclusivity(bp)
+
+		// Then it is rejected
+		if err == nil || !strings.Contains(err.Error(), "cert-manager") || !strings.Contains(err.Error(), "flat fields and install/resources") {
+			t.Errorf("expected flat/tiered exclusivity error, got %v", err)
+		}
+	})
+
+	t.Run("RejectsFlatComponentsAlongsideResources", func(t *testing.T) {
+		// Given a system that sets both flat components and a resources variant
+		mocks := setupComposerMocks(t)
+		composer := NewBlueprintComposer(mocks.Runtime)
+		bp := &blueprintv1alpha1.Blueprint{
+			FluxSystems: []blueprintv1alpha1.FluxSystem{{
+				Name:      "policy",
+				Resources: []blueprintv1alpha1.FluxVariant{{Kustomization: blueprintv1alpha1.Kustomization{Components: []string{"kyverno/policies"}}}},
+				Flat:      &blueprintv1alpha1.Kustomization{Components: []string{"stray"}},
+			}},
+		}
+
+		// When validating
+		err := composer.validateFluxFlatExclusivity(bp)
+
+		// Then it is rejected
+		if err == nil || !strings.Contains(err.Error(), "policy") {
+			t.Errorf("expected flat/tiered exclusivity error, got %v", err)
+		}
+	})
+
+	t.Run("AllowsFlatOnly", func(t *testing.T) {
+		mocks := setupComposerMocks(t)
+		composer := NewBlueprintComposer(mocks.Runtime)
+		bp := &blueprintv1alpha1.Blueprint{
+			FluxSystems: []blueprintv1alpha1.FluxSystem{{
+				Name: "gateway-cilium",
+				Flat: &blueprintv1alpha1.Kustomization{Components: []string{"cilium"}},
+			}},
+		}
+
+		if err := composer.validateFluxFlatExclusivity(bp); err != nil {
+			t.Errorf("expected no error for a flat-only system, got %v", err)
+		}
+	})
+
+	t.Run("AllowsTieredOnly", func(t *testing.T) {
+		mocks := setupComposerMocks(t)
+		composer := NewBlueprintComposer(mocks.Runtime)
+		bp := &blueprintv1alpha1.Blueprint{
+			FluxSystems: []blueprintv1alpha1.FluxSystem{{
+				Name:    "cert-manager",
+				Install: &blueprintv1alpha1.Kustomization{Components: []string{"cert-manager"}},
+			}},
+		}
+
+		if err := composer.validateFluxFlatExclusivity(bp); err != nil {
+			t.Errorf("expected no error for a tiered-only system, got %v", err)
+		}
+	})
+
+	t.Run("AllowsInstallWithAnUnpopulatedFlatField", func(t *testing.T) {
+		// Flat is always non-nil after YAML unmarshal (goccy allocates inline structs
+		// unconditionally); an empty Components list must not be mistaken for a real flat entry.
+		mocks := setupComposerMocks(t)
+		composer := NewBlueprintComposer(mocks.Runtime)
+		bp := &blueprintv1alpha1.Blueprint{
+			FluxSystems: []blueprintv1alpha1.FluxSystem{{
+				Name:    "cert-manager",
+				Install: &blueprintv1alpha1.Kustomization{Components: []string{"cert-manager"}},
+				Flat:    &blueprintv1alpha1.Kustomization{},
+			}},
+		}
+
+		if err := composer.validateFluxFlatExclusivity(bp); err != nil {
+			t.Errorf("expected no error when Flat carries no components, got %v", err)
+		}
+	})
+
+	t.Run("RejectsStrayNonComponentFlatFieldAlongsideInstall", func(t *testing.T) {
+		// A stray flat-only field other than Components (e.g. a mistaken top-level substitute:
+		// left alongside install:) must still be caught -- not just Components, which was the
+		// original, narrower presence signal before HasFlatContent broadened it.
+		mocks := setupComposerMocks(t)
+		composer := NewBlueprintComposer(mocks.Runtime)
+		bp := &blueprintv1alpha1.Blueprint{
+			FluxSystems: []blueprintv1alpha1.FluxSystem{{
+				Name:    "cert-manager",
+				Install: &blueprintv1alpha1.Kustomization{Components: []string{"cert-manager"}},
+				Flat:    &blueprintv1alpha1.Kustomization{Substitute: map[string]string{"cluster_name": "prod"}},
+			}},
+		}
+
+		err := composer.validateFluxFlatExclusivity(bp)
+
+		if err == nil || !strings.Contains(err.Error(), "cert-manager") {
+			t.Errorf("expected flat/tiered exclusivity error for a stray substitute field, got %v", err)
+		}
+	})
+}
+
 func TestComposer_validateDependencies(t *testing.T) {
 	t.Run("ReturnsNilForValidTerraformDependencies", func(t *testing.T) {
 		mocks := setupComposerMocks(t)

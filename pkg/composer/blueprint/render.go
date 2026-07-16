@@ -97,6 +97,13 @@ func applyDeferredPathsToBlueprint(bp *blueprintv1alpha1.Blueprint, deferredPath
 				}
 			}
 		}
+		if sys.Flat != nil {
+			for key := range sys.Flat.Substitutions {
+				if deferredPaths["flux."+sys.Name+".substitutions."+key] {
+					sys.Flat.Substitutions[key] = deferredPlaceholder
+				}
+			}
+		}
 		for j := range sys.Resources {
 			resourcesPrefix := fluxResourcesSubstitutionPrefix(sys.Name, sys.Resources[j].Name)
 			for key := range sys.Resources[j].Substitutions {

@@ -1344,6 +1344,43 @@ func TestHandler_GenerateResolved(t *testing.T) {
 			t.Errorf("Expected 'external' variant's already-resolved substitution left untouched, got %q", sys.Resources[1].Substitutions["gateway_lb_ip"])
 		}
 	})
+
+	t.Run("ResolvesFlatFluxSystemSubstitutions", func(t *testing.T) {
+		mocks := setupHandlerMocks(t)
+		mocks.Runtime.Evaluator = &evaluator.MockExpressionEvaluator{
+			EvaluateFunc: func(expr string, _ string, _ map[string]any, _ bool) (any, error) {
+				return "resolved-value", nil
+			},
+		}
+		handler := NewBlueprintHandler(mocks.Runtime, mocks.ArtifactBuilder)
+		handler.composedBlueprint = &blueprintv1alpha1.Blueprint{
+			FluxSystems: []blueprintv1alpha1.FluxSystem{
+				{
+					Name: "gateway-cilium",
+					Flat: &blueprintv1alpha1.Kustomization{
+						Substitutions: map[string]string{
+							"gateway_ip": "${terraform_output('network', 'gateway_ip') ?? ''}",
+						},
+					},
+				},
+			},
+		}
+		handler.deferredPaths = map[string]bool{
+			"flux.gateway-cilium.substitutions.gateway_ip": true,
+		}
+
+		// When calling GenerateResolved
+		resolved, err := handler.GenerateResolved()
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+
+		// Then the deferred flat substitution is resolved
+		sys := resolved.FluxSystems[0]
+		if sys.Flat.Substitutions["gateway_ip"] != "resolved-value" {
+			t.Errorf("Expected flat substitution resolved, got %q", sys.Flat.Substitutions["gateway_ip"])
+		}
+	})
 }
 
 func TestHandler_getConfigValues(t *testing.T) {

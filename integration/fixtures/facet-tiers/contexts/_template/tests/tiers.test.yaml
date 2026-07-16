@@ -76,3 +76,24 @@ cases:
     exclude:
       flux:
         - name: policy
+
+  # gateway-cilium is a flat flux: entry (no install/resources) -- proving expect.flux and
+  # expect.kustomize agree on the same compiled Kustomization, and that its bare-name
+  # dependsOn on cert-manager resolves to cert-manager-install exactly like a kustomize: entry's would.
+  - name: flat_flux_entry_matches_via_both_flux_and_kustomize_assertions
+    values: {}
+    expect:
+      flux:
+        - name: gateway-cilium
+          dependsOn:
+            - cert-manager-install
+          components:
+            - cilium
+            - cilium/gateway
+      kustomize:
+        - name: gateway-cilium
+          dependsOn:
+            - cert-manager-install
+          components:
+            - cilium
+            - cilium/gateway

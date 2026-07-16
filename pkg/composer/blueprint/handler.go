@@ -503,6 +503,18 @@ func (h *BaseBlueprintHandler) resolveDeferredSubstitutions() error {
 				sys.Install.Substitutions[key] = str
 			}
 		}
+		if sys.Flat != nil {
+			for key, value := range sys.Flat.Substitutions {
+				if !deferred["flux."+sys.Name+".substitutions."+key] {
+					continue
+				}
+				str, err := h.resolveDeferred(value)
+				if err != nil {
+					return fmt.Errorf("flux.%s.substitutions.%s: %w", sys.Name, key, err)
+				}
+				sys.Flat.Substitutions[key] = str
+			}
+		}
 		for j := range sys.Resources {
 			v := &sys.Resources[j]
 			resourcesPrefix := fluxResourcesSubstitutionPrefix(sys.Name, v.Name)

@@ -106,8 +106,8 @@ func setupShowTest(t *testing.T, opts ...*SetupOptions) *ShowMocks {
 	mockBlueprintHandler.GenerateFunc = func() *blueprintv1alpha1.Blueprint { return testBlueprint }
 	mockBlueprintHandler.GetDeferredPathsFunc = func() map[string]bool {
 		return map[string]bool{
-			"terraform.test-component.inputs.deferred":       true,
-			"kustomize.test-kustomization.path":              true,
+			"terraform.test-component.inputs.deferred":                     true,
+			"kustomize.test-kustomization.path":                            true,
 			"kustomize.test-kustomization.substitutions.DEFERRED_ENDPOINT": true,
 		}
 	}
@@ -1115,13 +1115,16 @@ func TestShowKustomizationCmd(t *testing.T) {
 		}
 	})
 
-	t.Run("FluxSystemWithNoTiersReturnsClearError", func(t *testing.T) {
+	t.Run("FlatFluxSystemNameReturnsItsCompiledKustomization", func(t *testing.T) {
+		// A flux: system with neither install nor resources compiles flat, to one Kustomization
+		// named exactly after the system — findKustomization resolves it directly, the same as
+		// any other compiled name; it never reaches kustomizationNotFoundError's system lookup.
 		mocks := setupShowTest(t)
 
 		mocks.BlueprintHandler.GenerateFunc = func() *blueprintv1alpha1.Blueprint {
 			return &blueprintv1alpha1.Blueprint{
 				FluxSystems: []blueprintv1alpha1.FluxSystem{
-					{Name: "empty-sys"},
+					{Name: "flat-sys", Flat: &blueprintv1alpha1.Kustomization{Components: []string{"cilium"}}},
 				},
 			}
 		}
@@ -1135,20 +1138,29 @@ func TestShowKustomizationCmd(t *testing.T) {
 			Composer: comp,
 		})
 
+		stdout, stderr, closePipes := setupOutput(t)
+
 		cmd := createTestCmd()
 		ctx := context.WithValue(context.Background(), projectOverridesKey, proj)
 		cmd.SetContext(ctx)
-		cmd.SetArgs([]string{"empty-sys"})
+		cmd.SetArgs([]string{"flat-sys"})
 		err := cmd.Execute()
 
-		if err == nil {
-			t.Fatal("Expected error, got nil")
+		closePipes()
+
+		if err != nil {
+			t.Fatalf("Expected no error, got %v\nstderr: %s", err, stderr.String())
 		}
-		if !strings.Contains(err.Error(), "no compiled install or resources tiers") {
-			t.Errorf("Expected error to explain the system has no tiers, got: %v", err)
+
+		var kustomization kustomizev1.Kustomization
+		if unmarshalErr := yaml.Unmarshal(stdout.Bytes(), &kustomization); unmarshalErr != nil {
+			t.Fatalf("Expected valid YAML output, got error: %v\noutput: %s", unmarshalErr, stdout.String())
 		}
-		if strings.HasSuffix(err.Error(), ": ") {
-			t.Errorf("Expected error to not end with a dangling colon, got: %v", err)
+		if kustomization.Name != "flat-sys" {
+			t.Errorf("Expected kustomization name 'flat-sys' with no tier suffix, got %q", kustomization.Name)
+		}
+		if stderr.String() != "" {
+			t.Error("Expected empty stderr")
 		}
 	})
 

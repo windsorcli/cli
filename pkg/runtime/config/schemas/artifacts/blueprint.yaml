@@ -290,9 +290,14 @@ properties:
   flux:
     type: array
     description: |
-      System entries — functional layers that each compile to an install
-      Kustomization plus one or more resources-variant Kustomizations. Distinct
-      from 'kustomize:', which is a 1:1 Kustomization passthrough.
+      System entries — functional layers that each compile to either a single
+      flat Kustomization or an install Kustomization plus one or more
+      resources-variant Kustomizations. A system with neither 'install:' nor
+      'resources:' compiles flat, from its own components/operational fields
+      (below) — the flux: equivalent of a 'kustomize:' entry. 'kustomize:'
+      remains a 1:1 Kustomization passthrough and is not being removed; new
+      entries should prefer 'flux:' so every Kustomization-producing entry
+      lives in one section.
     items:
       type: object
       required:
@@ -301,10 +306,16 @@ properties:
       properties:
         name:
           type: string
-          description: System identifier; tiers compile to '<name>-install' and '<name>-resources[-<variant>]'.
+          description: |
+            System identifier. A flat system (no install/resources) compiles
+            to a Kustomization named exactly this; a tiered system compiles
+            to '<name>-install' and '<name>-resources[-<variant>]'.
         path:
           type: string
-          description: Base path; tiers reconcile from '<path>/install' and '<path>/resources'. Defaults to name.
+          description: |
+            Base path. A flat system reconciles from this path directly; a
+            tiered system's tiers reconcile from '<path>/install' and
+            '<path>/resources'. Defaults to name.
         source:
           type: string
           description: Name of the source that provides the tier bases.
@@ -324,7 +335,8 @@ properties:
           description: |
             Cross-layer edges to other systems (a bare '<other>' resolves to
             '<other>-install'). Attached to the install tier when present
-            (resources reach them transitively), otherwise to each variant.
+            (resources reach them transitively), or to the flat Kustomization
+            directly for a flat system, otherwise to each resources variant.
         strategy:
           type: string
           enum:
@@ -335,6 +347,74 @@ properties:
         ordinal:
           type: integer
           description: Overrides the facet ordinal for this system's merge precedence.
+        namespace:
+          type: string
+          description: |
+            Flat entry only: namespace where the Flux Kustomization object
+            itself lives. Defaults to the gitops namespace.
+        targetNamespace:
+          type: string
+          description: |
+            Flat entry only: populates spec.targetNamespace, overriding the
+            namespace of reconciled resources.
+        interval:
+          type: string
+          description: |
+            Flat entry only: reconciliation interval as a Go duration string
+            (e.g. '5m', '1h').
+        retryInterval:
+          type: string
+          description: Flat entry only. Duration to wait before retrying a failed reconciliation (e.g. '2m').
+        timeout:
+          type: string
+          description: Flat entry only. Maximum duration for a single reconciliation attempt (e.g. '10m').
+        patches:
+          type: array
+          description: Flat entry only. Strategic-merge or Flux-style patches applied to the kustomization.
+          items:
+            type: object
+            additionalProperties: false
+            properties:
+              path:
+                type: string
+              patch:
+                type: string
+              target:
+                type: object
+                additionalProperties: true
+        wait:
+          type: boolean
+          description: Flat entry only. Wait for resources to settle before declaring reconciliation complete.
+        force:
+          type: boolean
+          description: Flat entry only. Force-apply resources Flux would otherwise refuse to update.
+        prune:
+          type: boolean
+          description: Flat entry only. Garbage-collect resources removed from the source. Defaults to true.
+        components:
+          type: array
+          items:
+            type: string
+          description: |
+            Flat entry only: kustomize components to compose into this
+            system's single Kustomization. Setting this alongside 'install:'
+            or 'resources:' is an error — a system is either flat or tiered,
+            not both.
+        substitute:
+          type: object
+          additionalProperties:
+            type: string
+          description: Flat entry only. Preferred spelling of substitutions (matching Flux postBuild.substitute); both merge into the same map.
+        substitutions:
+          type: object
+          additionalProperties:
+            type: string
+          description: Flat entry only. PostBuild variable substitutions for this system's Kustomization.
+        destroyOnly:
+          type: boolean
+          description: |
+            Flat entry only. When true, the Kustomization only runs during
+            destroy operations.
         install:
           type: object
           additionalProperties: false

@@ -593,3 +593,91 @@ func TestShowBlueprint_FacetComponentRequires_ComponentExcludedSkipsRequires(t *
 		t.Errorf("expected kind Blueprint, got %v", bp["kind"])
 	}
 }
+
+// TestShowBlueprint_FlatFluxEntry verifies that a flux: system with no install:/resources: tiers
+// compiles output-neutrally with an equivalent kustomize: entry: same name (no tier suffix), same
+// components, and the same bare-name dependsOn resolution ("cert-manager" -> "cert-manager-install")
+// that plain kustomize: entries already get from resolveTierDependencies.
+func TestShowBlueprint_FlatFluxEntry(t *testing.T) {
+	t.Parallel()
+	dir, env := helpers.PrepareFixture(t, "facet-tiers")
+	env = append(env, "WINDSOR_CONTEXT=default")
+	stdout, stderr, err := helpers.RunCLI(dir, []string{"show", "blueprint"}, env)
+	if err != nil {
+		t.Fatalf("show blueprint: %v\nstderr: %s", err, stderr)
+	}
+
+	var bp struct {
+		Flux []struct {
+			Name       string   `yaml:"name"`
+			DependsOn  []string `yaml:"dependsOn"`
+			Components []string `yaml:"components"`
+		} `yaml:"flux"`
+		Kustomize []struct {
+			Name       string   `yaml:"name"`
+			DependsOn  []string `yaml:"dependsOn"`
+			Components []string `yaml:"components"`
+		} `yaml:"kustomize"`
+	}
+	if err := yaml.Unmarshal(stdout, &bp); err != nil {
+		t.Fatalf("parse blueprint YAML: %v\nstdout: %s", err, stdout)
+	}
+
+	var flat *struct {
+		Name       string   `yaml:"name"`
+		DependsOn  []string `yaml:"dependsOn"`
+		Components []string `yaml:"components"`
+	}
+	for i := range bp.Flux {
+		if bp.Flux[i].Name == "gateway-cilium" {
+			flat = &bp.Flux[i]
+		}
+	}
+	if flat == nil {
+		t.Fatalf("expected gateway-cilium under flux:, got flux=%+v", bp.Flux)
+	}
+
+	var legacy *struct {
+		Name       string   `yaml:"name"`
+		DependsOn  []string `yaml:"dependsOn"`
+		Components []string `yaml:"components"`
+	}
+	for i := range bp.Kustomize {
+		if bp.Kustomize[i].Name == "gateway-cilium-legacy" {
+			legacy = &bp.Kustomize[i]
+		}
+	}
+	if legacy == nil {
+		t.Fatalf("expected gateway-cilium-legacy under kustomize:, got kustomize=%+v", bp.Kustomize)
+	}
+
+	// The flat flux: entry compiles to exactly its own name -- no -install/-resources suffix.
+	if flat.Name != "gateway-cilium" {
+		t.Errorf("expected flat entry name gateway-cilium with no tier suffix, got %q", flat.Name)
+	}
+
+	// Both entries resolve the same bare-name dependency to the same install tier.
+	if !slices.Contains(flat.DependsOn, "cert-manager-install") {
+		t.Errorf("expected flat entry dependsOn to resolve bare cert-manager to cert-manager-install, got %v", flat.DependsOn)
+	}
+	if !slices.Contains(legacy.DependsOn, "cert-manager-install") {
+		t.Errorf("expected legacy kustomize entry dependsOn to resolve bare cert-manager to cert-manager-install, got %v", legacy.DependsOn)
+	}
+
+	// Both entries carry the identical component list.
+	if len(flat.Components) != len(legacy.Components) {
+		t.Fatalf("expected matching component counts, got flat=%v legacy=%v", flat.Components, legacy.Components)
+	}
+	for _, c := range legacy.Components {
+		if !slices.Contains(flat.Components, c) {
+			t.Errorf("expected flat entry components to match the legacy kustomize entry, got flat=%v legacy=%v", flat.Components, legacy.Components)
+		}
+	}
+
+	// Neither compiled name leaks a tier suffix into kustomize: (flat systems never appear there).
+	for _, k := range bp.Kustomize {
+		if k.Name == "gateway-cilium" {
+			t.Errorf("flat flux system %q must not also appear under kustomize:", k.Name)
+		}
+	}
+}

@@ -1,0 +1,23 @@
+kind: Facet
+apiVersion: blueprints.windsorcli.dev/v1alpha1
+metadata:
+  name: gateway-cilium
+  description: A flat flux entry with no install/resources split, proving output-neutrality with an equivalent kustomize entry and that bare-name dependsOn resolution applies to flat flux entries the same way it does to kustomize entries.
+
+flux:
+
+- name: gateway-cilium
+  dependsOn:
+  - cert-manager
+  components:
+  - cilium
+  - cilium/gateway
+
+kustomize:
+
+- name: gateway-cilium-legacy
+  components:
+  - cilium
+  - cilium/gateway
+  dependsOn:
+  - cert-manager

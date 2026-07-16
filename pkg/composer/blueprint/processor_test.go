@@ -2579,6 +2579,73 @@ func TestProcessor_ProcessFacets_Tiers(t *testing.T) {
 		}
 	})
 
+	t.Run("CompilesFlatEntryAtTheSystemNameAndPathWithNoSubfolder", func(t *testing.T) {
+		target := process(t, blueprintv1alpha1.FluxSystem{
+			Name: "gateway-cilium",
+			Path: "gateway/cilium",
+			Flat: &blueprintv1alpha1.Kustomization{Components: []string{"cilium", "cilium/gateway"}},
+		})
+		k, ok := find(target, "gateway-cilium")
+		if !ok || k.Path != "gateway/cilium" {
+			t.Fatalf("expected gateway-cilium at gateway/cilium with no tier subfolder, got %+v", k)
+		}
+		if !slices.Contains(k.Components, "cilium") || !slices.Contains(k.Components, "cilium/gateway") {
+			t.Errorf("expected flat components to carry through, got %v", k.Components)
+		}
+		if _, ok := find(target, "gateway-cilium-install"); ok {
+			t.Error("expected no -install suffixed kustomization for a flat entry")
+		}
+	})
+
+	t.Run("FlatSubstituteFlowsToTheCompiledKustomization", func(t *testing.T) {
+		target := process(t, blueprintv1alpha1.FluxSystem{
+			Name: "dashboards",
+			Flat: &blueprintv1alpha1.Kustomization{Components: []string{"grafana-dashboards"}, Substitute: map[string]string{"grafana_namespace": "system-observability"}},
+		})
+		k, ok := find(target, "dashboards")
+		if !ok || k.Substitutions["grafana_namespace"] != "system-observability" {
+			t.Fatalf("expected flat substitute merged into substitutions, got %+v", k)
+		}
+	})
+
+	t.Run("FlatComponentsEvaluateExpressionsWithoutDroppingEmptyResults", func(t *testing.T) {
+		// Unlike install:, a flat entry's empty-string placeholders survive evaluation —
+		// matching kustomize:'s conditional-slot convention, not install:'s "empty means none".
+		target := process(t, blueprintv1alpha1.FluxSystem{
+			Name: "gateway-cilium",
+			Flat: &blueprintv1alpha1.Kustomization{Components: []string{"cilium", "${false ? 'cilium/gateway' : ''}"}},
+		})
+		k, ok := find(target, "gateway-cilium")
+		if !ok {
+			t.Fatalf("expected gateway-cilium to be compiled, got %+v", target.AllKustomizations())
+		}
+		if len(k.Components) != 2 || k.Components[1] != "" {
+			t.Errorf("expected the empty-string placeholder to survive evaluation, got %v", k.Components)
+		}
+	})
+
+	t.Run("FlatKeptEvenWhenAllComponentsPruneToEmpty", func(t *testing.T) {
+		target := process(t, blueprintv1alpha1.FluxSystem{
+			Name: "gateway-cilium",
+			Flat: &blueprintv1alpha1.Kustomization{Components: []string{"${false ? 'cilium' : ''}"}},
+		})
+		if _, ok := find(target, "gateway-cilium"); !ok {
+			t.Fatalf("expected gateway-cilium to be kept even with pruned-empty components, got %+v", target.AllKustomizations())
+		}
+	})
+
+	t.Run("SystemDependsOnAttachesDirectlyToTheFlatKustomization", func(t *testing.T) {
+		target := process(t, blueprintv1alpha1.FluxSystem{
+			Name:      "gateway-cilium",
+			DependsOn: []string{"pki-install"},
+			Flat:      &blueprintv1alpha1.Kustomization{Components: []string{"cilium"}},
+		})
+		k, ok := find(target, "gateway-cilium")
+		if !ok || !slices.Contains(k.DependsOn, "pki-install") {
+			t.Fatalf("expected the system's dependsOn to attach directly to the flat kustomization, got %+v", k)
+		}
+	})
+
 	t.Run("SystemDependsOnAttachesToInstallAndResourcesReachItTransitively", func(t *testing.T) {
 		target := process(t, blueprintv1alpha1.FluxSystem{
 			Name:      "gateway",
@@ -2827,6 +2894,75 @@ func TestProcessor_ProcessFacets_Tiers(t *testing.T) {
 		}
 		if !slices.Contains(install.Components, "envoy") || !slices.Contains(install.Components, "cert-manager") {
 			t.Errorf("expected install components to union [cert-manager envoy], got %v", install.Components)
+		}
+	})
+
+	t.Run("SameOrdinalFlatDeepMerges", func(t *testing.T) {
+		mocks := setupProcessorMocks(t)
+		processor := NewBlueprintProcessor(mocks.Runtime)
+		facets := []blueprintv1alpha1.Facet{
+			{
+				Metadata: blueprintv1alpha1.Metadata{Name: "gateway-cilium-a"},
+				FluxSystems: []blueprintv1alpha1.FluxSystem{{
+					Name: "gateway-cilium",
+					Flat: &blueprintv1alpha1.Kustomization{Components: []string{"cilium"}},
+				}},
+			},
+			{
+				Metadata: blueprintv1alpha1.Metadata{Name: "gateway-cilium-b"},
+				FluxSystems: []blueprintv1alpha1.FluxSystem{{
+					Name: "gateway-cilium",
+					Flat: &blueprintv1alpha1.Kustomization{Components: []string{"cilium/gateway"}},
+				}},
+			},
+		}
+		target := &blueprintv1alpha1.Blueprint{}
+		if _, err := processor.ProcessFacets(target, facets); err != nil {
+			t.Fatalf("ProcessFacets: %v", err)
+		}
+		k, ok := find(target, "gateway-cilium")
+		if !ok {
+			t.Fatalf("expected gateway-cilium, got %+v", target.AllKustomizations())
+		}
+		if !slices.Contains(k.Components, "cilium") || !slices.Contains(k.Components, "cilium/gateway") {
+			t.Errorf("expected flat components to union [cilium cilium/gateway], got %v", k.Components)
+		}
+	})
+
+	t.Run("RemoveStripsFlatComponentsFromPreexistingSystem", func(t *testing.T) {
+		mocks := setupProcessorMocks(t)
+		processor := NewBlueprintProcessor(mocks.Runtime)
+		facets := []blueprintv1alpha1.Facet{
+			{
+				Metadata: blueprintv1alpha1.Metadata{Name: "option-remove-gateway-cilium-variant"},
+				FluxSystems: []blueprintv1alpha1.FluxSystem{{
+					Name:     "gateway-cilium",
+					Strategy: "remove",
+					Flat:     &blueprintv1alpha1.Kustomization{Components: []string{"cilium/gateway"}},
+				}},
+			},
+		}
+		// A pre-existing FluxSystem, standing in for one already declared in the loader's parsed
+		// blueprint.yaml before facets are layered on, so the remove-strategy facet above has a
+		// real entry to subtract from — see EqualOrdinalRemoveFacetsAccumulateAndStripFieldsFromPreexistingSystem.
+		target := &blueprintv1alpha1.Blueprint{
+			FluxSystems: []blueprintv1alpha1.FluxSystem{{
+				Name: "gateway-cilium",
+				Flat: &blueprintv1alpha1.Kustomization{Components: []string{"cilium", "cilium/gateway"}},
+			}},
+		}
+		if _, err := processor.ProcessFacets(target, facets); err != nil {
+			t.Fatalf("ProcessFacets: %v", err)
+		}
+		k, ok := find(target, "gateway-cilium")
+		if !ok {
+			t.Fatalf("expected gateway-cilium to remain (only a component was removed), got %+v", target.AllKustomizations())
+		}
+		if slices.Contains(k.Components, "cilium/gateway") {
+			t.Errorf("expected cilium/gateway removed, got %v", k.Components)
+		}
+		if !slices.Contains(k.Components, "cilium") {
+			t.Errorf("expected cilium to remain, got %v", k.Components)
 		}
 	})
 

@@ -597,10 +597,10 @@ type Kustomization struct {
 }
 
 // FluxSystem is a system entry under a blueprint or facet's `flux:` list — a functional layer that
-// compiles to an install Kustomization plus zero or more resources-variant Kustomizations. The
-// descriptor carries identity, lifecycle, and merge fields; the Install/Resources tiers reuse the
-// Kustomization type and carry the Flux operational properties per tier. It holds no operational
-// properties itself — those belong on the tiers that produce Kustomization objects.
+// compiles to either a single flat Kustomization or an install Kustomization plus zero or more
+// resources-variant Kustomizations. The descriptor carries identity, lifecycle, and merge fields;
+// Flat/Install/Resources reuse the Kustomization type and carry the Flux operational properties.
+// A system with neither Install nor Resources compiles flat, from Flat.
 type FluxSystem struct {
 	// Name identifies the system; tiers compile to "<name>-install" / "<name>-resources[-<variant>]".
 	Name string `yaml:"name"`
@@ -645,6 +645,9 @@ type FluxSystem struct {
 
 	// Resources are the custom-resource tier variants, all sharing "<path>/resources".
 	Resources []FluxVariant `yaml:"resources,omitempty"`
+
+	// Flat carries a flat entry's operational properties inline; see HasFlatContent.
+	Flat *Kustomization `yaml:",inline"`
 }
 
 // FluxVariant is one resources-tier Kustomization of a system. It reuses Kustomization for its
@@ -999,9 +1002,9 @@ func (b *Blueprint) RemoveKustomization(removal Kustomization) error {
 }
 
 // RemoveFluxSystem removes specified non-index fields from an existing FluxSystem. It finds a
-// system matching the same Name, then subtracts dependsOn entries and any install fields named in
-// removal.Install (reusing subtractKustomizationFields, since Install is itself a Kustomization
-// carrying no Name until tier compilation, so it cannot go through RemoveKustomization's by-Name
+// system matching the same Name, then subtracts dependsOn entries and any install/flat fields named
+// in removal.Install/removal.Flat (reusing subtractKustomizationFields, since both are Kustomizations
+// carrying no Name until tier compilation, so neither can go through RemoveKustomization's by-Name
 // lookup), and drops any resources variant whose Name is named in removal.Resources (empty Name
 // matches the unnamed variant). A resources variant has no kustomize: analog — it compiles to its
 // own distinct Kustomization — so naming it is itself the field-level operation, not a whole-system
@@ -1017,6 +1020,11 @@ func (b *Blueprint) RemoveFluxSystem(removal FluxSystem) error {
 		if removal.Install != nil && existing.Install != nil {
 			subtracted := subtractKustomizationFields(*existing.Install, *removal.Install)
 			existing.Install = &subtracted
+		}
+
+		if removal.Flat != nil && existing.Flat != nil {
+			subtracted := subtractKustomizationFields(*existing.Flat, *removal.Flat)
+			existing.Flat = &subtracted
 		}
 
 		if len(removal.Resources) > 0 {
@@ -1035,12 +1043,12 @@ func (b *Blueprint) RemoveFluxSystem(removal FluxSystem) error {
 
 // UpsertFluxSystem merges sys into the FluxSystem with the same Name if one exists in
 // b.FluxSystems, or appends it when none does. On a match, DependsOn accumulates (union) and
-// Install/Resources deep-merge via MergeFluxInstall/MergeFluxVariants — the same field-level
+// Install/Resources/Flat deep-merge via MergeFluxInstall/MergeFluxVariants — the same field-level
 // semantics strategicMergeKustomization already gives same-name plain kustomize: entries — rather
 // than sys wholesale-replacing what is already there. This is the path StrategicMerge uses to
 // combine FluxSystems across sources (each source's facets already merged among themselves before
-// reaching here), so a same-name collision here must not silently drop one side's install/resources
-// tiers the way a blind replace would.
+// reaching here), so a same-name collision here must not silently drop one side's install/resources/
+// flat content the way a blind replace would.
 func (b *Blueprint) UpsertFluxSystem(sys FluxSystem) error {
 	for i, existing := range b.FluxSystems {
 		if existing.Name == sys.Name {
@@ -1052,6 +1060,7 @@ func (b *Blueprint) UpsertFluxSystem(sys FluxSystem) error {
 			}
 			merged.Install = MergeFluxInstall(existing.Install, sys.Install)
 			merged.Resources = MergeFluxVariants(existing.Resources, sys.Resources)
+			merged.Flat = MergeFluxInstall(existing.Flat, sys.Flat)
 			b.FluxSystems[i] = merged
 			return nil
 		}
@@ -1060,12 +1069,12 @@ func (b *Blueprint) UpsertFluxSystem(sys FluxSystem) error {
 	return nil
 }
 
-// MergeFluxInstall deep-merges overlay's Install tier into existing's via MergeKustomizationFields
-// (Components/DependsOn accumulate, other fields are overridden by overlay when set) rather than
-// via by-name Blueprint.Kustomizations matching, since Install carries no Name until tier
+// MergeFluxInstall deep-merges overlay into existing via MergeKustomizationFields (Components/
+// DependsOn accumulate, other fields are overridden by overlay when set) rather than via by-name
+// Blueprint.Kustomizations matching, since neither Install nor Flat carries a Name until tier
 // compilation and that by-name path is a no-op on an unnamed Kustomization. Either side being nil
-// just takes the other, matching how a facet or source with no Install opinion shouldn't erase one
-// contributed elsewhere.
+// just takes the other. Used for both FluxSystem.Install and FluxSystem.Flat — the merge semantics
+// are identical regardless of which tier the Kustomization represents.
 func MergeFluxInstall(existing, overlay *Kustomization) *Kustomization {
 	if overlay == nil {
 		return existing
@@ -1132,16 +1141,54 @@ func (sys FluxSystem) TierNames() []string {
 	return names
 }
 
-// compileFluxSystemTiers converts a pre-evaluated FluxSystem into its tier Kustomizations without
-// any expression evaluation. Install compiles to "<name>-install" at "<path>/install"; each
-// resources variant compiles to "<name>-resources[-<variant>]" at "<path>/resources". A timeout-less
-// install tier falls back to DefaultFluxKustomizationInstallTimeout instead of the generic default.
+// HasFlatContent reports whether Flat carries any field an author actually set. The YAML library
+// allocates Flat unconditionally on unmarshal (it is an inline field), so non-nilness alone is
+// never a valid "is this a flat entry" signal — every caller checking Flat's presence (validation,
+// test-fixture matching) must go through this method instead of `Flat != nil`.
+func (sys FluxSystem) HasFlatContent() bool {
+	k := sys.Flat
+	if k == nil {
+		return false
+	}
+	return len(k.Components) > 0 ||
+		len(k.Substitutions) > 0 ||
+		len(k.Substitute) > 0 ||
+		k.Interval != nil ||
+		k.RetryInterval != nil ||
+		k.Timeout != nil ||
+		len(k.Patches) > 0 ||
+		k.Wait != nil ||
+		k.Force != nil ||
+		k.Prune != nil ||
+		k.Namespace != "" ||
+		k.TargetNamespace != "" ||
+		k.DestroyOnly != nil
+}
+
+// compileFluxSystemTiers converts a pre-evaluated FluxSystem into its compiled Kustomizations.
+// A system with neither Install nor Resources compiles flat, from Flat, to one Kustomization
+// named exactly name — always emitted regardless of component count, unlike install:'s "empty
+// means none" rule. Otherwise Install compiles to "<name>-install" and each resources variant to
+// "<name>-resources[-<variant>]", both under "<path>/install" or "<path>/resources".
 func compileFluxSystemTiers(sys FluxSystem) []Kustomization {
 	name := sys.Name
 	base := sys.Path
 	if base == "" {
 		base = name
 	}
+
+	if sys.Install == nil && len(sys.Resources) == 0 {
+		var k Kustomization
+		if sys.Flat != nil {
+			k = *sys.Flat.DeepCopy()
+		}
+		k.Name = name
+		k.Path = base
+		k.DependsOn = slices.Clone(sys.DependsOn)
+		applySystemTierDefaults(&k, sys)
+		return []Kustomization{k}
+	}
+
 	installName := name + "-install"
 
 	var out []Kustomization
@@ -1265,6 +1312,7 @@ func (s *FluxSystem) DeepCopy() *FluxSystem {
 		GlobalDependency: s.GlobalDependency,
 		Install:          s.Install.DeepCopy(),
 		Resources:        resourcesCopy,
+		Flat:             s.Flat.DeepCopy(),
 	}
 }
 

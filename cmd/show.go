@@ -246,18 +246,16 @@ func findKustomization(blueprint *blueprintv1alpha1.Blueprint, name string) (blu
 }
 
 // kustomizationNotFoundError returns a formatted error for when a kustomization is not found. If the
-// name instead matches a flux: system descriptor rather than one of its compiled tiers, the error
-// lists that system's tier names, since a system name (e.g. "cert-manager") is never itself a valid
-// argument.
+// name instead matches a tiered flux: system descriptor rather than one of its compiled tiers, the
+// error lists that system's tier names, since a tiered system's own name (e.g. "cert-manager") is
+// never itself a valid argument. A flat system's name always resolves via findKustomization instead
+// (it compiles to exactly one Kustomization named after the system), so it never reaches this path.
 func kustomizationNotFoundError(blueprint *blueprintv1alpha1.Blueprint, name string) error {
 	for _, sys := range blueprint.FluxSystems {
 		if sys.Name != name {
 			continue
 		}
 		tiers := sys.TierNames()
-		if len(tiers) == 0 {
-			return fmt.Errorf("%q is a flux system with no compiled install or resources tiers", name)
-		}
 		return fmt.Errorf("%q is a flux system, not a kustomization; use one of its tiers instead: %s",
 			name, strings.Join(tiers, ", "))
 	}

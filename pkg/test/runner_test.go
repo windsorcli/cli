@@ -1501,6 +1501,35 @@ func TestTestRunner_matchExclusions(t *testing.T) {
 			t.Errorf("Expected variant-level exclusion diff, got: %v", diffs)
 		}
 	})
+
+	t.Run("ReturnsDiffsWhenExcludedFlatComponentsExistWithinPresentSystem", func(t *testing.T) {
+		// Given a flat system that exists, matching an exclude.flux entry that only sets
+		// components — this must be treated as a partial (flat) exclusion, not a whole-system
+		// one, even though exclude.Install and exclude.Resources are both unset (Install is
+		// simply nil for a flat exclude; Resources is simply empty).
+		mocks := setupTestRunnerMocks(t)
+		runner := createRunnerWithMockGenerator(mocks)
+
+		blueprint := &blueprintv1alpha1.Blueprint{
+			FluxSystems: []blueprintv1alpha1.FluxSystem{
+				{Name: "gateway-cilium", Flat: &blueprintv1alpha1.Kustomization{Components: []string{"cilium"}}},
+			},
+		}
+
+		exclude := &blueprintv1alpha1.Blueprint{
+			FluxSystems: []blueprintv1alpha1.FluxSystem{
+				{Name: "gateway-cilium", Flat: &blueprintv1alpha1.Kustomization{Components: []string{"cilium"}}},
+			},
+		}
+
+		// When matching exclusions
+		diffs := runner.matchExclusions(blueprint, exclude)
+
+		// Then diffs should identify the flat form specifically, not report a whole-system exclusion
+		if len(diffs) != 1 || !strings.Contains(diffs[0], "flux[gateway-cilium].flat: should not exist") {
+			t.Errorf("Expected flat-level exclusion diff, got: %v", diffs)
+		}
+	})
 }
 
 func TestTestRunner_findTerraformComponent(t *testing.T) {
@@ -2400,6 +2429,89 @@ func TestTestRunner_matchFluxSystem(t *testing.T) {
 			t.Errorf("Expected variant when: mismatch diff, got: %v", diffs)
 		}
 	})
+
+	t.Run("ReturnsNoDiffsWhenFlatComponentsMatch", func(t *testing.T) {
+		mocks := setupTestRunnerMocks(t)
+		runner := createRunnerWithMockGenerator(mocks)
+
+		actual := &blueprintv1alpha1.FluxSystem{
+			Name: "gateway-cilium",
+			Flat: &blueprintv1alpha1.Kustomization{Components: []string{"cilium", "cilium/gateway"}},
+		}
+		expect := blueprintv1alpha1.FluxSystem{
+			Name: "gateway-cilium",
+			Flat: &blueprintv1alpha1.Kustomization{Components: []string{"cilium"}},
+		}
+
+		diffs := runner.matchFluxSystem(actual, expect)
+
+		if len(diffs) != 0 {
+			t.Errorf("Expected no diffs, got: %v", diffs)
+		}
+	})
+
+	t.Run("DelegatesFlatMismatchesToMatchKustomization", func(t *testing.T) {
+		mocks := setupTestRunnerMocks(t)
+		runner := createRunnerWithMockGenerator(mocks)
+
+		actual := &blueprintv1alpha1.FluxSystem{
+			Name: "gateway-cilium",
+			Flat: &blueprintv1alpha1.Kustomization{Components: []string{"cilium"}},
+		}
+		expect := blueprintv1alpha1.FluxSystem{
+			Name: "gateway-cilium",
+			Flat: &blueprintv1alpha1.Kustomization{Components: []string{"cilium", "cilium/gateway"}},
+		}
+
+		diffs := runner.matchFluxSystem(actual, expect)
+
+		if len(diffs) != 1 || !strings.Contains(diffs[0], "kustomize[gateway-cilium].components") {
+			t.Errorf("Expected labeled flat component diff, got: %v", diffs)
+		}
+	})
+
+	t.Run("ReturnsDiffWhenFlatExpectedButSystemCompiledTiered", func(t *testing.T) {
+		// Given the actual system compiled tiered (its Flat field carries no components)
+		mocks := setupTestRunnerMocks(t)
+		runner := createRunnerWithMockGenerator(mocks)
+
+		actual := &blueprintv1alpha1.FluxSystem{
+			Name:    "cert-manager",
+			Install: &blueprintv1alpha1.Kustomization{Components: []string{"cert-manager"}},
+		}
+		expect := blueprintv1alpha1.FluxSystem{
+			Name: "cert-manager",
+			Flat: &blueprintv1alpha1.Kustomization{Components: []string{"cert-manager"}},
+		}
+
+		diffs := runner.matchFluxSystem(actual, expect)
+
+		if len(diffs) != 1 || !strings.Contains(diffs[0], "flux[cert-manager].flat: expected present, got absent") {
+			t.Errorf("Expected flat-absent diff, got: %v", diffs)
+		}
+	})
+
+	t.Run("ReturnsNoDiffWhenExpectFlatHasNoComponents", func(t *testing.T) {
+		// expect.Flat is always non-nil after unmarshal; an empty Components list must not be
+		// mistaken for a real assertion.
+		mocks := setupTestRunnerMocks(t)
+		runner := createRunnerWithMockGenerator(mocks)
+
+		actual := &blueprintv1alpha1.FluxSystem{
+			Name:    "cert-manager",
+			Install: &blueprintv1alpha1.Kustomization{Components: []string{"cert-manager"}},
+		}
+		expect := blueprintv1alpha1.FluxSystem{
+			Name: "cert-manager",
+			Flat: &blueprintv1alpha1.Kustomization{},
+		}
+
+		diffs := runner.matchFluxSystem(actual, expect)
+
+		if len(diffs) != 0 {
+			t.Errorf("Expected no diffs when expect.Flat carries no components, got: %v", diffs)
+		}
+	})
 }
 
 func TestTestRunner_matchFluxSystemExclusions(t *testing.T) {
@@ -2452,6 +2564,46 @@ func TestTestRunner_matchFluxSystemExclusions(t *testing.T) {
 
 		if len(diffs) != 1 || !strings.Contains(diffs[0], "flux[pki].resources: variant should not exist: ca") {
 			t.Errorf("Expected variant-should-not-exist diff, got: %v", diffs)
+		}
+	})
+
+	t.Run("ReturnsDiffWhenExcludedFlatComponentsExist", func(t *testing.T) {
+		mocks := setupTestRunnerMocks(t)
+		runner := createRunnerWithMockGenerator(mocks)
+
+		actual := &blueprintv1alpha1.FluxSystem{
+			Name: "gateway-cilium",
+			Flat: &blueprintv1alpha1.Kustomization{Components: []string{"cilium"}},
+		}
+		exclude := blueprintv1alpha1.FluxSystem{
+			Name: "gateway-cilium",
+			Flat: &blueprintv1alpha1.Kustomization{Components: []string{"cilium"}},
+		}
+
+		diffs := runner.matchFluxSystemExclusions(actual, exclude)
+
+		if len(diffs) != 1 || !strings.Contains(diffs[0], "flux[gateway-cilium].flat: should not exist") {
+			t.Errorf("Expected flat-should-not-exist diff, got: %v", diffs)
+		}
+	})
+
+	t.Run("ReturnsNoDiffWhenExcludeFlatHasNoComponents", func(t *testing.T) {
+		mocks := setupTestRunnerMocks(t)
+		runner := createRunnerWithMockGenerator(mocks)
+
+		actual := &blueprintv1alpha1.FluxSystem{
+			Name: "gateway-cilium",
+			Flat: &blueprintv1alpha1.Kustomization{Components: []string{"cilium"}},
+		}
+		exclude := blueprintv1alpha1.FluxSystem{
+			Name: "gateway-cilium",
+			Flat: &blueprintv1alpha1.Kustomization{},
+		}
+
+		diffs := runner.matchFluxSystemExclusions(actual, exclude)
+
+		if len(diffs) != 0 {
+			t.Errorf("Expected no diffs when exclude.Flat carries no components, got: %v", diffs)
 		}
 	})
 }

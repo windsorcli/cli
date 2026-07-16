@@ -2359,6 +2359,33 @@ func TestBlueprint_RemoveFluxSystem(t *testing.T) {
 		}
 	})
 
+	t.Run("RemovesFlatComponentsFromExistingSystem", func(t *testing.T) {
+		base := &Blueprint{
+			FluxSystems: []FluxSystem{
+				{
+					Name: "gateway-cilium",
+					Flat: &Kustomization{Components: []string{"cilium", "cilium/gateway", "keep_component"}},
+				},
+			},
+		}
+
+		removal := FluxSystem{
+			Name: "gateway-cilium",
+			Flat: &Kustomization{Components: []string{"cilium", "cilium/gateway"}},
+		}
+
+		err := base.RemoveFluxSystem(removal)
+
+		if err != nil {
+			t.Errorf("Unexpected error: %v", err)
+		}
+
+		sys := base.FluxSystems[0]
+		if sys.Flat == nil || len(sys.Flat.Components) != 1 || sys.Flat.Components[0] != "keep_component" {
+			t.Errorf("Expected only 'keep_component' to remain, got %+v", sys.Flat)
+		}
+	})
+
 	t.Run("LeavesInstallUnchangedWhenRemovalHasNoInstall", func(t *testing.T) {
 		base := &Blueprint{
 			FluxSystems: []FluxSystem{
@@ -4975,6 +5002,70 @@ func TestBlueprint_UpsertFluxSystem(t *testing.T) {
 			t.Fatalf("expected the original unnamed variant and the new named variant to both survive, got %+v", merged.Resources)
 		}
 	})
+
+	t.Run("MergesFlatComponentsOnNameCollision", func(t *testing.T) {
+		// Given a blueprint already carrying a flat gateway-cilium system
+		b := &Blueprint{
+			FluxSystems: []FluxSystem{
+				{Name: "gateway-cilium", Flat: &Kustomization{Components: []string{"cilium"}}},
+			},
+		}
+
+		// When a second same-named system contributes an additional flat component
+		if err := b.UpsertFluxSystem(FluxSystem{
+			Name: "gateway-cilium",
+			Flat: &Kustomization{Components: []string{"cilium/gateway"}},
+		}); err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+
+		// Then the flat components union into one entry
+		if len(b.FluxSystems) != 1 {
+			t.Fatalf("expected one merged entry, got %+v", b.FluxSystems)
+		}
+		merged := b.FluxSystems[0]
+		if merged.Flat == nil || !contains(merged.Flat.Components, "cilium") || !contains(merged.Flat.Components, "cilium/gateway") {
+			t.Errorf("expected flat components to union across the collision, got %+v", merged.Flat)
+		}
+	})
+}
+
+func TestFluxSystem_HasFlatContent(t *testing.T) {
+	t.Run("ReturnsFalseWhenFlatIsNil", func(t *testing.T) {
+		sys := FluxSystem{Name: "cert-manager"}
+
+		if sys.HasFlatContent() {
+			t.Error("expected false for a nil Flat")
+		}
+	})
+
+	t.Run("ReturnsFalseForAnUnpopulatedFlat", func(t *testing.T) {
+		// The zero-value Kustomization the YAML library allocates unconditionally must not
+		// register as real flat content.
+		sys := FluxSystem{Name: "cert-manager", Flat: &Kustomization{}}
+
+		if sys.HasFlatContent() {
+			t.Error("expected false for an unpopulated Flat")
+		}
+	})
+
+	t.Run("ReturnsTrueWhenComponentsSet", func(t *testing.T) {
+		sys := FluxSystem{Flat: &Kustomization{Components: []string{"cilium"}}}
+
+		if !sys.HasFlatContent() {
+			t.Error("expected true when Components is set")
+		}
+	})
+
+	t.Run("ReturnsTrueForANonComponentFieldAlone", func(t *testing.T) {
+		// A stray operational field with no Components must still register as content —
+		// this is the case validateFluxFlatExclusivity and matchFluxSystem both rely on.
+		sys := FluxSystem{Flat: &Kustomization{Substitute: map[string]string{"cluster_name": "prod"}}}
+
+		if !sys.HasFlatContent() {
+			t.Error("expected true when a non-Components field is set")
+		}
+	})
 }
 
 func TestFluxSystem_TierNames(t *testing.T) {
@@ -5002,11 +5093,15 @@ func TestFluxSystem_TierNames(t *testing.T) {
 		}
 	})
 
-	t.Run("ReturnsEmptyForSystemWithNoTiers", func(t *testing.T) {
+	t.Run("ReturnsFlatNameForSystemWithNoTiers", func(t *testing.T) {
+		// A system with neither Install nor Resources compiles flat: one Kustomization named
+		// exactly after the system, matching a bare kustomize: entry with no components.
 		sys := FluxSystem{Name: "empty-sys"}
 
-		if names := sys.TierNames(); len(names) != 0 {
-			t.Errorf("expected no tier names for a system with no install or resources, got %v", names)
+		names := sys.TierNames()
+		want := []string{"empty-sys"}
+		if len(names) != len(want) || names[0] != want[0] {
+			t.Errorf("expected %v for a flat system with no tiers, got %v", want, names)
 		}
 	})
 
@@ -5021,6 +5116,122 @@ func TestFluxSystem_TierNames(t *testing.T) {
 
 		if len(names) != 1 || names[0] != "cert-manager-resources-install" {
 			t.Fatalf("expected only cert-manager-resources-install, got %v", names)
+		}
+	})
+}
+
+func TestFluxSystem_CompilesFlat(t *testing.T) {
+	t.Run("CompilesToOneKustomizationNamedExactlyTheSystem", func(t *testing.T) {
+		// Given a flat system — no install, no resources — with components and an operational field
+		bp := &Blueprint{
+			FluxSystems: []FluxSystem{
+				{
+					Name:      "gateway-cilium",
+					DependsOn: []string{"gateway-install"},
+					Flat: &Kustomization{
+						Components: []string{"cilium", "cilium/gateway"},
+						Timeout:    &DurationString{Duration: 5 * time.Minute},
+					},
+				},
+			},
+		}
+
+		all := bp.AllKustomizations()
+
+		// Then it compiles to exactly one Kustomization, named after the system with no suffix
+		if len(all) != 1 {
+			t.Fatalf("expected exactly one compiled kustomization, got %+v", all)
+		}
+		k := all[0]
+		if k.Name != "gateway-cilium" {
+			t.Errorf("expected name %q with no tier suffix, got %q", "gateway-cilium", k.Name)
+		}
+		if k.Path != "gateway-cilium" {
+			t.Errorf("expected path to default to name with no tier subfolder, got %q", k.Path)
+		}
+		if !contains(k.Components, "cilium") || !contains(k.Components, "cilium/gateway") {
+			t.Errorf("expected flat components to carry through, got %v", k.Components)
+		}
+		if k.Timeout == nil || k.Timeout.Duration != 5*time.Minute {
+			t.Errorf("expected flat timeout to carry through, got %+v", k.Timeout)
+		}
+		if !contains(k.DependsOn, "gateway-install") {
+			t.Errorf("expected the system's dependsOn to attach directly, got %v", k.DependsOn)
+		}
+	})
+
+	t.Run("UsesExplicitPathOverDefaultingToName", func(t *testing.T) {
+		bp := &Blueprint{
+			FluxSystems: []FluxSystem{
+				{Name: "dashboards", Path: "observability/dashboards", Flat: &Kustomization{Components: []string{"grafana-dashboards"}}},
+			},
+		}
+
+		all := bp.AllKustomizations()
+
+		if len(all) != 1 || all[0].Path != "observability/dashboards" {
+			t.Fatalf("expected explicit path to win, got %+v", all)
+		}
+	})
+
+	t.Run("FallsThroughToSystemSourceEnabledDestroyLikeATier", func(t *testing.T) {
+		// Given a flat system with no Source/Enabled/Destroy of its own but the descriptor sets them
+		enabled := &BoolExpression{Value: ptrBool(false)}
+		bp := &Blueprint{
+			FluxSystems: []FluxSystem{
+				{
+					Name:    "gateway-cilium",
+					Source:  "core",
+					Enabled: enabled,
+					Flat:    &Kustomization{Components: []string{"cilium"}},
+				},
+			},
+		}
+
+		all := bp.AllKustomizations()
+
+		if len(all) != 1 {
+			t.Fatalf("expected one compiled kustomization, got %+v", all)
+		}
+		k := all[0]
+		if k.Source != "core" {
+			t.Errorf("expected source to fall through from the system descriptor, got %q", k.Source)
+		}
+		if k.Enabled == nil || k.Enabled.Value == nil || *k.Enabled.Value != false {
+			t.Errorf("expected enabled to fall through from the system descriptor, got %+v", k.Enabled)
+		}
+	})
+
+	t.Run("EmitsAKustomizationEvenWithZeroComponents", func(t *testing.T) {
+		// A flat system with no components is still a legitimate minimal form, matching a bare
+		// kustomize: entry with no components — never dropped the way an empty install tier is.
+		bp := &Blueprint{FluxSystems: []FluxSystem{{Name: "flux-system"}}}
+
+		all := bp.AllKustomizations()
+
+		if len(all) != 1 || all[0].Name != "flux-system" {
+			t.Fatalf("expected one flat kustomization named flux-system, got %+v", all)
+		}
+	})
+
+	t.Run("PrefersTieredCompilationWhenInstallIsSet", func(t *testing.T) {
+		// Given a system with both Install and (mistakenly) Flat set
+		bp := &Blueprint{
+			FluxSystems: []FluxSystem{
+				{
+					Name:    "cert-manager",
+					Install: &Kustomization{Components: []string{"cert-manager"}},
+					Flat:    &Kustomization{Components: []string{"stray"}},
+				},
+			},
+		}
+
+		all := bp.AllKustomizations()
+
+		// Then it compiles tiered — Flat is structurally ignored (validation catches this case
+		// separately at the composer layer; this test only pins the compile-time precedence)
+		if len(all) != 1 || all[0].Name != "cert-manager-install" {
+			t.Fatalf("expected tiered compilation to win, got %+v", all)
 		}
 	})
 }

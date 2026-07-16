@@ -1049,14 +1049,15 @@ func (p *BaseBlueprintProcessor) evalDropEmpty(raw []string, facetPath string, s
 }
 
 // collectFluxSystems evaluates a facet's flux: system descriptors — resolving expressions on
-// DependsOn, Install components/substitutions, and each resources variant — and stores the result
-// in fluxSystemByName. A resources variant is dropped only when its own when condition (combined
-// with the system's) is false — never merely because its components prune to empty, matching how
-// a plain kustomize: entry is always emitted regardless of its resolved component count; a
-// dependsOn reference to it stays valid whether or not the variant's own components ended up
-// empty. An install tier whose components prune to empty sets Install to nil, since install is
-// optional per system (a system may have none at all) and an empty install is equivalent to none
-// declared.
+// DependsOn, Install components/substitutions, Flat components/substitutions, and each resources
+// variant — and stores the result in fluxSystemByName. A resources variant is dropped only when its
+// own when condition (combined with the system's) is false — never merely because its components
+// prune to empty, matching how a plain kustomize: entry is always emitted regardless of its
+// resolved component count; a dependsOn reference to it stays valid whether or not the variant's
+// own components ended up empty. An install tier whose components prune to empty sets Install to
+// nil, since install is optional per system (a system may have none at all) and an empty install is
+// equivalent to none declared. Flat's components are evaluated the same way a resources variant's
+// are (no dropping, never nils Flat out) since Flat is the kustomize: equivalent, not install:'s.
 func (p *BaseBlueprintProcessor) collectFluxSystems(facet blueprintv1alpha1.Facet, sourceName []string, fluxSystemByName map[string]*blueprintv1alpha1.FluxSystem, facetScope map[string]any) error {
 	for _, system := range facet.FluxSystems {
 		when := system.When
@@ -1102,6 +1103,21 @@ func (p *BaseBlueprintProcessor) collectFluxSystems(facet blueprintv1alpha1.Face
 			} else {
 				system.Install = nil
 			}
+		}
+
+		if system.Flat != nil {
+			flatCopy := *system.Flat.DeepCopy()
+			if len(flatCopy.Components) > 0 {
+				evaluated, err := p.evaluateStringSlice(flatCopy.Components, facet.Path, facetScope)
+				if err != nil {
+					return fmt.Errorf("error evaluating flat components for system '%s': %w", system.Name, err)
+				}
+				flatCopy.Components = evaluated
+			}
+			if err := p.evalKustomizationSubstitutions(&flatCopy, facet.Path, "flux."+system.Name+".substitutions.", facetScope); err != nil {
+				return fmt.Errorf("error evaluating flat substitutions for system '%s': %w", system.Name, err)
+			}
+			system.Flat = &flatCopy
 		}
 
 		seenVariants := make(map[string]bool)
@@ -1219,10 +1235,11 @@ func (p *BaseBlueprintProcessor) updateFluxSystemEntry(name string, new *bluepri
 // applyKustomizationEntryByStrategy: "replace" swaps the whole entry, "remove" accumulates a
 // combined removal descriptor via accumulateFluxSystemRemovals (field-level, matching
 // RemoveKustomization's semantics for plain kustomize: entries — never a whole-system deletion),
-// and "merge" unions DependsOn and deep-merges both Install (blueprintv1alpha1.MergeFluxInstall)
-// and Resources variants (blueprintv1alpha1.MergeFluxVariants) — the same semantics same-name
-// Kustomizations get elsewhere, and the same helpers Blueprint.UpsertFluxSystem uses to merge
-// FluxSystems across sources — instead of replacing either wholesale.
+// and "merge" unions DependsOn and deep-merges Install, Flat (both via blueprintv1alpha1.
+// MergeFluxInstall, which operates on any *Kustomization), and Resources variants
+// (blueprintv1alpha1.MergeFluxVariants) — the same semantics same-name Kustomizations get
+// elsewhere, and the same helpers Blueprint.UpsertFluxSystem uses to merge FluxSystems across
+// sources — instead of replacing either wholesale.
 func (p *BaseBlueprintProcessor) applyFluxSystemEntryByStrategy(name string, new *blueprintv1alpha1.FluxSystem, strategy string, existing *blueprintv1alpha1.FluxSystem, entries map[string]*blueprintv1alpha1.FluxSystem) error {
 	switch strategy {
 	case "replace":
@@ -1238,6 +1255,7 @@ func (p *BaseBlueprintProcessor) applyFluxSystemEntryByStrategy(name string, new
 		merged.DependsOn = accumulateStringSlice(existing.DependsOn, new.DependsOn)
 		merged.Install = blueprintv1alpha1.MergeFluxInstall(existing.Install, new.Install)
 		merged.Resources = blueprintv1alpha1.MergeFluxVariants(existing.Resources, new.Resources)
+		merged.Flat = blueprintv1alpha1.MergeFluxInstall(existing.Flat, new.Flat)
 		merged.Ordinal = new.Ordinal
 		merged.GlobalDependency = existing.GlobalDependency || new.GlobalDependency
 		entries[name] = &merged
@@ -1806,10 +1824,11 @@ func (p *BaseBlueprintProcessor) accumulateKustomizationRemovals(existing, new b
 // facets into one combined descriptor, mirroring accumulateKustomizationRemovals: DependsOn
 // accumulates via accumulateStringSlice, and Resources concatenates removal-descriptor variants
 // (each identified by Name; Blueprint.RemoveFluxSystem drops the named variant outright, so
-// duplicates surviving accumulation are harmless). Install's removable fields accumulate via
-// accumulateKustomizationRemovals itself, treating a nil Install on either side as a zero-value
-// Kustomization{} — Install carries no Name until tier compilation, so the same field-level union
-// accumulateKustomizationRemovals gives two facets' top-level removal descriptors applies here.
+// duplicates surviving accumulation are harmless). Install's and Flat's removable fields accumulate
+// via accumulateKustomizationRemovals itself, treating a nil Install/Flat on either side as a
+// zero-value Kustomization{} — neither carries a Name until tier compilation, so the same
+// field-level union accumulateKustomizationRemovals gives two facets' top-level removal
+// descriptors applies to both.
 func (p *BaseBlueprintProcessor) accumulateFluxSystemRemovals(existing, new blueprintv1alpha1.FluxSystem) blueprintv1alpha1.FluxSystem {
 	accumulated := blueprintv1alpha1.FluxSystem{
 		Name: existing.Name,
@@ -1820,6 +1839,11 @@ func (p *BaseBlueprintProcessor) accumulateFluxSystemRemovals(existing, new blue
 	if existing.Install != nil || new.Install != nil {
 		mergedInstall := p.accumulateKustomizationRemovals(kustomizationOrZero(existing.Install), kustomizationOrZero(new.Install))
 		accumulated.Install = &mergedInstall
+	}
+
+	if existing.Flat != nil || new.Flat != nil {
+		mergedFlat := p.accumulateKustomizationRemovals(kustomizationOrZero(existing.Flat), kustomizationOrZero(new.Flat))
+		accumulated.Flat = &mergedFlat
 	}
 
 	accumulated.Resources = append(accumulated.Resources, existing.Resources...)

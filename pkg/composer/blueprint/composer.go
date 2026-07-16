@@ -177,7 +177,7 @@ func (c *BaseBlueprintComposer) Compose(loaders []BlueprintLoader, initLoaderNam
 	c.finalizeCrdLayers(result)
 	c.applyCrdLayerBarrier(result)
 	c.applyGlobalDependencyBarrier(result)
-	validationErr := errors.Join(c.validateSources(result), c.validateReservedNames(result), c.validateDependencies(result))
+	validationErr := errors.Join(c.validateSources(result), c.validateReservedNames(result), c.validateFluxFlatExclusivity(result), c.validateDependencies(result))
 	return result, validationErr
 }
 
@@ -971,6 +971,22 @@ func (c *BaseBlueprintComposer) validateReservedNames(bp *blueprintv1alpha1.Blue
 	for _, k := range bp.Kustomizations {
 		if blueprintv1alpha1.IsCrdLayerName(k.Name) {
 			return fmt.Errorf("kustomization name %q is reserved for the CRD layer; use the crds: section instead", k.Name)
+		}
+	}
+	return nil
+}
+
+// validateFluxFlatExclusivity rejects a flux: system that sets both flat fields and a tier
+// (install and/or resources). An author who sets both almost certainly meant one or the other;
+// compileFluxSystemTiers structurally prefers the tiered form when both are present, which would
+// silently discard the flat fields without this check.
+func (c *BaseBlueprintComposer) validateFluxFlatExclusivity(bp *blueprintv1alpha1.Blueprint) error {
+	for _, sys := range bp.FluxSystems {
+		if !sys.HasFlatContent() {
+			continue
+		}
+		if sys.Install != nil || len(sys.Resources) > 0 {
+			return fmt.Errorf("flux system %q sets both flat fields and install/resources; a system is either flat or tiered, not both", sys.Name)
 		}
 	}
 	return nil

@@ -580,7 +580,7 @@ func (r *TestRunner) matchExclusions(bp *blueprintv1alpha1.Blueprint, exclude *b
 		if found == nil {
 			continue
 		}
-		if excludeSys.Install == nil && len(excludeSys.Resources) == 0 {
+		if excludeSys.Install == nil && len(excludeSys.Resources) == 0 && !excludeSys.HasFlatContent() {
 			diffs = append(diffs, fmt.Sprintf("flux system should not exist: %s", excludeSys.Name))
 			continue
 		}
@@ -771,15 +771,11 @@ func (r *TestRunner) matchKustomization(actual *blueprintv1alpha1.Kustomization,
 }
 
 // matchFluxSystem compares an actual FluxSystem (from bp.FluxSystems, post facet-merge and
-// when-expression evaluation) against expected properties and returns a list of differences. It uses
-// partial matching: only properties set in the expect system are validated. Path, source, when, strategy,
-// and dependsOn are compared as the author wrote them (dependsOn is the system's own cross-layer edges,
-// not a composer-computed one). Ordinal and globalDependency compare when the expectation sets them;
-// globalDependency only asserts the true direction, since false is indistinguishable from unset. Install
-// and each Resources variant delegate to matchKustomization for their Kustomization fields. Enabled and
-// Destroy are not compared: neither is evaluated during composition, so they carry only the raw authored
-// expression at this stage, not a rendering outcome. Returns an empty slice if all specified properties
-// match.
+// when-expression evaluation) against expected properties and returns a list of differences. It
+// uses partial matching: only properties set in the expect system are validated (Flat's presence
+// is HasFlatContent, not non-nilness). Install, Flat, and each Resources variant delegate to
+// matchKustomization. Enabled and Destroy are not compared: neither is evaluated during
+// composition, so they carry only the raw authored expression, not a rendering outcome.
 func (r *TestRunner) matchFluxSystem(actual *blueprintv1alpha1.FluxSystem, expect blueprintv1alpha1.FluxSystem) []string {
 	var diffs []string
 	name := expect.Name
@@ -829,6 +825,14 @@ func (r *TestRunner) matchFluxSystem(actual *blueprintv1alpha1.FluxSystem, expec
 		}
 	}
 
+	if expect.HasFlatContent() {
+		if !actual.HasFlatContent() {
+			diffs = append(diffs, fmt.Sprintf("flux[%s].flat: expected present, got absent", name))
+		} else {
+			diffs = append(diffs, r.matchKustomization(actual.Flat, *expect.Flat, name)...)
+		}
+	}
+
 	for _, expectVariant := range expect.Resources {
 		identifier := fluxVariantIdentifier(expectVariant)
 		actualVariant := r.findFluxVariant(actual.Resources, expectVariant)
@@ -847,17 +851,20 @@ func (r *TestRunner) matchFluxSystem(actual *blueprintv1alpha1.FluxSystem, expec
 }
 
 // matchFluxSystemExclusions verifies that specific parts of an actual FluxSystem (found by name) are
-// absent: the install tier when exclude.Install is set, and each named/matched resources variant in
-// exclude.Resources. Used when a fixture wants to assert a system is still partially present (e.g. its
-// install tier remains while one resources variant is gated off) rather than absent entirely, which
-// matchExclusions handles by name lookup alone before calling this. Returns an empty slice if every
-// excluded part is absent.
+// absent: the install tier, the flat form (via HasFlatContent), and each named/matched resources
+// variant in exclude.Resources. Used when a system stays partially present (e.g. install remains
+// while one resources variant is gated off), rather than absent entirely, which matchExclusions
+// handles by name lookup alone before calling this.
 func (r *TestRunner) matchFluxSystemExclusions(actual *blueprintv1alpha1.FluxSystem, exclude blueprintv1alpha1.FluxSystem) []string {
 	var diffs []string
 	name := exclude.Name
 
 	if exclude.Install != nil && actual.Install != nil {
 		diffs = append(diffs, fmt.Sprintf("flux[%s].install: should not exist", name))
+	}
+
+	if exclude.HasFlatContent() && actual.HasFlatContent() {
+		diffs = append(diffs, fmt.Sprintf("flux[%s].flat: should not exist", name))
 	}
 
 	for _, excludeVariant := range exclude.Resources {

@@ -139,6 +139,36 @@ func TestRenderDeferredPlaceholders(t *testing.T) {
 		}
 	})
 
+	t.Run("RewritesDeferredFlatFluxSystemSubstitutionsToPlaceholder", func(t *testing.T) {
+		bp := &blueprintv1alpha1.Blueprint{
+			FluxSystems: []blueprintv1alpha1.FluxSystem{
+				{
+					Name: "gateway-cilium",
+					Flat: &blueprintv1alpha1.Kustomization{
+						Substitutions: map[string]string{
+							"gateway_ip":   "${terraform_output('network', 'gateway_ip')}",
+							"resolved_key": "already-resolved",
+						},
+					},
+				},
+			},
+		}
+		deferredPaths := map[string]bool{
+			"flux.gateway-cilium.substitutions.gateway_ip": true,
+		}
+
+		result := RenderDeferredPlaceholders(bp, false, deferredPaths)
+
+		got := result.(*blueprintv1alpha1.Blueprint)
+		sys := got.FluxSystems[0]
+		if sys.Flat.Substitutions["gateway_ip"] != deferredPlaceholder {
+			t.Errorf("Expected deferred flat substitution to be '%s', got '%s'", deferredPlaceholder, sys.Flat.Substitutions["gateway_ip"])
+		}
+		if sys.Flat.Substitutions["resolved_key"] != "already-resolved" {
+			t.Errorf("Expected resolved flat substitution unchanged, got '%s'", sys.Flat.Substitutions["resolved_key"])
+		}
+	})
+
 	t.Run("DoesNotMutateOriginalBlueprint", func(t *testing.T) {
 		// Given a blueprint with a deferred substitution
 		bp := &blueprintv1alpha1.Blueprint{
