@@ -909,19 +909,26 @@ func appendMissing(deps []string, additions []string) []string {
 	return deps
 }
 
-// resolveTierDependencies rewrites a dependsOn reference to a vendor's bare name into its install
-// tier when the vendor was authored with install/resources tiers. A facet that depends on
-// "cert-manager" resolves to "cert-manager-install" when no kustomization named "cert-manager"
-// exists but "cert-manager-install" does, so "depend on cert-manager" means "wait for its
-// controller". An exact name match always wins, so the legacy flat form is unaffected.
+// resolveTierDependencies rewrites a bare dependsOn on a tiered flux system to the tier that means
+// "X is ready to build on": its install tier (the controller) when it has one, otherwise its sole
+// resources tier for controller-less systems like gitops. So "depend on cert-manager" waits for its
+// controller, and "depend on gitops" waits for its resources. An exact kustomization-name match
+// always wins, so the legacy flat form and explicit tier names pass through untouched. A system with
+// several resources variants has no single terminal tier, so a bare dep on it is left for
+// validateDependencies to flag rather than resolved ambiguously.
 func (c *BaseBlueprintComposer) resolveTierDependencies(bp *blueprintv1alpha1.Blueprint) {
 	names := make(map[string]struct{}, len(bp.Kustomizations)+len(bp.FluxSystems))
 	for _, k := range bp.Kustomizations {
 		names[k.Name] = struct{}{}
 	}
+	resourcesEntry := make(map[string]string)
 	for _, sys := range bp.FluxSystems {
 		if sys.Install != nil {
 			names[sys.Name+"-install"] = struct{}{}
+			continue
+		}
+		if tiers := sys.TierNames(); len(tiers) == 1 {
+			resourcesEntry[sys.Name] = tiers[0]
 		}
 	}
 	resolve := func(deps []string) {
@@ -931,6 +938,10 @@ func (c *BaseBlueprintComposer) resolveTierDependencies(bp *blueprintv1alpha1.Bl
 			}
 			if _, ok := names[dep+"-install"]; ok {
 				deps[j] = dep + "-install"
+				continue
+			}
+			if resolved, ok := resourcesEntry[dep]; ok {
+				deps[j] = resolved
 			}
 		}
 	}

@@ -1439,6 +1439,51 @@ func TestComposer_resolveTierDependencies(t *testing.T) {
 			t.Errorf("Expected unresolved dependency to be left untouched, got %v", depsOf(bp, "app"))
 		}
 	})
+
+	t.Run("RewritesBareNameToResourcesTierForControllerlessSystem", func(t *testing.T) {
+		// Given a controller-less (resources-only) flux system and a consumer depending on it by bare name
+		composer := &BaseBlueprintComposer{}
+		bp := &blueprintv1alpha1.Blueprint{
+			Kustomizations: []blueprintv1alpha1.Kustomization{
+				{Name: "app", DependsOn: []string{"gitops"}},
+			},
+			FluxSystems: []blueprintv1alpha1.FluxSystem{
+				{Name: "gitops", Resources: []blueprintv1alpha1.FluxVariant{{}}},
+			},
+		}
+
+		// When resolving tier dependencies
+		composer.resolveTierDependencies(bp)
+
+		// Then the bare name resolves to the resources tier, since there is no install tier to target
+		if !slices.Contains(depsOf(bp, "app"), "gitops-resources") {
+			t.Errorf("Expected app to depend on gitops-resources, got %v", depsOf(bp, "app"))
+		}
+	})
+
+	t.Run("LeavesAmbiguousMultiVariantResourcesSystemUntouched", func(t *testing.T) {
+		// Given a resources-only system with several named variants (no single terminal tier)
+		composer := &BaseBlueprintComposer{}
+		bp := &blueprintv1alpha1.Blueprint{
+			Kustomizations: []blueprintv1alpha1.Kustomization{
+				{Name: "app", DependsOn: []string{"multi"}},
+			},
+			FluxSystems: []blueprintv1alpha1.FluxSystem{
+				{Name: "multi", Resources: []blueprintv1alpha1.FluxVariant{
+					{Kustomization: blueprintv1alpha1.Kustomization{Name: "a"}},
+					{Kustomization: blueprintv1alpha1.Kustomization{Name: "b"}},
+				}},
+			},
+		}
+
+		// When resolving
+		composer.resolveTierDependencies(bp)
+
+		// Then the ambiguous bare dependency is left untouched (validateDependencies surfaces it later)
+		if !slices.Contains(depsOf(bp, "app"), "multi") {
+			t.Errorf("Expected ambiguous dependency left as multi, got %v", depsOf(bp, "app"))
+		}
+	})
 }
 
 func TestComposer_applyUserBlueprint(t *testing.T) {
