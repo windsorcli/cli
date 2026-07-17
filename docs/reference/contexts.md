@@ -34,7 +34,8 @@ contexts/
     ├── .gcp/service-accounts/default.json  default GCP service-account key
     ├── .kube/config                        kubectl kubeconfig
     ├── .talos/config                       Talos cluster config (cluster.driver=talos)
-    └── .omni/config                        Omni cluster config (platform=omni)
+    ├── .omni/config                        Omni cluster config (platform=omni)
+    └── .vsphere/                           vSphere provider session cache, scoped to this context
 ```
 
 ## `_template/`
@@ -69,11 +70,12 @@ live under `contexts/<context-name>/`.
 | `.kube/config` | YAML | Kubeconfig; `KUBECONFIG` points `kubectl` here. |
 | `.talos/config` | YAML | Talos config; `TALOSCONFIG` points `talosctl` here. Present when the blueprint's cluster driver is `talos`. |
 | `.omni/config` | YAML | Omni config; `OMNICONFIG` points `omnictl` here. Present when `platform: omni`. |
+| `.vsphere/` | Directory | Terraform vSphere provider SOAP/REST session cache; `VSPHERE_VIM_SESSION_PATH` and `VSPHERE_REST_SESSION_PATH` point here with `VSPHERE_PERSIST_SESSION=true`, in project mode only. |
 
 Hidden subdirectories (`.aws/`, `.azure/`, `.gcp/`, `.kube/`,
-`.talos/`, `.omni/`) keep CLI state scoped to the context so that tools
-invoked through the windsor shell never touch the operator's global
-config under `~/`.
+`.talos/`, `.omni/`, `.vsphere/`) keep CLI state scoped to the context so
+that tools invoked through the windsor shell never touch the operator's
+global config under `~/`.
 
 ## `.env` files
 

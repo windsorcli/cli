@@ -1,6 +1,8 @@
 package env
 
 import (
+	"fmt"
+	"strings"
 	"testing"
 
 	"github.com/goccy/go-yaml"
@@ -121,8 +123,17 @@ func TestVsphereEnv_GetEnvVars(t *testing.T) {
 		if envVars["VSPHERE_ALLOW_UNVERIFIED_SSL"] != "true" {
 			t.Errorf("VSPHERE_ALLOW_UNVERIFIED_SSL = %q, want %q", envVars["VSPHERE_ALLOW_UNVERIFIED_SSL"], "true")
 		}
-		if len(envVars) != 3 {
-			t.Errorf("Expected exactly 3 env vars (provider credentials only), got %d: %v", len(envVars), envVars)
+		if envVars["VSPHERE_PERSIST_SESSION"] != "true" {
+			t.Errorf("VSPHERE_PERSIST_SESSION = %q, want %q", envVars["VSPHERE_PERSIST_SESSION"], "true")
+		}
+		if !strings.HasSuffix(envVars["VSPHERE_VIM_SESSION_PATH"], "/.vsphere/sessions") {
+			t.Errorf("VSPHERE_VIM_SESSION_PATH = %q, want suffix %q", envVars["VSPHERE_VIM_SESSION_PATH"], "/.vsphere/sessions")
+		}
+		if !strings.HasSuffix(envVars["VSPHERE_REST_SESSION_PATH"], "/.vsphere/rest_sessions") {
+			t.Errorf("VSPHERE_REST_SESSION_PATH = %q, want suffix %q", envVars["VSPHERE_REST_SESSION_PATH"], "/.vsphere/rest_sessions")
+		}
+		if len(envVars) != 6 {
+			t.Errorf("Expected exactly 6 env vars (3 provider credentials + 3 session vars), got %d: %v", len(envVars), envVars)
 		}
 	})
 
@@ -158,12 +169,12 @@ contexts:
 		if _, ok := envVars["VSPHERE_ALLOW_UNVERIFIED_SSL"]; ok {
 			t.Error("VSPHERE_ALLOW_UNVERIFIED_SSL should not be set when insecure is not configured")
 		}
-		if len(envVars) != 1 {
-			t.Errorf("Expected 1 environment variable, got %d: %v", len(envVars), envVars)
+		if len(envVars) != 4 {
+			t.Errorf("Expected 4 environment variables (server + 3 session vars), got %d: %v", len(envVars), envVars)
 		}
 	})
 
-	t.Run("MissingConfiguration", func(t *testing.T) {
+	t.Run("MissingVsphereConfigBlockStillScopesSessionPathsInProjectMode", func(t *testing.T) {
 		// Given a context with no vsphere block
 		mocks := setupVsphereEnvMocks(t)
 		configStr := `
@@ -180,12 +191,66 @@ contexts:
 		// When GetEnvVars is called
 		envVars, err := printer.GetEnvVars()
 
-		// Then no env vars are emitted and no error is returned
+		// Then the three session vars are still emitted in project mode, and
+		// no provider-credential vars are emitted since there is no config
 		if err != nil {
 			t.Fatalf("Expected no error, got %v", err)
 		}
-		if len(envVars) != 0 {
-			t.Errorf("Expected empty env vars for missing vsphere config, got %v", envVars)
+		if envVars["VSPHERE_PERSIST_SESSION"] != "true" {
+			t.Errorf("VSPHERE_PERSIST_SESSION = %q, want %q", envVars["VSPHERE_PERSIST_SESSION"], "true")
+		}
+		if !strings.HasSuffix(envVars["VSPHERE_VIM_SESSION_PATH"], "/.vsphere/sessions") {
+			t.Errorf("VSPHERE_VIM_SESSION_PATH = %q, want suffix %q", envVars["VSPHERE_VIM_SESSION_PATH"], "/.vsphere/sessions")
+		}
+		if !strings.HasSuffix(envVars["VSPHERE_REST_SESSION_PATH"], "/.vsphere/rest_sessions") {
+			t.Errorf("VSPHERE_REST_SESSION_PATH = %q, want suffix %q", envVars["VSPHERE_REST_SESSION_PATH"], "/.vsphere/rest_sessions")
+		}
+		if len(envVars) != 3 {
+			t.Errorf("Expected exactly 3 env vars (session vars only), got %d: %v", len(envVars), envVars)
+		}
+	})
+
+	t.Run("GetConfigRootError", func(t *testing.T) {
+		// Given a config handler that fails to resolve the config root
+		mocks := setupVsphereEnvMocks(t)
+		mockConfigHandler := mocks.ConfigHandler.(*config.MockConfigHandler)
+		mockConfigHandler.GetConfigRootFunc = func() (string, error) {
+			return "", fmt.Errorf("boom")
+		}
+		printer := NewVsphereEnvPrinter(mocks.Shell, mocks.ConfigHandler)
+		printer.shims = mocks.Shims
+
+		// When GetEnvVars is called
+		_, err := printer.GetEnvVars()
+
+		// Then an error is returned naming the config root failure
+		if err == nil {
+			t.Fatal("Expected an error, got nil")
+		}
+		if !strings.Contains(err.Error(), "error retrieving configuration root directory") {
+			t.Errorf("Expected error to mention configuration root directory, got %v", err)
+		}
+	})
+
+	t.Run("GlobalModeOmitsSessionVars", func(t *testing.T) {
+		// Given a full vSphere configuration in global mode
+		printer, mocks := setup(t)
+		mocks.Shell.IsGlobalFunc = func() bool { return true }
+
+		// When GetEnvVars is called
+		envVars, err := printer.GetEnvVars()
+
+		// Then session vars are omitted but provider-credential vars remain
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		for _, key := range []string{"VSPHERE_PERSIST_SESSION", "VSPHERE_VIM_SESSION_PATH", "VSPHERE_REST_SESSION_PATH"} {
+			if _, ok := envVars[key]; ok {
+				t.Errorf("%s should not be set in global mode", key)
+			}
+		}
+		if envVars["VSPHERE_SERVER"] != "vcenter.example.com" {
+			t.Errorf("VSPHERE_SERVER = %q, want %q", envVars["VSPHERE_SERVER"], "vcenter.example.com")
 		}
 	})
 

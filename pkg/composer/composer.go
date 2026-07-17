@@ -189,7 +189,7 @@ const windsorMarkerContent = "*\n"
 // per-context credential and state directories out of version control. The
 // unencrypted secrets.yaml/secrets.yml variants are excluded; the encrypted
 // secrets.enc.yaml/secrets.enc.yml variants are safe to commit and stay tracked.
-const contextIgnoreContent = ".kube/\n.talos/\n.omni/\n.aws/\n.azure/\n.gcp/\n.env\nsecrets.yaml\nsecrets.yml\n"
+const contextIgnoreContent = ".kube/\n.talos/\n.omni/\n.aws/\n.azure/\n.gcp/\n.vsphere/\n.env\nsecrets.yaml\nsecrets.yml\n"
 
 // writeLocalGitignores writes self-contained .gitignore files into Windsor-owned
 // folders so re-running Windsor never touches the project-root .gitignore.
