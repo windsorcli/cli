@@ -214,7 +214,12 @@ $defs:
       so the CLI can export them into the shell; password must come from secrets
       or the ambient environment and is never written to this file.
       Inventory pointers (datacenter, cluster, datastore, network) are wired as
-      Terraform variable inputs by the vsphere platform facet.
+      Terraform variable inputs by the vsphere platform facet. In project mode
+      the CLI also exports VSPHERE_PERSIST_SESSION, VSPHERE_VIM_SESSION_PATH,
+      and VSPHERE_REST_SESSION_PATH, scoping the provider's SOAP/REST session
+      cache to the context's .vsphere/ directory (mirrors .aws/, .azure/,
+      .gcp/); global mode omits these three so the provider falls back to its
+      own ~/.govmomi/ defaults.
     properties:
       server:
         type: string
