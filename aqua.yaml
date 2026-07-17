@@ -12,7 +12,7 @@ registries:
     ref: v4.538.1 # renovate: depName=aquaproj/aqua-registry
 packages:
 - name: siderolabs/talos@v1.13.6
-- name: siderolabs/omni/omnictl@v1.9.1
+- name: siderolabs/omni/omnictl@v1.9.3
 - name: siderolabs/omni/omni@v1.9.3
 - name: kubernetes/kubectl@v1.34.3 # renovate: ignore
 - name: go-task/task@v3.52.0
