@@ -745,7 +745,10 @@ func (h *BaseBlueprintHandler) loadSources() error {
 		if source.Name == "" {
 			continue
 		}
-		if _, exists := h.sourceBlueprintLoaders[source.Name]; exists {
+		mu.Lock()
+		_, exists := h.sourceBlueprintLoaders[source.Name]
+		mu.Unlock()
+		if exists {
 			continue
 		}
 
