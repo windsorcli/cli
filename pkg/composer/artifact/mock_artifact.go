@@ -11,15 +11,16 @@ package artifact
 
 // MockArtifact is a mock implementation of the Artifact interface
 type MockArtifact struct {
-	BundleFunc                  func() error
-	WriteFunc                   func(outputPath string, tag string) (string, error)
-	PushFunc                    func(registryBase string, repoName string, tag string) error
-	PullFunc                    func(ociRefs []string) (map[string]string, error)
-	ExtractModulePathFunc       func(registry, repository, tag, modulePath string) (string, error)
-	ParseOCIRefFunc             func(ociRef string) (registry, repository, tag string, err error)
-	GetCacheDirFunc             func(registry, repository, tag string) (string, error)
-	ListTagsFunc                func(ociRef string) ([]string, error)
-	GetCliVersionConstraintFunc func(ociRef string) (string, error)
+	BundleFunc                        func() error
+	WriteFunc                         func(outputPath string, tag string) (string, error)
+	PushFunc                          func(registryBase string, repoName string, tag string) error
+	PullFunc                          func(ociRefs []string) (map[string]string, error)
+	ExtractModulePathFunc             func(registry, repository, tag, modulePath string) (string, error)
+	ParseOCIRefFunc                   func(ociRef string) (registry, repository, tag string, err error)
+	GetCacheDirFunc                   func(registry, repository, tag string) (string, error)
+	ListTagsFunc                      func(ociRef string) ([]string, error)
+	GetCliVersionConstraintFunc       func(ociRef string) (string, error)
+	VerifyCliVersionCompatibilityFunc func(ociRef string) error
 }
 
 // =============================================================================
@@ -84,6 +85,14 @@ func (m *MockArtifact) GetCliVersionConstraint(ociRef string) (string, error) {
 		return m.GetCliVersionConstraintFunc(ociRef)
 	}
 	return "", nil
+}
+
+// VerifyCliVersionCompatibility calls the mock VerifyCliVersionCompatibilityFunc if set, otherwise returns nil
+func (m *MockArtifact) VerifyCliVersionCompatibility(ociRef string) error {
+	if m.VerifyCliVersionCompatibilityFunc != nil {
+		return m.VerifyCliVersionCompatibilityFunc(ociRef)
+	}
+	return nil
 }
 
 // ExtractModulePath calls the mock ExtractModulePathFunc if set, otherwise returns empty string and nil error

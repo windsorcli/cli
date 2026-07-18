@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"os"
 
+	"github.com/Masterminds/semver/v3"
+	"github.com/windsorcli/cli/pkg/composer/artifact"
 	"github.com/windsorcli/cli/pkg/constants"
 )
 
@@ -75,8 +77,9 @@ func applyWorkstationFlagOverrides(overrides map[string]any, vmDriver, platform 
 // directory exists, but only when allowLocalBootstrap is true — init opts
 // in to bootstrap a fresh local context, while up must not silently pull
 // from the network on a bare invocation. Returns a nil slice when the
-// caller should use whatever blueprint state is already on disk.
-func resolveBlueprintURL(blueprintFlag, platformFlag, contextName, templateRoot string, allowLocalBootstrap bool) ([]string, error) {
+// caller should use whatever blueprint state is already on disk. artifactBuilder is passed to
+// resolveEffectiveBlueprintURL; nil (or a registry failure) falls back to the build-time pin.
+func resolveBlueprintURL(blueprintFlag, platformFlag, contextName, templateRoot string, allowLocalBootstrap bool, artifactBuilder artifact.Artifact) ([]string, error) {
 	if blueprintFlag != "" {
 		return []string{blueprintFlag}, nil
 	}
@@ -92,16 +95,50 @@ func resolveBlueprintURL(blueprintFlag, platformFlag, contextName, templateRoot 
 				return nil, fmt.Errorf("error checking template root: %w", err)
 			}
 		}
-		return []string{constants.GetEffectiveBlueprintURL()}, nil
+		return []string{resolveEffectiveBlueprintURL(artifactBuilder)}, nil
 	}
 	if !allowLocalBootstrap || contextName != "local" {
 		return nil, nil
 	}
 	if _, err := os.Stat(templateRoot); err != nil {
 		if os.IsNotExist(err) {
-			return []string{constants.GetEffectiveBlueprintURL()}, nil
+			return []string{resolveEffectiveBlueprintURL(artifactBuilder)}, nil
 		}
 		return nil, fmt.Errorf("error checking template root: %w", err)
 	}
 	return nil, nil
+}
+
+// resolveEffectiveBlueprintURL returns the highest core tag this CLI is compatible with, falling
+// back to the build-time pin on any failure (nil builder, unreachable registry, no compatible
+// tag) — bootstrap must never block on the network. Also falls back when the pin itself isn't a
+// concrete version (a dev build's mutable :latest): there's nothing to walk "newer than," and
+// substituting the highest tagged release for an unreleased :latest can resolve to older or
+// inconsistent content.
+func resolveEffectiveBlueprintURL(artifactBuilder artifact.Artifact) string {
+	pinned := constants.GetEffectiveBlueprintURL()
+	if artifactBuilder == nil {
+		return pinned
+	}
+
+	registry, repository, pinnedTag, err := artifactBuilder.ParseOCIRef(pinned)
+	if err != nil {
+		return pinned
+	}
+	if _, err := semver.NewVersion(pinnedTag); err != nil {
+		return pinned
+	}
+	urlPrefix := fmt.Sprintf("oci://%s/%s", registry, repository)
+
+	tags, err := artifactBuilder.ListTags(pinned)
+	if err != nil {
+		return pinned
+	}
+
+	resolvedTag, _, ok, err := artifact.ResolveCompatibleTag(artifactBuilder, urlPrefix, tags)
+	if err != nil || !ok {
+		return pinned
+	}
+
+	return urlPrefix + ":" + resolvedTag
 }

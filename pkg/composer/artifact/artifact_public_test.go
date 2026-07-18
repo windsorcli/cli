@@ -18,6 +18,7 @@ import (
 	v1 "github.com/google/go-containerregistry/pkg/v1"
 	"github.com/google/go-containerregistry/pkg/v1/remote"
 	"github.com/google/go-containerregistry/pkg/v1/types"
+	"github.com/windsorcli/cli/pkg/constants"
 	"github.com/windsorcli/cli/pkg/runtime"
 	"github.com/windsorcli/cli/pkg/runtime/shell"
 )
@@ -2991,6 +2992,315 @@ func TestArtifactBuilder_ExtractModulePath(t *testing.T) {
 		}
 		if !strings.Contains(err.Error(), requestedModulePath) {
 			t.Errorf("Expected error to mention module path %s, got %v", requestedModulePath, err)
+		}
+	})
+}
+
+// setTestCliVersion temporarily overrides constants.Version for the duration of the calling test,
+// restoring the original value via t.Cleanup. constants.Version is process-global, not per-test
+// state — any test using this helper, and any sibling subtest in this package that reads
+// constants.Version, MUST NOT run under t.Parallel(); a parallel subtest would race this mutation
+// against concurrent reads (or another parallel mutation). This package has no t.Parallel() calls
+// today; if one is ever added, audit for this helper's callers first.
+func setTestCliVersion(t *testing.T, v string) {
+	t.Helper()
+	original := constants.Version
+	constants.Version = v
+	t.Cleanup(func() { constants.Version = original })
+}
+
+func TestArtifactBuilder_VerifyCliVersionCompatibility(t *testing.T) {
+	setup := func(t *testing.T, metadataYAML []byte) (*ArtifactBuilder, *ArtifactMocks) {
+		t.Helper()
+		mocks := setupArtifactMocks(t)
+		builder := NewArtifactBuilder(mocks.Runtime)
+		builder.shims = mocks.Shims
+
+		mocks.Shims.ParseReference = func(ref string, opts ...name.Option) (name.Reference, error) {
+			return nil, nil
+		}
+		mocks.Shims.RemoteImage = func(ref name.Reference, options ...remote.Option) (v1.Image, error) {
+			return nil, nil
+		}
+		mocks.Shims.ImageLayers = func(img v1.Image) ([]v1.Layer, error) {
+			return []v1.Layer{&mockLayer{}}, nil
+		}
+
+		files := map[string][]byte{"_template/test.yaml": []byte("test content")}
+		if metadataYAML != nil {
+			files["metadata.yaml"] = metadataYAML
+		}
+		testTarData := createTestTarGz(t, files)
+		mocks.Shims.LayerUncompressed = func(layer v1.Layer) (io.ReadCloser, error) {
+			return io.NopCloser(bytes.NewReader(testTarData)), nil
+		}
+		mocks.Shims.ReadAll = io.ReadAll
+
+		mocks.Shims.Stat = os.Stat
+		mocks.Shims.ReadFile = os.ReadFile
+		mocks.Shims.Create = func(name string) (io.WriteCloser, error) {
+			if err := os.MkdirAll(filepath.Dir(name), 0755); err != nil {
+				return nil, err
+			}
+			return os.Create(name)
+		}
+		// setupDefaultShims's YamlUnmarshal stub only ever sets Name/Version, ignoring actual
+		// content — VerifyCliVersionCompatibility needs the real cliVersion field, so parse for
+		// real here.
+		mocks.Shims.YamlUnmarshal = yaml.Unmarshal
+
+		return builder, mocks
+	}
+
+	t.Run("ReturnsNilWhenConstraintSatisfied", func(t *testing.T) {
+		setTestCliVersion(t, "1.0.0")
+		builder, _ := setup(t, []byte("name: test\nversion: v1.0.0\ncliVersion: \">=0.9.0\"\n"))
+
+		err := builder.VerifyCliVersionCompatibility("oci://registry.example.com/my-repo:v1.0.0")
+
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+	})
+
+	t.Run("ReturnsErrorWhenConstraintNotSatisfied", func(t *testing.T) {
+		setTestCliVersion(t, "0.1.0")
+		builder, _ := setup(t, []byte("name: test\nversion: v1.0.0\ncliVersion: \">=0.9.0\"\n"))
+
+		err := builder.VerifyCliVersionCompatibility("oci://registry.example.com/my-repo:v1.0.0")
+
+		if err == nil {
+			t.Error("Expected an error for an unsatisfied constraint")
+		}
+	})
+
+	t.Run("ReturnsNilWhenNoMetadataFile", func(t *testing.T) {
+		builder, _ := setup(t, nil)
+
+		err := builder.VerifyCliVersionCompatibility("oci://registry.example.com/my-repo:v1.0.0")
+
+		if err != nil {
+			t.Errorf("Expected no error when metadata.yaml is absent, got %v", err)
+		}
+	})
+
+	t.Run("ReturnsNilWhenCliVersionFieldAbsent", func(t *testing.T) {
+		builder, _ := setup(t, []byte("name: test\nversion: v1.0.0\n"))
+
+		err := builder.VerifyCliVersionCompatibility("oci://registry.example.com/my-repo:v1.0.0")
+
+		if err != nil {
+			t.Errorf("Expected no error when cliVersion is undeclared, got %v", err)
+		}
+	})
+
+	t.Run("PropagatesPullError", func(t *testing.T) {
+		builder, mocks := setup(t, []byte("name: test\nversion: v1.0.0\n"))
+		mocks.Shims.RemoteImage = func(ref name.Reference, options ...remote.Option) (v1.Image, error) {
+			return nil, fmt.Errorf("registry unreachable")
+		}
+
+		err := builder.VerifyCliVersionCompatibility("oci://registry.example.com/my-repo:v1.0.0")
+
+		if err == nil || !strings.Contains(err.Error(), "failed to pull") {
+			t.Errorf("Expected a wrapped pull error, got %v", err)
+		}
+	})
+}
+
+func TestResolveCompatibleTag(t *testing.T) {
+	t.Run("PicksHighestCompatibleSkippingIncompatibleNewest", func(t *testing.T) {
+		setTestCliVersion(t, "0.8.1")
+		mock := NewMockArtifact()
+		mock.GetCliVersionConstraintFunc = func(ociRef string) (string, error) {
+			if ociRef == "oci://ghcr.io/windsorcli/core:v0.7.0" {
+				return ">=99.0.0", nil
+			}
+			return "", nil
+		}
+
+		tag, v, ok, err := ResolveCompatibleTag(mock, "oci://ghcr.io/windsorcli/core", []string{"v0.5.0", "v0.6.0", "v0.7.0"})
+
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		if !ok || tag != "v0.6.0" {
+			t.Fatalf("Expected v0.6.0 (skipping incompatible v0.7.0), got tag=%q ok=%v", tag, ok)
+		}
+		if v == nil || v.String() != "0.6.0" {
+			t.Errorf("Expected parsed 0.6.0, got %v", v)
+		}
+	})
+
+	t.Run("SkipsPrereleaseTagsEvenWhenCompatible", func(t *testing.T) {
+		setTestCliVersion(t, "0.8.1")
+		mock := NewMockArtifact()
+
+		tag, _, ok, err := ResolveCompatibleTag(mock, "oci://ghcr.io/windsorcli/core", []string{"v0.6.0", "v0.7.0-rc.1"})
+
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		if !ok || tag != "v0.6.0" {
+			t.Errorf("Expected v0.6.0 (prerelease excluded regardless of compatibility), got tag=%q ok=%v", tag, ok)
+		}
+	})
+
+	t.Run("FallsBackToVerifyWhenAnnotationAbsentAndAccepts", func(t *testing.T) {
+		// Given a candidate whose manifest carries no cliVersion annotation (an artifact
+		// published before that annotation existed) but whose in-tarball metadata.yaml, checked
+		// via the fallback, is actually compatible
+		mock := NewMockArtifact()
+		var verifiedRef string
+		mock.VerifyCliVersionCompatibilityFunc = func(ociRef string) error {
+			verifiedRef = ociRef
+			return nil
+		}
+
+		tag, _, ok, err := ResolveCompatibleTag(mock, "oci://ghcr.io/windsorcli/core", []string{"v0.6.0"})
+
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		if !ok || tag != "v0.6.0" {
+			t.Errorf("Expected the fallback-verified tag to be accepted, got tag=%q ok=%v", tag, ok)
+		}
+		if verifiedRef != "oci://ghcr.io/windsorcli/core:v0.6.0" {
+			t.Errorf("Expected VerifyCliVersionCompatibility to be called with the candidate ref, got %q", verifiedRef)
+		}
+	})
+
+	t.Run("FallsBackToVerifyWhenAnnotationAbsentAndRejectsThenTriesNext", func(t *testing.T) {
+		// Given the newest candidate has no annotation and fails verification, but an older
+		// candidate does carry a satisfied annotation
+		mock := NewMockArtifact()
+		mock.GetCliVersionConstraintFunc = func(ociRef string) (string, error) {
+			if ociRef == "oci://ghcr.io/windsorcli/core:v0.6.0" {
+				return "", nil // no annotation on the newest tag
+			}
+			return "", nil // no annotation on the older tag either — both fall back to verify
+		}
+		mock.VerifyCliVersionCompatibilityFunc = func(ociRef string) error {
+			if ociRef == "oci://ghcr.io/windsorcli/core:v0.6.0" {
+				return fmt.Errorf("CLI version does not satisfy required constraint")
+			}
+			return nil
+		}
+
+		tag, _, ok, err := ResolveCompatibleTag(mock, "oci://ghcr.io/windsorcli/core", []string{"v0.5.0", "v0.6.0"})
+
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		if !ok || tag != "v0.5.0" {
+			t.Errorf("Expected v0.5.0 (newest rejected by verify fallback), got tag=%q ok=%v", tag, ok)
+		}
+	})
+
+	t.Run("SkipsVerifyFallbackWhenAnnotationIsPresent", func(t *testing.T) {
+		// Given a candidate whose manifest DOES carry an annotation — the cheap path must stay
+		// cheap and never fall back to a pull-based verification
+		mock := NewMockArtifact()
+		mock.GetCliVersionConstraintFunc = func(ociRef string) (string, error) {
+			return ">=0.1.0", nil
+		}
+		verifyCalled := false
+		mock.VerifyCliVersionCompatibilityFunc = func(ociRef string) error {
+			verifyCalled = true
+			return nil
+		}
+		setTestCliVersion(t, "1.0.0")
+
+		tag, _, ok, err := ResolveCompatibleTag(mock, "oci://ghcr.io/windsorcli/core", []string{"v0.6.0"})
+
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		if !ok || tag != "v0.6.0" {
+			t.Errorf("Expected v0.6.0, got tag=%q ok=%v", tag, ok)
+		}
+		if verifyCalled {
+			t.Error("Expected VerifyCliVersionCompatibility not to be called when the annotation is present")
+		}
+	})
+
+	t.Run("FalseWhenAllCandidatesFailBothAnnotationAndVerifyFallback", func(t *testing.T) {
+		mock := NewMockArtifact()
+		mock.VerifyCliVersionCompatibilityFunc = func(ociRef string) error {
+			return fmt.Errorf("incompatible")
+		}
+
+		_, _, ok, err := ResolveCompatibleTag(mock, "oci://ghcr.io/windsorcli/core", []string{"v0.5.0", "v0.6.0"})
+
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		if ok {
+			t.Error("Expected ok=false when every candidate fails both the annotation check and the verify fallback")
+		}
+	})
+
+	t.Run("FalseWhenNoTagIsCompatible", func(t *testing.T) {
+		setTestCliVersion(t, "0.1.0")
+		mock := NewMockArtifact()
+		mock.GetCliVersionConstraintFunc = func(ociRef string) (string, error) {
+			return ">=99.0.0", nil
+		}
+
+		_, _, ok, err := ResolveCompatibleTag(mock, "oci://ghcr.io/windsorcli/core", []string{"v0.5.0", "v0.6.0"})
+
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		if ok {
+			t.Error("Expected ok=false when no tag is compatible")
+		}
+	})
+
+	t.Run("PropagatesConstraintCheckError", func(t *testing.T) {
+		mock := NewMockArtifact()
+		mock.GetCliVersionConstraintFunc = func(ociRef string) (string, error) {
+			return "", fmt.Errorf("registry unreachable")
+		}
+
+		_, _, _, err := ResolveCompatibleTag(mock, "oci://ghcr.io/windsorcli/core", []string{"v0.6.0"})
+
+		if err == nil {
+			t.Error("Expected the registry error to propagate")
+		}
+	})
+
+	t.Run("SkipsCandidateOnConstraintCheckErrorInsteadOfAbortingWalk", func(t *testing.T) {
+		// Given a transient manifest-fetch error on only the newest candidate, with an older
+		// candidate that checks out fine
+		mock := NewMockArtifact()
+		mock.GetCliVersionConstraintFunc = func(ociRef string) (string, error) {
+			if ociRef == "oci://ghcr.io/windsorcli/core:v0.6.0" {
+				return "", fmt.Errorf("registry hiccup")
+			}
+			return "", nil
+		}
+
+		tag, _, ok, err := ResolveCompatibleTag(mock, "oci://ghcr.io/windsorcli/core", []string{"v0.5.0", "v0.6.0"})
+
+		if err != nil {
+			t.Fatalf("Expected no error — an older candidate resolved fine, got %v", err)
+		}
+		if !ok || tag != "v0.5.0" {
+			t.Errorf("Expected v0.5.0 (newest skipped on a check error, not an aborted walk), got tag=%q ok=%v", tag, ok)
+		}
+	})
+
+	t.Run("FalseWhenNoStableSemverTagPresent", func(t *testing.T) {
+		mock := NewMockArtifact()
+
+		_, _, ok, err := ResolveCompatibleTag(mock, "oci://ghcr.io/windsorcli/core", []string{"v1.0.0-rc.1", "garbage"})
+
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		if ok {
+			t.Error("Expected ok=false among prereleases/junk")
 		}
 	})
 }

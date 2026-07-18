@@ -163,7 +163,7 @@ windsor init staging --platform=aws --aws-profile=staging`,
 			return fmt.Errorf("invalid configuration: %w", err)
 		}
 
-		blueprintURL, err := resolveBlueprintURL(initBlueprint, initPlatform, contextName, rt.TemplateRoot, true)
+		blueprintURL, err := resolveBlueprintURL(initBlueprint, initPlatform, contextName, rt.TemplateRoot, true, proj.Composer.ArtifactBuilder)
 		if err != nil {
 			return err
 		}
