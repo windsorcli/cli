@@ -886,6 +886,85 @@ metadata:
 		}
 	})
 
+	t.Run("ReturnsErrorWhenMetadataUnreadable", func(t *testing.T) {
+		// Given a metadata.yaml path that exists but cannot be read as a file — a directory in its
+		// place is a portable stand-in for a permissions/I-O failure across platforms
+		mocks := setupLoaderMocks(t)
+
+		cacheDir := filepath.Join(mocks.TmpDir, "cache")
+		templateDir := filepath.Join(cacheDir, "_template")
+		os.MkdirAll(templateDir, 0755)
+
+		blueprintYaml := `kind: Blueprint
+apiVersion: blueprints.windsorcli.dev/v1alpha1
+metadata:
+  name: oci-blueprint
+`
+		os.WriteFile(filepath.Join(templateDir, "blueprint.yaml"), []byte(blueprintYaml), 0644)
+		os.MkdirAll(filepath.Join(cacheDir, "metadata.yaml"), 0755)
+
+		mocks.ArtifactBuilder.PullFunc = func(refs []string) (map[string]string, error) {
+			return map[string]string{
+				"ghcr.io/windsorcli/core:v0.9.2": cacheDir,
+			}, nil
+		}
+		mocks.ArtifactBuilder.ParseOCIRefFunc = func(ref string) (string, string, string, error) {
+			return "ghcr.io", "windsorcli/core", "v0.9.2", nil
+		}
+
+		loader := NewBlueprintLoader(mocks.Runtime, mocks.ArtifactBuilder)
+
+		// When loading
+		err := loader.Load("core", "oci://ghcr.io/windsorcli/core:v0.9.2")
+
+		// Then the read failure propagates instead of silently skipping the compatibility gate
+		if err == nil {
+			t.Fatal("Expected an error when metadata.yaml cannot be read")
+		}
+		if !strings.Contains(err.Error(), "failed to read") {
+			t.Errorf("Expected a read-failure error, got: %v", err)
+		}
+	})
+
+	t.Run("ReturnsErrorWhenMetadataUnparsable", func(t *testing.T) {
+		// Given metadata.yaml exists and is readable but is not valid YAML
+		mocks := setupLoaderMocks(t)
+
+		cacheDir := filepath.Join(mocks.TmpDir, "cache")
+		templateDir := filepath.Join(cacheDir, "_template")
+		os.MkdirAll(templateDir, 0755)
+
+		blueprintYaml := `kind: Blueprint
+apiVersion: blueprints.windsorcli.dev/v1alpha1
+metadata:
+  name: oci-blueprint
+`
+		os.WriteFile(filepath.Join(templateDir, "blueprint.yaml"), []byte(blueprintYaml), 0644)
+		os.WriteFile(filepath.Join(cacheDir, "metadata.yaml"), []byte("not: [valid: yaml"), 0644)
+
+		mocks.ArtifactBuilder.PullFunc = func(refs []string) (map[string]string, error) {
+			return map[string]string{
+				"ghcr.io/windsorcli/core:v0.9.2": cacheDir,
+			}, nil
+		}
+		mocks.ArtifactBuilder.ParseOCIRefFunc = func(ref string) (string, string, string, error) {
+			return "ghcr.io", "windsorcli/core", "v0.9.2", nil
+		}
+
+		loader := NewBlueprintLoader(mocks.Runtime, mocks.ArtifactBuilder)
+
+		// When loading
+		err := loader.Load("core", "oci://ghcr.io/windsorcli/core:v0.9.2")
+
+		// Then the parse failure propagates instead of silently skipping the compatibility gate
+		if err == nil {
+			t.Fatal("Expected an error when metadata.yaml is not valid YAML")
+		}
+		if !strings.Contains(err.Error(), "failed to parse") {
+			t.Errorf("Expected a parse-failure error, got: %v", err)
+		}
+	})
+
 	t.Run("ReturnsErrorWhenOCIPullFails", func(t *testing.T) {
 		// Given a loader where OCI pull fails
 		mocks := setupLoaderMocks(t)

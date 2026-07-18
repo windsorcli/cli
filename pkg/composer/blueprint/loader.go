@@ -326,11 +326,13 @@ func (l *BaseBlueprintLoader) normalizeOCISourceRefs(bp *blueprintv1alpha1.Bluep
 
 // enforceCliVersionCompatibility returns an error when this source's pulled artifact declares a
 // cliVersion constraint (artifact.BlueprintMetadataInput.CliVersion) the running CLI does not
-// satisfy. Reads the same root metadata.yaml applyArtifactMetadataName already extracts; missing
-// or unparsable metadata is treated as no constraint declared, not a failure — Windsor enforces
-// what an artifact declares, it does not infer compatibility. Called before any other loading work
-// so an incompatible source fails fast with a named, actionable error instead of surfacing as a
-// downstream schema or tier failure.
+// satisfy. Reads the same root metadata.yaml applyArtifactMetadataName already extracts. A missing
+// metadata.yaml is treated as no constraint declared, not a failure — Windsor enforces what an
+// artifact declares, it does not infer compatibility. A metadata.yaml that exists but cannot be
+// read or parsed is a different case and is NOT swallowed: silently skipping the gate on a
+// corrupted or unreadable cache would let a malformed artifact bypass the one check that exists to
+// catch it. Called before any other loading work so an incompatible source fails fast with a
+// named, actionable error instead of surfacing as a downstream schema or tier failure.
 func (l *BaseBlueprintLoader) enforceCliVersionCompatibility(cacheDir, tag string) error {
 	metadataPath := filepath.Join(cacheDir, "metadata.yaml")
 	if _, err := l.shims.Stat(metadataPath); os.IsNotExist(err) {
@@ -338,11 +340,11 @@ func (l *BaseBlueprintLoader) enforceCliVersionCompatibility(cacheDir, tag strin
 	}
 	data, err := l.shims.ReadFile(metadataPath)
 	if err != nil {
-		return nil
+		return fmt.Errorf("failed to read %s: %w", metadataPath, err)
 	}
 	var meta artifact.BlueprintMetadataInput
 	if err := l.shims.YamlUnmarshal(data, &meta); err != nil {
-		return nil
+		return fmt.Errorf("failed to parse %s: %w", metadataPath, err)
 	}
 	if err := artifact.ValidateCliVersion(constants.Version, meta.CliVersion); err != nil {
 		return fmt.Errorf("%s:%s is incompatible with this CLI (%w) — upgrade windsor or pin an older tag for this source in blueprint.yaml", l.sourceName, tag, err)
