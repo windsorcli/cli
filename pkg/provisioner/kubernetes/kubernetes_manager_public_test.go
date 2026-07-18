@@ -5344,8 +5344,8 @@ func TestBaseKubernetesManager_ApplyBlueprint(t *testing.T) {
 		if appliedKust == nil {
 			t.Fatal("Expected Kustomization to be applied")
 		}
-		if appliedKust.Spec.Interval.Duration != constants.DefaultFluxPrimaryRepositoryInterval {
-			t.Errorf("Expected kustomization interval %v, got %v", constants.DefaultFluxPrimaryRepositoryInterval, appliedKust.Spec.Interval.Duration)
+		if appliedKust.Spec.Interval.Duration != constants.DefaultFluxPrimaryKustomizationInterval {
+			t.Errorf("Expected kustomization interval %v, got %v", constants.DefaultFluxPrimaryKustomizationInterval, appliedKust.Spec.Interval.Duration)
 		}
 	})
 }
