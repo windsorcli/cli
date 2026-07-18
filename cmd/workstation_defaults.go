@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 
+	"github.com/Masterminds/semver/v3"
 	"github.com/windsorcli/cli/pkg/composer/artifact"
 	"github.com/windsorcli/cli/pkg/constants"
 )
@@ -110,15 +111,21 @@ func resolveBlueprintURL(blueprintFlag, platformFlag, contextName, templateRoot 
 
 // resolveEffectiveBlueprintURL returns the highest core tag this CLI is compatible with, falling
 // back to the build-time pin on any failure (nil builder, unreachable registry, no compatible
-// tag) — bootstrap must never block on the network.
+// tag) — bootstrap must never block on the network. Also falls back when the pin itself isn't a
+// concrete version (a dev build's mutable :latest): there's nothing to walk "newer than," and
+// substituting the highest tagged release for an unreleased :latest can resolve to older or
+// inconsistent content.
 func resolveEffectiveBlueprintURL(artifactBuilder artifact.Artifact) string {
 	pinned := constants.GetEffectiveBlueprintURL()
 	if artifactBuilder == nil {
 		return pinned
 	}
 
-	registry, repository, _, err := artifactBuilder.ParseOCIRef(pinned)
+	registry, repository, pinnedTag, err := artifactBuilder.ParseOCIRef(pinned)
 	if err != nil {
+		return pinned
+	}
+	if _, err := semver.NewVersion(pinnedTag); err != nil {
 		return pinned
 	}
 	urlPrefix := fmt.Sprintf("oci://%s/%s", registry, repository)
@@ -128,10 +135,10 @@ func resolveEffectiveBlueprintURL(artifactBuilder artifact.Artifact) string {
 		return pinned
 	}
 
-	tag, _, ok, err := artifact.ResolveCompatibleTag(artifactBuilder, urlPrefix, tags)
+	resolvedTag, _, ok, err := artifact.ResolveCompatibleTag(artifactBuilder, urlPrefix, tags)
 	if err != nil || !ok {
 		return pinned
 	}
 
-	return urlPrefix + ":" + tag
+	return urlPrefix + ":" + resolvedTag
 }

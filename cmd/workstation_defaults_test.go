@@ -416,11 +416,37 @@ func TestResolveEffectiveBlueprintURL(t *testing.T) {
 		}
 	})
 
+	t.Run("SkipsWalkWhenPinIsMutableTag", func(t *testing.T) {
+		// Given a build-time pin whose own tag isn't a concrete semver (a dev build's mutable
+		// :latest) — there's nothing to walk "newer than," so the walk must not run at all, even
+		// though ListTags/GetCliVersionConstraint are mocked to resolve to something else. This is
+		// the actual bug: substituting the highest tagged release for an unreleased :latest can
+		// resolve to older or inconsistent content.
+		mock := artifact.NewMockArtifact()
+		mock.ParseOCIRefFunc = func(ociRef string) (string, string, string, error) {
+			return "ghcr.io", "windsorcli/core", "latest", nil
+		}
+		listTagsCalled := false
+		mock.ListTagsFunc = func(ociRef string) ([]string, error) {
+			listTagsCalled = true
+			return []string{"v0.5.0", "v0.6.0"}, nil
+		}
+
+		url := resolveEffectiveBlueprintURL(mock)
+
+		if url != constants.GetEffectiveBlueprintURL() {
+			t.Errorf("Expected the build-time pin unchanged, got %q", url)
+		}
+		if listTagsCalled {
+			t.Error("Expected the walk not to run at all when the pin isn't a concrete version")
+		}
+	})
+
 	t.Run("ReturnsPinWhenListTagsFails", func(t *testing.T) {
 		// Given a registry that cannot be reached — bootstrap must never block on this
 		mock := artifact.NewMockArtifact()
 		mock.ParseOCIRefFunc = func(ociRef string) (string, string, string, error) {
-			return "ghcr.io", "windsorcli/core", "latest", nil
+			return "ghcr.io", "windsorcli/core", "v0.5.0", nil
 		}
 		mock.ListTagsFunc = func(ociRef string) ([]string, error) {
 			return nil, fmt.Errorf("registry unreachable")
@@ -443,7 +469,7 @@ func TestResolveEffectiveBlueprintURL(t *testing.T) {
 
 		mock := artifact.NewMockArtifact()
 		mock.ParseOCIRefFunc = func(ociRef string) (string, string, string, error) {
-			return "ghcr.io", "windsorcli/core", "latest", nil
+			return "ghcr.io", "windsorcli/core", "v0.5.0", nil
 		}
 		mock.ListTagsFunc = func(ociRef string) ([]string, error) {
 			return []string{"v0.5.0"}, nil
@@ -464,7 +490,7 @@ func TestResolveEffectiveBlueprintURL(t *testing.T) {
 		// mid-walk) — this is also swallowed, not surfaced as a bootstrap-blocking error
 		mock := artifact.NewMockArtifact()
 		mock.ParseOCIRefFunc = func(ociRef string) (string, string, string, error) {
-			return "ghcr.io", "windsorcli/core", "latest", nil
+			return "ghcr.io", "windsorcli/core", "v0.5.0", nil
 		}
 		mock.ListTagsFunc = func(ociRef string) ([]string, error) {
 			return []string{"v0.5.0"}, nil
@@ -485,7 +511,7 @@ func TestResolveEffectiveBlueprintURL(t *testing.T) {
 		// build-time pin
 		mock := artifact.NewMockArtifact()
 		mock.ParseOCIRefFunc = func(ociRef string) (string, string, string, error) {
-			return "ghcr.io", "windsorcli/core", "latest", nil
+			return "ghcr.io", "windsorcli/core", "v0.5.0", nil
 		}
 		mock.ListTagsFunc = func(ociRef string) ([]string, error) {
 			return []string{"v0.5.0", "v0.6.0"}, nil
@@ -508,7 +534,7 @@ func TestResolveEffectiveBlueprintURL(t *testing.T) {
 		// annotation as "compatible" and must fall through to the next candidate
 		mock := artifact.NewMockArtifact()
 		mock.ParseOCIRefFunc = func(ociRef string) (string, string, string, error) {
-			return "ghcr.io", "windsorcli/core", "latest", nil
+			return "ghcr.io", "windsorcli/core", "v0.5.0", nil
 		}
 		mock.ListTagsFunc = func(ociRef string) ([]string, error) {
 			return []string{"v0.5.0", "v0.6.0"}, nil
