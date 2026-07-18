@@ -3270,6 +3270,27 @@ func TestResolveCompatibleTag(t *testing.T) {
 		}
 	})
 
+	t.Run("SkipsCandidateOnConstraintCheckErrorInsteadOfAbortingWalk", func(t *testing.T) {
+		// Given a transient manifest-fetch error on only the newest candidate, with an older
+		// candidate that checks out fine
+		mock := NewMockArtifact()
+		mock.GetCliVersionConstraintFunc = func(ociRef string) (string, error) {
+			if ociRef == "oci://ghcr.io/windsorcli/core:v0.6.0" {
+				return "", fmt.Errorf("registry hiccup")
+			}
+			return "", nil
+		}
+
+		tag, _, ok, err := ResolveCompatibleTag(mock, "oci://ghcr.io/windsorcli/core", []string{"v0.5.0", "v0.6.0"})
+
+		if err != nil {
+			t.Fatalf("Expected no error — an older candidate resolved fine, got %v", err)
+		}
+		if !ok || tag != "v0.5.0" {
+			t.Errorf("Expected v0.5.0 (newest skipped on a check error, not an aborted walk), got tag=%q ok=%v", tag, ok)
+		}
+	})
+
 	t.Run("FalseWhenNoStableSemverTagPresent", func(t *testing.T) {
 		mock := NewMockArtifact()
 

@@ -316,8 +316,8 @@ func (a *ArtifactBuilder) VerifyCliVersionCompatibility(ociRef string) error {
 // ResolveCompatibleTag walks tags newest-first (stable semver only) and returns the highest one
 // this CLI is compatible with. Checks the cheap manifest annotation first; falls back to
 // VerifyCliVersionCompatibility (a real pull) when the annotation is absent, since older tags
-// predate that annotation and can't be assumed compatible. Reports ok=false, not an error, when
-// nothing qualifies.
+// predate that annotation and can't be assumed compatible. A manifest-fetch error skips that
+// candidate instead of aborting the walk; it's only returned if no candidate ends up qualifying.
 func ResolveCompatibleTag(artifactBuilder Artifact, urlPrefix string, tags []string) (tag string, version *semver.Version, ok bool, err error) {
 	type candidate struct {
 		tag string
@@ -335,11 +335,13 @@ func ResolveCompatibleTag(artifactBuilder Artifact, urlPrefix string, tags []str
 		return candidates[i].ver.GreaterThan(candidates[j].ver)
 	})
 
+	var constraintCheckErr error
 	for _, c := range candidates {
 		candidateRef := urlPrefix + ":" + c.tag
 		constraint, err := artifactBuilder.GetCliVersionConstraint(candidateRef)
 		if err != nil {
-			return "", nil, false, fmt.Errorf("failed to check compatibility for %s: %w", candidateRef, err)
+			constraintCheckErr = fmt.Errorf("failed to check compatibility for %s: %w", candidateRef, err)
+			continue
 		}
 		if constraint != "" {
 			if ValidateCliVersion(constants.Version, constraint) == nil {
@@ -351,7 +353,7 @@ func ResolveCompatibleTag(artifactBuilder Artifact, urlPrefix string, tags []str
 			return c.tag, c.ver, true, nil
 		}
 	}
-	return "", nil, false, nil
+	return "", nil, false, constraintCheckErr
 }
 
 // GetCacheDir returns the cache directory path for an OCI artifact identified by registry, repository, and tag.
