@@ -1071,6 +1071,56 @@ func TestArtifactBuilder_Push(t *testing.T) {
 		}
 	})
 
+	t.Run("PropagatesCliVersionConstraintToManifestAnnotation", func(t *testing.T) {
+		// Given a builder whose _template/metadata.yaml declares a cliVersion constraint. The
+		// package default YamlUnmarshal stub (setupDefaultShims) ignores file content and only
+		// ever sets Name/Version, so CliVersion needs its own override here.
+		builder, mocks := setup(t)
+
+		mocks.Shims.YamlUnmarshal = func(data []byte, v any) error {
+			input := v.(*BlueprintMetadataInput)
+			input.Name = "test"
+			input.Version = "1.0.0"
+			input.CliVersion = ">=0.9.0"
+			return nil
+		}
+
+		mockImg := &mockImage{}
+		mocks.Shims.EmptyImage = func() v1.Image { return mockImg }
+		mocks.Shims.AppendLayers = func(base v1.Image, layers ...v1.Layer) (v1.Image, error) {
+			return mockImg, nil
+		}
+		mocks.Shims.ConfigFile = func(img v1.Image, cfg *v1.ConfigFile) (v1.Image, error) {
+			return mockImg, nil
+		}
+		mocks.Shims.MediaType = func(img v1.Image, mt types.MediaType) v1.Image { return mockImg }
+		mocks.Shims.ConfigMediaType = func(img v1.Image, mt types.MediaType) v1.Image { return mockImg }
+
+		var capturedAnnotations map[string]string
+		mocks.Shims.Annotations = func(img v1.Image, anns map[string]string) v1.Image {
+			capturedAnnotations = anns
+			return &mockImageWithManifest{
+				manifestFunc: func() (*v1.Manifest, error) {
+					return nil, fmt.Errorf("stop after annotations captured")
+				},
+			}
+		}
+
+		builder.addFile("_template/metadata.yaml", []byte("name: test\nversion: 1.0.0\ncliVersion: \">=0.9.0\""), 0644)
+
+		// When pushing
+		err := builder.Push("registry.example.com", "myapp", "2.0.0")
+
+		// Then execution reached the manifest step (proving OCI image creation completed) and the
+		// constraint declared in metadata.yaml was mirrored into the manifest annotation
+		if err == nil || !strings.Contains(err.Error(), "stop after annotations captured") {
+			t.Fatalf("Expected to reach manifest step, got: %v", err)
+		}
+		if capturedAnnotations[CliVersionAnnotationKey] != ">=0.9.0" {
+			t.Errorf("Expected %s annotation %q, got %q", CliVersionAnnotationKey, ">=0.9.0", capturedAnnotations[CliVersionAnnotationKey])
+		}
+	})
+
 	t.Run("SuccessWithInMemoryOperation", func(t *testing.T) {
 		// Given a builder with valid metadata
 		builder, mocks := setup(t)

@@ -879,7 +879,7 @@ func TestArtifactBuilder_createOCIArtifactImage(t *testing.T) {
 		layer := static.NewLayer([]byte("test"), types.DockerLayer)
 
 		// When creating OCI artifact image
-		img, err := builder.createOCIArtifactImage(layer, "test-repo", "v1.0.0")
+		img, err := builder.createOCIArtifactImage(layer, "test-repo", "v1.0.0", "")
 
 		// Then should succeed
 		if err != nil {
@@ -887,6 +887,74 @@ func TestArtifactBuilder_createOCIArtifactImage(t *testing.T) {
 		}
 		if img == nil {
 			t.Error("Expected non-nil image")
+		}
+	})
+
+	t.Run("SetsCliVersionAnnotationWhenDeclared", func(t *testing.T) {
+		// Given a builder pushing an artifact whose _template/metadata.yaml declares cliVersion
+		builder, mocks := setup(t)
+
+		mockImage := &mockImage{}
+		mocks.Shims.EmptyImage = func() v1.Image { return mockImage }
+		mocks.Shims.AppendLayers = func(base v1.Image, layers ...v1.Layer) (v1.Image, error) {
+			return mockImage, nil
+		}
+		mocks.Shims.ConfigFile = func(img v1.Image, cfg *v1.ConfigFile) (v1.Image, error) {
+			return mockImage, nil
+		}
+		mocks.Shims.MediaType = func(img v1.Image, mt types.MediaType) v1.Image { return mockImage }
+		mocks.Shims.ConfigMediaType = func(img v1.Image, mt types.MediaType) v1.Image { return mockImage }
+
+		var capturedAnnotations map[string]string
+		mocks.Shims.Annotations = func(img v1.Image, anns map[string]string) v1.Image {
+			capturedAnnotations = anns
+			return mockImage
+		}
+
+		layer := static.NewLayer([]byte("test"), types.DockerLayer)
+
+		// When creating OCI artifact image with a declared constraint
+		if _, err := builder.createOCIArtifactImage(layer, "test-repo", "v1.0.0", ">=0.9.0"); err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+
+		// Then the manifest annotation mirrors the same constraint metadata.yaml carries
+		if capturedAnnotations[CliVersionAnnotationKey] != ">=0.9.0" {
+			t.Errorf("Expected %s annotation %q, got %q", CliVersionAnnotationKey, ">=0.9.0", capturedAnnotations[CliVersionAnnotationKey])
+		}
+	})
+
+	t.Run("OmitsCliVersionAnnotationWhenNotDeclared", func(t *testing.T) {
+		// Given a builder pushing an artifact with no cliVersion declared
+		builder, mocks := setup(t)
+
+		mockImage := &mockImage{}
+		mocks.Shims.EmptyImage = func() v1.Image { return mockImage }
+		mocks.Shims.AppendLayers = func(base v1.Image, layers ...v1.Layer) (v1.Image, error) {
+			return mockImage, nil
+		}
+		mocks.Shims.ConfigFile = func(img v1.Image, cfg *v1.ConfigFile) (v1.Image, error) {
+			return mockImage, nil
+		}
+		mocks.Shims.MediaType = func(img v1.Image, mt types.MediaType) v1.Image { return mockImage }
+		mocks.Shims.ConfigMediaType = func(img v1.Image, mt types.MediaType) v1.Image { return mockImage }
+
+		var capturedAnnotations map[string]string
+		mocks.Shims.Annotations = func(img v1.Image, anns map[string]string) v1.Image {
+			capturedAnnotations = anns
+			return mockImage
+		}
+
+		layer := static.NewLayer([]byte("test"), types.DockerLayer)
+
+		// When creating OCI artifact image with an empty constraint
+		if _, err := builder.createOCIArtifactImage(layer, "test-repo", "v1.0.0", ""); err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+
+		// Then no cli-version annotation key is written at all
+		if _, ok := capturedAnnotations[CliVersionAnnotationKey]; ok {
+			t.Errorf("Expected no %s annotation when cliVersion is undeclared, got %q", CliVersionAnnotationKey, capturedAnnotations[CliVersionAnnotationKey])
 		}
 	})
 
@@ -911,7 +979,7 @@ func TestArtifactBuilder_createOCIArtifactImage(t *testing.T) {
 		layer := static.NewLayer([]byte("test"), types.DockerLayer)
 
 		// When creating OCI artifact image
-		_, err := builder.createOCIArtifactImage(layer, "test-repo", "v1.0.0")
+		_, err := builder.createOCIArtifactImage(layer, "test-repo", "v1.0.0", "")
 
 		// Then should return error
 		if err == nil {
@@ -942,7 +1010,7 @@ func TestArtifactBuilder_createOCIArtifactImage(t *testing.T) {
 		layer := static.NewLayer([]byte("test"), types.DockerLayer)
 
 		// When creating OCI artifact image
-		_, err := builder.createOCIArtifactImage(layer, "test-repo", "v1.0.0")
+		_, err := builder.createOCIArtifactImage(layer, "test-repo", "v1.0.0", "")
 
 		// Then should return error
 		if err == nil {
@@ -988,7 +1056,7 @@ func TestArtifactBuilder_createOCIArtifactImage(t *testing.T) {
 		layer := static.NewLayer([]byte("test"), types.DockerLayer)
 
 		// When creating OCI artifact image
-		img, err := builder.createOCIArtifactImage(layer, "test-repo", "v1.0.0")
+		img, err := builder.createOCIArtifactImage(layer, "test-repo", "v1.0.0", "")
 
 		// Then should succeed with fallback values
 		if err != nil {
@@ -1042,7 +1110,7 @@ func TestArtifactBuilder_createOCIArtifactImage(t *testing.T) {
 		layer := static.NewLayer([]byte("test"), types.DockerLayer)
 
 		// When creating OCI artifact image
-		img, err := builder.createOCIArtifactImage(layer, "test-repo", "v1.0.0")
+		img, err := builder.createOCIArtifactImage(layer, "test-repo", "v1.0.0", "")
 
 		// Then should succeed
 		if err != nil {
@@ -2851,6 +2919,158 @@ func TestArtifactBuilder_ListTags(t *testing.T) {
 		}
 		if _, err := builder.ListTags("oci://ghcr.io/windsorcli/core:v0.6.0"); err == nil {
 			t.Error("Expected the registry error to surface")
+		}
+	})
+}
+
+func TestArtifactBuilder_GetCliVersionConstraint(t *testing.T) {
+	setup := func(t *testing.T) *ArtifactBuilder {
+		t.Helper()
+		mocks := setupArtifactMocks(t)
+		builder := NewArtifactBuilder(mocks.Runtime)
+		builder.shims = mocks.Shims
+		return builder
+	}
+
+	t.Run("ReturnsDeclaredConstraint", func(t *testing.T) {
+		// Given a registry whose manifest carries the cli-version annotation. ImageLayers is
+		// deliberately left unset (nil) — a call to it panics, proving GetCliVersionConstraint
+		// never touches the layer blob the way a full Pull would.
+		builder := setup(t)
+		builder.shims.ParseReference = func(ref string, opts ...name.Option) (name.Reference, error) {
+			return nil, nil
+		}
+		builder.shims.RemoteImage = func(ref name.Reference, options ...remote.Option) (v1.Image, error) {
+			return &mockImageWithManifest{
+				manifestFunc: func() (*v1.Manifest, error) {
+					return &v1.Manifest{Annotations: map[string]string{CliVersionAnnotationKey: ">=0.9.0"}}, nil
+				},
+			}, nil
+		}
+
+		// When reading the constraint for a candidate tag
+		constraint, err := builder.GetCliVersionConstraint("oci://ghcr.io/windsorcli/core:v0.9.2")
+
+		// Then it returns the declared constraint, manifest-only
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		if constraint != ">=0.9.0" {
+			t.Errorf("Expected constraint >=0.9.0, got %q", constraint)
+		}
+	})
+
+	t.Run("ReturnsEmptyWhenAnnotationAbsent", func(t *testing.T) {
+		// Given a manifest with no cli-version annotation (an older tag published before this
+		// annotation existed, or an artifact that never declared cliVersion)
+		builder := setup(t)
+		builder.shims.ParseReference = func(ref string, opts ...name.Option) (name.Reference, error) {
+			return nil, nil
+		}
+		builder.shims.RemoteImage = func(ref name.Reference, options ...remote.Option) (v1.Image, error) {
+			return &mockImageWithManifest{
+				manifestFunc: func() (*v1.Manifest, error) {
+					return &v1.Manifest{Annotations: map[string]string{}}, nil
+				},
+			}, nil
+		}
+
+		// When reading the constraint
+		constraint, err := builder.GetCliVersionConstraint("oci://ghcr.io/windsorcli/core:v0.5.0")
+
+		// Then it returns empty, not an error — unconstrained, same as ValidateCliVersion treats
+		// an empty constraint
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		if constraint != "" {
+			t.Errorf("Expected empty constraint, got %q", constraint)
+		}
+	})
+
+	t.Run("ErrorsOnMalformedReference", func(t *testing.T) {
+		builder := setup(t)
+		if _, err := builder.GetCliVersionConstraint("not-an-oci-ref"); err == nil {
+			t.Error("Expected an error for a malformed OCI reference")
+		}
+	})
+
+	t.Run("ErrorWhenParseReferenceFails", func(t *testing.T) {
+		builder := setup(t)
+		builder.shims.ParseReference = func(ref string, opts ...name.Option) (name.Reference, error) {
+			return nil, fmt.Errorf("parse error")
+		}
+
+		_, err := builder.GetCliVersionConstraint("oci://ghcr.io/windsorcli/core:v0.9.2")
+		if err == nil || !strings.Contains(err.Error(), "failed to parse reference") {
+			t.Errorf("Expected parse reference error, got %v", err)
+		}
+	})
+
+	t.Run("ErrorWhenRemoteImageFails", func(t *testing.T) {
+		builder := setup(t)
+		builder.shims.ParseReference = func(ref string, opts ...name.Option) (name.Reference, error) {
+			return nil, nil
+		}
+		builder.shims.RemoteImage = func(ref name.Reference, options ...remote.Option) (v1.Image, error) {
+			return nil, fmt.Errorf("remote error")
+		}
+
+		_, err := builder.GetCliVersionConstraint("oci://ghcr.io/windsorcli/core:v0.9.2")
+		if err == nil || !strings.Contains(err.Error(), "failed to get image manifest") {
+			t.Errorf("Expected image manifest error, got %v", err)
+		}
+	})
+
+	t.Run("ErrorWhenManifestReadFails", func(t *testing.T) {
+		builder := setup(t)
+		builder.shims.ParseReference = func(ref string, opts ...name.Option) (name.Reference, error) {
+			return nil, nil
+		}
+		builder.shims.RemoteImage = func(ref name.Reference, options ...remote.Option) (v1.Image, error) {
+			return &mockImageWithManifest{
+				manifestFunc: func() (*v1.Manifest, error) {
+					return nil, fmt.Errorf("manifest read error")
+				},
+			}, nil
+		}
+
+		_, err := builder.GetCliVersionConstraint("oci://ghcr.io/windsorcli/core:v0.9.2")
+		if err == nil || !strings.Contains(err.Error(), "failed to read manifest") {
+			t.Errorf("Expected manifest read error, got %v", err)
+		}
+	})
+
+	t.Run("RetriesAnonymouslyWhenKeychainRejectedByRegistry", func(t *testing.T) {
+		// Given a registry that rejects keychain credentials but accepts anonymous access,
+		// mirroring downloadOCIArtifact's identical fallback behavior
+		builder := setup(t)
+		builder.shims.ParseReference = func(ref string, opts ...name.Option) (name.Reference, error) {
+			return nil, nil
+		}
+		callCount := 0
+		builder.shims.RemoteImage = func(ref name.Reference, options ...remote.Option) (v1.Image, error) {
+			callCount++
+			if callCount == 1 {
+				return nil, &transport.Error{StatusCode: http.StatusForbidden, Errors: []transport.Diagnostic{{Code: transport.DeniedErrorCode}}}
+			}
+			return &mockImageWithManifest{
+				manifestFunc: func() (*v1.Manifest, error) {
+					return &v1.Manifest{Annotations: map[string]string{CliVersionAnnotationKey: ">=0.9.0"}}, nil
+				},
+			}, nil
+		}
+
+		constraint, err := builder.GetCliVersionConstraint("oci://ghcr.io/windsorcli/core:v0.9.2")
+
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		if constraint != ">=0.9.0" {
+			t.Errorf("Expected constraint >=0.9.0, got %q", constraint)
+		}
+		if callCount != 2 {
+			t.Errorf("Expected 2 RemoteImage calls (keychain then anonymous), got %d", callCount)
 		}
 	})
 }
