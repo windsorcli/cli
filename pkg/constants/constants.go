@@ -92,12 +92,26 @@ const DefaultFluxKustomizationInstallTimeout = 10 * time.Minute
 const DefaultFluxSourceInterval = 1 * time.Hour
 
 // DefaultFluxPrimaryRepositoryInterval is the reconciliation interval for the blueprint's own
-// repository (the top-level "repository:" field) and any Kustomization that resolves to it by
-// default (no explicit source: set). Unlike a named vendor source, the primary repository is
-// typically a live, actively-pushed branch rather than a pinned release, and a change can land
-// there without any windsor command running (a teammate's push, a CI merge) — so flux's own
-// poll is the propagation path here, not just a backstop.
+// repository (the top-level "repository:" field) as a flux Source. Unlike a named vendor
+// source, the primary repository is typically a live, actively-pushed branch rather than a
+// pinned release, and a change can land there without any windsor command running (a
+// teammate's push, a CI merge) — so flux's own Source poll is the propagation path here, not
+// just a backstop. See DefaultFluxPrimaryKustomizationInterval for why a Kustomization that
+// resolves to this same repository doesn't need the same cadence.
 const DefaultFluxPrimaryRepositoryInterval = 1 * time.Minute
+
+// DefaultFluxPrimaryKustomizationInterval is the reconciliation interval for a Kustomization
+// that resolves, explicitly or by default, to the blueprint's own repository rather than a
+// named vendor source. Unlike the Source object itself (DefaultFluxPrimaryRepositoryInterval),
+// a Kustomization's own poll is not the propagation path: kustomize-controller reconciles
+// dependent Kustomizations via a watch on the Source's revision, which the notifier keeps
+// fresh on every apply/up/bootstrap regardless of this interval — so this is purely a backstop
+// for drift correction, retrying failed reconciliations, and dependency-readiness rechecks.
+// A short interval here mainly causes needless churn: Flux's dependency-readiness check is a
+// point-in-time Ready read with no hysteresis, so a Kustomization on a 1m interval briefly
+// flipping to Reconciling can cascade DependencyNotReady retries through everything that
+// depends on it, directly or transitively.
+const DefaultFluxPrimaryKustomizationInterval = 5 * time.Minute
 
 // GitopsMode is accepted by ToFluxKustomization and friends for call-site stability but no
 // longer changes reconciliation cadence: the notifier re-fetches sources on every
@@ -123,11 +137,11 @@ func ParseGitopsMode(s string) GitopsMode {
 // FluxKustomizationInterval returns the default reconciliation interval for a Kustomization.
 // isPrimarySource is true when the Kustomization resolves, explicitly or by falling back to
 // the blueprint's default source, to the blueprint's own repository rather than a named vendor
-// source (see DefaultFluxPrimaryRepositoryInterval). Blueprint-level Interval overrides take
+// source (see DefaultFluxPrimaryKustomizationInterval). Blueprint-level Interval overrides take
 // precedence over either default.
 func FluxKustomizationInterval(isPrimarySource bool) time.Duration {
 	if isPrimarySource {
-		return DefaultFluxPrimaryRepositoryInterval
+		return DefaultFluxPrimaryKustomizationInterval
 	}
 	return DefaultFluxKustomizationInterval
 }

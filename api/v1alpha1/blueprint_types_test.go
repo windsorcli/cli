@@ -2682,7 +2682,7 @@ func TestKustomization_ToFluxKustomization(t *testing.T) {
 		if result.Spec.Path != "kustomize/test/path" {
 			t.Errorf("Expected path 'kustomize/test/path', got '%s'", result.Spec.Path)
 		}
-		if result.Spec.Interval.Duration != constants.DefaultFluxPrimaryRepositoryInterval {
+		if result.Spec.Interval.Duration != constants.DefaultFluxPrimaryKustomizationInterval {
 			t.Errorf("Expected primary-repository default interval (no explicit source set), got %v", result.Spec.Interval.Duration)
 		}
 		// PostBuild should have component-specific ConfigMap when substitutions exist
@@ -3001,7 +3001,7 @@ func TestKustomization_ToFluxKustomization(t *testing.T) {
 
 		result := kustomization.ToFluxKustomization("test-namespace", "default-source", []Source{}, constants.GitopsModePull)
 
-		if result.Spec.Interval.Duration != constants.DefaultFluxPrimaryRepositoryInterval {
+		if result.Spec.Interval.Duration != constants.DefaultFluxPrimaryKustomizationInterval {
 			t.Errorf("Expected primary-repository default interval (no explicit source set), got %v", result.Spec.Interval.Duration)
 		}
 	})
@@ -3168,11 +3168,11 @@ func TestKustomization_ToFluxKustomization(t *testing.T) {
 		// Then both render the same default interval: the notifier re-triggers reconciliation
 		// on every apply/up/bootstrap regardless of mode, so the interval has no reason to
 		// differ between them
-		if pullResult.Spec.Interval.Duration != constants.DefaultFluxPrimaryRepositoryInterval {
-			t.Errorf("Expected pull-mode interval %v, got %v", constants.DefaultFluxPrimaryRepositoryInterval, pullResult.Spec.Interval.Duration)
+		if pullResult.Spec.Interval.Duration != constants.DefaultFluxPrimaryKustomizationInterval {
+			t.Errorf("Expected pull-mode interval %v, got %v", constants.DefaultFluxPrimaryKustomizationInterval, pullResult.Spec.Interval.Duration)
 		}
-		if pushResult.Spec.Interval.Duration != constants.DefaultFluxPrimaryRepositoryInterval {
-			t.Errorf("Expected push-mode interval %v, got %v", constants.DefaultFluxPrimaryRepositoryInterval, pushResult.Spec.Interval.Duration)
+		if pushResult.Spec.Interval.Duration != constants.DefaultFluxPrimaryKustomizationInterval {
+			t.Errorf("Expected push-mode interval %v, got %v", constants.DefaultFluxPrimaryKustomizationInterval, pushResult.Spec.Interval.Duration)
 		}
 	})
 
@@ -3186,8 +3186,8 @@ func TestKustomization_ToFluxKustomization(t *testing.T) {
 
 		// Then it gets the short, continuously-polled primary-repository default: this content
 		// is presumed live and actively pushed, not a pinned vendor dependency
-		if result.Spec.Interval.Duration != constants.DefaultFluxPrimaryRepositoryInterval {
-			t.Errorf("Expected primary-repository interval %v, got %v", constants.DefaultFluxPrimaryRepositoryInterval, result.Spec.Interval.Duration)
+		if result.Spec.Interval.Duration != constants.DefaultFluxPrimaryKustomizationInterval {
+			t.Errorf("Expected primary-repository interval %v, got %v", constants.DefaultFluxPrimaryKustomizationInterval, result.Spec.Interval.Duration)
 		}
 	})
 
