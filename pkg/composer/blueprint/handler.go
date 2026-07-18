@@ -740,6 +740,7 @@ func (h *BaseBlueprintHandler) loadSources() error {
 	var wg sync.WaitGroup
 	var mu sync.Mutex
 	var errs []error
+	claimed := make(map[string]bool)
 
 	for _, source := range userBp.Sources {
 		if source.Name == "" {
@@ -747,10 +748,12 @@ func (h *BaseBlueprintHandler) loadSources() error {
 		}
 		mu.Lock()
 		_, exists := h.sourceBlueprintLoaders[source.Name]
-		mu.Unlock()
-		if exists {
+		if exists || claimed[source.Name] {
+			mu.Unlock()
 			continue
 		}
+		claimed[source.Name] = true
+		mu.Unlock()
 
 		wg.Add(1)
 		go func(src blueprintv1alpha1.Source) {
