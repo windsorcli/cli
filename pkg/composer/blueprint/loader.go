@@ -8,6 +8,7 @@ import (
 
 	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
 	"github.com/windsorcli/cli/pkg/composer/artifact"
+	"github.com/windsorcli/cli/pkg/constants"
 	"github.com/windsorcli/cli/pkg/runtime"
 )
 
@@ -213,6 +214,10 @@ func (l *BaseBlueprintLoader) loadFromOCI() error {
 		return fmt.Errorf("failed to retrieve cache directory for %s", l.sourceURL)
 	}
 
+	if err := l.enforceCliVersionCompatibility(cacheDir, tag); err != nil {
+		return err
+	}
+
 	templateDir := filepath.Join(cacheDir, "_template")
 	if _, err := l.shims.Stat(templateDir); os.IsNotExist(err) {
 		templateDir = cacheDir
@@ -317,6 +322,32 @@ func (l *BaseBlueprintLoader) normalizeOCISourceRefs(bp *blueprintv1alpha1.Bluep
 			s.Ref = blueprintv1alpha1.Reference{}
 		}
 	}
+}
+
+// enforceCliVersionCompatibility returns an error when this source's pulled artifact declares a
+// cliVersion constraint (artifact.BlueprintMetadataInput.CliVersion) the running CLI does not
+// satisfy. Reads the same root metadata.yaml applyArtifactMetadataName already extracts; missing
+// or unparsable metadata is treated as no constraint declared, not a failure — Windsor enforces
+// what an artifact declares, it does not infer compatibility. Called before any other loading work
+// so an incompatible source fails fast with a named, actionable error instead of surfacing as a
+// downstream schema or tier failure.
+func (l *BaseBlueprintLoader) enforceCliVersionCompatibility(cacheDir, tag string) error {
+	metadataPath := filepath.Join(cacheDir, "metadata.yaml")
+	if _, err := l.shims.Stat(metadataPath); os.IsNotExist(err) {
+		return nil
+	}
+	data, err := l.shims.ReadFile(metadataPath)
+	if err != nil {
+		return nil
+	}
+	var meta artifact.BlueprintMetadataInput
+	if err := l.shims.YamlUnmarshal(data, &meta); err != nil {
+		return nil
+	}
+	if err := artifact.ValidateCliVersion(constants.Version, meta.CliVersion); err != nil {
+		return fmt.Errorf("%s:%s is incompatible with this CLI (%w) — upgrade windsor or pin an older tag for this source in blueprint.yaml", l.sourceName, tag, err)
+	}
+	return nil
 }
 
 // applyArtifactMetadataName sets the blueprint's Metadata.Name from the artifact's root
