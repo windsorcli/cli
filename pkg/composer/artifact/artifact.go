@@ -39,6 +39,11 @@ import (
 
 const artifactTarFilename = "artifact.tar"
 
+// CliVersionAnnotationKey is the OCI manifest annotation key that mirrors an artifact's
+// cliVersion constraint (see BlueprintMetadataInput.CliVersion), letting a consumer check
+// compatibility with a manifest-only fetch instead of a full Pull. See GetCliVersionConstraint.
+const CliVersionAnnotationKey = "windsorcli.dev/cli-version"
+
 // =============================================================================
 // Interfaces
 // =============================================================================
@@ -53,6 +58,7 @@ type Artifact interface {
 	ParseOCIRef(ociRef string) (registry, repository, tag string, err error)
 	GetCacheDir(registry, repository, tag string) (string, error)
 	ListTags(ociRef string) ([]string, error)
+	GetCliVersionConstraint(ociRef string) (string, error)
 }
 
 // =============================================================================
@@ -168,7 +174,7 @@ func (a *ArtifactBuilder) Write(outputPath string, tag string) (string, error) {
 		return "", fmt.Errorf("failed to bundle files: %w", err)
 	}
 
-	finalName, finalVersion, metadata, err := a.parseTagAndResolveMetadata("", tag)
+	finalName, finalVersion, _, metadata, err := a.parseTagAndResolveMetadata("", tag)
 	if err != nil {
 		return "", err
 	}
@@ -240,6 +246,44 @@ func (a *ArtifactBuilder) ListTags(ociRef string) ([]string, error) {
 	return tags, nil
 }
 
+// GetCliVersionConstraint returns the cliVersion constraint an OCI artifact declares, read from
+// its CliVersionAnnotationKey manifest annotation (set at push time by createOCIArtifactImage).
+// It fetches only the image manifest — never the layer blob a full Pull would download and
+// extract — so checking a candidate tag's compatibility costs a small JSON round trip regardless
+// of artifact size. Returns an empty string, not an error, when the tag declares no constraint
+// (an older tag published before this annotation existed, or an artifact that never set
+// cliVersion): callers treat that the same way ValidateCliVersion treats an empty constraint —
+// unconstrained, not a failure.
+func (a *ArtifactBuilder) GetCliVersionConstraint(ociRef string) (string, error) {
+	registry, repository, tag, err := a.ParseOCIRef(ociRef)
+	if err != nil {
+		return "", err
+	}
+
+	ref := fmt.Sprintf("%s/%s:%s", registry, repository, tag)
+	parsedRef, err := a.shims.ParseReference(ref)
+	if err != nil {
+		return "", fmt.Errorf("failed to parse reference %s: %w", ref, err)
+	}
+
+	img, err := a.shims.RemoteImage(parsedRef, remote.WithAuthFromKeychain(authn.DefaultKeychain))
+	if err != nil && IsAuthenticationError(err) {
+		if anonImg, anonErr := a.shims.RemoteImage(parsedRef, remote.WithAuth(authn.Anonymous)); anonErr == nil {
+			img, err = anonImg, nil
+		}
+	}
+	if err != nil {
+		return "", fmt.Errorf("failed to get image manifest for %s: %w", ref, err)
+	}
+
+	manifest, err := img.Manifest()
+	if err != nil {
+		return "", fmt.Errorf("failed to read manifest for %s: %w", ref, err)
+	}
+
+	return manifest.Annotations[CliVersionAnnotationKey], nil
+}
+
 // GetCacheDir returns the cache directory path for an OCI artifact identified by registry, repository, and tag.
 // The cache directory is located at <projectRoot>/.windsor/cache/oci/<extractionKey> where extractionKey
 // is the cacheKey with / and : replaced with _ for filesystem safety.
@@ -266,13 +310,14 @@ func (a *ArtifactBuilder) Push(registryBase string, repoName string, tag string)
 		return fmt.Errorf("failed to bundle files: %w", err)
 	}
 
-	finalName, tagName, metadata, err := a.parseTagAndResolveMetadata(repoName, tag)
+	finalName, tagName, cliVersionConstraint, metadata, err := a.parseTagAndResolveMetadata(repoName, tag)
 	if err != nil {
 		return err
 	}
 
 	a.metadata.Name = finalName
 	a.metadata.Version = tagName
+	a.metadata.CliVersion = cliVersionConstraint
 	if err := a.refreshArtifactManifest(); err != nil {
 		return err
 	}
@@ -284,7 +329,7 @@ func (a *ArtifactBuilder) Push(registryBase string, repoName string, tag string)
 
 	layer := static.NewLayer(tarballContent, types.DockerLayer)
 
-	img, err := a.createOCIArtifactImage(layer, finalName, tagName)
+	img, err := a.createOCIArtifactImage(layer, finalName, tagName, cliVersionConstraint)
 	if err != nil {
 		return fmt.Errorf("failed to create OCI image: %w", err)
 	}
@@ -803,8 +848,9 @@ func (a *ArtifactBuilder) shouldSkipTerraformFile(filename string) bool {
 // For Push method (repoName provided): tag is version only, repoName is used as fallback name
 // Loads existing metadata.yaml from files if present and parses it as BlueprintMetadataInput.
 // Tag parameter takes precedence over metadata file values for version and/or name.
-// Returns final name, version, and complete marshaled metadata ready for embedding in artifacts.
-func (a *ArtifactBuilder) parseTagAndResolveMetadata(repoName, tag string) (string, string, []byte, error) {
+// Returns final name, version, the cliVersion constraint (empty if none declared), and complete
+// marshaled metadata ready for embedding in artifacts.
+func (a *ArtifactBuilder) parseTagAndResolveMetadata(repoName, tag string) (string, string, string, []byte, error) {
 	var tagName, tagVersion string
 
 	if repoName == "" {
@@ -812,7 +858,7 @@ func (a *ArtifactBuilder) parseTagAndResolveMetadata(repoName, tag string) (stri
 			if strings.Contains(tag, ":") {
 				parts := strings.Split(tag, ":")
 				if len(parts) != 2 || parts[0] == "" || parts[1] == "" {
-					return "", "", nil, fmt.Errorf("tag must be in format 'name:version', got: %s", tag)
+					return "", "", "", nil, fmt.Errorf("tag must be in format 'name:version', got: %s", tag)
 				}
 				tagName = parts[0]
 				tagVersion = parts[1]
@@ -831,10 +877,10 @@ func (a *ArtifactBuilder) parseTagAndResolveMetadata(repoName, tag string) (stri
 
 	if hasMetadata {
 		if err := a.shims.YamlUnmarshal(metadataFileInfo.Content, &input); err != nil {
-			return "", "", nil, fmt.Errorf("failed to parse metadata.yaml: %w", err)
+			return "", "", "", nil, fmt.Errorf("failed to parse metadata.yaml: %w", err)
 		}
 		if err := ValidateCliVersion(constants.Version, input.CliVersion); err != nil {
-			return "", "", nil, err
+			return "", "", "", nil, err
 		}
 	}
 
@@ -854,21 +900,21 @@ func (a *ArtifactBuilder) parseTagAndResolveMetadata(repoName, tag string) (stri
 
 	if finalName == "" {
 		if repoName == "" {
-			return "", "", nil, fmt.Errorf("name is required: provide via tag parameter or metadata.yaml")
+			return "", "", "", nil, fmt.Errorf("name is required: provide via tag parameter or metadata.yaml")
 		} else {
-			return "", "", nil, fmt.Errorf("name is required: provide via metadata.yaml")
+			return "", "", "", nil, fmt.Errorf("name is required: provide via metadata.yaml")
 		}
 	}
 	if finalVersion == "" {
-		return "", "", nil, fmt.Errorf("version is required: provide via tag parameter or metadata.yaml")
+		return "", "", "", nil, fmt.Errorf("version is required: provide via tag parameter or metadata.yaml")
 	}
 
 	metadata, err := a.generateMetadata(input, finalName, finalVersion)
 	if err != nil {
-		return "", "", nil, fmt.Errorf("failed to generate metadata: %w", err)
+		return "", "", "", nil, fmt.Errorf("failed to generate metadata: %w", err)
 	}
 
-	return finalName, finalVersion, metadata, nil
+	return finalName, finalVersion, input.CliVersion, metadata, nil
 }
 
 // generateMetadata creates enriched metadata by merging input metadata with generated values.
@@ -1003,8 +1049,10 @@ func (a *ArtifactBuilder) createTarballToDisk(outputPath string, metadata []byte
 // Sets architecture to amd64 and OS to linux for compatibility with container runtimes.
 // Uses standard OCI media types with optional artifactType for tool-specific identification.
 // Adds comprehensive OCI annotations including creation time, source, revision, title, and version.
+// When cliVersionConstraint is non-empty, also sets CliVersionAnnotationKey so a consumer can check
+// CLI compatibility for this tag via GetCliVersionConstraint's manifest-only fetch, without a full Pull.
 // Returns a complete OCI image ready for pushing to any OCI 1.1 compatible registry.
-func (a *ArtifactBuilder) createOCIArtifactImage(layer v1.Layer, repoName, tagName string) (v1.Image, error) {
+func (a *ArtifactBuilder) createOCIArtifactImage(layer v1.Layer, repoName, tagName, cliVersionConstraint string) (v1.Image, error) {
 	gitProvenance, err := a.getGitProvenance()
 	if err != nil {
 		gitProvenance = GitProvenance{}
@@ -1059,6 +1107,9 @@ func (a *ArtifactBuilder) createOCIArtifactImage(layer v1.Layer, repoName, tagNa
 		"org.opencontainers.image.revision": revision,
 		"org.opencontainers.image.title":    repoName,
 		"org.opencontainers.image.version":  tagName,
+	}
+	if cliVersionConstraint != "" {
+		annotations[CliVersionAnnotationKey] = cliVersionConstraint
 	}
 
 	img = a.shims.Annotations(img, annotations)
