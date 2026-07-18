@@ -171,7 +171,7 @@ const DefaultKustomizationWaitMaxFailures = 5
 const DefaultTerraformDestroyTimeout = 30 * time.Minute
 
 // Bounds the pre-destroy Kubernetes reachability preflight.
-const DefaultKubernetesReachabilityCheckTimeout = 10 * time.Second
+const DefaultKubernetesReachabilityCheckTimeout = 30 * time.Second
 
 // renovate: datasource=docker depName=localstack/localstack
 const DefaultAWSLocalstackImage = "localstack/localstack:4.14.0"
