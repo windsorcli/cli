@@ -12,9 +12,11 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
 	"github.com/windsorcli/cli/pkg/composer/blueprint"
+	"github.com/windsorcli/cli/pkg/constants"
 	"github.com/windsorcli/cli/pkg/runtime"
 	"github.com/windsorcli/cli/pkg/runtime/config"
 	envvars "github.com/windsorcli/cli/pkg/runtime/env"
@@ -1109,6 +1111,32 @@ func TestStack_DestroyAll(t *testing.T) {
 
 		if _, err := stack.DestroyAll(blueprint, false); err != nil {
 			t.Errorf("Expected Down to return nil, got %v", err)
+		}
+	})
+
+	t.Run("UsesDestroyTimeout", func(t *testing.T) {
+		// Given a stack whose terraform destroy exec is bounded by a timeout
+		stack, mocks := setup(t)
+		var gotTimeout time.Duration
+		var sawDestroy bool
+		mocks.Shell.ExecSilentWithEnvAndTimeoutFunc = func(command string, env map[string]string, args []string, timeout time.Duration) (string, error) {
+			sawDestroy = true
+			gotTimeout = timeout
+			return "", nil
+		}
+		blueprint := createTestBlueprint()
+
+		// When DestroyAll runs
+		if _, err := stack.DestroyAll(blueprint, false); err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+
+		// Then the destroy exec runs with the bounded timeout, not the untimed variant
+		if !sawDestroy {
+			t.Fatal("Expected terraform destroy to run via ExecSilentWithEnvAndTimeout")
+		}
+		if gotTimeout != constants.DefaultTerraformDestroyTimeout {
+			t.Errorf("Expected timeout %v, got %v", constants.DefaultTerraformDestroyTimeout, gotTimeout)
 		}
 	})
 
@@ -2953,6 +2981,33 @@ func TestStack_Destroy(t *testing.T) {
 		// Then no error should occur
 		if err != nil {
 			t.Errorf("Expected Destroy to return nil, got %v", err)
+		}
+	})
+
+	t.Run("UsesDestroyTimeout", func(t *testing.T) {
+		// Given a stack whose terraform destroy exec is bounded by a timeout
+		stack, mocks := setup(t)
+		var gotTimeout time.Duration
+		var sawDestroy bool
+		mocks.Shell.ExecSilentWithEnvAndTimeoutFunc = func(command string, env map[string]string, args []string, timeout time.Duration) (string, error) {
+			sawDestroy = true
+			gotTimeout = timeout
+			return "", nil
+		}
+		blueprint := createTestBlueprint()
+
+		// When destroying the local component by ID
+		_, err := stack.Destroy(blueprint, "local/path")
+
+		// Then the destroy exec runs with the bounded timeout, not the untimed variant
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		if !sawDestroy {
+			t.Fatal("Expected terraform destroy to run via ExecSilentWithEnvAndTimeout")
+		}
+		if gotTimeout != constants.DefaultTerraformDestroyTimeout {
+			t.Errorf("Expected timeout %v, got %v", constants.DefaultTerraformDestroyTimeout, gotTimeout)
 		}
 	})
 

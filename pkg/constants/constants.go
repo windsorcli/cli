@@ -167,6 +167,12 @@ const DefaultKustomizationWaitPollInterval = 5 * time.Second
 // Maximum number of consecutive failures before giving up
 const DefaultKustomizationWaitMaxFailures = 5
 
+// Bounds a single `terraform destroy` invocation so a hung provider call fails, not blocks forever.
+const DefaultTerraformDestroyTimeout = 30 * time.Minute
+
+// Bounds the pre-destroy Kubernetes reachability preflight.
+const DefaultKubernetesReachabilityCheckTimeout = 30 * time.Second
+
 // renovate: datasource=docker depName=localstack/localstack
 const DefaultAWSLocalstackImage = "localstack/localstack:4.14.0"
 

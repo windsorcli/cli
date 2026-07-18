@@ -19,6 +19,7 @@ import (
 	"sync"
 
 	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
+	"github.com/windsorcli/cli/pkg/constants"
 	"github.com/windsorcli/cli/pkg/runtime"
 	envvars "github.com/windsorcli/cli/pkg/runtime/env"
 	"github.com/windsorcli/cli/pkg/tui"
@@ -566,7 +567,8 @@ func (s *TerraformStack) MigrateComponentState(blueprint *blueprintv1alpha1.Blue
 // off the backend component from the bulk pass — it gets destroyed last, after its state
 // is migrated to local). When continueOnError is true, per-component destroy errors are
 // collected in DestroyOutcome.Failed and the loop proceeds to the next component; when
-// false, the first error aborts and is returned alongside a partial DestroyOutcome.
+// false, the first error aborts and is returned alongside a partial DestroyOutcome. Each
+// destroy is bounded by constants.DefaultTerraformDestroyTimeout.
 func (s *TerraformStack) DestroyAll(blueprint *blueprintv1alpha1.Blueprint, continueOnError bool, excludeIDs ...string) (DestroyOutcome, error) {
 	var result DestroyOutcome
 	if blueprint == nil {
@@ -693,7 +695,7 @@ func (s *TerraformStack) DestroyAll(blueprint *blueprintv1alpha1.Blueprint, cont
 			destroyArgs := []string{fmt.Sprintf("-chdir=%s", component.FullPath), "destroy", destroyRefreshFlag}
 			destroyArgs = append(destroyArgs, terraformArgs.DestroyArgs...)
 			destroyEnv := selectTerraformCommandEnv(terraformVars, true, scopedKeys)
-			output, err := s.runtime.Shell.ExecSilentWithEnv(terraformCommand, destroyEnv, destroyArgs...)
+			output, err := s.runtime.Shell.ExecSilentWithEnvAndTimeout(terraformCommand, destroyEnv, destroyArgs, constants.DefaultTerraformDestroyTimeout)
 			if err != nil {
 				if trimmed := strings.TrimSpace(output); trimmed != "" {
 					fmt.Fprintf(s.warningWriter, "terraform destroy output for %s:\n%s\n", component.Path, trimmed)
@@ -869,6 +871,7 @@ func (s *TerraformStack) Apply(blueprint *blueprintv1alpha1.Blueprint, component
 // for backend) would otherwise produce inconsistent "Destroying X" / "Destroying terraform
 // for X" lines side by side. The terraform destroy exec runs silently inside the spinner
 // for the same reason: the bulk loop is silent, so single-component Destroy must be too.
+// Bounded by constants.DefaultTerraformDestroyTimeout.
 func (s *TerraformStack) Destroy(blueprint *blueprintv1alpha1.Blueprint, componentID string) (bool, error) {
 	if blueprint == nil {
 		return false, fmt.Errorf("blueprint not provided")
@@ -926,7 +929,7 @@ func (s *TerraformStack) Destroy(blueprint *blueprintv1alpha1.Blueprint, compone
 		destroyArgs = append(destroyArgs, terraformArgs.DestroyArgs...)
 		destroyEnv := selectTerraformCommandEnv(terraformVars, true, scopedKeys)
 
-		output, err := s.runtime.Shell.ExecSilentWithEnv(terraformCommand, destroyEnv, destroyArgs...)
+		output, err := s.runtime.Shell.ExecSilentWithEnvAndTimeout(terraformCommand, destroyEnv, destroyArgs, constants.DefaultTerraformDestroyTimeout)
 		if err != nil {
 			if trimmed := strings.TrimSpace(output); trimmed != "" {
 				fmt.Fprintf(s.warningWriter, "terraform destroy output for %s:\n%s\n", component.Path, trimmed)

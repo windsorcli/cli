@@ -728,7 +728,7 @@ func TestProvisioner_DestroyAllTerraform(t *testing.T) {
 		mocks := setupProvisionerMocks(t)
 		mockStack := terraforminfra.NewMockStack()
 		mockStack.DestroyAllFunc = func(bp *blueprintv1alpha1.Blueprint, _ bool, excludeIDs ...string) (terraforminfra.DestroyOutcome, error) { return terraforminfra.DestroyOutcome{}, nil }
-		opts := &Provisioner{TerraformStack: mockStack}
+		opts := &Provisioner{KubernetesManager: mocks.KubernetesManager, TerraformStack: mockStack}
 		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
 
 		_, err := provisioner.DestroyAllTerraform(createTestBlueprint(), false)
@@ -782,7 +782,7 @@ func TestProvisioner_DestroyAllTerraform(t *testing.T) {
 		mockStack.DestroyAllFunc = func(bp *blueprintv1alpha1.Blueprint, _ bool, excludeIDs ...string) (terraforminfra.DestroyOutcome, error) {
 			return terraforminfra.DestroyOutcome{}, fmt.Errorf("terraform destroy all failed")
 		}
-		opts := &Provisioner{TerraformStack: mockStack}
+		opts := &Provisioner{KubernetesManager: mocks.KubernetesManager, TerraformStack: mockStack}
 		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
 
 		_, err := provisioner.DestroyAllTerraform(createTestBlueprint(), false)
@@ -792,6 +792,33 @@ func TestProvisioner_DestroyAllTerraform(t *testing.T) {
 		}
 		if !strings.Contains(err.Error(), "failed to run terraform destroy") {
 			t.Errorf("Expected specific error message, got: %v", err)
+		}
+	})
+
+	t.Run("ErrorKubernetesUnreachable", func(t *testing.T) {
+		mocks := setupProvisionerMocks(t)
+		mocks.KubernetesManager.WaitForKubernetesHealthyFunc = func(ctx context.Context, endpoint string, outputFunc func(string), nodeNames ...string) error {
+			return fmt.Errorf("connection refused")
+		}
+		mockStack := terraforminfra.NewMockStack()
+		destroyAllCalled := false
+		mockStack.DestroyAllFunc = func(bp *blueprintv1alpha1.Blueprint, _ bool, excludeIDs ...string) (terraforminfra.DestroyOutcome, error) {
+			destroyAllCalled = true
+			return terraforminfra.DestroyOutcome{}, nil
+		}
+		opts := &Provisioner{KubernetesManager: mocks.KubernetesManager, TerraformStack: mockStack}
+		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
+
+		_, err := provisioner.DestroyAllTerraform(createTestBlueprint(), false)
+
+		if err == nil {
+			t.Fatal("Expected error when kubernetes is unreachable")
+		}
+		if !strings.Contains(err.Error(), "kubernetes API is unreachable") {
+			t.Errorf("Expected specific error message, got: %v", err)
+		}
+		if destroyAllCalled {
+			t.Error("Expected terraform DestroyAll not to run when kubernetes is unreachable")
 		}
 	})
 }
@@ -2144,7 +2171,7 @@ func TestProvisioner_Destroy(t *testing.T) {
 		mocks := setupProvisionerMocks(t)
 		mockStack := terraforminfra.NewMockStack()
 		mockStack.DestroyFunc = func(bp *blueprintv1alpha1.Blueprint, componentID string) (bool, error) { return false, nil }
-		opts := &Provisioner{TerraformStack: mockStack}
+		opts := &Provisioner{KubernetesManager: mocks.KubernetesManager, TerraformStack: mockStack}
 		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
 
 		_, err := provisioner.Destroy(createTestBlueprint(), "remote/path")
@@ -2198,7 +2225,7 @@ func TestProvisioner_Destroy(t *testing.T) {
 		mockStack.DestroyFunc = func(bp *blueprintv1alpha1.Blueprint, componentID string) (bool, error) {
 			return false, fmt.Errorf("terraform stack destroy failed")
 		}
-		opts := &Provisioner{TerraformStack: mockStack}
+		opts := &Provisioner{KubernetesManager: mocks.KubernetesManager, TerraformStack: mockStack}
 		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
 
 		_, err := provisioner.Destroy(createTestBlueprint(), "remote/path")
@@ -2220,7 +2247,7 @@ func TestProvisioner_Destroy(t *testing.T) {
 		mockStack.DestroyFunc = func(bp *blueprintv1alpha1.Blueprint, componentID string) (bool, error) {
 			return true, nil
 		}
-		opts := &Provisioner{TerraformStack: mockStack}
+		opts := &Provisioner{KubernetesManager: mocks.KubernetesManager, TerraformStack: mockStack}
 		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
 
 		skipped, err := provisioner.Destroy(createTestBlueprint(), "remote/path")
@@ -2229,6 +2256,33 @@ func TestProvisioner_Destroy(t *testing.T) {
 		}
 		if !skipped {
 			t.Error("Expected skipped=true when stack reports empty state")
+		}
+	})
+
+	t.Run("ErrorKubernetesUnreachable", func(t *testing.T) {
+		mocks := setupProvisionerMocks(t)
+		mocks.KubernetesManager.WaitForKubernetesHealthyFunc = func(ctx context.Context, endpoint string, outputFunc func(string), nodeNames ...string) error {
+			return fmt.Errorf("connection refused")
+		}
+		mockStack := terraforminfra.NewMockStack()
+		destroyCalled := false
+		mockStack.DestroyFunc = func(bp *blueprintv1alpha1.Blueprint, componentID string) (bool, error) {
+			destroyCalled = true
+			return false, nil
+		}
+		opts := &Provisioner{KubernetesManager: mocks.KubernetesManager, TerraformStack: mockStack}
+		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
+
+		_, err := provisioner.Destroy(createTestBlueprint(), "remote/path")
+
+		if err == nil {
+			t.Fatal("Expected error when kubernetes is unreachable")
+		}
+		if !strings.Contains(err.Error(), "kubernetes API is unreachable") {
+			t.Errorf("Expected specific error message, got: %v", err)
+		}
+		if destroyCalled {
+			t.Error("Expected terraform Destroy not to run when kubernetes is unreachable")
 		}
 	})
 }
@@ -2526,6 +2580,90 @@ func TestProvisioner_DestroyAll(t *testing.T) {
 		// DeleteBlueprint actually processes.
 		if len(result.Destroyed) != 1 || result.Destroyed[0] != "dns" {
 			t.Errorf("Expected result.Destroyed=[dns], got %v", result.Destroyed)
+		}
+	})
+
+	t.Run("ErrorKubernetesUnreachable", func(t *testing.T) {
+		mocks := setupProvisionerMocks(t)
+		mocks.KubernetesManager.DeleteBlueprintFunc = func(bp *blueprintv1alpha1.Blueprint, namespace string) error { return nil }
+		mocks.KubernetesManager.WaitForKubernetesHealthyFunc = func(ctx context.Context, endpoint string, outputFunc func(string), nodeNames ...string) error {
+			return fmt.Errorf("connection refused")
+		}
+		mockStack := terraforminfra.NewMockStack()
+		destroyAllCalled := false
+		mockStack.DestroyAllFunc = func(bp *blueprintv1alpha1.Blueprint, _ bool, excludeIDs ...string) (terraforminfra.DestroyOutcome, error) {
+			destroyAllCalled = true
+			return terraforminfra.DestroyOutcome{}, nil
+		}
+		opts := &Provisioner{KubernetesManager: mocks.KubernetesManager, TerraformStack: mockStack}
+		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
+
+		_, err := provisioner.DestroyAll(createTestBlueprint(), false)
+
+		if err == nil {
+			t.Fatal("Expected error when kubernetes is unreachable")
+		}
+		if !strings.Contains(err.Error(), "kubernetes API is unreachable") {
+			t.Errorf("Expected specific error message, got: %v", err)
+		}
+		if destroyAllCalled {
+			t.Error("Expected terraform DestroyAll not to run when kubernetes is unreachable")
+		}
+	})
+}
+
+func TestProvisioner_checkKubernetesReachableForDestroy(t *testing.T) {
+	t.Run("NoOpWhenKubernetesManagerNil", func(t *testing.T) {
+		mocks := setupProvisionerMocks(t)
+		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler)
+		provisioner.KubernetesManager = nil
+
+		if err := provisioner.checkKubernetesReachableForDestroy(); err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+	})
+
+	t.Run("NoOpWhenKubeconfigMissing", func(t *testing.T) {
+		mocks := setupProvisionerMocks(t)
+		mocks.Runtime.ConfigRoot = t.TempDir()
+		opts := &Provisioner{KubernetesManager: mocks.KubernetesManager}
+		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
+
+		if err := provisioner.checkKubernetesReachableForDestroy(); err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+	})
+
+	t.Run("PassesWhenClusterReachable", func(t *testing.T) {
+		mocks := setupProvisionerMocks(t)
+		mocks.KubernetesManager.WaitForKubernetesHealthyFunc = func(ctx context.Context, endpoint string, outputFunc func(string), nodeNames ...string) error {
+			return nil
+		}
+		opts := &Provisioner{KubernetesManager: mocks.KubernetesManager}
+		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
+
+		if err := provisioner.checkKubernetesReachableForDestroy(); err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+	})
+
+	t.Run("ErrorWhenClusterUnreachable", func(t *testing.T) {
+		mocks := setupProvisionerMocks(t)
+		mocks.KubernetesManager.WaitForKubernetesHealthyFunc = func(ctx context.Context, endpoint string, outputFunc func(string), nodeNames ...string) error {
+			return fmt.Errorf("connection refused")
+		}
+		opts := &Provisioner{KubernetesManager: mocks.KubernetesManager}
+		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
+
+		err := provisioner.checkKubernetesReachableForDestroy()
+		if err == nil {
+			t.Fatal("Expected error, got nil")
+		}
+		if !strings.Contains(err.Error(), "kubernetes API is unreachable") {
+			t.Errorf("Expected error to name the unreachable cluster, got: %v", err)
+		}
+		if !strings.Contains(err.Error(), "connection refused") {
+			t.Errorf("Expected error to wrap the underlying cause, got: %v", err)
 		}
 	})
 }
