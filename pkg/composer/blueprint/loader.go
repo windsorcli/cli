@@ -324,15 +324,9 @@ func (l *BaseBlueprintLoader) normalizeOCISourceRefs(bp *blueprintv1alpha1.Bluep
 	}
 }
 
-// enforceCliVersionCompatibility returns an error when this source's pulled artifact declares a
-// cliVersion constraint (artifact.BlueprintMetadataInput.CliVersion) the running CLI does not
-// satisfy. Reads the same root metadata.yaml applyArtifactMetadataName already extracts. A missing
-// metadata.yaml is treated as no constraint declared, not a failure — Windsor enforces what an
-// artifact declares, it does not infer compatibility. A metadata.yaml that exists but cannot be
-// read or parsed is a different case and is NOT swallowed: silently skipping the gate on a
-// corrupted or unreadable cache would let a malformed artifact bypass the one check that exists to
-// catch it. Called before any other loading work so an incompatible source fails fast with a
-// named, actionable error instead of surfacing as a downstream schema or tier failure.
+// enforceCliVersionCompatibility errors if this source's pulled artifact declares a cliVersion
+// constraint the running CLI doesn't satisfy. A missing metadata.yaml means no constraint; a
+// read/parse failure is a real error, not swallowed, so a corrupted cache can't bypass the check.
 func (l *BaseBlueprintLoader) enforceCliVersionCompatibility(cacheDir, tag string) error {
 	metadataPath := filepath.Join(cacheDir, "metadata.yaml")
 	if _, err := l.shims.Stat(metadataPath); os.IsNotExist(err) {

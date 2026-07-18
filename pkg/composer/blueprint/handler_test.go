@@ -2258,102 +2258,6 @@ func TestLatestStableSemver(t *testing.T) {
 	})
 }
 
-func TestResolveCompatibleTag(t *testing.T) {
-	t.Run("PicksHighestCompatibleSkippingIncompatibleNewest", func(t *testing.T) {
-		setTestCliVersion(t, "0.8.1")
-		mock := artifact.NewMockArtifact()
-		mock.GetCliVersionConstraintFunc = func(ociRef string) (string, error) {
-			if ociRef == "oci://ghcr.io/windsorcli/core:v0.7.0" {
-				return ">=99.0.0", nil
-			}
-			return "", nil
-		}
-
-		tag, v, ok, err := resolveCompatibleTag(mock, "oci://ghcr.io/windsorcli/core", []string{"v0.5.0", "v0.6.0", "v0.7.0"})
-
-		if err != nil {
-			t.Fatalf("Expected no error, got %v", err)
-		}
-		if !ok || tag != "v0.6.0" {
-			t.Fatalf("Expected v0.6.0 (skipping incompatible v0.7.0), got tag=%q ok=%v", tag, ok)
-		}
-		if v == nil || v.String() != "0.6.0" {
-			t.Errorf("Expected parsed 0.6.0, got %v", v)
-		}
-	})
-
-	t.Run("SkipsPrereleaseTagsEvenWhenCompatible", func(t *testing.T) {
-		setTestCliVersion(t, "0.8.1")
-		mock := artifact.NewMockArtifact()
-
-		tag, _, ok, err := resolveCompatibleTag(mock, "oci://ghcr.io/windsorcli/core", []string{"v0.6.0", "v0.7.0-rc.1"})
-
-		if err != nil {
-			t.Fatalf("Expected no error, got %v", err)
-		}
-		if !ok || tag != "v0.6.0" {
-			t.Errorf("Expected v0.6.0 (prerelease excluded regardless of compatibility), got tag=%q ok=%v", tag, ok)
-		}
-	})
-
-	t.Run("TreatsUndeclaredConstraintAsCompatible", func(t *testing.T) {
-		setTestCliVersion(t, "0.1.0")
-		mock := artifact.NewMockArtifact()
-
-		tag, _, ok, err := resolveCompatibleTag(mock, "oci://ghcr.io/windsorcli/core", []string{"v0.6.0"})
-
-		if err != nil {
-			t.Fatalf("Expected no error, got %v", err)
-		}
-		if !ok || tag != "v0.6.0" {
-			t.Errorf("Expected an undeclared constraint to be treated as compatible, got tag=%q ok=%v", tag, ok)
-		}
-	})
-
-	t.Run("FalseWhenNoTagIsCompatible", func(t *testing.T) {
-		setTestCliVersion(t, "0.1.0")
-		mock := artifact.NewMockArtifact()
-		mock.GetCliVersionConstraintFunc = func(ociRef string) (string, error) {
-			return ">=99.0.0", nil
-		}
-
-		_, _, ok, err := resolveCompatibleTag(mock, "oci://ghcr.io/windsorcli/core", []string{"v0.5.0", "v0.6.0"})
-
-		if err != nil {
-			t.Fatalf("Expected no error, got %v", err)
-		}
-		if ok {
-			t.Error("Expected ok=false when no tag is compatible")
-		}
-	})
-
-	t.Run("PropagatesConstraintCheckError", func(t *testing.T) {
-		mock := artifact.NewMockArtifact()
-		mock.GetCliVersionConstraintFunc = func(ociRef string) (string, error) {
-			return "", fmt.Errorf("registry unreachable")
-		}
-
-		_, _, _, err := resolveCompatibleTag(mock, "oci://ghcr.io/windsorcli/core", []string{"v0.6.0"})
-
-		if err == nil {
-			t.Error("Expected the registry error to propagate")
-		}
-	})
-
-	t.Run("FalseWhenNoStableSemverTagPresent", func(t *testing.T) {
-		mock := artifact.NewMockArtifact()
-
-		_, _, ok, err := resolveCompatibleTag(mock, "oci://ghcr.io/windsorcli/core", []string{"v1.0.0-rc.1", "garbage"})
-
-		if err != nil {
-			t.Fatalf("Expected no error, got %v", err)
-		}
-		if ok {
-			t.Error("Expected ok=false among prereleases/junk")
-		}
-	})
-}
-
 func TestIsDowngrade(t *testing.T) {
 	t.Run("TrueWhenTargetTagIsOlderInSameRepo", func(t *testing.T) {
 		// Given a target that pins an older semver than the previous ref of the same repository
@@ -2582,6 +2486,35 @@ func TestHandler_UpgradeSourcesToLatest(t *testing.T) {
 		}
 		if len(upgrades) != 0 {
 			t.Errorf("Expected no upgrades, got %v", upgrades)
+		}
+	})
+
+	t.Run("FallsBackToVerifyWhenNewestTagHasNoAnnotation", func(t *testing.T) {
+		// Given the newest tag carries no cliVersion manifest annotation (an artifact published
+		// before that annotation existed) but its in-tarball metadata.yaml, checked via the
+		// fallback, is compatible
+		handler, mock := setup(t,
+			[]blueprintv1alpha1.Source{{Name: "core", Url: "oci://ghcr.io/windsorcli/core:v0.5.0"}},
+			map[string][]string{"oci://ghcr.io/windsorcli/core:v0.5.0": {"v0.5.0", "v0.6.0"}},
+		)
+		var verifiedRef string
+		mock.VerifyCliVersionCompatibilityFunc = func(ociRef string) error {
+			verifiedRef = ociRef
+			return nil
+		}
+
+		// When upgrading sources to latest
+		upgrades, err := handler.UpgradeSourcesToLatest()
+
+		// Then it upgrades to the fallback-verified tag
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		if len(upgrades) != 1 || upgrades[0].To != "oci://ghcr.io/windsorcli/core:v0.6.0" {
+			t.Fatalf("Expected upgrade to v0.6.0 via the verify fallback, got %v", upgrades)
+		}
+		if verifiedRef != "oci://ghcr.io/windsorcli/core:v0.6.0" {
+			t.Errorf("Expected the fallback to verify the resolved candidate, got %q", verifiedRef)
 		}
 	})
 

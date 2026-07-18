@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 
@@ -39,9 +40,8 @@ import (
 
 const artifactTarFilename = "artifact.tar"
 
-// CliVersionAnnotationKey is the OCI manifest annotation key that mirrors an artifact's
-// cliVersion constraint (see BlueprintMetadataInput.CliVersion), letting a consumer check
-// compatibility with a manifest-only fetch instead of a full Pull. See GetCliVersionConstraint.
+// CliVersionAnnotationKey mirrors BlueprintMetadataInput.CliVersion into the OCI manifest, so
+// GetCliVersionConstraint can check it without a full Pull.
 const CliVersionAnnotationKey = "windsorcli.dev/cli-version"
 
 // =============================================================================
@@ -59,6 +59,7 @@ type Artifact interface {
 	GetCacheDir(registry, repository, tag string) (string, error)
 	ListTags(ociRef string) ([]string, error)
 	GetCliVersionConstraint(ociRef string) (string, error)
+	VerifyCliVersionCompatibility(ociRef string) error
 }
 
 // =============================================================================
@@ -246,14 +247,8 @@ func (a *ArtifactBuilder) ListTags(ociRef string) ([]string, error) {
 	return tags, nil
 }
 
-// GetCliVersionConstraint returns the cliVersion constraint an OCI artifact declares, read from
-// its CliVersionAnnotationKey manifest annotation (set at push time by createOCIArtifactImage).
-// It fetches only the image manifest — never the layer blob a full Pull would download and
-// extract — so checking a candidate tag's compatibility costs a small JSON round trip regardless
-// of artifact size. Returns an empty string, not an error, when the tag declares no constraint
-// (an older tag published before this annotation existed, or an artifact that never set
-// cliVersion): callers treat that the same way ValidateCliVersion treats an empty constraint —
-// unconstrained, not a failure.
+// GetCliVersionConstraint returns ociRef's declared cliVersion constraint, via a manifest-only
+// fetch (no layer pull). Empty string, not an error, means no constraint declared.
 func (a *ArtifactBuilder) GetCliVersionConstraint(ociRef string) (string, error) {
 	registry, repository, tag, err := a.ParseOCIRef(ociRef)
 	if err != nil {
@@ -282,6 +277,81 @@ func (a *ArtifactBuilder) GetCliVersionConstraint(ociRef string) (string, error)
 	}
 
 	return manifest.Annotations[CliVersionAnnotationKey], nil
+}
+
+// VerifyCliVersionCompatibility pulls ociRef and validates its metadata.yaml cliVersion constraint
+// against the running CLI. Used as ResolveCompatibleTag's fallback when a candidate's manifest
+// annotation is absent. Returns nil if compatible or undeclared; any other error means "don't
+// trust this candidate."
+func (a *ArtifactBuilder) VerifyCliVersionCompatibility(ociRef string) error {
+	artifacts, err := a.Pull([]string{ociRef})
+	if err != nil {
+		return fmt.Errorf("failed to pull %s: %w", ociRef, err)
+	}
+	registry, repository, tag, err := a.ParseOCIRef(ociRef)
+	if err != nil {
+		return err
+	}
+	cacheKey := fmt.Sprintf("%s/%s:%s", registry, repository, tag)
+	cacheDir, ok := artifacts[cacheKey]
+	if !ok {
+		return fmt.Errorf("failed to retrieve cache directory for %s", ociRef)
+	}
+
+	metadataPath := filepath.Join(cacheDir, "metadata.yaml")
+	if _, err := a.shims.Stat(metadataPath); os.IsNotExist(err) {
+		return nil
+	}
+	data, err := a.shims.ReadFile(metadataPath)
+	if err != nil {
+		return fmt.Errorf("failed to read %s: %w", metadataPath, err)
+	}
+	var meta BlueprintMetadataInput
+	if err := a.shims.YamlUnmarshal(data, &meta); err != nil {
+		return fmt.Errorf("failed to parse %s: %w", metadataPath, err)
+	}
+	return ValidateCliVersion(constants.Version, meta.CliVersion)
+}
+
+// ResolveCompatibleTag walks tags newest-first (stable semver only) and returns the highest one
+// this CLI is compatible with. Checks the cheap manifest annotation first; falls back to
+// VerifyCliVersionCompatibility (a real pull) when the annotation is absent, since older tags
+// predate that annotation and can't be assumed compatible. Reports ok=false, not an error, when
+// nothing qualifies.
+func ResolveCompatibleTag(artifactBuilder Artifact, urlPrefix string, tags []string) (tag string, version *semver.Version, ok bool, err error) {
+	type candidate struct {
+		tag string
+		ver *semver.Version
+	}
+	var candidates []candidate
+	for _, t := range tags {
+		v, err := semver.NewVersion(t)
+		if err != nil || v.Prerelease() != "" {
+			continue
+		}
+		candidates = append(candidates, candidate{tag: t, ver: v})
+	}
+	sort.Slice(candidates, func(i, j int) bool {
+		return candidates[i].ver.GreaterThan(candidates[j].ver)
+	})
+
+	for _, c := range candidates {
+		candidateRef := urlPrefix + ":" + c.tag
+		constraint, err := artifactBuilder.GetCliVersionConstraint(candidateRef)
+		if err != nil {
+			return "", nil, false, fmt.Errorf("failed to check compatibility for %s: %w", candidateRef, err)
+		}
+		if constraint != "" {
+			if ValidateCliVersion(constants.Version, constraint) == nil {
+				return c.tag, c.ver, true, nil
+			}
+			continue
+		}
+		if artifactBuilder.VerifyCliVersionCompatibility(candidateRef) == nil {
+			return c.tag, c.ver, true, nil
+		}
+	}
+	return "", nil, false, nil
 }
 
 // GetCacheDir returns the cache directory path for an OCI artifact identified by registry, repository, and tag.

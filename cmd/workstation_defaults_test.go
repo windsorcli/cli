@@ -1,10 +1,14 @@
 package cmd
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/windsorcli/cli/pkg/composer/artifact"
+	"github.com/windsorcli/cli/pkg/constants"
 )
 
 // =============================================================================
@@ -223,7 +227,7 @@ func TestApplyWorkstationFlagOverrides(t *testing.T) {
 func TestResolveBlueprintURL(t *testing.T) {
 	t.Run("ExplicitBlueprintWins", func(t *testing.T) {
 		// Given an explicit --blueprint value
-		urls, err := resolveBlueprintURL("oci://custom/blueprint:v1", "docker", "local", "/does/not/matter", true)
+		urls, err := resolveBlueprintURL("oci://custom/blueprint:v1", "docker", "local", "/does/not/matter", true, nil)
 
 		// Then the explicit URL is returned
 		if err != nil {
@@ -236,7 +240,7 @@ func TestResolveBlueprintURL(t *testing.T) {
 
 	t.Run("PlatformFallsBackToDefaultURL", func(t *testing.T) {
 		// Given --platform but no --blueprint
-		urls, err := resolveBlueprintURL("", "docker", "aws", "/does/not/matter", true)
+		urls, err := resolveBlueprintURL("", "docker", "aws", "/does/not/matter", true, nil)
 
 		// Then the default blueprint URL is returned
 		if err != nil {
@@ -260,7 +264,7 @@ func TestResolveBlueprintURL(t *testing.T) {
 			t.Fatalf("Failed to create template dir: %v", err)
 		}
 
-		urls, err := resolveBlueprintURL("", "aws", "aws", templateDir, true)
+		urls, err := resolveBlueprintURL("", "aws", "aws", templateDir, true, nil)
 
 		if err != nil {
 			t.Fatalf("Expected no error, got %v", err)
@@ -281,7 +285,7 @@ func TestResolveBlueprintURL(t *testing.T) {
 			t.Fatalf("Failed to create template dir: %v", err)
 		}
 
-		urls, err := resolveBlueprintURL("", "aws", "aws", templateDir, false)
+		urls, err := resolveBlueprintURL("", "aws", "aws", templateDir, false, nil)
 
 		if err != nil {
 			t.Fatalf("Expected no error, got %v", err)
@@ -296,7 +300,7 @@ func TestResolveBlueprintURL(t *testing.T) {
 		tmpDir := t.TempDir()
 		missingTemplate := filepath.Join(tmpDir, "contexts", "_template")
 
-		urls, err := resolveBlueprintURL("", "", "local", missingTemplate, true)
+		urls, err := resolveBlueprintURL("", "", "local", missingTemplate, true, nil)
 
 		// Then the default blueprint URL is returned
 		if err != nil {
@@ -312,7 +316,7 @@ func TestResolveBlueprintURL(t *testing.T) {
 		tmpDir := t.TempDir()
 		missingTemplate := filepath.Join(tmpDir, "contexts", "_template")
 
-		urls, err := resolveBlueprintURL("", "", "local", missingTemplate, false)
+		urls, err := resolveBlueprintURL("", "", "local", missingTemplate, false, nil)
 
 		// Then no URL is returned — up must not silently pull from OCI
 		if err != nil {
@@ -331,7 +335,7 @@ func TestResolveBlueprintURL(t *testing.T) {
 			t.Fatalf("Failed to create template dir: %v", err)
 		}
 
-		urls, err := resolveBlueprintURL("", "", "local", templateDir, true)
+		urls, err := resolveBlueprintURL("", "", "local", templateDir, true, nil)
 
 		// Then no URL is returned (use existing blueprint state on disk)
 		if err != nil {
@@ -344,7 +348,7 @@ func TestResolveBlueprintURL(t *testing.T) {
 
 	t.Run("NonLocalContextWithoutFlagsReturnsNil", func(t *testing.T) {
 		// Given context != local and no flags
-		urls, err := resolveBlueprintURL("", "", "aws", "/does/not/matter", true)
+		urls, err := resolveBlueprintURL("", "", "aws", "/does/not/matter", true, nil)
 
 		// Then no URL is returned
 		if err != nil {
@@ -360,7 +364,7 @@ func TestResolveBlueprintURL(t *testing.T) {
 		badPath := "\x00invalid"
 
 		// When bootstrap is disallowed, the stat is never reached
-		urls, err := resolveBlueprintURL("", "", "local", badPath, false)
+		urls, err := resolveBlueprintURL("", "", "local", badPath, false, nil)
 
 		// Then no error and no URL — stat short-circuited by the gate
 		if err != nil {
@@ -376,7 +380,7 @@ func TestResolveBlueprintURL(t *testing.T) {
 		// with a path containing an embedded NUL which os.Stat treats as invalid.
 		badPath := "\x00invalid"
 
-		_, err := resolveBlueprintURL("", "", "local", badPath, true)
+		_, err := resolveBlueprintURL("", "", "local", badPath, true, nil)
 
 		// Then a wrapped error is returned (not os.IsNotExist)
 		if err == nil {
@@ -384,6 +388,142 @@ func TestResolveBlueprintURL(t *testing.T) {
 		}
 		if !strings.Contains(err.Error(), "error checking template root") {
 			t.Errorf("Expected wrapped 'error checking template root' error, got: %v", err)
+		}
+	})
+}
+
+func TestResolveEffectiveBlueprintURL(t *testing.T) {
+	t.Run("ReturnsPinWhenArtifactBuilderIsNil", func(t *testing.T) {
+		// Given no artifact builder (e.g. a caller that hasn't constructed one)
+		url := resolveEffectiveBlueprintURL(nil)
+
+		// Then it falls back to the build-time pin without attempting resolution
+		if url != constants.GetEffectiveBlueprintURL() {
+			t.Errorf("Expected the build-time pin, got %q", url)
+		}
+	})
+
+	t.Run("ReturnsPinWhenParseOCIRefFails", func(t *testing.T) {
+		mock := artifact.NewMockArtifact()
+		mock.ParseOCIRefFunc = func(ociRef string) (string, string, string, error) {
+			return "", "", "", fmt.Errorf("malformed ref")
+		}
+
+		url := resolveEffectiveBlueprintURL(mock)
+
+		if url != constants.GetEffectiveBlueprintURL() {
+			t.Errorf("Expected the build-time pin, got %q", url)
+		}
+	})
+
+	t.Run("ReturnsPinWhenListTagsFails", func(t *testing.T) {
+		// Given a registry that cannot be reached — bootstrap must never block on this
+		mock := artifact.NewMockArtifact()
+		mock.ParseOCIRefFunc = func(ociRef string) (string, string, string, error) {
+			return "ghcr.io", "windsorcli/core", "latest", nil
+		}
+		mock.ListTagsFunc = func(ociRef string) ([]string, error) {
+			return nil, fmt.Errorf("registry unreachable")
+		}
+
+		url := resolveEffectiveBlueprintURL(mock)
+
+		if url != constants.GetEffectiveBlueprintURL() {
+			t.Errorf("Expected the build-time pin on registry failure, got %q", url)
+		}
+	})
+
+	t.Run("ReturnsPinWhenNoCompatibleTagExists", func(t *testing.T) {
+		// ValidateCliVersion skips validation entirely for "dev"/"main"/"latest"/empty CLI
+		// versions (the default in a test binary), so this case needs a real semver override to
+		// actually exercise an incompatible constraint.
+		originalVersion := constants.Version
+		constants.Version = "0.1.0"
+		t.Cleanup(func() { constants.Version = originalVersion })
+
+		mock := artifact.NewMockArtifact()
+		mock.ParseOCIRefFunc = func(ociRef string) (string, string, string, error) {
+			return "ghcr.io", "windsorcli/core", "latest", nil
+		}
+		mock.ListTagsFunc = func(ociRef string) ([]string, error) {
+			return []string{"v0.5.0"}, nil
+		}
+		mock.GetCliVersionConstraintFunc = func(ociRef string) (string, error) {
+			return ">=99.0.0", nil
+		}
+
+		url := resolveEffectiveBlueprintURL(mock)
+
+		if url != constants.GetEffectiveBlueprintURL() {
+			t.Errorf("Expected the build-time pin when no tag is compatible, got %q", url)
+		}
+	})
+
+	t.Run("ReturnsPinWhenCompatibilityCheckErrors", func(t *testing.T) {
+		// Given a candidate tag whose compatibility cannot be checked (e.g. a registry hiccup
+		// mid-walk) — this is also swallowed, not surfaced as a bootstrap-blocking error
+		mock := artifact.NewMockArtifact()
+		mock.ParseOCIRefFunc = func(ociRef string) (string, string, string, error) {
+			return "ghcr.io", "windsorcli/core", "latest", nil
+		}
+		mock.ListTagsFunc = func(ociRef string) ([]string, error) {
+			return []string{"v0.5.0"}, nil
+		}
+		mock.GetCliVersionConstraintFunc = func(ociRef string) (string, error) {
+			return "", fmt.Errorf("registry hiccup")
+		}
+
+		url := resolveEffectiveBlueprintURL(mock)
+
+		if url != constants.GetEffectiveBlueprintURL() {
+			t.Errorf("Expected the build-time pin when compatibility cannot be checked, got %q", url)
+		}
+	})
+
+	t.Run("ReturnsHighestCompatibleTag", func(t *testing.T) {
+		// Given a reachable registry with a newer, compatible tag published since the CLI's
+		// build-time pin
+		mock := artifact.NewMockArtifact()
+		mock.ParseOCIRefFunc = func(ociRef string) (string, string, string, error) {
+			return "ghcr.io", "windsorcli/core", "latest", nil
+		}
+		mock.ListTagsFunc = func(ociRef string) ([]string, error) {
+			return []string{"v0.5.0", "v0.6.0"}, nil
+		}
+		mock.GetCliVersionConstraintFunc = func(ociRef string) (string, error) {
+			return "", nil
+		}
+
+		url := resolveEffectiveBlueprintURL(mock)
+
+		if url != "oci://ghcr.io/windsorcli/core:v0.6.0" {
+			t.Errorf("Expected the highest compatible tag, got %q", url)
+		}
+	})
+
+	t.Run("FallsBackToVerifyAndSkipsNewestWhenAnnotationAbsentAndIncompatible", func(t *testing.T) {
+		// Given the newest tag carries no cliVersion manifest annotation (an artifact published
+		// before that annotation existed) and its in-tarball metadata.yaml, checked via the
+		// fallback, turns out incompatible — the walk must not blindly trust the missing
+		// annotation as "compatible" and must fall through to the next candidate
+		mock := artifact.NewMockArtifact()
+		mock.ParseOCIRefFunc = func(ociRef string) (string, string, string, error) {
+			return "ghcr.io", "windsorcli/core", "latest", nil
+		}
+		mock.ListTagsFunc = func(ociRef string) ([]string, error) {
+			return []string{"v0.5.0", "v0.6.0"}, nil
+		}
+		mock.VerifyCliVersionCompatibilityFunc = func(ociRef string) error {
+			if ociRef == "oci://ghcr.io/windsorcli/core:v0.6.0" {
+				return fmt.Errorf("CLI version does not satisfy required constraint")
+			}
+			return nil
+		}
+
+		url := resolveEffectiveBlueprintURL(mock)
+
+		if url != "oci://ghcr.io/windsorcli/core:v0.5.0" {
+			t.Errorf("Expected v0.5.0 (newest rejected by the verify fallback), got %q", url)
 		}
 	})
 }
