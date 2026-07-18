@@ -82,9 +82,10 @@ type BaseKubernetesManager struct {
 	client        client.KubernetesClient
 	configHandler config.ConfigHandler
 
-	kustomizationWaitPollInterval time.Duration
-	kustomizationReconcileTimeout time.Duration
-	kustomizationReconcileSleep   time.Duration
+	kustomizationWaitPollInterval         time.Duration
+	kustomizationWaitMaxConsecutiveErrors int
+	kustomizationReconcileTimeout         time.Duration
+	kustomizationReconcileSleep           time.Duration
 
 	notReadyDescribeBudget time.Duration
 
@@ -103,15 +104,16 @@ func NewKubernetesManager(kubernetesClient client.KubernetesClient, configHandle
 	}
 
 	manager := &BaseKubernetesManager{
-		client:                        kubernetesClient,
-		configHandler:                 configHandler,
-		shims:                         NewShims(),
-		kustomizationWaitPollInterval: 2 * time.Second,
-		kustomizationReconcileTimeout: 5 * time.Minute,
-		kustomizationReconcileSleep:   2 * time.Second,
-		notReadyDescribeBudget:        10 * time.Second,
-		healthCheckPollInterval:       10 * time.Second,
-		nodeReadyPollInterval:         5 * time.Second,
+		client:                                kubernetesClient,
+		configHandler:                         configHandler,
+		shims:                                 NewShims(),
+		kustomizationWaitPollInterval:         2 * time.Second,
+		kustomizationWaitMaxConsecutiveErrors: 3,
+		kustomizationReconcileTimeout:         5 * time.Minute,
+		kustomizationReconcileSleep:           2 * time.Second,
+		notReadyDescribeBudget:                10 * time.Second,
+		healthCheckPollInterval:               10 * time.Second,
+		nodeReadyPollInterval:                 5 * time.Second,
 	}
 
 	return manager
@@ -328,7 +330,12 @@ func kustomizationReady(obj *unstructured.Unstructured) bool {
 // the total wait timeout being used before beginning polling. The wait also honors ctx:
 // a cancelled or deadline-exceeded context ends the wait immediately and returns ctx.Err(),
 // so a parent SIGTERM/Ctrl+C or command deadline can interrupt it (rather than requiring a
-// SIGKILL that bypasses the caller's defer cleanup).
+// SIGKILL that bypasses the caller's defer cleanup). A not-found GetResource error is treated
+// as not-ready-yet and keeps polling. Any other error (auth, connection, RBAC) counts toward
+// kustomizationWaitMaxConsecutiveErrors: a single transient blip (a brief apiserver restart, a
+// load-balancer failover) is tolerated and retried on the next tick, but a persistent failure
+// like broken cluster auth ends the wait immediately with the underlying error surfaced, rather
+// than silently retrying it for the full timeout budget.
 func (k *BaseKubernetesManager) WaitForKustomizations(ctx context.Context, message string, blueprint *blueprintv1alpha1.Blueprint) error {
 	if blueprint == nil {
 		return fmt.Errorf("blueprint not provided")
@@ -349,6 +356,8 @@ func (k *BaseKubernetesManager) WaitForKustomizations(ctx context.Context, messa
 	ticker := time.NewTicker(k.kustomizationWaitPollInterval)
 	defer ticker.Stop()
 
+	consecutiveErrors := 0
+
 	for {
 		select {
 		case <-ctx.Done():
@@ -359,6 +368,7 @@ func (k *BaseKubernetesManager) WaitForKustomizations(ctx context.Context, messa
 			return fmt.Errorf("timeout waiting for kustomizations%s", k.describeNotReadyKustomizations(kustomizationNames, k.gitopsNamespace()))
 		case <-ticker.C:
 			allReady := true
+			var tickErr error
 			for _, name := range kustomizationNames {
 				gvr := schema.GroupVersionResource{
 					Group:    "kustomize.toolkit.fluxcd.io",
@@ -366,8 +376,13 @@ func (k *BaseKubernetesManager) WaitForKustomizations(ctx context.Context, messa
 					Resource: "kustomizations",
 				}
 				obj, err := k.client.GetResource(gvr, k.gitopsNamespace(), name)
+				if err != nil && isNotFoundError(err) {
+					allReady = false
+					break
+				}
 				if err != nil {
 					allReady = false
+					tickErr = fmt.Errorf("error checking kustomization %s: %w", name, err)
 					break
 				}
 				var kustomizationObj map[string]any
@@ -401,6 +416,15 @@ func (k *BaseKubernetesManager) WaitForKustomizations(ctx context.Context, messa
 					break
 				}
 			}
+			if tickErr != nil {
+				consecutiveErrors++
+				if consecutiveErrors >= k.kustomizationWaitMaxConsecutiveErrors {
+					tui.Fail()
+					return tickErr
+				}
+				continue
+			}
+			consecutiveErrors = 0
 			if allReady {
 				tui.Done()
 				return nil
@@ -976,10 +1000,10 @@ func (k *BaseKubernetesManager) ApplyBlueprint(blueprint *blueprintv1alpha1.Blue
 //     so DELETE blocks until every managed resource is fully gone from etcd. The chain
 //     for cloud resources is:
 //
-//         K8s DELETE → controller's finalizer holds the object in etcd
-//         → controller calls cloud API to release external state
-//         → finalizer lifts → object NotFound
-//         → WaitForTermination satisfied
+//     K8s DELETE → controller's finalizer holds the object in etcd
+//     → controller calls cloud API to release external state
+//     → finalizer lifts → object NotFound
+//     → WaitForTermination satisfied
 //
 //     This is what makes CSI volumes, LB Services, Ingresses, and cert-manager
 //     Certificates clean up cloud-side without the orchestrator ever calling a

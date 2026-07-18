@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 
 	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
@@ -586,6 +587,58 @@ metadata:
 		}
 		if len(handler.sourceBlueprintLoaders) < 2 {
 			t.Errorf("Expected at least 2 source loaders, got %d", len(handler.sourceBlueprintLoaders))
+		}
+	})
+
+	t.Run("DuplicateSourceNamesLoadOnlyOnce", func(t *testing.T) {
+		// Given a user blueprint listing the same source name twice
+		mocks := setupHandlerMocks(t)
+
+		userYaml := `kind: Blueprint
+apiVersion: blueprints.windsorcli.dev/v1alpha1
+metadata:
+  name: user
+sources:
+  - name: dup-source
+    url: oci://example.com/dup:v1.0.0
+  - name: dup-source
+    url: oci://example.com/dup:v1.0.0
+`
+		os.WriteFile(filepath.Join(mocks.Runtime.ConfigRoot, "blueprint.yaml"), []byte(userYaml), 0644)
+
+		sourceCacheDir := filepath.Join(mocks.Runtime.ProjectRoot, "dup-source-cache")
+		sourceTemplateDir := filepath.Join(sourceCacheDir, "_template")
+		os.MkdirAll(sourceTemplateDir, 0755)
+		sourceYaml := `kind: Blueprint
+apiVersion: blueprints.windsorcli.dev/v1alpha1
+metadata:
+  name: dup-source
+`
+		os.WriteFile(filepath.Join(sourceTemplateDir, "blueprint.yaml"), []byte(sourceYaml), 0644)
+
+		var pullMu sync.Mutex
+		pullCalls := 0
+		mocks.ArtifactBuilder.PullFunc = func(refs []string) (map[string]string, error) {
+			pullMu.Lock()
+			pullCalls++
+			pullMu.Unlock()
+			return map[string]string{"example.com/dup:v1.0.0": sourceCacheDir}, nil
+		}
+		mocks.ArtifactBuilder.ParseOCIRefFunc = func(ref string) (string, string, string, error) {
+			return "example.com", "dup", "v1.0.0", nil
+		}
+
+		handler := NewBlueprintHandler(mocks.Runtime, mocks.ArtifactBuilder)
+
+		// When loading blueprint
+		err := handler.LoadBlueprint()
+
+		// Then the duplicate entry is only loaded once, not raced by two concurrent goroutines
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		if pullCalls != 1 {
+			t.Errorf("Expected exactly 1 Pull call for the duplicate source name, got %d", pullCalls)
 		}
 	})
 
