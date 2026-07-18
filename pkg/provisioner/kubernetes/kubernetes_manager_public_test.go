@@ -514,6 +514,130 @@ func TestBaseKubernetesManager_WaitForKustomizations(t *testing.T) {
 		}
 	})
 
+	t.Run("NotFoundKeepsPollingUntilReady", func(t *testing.T) {
+		// Given a kustomization that isn't created yet, then becomes Ready
+		manager := setup(t)
+		kubernetesClient := client.NewMockKubernetesClient()
+		calls := 0
+		kubernetesClient.GetResourceFunc = func(gvr schema.GroupVersionResource, ns, name string) (*unstructured.Unstructured, error) {
+			calls++
+			if calls < 2 {
+				return nil, fmt.Errorf("kustomizations.kustomize.toolkit.fluxcd.io \"test-kustomization\" not found")
+			}
+			return &unstructured.Unstructured{
+				Object: map[string]any{
+					"status": map[string]any{
+						"conditions": []any{
+							map[string]any{"type": "Ready", "status": "True"},
+						},
+					},
+				},
+			}, nil
+		}
+		manager.client = kubernetesClient
+
+		blueprint := &blueprintv1alpha1.Blueprint{
+			Kustomizations: []blueprintv1alpha1.Kustomization{
+				{
+					Name:    "test-kustomization",
+					Timeout: &blueprintv1alpha1.DurationString{Duration: 500 * time.Millisecond},
+				},
+			},
+		}
+
+		// When waiting for kustomizations
+		err := manager.WaitForKustomizations(context.Background(), "Waiting for kustomizations", blueprint)
+
+		// Then the wait succeeds once the resource appears, rather than treating not-found as fatal
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+		if calls < 2 {
+			t.Errorf("Expected GetResource to be polled at least twice, got %d calls", calls)
+		}
+	})
+
+	t.Run("PersistentErrorFailsFastInsteadOfBurningTimeout", func(t *testing.T) {
+		// Given GetResource returns a persistent, non-transient error (e.g. broken cluster auth)
+		// on every poll
+		manager := setup(t)
+		kubernetesClient := client.NewMockKubernetesClient()
+		calls := 0
+		kubernetesClient.GetResourceFunc = func(gvr schema.GroupVersionResource, ns, name string) (*unstructured.Unstructured, error) {
+			calls++
+			return nil, fmt.Errorf("Unauthorized")
+		}
+		manager.client = kubernetesClient
+
+		blueprint := &blueprintv1alpha1.Blueprint{
+			Kustomizations: []blueprintv1alpha1.Kustomization{
+				{
+					Name:    "test-kustomization",
+					Timeout: &blueprintv1alpha1.DurationString{Duration: 10 * time.Minute},
+				},
+			},
+		}
+
+		// When waiting for kustomizations
+		err := manager.WaitForKustomizations(context.Background(), "Waiting for kustomizations", blueprint)
+
+		// Then the wait ends after a few consecutive failures with the underlying error, instead of
+		// retrying silently for the full timeout budget
+		if err == nil {
+			t.Fatal("Expected error, got nil")
+		}
+		if !strings.Contains(err.Error(), "Unauthorized") {
+			t.Errorf("Expected error to surface the underlying failure, got: %v", err)
+		}
+		if strings.Contains(err.Error(), "timeout waiting for kustomizations") {
+			t.Errorf("Expected a fail-fast error, not the generic timeout error, got: %v", err)
+		}
+		if calls != manager.kustomizationWaitMaxConsecutiveErrors {
+			t.Errorf("Expected GetResource to be called exactly %d times before failing fast, got %d calls", manager.kustomizationWaitMaxConsecutiveErrors, calls)
+		}
+	})
+
+	t.Run("TransientErrorIsToleratedThenSucceeds", func(t *testing.T) {
+		// Given GetResource fails with a non-not-found error a couple of times (e.g. a brief
+		// apiserver restart) but recovers before hitting the consecutive-failure threshold
+		manager := setup(t)
+		kubernetesClient := client.NewMockKubernetesClient()
+		calls := 0
+		kubernetesClient.GetResourceFunc = func(gvr schema.GroupVersionResource, ns, name string) (*unstructured.Unstructured, error) {
+			calls++
+			if calls <= manager.kustomizationWaitMaxConsecutiveErrors-1 {
+				return nil, fmt.Errorf("connection refused")
+			}
+			return &unstructured.Unstructured{
+				Object: map[string]any{
+					"status": map[string]any{
+						"conditions": []any{
+							map[string]any{"type": "Ready", "status": "True"},
+						},
+					},
+				},
+			}, nil
+		}
+		manager.client = kubernetesClient
+
+		blueprint := &blueprintv1alpha1.Blueprint{
+			Kustomizations: []blueprintv1alpha1.Kustomization{
+				{
+					Name:    "test-kustomization",
+					Timeout: &blueprintv1alpha1.DurationString{Duration: 10 * time.Minute},
+				},
+			},
+		}
+
+		// When waiting for kustomizations
+		err := manager.WaitForKustomizations(context.Background(), "Waiting for kustomizations", blueprint)
+
+		// Then the transient errors are tolerated and the wait succeeds once the resource recovers
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+	})
+
 	t.Run("ContextCancelledInterruptsWait", func(t *testing.T) {
 		// Given a kustomization that never becomes Ready and a long internal timeout
 		manager := setup(t)
