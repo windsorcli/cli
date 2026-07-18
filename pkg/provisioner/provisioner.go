@@ -501,8 +501,8 @@ func (i *Provisioner) DestroyKustomize(blueprint *blueprintv1alpha1.Blueprint, c
 // last). Returns the IDs of terraform components that were skipped because their state
 // was empty (never applied, already torn down) alongside any error from either step —
 // paired with the error so callers see what was no-op'd even when a later step fails.
-// Returns an error if either step fails. Runs checkKubernetesReachableForDestroy before the
-// terraform step.
+// Returns an error if either step fails. checkKubernetesReachableForDestroy runs after the
+// kustomize step (so it never fires if kustomize already hard-failed) and before terraform.
 func (i *Provisioner) DestroyAll(blueprint *blueprintv1alpha1.Blueprint, continueOnError bool, excludeIDs ...string) (DestroyResult, error) {
 	var result DestroyResult
 	if blueprint == nil {
