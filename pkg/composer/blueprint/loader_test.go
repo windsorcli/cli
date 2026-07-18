@@ -9,7 +9,6 @@ import (
 
 	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
 	"github.com/windsorcli/cli/pkg/composer/artifact"
-	"github.com/windsorcli/cli/pkg/constants"
 	"github.com/windsorcli/cli/pkg/runtime"
 	"github.com/windsorcli/cli/pkg/runtime/config"
 	"github.com/windsorcli/cli/pkg/runtime/shell"
@@ -768,9 +767,7 @@ metadata:
 		// constraint the running CLI does not satisfy
 		mocks := setupLoaderMocks(t)
 
-		originalVersion := constants.Version
-		constants.Version = "0.8.1"
-		t.Cleanup(func() { constants.Version = originalVersion })
+		setTestCliVersion(t, "0.8.1")
 
 		cacheDir := filepath.Join(mocks.TmpDir, "cache")
 		templateDir := filepath.Join(cacheDir, "_template")
@@ -814,9 +811,7 @@ metadata:
 		// Given an OCI artifact whose declared cliVersion the running CLI satisfies
 		mocks := setupLoaderMocks(t)
 
-		originalVersion := constants.Version
-		constants.Version = "0.9.2"
-		t.Cleanup(func() { constants.Version = originalVersion })
+		setTestCliVersion(t, "0.9.2")
 
 		cacheDir := filepath.Join(mocks.TmpDir, "cache")
 		templateDir := filepath.Join(cacheDir, "_template")

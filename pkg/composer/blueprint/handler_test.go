@@ -10,6 +10,7 @@ import (
 
 	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
 	"github.com/windsorcli/cli/pkg/composer/artifact"
+	"github.com/windsorcli/cli/pkg/constants"
 	"github.com/windsorcli/cli/pkg/runtime"
 	"github.com/windsorcli/cli/pkg/runtime/config"
 	"github.com/windsorcli/cli/pkg/runtime/evaluator"
@@ -78,6 +79,19 @@ func setupHandlerMocks(t *testing.T) *HandlerTestMocks {
 	})
 
 	return mocks
+}
+
+// setTestCliVersion temporarily overrides constants.Version for the duration of the calling test,
+// restoring the original value via t.Cleanup. constants.Version is process-global, not per-test
+// state — any test using this helper, and any sibling subtest in this package that reads
+// constants.Version, MUST NOT run under t.Parallel(); a parallel subtest would race this mutation
+// against concurrent reads (or another parallel mutation). This package has no t.Parallel() calls
+// today; if one is ever added, audit for this helper's callers first.
+func setTestCliVersion(t *testing.T, v string) {
+	t.Helper()
+	original := constants.Version
+	constants.Version = v
+	t.Cleanup(func() { constants.Version = original })
 }
 
 func TestEvaluateWithOrigins(t *testing.T) {
@@ -2244,6 +2258,102 @@ func TestLatestStableSemver(t *testing.T) {
 	})
 }
 
+func TestResolveCompatibleTag(t *testing.T) {
+	t.Run("PicksHighestCompatibleSkippingIncompatibleNewest", func(t *testing.T) {
+		setTestCliVersion(t, "0.8.1")
+		mock := artifact.NewMockArtifact()
+		mock.GetCliVersionConstraintFunc = func(ociRef string) (string, error) {
+			if ociRef == "oci://ghcr.io/windsorcli/core:v0.7.0" {
+				return ">=99.0.0", nil
+			}
+			return "", nil
+		}
+
+		tag, v, ok, err := resolveCompatibleTag(mock, "oci://ghcr.io/windsorcli/core", []string{"v0.5.0", "v0.6.0", "v0.7.0"})
+
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		if !ok || tag != "v0.6.0" {
+			t.Fatalf("Expected v0.6.0 (skipping incompatible v0.7.0), got tag=%q ok=%v", tag, ok)
+		}
+		if v == nil || v.String() != "0.6.0" {
+			t.Errorf("Expected parsed 0.6.0, got %v", v)
+		}
+	})
+
+	t.Run("SkipsPrereleaseTagsEvenWhenCompatible", func(t *testing.T) {
+		setTestCliVersion(t, "0.8.1")
+		mock := artifact.NewMockArtifact()
+
+		tag, _, ok, err := resolveCompatibleTag(mock, "oci://ghcr.io/windsorcli/core", []string{"v0.6.0", "v0.7.0-rc.1"})
+
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		if !ok || tag != "v0.6.0" {
+			t.Errorf("Expected v0.6.0 (prerelease excluded regardless of compatibility), got tag=%q ok=%v", tag, ok)
+		}
+	})
+
+	t.Run("TreatsUndeclaredConstraintAsCompatible", func(t *testing.T) {
+		setTestCliVersion(t, "0.1.0")
+		mock := artifact.NewMockArtifact()
+
+		tag, _, ok, err := resolveCompatibleTag(mock, "oci://ghcr.io/windsorcli/core", []string{"v0.6.0"})
+
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		if !ok || tag != "v0.6.0" {
+			t.Errorf("Expected an undeclared constraint to be treated as compatible, got tag=%q ok=%v", tag, ok)
+		}
+	})
+
+	t.Run("FalseWhenNoTagIsCompatible", func(t *testing.T) {
+		setTestCliVersion(t, "0.1.0")
+		mock := artifact.NewMockArtifact()
+		mock.GetCliVersionConstraintFunc = func(ociRef string) (string, error) {
+			return ">=99.0.0", nil
+		}
+
+		_, _, ok, err := resolveCompatibleTag(mock, "oci://ghcr.io/windsorcli/core", []string{"v0.5.0", "v0.6.0"})
+
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		if ok {
+			t.Error("Expected ok=false when no tag is compatible")
+		}
+	})
+
+	t.Run("PropagatesConstraintCheckError", func(t *testing.T) {
+		mock := artifact.NewMockArtifact()
+		mock.GetCliVersionConstraintFunc = func(ociRef string) (string, error) {
+			return "", fmt.Errorf("registry unreachable")
+		}
+
+		_, _, _, err := resolveCompatibleTag(mock, "oci://ghcr.io/windsorcli/core", []string{"v0.6.0"})
+
+		if err == nil {
+			t.Error("Expected the registry error to propagate")
+		}
+	})
+
+	t.Run("FalseWhenNoStableSemverTagPresent", func(t *testing.T) {
+		mock := artifact.NewMockArtifact()
+
+		_, _, ok, err := resolveCompatibleTag(mock, "oci://ghcr.io/windsorcli/core", []string{"v1.0.0-rc.1", "garbage"})
+
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		if ok {
+			t.Error("Expected ok=false among prereleases/junk")
+		}
+	})
+}
+
 func TestIsDowngrade(t *testing.T) {
 	t.Run("TrueWhenTargetTagIsOlderInSameRepo", func(t *testing.T) {
 		// Given a target that pins an older semver than the previous ref of the same repository
@@ -2416,6 +2526,78 @@ func TestHandler_UpgradeSourcesToLatest(t *testing.T) {
 		// Then the first source is left untouched — no partial in-memory mutation
 		if handler.composedBlueprint.Sources[0].Url != "oci://ghcr.io/windsorcli/core:v0.5.0" {
 			t.Errorf("Expected the first source unmutated, got %q", handler.composedBlueprint.Sources[0].Url)
+		}
+	})
+
+	t.Run("SkipsIncompatibleNewestTagAndSelectsNextCompatible", func(t *testing.T) {
+		// Given a running CLI that the newest tag's declared cliVersion excludes, but an
+		// older-than-newest (still newer than current) tag admits
+		setTestCliVersion(t, "0.8.1")
+
+		handler, mock := setup(t,
+			[]blueprintv1alpha1.Source{{Name: "core", Url: "oci://ghcr.io/windsorcli/core:v0.5.0"}},
+			map[string][]string{"oci://ghcr.io/windsorcli/core:v0.5.0": {"v0.5.0", "v0.6.0", "v0.7.0"}},
+		)
+		mock.GetCliVersionConstraintFunc = func(ociRef string) (string, error) {
+			if ociRef == "oci://ghcr.io/windsorcli/core:v0.7.0" {
+				return ">=99.0.0", nil
+			}
+			return "", nil
+		}
+
+		// When upgrading sources to latest
+		upgrades, err := handler.UpgradeSourcesToLatest()
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+
+		// Then it skips v0.7.0 and moves to v0.6.0, the highest tag this CLI is compatible with
+		if len(upgrades) != 1 || upgrades[0].To != "oci://ghcr.io/windsorcli/core:v0.6.0" {
+			t.Fatalf("Expected upgrade to v0.6.0 (skipping incompatible v0.7.0), got %v", upgrades)
+		}
+	})
+
+	t.Run("SkipsSourceWhenNoNewerTagIsCompatible", func(t *testing.T) {
+		// Given every tag newer than current declares a cliVersion constraint this CLI fails
+		setTestCliVersion(t, "0.8.1")
+
+		handler, mock := setup(t,
+			[]blueprintv1alpha1.Source{{Name: "core", Url: "oci://ghcr.io/windsorcli/core:v0.5.0"}},
+			map[string][]string{"oci://ghcr.io/windsorcli/core:v0.5.0": {"v0.5.0", "v0.6.0"}},
+		)
+		mock.GetCliVersionConstraintFunc = func(ociRef string) (string, error) {
+			if ociRef == "oci://ghcr.io/windsorcli/core:v0.6.0" {
+				return ">=99.0.0", nil
+			}
+			return "", nil
+		}
+
+		// When upgrading sources to latest
+		upgrades, err := handler.UpgradeSourcesToLatest()
+
+		// Then no upgrade happens — no compatible tag newer than current exists — and this is not
+		// treated as an error
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		if len(upgrades) != 0 {
+			t.Errorf("Expected no upgrades, got %v", upgrades)
+		}
+	})
+
+	t.Run("PropagatesGetCliVersionConstraintError", func(t *testing.T) {
+		// Given a candidate tag whose compatibility cannot be checked (e.g. a registry hiccup)
+		handler, mock := setup(t,
+			[]blueprintv1alpha1.Source{{Name: "core", Url: "oci://ghcr.io/windsorcli/core:v0.5.0"}},
+			map[string][]string{"oci://ghcr.io/windsorcli/core:v0.5.0": {"v0.5.0", "v0.6.0"}},
+		)
+		mock.GetCliVersionConstraintFunc = func(ociRef string) (string, error) {
+			return "", fmt.Errorf("registry unreachable")
+		}
+
+		// When upgrading sources to latest
+		if _, err := handler.UpgradeSourcesToLatest(); err == nil {
+			t.Error("Expected an error when a candidate's compatibility cannot be checked")
 		}
 	})
 }

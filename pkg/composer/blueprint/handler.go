@@ -4,12 +4,14 @@ import (
 	"errors"
 	"fmt"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 
 	"github.com/Masterminds/semver/v3"
 	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
 	"github.com/windsorcli/cli/pkg/composer/artifact"
+	"github.com/windsorcli/cli/pkg/constants"
 	"github.com/windsorcli/cli/pkg/runtime"
 	runtimegit "github.com/windsorcli/cli/pkg/runtime/git"
 )
@@ -218,12 +220,14 @@ type SourceUpgrade struct {
 	To   string
 }
 
-// UpgradeSourcesToLatest moves each remote OCI source pinned to a semver to the latest stable tag
-// published in its repository, mutating the composed blueprint in memory (call Write to persist) and
-// returning the changes for reporting. Sources that are not OCI, not semver-pinned (a branch, a
-// mutable tag like :latest), or already at the latest are left untouched, as are prerelease tags. It
-// resolves directly to the latest — it does not step minor-by-minor. All tags are resolved before any
-// source is mutated, so a registry failure mid-resolution leaves the in-memory blueprint untouched.
+// UpgradeSourcesToLatest moves each remote OCI source pinned to a semver to the highest stable tag
+// published in its repository that this CLI is compatible with (per the tag's declared cliVersion
+// constraint — see resolveCompatibleTag), mutating the composed blueprint in memory (call Write to
+// persist) and returning the changes for reporting. Sources that are not OCI, not semver-pinned (a
+// branch, a mutable tag like :latest), or already at the latest compatible tag are left untouched,
+// as are prerelease tags and tags this CLI does not satisfy. It resolves directly to the latest
+// compatible tag — it does not step minor-by-minor. All tags are resolved before any source is
+// mutated, so a registry failure mid-resolution leaves the in-memory blueprint untouched.
 func (h *BaseBlueprintHandler) UpgradeSourcesToLatest() ([]SourceUpgrade, error) {
 	if h.composedBlueprint == nil {
 		return nil, fmt.Errorf("blueprint not loaded")
@@ -254,12 +258,16 @@ func (h *BaseBlueprintHandler) UpgradeSourcesToLatest() ([]SourceUpgrade, error)
 		if err != nil {
 			return nil, fmt.Errorf("failed to list tags for source %q: %w", src.Name, err)
 		}
-		latestTag, latest, ok := latestStableSemver(tags)
+		urlPrefix := strings.TrimSuffix(src.Url, ":"+info.Tag)
+		latestTag, latest, ok, err := resolveCompatibleTag(h.artifactBuilder, urlPrefix, tags)
+		if err != nil {
+			return nil, fmt.Errorf("failed to check CLI compatibility for source %q: %w", src.Name, err)
+		}
 		if !ok || !latest.GreaterThan(current) {
 			continue
 		}
 
-		newURL := strings.TrimSuffix(src.Url, ":"+info.Tag) + ":" + latestTag
+		newURL := urlPrefix + ":" + latestTag
 		planned = append(planned, plannedUpgrade{
 			index:  i,
 			newURL: newURL,
@@ -293,6 +301,44 @@ func latestStableSemver(tags []string) (string, *semver.Version, bool) {
 		}
 	}
 	return bestTag, best, best != nil
+}
+
+// resolveCompatibleTag walks tags newest-first (stable semver only, prereleases excluded) and
+// returns the highest one this CLI is compatible with, alongside its parsed version. urlPrefix is
+// the source URL without its tag (e.g. "oci://ghcr.io/windsorcli/core") — resolveCompatibleTag
+// appends ":<tag>" per candidate and checks its declared cliVersion constraint via
+// artifact.Artifact.GetCliVersionConstraint, a manifest-only fetch (no full Pull) — so checking N
+// candidates costs N small manifest reads, not N full artifact downloads. A candidate with no
+// declared constraint is treated as compatible, matching ValidateCliVersion's own
+// empty-constraint semantics: Windsor enforces what a tag declares, it does not infer
+// compatibility. Reports ok=false, not an error, when no stable semver tag is compatible.
+func resolveCompatibleTag(artifactBuilder artifact.Artifact, urlPrefix string, tags []string) (tag string, version *semver.Version, ok bool, err error) {
+	type candidate struct {
+		tag string
+		ver *semver.Version
+	}
+	var candidates []candidate
+	for _, t := range tags {
+		v, err := semver.NewVersion(t)
+		if err != nil || v.Prerelease() != "" {
+			continue
+		}
+		candidates = append(candidates, candidate{tag: t, ver: v})
+	}
+	sort.Slice(candidates, func(i, j int) bool {
+		return candidates[i].ver.GreaterThan(candidates[j].ver)
+	})
+
+	for _, c := range candidates {
+		constraint, err := artifactBuilder.GetCliVersionConstraint(urlPrefix + ":" + c.tag)
+		if err != nil {
+			return "", nil, false, fmt.Errorf("failed to check compatibility for %s:%s: %w", urlPrefix, c.tag, err)
+		}
+		if artifact.ValidateCliVersion(constants.Version, constraint) == nil {
+			return c.tag, c.ver, true, nil
+		}
+	}
+	return "", nil, false, nil
 }
 
 // IsDowngrade reports whether targetURL pins an older stable semver than previousURL for the same
