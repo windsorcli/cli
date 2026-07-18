@@ -386,7 +386,8 @@ func (i *Provisioner) Down(blueprint *blueprintv1alpha1.Blueprint) error {
 // even when a later component fails. Skipped components had nothing in state to destroy (never
 // applied, fully torn down already, or upstream destroy collapsed their cloud objects out from
 // under them); cmd-layer callers surface them in the user-facing summary so an operator can see
-// "these were no-ops" alongside "these were destroyed".
+// "these were no-ops" alongside "these were destroyed". Runs checkKubernetesReachableForDestroy
+// once terraform is confirmed enabled.
 func (i *Provisioner) DestroyAllTerraform(blueprint *blueprintv1alpha1.Blueprint, continueOnError bool, excludeIDs ...string) (DestroyResult, error) {
 	var result DestroyResult
 	if blueprint == nil {
@@ -397,6 +398,9 @@ func (i *Provisioner) DestroyAllTerraform(blueprint *blueprintv1alpha1.Blueprint
 	}
 	if i.TerraformStack == nil {
 		return result, fmt.Errorf("terraform is disabled")
+	}
+	if err := i.checkKubernetesReachableForDestroy(); err != nil {
+		return result, err
 	}
 	outcome, err := i.TerraformStack.DestroyAll(blueprint, continueOnError, excludeIDs...)
 	result.Destroyed = outcome.Destroyed
@@ -431,7 +435,8 @@ func (i *Provisioner) Apply(blueprint *blueprintv1alpha1.Blueprint, componentID 
 // Returns (skipped, nil) when the component's state is empty (nothing to destroy), (false, nil)
 // when destroy ran successfully, or (false, err) on any failure. Returns an error if the
 // blueprint is nil, terraform is disabled, the stack cannot be initialized, the component is
-// not found, or any terraform operation fails.
+// not found, or any terraform operation fails. Runs checkKubernetesReachableForDestroy once
+// terraform is confirmed enabled.
 func (i *Provisioner) Destroy(blueprint *blueprintv1alpha1.Blueprint, componentID string) (bool, error) {
 	if blueprint == nil {
 		return false, fmt.Errorf("blueprint not provided")
@@ -441,6 +446,9 @@ func (i *Provisioner) Destroy(blueprint *blueprintv1alpha1.Blueprint, componentI
 	}
 	if i.TerraformStack == nil {
 		return false, fmt.Errorf("terraform is disabled")
+	}
+	if err := i.checkKubernetesReachableForDestroy(); err != nil {
+		return false, err
 	}
 	skipped, err := i.TerraformStack.Destroy(blueprint, componentID)
 	if err != nil {
@@ -493,7 +501,8 @@ func (i *Provisioner) DestroyKustomize(blueprint *blueprintv1alpha1.Blueprint, c
 // last). Returns the IDs of terraform components that were skipped because their state
 // was empty (never applied, already torn down) alongside any error from either step —
 // paired with the error so callers see what was no-op'd even when a later step fails.
-// Returns an error if either step fails.
+// Returns an error if either step fails. Runs checkKubernetesReachableForDestroy before the
+// terraform step.
 func (i *Provisioner) DestroyAll(blueprint *blueprintv1alpha1.Blueprint, continueOnError bool, excludeIDs ...string) (DestroyResult, error) {
 	var result DestroyResult
 	if blueprint == nil {
@@ -519,6 +528,9 @@ func (i *Provisioner) DestroyAll(blueprint *blueprintv1alpha1.Blueprint, continu
 		return result, err
 	}
 	if i.TerraformStack != nil {
+		if err := i.checkKubernetesReachableForDestroy(); err != nil {
+			return result, err
+		}
 		outcome, err := i.TerraformStack.DestroyAll(blueprint, continueOnError, excludeIDs...)
 		result.Destroyed = append(result.Destroyed, outcome.Destroyed...)
 		result.Skipped = append(result.Skipped, outcome.Skipped...)
@@ -1535,4 +1547,18 @@ func (i *Provisioner) kubeconfigPresent() bool {
 		return false
 	}
 	return true
+}
+
+// checkKubernetesReachableForDestroy fails fast if the cluster is unreachable, so terraform's
+// kubernetes/helm provider doesn't hang against broken auth. No-op when there's no kubeconfig.
+func (i *Provisioner) checkKubernetesReachableForDestroy() error {
+	if i.KubernetesManager == nil || !i.kubeconfigPresent() {
+		return nil
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), constants.DefaultKubernetesReachabilityCheckTimeout)
+	defer cancel()
+	if err := i.KubernetesManager.WaitForKubernetesHealthy(ctx, "", nil); err != nil {
+		return fmt.Errorf("kubernetes API is unreachable, refusing to run terraform destroy (its kubernetes/helm provider would hang against a broken cluster): %w", err)
+	}
+	return nil
 }

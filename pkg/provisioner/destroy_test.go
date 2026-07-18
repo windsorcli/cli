@@ -86,7 +86,7 @@ func TestProvisioner_Teardown(t *testing.T) {
 			destroyAllCalls++
 			return terraforminfra.DestroyOutcome{}, nil
 		}
-		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{TerraformStack: mockStack})
+		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{KubernetesManager: mocks.KubernetesManager, TerraformStack: mockStack})
 
 		if _, err := provisioner.Teardown(createTestBlueprint(), true, false); err != nil {
 			t.Fatalf("Expected no error, got %v", err)
@@ -137,7 +137,7 @@ func TestProvisioner_Teardown(t *testing.T) {
 			migrateCalled = true
 			return nil, nil
 		}
-		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{TerraformStack: mockStack})
+		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{KubernetesManager: mocks.KubernetesManager, TerraformStack: mockStack})
 
 		if _, err := provisioner.Teardown(bp, true, false); err != nil {
 			t.Fatalf("Expected no error, got %v", err)
@@ -197,7 +197,7 @@ func TestProvisioner_Teardown(t *testing.T) {
 			ops = append(ops, "migrate")
 			return nil, nil
 		}
-		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{TerraformStack: mockStack})
+		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{KubernetesManager: mocks.KubernetesManager, TerraformStack: mockStack})
 
 		if _, err := provisioner.Teardown(bp, true, false); err != nil {
 			t.Fatalf("Expected no error, got %v", err)
@@ -269,7 +269,7 @@ func TestProvisioner_Teardown(t *testing.T) {
 			migrateBlueprints = append(migrateBlueprints, b)
 			return nil, nil
 		}
-		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{TerraformStack: mockStack})
+		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{KubernetesManager: mocks.KubernetesManager, TerraformStack: mockStack})
 
 		if _, err := provisioner.Teardown(bp, true, false); err != nil {
 			t.Fatalf("Expected no error, got %v", err)
@@ -334,7 +334,7 @@ func TestProvisioner_Teardown(t *testing.T) {
 			migrateCalled = true
 			return nil, nil
 		}
-		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{TerraformStack: mockStack})
+		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{KubernetesManager: mocks.KubernetesManager, TerraformStack: mockStack})
 
 		_, err := provisioner.Teardown(bp, true, false)
 		if err == nil {
@@ -394,7 +394,7 @@ func TestProvisioner_Teardown(t *testing.T) {
 			ops = append(ops, "migrate-fail")
 			return nil, fmt.Errorf("configured backend unreachable")
 		}
-		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{TerraformStack: mockStack})
+		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{KubernetesManager: mocks.KubernetesManager, TerraformStack: mockStack})
 
 		_, err := provisioner.Teardown(bp, true, false)
 		if err == nil {
@@ -460,7 +460,7 @@ func TestProvisioner_Teardown(t *testing.T) {
 		os.Stderr = w
 		defer func() { os.Stderr = origStderr }()
 
-		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{TerraformStack: mockStack})
+		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{KubernetesManager: mocks.KubernetesManager, TerraformStack: mockStack})
 		_, err := provisioner.Teardown(bp, true, false)
 
 		w.Close()
@@ -515,7 +515,7 @@ func TestProvisioner_Teardown(t *testing.T) {
 		mockStack.MigrateStateFunc = func(_ *blueprintv1alpha1.Blueprint) ([]string, error) {
 			return []string{"backend"}, nil
 		}
-		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{TerraformStack: mockStack})
+		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{KubernetesManager: mocks.KubernetesManager, TerraformStack: mockStack})
 
 		result, err := provisioner.Teardown(bp, true, false)
 		if err != nil {
@@ -570,7 +570,7 @@ func TestProvisioner_Teardown(t *testing.T) {
 			migrateCalled = true
 			return nil, nil
 		}
-		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{TerraformStack: mockStack})
+		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{KubernetesManager: mocks.KubernetesManager, TerraformStack: mockStack})
 
 		// When Teardown runs with continueOnError=true
 		result, err := provisioner.Teardown(bp, true, true)
@@ -627,7 +627,7 @@ func TestProvisioner_Teardown(t *testing.T) {
 			migrateCalled = true
 			return nil, nil
 		}
-		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{TerraformStack: mockStack})
+		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{KubernetesManager: mocks.KubernetesManager, TerraformStack: mockStack})
 
 		// When Teardown runs with continueOnError=true
 		result, err := provisioner.Teardown(bp, true, true)
@@ -671,7 +671,7 @@ func TestProvisioner_Teardown(t *testing.T) {
 				Failed:    []terraforminfra.ComponentFailure{{ID: "iam", Err: fmt.Errorf("permission denied")}},
 			}, nil
 		}
-		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{TerraformStack: mockStack})
+		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{KubernetesManager: mocks.KubernetesManager, TerraformStack: mockStack})
 
 		// When Teardown runs with continueOnError=true
 		result, err := provisioner.Teardown(createTestBlueprint(), true, true)
@@ -885,7 +885,7 @@ func TestProvisioner_TeardownComponent(t *testing.T) {
 			}
 			return false, nil
 		}
-		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{TerraformStack: mockStack})
+		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{KubernetesManager: mocks.KubernetesManager, TerraformStack: mockStack})
 
 		if _, err := provisioner.TeardownComponent(bpWithBackend(), "backend"); err != nil {
 			t.Fatalf("Expected no error, got %v", err)
@@ -930,7 +930,7 @@ func TestProvisioner_TeardownComponent(t *testing.T) {
 					}
 					return false, nil
 				}
-				provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{TerraformStack: mockStack})
+				provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{KubernetesManager: mocks.KubernetesManager, TerraformStack: mockStack})
 
 				if _, err := provisioner.TeardownComponent(bpWithBackend(), "cluster"); err != nil {
 					t.Fatalf("Expected no error, got %v", err)
