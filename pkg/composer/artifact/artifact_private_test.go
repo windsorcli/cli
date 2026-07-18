@@ -1234,6 +1234,30 @@ func TestArtifactBuilder_ParseOCIRef(t *testing.T) {
 			t.Errorf("expected tag 'v1.0.0', got %s", tag)
 		}
 	})
+
+	t.Run("RegistryWithPort", func(t *testing.T) {
+		// Given an ArtifactBuilder
+		builder, _ := setup(t)
+
+		// When ParseOCIRef is called with a registry host that includes an explicit port
+		registry, repository, tag, err := builder.ParseOCIRef("oci://localhost:5050/my-repo:v1.0.0")
+
+		// Then no error should occur
+		if err != nil {
+			t.Errorf("expected no error, got %v", err)
+		}
+
+		// And the port is retained as part of the registry, not mistaken for the tag separator
+		if registry != "localhost:5050" {
+			t.Errorf("expected registry 'localhost:5050', got %s", registry)
+		}
+		if repository != "my-repo" {
+			t.Errorf("expected repository 'my-repo', got %s", repository)
+		}
+		if tag != "v1.0.0" {
+			t.Errorf("expected tag 'v1.0.0', got %s", tag)
+		}
+	})
 }
 
 func TestArtifactBuilder_downloadOCIArtifact(t *testing.T) {
