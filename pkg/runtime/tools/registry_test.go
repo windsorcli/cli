@@ -3,6 +3,8 @@ package tools
 import (
 	"strings"
 	"testing"
+
+	"github.com/windsorcli/cli/pkg/constants"
 )
 
 // =============================================================================
@@ -22,7 +24,7 @@ func TestMissingToolError(t *testing.T) {
 		// — the exact pieces operators need to resolve the failure via the vendor's own
 		// install instructions (which encode platform-specific nuance we don't replicate).
 		msg := err.Error()
-		expected := []string{"Terraform", "1.7.0", "https://developer.hashicorp.com/terraform/install", "not found on PATH"}
+		expected := []string{"Terraform", constants.MinimumVersionTerraform, "https://developer.hashicorp.com/terraform/install", "not found on PATH"}
 		for _, want := range expected {
 			if !strings.Contains(msg, want) {
 				t.Errorf("expected error to contain %q, got: %s", want, msg)
