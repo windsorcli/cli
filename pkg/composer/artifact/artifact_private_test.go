@@ -1258,6 +1258,30 @@ func TestArtifactBuilder_ParseOCIRef(t *testing.T) {
 			t.Errorf("expected tag 'v1.0.0', got %s", tag)
 		}
 	})
+
+	t.Run("RegistryWithPortAndNestedRepositoryPath", func(t *testing.T) {
+		// Given an ArtifactBuilder
+		builder, _ := setup(t)
+
+		// When ParseOCIRef is called with both a port and a multi-segment repository path
+		registry, repository, tag, err := builder.ParseOCIRef("oci://localhost:5050/org/project/repo:v1.0.0")
+
+		// Then no error should occur
+		if err != nil {
+			t.Errorf("expected no error, got %v", err)
+		}
+
+		// And the port and full nested path are both parsed correctly
+		if registry != "localhost:5050" {
+			t.Errorf("expected registry 'localhost:5050', got %s", registry)
+		}
+		if repository != "org/project/repo" {
+			t.Errorf("expected repository 'org/project/repo', got %s", repository)
+		}
+		if tag != "v1.0.0" {
+			t.Errorf("expected tag 'v1.0.0', got %s", tag)
+		}
+	})
 }
 
 func TestArtifactBuilder_downloadOCIArtifact(t *testing.T) {
