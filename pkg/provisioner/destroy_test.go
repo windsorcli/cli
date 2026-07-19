@@ -1,6 +1,7 @@
 package provisioner
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"os"
@@ -225,6 +226,57 @@ func TestProvisioner_Teardown(t *testing.T) {
 		stage2Components := destroyAllBlueprints[1].TerraformComponents
 		if len(stage2Components) != 1 || stage2Components[0].Path != "backend" {
 			t.Errorf("Stage 2 DestroyAll should target tier [backend], got %#v", stage2Components)
+		}
+	})
+
+	t.Run("Stage2SkipsReachabilityCheckAfterClusterAlreadyDestroyed", func(t *testing.T) {
+		// Stage 1 destroys the cluster component itself (it is never a tier
+		// member), so by the time Stage 2 runs the kubeconfig on disk is stale
+		// and WaitForKubernetesHealthy fails against a host that no longer
+		// exists. That is the expected post-Stage-1 state, not broken auth —
+		// Stage 2's tier-only destroy must still proceed.
+		mocks := setupProvisionerMocks(t)
+		bp := &blueprintv1alpha1.Blueprint{
+			Backend:  "backend",
+			Metadata: blueprintv1alpha1.Metadata{Name: "test"},
+			TerraformComponents: []blueprintv1alpha1.TerraformComponent{
+				{Path: "backend"},
+				{Path: "cluster"},
+			},
+		}
+		mockCH := mocks.ConfigHandler.(*config.MockConfigHandler)
+		mockCH.GetStringFunc = func(key string, defaultValue ...string) string {
+			if key == "terraform.backend.type" {
+				return "s3"
+			}
+			if len(defaultValue) > 0 {
+				return defaultValue[0]
+			}
+			return ""
+		}
+		mockCH.SetFunc = func(_ string, _ any) error { return nil }
+		destroyAllCalls := 0
+		mockStack := terraforminfra.NewMockStack()
+		mockStack.DestroyAllFunc = func(_ *blueprintv1alpha1.Blueprint, _ bool, _ ...string) (terraforminfra.DestroyOutcome, error) {
+			destroyAllCalls++
+			return terraforminfra.DestroyOutcome{}, nil
+		}
+		// Stage 1's own reachability check must still pass (the cluster is still up
+		// going into Stage 1); only once Stage 1's DestroyAll has torn it down does
+		// the kubeconfig on disk go stale, which is what Stage 2 must tolerate.
+		mocks.KubernetesManager.WaitForKubernetesHealthyFunc = func(ctx context.Context, endpoint string, outputFunc func(string), nodeNames ...string) error {
+			if destroyAllCalls == 0 {
+				return nil
+			}
+			return fmt.Errorf("dial tcp: lookup cluster-w0820el4.hcp.eastus.azmk8s.io: no such host")
+		}
+		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{KubernetesManager: mocks.KubernetesManager, TerraformStack: mockStack})
+
+		if _, err := provisioner.Teardown(bp, true, false); err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		if destroyAllCalls != 2 {
+			t.Errorf("Expected Stage 1 + Stage 2 DestroyAll calls (2), got %d", destroyAllCalls)
 		}
 	})
 
