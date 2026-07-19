@@ -199,9 +199,10 @@ func (a *ArtifactBuilder) Write(outputPath string, tag string) (string, error) {
 }
 
 // ParseOCIRef parses an OCI reference into registry, repository, and tag components.
-// Validates OCI reference format and extracts registry, repository, and tag parts.
-// Requires OCI reference to follow the format "oci://registry/repository:tag".
-// Returns individual components for separate handling in OCI operations.
+// Requires the format "oci://registry/repository:tag". The registry may itself contain a
+// colon (an explicit port, e.g. "localhost:5000/repo:tag"), so registry/repository are split
+// on the first "/" before the tag is found at the last ":" — a repository containing a colon
+// (e.g. "repo:tag:extra") is rejected rather than silently misparsed.
 func (a *ArtifactBuilder) ParseOCIRef(ociRef string) (registry, repository, tag string, err error) {
 	if !strings.HasPrefix(ociRef, "oci://") {
 		return "", "", "", fmt.Errorf("invalid OCI reference format: %s", ociRef)
@@ -209,21 +210,22 @@ func (a *ArtifactBuilder) ParseOCIRef(ociRef string) (registry, repository, tag 
 
 	ref := strings.TrimPrefix(ociRef, "oci://")
 
-	parts := strings.Split(ref, ":")
-	if len(parts) != 2 {
+	firstSlash := strings.Index(ref, "/")
+	if firstSlash <= 0 {
 		return "", "", "", fmt.Errorf("invalid OCI reference format, expected registry/repository:tag: %s", ociRef)
 	}
+	registry = ref[:firstSlash]
+	repoAndTag := ref[firstSlash+1:]
 
-	repoWithRegistry := parts[0]
-	tag = parts[1]
-
-	repoParts := strings.SplitN(repoWithRegistry, "/", 2)
-	if len(repoParts) != 2 {
+	lastColon := strings.LastIndex(repoAndTag, ":")
+	if lastColon <= 0 || lastColon == len(repoAndTag)-1 {
 		return "", "", "", fmt.Errorf("invalid OCI reference format, expected registry/repository:tag: %s", ociRef)
 	}
-
-	registry = repoParts[0]
-	repository = repoParts[1]
+	repository = repoAndTag[:lastColon]
+	tag = repoAndTag[lastColon+1:]
+	if strings.Contains(repository, ":") {
+		return "", "", "", fmt.Errorf("invalid OCI reference format, expected registry/repository:tag: %s", ociRef)
+	}
 
 	return registry, repository, tag, nil
 }
