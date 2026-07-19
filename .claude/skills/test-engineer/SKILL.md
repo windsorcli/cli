@@ -59,20 +59,20 @@ func TestFoo_Bar(t *testing.T) {
 }
 ```
 
-## Mandatory TDD workflow
+## Test-writing workflow
 
-1. Present the full test suite structure as `t.Run` stubs first.
-2. Get explicit confirmation before implementing any case.
-3. Implement exactly **one** `t.Run` case at a time.
-4. Run tests after each case. Report pass/fail.
-5. Request confirmation before the next case.
+- Default: write the full set of `t.Run` cases for the behavior in one pass, then run the whole file (or `-run` the new test function) and report pass/fail. Don't stop to confirm each case individually — that ceremony has outlived its usefulness for routine test-writing.
+- Reserve stub-first-then-confirm for cases where the *shape* of coverage is itself a design decision worth checking before investing in it — e.g., scoping a brand-new package's test suite, or a case list long enough that getting it wrong wastes real effort. Propose the `t.Run` names, get a nod, then implement all of them.
+- Run tests after writing, not after every single case.
 
 ## Prohibited
 
-- Implementing multiple test cases in one step.
-- Table-driven or matrix-based tests.
 - Modifying source code during test-engineering-only tasks.
 - Using `testify` or any non-standard test library.
+
+## Table-driven tests
+
+Prefer `t.Run` BDD scenarios (Given/When/Then) for behavior-level tests — they name what's being verified and fail with a readable subtest name. Table-driven (`tests := []struct{...}`) is fine, and already used in this codebase, specifically for enumerating edge cases of pure logic (parsers, validators, format checks) where the cases are homogeneous and the table itself is the clearest representation — see `pkg/composer/terraform/oci_module_resolver_private_test.go`'s `HandlesEdgeCases` for a real example. Don't reach for it to cover heterogeneous behavior that reads better as named `t.Run` cases.
 
 ## Test commands
 

@@ -125,7 +125,7 @@ For each finding the author confirms, run this exact sequence:
    message (same rules as `create-pr` titles). One commit per finding
    unless the author asks to squash. Match the project's existing
    commit-message voice (sample `git log main --pretty=format:%s |
-   head -10`). End with the standard `Co-Authored-By` trailer.
+   head -10`). Do not add a `Co-Authored-By` trailer.
 
 9. **On author's request changes**: iterate. Don't move to the next
    finding until this one is committed-or-skipped.
