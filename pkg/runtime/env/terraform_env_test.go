@@ -850,62 +850,6 @@ func TestTerraformEnv_PostEnvHook(t *testing.T) {
 	})
 }
 
-func TestTerraformEnv_sanitizeForK8s(t *testing.T) {
-	tests := []struct {
-		name     string
-		input    string
-		expected string
-	}{
-		{
-			name:     "Lowercase and valid characters",
-			input:    "valid-name",
-			expected: "valid-name",
-		},
-		{
-			name:     "Uppercase characters",
-			input:    "VALID-NAME",
-			expected: "valid-name",
-		},
-		{
-			name:     "Underscores to hyphens",
-			input:    "valid_name",
-			expected: "valid-name",
-		},
-		{
-			name:     "Invalid characters",
-			input:    "valid@name!",
-			expected: "valid-name",
-		},
-		{
-			name:     "Consecutive hyphens",
-			input:    "valid--name",
-			expected: "valid-name",
-		},
-		{
-			name:     "Leading and trailing hyphens",
-			input:    "-valid-name-",
-			expected: "valid-name",
-		},
-		{
-			name:     "Exceeds max length",
-			input:    "a-very-long-name-that-exceeds-the-sixty-three-character-limit-should-be-truncated",
-			expected: "a-very-long-name-that-exceeds-the-sixty-three-character-limit-s",
-		},
-		{
-			name:     "Empty input",
-			input:    "",
-			expected: "",
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			// Note: sanitizeForK8s is now in the terraform package, this test should be moved there
-			t.Skip("sanitizeForK8s moved to terraform package - test should be moved there")
-		})
-	}
-}
-
 // TestTerraformEnv_generateBackendOverrideTf - UPDATED
 // The generateBackendOverrideTf method has been moved to terraform.TerraformProvider.GenerateBackendOverride.
 // This test now verifies PostEnvHook which calls the provider's GenerateBackendOverride.

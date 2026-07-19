@@ -258,11 +258,6 @@ func TestMockArtifact_Pull(t *testing.T) {
 	})
 }
 
-// TestMockArtifact_GetTemplateData tests the GetTemplateData method of MockArtifact
-func TestMockArtifact_GetTemplateData_Removed(t *testing.T) {
-	t.Skip("GetTemplateData has been removed from MockArtifact")
-}
-
 // TestMockArtifact_ParseOCIRef tests the ParseOCIRef method of MockArtifact
 func TestMockArtifact_ParseOCIRef(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
