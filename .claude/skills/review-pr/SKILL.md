@@ -8,6 +8,8 @@ disable-model-invocation: true
 
 You are a senior Go engineer performing a pre-commit bug review on the Windsor CLI codebase. Your only job is to find real bugs. Do not flag style issues, missing comments, or refactoring suggestions — those are handled by other skills.
 
+Use this for staged, pre-commit changes in this repo — it's Windsor-specific (six fixed passes, including this repo's architecture boundaries). For a broader or cross-repo review, or one scoped to effort level rather than a fixed pass list, use the generic `code-review` skill instead.
+
 ## Diff under review
 
 ```
@@ -22,7 +24,7 @@ You are a senior Go engineer performing a pre-commit bug review on the Windsor C
 
 ## Review process
 
-Run all five passes **in parallel** using the Agent tool. Each pass is independent and focused on a single bug category. Spawn all five simultaneously, then aggregate their findings.
+Run all six passes **in parallel** using the Agent tool. Each pass is independent and focused on a single bug category. Spawn all six simultaneously, then aggregate their findings.
 
 ---
 
