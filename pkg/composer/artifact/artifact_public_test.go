@@ -2696,14 +2696,6 @@ func TestArtifactBuilder_Bundle_EmitsArtifactManifest(t *testing.T) {
 	})
 }
 
-func TestArtifactBuilder_GetTemplateData_Removed(t *testing.T) {
-	t.Skip("GetTemplateData has been removed - functionality now handled by Pull + reading from cache directories")
-}
-
-func TestArtifactBuilder_GetTemplateData_Old_Removed(t *testing.T) {
-	t.Skip("GetTemplateData has been removed - entire test function removed")
-}
-
 func TestArtifactBuilder_GetCacheDir(t *testing.T) {
 	setup := func(t *testing.T) (*ArtifactBuilder, *ArtifactMocks) {
 		t.Helper()
