@@ -389,6 +389,15 @@ func (i *Provisioner) Down(blueprint *blueprintv1alpha1.Blueprint) error {
 // "these were no-ops" alongside "these were destroyed". Runs checkKubernetesReachableForDestroy
 // once terraform is confirmed enabled.
 func (i *Provisioner) DestroyAllTerraform(blueprint *blueprintv1alpha1.Blueprint, continueOnError bool, excludeIDs ...string) (DestroyResult, error) {
+	return i.destroyAllTerraform(blueprint, continueOnError, true, excludeIDs...)
+}
+
+// destroyAllTerraform is the shared implementation behind DestroyAllTerraform. checkReachability
+// is false only for Teardown's Stage 2 tier destroy: by the time Stage 2 runs, Stage 1 has
+// already destroyed the cluster by design, so an unreachable Kubernetes API is the expected state
+// rather than a signal of broken auth, and the backend tier never has a kubernetes/helm provider
+// dependency for the check to protect.
+func (i *Provisioner) destroyAllTerraform(blueprint *blueprintv1alpha1.Blueprint, continueOnError bool, checkReachability bool, excludeIDs ...string) (DestroyResult, error) {
 	var result DestroyResult
 	if blueprint == nil {
 		return result, fmt.Errorf("blueprint not provided")
@@ -399,8 +408,10 @@ func (i *Provisioner) DestroyAllTerraform(blueprint *blueprintv1alpha1.Blueprint
 	if i.TerraformStack == nil {
 		return result, fmt.Errorf("terraform is disabled")
 	}
-	if err := i.checkKubernetesReachableForDestroy(); err != nil {
-		return result, err
+	if checkReachability {
+		if err := i.checkKubernetesReachableForDestroy(); err != nil {
+			return result, err
+		}
 	}
 	outcome, err := i.TerraformStack.DestroyAll(blueprint, continueOnError, excludeIDs...)
 	result.Destroyed = outcome.Destroyed

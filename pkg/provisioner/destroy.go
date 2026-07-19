@@ -53,7 +53,12 @@ type DestroyResult struct {
 // collected rather than aborting the loop; the backend tier is only attempted
 // when Stage 1 produced zero failures, to avoid destroying the state store
 // while other components still depend on it. The tier-deferred flag on the
-// result signals when Stage 2 was skipped for this reason.
+// result signals when Stage 2 was skipped for this reason. Stage 2's tier
+// destroy skips the Kubernetes-reachability preflight: Stage 1 has, by
+// design, already destroyed the cluster (it is never a tier member), so an
+// unreachable API at this point is the expected state, not a broken-auth
+// signal, and the backend tier never has a kubernetes/helm provider
+// dependency for the check to protect.
 func (i *Provisioner) Teardown(blueprint *blueprintv1alpha1.Blueprint, terraformOnly bool, continueOnError bool) (DestroyResult, error) {
 	var result DestroyResult
 	backendType := i.configHandler.GetString("terraform.backend.type", "local")
@@ -94,7 +99,7 @@ func (i *Provisioner) Teardown(blueprint *blueprintv1alpha1.Blueprint, terraform
 		if err != nil {
 			return err
 		}
-		tierResult, destroyErr := i.DestroyAllTerraform(tierBP, continueOnError)
+		tierResult, destroyErr := i.destroyAllTerraform(tierBP, continueOnError, false)
 		result.Destroyed = append(result.Destroyed, tierResult.Destroyed...)
 		result.Skipped = mergeSkipped(result.Skipped, mergeSkipped(migrationSkipped, tierResult.Skipped))
 		result.Failed = append(result.Failed, tierResult.Failed...)
