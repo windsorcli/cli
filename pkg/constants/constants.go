@@ -203,7 +203,7 @@ const MinimumVersionLima = "1.0.0"
 // Lima 1.x can hang after "Terminal is not available"; 2.0.3+ is required for reliable colima+incus startup.
 const MinimumVersionLimaIncus = "2.0.3"
 
-const MinimumVersionTerraform = "1.7.0"
+const MinimumVersionTerraform = "1.12.2"
 
 const MinimumVersion1Password = "2.15.0"
 
