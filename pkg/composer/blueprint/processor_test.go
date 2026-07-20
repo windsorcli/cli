@@ -7111,6 +7111,8 @@ func TestBareSecretReferencePath(t *testing.T) {
 		{"MultipleInterpolations", "${a}${b}", "", false},
 		{"EmptyInterpolation", "${}", "", false},
 		{"InnerSpaceInPath", "${a b}", "", false},
+		{"InnerNewlineInPath", "${cdn.\nkey}", "", false},
+		{"InnerCarriageReturnInPath", "${cdn.\rkey}", "", false},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

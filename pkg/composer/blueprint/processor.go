@@ -1040,7 +1040,7 @@ func bareSecretReferencePath(value string) (string, bool) {
 		return "", false
 	}
 	inner := strings.TrimSpace(v[2 : len(v)-1])
-	if inner == "" || strings.ContainsAny(inner, "(){}\"' \t") {
+	if inner == "" || strings.ContainsAny(inner, "(){}\"' \t\n\r") {
 		return "", false
 	}
 	return inner, true
