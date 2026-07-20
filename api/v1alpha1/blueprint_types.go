@@ -645,6 +645,12 @@ type FluxSystem struct {
 
 	// Resources are the custom-resource tier variants, all sharing "<path>/resources".
 	Resources []FluxVariant `yaml:"resources,omitempty"`
+
+	// Secrets wires sensitive values into this system, keyed by the generated Secret name; each value
+	// references a schema property marked `sensitive: true`. Unlike Substitute (plaintext ConfigMap
+	// material), Secrets back a Kubernetes Secret placed into the system's namespace and are resolved
+	// and materialized separately — their resolved values are never rendered or written in plaintext.
+	Secrets map[string]string `yaml:"secrets,omitempty"`
 }
 
 // FluxVariant is one resources-tier Kustomization of a system. It reuses Kustomization for its
@@ -1265,6 +1271,7 @@ func (s *FluxSystem) DeepCopy() *FluxSystem {
 		GlobalDependency: s.GlobalDependency,
 		Install:          s.Install.DeepCopy(),
 		Resources:        resourcesCopy,
+		Secrets:          maps.Clone(s.Secrets),
 	}
 }
 
