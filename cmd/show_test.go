@@ -106,8 +106,8 @@ func setupShowTest(t *testing.T, opts ...*SetupOptions) *ShowMocks {
 	mockBlueprintHandler.GenerateFunc = func() *blueprintv1alpha1.Blueprint { return testBlueprint }
 	mockBlueprintHandler.GetDeferredPathsFunc = func() map[string]bool {
 		return map[string]bool{
-			"terraform.test-component.inputs.deferred":       true,
-			"kustomize.test-kustomization.path":              true,
+			"terraform.test-component.inputs.deferred":                     true,
+			"kustomize.test-kustomization.path":                            true,
 			"kustomize.test-kustomization.substitutions.DEFERRED_ENDPOINT": true,
 		}
 	}
@@ -530,6 +530,49 @@ func TestShowValuesCmd(t *testing.T) {
 		}
 		if !strings.Contains(output, "provider: docker") {
 			t.Errorf("Expected provider value in output, got:\n%s", output)
+		}
+	})
+
+	t.Run("RedactsSensitiveValues", func(t *testing.T) {
+		mocks := setupShowTest(t)
+		mocks.ConfigHandler.(*config.MockConfigHandler).GetContextValuesFunc = func() (map[string]any, error) {
+			return map[string]any{
+				"cdn": map[string]any{
+					"cloudflare_api_key": "SUPERSECRET",
+					"zone":               "example.com",
+				},
+			}, nil
+		}
+		mocks.ConfigHandler.(*config.MockConfigHandler).GetSensitivePathsFunc = func() []string {
+			return []string{"cdn.cloudflare_api_key"}
+		}
+		mocks.ConfigHandler.(*config.MockConfigHandler).GetSchemaFunc = func() map[string]any {
+			return nil
+		}
+
+		proj := project.NewProject("", &project.Project{
+			Runtime: mocks.Runtime,
+		})
+
+		stdout, closePipes := setupOutput(t)
+
+		cmd := createTestCmd()
+		ctx := context.WithValue(context.Background(), projectOverridesKey, proj)
+		cmd.SetContext(ctx)
+		cmd.SetArgs([]string{})
+		_ = cmd.Execute()
+
+		closePipes()
+
+		output := stdout.String()
+		if strings.Contains(output, "SUPERSECRET") {
+			t.Errorf("Expected sensitive value to be redacted, but it leaked:\n%s", output)
+		}
+		if !strings.Contains(output, config.SensitiveRedactionMarker) {
+			t.Errorf("Expected redaction marker %q in output, got:\n%s", config.SensitiveRedactionMarker, output)
+		}
+		if !strings.Contains(output, "example.com") {
+			t.Errorf("Expected non-sensitive sibling preserved, got:\n%s", output)
 		}
 	})
 

@@ -197,3 +197,65 @@ func TestRenderValuesWithDescriptions(t *testing.T) {
 		}
 	})
 }
+
+func TestRedactSensitiveValues(t *testing.T) {
+	t.Run("RedactsExactPathPreservesSibling", func(t *testing.T) {
+		// Given values with a sensitive leaf and a sibling
+		values := map[string]any{
+			"cdn": map[string]any{
+				"cloudflare_api_key": "SUPERSECRET",
+				"zone":               "example.com",
+			},
+		}
+
+		// When redacting the sensitive path
+		RedactSensitiveValues(values, []string{"cdn.cloudflare_api_key"})
+
+		// Then the value is replaced with the marker and the sibling is untouched
+		cdn := values["cdn"].(map[string]any)
+		if cdn["cloudflare_api_key"] != SensitiveRedactionMarker {
+			t.Errorf("Expected redaction marker, got %v", cdn["cloudflare_api_key"])
+		}
+		if cdn["zone"] != "example.com" {
+			t.Errorf("Expected sibling preserved, got %v", cdn["zone"])
+		}
+	})
+
+	t.Run("RedactsWildcardLeavesAcrossKeys", func(t *testing.T) {
+		// Given a dynamic-key map with a sensitive leaf under each entry
+		values := map[string]any{
+			"stores": map[string]any{
+				"a": map[string]any{"token": "atok", "url": "https://a"},
+				"b": map[string]any{"token": "btok"},
+			},
+		}
+
+		// When redacting the wildcard path
+		RedactSensitiveValues(values, []string{"stores.*.token"})
+
+		// Then every store's token is redacted and non-sensitive siblings remain
+		stores := values["stores"].(map[string]any)
+		if stores["a"].(map[string]any)["token"] != SensitiveRedactionMarker {
+			t.Error("Expected stores.a.token redacted")
+		}
+		if stores["b"].(map[string]any)["token"] != SensitiveRedactionMarker {
+			t.Error("Expected stores.b.token redacted")
+		}
+		if stores["a"].(map[string]any)["url"] != "https://a" {
+			t.Error("Expected stores.a.url preserved")
+		}
+	})
+
+	t.Run("AbsentPathIsNotFabricated", func(t *testing.T) {
+		// Given values lacking the sensitive path
+		values := map[string]any{"cdn": map[string]any{"zone": "example.com"}}
+
+		// When redacting a path that is not present
+		RedactSensitiveValues(values, []string{"cdn.cloudflare_api_key"})
+
+		// Then no key is created
+		if _, exists := values["cdn"].(map[string]any)["cloudflare_api_key"]; exists {
+			t.Error("Expected absent sensitive key to not be fabricated")
+		}
+	})
+}
