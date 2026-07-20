@@ -7170,3 +7170,53 @@ func TestValidateSystemSecrets(t *testing.T) {
 		}
 	})
 }
+
+func TestEvaluateSubstitutions_RejectsSensitiveReference(t *testing.T) {
+	t.Run("RejectsBareSensitiveReference", func(t *testing.T) {
+		// Given a substitution whose value references a sensitive property
+		mocks := setupProcessorMocks(t)
+		mocks.ConfigHandler.IsSensitivePathFunc = func(path string) bool { return path == "cdn.cloudflare_api_key" }
+		processor := NewBlueprintProcessor(mocks.Runtime)
+
+		// When evaluating substitutions, it fails closed before resolving the value
+		_, _, err := processor.evaluateSubstitutions(map[string]string{"FOO": "${cdn.cloudflare_api_key}"}, "", nil)
+		if err == nil || !strings.Contains(err.Error(), "references sensitive property") {
+			t.Errorf("Expected sensitive-substitution error, got %v", err)
+		}
+	})
+
+	t.Run("AllowsNonSensitiveReference", func(t *testing.T) {
+		// Given a substitution referencing a non-sensitive property
+		mocks := setupProcessorMocks(t)
+		mocks.ConfigHandler.IsSensitivePathFunc = func(path string) bool { return false }
+		mocks.ConfigHandler.GetContextValuesFunc = func() (map[string]any, error) {
+			return map[string]any{"cdn": map[string]any{"zone": "example.com"}}, nil
+		}
+		processor := NewBlueprintProcessor(mocks.Runtime)
+
+		// When evaluating, it resolves normally
+		result, _, err := processor.evaluateSubstitutions(map[string]string{"ZONE": "${cdn.zone}"}, "", nil)
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		if result["ZONE"] != "example.com" {
+			t.Errorf("Expected resolved value, got %v", result)
+		}
+	})
+
+	t.Run("AllowsPlainLiteral", func(t *testing.T) {
+		// Given a plaintext literal substitution (not a bare reference)
+		mocks := setupProcessorMocks(t)
+		mocks.ConfigHandler.IsSensitivePathFunc = func(path string) bool { return true }
+		processor := NewBlueprintProcessor(mocks.Runtime)
+
+		// When evaluating, the literal is preserved and the guard does not fire
+		result, _, err := processor.evaluateSubstitutions(map[string]string{"REGION": "us-east-1"}, "", nil)
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		if result["REGION"] != "us-east-1" {
+			t.Errorf("Expected literal preserved, got %v", result)
+		}
+	})
+}

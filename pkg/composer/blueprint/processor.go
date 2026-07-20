@@ -1031,6 +1031,13 @@ func (p *BaseBlueprintProcessor) validateSystemSecrets(systemName string, secret
 	return nil
 }
 
+// isSensitivePath reports whether the config path is marked sensitive in the schema. It returns false
+// when no config handler is available (e.g. isolated composer tests), so callers that reject sensitive
+// references skip the check rather than failing spuriously.
+func (p *BaseBlueprintProcessor) isSensitivePath(path string) bool {
+	return p.runtime != nil && p.runtime.ConfigHandler != nil && p.runtime.ConfigHandler.IsSensitivePath(path)
+}
+
 // bareSecretReferencePath extracts the config path from a bare "${<path>}" reference, returning false
 // for literals, embedded interpolations, function calls, or secret() notation — anything that is not
 // a single sensitive-property reference.
@@ -1934,6 +1941,9 @@ func (p *BaseBlueprintProcessor) evaluateSubstitutions(subs map[string]string, f
 	result := make(map[string]string)
 	deferredKeys := make(map[string]bool)
 	for key, value := range subs {
+		if path, ok := bareSecretReferencePath(value); ok && p.isSensitivePath(path) {
+			return nil, nil, fmt.Errorf("substitution %q references sensitive property %q; move it to the flux system's secrets: key instead of a plaintext substitution, which would be written to a ConfigMap", key, path)
+		}
 		evaluated, err := p.evaluator.Evaluate(value, facetPath, scope, false)
 		if err != nil {
 			return nil, nil, fmt.Errorf("failed to evaluate '%s': %w", key, err)
