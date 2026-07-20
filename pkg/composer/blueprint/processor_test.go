@@ -7170,3 +7170,60 @@ func TestValidateSystemSecrets(t *testing.T) {
 		}
 	})
 }
+
+func TestEvaluateSubstitutions_RejectsSensitiveReference(t *testing.T) {
+	t.Run("RejectsSensitiveReferenceWholeAndEmbedded", func(t *testing.T) {
+		// Given substitutions that reference a sensitive property whole-string and embedded
+		mocks := setupProcessorMocks(t)
+		mocks.ConfigHandler.IsSensitivePathFunc = func(path string) bool { return path == "cdn.cloudflare_api_key" }
+		processor := NewBlueprintProcessor(mocks.Runtime)
+
+		// Then each form fails closed before the value is resolved
+		for name, value := range map[string]string{
+			"Whole":       "${cdn.cloudflare_api_key}",
+			"Prefixed":    "https://api.example.com/${cdn.cloudflare_api_key}",
+			"Suffixed":    "${cdn.cloudflare_api_key}-suffix",
+			"MidSentence": "token=${cdn.cloudflare_api_key};v=1",
+		} {
+			_, _, err := processor.evaluateSubstitutions(map[string]string{"FOO": value}, "", nil)
+			if err == nil || !strings.Contains(err.Error(), "references sensitive property") {
+				t.Errorf("%s: expected sensitive-substitution error for %q, got %v", name, value, err)
+			}
+		}
+	})
+
+	t.Run("AllowsNonSensitiveReference", func(t *testing.T) {
+		// Given a substitution referencing a non-sensitive property
+		mocks := setupProcessorMocks(t)
+		mocks.ConfigHandler.IsSensitivePathFunc = func(path string) bool { return false }
+		mocks.ConfigHandler.GetContextValuesFunc = func() (map[string]any, error) {
+			return map[string]any{"cdn": map[string]any{"zone": "example.com"}}, nil
+		}
+		processor := NewBlueprintProcessor(mocks.Runtime)
+
+		// When evaluating, it resolves normally
+		result, _, err := processor.evaluateSubstitutions(map[string]string{"ZONE": "${cdn.zone}"}, "", nil)
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		if result["ZONE"] != "example.com" {
+			t.Errorf("Expected resolved value, got %v", result)
+		}
+	})
+
+	t.Run("AllowsPlainLiteral", func(t *testing.T) {
+		// Given a plaintext literal substitution (not a bare reference)
+		mocks := setupProcessorMocks(t)
+		mocks.ConfigHandler.IsSensitivePathFunc = func(path string) bool { return true }
+		processor := NewBlueprintProcessor(mocks.Runtime)
+
+		// When evaluating, the literal is preserved and the guard does not fire
+		result, _, err := processor.evaluateSubstitutions(map[string]string{"REGION": "us-east-1"}, "", nil)
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		if result["REGION"] != "us-east-1" {
+			t.Errorf("Expected literal preserved, got %v", result)
+		}
+	})
+}
