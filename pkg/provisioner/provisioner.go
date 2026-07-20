@@ -1012,9 +1012,10 @@ func (i *Provisioner) PlaceSecrets(ctx context.Context, blueprint *blueprintv1al
 				if err != nil {
 					return fmt.Errorf("resolving secret %q key %q: %w", secretName, key, err)
 				}
-				if value != nil {
-					stringData[key] = fmt.Sprint(value)
+				if value == nil {
+					return fmt.Errorf("resolving secret %q key %q: reference %q resolved to nil", secretName, key, ref)
 				}
+				stringData[key] = fmt.Sprint(value)
 			}
 			if err := i.KubernetesManager.ApplySecret(secretName, namespace, stringData); err != nil {
 				return fmt.Errorf("applying secret %q to namespace %q: %w", secretName, namespace, err)

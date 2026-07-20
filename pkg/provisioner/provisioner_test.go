@@ -4384,6 +4384,31 @@ func TestProvisioner_PlaceSecrets(t *testing.T) {
 		}
 	})
 
+	t.Run("FailsWhenReferenceResolvesToNil", func(t *testing.T) {
+		// Given a sensitive property that exists but holds a nil value
+		mocks := setupProvisionerMocks(t)
+		mocks.ConfigHandler.(*config.MockConfigHandler).GetContextValuesFunc = func() (map[string]any, error) {
+			return map[string]any{"cdn": map[string]any{"cloudflare_api_key": nil}}, nil
+		}
+		mocks.KubernetesManager.GetKustomizationInventoryFunc = func(name, namespace string) ([]kubernetes.InventoryEntry, error) {
+			return []kubernetes.InventoryEntry{{Kind: "Namespace", Name: "system-dns"}}, nil
+		}
+		applied := false
+		mocks.KubernetesManager.ApplySecretFunc = func(name, namespace string, stringData map[string]string) error {
+			applied = true
+			return nil
+		}
+
+		// When placing secrets, the nil resolution fails closed rather than dropping the key
+		err := newProvisioner(mocks).PlaceSecrets(context.Background(), secretBlueprint())
+		if err == nil || !strings.Contains(err.Error(), "resolved to nil") {
+			t.Errorf("Expected nil-resolution error, got %v", err)
+		}
+		if applied {
+			t.Error("Expected ApplySecret to not be called when a key resolves to nil")
+		}
+	})
+
 	t.Run("FailsClosedWhenMultipleNamespaces", func(t *testing.T) {
 		// Given a kustomization whose inventory created more than one namespace
 		mocks := setupProvisionerMocks(t)
