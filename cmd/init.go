@@ -205,7 +205,7 @@ func init() {
 	initCmd.Flags().StringVar(&initArch, "vm-arch", "", "CPU architecture for the workstation VM.")
 	initCmd.Flags().BoolVar(&initDocker, "docker", false, "Enable Docker.")
 	initCmd.Flags().BoolVar(&initGitLivereload, "git-livereload", false, "Enable git livereload.")
-	initCmd.Flags().StringVar(&initPlatform, "platform", "", "Target platform: none, metal, docker, aws, azure, gcp, hyperv, vsphere.")
+	initCmd.Flags().StringVar(&initPlatform, "platform", "", "Target platform: none, docker, incus, metal, hetzner, aws, azure, gcp, hyperv, vsphere.")
 	initCmd.Flags().StringVar(&initBlueprint, "blueprint", "", "Blueprint OCI reference or local path.")
 	initCmd.Flags().StringVar(&initEndpoint, "endpoint", "", "Kubernetes API endpoint.")
 	initCmd.Flags().StringSliceVar(&initSetFlags, "set", []string{}, "Override config values, e.g. --set dns.enabled=false. May be repeated.")

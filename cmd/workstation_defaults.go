@@ -22,8 +22,8 @@ import (
 //
 //   - aws   → s3       (S3 is the canonical state store on AWS)
 //   - azure → azurerm  (Azure Blob Storage via the azurerm backend)
-//   - metal, docker, incus → kubernetes  (the cluster IS the state store;
-//     each component's state lives as a Secret in the cluster it manages)
+//   - metal, docker, incus, hetzner → kubernetes  (the cluster IS the state
+//     store; each component's state lives as a Secret in the cluster it manages)
 //
 // The default only kicks in when terraform.backend.type is absent from
 // overrides, so explicit --set values (which are merged into the same map by
@@ -60,7 +60,7 @@ func applyWorkstationFlagOverrides(overrides map[string]any, vmDriver, platform 
 			overrides["terraform.backend.type"] = "s3"
 		case "azure":
 			overrides["terraform.backend.type"] = "azurerm"
-		case "metal", "docker", "incus":
+		case "metal", "docker", "incus", "hetzner":
 			overrides["terraform.backend.type"] = "kubernetes"
 		}
 	}

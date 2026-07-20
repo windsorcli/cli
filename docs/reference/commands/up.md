@@ -19,7 +19,7 @@ If any host-side network or DNS configuration was deferred (because it requires 
 | Flag | Default | Description |
 |------|---------|-------------|
 | `--blueprint` | `""` | Blueprint OCI reference or local path. |
-| `--platform` | `""` | Target platform: none, metal, docker, aws, azure, gcp, hyperv, vsphere. |
+| `--platform` | `""` | Target platform: none, docker, incus, metal, hetzner, aws, azure, gcp, hyperv, vsphere. |
 | `--set` | `[]` | Override config values, e.g. --set dns.enabled=false. May be repeated. |
 | `--vm-driver` | `""` | VM driver: colima, colima-incus, docker-desktop, docker. |
 | `--wait` | `false` | Wait for kustomization resources to be ready. |

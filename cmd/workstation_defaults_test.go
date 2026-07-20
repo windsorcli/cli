@@ -186,6 +186,21 @@ func TestApplyWorkstationFlagOverrides(t *testing.T) {
 		}
 	})
 
+	t.Run("HetznerPlatformDefaultsBackendToKubernetes", func(t *testing.T) {
+		// Given --platform hetzner, same kubernetes-backend default applies as
+		// metal/docker/incus — Hetzner Cloud has no managed Kubernetes offering,
+		// so the Talos cluster Windsor provisions is also the state store.
+		overrides := map[string]any{}
+
+		// When the helper is applied
+		applyWorkstationFlagOverrides(overrides, "", "hetzner")
+
+		// Then terraform.backend.type defaults to "kubernetes"
+		if overrides["terraform.backend.type"] != "kubernetes" {
+			t.Errorf("Expected terraform.backend.type=kubernetes, got %v", overrides["terraform.backend.type"])
+		}
+	})
+
 	t.Run("VmDriverInferenceFlowsThroughToBackendDefault", func(t *testing.T) {
 		// Given --vm-driver docker-desktop with no --platform, the helper infers
 		// platform=docker, and the backend default must then key off that inferred
