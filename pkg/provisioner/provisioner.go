@@ -21,9 +21,9 @@ import (
 	terraforminfra "github.com/windsorcli/cli/pkg/provisioner/terraform"
 	"github.com/windsorcli/cli/pkg/runtime"
 	"github.com/windsorcli/cli/pkg/runtime/config"
-	"github.com/windsorcli/cli/pkg/tui"
 	"github.com/windsorcli/cli/pkg/runtime/evaluator"
 	"github.com/windsorcli/cli/pkg/runtime/shell"
+	"github.com/windsorcli/cli/pkg/tui"
 )
 
 // The Provisioner package provides high-level infrastructure provisioning functionality
@@ -48,15 +48,15 @@ type Provisioner struct {
 	configRoot    string
 	runtime       *runtime.Runtime
 
-	TerraformStack         terraforminfra.Stack
-	FluxStack              fluxinfra.Stack
-	Notifier               fluxinfra.Notifier
-	onTerraformApply       []func(id string) (bool, error)
-	onTerraformPostApply   []func(id string) error
-	KubernetesManager kubernetes.KubernetesManager
-	KubernetesClient  k8sclient.KubernetesClient
-	ClusterClient     cluster.ClusterClient
-	blueprintHandler  blueprint.BlueprintHandler
+	TerraformStack       terraforminfra.Stack
+	FluxStack            fluxinfra.Stack
+	Notifier             fluxinfra.Notifier
+	onTerraformApply     []func(id string) (bool, error)
+	onTerraformPostApply []func(id string) error
+	KubernetesManager    kubernetes.KubernetesManager
+	KubernetesClient     k8sclient.KubernetesClient
+	ClusterClient        cluster.ClusterClient
+	blueprintHandler     blueprint.BlueprintHandler
 }
 
 // PlanSummary holds aggregated plan results across all infrastructure layers.
@@ -978,6 +978,85 @@ func (i *Provisioner) Wait(ctx context.Context, blueprint *blueprintv1alpha1.Blu
 	}
 
 	return nil
+}
+
+// PlaceSecrets materializes each flux system's declared Secrets into the namespace its owning
+// kustomization created. For every compiled kustomization carrying Secrets it waits for that
+// kustomization to reconcile (so the namespace exists), resolves the target namespace from the
+// kustomization's Flux inventory — failing closed unless exactly one Namespace was created so a
+// secret is never placed by guessing — resolves each data reference to plaintext via the evaluator
+// (which registers it with the shell scrubber), and applies an Opaque Secret. It is a no-op when no
+// kustomization declares Secrets. Placement is imperative and runs after Install; it self-gates on
+// the owning kustomization's readiness rather than requiring a global wait.
+func (i *Provisioner) PlaceSecrets(ctx context.Context, blueprint *blueprintv1alpha1.Blueprint) error {
+	if blueprint == nil {
+		return fmt.Errorf("blueprint not provided")
+	}
+	if i.KubernetesManager == nil {
+		return fmt.Errorf("kubernetes manager not configured")
+	}
+
+	bp := withCrdLayer(blueprint)
+	for _, k := range bp.Kustomizations {
+		if len(k.Secrets) == 0 {
+			continue
+		}
+		namespace, err := i.resolveSecretNamespace(ctx, k.Name)
+		if err != nil {
+			return err
+		}
+		for secretName, data := range k.Secrets {
+			stringData := make(map[string]string, len(data))
+			for key, ref := range data {
+				value, err := i.evaluator.Evaluate(ref, "", nil, true)
+				if err != nil {
+					return fmt.Errorf("resolving secret %q key %q: %w", secretName, key, err)
+				}
+				if value != nil {
+					stringData[key] = fmt.Sprint(value)
+				}
+			}
+			if err := i.KubernetesManager.ApplySecret(secretName, namespace, stringData); err != nil {
+				return fmt.Errorf("applying secret %q to namespace %q: %w", secretName, namespace, err)
+			}
+		}
+	}
+	return nil
+}
+
+// resolveSecretNamespace polls the owning kustomization's Flux inventory until Flux has applied the
+// namespace it creates, then returns it. Gating on the namespace being applied — not on the whole
+// kustomization being Ready — places the secret the moment the namespace exists, so a workload that
+// consumes it recovers promptly and a kustomization whose readiness depends on that secret can never
+// deadlock placement. It fails closed: an error on more than one namespace (ambiguous target), and a
+// bounded timeout if none ever appears (a re-run places it once the namespace is created). Flux
+// records inventory only after a successful apply, so a namespace present there is really applied.
+func (i *Provisioner) resolveSecretNamespace(ctx context.Context, kustomizationName string) (string, error) {
+	waitCtx, cancel := context.WithTimeout(ctx, constants.DefaultFluxKustomizationInstallTimeout)
+	defer cancel()
+	for {
+		entries, err := i.KubernetesManager.GetKustomizationInventory(kustomizationName, i.fluxNamespace())
+		if err != nil {
+			return "", fmt.Errorf("reading inventory for kustomization %q: %w", kustomizationName, err)
+		}
+		var namespaces []string
+		for _, entry := range entries {
+			if entry.Kind == "Namespace" {
+				namespaces = append(namespaces, entry.Name)
+			}
+		}
+		switch {
+		case len(namespaces) == 1:
+			return namespaces[0], nil
+		case len(namespaces) > 1:
+			return "", fmt.Errorf("kustomization %q created multiple namespaces (%s); cannot determine where to place its secrets", kustomizationName, strings.Join(namespaces, ", "))
+		}
+		select {
+		case <-waitCtx.Done():
+			return "", fmt.Errorf("timed out waiting for kustomization %q to create its namespace before placing secrets", kustomizationName)
+		case <-time.After(constants.DefaultKustomizationWaitPollInterval):
+		}
+	}
 }
 
 // WriteVersionMarker records the blueprint version applied to this context as a marker ConfigMap

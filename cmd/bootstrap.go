@@ -63,7 +63,7 @@ windsor bootstrap staging --platform=aws --blueprint=ghcr.io/myorg/blueprint:v1.
 windsor bootstrap prod --yes`,
 	Annotations: map[string]string{
 		"docs.seealso": "[`init`](init.md), [`apply`](apply.md), [`destroy`](destroy.md)",
-		"docs.source": "cmd/bootstrap.go",
+		"docs.source":  "cmd/bootstrap.go",
 	},
 	Args:         cobra.MaximumNArgs(1),
 	SilenceUsage: true,
@@ -227,6 +227,10 @@ windsor bootstrap prod --yes`,
 
 			if err := proj.Provisioner.Install(cmd.Context(), blueprint); err != nil {
 				return fmt.Errorf("error installing blueprint: %w", err)
+			}
+
+			if err := proj.Provisioner.PlaceSecrets(cmd.Context(), blueprint); err != nil {
+				return fmt.Errorf("error placing secrets: %w", err)
 			}
 
 			if err := proj.Provisioner.Wait(cmd.Context(), blueprint); err != nil {

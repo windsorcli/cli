@@ -40,7 +40,7 @@ windsor up --set cluster.workers.count=3
 windsor up --blueprint=ghcr.io/myorg/blueprint:v1.0.0`,
 	Annotations: map[string]string{
 		"docs.seealso": "[`down`](down.md), [`apply`](apply.md), [`destroy`](destroy.md)",
-		"docs.source": "cmd/up.go",
+		"docs.source":  "cmd/up.go",
 	},
 	SilenceUsage: true,
 	RunE: func(cmd *cobra.Command, args []string) error {
@@ -131,6 +131,10 @@ windsor up --blueprint=ghcr.io/myorg/blueprint:v1.0.0`,
 
 			if err := proj.Provisioner.Install(cmd.Context(), blueprint); err != nil {
 				return fmt.Errorf("error installing blueprint: %w", err)
+			}
+
+			if err := proj.Provisioner.PlaceSecrets(cmd.Context(), blueprint); err != nil {
+				return fmt.Errorf("error placing secrets: %w", err)
 			}
 
 			if waitFlag {

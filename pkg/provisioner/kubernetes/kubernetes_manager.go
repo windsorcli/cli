@@ -42,6 +42,7 @@ type KubernetesManager interface {
 	CreateNamespace(name string) error
 	DeleteNamespace(name string) error
 	ApplyConfigMap(name, namespace string, data map[string]string) error
+	ApplySecret(name, namespace string, stringData map[string]string) error
 	GetHelmReleasesForKustomization(name, namespace string) ([]helmv2.HelmRelease, error)
 	ApplyGitRepository(repo *sourcev1.GitRepository) error
 	ApplyOCIRepository(repo *sourcev1.OCIRepository) error
@@ -506,6 +507,41 @@ func (k *BaseKubernetesManager) ApplyConfigMap(name, namespace string, data map[
 			return fmt.Errorf("failed to delete immutable configmap: %w", err)
 		}
 		time.Sleep(time.Second)
+	}
+
+	opts := metav1.ApplyOptions{
+		FieldManager: "windsor-cli",
+		Force:        false,
+	}
+
+	return k.applyWithRetry(gvr, obj, opts)
+}
+
+// ApplySecret creates or updates an Opaque Secret using SSA. Values are supplied as plaintext in
+// stringData (write-only; the API server folds them into data) and are never logged. Mirrors
+// ApplyConfigMap's server-side-apply handling.
+func (k *BaseKubernetesManager) ApplySecret(name, namespace string, stringData map[string]string) error {
+	obj := &unstructured.Unstructured{
+		Object: map[string]any{
+			"apiVersion": "v1",
+			"kind":       "Secret",
+			"type":       "Opaque",
+			"metadata": map[string]any{
+				"name":      name,
+				"namespace": namespace,
+			},
+			"stringData": stringData,
+		},
+	}
+
+	if err := validateFields(obj); err != nil {
+		return fmt.Errorf("invalid secret fields: %w", err)
+	}
+
+	gvr := schema.GroupVersionResource{
+		Group:    "",
+		Version:  "v1",
+		Resource: "secrets",
 	}
 
 	opts := metav1.ApplyOptions{
@@ -1646,6 +1682,10 @@ func validateFields(obj *unstructured.Unstructured) error {
 		if m, ok := data.(map[string]any); ok && len(m) == 0 {
 			return fmt.Errorf("data cannot be empty for ConfigMap")
 		}
+		return nil
+	}
+
+	if obj.GetKind() == "Secret" {
 		return nil
 	}
 
