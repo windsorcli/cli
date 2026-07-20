@@ -286,8 +286,9 @@ func listKustomizations(blueprint *blueprintv1alpha1.Blueprint, useJSON bool) er
 
 // getValues configures the project and returns the effective context values and loaded schema without
 // running full initialization. It merges schema defaults with values.yaml overrides, providing the
-// complete set of configuration values available for use in blueprint processing. No files are written
-// or terraform modules processed. Returns values, schema (may be nil), and any error.
+// complete set of configuration values available for use in blueprint processing. Values at
+// schema-declared sensitive paths are redacted so `windsor show values` never prints secret material.
+// No files are written or terraform modules processed. Returns values, schema (may be nil), and any error.
 func getValues(cmd *cobra.Command) (map[string]any, map[string]any, error) {
 	proj, err := configureProject(cmd)
 	if err != nil {
@@ -298,6 +299,7 @@ func getValues(cmd *cobra.Command) (map[string]any, map[string]any, error) {
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to get context values: %w", err)
 	}
+	config.RedactSensitiveValues(values, proj.Runtime.ConfigHandler.GetSensitivePaths())
 
 	schema := proj.Runtime.ConfigHandler.GetSchema()
 	return values, schema, nil

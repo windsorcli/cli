@@ -18,6 +18,10 @@ import (
 // Public Functions
 // =============================================================================
 
+// SensitiveRedactionMarker is the placeholder shown in place of a sensitive value in display
+// output, so operators see that a field exists and is sensitive without its value being printed.
+const SensitiveRedactionMarker = "<sensitive>"
+
 // RenderValuesWithDescriptions renders context values as YAML annotated with schema descriptions.
 // It walks the union of schema properties and effective values so that every configurable field
 // appears in the output. Set keys render as normal YAML with description comments; unset
@@ -27,9 +31,53 @@ func RenderValuesWithDescriptions(values map[string]any, schema map[string]any) 
 	return renderValuesBlock(values, schema, "")
 }
 
+// RedactSensitiveValues replaces, in place, every existing value at a sensitive path with
+// SensitiveRedactionMarker so display surfaces (e.g. windsor show values) never print secret
+// material while still revealing that the field is set. A "*" path segment matches any single
+// key. Absent paths are left untouched — redaction never fabricates keys. The same map is
+// returned for convenience.
+func RedactSensitiveValues(values map[string]any, sensitivePaths []string) map[string]any {
+	for _, path := range sensitivePaths {
+		redactValueAtPath(values, parsePath(path))
+	}
+	return values
+}
+
 // =============================================================================
 // Private Functions
 // =============================================================================
+
+// redactValueAtPath overwrites the leaf addressed by segments with SensitiveRedactionMarker. A "*"
+// segment matches every key at that level: as the final segment it redacts each existing value,
+// otherwise it recurses into every child. Missing keys are ignored; no keys are created.
+func redactValueAtPath(node any, segments []string) {
+	current, ok := node.(map[string]any)
+	if !ok || len(segments) == 0 {
+		return
+	}
+	segment := segments[0]
+	if len(segments) == 1 {
+		if segment == "*" {
+			for key := range current {
+				current[key] = SensitiveRedactionMarker
+			}
+			return
+		}
+		if _, exists := current[segment]; exists {
+			current[segment] = SensitiveRedactionMarker
+		}
+		return
+	}
+	if segment == "*" {
+		for _, child := range current {
+			redactValueAtPath(child, segments[1:])
+		}
+		return
+	}
+	if child, exists := current[segment]; exists {
+		redactValueAtPath(child, segments[1:])
+	}
+}
 
 // renderValuesBlock is the recursive implementation for RenderValuesWithDescriptions.
 // It accumulates output into a strings.Builder, delegating scalar and array formatting
