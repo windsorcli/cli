@@ -1011,6 +1011,20 @@ func mergeSubstitute(k blueprintv1alpha1.Kustomization) map[string]string {
 	return out
 }
 
+// mergeStringMap returns the union of two string maps with overlay winning on key conflict, and nil
+// when both are empty. Neither input is mutated. Used to union a flux system's Secrets across facets.
+func mergeStringMap(base, overlay map[string]string) map[string]string {
+	if len(base) == 0 && len(overlay) == 0 {
+		return nil
+	}
+	out := maps.Clone(base)
+	if out == nil {
+		out = make(map[string]string, len(overlay))
+	}
+	maps.Copy(out, overlay)
+	return out
+}
+
 // fluxResourcesSubstitutionPrefix returns the deferred-path prefix for a flux system's resources
 // tier substitutions, scoped per resources variant (empty variantName for the unnamed variant) so
 // two variants sharing a substitution key name don't collide on the same deferred-path entry.
@@ -1238,6 +1252,7 @@ func (p *BaseBlueprintProcessor) applyFluxSystemEntryByStrategy(name string, new
 		merged.DependsOn = accumulateStringSlice(existing.DependsOn, new.DependsOn)
 		merged.Install = blueprintv1alpha1.MergeFluxInstall(existing.Install, new.Install)
 		merged.Resources = blueprintv1alpha1.MergeFluxVariants(existing.Resources, new.Resources)
+		merged.Secrets = mergeStringMap(existing.Secrets, new.Secrets)
 		merged.Ordinal = new.Ordinal
 		merged.GlobalDependency = existing.GlobalDependency || new.GlobalDependency
 		entries[name] = &merged

@@ -7046,3 +7046,48 @@ func TestProcessor_ProcessFacets_ComponentRequires(t *testing.T) {
 		}
 	})
 }
+
+func TestMergeStringMap(t *testing.T) {
+	t.Run("UnionsWithOverlayWinning", func(t *testing.T) {
+		// Given a base and overlay sharing a key
+		base := map[string]string{"a": "1", "b": "2"}
+		overlay := map[string]string{"b": "override", "c": "3"}
+
+		// When merging
+		got := mergeStringMap(base, overlay)
+
+		// Then keys union and overlay wins the conflict
+		want := map[string]string{"a": "1", "b": "override", "c": "3"}
+		if len(got) != len(want) {
+			t.Fatalf("Expected %d keys, got %v", len(want), got)
+		}
+		for k, v := range want {
+			if got[k] != v {
+				t.Errorf("Expected %s=%s, got %s", k, v, got[k])
+			}
+		}
+	})
+
+	t.Run("ReturnsNilWhenBothEmpty", func(t *testing.T) {
+		if got := mergeStringMap(nil, nil); got != nil {
+			t.Errorf("Expected nil, got %v", got)
+		}
+	})
+
+	t.Run("DoesNotMutateInputs", func(t *testing.T) {
+		// Given a base map
+		base := map[string]string{"a": "1"}
+		overlay := map[string]string{"b": "2"}
+
+		// When merging
+		_ = mergeStringMap(base, overlay)
+
+		// Then the inputs are unchanged
+		if len(base) != 1 || base["a"] != "1" {
+			t.Errorf("Expected base unmutated, got %v", base)
+		}
+		if _, exists := base["b"]; exists {
+			t.Error("Expected base to not gain overlay key")
+		}
+	})
+}

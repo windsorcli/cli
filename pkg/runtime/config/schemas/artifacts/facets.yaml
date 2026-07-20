@@ -102,7 +102,9 @@ properties:
       compile to an install Kustomization plus resources-variant Kustomizations.
       Distinct from 'kustomize:' (1:1 passthrough). See the flux: shape in the
       [Blueprint reference](blueprint.md): name (required), path, source, enabled,
-      destroy, when, dependsOn, strategy, ordinal, install, resources.
+      destroy, when, dependsOn, strategy, ordinal, install, resources, secrets.
+      'secrets' is a flat map of <secret-name>: <reference to a sensitive schema
+      property>, materialized as a Kubernetes Secret in the system's namespace.
     items:
       type: object
       required:

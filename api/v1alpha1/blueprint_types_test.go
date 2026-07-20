@@ -5082,3 +5082,48 @@ func findKustomization(all []Kustomization, name string) *Kustomization {
 	}
 	return nil
 }
+
+func TestFluxSystem_Secrets(t *testing.T) {
+	t.Run("DeepCopyClonesSecretsIndependently", func(t *testing.T) {
+		// Given a flux system with a secrets map
+		original := &FluxSystem{
+			Name:    "cdn",
+			Secrets: map[string]string{"cloudflare-api-token": "${cdn.cloudflare_api_key}"},
+		}
+
+		// When deep-copying and mutating the copy
+		clone := original.DeepCopy()
+		clone.Secrets["cloudflare-api-token"] = "changed"
+		clone.Secrets["extra"] = "value"
+
+		// Then the original is untouched
+		if original.Secrets["cloudflare-api-token"] != "${cdn.cloudflare_api_key}" {
+			t.Errorf("Expected original secret unchanged, got %q", original.Secrets["cloudflare-api-token"])
+		}
+		if _, exists := original.Secrets["extra"]; exists {
+			t.Error("Expected original to not gain the clone's key")
+		}
+	})
+
+	t.Run("UnmarshalsSecretsMapFromYAML", func(t *testing.T) {
+		// Given a flux system authored with a secrets: map
+		data := []byte(`
+name: cdn
+secrets:
+  cloudflare-api-token: ${cdn.cloudflare_api_key}
+install:
+  components: [cloudflared]
+`)
+
+		// When unmarshaling
+		var system FluxSystem
+		if err := yaml.Unmarshal(data, &system); err != nil {
+			t.Fatalf("Unmarshal: %v", err)
+		}
+
+		// Then the secrets map is populated
+		if got := system.Secrets["cloudflare-api-token"]; got != "${cdn.cloudflare_api_key}" {
+			t.Errorf("Expected secret reference, got %q", got)
+		}
+	})
+}
