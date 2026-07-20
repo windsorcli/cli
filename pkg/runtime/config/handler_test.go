@@ -1939,3 +1939,93 @@ func findSubstring(s, substr string) bool {
 	}
 	return false
 }
+
+func TestConfigHandler_SensitivePaths(t *testing.T) {
+	setup := func(t *testing.T) *configHandler {
+		t.Helper()
+		handler, _ := setupPrivateTestHandler(t)
+		handler.schemaValidator.Schema = map[string]any{
+			"$schema": "https://json-schema.org/draft/2020-12/schema",
+			"type":    "object",
+			"properties": map[string]any{
+				"cdn": map[string]any{
+					"type": "object",
+					"properties": map[string]any{
+						"cloudflare_api_key": map[string]any{"type": "string", "sensitive": true},
+						"zone":               map[string]any{"type": "string"},
+					},
+				},
+				"secrets": map[string]any{
+					"type": "object",
+					"properties": map[string]any{
+						"stores": map[string]any{
+							"type": "object",
+							"additionalProperties": map[string]any{
+								"type": "object",
+								"properties": map[string]any{
+									"token": map[string]any{"type": "string", "sensitive": true},
+								},
+							},
+						},
+					},
+				},
+			},
+		}
+		return handler
+	}
+
+	t.Run("GetSensitivePathsDelegatesSorted", func(t *testing.T) {
+		// Given a handler with sensitive markers at a nested path and under a map region
+		handler := setup(t)
+
+		// When getting sensitive paths
+		got := strings.Join(handler.GetSensitivePaths(), ",")
+
+		// Then both are returned, sorted
+		want := "cdn.cloudflare_api_key,secrets.stores.*.token"
+		if got != want {
+			t.Errorf("Expected %q, got %q", want, got)
+		}
+	})
+
+	t.Run("IsSensitivePathExactMatch", func(t *testing.T) {
+		// Given a handler with a sensitive nested property
+		handler := setup(t)
+
+		// Then the exact path is sensitive and a sibling is not
+		if !handler.IsSensitivePath("cdn.cloudflare_api_key") {
+			t.Error("Expected cdn.cloudflare_api_key to be sensitive")
+		}
+		if handler.IsSensitivePath("cdn.zone") {
+			t.Error("Expected cdn.zone to not be sensitive")
+		}
+	})
+
+	t.Run("IsSensitivePathWildcardSegment", func(t *testing.T) {
+		// Given a sensitive leaf under a free-form map region
+		handler := setup(t)
+
+		// Then a concrete key matches the "*" segment
+		if !handler.IsSensitivePath("secrets.stores.prod.token") {
+			t.Error("Expected secrets.stores.prod.token to match wildcard sensitive path")
+		}
+		// And a path with the wrong segment count does not match
+		if handler.IsSensitivePath("secrets.stores.token") {
+			t.Error("Expected secrets.stores.token (wrong depth) to not match")
+		}
+	})
+
+	t.Run("NilValidatorReturnsEmpty", func(t *testing.T) {
+		// Given a handler with no schema validator
+		handler, _ := setupPrivateTestHandler(t)
+		handler.schemaValidator = nil
+
+		// Then sensitive-path queries are safe no-ops
+		if handler.GetSensitivePaths() != nil {
+			t.Error("Expected nil sensitive paths")
+		}
+		if handler.IsSensitivePath("anything") {
+			t.Error("Expected IsSensitivePath false with no validator")
+		}
+	})
+}

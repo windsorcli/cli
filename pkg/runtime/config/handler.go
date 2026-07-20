@@ -49,6 +49,8 @@ type ConfigHandler interface {
 	LoadSchemaFromBytes(schemaContent []byte) error
 	GetSchema() map[string]any
 	GetContextValues() (map[string]any, error)
+	GetSensitivePaths() []string
+	IsSensitivePath(path string) bool
 	RegisterProvider(prefix string, provider ValueProvider)
 	ValidateContextValues() error
 }
@@ -502,6 +504,28 @@ func (c *configHandler) GetSchema() map[string]any {
 		out[k] = v
 	}
 	return out
+}
+
+// GetSensitivePaths returns the dotted config paths marked `sensitive: true` in the loaded
+// schema, or nil if no schema is loaded. Consumers scrub these values from plaintext output
+// and gate which properties may back a cluster Secret.
+func (c *configHandler) GetSensitivePaths() []string {
+	if c.schemaValidator == nil {
+		return nil
+	}
+	return c.schemaValidator.GetSensitivePaths()
+}
+
+// IsSensitivePath reports whether the given dotted config path is marked sensitive in the loaded
+// schema. A "*" segment in a schema path (from a free-form map region) matches any single
+// segment of the queried path.
+func (c *configHandler) IsSensitivePath(path string) bool {
+	for _, sensitive := range c.GetSensitivePaths() {
+		if sensitivePathMatches(sensitive, path) {
+			return true
+		}
+	}
+	return false
 }
 
 // LoadSchema loads the schema.yaml file from the specified directory.

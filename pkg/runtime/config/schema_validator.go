@@ -3,6 +3,7 @@ package config
 import (
 	"encoding/json"
 	"fmt"
+	"sort"
 	"strings"
 
 	"github.com/goccy/go-yaml"
@@ -125,6 +126,19 @@ func (sv *SchemaValidator) GetSchemaDefaults() (map[string]any, error) {
 	return extractDefaults(sv.Schema), nil
 }
 
+// GetSensitivePaths returns the dotted config paths of every property marked `sensitive: true`
+// in the loaded schema, sorted for stable output. A free-form map region (additionalProperties)
+// contributes a "*" wildcard segment for its dynamic key. Returns nil when no schema is loaded.
+func (sv *SchemaValidator) GetSensitivePaths() []string {
+	if sv.Schema == nil {
+		return nil
+	}
+	var paths []string
+	collectSensitivePaths(sv.Schema, "", &paths)
+	sort.Strings(paths)
+	return paths
+}
+
 // =============================================================================
 // Private Methods
 // =============================================================================
@@ -214,6 +228,41 @@ func extractDefaults(schema map[string]any) map[string]any {
 		}
 	}
 	return defaults
+}
+
+// collectSensitivePaths walks a schema node, appending the dotted path of every property that
+// carries a truthy `sensitive` keyword. It mirrors extractDefaults' recursion over `properties`
+// and additionally descends `additionalProperties` subschemas with a "*" segment, so sensitive
+// leaves under free-form maps (e.g. secrets.<provider>.<store>) remain reachable.
+func collectSensitivePaths(schema map[string]any, prefix string, out *[]string) {
+	joinPath := func(segment string) string {
+		if prefix == "" {
+			return segment
+		}
+		return prefix + "." + segment
+	}
+
+	if properties, ok := schema["properties"].(map[string]any); ok {
+		for propName, propSchema := range properties {
+			propSchemaMap, ok := propSchema.(map[string]any)
+			if !ok {
+				continue
+			}
+			path := joinPath(propName)
+			if propSchemaMap["sensitive"] == true {
+				*out = append(*out, path)
+			}
+			collectSensitivePaths(propSchemaMap, path, out)
+		}
+	}
+
+	if additional, ok := schema["additionalProperties"].(map[string]any); ok {
+		path := joinPath("*")
+		if additional["sensitive"] == true {
+			*out = append(*out, path)
+		}
+		collectSensitivePaths(additional, path, out)
+	}
 }
 
 // collectErrors flattens a kaptinlin EvaluationResult into one error string per leaf,
