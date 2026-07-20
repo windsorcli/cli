@@ -509,10 +509,12 @@ func TestInit_PlatformMetalDefaultsBackendTypeToKubernetes(t *testing.T) {
 	}
 }
 
-// TestInit_PlatformHetznerDefaultsBackendTypeToKubernetes mirrors the metal test for the
-// hetzner platform. Hetzner Cloud has no managed Kubernetes offering, so the Talos cluster
-// Windsor provisions is also the natural state store, same as metal/docker/incus.
-func TestInit_PlatformHetznerDefaultsBackendTypeToKubernetes(t *testing.T) {
+// TestInit_PlatformHetznerDefaultsBackendTypeToS3 confirms --platform hetzner defaults
+// terraform.backend.type to "s3" rather than "kubernetes". Hetzner Object Storage is
+// S3-API-compatible, and using it avoids the in-cluster backend's bootstrap-ordering
+// complexity; the endpoint override, S3Backend compatibility flags, and Object Storage
+// credentials still require operator/facet configuration beyond this default.
+func TestInit_PlatformHetznerDefaultsBackendTypeToS3(t *testing.T) {
 	t.Parallel()
 	dir, env := helpers.CopyFixtureOnly(t, "plan")
 	helpers.MarkAsGitRepo(t, dir)
@@ -527,8 +529,8 @@ func TestInit_PlatformHetznerDefaultsBackendTypeToKubernetes(t *testing.T) {
 		t.Fatalf("expected values.yaml at %s, got %v\nstdout: %s\nstderr: %s", valuesPath, readErr, stdout, stderr)
 	}
 	body := string(data)
-	if !strings.Contains(body, "terraform:") || !strings.Contains(body, "type: kubernetes") {
-		t.Errorf("expected terraform.backend.type=kubernetes persisted for --platform hetzner, got values.yaml:\n%s", body)
+	if !strings.Contains(body, "terraform:") || !strings.Contains(body, "type: s3") {
+		t.Errorf("expected terraform.backend.type=s3 persisted for --platform hetzner, got values.yaml:\n%s", body)
 	}
 }
 
