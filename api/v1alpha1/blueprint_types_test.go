@@ -5127,3 +5127,116 @@ install:
 		}
 	})
 }
+
+func TestKustomization_Secrets(t *testing.T) {
+	t.Run("DeepCopyClonesSecretsIndependently", func(t *testing.T) {
+		// Given a kustomization carrying secrets
+		original := &Kustomization{
+			Name:    "cdn-install",
+			Secrets: map[string]string{"cloudflare-api-token": "${cdn.cloudflare_api_key}"},
+		}
+
+		// When deep-copying and mutating the copy
+		clone := original.DeepCopy()
+		clone.Secrets["cloudflare-api-token"] = "changed"
+		clone.Secrets["extra"] = "value"
+
+		// Then the original is untouched
+		if original.Secrets["cloudflare-api-token"] != "${cdn.cloudflare_api_key}" {
+			t.Errorf("Expected original unchanged, got %q", original.Secrets["cloudflare-api-token"])
+		}
+		if _, exists := original.Secrets["extra"]; exists {
+			t.Error("Expected original to not gain the clone's key")
+		}
+	})
+
+	t.Run("SecretsNeverMarshalToYAML", func(t *testing.T) {
+		// Given a kustomization with a literal secret in its compiled carrier
+		k := Kustomization{
+			Name:    "cdn-install",
+			Secrets: map[string]string{"token": "PLAINTEXT-SECRET"},
+		}
+
+		// When marshaling to YAML
+		out, err := yaml.Marshal(k)
+		if err != nil {
+			t.Fatalf("Marshal: %v", err)
+		}
+
+		// Then neither the key, the value, nor a "secrets" field appears
+		s := string(out)
+		if strings.Contains(s, "PLAINTEXT-SECRET") || strings.Contains(s, "token") || strings.Contains(s, "secrets") {
+			t.Errorf("Expected Secrets to be omitted from marshaled output, got:\n%s", s)
+		}
+	})
+}
+
+func TestCompileFluxSystemTiers_Secrets(t *testing.T) {
+	secretsMap := func() map[string]string {
+		return map[string]string{"cloudflare-api-token": "${cdn.cloudflare_api_key}"}
+	}
+
+	t.Run("AttachesSecretsToInstallTier", func(t *testing.T) {
+		// Given a system with an install tier, a resources tier, and secrets
+		bp := &Blueprint{FluxSystems: []FluxSystem{{
+			Name:      "cdn",
+			Install:   &Kustomization{Components: []string{"cloudflared"}},
+			Resources: []FluxVariant{{Kustomization: Kustomization{Components: []string{"tunnel"}}}},
+			Secrets:   secretsMap(),
+		}}}
+
+		// When compiling all kustomizations
+		all := bp.AllKustomizations()
+
+		// Then the install tier carries the secrets and the resources tier does not
+		install := findKustomizationByName(all, "cdn-install")
+		resources := findKustomizationByName(all, "cdn-resources")
+		if install == nil || resources == nil {
+			t.Fatalf("Expected both tiers, got %v", kustomizationNames(all))
+		}
+		if install.Secrets["cloudflare-api-token"] != "${cdn.cloudflare_api_key}" {
+			t.Errorf("Expected install tier to carry secrets, got %v", install.Secrets)
+		}
+		if len(resources.Secrets) != 0 {
+			t.Errorf("Expected resources tier to carry no secrets, got %v", resources.Secrets)
+		}
+	})
+
+	t.Run("FallsBackToResourcesTierWhenNoInstall", func(t *testing.T) {
+		// Given a system with only a resources tier
+		bp := &Blueprint{FluxSystems: []FluxSystem{{
+			Name:      "cdn",
+			Resources: []FluxVariant{{Kustomization: Kustomization{Components: []string{"tunnel"}}}},
+			Secrets:   secretsMap(),
+		}}}
+
+		// When compiling all kustomizations
+		all := bp.AllKustomizations()
+
+		// Then the first (resources) tier carries the secrets
+		resources := findKustomizationByName(all, "cdn-resources")
+		if resources == nil {
+			t.Fatalf("Expected resources tier, got %v", kustomizationNames(all))
+		}
+		if resources.Secrets["cloudflare-api-token"] != "${cdn.cloudflare_api_key}" {
+			t.Errorf("Expected resources tier to carry secrets, got %v", resources.Secrets)
+		}
+	})
+}
+
+func findKustomizationByName(all []Kustomization, name string) *Kustomization {
+	for i := range all {
+		if all[i].Name == name {
+			return &all[i]
+		}
+	}
+	return nil
+}
+
+func kustomizationNames(all []Kustomization) []string {
+	names := make([]string, len(all))
+	for i, k := range all {
+		names[i] = k.Name
+	}
+	return names
+}
