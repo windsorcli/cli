@@ -594,6 +594,13 @@ type Kustomization struct {
 	// during composition. It exists so `flux:` system tiers and `kustomize:` entries can spell
 	// postBuild substitutions the same short way (matching Flux's `postBuild.substitute`).
 	Substitute map[string]string `yaml:"substitute,omitempty"`
+
+	// Secrets carries a flux system's secrets onto its compiled namespace-owning tier so the
+	// imperative placement step can find them after flattening. Each value is a reference to a
+	// sensitive schema property, resolved JIT at placement — never during composition. It is
+	// yaml:"-" so it is never marshaled into show/apply output or the written blueprint, keeping
+	// secret material out of every serialized surface by construction.
+	Secrets map[string]string `yaml:"-"`
 }
 
 // FluxSystem is a system entry under a blueprint or facet's `flux:` list — a functional layer that
@@ -1142,6 +1149,8 @@ func (sys FluxSystem) TierNames() []string {
 // any expression evaluation. Install compiles to "<name>-install" at "<path>/install"; each
 // resources variant compiles to "<name>-resources[-<variant>]" at "<path>/resources". A timeout-less
 // install tier falls back to DefaultFluxKustomizationInstallTimeout instead of the generic default.
+// The system's Secrets attach to its namespace-owning tier — the install tier when emitted, else the
+// first resources tier (out[0]) — so placement finds them after FluxSystems are flattened away.
 func compileFluxSystemTiers(sys FluxSystem) []Kustomization {
 	name := sys.Name
 	base := sys.Path
@@ -1181,6 +1190,10 @@ func compileFluxSystemTiers(sys FluxSystem) []Kustomization {
 		}
 		applySystemTierDefaults(&k, sys)
 		out = append(out, k)
+	}
+
+	if len(sys.Secrets) > 0 && len(out) > 0 {
+		out[0].Secrets = maps.Clone(sys.Secrets)
 	}
 	return out
 }
@@ -1227,6 +1240,7 @@ func (k *Kustomization) DeepCopy() *Kustomization {
 		Enabled:         k.Enabled.DeepCopy(),
 		Substitutions:   maps.Clone(k.Substitutions),
 		Substitute:      maps.Clone(k.Substitute),
+		Secrets:         maps.Clone(k.Secrets),
 	}
 }
 
