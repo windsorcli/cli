@@ -595,12 +595,12 @@ type Kustomization struct {
 	// postBuild substitutions the same short way (matching Flux's `postBuild.substitute`).
 	Substitute map[string]string `yaml:"substitute,omitempty"`
 
-	// Secrets carries a flux system's secrets onto its compiled namespace-owning tier so the
-	// imperative placement step can find them after flattening. Each value is a reference to a
-	// sensitive schema property, resolved JIT at placement — never during composition. It is
-	// yaml:"-" so it is never marshaled into show/apply output or the written blueprint, keeping
-	// secret material out of every serialized surface by construction.
-	Secrets map[string]string `yaml:"-"`
+	// Secrets carries a flux system's Secrets onto its compiled namespace-owning tier so the imperative
+	// placement step can find them after flattening: Secret name -> data key -> reference to a sensitive
+	// schema property, resolved JIT at placement, never during composition. It is yaml:"-" so it is
+	// never marshaled into show/apply output or the written blueprint, keeping secret material out of
+	// every serialized surface by construction.
+	Secrets map[string]map[string]string `yaml:"-"`
 }
 
 // FluxSystem is a system entry under a blueprint or facet's `flux:` list — a functional layer that
@@ -653,11 +653,12 @@ type FluxSystem struct {
 	// Resources are the custom-resource tier variants, all sharing "<path>/resources".
 	Resources []FluxVariant `yaml:"resources,omitempty"`
 
-	// Secrets wires sensitive values into this system, keyed by the generated Secret name; each value
-	// references a schema property marked `sensitive: true`. Unlike Substitute (plaintext ConfigMap
-	// material), Secrets back a Kubernetes Secret placed into the system's namespace and are resolved
-	// and materialized separately — their resolved values are never rendered or written in plaintext.
-	Secrets map[string]string `yaml:"secrets,omitempty"`
+	// Secrets declares Kubernetes Secrets for this system, keyed by Secret name; each inner map is that
+	// Secret's data (data key -> reference to a schema property marked `sensitive: true`). Unlike
+	// Substitute (plaintext ConfigMap material), Secrets back real Secrets placed into the system's
+	// namespace and are resolved and materialized separately — their values are never rendered or
+	// written in plaintext.
+	Secrets map[string]map[string]string `yaml:"secrets,omitempty"`
 }
 
 // FluxVariant is one resources-tier Kustomization of a system. It reuses Kustomization for its
@@ -1193,7 +1194,20 @@ func compileFluxSystemTiers(sys FluxSystem) []Kustomization {
 	}
 
 	if len(sys.Secrets) > 0 && len(out) > 0 {
-		out[0].Secrets = maps.Clone(sys.Secrets)
+		out[0].Secrets = cloneSecretData(sys.Secrets)
+	}
+	return out
+}
+
+// cloneSecretData deep-copies a nested secret map (Secret name -> data key -> value reference) so a
+// clone shares no inner maps with the original.
+func cloneSecretData(in map[string]map[string]string) map[string]map[string]string {
+	if in == nil {
+		return nil
+	}
+	out := make(map[string]map[string]string, len(in))
+	for name, data := range in {
+		out[name] = maps.Clone(data)
 	}
 	return out
 }
@@ -1240,7 +1254,7 @@ func (k *Kustomization) DeepCopy() *Kustomization {
 		Enabled:         k.Enabled.DeepCopy(),
 		Substitutions:   maps.Clone(k.Substitutions),
 		Substitute:      maps.Clone(k.Substitute),
-		Secrets:         maps.Clone(k.Secrets),
+		Secrets:         cloneSecretData(k.Secrets),
 	}
 }
 
@@ -1285,7 +1299,7 @@ func (s *FluxSystem) DeepCopy() *FluxSystem {
 		GlobalDependency: s.GlobalDependency,
 		Install:          s.Install.DeepCopy(),
 		Resources:        resourcesCopy,
-		Secrets:          maps.Clone(s.Secrets),
+		Secrets:          cloneSecretData(s.Secrets),
 	}
 }
 

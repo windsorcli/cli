@@ -7047,47 +7047,124 @@ func TestProcessor_ProcessFacets_ComponentRequires(t *testing.T) {
 	})
 }
 
-func TestMergeStringMap(t *testing.T) {
-	t.Run("UnionsWithOverlayWinning", func(t *testing.T) {
-		// Given a base and overlay sharing a key
-		base := map[string]string{"a": "1", "b": "2"}
-		overlay := map[string]string{"b": "override", "c": "3"}
+func TestMergeSecretData(t *testing.T) {
+	t.Run("UnionsSecretsAndDataKeysWithOverlayWinning", func(t *testing.T) {
+		// Given two facets contributing secrets: a shared secret with an overlapping data key,
+		// and a secret unique to each side
+		base := map[string]map[string]string{
+			"shared":    {"a": "1", "b": "2"},
+			"base-only": {"x": "9"},
+		}
+		overlay := map[string]map[string]string{
+			"shared":       {"b": "override", "c": "3"},
+			"overlay-only": {"y": "8"},
+		}
 
 		// When merging
-		got := mergeStringMap(base, overlay)
+		got := mergeSecretData(base, overlay)
 
-		// Then keys union and overlay wins the conflict
-		want := map[string]string{"a": "1", "b": "override", "c": "3"}
-		if len(got) != len(want) {
-			t.Fatalf("Expected %d keys, got %v", len(want), got)
+		// Then secrets union, data keys union, and overlay wins the data-key conflict
+		if got["shared"]["a"] != "1" || got["shared"]["b"] != "override" || got["shared"]["c"] != "3" {
+			t.Errorf("Unexpected shared secret merge: %v", got["shared"])
 		}
-		for k, v := range want {
-			if got[k] != v {
-				t.Errorf("Expected %s=%s, got %s", k, v, got[k])
-			}
+		if got["base-only"]["x"] != "9" || got["overlay-only"]["y"] != "8" {
+			t.Errorf("Expected unique secrets preserved, got %v", got)
 		}
 	})
 
 	t.Run("ReturnsNilWhenBothEmpty", func(t *testing.T) {
-		if got := mergeStringMap(nil, nil); got != nil {
+		if got := mergeSecretData(nil, nil); got != nil {
 			t.Errorf("Expected nil, got %v", got)
 		}
 	})
 
 	t.Run("DoesNotMutateInputs", func(t *testing.T) {
-		// Given a base map
-		base := map[string]string{"a": "1"}
-		overlay := map[string]string{"b": "2"}
+		// Given a base with a shared secret
+		base := map[string]map[string]string{"shared": {"a": "1"}}
+		overlay := map[string]map[string]string{"shared": {"b": "2"}}
 
 		// When merging
-		_ = mergeStringMap(base, overlay)
+		_ = mergeSecretData(base, overlay)
 
-		// Then the inputs are unchanged
-		if len(base) != 1 || base["a"] != "1" {
+		// Then the base's inner map is unchanged
+		if len(base["shared"]) != 1 || base["shared"]["a"] != "1" {
 			t.Errorf("Expected base unmutated, got %v", base)
 		}
-		if _, exists := base["b"]; exists {
-			t.Error("Expected base to not gain overlay key")
+		if _, exists := base["shared"]["b"]; exists {
+			t.Error("Expected base inner map to not gain overlay key")
+		}
+	})
+}
+
+func TestBareSecretReferencePath(t *testing.T) {
+	cases := []struct {
+		name     string
+		value    string
+		wantPath string
+		wantOK   bool
+	}{
+		{"BareReference", "${cdn.cloudflare_api_key}", "cdn.cloudflare_api_key", true},
+		{"BareReferenceWithInnerSpaces", "${ cdn.cloudflare_api_key }", "cdn.cloudflare_api_key", true},
+		{"PlainLiteral", "actual-secret", "", false},
+		{"SecretCall", `${secret("infra","Cloudflare","api_token")}`, "", false},
+		{"EmbeddedInterpolation", "prefix-${cdn.key}", "", false},
+		{"MultipleInterpolations", "${a}${b}", "", false},
+		{"EmptyInterpolation", "${}", "", false},
+		{"InnerSpaceInPath", "${a b}", "", false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			gotPath, gotOK := bareSecretReferencePath(tc.value)
+			if gotOK != tc.wantOK || gotPath != tc.wantPath {
+				t.Errorf("bareSecretReferencePath(%q) = (%q, %v), want (%q, %v)", tc.value, gotPath, gotOK, tc.wantPath, tc.wantOK)
+			}
+		})
+	}
+}
+
+func TestValidateSystemSecrets(t *testing.T) {
+	t.Run("AcceptsBareSensitiveReference", func(t *testing.T) {
+		// Given a config handler that marks the referenced path sensitive
+		mocks := setupProcessorMocks(t)
+		mocks.ConfigHandler.IsSensitivePathFunc = func(path string) bool { return path == "cdn.cloudflare_api_key" }
+		processor := NewBlueprintProcessor(mocks.Runtime)
+
+		// When validating a secrets map referencing that sensitive property
+		err := processor.validateSystemSecrets("cdn", map[string]map[string]string{"cloudflare-creds": {"api_token": "${cdn.cloudflare_api_key}"}})
+
+		// Then validation passes
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+	})
+
+	t.Run("RejectsNonBareReference", func(t *testing.T) {
+		// Given a plaintext literal value
+		mocks := setupProcessorMocks(t)
+		mocks.ConfigHandler.IsSensitivePathFunc = func(path string) bool { return true }
+		processor := NewBlueprintProcessor(mocks.Runtime)
+
+		// When validating
+		err := processor.validateSystemSecrets("cdn", map[string]map[string]string{"cloudflare-creds": {"api_token": "plaintext-literal"}})
+
+		// Then it fails closed
+		if err == nil || !strings.Contains(err.Error(), "must reference a sensitive schema property") {
+			t.Errorf("Expected bare-reference error, got %v", err)
+		}
+	})
+
+	t.Run("RejectsNonSensitiveReference", func(t *testing.T) {
+		// Given a bare reference to a property that is not marked sensitive
+		mocks := setupProcessorMocks(t)
+		mocks.ConfigHandler.IsSensitivePathFunc = func(path string) bool { return false }
+		processor := NewBlueprintProcessor(mocks.Runtime)
+
+		// When validating
+		err := processor.validateSystemSecrets("cdn", map[string]map[string]string{"cloudflare-creds": {"api_token": "${cdn.public_key}"}})
+
+		// Then it fails closed with a not-sensitive error
+		if err == nil || !strings.Contains(err.Error(), "not marked sensitive") {
+			t.Errorf("Expected not-sensitive error, got %v", err)
 		}
 	})
 }
