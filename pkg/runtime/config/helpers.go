@@ -125,3 +125,20 @@ func parsePath(path string) []string {
 
 	return keys
 }
+
+// sensitivePathMatches reports whether a queried dotted path matches a sensitive-path pattern
+// segment-by-segment, where a "*" pattern segment matches any single path segment. Both are
+// tokenized with parsePath so bracket and dotted notation compare identically.
+func sensitivePathMatches(pattern, path string) bool {
+	patternKeys := parsePath(pattern)
+	pathKeys := parsePath(path)
+	if len(patternKeys) != len(pathKeys) {
+		return false
+	}
+	for i, key := range patternKeys {
+		if key != "*" && key != pathKeys[i] {
+			return false
+		}
+	}
+	return true
+}

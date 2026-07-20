@@ -3,6 +3,7 @@ package config
 import (
 	"encoding/json"
 	"fmt"
+	"sort"
 	"strings"
 
 	"github.com/goccy/go-yaml"
@@ -30,6 +31,12 @@ type SchemaValidator struct {
 	Shims    *Shims
 	Schema   map[string]any
 	compiled *jsonschema.Schema
+
+	// sensitivePaths caches the result of walking Schema for `sensitive: true` markers; it is
+	// invalidated alongside compiled whenever a new schema fragment is loaded. sensitivePathsOK
+	// distinguishes a computed-empty result from an uncomputed cache.
+	sensitivePaths   []string
+	sensitivePathsOK bool
 }
 
 // SchemaValidationResult carries the outcome of a Validate call. Defaults is populated by
@@ -93,6 +100,8 @@ func (sv *SchemaValidator) LoadSchemaFromBytes(schemaContent []byte) error {
 		sv.Schema = sv.mergeSchema(sv.Schema, newSchema)
 	}
 	sv.compiled = nil
+	sv.sensitivePaths = nil
+	sv.sensitivePathsOK = false
 	return nil
 }
 
@@ -123,6 +132,36 @@ func (sv *SchemaValidator) GetSchemaDefaults() (map[string]any, error) {
 		return nil, fmt.Errorf("config schema has not been loaded")
 	}
 	return extractDefaults(sv.Schema), nil
+}
+
+// GetSensitivePaths returns the dotted config paths of every property marked `sensitive: true`
+// in the loaded schema, sorted for stable output. A free-form map region (additionalProperties)
+// contributes a "*" wildcard segment for its dynamic key. Returns nil when no schema is loaded.
+// The result is computed once per loaded schema and cached (invalidated on LoadSchemaFromBytes),
+// so repeated calls — e.g. IsSensitivePath over every key of a config map — do not re-walk the
+// schema. The returned slice is shared; callers must not mutate it.
+func (sv *SchemaValidator) GetSensitivePaths() []string {
+	if sv.Schema == nil {
+		return nil
+	}
+	if sv.sensitivePathsOK {
+		return sv.sensitivePaths
+	}
+
+	var paths []string
+	collectSensitivePaths(sv.Schema, "", &paths)
+	sort.Strings(paths)
+
+	deduped := paths[:0]
+	for i, path := range paths {
+		if i == 0 || path != paths[i-1] {
+			deduped = append(deduped, path)
+		}
+	}
+
+	sv.sensitivePaths = deduped
+	sv.sensitivePathsOK = true
+	return sv.sensitivePaths
 }
 
 // =============================================================================
@@ -214,6 +253,75 @@ func extractDefaults(schema map[string]any) map[string]any {
 		}
 	}
 	return defaults
+}
+
+// collectSensitivePaths walks a schema node, appending the dotted path of every property that
+// carries a truthy `sensitive` keyword. It mirrors extractDefaults' recursion over `properties`,
+// descends `additionalProperties`/`patternProperties` map regions with a "*" segment (their keys
+// are dynamic), and follows `allOf`/`anyOf`/`oneOf` composition branches at the same path prefix
+// (they constrain the same instance location). It does not resolve `$ref`; a sensitive leaf reached
+// only through a `$ref` is not enumerated. Duplicate paths from multiple branches are removed by
+// the caller.
+func collectSensitivePaths(schema map[string]any, prefix string, out *[]string) {
+	joinPath := func(segment string) string {
+		if prefix == "" {
+			return segment
+		}
+		return prefix + "." + segment
+	}
+
+	if properties, ok := schema["properties"].(map[string]any); ok {
+		for propName, propSchema := range properties {
+			propSchemaMap, ok := propSchema.(map[string]any)
+			if !ok {
+				continue
+			}
+			path := joinPath(propName)
+			if propSchemaMap["sensitive"] == true {
+				*out = append(*out, path)
+			}
+			collectSensitivePaths(propSchemaMap, path, out)
+		}
+	}
+
+	for _, mapKeyword := range []string{"additionalProperties", "patternProperties"} {
+		region, ok := schema[mapKeyword].(map[string]any)
+		if !ok {
+			continue
+		}
+		path := joinPath("*")
+		if mapKeyword == "additionalProperties" {
+			if region["sensitive"] == true {
+				*out = append(*out, path)
+			}
+			collectSensitivePaths(region, path, out)
+			continue
+		}
+		// patternProperties maps each regex pattern to its own subschema; all dynamic keys
+		// collapse onto the same "*" segment.
+		for _, patternSchema := range region {
+			patternSchemaMap, ok := patternSchema.(map[string]any)
+			if !ok {
+				continue
+			}
+			if patternSchemaMap["sensitive"] == true {
+				*out = append(*out, path)
+			}
+			collectSensitivePaths(patternSchemaMap, path, out)
+		}
+	}
+
+	for _, composition := range []string{"allOf", "anyOf", "oneOf"} {
+		branches, ok := schema[composition].([]any)
+		if !ok {
+			continue
+		}
+		for _, branch := range branches {
+			if branchMap, ok := branch.(map[string]any); ok {
+				collectSensitivePaths(branchMap, prefix, out)
+			}
+		}
+	}
 }
 
 // collectErrors flattens a kaptinlin EvaluationResult into one error string per leaf,

@@ -36,6 +36,8 @@ type MockConfigHandler struct {
 	LoadSchemaFromBytesFunc    func(schemaContent []byte) error
 	GetSchemaFunc              func() map[string]any
 	GetContextValuesFunc       func() (map[string]any, error)
+	GetSensitivePathsFunc      func() []string
+	IsSensitivePathFunc        func(path string) bool
 	RegisterProviderFunc       func(prefix string, provider ValueProvider)
 	ValidateContextValuesFunc  func() error
 }
@@ -285,6 +287,22 @@ func (m *MockConfigHandler) GetContextValues() (map[string]any, error) {
 		return m.GetContextValuesFunc()
 	}
 	return nil, fmt.Errorf("GetContextValuesFunc not set")
+}
+
+// GetSensitivePaths calls the mock GetSensitivePathsFunc if set, otherwise returns nil
+func (m *MockConfigHandler) GetSensitivePaths() []string {
+	if m.GetSensitivePathsFunc != nil {
+		return m.GetSensitivePathsFunc()
+	}
+	return nil
+}
+
+// IsSensitivePath calls the mock IsSensitivePathFunc if set, otherwise returns false
+func (m *MockConfigHandler) IsSensitivePath(path string) bool {
+	if m.IsSensitivePathFunc != nil {
+		return m.IsSensitivePathFunc(path)
+	}
+	return false
 }
 
 // RegisterProvider calls the mock RegisterProviderFunc if set, otherwise does nothing

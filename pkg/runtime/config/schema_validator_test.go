@@ -2900,3 +2900,245 @@ func TestSchemaValidator_mergeItemsSchema(t *testing.T) {
 		}
 	})
 }
+
+func TestSchemaValidator_GetSensitivePaths(t *testing.T) {
+	t.Run("NilWhenNoSchemaLoaded", func(t *testing.T) {
+		// Given a schema validator with no schema loaded
+		validator := NewSchemaValidator(shell.NewMockShell())
+
+		// When collecting sensitive paths
+		paths := validator.GetSensitivePaths()
+
+		// Then it returns nil
+		if paths != nil {
+			t.Errorf("Expected nil, got: %v", paths)
+		}
+	})
+
+	t.Run("CollectsAtEveryDepthAndSorts", func(t *testing.T) {
+		// Given a schema with sensitive markers at depth 1 and depth 2, plus non-sensitive siblings
+		validator := NewSchemaValidator(shell.NewMockShell())
+		validator.Schema = map[string]any{
+			"$schema": "https://json-schema.org/draft/2020-12/schema",
+			"type":    "object",
+			"properties": map[string]any{
+				"token": map[string]any{"type": "string", "sensitive": true},
+				"name":  map[string]any{"type": "string"},
+				"cdn": map[string]any{
+					"type": "object",
+					"properties": map[string]any{
+						"cloudflare_api_key": map[string]any{"type": "string", "sensitive": true},
+						"zone":               map[string]any{"type": "string"},
+					},
+				},
+			},
+		}
+
+		// When collecting sensitive paths
+		got := strings.Join(validator.GetSensitivePaths(), ",")
+
+		// Then both sensitive leaves appear, sorted, and non-sensitive siblings do not
+		want := "cdn.cloudflare_api_key,token"
+		if got != want {
+			t.Errorf("Expected %q, got %q", want, got)
+		}
+	})
+
+	t.Run("DescendsAdditionalPropertiesWithWildcard", func(t *testing.T) {
+		// Given a sensitive leaf under a free-form map region (additionalProperties)
+		validator := NewSchemaValidator(shell.NewMockShell())
+		validator.Schema = map[string]any{
+			"$schema": "https://json-schema.org/draft/2020-12/schema",
+			"type":    "object",
+			"properties": map[string]any{
+				"secrets": map[string]any{
+					"type": "object",
+					"properties": map[string]any{
+						"stores": map[string]any{
+							"type": "object",
+							"additionalProperties": map[string]any{
+								"type": "object",
+								"properties": map[string]any{
+									"token": map[string]any{"type": "string", "sensitive": true},
+									"url":   map[string]any{"type": "string"},
+								},
+							},
+						},
+					},
+				},
+			},
+		}
+
+		// When collecting sensitive paths
+		got := strings.Join(validator.GetSensitivePaths(), ",")
+
+		// Then the dynamic key contributes a "*" wildcard segment
+		want := "secrets.stores.*.token"
+		if got != want {
+			t.Errorf("Expected %q, got %q", want, got)
+		}
+	})
+
+	t.Run("FalseAndAbsentYieldNoPath", func(t *testing.T) {
+		// Given properties with sensitive:false and no sensitive marker
+		validator := NewSchemaValidator(shell.NewMockShell())
+		validator.Schema = map[string]any{
+			"$schema": "https://json-schema.org/draft/2020-12/schema",
+			"type":    "object",
+			"properties": map[string]any{
+				"public":       map[string]any{"type": "string"},
+				"notSensitive": map[string]any{"type": "string", "sensitive": false},
+			},
+		}
+
+		// When collecting sensitive paths
+		paths := validator.GetSensitivePaths()
+
+		// Then nothing is flagged sensitive
+		if len(paths) != 0 {
+			t.Errorf("Expected no paths, got: %v", paths)
+		}
+	})
+
+	t.Run("DescendsCompositionBranches", func(t *testing.T) {
+		// Given sensitive leaves nested under allOf and oneOf composition keywords
+		validator := NewSchemaValidator(shell.NewMockShell())
+		validator.Schema = map[string]any{
+			"$schema": "https://json-schema.org/draft/2020-12/schema",
+			"type":    "object",
+			"allOf": []any{
+				map[string]any{
+					"properties": map[string]any{
+						"token": map[string]any{"type": "string", "sensitive": true},
+					},
+				},
+			},
+			"properties": map[string]any{
+				"auth": map[string]any{
+					"oneOf": []any{
+						map[string]any{
+							"properties": map[string]any{
+								"password": map[string]any{"type": "string", "sensitive": true},
+							},
+						},
+					},
+				},
+			},
+		}
+
+		// When collecting sensitive paths
+		got := strings.Join(validator.GetSensitivePaths(), ",")
+
+		// Then leaves under allOf (root prefix) and oneOf (auth prefix) are both found
+		want := "auth.password,token"
+		if got != want {
+			t.Errorf("Expected %q, got %q", want, got)
+		}
+	})
+
+	t.Run("PatternPropertiesUseWildcard", func(t *testing.T) {
+		// Given a sensitive leaf under a patternProperties (regex-keyed map) region
+		validator := NewSchemaValidator(shell.NewMockShell())
+		validator.Schema = map[string]any{
+			"$schema": "https://json-schema.org/draft/2020-12/schema",
+			"type":    "object",
+			"properties": map[string]any{
+				"vaults": map[string]any{
+					"type": "object",
+					"patternProperties": map[string]any{
+						"^[a-z]+$": map[string]any{
+							"type": "object",
+							"properties": map[string]any{
+								"token": map[string]any{"type": "string", "sensitive": true},
+							},
+						},
+					},
+				},
+			},
+		}
+
+		// When collecting sensitive paths
+		got := strings.Join(validator.GetSensitivePaths(), ",")
+
+		// Then the dynamic key contributes a "*" segment
+		want := "vaults.*.token"
+		if got != want {
+			t.Errorf("Expected %q, got %q", want, got)
+		}
+	})
+
+	t.Run("DeduplicatesPathsFromMultipleBranches", func(t *testing.T) {
+		// Given the same sensitive path declared in two anyOf branches
+		validator := NewSchemaValidator(shell.NewMockShell())
+		validator.Schema = map[string]any{
+			"$schema": "https://json-schema.org/draft/2020-12/schema",
+			"type":    "object",
+			"anyOf": []any{
+				map[string]any{
+					"properties": map[string]any{
+						"token": map[string]any{"type": "string", "sensitive": true},
+					},
+				},
+				map[string]any{
+					"properties": map[string]any{
+						"token": map[string]any{"type": "string", "sensitive": true},
+					},
+				},
+			},
+		}
+
+		// When collecting sensitive paths
+		paths := validator.GetSensitivePaths()
+
+		// Then the duplicate is collapsed to a single entry
+		if len(paths) != 1 || paths[0] != "token" {
+			t.Errorf("Expected [token], got %v", paths)
+		}
+	})
+
+	t.Run("CachesResultAndInvalidatesOnSchemaLoad", func(t *testing.T) {
+		// Given a loaded schema with one sensitive property
+		validator := NewSchemaValidator(shell.NewMockShell())
+		first := []byte(`
+$schema: https://json-schema.org/draft/2020-12/schema
+type: object
+properties:
+  token:
+    type: string
+    sensitive: true
+`)
+		if err := validator.LoadSchemaFromBytes(first); err != nil {
+			t.Fatalf("Failed to load first schema: %v", err)
+		}
+
+		// When collecting sensitive paths twice, the cached result is returned
+		if got := strings.Join(validator.GetSensitivePaths(), ","); got != "token" {
+			t.Fatalf("Expected token, got %q", got)
+		}
+		if !validator.sensitivePathsOK {
+			t.Error("Expected sensitive paths to be cached after first call")
+		}
+		if got := strings.Join(validator.GetSensitivePaths(), ","); got != "token" {
+			t.Fatalf("Expected cached token, got %q", got)
+		}
+
+		// And loading another fragment invalidates the cache so new markers are picked up
+		second := []byte(`
+$schema: https://json-schema.org/draft/2020-12/schema
+type: object
+properties:
+  api_key:
+    type: string
+    sensitive: true
+`)
+		if err := validator.LoadSchemaFromBytes(second); err != nil {
+			t.Fatalf("Failed to load second schema: %v", err)
+		}
+		if validator.sensitivePathsOK {
+			t.Error("Expected cache to be invalidated after loading a new fragment")
+		}
+		if got := strings.Join(validator.GetSensitivePaths(), ","); got != "api_key,token" {
+			t.Errorf("Expected api_key,token after reload, got %q", got)
+		}
+	})
+}
