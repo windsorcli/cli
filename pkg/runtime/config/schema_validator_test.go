@@ -3095,4 +3095,50 @@ func TestSchemaValidator_GetSensitivePaths(t *testing.T) {
 			t.Errorf("Expected [token], got %v", paths)
 		}
 	})
+
+	t.Run("CachesResultAndInvalidatesOnSchemaLoad", func(t *testing.T) {
+		// Given a loaded schema with one sensitive property
+		validator := NewSchemaValidator(shell.NewMockShell())
+		first := []byte(`
+$schema: https://json-schema.org/draft/2020-12/schema
+type: object
+properties:
+  token:
+    type: string
+    sensitive: true
+`)
+		if err := validator.LoadSchemaFromBytes(first); err != nil {
+			t.Fatalf("Failed to load first schema: %v", err)
+		}
+
+		// When collecting sensitive paths twice, the cached result is returned
+		if got := strings.Join(validator.GetSensitivePaths(), ","); got != "token" {
+			t.Fatalf("Expected token, got %q", got)
+		}
+		if !validator.sensitivePathsOK {
+			t.Error("Expected sensitive paths to be cached after first call")
+		}
+		if got := strings.Join(validator.GetSensitivePaths(), ","); got != "token" {
+			t.Fatalf("Expected cached token, got %q", got)
+		}
+
+		// And loading another fragment invalidates the cache so new markers are picked up
+		second := []byte(`
+$schema: https://json-schema.org/draft/2020-12/schema
+type: object
+properties:
+  api_key:
+    type: string
+    sensitive: true
+`)
+		if err := validator.LoadSchemaFromBytes(second); err != nil {
+			t.Fatalf("Failed to load second schema: %v", err)
+		}
+		if validator.sensitivePathsOK {
+			t.Error("Expected cache to be invalidated after loading a new fragment")
+		}
+		if got := strings.Join(validator.GetSensitivePaths(), ","); got != "api_key,token" {
+			t.Errorf("Expected api_key,token after reload, got %q", got)
+		}
+	})
 }

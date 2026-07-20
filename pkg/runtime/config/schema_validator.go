@@ -31,6 +31,12 @@ type SchemaValidator struct {
 	Shims    *Shims
 	Schema   map[string]any
 	compiled *jsonschema.Schema
+
+	// sensitivePaths caches the result of walking Schema for `sensitive: true` markers; it is
+	// invalidated alongside compiled whenever a new schema fragment is loaded. sensitivePathsOK
+	// distinguishes a computed-empty result from an uncomputed cache.
+	sensitivePaths   []string
+	sensitivePathsOK bool
 }
 
 // SchemaValidationResult carries the outcome of a Validate call. Defaults is populated by
@@ -94,6 +100,8 @@ func (sv *SchemaValidator) LoadSchemaFromBytes(schemaContent []byte) error {
 		sv.Schema = sv.mergeSchema(sv.Schema, newSchema)
 	}
 	sv.compiled = nil
+	sv.sensitivePaths = nil
+	sv.sensitivePathsOK = false
 	return nil
 }
 
@@ -129,10 +137,17 @@ func (sv *SchemaValidator) GetSchemaDefaults() (map[string]any, error) {
 // GetSensitivePaths returns the dotted config paths of every property marked `sensitive: true`
 // in the loaded schema, sorted for stable output. A free-form map region (additionalProperties)
 // contributes a "*" wildcard segment for its dynamic key. Returns nil when no schema is loaded.
+// The result is computed once per loaded schema and cached (invalidated on LoadSchemaFromBytes),
+// so repeated calls — e.g. IsSensitivePath over every key of a config map — do not re-walk the
+// schema. The returned slice is shared; callers must not mutate it.
 func (sv *SchemaValidator) GetSensitivePaths() []string {
 	if sv.Schema == nil {
 		return nil
 	}
+	if sv.sensitivePathsOK {
+		return sv.sensitivePaths
+	}
+
 	var paths []string
 	collectSensitivePaths(sv.Schema, "", &paths)
 	sort.Strings(paths)
@@ -143,7 +158,10 @@ func (sv *SchemaValidator) GetSensitivePaths() []string {
 			deduped = append(deduped, path)
 		}
 	}
-	return deduped
+
+	sv.sensitivePaths = deduped
+	sv.sensitivePathsOK = true
+	return sv.sensitivePaths
 }
 
 // =============================================================================
