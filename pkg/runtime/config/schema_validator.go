@@ -136,7 +136,14 @@ func (sv *SchemaValidator) GetSensitivePaths() []string {
 	var paths []string
 	collectSensitivePaths(sv.Schema, "", &paths)
 	sort.Strings(paths)
-	return paths
+
+	deduped := paths[:0]
+	for i, path := range paths {
+		if i == 0 || path != paths[i-1] {
+			deduped = append(deduped, path)
+		}
+	}
+	return deduped
 }
 
 // =============================================================================
@@ -231,9 +238,12 @@ func extractDefaults(schema map[string]any) map[string]any {
 }
 
 // collectSensitivePaths walks a schema node, appending the dotted path of every property that
-// carries a truthy `sensitive` keyword. It mirrors extractDefaults' recursion over `properties`
-// and additionally descends `additionalProperties` subschemas with a "*" segment, so sensitive
-// leaves under free-form maps (e.g. secrets.<provider>.<store>) remain reachable.
+// carries a truthy `sensitive` keyword. It mirrors extractDefaults' recursion over `properties`,
+// descends `additionalProperties`/`patternProperties` map regions with a "*" segment (their keys
+// are dynamic), and follows `allOf`/`anyOf`/`oneOf` composition branches at the same path prefix
+// (they constrain the same instance location). It does not resolve `$ref`; a sensitive leaf reached
+// only through a `$ref` is not enumerated. Duplicate paths from multiple branches are removed by
+// the caller.
 func collectSensitivePaths(schema map[string]any, prefix string, out *[]string) {
 	joinPath := func(segment string) string {
 		if prefix == "" {
@@ -256,12 +266,43 @@ func collectSensitivePaths(schema map[string]any, prefix string, out *[]string) 
 		}
 	}
 
-	if additional, ok := schema["additionalProperties"].(map[string]any); ok {
-		path := joinPath("*")
-		if additional["sensitive"] == true {
-			*out = append(*out, path)
+	for _, mapKeyword := range []string{"additionalProperties", "patternProperties"} {
+		region, ok := schema[mapKeyword].(map[string]any)
+		if !ok {
+			continue
 		}
-		collectSensitivePaths(additional, path, out)
+		path := joinPath("*")
+		if mapKeyword == "additionalProperties" {
+			if region["sensitive"] == true {
+				*out = append(*out, path)
+			}
+			collectSensitivePaths(region, path, out)
+			continue
+		}
+		// patternProperties maps each regex pattern to its own subschema; all dynamic keys
+		// collapse onto the same "*" segment.
+		for _, patternSchema := range region {
+			patternSchemaMap, ok := patternSchema.(map[string]any)
+			if !ok {
+				continue
+			}
+			if patternSchemaMap["sensitive"] == true {
+				*out = append(*out, path)
+			}
+			collectSensitivePaths(patternSchemaMap, path, out)
+		}
+	}
+
+	for _, composition := range []string{"allOf", "anyOf", "oneOf"} {
+		branches, ok := schema[composition].([]any)
+		if !ok {
+			continue
+		}
+		for _, branch := range branches {
+			if branchMap, ok := branch.(map[string]any); ok {
+				collectSensitivePaths(branchMap, prefix, out)
+			}
+		}
 	}
 }
 
