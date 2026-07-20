@@ -33,7 +33,7 @@ system-managed and not covered here.
 | `git` | `object` | Git / livereload configuration. |
 | `id` | `string` | Stable identifier for the context, distinct from its map key. Used for cross-context references where the key may change. |
 | `network` | `object` | Cluster network configuration. |
-| `platform` | `string` | Target deployment platform. Selects platform-specific facets and drives backend type inference. One of: `none`, `docker`, `incus`, `metal`, `aws`, `azure`, `gcp`, `hyperv`, `vsphere`. |
+| `platform` | `string` | Target deployment platform. Selects platform-specific facets and drives backend type inference. One of: `none`, `docker`, `incus`, `metal`, `hetzner`, `aws`, `azure`, `gcp`, `hyperv`, `vsphere`. |
 | `provider` | `string` | Deprecated alias for 'platform'. New configs should use 'platform'; the loader still reads 'provider' for backwards compatibility. |
 | `secrets` | `object` | Secrets provider configuration. Currently 1Password is the only supported provider. |
 | `terraform` | `object` | Per-context Terraform settings (state backend, lock policy, timeout). The runtime-validator sub-types (BackendConfig, LockConfig) are authored in api/v1alpha1/terraform/terraform_config.go; expansion to full field detail is a planned follow-up. |

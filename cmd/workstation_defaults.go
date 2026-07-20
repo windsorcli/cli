@@ -20,8 +20,14 @@ import (
 // fills in a sensible default for terraform.backend.type when one isn't already
 // set in the override map:
 //
-//   - aws   → s3       (S3 is the canonical state store on AWS)
-//   - azure → azurerm  (Azure Blob Storage via the azurerm backend)
+//   - aws     → s3       (S3 is the canonical state store on AWS)
+//   - hetzner → s3       (Hetzner Object Storage is S3-API-compatible;
+//     avoids the kubernetes backend's bootstrap-ordering complexity, since
+//     state lives in a bucket rather than the cluster being provisioned.
+//     The endpoint override, S3Backend compatibility flags, and Object
+//     Storage credentials still require operator/facet configuration —
+//     this default only selects the backend type)
+//   - azure   → azurerm  (Azure Blob Storage via the azurerm backend)
 //   - metal, docker, incus → kubernetes  (the cluster IS the state store;
 //     each component's state lives as a Secret in the cluster it manages)
 //
@@ -56,7 +62,7 @@ func applyWorkstationFlagOverrides(overrides map[string]any, vmDriver, platform 
 
 	if _, set := overrides["terraform.backend.type"]; !set {
 		switch overrides["platform"] {
-		case "aws":
+		case "aws", "hetzner":
 			overrides["terraform.backend.type"] = "s3"
 		case "azure":
 			overrides["terraform.backend.type"] = "azurerm"

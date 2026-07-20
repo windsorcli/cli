@@ -58,6 +58,7 @@ $defs:
           - docker
           - incus
           - metal
+          - hetzner
           - aws
           - azure
           - gcp

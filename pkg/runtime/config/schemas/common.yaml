@@ -8,6 +8,7 @@ properties:
       - docker
       - incus
       - metal
+      - hetzner
       - aws
       - azure
       - gcp

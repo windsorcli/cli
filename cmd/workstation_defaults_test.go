@@ -186,6 +186,24 @@ func TestApplyWorkstationFlagOverrides(t *testing.T) {
 		}
 	})
 
+	t.Run("HetznerPlatformDefaultsBackendToS3", func(t *testing.T) {
+		// Given --platform hetzner and no explicit terraform.backend.type override.
+		// Hetzner Object Storage is S3-API-compatible, so "s3" is the default rather
+		// than "kubernetes" — this avoids the in-cluster backend's bootstrap-ordering
+		// complexity. The endpoint override, S3Backend compatibility flags, and
+		// Object Storage credentials still require operator/facet configuration;
+		// this default only selects the backend type.
+		overrides := map[string]any{}
+
+		// When the helper is applied
+		applyWorkstationFlagOverrides(overrides, "", "hetzner")
+
+		// Then terraform.backend.type defaults to "s3"
+		if overrides["terraform.backend.type"] != "s3" {
+			t.Errorf("Expected terraform.backend.type=s3, got %v", overrides["terraform.backend.type"])
+		}
+	})
+
 	t.Run("VmDriverInferenceFlowsThroughToBackendDefault", func(t *testing.T) {
 		// Given --vm-driver docker-desktop with no --platform, the helper infers
 		// platform=docker, and the backend default must then key off that inferred
