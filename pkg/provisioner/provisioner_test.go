@@ -135,8 +135,12 @@ func setupProvisionerMocks(t *testing.T, opts ...func(*ProvisionerTestMocks)) *P
 	}
 
 	terraformStack := terraforminfra.NewMockStack()
-	terraformStack.UpFunc = func(blueprint *blueprintv1alpha1.Blueprint, onApply ...func(id string) (bool, error)) (bool, error) { return false, nil }
-	terraformStack.DestroyAllFunc = func(blueprint *blueprintv1alpha1.Blueprint, _ bool, excludeIDs ...string) (terraforminfra.DestroyOutcome, error) { return terraforminfra.DestroyOutcome{}, nil }
+	terraformStack.UpFunc = func(blueprint *blueprintv1alpha1.Blueprint, onApply ...func(id string) (bool, error)) (bool, error) {
+		return false, nil
+	}
+	terraformStack.DestroyAllFunc = func(blueprint *blueprintv1alpha1.Blueprint, _ bool, excludeIDs ...string) (terraforminfra.DestroyOutcome, error) {
+		return terraforminfra.DestroyOutcome{}, nil
+	}
 
 	fluxStack := fluxinfra.NewMockStack()
 
@@ -727,7 +731,9 @@ func TestProvisioner_DestroyAllTerraform(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
 		mocks := setupProvisionerMocks(t)
 		mockStack := terraforminfra.NewMockStack()
-		mockStack.DestroyAllFunc = func(bp *blueprintv1alpha1.Blueprint, _ bool, excludeIDs ...string) (terraforminfra.DestroyOutcome, error) { return terraforminfra.DestroyOutcome{}, nil }
+		mockStack.DestroyAllFunc = func(bp *blueprintv1alpha1.Blueprint, _ bool, excludeIDs ...string) (terraforminfra.DestroyOutcome, error) {
+			return terraforminfra.DestroyOutcome{}, nil
+		}
 		opts := &Provisioner{KubernetesManager: mocks.KubernetesManager, TerraformStack: mockStack}
 		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
 
@@ -2369,7 +2375,9 @@ func TestProvisioner_DestroyAll(t *testing.T) {
 		mocks := setupProvisionerMocks(t)
 		mocks.KubernetesManager.DeleteBlueprintFunc = func(bp *blueprintv1alpha1.Blueprint, namespace string) error { return nil }
 		mockStack := terraforminfra.NewMockStack()
-		mockStack.DestroyAllFunc = func(bp *blueprintv1alpha1.Blueprint, _ bool, excludeIDs ...string) (terraforminfra.DestroyOutcome, error) { return terraforminfra.DestroyOutcome{}, nil }
+		mockStack.DestroyAllFunc = func(bp *blueprintv1alpha1.Blueprint, _ bool, excludeIDs ...string) (terraforminfra.DestroyOutcome, error) {
+			return terraforminfra.DestroyOutcome{}, nil
+		}
 		opts := &Provisioner{KubernetesManager: mocks.KubernetesManager, TerraformStack: mockStack}
 		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
 
@@ -2383,7 +2391,9 @@ func TestProvisioner_DestroyAll(t *testing.T) {
 	t.Run("SuccessNoKubernetesManager", func(t *testing.T) {
 		mocks := setupProvisionerMocks(t)
 		mockStack := terraforminfra.NewMockStack()
-		mockStack.DestroyAllFunc = func(bp *blueprintv1alpha1.Blueprint, _ bool, excludeIDs ...string) (terraforminfra.DestroyOutcome, error) { return terraforminfra.DestroyOutcome{}, nil }
+		mockStack.DestroyAllFunc = func(bp *blueprintv1alpha1.Blueprint, _ bool, excludeIDs ...string) (terraforminfra.DestroyOutcome, error) {
+			return terraforminfra.DestroyOutcome{}, nil
+		}
 		opts := &Provisioner{TerraformStack: mockStack}
 		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
 		provisioner.KubernetesManager = nil
@@ -2493,7 +2503,9 @@ func TestProvisioner_DestroyAll(t *testing.T) {
 			return nil
 		}
 		mockStack := terraforminfra.NewMockStack()
-		mockStack.DestroyAllFunc = func(bp *blueprintv1alpha1.Blueprint, _ bool, excludeIDs ...string) (terraforminfra.DestroyOutcome, error) { return terraforminfra.DestroyOutcome{}, nil }
+		mockStack.DestroyAllFunc = func(bp *blueprintv1alpha1.Blueprint, _ bool, excludeIDs ...string) (terraforminfra.DestroyOutcome, error) {
+			return terraforminfra.DestroyOutcome{}, nil
+		}
 		opts := &Provisioner{KubernetesManager: mocks.KubernetesManager, TerraformStack: mockStack}
 		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
 
@@ -4292,6 +4304,142 @@ func TestProvisioner_UpgradeNode(t *testing.T) {
 		}
 		if !strings.Contains(err.Error(), "no cluster client found") {
 			t.Errorf("Expected no cluster client error, got: %v", err)
+		}
+	})
+}
+
+func TestProvisioner_PlaceSecrets(t *testing.T) {
+	newProvisioner := func(mocks *ProvisionerTestMocks) *Provisioner {
+		return NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{
+			TerraformStack:    mocks.TerraformStack,
+			KubernetesManager: mocks.KubernetesManager,
+			KubernetesClient:  mocks.KubernetesClient,
+			ClusterClient:     mocks.ClusterClient,
+			FluxStack:         mocks.FluxStack,
+		})
+	}
+
+	secretBlueprint := func() *blueprintv1alpha1.Blueprint {
+		return &blueprintv1alpha1.Blueprint{
+			Kustomizations: []blueprintv1alpha1.Kustomization{{
+				Name:    "cdn-install",
+				Secrets: map[string]map[string]string{"cloudflare-creds": {"api_token": "${cdn.cloudflare_api_key}"}},
+			}},
+		}
+	}
+
+	withResolvedValue := func(mocks *ProvisionerTestMocks) {
+		mocks.ConfigHandler.(*config.MockConfigHandler).GetContextValuesFunc = func() (map[string]any, error) {
+			return map[string]any{"cdn": map[string]any{"cloudflare_api_key": "resolved-token"}}, nil
+		}
+	}
+
+	t.Run("ResolvesValueAndPlacesIntoInventoryNamespace", func(t *testing.T) {
+		// Given a kustomization whose inventory holds exactly one applied namespace
+		mocks := setupProvisionerMocks(t)
+		withResolvedValue(mocks)
+		mocks.KubernetesManager.GetKustomizationInventoryFunc = func(name, namespace string) ([]kubernetes.InventoryEntry, error) {
+			return []kubernetes.InventoryEntry{{Kind: "Namespace", Name: "system-dns"}}, nil
+		}
+		var gotName, gotNs string
+		var gotData map[string]string
+		mocks.KubernetesManager.ApplySecretFunc = func(name, namespace string, stringData map[string]string) error {
+			gotName, gotNs, gotData = name, namespace, stringData
+			return nil
+		}
+
+		// When placing secrets
+		if err := newProvisioner(mocks).PlaceSecrets(context.Background(), secretBlueprint()); err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+
+		// Then the resolved value lands in the inventory namespace under the right data key
+		if gotName != "cloudflare-creds" || gotNs != "system-dns" || gotData["api_token"] != "resolved-token" {
+			t.Errorf("Unexpected ApplySecret args: name=%q ns=%q data=%v", gotName, gotNs, gotData)
+		}
+	})
+
+	t.Run("TimesOutAndAppliesNothingWhenNoNamespaceAppears", func(t *testing.T) {
+		// Given a kustomization whose inventory never includes a namespace, and a cancelled context
+		mocks := setupProvisionerMocks(t)
+		withResolvedValue(mocks)
+		mocks.KubernetesManager.GetKustomizationInventoryFunc = func(name, namespace string) ([]kubernetes.InventoryEntry, error) {
+			return []kubernetes.InventoryEntry{{Kind: "ConfigMap", Name: "values-cdn"}}, nil
+		}
+		applied := false
+		mocks.KubernetesManager.ApplySecretFunc = func(name, namespace string, stringData map[string]string) error {
+			applied = true
+			return nil
+		}
+		ctx, cancel := context.WithCancel(context.Background())
+		cancel()
+
+		// When placing secrets, it times out waiting for the namespace and applies nothing
+		err := newProvisioner(mocks).PlaceSecrets(ctx, secretBlueprint())
+		if err == nil || !strings.Contains(err.Error(), "to create its namespace") {
+			t.Errorf("Expected namespace-timeout error, got %v", err)
+		}
+		if applied {
+			t.Error("Expected ApplySecret to not be called when the namespace never appears")
+		}
+	})
+
+	t.Run("FailsWhenReferenceResolvesToNil", func(t *testing.T) {
+		// Given a sensitive property that exists but holds a nil value
+		mocks := setupProvisionerMocks(t)
+		mocks.ConfigHandler.(*config.MockConfigHandler).GetContextValuesFunc = func() (map[string]any, error) {
+			return map[string]any{"cdn": map[string]any{"cloudflare_api_key": nil}}, nil
+		}
+		mocks.KubernetesManager.GetKustomizationInventoryFunc = func(name, namespace string) ([]kubernetes.InventoryEntry, error) {
+			return []kubernetes.InventoryEntry{{Kind: "Namespace", Name: "system-dns"}}, nil
+		}
+		applied := false
+		mocks.KubernetesManager.ApplySecretFunc = func(name, namespace string, stringData map[string]string) error {
+			applied = true
+			return nil
+		}
+
+		// When placing secrets, the nil resolution fails closed rather than dropping the key
+		err := newProvisioner(mocks).PlaceSecrets(context.Background(), secretBlueprint())
+		if err == nil || !strings.Contains(err.Error(), "resolved to nil") {
+			t.Errorf("Expected nil-resolution error, got %v", err)
+		}
+		if applied {
+			t.Error("Expected ApplySecret to not be called when a key resolves to nil")
+		}
+	})
+
+	t.Run("FailsClosedWhenMultipleNamespaces", func(t *testing.T) {
+		// Given a kustomization whose inventory created more than one namespace
+		mocks := setupProvisionerMocks(t)
+		withResolvedValue(mocks)
+		mocks.KubernetesManager.GetKustomizationInventoryFunc = func(name, namespace string) ([]kubernetes.InventoryEntry, error) {
+			return []kubernetes.InventoryEntry{{Kind: "Namespace", Name: "ns-a"}, {Kind: "Namespace", Name: "ns-b"}}, nil
+		}
+
+		// When placing secrets, it fails closed immediately
+		err := newProvisioner(mocks).PlaceSecrets(context.Background(), secretBlueprint())
+		if err == nil || !strings.Contains(err.Error(), "multiple namespaces") {
+			t.Errorf("Expected multiple-namespaces error, got %v", err)
+		}
+	})
+
+	t.Run("NoSecretsIsNoOp", func(t *testing.T) {
+		// Given a blueprint whose kustomizations declare no secrets
+		mocks := setupProvisionerMocks(t)
+		checked := false
+		mocks.KubernetesManager.GetKustomizationInventoryFunc = func(name, namespace string) ([]kubernetes.InventoryEntry, error) {
+			checked = true
+			return nil, nil
+		}
+
+		// When placing secrets, no inventory is queried and nothing is applied
+		bp := &blueprintv1alpha1.Blueprint{Kustomizations: []blueprintv1alpha1.Kustomization{{Name: "plain"}}}
+		if err := newProvisioner(mocks).PlaceSecrets(context.Background(), bp); err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		if checked {
+			t.Error("Expected no inventory query when no secrets are declared")
 		}
 	})
 }

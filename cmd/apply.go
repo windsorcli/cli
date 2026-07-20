@@ -34,7 +34,7 @@ windsor apply terraform cluster
 windsor apply kustomize dns`,
 	Annotations: map[string]string{
 		"docs.seealso": "[`plan`](plan.md), [`destroy`](destroy.md), [`up`](up.md), [`bootstrap`](bootstrap.md)",
-		"docs.source": "cmd/apply.go",
+		"docs.source":  "cmd/apply.go",
 	},
 	Args:         cobra.NoArgs,
 	SilenceUsage: true,
@@ -86,6 +86,10 @@ windsor apply kustomize dns`,
 				return fmt.Errorf("error applying kustomize: %w", err)
 			}
 
+			if err := proj.Provisioner.PlaceSecrets(cmd.Context(), blueprint); err != nil {
+				return fmt.Errorf("error placing secrets: %w", err)
+			}
+
 			// --prune removes kustomizations the blueprint no longer declares; wait for the
 			// desired set to be Ready first so migrated resources are adopted before a deletion.
 			// Without --prune, orphans are left in place and only reported.
@@ -121,7 +125,7 @@ windsor apply terraform cluster
 windsor apply tf cluster`,
 	Annotations: map[string]string{
 		"docs.seealso": "[`apply`](apply.md), [`plan terraform`](plan-terraform.md), [`destroy terraform`](destroy-terraform.md)",
-		"docs.source": "cmd/apply.go",
+		"docs.source":  "cmd/apply.go",
 	},
 	Args:         cobra.ExactArgs(1),
 	SilenceUsage: true,
@@ -166,7 +170,7 @@ windsor apply kustomize dns
 windsor apply kustomize dns --wait`,
 	Annotations: map[string]string{
 		"docs.seealso": "[`apply`](apply.md), [`plan kustomize`](plan-kustomize.md), [`destroy kustomize`](destroy-kustomize.md)",
-		"docs.source": "cmd/apply.go",
+		"docs.source":  "cmd/apply.go",
 	},
 	Args:         cobra.MaximumNArgs(1),
 	SilenceUsage: true,

@@ -5658,3 +5658,68 @@ func TestBaseKubernetesManager_GetKustomizationInventory(t *testing.T) {
 		}
 	})
 }
+
+func TestBaseKubernetesManager_ApplySecret(t *testing.T) {
+	setup := func(t *testing.T) *BaseKubernetesManager {
+		t.Helper()
+		mocks := setupKubernetesMocks(t)
+		manager := NewKubernetesManager(mocks.KubernetesClient, mocks.ConfigHandler)
+		manager.kustomizationWaitPollInterval = 50 * time.Millisecond
+		manager.kustomizationReconcileTimeout = 100 * time.Millisecond
+		manager.kustomizationReconcileSleep = 50 * time.Millisecond
+		return manager
+	}
+
+	t.Run("AppliesOpaqueSecretWithStringData", func(t *testing.T) {
+		// Given a manager and a client that records the applied object
+		manager := setup(t)
+		var applied *unstructured.Unstructured
+		var appliedGVR schema.GroupVersionResource
+		kubernetesClient := client.NewMockKubernetesClient()
+		kubernetesClient.ApplyResourceFunc = func(gvr schema.GroupVersionResource, obj *unstructured.Unstructured, opts metav1.ApplyOptions) (*unstructured.Unstructured, error) {
+			applied = obj
+			appliedGVR = gvr
+			return obj, nil
+		}
+		kubernetesClient.GetResourceFunc = func(gvr schema.GroupVersionResource, ns, name string) (*unstructured.Unstructured, error) {
+			return nil, fmt.Errorf("not found")
+		}
+		manager.client = kubernetesClient
+
+		// When applying a secret
+		err := manager.ApplySecret("cloudflare-creds", "system-dns", map[string]string{"api_token": "PLAINTEXT"})
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+
+		// Then it applies an Opaque Secret via the secrets GVR with the plaintext under stringData
+		if appliedGVR.Resource != "secrets" {
+			t.Errorf("Expected secrets GVR, got %v", appliedGVR)
+		}
+		if applied.GetKind() != "Secret" {
+			t.Errorf("Expected kind Secret, got %q", applied.GetKind())
+		}
+		if applied.Object["type"] != "Opaque" {
+			t.Errorf("Expected type Opaque, got %v", applied.Object["type"])
+		}
+		stringData, _ := applied.Object["stringData"].(map[string]string)
+		if stringData["api_token"] != "PLAINTEXT" {
+			t.Errorf("Expected stringData api_token=PLAINTEXT, got %v", applied.Object["stringData"])
+		}
+		metadata, _ := applied.Object["metadata"].(map[string]any)
+		if metadata["name"] != "cloudflare-creds" || metadata["namespace"] != "system-dns" {
+			t.Errorf("Unexpected metadata: %v", applied.Object["metadata"])
+		}
+	})
+
+	t.Run("EmptyNameFails", func(t *testing.T) {
+		// Given a manager
+		manager := setup(t)
+		manager.client = client.NewMockKubernetesClient()
+
+		// When applying a secret with no name, it fails validation
+		if err := manager.ApplySecret("", "system-dns", map[string]string{"k": "v"}); err == nil {
+			t.Error("Expected error for empty name")
+		}
+	})
+}

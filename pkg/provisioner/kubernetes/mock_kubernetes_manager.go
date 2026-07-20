@@ -26,6 +26,7 @@ type MockKubernetesManager struct {
 	CreateNamespaceFunc                 func(name string) error
 	DeleteNamespaceFunc                 func(name string) error
 	ApplyConfigMapFunc                  func(name, namespace string, data map[string]string) error
+	ApplySecretFunc                     func(name, namespace string, stringData map[string]string) error
 	ApplyVersionMarkerFunc              func(namespace string, marker VersionMarker) error
 	GetVersionMarkerFunc                func(namespace string) (VersionMarker, bool, error)
 	GetHelmReleasesForKustomizationFunc func(name, namespace string) ([]helmv2.HelmRelease, error)
@@ -107,6 +108,14 @@ func (m *MockKubernetesManager) DeleteNamespace(name string) error {
 func (m *MockKubernetesManager) ApplyConfigMap(name, namespace string, data map[string]string) error {
 	if m.ApplyConfigMapFunc != nil {
 		return m.ApplyConfigMapFunc(name, namespace, data)
+	}
+	return nil
+}
+
+// ApplySecret implements KubernetesManager interface
+func (m *MockKubernetesManager) ApplySecret(name, namespace string, stringData map[string]string) error {
+	if m.ApplySecretFunc != nil {
+		return m.ApplySecretFunc(name, namespace, stringData)
 	}
 	return nil
 }
