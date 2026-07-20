@@ -7172,16 +7172,23 @@ func TestValidateSystemSecrets(t *testing.T) {
 }
 
 func TestEvaluateSubstitutions_RejectsSensitiveReference(t *testing.T) {
-	t.Run("RejectsBareSensitiveReference", func(t *testing.T) {
-		// Given a substitution whose value references a sensitive property
+	t.Run("RejectsSensitiveReferenceWholeAndEmbedded", func(t *testing.T) {
+		// Given substitutions that reference a sensitive property whole-string and embedded
 		mocks := setupProcessorMocks(t)
 		mocks.ConfigHandler.IsSensitivePathFunc = func(path string) bool { return path == "cdn.cloudflare_api_key" }
 		processor := NewBlueprintProcessor(mocks.Runtime)
 
-		// When evaluating substitutions, it fails closed before resolving the value
-		_, _, err := processor.evaluateSubstitutions(map[string]string{"FOO": "${cdn.cloudflare_api_key}"}, "", nil)
-		if err == nil || !strings.Contains(err.Error(), "references sensitive property") {
-			t.Errorf("Expected sensitive-substitution error, got %v", err)
+		// Then each form fails closed before the value is resolved
+		for name, value := range map[string]string{
+			"Whole":       "${cdn.cloudflare_api_key}",
+			"Prefixed":    "https://api.example.com/${cdn.cloudflare_api_key}",
+			"Suffixed":    "${cdn.cloudflare_api_key}-suffix",
+			"MidSentence": "token=${cdn.cloudflare_api_key};v=1",
+		} {
+			_, _, err := processor.evaluateSubstitutions(map[string]string{"FOO": value}, "", nil)
+			if err == nil || !strings.Contains(err.Error(), "references sensitive property") {
+				t.Errorf("%s: expected sensitive-substitution error for %q, got %v", name, value, err)
+			}
 		}
 	})
 

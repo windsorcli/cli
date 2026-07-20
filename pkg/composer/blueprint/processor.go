@@ -1038,6 +1038,33 @@ func (p *BaseBlueprintProcessor) isSensitivePath(path string) bool {
 	return p.runtime != nil && p.runtime.ConfigHandler != nil && p.runtime.ConfigHandler.IsSensitivePath(path)
 }
 
+// sensitivePathsInValue returns the sensitive config paths referenced as bare "${path}" interpolation
+// segments anywhere in value — whole-string ("${cdn.key}") or embedded ("https://x/${cdn.key}",
+// "${cdn.key}-suffix"). A segment whose inner text is not a plain config path (it contains operators,
+// a function call, or quotes) can't be resolved to a single sensitive property and is skipped, so a
+// sensitive path used inside a larger expression remains the one uncaught form.
+func (p *BaseBlueprintProcessor) sensitivePathsInValue(value string) []string {
+	var found []string
+	rest := value
+	for {
+		start := strings.Index(rest, "${")
+		if start < 0 {
+			break
+		}
+		rest = rest[start+2:]
+		end := strings.Index(rest, "}")
+		if end < 0 {
+			break
+		}
+		inner := strings.TrimSpace(rest[:end])
+		if inner != "" && !strings.ContainsAny(inner, "(){}\"' \t\n\r") && p.isSensitivePath(inner) {
+			found = append(found, inner)
+		}
+		rest = rest[end+1:]
+	}
+	return found
+}
+
 // bareSecretReferencePath extracts the config path from a bare "${<path>}" reference, returning false
 // for literals, embedded interpolations, function calls, or secret() notation — anything that is not
 // a single sensitive-property reference.
@@ -1941,8 +1968,8 @@ func (p *BaseBlueprintProcessor) evaluateSubstitutions(subs map[string]string, f
 	result := make(map[string]string)
 	deferredKeys := make(map[string]bool)
 	for key, value := range subs {
-		if path, ok := bareSecretReferencePath(value); ok && p.isSensitivePath(path) {
-			return nil, nil, fmt.Errorf("substitution %q references sensitive property %q; move it to the flux system's secrets: key instead of a plaintext substitution, which would be written to a ConfigMap", key, path)
+		if paths := p.sensitivePathsInValue(value); len(paths) > 0 {
+			return nil, nil, fmt.Errorf("substitution %q references sensitive property %q; move it to the flux system's secrets: key instead of a plaintext substitution, which would be written to a ConfigMap", key, paths[0])
 		}
 		evaluated, err := p.evaluator.Evaluate(value, facetPath, scope, false)
 		if err != nil {
