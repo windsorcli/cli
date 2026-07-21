@@ -981,13 +981,17 @@ func (i *Provisioner) Wait(ctx context.Context, blueprint *blueprintv1alpha1.Blu
 }
 
 // PlaceSecrets materializes each flux system's declared Secrets into the namespace its owning
-// kustomization created. For every compiled kustomization carrying Secrets it waits for that
-// kustomization to reconcile (so the namespace exists), resolves the target namespace from the
-// kustomization's Flux inventory — failing closed unless exactly one Namespace was created so a
-// secret is never placed by guessing — resolves each data reference to plaintext via the evaluator
-// (which registers it with the shell scrubber), and applies an Opaque Secret. It is a no-op when no
-// kustomization declares Secrets. Placement is imperative and runs after Install; it self-gates on
-// the owning kustomization's readiness rather than requiring a global wait.
+// kustomization created. For every compiled kustomization carrying Secrets it resolves each data
+// reference to plaintext via the evaluator (which registers it with the shell scrubber). A reference
+// is required unless it carries a "??" default: a required reference (e.g. "${x}") that resolves to
+// nil or empty fails closed, since a missing required secret is misconfiguration. An author makes a
+// key optional by adding a ?? default to its reference; an optional key that resolves empty is omitted,
+// and a secret whose keys all resolve empty is not created at all, so an unconfigured optional secret
+// leaves no empty Secret behind. Only when a kustomization has something to place does it resolve the target
+// namespace from the kustomization's Flux inventory — failing closed unless exactly one Namespace was
+// created, so a secret is never placed by guessing — and apply an Opaque Secret. It is a no-op when no
+// kustomization declares Secrets. Placement is imperative and runs after Install; it self-gates on the
+// owning kustomization's namespace appearing rather than requiring a global wait.
 func (i *Provisioner) PlaceSecrets(ctx context.Context, blueprint *blueprintv1alpha1.Blueprint) error {
 	if blueprint == nil {
 		return fmt.Errorf("blueprint not provided")
@@ -1001,10 +1005,8 @@ func (i *Provisioner) PlaceSecrets(ctx context.Context, blueprint *blueprintv1al
 		if len(k.Secrets) == 0 {
 			continue
 		}
-		namespace, err := i.resolveSecretNamespace(ctx, k.Name)
-		if err != nil {
-			return err
-		}
+
+		resolved := make(map[string]map[string]string)
 		for secretName, data := range k.Secrets {
 			stringData := make(map[string]string, len(data))
 			for key, ref := range data {
@@ -1012,11 +1014,32 @@ func (i *Provisioner) PlaceSecrets(ctx context.Context, blueprint *blueprintv1al
 				if err != nil {
 					return fmt.Errorf("resolving secret %q key %q: %w", secretName, key, err)
 				}
+				optional := strings.Contains(ref, "??")
 				if value == nil {
 					return fmt.Errorf("resolving secret %q key %q: reference %q resolved to nil", secretName, key, ref)
 				}
-				stringData[key] = fmt.Sprint(value)
+				s := fmt.Sprint(value)
+				if s == "" {
+					if optional {
+						continue
+					}
+					return fmt.Errorf("resolving secret %q key %q: reference %q resolved to empty; add a ?? default (e.g. %q) to make the key optional", secretName, key, ref, "${... ?? ''}")
+				}
+				stringData[key] = s
 			}
+			if len(stringData) > 0 {
+				resolved[secretName] = stringData
+			}
+		}
+		if len(resolved) == 0 {
+			continue
+		}
+
+		namespace, err := i.resolveSecretNamespace(ctx, k.Name)
+		if err != nil {
+			return err
+		}
+		for secretName, stringData := range resolved {
 			if err := i.KubernetesManager.ApplySecret(secretName, namespace, stringData); err != nil {
 				return fmt.Errorf("applying secret %q to namespace %q: %w", secretName, namespace, err)
 			}
