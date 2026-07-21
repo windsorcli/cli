@@ -7165,6 +7165,15 @@ func TestValidateSystemSecrets(t *testing.T) {
 			t.Errorf("Expected unterminated-expression error, got %v", err)
 		}
 	})
+
+	t.Run("RejectsEntryWithNoDataKeys", func(t *testing.T) {
+		// An entry with no data keys — a genuinely empty entry, or the retired flat form whose keys the
+		// decoder silently discarded — fails loudly rather than silently placing nothing
+		err := processor(t).validateSystemSecrets("cdn", map[string]blueprintv1alpha1.SecretEntry{"creds": {Namespaces: []string{"system-dns"}}})
+		if err == nil || !strings.Contains(err.Error(), "no data keys") {
+			t.Errorf("Expected no-data-keys error, got %v", err)
+		}
+	})
 }
 
 func TestEvaluateSubstitutions_RejectsSensitiveReference(t *testing.T) {
