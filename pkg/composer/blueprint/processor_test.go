@@ -7082,7 +7082,7 @@ func TestMergeSecretData(t *testing.T) {
 
 		// Then the namespaces union without duplicating the shared one
 		ns := got["acme-dns"].Namespaces
-		if len(ns) != 2 || ns[0] != "system-pki" || ns[1] != "system-dns" {
+		if len(ns) != 2 || !slices.Contains(ns, "system-pki") || !slices.Contains(ns, "system-dns") {
 			t.Errorf("Expected namespaces to union to [system-pki system-dns], got %v", ns)
 		}
 	})
