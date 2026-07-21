@@ -53,6 +53,45 @@ func TestUpgradeCmd(t *testing.T) {
 		}
 	})
 
+	t.Run("PlacesSecretsAfterInstall", func(t *testing.T) {
+		// Given an upgrade whose resolved blueprint declares a secret
+		mocks := setupApplyTest(t)
+		mocks.BlueprintHandler.GenerateResolvedFunc = func() (*blueprintv1alpha1.Blueprint, error) {
+			return &blueprintv1alpha1.Blueprint{
+				Metadata: blueprintv1alpha1.Metadata{Name: "test"},
+				Kustomizations: []blueprintv1alpha1.Kustomization{{
+					Name:    "telemetry-install",
+					Secrets: map[string]map[string]string{"alertmanager-slack": {"url": "${'placed-value'}"}},
+				}},
+			}, nil
+		}
+		mocks.KubernetesManager.GetKustomizationInventoryFunc = func(name, namespace string) ([]kubernetes.InventoryEntry, error) {
+			return []kubernetes.InventoryEntry{{Kind: "Namespace", Name: "system-telemetry"}}, nil
+		}
+		var placedNs string
+		var placedData map[string]string
+		mocks.KubernetesManager.ApplySecretFunc = func(name, namespace string, stringData map[string]string) error {
+			placedNs = namespace
+			placedData = stringData
+			return nil
+		}
+		proj := newApplyAllProject(mocks)
+
+		// When executing the upgrade
+		cmd := createTestUpgradeCmd()
+		cmd.SetArgs([]string{"--yes"})
+		ctx := stdcontext.WithValue(stdcontext.Background(), projectOverridesKey, proj)
+		cmd.SetContext(ctx)
+		if err := cmd.Execute(); err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+
+		// Then upgrade places the resolved secret into the namespace its kustomization created
+		if placedNs != "system-telemetry" || placedData["url"] != "placed-value" {
+			t.Errorf("Expected secret placed into system-telemetry with the resolved value, got ns=%q data=%v", placedNs, placedData)
+		}
+	})
+
 	t.Run("WritesInFlightMarkerThenSettledMarker", func(t *testing.T) {
 		// Given an upgrade whose every step succeeds
 		mocks := setupApplyTest(t)

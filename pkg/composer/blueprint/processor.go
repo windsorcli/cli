@@ -1021,8 +1021,9 @@ func mergeSubstitute(k blueprintv1alpha1.Kustomization) map[string]string {
 func (p *BaseBlueprintProcessor) validateSystemSecrets(systemName string, secrets map[string]map[string]string) error {
 	for secretName, data := range secrets {
 		for key, ref := range data {
-			if !strings.Contains(ref, "${") {
-				return fmt.Errorf("secret %q key %q in flux system %q must be an expression that resolves at apply time (a ${...} reference or a secret() call), not a plaintext literal, got %q", secretName, key, systemName, ref)
+			open := strings.Index(ref, "${")
+			if open < 0 || !strings.Contains(ref[open+2:], "}") {
+				return fmt.Errorf("secret %q key %q in flux system %q must contain a complete ${...} expression (a reference or a secret() call), not a plaintext literal or unterminated expression, got %q", secretName, key, systemName, ref)
 			}
 		}
 	}

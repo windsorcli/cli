@@ -7127,11 +7127,27 @@ func TestValidateSystemSecrets(t *testing.T) {
 		}
 	})
 
+	t.Run("AcceptsHybridExpression", func(t *testing.T) {
+		// An expression embedded in surrounding text resolves to a valid secret value and is allowed
+		err := processor(t).validateSystemSecrets("cdn", map[string]map[string]string{"creds": {"url": "https://api.example.com/${cdn.token}"}})
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+	})
+
 	t.Run("RejectsPlaintextLiteral", func(t *testing.T) {
 		// A hardcoded literal would be serialized with the blueprint (git-committed), so it fails closed
 		err := processor(t).validateSystemSecrets("cdn", map[string]map[string]string{"creds": {"token": "actual-secret-value"}})
 		if err == nil || !strings.Contains(err.Error(), "not a plaintext literal") {
 			t.Errorf("Expected plaintext-literal error, got %v", err)
+		}
+	})
+
+	t.Run("RejectsUnterminatedExpression", func(t *testing.T) {
+		// A malformed, unterminated interpolation is caught at composition rather than at apply time
+		err := processor(t).validateSystemSecrets("cdn", map[string]map[string]string{"creds": {"token": "${cdn.token"}})
+		if err == nil || !strings.Contains(err.Error(), "unterminated expression") {
+			t.Errorf("Expected unterminated-expression error, got %v", err)
 		}
 	})
 }
