@@ -4446,6 +4446,47 @@ func TestProvisioner_PlaceSecrets(t *testing.T) {
 		}
 	})
 
+	t.Run("RollsConsumersWithContentDigest", func(t *testing.T) {
+		// Given a kustomization whose inventory holds exactly one applied namespace
+		mocks := setupProvisionerMocks(t)
+		mocks.KubernetesManager.GetKustomizationInventoryFunc = func(name, namespace string) ([]kubernetes.InventoryEntry, error) {
+			return []kubernetes.InventoryEntry{{Kind: "Namespace", Name: "system-dns"}}, nil
+		}
+		var rolledNs, rolledSecret, rolledDigest string
+		mocks.KubernetesManager.RollWorkloadsForSecretFunc = func(ctx context.Context, namespace, secretName, digest string) error {
+			rolledNs, rolledSecret, rolledDigest = namespace, secretName, digest
+			return nil
+		}
+
+		// When placing the resolved secrets
+		if err := newProvisioner(mocks).PlaceSecrets(context.Background(), resolved()); err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+
+		// Then consumers are rolled in the inventory namespace, keyed by the resolved content's digest
+		wantDigest := secretDigest(map[string]string{"api_token": "resolved-token"})
+		if rolledNs != "system-dns" || rolledSecret != "cloudflare-creds" || rolledDigest != wantDigest {
+			t.Errorf("Unexpected roll args: ns=%q secret=%q digest=%q (want digest %q)", rolledNs, rolledSecret, rolledDigest, wantDigest)
+		}
+	})
+
+	t.Run("RollFailureSurfaces", func(t *testing.T) {
+		// Given placement succeeds but rolling consumers fails
+		mocks := setupProvisionerMocks(t)
+		mocks.KubernetesManager.GetKustomizationInventoryFunc = func(name, namespace string) ([]kubernetes.InventoryEntry, error) {
+			return []kubernetes.InventoryEntry{{Kind: "Namespace", Name: "system-dns"}}, nil
+		}
+		mocks.KubernetesManager.RollWorkloadsForSecretFunc = func(ctx context.Context, namespace, secretName, digest string) error {
+			return fmt.Errorf("api down")
+		}
+
+		// When placing the resolved secrets, the roll failure surfaces
+		err := newProvisioner(mocks).PlaceSecrets(context.Background(), resolved())
+		if err == nil || !strings.Contains(err.Error(), "rolling workloads for secret") {
+			t.Errorf("Expected roll-failure error, got %v", err)
+		}
+	})
+
 	t.Run("FailsClosedWhenMultipleNamespaces", func(t *testing.T) {
 		mocks := setupProvisionerMocks(t)
 		mocks.KubernetesManager.GetKustomizationInventoryFunc = func(name, namespace string) ([]kubernetes.InventoryEntry, error) {

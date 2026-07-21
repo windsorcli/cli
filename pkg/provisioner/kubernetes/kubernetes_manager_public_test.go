@@ -5723,3 +5723,140 @@ func TestBaseKubernetesManager_ApplySecret(t *testing.T) {
 		}
 	})
 }
+
+func TestSecretChecksumAnnotationKey(t *testing.T) {
+	t.Run("ShortNameUsedVerbatim", func(t *testing.T) {
+		// Given a normal-length secret name, the key stays readable
+		if got := secretChecksumAnnotationKey("alertmanager-slack"); got != "checksum.windsorcli.dev/alertmanager-slack" {
+			t.Errorf("unexpected key %q", got)
+		}
+	})
+
+	t.Run("LongNameStaysWithinLimitDeterministicAndUnique", func(t *testing.T) {
+		// Given a secret name longer than the 63-char annotation name-segment limit
+		long := strings.Repeat("a", 80)
+		got := secretChecksumAnnotationKey(long)
+
+		// Then the segment after the prefix is a valid length, deterministic, and distinct per name
+		segment := strings.TrimPrefix(got, secretChecksumAnnotationPrefix)
+		if len(segment) > 63 {
+			t.Errorf("segment %q exceeds 63 chars (%d)", segment, len(segment))
+		}
+		if got != secretChecksumAnnotationKey(long) {
+			t.Error("expected a deterministic key for the same name")
+		}
+		if got == secretChecksumAnnotationKey(strings.Repeat("a", 79)+"b") {
+			t.Error("expected distinct long names to produce distinct keys")
+		}
+	})
+}
+
+func TestBaseKubernetesManager_RollWorkloadsForSecret(t *testing.T) {
+	const secretName = "alertmanager-slack"
+	annotationKey := secretChecksumAnnotationPrefix + secretName
+
+	// workload builds an apps/v1 workload with the given pod spec and pod-template annotations.
+	workload := func(kind, name string, podSpec map[string]any, annotations map[string]any) unstructured.Unstructured {
+		tmplMeta := map[string]any{}
+		if annotations != nil {
+			tmplMeta["annotations"] = annotations
+		}
+		return unstructured.Unstructured{Object: map[string]any{
+			"apiVersion": "apps/v1",
+			"kind":       kind,
+			"metadata":   map[string]any{"name": name, "namespace": "system-telemetry"},
+			"spec": map[string]any{
+				"template": map[string]any{"metadata": tmplMeta, "spec": podSpec},
+			},
+		}}
+	}
+	envRef := map[string]any{"containers": []any{map[string]any{"name": "app", "env": []any{
+		map[string]any{"name": "URL", "valueFrom": map[string]any{"secretKeyRef": map[string]any{"name": secretName, "key": "url"}}},
+	}}}}
+	volumeRef := map[string]any{"volumes": []any{map[string]any{"name": "s", "secret": map[string]any{"secretName": secretName}}}}
+	envFromRef := map[string]any{"containers": []any{map[string]any{"name": "app", "envFrom": []any{
+		map[string]any{"secretRef": map[string]any{"name": secretName}},
+	}}}}
+	noRef := map[string]any{"containers": []any{map[string]any{"name": "app", "env": []any{
+		map[string]any{"name": "OTHER", "valueFrom": map[string]any{"secretKeyRef": map[string]any{"name": "some-other-secret", "key": "k"}}},
+	}}}}
+
+	setup := func(t *testing.T, lists map[string][]unstructured.Unstructured) (*BaseKubernetesManager, *map[string]string) {
+		t.Helper()
+		mocks := setupKubernetesMocks(t)
+		manager := NewKubernetesManager(mocks.KubernetesClient, mocks.ConfigHandler)
+		kubernetesClient := client.NewMockKubernetesClient()
+		kubernetesClient.ListResourcesFunc = func(gvr schema.GroupVersionResource, ns string) (*unstructured.UnstructuredList, error) {
+			return &unstructured.UnstructuredList{Items: lists[gvr.Resource]}, nil
+		}
+		patched := map[string]string{}
+		kubernetesClient.PatchResourceFunc = func(ctx context.Context, gvr schema.GroupVersionResource, ns, name string, pt types.PatchType, data []byte, opts metav1.PatchOptions) (*unstructured.Unstructured, error) {
+			patched[gvr.Resource+"/"+name] = string(data)
+			return nil, nil
+		}
+		manager.client = kubernetesClient
+		return manager, &patched
+	}
+
+	t.Run("RollsOnlyReferencingWorkloadsAcrossKinds", func(t *testing.T) {
+		// Given one referencing and one non-referencing workload of each kind, referencing via a different path each
+		manager, patched := setup(t, map[string][]unstructured.Unstructured{
+			"deployments":  {workload("Deployment", "env-consumer", envRef, nil), workload("Deployment", "bystander", noRef, nil)},
+			"statefulsets": {workload("StatefulSet", "volume-consumer", volumeRef, nil)},
+			"daemonsets":   {workload("DaemonSet", "envfrom-consumer", envFromRef, nil)},
+		})
+
+		// When rolling workloads for the secret
+		if err := manager.RollWorkloadsForSecret(context.Background(), "system-telemetry", secretName, "digest-1"); err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+
+		// Then every referencing workload is patched with the digest annotation and the bystander is left alone
+		for _, key := range []string{"deployments/env-consumer", "statefulsets/volume-consumer", "daemonsets/envfrom-consumer"} {
+			p, ok := (*patched)[key]
+			if !ok {
+				t.Errorf("Expected %s to be rolled", key)
+				continue
+			}
+			if !strings.Contains(p, annotationKey) || !strings.Contains(p, "digest-1") {
+				t.Errorf("Expected patch of %s to carry the digest annotation, got %s", key, p)
+			}
+		}
+		if _, ok := (*patched)["deployments/bystander"]; ok {
+			t.Error("Expected non-referencing workload to be left untouched")
+		}
+	})
+
+	t.Run("IdempotentWhenDigestUnchanged", func(t *testing.T) {
+		// Given a referencing workload that already carries the current digest
+		manager, patched := setup(t, map[string][]unstructured.Unstructured{
+			"deployments": {workload("Deployment", "env-consumer", envRef, map[string]any{annotationKey: "digest-1"})},
+		})
+
+		// When rolling with that same digest
+		if err := manager.RollWorkloadsForSecret(context.Background(), "system-telemetry", secretName, "digest-1"); err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+
+		// Then it is not patched, so unchanged content does not churn pods
+		if len(*patched) != 0 {
+			t.Errorf("Expected no patch for an unchanged digest, got %v", *patched)
+		}
+	})
+
+	t.Run("ListErrorSurfaces", func(t *testing.T) {
+		// Given a client whose workload list fails
+		mocks := setupKubernetesMocks(t)
+		manager := NewKubernetesManager(mocks.KubernetesClient, mocks.ConfigHandler)
+		kubernetesClient := client.NewMockKubernetesClient()
+		kubernetesClient.ListResourcesFunc = func(gvr schema.GroupVersionResource, ns string) (*unstructured.UnstructuredList, error) {
+			return nil, fmt.Errorf("api down")
+		}
+		manager.client = kubernetesClient
+
+		// When rolling workloads, the API failure surfaces rather than being swallowed
+		if err := manager.RollWorkloadsForSecret(context.Background(), "system-telemetry", secretName, "digest-1"); err == nil {
+			t.Error("Expected error when listing workloads fails")
+		}
+	})
+}

@@ -6,6 +6,9 @@ package kubernetes
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"maps"
@@ -43,6 +46,7 @@ type KubernetesManager interface {
 	DeleteNamespace(name string) error
 	ApplyConfigMap(name, namespace string, data map[string]string) error
 	ApplySecret(name, namespace string, stringData map[string]string) error
+	RollWorkloadsForSecret(ctx context.Context, namespace, secretName, digest string) error
 	GetHelmReleasesForKustomization(name, namespace string) ([]helmv2.HelmRelease, error)
 	ApplyGitRepository(repo *sourcev1.GitRepository) error
 	ApplyOCIRepository(repo *sourcev1.OCIRepository) error
@@ -550,6 +554,129 @@ func (k *BaseKubernetesManager) ApplySecret(name, namespace string, stringData m
 	}
 
 	return k.applyWithRetry(gvr, obj, opts)
+}
+
+// secretChecksumAnnotationPrefix prefixes the pod-template annotation whose value is a content digest
+// of a secret the workload consumes. The suffix is the secret name, so each consumed secret gets its
+// own annotation and a change to one rolls only its consumers.
+const secretChecksumAnnotationPrefix = "checksum.windsorcli.dev/"
+
+// secretChecksumAnnotationKey builds the pod-template annotation key for a secret's content digest. The
+// name segment after the prefix must be at most 63 characters, but Secret names may be longer; for an
+// over-long name it substitutes a deterministic, collision-resistant segment (the truncated name plus a
+// short hash of the full name) so the roll still works and the key stays valid rather than failing with
+// an opaque API validation error.
+func secretChecksumAnnotationKey(secretName string) string {
+	const maxNameSegment = 63
+	segment := secretName
+	if len(segment) > maxNameSegment {
+		sum := sha256.Sum256([]byte(secretName))
+		segment = secretName[:maxNameSegment-9] + "-" + hex.EncodeToString(sum[:])[:8]
+	}
+	return secretChecksumAnnotationPrefix + segment
+}
+
+// RollWorkloadsForSecret rolls the workloads in a namespace that consume the named Secret so they pick
+// up new content, the way Kubernetes only ever rolls on a pod-template change. Because the CLI holds the
+// resolved plaintext, it passes a precomputed content digest and stamps it as a pod-template annotation
+// (checksum.windsorcli.dev/<secret>) on every Deployment, StatefulSet, and DaemonSet whose pod spec
+// references the Secret via envFrom, a secretKeyRef, or a secret volume — including init containers. The
+// digest is one-way and never surfaced beyond the namespace, so a reader of the annotation learns
+// nothing the Secret's own RBAC did not already grant. A workload already carrying the digest is left
+// untouched (idempotent, so unchanged content does not churn pods); a workload that does not reference
+// the Secret is never patched. Finding no consumers is not an error — on a first apply the workload is
+// created later by Flux and reads the Secret fresh — so this returns an error only on an API failure. The
+// caller's context bounds the patch calls so a slow API server cannot outlast its deadline.
+func (k *BaseKubernetesManager) RollWorkloadsForSecret(ctx context.Context, namespace, secretName, digest string) error {
+	annotationKey := secretChecksumAnnotationKey(secretName)
+	for _, resource := range []string{"deployments", "statefulsets", "daemonsets"} {
+		gvr := schema.GroupVersionResource{Group: "apps", Version: "v1", Resource: resource}
+		list, err := k.client.ListResources(gvr, namespace)
+		if err != nil {
+			return fmt.Errorf("listing %s in namespace %q: %w", resource, namespace, err)
+		}
+		if list == nil {
+			continue
+		}
+		for i := range list.Items {
+			obj := &list.Items[i]
+			podSpec, found, err := unstructured.NestedMap(obj.Object, "spec", "template", "spec")
+			if err != nil || !found || !podSpecReferencesSecret(podSpec, secretName) {
+				continue
+			}
+			current, _, _ := unstructured.NestedString(obj.Object, "spec", "template", "metadata", "annotations", annotationKey)
+			if current == digest {
+				continue
+			}
+			patch, err := json.Marshal(map[string]any{
+				"spec": map[string]any{
+					"template": map[string]any{
+						"metadata": map[string]any{
+							"annotations": map[string]any{annotationKey: digest},
+						},
+					},
+				},
+			})
+			if err != nil {
+				return fmt.Errorf("building rollout patch for %s %q: %w", resource, obj.GetName(), err)
+			}
+			opts := metav1.PatchOptions{FieldManager: "windsor-cli"}
+			if _, err := k.client.PatchResource(ctx, gvr, namespace, obj.GetName(), types.MergePatchType, patch, opts); err != nil {
+				return fmt.Errorf("patching %s %q in namespace %q: %w", resource, obj.GetName(), namespace, err)
+			}
+		}
+	}
+	return nil
+}
+
+// podSpecReferencesSecret reports whether an unstructured pod spec consumes the named Secret through any
+// path that requires a restart to pick up new content: an envFrom secretRef, an env secretKeyRef, or a
+// secret volume, across both containers and init containers.
+func podSpecReferencesSecret(podSpec map[string]any, secretName string) bool {
+	if volumes, ok := podSpec["volumes"].([]any); ok {
+		for _, v := range volumes {
+			vm, _ := v.(map[string]any)
+			if s, ok := vm["secret"].(map[string]any); ok {
+				if name, _ := s["secretName"].(string); name == secretName {
+					return true
+				}
+			}
+		}
+	}
+	for _, field := range []string{"containers", "initContainers"} {
+		containers, ok := podSpec[field].([]any)
+		if !ok {
+			continue
+		}
+		for _, c := range containers {
+			cm, _ := c.(map[string]any)
+			if envFrom, ok := cm["envFrom"].([]any); ok {
+				for _, e := range envFrom {
+					em, _ := e.(map[string]any)
+					if sr, ok := em["secretRef"].(map[string]any); ok {
+						if name, _ := sr["name"].(string); name == secretName {
+							return true
+						}
+					}
+				}
+			}
+			if env, ok := cm["env"].([]any); ok {
+				for _, e := range env {
+					em, _ := e.(map[string]any)
+					vf, ok := em["valueFrom"].(map[string]any)
+					if !ok {
+						continue
+					}
+					if skr, ok := vf["secretKeyRef"].(map[string]any); ok {
+						if name, _ := skr["name"].(string); name == secretName {
+							return true
+						}
+					}
+				}
+			}
+		}
+	}
+	return false
 }
 
 // ApplyVersionMarker writes the applied-version marker ConfigMap to the namespace, recording which
