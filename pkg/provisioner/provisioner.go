@@ -983,10 +983,11 @@ func (i *Provisioner) Wait(ctx context.Context, blueprint *blueprintv1alpha1.Blu
 // PlaceSecrets materializes each flux system's declared Secrets into the namespace its owning
 // kustomization created. For every compiled kustomization carrying Secrets it resolves each data
 // reference to plaintext via the evaluator (which registers it with the shell scrubber). A reference
-// that resolves to nil fails closed — a required secret is misconfigured; an author opts a key into
-// optional by defaulting it (e.g. "${x ?? ”}"), which resolves to empty and omits that key. A secret
-// whose keys all resolve empty is not created at all, so an unconfigured optional secret leaves no
-// empty Secret behind. Only when a kustomization has something to place does it resolve the target
+// is required unless it carries a "??" default: a required reference (e.g. "${x}") that resolves to
+// nil or empty fails closed, since a missing required secret is misconfiguration. An author makes a
+// key optional by adding a ?? default to its reference; an optional key that resolves empty is omitted,
+// and a secret whose keys all resolve empty is not created at all, so an unconfigured optional secret
+// leaves no empty Secret behind. Only when a kustomization has something to place does it resolve the target
 // namespace from the kustomization's Flux inventory — failing closed unless exactly one Namespace was
 // created, so a secret is never placed by guessing — and apply an Opaque Secret. It is a no-op when no
 // kustomization declares Secrets. Placement is imperative and runs after Install; it self-gates on the
@@ -1013,12 +1014,18 @@ func (i *Provisioner) PlaceSecrets(ctx context.Context, blueprint *blueprintv1al
 				if err != nil {
 					return fmt.Errorf("resolving secret %q key %q: %w", secretName, key, err)
 				}
+				optional := strings.Contains(ref, "??")
 				if value == nil {
 					return fmt.Errorf("resolving secret %q key %q: reference %q resolved to nil", secretName, key, ref)
 				}
-				if s := fmt.Sprint(value); s != "" {
-					stringData[key] = s
+				s := fmt.Sprint(value)
+				if s == "" {
+					if optional {
+						continue
+					}
+					return fmt.Errorf("resolving secret %q key %q: reference %q resolved to empty; add a ?? default (e.g. %q) to make the key optional", secretName, key, ref, "${... ?? ''}")
 				}
+				stringData[key] = s
 			}
 			if len(stringData) > 0 {
 				resolved[secretName] = stringData
