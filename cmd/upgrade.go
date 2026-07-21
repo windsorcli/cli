@@ -122,8 +122,17 @@ windsor upgrade cluster --nodes=10.0.0.5 --image=ghcr.io/siderolabs/installer:v1
 				return fmt.Errorf("error recording version transition: %w", err)
 			}
 
+			resolvedSecrets, secretsErr := proj.Provisioner.ResolveSecrets(blueprint)
+			if secretsErr != nil {
+				return fmt.Errorf("error resolving secrets: %w", secretsErr)
+			}
+
 			if err := proj.Provisioner.Install(cmd.Context(), blueprint); err != nil {
 				return fmt.Errorf("error installing blueprint: %w", err)
+			}
+
+			if err := proj.Provisioner.PlaceSecrets(cmd.Context(), resolvedSecrets); err != nil {
+				return fmt.Errorf("error placing secrets: %w", err)
 			}
 
 			if err := proj.Provisioner.Wait(cmd.Context(), blueprint); err != nil {

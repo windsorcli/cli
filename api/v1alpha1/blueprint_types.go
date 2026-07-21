@@ -1048,13 +1048,13 @@ func (b *Blueprint) RemoveFluxSystem(removal FluxSystem) error {
 }
 
 // UpsertFluxSystem merges sys into the FluxSystem with the same Name if one exists in
-// b.FluxSystems, or appends it when none does. On a match, DependsOn accumulates (union) and
-// Install/Resources deep-merge via MergeFluxInstall/MergeFluxVariants — the same field-level
-// semantics strategicMergeKustomization already gives same-name plain kustomize: entries — rather
-// than sys wholesale-replacing what is already there. This is the path StrategicMerge uses to
-// combine FluxSystems across sources (each source's facets already merged among themselves before
-// reaching here), so a same-name collision here must not silently drop one side's install/resources
-// tiers the way a blind replace would.
+// b.FluxSystems, or appends it when none does. On a match, DependsOn accumulates (union),
+// Install/Resources deep-merge via MergeFluxInstall/MergeFluxVariants, and Secrets union per data key
+// — the same field-level semantics strategicMergeKustomization already gives same-name plain
+// kustomize: entries — rather than sys wholesale-replacing what is already there. This is the path
+// StrategicMerge uses to combine FluxSystems across sources (each source's facets already merged among
+// themselves before reaching here), so a same-name collision here must not silently drop one side's
+// install/resources tiers or Secrets the way a blind replace would.
 func (b *Blueprint) UpsertFluxSystem(sys FluxSystem) error {
 	for i, existing := range b.FluxSystems {
 		if existing.Name == sys.Name {
@@ -1066,6 +1066,7 @@ func (b *Blueprint) UpsertFluxSystem(sys FluxSystem) error {
 			}
 			merged.Install = MergeFluxInstall(existing.Install, sys.Install)
 			merged.Resources = MergeFluxVariants(existing.Resources, sys.Resources)
+			merged.Secrets = mergeSecretData(existing.Secrets, sys.Secrets)
 			b.FluxSystems[i] = merged
 			return nil
 		}
@@ -1208,6 +1209,26 @@ func cloneSecretData(in map[string]map[string]string) map[string]map[string]stri
 	out := make(map[string]map[string]string, len(in))
 	for name, data := range in {
 		out[name] = maps.Clone(data)
+	}
+	return out
+}
+
+// mergeSecretData unions two nested secret maps (Secret name -> data key -> reference) with overlay
+// winning per data key, and nil when both are empty. Neither input is mutated. Used to combine a flux
+// system's Secrets when the same-named system is upserted across sources.
+func mergeSecretData(base, overlay map[string]map[string]string) map[string]map[string]string {
+	if len(base) == 0 && len(overlay) == 0 {
+		return nil
+	}
+	out := cloneSecretData(base)
+	if out == nil {
+		out = make(map[string]map[string]string, len(overlay))
+	}
+	for name, data := range overlay {
+		if out[name] == nil {
+			out[name] = make(map[string]string, len(data))
+		}
+		maps.Copy(out[name], data)
 	}
 	return out
 }

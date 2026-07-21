@@ -980,66 +980,83 @@ func (i *Provisioner) Wait(ctx context.Context, blueprint *blueprintv1alpha1.Blu
 	return nil
 }
 
-// PlaceSecrets materializes each flux system's declared Secrets into the namespace its owning
-// kustomization created. For every compiled kustomization carrying Secrets it resolves each data
-// reference to plaintext via the evaluator (which registers it with the shell scrubber). A reference
-// is required unless it carries a "??" default: a required reference (e.g. "${x}") that resolves to
-// nil or empty fails closed, since a missing required secret is misconfiguration. An author makes a
-// key optional by adding a ?? default to its reference; an optional key that resolves empty is omitted,
-// and a secret whose keys all resolve empty is not created at all, so an unconfigured optional secret
-// leaves no empty Secret behind. Only when a kustomization has something to place does it resolve the target
-// namespace from the kustomization's Flux inventory — failing closed unless exactly one Namespace was
-// created, so a secret is never placed by guessing — and apply an Opaque Secret. It is a no-op when no
-// kustomization declares Secrets. Placement is imperative and runs after Install; it self-gates on the
-// owning kustomization's namespace appearing rather than requiring a global wait.
-func (i *Provisioner) PlaceSecrets(ctx context.Context, blueprint *blueprintv1alpha1.Blueprint) error {
+// ResolvedSecrets maps an owning kustomization name to the Secrets ready to place in the namespace it
+// creates: Secret name -> data key -> resolved plaintext value. It holds resolved secret material in
+// memory only (never serialized), produced by ResolveSecrets before Install and consumed by
+// PlaceSecrets after.
+type ResolvedSecrets map[string]map[string]map[string]string
+
+// ResolveSecrets resolves every flux system's declared Secrets to plaintext ahead of Install, so a
+// misconfigured secret fails the command before anything is applied to the cluster. For each compiled
+// kustomization carrying Secrets it evaluates each data reference (the evaluator registers resolved
+// values with the shell scrubber). A reference is required unless it carries a "??" default: a required
+// reference (e.g. "${x}") that resolves to nil or empty fails closed, since a populated-but-unresolvable
+// or missing required secret is misconfiguration. An author makes a key optional by adding a ?? default;
+// an optional key that resolves empty is omitted, and a secret whose keys all resolve empty is not
+// created at all, so an unconfigured optional secret leaves no empty Secret behind. The result is keyed
+// by owning kustomization for PlaceSecrets to materialize post-Install; it is empty when no kustomization
+// declares Secrets.
+func (i *Provisioner) ResolveSecrets(blueprint *blueprintv1alpha1.Blueprint) (ResolvedSecrets, error) {
 	if blueprint == nil {
-		return fmt.Errorf("blueprint not provided")
-	}
-	if i.KubernetesManager == nil {
-		return fmt.Errorf("kubernetes manager not configured")
+		return nil, fmt.Errorf("blueprint not provided")
 	}
 
+	resolved := make(ResolvedSecrets)
 	bp := withCrdLayer(blueprint)
 	for _, k := range bp.Kustomizations {
 		if len(k.Secrets) == 0 {
 			continue
 		}
-
-		resolved := make(map[string]map[string]string)
 		for secretName, data := range k.Secrets {
 			stringData := make(map[string]string, len(data))
 			for key, ref := range data {
 				value, err := i.evaluator.Evaluate(ref, "", nil, true)
 				if err != nil {
-					return fmt.Errorf("resolving secret %q key %q: %w", secretName, key, err)
+					return nil, fmt.Errorf("resolving secret %q key %q: %w", secretName, key, err)
 				}
-				optional := strings.Contains(ref, "??")
 				if value == nil {
-					return fmt.Errorf("resolving secret %q key %q: reference %q resolved to nil", secretName, key, ref)
+					return nil, fmt.Errorf("resolving secret %q key %q: reference %q resolved to nil", secretName, key, ref)
 				}
 				s := fmt.Sprint(value)
 				if s == "" {
-					if optional {
+					if strings.Contains(ref, "??") {
 						continue
 					}
-					return fmt.Errorf("resolving secret %q key %q: reference %q resolved to empty; add a ?? default (e.g. %q) to make the key optional", secretName, key, ref, "${... ?? ''}")
+					return nil, fmt.Errorf("resolving secret %q key %q: reference %q resolved to empty; add a ?? default (e.g. %q) to make the key optional", secretName, key, ref, "${... ?? ''}")
 				}
 				stringData[key] = s
 			}
 			if len(stringData) > 0 {
-				resolved[secretName] = stringData
+				if resolved[k.Name] == nil {
+					resolved[k.Name] = make(map[string]map[string]string)
+				}
+				resolved[k.Name][secretName] = stringData
 			}
 		}
-		if len(resolved) == 0 {
-			continue
-		}
+	}
+	return resolved, nil
+}
 
-		namespace, err := i.resolveSecretNamespace(ctx, k.Name)
+// PlaceSecrets materializes secrets that ResolveSecrets produced into the namespace each owning
+// kustomization created. It runs after Install; for each kustomization it resolves the target namespace
+// from that kustomization's Flux inventory — failing closed unless exactly one Namespace was created, so
+// a secret is never placed by guessing — and applies an Opaque Secret. It self-gates on the owning
+// kustomization's namespace appearing rather than requiring a global wait, and is a no-op when resolved
+// is empty.
+func (i *Provisioner) PlaceSecrets(ctx context.Context, resolved ResolvedSecrets) error {
+	if len(resolved) == 0 {
+		return nil
+	}
+	if i.KubernetesManager == nil {
+		return fmt.Errorf("kubernetes manager not configured")
+	}
+
+	for kustomizationName, secrets := range resolved {
+		namespace, err := i.resolveSecretNamespace(ctx, kustomizationName)
 		if err != nil {
 			return err
 		}
-		for secretName, stringData := range resolved {
+		for secretName, stringData := range secrets {
 			if err := i.KubernetesManager.ApplySecret(secretName, namespace, stringData); err != nil {
 				return fmt.Errorf("applying secret %q to namespace %q: %w", secretName, namespace, err)
 			}

@@ -87,6 +87,69 @@ func TestInstallCmd(t *testing.T) {
 		}
 	})
 
+	t.Run("PlacesSecretsAfterInstall", func(t *testing.T) {
+		mocks := setupMocks(t)
+		tmpDir := mocks.TmpDir
+
+		mockConfigHandler := config.NewMockConfigHandler()
+		mockConfigHandler.GetContextFunc = func() string { return "test-context" }
+		mockConfigHandler.IsLoadedFunc = func() bool { return true }
+		mockConfigHandler.LoadConfigFunc = func() error { return nil }
+		mockConfigHandler.GetConfigRootFunc = func() (string, error) { return tmpDir + "/contexts/test-context", nil }
+
+		mockBlueprintHandler := blueprint.NewMockBlueprintHandler()
+		mockBlueprintHandler.GenerateResolvedFunc = func() (*blueprintv1alpha1.Blueprint, error) {
+			return &blueprintv1alpha1.Blueprint{
+				Kustomizations: []blueprintv1alpha1.Kustomization{{
+					Name:    "telemetry-install",
+					Secrets: map[string]map[string]string{"alertmanager-slack": {"url": "${'placed-value'}"}},
+				}},
+			}, nil
+		}
+
+		mockKubernetesManager := kubernetes.NewMockKubernetesManager()
+		mockKubernetesManager.ApplyBlueprintFunc = func(bp *blueprintv1alpha1.Blueprint, namespace string) error { return nil }
+		mockKubernetesManager.GetKustomizationInventoryFunc = func(name, namespace string) ([]kubernetes.InventoryEntry, error) {
+			return []kubernetes.InventoryEntry{{Kind: "Namespace", Name: "system-telemetry"}}, nil
+		}
+		var placedNs string
+		var placedData map[string]string
+		mockKubernetesManager.ApplySecretFunc = func(name, namespace string, stringData map[string]string) error {
+			placedNs = namespace
+			placedData = stringData
+			return nil
+		}
+
+		mocks.Runtime.ConfigHandler = mockConfigHandler
+		mocks.Runtime.ProjectRoot = tmpDir
+
+		comp := composer.NewComposer(mocks.Runtime)
+		comp.BlueprintHandler = mockBlueprintHandler
+		mockProvisioner := provisioner.NewProvisioner(mocks.Runtime, comp.BlueprintHandler, &provisioner.Provisioner{
+			KubernetesManager: mockKubernetesManager,
+		})
+
+		proj := project.NewProject("", &project.Project{
+			Runtime:     mocks.Runtime,
+			Composer:    comp,
+			Provisioner: mockProvisioner,
+		})
+
+		cmd := createTestInstallCmd()
+		ctx := context.WithValue(context.Background(), projectOverridesKey, proj)
+		cmd.SetArgs([]string{})
+		cmd.SetContext(ctx)
+		if err := cmd.Execute(); err != nil {
+			t.Fatalf("Expected success, got error: %v", err)
+		}
+
+		// The install command must run PlaceSecrets after Install: the secret resolves and lands in the
+		// namespace its owning kustomization created.
+		if placedNs != "system-telemetry" || placedData["url"] != "placed-value" {
+			t.Errorf("Expected secret placed into system-telemetry with the resolved value, got ns=%q data=%v", placedNs, placedData)
+		}
+	})
+
 	t.Run("SuccessWithWaitFlag", func(t *testing.T) {
 		mocks := setupMocks(t)
 		tmpDir := mocks.TmpDir

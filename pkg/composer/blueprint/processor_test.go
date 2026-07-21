@@ -7096,77 +7096,42 @@ func TestMergeSecretData(t *testing.T) {
 	})
 }
 
-func TestBareSecretReferencePath(t *testing.T) {
-	cases := []struct {
-		name     string
-		value    string
-		wantPath string
-		wantOK   bool
-	}{
-		{"BareReference", "${cdn.cloudflare_api_key}", "cdn.cloudflare_api_key", true},
-		{"BareReferenceWithInnerSpaces", "${ cdn.cloudflare_api_key }", "cdn.cloudflare_api_key", true},
-		{"PlainLiteral", "actual-secret", "", false},
-		{"SecretCall", `${secret("infra","Cloudflare","api_token")}`, "", false},
-		{"EmbeddedInterpolation", "prefix-${cdn.key}", "", false},
-		{"MultipleInterpolations", "${a}${b}", "", false},
-		{"EmptyInterpolation", "${}", "", false},
-		{"InnerSpaceInPath", "${a b}", "", false},
-		{"InnerNewlineInPath", "${cdn.\nkey}", "", false},
-		{"InnerCarriageReturnInPath", "${cdn.\rkey}", "", false},
-	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			gotPath, gotOK := bareSecretReferencePath(tc.value)
-			if gotOK != tc.wantOK || gotPath != tc.wantPath {
-				t.Errorf("bareSecretReferencePath(%q) = (%q, %v), want (%q, %v)", tc.value, gotPath, gotOK, tc.wantPath, tc.wantOK)
-			}
-		})
-	}
-}
-
 func TestValidateSystemSecrets(t *testing.T) {
-	t.Run("AcceptsBareSensitiveReference", func(t *testing.T) {
-		// Given a config handler that marks the referenced path sensitive
-		mocks := setupProcessorMocks(t)
-		mocks.ConfigHandler.IsSensitivePathFunc = func(path string) bool { return path == "cdn.cloudflare_api_key" }
-		processor := NewBlueprintProcessor(mocks.Runtime)
+	processor := func(t *testing.T) *BaseBlueprintProcessor {
+		return NewBlueprintProcessor(setupProcessorMocks(t).Runtime)
+	}
 
-		// When validating a secrets map referencing that sensitive property
-		err := processor.validateSystemSecrets("cdn", map[string]map[string]string{"cloudflare-creds": {"api_token": "${cdn.cloudflare_api_key}"}})
-
-		// Then validation passes
+	t.Run("AcceptsSensitivePropertyReference", func(t *testing.T) {
+		err := processor(t).validateSystemSecrets("cdn", map[string]map[string]string{"cloudflare-creds": {"api_token": "${cdn.cloudflare_api_key}"}})
 		if err != nil {
 			t.Errorf("Expected no error, got %v", err)
 		}
 	})
 
-	t.Run("RejectsNonBareReference", func(t *testing.T) {
-		// Given a plaintext literal value
-		mocks := setupProcessorMocks(t)
-		mocks.ConfigHandler.IsSensitivePathFunc = func(path string) bool { return true }
-		processor := NewBlueprintProcessor(mocks.Runtime)
-
-		// When validating
-		err := processor.validateSystemSecrets("cdn", map[string]map[string]string{"cloudflare-creds": {"api_token": "plaintext-literal"}})
-
-		// Then it fails closed
-		if err == nil || !strings.Contains(err.Error(), "must reference a sensitive schema property") {
-			t.Errorf("Expected bare-reference error, got %v", err)
+	t.Run("AcceptsNonSensitiveReferenceWithOptionalDefault", func(t *testing.T) {
+		// A reference to a non-sensitive property (with a ?? default) is fine — it goes into a Secret
+		err := processor(t).validateSystemSecrets("telemetry", map[string]map[string]string{
+			"alertmanager-notification-slack": {"url": "${telemetry.alerts.slack.webhook_url ?? ''}"},
+		})
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
 		}
 	})
 
-	t.Run("RejectsNonSensitiveReference", func(t *testing.T) {
-		// Given a bare reference to a property that is not marked sensitive
-		mocks := setupProcessorMocks(t)
-		mocks.ConfigHandler.IsSensitivePathFunc = func(path string) bool { return false }
-		processor := NewBlueprintProcessor(mocks.Runtime)
+	t.Run("AcceptsDirectSecretExpression", func(t *testing.T) {
+		err := processor(t).validateSystemSecrets("telemetry", map[string]map[string]string{
+			"alertmanager-slack": {"webhook_url": `${secret("Developer", "slack_webhooks", "url")}`},
+		})
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+	})
 
-		// When validating
-		err := processor.validateSystemSecrets("cdn", map[string]map[string]string{"cloudflare-creds": {"api_token": "${cdn.public_key}"}})
-
-		// Then it fails closed with a not-sensitive error
-		if err == nil || !strings.Contains(err.Error(), "not marked sensitive") {
-			t.Errorf("Expected not-sensitive error, got %v", err)
+	t.Run("RejectsPlaintextLiteral", func(t *testing.T) {
+		// A hardcoded literal would be serialized with the blueprint (git-committed), so it fails closed
+		err := processor(t).validateSystemSecrets("cdn", map[string]map[string]string{"creds": {"token": "actual-secret-value"}})
+		if err == nil || !strings.Contains(err.Error(), "not a plaintext literal") {
+			t.Errorf("Expected plaintext-literal error, got %v", err)
 		}
 	})
 }
