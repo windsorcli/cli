@@ -982,11 +982,19 @@ func (i *Provisioner) Wait(ctx context.Context, blueprint *blueprintv1alpha1.Blu
 	return nil
 }
 
-// ResolvedSecrets maps an owning kustomization name to the Secrets ready to place in the namespace it
-// creates: Secret name -> data key -> resolved plaintext value. It holds resolved secret material in
-// memory only (never serialized), produced by ResolveSecrets before Install and consumed by
-// PlaceSecrets after.
-type ResolvedSecrets map[string]map[string]map[string]string
+// ResolvedSecrets maps an owning kustomization name to the Secrets ready to place in the namespace(s)
+// it creates: Secret name -> ResolvedSecret (target namespaces plus resolved plaintext data). It holds
+// resolved secret material in memory only (never serialized), produced by ResolveSecrets before Install
+// and consumed by PlaceSecrets after.
+type ResolvedSecrets map[string]map[string]ResolvedSecret
+
+// ResolvedSecret is one Secret ready to place: its resolved plaintext data and the namespaces it targets.
+// Namespaces is empty when the authored entry named none, in which case placement auto-resolves the single
+// namespace the owning kustomization creates.
+type ResolvedSecret struct {
+	Namespaces []string
+	Data       map[string]string
+}
 
 // ResolveSecrets resolves every flux system's declared Secrets to plaintext ahead of Install, so a
 // misconfigured secret fails the command before anything is applied to the cluster. For each compiled
@@ -1009,9 +1017,9 @@ func (i *Provisioner) ResolveSecrets(blueprint *blueprintv1alpha1.Blueprint) (Re
 		if len(k.Secrets) == 0 {
 			continue
 		}
-		for secretName, data := range k.Secrets {
-			stringData := make(map[string]string, len(data))
-			for key, ref := range data {
+		for secretName, entry := range k.Secrets {
+			stringData := make(map[string]string, len(entry.Data))
+			for key, ref := range entry.Data {
 				value, err := i.evaluator.Evaluate(ref, "", nil, true)
 				if err != nil {
 					return nil, fmt.Errorf("resolving secret %q key %q: %w", secretName, key, err)
@@ -1030,23 +1038,26 @@ func (i *Provisioner) ResolveSecrets(blueprint *blueprintv1alpha1.Blueprint) (Re
 			}
 			if len(stringData) > 0 {
 				if resolved[k.Name] == nil {
-					resolved[k.Name] = make(map[string]map[string]string)
+					resolved[k.Name] = make(map[string]ResolvedSecret)
 				}
-				resolved[k.Name][secretName] = stringData
+				resolved[k.Name][secretName] = ResolvedSecret{
+					Namespaces: slices.Clone(entry.Namespaces),
+					Data:       stringData,
+				}
 			}
 		}
 	}
 	return resolved, nil
 }
 
-// PlaceSecrets materializes secrets that ResolveSecrets produced into the namespace each owning
-// kustomization created. It runs after Install; for each kustomization it resolves the target namespace
-// from that kustomization's Flux inventory — failing closed unless exactly one Namespace was created, so
-// a secret is never placed by guessing — and applies an Opaque Secret. After placing each Secret it rolls
-// the workloads in that namespace that consume it, keyed by a content digest, so a changed value reaches
-// running pods rather than sitting stale until the next unrelated restart. It self-gates on the owning
-// kustomization's namespace appearing rather than requiring a global wait, and is a no-op when resolved
-// is empty.
+// PlaceSecrets materializes secrets that ResolveSecrets produced into the namespace(s) each owning
+// kustomization created. It runs after Install; for each secret it resolves the target namespace(s) —
+// either the ones the entry named or, when it named none, the single namespace the kustomization created
+// (failing closed on more than one so a secret is never placed by guessing) — and applies an Opaque
+// Secret into each. After placing each Secret it rolls the workloads in that namespace that consume it,
+// keyed by a content digest, so a changed value reaches running pods rather than sitting stale until the
+// next unrelated restart. It self-gates on the target namespace appearing rather than requiring a global
+// wait, and is a no-op when resolved is empty.
 func (i *Provisioner) PlaceSecrets(ctx context.Context, resolved ResolvedSecrets) error {
 	if len(resolved) == 0 {
 		return nil
@@ -1056,16 +1067,18 @@ func (i *Provisioner) PlaceSecrets(ctx context.Context, resolved ResolvedSecrets
 	}
 
 	for kustomizationName, secrets := range resolved {
-		namespace, err := i.resolveSecretNamespace(ctx, kustomizationName)
-		if err != nil {
-			return err
-		}
-		for secretName, stringData := range secrets {
-			if err := i.KubernetesManager.ApplySecret(secretName, namespace, stringData); err != nil {
-				return fmt.Errorf("applying secret %q to namespace %q: %w", secretName, namespace, err)
+		for secretName, secret := range secrets {
+			namespaces, err := i.resolveSecretNamespaces(ctx, kustomizationName, secret.Namespaces)
+			if err != nil {
+				return err
 			}
-			if err := i.KubernetesManager.RollWorkloadsForSecret(ctx, namespace, secretName, secretDigest(stringData)); err != nil {
-				return fmt.Errorf("rolling workloads for secret %q in namespace %q: %w", secretName, namespace, err)
+			for _, namespace := range namespaces {
+				if err := i.KubernetesManager.ApplySecret(secretName, namespace, secret.Data); err != nil {
+					return fmt.Errorf("applying secret %q to namespace %q: %w", secretName, namespace, err)
+				}
+				if err := i.KubernetesManager.RollWorkloadsForSecret(ctx, namespace, secretName, secretDigest(secret.Data)); err != nil {
+					return fmt.Errorf("rolling workloads for secret %q in namespace %q: %w", secretName, namespace, err)
+				}
 			}
 		}
 	}
@@ -1092,39 +1105,63 @@ func secretDigest(stringData map[string]string) string {
 	return hex.EncodeToString(h.Sum(nil))
 }
 
-// resolveSecretNamespace polls the owning kustomization's Flux inventory until Flux has applied the
-// namespace it creates, then returns it. Gating on the namespace being applied — not on the whole
-// kustomization being Ready — places the secret the moment the namespace exists, so a workload that
-// consumes it recovers promptly and a kustomization whose readiness depends on that secret can never
-// deadlock placement. It fails closed: an error on more than one namespace (ambiguous target), and a
-// bounded timeout if none ever appears (a re-run places it once the namespace is created). Flux
-// records inventory only after a successful apply, so a namespace present there is really applied.
-func (i *Provisioner) resolveSecretNamespace(ctx context.Context, kustomizationName string) (string, error) {
+// resolveSecretNamespaces determines which namespace(s) a secret is placed into, gating on each target
+// being provably created by the owning kustomization before returning. When explicit names the target(s)
+// it polls the kustomization's Flux inventory until every named namespace has been applied, so a secret
+// is never placed into a namespace the owning kustomization did not create — a typo or a namespace owned
+// by another kustomization surfaces as the bounded timeout naming what is missing. When explicit is empty
+// it auto-resolves the single namespace the kustomization creates, failing closed on more than one
+// (ambiguous — the author must name the target via `namespaces:`). Gating on the namespace being applied
+// — not on the whole kustomization being Ready — places the secret the moment its namespace exists, so a
+// consumer recovers promptly and a kustomization whose readiness depends on the secret can never deadlock
+// placement. Flux records inventory only after a successful apply, so a namespace present there is really
+// applied.
+func (i *Provisioner) resolveSecretNamespaces(ctx context.Context, kustomizationName string, explicit []string) ([]string, error) {
 	waitCtx, cancel := context.WithTimeout(ctx, constants.DefaultFluxKustomizationInstallTimeout)
 	defer cancel()
 	for {
 		entries, err := i.KubernetesManager.GetKustomizationInventory(kustomizationName, i.fluxNamespace())
 		if err != nil {
-			return "", fmt.Errorf("reading inventory for kustomization %q: %w", kustomizationName, err)
+			return nil, fmt.Errorf("reading inventory for kustomization %q: %w", kustomizationName, err)
 		}
-		var namespaces []string
+		var created []string
 		for _, entry := range entries {
 			if entry.Kind == "Namespace" {
-				namespaces = append(namespaces, entry.Name)
+				created = append(created, entry.Name)
 			}
 		}
-		switch {
-		case len(namespaces) == 1:
-			return namespaces[0], nil
-		case len(namespaces) > 1:
-			return "", fmt.Errorf("kustomization %q created multiple namespaces (%s); cannot determine where to place its secrets", kustomizationName, strings.Join(namespaces, ", "))
+		if len(explicit) > 0 {
+			if len(missingNamespaces(explicit, created)) == 0 {
+				return slices.Clone(explicit), nil
+			}
+		} else {
+			switch {
+			case len(created) == 1:
+				return created, nil
+			case len(created) > 1:
+				return nil, fmt.Errorf("kustomization %q created multiple namespaces (%s); set `namespaces:` on the secret to choose where to place it", kustomizationName, strings.Join(created, ", "))
+			}
 		}
 		select {
 		case <-waitCtx.Done():
-			return "", fmt.Errorf("timed out waiting for kustomization %q to create its namespace before placing secrets", kustomizationName)
+			if len(explicit) > 0 {
+				return nil, fmt.Errorf("timed out waiting for kustomization %q to create namespace(s) %s before placing secrets", kustomizationName, strings.Join(missingNamespaces(explicit, created), ", "))
+			}
+			return nil, fmt.Errorf("timed out waiting for kustomization %q to create its namespace before placing secrets", kustomizationName)
 		case <-time.After(constants.DefaultKustomizationWaitPollInterval):
 		}
 	}
+}
+
+// missingNamespaces returns the members of want not present in have, preserving want's order.
+func missingNamespaces(want, have []string) []string {
+	var missing []string
+	for _, ns := range want {
+		if !slices.Contains(have, ns) {
+			missing = append(missing, ns)
+		}
+	}
+	return missing
 }
 
 // WriteVersionMarker records the blueprint version applied to this context as a marker ConfigMap

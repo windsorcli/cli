@@ -102,7 +102,7 @@ func TestInstallCmd(t *testing.T) {
 			return &blueprintv1alpha1.Blueprint{
 				Kustomizations: []blueprintv1alpha1.Kustomization{{
 					Name:    "telemetry-install",
-					Secrets: map[string]map[string]string{"alertmanager-slack": {"url": "${'placed-value'}"}},
+					Secrets: map[string]blueprintv1alpha1.SecretEntry{"alertmanager-slack": {Data: map[string]string{"url": "${'placed-value'}"}}},
 				}},
 			}, nil
 		}

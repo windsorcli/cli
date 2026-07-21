@@ -2,6 +2,7 @@ package v1alpha1
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -4988,7 +4989,7 @@ func TestBlueprint_UpsertFluxSystem(t *testing.T) {
 		// When another source's same-named system contributes a secret
 		if err := b.UpsertFluxSystem(FluxSystem{
 			Name:    "telemetry",
-			Secrets: map[string]map[string]string{"alertmanager-slack": {"webhook_url": `${secret("Developer", "slack_webhooks", "url")}`}},
+			Secrets: map[string]SecretEntry{"alertmanager-slack": {Data: map[string]string{"webhook_url": `${secret("Developer", "slack_webhooks", "url")}`}}},
 		}); err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -4997,7 +4998,7 @@ func TestBlueprint_UpsertFluxSystem(t *testing.T) {
 		if len(b.FluxSystems) != 1 {
 			t.Fatalf("expected one merged telemetry entry, got %+v", b.FluxSystems)
 		}
-		got := b.FluxSystems[0].Secrets["alertmanager-slack"]["webhook_url"]
+		got := b.FluxSystems[0].Secrets["alertmanager-slack"].Data["webhook_url"]
 		if got != `${secret("Developer", "slack_webhooks", "url")}` {
 			t.Errorf("expected the contributed secret to survive the merge, got %q (all: %+v)", got, b.FluxSystems[0].Secrets)
 		}
@@ -5008,22 +5009,46 @@ func TestBlueprint_UpsertFluxSystem(t *testing.T) {
 		b := &Blueprint{
 			FluxSystems: []FluxSystem{{
 				Name:    "telemetry",
-				Secrets: map[string]map[string]string{"creds": {"a": "${x.a}"}},
+				Secrets: map[string]SecretEntry{"creds": {Data: map[string]string{"a": "${x.a}"}}},
 			}},
 		}
 
 		// When a same-named system contributes another secret data key
 		if err := b.UpsertFluxSystem(FluxSystem{
 			Name:    "telemetry",
-			Secrets: map[string]map[string]string{"creds": {"b": "${x.b}"}},
+			Secrets: map[string]SecretEntry{"creds": {Data: map[string]string{"b": "${x.b}"}}},
 		}); err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
 
 		// Then both data keys survive under the same secret name
-		creds := b.FluxSystems[0].Secrets["creds"]
+		creds := b.FluxSystems[0].Secrets["creds"].Data
 		if creds["a"] != "${x.a}" || creds["b"] != "${x.b}" {
 			t.Errorf("expected secret data keys to union, got %+v", creds)
+		}
+	})
+
+	t.Run("UnionsSecretNamespacesAcrossBothSidesOnNameCollision", func(t *testing.T) {
+		// Given a system whose secret already targets one namespace
+		b := &Blueprint{
+			FluxSystems: []FluxSystem{{
+				Name:    "pki",
+				Secrets: map[string]SecretEntry{"acme-dns": {Namespaces: []string{"system-pki"}, Data: map[string]string{"token": "${pki.token}"}}},
+			}},
+		}
+
+		// When a same-named system contributes the same secret targeting another namespace
+		if err := b.UpsertFluxSystem(FluxSystem{
+			Name:    "pki",
+			Secrets: map[string]SecretEntry{"acme-dns": {Namespaces: []string{"system-dns"}, Data: map[string]string{"token": "${pki.token}"}}},
+		}); err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+
+		// Then the secret fans out to both namespaces without duplication
+		got := b.FluxSystems[0].Secrets["acme-dns"].Namespaces
+		if len(got) != 2 || !slices.Contains(got, "system-pki") || !slices.Contains(got, "system-dns") {
+			t.Errorf("expected namespaces to union to [system-pki system-dns], got %+v", got)
 		}
 	})
 }
@@ -5136,34 +5161,41 @@ func findKustomization(all []Kustomization, name string) *Kustomization {
 
 func TestFluxSystem_Secrets(t *testing.T) {
 	t.Run("DeepCopyClonesSecretsIndependently", func(t *testing.T) {
-		// Given a flux system with a named secret carrying a data key
+		// Given a flux system with a named secret carrying namespaces and a data key
 		original := &FluxSystem{
 			Name:    "cdn",
-			Secrets: map[string]map[string]string{"cloudflare-creds": {"api_token": "${cdn.cloudflare_api_key}"}},
+			Secrets: map[string]SecretEntry{"cloudflare-creds": {Namespaces: []string{"system-dns"}, Data: map[string]string{"api_token": "${cdn.cloudflare_api_key}"}}},
 		}
 
-		// When deep-copying and mutating the copy's inner data map
+		// When deep-copying and mutating the copy's inner data map and namespaces
 		clone := original.DeepCopy()
-		clone.Secrets["cloudflare-creds"]["api_token"] = "changed"
-		clone.Secrets["cloudflare-creds"]["extra"] = "value"
+		entry := clone.Secrets["cloudflare-creds"]
+		entry.Data["api_token"] = "changed"
+		entry.Data["extra"] = "value"
+		entry.Namespaces[0] = "system-other"
+		clone.Secrets["cloudflare-creds"] = entry
 
-		// Then the original inner map is untouched
-		if original.Secrets["cloudflare-creds"]["api_token"] != "${cdn.cloudflare_api_key}" {
-			t.Errorf("Expected original secret unchanged, got %q", original.Secrets["cloudflare-creds"]["api_token"])
+		// Then the original inner map and namespaces are untouched
+		if original.Secrets["cloudflare-creds"].Data["api_token"] != "${cdn.cloudflare_api_key}" {
+			t.Errorf("Expected original secret unchanged, got %q", original.Secrets["cloudflare-creds"].Data["api_token"])
 		}
-		if _, exists := original.Secrets["cloudflare-creds"]["extra"]; exists {
+		if _, exists := original.Secrets["cloudflare-creds"].Data["extra"]; exists {
 			t.Error("Expected original to not gain the clone's key")
+		}
+		if original.Secrets["cloudflare-creds"].Namespaces[0] != "system-dns" {
+			t.Errorf("Expected original namespaces unchanged, got %v", original.Secrets["cloudflare-creds"].Namespaces)
 		}
 	})
 
 	t.Run("UnmarshalsNestedSecretsFromYAML", func(t *testing.T) {
-		// Given a flux system authored with a nested secrets: map
+		// Given a flux system authored with a nested secrets: map using the data: form
 		data := []byte(`
 name: cdn
 secrets:
   cloudflare-creds:
-    api_token: ${cdn.cloudflare_api_key}
-    zone_id: ${cdn.cloudflare_zone_id}
+    data:
+      api_token: ${cdn.cloudflare_api_key}
+      zone_id: ${cdn.cloudflare_zone_id}
 install:
   components: [cloudflared]
 `)
@@ -5175,11 +5207,40 @@ install:
 		}
 
 		// Then each data key is populated under the secret name
-		if got := system.Secrets["cloudflare-creds"]["api_token"]; got != "${cdn.cloudflare_api_key}" {
+		if got := system.Secrets["cloudflare-creds"].Data["api_token"]; got != "${cdn.cloudflare_api_key}" {
 			t.Errorf("Expected api_token reference, got %q", got)
 		}
-		if got := system.Secrets["cloudflare-creds"]["zone_id"]; got != "${cdn.cloudflare_zone_id}" {
+		if got := system.Secrets["cloudflare-creds"].Data["zone_id"]; got != "${cdn.cloudflare_zone_id}" {
 			t.Errorf("Expected zone_id reference, got %q", got)
+		}
+	})
+
+	t.Run("UnmarshalsExplicitNamespacesFromYAML", func(t *testing.T) {
+		// Given a flux system whose secret names the namespaces to place it into
+		data := []byte(`
+name: pki
+secrets:
+  hetzner-dns:
+    namespaces: [system-pki, system-dns]
+    data:
+      token: ${hetzner.dns_token}
+install:
+  components: [cert-manager]
+`)
+
+		// When unmarshaling
+		var system FluxSystem
+		if err := yaml.Unmarshal(data, &system); err != nil {
+			t.Fatalf("Unmarshal: %v", err)
+		}
+
+		// Then the target namespaces and data both decode without a custom parser
+		entry := system.Secrets["hetzner-dns"]
+		if len(entry.Namespaces) != 2 || entry.Namespaces[0] != "system-pki" || entry.Namespaces[1] != "system-dns" {
+			t.Errorf("Expected namespaces [system-pki system-dns], got %v", entry.Namespaces)
+		}
+		if entry.Data["token"] != "${hetzner.dns_token}" {
+			t.Errorf("Expected token reference, got %q", entry.Data["token"])
 		}
 	})
 }
@@ -5189,19 +5250,21 @@ func TestKustomization_Secrets(t *testing.T) {
 		// Given a kustomization carrying a named secret with a data key
 		original := &Kustomization{
 			Name:    "cdn-install",
-			Secrets: map[string]map[string]string{"cloudflare-creds": {"api_token": "${cdn.cloudflare_api_key}"}},
+			Secrets: map[string]SecretEntry{"cloudflare-creds": {Data: map[string]string{"api_token": "${cdn.cloudflare_api_key}"}}},
 		}
 
 		// When deep-copying and mutating the copy's inner data map
 		clone := original.DeepCopy()
-		clone.Secrets["cloudflare-creds"]["api_token"] = "changed"
-		clone.Secrets["cloudflare-creds"]["extra"] = "value"
+		entry := clone.Secrets["cloudflare-creds"]
+		entry.Data["api_token"] = "changed"
+		entry.Data["extra"] = "value"
+		clone.Secrets["cloudflare-creds"] = entry
 
 		// Then the original inner map is untouched
-		if original.Secrets["cloudflare-creds"]["api_token"] != "${cdn.cloudflare_api_key}" {
-			t.Errorf("Expected original unchanged, got %q", original.Secrets["cloudflare-creds"]["api_token"])
+		if original.Secrets["cloudflare-creds"].Data["api_token"] != "${cdn.cloudflare_api_key}" {
+			t.Errorf("Expected original unchanged, got %q", original.Secrets["cloudflare-creds"].Data["api_token"])
 		}
-		if _, exists := original.Secrets["cloudflare-creds"]["extra"]; exists {
+		if _, exists := original.Secrets["cloudflare-creds"].Data["extra"]; exists {
 			t.Error("Expected original to not gain the clone's key")
 		}
 	})
@@ -5210,7 +5273,7 @@ func TestKustomization_Secrets(t *testing.T) {
 		// Given a kustomization with a literal secret in its compiled carrier
 		k := Kustomization{
 			Name:    "cdn-install",
-			Secrets: map[string]map[string]string{"cloudflare-creds": {"api_token": "PLAINTEXT-SECRET"}},
+			Secrets: map[string]SecretEntry{"cloudflare-creds": {Data: map[string]string{"api_token": "PLAINTEXT-SECRET"}}},
 		}
 
 		// When marshaling to YAML
@@ -5228,8 +5291,8 @@ func TestKustomization_Secrets(t *testing.T) {
 }
 
 func TestCompileFluxSystemTiers_Secrets(t *testing.T) {
-	secretsMap := func() map[string]map[string]string {
-		return map[string]map[string]string{"cloudflare-creds": {"api_token": "${cdn.cloudflare_api_key}"}}
+	secretsMap := func() map[string]SecretEntry {
+		return map[string]SecretEntry{"cloudflare-creds": {Data: map[string]string{"api_token": "${cdn.cloudflare_api_key}"}}}
 	}
 
 	t.Run("AttachesSecretsToInstallTier", func(t *testing.T) {
@@ -5250,7 +5313,7 @@ func TestCompileFluxSystemTiers_Secrets(t *testing.T) {
 		if install == nil || resources == nil {
 			t.Fatalf("Expected both tiers, got %v", kustomizationNames(all))
 		}
-		if install.Secrets["cloudflare-creds"]["api_token"] != "${cdn.cloudflare_api_key}" {
+		if install.Secrets["cloudflare-creds"].Data["api_token"] != "${cdn.cloudflare_api_key}" {
 			t.Errorf("Expected install tier to carry secrets, got %v", install.Secrets)
 		}
 		if len(resources.Secrets) != 0 {
@@ -5274,7 +5337,7 @@ func TestCompileFluxSystemTiers_Secrets(t *testing.T) {
 		if resources == nil {
 			t.Fatalf("Expected resources tier, got %v", kustomizationNames(all))
 		}
-		if resources.Secrets["cloudflare-creds"]["api_token"] != "${cdn.cloudflare_api_key}" {
+		if resources.Secrets["cloudflare-creds"].Data["api_token"] != "${cdn.cloudflare_api_key}" {
 			t.Errorf("Expected resources tier to carry secrets, got %v", resources.Secrets)
 		}
 	})
