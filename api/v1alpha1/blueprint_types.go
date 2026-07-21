@@ -288,6 +288,32 @@ func (i *IntExpression) DeepCopy() *IntExpression {
 	return copy
 }
 
+// SecretEntry is one `secrets:` entry on a flux system tier: the data that backs a Kubernetes Secret
+// plus the namespaces it is placed into. Namespaces is optional — when omitted the target auto-resolves
+// to the single namespace the owning kustomization creates (unchanged from the original behavior); when
+// set it names the target(s) explicitly, so a system that owns more than one namespace (e.g. pki, which
+// owns system-pki and system-pki-trust) can place a secret and a single entry can fan out to several
+// namespaces. It is a plain struct decoded directly by the YAML decoder — data lives under `data:` so a
+// data key can never collide with the `namespaces:` selector.
+type SecretEntry struct {
+	// Namespaces are the namespaces to place this Secret into. Empty means auto-resolve the single
+	// namespace the owning kustomization creates; each named namespace must be one that kustomization
+	// provably created.
+	Namespaces []string `yaml:"namespaces,omitempty"`
+
+	// Data is the Secret's contents: data key -> reference to a schema property, resolved JIT at
+	// placement and never rendered in plaintext.
+	Data map[string]string `yaml:"data,omitempty"`
+}
+
+// DeepCopy returns a deep copy of the SecretEntry, sharing no slice or map with the original.
+func (s SecretEntry) DeepCopy() SecretEntry {
+	return SecretEntry{
+		Namespaces: slices.Clone(s.Namespaces),
+		Data:       maps.Clone(s.Data),
+	}
+}
+
 // Blueprint is a configuration blueprint for initializing a project.
 type Blueprint struct {
 	// Kind is the blueprint type, following Kubernetes conventions.
@@ -596,11 +622,11 @@ type Kustomization struct {
 	Substitute map[string]string `yaml:"substitute,omitempty"`
 
 	// Secrets carries a flux system's Secrets onto its compiled namespace-owning tier so the imperative
-	// placement step can find them after flattening: Secret name -> data key -> reference to a sensitive
-	// schema property, resolved JIT at placement, never during composition. It is yaml:"-" so it is
-	// never marshaled into show/apply output or the written blueprint, keeping secret material out of
-	// every serialized surface by construction.
-	Secrets map[string]map[string]string `yaml:"-"`
+	// placement step can find them after flattening: Secret name -> SecretEntry (target namespaces plus
+	// data), resolved JIT at placement, never during composition. It is yaml:"-" so it is never
+	// marshaled into show/apply output or the written blueprint, keeping secret material out of every
+	// serialized surface by construction.
+	Secrets map[string]SecretEntry `yaml:"-"`
 }
 
 // FluxSystem is a system entry under a blueprint or facet's `flux:` list — a functional layer that
@@ -653,12 +679,12 @@ type FluxSystem struct {
 	// Resources are the custom-resource tier variants, all sharing "<path>/resources".
 	Resources []FluxVariant `yaml:"resources,omitempty"`
 
-	// Secrets declares Kubernetes Secrets for this system, keyed by Secret name; each inner map is that
-	// Secret's data (data key -> reference to a schema property marked `sensitive: true`). Unlike
-	// Substitute (plaintext ConfigMap material), Secrets back real Secrets placed into the system's
-	// namespace and are resolved and materialized separately — their values are never rendered or
-	// written in plaintext.
-	Secrets map[string]map[string]string `yaml:"secrets,omitempty"`
+	// Secrets declares Kubernetes Secrets for this system, keyed by Secret name; each entry carries the
+	// Secret's data (data key -> reference to a schema property marked `sensitive: true`) and, optionally,
+	// the namespaces to place it into. Unlike Substitute (plaintext ConfigMap material), Secrets back real
+	// Secrets placed into the system's namespace(s) and are resolved and materialized separately — their
+	// values are never rendered or written in plaintext.
+	Secrets map[string]SecretEntry `yaml:"secrets,omitempty"`
 }
 
 // FluxVariant is one resources-tier Kustomization of a system. It reuses Kustomization for its
@@ -1200,35 +1226,44 @@ func compileFluxSystemTiers(sys FluxSystem) []Kustomization {
 	return out
 }
 
-// cloneSecretData deep-copies a nested secret map (Secret name -> data key -> value reference) so a
-// clone shares no inner maps with the original.
-func cloneSecretData(in map[string]map[string]string) map[string]map[string]string {
+// cloneSecretData deep-copies a secret map (Secret name -> SecretEntry) so a clone shares no slice or
+// map with the original.
+func cloneSecretData(in map[string]SecretEntry) map[string]SecretEntry {
 	if in == nil {
 		return nil
 	}
-	out := make(map[string]map[string]string, len(in))
-	for name, data := range in {
-		out[name] = maps.Clone(data)
+	out := make(map[string]SecretEntry, len(in))
+	for name, entry := range in {
+		out[name] = entry.DeepCopy()
 	}
 	return out
 }
 
-// mergeSecretData unions two nested secret maps (Secret name -> data key -> reference) with overlay
-// winning per data key, and nil when both are empty. Neither input is mutated. Used to combine a flux
-// system's Secrets when the same-named system is upserted across sources.
-func mergeSecretData(base, overlay map[string]map[string]string) map[string]map[string]string {
+// mergeSecretData unions two secret maps (Secret name -> SecretEntry) with overlay winning per data key
+// and the two entries' namespaces unioned, and nil when both are empty. Neither input is mutated. Used
+// to combine a flux system's Secrets when the same-named system is upserted across sources.
+func mergeSecretData(base, overlay map[string]SecretEntry) map[string]SecretEntry {
 	if len(base) == 0 && len(overlay) == 0 {
 		return nil
 	}
 	out := cloneSecretData(base)
 	if out == nil {
-		out = make(map[string]map[string]string, len(overlay))
+		out = make(map[string]SecretEntry, len(overlay))
 	}
-	for name, data := range overlay {
-		if out[name] == nil {
-			out[name] = make(map[string]string, len(data))
+	for name, entry := range overlay {
+		merged := out[name]
+		for _, ns := range entry.Namespaces {
+			if !slices.Contains(merged.Namespaces, ns) {
+				merged.Namespaces = append(merged.Namespaces, ns)
+			}
 		}
-		maps.Copy(out[name], data)
+		if len(entry.Data) > 0 {
+			if merged.Data == nil {
+				merged.Data = make(map[string]string, len(entry.Data))
+			}
+			maps.Copy(merged.Data, entry.Data)
+		}
+		out[name] = merged
 	}
 	return out
 }

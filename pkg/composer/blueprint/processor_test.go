@@ -7051,24 +7051,39 @@ func TestMergeSecretData(t *testing.T) {
 	t.Run("UnionsSecretsAndDataKeysWithOverlayWinning", func(t *testing.T) {
 		// Given two facets contributing secrets: a shared secret with an overlapping data key,
 		// and a secret unique to each side
-		base := map[string]map[string]string{
-			"shared":    {"a": "1", "b": "2"},
-			"base-only": {"x": "9"},
+		base := map[string]blueprintv1alpha1.SecretEntry{
+			"shared":    {Data: map[string]string{"a": "1", "b": "2"}},
+			"base-only": {Data: map[string]string{"x": "9"}},
 		}
-		overlay := map[string]map[string]string{
-			"shared":       {"b": "override", "c": "3"},
-			"overlay-only": {"y": "8"},
+		overlay := map[string]blueprintv1alpha1.SecretEntry{
+			"shared":       {Data: map[string]string{"b": "override", "c": "3"}},
+			"overlay-only": {Data: map[string]string{"y": "8"}},
 		}
 
 		// When merging
 		got := mergeSecretData(base, overlay)
 
 		// Then secrets union, data keys union, and overlay wins the data-key conflict
-		if got["shared"]["a"] != "1" || got["shared"]["b"] != "override" || got["shared"]["c"] != "3" {
+		if got["shared"].Data["a"] != "1" || got["shared"].Data["b"] != "override" || got["shared"].Data["c"] != "3" {
 			t.Errorf("Unexpected shared secret merge: %v", got["shared"])
 		}
-		if got["base-only"]["x"] != "9" || got["overlay-only"]["y"] != "8" {
+		if got["base-only"].Data["x"] != "9" || got["overlay-only"].Data["y"] != "8" {
 			t.Errorf("Expected unique secrets preserved, got %v", got)
+		}
+	})
+
+	t.Run("UnionsNamespacesForASharedSecret", func(t *testing.T) {
+		// Given two facets targeting the same secret at different namespaces
+		base := map[string]blueprintv1alpha1.SecretEntry{"acme-dns": {Namespaces: []string{"system-pki"}, Data: map[string]string{"token": "${x.t}"}}}
+		overlay := map[string]blueprintv1alpha1.SecretEntry{"acme-dns": {Namespaces: []string{"system-dns", "system-pki"}, Data: map[string]string{"token": "${x.t}"}}}
+
+		// When merging
+		got := mergeSecretData(base, overlay)
+
+		// Then the namespaces union without duplicating the shared one
+		ns := got["acme-dns"].Namespaces
+		if len(ns) != 2 || ns[0] != "system-pki" || ns[1] != "system-dns" {
+			t.Errorf("Expected namespaces to union to [system-pki system-dns], got %v", ns)
 		}
 	})
 
@@ -7080,17 +7095,17 @@ func TestMergeSecretData(t *testing.T) {
 
 	t.Run("DoesNotMutateInputs", func(t *testing.T) {
 		// Given a base with a shared secret
-		base := map[string]map[string]string{"shared": {"a": "1"}}
-		overlay := map[string]map[string]string{"shared": {"b": "2"}}
+		base := map[string]blueprintv1alpha1.SecretEntry{"shared": {Data: map[string]string{"a": "1"}}}
+		overlay := map[string]blueprintv1alpha1.SecretEntry{"shared": {Data: map[string]string{"b": "2"}}}
 
 		// When merging
 		_ = mergeSecretData(base, overlay)
 
 		// Then the base's inner map is unchanged
-		if len(base["shared"]) != 1 || base["shared"]["a"] != "1" {
+		if len(base["shared"].Data) != 1 || base["shared"].Data["a"] != "1" {
 			t.Errorf("Expected base unmutated, got %v", base)
 		}
-		if _, exists := base["shared"]["b"]; exists {
+		if _, exists := base["shared"].Data["b"]; exists {
 			t.Error("Expected base inner map to not gain overlay key")
 		}
 	})
@@ -7102,7 +7117,7 @@ func TestValidateSystemSecrets(t *testing.T) {
 	}
 
 	t.Run("AcceptsSensitivePropertyReference", func(t *testing.T) {
-		err := processor(t).validateSystemSecrets("cdn", map[string]map[string]string{"cloudflare-creds": {"api_token": "${cdn.cloudflare_api_key}"}})
+		err := processor(t).validateSystemSecrets("cdn", map[string]blueprintv1alpha1.SecretEntry{"cloudflare-creds": {Data: map[string]string{"api_token": "${cdn.cloudflare_api_key}"}}})
 		if err != nil {
 			t.Errorf("Expected no error, got %v", err)
 		}
@@ -7110,8 +7125,8 @@ func TestValidateSystemSecrets(t *testing.T) {
 
 	t.Run("AcceptsNonSensitiveReferenceWithOptionalDefault", func(t *testing.T) {
 		// A reference to a non-sensitive property (with a ?? default) is fine — it goes into a Secret
-		err := processor(t).validateSystemSecrets("telemetry", map[string]map[string]string{
-			"alertmanager-notification-slack": {"url": "${telemetry.alerts.slack.webhook_url ?? ''}"},
+		err := processor(t).validateSystemSecrets("telemetry", map[string]blueprintv1alpha1.SecretEntry{
+			"alertmanager-notification-slack": {Data: map[string]string{"url": "${telemetry.alerts.slack.webhook_url ?? ''}"}},
 		})
 		if err != nil {
 			t.Errorf("Expected no error, got %v", err)
@@ -7119,8 +7134,8 @@ func TestValidateSystemSecrets(t *testing.T) {
 	})
 
 	t.Run("AcceptsDirectSecretExpression", func(t *testing.T) {
-		err := processor(t).validateSystemSecrets("telemetry", map[string]map[string]string{
-			"alertmanager-slack": {"webhook_url": `${secret("Developer", "slack_webhooks", "url")}`},
+		err := processor(t).validateSystemSecrets("telemetry", map[string]blueprintv1alpha1.SecretEntry{
+			"alertmanager-slack": {Data: map[string]string{"webhook_url": `${secret("Developer", "slack_webhooks", "url")}`}},
 		})
 		if err != nil {
 			t.Errorf("Expected no error, got %v", err)
@@ -7129,7 +7144,7 @@ func TestValidateSystemSecrets(t *testing.T) {
 
 	t.Run("AcceptsHybridExpression", func(t *testing.T) {
 		// An expression embedded in surrounding text resolves to a valid secret value and is allowed
-		err := processor(t).validateSystemSecrets("cdn", map[string]map[string]string{"creds": {"url": "https://api.example.com/${cdn.token}"}})
+		err := processor(t).validateSystemSecrets("cdn", map[string]blueprintv1alpha1.SecretEntry{"creds": {Data: map[string]string{"url": "https://api.example.com/${cdn.token}"}}})
 		if err != nil {
 			t.Errorf("Expected no error, got %v", err)
 		}
@@ -7137,7 +7152,7 @@ func TestValidateSystemSecrets(t *testing.T) {
 
 	t.Run("RejectsPlaintextLiteral", func(t *testing.T) {
 		// A hardcoded literal would be serialized with the blueprint (git-committed), so it fails closed
-		err := processor(t).validateSystemSecrets("cdn", map[string]map[string]string{"creds": {"token": "actual-secret-value"}})
+		err := processor(t).validateSystemSecrets("cdn", map[string]blueprintv1alpha1.SecretEntry{"creds": {Data: map[string]string{"token": "actual-secret-value"}}})
 		if err == nil || !strings.Contains(err.Error(), "not a plaintext literal") {
 			t.Errorf("Expected plaintext-literal error, got %v", err)
 		}
@@ -7145,7 +7160,7 @@ func TestValidateSystemSecrets(t *testing.T) {
 
 	t.Run("RejectsUnterminatedExpression", func(t *testing.T) {
 		// A malformed, unterminated interpolation is caught at composition rather than at apply time
-		err := processor(t).validateSystemSecrets("cdn", map[string]map[string]string{"creds": {"token": "${cdn.token"}})
+		err := processor(t).validateSystemSecrets("cdn", map[string]blueprintv1alpha1.SecretEntry{"creds": {Data: map[string]string{"token": "${cdn.token"}}})
 		if err == nil || !strings.Contains(err.Error(), "unterminated expression") {
 			t.Errorf("Expected unterminated-expression error, got %v", err)
 		}

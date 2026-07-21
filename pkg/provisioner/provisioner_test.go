@@ -4321,8 +4321,11 @@ func TestProvisioner_ResolveSecrets(t *testing.T) {
 	withValues := func(mocks *ProvisionerTestMocks, values map[string]any) {
 		mocks.ConfigHandler.(*config.MockConfigHandler).GetContextValuesFunc = func() (map[string]any, error) { return values, nil }
 	}
-	bp := func(secrets map[string]map[string]string) *blueprintv1alpha1.Blueprint {
+	bp := func(secrets map[string]blueprintv1alpha1.SecretEntry) *blueprintv1alpha1.Blueprint {
 		return &blueprintv1alpha1.Blueprint{Kustomizations: []blueprintv1alpha1.Kustomization{{Name: "cdn-install", Secrets: secrets}}}
+	}
+	entry := func(data map[string]string) blueprintv1alpha1.SecretEntry {
+		return blueprintv1alpha1.SecretEntry{Data: data}
 	}
 
 	t.Run("ResolvesValueKeyedByKustomization", func(t *testing.T) {
@@ -4331,13 +4334,13 @@ func TestProvisioner_ResolveSecrets(t *testing.T) {
 		withValues(mocks, map[string]any{"cdn": map[string]any{"cloudflare_api_key": "resolved-token"}})
 
 		// When resolving secrets
-		resolved, err := newProvisioner(mocks).ResolveSecrets(bp(map[string]map[string]string{"cloudflare-creds": {"api_token": "${cdn.cloudflare_api_key}"}}))
+		resolved, err := newProvisioner(mocks).ResolveSecrets(bp(map[string]blueprintv1alpha1.SecretEntry{"cloudflare-creds": entry(map[string]string{"api_token": "${cdn.cloudflare_api_key}"})}))
 		if err != nil {
 			t.Fatalf("Expected no error, got %v", err)
 		}
 
 		// Then the value is keyed by owning kustomization -> secret -> data key
-		if resolved["cdn-install"]["cloudflare-creds"]["api_token"] != "resolved-token" {
+		if resolved["cdn-install"]["cloudflare-creds"].Data["api_token"] != "resolved-token" {
 			t.Errorf("Expected resolved token keyed by kustomization, got %v", resolved)
 		}
 	})
@@ -4348,7 +4351,7 @@ func TestProvisioner_ResolveSecrets(t *testing.T) {
 		withValues(mocks, map[string]any{"cdn": map[string]any{"cloudflare_api_key": nil}})
 
 		// When resolving, it fails closed before any apply
-		_, err := newProvisioner(mocks).ResolveSecrets(bp(map[string]map[string]string{"creds": {"token": "${cdn.cloudflare_api_key}"}}))
+		_, err := newProvisioner(mocks).ResolveSecrets(bp(map[string]blueprintv1alpha1.SecretEntry{"creds": entry(map[string]string{"token": "${cdn.cloudflare_api_key}"})}))
 		if err == nil || !strings.Contains(err.Error(), "resolved to nil") {
 			t.Errorf("Expected nil-resolution error, got %v", err)
 		}
@@ -4360,7 +4363,7 @@ func TestProvisioner_ResolveSecrets(t *testing.T) {
 		withValues(mocks, map[string]any{"cdn": map[string]any{"token": ""}})
 
 		// When resolving, it fails closed
-		_, err := newProvisioner(mocks).ResolveSecrets(bp(map[string]map[string]string{"creds": {"token": "${cdn.token}"}}))
+		_, err := newProvisioner(mocks).ResolveSecrets(bp(map[string]blueprintv1alpha1.SecretEntry{"creds": entry(map[string]string{"token": "${cdn.token}"})}))
 		if err == nil || !strings.Contains(err.Error(), "resolved to empty") {
 			t.Errorf("Expected empty-required error, got %v", err)
 		}
@@ -4375,16 +4378,16 @@ func TestProvisioner_ResolveSecrets(t *testing.T) {
 		})
 
 		// When resolving
-		resolved, err := newProvisioner(mocks).ResolveSecrets(bp(map[string]map[string]string{
-			"creds":            {"token": "${cdn.token}", "extra": "${cdn.extra ?? ''}"},
-			"optional-webhook": {"url": "${telemetry.alerts.slack.webhook_url ?? ''}"},
+		resolved, err := newProvisioner(mocks).ResolveSecrets(bp(map[string]blueprintv1alpha1.SecretEntry{
+			"creds":            entry(map[string]string{"token": "${cdn.token}", "extra": "${cdn.extra ?? ''}"}),
+			"optional-webhook": entry(map[string]string{"url": "${telemetry.alerts.slack.webhook_url ?? ''}"}),
 		}))
 		if err != nil {
 			t.Fatalf("Expected no error, got %v", err)
 		}
 
 		// Then the optional empty key is omitted and the wholly-empty optional secret is dropped
-		creds := resolved["cdn-install"]["creds"]
+		creds := resolved["cdn-install"]["creds"].Data
 		if creds["token"] != "real" {
 			t.Errorf("Expected token resolved, got %v", creds)
 		}
@@ -4419,7 +4422,7 @@ func TestProvisioner_PlaceSecrets(t *testing.T) {
 		})
 	}
 	resolved := func() ResolvedSecrets {
-		return ResolvedSecrets{"cdn-install": {"cloudflare-creds": {"api_token": "resolved-token"}}}
+		return ResolvedSecrets{"cdn-install": {"cloudflare-creds": {Data: map[string]string{"api_token": "resolved-token"}}}}
 	}
 
 	t.Run("PlacesIntoInventoryNamespace", func(t *testing.T) {
@@ -4508,6 +4511,67 @@ func TestProvisioner_PlaceSecrets(t *testing.T) {
 		err := newProvisioner(mocks).PlaceSecrets(ctx, resolved())
 		if err == nil || !strings.Contains(err.Error(), "to create its namespace") {
 			t.Errorf("Expected namespace-timeout error, got %v", err)
+		}
+	})
+
+	t.Run("PlacesIntoExplicitNamespaceOnMultiNamespaceSystem", func(t *testing.T) {
+		// Given a system that owns two namespaces and a secret naming one of them
+		mocks := setupProvisionerMocks(t)
+		mocks.KubernetesManager.GetKustomizationInventoryFunc = func(name, namespace string) ([]kubernetes.InventoryEntry, error) {
+			return []kubernetes.InventoryEntry{{Kind: "Namespace", Name: "system-pki"}, {Kind: "Namespace", Name: "system-pki-trust"}}, nil
+		}
+		var gotNs string
+		mocks.KubernetesManager.ApplySecretFunc = func(name, namespace string, stringData map[string]string) error {
+			gotNs = namespace
+			return nil
+		}
+		explicit := ResolvedSecrets{"pki-install": {"hetzner-dns": {Namespaces: []string{"system-pki"}, Data: map[string]string{"token": "resolved"}}}}
+
+		// When placing, the named namespace disambiguates rather than failing closed
+		if err := newProvisioner(mocks).PlaceSecrets(context.Background(), explicit); err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		if gotNs != "system-pki" {
+			t.Errorf("Expected placement into system-pki, got %q", gotNs)
+		}
+	})
+
+	t.Run("FansOutToEveryNamedNamespace", func(t *testing.T) {
+		// Given a secret naming two namespaces both created by the owning kustomization
+		mocks := setupProvisionerMocks(t)
+		mocks.KubernetesManager.GetKustomizationInventoryFunc = func(name, namespace string) ([]kubernetes.InventoryEntry, error) {
+			return []kubernetes.InventoryEntry{{Kind: "Namespace", Name: "system-pki"}, {Kind: "Namespace", Name: "system-dns"}}, nil
+		}
+		placed := map[string]bool{}
+		mocks.KubernetesManager.ApplySecretFunc = func(name, namespace string, stringData map[string]string) error {
+			placed[namespace] = true
+			return nil
+		}
+		explicit := ResolvedSecrets{"pki-install": {"acme-dns": {Namespaces: []string{"system-pki", "system-dns"}, Data: map[string]string{"token": "resolved"}}}}
+
+		// When placing, the same secret lands in each named namespace
+		if err := newProvisioner(mocks).PlaceSecrets(context.Background(), explicit); err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		if !placed["system-pki"] || !placed["system-dns"] || len(placed) != 2 {
+			t.Errorf("Expected fan-out into system-pki and system-dns, got %v", placed)
+		}
+	})
+
+	t.Run("TimesOutNamingAnUncreatedExplicitNamespace", func(t *testing.T) {
+		// Given a named namespace the owning kustomization never creates
+		mocks := setupProvisionerMocks(t)
+		mocks.KubernetesManager.GetKustomizationInventoryFunc = func(name, namespace string) ([]kubernetes.InventoryEntry, error) {
+			return []kubernetes.InventoryEntry{{Kind: "Namespace", Name: "system-pki-trust"}}, nil
+		}
+		explicit := ResolvedSecrets{"pki-install": {"hetzner-dns": {Namespaces: []string{"system-pki"}, Data: map[string]string{"token": "resolved"}}}}
+		ctx, cancel := context.WithCancel(context.Background())
+		cancel()
+
+		// When placing, it fails naming the missing namespace rather than placing by guessing
+		err := newProvisioner(mocks).PlaceSecrets(ctx, explicit)
+		if err == nil || !strings.Contains(err.Error(), "system-pki") || !strings.Contains(err.Error(), "before placing secrets") {
+			t.Errorf("Expected missing-namespace timeout error naming system-pki, got %v", err)
 		}
 	})
 

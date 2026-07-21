@@ -1018,9 +1018,9 @@ func mergeSubstitute(k blueprintv1alpha1.Kustomization) map[string]string {
 // is rejected because the authored value is serialized with the blueprint, so a hardcoded secret would
 // be committed to git. Keeping sensitive values out of ConfigMaps and output is enforced separately —
 // see the substitution guard (sensitivePathsInValue) and display redaction.
-func (p *BaseBlueprintProcessor) validateSystemSecrets(systemName string, secrets map[string]map[string]string) error {
-	for secretName, data := range secrets {
-		for key, ref := range data {
+func (p *BaseBlueprintProcessor) validateSystemSecrets(systemName string, secrets map[string]blueprintv1alpha1.SecretEntry) error {
+	for secretName, entry := range secrets {
+		for key, ref := range entry.Data {
 			open := strings.Index(ref, "${")
 			if open < 0 || !strings.Contains(ref[open+2:], "}") {
 				return fmt.Errorf("secret %q key %q in flux system %q must contain a complete ${...} expression (a reference or a secret() call), not a plaintext literal or unterminated expression, got %q", secretName, key, systemName, ref)
@@ -1064,22 +1064,31 @@ func (p *BaseBlueprintProcessor) sensitivePathsInValue(value string) []string {
 	return found
 }
 
-// mergeSecretData unions two nested secret maps (Secret name -> data key -> reference), overlay
-// winning per data key, and nil when both are empty. Neither input is mutated. Used to union a flux
-// system's Secrets across facets.
-func mergeSecretData(base, overlay map[string]map[string]string) map[string]map[string]string {
+// mergeSecretData unions two secret maps (Secret name -> SecretEntry), overlay winning per data key and
+// the two entries' namespaces unioned, and nil when both are empty. Neither input is mutated. Used to
+// union a flux system's Secrets across facets.
+func mergeSecretData(base, overlay map[string]blueprintv1alpha1.SecretEntry) map[string]blueprintv1alpha1.SecretEntry {
 	if len(base) == 0 && len(overlay) == 0 {
 		return nil
 	}
-	out := make(map[string]map[string]string, len(base)+len(overlay))
-	for name, data := range base {
-		out[name] = maps.Clone(data)
+	out := make(map[string]blueprintv1alpha1.SecretEntry, len(base)+len(overlay))
+	for name, entry := range base {
+		out[name] = entry.DeepCopy()
 	}
-	for name, data := range overlay {
-		if out[name] == nil {
-			out[name] = make(map[string]string, len(data))
+	for name, entry := range overlay {
+		merged := out[name]
+		for _, ns := range entry.Namespaces {
+			if !slices.Contains(merged.Namespaces, ns) {
+				merged.Namespaces = append(merged.Namespaces, ns)
+			}
 		}
-		maps.Copy(out[name], data)
+		if len(entry.Data) > 0 {
+			if merged.Data == nil {
+				merged.Data = make(map[string]string, len(entry.Data))
+			}
+			maps.Copy(merged.Data, entry.Data)
+		}
+		out[name] = merged
 	}
 	return out
 }
