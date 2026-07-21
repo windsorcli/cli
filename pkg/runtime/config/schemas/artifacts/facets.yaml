@@ -103,9 +103,11 @@ properties:
       Distinct from 'kustomize:' (1:1 passthrough). See the flux: shape in the
       [Blueprint reference](blueprint.md): name (required), path, source, enabled,
       destroy, when, dependsOn, strategy, ordinal, install, resources, secrets.
-      'secrets' maps <secret-name> to a data map of <key>: <reference to a
-      sensitive schema property>, each materialized as a Kubernetes Secret with
-      those data keys in the system's namespace.
+      'secrets' maps <secret-name> to a data map of <key>: <value>, where each
+      value is an expression resolved at apply time — a ${...} reference to any
+      config property or a secret() call — not a plaintext literal. Each entry
+      is materialized as a Kubernetes Secret with those data keys in the
+      system's namespace.
     items:
       type: object
       required:

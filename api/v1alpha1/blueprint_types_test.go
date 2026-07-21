@@ -4975,6 +4975,57 @@ func TestBlueprint_UpsertFluxSystem(t *testing.T) {
 			t.Fatalf("expected the original unnamed variant and the new named variant to both survive, got %+v", merged.Resources)
 		}
 	})
+
+	t.Run("PreservesSecretsContributedToAnExistingSystem", func(t *testing.T) {
+		// Given a blueprint already carrying a telemetry system with no secrets (as if from a base source)
+		b := &Blueprint{
+			FluxSystems: []FluxSystem{{
+				Name:    "telemetry",
+				Install: &Kustomization{Components: []string{"prometheus"}},
+			}},
+		}
+
+		// When another source's same-named system contributes a secret
+		if err := b.UpsertFluxSystem(FluxSystem{
+			Name:    "telemetry",
+			Secrets: map[string]map[string]string{"alertmanager-slack": {"webhook_url": `${secret("Developer", "slack_webhooks", "url")}`}},
+		}); err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+
+		// Then the merged system carries the secret instead of dropping it
+		if len(b.FluxSystems) != 1 {
+			t.Fatalf("expected one merged telemetry entry, got %+v", b.FluxSystems)
+		}
+		got := b.FluxSystems[0].Secrets["alertmanager-slack"]["webhook_url"]
+		if got != `${secret("Developer", "slack_webhooks", "url")}` {
+			t.Errorf("expected the contributed secret to survive the merge, got %q (all: %+v)", got, b.FluxSystems[0].Secrets)
+		}
+	})
+
+	t.Run("UnionsSecretsAcrossBothSidesOnNameCollision", func(t *testing.T) {
+		// Given a system that already carries one secret
+		b := &Blueprint{
+			FluxSystems: []FluxSystem{{
+				Name:    "telemetry",
+				Secrets: map[string]map[string]string{"creds": {"a": "${x.a}"}},
+			}},
+		}
+
+		// When a same-named system contributes another secret data key
+		if err := b.UpsertFluxSystem(FluxSystem{
+			Name:    "telemetry",
+			Secrets: map[string]map[string]string{"creds": {"b": "${x.b}"}},
+		}); err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+
+		// Then both data keys survive under the same secret name
+		creds := b.FluxSystems[0].Secrets["creds"]
+		if creds["a"] != "${x.a}" || creds["b"] != "${x.b}" {
+			t.Errorf("expected secret data keys to union, got %+v", creds)
+		}
+	})
 }
 
 func TestFluxSystem_TierNames(t *testing.T) {

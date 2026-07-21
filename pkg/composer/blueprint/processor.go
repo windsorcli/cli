@@ -1011,20 +1011,19 @@ func mergeSubstitute(k blueprintv1alpha1.Kustomization) map[string]string {
 	return out
 }
 
-// validateSystemSecrets fails composition when a flux system's secrets: entry is not a bare reference
-// to a schema property marked sensitive. Each value must be "${<path>}" where <path> is a sensitive
-// property, so a plaintext literal, an embedded interpolation, or a secret() call is rejected — only
-// sensitive material reaches the secrets pipeline, and it is never authored as a raw vault coordinate.
-// The sensitivity check is skipped when no config handler is available (e.g. isolated composer tests).
+// validateSystemSecrets fails composition when a flux system's secrets: value is a plaintext literal
+// rather than an expression. Any ${...} reference or secret() call is allowed — the value is resolved
+// at placement and materialized into a Kubernetes Secret (the protected sink), so it need not point at
+// a sensitive schema property; wiring a non-sensitive value into a Secret is safe. A plaintext literal
+// is rejected because the authored value is serialized with the blueprint, so a hardcoded secret would
+// be committed to git. Keeping sensitive values out of ConfigMaps and output is enforced separately —
+// see the substitution guard (sensitivePathsInValue) and display redaction.
 func (p *BaseBlueprintProcessor) validateSystemSecrets(systemName string, secrets map[string]map[string]string) error {
 	for secretName, data := range secrets {
 		for key, ref := range data {
-			path, ok := bareSecretReferencePath(ref)
-			if !ok {
-				return fmt.Errorf("secret %q key %q in flux system %q must reference a sensitive schema property as ${path}, got %q", secretName, key, systemName, ref)
-			}
-			if p.runtime != nil && p.runtime.ConfigHandler != nil && !p.runtime.ConfigHandler.IsSensitivePath(path) {
-				return fmt.Errorf("secret %q key %q in flux system %q references %q, which is not marked sensitive in the schema", secretName, key, systemName, path)
+			open := strings.Index(ref, "${")
+			if open < 0 || !strings.Contains(ref[open+2:], "}") {
+				return fmt.Errorf("secret %q key %q in flux system %q must contain a complete ${...} expression (a reference or a secret() call), not a plaintext literal or unterminated expression, got %q", secretName, key, systemName, ref)
 			}
 		}
 	}
@@ -1063,21 +1062,6 @@ func (p *BaseBlueprintProcessor) sensitivePathsInValue(value string) []string {
 		rest = rest[end+1:]
 	}
 	return found
-}
-
-// bareSecretReferencePath extracts the config path from a bare "${<path>}" reference, returning false
-// for literals, embedded interpolations, function calls, or secret() notation — anything that is not
-// a single sensitive-property reference.
-func bareSecretReferencePath(value string) (string, bool) {
-	v := strings.TrimSpace(value)
-	if !strings.HasPrefix(v, "${") || !strings.HasSuffix(v, "}") {
-		return "", false
-	}
-	inner := strings.TrimSpace(v[2 : len(v)-1])
-	if inner == "" || strings.ContainsAny(inner, "(){}\"' \t\n\r") {
-		return "", false
-	}
-	return inner, true
 }
 
 // mergeSecretData unions two nested secret maps (Secret name -> data key -> reference), overlay

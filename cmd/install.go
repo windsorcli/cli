@@ -21,7 +21,7 @@ Pass --wait to block until kustomizations report ready.`,
 windsor install --wait`,
 	Annotations: map[string]string{
 		"docs.seealso": "[`apply`](apply.md), [`apply kustomize`](apply-kustomize.md)",
-		"docs.source": "cmd/install.go",
+		"docs.source":  "cmd/install.go",
 	},
 	SilenceUsage: true,
 	RunE: func(cmd *cobra.Command, args []string) error {
@@ -36,8 +36,18 @@ windsor install --wait`,
 		if err != nil {
 			return fmt.Errorf("error resolving blueprint substitutions: %w", err)
 		}
+
+		resolvedSecrets, err := proj.Provisioner.ResolveSecrets(blueprint)
+		if err != nil {
+			return fmt.Errorf("error resolving secrets: %w", err)
+		}
+
 		if err := proj.Provisioner.Install(cmd.Context(), blueprint); err != nil {
 			return fmt.Errorf("error installing blueprint: %w", err)
+		}
+
+		if err := proj.Provisioner.PlaceSecrets(cmd.Context(), resolvedSecrets); err != nil {
+			return fmt.Errorf("error placing secrets: %w", err)
 		}
 
 		if installWaitFlag {

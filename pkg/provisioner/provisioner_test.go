@@ -4308,6 +4308,106 @@ func TestProvisioner_UpgradeNode(t *testing.T) {
 	})
 }
 
+func TestProvisioner_ResolveSecrets(t *testing.T) {
+	newProvisioner := func(mocks *ProvisionerTestMocks) *Provisioner {
+		return NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{
+			TerraformStack:    mocks.TerraformStack,
+			KubernetesManager: mocks.KubernetesManager,
+			KubernetesClient:  mocks.KubernetesClient,
+			ClusterClient:     mocks.ClusterClient,
+			FluxStack:         mocks.FluxStack,
+		})
+	}
+	withValues := func(mocks *ProvisionerTestMocks, values map[string]any) {
+		mocks.ConfigHandler.(*config.MockConfigHandler).GetContextValuesFunc = func() (map[string]any, error) { return values, nil }
+	}
+	bp := func(secrets map[string]map[string]string) *blueprintv1alpha1.Blueprint {
+		return &blueprintv1alpha1.Blueprint{Kustomizations: []blueprintv1alpha1.Kustomization{{Name: "cdn-install", Secrets: secrets}}}
+	}
+
+	t.Run("ResolvesValueKeyedByKustomization", func(t *testing.T) {
+		// Given a resolvable reference
+		mocks := setupProvisionerMocks(t)
+		withValues(mocks, map[string]any{"cdn": map[string]any{"cloudflare_api_key": "resolved-token"}})
+
+		// When resolving secrets
+		resolved, err := newProvisioner(mocks).ResolveSecrets(bp(map[string]map[string]string{"cloudflare-creds": {"api_token": "${cdn.cloudflare_api_key}"}}))
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+
+		// Then the value is keyed by owning kustomization -> secret -> data key
+		if resolved["cdn-install"]["cloudflare-creds"]["api_token"] != "resolved-token" {
+			t.Errorf("Expected resolved token keyed by kustomization, got %v", resolved)
+		}
+	})
+
+	t.Run("FailsWhenRequiredReferenceResolvesToNil", func(t *testing.T) {
+		// Given a required reference whose value is nil (populated but unresolvable)
+		mocks := setupProvisionerMocks(t)
+		withValues(mocks, map[string]any{"cdn": map[string]any{"cloudflare_api_key": nil}})
+
+		// When resolving, it fails closed before any apply
+		_, err := newProvisioner(mocks).ResolveSecrets(bp(map[string]map[string]string{"creds": {"token": "${cdn.cloudflare_api_key}"}}))
+		if err == nil || !strings.Contains(err.Error(), "resolved to nil") {
+			t.Errorf("Expected nil-resolution error, got %v", err)
+		}
+	})
+
+	t.Run("FailsWhenRequiredReferenceResolvesEmpty", func(t *testing.T) {
+		// Given a required reference whose value is empty
+		mocks := setupProvisionerMocks(t)
+		withValues(mocks, map[string]any{"cdn": map[string]any{"token": ""}})
+
+		// When resolving, it fails closed
+		_, err := newProvisioner(mocks).ResolveSecrets(bp(map[string]map[string]string{"creds": {"token": "${cdn.token}"}}))
+		if err == nil || !strings.Contains(err.Error(), "resolved to empty") {
+			t.Errorf("Expected empty-required error, got %v", err)
+		}
+	})
+
+	t.Run("OmitsEmptyOptionalKeyAndDropsWhollyEmptySecret", func(t *testing.T) {
+		// Given an optional empty key alongside a required one, and a wholly-empty optional secret
+		mocks := setupProvisionerMocks(t)
+		withValues(mocks, map[string]any{
+			"cdn":       map[string]any{"token": "real", "extra": ""},
+			"telemetry": map[string]any{"alerts": map[string]any{"slack": map[string]any{"webhook_url": nil}}},
+		})
+
+		// When resolving
+		resolved, err := newProvisioner(mocks).ResolveSecrets(bp(map[string]map[string]string{
+			"creds":            {"token": "${cdn.token}", "extra": "${cdn.extra ?? ''}"},
+			"optional-webhook": {"url": "${telemetry.alerts.slack.webhook_url ?? ''}"},
+		}))
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+
+		// Then the optional empty key is omitted and the wholly-empty optional secret is dropped
+		creds := resolved["cdn-install"]["creds"]
+		if creds["token"] != "real" {
+			t.Errorf("Expected token resolved, got %v", creds)
+		}
+		if _, exists := creds["extra"]; exists {
+			t.Errorf("Expected empty optional key omitted, got %v", creds)
+		}
+		if _, exists := resolved["cdn-install"]["optional-webhook"]; exists {
+			t.Errorf("Expected wholly-empty secret dropped, got %v", resolved["cdn-install"])
+		}
+	})
+
+	t.Run("NoSecretsReturnsEmpty", func(t *testing.T) {
+		mocks := setupProvisionerMocks(t)
+		resolved, err := newProvisioner(mocks).ResolveSecrets(&blueprintv1alpha1.Blueprint{Kustomizations: []blueprintv1alpha1.Kustomization{{Name: "plain"}}})
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		if len(resolved) != 0 {
+			t.Errorf("Expected empty resolved secrets, got %v", resolved)
+		}
+	})
+}
+
 func TestProvisioner_PlaceSecrets(t *testing.T) {
 	newProvisioner := func(mocks *ProvisionerTestMocks) *Provisioner {
 		return NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{
@@ -4318,26 +4418,13 @@ func TestProvisioner_PlaceSecrets(t *testing.T) {
 			FluxStack:         mocks.FluxStack,
 		})
 	}
-
-	secretBlueprint := func() *blueprintv1alpha1.Blueprint {
-		return &blueprintv1alpha1.Blueprint{
-			Kustomizations: []blueprintv1alpha1.Kustomization{{
-				Name:    "cdn-install",
-				Secrets: map[string]map[string]string{"cloudflare-creds": {"api_token": "${cdn.cloudflare_api_key}"}},
-			}},
-		}
+	resolved := func() ResolvedSecrets {
+		return ResolvedSecrets{"cdn-install": {"cloudflare-creds": {"api_token": "resolved-token"}}}
 	}
 
-	withResolvedValue := func(mocks *ProvisionerTestMocks) {
-		mocks.ConfigHandler.(*config.MockConfigHandler).GetContextValuesFunc = func() (map[string]any, error) {
-			return map[string]any{"cdn": map[string]any{"cloudflare_api_key": "resolved-token"}}, nil
-		}
-	}
-
-	t.Run("ResolvesValueAndPlacesIntoInventoryNamespace", func(t *testing.T) {
+	t.Run("PlacesIntoInventoryNamespace", func(t *testing.T) {
 		// Given a kustomization whose inventory holds exactly one applied namespace
 		mocks := setupProvisionerMocks(t)
-		withResolvedValue(mocks)
 		mocks.KubernetesManager.GetKustomizationInventoryFunc = func(name, namespace string) ([]kubernetes.InventoryEntry, error) {
 			return []kubernetes.InventoryEntry{{Kind: "Namespace", Name: "system-dns"}}, nil
 		}
@@ -4348,191 +4435,53 @@ func TestProvisioner_PlaceSecrets(t *testing.T) {
 			return nil
 		}
 
-		// When placing secrets
-		if err := newProvisioner(mocks).PlaceSecrets(context.Background(), secretBlueprint()); err != nil {
+		// When placing the resolved secrets
+		if err := newProvisioner(mocks).PlaceSecrets(context.Background(), resolved()); err != nil {
 			t.Fatalf("Expected no error, got %v", err)
 		}
 
-		// Then the resolved value lands in the inventory namespace under the right data key
+		// Then the secret lands in the inventory namespace with the resolved value
 		if gotName != "cloudflare-creds" || gotNs != "system-dns" || gotData["api_token"] != "resolved-token" {
 			t.Errorf("Unexpected ApplySecret args: name=%q ns=%q data=%v", gotName, gotNs, gotData)
 		}
 	})
 
-	t.Run("TimesOutAndAppliesNothingWhenNoNamespaceAppears", func(t *testing.T) {
-		// Given a kustomization whose inventory never includes a namespace, and a cancelled context
-		mocks := setupProvisionerMocks(t)
-		withResolvedValue(mocks)
-		mocks.KubernetesManager.GetKustomizationInventoryFunc = func(name, namespace string) ([]kubernetes.InventoryEntry, error) {
-			return []kubernetes.InventoryEntry{{Kind: "ConfigMap", Name: "values-cdn"}}, nil
-		}
-		applied := false
-		mocks.KubernetesManager.ApplySecretFunc = func(name, namespace string, stringData map[string]string) error {
-			applied = true
-			return nil
-		}
-		ctx, cancel := context.WithCancel(context.Background())
-		cancel()
-
-		// When placing secrets, it times out waiting for the namespace and applies nothing
-		err := newProvisioner(mocks).PlaceSecrets(ctx, secretBlueprint())
-		if err == nil || !strings.Contains(err.Error(), "to create its namespace") {
-			t.Errorf("Expected namespace-timeout error, got %v", err)
-		}
-		if applied {
-			t.Error("Expected ApplySecret to not be called when the namespace never appears")
-		}
-	})
-
-	t.Run("FailsWhenReferenceResolvesToNil", func(t *testing.T) {
-		// Given a sensitive property that exists but holds a nil value
-		mocks := setupProvisionerMocks(t)
-		mocks.ConfigHandler.(*config.MockConfigHandler).GetContextValuesFunc = func() (map[string]any, error) {
-			return map[string]any{"cdn": map[string]any{"cloudflare_api_key": nil}}, nil
-		}
-		mocks.KubernetesManager.GetKustomizationInventoryFunc = func(name, namespace string) ([]kubernetes.InventoryEntry, error) {
-			return []kubernetes.InventoryEntry{{Kind: "Namespace", Name: "system-dns"}}, nil
-		}
-		applied := false
-		mocks.KubernetesManager.ApplySecretFunc = func(name, namespace string, stringData map[string]string) error {
-			applied = true
-			return nil
-		}
-
-		// When placing secrets, the nil resolution fails closed rather than dropping the key
-		err := newProvisioner(mocks).PlaceSecrets(context.Background(), secretBlueprint())
-		if err == nil || !strings.Contains(err.Error(), "resolved to nil") {
-			t.Errorf("Expected nil-resolution error, got %v", err)
-		}
-		if applied {
-			t.Error("Expected ApplySecret to not be called when a key resolves to nil")
-		}
-	})
-
 	t.Run("FailsClosedWhenMultipleNamespaces", func(t *testing.T) {
-		// Given a kustomization whose inventory created more than one namespace
 		mocks := setupProvisionerMocks(t)
-		withResolvedValue(mocks)
 		mocks.KubernetesManager.GetKustomizationInventoryFunc = func(name, namespace string) ([]kubernetes.InventoryEntry, error) {
 			return []kubernetes.InventoryEntry{{Kind: "Namespace", Name: "ns-a"}, {Kind: "Namespace", Name: "ns-b"}}, nil
 		}
-
-		// When placing secrets, it fails closed immediately
-		err := newProvisioner(mocks).PlaceSecrets(context.Background(), secretBlueprint())
+		err := newProvisioner(mocks).PlaceSecrets(context.Background(), resolved())
 		if err == nil || !strings.Contains(err.Error(), "multiple namespaces") {
 			t.Errorf("Expected multiple-namespaces error, got %v", err)
 		}
 	})
 
-	t.Run("NoSecretsIsNoOp", func(t *testing.T) {
-		// Given a blueprint whose kustomizations declare no secrets
+	t.Run("TimesOutWhenNamespaceNeverAppears", func(t *testing.T) {
 		mocks := setupProvisionerMocks(t)
-		checked := false
 		mocks.KubernetesManager.GetKustomizationInventoryFunc = func(name, namespace string) ([]kubernetes.InventoryEntry, error) {
-			checked = true
-			return nil, nil
+			return []kubernetes.InventoryEntry{{Kind: "ConfigMap", Name: "values-cdn"}}, nil
 		}
-
-		// When placing secrets, no inventory is queried and nothing is applied
-		bp := &blueprintv1alpha1.Blueprint{Kustomizations: []blueprintv1alpha1.Kustomization{{Name: "plain"}}}
-		if err := newProvisioner(mocks).PlaceSecrets(context.Background(), bp); err != nil {
-			t.Fatalf("Expected no error, got %v", err)
-		}
-		if checked {
-			t.Error("Expected no inventory query when no secrets are declared")
+		ctx, cancel := context.WithCancel(context.Background())
+		cancel()
+		err := newProvisioner(mocks).PlaceSecrets(ctx, resolved())
+		if err == nil || !strings.Contains(err.Error(), "to create its namespace") {
+			t.Errorf("Expected namespace-timeout error, got %v", err)
 		}
 	})
 
-	t.Run("OmitsEmptyOptionalKeyAndPlacesRemaining", func(t *testing.T) {
-		// Given a required key that resolves to a value and an optional (??-defaulted) key that resolves empty
+	t.Run("EmptyResolvedIsNoOp", func(t *testing.T) {
 		mocks := setupProvisionerMocks(t)
-		mocks.ConfigHandler.(*config.MockConfigHandler).GetContextValuesFunc = func() (map[string]any, error) {
-			return map[string]any{"cdn": map[string]any{"token": "real-token", "extra": ""}}, nil
-		}
-		mocks.KubernetesManager.GetKustomizationInventoryFunc = func(name, namespace string) ([]kubernetes.InventoryEntry, error) {
-			return []kubernetes.InventoryEntry{{Kind: "Namespace", Name: "system-dns"}}, nil
-		}
-		var gotData map[string]string
-		mocks.KubernetesManager.ApplySecretFunc = func(name, namespace string, stringData map[string]string) error {
-			gotData = stringData
-			return nil
-		}
-		bp := &blueprintv1alpha1.Blueprint{Kustomizations: []blueprintv1alpha1.Kustomization{{
-			Name:    "cdn-install",
-			Secrets: map[string]map[string]string{"creds": {"token": "${cdn.token}", "extra": "${cdn.extra ?? ''}"}},
-		}}}
-
-		// When placing secrets, the empty optional key is omitted and the required one is placed
-		if err := newProvisioner(mocks).PlaceSecrets(context.Background(), bp); err != nil {
-			t.Fatalf("Expected no error, got %v", err)
-		}
-		if gotData["token"] != "real-token" {
-			t.Errorf("Expected token placed, got %v", gotData)
-		}
-		if _, exists := gotData["extra"]; exists {
-			t.Errorf("Expected empty optional key to be omitted, got %v", gotData)
-		}
-	})
-
-	t.Run("FailsWhenRequiredKeyResolvesEmpty", func(t *testing.T) {
-		// Given a required (no ?? default) key whose backing value is empty
-		mocks := setupProvisionerMocks(t)
-		mocks.ConfigHandler.(*config.MockConfigHandler).GetContextValuesFunc = func() (map[string]any, error) {
-			return map[string]any{"cdn": map[string]any{"token": ""}}, nil
-		}
-		mocks.KubernetesManager.GetKustomizationInventoryFunc = func(name, namespace string) ([]kubernetes.InventoryEntry, error) {
-			return []kubernetes.InventoryEntry{{Kind: "Namespace", Name: "system-dns"}}, nil
-		}
-		applied := false
-		mocks.KubernetesManager.ApplySecretFunc = func(name, namespace string, stringData map[string]string) error {
-			applied = true
-			return nil
-		}
-		bp := &blueprintv1alpha1.Blueprint{Kustomizations: []blueprintv1alpha1.Kustomization{{
-			Name:    "cdn-install",
-			Secrets: map[string]map[string]string{"creds": {"token": "${cdn.token}"}},
-		}}}
-
-		// When placing secrets, the empty required key fails closed rather than being dropped
-		err := newProvisioner(mocks).PlaceSecrets(context.Background(), bp)
-		if err == nil || !strings.Contains(err.Error(), "resolved to empty") {
-			t.Errorf("Expected empty-required error, got %v", err)
-		}
-		if applied {
-			t.Error("Expected ApplySecret to not be called when a required key resolves empty")
-		}
-	})
-
-	t.Run("SkipsWhollyEmptySecretWithoutQueryingNamespace", func(t *testing.T) {
-		// Given an optional secret defaulted with ?? '' whose source is unset
-		mocks := setupProvisionerMocks(t)
-		mocks.ConfigHandler.(*config.MockConfigHandler).GetContextValuesFunc = func() (map[string]any, error) {
-			return map[string]any{"telemetry": map[string]any{"alerts": map[string]any{"slack": map[string]any{"webhook_url": nil}}}}, nil
-		}
 		queried := false
 		mocks.KubernetesManager.GetKustomizationInventoryFunc = func(name, namespace string) ([]kubernetes.InventoryEntry, error) {
 			queried = true
-			return []kubernetes.InventoryEntry{{Kind: "Namespace", Name: "system-telemetry"}}, nil
+			return nil, nil
 		}
-		applied := false
-		mocks.KubernetesManager.ApplySecretFunc = func(name, namespace string, stringData map[string]string) error {
-			applied = true
-			return nil
-		}
-		bp := &blueprintv1alpha1.Blueprint{Kustomizations: []blueprintv1alpha1.Kustomization{{
-			Name:    "telemetry-install",
-			Secrets: map[string]map[string]string{"alertmanager-notification-slack": {"url": "${telemetry.alerts.slack.webhook_url ?? ''}"}},
-		}}}
-
-		// When placing secrets, no Secret is created and the namespace is never queried
-		if err := newProvisioner(mocks).PlaceSecrets(context.Background(), bp); err != nil {
+		if err := newProvisioner(mocks).PlaceSecrets(context.Background(), ResolvedSecrets{}); err != nil {
 			t.Fatalf("Expected no error, got %v", err)
 		}
-		if applied {
-			t.Error("Expected no Secret to be created when all keys resolve empty")
-		}
 		if queried {
-			t.Error("Expected no namespace query when there is nothing to place")
+			t.Error("Expected no inventory query for empty resolved secrets")
 		}
 	})
 }
