@@ -27,6 +27,7 @@ type MockKubernetesManager struct {
 	DeleteNamespaceFunc                 func(name string) error
 	ApplyConfigMapFunc                  func(name, namespace string, data map[string]string) error
 	ApplySecretFunc                     func(name, namespace string, stringData map[string]string) error
+	RollWorkloadsForSecretFunc          func(namespace, secretName, digest string) error
 	ApplyVersionMarkerFunc              func(namespace string, marker VersionMarker) error
 	GetVersionMarkerFunc                func(namespace string) (VersionMarker, bool, error)
 	GetHelmReleasesForKustomizationFunc func(name, namespace string) ([]helmv2.HelmRelease, error)
@@ -116,6 +117,14 @@ func (m *MockKubernetesManager) ApplyConfigMap(name, namespace string, data map[
 func (m *MockKubernetesManager) ApplySecret(name, namespace string, stringData map[string]string) error {
 	if m.ApplySecretFunc != nil {
 		return m.ApplySecretFunc(name, namespace, stringData)
+	}
+	return nil
+}
+
+// RollWorkloadsForSecret implements KubernetesManager interface
+func (m *MockKubernetesManager) RollWorkloadsForSecret(namespace, secretName, digest string) error {
+	if m.RollWorkloadsForSecretFunc != nil {
+		return m.RollWorkloadsForSecretFunc(namespace, secretName, digest)
 	}
 	return nil
 }

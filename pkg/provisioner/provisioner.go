@@ -2,6 +2,8 @@ package provisioner
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -1040,7 +1042,9 @@ func (i *Provisioner) ResolveSecrets(blueprint *blueprintv1alpha1.Blueprint) (Re
 // PlaceSecrets materializes secrets that ResolveSecrets produced into the namespace each owning
 // kustomization created. It runs after Install; for each kustomization it resolves the target namespace
 // from that kustomization's Flux inventory — failing closed unless exactly one Namespace was created, so
-// a secret is never placed by guessing — and applies an Opaque Secret. It self-gates on the owning
+// a secret is never placed by guessing — and applies an Opaque Secret. After placing each Secret it rolls
+// the workloads in that namespace that consume it, keyed by a content digest, so a changed value reaches
+// running pods rather than sitting stale until the next unrelated restart. It self-gates on the owning
 // kustomization's namespace appearing rather than requiring a global wait, and is a no-op when resolved
 // is empty.
 func (i *Provisioner) PlaceSecrets(ctx context.Context, resolved ResolvedSecrets) error {
@@ -1060,9 +1064,32 @@ func (i *Provisioner) PlaceSecrets(ctx context.Context, resolved ResolvedSecrets
 			if err := i.KubernetesManager.ApplySecret(secretName, namespace, stringData); err != nil {
 				return fmt.Errorf("applying secret %q to namespace %q: %w", secretName, namespace, err)
 			}
+			if err := i.KubernetesManager.RollWorkloadsForSecret(namespace, secretName, secretDigest(stringData)); err != nil {
+				return fmt.Errorf("rolling workloads for secret %q in namespace %q: %w", secretName, namespace, err)
+			}
 		}
 	}
 	return nil
+}
+
+// secretDigest returns a stable content digest for a secret's resolved data, used to roll consuming
+// workloads only when the content actually changes. Keys are sorted and each key and value is
+// length-delimited by a NUL so distinct maps cannot collide, then hashed with SHA-256. The digest is
+// one-way: it detects change without revealing the plaintext it summarizes.
+func secretDigest(stringData map[string]string) string {
+	keys := make([]string, 0, len(stringData))
+	for k := range stringData {
+		keys = append(keys, k)
+	}
+	slices.Sort(keys)
+	h := sha256.New()
+	for _, k := range keys {
+		h.Write([]byte(k))
+		h.Write([]byte{0})
+		h.Write([]byte(stringData[k]))
+		h.Write([]byte{0})
+	}
+	return hex.EncodeToString(h.Sum(nil))
 }
 
 // resolveSecretNamespace polls the owning kustomization's Flux inventory until Flux has applied the
