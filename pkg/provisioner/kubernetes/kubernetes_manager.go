@@ -6,6 +6,8 @@ package kubernetes
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -559,6 +561,21 @@ func (k *BaseKubernetesManager) ApplySecret(name, namespace string, stringData m
 // own annotation and a change to one rolls only its consumers.
 const secretChecksumAnnotationPrefix = "checksum.windsorcli.dev/"
 
+// secretChecksumAnnotationKey builds the pod-template annotation key for a secret's content digest. The
+// name segment after the prefix must be at most 63 characters, but Secret names may be longer; for an
+// over-long name it substitutes a deterministic, collision-resistant segment (the truncated name plus a
+// short hash of the full name) so the roll still works and the key stays valid rather than failing with
+// an opaque API validation error.
+func secretChecksumAnnotationKey(secretName string) string {
+	const maxNameSegment = 63
+	segment := secretName
+	if len(segment) > maxNameSegment {
+		sum := sha256.Sum256([]byte(secretName))
+		segment = secretName[:maxNameSegment-9] + "-" + hex.EncodeToString(sum[:])[:8]
+	}
+	return secretChecksumAnnotationPrefix + segment
+}
+
 // RollWorkloadsForSecret rolls the workloads in a namespace that consume the named Secret so they pick
 // up new content, the way Kubernetes only ever rolls on a pod-template change. Because the CLI holds the
 // resolved plaintext, it passes a precomputed content digest and stamps it as a pod-template annotation
@@ -571,7 +588,7 @@ const secretChecksumAnnotationPrefix = "checksum.windsorcli.dev/"
 // created later by Flux and reads the Secret fresh — so this returns an error only on an API failure. The
 // caller's context bounds the patch calls so a slow API server cannot outlast its deadline.
 func (k *BaseKubernetesManager) RollWorkloadsForSecret(ctx context.Context, namespace, secretName, digest string) error {
-	annotationKey := secretChecksumAnnotationPrefix + secretName
+	annotationKey := secretChecksumAnnotationKey(secretName)
 	for _, resource := range []string{"deployments", "statefulsets", "daemonsets"} {
 		gvr := schema.GroupVersionResource{Group: "apps", Version: "v1", Resource: resource}
 		list, err := k.client.ListResources(gvr, namespace)

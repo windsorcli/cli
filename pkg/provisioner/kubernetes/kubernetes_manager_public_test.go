@@ -5724,6 +5724,33 @@ func TestBaseKubernetesManager_ApplySecret(t *testing.T) {
 	})
 }
 
+func TestSecretChecksumAnnotationKey(t *testing.T) {
+	t.Run("ShortNameUsedVerbatim", func(t *testing.T) {
+		// Given a normal-length secret name, the key stays readable
+		if got := secretChecksumAnnotationKey("alertmanager-slack"); got != "checksum.windsorcli.dev/alertmanager-slack" {
+			t.Errorf("unexpected key %q", got)
+		}
+	})
+
+	t.Run("LongNameStaysWithinLimitDeterministicAndUnique", func(t *testing.T) {
+		// Given a secret name longer than the 63-char annotation name-segment limit
+		long := strings.Repeat("a", 80)
+		got := secretChecksumAnnotationKey(long)
+
+		// Then the segment after the prefix is a valid length, deterministic, and distinct per name
+		segment := strings.TrimPrefix(got, secretChecksumAnnotationPrefix)
+		if len(segment) > 63 {
+			t.Errorf("segment %q exceeds 63 chars (%d)", segment, len(segment))
+		}
+		if got != secretChecksumAnnotationKey(long) {
+			t.Error("expected a deterministic key for the same name")
+		}
+		if got == secretChecksumAnnotationKey(strings.Repeat("a", 79)+"b") {
+			t.Error("expected distinct long names to produce distinct keys")
+		}
+	})
+}
+
 func TestBaseKubernetesManager_RollWorkloadsForSecret(t *testing.T) {
 	const secretName = "alertmanager-slack"
 	annotationKey := secretChecksumAnnotationPrefix + secretName
