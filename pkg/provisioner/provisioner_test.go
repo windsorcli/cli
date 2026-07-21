@@ -4442,4 +4442,68 @@ func TestProvisioner_PlaceSecrets(t *testing.T) {
 			t.Error("Expected no inventory query when no secrets are declared")
 		}
 	})
+
+	t.Run("OmitsEmptyKeyAndPlacesRemaining", func(t *testing.T) {
+		// Given a secret with one key that resolves to a value and one that resolves empty
+		mocks := setupProvisionerMocks(t)
+		mocks.ConfigHandler.(*config.MockConfigHandler).GetContextValuesFunc = func() (map[string]any, error) {
+			return map[string]any{"cdn": map[string]any{"token": "real-token", "extra": ""}}, nil
+		}
+		mocks.KubernetesManager.GetKustomizationInventoryFunc = func(name, namespace string) ([]kubernetes.InventoryEntry, error) {
+			return []kubernetes.InventoryEntry{{Kind: "Namespace", Name: "system-dns"}}, nil
+		}
+		var gotData map[string]string
+		mocks.KubernetesManager.ApplySecretFunc = func(name, namespace string, stringData map[string]string) error {
+			gotData = stringData
+			return nil
+		}
+		bp := &blueprintv1alpha1.Blueprint{Kustomizations: []blueprintv1alpha1.Kustomization{{
+			Name:    "cdn-install",
+			Secrets: map[string]map[string]string{"creds": {"token": "${cdn.token}", "extra": "${cdn.extra}"}},
+		}}}
+
+		// When placing secrets, the empty key is omitted and the rest is placed
+		if err := newProvisioner(mocks).PlaceSecrets(context.Background(), bp); err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		if gotData["token"] != "real-token" {
+			t.Errorf("Expected token placed, got %v", gotData)
+		}
+		if _, exists := gotData["extra"]; exists {
+			t.Errorf("Expected empty key to be omitted, got %v", gotData)
+		}
+	})
+
+	t.Run("SkipsWhollyEmptySecretWithoutQueryingNamespace", func(t *testing.T) {
+		// Given an optional secret defaulted with ?? '' whose source is unset
+		mocks := setupProvisionerMocks(t)
+		mocks.ConfigHandler.(*config.MockConfigHandler).GetContextValuesFunc = func() (map[string]any, error) {
+			return map[string]any{"telemetry": map[string]any{"alerts": map[string]any{"slack": map[string]any{"webhook_url": nil}}}}, nil
+		}
+		queried := false
+		mocks.KubernetesManager.GetKustomizationInventoryFunc = func(name, namespace string) ([]kubernetes.InventoryEntry, error) {
+			queried = true
+			return []kubernetes.InventoryEntry{{Kind: "Namespace", Name: "system-telemetry"}}, nil
+		}
+		applied := false
+		mocks.KubernetesManager.ApplySecretFunc = func(name, namespace string, stringData map[string]string) error {
+			applied = true
+			return nil
+		}
+		bp := &blueprintv1alpha1.Blueprint{Kustomizations: []blueprintv1alpha1.Kustomization{{
+			Name:    "telemetry-install",
+			Secrets: map[string]map[string]string{"alertmanager-notification-slack": {"url": "${telemetry.alerts.slack.webhook_url ?? ''}"}},
+		}}}
+
+		// When placing secrets, no Secret is created and the namespace is never queried
+		if err := newProvisioner(mocks).PlaceSecrets(context.Background(), bp); err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		if applied {
+			t.Error("Expected no Secret to be created when all keys resolve empty")
+		}
+		if queried {
+			t.Error("Expected no namespace query when there is nothing to place")
+		}
+	})
 }
