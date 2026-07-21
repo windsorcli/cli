@@ -39,7 +39,7 @@ jobs:
       !contains(github.event.pull_request.labels.*.name, 'dependencies') &&
       !github.event.pull_request.draft
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
       - name: Fetch base ref
@@ -140,7 +140,7 @@ jobs:
     timeout-minutes: 30
     if: github.event_name == 'workflow_dispatch'
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ inputs.head_sha }}
           fetch-depth: 0
@@ -277,7 +277,7 @@ jobs:
                    | length')
           echo "count=$COUNT" >> "$GITHUB_OUTPUT"
           echo "Unresolved bot threads: $COUNT"
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         if: steps.check.outputs.count != '0'
         with:
           fetch-depth: 1
