@@ -4453,7 +4453,7 @@ func TestProvisioner_PlaceSecrets(t *testing.T) {
 			return []kubernetes.InventoryEntry{{Kind: "Namespace", Name: "system-dns"}}, nil
 		}
 		var rolledNs, rolledSecret, rolledDigest string
-		mocks.KubernetesManager.RollWorkloadsForSecretFunc = func(namespace, secretName, digest string) error {
+		mocks.KubernetesManager.RollWorkloadsForSecretFunc = func(ctx context.Context, namespace, secretName, digest string) error {
 			rolledNs, rolledSecret, rolledDigest = namespace, secretName, digest
 			return nil
 		}
@@ -4476,7 +4476,7 @@ func TestProvisioner_PlaceSecrets(t *testing.T) {
 		mocks.KubernetesManager.GetKustomizationInventoryFunc = func(name, namespace string) ([]kubernetes.InventoryEntry, error) {
 			return []kubernetes.InventoryEntry{{Kind: "Namespace", Name: "system-dns"}}, nil
 		}
-		mocks.KubernetesManager.RollWorkloadsForSecretFunc = func(namespace, secretName, digest string) error {
+		mocks.KubernetesManager.RollWorkloadsForSecretFunc = func(ctx context.Context, namespace, secretName, digest string) error {
 			return fmt.Errorf("api down")
 		}
 

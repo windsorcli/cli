@@ -44,7 +44,7 @@ type KubernetesManager interface {
 	DeleteNamespace(name string) error
 	ApplyConfigMap(name, namespace string, data map[string]string) error
 	ApplySecret(name, namespace string, stringData map[string]string) error
-	RollWorkloadsForSecret(namespace, secretName, digest string) error
+	RollWorkloadsForSecret(ctx context.Context, namespace, secretName, digest string) error
 	GetHelmReleasesForKustomization(name, namespace string) ([]helmv2.HelmRelease, error)
 	ApplyGitRepository(repo *sourcev1.GitRepository) error
 	ApplyOCIRepository(repo *sourcev1.OCIRepository) error
@@ -568,8 +568,9 @@ const secretChecksumAnnotationPrefix = "checksum.windsorcli.dev/"
 // nothing the Secret's own RBAC did not already grant. A workload already carrying the digest is left
 // untouched (idempotent, so unchanged content does not churn pods); a workload that does not reference
 // the Secret is never patched. Finding no consumers is not an error — on a first apply the workload is
-// created later by Flux and reads the Secret fresh — so this returns an error only on an API failure.
-func (k *BaseKubernetesManager) RollWorkloadsForSecret(namespace, secretName, digest string) error {
+// created later by Flux and reads the Secret fresh — so this returns an error only on an API failure. The
+// caller's context bounds the patch calls so a slow API server cannot outlast its deadline.
+func (k *BaseKubernetesManager) RollWorkloadsForSecret(ctx context.Context, namespace, secretName, digest string) error {
 	annotationKey := secretChecksumAnnotationPrefix + secretName
 	for _, resource := range []string{"deployments", "statefulsets", "daemonsets"} {
 		gvr := schema.GroupVersionResource{Group: "apps", Version: "v1", Resource: resource}
@@ -603,7 +604,7 @@ func (k *BaseKubernetesManager) RollWorkloadsForSecret(namespace, secretName, di
 				return fmt.Errorf("building rollout patch for %s %q: %w", resource, obj.GetName(), err)
 			}
 			opts := metav1.PatchOptions{FieldManager: "windsor-cli"}
-			if _, err := k.client.PatchResource(context.Background(), gvr, namespace, obj.GetName(), types.MergePatchType, patch, opts); err != nil {
+			if _, err := k.client.PatchResource(ctx, gvr, namespace, obj.GetName(), types.MergePatchType, patch, opts); err != nil {
 				return fmt.Errorf("patching %s %q in namespace %q: %w", resource, obj.GetName(), namespace, err)
 			}
 		}

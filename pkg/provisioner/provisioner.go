@@ -1064,7 +1064,7 @@ func (i *Provisioner) PlaceSecrets(ctx context.Context, resolved ResolvedSecrets
 			if err := i.KubernetesManager.ApplySecret(secretName, namespace, stringData); err != nil {
 				return fmt.Errorf("applying secret %q to namespace %q: %w", secretName, namespace, err)
 			}
-			if err := i.KubernetesManager.RollWorkloadsForSecret(namespace, secretName, secretDigest(stringData)); err != nil {
+			if err := i.KubernetesManager.RollWorkloadsForSecret(ctx, namespace, secretName, secretDigest(stringData)); err != nil {
 				return fmt.Errorf("rolling workloads for secret %q in namespace %q: %w", secretName, namespace, err)
 			}
 		}

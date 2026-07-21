@@ -5780,7 +5780,7 @@ func TestBaseKubernetesManager_RollWorkloadsForSecret(t *testing.T) {
 		})
 
 		// When rolling workloads for the secret
-		if err := manager.RollWorkloadsForSecret("system-telemetry", secretName, "digest-1"); err != nil {
+		if err := manager.RollWorkloadsForSecret(context.Background(), "system-telemetry", secretName, "digest-1"); err != nil {
 			t.Fatalf("Expected no error, got %v", err)
 		}
 
@@ -5807,7 +5807,7 @@ func TestBaseKubernetesManager_RollWorkloadsForSecret(t *testing.T) {
 		})
 
 		// When rolling with that same digest
-		if err := manager.RollWorkloadsForSecret("system-telemetry", secretName, "digest-1"); err != nil {
+		if err := manager.RollWorkloadsForSecret(context.Background(), "system-telemetry", secretName, "digest-1"); err != nil {
 			t.Fatalf("Expected no error, got %v", err)
 		}
 
@@ -5828,7 +5828,7 @@ func TestBaseKubernetesManager_RollWorkloadsForSecret(t *testing.T) {
 		manager.client = kubernetesClient
 
 		// When rolling workloads, the API failure surfaces rather than being swallowed
-		if err := manager.RollWorkloadsForSecret("system-telemetry", secretName, "digest-1"); err == nil {
+		if err := manager.RollWorkloadsForSecret(context.Background(), "system-telemetry", secretName, "digest-1"); err == nil {
 			t.Error("Expected error when listing workloads fails")
 		}
 	})
