@@ -4205,6 +4205,58 @@ func TestProvisioner_PlanDestroyKustomizeComponentSummary(t *testing.T) {
 			t.Errorf("expected delegated result, got %#v", got)
 		}
 	})
+
+	t.Run("FlattensFluxSystemTiersBeforePlanning", func(t *testing.T) {
+		// Regression: a blueprint that declares its kustomizations via FluxSystems
+		// (not top-level kustomize:) must still preview the compiled install/
+		// resources tier. The plan iterates blueprint.Kustomizations, so the
+		// provisioner must pass the blueprint through withCrdLayer first — the
+		// same flattening Uninstall applies before DeleteBlueprint. Without it the
+		// component plan saw an empty Kustomizations slice while the teardown
+		// still destroyed the tier.
+		mocks := setupProvisionerMocks(t)
+		var seen *blueprintv1alpha1.Blueprint
+		mocks.FluxStack.PlanDestroyComponentSummaryFunc = func(bp *blueprintv1alpha1.Blueprint, name string) fluxinfra.KustomizePlan {
+			seen = bp
+			return fluxinfra.KustomizePlan{}
+		}
+		p := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{
+			TerraformStack:    mocks.TerraformStack,
+			FluxStack:         mocks.FluxStack,
+			KubernetesManager: mocks.KubernetesManager,
+			KubernetesClient:  mocks.KubernetesClient,
+		})
+
+		bp := &blueprintv1alpha1.Blueprint{
+			Metadata: blueprintv1alpha1.Metadata{Name: "test-blueprint"},
+			Crds:     []string{"cert-manager-crds"},
+			FluxSystems: []blueprintv1alpha1.FluxSystem{
+				{
+					Name:   "pki",
+					Source: "source1",
+					Install: &blueprintv1alpha1.Kustomization{
+						Components: []string{"controller"},
+					},
+				},
+			},
+		}
+		if _, err := p.PlanDestroyKustomizeComponentSummary(bp, "pki-install"); err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if seen == nil {
+			t.Fatal("FluxStack.PlanDestroyComponentSummary was not called")
+		}
+		if seen.FluxSystems != nil {
+			t.Errorf("expected FluxSystems flattened away, got %v", seen.FluxSystems)
+		}
+		names := make([]string, 0, len(seen.Kustomizations))
+		for _, k := range seen.Kustomizations {
+			names = append(names, k.Name)
+		}
+		if !slices.Contains(names, "pki-install") {
+			t.Errorf("expected pki-install tier flattened into Kustomizations, got %v", names)
+		}
+	})
 }
 
 func TestVersionFromImage(t *testing.T) {
