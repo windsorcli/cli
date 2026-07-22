@@ -70,7 +70,7 @@ func TestUpgradeCmd(t *testing.T) {
 		}
 		var placedNs string
 		var placedData map[string]string
-		mocks.KubernetesManager.ApplySecretFunc = func(name, namespace string, stringData map[string]string) error {
+		mocks.KubernetesManager.ApplySecretFunc = func(name, namespace string, stringData map[string]string, owner string) error {
 			placedNs = namespace
 			placedData = stringData
 			return nil

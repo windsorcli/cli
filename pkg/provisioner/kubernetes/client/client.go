@@ -38,6 +38,7 @@ const applyTimeout = 5 * time.Minute
 type KubernetesClient interface {
 	GetResource(gvr schema.GroupVersionResource, namespace, name string) (*unstructured.Unstructured, error)
 	ListResources(gvr schema.GroupVersionResource, namespace string) (*unstructured.UnstructuredList, error)
+	ListResourcesByLabel(gvr schema.GroupVersionResource, namespace, labelSelector string) (*unstructured.UnstructuredList, error)
 	ApplyResource(gvr schema.GroupVersionResource, obj *unstructured.Unstructured, opts metav1.ApplyOptions) (*unstructured.Unstructured, error)
 	DeleteResource(gvr schema.GroupVersionResource, namespace, name string, opts metav1.DeleteOptions) error
 	PatchResource(ctx context.Context, gvr schema.GroupVersionResource, namespace, name string, pt types.PatchType, data []byte, opts metav1.PatchOptions) (*unstructured.Unstructured, error)
@@ -86,6 +87,18 @@ func (c *DynamicKubernetesClient) ListResources(gvr schema.GroupVersionResource,
 	ctx, cancel := context.WithTimeout(context.Background(), requestTimeout)
 	defer cancel()
 	return c.client.Resource(gvr).Namespace(namespace).List(ctx, metav1.ListOptions{})
+}
+
+// ListResourcesByLabel lists resources of the given kind narrowed to a label selector; an empty
+// namespace lists across all namespaces. It lets callers ask the API server to return only the objects
+// they care about (e.g. this context's CLI-placed secrets) rather than listing everything and filtering.
+func (c *DynamicKubernetesClient) ListResourcesByLabel(gvr schema.GroupVersionResource, namespace, labelSelector string) (*unstructured.UnstructuredList, error) {
+	if err := c.ensureClient(); err != nil {
+		return nil, err
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), requestTimeout)
+	defer cancel()
+	return c.client.Resource(gvr).Namespace(namespace).List(ctx, metav1.ListOptions{LabelSelector: labelSelector})
 }
 
 // ApplyResource applies a resource using server-side apply

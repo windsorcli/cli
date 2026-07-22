@@ -31,6 +31,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/apimachinery/pkg/util/validation"
 )
 
 // =============================================================================
@@ -45,7 +46,8 @@ type KubernetesManager interface {
 	CreateNamespace(name string) error
 	DeleteNamespace(name string) error
 	ApplyConfigMap(name, namespace string, data map[string]string) error
-	ApplySecret(name, namespace string, stringData map[string]string) error
+	ApplySecret(name, namespace string, stringData map[string]string, owner string) error
+	PruneSecrets(desired map[string]map[string]bool) error
 	RollWorkloadsForSecret(ctx context.Context, namespace, secretName, digest string) error
 	GetHelmReleasesForKustomization(name, namespace string) ([]helmv2.HelmRelease, error)
 	ApplyGitRepository(repo *sourcev1.GitRepository) error
@@ -523,8 +525,13 @@ func (k *BaseKubernetesManager) ApplyConfigMap(name, namespace string, data map[
 
 // ApplySecret creates or updates an Opaque Secret using SSA. Values are supplied as plaintext in
 // stringData (write-only; the API server folds them into data) and are never logged. Mirrors
-// ApplyConfigMap's server-side-apply handling.
-func (k *BaseKubernetesManager) ApplySecret(name, namespace string, stringData map[string]string) error {
+// ApplyConfigMap's server-side-apply handling. It stamps the context ownership labels plus a
+// secret-owner label naming the kustomization the secret belongs to; that label is set only by CLI
+// placement (never by Flux), so PruneSecrets can find and reclaim CLI-placed secrets without ever
+// touching a Flux-managed one.
+func (k *BaseKubernetesManager) ApplySecret(name, namespace string, stringData map[string]string, owner string) error {
+	labels := k.ownershipLabels()
+	labels[secretOwnerLabel] = owner
 	obj := &unstructured.Unstructured{
 		Object: map[string]any{
 			"apiVersion": "v1",
@@ -537,6 +544,7 @@ func (k *BaseKubernetesManager) ApplySecret(name, namespace string, stringData m
 			"stringData": stringData,
 		},
 	}
+	obj.SetLabels(labels)
 
 	if err := validateFields(obj); err != nil {
 		return fmt.Errorf("invalid secret fields: %w", err)
@@ -554,6 +562,50 @@ func (k *BaseKubernetesManager) ApplySecret(name, namespace string, stringData m
 	}
 
 	return k.applyWithRetry(gvr, obj, opts)
+}
+
+// PruneSecrets deletes the CLI-placed secrets for this context that the latest placement no longer
+// wants, reconciling the cluster to the desired set. desired maps a namespace to the set of secret
+// names just placed there; a secret whose (namespace, name) is absent is deleted. It lists only secrets
+// bearing this context's id and the secret-owner marker — a label set solely by ApplySecret, never by
+// Flux — so it reclaims exactly what the CLI placed (a secret dropped from a fan-out list, a secret
+// removed from a system, or every CLI secret when desired is empty) and never a Flux-managed secret
+// that merely inherited the context labels via CommonMetadata. It fails closed when the context id is
+// unset or is not a valid label value, since without a well-formed id pruning cannot be scoped to this
+// context — a malformed id would otherwise build a selector the API server rejects, failing every
+// placement with an opaque error rather than a message that names the bad id.
+func (k *BaseKubernetesManager) PruneSecrets(desired map[string]map[string]bool) error {
+	contextID := k.configHandler.GetString("id")
+	if contextID == "" {
+		return fmt.Errorf("context id not set; cannot scope secret pruning to this context")
+	}
+	if errs := validation.IsValidLabelValue(contextID); len(errs) > 0 {
+		return fmt.Errorf("context id %q is not a valid label value, cannot scope secret pruning: %s", contextID, strings.Join(errs, "; "))
+	}
+
+	gvr := schema.GroupVersionResource{
+		Group:    "",
+		Version:  "v1",
+		Resource: "secrets",
+	}
+
+	selector := fmt.Sprintf("windsorcli.dev/context-id=%s,%s", contextID, secretOwnerLabel)
+	list, err := k.client.ListResourcesByLabel(gvr, "", selector)
+	if err != nil {
+		return fmt.Errorf("failed to list CLI-placed secrets: %w", err)
+	}
+
+	for i := range list.Items {
+		item := list.Items[i]
+		namespace := item.GetNamespace()
+		if desired[namespace][item.GetName()] {
+			continue
+		}
+		if err := k.client.DeleteResource(gvr, namespace, item.GetName(), metav1.DeleteOptions{}); err != nil {
+			return fmt.Errorf("failed to delete orphaned secret %q in namespace %q: %w", item.GetName(), namespace, err)
+		}
+	}
+	return nil
 }
 
 // secretChecksumAnnotationPrefix prefixes the pod-template annotation whose value is a content digest
@@ -1465,6 +1517,12 @@ waitLoop:
 func (k *BaseKubernetesManager) gitopsNamespace() string {
 	return k.configHandler.GetString("gitops.namespace", constants.DefaultGitopsNamespace)
 }
+
+// secretOwnerLabel names the kustomization a CLI-placed Secret belongs to. It is set only by
+// ApplySecret, never by Flux, so it is the reliable marker for finding secrets the CLI itself placed —
+// PruneSecrets selects on it (scoped to the context) to reclaim orphans without touching Flux-managed
+// secrets that happen to carry the context labels via CommonMetadata.
+const secretOwnerLabel = "windsorcli.dev/secret-owner" // #nosec G101 -- label key, not a credential
 
 // ownershipLabels returns the Windsor context labels stamped on each Kustomization object (so the
 // objects are selectable by context) and propagated to its managed resources via CommonMetadata.

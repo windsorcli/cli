@@ -131,7 +131,7 @@ windsor upgrade cluster --nodes=10.0.0.5 --image=ghcr.io/siderolabs/installer:v1
 				return fmt.Errorf("error installing blueprint: %w", err)
 			}
 
-			if err := proj.Provisioner.PlaceSecrets(cmd.Context(), resolvedSecrets); err != nil {
+			if err := proj.Provisioner.PlaceSecrets(cmd.Context(), resolvedSecrets, true); err != nil {
 				return fmt.Errorf("error placing secrets: %w", err)
 			}
 

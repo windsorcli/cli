@@ -91,7 +91,7 @@ windsor apply kustomize dns`,
 				return fmt.Errorf("error applying kustomize: %w", err)
 			}
 
-			if err := proj.Provisioner.PlaceSecrets(cmd.Context(), resolvedSecrets); err != nil {
+			if err := proj.Provisioner.PlaceSecrets(cmd.Context(), resolvedSecrets, applyPruneFlag); err != nil {
 				return fmt.Errorf("error placing secrets: %w", err)
 			}
 

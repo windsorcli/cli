@@ -234,7 +234,7 @@ windsor bootstrap prod --yes`,
 				return fmt.Errorf("error installing blueprint: %w", err)
 			}
 
-			if err := proj.Provisioner.PlaceSecrets(cmd.Context(), resolvedSecrets); err != nil {
+			if err := proj.Provisioner.PlaceSecrets(cmd.Context(), resolvedSecrets, false); err != nil {
 				return fmt.Errorf("error placing secrets: %w", err)
 			}
 

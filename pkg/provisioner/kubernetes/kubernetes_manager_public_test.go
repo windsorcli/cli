@@ -5687,7 +5687,7 @@ func TestBaseKubernetesManager_ApplySecret(t *testing.T) {
 		manager.client = kubernetesClient
 
 		// When applying a secret
-		err := manager.ApplySecret("cloudflare-creds", "system-dns", map[string]string{"api_token": "PLAINTEXT"})
+		err := manager.ApplySecret("cloudflare-creds", "system-dns", map[string]string{"api_token": "PLAINTEXT"}, "dns-install")
 		if err != nil {
 			t.Fatalf("Expected no error, got %v", err)
 		}
@@ -5710,6 +5710,11 @@ func TestBaseKubernetesManager_ApplySecret(t *testing.T) {
 		if metadata["name"] != "cloudflare-creds" || metadata["namespace"] != "system-dns" {
 			t.Errorf("Unexpected metadata: %v", applied.Object["metadata"])
 		}
+
+		// And it carries the secret-owner marker so PruneSecrets can reclaim it later
+		if applied.GetLabels()[secretOwnerLabel] != "dns-install" {
+			t.Errorf("Expected secret-owner label dns-install, got %v", applied.GetLabels())
+		}
 	})
 
 	t.Run("EmptyNameFails", func(t *testing.T) {
@@ -5718,8 +5723,157 @@ func TestBaseKubernetesManager_ApplySecret(t *testing.T) {
 		manager.client = client.NewMockKubernetesClient()
 
 		// When applying a secret with no name, it fails validation
-		if err := manager.ApplySecret("", "system-dns", map[string]string{"k": "v"}); err == nil {
+		if err := manager.ApplySecret("", "system-dns", map[string]string{"k": "v"}, "dns-install"); err == nil {
 			t.Error("Expected error for empty name")
+		}
+	})
+}
+
+func TestBaseKubernetesManager_PruneSecrets(t *testing.T) {
+	setup := func(t *testing.T) *BaseKubernetesManager {
+		t.Helper()
+		mocks := setupKubernetesMocks(t)
+		return NewKubernetesManager(mocks.KubernetesClient, mocks.ConfigHandler)
+	}
+
+	// secretObj builds a CLI-placed Secret list item in a namespace, carrying this context's id and the
+	// secret-owner marker — what ListResourcesByLabel would return.
+	secretObj := func(name, namespace string) unstructured.Unstructured {
+		return unstructured.Unstructured{Object: map[string]any{
+			"apiVersion": "v1",
+			"kind":       "Secret",
+			"metadata": map[string]any{
+				"name":      name,
+				"namespace": namespace,
+				"labels": map[string]any{
+					"windsorcli.dev/context-id": "test-context-id",
+					secretOwnerLabel:            "pki-install",
+				},
+			},
+		}}
+	}
+
+	// wire makes the manager return the given secrets from the label-scoped list and capture deletions.
+	wire := func(manager *BaseKubernetesManager, items ...unstructured.Unstructured) (*[]string, *string) {
+		deleted := []string{}
+		var selector string
+		c := client.NewMockKubernetesClient()
+		c.ListResourcesByLabelFunc = func(gvr schema.GroupVersionResource, ns, labelSelector string) (*unstructured.UnstructuredList, error) {
+			selector = labelSelector
+			return &unstructured.UnstructuredList{Items: items}, nil
+		}
+		c.DeleteResourceFunc = func(gvr schema.GroupVersionResource, ns, name string, opts metav1.DeleteOptions) error {
+			deleted = append(deleted, ns+"/"+name)
+			return nil
+		}
+		manager.client = c
+		return &deleted, &selector
+	}
+
+	t.Run("DeletesOrphansAndKeepsDesired", func(t *testing.T) {
+		// Given the same secret placed in two namespaces (a fan-out)
+		manager := setup(t)
+		deleted, selector := wire(manager,
+			secretObj("hetzner-dns", "system-pki"),
+			secretObj("hetzner-dns", "system-dns"),
+		)
+
+		// When reconciling to a desired set that keeps only the system-pki copy (fan-out shrank)
+		desired := map[string]map[string]bool{"system-pki": {"hetzner-dns": true}}
+		if err := manager.PruneSecrets(desired); err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+
+		// Then only the dropped-namespace copy is deleted
+		if len(*deleted) != 1 || (*deleted)[0] != "system-dns/hetzner-dns" {
+			t.Errorf("Expected only system-dns/hetzner-dns deleted, got %v", *deleted)
+		}
+		// And the list is scoped to this context and the CLI secret-owner marker
+		if !strings.Contains(*selector, "windsorcli.dev/context-id=test-context-id") || !strings.Contains(*selector, secretOwnerLabel) {
+			t.Errorf("Expected context+owner-scoped selector, got %q", *selector)
+		}
+	})
+
+	t.Run("EmptyDesiredReclaimsEveryCLISecret", func(t *testing.T) {
+		// Given CLI-placed secrets but a blueprint that now declares none
+		manager := setup(t)
+		deleted, _ := wire(manager, secretObj("a", "ns1"), secretObj("b", "ns2"))
+
+		// When reconciling to an empty desired set, every CLI-placed secret is reclaimed
+		if err := manager.PruneSecrets(map[string]map[string]bool{}); err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		if len(*deleted) != 2 {
+			t.Errorf("Expected both CLI secrets reclaimed, got %v", *deleted)
+		}
+	})
+
+	t.Run("EmptyContextIDFailsClosed", func(t *testing.T) {
+		// Given a manager whose config handler reports no context id
+		mocks := setupKubernetesMocks(t, func(m *KubernetesTestMocks) {
+			m.ConfigHandler.(*config.MockConfigHandler).GetStringFunc = func(key string, defaultValue ...string) string {
+				if len(defaultValue) > 0 {
+					return defaultValue[0]
+				}
+				return ""
+			}
+		})
+		manager := NewKubernetesManager(mocks.KubernetesClient, mocks.ConfigHandler)
+
+		// When pruning without a context id, the guard rejects it before deleting anything
+		if err := manager.PruneSecrets(nil); err == nil {
+			t.Error("Expected error when context id is not set")
+		}
+	})
+
+	t.Run("InvalidContextIDFailsClosed", func(t *testing.T) {
+		// Given a context id that is not a valid label value (a comma would build a
+		// malformed selector the API server rejects)
+		mocks := setupKubernetesMocks(t, func(m *KubernetesTestMocks) {
+			m.ConfigHandler.(*config.MockConfigHandler).GetStringFunc = func(key string, defaultValue ...string) string {
+				if key == "id" {
+					return "bad,id"
+				}
+				if len(defaultValue) > 0 {
+					return defaultValue[0]
+				}
+				return ""
+			}
+		})
+		manager := NewKubernetesManager(mocks.KubernetesClient, mocks.ConfigHandler)
+		listed := false
+		c := client.NewMockKubernetesClient()
+		c.ListResourcesByLabelFunc = func(gvr schema.GroupVersionResource, ns, labelSelector string) (*unstructured.UnstructuredList, error) {
+			listed = true
+			return &unstructured.UnstructuredList{}, nil
+		}
+		manager.client = c
+
+		// When pruning, the guard rejects the id up front, names it, and never queries the cluster
+		err := manager.PruneSecrets(nil)
+		if err == nil || !strings.Contains(err.Error(), "bad,id") {
+			t.Errorf("Expected error naming the invalid context id, got %v", err)
+		}
+		if listed {
+			t.Error("Expected no list call when context id is invalid")
+		}
+	})
+
+	t.Run("DeleteErrorIsPropagated", func(t *testing.T) {
+		// Given the delete call fails
+		manager := setup(t)
+		c := client.NewMockKubernetesClient()
+		c.ListResourcesByLabelFunc = func(gvr schema.GroupVersionResource, ns, labelSelector string) (*unstructured.UnstructuredList, error) {
+			return &unstructured.UnstructuredList{Items: []unstructured.Unstructured{secretObj("x", "ns")}}, nil
+		}
+		c.DeleteResourceFunc = func(gvr schema.GroupVersionResource, ns, name string, opts metav1.DeleteOptions) error {
+			return fmt.Errorf("api down")
+		}
+		manager.client = c
+
+		// When reconciling, the delete failure surfaces
+		if err := manager.PruneSecrets(map[string]map[string]bool{}); err == nil || !strings.Contains(err.Error(), "api down") {
+			t.Errorf("Expected delete error propagated, got %v", err)
 		}
 	})
 }
