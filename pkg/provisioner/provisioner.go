@@ -1051,18 +1051,19 @@ func (i *Provisioner) ResolveSecrets(blueprint *blueprintv1alpha1.Blueprint) (Re
 }
 
 // PlaceSecrets materializes secrets that ResolveSecrets produced into the namespace(s) each owning
-// kustomization created, then reconciles: it deletes the CLI-placed secrets this context no longer
-// wants. It runs after Install; for each secret it resolves the target namespace(s) — either the ones
-// the entry named or, when it named none, the single namespace the kustomization created (failing closed
-// on more than one so a secret is never placed by guessing) — applies an Opaque Secret into each, and
-// rolls the workloads in that namespace that consume it, keyed by a content digest, so a changed value
-// reaches running pods rather than sitting stale until the next unrelated restart. It records every
-// (namespace, secret) it placed and hands that desired set to PruneSecrets, which reclaims any CLI-placed
-// secret not in it — a secret dropped from a fan-out list, a secret removed from a system, or every one
-// when the blueprint declares no secrets. It self-gates on the target namespace appearing rather than
-// requiring a global wait. When no kubernetes manager is configured it is a no-op only if there is also
-// nothing to place.
-func (i *Provisioner) PlaceSecrets(ctx context.Context, resolved ResolvedSecrets) error {
+// kustomization created, and — when prune is set — reconciles by deleting the CLI-placed secrets this
+// context no longer wants. It runs after Install; for each secret it resolves the target namespace(s) —
+// either the ones the entry named or, when it named none, the single namespace the kustomization created
+// (failing closed on more than one so a secret is never placed by guessing) — applies an Opaque Secret
+// into each, and rolls the workloads in that namespace that consume it, keyed by a content digest, so a
+// changed value reaches running pods rather than sitting stale until the next unrelated restart. It
+// self-gates on the target namespace appearing rather than requiring a global wait. When prune is set it
+// records every (namespace, secret) it placed and hands that desired set to PruneSecrets, which reclaims
+// any CLI-placed secret not in it — a secret dropped from a fan-out list, a secret removed from a system,
+// or every one when the blueprint declares no secrets. Pruning is gated so secret reclaim mirrors
+// Kustomization prune: on under apply's --prune and upgrade, off for the place-only flows. When no
+// kubernetes manager is configured it is a no-op only if there is also nothing to place.
+func (i *Provisioner) PlaceSecrets(ctx context.Context, resolved ResolvedSecrets, prune bool) error {
 	if i.KubernetesManager == nil {
 		if len(resolved) == 0 {
 			return nil
@@ -1092,6 +1093,9 @@ func (i *Provisioner) PlaceSecrets(ctx context.Context, resolved ResolvedSecrets
 		}
 	}
 
+	if !prune {
+		return nil
+	}
 	if err := i.KubernetesManager.PruneSecrets(placed); err != nil {
 		return fmt.Errorf("pruning orphaned secrets: %w", err)
 	}
