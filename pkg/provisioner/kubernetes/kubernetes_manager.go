@@ -31,6 +31,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/apimachinery/pkg/util/validation"
 )
 
 // =============================================================================
@@ -570,11 +571,16 @@ func (k *BaseKubernetesManager) ApplySecret(name, namespace string, stringData m
 // Flux — so it reclaims exactly what the CLI placed (a secret dropped from a fan-out list, a secret
 // removed from a system, or every CLI secret when desired is empty) and never a Flux-managed secret
 // that merely inherited the context labels via CommonMetadata. It fails closed when the context id is
-// unset, since without it pruning cannot be scoped to this context.
+// unset or is not a valid label value, since without a well-formed id pruning cannot be scoped to this
+// context — a malformed id would otherwise build a selector the API server rejects, failing every
+// placement with an opaque error rather than a message that names the bad id.
 func (k *BaseKubernetesManager) PruneSecrets(desired map[string]map[string]bool) error {
 	contextID := k.configHandler.GetString("id")
 	if contextID == "" {
 		return fmt.Errorf("context id not set; cannot scope secret pruning to this context")
+	}
+	if errs := validation.IsValidLabelValue(contextID); len(errs) > 0 {
+		return fmt.Errorf("context id %q is not a valid label value, cannot scope secret pruning: %s", contextID, strings.Join(errs, "; "))
 	}
 
 	gvr := schema.GroupVersionResource{

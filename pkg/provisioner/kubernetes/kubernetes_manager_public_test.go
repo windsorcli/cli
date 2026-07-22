@@ -5826,6 +5826,39 @@ func TestBaseKubernetesManager_PruneSecrets(t *testing.T) {
 		}
 	})
 
+	t.Run("InvalidContextIDFailsClosed", func(t *testing.T) {
+		// Given a context id that is not a valid label value (a comma would build a
+		// malformed selector the API server rejects)
+		mocks := setupKubernetesMocks(t, func(m *KubernetesTestMocks) {
+			m.ConfigHandler.(*config.MockConfigHandler).GetStringFunc = func(key string, defaultValue ...string) string {
+				if key == "id" {
+					return "bad,id"
+				}
+				if len(defaultValue) > 0 {
+					return defaultValue[0]
+				}
+				return ""
+			}
+		})
+		manager := NewKubernetesManager(mocks.KubernetesClient, mocks.ConfigHandler)
+		listed := false
+		c := client.NewMockKubernetesClient()
+		c.ListResourcesByLabelFunc = func(gvr schema.GroupVersionResource, ns, labelSelector string) (*unstructured.UnstructuredList, error) {
+			listed = true
+			return &unstructured.UnstructuredList{}, nil
+		}
+		manager.client = c
+
+		// When pruning, the guard rejects the id up front, names it, and never queries the cluster
+		err := manager.PruneSecrets(nil)
+		if err == nil || !strings.Contains(err.Error(), "bad,id") {
+			t.Errorf("Expected error naming the invalid context id, got %v", err)
+		}
+		if listed {
+			t.Error("Expected no list call when context id is invalid")
+		}
+	})
+
 	t.Run("DeleteErrorIsPropagated", func(t *testing.T) {
 		// Given the delete call fails
 		manager := setup(t)
