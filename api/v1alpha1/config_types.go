@@ -8,6 +8,7 @@ import (
 	"github.com/windsorcli/cli/api/v1alpha1/docker"
 	"github.com/windsorcli/cli/api/v1alpha1/gcp"
 	"github.com/windsorcli/cli/api/v1alpha1/git"
+	"github.com/windsorcli/cli/api/v1alpha1/hetzner"
 	"github.com/windsorcli/cli/api/v1alpha1/network"
 	"github.com/windsorcli/cli/api/v1alpha1/secrets"
 	"github.com/windsorcli/cli/api/v1alpha1/terraform"
@@ -38,6 +39,7 @@ type Context struct {
 	AWS         *aws.AWSConfig             `yaml:"aws,omitempty"`
 	Azure       *azure.AzureConfig         `yaml:"azure,omitempty"`
 	GCP         *gcp.GCPConfig             `yaml:"gcp,omitempty"`
+	Hetzner     *hetzner.HetznerConfig     `yaml:"hetzner,omitempty"`
 	VSphere     *vsphere.VSphereConfig     `yaml:"vsphere,omitempty"`
 	Docker      *docker.DockerConfig       `yaml:"docker,omitempty"`
 	Git         *git.GitConfig             `yaml:"git,omitempty"`
@@ -93,6 +95,12 @@ func (base *Context) Merge(overlay *Context) {
 			base.GCP = &gcp.GCPConfig{}
 		}
 		base.GCP.Merge(overlay.GCP)
+	}
+	if overlay.Hetzner != nil {
+		if base.Hetzner == nil {
+			base.Hetzner = &hetzner.HetznerConfig{}
+		}
+		base.Hetzner.Merge(overlay.Hetzner)
 	}
 	if overlay.VSphere != nil {
 		if base.VSphere == nil {
@@ -165,6 +173,7 @@ func (c *Context) DeepCopy() *Context {
 		AWS:         c.AWS.Copy(),
 		Azure:       c.Azure.Copy(),
 		GCP:         c.GCP.Copy(),
+		Hetzner:     c.Hetzner.Copy(),
 		VSphere:     c.VSphere.Copy(),
 		Docker:      c.Docker.Copy(),
 		Git:         c.Git.Copy(),

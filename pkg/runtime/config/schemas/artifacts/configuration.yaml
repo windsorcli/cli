@@ -91,6 +91,8 @@ $defs:
         $ref: '#/$defs/azure'
       gcp:
         $ref: '#/$defs/gcp'
+      hetzner:
+        $ref: '#/$defs/hetzner'
       vsphere:
         $ref: '#/$defs/vsphere'
       docker:
@@ -203,6 +205,18 @@ $defs:
       quota_project:
         type: string
         description: Project to bill quota usage against.
+  hetzner:
+    type: object
+    additionalProperties: false
+    description: |
+      Hetzner Cloud integration. Activates whenever this block is present (or
+      when platform is 'hetzner'); there is no separate 'enabled' flag.
+    properties:
+      token:
+        type: string
+        description: |
+          Hetzner Cloud API token. Exported as HCLOUD_TOKEN, the credential the
+          hcloud Terraform provider and CLI read for authentication.
   vsphere:
     type: object
     additionalProperties: false

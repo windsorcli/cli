@@ -160,6 +160,54 @@ contexts:
 	}
 }
 
+// TestHetznerEnv_InjectsHcloudTokenFromConfig verifies that a hetzner.token set in
+// windsor.yaml is exported by `windsor env` as HCLOUD_TOKEN, the credential the
+// hcloud Terraform provider and CLI read — the Hetzner analog of the aws/azure
+// provider env printers.
+func TestHetznerEnv_InjectsHcloudTokenFromConfig(t *testing.T) {
+	t.Parallel()
+	dir, env := helpers.CopyFixtureOnly(t, "default")
+
+	windsorYamlPath := filepath.Join(dir, "windsor.yaml")
+	windsorYaml := `version: v1alpha1
+contexts:
+  local:
+    hetzner:
+      token: test-hcloud-token
+`
+	if err := os.WriteFile(windsorYamlPath, []byte(windsorYaml), 0644); err != nil {
+		t.Fatalf("write windsor.yaml: %v", err)
+	}
+	helpers.MarkAsGitRepo(t, dir)
+	if _, stderr, err := helpers.RunCLI(dir, []string{"init"}, env); err != nil {
+		t.Fatalf("windsor init: %v\nstderr: %s", err, stderr)
+	}
+
+	stdout, stderr, err := helpers.RunCLI(dir, []string{"env"}, env)
+	if err != nil {
+		t.Fatalf("env: %v\nstderr: %s", err, stderr)
+	}
+	if !strings.Contains(string(stdout), "HCLOUD_TOKEN=test-hcloud-token") {
+		t.Errorf("expected HCLOUD_TOKEN=test-hcloud-token in output, got:\n%s", stdout)
+	}
+}
+
+// TestHetznerEnv_OmitsHcloudTokenWhenUnset verifies that `windsor env` does not emit
+// HCLOUD_TOKEN when no hetzner.token is configured, so the operator's ambient
+// credential applies unchanged.
+func TestHetznerEnv_OmitsHcloudTokenWhenUnset(t *testing.T) {
+	t.Parallel()
+	dir, env := helpers.PrepareFixture(t, "default")
+
+	stdout, stderr, err := helpers.RunCLI(dir, []string{"env"}, env)
+	if err != nil {
+		t.Fatalf("env: %v\nstderr: %s", err, stderr)
+	}
+	if strings.Contains(string(stdout), "HCLOUD_TOKEN") {
+		t.Errorf("expected no HCLOUD_TOKEN in output when unset, got:\n%s", stdout)
+	}
+}
+
 // TestDotEnv_ContextGitignoreCoversDotEnvFile verifies that `windsor init` writes
 // contexts/<ctx>/.gitignore covering .env so the file can never be committed.
 func TestDotEnv_ContextGitignoreCoversDotEnvFile(t *testing.T) {

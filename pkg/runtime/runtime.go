@@ -60,6 +60,7 @@ type Runtime struct {
 		AwsEnv       env.EnvPrinter
 		AzureEnv     env.EnvPrinter
 		GcpEnv       env.EnvPrinter
+		HetznerEnv   env.EnvPrinter
 		VsphereEnv   env.EnvPrinter
 		DockerEnv    env.EnvPrinter
 		KubeEnv      env.EnvPrinter
@@ -145,6 +146,9 @@ func NewRuntime(opts ...*Runtime) *Runtime {
 		}
 		if overrides.EnvPrinters.GcpEnv != nil {
 			rt.EnvPrinters.GcpEnv = overrides.EnvPrinters.GcpEnv
+		}
+		if overrides.EnvPrinters.HetznerEnv != nil {
+			rt.EnvPrinters.HetznerEnv = overrides.EnvPrinters.HetznerEnv
 		}
 		if overrides.EnvPrinters.VsphereEnv != nil {
 			rt.EnvPrinters.VsphereEnv = overrides.EnvPrinters.VsphereEnv
@@ -735,6 +739,7 @@ func (rt *Runtime) initializeEnvPrinters() {
 	hasAWSConfig := configData != nil && configData.AWS != nil
 	hasAzureConfig := configData != nil && configData.Azure != nil
 	hasGCPConfig := configData != nil && configData.GCP != nil
+	hasHetznerConfig := configData != nil && configData.Hetzner != nil
 	hasVSphereConfig := configData != nil && configData.VSphere != nil
 
 	if rt.EnvPrinters.DotEnvEnv == nil {
@@ -748,6 +753,9 @@ func (rt *Runtime) initializeEnvPrinters() {
 	}
 	if rt.EnvPrinters.GcpEnv == nil && gcpEnabled && hasGCPConfig {
 		rt.EnvPrinters.GcpEnv = env.NewGcpEnvPrinter(rt.Shell, rt.ConfigHandler)
+	}
+	if rt.EnvPrinters.HetznerEnv == nil && (hasHetznerConfig || platform == "hetzner") {
+		rt.EnvPrinters.HetznerEnv = env.NewHetznerEnvPrinter(rt.Shell, rt.ConfigHandler, rt.Evaluator)
 	}
 	if rt.EnvPrinters.VsphereEnv == nil && (hasVSphereConfig || platform == "vsphere") {
 		rt.EnvPrinters.VsphereEnv = env.NewVsphereEnvPrinter(rt.Shell, rt.ConfigHandler)
@@ -898,6 +906,7 @@ func (rt *Runtime) getAllEnvPrinters() []env.EnvPrinter {
 		rt.EnvPrinters.AwsEnv,
 		rt.EnvPrinters.AzureEnv,
 		rt.EnvPrinters.GcpEnv,
+		rt.EnvPrinters.HetznerEnv,
 		rt.EnvPrinters.VsphereEnv,
 		rt.EnvPrinters.DockerEnv,
 		rt.EnvPrinters.KubeEnv,
