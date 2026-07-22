@@ -690,7 +690,7 @@ func (i *Provisioner) PlanDestroyKustomizeComponentSummary(blueprint *blueprintv
 	if err := i.ensureFluxStack(); err != nil {
 		return fluxinfra.KustomizePlan{}, err
 	}
-	return i.FluxStack.PlanDestroyComponentSummary(blueprint, name), nil
+	return i.FluxStack.PlanDestroyComponentSummary(withCrdLayer(blueprint), name), nil
 }
 
 // PlanTerraformSummary runs a best-effort summary plan across every Terraform
@@ -784,7 +784,10 @@ func (i *Provisioner) PlanDestroyTerraformSummary(blueprint *blueprintv1alpha1.B
 // Flux kustomization by querying live cluster inventory. Returns an error if
 // the cluster is unreachable — destroy itself cannot proceed without it, so a
 // blueprint-derived fallback would mislead. DestroyOnly hooks and destroy=
-// false pinned kustomizations are filtered to match DeleteBlueprint.
+// false pinned kustomizations are filtered to match DeleteBlueprint. The
+// blueprint is passed through withCrdLayer so FluxSystem tiers and synthesized
+// CRD layers are flattened into Kustomizations — matching Uninstall's teardown
+// set exactly, so the plan lists the same kustomizations the destroy removes.
 func (i *Provisioner) PlanDestroyKustomizeSummary(blueprint *blueprintv1alpha1.Blueprint) (*DestroyPlanSummary, error) {
 	if blueprint == nil {
 		return nil, fmt.Errorf("blueprint not provided")
@@ -795,7 +798,7 @@ func (i *Provisioner) PlanDestroyKustomizeSummary(blueprint *blueprintv1alpha1.B
 	if err := i.ensureFluxStack(); err != nil {
 		return nil, err
 	}
-	results, err := i.FluxStack.PlanDestroySummary(blueprint)
+	results, err := i.FluxStack.PlanDestroySummary(withCrdLayer(blueprint))
 	if err != nil {
 		return nil, err
 	}
