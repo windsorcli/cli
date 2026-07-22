@@ -19,13 +19,14 @@ import (
 
 // MockKubernetesClient is a mock implementation of KubernetesClient interface for testing
 type MockKubernetesClient struct {
-	GetResourceFunc        func(gvr schema.GroupVersionResource, namespace, name string) (*unstructured.Unstructured, error)
-	ListResourcesFunc      func(gvr schema.GroupVersionResource, namespace string) (*unstructured.UnstructuredList, error)
-	ApplyResourceFunc      func(gvr schema.GroupVersionResource, obj *unstructured.Unstructured, opts metav1.ApplyOptions) (*unstructured.Unstructured, error)
-	DeleteResourceFunc     func(gvr schema.GroupVersionResource, namespace, name string, opts metav1.DeleteOptions) error
-	PatchResourceFunc      func(ctx context.Context, gvr schema.GroupVersionResource, namespace, name string, pt types.PatchType, data []byte, opts metav1.PatchOptions) (*unstructured.Unstructured, error)
-	CheckHealthFunc        func(ctx context.Context, endpoint string) error
-	GetNodeReadyStatusFunc func(ctx context.Context, nodeNames []string) (map[string]bool, error)
+	GetResourceFunc          func(gvr schema.GroupVersionResource, namespace, name string) (*unstructured.Unstructured, error)
+	ListResourcesFunc        func(gvr schema.GroupVersionResource, namespace string) (*unstructured.UnstructuredList, error)
+	ListResourcesByLabelFunc func(gvr schema.GroupVersionResource, namespace, labelSelector string) (*unstructured.UnstructuredList, error)
+	ApplyResourceFunc        func(gvr schema.GroupVersionResource, obj *unstructured.Unstructured, opts metav1.ApplyOptions) (*unstructured.Unstructured, error)
+	DeleteResourceFunc       func(gvr schema.GroupVersionResource, namespace, name string, opts metav1.DeleteOptions) error
+	PatchResourceFunc        func(ctx context.Context, gvr schema.GroupVersionResource, namespace, name string, pt types.PatchType, data []byte, opts metav1.PatchOptions) (*unstructured.Unstructured, error)
+	CheckHealthFunc          func(ctx context.Context, endpoint string) error
+	GetNodeReadyStatusFunc   func(ctx context.Context, nodeNames []string) (map[string]bool, error)
 }
 
 // =============================================================================
@@ -53,6 +54,14 @@ func (m *MockKubernetesClient) GetResource(gvr schema.GroupVersionResource, name
 func (m *MockKubernetesClient) ListResources(gvr schema.GroupVersionResource, namespace string) (*unstructured.UnstructuredList, error) {
 	if m.ListResourcesFunc != nil {
 		return m.ListResourcesFunc(gvr, namespace)
+	}
+	return &unstructured.UnstructuredList{}, nil
+}
+
+// ListResourcesByLabel implements KubernetesClient interface
+func (m *MockKubernetesClient) ListResourcesByLabel(gvr schema.GroupVersionResource, namespace, labelSelector string) (*unstructured.UnstructuredList, error) {
+	if m.ListResourcesByLabelFunc != nil {
+		return m.ListResourcesByLabelFunc(gvr, namespace, labelSelector)
 	}
 	return &unstructured.UnstructuredList{}, nil
 }

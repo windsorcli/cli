@@ -1051,21 +1051,26 @@ func (i *Provisioner) ResolveSecrets(blueprint *blueprintv1alpha1.Blueprint) (Re
 }
 
 // PlaceSecrets materializes secrets that ResolveSecrets produced into the namespace(s) each owning
-// kustomization created. It runs after Install; for each secret it resolves the target namespace(s) —
-// either the ones the entry named or, when it named none, the single namespace the kustomization created
-// (failing closed on more than one so a secret is never placed by guessing) — and applies an Opaque
-// Secret into each. After placing each Secret it rolls the workloads in that namespace that consume it,
-// keyed by a content digest, so a changed value reaches running pods rather than sitting stale until the
-// next unrelated restart. It self-gates on the target namespace appearing rather than requiring a global
-// wait, and is a no-op when resolved is empty.
+// kustomization created, then reconciles: it deletes the CLI-placed secrets this context no longer
+// wants. It runs after Install; for each secret it resolves the target namespace(s) — either the ones
+// the entry named or, when it named none, the single namespace the kustomization created (failing closed
+// on more than one so a secret is never placed by guessing) — applies an Opaque Secret into each, and
+// rolls the workloads in that namespace that consume it, keyed by a content digest, so a changed value
+// reaches running pods rather than sitting stale until the next unrelated restart. It records every
+// (namespace, secret) it placed and hands that desired set to PruneSecrets, which reclaims any CLI-placed
+// secret not in it — a secret dropped from a fan-out list, a secret removed from a system, or every one
+// when the blueprint declares no secrets. It self-gates on the target namespace appearing rather than
+// requiring a global wait. When no kubernetes manager is configured it is a no-op only if there is also
+// nothing to place.
 func (i *Provisioner) PlaceSecrets(ctx context.Context, resolved ResolvedSecrets) error {
-	if len(resolved) == 0 {
-		return nil
-	}
 	if i.KubernetesManager == nil {
+		if len(resolved) == 0 {
+			return nil
+		}
 		return fmt.Errorf("kubernetes manager not configured")
 	}
 
+	placed := make(map[string]map[string]bool)
 	for kustomizationName, secrets := range resolved {
 		for secretName, secret := range secrets {
 			namespaces, err := i.resolveSecretNamespaces(ctx, kustomizationName, secret.Namespaces)
@@ -1073,14 +1078,22 @@ func (i *Provisioner) PlaceSecrets(ctx context.Context, resolved ResolvedSecrets
 				return err
 			}
 			for _, namespace := range namespaces {
-				if err := i.KubernetesManager.ApplySecret(secretName, namespace, secret.Data); err != nil {
+				if err := i.KubernetesManager.ApplySecret(secretName, namespace, secret.Data, kustomizationName); err != nil {
 					return fmt.Errorf("applying secret %q to namespace %q: %w", secretName, namespace, err)
 				}
 				if err := i.KubernetesManager.RollWorkloadsForSecret(ctx, namespace, secretName, secretDigest(secret.Data)); err != nil {
 					return fmt.Errorf("rolling workloads for secret %q in namespace %q: %w", secretName, namespace, err)
 				}
+				if placed[namespace] == nil {
+					placed[namespace] = make(map[string]bool)
+				}
+				placed[namespace][secretName] = true
 			}
 		}
+	}
+
+	if err := i.KubernetesManager.PruneSecrets(placed); err != nil {
+		return fmt.Errorf("pruning orphaned secrets: %w", err)
 	}
 	return nil
 }

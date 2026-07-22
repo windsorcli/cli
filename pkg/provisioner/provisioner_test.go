@@ -4431,10 +4431,10 @@ func TestProvisioner_PlaceSecrets(t *testing.T) {
 		mocks.KubernetesManager.GetKustomizationInventoryFunc = func(name, namespace string) ([]kubernetes.InventoryEntry, error) {
 			return []kubernetes.InventoryEntry{{Kind: "Namespace", Name: "system-dns"}}, nil
 		}
-		var gotName, gotNs string
+		var gotName, gotNs, gotOwner string
 		var gotData map[string]string
-		mocks.KubernetesManager.ApplySecretFunc = func(name, namespace string, stringData map[string]string) error {
-			gotName, gotNs, gotData = name, namespace, stringData
+		mocks.KubernetesManager.ApplySecretFunc = func(name, namespace string, stringData map[string]string, owner string) error {
+			gotName, gotNs, gotData, gotOwner = name, namespace, stringData, owner
 			return nil
 		}
 
@@ -4443,9 +4443,9 @@ func TestProvisioner_PlaceSecrets(t *testing.T) {
 			t.Fatalf("Expected no error, got %v", err)
 		}
 
-		// Then the secret lands in the inventory namespace with the resolved value
-		if gotName != "cloudflare-creds" || gotNs != "system-dns" || gotData["api_token"] != "resolved-token" {
-			t.Errorf("Unexpected ApplySecret args: name=%q ns=%q data=%v", gotName, gotNs, gotData)
+		// Then the secret lands in the inventory namespace with the resolved value, owned by its kustomization
+		if gotName != "cloudflare-creds" || gotNs != "system-dns" || gotData["api_token"] != "resolved-token" || gotOwner != "cdn-install" {
+			t.Errorf("Unexpected ApplySecret args: name=%q ns=%q data=%v owner=%q", gotName, gotNs, gotData, gotOwner)
 		}
 	})
 
@@ -4521,7 +4521,7 @@ func TestProvisioner_PlaceSecrets(t *testing.T) {
 			return []kubernetes.InventoryEntry{{Kind: "Namespace", Name: "system-pki"}, {Kind: "Namespace", Name: "system-pki-trust"}}, nil
 		}
 		var gotNs string
-		mocks.KubernetesManager.ApplySecretFunc = func(name, namespace string, stringData map[string]string) error {
+		mocks.KubernetesManager.ApplySecretFunc = func(name, namespace string, stringData map[string]string, owner string) error {
 			gotNs = namespace
 			return nil
 		}
@@ -4543,7 +4543,7 @@ func TestProvisioner_PlaceSecrets(t *testing.T) {
 			return []kubernetes.InventoryEntry{{Kind: "Namespace", Name: "system-pki"}, {Kind: "Namespace", Name: "system-dns"}}, nil
 		}
 		placed := map[string]bool{}
-		mocks.KubernetesManager.ApplySecretFunc = func(name, namespace string, stringData map[string]string) error {
+		mocks.KubernetesManager.ApplySecretFunc = func(name, namespace string, stringData map[string]string, owner string) error {
 			placed[namespace] = true
 			return nil
 		}
@@ -4575,18 +4575,70 @@ func TestProvisioner_PlaceSecrets(t *testing.T) {
 		}
 	})
 
-	t.Run("EmptyResolvedIsNoOp", func(t *testing.T) {
+	t.Run("EmptyResolvedPlacesNothingButStillReconciles", func(t *testing.T) {
+		// Given a blueprint that declares no secrets
 		mocks := setupProvisionerMocks(t)
 		queried := false
 		mocks.KubernetesManager.GetKustomizationInventoryFunc = func(name, namespace string) ([]kubernetes.InventoryEntry, error) {
 			queried = true
 			return nil, nil
 		}
+		var pruned bool
+		var prunedDesired map[string]map[string]bool
+		mocks.KubernetesManager.PruneSecretsFunc = func(desired map[string]map[string]bool) error {
+			pruned, prunedDesired = true, desired
+			return nil
+		}
+
+		// When placing an empty set, nothing is placed (no inventory lookups) but reconcile still runs
+		// with an empty desired set, so any previously CLI-placed secret is reclaimed
 		if err := newProvisioner(mocks).PlaceSecrets(context.Background(), ResolvedSecrets{}); err != nil {
 			t.Fatalf("Expected no error, got %v", err)
 		}
 		if queried {
-			t.Error("Expected no inventory query for empty resolved secrets")
+			t.Error("Expected no inventory query when nothing is placed")
+		}
+		if !pruned || len(prunedDesired) != 0 {
+			t.Errorf("Expected reconcile with empty desired set, pruned=%v desired=%v", pruned, prunedDesired)
+		}
+	})
+
+	t.Run("ReconcilesFanOutPlacementIntoDesiredSet", func(t *testing.T) {
+		// Given a secret that fans out into two namespaces its kustomization created
+		mocks := setupProvisionerMocks(t)
+		mocks.KubernetesManager.GetKustomizationInventoryFunc = func(name, namespace string) ([]kubernetes.InventoryEntry, error) {
+			return []kubernetes.InventoryEntry{{Kind: "Namespace", Name: "system-pki"}, {Kind: "Namespace", Name: "system-dns"}}, nil
+		}
+		var gotDesired map[string]map[string]bool
+		mocks.KubernetesManager.PruneSecretsFunc = func(desired map[string]map[string]bool) error {
+			gotDesired = desired
+			return nil
+		}
+		fanned := ResolvedSecrets{"pki-install": {"acme-dns": {Namespaces: []string{"system-pki", "system-dns"}, Data: map[string]string{"token": "resolved"}}}}
+
+		// When placing, the desired set handed to PruneSecrets names every (namespace, secret) placed
+		if err := newProvisioner(mocks).PlaceSecrets(context.Background(), fanned); err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		if !gotDesired["system-pki"]["acme-dns"] || !gotDesired["system-dns"]["acme-dns"] {
+			t.Errorf("Expected desired set to include both placements, got %v", gotDesired)
+		}
+	})
+
+	t.Run("PruneFailureSurfaces", func(t *testing.T) {
+		// Given placement succeeds but the reconcile delete fails
+		mocks := setupProvisionerMocks(t)
+		mocks.KubernetesManager.GetKustomizationInventoryFunc = func(name, namespace string) ([]kubernetes.InventoryEntry, error) {
+			return []kubernetes.InventoryEntry{{Kind: "Namespace", Name: "system-dns"}}, nil
+		}
+		mocks.KubernetesManager.PruneSecretsFunc = func(desired map[string]map[string]bool) error {
+			return fmt.Errorf("api down")
+		}
+
+		// When placing, the prune failure surfaces
+		err := newProvisioner(mocks).PlaceSecrets(context.Background(), resolved())
+		if err == nil || !strings.Contains(err.Error(), "pruning orphaned secrets") {
+			t.Errorf("Expected prune-failure error, got %v", err)
 		}
 	})
 }
