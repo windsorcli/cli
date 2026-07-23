@@ -18,7 +18,9 @@ import (
 // Tests set NotifyFunc to control behavior; the default implementation returns
 // nil to keep callers' "best-effort" semantics unchanged when no override is set.
 type MockNotifier struct {
-	NotifyFunc func(ctx context.Context, blueprint *blueprintv1alpha1.Blueprint) error
+	NotifyFunc                  func(ctx context.Context, blueprint *blueprintv1alpha1.Blueprint) error
+	ReconcileKustomizationsFunc func(ctx context.Context, names []string) error
+	ReconcileHelmReleasesFunc   func(ctx context.Context, refs []HelmReleaseRef, force bool) error
 }
 
 // =============================================================================
@@ -39,6 +41,24 @@ func NewMockNotifier() *MockNotifier {
 func (m *MockNotifier) Notify(ctx context.Context, blueprint *blueprintv1alpha1.Blueprint) error {
 	if m.NotifyFunc != nil {
 		return m.NotifyFunc(ctx, blueprint)
+	}
+	return nil
+}
+
+// ReconcileKustomizations implements the Notifier interface. Delegates to ReconcileKustomizationsFunc when
+// set and otherwise returns nil to match the Notifier's best-effort contract.
+func (m *MockNotifier) ReconcileKustomizations(ctx context.Context, names []string) error {
+	if m.ReconcileKustomizationsFunc != nil {
+		return m.ReconcileKustomizationsFunc(ctx, names)
+	}
+	return nil
+}
+
+// ReconcileHelmReleases implements the Notifier interface. Delegates to ReconcileHelmReleasesFunc when set
+// and otherwise returns nil to match the Notifier's best-effort contract.
+func (m *MockNotifier) ReconcileHelmReleases(ctx context.Context, refs []HelmReleaseRef, force bool) error {
+	if m.ReconcileHelmReleasesFunc != nil {
+		return m.ReconcileHelmReleasesFunc(ctx, refs, force)
 	}
 	return nil
 }

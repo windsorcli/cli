@@ -54,7 +54,9 @@ type KubernetesManager interface {
 	ApplyOCIRepository(repo *sourcev1.OCIRepository) error
 	CheckGitRepositoryStatus() error
 	GetKustomizationStatus(names []string) (map[string]bool, error)
+	GetKustomizationReadiness(names []string) (map[string]bool, error)
 	KustomizationExists(name, namespace string) (bool, error)
+	NamespaceExists(name string) (bool, error)
 	GetKustomizationInventory(name, namespace string) ([]InventoryEntry, error)
 	WaitForKubernetesHealthy(ctx context.Context, endpoint string, outputFunc func(string), nodeNames ...string) error
 	GetNodeReadyStatus(ctx context.Context, nodeNames []string) (map[string]bool, error)
@@ -966,6 +968,35 @@ func (k *BaseKubernetesManager) GetKustomizationStatus(names []string) (map[stri
 	return status, nil
 }
 
+// GetKustomizationReadiness returns whether each named Kustomization currently reports Ready=True, in the
+// gitops namespace. Unlike GetKustomizationStatus it never fails on a Kustomization in a failed state — a
+// failed one is simply reported not-ready — so a convergence driver can keep nudging it toward Ready rather
+// than aborting. Names absent from the cluster report false; only an API list error propagates.
+func (k *BaseKubernetesManager) GetKustomizationReadiness(names []string) (map[string]bool, error) {
+	gvr := schema.GroupVersionResource{
+		Group:    "kustomize.toolkit.fluxcd.io",
+		Version:  "v1",
+		Resource: "kustomizations",
+	}
+
+	objList, err := k.client.ListResources(gvr, k.gitopsNamespace())
+	if err != nil {
+		return nil, fmt.Errorf("failed to list kustomizations: %w", err)
+	}
+
+	ready := make(map[string]bool, len(names))
+	for _, name := range names {
+		ready[name] = false
+	}
+	for i := range objList.Items {
+		obj := &objList.Items[i]
+		if _, wanted := ready[obj.GetName()]; wanted {
+			ready[obj.GetName()] = kustomizationReady(obj)
+		}
+	}
+	return ready, nil
+}
+
 // KustomizationExists returns true if a Kustomization resource with the given name exists in the given namespace.
 // Returns false (not an error) when the resource is simply absent; propagates other API errors.
 func (k *BaseKubernetesManager) KustomizationExists(name, namespace string) (bool, error) {
@@ -975,6 +1006,21 @@ func (k *BaseKubernetesManager) KustomizationExists(name, namespace string) (boo
 		Resource: "kustomizations",
 	}
 	_, err := k.client.GetResource(gvr, namespace, name)
+	if err != nil {
+		if isNotFoundError(err) {
+			return false, nil
+		}
+		return false, err
+	}
+	return true, nil
+}
+
+// NamespaceExists reports whether the named namespace exists in the cluster. Namespaces are cluster-scoped,
+// so the lookup passes an empty namespace to GetResource. A NotFound is reported as (false, nil); any other
+// API error propagates.
+func (k *BaseKubernetesManager) NamespaceExists(name string) (bool, error) {
+	gvr := schema.GroupVersionResource{Group: "", Version: "v1", Resource: "namespaces"}
+	_, err := k.client.GetResource(gvr, "", name)
 	if err != nil {
 		if isNotFoundError(err) {
 			return false, nil

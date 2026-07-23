@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	helmv2 "github.com/fluxcd/helm-controller/api/v2"
 	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
 	"github.com/windsorcli/cli/pkg/composer/blueprint"
 	"github.com/windsorcli/cli/pkg/provisioner/cluster"
@@ -22,6 +23,7 @@ import (
 	"github.com/windsorcli/cli/pkg/runtime/evaluator"
 	"github.com/windsorcli/cli/pkg/runtime/shell"
 	terraformruntime "github.com/windsorcli/cli/pkg/runtime/terraform"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
 // =============================================================================
@@ -1177,6 +1179,37 @@ func TestProvisioner_ApplyKustomize(t *testing.T) {
 			t.Errorf("Expected kustomization name 'test-kustomization', got %q", appliedBlueprint.Kustomizations[0].Name)
 		}
 	})
+
+	t.Run("PlacesNamedKustomizationSecret", func(t *testing.T) {
+		// Given a blueprint whose named kustomization declares a secret referencing a configured value
+		mocks := setupProvisionerMocks(t)
+		mocks.ConfigHandler.(*config.MockConfigHandler).GetContextValuesFunc = func() (map[string]any, error) {
+			return map[string]any{"hetzner": map[string]any{"token": "resolved-token"}}, nil
+		}
+		mocks.KubernetesManager.ApplyBlueprintFunc = func(*blueprintv1alpha1.Blueprint, string) error { return nil }
+		mocks.KubernetesManager.GetKustomizationInventoryFunc = func(name, namespace string) ([]kubernetes.InventoryEntry, error) {
+			return []kubernetes.InventoryEntry{{Kind: "Namespace", Name: "system-lb"}}, nil
+		}
+		var placedName, placedNs string
+		mocks.KubernetesManager.ApplySecretFunc = func(name, namespace string, stringData map[string]string, owner string) error {
+			placedName, placedNs = name, namespace
+			return nil
+		}
+		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{KubernetesManager: mocks.KubernetesManager})
+		blueprint := &blueprintv1alpha1.Blueprint{Kustomizations: []blueprintv1alpha1.Kustomization{
+			{Name: "lb-install", Secrets: map[string]blueprintv1alpha1.SecretEntry{
+				"hcloud": {Data: map[string]string{"token": "${hetzner.token}"}},
+			}},
+		}}
+
+		// When applying just that kustomization, its secret is placed into the namespace it created
+		if err := provisioner.ApplyKustomize(context.Background(), blueprint, "lb-install"); err != nil {
+			t.Fatalf("Expected no error, got: %v", err)
+		}
+		if placedName != "hcloud" || placedNs != "system-lb" {
+			t.Errorf("Expected hcloud placed into system-lb, got name=%q ns=%q", placedName, placedNs)
+		}
+	})
 }
 
 func TestProvisioner_ApplyKustomizeAll(t *testing.T) {
@@ -1710,7 +1743,7 @@ func TestProvisioner_Install(t *testing.T) {
 		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
 
 		blueprint := createTestBlueprint()
-		err := provisioner.Install(context.Background(), blueprint)
+		err := provisioner.Install(context.Background(), blueprint, false)
 
 		if err != nil {
 			t.Errorf("Expected no error, got: %v", err)
@@ -1733,7 +1766,7 @@ func TestProvisioner_Install(t *testing.T) {
 		}
 
 		// When installing
-		if err := provisioner.Install(context.Background(), blueprint); err != nil {
+		if err := provisioner.Install(context.Background(), blueprint, false); err != nil {
 			t.Fatalf("Expected no error, got: %v", err)
 		}
 
@@ -1779,7 +1812,7 @@ func TestProvisioner_Install(t *testing.T) {
 		}
 
 		// When installing
-		if err := provisioner.Install(context.Background(), blueprint); err != nil {
+		if err := provisioner.Install(context.Background(), blueprint, false); err != nil {
 			t.Fatalf("Expected no error, got: %v", err)
 		}
 
@@ -1800,7 +1833,7 @@ func TestProvisioner_Install(t *testing.T) {
 		mocks := setupProvisionerMocks(t)
 		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler)
 
-		err := provisioner.Install(context.Background(), nil)
+		err := provisioner.Install(context.Background(), nil, false)
 
 		if err == nil {
 			t.Error("Expected error for nil blueprint")
@@ -1817,7 +1850,7 @@ func TestProvisioner_Install(t *testing.T) {
 		provisioner.KubernetesManager = nil
 
 		blueprint := createTestBlueprint()
-		err := provisioner.Install(context.Background(), blueprint)
+		err := provisioner.Install(context.Background(), blueprint, false)
 
 		if err == nil {
 			t.Error("Expected error for nil kubernetes manager")
@@ -1839,7 +1872,7 @@ func TestProvisioner_Install(t *testing.T) {
 		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
 
 		blueprint := createTestBlueprint()
-		err := provisioner.Install(context.Background(), blueprint)
+		err := provisioner.Install(context.Background(), blueprint, false)
 
 		if err == nil {
 			t.Error("Expected error for apply blueprint failure")
@@ -1847,6 +1880,94 @@ func TestProvisioner_Install(t *testing.T) {
 
 		if !strings.Contains(err.Error(), "failed to apply blueprint") {
 			t.Errorf("Expected specific error message, got: %v", err)
+		}
+	})
+
+	t.Run("ResolvesAndPlacesDeclaredSecrets", func(t *testing.T) {
+		// Given a blueprint whose kustomization declares a secret referencing a configured value
+		mocks := setupProvisionerMocks(t)
+		mocks.ConfigHandler.(*config.MockConfigHandler).GetContextValuesFunc = func() (map[string]any, error) {
+			return map[string]any{"hetzner": map[string]any{"token": "resolved-token"}}, nil
+		}
+		mocks.KubernetesManager.ApplyBlueprintFunc = func(*blueprintv1alpha1.Blueprint, string) error { return nil }
+		mocks.KubernetesManager.GetKustomizationInventoryFunc = func(name, namespace string) ([]kubernetes.InventoryEntry, error) {
+			return []kubernetes.InventoryEntry{{Kind: "Namespace", Name: "system-lb"}}, nil
+		}
+		var placedName, placedNs string
+		var placedData map[string]string
+		mocks.KubernetesManager.ApplySecretFunc = func(name, namespace string, stringData map[string]string, owner string) error {
+			placedName, placedNs, placedData = name, namespace, stringData
+			return nil
+		}
+		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{KubernetesManager: mocks.KubernetesManager})
+		blueprint := &blueprintv1alpha1.Blueprint{Kustomizations: []blueprintv1alpha1.Kustomization{
+			{Name: "lb-install", Secrets: map[string]blueprintv1alpha1.SecretEntry{
+				"hcloud": {Data: map[string]string{"token": "${hetzner.token}"}},
+			}},
+		}}
+
+		// When installing, the declared secret is placed into the namespace its kustomization created
+		if err := provisioner.Install(context.Background(), blueprint, false); err != nil {
+			t.Fatalf("Expected no error, got: %v", err)
+		}
+		if placedName != "hcloud" || placedNs != "system-lb" || placedData["token"] != "resolved-token" {
+			t.Errorf("Expected hcloud/token placed into system-lb, got name=%q ns=%q data=%v", placedName, placedNs, placedData)
+		}
+	})
+
+	t.Run("FailsBeforeApplyWhenSecretResolvesEmpty", func(t *testing.T) {
+		// Given a required secret reference whose configured value is empty
+		mocks := setupProvisionerMocks(t)
+		mocks.ConfigHandler.(*config.MockConfigHandler).GetContextValuesFunc = func() (map[string]any, error) {
+			return map[string]any{"hetzner": map[string]any{"token": ""}}, nil
+		}
+		applied := false
+		mocks.KubernetesManager.ApplyBlueprintFunc = func(*blueprintv1alpha1.Blueprint, string) error {
+			applied = true
+			return nil
+		}
+		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{KubernetesManager: mocks.KubernetesManager})
+		blueprint := &blueprintv1alpha1.Blueprint{Kustomizations: []blueprintv1alpha1.Kustomization{
+			{Name: "lb-install", Secrets: map[string]blueprintv1alpha1.SecretEntry{
+				"hcloud": {Data: map[string]string{"token": "${hetzner.token}"}},
+			}},
+		}}
+
+		// When installing, resolution fails closed before anything is applied to the cluster
+		err := provisioner.Install(context.Background(), blueprint, false)
+		if err == nil || !strings.Contains(err.Error(), "error resolving secrets") {
+			t.Errorf("Expected resolve error, got: %v", err)
+		}
+		if applied {
+			t.Error("Expected no apply when secret resolution fails")
+		}
+	})
+
+	t.Run("OmitsUnconfiguredNilSecretWithoutFailing", func(t *testing.T) {
+		// Given a secret reference to a value absent from configuration (resolves to nil)
+		mocks := setupProvisionerMocks(t)
+		mocks.ConfigHandler.(*config.MockConfigHandler).GetContextValuesFunc = func() (map[string]any, error) {
+			return map[string]any{}, nil
+		}
+		mocks.KubernetesManager.ApplyBlueprintFunc = func(*blueprintv1alpha1.Blueprint, string) error { return nil }
+		placed := false
+		mocks.KubernetesManager.ApplySecretFunc = func(name, namespace string, stringData map[string]string, owner string) error {
+			placed = true
+			return nil
+		}
+		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{KubernetesManager: mocks.KubernetesManager})
+		blueprint := &blueprintv1alpha1.Blueprint{Kustomizations: []blueprintv1alpha1.Kustomization{
+			{Name: "lb-install", Secrets: map[string]blueprintv1alpha1.SecretEntry{
+				"hcloud": {Data: map[string]string{"token": "${hetzner.token}"}},
+			}},
+		}}
+
+		// When installing, the unconfigured secret is skipped and install still succeeds
+		if err := provisioner.Install(context.Background(), blueprint, false); err != nil {
+			t.Fatalf("Expected no error, got: %v", err)
+		}
+		if placed {
+			t.Error("Expected no secret placed for a nil-resolving reference")
 		}
 	})
 }
@@ -4449,15 +4570,18 @@ func TestProvisioner_ResolveSecrets(t *testing.T) {
 		}
 	})
 
-	t.Run("FailsWhenRequiredReferenceResolvesToNil", func(t *testing.T) {
-		// Given a required reference whose value is nil (populated but unresolvable)
+	t.Run("OmitsKeyWhenReferenceResolvesToNil", func(t *testing.T) {
+		// Given a reference to a value absent from configuration (resolves to nil)
 		mocks := setupProvisionerMocks(t)
-		withValues(mocks, map[string]any{"cdn": map[string]any{"cloudflare_api_key": nil}})
+		withValues(mocks, map[string]any{})
 
-		// When resolving, it fails closed before any apply
-		_, err := newProvisioner(mocks).ResolveSecrets(bp(map[string]blueprintv1alpha1.SecretEntry{"creds": entry(map[string]string{"token": "${cdn.cloudflare_api_key}"})}))
-		if err == nil || !strings.Contains(err.Error(), "resolved to nil") {
-			t.Errorf("Expected nil-resolution error, got %v", err)
+		// When resolving, the unconfigured key is omitted and the wholly-empty secret is dropped
+		resolved, err := newProvisioner(mocks).ResolveSecrets(bp(map[string]blueprintv1alpha1.SecretEntry{"creds": entry(map[string]string{"token": "${hetzner.token}"})}))
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		if len(resolved) != 0 {
+			t.Errorf("Expected no secret from nil-resolving reference, got %v", resolved)
 		}
 	})
 
@@ -4515,6 +4639,150 @@ func TestProvisioner_ResolveSecrets(t *testing.T) {
 	})
 }
 
+func TestProvisioner_dependencyClosure(t *testing.T) {
+	bp := &blueprintv1alpha1.Blueprint{Kustomizations: []blueprintv1alpha1.Kustomization{
+		{Name: "dns-install", DependsOn: []string{"gateway-install"}},
+		{Name: "gateway-install", DependsOn: []string{"lb-install", "pki-install"}},
+		{Name: "lb-install", DependsOn: []string{"crds"}},
+		{Name: "pki-install"},
+		{Name: "crds"},
+		{Name: "observability-install"}, // unrelated — must not appear
+	}}
+
+	t.Run("WalksTransitiveDependsOnAndExcludesUnrelated", func(t *testing.T) {
+		got := dependencyClosure(bp, []string{"dns-install"})
+		want := []string{"crds", "dns-install", "gateway-install", "lb-install", "pki-install"}
+		if !slices.Equal(got, want) {
+			t.Errorf("Expected closure %v, got %v", want, got)
+		}
+	})
+
+	t.Run("DropsNamesNotInBlueprintAndHandlesNil", func(t *testing.T) {
+		if got := dependencyClosure(bp, []string{"external-thing"}); len(got) != 0 {
+			t.Errorf("Expected unknown owner to yield empty closure, got %v", got)
+		}
+		if got := dependencyClosure(nil, []string{"dns-install"}); got != nil {
+			t.Errorf("Expected nil blueprint to yield nil closure, got %v", got)
+		}
+	})
+}
+
+func TestProvisioner_Converge(t *testing.T) {
+	newProv := func(mocks *ProvisionerTestMocks, notifier *fluxinfra.MockNotifier) *Provisioner {
+		p := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{KubernetesManager: mocks.KubernetesManager, Notifier: notifier})
+		p.secretPollInterval = time.Millisecond
+		return p
+	}
+
+	t.Run("DrivesNotReadyKustomizationsAndForcesStalledHelmReleases", func(t *testing.T) {
+		// Given a kustomization not Ready on the first read then Ready, owning a stalled HelmRelease
+		mocks := setupProvisionerMocks(t)
+		var reads int
+		mocks.KubernetesManager.GetKustomizationReadinessFunc = func(names []string) (map[string]bool, error) {
+			reads++
+			out := make(map[string]bool)
+			for _, n := range names {
+				out[n] = reads >= 2
+			}
+			return out, nil
+		}
+		mocks.KubernetesManager.GetHelmReleasesForKustomizationFunc = func(name, namespace string) ([]helmv2.HelmRelease, error) {
+			return []helmv2.HelmRelease{{
+				ObjectMeta: metav1.ObjectMeta{Namespace: "system-lb", Name: "hcloud-ccm"},
+				Status:     helmv2.HelmReleaseStatus{Conditions: []metav1.Condition{{Type: "Ready", Status: metav1.ConditionFalse}}},
+			}}, nil
+		}
+		notifier := fluxinfra.NewMockNotifier()
+		var reconciledK [][]string
+		var forcedRefs [][]fluxinfra.HelmReleaseRef
+		var forcedFlags []bool
+		notifier.ReconcileKustomizationsFunc = func(ctx context.Context, names []string) error {
+			reconciledK = append(reconciledK, names)
+			return nil
+		}
+		notifier.ReconcileHelmReleasesFunc = func(ctx context.Context, refs []fluxinfra.HelmReleaseRef, force bool) error {
+			forcedRefs = append(forcedRefs, refs)
+			forcedFlags = append(forcedFlags, force)
+			return nil
+		}
+		bp := &blueprintv1alpha1.Blueprint{Kustomizations: []blueprintv1alpha1.Kustomization{{Name: "lb-install"}}}
+
+		// When converging, it nudges the not-ready kustomization and force-reconciles its stalled HR, then
+		// returns once everything reports Ready
+		if err := newProv(mocks, notifier).Converge(context.Background(), bp, time.Second); err != nil {
+			t.Fatalf("expected no error, got %v", err)
+		}
+		if len(reconciledK) == 0 || !slices.Contains(reconciledK[0], "lb-install") {
+			t.Errorf("expected lb-install reconciled, got %v", reconciledK)
+		}
+		if len(forcedRefs) == 0 || forcedRefs[0][0].Name != "hcloud-ccm" || !forcedFlags[0] {
+			t.Errorf("expected stalled HR force-reconciled, got refs=%v force=%v", forcedRefs, forcedFlags)
+		}
+	})
+
+	t.Run("ReturnsImmediatelyWhenAllReady", func(t *testing.T) {
+		// Given everything already Ready
+		mocks := setupProvisionerMocks(t)
+		mocks.KubernetesManager.GetKustomizationReadinessFunc = func(names []string) (map[string]bool, error) {
+			out := make(map[string]bool)
+			for _, n := range names {
+				out[n] = true
+			}
+			return out, nil
+		}
+		notifier := fluxinfra.NewMockNotifier()
+		nudged := false
+		notifier.ReconcileKustomizationsFunc = func(ctx context.Context, names []string) error {
+			nudged = true
+			return nil
+		}
+		bp := &blueprintv1alpha1.Blueprint{Kustomizations: []blueprintv1alpha1.Kustomization{{Name: "lb-install"}}}
+
+		// When converging, it returns without nudging anything
+		if err := newProv(mocks, notifier).Converge(context.Background(), bp, time.Second); err != nil {
+			t.Fatalf("expected no error, got %v", err)
+		}
+		if nudged {
+			t.Error("expected no reconcile when everything is already Ready")
+		}
+	})
+
+	t.Run("LeavesHealthyHelmReleasesUntouched", func(t *testing.T) {
+		// Given a not-ready kustomization whose HelmRelease is nonetheless Ready
+		mocks := setupProvisionerMocks(t)
+		var reads int
+		mocks.KubernetesManager.GetKustomizationReadinessFunc = func(names []string) (map[string]bool, error) {
+			reads++
+			out := make(map[string]bool)
+			for _, n := range names {
+				out[n] = reads >= 2
+			}
+			return out, nil
+		}
+		mocks.KubernetesManager.GetHelmReleasesForKustomizationFunc = func(name, namespace string) ([]helmv2.HelmRelease, error) {
+			return []helmv2.HelmRelease{{
+				ObjectMeta: metav1.ObjectMeta{Namespace: "system-lb", Name: "healthy"},
+				Status:     helmv2.HelmReleaseStatus{Conditions: []metav1.Condition{{Type: "Ready", Status: metav1.ConditionTrue}}},
+			}}, nil
+		}
+		notifier := fluxinfra.NewMockNotifier()
+		forcedAny := false
+		notifier.ReconcileHelmReleasesFunc = func(ctx context.Context, refs []fluxinfra.HelmReleaseRef, force bool) error {
+			forcedAny = true
+			return nil
+		}
+		bp := &blueprintv1alpha1.Blueprint{Kustomizations: []blueprintv1alpha1.Kustomization{{Name: "lb-install"}}}
+
+		// When converging, a healthy HelmRelease is not force-reconciled
+		if err := newProv(mocks, notifier).Converge(context.Background(), bp, time.Second); err != nil {
+			t.Fatalf("expected no error, got %v", err)
+		}
+		if forcedAny {
+			t.Error("expected healthy HelmRelease left untouched")
+		}
+	})
+}
+
 func TestProvisioner_PlaceSecrets(t *testing.T) {
 	newProvisioner := func(mocks *ProvisionerTestMocks) *Provisioner {
 		return NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{
@@ -4543,7 +4811,7 @@ func TestProvisioner_PlaceSecrets(t *testing.T) {
 		}
 
 		// When placing the resolved secrets
-		if err := newProvisioner(mocks).PlaceSecrets(context.Background(), resolved(), true); err != nil {
+		if err := newProvisioner(mocks).PlaceSecrets(context.Background(), resolved(), nil, true); err != nil {
 			t.Fatalf("Expected no error, got %v", err)
 		}
 
@@ -4566,7 +4834,7 @@ func TestProvisioner_PlaceSecrets(t *testing.T) {
 		}
 
 		// When placing the resolved secrets
-		if err := newProvisioner(mocks).PlaceSecrets(context.Background(), resolved(), true); err != nil {
+		if err := newProvisioner(mocks).PlaceSecrets(context.Background(), resolved(), nil, true); err != nil {
 			t.Fatalf("Expected no error, got %v", err)
 		}
 
@@ -4588,7 +4856,7 @@ func TestProvisioner_PlaceSecrets(t *testing.T) {
 		}
 
 		// When placing the resolved secrets, the roll failure surfaces
-		err := newProvisioner(mocks).PlaceSecrets(context.Background(), resolved(), true)
+		err := newProvisioner(mocks).PlaceSecrets(context.Background(), resolved(), nil, true)
 		if err == nil || !strings.Contains(err.Error(), "rolling workloads for secret") {
 			t.Errorf("Expected roll-failure error, got %v", err)
 		}
@@ -4599,30 +4867,70 @@ func TestProvisioner_PlaceSecrets(t *testing.T) {
 		mocks.KubernetesManager.GetKustomizationInventoryFunc = func(name, namespace string) ([]kubernetes.InventoryEntry, error) {
 			return []kubernetes.InventoryEntry{{Kind: "Namespace", Name: "ns-a"}, {Kind: "Namespace", Name: "ns-b"}}, nil
 		}
-		err := newProvisioner(mocks).PlaceSecrets(context.Background(), resolved(), true)
+		err := newProvisioner(mocks).PlaceSecrets(context.Background(), resolved(), nil, true)
 		if err == nil || !strings.Contains(err.Error(), "multiple namespaces") {
 			t.Errorf("Expected multiple-namespaces error, got %v", err)
 		}
 	})
 
-	t.Run("TimesOutWhenNamespaceNeverAppears", func(t *testing.T) {
+	t.Run("AutoResolvesFromResourceNamespaceWhenNoNamespaceCreated", func(t *testing.T) {
+		// Given a kustomization that deploys into a namespace it does not itself create (no Namespace entry
+		// in its inventory, only a namespaced resource living in system-csi)
 		mocks := setupProvisionerMocks(t)
 		mocks.KubernetesManager.GetKustomizationInventoryFunc = func(name, namespace string) ([]kubernetes.InventoryEntry, error) {
-			return []kubernetes.InventoryEntry{{Kind: "ConfigMap", Name: "values-cdn"}}, nil
+			return []kubernetes.InventoryEntry{{Kind: "DaemonSet", Name: "hcloud-csi-node", Namespace: "system-csi"}}, nil
 		}
-		ctx, cancel := context.WithCancel(context.Background())
-		cancel()
-		err := newProvisioner(mocks).PlaceSecrets(ctx, resolved(), true)
-		if err == nil || !strings.Contains(err.Error(), "to create its namespace") {
-			t.Errorf("Expected namespace-timeout error, got %v", err)
+		var gotNs string
+		mocks.KubernetesManager.ApplySecretFunc = func(name, namespace string, stringData map[string]string, owner string) error {
+			gotNs = namespace
+			return nil
+		}
+
+		// When placing, the target is inferred from where its resources live
+		if err := newProvisioner(mocks).PlaceSecrets(context.Background(), resolved(), nil, true); err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		if gotNs != "system-csi" {
+			t.Errorf("Expected placement into system-csi, got %q", gotNs)
 		}
 	})
 
-	t.Run("PlacesIntoExplicitNamespaceOnMultiNamespaceSystem", func(t *testing.T) {
-		// Given a system that owns two namespaces and a secret naming one of them
+	t.Run("FailsFastWhenNothingToInferNamespaceFrom", func(t *testing.T) {
+		// Given a reconciled kustomization whose inventory holds only a cluster-scoped resource, so there is
+		// neither a created namespace nor a namespaced resource to infer a target from
 		mocks := setupProvisionerMocks(t)
 		mocks.KubernetesManager.GetKustomizationInventoryFunc = func(name, namespace string) ([]kubernetes.InventoryEntry, error) {
-			return []kubernetes.InventoryEntry{{Kind: "Namespace", Name: "system-pki"}, {Kind: "Namespace", Name: "system-pki-trust"}}, nil
+			return []kubernetes.InventoryEntry{{Kind: "ClusterRole", Name: "csi-role"}}, nil
+		}
+
+		// When placing, it fails immediately (not at the timeout) with the fix, even under a live context
+		err := newProvisioner(mocks).PlaceSecrets(context.Background(), resolved(), nil, true)
+		if err == nil || !strings.Contains(err.Error(), "creates no namespace and deploys no namespaced resources") {
+			t.Errorf("Expected fail-fast no-namespace error, got %v", err)
+		}
+	})
+
+	t.Run("TimesOutWhileInventoryStillEmpty", func(t *testing.T) {
+		// Given a kustomization that has not reconciled yet (empty inventory)
+		mocks := setupProvisionerMocks(t)
+		mocks.KubernetesManager.GetKustomizationInventoryFunc = func(name, namespace string) ([]kubernetes.InventoryEntry, error) {
+			return nil, nil
+		}
+		ctx, cancel := context.WithCancel(context.Background())
+		cancel()
+
+		// When placing, it keeps waiting for the namespace and surfaces the timeout when the context ends
+		err := newProvisioner(mocks).PlaceSecrets(ctx, resolved(), nil, true)
+		if err == nil || !strings.Contains(err.Error(), "before placing secrets") || !strings.Contains(err.Error(), "cdn-install") {
+			t.Errorf("Expected namespace-timeout error naming the pending secret, got %v", err)
+		}
+	})
+
+	t.Run("PlacesIntoExplicitNamespaceThatExists", func(t *testing.T) {
+		// Given a secret naming its namespace explicitly, and that namespace exists in the cluster
+		mocks := setupProvisionerMocks(t)
+		mocks.KubernetesManager.NamespaceExistsFunc = func(name string) (bool, error) {
+			return name == "system-pki", nil
 		}
 		var gotNs string
 		mocks.KubernetesManager.ApplySecretFunc = func(name, namespace string, stringData map[string]string, owner string) error {
@@ -4631,8 +4939,8 @@ func TestProvisioner_PlaceSecrets(t *testing.T) {
 		}
 		explicit := ResolvedSecrets{"pki-install": {"hetzner-dns": {Namespaces: []string{"system-pki"}, Data: map[string]string{"token": "resolved"}}}}
 
-		// When placing, the named namespace disambiguates rather than failing closed
-		if err := newProvisioner(mocks).PlaceSecrets(context.Background(), explicit, true); err != nil {
+		// When placing, the named namespace is used as soon as it exists, without consulting inventory
+		if err := newProvisioner(mocks).PlaceSecrets(context.Background(), explicit, nil, true); err != nil {
 			t.Fatalf("Expected no error, got %v", err)
 		}
 		if gotNs != "system-pki" {
@@ -4640,11 +4948,151 @@ func TestProvisioner_PlaceSecrets(t *testing.T) {
 		}
 	})
 
-	t.Run("FansOutToEveryNamedNamespace", func(t *testing.T) {
-		// Given a secret naming two namespaces both created by the owning kustomization
+	t.Run("PlacesIntoExplicitNamespaceCreatedByAnotherKustomization", func(t *testing.T) {
+		// Given a secret owned by lb-install but naming system-lb, which a different kustomization created
+		// (lb-install's own inventory holds no namespace)
 		mocks := setupProvisionerMocks(t)
 		mocks.KubernetesManager.GetKustomizationInventoryFunc = func(name, namespace string) ([]kubernetes.InventoryEntry, error) {
-			return []kubernetes.InventoryEntry{{Kind: "Namespace", Name: "system-pki"}, {Kind: "Namespace", Name: "system-dns"}}, nil
+			return []kubernetes.InventoryEntry{}, nil
+		}
+		mocks.KubernetesManager.NamespaceExistsFunc = func(name string) (bool, error) {
+			return name == "system-lb", nil
+		}
+		var gotNs string
+		mocks.KubernetesManager.ApplySecretFunc = func(name, namespace string, stringData map[string]string, owner string) error {
+			gotNs = namespace
+			return nil
+		}
+		explicit := ResolvedSecrets{"lb-install": {"hcloud": {Namespaces: []string{"system-lb"}, Data: map[string]string{"token": "resolved"}}}}
+
+		// When placing, existence — not the owning kustomization's inventory — gates it, so it is not blocked
+		if err := newProvisioner(mocks).PlaceSecrets(context.Background(), explicit, nil, false); err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		if gotNs != "system-lb" {
+			t.Errorf("Expected placement into system-lb, got %q", gotNs)
+		}
+	})
+
+	t.Run("PlacesReadySecretWithoutBlockingOnAPendingOne", func(t *testing.T) {
+		// Given two secrets: one whose namespace exists, one whose namespace does not — the deadlock case
+		// where a serial placer would block on the pending one and never place the ready one.
+		mocks := setupProvisionerMocks(t)
+		mocks.KubernetesManager.NamespaceExistsFunc = func(name string) (bool, error) {
+			return name == "system-lb", nil // system-dns never appears
+		}
+		placed := map[string]bool{}
+		mocks.KubernetesManager.ApplySecretFunc = func(name, namespace string, stringData map[string]string, owner string) error {
+			placed[namespace] = true
+			return nil
+		}
+		secrets := ResolvedSecrets{
+			"lb-install":  {"hcloud": {Namespaces: []string{"system-lb"}, Data: map[string]string{"token": "t"}}},
+			"dns-install": {"hetzner-dns": {Namespaces: []string{"system-dns"}, Data: map[string]string{"token": "t"}}},
+		}
+		ctx, cancel := context.WithCancel(context.Background())
+		cancel()
+
+		// When placing, the ready secret lands even though the other never resolves, and the timeout names
+		// only the one still pending
+		err := newProvisioner(mocks).PlaceSecrets(ctx, secrets, nil, false)
+		if !placed["system-lb"] {
+			t.Error("Expected the ready secret to be placed into system-lb despite a pending peer")
+		}
+		if err == nil || !strings.Contains(err.Error(), "system-dns") || strings.Contains(err.Error(), "system-lb") {
+			t.Errorf("Expected timeout naming only the pending system-dns, got %v", err)
+		}
+	})
+
+	t.Run("PlacesSecretOnceItsNamespaceAppears", func(t *testing.T) {
+		// Given a secret whose namespace does not exist on the first poll but appears on a later one
+		mocks := setupProvisionerMocks(t)
+		var checks int
+		mocks.KubernetesManager.NamespaceExistsFunc = func(name string) (bool, error) {
+			checks++
+			return checks >= 3, nil // absent, absent, then created
+		}
+		var gotNs string
+		mocks.KubernetesManager.ApplySecretFunc = func(name, namespace string, stringData map[string]string, owner string) error {
+			gotNs = namespace
+			return nil
+		}
+		secrets := ResolvedSecrets{"dns-install": {"hetzner-dns": {Namespaces: []string{"system-dns"}, Data: map[string]string{"token": "t"}}}}
+
+		prov := newProvisioner(mocks)
+		prov.secretPollInterval = time.Millisecond
+
+		// When placing, it keeps polling and places the secret the moment its namespace appears
+		if err := prov.PlaceSecrets(context.Background(), secrets, nil, false); err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		if gotNs != "system-dns" {
+			t.Errorf("Expected placement into system-dns once it appeared, got %q", gotNs)
+		}
+	})
+
+	t.Run("ReconcilesOwnerAfterPlacingItsSecret", func(t *testing.T) {
+		// Given a secret whose namespace exists, so it is placed on the first round
+		mocks := setupProvisionerMocks(t)
+		mocks.KubernetesManager.NamespaceExistsFunc = func(name string) (bool, error) { return name == "system-lb", nil }
+		mocks.KubernetesManager.ApplySecretFunc = func(name, namespace string, stringData map[string]string, owner string) error { return nil }
+		notifier := fluxinfra.NewMockNotifier()
+		var reconciled [][]string
+		notifier.ReconcileKustomizationsFunc = func(ctx context.Context, names []string) error {
+			reconciled = append(reconciled, names)
+			return nil
+		}
+		prov := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{KubernetesManager: mocks.KubernetesManager, Notifier: notifier})
+		secrets := ResolvedSecrets{"lb-install": {"hcloud": {Namespaces: []string{"system-lb"}, Data: map[string]string{"token": "t"}}}}
+		bp := &blueprintv1alpha1.Blueprint{Kustomizations: []blueprintv1alpha1.Kustomization{{Name: "lb-install"}}}
+
+		// When placing, the owning kustomization is reconciled immediately so it picks up its secret
+		if err := prov.PlaceSecrets(context.Background(), secrets, bp, false); err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		if len(reconciled) == 0 || !slices.Contains(reconciled[0], "lb-install") {
+			t.Errorf("Expected lb-install to be reconciled after placement, got %v", reconciled)
+		}
+	})
+
+	t.Run("ReconcilesDependencyClosureWhilePending", func(t *testing.T) {
+		// Given a pending secret whose namespace never appears, and a dependency chain gating it
+		mocks := setupProvisionerMocks(t)
+		mocks.KubernetesManager.NamespaceExistsFunc = func(name string) (bool, error) { return false, nil }
+		notifier := fluxinfra.NewMockNotifier()
+		var reconciled [][]string
+		notifier.ReconcileKustomizationsFunc = func(ctx context.Context, names []string) error {
+			reconciled = append(reconciled, names)
+			return nil
+		}
+		prov := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{KubernetesManager: mocks.KubernetesManager, Notifier: notifier})
+		secrets := ResolvedSecrets{"dns-install": {"hetzner-dns": {Namespaces: []string{"system-dns"}, Data: map[string]string{"token": "t"}}}}
+		bp := &blueprintv1alpha1.Blueprint{Kustomizations: []blueprintv1alpha1.Kustomization{
+			{Name: "dns-install", DependsOn: []string{"gateway-install"}},
+			{Name: "gateway-install", DependsOn: []string{"lb-install"}},
+			{Name: "lb-install"},
+		}}
+		ctx, cancel := context.WithCancel(context.Background())
+		cancel()
+
+		// When placing, the whole dependency chain gating the pending secret is nudged to reconcile
+		_ = prov.PlaceSecrets(ctx, secrets, bp, false)
+		if len(reconciled) == 0 {
+			t.Fatalf("Expected a dependency-closure reconcile, got none")
+		}
+		got := reconciled[0]
+		for _, want := range []string{"dns-install", "gateway-install", "lb-install"} {
+			if !slices.Contains(got, want) {
+				t.Errorf("Expected closure to include %q, got %v", want, got)
+			}
+		}
+	})
+
+	t.Run("FansOutToEveryNamedNamespace", func(t *testing.T) {
+		// Given a secret naming two namespaces that both exist in the cluster
+		mocks := setupProvisionerMocks(t)
+		mocks.KubernetesManager.NamespaceExistsFunc = func(name string) (bool, error) {
+			return name == "system-pki" || name == "system-dns", nil
 		}
 		placed := map[string]bool{}
 		mocks.KubernetesManager.ApplySecretFunc = func(name, namespace string, stringData map[string]string, owner string) error {
@@ -4654,7 +5102,7 @@ func TestProvisioner_PlaceSecrets(t *testing.T) {
 		explicit := ResolvedSecrets{"pki-install": {"acme-dns": {Namespaces: []string{"system-pki", "system-dns"}, Data: map[string]string{"token": "resolved"}}}}
 
 		// When placing, the same secret lands in each named namespace
-		if err := newProvisioner(mocks).PlaceSecrets(context.Background(), explicit, true); err != nil {
+		if err := newProvisioner(mocks).PlaceSecrets(context.Background(), explicit, nil, true); err != nil {
 			t.Fatalf("Expected no error, got %v", err)
 		}
 		if !placed["system-pki"] || !placed["system-dns"] || len(placed) != 2 {
@@ -4662,18 +5110,18 @@ func TestProvisioner_PlaceSecrets(t *testing.T) {
 		}
 	})
 
-	t.Run("TimesOutNamingAnUncreatedExplicitNamespace", func(t *testing.T) {
-		// Given a named namespace the owning kustomization never creates
+	t.Run("TimesOutNamingANonexistentExplicitNamespace", func(t *testing.T) {
+		// Given a named namespace that does not exist in the cluster
 		mocks := setupProvisionerMocks(t)
-		mocks.KubernetesManager.GetKustomizationInventoryFunc = func(name, namespace string) ([]kubernetes.InventoryEntry, error) {
-			return []kubernetes.InventoryEntry{{Kind: "Namespace", Name: "system-pki-trust"}}, nil
+		mocks.KubernetesManager.NamespaceExistsFunc = func(name string) (bool, error) {
+			return false, nil
 		}
 		explicit := ResolvedSecrets{"pki-install": {"hetzner-dns": {Namespaces: []string{"system-pki"}, Data: map[string]string{"token": "resolved"}}}}
 		ctx, cancel := context.WithCancel(context.Background())
 		cancel()
 
 		// When placing, it fails naming the missing namespace rather than placing by guessing
-		err := newProvisioner(mocks).PlaceSecrets(ctx, explicit, true)
+		err := newProvisioner(mocks).PlaceSecrets(ctx, explicit, nil, true)
 		if err == nil || !strings.Contains(err.Error(), "system-pki") || !strings.Contains(err.Error(), "before placing secrets") {
 			t.Errorf("Expected missing-namespace timeout error naming system-pki, got %v", err)
 		}
@@ -4696,7 +5144,7 @@ func TestProvisioner_PlaceSecrets(t *testing.T) {
 
 		// When placing an empty set, nothing is placed (no inventory lookups) but reconcile still runs
 		// with an empty desired set, so any previously CLI-placed secret is reclaimed
-		if err := newProvisioner(mocks).PlaceSecrets(context.Background(), ResolvedSecrets{}, true); err != nil {
+		if err := newProvisioner(mocks).PlaceSecrets(context.Background(), ResolvedSecrets{}, nil, true); err != nil {
 			t.Fatalf("Expected no error, got %v", err)
 		}
 		if queried {
@@ -4708,10 +5156,10 @@ func TestProvisioner_PlaceSecrets(t *testing.T) {
 	})
 
 	t.Run("ReconcilesFanOutPlacementIntoDesiredSet", func(t *testing.T) {
-		// Given a secret that fans out into two namespaces its kustomization created
+		// Given a secret that fans out into two namespaces that exist in the cluster
 		mocks := setupProvisionerMocks(t)
-		mocks.KubernetesManager.GetKustomizationInventoryFunc = func(name, namespace string) ([]kubernetes.InventoryEntry, error) {
-			return []kubernetes.InventoryEntry{{Kind: "Namespace", Name: "system-pki"}, {Kind: "Namespace", Name: "system-dns"}}, nil
+		mocks.KubernetesManager.NamespaceExistsFunc = func(name string) (bool, error) {
+			return name == "system-pki" || name == "system-dns", nil
 		}
 		var gotDesired map[string]map[string]bool
 		mocks.KubernetesManager.PruneSecretsFunc = func(desired map[string]map[string]bool) error {
@@ -4721,7 +5169,7 @@ func TestProvisioner_PlaceSecrets(t *testing.T) {
 		fanned := ResolvedSecrets{"pki-install": {"acme-dns": {Namespaces: []string{"system-pki", "system-dns"}, Data: map[string]string{"token": "resolved"}}}}
 
 		// When placing, the desired set handed to PruneSecrets names every (namespace, secret) placed
-		if err := newProvisioner(mocks).PlaceSecrets(context.Background(), fanned, true); err != nil {
+		if err := newProvisioner(mocks).PlaceSecrets(context.Background(), fanned, nil, true); err != nil {
 			t.Fatalf("Expected no error, got %v", err)
 		}
 		if !gotDesired["system-pki"]["acme-dns"] || !gotDesired["system-dns"]["acme-dns"] {
@@ -4740,7 +5188,7 @@ func TestProvisioner_PlaceSecrets(t *testing.T) {
 		}
 
 		// When placing, the prune failure surfaces
-		err := newProvisioner(mocks).PlaceSecrets(context.Background(), resolved(), true)
+		err := newProvisioner(mocks).PlaceSecrets(context.Background(), resolved(), nil, true)
 		if err == nil || !strings.Contains(err.Error(), "pruning orphaned secrets") {
 			t.Errorf("Expected prune-failure error, got %v", err)
 		}
@@ -4764,7 +5212,7 @@ func TestProvisioner_PlaceSecrets(t *testing.T) {
 		}
 
 		// When placing with prune=false, the secret is placed but reclaim never runs
-		if err := newProvisioner(mocks).PlaceSecrets(context.Background(), resolved(), false); err != nil {
+		if err := newProvisioner(mocks).PlaceSecrets(context.Background(), resolved(), nil, false); err != nil {
 			t.Fatalf("Expected no error, got %v", err)
 		}
 		if placedName != "cloudflare-creds" {

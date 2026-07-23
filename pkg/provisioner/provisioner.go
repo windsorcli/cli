@@ -13,6 +13,7 @@ import (
 	"strings"
 	"time"
 
+	helmv2 "github.com/fluxcd/helm-controller/api/v2"
 	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
 	"github.com/windsorcli/cli/pkg/composer/blueprint"
 	"github.com/windsorcli/cli/pkg/constants"
@@ -49,6 +50,10 @@ type Provisioner struct {
 	projectRoot   string
 	configRoot    string
 	runtime       *runtime.Runtime
+
+	// secretPollInterval overrides how often PlaceSecrets re-checks for a pending secret's namespace;
+	// zero uses constants.DefaultKustomizationWaitPollInterval. Set small in tests to avoid real waits.
+	secretPollInterval time.Duration
 
 	TerraformStack       terraforminfra.Stack
 	FluxStack            fluxinfra.Stack
@@ -875,12 +880,15 @@ func (i *Provisioner) PlanKustomization(blueprint *blueprintv1alpha1.Blueprint, 
 	return nil
 }
 
-// ApplyKustomize applies a single kustomization identified by componentID to the cluster.
-// It finds the named kustomization in the blueprint, filters the blueprint to that one
-// kustomization (preserving sources and repository for correct source creation), then
-// delegates to the kubernetes manager. Returns an error if the blueprint is nil, the
-// kubernetes manager is not configured, the kustomization is not found, the kustomization
-// is marked destroyOnly, or the apply fails.
+// ApplyKustomize applies a single kustomization identified by componentID to the cluster and places its
+// declared secrets. It finds the named kustomization in the blueprint, filters the blueprint to that one
+// kustomization (preserving sources and repository for correct source creation), resolves that
+// kustomization's secrets, applies it via the kubernetes manager, then places the resolved secrets into
+// the namespace it creates — scoped to the one kustomization so placement never blocks on a namespace
+// another kustomization would create. Secret pruning is off, since a single-kustomization apply is
+// additive. Returns an error if the blueprint is nil, the kubernetes manager is not configured, the
+// kustomization is not found, the kustomization is marked destroyOnly, or resolution, apply, or placement
+// fails.
 func (i *Provisioner) ApplyKustomize(ctx context.Context, blueprint *blueprintv1alpha1.Blueprint, componentID string) error {
 	if blueprint == nil {
 		return fmt.Errorf("blueprint not provided")
@@ -909,6 +917,11 @@ func (i *Provisioner) ApplyKustomize(ctx context.Context, blueprint *blueprintv1
 	filtered := *blueprint
 	filtered.Kustomizations = []blueprintv1alpha1.Kustomization{*found}
 
+	resolvedSecrets, err := i.ResolveSecrets(&filtered)
+	if err != nil {
+		return fmt.Errorf("error resolving secrets: %w", err)
+	}
+
 	if err := tui.WithProgress(fmt.Sprintf("Applying kustomization %s", componentID), func() error {
 		if err := i.KubernetesManager.ApplyBlueprint(&filtered, i.fluxNamespace()); err != nil {
 			return err
@@ -919,26 +932,35 @@ func (i *Provisioner) ApplyKustomize(ctx context.Context, blueprint *blueprintv1
 		return fmt.Errorf("failed to apply kustomization %s: %w", componentID, err)
 	}
 
+	if err := i.PlaceSecrets(ctx, resolvedSecrets, &filtered, false); err != nil {
+		return fmt.Errorf("error placing secrets: %w", err)
+	}
+
 	return nil
 }
 
-// ApplyKustomizeAll applies all non-destroyOnly kustomizations in the blueprint to the cluster.
-// Delegates to Install, which creates the namespace, applies sources, and applies each
-// kustomization in order. Returns an error if the blueprint is nil, the kubernetes manager
-// is not configured, or the apply fails.
+// ApplyKustomizeAll applies all non-destroyOnly kustomizations in the blueprint to the cluster and places
+// their declared secrets. Delegates to Install with pruning off, since applying the full set is additive
+// here — kustomization and secret pruning are separate, explicitly-flagged steps. Returns an error if the
+// blueprint is nil, the kubernetes manager is not configured, or the apply or placement fails.
 func (i *Provisioner) ApplyKustomizeAll(ctx context.Context, blueprint *blueprintv1alpha1.Blueprint) error {
-	return i.Install(ctx, blueprint)
+	return i.Install(ctx, blueprint, false)
 }
 
-// Install orchestrates the high-level kustomization installation process from the blueprint.
-// It initializes the kubernetes manager and applies all blueprint resources in order: creates namespace,
-// applies source repositories, and applies all kustomizations. After the apply completes it fires a
-// best-effort flux webhook notification inside the same progress scope so flux reconciles sources
-// immediately instead of waiting for the next scheduled interval; notification failures never abort
-// Install. The ctx parameter is threaded into Notify so a cancelled parent context (e.g. Ctrl+C)
-// tears down the port-forward and HTTP POST immediately instead of waiting for notifyTimeout.
-// The blueprint must be provided. Returns an error if the apply step fails.
-func (i *Provisioner) Install(ctx context.Context, blueprint *blueprintv1alpha1.Blueprint) error {
+// Install applies the blueprint's kustomization layer and places its declared secrets as one unit, so
+// every command that installs kustomizations also materializes their secrets rather than re-wiring that
+// sequence itself. It first resolves the blueprint's declared Secrets to plaintext, failing before any
+// cluster mutation on a misconfigured secret; then applies all blueprint resources in order — namespace,
+// source repositories, and each kustomization — firing a best-effort flux webhook notification inside the
+// same progress scope so flux reconciles immediately instead of at the next interval (notification
+// failures never abort the install); then places the resolved secrets into the namespaces their owning
+// kustomizations create, gating each on namespace creation rather than kustomization readiness so a
+// consumer whose readiness depends on its secret cannot deadlock placement. prune reclaims CLI-placed
+// secrets this context no longer declares, mirroring kustomization prune (on for upgrade and apply
+// --prune, off otherwise). ctx is threaded into Notify and placement so a cancelled parent context
+// (e.g. Ctrl+C) tears down promptly. The blueprint must be provided. Returns an error if resolution,
+// apply, or placement fails.
+func (i *Provisioner) Install(ctx context.Context, blueprint *blueprintv1alpha1.Blueprint, prune bool) error {
 	if blueprint == nil {
 		return fmt.Errorf("blueprint not provided")
 	}
@@ -947,16 +969,32 @@ func (i *Provisioner) Install(ctx context.Context, blueprint *blueprintv1alpha1.
 		return fmt.Errorf("kubernetes manager not configured")
 	}
 
-	blueprint = withCrdLayer(blueprint)
+	resolvedSecrets, err := i.ResolveSecrets(blueprint)
+	if err != nil {
+		return fmt.Errorf("error resolving secrets: %w", err)
+	}
+
+	applied := withCrdLayer(blueprint)
 
 	if err := tui.WithProgress("Installing blueprint resources", func() error {
-		if err := i.KubernetesManager.ApplyBlueprint(blueprint, i.fluxNamespace()); err != nil {
+		if err := i.KubernetesManager.ApplyBlueprint(applied, i.fluxNamespace()); err != nil {
 			return err
 		}
-		_ = i.Notify(ctx, blueprint)
+		_ = i.Notify(ctx, applied)
 		return nil
 	}); err != nil {
 		return fmt.Errorf("failed to apply blueprint: %w", err)
+	}
+
+	if err := i.PlaceSecrets(ctx, resolvedSecrets, applied, prune); err != nil {
+		return fmt.Errorf("error placing secrets: %w", err)
+	}
+
+	// Actively drive the just-applied kustomizations toward Ready — nudging any that are stuck and forcing
+	// HelmReleases that stalled (e.g. one that failed to install before its secret was placed) — for a
+	// bounded window, returning early once all are Ready. Best-effort: --wait paths still gate via Wait.
+	if err := i.Converge(ctx, applied, constants.DefaultConvergeTimeout); err != nil {
+		return fmt.Errorf("error reconciling resources: %w", err)
 	}
 
 	return nil
@@ -1002,13 +1040,13 @@ type ResolvedSecret struct {
 // ResolveSecrets resolves every flux system's declared Secrets to plaintext ahead of Install, so a
 // misconfigured secret fails the command before anything is applied to the cluster. For each compiled
 // kustomization carrying Secrets it evaluates each data reference (the evaluator registers resolved
-// values with the shell scrubber). A reference is required unless it carries a "??" default: a required
-// reference (e.g. "${x}") that resolves to nil or empty fails closed, since a populated-but-unresolvable
-// or missing required secret is misconfiguration. An author makes a key optional by adding a ?? default;
-// an optional key that resolves empty is omitted, and a secret whose keys all resolve empty is not
-// created at all, so an unconfigured optional secret leaves no empty Secret behind. The result is keyed
-// by owning kustomization for PlaceSecrets to materialize post-Install; it is empty when no kustomization
-// declares Secrets.
+// values with the shell scrubber). A reference that resolves to nil — the value is absent from
+// configuration — is treated as unconfigured and its key is omitted, since a secret the user never set
+// is not misconfiguration. A reference that resolves to an empty string fails closed unless it carries a
+// "??" default, since a present-but-blank value is misconfiguration; adding a ?? default makes such a
+// key optional and omits it. A secret whose keys all resolve away is not created at all, so an
+// unconfigured optional secret leaves no empty Secret behind. The result is keyed by owning kustomization
+// for PlaceSecrets to materialize post-Install; it is empty when no kustomization declares Secrets.
 func (i *Provisioner) ResolveSecrets(blueprint *blueprintv1alpha1.Blueprint) (ResolvedSecrets, error) {
 	if blueprint == nil {
 		return nil, fmt.Errorf("blueprint not provided")
@@ -1028,7 +1066,7 @@ func (i *Provisioner) ResolveSecrets(blueprint *blueprintv1alpha1.Blueprint) (Re
 					return nil, fmt.Errorf("resolving secret %q key %q: %w", secretName, key, err)
 				}
 				if value == nil {
-					return nil, fmt.Errorf("resolving secret %q key %q: reference %q resolved to nil", secretName, key, ref)
+					continue
 				}
 				s := fmt.Sprint(value)
 				if s == "" {
@@ -1053,56 +1091,132 @@ func (i *Provisioner) ResolveSecrets(blueprint *blueprintv1alpha1.Blueprint) (Re
 	return resolved, nil
 }
 
-// PlaceSecrets materializes secrets that ResolveSecrets produced into the namespace(s) each owning
-// kustomization created, and — when prune is set — reconciles by deleting the CLI-placed secrets this
-// context no longer wants. It runs after Install; for each secret it resolves the target namespace(s) —
-// either the ones the entry named or, when it named none, the single namespace the kustomization created
-// (failing closed on more than one so a secret is never placed by guessing) — applies an Opaque Secret
-// into each, and rolls the workloads in that namespace that consume it, keyed by a content digest, so a
-// changed value reaches running pods rather than sitting stale until the next unrelated restart. It
-// self-gates on the target namespace appearing rather than requiring a global wait. When prune is set it
-// records every (namespace, secret) it placed and hands that desired set to PruneSecrets, which reclaims
-// any CLI-placed secret not in it — a secret dropped from a fan-out list, a secret removed from a system,
-// or every one when the blueprint declares no secrets. Pruning is gated so secret reclaim mirrors
-// Kustomization prune: on under apply's --prune and upgrade, off for the place-only flows. When no
-// kubernetes manager is configured it is a no-op only if there is also nothing to place.
-func (i *Provisioner) PlaceSecrets(ctx context.Context, resolved ResolvedSecrets, prune bool) error {
+// pendingPlacement is one secret awaiting its target namespace during PlaceSecrets.
+type pendingPlacement struct {
+	kustomization string
+	secretName    string
+	secret        ResolvedSecret
+}
+
+// PlaceSecrets materializes secrets that ResolveSecrets produced into their target namespace(s), and —
+// when prune is set — reconciles by deleting the CLI-placed secrets this context no longer wants. It runs
+// after Install. Placement is not serialized: on each round it places every secret whose target namespace
+// already exists and defers the rest, then polls, so a secret whose namespace is ready is never blocked
+// behind one whose namespace is not. This matters because kustomizations commonly depend on a secret the
+// CLI places (e.g. a cloud-controller-manager needs its token before nodes initialize and downstream
+// namespaces appear); placing the ready ones first breaks that cycle rather than deadlocking on a namespace
+// that only appears once an earlier secret is placed. For each secret it resolves the target namespace(s) —
+// the ones the entry named (gated on those existing in the cluster) or, when it named none, the namespace
+// its owning kustomization creates or deploys into (failing closed on more than one so a secret is never
+// placed by guessing) — applies an Opaque Secret into each, and rolls the workloads there that consume it,
+// keyed by a content digest, so a changed value reaches running pods rather than sitting stale. It surfaces
+// a single progress line naming what it is placing or waiting on, and times out naming the secrets whose
+// namespaces never appeared. As it places a secret it requests an immediate flux reconcile of the owning
+// kustomization (the secret is what that kustomization was waiting on), and while waiting it nudges the
+// dependency closure of the still-pending owners on a throttle, so a chain unblocked by a placement
+// advances in seconds rather than one flux interval per hop. When prune is set it records every
+// (namespace, secret) it placed and hands
+// that desired set to PruneSecrets, which reclaims any CLI-placed secret not in it. Pruning is gated so
+// secret reclaim mirrors Kustomization prune: on under apply's --prune and upgrade, off for the place-only
+// flows. When no kubernetes manager is configured it is a no-op only if there is also nothing to place.
+func (i *Provisioner) PlaceSecrets(ctx context.Context, resolved ResolvedSecrets, blueprint *blueprintv1alpha1.Blueprint, prune bool) error {
 	if i.KubernetesManager == nil {
 		if len(resolved) == 0 {
 			return nil
 		}
 		return fmt.Errorf("kubernetes manager not configured")
 	}
-
-	placed := make(map[string]map[string]bool)
-	for kustomizationName, secrets := range resolved {
-		for secretName, secret := range secrets {
-			namespaces, err := i.resolveSecretNamespaces(ctx, kustomizationName, secret.Namespaces)
-			if err != nil {
-				return err
-			}
-			for _, namespace := range namespaces {
-				if err := i.KubernetesManager.ApplySecret(secretName, namespace, secret.Data, kustomizationName); err != nil {
-					return fmt.Errorf("applying secret %q to namespace %q: %w", secretName, namespace, err)
-				}
-				if err := i.KubernetesManager.RollWorkloadsForSecret(ctx, namespace, secretName, secretDigest(secret.Data)); err != nil {
-					return fmt.Errorf("rolling workloads for secret %q in namespace %q: %w", secretName, namespace, err)
-				}
-				if placed[namespace] == nil {
-					placed[namespace] = make(map[string]bool)
-				}
-				placed[namespace][secretName] = true
-			}
-		}
-	}
-
-	if !prune {
+	if len(resolved) == 0 && !prune {
 		return nil
 	}
-	if err := i.KubernetesManager.PruneSecrets(placed); err != nil {
-		return fmt.Errorf("pruning orphaned secrets: %w", err)
-	}
-	return nil
+
+	return tui.WithProgress("Placing secrets", func() error {
+		pending := make([]pendingPlacement, 0)
+		for kustomizationName, secrets := range resolved {
+			for secretName, secret := range secrets {
+				pending = append(pending, pendingPlacement{kustomizationName, secretName, secret})
+			}
+		}
+
+		placed := make(map[string]map[string]bool)
+		pollInterval := i.secretPollInterval
+		if pollInterval == 0 {
+			pollInterval = constants.DefaultKustomizationWaitPollInterval
+		}
+		waitCtx, cancel := context.WithTimeout(ctx, constants.DefaultFluxKustomizationInstallTimeout)
+		defer cancel()
+
+		stuckRounds := 0
+		for len(pending) > 0 {
+			var stillPending []pendingPlacement
+			placedOwners := make(map[string]struct{})
+			for _, p := range pending {
+				namespaces, ready, err := i.trySecretNamespaces(p.kustomization, p.secret.Namespaces)
+				if err != nil {
+					return err
+				}
+				if !ready {
+					stillPending = append(stillPending, p)
+					continue
+				}
+				tui.Update(fmt.Sprintf("Placing secrets: %s (%s)", p.secretName, p.kustomization))
+				for _, namespace := range namespaces {
+					if err := i.KubernetesManager.ApplySecret(p.secretName, namespace, p.secret.Data, p.kustomization); err != nil {
+						return fmt.Errorf("applying secret %q to namespace %q: %w", p.secretName, namespace, err)
+					}
+					if err := i.KubernetesManager.RollWorkloadsForSecret(ctx, namespace, p.secretName, secretDigest(p.secret.Data)); err != nil {
+						return fmt.Errorf("rolling workloads for secret %q in namespace %q: %w", p.secretName, namespace, err)
+					}
+					if placed[namespace] == nil {
+						placed[namespace] = make(map[string]bool)
+					}
+					placed[namespace][p.secretName] = true
+				}
+				placedOwners[p.kustomization] = struct{}{}
+			}
+			pending = stillPending
+
+			// A secret we just placed is what its owner was waiting on — reconcile that owner now so it
+			// applies and re-checks readiness immediately, and force any HelmRelease it owns that had
+			// stalled for lack of the secret, rather than waiting on its scheduled interval.
+			if len(placedOwners) > 0 {
+				owners := sortedStringKeys(placedOwners)
+				i.reconcileKustomizations(ctx, owners)
+				i.forceStalledHelmReleases(ctx, owners)
+				stuckRounds = 0
+			}
+			if len(pending) == 0 {
+				break
+			}
+			// No placement this round: what's left is gated behind kustomizations that have not created
+			// their namespace yet. Nudge the dependency closure of those owners — only the chains that gate
+			// what remains, and throttled — so the DAG advances in seconds rather than one flux interval per
+			// hop. Reconciling a not-yet-Ready dependency is a harmless no-op, so the closure walks Ready
+			// bottom-up across successive nudges.
+			if len(placedOwners) == 0 {
+				if stuckRounds%reconcileEveryStuckRounds == 0 {
+					closure := dependencyClosure(blueprint, pendingOwners(pending))
+					i.reconcileKustomizations(ctx, closure)
+					i.forceStalledHelmReleases(ctx, closure)
+				}
+				stuckRounds++
+			}
+			tui.Update(fmt.Sprintf("Placing secrets: waiting on %s", pendingSummary(pending)))
+			select {
+			case <-waitCtx.Done():
+				return fmt.Errorf("timed out waiting on namespaces before placing secrets: %s", pendingSummary(pending))
+			case <-time.After(pollInterval):
+			}
+		}
+
+		if !prune {
+			return nil
+		}
+		if err := i.KubernetesManager.PruneSecrets(placed); err != nil {
+			return fmt.Errorf("pruning orphaned secrets: %w", err)
+		}
+		return nil
+	})
 }
 
 // secretDigest returns a stable content digest for a secret's resolved data, used to roll consuming
@@ -1125,63 +1239,289 @@ func secretDigest(stringData map[string]string) string {
 	return hex.EncodeToString(h.Sum(nil))
 }
 
-// resolveSecretNamespaces determines which namespace(s) a secret is placed into, gating on each target
-// being provably created by the owning kustomization before returning. When explicit names the target(s)
-// it polls the kustomization's Flux inventory until every named namespace has been applied, so a secret
-// is never placed into a namespace the owning kustomization did not create — a typo or a namespace owned
-// by another kustomization surfaces as the bounded timeout naming what is missing. When explicit is empty
-// it auto-resolves the single namespace the kustomization creates, failing closed on more than one
-// (ambiguous — the author must name the target via `namespaces:`). Gating on the namespace being applied
-// — not on the whole kustomization being Ready — places the secret the moment its namespace exists, so a
-// consumer recovers promptly and a kustomization whose readiness depends on the secret can never deadlock
-// placement. Flux records inventory only after a successful apply, so a namespace present there is really
-// applied.
-func (i *Provisioner) resolveSecretNamespaces(ctx context.Context, kustomizationName string, explicit []string) ([]string, error) {
-	waitCtx, cancel := context.WithTimeout(ctx, constants.DefaultFluxKustomizationInstallTimeout)
-	defer cancel()
-	for {
-		entries, err := i.KubernetesManager.GetKustomizationInventory(kustomizationName, i.fluxNamespace())
+// trySecretNamespaces reports where a secret should be placed and whether every target namespace exists
+// yet, without blocking, so PlaceSecrets can place the ready ones and poll for the rest. When the entry
+// names namespaces explicitly they are the targets, gated on each existing in the cluster regardless of
+// which kustomization created it — the author named the target, so a secret whose namespace is created by a
+// different kustomization is not blocked on the owning kustomization's inventory. When it names none the
+// target is auto-resolved from the owning kustomization's Flux inventory: the namespace it creates, or —
+// when it creates none — the single namespace its resources are deployed into. Auto-resolution fails closed
+// when that spans more than one namespace (ambiguous — the author must name the target via `namespaces:`),
+// and once the kustomization has reconciled but offers nothing to infer from (its inventory is populated
+// yet names no namespace), rather than waiting forever. A (nil, false, nil) return means "not resolvable
+// yet, keep polling" — the named namespaces don't exist, or the owning kustomization has not reconciled.
+// Gating on the namespace existing — not on the owning kustomization being Ready — lets a secret be placed
+// the moment its namespace appears, so a consumer whose readiness depends on it can never deadlock.
+func (i *Provisioner) trySecretNamespaces(kustomizationName string, explicit []string) ([]string, bool, error) {
+	if len(explicit) > 0 {
+		missing, err := i.missingClusterNamespaces(explicit)
 		if err != nil {
-			return nil, fmt.Errorf("reading inventory for kustomization %q: %w", kustomizationName, err)
+			return nil, false, err
 		}
-		var created []string
-		for _, entry := range entries {
-			if entry.Kind == "Namespace" {
-				created = append(created, entry.Name)
-			}
+		if len(missing) == 0 {
+			return slices.Clone(explicit), true, nil
 		}
-		if len(explicit) > 0 {
-			if len(missingNamespaces(explicit, created)) == 0 {
-				return slices.Clone(explicit), nil
-			}
-		} else {
-			switch {
-			case len(created) == 1:
-				return created, nil
-			case len(created) > 1:
-				return nil, fmt.Errorf("kustomization %q created multiple namespaces (%s); set `namespaces:` on the secret to choose where to place it", kustomizationName, strings.Join(created, ", "))
-			}
-		}
-		select {
-		case <-waitCtx.Done():
-			if len(explicit) > 0 {
-				return nil, fmt.Errorf("timed out waiting for kustomization %q to create namespace(s) %s before placing secrets", kustomizationName, strings.Join(missingNamespaces(explicit, created), ", "))
-			}
-			return nil, fmt.Errorf("timed out waiting for kustomization %q to create its namespace before placing secrets", kustomizationName)
-		case <-time.After(constants.DefaultKustomizationWaitPollInterval):
-		}
+		return nil, false, nil
 	}
+	entries, err := i.KubernetesManager.GetKustomizationInventory(kustomizationName, i.fluxNamespace())
+	if err != nil {
+		return nil, false, fmt.Errorf("reading inventory for kustomization %q: %w", kustomizationName, err)
+	}
+	candidates := autoResolveNamespaces(entries)
+	switch {
+	case len(candidates) == 1:
+		return candidates, true, nil
+	case len(candidates) > 1:
+		return nil, false, fmt.Errorf("kustomization %q spans multiple namespaces (%s); set `namespaces:` on the secret to choose where to place it", kustomizationName, strings.Join(candidates, ", "))
+	case len(entries) > 0:
+		return nil, false, fmt.Errorf("kustomization %q creates no namespace and deploys no namespaced resources to infer one from; set `namespaces:` on the secret to choose where to place it", kustomizationName)
+	}
+	return nil, false, nil
 }
 
-// missingNamespaces returns the members of want not present in have, preserving want's order.
-func missingNamespaces(want, have []string) []string {
+// pendingSummary renders the secrets still awaiting a namespace as sorted "secret (kustomization)" entries —
+// naming the explicit target namespaces when the entry declared them — for the progress and timeout lines.
+func pendingSummary(pending []pendingPlacement) string {
+	parts := make([]string, 0, len(pending))
+	for _, p := range pending {
+		if len(p.secret.Namespaces) > 0 {
+			parts = append(parts, fmt.Sprintf("%s (%s)→%s", p.secretName, p.kustomization, strings.Join(p.secret.Namespaces, ",")))
+		} else {
+			parts = append(parts, fmt.Sprintf("%s (%s)", p.secretName, p.kustomization))
+		}
+	}
+	slices.Sort(parts)
+	return strings.Join(parts, ", ")
+}
+
+// autoResolveNamespaces infers where a secret should land when its entry names no namespace, from the
+// owning kustomization's Flux inventory. It prefers the Namespace object(s) the kustomization creates; when
+// it creates none, it falls back to the distinct namespaces its namespaced resources are deployed into, so
+// a kustomization that deploys into a namespace another kustomization created is still resolvable. The
+// result is sorted so a multi-namespace outcome reads deterministically.
+func autoResolveNamespaces(entries []kubernetes.InventoryEntry) []string {
+	created := make(map[string]struct{})
+	deployed := make(map[string]struct{})
+	for _, entry := range entries {
+		if entry.Kind == "Namespace" {
+			created[entry.Name] = struct{}{}
+		}
+		if entry.Namespace != "" {
+			deployed[entry.Namespace] = struct{}{}
+		}
+	}
+	chosen := created
+	if len(chosen) == 0 {
+		chosen = deployed
+	}
+	out := make([]string, 0, len(chosen))
+	for ns := range chosen {
+		out = append(out, ns)
+	}
+	slices.Sort(out)
+	return out
+}
+
+// missingClusterNamespaces returns the members of want that do not yet exist in the cluster, preserving
+// want's order. It is how placement gates a secret that names its target namespace(s) explicitly: on those
+// namespaces existing, regardless of which kustomization created them.
+func (i *Provisioner) missingClusterNamespaces(want []string) ([]string, error) {
 	var missing []string
 	for _, ns := range want {
-		if !slices.Contains(have, ns) {
+		exists, err := i.KubernetesManager.NamespaceExists(ns)
+		if err != nil {
+			return nil, fmt.Errorf("checking namespace %q: %w", ns, err)
+		}
+		if !exists {
 			missing = append(missing, ns)
 		}
 	}
-	return missing
+	return missing, nil
+}
+
+// reconcileEveryStuckRounds throttles the dependency-closure reconcile nudge: while placement is blocked
+// waiting for namespaces, PlaceSecrets nudges the closure once every this many poll rounds (and on the
+// first stuck round), rather than every round, to keep reconcile-request traffic modest.
+const reconcileEveryStuckRounds = 6
+
+// reconcileKustomizations requests an immediate flux reconcile of the named Kustomizations, best-effort: it
+// initializes the notifier if needed and swallows any error, so a placement round is never failed by a
+// reconcile nudge. A nil or empty names slice is a no-op.
+func (i *Provisioner) reconcileKustomizations(ctx context.Context, names []string) {
+	if len(names) == 0 {
+		return
+	}
+	if err := i.ensureNotifier(); err != nil {
+		return
+	}
+	_ = i.Notifier.ReconcileKustomizations(ctx, names)
+}
+
+// helmReleaseReady reports whether a HelmRelease currently carries a Ready=True condition.
+func helmReleaseReady(hr helmv2.HelmRelease) bool {
+	for _, c := range hr.Status.Conditions {
+		if c.Type == "Ready" {
+			return c.Status == "True"
+		}
+	}
+	return false
+}
+
+// forceStalledHelmReleases force-reconciles any HelmRelease owned by the given kustomizations that is not
+// Ready. A release that failed to install or upgrade — e.g. because a secret it needs was not yet present —
+// stalls and will not retry on a plain reconcile of its owning Kustomization, since the release spec is
+// unchanged; forcing it (requestedAt + forceAt) makes helm-controller retry now that its inputs may be in
+// place. Best-effort: read failures and the reconcile request are swallowed, and healthy releases are left
+// untouched so no needless upgrade fires.
+func (i *Provisioner) forceStalledHelmReleases(ctx context.Context, kustomizations []string) {
+	var refs []fluxinfra.HelmReleaseRef
+	seen := make(map[string]struct{})
+	for _, name := range kustomizations {
+		hrs, err := i.KubernetesManager.GetHelmReleasesForKustomization(name, i.fluxNamespace())
+		if err != nil {
+			continue
+		}
+		for _, hr := range hrs {
+			if helmReleaseReady(hr) {
+				continue
+			}
+			key := hr.Namespace + "/" + hr.Name
+			if _, dup := seen[key]; dup {
+				continue
+			}
+			seen[key] = struct{}{}
+			refs = append(refs, fluxinfra.HelmReleaseRef{Namespace: hr.Namespace, Name: hr.Name})
+		}
+	}
+	if len(refs) == 0 {
+		return
+	}
+	if err := i.ensureNotifier(); err != nil {
+		return
+	}
+	_ = i.Notifier.ReconcileHelmReleases(ctx, refs, true)
+}
+
+// Converge actively drives the blueprint's kustomizations toward Ready within timeout, best-effort. Each
+// round it reads readiness (without failing on a failed kustomization) and, for every kustomization not yet
+// Ready, requests an immediate reconcile and forces any stalled HelmRelease it owns — so a chain that
+// stalled after apply (a dependent waiting on a now-ready dependency, or a HelmRelease that failed and
+// exhausted its remediation) recovers in seconds rather than at the next flux interval. Nudges are
+// throttled to keep reconcile traffic modest. It returns as soon as every kustomization is Ready, or when
+// timeout elapses; it is a driver, not a gate, so a still-unready cluster is not an error here — callers
+// that must fail on un-readiness use Wait afterward. A nil blueprint or missing kubernetes manager is a
+// no-op.
+func (i *Provisioner) Converge(ctx context.Context, blueprint *blueprintv1alpha1.Blueprint, timeout time.Duration) error {
+	if blueprint == nil || i.KubernetesManager == nil {
+		return nil
+	}
+	names := convergeNames(withCrdLayer(blueprint))
+	if len(names) == 0 {
+		return nil
+	}
+
+	pollInterval := i.secretPollInterval
+	if pollInterval == 0 {
+		pollInterval = constants.DefaultKustomizationWaitPollInterval
+	}
+	waitCtx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+
+	return tui.WithProgress("Reconciling resources", func() error {
+		round := 0
+		for {
+			readiness, err := i.KubernetesManager.GetKustomizationReadiness(names)
+			if err == nil {
+				var notReady []string
+				for _, n := range names {
+					if !readiness[n] {
+						notReady = append(notReady, n)
+					}
+				}
+				if len(notReady) == 0 {
+					return nil
+				}
+				slices.Sort(notReady)
+				tui.Update(fmt.Sprintf("Reconciling resources: waiting on %s", strings.Join(notReady, ", ")))
+				if round%reconcileEveryStuckRounds == 0 {
+					i.reconcileKustomizations(ctx, notReady)
+					i.forceStalledHelmReleases(ctx, notReady)
+				}
+			}
+			round++
+			select {
+			case <-waitCtx.Done():
+				return nil
+			case <-time.After(pollInterval):
+			}
+		}
+	})
+}
+
+// convergeNames returns the names of the blueprint's non-destroyOnly kustomizations, the set Converge
+// drives toward Ready.
+func convergeNames(bp *blueprintv1alpha1.Blueprint) []string {
+	names := make([]string, 0, len(bp.Kustomizations))
+	for _, k := range bp.Kustomizations {
+		if k.DestroyOnly != nil && *k.DestroyOnly {
+			continue
+		}
+		names = append(names, k.Name)
+	}
+	return names
+}
+
+// dependencyClosure returns the transitive dependsOn closure of the given owner kustomizations within the
+// blueprint — the owners plus every kustomization they transitively depend on — deduplicated and sorted.
+// It is the minimal set worth force-reconciling to advance a stuck owner: reconciling a dependency that is
+// not yet Ready is a harmless no-op, so nudging the whole closure walks it Ready bottom-up. Names not
+// present in the blueprint (e.g. an external dependency) are dropped. Returns nil for a nil blueprint.
+func dependencyClosure(blueprint *blueprintv1alpha1.Blueprint, owners []string) []string {
+	if blueprint == nil {
+		return nil
+	}
+	deps := make(map[string][]string, len(blueprint.Kustomizations))
+	for _, k := range blueprint.Kustomizations {
+		deps[k.Name] = k.DependsOn
+	}
+	seen := make(map[string]struct{})
+	var walk func(name string)
+	walk = func(name string) {
+		if _, done := seen[name]; done {
+			return
+		}
+		if _, known := deps[name]; !known {
+			return
+		}
+		seen[name] = struct{}{}
+		for _, d := range deps[name] {
+			walk(d)
+		}
+	}
+	for _, o := range owners {
+		walk(o)
+	}
+	return sortedStringKeys(seen)
+}
+
+// pendingOwners returns the owning kustomization of each still-pending secret (duplicates allowed;
+// dependencyClosure deduplicates as it walks).
+func pendingOwners(pending []pendingPlacement) []string {
+	owners := make([]string, 0, len(pending))
+	for _, p := range pending {
+		owners = append(owners, p.kustomization)
+	}
+	return owners
+}
+
+// sortedStringKeys returns the keys of a set as a sorted slice.
+func sortedStringKeys(m map[string]struct{}) []string {
+	out := make([]string, 0, len(m))
+	for k := range m {
+		out = append(out, k)
+	}
+	slices.Sort(out)
+	return out
 }
 
 // WriteVersionMarker records the blueprint version applied to this context as a marker ConfigMap

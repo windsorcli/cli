@@ -332,6 +332,109 @@ func TestNotifier_Notify(t *testing.T) {
 	})
 }
 
+func TestNotifier_ReconcileKustomizations(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("AnnotatesEachNamedKustomization", func(t *testing.T) {
+		// Given a set of kustomization names
+		m := setupNotifierMocks(t)
+		n := newTestNotifier(m)
+
+		// When ReconcileKustomizations is called
+		if err := n.ReconcileKustomizations(ctx, []string{"lb-install", "gateway-install"}); err != nil {
+			t.Fatalf("expected nil, got %v", err)
+		}
+
+		// Then one PATCH per name targets the kustomizations GVR carrying the reconcile annotation
+		if len(*m.patches) != 2 {
+			t.Fatalf("expected 2 patches, got %d", len(*m.patches))
+		}
+		for _, p := range *m.patches {
+			if p.gvr.Resource != "kustomizations" || p.gvr.Group != "kustomize.toolkit.fluxcd.io" {
+				t.Errorf("expected kustomizations GVR, got %s/%s", p.gvr.Group, p.gvr.Resource)
+			}
+			if !strings.Contains(string(p.data), "reconcile.fluxcd.io/requestedAt") || !strings.Contains(string(p.data), "2026-04-19T20:00:00Z") {
+				t.Errorf("expected reconcile annotation with injected timestamp, got %s", p.data)
+			}
+		}
+		if (*m.patches)[0].name != "lb-install" || (*m.patches)[1].name != "gateway-install" {
+			t.Errorf("expected the named kustomizations patched, got %s, %s", (*m.patches)[0].name, (*m.patches)[1].name)
+		}
+	})
+
+	t.Run("EmptyNamesIsNoOp", func(t *testing.T) {
+		// Given no names
+		m := setupNotifierMocks(t)
+		n := newTestNotifier(m)
+
+		// When ReconcileKustomizations is called with an empty slice, nothing is patched
+		if err := n.ReconcileKustomizations(ctx, nil); err != nil {
+			t.Fatalf("expected nil, got %v", err)
+		}
+		if len(*m.patches) != 0 {
+			t.Errorf("expected no patches, got %d", len(*m.patches))
+		}
+	})
+}
+
+func TestNotifier_ReconcileHelmReleases(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("ForceAddsForceAtAnnotation", func(t *testing.T) {
+		// Given a stalled HelmRelease reference
+		m := setupNotifierMocks(t)
+		n := newTestNotifier(m)
+
+		// When ReconcileHelmReleases is called with force
+		if err := n.ReconcileHelmReleases(ctx, []HelmReleaseRef{{Namespace: "system-lb", Name: "hcloud-cloud-controller-manager"}}, true); err != nil {
+			t.Fatalf("expected nil, got %v", err)
+		}
+
+		// Then the HelmRelease GVR is patched in its own namespace with both requestedAt and forceAt
+		if len(*m.patches) != 1 {
+			t.Fatalf("expected 1 patch, got %d", len(*m.patches))
+		}
+		p := (*m.patches)[0]
+		if p.gvr.Resource != "helmreleases" || p.gvr.Group != "helm.toolkit.fluxcd.io" {
+			t.Errorf("expected helmreleases GVR, got %s/%s", p.gvr.Group, p.gvr.Resource)
+		}
+		if p.namespace != "system-lb" || p.name != "hcloud-cloud-controller-manager" {
+			t.Errorf("expected the HR patched in system-lb, got %s/%s", p.namespace, p.name)
+		}
+		if !strings.Contains(string(p.data), "reconcile.fluxcd.io/requestedAt") || !strings.Contains(string(p.data), "reconcile.fluxcd.io/forceAt") {
+			t.Errorf("expected both requestedAt and forceAt, got %s", p.data)
+		}
+	})
+
+	t.Run("WithoutForceOmitsForceAt", func(t *testing.T) {
+		// Given a HelmRelease reference reconciled without force
+		m := setupNotifierMocks(t)
+		n := newTestNotifier(m)
+
+		// When ReconcileHelmReleases is called without force
+		if err := n.ReconcileHelmReleases(ctx, []HelmReleaseRef{{Namespace: "system-lb", Name: "hr"}}, false); err != nil {
+			t.Fatalf("expected nil, got %v", err)
+		}
+
+		// Then only requestedAt is set, not forceAt
+		p := (*m.patches)[0]
+		if !strings.Contains(string(p.data), "reconcile.fluxcd.io/requestedAt") || strings.Contains(string(p.data), "forceAt") {
+			t.Errorf("expected requestedAt without forceAt, got %s", p.data)
+		}
+	})
+
+	t.Run("EmptyRefsIsNoOp", func(t *testing.T) {
+		m := setupNotifierMocks(t)
+		n := newTestNotifier(m)
+		if err := n.ReconcileHelmReleases(ctx, nil, true); err != nil {
+			t.Fatalf("expected nil, got %v", err)
+		}
+		if len(*m.patches) != 0 {
+			t.Errorf("expected no patches, got %d", len(*m.patches))
+		}
+	})
+}
+
 func TestNewNotifier(t *testing.T) {
 	t.Run("PanicsOnNilRuntime", func(t *testing.T) {
 		defer func() {
