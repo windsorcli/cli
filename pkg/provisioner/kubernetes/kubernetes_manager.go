@@ -1315,6 +1315,10 @@ func (k *BaseKubernetesManager) DeleteBlueprint(blueprint *blueprintv1alpha1.Blu
 		}
 	}
 
+	if err := k.remediateLoadBalancerOwners(eligible, namespace); err != nil {
+		return fmt.Errorf("destroy aborted: %w", err)
+	}
+
 	for _, kustomization := range orderForDestroy(eligible, "destroy") {
 		tui.Start(fmt.Sprintf("Destroying kustomization %s", kustomization.Name))
 		if err := k.setKustomizationSuspend(kustomization.Name, namespace, false); err != nil {
@@ -1558,6 +1562,160 @@ waitLoop:
 // =============================================================================
 // Private Methods
 // =============================================================================
+
+// servicesGVR is the core v1 Services resource, scanned during destroy to find cloud
+// LoadBalancers that must be released before their controller is torn down.
+var servicesGVR = schema.GroupVersionResource{Group: "", Version: "v1", Resource: "services"}
+
+// maxOwnerWalkDepth bounds the ownerReference ascent when resolving the inventory-owned root of a
+// LoadBalancer Service, guarding against cyclic or pathologically deep owner chains.
+const maxOwnerWalkDepth = 8
+
+// ownedTarget identifies an inventory-owned resource to foreground-delete during load balancer
+// remediation, addressed by its resolved GVR, namespace, and name.
+type ownedTarget struct {
+	gvr       schema.GroupVersionResource
+	namespace string
+	name      string
+}
+
+// remediateLoadBalancerOwners releases cloud LoadBalancers that would otherwise be orphaned when
+// their controller (a cloud-controller-manager) is torn down before the LoadBalancer Service's
+// cloud finalizer runs. Flux prunes with background propagation and waits only on its own
+// inventory, so a controller-generated type=LoadBalancer Service — a child of an inventory object
+// such as a Gateway, never itself in the inventory — is garbage-collected asynchronously and its
+// cloud-LB finalizer can outlive the controller, leaking the LB and wedging the terraform network
+// delete. Called while every controller is still alive (after suspend, before the teardown walk),
+// it lists live type=LoadBalancer Services, walks each one's ownerReferences to the first ancestor
+// present in the eligible kustomizations' inventory, and foreground-deletes that owned root so the
+// ownerReference cascade blocks on the child Service's cloud finalizer while the CCM can still
+// release the LB. Services with no inventory-owned ancestor are foreign and left untouched.
+func (k *BaseKubernetesManager) remediateLoadBalancerOwners(eligible []blueprintv1alpha1.Kustomization, namespace string) error {
+	owned, err := k.ownedInventorySet(eligible, namespace)
+	if err != nil {
+		return err
+	}
+	if len(owned) == 0 {
+		return nil
+	}
+
+	services, err := k.client.ListResources(servicesGVR, "")
+	if err != nil {
+		return fmt.Errorf("error listing services for load balancer remediation: %w", err)
+	}
+	if services == nil {
+		return nil
+	}
+
+	handled := make(map[string]bool)
+	for i := range services.Items {
+		svc := &services.Items[i]
+		if !isLoadBalancerService(svc) {
+			continue
+		}
+		target, found, err := k.ownedRootForService(svc, owned)
+		if err != nil {
+			return err
+		}
+		if !found {
+			continue
+		}
+		key := target.gvr.String() + "|" + target.namespace + "|" + target.name
+		if handled[key] {
+			continue
+		}
+		handled[key] = true
+		if err := k.foregroundDeleteAndWaitService(target, svc); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// ownedInventorySet returns the set of resources managed by the eligible kustomizations, keyed by
+// group/kind/namespace/name, from each kustomization's Flux inventory. This is the ground truth of
+// "resources we own" that scopes load balancer remediation to our own LoadBalancers.
+func (k *BaseKubernetesManager) ownedInventorySet(eligible []blueprintv1alpha1.Kustomization, namespace string) (map[string]bool, error) {
+	owned := make(map[string]bool)
+	for _, kustomization := range eligible {
+		entries, err := k.GetKustomizationInventory(kustomization.Name, namespace)
+		if err != nil {
+			return nil, err
+		}
+		for _, entry := range entries {
+			owned[inventoryKey(entry.Group, entry.Kind, entry.Namespace, entry.Name)] = true
+		}
+	}
+	return owned, nil
+}
+
+// ownedRootForService walks a LoadBalancer Service's ownerReferences to the first ancestor present
+// in the owned inventory set and returns it as the deletion target. A Service we applied directly
+// is its own target; otherwise the ascent follows the controller ownerReference upward, fetching
+// each owner to read its own references, until an owned ancestor is found or the chain ends.
+// Returns found=false when no ancestor is ours (a foreign LoadBalancer we must not touch).
+func (k *BaseKubernetesManager) ownedRootForService(svc *unstructured.Unstructured, owned map[string]bool) (ownedTarget, bool, error) {
+	namespace := svc.GetNamespace()
+	if owned[inventoryKey("", "Service", namespace, svc.GetName())] {
+		return ownedTarget{gvr: servicesGVR, namespace: namespace, name: svc.GetName()}, true, nil
+	}
+
+	current := svc
+	for range maxOwnerWalkDepth {
+		owner := controllerOwnerRef(current)
+		if owner == nil {
+			return ownedTarget{}, false, nil
+		}
+		gv, err := schema.ParseGroupVersion(owner.APIVersion)
+		if err != nil {
+			return ownedTarget{}, false, nil
+		}
+		gvr, err := k.client.ResourceFor(gv.WithKind(owner.Kind))
+		if err != nil {
+			return ownedTarget{}, false, nil
+		}
+		if owned[inventoryKey(gv.Group, owner.Kind, namespace, owner.Name)] {
+			return ownedTarget{gvr: gvr, namespace: namespace, name: owner.Name}, true, nil
+		}
+		next, err := k.client.GetResource(gvr, namespace, owner.Name)
+		if err != nil {
+			if isNotFoundError(err) {
+				return ownedTarget{}, false, nil
+			}
+			return ownedTarget{}, false, err
+		}
+		current = next
+	}
+	return ownedTarget{}, false, nil
+}
+
+// foregroundDeleteAndWaitService foreground-deletes an owned load balancer root and waits for the
+// backing LoadBalancer Service to disappear, confirming the cloud-controller-manager released the
+// LB. Foreground propagation holds the owner until its garbage-collected children clear, so the
+// child Service's cloud finalizer runs while the CCM is still alive. A NotFound on delete is
+// treated as already-gone. On timeout the LoadBalancer is likely orphaned, so it returns an error
+// rather than letting destroy proceed into the terraform teardown that the orphan would wedge.
+func (k *BaseKubernetesManager) foregroundDeleteAndWaitService(target ownedTarget, svc *unstructured.Unstructured) error {
+	policy := metav1.DeletePropagationForeground
+	err := k.client.DeleteResource(target.gvr, target.namespace, target.name, metav1.DeleteOptions{PropagationPolicy: &policy})
+	if err != nil && !isNotFoundError(err) {
+		return fmt.Errorf("error foreground-deleting load balancer owner %s/%s: %w", target.namespace, target.name, err)
+	}
+
+	namespace, name := svc.GetNamespace(), svc.GetName()
+	timeout := time.Now().Add(k.kustomizationReconcileTimeout)
+	for time.Now().Before(timeout) {
+		_, err := k.client.GetResource(servicesGVR, namespace, name)
+		if err != nil && isNotFoundError(err) {
+			return nil
+		}
+		if err != nil {
+			return fmt.Errorf("error waiting for load balancer service %s/%s deletion: %w", namespace, name, err)
+		}
+		time.Sleep(k.kustomizationWaitPollInterval)
+	}
+	return fmt.Errorf("timeout waiting for load balancer service %s/%s to be released; its cloud finalizer has not lifted and the cloud load balancer may be orphaned — inspect with `kubectl get svc %s -n %s -o yaml` and confirm the cloud-controller-manager is still running", namespace, name, name, namespace)
+}
 
 // gitopsNamespace returns the configured gitops namespace, defaulting to DefaultGitopsNamespace.
 func (k *BaseKubernetesManager) gitopsNamespace() string {
@@ -1880,6 +2038,34 @@ func (k *BaseKubernetesManager) applyBlueprintOCIRepository(source blueprintv1al
 // =============================================================================
 // Helpers
 // =============================================================================
+
+// inventoryKey builds the group/kind/namespace/name key used to match live objects against a
+// kustomization's Flux inventory. Group is empty for core API objects; namespace is empty for
+// cluster-scoped resources.
+func inventoryKey(group, kind, namespace, name string) string {
+	return strings.Join([]string{group, kind, namespace, name}, "|")
+}
+
+// isLoadBalancerService reports whether an object is a Service of spec.type LoadBalancer.
+func isLoadBalancerService(svc *unstructured.Unstructured) bool {
+	svcType, found, err := unstructured.NestedString(svc.Object, "spec", "type")
+	return err == nil && found && svcType == "LoadBalancer"
+}
+
+// controllerOwnerRef returns the controller ownerReference of an object, falling back to the first
+// ownerReference when none is marked controller. Returns nil when the object has no owners.
+func controllerOwnerRef(obj *unstructured.Unstructured) *metav1.OwnerReference {
+	refs := obj.GetOwnerReferences()
+	for i := range refs {
+		if refs[i].Controller != nil && *refs[i].Controller {
+			return &refs[i]
+		}
+	}
+	if len(refs) > 0 {
+		return &refs[0]
+	}
+	return nil
+}
 
 // validateFields validates required fields and types
 func validateFields(obj *unstructured.Unstructured) error {

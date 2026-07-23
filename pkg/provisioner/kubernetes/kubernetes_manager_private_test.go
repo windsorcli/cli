@@ -10,9 +10,250 @@ import (
 	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
 	"github.com/windsorcli/cli/pkg/constants"
 	"github.com/windsorcli/cli/pkg/provisioner/kubernetes/client"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 )
+
+func TestBaseKubernetesManager_remediateLoadBalancerOwners(t *testing.T) {
+	setup := func(t *testing.T) *BaseKubernetesManager {
+		t.Helper()
+		mocks := setupKubernetesMocks(t)
+		manager := NewKubernetesManager(mocks.KubernetesClient, mocks.ConfigHandler)
+		manager.kustomizationWaitPollInterval = 20 * time.Millisecond
+		manager.kustomizationReconcileTimeout = 100 * time.Millisecond
+		return manager
+	}
+
+	controller := true
+	gatewayOwner := metav1.OwnerReference{
+		APIVersion: "gateway.networking.k8s.io/v1",
+		Kind:       "Gateway",
+		Name:       "external",
+		Controller: &controller,
+	}
+	gatewaysGVR := schema.GroupVersionResource{Group: "gateway.networking.k8s.io", Version: "v1", Resource: "gateways"}
+
+	// lbService builds a type=LoadBalancer Service, optionally owned by the given ownerReference.
+	lbService := func(namespace, name string, owner *metav1.OwnerReference) unstructured.Unstructured {
+		u := unstructured.Unstructured{Object: map[string]any{
+			"apiVersion": "v1",
+			"kind":       "Service",
+			"metadata":   map[string]any{"namespace": namespace, "name": name},
+			"spec":       map[string]any{"type": "LoadBalancer"},
+		}}
+		if owner != nil {
+			u.SetOwnerReferences([]metav1.OwnerReference{*owner})
+		}
+		return u
+	}
+
+	// kustomizationWithInventory builds a Kustomization object carrying the given inventory IDs
+	// (each of the form "<namespace>_<name>_<group>_<kind>").
+	kustomizationWithInventory := func(ids ...string) *unstructured.Unstructured {
+		entries := make([]any, 0, len(ids))
+		for _, id := range ids {
+			entries = append(entries, map[string]any{"id": id})
+		}
+		return &unstructured.Unstructured{Object: map[string]any{
+			"status": map[string]any{"inventory": map[string]any{"entries": entries}},
+		}}
+	}
+
+	gatewayInventoryID := "system-gateway_external_gateway.networking.k8s.io_Gateway"
+	eligible := []blueprintv1alpha1.Kustomization{{Name: "gateway-resources"}}
+
+	t.Run("ForegroundDeletesGatewayOwningLoadBalancer", func(t *testing.T) {
+		manager := setup(t)
+		kubernetesClient := client.NewMockKubernetesClient()
+		kubernetesClient.GetResourceFunc = func(gvr schema.GroupVersionResource, namespace, name string) (*unstructured.Unstructured, error) {
+			if gvr.Resource == "kustomizations" {
+				return kustomizationWithInventory(gatewayInventoryID), nil
+			}
+			return nil, fmt.Errorf("%s %q not found", gvr.Resource, name)
+		}
+		kubernetesClient.ListResourcesFunc = func(gvr schema.GroupVersionResource, namespace string) (*unstructured.UnstructuredList, error) {
+			return &unstructured.UnstructuredList{Items: []unstructured.Unstructured{
+				lbService("system-gateway", "cilium-gateway-external", &gatewayOwner),
+			}}, nil
+		}
+		kubernetesClient.ResourceForFunc = func(gvk schema.GroupVersionKind) (schema.GroupVersionResource, error) {
+			return gatewaysGVR, nil
+		}
+		var deletedGVR schema.GroupVersionResource
+		var deletedName string
+		var deletedPolicy *metav1.DeletionPropagation
+		kubernetesClient.DeleteResourceFunc = func(gvr schema.GroupVersionResource, namespace, name string, opts metav1.DeleteOptions) error {
+			deletedGVR, deletedName, deletedPolicy = gvr, name, opts.PropagationPolicy
+			return nil
+		}
+		manager.client = kubernetesClient
+
+		if err := manager.remediateLoadBalancerOwners(eligible, "system-gitops"); err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		if deletedGVR != gatewaysGVR {
+			t.Errorf("Expected delete on %v, got %v", gatewaysGVR, deletedGVR)
+		}
+		if deletedName != "external" {
+			t.Errorf("Expected the owning Gateway 'external' deleted, got %q", deletedName)
+		}
+		if deletedPolicy == nil || *deletedPolicy != metav1.DeletePropagationForeground {
+			t.Errorf("Expected foreground propagation, got %v", deletedPolicy)
+		}
+	})
+
+	t.Run("ForegroundDeletesDirectlyOwnedLoadBalancerService", func(t *testing.T) {
+		manager := setup(t)
+		kubernetesClient := client.NewMockKubernetesClient()
+		kubernetesClient.GetResourceFunc = func(gvr schema.GroupVersionResource, namespace, name string) (*unstructured.Unstructured, error) {
+			if gvr.Resource == "kustomizations" {
+				return kustomizationWithInventory("system-lb_my-lb__Service"), nil
+			}
+			return nil, fmt.Errorf("%s %q not found", gvr.Resource, name)
+		}
+		kubernetesClient.ListResourcesFunc = func(gvr schema.GroupVersionResource, namespace string) (*unstructured.UnstructuredList, error) {
+			return &unstructured.UnstructuredList{Items: []unstructured.Unstructured{
+				lbService("system-lb", "my-lb", nil),
+			}}, nil
+		}
+		var deletedGVR schema.GroupVersionResource
+		var deletedName string
+		kubernetesClient.DeleteResourceFunc = func(gvr schema.GroupVersionResource, namespace, name string, opts metav1.DeleteOptions) error {
+			deletedGVR, deletedName = gvr, name
+			return nil
+		}
+		manager.client = kubernetesClient
+
+		if err := manager.remediateLoadBalancerOwners(eligible, "system-gitops"); err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		if deletedGVR != servicesGVR || deletedName != "my-lb" {
+			t.Errorf("Expected delete on service my-lb, got %v %q", deletedGVR, deletedName)
+		}
+	})
+
+	t.Run("SkipsForeignLoadBalancer", func(t *testing.T) {
+		manager := setup(t)
+		kubernetesClient := client.NewMockKubernetesClient()
+		kubernetesClient.GetResourceFunc = func(gvr schema.GroupVersionResource, namespace, name string) (*unstructured.Unstructured, error) {
+			if gvr.Resource == "kustomizations" {
+				return kustomizationWithInventory("system-gateway_other_gateway.networking.k8s.io_Gateway"), nil
+			}
+			return nil, fmt.Errorf("%s %q not found", gvr.Resource, name)
+		}
+		kubernetesClient.ListResourcesFunc = func(gvr schema.GroupVersionResource, namespace string) (*unstructured.UnstructuredList, error) {
+			return &unstructured.UnstructuredList{Items: []unstructured.Unstructured{
+				lbService("system-gateway", "cilium-gateway-external", &gatewayOwner),
+			}}, nil
+		}
+		kubernetesClient.ResourceForFunc = func(gvk schema.GroupVersionKind) (schema.GroupVersionResource, error) {
+			return gatewaysGVR, nil
+		}
+		deleted := false
+		kubernetesClient.DeleteResourceFunc = func(gvr schema.GroupVersionResource, namespace, name string, opts metav1.DeleteOptions) error {
+			deleted = true
+			return nil
+		}
+		manager.client = kubernetesClient
+
+		if err := manager.remediateLoadBalancerOwners(eligible, "system-gitops"); err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		if deleted {
+			t.Error("Expected no delete for a LoadBalancer whose owner is not in our inventory")
+		}
+	})
+
+	t.Run("NoOpWhenNoLoadBalancerServices", func(t *testing.T) {
+		manager := setup(t)
+		kubernetesClient := client.NewMockKubernetesClient()
+		kubernetesClient.GetResourceFunc = func(gvr schema.GroupVersionResource, namespace, name string) (*unstructured.Unstructured, error) {
+			if gvr.Resource == "kustomizations" {
+				return kustomizationWithInventory(gatewayInventoryID), nil
+			}
+			return nil, fmt.Errorf("%s %q not found", gvr.Resource, name)
+		}
+		clusterIPService := unstructured.Unstructured{Object: map[string]any{
+			"apiVersion": "v1", "kind": "Service",
+			"metadata": map[string]any{"namespace": "system-gateway", "name": "internal"},
+			"spec":     map[string]any{"type": "ClusterIP"},
+		}}
+		kubernetesClient.ListResourcesFunc = func(gvr schema.GroupVersionResource, namespace string) (*unstructured.UnstructuredList, error) {
+			return &unstructured.UnstructuredList{Items: []unstructured.Unstructured{clusterIPService}}, nil
+		}
+		deleted := false
+		kubernetesClient.DeleteResourceFunc = func(gvr schema.GroupVersionResource, namespace, name string, opts metav1.DeleteOptions) error {
+			deleted = true
+			return nil
+		}
+		manager.client = kubernetesClient
+
+		if err := manager.remediateLoadBalancerOwners(eligible, "system-gitops"); err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		if deleted {
+			t.Error("Expected no delete when there are no type=LoadBalancer services")
+		}
+	})
+
+	t.Run("NoOpWhenInventoryEmpty", func(t *testing.T) {
+		manager := setup(t)
+		kubernetesClient := client.NewMockKubernetesClient()
+		kubernetesClient.GetResourceFunc = func(gvr schema.GroupVersionResource, namespace, name string) (*unstructured.Unstructured, error) {
+			return nil, fmt.Errorf("%s %q not found", gvr.Resource, name)
+		}
+		listed := false
+		kubernetesClient.ListResourcesFunc = func(gvr schema.GroupVersionResource, namespace string) (*unstructured.UnstructuredList, error) {
+			listed = true
+			return &unstructured.UnstructuredList{}, nil
+		}
+		manager.client = kubernetesClient
+
+		if err := manager.remediateLoadBalancerOwners(eligible, "system-gitops"); err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		if listed {
+			t.Error("Expected no service scan when the eligible inventory is empty")
+		}
+	})
+
+	t.Run("ErrorsWhenLoadBalancerServiceNeverReleases", func(t *testing.T) {
+		manager := setup(t)
+		kubernetesClient := client.NewMockKubernetesClient()
+		kubernetesClient.GetResourceFunc = func(gvr schema.GroupVersionResource, namespace, name string) (*unstructured.Unstructured, error) {
+			if gvr.Resource == "kustomizations" {
+				return kustomizationWithInventory(gatewayInventoryID), nil
+			}
+			if gvr.Resource == "services" {
+				return &unstructured.Unstructured{Object: map[string]any{
+					"metadata": map[string]any{"namespace": namespace, "name": name},
+				}}, nil
+			}
+			return nil, fmt.Errorf("%s %q not found", gvr.Resource, name)
+		}
+		kubernetesClient.ListResourcesFunc = func(gvr schema.GroupVersionResource, namespace string) (*unstructured.UnstructuredList, error) {
+			return &unstructured.UnstructuredList{Items: []unstructured.Unstructured{
+				lbService("system-gateway", "cilium-gateway-external", &gatewayOwner),
+			}}, nil
+		}
+		kubernetesClient.ResourceForFunc = func(gvk schema.GroupVersionKind) (schema.GroupVersionResource, error) {
+			return gatewaysGVR, nil
+		}
+		kubernetesClient.DeleteResourceFunc = func(gvr schema.GroupVersionResource, namespace, name string, opts metav1.DeleteOptions) error {
+			return nil
+		}
+		manager.client = kubernetesClient
+
+		err := manager.remediateLoadBalancerOwners(eligible, "system-gitops")
+		if err == nil {
+			t.Fatal("Expected a timeout error when the load balancer service never releases")
+		}
+		if !strings.Contains(err.Error(), "cilium-gateway-external") {
+			t.Errorf("Expected error to name the stuck service, got %v", err)
+		}
+	})
+}
 
 func TestBaseKubernetesManager_waitForNodesReady(t *testing.T) {
 	setup := func(t *testing.T) *BaseKubernetesManager {
