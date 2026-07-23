@@ -704,14 +704,17 @@ func (h *BaseBlueprintHandler) loadUser() error {
 }
 
 // loadSources iterates through the user blueprint's sources array and loads each source.
-// When the user blueprint exists, its sources list is the source of truth and exclusive—only those
-// sources are loaded; no default template or other defaults are added. Sources with name "template"
-// are loaded from the local _template directory; sources with OCI URLs are loaded from the registry.
-// Sources are loaded in parallel. After loading direct sources, it recursively loads any sources
-// referenced by those blueprints. When the user blueprint is nil (e.g. no blueprint.yaml yet), the
-// local template is loaded if present so initial composition produces kustomizations to apply.
-// When there are no init blueprint URLs (e.g. test runner with local _template only) and the user
-// blueprint has no sources, the local template is also loaded so its facets are included in composition.
+// A blueprint's own facets under contexts/_template/ are the thing being authored, not a source, so the
+// local _template is loaded whenever it exists and the load is not an init-with-URLs flow — independent
+// of whether the sources list is empty. Listing sources (e.g. a downstream blueprint layering on core)
+// therefore no longer silently drops the blueprint's own facets. Sources with name "template" are loaded
+// from the local _template directory; sources with OCI URLs are loaded from the registry. The explicit
+// load is a no-op when the local template is already loaded, so listing "template" alongside other
+// sources still works. Sources are loaded in parallel. After loading direct sources, it recursively loads
+// any sources referenced by those blueprints. When the user blueprint is nil (e.g. no blueprint.yaml
+// yet), the local template is loaded if present so initial composition produces kustomizations to apply.
+// During an init-with-URLs flow the local template is left to loadInitBlueprints, which owns the template
+// name in that path.
 func (h *BaseBlueprintHandler) loadSources() error {
 	userBp := h.userBlueprintLoader.GetBlueprint()
 	if userBp == nil {
@@ -726,7 +729,7 @@ func (h *BaseBlueprintHandler) loadSources() error {
 		return nil
 	}
 
-	if len(userBp.Sources) == 0 && len(h.initBlueprintURLs) == 0 && h.runtime != nil && h.runtime.TemplateRoot != "" {
+	if len(h.initBlueprintURLs) == 0 && h.runtime != nil && h.runtime.TemplateRoot != "" {
 		if _, err := h.shims.Stat(h.runtime.TemplateRoot); err == nil {
 			if _, exists := h.sourceBlueprintLoaders["template"]; !exists {
 				loader := NewBlueprintLoader(h.runtime, h.artifactBuilder)
