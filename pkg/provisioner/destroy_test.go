@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -12,6 +13,262 @@ import (
 	terraforminfra "github.com/windsorcli/cli/pkg/provisioner/terraform"
 	"github.com/windsorcli/cli/pkg/runtime/config"
 )
+
+func TestProvisioner_CheckComponentDestroyable(t *testing.T) {
+	bp := &blueprintv1alpha1.Blueprint{
+		Backend: "cluster",
+		TerraformComponents: []blueprintv1alpha1.TerraformComponent{
+			{Name: "compute", Path: "compute/hcloud"},
+			{Name: "cluster", Path: "cluster/talos"},
+			{Name: "dns", Path: "dns/zone/hetzner"},
+		},
+	}
+	kubernetesBackend := func(mocks *ProvisionerTestMocks) {
+		mocks.ConfigHandler.(*config.MockConfigHandler).GetStringFunc = func(key string, dv ...string) string {
+			if key == "terraform.backend.type" {
+				return "kubernetes"
+			}
+			if len(dv) > 0 {
+				return dv[0]
+			}
+			return ""
+		}
+	}
+
+	t.Run("RefusesBackendTierMemberOnKubernetesBackend", func(t *testing.T) {
+		mocks := setupProvisionerMocks(t)
+		kubernetesBackend(mocks)
+		prov := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{})
+		err := prov.CheckComponentDestroyable(bp, "compute")
+		if err == nil || !strings.Contains(err.Error(), "backend-tier") {
+			t.Errorf("expected refusal naming backend-tier, got %v", err)
+		}
+	})
+
+	t.Run("AllowsNonTierMemberOnKubernetesBackend", func(t *testing.T) {
+		mocks := setupProvisionerMocks(t)
+		kubernetesBackend(mocks)
+		prov := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{})
+		if err := prov.CheckComponentDestroyable(bp, "dns"); err != nil {
+			t.Errorf("expected non-tier member allowed, got %v", err)
+		}
+	})
+
+	t.Run("AllowsBackendTierMemberOnLocalBackend", func(t *testing.T) {
+		mocks := setupProvisionerMocks(t)
+		prov := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{})
+		if err := prov.CheckComponentDestroyable(bp, "compute"); err != nil {
+			t.Errorf("expected local backend to allow any component, got %v", err)
+		}
+	})
+}
+
+func TestProvisioner_PivotToLocalIfClusterGone(t *testing.T) {
+	kubernetesBackend := func(mocks *ProvisionerTestMocks, set *bool) {
+		mockCH := mocks.ConfigHandler.(*config.MockConfigHandler)
+		mockCH.GetStringFunc = func(key string, dv ...string) string {
+			if key == "terraform.backend.type" {
+				return "kubernetes"
+			}
+			if len(dv) > 0 {
+				return dv[0]
+			}
+			return ""
+		}
+		mockCH.SetFunc = func(key string, _ any) error {
+			if key == "terraform.backend.type" {
+				*set = true
+			}
+			return nil
+		}
+	}
+
+	t.Run("PivotsWhenKubeconfigAbsent", func(t *testing.T) {
+		// Given a kubernetes backend and no kubeconfig — the cluster is gone, state is already local
+		mocks := setupProvisionerMocks(t)
+		set := false
+		kubernetesBackend(mocks, &set)
+		prov := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{})
+		prov.configRoot = t.TempDir()
+
+		// When checking, it pivots to local without migrating
+		pivoted, err := prov.PivotToLocalIfClusterGone()
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if !pivoted || !set {
+			t.Errorf("expected pivot to local when kubeconfig absent, pivoted=%v set=%v", pivoted, set)
+		}
+	})
+
+	t.Run("DoesNotPivotWhenClusterReachable", func(t *testing.T) {
+		// Given a kubernetes backend, present kubeconfig, reachable cluster (first-run targeted destroy)
+		mocks := setupProvisionerMocks(t)
+		set := false
+		kubernetesBackend(mocks, &set)
+		dir := t.TempDir()
+		_ = os.MkdirAll(filepath.Join(dir, ".kube"), 0o755)
+		_ = os.WriteFile(filepath.Join(dir, ".kube", "config"), []byte("x"), 0o644)
+		mocks.KubernetesManager.WaitForKubernetesHealthyFunc = func(ctx context.Context, endpoint string, out func(string), nodes ...string) error {
+			return nil
+		}
+		prov := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{KubernetesManager: mocks.KubernetesManager})
+		prov.configRoot = dir
+
+		pivoted, err := prov.PivotToLocalIfClusterGone()
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if pivoted || set {
+			t.Errorf("expected no pivot when cluster reachable, pivoted=%v set=%v", pivoted, set)
+		}
+	})
+
+	t.Run("NoOpOnLocalBackend", func(t *testing.T) {
+		mocks := setupProvisionerMocks(t)
+		set := false
+		mocks.ConfigHandler.(*config.MockConfigHandler).SetFunc = func(_ string, _ any) error { set = true; return nil }
+		prov := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{})
+		prov.configRoot = t.TempDir()
+
+		pivoted, err := prov.PivotToLocalIfClusterGone()
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if pivoted || set {
+			t.Errorf("expected no pivot on local backend, pivoted=%v set=%v", pivoted, set)
+		}
+	})
+}
+
+func TestProvisioner_PrepareLocalTeardown(t *testing.T) {
+	bp := &blueprintv1alpha1.Blueprint{Backend: "cluster", TerraformComponents: []blueprintv1alpha1.TerraformComponent{{Name: "cluster", Path: "cluster/talos"}}}
+	kubernetesBackend := func(mocks *ProvisionerTestMocks, set *bool) {
+		mockCH := mocks.ConfigHandler.(*config.MockConfigHandler)
+		mockCH.GetStringFunc = func(key string, dv ...string) string {
+			if key == "terraform.backend.type" {
+				return "kubernetes"
+			}
+			if len(dv) > 0 {
+				return dv[0]
+			}
+			return ""
+		}
+		mockCH.SetFunc = func(key string, _ any) error {
+			if key == "terraform.backend.type" {
+				*set = true
+			}
+			return nil
+		}
+	}
+
+	t.Run("PivotsToLocalAndMigratesUpFront", func(t *testing.T) {
+		// Given a kubernetes backend and a migration that succeeds (cluster up, first-run teardown)
+		mocks := setupProvisionerMocks(t)
+		set := false
+		kubernetesBackend(mocks, &set)
+		migrated := false
+		mockStack := terraforminfra.NewMockStack()
+		mockStack.MigrateStateFunc = func(_ *blueprintv1alpha1.Blueprint) ([]string, error) {
+			migrated = true
+			return nil, nil
+		}
+		prov := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{TerraformStack: mockStack})
+
+		// When preparing, it pivots the backend to local and migrates state up front
+		pivoted, err := prov.PrepareLocalTeardown(bp)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if !pivoted || !set || !migrated {
+			t.Errorf("expected pivot + migration, pivoted=%v set=%v migrated=%v", pivoted, set, migrated)
+		}
+	})
+
+	t.Run("NoOpOnLocalBackend", func(t *testing.T) {
+		mocks := setupProvisionerMocks(t)
+		set := false
+		mocks.ConfigHandler.(*config.MockConfigHandler).SetFunc = func(_ string, _ any) error { set = true; return nil }
+		migrated := false
+		mockStack := terraforminfra.NewMockStack()
+		mockStack.MigrateStateFunc = func(_ *blueprintv1alpha1.Blueprint) ([]string, error) { migrated = true; return nil, nil }
+		prov := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{TerraformStack: mockStack})
+
+		pivoted, err := prov.PrepareLocalTeardown(bp)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if pivoted || set || migrated {
+			t.Errorf("expected no-op on local backend, pivoted=%v set=%v migrated=%v", pivoted, set, migrated)
+		}
+	})
+
+	t.Run("AbortsAndRevertsPivotOnMigrationFailureWhileClusterReachable", func(t *testing.T) {
+		// Given a migration failure while the cluster is still up — destroying now would orphan resources
+		mocks := setupProvisionerMocks(t)
+		mockCH := mocks.ConfigHandler.(*config.MockConfigHandler)
+		mockCH.GetStringFunc = func(key string, dv ...string) string {
+			if key == "terraform.backend.type" {
+				return "kubernetes"
+			}
+			if len(dv) > 0 {
+				return dv[0]
+			}
+			return ""
+		}
+		var sets []string
+		mockCH.SetFunc = func(key string, value any) error {
+			if key == "terraform.backend.type" {
+				sets = append(sets, fmt.Sprintf("%v", value))
+			}
+			return nil
+		}
+		mockStack := terraforminfra.NewMockStack()
+		mockStack.MigrateStateFunc = func(_ *blueprintv1alpha1.Blueprint) ([]string, error) {
+			return nil, fmt.Errorf("boom")
+		}
+		dir := t.TempDir()
+		_ = os.MkdirAll(filepath.Join(dir, ".kube"), 0o755)
+		_ = os.WriteFile(filepath.Join(dir, ".kube", "config"), []byte("x"), 0o644)
+		mocks.KubernetesManager.WaitForKubernetesHealthyFunc = func(ctx context.Context, endpoint string, out func(string), nodes ...string) error {
+			return nil
+		}
+		prov := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{TerraformStack: mockStack, KubernetesManager: mocks.KubernetesManager})
+		prov.configRoot = dir
+
+		// When preparing, it aborts and reverts the pivot so nothing later reads a local backend with no
+		// migrated state behind it
+		_, err := prov.PrepareLocalTeardown(bp)
+		if err == nil || !strings.Contains(err.Error(), "migrate terraform state") {
+			t.Errorf("expected abort on migration failure with cluster up, got %v", err)
+		}
+		if len(sets) != 2 || sets[0] != "local" || sets[1] != "kubernetes" {
+			t.Errorf("expected pivot to local then revert to kubernetes, got %v", sets)
+		}
+	})
+
+	t.Run("ProceedsOnMigrationFailureWhenClusterGone", func(t *testing.T) {
+		// Given a migration failure but the cluster is already gone (resume) — state is already local
+		mocks := setupProvisionerMocks(t)
+		set := false
+		kubernetesBackend(mocks, &set)
+		mockStack := terraforminfra.NewMockStack()
+		mockStack.MigrateStateFunc = func(_ *blueprintv1alpha1.Blueprint) ([]string, error) {
+			return nil, fmt.Errorf("dial tcp: connection refused")
+		}
+		prov := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{TerraformStack: mockStack})
+		prov.configRoot = t.TempDir() // no kubeconfig → cluster gone
+
+		// When preparing, it pivots and proceeds against the already-migrated local state
+		pivoted, err := prov.PrepareLocalTeardown(bp)
+		if err != nil {
+			t.Fatalf("expected resume to proceed, got %v", err)
+		}
+		if !pivoted || !set {
+			t.Errorf("expected pivot on resume, pivoted=%v set=%v", pivoted, set)
+		}
+	})
+}
 
 // =============================================================================
 // Test Public Methods
@@ -501,7 +758,9 @@ func TestProvisioner_Teardown(t *testing.T) {
 			return nil
 		}
 		mockStack := terraforminfra.NewMockStack()
-		mockStack.DestroyAllFunc = func(_ *blueprintv1alpha1.Blueprint, _ bool, _ ...string) (terraforminfra.DestroyOutcome, error) { return terraforminfra.DestroyOutcome{}, nil }
+		mockStack.DestroyAllFunc = func(_ *blueprintv1alpha1.Blueprint, _ bool, _ ...string) (terraforminfra.DestroyOutcome, error) {
+			return terraforminfra.DestroyOutcome{}, nil
+		}
 		mockStack.MigrateStateFunc = func(_ *blueprintv1alpha1.Blueprint) ([]string, error) { return nil, nil }
 
 		r, w, pipeErr := os.Pipe()
