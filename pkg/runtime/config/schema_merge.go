@@ -1,13 +1,17 @@
 package config
 
-import "maps"
+import (
+	"maps"
+	"reflect"
+)
 
 // Schema composition for the multi-file schema layout: SchemaValidator accumulates a merged
 // schema by deep-merging each loaded fragment over the previous one. The merge is pure
 // (no validator state), so it lives apart from validation to keep both surfaces obvious. The
 // invariants the merge preserves are operator-visible: properties union with overlay winning
 // on conflict, required arrays union and de-duplicate, items merge recursively when both sides
-// are object-typed.
+// are object-typed, and validation keywords merge conservatively (most restrictive wins) so
+// the result does not depend on the order fragments happen to load in.
 
 // =============================================================================
 // Private Methods
@@ -32,16 +36,20 @@ func (sv *SchemaValidator) mergeSchema(base, overlay map[string]any) map[string]
 			merged[k] = sv.mergeRequired(base["required"], v)
 		case "items":
 			merged[k] = sv.mergeItemsSchema(base["items"], v)
+		case "enum":
+			sv.mergeEnum(merged, base["enum"], v)
 		default:
-			merged[k] = v
+			merged[k] = sv.mergeKeyword(k, base, v)
 		}
 	}
 
 	return merged
 }
 
-// mergeProperties merges two property maps, with overlay properties overriding base properties.
-// Nested object properties are merged recursively.
+// mergeProperties merges two property maps. Each property is itself a schema, so a property
+// present in both fragments is merged with mergeSchema — unioning nested properties and
+// applying conservative validation-keyword merging to scalar leaves. A property is replaced
+// wholesale only when the two fragments give it conflicting types (a genuine redefinition).
 func (sv *SchemaValidator) mergeProperties(base, overlay any) map[string]any {
 	merged := make(map[string]any)
 
@@ -62,51 +70,26 @@ func (sv *SchemaValidator) mergeProperties(base, overlay any) map[string]any {
 			continue
 		}
 
-		baseProp, exists := merged[k]
-		if !exists {
-			merged[k] = overlayPropMap
-			continue
-		}
-
-		basePropMap, ok := baseProp.(map[string]any)
+		basePropMap, ok := merged[k].(map[string]any)
 		if !ok {
 			merged[k] = overlayPropMap
 			continue
 		}
 
-		if baseType, ok := basePropMap["type"].(string); ok && baseType == "object" {
-			if overlayType, ok := overlayPropMap["type"].(string); ok && overlayType == "object" {
-				mergedProp := make(map[string]any)
-				for bk, bv := range basePropMap {
-					mergedProp[bk] = bv
-				}
-				for ok, ov := range overlayPropMap {
-					switch ok {
-					case "properties":
-						mergedProp[ok] = sv.mergeProperties(basePropMap["properties"], ov)
-					case "required":
-						mergedProp[ok] = sv.mergeRequired(basePropMap["required"], ov)
-					case "items":
-						mergedProp[ok] = sv.mergeItemsSchema(basePropMap["items"], ov)
-					default:
-						mergedProp[ok] = ov
-					}
-				}
-				merged[k] = mergedProp
-			} else {
-				merged[k] = overlayPropMap
-			}
-		} else {
+		if typesConflict(basePropMap, overlayPropMap) {
 			merged[k] = overlayPropMap
+			continue
 		}
+
+		merged[k] = sv.mergeSchema(basePropMap, overlayPropMap)
 	}
 
 	return merged
 }
 
-// mergeItemsSchema merges two array item schemas, with overlay properties overriding base
-// properties. If both items are object types, they are merged recursively similar to
-// properties.
+// mergeItemsSchema merges two array item schemas. An item schema is a schema, so matching
+// items are merged with mergeSchema; the overlay replaces the base wholesale only when the
+// item types conflict.
 func (sv *SchemaValidator) mergeItemsSchema(base, overlay any) map[string]any {
 	overlayItems, ok := overlay.(map[string]any)
 	if !ok {
@@ -121,30 +104,11 @@ func (sv *SchemaValidator) mergeItemsSchema(base, overlay any) map[string]any {
 		return overlayItems
 	}
 
-	baseType, baseIsObject := baseItems["type"].(string)
-	overlayType, overlayIsObject := overlayItems["type"].(string)
-
-	if baseIsObject && baseType == "object" && overlayIsObject && overlayType == "object" {
-		mergedItems := make(map[string]any)
-		for k, v := range baseItems {
-			mergedItems[k] = v
-		}
-		for k, v := range overlayItems {
-			switch k {
-			case "properties":
-				mergedItems[k] = sv.mergeProperties(baseItems["properties"], v)
-			case "required":
-				mergedItems[k] = sv.mergeRequired(baseItems["required"], v)
-			case "items":
-				mergedItems[k] = sv.mergeItemsSchema(baseItems["items"], v)
-			default:
-				mergedItems[k] = v
-			}
-		}
-		return mergedItems
+	if typesConflict(baseItems, overlayItems) {
+		return overlayItems
 	}
 
-	return overlayItems
+	return sv.mergeSchema(baseItems, overlayItems)
 }
 
 // mergeRequired merges two required field arrays, combining them and removing duplicates.
@@ -175,4 +139,141 @@ func (sv *SchemaValidator) mergeRequired(base, overlay any) []any {
 	}
 
 	return merged
+}
+
+// mergeKeyword combines a single validation keyword conservatively so the most restrictive
+// constraint across fragments wins, making the merged schema independent of the order
+// fragments load in: additionalProperties collapses to false once any fragment closes the
+// object and otherwise keeps the stricter of a schema-object constraint over a bare true,
+// minimum-style bounds keep the larger value, and maximum-style bounds keep the smaller. Any
+// other keyword (including pattern and default) takes the overlay. enum is handled separately
+// by mergeEnum, which needs the containing schema to mark a disjoint intersection.
+func (sv *SchemaValidator) mergeKeyword(key string, base map[string]any, overlayVal any) any {
+	baseVal, ok := base[key]
+	if !ok {
+		return overlayVal
+	}
+
+	switch key {
+	case "additionalProperties":
+		if baseVal == false || overlayVal == false {
+			return false
+		}
+		baseMap, baseIsMap := baseVal.(map[string]any)
+		overlayMap, overlayIsMap := overlayVal.(map[string]any)
+		switch {
+		case baseIsMap && overlayIsMap:
+			return sv.mergeSchema(baseMap, overlayMap)
+		case baseIsMap:
+			return baseMap
+		case overlayIsMap:
+			return overlayMap
+		default:
+			return overlayVal
+		}
+	case "minimum", "exclusiveMinimum", "minLength", "minItems", "minProperties":
+		return tighterBound(baseVal, overlayVal, true)
+	case "maximum", "exclusiveMaximum", "maxLength", "maxItems", "maxProperties":
+		return tighterBound(baseVal, overlayVal, false)
+	default:
+		return overlayVal
+	}
+}
+
+// mergeEnum writes the intersection of two enum constraints into merged. When the fragments
+// share no members the node cannot be satisfied, so the enum key is dropped and merged is
+// marked with "not: {}" (which matches nothing): the validator ignores an empty enum but
+// honors "not", so without this a disjoint intersection would silently permit any value.
+func (sv *SchemaValidator) mergeEnum(merged map[string]any, base, overlay any) {
+	intersection := intersectEnum(base, overlay)
+	if slice, ok := intersection.([]any); ok && len(slice) == 0 {
+		delete(merged, "enum")
+		merged["not"] = map[string]any{}
+		return
+	}
+	merged["enum"] = intersection
+}
+
+// =============================================================================
+// Helpers
+// =============================================================================
+
+// typesConflict reports whether two schema fragments assign the same node incompatible
+// declared types. A missing type on either side is not a conflict, so a fragment that adds
+// constraints without restating the type still merges.
+func typesConflict(base, overlay map[string]any) bool {
+	baseType, baseOk := base["type"].(string)
+	overlayType, overlayOk := overlay["type"].(string)
+	return baseOk && overlayOk && baseType != overlayType
+}
+
+// tighterBound returns the more restrictive of two numeric schema bounds: the larger when
+// keepLarger is set (minimum-style keywords), the smaller otherwise (maximum-style). The
+// original value is returned so its numeric type is preserved; a non-numeric operand falls
+// back to the overlay.
+func tighterBound(base, overlay any, keepLarger bool) any {
+	bv, bok := numericValue(base)
+	ov, ook := numericValue(overlay)
+	if !bok || !ook {
+		return overlay
+	}
+	if keepLarger {
+		if bv >= ov {
+			return base
+		}
+		return overlay
+	}
+	if bv <= ov {
+		return base
+	}
+	return overlay
+}
+
+// intersectEnum returns the enum members common to both fragments, preserving base order, as
+// a non-nil slice. A non-array operand falls back to the overlay. Disjoint enums yield an
+// empty slice; mergeEnum turns that into an unsatisfiable node, since the validator ignores
+// an empty enum on its own.
+func intersectEnum(base, overlay any) any {
+	baseSlice, bok := base.([]any)
+	overlaySlice, ook := overlay.([]any)
+	if !bok || !ook {
+		return overlay
+	}
+	merged := []any{}
+	for _, b := range baseSlice {
+		for _, o := range overlaySlice {
+			if enumEqual(b, o) {
+				merged = append(merged, b)
+				break
+			}
+		}
+	}
+	return merged
+}
+
+// enumEqual compares two enum members, treating numeric values equal across integer and
+// float encodings and falling back to a deep comparison otherwise.
+func enumEqual(a, b any) bool {
+	if av, aok := numericValue(a); aok {
+		if bv, bok := numericValue(b); bok {
+			return av == bv
+		}
+	}
+	return reflect.DeepEqual(a, b)
+}
+
+// numericValue reports the float64 value of any Go numeric type, so schema bounds compare
+// regardless of the integer or float kind the YAML decoder produced.
+func numericValue(v any) (float64, bool) {
+	rv := reflect.ValueOf(v)
+	switch rv.Kind() {
+	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
+		return float64(rv.Int()), true
+	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
+		return float64(rv.Uint()), true
+	case reflect.Float32, reflect.Float64:
+		return rv.Float(), true
+	default:
+		return 0, false
+	}
 }
