@@ -163,6 +163,20 @@ windsor init staging --platform=aws --aws-profile=staging`,
 			return fmt.Errorf("invalid configuration: %w", err)
 		}
 
+		// Persist the operator's config — platform, --set values, and the generated context id —
+		// before blueprint composition, which can fail on an unmet facet `requires`. That failure
+		// then leaves a contexts/<name>/values.yaml to complete and re-run, rather than discarding
+		// everything the operator typed on the command line. (Kept after validation: SaveConfig runs
+		// the provider→platform migration that clears the deprecated provider key, which must not
+		// front-run schema validation.)
+		hasSetFlags := len(initSetFlags) > 0
+		if err := proj.Runtime.ConfigHandler.GenerateContextID(); err != nil {
+			return fmt.Errorf("failed to generate context ID: %w", err)
+		}
+		if err := proj.Runtime.SaveConfig(hasSetFlags); err != nil {
+			return fmt.Errorf("failed to save configuration: %w", err)
+		}
+
 		blueprintURL, err := resolveBlueprintURL(initBlueprint, initPlatform, contextName, rt.TemplateRoot, true, proj.Composer.ArtifactBuilder)
 		if err != nil {
 			return err
@@ -182,7 +196,6 @@ windsor init staging --platform=aws --aws-profile=staging`,
 			return err
 		}
 
-		hasSetFlags := len(initSetFlags) > 0
 		if err := proj.Runtime.SaveConfig(hasSetFlags); err != nil {
 			return fmt.Errorf("failed to save configuration: %w", err)
 		}
