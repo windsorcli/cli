@@ -24,6 +24,7 @@ type MockKubernetesClient struct {
 	ListResourcesByLabelFunc func(gvr schema.GroupVersionResource, namespace, labelSelector string) (*unstructured.UnstructuredList, error)
 	ApplyResourceFunc        func(gvr schema.GroupVersionResource, obj *unstructured.Unstructured, opts metav1.ApplyOptions) (*unstructured.Unstructured, error)
 	DeleteResourceFunc       func(gvr schema.GroupVersionResource, namespace, name string, opts metav1.DeleteOptions) error
+	ResourceForFunc          func(gvk schema.GroupVersionKind) (schema.GroupVersionResource, error)
 	PatchResourceFunc        func(ctx context.Context, gvr schema.GroupVersionResource, namespace, name string, pt types.PatchType, data []byte, opts metav1.PatchOptions) (*unstructured.Unstructured, error)
 	CheckHealthFunc          func(ctx context.Context, endpoint string) error
 	GetNodeReadyStatusFunc   func(ctx context.Context, nodeNames []string) (map[string]bool, error)
@@ -80,6 +81,14 @@ func (m *MockKubernetesClient) DeleteResource(gvr schema.GroupVersionResource, n
 		return m.DeleteResourceFunc(gvr, namespace, name, opts)
 	}
 	return nil
+}
+
+// ResourceFor implements KubernetesClient interface
+func (m *MockKubernetesClient) ResourceFor(gvk schema.GroupVersionKind) (schema.GroupVersionResource, error) {
+	if m.ResourceForFunc != nil {
+		return m.ResourceForFunc(gvk)
+	}
+	return schema.GroupVersionResource{}, nil
 }
 
 // PatchResource implements KubernetesClient interface
