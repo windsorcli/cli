@@ -601,7 +601,8 @@ func (p *terraformProvider) FormatArgsForEnv(args []string) string {
 // If output fails initially, it attempts to initialize the module and retry, allowing outputs to be retrieved
 // even if the module hasn't been initialized yet. Returns empty map without error if outputs cannot be retrieved
 // (component not ready), enabling graceful fallback via ?? operator. Only returns error for JSON parse failures
-// indicating state corruption. Only output 'value' fields are returned.
+// indicating state corruption. Only output 'value' fields are returned. The 'output -json' command runs via the
+// non-streaming capture path so sensitive outputs are never echoed under --verbose.
 func (p *terraformProvider) GetTerraformOutputs(componentID string) (map[string]any, error) {
 	return p.withTerraformContext(componentID, func(ctx *terraformContext) (map[string]any, error) {
 		terraformCommand := ctx.provider.toolsManager.GetTerraformCommand()
@@ -610,7 +611,7 @@ func (p *terraformProvider) GetTerraformOutputs(componentID string) (map[string]
 		}
 
 		outputArgs := []string{fmt.Sprintf("-chdir=%s", ctx.AbsModulePath), "output", "-json"}
-		output, err := ctx.provider.shell.ExecSilent(terraformCommand, outputArgs...)
+		output, err := ctx.provider.shell.ExecCaptureWithEnv(terraformCommand, nil, outputArgs...)
 		if err != nil {
 			chdirInitArgs := []string{fmt.Sprintf("-chdir=%s", ctx.AbsModulePath), "init", "-reconfigure"}
 			chdirInitArgs = append(chdirInitArgs, ctx.TerraformArgs.InitArgs...)
@@ -618,7 +619,7 @@ func (p *terraformProvider) GetTerraformOutputs(componentID string) (map[string]
 			if initErr != nil {
 				return make(map[string]any), nil
 			}
-			output, err = ctx.provider.shell.ExecSilent(terraformCommand, outputArgs...)
+			output, err = ctx.provider.shell.ExecCaptureWithEnv(terraformCommand, nil, outputArgs...)
 			if err != nil {
 				return make(map[string]any), nil
 			}
