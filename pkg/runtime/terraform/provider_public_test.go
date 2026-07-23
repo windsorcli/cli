@@ -2866,6 +2866,53 @@ terraform:
 		}
 	})
 
+	t.Run("UsesNonStreamingCaptureForOutputJSON", func(t *testing.T) {
+		// Given a provider whose terraform output carries sensitive values
+		blueprintYAML := `apiVersion: blueprints.windsorcli.dev/v1alpha1
+kind: Blueprint
+metadata:
+  name: test
+terraform:
+  - path: cluster
+    name: cluster`
+
+		mocks := setupMocks(t, &SetupOptions{BlueprintYAML: blueprintYAML, BackendType: "local"})
+
+		outputViaSilent := false
+		outputViaCapture := false
+		mocks.Shell.ExecSilentFunc = func(command string, args ...string) (string, error) {
+			if command == "terraform" && len(args) >= 2 && args[1] == "output" {
+				outputViaSilent = true
+				return `{"private_key_pem": {"value": "SENSITIVE", "sensitive": true}}`, nil
+			}
+			return "", nil
+		}
+		mocks.Shell.ExecCaptureWithEnvFunc = func(command string, env map[string]string, args ...string) (string, error) {
+			if command == "terraform" && len(args) >= 2 && args[1] == "output" {
+				outputViaCapture = true
+				return `{"private_key_pem": {"value": "SENSITIVE", "sensitive": true}}`, nil
+			}
+			return "", nil
+		}
+
+		// When getting terraform outputs
+		outputs, err := mocks.Provider.GetTerraformOutputs("cluster")
+		if err != nil {
+			t.Fatalf("Expected no error, got: %v", err)
+		}
+
+		// Then 'output -json' must run via the non-streaming capture path, never the verbose-echoing ExecSilent
+		if outputViaSilent {
+			t.Error("Expected 'terraform output -json' to run via ExecCaptureWithEnv, but it ran via ExecSilent (streams under --verbose)")
+		}
+		if !outputViaCapture {
+			t.Error("Expected 'terraform output -json' to run via ExecCaptureWithEnv, but it did not")
+		}
+		if outputs["private_key_pem"] != "SENSITIVE" {
+			t.Errorf("Expected private_key_pem to be parsed, got: %v", outputs["private_key_pem"])
+		}
+	})
+
 }
 
 func TestTerraformProvider_GetEnvVars(t *testing.T) {
