@@ -3,8 +3,6 @@ package config
 import (
 	"runtime"
 	"testing"
-
-	"github.com/windsorcli/cli/pkg/constants"
 )
 
 // =============================================================================
@@ -192,17 +190,17 @@ func TestConfigHandler_GetContextValues_Resolve(t *testing.T) {
 		}
 	})
 
-	t.Run("AppliesDedicatedVsSchedulableClusterResourceDefaults", func(t *testing.T) {
-		schedulableHandler, _ := setupPrivateTestHandler(t)
+	t.Run("DoesNotFabricateClusterResourceDefaults", func(t *testing.T) {
+		handler, _ := setupPrivateTestHandler(t)
 
-		if err := schedulableHandler.Set("cluster.controlplanes.count", 1); err != nil {
+		if err := handler.Set("cluster.controlplanes.count", 1); err != nil {
 			t.Fatalf("Expected no error setting controlplanes.count, got %v", err)
 		}
-		if err := schedulableHandler.Set("cluster.workers.count", 0); err != nil {
+		if err := handler.Set("cluster.workers.count", 0); err != nil {
 			t.Fatalf("Expected no error setting workers.count, got %v", err)
 		}
 
-		values, err := schedulableHandler.GetContextValues()
+		values, err := handler.GetContextValues()
 		if err != nil {
 			t.Fatalf("Expected no error, got %v", err)
 		}
@@ -210,38 +208,17 @@ func TestConfigHandler_GetContextValues_Resolve(t *testing.T) {
 		clusterValues := values["cluster"].(map[string]any)
 		controlplanesValues := clusterValues["controlplanes"].(map[string]any)
 		workersValues := clusterValues["workers"].(map[string]any)
-		if controlplanesValues["cpu"] != constants.DefaultControlPlaneCPUSchedulable {
-			t.Errorf("Expected schedulable controlplane cpu=%d, got %v", constants.DefaultControlPlaneCPUSchedulable, controlplanesValues["cpu"])
+		if _, exists := controlplanesValues["cpu"]; exists {
+			t.Errorf("Expected controlplanes.cpu to be absent, got %v", controlplanesValues["cpu"])
 		}
-		if controlplanesValues["memory"] != constants.DefaultControlPlaneMemorySchedulable {
-			t.Errorf("Expected schedulable controlplane memory=%d, got %v", constants.DefaultControlPlaneMemorySchedulable, controlplanesValues["memory"])
+		if _, exists := controlplanesValues["memory"]; exists {
+			t.Errorf("Expected controlplanes.memory to be absent, got %v", controlplanesValues["memory"])
 		}
-		if workersValues["cpu"] != constants.DefaultWorkerCPU {
-			t.Errorf("Expected worker cpu=%d, got %v", constants.DefaultWorkerCPU, workersValues["cpu"])
+		if _, exists := workersValues["cpu"]; exists {
+			t.Errorf("Expected workers.cpu to be absent, got %v", workersValues["cpu"])
 		}
-		if workersValues["memory"] != constants.DefaultWorkerMemory {
-			t.Errorf("Expected worker memory=%d, got %v", constants.DefaultWorkerMemory, workersValues["memory"])
-		}
-
-		dedicatedHandler, _ := setupPrivateTestHandler(t)
-		if err := dedicatedHandler.Set("cluster.controlplanes.count", 1); err != nil {
-			t.Fatalf("Expected no error setting controlplanes.count, got %v", err)
-		}
-		if err := dedicatedHandler.Set("cluster.workers.count", 1); err != nil {
-			t.Fatalf("Expected no error setting workers.count, got %v", err)
-		}
-		values, err = dedicatedHandler.GetContextValues()
-		if err != nil {
-			t.Fatalf("Expected no error, got %v", err)
-		}
-
-		clusterValues = values["cluster"].(map[string]any)
-		controlplanesValues = clusterValues["controlplanes"].(map[string]any)
-		if controlplanesValues["cpu"] != constants.DefaultControlPlaneCPUDedicated {
-			t.Errorf("Expected dedicated controlplane cpu=%d, got %v", constants.DefaultControlPlaneCPUDedicated, controlplanesValues["cpu"])
-		}
-		if controlplanesValues["memory"] != constants.DefaultControlPlaneMemoryDedicated {
-			t.Errorf("Expected dedicated controlplane memory=%d, got %v", constants.DefaultControlPlaneMemoryDedicated, controlplanesValues["memory"])
+		if _, exists := workersValues["memory"]; exists {
+			t.Errorf("Expected workers.memory to be absent, got %v", workersValues["memory"])
 		}
 	})
 
@@ -422,7 +399,7 @@ func TestGetMapInt(t *testing.T) {
 		data := map[string]any{
 			"cluster": map[string]any{
 				"workers": map[string]any{
-					"count_int64": int64(7),
+					"count_int64":  int64(7),
 					"count_uint64": uint64(8),
 				},
 			},
