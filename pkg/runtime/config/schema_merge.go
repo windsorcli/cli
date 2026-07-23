@@ -36,6 +36,8 @@ func (sv *SchemaValidator) mergeSchema(base, overlay map[string]any) map[string]
 			merged[k] = sv.mergeRequired(base["required"], v)
 		case "items":
 			merged[k] = sv.mergeItemsSchema(base["items"], v)
+		case "enum":
+			sv.mergeEnum(merged, base["enum"], v)
 		default:
 			merged[k] = sv.mergeKeyword(k, base, v)
 		}
@@ -142,8 +144,10 @@ func (sv *SchemaValidator) mergeRequired(base, overlay any) []any {
 // mergeKeyword combines a single validation keyword conservatively so the most restrictive
 // constraint across fragments wins, making the merged schema independent of the order
 // fragments load in: additionalProperties collapses to false once any fragment closes the
-// object, minimum-style bounds keep the larger value, maximum-style bounds keep the smaller,
-// and enum intersects. Any other keyword (including pattern and default) takes the overlay.
+// object and otherwise keeps the stricter of a schema-object constraint over a bare true,
+// minimum-style bounds keep the larger value, and maximum-style bounds keep the smaller. Any
+// other keyword (including pattern and default) takes the overlay. enum is handled separately
+// by mergeEnum, which needs the containing schema to mark a disjoint intersection.
 func (sv *SchemaValidator) mergeKeyword(key string, base map[string]any, overlayVal any) any {
 	baseVal, ok := base[key]
 	if !ok {
@@ -155,16 +159,39 @@ func (sv *SchemaValidator) mergeKeyword(key string, base map[string]any, overlay
 		if baseVal == false || overlayVal == false {
 			return false
 		}
-		return overlayVal
+		baseMap, baseIsMap := baseVal.(map[string]any)
+		overlayMap, overlayIsMap := overlayVal.(map[string]any)
+		switch {
+		case baseIsMap && overlayIsMap:
+			return sv.mergeSchema(baseMap, overlayMap)
+		case baseIsMap:
+			return baseMap
+		case overlayIsMap:
+			return overlayMap
+		default:
+			return overlayVal
+		}
 	case "minimum", "exclusiveMinimum", "minLength", "minItems", "minProperties":
 		return tighterBound(baseVal, overlayVal, true)
 	case "maximum", "exclusiveMaximum", "maxLength", "maxItems", "maxProperties":
 		return tighterBound(baseVal, overlayVal, false)
-	case "enum":
-		return intersectEnum(baseVal, overlayVal)
 	default:
 		return overlayVal
 	}
+}
+
+// mergeEnum writes the intersection of two enum constraints into merged. When the fragments
+// share no members the node cannot be satisfied, so the enum key is dropped and merged is
+// marked with "not: {}" (which matches nothing): the validator ignores an empty enum but
+// honors "not", so without this a disjoint intersection would silently permit any value.
+func (sv *SchemaValidator) mergeEnum(merged map[string]any, base, overlay any) {
+	intersection := intersectEnum(base, overlay)
+	if slice, ok := intersection.([]any); ok && len(slice) == 0 {
+		delete(merged, "enum")
+		merged["not"] = map[string]any{}
+		return
+	}
+	merged["enum"] = intersection
 }
 
 // =============================================================================
@@ -202,15 +229,17 @@ func tighterBound(base, overlay any, keepLarger bool) any {
 	return overlay
 }
 
-// intersectEnum returns the enum members common to both fragments, preserving base order. A
-// non-array operand falls back to the overlay.
+// intersectEnum returns the enum members common to both fragments, preserving base order, as
+// a non-nil slice. A non-array operand falls back to the overlay. Disjoint enums yield an
+// empty slice; mergeEnum turns that into an unsatisfiable node, since the validator ignores
+// an empty enum on its own.
 func intersectEnum(base, overlay any) any {
 	baseSlice, bok := base.([]any)
 	overlaySlice, ook := overlay.([]any)
 	if !bok || !ook {
 		return overlay
 	}
-	var merged []any
+	merged := []any{}
 	for _, b := range baseSlice {
 		for _, o := range overlaySlice {
 			if enumEqual(b, o) {

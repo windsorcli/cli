@@ -570,6 +570,77 @@ additionalProperties: true
 			}
 		}
 	})
+
+	t.Run("SchemaObjectAdditionalPropertiesMergeConservatively", func(t *testing.T) {
+		// Given fragments whose additionalProperties are schema objects, not booleans:
+		// one constrains extra keys to strings, the other requires a minimum length
+		strings := `$schema: https://json-schema.org/draft/2020-12/schema
+type: object
+additionalProperties:
+  type: string
+`
+		minLen := `$schema: https://json-schema.org/draft/2020-12/schema
+type: object
+additionalProperties:
+  minLength: 3
+`
+		for _, order := range [][]string{{strings, minLen}, {minLen, strings}} {
+			validator := loadMerged(t, order...)
+
+			// Then an extra key satisfying both constraints passes
+			result, err := validator.Validate(map[string]any{"extra": "abcd"})
+			if err != nil {
+				t.Fatalf("Validation failed: %v", err)
+			}
+			if !result.Valid {
+				t.Errorf("Expected extra='abcd' to pass, order %v, got errors: %v", order, result.Errors)
+			}
+
+			// And one violating the base fragment's constraint (too short) is still rejected,
+			// proving the base constraint was not dropped when the overlay was also a schema
+			result, err = validator.Validate(map[string]any{"extra": "ab"})
+			if err != nil {
+				t.Fatalf("Validation failed: %v", err)
+			}
+			if result.Valid {
+				t.Errorf("Expected extra='ab' to fail the merged minLength constraint, order %v", order)
+			}
+		}
+	})
+
+	t.Run("DisjointEnumsRejectEveryValue", func(t *testing.T) {
+		// Given fragments whose enums share no members
+		first := `$schema: https://json-schema.org/draft/2020-12/schema
+type: object
+properties:
+  mode:
+    type: string
+    enum: [a, b]
+additionalProperties: true
+`
+		second := `$schema: https://json-schema.org/draft/2020-12/schema
+type: object
+properties:
+  mode:
+    type: string
+    enum: [c, d]
+additionalProperties: true
+`
+		validator := loadMerged(t, first, second)
+
+		// When validating a value from either fragment's enum
+		for _, val := range []string{"a", "c"} {
+			result, err := validator.Validate(map[string]any{"mode": val})
+			if err != nil {
+				t.Fatalf("Validation failed: %v", err)
+			}
+
+			// Then it is rejected: an empty intersection permits no value
+			if result.Valid {
+				t.Errorf("Expected mode=%q to fail against an empty enum intersection", val)
+			}
+		}
+	})
 }
 
 func TestSchemaValidator_ExtractDefaults(t *testing.T) {
