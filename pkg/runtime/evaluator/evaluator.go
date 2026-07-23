@@ -431,6 +431,23 @@ func (e *expressionEvaluator) buildExprEnvironment(config map[string]any, facetP
 			new(func(string) string),
 		),
 		expr.Function(
+			"env",
+			func(params ...any) (any, error) {
+				if len(params) != 1 {
+					return nil, fmt.Errorf("env() requires exactly 1 argument, got %d", len(params))
+				}
+				name, ok := params[0].(string)
+				if !ok {
+					return nil, fmt.Errorf("env() variable name must be a string, got %T", params[0])
+				}
+				if value, present := e.Shims.LookupEnv(name); present {
+					return value, nil
+				}
+				return nil, nil
+			},
+			new(func(string) any),
+		),
+		expr.Function(
 			"yaml",
 			func(params ...any) (any, error) {
 				if len(params) < 1 || len(params) > 2 {

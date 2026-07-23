@@ -64,6 +64,7 @@ type Shims struct {
 	YamlMarshal   func(any) ([]byte, error)
 	YamlUnmarshal func([]byte, any) error
 	FilepathBase  func(string) string
+	LookupEnv     func(string) (string, bool)
 	NewJsonnetVM  func() JsonnetVM
 }
 
@@ -80,6 +81,7 @@ func NewShims() *Shims {
 		YamlMarshal:   yaml.Marshal,
 		YamlUnmarshal: yaml.Unmarshal,
 		FilepathBase:  filepath.Base,
+		LookupEnv:     os.LookupEnv,
 		NewJsonnetVM: func() JsonnetVM {
 			return &realJsonnetVM{vm: jsonnet.MakeVM()}
 		},

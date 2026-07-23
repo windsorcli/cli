@@ -570,6 +570,57 @@ func TestSplitHelper(t *testing.T) {
 	})
 }
 
+func TestEnvHelper(t *testing.T) {
+	t.Run("ReturnsValueWhenSet", func(t *testing.T) {
+		evaluator, _, _, _ := setupEvaluatorTest(t)
+		t.Setenv("WINDSOR_TEST_ENV_TOKEN", "s3cr3t")
+
+		result, err := evaluator.Evaluate(`${env("WINDSOR_TEST_ENV_TOKEN")}`, "", nil, false)
+		if err != nil {
+			t.Fatalf("Expected no error, got: %v", err)
+		}
+		if result != "s3cr3t" {
+			t.Errorf("Expected env value 's3cr3t', got '%v'", result)
+		}
+	})
+
+	t.Run("ReturnsNilWhenUnsetSoCoalesceApplies", func(t *testing.T) {
+		evaluator, _, _, _ := setupEvaluatorTest(t)
+
+		// The variable is never set, so env() resolves to nil and the ?? default is used.
+		result, err := evaluator.Evaluate(`${env("WINDSOR_TEST_ENV_DEFINITELY_ABSENT") ?? "fallback"}`, "", nil, false)
+		if err != nil {
+			t.Fatalf("Expected no error, got: %v", err)
+		}
+		if result != "fallback" {
+			t.Errorf("Expected coalesce fallback 'fallback' for unset var, got '%v'", result)
+		}
+	})
+
+	t.Run("PreservesExplicitEmptyStringDistinctFromUnset", func(t *testing.T) {
+		evaluator, _, _, _ := setupEvaluatorTest(t)
+		t.Setenv("WINDSOR_TEST_ENV_EMPTY", "")
+
+		// A set-but-empty var is a real value, so ?? does not fall through to the default.
+		result, err := evaluator.Evaluate(`${env("WINDSOR_TEST_ENV_EMPTY") ?? "fallback"}`, "", nil, false)
+		if err != nil {
+			t.Fatalf("Expected no error, got: %v", err)
+		}
+		if result != "" {
+			t.Errorf("Expected set-but-empty var to resolve to '', got '%v'", result)
+		}
+	})
+
+	t.Run("ErrorsOnNonStringArgument", func(t *testing.T) {
+		evaluator, _, _, _ := setupEvaluatorTest(t)
+
+		_, err := evaluator.Evaluate(`${env(42)}`, "", nil, false)
+		if err == nil {
+			t.Fatal("Expected error for non-string argument, got nil")
+		}
+	})
+}
+
 func TestCidrHostHelper(t *testing.T) {
 	t.Run("CidrHostWithValidInput", func(t *testing.T) {
 		evaluator, _, _, _ := setupEvaluatorTest(t)
