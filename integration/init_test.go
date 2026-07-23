@@ -173,6 +173,35 @@ func TestInit_NonDevPlatformStaysInValues(t *testing.T) {
 	}
 }
 
+// TestInit_PersistsConfigWhenRequirementUnmet verifies that a failed init (an unmet facet
+// requirement surfaced during composition) still writes contexts/<name>/values.yaml carrying the
+// platform and the --set values, so the operator can add the missing value and re-run instead of
+// reconstructing the command line. The facet-requires fixture's consumer facet activates on
+// platform aws and requires dns.domain, aws.region, and aws.account_id; here only aws.region is
+// provided, so init fails — but the config it already knows must be persisted.
+func TestInit_PersistsConfigWhenRequirementUnmet(t *testing.T) {
+	t.Parallel()
+	dir, env := helpers.CopyFixtureOnly(t, "facet-requires")
+	helpers.MarkAsGitRepo(t, dir)
+
+	_, stderr, err := helpers.RunCLI(dir, []string{"init", "prod", "--platform", "aws", "--set", "aws.region=us-east-1"}, env)
+	if err == nil {
+		t.Fatalf("expected init to fail on the unmet requirement, got nil error\nstderr: %s", stderr)
+	}
+
+	valuesPath := filepath.Join(dir, "contexts", "prod", "values.yaml")
+	if !hasFile(valuesPath) {
+		t.Fatalf("expected values.yaml to be written despite the failure, at %s\nstderr: %s", valuesPath, stderr)
+	}
+	values := readYAMLFile(t, valuesPath)
+	if platform, ok := getPathValue(values, "platform"); !ok || platform != "aws" {
+		t.Errorf("expected platform=aws persisted after failure, got %v", platform)
+	}
+	if region, ok := getPathValue(values, "aws", "region"); !ok || region != "us-east-1" {
+		t.Errorf("expected --set aws.region=us-east-1 persisted after failure, got %v", region)
+	}
+}
+
 func TestInit_RepeatedInitIsIdempotentForExplicitValues(t *testing.T) {
 	t.Parallel()
 	dir, env := helpers.CopyFixtureOnly(t, "default")
