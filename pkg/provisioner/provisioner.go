@@ -993,9 +993,7 @@ func (i *Provisioner) Install(ctx context.Context, blueprint *blueprintv1alpha1.
 	// Actively drive the just-applied kustomizations toward Ready — nudging any that are stuck and forcing
 	// HelmReleases that stalled (e.g. one that failed to install before its secret was placed) — for a
 	// bounded window, returning early once all are Ready. Best-effort: --wait paths still gate via Wait.
-	if err := i.Converge(ctx, applied, constants.DefaultConvergeTimeout); err != nil {
-		return fmt.Errorf("error reconciling resources: %w", err)
-	}
+	_ = i.Converge(ctx, applied, constants.DefaultConvergeTimeout)
 
 	return nil
 }
