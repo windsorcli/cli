@@ -166,10 +166,13 @@ func (c *configHandler) applyClusterTopologyDefaults(values map[string]any) {
 	if !hasExplicitWorkersCount || !hasWorkersCount {
 		if derivedCount, derived := getExplicitNodeCountFromData(c.data, []string{"cluster", "workers", "nodes"}); derived {
 			workersCount = derivedCount
+			workersMap["count"] = workersCount
 		} else {
+			// Leave workers.count unset (nil) so a facet can default it via `?? N`; writing a
+			// zero-value here would be indistinguishable from an explicit 0 and would also clobber
+			// any schema default. workersCount stays 0 locally only for the schedulable derivation.
 			workersCount = 0
 		}
-		workersMap["count"] = workersCount
 	}
 
 	schedulable, hasSchedulable := controlplanesMap["schedulable"].(bool)

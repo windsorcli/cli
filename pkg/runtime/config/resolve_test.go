@@ -95,6 +95,77 @@ func TestConfigHandler_GetContextValues_Resolve(t *testing.T) {
 		}
 	})
 
+	t.Run("LeavesWorkersCountUnsetWhenNoExplicitCountOrNodes", func(t *testing.T) {
+		// Given a handler with no workers count and no worker nodes
+		handler, _ := setupPrivateTestHandler(t)
+
+		values, err := handler.GetContextValues()
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+
+		// Then workers.count is left unset (nil), so a facet can default it via `?? N` rather than
+		// receiving a zero-value that is indistinguishable from an explicit 0
+		workersValues := values["cluster"].(map[string]any)["workers"].(map[string]any)
+		if v, present := workersValues["count"]; present {
+			t.Errorf("Expected workers.count unset when neither count nor nodes are provided, got %v", v)
+		}
+	})
+
+	t.Run("PreservesExplicitZeroWorkersCount", func(t *testing.T) {
+		// Given an explicitly-set workers.count of 0
+		handler, _ := setupPrivateTestHandler(t)
+		if err := handler.Set("cluster.workers.count", 0); err != nil {
+			t.Fatalf("Expected no error setting workers.count, got %v", err)
+		}
+
+		values, err := handler.GetContextValues()
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+
+		// Then the explicit 0 is preserved and present (distinct from unset)
+		workersValues := values["cluster"].(map[string]any)["workers"].(map[string]any)
+		v, present := workersValues["count"]
+		if !present || v != 0 {
+			t.Errorf("Expected explicit workers.count=0 preserved, got %v (present=%v)", v, present)
+		}
+	})
+
+	t.Run("MaterializesNestedSchemaDefaultForUnsetField", func(t *testing.T) {
+		// Given a schema with a nested default and a non-test context
+		handler, _ := setupPrivateTestHandler(t)
+		if err := handler.SetContext("local"); err != nil {
+			t.Fatalf("Expected no error setting context, got %v", err)
+		}
+		schema := []byte("$schema: https://json-schema.org/draft/2020-12/schema\n" +
+			"type: object\n" +
+			"properties:\n" +
+			"  network:\n" +
+			"    type: object\n" +
+			"    properties:\n" +
+			"      cidr_block:\n" +
+			"        type: string\n" +
+			"        default: \"10.5.0.0/16\"\n")
+		if err := handler.LoadSchemaFromBytes(schema); err != nil {
+			t.Fatalf("Expected no error loading schema, got %v", err)
+		}
+
+		values, err := handler.GetContextValues()
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+
+		// Then the unset field resolves to its schema default (so cidrhost(...) succeeds downstream)
+		networkValues, ok := values["network"].(map[string]any)
+		if !ok {
+			t.Fatalf("Expected network map, got %T", values["network"])
+		}
+		if networkValues["cidr_block"] != "10.5.0.0/16" {
+			t.Errorf("Expected network.cidr_block schema default, got %v", networkValues["cidr_block"])
+		}
+	})
+
 	t.Run("DerivesSchedulableWhenNotExplicit", func(t *testing.T) {
 		handler, _ := setupPrivateTestHandler(t)
 
