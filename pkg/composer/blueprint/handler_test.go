@@ -374,6 +374,52 @@ sources:
 		}
 	})
 
+	t.Run("DanglingDependencyOnExcludedFacetNamesTheFacetAndCondition", func(t *testing.T) {
+		// Given a local template where one facet (excluded by a false when:) would contribute the
+		// "cluster" component, and an always-on facet's "cni" depends on it.
+		mocks := setupHandlerMocks(t)
+		mocks.Runtime.TemplateRoot = filepath.Join(mocks.Runtime.ProjectRoot, "_template")
+		facetsDir := filepath.Join(mocks.Runtime.TemplateRoot, "facets")
+		os.MkdirAll(facetsDir, 0755)
+		os.WriteFile(filepath.Join(mocks.Runtime.TemplateRoot, "blueprint.yaml"), []byte(`kind: Blueprint
+apiVersion: blueprints.windsorcli.dev/v1alpha1
+metadata:
+  name: template
+`), 0644)
+		os.WriteFile(filepath.Join(facetsDir, "provider-hetzner.yaml"), []byte(`kind: Facet
+apiVersion: blueprints.windsorcli.dev/v1alpha1
+metadata:
+  name: provider-hetzner
+when: cluster.driver == 'talos'
+terraform:
+  - path: cluster
+`), 0644)
+		os.WriteFile(filepath.Join(facetsDir, "cni.yaml"), []byte(`kind: Facet
+apiVersion: blueprints.windsorcli.dev/v1alpha1
+metadata:
+  name: cni
+terraform:
+  - path: cni
+    dependsOn:
+      - cluster
+`), 0644)
+
+		handler := NewBlueprintHandler(mocks.Runtime, mocks.ArtifactBuilder)
+
+		// When loading, composition fails because "cluster" was excluded.
+		err := handler.LoadBlueprint()
+
+		// Then the error names the excluded facet and the condition that excluded it, not just the edge.
+		if err == nil {
+			t.Fatal("Expected a dangling-dependency error, got nil")
+		}
+		for _, want := range []string{`facet "provider-hetzner"`, "cluster.driver == 'talos'", "evaluated false"} {
+			if !strings.Contains(err.Error(), want) {
+				t.Errorf("Expected %q in error, got %v", want, err)
+			}
+		}
+	})
+
 	t.Run("MergesUserBlueprintOverTemplate", func(t *testing.T) {
 		// Given template and user blueprints
 		mocks := setupHandlerMocks(t)

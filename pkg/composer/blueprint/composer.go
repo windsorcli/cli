@@ -31,6 +31,7 @@ type BaseBlueprintComposer struct {
 	runtime             *runtime.Runtime
 	commonSubstitutions map[string]string
 	shims               *Shims
+	excludedFacets      []ExcludedFacet
 }
 
 // CrdInstallLayer is a CRD kustomization the provisioner will synthesize: a source (empty for the
@@ -179,6 +180,13 @@ func (c *BaseBlueprintComposer) Compose(loaders []BlueprintLoader, initLoaderNam
 	c.applyGlobalDependencyBarrier(result)
 	validationErr := errors.Join(c.validateSources(result), c.validateReservedNames(result), c.validateDependencies(result))
 	return result, validationErr
+}
+
+// SetExcludedFacets provides the facets dropped by a false when: during facet processing, so
+// validateDependencies can attribute a dangling dependency to the excluded facet that would have
+// provided it and name the condition that excluded it.
+func (c *BaseBlueprintComposer) SetExcludedFacets(excluded []ExcludedFacet) {
+	c.excludedFacets = excluded
 }
 
 // SetCommonSubstitutions configures substitution values that will be added to all kustomizations
@@ -996,7 +1004,7 @@ func (c *BaseBlueprintComposer) validateDependencies(bp *blueprintv1alpha1.Bluep
 	for _, tf := range bp.TerraformComponents {
 		for _, dep := range tf.DependsOn {
 			if _, exists := tfIDs[dep]; !exists {
-				return fmt.Errorf("terraform component %q depends on non-existent component %q", tf.GetID(), dep)
+				return fmt.Errorf("terraform component %q depends on %s", tf.GetID(), c.describeMissingDependency(dep, "component"))
 			}
 		}
 	}
@@ -1004,12 +1012,29 @@ func (c *BaseBlueprintComposer) validateDependencies(bp *blueprintv1alpha1.Bluep
 	for _, k := range allK {
 		for _, dep := range k.DependsOn {
 			if _, exists := kNames[dep]; !exists {
-				return fmt.Errorf("kustomization %q depends on non-existent kustomization %q", k.Name, dep)
+				return fmt.Errorf("kustomization %q depends on %s", k.Name, c.describeMissingDependency(dep, "kustomization"))
 			}
 		}
 	}
 
 	return nil
+}
+
+// describeMissingDependency renders the tail of a dangling-dependency error. When an excluded facet
+// would have provided the missing name, it names that facet and the when: condition that excluded it,
+// turning a bare "non-existent X" into an actionable diagnostic. Otherwise it falls back to the plain
+// "non-existent X" message. kind is "component" or "kustomization".
+func (c *BaseBlueprintComposer) describeMissingDependency(dep, kind string) string {
+	for _, excluded := range c.excludedFacets {
+		if !slices.Contains(excluded.Provides, dep) {
+			continue
+		}
+		if excluded.When != "" {
+			return fmt.Sprintf("%q, which is not in the composition: it is contributed by facet %q, excluded because its when condition (%s) evaluated false", dep, excluded.Name, excluded.When)
+		}
+		return fmt.Sprintf("%q, which is not in the composition: it is contributed by facet %q, which was excluded", dep, excluded.Name)
+	}
+	return fmt.Sprintf("non-existent %s %q", kind, dep)
 }
 
 // =============================================================================

@@ -906,6 +906,10 @@ func (h *BaseBlueprintHandler) processAndCompose() error {
 	var scopeMu sync.Mutex
 	collectedScopes := make(map[string]map[string]any)
 
+	if concrete, ok := h.processor.(*BaseBlueprintProcessor); ok {
+		concrete.ResetExcludedFacets()
+	}
+
 	var wg sync.WaitGroup
 	var mu sync.Mutex
 	var errs []error
@@ -988,6 +992,12 @@ func (h *BaseBlueprintHandler) processAndCompose() error {
 			userPath = ul.GetBlueprintPath()
 		}
 	}
+	if concrete, ok := h.processor.(*BaseBlueprintProcessor); ok {
+		if comp, ok := h.composer.(*BaseBlueprintComposer); ok {
+			comp.SetExcludedFacets(concrete.GetExcludedFacets())
+		}
+	}
+
 	composedBp, composeErr := h.composer.Compose(loaders, initLoaderNames, userPath, mergedScope)
 	h.composedBlueprint = composedBp
 	h.composedScope = mergedScope

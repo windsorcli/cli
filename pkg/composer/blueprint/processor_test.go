@@ -317,6 +317,54 @@ func TestProcessor_ProcessFacets(t *testing.T) {
 		}
 	})
 
+	t.Run("RecordsExcludedFacetWithWhenAndProvidedNames", func(t *testing.T) {
+		// Given one included and one when-excluded facet, the excluded one contributing a terraform
+		// component, a kustomization, and a flux system.
+		mocks := setupProcessorMocks(t)
+		processor := NewBlueprintProcessor(mocks.Runtime)
+		mocks.ConfigHandler.GetContextValuesFunc = func() (map[string]any, error) {
+			return map[string]any{"enabled": false}, nil
+		}
+		facets := []blueprintv1alpha1.Facet{
+			{Metadata: blueprintv1alpha1.Metadata{Name: "always"}, TerraformComponents: []blueprintv1alpha1.ConditionalTerraformComponent{
+				{TerraformComponent: blueprintv1alpha1.TerraformComponent{Path: "vpc"}},
+			}},
+			{
+				Metadata:            blueprintv1alpha1.Metadata{Name: "addon-private-dns"},
+				When:                "enabled == true",
+				TerraformComponents: []blueprintv1alpha1.ConditionalTerraformComponent{{TerraformComponent: blueprintv1alpha1.TerraformComponent{Path: "cluster"}}},
+				Kustomizations:      []blueprintv1alpha1.ConditionalKustomization{{Kustomization: blueprintv1alpha1.Kustomization{Name: "dns-config"}}},
+				FluxSystems:         []blueprintv1alpha1.FluxSystem{{Name: "dns", Install: &blueprintv1alpha1.Kustomization{Components: []string{"external-dns"}}}},
+			},
+		}
+
+		// When processing
+		processor.ResetExcludedFacets()
+		if _, err := processor.ProcessFacets(&blueprintv1alpha1.Blueprint{}, facets); err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+
+		// Then only the excluded facet is recorded, with its when: and every name it would contribute.
+		excluded := processor.GetExcludedFacets()
+		if len(excluded) != 1 {
+			t.Fatalf("Expected 1 excluded facet, got %d (%v)", len(excluded), excluded)
+		}
+		if excluded[0].Name != "addon-private-dns" || excluded[0].When != "enabled == true" {
+			t.Errorf("Expected addon-private-dns/when recorded, got %+v", excluded[0])
+		}
+		for _, want := range []string{"cluster", "dns-config", "dns-install"} {
+			if !slices.Contains(excluded[0].Provides, want) {
+				t.Errorf("Expected Provides to contain %q, got %v", want, excluded[0].Provides)
+			}
+		}
+
+		// And ResetExcludedFacets clears the record.
+		processor.ResetExcludedFacets()
+		if got := processor.GetExcludedFacets(); got != nil {
+			t.Errorf("Expected nil after reset, got %v", got)
+		}
+	})
+
 	t.Run("ExcludesFacetWhenConditionReferencesUndefinedVariable", func(t *testing.T) {
 		mocks := setupProcessorMocks(t)
 		processor := NewBlueprintProcessor(mocks.Runtime)
