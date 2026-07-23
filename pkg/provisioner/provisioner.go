@@ -1073,6 +1073,10 @@ func (i *Provisioner) ResolveSecrets(blueprint *blueprintv1alpha1.Blueprint) (Re
 					}
 					return nil, fmt.Errorf("resolving secret %q key %q: reference %q resolved to empty; add a ?? default (e.g. %q) to make the key optional", secretName, key, ref, "${... ?? ''}")
 				}
+				// Mask the materialized value in command output regardless of how it was sourced —
+				// env(), a config reference, or secret() — matching the redaction secret() already
+				// gets at resolution time.
+				i.shell.RegisterSecret(s)
 				stringData[key] = s
 			}
 			if len(stringData) > 0 {

@@ -4599,6 +4599,64 @@ func TestProvisioner_ResolveSecrets(t *testing.T) {
 		}
 	})
 
+	t.Run("RegistersResolvedValueWithScrubber", func(t *testing.T) {
+		// Given a resolvable secret reference and a shell that records scrubber registrations
+		mocks := setupProvisionerMocks(t)
+		withValues(mocks, map[string]any{"cdn": map[string]any{"cloudflare_api_key": "resolved-token"}})
+		var registered []string
+		mocks.Shell.RegisterSecretFunc = func(v string) { registered = append(registered, v) }
+
+		// When resolving secrets
+		_, err := newProvisioner(mocks).ResolveSecrets(bp(map[string]blueprintv1alpha1.SecretEntry{"cloudflare-creds": entry(map[string]string{"api_token": "${cdn.cloudflare_api_key}"})}))
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+
+		// Then the materialized value is registered with the shell scrubber so it is masked in output,
+		// regardless of whether it was sourced via secret(), a config reference, or env()
+		found := false
+		for _, v := range registered {
+			if v == "resolved-token" {
+				found = true
+			}
+		}
+		if !found {
+			t.Errorf("Expected resolved secret value registered with scrubber, got %v", registered)
+		}
+	})
+
+	t.Run("ResolvesSecretFromEnvWhenConfigUnsetAndScrubsIt", func(t *testing.T) {
+		// Given a secret whose config source is unset, falling back to env() — the Hetzner case where
+		// HETZNER_TOKEN is supplied only as an environment variable
+		mocks := setupProvisionerMocks(t)
+		withValues(mocks, map[string]any{})
+		t.Setenv("HETZNER_TOKEN", "env-token")
+		var registered []string
+		mocks.Shell.RegisterSecretFunc = func(v string) { registered = append(registered, v) }
+
+		// When resolving secrets
+		resolved, err := newProvisioner(mocks).ResolveSecrets(bp(map[string]blueprintv1alpha1.SecretEntry{
+			"hcloud": entry(map[string]string{"token": `${hetzner.token ?? env("HETZNER_TOKEN")}`}),
+		}))
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+
+		// Then the token is sourced from the environment and masked in output
+		if got := resolved["cdn-install"]["hcloud"].Data["token"]; got != "env-token" {
+			t.Errorf("Expected token sourced from env, got %q", got)
+		}
+		found := false
+		for _, v := range registered {
+			if v == "env-token" {
+				found = true
+			}
+		}
+		if !found {
+			t.Errorf("Expected env-sourced secret registered with scrubber, got %v", registered)
+		}
+	})
+
 	t.Run("FailsWhenRequiredReferenceResolvesToNil", func(t *testing.T) {
 		// Given a required reference to a value absent from configuration (resolves to nil), as when a
 		// secret() lookup fails to resolve and coalesces to nil

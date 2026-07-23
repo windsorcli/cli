@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -40,6 +41,7 @@ func setupEvaluatorWithMockShims(t *testing.T) (ExpressionEvaluator, *Shims, con
 		YamlMarshal:   yaml.Marshal,
 		YamlUnmarshal: yaml.Unmarshal,
 		FilepathBase:  filepath.Base,
+		LookupEnv:     os.LookupEnv,
 		NewJsonnetVM: func() JsonnetVM {
 			return &realJsonnetVM{vm: jsonnet.MakeVM()}
 		},
