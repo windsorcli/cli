@@ -26,6 +26,7 @@ import (
 	"github.com/windsorcli/cli/pkg/runtime/config"
 	runtimegit "github.com/windsorcli/cli/pkg/runtime/git"
 	"github.com/windsorcli/cli/pkg/tui"
+	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -1672,7 +1673,10 @@ func (k *BaseKubernetesManager) ownedRootForService(svc *unstructured.Unstructur
 		}
 		gvr, err := k.client.ResourceFor(gv.WithKind(owner.Kind))
 		if err != nil {
-			return ownedTarget{}, false, nil
+			if apimeta.IsNoMatchError(err) {
+				return ownedTarget{}, false, nil
+			}
+			return ownedTarget{}, false, fmt.Errorf("error resolving load balancer owner %s %q: %w", owner.Kind, owner.Name, err)
 		}
 		if owned[inventoryKey(gv.Group, owner.Kind, namespace, owner.Name)] {
 			return ownedTarget{gvr: gvr, namespace: namespace, name: owner.Name}, true, nil
