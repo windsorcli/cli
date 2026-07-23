@@ -306,6 +306,74 @@ sources:
 		}
 	})
 
+	t.Run("LoadsLocalFacetsWhenUserBlueprintListsSources", func(t *testing.T) {
+		// Given a user blueprint that lists a source (not "template") alongside a local _template
+		// carrying its own facet — the downstream-blueprint layout that previously dropped local facets.
+		mocks := setupHandlerMocks(t)
+		mocks.Runtime.TemplateRoot = filepath.Join(mocks.Runtime.ProjectRoot, "_template")
+
+		templateDir := mocks.Runtime.TemplateRoot
+		facetsDir := filepath.Join(templateDir, "facets")
+		os.MkdirAll(facetsDir, 0755)
+		os.WriteFile(filepath.Join(templateDir, "blueprint.yaml"), []byte(`kind: Blueprint
+apiVersion: blueprints.windsorcli.dev/v1alpha1
+metadata:
+  name: template
+`), 0644)
+		os.WriteFile(filepath.Join(facetsDir, "local-network.yaml"), []byte(`kind: Facet
+apiVersion: blueprints.windsorcli.dev/v1alpha1
+metadata:
+  name: local-network
+terraform:
+  - path: local-net
+`), 0644)
+
+		// And an OCI source that contributes nothing conflicting.
+		sourceCacheDir := filepath.Join(mocks.Runtime.ProjectRoot, "core-cache")
+		sourceTemplateDir := filepath.Join(sourceCacheDir, "_template")
+		os.MkdirAll(sourceTemplateDir, 0755)
+		os.WriteFile(filepath.Join(sourceTemplateDir, "blueprint.yaml"), []byte(`kind: Blueprint
+apiVersion: blueprints.windsorcli.dev/v1alpha1
+metadata:
+  name: core
+`), 0644)
+		mocks.ArtifactBuilder.PullFunc = func(refs []string) (map[string]string, error) {
+			return map[string]string{"example.com/core:v1.0.0": sourceCacheDir}, nil
+		}
+		mocks.ArtifactBuilder.ParseOCIRefFunc = func(ref string) (string, string, string, error) {
+			return "example.com", "core", "v1.0.0", nil
+		}
+
+		os.WriteFile(filepath.Join(mocks.Runtime.ConfigRoot, "blueprint.yaml"), []byte(`kind: Blueprint
+apiVersion: blueprints.windsorcli.dev/v1alpha1
+sources:
+  - name: core
+    url: oci://example.com/core:v1.0.0
+    install: true
+`), 0644)
+
+		handler := NewBlueprintHandler(mocks.Runtime, mocks.ArtifactBuilder)
+
+		// When loading the blueprint
+		if err := handler.LoadBlueprint(); err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+
+		// Then the local _template facet is loaded despite the sources list, and its component composes.
+		if _, exists := handler.sourceBlueprintLoaders["template"]; !exists {
+			t.Fatal("Expected local 'template' loaded even though the user blueprint lists sources")
+		}
+		found := false
+		for _, comp := range handler.composedBlueprint.TerraformComponents {
+			if comp.Path == "local-net" {
+				found = true
+			}
+		}
+		if !found {
+			t.Errorf("Expected local facet's 'local-net' component composed, got %v", handler.composedBlueprint.TerraformComponents)
+		}
+	})
+
 	t.Run("MergesUserBlueprintOverTemplate", func(t *testing.T) {
 		// Given template and user blueprints
 		mocks := setupHandlerMocks(t)
