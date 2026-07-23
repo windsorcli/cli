@@ -1038,12 +1038,12 @@ type ResolvedSecret struct {
 // ResolveSecrets resolves every flux system's declared Secrets to plaintext ahead of Install, so a
 // misconfigured secret fails the command before anything is applied to the cluster. For each compiled
 // kustomization carrying Secrets it evaluates each data reference (the evaluator registers resolved
-// values with the shell scrubber). A reference that resolves to nil — the value is absent from
-// configuration — is treated as unconfigured and its key is omitted, since a secret the user never set
-// is not misconfiguration. A reference that resolves to an empty string fails closed unless it carries a
-// "??" default, since a present-but-blank value is misconfiguration; adding a ?? default makes such a
-// key optional and omits it. A secret whose keys all resolve away is not created at all, so an
-// unconfigured optional secret leaves no empty Secret behind. The result is keyed by owning kustomization
+// values with the shell scrubber). A reference that resolves to nothing — nil (absent from configuration
+// or a secret() lookup that failed to resolve) or an empty string — fails closed unless it carries a "??"
+// default, since a required key that resolves away is misconfiguration and silently dropping it strands a
+// downstream consumer with a missing key. Adding a ?? default marks the key optional and omits it. A
+// secret whose keys all resolve away is not created at all, so an optional secret leaves no empty Secret
+// behind. The result is keyed by owning kustomization
 // for PlaceSecrets to materialize post-Install; it is empty when no kustomization declares Secrets.
 func (i *Provisioner) ResolveSecrets(blueprint *blueprintv1alpha1.Blueprint) (ResolvedSecrets, error) {
 	if blueprint == nil {
@@ -1063,10 +1063,10 @@ func (i *Provisioner) ResolveSecrets(blueprint *blueprintv1alpha1.Blueprint) (Re
 				if err != nil {
 					return nil, fmt.Errorf("resolving secret %q key %q: %w", secretName, key, err)
 				}
-				if value == nil {
-					continue
+				s := ""
+				if value != nil {
+					s = fmt.Sprint(value)
 				}
-				s := fmt.Sprint(value)
 				if s == "" {
 					if strings.Contains(ref, "??") {
 						continue

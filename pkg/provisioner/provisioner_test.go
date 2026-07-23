@@ -1943,8 +1943,9 @@ func TestProvisioner_Install(t *testing.T) {
 		}
 	})
 
-	t.Run("OmitsUnconfiguredNilSecretWithoutFailing", func(t *testing.T) {
-		// Given a secret reference to a value absent from configuration (resolves to nil)
+	t.Run("FailsWhenRequiredSecretResolvesToNil", func(t *testing.T) {
+		// Given a required secret reference to a value absent from configuration (resolves to nil), as
+		// when a secret() lookup fails to resolve non-interactively
 		mocks := setupProvisionerMocks(t)
 		mocks.ConfigHandler.(*config.MockConfigHandler).GetContextValuesFunc = func() (map[string]any, error) {
 			return map[string]any{}, nil
@@ -1962,12 +1963,40 @@ func TestProvisioner_Install(t *testing.T) {
 			}},
 		}}
 
-		// When installing, the unconfigured secret is skipped and install still succeeds
+		// When installing, it fails closed rather than placing an hcloud Secret missing its token key
+		if err := provisioner.Install(context.Background(), blueprint, false); err == nil {
+			t.Fatal("Expected error for a nil-resolving required secret, got nil")
+		}
+		if placed {
+			t.Error("Expected no secret placed for a nil-resolving reference")
+		}
+	})
+
+	t.Run("OmitsUnconfiguredOptionalSecretWithoutFailing", func(t *testing.T) {
+		// Given an optional secret reference (?? default) to a value absent from configuration
+		mocks := setupProvisionerMocks(t)
+		mocks.ConfigHandler.(*config.MockConfigHandler).GetContextValuesFunc = func() (map[string]any, error) {
+			return map[string]any{}, nil
+		}
+		mocks.KubernetesManager.ApplyBlueprintFunc = func(*blueprintv1alpha1.Blueprint, string) error { return nil }
+		placed := false
+		mocks.KubernetesManager.ApplySecretFunc = func(name, namespace string, stringData map[string]string, owner string) error {
+			placed = true
+			return nil
+		}
+		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{KubernetesManager: mocks.KubernetesManager})
+		blueprint := &blueprintv1alpha1.Blueprint{Kustomizations: []blueprintv1alpha1.Kustomization{
+			{Name: "lb-install", Secrets: map[string]blueprintv1alpha1.SecretEntry{
+				"hcloud": {Data: map[string]string{"token": "${hetzner.token ?? ''}"}},
+			}},
+		}}
+
+		// When installing, the optional secret is skipped and install still succeeds
 		if err := provisioner.Install(context.Background(), blueprint, false); err != nil {
 			t.Fatalf("Expected no error, got: %v", err)
 		}
 		if placed {
-			t.Error("Expected no secret placed for a nil-resolving reference")
+			t.Error("Expected no secret placed for a nil-resolving optional reference")
 		}
 	})
 }
@@ -4570,18 +4599,31 @@ func TestProvisioner_ResolveSecrets(t *testing.T) {
 		}
 	})
 
-	t.Run("OmitsKeyWhenReferenceResolvesToNil", func(t *testing.T) {
-		// Given a reference to a value absent from configuration (resolves to nil)
+	t.Run("FailsWhenRequiredReferenceResolvesToNil", func(t *testing.T) {
+		// Given a required reference to a value absent from configuration (resolves to nil), as when a
+		// secret() lookup fails to resolve and coalesces to nil
 		mocks := setupProvisionerMocks(t)
 		withValues(mocks, map[string]any{})
 
-		// When resolving, the unconfigured key is omitted and the wholly-empty secret is dropped
-		resolved, err := newProvisioner(mocks).ResolveSecrets(bp(map[string]blueprintv1alpha1.SecretEntry{"creds": entry(map[string]string{"token": "${hetzner.token}"})}))
+		// When resolving, it fails closed rather than silently dropping the key
+		_, err := newProvisioner(mocks).ResolveSecrets(bp(map[string]blueprintv1alpha1.SecretEntry{"creds": entry(map[string]string{"token": "${hetzner.token}"})}))
+		if err == nil || !strings.Contains(err.Error(), "resolved to empty") {
+			t.Errorf("Expected nil-required error, got %v", err)
+		}
+	})
+
+	t.Run("OmitsNilOptionalKeyAndDropsWhollyEmptySecret", func(t *testing.T) {
+		// Given an optional reference (?? default) to a value absent from configuration
+		mocks := setupProvisionerMocks(t)
+		withValues(mocks, map[string]any{})
+
+		// When resolving, the optional key is omitted and the wholly-empty secret is dropped
+		resolved, err := newProvisioner(mocks).ResolveSecrets(bp(map[string]blueprintv1alpha1.SecretEntry{"creds": entry(map[string]string{"token": "${hetzner.token ?? ''}"})}))
 		if err != nil {
 			t.Fatalf("Expected no error, got %v", err)
 		}
 		if len(resolved) != 0 {
-			t.Errorf("Expected no secret from nil-resolving reference, got %v", resolved)
+			t.Errorf("Expected no secret from nil-resolving optional reference, got %v", resolved)
 		}
 	})
 
