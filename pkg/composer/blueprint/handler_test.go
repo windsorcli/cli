@@ -1750,6 +1750,86 @@ func (m *mockLoaderImpl) GetSourceName() string {
 	return ""
 }
 
+func TestOrderLoadersByDependency(t *testing.T) {
+	// newLoader builds a mock loader named `name` whose blueprint lists `deps` as sources.
+	newLoader := func(name string, deps ...string) BlueprintLoader {
+		sources := make([]blueprintv1alpha1.Source, 0, len(deps))
+		for _, d := range deps {
+			sources = append(sources, blueprintv1alpha1.Source{Name: d})
+		}
+		return &mockLoaderImpl{
+			getSourceNameFunc: func() string { return name },
+			getBlueprintFunc: func() *blueprintv1alpha1.Blueprint {
+				return &blueprintv1alpha1.Blueprint{Sources: sources}
+			},
+		}
+	}
+	order := func(loaders []BlueprintLoader) []string {
+		names := make(map[BlueprintLoader]string, len(loaders))
+		for _, l := range loaders {
+			names[l] = l.GetSourceName()
+		}
+		result := orderLoadersByDependency(loaders, names)
+		out := make([]string, len(result))
+		for i, l := range result {
+			out[i] = l.GetSourceName()
+		}
+		return out
+	}
+
+	t.Run("DependencyBeforeDependent", func(t *testing.T) {
+		// Given a chain where user lists core+consumer and consumer lists core
+		core := newLoader("core")
+		consumer := newLoader("consumer", "core")
+		user := newLoader("user", "core", "consumer")
+
+		// When ordering (input deliberately reversed to prove sorting, not input order)
+		got := order([]BlueprintLoader{user, consumer, core})
+
+		// Then dependencies come before dependents and user is last
+		want := []string{"core", "consumer", "user"}
+		if strings.Join(got, ",") != strings.Join(want, ",") {
+			t.Errorf("Expected %v, got %v", want, got)
+		}
+	})
+
+	t.Run("IndependentSourcesAreDeterministicWithUserLast", func(t *testing.T) {
+		// Given independent sources and a user loader with no sources
+		got := order([]BlueprintLoader{newLoader("zeta"), newLoader("user"), newLoader("alpha")})
+
+		// Then independents sort alphabetically and user is forced last
+		want := []string{"alpha", "zeta", "user"}
+		if strings.Join(got, ",") != strings.Join(want, ",") {
+			t.Errorf("Expected %v, got %v", want, got)
+		}
+	})
+
+	t.Run("CycleFallsBackToStableOrderWithoutDroppingLoaders", func(t *testing.T) {
+		// Given a dependency cycle a->b->a
+		a := newLoader("a", "b")
+		b := newLoader("b", "a")
+
+		// When ordering
+		got := order([]BlueprintLoader{b, a})
+
+		// Then no loader is dropped and the fallback order is stable
+		want := []string{"a", "b"}
+		if strings.Join(got, ",") != strings.Join(want, ",") {
+			t.Errorf("Expected %v (no loaders dropped), got %v", want, got)
+		}
+	})
+
+	t.Run("IgnoresEdgesToUnknownSources", func(t *testing.T) {
+		// Given a source that lists a dependency not present among the loaders
+		got := order([]BlueprintLoader{newLoader("only", "missing")})
+
+		// Then the unknown edge is ignored and the loader still appears
+		if strings.Join(got, ",") != "only" {
+			t.Errorf("Expected [only], got %v", got)
+		}
+	})
+}
+
 func TestHandler_setRepositoryDefaults(t *testing.T) {
 	t.Run("SetsDevRepositoryURLInDevMode", func(t *testing.T) {
 		// Given a handler in dev mode with domain and project configured, no user blueprint
@@ -2224,6 +2304,86 @@ func TestHandler_processAndCompose(t *testing.T) {
 		}
 		if s, ok := commonConfigPatches.(string); ok && strings.Contains(s, "${") {
 			t.Errorf("Expected common_config_patches to be resolved (no expression), got %q", s)
+		}
+	})
+
+	t.Run("DownstreamSourceSeesConfigDerivedByUpstreamSource", func(t *testing.T) {
+		// Given a source (core) that derives dns.private_domain, and a second source
+		// (consumer) that layers on core and reads that derived value in a substitution
+		mocks := setupHandlerMocks(t)
+		mocks.ConfigHandler.GetContextValuesFunc = func() (map[string]any, error) {
+			return map[string]any{}, nil
+		}
+		handler := NewBlueprintHandler(mocks.Runtime, mocks.ArtifactBuilder)
+
+		coreBp := &blueprintv1alpha1.Blueprint{}
+		handler.sourceBlueprintLoaders["core"] = &mockLoaderImpl{
+			getBlueprintFunc:  func() *blueprintv1alpha1.Blueprint { return coreBp },
+			getSourceNameFunc: func() string { return "core" },
+			getFacetsFunc: func() []blueprintv1alpha1.Facet {
+				return []blueprintv1alpha1.Facet{
+					{
+						Metadata: blueprintv1alpha1.Metadata{Name: "platform-base"},
+						Config: []blueprintv1alpha1.ConfigBlock{
+							{Name: "dns", Body: map[string]any{"value": map[string]any{"private_domain": "core-derived"}}},
+						},
+					},
+				}
+			},
+		}
+
+		consumerBp := &blueprintv1alpha1.Blueprint{Sources: []blueprintv1alpha1.Source{{Name: "core"}}}
+		handler.sourceBlueprintLoaders["consumer"] = &mockLoaderImpl{
+			getBlueprintFunc:  func() *blueprintv1alpha1.Blueprint { return consumerBp },
+			getSourceNameFunc: func() string { return "consumer" },
+			getFacetsFunc: func() []blueprintv1alpha1.Facet {
+				return []blueprintv1alpha1.Facet{
+					{
+						Metadata: blueprintv1alpha1.Metadata{Name: "addon-app"},
+						Kustomizations: []blueprintv1alpha1.ConditionalKustomization{
+							{Kustomization: blueprintv1alpha1.Kustomization{
+								Name:          "app",
+								Path:          "app",
+								Substitutions: map[string]string{"external_domain": "${dns.private_domain ?? ''}"},
+							}},
+						},
+					},
+				}
+			},
+		}
+
+		trueVal := true
+		handler.userBlueprintLoader = &mockLoaderImpl{
+			getBlueprintFunc: func() *blueprintv1alpha1.Blueprint {
+				return &blueprintv1alpha1.Blueprint{
+					Sources: []blueprintv1alpha1.Source{
+						{Name: "core", Install: &blueprintv1alpha1.BoolExpression{Value: &trueVal, IsExpr: false}},
+						{Name: "consumer", Install: &blueprintv1alpha1.BoolExpression{Value: &trueVal, IsExpr: false}},
+					},
+				}
+			},
+			getSourceNameFunc: func() string { return "user" },
+		}
+
+		// When processing and composing
+		if err := handler.processAndCompose(); err != nil {
+			t.Fatalf("processAndCompose failed: %v", err)
+		}
+
+		// Then the consumer's substitution resolves to the value core derived, not an empty string
+		var appSub string
+		found := false
+		for _, k := range handler.composedBlueprint.Kustomizations {
+			if k.Name == "app" {
+				appSub = k.Substitutions["external_domain"]
+				found = true
+			}
+		}
+		if !found {
+			t.Fatal("Expected composed kustomization 'app'")
+		}
+		if appSub != "core-derived" {
+			t.Errorf("Expected downstream to see upstream-derived dns.private_domain 'core-derived', got %q", appSub)
 		}
 	})
 

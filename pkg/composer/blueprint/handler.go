@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 
@@ -872,16 +873,15 @@ func (h *BaseBlueprintHandler) loadNestedSources() error {
 }
 
 // processAndCompose merges facets from all loaded source blueprints into a composed blueprint.
-// This method processes facets from each loader in parallel. After facet processing, sources are
-// merged in the order: initializer blueprints, other sources, then the user blueprint as a final override.
+// Loaders are processed in dependency order (see orderLoadersByDependency) with each source's facets
+// evaluated against the scope accumulated from the sources before it, so a downstream source can read
+// config an upstream source derived. After facet processing, sources are merged in the order:
+// initializer blueprints, other sources, then the user blueprint as a final override.
 // The composed blueprint is updated on the handler. Terraform input expressions are fully evaluated
 // against the merged scope if possible. If a Terraform provider is configured, the composed components
 // are registered with the provider. Any errors during facet processing or composition are returned.
 func (h *BaseBlueprintHandler) processAndCompose() error {
 	repositoryScope := h.getRepositoryScopeValues()
-	if bp, ok := h.processor.(*BaseBlueprintProcessor); ok {
-		bp.SetExtraScope(repositoryScope)
-	}
 
 	if h.traceCollector != nil {
 		if bp, ok := h.processor.(*BaseBlueprintProcessor); ok {
@@ -903,42 +903,37 @@ func (h *BaseBlueprintHandler) processAndCompose() error {
 		loaderNames[h.userBlueprintLoader] = h.userBlueprintLoader.GetSourceName()
 	}
 
-	var scopeMu sync.Mutex
 	collectedScopes := make(map[string]map[string]any)
 
 	if concrete, ok := h.processor.(*BaseBlueprintProcessor); ok {
 		concrete.ResetExcludedFacets()
 	}
 
-	var wg sync.WaitGroup
-	var mu sync.Mutex
+	// Process sources in dependency order (a source before any source that lists it), threading the
+	// scope accumulated so far into each source's facet evaluation. A downstream source can then read
+	// config an upstream source derived, rather than each source seeing only raw context values.
 	var errs []error
-
-	for _, loader := range loadersToProcess {
-		wg.Add(1)
-		go func(l BlueprintLoader, name string) {
-			defer wg.Done()
-			scope, err := h.processLoader(l)
-			if err != nil {
-				mu.Lock()
-				var reqErr *RequirementsError
-				if errors.As(err, &reqErr) {
-					errs = append(errs, err)
-				} else {
-					errs = append(errs, fmt.Errorf("failed to process facets for '%s': %w", name, err))
-				}
-				mu.Unlock()
-				return
+	var accumulatedScope map[string]any
+	for _, loader := range orderLoadersByDependency(loadersToProcess, loaderNames) {
+		name := loaderNames[loader]
+		if bp, ok := h.processor.(*BaseBlueprintProcessor); ok {
+			bp.SetExtraScope(MergeScopeMaps(repositoryScope, accumulatedScope))
+		}
+		scope, err := h.processLoader(loader)
+		if err != nil {
+			var reqErr *RequirementsError
+			if errors.As(err, &reqErr) {
+				errs = append(errs, err)
+			} else {
+				errs = append(errs, fmt.Errorf("failed to process facets for '%s': %w", name, err))
 			}
-			if scope != nil {
-				scopeMu.Lock()
-				collectedScopes[name] = scope
-				scopeMu.Unlock()
-			}
-		}(loader, loaderNames[loader])
+			continue
+		}
+		if scope != nil {
+			collectedScopes[name] = scope
+			accumulatedScope = MergeScopeMaps(accumulatedScope, scope)
+		}
 	}
-
-	wg.Wait()
 
 	if len(errs) > 0 {
 		return errors.Join(errs...)
@@ -971,7 +966,6 @@ func (h *BaseBlueprintHandler) processAndCompose() error {
 	}
 
 	var mergedScope map[string]any
-	scopeMu.Lock()
 	for _, loader := range loaders {
 		name := loaderNames[loader]
 		if name == "" {
@@ -984,7 +978,6 @@ func (h *BaseBlueprintHandler) processAndCompose() error {
 	if contextValues := h.getConfigValues(); contextValues != nil {
 		mergedScope = MergeScopeMaps(mergedScope, contextValues)
 	}
-	scopeMu.Unlock()
 
 	userPath := ""
 	if h.userBlueprintLoader != nil {
@@ -1041,6 +1034,97 @@ func (h *BaseBlueprintHandler) processAndCompose() error {
 	}
 
 	return nil
+}
+
+// orderLoadersByDependency returns loaders sorted so that a source is processed before any source
+// that lists it in its blueprint's Sources, letting a downstream source's facets read config an
+// upstream source derived. It is a Kahn topological sort keyed by loader name; ready nodes are
+// drained alphabetically (with the user loader forced last, as the final override layer) for a
+// deterministic order. Edges to names not present among the loaders are ignored, and a dependency
+// cycle falls back to appending the unresolved loaders in stable name order rather than dropping them.
+func orderLoadersByDependency(loaders []BlueprintLoader, names map[BlueprintLoader]string) []BlueprintLoader {
+	byName := make(map[string]BlueprintLoader, len(loaders))
+	for _, l := range loaders {
+		byName[names[l]] = l
+	}
+
+	indegree := make(map[string]int, len(loaders))
+	for _, l := range loaders {
+		indegree[names[l]] = 0
+	}
+	dependents := make(map[string][]string)
+	for _, l := range loaders {
+		name := names[l]
+		bp := l.GetBlueprint()
+		if bp == nil {
+			continue
+		}
+		seen := make(map[string]bool)
+		for _, s := range bp.Sources {
+			dep := s.Name
+			if dep == "" || dep == name || seen[dep] {
+				continue
+			}
+			if _, ok := byName[dep]; !ok {
+				continue
+			}
+			seen[dep] = true
+			dependents[dep] = append(dependents[dep], name)
+			indegree[name]++
+		}
+	}
+
+	sortReady := func(s []string) {
+		sort.Slice(s, func(i, j int) bool {
+			if (s[i] == "user") != (s[j] == "user") {
+				return s[j] == "user"
+			}
+			return s[i] < s[j]
+		})
+	}
+
+	var ready []string
+	for name, d := range indegree {
+		if d == 0 {
+			ready = append(ready, name)
+		}
+	}
+	sortReady(ready)
+
+	order := make([]BlueprintLoader, 0, len(loaders))
+	processed := make(map[string]bool, len(loaders))
+	for len(ready) > 0 {
+		name := ready[0]
+		ready = ready[1:]
+		if processed[name] {
+			continue
+		}
+		processed[name] = true
+		order = append(order, byName[name])
+		for _, dependent := range dependents[name] {
+			indegree[dependent]--
+			if indegree[dependent] == 0 {
+				ready = append(ready, dependent)
+			}
+		}
+		sortReady(ready)
+	}
+
+	if len(order) < len(loaders) {
+		remaining := make([]string, 0, len(loaders)-len(order))
+		for _, l := range loaders {
+			if name := names[l]; !processed[name] {
+				remaining = append(remaining, name)
+			}
+		}
+		sortReady(remaining)
+		for _, name := range remaining {
+			order = append(order, byName[name])
+			processed[name] = true
+		}
+	}
+
+	return order
 }
 
 // processLoader evaluates all facets from a single blueprint loader.
