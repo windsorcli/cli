@@ -37,17 +37,8 @@ windsor install --wait`,
 			return fmt.Errorf("error resolving blueprint substitutions: %w", err)
 		}
 
-		resolvedSecrets, err := proj.Provisioner.ResolveSecrets(blueprint)
-		if err != nil {
-			return fmt.Errorf("error resolving secrets: %w", err)
-		}
-
-		if err := proj.Provisioner.Install(cmd.Context(), blueprint); err != nil {
+		if err := proj.Provisioner.Install(cmd.Context(), blueprint, false); err != nil {
 			return fmt.Errorf("error installing blueprint: %w", err)
-		}
-
-		if err := proj.Provisioner.PlaceSecrets(cmd.Context(), resolvedSecrets, false); err != nil {
-			return fmt.Errorf("error placing secrets: %w", err)
 		}
 
 		if installWaitFlag {

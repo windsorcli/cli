@@ -23,6 +23,7 @@ type MockKubernetesManager struct {
 	DeleteKustomizationFunc             func(name, namespace string) error
 	WaitForKustomizationsFunc           func(ctx context.Context, message string, blueprint *blueprintv1alpha1.Blueprint) error
 	GetKustomizationStatusFunc          func(names []string) (map[string]bool, error)
+	GetKustomizationReadinessFunc       func(names []string) (map[string]bool, error)
 	CreateNamespaceFunc                 func(name string) error
 	DeleteNamespaceFunc                 func(name string) error
 	ApplyConfigMapFunc                  func(name, namespace string, data map[string]string) error
@@ -36,6 +37,7 @@ type MockKubernetesManager struct {
 	ApplyOCIRepositoryFunc              func(repo *sourcev1.OCIRepository) error
 	CheckGitRepositoryStatusFunc        func() error
 	KustomizationExistsFunc             func(name, namespace string) (bool, error)
+	NamespaceExistsFunc                 func(name string) (bool, error)
 	GetKustomizationInventoryFunc       func(name, namespace string) ([]InventoryEntry, error)
 	WaitForKubernetesHealthyFunc        func(ctx context.Context, endpoint string, outputFunc func(string), nodeNames ...string) error
 	GetNodeReadyStatusFunc              func(ctx context.Context, nodeNames []string) (map[string]bool, error)
@@ -88,6 +90,20 @@ func (m *MockKubernetesManager) GetKustomizationStatus(names []string) (map[stri
 		return m.GetKustomizationStatusFunc(names)
 	}
 	return make(map[string]bool), nil
+}
+
+// GetKustomizationReadiness implements KubernetesManager interface. The default reports every requested
+// kustomization Ready so a convergence pass returns immediately in tests that do not exercise it; tests
+// that drive convergence set GetKustomizationReadinessFunc.
+func (m *MockKubernetesManager) GetKustomizationReadiness(names []string) (map[string]bool, error) {
+	if m.GetKustomizationReadinessFunc != nil {
+		return m.GetKustomizationReadinessFunc(names)
+	}
+	ready := make(map[string]bool, len(names))
+	for _, n := range names {
+		ready[n] = true
+	}
+	return ready, nil
 }
 
 // CreateNamespace implements KubernetesManager interface
@@ -192,6 +208,14 @@ func (m *MockKubernetesManager) CheckGitRepositoryStatus() error {
 func (m *MockKubernetesManager) KustomizationExists(name, namespace string) (bool, error) {
 	if m.KustomizationExistsFunc != nil {
 		return m.KustomizationExistsFunc(name, namespace)
+	}
+	return false, nil
+}
+
+// NamespaceExists implements KubernetesManager interface
+func (m *MockKubernetesManager) NamespaceExists(name string) (bool, error) {
+	if m.NamespaceExistsFunc != nil {
+		return m.NamespaceExistsFunc(name)
 	}
 	return false, nil
 }

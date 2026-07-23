@@ -82,17 +82,8 @@ windsor apply kustomize dns`,
 				return fmt.Errorf("resolved blueprint is not available")
 			}
 
-			resolvedSecrets, secretsErr := proj.Provisioner.ResolveSecrets(blueprint)
-			if secretsErr != nil {
-				return fmt.Errorf("error resolving secrets: %w", secretsErr)
-			}
-
-			if err := proj.Provisioner.Install(cmd.Context(), blueprint); err != nil {
+			if err := proj.Provisioner.Install(cmd.Context(), blueprint, applyPruneFlag); err != nil {
 				return fmt.Errorf("error applying kustomize: %w", err)
-			}
-
-			if err := proj.Provisioner.PlaceSecrets(cmd.Context(), resolvedSecrets, applyPruneFlag); err != nil {
-				return fmt.Errorf("error placing secrets: %w", err)
 			}
 
 			// --prune removes kustomizations the blueprint no longer declares; wait for the

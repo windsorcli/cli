@@ -5,9 +5,12 @@
 // source-controller re-fetches them immediately instead of waiting for the
 // next scheduled interval. When the artifact revision changes, kustomize-
 // controller reconciles the dependent Kustomizations automatically via its
-// watch on source status, so only sources need annotating — not Kustomizations.
-// This approach is receiver-type-agnostic, requires no cluster-side secret or
-// webhook receiver, and works uniformly against any flux installation.
+// watch on source status, so a revision change needs only sources annotated.
+// ReconcileKustomizations covers the other case: advancing already-applied
+// Kustomizations whose dependencies are satisfied mid-flight (e.g. by a secret
+// the CLI just placed) without a source revision change, by annotating those
+// Kustomizations directly. Both approaches are receiver-type-agnostic, require
+// no cluster-side secret or webhook receiver, and work against any flux install.
 
 package flux
 
@@ -39,6 +42,11 @@ const (
 	// controller convention when it handles webhook POSTs.
 	reconcileAnnotation = "reconcile.fluxcd.io/requestedAt"
 
+	// forceAnnotation, set alongside reconcileAnnotation, tells helm-controller to force a HelmRelease
+	// release even when the desired state is unchanged — resetting an exhausted-remediation/stalled release
+	// so it retries. It is what `flux reconcile helmrelease --force` sets; use it only for stuck releases.
+	forceAnnotation = "reconcile.fluxcd.io/forceAt"
+
 	// fieldManager identifies windsor-cli as the writer of the annotation under
 	// server-side apply accounting. Keeps kustomize-controller from considering
 	// its own field ownership conflicted when it later rewrites other fields.
@@ -63,6 +71,14 @@ const (
 // never for cluster state.
 type Notifier interface {
 	Notify(ctx context.Context, blueprint *blueprintv1alpha1.Blueprint) error
+	ReconcileKustomizations(ctx context.Context, names []string) error
+	ReconcileHelmReleases(ctx context.Context, refs []HelmReleaseRef, force bool) error
+}
+
+// HelmReleaseRef identifies a HelmRelease to reconcile by its namespace and name.
+type HelmReleaseRef struct {
+	Namespace string
+	Name      string
 }
 
 // =============================================================================
@@ -177,6 +193,87 @@ func (n *BaseNotifier) Notify(ctx context.Context, blueprint *blueprintv1alpha1.
 	}
 	if len(notified) > 0 {
 		n.logf("flux reconcile requested in namespace %s: %s", namespace, strings.Join(notified, ", "))
+	}
+	return nil
+}
+
+// ReconcileKustomizations annotates each named Kustomization in the gitops namespace with the current
+// timestamp under reconcile.fluxcd.io/requestedAt, causing kustomize-controller to re-reconcile it
+// immediately — re-evaluating its dependency readiness and re-applying — instead of waiting for its
+// scheduled interval. Unlike Notify, which pokes sources to re-fetch git (and only progresses dependents
+// when the artifact revision changes), this advances already-applied Kustomizations, so a dependency chain
+// unblocked mid-flight (e.g. by a just-placed secret) progresses in seconds rather than one interval per
+// hop. Best-effort like Notify: per-name PATCH errors are logged and swallowed, a nil is returned for
+// every cluster-state condition, and an empty names list is a no-op.
+func (n *BaseNotifier) ReconcileKustomizations(ctx context.Context, names []string) error {
+	if len(names) == 0 {
+		return nil
+	}
+
+	ctx, cancel := context.WithTimeout(ctx, notifyTimeout)
+	defer cancel()
+
+	namespace := n.runtime.ConfigHandler.GetString("gitops.namespace", constants.DefaultGitopsNamespace)
+	ts := n.shims.Now().UTC().Format(time.RFC3339Nano)
+	patch := []byte(fmt.Sprintf(`{"metadata":{"annotations":{%q:%q}}}`, reconcileAnnotation, ts))
+	opts := metav1.PatchOptions{FieldManager: fieldManager}
+	gvr := schema.GroupVersionResource{Group: "kustomize.toolkit.fluxcd.io", Version: "v1", Resource: "kustomizations"}
+
+	var reconciled []string
+	for _, name := range names {
+		if err := ctx.Err(); err != nil {
+			n.logf("flux kustomization reconcile aborted: %v", err)
+			return nil
+		}
+		if _, err := n.kubeClient.PatchResource(ctx, gvr, namespace, name, types.MergePatchType, patch, opts); err != nil {
+			n.logf("flux reconcile request for Kustomization/%s skipped: %v", name, err)
+			continue
+		}
+		reconciled = append(reconciled, name)
+	}
+	if len(reconciled) > 0 {
+		n.logf("flux reconcile requested in namespace %s for kustomizations: %s", namespace, strings.Join(reconciled, ", "))
+	}
+	return nil
+}
+
+// ReconcileHelmReleases annotates each referenced HelmRelease with reconcile.fluxcd.io/requestedAt (and,
+// when force is set, reconcile.fluxcd.io/forceAt) so helm-controller reconciles it immediately. force is
+// how a HelmRelease that failed to install/upgrade and stalled — e.g. because a secret it needs was not yet
+// present — is made to retry now that the secret exists; a plain reconcile of the owning Kustomization does
+// not, since the release spec is unchanged. Best-effort like Notify: per-ref PATCH errors are logged and
+// swallowed, nil is returned for every cluster-state condition, and an empty refs list is a no-op.
+func (n *BaseNotifier) ReconcileHelmReleases(ctx context.Context, refs []HelmReleaseRef, force bool) error {
+	if len(refs) == 0 {
+		return nil
+	}
+
+	ctx, cancel := context.WithTimeout(ctx, notifyTimeout)
+	defer cancel()
+
+	ts := n.shims.Now().UTC().Format(time.RFC3339Nano)
+	annotations := fmt.Sprintf("%q:%q", reconcileAnnotation, ts)
+	if force {
+		annotations += fmt.Sprintf(",%q:%q", forceAnnotation, ts)
+	}
+	patch := []byte(fmt.Sprintf(`{"metadata":{"annotations":{%s}}}`, annotations))
+	opts := metav1.PatchOptions{FieldManager: fieldManager}
+	gvr := schema.GroupVersionResource{Group: "helm.toolkit.fluxcd.io", Version: "v2", Resource: "helmreleases"}
+
+	var reconciled []string
+	for _, ref := range refs {
+		if err := ctx.Err(); err != nil {
+			n.logf("flux helmrelease reconcile aborted: %v", err)
+			return nil
+		}
+		if _, err := n.kubeClient.PatchResource(ctx, gvr, ref.Namespace, ref.Name, types.MergePatchType, patch, opts); err != nil {
+			n.logf("flux reconcile request for HelmRelease/%s/%s skipped: %v", ref.Namespace, ref.Name, err)
+			continue
+		}
+		reconciled = append(reconciled, ref.Namespace+"/"+ref.Name)
+	}
+	if len(reconciled) > 0 {
+		n.logf("flux reconcile requested (force=%t) for helmreleases: %s", force, strings.Join(reconciled, ", "))
 	}
 	return nil
 }

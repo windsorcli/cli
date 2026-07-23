@@ -5541,6 +5541,72 @@ func TestBaseKubernetesManager_KustomizationExists(t *testing.T) {
 }
 
 // =============================================================================
+// Test NamespaceExists
+// =============================================================================
+
+func TestBaseKubernetesManager_NamespaceExists(t *testing.T) {
+	t.Run("ReturnsTrueWhenExists", func(t *testing.T) {
+		// Given a kubernetes manager whose client returns the namespace successfully
+		m := setupKubernetesMocks(t)
+		m.KubernetesClient.(*client.MockKubernetesClient).GetResourceFunc = func(gvr schema.GroupVersionResource, ns, name string) (*unstructured.Unstructured, error) {
+			return &unstructured.Unstructured{}, nil
+		}
+		manager := NewKubernetesManager(m.KubernetesClient, m.ConfigHandler)
+
+		// When NamespaceExists is called
+		exists, err := manager.NamespaceExists("system-lb")
+
+		// Then it returns true with no error
+		if err != nil {
+			t.Fatalf("expected no error, got %v", err)
+		}
+		if !exists {
+			t.Error("expected exists=true, got false")
+		}
+	})
+
+	t.Run("ReturnsFalseWhenNotFound", func(t *testing.T) {
+		// Given a kubernetes manager whose client returns a not-found error
+		m := setupKubernetesMocks(t)
+		m.KubernetesClient.(*client.MockKubernetesClient).GetResourceFunc = func(gvr schema.GroupVersionResource, ns, name string) (*unstructured.Unstructured, error) {
+			return nil, fmt.Errorf("%q not found", name)
+		}
+		manager := NewKubernetesManager(m.KubernetesClient, m.ConfigHandler)
+
+		// When NamespaceExists is called
+		exists, err := manager.NamespaceExists("system-lb")
+
+		// Then it returns false with no error
+		if err != nil {
+			t.Fatalf("expected no error for not-found, got %v", err)
+		}
+		if exists {
+			t.Error("expected exists=false, got true")
+		}
+	})
+
+	t.Run("ReturnsErrorOnOtherAPIError", func(t *testing.T) {
+		// Given a kubernetes manager whose client returns an unexpected API error
+		m := setupKubernetesMocks(t)
+		m.KubernetesClient.(*client.MockKubernetesClient).GetResourceFunc = func(gvr schema.GroupVersionResource, ns, name string) (*unstructured.Unstructured, error) {
+			return nil, fmt.Errorf("connection refused")
+		}
+		manager := NewKubernetesManager(m.KubernetesClient, m.ConfigHandler)
+
+		// When NamespaceExists is called
+		exists, err := manager.NamespaceExists("system-lb")
+
+		// Then it returns the error and false
+		if err == nil {
+			t.Fatal("expected error, got nil")
+		}
+		if exists {
+			t.Error("expected exists=false on error, got true")
+		}
+	})
+}
+
+// =============================================================================
 // Test GetKustomizationInventory
 // =============================================================================
 
