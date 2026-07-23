@@ -450,6 +450,35 @@ func TestDestroyCmd(t *testing.T) {
 		}
 	})
 
+	t.Run("HaltsBeforeConfirmationWhenComponentPlanGenerationFails", func(t *testing.T) {
+		// Given a single-component destroy whose plan -destroy failed (error carried on the plan,
+		// not returned), with confirmation that would otherwise be satisfied.
+		mocks := setupDestroyTest(t)
+		mocks.TerraformStack.PlanDestroyComponentSummaryFunc = func(_ *blueprintv1alpha1.Blueprint, componentID string) terraforminfra.TerraformComponentPlan {
+			return terraforminfra.TerraformComponentPlan{ComponentID: componentID, Err: fmt.Errorf("hcloud provider auth failed")}
+		}
+		destroyed := false
+		mocks.TerraformStack.DestroyFunc = func(*blueprintv1alpha1.Blueprint, string) (bool, error) {
+			destroyed = true
+			return false, nil
+		}
+		proj := newDestroyProject(mocks)
+
+		cmd := createTestDestroyCmd()
+		ctx := context.WithValue(context.Background(), projectOverridesKey, proj)
+		cmd.SetArgs([]string{"--confirm=cluster", "cluster"})
+		cmd.SetContext(ctx)
+		err := cmd.Execute()
+
+		// Then it refuses before the confirmation gate and destroys nothing.
+		if err == nil || !strings.Contains(err.Error(), "destroy-plan generation failed") {
+			t.Fatalf("Expected plan-generation error, got: %v", err)
+		}
+		if destroyed {
+			t.Error("Expected no destroy to run when plan generation failed")
+		}
+	})
+
 	t.Run("ErrorDestroyComponentWithMismatchedConfirmFlag", func(t *testing.T) {
 		// Given --confirm does not match the component name.
 		mocks := setupDestroyTest(t)
@@ -940,6 +969,34 @@ func TestDestroyTerraformCmd(t *testing.T) {
 
 		if err != nil {
 			t.Errorf("Expected no error with correct confirmation, got %v", err)
+		}
+	})
+
+	t.Run("HaltsBeforeConfirmationWhenComponentPlanGenerationFails", func(t *testing.T) {
+		// Given a single terraform component whose plan -destroy failed (error carried on the plan)
+		mocks := setupDestroyTest(t)
+		mocks.TerraformStack.PlanDestroyComponentSummaryFunc = func(_ *blueprintv1alpha1.Blueprint, componentID string) terraforminfra.TerraformComponentPlan {
+			return terraforminfra.TerraformComponentPlan{ComponentID: componentID, Err: fmt.Errorf("hcloud provider auth failed")}
+		}
+		destroyed := false
+		mocks.TerraformStack.DestroyFunc = func(*blueprintv1alpha1.Blueprint, string) (bool, error) {
+			destroyed = true
+			return false, nil
+		}
+		proj := newDestroyProject(mocks)
+
+		cmd := createTestDestroyTerraformCmd()
+		ctx := context.WithValue(context.Background(), projectOverridesKey, proj)
+		cmd.SetArgs([]string{"--confirm=cluster", "cluster"})
+		cmd.SetContext(ctx)
+		err := cmd.Execute()
+
+		// Then it refuses before confirmation and destroys nothing
+		if err == nil || !strings.Contains(err.Error(), "destroy-plan generation failed") {
+			t.Fatalf("Expected plan-generation error, got: %v", err)
+		}
+		if destroyed {
+			t.Error("Expected no destroy to run when plan generation failed")
 		}
 	})
 
