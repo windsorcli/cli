@@ -114,11 +114,84 @@ func (i *Provisioner) Teardown(blueprint *blueprintv1alpha1.Blueprint, terraform
 // would orphan their state. Use `windsor destroy` (no arguments) for the
 // full-cycle teardown.
 func (i *Provisioner) TeardownComponent(blueprint *blueprintv1alpha1.Blueprint, componentID string) (bool, error) {
-	backendType := i.configHandler.GetString("terraform.backend.type", "local")
-	if backendType != "" && backendType != "local" && blueprint.IsBackendTierMember(componentID) {
-		return false, fmt.Errorf("cannot destroy backend-tier component %q in isolation: its state provides the %s backend that every other component uses, so destroying it directly would orphan their state. Run `windsor destroy` (no arguments) for the full-cycle teardown that migrates state to local first", componentID, backendType)
+	if err := i.CheckComponentDestroyable(blueprint, componentID); err != nil {
+		return false, err
 	}
 	return i.Destroy(blueprint, componentID)
+}
+
+// CheckComponentDestroyable reports whether a single terraform component may be destroyed in isolation.
+// On a non-local backend a backend-tier member is refused: its state provides the backend every other
+// component uses, so destroying it directly would orphan their state. Callers run this before generating a
+// destroy plan so the refusal is surfaced up front, rather than as a raw terraform init error when the
+// component tries to reach a kubernetes backend whose cluster may already be gone.
+func (i *Provisioner) CheckComponentDestroyable(blueprint *blueprintv1alpha1.Blueprint, componentID string) error {
+	backendType := i.configHandler.GetString("terraform.backend.type", "local")
+	if backendType != "" && backendType != "local" && blueprint.IsBackendTierMember(componentID) {
+		return fmt.Errorf("cannot destroy backend-tier component %q in isolation: its state provides the %s backend that every other component uses, so destroying it directly would orphan their state. Run `windsor destroy` (no arguments) for the full-cycle teardown that migrates state to local first", componentID, backendType)
+	}
+	return nil
+}
+
+// PrepareLocalTeardown makes a kubernetes-backend teardown operate entirely against local state. Because
+// the kubernetes backend stores state on the cluster the teardown is about to destroy, this pulls every
+// component's state to local up front — while the cluster still hosts the backend — and pivots
+// terraform.backend.type to local for the rest of the process. From that point the destroy plan and every
+// component destroy read local state, never dialing a backend that is going away, so "the cluster is gone"
+// can no longer strand the teardown. The pivot is unconditional for a kubernetes backend; reachability is
+// consulted only to classify a migration failure: while the cluster is still reachable a failure is real —
+// destroying now would run against empty local state and orphan resources, so it aborts — but once the
+// cluster is gone (a resumed teardown) the state was already migrated on the earlier pass and is the local
+// copy, so it proceeds against it. Returns whether it pivoted; a non-kubernetes backend is a no-op.
+func (i *Provisioner) PrepareLocalTeardown(blueprint *blueprintv1alpha1.Blueprint) (bool, error) {
+	backendType := i.configHandler.GetString("terraform.backend.type", "local")
+	if backendType == "" || backendType == "local" {
+		return false, nil
+	}
+
+	if err := i.configHandler.Set("terraform.backend.type", "local"); err != nil {
+		return false, fmt.Errorf("failed to pivot terraform backend to local for teardown: %w", err)
+	}
+
+	if _, err := i.MigrateState(blueprint); err != nil {
+		if i.clusterReachableForTeardown() {
+			return false, fmt.Errorf("failed to migrate terraform state to local before teardown: %w", err)
+		}
+	}
+	return true, nil
+}
+
+// PivotToLocalIfClusterGone pivots terraform.backend.type to local for the rest of the process when the
+// kubernetes backend's cluster is gone (no kubeconfig) or unreachable. Unlike PrepareLocalTeardown it does
+// not migrate — the state is already the local copy a prior full teardown pulled off the cluster before
+// destroying it — it only redirects reads to that copy. This is the targeted-destroy counterpart: a single
+// component destroy cannot migrate everything to local without stranding the cluster-up case (one component
+// destroyed locally while the rest still read kubernetes would drift), so it operates on kubernetes while
+// the cluster is up and on the already-migrated local state once the cluster is gone. A reachable cluster or
+// non-kubernetes backend is a no-op. Returns whether it pivoted.
+func (i *Provisioner) PivotToLocalIfClusterGone(blueprint *blueprintv1alpha1.Blueprint) (bool, error) {
+	backendType := i.configHandler.GetString("terraform.backend.type", "local")
+	if backendType == "" || backendType == "local" {
+		return false, nil
+	}
+	if i.clusterReachableForTeardown() {
+		return false, nil
+	}
+	if err := i.configHandler.Set("terraform.backend.type", "local"); err != nil {
+		return false, fmt.Errorf("failed to pivot terraform backend to local for teardown: %w", err)
+	}
+	return true, nil
+}
+
+// clusterReachableForTeardown reports whether the cluster hosting the kubernetes backend is present and
+// reachable. It is used to classify a state-migration failure during teardown preparation: a real error
+// while the cluster is up versus the expected resume case where the cluster is already gone and the state
+// is already the local copy.
+func (i *Provisioner) clusterReachableForTeardown() bool {
+	if !i.kubeconfigPresent() {
+		return false
+	}
+	return i.checkKubernetesReachableForDestroy() == nil
 }
 
 // =============================================================================

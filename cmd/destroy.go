@@ -50,7 +50,7 @@ windsor destroy dns --confirm=dns
 windsor destroy --confirm=local --continue`,
 	Annotations: map[string]string{
 		"docs.seealso": "[`apply`](apply.md), [`down`](down.md), [`plan`](plan.md)",
-		"docs.source": "cmd/destroy.go",
+		"docs.source":  "cmd/destroy.go",
 	},
 	Args:         cobra.MaximumNArgs(1),
 	SilenceUsage: true,
@@ -76,6 +76,16 @@ windsor destroy --confirm=local --continue`,
 			// should surface before the operator is asked to confirm.
 			if err := requireCloudAuth(cmd, proj); err != nil {
 				return err
+			}
+			// For a kubernetes backend, pull all terraform state to local and pivot the whole teardown to a
+			// local backend up front — before planning — so no step (plan or destroy) dials the kubernetes
+			// backend that this teardown is about to destroy.
+			pivoted, err := proj.Provisioner.PrepareLocalTeardown(blueprint)
+			if err != nil {
+				return err
+			}
+			if pivoted {
+				fmt.Fprintln(cmd.ErrOrStderr(), "Terraform state migrated to local; running teardown against local state.")
 			}
 			var summary *provisioner.DestroyPlanSummary
 			if err := tui.WithProgress("Generating destroy plan...", func() error {
@@ -116,6 +126,16 @@ windsor destroy --confirm=local --continue`,
 		// surface before the prompt rather than between plan and confirm.
 		if inTerraform {
 			if err := requireCloudAuth(cmd, proj); err != nil {
+				return err
+			}
+			// If the kubernetes backend's cluster is gone, operate on the local state a prior teardown
+			// migrated; otherwise refuse a backend-tier component up front, before the plan runs terraform
+			// init against the kubernetes backend — the operator gets the clean "run windsor destroy"
+			// guidance instead of a raw init connection error.
+			if _, err := proj.Provisioner.PivotToLocalIfClusterGone(blueprint); err != nil {
+				return err
+			}
+			if err := proj.Provisioner.CheckComponentDestroyable(blueprint, componentID); err != nil {
 				return err
 			}
 		}
@@ -174,7 +194,7 @@ var destroyTerraformCmd = &cobra.Command{
 	Use:     "terraform [component]",
 	Aliases: []string{"tf"},
 	Short:   "Destroy Terraform component(s).",
-	Long: `Destroy a specific Terraform component, or all components when no argument is given. Inherits --confirm from the parent 'destroy' command.`,
+	Long:    `Destroy a specific Terraform component, or all components when no argument is given. Inherits --confirm from the parent 'destroy' command.`,
 	Example: `# Destroy a single terraform component
 windsor destroy terraform cluster --confirm=cluster
 
@@ -182,7 +202,7 @@ windsor destroy terraform cluster --confirm=cluster
 windsor destroy terraform --confirm=local`,
 	Annotations: map[string]string{
 		"docs.seealso": "[`destroy`](destroy.md), [`apply terraform`](apply-terraform.md), [`plan terraform`](plan-terraform.md)",
-		"docs.source": "cmd/destroy.go",
+		"docs.source":  "cmd/destroy.go",
 	},
 	Args:         cobra.MaximumNArgs(1),
 	SilenceUsage: true,
@@ -203,6 +223,15 @@ windsor destroy terraform --confirm=local`,
 		if len(args) == 0 {
 			if err := requireCloudAuth(cmd, proj); err != nil {
 				return err
+			}
+			// Destroying every terraform component: pull state to local and pivot up front, like the full
+			// teardown, so the plan and destroy never dial the kubernetes backend being torn down.
+			pivoted, err := proj.Provisioner.PrepareLocalTeardown(blueprint)
+			if err != nil {
+				return err
+			}
+			if pivoted {
+				fmt.Fprintln(cmd.ErrOrStderr(), "Terraform state migrated to local; running teardown against local state.")
 			}
 			var summary *provisioner.DestroyPlanSummary
 			if err := tui.WithProgress("Generating destroy plan...", func() error {
@@ -233,6 +262,15 @@ windsor destroy terraform --confirm=local`,
 
 		componentID := args[0]
 		if err := requireCloudAuth(cmd, proj); err != nil {
+			return err
+		}
+		// Targeted destroy: if the kubernetes backend's cluster is gone, operate on the local state a prior
+		// teardown migrated; otherwise refuse a backend-tier member (destroying it while its backend is live
+		// would orphan every other component's state) before the plan surfaces a raw init error.
+		if _, err := proj.Provisioner.PivotToLocalIfClusterGone(blueprint); err != nil {
+			return err
+		}
+		if err := proj.Provisioner.CheckComponentDestroyable(blueprint, componentID); err != nil {
 			return err
 		}
 		var tfResult terraforminfra.TerraformComponentPlan
@@ -268,7 +306,7 @@ var destroyKustomizeCmd = &cobra.Command{
 	Use:     "kustomize [name]",
 	Aliases: []string{"k8s"},
 	Short:   "Destroy Flux kustomization(s).",
-	Long: `Delete a specific Flux kustomization from the cluster, or all kustomizations when no argument is given. Inherits --confirm from the parent 'destroy' command.`,
+	Long:    `Delete a specific Flux kustomization from the cluster, or all kustomizations when no argument is given. Inherits --confirm from the parent 'destroy' command.`,
 	Example: `# Delete a single kustomization
 windsor destroy kustomize dns --confirm=dns
 
@@ -276,7 +314,7 @@ windsor destroy kustomize dns --confirm=dns
 windsor destroy kustomize --confirm=local`,
 	Annotations: map[string]string{
 		"docs.seealso": "[`destroy`](destroy.md), [`apply kustomize`](apply-kustomize.md), [`plan kustomize`](plan-kustomize.md)",
-		"docs.source": "cmd/destroy.go",
+		"docs.source":  "cmd/destroy.go",
 	},
 	Args:         cobra.MaximumNArgs(1),
 	SilenceUsage: true,
