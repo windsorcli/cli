@@ -149,12 +149,17 @@ func (i *Provisioner) PrepareLocalTeardown(blueprint *blueprintv1alpha1.Blueprin
 		return false, nil
 	}
 
+	// The pivot must precede MigrateState — it migrates to the currently-configured backend, so the backend
+	// has to read local for state to move to local. On the abort path (a real migration failure while the
+	// cluster is reachable) the pivot is reverted, so a caller that continues does not read a local backend
+	// with no migrated state behind it and destroy against emptiness.
 	if err := i.configHandler.Set("terraform.backend.type", "local"); err != nil {
 		return false, fmt.Errorf("failed to pivot terraform backend to local for teardown: %w", err)
 	}
 
 	if _, err := i.MigrateState(blueprint); err != nil {
 		if i.clusterReachableForTeardown() {
+			_ = i.configHandler.Set("terraform.backend.type", backendType)
 			return false, fmt.Errorf("failed to migrate terraform state to local before teardown: %w", err)
 		}
 	}
@@ -169,7 +174,7 @@ func (i *Provisioner) PrepareLocalTeardown(blueprint *blueprintv1alpha1.Blueprin
 // destroyed locally while the rest still read kubernetes would drift), so it operates on kubernetes while
 // the cluster is up and on the already-migrated local state once the cluster is gone. A reachable cluster or
 // non-kubernetes backend is a no-op. Returns whether it pivoted.
-func (i *Provisioner) PivotToLocalIfClusterGone(blueprint *blueprintv1alpha1.Blueprint) (bool, error) {
+func (i *Provisioner) PivotToLocalIfClusterGone() (bool, error) {
 	backendType := i.configHandler.GetString("terraform.backend.type", "local")
 	if backendType == "" || backendType == "local" {
 		return false, nil

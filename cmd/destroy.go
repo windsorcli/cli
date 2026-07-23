@@ -132,7 +132,7 @@ windsor destroy --confirm=local --continue`,
 			// migrated; otherwise refuse a backend-tier component up front, before the plan runs terraform
 			// init against the kubernetes backend — the operator gets the clean "run windsor destroy"
 			// guidance instead of a raw init connection error.
-			if _, err := proj.Provisioner.PivotToLocalIfClusterGone(blueprint); err != nil {
+			if _, err := proj.Provisioner.PivotToLocalIfClusterGone(); err != nil {
 				return err
 			}
 			if err := proj.Provisioner.CheckComponentDestroyable(blueprint, componentID); err != nil {
@@ -267,7 +267,7 @@ windsor destroy terraform --confirm=local`,
 		// Targeted destroy: if the kubernetes backend's cluster is gone, operate on the local state a prior
 		// teardown migrated; otherwise refuse a backend-tier member (destroying it while its backend is live
 		// would orphan every other component's state) before the plan surfaces a raw init error.
-		if _, err := proj.Provisioner.PivotToLocalIfClusterGone(blueprint); err != nil {
+		if _, err := proj.Provisioner.PivotToLocalIfClusterGone(); err != nil {
 			return err
 		}
 		if err := proj.Provisioner.CheckComponentDestroyable(blueprint, componentID); err != nil {
