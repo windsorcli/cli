@@ -1144,7 +1144,7 @@ func (i *Provisioner) PlaceSecrets(ctx context.Context, resolved ResolvedSecrets
 		waitCtx, cancel := context.WithTimeout(ctx, constants.DefaultFluxKustomizationInstallTimeout)
 		defer cancel()
 
-		stuckRounds := 0
+		nudged := make(map[string]struct{})
 		for len(pending) > 0 {
 			var stillPending []pendingPlacement
 			placedOwners := make(map[string]struct{})
@@ -1181,24 +1181,15 @@ func (i *Provisioner) PlaceSecrets(ctx context.Context, resolved ResolvedSecrets
 				owners := sortedStringKeys(placedOwners)
 				i.reconcileKustomizations(ctx, owners)
 				i.forceStalledHelmReleases(ctx, owners)
-				stuckRounds = 0
 			}
 			if len(pending) == 0 {
 				break
 			}
-			// No placement this round: what's left is gated behind kustomizations that have not created
-			// their namespace yet. Nudge the dependency closure of those owners — only the chains that gate
-			// what remains, and throttled — so the DAG advances in seconds rather than one flux interval per
-			// hop. Reconciling a not-yet-Ready dependency is a harmless no-op, so the closure walks Ready
-			// bottom-up across successive nudges.
-			if len(placedOwners) == 0 {
-				if stuckRounds%reconcileEveryStuckRounds == 0 {
-					closure := dependencyClosure(blueprint, pendingOwners(pending))
-					i.reconcileKustomizations(ctx, closure)
-					i.forceStalledHelmReleases(ctx, closure)
-				}
-				stuckRounds++
-			}
+			// Drive the DAG toward creating the still-pending namespaces by nudging only the frontier —
+			// not-Ready kustomizations whose dependencies are all Ready — once each. Already-Ready
+			// kustomizations (e.g. crds) are never touched, and a member blocked upstream is left alone
+			// until its dependency clears, so this advances the chain without churning healthy resources.
+			i.nudgeFrontier(ctx, blueprint, nudged)
 			tui.Update(fmt.Sprintf("Placing secrets: waiting on %s", pendingSummary(pending)))
 			select {
 			case <-waitCtx.Done():
@@ -1337,11 +1328,6 @@ func (i *Provisioner) missingClusterNamespaces(want []string) ([]string, error) 
 	return missing, nil
 }
 
-// reconcileEveryStuckRounds throttles the dependency-closure reconcile nudge: while placement is blocked
-// waiting for namespaces, PlaceSecrets nudges the closure once every this many poll rounds (and on the
-// first stuck round), rather than every round, to keep reconcile-request traffic modest.
-const reconcileEveryStuckRounds = 6
-
 // reconcileKustomizations requests an immediate flux reconcile of the named Kustomizations, best-effort: it
 // initializes the notifier if needed and swallows any error, so a placement round is never failed by a
 // reconcile nudge. A nil or empty names slice is a no-op.
@@ -1413,7 +1399,8 @@ func (i *Provisioner) Converge(ctx context.Context, blueprint *blueprintv1alpha1
 	if blueprint == nil || i.KubernetesManager == nil {
 		return nil
 	}
-	names := convergeNames(withCrdLayer(blueprint))
+	bp := withCrdLayer(blueprint)
+	names := convergeNames(bp)
 	if len(names) == 0 {
 		return nil
 	}
@@ -1426,27 +1413,13 @@ func (i *Provisioner) Converge(ctx context.Context, blueprint *blueprintv1alpha1
 	defer cancel()
 
 	return tui.WithProgress("Reconciling resources", func() error {
-		round := 0
+		nudged := make(map[string]struct{})
 		for {
-			readiness, err := i.KubernetesManager.GetKustomizationReadiness(names)
-			if err == nil {
-				var notReady []string
-				for _, n := range names {
-					if !readiness[n] {
-						notReady = append(notReady, n)
-					}
-				}
-				if len(notReady) == 0 {
-					return nil
-				}
-				slices.Sort(notReady)
-				tui.Update(fmt.Sprintf("Reconciling resources: waiting on %s", strings.Join(notReady, ", ")))
-				if round%reconcileEveryStuckRounds == 0 {
-					i.reconcileKustomizations(ctx, notReady)
-					i.forceStalledHelmReleases(ctx, notReady)
-				}
+			notReady := i.nudgeFrontier(ctx, bp, nudged)
+			if len(notReady) == 0 {
+				return nil
 			}
-			round++
+			tui.Update(fmt.Sprintf("Reconciling resources: waiting on %s", strings.Join(notReady, ", ")))
 			select {
 			case <-waitCtx.Done():
 				return nil
@@ -1469,47 +1442,63 @@ func convergeNames(bp *blueprintv1alpha1.Blueprint) []string {
 	return names
 }
 
-// dependencyClosure returns the transitive dependsOn closure of the given owner kustomizations within the
-// blueprint — the owners plus every kustomization they transitively depend on — deduplicated and sorted.
-// It is the minimal set worth force-reconciling to advance a stuck owner: reconciling a dependency that is
-// not yet Ready is a harmless no-op, so nudging the whole closure walks it Ready bottom-up. Names not
-// present in the blueprint (e.g. an external dependency) are dropped. Returns nil for a nil blueprint.
-func dependencyClosure(blueprint *blueprintv1alpha1.Blueprint, owners []string) []string {
+// nudgeFrontier requests an immediate reconcile of the blueprint's "frontier" kustomizations — those not
+// yet Ready whose every dependency is already Ready — and force-reconciles any stalled HelmRelease they own.
+// The frontier is the only set a nudge can actually advance: an already-Ready kustomization would just churn
+// (needless reconciles that flap otherwise-healthy resources), and one still blocked on a not-ready
+// dependency will not progress no matter how often it is poked. Each frontier member is nudged at most once
+// while it stays not-Ready — recorded in nudged and cleared when it goes Ready — so successive calls do not
+// re-poke the same resource; instead, as a layer goes Ready the next layer becomes the frontier and gets its
+// single nudge, walking the DAG upward by state transition rather than a blanket timer. Best-effort: a
+// readiness read error is a no-op, and nudged carries the one-shot state across calls within one operation.
+func (i *Provisioner) nudgeFrontier(ctx context.Context, blueprint *blueprintv1alpha1.Blueprint, nudged map[string]struct{}) []string {
 	if blueprint == nil {
 		return nil
+	}
+	names := convergeNames(blueprint)
+	if len(names) == 0 {
+		return nil
+	}
+	readiness, err := i.KubernetesManager.GetKustomizationReadiness(names)
+	if err != nil {
+		return names // unknown readiness: report all not-Ready so a caller keeps waiting, but nudge nothing
 	}
 	deps := make(map[string][]string, len(blueprint.Kustomizations))
 	for _, k := range blueprint.Kustomizations {
 		deps[k.Name] = k.DependsOn
 	}
-	seen := make(map[string]struct{})
-	var walk func(name string)
-	walk = func(name string) {
-		if _, done := seen[name]; done {
-			return
-		}
-		if _, known := deps[name]; !known {
-			return
-		}
-		seen[name] = struct{}{}
-		for _, d := range deps[name] {
-			walk(d)
-		}
-	}
-	for _, o := range owners {
-		walk(o)
-	}
-	return sortedStringKeys(seen)
-}
 
-// pendingOwners returns the owning kustomization of each still-pending secret (duplicates allowed;
-// dependencyClosure deduplicates as it walks).
-func pendingOwners(pending []pendingPlacement) []string {
-	owners := make([]string, 0, len(pending))
-	for _, p := range pending {
-		owners = append(owners, p.kustomization)
+	var notReady, frontier []string
+	for _, name := range names {
+		if readiness[name] {
+			delete(nudged, name) // Ready now — permit a fresh nudge if it later regresses
+			continue
+		}
+		notReady = append(notReady, name)
+		if _, done := nudged[name]; done {
+			continue // already nudged while not-Ready; wait for it to progress rather than re-poking
+		}
+		depsReady := true
+		for _, d := range deps[name] {
+			if r, known := readiness[d]; known && !r {
+				depsReady = false
+				break
+			}
+		}
+		if depsReady {
+			frontier = append(frontier, name)
+		}
 	}
-	return owners
+	if len(frontier) > 0 {
+		slices.Sort(frontier)
+		for _, n := range frontier {
+			nudged[n] = struct{}{}
+		}
+		i.reconcileKustomizations(ctx, frontier)
+		i.forceStalledHelmReleases(ctx, frontier)
+	}
+	slices.Sort(notReady)
+	return notReady
 }
 
 // sortedStringKeys returns the keys of a set as a sorted slice.

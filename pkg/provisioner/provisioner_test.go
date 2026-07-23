@@ -4639,30 +4639,56 @@ func TestProvisioner_ResolveSecrets(t *testing.T) {
 	})
 }
 
-func TestProvisioner_dependencyClosure(t *testing.T) {
+func TestProvisioner_nudgeFrontier(t *testing.T) {
+	// crds Ready; lb depends on crds (frontier); gateway depends on the not-ready lb (blocked, not frontier).
 	bp := &blueprintv1alpha1.Blueprint{Kustomizations: []blueprintv1alpha1.Kustomization{
-		{Name: "dns-install", DependsOn: []string{"gateway-install"}},
-		{Name: "gateway-install", DependsOn: []string{"lb-install", "pki-install"}},
-		{Name: "lb-install", DependsOn: []string{"crds"}},
-		{Name: "pki-install"},
 		{Name: "crds"},
-		{Name: "observability-install"}, // unrelated — must not appear
+		{Name: "lb-install", DependsOn: []string{"crds"}},
+		{Name: "gateway-install", DependsOn: []string{"lb-install"}},
 	}}
+	newProv := func(mocks *ProvisionerTestMocks, notifier *fluxinfra.MockNotifier) *Provisioner {
+		return NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{KubernetesManager: mocks.KubernetesManager, Notifier: notifier})
+	}
 
-	t.Run("WalksTransitiveDependsOnAndExcludesUnrelated", func(t *testing.T) {
-		got := dependencyClosure(bp, []string{"dns-install"})
-		want := []string{"crds", "dns-install", "gateway-install", "lb-install", "pki-install"}
-		if !slices.Equal(got, want) {
-			t.Errorf("Expected closure %v, got %v", want, got)
+	t.Run("NudgesOnlyNotReadyFrontierAndNeverReadyOrBlocked", func(t *testing.T) {
+		mocks := setupProvisionerMocks(t)
+		mocks.KubernetesManager.GetKustomizationReadinessFunc = func(names []string) (map[string]bool, error) {
+			return map[string]bool{"crds": true, "lb-install": false, "gateway-install": false}, nil
+		}
+		notifier := fluxinfra.NewMockNotifier()
+		var nudgedNames [][]string
+		notifier.ReconcileKustomizationsFunc = func(ctx context.Context, names []string) error {
+			nudgedNames = append(nudgedNames, names)
+			return nil
+		}
+
+		// When nudging, only lb-install (not-ready, deps ready) is reconciled — not crds (Ready) nor
+		// gateway-install (blocked on not-ready lb-install)
+		newProv(mocks, notifier).nudgeFrontier(context.Background(), bp, map[string]struct{}{})
+		if len(nudgedNames) != 1 || !slices.Equal(nudgedNames[0], []string{"lb-install"}) {
+			t.Errorf("expected only lb-install nudged, got %v", nudgedNames)
 		}
 	})
 
-	t.Run("DropsNamesNotInBlueprintAndHandlesNil", func(t *testing.T) {
-		if got := dependencyClosure(bp, []string{"external-thing"}); len(got) != 0 {
-			t.Errorf("Expected unknown owner to yield empty closure, got %v", got)
+	t.Run("NudgesEachFrontierMemberOnlyOnce", func(t *testing.T) {
+		mocks := setupProvisionerMocks(t)
+		mocks.KubernetesManager.GetKustomizationReadinessFunc = func(names []string) (map[string]bool, error) {
+			return map[string]bool{"crds": true, "lb-install": false, "gateway-install": false}, nil
 		}
-		if got := dependencyClosure(nil, []string{"dns-install"}); got != nil {
-			t.Errorf("Expected nil blueprint to yield nil closure, got %v", got)
+		notifier := fluxinfra.NewMockNotifier()
+		calls := 0
+		notifier.ReconcileKustomizationsFunc = func(ctx context.Context, names []string) error {
+			calls++
+			return nil
+		}
+		prov := newProv(mocks, notifier)
+		nudged := map[string]struct{}{}
+
+		// When nudging twice with lb-install still not-Ready, it is reconciled only on the first pass
+		prov.nudgeFrontier(context.Background(), bp, nudged)
+		prov.nudgeFrontier(context.Background(), bp, nudged)
+		if calls != 1 {
+			t.Errorf("expected the frontier member nudged once, got %d nudges", calls)
 		}
 	})
 }
@@ -5055,10 +5081,14 @@ func TestProvisioner_PlaceSecrets(t *testing.T) {
 		}
 	})
 
-	t.Run("ReconcilesDependencyClosureWhilePending", func(t *testing.T) {
-		// Given a pending secret whose namespace never appears, and a dependency chain gating it
+	t.Run("NudgesOnlyTheFrontierWhilePending", func(t *testing.T) {
+		// Given a pending secret whose namespace never appears, and a dependency chain that is entirely
+		// not-Ready — only the base (lb-install, no unmet deps) is on the frontier
 		mocks := setupProvisionerMocks(t)
 		mocks.KubernetesManager.NamespaceExistsFunc = func(name string) (bool, error) { return false, nil }
+		mocks.KubernetesManager.GetKustomizationReadinessFunc = func(names []string) (map[string]bool, error) {
+			return map[string]bool{"dns-install": false, "gateway-install": false, "lb-install": false}, nil
+		}
 		notifier := fluxinfra.NewMockNotifier()
 		var reconciled [][]string
 		notifier.ReconcileKustomizationsFunc = func(ctx context.Context, names []string) error {
@@ -5075,16 +5105,13 @@ func TestProvisioner_PlaceSecrets(t *testing.T) {
 		ctx, cancel := context.WithCancel(context.Background())
 		cancel()
 
-		// When placing, the whole dependency chain gating the pending secret is nudged to reconcile
+		// When placing, only the frontier (lb-install) is nudged — not the blocked gateway/dns upstream
 		_ = prov.PlaceSecrets(ctx, secrets, bp, false)
 		if len(reconciled) == 0 {
-			t.Fatalf("Expected a dependency-closure reconcile, got none")
+			t.Fatalf("expected a frontier reconcile, got none")
 		}
-		got := reconciled[0]
-		for _, want := range []string{"dns-install", "gateway-install", "lb-install"} {
-			if !slices.Contains(got, want) {
-				t.Errorf("Expected closure to include %q, got %v", want, got)
-			}
+		if got := reconciled[0]; !slices.Equal(got, []string{"lb-install"}) {
+			t.Errorf("expected only frontier lb-install nudged, got %v", got)
 		}
 	})
 
