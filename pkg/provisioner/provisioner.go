@@ -1040,7 +1040,9 @@ type ResolvedSecret struct {
 // kustomization carrying Secrets it evaluates each data reference (the evaluator registers resolved
 // values with the shell scrubber). A reference that resolves to nil — the value is absent from
 // configuration — is treated as unconfigured and its key is omitted, since a secret the user never set
-// is not misconfiguration. A reference that resolves to an empty string fails closed unless it carries a
+// is not misconfiguration; in verbose mode the omission is logged (naming the secret, key, and reference)
+// so a typo'd reference path is visible rather than silently swallowed. A reference that resolves to an
+// empty string fails closed unless it carries a
 // "??" default, since a present-but-blank value is misconfiguration; adding a ?? default makes such a
 // key optional and omits it. A secret whose keys all resolve away is not created at all, so an
 // unconfigured optional secret leaves no empty Secret behind. The result is keyed by owning kustomization
@@ -1064,6 +1066,9 @@ func (i *Provisioner) ResolveSecrets(blueprint *blueprintv1alpha1.Blueprint) (Re
 					return nil, fmt.Errorf("resolving secret %q key %q: %w", secretName, key, err)
 				}
 				if value == nil {
+					if i.shell != nil && i.shell.IsVerbose() {
+						fmt.Fprintf(os.Stderr, "secret %q key %q: reference %q resolved to nil; key omitted\n", secretName, key, ref)
+					}
 					continue
 				}
 				s := fmt.Sprint(value)

@@ -3,6 +3,7 @@ package provisioner
 import (
 	"context"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"slices"
@@ -4582,6 +4583,32 @@ func TestProvisioner_ResolveSecrets(t *testing.T) {
 		}
 		if len(resolved) != 0 {
 			t.Errorf("Expected no secret from nil-resolving reference, got %v", resolved)
+		}
+	})
+
+	t.Run("LogsOmittedNilKeyInVerboseMode", func(t *testing.T) {
+		// Given a nil-resolving reference and verbose mode
+		mocks := setupProvisionerMocks(t)
+		withValues(mocks, map[string]any{})
+		mocks.Shell.IsVerboseFunc = func() bool { return true }
+
+		oldStderr := os.Stderr
+		r, w, _ := os.Pipe()
+		os.Stderr = w
+
+		// When resolving, the omission is logged so a typo'd reference path is not silently swallowed
+		_, err := newProvisioner(mocks).ResolveSecrets(bp(map[string]blueprintv1alpha1.SecretEntry{"creds": entry(map[string]string{"token": "${hetzner.token}"})}))
+
+		_ = w.Close()
+		os.Stderr = oldStderr
+		out, _ := io.ReadAll(r)
+
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		got := string(out)
+		if !strings.Contains(got, "resolved to nil") || !strings.Contains(got, "token") || !strings.Contains(got, "${hetzner.token}") {
+			t.Errorf("Expected verbose omission log naming the key and reference, got %q", got)
 		}
 	})
 
