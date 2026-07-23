@@ -55,6 +55,17 @@ type BaseBlueprintProcessor struct {
 	mu             sync.Mutex
 	deferredPaths  map[string]bool
 	extraScope     map[string]any
+	excludedFacets []ExcludedFacet
+}
+
+// ExcludedFacet records a facet dropped from composition by a false when: condition, along with the
+// component and kustomization names it would have contributed. Dependency validation joins a dangling
+// dependency name against these so it can name the excluded facet and the condition that excluded it,
+// rather than only reporting the unresolvable edge.
+type ExcludedFacet struct {
+	Name     string   // facet metadata name
+	When     string   // the when: expression that evaluated false
+	Provides []string // terraform component IDs and kustomization names (including flux tiers) it declares
 }
 
 // requirementBlockMiss records the unsatisfied paths and the effective condition under which a
@@ -142,6 +153,46 @@ func (p *BaseBlueprintProcessor) GetDeferredPaths() map[string]bool {
 		out[k] = v
 	}
 	return out
+}
+
+// ResetExcludedFacets clears the accumulated excluded-facet record. Callers invoke it once before a
+// composition's per-source ProcessFacets pass, so the set reflects only that composition. ProcessFacets
+// appends across sources rather than resetting, letting a multi-source compose accumulate one set.
+func (p *BaseBlueprintProcessor) ResetExcludedFacets() {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.excludedFacets = nil
+}
+
+// GetExcludedFacets returns a copy of the facets excluded by a false when: across every ProcessFacets
+// call since the last reset. Read after the per-source passes complete so the set is stable.
+func (p *BaseBlueprintProcessor) GetExcludedFacets() []ExcludedFacet {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if len(p.excludedFacets) == 0 {
+		return nil
+	}
+	out := make([]ExcludedFacet, len(p.excludedFacets))
+	copy(out, p.excludedFacets)
+	return out
+}
+
+// facetProvides returns the names a facet would contribute to composition: each terraform component's
+// ID, each kustomization's name, and each flux system's compiled tier names ("<name>-install" /
+// "<name>-resources"). Dependency validation matches a dangling dependency against these to attribute it
+// to the excluded facet that would have provided it.
+func facetProvides(facet blueprintv1alpha1.Facet) []string {
+	var provides []string
+	for i := range facet.TerraformComponents {
+		provides = append(provides, facet.TerraformComponents[i].GetID())
+	}
+	for _, k := range facet.Kustomizations {
+		provides = append(provides, k.Name)
+	}
+	for _, sys := range facet.FluxSystems {
+		provides = append(provides, sys.TierNames()...)
+	}
+	return provides
 }
 
 // ProcessFacets iterates facets, evaluating each facet's 'when' against config data. Facets with
@@ -264,6 +315,21 @@ func (p *BaseBlueprintProcessor) ProcessFacets(target *blueprintv1alpha1.Bluepri
 
 	if len(pendingRequirements) > 0 {
 		return nil, formatRequirementsError(pendingRequirements)
+	}
+
+	includedSet := make(map[string]bool, len(includedFacets))
+	for _, f := range includedFacets {
+		includedSet[f.Metadata.Name] = true
+	}
+	for _, facet := range sortedFacets {
+		if includedSet[facet.Metadata.Name] {
+			continue
+		}
+		p.excludedFacets = append(p.excludedFacets, ExcludedFacet{
+			Name:     facet.Metadata.Name,
+			When:     facet.When,
+			Provides: facetProvides(facet),
+		})
 	}
 
 	for _, facet := range includedFacets {

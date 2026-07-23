@@ -3395,6 +3395,71 @@ func TestComposer_validateDependencies(t *testing.T) {
 		}
 	})
 
+	t.Run("NamesExcludedFacetAndConditionForDanglingTerraformDependency", func(t *testing.T) {
+		// Given the missing component is one an excluded facet would have contributed
+		mocks := setupComposerMocks(t)
+		composer := NewBlueprintComposer(mocks.Runtime)
+		composer.SetExcludedFacets([]ExcludedFacet{
+			{Name: "provider-hetzner", When: "cluster.driver == 'talos'", Provides: []string{"cluster"}},
+		})
+		bp := &blueprintv1alpha1.Blueprint{
+			TerraformComponents: []blueprintv1alpha1.TerraformComponent{{Path: "cni", DependsOn: []string{"cluster"}}},
+		}
+
+		// When validating, the error names the excluded facet and the condition that excluded it
+		err := composer.validateDependencies(bp)
+		if err == nil {
+			t.Fatal("Expected error, got nil")
+		}
+		for _, want := range []string{`facet "provider-hetzner"`, "cluster.driver == 'talos'", "evaluated false", `"cluster"`} {
+			if !strings.Contains(err.Error(), want) {
+				t.Errorf("Expected %q in error, got %v", want, err)
+			}
+		}
+	})
+
+	t.Run("NamesExcludedFacetForDanglingKustomizationDependency", func(t *testing.T) {
+		// Given a kustomization depending on a name an excluded facet would have contributed
+		mocks := setupComposerMocks(t)
+		composer := NewBlueprintComposer(mocks.Runtime)
+		composer.SetExcludedFacets([]ExcludedFacet{
+			{Name: "addon-private-dns", When: "addons.private_dns.enabled == true", Provides: []string{"dns-install"}},
+		})
+		bp := &blueprintv1alpha1.Blueprint{
+			Kustomizations: []blueprintv1alpha1.Kustomization{{Name: "gateway-resources", DependsOn: []string{"dns-install"}}},
+		}
+
+		// When validating, the error attributes the missing kustomization to the excluded facet
+		err := composer.validateDependencies(bp)
+		if err == nil {
+			t.Fatal("Expected error, got nil")
+		}
+		for _, want := range []string{`facet "addon-private-dns"`, "addons.private_dns.enabled == true", `"dns-install"`} {
+			if !strings.Contains(err.Error(), want) {
+				t.Errorf("Expected %q in error, got %v", want, err)
+			}
+		}
+	})
+
+	t.Run("ReportsExclusionWithoutConditionWhenExcludedFacetHasNoWhen", func(t *testing.T) {
+		// Given the providing facet was excluded but carries no when: expression
+		mocks := setupComposerMocks(t)
+		composer := NewBlueprintComposer(mocks.Runtime)
+		composer.SetExcludedFacets([]ExcludedFacet{{Name: "options-extra", Provides: []string{"cluster"}}})
+		bp := &blueprintv1alpha1.Blueprint{
+			TerraformComponents: []blueprintv1alpha1.TerraformComponent{{Path: "cni", DependsOn: []string{"cluster"}}},
+		}
+
+		// When validating, it names the facet without a false-condition clause
+		err := composer.validateDependencies(bp)
+		if err == nil || !strings.Contains(err.Error(), `facet "options-extra"`) {
+			t.Fatalf("Expected excluded-facet attribution, got %v", err)
+		}
+		if strings.Contains(err.Error(), "evaluated false") {
+			t.Errorf("Did not expect a condition clause for a when-less facet, got %v", err)
+		}
+	})
+
 	t.Run("ReturnsNilForValidKustomizationDependencies", func(t *testing.T) {
 		mocks := setupComposerMocks(t)
 		composer := NewBlueprintComposer(mocks.Runtime)
