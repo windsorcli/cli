@@ -105,9 +105,11 @@ properties:
       destroy, when, dependsOn, strategy, ordinal, install, resources, secrets.
       'secrets' maps <secret-name> to a data map of <key>: <value>, where each
       value is an expression resolved at apply time — a ${...} reference to any
-      config property or a secret() call — not a plaintext literal. Each entry
-      is materialized as a Kubernetes Secret with those data keys in the
-      system's namespace.
+      config property, a secret() call, or an env("NAME") lookup (nil when
+      unset, so it composes with ??, e.g. `${hetzner.token ??
+      env("HETZNER_TOKEN")}`) — not a plaintext literal. Each entry is
+      materialized as a Kubernetes Secret with those data keys in the system's
+      namespace.
     items:
       type: object
       required:
