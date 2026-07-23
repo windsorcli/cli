@@ -35,6 +35,8 @@ Every form requires confirmation. Either type the context or component name at t
 
 If terraform reports resources protected by 'lifecycle { prevent_destroy = true }', destroy warns up front so the operator knows the destroy may halt partway through. Resources whose state is empty are skipped with a warning naming any potentially orphaned cloud resources.
 
+If any component fails destroy-plan generation, destroy halts before the confirmation prompt and names the failed components, rather than offering to destroy a plan it cannot fully execute. This is distinct from --continue, which governs failures during execution, after confirmation.
+
 The default behavior is to abort on the first per-component destroy failure. Pass --continue to keep going past individual failures, collect them, and print a one-line summary at the end (windsor destroy: N destroyed, N no-op (empty state), N failed (...), backend tier deferred). --continue is layer-wide only and is refused when combined with a component argument — on a single component there is nothing to continue past. When --continue leaves any non-tier component un-destroyed, the backend tier is NOT attempted — this prevents destroying the state store while other components still depend on it. Rerun 'windsor destroy --continue' after resolving the underlying failures; the second pass picks up where the first left off and converges on a clean slate.`,
 	Example: `# Destroy everything in the current context (interactive)
 windsor destroy
@@ -95,6 +97,10 @@ windsor destroy --confirm=local --continue`,
 			tuiplan.DestroySummary(os.Stdout, summary.Terraform, summary.Kustomize, os.Getenv("NO_COLOR") != "")
 
 			warnPreventDestroy(cmd.ErrOrStderr(), summary.Terraform)
+
+			if err := failOnDestroyPlanErrors(summary.Terraform); err != nil {
+				return err
+			}
 
 			contextName := proj.Runtime.ContextName
 			desc := fmt.Sprintf("This will permanently destroy all infrastructure in context %q.", contextName)
@@ -161,6 +167,10 @@ windsor destroy --confirm=local --continue`,
 		tuiplan.DestroySummary(os.Stdout, tfResults, k8sResults, os.Getenv("NO_COLOR") != "")
 
 		warnPreventDestroy(cmd.ErrOrStderr(), tfResults)
+
+		if err := failOnDestroyPlanErrors(tfResults); err != nil {
+			return err
+		}
 
 		desc := fmt.Sprintf("This will permanently destroy component %q across all layers.", componentID)
 		if err := resolveDestroyConfirmation(cmd.InOrStdin(), cmd.ErrOrStderr(), desc, componentID); err != nil {
@@ -239,6 +249,10 @@ windsor destroy terraform --confirm=local`,
 
 			warnPreventDestroy(cmd.ErrOrStderr(), summary.Terraform)
 
+			if err := failOnDestroyPlanErrors(summary.Terraform); err != nil {
+				return err
+			}
+
 			contextName := proj.Runtime.ContextName
 			desc := fmt.Sprintf("This will permanently destroy all Terraform components in context %q.", contextName)
 			if err := resolveDestroyConfirmation(cmd.InOrStdin(), cmd.ErrOrStderr(), desc, contextName); err != nil {
@@ -278,6 +292,10 @@ windsor destroy terraform --confirm=local`,
 		tuiplan.DestroySummary(os.Stdout, []terraforminfra.TerraformComponentPlan{tfResult}, nil, os.Getenv("NO_COLOR") != "")
 
 		warnPreventDestroy(cmd.ErrOrStderr(), []terraforminfra.TerraformComponentPlan{tfResult})
+
+		if err := failOnDestroyPlanErrors([]terraforminfra.TerraformComponentPlan{tfResult}); err != nil {
+			return err
+		}
 
 		desc := fmt.Sprintf("This will permanently destroy Terraform component %q.", componentID)
 		if err := resolveDestroyConfirmation(cmd.InOrStdin(), cmd.ErrOrStderr(), desc, componentID); err != nil {
@@ -437,6 +455,30 @@ func warnPreventDestroy(w io.Writer, plans []terraforminfra.TerraformComponentPl
 		fmt.Fprintf(w, "  %s\n", addr)
 	}
 	fmt.Fprintln(w, "   the destroy may halt partway; remove the lifecycle block in HCL to enable tear-down.")
+}
+
+// failOnDestroyPlanErrors halts the destroy before the confirmation prompt when
+// any component failed destroy-plan generation. Per-component plan errors are
+// carried on the plan's Err field and rendered inline in the summary, but the
+// summary methods return no error, so without this gate the flow proceeds to the
+// prompt and offers to "permanently destroy all infrastructure" while silently
+// skipping the components that could not be planned — often the ones owning the
+// underlying cloud infrastructure (servers, networks, zones), orphaning billed
+// resources and leaving state half-torn. The rendered plan already shows each
+// error; this refuses to let the operator confirm past them. No-op when every
+// component planned cleanly. This is distinct from --continue, which governs
+// failures during per-component destroy execution, after confirmation.
+func failOnDestroyPlanErrors(plans []terraforminfra.TerraformComponentPlan) error {
+	var failed []string
+	for _, p := range plans {
+		if p.Err != nil {
+			failed = append(failed, fmt.Sprintf("%s (%v)", p.ComponentID, p.Err))
+		}
+	}
+	if len(failed) == 0 {
+		return nil
+	}
+	return fmt.Errorf("destroy-plan generation failed for %d component(s): %s; resolve the errors above and rerun — refusing to confirm a destroy that cannot tear these down", len(failed), strings.Join(failed, ", "))
 }
 
 // resolveDestroyConfirmation gates a destructive operation. If --confirm was supplied it must

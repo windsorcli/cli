@@ -14,6 +14,8 @@ Every form requires confirmation. Either type the context or component name at t
 
 If terraform reports resources protected by 'lifecycle { prevent_destroy = true }', destroy warns up front so the operator knows the destroy may halt partway through. Resources whose state is empty are skipped with a warning naming any potentially orphaned cloud resources.
 
+If any component fails destroy-plan generation, destroy halts before the confirmation prompt and names the failed components, rather than offering to destroy a plan it cannot fully execute. This is distinct from --continue, which governs failures during execution, after confirmation.
+
 The default behavior is to abort on the first per-component destroy failure. Pass --continue to keep going past individual failures, collect them, and print a one-line summary at the end (windsor destroy: N destroyed, N no-op (empty state), N failed (...), backend tier deferred). --continue is layer-wide only and is refused when combined with a component argument — on a single component there is nothing to continue past. When --continue leaves any non-tier component un-destroyed, the backend tier is NOT attempted — this prevents destroying the state store while other components still depend on it. Rerun 'windsor destroy --continue' after resolving the underlying failures; the second pass picks up where the first left off and converges on a clean slate.
 
 ## Flags
