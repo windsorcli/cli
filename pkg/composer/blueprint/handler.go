@@ -912,9 +912,13 @@ func (h *BaseBlueprintHandler) processAndCompose() error {
 	// Process sources in dependency order (a source before any source that lists it), threading the
 	// scope accumulated so far into each source's facet evaluation. A downstream source can then read
 	// config an upstream source derived, rather than each source seeing only raw context values.
+	userLoaderName := ""
+	if h.userBlueprintLoader != nil {
+		userLoaderName = loaderNames[h.userBlueprintLoader]
+	}
 	var errs []error
 	var accumulatedScope map[string]any
-	for _, loader := range orderLoadersByDependency(loadersToProcess, loaderNames) {
+	for _, loader := range orderLoadersByDependency(loadersToProcess, loaderNames, userLoaderName) {
 		name := loaderNames[loader]
 		if bp, ok := h.processor.(*BaseBlueprintProcessor); ok {
 			bp.SetExtraScope(MergeScopeMaps(repositoryScope, accumulatedScope))
@@ -1039,10 +1043,10 @@ func (h *BaseBlueprintHandler) processAndCompose() error {
 // orderLoadersByDependency returns loaders sorted so that a source is processed before any source
 // that lists it in its blueprint's Sources, letting a downstream source's facets read config an
 // upstream source derived. It is a Kahn topological sort keyed by loader name; ready nodes are
-// drained alphabetically (with the user loader forced last, as the final override layer) for a
+// drained alphabetically, with userLoaderName forced last (the final override layer), for a
 // deterministic order. Edges to names not present among the loaders are ignored, and a dependency
 // cycle falls back to appending the unresolved loaders in stable name order rather than dropping them.
-func orderLoadersByDependency(loaders []BlueprintLoader, names map[BlueprintLoader]string) []BlueprintLoader {
+func orderLoadersByDependency(loaders []BlueprintLoader, names map[BlueprintLoader]string, userLoaderName string) []BlueprintLoader {
 	byName := make(map[string]BlueprintLoader, len(loaders))
 	for _, l := range loaders {
 		byName[names[l]] = l
@@ -1076,8 +1080,8 @@ func orderLoadersByDependency(loaders []BlueprintLoader, names map[BlueprintLoad
 
 	sortReady := func(s []string) {
 		sort.Slice(s, func(i, j int) bool {
-			if (s[i] == "user") != (s[j] == "user") {
-				return s[j] == "user"
+			if (s[i] == userLoaderName) != (s[j] == userLoaderName) {
+				return s[j] == userLoaderName
 			}
 			return s[i] < s[j]
 		})

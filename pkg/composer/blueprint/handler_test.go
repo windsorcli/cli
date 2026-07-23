@@ -1769,7 +1769,7 @@ func TestOrderLoadersByDependency(t *testing.T) {
 		for _, l := range loaders {
 			names[l] = l.GetSourceName()
 		}
-		result := orderLoadersByDependency(loaders, names)
+		result := orderLoadersByDependency(loaders, names, "user")
 		out := make([]string, len(result))
 		for i, l := range result {
 			out[i] = l.GetSourceName()
@@ -1799,6 +1799,28 @@ func TestOrderLoadersByDependency(t *testing.T) {
 
 		// Then independents sort alphabetically and user is forced last
 		want := []string{"alpha", "zeta", "user"}
+		if strings.Join(got, ",") != strings.Join(want, ",") {
+			t.Errorf("Expected %v, got %v", want, got)
+		}
+	})
+
+	t.Run("ForcesUserLoaderLastByGivenName", func(t *testing.T) {
+		// Given a user loader whose name is not the literal "user"
+		loaders := []BlueprintLoader{newLoader("zeta"), newLoader("overlay"), newLoader("alpha")}
+		names := make(map[BlueprintLoader]string, len(loaders))
+		for _, l := range loaders {
+			names[l] = l.GetSourceName()
+		}
+
+		// When ordering with "overlay" declared as the user loader name
+		result := orderLoadersByDependency(loaders, names, "overlay")
+		got := make([]string, len(result))
+		for i, l := range result {
+			got[i] = l.GetSourceName()
+		}
+
+		// Then the named loader is forced last regardless of alphabetical order
+		want := []string{"alpha", "zeta", "overlay"}
 		if strings.Join(got, ",") != strings.Join(want, ",") {
 			t.Errorf("Expected %v, got %v", want, got)
 		}
