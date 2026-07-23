@@ -4,8 +4,6 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
-
-	"github.com/windsorcli/cli/pkg/constants"
 )
 
 // The ConfigResolver is an effective-values materialization component for runtime config.
@@ -41,7 +39,6 @@ func (c *configHandler) GetContextValues() (map[string]any, error) {
 	c.applyWorkstationDefaults(result)
 	c.ensureClusterStructure(result)
 	c.applyClusterTopologyDefaults(result)
-	c.applyClusterResourceDefaults(result)
 
 	return result, nil
 }
@@ -180,39 +177,6 @@ func (c *configHandler) applyClusterTopologyDefaults(values map[string]any) {
 	if !hasSchedulable || !hasExplicitSchedulable {
 		schedulable = workersCount == 0 && controlplaneCount == 1
 		controlplanesMap["schedulable"] = schedulable
-	}
-}
-
-// applyClusterResourceDefaults injects CPU and memory defaults into cluster values when absent.
-func (c *configHandler) applyClusterResourceDefaults(values map[string]any) {
-	clusterMap, ok := values["cluster"].(map[string]any)
-	if !ok || clusterMap == nil {
-		return
-	}
-	controlplanesMap, controlplanesOK := clusterMap["controlplanes"].(map[string]any)
-	workersMap, workersOK := clusterMap["workers"].(map[string]any)
-	if !controlplanesOK || controlplanesMap == nil || !workersOK || workersMap == nil {
-		return
-	}
-
-	schedulable, _ := controlplanesMap["schedulable"].(bool)
-	defaultControlplaneCPU := constants.DefaultControlPlaneCPUDedicated
-	defaultControlplaneMemory := constants.DefaultControlPlaneMemoryDedicated
-	if schedulable {
-		defaultControlplaneCPU = constants.DefaultControlPlaneCPUSchedulable
-		defaultControlplaneMemory = constants.DefaultControlPlaneMemorySchedulable
-	}
-	if _, exists := controlplanesMap["cpu"]; !exists {
-		controlplanesMap["cpu"] = defaultControlplaneCPU
-	}
-	if _, exists := controlplanesMap["memory"]; !exists {
-		controlplanesMap["memory"] = defaultControlplaneMemory
-	}
-	if _, exists := workersMap["cpu"]; !exists {
-		workersMap["cpu"] = constants.DefaultWorkerCPU
-	}
-	if _, exists := workersMap["memory"]; !exists {
-		workersMap["memory"] = constants.DefaultWorkerMemory
 	}
 }
 
