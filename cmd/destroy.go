@@ -79,13 +79,10 @@ windsor destroy --confirm=local --continue`,
 			}
 			// For a kubernetes backend, pull all terraform state to local and pivot the whole teardown to a
 			// local backend up front — before planning — so no step (plan or destroy) dials the kubernetes
-			// backend that this teardown is about to destroy.
-			pivoted, err := proj.Provisioner.PrepareLocalTeardown(blueprint)
-			if err != nil {
+			// backend that this teardown is about to destroy. The "Migrating terraform state" progress line
+			// already signals the migration, so no extra note is printed here.
+			if _, err := proj.Provisioner.PrepareLocalTeardown(blueprint); err != nil {
 				return err
-			}
-			if pivoted {
-				fmt.Fprintln(cmd.ErrOrStderr(), "Terraform state migrated to local; running teardown against local state.")
 			}
 			var summary *provisioner.DestroyPlanSummary
 			if err := tui.WithProgress("Generating destroy plan...", func() error {
@@ -225,13 +222,10 @@ windsor destroy terraform --confirm=local`,
 				return err
 			}
 			// Destroying every terraform component: pull state to local and pivot up front, like the full
-			// teardown, so the plan and destroy never dial the kubernetes backend being torn down.
-			pivoted, err := proj.Provisioner.PrepareLocalTeardown(blueprint)
-			if err != nil {
+			// teardown, so the plan and destroy never dial the kubernetes backend being torn down. The
+			// "Migrating terraform state" progress line already signals the migration.
+			if _, err := proj.Provisioner.PrepareLocalTeardown(blueprint); err != nil {
 				return err
-			}
-			if pivoted {
-				fmt.Fprintln(cmd.ErrOrStderr(), "Terraform state migrated to local; running teardown against local state.")
 			}
 			var summary *provisioner.DestroyPlanSummary
 			if err := tui.WithProgress("Generating destroy plan...", func() error {
