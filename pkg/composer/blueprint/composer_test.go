@@ -404,6 +404,61 @@ func TestComposer_Compose(t *testing.T) {
 		}
 	})
 
+	t.Run("SourceDepthReorderIsDeterministicWithCyclicSources", func(t *testing.T) {
+		// Given two sources that reference each other, depth resolution must terminate and settle on
+		// the same answer regardless of which node the walk reaches first. Cycles are rejected upstream
+		// by loader ordering; this guards the depth walk itself against an order-dependent result.
+		mocks := setupComposerMocks(t)
+		trueVal := true
+		install := func(name string) blueprintv1alpha1.Source {
+			return blueprintv1alpha1.Source{Name: name, Install: &blueprintv1alpha1.BoolExpression{Value: &trueVal, IsExpr: false}}
+		}
+
+		compose := func() []string {
+			composer := NewBlueprintComposer(mocks.Runtime)
+			aBp := &blueprintv1alpha1.Blueprint{
+				Metadata:       blueprintv1alpha1.Metadata{Name: "a"},
+				Sources:        []blueprintv1alpha1.Source{install("b")},
+				Kustomizations: []blueprintv1alpha1.Kustomization{{Name: "addon-a", Path: "addons/a", Source: "a"}},
+			}
+			bBp := &blueprintv1alpha1.Blueprint{
+				Metadata:       blueprintv1alpha1.Metadata{Name: "b"},
+				Sources:        []blueprintv1alpha1.Source{install("a")},
+				Kustomizations: []blueprintv1alpha1.Kustomization{{Name: "addon-b", Path: "addons/b", Source: "b"}},
+			}
+			userBp := &blueprintv1alpha1.Blueprint{
+				Metadata:       blueprintv1alpha1.Metadata{Name: "user"},
+				Sources:        []blueprintv1alpha1.Source{install("a"), install("b")},
+				Kustomizations: []blueprintv1alpha1.Kustomization{{Name: "addon-user", Path: "addons/user"}},
+			}
+			loaders := []BlueprintLoader{
+				createMockBlueprintLoader("a", aBp),
+				createMockBlueprintLoader("b", bBp),
+				createMockBlueprintLoader("user", userBp),
+			}
+			result, err := composer.Compose(loaders, nil, "", nil)
+			if err != nil {
+				t.Fatalf("Expected no error, got %v", err)
+			}
+			names := make([]string, 0, len(result.Kustomizations))
+			for _, k := range result.Kustomizations {
+				names = append(names, k.Name)
+			}
+			return names
+		}
+
+		// When composing the same cyclic graph twice
+		first, second := compose(), compose()
+
+		// Then the ordering settles identically, and the referencing blueprint still composes last
+		if !slices.Equal(first, second) {
+			t.Errorf("expected deterministic order across runs, got %v then %v", first, second)
+		}
+		if len(first) == 0 || first[len(first)-1] != "addon-user" {
+			t.Errorf("expected addon-user (referencing blueprint) last, got %v", first)
+		}
+	})
+
 	t.Run("DoesNotMergeSourcesWithInstallFalse", func(t *testing.T) {
 		// Given a user blueprint with a source that has install:false
 		mocks := setupComposerMocks(t)

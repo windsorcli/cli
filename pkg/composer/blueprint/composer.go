@@ -439,19 +439,27 @@ func (c *BaseBlueprintComposer) sourceShouldBeMerged(source blueprintv1alpha1.So
 // stable, so each source keeps its own prefix/ordinal order, and because dependencies flow from a
 // referencing blueprint down into its sources (higher depth to lower), ascending-depth order keeps every
 // dependency ahead of its dependents. Explicit ordinals stay within a source and never cross a boundary.
+// A component whose Source is absent from the graph is treated as base level, since nothing establishes
+// it as layered on top of another source; this is decided here rather than left to a map's zero value.
 func (c *BaseBlueprintComposer) orderComponentsBySourceDepth(result *blueprintv1alpha1.Blueprint, userBlueprint *blueprintv1alpha1.Blueprint, sourceLoaders []BlueprintLoader) {
 	depth := c.sourceDepths(userBlueprint, sourceLoaders)
 	if len(depth) == 0 {
 		return
 	}
+	depthOf := func(source string) int {
+		if d, ok := depth[source]; ok {
+			return d
+		}
+		return 0
+	}
 	sort.SliceStable(result.TerraformComponents, func(i, j int) bool {
-		return depth[result.TerraformComponents[i].Source] < depth[result.TerraformComponents[j].Source]
+		return depthOf(result.TerraformComponents[i].Source) < depthOf(result.TerraformComponents[j].Source)
 	})
 	sort.SliceStable(result.Kustomizations, func(i, j int) bool {
-		return depth[result.Kustomizations[i].Source] < depth[result.Kustomizations[j].Source]
+		return depthOf(result.Kustomizations[i].Source) < depthOf(result.Kustomizations[j].Source)
 	})
 	sort.SliceStable(result.FluxSystems, func(i, j int) bool {
-		return depth[result.FluxSystems[i].Source] < depth[result.FluxSystems[j].Source]
+		return depthOf(result.FluxSystems[i].Source) < depthOf(result.FluxSystems[j].Source)
 	})
 }
 
@@ -459,7 +467,9 @@ func (c *BaseBlueprintComposer) orderComponentsBySourceDepth(result *blueprintv1
 // in-set source is depth 0, and any source is one deeper than the deepest source it references. The
 // primary/user blueprint is keyed by "" (the Source stamped on its own components) and references the
 // sources it lists. Returns an empty map when there is no referencing blueprint, so single-source
-// compositions skip reordering entirely.
+// compositions skip reordering entirely. Sources are walked in sorted order and a source caught in a
+// reference cycle is pinned to base depth, so a cyclic graph still resolves to the same depths on every
+// run rather than varying with map iteration order.
 func (c *BaseBlueprintComposer) sourceDepths(userBlueprint *blueprintv1alpha1.Blueprint, sourceLoaders []BlueprintLoader) map[string]int {
 	refs := make(map[string][]string)
 	inSet := make(map[string]bool)
@@ -485,12 +495,14 @@ func (c *BaseBlueprintComposer) sourceDepths(userBlueprint *blueprintv1alpha1.Bl
 	}
 
 	depth := make(map[string]int)
+	cyclic := make(map[string]bool)
 	var compute func(name string, stack map[string]bool) int
 	compute = func(name string, stack map[string]bool) int {
 		if d, ok := depth[name]; ok {
 			return d
 		}
 		if stack[name] {
+			cyclic[name] = true
 			return 0
 		}
 		stack[name] = true
@@ -503,10 +515,18 @@ func (c *BaseBlueprintComposer) sourceDepths(userBlueprint *blueprintv1alpha1.Bl
 			}
 		}
 		stack[name] = false
+		if cyclic[name] {
+			max = 0
+		}
 		depth[name] = max
 		return max
 	}
+	names := make([]string, 0, len(inSet))
 	for name := range inSet {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	for _, name := range names {
 		compute(name, make(map[string]bool))
 	}
 	return depth
