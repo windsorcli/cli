@@ -187,7 +187,7 @@ const windsorMarkerContent = "*\n"
 
 // contextIgnoreContent is written to contexts/<ctx>/.gitignore to keep
 // per-context credential and state directories out of version control.
-const contextIgnoreContent = ".kube/\n.talos/\n.omni/\n.aws/\n.azure/\n.gcp/\n.env\n"
+const contextIgnoreContent = ".kube/\n.talos/\n.omni/\n.aws/\n.azure/\n.gcp/\n.vsphere/\n.env\n"
 
 // writeLocalGitignores writes self-contained .gitignore files into Windsor-owned
 // folders so re-running Windsor never touches the project-root .gitignore.

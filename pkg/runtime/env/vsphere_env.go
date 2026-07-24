@@ -5,6 +5,8 @@
 package env
 
 import (
+	"fmt"
+	"path/filepath"
 	"strconv"
 
 	"github.com/windsorcli/cli/pkg/runtime/config"
@@ -43,14 +45,33 @@ func NewVsphereEnvPrinter(shell shell.Shell, configHandler config.ConfigHandler)
 // =============================================================================
 
 // GetEnvVars retrieves the environment variables for the vSphere environment.
-// Only the three env vars consumed by the HashiCorp vSphere Terraform provider are
-// emitted: VSPHERE_SERVER, VSPHERE_USER, and VSPHERE_ALLOW_UNVERIFIED_SSL.
-// Inventory pointers (datacenter, cluster, datastore, network, etc.) are Terraform
-// variable inputs wired by the facet — they are not read from the environment.
-// VSPHERE_PASSWORD must be supplied via secrets or the ambient environment; plaintext
-// passwords are never written to the shell config file.
+// In project mode, VSPHERE_PERSIST_SESSION, VSPHERE_VIM_SESSION_PATH, and
+// VSPHERE_REST_SESSION_PATH are always emitted, scoping the Terraform vSphere
+// provider's SOAP/REST session cache to the context's .vsphere/ directory —
+// mirrors how AZURE_CONFIG_DIR scopes az CLI state for the Azure env printer.
+// In global mode these three are omitted so the provider falls back to its
+// own ambient defaults (~/.govmomi/sessions, ~/.govmomi/rest_sessions)
+// untouched. The remaining three env vars consumed by the provider are
+// emitted from config: VSPHERE_SERVER, VSPHERE_USER, and
+// VSPHERE_ALLOW_UNVERIFIED_SSL. Inventory pointers (datacenter, cluster,
+// datastore, network, etc.) are Terraform variable inputs wired by the facet
+// — they are not read from the environment. VSPHERE_PASSWORD must be
+// supplied via secrets or the ambient environment; plaintext passwords are
+// never written to the shell config file.
 func (e *VsphereEnvPrinter) GetEnvVars() (map[string]string, error) {
 	envVars := make(map[string]string)
+	global := e.shell.IsGlobal()
+
+	if !global {
+		configRoot, err := e.configHandler.GetConfigRoot()
+		if err != nil {
+			return nil, fmt.Errorf("error retrieving configuration root directory: %w", err)
+		}
+		vsphereDir := filepath.Join(configRoot, ".vsphere")
+		envVars["VSPHERE_PERSIST_SESSION"] = "true"
+		envVars["VSPHERE_VIM_SESSION_PATH"] = filepath.ToSlash(filepath.Join(vsphereDir, "sessions"))
+		envVars["VSPHERE_REST_SESSION_PATH"] = filepath.ToSlash(filepath.Join(vsphereDir, "rest_sessions"))
+	}
 
 	cfg := e.configHandler.GetConfig()
 	if cfg == nil || cfg.VSphere == nil {

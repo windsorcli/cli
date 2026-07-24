@@ -1014,7 +1014,7 @@ func TestComposer_writeLocalGitignores(t *testing.T) {
 		}
 
 		// And each non-template context should have a .gitignore with cred dirs
-		expected := ".kube/\n.talos/\n.omni/\n.aws/\n.azure/\n.gcp/\n.env\n"
+		expected := ".kube/\n.talos/\n.omni/\n.aws/\n.azure/\n.gcp/\n.vsphere/\n.env\n"
 		for _, name := range []string{"local", "prod"} {
 			path := filepath.Join(root, "contexts", name, ".gitignore")
 			content, readErr := os.ReadFile(path)
@@ -1041,7 +1041,7 @@ func TestComposer_writeLocalGitignores(t *testing.T) {
 		if err := os.MkdirAll(contextDir, 0750); err != nil {
 			t.Fatalf("Failed to create context dir: %v", err)
 		}
-		staleContent := ".kube/\n.talos/\n.omni/\n.aws/\n.azure/\n.gcp/\n"
+		staleContent := ".kube/\n.talos/\n.omni/\n.aws/\n.azure/\n.gcp/\n.vsphere/\n"
 		path := filepath.Join(contextDir, ".gitignore")
 		if err := os.WriteFile(path, []byte(staleContent), 0644); err != nil {
 			t.Fatalf("Failed to seed stale .gitignore: %v", err)
@@ -1074,7 +1074,7 @@ func TestComposer_writeLocalGitignores(t *testing.T) {
 		if err := os.MkdirAll(contextDir, 0750); err != nil {
 			t.Fatalf("Failed to create context dir: %v", err)
 		}
-		staleContent := ".kube/\n.talos/\n.omni/\n.aws/\n.azure/\n.gcp/\n*.bak\n"
+		staleContent := ".kube/\n.talos/\n.omni/\n.aws/\n.azure/\n.gcp/\n.vsphere/\n*.bak\n"
 		path := filepath.Join(contextDir, ".gitignore")
 		if err := os.WriteFile(path, []byte(staleContent), 0644); err != nil {
 			t.Fatalf("Failed to seed stale .gitignore: %v", err)
@@ -1093,6 +1093,36 @@ func TestComposer_writeLocalGitignores(t *testing.T) {
 		}
 		if string(content) != staleContent+".env\n" {
 			t.Errorf("Expected user line preserved and .env appended, got: %q", string(content))
+		}
+	})
+
+	t.Run("BackfillsMissingVsphereLineIntoExistingContextGitignore", func(t *testing.T) {
+		// Given a context whose .gitignore predates the ".vsphere/" line addition
+		mocks := setupComposerMocks(t)
+		root := mocks.Runtime.ProjectRoot
+		contextDir := filepath.Join(root, "contexts", "local")
+		if err := os.MkdirAll(contextDir, 0750); err != nil {
+			t.Fatalf("Failed to create context dir: %v", err)
+		}
+		staleContent := ".kube/\n.talos/\n.omni/\n.aws/\n.azure/\n.gcp/\n.env\n"
+		path := filepath.Join(contextDir, ".gitignore")
+		if err := os.WriteFile(path, []byte(staleContent), 0644); err != nil {
+			t.Fatalf("Failed to seed stale .gitignore: %v", err)
+		}
+		composer := createComposerWithMocks(mocks)
+
+		// When writing local gitignores
+		if err := composer.writeLocalGitignores(); err != nil {
+			t.Fatalf("Expected no error, got: %v", err)
+		}
+
+		// Then the missing ".vsphere/" line should be appended
+		content, readErr := os.ReadFile(path)
+		if readErr != nil {
+			t.Fatalf("Failed to read .gitignore: %v", readErr)
+		}
+		if string(content) != staleContent+".vsphere/\n" {
+			t.Errorf("Expected .vsphere/ to be backfilled, got: %q", string(content))
 		}
 	})
 
