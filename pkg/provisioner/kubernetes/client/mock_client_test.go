@@ -154,6 +154,44 @@ func TestMockKubernetesClient_DeleteResource(t *testing.T) {
 	})
 }
 
+func TestMockKubernetesClient_ResourceFor(t *testing.T) {
+	setup := func(t *testing.T) *MockKubernetesClient {
+		t.Helper()
+		return NewMockKubernetesClient()
+	}
+	gvk := schema.GroupVersionKind{Group: "gateway.networking.k8s.io", Version: "v1", Kind: "Gateway"}
+
+	t.Run("FuncSet", func(t *testing.T) {
+		client := setup(t)
+		want := schema.GroupVersionResource{Group: "gateway.networking.k8s.io", Version: "v1", Resource: "gateways"}
+		errVal := fmt.Errorf("err")
+		client.ResourceForFunc = func(g schema.GroupVersionKind) (schema.GroupVersionResource, error) {
+			if g != gvk {
+				t.Errorf("Expected gvk %v, got %v", gvk, g)
+			}
+			return want, errVal
+		}
+		got, err := client.ResourceFor(gvk)
+		if got != want {
+			t.Errorf("Expected gvr %v, got %v", want, got)
+		}
+		if err != errVal {
+			t.Errorf("Expected err, got %v", err)
+		}
+	})
+
+	t.Run("FuncNotSet", func(t *testing.T) {
+		client := setup(t)
+		got, err := client.ResourceFor(gvk)
+		if got != (schema.GroupVersionResource{}) {
+			t.Errorf("Expected zero gvr, got %v", got)
+		}
+		if err != nil {
+			t.Errorf("Expected nil, got %v", err)
+		}
+	})
+}
+
 func TestMockKubernetesClient_PatchResource(t *testing.T) {
 	setup := func(t *testing.T) *MockKubernetesClient {
 		t.Helper()
@@ -227,4 +265,3 @@ func TestMockKubernetesClient_CheckHealth(t *testing.T) {
 		}
 	})
 }
-

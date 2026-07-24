@@ -10,12 +10,16 @@ import (
 	"os"
 	"time"
 
+	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/client-go/discovery"
+	"k8s.io/client-go/discovery/cached/memory"
 	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/rest"
+	"k8s.io/client-go/restmapper"
 	"k8s.io/client-go/tools/clientcmd"
 )
 
@@ -41,6 +45,7 @@ type KubernetesClient interface {
 	ListResourcesByLabel(gvr schema.GroupVersionResource, namespace, labelSelector string) (*unstructured.UnstructuredList, error)
 	ApplyResource(gvr schema.GroupVersionResource, obj *unstructured.Unstructured, opts metav1.ApplyOptions) (*unstructured.Unstructured, error)
 	DeleteResource(gvr schema.GroupVersionResource, namespace, name string, opts metav1.DeleteOptions) error
+	ResourceFor(gvk schema.GroupVersionKind) (schema.GroupVersionResource, error)
 	PatchResource(ctx context.Context, gvr schema.GroupVersionResource, namespace, name string, pt types.PatchType, data []byte, opts metav1.PatchOptions) (*unstructured.Unstructured, error)
 	CheckHealth(ctx context.Context, endpoint string) error
 	GetNodeReadyStatus(ctx context.Context, nodeNames []string) (map[string]bool, error)
@@ -53,6 +58,7 @@ type KubernetesClient interface {
 // DynamicKubernetesClient implements KubernetesClient using dynamic client
 type DynamicKubernetesClient struct {
 	client   dynamic.Interface
+	mapper   meta.RESTMapper
 	endpoint string
 }
 
@@ -119,6 +125,20 @@ func (c *DynamicKubernetesClient) DeleteResource(gvr schema.GroupVersionResource
 	ctx, cancel := context.WithTimeout(context.Background(), requestTimeout)
 	defer cancel()
 	return c.client.Resource(gvr).Namespace(namespace).Delete(ctx, name, opts)
+}
+
+// ResourceFor resolves a GroupVersionKind to its GroupVersionResource using the API server's
+// discovery data, so callers holding only an ownerReference (apiVersion + kind) can address the
+// owning object with the dynamic client. Resolution is cached by the deferred discovery mapper.
+func (c *DynamicKubernetesClient) ResourceFor(gvk schema.GroupVersionKind) (schema.GroupVersionResource, error) {
+	if err := c.ensureClient(); err != nil {
+		return schema.GroupVersionResource{}, err
+	}
+	mapping, err := c.mapper.RESTMapping(gvk.GroupKind(), gvk.Version)
+	if err != nil {
+		return schema.GroupVersionResource{}, err
+	}
+	return mapping.Resource, nil
 }
 
 // PatchResource patches a resource. The caller-supplied ctx is honoured so
@@ -209,44 +229,55 @@ func (c *DynamicKubernetesClient) GetNodeReadyStatus(ctx context.Context, nodeNa
 // Private Methods
 // =============================================================================
 
-// ensureClient initializes the dynamic Kubernetes client if unset. Uses endpoint, in-cluster, or kubeconfig as available.
-// Returns error if client setup fails at any stage.
+// ensureClient initializes the dynamic Kubernetes client and REST mapper if unset. Uses endpoint,
+// in-cluster, or kubeconfig as available. The mapper is a deferred discovery mapper, so it performs
+// no API calls until the first ResourceFor lookup. Returns error if client setup fails at any stage.
 func (c *DynamicKubernetesClient) ensureClient() error {
 	if c.client != nil {
 		return nil
 	}
 
-	var config *rest.Config
-	var err error
-
-	if c.endpoint != "" {
-		config = &rest.Config{
-			Host: c.endpoint,
-		}
-	} else {
-		config, err = rest.InClusterConfig()
-		if err != nil {
-			kubeconfig := os.Getenv("KUBECONFIG")
-			if kubeconfig == "" {
-				home, err := os.UserHomeDir()
-				if err != nil {
-					return err
-				}
-				kubeconfig = home + "/.kube/config"
-			}
-			config, err = clientcmd.BuildConfigFromFlags("", kubeconfig)
-			if err != nil {
-				return err
-			}
-		}
+	config, err := c.restConfig()
+	if err != nil {
+		return err
 	}
 
 	cli, err := dynamic.NewForConfig(config)
 	if err != nil {
 		return err
 	}
+
+	discoveryClient, err := discovery.NewDiscoveryClientForConfig(config)
+	if err != nil {
+		return err
+	}
+
+	c.mapper = restmapper.NewDeferredDiscoveryRESTMapper(memory.NewMemCacheClient(discoveryClient))
 	c.client = cli
 	return nil
+}
+
+// restConfig builds a Kubernetes REST config, preferring an explicit endpoint, then in-cluster
+// config, then the KUBECONFIG (or ~/.kube/config) kubeconfig file.
+func (c *DynamicKubernetesClient) restConfig() (*rest.Config, error) {
+	if c.endpoint != "" {
+		return &rest.Config{Host: c.endpoint}, nil
+	}
+
+	config, err := rest.InClusterConfig()
+	if err == nil {
+		return config, nil
+	}
+
+	kubeconfig := os.Getenv("KUBECONFIG")
+	if kubeconfig == "" {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return nil, err
+		}
+		kubeconfig = home + "/.kube/config"
+	}
+	return clientcmd.BuildConfigFromFlags("", kubeconfig)
 }
 
 // isNodeReady checks if a node is in Ready state by examining its conditions.
