@@ -1043,8 +1043,10 @@ type ResolvedSecret struct {
 // default, since a required key that resolves away is misconfiguration and silently dropping it strands a
 // downstream consumer with a missing key. Adding a ?? default marks the key optional and omits it. A
 // secret whose keys all resolve away is not created at all, so an optional secret leaves no empty Secret
-// behind. The result is keyed by owning kustomization
-// for PlaceSecrets to materialize post-Install; it is empty when no kustomization declares Secrets.
+// behind. Both omissions are logged in verbose mode, naming the secret, key, and reference, so a Secret
+// or key missing in-cluster is traceable to the reference that resolved away. The result is keyed by
+// owning kustomization for PlaceSecrets to materialize post-Install; it is empty when no kustomization
+// declares Secrets.
 func (i *Provisioner) ResolveSecrets(blueprint *blueprintv1alpha1.Blueprint) (ResolvedSecrets, error) {
 	if blueprint == nil {
 		return nil, fmt.Errorf("blueprint not provided")
@@ -1069,6 +1071,9 @@ func (i *Provisioner) ResolveSecrets(blueprint *blueprintv1alpha1.Blueprint) (Re
 				}
 				if s == "" {
 					if strings.Contains(ref, "??") {
+						if i.shell.IsVerbose() {
+							fmt.Fprintf(os.Stderr, "secret %q key %q: reference %q resolved to nothing; key omitted\n", secretName, key, ref)
+						}
 						continue
 					}
 					return nil, fmt.Errorf("resolving secret %q key %q: reference %q resolved to empty; add a ?? default (e.g. %q) to make the key optional", secretName, key, ref, "${... ?? ''}")
@@ -1079,14 +1084,18 @@ func (i *Provisioner) ResolveSecrets(blueprint *blueprintv1alpha1.Blueprint) (Re
 				i.shell.RegisterSecret(s)
 				stringData[key] = s
 			}
-			if len(stringData) > 0 {
-				if resolved[k.Name] == nil {
-					resolved[k.Name] = make(map[string]ResolvedSecret)
+			if len(stringData) == 0 {
+				if len(entry.Data) > 0 && i.shell.IsVerbose() {
+					fmt.Fprintf(os.Stderr, "secret %q: every key resolved to nothing; secret not created\n", secretName)
 				}
-				resolved[k.Name][secretName] = ResolvedSecret{
-					Namespaces: slices.Clone(entry.Namespaces),
-					Data:       stringData,
-				}
+				continue
+			}
+			if resolved[k.Name] == nil {
+				resolved[k.Name] = make(map[string]ResolvedSecret)
+			}
+			resolved[k.Name][secretName] = ResolvedSecret{
+				Namespaces: slices.Clone(entry.Namespaces),
+				Data:       stringData,
 			}
 		}
 	}

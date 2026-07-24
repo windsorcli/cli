@@ -3,6 +3,7 @@ package provisioner
 import (
 	"context"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"slices"
@@ -4581,6 +4582,21 @@ func TestProvisioner_ResolveSecrets(t *testing.T) {
 	entry := func(data map[string]string) blueprintv1alpha1.SecretEntry {
 		return blueprintv1alpha1.SecretEntry{Data: data}
 	}
+	captureStderr := func(t *testing.T, fn func()) string {
+		t.Helper()
+		r, w, err := os.Pipe()
+		if err != nil {
+			t.Fatalf("Pipe failed: %v", err)
+		}
+		orig := os.Stderr
+		os.Stderr = w
+		fn()
+		os.Stderr = orig
+		w.Close()
+		out, _ := io.ReadAll(r)
+		r.Close()
+		return string(out)
+	}
 
 	t.Run("ResolvesValueKeyedByKustomization", func(t *testing.T) {
 		// Given a resolvable reference
@@ -4682,6 +4698,56 @@ func TestProvisioner_ResolveSecrets(t *testing.T) {
 		}
 		if len(resolved) != 0 {
 			t.Errorf("Expected no secret from nil-resolving optional reference, got %v", resolved)
+		}
+	})
+
+	t.Run("LogsOmittedOptionalKeyAndDroppedSecretInVerboseMode", func(t *testing.T) {
+		// Given an optional reference to a value absent from configuration, and verbose mode
+		mocks := setupProvisionerMocks(t)
+		withValues(mocks, map[string]any{})
+		mocks.Shell.IsVerboseFunc = func() bool { return true }
+
+		// When resolving
+		var resolved ResolvedSecrets
+		var err error
+		out := captureStderr(t, func() {
+			resolved, err = newProvisioner(mocks).ResolveSecrets(bp(map[string]blueprintv1alpha1.SecretEntry{"creds": entry(map[string]string{"token": "${hetzner.token ?? ''}"})}))
+		})
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		if len(resolved) != 0 {
+			t.Errorf("Expected no secret from an optional reference resolving to nothing, got %v", resolved)
+		}
+
+		// Then both the omitted key and the dropped secret are named, so the missing Secret is
+		// traceable to the reference that resolved away
+		if !strings.Contains(out, `key "token"`) || !strings.Contains(out, `${hetzner.token ?? ''}`) {
+			t.Errorf("Expected the omitted key and its reference to be logged, got %q", out)
+		}
+		if !strings.Contains(out, "secret not created") {
+			t.Errorf("Expected the dropped secret to be logged, got %q", out)
+		}
+	})
+
+	t.Run("StaysSilentAboutOmissionsWhenNotVerbose", func(t *testing.T) {
+		// Given the same optional reference resolving to nothing, without verbose mode
+		mocks := setupProvisionerMocks(t)
+		withValues(mocks, map[string]any{})
+		mocks.Shell.IsVerboseFunc = func() bool { return false }
+
+		// When resolving
+		var err error
+		out := captureStderr(t, func() {
+			_, err = newProvisioner(mocks).ResolveSecrets(bp(map[string]blueprintv1alpha1.SecretEntry{"creds": entry(map[string]string{"token": "${hetzner.token ?? ''}"})}))
+		})
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+
+		// Then nothing is printed, keeping normal output free of routine optional-key omissions
+		if out != "" {
+			t.Errorf("Expected no output without verbose mode, got %q", out)
 		}
 	})
 
