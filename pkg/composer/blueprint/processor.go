@@ -278,7 +278,7 @@ func (p *BaseBlueprintProcessor) ProcessFacets(target *blueprintv1alpha1.Bluepri
 				return nil, err
 			}
 			var errMerge error
-			globalScope, cfgEntries, errMerge = p.mergeFacetScopeIntoGlobal(facet, globalScope, cfgEntries, passScope)
+			globalScope, cfgEntries, errMerge = p.mergeFacetScopeIntoGlobal(facet, globalScope, cfgEntries, passScope, contextScope)
 			if errMerge != nil {
 				return nil, fmt.Errorf("facet %s: %w", facet.Metadata.Name, errMerge)
 			}
@@ -467,7 +467,11 @@ func (p *BaseBlueprintProcessor) scopeForConfigBlock(contextScope, globalScope m
 // For a given name, only blocks whose when condition is true contribute; if multiple blocks
 // with the same name have when true, their bodies are deep-merged in list order (later overlay).
 // Merge precedence: higher ordinal wins; when ordinals match, strategy precedence remove > replace > merge.
-func (p *BaseBlueprintProcessor) mergeFacetScopeIntoGlobal(facet blueprintv1alpha1.Facet, globalScope map[string]any, existing map[string]*blueprintv1alpha1.ConfigBlock, contextScope map[string]any) (map[string]any, map[string]*blueprintv1alpha1.ConfigBlock, error) {
+// A block's `when:` is evaluated against evalScope made blind to the keys that same block writes
+// (falling them back to contextScope, the round-0 operator/schema values), so a "default only when
+// unset" guard tests operator intent rather than the block's own prior-round contribution and does not
+// cancel itself across rounds.
+func (p *BaseBlueprintProcessor) mergeFacetScopeIntoGlobal(facet blueprintv1alpha1.Facet, globalScope map[string]any, existing map[string]*blueprintv1alpha1.ConfigBlock, evalScope, contextScope map[string]any) (map[string]any, map[string]*blueprintv1alpha1.ConfigBlock, error) {
 	facetOrdinal := resolvedFacetOrdinal(facet)
 	incoming := make(map[string]*blueprintv1alpha1.ConfigBlock)
 	byName := make(map[string][]any)
@@ -478,7 +482,8 @@ func (p *BaseBlueprintProcessor) mergeFacetScopeIntoGlobal(facet blueprintv1alph
 			continue
 		}
 		if block.When != "" {
-			shouldInclude, err := p.shouldIncludeComponent(block.When, facet.Path, contextScope)
+			guardScope := scopeBlindToBlockKeys(evalScope, contextScope, block.Name, block.Body)
+			shouldInclude, err := p.shouldIncludeComponent(block.When, facet.Path, guardScope)
 			if err != nil {
 				return nil, nil, fmt.Errorf("config block %q when: %w", block.Name, err)
 			}
@@ -2517,6 +2522,70 @@ func deepMergeMap(base, overlay map[string]any) map[string]any {
 		result[k] = v
 	}
 	return result
+}
+
+// scopeBlindToBlockKeys returns a scope in which the keys a config block writes under its own name
+// resolve to their round-0 context value rather than to what composition has accumulated, so the
+// block's `when:` guard cannot see the block's own contribution from a prior round. A guard like
+// `(network.cidr_block ?? '') == ''` therefore tests whether the operator or schema set cidr_block,
+// not whether this block already defaulted it, and no longer flips false after the block writes it.
+// Keys the block does not write — sibling keys other facets set, other blocks — are untouched; a block
+// whose value is not a map writes the whole name, so the whole name falls back to context. evalScope is
+// returned unchanged when the block writes nothing, so the common (unguarded) path allocates nothing.
+func scopeBlindToBlockKeys(evalScope, contextScope map[string]any, blockName string, body map[string]any) map[string]any {
+	keys, wholeName := blockWrittenKeys(body)
+	if !wholeName && len(keys) == 0 {
+		return evalScope
+	}
+	guard := maps.Clone(evalScope)
+	if guard == nil {
+		guard = make(map[string]any)
+	}
+	ctxVal, ctxHas := contextScope[blockName]
+	if wholeName {
+		if ctxHas {
+			guard[blockName] = ctxVal
+		} else {
+			delete(guard, blockName)
+		}
+		return guard
+	}
+	blockMap, _ := asMapStringAny(guard[blockName])
+	newBlock := maps.Clone(blockMap)
+	if newBlock == nil {
+		newBlock = make(map[string]any)
+	}
+	ctxBlock, _ := asMapStringAny(ctxVal)
+	for _, k := range keys {
+		if cv, ok := ctxBlock[k]; ok {
+			newBlock[k] = cv
+		} else {
+			delete(newBlock, k)
+		}
+	}
+	guard[blockName] = newBlock
+	return guard
+}
+
+// blockWrittenKeys reports the top-level keys a config block writes under its name. A map value writes
+// its own keys; a scalar or list value writes the whole name (wholeName true, no keys); a block with no
+// value writes nothing.
+func blockWrittenKeys(body map[string]any) (keys []string, wholeName bool) {
+	if body == nil {
+		return nil, false
+	}
+	value, ok := body["value"]
+	if !ok || value == nil {
+		return nil, false
+	}
+	valueMap, ok := asMapStringAny(value)
+	if !ok {
+		return nil, true
+	}
+	for k := range valueMap {
+		keys = append(keys, k)
+	}
+	return keys, false
 }
 
 // mergeBlockValueOverContext overlays a config block's in-progress value on the context value under
