@@ -60,20 +60,16 @@ func TestConfigHandler_GetContextValues_Resolve(t *testing.T) {
 		}
 	})
 
-	t.Run("DerivesControlplaneAndWorkerCountFromExplicitNodes", func(t *testing.T) {
+	t.Run("DoesNotDeriveCountFromNodes", func(t *testing.T) {
+		// The generic resolver no longer synthesizes cluster topology; count is left to explicit
+		// config or facet `?? N` defaulting (#3062).
 		handler, _ := setupPrivateTestHandler(t)
 
 		if err := handler.Set("cluster.controlplanes.nodes.cp1.endpoint", "127.0.0.1:50001"); err != nil {
 			t.Fatalf("Expected no error setting cp1, got %v", err)
 		}
-		if err := handler.Set("cluster.controlplanes.nodes.cp2.endpoint", "127.0.0.1:50002"); err != nil {
-			t.Fatalf("Expected no error setting cp2, got %v", err)
-		}
 		if err := handler.Set("cluster.workers.nodes.w1.endpoint", "127.0.0.1:50101"); err != nil {
 			t.Fatalf("Expected no error setting w1, got %v", err)
-		}
-		if err := handler.Set("cluster.workers.nodes.w2.endpoint", "127.0.0.1:50102"); err != nil {
-			t.Fatalf("Expected no error setting w2, got %v", err)
 		}
 
 		values, err := handler.GetContextValues()
@@ -84,12 +80,11 @@ func TestConfigHandler_GetContextValues_Resolve(t *testing.T) {
 		clusterValues := values["cluster"].(map[string]any)
 		controlplanesValues := clusterValues["controlplanes"].(map[string]any)
 		workersValues := clusterValues["workers"].(map[string]any)
-
-		if controlplanesValues["count"] != 2 {
-			t.Errorf("Expected controlplanes count=2, got %v", controlplanesValues["count"])
+		if v, exists := controlplanesValues["count"]; exists {
+			t.Errorf("Expected controlplanes.count not fabricated from nodes, got %v", v)
 		}
-		if workersValues["count"] != 2 {
-			t.Errorf("Expected workers count=2, got %v", workersValues["count"])
+		if v, exists := workersValues["count"]; exists {
+			t.Errorf("Expected workers.count not fabricated from nodes, got %v", v)
 		}
 	})
 
@@ -164,7 +159,9 @@ func TestConfigHandler_GetContextValues_Resolve(t *testing.T) {
 		}
 	})
 
-	t.Run("DerivesSchedulableWhenNotExplicit", func(t *testing.T) {
+	t.Run("DoesNotDeriveSchedulable", func(t *testing.T) {
+		// schedulable is no longer synthesized by the generic resolver; the consuming facets derive
+		// it from count values via `?? ` fallbacks (#3062).
 		handler, _ := setupPrivateTestHandler(t)
 
 		if err := handler.Set("cluster.controlplanes.count", 1); err != nil {
@@ -179,14 +176,9 @@ func TestConfigHandler_GetContextValues_Resolve(t *testing.T) {
 			t.Fatalf("Expected no error, got %v", err)
 		}
 
-		clusterValues := values["cluster"].(map[string]any)
-		controlplanesValues := clusterValues["controlplanes"].(map[string]any)
-		schedulable, ok := controlplanesValues["schedulable"].(bool)
-		if !ok {
-			t.Fatalf("Expected bool schedulable, got %T", controlplanesValues["schedulable"])
-		}
-		if !schedulable {
-			t.Errorf("Expected schedulable=true, got %v", schedulable)
+		controlplanesValues := values["cluster"].(map[string]any)["controlplanes"].(map[string]any)
+		if v, exists := controlplanesValues["schedulable"]; exists {
+			t.Errorf("Expected schedulable not fabricated by the resolver, got %v", v)
 		}
 	})
 
@@ -390,44 +382,6 @@ func TestConfigHandler_GetContextValues_Resolve(t *testing.T) {
 		clusterValues := values["cluster"].(map[string]any)
 		if clusterValues["driver"] != "talos" {
 			t.Errorf("Expected explicit cluster.driver to remain talos, got %v", clusterValues["driver"])
-		}
-	})
-}
-
-func TestGetMapInt(t *testing.T) {
-	t.Run("ConvertsInt64AndUint64WithinBounds", func(t *testing.T) {
-		data := map[string]any{
-			"cluster": map[string]any{
-				"workers": map[string]any{
-					"count_int64":  int64(7),
-					"count_uint64": uint64(8),
-				},
-			},
-		}
-
-		if got, ok := getMapInt(data, "cluster.workers.count_int64"); !ok || got != 7 {
-			t.Errorf("Expected int64 conversion to 7, got (%d, %v)", got, ok)
-		}
-		if got, ok := getMapInt(data, "cluster.workers.count_uint64"); !ok || got != 8 {
-			t.Errorf("Expected uint64 conversion to 8, got (%d, %v)", got, ok)
-		}
-	})
-
-	t.Run("ReturnsFalseForUint64OverflowAndInvalidString", func(t *testing.T) {
-		data := map[string]any{
-			"cluster": map[string]any{
-				"workers": map[string]any{
-					"overflow": uint64(^uint(0)>>1) + 1,
-					"bad":      "not-an-int",
-				},
-			},
-		}
-
-		if _, ok := getMapInt(data, "cluster.workers.overflow"); ok {
-			t.Error("Expected overflow uint64 conversion to fail")
-		}
-		if _, ok := getMapInt(data, "cluster.workers.bad"); ok {
-			t.Error("Expected invalid string conversion to fail")
 		}
 	})
 }
