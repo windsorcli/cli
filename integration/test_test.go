@@ -64,6 +64,25 @@ func TestWindsorTest_TerraformOutputUnregisteredFixture(t *testing.T) {
 	}
 }
 
+// TestWindsorTest_EnvFixture exercises the env: field of a test case. The platform facet
+// gates addon-dns on env('ENABLE_DNS') == 'yes'. One case supplies that via env: and expects
+// the addon present; the other omits it and expects the addon absent. ENABLE_DNS is set in the
+// host environment for the whole run to prove env() resolves hermetically from the case env map
+// only — if the host leaked through, the exclude case would fail.
+func TestWindsorTest_EnvFixture(t *testing.T) {
+	t.Parallel()
+	dir, env := helpers.PrepareFixture(t, "test-env")
+	env = append(env, "WINDSOR_CONTEXT=test", "ENABLE_DNS=yes")
+	stdout, stderr, err := helpers.RunCLI(dir, []string{"test"}, env)
+	if err != nil {
+		t.Fatalf("windsor test: %v\nstdout: %s\nstderr: %s", err, stdout, stderr)
+	}
+	out := string(stdout) + string(stderr)
+	if !strings.Contains(out, "PASS") && !strings.Contains(out, "✓") {
+		t.Errorf("expected PASS or ✓ in output: %s", out)
+	}
+}
+
 // TestWindsorTest_FluxSystemTiersFixture exercises expect.flux/exclude.flux against the
 // facet-tiers fixture's tiers.test.yaml: a system merged across facets (install components
 // accumulate, same-ordinal resources variants merge), and a when:-gated system whose install

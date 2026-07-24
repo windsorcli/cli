@@ -20,6 +20,7 @@ specific terraform components and kustomizations are present (or absent).
 | Field | Type | Description |
 |------|------|-------------|
 | `name` | `string` | Unique identifier for the test case. **(required)** |
+| `env` | `map<string>` | Environment variables visible to env() expressions during composition. Resolution is hermetic: env() sees only these entries, never the host environment. WINDSOR_CONTEXT defaults to "test" and can be overridden here. Example: env.ENABLE_DNS = "yes". |
 | `exclude` | `object` | Components and kustomizations that must NOT be present in the composed blueprint. Same partial-match semantics as 'expect'. |
 | `expect` | `object` | Components and kustomizations that must be present in the composed blueprint. Partial matching: only fields you specify are checked. |
 | `expectError` | `boolean` | When true, the test passes only if blueprint composition fails. Use for testing invalid configurations that the framework should reject. Defaults to false. |
@@ -110,6 +111,12 @@ cases:
     terraformOutputs:
       network:
         external_dns_zone_id: Z123456
+  - env:
+      ENABLE_DNS: "yes"
+    expect:
+      kustomize:
+        - name: addon-dns
+    name: env-gates-addon
 ```
 
 ## See also

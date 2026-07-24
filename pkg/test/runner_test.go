@@ -2912,7 +2912,7 @@ func TestTestRunner_createGenerator(t *testing.T) {
 			},
 		}
 
-		generator := runner.createGenerator(terraformOutputs)
+		generator := runner.createGenerator(terraformOutputs, nil)
 		values := map[string]any{
 			"terraform.enabled": true,
 		}
@@ -2931,7 +2931,7 @@ func TestTestRunner_createGenerator(t *testing.T) {
 		mocks := setupTestRunnerMocks(t)
 		runner := createRunnerWithMockGenerator(mocks)
 
-		generator := runner.createGenerator(nil)
+		generator := runner.createGenerator(nil, nil)
 		values := map[string]any{
 			"terraform.enabled": true,
 		}
@@ -2950,7 +2950,7 @@ func TestTestRunner_createGenerator(t *testing.T) {
 		mocks := setupTestRunnerMocksForFailure(t)
 		runner := createRunnerForFailure(mocks)
 
-		generator := runner.createGenerator(nil)
+		generator := runner.createGenerator(nil, nil)
 		values := map[string]any{}
 
 		_, err := generator(values)
@@ -2975,7 +2975,7 @@ func TestTestRunner_createGenerator(t *testing.T) {
 			},
 		}
 
-		generator := runner.createGenerator(terraformOutputs)
+		generator := runner.createGenerator(terraformOutputs, nil)
 		values := map[string]any{}
 
 		blueprint, err := generator(values)
@@ -2998,7 +2998,7 @@ func TestTestRunner_createGenerator(t *testing.T) {
 			},
 		}
 
-		generator := runner.createGenerator(terraformOutputs)
+		generator := runner.createGenerator(terraformOutputs, nil)
 		values := map[string]any{
 			"terraform.enabled": false,
 		}
@@ -3040,7 +3040,7 @@ terraform:
 		terraformOutputs := map[string]map[string]any{
 			"cluster": {"endpoint": "https://cluster.local"},
 		}
-		generator := runner.createGenerator(terraformOutputs)
+		generator := runner.createGenerator(terraformOutputs, nil)
 
 		// When the generator composes a config where dns.public_domain is unset so dns-zone is filtered out
 		_, err := generator(map[string]any{
@@ -3081,7 +3081,7 @@ terraform:
 		terraformOutputs := map[string]map[string]any{
 			"dns-zone": {"zone_id": "Z123ABC"},
 		}
-		generator := runner.createGenerator(terraformOutputs)
+		generator := runner.createGenerator(terraformOutputs, nil)
 
 		// When the generator composes with dns.public_domain set so dns-zone is registered
 		_, err := generator(map[string]any{
@@ -3143,7 +3143,7 @@ allOf:
 			"dns":     map[string]any{"private_domain": "internal.example"},
 		}
 		for i := 0; i < 10; i++ {
-			generator := runner.createGenerator(nil)
+			generator := runner.createGenerator(nil, nil)
 			if _, err := generator(satisfied); err != nil {
 				t.Fatalf("iteration %d: expected satisfied cross-field rule to pass, got %v", i, err)
 			}
@@ -3153,11 +3153,118 @@ allOf:
 		violation := map[string]any{
 			"gateway": map[string]any{"access": "private"},
 		}
-		generator := runner.createGenerator(nil)
+		generator := runner.createGenerator(nil, nil)
 		if _, err := generator(violation); err == nil {
 			t.Fatal("expected cross-field rule violation to be surfaced from runner")
 		}
 	})
+
+	t.Run("ResolvesEnvExpressionsFromCaseEnvMap", func(t *testing.T) {
+		// Given a facet whose terraform component is gated on an env() expression
+		mocks := setupTestRunnerMocks(t)
+		templateDir := filepath.Join(mocks.TmpDir, "contexts", "_template")
+		facetsDir := filepath.Join(templateDir, "facets")
+		createTestFile(t, facetsDir, "platform.yaml", `kind: Facet
+apiVersion: blueprints.windsorcli.dev/v1alpha1
+metadata:
+  name: platform
+terraform:
+  - name: cluster
+    path: cluster
+  - name: dns-zone
+    path: dns/zone
+    when: env('ENABLE_DNS') == 'yes'
+`)
+		runner := createRunnerWithMockGenerator(mocks)
+
+		// When the generator composes with an env map that enables the gate
+		generator := runner.createGenerator(nil, map[string]string{"ENABLE_DNS": "yes"})
+		bp, err := generator(map[string]any{"terraform.enabled": true})
+
+		// Then dns-zone is included because env() resolved from the case env map
+		if err != nil {
+			t.Fatalf("Expected no error, got: %v", err)
+		}
+		if !hasTerraformComponent(bp, "dns-zone") {
+			t.Error("Expected dns-zone component to be present when env map enables it")
+		}
+	})
+
+	t.Run("EnvResolutionIsHermeticAndIgnoresHostEnv", func(t *testing.T) {
+		// Given the same env-gated facet and ENABLE_DNS set in the host environment
+		mocks := setupTestRunnerMocks(t)
+		templateDir := filepath.Join(mocks.TmpDir, "contexts", "_template")
+		facetsDir := filepath.Join(templateDir, "facets")
+		createTestFile(t, facetsDir, "platform.yaml", `kind: Facet
+apiVersion: blueprints.windsorcli.dev/v1alpha1
+metadata:
+  name: platform
+terraform:
+  - name: cluster
+    path: cluster
+  - name: dns-zone
+    path: dns/zone
+    when: env('ENABLE_DNS') == 'yes'
+`)
+		t.Setenv("ENABLE_DNS", "yes")
+		runner := createRunnerWithMockGenerator(mocks)
+
+		// When the generator composes with no env map for the case
+		generator := runner.createGenerator(nil, nil)
+		bp, err := generator(map[string]any{"terraform.enabled": true})
+
+		// Then dns-zone is excluded: env() never reads the host environment
+		if err != nil {
+			t.Fatalf("Expected no error, got: %v", err)
+		}
+		if hasTerraformComponent(bp, "dns-zone") {
+			t.Error("Expected dns-zone component to be absent: env() must not read host environment")
+		}
+	})
+
+	t.Run("SeedsWindsorContextIntoEnvByDefault", func(t *testing.T) {
+		// Given a facet whose component is gated on env('WINDSOR_CONTEXT') == 'test'
+		mocks := setupTestRunnerMocks(t)
+		templateDir := filepath.Join(mocks.TmpDir, "contexts", "_template")
+		facetsDir := filepath.Join(templateDir, "facets")
+		createTestFile(t, facetsDir, "platform.yaml", `kind: Facet
+apiVersion: blueprints.windsorcli.dev/v1alpha1
+metadata:
+  name: platform
+terraform:
+  - name: cluster
+    path: cluster
+  - name: dns-zone
+    path: dns/zone
+    when: env('WINDSOR_CONTEXT') == 'test'
+`)
+		runner := createRunnerWithMockGenerator(mocks)
+
+		// When the generator composes with no case env map
+		generator := runner.createGenerator(nil, nil)
+		bp, err := generator(map[string]any{"terraform.enabled": true})
+
+		// Then dns-zone is included: WINDSOR_CONTEXT defaults to "test" in the hermetic env
+		if err != nil {
+			t.Fatalf("Expected no error, got: %v", err)
+		}
+		if !hasTerraformComponent(bp, "dns-zone") {
+			t.Error("Expected dns-zone component: env('WINDSOR_CONTEXT') should default to test")
+		}
+	})
+}
+
+// hasTerraformComponent reports whether the composed blueprint contains a terraform component with the given name.
+func hasTerraformComponent(bp *blueprintv1alpha1.Blueprint, name string) bool {
+	if bp == nil {
+		return false
+	}
+	for _, c := range bp.TerraformComponents {
+		if c.Name == name {
+			return true
+		}
+	}
+	return false
 }
 
 // =============================================================================
@@ -3641,16 +3748,6 @@ cases:
 		originalContext := "original-context"
 		os.WriteFile(contextFile, []byte(originalContext), 0644)
 
-		// And an original environment variable
-		originalEnvContext := os.Getenv("WINDSOR_CONTEXT")
-		defer func() {
-			if originalEnvContext != "" {
-				os.Setenv("WINDSOR_CONTEXT", originalEnvContext)
-			} else {
-				os.Unsetenv("WINDSOR_CONTEXT")
-			}
-		}()
-
 		// When running tests (may fail due to composition, but that's okay)
 		_, _ = runner.Run("")
 
@@ -3664,7 +3761,7 @@ cases:
 		}
 	})
 
-	t.Run("RestoresOriginalEnvironmentVariable", func(t *testing.T) {
+	t.Run("LeavesHostContextEnvSetValueUntouched", func(t *testing.T) {
 		// Given a test runner with test files
 		mocks := setupTestRunnerMocks(t)
 		testsDir := filepath.Join(mocks.TmpDir, "contexts", "_template", "tests")
@@ -3675,24 +3772,19 @@ cases:
 `)
 		runner := createRunnerWithMockGenerator(mocks)
 
-		// And an original environment variable set
-		originalEnvContext := "my-original-context"
-		os.Setenv("WINDSOR_CONTEXT", originalEnvContext)
-		defer func() {
-			os.Setenv("WINDSOR_CONTEXT", originalEnvContext)
-		}()
+		// And a host WINDSOR_CONTEXT set
+		t.Setenv("WINDSOR_CONTEXT", "my-original-context")
 
 		// When running tests (may fail due to composition, but that's okay)
 		_, _ = runner.Run("")
 
-		// Then the environment variable should be restored
-		restoredContext := os.Getenv("WINDSOR_CONTEXT")
-		if restoredContext != originalEnvContext {
-			t.Errorf("Expected WINDSOR_CONTEXT to be restored to %q, got %q", originalEnvContext, restoredContext)
+		// Then the host env var is untouched: windsor test never mutates process env
+		if got := os.Getenv("WINDSOR_CONTEXT"); got != "my-original-context" {
+			t.Errorf("Expected WINDSOR_CONTEXT unchanged at %q, got %q", "my-original-context", got)
 		}
 	})
 
-	t.Run("RestoresUnsetEnvironmentVariable", func(t *testing.T) {
+	t.Run("LeavesHostContextEnvUnsetUntouched", func(t *testing.T) {
 		// Given a test runner with test files
 		mocks := setupTestRunnerMocks(t)
 		testsDir := filepath.Join(mocks.TmpDir, "contexts", "_template", "tests")
@@ -3703,16 +3795,16 @@ cases:
 `)
 		runner := createRunnerWithMockGenerator(mocks)
 
-		// And no original environment variable set
+		// And no host WINDSOR_CONTEXT set (t.Setenv restores prior state on cleanup)
+		t.Setenv("WINDSOR_CONTEXT", "")
 		os.Unsetenv("WINDSOR_CONTEXT")
 
 		// When running tests (may fail due to composition, but that's okay)
 		_, _ = runner.Run("")
 
-		// Then the environment variable should be unset after tests
-		restoredContext := os.Getenv("WINDSOR_CONTEXT")
-		if restoredContext != "" {
-			t.Errorf("Expected WINDSOR_CONTEXT to be unset after tests, got %q", restoredContext)
+		// Then the host env var stays unset: windsor test never sets process env
+		if got := os.Getenv("WINDSOR_CONTEXT"); got != "" {
+			t.Errorf("Expected WINDSOR_CONTEXT to stay unset, got %q", got)
 		}
 	})
 }

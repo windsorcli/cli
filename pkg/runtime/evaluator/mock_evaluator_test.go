@@ -98,6 +98,44 @@ func TestMockExpressionEvaluator_SetTemplateData(t *testing.T) {
 	})
 }
 
+// TestMockExpressionEvaluator_SetEnvLookup tests the SetEnvLookup method of MockExpressionEvaluator
+func TestMockExpressionEvaluator_SetEnvLookup(t *testing.T) {
+	t.Run("Success", func(t *testing.T) {
+		// Given a mock evaluator with SetEnvLookupFunc set
+		mockEvaluator := setupMockEvaluatorMocks(t)
+		called := false
+		mockEvaluator.SetEnvLookupFunc = func(lookup func(name string) (string, bool)) {
+			called = true
+			if value, present := lookup("FOO"); !present || value != "bar" {
+				t.Errorf("Expected lookup to return bar/true, got %q/%v", value, present)
+			}
+		}
+
+		// When SetEnvLookup is called
+		mockEvaluator.SetEnvLookup(func(name string) (string, bool) {
+			return "bar", name == "FOO"
+		})
+
+		// Then the function should be called
+		if !called {
+			t.Error("Expected SetEnvLookupFunc to be called")
+		}
+	})
+
+	t.Run("NotImplemented", func(t *testing.T) {
+		// Given a mock evaluator without SetEnvLookupFunc set
+		mockEvaluator := setupMockEvaluatorMocks(t)
+
+		// When SetEnvLookup is called
+		mockEvaluator.SetEnvLookup(func(name string) (string, bool) { return "", false })
+
+		// Then no error should occur (does nothing)
+		if mockEvaluator == nil {
+			t.Error("Expected mock evaluator to exist")
+		}
+	})
+}
+
 // TestMockExpressionEvaluator_Register tests the Register method of MockExpressionEvaluator
 func TestMockExpressionEvaluator_Register(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
