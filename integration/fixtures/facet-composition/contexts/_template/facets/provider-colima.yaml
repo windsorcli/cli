@@ -6,11 +6,27 @@ metadata:
 
 when: effective_runtime != ''
 
+config:
+# Derives a key from network.cidr_block inside the block that shares its name. The block
+# never sets cidr_block itself, so the context value has to stay readable from within the
+# block across every evaluation pass or cidrhost() is handed nil.
+- name: network
+  value:
+    lb_range:
+      start: "${cidrhost(network.cidr_block, 266)}"
+
 kustomize:
 
 - name: lb-colima
   path: lb/colima
   when: effective_runtime == 'colima'
+  components: []
+  timeout: 5m
+  interval: 5m
+
+- name: lb-colima-direct
+  path: lb/colima-direct
+  when: network.lb_range.start == '10.5.1.10'
   components: []
   timeout: 5m
   interval: 5m

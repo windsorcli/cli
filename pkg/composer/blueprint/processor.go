@@ -437,7 +437,10 @@ func (p *BaseBlueprintProcessor) markDeferredPath(composedPath string) {
 // facet-derived config (globalScope) wins over context for all keys; the current block is set to
 // currentBlockValue when non-nil (e.g. in-place evaluation or resolve pass), otherwise to
 // contextScope[blockName] or omitted to avoid self-reference. This prevents context from
-// overwriting other blocks' facet values when one block has a scalar value.
+// overwriting other blocks' facet values when one block has a scalar value. currentBlockValue is
+// overlaid on the context value rather than replacing it, so keys the block does not define itself —
+// schema defaults and operator-set values under the same name — stay readable from inside the block
+// on every stabilization pass, not just the first.
 func (p *BaseBlueprintProcessor) scopeForConfigBlock(contextScope, globalScope map[string]any, blockName string, currentBlockValue any) map[string]any {
 	if globalScope == nil {
 		globalScope = make(map[string]any)
@@ -447,7 +450,7 @@ func (p *BaseBlueprintProcessor) scopeForConfigBlock(contextScope, globalScope m
 	}
 	scope := blueprintv1alpha1.DeepMergeMaps(contextScope, globalScope)
 	if currentBlockValue != nil {
-		scope[blockName] = currentBlockValue
+		scope[blockName] = mergeBlockValueOverContext(contextScope[blockName], currentBlockValue)
 	} else if contextScope != nil && contextScope[blockName] != nil {
 		scope[blockName] = contextScope[blockName]
 	} else {
@@ -2514,6 +2517,18 @@ func deepMergeMap(base, overlay map[string]any) map[string]any {
 		result[k] = v
 	}
 	return result
+}
+
+// mergeBlockValueOverContext overlays a config block's in-progress value on the context value under
+// the same name, so the block reads its own keys and inherits the rest. A non-map on either side has
+// nothing to merge and yields the block value unchanged.
+func mergeBlockValueOverContext(contextValue, blockValue any) any {
+	contextMap, contextIsMap := contextValue.(map[string]any)
+	blockMap, blockIsMap := blockValue.(map[string]any)
+	if !contextIsMap || !blockIsMap {
+		return blockValue
+	}
+	return blueprintv1alpha1.DeepMergeMaps(contextMap, blockMap)
 }
 
 // accumulateStringSlice merges two string slices into a deduplicated, sorted slice.
