@@ -646,10 +646,6 @@ func (p *BaseBlueprintProcessor) evaluateGlobalScopeConfig(globalScope map[strin
 			contextScope = vals
 		}
 	}
-	// Order blocks by their inter-block reference dependencies, not by the order facets
-	// happened to write them. A block that references another must evaluate after the
-	// block it references, regardless of authoring order. topoSortConfigBlocks returns
-	// blocks in dependency order with alphabetical tiebreak.
 	names, err := topoSortConfigBlocks(globalScope)
 	if err != nil {
 		return err

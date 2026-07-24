@@ -126,6 +126,7 @@ func ExpressionBody(value string) (string, bool) {
 type ExpressionEvaluator interface {
 	HelperRegistrar
 	SetTemplateData(templateData map[string][]byte)
+	SetEnvLookup(lookup func(name string) (string, bool))
 	Evaluate(expression string, facetPath string, scope map[string]any, evaluateDeferred bool) (any, error)
 	EvaluateMap(values map[string]any, facetPath string, scope map[string]any, evaluateDeferred bool) (map[string]any, error)
 }
@@ -169,6 +170,12 @@ func NewExpressionEvaluator(configHandler config.ConfigHandler, projectRoot, tem
 // relative to the template root, typically prefixed with "_template/".
 func (e *expressionEvaluator) SetTemplateData(templateData map[string][]byte) {
 	e.templateData = templateData
+}
+
+// SetEnvLookup replaces the source that env() expressions resolve against.
+// The test runner uses this to supply a hermetic environment so composition never reads the host env.
+func (e *expressionEvaluator) SetEnvLookup(lookup func(name string) (string, bool)) {
+	e.Shims.LookupEnv = lookup
 }
 
 // Register adds a custom helper function to the evaluator for expression evaluation.

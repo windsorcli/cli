@@ -1,0 +1,14 @@
+kind: Facet
+apiVersion: blueprints.windsorcli.dev/v1alpha1
+metadata:
+  name: platform
+  description: dns addon is gated on the ENABLE_DNS environment variable via env()
+when: true
+kustomize:
+  - name: addon-dns
+    path: addons/dns
+    when: env('ENABLE_DNS') == 'yes'
+    components:
+      - coredns
+    timeout: 5m
+    interval: 5m

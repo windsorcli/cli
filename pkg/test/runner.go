@@ -89,9 +89,6 @@ func (r *TestRunner) RunAndPrint(filter string) error {
 // Run discovers and executes test cases, returning results for each test.
 // If filter is provided, only tests matching the filter name are executed.
 func (r *TestRunner) Run(filter string) ([]TestResult, error) {
-	restore := r.withTestContextEnv()
-	defer restore()
-
 	if r.RunFunc != nil {
 		return r.RunFunc(filter)
 	}
@@ -154,33 +151,18 @@ func (r *TestRunner) discoverTestCases(filter string) ([]testCaseWithFile, error
 	return out, nil
 }
 
-// withTestContextEnv sets WINDSOR_CONTEXT to "test" for the duration of a test run.
-// Test isolation is provided by createGenerator, which constructs each fresh ConfigHandler
-// with .WithContext("test") — the in-memory override takes highest priority in GetContext,
-// above both the .windsor/context file and the WINDSOR_CONTEXT env var.
-// The env var set here is a belt-and-suspenders signal for any code that reads it directly
-// via os.Getenv rather than through the ConfigHandler.
-// Returns a restore function that reverts the env var; call it via defer in Run().
-func (r *TestRunner) withTestContextEnv() (restore func()) {
-	originalContext := os.Getenv("WINDSOR_CONTEXT")
-	_ = os.Setenv("WINDSOR_CONTEXT", "test")
-	return func() {
-		if originalContext != "" {
-			_ = os.Setenv("WINDSOR_CONTEXT", originalContext)
-		} else {
-			_ = os.Unsetenv("WINDSOR_CONTEXT")
-		}
-	}
-}
-
 // createGenerator creates a function that generates blueprints from test values.
 // It sets up an isolated runtime environment for each test case, ensuring complete test isolation by creating
 // a fresh ConfigHandler instance and configuring the runtime to use only the _template directory. The generator
 // applies test values directly without loading any context files, ensuring tests only use explicitly provided inputs.
 // If terraformOutputs are provided, it registers a mock TerraformProvider to supply mock outputs for terraform_output()
 // expressions. This allows tests to validate blueprint composition that depends on Terraform outputs without requiring
-// actual Terraform state. Returns a function that takes test values and returns a composed blueprint or an error.
-func (r *TestRunner) createGenerator(terraformOutputs map[string]map[string]any) func(values map[string]any) (*blueprintv1alpha1.Blueprint, error) {
+// actual Terraform state. The env map supplies a hermetic environment for env() expressions, resolved only
+// from these entries so composition never reads the host env; WINDSOR_CONTEXT defaults to "test" and the
+// env map overrides it. Context isolation itself comes from the fresh ConfigHandler's .WithContext("test"),
+// which outranks the .windsor/context file and the WINDSOR_CONTEXT env var in GetContext.
+// Returns a function that takes test values and returns a composed blueprint or an error.
+func (r *TestRunner) createGenerator(terraformOutputs map[string]map[string]any, env map[string]string) func(values map[string]any) (*blueprintv1alpha1.Blueprint, error) {
 	return func(values map[string]any) (*blueprintv1alpha1.Blueprint, error) {
 		freshConfigHandler := config.NewConfigHandler(r.baseShell).WithContext("test")
 
@@ -219,6 +201,15 @@ func (r *TestRunner) createGenerator(terraformOutputs map[string]map[string]any)
 		if err := rt.InitializeComponents(); err != nil {
 			return nil, fmt.Errorf("failed to initialize components: %w", err)
 		}
+
+		effectiveEnv := map[string]string{"WINDSOR_CONTEXT": "test"}
+		for key, value := range env {
+			effectiveEnv[key] = value
+		}
+		rt.Evaluator.SetEnvLookup(func(name string) (string, bool) {
+			value, present := effectiveEnv[name]
+			return value, present
+		})
 
 		testBlueprintHandler := blueprint.NewBlueprintHandler(rt, r.artifactBuilder)
 
@@ -440,7 +431,7 @@ func (r *TestRunner) runTestCase(tc blueprintv1alpha1.TestCase) (TestResult, err
 	}
 	testValues["_testName"] = tc.Name
 
-	generator := r.createGenerator(tc.TerraformOutputs)
+	generator := r.createGenerator(tc.TerraformOutputs, tc.Env)
 	bp, err := generator(testValues)
 
 	if tc.ExpectError {

@@ -21,6 +21,10 @@ type TestCase struct {
 	// These override any existing configuration for the test.
 	Values map[string]any `yaml:"values,omitempty"`
 
+	// Env provides environment variables visible to env() expressions during composition.
+	// Resolution is hermetic: env() sees only these entries, never the host environment.
+	Env map[string]string `yaml:"env,omitempty"`
+
 	// TerraformOutputs provides mock terraform outputs for terraform_output() expressions.
 	// Keys are component IDs, values are maps of output key-value pairs.
 	// Example: {"network": {"vpc_id": "vpc-123", "subnet_ids": ["subnet-1", "subnet-2"]}}
