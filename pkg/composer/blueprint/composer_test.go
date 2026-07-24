@@ -298,6 +298,167 @@ func TestComposer_Compose(t *testing.T) {
 		}
 	})
 
+	t.Run("ReferencingBlueprintComponentsComposeAfterSourceComponents", func(t *testing.T) {
+		// Given a core source contributing two addon kustomizations and a referencing (user)
+		// blueprint contributing its own addon, with components stamped by source as the real
+		// composition flow stamps them (named source -> its name; primary/user -> "").
+		mocks := setupComposerMocks(t)
+		composer := NewBlueprintComposer(mocks.Runtime)
+		trueVal := true
+
+		coreBp := &blueprintv1alpha1.Blueprint{
+			Metadata: blueprintv1alpha1.Metadata{Name: "core"},
+			Kustomizations: []blueprintv1alpha1.Kustomization{
+				{Name: "addon-object-store", Path: "addons/object-store", Source: "core"},
+				{Name: "addon-private-ca", Path: "addons/private-ca", Source: "core"},
+			},
+		}
+		userBp := &blueprintv1alpha1.Blueprint{
+			Metadata: blueprintv1alpha1.Metadata{Name: "user"},
+			Sources: []blueprintv1alpha1.Source{
+				{Name: "core", Install: &blueprintv1alpha1.BoolExpression{Value: &trueVal, IsExpr: false}},
+			},
+			Kustomizations: []blueprintv1alpha1.Kustomization{
+				{Name: "addon-omni", Path: "addons/omni"},
+			},
+		}
+		loaders := []BlueprintLoader{
+			createMockBlueprintLoader("core", coreBp),
+			createMockBlueprintLoader("user", userBp),
+		}
+
+		// When composing
+		result, err := composer.Compose(loaders, nil, "", nil)
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+
+		// Then the referencing blueprint's addon-omni composes after both of core's addons,
+		// rather than sorting alphabetically into the middle of them.
+		order := make([]string, 0, len(result.Kustomizations))
+		for _, k := range result.Kustomizations {
+			order = append(order, k.Name)
+		}
+		idx := func(name string) int {
+			for i, n := range order {
+				if n == name {
+					return i
+				}
+			}
+			return -1
+		}
+		if idx("addon-omni") < idx("addon-object-store") || idx("addon-omni") < idx("addon-private-ca") {
+			t.Errorf("expected addon-omni (referencing blueprint) after core's addons, got order %v", order)
+		}
+	})
+
+	t.Run("SourceDepthReorderPreservesCrossSourceDependency", func(t *testing.T) {
+		// Given a referencing blueprint whose kustomization depends on a source kustomization, the
+		// depth reorder must keep the dependency (source, shallower) ahead of its dependent.
+		mocks := setupComposerMocks(t)
+		composer := NewBlueprintComposer(mocks.Runtime)
+		trueVal := true
+
+		coreBp := &blueprintv1alpha1.Blueprint{
+			Metadata: blueprintv1alpha1.Metadata{Name: "core"},
+			Kustomizations: []blueprintv1alpha1.Kustomization{
+				{Name: "addon-base", Path: "addons/base", Source: "core"},
+			},
+		}
+		userBp := &blueprintv1alpha1.Blueprint{
+			Metadata: blueprintv1alpha1.Metadata{Name: "user"},
+			Sources: []blueprintv1alpha1.Source{
+				{Name: "core", Install: &blueprintv1alpha1.BoolExpression{Value: &trueVal, IsExpr: false}},
+			},
+			Kustomizations: []blueprintv1alpha1.Kustomization{
+				{Name: "addon-extension", Path: "addons/extension", DependsOn: []string{"addon-base"}},
+			},
+		}
+		loaders := []BlueprintLoader{
+			createMockBlueprintLoader("core", coreBp),
+			createMockBlueprintLoader("user", userBp),
+		}
+
+		// When composing
+		result, err := composer.Compose(loaders, nil, "", nil)
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+
+		// Then the dependency (addon-base) still precedes its dependent (addon-extension)
+		order := make([]string, 0, len(result.Kustomizations))
+		for _, k := range result.Kustomizations {
+			order = append(order, k.Name)
+		}
+		baseIdx, extIdx := -1, -1
+		for i, n := range order {
+			if n == "addon-base" {
+				baseIdx = i
+			}
+			if n == "addon-extension" {
+				extIdx = i
+			}
+		}
+		if baseIdx < 0 || extIdx < 0 || baseIdx > extIdx {
+			t.Errorf("expected addon-base before addon-extension, got order %v", order)
+		}
+	})
+
+	t.Run("SourceDepthReorderIsDeterministicWithCyclicSources", func(t *testing.T) {
+		// Given two sources that reference each other, depth resolution must terminate and settle on
+		// the same answer regardless of which node the walk reaches first. Cycles are rejected upstream
+		// by loader ordering; this guards the depth walk itself against an order-dependent result.
+		mocks := setupComposerMocks(t)
+		trueVal := true
+		install := func(name string) blueprintv1alpha1.Source {
+			return blueprintv1alpha1.Source{Name: name, Install: &blueprintv1alpha1.BoolExpression{Value: &trueVal, IsExpr: false}}
+		}
+
+		compose := func() []string {
+			composer := NewBlueprintComposer(mocks.Runtime)
+			aBp := &blueprintv1alpha1.Blueprint{
+				Metadata:       blueprintv1alpha1.Metadata{Name: "a"},
+				Sources:        []blueprintv1alpha1.Source{install("b")},
+				Kustomizations: []blueprintv1alpha1.Kustomization{{Name: "addon-a", Path: "addons/a", Source: "a"}},
+			}
+			bBp := &blueprintv1alpha1.Blueprint{
+				Metadata:       blueprintv1alpha1.Metadata{Name: "b"},
+				Sources:        []blueprintv1alpha1.Source{install("a")},
+				Kustomizations: []blueprintv1alpha1.Kustomization{{Name: "addon-b", Path: "addons/b", Source: "b"}},
+			}
+			userBp := &blueprintv1alpha1.Blueprint{
+				Metadata:       blueprintv1alpha1.Metadata{Name: "user"},
+				Sources:        []blueprintv1alpha1.Source{install("a"), install("b")},
+				Kustomizations: []blueprintv1alpha1.Kustomization{{Name: "addon-user", Path: "addons/user"}},
+			}
+			loaders := []BlueprintLoader{
+				createMockBlueprintLoader("a", aBp),
+				createMockBlueprintLoader("b", bBp),
+				createMockBlueprintLoader("user", userBp),
+			}
+			result, err := composer.Compose(loaders, nil, "", nil)
+			if err != nil {
+				t.Fatalf("Expected no error, got %v", err)
+			}
+			names := make([]string, 0, len(result.Kustomizations))
+			for _, k := range result.Kustomizations {
+				names = append(names, k.Name)
+			}
+			return names
+		}
+
+		// When composing the same cyclic graph twice
+		first, second := compose(), compose()
+
+		// Then the ordering settles identically, and the referencing blueprint still composes last
+		if !slices.Equal(first, second) {
+			t.Errorf("expected deterministic order across runs, got %v then %v", first, second)
+		}
+		if len(first) == 0 || first[len(first)-1] != "addon-user" {
+			t.Errorf("expected addon-user (referencing blueprint) last, got %v", first)
+		}
+	})
+
 	t.Run("DoesNotMergeSourcesWithInstallFalse", func(t *testing.T) {
 		// Given a user blueprint with a source that has install:false
 		mocks := setupComposerMocks(t)

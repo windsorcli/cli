@@ -6,7 +6,9 @@ description: |
   substitutions that are merged into the blueprint only when the facet's
   'when' expression evaluates to true against the operator's configuration.
   Facets live under contexts/_template/facets/ as one .yaml file per facet
-  and are composed in ordinal order (lower-priority first).
+  and are composed in ordinal order (lower-priority first) within a single
+  blueprint. Across blueprints, a source composes before the blueprint that
+  references it; see the Composition order reference.
 type: object
 required:
   - kind
@@ -40,12 +42,14 @@ properties:
   ordinal:
     type: integer
     description: |
-      Merge precedence relative to other facets. Higher ordinal wins on
-      conflict (processed later). When unset, the loader derives an ordinal
-      from the file basename: 'config-*' = 100; 'provider-*' or
-      'platform-*' with '-base' in the name = 199; other 'provider-*' /
-      'platform-*' = 200; 'option-*' / 'options-*' = 300; 'addon-*' /
-      'addons-*' = 400; no match = 0.
+      Merge precedence relative to other facets in the same blueprint. Higher
+      ordinal wins on conflict (processed later). When unset, the loader
+      derives an ordinal from the file basename: 'config-*' = 100;
+      'provider-*' or 'platform-*' with '-base' in the name = 199; other
+      'provider-*' / 'platform-*' = 200; 'option-*' / 'options-*' = 300;
+      'addon-*' / 'addons-*' = 400; no match = 0. Ordinal does not cross a
+      source boundary: a blueprint's facets always compose after the facets
+      of the sources it references, whatever ordinal either side sets.
   when:
     type: string
     description: |
