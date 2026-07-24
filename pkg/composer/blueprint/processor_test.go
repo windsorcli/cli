@@ -3004,6 +3004,52 @@ func TestProcessor_ProcessFacets_Tiers(t *testing.T) {
 		}
 	})
 }
+
+func TestProcessor_ProcessFacets_StripsFluxSystemWhen(t *testing.T) {
+	t.Run("EmittedSystemHasNoWhenAfterInclusion", func(t *testing.T) {
+		// Given a facet whose flux system is gated on composition-only derived config: talos_enabled
+		// comes from the facet's own config: block, so it exists during composition but not in the
+		// emitted values-* ConfigMaps downstream.
+		mocks := setupProcessorMocks(t)
+		mocks.ConfigHandler.GetContextValuesFunc = func() (map[string]any, error) {
+			return map[string]any{"platform": "hetzner"}, nil
+		}
+		processor := NewBlueprintProcessor(mocks.Runtime)
+		target := &blueprintv1alpha1.Blueprint{}
+		facets := []blueprintv1alpha1.Facet{{
+			Metadata: blueprintv1alpha1.Metadata{Name: "platform"},
+			Config: []blueprintv1alpha1.ConfigBlock{
+				{Name: "talos_enabled", Body: map[string]any{"value": true}},
+			},
+			FluxSystems: []blueprintv1alpha1.FluxSystem{{
+				Name:    "cni",
+				When:    "talos_enabled",
+				Install: &blueprintv1alpha1.Kustomization{Components: []string{"cilium"}},
+			}},
+		}}
+
+		// When the blueprint is composed
+		if _, err := processor.ProcessFacets(target, facets); err != nil {
+			t.Fatalf("ProcessFacets: %v", err)
+		}
+
+		// Then the system is included — its when evaluated true during composition — but the
+		// resolved when is stripped from the emitted system so it can't be re-evaluated (and misfire)
+		// against a downstream scope that lacks talos_enabled.
+		var cni *blueprintv1alpha1.FluxSystem
+		for i := range target.FluxSystems {
+			if target.FluxSystems[i].Name == "cni" {
+				cni = &target.FluxSystems[i]
+			}
+		}
+		if cni == nil {
+			t.Fatalf("expected cni flux system to be included, got %+v", target.FluxSystems)
+		}
+		if cni.When != "" {
+			t.Errorf("expected emitted FluxSystem.When to be stripped, got %q", cni.When)
+		}
+	})
+}
 func TestProcessor_mergeHelpers(t *testing.T) {
 	t.Run("deepMergeMapMergesNestedMaps", func(t *testing.T) {
 		base := map[string]any{"a": 1, "b": map[string]any{"x": 10}}

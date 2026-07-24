@@ -550,8 +550,9 @@ type BlueprintPatch struct {
 
 // Kustomization represents a kustomization configuration.
 type Kustomization struct {
-	// Name of the kustomization.
-	Name string `yaml:"name"`
+	// Name of the kustomization. Omitted when empty so an unnamed inline flux resources variant
+	// (a Kustomization embedded in FluxVariant) does not emit a blank name: into the composed output.
+	Name string `yaml:"name,omitempty"`
 
 	// Path of the kustomization. Defaults to Name.
 	Path string `yaml:"path,omitempty"`
