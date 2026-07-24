@@ -1,3 +1,4 @@
 - [Blueprint reference](blueprint.md) — for the inherited TerraformComponent and Kustomization fields
+- [Composition order](composition-order.md) — how ordinal and source depth decide what composes first
 - [`apply`](commands/apply.md), [`up`](commands/up.md), [`explain`](commands/explain.md)
 - [Lifecycle guide](https://www.windsorcli.dev/docs/cli/lifecycle)
