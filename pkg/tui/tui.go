@@ -157,6 +157,8 @@ func WithProgress(message string, fn func() error) error {
 }
 
 // Start stops any existing spinner and begins a new one with the given message.
+// WithWriterFile binds the animation's terminal check to stderr, the stream the frames go to;
+// WithWriter would leave that check on stdout, silencing the animation whenever stdout is redirected.
 func (s *termSpinner) Start(message string) {
 	if s.spin != nil && s.spin.Active() {
 		s.spin.Stop()
@@ -164,7 +166,7 @@ func (s *termSpinner) Start(message string) {
 	s.message = message
 	s.paused = 0
 	s.pauseCursorSaved = false
-	s.spin = spinner.New(spinner.CharSets[14], 100*time.Millisecond, spinner.WithColor("green"), spinner.WithWriter(os.Stderr))
+	s.spin = spinner.New(spinner.CharSets[14], 100*time.Millisecond, spinner.WithColor("green"), spinner.WithWriterFile(os.Stderr))
 	s.spin.Suffix = " " + message
 	s.spin.Start()
 }

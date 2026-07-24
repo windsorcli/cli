@@ -194,6 +194,29 @@ func TestTermSpinner_Start(t *testing.T) {
 		}
 	})
 
+	t.Run("BindsTerminalCheckToTheStreamItWrites", func(t *testing.T) {
+		// Given a termSpinner
+		s := &termSpinner{}
+		t.Cleanup(func() { captureStderr(t, s.Done) })
+
+		// When Start creates the underlying spinner
+		var writer io.Writer
+		var writerFile *os.File
+		captureStderr(t, func() {
+			s.Start("loading")
+			writer, writerFile = s.spin.Writer, s.spin.WriterFile
+		})
+
+		// Then the file the animation tests for a terminal is the file it writes frames to,
+		// so a redirected stdout cannot silence a spinner bound to stderr
+		if writerFile == nil {
+			t.Fatal("expected a writer file for the terminal check")
+		}
+		if writer != io.Writer(writerFile) {
+			t.Errorf("expected terminal check on the write target %v, got %v", writer, writerFile)
+		}
+	})
+
 	t.Run("StopsExistingSpinFirst", func(t *testing.T) {
 		// Given a termSpinner that has already been started
 		s := &termSpinner{}
