@@ -29,6 +29,15 @@ properties:
             Configuration values to apply before composing the blueprint.
             These override any existing configuration for the test. Dotted
             keys are allowed (e.g. 'cluster.driver: talos').
+        env:
+          type: object
+          additionalProperties:
+            type: string
+          description: |
+            Environment variables visible to env() expressions during
+            composition. Resolution is hermetic: env() sees only these
+            entries, never the host environment. WINDSOR_CONTEXT defaults to
+            "test" and can be overridden here. Example: env.ENABLE_DNS = "yes".
         terraformOutputs:
           type: object
           additionalProperties:
@@ -161,3 +170,9 @@ examples:
             - name: dns
               substitutions:
                 external_dns_zone_id: Z123456
+      - name: env-gates-addon
+        env:
+          ENABLE_DNS: "yes"
+        expect:
+          kustomize:
+            - name: addon-dns

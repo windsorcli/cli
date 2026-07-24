@@ -202,16 +202,14 @@ func (r *TestRunner) createGenerator(terraformOutputs map[string]map[string]any,
 			return nil, fmt.Errorf("failed to initialize components: %w", err)
 		}
 
-		if rt.Evaluator != nil {
-			effectiveEnv := map[string]string{"WINDSOR_CONTEXT": "test"}
-			for key, value := range env {
-				effectiveEnv[key] = value
-			}
-			rt.Evaluator.SetEnvLookup(func(name string) (string, bool) {
-				value, present := effectiveEnv[name]
-				return value, present
-			})
+		effectiveEnv := map[string]string{"WINDSOR_CONTEXT": "test"}
+		for key, value := range env {
+			effectiveEnv[key] = value
 		}
+		rt.Evaluator.SetEnvLookup(func(name string) (string, bool) {
+			value, present := effectiveEnv[name]
+			return value, present
+		})
 
 		testBlueprintHandler := blueprint.NewBlueprintHandler(rt, r.artifactBuilder)
 
