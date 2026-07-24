@@ -1210,7 +1210,9 @@ func (p *BaseBlueprintProcessor) evalDropEmpty(raw []string, facetPath string, s
 // dependsOn reference to it stays valid whether or not the variant's own components ended up
 // empty. An install tier whose components prune to empty sets Install to nil, since install is
 // optional per system (a system may have none at all) and an empty install is equivalent to none
-// declared.
+// declared. The system's when is cleared once inclusion is decided (mirroring each variant's when):
+// it has already gated the system and its variants here, and often references composition-only derived
+// config that does not exist downstream, so emitting it would leak an unresolvable condition.
 func (p *BaseBlueprintProcessor) collectFluxSystems(facet blueprintv1alpha1.Facet, sourceName []string, fluxSystemByName map[string]*blueprintv1alpha1.FluxSystem, facetScope map[string]any) error {
 	for _, system := range facet.FluxSystems {
 		when := system.When
@@ -1305,6 +1307,7 @@ func (p *BaseBlueprintProcessor) collectFluxSystems(facet blueprintv1alpha1.Face
 		system.Resources = evaluatedResources
 		system.Ordinal = &effectiveOrdinal
 		system.Strategy = strategy
+		system.When = ""
 
 		if _, exists := fluxSystemByName[system.Name]; !exists {
 			stored := system
