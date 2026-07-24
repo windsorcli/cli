@@ -1811,6 +1811,301 @@ func TestProcessor_ProcessFacets_ConfigBlockEvaluationOrder(t *testing.T) {
 	})
 }
 
+func TestProcessor_ProcessFacets_ConfigBlockReadsContextUnderOwnName(t *testing.T) {
+	// A config block's own name must not be a blind spot: keys the block does not define
+	// itself — schema defaults and operator-set values — stay readable from inside it.
+
+	t.Run("ReadsSchemaDefaultUnderOwnName", func(t *testing.T) {
+		// Given a context carrying the network.cidr_block schema default and a network block
+		// that does not set cidr_block itself
+		mocks := setupProcessorMocks(t)
+		mocks.ConfigHandler.GetContextValuesFunc = func() (map[string]any, error) {
+			return map[string]any{
+				"network": map[string]any{"cidr_block": "10.5.0.0/16"},
+			}, nil
+		}
+		processor := NewBlueprintProcessor(mocks.Runtime)
+		facets := []blueprintv1alpha1.Facet{
+			{
+				Metadata: blueprintv1alpha1.Metadata{Name: "platform-base"},
+				Config: []blueprintv1alpha1.ConfigBlock{
+					{Name: "network", Body: map[string]any{"value": map[string]any{
+						"loadbalancer_driver": "kube-vip",
+						"effective_cidr":      "${network.cidr_block}",
+					}}},
+				},
+			},
+		}
+
+		// When the facets are processed
+		scope, err := processor.ProcessFacets(&blueprintv1alpha1.Blueprint{}, facets)
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+
+		// Then the same-name read resolves against context rather than the block's partial value
+		network, ok := scope["network"].(map[string]any)
+		if !ok {
+			t.Fatalf("Expected network map, got %T", scope["network"])
+		}
+		if network["effective_cidr"] != "10.5.0.0/16" {
+			t.Errorf("Expected network.effective_cidr='10.5.0.0/16' from schema default, got %v", network["effective_cidr"])
+		}
+	})
+
+	t.Run("ReadsContextUnderOwnNameFromNestedValue", func(t *testing.T) {
+		// Given a network block whose nested loadbalancer_ips map reads network.cidr_block
+		mocks := setupProcessorMocks(t)
+		mocks.ConfigHandler.GetContextValuesFunc = func() (map[string]any, error) {
+			return map[string]any{
+				"network": map[string]any{"cidr_block": "10.5.0.0/16"},
+			}, nil
+		}
+		processor := NewBlueprintProcessor(mocks.Runtime)
+		facets := []blueprintv1alpha1.Facet{
+			{
+				Metadata: blueprintv1alpha1.Metadata{Name: "platform-base"},
+				Config: []blueprintv1alpha1.ConfigBlock{
+					{Name: "network", Body: map[string]any{"value": map[string]any{
+						"loadbalancer_ips": map[string]any{
+							"start": "${cidrhost(network.cidr_block, 266)}",
+							"end":   "${cidrhost(network.cidr_block, 356)}",
+						},
+					}}},
+				},
+			},
+		}
+
+		// When the facets are processed
+		scope, err := processor.ProcessFacets(&blueprintv1alpha1.Blueprint{}, facets)
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+
+		// Then both nested reads resolve
+		network, ok := scope["network"].(map[string]any)
+		if !ok {
+			t.Fatalf("Expected network map, got %T", scope["network"])
+		}
+		ips, ok := network["loadbalancer_ips"].(map[string]any)
+		if !ok {
+			t.Fatalf("Expected loadbalancer_ips map, got %T", network["loadbalancer_ips"])
+		}
+		if ips["start"] != "10.5.1.10" {
+			t.Errorf("Expected loadbalancer_ips.start='10.5.1.10', got %v", ips["start"])
+		}
+		if ips["end"] != "10.5.1.100" {
+			t.Errorf("Expected loadbalancer_ips.end='10.5.1.100', got %v", ips["end"])
+		}
+	})
+
+	t.Run("BlockValueWinsOverContextForSameKey", func(t *testing.T) {
+		// Given a block that sets the same key the context carries
+		mocks := setupProcessorMocks(t)
+		mocks.ConfigHandler.GetContextValuesFunc = func() (map[string]any, error) {
+			return map[string]any{
+				"network": map[string]any{"cidr_block": "10.5.0.0/16"},
+			}, nil
+		}
+		processor := NewBlueprintProcessor(mocks.Runtime)
+		facets := []blueprintv1alpha1.Facet{
+			{
+				Metadata: blueprintv1alpha1.Metadata{Name: "platform-base"},
+				Config: []blueprintv1alpha1.ConfigBlock{
+					{Name: "network", Body: map[string]any{"value": map[string]any{
+						"cidr_block": "10.9.0.0/16",
+						"loadbalancer_ips": map[string]any{
+							"start": "${cidrhost(network.cidr_block, 266)}",
+						},
+					}}},
+				},
+			},
+		}
+
+		// When the facets are processed
+		scope, err := processor.ProcessFacets(&blueprintv1alpha1.Blueprint{}, facets)
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+
+		// Then the block's own value wins over context for that key
+		network, ok := scope["network"].(map[string]any)
+		if !ok {
+			t.Fatalf("Expected network map, got %T", scope["network"])
+		}
+		if network["cidr_block"] != "10.9.0.0/16" {
+			t.Errorf("Expected block value to win, got %v", network["cidr_block"])
+		}
+		ips, ok := network["loadbalancer_ips"].(map[string]any)
+		if !ok {
+			t.Fatalf("Expected loadbalancer_ips map, got %T", network["loadbalancer_ips"])
+		}
+		if ips["start"] != "10.9.1.10" {
+			t.Errorf("Expected loadbalancer_ips.start derived from block value, got %v", ips["start"])
+		}
+	})
+
+	t.Run("ScalarBlockValueReplacesContextValue", func(t *testing.T) {
+		// Given a block whose value is a scalar rather than a map, there is nothing to merge
+		mocks := setupProcessorMocks(t)
+		mocks.ConfigHandler.GetContextValuesFunc = func() (map[string]any, error) {
+			return map[string]any{
+				"network": map[string]any{"cidr_block": "10.5.0.0/16"},
+				"ha":      false,
+			}, nil
+		}
+		processor := NewBlueprintProcessor(mocks.Runtime)
+		facets := []blueprintv1alpha1.Facet{
+			{
+				Metadata: blueprintv1alpha1.Metadata{Name: "platform-base"},
+				Config: []blueprintv1alpha1.ConfigBlock{
+					{Name: "network", Body: map[string]any{"value": "10.5.0.0/16"}},
+				},
+			},
+		}
+
+		// When the facets are processed
+		scope, err := processor.ProcessFacets(&blueprintv1alpha1.Blueprint{}, facets)
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+
+		// Then the scalar stands on its own
+		if scope["network"] != "10.5.0.0/16" {
+			t.Errorf("Expected scalar block value preserved, got %#v", scope["network"])
+		}
+	})
+}
+
+func TestProcessor_ProcessFacets_ConfigBlockGuardBlindToOwnWrite(t *testing.T) {
+	// A config block's `when:` guard must be blind to the keys that same block writes,
+	// so a "write this default only when the field is unset" guard does not cancel itself:
+	// the block's own write in one round must not flip its guard false in the next.
+
+	t.Run("WriteWhenUnsetDefaultAppliesInsteadOfSelfCancelling", func(t *testing.T) {
+		// Given an empty context and a network block that defaults cidr_block only when unset
+		mocks := setupProcessorMocks(t)
+		mocks.ConfigHandler.GetContextValuesFunc = func() (map[string]any, error) {
+			return map[string]any{}, nil
+		}
+		processor := NewBlueprintProcessor(mocks.Runtime)
+		facets := []blueprintv1alpha1.Facet{
+			{
+				Metadata: blueprintv1alpha1.Metadata{Name: "platform-base"},
+				Config: []blueprintv1alpha1.ConfigBlock{
+					{Name: "network", When: "(network.cidr_block ?? '') == ''", Body: map[string]any{"value": map[string]any{
+						"cidr_block": "10.5.0.0/16",
+					}}},
+				},
+			},
+		}
+
+		// When the facets are processed
+		scope, err := processor.ProcessFacets(&blueprintv1alpha1.Blueprint{}, facets)
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+
+		// Then the default applies and survives — the block's own write does not drop it
+		network, ok := scope["network"].(map[string]any)
+		if !ok {
+			t.Fatalf("Expected network map, got %#v", scope["network"])
+		}
+		if network["cidr_block"] != "10.5.0.0/16" {
+			t.Errorf("Expected network.cidr_block='10.5.0.0/16', got %v", network["cidr_block"])
+		}
+	})
+
+	t.Run("WriteWhenUnsetSkippedWhenOperatorAlreadySet", func(t *testing.T) {
+		// Given a context where the operator set cidr_block, and the same defaulting block
+		// carrying a sentinel that would appear only if the block wrongly fired
+		mocks := setupProcessorMocks(t)
+		mocks.ConfigHandler.GetContextValuesFunc = func() (map[string]any, error) {
+			return map[string]any{
+				"network": map[string]any{"cidr_block": "10.9.0.0/16"},
+			}, nil
+		}
+		processor := NewBlueprintProcessor(mocks.Runtime)
+		facets := []blueprintv1alpha1.Facet{
+			{
+				Metadata: blueprintv1alpha1.Metadata{Name: "platform-base"},
+				Config: []blueprintv1alpha1.ConfigBlock{
+					{Name: "network", When: "(network.cidr_block ?? '') == ''", Body: map[string]any{"value": map[string]any{
+						"cidr_block": "10.5.0.0/16",
+						"defaulted":  "yes",
+					}}},
+				},
+			},
+		}
+
+		// When the facets are processed
+		scope, err := processor.ProcessFacets(&blueprintv1alpha1.Blueprint{}, facets)
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+
+		// Then the guard sees the operator value under its own name and the block does not fire,
+		// so it contributes neither the default cidr_block nor its sentinel
+		if network, ok := scope["network"].(map[string]any); ok {
+			if network["cidr_block"] == "10.5.0.0/16" {
+				t.Errorf("Expected operator value not overwritten by default, got %v", network["cidr_block"])
+			}
+			if network["defaulted"] != nil {
+				t.Errorf("Expected guarded block to be skipped, but its sentinel appeared: %v", network["defaulted"])
+			}
+		}
+	})
+
+	t.Run("GuardSeesSiblingKeyWrittenByAnotherFacet", func(t *testing.T) {
+		// Given one facet that unconditionally sets network.region and a second whose network
+		// block is guarded on that sibling key (not on the key it writes)
+		mocks := setupProcessorMocks(t)
+		mocks.ConfigHandler.GetContextValuesFunc = func() (map[string]any, error) {
+			return map[string]any{}, nil
+		}
+		processor := NewBlueprintProcessor(mocks.Runtime)
+		low, high := 100, 200
+		facets := []blueprintv1alpha1.Facet{
+			{
+				Metadata: blueprintv1alpha1.Metadata{Name: "region-writer"},
+				Ordinal:  &low,
+				Config: []blueprintv1alpha1.ConfigBlock{
+					{Name: "network", Body: map[string]any{"value": map[string]any{
+						"region": "us",
+					}}},
+				},
+			},
+			{
+				Metadata: blueprintv1alpha1.Metadata{Name: "cidr-defaulter"},
+				Ordinal:  &high,
+				Config: []blueprintv1alpha1.ConfigBlock{
+					{Name: "network", When: "network.region == 'us'", Body: map[string]any{"value": map[string]any{
+						"cidr_block": "10.5.0.0/16",
+					}}},
+				},
+			},
+		}
+
+		// When the facets are processed
+		scope, err := processor.ProcessFacets(&blueprintv1alpha1.Blueprint{}, facets)
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+
+		// Then the guard reads the sibling key from the other facet, so the block contributes
+		network, ok := scope["network"].(map[string]any)
+		if !ok {
+			t.Fatalf("Expected network map, got %#v", scope["network"])
+		}
+		if network["region"] != "us" {
+			t.Errorf("Expected network.region='us', got %v", network["region"])
+		}
+		if network["cidr_block"] != "10.5.0.0/16" {
+			t.Errorf("Expected guard on sibling key to include block, got cidr_block=%v", network["cidr_block"])
+		}
+	})
+}
+
 func TestProcessor_ProcessFacets_ConfigDeferredValues(t *testing.T) {
 	t.Run("DeferredConfigBlockValuePreservesExpressionInSubstitution", func(t *testing.T) {
 		// Given a config block with a deferred helper and a substitution that
