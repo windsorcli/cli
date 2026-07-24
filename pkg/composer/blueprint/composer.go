@@ -178,6 +178,7 @@ func (c *BaseBlueprintComposer) Compose(loaders []BlueprintLoader, initLoaderNam
 	c.finalizeCrdLayers(result)
 	c.applyCrdLayerBarrier(result)
 	c.applyGlobalDependencyBarrier(result)
+	c.orderComponentsBySourceDepth(result, userBlueprint, sourceLoaders)
 	validationErr := errors.Join(c.validateSources(result), c.validateReservedNames(result), c.validateDependencies(result))
 	return result, validationErr
 }
@@ -430,6 +431,85 @@ func (c *BaseBlueprintComposer) orderSources(userBlueprint *blueprintv1alpha1.Bl
 // OCI sources with Install omitted (nil) are treated as merge for backward compatibility; otherwise Install must be true.
 func (c *BaseBlueprintComposer) sourceShouldBeMerged(source blueprintv1alpha1.Source) bool {
 	return sourceInstalls(source)
+}
+
+// orderComponentsBySourceDepth stably reorders the composed blueprint's components so a component from a
+// source composes before a component from the blueprint that references it, recursively. Depth comes from
+// the source-reference graph; the primary/user blueprint (component Source "") is deepest. The sort is
+// stable, so each source keeps its own prefix/ordinal order, and because dependencies flow from a
+// referencing blueprint down into its sources (higher depth to lower), ascending-depth order keeps every
+// dependency ahead of its dependents. Explicit ordinals stay within a source and never cross a boundary.
+func (c *BaseBlueprintComposer) orderComponentsBySourceDepth(result *blueprintv1alpha1.Blueprint, userBlueprint *blueprintv1alpha1.Blueprint, sourceLoaders []BlueprintLoader) {
+	depth := c.sourceDepths(userBlueprint, sourceLoaders)
+	if len(depth) == 0 {
+		return
+	}
+	sort.SliceStable(result.TerraformComponents, func(i, j int) bool {
+		return depth[result.TerraformComponents[i].Source] < depth[result.TerraformComponents[j].Source]
+	})
+	sort.SliceStable(result.Kustomizations, func(i, j int) bool {
+		return depth[result.Kustomizations[i].Source] < depth[result.Kustomizations[j].Source]
+	})
+	sort.SliceStable(result.FluxSystems, func(i, j int) bool {
+		return depth[result.FluxSystems[i].Source] < depth[result.FluxSystems[j].Source]
+	})
+}
+
+// sourceDepths computes each source's depth in the reference graph: a source that references no other
+// in-set source is depth 0, and any source is one deeper than the deepest source it references. The
+// primary/user blueprint is keyed by "" (the Source stamped on its own components) and references the
+// sources it lists. Returns an empty map when there is no referencing blueprint, so single-source
+// compositions skip reordering entirely.
+func (c *BaseBlueprintComposer) sourceDepths(userBlueprint *blueprintv1alpha1.Blueprint, sourceLoaders []BlueprintLoader) map[string]int {
+	refs := make(map[string][]string)
+	inSet := make(map[string]bool)
+	for _, loader := range sourceLoaders {
+		name := loader.GetSourceName()
+		inSet[name] = true
+		if bp := loader.GetBlueprint(); bp != nil {
+			for _, s := range bp.Sources {
+				if s.Name != "" {
+					refs[name] = append(refs[name], s.Name)
+				}
+			}
+		}
+	}
+	if userBlueprint == nil {
+		return map[string]int{}
+	}
+	inSet[""] = true
+	for _, s := range userBlueprint.Sources {
+		if s.Name != "" {
+			refs[""] = append(refs[""], s.Name)
+		}
+	}
+
+	depth := make(map[string]int)
+	var compute func(name string, stack map[string]bool) int
+	compute = func(name string, stack map[string]bool) int {
+		if d, ok := depth[name]; ok {
+			return d
+		}
+		if stack[name] {
+			return 0
+		}
+		stack[name] = true
+		max := 0
+		for _, dep := range refs[name] {
+			if inSet[dep] {
+				if d := compute(dep, stack) + 1; d > max {
+					max = d
+				}
+			}
+		}
+		stack[name] = false
+		depth[name] = max
+		return max
+	}
+	for name := range inSet {
+		compute(name, make(map[string]bool))
+	}
+	return depth
 }
 
 // applyCommonSubstitutions extracts common substitutions from values.yaml, merges legacy special
