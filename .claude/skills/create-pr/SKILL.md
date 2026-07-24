@@ -1,6 +1,6 @@
 ---
 name: create-pr
-description: Push the current branch and open or update its pull request with a Conventional-Commits title. Does NOT author a PR description -- the claude-code-review workflow upserts the canonical summary into the body on every push, so this skill leaves the body empty for CI to fill and never touches an existing one. Run after committing and before announcing the PR. Use whenever the user asks to "open the PR", "push and PR", "create a branch and PR", or after the project's gates are green and the branch is ready.
+description: Push the current branch and open or update its pull request with a Conventional-Commits title. Does NOT author a PR description -- the claude-code-review workflow upserts the canonical summary into the body on every push, so this skill leaves the body empty (except for a Closes #N issue-link line when the branch resolves an issue) for CI to fill and never touches an existing one. Run after committing and before announcing the PR. Use whenever the user asks to "open the PR", "push and PR", "create a branch and PR", or after the project's gates are green and the branch is ready.
 ---
 
 # Create or Update PR
@@ -24,9 +24,14 @@ for CI, and it never overwrites a body that already exists.
 2. `git log main..HEAD --oneline` — commits the PR contains.
 3. `git diff main...HEAD --stat` — file-level shape of the change.
 4. `gh pr view --json number 2>/dev/null` — does a PR exist already?
+5. The issue this branch resolves, if any. Check the commit messages and
+   branch name for an issue number, and the conversation for one you were
+   working from. If a single issue is clearly the one being fixed, use it;
+   if it's ambiguous or there might be several, ask the user rather than
+   guess. A wrong `Closes #N` closes the wrong issue on merge.
 
-If `gh pr view` returns "no pull requests found", we'll create with an
-empty body. Otherwise the PR already exists and we leave its body alone.
+If `gh pr view` returns "no pull requests found", we'll create a new PR.
+Otherwise the PR already exists and we leave its body alone.
 
 ## Title rules
 
@@ -57,20 +62,36 @@ Anti-patterns to avoid:
 
 ## Body
 
-Do not write a PR body. The repo's `claude-code-review` workflow upserts
+Do not write a PR summary. The repo's `claude-code-review` workflow upserts
 the canonical summary (a `> [!NOTE]` block delimited by
 `<!-- claude-code-review:summary -->` markers) into the PR description on
 every push, so authoring one here would only duplicate or fight with it.
 
-Create the PR with an empty body and let CI fill it. If a PR already
-exists, leave its body untouched — CI owns it, and a human may have added
-prose of their own that must not be clobbered.
+The one thing that *does* belong in the body is a closing keyword when the
+branch resolves an issue: a single `Closes #N` line (`Fixes #N` / `Resolves
+#N` work too). GitHub's auto-close only fires from a keyword in the PR body
+or a commit message — never the title — so without this line the issue stays
+open and has to be closed by hand after merge. Nothing else goes in the body.
+
+This is safe against CI: `.github/scripts/publish-review.sh` reads the
+existing body, strips only its own delimited marker block, and re-appends the
+summary *after* whatever prose remains (`new = body + "\n\n" + block`). A
+`Closes #N` line at the top survives every push and stays intact through
+merge. The empty-body default is unchanged — it's just `Closes #N` when there
+is an issue, empty when there isn't.
+
+If a PR already exists, leave its body untouched — CI owns it, and a human
+may have added prose of their own that must not be clobbered. Do not retrofit
+a `Closes #N` line into an existing body; if an already-open PR needs to
+close an issue, tell the user so they can add the line or close the issue on
+merge themselves.
 
 ## Decision tree
 
 ```
 Does a PR exist for this branch?
-├── No  → gh pr create with generated title and an empty body, then print URL.
+├── No  → gh pr create with generated title. Body is "Closes #N" when the
+│         branch resolves an issue, empty otherwise. Then print URL.
 └── Yes → Leave the body alone (CI owns the summary; a human may have added
           prose). Print URL only.
 ```
@@ -81,8 +102,9 @@ red check immediately lets the user fix it before they walk away.
 
 ## Commands
 
-Push first, then create the PR with an empty body. Pass `--body ""`
-explicitly so `gh` does not drop into an interactive editor.
+Push first, then create the PR. The body is `Closes #N` when the branch
+resolves an issue, empty otherwise. Pass `--body` explicitly so `gh` does
+not drop into an interactive editor.
 
 ```bash
 # 1. Push (set upstream on first push of this branch)
@@ -91,9 +113,11 @@ git push -u origin "$(git rev-parse --abbrev-ref HEAD)"
 # 2. Detect existing PR
 PR_NUM=$(gh pr view --json number --jq '.number // empty' 2>/dev/null)
 
-# 3. Create with an empty body when none exists; never touch an existing body
+# 3. Create when none exists; never touch an existing body.
+#    Set BODY to "Closes #N" if the branch resolves an issue, else "".
 if [ -z "$PR_NUM" ]; then
-  gh pr create --title "<generated title>" --body ""
+  BODY="Closes #1234"   # or "" when no issue is resolved
+  gh pr create --title "<generated title>" --body "$BODY"
   PR_NUM=$(gh pr view --json number --jq .number)
 else
   echo "PR #$PR_NUM already exists; leaving its body to CI."
@@ -130,9 +154,13 @@ If every row shows `pass`, say so explicitly. The user shouldn't have
 to scroll back to verify.
 
 ## What NOT to do
-- Don't author a PR body. The `claude-code-review` workflow owns the
-  description; anything written here duplicates or fights with it.
-- Don't overwrite or edit the body of an existing PR.
+- Don't author a PR summary. The `claude-code-review` workflow owns the
+  description; anything beyond a `Closes #N` line duplicates or fights with
+  it. The closing keyword is the only prose the skill writes.
+- Don't guess the issue number for `Closes #N`. Confirm it or ask; a wrong
+  number closes the wrong issue on merge.
+- Don't overwrite or edit the body of an existing PR — including to add a
+  `Closes #N` line. Hand that back to the user.
 - Don't push to `main` directly. Always operate on a feature branch.
 - Don't run `git push --force` unless the user explicitly asked.
 
