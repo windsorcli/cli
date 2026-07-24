@@ -6486,6 +6486,46 @@ func TestProcessor_ProcessFacets_Requires(t *testing.T) {
 		}
 	})
 
+	t.Run("FacetOwnConfigSatisfiesItsRequiresAcrossRounds", func(t *testing.T) {
+		// Given an active facet whose requires (sconf.ready) is satisfied only by its own config
+		// block, alongside another active facet that keeps the multi-pass loop running. The
+		// self-referencing facet is pending in round one; its config must still merge so the value
+		// lands in scope and satisfies the requires in round two. If the merge were gated behind
+		// the requires check, the value never appears and composition fails. This mirrors ../core's
+		// hetzner facet, which derives hetzner.token from env("HCLOUD_TOKEN") in its own config and
+		// requires hetzner.token — the guardrail for keeping the config merge ahead of the check.
+		mocks := setupProcessorMocks(t)
+		mocks.ConfigHandler.GetContextValuesFunc = func() (map[string]any, error) {
+			return map[string]any{"platform": "incus"}, nil
+		}
+		processor := NewBlueprintProcessor(mocks.Runtime)
+		target := &blueprintv1alpha1.Blueprint{}
+		facets := []blueprintv1alpha1.Facet{
+			{
+				Metadata: blueprintv1alpha1.Metadata{Name: "keeper"},
+				Ordinal:  intPtr(100),
+				When:     "platform == 'incus'",
+				Config: []blueprintv1alpha1.ConfigBlock{
+					{Name: "kconf", Body: map[string]any{"value": map[string]any{"ok": "yes"}}},
+				},
+			},
+			{
+				Metadata: blueprintv1alpha1.Metadata{Name: "selfref"},
+				Ordinal:  intPtr(200),
+				When:     "platform == 'incus'",
+				Requires: []blueprintv1alpha1.RequirementBlock{
+					{Paths: []string{"sconf.ready"}},
+				},
+				Config: []blueprintv1alpha1.ConfigBlock{
+					{Name: "sconf", Body: map[string]any{"value": map[string]any{"ready": "yes"}}},
+				},
+			},
+		}
+		if _, err := processor.ProcessFacets(target, facets); err != nil {
+			t.Fatalf("Expected facet's own config to satisfy its requires across rounds, got: %v", err)
+		}
+	})
+
 	t.Run("MessageRendersInNotesSection", func(t *testing.T) {
 		mocks := setupProcessorMocks(t)
 		mocks.ConfigHandler.GetContextValuesFunc = func() (map[string]any, error) {

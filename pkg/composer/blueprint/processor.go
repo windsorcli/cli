@@ -205,6 +205,9 @@ func facetProvides(facet blueprintv1alpha1.Facet) []string {
 // If sourceName is set, it updates Source on components lacking it. The target blueprint is modified in place.
 // Returns: evaluated config scope and block order for the loader. Runtime ConfigHandler context values are
 // merged over facet-derived scope so 'when' or component expressions use the actual config.
+// An active facet contributes its config blocks (not its components) even while its requires are unmet, so
+// facets with mutually dependent config and requires resolve across rounds; a facet still unsatisfied when the
+// loop settles fails composition, so a permanently-blocked facet never leaks config into a successful blueprint.
 func (p *BaseBlueprintProcessor) ProcessFacets(target *blueprintv1alpha1.Blueprint, facets []blueprintv1alpha1.Facet, sourceName ...string) (map[string]any, error) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -274,16 +277,16 @@ func (p *BaseBlueprintProcessor) ProcessFacets(target *blueprintv1alpha1.Bluepri
 			if err != nil {
 				return nil, err
 			}
-			if len(misses) > 0 {
-				pendingRequirements[facet.Metadata.Name] = facetRequirementMisses{Misses: misses}
-				continue
-			}
-			includedFacets = append(includedFacets, facet)
 			var errMerge error
 			globalScope, cfgEntries, errMerge = p.mergeFacetScopeIntoGlobal(facet, globalScope, cfgEntries, passScope)
 			if errMerge != nil {
 				return nil, fmt.Errorf("facet %s: %w", facet.Metadata.Name, errMerge)
 			}
+			if len(misses) > 0 {
+				pendingRequirements[facet.Metadata.Name] = facetRequirementMisses{Misses: misses}
+				continue
+			}
+			includedFacets = append(includedFacets, facet)
 		}
 		if err := p.evaluateGlobalScopeConfig(globalScope, contextScope); err != nil {
 			return nil, err
