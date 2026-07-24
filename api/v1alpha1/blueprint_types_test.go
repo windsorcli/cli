@@ -4014,6 +4014,32 @@ func TestBoolExpression_MarshalYAML(t *testing.T) {
 	})
 }
 
+func TestKustomization_MarshalYAML_OmitsEmptyName(t *testing.T) {
+	t.Run("UnnamedInlineFluxVariantEmitsNoName", func(t *testing.T) {
+		// Given a flux system whose install and resources variant have no explicit name
+		system := FluxSystem{
+			Name:      "cni",
+			Install:   &Kustomization{Components: []string{"helm"}},
+			Resources: []FluxVariant{{Kustomization: Kustomization{Components: []string{"cilium"}}}},
+		}
+
+		// When marshaled to YAML
+		out, err := yaml.Marshal(system)
+		if err != nil {
+			t.Fatalf("marshal: %v", err)
+		}
+
+		// Then the unnamed install and resources variant emit no blank name:, while the named
+		// system keeps its name
+		if strings.Contains(string(out), `name: ""`) {
+			t.Errorf("expected no empty name: in output, got:\n%s", out)
+		}
+		if !strings.Contains(string(out), "name: cni") {
+			t.Errorf("expected named system to keep its name, got:\n%s", out)
+		}
+	})
+}
+
 func TestIntExpression_MarshalYAML(t *testing.T) {
 	t.Run("PreservesExpressionInRoundTrip", func(t *testing.T) {
 		yamlData := []byte(`parallelism: "${cluster.parallelism ?? 10}"`)
