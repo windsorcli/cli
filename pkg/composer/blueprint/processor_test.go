@@ -1811,6 +1811,172 @@ func TestProcessor_ProcessFacets_ConfigBlockEvaluationOrder(t *testing.T) {
 	})
 }
 
+func TestProcessor_ProcessFacets_ConfigBlockReadsContextUnderOwnName(t *testing.T) {
+	// A config block's own name must not be a blind spot: keys the block does not define
+	// itself — schema defaults and operator-set values — stay readable from inside it.
+
+	t.Run("ReadsSchemaDefaultUnderOwnName", func(t *testing.T) {
+		// Given a context carrying the network.cidr_block schema default and a network block
+		// that does not set cidr_block itself
+		mocks := setupProcessorMocks(t)
+		mocks.ConfigHandler.GetContextValuesFunc = func() (map[string]any, error) {
+			return map[string]any{
+				"network": map[string]any{"cidr_block": "10.5.0.0/16"},
+			}, nil
+		}
+		processor := NewBlueprintProcessor(mocks.Runtime)
+		facets := []blueprintv1alpha1.Facet{
+			{
+				Metadata: blueprintv1alpha1.Metadata{Name: "platform-base"},
+				Config: []blueprintv1alpha1.ConfigBlock{
+					{Name: "network", Body: map[string]any{"value": map[string]any{
+						"loadbalancer_driver": "kube-vip",
+						"effective_cidr":      "${network.cidr_block}",
+					}}},
+				},
+			},
+		}
+
+		// When the facets are processed
+		scope, err := processor.ProcessFacets(&blueprintv1alpha1.Blueprint{}, facets)
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+
+		// Then the same-name read resolves against context rather than the block's partial value
+		network, ok := scope["network"].(map[string]any)
+		if !ok {
+			t.Fatalf("Expected network map, got %T", scope["network"])
+		}
+		if network["effective_cidr"] != "10.5.0.0/16" {
+			t.Errorf("Expected network.effective_cidr='10.5.0.0/16' from schema default, got %v", network["effective_cidr"])
+		}
+	})
+
+	t.Run("ReadsContextUnderOwnNameFromNestedValue", func(t *testing.T) {
+		// Given a network block whose nested loadbalancer_ips map reads network.cidr_block
+		mocks := setupProcessorMocks(t)
+		mocks.ConfigHandler.GetContextValuesFunc = func() (map[string]any, error) {
+			return map[string]any{
+				"network": map[string]any{"cidr_block": "10.5.0.0/16"},
+			}, nil
+		}
+		processor := NewBlueprintProcessor(mocks.Runtime)
+		facets := []blueprintv1alpha1.Facet{
+			{
+				Metadata: blueprintv1alpha1.Metadata{Name: "platform-base"},
+				Config: []blueprintv1alpha1.ConfigBlock{
+					{Name: "network", Body: map[string]any{"value": map[string]any{
+						"loadbalancer_ips": map[string]any{
+							"start": "${cidrhost(network.cidr_block, 266)}",
+							"end":   "${cidrhost(network.cidr_block, 356)}",
+						},
+					}}},
+				},
+			},
+		}
+
+		// When the facets are processed
+		scope, err := processor.ProcessFacets(&blueprintv1alpha1.Blueprint{}, facets)
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+
+		// Then both nested reads resolve
+		network, ok := scope["network"].(map[string]any)
+		if !ok {
+			t.Fatalf("Expected network map, got %T", scope["network"])
+		}
+		ips, ok := network["loadbalancer_ips"].(map[string]any)
+		if !ok {
+			t.Fatalf("Expected loadbalancer_ips map, got %T", network["loadbalancer_ips"])
+		}
+		if ips["start"] != "10.5.1.10" {
+			t.Errorf("Expected loadbalancer_ips.start='10.5.1.10', got %v", ips["start"])
+		}
+		if ips["end"] != "10.5.1.100" {
+			t.Errorf("Expected loadbalancer_ips.end='10.5.1.100', got %v", ips["end"])
+		}
+	})
+
+	t.Run("BlockValueWinsOverContextForSameKey", func(t *testing.T) {
+		// Given a block that sets the same key the context carries
+		mocks := setupProcessorMocks(t)
+		mocks.ConfigHandler.GetContextValuesFunc = func() (map[string]any, error) {
+			return map[string]any{
+				"network": map[string]any{"cidr_block": "10.5.0.0/16"},
+			}, nil
+		}
+		processor := NewBlueprintProcessor(mocks.Runtime)
+		facets := []blueprintv1alpha1.Facet{
+			{
+				Metadata: blueprintv1alpha1.Metadata{Name: "platform-base"},
+				Config: []blueprintv1alpha1.ConfigBlock{
+					{Name: "network", Body: map[string]any{"value": map[string]any{
+						"cidr_block": "10.9.0.0/16",
+						"loadbalancer_ips": map[string]any{
+							"start": "${cidrhost(network.cidr_block, 266)}",
+						},
+					}}},
+				},
+			},
+		}
+
+		// When the facets are processed
+		scope, err := processor.ProcessFacets(&blueprintv1alpha1.Blueprint{}, facets)
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+
+		// Then the block's own value wins over context for that key
+		network, ok := scope["network"].(map[string]any)
+		if !ok {
+			t.Fatalf("Expected network map, got %T", scope["network"])
+		}
+		if network["cidr_block"] != "10.9.0.0/16" {
+			t.Errorf("Expected block value to win, got %v", network["cidr_block"])
+		}
+		ips, ok := network["loadbalancer_ips"].(map[string]any)
+		if !ok {
+			t.Fatalf("Expected loadbalancer_ips map, got %T", network["loadbalancer_ips"])
+		}
+		if ips["start"] != "10.9.1.10" {
+			t.Errorf("Expected loadbalancer_ips.start derived from block value, got %v", ips["start"])
+		}
+	})
+
+	t.Run("ScalarBlockValueReplacesContextValue", func(t *testing.T) {
+		// Given a block whose value is a scalar rather than a map, there is nothing to merge
+		mocks := setupProcessorMocks(t)
+		mocks.ConfigHandler.GetContextValuesFunc = func() (map[string]any, error) {
+			return map[string]any{
+				"network": map[string]any{"cidr_block": "10.5.0.0/16"},
+				"ha":      false,
+			}, nil
+		}
+		processor := NewBlueprintProcessor(mocks.Runtime)
+		facets := []blueprintv1alpha1.Facet{
+			{
+				Metadata: blueprintv1alpha1.Metadata{Name: "platform-base"},
+				Config: []blueprintv1alpha1.ConfigBlock{
+					{Name: "network", Body: map[string]any{"value": "10.5.0.0/16"}},
+				},
+			},
+		}
+
+		// When the facets are processed
+		scope, err := processor.ProcessFacets(&blueprintv1alpha1.Blueprint{}, facets)
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+
+		// Then the scalar stands on its own
+		if scope["network"] != "10.5.0.0/16" {
+			t.Errorf("Expected scalar block value preserved, got %#v", scope["network"])
+		}
+	})
+}
+
 func TestProcessor_ProcessFacets_ConfigDeferredValues(t *testing.T) {
 	t.Run("DeferredConfigBlockValuePreservesExpressionInSubstitution", func(t *testing.T) {
 		// Given a config block with a deferred helper and a substitution that

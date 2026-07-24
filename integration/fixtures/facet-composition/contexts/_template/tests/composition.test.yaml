@@ -85,6 +85,23 @@ cases:
     - name: lb-colima
       path: lb/colima
 
+# A config block's own name must not shadow the context value it was built from:
+# provider-colima writes a `network` block deriving lb_range_start from network.cidr_block.
+# Without the fix the block's partial value replaces context after the first evaluation
+# pass, cidr_block resolves to nil and composition fails inside cidrhost().
+- name: block_reads_context_under_own_name
+  values:
+    provider: docker
+    cluster:
+      driver: talos
+    workstation:
+      runtime: colima
+    network: *default-network
+  expect:
+    kustomize:
+    - name: lb-colima-direct
+      path: lb/colima-direct
+
 # Ordinal: option-ordinal-override (300) runs after provider-base (199). Same-name kustomization
 # policy-base is replaced (strategy: replace), so path comes from higher ordinal.
 - name: higher_ordinal_replace_wins
