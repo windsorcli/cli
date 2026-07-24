@@ -323,9 +323,10 @@ func (v *ColimaVirt) getDefaultValues(context string) (int, int, int, string, st
 
 // calculateVMResources calculates the required CPU and memory for the Colima VM
 // based on cluster node topology and overhead. Explicit values from config take precedence;
-// when unset (0), topology-aware defaults are applied: a single controlplane with no workers
-// gets larger resources since it handles everything, while a CP/worker split uses smaller CP
-// resources. Fixed overhead covers the Ubuntu VM base system and Docker services.
+// when unset, topology-aware defaults are applied: control-plane count defaults to 1 when the key is
+// absent (the generic config resolver no longer synthesizes it) while an explicit count is honored, a
+// single controlplane with no workers gets larger resources since it handles everything, and a
+// CP/worker split uses smaller CP resources. Fixed overhead covers the VM base and services.
 // Warns if calculated resources exceed available host resources.
 // Returns calculated CPU count and memory in GB.
 func (v *ColimaVirt) calculateVMResources() (int, int) {
@@ -337,7 +338,7 @@ func (v *ColimaVirt) calculateVMResources() (int, int) {
 		hostMemoryReserveGB        = 4
 	)
 
-	controlPlaneCount := v.configHandler.GetInt("cluster.controlplanes.count", 0)
+	controlPlaneCount := v.configHandler.GetInt("cluster.controlplanes.count", 1)
 	controlPlaneCPU := v.configHandler.GetInt("cluster.controlplanes.cpu", 0)
 	controlPlaneMemory := v.configHandler.GetInt("cluster.controlplanes.memory", 0)
 

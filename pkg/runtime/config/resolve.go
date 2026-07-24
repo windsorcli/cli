@@ -2,7 +2,6 @@ package config
 
 import (
 	"runtime"
-	"strconv"
 	"strings"
 )
 
@@ -38,7 +37,6 @@ func (c *configHandler) GetContextValues() (map[string]any, error) {
 	c.applyPlatformDerivedDefaults(result)
 	c.applyWorkstationDefaults(result)
 	c.ensureClusterStructure(result)
-	c.applyClusterTopologyDefaults(result)
 
 	return result, nil
 }
@@ -135,96 +133,3 @@ func (c *configHandler) ensureClusterStructure(values map[string]any) {
 	}
 }
 
-// applyClusterTopologyDefaults computes count and schedulable defaults from explicit values and node shape.
-func (c *configHandler) applyClusterTopologyDefaults(values map[string]any) {
-	clusterMap, ok := values["cluster"].(map[string]any)
-	if !ok || clusterMap == nil {
-		return
-	}
-	controlplanesMap, controlplanesOK := clusterMap["controlplanes"].(map[string]any)
-	workersMap, workersOK := clusterMap["workers"].(map[string]any)
-	if !controlplanesOK || controlplanesMap == nil || !workersOK || workersMap == nil {
-		return
-	}
-
-	hasExplicitControlplaneCount := hasValueAtPath(c.data, []string{"cluster", "controlplanes", "count"})
-	controlplaneCount, hasControlplaneCount := getMapInt(values, "cluster.controlplanes.count")
-	if !hasExplicitControlplaneCount || !hasControlplaneCount {
-		if derivedCount, derived := getExplicitNodeCountFromData(c.data, []string{"cluster", "controlplanes", "nodes"}); derived {
-			controlplaneCount = derivedCount
-		} else {
-			controlplaneCount = 1
-		}
-		controlplanesMap["count"] = controlplaneCount
-	}
-
-	hasExplicitWorkersCount := hasValueAtPath(c.data, []string{"cluster", "workers", "count"})
-	workersCount, hasWorkersCount := getMapInt(values, "cluster.workers.count")
-	if !hasExplicitWorkersCount || !hasWorkersCount {
-		if derivedCount, derived := getExplicitNodeCountFromData(c.data, []string{"cluster", "workers", "nodes"}); derived {
-			workersCount = derivedCount
-			workersMap["count"] = workersCount
-		} else {
-			// Leave workers.count unset (nil) so a facet can default it via `?? N`; writing a
-			// zero-value here would be indistinguishable from an explicit 0 and would also clobber
-			// any schema default. workersCount stays 0 locally only for the schedulable derivation.
-			workersCount = 0
-		}
-	}
-
-	schedulable, hasSchedulable := controlplanesMap["schedulable"].(bool)
-	hasExplicitSchedulable := hasValueAtPath(c.data, []string{"cluster", "controlplanes", "schedulable"})
-	if !hasSchedulable || !hasExplicitSchedulable {
-		schedulable = workersCount == 0 && controlplaneCount == 1
-		controlplanesMap["schedulable"] = schedulable
-	}
-}
-
-// getExplicitNodeCountFromData returns node map length only when nodes were explicitly provided in loaded config data.
-func getExplicitNodeCountFromData(data map[string]any, pathKeys []string) (int, bool) {
-	if !hasValueAtPath(data, pathKeys) {
-		return 0, false
-	}
-	nodesAny := getValueByPathFromMap(data, pathKeys)
-	nodes, ok := nodesAny.(map[string]any)
-	if !ok {
-		return 0, true
-	}
-	return len(nodes), true
-}
-
-// getMapInt returns an int value from a map key path with permissive numeric conversion.
-func getMapInt(data map[string]any, path string) (int, bool) {
-	value := getValueByPathFromMap(data, parsePath(path))
-	if value == nil {
-		return 0, false
-	}
-	switch v := value.(type) {
-	case int:
-		return v, true
-	case int64:
-		maxInt := int64(^uint(0) >> 1)
-		minInt := -maxInt - 1
-		if v > maxInt || v < minInt {
-			return 0, false
-		}
-		return int(v), true
-	case uint64:
-		if v > uint64(^uint(0)>>1) {
-			return 0, false
-		}
-		return int(v), true
-	case uint:
-		if v > uint(^uint(0)>>1) {
-			return 0, false
-		}
-		return int(v), true
-	case float64:
-		return int(v), true
-	case string:
-		if parsed, err := strconv.Atoi(v); err == nil {
-			return parsed, true
-		}
-	}
-	return 0, false
-}
