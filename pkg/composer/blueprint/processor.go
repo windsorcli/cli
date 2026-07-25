@@ -41,6 +41,7 @@ var strategyPrecedence = map[string]int{
 // scopes from multiple loaders (e.g. for user overlay and final terraform input evaluation).
 type BlueprintProcessor interface {
 	ProcessFacets(target *blueprintv1alpha1.Blueprint, facets []blueprintv1alpha1.Facet, sourceName ...string) (scope map[string]any, err error)
+	ProcessGlobally(sources []SourceFacetSet) (map[string]any, error)
 }
 
 // =============================================================================
@@ -220,15 +221,7 @@ func (p *BaseBlueprintProcessor) ProcessFacets(target *blueprintv1alpha1.Bluepri
 		return nil, nil
 	}
 
-	var contextScope map[string]any
-	if p.runtime != nil && p.runtime.ConfigHandler != nil {
-		if vals, err := p.runtime.ConfigHandler.GetContextValues(); err == nil {
-			contextScope = vals
-		}
-	}
-	if p.extraScope != nil {
-		contextScope = MergeScopeMaps(contextScope, p.extraScope)
-	}
+	contextScope := p.buildContextScope()
 
 	sortedFacets := make([]blueprintv1alpha1.Facet, len(facets))
 	copy(sortedFacets, facets)
@@ -248,6 +241,88 @@ func (p *BaseBlueprintProcessor) ProcessFacets(target *blueprintv1alpha1.Bluepri
 	if err := p.emitFacetComponents(target, includedFacets, scope, sourceName...); err != nil {
 		return nil, err
 	}
+	return globalScope, nil
+}
+
+// buildContextScope returns the operator/schema context values merged with any injected extra scope.
+func (p *BaseBlueprintProcessor) buildContextScope() map[string]any {
+	var contextScope map[string]any
+	if p.runtime != nil && p.runtime.ConfigHandler != nil {
+		if vals, err := p.runtime.ConfigHandler.GetContextValues(); err == nil {
+			contextScope = vals
+		}
+	}
+	if p.extraScope != nil {
+		contextScope = MergeScopeMaps(contextScope, p.extraScope)
+	}
+	return contextScope
+}
+
+// SourceFacetSet is one source's contribution to global composition: its name, its dependency depth
+// (deeper/referencing sources override shallower ones), the blueprint to emit its components into, and
+// its facets.
+type SourceFacetSet struct {
+	Name   string
+	Depth  int
+	Target *blueprintv1alpha1.Blueprint
+	Facets []blueprintv1alpha1.Facet
+}
+
+// ProcessGlobally resolves config and facet inclusion once across every source's facets, then emits
+// each source's included components into its own target blueprint. Facets are ranked by a
+// depth-adjusted ordinal so a deeper source's config wins over a shallower one's for the same key,
+// while derivations resolve against the final merged scope and an upstream facet's when: sees a
+// downstream source's config. Returns the resolved global scope.
+func (p *BaseBlueprintProcessor) ProcessGlobally(sources []SourceFacetSet) (map[string]any, error) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.deferredPaths = make(map[string]bool)
+
+	contextScope := p.buildContextScope()
+
+	// sourceOrdinalStride separates source-depth bands so depth dominates facet ordinal: a deeper
+	// source's lowest-ordinal facet still outranks a shallower source's highest-ordinal facet.
+	const sourceOrdinalStride = 1_000_000
+	var combined []blueprintv1alpha1.Facet
+	for _, src := range sources {
+		for _, f := range src.Facets {
+			fc := f
+			fc.Source = src.Name
+			eff := resolvedFacetOrdinal(f) + src.Depth*sourceOrdinalStride
+			fc.Ordinal = &eff
+			combined = append(combined, fc)
+		}
+	}
+	if len(combined) == 0 {
+		return nil, nil
+	}
+	sort.Slice(combined, func(i, j int) bool {
+		oi, oj := resolvedFacetOrdinal(combined[i]), resolvedFacetOrdinal(combined[j])
+		if oi != oj {
+			return oi < oj
+		}
+		return combined[i].Metadata.Name < combined[j].Metadata.Name
+	})
+
+	globalScope, scope, included, err := p.resolveConfigAndInclusion(combined, contextScope)
+	if err != nil {
+		return nil, err
+	}
+
+	includedBySource := make(map[string][]blueprintv1alpha1.Facet)
+	for _, f := range included {
+		includedBySource[f.Source] = append(includedBySource[f.Source], f)
+	}
+	for _, src := range sources {
+		facets := includedBySource[src.Name]
+		if len(facets) == 0 {
+			continue
+		}
+		if err := p.emitFacetComponents(src.Target, facets, scope, src.Name); err != nil {
+			return nil, err
+		}
+	}
+
 	return globalScope, nil
 }
 

@@ -954,38 +954,46 @@ func (h *BaseBlueprintHandler) processAndCompose() error {
 		concrete.ResetExcludedFacets()
 	}
 
-	// Process sources in dependency order (a source before any source that lists it), threading the
-	// scope accumulated so far into each source's facet evaluation. A downstream source can then read
-	// config an upstream source derived, rather than each source seeing only raw context values.
+	// Resolve config and facet inclusion once across every source, then emit each source's components.
+	// Sources are ranked by dependency depth so a deeper (referencing) source's config wins over a
+	// shallower one's for the same key, and an upstream facet's when: sees a downstream source's config.
 	userLoaderName := ""
 	if h.userBlueprintLoader != nil {
 		userLoaderName = loaderNames[h.userBlueprintLoader]
 	}
-	var errs []error
-	var accumulatedScope map[string]any
-	for _, loader := range orderLoadersByDependency(loadersToProcess, loaderNames, userLoaderName) {
-		name := loaderNames[loader]
-		if bp, ok := h.processor.(*BaseBlueprintProcessor); ok {
-			bp.SetExtraScope(MergeScopeMaps(repositoryScope, accumulatedScope))
-		}
-		scope, err := h.processLoader(loader)
-		if err != nil {
-			var reqErr *RequirementsError
-			if errors.As(err, &reqErr) {
-				errs = append(errs, err)
-			} else {
-				errs = append(errs, fmt.Errorf("failed to process facets for '%s': %w", name, err))
-			}
+	if concrete, ok := h.processor.(*BaseBlueprintProcessor); ok {
+		concrete.SetExtraScope(repositoryScope)
+	}
+	var sourceSets []SourceFacetSet
+	for depth, loader := range orderLoadersByDependency(loadersToProcess, loaderNames, userLoaderName) {
+		facets := loader.GetFacets()
+		if len(facets) == 0 {
 			continue
 		}
-		if scope != nil {
-			collectedScopes[name] = scope
-			accumulatedScope = MergeScopeMaps(accumulatedScope, scope)
-		}
+		sourceSets = append(sourceSets, SourceFacetSet{
+			Name:   loaderNames[loader],
+			Depth:  depth,
+			Target: loader.GetBlueprint(),
+			Facets: facets,
+		})
 	}
-
-	if len(errs) > 0 {
-		return errors.Join(errs...)
+	globalScope, err := h.processor.ProcessGlobally(sourceSets)
+	if err != nil {
+		var reqErr *RequirementsError
+		if errors.As(err, &reqErr) {
+			return err
+		}
+		return fmt.Errorf("failed to process facets: %w", err)
+	}
+	if concrete, ok := h.processor.(*BaseBlueprintProcessor); ok {
+		h.deferredPathsMu.Lock()
+		for path := range concrete.GetDeferredPaths() {
+			h.deferredPaths[path] = true
+		}
+		h.deferredPathsMu.Unlock()
+	}
+	for _, src := range sourceSets {
+		collectedScopes[src.Name] = globalScope
 	}
 
 	initLoaderNames := make([]string, 0, len(h.initBlueprintURLs))
@@ -1180,33 +1188,6 @@ func orderLoadersByDependency(loaders []BlueprintLoader, names map[BlueprintLoad
 	return order
 }
 
-// processLoader evaluates all facets from a single blueprint loader.
-// Facets with 'when' conditions are evaluated, and only matching facets contribute their
-// terraform components and kustomizations. The loader's source name is passed to the processor
-// to set the Source field on facet-derived components. Facets are processed directly against
-// the loader's blueprint, modifying it in place. Returns the evaluated config scope for this
-// loader so the handler can merge scopes from all loaders.
-func (h *BaseBlueprintHandler) processLoader(loader BlueprintLoader) (map[string]any, error) {
-	facets := loader.GetFacets()
-	if len(facets) == 0 {
-		return nil, nil
-	}
-
-	sourceName := loader.GetSourceName()
-	bp := loader.GetBlueprint()
-	scope, err := h.processor.ProcessFacets(bp, facets, sourceName)
-	if err != nil {
-		return nil, err
-	}
-	if concrete, ok := h.processor.(*BaseBlueprintProcessor); ok {
-		h.deferredPathsMu.Lock()
-		for path := range concrete.GetDeferredPaths() {
-			h.deferredPaths[path] = true
-		}
-		h.deferredPathsMu.Unlock()
-	}
-	return scope, nil
-}
 
 // getConfigValues retrieves the current context's configuration values from the ConfigHandler.
 // These values are used during facet evaluation to determine which facets should be included

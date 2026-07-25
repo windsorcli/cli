@@ -73,6 +73,10 @@ type Facet struct {
 	// This is used for resolving relative paths in jsonnet() and file() functions.
 	Path string `yaml:"-"`
 
+	// Source names the blueprint source this facet came from. Set transiently during composition so a
+	// globally-resolved facet can be emitted back into its own source's blueprint; never serialized.
+	Source string `yaml:"-"`
+
 	// Ordinal guides the order in which this facet is applied relative to others. Higher ordinal means higher precedence when merging.
 	// When nil, the loader derives ordinal from the facet file basename (e.g. config-* 100, provider-base/platform-base 199, provider-/platform- 200, options- 300, addon-/addons- 400).
 	Ordinal *int `yaml:"ordinal,omitempty"`
@@ -357,6 +361,7 @@ func (f *Facet) DeepCopy() *Facet {
 		ApiVersion:          f.ApiVersion,
 		Metadata:            metadataCopy,
 		Path:                f.Path,
+		Source:              f.Source,
 		Ordinal:             ordinalCopy,
 		When:                f.When,
 		Backend:             f.Backend,

@@ -51,6 +51,10 @@ func (explainTestProcessor) ProcessFacets(target *blueprintv1alpha1.Blueprint, f
 	return nil, nil
 }
 
+func (explainTestProcessor) ProcessGlobally(sources []SourceFacetSet) (map[string]any, error) {
+	return nil, nil
+}
+
 // =============================================================================
 // Test Public Methods
 // =============================================================================
