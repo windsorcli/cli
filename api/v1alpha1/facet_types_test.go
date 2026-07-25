@@ -142,6 +142,31 @@ func TestFacetDeepCopy(t *testing.T) {
 		}
 	})
 
+	t.Run("PreservesMessagesIndependently", func(t *testing.T) {
+		// Given a facet carrying post-run messages
+		original := &Facet{
+			Metadata: Metadata{Name: "test-facet"},
+			Messages: []Message{
+				{When: "dns.public_domain != ''", Text: "delegate ${dns.public_domain}"},
+			},
+		}
+
+		// When deep-copied and the original mutated
+		copy := original.DeepCopy()
+		original.Messages[0].Text = "mutated"
+
+		// Then the copy's message slice is independent
+		if len(copy.Messages) != 1 {
+			t.Fatalf("Expected 1 message, got %d", len(copy.Messages))
+		}
+		if copy.Messages[0].Text != "delegate ${dns.public_domain}" {
+			t.Errorf("Deep copy failed: message text was not copied independently, got %q", copy.Messages[0].Text)
+		}
+		if copy.Messages[0].When != "dns.public_domain != ''" {
+			t.Errorf("Expected message when preserved, got %q", copy.Messages[0].When)
+		}
+	})
+
 	t.Run("PreservesRequiresIndependently", func(t *testing.T) {
 		original := &Facet{
 			Metadata: Metadata{Name: "test-facet"},

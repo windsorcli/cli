@@ -512,6 +512,25 @@ properties:
       Standalone ConfigMaps to create. Each top-level key is a ConfigMap name;
       its map-of-string value is the .data payload. These are referenced by
       every kustomization in PostBuild substitution.
+  messages:
+    type: array
+    items:
+      type: object
+      required:
+        - text
+      additionalProperties: false
+      properties:
+        when:
+          type: string
+          description: Optional expression gating whether this message renders. Empty means always.
+        text:
+          type: string
+          description: The message body, expression-evaluated against composed scope.
+    description: |
+      Operator-facing post-run notes contributed by active facets. Carried as
+      raw when/text templates through composition; GenerateResolved evaluates
+      each against composed scope, keeping only when-true entries with
+      interpolated text for the command to print at the end of a run.
 $defs:
   reference:
     type: object

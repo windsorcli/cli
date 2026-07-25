@@ -2302,6 +2302,101 @@ func TestProcessor_ProcessFacets_ConfigDeferredValues(t *testing.T) {
 	})
 }
 
+func TestProcessor_ProcessFacets_Messages(t *testing.T) {
+	t.Run("CollectsMessagesFromIncludedFacetsInOrder", func(t *testing.T) {
+		// Given two included facets with post-run messages, ordered by ordinal
+		mocks := setupProcessorMocks(t)
+		mocks.ConfigHandler.GetContextValuesFunc = func() (map[string]any, error) { return map[string]any{}, nil }
+		processor := NewBlueprintProcessor(mocks.Runtime)
+		target := &blueprintv1alpha1.Blueprint{}
+		low, high := 100, 200
+		facets := []blueprintv1alpha1.Facet{
+			{
+				Metadata: blueprintv1alpha1.Metadata{Name: "high"},
+				Ordinal:  &high,
+				Messages: []blueprintv1alpha1.Message{{Text: "second"}},
+			},
+			{
+				Metadata: blueprintv1alpha1.Metadata{Name: "low"},
+				Ordinal:  &low,
+				Messages: []blueprintv1alpha1.Message{{Text: "first"}},
+			},
+		}
+
+		// When processing
+		if _, err := processor.ProcessFacets(target, facets); err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+
+		// Then messages carry through as raw templates in ordinal order
+		if len(target.Messages) != 2 {
+			t.Fatalf("Expected 2 messages, got %d: %v", len(target.Messages), target.Messages)
+		}
+		if target.Messages[0].Text != "first" || target.Messages[1].Text != "second" {
+			t.Errorf("Expected [first, second] by ordinal, got [%q, %q]", target.Messages[0].Text, target.Messages[1].Text)
+		}
+	})
+
+	t.Run("ExcludedFacetContributesNoMessages", func(t *testing.T) {
+		// Given a facet gated out by its when: condition
+		mocks := setupProcessorMocks(t)
+		mocks.ConfigHandler.GetContextValuesFunc = func() (map[string]any, error) {
+			return map[string]any{"platform": "aws"}, nil
+		}
+		processor := NewBlueprintProcessor(mocks.Runtime)
+		target := &blueprintv1alpha1.Blueprint{}
+		facets := []blueprintv1alpha1.Facet{
+			{
+				Metadata: blueprintv1alpha1.Metadata{Name: "docker-only"},
+				When:     "platform == 'docker'",
+				Messages: []blueprintv1alpha1.Message{{Text: "docker note"}},
+			},
+		}
+
+		// When processing
+		if _, err := processor.ProcessFacets(target, facets); err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+
+		// Then the excluded facet's message does not leak into the blueprint
+		if len(target.Messages) != 0 {
+			t.Errorf("Expected no messages from excluded facet, got %v", target.Messages)
+		}
+	})
+
+	t.Run("RawTemplatesCarryThroughUnevaluated", func(t *testing.T) {
+		// Given a message whose text is an expression template
+		mocks := setupProcessorMocks(t)
+		mocks.ConfigHandler.GetContextValuesFunc = func() (map[string]any, error) { return map[string]any{}, nil }
+		processor := NewBlueprintProcessor(mocks.Runtime)
+		target := &blueprintv1alpha1.Blueprint{}
+		facets := []blueprintv1alpha1.Facet{
+			{
+				Metadata: blueprintv1alpha1.Metadata{Name: "dns"},
+				Messages: []blueprintv1alpha1.Message{
+					{When: "dns.public_domain != ''", Text: "Delegate ${terraform_output('dns-zone', 'nameservers')}"},
+				},
+			},
+		}
+
+		// When processing
+		if _, err := processor.ProcessFacets(target, facets); err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+
+		// Then the template is carried through verbatim for GenerateResolved to render later
+		if len(target.Messages) != 1 {
+			t.Fatalf("Expected 1 message, got %d", len(target.Messages))
+		}
+		if target.Messages[0].When != "dns.public_domain != ''" {
+			t.Errorf("Expected when carried raw, got %q", target.Messages[0].When)
+		}
+		if target.Messages[0].Text != "Delegate ${terraform_output('dns-zone', 'nameservers')}" {
+			t.Errorf("Expected text carried raw, got %q", target.Messages[0].Text)
+		}
+	})
+}
+
 func TestProcessor_ProcessFacets_Substitutions(t *testing.T) {
 	t.Run("CollectsStaticFacetSubstitutionsIntoTarget", func(t *testing.T) {
 		// Given a facet with top-level substitutions

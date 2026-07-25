@@ -409,6 +409,9 @@ func (h *BaseBlueprintHandler) GenerateResolved() (*blueprintv1alpha1.Blueprint,
 	resolved := bp.DeepCopy()
 	h.composedBlueprint = resolved
 	err := h.resolveDeferredSubstitutions()
+	if err == nil {
+		err = h.resolveMessages()
+	}
 	h.composedBlueprint = bp
 	if err != nil {
 		return nil, err
@@ -545,6 +548,48 @@ func (h *BaseBlueprintHandler) resolveDeferred(expr string) (string, error) {
 		return str, nil
 	}
 	return fmt.Sprintf("%v", resolved), nil
+}
+
+// resolveMessages renders the composed blueprint's post-run messages against the resolved scope,
+// where run values (e.g. terraform_output) are available. Each message's optional When is evaluated
+// as a boolean gate — a message whose When is false or non-boolean is dropped — and its Text is
+// interpolated. Only kept messages carry through, with When cleared (it has served its purpose) and
+// Text replaced by the rendered result. Rendered text is deduplicated so multiple active facets
+// emitting the same note surface it once, preserving included-facet order. Evaluation errors are
+// surfaced at generate time, before anything reaches the operator or the cluster.
+func (h *BaseBlueprintHandler) resolveMessages() error {
+	if h.runtime == nil || h.runtime.Evaluator == nil || h.composedBlueprint == nil {
+		return nil
+	}
+	bp := h.composedBlueprint
+	if len(bp.Messages) == 0 {
+		return nil
+	}
+
+	rendered := make([]blueprintv1alpha1.Message, 0, len(bp.Messages))
+	seen := make(map[string]bool)
+	for _, msg := range bp.Messages {
+		if msg.When != "" {
+			cond, err := h.runtime.Evaluator.Evaluate("${"+msg.When+"}", "", h.composedScope, true)
+			if err != nil {
+				return fmt.Errorf("message when %q: %w", msg.When, err)
+			}
+			if b, ok := cond.(bool); !ok || !b {
+				continue
+			}
+		}
+		text, err := h.resolveDeferred(msg.Text)
+		if err != nil {
+			return fmt.Errorf("message text %q: %w", msg.Text, err)
+		}
+		if text == "" || seen[text] {
+			continue
+		}
+		seen[text] = true
+		rendered = append(rendered, blueprintv1alpha1.Message{Text: text})
+	}
+	bp.Messages = rendered
+	return nil
 }
 
 // deriveConfigMapDeferredPaths propagates deferred status to ConfigMap entries that inherited

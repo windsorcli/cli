@@ -359,6 +359,11 @@ type Blueprint struct {
 	// ConfigMaps are standalone ConfigMaps to be created, not tied to specific kustomizations.
 	// These ConfigMaps are referenced by all kustomizations in PostBuild substitution.
 	ConfigMaps map[string]map[string]string `yaml:"configMaps,omitempty"`
+
+	// Messages are operator-facing post-run notes contributed by active facets. They carry raw
+	// text/when templates through composition; GenerateResolved evaluates each against composed
+	// scope, keeping only the when-true entries with interpolated text for the command to print.
+	Messages []Message `yaml:"messages,omitempty"`
 }
 
 // CrdKustomizationName returns the name of the kustomization the provisioner synthesizes for a CRD
@@ -843,6 +848,7 @@ func (b *Blueprint) DeepCopy() *Blueprint {
 		FluxSystems:         fluxSystemsCopy,
 		Substitutions:       maps.Clone(b.Substitutions),
 		ConfigMaps:          configMapsCopy,
+		Messages:            slices.Clone(b.Messages),
 	}
 }
 
@@ -950,6 +956,14 @@ func (b *Blueprint) StrategicMerge(overlays ...*Blueprint) error {
 					b.ConfigMaps[name] = make(map[string]string)
 				}
 				maps.Copy(b.ConfigMaps[name], data)
+			}
+		}
+
+		// Post-run messages accumulate across overlays, preserving order; identical (when, text)
+		// entries are dropped so the same note contributed by multiple sources surfaces once.
+		for _, overlayMsg := range overlay.Messages {
+			if !slices.ContainsFunc(b.Messages, func(m Message) bool { return m == overlayMsg }) {
+				b.Messages = append(b.Messages, overlayMsg)
 			}
 		}
 	}

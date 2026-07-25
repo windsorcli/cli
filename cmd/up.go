@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/spf13/cobra"
+	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
 	"github.com/windsorcli/cli/pkg/project"
 	"github.com/windsorcli/cli/pkg/provisioner/stacklock"
 	"github.com/windsorcli/cli/pkg/runtime/tools"
@@ -108,6 +109,7 @@ windsor up --blueprint=ghcr.io/myorg/blueprint:v1.0.0`,
 		}
 
 		var halted bool
+		var postRunMessages []blueprintv1alpha1.Message
 		if err := stacklock.With(cmd.Context(), proj.Runtime, "up", func() error {
 			_, h, err := proj.Up()
 			if err != nil {
@@ -133,6 +135,9 @@ windsor up --blueprint=ghcr.io/myorg/blueprint:v1.0.0`,
 				return fmt.Errorf("error installing blueprint: %w", err)
 			}
 
+			// Capture post-run messages to print as an end-of-run summary, mirroring bootstrap.
+			postRunMessages = blueprint.Messages
+
 			if waitFlag {
 				if err := proj.Provisioner.Wait(cmd.Context(), blueprint); err != nil {
 					return fmt.Errorf("error waiting for kustomizations: %w", err)
@@ -147,6 +152,7 @@ windsor up --blueprint=ghcr.io/myorg/blueprint:v1.0.0`,
 			fmt.Fprintln(os.Stderr, "Windsor environment set up successfully.")
 		}
 		printDeferredWork(os.Stderr, proj.Workstation.DeferredWork(), runtime.GOOS)
+		printPostRunMessages(os.Stderr, postRunMessages)
 		return nil
 	},
 }
