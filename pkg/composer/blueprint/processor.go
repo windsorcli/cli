@@ -709,10 +709,7 @@ func (p *BaseBlueprintProcessor) evaluateGlobalScopeConfig(globalScope map[strin
 					}
 					nonDerivedBody[k] = v
 				}
-				evaluated, err := p.evaluator.EvaluateMap(nonDerivedBody, "", scopeWithBlock, false)
-				if err != nil {
-					return fmt.Errorf("config block %q: %w", name, err)
-				}
+				evaluated := p.evaluateBlockBodyTolerant(nonDerivedBody, scopeWithBlock)
 				if normalized, ok := normalizeDeferredValue(evaluated).(map[string]any); ok {
 					evaluated = normalized
 				}
@@ -766,6 +763,28 @@ func (p *BaseBlueprintProcessor) evaluateGlobalScopeConfig(globalScope map[strin
 		}
 	}
 	return nil
+}
+
+// evaluateBlockBodyTolerant evaluates each top-level key of a config block body independently against
+// scope, keeping a key that fails to evaluate at its raw value rather than aborting the whole body.
+// EvaluateMap fails the entire map atomically on the first key error and returns nothing, which would
+// discard siblings that did resolve; a key referencing a sibling not yet present in scope (e.g.
+// `${identity_effective.issuer + '/auth'}` before issuer has resolved) would then abort the block on
+// the first stabilization pass, before the multi-pass loop and resolve pass can feed the resolved
+// sibling back in. Keeping the raw value lets a later pass resolve it once its dependency is available;
+// a genuinely unresolvable key stays raw and is deferred, matching the resolve pass's own tolerance.
+// A DeferredError is already handled inside EvaluateMap (the value is kept raw), so it is not an error here.
+func (p *BaseBlueprintProcessor) evaluateBlockBodyTolerant(body map[string]any, scope map[string]any) map[string]any {
+	evaluated := make(map[string]any, len(body))
+	for k, v := range body {
+		one, err := p.evaluator.EvaluateMap(map[string]any{k: v}, "", scope, false)
+		if err != nil {
+			evaluated[k] = v
+			continue
+		}
+		evaluated[k] = one[k]
+	}
+	return evaluated
 }
 
 // evaluateConfigBlockValue recursively evaluates a config block value (scalar, list, or map) so that

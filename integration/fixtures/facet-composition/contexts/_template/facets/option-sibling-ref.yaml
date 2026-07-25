@@ -1,0 +1,22 @@
+kind: Facet
+apiVersion: blueprints.windsorcli.dev/v1alpha1
+metadata:
+  name: option-sibling-ref
+  description: A config block whose value derives one key from a sibling key in the same block via a non-call operator; must resolve at compose time rather than erroring on nil.
+
+config:
+- name: identity_effective
+  value:
+    issuer: "https://id.local"
+    auth_url: "${identity_effective.issuer + '/protocol/openid-connect/auth'}"
+
+kustomize:
+
+# Gated on the sibling-derived value. Present only if auth_url resolved from issuer at compose
+# time rather than erroring on <nil> or being left unresolved.
+- name: sibling-ref-marker
+  path: sibling-ref/marker
+  when: identity_effective.auth_url == 'https://id.local/protocol/openid-connect/auth'
+  components: []
+  timeout: 5m
+  interval: 5m
