@@ -55,6 +55,7 @@ variable substitutions shared across them.
 | Field | Type | Description |
 |------|------|-------------|
 | `components` | `array<string>` | Kustomize components to compose into the install tier. |
+| `decryption` | `object` | In-cluster decryption for this tier's manifests, mapping to Flux's spec.decryption. Set provider (e.g. 'sops') and a secretRef naming the in-cluster key Secret. |
 | `destroy` | `boolean / string` | Whether to delete this tier during 'windsor down'. Boolean or expression. Defaults to true. |
 | `destroyOnly` | `boolean` | When true, this tier only runs during destroy operations. |
 | `enabled` | `boolean / string` | Whether to include this tier in the final blueprint. Boolean or expression. Defaults to true. |
@@ -71,6 +72,19 @@ variable substitutions shared across them.
 | `timeout` | `string` | Maximum duration for a single reconciliation attempt. Defaults to 10m. |
 | `wait` | `boolean` | Wait for resources to settle before declaring reconciliation complete. |
 
+#### flux[].install.decryption
+
+| Field | Type | Description |
+|------|------|-------------|
+| `provider` | `string` | Decryption backend, e.g. 'sops'. |
+| `secretRef` | `object` | Names the in-cluster Secret holding the decryption key. |
+
+#### flux[].install.decryption.secretRef
+
+| Field | Type | Description |
+|------|------|-------------|
+| `name` | `string` | The Secret's name, resolved in the tier's namespace. |
+
 #### flux[].install.patches[]
 
 | Field | Type | Description |
@@ -84,6 +98,7 @@ variable substitutions shared across them.
 | Field | Type | Description |
 |------|------|-------------|
 | `components` | `array<string>` | Kustomize components to compose into this variant. |
+| `decryption` | `object` | In-cluster decryption for this variant's manifests, mapping to Flux's spec.decryption. Set provider (e.g. 'sops') and a secretRef naming the in-cluster key Secret. |
 | `dependsOn` | `array<string>` | Extra cross-layer edges, appended to the implicit install edge. |
 | `destroy` | `boolean / string` | Whether to delete this variant during 'windsor down'. Boolean or expression. Defaults to true. |
 | `destroyOnly` | `boolean` | When true, this variant only runs during destroy operations. |
@@ -103,6 +118,19 @@ variable substitutions shared across them.
 | `wait` | `boolean` | Wait for resources to settle before declaring reconciliation complete. |
 | `when` | `string` | Gates the variant; combined (AND) with the system's condition. |
 
+#### flux[].resources[].decryption
+
+| Field | Type | Description |
+|------|------|-------------|
+| `provider` | `string` | Decryption backend, e.g. 'sops'. |
+| `secretRef` | `object` | Names the in-cluster Secret holding the decryption key. |
+
+#### flux[].resources[].decryption.secretRef
+
+| Field | Type | Description |
+|------|------|-------------|
+| `name` | `string` | The Secret's name, resolved in the variant's namespace. |
+
 #### flux[].resources[].patches[]
 
 | Field | Type | Description |
@@ -117,6 +145,7 @@ variable substitutions shared across them.
 |------|------|-------------|
 | `name` | `string` | Identifier for the kustomization; referenced by dependsOn. **(required)** |
 | `components` | `array<string>` | Kustomize components to compose into this kustomization. |
+| `decryption` | `object` | In-cluster decryption for this kustomization's manifests, mapping to Flux's spec.decryption. Set provider (e.g. 'sops') and a secretRef naming the in-cluster key Secret; kustomize-controller then decrypts encrypted files in the source during reconciliation. |
 | `dependsOn` | `array<string>` | Names of kustomizations that must reconcile before this one. |
 | `destroy` | `boolean / string` | Whether to delete this kustomization during 'windsor down' / 'windsor destroy'. Boolean or expression. Defaults to true. |
 | `destroyOnly` | `boolean` | When true, the kustomization only runs during destroy. Useful for teardown-only resources (e.g. cleanup jobs). |
@@ -134,6 +163,19 @@ variable substitutions shared across them.
 | `targetNamespace` | `string` | Populates spec.targetNamespace, instructing Flux to override the namespace of every resource reconciled by this kustomization. |
 | `timeout` | `string` | Maximum duration for a single reconciliation attempt (e.g. '10m'). |
 | `wait` | `boolean` | Wait for resources to settle before declaring reconciliation complete. |
+
+### kustomize[].decryption
+
+| Field | Type | Description |
+|------|------|-------------|
+| `provider` | `string` | Decryption backend, e.g. 'sops'. |
+| `secretRef` | `object` | Names the in-cluster Secret holding the decryption key. |
+
+#### kustomize[].decryption.secretRef
+
+| Field | Type | Description |
+|------|------|-------------|
+| `name` | `string` | The Secret's name, resolved in the kustomization's namespace. |
 
 ### kustomize[].patches[]
 
