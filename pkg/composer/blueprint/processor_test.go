@@ -1667,6 +1667,142 @@ func TestProcessor_ProcessFacets_Config(t *testing.T) {
 	})
 }
 
+func TestProcessor_ProcessFacets_ConfigBlockSameBlockSiblingRefs(t *testing.T) {
+	// A config value expression must be able to read a sibling key computed in the same block,
+	// including through non-call operators (e.g. string concatenation), resolving at compose time
+	// in dependency order rather than erroring on <nil> or being left unresolved.
+
+	run := func(t *testing.T, body map[string]any) (map[string]any, error) {
+		mocks := setupProcessorMocks(t)
+		mocks.ConfigHandler.GetContextValuesFunc = func() (map[string]any, error) { return map[string]any{}, nil }
+		processor := NewBlueprintProcessor(mocks.Runtime)
+		facets := []blueprintv1alpha1.Facet{{
+			Metadata: blueprintv1alpha1.Metadata{Name: "identity"},
+			Config: []blueprintv1alpha1.ConfigBlock{
+				{Name: "identity_effective", Body: map[string]any{"value": body}},
+			},
+		}}
+		return processor.ProcessFacets(&blueprintv1alpha1.Blueprint{}, facets)
+	}
+
+	t.Run("SiblingReferenceViaConcatenationResolves", func(t *testing.T) {
+		// Given a literal sibling and a key deriving from it via + (a non-call operator)
+		scope, err := run(t, map[string]any{
+			"issuer":   "https://id.example",
+			"auth_url": "${identity_effective.issuer + '/protocol/openid-connect/auth'}",
+		})
+
+		// Then the derived key resolves against the sibling instead of erroring on <nil>
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		block, ok := scope["identity_effective"].(map[string]any)
+		if !ok {
+			t.Fatalf("Expected identity_effective map, got %#v", scope["identity_effective"])
+		}
+		if block["auth_url"] != "https://id.example/protocol/openid-connect/auth" {
+			t.Errorf("Expected auth_url derived from sibling issuer, got %v", block["auth_url"])
+		}
+	})
+
+	t.Run("SiblingReferenceWhereSiblingIsItselfComputed", func(t *testing.T) {
+		// Given a computed sibling and a key deriving from it, order must resolve issuer first
+		scope, err := run(t, map[string]any{
+			"issuer":   "${'https://' + 'id.example'}",
+			"auth_url": "${identity_effective.issuer + '/auth'}",
+		})
+
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		block, ok := scope["identity_effective"].(map[string]any)
+		if !ok {
+			t.Fatalf("Expected identity_effective map, got %#v", scope["identity_effective"])
+		}
+		if block["issuer"] != "https://id.example" {
+			t.Errorf("Expected issuer resolved, got %v", block["issuer"])
+		}
+		if block["auth_url"] != "https://id.example/auth" {
+			t.Errorf("Expected auth_url derived from computed issuer, got %v", block["auth_url"])
+		}
+	})
+
+	t.Run("MultipleSiblingsDeriveFromOneIntermediate", func(t *testing.T) {
+		// Given several keys deriving from one computed intermediate (the motivating OIDC case)
+		scope, err := run(t, map[string]any{
+			"issuer":       "${'https://id.example'}",
+			"auth_url":     "${identity_effective.issuer + '/protocol/openid-connect/auth'}",
+			"token_url":    "${identity_effective.issuer + '/protocol/openid-connect/token'}",
+			"userinfo_url": "${identity_effective.issuer + '/protocol/openid-connect/userinfo'}",
+		})
+
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		block := scope["identity_effective"].(map[string]any)
+		if block["token_url"] != "https://id.example/protocol/openid-connect/token" {
+			t.Errorf("Expected token_url derived, got %v", block["token_url"])
+		}
+		if block["userinfo_url"] != "https://id.example/protocol/openid-connect/userinfo" {
+			t.Errorf("Expected userinfo_url derived, got %v", block["userinfo_url"])
+		}
+	})
+
+	t.Run("LaterSameNameEntryReadsEarlierEntry", func(t *testing.T) {
+		// Given two config entries with the same block name, the later reading the earlier
+		mocks := setupProcessorMocks(t)
+		mocks.ConfigHandler.GetContextValuesFunc = func() (map[string]any, error) { return map[string]any{}, nil }
+		processor := NewBlueprintProcessor(mocks.Runtime)
+		facets := []blueprintv1alpha1.Facet{{
+			Metadata: blueprintv1alpha1.Metadata{Name: "identity"},
+			Config: []blueprintv1alpha1.ConfigBlock{
+				{Name: "identity_effective", Body: map[string]any{"value": map[string]any{"issuer": "https://id.example"}}},
+				{Name: "identity_effective", Body: map[string]any{"value": map[string]any{"auth_url": "${identity_effective.issuer + '/auth'}"}}},
+			},
+		}}
+		scope, err := processor.ProcessFacets(&blueprintv1alpha1.Blueprint{}, facets)
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		block := scope["identity_effective"].(map[string]any)
+		if block["auth_url"] != "https://id.example/auth" {
+			t.Errorf("Expected later entry to read earlier entry's issuer, got %v", block["auth_url"])
+		}
+	})
+
+	t.Run("GenuineNonDeferredErrorStillSurfaces", func(t *testing.T) {
+		// Given a value with a genuine error — arithmetic on a reference that never resolves —
+		// the tolerant per-key pass keeps it raw, but composition must still fail rather than
+		// emit an unexpanded ${...} into rendered config
+		_, err := run(t, map[string]any{
+			"issuer":   "https://id.example",
+			"auth_url": "${identity_effective.nonexistent + '/auth'}",
+		})
+		if err == nil {
+			t.Fatal("Expected a genuine unresolved-reference error to surface, got nil")
+		}
+		if !strings.Contains(err.Error(), "identity_effective") {
+			t.Errorf("Expected error to name the config block, got %v", err)
+		}
+	})
+
+	t.Run("NestedGenuineErrorSurfaces", func(t *testing.T) {
+		// Given a genuine error nested inside a map value, it must surface too
+		_, err := run(t, map[string]any{
+			"issuer": "https://id.example",
+			"urls": map[string]any{
+				"auth": "${identity_effective.nonexistent + '/auth'}",
+			},
+		})
+		if err == nil {
+			t.Fatal("Expected a nested genuine error to surface, got nil")
+		}
+	})
+	// Note: a value referencing a deferred helper (e.g. terraform_output) is kept raw for JIT rather
+	// than surfaced as an error; that path is covered by TestProcessor_ProcessFacets_ConfigDeferredValues,
+	// which registers a real deferred helper and exercises this post-convergence validation.
+}
+
 func TestProcessor_ProcessFacets_ConfigBlockEvaluationOrder(t *testing.T) {
 	// These tests pin the dependency-driven evaluation order for config blocks. The
 	// processor must evaluate a block AFTER every block it references via ${...}, no

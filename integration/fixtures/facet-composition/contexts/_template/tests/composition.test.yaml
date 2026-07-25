@@ -143,3 +143,17 @@ cases:
     kustomize:
     - name: schema-default-marker
       path: schema-default/marker
+
+# Same-block sibling references (#3086): option-sibling-ref derives auth_url from a sibling
+# issuer key in the same config block via string concatenation. Without the fix that value
+# errors on <nil> at compose; with it, auth_url resolves and its gated marker is included.
+- name: config_value_reads_sibling_key_in_same_block
+  values:
+    provider: docker
+    cluster:
+      driver: talos
+    network: *default-network
+  expect:
+    kustomize:
+    - name: sibling-ref-marker
+      path: sibling-ref/marker

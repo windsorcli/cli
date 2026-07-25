@@ -709,10 +709,7 @@ func (p *BaseBlueprintProcessor) evaluateGlobalScopeConfig(globalScope map[strin
 					}
 					nonDerivedBody[k] = v
 				}
-				evaluated, err := p.evaluator.EvaluateMap(nonDerivedBody, "", scopeWithBlock, false)
-				if err != nil {
-					return fmt.Errorf("config block %q: %w", name, err)
-				}
+				evaluated := p.evaluateBlockBodyTolerant(nonDerivedBody, scopeWithBlock)
 				if normalized, ok := normalizeDeferredValue(evaluated).(map[string]any); ok {
 					evaluated = normalized
 				}
@@ -765,7 +762,57 @@ func (p *BaseBlueprintProcessor) evaluateGlobalScopeConfig(globalScope map[strin
 			break
 		}
 	}
+
+	// After the block scopes have converged, surface a genuine (non-deferred) evaluation error that the
+	// tolerant per-key pass kept raw so transient same-block sibling references could resolve across
+	// passes. A value still failing here against the final scope is a real mistake (a typo or bad
+	// reference), not a sibling awaiting resolution — without this it would reach rendered config as an
+	// unexpanded ${...} rather than failing composition. EvaluateMap tolerates a DeferredError at every
+	// nesting level (a helper like terraform_output resolves later), so only genuine errors are returned;
+	// top-level derived keys (${string(block.key)}) are kept raw for JIT and so are excluded.
+	for name, val := range globalScope {
+		blockMap, ok := val.(map[string]any)
+		if !ok {
+			continue
+		}
+		validationBody := make(map[string]any, len(blockMap))
+		for k, v := range blockMap {
+			if s, isStr := v.(string); isStr && expressionIsDerivedFromBlock(s, name) {
+				continue
+			}
+			validationBody[k] = v
+		}
+		finalScope := p.scopeForConfigBlock(contextScope, globalScope, name, blockMap)
+		if _, err := p.evaluator.EvaluateMap(validationBody, "", finalScope, false); err != nil {
+			return fmt.Errorf("config block %q: %w", name, err)
+		}
+	}
 	return nil
+}
+
+// evaluateBlockBodyTolerant evaluates each top-level key of a config block body independently against
+// scope, keeping a key that fails to evaluate at its raw value rather than aborting the whole body.
+// EvaluateMap fails the entire map atomically on the first key error and returns nothing, which would
+// discard siblings that did resolve; a key referencing a sibling not yet present in scope (e.g.
+// `${identity_effective.issuer + '/auth'}` before issuer has resolved) would then abort the block on
+// the first stabilization pass, before the multi-pass loop and resolve pass can feed the resolved
+// sibling back in. Keeping the raw value lets a later pass resolve it once its dependency is available.
+// This tolerance is deliberately scoped to the stabilization passes: a key that is still failing after
+// the scopes converge is NOT silently dropped — evaluateGlobalScopeConfig's post-convergence validation
+// re-evaluates it against the final scope and surfaces any genuine (non-deferred) error as a composition
+// failure. A DeferredError is already handled inside EvaluateMap (the value is kept raw), so it is not an
+// error here.
+func (p *BaseBlueprintProcessor) evaluateBlockBodyTolerant(body map[string]any, scope map[string]any) map[string]any {
+	evaluated := make(map[string]any, len(body))
+	for k, v := range body {
+		one, err := p.evaluator.EvaluateMap(map[string]any{k: v}, "", scope, false)
+		if err != nil {
+			evaluated[k] = v
+			continue
+		}
+		evaluated[k] = one[k]
+	}
+	return evaluated
 }
 
 // evaluateConfigBlockValue recursively evaluates a config block value (scalar, list, or map) so that
