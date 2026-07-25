@@ -200,11 +200,17 @@ func TestBootstrapCmd(t *testing.T) {
 		}
 	})
 
-	t.Run("WaitFailureIsNonFatal", func(t *testing.T) {
-		// Given a wait that does not converge (a kustomization pending on a manual step)
+	t.Run("WaitFailureIsNonFatalWhenBlueprintHasMessages", func(t *testing.T) {
+		// Given a blueprint that carries a post-run message (a facet-declared manual step) and a wait
+		// that does not converge — a kustomization legitimately pending on that step
 		mocks := setupBootstrapTest(t)
 		proj := newBootstrapTestProject(mocks)
 
+		pending := &blueprintv1alpha1.Blueprint{
+			Metadata: blueprintv1alpha1.Metadata{Name: "test"},
+			Messages: []blueprintv1alpha1.Message{{Text: "Delegate ns1.example, ns2.example at your registrar."}},
+		}
+		mocks.BlueprintHandler.GenerateResolvedFunc = func() (*blueprintv1alpha1.Blueprint, error) { return pending, nil }
 		markerWritten := false
 		mocks.KubernetesManager.WaitForKustomizationsFunc = func(ctx context.Context, message string, blueprint *blueprintv1alpha1.Blueprint) error {
 			return fmt.Errorf("timeout waiting for kustomization dns/external-dns to be ready")
@@ -224,10 +230,42 @@ func TestBootstrapCmd(t *testing.T) {
 
 		// Then bootstrap succeeds despite the wait not converging, and still writes the version marker
 		if err != nil {
-			t.Fatalf("Expected wait failure to be non-fatal, got %v", err)
+			t.Fatalf("Expected wait failure to be non-fatal when messages exist, got %v", err)
 		}
 		if !markerWritten {
 			t.Error("Expected version marker to be written after a non-fatal wait failure")
+		}
+	})
+
+	t.Run("WaitFailureIsFatalWithoutMessages", func(t *testing.T) {
+		// Given a blueprint with no post-run messages and a wait that fails — no declared manual step,
+		// so the failure is genuine (e.g. ImagePullBackOff) and must not be demoted to a warning
+		mocks := setupBootstrapTest(t)
+		proj := newBootstrapTestProject(mocks)
+
+		markerWritten := false
+		mocks.KubernetesManager.WaitForKustomizationsFunc = func(ctx context.Context, message string, blueprint *blueprintv1alpha1.Blueprint) error {
+			return fmt.Errorf("kustomization app/web not ready: ImagePullBackOff")
+		}
+		mocks.KubernetesManager.ApplyVersionMarkerFunc = func(namespace string, marker kubernetes.VersionMarker) error {
+			markerWritten = true
+			return nil
+		}
+
+		cmd := createTestBootstrapCmd()
+		ctx := context.WithValue(context.Background(), projectOverridesKey, proj)
+		cmd.SetArgs([]string{"--yes"})
+		cmd.SetContext(ctx)
+
+		// When executing bootstrap
+		err := cmd.Execute()
+
+		// Then bootstrap fails (non-zero exit) and does not write the version marker
+		if err == nil {
+			t.Fatal("Expected a wait failure with no messages to be fatal, got nil")
+		}
+		if markerWritten {
+			t.Error("Expected version marker NOT to be written when the wait failed fatally")
 		}
 	})
 
