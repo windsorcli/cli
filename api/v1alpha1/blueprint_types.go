@@ -1757,6 +1757,13 @@ func (b *Blueprint) strategicMergeKustomization(kustomization Kustomization) err
 // directly (e.g. FluxSystem tiers, which carry no Name until tier compilation) call this directly.
 func MergeKustomizationFields(base, overlay Kustomization) Kustomization {
 	existing := base
+	// Clone the mutable fields so appends and map writes below never mutate base's shared slices/maps
+	// (base is passed by value, but its slice/map fields alias the caller's). Without this, merging
+	// corrupts the inputs and makes results depend on call order and input reuse.
+	existing.Components = slices.Clone(base.Components)
+	existing.DependsOn = slices.Clone(base.DependsOn)
+	existing.Patches = slices.Clone(base.Patches)
+	existing.Substitutions = maps.Clone(base.Substitutions)
 	for _, component := range overlay.Components {
 		if component == "" || !slices.Contains(existing.Components, component) {
 			existing.Components = append(existing.Components, component)

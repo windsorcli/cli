@@ -2759,6 +2759,43 @@ func TestHandler_CrossSourceConfig(t *testing.T) {
 		}
 	})
 
+	t.Run("OverridesUpstreamFluxSubstitution", func(t *testing.T) {
+		// Given core defines a cni flux system install substitution and consumer overrides it
+		core := []blueprintv1alpha1.Facet{{
+			Metadata: blueprintv1alpha1.Metadata{Name: "cni-base"},
+			FluxSystems: []blueprintv1alpha1.FluxSystem{{
+				Name: "cni", Path: "cni",
+				Install: &blueprintv1alpha1.Kustomization{Components: []string{"helm"}, Substitutions: map[string]string{"host": "core"}},
+			}},
+		}}
+		consumer := []blueprintv1alpha1.Facet{{
+			Metadata: blueprintv1alpha1.Metadata{Name: "cni-override"},
+			FluxSystems: []blueprintv1alpha1.FluxSystem{{
+				Name:    "cni",
+				Install: &blueprintv1alpha1.Kustomization{Substitutions: map[string]string{"host": "consumer"}},
+			}},
+		}}
+
+		// When composed
+		bp := composeCrossSource(t, core, consumer, nil)
+
+		// Then the composed cni flux system carries the downstream override
+		var got string
+		found := false
+		for _, sys := range bp.FluxSystems {
+			if sys.Name == "cni" && sys.Install != nil {
+				got = sys.Install.Substitutions["host"]
+				found = true
+			}
+		}
+		if !found {
+			t.Fatalf("expected cni flux system with install tier; got %d flux systems", len(bp.FluxSystems))
+		}
+		if got != "consumer" {
+			t.Errorf("expected downstream flux override 'consumer', got %q", got)
+		}
+	})
+
 	t.Run("ExplicitOperatorValueVetoesDownstreamActivation", func(t *testing.T) {
 		// Given the operator explicitly disables identity, a downstream enable must not override it
 		core := []blueprintv1alpha1.Facet{{

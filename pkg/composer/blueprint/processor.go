@@ -1424,7 +1424,12 @@ func (p *BaseBlueprintProcessor) collectFluxSystems(facet blueprintv1alpha1.Face
 			if err != nil {
 				return fmt.Errorf("error evaluating install components for system '%s': %w", system.Name, err)
 			}
-			if len(comps) > 0 || strategy == "remove" {
+			// Keep the install tier when it has components, is a removal, or carries override-only
+			// content (substitutions/patches) with no components of its own. The last case lets a
+			// downstream facet override an upstream system's install substitutions without redeclaring
+			// its components; compilation still only emits an install Kustomization when components are
+			// present (after cross-source merge), so an override-only tier never emits on its own.
+			if len(comps) > 0 || strategy == "remove" || len(system.Install.Substitutions) > 0 || len(system.Install.Patches) > 0 {
 				installCopy := *system.Install.DeepCopy()
 				installCopy.Components = comps
 				if err := p.evalKustomizationSubstitutions(&installCopy, facet.Path, "flux."+system.Name+".install.substitutions.", facetScope); err != nil {
