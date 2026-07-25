@@ -7,6 +7,7 @@ package evaluator
 type MockExpressionEvaluator struct {
 	SetTemplateDataFunc func(templateData map[string][]byte)
 	SetEnvLookupFunc    func(lookup func(name string) (string, bool))
+	SetConfigScopeFunc  func(scope map[string]any)
 	RegisterFunc        func(name string, helper func(params []any, deferred bool) (any, error), signature any)
 	EvaluateFunc        func(expression string, facetPath string, scope map[string]any, evaluateDeferred bool) (any, error)
 	EvaluateMapFunc     func(values map[string]any, facetPath string, scope map[string]any, evaluateDeferred bool) (map[string]any, error)
@@ -36,6 +37,13 @@ func (m *MockExpressionEvaluator) SetTemplateData(templateData map[string][]byte
 func (m *MockExpressionEvaluator) SetEnvLookup(lookup func(name string) (string, bool)) {
 	if m.SetEnvLookupFunc != nil {
 		m.SetEnvLookupFunc(lookup)
+	}
+}
+
+// SetConfigScope calls the mock SetConfigScopeFunc if set, otherwise does nothing.
+func (m *MockExpressionEvaluator) SetConfigScope(scope map[string]any) {
+	if m.SetConfigScopeFunc != nil {
+		m.SetConfigScopeFunc(scope)
 	}
 }
 

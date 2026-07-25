@@ -58,6 +58,7 @@ type expressionEvaluator struct {
 	Shims         *Shims
 	templateData  map[string][]byte
 	helpers       []func(allowDeferred bool) expr.Option
+	configScope   map[string]any
 }
 
 // =============================================================================
@@ -127,6 +128,7 @@ type ExpressionEvaluator interface {
 	HelperRegistrar
 	SetTemplateData(templateData map[string][]byte)
 	SetEnvLookup(lookup func(name string) (string, bool))
+	SetConfigScope(scope map[string]any)
 	Evaluate(expression string, facetPath string, scope map[string]any, evaluateDeferred bool) (any, error)
 	EvaluateMap(values map[string]any, facetPath string, scope map[string]any, evaluateDeferred bool) (map[string]any, error)
 }
@@ -176,6 +178,14 @@ func (e *expressionEvaluator) SetTemplateData(templateData map[string][]byte) {
 // The test runner uses this to supply a hermetic environment so composition never reads the host env.
 func (e *expressionEvaluator) SetEnvLookup(lookup func(name string) (string, bool)) {
 	e.Shims.LookupEnv = lookup
+}
+
+// SetConfigScope publishes the composed scope (facet config blocks merged over context config) that a
+// nil-scope evaluation should use as its base. The composer calls this after composition so apply-time
+// consumers — secret resolution in particular — dereference computed config values the same way
+// substitutions do. Passing nil clears it, reverting nil-scope evaluations to context config alone.
+func (e *expressionEvaluator) SetConfigScope(scope map[string]any) {
+	e.configScope = scope
 }
 
 // Register adds a custom helper function to the evaluator for expression evaluation.
@@ -304,19 +314,25 @@ func (e *expressionEvaluator) evaluate(s string, facetPath string, scope map[str
 	return result, nil
 }
 
-// evaluateExpression compiles and evaluates a single expression. When scope is nil, the environment
-// is enriched config (getConfig + context, project_root, etc.). When scope is non-nil, the environment
-// is that scope (with runtime keys injected so helpers like file() and jsonnet() have context and paths).
-// The expression should not include ${} bookends. Returns the evaluation result or an error.
+// evaluateExpression compiles and evaluates a single expression. The environment base is chosen by
+// precedence: an explicit non-nil scope wins; otherwise the composer-published configScope (which
+// includes facet config blocks, so nil-scope consumers like secret resolution see computed config);
+// otherwise enriched context config alone (pre-composition, or when no composed scope was published).
+// Runtime keys (context, project_root, etc.) are injected so helpers like file() and jsonnet() have
+// context and paths. The expression should not include ${} bookends. Returns the result or an error.
 func (e *expressionEvaluator) evaluateExpression(expression string, facetPath string, scope map[string]any, evaluateDeferred bool) (any, error) {
 	if rewritten, ok := secretsRuntime.NormalizeExpression(expression); ok {
 		expression = rewritten
 	}
 
+	base := scope
+	if base == nil {
+		base = e.configScope
+	}
 	var merged map[string]any
-	if scope != nil {
+	if base != nil {
 		merged = make(map[string]any)
-		maps.Copy(merged, scope)
+		maps.Copy(merged, base)
 		injectRuntimeKeys(merged, e)
 	} else {
 		merged = e.enrichConfig(e.getConfig())

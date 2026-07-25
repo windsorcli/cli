@@ -1986,3 +1986,61 @@ func TestExpressionBody(t *testing.T) {
 		}
 	})
 }
+
+func TestExpressionEvaluator_SetConfigScope(t *testing.T) {
+	t.Run("NilScopeEvaluationUsesPublishedConfigScope", func(t *testing.T) {
+		// Given an evaluator whose context config lacks a computed block, but the composer has
+		// published a config scope that contains it
+		mockConfigHandler := config.NewMockConfigHandler()
+		mockConfigHandler.GetContextValuesFunc = func() (map[string]any, error) { return map[string]any{}, nil }
+		evaluator := NewExpressionEvaluator(mockConfigHandler, "/project", "/template")
+		evaluator.SetConfigScope(map[string]any{
+			"grafana_effective": map[string]any{"client_secret": "grafana-oidc-dev"},
+		})
+
+		// When evaluating a reference to the computed block with a nil scope (as secret resolution does)
+		got, err := evaluator.Evaluate("${grafana_effective.client_secret}", "", nil, true)
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+
+		// Then it resolves against the published config scope
+		if got != "grafana-oidc-dev" {
+			t.Errorf("Expected 'grafana-oidc-dev', got %v", got)
+		}
+	})
+
+	t.Run("ExplicitScopeStillWinsOverConfigScope", func(t *testing.T) {
+		// Given a published config scope
+		mockConfigHandler := config.NewMockConfigHandler()
+		mockConfigHandler.GetContextValuesFunc = func() (map[string]any, error) { return map[string]any{}, nil }
+		evaluator := NewExpressionEvaluator(mockConfigHandler, "/project", "/template")
+		evaluator.SetConfigScope(map[string]any{"x": map[string]any{"y": "from-config-scope"}})
+
+		// When an explicit scope is passed, it takes precedence
+		got, err := evaluator.Evaluate("${x.y}", "", map[string]any{"x": map[string]any{"y": "from-explicit"}}, true)
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		if got != "from-explicit" {
+			t.Errorf("Expected explicit scope to win, got %v", got)
+		}
+	})
+
+	t.Run("NilScopeFallsBackToContextConfigWhenNoConfigScope", func(t *testing.T) {
+		// Given no published config scope, nil-scope evaluation still uses context config
+		mockConfigHandler := config.NewMockConfigHandler()
+		mockConfigHandler.GetContextValuesFunc = func() (map[string]any, error) {
+			return map[string]any{"cluster": map[string]any{"name": "ctx"}}, nil
+		}
+		evaluator := NewExpressionEvaluator(mockConfigHandler, "/project", "/template")
+
+		got, err := evaluator.Evaluate("${cluster.name}", "", nil, true)
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		if got != "ctx" {
+			t.Errorf("Expected context config used when no config scope, got %v", got)
+		}
+	})
+}
