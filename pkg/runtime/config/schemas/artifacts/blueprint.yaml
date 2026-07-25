@@ -290,6 +290,8 @@ properties:
         decryption:
           type: object
           additionalProperties: false
+          required:
+            - provider
           description: |
             In-cluster decryption for this kustomization's manifests, mapping to
             Flux's spec.decryption. Set provider (e.g. 'sops') and a secretRef
@@ -433,6 +435,8 @@ properties:
             decryption:
               type: object
               additionalProperties: false
+              required:
+                - provider
               description: |
                 In-cluster decryption for this tier's manifests, mapping to Flux's
                 spec.decryption. Set provider (e.g. 'sops') and a secretRef naming
@@ -535,6 +539,8 @@ properties:
               decryption:
                 type: object
                 additionalProperties: false
+                required:
+                  - provider
                 description: |
                   In-cluster decryption for this variant's manifests, mapping to
                   Flux's spec.decryption. Set provider (e.g. 'sops') and a secretRef

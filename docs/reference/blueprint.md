@@ -76,7 +76,7 @@ variable substitutions shared across them.
 
 | Field | Type | Description |
 |------|------|-------------|
-| `provider` | `string` | Decryption backend, e.g. 'sops'. |
+| `provider` | `string` | Decryption backend, e.g. 'sops'. **(required)** |
 | `secretRef` | `object` | Names the in-cluster Secret holding the decryption key. |
 
 #### flux[].install.decryption.secretRef
@@ -122,7 +122,7 @@ variable substitutions shared across them.
 
 | Field | Type | Description |
 |------|------|-------------|
-| `provider` | `string` | Decryption backend, e.g. 'sops'. |
+| `provider` | `string` | Decryption backend, e.g. 'sops'. **(required)** |
 | `secretRef` | `object` | Names the in-cluster Secret holding the decryption key. |
 
 #### flux[].resources[].decryption.secretRef
@@ -168,7 +168,7 @@ variable substitutions shared across them.
 
 | Field | Type | Description |
 |------|------|-------------|
-| `provider` | `string` | Decryption backend, e.g. 'sops'. |
+| `provider` | `string` | Decryption backend, e.g. 'sops'. **(required)** |
 | `secretRef` | `object` | Names the in-cluster Secret holding the decryption key. |
 
 #### kustomize[].decryption.secretRef
