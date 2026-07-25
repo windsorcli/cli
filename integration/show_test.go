@@ -153,6 +153,37 @@ func TestShowKustomization_TierNameRendersCompiledKustomization(t *testing.T) {
 	}
 }
 
+func TestShowKustomization_RendersDecryptionThroughFacetMerge(t *testing.T) {
+	t.Parallel()
+	dir, env := helpers.PrepareFixture(t, "facet-tiers")
+	env = append(env, "WINDSOR_CONTEXT=default")
+	// cert-manager's install tier declares decryption in pki.yaml and merges across three facets,
+	// so a rendered spec.decryption proves the field survives composition and reaches the Flux CR.
+	stdout, stderr, err := helpers.RunCLI(dir, []string{"show", "kustomization", "cert-manager-install"}, env)
+	if err != nil {
+		t.Fatalf("show kustomization cert-manager-install: %v\nstderr: %s", err, stderr)
+	}
+	var k struct {
+		Spec struct {
+			Decryption struct {
+				Provider  string `yaml:"provider"`
+				SecretRef struct {
+					Name string `yaml:"name"`
+				} `yaml:"secretRef"`
+			} `yaml:"decryption"`
+		} `yaml:"spec"`
+	}
+	if err := yaml.Unmarshal(stdout, &k); err != nil {
+		t.Fatalf("parse kustomization YAML: %v\nstdout: %s", err, stdout)
+	}
+	if k.Spec.Decryption.Provider != "sops" {
+		t.Errorf("expected spec.decryption.provider sops, got %q\nstdout: %s", k.Spec.Decryption.Provider, stdout)
+	}
+	if k.Spec.Decryption.SecretRef.Name != "sops-age" {
+		t.Errorf("expected spec.decryption.secretRef.name sops-age, got %q", k.Spec.Decryption.SecretRef.Name)
+	}
+}
+
 func TestShowKustomization_PathDefaultsToNameWhenUnset(t *testing.T) {
 	t.Parallel()
 	dir, env := helpers.PrepareFixture(t, "facet-tiers")

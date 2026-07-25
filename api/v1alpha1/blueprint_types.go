@@ -13,6 +13,7 @@ import (
 
 	kustomizev1 "github.com/fluxcd/kustomize-controller/api/v1"
 	"github.com/fluxcd/pkg/apis/kustomize"
+	meta "github.com/fluxcd/pkg/apis/meta"
 	"github.com/windsorcli/cli/pkg/constants"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
@@ -312,6 +313,36 @@ func (s SecretEntry) DeepCopy() SecretEntry {
 		Namespaces: slices.Clone(s.Namespaces),
 		Data:       maps.Clone(s.Data),
 	}
+}
+
+// Decryption configures in-cluster decryption of a Kustomization's manifests, mapping to Flux's
+// spec.decryption. When set, kustomize-controller decrypts encrypted files in the source with the
+// referenced key Secret during reconciliation; leaving it nil keeps Flux's default of no decryption.
+type Decryption struct {
+	// Provider is the decryption backend, e.g. "sops".
+	Provider string `yaml:"provider,omitempty"`
+
+	// SecretRef names the in-cluster Secret holding the decryption key.
+	SecretRef *DecryptionSecretRef `yaml:"secretRef,omitempty"`
+}
+
+// DecryptionSecretRef names the Secret that holds the decryption key material, resolved in the
+// Kustomization's own namespace.
+type DecryptionSecretRef struct {
+	// Name is the Secret's name.
+	Name string `yaml:"name,omitempty"`
+}
+
+// DeepCopy returns a deep copy of the Decryption, sharing no pointer with the original.
+func (d *Decryption) DeepCopy() *Decryption {
+	if d == nil {
+		return nil
+	}
+	c := &Decryption{Provider: d.Provider}
+	if d.SecretRef != nil {
+		c.SecretRef = &DecryptionSecretRef{Name: d.SecretRef.Name}
+	}
+	return c
 }
 
 // Blueprint is a configuration blueprint for initializing a project.
@@ -633,6 +664,10 @@ type Kustomization struct {
 	// marshaled into show/apply output or the written blueprint, keeping secret material out of every
 	// serialized surface by construction.
 	Secrets map[string]SecretEntry `yaml:"-"`
+
+	// Decryption configures in-cluster decryption for this kustomization's manifests, mapping to Flux's
+	// spec.decryption. Nil leaves decryption unset (Flux default: no decryption).
+	Decryption *Decryption `yaml:"decryption,omitempty"`
 }
 
 // FluxSystem is a system entry under a blueprint or facet's `flux:` list — a functional layer that
@@ -1326,6 +1361,7 @@ func (k *Kustomization) DeepCopy() *Kustomization {
 		Substitutions:   maps.Clone(k.Substitutions),
 		Substitute:      maps.Clone(k.Substitute),
 		Secrets:         cloneSecretData(k.Secrets),
+		Decryption:      k.Decryption.DeepCopy(),
 	}
 }
 
@@ -1517,6 +1553,14 @@ func (k *Kustomization) ToFluxKustomization(namespace string, defaultSourceName 
 		}
 	}
 
+	var decryption *kustomizev1.Decryption
+	if k.Decryption != nil {
+		decryption = &kustomizev1.Decryption{Provider: k.Decryption.Provider}
+		if k.Decryption.SecretRef != nil {
+			decryption.SecretRef = &meta.LocalObjectReference{Name: k.Decryption.SecretRef.Name}
+		}
+	}
+
 	return kustomizev1.Kustomization{
 		TypeMeta: metav1.TypeMeta{
 			Kind:       "Kustomization",
@@ -1545,6 +1589,7 @@ func (k *Kustomization) ToFluxKustomization(namespace string, defaultSourceName 
 			Components:      k.Components,
 			PostBuild:       postBuild,
 			TargetNamespace: k.TargetNamespace,
+			Decryption:      decryption,
 		},
 	}
 }
@@ -1770,6 +1815,9 @@ func MergeKustomizationFields(base, overlay Kustomization) Kustomization {
 			existing.Substitutions = make(map[string]string)
 		}
 		maps.Copy(existing.Substitutions, overlay.Substitutions)
+	}
+	if overlay.Decryption != nil {
+		existing.Decryption = overlay.Decryption.DeepCopy()
 	}
 	return existing
 }

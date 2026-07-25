@@ -287,6 +287,28 @@ properties:
           description: |
             PostBuild variable substitutions for this kustomization. Collected
             into a 'values-<name>' ConfigMap that Flux substitutes from.
+        decryption:
+          type: object
+          additionalProperties: false
+          required:
+            - provider
+          description: |
+            In-cluster decryption for this kustomization's manifests, mapping to
+            Flux's spec.decryption. Set provider (e.g. 'sops') and a secretRef
+            naming the in-cluster key Secret; kustomize-controller then decrypts
+            encrypted files in the source during reconciliation.
+          properties:
+            provider:
+              type: string
+              description: Decryption backend, e.g. 'sops'.
+            secretRef:
+              type: object
+              additionalProperties: false
+              description: Names the in-cluster Secret holding the decryption key.
+              properties:
+                name:
+                  type: string
+                  description: The Secret's name, resolved in the kustomization's namespace.
   flux:
     type: array
     description: |
@@ -410,6 +432,27 @@ properties:
             enabled:
               type: [boolean, string]
               description: Whether to include this tier in the final blueprint. Boolean or expression. Defaults to true.
+            decryption:
+              type: object
+              additionalProperties: false
+              required:
+                - provider
+              description: |
+                In-cluster decryption for this tier's manifests, mapping to Flux's
+                spec.decryption. Set provider (e.g. 'sops') and a secretRef naming
+                the in-cluster key Secret.
+              properties:
+                provider:
+                  type: string
+                  description: Decryption backend, e.g. 'sops'.
+                secretRef:
+                  type: object
+                  additionalProperties: false
+                  description: Names the in-cluster Secret holding the decryption key.
+                  properties:
+                    name:
+                      type: string
+                      description: The Secret's name, resolved in the tier's namespace.
         resources:
           type: array
           description: Custom-resource tier variants, all sharing '<path>/resources'.
@@ -493,6 +536,27 @@ properties:
               enabled:
                 type: [boolean, string]
                 description: Whether to include this variant in the final blueprint. Boolean or expression. Defaults to true.
+              decryption:
+                type: object
+                additionalProperties: false
+                required:
+                  - provider
+                description: |
+                  In-cluster decryption for this variant's manifests, mapping to
+                  Flux's spec.decryption. Set provider (e.g. 'sops') and a secretRef
+                  naming the in-cluster key Secret.
+                properties:
+                  provider:
+                    type: string
+                    description: Decryption backend, e.g. 'sops'.
+                  secretRef:
+                    type: object
+                    additionalProperties: false
+                    description: Names the in-cluster Secret holding the decryption key.
+                    properties:
+                      name:
+                        type: string
+                        description: The Secret's name, resolved in the variant's namespace.
   substitutions:
     type: object
     additionalProperties:
