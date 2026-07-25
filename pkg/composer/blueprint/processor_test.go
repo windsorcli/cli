@@ -1769,6 +1769,38 @@ func TestProcessor_ProcessFacets_ConfigBlockSameBlockSiblingRefs(t *testing.T) {
 			t.Errorf("Expected later entry to read earlier entry's issuer, got %v", block["auth_url"])
 		}
 	})
+
+	t.Run("GenuineNonDeferredErrorStillSurfaces", func(t *testing.T) {
+		// Given a value with a genuine error — arithmetic on a reference that never resolves —
+		// the tolerant per-key pass keeps it raw, but composition must still fail rather than
+		// emit an unexpanded ${...} into rendered config
+		_, err := run(t, map[string]any{
+			"issuer":   "https://id.example",
+			"auth_url": "${identity_effective.nonexistent + '/auth'}",
+		})
+		if err == nil {
+			t.Fatal("Expected a genuine unresolved-reference error to surface, got nil")
+		}
+		if !strings.Contains(err.Error(), "identity_effective") {
+			t.Errorf("Expected error to name the config block, got %v", err)
+		}
+	})
+
+	t.Run("NestedGenuineErrorSurfaces", func(t *testing.T) {
+		// Given a genuine error nested inside a map value, it must surface too
+		_, err := run(t, map[string]any{
+			"issuer": "https://id.example",
+			"urls": map[string]any{
+				"auth": "${identity_effective.nonexistent + '/auth'}",
+			},
+		})
+		if err == nil {
+			t.Fatal("Expected a nested genuine error to surface, got nil")
+		}
+	})
+	// Note: a value referencing a deferred helper (e.g. terraform_output) is kept raw for JIT rather
+	// than surfaced as an error; that path is covered by TestProcessor_ProcessFacets_ConfigDeferredValues,
+	// which registers a real deferred helper and exercises this post-convergence validation.
 }
 
 func TestProcessor_ProcessFacets_ConfigBlockEvaluationOrder(t *testing.T) {

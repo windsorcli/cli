@@ -762,6 +762,31 @@ func (p *BaseBlueprintProcessor) evaluateGlobalScopeConfig(globalScope map[strin
 			break
 		}
 	}
+
+	// After the block scopes have converged, surface a genuine (non-deferred) evaluation error that the
+	// tolerant per-key pass kept raw so transient same-block sibling references could resolve across
+	// passes. A value still failing here against the final scope is a real mistake (a typo or bad
+	// reference), not a sibling awaiting resolution — without this it would reach rendered config as an
+	// unexpanded ${...} rather than failing composition. EvaluateMap tolerates a DeferredError at every
+	// nesting level (a helper like terraform_output resolves later), so only genuine errors are returned;
+	// top-level derived keys (${string(block.key)}) are kept raw for JIT and so are excluded.
+	for name, val := range globalScope {
+		blockMap, ok := val.(map[string]any)
+		if !ok {
+			continue
+		}
+		validationBody := make(map[string]any, len(blockMap))
+		for k, v := range blockMap {
+			if s, isStr := v.(string); isStr && expressionIsDerivedFromBlock(s, name) {
+				continue
+			}
+			validationBody[k] = v
+		}
+		finalScope := p.scopeForConfigBlock(contextScope, globalScope, name, blockMap)
+		if _, err := p.evaluator.EvaluateMap(validationBody, "", finalScope, false); err != nil {
+			return fmt.Errorf("config block %q: %w", name, err)
+		}
+	}
 	return nil
 }
 
