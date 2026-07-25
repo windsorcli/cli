@@ -1,0 +1,16 @@
+kind: Facet
+apiVersion: blueprints.windsorcli.dev/v1alpha1
+metadata:
+  name: option-schema-default
+  description: Reads network.cidr_block with no ?? fallback; composes only when schema defaults are materialized, so it exercises a case's applySchemaDefaults opt-in.
+
+kustomize:
+
+# Gated on a fallback-free read of the schema-defaulted cidr_block. Present only when the case
+# opted into schema defaults so cidrhost() sees 10.5.0.0/16 rather than nil.
+- name: schema-default-marker
+  path: schema-default/marker
+  when: cidrhost(network.cidr_block, 10) == '10.5.0.10'
+  components: []
+  timeout: 5m
+  interval: 5m

@@ -159,6 +159,73 @@ func TestConfigHandler_GetContextValues_Resolve(t *testing.T) {
 		}
 	})
 
+	t.Run("SkipsSchemaDefaultsInTestContext", func(t *testing.T) {
+		// Given a test context and a schema default for an unset field
+		handler, _ := setupPrivateTestHandler(t)
+		if err := handler.SetContext("test"); err != nil {
+			t.Fatalf("Expected no error setting context, got %v", err)
+		}
+		schema := []byte("$schema: https://json-schema.org/draft/2020-12/schema\n" +
+			"type: object\n" +
+			"properties:\n" +
+			"  network:\n" +
+			"    type: object\n" +
+			"    properties:\n" +
+			"      cidr_block:\n" +
+			"        type: string\n" +
+			"        default: \"10.5.0.0/16\"\n")
+		if err := handler.LoadSchemaFromBytes(schema); err != nil {
+			t.Fatalf("Expected no error loading schema, got %v", err)
+		}
+
+		values, err := handler.GetContextValues()
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+
+		// Then the schema default is not materialized under a test context
+		if network, ok := values["network"].(map[string]any); ok {
+			if network["cidr_block"] != nil {
+				t.Errorf("Expected schema default skipped in test context, got %v", network["cidr_block"])
+			}
+		}
+	})
+
+	t.Run("AppliesSchemaDefaultsInTestContextWhenOptedIn", func(t *testing.T) {
+		// Given a test context that has opted into schema defaults
+		handler, _ := setupPrivateTestHandler(t)
+		if err := handler.SetContext("test"); err != nil {
+			t.Fatalf("Expected no error setting context, got %v", err)
+		}
+		handler.SetApplySchemaDefaults(true)
+		schema := []byte("$schema: https://json-schema.org/draft/2020-12/schema\n" +
+			"type: object\n" +
+			"properties:\n" +
+			"  network:\n" +
+			"    type: object\n" +
+			"    properties:\n" +
+			"      cidr_block:\n" +
+			"        type: string\n" +
+			"        default: \"10.5.0.0/16\"\n")
+		if err := handler.LoadSchemaFromBytes(schema); err != nil {
+			t.Fatalf("Expected no error loading schema, got %v", err)
+		}
+
+		values, err := handler.GetContextValues()
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+
+		// Then the schema default is materialized, matching the production path
+		network, ok := values["network"].(map[string]any)
+		if !ok {
+			t.Fatalf("Expected network map, got %T", values["network"])
+		}
+		if network["cidr_block"] != "10.5.0.0/16" {
+			t.Errorf("Expected schema default applied on opt-in, got %v", network["cidr_block"])
+		}
+	})
+
 	t.Run("DoesNotDeriveSchedulable", func(t *testing.T) {
 		// schedulable is no longer synthesized by the generic resolver; the consuming facets derive
 		// it from count values via `?? ` fallbacks (#3062).

@@ -20,6 +20,7 @@ specific terraform components and kustomizations are present (or absent).
 | Field | Type | Description |
 |------|------|-------------|
 | `name` | `string` | Unique identifier for the test case. **(required)** |
+| `applySchemaDefaults` | `boolean` | When true, this case composes with schema `default:` values materialized, as production does. The test path otherwise skips schema defaults so a facet is exercised on its own defaulting logic; set this to validate a facet that reads a schema-defaulted field with no `?? <fallback>` (e.g. network.cidr_block). Defaults to false; other cases are unaffected. |
 | `env` | `map<string>` | Environment variables visible to env() expressions during composition. Resolution is hermetic: env() sees only these entries, never the host environment. WINDSOR_CONTEXT defaults to "test" and can be overridden here. Example: env.ENABLE_DNS = "yes". |
 | `exclude` | `object` | Components and kustomizations that must NOT be present in the composed blueprint. Same partial-match semantics as 'expect'. |
 | `expect` | `object` | Components and kustomizations that must be present in the composed blueprint. Partial matching: only fields you specify are checked. |

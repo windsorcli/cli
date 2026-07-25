@@ -63,6 +63,15 @@ properties:
             When true, the test passes only if blueprint composition fails.
             Use for testing invalid configurations that the framework should
             reject. Defaults to false.
+        applySchemaDefaults:
+          type: boolean
+          description: |
+            When true, this case composes with schema `default:` values
+            materialized, as production does. The test path otherwise skips
+            schema defaults so a facet is exercised on its own defaulting
+            logic; set this to validate a facet that reads a schema-defaulted
+            field with no `?? <fallback>` (e.g. network.cidr_block). Defaults
+            to false; other cases are unaffected.
 $defs:
   expectation:
     type: object
