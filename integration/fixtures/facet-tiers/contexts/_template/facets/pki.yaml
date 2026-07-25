@@ -13,6 +13,10 @@ flux:
     - helm-release
     timeout: 5m
     interval: 5m
+    decryption:
+      provider: sops
+      secretRef:
+        name: sops-age
   resources:
   - components:
     - private-issuer/ca
