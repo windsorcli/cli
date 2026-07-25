@@ -240,12 +240,6 @@ func (p *BaseBlueprintProcessor) ProcessFacets(target *blueprintv1alpha1.Bluepri
 		return sortedFacets[i].Metadata.Name < sortedFacets[j].Metadata.Name
 	})
 
-	collected := collectedComponents{
-		terraformByID:       make(map[string]*blueprintv1alpha1.ConditionalTerraformComponent),
-		kustomizationByName: make(map[string]*blueprintv1alpha1.ConditionalKustomization),
-		fluxSystemByName:    make(map[string]*blueprintv1alpha1.FluxSystem),
-	}
-	crdRefs := make(map[string]struct{})
 	scope := contextScope
 	var globalScope map[string]any
 	var cfgEntries map[string]*blueprintv1alpha1.ConfigBlock
@@ -335,27 +329,46 @@ func (p *BaseBlueprintProcessor) ProcessFacets(target *blueprintv1alpha1.Bluepri
 		})
 	}
 
+	if err := p.emitFacetComponents(target, includedFacets, scope, sourceName...); err != nil {
+		return nil, err
+	}
+	return globalScope, nil
+}
+
+// emitFacetComponents materializes the included facets' components — terraform components,
+// kustomizations, flux systems, CRDs, blueprint-level substitutions, and messages — into target,
+// resolving expressions against the already-resolved scope. sourceName stamps Source on components
+// that lack one. This is the emission half of ProcessFacets, split out so cross-source composition can
+// resolve config and inclusion globally first and then emit each source's components separately.
+func (p *BaseBlueprintProcessor) emitFacetComponents(target *blueprintv1alpha1.Blueprint, includedFacets []blueprintv1alpha1.Facet, scope map[string]any, sourceName ...string) error {
+	collected := collectedComponents{
+		terraformByID:       make(map[string]*blueprintv1alpha1.ConditionalTerraformComponent),
+		kustomizationByName: make(map[string]*blueprintv1alpha1.ConditionalKustomization),
+		fluxSystemByName:    make(map[string]*blueprintv1alpha1.FluxSystem),
+	}
+	crdRefs := make(map[string]struct{})
+
 	for _, facet := range includedFacets {
 		if len(facet.Crds) > 0 {
 			evaluated, err := p.evaluateStringSlice(facet.Crds, facet.Path, scope)
 			if err != nil {
-				return nil, fmt.Errorf("error evaluating crds for facet '%s': %w", facet.Metadata.Name, err)
+				return fmt.Errorf("error evaluating crds for facet '%s': %w", facet.Metadata.Name, err)
 			}
 			facet.Crds = slices.DeleteFunc(evaluated, func(s string) bool { return s == "" })
 			for _, ref := range facet.Crds {
 				if err := validateCrdRef(ref); err != nil {
-					return nil, fmt.Errorf("facet %q: %w", facet.Metadata.Name, err)
+					return fmt.Errorf("facet %q: %w", facet.Metadata.Name, err)
 				}
 			}
 		}
 		if err := p.collectTerraformComponents(facet, sourceName, collected.terraformByID, scope); err != nil {
-			return nil, err
+			return err
 		}
 		if err := p.collectKustomizations(facet, sourceName, collected.kustomizationByName, scope); err != nil {
-			return nil, err
+			return err
 		}
 		if err := p.collectFluxSystems(facet, sourceName, collected.fluxSystemByName, scope); err != nil {
-			return nil, err
+			return err
 		}
 		for _, ref := range facet.Crds {
 			crdRefs[ref] = struct{}{}
@@ -367,7 +380,7 @@ func (p *BaseBlueprintProcessor) ProcessFacets(target *blueprintv1alpha1.Bluepri
 		if len(facet.Substitutions) > 0 {
 			evaluated, deferredKeys, err := p.evaluateSubstitutions(facet.Substitutions, facet.Path, scope)
 			if err != nil {
-				return nil, fmt.Errorf("error evaluating substitutions for facet '%s': %w", facet.Metadata.Name, err)
+				return fmt.Errorf("error evaluating substitutions for facet '%s': %w", facet.Metadata.Name, err)
 			}
 			if target.Substitutions == nil {
 				target.Substitutions = make(map[string]string)
@@ -407,10 +420,7 @@ func (p *BaseBlueprintProcessor) ProcessFacets(target *blueprintv1alpha1.Bluepri
 
 	setCrdLayer(target, crdRefs, resolveSourceName(sourceName))
 
-	if err := p.applyCollectedComponents(target, collected, scope); err != nil {
-		return nil, err
-	}
-	return globalScope, nil
+	return p.applyCollectedComponents(target, collected, scope)
 }
 
 // =============================================================================

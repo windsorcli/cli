@@ -2581,6 +2581,206 @@ func TestHandler_processAndCompose(t *testing.T) {
 	})
 }
 
+// composeCrossSource wires a core source, a consumer source that lists core (so it composes deeper),
+// and a user blueprint selecting both, runs processAndCompose, and returns the composed blueprint.
+// contextValues seeds the operator's values (nil means empty).
+func composeCrossSource(t *testing.T, coreFacets, consumerFacets []blueprintv1alpha1.Facet, contextValues map[string]any) *blueprintv1alpha1.Blueprint {
+	t.Helper()
+	mocks := setupHandlerMocks(t)
+	mocks.ConfigHandler.GetContextValuesFunc = func() (map[string]any, error) {
+		if contextValues == nil {
+			return map[string]any{}, nil
+		}
+		return contextValues, nil
+	}
+	handler := NewBlueprintHandler(mocks.Runtime, mocks.ArtifactBuilder)
+
+	coreBp := &blueprintv1alpha1.Blueprint{}
+	handler.sourceBlueprintLoaders["core"] = &mockLoaderImpl{
+		getBlueprintFunc:  func() *blueprintv1alpha1.Blueprint { return coreBp },
+		getSourceNameFunc: func() string { return "core" },
+		getFacetsFunc:     func() []blueprintv1alpha1.Facet { return coreFacets },
+	}
+
+	consumerBp := &blueprintv1alpha1.Blueprint{Sources: []blueprintv1alpha1.Source{{Name: "core"}}}
+	handler.sourceBlueprintLoaders["consumer"] = &mockLoaderImpl{
+		getBlueprintFunc:  func() *blueprintv1alpha1.Blueprint { return consumerBp },
+		getSourceNameFunc: func() string { return "consumer" },
+		getFacetsFunc:     func() []blueprintv1alpha1.Facet { return consumerFacets },
+	}
+
+	trueVal := true
+	handler.userBlueprintLoader = &mockLoaderImpl{
+		getBlueprintFunc: func() *blueprintv1alpha1.Blueprint {
+			return &blueprintv1alpha1.Blueprint{
+				Sources: []blueprintv1alpha1.Source{
+					{Name: "core", Install: &blueprintv1alpha1.BoolExpression{Value: &trueVal, IsExpr: false}},
+					{Name: "consumer", Install: &blueprintv1alpha1.BoolExpression{Value: &trueVal, IsExpr: false}},
+				},
+			}
+		},
+		getSourceNameFunc: func() string { return "user" },
+	}
+
+	if err := handler.processAndCompose(); err != nil {
+		t.Fatalf("processAndCompose failed: %v", err)
+	}
+	return handler.composedBlueprint
+}
+
+// configBlock builds a ConfigBlock named block whose value map is content (exposed at scope as block.<k>).
+func configBlock(block string, content map[string]any) blueprintv1alpha1.ConfigBlock {
+	return blueprintv1alpha1.ConfigBlock{Name: block, Body: map[string]any{"value": content}}
+}
+
+// kustSub returns the named composed kustomization's substitution value and whether it was found.
+func kustSub(bp *blueprintv1alpha1.Blueprint, name, key string) (string, bool) {
+	for _, k := range bp.Kustomizations {
+		if k.Name == name {
+			return k.Substitutions[key], true
+		}
+	}
+	return "", false
+}
+
+// hasKustomization reports whether the composed blueprint includes a kustomization by name.
+func hasKustomization(bp *blueprintv1alpha1.Blueprint, name string) bool {
+	for _, k := range bp.Kustomizations {
+		if k.Name == name {
+			return true
+		}
+	}
+	return false
+}
+
+// TestHandler_CrossSourceConfig pins the cross-source config behaviors: a referencing (consumer)
+// source can override a value an upstream (core) source consumes, activate an upstream capability,
+// disable one, and have upstream derivations recompute — while an explicit operator value still wins.
+// Several of these are expected to fail until config resolves as a single global layer.
+func TestHandler_CrossSourceConfig(t *testing.T) {
+	t.Run("OverridesUpstreamConsumedValue", func(t *testing.T) {
+		// Given core consumes dns.domain in a kustomization and consumer overrides dns.domain
+		core := []blueprintv1alpha1.Facet{{
+			Metadata: blueprintv1alpha1.Metadata{Name: "platform-base"},
+			Config:   []blueprintv1alpha1.ConfigBlock{configBlock("dns", map[string]any{"domain": "core-default"})},
+			Kustomizations: []blueprintv1alpha1.ConditionalKustomization{{Kustomization: blueprintv1alpha1.Kustomization{
+				Name: "dns", Path: "dns", Substitutions: map[string]string{"domain": "${dns.domain ?? ''}"},
+			}}},
+		}}
+		consumer := []blueprintv1alpha1.Facet{{
+			Metadata: blueprintv1alpha1.Metadata{Name: "override"},
+			Config:   []blueprintv1alpha1.ConfigBlock{configBlock("dns", map[string]any{"domain": "consumer-override"})},
+		}}
+
+		// When composed
+		bp := composeCrossSource(t, core, consumer, nil)
+
+		// Then core's component resolves to the consumer's override
+		got, found := kustSub(bp, "dns", "domain")
+		if !found {
+			t.Fatal("expected composed kustomization 'dns'")
+		}
+		if got != "consumer-override" {
+			t.Errorf("expected 'consumer-override', got %q", got)
+		}
+	})
+
+	t.Run("ActivatesUpstreamCapability", func(t *testing.T) {
+		// Given a core facet gated on flags.identity that consumer turns on via config
+		core := []blueprintv1alpha1.Facet{{
+			Metadata:       blueprintv1alpha1.Metadata{Name: "identity"},
+			When:           "flags.identity == true",
+			Kustomizations: []blueprintv1alpha1.ConditionalKustomization{{Kustomization: blueprintv1alpha1.Kustomization{Name: "identity", Path: "identity"}}},
+		}}
+		consumer := []blueprintv1alpha1.Facet{{
+			Metadata: blueprintv1alpha1.Metadata{Name: "enable-identity"},
+			Config:   []blueprintv1alpha1.ConfigBlock{configBlock("flags", map[string]any{"identity": true})},
+		}}
+
+		// When composed
+		bp := composeCrossSource(t, core, consumer, nil)
+
+		// Then core's gated capability is included
+		if !hasKustomization(bp, "identity") {
+			t.Error("expected core 'identity' kustomization to be activated by downstream config")
+		}
+	})
+
+	t.Run("DisablesUpstreamCapability", func(t *testing.T) {
+		// Given core enables its own capability and consumer turns it off
+		core := []blueprintv1alpha1.Facet{{
+			Metadata:       blueprintv1alpha1.Metadata{Name: "identity"},
+			When:           "flags.identity == true",
+			Config:         []blueprintv1alpha1.ConfigBlock{configBlock("flags", map[string]any{"identity": true})},
+			Kustomizations: []blueprintv1alpha1.ConditionalKustomization{{Kustomization: blueprintv1alpha1.Kustomization{Name: "identity", Path: "identity"}}},
+		}}
+		consumer := []blueprintv1alpha1.Facet{{
+			Metadata: blueprintv1alpha1.Metadata{Name: "disable-identity"},
+			Config:   []blueprintv1alpha1.ConfigBlock{configBlock("flags", map[string]any{"identity": false})},
+		}}
+
+		// When composed
+		bp := composeCrossSource(t, core, consumer, nil)
+
+		// Then the capability is excluded
+		if hasKustomization(bp, "identity") {
+			t.Error("expected downstream to disable core 'identity' capability")
+		}
+	})
+
+	t.Run("UpstreamDerivationRecomputesFromOverride", func(t *testing.T) {
+		// Given core derives net.host from dns.domain and consumer overrides dns.domain
+		core := []blueprintv1alpha1.Facet{{
+			Metadata: blueprintv1alpha1.Metadata{Name: "platform-base"},
+			Config: []blueprintv1alpha1.ConfigBlock{
+				configBlock("dns", map[string]any{"domain": "core"}),
+				configBlock("net", map[string]any{"host": "${dns.domain}.svc"}),
+			},
+			Kustomizations: []blueprintv1alpha1.ConditionalKustomization{{Kustomization: blueprintv1alpha1.Kustomization{
+				Name: "net", Path: "net", Substitutions: map[string]string{"host": "${net.host ?? ''}"},
+			}}},
+		}}
+		consumer := []blueprintv1alpha1.Facet{{
+			Metadata: blueprintv1alpha1.Metadata{Name: "override"},
+			Config:   []blueprintv1alpha1.ConfigBlock{configBlock("dns", map[string]any{"domain": "consumer"})},
+		}}
+
+		// When composed
+		bp := composeCrossSource(t, core, consumer, nil)
+
+		// Then the upstream derivation reflects the override
+		got, found := kustSub(bp, "net", "host")
+		if !found {
+			t.Fatal("expected composed kustomization 'net'")
+		}
+		if got != "consumer.svc" {
+			t.Errorf("expected derived 'consumer.svc', got %q", got)
+		}
+	})
+
+	t.Run("ExplicitOperatorValueVetoesDownstreamActivation", func(t *testing.T) {
+		// Given the operator explicitly disables identity, a downstream enable must not override it
+		core := []blueprintv1alpha1.Facet{{
+			Metadata:       blueprintv1alpha1.Metadata{Name: "identity"},
+			When:           "flags.identity == true",
+			Kustomizations: []blueprintv1alpha1.ConditionalKustomization{{Kustomization: blueprintv1alpha1.Kustomization{Name: "identity", Path: "identity"}}},
+		}}
+		consumer := []blueprintv1alpha1.Facet{{
+			Metadata: blueprintv1alpha1.Metadata{Name: "enable-identity"},
+			Config:   []blueprintv1alpha1.ConfigBlock{configBlock("flags", map[string]any{"identity": true})},
+		}}
+		operator := map[string]any{"flags": map[string]any{"identity": false}}
+
+		// When composed with an explicit operator opt-out
+		bp := composeCrossSource(t, core, consumer, operator)
+
+		// Then the operator's explicit false wins
+		if hasKustomization(bp, "identity") {
+			t.Error("expected explicit operator flags.identity=false to veto downstream activation")
+		}
+	})
+}
+
 func TestHandler_deriveConfigMapDeferredPaths(t *testing.T) {
 	t.Run("MarksConfigMapEntriesContainingDeferredPlaceholder", func(t *testing.T) {
 		// Given a handler with a composed blueprint containing deferred ConfigMap values
