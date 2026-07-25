@@ -161,10 +161,13 @@ func (r *TestRunner) discoverTestCases(filter string) ([]testCaseWithFile, error
 // from these entries so composition never reads the host env; WINDSOR_CONTEXT defaults to "test" and the
 // env map overrides it. Context isolation itself comes from the fresh ConfigHandler's .WithContext("test"),
 // which outranks the .windsor/context file and the WINDSOR_CONTEXT env var in GetContext.
+// When applySchemaDefaults is true the case composes with schema defaults materialized as production does,
+// rather than the test path's default skip, so a facet that reads a schema-defaulted field resolves it.
 // Returns a function that takes test values and returns a composed blueprint or an error.
-func (r *TestRunner) createGenerator(terraformOutputs map[string]map[string]any, env map[string]string) func(values map[string]any) (*blueprintv1alpha1.Blueprint, error) {
+func (r *TestRunner) createGenerator(terraformOutputs map[string]map[string]any, env map[string]string, applySchemaDefaults bool) func(values map[string]any) (*blueprintv1alpha1.Blueprint, error) {
 	return func(values map[string]any) (*blueprintv1alpha1.Blueprint, error) {
 		freshConfigHandler := config.NewConfigHandler(r.baseShell).WithContext("test")
+		freshConfigHandler.SetApplySchemaDefaults(applySchemaDefaults)
 
 		rt := runtime.NewRuntime(&runtime.Runtime{
 			Shell:         r.baseShell,
@@ -431,7 +434,7 @@ func (r *TestRunner) runTestCase(tc blueprintv1alpha1.TestCase) (TestResult, err
 	}
 	testValues["_testName"] = tc.Name
 
-	generator := r.createGenerator(tc.TerraformOutputs, tc.Env)
+	generator := r.createGenerator(tc.TerraformOutputs, tc.Env, tc.ApplySchemaDefaults)
 	bp, err := generator(testValues)
 
 	if tc.ExpectError {

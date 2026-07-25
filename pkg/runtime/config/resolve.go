@@ -20,12 +20,13 @@ import (
 // If the schema validator or schema is unavailable, only the currently loaded data is returned.
 // It also ensures that cluster.controlplanes.nodes and cluster.workers.nodes are initialized as empty maps
 // even though they are not serialized to YAML, so template expressions can safely evaluate them.
-// For test contexts, schema defaults are skipped to ensure tests only use explicitly provided values.
+// For test contexts, schema defaults are skipped to ensure tests only use explicitly provided values,
+// unless SetApplySchemaDefaults(true) was called to opt a case onto the production composition path.
 func (c *configHandler) GetContextValues() (map[string]any, error) {
 	result := make(map[string]any)
 
 	contextName := c.GetContext()
-	skipSchemaDefaults := contextName == "test" || strings.HasPrefix(contextName, "test-")
+	skipSchemaDefaults := (contextName == "test" || strings.HasPrefix(contextName, "test-")) && !c.applySchemaDefaults
 	if !skipSchemaDefaults && c.schemaValidator != nil && c.schemaValidator.Schema != nil {
 		defaults, err := c.schemaValidator.GetSchemaDefaults()
 		if err == nil && defaults != nil {

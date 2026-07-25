@@ -2912,7 +2912,7 @@ func TestTestRunner_createGenerator(t *testing.T) {
 			},
 		}
 
-		generator := runner.createGenerator(terraformOutputs, nil)
+		generator := runner.createGenerator(terraformOutputs, nil, false)
 		values := map[string]any{
 			"terraform.enabled": true,
 		}
@@ -2931,7 +2931,7 @@ func TestTestRunner_createGenerator(t *testing.T) {
 		mocks := setupTestRunnerMocks(t)
 		runner := createRunnerWithMockGenerator(mocks)
 
-		generator := runner.createGenerator(nil, nil)
+		generator := runner.createGenerator(nil, nil, false)
 		values := map[string]any{
 			"terraform.enabled": true,
 		}
@@ -2950,7 +2950,7 @@ func TestTestRunner_createGenerator(t *testing.T) {
 		mocks := setupTestRunnerMocksForFailure(t)
 		runner := createRunnerForFailure(mocks)
 
-		generator := runner.createGenerator(nil, nil)
+		generator := runner.createGenerator(nil, nil, false)
 		values := map[string]any{}
 
 		_, err := generator(values)
@@ -2975,7 +2975,7 @@ func TestTestRunner_createGenerator(t *testing.T) {
 			},
 		}
 
-		generator := runner.createGenerator(terraformOutputs, nil)
+		generator := runner.createGenerator(terraformOutputs, nil, false)
 		values := map[string]any{}
 
 		blueprint, err := generator(values)
@@ -2998,7 +2998,7 @@ func TestTestRunner_createGenerator(t *testing.T) {
 			},
 		}
 
-		generator := runner.createGenerator(terraformOutputs, nil)
+		generator := runner.createGenerator(terraformOutputs, nil, false)
 		values := map[string]any{
 			"terraform.enabled": false,
 		}
@@ -3040,7 +3040,7 @@ terraform:
 		terraformOutputs := map[string]map[string]any{
 			"cluster": {"endpoint": "https://cluster.local"},
 		}
-		generator := runner.createGenerator(terraformOutputs, nil)
+		generator := runner.createGenerator(terraformOutputs, nil, false)
 
 		// When the generator composes a config where dns.public_domain is unset so dns-zone is filtered out
 		_, err := generator(map[string]any{
@@ -3081,7 +3081,7 @@ terraform:
 		terraformOutputs := map[string]map[string]any{
 			"dns-zone": {"zone_id": "Z123ABC"},
 		}
-		generator := runner.createGenerator(terraformOutputs, nil)
+		generator := runner.createGenerator(terraformOutputs, nil, false)
 
 		// When the generator composes with dns.public_domain set so dns-zone is registered
 		_, err := generator(map[string]any{
@@ -3143,7 +3143,7 @@ allOf:
 			"dns":     map[string]any{"private_domain": "internal.example"},
 		}
 		for i := 0; i < 10; i++ {
-			generator := runner.createGenerator(nil, nil)
+			generator := runner.createGenerator(nil, nil, false)
 			if _, err := generator(satisfied); err != nil {
 				t.Fatalf("iteration %d: expected satisfied cross-field rule to pass, got %v", i, err)
 			}
@@ -3153,7 +3153,7 @@ allOf:
 		violation := map[string]any{
 			"gateway": map[string]any{"access": "private"},
 		}
-		generator := runner.createGenerator(nil, nil)
+		generator := runner.createGenerator(nil, nil, false)
 		if _, err := generator(violation); err == nil {
 			t.Fatal("expected cross-field rule violation to be surfaced from runner")
 		}
@@ -3178,7 +3178,7 @@ terraform:
 		runner := createRunnerWithMockGenerator(mocks)
 
 		// When the generator composes with an env map that enables the gate
-		generator := runner.createGenerator(nil, map[string]string{"ENABLE_DNS": "yes"})
+		generator := runner.createGenerator(nil, map[string]string{"ENABLE_DNS": "yes"}, false)
 		bp, err := generator(map[string]any{"terraform.enabled": true})
 
 		// Then dns-zone is included because env() resolved from the case env map
@@ -3210,7 +3210,7 @@ terraform:
 		runner := createRunnerWithMockGenerator(mocks)
 
 		// When the generator composes with no env map for the case
-		generator := runner.createGenerator(nil, nil)
+		generator := runner.createGenerator(nil, nil, false)
 		bp, err := generator(map[string]any{"terraform.enabled": true})
 
 		// Then dns-zone is excluded: env() never reads the host environment
@@ -3219,6 +3219,88 @@ terraform:
 		}
 		if hasTerraformComponent(bp, "dns-zone") {
 			t.Error("Expected dns-zone component to be absent: env() must not read host environment")
+		}
+	})
+
+	t.Run("SchemaDefaultResolvesForFallbackFreeReadWhenOptedIn", func(t *testing.T) {
+		// Given a schema default for network.cidr_block and a facet that reads it with no ?? fallback
+		mocks := setupTestRunnerMocks(t)
+		templateDir := filepath.Join(mocks.TmpDir, "contexts", "_template")
+		createTestFile(t, templateDir, "schema.yaml", `$schema: https://json-schema.org/draft/2020-12/schema
+type: object
+properties:
+  network:
+    type: object
+    properties:
+      cidr_block:
+        type: string
+        default: "10.5.0.0/16"
+`)
+		facetsDir := filepath.Join(templateDir, "facets")
+		createTestFile(t, facetsDir, "platform.yaml", `kind: Facet
+apiVersion: blueprints.windsorcli.dev/v1alpha1
+metadata:
+  name: platform
+terraform:
+  - name: cluster
+    path: cluster
+  - name: dns-zone
+    path: dns/zone
+    when: network.cidr_block == '10.5.0.0/16'
+`)
+		runner := createRunnerWithMockGenerator(mocks)
+
+		// When the case opts into schema defaults and sets no network.cidr_block
+		generator := runner.createGenerator(nil, nil, true)
+		bp, err := generator(map[string]any{"terraform.enabled": true})
+
+		// Then the fallback-free read resolves to the schema default and the gated component is included
+		if err != nil {
+			t.Fatalf("Expected no error, got: %v", err)
+		}
+		if !hasTerraformComponent(bp, "dns-zone") {
+			t.Error("Expected dns-zone: schema default should resolve network.cidr_block when opted in")
+		}
+	})
+
+	t.Run("SchemaDefaultSkippedForFallbackFreeReadByDefault", func(t *testing.T) {
+		// Given the same schema default and fallback-free facet read
+		mocks := setupTestRunnerMocks(t)
+		templateDir := filepath.Join(mocks.TmpDir, "contexts", "_template")
+		createTestFile(t, templateDir, "schema.yaml", `$schema: https://json-schema.org/draft/2020-12/schema
+type: object
+properties:
+  network:
+    type: object
+    properties:
+      cidr_block:
+        type: string
+        default: "10.5.0.0/16"
+`)
+		facetsDir := filepath.Join(templateDir, "facets")
+		createTestFile(t, facetsDir, "platform.yaml", `kind: Facet
+apiVersion: blueprints.windsorcli.dev/v1alpha1
+metadata:
+  name: platform
+terraform:
+  - name: cluster
+    path: cluster
+  - name: dns-zone
+    path: dns/zone
+    when: network.cidr_block == '10.5.0.0/16'
+`)
+		runner := createRunnerWithMockGenerator(mocks)
+
+		// When the case does not opt in
+		generator := runner.createGenerator(nil, nil, false)
+		bp, err := generator(map[string]any{"terraform.enabled": true})
+
+		// Then the schema default is skipped, the read is nil, and the gated component is excluded
+		if err != nil {
+			t.Fatalf("Expected no error, got: %v", err)
+		}
+		if hasTerraformComponent(bp, "dns-zone") {
+			t.Error("Expected dns-zone absent: schema default must be skipped by default in test context")
 		}
 	})
 
@@ -3241,7 +3323,7 @@ terraform:
 		runner := createRunnerWithMockGenerator(mocks)
 
 		// When the generator composes with no case env map
-		generator := runner.createGenerator(nil, nil)
+		generator := runner.createGenerator(nil, nil, false)
 		bp, err := generator(map[string]any{"terraform.enabled": true})
 
 		// Then dns-zone is included: WINDSOR_CONTEXT defaults to "test" in the hermetic env

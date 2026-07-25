@@ -44,4 +44,11 @@ type TestCase struct {
 	// If true, the test passes when composition fails and fails when composition succeeds.
 	// This is useful for testing invalid configurations that should be rejected by the framework.
 	ExpectError bool `yaml:"expectError,omitempty"`
+
+	// ApplySchemaDefaults composes this case with schema `default:` values materialized, as
+	// production does. The test path otherwise skips schema defaults so a facet is exercised on
+	// its own defaulting logic; set this to validate a facet that relies on a schema default
+	// (e.g. a read of network.cidr_block with no `?? <fallback>`). Off by default; other cases
+	// are unaffected.
+	ApplySchemaDefaults bool `yaml:"applySchemaDefaults,omitempty"`
 }

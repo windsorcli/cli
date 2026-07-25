@@ -128,3 +128,18 @@ cases:
     - name: policy-resources
       components:
       - ordinal-merge-test
+
+# applySchemaDefaults opt-in (#3083): with no network set, the schema default for
+# network.cidr_block (10.5.0.0/16) is materialized as in production, so option-schema-default's
+# fallback-free cidrhost(network.cidr_block, 10) resolves to 10.5.0.10 and its marker is included.
+# Without the opt-in the test path skips schema defaults and this would compose against nil.
+- name: schema_default_applies_with_opt_in
+  applySchemaDefaults: true
+  values:
+    provider: docker
+    cluster:
+      driver: talos
+  expect:
+    kustomize:
+    - name: schema-default-marker
+      path: schema-default/marker

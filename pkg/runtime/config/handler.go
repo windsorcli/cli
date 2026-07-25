@@ -49,6 +49,7 @@ type ConfigHandler interface {
 	LoadSchemaFromBytes(schemaContent []byte) error
 	GetSchema() map[string]any
 	GetContextValues() (map[string]any, error)
+	SetApplySchemaDefaults(enabled bool)
 	GetSensitivePaths() []string
 	IsSensitivePath(path string) bool
 	RegisterProvider(prefix string, provider ValueProvider)
@@ -82,6 +83,11 @@ type configHandler struct {
 	data            map[string]any
 	defaultConfig   *v1alpha1.Context
 	providers       map[string]ValueProvider
+
+	// applySchemaDefaults forces schema-default materialization in GetContextValues even for a
+	// test context, which otherwise skips it. Consumers that want the production composition path
+	// under a test context (the facet test runner, per case) set this; it is a no-op elsewhere.
+	applySchemaDefaults bool
 }
 
 // =============================================================================
@@ -434,6 +440,13 @@ func (c *configHandler) SetContext(context string) error {
 	}
 
 	return nil
+}
+
+// SetApplySchemaDefaults forces GetContextValues to materialize schema defaults even under a test
+// context, which otherwise skips them. It exists for the facet test runner to compose a case on the
+// production path; in any non-test context schema defaults already apply, so this is a no-op there.
+func (c *configHandler) SetApplySchemaDefaults(enabled bool) {
+	c.applySchemaDefaults = enabled
 }
 
 // GetConfigRoot retrieves the configuration root path based on the current context
