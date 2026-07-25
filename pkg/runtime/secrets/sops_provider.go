@@ -90,6 +90,15 @@ func (s *SopsProvider) LoadSecrets() error {
 		go func(idx int, filePath string) {
 			defer wg.Done()
 
+			base := filepath.Base(filePath)
+			if base == "secrets.yaml" || base == "secrets.yml" {
+				results[idx] = fileResult{
+					index: idx,
+					err:   fmt.Errorf("refusing to load plaintext secrets file %s: files must be encrypted", filePath),
+				}
+				return
+			}
+
 			plaintextBytes, err := s.shims.DecryptFile(filePath, "yaml")
 			if err != nil {
 				results[idx] = fileResult{

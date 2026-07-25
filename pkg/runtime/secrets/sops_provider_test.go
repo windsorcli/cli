@@ -16,7 +16,11 @@ func setupSopsMocks(t *testing.T) *SopsProvider {
 	t.Helper()
 	p := NewSopsProvider("/valid/config/path")
 	p.shims.Stat = func(name string) (os.FileInfo, error) {
-		return nil, nil // all files exist
+		base := filepath.Base(name)
+		if base == "secrets.enc.yaml" || base == "secrets.enc.yml" {
+			return nil, nil
+		}
+		return nil, os.ErrNotExist
 	}
 	p.shims.DecryptFile = func(filePath string, format string) ([]byte, error) {
 		return []byte("nested:\n  key: value\n  another:\n    deep: secret\n"), nil
@@ -98,7 +102,8 @@ func TestSopsProvider_LoadSecrets(t *testing.T) {
 		var mu sync.Mutex
 		calls := 0
 		p.shims.Stat = func(name string) (os.FileInfo, error) {
-			if filepath.Base(name) == "secrets.yaml" || filepath.Base(name) == "secrets.enc.yaml" {
+			base := filepath.Base(name)
+			if base == "secrets.enc.yml" || base == "secrets.enc.yaml" {
 				return nil, nil
 			}
 			return nil, os.ErrNotExist
@@ -107,7 +112,7 @@ func TestSopsProvider_LoadSecrets(t *testing.T) {
 			mu.Lock()
 			calls++
 			mu.Unlock()
-			if filepath.Base(filePath) == "secrets.yaml" {
+			if filepath.Base(filePath) == "secrets.enc.yaml" {
 				return []byte("key1: value1\nkey2: first\n"), nil
 			}
 			return []byte("key2: second\nkey3: value3\n"), nil
@@ -124,6 +129,24 @@ func TestSopsProvider_LoadSecrets(t *testing.T) {
 		}
 		if p.secrets["key3"] != "value3" {
 			t.Errorf("key3 = %q, want %q", p.secrets["key3"], "value3")
+		}
+	})
+
+	t.Run("ReturnsErrorForPlaintextSecrets", func(t *testing.T) {
+		p := NewSopsProvider("/plaintext")
+		p.shims.Stat = func(name string) (os.FileInfo, error) {
+			if filepath.Base(name) == "secrets.yaml" {
+				return nil, nil
+			}
+
+			return nil, os.ErrNotExist
+		}
+
+		err := p.LoadSecrets()
+		if err == nil {
+			t.Error("expected error when loading plaintext secrets.yaml, got nil")
+		} else if !containsStr(err.Error(), "refusing to load plaintext") {
+			t.Errorf("expected refusal error, got: %v", err)
 		}
 	})
 
