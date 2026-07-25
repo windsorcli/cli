@@ -233,7 +233,7 @@ func (p *BaseBlueprintProcessor) ProcessFacets(target *blueprintv1alpha1.Bluepri
 		return sortedFacets[i].Metadata.Name < sortedFacets[j].Metadata.Name
 	})
 
-	globalScope, scope, includedFacets, err := p.resolveConfigAndInclusion(sortedFacets, contextScope)
+	globalScope, scope, includedFacets, err := p.resolveConfigAndInclusion(sortedFacets, contextScope, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -304,7 +304,12 @@ func (p *BaseBlueprintProcessor) ProcessGlobally(sources []SourceFacetSet) (map[
 		return combined[i].Metadata.Name < combined[j].Metadata.Name
 	})
 
-	globalScope, scope, included, err := p.resolveConfigAndInclusion(combined, contextScope)
+	var operatorOverlay map[string]any
+	if p.runtime != nil && p.runtime.ConfigHandler != nil {
+		operatorOverlay = p.runtime.ConfigHandler.GetSetValues()
+	}
+
+	globalScope, scope, included, err := p.resolveConfigAndInclusion(combined, contextScope, operatorOverlay)
 	if err != nil {
 		return nil, err
 	}
@@ -332,7 +337,7 @@ func (p *BaseBlueprintProcessor) ProcessGlobally(sources []SourceFacetSet) (map[
 // and a requirements error is returned if any included facet's requires stay unmet. It emits no
 // components — split from ProcessFacets so cross-source composition can resolve config and inclusion
 // once, globally, before emitting each source's components.
-func (p *BaseBlueprintProcessor) resolveConfigAndInclusion(sortedFacets []blueprintv1alpha1.Facet, contextScope map[string]any) (map[string]any, map[string]any, []blueprintv1alpha1.Facet, error) {
+func (p *BaseBlueprintProcessor) resolveConfigAndInclusion(sortedFacets []blueprintv1alpha1.Facet, contextScope map[string]any, operatorOverlay map[string]any) (map[string]any, map[string]any, []blueprintv1alpha1.Facet, error) {
 	scope := contextScope
 	var globalScope map[string]any
 	var cfgEntries map[string]*blueprintv1alpha1.ConfigBlock
@@ -383,6 +388,9 @@ func (p *BaseBlueprintProcessor) resolveConfigAndInclusion(sortedFacets []bluepr
 			mergeBase = make(map[string]any)
 		}
 		passScope = blueprintv1alpha1.DeepMergeMaps(mergeBase, globalScope)
+		if len(operatorOverlay) > 0 {
+			passScope = blueprintv1alpha1.DeepMergeMaps(passScope, operatorOverlay)
+		}
 		scope = passScope
 		currSet := make(map[string]bool, len(includedFacets))
 		for _, f := range includedFacets {

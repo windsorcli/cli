@@ -36,6 +36,7 @@ type MockConfigHandler struct {
 	LoadSchemaFromBytesFunc    func(schemaContent []byte) error
 	GetSchemaFunc              func() map[string]any
 	GetContextValuesFunc       func() (map[string]any, error)
+	GetSetValuesFunc           func() map[string]any
 	SetApplySchemaDefaultsFunc func(enabled bool)
 	GetSensitivePathsFunc      func() []string
 	IsSensitivePathFunc        func(path string) bool
@@ -288,6 +289,14 @@ func (m *MockConfigHandler) GetContextValues() (map[string]any, error) {
 		return m.GetContextValuesFunc()
 	}
 	return nil, fmt.Errorf("GetContextValuesFunc not set")
+}
+
+// GetSetValues calls the mock GetSetValuesFunc if set, otherwise returns nil.
+func (m *MockConfigHandler) GetSetValues() map[string]any {
+	if m.GetSetValuesFunc != nil {
+		return m.GetSetValuesFunc()
+	}
+	return nil
 }
 
 // SetApplySchemaDefaults calls the mock SetApplySchemaDefaultsFunc if set, otherwise is a no-op
