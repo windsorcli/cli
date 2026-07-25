@@ -240,6 +240,24 @@ func (p *BaseBlueprintProcessor) ProcessFacets(target *blueprintv1alpha1.Bluepri
 		return sortedFacets[i].Metadata.Name < sortedFacets[j].Metadata.Name
 	})
 
+	globalScope, scope, includedFacets, err := p.resolveConfigAndInclusion(sortedFacets, contextScope)
+	if err != nil {
+		return nil, err
+	}
+
+	if err := p.emitFacetComponents(target, includedFacets, scope, sourceName...); err != nil {
+		return nil, err
+	}
+	return globalScope, nil
+}
+
+// resolveConfigAndInclusion runs the config-merge and facet-inclusion fixpoint over sortedFacets
+// against contextScope. It returns the resolved config scope (globalScope), the full evaluation scope
+// (contextScope deep-merged with globalScope), and the included facets. Excluded facets are recorded,
+// and a requirements error is returned if any included facet's requires stay unmet. It emits no
+// components — split from ProcessFacets so cross-source composition can resolve config and inclusion
+// once, globally, before emitting each source's components.
+func (p *BaseBlueprintProcessor) resolveConfigAndInclusion(sortedFacets []blueprintv1alpha1.Facet, contextScope map[string]any) (map[string]any, map[string]any, []blueprintv1alpha1.Facet, error) {
 	scope := contextScope
 	var globalScope map[string]any
 	var cfgEntries map[string]*blueprintv1alpha1.ConfigBlock
@@ -262,19 +280,19 @@ func (p *BaseBlueprintProcessor) ProcessFacets(target *blueprintv1alpha1.Bluepri
 		for _, facet := range sortedFacets {
 			shouldInclude, err := p.shouldIncludeFacet(facet, passScope)
 			if err != nil {
-				return nil, err
+				return nil, nil, nil, err
 			}
 			if !shouldInclude {
 				continue
 			}
 			misses, err := p.evaluateRequirements(facet, passScope)
 			if err != nil {
-				return nil, err
+				return nil, nil, nil, err
 			}
 			var errMerge error
 			globalScope, cfgEntries, errMerge = p.mergeFacetScopeIntoGlobal(facet, globalScope, cfgEntries, passScope, contextScope)
 			if errMerge != nil {
-				return nil, fmt.Errorf("facet %s: %w", facet.Metadata.Name, errMerge)
+				return nil, nil, nil, fmt.Errorf("facet %s: %w", facet.Metadata.Name, errMerge)
 			}
 			if len(misses) > 0 {
 				pendingRequirements[facet.Metadata.Name] = facetRequirementMisses{Misses: misses}
@@ -283,7 +301,7 @@ func (p *BaseBlueprintProcessor) ProcessFacets(target *blueprintv1alpha1.Bluepri
 			includedFacets = append(includedFacets, facet)
 		}
 		if err := p.evaluateGlobalScopeConfig(globalScope, contextScope); err != nil {
-			return nil, err
+			return nil, nil, nil, err
 		}
 		mergeBase := contextScope
 		if mergeBase == nil {
@@ -311,7 +329,7 @@ func (p *BaseBlueprintProcessor) ProcessFacets(target *blueprintv1alpha1.Bluepri
 	}
 
 	if len(pendingRequirements) > 0 {
-		return nil, formatRequirementsError(pendingRequirements)
+		return nil, nil, nil, formatRequirementsError(pendingRequirements)
 	}
 
 	includedSet := make(map[string]bool, len(includedFacets))
@@ -329,10 +347,7 @@ func (p *BaseBlueprintProcessor) ProcessFacets(target *blueprintv1alpha1.Bluepri
 		})
 	}
 
-	if err := p.emitFacetComponents(target, includedFacets, scope, sourceName...); err != nil {
-		return nil, err
-	}
-	return globalScope, nil
+	return globalScope, scope, includedFacets, nil
 }
 
 // emitFacetComponents materializes the included facets' components — terraform components,
