@@ -114,6 +114,23 @@ type Facet struct {
 	// values-common, making them available to all kustomizations via PostBuild substitution.
 	// Values may use expression syntax (e.g. "${dns.domain}") resolved against facet config blocks.
 	Substitutions map[string]string `yaml:"substitutions,omitempty"`
+
+	// Messages are operator-facing notes rendered at the end of a bootstrap/apply run. Unlike a
+	// requires: message (failure path, pre-flight, verbatim), a post-run message is on the success
+	// path, rendered after apply, and interpolated against composed scope — so its text can carry
+	// run values (e.g. terraform_output). Each entry's optional When gates it; text is the message.
+	Messages []Message `yaml:"messages,omitempty"`
+}
+
+// Message is an operator-facing note a facet emits at the end of a run. When gates whether it renders;
+// Text is the message body, evaluated against composed scope so it can interpolate run values.
+type Message struct {
+	// When is an optional expression gating whether this message renders. Empty means always.
+	When string `yaml:"when,omitempty"`
+
+	// Text is the message body. It is expression-evaluated against composed scope, so it may
+	// reference config values and run outputs (e.g. "${terraform_output('dns-zone', 'nameservers')}").
+	Text string `yaml:"text"`
 }
 
 // ConditionalTerraformComponent extends TerraformComponent with conditional logic support.
@@ -349,6 +366,7 @@ func (f *Facet) DeepCopy() *Facet {
 		Kustomizations:      kustomizationsCopy,
 		Crds:                slices.Clone(f.Crds),
 		Substitutions:       maps.Clone(f.Substitutions),
+		Messages:            slices.Clone(f.Messages),
 	}
 }
 

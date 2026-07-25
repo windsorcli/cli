@@ -188,7 +188,7 @@ func TestBootstrapCmd(t *testing.T) {
 		// When executing bootstrap
 		err := cmd.Execute()
 
-		// Then success, and both Install and Wait ran (Wait is unconditional — no flag)
+		// Then success, and both Install and Wait ran (bootstrap waits, no flag)
 		if err != nil {
 			t.Fatalf("Expected success, got %v", err)
 		}
@@ -196,7 +196,38 @@ func TestBootstrapCmd(t *testing.T) {
 			t.Error("Expected Install to be called")
 		}
 		if !waitCalled {
-			t.Error("Expected Wait to be called unconditionally")
+			t.Error("Expected Wait to be called")
+		}
+	})
+
+	t.Run("WaitFailureIsNonFatal", func(t *testing.T) {
+		// Given a wait that does not converge (a kustomization pending on a manual step)
+		mocks := setupBootstrapTest(t)
+		proj := newBootstrapTestProject(mocks)
+
+		markerWritten := false
+		mocks.KubernetesManager.WaitForKustomizationsFunc = func(ctx context.Context, message string, blueprint *blueprintv1alpha1.Blueprint) error {
+			return fmt.Errorf("timeout waiting for kustomization dns/external-dns to be ready")
+		}
+		mocks.KubernetesManager.ApplyVersionMarkerFunc = func(namespace string, marker kubernetes.VersionMarker) error {
+			markerWritten = true
+			return nil
+		}
+
+		cmd := createTestBootstrapCmd()
+		ctx := context.WithValue(context.Background(), projectOverridesKey, proj)
+		cmd.SetArgs([]string{"--yes"})
+		cmd.SetContext(ctx)
+
+		// When executing bootstrap
+		err := cmd.Execute()
+
+		// Then bootstrap succeeds despite the wait not converging, and still writes the version marker
+		if err != nil {
+			t.Fatalf("Expected wait failure to be non-fatal, got %v", err)
+		}
+		if !markerWritten {
+			t.Error("Expected version marker to be written after a non-fatal wait failure")
 		}
 	})
 
@@ -1022,6 +1053,39 @@ func TestBootstrapCmd(t *testing.T) {
 		}
 		if upCalled {
 			t.Error("Up must not be called when EOF declines summary-confirm in local mode")
+		}
+	})
+}
+
+func TestPrintPostRunMessages(t *testing.T) {
+	t.Run("EmptyMessagesProducesNoOutput", func(t *testing.T) {
+		var buf strings.Builder
+		printPostRunMessages(&buf, nil)
+		if buf.Len() != 0 {
+			t.Errorf("Expected no output for empty messages, got %q", buf.String())
+		}
+	})
+
+	t.Run("SingleMessageRendersUnderNotesHeader", func(t *testing.T) {
+		var buf strings.Builder
+		printPostRunMessages(&buf, []blueprintv1alpha1.Message{{Text: "Delegate ns1.example, ns2.example"}})
+		out := buf.String()
+		if !strings.Contains(out, "Notes\n") {
+			t.Errorf("Expected a Notes header, got %q", out)
+		}
+		if !strings.Contains(out, "═══") {
+			t.Errorf("Expected a divider under the header, got %q", out)
+		}
+		if !strings.Contains(out, "Delegate ns1.example, ns2.example\n") {
+			t.Errorf("Expected the message text, got %q", out)
+		}
+	})
+
+	t.Run("MultipleMessagesSeparatedByBlankLine", func(t *testing.T) {
+		var buf strings.Builder
+		printPostRunMessages(&buf, []blueprintv1alpha1.Message{{Text: "first"}, {Text: "second"}})
+		if !strings.Contains(buf.String(), "first\n\nsecond\n") {
+			t.Errorf("Expected messages separated by a blank line, got %q", buf.String())
 		}
 	})
 }

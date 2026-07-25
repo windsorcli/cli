@@ -146,7 +146,38 @@ properties:
       'values-common', making them available to every kustomization via
       PostBuild substitution. Values may use expression syntax (e.g.
       '${dns.domain}') resolved against active facet config blocks.
+  messages:
+    type: array
+    items:
+      $ref: '#/$defs/message'
+    description: |
+      Operator-facing notes rendered at the end of a bootstrap/apply run.
+      Unlike a requires: message (failure path, pre-flight, verbatim), a
+      post-run message is on the success path, rendered after apply, and
+      interpolated against composed scope — so its text can carry run values
+      (e.g. terraform_output).
 $defs:
+  message:
+    type: object
+    required:
+      - text
+    additionalProperties: false
+    description: |
+      An operator-facing post-run note. 'when' gates whether it renders;
+      'text' is the body, evaluated against composed scope so it may
+      interpolate config values and run outputs.
+    properties:
+      when:
+        type: string
+        description: |
+          Optional expression gating whether this message renders. Empty
+          means always. Evaluated against composed scope.
+      text:
+        type: string
+        description: |
+          The message body. Expression-evaluated against composed scope, so
+          it may reference config values and run outputs (e.g.
+          "${terraform_output('dns-zone', 'nameservers')}").
   configBlock:
     type: object
     required:

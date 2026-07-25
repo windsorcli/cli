@@ -394,6 +394,15 @@ func (p *BaseBlueprintProcessor) ProcessFacets(target *blueprintv1alpha1.Bluepri
 				}
 			}
 		}
+
+		// Carry raw message templates through in included-facet order (ordinal then name). They are not
+		// evaluated here: GenerateResolved renders when/text against the resolved scope, where run values
+		// like terraform_output are available, and dedups the rendered results.
+		for _, msg := range facet.Messages {
+			if msg.Text != "" {
+				target.Messages = append(target.Messages, msg)
+			}
+		}
 	}
 
 	setCrdLayer(target, crdRefs, resolveSourceName(sourceName))

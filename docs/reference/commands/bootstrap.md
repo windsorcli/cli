@@ -8,7 +8,7 @@ description: "Bootstrap a fresh environment end-to-end."
 windsor bootstrap [context] [flags]
 ```
 
-First-run setup for a context: applies Terraform, installs the Flux blueprint, migrates state to the configured remote backend, and waits for kustomizations.
+First-run setup for a context: applies Terraform, installs the Flux blueprint, migrates state to the configured remote backend, and waits for kustomizations. The wait is best-effort — a wait that does not converge is reported as a warning, not a failure, since a kustomization may be intentionally blocked on a manual step described in the post-run output.
 
 When the blueprint declares a backend Terraform component, bootstrap runs a two-phase apply to resolve the chicken-and-egg case where the remote backend (S3 bucket, DynamoDB table, etc.) lives in infrastructure Terraform must create first:
 

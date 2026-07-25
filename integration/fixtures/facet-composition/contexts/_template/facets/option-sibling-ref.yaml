@@ -4,6 +4,9 @@ metadata:
   name: option-sibling-ref
   description: A config block whose value derives one key from a sibling key in the same block via a non-call operator; must resolve at compose time rather than erroring on nil.
 
+messages:
+- text: "Identity endpoints derived. Review the blueprint before applying."
+
 config:
 - name: identity_effective
   value:

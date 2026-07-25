@@ -1525,6 +1525,133 @@ func TestHandler_GenerateResolved(t *testing.T) {
 			t.Errorf("Expected 'external' variant's already-resolved substitution left untouched, got %q", sys.Resources[1].Substitutions["gateway_lb_ip"])
 		}
 	})
+
+	t.Run("RendersPostRunMessageWhenGateTrue", func(t *testing.T) {
+		// Given a message gated true whose text interpolates a run value
+		mocks := setupHandlerMocks(t)
+		mocks.Runtime.Evaluator = &evaluator.MockExpressionEvaluator{
+			EvaluateFunc: func(expr string, _ string, _ map[string]any, _ bool) (any, error) {
+				if strings.Contains(expr, "public_domain") {
+					return true, nil
+				}
+				return "Delegate ns1.example, ns2.example", nil
+			},
+		}
+		handler := NewBlueprintHandler(mocks.Runtime, mocks.ArtifactBuilder)
+		handler.composedBlueprint = &blueprintv1alpha1.Blueprint{
+			Messages: []blueprintv1alpha1.Message{
+				{When: "dns.public_domain != ''", Text: "Delegate ${terraform_output('dns-zone', 'nameservers')}"},
+			},
+		}
+
+		// When resolving
+		resolved, err := handler.GenerateResolved()
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+
+		// Then the message renders with interpolated text and cleared When
+		if len(resolved.Messages) != 1 {
+			t.Fatalf("Expected 1 rendered message, got %d", len(resolved.Messages))
+		}
+		if resolved.Messages[0].Text != "Delegate ns1.example, ns2.example" {
+			t.Errorf("Expected interpolated text, got %q", resolved.Messages[0].Text)
+		}
+		if resolved.Messages[0].When != "" {
+			t.Errorf("Expected When cleared after gating, got %q", resolved.Messages[0].When)
+		}
+	})
+
+	t.Run("DropsPostRunMessageWhenGateFalse", func(t *testing.T) {
+		// Given a message whose When evaluates false
+		mocks := setupHandlerMocks(t)
+		mocks.Runtime.Evaluator = &evaluator.MockExpressionEvaluator{
+			EvaluateFunc: func(expr string, _ string, _ map[string]any, _ bool) (any, error) {
+				if strings.Contains(expr, "public_domain") {
+					return false, nil
+				}
+				return "should not render", nil
+			},
+		}
+		handler := NewBlueprintHandler(mocks.Runtime, mocks.ArtifactBuilder)
+		handler.composedBlueprint = &blueprintv1alpha1.Blueprint{
+			Messages: []blueprintv1alpha1.Message{
+				{When: "dns.public_domain != ''", Text: "delegate ${x}"},
+			},
+		}
+
+		// When resolving
+		resolved, err := handler.GenerateResolved()
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+
+		// Then the gated-out message is dropped
+		if len(resolved.Messages) != 0 {
+			t.Errorf("Expected gated-out message dropped, got %v", resolved.Messages)
+		}
+	})
+
+	t.Run("DeduplicatesIdenticalRenderedMessages", func(t *testing.T) {
+		// Given two messages that render to the same text
+		mocks := setupHandlerMocks(t)
+		mocks.Runtime.Evaluator = &evaluator.MockExpressionEvaluator{
+			EvaluateFunc: func(expr string, _ string, _ map[string]any, _ bool) (any, error) {
+				return "same note", nil
+			},
+		}
+		handler := NewBlueprintHandler(mocks.Runtime, mocks.ArtifactBuilder)
+		handler.composedBlueprint = &blueprintv1alpha1.Blueprint{
+			Messages: []blueprintv1alpha1.Message{
+				{Text: "${a}"},
+				{Text: "${b}"},
+			},
+		}
+
+		// When resolving
+		resolved, err := handler.GenerateResolved()
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+
+		// Then the duplicate rendered text surfaces once
+		if len(resolved.Messages) != 1 {
+			t.Fatalf("Expected deduplicated to 1 message, got %d", len(resolved.Messages))
+		}
+		if resolved.Messages[0].Text != "same note" {
+			t.Errorf("Expected 'same note', got %q", resolved.Messages[0].Text)
+		}
+	})
+
+	t.Run("PropagatesMessageWhenEvaluationError", func(t *testing.T) {
+		// Given a message whose When expression errors
+		mocks := setupHandlerMocks(t)
+		mocks.Runtime.Evaluator = &evaluator.MockExpressionEvaluator{
+			EvaluateFunc: func(expr string, _ string, _ map[string]any, _ bool) (any, error) {
+				return nil, fmt.Errorf("bad when expression")
+			},
+		}
+		handler := NewBlueprintHandler(mocks.Runtime, mocks.ArtifactBuilder)
+		handler.composedBlueprint = &blueprintv1alpha1.Blueprint{
+			Messages: []blueprintv1alpha1.Message{
+				{When: "broken(", Text: "x"},
+			},
+		}
+
+		// When resolving
+		resolved, err := handler.GenerateResolved()
+
+		// Then the error surfaces and no partial blueprint is returned
+		if err == nil {
+			t.Fatal("Expected message When error to surface, got nil")
+		}
+		if !strings.Contains(err.Error(), "message when") {
+			t.Errorf("Expected error to name the message when, got %v", err)
+		}
+		if resolved != nil {
+			t.Error("Expected nil blueprint on message resolve failure")
+		}
+	})
 }
 
 func TestHandler_getConfigValues(t *testing.T) {

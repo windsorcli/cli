@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/spf13/cobra"
+	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
 	"github.com/windsorcli/cli/pkg/composer"
 	"github.com/windsorcli/cli/pkg/project"
 	"github.com/windsorcli/cli/pkg/provisioner"
@@ -30,11 +31,13 @@ var (
 )
 
 // bootstrapCmd stands up a fresh Windsor environment end-to-end. It combines init-style
-// project configuration with up-style infrastructure deployment and unconditionally waits
-// for kustomizations before returning. Unlike `windsor up`, bootstrap continues through
-// terraform + install + wait even when the context does not define a workstation, so it
-// is suitable for both local workstation contexts and non-workstation contexts (staging,
-// production). Unlike `windsor init`, bootstrap does not anchor the current directory as
+// project configuration with up-style infrastructure deployment, then waits for kustomizations.
+// The wait is best-effort: post-run messages contributed by facets print before it, and a wait
+// that does not converge is reported as a warning rather than failing bootstrap, since a
+// kustomization may be intentionally blocked on a manual step the message describes (e.g. delegate
+// these nameservers). Unlike `windsor up`, bootstrap continues through terraform + install even when
+// the context does not define a workstation, so it is suitable for both local workstation contexts and
+// non-workstation contexts (staging, production). Unlike `windsor init`, bootstrap does not anchor the current directory as
 // a project root — it is allowed to run in global mode, where directory trust is implicit.
 //
 // When the blueprint declares a backend tier via Blueprint.Backend, bootstrap pivots the
@@ -45,7 +48,7 @@ var (
 var bootstrapCmd = &cobra.Command{
 	Use:   "bootstrap [context]",
 	Short: "Bootstrap a fresh environment end-to-end.",
-	Long: `First-run setup for a context: applies Terraform, installs the Flux blueprint, migrates state to the configured remote backend, and waits for kustomizations.
+	Long: `First-run setup for a context: applies Terraform, installs the Flux blueprint, migrates state to the configured remote backend, and waits for kustomizations. The wait is best-effort — a wait that does not converge is reported as a warning, not a failure, since a kustomization may be intentionally blocked on a manual step described in the post-run output.
 
 When the blueprint declares a backend Terraform component, bootstrap runs a two-phase apply to resolve the chicken-and-egg case where the remote backend (S3 bucket, DynamoDB table, etc.) lives in infrastructure Terraform must create first:
 
@@ -208,6 +211,7 @@ windsor bootstrap prod --yes`,
 		// briefly holds the stack lock while answering. Acceptable today since bootstrap
 		// is rare; revisit if the prompt grows into a longer flow.
 		var applied, halted bool
+		var postRunMessages []blueprintv1alpha1.Message
 		if err := stacklock.With(cmd.Context(), proj.Runtime, "bootstrap", func() error {
 			_, ok, h, err := proj.Bootstrap(confirmFn)
 			finishPlan(err)
@@ -229,8 +233,18 @@ windsor bootstrap prod --yes`,
 				return fmt.Errorf("error installing blueprint: %w", err)
 			}
 
+			// Capture post-run messages to print as an end-of-run summary rather than inline among the
+			// install/wait progress. Because the wait below is best-effort, the run always reaches that
+			// summary, so a kustomization intentionally pending on a manual step the message describes
+			// still surfaces its instructions.
+			postRunMessages = blueprint.Messages
+
+			// The wait is best-effort: a kustomization may be legitimately pending on a manual step one of
+			// the post-run messages describes, which is a correct state, not a failure. Surface what did
+			// not converge as a warning (the error names the stuck kustomizations) and continue, rather
+			// than framing the expected pending state as a bootstrap failure.
 			if err := proj.Provisioner.Wait(cmd.Context(), blueprint); err != nil {
-				return fmt.Errorf("error waiting for kustomizations: %w", err)
+				fmt.Fprintf(os.Stderr, "⚠ Bootstrap applied; some kustomizations are not yet ready: %v\n", err)
 			}
 
 			if err := proj.Provisioner.WriteVersionMarker(blueprint); err != nil {
@@ -254,9 +268,27 @@ windsor bootstrap prod --yes`,
 		if proj.Workstation != nil {
 			printDeferredWork(os.Stderr, proj.Workstation.DeferredWork(), stdruntime.GOOS)
 		}
+		printPostRunMessages(os.Stderr, postRunMessages)
 
 		return nil
 	},
+}
+
+// printPostRunMessages writes the rendered post-run messages to w under a "Notes" header with a
+// divider, matching the bootstrap summary's style so the section stands out from the surrounding
+// progress rather than blending into it. Messages are already gated and interpolated by
+// GenerateResolved; an empty list prints nothing. Multiple messages are separated by a blank line.
+func printPostRunMessages(w io.Writer, messages []blueprintv1alpha1.Message) {
+	if len(messages) == 0 {
+		return
+	}
+	fmt.Fprintf(w, "\nNotes\n%s\n", strings.Repeat("═", 47))
+	for i, m := range messages {
+		if i > 0 {
+			fmt.Fprintln(w)
+		}
+		fmt.Fprintln(w, m.Text)
+	}
 }
 
 // makeBootstrapConfirmFn builds the confirm callback the provisioner calls

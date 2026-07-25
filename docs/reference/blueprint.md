@@ -21,6 +21,7 @@ variable substitutions shared across them.
 | `crds` | `array<string>` | The flat list of vendored CRD references installed from the default/project source (e.g. 'cert-manager-1.16.2'), authored as a bare scalar list — the same form facets use. CRDs carried by an OCI source are not listed here: they ride with that source (see sources[].crds) and install in the background when it is install:true. The provisioner materializes this list into the 'crds' kustomization — pruning disabled, wait enabled — applied ahead of the kustomize: layer so every kustomization sees its CRDs Established first. |
 | `flux` | `array<object>` | System entries — functional layers that each compile to an install Kustomization plus one or more resources-variant Kustomizations. Distinct from 'kustomize:', which is a 1:1 Kustomization passthrough. |
 | `kustomize` | `array<object>` | Plain Flux kustomizations included in the blueprint — a 1:1 passthrough: each entry maps to one Kustomization the provisioner applies, in topologically sorted dependsOn order. System entries (install/resources tiers) live under 'flux:' instead. |
+| `messages` | `array<object>` | Operator-facing post-run notes contributed by active facets. Carried as raw when/text templates through composition; GenerateResolved evaluates each against composed scope, keeping only when-true entries with interpolated text for the command to print at the end of a run. |
 | `repository` | `object` | Source repository this blueprint was bootstrapped from. Reconciled on a short, continuously-polled interval (unlike sources[], which are presumed pinned vendor dependencies): this is expected to be a live, actively-pushed branch, and changes can land here without any windsor command running. |
 | `sources` | `array<object>` | External resources referenced by the blueprint. Each source is an OCI blueprint artifact or a Git repository that contributes Terraform modules and/or kustomize bases consumable by the components below. |
 | `substitutions` | `map<string>` | Blueprint-level substitutions injected into 'values-common' and made available to every kustomization via PostBuild substitution. Values may use expression syntax (e.g. '${dns.domain}') resolved against facet config blocks. |
@@ -141,6 +142,13 @@ variable substitutions shared across them.
 | `patch` | `string` | Inline patch body as YAML (Flux format). |
 | `path` | `string` | Path to a patch file relative to the kustomization (blueprint format). |
 | `target` | `object` | Selector for the patch (Flux format). Used with 'patch:'. |
+
+## messages[]
+
+| Field | Type | Description |
+|------|------|-------------|
+| `text` | `string` | The message body, expression-evaluated against composed scope. **(required)** |
+| `when` | `string` | Optional expression gating whether this message renders. Empty means always. |
 
 ## repository
 
