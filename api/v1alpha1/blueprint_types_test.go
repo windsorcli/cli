@@ -3220,6 +3220,129 @@ func TestKustomization_ToFluxKustomization(t *testing.T) {
 			t.Errorf("Expected explicit interval %v to override default, got %v", override.Duration, result.Spec.Interval.Duration)
 		}
 	})
+
+	t.Run("DecryptionUnsetByDefault", func(t *testing.T) {
+		// Given a kustomization with no Decryption
+		kustomization := &Kustomization{Name: "k", Path: "p"}
+
+		// When converted
+		result := kustomization.ToFluxKustomization("ns", "src", []Source{}, constants.GitopsModePull)
+
+		// Then spec.decryption is nil (Flux default: no decryption)
+		if result.Spec.Decryption != nil {
+			t.Errorf("Expected nil Decryption, got %+v", result.Spec.Decryption)
+		}
+	})
+
+	t.Run("DecryptionThreadedIntoSpec", func(t *testing.T) {
+		// Given a kustomization declaring sops decryption via a key Secret
+		kustomization := &Kustomization{
+			Name:       "k",
+			Path:       "p",
+			Decryption: &Decryption{Provider: "sops", SecretRef: &DecryptionSecretRef{Name: "sops-age"}},
+		}
+
+		// When converted
+		result := kustomization.ToFluxKustomization("ns", "src", []Source{}, constants.GitopsModePull)
+
+		// Then spec.decryption carries the provider and secretRef name
+		if result.Spec.Decryption == nil {
+			t.Fatal("Expected Decryption to be set")
+		}
+		if result.Spec.Decryption.Provider != "sops" {
+			t.Errorf("Expected provider 'sops', got '%s'", result.Spec.Decryption.Provider)
+		}
+		if result.Spec.Decryption.SecretRef == nil || result.Spec.Decryption.SecretRef.Name != "sops-age" {
+			t.Errorf("Expected secretRef name 'sops-age', got %+v", result.Spec.Decryption.SecretRef)
+		}
+	})
+
+	t.Run("DecryptionProviderOnlyOmitsSecretRef", func(t *testing.T) {
+		// Given a kustomization with a provider but no secretRef
+		kustomization := &Kustomization{
+			Name:       "k",
+			Path:       "p",
+			Decryption: &Decryption{Provider: "sops"},
+		}
+
+		// When converted
+		result := kustomization.ToFluxKustomization("ns", "src", []Source{}, constants.GitopsModePull)
+
+		// Then the provider is set and secretRef stays nil
+		if result.Spec.Decryption == nil || result.Spec.Decryption.Provider != "sops" {
+			t.Fatalf("Expected provider 'sops', got %+v", result.Spec.Decryption)
+		}
+		if result.Spec.Decryption.SecretRef != nil {
+			t.Errorf("Expected nil secretRef, got %+v", result.Spec.Decryption.SecretRef)
+		}
+	})
+}
+
+func TestKustomization_Decryption_DeepCopyAndMerge(t *testing.T) {
+	t.Run("DeepCopyIndependentOfOriginal", func(t *testing.T) {
+		// Given a kustomization with decryption set
+		original := &Kustomization{
+			Name:       "k",
+			Decryption: &Decryption{Provider: "sops", SecretRef: &DecryptionSecretRef{Name: "sops-age"}},
+		}
+
+		// When deep-copied and the copy mutated
+		clone := original.DeepCopy()
+		clone.Decryption.Provider = "vault"
+		clone.Decryption.SecretRef.Name = "other"
+
+		// Then the original is unchanged (no shared pointer)
+		if original.Decryption.Provider != "sops" || original.Decryption.SecretRef.Name != "sops-age" {
+			t.Errorf("Expected original unchanged, got %+v / %+v", original.Decryption, original.Decryption.SecretRef)
+		}
+	})
+
+	t.Run("NilDecryptionDeepCopiesToNil", func(t *testing.T) {
+		// Given a kustomization without decryption
+		original := &Kustomization{Name: "k"}
+
+		// When deep-copied
+		clone := original.DeepCopy()
+
+		// Then the clone's Decryption stays nil
+		if clone.Decryption != nil {
+			t.Errorf("Expected nil Decryption on clone, got %+v", clone.Decryption)
+		}
+	})
+
+	t.Run("OverlayDecryptionWinsAndIsCopied", func(t *testing.T) {
+		// Given a base with no decryption and an overlay that sets it
+		base := Kustomization{Name: "k"}
+		overlay := Kustomization{Name: "k", Decryption: &Decryption{Provider: "sops", SecretRef: &DecryptionSecretRef{Name: "sops-age"}}}
+
+		// When merged
+		merged := MergeKustomizationFields(base, overlay)
+
+		// Then the overlay's decryption is applied
+		if merged.Decryption == nil || merged.Decryption.Provider != "sops" || merged.Decryption.SecretRef.Name != "sops-age" {
+			t.Fatalf("Expected overlay decryption applied, got %+v", merged.Decryption)
+		}
+
+		// And it is a copy, not the overlay's pointer, so mutating the overlay does not bleed through
+		overlay.Decryption.SecretRef.Name = "mutated"
+		if merged.Decryption.SecretRef.Name != "sops-age" {
+			t.Errorf("Expected merged decryption independent of overlay, got '%s'", merged.Decryption.SecretRef.Name)
+		}
+	})
+
+	t.Run("NilOverlayDecryptionLeavesBaseIntact", func(t *testing.T) {
+		// Given a base that already has decryption and an overlay that does not set it
+		base := Kustomization{Name: "k", Decryption: &Decryption{Provider: "sops", SecretRef: &DecryptionSecretRef{Name: "sops-age"}}}
+		overlay := Kustomization{Name: "k"}
+
+		// When merged
+		merged := MergeKustomizationFields(base, overlay)
+
+		// Then the base decryption survives
+		if merged.Decryption == nil || merged.Decryption.Provider != "sops" {
+			t.Errorf("Expected base decryption preserved, got %+v", merged.Decryption)
+		}
+	})
 }
 
 func TestTerraformComponent_DeepCopy(t *testing.T) {
