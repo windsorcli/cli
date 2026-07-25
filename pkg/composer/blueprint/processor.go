@@ -796,9 +796,12 @@ func (p *BaseBlueprintProcessor) evaluateGlobalScopeConfig(globalScope map[strin
 // discard siblings that did resolve; a key referencing a sibling not yet present in scope (e.g.
 // `${identity_effective.issuer + '/auth'}` before issuer has resolved) would then abort the block on
 // the first stabilization pass, before the multi-pass loop and resolve pass can feed the resolved
-// sibling back in. Keeping the raw value lets a later pass resolve it once its dependency is available;
-// a genuinely unresolvable key stays raw and is deferred, matching the resolve pass's own tolerance.
-// A DeferredError is already handled inside EvaluateMap (the value is kept raw), so it is not an error here.
+// sibling back in. Keeping the raw value lets a later pass resolve it once its dependency is available.
+// This tolerance is deliberately scoped to the stabilization passes: a key that is still failing after
+// the scopes converge is NOT silently dropped — evaluateGlobalScopeConfig's post-convergence validation
+// re-evaluates it against the final scope and surfaces any genuine (non-deferred) error as a composition
+// failure. A DeferredError is already handled inside EvaluateMap (the value is kept raw), so it is not an
+// error here.
 func (p *BaseBlueprintProcessor) evaluateBlockBodyTolerant(body map[string]any, scope map[string]any) map[string]any {
 	evaluated := make(map[string]any, len(body))
 	for k, v := range body {
