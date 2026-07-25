@@ -270,12 +270,22 @@ func (p *Project) Bootstrap(confirm provisioner.BootstrapConfirmFn) (*blueprintv
 	return blueprint, true, halted, nil
 }
 
-// PerformCleanup removes context-specific artifacts: config state and
-// contents of .windsor/contexts/<context> (preserving workstation.yaml).
-// Returns an error if any step fails.
+// PerformCleanup removes context-specific artifacts: config state, the local-cluster credentials
+// (.kube, .talos) under contexts/<context>, and the contents of .windsor/contexts/<context>
+// (preserving workstation.yaml). Returns an error if any step fails.
 func (p *Project) PerformCleanup() error {
 	if err := p.configHandler.Clean(); err != nil {
 		return fmt.Errorf("error cleaning up context specific artifacts: %w", err)
+	}
+
+	configRoot, err := p.configHandler.GetConfigRoot()
+	if err != nil {
+		return fmt.Errorf("error getting config root: %w", err)
+	}
+	for _, dir := range []string{".kube", ".talos"} {
+		if err := os.RemoveAll(filepath.Join(configRoot, dir)); err != nil {
+			return fmt.Errorf("error deleting %s: %w", dir, err)
+		}
 	}
 
 	contextDir := filepath.Join(p.projectRoot, ".windsor", "contexts", p.contextName)
