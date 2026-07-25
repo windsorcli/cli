@@ -4599,6 +4599,29 @@ func TestProvisioner_ResolveSecrets(t *testing.T) {
 		}
 	})
 
+	t.Run("DereferencesComputedConfigBlockFromComposedScope", func(t *testing.T) {
+		// Given a computed config block value present only in the composed scope the composer publishes
+		// (not in context config), exactly as a substitutions: value would see it
+		mocks := setupProvisionerMocks(t)
+		withValues(mocks, map[string]any{})
+		mocks.Runtime.Evaluator.SetConfigScope(map[string]any{
+			"grafana_effective": map[string]any{"client_secret": "grafana-oidc-dev"},
+		})
+
+		// When resolving a secret whose value dereferences the computed block
+		resolved, err := newProvisioner(mocks).ResolveSecrets(bp(map[string]blueprintv1alpha1.SecretEntry{
+			"sso": entry(map[string]string{"clientSecret": "${grafana_effective.client_secret}"}),
+		}))
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+
+		// Then the secret resolves against the composed scope, consistent with substitutions
+		if resolved["cdn-install"]["sso"].Data["clientSecret"] != "grafana-oidc-dev" {
+			t.Errorf("Expected secret to dereference the computed config block, got %v", resolved)
+		}
+	})
+
 	t.Run("RegistersResolvedValueWithScrubber", func(t *testing.T) {
 		// Given a resolvable secret reference and a shell that records scrubber registrations
 		mocks := setupProvisionerMocks(t)

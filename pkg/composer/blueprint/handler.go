@@ -1082,6 +1082,10 @@ func (h *BaseBlueprintHandler) processAndCompose() error {
 		h.runtime.TerraformProvider.SetConfigScope(mergedScope)
 	}
 
+	if h.runtime.Evaluator != nil {
+		h.runtime.Evaluator.SetConfigScope(mergedScope)
+	}
+
 	return nil
 }
 
