@@ -1236,6 +1236,57 @@ func TestProject_PerformCleanup(t *testing.T) {
 			t.Error("Expected ephemeral.txt to be deleted, but it still exists")
 		}
 	})
+
+	t.Run("RemovesLocalClusterCredentials", func(t *testing.T) {
+		// Given a config root holding .kube and .talos credentials alongside operator state to keep
+		mocks := setupProjectMocks(t)
+		proj := NewProject("test-context", &Project{Runtime: mocks.Runtime})
+
+		configRoot := filepath.Join(mocks.Runtime.ProjectRoot, "contexts", "test-context")
+		kubeCfg := filepath.Join(configRoot, ".kube", "config")
+		talosCfg := filepath.Join(configRoot, ".talos", "config")
+		awsCfg := filepath.Join(configRoot, ".aws", "config")
+		tfvars := filepath.Join(configRoot, "terraform", "cluster.tfvars")
+		for _, f := range []string{kubeCfg, talosCfg, awsCfg, tfvars} {
+			if err := os.MkdirAll(filepath.Dir(f), 0755); err != nil {
+				t.Fatalf("Failed to create dir for %s: %v", f, err)
+			}
+			if err := os.WriteFile(f, []byte("x"), 0644); err != nil {
+				t.Fatalf("Failed to write %s: %v", f, err)
+			}
+		}
+
+		// When
+		if err := proj.PerformCleanup(); err != nil {
+			t.Fatalf("Expected no error, got: %v", err)
+		}
+
+		// Then the stale local-cluster credentials are removed
+		if _, err := os.Stat(filepath.Join(configRoot, ".kube")); !os.IsNotExist(err) {
+			t.Error("Expected .kube to be removed")
+		}
+		if _, err := os.Stat(filepath.Join(configRoot, ".talos")); !os.IsNotExist(err) {
+			t.Error("Expected .talos to be removed")
+		}
+		// And unrelated operator state is preserved
+		if _, err := os.Stat(awsCfg); os.IsNotExist(err) {
+			t.Error("Expected .aws credentials to be preserved")
+		}
+		if _, err := os.Stat(tfvars); os.IsNotExist(err) {
+			t.Error("Expected hand-edited tfvars to be preserved")
+		}
+	})
+
+	t.Run("SucceedsWhenCredentialsAbsent", func(t *testing.T) {
+		// Given a config root with no .kube or .talos directories
+		mocks := setupProjectMocks(t)
+		proj := NewProject("test-context", &Project{Runtime: mocks.Runtime})
+
+		// When cleanup runs, the missing credential dirs are a no-op rather than an error
+		if err := proj.PerformCleanup(); err != nil {
+			t.Errorf("Expected no error when credentials are absent, got: %v", err)
+		}
+	})
 }
 
 func TestProject_Up(t *testing.T) {

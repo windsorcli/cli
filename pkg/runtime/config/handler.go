@@ -473,10 +473,8 @@ func (c *configHandler) GetWindsorScratchPath() (string, error) {
 	return windsorScratchPath, nil
 }
 
-// Clean removes runtime caches from .windsor/contexts/<name>/. Operator-managed
-// state in contexts/<name>/ — credentials, kubeconfig, hand-edited tfvars — is
-// preserved so that `windsor down` followed by `windsor up` does not force the
-// operator to re-authenticate or restore config.
+// Clean removes runtime caches (.terraform, .tfstate) from .windsor/contexts/<name>/. Cluster
+// credentials (.kube, .talos) are removed separately during 'down' (see Project.PerformCleanup).
 func (c *configHandler) Clean() error {
 	windsorScratchPath, err := c.GetWindsorScratchPath()
 	if err != nil {
