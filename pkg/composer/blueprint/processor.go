@@ -280,8 +280,6 @@ func (p *BaseBlueprintProcessor) ProcessGlobally(sources []SourceFacetSet) (map[
 
 	contextScope := p.buildContextScope()
 
-	// sourceOrdinalStride separates source-depth bands so depth dominates facet ordinal: a deeper
-	// source's lowest-ordinal facet still outranks a shallower source's highest-ordinal facet.
 	const sourceOrdinalStride = 1_000_000
 	var combined []blueprintv1alpha1.Facet
 	for _, src := range sources {
@@ -1380,9 +1378,11 @@ func (p *BaseBlueprintProcessor) evalDropEmpty(raw []string, facetPath string, s
 // with the system's) is false — never merely because its components prune to empty, matching how
 // a plain kustomize: entry is always emitted regardless of its resolved component count; a
 // dependsOn reference to it stays valid whether or not the variant's own components ended up
-// empty. An install tier whose components prune to empty sets Install to nil, since install is
-// optional per system (a system may have none at all) and an empty install is equivalent to none
-// declared. The system's when is cleared once inclusion is decided (mirroring each variant's when):
+// empty. An install tier whose components prune to empty and carries no substitutions or patches sets
+// Install to nil, since install is optional per system and an empty install is equivalent to none
+// declared; a components-less tier that still carries substitutions or patches is kept so a downstream
+// facet can override an upstream system's install without redeclaring its components. The system's
+// when is cleared once inclusion is decided (mirroring each variant's when):
 // it has already gated the system and its variants here, and often references composition-only derived
 // config that does not exist downstream, so emitting it would leak an unresolvable condition.
 func (p *BaseBlueprintProcessor) collectFluxSystems(facet blueprintv1alpha1.Facet, sourceName []string, fluxSystemByName map[string]*blueprintv1alpha1.FluxSystem, facetScope map[string]any) error {
@@ -1424,11 +1424,6 @@ func (p *BaseBlueprintProcessor) collectFluxSystems(facet blueprintv1alpha1.Face
 			if err != nil {
 				return fmt.Errorf("error evaluating install components for system '%s': %w", system.Name, err)
 			}
-			// Keep the install tier when it has components, is a removal, or carries override-only
-			// content (substitutions/patches) with no components of its own. The last case lets a
-			// downstream facet override an upstream system's install substitutions without redeclaring
-			// its components; compilation still only emits an install Kustomization when components are
-			// present (after cross-source merge), so an override-only tier never emits on its own.
 			if len(comps) > 0 || strategy == "remove" || len(system.Install.Substitutions) > 0 || len(system.Install.Patches) > 0 {
 				installCopy := *system.Install.DeepCopy()
 				installCopy.Components = comps

@@ -954,9 +954,6 @@ func (h *BaseBlueprintHandler) processAndCompose() error {
 		concrete.ResetExcludedFacets()
 	}
 
-	// Resolve config and facet inclusion once across every source, then emit each source's components.
-	// Sources are ranked by dependency depth so a deeper (referencing) source's config wins over a
-	// shallower one's for the same key, and an upstream facet's when: sees a downstream source's config.
 	userLoaderName := ""
 	if h.userBlueprintLoader != nil {
 		userLoaderName = loaderNames[h.userBlueprintLoader]
