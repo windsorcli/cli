@@ -42,6 +42,13 @@ func (c *configHandler) GetContextValues() (map[string]any, error) {
 	return result, nil
 }
 
+// GetSetValues returns a deep copy of the values the operator has explicitly set (values.yaml,
+// context, workstation), without schema defaults or derived values. Composition pins these above
+// facet config so an operator's explicit value wins over a facet's — including a downstream facet's.
+func (c *configHandler) GetSetValues() map[string]any {
+	return c.deepMerge(map[string]any{}, c.data)
+}
+
 // =============================================================================
 // Private Methods
 // =============================================================================
