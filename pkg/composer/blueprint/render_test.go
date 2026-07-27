@@ -10,12 +10,12 @@ import (
 // Test Public Methods
 // =============================================================================
 
-func TestRenderDeferredPlaceholders(t *testing.T) {
+func TestRenderForDisplay(t *testing.T) {
 	t.Run("ReturnsResourceUnchangedWhenRawMode", func(t *testing.T) {
 		bp := &blueprintv1alpha1.Blueprint{
 			Substitutions: map[string]string{"key": "${unresolved}"},
 		}
-		result := RenderDeferredPlaceholders(bp, true, map[string]bool{"substitutions.key": true})
+		result := RenderForDisplay(bp, true, map[string]bool{"substitutions.key": true})
 		got := result.(*blueprintv1alpha1.Blueprint)
 		if got.Substitutions["key"] != "${unresolved}" {
 			t.Errorf("Expected raw value preserved, got '%s'", got.Substitutions["key"])
@@ -26,10 +26,38 @@ func TestRenderDeferredPlaceholders(t *testing.T) {
 		bp := &blueprintv1alpha1.Blueprint{
 			Substitutions: map[string]string{"key": "${unresolved}"},
 		}
-		result := RenderDeferredPlaceholders(bp, false, nil)
+		result := RenderForDisplay(bp, false, nil)
 		got := result.(*blueprintv1alpha1.Blueprint)
 		if got.Substitutions["key"] != "${unresolved}" {
 			t.Errorf("Expected value unchanged with empty deferred paths, got '%s'", got.Substitutions["key"])
+		}
+	})
+
+	t.Run("ClearsMessagesRegardlessOfRawOrDeferredPaths", func(t *testing.T) {
+		newBlueprint := func() *blueprintv1alpha1.Blueprint {
+			return &blueprintv1alpha1.Blueprint{
+				Messages: []blueprintv1alpha1.Message{
+					{When: "dev == true", Text: "Grafana is ready"},
+				},
+			}
+		}
+
+		cases := map[string]struct {
+			raw           bool
+			deferredPaths map[string]bool
+		}{
+			"raw":              {raw: true, deferredPaths: map[string]bool{"substitutions.key": true}},
+			"noDeferredPaths":  {raw: false, deferredPaths: nil},
+			"withDeferredPath": {raw: false, deferredPaths: map[string]bool{"substitutions.key": true}},
+		}
+		for name, tc := range cases {
+			t.Run(name, func(t *testing.T) {
+				result := RenderForDisplay(newBlueprint(), tc.raw, tc.deferredPaths)
+				got := result.(*blueprintv1alpha1.Blueprint)
+				if got.Messages != nil {
+					t.Errorf("Expected Messages cleared, got %v", got.Messages)
+				}
+			})
 		}
 	})
 
@@ -44,7 +72,7 @@ func TestRenderDeferredPlaceholders(t *testing.T) {
 		deferredPaths := map[string]bool{"substitutions.private_dns": true}
 
 		// When rendering deferred placeholders
-		result := RenderDeferredPlaceholders(bp, false, deferredPaths)
+		result := RenderForDisplay(bp, false, deferredPaths)
 
 		// Then the deferred key becomes <deferred> and the resolved key is unchanged
 		got := result.(*blueprintv1alpha1.Blueprint)
@@ -69,7 +97,7 @@ func TestRenderDeferredPlaceholders(t *testing.T) {
 		deferredPaths := map[string]bool{"configmaps.values-common.DEFERRED_KEY": true}
 
 		// When rendering deferred placeholders
-		result := RenderDeferredPlaceholders(bp, false, deferredPaths)
+		result := RenderForDisplay(bp, false, deferredPaths)
 
 		// Then the deferred key becomes <deferred> and the resolved key is unchanged
 		got := result.(*blueprintv1alpha1.Blueprint)
@@ -120,7 +148,7 @@ func TestRenderDeferredPlaceholders(t *testing.T) {
 		}
 
 		// When rendering deferred placeholders
-		result := RenderDeferredPlaceholders(bp, false, deferredPaths)
+		result := RenderForDisplay(bp, false, deferredPaths)
 
 		// Then the deferred install/resources keys become <deferred>, unrelated keys are unchanged
 		got := result.(*blueprintv1alpha1.Blueprint)
@@ -147,7 +175,7 @@ func TestRenderDeferredPlaceholders(t *testing.T) {
 		deferredPaths := map[string]bool{"substitutions.private_dns": true}
 
 		// When rendering
-		RenderDeferredPlaceholders(bp, false, deferredPaths)
+		RenderForDisplay(bp, false, deferredPaths)
 
 		// Then the original blueprint is not mutated
 		if bp.Substitutions["private_dns"] != "${dns.private}" {
