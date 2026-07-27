@@ -7,48 +7,46 @@ import (
 
 const deferredPlaceholder = "<deferred>"
 
-// RenderDeferredPlaceholders rewrites deferred values to a placeholder unless raw mode is enabled.
-// Deferred fields are selected from deferredPaths.
-func RenderDeferredPlaceholders(resource any, raw bool, deferredPaths map[string]bool) any {
-	if raw || resource == nil {
-		return resource
-	}
-	if len(deferredPaths) == 0 {
-		return resource
-	}
-	if rendered, ok := renderWithDeferredPaths(resource, deferredPaths); ok {
-		return rendered
-	}
-	return resource
-}
-
-// renderWithDeferredPaths rewrites known deferred paths on supported resource types.
-func renderWithDeferredPaths(resource any, deferredPaths map[string]bool) (any, bool) {
+// RenderForDisplay returns a copy of resource ready for CLI output: composed-blueprint fields not
+// meant for display (Messages, resolved separately by GenerateResolved for bootstrap/up to print)
+// are cleared, and unless raw is true, deferred values named in deferredPaths are rewritten to a
+// placeholder. Unsupported resource types pass through unchanged.
+func RenderForDisplay(resource any, raw bool, deferredPaths map[string]bool) any {
 	switch r := resource.(type) {
 	case *blueprintv1alpha1.Blueprint:
 		if r == nil {
-			return r, true
+			return r
 		}
 		cp := r.DeepCopy()
-		applyDeferredPathsToBlueprint(cp, deferredPaths)
-		return cp, true
+		cp.Messages = nil
+		if !raw {
+			applyDeferredPathsToBlueprint(cp, deferredPaths)
+		}
+		return cp
 	case blueprintv1alpha1.Blueprint:
 		cp := r.DeepCopy()
-		applyDeferredPathsToBlueprint(cp, deferredPaths)
-		return *cp, true
+		cp.Messages = nil
+		if !raw {
+			applyDeferredPathsToBlueprint(cp, deferredPaths)
+		}
+		return *cp
 	case kustomizev1.Kustomization:
 		cp := r.DeepCopy()
-		applyDeferredPathsToFluxKustomization(cp, deferredPaths)
-		return *cp, true
+		if !raw {
+			applyDeferredPathsToFluxKustomization(cp, deferredPaths)
+		}
+		return *cp
 	case *kustomizev1.Kustomization:
 		if r == nil {
-			return r, true
+			return r
 		}
 		cp := r.DeepCopy()
-		applyDeferredPathsToFluxKustomization(cp, deferredPaths)
-		return cp, true
+		if !raw {
+			applyDeferredPathsToFluxKustomization(cp, deferredPaths)
+		}
+		return cp
 	default:
-		return nil, false
+		return resource
 	}
 }
 

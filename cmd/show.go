@@ -38,7 +38,7 @@ Unresolved deferred values render as '<deferred>' by default in 'blueprint' and 
 var showBlueprintCmd = &cobra.Command{
 	Use:   "blueprint",
 	Short: "Display the fully rendered blueprint.",
-	Long:  `Print the fully composed blueprint to stdout, including all fields from underlying sources and computed values. Defaults to YAML; use --json for JSON. Unresolved deferred values render as '<deferred>' by default; use --raw to keep the original expression text instead.`,
+	Long:  `Print the fully composed blueprint to stdout, including all fields from underlying sources and computed values, except post-run messages (which bootstrap and up print separately, when applicable). Defaults to YAML; use --json for JSON. Unresolved deferred values render as '<deferred>' by default; use --raw to keep the original expression text instead.`,
 	Example: `# Print the composed blueprint as YAML
 windsor show blueprint
 
@@ -62,7 +62,7 @@ windsor show blueprint --json`,
 			return fmt.Errorf("failed to generate blueprint")
 		}
 
-		resource := blueprintcomposer.RenderDeferredPlaceholders(blueprint, showBlueprintRaw, deferredPaths)
+		resource := blueprintcomposer.RenderForDisplay(blueprint, showBlueprintRaw, deferredPaths)
 		if err := outputResource(resource, showBlueprintJSON, "blueprint"); err != nil {
 			return err
 		}
@@ -123,7 +123,7 @@ windsor show kustomization dns --json`,
 		namespace := proj.Runtime.ConfigHandler.GetString("gitops.namespace", constants.DefaultGitopsNamespace)
 		mode := constants.ParseGitopsMode(proj.Runtime.ConfigHandler.GetString("gitops.mode", ""))
 		fluxKustomization := buildFluxKustomization(blueprint, &kustomization, namespace, mode)
-		resource := blueprintcomposer.RenderDeferredPlaceholders(fluxKustomization, showKustomizationRaw, deferredPaths)
+		resource := blueprintcomposer.RenderForDisplay(fluxKustomization, showKustomizationRaw, deferredPaths)
 
 		if err := outputResource(resource, showKustomizationJSON, "kustomization"); err != nil {
 			return err
