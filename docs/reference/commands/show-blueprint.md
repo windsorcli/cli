@@ -8,7 +8,7 @@ description: "Display the fully rendered blueprint."
 windsor show blueprint [flags]
 ```
 
-Print the fully composed blueprint to stdout, including all fields from underlying sources and computed values. Defaults to YAML; use --json for JSON. Unresolved deferred values render as '<deferred>' by default; use --raw to keep the original expression text instead.
+Print the fully composed blueprint to stdout, including all fields from underlying sources and computed values, except post-run messages (which bootstrap and up print separately, when applicable). Defaults to YAML; use --json for JSON. Unresolved deferred values render as '<deferred>' by default; use --raw to keep the original expression text instead.
 
 ## Flags
 
