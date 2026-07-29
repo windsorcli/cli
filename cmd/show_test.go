@@ -339,6 +339,47 @@ func TestShowBlueprintCmd(t *testing.T) {
 		}
 	})
 
+	t.Run("SuccessStripsMessages", func(t *testing.T) {
+		mocks := setupShowTest(t)
+
+		mocks.BlueprintHandler.GenerateFunc = func() *blueprintv1alpha1.Blueprint {
+			return &blueprintv1alpha1.Blueprint{
+				Kind:       "Blueprint",
+				ApiVersion: "blueprints.windsorcli.dev/v1alpha1",
+				Metadata:   blueprintv1alpha1.Metadata{Name: "test-blueprint"},
+				Messages: []blueprintv1alpha1.Message{
+					{When: "dev == true", Text: "Grafana is ready at ${grafana_effective.url}"},
+				},
+			}
+		}
+
+		comp := composer.NewComposer(mocks.Runtime)
+		comp.BlueprintHandler = mocks.BlueprintHandler
+
+		proj := project.NewProject("", &project.Project{
+			Runtime:  mocks.Runtime,
+			Composer: comp,
+		})
+
+		stdout, _, closePipes := setupOutput(t)
+
+		cmd := createTestCmd()
+		ctx := context.WithValue(context.Background(), projectOverridesKey, proj)
+		cmd.SetContext(ctx)
+		cmd.SetArgs([]string{})
+		_ = cmd.Execute()
+
+		closePipes()
+
+		output := stdout.String()
+		if strings.Contains(output, "messages:") {
+			t.Errorf("Expected output to omit messages, got: %s", output)
+		}
+		if strings.Contains(output, "Grafana is ready") {
+			t.Errorf("Expected output to omit message text, got: %s", output)
+		}
+	})
+
 	t.Run("CheckTrustedDirectoryError", func(t *testing.T) {
 		mocks := setupShowTest(t)
 
