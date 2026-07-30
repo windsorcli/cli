@@ -107,7 +107,7 @@ func (s *DefaultShell) ExecSudo(message string, command string, args ...string) 
 	defer tty.Close()
 
 	cmd.Stdin = tty
-	scrubbingTTYWriter := &scrubbingWriter{writer: tty, scrubFunc: s.scrubString}
+	scrubbingTTYWriter := s.newScrubbingWriter(tty)
 	defer func() { _ = scrubbingTTYWriter.Flush() }()
 	cmd.Stderr = scrubbingTTYWriter
 
