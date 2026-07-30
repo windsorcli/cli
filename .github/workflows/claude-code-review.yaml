@@ -83,8 +83,6 @@ jobs:
               >
               > {Optional second paragraph: the most notable behavioral or
               > structural detail — a rename, a new default, a migration.}
-              >
-              > Reviewed by Claude for commit `<short SHA of PR_HEAD_SHA>`.
 
             Tone: calm, specific, prose-first. No emojis, no bullet lists, no
             "Test plan", under ~150 words. Risk level: Low for isolated,
@@ -186,8 +184,6 @@ jobs:
               >
               > {Optional second paragraph: the most notable behavioral or
               > structural detail — a rename, a new default, a migration.}
-              >
-              > Reviewed by Claude for commit `<short SHA of PR_HEAD_SHA>`.
 
             Tone: calm, specific, prose-first. No emojis, no bullet lists, no
             "Test plan", under ~150 words. Risk level: Low for isolated,
