@@ -49,10 +49,17 @@ func NewSopsProvider(configPath string) *SopsProvider {
 // Provider Interface
 // =============================================================================
 
-// LoadSecrets loads and decrypts secrets from all existing SOPS-encrypted files.
+// LoadSecrets loads and decrypts secrets from all existing SOPS-encrypted files. Refuses to load,
+// with an error naming the offending path, if an unencrypted secrets.yaml/secrets.yml is present:
+// sops --decrypt on a plaintext file is a nonsensical path, and silently succeeding would let a raw
+// secrets file sit unencrypted (and, without a matching .gitignore entry, at risk of being committed).
 func (s *SopsProvider) LoadSecrets() error {
 	if s.unlocked {
 		return nil
+	}
+
+	if plaintextPath, found := s.findPlaintextSecretsFile(); found {
+		return fmt.Errorf("refusing to load unencrypted secrets file %s: encrypt it with sops before use (see secrets.enc.yaml)", plaintextPath)
 	}
 
 	secretsFilePaths := s.findSecretsFilePaths()
@@ -166,10 +173,10 @@ func (s *SopsProvider) Resolve(ref SecretRef) (string, bool, error) {
 // Private Methods
 // =============================================================================
 
+// findSecretsFilePaths returns existing SOPS-encrypted secrets files. Unencrypted variants are
+// checked separately by findPlaintextSecretsFile and never decrypted.
 func (s *SopsProvider) findSecretsFilePaths() []string {
 	candidates := []string{
-		filepath.Join(s.configPath, secretsFileNameYaml),
-		filepath.Join(s.configPath, secretsFileNameYml),
 		filepath.Join(s.configPath, secretsFileNameEncYaml),
 		filepath.Join(s.configPath, secretsFileNameEncYml),
 	}
@@ -181,6 +188,17 @@ func (s *SopsProvider) findSecretsFilePaths() []string {
 		}
 	}
 	return existingPaths
+}
+
+// findPlaintextSecretsFile returns the first unencrypted secrets file found, if any.
+func (s *SopsProvider) findPlaintextSecretsFile() (string, bool) {
+	for _, name := range []string{secretsFileNameYaml, secretsFileNameYml} {
+		path := filepath.Join(s.configPath, name)
+		if _, err := s.shims.Stat(path); err == nil {
+			return path, true
+		}
+	}
+	return "", false
 }
 
 // =============================================================================

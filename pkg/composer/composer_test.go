@@ -1014,7 +1014,7 @@ func TestComposer_writeLocalGitignores(t *testing.T) {
 		}
 
 		// And each non-template context should have a .gitignore with cred dirs
-		expected := ".kube/\n.talos/\n.omni/\n.aws/\n.azure/\n.gcp/\n.env\n"
+		expected := ".kube/\n.talos/\n.omni/\n.aws/\n.azure/\n.gcp/\n.env\nsecrets.yaml\nsecrets.yml\n"
 		for _, name := range []string{"local", "prod"} {
 			path := filepath.Join(root, "contexts", name, ".gitignore")
 			content, readErr := os.ReadFile(path)
@@ -1056,13 +1056,13 @@ func TestComposer_writeLocalGitignores(t *testing.T) {
 			t.Fatalf("Expected no error, got: %v", err)
 		}
 
-		// And the missing ".env" line should be appended
+		// And the missing lines should be appended
 		content, readErr := os.ReadFile(path)
 		if readErr != nil {
 			t.Fatalf("Failed to read .gitignore: %v", readErr)
 		}
-		if string(content) != staleContent+".env\n" {
-			t.Errorf("Expected .env to be backfilled, got: %q", string(content))
+		if string(content) != staleContent+".env\nsecrets.yaml\nsecrets.yml\n" {
+			t.Errorf("Expected missing lines to be backfilled, got: %q", string(content))
 		}
 	})
 
@@ -1086,13 +1086,13 @@ func TestComposer_writeLocalGitignores(t *testing.T) {
 			t.Fatalf("Expected no error, got: %v", err)
 		}
 
-		// Then the user's line should be preserved and ".env" appended
+		// Then the user's line should be preserved and the missing lines appended
 		content, readErr := os.ReadFile(path)
 		if readErr != nil {
 			t.Fatalf("Failed to read .gitignore: %v", readErr)
 		}
-		if string(content) != staleContent+".env\n" {
-			t.Errorf("Expected user line preserved and .env appended, got: %q", string(content))
+		if string(content) != staleContent+".env\nsecrets.yaml\nsecrets.yml\n" {
+			t.Errorf("Expected user line preserved and missing lines appended, got: %q", string(content))
 		}
 	})
 
