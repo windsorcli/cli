@@ -73,8 +73,8 @@ func setupFluxMocks(t *testing.T) *fluxMocks {
 	shims.RemoveAll = func(path string) error { return nil }
 	shims.ReadFile = func(name string) ([]byte, error) { return nil, os.ErrNotExist }
 	shims.WriteFile = func(name string, data []byte, perm os.FileMode) error { return nil }
-	shims.ExecCommand = func(command string, args ...string) (string, string, error) {
-		return "", "", nil
+	mockShell.ExecCaptureWithEnvFunc = func(command string, env map[string]string, args ...string) (string, error) {
+		return "", nil
 	}
 
 	rt := &runtime.Runtime{
@@ -124,9 +124,9 @@ func TestFluxStack_Plan(t *testing.T) {
 		// Given a blueprint with a kustomization that already exists in the cluster
 		m := setupFluxMocks(t)
 		var capturedArgs []string
-		m.shims.ExecCommand = func(command string, args ...string) (string, string, error) {
+		m.shell.ExecCaptureWithEnvFunc = func(command string, env map[string]string, args ...string) (string, error) {
 			capturedArgs = args
-			return "", "", nil
+			return "", nil
 		}
 		s := newTestFluxStack(m)
 
@@ -253,9 +253,9 @@ func TestFluxStack_Plan(t *testing.T) {
 			return false, fmt.Errorf("stat /no/such/kubeconfig: no such file or directory")
 		}
 		var capturedCommand string
-		m.shims.ExecCommand = func(command string, args ...string) (string, string, error) {
+		m.shell.ExecCaptureWithEnvFunc = func(command string, env map[string]string, args ...string) (string, error) {
 			capturedCommand = command
-			return "", "", nil
+			return "", nil
 		}
 		s := newTestFluxStack(m)
 
@@ -274,8 +274,8 @@ func TestFluxStack_Plan(t *testing.T) {
 	t.Run("ErrorExecProgressFails", func(t *testing.T) {
 		// Given a stack where flux diff exits with a real error (exit status 2)
 		m := setupFluxMocks(t)
-		m.shims.ExecCommand = func(command string, args ...string) (string, string, error) {
-			return "", "server error", fmt.Errorf("exit status 2")
+		m.shell.ExecCaptureWithEnvFunc = func(command string, env map[string]string, args ...string) (string, error) {
+			return "", fmt.Errorf("exit status 2")
 		}
 		s := newTestFluxStack(m)
 
@@ -297,8 +297,8 @@ func TestFluxStack_Plan(t *testing.T) {
 		m.kubernetesManager.KustomizationExistsFunc = func(name, namespace string) (bool, error) {
 			return false, nil
 		}
-		m.shims.ExecCommand = func(command string, args ...string) (string, string, error) {
-			return "", "kustomize: no such file or directory", fmt.Errorf("exit status 1")
+		m.shell.ExecCaptureWithEnvFunc = func(command string, env map[string]string, args ...string) (string, error) {
+			return "", fmt.Errorf("exit status 1")
 		}
 		s := newTestFluxStack(m)
 
@@ -322,10 +322,10 @@ func TestFluxStack_Plan(t *testing.T) {
 		}
 		var capturedCommand string
 		var capturedArgs []string
-		m.shims.ExecCommand = func(command string, args ...string) (string, string, error) {
+		m.shell.ExecCaptureWithEnvFunc = func(command string, env map[string]string, args ...string) (string, error) {
 			capturedCommand = command
 			capturedArgs = args
-			return "rendered: yaml", "", nil
+			return "rendered: yaml", nil
 		}
 		s := newTestFluxStack(m)
 
@@ -361,8 +361,8 @@ func TestFluxStack_Plan(t *testing.T) {
 			capturedKustomizationYAML = string(data)
 			return nil
 		}
-		m.shims.ExecCommand = func(command string, args ...string) (string, string, error) {
-			return "rendered: yaml", "", nil
+		m.shell.ExecCaptureWithEnvFunc = func(command string, env map[string]string, args ...string) (string, error) {
+			return "rendered: yaml", nil
 		}
 		s := newTestFluxStack(m)
 
@@ -426,11 +426,11 @@ func TestFluxStack_Plan(t *testing.T) {
 			},
 		}
 		var capturedBuildPath string
-		m.shims.ExecCommand = func(command string, args ...string) (string, string, error) {
+		m.shell.ExecCaptureWithEnvFunc = func(command string, env map[string]string, args ...string) (string, error) {
 			if command == "kustomize" && len(args) >= 2 && args[0] == "build" {
 				capturedBuildPath = args[1]
 			}
-			return "rendered: yaml", "", nil
+			return "rendered: yaml", nil
 		}
 		s := newTestFluxStack(m)
 
@@ -454,13 +454,13 @@ func TestFluxStack_PlanAll(t *testing.T) {
 		// Given a blueprint with multiple kustomizations
 		m := setupFluxMocks(t)
 		var calledNames []string
-		m.shims.ExecCommand = func(command string, args ...string) (string, string, error) {
+		m.shell.ExecCaptureWithEnvFunc = func(command string, env map[string]string, args ...string) (string, error) {
 			for i, a := range args {
 				if a == "kustomization" && i+1 < len(args) {
 					calledNames = append(calledNames, args[i+1])
 				}
 			}
-			return "", "", nil
+			return "", nil
 		}
 		s := newTestFluxStack(m)
 
@@ -490,9 +490,9 @@ func TestFluxStack_PlanAll(t *testing.T) {
 			Kustomizations: []blueprintv1alpha1.Kustomization{{Name: "cleanup", DestroyOnly: &destroyOnly}},
 		}
 		var callCount int
-		m.shims.ExecCommand = func(command string, args ...string) (string, string, error) {
+		m.shell.ExecCaptureWithEnvFunc = func(command string, env map[string]string, args ...string) (string, error) {
 			callCount++
-			return "", "", nil
+			return "", nil
 		}
 		s := newTestFluxStack(m)
 
@@ -613,13 +613,13 @@ func TestFluxStack_PlanSummary(t *testing.T) {
 	t.Run("ParsesDiffLinesForExistingKustomization", func(t *testing.T) {
 		// Given an existing kustomization that returns a unified diff with additions and removals
 		m := setupFluxMocks(t)
-		m.shims.ExecCommand = func(command string, args ...string) (string, string, error) {
+		m.shell.ExecCaptureWithEnvFunc = func(command string, env map[string]string, args ...string) (string, error) {
 			if command == "flux" {
 				// Exit code 1 means changes detected — real *exec.ExitError required for errors.As
 				diff := "--- a/deploy.yaml\n+++ b/deploy.yaml\n@@ -1,3 +1,4 @@\n+added line\n-removed line\n unchanged\n"
-				return diff, "", exitError(t, 1)
+				return diff, exitError(t, 1)
 			}
-			return "", "", nil
+			return "", nil
 		}
 		s := newTestFluxStack(m)
 
@@ -648,11 +648,11 @@ func TestFluxStack_PlanSummary(t *testing.T) {
 		m.kubernetesManager.KustomizationExistsFunc = func(name, namespace string) (bool, error) {
 			return false, fmt.Errorf("connection refused")
 		}
-		m.shims.ExecCommand = func(command string, args ...string) (string, string, error) {
+		m.shell.ExecCaptureWithEnvFunc = func(command string, env map[string]string, args ...string) (string, error) {
 			if command == "kustomize" {
-				return "apiVersion: v1\nkind: Namespace\n", "", nil
+				return "apiVersion: v1\nkind: Namespace\n", nil
 			}
-			return "", "", nil
+			return "", nil
 		}
 		s := newTestFluxStack(m)
 
@@ -678,11 +678,11 @@ func TestFluxStack_PlanSummary(t *testing.T) {
 		m.kubernetesManager.KustomizationExistsFunc = func(name, namespace string) (bool, error) {
 			return false, nil
 		}
-		m.shims.ExecCommand = func(command string, args ...string) (string, string, error) {
+		m.shell.ExecCaptureWithEnvFunc = func(command string, env map[string]string, args ...string) (string, error) {
 			if command == "kustomize" {
-				return "apiVersion: v1\nkind: Namespace\n---\napiVersion: apps/v1\nkind: Deployment\n", "", nil
+				return "apiVersion: v1\nkind: Namespace\n---\napiVersion: apps/v1\nkind: Deployment\n", nil
 			}
-			return "", "", nil
+			return "", nil
 		}
 		s := newTestFluxStack(m)
 
@@ -752,11 +752,11 @@ func TestFluxStack_PlanSummary(t *testing.T) {
 	t.Run("RecordsErrorWhenFluxDiffFails", func(t *testing.T) {
 		// Given an existing kustomization where flux diff fails with a non-1 exit code
 		m := setupFluxMocks(t)
-		m.shims.ExecCommand = func(command string, args ...string) (string, string, error) {
+		m.shell.ExecCaptureWithEnvFunc = func(command string, env map[string]string, args ...string) (string, error) {
 			if command == "flux" {
-				return "", "unexpected error", exitError(t, 2)
+				return "", exitError(t, 2)
 			}
-			return "", "", nil
+			return "", nil
 		}
 		s := newTestFluxStack(m)
 

@@ -646,13 +646,12 @@ func (s *FluxStack) isKustomizeComponent(path string) bool {
 // runKustomizeBuild executes "kustomize build <path>" to render all kubernetes manifests
 // for a kustomization that does not yet exist in the cluster. Unlike flux diff/build,
 // kustomize build requires no cluster access and always emits rendered YAML to stdout.
+// Runs through the shell layer so rendered output (which may include Secret resources)
+// passes through the same scrubbing as every other executed command.
 func (s *FluxStack) runKustomizeBuild(name, path string) error {
 	fmt.Fprintf(os.Stderr, "\n%s\n", tui.SectionHeader("Kustomize: "+name))
-	stdout, stderr, err := s.shims.ExecCommand("kustomize", "build", path)
+	stdout, err := s.runtime.Shell.ExecCaptureWithEnv("kustomize", nil, "build", path)
 	if err != nil {
-		if stderr != "" {
-			return fmt.Errorf("%w\n%s", err, strings.TrimSpace(stderr))
-		}
 		return err
 	}
 	if stdout != "" {
@@ -663,15 +662,15 @@ func (s *FluxStack) runKustomizeBuild(name, path string) error {
 	return nil
 }
 
-// runFluxDiff executes "flux <args>" via the ExecCommand shim, which captures
-// stdout and stderr separately and sets NO_COLOR=1 to prevent flux from writing
-// progress indicators directly to the terminal TTY.
+// runFluxDiff executes "flux <args>" through the shell layer, which scrubs the
+// captured stdout/stderr and sets NO_COLOR=1 to prevent flux from writing progress
+// indicators directly to the terminal TTY.
 // flux diff exits 0 (no changes) or 1 (changes exist) — both are treated as success.
 // On exit 0 "No changes." is printed. On exit 1 the diff (stdout) is printed.
 // Any other exit code is returned as an error with stderr details.
 func (s *FluxStack) runFluxDiff(name string, args ...string) error {
 	fmt.Fprintf(os.Stderr, "\n%s\n", tui.SectionHeader("Kustomize: "+name))
-	stdout, stderr, err := s.shims.ExecCommand("flux", args...)
+	stdout, err := s.runtime.Shell.ExecCaptureWithEnv("flux", map[string]string{"NO_COLOR": "1"}, args...)
 	if err != nil {
 		var exitErr *exec.ExitError
 		if errors.As(err, &exitErr) && exitErr.ExitCode() == 1 {
@@ -679,9 +678,6 @@ func (s *FluxStack) runFluxDiff(name string, args ...string) error {
 				fmt.Print(stdout)
 			}
 			return nil
-		}
-		if stderr != "" {
-			return fmt.Errorf("%w\n%s", err, strings.TrimSpace(stderr))
 		}
 		return err
 	}
@@ -727,14 +723,11 @@ func (s *FluxStack) checkFluxVersion() error {
 // Exit code 1 (changes detected) is treated as success, matching runFluxDiff semantics.
 // Any other non-zero exit code is returned as an error.
 func (s *FluxStack) captureFluxDiff(args ...string) (string, error) {
-	stdout, stderr, err := s.shims.ExecCommand("flux", args...)
+	stdout, err := s.runtime.Shell.ExecCaptureWithEnv("flux", map[string]string{"NO_COLOR": "1"}, args...)
 	if err != nil {
 		var exitErr *exec.ExitError
 		if errors.As(err, &exitErr) && exitErr.ExitCode() == 1 {
 			return stdout, nil
-		}
-		if stderr != "" {
-			return "", fmt.Errorf("%w\n%s", err, strings.TrimSpace(stderr))
 		}
 		return "", err
 	}
@@ -748,14 +741,7 @@ func (s *FluxStack) captureKustomizeBuild(k blueprintv1alpha1.Kustomization, com
 	baseIsComponent := s.isKustomizeComponent(localPath)
 
 	if !baseIsComponent && len(components) == 0 {
-		stdout, stderr, err := s.shims.ExecCommand("kustomize", "build", localPath)
-		if err != nil {
-			if stderr != "" {
-				return "", fmt.Errorf("%w\n%s", err, strings.TrimSpace(stderr))
-			}
-			return "", err
-		}
-		return stdout, nil
+		return s.runtime.Shell.ExecCaptureWithEnv("kustomize", nil, "build", localPath)
 	}
 
 	planDir := filepath.Join(sourceRoot, ".windsor", "plan", k.Name)
@@ -768,14 +754,7 @@ func (s *FluxStack) captureKustomizeBuild(k blueprintv1alpha1.Kustomization, com
 		return "", err
 	}
 
-	stdout, stderr, err := s.shims.ExecCommand("kustomize", "build", planDir)
-	if err != nil {
-		if stderr != "" {
-			return "", fmt.Errorf("%w\n%s", err, strings.TrimSpace(stderr))
-		}
-		return "", err
-	}
-	return stdout, nil
+	return s.runtime.Shell.ExecCaptureWithEnv("kustomize", nil, "build", planDir)
 }
 
 // countDiffLines counts added and removed lines in a unified diff.
