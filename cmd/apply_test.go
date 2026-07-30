@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -632,6 +633,13 @@ func TestApplyKustomizeCmd(t *testing.T) {
 
 	suppressProcessStdout(t)
 	suppressProcessStderr(t)
+
+	t.Run("HasK8sAlias", func(t *testing.T) {
+		// Matches the 'k8s' alias already on plan kustomize and destroy kustomize.
+		if !slices.Contains(applyKustomizeCmd.Aliases, "k8s") {
+			t.Errorf("expected 'k8s' alias on apply kustomize, got %v", applyKustomizeCmd.Aliases)
+		}
+	})
 
 	t.Run("SuccessAll", func(t *testing.T) {
 		// Given a properly configured apply kustomize command with no argument
