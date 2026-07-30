@@ -9,23 +9,21 @@ import (
 func TestScrubbingWriter_Write(t *testing.T) {
 	// setup builds a scrubbingWriter over a buffer with the given registered secrets, holding
 	// back a window sized to the longest secret — mirroring how DefaultShell.newScrubbingWriter
-	// wires holdBack to maxSecretLen in production.
+	// wires scrubWithMaxLen to scrubStringWithMaxLen in production.
 	setup := func(secrets ...string) (*scrubbingWriter, *bytes.Buffer) {
 		var sink bytes.Buffer
-		scrub := func(in string) string {
+		scrubWithMaxLen := func(in string) (string, int) {
 			out := in
+			maxLen := 0
 			for _, sec := range secrets {
 				out = strings.ReplaceAll(out, sec, "********")
+				if len(sec) > maxLen {
+					maxLen = len(sec)
+				}
 			}
-			return out
+			return out, maxLen
 		}
-		maxLen := 0
-		for _, sec := range secrets {
-			if len(sec) > maxLen {
-				maxLen = len(sec)
-			}
-		}
-		return &scrubbingWriter{writer: &sink, scrubFunc: scrub, holdBack: func() int { return maxLen }}, &sink
+		return &scrubbingWriter{writer: &sink, scrubWithMaxLen: scrubWithMaxLen}, &sink
 	}
 
 	t.Run("StreamsImmediatelyWhenNoSecretsRegistered", func(t *testing.T) {

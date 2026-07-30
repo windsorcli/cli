@@ -869,25 +869,33 @@ func (s *DefaultShell) scrubString(input string) string {
 	return result
 }
 
-// maxSecretLen returns the length of the longest currently-registered secret, or 0 if none are
-// registered. Used by scrubbingWriter to size its hold-back window so a secret can never be split
-// across a streamed Write boundary.
-func (s *DefaultShell) maxSecretLen() int {
+// scrubStringWithMaxLen scrubs input identically to scrubString and, from that same locked
+// snapshot of registered secrets, also returns the longest secret's length. scrubbingWriter uses
+// this (rather than separate scrubString/maxSecretLen calls) so the hold-back window it sizes is
+// always computed from the exact secret set the scrub itself used — a RegisterSecret call landing
+// between two independently-locked calls could otherwise leave the window stale for one Write.
+func (s *DefaultShell) scrubStringWithMaxLen(input string) (string, int) {
 	s.secretsMu.Lock()
-	defer s.secretsMu.Unlock()
+	secrets := slices.Clone(s.secrets)
+	s.secretsMu.Unlock()
 
 	maxLen := 0
-	for _, secret := range s.secrets {
+	result := input
+	for _, secret := range secrets {
+		if secret != "" {
+			result = strings.ReplaceAll(result, secret, "********")
+		}
 		if len(secret) > maxLen {
 			maxLen = len(secret)
 		}
 	}
-	return maxLen
+
+	return result, maxLen
 }
 
 // newScrubbingWriter builds a scrubbingWriter over w bound to this shell's registered secrets.
 func (s *DefaultShell) newScrubbingWriter(w io.Writer) *scrubbingWriter {
-	return &scrubbingWriter{writer: w, scrubFunc: s.scrubString, holdBack: s.maxSecretLen}
+	return &scrubbingWriter{writer: w, scrubWithMaxLen: s.scrubStringWithMaxLen}
 }
 
 // PrintEnvVars is a platform-specific method that will be implemented by Unix/Windows-specific files

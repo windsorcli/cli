@@ -4168,6 +4168,50 @@ func TestShell_scrubString(t *testing.T) {
 	})
 }
 
+func TestShell_scrubStringWithMaxLen(t *testing.T) {
+	// setup creates a new shell with mocked dependencies for testing
+	setup := func(t *testing.T) *DefaultShell {
+		t.Helper()
+		setupShellMocks(t)
+		return NewDefaultShell()
+	}
+
+	t.Run("ReturnsScrubbedTextAndLongestSecretLengthFromOneSnapshot", func(t *testing.T) {
+		// Given a shell with secrets of different lengths registered
+		shell := setup(t)
+		shell.RegisterSecret("shortsecret")
+		shell.RegisterSecret("averylongregisteredsecretvalue")
+
+		// When scrubbing with the combined call
+		result, maxLen := shell.scrubStringWithMaxLen("value is shortsecret here")
+
+		// Then the text is scrubbed exactly as scrubString would, and maxLen reflects the
+		// longest secret from the same locked snapshot used for the scrub
+		if strings.Contains(result, "shortsecret") {
+			t.Errorf("Expected secret scrubbed, got %q", result)
+		}
+		if want := len("averylongregisteredsecretvalue"); maxLen != want {
+			t.Errorf("Expected maxLen %d, got %d", want, maxLen)
+		}
+	})
+
+	t.Run("ReturnsZeroMaxLenWhenNoSecretsRegistered", func(t *testing.T) {
+		// Given a shell with no registered secrets
+		shell := setup(t)
+
+		// When scrubbing with the combined call
+		result, maxLen := shell.scrubStringWithMaxLen("plain text")
+
+		// Then the text is unchanged and maxLen is zero
+		if result != "plain text" {
+			t.Errorf("Expected unchanged text, got %q", result)
+		}
+		if maxLen != 0 {
+			t.Errorf("Expected maxLen 0, got %d", maxLen)
+		}
+	})
+}
+
 func TestScrubbingWriter(t *testing.T) {
 	setup := func(t *testing.T) (*DefaultShell, *bytes.Buffer) {
 		t.Helper()
@@ -4186,7 +4230,7 @@ func TestScrubbingWriter(t *testing.T) {
 	t.Run("ScrubsSecretsFromOutput", func(t *testing.T) {
 		// Given a shell with registered secrets and a scrubbing writer configured
 		shell, buf := setup(t)
-		writer := &scrubbingWriter{writer: buf, scrubFunc: shell.scrubString}
+		writer := shell.newScrubbingWriter(buf)
 
 		// When writing a complete line that contains registered secrets to the scrubbing writer
 		testContent := "This contains secret123 and other text\n"
@@ -4214,7 +4258,7 @@ func TestScrubbingWriter(t *testing.T) {
 		// Given a shell with multiple registered secrets and a scrubbing writer
 		shell, buf := setup(t)
 		shell.RegisterSecret("password456")
-		writer := &scrubbingWriter{writer: buf, scrubFunc: shell.scrubString}
+		writer := shell.newScrubbingWriter(buf)
 
 		// When writing a complete line that contains multiple different secrets
 		testContent := "User secret123 has password456 for access\n"
