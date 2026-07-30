@@ -41,6 +41,7 @@ var strategyPrecedence = map[string]int{
 // scopes from multiple loaders (e.g. for user overlay and final terraform input evaluation).
 type BlueprintProcessor interface {
 	ProcessFacets(target *blueprintv1alpha1.Blueprint, facets []blueprintv1alpha1.Facet, sourceName ...string) (scope map[string]any, err error)
+	ProcessGlobally(sources []SourceFacetSet) (map[string]any, error)
 }
 
 // =============================================================================
@@ -220,15 +221,7 @@ func (p *BaseBlueprintProcessor) ProcessFacets(target *blueprintv1alpha1.Bluepri
 		return nil, nil
 	}
 
-	var contextScope map[string]any
-	if p.runtime != nil && p.runtime.ConfigHandler != nil {
-		if vals, err := p.runtime.ConfigHandler.GetContextValues(); err == nil {
-			contextScope = vals
-		}
-	}
-	if p.extraScope != nil {
-		contextScope = MergeScopeMaps(contextScope, p.extraScope)
-	}
+	contextScope := p.buildContextScope()
 
 	sortedFacets := make([]blueprintv1alpha1.Facet, len(facets))
 	copy(sortedFacets, facets)
@@ -240,12 +233,109 @@ func (p *BaseBlueprintProcessor) ProcessFacets(target *blueprintv1alpha1.Bluepri
 		return sortedFacets[i].Metadata.Name < sortedFacets[j].Metadata.Name
 	})
 
-	collected := collectedComponents{
-		terraformByID:       make(map[string]*blueprintv1alpha1.ConditionalTerraformComponent),
-		kustomizationByName: make(map[string]*blueprintv1alpha1.ConditionalKustomization),
-		fluxSystemByName:    make(map[string]*blueprintv1alpha1.FluxSystem),
+	globalScope, scope, includedFacets, err := p.resolveConfigAndInclusion(sortedFacets, contextScope, nil)
+	if err != nil {
+		return nil, err
 	}
-	crdRefs := make(map[string]struct{})
+
+	if err := p.emitFacetComponents(target, includedFacets, scope, sourceName...); err != nil {
+		return nil, err
+	}
+	return globalScope, nil
+}
+
+// buildContextScope returns the operator/schema context values merged with any injected extra scope.
+func (p *BaseBlueprintProcessor) buildContextScope() map[string]any {
+	var contextScope map[string]any
+	if p.runtime != nil && p.runtime.ConfigHandler != nil {
+		if vals, err := p.runtime.ConfigHandler.GetContextValues(); err == nil {
+			contextScope = vals
+		}
+	}
+	if p.extraScope != nil {
+		contextScope = MergeScopeMaps(contextScope, p.extraScope)
+	}
+	return contextScope
+}
+
+// SourceFacetSet is one source's contribution to global composition: its name, its dependency depth
+// (deeper/referencing sources override shallower ones), the blueprint to emit its components into, and
+// its facets.
+type SourceFacetSet struct {
+	Name   string
+	Depth  int
+	Target *blueprintv1alpha1.Blueprint
+	Facets []blueprintv1alpha1.Facet
+}
+
+// ProcessGlobally resolves config and facet inclusion once across every source's facets, then emits
+// each source's included components into its own target blueprint. Facets are ranked by a
+// depth-adjusted ordinal so a deeper source's config wins over a shallower one's for the same key,
+// while derivations resolve against the final merged scope and an upstream facet's when: sees a
+// downstream source's config. Returns the resolved global scope.
+func (p *BaseBlueprintProcessor) ProcessGlobally(sources []SourceFacetSet) (map[string]any, error) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.deferredPaths = make(map[string]bool)
+
+	contextScope := p.buildContextScope()
+
+	const sourceOrdinalStride = 1_000_000
+	var combined []blueprintv1alpha1.Facet
+	for _, src := range sources {
+		for _, f := range src.Facets {
+			fc := f
+			fc.Source = src.Name
+			eff := resolvedFacetOrdinal(f) + src.Depth*sourceOrdinalStride
+			fc.Ordinal = &eff
+			combined = append(combined, fc)
+		}
+	}
+	if len(combined) == 0 {
+		return nil, nil
+	}
+	sort.Slice(combined, func(i, j int) bool {
+		oi, oj := resolvedFacetOrdinal(combined[i]), resolvedFacetOrdinal(combined[j])
+		if oi != oj {
+			return oi < oj
+		}
+		return combined[i].Metadata.Name < combined[j].Metadata.Name
+	})
+
+	var operatorOverlay map[string]any
+	if p.runtime != nil && p.runtime.ConfigHandler != nil {
+		operatorOverlay = p.runtime.ConfigHandler.GetSetValues()
+	}
+
+	globalScope, scope, included, err := p.resolveConfigAndInclusion(combined, contextScope, operatorOverlay)
+	if err != nil {
+		return nil, err
+	}
+
+	includedBySource := make(map[string][]blueprintv1alpha1.Facet)
+	for _, f := range included {
+		includedBySource[f.Source] = append(includedBySource[f.Source], f)
+	}
+	for _, src := range sources {
+		facets := includedBySource[src.Name]
+		if len(facets) == 0 {
+			continue
+		}
+		if err := p.emitFacetComponents(src.Target, facets, scope, src.Name); err != nil {
+			return nil, err
+		}
+	}
+
+	return globalScope, nil
+}
+
+// resolveConfigAndInclusion runs the config-merge and facet-inclusion fixpoint over sortedFacets
+// against contextScope. It returns the resolved config scope (globalScope), the full evaluation scope
+// (contextScope deep-merged with globalScope), and the included facets. Excluded facets are recorded,
+// and a requirements error is returned if any included facet's requires stay unmet. It emits no
+// components — split from ProcessFacets so cross-source composition can resolve config and inclusion
+// once, globally, before emitting each source's components.
+func (p *BaseBlueprintProcessor) resolveConfigAndInclusion(sortedFacets []blueprintv1alpha1.Facet, contextScope map[string]any, operatorOverlay map[string]any) (map[string]any, map[string]any, []blueprintv1alpha1.Facet, error) {
 	scope := contextScope
 	var globalScope map[string]any
 	var cfgEntries map[string]*blueprintv1alpha1.ConfigBlock
@@ -268,19 +358,19 @@ func (p *BaseBlueprintProcessor) ProcessFacets(target *blueprintv1alpha1.Bluepri
 		for _, facet := range sortedFacets {
 			shouldInclude, err := p.shouldIncludeFacet(facet, passScope)
 			if err != nil {
-				return nil, err
+				return nil, nil, nil, err
 			}
 			if !shouldInclude {
 				continue
 			}
 			misses, err := p.evaluateRequirements(facet, passScope)
 			if err != nil {
-				return nil, err
+				return nil, nil, nil, err
 			}
 			var errMerge error
 			globalScope, cfgEntries, errMerge = p.mergeFacetScopeIntoGlobal(facet, globalScope, cfgEntries, passScope, contextScope)
 			if errMerge != nil {
-				return nil, fmt.Errorf("facet %s: %w", facet.Metadata.Name, errMerge)
+				return nil, nil, nil, fmt.Errorf("facet %s: %w", facet.Metadata.Name, errMerge)
 			}
 			if len(misses) > 0 {
 				pendingRequirements[facet.Metadata.Name] = facetRequirementMisses{Misses: misses}
@@ -289,13 +379,16 @@ func (p *BaseBlueprintProcessor) ProcessFacets(target *blueprintv1alpha1.Bluepri
 			includedFacets = append(includedFacets, facet)
 		}
 		if err := p.evaluateGlobalScopeConfig(globalScope, contextScope); err != nil {
-			return nil, err
+			return nil, nil, nil, err
 		}
 		mergeBase := contextScope
 		if mergeBase == nil {
 			mergeBase = make(map[string]any)
 		}
 		passScope = blueprintv1alpha1.DeepMergeMaps(mergeBase, globalScope)
+		if len(operatorOverlay) > 0 {
+			passScope = blueprintv1alpha1.DeepMergeMaps(passScope, operatorOverlay)
+		}
 		scope = passScope
 		currSet := make(map[string]bool, len(includedFacets))
 		for _, f := range includedFacets {
@@ -317,7 +410,7 @@ func (p *BaseBlueprintProcessor) ProcessFacets(target *blueprintv1alpha1.Bluepri
 	}
 
 	if len(pendingRequirements) > 0 {
-		return nil, formatRequirementsError(pendingRequirements)
+		return nil, nil, nil, formatRequirementsError(pendingRequirements)
 	}
 
 	includedSet := make(map[string]bool, len(includedFacets))
@@ -335,27 +428,43 @@ func (p *BaseBlueprintProcessor) ProcessFacets(target *blueprintv1alpha1.Bluepri
 		})
 	}
 
+	return globalScope, scope, includedFacets, nil
+}
+
+// emitFacetComponents materializes the included facets' components — terraform components,
+// kustomizations, flux systems, CRDs, blueprint-level substitutions, and messages — into target,
+// resolving expressions against the already-resolved scope. sourceName stamps Source on components
+// that lack one. This is the emission half of ProcessFacets, split out so cross-source composition can
+// resolve config and inclusion globally first and then emit each source's components separately.
+func (p *BaseBlueprintProcessor) emitFacetComponents(target *blueprintv1alpha1.Blueprint, includedFacets []blueprintv1alpha1.Facet, scope map[string]any, sourceName ...string) error {
+	collected := collectedComponents{
+		terraformByID:       make(map[string]*blueprintv1alpha1.ConditionalTerraformComponent),
+		kustomizationByName: make(map[string]*blueprintv1alpha1.ConditionalKustomization),
+		fluxSystemByName:    make(map[string]*blueprintv1alpha1.FluxSystem),
+	}
+	crdRefs := make(map[string]struct{})
+
 	for _, facet := range includedFacets {
 		if len(facet.Crds) > 0 {
 			evaluated, err := p.evaluateStringSlice(facet.Crds, facet.Path, scope)
 			if err != nil {
-				return nil, fmt.Errorf("error evaluating crds for facet '%s': %w", facet.Metadata.Name, err)
+				return fmt.Errorf("error evaluating crds for facet '%s': %w", facet.Metadata.Name, err)
 			}
 			facet.Crds = slices.DeleteFunc(evaluated, func(s string) bool { return s == "" })
 			for _, ref := range facet.Crds {
 				if err := validateCrdRef(ref); err != nil {
-					return nil, fmt.Errorf("facet %q: %w", facet.Metadata.Name, err)
+					return fmt.Errorf("facet %q: %w", facet.Metadata.Name, err)
 				}
 			}
 		}
 		if err := p.collectTerraformComponents(facet, sourceName, collected.terraformByID, scope); err != nil {
-			return nil, err
+			return err
 		}
 		if err := p.collectKustomizations(facet, sourceName, collected.kustomizationByName, scope); err != nil {
-			return nil, err
+			return err
 		}
 		if err := p.collectFluxSystems(facet, sourceName, collected.fluxSystemByName, scope); err != nil {
-			return nil, err
+			return err
 		}
 		for _, ref := range facet.Crds {
 			crdRefs[ref] = struct{}{}
@@ -367,7 +476,7 @@ func (p *BaseBlueprintProcessor) ProcessFacets(target *blueprintv1alpha1.Bluepri
 		if len(facet.Substitutions) > 0 {
 			evaluated, deferredKeys, err := p.evaluateSubstitutions(facet.Substitutions, facet.Path, scope)
 			if err != nil {
-				return nil, fmt.Errorf("error evaluating substitutions for facet '%s': %w", facet.Metadata.Name, err)
+				return fmt.Errorf("error evaluating substitutions for facet '%s': %w", facet.Metadata.Name, err)
 			}
 			if target.Substitutions == nil {
 				target.Substitutions = make(map[string]string)
@@ -407,10 +516,7 @@ func (p *BaseBlueprintProcessor) ProcessFacets(target *blueprintv1alpha1.Bluepri
 
 	setCrdLayer(target, crdRefs, resolveSourceName(sourceName))
 
-	if err := p.applyCollectedComponents(target, collected, scope); err != nil {
-		return nil, err
-	}
-	return globalScope, nil
+	return p.applyCollectedComponents(target, collected, scope)
 }
 
 // =============================================================================
@@ -1272,9 +1378,11 @@ func (p *BaseBlueprintProcessor) evalDropEmpty(raw []string, facetPath string, s
 // with the system's) is false — never merely because its components prune to empty, matching how
 // a plain kustomize: entry is always emitted regardless of its resolved component count; a
 // dependsOn reference to it stays valid whether or not the variant's own components ended up
-// empty. An install tier whose components prune to empty sets Install to nil, since install is
-// optional per system (a system may have none at all) and an empty install is equivalent to none
-// declared. The system's when is cleared once inclusion is decided (mirroring each variant's when):
+// empty. An install tier whose components prune to empty and carries no substitutions or patches sets
+// Install to nil, since install is optional per system and an empty install is equivalent to none
+// declared; a components-less tier that still carries substitutions or patches is kept so a downstream
+// facet can override an upstream system's install without redeclaring its components. The system's
+// when is cleared once inclusion is decided (mirroring each variant's when):
 // it has already gated the system and its variants here, and often references composition-only derived
 // config that does not exist downstream, so emitting it would leak an unresolvable condition.
 func (p *BaseBlueprintProcessor) collectFluxSystems(facet blueprintv1alpha1.Facet, sourceName []string, fluxSystemByName map[string]*blueprintv1alpha1.FluxSystem, facetScope map[string]any) error {
@@ -1316,7 +1424,7 @@ func (p *BaseBlueprintProcessor) collectFluxSystems(facet blueprintv1alpha1.Face
 			if err != nil {
 				return fmt.Errorf("error evaluating install components for system '%s': %w", system.Name, err)
 			}
-			if len(comps) > 0 || strategy == "remove" {
+			if len(comps) > 0 || strategy == "remove" || len(system.Install.Substitutions) > 0 || len(system.Install.Patches) > 0 {
 				installCopy := *system.Install.DeepCopy()
 				installCopy.Components = comps
 				if err := p.evalKustomizationSubstitutions(&installCopy, facet.Path, "flux."+system.Name+".install.substitutions.", facetScope); err != nil {

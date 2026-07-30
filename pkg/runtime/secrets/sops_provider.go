@@ -49,7 +49,12 @@ func NewSopsProvider(configPath string) *SopsProvider {
 // Provider Interface
 // =============================================================================
 
-// LoadSecrets loads and decrypts secrets from all existing SOPS-encrypted files.
+// LoadSecrets loads and decrypts secrets from all existing secrets files, including the
+// conventionally-unencrypted secrets.yaml/secrets.yml names: content decides whether a file is
+// SOPS-encrypted, not its name, since an operator's own SOPS file can be named either way. A
+// secrets.yaml/secrets.yml that fails to decrypt is refused with a clear error naming the path
+// rather than the raw sops failure, since the far more likely cause is a genuinely plaintext file
+// that was never encrypted (and, without a matching .gitignore entry, at risk of being committed).
 func (s *SopsProvider) LoadSecrets() error {
 	if s.unlocked {
 		return nil
@@ -101,10 +106,12 @@ func (s *SopsProvider) LoadSecrets() error {
 
 			plaintextBytes, err := s.shims.DecryptFile(filePath, "yaml")
 			if err != nil {
-				results[idx] = fileResult{
-					index: idx,
-					err:   fmt.Errorf("failed to decrypt file %s: %w", filePath, err),
+				if isConventionallyPlaintextName(filePath) {
+					err = fmt.Errorf("refusing to load unencrypted secrets file %s: encrypt it with sops before use (see secrets.enc.yaml): %w", filePath, err)
+				} else {
+					err = fmt.Errorf("failed to decrypt file %s: %w", filePath, err)
 				}
+				results[idx] = fileResult{index: idx, err: err}
 				return
 			}
 
@@ -175,6 +182,8 @@ func (s *SopsProvider) Resolve(ref SecretRef) (string, bool, error) {
 // Private Methods
 // =============================================================================
 
+// findSecretsFilePaths returns existing secrets files of any name; LoadSecrets decides encrypted
+// vs. plaintext by attempting decryption, not by which of these candidate names matched.
 func (s *SopsProvider) findSecretsFilePaths() []string {
 	candidates := []string{
 		filepath.Join(s.configPath, secretsFileNameYaml),
@@ -190,6 +199,13 @@ func (s *SopsProvider) findSecretsFilePaths() []string {
 		}
 	}
 	return existingPaths
+}
+
+// isConventionallyPlaintextName reports whether path uses Windsor's unencrypted naming convention
+// (secrets.yaml/secrets.yml), used only to pick a decrypt-failure message, never to skip decryption.
+func isConventionallyPlaintextName(path string) bool {
+	base := filepath.Base(path)
+	return base == secretsFileNameYaml || base == secretsFileNameYml
 }
 
 // =============================================================================

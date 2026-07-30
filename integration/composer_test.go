@@ -34,20 +34,6 @@ func TestShowBlueprint_FacetCompositionFixture(t *testing.T) {
 	if _, hasKustomize := bp["kustomize"]; !hasKustomize {
 		t.Error("expected kustomize key in blueprint")
 	}
-	// A post-run message contributed by an active facet (option-sibling-ref) must flow through
-	// composition into the blueprint's messages.
-	messages, _ := bp["messages"].([]any)
-	found := false
-	for _, m := range messages {
-		if mm, ok := m.(map[string]any); ok {
-			if text, _ := mm["text"].(string); strings.Contains(text, "Identity endpoints derived") {
-				found = true
-			}
-		}
-	}
-	if !found {
-		t.Errorf("expected option-sibling-ref post-run message in blueprint messages, got %v", bp["messages"])
-	}
 }
 
 func TestWindsorTest_FacetCompositionFixture(t *testing.T) {

@@ -1749,14 +1749,19 @@ func (b *Blueprint) strategicMergeKustomization(kustomization Kustomization) err
 	return b.sortKustomize()
 }
 
-// MergeKustomizationFields deep-merges overlay onto base and returns the result: Components and
-// DependsOn accumulate (deduplicated, Components sorted), Patches accumulate, Substitutions copy
-// in, and every other field is overridden by overlay when overlay sets it. Callers that need
+// MergeKustomizationFields deep-merges overlay onto base and returns the result without mutating
+// either input: Components and DependsOn accumulate (deduplicated, Components sorted), Patches
+// accumulate, Substitutions copy in, and every other field is overridden by overlay when overlay
+// sets it. Callers that need
 // by-name matching within a Blueprint's Kustomizations list use strategicMergeKustomization, which
 // calls this once a match is found; callers merging two already-matched Kustomization values
 // directly (e.g. FluxSystem tiers, which carry no Name until tier compilation) call this directly.
 func MergeKustomizationFields(base, overlay Kustomization) Kustomization {
 	existing := base
+	existing.Components = slices.Clone(base.Components)
+	existing.DependsOn = slices.Clone(base.DependsOn)
+	existing.Patches = slices.Clone(base.Patches)
+	existing.Substitutions = maps.Clone(base.Substitutions)
 	for _, component := range overlay.Components {
 		if component == "" || !slices.Contains(existing.Components, component) {
 			existing.Components = append(existing.Components, component)

@@ -49,6 +49,7 @@ type ConfigHandler interface {
 	LoadSchemaFromBytes(schemaContent []byte) error
 	GetSchema() map[string]any
 	GetContextValues() (map[string]any, error)
+	GetSetValues() map[string]any
 	SetApplySchemaDefaults(enabled bool)
 	GetSensitivePaths() []string
 	IsSensitivePath(path string) bool

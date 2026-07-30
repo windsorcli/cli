@@ -6,7 +6,6 @@
 package flux
 
 import (
-	"bytes"
 	"os"
 	"os/exec"
 )
@@ -17,12 +16,11 @@ import (
 
 // Shims provides mockable wrappers around system and runtime functions
 type Shims struct {
-	LookPath    func(file string) (string, error)
-	MkdirAll    func(path string, perm os.FileMode) error
-	RemoveAll   func(path string) error
-	ReadFile    func(name string) ([]byte, error)
-	WriteFile   func(name string, data []byte, perm os.FileMode) error
-	ExecCommand func(command string, args ...string) (stdout string, stderr string, err error)
+	LookPath  func(file string) (string, error)
+	MkdirAll  func(path string, perm os.FileMode) error
+	RemoveAll func(path string) error
+	ReadFile  func(name string) ([]byte, error)
+	WriteFile func(name string, data []byte, perm os.FileMode) error
 }
 
 // =============================================================================
@@ -37,17 +35,5 @@ func NewShims() *Shims {
 		RemoveAll: os.RemoveAll,
 		ReadFile:  os.ReadFile,
 		WriteFile: os.WriteFile,
-		ExecCommand: func(command string, args ...string) (string, string, error) {
-			// command is always a compile-time literal "flux" or "kustomize"
-			// passed by pkg/provisioner/flux/stack.go; never user-controlled.
-			cmd := exec.Command(command, args...) // #nosec G204 G702
-
-			cmd.Env = append(os.Environ(), "NO_COLOR=1")
-			var stdoutBuf, stderrBuf bytes.Buffer
-			cmd.Stdout = &stdoutBuf
-			cmd.Stderr = &stderrBuf
-			err := cmd.Run()
-			return stdoutBuf.String(), stderrBuf.String(), err
-		},
 	}
 }
