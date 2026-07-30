@@ -2626,6 +2626,35 @@ spec:
 		}
 	})
 
+	t.Run("DiscoversPatchesForBareFluxSystemNameResolvingToLoneResourcesVariant", func(t *testing.T) {
+		// Given patches directly under the FluxSystem's bare name, with no install tier and
+		// exactly one resources variant, so the bare name resolves unambiguously
+		mocks := setupComposerMocks(t)
+		patchesDir := mocks.Runtime.ConfigRoot + "/patches/cni"
+		os.MkdirAll(patchesDir, 0755)
+		os.WriteFile(patchesDir+"/values.yaml", []byte("spec:\n  key: val\n"), 0644)
+		composer := NewBlueprintComposer(mocks.Runtime)
+		blueprint := &blueprintv1alpha1.Blueprint{
+			FluxSystems: []blueprintv1alpha1.FluxSystem{
+				{
+					Name:      "cni",
+					Resources: []blueprintv1alpha1.FluxVariant{{Kustomization: blueprintv1alpha1.Kustomization{}}},
+				},
+			},
+		}
+
+		// When discovering patches
+		err := composer.discoverContextPatches(blueprint)
+
+		// Then the bare name resolves to the lone resources variant
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		if len(blueprint.FluxSystems[0].Resources[0].Patches) != 1 {
+			t.Fatalf("Expected 1 patch on lone resources variant via bare name, got %d", len(blueprint.FluxSystems[0].Resources[0].Patches))
+		}
+	})
+
 	t.Run("IgnoresBareFluxSystemNameWhenAmbiguousAcrossMultipleResourcesVariants", func(t *testing.T) {
 		// Given patches directly under a FluxSystem's bare name, but with no install tier and
 		// more than one resources variant, so the bare name cannot be resolved unambiguously
