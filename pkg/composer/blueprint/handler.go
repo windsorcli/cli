@@ -922,6 +922,9 @@ func (h *BaseBlueprintHandler) loadNestedSources() error {
 // evaluated against the scope accumulated from the sources before it, so a downstream source can read
 // config an upstream source derived. After facet processing, sources are merged in the order:
 // initializer blueprints, other sources, then the user blueprint as a final override.
+// The final scope layers raw context values (config.yaml/schema defaults) as the base and the
+// ordinal-resolved facet scope as the overlay, so a facet's derived value always wins over an
+// unset or default context value instead of being silently clobbered by it.
 // The composed blueprint is updated on the handler. Terraform input expressions are fully evaluated
 // against the merged scope if possible. If a Terraform provider is configured, the composed components
 // are registered with the provider. Any errors during facet processing or composition are returned.
@@ -1020,6 +1023,9 @@ func (h *BaseBlueprintHandler) processAndCompose() error {
 	}
 
 	var mergedScope map[string]any
+	if contextValues := h.getConfigValues(); contextValues != nil {
+		mergedScope = MergeScopeMaps(mergedScope, contextValues)
+	}
 	for _, loader := range loaders {
 		name := loaderNames[loader]
 		if name == "" {
@@ -1028,9 +1034,6 @@ func (h *BaseBlueprintHandler) processAndCompose() error {
 		if scope, ok := collectedScopes[name]; ok && scope != nil {
 			mergedScope = MergeScopeMaps(mergedScope, scope)
 		}
-	}
-	if contextValues := h.getConfigValues(); contextValues != nil {
-		mergedScope = MergeScopeMaps(mergedScope, contextValues)
 	}
 
 	userPath := ""
