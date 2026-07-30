@@ -14,10 +14,14 @@ import (
 // Constants
 // =============================================================================
 
+// globalClient is cached per process (the SDK client is expensive to construct) and keyed on
+// globalClientToken, not just non-nil, so a changed OP_SERVICE_ACCOUNT_TOKEN between calls
+// produces a fresh client instead of silently keeping the first vault's token for the process.
 var (
-	globalClient *onepassword.Client
-	globalCtx    context.Context
-	clientLock   sync.Mutex
+	globalClient      *onepassword.Client
+	globalClientToken string
+	globalCtx         context.Context
+	clientLock        sync.Mutex
 )
 
 // =============================================================================
@@ -74,7 +78,7 @@ func (s *OnePasswordSDKProvider) Resolve(ref SecretRef) (string, bool, error) {
 	clientLock.Lock()
 	defer clientLock.Unlock()
 
-	if globalClient == nil {
+	if globalClient == nil || globalClientToken != token {
 		globalCtx = context.Background()
 		client, err := s.shims.NewOnePasswordClient(
 			globalCtx,
@@ -88,6 +92,7 @@ func (s *OnePasswordSDKProvider) Resolve(ref SecretRef) (string, bool, error) {
 			return "", true, fmt.Errorf("failed to create 1Password client: client is nil")
 		}
 		globalClient = client
+		globalClientToken = token
 	}
 
 	secretRefURI := fmt.Sprintf("op://%s/%s/%s", s.vault.Name, ref.Item, ref.Field)

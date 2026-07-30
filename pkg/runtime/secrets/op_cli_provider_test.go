@@ -113,6 +113,30 @@ func TestOnePasswordCLIProvider_Resolve(t *testing.T) {
 		}
 	})
 
+	t.Run("PlacesItemAfterEndOfOptionsGuard", func(t *testing.T) {
+		// A config-controlled item name starting with "-" must be parsed as the operand op
+		// expects, not as an op flag (argument injection).
+		p := NewOnePasswordCLIProvider(vault)
+		p.unlocked = true
+
+		var capturedArgs []string
+		p.shims.Command = func(name string, args ...string) *exec.Cmd {
+			capturedArgs = args
+			return &exec.Cmd{}
+		}
+		p.shims.CmdOutput = func(cmd *exec.Cmd) ([]byte, error) {
+			return []byte("value"), nil
+		}
+
+		if _, _, err := p.Resolve(SecretRef{Vault: "my-vault", Item: "--reveal", Field: "field"}); err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+
+		if len(capturedArgs) < 2 || capturedArgs[len(capturedArgs)-2] != "--" || capturedArgs[len(capturedArgs)-1] != "--reveal" {
+			t.Errorf("expected item as the last arg preceded by '--', got %v", capturedArgs)
+		}
+	})
+
 	t.Run("TrimsWhitespaceFromOutput", func(t *testing.T) {
 		p := NewOnePasswordCLIProvider(vault)
 		p.unlocked = true

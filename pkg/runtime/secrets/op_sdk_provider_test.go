@@ -15,6 +15,7 @@ func resetGlobalClient() {
 	clientLock.Lock()
 	defer clientLock.Unlock()
 	globalClient = nil
+	globalClientToken = ""
 	globalCtx = nil
 }
 
@@ -204,6 +205,45 @@ func TestOnePasswordSDKProvider_Resolve(t *testing.T) {
 
 		if clientCreations != 1 {
 			t.Errorf("expected 1 client creation, got %d", clientCreations)
+		}
+	})
+
+	t.Run("RecreatesClientWhenTokenChanges", func(t *testing.T) {
+		resetGlobalClient()
+		t.Cleanup(resetGlobalClient)
+
+		p := NewOnePasswordSDKProvider(vault)
+		p.unlocked = true
+
+		clientCreations := 0
+		var tokensSeen []string
+		mockClient := &onepassword.Client{}
+		p.shims.NewOnePasswordClient = func(ctx context.Context, opts ...onepassword.ClientOption) (*onepassword.Client, error) {
+			clientCreations++
+			return mockClient, nil
+		}
+		p.shims.ResolveSecret = func(_ *onepassword.Client, _ context.Context, _ string) (string, error) {
+			return "val", nil
+		}
+
+		t.Setenv("OP_SERVICE_ACCOUNT_TOKEN", "token-a")
+		tokensSeen = append(tokensSeen, "token-a")
+		if _, _, err := p.Resolve(SecretRef{Vault: "sdk-vault", Item: "item", Field: "f"}); err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+
+		t.Setenv("OP_SERVICE_ACCOUNT_TOKEN", "token-b")
+		tokensSeen = append(tokensSeen, "token-b")
+		if _, _, err := p.Resolve(SecretRef{Vault: "sdk-vault", Item: "item", Field: "f"}); err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+
+		// A changed token must produce a fresh client rather than silently keeping the first.
+		if clientCreations != 2 {
+			t.Errorf("expected 2 client creations across a token change, got %d (tokens: %v)", clientCreations, tokensSeen)
+		}
+		if globalClientToken != "token-b" {
+			t.Errorf("expected cached client keyed on the latest token, got %q", globalClientToken)
 		}
 	})
 

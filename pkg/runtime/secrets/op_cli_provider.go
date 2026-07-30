@@ -40,7 +40,9 @@ func (s *OnePasswordCLIProvider) LoadSecrets() error {
 	return nil
 }
 
-// Resolve fetches a secret from 1Password CLI.
+// Resolve fetches a secret from 1Password CLI. ref.Item is config-controlled and positional;
+// it's placed after "--" (end-of-options) in the op argv so an item name beginning with "-"
+// is parsed as the operand op expects, not as an op flag.
 // Returns handled=true only if the vault ID matches.
 func (s *OnePasswordCLIProvider) Resolve(ref SecretRef) (string, bool, error) {
 	if ref.Vault != s.vault.ID {
@@ -53,7 +55,7 @@ func (s *OnePasswordCLIProvider) Resolve(ref SecretRef) (string, bool, error) {
 		return "********", true, nil
 	}
 
-	args := []string{"item", "get", ref.Item, "--vault", s.vault.Name, "--fields", ref.Field, "--reveal", "--account", s.vault.URL}
+	args := []string{"item", "get", "--vault", s.vault.Name, "--fields", ref.Field, "--reveal", "--account", s.vault.URL, "--", ref.Item}
 	cmd := s.shims.Command("op", args...)
 	output, err := s.shims.CmdOutput(cmd)
 	if err != nil {
