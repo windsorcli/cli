@@ -634,9 +634,15 @@ func (c *BaseBlueprintComposer) mergeLegacySpecialVariables(mergedCommonValues m
 }
 
 // discoverContextPatches discovers and adds patches from the context directory to kustomizations.
-// Patches are discovered from contexts/<context>/patches/<kustomization-name>/ and added to the
-// corresponding kustomization. Supports both strategic merge patches (standard Kubernetes YAML)
-// and JSON 6902 patches (with a patches field containing JSON 6902 operations).
+// Patches are discovered from contexts/<context>/patches/<name>/ and added to the corresponding
+// kustomize: entry or FluxSystem tier. <name> may be a plain kustomization name, a compiled tier
+// name ("<system>-install" or "<system>-resources[-<variant>]"), or a bare FluxSystem name — which
+// resolves to that system's install tier, or its lone resources variant when there is no install
+// tier and exactly one resources variant; a bare name is left unmatched when that would be
+// ambiguous, so the tier-qualified name must be used instead. A directory matching neither is
+// silently ignored (patches are opt-in overlays; an unrelated or stale directory is not an error).
+// Supports both strategic merge patches (standard Kubernetes YAML) and JSON 6902 patches (with a
+// patches field containing JSON 6902 operations).
 func (c *BaseBlueprintComposer) discoverContextPatches(blueprint *blueprintv1alpha1.Blueprint) error {
 	if c.runtime == nil || c.runtime.ConfigRoot == "" {
 		return nil
@@ -656,6 +662,7 @@ func (c *BaseBlueprintComposer) discoverContextPatches(blueprint *blueprintv1alp
 	for i := range blueprint.Kustomizations {
 		kustomizationMap[blueprint.Kustomizations[i].Name] = &blueprint.Kustomizations[i]
 	}
+	fluxTierMap := buildFluxTierMap(blueprint)
 
 	for _, entry := range entries {
 		if !entry.IsDir() {
@@ -664,6 +671,9 @@ func (c *BaseBlueprintComposer) discoverContextPatches(blueprint *blueprintv1alp
 
 		kustomizationName := entry.Name()
 		kustomization, exists := kustomizationMap[kustomizationName]
+		if !exists {
+			kustomization, exists = fluxTierMap[kustomizationName]
+		}
 		if !exists {
 			continue
 		}
@@ -702,6 +712,46 @@ func (c *BaseBlueprintComposer) discoverContextPatches(blueprint *blueprintv1alp
 	}
 
 	return nil
+}
+
+// buildFluxTierMap indexes a blueprint's FluxSystems by every name a context-patch directory may
+// use to target them: each compiled tier name ("<system>-install", "<system>-resources[-<variant>]")
+// always maps to that tier's Kustomization, and the bare system name additionally maps to the
+// install tier when present, or to the lone resources variant when there is no install tier and
+// exactly one resources variant. A bare name that could mean more than one tier (no install tier
+// with multiple resources variants) is left out of the map — the tier-qualified name must be used
+// instead. Returned pointers alias the blueprint's FluxSystems so callers can mutate tiers in place.
+func buildFluxTierMap(blueprint *blueprintv1alpha1.Blueprint) map[string]*blueprintv1alpha1.Kustomization {
+	tierMap := make(map[string]*blueprintv1alpha1.Kustomization)
+	for i := range blueprint.FluxSystems {
+		sys := &blueprint.FluxSystems[i]
+
+		var bareCandidate *blueprintv1alpha1.Kustomization
+		bareAmbiguous := false
+
+		if sys.Install != nil {
+			tierMap[sys.Name+"-install"] = sys.Install
+			bareCandidate = sys.Install
+		}
+
+		for j := range sys.Resources {
+			variantName := sys.Name + "-resources"
+			if sys.Resources[j].Name != "" {
+				variantName += "-" + sys.Resources[j].Name
+			}
+			tierMap[variantName] = &sys.Resources[j].Kustomization
+			if bareCandidate == nil {
+				bareCandidate = &sys.Resources[j].Kustomization
+			} else if sys.Install == nil {
+				bareAmbiguous = true
+			}
+		}
+
+		if bareCandidate != nil && !bareAmbiguous {
+			tierMap[sys.Name] = bareCandidate
+		}
+	}
+	return tierMap
 }
 
 // parsePatch parses a patch file and returns a BlueprintPatch. It detects whether the patch is

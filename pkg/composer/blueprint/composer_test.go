@@ -2537,6 +2537,127 @@ spec:
 		}
 	})
 
+	t.Run("DiscoversPatchesForFluxSystemInstallTierName", func(t *testing.T) {
+		// Given patches under the compiled install-tier name for a FluxSystem
+		mocks := setupComposerMocks(t)
+		patchesDir := mocks.Runtime.ConfigRoot + "/patches/cni-install"
+		os.MkdirAll(patchesDir, 0755)
+		patchContent := "spec:\n  values:\n    key: val\n"
+		os.WriteFile(patchesDir+"/values.yaml", []byte(patchContent), 0644)
+		composer := NewBlueprintComposer(mocks.Runtime)
+		blueprint := &blueprintv1alpha1.Blueprint{
+			FluxSystems: []blueprintv1alpha1.FluxSystem{
+				{
+					Name:      "cni",
+					Install:   &blueprintv1alpha1.Kustomization{Components: []string{"cilium"}},
+					Resources: []blueprintv1alpha1.FluxVariant{{Kustomization: blueprintv1alpha1.Kustomization{}}},
+				},
+			},
+		}
+
+		// When discovering patches
+		err := composer.discoverContextPatches(blueprint)
+
+		// Then the patch is attached to the install tier
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		if len(blueprint.FluxSystems[0].Install.Patches) != 1 {
+			t.Fatalf("Expected 1 patch on install tier, got %d", len(blueprint.FluxSystems[0].Install.Patches))
+		}
+	})
+
+	t.Run("DiscoversPatchesForFluxSystemResourcesVariantTierName", func(t *testing.T) {
+		// Given patches under a named resources variant's compiled tier name
+		mocks := setupComposerMocks(t)
+		patchesDir := mocks.Runtime.ConfigRoot + "/patches/cni-resources-l2"
+		os.MkdirAll(patchesDir, 0755)
+		os.WriteFile(patchesDir+"/values.yaml", []byte("spec:\n  key: val\n"), 0644)
+		composer := NewBlueprintComposer(mocks.Runtime)
+		blueprint := &blueprintv1alpha1.Blueprint{
+			FluxSystems: []blueprintv1alpha1.FluxSystem{
+				{
+					Name: "cni",
+					Resources: []blueprintv1alpha1.FluxVariant{
+						{Kustomization: blueprintv1alpha1.Kustomization{}},
+						{Kustomization: blueprintv1alpha1.Kustomization{Name: "l2"}},
+					},
+				},
+			},
+		}
+
+		// When discovering patches
+		err := composer.discoverContextPatches(blueprint)
+
+		// Then the patch is attached to the matching resources variant only
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		if len(blueprint.FluxSystems[0].Resources[1].Patches) != 1 {
+			t.Fatalf("Expected 1 patch on 'l2' resources variant, got %d", len(blueprint.FluxSystems[0].Resources[1].Patches))
+		}
+		if len(blueprint.FluxSystems[0].Resources[0].Patches) != 0 {
+			t.Errorf("Expected unnamed resources variant to receive no patches, got %d", len(blueprint.FluxSystems[0].Resources[0].Patches))
+		}
+	})
+
+	t.Run("DiscoversPatchesForBareFluxSystemNameResolvingToInstallTier", func(t *testing.T) {
+		// Given patches directly under the FluxSystem's bare name, with only an install tier
+		mocks := setupComposerMocks(t)
+		patchesDir := mocks.Runtime.ConfigRoot + "/patches/cni"
+		os.MkdirAll(patchesDir, 0755)
+		os.WriteFile(patchesDir+"/values.yaml", []byte("spec:\n  key: val\n"), 0644)
+		composer := NewBlueprintComposer(mocks.Runtime)
+		blueprint := &blueprintv1alpha1.Blueprint{
+			FluxSystems: []blueprintv1alpha1.FluxSystem{
+				{Name: "cni", Install: &blueprintv1alpha1.Kustomization{Components: []string{"cilium"}}},
+			},
+		}
+
+		// When discovering patches
+		err := composer.discoverContextPatches(blueprint)
+
+		// Then the bare name resolves to the install tier
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		if len(blueprint.FluxSystems[0].Install.Patches) != 1 {
+			t.Fatalf("Expected 1 patch on install tier via bare name, got %d", len(blueprint.FluxSystems[0].Install.Patches))
+		}
+	})
+
+	t.Run("IgnoresBareFluxSystemNameWhenAmbiguousAcrossMultipleResourcesVariants", func(t *testing.T) {
+		// Given patches directly under a FluxSystem's bare name, but with no install tier and
+		// more than one resources variant, so the bare name cannot be resolved unambiguously
+		mocks := setupComposerMocks(t)
+		patchesDir := mocks.Runtime.ConfigRoot + "/patches/cni"
+		os.MkdirAll(patchesDir, 0755)
+		os.WriteFile(patchesDir+"/values.yaml", []byte("spec:\n  key: val\n"), 0644)
+		composer := NewBlueprintComposer(mocks.Runtime)
+		blueprint := &blueprintv1alpha1.Blueprint{
+			FluxSystems: []blueprintv1alpha1.FluxSystem{
+				{
+					Name: "cni",
+					Resources: []blueprintv1alpha1.FluxVariant{
+						{Kustomization: blueprintv1alpha1.Kustomization{Name: "a"}},
+						{Kustomization: blueprintv1alpha1.Kustomization{Name: "b"}},
+					},
+				},
+			},
+		}
+
+		// When discovering patches
+		err := composer.discoverContextPatches(blueprint)
+
+		// Then no variant receives the patch
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		if len(blueprint.FluxSystems[0].Resources[0].Patches) != 0 || len(blueprint.FluxSystems[0].Resources[1].Patches) != 0 {
+			t.Error("Expected ambiguous bare name to be left unmatched")
+		}
+	})
+
 	t.Run("IgnoresPatchesForNonExistentKustomization", func(t *testing.T) {
 		// Given a composer with patches for kustomization that doesn't exist
 		mocks := setupComposerMocks(t)
