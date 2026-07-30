@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"sync"
 	"testing"
 	"text/template"
 	"time"
@@ -1317,12 +1318,12 @@ func TestShell_ExecSilentWithEnv(t *testing.T) {
 		// Given a shell with verbose mode and a registered secret
 		shell, mocks := setup(t)
 		shell.SetVerbosity(true)
-		shell.RegisterSecret("s3cr3t")
+		shell.RegisterSecret("s3cr3t123")
 
 		// Mock CmdRun to write a line containing the secret
 		mocks.Shims.CmdRun = func(cmd *exec.Cmd) error {
 			if cmd.Stdout != nil {
-				if _, err := cmd.Stdout.Write([]byte("output with s3cr3t inside\n")); err != nil {
+				if _, err := cmd.Stdout.Write([]byte("output with s3cr3t123 inside\n")); err != nil {
 					return fmt.Errorf("failed to write: %v", err)
 				}
 			}
@@ -1346,11 +1347,11 @@ func TestShell_ExecSilentWithEnv(t *testing.T) {
 			t.Errorf("Expected no error, got %v", err)
 		}
 		// And the secret is redacted in the return value
-		if strings.Contains(out, "s3cr3t") {
+		if strings.Contains(out, "s3cr3t123") {
 			t.Errorf("Expected secret to be redacted in return value, got %q", out)
 		}
 		// And the secret is redacted in terminal output
-		if strings.Contains(string(terminalOutput), "s3cr3t") {
+		if strings.Contains(string(terminalOutput), "s3cr3t123") {
 			t.Errorf("Expected secret to be redacted in terminal output, got %q", string(terminalOutput))
 		}
 	})
@@ -3826,15 +3827,15 @@ func TestShell_RegisterSecret(t *testing.T) {
 		shell, _ := setup(t)
 
 		// When registering multiple different secret values
-		shell.RegisterSecret("secret1")
-		shell.RegisterSecret("secret2")
-		shell.RegisterSecret("secret3")
+		shell.RegisterSecret("secret001")
+		shell.RegisterSecret("secret002")
+		shell.RegisterSecret("secret003")
 
 		// Then all secrets should be stored in the secrets list
 		if len(shell.secrets) != 3 {
 			t.Errorf("Expected 3 secrets, got %d", len(shell.secrets))
 		}
-		expectedSecrets := []string{"secret1", "secret2", "secret3"}
+		expectedSecrets := []string{"secret001", "secret002", "secret003"}
 		for i, expected := range expectedSecrets {
 			if shell.secrets[i] != expected {
 				t.Errorf("Expected secret[%d] to be '%s', got '%s'", i, expected, shell.secrets[i])
@@ -3855,6 +3856,21 @@ func TestShell_RegisterSecret(t *testing.T) {
 		}
 	})
 
+	t.Run("IgnoresValuesBelowMinimumLength", func(t *testing.T) {
+		// Given a shell instance with no registered secrets
+		shell, _ := setup(t)
+
+		// When registering common short values that carry no real confidentiality
+		for _, short := range []string{"true", "1", "admin", "dev"} {
+			shell.RegisterSecret(short)
+		}
+
+		// Then none are stored, since they're shorter than minRegisteredSecretLength
+		if len(shell.secrets) != 0 {
+			t.Errorf("Expected 0 secrets, got %d: %v", len(shell.secrets), shell.secrets)
+		}
+	})
+
 	t.Run("RegisterDuplicateSecrets", func(t *testing.T) {
 		// Given a shell instance with no registered secrets
 		shell, _ := setup(t)
@@ -3870,6 +3886,31 @@ func TestShell_RegisterSecret(t *testing.T) {
 		}
 		if shell.secrets[0] != "duplicate" {
 			t.Errorf("Expected secret to be 'duplicate', got '%s'", shell.secrets[0])
+		}
+	})
+
+	t.Run("ConcurrentRegisterAndScrubIsRaceFree", func(t *testing.T) {
+		// Given a shell instance, exercised the way ExecProgress's concurrent scanner
+		// goroutines and any in-flight RegisterSecret call would overlap in production
+		shell, _ := setup(t)
+
+		var wg sync.WaitGroup
+		for i := range 20 {
+			wg.Add(2)
+			go func(i int) {
+				defer wg.Done()
+				shell.RegisterSecret(fmt.Sprintf("concurrent-secret-%d", i))
+			}(i)
+			go func() {
+				defer wg.Done()
+				_ = shell.scrubString("some command output")
+			}()
+		}
+		wg.Wait()
+
+		// Then every registration landed without a torn read/write (run with -race to verify)
+		if len(shell.secrets) != 20 {
+			t.Errorf("Expected 20 secrets registered, got %d", len(shell.secrets))
 		}
 	})
 }
@@ -3902,12 +3943,12 @@ func TestShell_scrubString(t *testing.T) {
 	t.Run("ScrubMultipleSecrets", func(t *testing.T) {
 		// Given a shell with multiple registered secret values
 		shell, _ := setup(t)
-		shell.RegisterSecret("secret1")
-		shell.RegisterSecret("secret2")
-		shell.RegisterSecret("secret3")
+		shell.RegisterSecret("secret001")
+		shell.RegisterSecret("secret002")
+		shell.RegisterSecret("secret003")
 
 		// When scrubbing a string that contains multiple registered secrets
-		input := "First secret1, then secret2, finally secret3"
+		input := "First secret001, then secret002, finally secret003"
 		result := shell.scrubString(input)
 
 		// Then all secrets should be replaced with asterisks
@@ -3996,10 +4037,10 @@ func TestShell_scrubString(t *testing.T) {
 	t.Run("ScrubSecretMultipleOccurrences", func(t *testing.T) {
 		// Given a shell with a registered secret value
 		shell, _ := setup(t)
-		shell.RegisterSecret("secret")
+		shell.RegisterSecret("mysecret")
 
 		// When scrubbing a string where the same secret appears multiple times
-		input := "secret appears here and secret appears there, secret everywhere"
+		input := "mysecret appears here and mysecret appears there, mysecret everywhere"
 		result := shell.scrubString(input)
 
 		// Then all occurrences of the secret should be replaced with asterisks
@@ -4012,10 +4053,10 @@ func TestShell_scrubString(t *testing.T) {
 	t.Run("ScrubSecretPartialMatch", func(t *testing.T) {
 		// Given a shell with a registered secret value
 		shell, _ := setup(t)
-		shell.RegisterSecret("secret")
+		shell.RegisterSecret("mysecret")
 
 		// When scrubbing a string containing words that partially match the secret
-		input := "secretive and secrets contain secret"
+		input := "mysecretive and mysecrets contain mysecret"
 		result := shell.scrubString(input)
 
 		// Then all occurrences should be replaced using simple string replacement
@@ -4081,10 +4122,10 @@ func TestShell_scrubString(t *testing.T) {
 		// Given a shell with registered password and token secrets
 		shell, _ := setup(t)
 		shell.RegisterSecret("mypassword")
-		shell.RegisterSecret("mytoken")
+		shell.RegisterSecret("mytoken1")
 
 		// When scrubbing a JSON-formatted string containing secrets
-		input := `{"password": "mypassword", "token": "mytoken", "user": "admin"}`
+		input := `{"password": "mypassword", "token": "mytoken1", "user": "admin"}`
 		result := shell.scrubString(input)
 
 		// Then the secrets should be scrubbed while preserving JSON structure

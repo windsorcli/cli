@@ -34,6 +34,11 @@ const MaxFolderSearchDepth = 10
 // SessionTokenPrefix is the prefix used for session token files
 const SessionTokenPrefix = ".session."
 
+// minRegisteredSecretLength is the shortest value RegisterSecret will add to the scrub denylist.
+// Short common words/values ("true", "1", "admin", "dev") carry no real confidentiality, and
+// scrubbing them would mangle unrelated output every time that substring happens to appear.
+const minRegisteredSecretLength = 8
+
 // =============================================================================
 // Types
 // =============================================================================
@@ -82,6 +87,7 @@ type DefaultShell struct {
 	sessionToken string
 	shims        *Shims
 	secrets      []string
+	secretsMu    sync.Mutex
 }
 
 // =============================================================================
@@ -182,8 +188,8 @@ func (s *DefaultShell) Exec(command string, args ...string) (string, error) {
 	cmd := s.shims.Command(command, args...)
 	var stdoutBuf, stderrBuf bytes.Buffer
 
-	scrubbingStdoutWriter := &scrubbingWriter{writer: os.Stdout, scrubFunc: s.scrubString}
-	scrubbingStderrWriter := &scrubbingWriter{writer: os.Stderr, scrubFunc: s.scrubString}
+	scrubbingStdoutWriter := s.newScrubbingWriter(os.Stdout)
+	scrubbingStderrWriter := s.newScrubbingWriter(os.Stderr)
 	defer func() { _ = scrubbingStdoutWriter.Flush() }()
 	defer func() { _ = scrubbingStderrWriter.Flush() }()
 
@@ -242,8 +248,8 @@ func (s *DefaultShell) ExecSilentWithEnv(command string, env map[string]string, 
 	}
 	cmd.Env = mergeEnvVars(s.shims.Environ(), env)
 	if s.verbose {
-		scrubbingStdoutWriter := &scrubbingWriter{writer: os.Stdout, scrubFunc: s.scrubString}
-		scrubbingStderrWriter := &scrubbingWriter{writer: os.Stderr, scrubFunc: s.scrubString}
+		scrubbingStdoutWriter := s.newScrubbingWriter(os.Stdout)
+		scrubbingStderrWriter := s.newScrubbingWriter(os.Stderr)
 		defer func() { _ = scrubbingStdoutWriter.Flush() }()
 		defer func() { _ = scrubbingStderrWriter.Flush() }()
 		cmd.Stdout = io.MultiWriter(scrubbingStdoutWriter, &stdoutBuf)
@@ -388,8 +394,8 @@ func (s *DefaultShell) ExecProgressWithEnv(message string, command string, env m
 			return "", fmt.Errorf("failed to create command")
 		}
 		var stdoutBuf, stderrBuf bytes.Buffer
-		scrubbingStdoutWriter := &scrubbingWriter{writer: os.Stdout, scrubFunc: s.scrubString}
-		scrubbingStderrWriter := &scrubbingWriter{writer: os.Stderr, scrubFunc: s.scrubString}
+		scrubbingStdoutWriter := s.newScrubbingWriter(os.Stdout)
+		scrubbingStderrWriter := s.newScrubbingWriter(os.Stderr)
 		defer func() { _ = scrubbingStdoutWriter.Flush() }()
 		defer func() { _ = scrubbingStderrWriter.Flush() }()
 		cmd.Stdout = io.MultiWriter(scrubbingStdoutWriter, &stdoutBuf)
@@ -717,13 +723,17 @@ func (s *DefaultShell) GetSessionToken() (string, error) {
 	return token, nil
 }
 
-// RegisterSecret adds a secret value to the internal list of secrets that will be scrubbed from all command output.
-// Empty strings are ignored to prevent unnecessary processing.
-// Duplicate values are automatically filtered out to maintain list efficiency.
+// RegisterSecret adds a secret value to the internal list of secrets that will be scrubbed from all
+// command output. Values shorter than minRegisteredSecretLength are ignored, since scrubbing a short
+// common substring mangles unrelated output while providing no real confidentiality. Duplicate values
+// are automatically filtered out to maintain list efficiency. Safe for concurrent use with scrubString.
 func (s *DefaultShell) RegisterSecret(value string) {
-	if value == "" {
+	if len(value) < minRegisteredSecretLength {
 		return
 	}
+
+	s.secretsMu.Lock()
+	defer s.secretsMu.Unlock()
 
 	if slices.Contains(s.secrets, value) {
 		return
@@ -841,16 +851,43 @@ func (s *DefaultShell) generateRandomString(length int) (string, error) {
 
 // scrubString replaces all registered secret values with fixed "********" strings for security.
 // It processes the input string and replaces any occurrence of registered secrets with asterisks.
-// This method is used internally by all command execution methods to prevent secret leakage in output.
+// This method is used internally by all command execution methods to prevent secret leakage in
+// output. Safe for concurrent use with RegisterSecret. Best-effort, exact-substring only: a
+// base64/URL-encoded/JSON-escaped transform of a registered value will not match.
 func (s *DefaultShell) scrubString(input string) string {
+	s.secretsMu.Lock()
+	secrets := slices.Clone(s.secrets)
+	s.secretsMu.Unlock()
+
 	result := input
-	for _, secret := range s.secrets {
+	for _, secret := range secrets {
 		if secret != "" {
 			result = strings.ReplaceAll(result, secret, "********")
 		}
 	}
 
 	return result
+}
+
+// maxSecretLen returns the length of the longest currently-registered secret, or 0 if none are
+// registered. Used by scrubbingWriter to size its hold-back window so a secret can never be split
+// across a streamed Write boundary.
+func (s *DefaultShell) maxSecretLen() int {
+	s.secretsMu.Lock()
+	defer s.secretsMu.Unlock()
+
+	maxLen := 0
+	for _, secret := range s.secrets {
+		if len(secret) > maxLen {
+			maxLen = len(secret)
+		}
+	}
+	return maxLen
+}
+
+// newScrubbingWriter builds a scrubbingWriter over w bound to this shell's registered secrets.
+func (s *DefaultShell) newScrubbingWriter(w io.Writer) *scrubbingWriter {
+	return &scrubbingWriter{writer: w, scrubFunc: s.scrubString, holdBack: s.maxSecretLen}
 }
 
 // PrintEnvVars is a platform-specific method that will be implemented by Unix/Windows-specific files
