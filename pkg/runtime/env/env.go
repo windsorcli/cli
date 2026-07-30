@@ -18,7 +18,12 @@ import (
 // Types
 // =============================================================================
 
-// EnvPrinter defines the method for printing environment variables.
+// EnvPrinter defines the method for printing environment variables. Secret-scrubbing contract:
+// only values resolved through the evaluator's secret() expression are scrub-protected (the
+// resolver in pkg/runtime/secrets calls shell.RegisterSecret automatically at resolve time). A
+// printer setting literal credential material directly, not via secret(), must call
+// shell.RegisterSecret itself; none of the provider printers do today, since none currently emit
+// raw credentials — only identifiers, paths, and config, with the actual secret left to secrets.
 type EnvPrinter interface {
 	GetEnvVars() (map[string]string, error)
 	GetAlias() (map[string]string, error)

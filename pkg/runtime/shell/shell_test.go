@@ -937,6 +937,50 @@ func TestShell_ExecSudo(t *testing.T) {
 		}
 	})
 
+	t.Run("ScrubsSecretsFromInteractiveStderr", func(t *testing.T) {
+		// Given a shell with a registered secret and a real pipe standing in for /dev/tty
+		shell, mocks := setup(t)
+		shell.RegisterSecret("supersecretvalue")
+
+		r, w, err := os.Pipe()
+		if err != nil {
+			t.Fatalf("failed to create pipe: %v", err)
+		}
+		defer r.Close()
+
+		mocks.Shims.Command = func(name string, args ...string) *exec.Cmd {
+			return &exec.Cmd{Path: name, Args: append([]string{name}, args...)}
+		}
+		mocks.Shims.CmdStart = func(cmd *exec.Cmd) error {
+			// Simulate the sudo'd child echoing a secret-bearing line to its interactive stderr.
+			_, writeErr := cmd.Stderr.Write([]byte("password for supersecretvalue accepted\n"))
+			return writeErr
+		}
+		mocks.Shims.CmdWait = func(cmd *exec.Cmd) error { return nil }
+		mocks.Shims.OpenFile = func(name string, flag int, perm os.FileMode) (*os.File, error) {
+			if name == "/dev/tty" {
+				return w, nil
+			}
+			return nil, fmt.Errorf("unexpected file: %s", name)
+		}
+
+		// When executing a sudo command
+		if _, err := shell.ExecSudo("Running test", "test", "arg"); err != nil {
+			t.Fatalf("expected no error, got %v", err)
+		}
+
+		// Then the registered secret never reaches what was written to the tty
+		buf := make([]byte, 4096)
+		n, _ := r.Read(buf)
+		got := string(buf[:n])
+		if strings.Contains(got, "supersecretvalue") {
+			t.Errorf("expected secret scrubbed from tty stderr, got %q", got)
+		}
+		if !strings.Contains(got, "********") {
+			t.Errorf("expected masked placeholder in tty stderr, got %q", got)
+		}
+	})
+
 	t.Run("CommandNil", func(t *testing.T) {
 		// Given a shell with Command returning nil
 		shell, mocks := setup(t)

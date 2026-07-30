@@ -117,6 +117,7 @@ func (e *WindsorEnvPrinter) GetEnvVars() (map[string]string, error) {
 					e.SetManagedEnv(k)
 				}
 				if e.shouldUseCache() && !strings.Contains(existingValue, "<ERROR") {
+					e.shell.RegisterSecret(existingValue)
 					continue
 				}
 			}

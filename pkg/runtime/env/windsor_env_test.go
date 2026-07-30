@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -184,6 +185,11 @@ func TestWindsorEnv_GetEnvVars(t *testing.T) {
 		printer := NewWindsorEnvPrinter(mocks.Shell, mocks.ConfigHandler, mockEval, []EnvPrinter{})
 		printer.shims = mocks.Shims
 
+		var registeredSecrets []string
+		mocks.Shell.RegisterSecretFunc = func(value string) {
+			registeredSecrets = append(registeredSecrets, value)
+		}
+
 		t.Setenv("NO_CACHE", "0")
 		t.Setenv("SECRET_VAR", "cached_value")
 		t.Setenv("WINDSOR_MANAGED_ENV", "")
@@ -213,6 +219,11 @@ contexts:
 		managedEnv := envVars["WINDSOR_MANAGED_ENV"]
 		if !strings.Contains(managedEnv, "SECRET_VAR") {
 			t.Error("Expected SECRET_VAR to be in managed env when caching is enabled")
+		}
+
+		// And the reused cached value should still be registered for scrubbing
+		if !slices.Contains(registeredSecrets, "cached_value") {
+			t.Errorf("Expected cached_value to be registered as a secret, got %v", registeredSecrets)
 		}
 	})
 

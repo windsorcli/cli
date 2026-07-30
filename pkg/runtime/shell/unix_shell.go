@@ -67,7 +67,9 @@ func (s *DefaultShell) RenderAliases(aliases map[string]string) string {
 // ExecSudo runs a command with 'sudo', ensuring elevated privileges. It handles password prompts by
 // connecting to the terminal and captures the command's output. If verbose mode is enabled or no TTY
 // is available (CI/CD environments), it uses direct execution. Otherwise, it connects to /dev/tty for
-// interactive password prompts. The function returns the command's stdout or an error if execution fails.
+// interactive password prompts; the child's stderr is routed through a scrubbingWriter, buffered by
+// line and flushed once the command completes, so registered secrets never reach the terminal raw —
+// a child streaming \r-only progress on stderr won't appear live until it emits \n or exits.
 func (s *DefaultShell) ExecSudo(message string, command string, args ...string) (string, error) {
 	if command != "sudo" {
 		args = append([]string{command}, args...)
@@ -105,7 +107,9 @@ func (s *DefaultShell) ExecSudo(message string, command string, args ...string) 
 	defer tty.Close()
 
 	cmd.Stdin = tty
-	cmd.Stderr = tty
+	scrubbingTTYWriter := &scrubbingWriter{writer: tty, scrubFunc: s.scrubString}
+	defer func() { _ = scrubbingTTYWriter.Flush() }()
+	cmd.Stderr = scrubbingTTYWriter
 
 	var stdoutBuf bytes.Buffer
 	cmd.Stdout = &stdoutBuf
