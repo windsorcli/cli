@@ -6,10 +6,12 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/spf13/cobra"
 	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
 	"github.com/windsorcli/cli/pkg/composer/blueprint"
+	"github.com/windsorcli/cli/pkg/constants"
 	"github.com/windsorcli/cli/pkg/provisioner/kubernetes"
 	"github.com/windsorcli/cli/pkg/runtime/config"
 )
@@ -771,6 +773,7 @@ func TestUpgradeNodeCmd(t *testing.T) {
 		upgradeNodeAddr = ""
 		upgradeNodeImage = ""
 		upgradeNodeTimeout = 0
+		upgradeNodeOfflineTimeout = 0
 	})
 
 	setup := func(t *testing.T) (*bytes.Buffer, *bytes.Buffer) {
@@ -778,6 +781,7 @@ func TestUpgradeNodeCmd(t *testing.T) {
 		upgradeNodeAddr = ""
 		upgradeNodeImage = ""
 		upgradeNodeTimeout = 0
+		upgradeNodeOfflineTimeout = 0
 
 		stdout, stderr := captureOutput(t)
 		rootCmd.SetOut(stdout)
@@ -874,6 +878,107 @@ func TestUpgradeNodeCmd(t *testing.T) {
 		}
 		if !strings.Contains(err.Error(), "node upgrade failed") {
 			t.Errorf("Expected node upgrade error, got: %v", err)
+		}
+	})
+
+	t.Run("DefaultsOfflineTimeoutWhenFlagNotSet", func(t *testing.T) {
+		setup(t)
+		mockConfigHandler := config.NewMockConfigHandler()
+		mockConfigHandler.LoadConfigFunc = func() error { return nil }
+		mockConfigHandler.IsLoadedFunc = func() bool { return true }
+		mocks := setupMocks(t, &SetupOptions{ConfigHandler: mockConfigHandler})
+
+		ctx := stdcontext.WithValue(stdcontext.Background(), runtimeOverridesKey, mocks.Runtime)
+		rootCmd.SetContext(ctx)
+		rootCmd.SetArgs([]string{"upgrade", "node", "--node", "10.0.0.1", "--image", "img"})
+
+		_ = Execute()
+
+		if upgradeNodeOfflineTimeout != constants.DefaultNodeOfflineTimeout {
+			t.Errorf("Expected default offline timeout %v, got %v", constants.DefaultNodeOfflineTimeout, upgradeNodeOfflineTimeout)
+		}
+	})
+
+	t.Run("UsesProvidedOfflineTimeout", func(t *testing.T) {
+		setup(t)
+		mockConfigHandler := config.NewMockConfigHandler()
+		mockConfigHandler.LoadConfigFunc = func() error { return nil }
+		mockConfigHandler.IsLoadedFunc = func() bool { return true }
+		mocks := setupMocks(t, &SetupOptions{ConfigHandler: mockConfigHandler})
+
+		ctx := stdcontext.WithValue(stdcontext.Background(), runtimeOverridesKey, mocks.Runtime)
+		rootCmd.SetContext(ctx)
+		rootCmd.SetArgs([]string{"upgrade", "node", "--node", "10.0.0.1", "--image", "img", "--offline-timeout", "8m"})
+
+		_ = Execute()
+
+		if upgradeNodeOfflineTimeout != 8*time.Minute {
+			t.Errorf("Expected offline timeout 8m, got %v", upgradeNodeOfflineTimeout)
+		}
+	})
+
+	t.Run("RejectsOfflineTimeoutExceedingOverallTimeout", func(t *testing.T) {
+		setup(t)
+		mockConfigHandler := config.NewMockConfigHandler()
+		loadConfigCalled := false
+		mockConfigHandler.LoadConfigFunc = func() error {
+			loadConfigCalled = true
+			return nil
+		}
+		mocks := setupMocks(t, &SetupOptions{ConfigHandler: mockConfigHandler})
+
+		ctx := stdcontext.WithValue(stdcontext.Background(), runtimeOverridesKey, mocks.Runtime)
+		rootCmd.SetContext(ctx)
+		rootCmd.SetArgs([]string{"upgrade", "node", "--node", "10.0.0.1", "--image", "img", "--timeout", "10m", "--offline-timeout", "15m"})
+
+		err := Execute()
+
+		if err == nil {
+			t.Fatal("Expected error for offline-timeout exceeding overall timeout, got nil")
+		}
+		if !strings.Contains(err.Error(), "--offline-timeout") || !strings.Contains(err.Error(), "cannot exceed") {
+			t.Errorf("Expected guard error naming both flags, got: %v", err)
+		}
+		if loadConfigCalled {
+			t.Error("Expected guard to fail before LoadConfig is reachable")
+		}
+	})
+
+	t.Run("AllowsOfflineTimeoutEqualToOverallTimeout", func(t *testing.T) {
+		setup(t)
+		mockConfigHandler := config.NewMockConfigHandler()
+		mockConfigHandler.LoadConfigFunc = func() error { return nil }
+		mockConfigHandler.IsLoadedFunc = func() bool { return true }
+		mocks := setupMocks(t, &SetupOptions{ConfigHandler: mockConfigHandler})
+
+		ctx := stdcontext.WithValue(stdcontext.Background(), runtimeOverridesKey, mocks.Runtime)
+		rootCmd.SetContext(ctx)
+		rootCmd.SetArgs([]string{"upgrade", "node", "--node", "10.0.0.1", "--image", "img", "--timeout", "10m", "--offline-timeout", "10m"})
+
+		err := Execute()
+
+		// Guard should not fire; the command proceeds to the next failure (no TALOSCONFIG).
+		if err == nil || strings.Contains(err.Error(), "cannot exceed") {
+			t.Errorf("Expected guard to allow equal timeouts, got: %v", err)
+		}
+	})
+
+	t.Run("AllowsOfflineTimeoutExceedingUnboundedOverallTimeout", func(t *testing.T) {
+		setup(t)
+		mockConfigHandler := config.NewMockConfigHandler()
+		mockConfigHandler.LoadConfigFunc = func() error { return nil }
+		mockConfigHandler.IsLoadedFunc = func() bool { return true }
+		mocks := setupMocks(t, &SetupOptions{ConfigHandler: mockConfigHandler})
+
+		ctx := stdcontext.WithValue(stdcontext.Background(), runtimeOverridesKey, mocks.Runtime)
+		rootCmd.SetContext(ctx)
+		rootCmd.SetArgs([]string{"upgrade", "node", "--node", "10.0.0.1", "--image", "img", "--timeout", "0", "--offline-timeout", "15m"})
+
+		err := Execute()
+
+		// An explicit --timeout=0 means unbounded; the guard must not fire against it.
+		if err == nil || strings.Contains(err.Error(), "cannot exceed") {
+			t.Errorf("Expected guard to allow unbounded overall timeout, got: %v", err)
 		}
 	})
 
