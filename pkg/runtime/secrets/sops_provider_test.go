@@ -131,6 +131,24 @@ func TestSopsProvider_LoadSecrets(t *testing.T) {
 		}
 	})
 
+	t.Run("ReturnsErrorForPlaintextSecrets", func(t *testing.T) {
+		p := NewSopsProvider("/plaintext")
+		p.shims.Stat = func(name string) (os.FileInfo, error) {
+			if filepath.Base(name) == "secrets.yaml" {
+				return nil, nil
+			}
+
+			return nil, os.ErrNotExist
+		}
+
+		err := p.LoadSecrets()
+		if err == nil {
+			t.Error("expected error when loading plaintext secrets.yaml, got nil")
+		} else if !containsStr(err.Error(), "refusing to load plaintext") {
+			t.Errorf("expected refusal error, got: %v", err)
+		}
+	})
+
 	t.Run("ReturnsDecryptError", func(t *testing.T) {
 		p := setupSopsMocks(t)
 		p.shims.DecryptFile = func(_ string, _ string) ([]byte, error) {
