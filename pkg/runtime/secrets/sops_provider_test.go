@@ -143,7 +143,7 @@ func TestSopsProvider_LoadSecrets(t *testing.T) {
 		}
 	})
 
-	t.Run("RefusesPlaintextSecretsYaml", func(t *testing.T) {
+	t.Run("RefusesSecretsYamlThatFailsToDecrypt", func(t *testing.T) {
 		p := NewSopsProvider("/valid/config/path")
 		p.shims.Stat = func(name string) (os.FileInfo, error) {
 			if filepath.Base(name) == secretsFileNameYaml {
@@ -152,12 +152,11 @@ func TestSopsProvider_LoadSecrets(t *testing.T) {
 			return nil, os.ErrNotExist
 		}
 		p.shims.DecryptFile = func(_ string, _ string) ([]byte, error) {
-			t.Fatal("DecryptFile should not be called for a plaintext secrets file")
-			return nil, nil
+			return nil, fmt.Errorf("sops metadata not found")
 		}
 
 		err := p.LoadSecrets()
-		if err == nil || !containsStr(err.Error(), "secrets.yaml") {
+		if err == nil || !containsStr(err.Error(), "refusing to load unencrypted secrets file") || !containsStr(err.Error(), "secrets.yaml") {
 			t.Errorf("expected refusal naming secrets.yaml, got %v", err)
 		}
 		if p.unlocked {
@@ -165,7 +164,7 @@ func TestSopsProvider_LoadSecrets(t *testing.T) {
 		}
 	})
 
-	t.Run("RefusesPlaintextSecretsYml", func(t *testing.T) {
+	t.Run("RefusesSecretsYmlThatFailsToDecrypt", func(t *testing.T) {
 		p := NewSopsProvider("/valid/config/path")
 		p.shims.Stat = func(name string) (os.FileInfo, error) {
 			if filepath.Base(name) == secretsFileNameYml {
@@ -174,16 +173,40 @@ func TestSopsProvider_LoadSecrets(t *testing.T) {
 			return nil, os.ErrNotExist
 		}
 		p.shims.DecryptFile = func(_ string, _ string) ([]byte, error) {
-			t.Fatal("DecryptFile should not be called for a plaintext secrets file")
-			return nil, nil
+			return nil, fmt.Errorf("sops metadata not found")
 		}
 
 		err := p.LoadSecrets()
-		if err == nil || !containsStr(err.Error(), "secrets.yml") {
+		if err == nil || !containsStr(err.Error(), "refusing to load unencrypted secrets file") || !containsStr(err.Error(), "secrets.yml") {
 			t.Errorf("expected refusal naming secrets.yml, got %v", err)
 		}
 		if p.unlocked {
 			t.Error("expected locked after refusing plaintext secrets file")
+		}
+	})
+
+	t.Run("LoadsSecretsYamlThatDecryptsSuccessfully", func(t *testing.T) {
+		// A secrets.yaml that IS genuinely SOPS-encrypted (misnamed relative to the
+		// secrets.enc.yaml convention) should still load, since content decides, not the name.
+		p := NewSopsProvider("/valid/config/path")
+		p.shims.Stat = func(name string) (os.FileInfo, error) {
+			if filepath.Base(name) == secretsFileNameYaml {
+				return nil, nil
+			}
+			return nil, os.ErrNotExist
+		}
+		p.shims.DecryptFile = func(_ string, _ string) ([]byte, error) {
+			return []byte("key: value\n"), nil
+		}
+
+		if err := p.LoadSecrets(); err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if !p.unlocked {
+			t.Error("expected unlocked after successful decrypt")
+		}
+		if p.secrets["key"] != "value" {
+			t.Errorf("key = %q, want %q", p.secrets["key"], "value")
 		}
 	})
 
