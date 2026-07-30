@@ -2536,6 +2536,62 @@ func TestHandler_processAndCompose(t *testing.T) {
 		}
 	})
 
+	t.Run("FacetDerivedConfigWinsOverRawContextValue", func(t *testing.T) {
+		// Given a raw context value (e.g. a schema default already reflected in config.yaml)
+		// for a key that a facet also derives
+		mocks := setupHandlerMocks(t)
+		mocks.ConfigHandler.GetContextValuesFunc = func() (map[string]any, error) {
+			return map[string]any{
+				"talos_common": map[string]any{"k8s_service_host": "raw-default"},
+			}, nil
+		}
+		handler := NewBlueprintHandler(mocks.Runtime, mocks.ArtifactBuilder)
+
+		templateBp := &blueprintv1alpha1.Blueprint{}
+		handler.sourceBlueprintLoaders["template"] = &mockLoaderImpl{
+			getBlueprintFunc:  func() *blueprintv1alpha1.Blueprint { return templateBp },
+			getSourceNameFunc: func() string { return "template" },
+			getFacetsFunc: func() []blueprintv1alpha1.Facet {
+				return []blueprintv1alpha1.Facet{
+					{
+						Metadata: blueprintv1alpha1.Metadata{Name: "override-facet"},
+						Config: []blueprintv1alpha1.ConfigBlock{
+							{
+								Name: "talos_common",
+								Body: map[string]any{"value": map[string]any{"k8s_service_host": "override-value"}},
+							},
+						},
+					},
+				}
+			},
+		}
+		trueVal := true
+		handler.userBlueprintLoader = &mockLoaderImpl{
+			getBlueprintFunc: func() *blueprintv1alpha1.Blueprint {
+				return &blueprintv1alpha1.Blueprint{
+					Sources: []blueprintv1alpha1.Source{
+						{Name: "template", Install: &blueprintv1alpha1.BoolExpression{Value: &trueVal, IsExpr: false}},
+					},
+				}
+			},
+			getSourceNameFunc: func() string { return "user" },
+		}
+
+		// When processing and composing
+		if err := handler.processAndCompose(); err != nil {
+			t.Fatalf("processAndCompose failed: %v", err)
+		}
+
+		// Then the composed scope reflects the facet-derived value, not the raw context default
+		talosCommon, ok := handler.composedScope["talos_common"].(map[string]any)
+		if !ok {
+			t.Fatal("Expected composed scope to contain 'talos_common'")
+		}
+		if host := talosCommon["k8s_service_host"]; host != "override-value" {
+			t.Errorf("Expected facet-derived 'override-value' to win over raw context default, got %q", host)
+		}
+	})
+
 	t.Run("CallsSetConfigScopeWhenProviderExists", func(t *testing.T) {
 		// Given a handler with terraform provider and loaders
 		mocks := setupHandlerMocks(t)
