@@ -222,6 +222,9 @@ windsor upgrade node --node=10.0.0.5 --image=ghcr.io/siderolabs/installer:v1.13.
 		if !cmd.Flags().Changed("offline-timeout") {
 			upgradeNodeOfflineTimeout = constants.DefaultNodeOfflineTimeout
 		}
+		if upgradeNodeTimeout > 0 && upgradeNodeOfflineTimeout > upgradeNodeTimeout {
+			return fmt.Errorf("--offline-timeout (%s) cannot exceed --timeout (%s)", upgradeNodeOfflineTimeout, upgradeNodeTimeout)
+		}
 
 		var rtOpts []*runtime.Runtime
 		if overridesVal := cmd.Context().Value(runtimeOverridesKey); overridesVal != nil {
