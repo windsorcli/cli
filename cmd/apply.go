@@ -151,8 +151,9 @@ windsor apply tf cluster`,
 }
 
 var applyKustomizeCmd = &cobra.Command{
-	Use:   "kustomize [name]",
-	Short: "Apply Flux kustomization(s) to the cluster.",
+	Use:     "kustomize [name]",
+	Aliases: []string{"k8s"},
+	Short:   "Apply Flux kustomization(s) to the cluster.",
 	Long: `Apply a single Flux kustomization to the cluster by name, or all kustomizations when no argument is given.
 
 When a name is supplied with --wait, the wait scope is narrowed to only that kustomization.`,
@@ -161,6 +162,9 @@ windsor apply kustomize
 
 # Apply just the dns kustomization
 windsor apply kustomize dns
+
+# Same, using the 'k8s' alias
+windsor apply k8s dns
 
 # Apply and wait for one kustomization to be ready
 windsor apply kustomize dns --wait`,

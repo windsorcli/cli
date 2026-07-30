@@ -27,6 +27,9 @@ windsor apply kustomize
 # Apply just the dns kustomization
 windsor apply kustomize dns
 
+# Same, using the 'k8s' alias
+windsor apply k8s dns
+
 # Apply and wait for one kustomization to be ready
 windsor apply kustomize dns --wait
 ```
