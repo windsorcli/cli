@@ -6,10 +6,12 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/spf13/cobra"
 	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
 	"github.com/windsorcli/cli/pkg/composer/blueprint"
+	"github.com/windsorcli/cli/pkg/constants"
 	"github.com/windsorcli/cli/pkg/provisioner/kubernetes"
 	"github.com/windsorcli/cli/pkg/runtime/config"
 )
@@ -771,6 +773,7 @@ func TestUpgradeNodeCmd(t *testing.T) {
 		upgradeNodeAddr = ""
 		upgradeNodeImage = ""
 		upgradeNodeTimeout = 0
+		upgradeNodeOfflineTimeout = 0
 	})
 
 	setup := func(t *testing.T) (*bytes.Buffer, *bytes.Buffer) {
@@ -778,6 +781,7 @@ func TestUpgradeNodeCmd(t *testing.T) {
 		upgradeNodeAddr = ""
 		upgradeNodeImage = ""
 		upgradeNodeTimeout = 0
+		upgradeNodeOfflineTimeout = 0
 
 		stdout, stderr := captureOutput(t)
 		rootCmd.SetOut(stdout)
@@ -874,6 +878,42 @@ func TestUpgradeNodeCmd(t *testing.T) {
 		}
 		if !strings.Contains(err.Error(), "node upgrade failed") {
 			t.Errorf("Expected node upgrade error, got: %v", err)
+		}
+	})
+
+	t.Run("DefaultsOfflineTimeoutWhenFlagNotSet", func(t *testing.T) {
+		setup(t)
+		mockConfigHandler := config.NewMockConfigHandler()
+		mockConfigHandler.LoadConfigFunc = func() error { return nil }
+		mockConfigHandler.IsLoadedFunc = func() bool { return true }
+		mocks := setupMocks(t, &SetupOptions{ConfigHandler: mockConfigHandler})
+
+		ctx := stdcontext.WithValue(stdcontext.Background(), runtimeOverridesKey, mocks.Runtime)
+		rootCmd.SetContext(ctx)
+		rootCmd.SetArgs([]string{"upgrade", "node", "--node", "10.0.0.1", "--image", "img"})
+
+		_ = Execute()
+
+		if upgradeNodeOfflineTimeout != constants.DefaultNodeOfflineTimeout {
+			t.Errorf("Expected default offline timeout %v, got %v", constants.DefaultNodeOfflineTimeout, upgradeNodeOfflineTimeout)
+		}
+	})
+
+	t.Run("UsesProvidedOfflineTimeout", func(t *testing.T) {
+		setup(t)
+		mockConfigHandler := config.NewMockConfigHandler()
+		mockConfigHandler.LoadConfigFunc = func() error { return nil }
+		mockConfigHandler.IsLoadedFunc = func() bool { return true }
+		mocks := setupMocks(t, &SetupOptions{ConfigHandler: mockConfigHandler})
+
+		ctx := stdcontext.WithValue(stdcontext.Background(), runtimeOverridesKey, mocks.Runtime)
+		rootCmd.SetContext(ctx)
+		rootCmd.SetArgs([]string{"upgrade", "node", "--node", "10.0.0.1", "--image", "img", "--offline-timeout", "8m"})
+
+		_ = Execute()
+
+		if upgradeNodeOfflineTimeout != 8*time.Minute {
+			t.Errorf("Expected offline timeout 8m, got %v", upgradeNodeOfflineTimeout)
 		}
 	})
 

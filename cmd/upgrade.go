@@ -25,9 +25,10 @@ var (
 	upgradeYes            bool
 	upgradeAllowDowngrade bool
 
-	upgradeNodeAddr    string
-	upgradeNodeImage   string
-	upgradeNodeTimeout time.Duration
+	upgradeNodeAddr           string
+	upgradeNodeImage          string
+	upgradeNodeTimeout        time.Duration
+	upgradeNodeOfflineTimeout time.Duration
 )
 
 var upgradeCmd = &cobra.Command{
@@ -203,8 +204,11 @@ var upgradeNodeCmd = &cobra.Command{
 	Example: `# Roll one node, blocking until it is healthy
 windsor upgrade node --node=10.0.0.5 --image=ghcr.io/siderolabs/installer:v1.13.0
 
-# Same with a longer timeout for slow rebooters
-windsor upgrade node --node=10.0.0.5 --image=ghcr.io/siderolabs/installer:v1.13.0 --timeout=20m`,
+# Same with a longer overall timeout for slow rebooters
+windsor upgrade node --node=10.0.0.5 --image=ghcr.io/siderolabs/installer:v1.13.0 --timeout=20m
+
+# Nested-virtualized platforms can take longer than 3m to go offline after the upgrade request
+windsor upgrade node --node=10.0.0.5 --image=ghcr.io/siderolabs/installer:v1.13.0 --offline-timeout=8m`,
 	Annotations: map[string]string{
 		"docs.seealso": "[`upgrade cluster`](upgrade-cluster.md)\n" +
 			"[`check node-health`](check-node-health.md)",
@@ -214,6 +218,9 @@ windsor upgrade node --node=10.0.0.5 --image=ghcr.io/siderolabs/installer:v1.13.
 	RunE: func(cmd *cobra.Command, args []string) error {
 		if !cmd.Flags().Changed("timeout") {
 			upgradeNodeTimeout = constants.DefaultNodeUpgradeTimeout
+		}
+		if !cmd.Flags().Changed("offline-timeout") {
+			upgradeNodeOfflineTimeout = constants.DefaultNodeOfflineTimeout
 		}
 
 		var rtOpts []*runtime.Runtime
@@ -249,7 +256,7 @@ windsor upgrade node --node=10.0.0.5 --image=ghcr.io/siderolabs/installer:v1.13.
 			fmt.Fprintln(cmd.OutOrStdout(), output)
 		}
 
-		if err := prov.UpgradeNode(ctx, upgradeNodeAddr, upgradeNodeImage, constants.DefaultNodeOfflineTimeout, outputFunc); err != nil {
+		if err := prov.UpgradeNode(ctx, upgradeNodeAddr, upgradeNodeImage, upgradeNodeOfflineTimeout, outputFunc); err != nil {
 			return fmt.Errorf("node upgrade failed: %w", err)
 		}
 
@@ -404,7 +411,8 @@ func init() {
 
 	upgradeNodeCmd.Flags().StringVar(&upgradeNodeAddr, "node", "", "Node IP address to upgrade. Required.")
 	upgradeNodeCmd.Flags().StringVar(&upgradeNodeImage, "image", "", "Talos image to upgrade to. Required.")
-	upgradeNodeCmd.Flags().DurationVar(&upgradeNodeTimeout, "timeout", 0, "Overall timeout. Default 10m.")
+	upgradeNodeCmd.Flags().DurationVar(&upgradeNodeTimeout, "timeout", 0, "Overall timeout for the whole upgrade, including the offline wait (see --offline-timeout). Default 10m.")
+	upgradeNodeCmd.Flags().DurationVar(&upgradeNodeOfflineTimeout, "offline-timeout", 0, "Timeout for the node to go offline after the upgrade request, before it's assumed rebooting. Raise this on slow-rebooting or nested-virtualized platforms. Default 3m.")
 	_ = upgradeNodeCmd.MarkFlagRequired("node")
 	_ = upgradeNodeCmd.MarkFlagRequired("image")
 }

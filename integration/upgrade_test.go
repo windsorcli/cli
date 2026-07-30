@@ -240,3 +240,19 @@ func TestUpgradeNode_FailsWhenConfigNotLoaded(t *testing.T) {
 		t.Errorf("expected stderr to mention 'upgrade', got: %s", stderr)
 	}
 }
+
+func TestUpgradeNode_AcceptsOfflineTimeoutFlag(t *testing.T) {
+	t.Parallel()
+	dir, env := helpers.PrepareFixture(t, "plan")
+	env = append(env, "WINDSOR_CONTEXT=nonexistent")
+	_, stderr, err := helpers.RunCLI(dir, []string{"upgrade", "node", "--node", "10.0.0.1", "--image", "ghcr.io/siderolabs/talos:v1.9.0", "--offline-timeout", "8m"}, env)
+	if err == nil {
+		t.Fatal("expected failure but command succeeded")
+	}
+	if strings.Contains(string(stderr), "unknown flag") {
+		t.Errorf("expected --offline-timeout to be a recognized flag, got: %s", stderr)
+	}
+	if !strings.Contains(string(stderr), "upgrade") {
+		t.Errorf("expected stderr to mention 'upgrade', got: %s", stderr)
+	}
+}
