@@ -27,6 +27,17 @@ permissions:
 # tool sandbox, so it can never be permission-denied or silently skipped
 # mid-run, and the summary is guaranteed to post even if the review step
 # errors, hits its turn cap, or finishes early without posting anything.
+#
+# Each claude-code-action step below has continue-on-error: true because its
+# bundled Agent SDK has a recurring, currently-unresolved crash (is_error:
+# true at $0 cost, before any API call) whenever the SDK's own schema drifts
+# from what the action assumes on a version bump — confirmed independent of
+# model choice and of claude_args (see anthropics/claude-code-action#914,
+# #965, #892, #1021). This does not suppress Publish review's own
+# exit-1-on-no-summary (intentional, see that step) — it only keeps the
+# action step itself from being flagged as a failure distinct from that.
+# Remove once upstream ships #1021 (SDK exposing its schema so the action
+# can sanitize settings before validation).
 jobs:
   review:
     name: Full Review
@@ -45,6 +56,7 @@ jobs:
       - name: Fetch base ref
         run: git fetch --depth=1 origin ${{ github.base_ref }}
       - uses: anthropics/claude-code-action@be7b93b1907a4abad570368f3c74b6fe3807510b # v1.0.183
+        continue-on-error: true
         env:
           PR_NUMBER: ${{ github.event.pull_request.number }}
           PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
@@ -145,6 +157,7 @@ jobs:
       - name: Fetch base ref
         run: git fetch --depth=1 origin ${{ inputs.base_ref }}
       - uses: anthropics/claude-code-action@be7b93b1907a4abad570368f3c74b6fe3807510b # v1.0.183
+        continue-on-error: true
         env:
           PR_NUMBER: ${{ inputs.pr_number }}
           PR_HEAD_SHA: ${{ inputs.head_sha }}
@@ -279,6 +292,7 @@ jobs:
           fetch-depth: 1
       - uses: anthropics/claude-code-action@be7b93b1907a4abad570368f3c74b6fe3807510b # v1.0.183
         if: steps.check.outputs.count != '0'
+        continue-on-error: true
         env:
           PR_NUMBER: ${{ github.event.pull_request.number }}
           GH_REPO: ${{ github.repository }}
