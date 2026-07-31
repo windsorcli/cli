@@ -28,12 +28,16 @@ permissions:
 # mid-run, and the summary is guaranteed to post even if the review step
 # errors, hits its turn cap, or finishes early without posting anything.
 #
-# claude_args is intentionally omitted from every job below as a mitigation
-# attempt for a currently-open Agent SDK crash in claude-code-action
-# (is_error: true at $0 cost, before any API call — see
-# anthropics/claude-code-action#914, #965, #892). Upstream hasn't confirmed
-# a root cause; dropping claude_args is one of the few config-side levers
-# available. Re-add scoped tool/model args once upstream ships a fix.
+# Each claude-code-action step below has continue-on-error: true because its
+# bundled Agent SDK has a recurring, currently-unresolved crash (is_error:
+# true at $0 cost, before any API call) whenever the SDK's own schema drifts
+# from what the action assumes on a version bump — confirmed independent of
+# model choice and of claude_args (see anthropics/claude-code-action#914,
+# #965, #892, #1021). This does not suppress Publish review's own
+# exit-1-on-no-summary (intentional, see that step) — it only keeps the
+# action step itself from being flagged as a failure distinct from that.
+# Remove once upstream ships #1021 (SDK exposing its schema so the action
+# can sanitize settings before validation).
 jobs:
   review:
     name: Full Review
@@ -52,6 +56,7 @@ jobs:
       - name: Fetch base ref
         run: git fetch --depth=1 origin ${{ github.base_ref }}
       - uses: anthropics/claude-code-action@be7b93b1907a4abad570368f3c74b6fe3807510b # v1.0.183
+        continue-on-error: true
         env:
           PR_NUMBER: ${{ github.event.pull_request.number }}
           PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
@@ -118,6 +123,11 @@ jobs:
 
             Write the two files and stop. Do not run `gh`, do not post, do not
             edit the PR.
+          claude_args: |
+            --model claude-sonnet-5
+            --max-turns 40
+            --allowedTools Read,Grep,Glob,Bash(git diff:*),Bash(git log:*),Write
+            --disallowedTools WebSearch,WebFetch
       - name: Publish review
         if: always()
         env:
@@ -147,6 +157,7 @@ jobs:
       - name: Fetch base ref
         run: git fetch --depth=1 origin ${{ inputs.base_ref }}
       - uses: anthropics/claude-code-action@be7b93b1907a4abad570368f3c74b6fe3807510b # v1.0.183
+        continue-on-error: true
         env:
           PR_NUMBER: ${{ inputs.pr_number }}
           PR_HEAD_SHA: ${{ inputs.head_sha }}
@@ -214,6 +225,11 @@ jobs:
 
             Write the two files and stop. Do not run `gh`, do not post, do not
             edit the PR.
+          claude_args: |
+            --model claude-sonnet-5
+            --max-turns 40
+            --allowedTools Read,Grep,Glob,Bash(git diff:*),Bash(git log:*),Write
+            --disallowedTools WebSearch,WebFetch
       - name: Publish review
         if: always()
         env:
@@ -276,6 +292,7 @@ jobs:
           fetch-depth: 1
       - uses: anthropics/claude-code-action@be7b93b1907a4abad570368f3c74b6fe3807510b # v1.0.183
         if: steps.check.outputs.count != '0'
+        continue-on-error: true
         env:
           PR_NUMBER: ${{ github.event.pull_request.number }}
           GH_REPO: ${{ github.repository }}
@@ -318,3 +335,8 @@ jobs:
 
             That is all. Do not post new comments. Do not modify the PR
             description. Be fast.
+          claude_args: |
+            --model claude-sonnet-5
+            --max-turns 40
+            --allowedTools Read,Bash(gh:*),Bash(cat:*),Bash(jq:*)
+            --disallowedTools WebSearch,WebFetch
