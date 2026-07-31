@@ -1508,6 +1508,9 @@ func (p *BaseBlueprintProcessor) collectFluxSystems(facet blueprintv1alpha1.Face
 // before RemoveFluxSystem ever runs — RemoveFluxSystem's field-level subtraction only has
 // something to act on when the target blueprint already has a matching entry (e.g. declared
 // directly in blueprint.yaml) independent of this collection pass.
+// A lower ordinal isn't always discarded outright: "merge" still combines additively via
+// applyFluxSystemEntryByStrategy, passing the higher-ordinal entry as that function's
+// scalar-conflict-winning "new" argument; "replace"/"remove" still require ordinal precedence.
 func (p *BaseBlueprintProcessor) updateFluxSystemEntry(name string, new *blueprintv1alpha1.FluxSystem, strategy string, entries map[string]*blueprintv1alpha1.FluxSystem) error {
 	existing := entries[name]
 	existingStrategy := existing.Strategy
@@ -1532,7 +1535,10 @@ func (p *BaseBlueprintProcessor) updateFluxSystemEntry(name string, new *bluepri
 		return p.applyFluxSystemEntryByStrategy(name, new, strategy, existing, entries)
 	}
 	if newOrdinal < existingOrdinal {
-		return nil
+		if strategy != "merge" || existingStrategy == "remove" {
+			return nil
+		}
+		return p.applyFluxSystemEntryByStrategy(name, existing, "merge", new, entries)
 	}
 
 	existingStrategyPrec := strategyPrecedence[existingStrategy]
@@ -1677,15 +1683,13 @@ func (p *BaseBlueprintProcessor) shouldIncludeComponent(when string, facetPath s
 	return matches, nil
 }
 
-// updateTerraformComponentEntry updates or merges a single ConditionalTerraformComponent entry in the component
-// collection based on ordinal, strategy, and conditional 'when' expressions. Higher ordinal wins; when ordinals are
-// equal, strategy precedence is used ('remove' > 'replace' > 'merge'), then merge behavior for equal ordinal and strategy. The function also rigorously re-evaluates 'when' conditions for
-// both the new and existing entries, removing entries from the collection if any relevant condition now resolves to false.
-// When the strategy is 'merge', it performs a strategic pre-merge and logically ANDs 'when' conditions. For 'remove',
-// component removals are accumulated; for 'replace', the new definition overwrites the existing one. Only valid strategies are allowed; otherwise, an error is returned, as is the case for merge
-// failures. This function is critical to the blueprint processor’s ability to aggregate, override, conditionally include
-// or exclude, and deconflict terraform components efficiently, making it safe to combine blueprint facets or overrides
-// without unintended duplication or omission. Returns an error if strategies are invalid or pre-merge fails.
+// updateTerraformComponentEntry merges a new component into an existing entry based on ordinal,
+// strategy, and 'when' conditions: higher ordinal wins outright for 'replace'/'remove', equal
+// ordinal falls back to strategy precedence ('remove' > 'replace' > 'merge'), and 'when' conditions
+// that now resolve false drop the entry. A lower ordinal isn't always discarded outright: 'merge'
+// still combines additively via applyTerraformComponentEntryByStrategy, passing the higher-ordinal
+// entry as that function's scalar-conflict-winning "new" argument (see updateFluxSystemEntry,
+// which shares this shape); 'replace'/'remove' still require ordinal precedence to take effect.
 func (p *BaseBlueprintProcessor) updateTerraformComponentEntry(
 	componentID string,
 	new *blueprintv1alpha1.ConditionalTerraformComponent,
@@ -1743,7 +1747,10 @@ func (p *BaseBlueprintProcessor) updateTerraformComponentEntry(
 	}
 
 	if newOrdinal < existingOrdinal {
-		return nil
+		if strategy != "merge" || existingStrategy == "remove" {
+			return nil
+		}
+		return p.applyTerraformComponentEntryByStrategy(componentID, existing, new, "merge", entries)
 	}
 	existingStrategyPrec := strategyPrecedence[existingStrategy]
 	if newStrategyPrec > existingStrategyPrec {
@@ -1820,6 +1827,10 @@ func (p *BaseBlueprintProcessor) applyTerraformComponentEntryByStrategy(
 // equal, strategy precedence is used (remove > replace > merge). If both ordinal and strategy are
 // equal, kustomizations are pre-merged (merge), removals are accumulated (remove), or new replaces
 // existing (replace). Returns an error if the merge operation fails.
+// A lower ordinal isn't always discarded outright: "merge" still combines additively via
+// applyKustomizationEntryByStrategy, passing the higher-ordinal entry as that function's
+// scalar-conflict-winning "new" argument (see updateFluxSystemEntry, which shares this shape);
+// "replace"/"remove" still require ordinal precedence.
 func (p *BaseBlueprintProcessor) updateKustomizationEntry(name string, new *blueprintv1alpha1.ConditionalKustomization, strategy string, entries map[string]*blueprintv1alpha1.ConditionalKustomization, scope map[string]any) error {
 	existing := entries[name]
 	existingStrategy := existing.Strategy
@@ -1866,7 +1877,10 @@ func (p *BaseBlueprintProcessor) updateKustomizationEntry(name string, new *blue
 	}
 
 	if newOrdinal < existingOrdinal {
-		return nil
+		if strategy != "merge" || existingStrategy == "remove" {
+			return nil
+		}
+		return p.applyKustomizationEntryByStrategy(name, existing, "merge", new, entries)
 	}
 	existingStrategyPrec := strategyPrecedence[existingStrategy]
 	if newStrategyPrec > existingStrategyPrec {

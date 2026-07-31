@@ -6,6 +6,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
 	"github.com/windsorcli/cli/pkg/runtime"
@@ -32,6 +33,13 @@ func ordinalOfK(c *blueprintv1alpha1.ConditionalKustomization) int {
 		return 0
 	}
 	return *c.Ordinal
+}
+
+func ordinalOfFS(s *blueprintv1alpha1.FluxSystem) int {
+	if s == nil || s.Ordinal == nil {
+		return 0
+	}
+	return *s.Ordinal
 }
 
 type ProcessorTestMocks struct {
@@ -3881,6 +3889,75 @@ func TestProcessor_updateTerraformComponentEntry(t *testing.T) {
 		}
 	})
 
+	t.Run("MergesAdditivelyWhenNewHasLowerOrdinal", func(t *testing.T) {
+		// Given existing entry with merge strategy, ordinal 100, a dependency, and a scalar
+		// field set
+		parallelism := 10
+		entries := map[string]*blueprintv1alpha1.ConditionalTerraformComponent{
+			"vpc": {
+				Strategy: "merge",
+				Ordinal:  intPtr(100),
+				TerraformComponent: blueprintv1alpha1.TerraformComponent{
+					Path:        "vpc",
+					DependsOn:   []string{"base"},
+					Parallelism: &blueprintv1alpha1.IntExpression{Value: &parallelism},
+				},
+			},
+		}
+
+		// When a lower-ordinal facet contributes a merge with an additional dependency and no
+		// conflicting parallelism
+		new := &blueprintv1alpha1.ConditionalTerraformComponent{
+			Ordinal: intPtr(50),
+			TerraformComponent: blueprintv1alpha1.TerraformComponent{
+				Path:      "vpc",
+				DependsOn: []string{"extra"},
+			},
+		}
+		err := processor.updateTerraformComponentEntry("vpc", new, "merge", entries, nil)
+
+		// Then the higher ordinal is preserved, its scalar field is untouched, and the lower
+		// ordinal's dependency is additively folded in rather than dropped
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		if ordinalOf(entries["vpc"]) != 100 {
+			t.Errorf("Expected higher ordinal 100 to be preserved, got %d", ordinalOf(entries["vpc"]))
+		}
+		if entries["vpc"].Parallelism == nil || *entries["vpc"].Parallelism.Value != 10 {
+			t.Errorf("Expected higher-ordinal parallelism to be preserved, got %v", entries["vpc"].Parallelism)
+		}
+		if !slices.Contains(entries["vpc"].DependsOn, "base") || !slices.Contains(entries["vpc"].DependsOn, "extra") {
+			t.Errorf("Expected both dependencies to accumulate, got %v", entries["vpc"].DependsOn)
+		}
+	})
+
+	t.Run("IgnoresLowerOrdinalMergeWhenExistingIsRemoveTombstone", func(t *testing.T) {
+		// Given a higher-ordinal facet already removed this entry
+		entries := map[string]*blueprintv1alpha1.ConditionalTerraformComponent{
+			"vpc": {
+				Strategy:           "remove",
+				Ordinal:            intPtr(100),
+				TerraformComponent: blueprintv1alpha1.TerraformComponent{Path: "vpc"},
+			},
+		}
+
+		// When a lower-ordinal facet attempts to merge
+		new := &blueprintv1alpha1.ConditionalTerraformComponent{
+			Ordinal:            intPtr(50),
+			TerraformComponent: blueprintv1alpha1.TerraformComponent{Path: "vpc", DependsOn: []string{"extra"}},
+		}
+		err := processor.updateTerraformComponentEntry("vpc", new, "merge", entries, nil)
+
+		// Then the remove tombstone is not resurrected
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		if entries["vpc"].Strategy != "remove" {
+			t.Errorf("Expected remove tombstone to be preserved, got strategy %q", entries["vpc"].Strategy)
+		}
+	})
+
 	t.Run("UsesStrategyPrecedenceWhenOrdinalsEqual", func(t *testing.T) {
 		// Given existing entry with merge strategy and ordinal 50
 		entries := map[string]*blueprintv1alpha1.ConditionalTerraformComponent{
@@ -4226,6 +4303,74 @@ func TestProcessor_updateKustomizationEntry(t *testing.T) {
 		}
 	})
 
+	t.Run("MergesAdditivelyWhenNewHasLowerOrdinal", func(t *testing.T) {
+		// Given existing entry with merge strategy, ordinal 100, an existing component, and
+		// a scalar field set
+		entries := map[string]*blueprintv1alpha1.ConditionalKustomization{
+			"app": {
+				Strategy: "merge",
+				Ordinal:  intPtr(100),
+				Kustomization: blueprintv1alpha1.Kustomization{
+					Name:       "app",
+					Path:       "existing-path",
+					Components: []string{"base"},
+				},
+			},
+		}
+
+		// When a lower-ordinal facet contributes a merge with an additional component and no
+		// conflicting path
+		new := &blueprintv1alpha1.ConditionalKustomization{
+			Ordinal: intPtr(50),
+			Kustomization: blueprintv1alpha1.Kustomization{
+				Name:       "app",
+				Components: []string{"extra"},
+			},
+		}
+		err := processor.updateKustomizationEntry("app", new, "merge", entries, nil)
+
+		// Then the higher ordinal is preserved, its scalar field is untouched, and the lower
+		// ordinal's component is additively folded in rather than dropped
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		if ordinalOfK(entries["app"]) != 100 {
+			t.Errorf("Expected higher ordinal 100 to be preserved, got %d", ordinalOfK(entries["app"]))
+		}
+		if entries["app"].Path != "existing-path" {
+			t.Errorf("Expected higher-ordinal path to be preserved, got %q", entries["app"].Path)
+		}
+		if !slices.Contains(entries["app"].Components, "base") || !slices.Contains(entries["app"].Components, "extra") {
+			t.Errorf("Expected both components to accumulate, got %v", entries["app"].Components)
+		}
+	})
+
+	t.Run("IgnoresLowerOrdinalMergeWhenExistingIsRemoveTombstone", func(t *testing.T) {
+		// Given a higher-ordinal facet already removed this entry
+		entries := map[string]*blueprintv1alpha1.ConditionalKustomization{
+			"app": {
+				Strategy:      "remove",
+				Ordinal:       intPtr(100),
+				Kustomization: blueprintv1alpha1.Kustomization{Name: "app"},
+			},
+		}
+
+		// When a lower-ordinal facet attempts to merge
+		new := &blueprintv1alpha1.ConditionalKustomization{
+			Ordinal:       intPtr(50),
+			Kustomization: blueprintv1alpha1.Kustomization{Name: "app", Components: []string{"extra"}},
+		}
+		err := processor.updateKustomizationEntry("app", new, "merge", entries, nil)
+
+		// Then the remove tombstone is not resurrected
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		if entries["app"].Strategy != "remove" {
+			t.Errorf("Expected remove tombstone to be preserved, got strategy %q", entries["app"].Strategy)
+		}
+	})
+
 	t.Run("UsesStrategyPrecedenceWhenOrdinalsEqual", func(t *testing.T) {
 		// Given existing entry with merge strategy and ordinal 50
 		entries := map[string]*blueprintv1alpha1.ConditionalKustomization{
@@ -4331,6 +4476,178 @@ func TestProcessor_updateKustomizationEntry(t *testing.T) {
 		}
 		if entries["app"].Substitutions["key1"] != "value1" {
 			t.Error("Expected original entry to remain unchanged when invalid strategy is rejected")
+		}
+	})
+}
+
+func TestProcessor_updateFluxSystemEntry(t *testing.T) {
+	mocks := setupProcessorMocks(t)
+	processor := NewBlueprintProcessor(mocks.Runtime)
+
+	t.Run("ReplacesWhenNewHasHigherOrdinal", func(t *testing.T) {
+		// Given existing entry at ordinal 100
+		entries := map[string]*blueprintv1alpha1.FluxSystem{
+			"cni": {
+				Name:    "cni",
+				Ordinal: intPtr(100),
+				Install: &blueprintv1alpha1.Kustomization{Components: []string{"a"}},
+			},
+		}
+
+		// When a higher-ordinal merge contribution arrives
+		new := &blueprintv1alpha1.FluxSystem{
+			Name:    "cni",
+			Ordinal: intPtr(200),
+			Install: &blueprintv1alpha1.Kustomization{Components: []string{"b"}},
+		}
+		err := processor.updateFluxSystemEntry("cni", new, "merge", entries)
+
+		// Then components accumulate and the higher ordinal is recorded
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		if ordinalOfFS(entries["cni"]) != 200 {
+			t.Errorf("Expected ordinal 200, got %d", ordinalOfFS(entries["cni"]))
+		}
+		if !slices.Contains(entries["cni"].Install.Components, "a") || !slices.Contains(entries["cni"].Install.Components, "b") {
+			t.Errorf("Expected both components to accumulate, got %v", entries["cni"].Install.Components)
+		}
+	})
+
+	t.Run("MergesAdditivelyWhenNewHasLowerOrdinal", func(t *testing.T) {
+		// Given existing entry at ordinal 200 with an install component and a scalar field set
+		existingTimeout := &blueprintv1alpha1.DurationString{Duration: 5 * time.Minute}
+		entries := map[string]*blueprintv1alpha1.FluxSystem{
+			"cni": {
+				Name:    "cni",
+				Ordinal: intPtr(200),
+				Install: &blueprintv1alpha1.Kustomization{
+					Components: []string{"cilium"},
+					Timeout:    existingTimeout,
+				},
+			},
+		}
+
+		// When a lower-ordinal facet contributes a merge with a patch and no conflicting timeout
+		new := &blueprintv1alpha1.FluxSystem{
+			Name:    "cni",
+			Ordinal: intPtr(100),
+			Install: &blueprintv1alpha1.Kustomization{
+				Patches: []blueprintv1alpha1.BlueprintPatch{{Patch: "lower-ordinal-patch"}},
+			},
+		}
+		err := processor.updateFluxSystemEntry("cni", new, "merge", entries)
+
+		// Then the higher ordinal is preserved, its scalar field is untouched, and the lower
+		// ordinal's patch is additively folded in rather than dropped
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		if ordinalOfFS(entries["cni"]) != 200 {
+			t.Errorf("Expected higher ordinal 200 to be preserved, got %d", ordinalOfFS(entries["cni"]))
+		}
+		if entries["cni"].Install.Timeout != existingTimeout {
+			t.Errorf("Expected higher-ordinal timeout to be preserved, got %v", entries["cni"].Install.Timeout)
+		}
+		if !slices.Contains(entries["cni"].Install.Components, "cilium") {
+			t.Errorf("Expected higher-ordinal component to be preserved, got %v", entries["cni"].Install.Components)
+		}
+		if len(entries["cni"].Install.Patches) != 1 || entries["cni"].Install.Patches[0].Patch != "lower-ordinal-patch" {
+			t.Errorf("Expected lower-ordinal patch to be folded in, got %v", entries["cni"].Install.Patches)
+		}
+	})
+
+	t.Run("IgnoresReplaceWhenNewHasLowerOrdinal", func(t *testing.T) {
+		// Given existing entry at ordinal 200
+		entries := map[string]*blueprintv1alpha1.FluxSystem{
+			"cni": {
+				Name:    "cni",
+				Ordinal: intPtr(200),
+				Install: &blueprintv1alpha1.Kustomization{Components: []string{"cilium"}},
+			},
+		}
+
+		// When a lower-ordinal facet attempts to replace
+		new := &blueprintv1alpha1.FluxSystem{
+			Name:    "cni",
+			Ordinal: intPtr(100),
+			Install: &blueprintv1alpha1.Kustomization{Components: []string{"other"}},
+		}
+		err := processor.updateFluxSystemEntry("cni", new, "replace", entries)
+
+		// Then the higher-ordinal entry is untouched — a lower-precedence facet cannot forcibly
+		// overwrite a higher-precedence one, unlike a "merge" contribution
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		if len(entries["cni"].Install.Components) != 1 || entries["cni"].Install.Components[0] != "cilium" {
+			t.Errorf("Expected entry to remain unchanged, got %v", entries["cni"].Install.Components)
+		}
+	})
+
+	t.Run("IgnoresLowerOrdinalMergeWhenExistingIsRemoveTombstone", func(t *testing.T) {
+		// Given a higher-ordinal facet already removed this system
+		entries := map[string]*blueprintv1alpha1.FluxSystem{
+			"cni": {
+				Name:     "cni",
+				Ordinal:  intPtr(200),
+				Strategy: "remove",
+			},
+		}
+
+		// When a lower-ordinal facet attempts to merge
+		new := &blueprintv1alpha1.FluxSystem{
+			Name:    "cni",
+			Ordinal: intPtr(100),
+			Install: &blueprintv1alpha1.Kustomization{Components: []string{"cilium"}},
+		}
+		err := processor.updateFluxSystemEntry("cni", new, "merge", entries)
+
+		// Then the remove tombstone is not resurrected
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		if entries["cni"].Strategy != "remove" {
+			t.Errorf("Expected remove tombstone to be preserved, got strategy %q", entries["cni"].Strategy)
+		}
+	})
+
+	t.Run("UsesStrategyPrecedenceWhenOrdinalsEqual", func(t *testing.T) {
+		// Given existing entry with merge strategy and ordinal 50
+		entries := map[string]*blueprintv1alpha1.FluxSystem{
+			"cni": {
+				Name:    "cni",
+				Ordinal: intPtr(50),
+				Install: &blueprintv1alpha1.Kustomization{Components: []string{"cilium"}},
+			},
+		}
+
+		// When updating with replace strategy at the same ordinal
+		new := &blueprintv1alpha1.FluxSystem{
+			Name:    "cni",
+			Ordinal: intPtr(50),
+			Install: &blueprintv1alpha1.Kustomization{Components: []string{"other"}},
+		}
+		err := processor.updateFluxSystemEntry("cni", new, "replace", entries)
+
+		// Then replace wins over merge at equal ordinal via strategy precedence
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		if entries["cni"].Strategy != "replace" {
+			t.Errorf("Expected strategy 'replace', got %q", entries["cni"].Strategy)
+		}
+	})
+
+	t.Run("ReturnsErrorForInvalidStrategy", func(t *testing.T) {
+		entries := map[string]*blueprintv1alpha1.FluxSystem{
+			"cni": {Name: "cni", Ordinal: intPtr(100)},
+		}
+		new := &blueprintv1alpha1.FluxSystem{Name: "cni", Ordinal: intPtr(200)}
+		err := processor.updateFluxSystemEntry("cni", new, "typo", entries)
+
+		if err == nil || !strings.Contains(err.Error(), "invalid strategy") {
+			t.Errorf("Expected invalid strategy error, got: %v", err)
 		}
 	})
 }
