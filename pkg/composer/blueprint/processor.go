@@ -1508,6 +1508,14 @@ func (p *BaseBlueprintProcessor) collectFluxSystems(facet blueprintv1alpha1.Face
 // before RemoveFluxSystem ever runs — RemoveFluxSystem's field-level subtraction only has
 // something to act on when the target blueprint already has a matching entry (e.g. declared
 // directly in blueprint.yaml) independent of this collection pass.
+// A lower ordinal is not always discarded outright: "replace"/"remove" still require ordinal (or
+// strategy) precedence to take effect at all — a lower-precedence facet cannot forcibly overwrite
+// or delete a higher-precedence one — but a lower-ordinal "merge" still combines additively.
+// applyFluxSystemEntryByStrategy's merge case always treats its "new" argument as the
+// scalar-conflict-winning overlay, so that call passes the higher-ordinal existing entry as "new"
+// and the lower-ordinal contribution as "existing": the higher ordinal keeps winning scalar
+// conflicts and keeps the entry's recorded Ordinal, while list fields (Components, DependsOn,
+// Patches, Resources variants) still fold in from both sides.
 func (p *BaseBlueprintProcessor) updateFluxSystemEntry(name string, new *blueprintv1alpha1.FluxSystem, strategy string, entries map[string]*blueprintv1alpha1.FluxSystem) error {
 	existing := entries[name]
 	existingStrategy := existing.Strategy
@@ -1532,7 +1540,10 @@ func (p *BaseBlueprintProcessor) updateFluxSystemEntry(name string, new *bluepri
 		return p.applyFluxSystemEntryByStrategy(name, new, strategy, existing, entries)
 	}
 	if newOrdinal < existingOrdinal {
-		return nil
+		if strategy != "merge" || existingStrategy == "remove" {
+			return nil
+		}
+		return p.applyFluxSystemEntryByStrategy(name, existing, "merge", new, entries)
 	}
 
 	existingStrategyPrec := strategyPrecedence[existingStrategy]
