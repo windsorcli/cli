@@ -1049,3 +1049,36 @@ func TestUpgradeNodeCmd(t *testing.T) {
 	})
 
 }
+
+func TestUpgradeClusterCmd_RejectsInvalidRebootModeBeforeConfig(t *testing.T) {
+	t.Cleanup(func() {
+		rootCmd.SetContext(stdcontext.Background())
+		upgradeNodes = []string{}
+		upgradeImage = ""
+		upgradeRebootMode = ""
+	})
+
+	mockConfigHandler := config.NewMockConfigHandler()
+	loadConfigCalled := false
+	mockConfigHandler.LoadConfigFunc = func() error {
+		loadConfigCalled = true
+		return nil
+	}
+	mocks := setupMocks(t, &SetupOptions{ConfigHandler: mockConfigHandler})
+
+	ctx := stdcontext.WithValue(stdcontext.Background(), runtimeOverridesKey, mocks.Runtime)
+	rootCmd.SetContext(ctx)
+	rootCmd.SetArgs([]string{"upgrade", "cluster", "--nodes", "10.0.0.1", "--image", "img", "--reboot-mode", "reboot-now-please"})
+
+	err := Execute()
+
+	if err == nil {
+		t.Fatal("Expected error for invalid --reboot-mode, got nil")
+	}
+	if !strings.Contains(err.Error(), "invalid --reboot-mode") {
+		t.Errorf("Expected invalid reboot-mode error, got: %v", err)
+	}
+	if loadConfigCalled {
+		t.Error("Expected guard to fail before LoadConfig is reachable, matching upgrade node's ordering")
+	}
+}

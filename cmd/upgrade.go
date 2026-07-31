@@ -167,6 +167,11 @@ windsor upgrade cluster \
 	},
 	SilenceUsage: true,
 	RunE: func(cmd *cobra.Command, args []string) error {
+		powercycle, err := parseRebootMode(upgradeRebootMode)
+		if err != nil {
+			return err
+		}
+
 		var rtOpts []*runtime.Runtime
 		if overridesVal := cmd.Context().Value(runtimeOverridesKey); overridesVal != nil {
 			rtOpts = []*runtime.Runtime{overridesVal.(*runtime.Runtime)}
@@ -184,11 +189,6 @@ windsor upgrade cluster \
 
 		if !rt.ConfigHandler.IsLoaded() {
 			return fmt.Errorf("Nothing to upgrade. Have you run \033[1mwindsor init\033[0m?")
-		}
-
-		powercycle, err := parseRebootMode(upgradeRebootMode)
-		if err != nil {
-			return err
 		}
 
 		comp := composer.NewComposer(rt)
