@@ -194,6 +194,34 @@ func TestUpgradeCluster_FailsWhenConfigNotLoaded(t *testing.T) {
 	}
 }
 
+func TestUpgradeCluster_AcceptsRebootModeFlag(t *testing.T) {
+	t.Parallel()
+	dir, env := helpers.PrepareFixture(t, "plan")
+	env = append(env, "WINDSOR_CONTEXT=nonexistent")
+	_, stderr, err := helpers.RunCLI(dir, []string{"upgrade", "cluster", "--nodes", "10.0.0.1", "--image", "ghcr.io/siderolabs/talos:v1.9.0", "--reboot-mode", "powercycle"}, env)
+	if err == nil {
+		t.Fatal("expected failure but command succeeded")
+	}
+	if strings.Contains(string(stderr), "unknown flag") {
+		t.Errorf("expected --reboot-mode to be a recognized flag, got: %s", stderr)
+	}
+	if !strings.Contains(string(stderr), "upgrade") {
+		t.Errorf("expected stderr to mention 'upgrade', got: %s", stderr)
+	}
+}
+
+func TestUpgradeCluster_RejectsInvalidRebootMode(t *testing.T) {
+	t.Parallel()
+	dir, env := helpers.PrepareFixture(t, "plan")
+	_, stderr, err := helpers.RunCLI(dir, []string{"upgrade", "cluster", "--nodes", "10.0.0.1", "--image", "ghcr.io/siderolabs/talos:v1.9.0", "--reboot-mode", "reboot-now-please"}, env)
+	if err == nil {
+		t.Fatal("expected failure for invalid --reboot-mode, got success")
+	}
+	if !strings.Contains(string(stderr), "invalid --reboot-mode") {
+		t.Errorf("expected stderr to mention 'invalid --reboot-mode', got: %s", stderr)
+	}
+}
+
 // =============================================================================
 // Integration Tests — upgrade node
 // =============================================================================
@@ -254,5 +282,33 @@ func TestUpgradeNode_AcceptsOfflineTimeoutFlag(t *testing.T) {
 	}
 	if !strings.Contains(string(stderr), "upgrade") {
 		t.Errorf("expected stderr to mention 'upgrade', got: %s", stderr)
+	}
+}
+
+func TestUpgradeNode_AcceptsRebootModeFlag(t *testing.T) {
+	t.Parallel()
+	dir, env := helpers.PrepareFixture(t, "plan")
+	env = append(env, "WINDSOR_CONTEXT=nonexistent")
+	_, stderr, err := helpers.RunCLI(dir, []string{"upgrade", "node", "--node", "10.0.0.1", "--image", "ghcr.io/siderolabs/talos:v1.9.0", "--reboot-mode", "powercycle"}, env)
+	if err == nil {
+		t.Fatal("expected failure but command succeeded")
+	}
+	if strings.Contains(string(stderr), "unknown flag") {
+		t.Errorf("expected --reboot-mode to be a recognized flag, got: %s", stderr)
+	}
+	if !strings.Contains(string(stderr), "upgrade") {
+		t.Errorf("expected stderr to mention 'upgrade', got: %s", stderr)
+	}
+}
+
+func TestUpgradeNode_RejectsInvalidRebootMode(t *testing.T) {
+	t.Parallel()
+	dir, env := helpers.PrepareFixture(t, "plan")
+	_, stderr, err := helpers.RunCLI(dir, []string{"upgrade", "node", "--node", "10.0.0.1", "--image", "ghcr.io/siderolabs/talos:v1.9.0", "--reboot-mode", "reboot-now-please"}, env)
+	if err == nil {
+		t.Fatal("expected failure for invalid --reboot-mode, got success")
+	}
+	if !strings.Contains(string(stderr), "invalid --reboot-mode") {
+		t.Errorf("expected stderr to mention 'invalid --reboot-mode', got: %s", stderr)
 	}
 }
