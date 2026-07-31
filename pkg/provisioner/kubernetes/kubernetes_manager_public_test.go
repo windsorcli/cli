@@ -1,6 +1,8 @@
 package kubernetes
 
 import (
+	"encoding/base64"
+	"encoding/json"
 	"fmt"
 	"strings"
 	"testing"
@@ -5791,6 +5793,198 @@ func TestBaseKubernetesManager_ApplySecret(t *testing.T) {
 		// When applying a secret with no name, it fails validation
 		if err := manager.ApplySecret("", "system-dns", map[string]string{"k": "v"}, "dns-install"); err == nil {
 			t.Error("Expected error for empty name")
+		}
+	})
+
+	t.Run("SynthesizesDockerConfigJSONFromDockerCredentials", func(t *testing.T) {
+		// Given a manager and a client that records the applied object
+		manager := setup(t)
+		var applied *unstructured.Unstructured
+		kubernetesClient := client.NewMockKubernetesClient()
+		kubernetesClient.ApplyResourceFunc = func(gvr schema.GroupVersionResource, obj *unstructured.Unstructured, opts metav1.ApplyOptions) (*unstructured.Unstructured, error) {
+			applied = obj
+			return obj, nil
+		}
+		kubernetesClient.GetResourceFunc = func(gvr schema.GroupVersionResource, ns, name string) (*unstructured.Unstructured, error) {
+			return nil, fmt.Errorf("not found")
+		}
+		manager.client = kubernetesClient
+
+		// When applying a secret with docker-username/docker-password/docker-server
+		err := manager.ApplySecret("ghcr-credentials", "pme", map[string]string{
+			"docker-username": "octocat",
+			"docker-password": "hunter2",
+			"docker-server":   "ghcr.io",
+		}, "addon-pme")
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+
+		// Then the Secret is typed kubernetes.io/dockerconfigjson
+		if applied.Object["type"] != "kubernetes.io/dockerconfigjson" {
+			t.Errorf("Expected type kubernetes.io/dockerconfigjson, got %v", applied.Object["type"])
+		}
+
+		// And the docker-* keys are dropped, replaced by a synthesized .dockerconfigjson
+		stringData, _ := applied.Object["stringData"].(map[string]string)
+		if _, exists := stringData["docker-username"]; exists {
+			t.Error("Expected docker-username to be dropped")
+		}
+		if _, exists := stringData["docker-password"]; exists {
+			t.Error("Expected docker-password to be dropped")
+		}
+		if _, exists := stringData["docker-server"]; exists {
+			t.Error("Expected docker-server to be dropped")
+		}
+
+		var decoded struct {
+			Auths map[string]struct {
+				Username string `json:"username"`
+				Password string `json:"password"`
+				Auth     string `json:"auth"`
+			} `json:"auths"`
+		}
+		if err := json.Unmarshal([]byte(stringData[".dockerconfigjson"]), &decoded); err != nil {
+			t.Fatalf("Expected valid .dockerconfigjson, got error: %v", err)
+		}
+		entry, ok := decoded.Auths["ghcr.io"]
+		if !ok {
+			t.Fatalf("Expected auths entry for ghcr.io, got %v", decoded.Auths)
+		}
+		if entry.Username != "octocat" || entry.Password != "hunter2" {
+			t.Errorf("Expected username=octocat password=hunter2, got %+v", entry)
+		}
+		wantAuth := base64.StdEncoding.EncodeToString([]byte("octocat:hunter2"))
+		if entry.Auth != wantAuth {
+			t.Errorf("Expected auth=%q, got %q", wantAuth, entry.Auth)
+		}
+	})
+
+	t.Run("SynthesizesDockerConfigJSONWithDefaultServer", func(t *testing.T) {
+		// Given a manager and a client that records the applied object
+		manager := setup(t)
+		var applied *unstructured.Unstructured
+		kubernetesClient := client.NewMockKubernetesClient()
+		kubernetesClient.ApplyResourceFunc = func(gvr schema.GroupVersionResource, obj *unstructured.Unstructured, opts metav1.ApplyOptions) (*unstructured.Unstructured, error) {
+			applied = obj
+			return obj, nil
+		}
+		kubernetesClient.GetResourceFunc = func(gvr schema.GroupVersionResource, ns, name string) (*unstructured.Unstructured, error) {
+			return nil, fmt.Errorf("not found")
+		}
+		manager.client = kubernetesClient
+
+		// When applying a secret with docker-username/docker-password but no docker-server
+		err := manager.ApplySecret("ghcr-credentials", "pme", map[string]string{
+			"docker-username": "octocat",
+			"docker-password": "hunter2",
+		}, "addon-pme")
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+
+		// Then the synthesized config defaults to ghcr.io
+		stringData, _ := applied.Object["stringData"].(map[string]string)
+		var decoded struct {
+			Auths map[string]any `json:"auths"`
+		}
+		if err := json.Unmarshal([]byte(stringData[".dockerconfigjson"]), &decoded); err != nil {
+			t.Fatalf("Expected valid .dockerconfigjson, got error: %v", err)
+		}
+		if _, ok := decoded.Auths["ghcr.io"]; !ok {
+			t.Errorf("Expected default server ghcr.io, got %v", decoded.Auths)
+		}
+	})
+
+	t.Run("PassesThroughExistingDockerConfigJSON", func(t *testing.T) {
+		// Given a manager and a client that records the applied object
+		manager := setup(t)
+		var applied *unstructured.Unstructured
+		kubernetesClient := client.NewMockKubernetesClient()
+		kubernetesClient.ApplyResourceFunc = func(gvr schema.GroupVersionResource, obj *unstructured.Unstructured, opts metav1.ApplyOptions) (*unstructured.Unstructured, error) {
+			applied = obj
+			return obj, nil
+		}
+		kubernetesClient.GetResourceFunc = func(gvr schema.GroupVersionResource, ns, name string) (*unstructured.Unstructured, error) {
+			return nil, fmt.Errorf("not found")
+		}
+		manager.client = kubernetesClient
+
+		// When applying a secret that already carries a .dockerconfigjson
+		preEncoded := `{"auths":{"ghcr.io":{"username":"u","password":"p","auth":"dTpw"}}}`
+		err := manager.ApplySecret("ghcr-credentials", "pme", map[string]string{
+			".dockerconfigjson": preEncoded,
+		}, "addon-pme")
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+
+		// Then the Secret is typed kubernetes.io/dockerconfigjson and the value passes through unchanged
+		if applied.Object["type"] != "kubernetes.io/dockerconfigjson" {
+			t.Errorf("Expected type kubernetes.io/dockerconfigjson, got %v", applied.Object["type"])
+		}
+		stringData, _ := applied.Object["stringData"].(map[string]string)
+		if stringData[".dockerconfigjson"] != preEncoded {
+			t.Errorf("Expected .dockerconfigjson to pass through unchanged, got %q", stringData[".dockerconfigjson"])
+		}
+	})
+
+	t.Run("StaysOpaqueWhenOnlyDockerUsernameSet", func(t *testing.T) {
+		// Given a manager and a client that records the applied object
+		manager := setup(t)
+		var applied *unstructured.Unstructured
+		kubernetesClient := client.NewMockKubernetesClient()
+		kubernetesClient.ApplyResourceFunc = func(gvr schema.GroupVersionResource, obj *unstructured.Unstructured, opts metav1.ApplyOptions) (*unstructured.Unstructured, error) {
+			applied = obj
+			return obj, nil
+		}
+		kubernetesClient.GetResourceFunc = func(gvr schema.GroupVersionResource, ns, name string) (*unstructured.Unstructured, error) {
+			return nil, fmt.Errorf("not found")
+		}
+		manager.client = kubernetesClient
+
+		// When applying a secret with only docker-username set (no docker-password)
+		err := manager.ApplySecret("incomplete-creds", "pme", map[string]string{
+			"docker-username": "octocat",
+		}, "addon-pme")
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+
+		// Then the Secret stays Opaque and the docker-username key is untouched
+		if applied.Object["type"] != "Opaque" {
+			t.Errorf("Expected type Opaque, got %v", applied.Object["type"])
+		}
+		stringData, _ := applied.Object["stringData"].(map[string]string)
+		if stringData["docker-username"] != "octocat" {
+			t.Errorf("Expected docker-username to pass through unchanged, got %v", stringData)
+		}
+	})
+
+	t.Run("DoesNotMutateInputStringDataMap", func(t *testing.T) {
+		// Given a manager, a client, and a caller-owned stringData map
+		manager := setup(t)
+		kubernetesClient := client.NewMockKubernetesClient()
+		kubernetesClient.ApplyResourceFunc = func(gvr schema.GroupVersionResource, obj *unstructured.Unstructured, opts metav1.ApplyOptions) (*unstructured.Unstructured, error) {
+			return obj, nil
+		}
+		kubernetesClient.GetResourceFunc = func(gvr schema.GroupVersionResource, ns, name string) (*unstructured.Unstructured, error) {
+			return nil, fmt.Errorf("not found")
+		}
+		manager.client = kubernetesClient
+		input := map[string]string{
+			"docker-username": "octocat",
+			"docker-password": "hunter2",
+		}
+
+		// When applying a secret that triggers docker config synthesis
+		if err := manager.ApplySecret("ghcr-credentials", "pme", input, "addon-pme"); err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+
+		// Then the caller's original map is untouched
+		if len(input) != 2 || input["docker-username"] != "octocat" || input["docker-password"] != "hunter2" {
+			t.Errorf("Expected input map to be unmodified, got %v", input)
 		}
 	})
 }
