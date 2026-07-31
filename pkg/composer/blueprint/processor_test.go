@@ -4234,6 +4234,74 @@ func TestProcessor_updateKustomizationEntry(t *testing.T) {
 		}
 	})
 
+	t.Run("MergesAdditivelyWhenNewHasLowerOrdinal", func(t *testing.T) {
+		// Given existing entry with merge strategy, ordinal 100, an existing component, and
+		// a scalar field set
+		entries := map[string]*blueprintv1alpha1.ConditionalKustomization{
+			"app": {
+				Strategy: "merge",
+				Ordinal:  intPtr(100),
+				Kustomization: blueprintv1alpha1.Kustomization{
+					Name:       "app",
+					Path:       "existing-path",
+					Components: []string{"base"},
+				},
+			},
+		}
+
+		// When a lower-ordinal facet contributes a merge with an additional component and no
+		// conflicting path
+		new := &blueprintv1alpha1.ConditionalKustomization{
+			Ordinal: intPtr(50),
+			Kustomization: blueprintv1alpha1.Kustomization{
+				Name:       "app",
+				Components: []string{"extra"},
+			},
+		}
+		err := processor.updateKustomizationEntry("app", new, "merge", entries, nil)
+
+		// Then the higher ordinal is preserved, its scalar field is untouched, and the lower
+		// ordinal's component is additively folded in rather than dropped
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		if ordinalOfK(entries["app"]) != 100 {
+			t.Errorf("Expected higher ordinal 100 to be preserved, got %d", ordinalOfK(entries["app"]))
+		}
+		if entries["app"].Path != "existing-path" {
+			t.Errorf("Expected higher-ordinal path to be preserved, got %q", entries["app"].Path)
+		}
+		if !slices.Contains(entries["app"].Components, "base") || !slices.Contains(entries["app"].Components, "extra") {
+			t.Errorf("Expected both components to accumulate, got %v", entries["app"].Components)
+		}
+	})
+
+	t.Run("IgnoresLowerOrdinalMergeWhenExistingIsRemoveTombstone", func(t *testing.T) {
+		// Given a higher-ordinal facet already removed this entry
+		entries := map[string]*blueprintv1alpha1.ConditionalKustomization{
+			"app": {
+				Strategy:      "remove",
+				Ordinal:       intPtr(100),
+				Kustomization: blueprintv1alpha1.Kustomization{Name: "app"},
+			},
+		}
+
+		// When a lower-ordinal facet attempts to merge
+		new := &blueprintv1alpha1.ConditionalKustomization{
+			Ordinal:       intPtr(50),
+			Kustomization: blueprintv1alpha1.Kustomization{Name: "app", Components: []string{"extra"}},
+		}
+		err := processor.updateKustomizationEntry("app", new, "merge", entries, nil)
+
+		// Then the remove tombstone is not resurrected
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		if entries["app"].Strategy != "remove" {
+			t.Errorf("Expected remove tombstone to be preserved, got strategy %q", entries["app"].Strategy)
+		}
+	})
+
 	t.Run("UsesStrategyPrecedenceWhenOrdinalsEqual", func(t *testing.T) {
 		// Given existing entry with merge strategy and ordinal 50
 		entries := map[string]*blueprintv1alpha1.ConditionalKustomization{

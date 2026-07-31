@@ -1831,6 +1831,12 @@ func (p *BaseBlueprintProcessor) applyTerraformComponentEntryByStrategy(
 // equal, strategy precedence is used (remove > replace > merge). If both ordinal and strategy are
 // equal, kustomizations are pre-merged (merge), removals are accumulated (remove), or new replaces
 // existing (replace). Returns an error if the merge operation fails.
+// A lower ordinal is not always discarded outright: "replace"/"remove" still require ordinal (or
+// strategy) precedence to take effect at all — a lower-precedence facet cannot forcibly overwrite
+// or delete a higher-precedence one — but a lower-ordinal "merge" still combines additively (see
+// updateFluxSystemEntry, which shares this shape: applyKustomizationEntryByStrategy's merge case
+// always treats its "new" argument as the scalar-conflict-winning overlay, so that call passes the
+// higher-ordinal existing entry as "new" and the lower-ordinal contribution as "existing").
 func (p *BaseBlueprintProcessor) updateKustomizationEntry(name string, new *blueprintv1alpha1.ConditionalKustomization, strategy string, entries map[string]*blueprintv1alpha1.ConditionalKustomization, scope map[string]any) error {
 	existing := entries[name]
 	existingStrategy := existing.Strategy
@@ -1877,7 +1883,10 @@ func (p *BaseBlueprintProcessor) updateKustomizationEntry(name string, new *blue
 	}
 
 	if newOrdinal < existingOrdinal {
-		return nil
+		if strategy != "merge" || existingStrategy == "remove" {
+			return nil
+		}
+		return p.applyKustomizationEntryByStrategy(name, existing, "merge", new, entries)
 	}
 	existingStrategyPrec := strategyPrecedence[existingStrategy]
 	if newStrategyPrec > existingStrategyPrec {
