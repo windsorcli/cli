@@ -774,6 +774,7 @@ func TestUpgradeNodeCmd(t *testing.T) {
 		upgradeNodeImage = ""
 		upgradeNodeTimeout = 0
 		upgradeNodeOfflineTimeout = 0
+		upgradeNodeRebootMode = ""
 	})
 
 	setup := func(t *testing.T) (*bytes.Buffer, *bytes.Buffer) {
@@ -782,6 +783,7 @@ func TestUpgradeNodeCmd(t *testing.T) {
 		upgradeNodeImage = ""
 		upgradeNodeTimeout = 0
 		upgradeNodeOfflineTimeout = 0
+		upgradeNodeRebootMode = ""
 
 		stdout, stderr := captureOutput(t)
 		rootCmd.SetOut(stdout)
@@ -979,6 +981,70 @@ func TestUpgradeNodeCmd(t *testing.T) {
 		// An explicit --timeout=0 means unbounded; the guard must not fire against it.
 		if err == nil || strings.Contains(err.Error(), "cannot exceed") {
 			t.Errorf("Expected guard to allow unbounded overall timeout, got: %v", err)
+		}
+	})
+
+	t.Run("DefaultsToKexecRebootMode", func(t *testing.T) {
+		setup(t)
+		mockConfigHandler := config.NewMockConfigHandler()
+		mockConfigHandler.LoadConfigFunc = func() error { return nil }
+		mockConfigHandler.IsLoadedFunc = func() bool { return true }
+		mocks := setupMocks(t, &SetupOptions{ConfigHandler: mockConfigHandler})
+
+		ctx := stdcontext.WithValue(stdcontext.Background(), runtimeOverridesKey, mocks.Runtime)
+		rootCmd.SetContext(ctx)
+		rootCmd.SetArgs([]string{"upgrade", "node", "--node", "10.0.0.1", "--image", "img"})
+
+		err := Execute()
+
+		// No TALOSCONFIG set — confirms the reboot-mode guard passed and the code reached UpgradeNode.
+		if err == nil || !strings.Contains(err.Error(), "node upgrade failed") {
+			t.Errorf("Expected node upgrade error (guard passed), got: %v", err)
+		}
+	})
+
+	t.Run("AcceptsPowercycleRebootMode", func(t *testing.T) {
+		setup(t)
+		mockConfigHandler := config.NewMockConfigHandler()
+		mockConfigHandler.LoadConfigFunc = func() error { return nil }
+		mockConfigHandler.IsLoadedFunc = func() bool { return true }
+		mocks := setupMocks(t, &SetupOptions{ConfigHandler: mockConfigHandler})
+
+		ctx := stdcontext.WithValue(stdcontext.Background(), runtimeOverridesKey, mocks.Runtime)
+		rootCmd.SetContext(ctx)
+		rootCmd.SetArgs([]string{"upgrade", "node", "--node", "10.0.0.1", "--image", "img", "--reboot-mode", "powercycle"})
+
+		err := Execute()
+
+		if err == nil || !strings.Contains(err.Error(), "node upgrade failed") {
+			t.Errorf("Expected node upgrade error (guard passed), got: %v", err)
+		}
+	})
+
+	t.Run("RejectsInvalidRebootMode", func(t *testing.T) {
+		setup(t)
+		mockConfigHandler := config.NewMockConfigHandler()
+		loadConfigCalled := false
+		mockConfigHandler.LoadConfigFunc = func() error {
+			loadConfigCalled = true
+			return nil
+		}
+		mocks := setupMocks(t, &SetupOptions{ConfigHandler: mockConfigHandler})
+
+		ctx := stdcontext.WithValue(stdcontext.Background(), runtimeOverridesKey, mocks.Runtime)
+		rootCmd.SetContext(ctx)
+		rootCmd.SetArgs([]string{"upgrade", "node", "--node", "10.0.0.1", "--image", "img", "--reboot-mode", "reboot-now-please"})
+
+		err := Execute()
+
+		if err == nil {
+			t.Fatal("Expected error for invalid --reboot-mode, got nil")
+		}
+		if !strings.Contains(err.Error(), "invalid --reboot-mode") {
+			t.Errorf("Expected invalid reboot-mode error, got: %v", err)
+		}
+		if loadConfigCalled {
+			t.Error("Expected guard to fail before LoadConfig is reachable")
 		}
 	})
 

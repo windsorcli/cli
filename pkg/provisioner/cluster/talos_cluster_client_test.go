@@ -664,6 +664,93 @@ func TestTalosClusterClient_Close(t *testing.T) {
 	})
 }
 
+func TestTalosClusterClient_UpgradeNodes(t *testing.T) {
+	setup := func(t *testing.T) *TalosClusterClient {
+		t.Helper()
+		client := NewTalosClusterClient()
+		client.shims = setupDefaultShims()
+		os.Setenv("TALOSCONFIG", "/tmp/talosconfig")
+		t.Cleanup(func() { os.Unsetenv("TALOSCONFIG") })
+		return client
+	}
+
+	t.Run("PassesPowercycleTrue", func(t *testing.T) {
+		client := setup(t)
+		var capturedPowercycle bool
+		client.shims.TalosUpgrade = func(ctx context.Context, c *talosclient.Client, image string, powercycle bool) error {
+			capturedPowercycle = powercycle
+			return nil
+		}
+
+		err := client.UpgradeNodes(context.Background(), []string{"10.0.0.1"}, "ghcr.io/siderolabs/installer:v1.13.0", true)
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+		if !capturedPowercycle {
+			t.Error("Expected powercycle=true to reach TalosUpgrade")
+		}
+	})
+
+	t.Run("PassesPowercycleFalse", func(t *testing.T) {
+		client := setup(t)
+		capturedPowercycle := true
+		client.shims.TalosUpgrade = func(ctx context.Context, c *talosclient.Client, image string, powercycle bool) error {
+			capturedPowercycle = powercycle
+			return nil
+		}
+
+		err := client.UpgradeNodes(context.Background(), []string{"10.0.0.1"}, "ghcr.io/siderolabs/installer:v1.13.0", false)
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+		if capturedPowercycle {
+			t.Error("Expected powercycle=false to reach TalosUpgrade")
+		}
+	})
+
+	t.Run("UpgradesEachNode", func(t *testing.T) {
+		client := setup(t)
+		var upgraded []string
+		client.shims.TalosUpgrade = func(ctx context.Context, c *talosclient.Client, image string, powercycle bool) error {
+			upgraded = append(upgraded, image)
+			return nil
+		}
+
+		err := client.UpgradeNodes(context.Background(), []string{"10.0.0.1", "10.0.0.2"}, "img", false)
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+		if len(upgraded) != 2 {
+			t.Errorf("Expected 2 upgrade calls, got %d", len(upgraded))
+		}
+	})
+
+	t.Run("UpgradeFails", func(t *testing.T) {
+		client := setup(t)
+		client.shims.TalosUpgrade = func(ctx context.Context, c *talosclient.Client, image string, powercycle bool) error {
+			return fmt.Errorf("upgrade rejected")
+		}
+
+		err := client.UpgradeNodes(context.Background(), []string{"10.0.0.1"}, "img", false)
+		if err == nil {
+			t.Fatal("Expected error, got nil")
+		}
+		if !strings.Contains(err.Error(), "upgrade rejected") {
+			t.Errorf("Expected upgrade error, got: %v", err)
+		}
+	})
+
+	t.Run("NoClient", func(t *testing.T) {
+		client := NewTalosClusterClient()
+		os.Unsetenv("TALOSCONFIG")
+
+		err := client.UpgradeNodes(context.Background(), []string{"10.0.0.1"}, "img", false)
+		if err == nil {
+			t.Fatal("Expected error, got nil")
+		}
+	})
+}
+
 // =============================================================================
 // Test Private Methods
 // =============================================================================

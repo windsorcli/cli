@@ -1690,9 +1690,11 @@ func (i *Provisioner) Uninstall(blueprint *blueprintv1alpha1.Blueprint) error {
 // UpgradeNode performs a complete per-node upgrade: sends the upgrade gRPC request (wait=false),
 // waits for the node to go offline via version polling (offlineTimeout caps this phase),
 // waits for the node to come back healthy, then performs a final service health check.
+// powercycle requests a full ACPI reboot instead of the default kexec, needed on platforms
+// (e.g. nested virtualization) where kexec doesn't reliably register as an offline transition.
 // outputFunc receives status messages during the wait phases. Returns an error if any
 // step fails or times out.
-func (i *Provisioner) UpgradeNode(ctx context.Context, node string, image string, offlineTimeout time.Duration, outputFunc func(string)) error {
+func (i *Provisioner) UpgradeNode(ctx context.Context, node string, image string, offlineTimeout time.Duration, powercycle bool, outputFunc func(string)) error {
 	if err := i.ensureClusterClient(); err != nil {
 		return err
 	}
@@ -1703,7 +1705,7 @@ func (i *Provisioner) UpgradeNode(ctx context.Context, node string, image string
 	if outputFunc != nil {
 		outputFunc(fmt.Sprintf("Sending upgrade request to node %s...", node))
 	}
-	if err := i.ClusterClient.UpgradeNodes(ctx, nodes, image); err != nil {
+	if err := i.ClusterClient.UpgradeNodes(ctx, nodes, image, powercycle); err != nil {
 		return fmt.Errorf("upgrade request failed: %w", err)
 	}
 
@@ -1727,17 +1729,18 @@ func (i *Provisioner) UpgradeNode(ctx context.Context, node string, image string
 	return nil
 }
 
-// UpgradeNodes sends an upgrade request to specified cluster nodes.
+// UpgradeNodes sends an upgrade request to specified cluster nodes. powercycle requests
+// a full ACPI reboot instead of the default kexec.
 // It initializes the cluster client based on config, then calls UpgradeNodes on it.
 // The caller is responsible for subsequently monitoring reboot status. Returns an error
 // if the cluster client cannot be initialized or if any node upgrade request fails.
-func (i *Provisioner) UpgradeNodes(ctx context.Context, nodes []string, image string) error {
+func (i *Provisioner) UpgradeNodes(ctx context.Context, nodes []string, image string, powercycle bool) error {
 	if err := i.ensureClusterClient(); err != nil {
 		return err
 	}
 	defer i.ClusterClient.Close()
 
-	return i.ClusterClient.UpgradeNodes(ctx, nodes, image)
+	return i.ClusterClient.UpgradeNodes(ctx, nodes, image, powercycle)
 }
 
 // CheckNodeHealth performs health checks for cluster nodes and Kubernetes endpoints.
