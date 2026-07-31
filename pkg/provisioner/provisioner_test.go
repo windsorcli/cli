@@ -4435,7 +4435,7 @@ func TestProvisioner_UpgradeNode(t *testing.T) {
 		mocks := setupProvisionerMocks(t)
 
 		upgradeCalled := false
-		mocks.ClusterClient.UpgradeNodesFunc = func(ctx context.Context, nodeAddresses []string, image string) error {
+		mocks.ClusterClient.UpgradeNodesFunc = func(ctx context.Context, nodeAddresses []string, image string, powercycle bool) error {
 			upgradeCalled = true
 			if len(nodeAddresses) != 1 || nodeAddresses[0] != "10.0.0.1" {
 				t.Errorf("Expected node 10.0.0.1, got %v", nodeAddresses)
@@ -4460,7 +4460,7 @@ func TestProvisioner_UpgradeNode(t *testing.T) {
 		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
 
 		var output []string
-		err := provisioner.UpgradeNode(context.Background(), "10.0.0.1", "ghcr.io/siderolabs/installer:v1.7.0", 0, func(msg string) {
+		err := provisioner.UpgradeNode(context.Background(), "10.0.0.1", "ghcr.io/siderolabs/installer:v1.7.0", 0, false, func(msg string) {
 			output = append(output, msg)
 		})
 
@@ -4496,7 +4496,7 @@ func TestProvisioner_UpgradeNode(t *testing.T) {
 		opts := &Provisioner{ClusterClient: mocks.ClusterClient}
 		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
 
-		err := provisioner.UpgradeNode(context.Background(), "10.0.0.1", "img", 0, nil)
+		err := provisioner.UpgradeNode(context.Background(), "10.0.0.1", "img", 0, false, nil)
 
 		if err == nil {
 			t.Fatal("Expected error, got nil")
@@ -4508,14 +4508,14 @@ func TestProvisioner_UpgradeNode(t *testing.T) {
 
 	t.Run("UpgradeRequestFails", func(t *testing.T) {
 		mocks := setupProvisionerMocks(t)
-		mocks.ClusterClient.UpgradeNodesFunc = func(ctx context.Context, nodeAddresses []string, image string) error {
+		mocks.ClusterClient.UpgradeNodesFunc = func(ctx context.Context, nodeAddresses []string, image string, powercycle bool) error {
 			return fmt.Errorf("upgrade request rejected")
 		}
 
 		opts := &Provisioner{ClusterClient: mocks.ClusterClient}
 		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
 
-		err := provisioner.UpgradeNode(context.Background(), "10.0.0.1", "img", 0, nil)
+		err := provisioner.UpgradeNode(context.Background(), "10.0.0.1", "img", 0, false, nil)
 
 		if err == nil {
 			t.Error("Expected error, got nil")
@@ -4534,7 +4534,7 @@ func TestProvisioner_UpgradeNode(t *testing.T) {
 		opts := &Provisioner{ClusterClient: mocks.ClusterClient}
 		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
 
-		err := provisioner.UpgradeNode(context.Background(), "10.0.0.1", "img", 0, nil)
+		err := provisioner.UpgradeNode(context.Background(), "10.0.0.1", "img", 0, false, nil)
 
 		if err == nil {
 			t.Error("Expected error, got nil")
@@ -4551,7 +4551,7 @@ func TestProvisioner_UpgradeNode(t *testing.T) {
 		mockCfg.GetContextValuesFunc = func() (map[string]any, error) { return nil, nil }
 		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{})
 
-		err := provisioner.UpgradeNode(context.Background(), "10.0.0.1", "img", 0, nil)
+		err := provisioner.UpgradeNode(context.Background(), "10.0.0.1", "img", 0, false, nil)
 
 		if err == nil {
 			t.Error("Expected error, got nil")

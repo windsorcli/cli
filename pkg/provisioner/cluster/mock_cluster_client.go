@@ -17,11 +17,11 @@ import (
 // MockClusterClient is a mock implementation of the ClusterClient interface
 type MockClusterClient struct {
 	BaseClusterClient
-	WaitForNodesHealthyFunc func(ctx context.Context, nodeAddresses []string, expectedVersion string, skipServices []string) error
-	WaitForNodesRebootFunc  func(ctx context.Context, nodeAddresses []string, expectedVersion string, skipServices []string, offlineTimeout time.Duration) error
-	UpgradeNodesFunc        func(ctx context.Context, nodeAddresses []string, image string) error
+	WaitForNodesHealthyFunc         func(ctx context.Context, nodeAddresses []string, expectedVersion string, skipServices []string) error
+	WaitForNodesRebootFunc          func(ctx context.Context, nodeAddresses []string, expectedVersion string, skipServices []string, offlineTimeout time.Duration) error
+	UpgradeNodesFunc                func(ctx context.Context, nodeAddresses []string, image string, powercycle bool) error
 	WaitForControlPlaneAPIReadyFunc func(ctx context.Context, nodeAddress string, outputFunc func(string)) error
-	CloseFunc               func()
+	CloseFunc                       func()
 }
 
 // =============================================================================
@@ -54,9 +54,9 @@ func (m *MockClusterClient) WaitForNodesReboot(ctx context.Context, nodeAddresse
 }
 
 // UpgradeNodes calls the mock UpgradeNodesFunc if set, otherwise returns nil
-func (m *MockClusterClient) UpgradeNodes(ctx context.Context, nodeAddresses []string, image string) error {
+func (m *MockClusterClient) UpgradeNodes(ctx context.Context, nodeAddresses []string, image string, powercycle bool) error {
 	if m.UpgradeNodesFunc != nil {
-		return m.UpgradeNodesFunc(ctx, nodeAddresses, image)
+		return m.UpgradeNodesFunc(ctx, nodeAddresses, image, powercycle)
 	}
 	return nil
 }

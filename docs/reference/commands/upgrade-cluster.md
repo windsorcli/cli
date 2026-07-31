@@ -18,6 +18,7 @@ Use 'windsor check node-health --wait-for-reboot' afterward to verify each node 
 |------|---------|-------------|
 | `--image` | `""` | Talos image to upgrade to. Required. |
 | `--nodes` | `[]` | Node addresses to upgrade. Required. |
+| `--reboot-mode` | `default` | Reboot mode: "default" (kexec, fast) or "powercycle" (full ACPI reset). Use powercycle on platforms where kexec doesn't reliably register as offline (e.g. nested virtualization). |
 
 ## Examples
 

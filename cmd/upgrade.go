@@ -24,11 +24,13 @@ var (
 	upgradeSources        []string
 	upgradeYes            bool
 	upgradeAllowDowngrade bool
+	upgradeRebootMode     string
 
 	upgradeNodeAddr           string
 	upgradeNodeImage          string
 	upgradeNodeTimeout        time.Duration
 	upgradeNodeOfflineTimeout time.Duration
+	upgradeNodeRebootMode     string
 )
 
 var upgradeCmd = &cobra.Command{
@@ -165,6 +167,11 @@ windsor upgrade cluster \
 	},
 	SilenceUsage: true,
 	RunE: func(cmd *cobra.Command, args []string) error {
+		powercycle, err := parseRebootMode(upgradeRebootMode)
+		if err != nil {
+			return err
+		}
+
 		var rtOpts []*runtime.Runtime
 		if overridesVal := cmd.Context().Value(runtimeOverridesKey); overridesVal != nil {
 			rtOpts = []*runtime.Runtime{overridesVal.(*runtime.Runtime)}
@@ -187,7 +194,7 @@ windsor upgrade cluster \
 		comp := composer.NewComposer(rt)
 		prov := provisioner.NewProvisioner(rt, comp.BlueprintHandler)
 
-		if err := prov.UpgradeNodes(cmd.Context(), upgradeNodes, upgradeImage); err != nil {
+		if err := prov.UpgradeNodes(cmd.Context(), upgradeNodes, upgradeImage, powercycle); err != nil {
 			return fmt.Errorf("node upgrade failed: %w", err)
 		}
 
@@ -208,7 +215,10 @@ windsor upgrade node --node=10.0.0.5 --image=ghcr.io/siderolabs/installer:v1.13.
 windsor upgrade node --node=10.0.0.5 --image=ghcr.io/siderolabs/installer:v1.13.0 --timeout=20m
 
 # Nested-virtualized platforms can take longer than 3m to go offline after the upgrade request
-windsor upgrade node --node=10.0.0.5 --image=ghcr.io/siderolabs/installer:v1.13.0 --offline-timeout=8m`,
+windsor upgrade node --node=10.0.0.5 --image=ghcr.io/siderolabs/installer:v1.13.0 --offline-timeout=8m
+
+# Some platforms don't reliably register kexec as an offline transition; powercycle is slower but more reliable
+windsor upgrade node --node=10.0.0.5 --image=ghcr.io/siderolabs/installer:v1.13.0 --reboot-mode=powercycle`,
 	Annotations: map[string]string{
 		"docs.seealso": "[`upgrade cluster`](upgrade-cluster.md)\n" +
 			"[`check node-health`](check-node-health.md)",
@@ -224,6 +234,11 @@ windsor upgrade node --node=10.0.0.5 --image=ghcr.io/siderolabs/installer:v1.13.
 		}
 		if upgradeNodeTimeout > 0 && upgradeNodeOfflineTimeout > upgradeNodeTimeout {
 			return fmt.Errorf("--offline-timeout (%s) cannot exceed --timeout (%s)", upgradeNodeOfflineTimeout, upgradeNodeTimeout)
+		}
+
+		powercycle, err := parseRebootMode(upgradeNodeRebootMode)
+		if err != nil {
+			return err
 		}
 
 		var rtOpts []*runtime.Runtime
@@ -259,12 +274,25 @@ windsor upgrade node --node=10.0.0.5 --image=ghcr.io/siderolabs/installer:v1.13.
 			fmt.Fprintln(cmd.OutOrStdout(), output)
 		}
 
-		if err := prov.UpgradeNode(ctx, upgradeNodeAddr, upgradeNodeImage, upgradeNodeOfflineTimeout, outputFunc); err != nil {
+		if err := prov.UpgradeNode(ctx, upgradeNodeAddr, upgradeNodeImage, upgradeNodeOfflineTimeout, powercycle, outputFunc); err != nil {
 			return fmt.Errorf("node upgrade failed: %w", err)
 		}
 
 		return nil
 	},
+}
+
+// parseRebootMode validates a --reboot-mode value and reports whether it requests powercycle.
+// "default" (kexec, fast) and "powercycle" (full ACPI reset) are the only accepted values.
+func parseRebootMode(mode string) (bool, error) {
+	switch mode {
+	case "", "default":
+		return false, nil
+	case "powercycle":
+		return true, nil
+	default:
+		return false, fmt.Errorf("invalid --reboot-mode %q: must be \"default\" or \"powercycle\"", mode)
+	}
 }
 
 // pruneOrphaned deletes the kustomizations the blueprint no longer declares, after printing them.
@@ -409,6 +437,7 @@ func init() {
 
 	upgradeClusterCmd.Flags().StringSliceVar(&upgradeNodes, "nodes", []string{}, "Node addresses to upgrade. Required.")
 	upgradeClusterCmd.Flags().StringVar(&upgradeImage, "image", "", "Talos image to upgrade to. Required.")
+	upgradeClusterCmd.Flags().StringVar(&upgradeRebootMode, "reboot-mode", "default", "Reboot mode: \"default\" (kexec, fast) or \"powercycle\" (full ACPI reset). Use powercycle on platforms where kexec doesn't reliably register as offline (e.g. nested virtualization).")
 	_ = upgradeClusterCmd.MarkFlagRequired("nodes")
 	_ = upgradeClusterCmd.MarkFlagRequired("image")
 
@@ -416,6 +445,7 @@ func init() {
 	upgradeNodeCmd.Flags().StringVar(&upgradeNodeImage, "image", "", "Talos image to upgrade to. Required.")
 	upgradeNodeCmd.Flags().DurationVar(&upgradeNodeTimeout, "timeout", 0, "Overall timeout for the whole upgrade, including the offline wait (see --offline-timeout). Default 10m.")
 	upgradeNodeCmd.Flags().DurationVar(&upgradeNodeOfflineTimeout, "offline-timeout", 0, "Timeout for the node to go offline after the upgrade request, before it's assumed rebooting. Raise this on slow-rebooting or nested-virtualized platforms. Default 3m.")
+	upgradeNodeCmd.Flags().StringVar(&upgradeNodeRebootMode, "reboot-mode", "default", "Reboot mode: \"default\" (kexec, fast) or \"powercycle\" (full ACPI reset). Use powercycle on platforms where kexec doesn't reliably register as offline (e.g. nested virtualization).")
 	_ = upgradeNodeCmd.MarkFlagRequired("node")
 	_ = upgradeNodeCmd.MarkFlagRequired("image")
 }

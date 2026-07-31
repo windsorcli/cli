@@ -25,8 +25,9 @@ type ClusterClient interface {
 	// Phase 2 polls until all nodes are healthy again within the remaining context deadline.
 	WaitForNodesReboot(ctx context.Context, nodeAddresses []string, expectedVersion string, skipServices []string, offlineTimeout time.Duration) error
 
-	// UpgradeNodes upgrades the specified nodes to the specified image
-	UpgradeNodes(ctx context.Context, nodeAddresses []string, image string) error
+	// UpgradeNodes upgrades the specified nodes to the specified image. powercycle requests
+	// a full ACPI reboot instead of the default kexec.
+	UpgradeNodes(ctx context.Context, nodeAddresses []string, image string, powercycle bool) error
 
 	// WaitForControlPlaneAPIReady waits for the kube-apiserver on a control-plane node
 	// to accept TCP connections on port 6443. Returns nil immediately when the node is
@@ -81,7 +82,7 @@ func (c *BaseClusterClient) WaitForNodesReboot(ctx context.Context, nodeAddresse
 
 // UpgradeNodes is a stub that returns an error indicating the method is not implemented.
 // Provider-specific implementations should override this to perform node upgrades.
-func (c *BaseClusterClient) UpgradeNodes(ctx context.Context, nodeAddresses []string, image string) error {
+func (c *BaseClusterClient) UpgradeNodes(ctx context.Context, nodeAddresses []string, image string, powercycle bool) error {
 	return fmt.Errorf("UpgradeNodes not implemented")
 }
 

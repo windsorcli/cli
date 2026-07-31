@@ -156,8 +156,10 @@ func (c *TalosClusterClient) WaitForNodesHealthy(ctx context.Context, nodeAddres
 
 // UpgradeNodes upgrades the specified nodes to the specified image.
 // It iterates through each node address and initiates an upgrade using the Talos Upgrade API.
+// powercycle requests a full ACPI reboot instead of the default kexec, needed on platforms
+// (e.g. nested virtualization) where kexec doesn't reliably register as an offline transition.
 // Returns an error if any node upgrade fails or if the Talos client cannot be initialized.
-func (c *TalosClusterClient) UpgradeNodes(ctx context.Context, nodeAddresses []string, image string) error {
+func (c *TalosClusterClient) UpgradeNodes(ctx context.Context, nodeAddresses []string, image string, powercycle bool) error {
 	if err := c.ensureClient(); err != nil {
 		return fmt.Errorf("failed to initialize Talos client: %w", err)
 	}
@@ -166,7 +168,7 @@ func (c *TalosClusterClient) UpgradeNodes(ctx context.Context, nodeAddresses []s
 		fmt.Printf("upgrading node %s\n", nodeAddress)
 
 		nodeCtx := c.shims.TalosWithNodes(ctx, nodeAddress)
-		err := c.shims.TalosUpgrade(nodeCtx, c.client, image)
+		err := c.shims.TalosUpgrade(nodeCtx, c.client, image, powercycle)
 
 		if err != nil {
 			return fmt.Errorf("failed to upgrade node %s: %w", nodeAddress, err)
