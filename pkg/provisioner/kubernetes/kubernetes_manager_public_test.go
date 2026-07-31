@@ -5987,6 +5987,140 @@ func TestBaseKubernetesManager_ApplySecret(t *testing.T) {
 			t.Errorf("Expected input map to be unmodified, got %v", input)
 		}
 	})
+
+	t.Run("DeletesAndRecreatesWhenResolvedTypeChanges", func(t *testing.T) {
+		// Given a manager and an existing Opaque Secret
+		manager := setup(t)
+		var deleted bool
+		var applied *unstructured.Unstructured
+		kubernetesClient := client.NewMockKubernetesClient()
+		kubernetesClient.GetResourceFunc = func(gvr schema.GroupVersionResource, ns, name string) (*unstructured.Unstructured, error) {
+			return &unstructured.Unstructured{
+				Object: map[string]any{
+					"kind": "Secret",
+					"type": "Opaque",
+				},
+			}, nil
+		}
+		kubernetesClient.DeleteResourceFunc = func(gvr schema.GroupVersionResource, ns, name string, opts metav1.DeleteOptions) error {
+			deleted = true
+			return nil
+		}
+		kubernetesClient.ApplyResourceFunc = func(gvr schema.GroupVersionResource, obj *unstructured.Unstructured, opts metav1.ApplyOptions) (*unstructured.Unstructured, error) {
+			applied = obj
+			return obj, nil
+		}
+		manager.client = kubernetesClient
+
+		// When applying a secret whose docker-* keys now resolve to dockerconfigjson
+		err := manager.ApplySecret("ghcr-credentials", "pme", map[string]string{
+			"docker-username": "octocat",
+			"docker-password": "hunter2",
+		}, "addon-pme")
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+
+		// Then the existing Secret is deleted before the new type is applied
+		if !deleted {
+			t.Error("Expected the existing Opaque Secret to be deleted before re-applying as dockerconfigjson")
+		}
+		if applied.Object["type"] != "kubernetes.io/dockerconfigjson" {
+			t.Errorf("Expected type kubernetes.io/dockerconfigjson, got %v", applied.Object["type"])
+		}
+	})
+
+	t.Run("SkipsDeleteWhenResolvedTypeUnchanged", func(t *testing.T) {
+		// Given a manager and an existing dockerconfigjson Secret
+		manager := setup(t)
+		var deleted bool
+		kubernetesClient := client.NewMockKubernetesClient()
+		kubernetesClient.GetResourceFunc = func(gvr schema.GroupVersionResource, ns, name string) (*unstructured.Unstructured, error) {
+			return &unstructured.Unstructured{
+				Object: map[string]any{
+					"kind": "Secret",
+					"type": "kubernetes.io/dockerconfigjson",
+				},
+			}, nil
+		}
+		kubernetesClient.DeleteResourceFunc = func(gvr schema.GroupVersionResource, ns, name string, opts metav1.DeleteOptions) error {
+			deleted = true
+			return nil
+		}
+		kubernetesClient.ApplyResourceFunc = func(gvr schema.GroupVersionResource, obj *unstructured.Unstructured, opts metav1.ApplyOptions) (*unstructured.Unstructured, error) {
+			return obj, nil
+		}
+		manager.client = kubernetesClient
+
+		// When applying a secret whose docker-* keys still resolve to dockerconfigjson
+		err := manager.ApplySecret("ghcr-credentials", "pme", map[string]string{
+			"docker-username": "octocat",
+			"docker-password": "hunter2",
+		}, "addon-pme")
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+
+		// Then the existing Secret is left in place (SSA-merged, not deleted)
+		if deleted {
+			t.Error("Expected no delete when the resolved type matches the existing Secret's type")
+		}
+	})
+
+	t.Run("DeleteErrorOnTypeChangeIsPropagated", func(t *testing.T) {
+		// Given a manager, an existing Opaque Secret, and a delete that fails
+		manager := setup(t)
+		kubernetesClient := client.NewMockKubernetesClient()
+		kubernetesClient.GetResourceFunc = func(gvr schema.GroupVersionResource, ns, name string) (*unstructured.Unstructured, error) {
+			return &unstructured.Unstructured{
+				Object: map[string]any{
+					"kind": "Secret",
+					"type": "Opaque",
+				},
+			}, nil
+		}
+		kubernetesClient.DeleteResourceFunc = func(gvr schema.GroupVersionResource, ns, name string, opts metav1.DeleteOptions) error {
+			return fmt.Errorf("delete failed")
+		}
+		manager.client = kubernetesClient
+
+		// When applying a secret whose resolved type would change
+		err := manager.ApplySecret("ghcr-credentials", "pme", map[string]string{
+			"docker-username": "octocat",
+			"docker-password": "hunter2",
+		}, "addon-pme")
+
+		// Then the delete error is surfaced rather than attempting the apply
+		if err == nil {
+			t.Fatal("Expected error when delete fails, got nil")
+		}
+		if !strings.Contains(err.Error(), "failed to delete secret with changed type") {
+			t.Errorf("Expected delete-failure error, got: %v", err)
+		}
+	})
+}
+
+func TestSecretTypeChanged(t *testing.T) {
+	t.Run("ReportsChangeWhenTypesDiffer", func(t *testing.T) {
+		obj := &unstructured.Unstructured{Object: map[string]any{"type": "Opaque"}}
+		if !secretTypeChanged(obj, "kubernetes.io/dockerconfigjson") {
+			t.Error("Expected change to be reported when types differ")
+		}
+	})
+
+	t.Run("ReportsNoChangeWhenTypesMatch", func(t *testing.T) {
+		obj := &unstructured.Unstructured{Object: map[string]any{"type": "kubernetes.io/dockerconfigjson"}}
+		if secretTypeChanged(obj, "kubernetes.io/dockerconfigjson") {
+			t.Error("Expected no change to be reported when types match")
+		}
+	})
+
+	t.Run("ReportsNoChangeWhenExistingTypeMissing", func(t *testing.T) {
+		obj := &unstructured.Unstructured{Object: map[string]any{}}
+		if secretTypeChanged(obj, "Opaque") {
+			t.Error("Expected no change to be reported when the existing object has no type")
+		}
+	})
 }
 
 func TestBaseKubernetesManager_PruneSecrets(t *testing.T) {

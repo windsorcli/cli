@@ -529,13 +529,15 @@ func (k *BaseKubernetesManager) ApplyConfigMap(name, namespace string, data map[
 
 // ApplySecret creates or updates a Secret using SSA. Values are supplied as plaintext in
 // stringData (write-only; the API server folds them into data) and are never logged. Mirrors
-// ApplyConfigMap's server-side-apply handling. It stamps the context ownership labels plus a
-// secret-owner label naming the kustomization the secret belongs to; that label is set only by CLI
-// placement (never by Flux), so PruneSecrets can find and reclaim CLI-placed secrets without ever
-// touching a Flux-managed one. The Secret's type and stringData are resolved by
-// secretTypeAndData: stringData already carrying ".dockerconfigjson", or carrying
-// docker-username/docker-password (docker-server optional), produces a
-// kubernetes.io/dockerconfigjson Secret for imagePullSecrets; anything else stays Opaque.
+// ApplyConfigMap's server-side-apply handling, including its immutable-field guard: Kubernetes
+// rejects an update that changes Secret.type, so if an existing Secret's type differs from the
+// newly resolved one, ApplySecret deletes it first rather than SSA-merging a rejected change. It
+// stamps the context ownership labels plus a secret-owner label naming the kustomization the
+// secret belongs to; that label is set only by CLI placement (never by Flux), so PruneSecrets can
+// find and reclaim CLI-placed secrets without ever touching a Flux-managed one. The Secret's type
+// and stringData are resolved by secretTypeAndData: stringData already carrying
+// ".dockerconfigjson", or carrying docker-username/docker-password (docker-server optional),
+// produces a kubernetes.io/dockerconfigjson Secret for imagePullSecrets; anything else stays Opaque.
 func (k *BaseKubernetesManager) ApplySecret(name, namespace string, stringData map[string]string, owner string) error {
 	secretType, resolvedData, err := secretTypeAndData(stringData)
 	if err != nil {
@@ -566,6 +568,14 @@ func (k *BaseKubernetesManager) ApplySecret(name, namespace string, stringData m
 		Group:    "",
 		Version:  "v1",
 		Resource: "secrets",
+	}
+
+	existing, err := k.client.GetResource(gvr, namespace, name)
+	if err == nil && secretTypeChanged(existing, secretType) {
+		if err := k.client.DeleteResource(gvr, namespace, name, metav1.DeleteOptions{}); err != nil {
+			return fmt.Errorf("failed to delete secret with changed type: %w", err)
+		}
+		time.Sleep(time.Second)
 	}
 
 	opts := metav1.ApplyOptions{
@@ -2181,6 +2191,15 @@ func secretTypeAndData(stringData map[string]string) (string, map[string]string,
 	resolved[dockerConfigSecretKey] = string(encoded)
 
 	return "kubernetes.io/dockerconfigjson", resolved, nil
+}
+
+// secretTypeChanged reports whether an existing Secret's type differs from newType. Kubernetes
+// treats Secret.type as immutable after creation — the API server rejects an update that changes
+// it — so ApplySecret deletes and recreates rather than SSA-merging when the resolved type (e.g.
+// via docker-* key synthesis) differs from what's already there.
+func secretTypeChanged(obj *unstructured.Unstructured, newType string) bool {
+	existingType, _ := obj.Object["type"].(string)
+	return existingType != "" && existingType != newType
 }
 
 // isImmutableConfigMap checks if a ConfigMap is immutable
