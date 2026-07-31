@@ -1697,6 +1697,13 @@ func (p *BaseBlueprintProcessor) shouldIncludeComponent(when string, facetPath s
 // failures. This function is critical to the blueprint processor’s ability to aggregate, override, conditionally include
 // or exclude, and deconflict terraform components efficiently, making it safe to combine blueprint facets or overrides
 // without unintended duplication or omission. Returns an error if strategies are invalid or pre-merge fails.
+// A lower ordinal is not always discarded outright: "replace"/"remove" still require ordinal (or
+// strategy) precedence to take effect at all — a lower-precedence facet cannot forcibly overwrite
+// or delete a higher-precedence one — but a lower-ordinal "merge" still combines additively (see
+// updateFluxSystemEntry, which shares this shape: applyTerraformComponentEntryByStrategy's merge
+// case always treats its "new" argument as the scalar-conflict-winning overlay, so that call
+// passes the higher-ordinal existing entry as "new" and the lower-ordinal contribution as
+// "existing").
 func (p *BaseBlueprintProcessor) updateTerraformComponentEntry(
 	componentID string,
 	new *blueprintv1alpha1.ConditionalTerraformComponent,
@@ -1754,7 +1761,10 @@ func (p *BaseBlueprintProcessor) updateTerraformComponentEntry(
 	}
 
 	if newOrdinal < existingOrdinal {
-		return nil
+		if strategy != "merge" || existingStrategy == "remove" {
+			return nil
+		}
+		return p.applyTerraformComponentEntryByStrategy(componentID, existing, new, "merge", entries)
 	}
 	existingStrategyPrec := strategyPrecedence[existingStrategy]
 	if newStrategyPrec > existingStrategyPrec {

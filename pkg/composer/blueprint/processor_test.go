@@ -3889,6 +3889,75 @@ func TestProcessor_updateTerraformComponentEntry(t *testing.T) {
 		}
 	})
 
+	t.Run("MergesAdditivelyWhenNewHasLowerOrdinal", func(t *testing.T) {
+		// Given existing entry with merge strategy, ordinal 100, a dependency, and a scalar
+		// field set
+		parallelism := 10
+		entries := map[string]*blueprintv1alpha1.ConditionalTerraformComponent{
+			"vpc": {
+				Strategy: "merge",
+				Ordinal:  intPtr(100),
+				TerraformComponent: blueprintv1alpha1.TerraformComponent{
+					Path:        "vpc",
+					DependsOn:   []string{"base"},
+					Parallelism: &blueprintv1alpha1.IntExpression{Value: &parallelism},
+				},
+			},
+		}
+
+		// When a lower-ordinal facet contributes a merge with an additional dependency and no
+		// conflicting parallelism
+		new := &blueprintv1alpha1.ConditionalTerraformComponent{
+			Ordinal: intPtr(50),
+			TerraformComponent: blueprintv1alpha1.TerraformComponent{
+				Path:      "vpc",
+				DependsOn: []string{"extra"},
+			},
+		}
+		err := processor.updateTerraformComponentEntry("vpc", new, "merge", entries, nil)
+
+		// Then the higher ordinal is preserved, its scalar field is untouched, and the lower
+		// ordinal's dependency is additively folded in rather than dropped
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		if ordinalOf(entries["vpc"]) != 100 {
+			t.Errorf("Expected higher ordinal 100 to be preserved, got %d", ordinalOf(entries["vpc"]))
+		}
+		if entries["vpc"].Parallelism == nil || *entries["vpc"].Parallelism.Value != 10 {
+			t.Errorf("Expected higher-ordinal parallelism to be preserved, got %v", entries["vpc"].Parallelism)
+		}
+		if !slices.Contains(entries["vpc"].DependsOn, "base") || !slices.Contains(entries["vpc"].DependsOn, "extra") {
+			t.Errorf("Expected both dependencies to accumulate, got %v", entries["vpc"].DependsOn)
+		}
+	})
+
+	t.Run("IgnoresLowerOrdinalMergeWhenExistingIsRemoveTombstone", func(t *testing.T) {
+		// Given a higher-ordinal facet already removed this entry
+		entries := map[string]*blueprintv1alpha1.ConditionalTerraformComponent{
+			"vpc": {
+				Strategy:           "remove",
+				Ordinal:            intPtr(100),
+				TerraformComponent: blueprintv1alpha1.TerraformComponent{Path: "vpc"},
+			},
+		}
+
+		// When a lower-ordinal facet attempts to merge
+		new := &blueprintv1alpha1.ConditionalTerraformComponent{
+			Ordinal:            intPtr(50),
+			TerraformComponent: blueprintv1alpha1.TerraformComponent{Path: "vpc", DependsOn: []string{"extra"}},
+		}
+		err := processor.updateTerraformComponentEntry("vpc", new, "merge", entries, nil)
+
+		// Then the remove tombstone is not resurrected
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		if entries["vpc"].Strategy != "remove" {
+			t.Errorf("Expected remove tombstone to be preserved, got strategy %q", entries["vpc"].Strategy)
+		}
+	})
+
 	t.Run("UsesStrategyPrecedenceWhenOrdinalsEqual", func(t *testing.T) {
 		// Given existing entry with merge strategy and ordinal 50
 		entries := map[string]*blueprintv1alpha1.ConditionalTerraformComponent{
