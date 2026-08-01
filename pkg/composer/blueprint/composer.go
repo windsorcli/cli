@@ -639,10 +639,11 @@ func (c *BaseBlueprintComposer) mergeLegacySpecialVariables(mergedCommonValues m
 // name ("<system>-install" or "<system>-resources[-<variant>]"), or a bare FluxSystem name — which
 // resolves to that system's install tier, or its lone resources variant when there is no install
 // tier and exactly one resources variant; a bare name is left unmatched when that would be
-// ambiguous, so the tier-qualified name must be used instead. A directory matching neither is
-// silently ignored (patches are opt-in overlays; an unrelated or stale directory is not an error).
-// Supports both strategic merge patches (standard Kubernetes YAML) and JSON 6902 patches (with a
-// patches field containing JSON 6902 operations).
+// ambiguous, so the tier-qualified name must be used instead. A directory matching neither is not
+// an error (patches are opt-in overlays; composition still succeeds), but is reported to stderr —
+// a typo'd or stale directory would otherwise apply nothing with no indication why. Supports both
+// strategic merge patches (standard Kubernetes YAML) and JSON 6902 patches (with a patches field
+// containing JSON 6902 operations).
 func (c *BaseBlueprintComposer) discoverContextPatches(blueprint *blueprintv1alpha1.Blueprint) error {
 	if c.runtime == nil || c.runtime.ConfigRoot == "" {
 		return nil
@@ -675,6 +676,7 @@ func (c *BaseBlueprintComposer) discoverContextPatches(blueprint *blueprintv1alp
 			kustomization, exists = fluxTierMap[kustomizationName]
 		}
 		if !exists {
+			fmt.Fprintf(os.Stderr, "Warning: %s does not match any kustomization or FluxSystem tier; patches ignored\n", filepath.Join(patchesDir, kustomizationName))
 			continue
 		}
 
