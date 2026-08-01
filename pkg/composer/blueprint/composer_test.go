@@ -2,6 +2,7 @@ package blueprint
 
 import (
 	"errors"
+	"io"
 	"os"
 	"path/filepath"
 	"slices"
@@ -2687,7 +2688,7 @@ spec:
 		}
 	})
 
-	t.Run("IgnoresPatchesForNonExistentKustomization", func(t *testing.T) {
+	t.Run("IgnoresPatchesForNonExistentKustomizationAndWarns", func(t *testing.T) {
 		// Given a composer with patches for kustomization that doesn't exist
 		mocks := setupComposerMocks(t)
 		patchesDir := mocks.Runtime.ConfigRoot + "/patches/non-existent"
@@ -2701,14 +2702,24 @@ spec:
 		}
 
 		// When discovering patches
+		oldStderr := os.Stderr
+		r, w, _ := os.Pipe()
+		os.Stderr = w
 		err := composer.discoverContextPatches(blueprint)
+		w.Close()
+		var buf strings.Builder
+		_, _ = io.Copy(&buf, r)
+		os.Stderr = oldStderr
 
-		// Then patches should be ignored
+		// Then patches should be ignored, but a warning is printed naming the unmatched directory
 		if err != nil {
 			t.Fatalf("Expected no error, got %v", err)
 		}
 		if len(blueprint.Kustomizations[0].Patches) != 0 {
 			t.Errorf("Expected 0 patches, got %d", len(blueprint.Kustomizations[0].Patches))
+		}
+		if !strings.Contains(buf.String(), "non-existent") || !strings.Contains(buf.String(), "does not match") {
+			t.Errorf("Expected warning naming the unmatched 'non-existent' directory, got: %q", buf.String())
 		}
 	})
 
