@@ -303,7 +303,10 @@ type SecretEntry struct {
 	Namespaces []string `yaml:"namespaces,omitempty"`
 
 	// Data is the Secret's contents: data key -> reference to a schema property, resolved JIT at
-	// placement and never rendered in plaintext.
+	// placement and never rendered in plaintext. Materializes as an Opaque Secret by default; a
+	// ".dockerconfigjson" key, or "docker-username" plus "docker-password" (optional
+	// "docker-server", defaulting to "ghcr.io"), materializes as kubernetes.io/dockerconfigjson
+	// instead, for use as an imagePullSecret — see ApplySecret/secretTypeAndData.
 	Data map[string]string `yaml:"data,omitempty"`
 }
 

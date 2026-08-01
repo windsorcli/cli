@@ -113,7 +113,12 @@ properties:
       unset, so it composes with ??, e.g. `${hetzner.token ??
       env("HETZNER_TOKEN")}`) — not a plaintext literal. Each entry is
       materialized as a Kubernetes Secret with those data keys in the system's
-      namespace.
+      namespace, typed Opaque by default. Two data-key conventions synthesize
+      a kubernetes.io/dockerconfigjson Secret instead, for use as an
+      imagePullSecret: a '.dockerconfigjson' key is materialized as-is, or
+      'docker-username' plus 'docker-password' (with an optional
+      'docker-server', defaulting to 'ghcr.io') are combined into a
+      '.dockerconfigjson' entry and dropped from the Secret's data.
     items:
       type: object
       required:

@@ -7,6 +7,7 @@ package kubernetes
 import (
 	"context"
 	"crypto/sha256"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -526,25 +527,35 @@ func (k *BaseKubernetesManager) ApplyConfigMap(name, namespace string, data map[
 	return k.applyWithRetry(gvr, obj, opts)
 }
 
-// ApplySecret creates or updates an Opaque Secret using SSA. Values are supplied as plaintext in
+// ApplySecret creates or updates a Secret using SSA. Values are supplied as plaintext in
 // stringData (write-only; the API server folds them into data) and are never logged. Mirrors
-// ApplyConfigMap's server-side-apply handling. It stamps the context ownership labels plus a
-// secret-owner label naming the kustomization the secret belongs to; that label is set only by CLI
-// placement (never by Flux), so PruneSecrets can find and reclaim CLI-placed secrets without ever
-// touching a Flux-managed one.
+// ApplyConfigMap's server-side-apply handling, including its immutable-field guard: Kubernetes
+// rejects an update that changes Secret.type, so if an existing Secret's type differs from the
+// newly resolved one, ApplySecret deletes it first rather than SSA-merging a rejected change. It
+// stamps the context ownership labels plus a secret-owner label naming the kustomization the
+// secret belongs to; that label is set only by CLI placement (never by Flux), so PruneSecrets can
+// find and reclaim CLI-placed secrets without ever touching a Flux-managed one. The Secret's type
+// and stringData are resolved by secretTypeAndData: stringData already carrying
+// ".dockerconfigjson", or carrying docker-username/docker-password (docker-server optional),
+// produces a kubernetes.io/dockerconfigjson Secret for imagePullSecrets; anything else stays Opaque.
 func (k *BaseKubernetesManager) ApplySecret(name, namespace string, stringData map[string]string, owner string) error {
+	secretType, resolvedData, err := secretTypeAndData(stringData)
+	if err != nil {
+		return fmt.Errorf("failed to resolve secret type for %q: %w", name, err)
+	}
+
 	labels := k.ownershipLabels()
 	labels[secretOwnerLabel] = owner
 	obj := &unstructured.Unstructured{
 		Object: map[string]any{
 			"apiVersion": "v1",
 			"kind":       "Secret",
-			"type":       "Opaque",
+			"type":       secretType,
 			"metadata": map[string]any{
 				"name":      name,
 				"namespace": namespace,
 			},
-			"stringData": stringData,
+			"stringData": resolvedData,
 		},
 	}
 	obj.SetLabels(labels)
@@ -557,6 +568,14 @@ func (k *BaseKubernetesManager) ApplySecret(name, namespace string, stringData m
 		Group:    "",
 		Version:  "v1",
 		Resource: "secrets",
+	}
+
+	existing, err := k.client.GetResource(gvr, namespace, name)
+	if err == nil && secretTypeChanged(existing, secretType) {
+		if err := k.client.DeleteResource(gvr, namespace, name, metav1.DeleteOptions{}); err != nil {
+			return fmt.Errorf("failed to delete secret with changed type: %w", err)
+		}
+		time.Sleep(time.Second)
 	}
 
 	opts := metav1.ApplyOptions{
@@ -2115,6 +2134,72 @@ func validateFields(obj *unstructured.Unstructured) error {
 	}
 
 	return nil
+}
+
+// dockerConfigSecretKey is the well-known stringData key a kubernetes.io/dockerconfigjson Secret
+// carries its registry auth under.
+const dockerConfigSecretKey = ".dockerconfigjson" // #nosec G101 -- well-known stringData key, not a credential
+
+// defaultDockerConfigServer is the registry secretTypeAndData assumes when docker-username and
+// docker-password are set but docker-server is not.
+const defaultDockerConfigServer = "ghcr.io"
+
+// secretTypeAndData resolves the Secret type and stringData ApplySecret should apply. stringData
+// already carrying dockerConfigSecretKey passes through unchanged as kubernetes.io/dockerconfigjson.
+// Otherwise, docker-username plus docker-password (docker-server optional, defaulting to
+// defaultDockerConfigServer) synthesizes a dockerConfigSecretKey entry and drops the docker-* keys,
+// also as kubernetes.io/dockerconfigjson. Anything else stays Opaque, unchanged. stringData is never
+// mutated; a new map is returned whenever synthesis applies.
+func secretTypeAndData(stringData map[string]string) (string, map[string]string, error) {
+	if stringData[dockerConfigSecretKey] != "" {
+		return "kubernetes.io/dockerconfigjson", stringData, nil
+	}
+
+	username := stringData["docker-username"]
+	password := stringData["docker-password"]
+	if username == "" || password == "" {
+		return "Opaque", stringData, nil
+	}
+
+	server := stringData["docker-server"]
+	if server == "" {
+		server = defaultDockerConfigServer
+	}
+
+	auth := base64.StdEncoding.EncodeToString([]byte(username + ":" + password))
+	dockerConfig := map[string]any{
+		"auths": map[string]any{
+			server: map[string]any{
+				"username": username,
+				"password": password,
+				"auth":     auth,
+			},
+		},
+	}
+	encoded, err := json.Marshal(dockerConfig)
+	if err != nil {
+		return "", nil, fmt.Errorf("failed to encode docker config json: %w", err)
+	}
+
+	resolved := make(map[string]string, len(stringData))
+	for k, v := range stringData {
+		if k == "docker-username" || k == "docker-password" || k == "docker-server" {
+			continue
+		}
+		resolved[k] = v
+	}
+	resolved[dockerConfigSecretKey] = string(encoded)
+
+	return "kubernetes.io/dockerconfigjson", resolved, nil
+}
+
+// secretTypeChanged reports whether an existing Secret's type differs from newType. Kubernetes
+// treats Secret.type as immutable after creation — the API server rejects an update that changes
+// it — so ApplySecret deletes and recreates rather than SSA-merging when the resolved type (e.g.
+// via docker-* key synthesis) differs from what's already there.
+func secretTypeChanged(obj *unstructured.Unstructured, newType string) bool {
+	existingType, _ := obj.Object["type"].(string)
+	return existingType != "" && existingType != newType
 }
 
 // isImmutableConfigMap checks if a ConfigMap is immutable
