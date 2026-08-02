@@ -542,8 +542,12 @@ func (r *TestRunner) matchBlueprint(bp *blueprintv1alpha1.Blueprint, expect *blu
 // actual composed blueprint. This allows tests to assert that certain components should be excluded
 // based on test conditions (e.g., a component should not exist when a feature flag is disabled).
 // Uses partial matching: components are identified by name or path for Terraform components, and by
-// name for Kustomizations. If any excluded component is found in the blueprint, a descriptive error
-// message is added to the differences list. Returns an empty slice if all exclusions are satisfied.
+// name for Kustomizations. A Kustomization exclusion that also sets components: doesn't assert the
+// whole entry is absent — the containing kustomization is expected to exist, so this asserts only
+// that those specific components are absent from it (see matchComponentExclusion); a
+// bare name: with no components: keeps whole-entry-absence semantics. If any excluded component is
+// found in the blueprint, a descriptive error message is added to the differences list. Returns an
+// empty slice if all exclusions are satisfied.
 func (r *TestRunner) matchExclusions(bp *blueprintv1alpha1.Blueprint, exclude *blueprintv1alpha1.Blueprint) []string {
 	var diffs []string
 
@@ -564,9 +568,14 @@ func (r *TestRunner) matchExclusions(bp *blueprintv1alpha1.Blueprint, exclude *b
 
 	for _, excludeK := range exclude.Kustomizations {
 		found := r.findKustomization(bp, excludeK)
-		if found != nil {
-			diffs = append(diffs, fmt.Sprintf("kustomization should not exist: %s", excludeK.Name))
+		if found == nil {
+			continue
 		}
+		if len(excludeK.Components) == 0 {
+			diffs = append(diffs, fmt.Sprintf("kustomization should not exist: %s", excludeK.Name))
+			continue
+		}
+		diffs = append(diffs, matchComponentExclusion(found.Components, excludeK.Components, fmt.Sprintf("kustomize[%s]", excludeK.Name))...)
 	}
 
 	for _, excludeSys := range exclude.FluxSystems {
@@ -844,22 +853,55 @@ func (r *TestRunner) matchFluxSystem(actual *blueprintv1alpha1.FluxSystem, expec
 // absent: the install tier when exclude.Install is set, and each named/matched resources variant in
 // exclude.Resources. Used when a fixture wants to assert a system is still partially present (e.g. its
 // install tier remains while one resources variant is gated off) rather than absent entirely, which
-// matchExclusions handles by name lookup alone before calling this. Returns an empty slice if every
-// excluded part is absent.
+// matchExclusions handles by name lookup alone before calling this. An exclude.Install or resources
+// variant that also sets components: doesn't assert the tier/variant itself is absent — it's expected
+// to exist — so this asserts only that those specific components are absent from it, the same
+// name-plus-components treatment matchExclusions gives a Kustomization exclusion (see
+// matchComponentExclusion). This narrowing applies whichever way findFluxVariant located the variant —
+// by exact name, or by its components-subset match for an unnamed variant — since either way the found
+// variant is expected to exist and only the listed components are asserted absent from it. A bare
+// install: or resources variant with no components: keeps whole-tier/whole-variant-absence semantics.
+// Returns an empty slice if every excluded part is absent.
 func (r *TestRunner) matchFluxSystemExclusions(actual *blueprintv1alpha1.FluxSystem, exclude blueprintv1alpha1.FluxSystem) []string {
 	var diffs []string
 	name := exclude.Name
 
 	if exclude.Install != nil && actual.Install != nil {
-		diffs = append(diffs, fmt.Sprintf("flux[%s].install: should not exist", name))
-	}
-
-	for _, excludeVariant := range exclude.Resources {
-		if r.findFluxVariant(actual.Resources, excludeVariant) != nil {
-			diffs = append(diffs, fmt.Sprintf("flux[%s].resources: variant should not exist: %s", name, fluxVariantIdentifier(excludeVariant)))
+		if len(exclude.Install.Components) == 0 {
+			diffs = append(diffs, fmt.Sprintf("flux[%s].install: should not exist", name))
+		} else {
+			diffs = append(diffs, matchComponentExclusion(actual.Install.Components, exclude.Install.Components, fmt.Sprintf("flux[%s].install", name))...)
 		}
 	}
 
+	for _, excludeVariant := range exclude.Resources {
+		found := r.findFluxVariant(actual.Resources, excludeVariant)
+		if found == nil {
+			continue
+		}
+		if len(excludeVariant.Components) > 0 {
+			diffs = append(diffs, matchComponentExclusion(found.Components, excludeVariant.Components, fmt.Sprintf("flux[%s].resources[%s]", name, fluxVariantIdentifier(excludeVariant)))...)
+			continue
+		}
+		diffs = append(diffs, fmt.Sprintf("flux[%s].resources: variant should not exist: %s", name, fluxVariantIdentifier(excludeVariant)))
+	}
+
+	return diffs
+}
+
+// matchComponentExclusion asserts that none of excludeComponents are present in actual, returning
+// one diff per component found in both. Used when an exclude entry (Kustomization, FluxSystem
+// Install, or a Resources variant) sets components: alongside identifying the entry by name — the
+// entry itself is expected to exist, so this checks the narrower "does it contain this component"
+// claim instead of the entry's presence. label prefixes each diff message (e.g. "kustomize[name]",
+// "flux[name].install", "flux[name].resources[variant]").
+func matchComponentExclusion(actual []string, excludeComponents []string, label string) []string {
+	var diffs []string
+	for _, comp := range excludeComponents {
+		if contains(actual, comp) {
+			diffs = append(diffs, fmt.Sprintf("%s.components: should not contain %q", label, comp))
+		}
+	}
 	return diffs
 }
 
