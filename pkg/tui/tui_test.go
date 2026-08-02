@@ -235,6 +235,22 @@ func TestTermSpinner_Start(t *testing.T) {
 			t.Errorf("expected message %q, got %q", "second", s.message)
 		}
 	})
+
+	t.Run("PrintsFallbackLineWhenStderrIsNotATerminal", func(t *testing.T) {
+		// Given a termSpinner, and stderr redirected to a pipe (never a terminal) — the
+		// underlying animated spinner silently no-ops in this case, so without a fallback,
+		// nothing would be printed until Done/Fail
+		s := &termSpinner{}
+		t.Cleanup(func() { captureStderr(t, s.Done) })
+
+		// When Start is called
+		output := captureStderr(t, func() { s.Start("waiting for reboot") })
+
+		// Then the message is still printed as a static line
+		if !strings.Contains(output, "waiting for reboot") {
+			t.Errorf("expected fallback line mentioning the message, got %q", output)
+		}
+	})
 }
 
 // Tests for termSpinner Update behavior
@@ -279,6 +295,35 @@ func TestTermSpinner_Update(t *testing.T) {
 		s.Update("msg")
 		if s.message != "" {
 			t.Errorf("expected message %q, got %q", "", s.message)
+		}
+	})
+
+	t.Run("PrintsFallbackLineWhenStderrIsNotATerminal", func(t *testing.T) {
+		// Given a termSpinner already started, with stderr redirected to a pipe (never a
+		// terminal)
+		s := &termSpinner{}
+		captureStderr(t, func() { s.Start("step 1") })
+		t.Cleanup(func() { captureStderr(t, s.Done) })
+
+		// When Update is called
+		output := captureStderr(t, func() { s.Update("step 2") })
+
+		// Then the updated message is printed as a static line
+		if !strings.Contains(output, "step 2") {
+			t.Errorf("expected fallback line mentioning the updated message, got %q", output)
+		}
+	})
+
+	t.Run("SkipsFallbackLineWhenNilSpin", func(t *testing.T) {
+		// Given a termSpinner with no active spin (Start was never called)
+		s := &termSpinner{}
+
+		// When Update is called
+		output := captureStderr(t, func() { s.Update("msg") })
+
+		// Then nothing is printed — Update on a never-started spinner is a no-op
+		if output != "" {
+			t.Errorf("expected no output, got %q", output)
 		}
 	})
 }
