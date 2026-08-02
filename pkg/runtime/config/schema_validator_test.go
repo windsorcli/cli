@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/kaptinlin/jsonschema"
 	"github.com/windsorcli/cli/pkg/runtime/shell"
 )
 
@@ -915,6 +916,165 @@ func TestSchemaValidator_Validate(t *testing.T) {
 		expectedError := "config schema has not been loaded"
 		if err.Error() != expectedError {
 			t.Errorf("Expected error '%s', got: %v", expectedError, err)
+		}
+	})
+}
+
+func TestFlattenErrorList(t *testing.T) {
+	t.Run("DropsExactDuplicateLines", func(t *testing.T) {
+		// Given two branches that both fail with the identical (path, keyword, message) triple
+		// at the root — the shape a schema with several allOf branches referencing the same
+		// property produces — plus one leaf-specific failure
+		list := &jsonschema.List{
+			Details: []jsonschema.List{
+				{
+					InstanceLocation: "/",
+					Errors:           map[string]string{"properties": "Property 'cluster' does not match the schema"},
+					Details: []jsonschema.List{
+						{InstanceLocation: "/cluster", Errors: map[string]string{"additionalProperties": "Additional property 'oidc' does not match the schema"}},
+					},
+				},
+				{
+					InstanceLocation: "/",
+					Errors:           map[string]string{"properties": "Property 'cluster' does not match the schema"},
+				},
+			},
+		}
+
+		// When flattening
+		errs := flattenErrorList(list)
+
+		// Then the duplicate "/: properties: ..." line appears exactly once
+		count := 0
+		for _, e := range errs {
+			if e == "/: properties: Property 'cluster' does not match the schema" {
+				count++
+			}
+		}
+		if count != 1 {
+			t.Errorf("Expected the duplicate line to appear once, got %d occurrences in %v", count, errs)
+		}
+		if len(errs) != 2 {
+			t.Errorf("Expected 2 distinct errors, got %d: %v", len(errs), errs)
+		}
+	})
+
+	t.Run("SortsStructuralKeywordsAfterSpecificOnes", func(t *testing.T) {
+		// Given a "properties" (structural) failure at the root and an "additionalProperties"
+		// (specific/actionable) failure nested under it
+		list := &jsonschema.List{
+			InstanceLocation: "/",
+			Errors:           map[string]string{"properties": "Property 'cluster' does not match the schema"},
+			Details: []jsonschema.List{
+				{InstanceLocation: "/cluster", Errors: map[string]string{"additionalProperties": "Additional property 'oidc' does not match the schema"}},
+			},
+		}
+
+		// When flattening
+		errs := flattenErrorList(list)
+
+		// Then the specific error sorts before the structural one, even though it was nested
+		// (and so walked) after it
+		if len(errs) != 2 {
+			t.Fatalf("Expected 2 errors, got %d: %v", len(errs), errs)
+		}
+		if !strings.Contains(errs[0], "additionalProperties") {
+			t.Errorf("Expected the additionalProperties error first, got %v", errs)
+		}
+		if !strings.Contains(errs[1], "properties") {
+			t.Errorf("Expected the properties error last, got %v", errs)
+		}
+	})
+
+	t.Run("PreservesRelativeOrderWithinEachPriorityGroup", func(t *testing.T) {
+		// Given two specific (non-structural) failures and two structural failures, interleaved
+		list := &jsonschema.List{
+			Details: []jsonschema.List{
+				{InstanceLocation: "/a", Errors: map[string]string{"required": "Required property 'a' is missing"}},
+				{InstanceLocation: "/", Errors: map[string]string{"properties": "Property 'x' does not match the schema"}},
+				{InstanceLocation: "/b", Errors: map[string]string{"const": "Value does not match the constant value"}},
+				{InstanceLocation: "/", Errors: map[string]string{"allOf": "Value does not match the allOf schema at index 0"}},
+			},
+		}
+
+		// When flattening
+		errs := flattenErrorList(list)
+
+		// Then the two specific errors keep their original relative order, ahead of the two
+		// structural errors, which also keep their original relative order
+		if len(errs) != 4 {
+			t.Fatalf("Expected 4 errors, got %d: %v", len(errs), errs)
+		}
+		if !strings.Contains(errs[0], "required") || !strings.Contains(errs[1], "const") {
+			t.Errorf("Expected required then const first, got %v", errs)
+		}
+		if !strings.Contains(errs[2], "properties") || !strings.Contains(errs[3], "allOf") {
+			t.Errorf("Expected properties then allOf last, got %v", errs)
+		}
+	})
+
+	t.Run("ReturnsPlaceholderWhenListHasNoErrors", func(t *testing.T) {
+		// Given a list with no error entries anywhere
+		list := &jsonschema.List{}
+
+		// When flattening
+		errs := flattenErrorList(list)
+
+		// Then a placeholder is returned rather than an empty slice
+		if len(errs) != 1 || errs[0] != "validation failed" {
+			t.Errorf("Expected placeholder 'validation failed', got %v", errs)
+		}
+	})
+}
+
+func TestSchemaValidator_ErrorReportingDedup(t *testing.T) {
+	t.Run("NotReportedInitially", func(t *testing.T) {
+		// Given a fresh validator
+		validator := NewSchemaValidator(shell.NewMockShell())
+
+		// Then an arbitrary error set is not considered already reported
+		if validator.ErrorsAlreadyReported([]string{"/: required: x is missing"}) {
+			t.Error("Expected ErrorsAlreadyReported to be false before any MarkErrorsReported call")
+		}
+	})
+
+	t.Run("ReportsTrueForIdenticalErrorSet", func(t *testing.T) {
+		// Given a validator that already reported a specific error set
+		validator := NewSchemaValidator(shell.NewMockShell())
+		errs := []string{"/: required: x is missing", "/cluster: const: bad value"}
+		validator.MarkErrorsReported(errs)
+
+		// Then the identical set (even a distinct slice with the same contents) is recognized
+		same := []string{"/: required: x is missing", "/cluster: const: bad value"}
+		if !validator.ErrorsAlreadyReported(same) {
+			t.Error("Expected the identical error set to be recognized as already reported")
+		}
+	})
+
+	t.Run("ReportsFalseForDifferentErrorSet", func(t *testing.T) {
+		// Given a validator that already reported one error set
+		validator := NewSchemaValidator(shell.NewMockShell())
+		validator.MarkErrorsReported([]string{"/: required: x is missing"})
+
+		// Then a different error set is not recognized as already reported
+		if validator.ErrorsAlreadyReported([]string{"/: required: y is missing"}) {
+			t.Error("Expected a different error set not to be recognized as already reported")
+		}
+	})
+}
+
+func TestFormatValidationErrors(t *testing.T) {
+	t.Run("FormatsEachErrorOnItsOwnIndentedLine", func(t *testing.T) {
+		got := FormatValidationErrors([]string{"/a: required: a is missing", "/b: const: bad value"})
+		want := "\n  - /a: required: a is missing\n  - /b: const: bad value"
+		if got != want {
+			t.Errorf("Expected %q, got %q", want, got)
+		}
+	})
+
+	t.Run("ReturnsEmptyStringForNoErrors", func(t *testing.T) {
+		if got := FormatValidationErrors(nil); got != "" {
+			t.Errorf("Expected empty string, got %q", got)
 		}
 	})
 }

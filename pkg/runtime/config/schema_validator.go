@@ -37,6 +37,13 @@ type SchemaValidator struct {
 	// distinguishes a computed-empty result from an uncomputed cache.
 	sensitivePaths   []string
 	sensitivePathsOK bool
+
+	// lastReportedErrors caches the error list last surfaced to the operator (e.g. by
+	// valuesSource.Load's warning), joined into one comparable string. A later caller validating
+	// the same invalid data (e.g. ValidateContextValues, run after Load in the same invocation)
+	// checks ErrorsAlreadyReported before printing, so the identical wall of text isn't dumped
+	// twice for one root cause.
+	lastReportedErrors string
 }
 
 // SchemaValidationResult carries the outcome of a Validate call. Defaults is populated by
@@ -107,7 +114,9 @@ func (sv *SchemaValidator) LoadSchemaFromBytes(schemaContent []byte) error {
 
 // Validate checks values against the loaded schema and returns the outcome plus extracted
 // defaults. Errors are flattened from kaptinlin's hierarchical EvaluationResult into one
-// "<instance-path>: <message>" line per leaf, suitable for direct %v formatting by callers.
+// deduplicated, prioritized "<instance-path>: <keyword>: <message>" line per leaf — see
+// collectErrors — pass them to FormatValidationErrors for display, or ErrorsAlreadyReported to
+// check whether a caller earlier in this invocation already surfaced the identical set.
 func (sv *SchemaValidator) Validate(values map[string]any) (*SchemaValidationResult, error) {
 	schema, err := sv.ensureCompiled()
 	if err != nil {
@@ -121,6 +130,46 @@ func (sv *SchemaValidator) Validate(values map[string]any) (*SchemaValidationRes
 		Defaults: extractDefaults(sv.Schema),
 	}
 	return result, nil
+}
+
+// MarkErrorsReported records errs (a Validate result's Errors) as already surfaced to the
+// operator, so a later ErrorsAlreadyReported call for the identical error set — e.g.
+// ValidateContextValues revalidating the same invalid data already warned about by
+// valuesSource.Load earlier in the same invocation — can recognize the duplicate and skip
+// re-printing it.
+func (sv *SchemaValidator) MarkErrorsReported(errs []string) {
+	sv.lastReportedErrors = errorSetFingerprint(errs)
+}
+
+// ErrorsAlreadyReported reports whether errs is the same set of errors last recorded by
+// MarkErrorsReported, regardless of order.
+func (sv *SchemaValidator) ErrorsAlreadyReported(errs []string) bool {
+	return sv.lastReportedErrors != "" && sv.lastReportedErrors == errorSetFingerprint(errs)
+}
+
+// errorSetFingerprint builds an order-independent fingerprint for an error slice. Two separate
+// Validate calls against the identical invalid data can each produce their Errors in a different
+// order — kaptinlin's per-node Errors map (multiple keywords failing at the same instance
+// location) iterates in Go's randomized map order, and collectErrors' stable sort only
+// reorders by structural/specific priority, not by content — so comparing raw join order would
+// spuriously treat the same error set as different across calls.
+func errorSetFingerprint(errs []string) string {
+	sorted := make([]string, len(errs))
+	copy(sorted, errs)
+	sort.Strings(sorted)
+	return strings.Join(sorted, "\x00")
+}
+
+// FormatValidationErrors renders a Validate result's Errors as an indented list, one violation
+// per line, instead of Go's flat space-joined %v slice format, so a multi-error result reads as
+// a scannable list rather than a run-on string.
+func FormatValidationErrors(errs []string) string {
+	var b strings.Builder
+	for _, e := range errs {
+		b.WriteString("\n  - ")
+		b.WriteString(e)
+	}
+	return b.String()
 }
 
 // GetSchemaDefaults returns the default values declared in the loaded schema as a single
@@ -324,36 +373,91 @@ func collectSensitivePaths(schema map[string]any, prefix string, out *[]string) 
 	}
 }
 
-// collectErrors flattens a kaptinlin EvaluationResult into one error string per leaf,
-// formatted as "<instance-path>: <keyword>: <message>" so callers that %v-format the
-// []string surface readable paths to operators.
+// structuralValidationKeywords are keywords whose failure is a symptom of a nested, more
+// specific failure elsewhere rather than the actionable violation itself — "properties" only
+// ever says "property X doesn't match its schema", never why; "allOf"/"anyOf"/"oneOf"/"if"
+// are the same shape one level up. collectErrors sorts these after every other keyword so an
+// operator sees the specific cause (additionalProperties, const, required, type, ...) first,
+// instead of every ancestor schema that failed as a consequence of it.
+var structuralValidationKeywords = map[string]bool{
+	"properties": true,
+	"allOf":      true,
+	"anyOf":      true,
+	"oneOf":      true,
+	"if":         true,
+}
+
+// validationError pairs a fully formatted error line with the keyword that produced it, so
+// collectErrors can dedup and prioritize without re-parsing the formatted string.
+type validationError struct {
+	keyword string
+	line    string
+}
+
+// collectErrors flattens a kaptinlin EvaluationResult into a deduplicated, prioritized list of
+// error strings, one per distinct leaf, formatted as "<instance-path>: <keyword>: <message>".
+// A schema with several allOf/if branches referencing the same property routinely reports the
+// identical (path, keyword, message) triple from each branch — e.g. a cluster-driver coherence
+// check and an identity-driver coherence check both restating "/: properties: Property
+// 'cluster' does not match the schema" — so exact-duplicate lines are dropped, and the survivors
+// are stably reordered per structuralValidationKeywords.
 func collectErrors(result *jsonschema.EvaluationResult) []string {
 	if result.IsValid() {
 		return nil
 	}
-	list := result.ToList(true)
-	var errs []string
-	walkList(list, "", &errs)
-	if len(errs) == 0 {
-		errs = []string{"validation failed"}
+	return flattenErrorList(result.ToList(true))
+}
+
+// flattenErrorList walks list via walkList, then dedups and prioritizes the result — split out
+// from collectErrors so the dedup/prioritization logic is testable directly against a
+// hand-constructed *jsonschema.List, without needing a real schema evaluation to reproduce a
+// specific duplicate/cascading shape.
+func flattenErrorList(list *jsonschema.List) []string {
+	var raw []validationError
+	walkList(list, "", &raw)
+	if len(raw) == 0 {
+		return []string{"validation failed"}
+	}
+
+	seen := make(map[string]bool, len(raw))
+	deduped := make([]validationError, 0, len(raw))
+	for _, e := range raw {
+		if seen[e.line] {
+			continue
+		}
+		seen[e.line] = true
+		deduped = append(deduped, e)
+	}
+
+	sort.SliceStable(deduped, func(i, j int) bool {
+		return !structuralValidationKeywords[deduped[i].keyword] && structuralValidationKeywords[deduped[j].keyword]
+	})
+
+	errs := make([]string, len(deduped))
+	for i, e := range deduped {
+		errs[i] = e.line
 	}
 	return errs
 }
 
-// walkList descends a flattened List, emitting one string per (instance-location, keyword)
-// pair. Instance locations use JSON Pointer notation rooted at "/" (e.g. "/network/cidr_block").
-// kaptinlin scopes each evaluator's leaf to a path local to that evaluator — a nested enum
-// failure on storage.driver surfaces as "/driver" rather than "/storage/driver" — so this
-// walker carries the parent location down the recursion and joins it onto each child to
-// reconstruct the fully-qualified pointer operators expect when reading the message.
-func walkList(list *jsonschema.List, parent string, errs *[]string) {
+// walkList descends a flattened List, emitting one validationError per (instance-location,
+// keyword) pair. Instance locations use JSON Pointer notation rooted at "/" (e.g.
+// "/network/cidr_block"). kaptinlin scopes each evaluator's leaf to a path local to that
+// evaluator — a nested enum failure on storage.driver surfaces as "/driver" rather than
+// "/storage/driver" — so this walker carries the parent location down the recursion and joins
+// it onto each child to reconstruct the fully-qualified pointer operators expect when reading
+// the message.
+func walkList(list *jsonschema.List, parent string, errs *[]validationError) {
 	loc := joinInstanceLocation(parent, list.InstanceLocation)
 	display := loc
 	if display == "" {
 		display = "/"
 	}
 	for keyword, msg := range list.Errors {
-		*errs = append(*errs, fmt.Sprintf("%s: %s: %s", display, keyword, msg))
+		*errs = append(*errs, validationError{
+			keyword: keyword,
+			line:    fmt.Sprintf("%s: %s: %s", display, keyword, msg),
+		})
 	}
 	for i := range list.Details {
 		walkList(&list.Details[i], loc, errs)
