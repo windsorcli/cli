@@ -3,6 +3,7 @@ package cluster
 import (
 	"context"
 	"fmt"
+	"io"
 	"net"
 	"os"
 	"strings"
@@ -58,6 +59,8 @@ func setupDefaultShims() *Shims {
 			},
 		}, nil
 	}
+
+	shims.TalosClose = func(c *talosclient.Client) {}
 
 	shims.TalosVersion = func(ctx context.Context, client *talosclient.Client) (*machine.VersionResponse, error) {
 		return &machine.VersionResponse{
@@ -501,7 +504,7 @@ func TestTalosClusterClient_WaitForNodesReboot(t *testing.T) {
 		client := setup(t)
 
 		ctx := context.Background()
-		err := client.WaitForNodesReboot(ctx, []string{"10.0.0.1"}, "", nil, 0)
+		err := client.WaitForNodesReboot(ctx, []string{"10.0.0.1"}, nil, "", nil, 0)
 		if err == nil {
 			t.Error("Expected error, got nil")
 		}
@@ -515,16 +518,14 @@ func TestTalosClusterClient_WaitForNodesReboot(t *testing.T) {
 		os.Setenv("TALOSCONFIG", "/tmp/talosconfig")
 		defer os.Unsetenv("TALOSCONFIG")
 
-		// Phase 1 uses TalosVersion: online then offline
-		versionCallCount := 0
-		client.shims.TalosVersion = func(ctx context.Context, c *talosclient.Client) (*machine.VersionResponse, error) {
-			versionCallCount++
-			if versionCallCount == 1 {
-				return &machine.VersionResponse{
-					Messages: []*machine.Version{{Version: &machine.VersionInfo{Tag: "v1.0.0"}}},
-				}, nil // online
+		// Phase 1 uses TalosRead (boot ID): still the old boot ID once, then rebooted
+		readCallCount := 0
+		client.shims.TalosRead = func(ctx context.Context, c *talosclient.Client, path string) (io.ReadCloser, error) {
+			readCallCount++
+			if readCallCount == 1 {
+				return io.NopCloser(strings.NewReader("boot-id-before")), nil
 			}
-			return nil, fmt.Errorf("connection refused") // offline
+			return io.NopCloser(strings.NewReader("boot-id-after")), nil
 		}
 
 		// Phase 2 uses TalosServiceList via WaitForNodesHealthy
@@ -539,7 +540,32 @@ func TestTalosClusterClient_WaitForNodesReboot(t *testing.T) {
 		}
 
 		ctx := context.Background()
-		err := client.WaitForNodesReboot(ctx, []string{"10.0.0.1"}, "", nil, 0)
+		preActionBootIDs := map[string]string{"10.0.0.1": "boot-id-before"}
+		err := client.WaitForNodesReboot(ctx, []string{"10.0.0.1"}, preActionBootIDs, "", nil, 0)
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+	})
+
+	t.Run("UntrackedNodeSkipsRebootCheck", func(t *testing.T) {
+		// A node missing from preActionBootIDs (its boot ID couldn't be captured
+		// beforehand) is treated as already satisfied in phase 1.
+		client := setup(t)
+		os.Setenv("TALOSCONFIG", "/tmp/talosconfig")
+		defer os.Unsetenv("TALOSCONFIG")
+
+		client.shims.TalosServiceList = func(ctx context.Context, c *talosclient.Client) (*machine.ServiceListResponse, error) {
+			return &machine.ServiceListResponse{
+				Messages: []*machine.ServiceList{
+					{Services: []*machine.ServiceInfo{
+						{Id: "apid", State: "Running", Health: &machine.ServiceHealth{Healthy: true}},
+					}},
+				},
+			}, nil
+		}
+
+		ctx := context.Background()
+		err := client.WaitForNodesReboot(ctx, []string{"10.0.0.1"}, nil, "", nil, 0)
 		if err != nil {
 			t.Errorf("Expected no error, got %v", err)
 		}
@@ -555,9 +581,9 @@ func TestTalosClusterClient_WaitForNodesReboot(t *testing.T) {
 		os.Setenv("TALOSCONFIG", "/tmp/talosconfig")
 		defer os.Unsetenv("TALOSCONFIG")
 
-		// Phase 1: node goes offline immediately
-		client.shims.TalosVersion = func(ctx context.Context, c *talosclient.Client) (*machine.VersionResponse, error) {
-			return nil, fmt.Errorf("connection refused")
+		// Phase 1: boot ID already changed, reboot confirmed immediately
+		client.shims.TalosRead = func(ctx context.Context, c *talosclient.Client, path string) (io.ReadCloser, error) {
+			return io.NopCloser(strings.NewReader("boot-id-after")), nil
 		}
 
 		// Phase 2: node never becomes healthy, so WaitForNodesHealthy must time out
@@ -566,7 +592,8 @@ func TestTalosClusterClient_WaitForNodesReboot(t *testing.T) {
 		}
 
 		start := time.Now()
-		err := client.WaitForNodesReboot(context.Background(), []string{"10.0.0.1"}, "", nil, 0)
+		preActionBootIDs := map[string]string{"10.0.0.1": "boot-id-before"}
+		err := client.WaitForNodesReboot(context.Background(), []string{"10.0.0.1"}, preActionBootIDs, "", nil, 0)
 		elapsed := time.Since(start)
 
 		if err == nil {
@@ -579,26 +606,30 @@ func TestTalosClusterClient_WaitForNodesReboot(t *testing.T) {
 		}
 	})
 
-	t.Run("TimeoutWaitingForOffline", func(t *testing.T) {
+	t.Run("TimeoutWaitingForReboot", func(t *testing.T) {
 		client := setup(t)
 		os.Setenv("TALOSCONFIG", "/tmp/talosconfig")
 		defer os.Unsetenv("TALOSCONFIG")
 
-		// TalosVersion always succeeds — node never goes offline
+		// TalosRead always returns the same boot ID — node never reboots
 		client.healthCheckPollInterval = 10 * time.Millisecond
+		client.shims.TalosRead = func(ctx context.Context, c *talosclient.Client, path string) (io.ReadCloser, error) {
+			return io.NopCloser(strings.NewReader("boot-id-before")), nil
+		}
 
 		ctx := context.Background()
+		preActionBootIDs := map[string]string{"10.0.0.1": "boot-id-before"}
 		// offlineTimeout of 50ms caps phase 1
-		err := client.WaitForNodesReboot(ctx, []string{"10.0.0.1"}, "", nil, 50*time.Millisecond)
+		err := client.WaitForNodesReboot(ctx, []string{"10.0.0.1"}, preActionBootIDs, "", nil, 50*time.Millisecond)
 		if err == nil {
 			t.Error("Expected error, got nil")
 		}
-		if !strings.Contains(err.Error(), "timeout waiting for nodes to go offline") {
+		if !strings.Contains(err.Error(), "timeout waiting for nodes to reboot") {
 			t.Errorf("Expected timeout error, got %v", err)
 		}
 	})
 
-	t.Run("ContextCancelledDuringOfflineWait", func(t *testing.T) {
+	t.Run("ContextCancelledDuringRebootWait", func(t *testing.T) {
 		client := setup(t)
 		os.Setenv("TALOSCONFIG", "/tmp/talosconfig")
 		defer os.Unsetenv("TALOSCONFIG")
@@ -606,12 +637,106 @@ func TestTalosClusterClient_WaitForNodesReboot(t *testing.T) {
 		ctx, cancel := context.WithCancel(context.Background())
 		cancel()
 
-		err := client.WaitForNodesReboot(ctx, []string{"10.0.0.1"}, "", nil, 0)
+		preActionBootIDs := map[string]string{"10.0.0.1": "boot-id-before"}
+		err := client.WaitForNodesReboot(ctx, []string{"10.0.0.1"}, preActionBootIDs, "", nil, 0)
 		if err == nil {
 			t.Error("Expected error, got nil")
 		}
-		if !strings.Contains(err.Error(), "timeout waiting for nodes to go offline") {
+		if !strings.Contains(err.Error(), "timeout waiting for nodes to reboot") {
 			t.Errorf("Expected timeout error, got %v", err)
+		}
+	})
+}
+
+func TestTalosClusterClient_getNodeBootID(t *testing.T) {
+	setup := func(t *testing.T) *TalosClusterClient {
+		t.Helper()
+		client := NewTalosClusterClient()
+		client.shims = setupDefaultShims()
+		return client
+	}
+
+	t.Run("Success", func(t *testing.T) {
+		client := setup(t)
+		client.shims.TalosRead = func(ctx context.Context, c *talosclient.Client, path string) (io.ReadCloser, error) {
+			if path != bootIDPath {
+				t.Errorf("Expected path %s, got %s", bootIDPath, path)
+			}
+			return io.NopCloser(strings.NewReader("abc-123\n")), nil
+		}
+
+		bootID, err := client.getNodeBootID(context.Background(), "10.0.0.1")
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+		if bootID != "abc-123" {
+			t.Errorf("Expected 'abc-123', got %q", bootID)
+		}
+	})
+
+	t.Run("NewClientError", func(t *testing.T) {
+		client := setup(t)
+		client.shims.TalosNewClient = func(ctx context.Context, opts ...talosclient.OptionFunc) (*talosclient.Client, error) {
+			return nil, fmt.Errorf("dial error")
+		}
+
+		_, err := client.getNodeBootID(context.Background(), "10.0.0.1")
+		if err == nil {
+			t.Error("Expected error, got nil")
+		}
+		if !strings.Contains(err.Error(), "dial error") {
+			t.Errorf("Expected dial error, got %v", err)
+		}
+	})
+
+	t.Run("ReadError", func(t *testing.T) {
+		client := setup(t)
+		client.shims.TalosRead = func(ctx context.Context, c *talosclient.Client, path string) (io.ReadCloser, error) {
+			return nil, fmt.Errorf("read error")
+		}
+
+		_, err := client.getNodeBootID(context.Background(), "10.0.0.1")
+		if err == nil {
+			t.Error("Expected error, got nil")
+		}
+		if !strings.Contains(err.Error(), "read error") {
+			t.Errorf("Expected read error, got %v", err)
+		}
+	})
+}
+
+func TestTalosClusterClient_CaptureNodeBootIDs(t *testing.T) {
+	setup := func(t *testing.T) *TalosClusterClient {
+		t.Helper()
+		client := NewTalosClusterClient()
+		client.shims = setupDefaultShims()
+		return client
+	}
+
+	t.Run("Success", func(t *testing.T) {
+		client := setup(t)
+		client.shims.TalosRead = func(ctx context.Context, c *talosclient.Client, path string) (io.ReadCloser, error) {
+			return io.NopCloser(strings.NewReader("abc-123")), nil
+		}
+
+		bootIDs := client.CaptureNodeBootIDs(context.Background(), []string{"10.0.0.1", "10.0.0.2"})
+		if len(bootIDs) != 2 {
+			t.Errorf("Expected 2 boot IDs, got %d", len(bootIDs))
+		}
+		if bootIDs["10.0.0.1"] != "abc-123" {
+			t.Errorf("Expected 'abc-123', got %q", bootIDs["10.0.0.1"])
+		}
+	})
+
+	t.Run("UnreadableNodeOmitted", func(t *testing.T) {
+		client := setup(t)
+		client.shims.TalosRead = func(ctx context.Context, c *talosclient.Client, path string) (io.ReadCloser, error) {
+			return nil, fmt.Errorf("permission denied")
+		}
+
+		bootIDs := client.CaptureNodeBootIDs(context.Background(), []string{"10.0.0.1"})
+		if len(bootIDs) != 0 {
+			t.Errorf("Expected no boot IDs, got %v", bootIDs)
 		}
 	})
 }
@@ -1069,6 +1194,24 @@ func TestTalosClusterClient_getNodeVersion(t *testing.T) {
 		}
 		if version != "1.0.0" {
 			t.Errorf("Expected version '1.0.0', got '%s'", version)
+		}
+	})
+
+	t.Run("NewClientError", func(t *testing.T) {
+		client := setup(t)
+		client.shims.TalosNewClient = func(ctx context.Context, opts ...talosclient.OptionFunc) (*talosclient.Client, error) {
+			return nil, fmt.Errorf("dial error")
+		}
+
+		ctx := context.Background()
+		nodeAddress := "10.0.0.1"
+
+		_, err := client.getNodeVersion(ctx, nodeAddress)
+		if err == nil {
+			t.Error("Expected error, got nil")
+		}
+		if !strings.Contains(err.Error(), "dial error") {
+			t.Errorf("Expected dial error, got %v", err)
 		}
 	})
 

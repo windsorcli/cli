@@ -3582,7 +3582,7 @@ func TestProvisioner_CheckNodeHealth(t *testing.T) {
 	t.Run("SuccessWithWaitForReboot", func(t *testing.T) {
 		mocks := setupProvisionerMocks(t)
 		rebootCalled := false
-		mocks.ClusterClient.WaitForNodesRebootFunc = func(ctx context.Context, nodeAddresses []string, expectedVersion string, skipServices []string, offlineTimeout time.Duration) error {
+		mocks.ClusterClient.WaitForNodesRebootFunc = func(ctx context.Context, nodeAddresses []string, preActionBootIDs map[string]string, expectedVersion string, skipServices []string, offlineTimeout time.Duration) error {
 			rebootCalled = true
 			return nil
 		}
@@ -3621,7 +3621,7 @@ func TestProvisioner_CheckNodeHealth(t *testing.T) {
 
 	t.Run("WaitForRebootError", func(t *testing.T) {
 		mocks := setupProvisionerMocks(t)
-		mocks.ClusterClient.WaitForNodesRebootFunc = func(ctx context.Context, nodeAddresses []string, expectedVersion string, skipServices []string, offlineTimeout time.Duration) error {
+		mocks.ClusterClient.WaitForNodesRebootFunc = func(ctx context.Context, nodeAddresses []string, preActionBootIDs map[string]string, expectedVersion string, skipServices []string, offlineTimeout time.Duration) error {
 			return fmt.Errorf("reboot timed out")
 		}
 		opts := &Provisioner{
@@ -4444,7 +4444,7 @@ func TestProvisioner_UpgradeNode(t *testing.T) {
 		}
 		rebootCalled := false
 		var capturedVersion string
-		mocks.ClusterClient.WaitForNodesRebootFunc = func(ctx context.Context, nodeAddresses []string, expectedVersion string, skipServices []string, offlineTimeout time.Duration) error {
+		mocks.ClusterClient.WaitForNodesRebootFunc = func(ctx context.Context, nodeAddresses []string, preActionBootIDs map[string]string, expectedVersion string, skipServices []string, offlineTimeout time.Duration) error {
 			rebootCalled = true
 			capturedVersion = expectedVersion
 			return nil
@@ -4527,7 +4527,7 @@ func TestProvisioner_UpgradeNode(t *testing.T) {
 
 	t.Run("RebootWaitFails", func(t *testing.T) {
 		mocks := setupProvisionerMocks(t)
-		mocks.ClusterClient.WaitForNodesRebootFunc = func(ctx context.Context, nodeAddresses []string, expectedVersion string, skipServices []string, offlineTimeout time.Duration) error {
+		mocks.ClusterClient.WaitForNodesRebootFunc = func(ctx context.Context, nodeAddresses []string, preActionBootIDs map[string]string, expectedVersion string, skipServices []string, offlineTimeout time.Duration) error {
 			return fmt.Errorf("timeout waiting for nodes to go offline")
 		}
 

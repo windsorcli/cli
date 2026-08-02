@@ -7,6 +7,8 @@ package cluster
 
 import (
 	"context"
+	"fmt"
+	"io"
 	"net"
 	"time"
 
@@ -28,6 +30,7 @@ type Shims struct {
 	TalosWithNodes   func(ctx context.Context, nodes ...string) context.Context
 	TalosServiceList func(ctx context.Context, client *client.Client) (*machine.ServiceListResponse, error)
 	TalosUpgrade     func(ctx context.Context, client *client.Client, image string, powercycle bool) error
+	TalosRead        func(ctx context.Context, client *client.Client, path string) (io.ReadCloser, error)
 	TalosClose       func(client *client.Client)
 
 	// Network operations
@@ -58,8 +61,17 @@ func NewShims() *Shims {
 			if powercycle {
 				opts = append(opts, client.WithUpgradeRebootMode(machine.UpgradeRequest_POWERCYCLE))
 			}
-			_, err := c.UpgradeWithOptions(ctx, opts...)
-			return err
+			resp, err := c.UpgradeWithOptions(ctx, opts...)
+			if err != nil {
+				return err
+			}
+			if len(resp.GetMessages()) == 0 {
+				return fmt.Errorf("upgrade request returned no acknowledgment from the node")
+			}
+			return nil
+		},
+		TalosRead: func(ctx context.Context, c *client.Client, path string) (io.ReadCloser, error) {
+			return c.Read(ctx, path)
 		},
 		TalosClose: func(c *client.Client) {
 			_ = c.Close()

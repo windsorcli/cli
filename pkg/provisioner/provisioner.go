@@ -1687,13 +1687,13 @@ func (i *Provisioner) Uninstall(blueprint *blueprintv1alpha1.Blueprint) error {
 	return nil
 }
 
-// UpgradeNode performs a complete per-node upgrade: sends the upgrade gRPC request (wait=false),
-// waits for the node to go offline via version polling (offlineTimeout caps this phase),
-// waits for the node to come back healthy, then performs a final service health check.
-// powercycle requests a full ACPI reboot instead of the default kexec, needed on platforms
-// (e.g. nested virtualization) where kexec doesn't reliably register as an offline transition.
-// outputFunc receives status messages during the wait phases. Returns an error if any
-// step fails or times out.
+// UpgradeNode performs a complete per-node upgrade: captures the node's current boot ID,
+// sends the upgrade gRPC request (wait=false), waits for the node to reboot (confirmed by
+// its boot ID changing, offlineTimeout caps this phase), waits for the node to come back
+// healthy, then performs a final service health check. powercycle requests a full ACPI
+// reboot instead of the default kexec, needed on platforms (e.g. nested virtualization)
+// where kexec doesn't reliably register as an offline transition. outputFunc receives
+// status messages during the wait phases. Returns an error if any step fails or times out.
 func (i *Provisioner) UpgradeNode(ctx context.Context, node string, image string, offlineTimeout time.Duration, powercycle bool, outputFunc func(string)) error {
 	if err := i.ensureClusterClient(); err != nil {
 		return err
@@ -1701,6 +1701,7 @@ func (i *Provisioner) UpgradeNode(ctx context.Context, node string, image string
 	defer i.ClusterClient.Close()
 
 	nodes := []string{node}
+	preActionBootIDs := i.ClusterClient.CaptureNodeBootIDs(ctx, nodes)
 
 	if outputFunc != nil {
 		outputFunc(fmt.Sprintf("Sending upgrade request to node %s...", node))
@@ -1712,7 +1713,7 @@ func (i *Provisioner) UpgradeNode(ctx context.Context, node string, image string
 	if outputFunc != nil {
 		outputFunc(fmt.Sprintf("Upgrade request sent to %s. Waiting for reboot...", node))
 	}
-	if err := i.ClusterClient.WaitForNodesReboot(ctx, nodes, versionFromImage(image), nil, offlineTimeout); err != nil {
+	if err := i.ClusterClient.WaitForNodesReboot(ctx, nodes, preActionBootIDs, versionFromImage(image), nil, offlineTimeout); err != nil {
 		return fmt.Errorf("node reboot wait failed: %w", err)
 	}
 
@@ -1779,7 +1780,8 @@ func (i *Provisioner) CheckNodeHealth(ctx context.Context, options NodeHealthChe
 
 			var clusterErr error
 			if options.WaitForReboot {
-				clusterErr = i.ClusterClient.WaitForNodesReboot(checkCtx, options.Nodes, options.Version, options.SkipServices, options.OfflineTimeout)
+				preActionBootIDs := i.ClusterClient.CaptureNodeBootIDs(checkCtx, options.Nodes)
+				clusterErr = i.ClusterClient.WaitForNodesReboot(checkCtx, options.Nodes, preActionBootIDs, options.Version, options.SkipServices, options.OfflineTimeout)
 			} else {
 				clusterErr = i.ClusterClient.WaitForNodesHealthy(checkCtx, options.Nodes, options.Version, options.SkipServices)
 			}
