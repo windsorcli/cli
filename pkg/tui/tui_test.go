@@ -326,6 +326,46 @@ func TestTermSpinner_Update(t *testing.T) {
 			t.Errorf("expected no output, got %q", output)
 		}
 	})
+
+	t.Run("DedupsRepeatedIdenticalMessageOnPollingLoops", func(t *testing.T) {
+		// Given a termSpinner started, with stderr redirected to a pipe (never a terminal) —
+		// mirrors a polling loop (e.g. provisioner.go's "waiting on %s" reconcile loop) calling
+		// Update every tick with a message that is often unchanged while nothing resolves
+		s := &termSpinner{}
+		captureStderr(t, func() { s.Start("waiting on a, b") })
+		t.Cleanup(func() { captureStderr(t, s.Done) })
+
+		// When Update is called repeatedly with the identical message
+		output := captureStderr(t, func() {
+			s.Update("waiting on a, b")
+			s.Update("waiting on a, b")
+			s.Update("waiting on a, b")
+		})
+
+		// Then nothing is printed — the message hasn't changed since Start's line
+		if output != "" {
+			t.Errorf("expected no duplicate lines for an unchanged message, got %q", output)
+		}
+	})
+
+	t.Run("PrintsAgainWhenMessageChangesAfterRepeats", func(t *testing.T) {
+		// Given a termSpinner started, with several identical Update calls already made
+		s := &termSpinner{}
+		captureStderr(t, func() { s.Start("waiting on a, b") })
+		t.Cleanup(func() { captureStderr(t, s.Done) })
+		captureStderr(t, func() {
+			s.Update("waiting on a, b")
+			s.Update("waiting on a, b")
+		})
+
+		// When Update is called with a genuinely different message (e.g. "a" resolved)
+		output := captureStderr(t, func() { s.Update("waiting on b") })
+
+		// Then the new message is printed
+		if !strings.Contains(output, "waiting on b") {
+			t.Errorf("expected the changed message to be printed, got %q", output)
+		}
+	})
 }
 
 // Tests for termSpinner Done output

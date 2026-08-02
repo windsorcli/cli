@@ -27,6 +27,7 @@ type termSpinner struct {
 	message           string
 	paused            int
 	pauseCursorSaved  bool
+	lastFallbackLine  string
 }
 
 // verboseSpinner is the Spinner implementation used in verbose mode.
@@ -164,7 +165,9 @@ func WithProgress(message string, fn func() error) error {
 // terminal (piped, redirected, captured by a log) — with nothing else printed until Done/Fail,
 // every step would otherwise appear to jump straight from nothing to its final result with no
 // visible waiting/in-progress phase. isInteractiveStderr falls back to printing the message as
-// a static line in that case, the same non-animated behavior verboseSpinner already uses.
+// a static line in that case, the same non-animated behavior verboseSpinner already uses. Start
+// always prints its message (announcing the new phase) and resets the dedup baseline Update
+// checks against, even if it happens to match the previous phase's last line.
 func (s *termSpinner) Start(message string) {
 	if s.spin != nil && s.spin.Active() {
 		s.spin.Stop()
@@ -178,19 +181,25 @@ func (s *termSpinner) Start(message string) {
 	if !isInteractiveStderr() {
 		fmt.Fprintln(os.Stderr, message)
 	}
+	s.lastFallbackLine = message
 }
 
 // Update changes the spinner suffix to the given message without altering the stored message.
 // Falls back to printing the message as a static line when stderr isn't a terminal, for the
-// same reason Start does — see Start's doc comment.
+// same reason Start does — see Start's doc comment. Skips the print when message is identical
+// to the last line printed (by Start or a prior Update), so a polling loop that calls Update
+// with an often-unchanged message (e.g. "waiting on X" across many ticks while nothing resolves)
+// doesn't spam duplicate lines while stderr is captured.
 func (s *termSpinner) Update(message string) {
 	if s.spin == nil {
 		return
 	}
 	s.spin.Suffix = " " + message
-	if !isInteractiveStderr() {
-		fmt.Fprintln(os.Stderr, message)
+	if isInteractiveStderr() || message == s.lastFallbackLine {
+		return
 	}
+	fmt.Fprintln(os.Stderr, message)
+	s.lastFallbackLine = message
 }
 
 // Done stops the spinner and prints a green success line to stderr.
