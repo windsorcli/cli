@@ -1410,9 +1410,11 @@ func TestTestRunner_matchExclusions(t *testing.T) {
 		// When matching exclusions
 		diffs := runner.matchExclusions(blueprint, exclude)
 
-		// Then a diff must be reported, not silently pass
-		if len(diffs) != 1 || !strings.Contains(diffs[0], "kustomization should not exist: pki-resources") {
-			t.Errorf("Expected excluded compiled kustomization diff, got: %v", diffs)
+		// Then a diff must be reported, not silently pass — and since the exclusion names both
+		// the kustomization and the component, the diff asserts the component's absence rather
+		// than the whole kustomization's absence (pki-resources is expected to exist)
+		if len(diffs) != 1 || !strings.Contains(diffs[0], `kustomize[pki-resources].components: should not contain "private-issuer/ca"`) {
+			t.Errorf("Expected excluded component diff, got: %v", diffs)
 		}
 	})
 
@@ -1499,6 +1501,201 @@ func TestTestRunner_matchExclusions(t *testing.T) {
 		// Then diffs should identify the variant, not the whole system
 		if len(diffs) != 1 || !strings.Contains(diffs[0], "flux[pki].resources: variant should not exist") {
 			t.Errorf("Expected variant-level exclusion diff, got: %v", diffs)
+		}
+	})
+
+	t.Run("AllowsComponentAbsentFromOtherwiseExistingKustomization", func(t *testing.T) {
+		// Given a kustomization that legitimately exists for an unrelated component, with the
+		// excluded component genuinely absent — the previous whole-entry-presence check would
+		// have always flagged this as a false positive merely because the kustomization exists,
+		// making name+components exclusions unusable against a shared entry
+		mocks := setupTestRunnerMocks(t)
+		runner := createRunnerWithMockGenerator(mocks)
+
+		blueprint := &blueprintv1alpha1.Blueprint{
+			Kustomizations: []blueprintv1alpha1.Kustomization{
+				{Name: "pki-resources", Components: []string{"other-issuer/ca"}},
+			},
+		}
+
+		exclude := &blueprintv1alpha1.Blueprint{
+			Kustomizations: []blueprintv1alpha1.Kustomization{
+				{Name: "pki-resources", Components: []string{"private-issuer/ca"}},
+			},
+		}
+
+		// When matching exclusions
+		diffs := runner.matchExclusions(blueprint, exclude)
+
+		// Then no diff is reported — the excluded component is genuinely absent
+		if len(diffs) != 0 {
+			t.Errorf("Expected no diffs, got: %v", diffs)
+		}
+	})
+
+	t.Run("ReportsOnlyTheExcludedComponentAmongOthers", func(t *testing.T) {
+		// Given a kustomization with several components, only one of which is excluded
+		mocks := setupTestRunnerMocks(t)
+		runner := createRunnerWithMockGenerator(mocks)
+
+		blueprint := &blueprintv1alpha1.Blueprint{
+			Kustomizations: []blueprintv1alpha1.Kustomization{
+				{Name: "pki-resources", Components: []string{"other-issuer/ca", "private-issuer/ca"}},
+			},
+		}
+
+		exclude := &blueprintv1alpha1.Blueprint{
+			Kustomizations: []blueprintv1alpha1.Kustomization{
+				{Name: "pki-resources", Components: []string{"private-issuer/ca"}},
+			},
+		}
+
+		// When matching exclusions
+		diffs := runner.matchExclusions(blueprint, exclude)
+
+		// Then only the excluded component is flagged, naming both the kustomization and component
+		if len(diffs) != 1 || !strings.Contains(diffs[0], `kustomize[pki-resources].components: should not contain "private-issuer/ca"`) {
+			t.Errorf("Expected a single component-level diff, got: %v", diffs)
+		}
+	})
+
+	t.Run("AllowsComponentAbsentFromOtherwiseExistingFluxInstallTier", func(t *testing.T) {
+		// Given a flux system's install tier that legitimately exists for an unrelated component,
+		// with the excluded component genuinely absent
+		mocks := setupTestRunnerMocks(t)
+		runner := createRunnerWithMockGenerator(mocks)
+
+		blueprint := &blueprintv1alpha1.Blueprint{
+			FluxSystems: []blueprintv1alpha1.FluxSystem{
+				{
+					Name:    "telemetry",
+					Install: &blueprintv1alpha1.Kustomization{Components: []string{"logs"}},
+				},
+			},
+		}
+
+		exclude := &blueprintv1alpha1.Blueprint{
+			FluxSystems: []blueprintv1alpha1.FluxSystem{
+				{
+					Name:    "telemetry",
+					Install: &blueprintv1alpha1.Kustomization{Components: []string{"prometheus"}},
+				},
+			},
+		}
+
+		// When matching exclusions
+		diffs := runner.matchExclusions(blueprint, exclude)
+
+		// Then no diff is reported — the excluded component is genuinely absent from the install
+		// tier, which is itself expected to exist
+		if len(diffs) != 0 {
+			t.Errorf("Expected no diffs, got: %v", diffs)
+		}
+	})
+
+	t.Run("ReportsExcludedComponentPresentInFluxInstallTier", func(t *testing.T) {
+		// Given a flux system's install tier that still carries the excluded component
+		mocks := setupTestRunnerMocks(t)
+		runner := createRunnerWithMockGenerator(mocks)
+
+		blueprint := &blueprintv1alpha1.Blueprint{
+			FluxSystems: []blueprintv1alpha1.FluxSystem{
+				{
+					Name:    "telemetry",
+					Install: &blueprintv1alpha1.Kustomization{Components: []string{"logs", "prometheus"}},
+				},
+			},
+		}
+
+		exclude := &blueprintv1alpha1.Blueprint{
+			FluxSystems: []blueprintv1alpha1.FluxSystem{
+				{
+					Name:    "telemetry",
+					Install: &blueprintv1alpha1.Kustomization{Components: []string{"prometheus"}},
+				},
+			},
+		}
+
+		// When matching exclusions
+		diffs := runner.matchExclusions(blueprint, exclude)
+
+		// Then the diff names the install tier and the specific component, not "should not exist"
+		if len(diffs) != 1 || !strings.Contains(diffs[0], `flux[telemetry].install.components: should not contain "prometheus"`) {
+			t.Errorf("Expected a component-level diff, got: %v", diffs)
+		}
+	})
+
+	t.Run("ReportsExcludedComponentPresentInNamedResourcesVariant", func(t *testing.T) {
+		// Given a named resources variant that still carries the excluded component alongside
+		// another one
+		mocks := setupTestRunnerMocks(t)
+		runner := createRunnerWithMockGenerator(mocks)
+
+		blueprint := &blueprintv1alpha1.Blueprint{
+			FluxSystems: []blueprintv1alpha1.FluxSystem{
+				{
+					Name: "pki",
+					Resources: []blueprintv1alpha1.FluxVariant{
+						{Kustomization: blueprintv1alpha1.Kustomization{Name: "extra", Components: []string{"other-issuer/ca", "private-issuer/ca"}}},
+					},
+				},
+			},
+		}
+
+		exclude := &blueprintv1alpha1.Blueprint{
+			FluxSystems: []blueprintv1alpha1.FluxSystem{
+				{
+					Name: "pki",
+					Resources: []blueprintv1alpha1.FluxVariant{
+						{Kustomization: blueprintv1alpha1.Kustomization{Name: "extra", Components: []string{"private-issuer/ca"}}},
+					},
+				},
+			},
+		}
+
+		// When matching exclusions
+		diffs := runner.matchExclusions(blueprint, exclude)
+
+		// Then the diff names the variant and the specific component, not the whole variant
+		if len(diffs) != 1 || !strings.Contains(diffs[0], `flux[pki].resources[extra].components: should not contain "private-issuer/ca"`) {
+			t.Errorf("Expected a component-level diff, got: %v", diffs)
+		}
+	})
+
+	t.Run("AllowsComponentAbsentFromNamedResourcesVariant", func(t *testing.T) {
+		// Given a named resources variant that legitimately exists for an unrelated component
+		mocks := setupTestRunnerMocks(t)
+		runner := createRunnerWithMockGenerator(mocks)
+
+		blueprint := &blueprintv1alpha1.Blueprint{
+			FluxSystems: []blueprintv1alpha1.FluxSystem{
+				{
+					Name: "pki",
+					Resources: []blueprintv1alpha1.FluxVariant{
+						{Kustomization: blueprintv1alpha1.Kustomization{Name: "extra", Components: []string{"other-issuer/ca"}}},
+					},
+				},
+			},
+		}
+
+		exclude := &blueprintv1alpha1.Blueprint{
+			FluxSystems: []blueprintv1alpha1.FluxSystem{
+				{
+					Name: "pki",
+					Resources: []blueprintv1alpha1.FluxVariant{
+						{Kustomization: blueprintv1alpha1.Kustomization{Name: "extra", Components: []string{"private-issuer/ca"}}},
+					},
+				},
+			},
+		}
+
+		// When matching exclusions
+		diffs := runner.matchExclusions(blueprint, exclude)
+
+		// Then no diff is reported — the excluded component is genuinely absent from the variant,
+		// which is itself expected to exist
+		if len(diffs) != 0 {
+			t.Errorf("Expected no diffs, got: %v", diffs)
 		}
 	})
 }
