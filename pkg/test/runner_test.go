@@ -1498,9 +1498,10 @@ func TestTestRunner_matchExclusions(t *testing.T) {
 		// When matching exclusions
 		diffs := runner.matchExclusions(blueprint, exclude)
 
-		// Then diffs should identify the variant, not the whole system
-		if len(diffs) != 1 || !strings.Contains(diffs[0], "flux[pki].resources: variant should not exist") {
-			t.Errorf("Expected variant-level exclusion diff, got: %v", diffs)
+		// Then diffs should identify the specific component within the variant found by
+		// its components-subset match, not the whole system or the whole variant
+		if len(diffs) != 1 || !strings.Contains(diffs[0], `.components: should not contain "private-issuer/ca"`) {
+			t.Errorf("Expected component-level exclusion diff, got: %v", diffs)
 		}
 	})
 
@@ -1696,6 +1697,48 @@ func TestTestRunner_matchExclusions(t *testing.T) {
 		// which is itself expected to exist
 		if len(diffs) != 0 {
 			t.Errorf("Expected no diffs, got: %v", diffs)
+		}
+	})
+
+	t.Run("ReportsExcludedComponentPresentInUnnamedResourcesVariant", func(t *testing.T) {
+		// Given an unnamed resources variant located by findFluxVariant's components-subset
+		// match, which carries an extra, unrelated component alongside the excluded one — the
+		// subset match already guarantees the excluded component is present, so this must not
+		// fall back to flagging the whole variant as unexpected
+		mocks := setupTestRunnerMocks(t)
+		runner := createRunnerWithMockGenerator(mocks)
+
+		blueprint := &blueprintv1alpha1.Blueprint{
+			FluxSystems: []blueprintv1alpha1.FluxSystem{
+				{
+					Name: "pki",
+					Resources: []blueprintv1alpha1.FluxVariant{
+						{Kustomization: blueprintv1alpha1.Kustomization{Components: []string{"other-issuer/ca", "private-issuer/ca"}}},
+					},
+				},
+			},
+		}
+
+		exclude := &blueprintv1alpha1.Blueprint{
+			FluxSystems: []blueprintv1alpha1.FluxSystem{
+				{
+					Name: "pki",
+					Resources: []blueprintv1alpha1.FluxVariant{
+						{Kustomization: blueprintv1alpha1.Kustomization{Components: []string{"private-issuer/ca"}}},
+					},
+				},
+			},
+		}
+
+		// When matching exclusions
+		diffs := runner.matchExclusions(blueprint, exclude)
+
+		// Then the diff names the specific component, not "variant should not exist"
+		if len(diffs) != 1 || !strings.Contains(diffs[0], `.components: should not contain "private-issuer/ca"`) {
+			t.Errorf("Expected a component-level diff, got: %v", diffs)
+		}
+		if len(diffs) == 1 && strings.Contains(diffs[0], "variant should not exist") {
+			t.Errorf("Expected a narrowed diff, not whole-variant-absence, got: %v", diffs)
 		}
 	})
 }

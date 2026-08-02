@@ -544,7 +544,7 @@ func (r *TestRunner) matchBlueprint(bp *blueprintv1alpha1.Blueprint, expect *blu
 // Uses partial matching: components are identified by name or path for Terraform components, and by
 // name for Kustomizations. A Kustomization exclusion that also sets components: doesn't assert the
 // whole entry is absent — the containing kustomization is expected to exist, so this asserts only
-// that those specific components are absent from it (see matchKustomizationComponentExclusion); a
+// that those specific components are absent from it (see matchComponentExclusion); a
 // bare name: with no components: keeps whole-entry-absence semantics. If any excluded component is
 // found in the blueprint, a descriptive error message is added to the differences list. Returns an
 // empty slice if all exclusions are satisfied.
@@ -857,8 +857,11 @@ func (r *TestRunner) matchFluxSystem(actual *blueprintv1alpha1.FluxSystem, expec
 // variant that also sets components: doesn't assert the tier/variant itself is absent — it's expected
 // to exist — so this asserts only that those specific components are absent from it, the same
 // name-plus-components treatment matchExclusions gives a Kustomization exclusion (see
-// matchComponentExclusion). A bare install: or resources variant with no components: keeps
-// whole-tier/whole-variant-absence semantics. Returns an empty slice if every excluded part is absent.
+// matchComponentExclusion). This narrowing applies whichever way findFluxVariant located the variant —
+// by exact name, or by its components-subset match for an unnamed variant — since either way the found
+// variant is expected to exist and only the listed components are asserted absent from it. A bare
+// install: or resources variant with no components: keeps whole-tier/whole-variant-absence semantics.
+// Returns an empty slice if every excluded part is absent.
 func (r *TestRunner) matchFluxSystemExclusions(actual *blueprintv1alpha1.FluxSystem, exclude blueprintv1alpha1.FluxSystem) []string {
 	var diffs []string
 	name := exclude.Name
@@ -876,8 +879,8 @@ func (r *TestRunner) matchFluxSystemExclusions(actual *blueprintv1alpha1.FluxSys
 		if found == nil {
 			continue
 		}
-		if excludeVariant.Name != "" && len(excludeVariant.Components) > 0 {
-			diffs = append(diffs, matchComponentExclusion(found.Components, excludeVariant.Components, fmt.Sprintf("flux[%s].resources[%s]", name, excludeVariant.Name))...)
+		if len(excludeVariant.Components) > 0 {
+			diffs = append(diffs, matchComponentExclusion(found.Components, excludeVariant.Components, fmt.Sprintf("flux[%s].resources[%s]", name, fluxVariantIdentifier(excludeVariant)))...)
 			continue
 		}
 		diffs = append(diffs, fmt.Sprintf("flux[%s].resources: variant should not exist: %s", name, fluxVariantIdentifier(excludeVariant)))
