@@ -574,7 +574,9 @@ func (c *configHandler) LoadSchemaFromBytes(schemaContent []byte) error {
 // rules spanning static (v1alpha1.Context) and dynamic fields are evaluated against the unified map,
 // matching the file-load validation path. Use before impactful operations (e.g. windsor up) and after
 // compositional Set sequences. Returns nil if no schema is loaded or if validation passes; returns an
-// error if validation fails.
+// error if validation fails. When the same invalid data was already warned about by valuesSource.Load
+// earlier in this invocation, the error refers back to that warning instead of re-printing the
+// identical error list a second time.
 func (c *configHandler) ValidateContextValues() error {
 	if c.schemaValidator == nil || c.schemaValidator.Schema == nil {
 		return nil
@@ -582,7 +584,10 @@ func (c *configHandler) ValidateContextValues() error {
 	if result, err := c.schemaValidator.Validate(c.data); err != nil {
 		return fmt.Errorf("error validating context values: %w", err)
 	} else if !result.Valid {
-		return fmt.Errorf("context value validation failed: %v", result.Errors)
+		if c.schemaValidator.ErrorsAlreadyReported(result.Errors) {
+			return fmt.Errorf("context value validation failed (see the values.yaml warning above)")
+		}
+		return fmt.Errorf("context value validation failed:%s", FormatValidationErrors(result.Errors))
 	}
 	return nil
 }

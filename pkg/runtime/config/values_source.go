@@ -65,7 +65,8 @@ func (s *valuesSource) Load(projectRoot, contextName string) (map[string]any, bo
 
 	if s.schemaValidator != nil && s.schemaValidator.Schema != nil {
 		if result, err := s.schemaValidator.Validate(values); err == nil && !result.Valid {
-			fmt.Fprintf(os.Stderr, "Warning: values.yaml validation failed (config still loaded): %v\n", result.Errors)
+			fmt.Fprintf(os.Stderr, "Warning: values.yaml validation failed (config still loaded):%s\n", FormatValidationErrors(result.Errors))
+			s.schemaValidator.MarkErrorsReported(result.Errors)
 		}
 	}
 
