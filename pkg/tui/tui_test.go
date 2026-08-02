@@ -397,6 +397,22 @@ func TestTermSpinner_Done(t *testing.T) {
 			t.Errorf("expected %q, got %q", want, out)
 		}
 	})
+
+	t.Run("OmitsMessageWhenFallbackAlreadyPrintedIt", func(t *testing.T) {
+		// Given a termSpinner started with stderr redirected to a pipe (never a terminal),
+		// so Start already printed "deploying" as a fallback line
+		s := &termSpinner{}
+		captureStderr(t, func() { s.Start("deploying") })
+
+		// When Done is called
+		out := captureStderr(t, s.Done)
+
+		// Then the success line omits the message to avoid repeating it
+		want := "\033[32m✔ Done\033[0m\n"
+		if out != want {
+			t.Errorf("expected %q, got %q", want, out)
+		}
+	})
 }
 
 // Tests for termSpinner Fail output
@@ -445,6 +461,22 @@ func TestTermSpinner_Fail(t *testing.T) {
 		// And pauseCursorSaved is reset
 		if s.pauseCursorSaved {
 			t.Error("expected pauseCursorSaved to be false after Fail")
+		}
+	})
+
+	t.Run("OmitsMessageWhenFallbackAlreadyPrintedIt", func(t *testing.T) {
+		// Given a termSpinner started with stderr redirected to a pipe (never a terminal),
+		// so Start already printed "deploying" as a fallback line
+		s := &termSpinner{}
+		captureStderr(t, func() { s.Start("deploying") })
+
+		// When Fail is called
+		out := captureStderr(t, s.Fail)
+
+		// Then the failure line omits the message to avoid repeating it
+		want := "\033[31m✗ Failed\033[0m\n"
+		if out != want {
+			t.Errorf("expected %q, got %q", want, out)
 		}
 	})
 }

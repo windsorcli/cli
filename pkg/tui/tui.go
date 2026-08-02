@@ -202,7 +202,9 @@ func (s *termSpinner) Update(message string) {
 	s.lastFallbackLine = message
 }
 
-// Done stops the spinner and prints a green success line to stderr.
+// Done stops the spinner and prints a green success line to stderr. When stderr isn't a
+// terminal and Start/Update already printed this exact message as a fallback line, the
+// message is omitted here to avoid printing it twice back to back.
 func (s *termSpinner) Done() {
 	if s.spin != nil && s.spin.Active() {
 		s.spin.Stop()
@@ -213,10 +215,16 @@ func (s *termSpinner) Done() {
 		fmt.Fprint(os.Stderr, "\033[u\033[2K\r")
 		s.pauseCursorSaved = false
 	}
+	if !isInteractiveStderr() && s.lastFallbackLine == s.message {
+		fmt.Fprint(os.Stderr, "\033[32m✔ Done\033[0m\n")
+		return
+	}
 	fmt.Fprintf(os.Stderr, "\033[32m✔\033[0m %s - \033[32mDone\033[0m\n", s.message)
 }
 
-// Fail stops the spinner and prints a red failure line to stderr.
+// Fail stops the spinner and prints a red failure line to stderr. When stderr isn't a
+// terminal and Start/Update already printed this exact message as a fallback line, the
+// message is omitted here to avoid printing it twice back to back.
 func (s *termSpinner) Fail() {
 	if s.spin != nil && s.spin.Active() {
 		s.spin.Stop()
@@ -226,6 +234,10 @@ func (s *termSpinner) Fail() {
 	if s.pauseCursorSaved {
 		fmt.Fprint(os.Stderr, "\033[u\033[2K\r")
 		s.pauseCursorSaved = false
+	}
+	if !isInteractiveStderr() && s.lastFallbackLine == s.message {
+		fmt.Fprint(os.Stderr, "\033[31m✗ Failed\033[0m\n")
+		return
 	}
 	fmt.Fprintf(os.Stderr, "\033[31m✗ %s - Failed\033[0m\n", s.message)
 }
