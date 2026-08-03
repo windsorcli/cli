@@ -203,8 +203,9 @@ func (s *termSpinner) Update(message string) {
 }
 
 // Done stops the spinner and prints a green success line to stderr. When stderr isn't a
-// terminal and Start/Update already printed this exact message as a fallback line, the
-// message is omitted here to avoid printing it twice back to back.
+// terminal, Start/Update already printed the message as a plain fallback line, so no
+// checkmark or color decoration is added here — the same undecorated behavior verboseSpinner
+// already uses for non-interactive output.
 func (s *termSpinner) Done() {
 	if s.spin != nil && s.spin.Active() {
 		s.spin.Stop()
@@ -216,15 +217,14 @@ func (s *termSpinner) Done() {
 		s.pauseCursorSaved = false
 	}
 	if !isInteractiveStderr() && s.lastFallbackLine == s.message {
-		fmt.Fprint(os.Stderr, "\033[32m✔ Done\033[0m\n")
 		return
 	}
 	fmt.Fprintf(os.Stderr, "\033[32m✔\033[0m %s - \033[32mDone\033[0m\n", s.message)
 }
 
 // Fail stops the spinner and prints a red failure line to stderr. When stderr isn't a
-// terminal and Start/Update already printed this exact message as a fallback line, the
-// message is omitted here to avoid printing it twice back to back.
+// terminal, no failure line is printed — the same undecorated behavior verboseSpinner
+// already uses for non-interactive output, relying on the returned error to surface failure.
 func (s *termSpinner) Fail() {
 	if s.spin != nil && s.spin.Active() {
 		s.spin.Stop()
@@ -236,7 +236,6 @@ func (s *termSpinner) Fail() {
 		s.pauseCursorSaved = false
 	}
 	if !isInteractiveStderr() && s.lastFallbackLine == s.message {
-		fmt.Fprint(os.Stderr, "\033[31m✗ Failed\033[0m\n")
 		return
 	}
 	fmt.Fprintf(os.Stderr, "\033[31m✗ %s - Failed\033[0m\n", s.message)
