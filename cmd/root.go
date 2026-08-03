@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"time"
 
 	"github.com/spf13/cobra"
 	"github.com/windsorcli/cli/pkg/project"
@@ -18,6 +19,11 @@ var verbose bool
 // command's preflight sets NO_CACHE=true so ArtifactBuilder.Pull skips the
 // disk cache and re-downloads (and atomically overwrites) the cached entry.
 var noCache bool
+
+// lockTimeout is a flag for how long a command waits to acquire the stack lock before
+// failing. Defaults to 0 (fail immediately on contention, matching terraform's own
+// -lock-timeout default) rather than silently blocking; pass a duration to wait instead.
+var lockTimeout time.Duration
 
 // Define a custom type for context keys
 type contextKey string
@@ -66,6 +72,9 @@ func init() {
 	// bootstrap, bundle, ...) inherits it; the effect is plumbed via the NO_CACHE env
 	// var that ArtifactBuilder.Pull already honors.
 	rootCmd.PersistentFlags().BoolVar(&noCache, "no-cache", false, "Bypass the OCI artifact cache and force re-download of remote sources")
+	// Define the --lock-timeout flag. Persistent so every command that acquires the stack
+	// lock (apply, up, destroy, plan, bootstrap, upgrade) inherits it.
+	rootCmd.PersistentFlags().DurationVar(&lockTimeout, "lock-timeout", 0, "Duration to wait for the stack lock before failing (e.g. 30s, 5m). Defaults to 0 (fail immediately).")
 }
 
 // commandPreflight orchestrates global CLI preflight checks and context initialization for all commands.

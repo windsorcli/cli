@@ -212,7 +212,7 @@ windsor bootstrap prod --yes`,
 		// is rare; revisit if the prompt grows into a longer flow.
 		var applied, halted bool
 		var postRunMessages []blueprintv1alpha1.Message
-		if err := stacklock.With(cmd.Context(), proj.Runtime, "bootstrap", func() error {
+		if err := stacklock.With(cmd.Context(), proj.Runtime, "bootstrap", lockTimeout, func() error {
 			_, ok, h, err := proj.Bootstrap(confirmFn)
 			finishPlan(err)
 			if err != nil {
@@ -315,7 +315,7 @@ func makeBootstrapConfirmFn(in io.Reader, out io.Writer) (provisioner.BootstrapC
 	confirmFn := func(summary *provisioner.BootstrapSummary) bool {
 		resolved = true
 		printBootstrapSummary(out, summary)
-		fmt.Fprintf(out, "Note: bootstrap holds the windsor stack lock during this prompt; concurrent windsor commands in this context will wait up to %s before failing.\n", stacklock.DefaultTimeout)
+		fmt.Fprintf(out, "Note: bootstrap holds the windsor stack lock during this prompt; concurrent windsor commands in this context will fail immediately unless run with --lock-timeout (e.g. --lock-timeout=%s) to wait instead.\n", stacklock.DefaultTimeout)
 		fmt.Fprint(out, "Continue? [y/N]: ")
 		reader := bufio.NewReader(in)
 		answer, _ := reader.ReadString('\n')

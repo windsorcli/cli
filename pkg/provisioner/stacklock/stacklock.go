@@ -30,10 +30,11 @@ import (
 // Constants
 // =============================================================================
 
-// DefaultTimeout is the lock-wait timeout used by With and by Acquire when the
-// caller passes 0. Matches §7.4 of the terraform-lifecycle-hardening spike.
-// Declared as a var so tests can shorten it; production callers must not
-// reassign at runtime.
+// DefaultTimeout is a suggested wait duration for callers that want to opt into
+// waiting on a contended lock (e.g. via --lock-timeout) rather than the
+// fail-immediately default. It is no longer applied automatically: a caller-supplied
+// timeout of 0 means "fail immediately," matching terraform's own -lock-timeout=0
+// default, rather than silently blocking for minutes with no output.
 var DefaultTimeout = 5 * time.Minute
 
 // acquireRetryInterval is the wait between TryLock attempts under contention.
@@ -137,13 +138,15 @@ func NewLocalFlockLock(lockPath string) StackLock {
 // fn while holding it. The lock is released on return — including on panic —
 // via deferred Release. operation labels what the caller is doing ("up",
 // "apply", "destroy", "bootstrap", "plan") so concurrent operators see the
-// holder's intent in busy-error messages.
-func With(ctx context.Context, rt *runtime.Runtime, operation string, fn func() error) error {
+// holder's intent in busy-error messages. timeout is how long to wait on
+// contention before failing; 0 fails immediately (matching terraform's own
+// -lock-timeout=0 default) rather than blocking silently.
+func With(ctx context.Context, rt *runtime.Runtime, operation string, timeout time.Duration, fn func() error) error {
 	lock, err := ForRuntime(rt)
 	if err != nil {
 		return err
 	}
-	release, err := lock.Acquire(ctx, NewInfo(rt, operation), DefaultTimeout)
+	release, err := lock.Acquire(ctx, NewInfo(rt, operation), timeout)
 	if err != nil {
 		return err
 	}
@@ -197,22 +200,25 @@ type localFlockLock struct {
 }
 
 // Acquire takes the lock, retrying every acquireRetryInterval until it is held,
-// the timeout elapses, or ctx is cancelled. Cancellation returns ctx.Err();
-// timeout returns *LockBusyError, populating Holder from the sidecar info file
-// when one is present. After flock succeeds, info is persisted to a sidecar
-// (<path>.info) via atomic temp+rename so a future contender's busy error can
-// name the holder and PID. The sidecar is removed by Release; it is diagnostic
-// only and a missing or partial file is not load-bearing for correctness.
+// the timeout elapses, or ctx is cancelled. A timeout of 0 makes a single attempt
+// and fails immediately on contention, matching terraform's own -lock-timeout=0
+// default, rather than blocking silently. Cancellation returns ctx.Err(); timeout
+// returns *LockBusyError, populating Holder from the sidecar info file when one is
+// present. The first retry (timeout > 0 only) prints a one-line notice to stderr
+// naming the holder when known, so an operator who opted into waiting sees why the
+// command appears to hang instead of staring at a silent terminal. After flock
+// succeeds, info is persisted to a sidecar (<path>.info) via atomic temp+rename so
+// a future contender's busy error can name the holder and PID. The sidecar is
+// removed by Release; it is diagnostic only and a missing or partial file is not
+// load-bearing for correctness.
 func (s *localFlockLock) Acquire(ctx context.Context, info LockInfo, timeout time.Duration) (Release, error) {
-	if timeout <= 0 {
-		timeout = DefaultTimeout
-	}
 	if err := os.MkdirAll(filepath.Dir(s.path), lockDirPerm); err != nil {
 		return nil, fmt.Errorf("create lock directory: %w", err)
 	}
 	flk := flock.New(s.path)
 	infoPath := s.path + stackLockInfoSuffix
 	deadline := time.Now().Add(timeout)
+	waitAnnounced := false
 	for {
 		locked, err := flk.TryLock()
 		if err != nil {
@@ -223,6 +229,10 @@ func (s *localFlockLock) Acquire(ctx context.Context, info LockInfo, timeout tim
 		}
 		if time.Now().After(deadline) {
 			return nil, &LockBusyError{Path: s.path, Holder: readHolderInfo(infoPath)}
+		}
+		if !waitAnnounced {
+			announceWaiting(s.path, readHolderInfo(infoPath))
+			waitAnnounced = true
 		}
 		select {
 		case <-ctx.Done():
@@ -310,6 +320,19 @@ func makeRelease(flk *flock.Flock, infoPath string) Release {
 // =============================================================================
 // Helpers
 // =============================================================================
+
+// announceWaiting prints a one-line notice to stderr the first time Acquire is
+// about to retry against a contended lock, naming the holder when known. Only
+// called when timeout > 0 (the caller opted into waiting), so a fail-fast
+// (timeout == 0) Acquire never prints anything.
+func announceWaiting(path string, holder *LockInfo) {
+	if holder == nil {
+		fmt.Fprintf(os.Stderr, "Waiting for the stack lock at %s...\n", path)
+		return
+	}
+	fmt.Fprintf(os.Stderr, "Waiting for the stack lock at %s, held by %s (PID=%d, operation=%s)...\n",
+		path, holder.Who, holder.PID, holder.Operation)
+}
 
 // writeHolderInfo persists the holder LockInfo to the sidecar path via an
 // atomic temp+rename so a concurrent reader never observes a partial file.

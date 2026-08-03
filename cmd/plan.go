@@ -64,7 +64,7 @@ windsor plan terraform cluster`,
 			if err := requireCloudAuth(cmd, proj); err != nil {
 				return err
 			}
-			return stacklock.With(cmd.Context(), proj.Runtime, "plan", func() error {
+			return stacklock.With(cmd.Context(), proj.Runtime, "plan", lockTimeout, func() error {
 				var summary *provisioner.PlanSummary
 				if err := tui.WithProgress("Generating plan...", func() error {
 					var planErr error
@@ -101,7 +101,7 @@ windsor plan terraform cluster`,
 		// against the cluster and must not block infra-mutating windsor operations.
 		runPlan := func(fn func() error) error {
 			if inTerraform {
-				return stacklock.With(cmd.Context(), proj.Runtime, "plan", fn)
+				return stacklock.With(cmd.Context(), proj.Runtime, "plan", lockTimeout, fn)
 			}
 			return fn()
 		}
@@ -181,7 +181,7 @@ windsor plan terraform --json`,
 
 		blueprint := proj.Composer.BlueprintHandler.Generate()
 
-		return stacklock.With(cmd.Context(), proj.Runtime, "plan", func() error {
+		return stacklock.With(cmd.Context(), proj.Runtime, "plan", lockTimeout, func() error {
 			if len(args) == 0 {
 				if planJSON && !planSummary {
 					return proj.Provisioner.PlanTerraformAllJSON(blueprint)
