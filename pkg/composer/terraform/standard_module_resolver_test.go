@@ -10,6 +10,7 @@ import (
 
 	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
 	"github.com/windsorcli/cli/pkg/runtime/config"
+	"github.com/windsorcli/cli/pkg/runtime/tools"
 )
 
 // The StandardModuleResolverTest is a test suite for the StandardModuleResolver implementation
@@ -199,6 +200,71 @@ func TestStandardModuleResolver_ProcessModules(t *testing.T) {
 		// Then an error is returned indicating failure to initialize terraform
 		if err == nil || !strings.Contains(err.Error(), "failed to initialize terraform") {
 			t.Errorf("Expected terraform init error, got: %v", err)
+		}
+	})
+
+	t.Run("HandlesTerraformNotAvailable", func(t *testing.T) {
+		// Given a resolver whose ToolsManager reports terraform as missing
+		resolver, mocks := setup(t)
+		resolver.BaseModuleResolver.runtime.ConfigRoot = "/test/config"
+		mockToolsManager := mocks.Runtime.ToolsManager.(*tools.MockToolsManager)
+		mockToolsManager.CheckTerraformFunc = func() error {
+			return errors.New("Terraform >= 1.0.0 is required but was not found on PATH.\n  Install: https://developer.hashicorp.com/terraform/install")
+		}
+		execCalled := false
+		mocks.Shell.ExecSilentFunc = func(cmd string, args ...string) (string, error) {
+			if cmd == "terraform" && len(args) > 0 && args[0] == "init" {
+				execCalled = true
+			}
+			return "", nil
+		}
+
+		// When ProcessModules is called
+		err := resolver.ProcessModules()
+
+		// Then the friendly missing-tool error is returned without ever shelling out to terraform
+		if err == nil || !strings.Contains(err.Error(), "was not found on PATH") {
+			t.Errorf("Expected missing-tool error, got: %v", err)
+		}
+		if execCalled {
+			t.Error("Expected terraform init to be skipped when the tool check fails")
+		}
+	})
+
+	t.Run("ChecksTerraformOnceAcrossMultipleComponents", func(t *testing.T) {
+		// Given a resolver processing two standard-source components
+		resolver, mocks := setup(t)
+		resolver.BaseModuleResolver.runtime.ConfigRoot = "/test/config"
+		mocks.BlueprintHandler.GetTerraformComponentsFunc = func() []blueprintv1alpha1.TerraformComponent {
+			return []blueprintv1alpha1.TerraformComponent{
+				{
+					Path:     "module-one",
+					Source:   "git::https://github.com/test/module-one.git",
+					FullPath: filepath.Join("/test", "terraform", "module-one"),
+				},
+				{
+					Path:     "module-two",
+					Source:   "git::https://github.com/test/module-two.git",
+					FullPath: filepath.Join("/test", "terraform", "module-two"),
+				},
+			}
+		}
+		checkTerraformCalls := 0
+		mockToolsManager := mocks.Runtime.ToolsManager.(*tools.MockToolsManager)
+		mockToolsManager.CheckTerraformFunc = func() error {
+			checkTerraformCalls++
+			return nil
+		}
+
+		// When ProcessModules is called
+		err := resolver.ProcessModules()
+
+		// Then CheckTerraform runs exactly once despite two matching components
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		if checkTerraformCalls != 1 {
+			t.Errorf("Expected CheckTerraform to be called once, got %d calls", checkTerraformCalls)
 		}
 	})
 
