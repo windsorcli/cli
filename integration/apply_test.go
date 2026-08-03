@@ -4,8 +4,13 @@
 package integration
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
+	"time"
+
+	"github.com/gofrs/flock"
 
 	"github.com/windsorcli/cli/integration/helpers"
 )
@@ -153,5 +158,84 @@ func TestApplyTerraform_MissingBinary_ShowsActionableError(t *testing.T) {
 	}
 	if strings.Contains(out, "aqua g -i") {
 		t.Errorf("expected stderr to OMIT third-party 'aqua g -i' hint, got: %s", out)
+	}
+}
+
+// TestApplyTerraform_FailsFastOnLockContentionByDefault verifies that with no
+// --lock-timeout flag, a command contending for an already-held stack lock fails
+// immediately with a busy error rather than silently blocking for minutes.
+func TestApplyTerraform_FailsFastOnLockContentionByDefault(t *testing.T) {
+	t.Parallel()
+	dir, env := helpers.CopyFixtureOnly(t, "plan")
+	helpers.MarkAsGitRepo(t, dir)
+	_, stderr, err := helpers.RunCLI(dir, []string{"init", "local"}, env)
+	if err != nil {
+		t.Fatalf("init local: %v\nstderr: %s", err, stderr)
+	}
+	env = append(env, "WINDSOR_CONTEXT=local")
+
+	scratch := filepath.Join(dir, ".windsor", "contexts", "local")
+	if err := os.MkdirAll(scratch, 0o755); err != nil {
+		t.Fatalf("mkdir scratch: %v", err)
+	}
+	held := flock.New(filepath.Join(scratch, ".stacklock"))
+	locked, err := held.TryLock()
+	if err != nil || !locked {
+		t.Fatalf("hold lock: locked=%v err=%v", locked, err)
+	}
+	t.Cleanup(func() { _ = held.Unlock() })
+
+	start := time.Now()
+	_, stderr, err = helpers.RunCLI(dir, []string{"apply", "terraform", "null"}, env)
+	elapsed := time.Since(start)
+
+	if err == nil {
+		t.Fatal("expected failure while the stack lock is held, command succeeded")
+	}
+	if !strings.Contains(string(stderr), "stack lock") || !strings.Contains(string(stderr), "is held by") {
+		t.Errorf("expected a stack-lock busy error, got: %s", stderr)
+	}
+	if elapsed > 4*time.Second {
+		t.Errorf("expected the default (no --lock-timeout) to fail immediately, took %v", elapsed)
+	}
+}
+
+// TestApplyTerraform_LockTimeoutFlagWaitsBeforeFailing verifies that --lock-timeout
+// causes a command to retry against a contended stack lock for roughly the given
+// duration before surfacing the same busy error, confirming the flag is wired
+// through to the underlying Acquire call.
+func TestApplyTerraform_LockTimeoutFlagWaitsBeforeFailing(t *testing.T) {
+	t.Parallel()
+	dir, env := helpers.CopyFixtureOnly(t, "plan")
+	helpers.MarkAsGitRepo(t, dir)
+	_, stderr, err := helpers.RunCLI(dir, []string{"init", "local"}, env)
+	if err != nil {
+		t.Fatalf("init local: %v\nstderr: %s", err, stderr)
+	}
+	env = append(env, "WINDSOR_CONTEXT=local")
+
+	scratch := filepath.Join(dir, ".windsor", "contexts", "local")
+	if err := os.MkdirAll(scratch, 0o755); err != nil {
+		t.Fatalf("mkdir scratch: %v", err)
+	}
+	held := flock.New(filepath.Join(scratch, ".stacklock"))
+	locked, err := held.TryLock()
+	if err != nil || !locked {
+		t.Fatalf("hold lock: locked=%v err=%v", locked, err)
+	}
+	t.Cleanup(func() { _ = held.Unlock() })
+
+	start := time.Now()
+	_, stderr, err = helpers.RunCLI(dir, []string{"apply", "terraform", "null", "--lock-timeout=300ms"}, env)
+	elapsed := time.Since(start)
+
+	if err == nil {
+		t.Fatal("expected failure while the stack lock is held, command succeeded")
+	}
+	if !strings.Contains(string(stderr), "stack lock") || !strings.Contains(string(stderr), "is held by") {
+		t.Errorf("expected a stack-lock busy error, got: %s", stderr)
+	}
+	if elapsed < 250*time.Millisecond {
+		t.Errorf("expected --lock-timeout=300ms to retry for ~300ms before failing, took %v", elapsed)
 	}
 }

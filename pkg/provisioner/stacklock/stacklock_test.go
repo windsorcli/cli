@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -46,16 +47,6 @@ func newTestRuntime(t *testing.T) *runtime.Runtime {
 		ProjectRoot:        "/tmp/windsor-test-proj",
 		ContextName:        "test-ctx",
 	}
-}
-
-// withDefaultTimeout swaps DefaultTimeout for the duration of the test. Tests
-// that override must not run in parallel — the var is package-global. Restored
-// on cleanup.
-func withDefaultTimeout(t *testing.T, d time.Duration) {
-	t.Helper()
-	prev := DefaultTimeout
-	DefaultTimeout = d
-	t.Cleanup(func() { DefaultTimeout = prev })
 }
 
 // =============================================================================
@@ -144,6 +135,70 @@ func TestLocalFlockLock_Acquire(t *testing.T) {
 		}
 		if elapsed < 150*time.Millisecond {
 			t.Fatalf("expected ~200ms wait, got %v", elapsed)
+		}
+	})
+
+	t.Run("fails immediately on contention when timeout is zero", func(t *testing.T) {
+		// Given a lock already held by one instance against a shared path
+		path := filepath.Join(t.TempDir(), ".stacklock")
+		first := NewLocalFlockLock(path)
+		release1, err := first.Acquire(context.Background(), newTestLockInfo(), time.Second)
+		if err != nil {
+			t.Fatalf("first acquire: %v", err)
+		}
+		t.Cleanup(func() { _ = release1() })
+
+		// When a second instance attempts to acquire with a zero timeout
+		second := NewLocalFlockLock(path)
+		start := time.Now()
+		_, err = second.Acquire(context.Background(), newTestLockInfo(), 0)
+		elapsed := time.Since(start)
+
+		// Then a LockBusyError is returned without retrying — no acquireRetryInterval wait
+		var busy *LockBusyError
+		if !errors.As(err, &busy) {
+			t.Fatalf("expected *LockBusyError, got %T: %v", err, err)
+		}
+		if elapsed >= acquireRetryInterval {
+			t.Fatalf("expected an immediate failure with no retry wait, took %v", elapsed)
+		}
+	})
+
+	t.Run("prints a waiting notice to stderr when timeout is non-zero and the lock is contended", func(t *testing.T) {
+		// Given a lock held by another holder with a populated sidecar
+		path := filepath.Join(t.TempDir(), ".stacklock")
+		first := NewLocalFlockLock(path)
+		holderInfo := newTestLockInfo()
+		holderInfo.Who = "ci@runner-9"
+		holderInfo.Operation = "bootstrap"
+		holderInfo.PID = 4242
+		release1, err := first.Acquire(context.Background(), holderInfo, time.Second)
+		if err != nil {
+			t.Fatalf("first acquire: %v", err)
+		}
+		t.Cleanup(func() { _ = release1() })
+
+		// When a second instance waits with a non-zero timeout, capturing stderr
+		origStderr := os.Stderr
+		r, w, err := os.Pipe()
+		if err != nil {
+			t.Fatalf("pipe: %v", err)
+		}
+		os.Stderr = w
+		second := NewLocalFlockLock(path)
+		_, acquireErr := second.Acquire(context.Background(), newTestLockInfo(), 150*time.Millisecond)
+		os.Stderr = origStderr
+		_ = w.Close()
+		var buf strings.Builder
+		_, _ = io.Copy(&buf, r)
+
+		// Then a waiting notice naming the holder was printed, and the call still times out
+		var busy *LockBusyError
+		if !errors.As(acquireErr, &busy) {
+			t.Fatalf("expected *LockBusyError, got %T: %v", acquireErr, acquireErr)
+		}
+		if !strings.Contains(buf.String(), "Waiting for the stack lock") || !strings.Contains(buf.String(), "ci@runner-9") {
+			t.Fatalf("expected a waiting notice naming the holder, got %q", buf.String())
 		}
 	})
 
@@ -420,7 +475,7 @@ func TestWith(t *testing.T) {
 	t.Run("returns an error when runtime is nil", func(t *testing.T) {
 		// Given a nil runtime
 		// When invoking With
-		err := With(context.Background(), nil, "up", func() error { return nil })
+		err := With(context.Background(), nil, "up", time.Second, func() error { return nil })
 		// Then an error is returned (fn would panic on nil access if it ran)
 		if err == nil {
 			t.Fatal("expected error, got nil")
@@ -432,7 +487,7 @@ func TestWith(t *testing.T) {
 		rt := &runtime.Runtime{}
 
 		// When invoking With
-		err := With(context.Background(), rt, "up", func() error { return nil })
+		err := With(context.Background(), rt, "up", time.Second, func() error { return nil })
 
 		// Then an error is returned identifying the missing path
 		if err == nil {
@@ -446,7 +501,7 @@ func TestWith(t *testing.T) {
 		called := false
 
 		// When invoking With
-		err := With(context.Background(), rt, "up", func() error {
+		err := With(context.Background(), rt, "up", time.Second, func() error {
 			called = true
 			return nil
 		})
@@ -466,7 +521,7 @@ func TestWith(t *testing.T) {
 		sentinel := errors.New("from fn")
 
 		// When invoking With
-		err := With(context.Background(), rt, "up", func() error { return sentinel })
+		err := With(context.Background(), rt, "up", time.Second, func() error { return sentinel })
 
 		// Then the sentinel surfaces unchanged
 		if !errors.Is(err, sentinel) {
@@ -479,12 +534,12 @@ func TestWith(t *testing.T) {
 		rt := newTestRuntime(t)
 
 		// When the first call completes
-		if err := With(context.Background(), rt, "up", func() error { return nil }); err != nil {
+		if err := With(context.Background(), rt, "up", time.Second, func() error { return nil }); err != nil {
 			t.Fatalf("first: %v", err)
 		}
 
 		// Then a second call against the same path acquires successfully
-		if err := With(context.Background(), rt, "apply", func() error { return nil }); err != nil {
+		if err := With(context.Background(), rt, "apply", time.Second, func() error { return nil }); err != nil {
 			t.Fatalf("second: %v", err)
 		}
 	})
@@ -492,10 +547,10 @@ func TestWith(t *testing.T) {
 	t.Run("releases the lock when fn returns an error", func(t *testing.T) {
 		// Given fn that errors out
 		rt := newTestRuntime(t)
-		_ = With(context.Background(), rt, "up", func() error { return errors.New("boom") })
+		_ = With(context.Background(), rt, "up", time.Second, func() error { return errors.New("boom") })
 
 		// When a second invocation runs against the same path
-		err := With(context.Background(), rt, "apply", func() error { return nil })
+		err := With(context.Background(), rt, "apply", time.Second, func() error { return nil })
 
 		// Then the second invocation succeeds, proving the first released
 		if err != nil {
@@ -521,8 +576,7 @@ func TestWith(t *testing.T) {
 		t.Cleanup(func() { _ = peerRelease() })
 
 		// When With runs against the same path with a short timeout
-		withDefaultTimeout(t, 100*time.Millisecond)
-		err = With(context.Background(), rt, "up", func() error {
+		err = With(context.Background(), rt, "up", 100*time.Millisecond, func() error {
 			t.Fatal("fn must not run when acquire fails")
 			return nil
 		})

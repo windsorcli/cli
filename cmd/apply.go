@@ -64,7 +64,7 @@ windsor apply kustomize dns`,
 			fmt.Fprintln(cmd.ErrOrStderr(), "Warning: an upgrade is in progress or was interrupted for this context. apply will reconcile to the declared blueprint; run `windsor upgrade` to complete the version transition.")
 		}
 
-		return stacklock.With(cmd.Context(), proj.Runtime, "apply", func() error {
+		return stacklock.With(cmd.Context(), proj.Runtime, "apply", lockTimeout, func() error {
 			// 'apply' doesn't run the workstation prep that registers MakeApplyHook, so no
 			// onApply hooks fire and the halted return is always false. Ignore it.
 			if _, err := proj.Provisioner.Up(blueprint); err != nil {
@@ -141,7 +141,7 @@ windsor apply tf cluster`,
 		}
 
 		blueprint := proj.Composer.BlueprintHandler.Generate()
-		return stacklock.With(cmd.Context(), proj.Runtime, "apply", func() error {
+		return stacklock.With(cmd.Context(), proj.Runtime, "apply", lockTimeout, func() error {
 			if err := proj.Provisioner.Apply(blueprint, componentID); err != nil {
 				return fmt.Errorf("error applying terraform for %s: %w", componentID, err)
 			}
@@ -188,7 +188,7 @@ windsor apply kustomize dns --wait`,
 		}
 		waitBlueprint := blueprint
 
-		return stacklock.With(cmd.Context(), proj.Runtime, "apply", func() error {
+		return stacklock.With(cmd.Context(), proj.Runtime, "apply", lockTimeout, func() error {
 			if len(args) == 0 {
 				if err := proj.Provisioner.ApplyKustomizeAll(cmd.Context(), blueprint); err != nil {
 					return fmt.Errorf("error applying kustomize: %w", err)
