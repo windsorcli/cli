@@ -66,6 +66,8 @@ func NewStandardModuleResolver(rt *runtime.Runtime, blueprintHandler blueprint.B
 func (h *StandardModuleResolver) ProcessModules() error {
 	components := h.blueprintHandler.GetTerraformComponents()
 
+	terraformChecked := false
+
 	for _, component := range components {
 		if component.Source == "" {
 			if component.Name != "" {
@@ -147,8 +149,11 @@ func (h *StandardModuleResolver) ProcessModules() error {
 			return fmt.Errorf("failed to set TF_DATA_DIR for %s: %w", componentID, err)
 		}
 
-		if err := h.runtime.ToolsManager.CheckTerraform(); err != nil {
-			return fmt.Errorf("failed to initialize terraform for %s: %w", componentID, err)
+		if !terraformChecked {
+			if err := h.runtime.ToolsManager.CheckTerraform(); err != nil {
+				return fmt.Errorf("failed to initialize terraform for %s: %w", componentID, err)
+			}
+			terraformChecked = true
 		}
 
 		terraformCommand := h.runtime.ToolsManager.GetTerraformCommand()

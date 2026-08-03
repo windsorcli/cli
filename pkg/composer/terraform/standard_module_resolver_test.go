@@ -231,6 +231,43 @@ func TestStandardModuleResolver_ProcessModules(t *testing.T) {
 		}
 	})
 
+	t.Run("ChecksTerraformOnceAcrossMultipleComponents", func(t *testing.T) {
+		// Given a resolver processing two standard-source components
+		resolver, mocks := setup(t)
+		resolver.BaseModuleResolver.runtime.ConfigRoot = "/test/config"
+		mocks.BlueprintHandler.GetTerraformComponentsFunc = func() []blueprintv1alpha1.TerraformComponent {
+			return []blueprintv1alpha1.TerraformComponent{
+				{
+					Path:     "module-one",
+					Source:   "git::https://github.com/test/module-one.git",
+					FullPath: filepath.Join("/test", "terraform", "module-one"),
+				},
+				{
+					Path:     "module-two",
+					Source:   "git::https://github.com/test/module-two.git",
+					FullPath: filepath.Join("/test", "terraform", "module-two"),
+				},
+			}
+		}
+		checkTerraformCalls := 0
+		mockToolsManager := mocks.Runtime.ToolsManager.(*tools.MockToolsManager)
+		mockToolsManager.CheckTerraformFunc = func() error {
+			checkTerraformCalls++
+			return nil
+		}
+
+		// When ProcessModules is called
+		err := resolver.ProcessModules()
+
+		// Then CheckTerraform runs exactly once despite two matching components
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		if checkTerraformCalls != 1 {
+			t.Errorf("Expected CheckTerraform to be called once, got %d calls", checkTerraformCalls)
+		}
+	})
+
 	t.Run("HandlesWriteShimMainTfError", func(t *testing.T) {
 		// Given a resolver with WriteFile shim returning error for main.tf
 		resolver, _ := setup(t)
