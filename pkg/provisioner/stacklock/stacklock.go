@@ -199,12 +199,16 @@ type localFlockLock struct {
 	path string
 }
 
-// Acquire takes the lock, retrying every acquireRetryInterval until it is held,
-// the timeout elapses, or ctx is cancelled. A timeout of 0 makes a single attempt
-// and fails immediately on contention, matching terraform's own -lock-timeout=0
-// default, rather than blocking silently. Cancellation returns ctx.Err(); timeout
-// returns *LockBusyError, populating Holder from the sidecar info file when one is
-// present. The first retry (timeout > 0 only) prints a one-line notice to stderr
+// Acquire makes one immediate attempt and, on contention, either fails right away
+// (timeout <= 0) or retries every acquireRetryInterval until it is held, the
+// timeout elapses, or ctx is cancelled. The zero-timeout case is a structural
+// single attempt — no deadline arithmetic — rather than a zero-width time window,
+// because wall-clock comparisons taken close together can read as equal (not
+// strictly after) on platforms with coarse clock resolution, which would let one
+// extra retry cycle slip in. This matches terraform's own -lock-timeout=0 default:
+// fail immediately rather than block silently. Cancellation returns ctx.Err();
+// timeout returns *LockBusyError, populating Holder from the sidecar info file
+// when one is present. Entering the retry loop prints a one-line notice to stderr
 // naming the holder when known, so an operator who opted into waiting sees why the
 // command appears to hang instead of staring at a silent terminal. After flock
 // succeeds, info is persisted to a sidecar (<path>.info) via atomic temp+rename so
@@ -217,29 +221,36 @@ func (s *localFlockLock) Acquire(ctx context.Context, info LockInfo, timeout tim
 	}
 	flk := flock.New(s.path)
 	infoPath := s.path + stackLockInfoSuffix
-	deadline := time.Now().Add(timeout)
-	waitAnnounced := false
-	for {
-		locked, err := flk.TryLock()
-		if err != nil {
-			return nil, fmt.Errorf("flock acquire: %w", err)
-		}
-		if locked {
-			break
-		}
-		if time.Now().After(deadline) {
+
+	locked, err := flk.TryLock()
+	if err != nil {
+		return nil, fmt.Errorf("flock acquire: %w", err)
+	}
+	if !locked {
+		if timeout <= 0 {
 			return nil, &LockBusyError{Path: s.path, Holder: readHolderInfo(infoPath)}
 		}
-		if !waitAnnounced {
-			announceWaiting(s.path, readHolderInfo(infoPath))
-			waitAnnounced = true
-		}
-		select {
-		case <-ctx.Done():
-			return nil, ctx.Err()
-		case <-time.After(acquireRetryInterval):
+		deadline := time.Now().Add(timeout)
+		announceWaiting(s.path, readHolderInfo(infoPath))
+		for {
+			select {
+			case <-ctx.Done():
+				return nil, ctx.Err()
+			case <-time.After(acquireRetryInterval):
+			}
+			locked, err = flk.TryLock()
+			if err != nil {
+				return nil, fmt.Errorf("flock acquire: %w", err)
+			}
+			if locked {
+				break
+			}
+			if time.Now().After(deadline) {
+				return nil, &LockBusyError{Path: s.path, Holder: readHolderInfo(infoPath)}
+			}
 		}
 	}
+
 	if info.PID == 0 {
 		info.PID = os.Getpid()
 	}
