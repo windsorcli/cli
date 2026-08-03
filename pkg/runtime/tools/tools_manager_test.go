@@ -722,6 +722,82 @@ contexts:
 	})
 }
 
+// Tests for Terraform version validation
+func TestToolsManager_CheckTerraform(t *testing.T) {
+	setup := func(t *testing.T) (*Mocks, *BaseToolsManager) {
+		t.Helper()
+		mocks := setupMocks(t)
+		toolsManager := NewToolsManager(mocks.ConfigHandler, mocks.Shell)
+		return mocks, toolsManager
+	}
+
+	t.Run("Success", func(t *testing.T) {
+		// Given terraform is available with correct version
+		_, toolsManager := setup(t)
+		// When checking terraform version
+		err := toolsManager.CheckTerraform()
+		// Then no error should be returned
+		if err != nil {
+			t.Errorf("Expected CheckTerraform to succeed, but got error: %v", err)
+		}
+	})
+
+	t.Run("TerraformNotAvailable", func(t *testing.T) {
+		// Given neither terraform nor tofu is found in PATH
+		_, toolsManager := setup(t)
+		originalExecLookPath := execLookPath
+		defer func() {
+			execLookPath = originalExecLookPath
+		}()
+		execLookPath = func(name string) (string, error) {
+			if name == "terraform" || name == "tofu" {
+				return "", fmt.Errorf("%s is not available in the PATH", name)
+			}
+			return "/usr/bin/" + name, nil
+		}
+		// When checking terraform version
+		err := toolsManager.CheckTerraform()
+		// Then an error indicating terraform or tofu is not available should be returned
+		if err == nil || ((!strings.Contains(err.Error(), "Terraform") && !strings.Contains(err.Error(), "OpenTofu")) || !strings.Contains(err.Error(), "not found on PATH")) {
+			t.Errorf("Expected terraform or tofu not available error, got %v", err)
+		}
+	})
+
+	t.Run("TerraformVersionInvalidResponse", func(t *testing.T) {
+		// Given terraform version response is invalid
+		mocks, toolsManager := setup(t)
+		mocks.Shell.ExecSilentFunc = func(name string, args ...string) (string, error) {
+			if name == "terraform" && args[0] == "version" {
+				return "Invalid version response", nil
+			}
+			return "", fmt.Errorf("command not found")
+		}
+		// When checking terraform version
+		err := toolsManager.CheckTerraform()
+		// Then an error indicating version extraction failed should be returned
+		if err == nil || !strings.Contains(err.Error(), "failed to extract terraform version") {
+			t.Errorf("Expected failed to extract terraform version error, got %v", err)
+		}
+	})
+
+	t.Run("TerraformVersionTooLow", func(t *testing.T) {
+		// Given terraform version is below minimum required version
+		mocks, toolsManager := setup(t)
+		mocks.Shell.ExecSilentFunc = func(name string, args ...string) (string, error) {
+			if name == "terraform" && args[0] == "version" {
+				return "Terraform v0.1.0", nil
+			}
+			return "", fmt.Errorf("command not found")
+		}
+		// When checking terraform version
+		err := toolsManager.CheckTerraform()
+		// Then an error indicating version is too low should be returned
+		if err == nil || !strings.Contains(err.Error(), "Terraform 0.1.0 is below the minimum required version") {
+			t.Errorf("Expected terraform version too low error, got %v", err)
+		}
+	})
+}
+
 // =============================================================================
 // Test Private Methods
 // =============================================================================
@@ -959,82 +1035,6 @@ func TestToolsManager_checkColima(t *testing.T) {
 		// Then an error indicating version is too low should be returned
 		if err == nil || !strings.Contains(err.Error(), "Lima 0.5.0 is below the minimum required version") {
 			t.Errorf("Expected limactl version too low error, got %v", err)
-		}
-	})
-}
-
-// Tests for Terraform version validation
-func TestToolsManager_checkTerraform(t *testing.T) {
-	setup := func(t *testing.T) (*Mocks, *BaseToolsManager) {
-		t.Helper()
-		mocks := setupMocks(t)
-		toolsManager := NewToolsManager(mocks.ConfigHandler, mocks.Shell)
-		return mocks, toolsManager
-	}
-
-	t.Run("Success", func(t *testing.T) {
-		// Given terraform is available with correct version
-		_, toolsManager := setup(t)
-		// When checking terraform version
-		err := toolsManager.checkTerraform()
-		// Then no error should be returned
-		if err != nil {
-			t.Errorf("Expected checkTerraform to succeed, but got error: %v", err)
-		}
-	})
-
-	t.Run("TerraformNotAvailable", func(t *testing.T) {
-		// Given neither terraform nor tofu is found in PATH
-		_, toolsManager := setup(t)
-		originalExecLookPath := execLookPath
-		defer func() {
-			execLookPath = originalExecLookPath
-		}()
-		execLookPath = func(name string) (string, error) {
-			if name == "terraform" || name == "tofu" {
-				return "", fmt.Errorf("%s is not available in the PATH", name)
-			}
-			return "/usr/bin/" + name, nil
-		}
-		// When checking terraform version
-		err := toolsManager.checkTerraform()
-		// Then an error indicating terraform or tofu is not available should be returned
-		if err == nil || ((!strings.Contains(err.Error(), "Terraform") && !strings.Contains(err.Error(), "OpenTofu")) || !strings.Contains(err.Error(), "not found on PATH")) {
-			t.Errorf("Expected terraform or tofu not available error, got %v", err)
-		}
-	})
-
-	t.Run("TerraformVersionInvalidResponse", func(t *testing.T) {
-		// Given terraform version response is invalid
-		mocks, toolsManager := setup(t)
-		mocks.Shell.ExecSilentFunc = func(name string, args ...string) (string, error) {
-			if name == "terraform" && args[0] == "version" {
-				return "Invalid version response", nil
-			}
-			return "", fmt.Errorf("command not found")
-		}
-		// When checking terraform version
-		err := toolsManager.checkTerraform()
-		// Then an error indicating version extraction failed should be returned
-		if err == nil || !strings.Contains(err.Error(), "failed to extract terraform version") {
-			t.Errorf("Expected failed to extract terraform version error, got %v", err)
-		}
-	})
-
-	t.Run("TerraformVersionTooLow", func(t *testing.T) {
-		// Given terraform version is below minimum required version
-		mocks, toolsManager := setup(t)
-		mocks.Shell.ExecSilentFunc = func(name string, args ...string) (string, error) {
-			if name == "terraform" && args[0] == "version" {
-				return "Terraform v0.1.0", nil
-			}
-			return "", fmt.Errorf("command not found")
-		}
-		// When checking terraform version
-		err := toolsManager.checkTerraform()
-		// Then an error indicating version is too low should be returned
-		if err == nil || !strings.Contains(err.Error(), "Terraform 0.1.0 is below the minimum required version") {
-			t.Errorf("Expected terraform version too low error, got %v", err)
 		}
 	})
 }

@@ -147,6 +147,10 @@ func (h *StandardModuleResolver) ProcessModules() error {
 			return fmt.Errorf("failed to set TF_DATA_DIR for %s: %w", componentID, err)
 		}
 
+		if err := h.runtime.ToolsManager.CheckTerraform(); err != nil {
+			return fmt.Errorf("failed to initialize terraform for %s: %w", componentID, err)
+		}
+
 		terraformCommand := h.runtime.ToolsManager.GetTerraformCommand()
 		output, err := h.runtime.Shell.ExecSilent(
 			terraformCommand,
