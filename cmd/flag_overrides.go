@@ -51,10 +51,11 @@ func applyWorkstationFlagOverrides(overrides map[string]any, vmDriver, platform 
 //
 //   - aws     → s3       (S3 is the canonical state store on AWS)
 //   - azure   → azurerm  (Azure Blob Storage via the azurerm backend)
-//   - metal, docker, incus, hetzner, hyperv → kubernetes  (the cluster IS the
-//     state store; each component's state lives as a Secret in the cluster it
-//     manages. Hetzner joins this group because its Object Storage keys can't
-//     be provisioned via API, so in-cluster state avoids a manual key step)
+//   - metal, docker, incus, hetzner, hyperv, vsphere → kubernetes  (the cluster
+//     IS the state store; each component's state lives as a Secret in the
+//     cluster it manages. Hetzner joins this group because its Object Storage
+//     keys can't be provisioned via API, so in-cluster state avoids a manual
+//     key step)
 //
 // gcp is intentionally not defaulted today: GCS backend support requires a
 // GCSBackend schema struct and provider.go branches that don't yet exist.
@@ -67,7 +68,7 @@ func defaultTerraformBackendType(overrides map[string]any) {
 		overrides["terraform.backend.type"] = "s3"
 	case "azure":
 		overrides["terraform.backend.type"] = "azurerm"
-	case "metal", "docker", "incus", "hetzner", "hyperv":
+	case "metal", "docker", "incus", "hetzner", "hyperv", "vsphere":
 		overrides["terraform.backend.type"] = "kubernetes"
 	}
 }

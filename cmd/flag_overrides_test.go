@@ -237,6 +237,20 @@ func TestDefaultTerraformBackendType(t *testing.T) {
 		}
 	})
 
+	t.Run("VspherePlatformDefaultsBackendToKubernetes", func(t *testing.T) {
+		// Given platform=vsphere, cluster.driver defaults to talos (resolve.go)
+		// alongside hyperv — same kubernetes-backend group, same rationale.
+		overrides := map[string]any{"platform": "vsphere"}
+
+		// When the default is applied
+		defaultTerraformBackendType(overrides)
+
+		// Then terraform.backend.type defaults to "kubernetes"
+		if overrides["terraform.backend.type"] != "kubernetes" {
+			t.Errorf("Expected terraform.backend.type=kubernetes, got %v", overrides["terraform.backend.type"])
+		}
+	})
+
 	t.Run("UnmappedPlatformDoesNotDefaultBackendType", func(t *testing.T) {
 		// Given platform=gcp (not yet wired up — GCSBackend schema is missing)
 		// the default switch must not invent a value. Operators on gcp are
