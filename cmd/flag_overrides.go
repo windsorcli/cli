@@ -16,24 +16,10 @@ import (
 // applyWorkstationFlagOverrides maps --vm-driver and --platform flag values
 // onto a config override map. --vm-driver sets workstation.runtime (with the
 // colima-incus alias remapped to colima), and when no --platform is given the
-// platform is inferred from the driver. After platform resolution, the function
-// fills in a sensible default for terraform.backend.type when one isn't already
-// set in the override map:
-//
-//   - aws     → s3       (S3 is the canonical state store on AWS)
-//   - azure   → azurerm  (Azure Blob Storage via the azurerm backend)
-//   - metal, docker, incus, hetzner → kubernetes  (the cluster IS the state
-//     store; each component's state lives as a Secret in the cluster it
-//     manages. Hetzner joins this group because its Object Storage keys can't
-//     be provisioned via API, so in-cluster state avoids a manual key step)
-//
-// The default only kicks in when terraform.backend.type is absent from
-// overrides, so explicit --set values (which are merged into the same map by
-// callers after this helper runs) always win. gcp is intentionally not
-// defaulted today: GCS backend support requires a GCSBackend schema struct
-// and provider.go branches that don't yet exist. Shared by `windsor init`,
-// `windsor bootstrap`, and `windsor up` to guarantee consistent flag
-// semantics across commands.
+// platform is inferred from the driver. Once platform is resolved, it defaults
+// terraform.backend.type via defaultTerraformBackendType. Shared by
+// `windsor init`, `windsor bootstrap`, and `windsor up` to guarantee
+// consistent flag semantics across commands.
 func applyWorkstationFlagOverrides(overrides map[string]any, vmDriver, platform string) {
 	if platform != "" {
 		overrides["platform"] = platform
@@ -56,15 +42,33 @@ func applyWorkstationFlagOverrides(overrides map[string]any, vmDriver, platform 
 		}
 	}
 
-	if _, set := overrides["terraform.backend.type"]; !set {
-		switch overrides["platform"] {
-		case "aws":
-			overrides["terraform.backend.type"] = "s3"
-		case "azure":
-			overrides["terraform.backend.type"] = "azurerm"
-		case "metal", "docker", "incus", "hetzner":
-			overrides["terraform.backend.type"] = "kubernetes"
-		}
+	defaultTerraformBackendType(overrides)
+}
+
+// defaultTerraformBackendType fills in terraform.backend.type from
+// overrides["platform"] when the key is absent, so explicit --set values
+// (merged into the same map by callers after this runs) always win:
+//
+//   - aws     → s3       (S3 is the canonical state store on AWS)
+//   - azure   → azurerm  (Azure Blob Storage via the azurerm backend)
+//   - metal, docker, incus, hetzner, hyperv → kubernetes  (the cluster IS the
+//     state store; each component's state lives as a Secret in the cluster it
+//     manages. Hetzner joins this group because its Object Storage keys can't
+//     be provisioned via API, so in-cluster state avoids a manual key step)
+//
+// gcp is intentionally not defaulted today: GCS backend support requires a
+// GCSBackend schema struct and provider.go branches that don't yet exist.
+func defaultTerraformBackendType(overrides map[string]any) {
+	if _, set := overrides["terraform.backend.type"]; set {
+		return
+	}
+	switch overrides["platform"] {
+	case "aws":
+		overrides["terraform.backend.type"] = "s3"
+	case "azure":
+		overrides["terraform.backend.type"] = "azurerm"
+	case "metal", "docker", "incus", "hetzner", "hyperv":
+		overrides["terraform.backend.type"] = "kubernetes"
 	}
 }
 

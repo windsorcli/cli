@@ -93,115 +93,6 @@ func TestApplyWorkstationFlagOverrides(t *testing.T) {
 		}
 	})
 
-	t.Run("AwsPlatformDefaultsBackendToS3", func(t *testing.T) {
-		// Given --platform aws and no explicit terraform.backend.type override
-		overrides := map[string]any{}
-
-		// When the helper is applied
-		applyWorkstationFlagOverrides(overrides, "", "aws")
-
-		// Then terraform.backend.type defaults to "s3" since AWS contexts overwhelmingly
-		// store terraform state in S3; the operator can still override via --set.
-		if overrides["terraform.backend.type"] != "s3" {
-			t.Errorf("Expected terraform.backend.type=s3, got %v", overrides["terraform.backend.type"])
-		}
-	})
-
-	t.Run("AzurePlatformDefaultsBackendToAzurerm", func(t *testing.T) {
-		// Given --platform azure and no explicit terraform.backend.type override
-		overrides := map[string]any{}
-
-		// When the helper is applied
-		applyWorkstationFlagOverrides(overrides, "", "azure")
-
-		// Then terraform.backend.type defaults to "azurerm"
-		if overrides["terraform.backend.type"] != "azurerm" {
-			t.Errorf("Expected terraform.backend.type=azurerm, got %v", overrides["terraform.backend.type"])
-		}
-	})
-
-	t.Run("ExplicitBackendTypePreservedOverDefault", func(t *testing.T) {
-		// Given --platform aws AND a pre-set terraform.backend.type (as if --set
-		// terraform.backend.type=local had already been merged into the map). Note:
-		// callers actually merge --set after this helper runs, so this test exercises
-		// the symmetric guard against a future change in merge ordering — the helper
-		// must never clobber a value already present.
-		overrides := map[string]any{
-			"terraform.backend.type": "local",
-		}
-
-		// When the helper is applied
-		applyWorkstationFlagOverrides(overrides, "", "aws")
-
-		// Then the explicit value wins; no platform-default takes effect
-		if overrides["terraform.backend.type"] != "local" {
-			t.Errorf("Expected explicit terraform.backend.type=local to be preserved, got %v", overrides["terraform.backend.type"])
-		}
-	})
-
-	t.Run("MetalPlatformDefaultsBackendToKubernetes", func(t *testing.T) {
-		// Given --platform metal (bare-metal Talos cluster). For platforms where
-		// the cluster is the natural state store (no canonical cloud bucket
-		// service), the kubernetes backend is the right default — each component's
-		// state lives as a Secret in the cluster it manages. The bootstrap dance
-		// runs the same shape as for s3: apply the cluster/backend component with
-		// local state, migrate to kubernetes once the cluster is up, then up rest.
-		overrides := map[string]any{}
-
-		// When the helper is applied
-		applyWorkstationFlagOverrides(overrides, "", "metal")
-
-		// Then terraform.backend.type defaults to "kubernetes"
-		if overrides["terraform.backend.type"] != "kubernetes" {
-			t.Errorf("Expected terraform.backend.type=kubernetes, got %v", overrides["terraform.backend.type"])
-		}
-	})
-
-	t.Run("DockerPlatformDefaultsBackendToKubernetes", func(t *testing.T) {
-		// Given --platform docker (local cluster on a docker workstation), the
-		// in-cluster kubernetes backend mirrors the metal case — the cluster
-		// Windsor brings up is also the state store for everything that follows.
-		overrides := map[string]any{}
-
-		// When the helper is applied
-		applyWorkstationFlagOverrides(overrides, "", "docker")
-
-		// Then terraform.backend.type defaults to "kubernetes"
-		if overrides["terraform.backend.type"] != "kubernetes" {
-			t.Errorf("Expected terraform.backend.type=kubernetes, got %v", overrides["terraform.backend.type"])
-		}
-	})
-
-	t.Run("IncusPlatformDefaultsBackendToKubernetes", func(t *testing.T) {
-		// Given --platform incus (the colima-incus inferred platform), same
-		// kubernetes-backend default applies — incus workstations run a cluster.
-		overrides := map[string]any{}
-
-		// When the helper is applied
-		applyWorkstationFlagOverrides(overrides, "", "incus")
-
-		// Then terraform.backend.type defaults to "kubernetes"
-		if overrides["terraform.backend.type"] != "kubernetes" {
-			t.Errorf("Expected terraform.backend.type=kubernetes, got %v", overrides["terraform.backend.type"])
-		}
-	})
-
-	t.Run("HetznerPlatformDefaultsBackendToKubernetes", func(t *testing.T) {
-		// Given --platform hetzner and no explicit terraform.backend.type override.
-		// Hetzner joins the in-cluster (kubernetes) backend group rather than s3
-		// because its Object Storage keys cannot be provisioned via any API, so the
-		// in-cluster backend avoids a mandatory manual key-generation step.
-		overrides := map[string]any{}
-
-		// When the helper is applied
-		applyWorkstationFlagOverrides(overrides, "", "hetzner")
-
-		// Then terraform.backend.type defaults to "kubernetes"
-		if overrides["terraform.backend.type"] != "kubernetes" {
-			t.Errorf("Expected terraform.backend.type=kubernetes, got %v", overrides["terraform.backend.type"])
-		}
-	})
-
 	t.Run("VmDriverInferenceFlowsThroughToBackendDefault", func(t *testing.T) {
 		// Given --vm-driver docker-desktop with no --platform, the helper infers
 		// platform=docker, and the backend default must then key off that inferred
@@ -223,15 +114,138 @@ func TestApplyWorkstationFlagOverrides(t *testing.T) {
 		}
 	})
 
+}
+
+func TestDefaultTerraformBackendType(t *testing.T) {
+	t.Run("AwsPlatformDefaultsBackendToS3", func(t *testing.T) {
+		// Given platform=aws and no explicit terraform.backend.type override
+		overrides := map[string]any{"platform": "aws"}
+
+		// When the default is applied
+		defaultTerraformBackendType(overrides)
+
+		// Then terraform.backend.type defaults to "s3" since AWS contexts overwhelmingly
+		// store terraform state in S3; the operator can still override via --set.
+		if overrides["terraform.backend.type"] != "s3" {
+			t.Errorf("Expected terraform.backend.type=s3, got %v", overrides["terraform.backend.type"])
+		}
+	})
+
+	t.Run("AzurePlatformDefaultsBackendToAzurerm", func(t *testing.T) {
+		// Given platform=azure and no explicit terraform.backend.type override
+		overrides := map[string]any{"platform": "azure"}
+
+		// When the default is applied
+		defaultTerraformBackendType(overrides)
+
+		// Then terraform.backend.type defaults to "azurerm"
+		if overrides["terraform.backend.type"] != "azurerm" {
+			t.Errorf("Expected terraform.backend.type=azurerm, got %v", overrides["terraform.backend.type"])
+		}
+	})
+
+	t.Run("ExplicitBackendTypePreservedOverDefault", func(t *testing.T) {
+		// Given platform=aws AND a pre-set terraform.backend.type (as if --set
+		// terraform.backend.type=local had already been merged into the map)
+		overrides := map[string]any{
+			"platform":               "aws",
+			"terraform.backend.type": "local",
+		}
+
+		// When the default is applied
+		defaultTerraformBackendType(overrides)
+
+		// Then the explicit value wins; no platform-default takes effect
+		if overrides["terraform.backend.type"] != "local" {
+			t.Errorf("Expected explicit terraform.backend.type=local to be preserved, got %v", overrides["terraform.backend.type"])
+		}
+	})
+
+	t.Run("MetalPlatformDefaultsBackendToKubernetes", func(t *testing.T) {
+		// Given platform=metal (bare-metal Talos cluster). For platforms where
+		// the cluster is the natural state store (no canonical cloud bucket
+		// service), the kubernetes backend is the right default — each component's
+		// state lives as a Secret in the cluster it manages.
+		overrides := map[string]any{"platform": "metal"}
+
+		// When the default is applied
+		defaultTerraformBackendType(overrides)
+
+		// Then terraform.backend.type defaults to "kubernetes"
+		if overrides["terraform.backend.type"] != "kubernetes" {
+			t.Errorf("Expected terraform.backend.type=kubernetes, got %v", overrides["terraform.backend.type"])
+		}
+	})
+
+	t.Run("DockerPlatformDefaultsBackendToKubernetes", func(t *testing.T) {
+		// Given platform=docker (local cluster on a docker workstation), the
+		// in-cluster kubernetes backend mirrors the metal case.
+		overrides := map[string]any{"platform": "docker"}
+
+		// When the default is applied
+		defaultTerraformBackendType(overrides)
+
+		// Then terraform.backend.type defaults to "kubernetes"
+		if overrides["terraform.backend.type"] != "kubernetes" {
+			t.Errorf("Expected terraform.backend.type=kubernetes, got %v", overrides["terraform.backend.type"])
+		}
+	})
+
+	t.Run("IncusPlatformDefaultsBackendToKubernetes", func(t *testing.T) {
+		// Given platform=incus (the colima-incus inferred platform), same
+		// kubernetes-backend default applies — incus workstations run a cluster.
+		overrides := map[string]any{"platform": "incus"}
+
+		// When the default is applied
+		defaultTerraformBackendType(overrides)
+
+		// Then terraform.backend.type defaults to "kubernetes"
+		if overrides["terraform.backend.type"] != "kubernetes" {
+			t.Errorf("Expected terraform.backend.type=kubernetes, got %v", overrides["terraform.backend.type"])
+		}
+	})
+
+	t.Run("HetznerPlatformDefaultsBackendToKubernetes", func(t *testing.T) {
+		// Given platform=hetzner and no explicit terraform.backend.type override.
+		// Hetzner joins the in-cluster (kubernetes) backend group rather than s3
+		// because its Object Storage keys cannot be provisioned via any API, so the
+		// in-cluster backend avoids a mandatory manual key-generation step.
+		overrides := map[string]any{"platform": "hetzner"}
+
+		// When the default is applied
+		defaultTerraformBackendType(overrides)
+
+		// Then terraform.backend.type defaults to "kubernetes"
+		if overrides["terraform.backend.type"] != "kubernetes" {
+			t.Errorf("Expected terraform.backend.type=kubernetes, got %v", overrides["terraform.backend.type"])
+		}
+	})
+
+	t.Run("HypervPlatformDefaultsBackendToKubernetes", func(t *testing.T) {
+		// Given platform=hyperv, cluster.driver defaults to talos (resolve.go),
+		// making the cluster the natural state store — same kubernetes-backend
+		// group as metal/docker/incus/hetzner, so state survives destroy+apply
+		// instead of living only on the workstation under the local backend.
+		overrides := map[string]any{"platform": "hyperv"}
+
+		// When the default is applied
+		defaultTerraformBackendType(overrides)
+
+		// Then terraform.backend.type defaults to "kubernetes"
+		if overrides["terraform.backend.type"] != "kubernetes" {
+			t.Errorf("Expected terraform.backend.type=kubernetes, got %v", overrides["terraform.backend.type"])
+		}
+	})
+
 	t.Run("UnmappedPlatformDoesNotDefaultBackendType", func(t *testing.T) {
-		// Given --platform gcp (not yet wired up — GCSBackend schema is missing)
+		// Given platform=gcp (not yet wired up — GCSBackend schema is missing)
 		// the default switch must not invent a value. Operators on gcp are
 		// expected to configure terraform.backend.type explicitly until the
 		// schema lands.
-		overrides := map[string]any{}
+		overrides := map[string]any{"platform": "gcp"}
 
-		// When the helper is applied
-		applyWorkstationFlagOverrides(overrides, "", "gcp")
+		// When the default is applied
+		defaultTerraformBackendType(overrides)
 
 		// Then no backend default is injected
 		if _, set := overrides["terraform.backend.type"]; set {
