@@ -2405,18 +2405,27 @@ func TestArtifactBuilder_extractTarEntries(t *testing.T) {
 		}
 	})
 
-	t.Run("SkipsKustomizeDirectory", func(t *testing.T) {
+	t.Run("ExtractsKustomizeDirectory", func(t *testing.T) {
 		builder, _ := setup(t)
 		tmpDir := t.TempDir()
 		callCount := 0
+		content := []byte("resources:\n")
 
 		mockReader := &mockTarReader{
 			nextFunc: func() (*tar.Header, error) {
 				callCount++
 				if callCount == 1 {
-					return &tar.Header{Name: "kustomize/file.yaml", Typeflag: tar.TypeReg}, nil
+					return &tar.Header{Name: "kustomize/file.yaml", Typeflag: tar.TypeReg, Size: int64(len(content)), Mode: 0644}, nil
 				}
 				return nil, io.EOF
+			},
+			readFunc: func(p []byte) (int, error) {
+				n := copy(p, content)
+				content = content[n:]
+				if len(content) == 0 {
+					return n, io.EOF
+				}
+				return n, nil
 			},
 		}
 
@@ -2425,13 +2434,9 @@ func TestArtifactBuilder_extractTarEntries(t *testing.T) {
 		if err != nil {
 			t.Errorf("Expected no error, got %v", err)
 		}
-		kustomizePath := filepath.Join(tmpDir, "kustomize")
-		_, statErr := os.Stat(kustomizePath)
-		if statErr == nil {
-			t.Error("Expected kustomize directory to be skipped, but it exists")
-		}
-		if statErr != nil && !os.IsNotExist(statErr) {
-			t.Errorf("Expected kustomize directory to not exist, got stat error: %v", statErr)
+		kustomizeFile := filepath.Join(tmpDir, "kustomize", "file.yaml")
+		if _, statErr := os.Stat(kustomizeFile); statErr != nil {
+			t.Errorf("Expected kustomize/file.yaml to be extracted, got stat error: %v", statErr)
 		}
 	})
 
