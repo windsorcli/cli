@@ -230,8 +230,12 @@ func NewRuntime(opts ...*Runtime) *Runtime {
 
 // HandleSessionReset checks for reset flags and session tokens, then resets managed environment
 // variables if needed. It checks for WINDSOR_SESSION_TOKEN and uses the shell's CheckResetFlags
-// method to determine if a reset should occur. If reset is needed, it calls Shell.Reset() and
-// sets NO_CACHE=true. Returns an error if reset flag checking fails.
+// method to determine if a reset should occur. A command like `windsor exec` that never
+// establishes its own session token always has hasSessionToken false, so every invocation would
+// otherwise be treated as a fresh reset; NO_CACHE only defaults to "true" when the caller hasn't
+// already set it explicitly (to "true" or "false"), so an explicit `NO_CACHE=false windsor exec
+// -- ...` — or a value already present in the calling shell — is honored instead of being
+// force-overwritten on every reset. Returns an error if reset flag checking fails.
 func (rt *Runtime) HandleSessionReset() error {
 	hasSessionToken := os.Getenv("WINDSOR_SESSION_TOKEN") != ""
 	shouldReset, err := rt.Shell.CheckResetFlags()
@@ -243,8 +247,10 @@ func (rt *Runtime) HandleSessionReset() error {
 	}
 	if shouldReset {
 		rt.Shell.Reset()
-		if err := os.Setenv("NO_CACHE", "true"); err != nil {
-			return fmt.Errorf("failed to set NO_CACHE: %w", err)
+		if _, noCacheSet := os.LookupEnv("NO_CACHE"); !noCacheSet {
+			if err := os.Setenv("NO_CACHE", "true"); err != nil {
+				return fmt.Errorf("failed to set NO_CACHE: %w", err)
+			}
 		}
 		if rt.TerraformProvider != nil {
 			rt.TerraformProvider.ClearCache()

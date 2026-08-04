@@ -71,3 +71,4 @@ contexts/**/.aws/
 contexts/**/.omni/
 contexts/**/.azure/
 contexts/**/.gcp/
+contexts/**/.vsphere/

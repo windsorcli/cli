@@ -7,6 +7,7 @@ type MockToolsManager struct {
 	CheckFunc               func() error
 	CheckRequirementsFunc   func(reqs Requirements) error
 	CheckAuthFunc           func() error
+	CheckTerraformFunc      func() error
 	GetTerraformCommandFunc func() string
 }
 
@@ -65,6 +66,14 @@ func (m *MockToolsManager) CheckRequirements(reqs Requirements) error {
 func (m *MockToolsManager) CheckAuth() error {
 	if m.CheckAuthFunc != nil {
 		return m.CheckAuthFunc()
+	}
+	return nil
+}
+
+// CheckTerraform calls the mock CheckTerraformFunc if set, otherwise returns nil.
+func (m *MockToolsManager) CheckTerraform() error {
+	if m.CheckTerraformFunc != nil {
+		return m.CheckTerraformFunc()
 	}
 	return nil
 }

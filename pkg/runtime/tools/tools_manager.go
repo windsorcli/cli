@@ -31,6 +31,7 @@ type ToolsManager interface {
 	Check() error
 	CheckRequirements(reqs Requirements) error
 	CheckAuth() error
+	CheckTerraform() error
 	GetTerraformCommand() string
 }
 
@@ -149,7 +150,7 @@ func (t *BaseToolsManager) CheckRequirements(reqs Requirements) error {
 	}
 
 	if reqs.Terraform && t.configHandler.GetBool("terraform.enabled") {
-		if err := t.checkTerraform(); err != nil {
+		if err := t.CheckTerraform(); err != nil {
 			return err
 		}
 	}
@@ -313,10 +314,15 @@ func (t *BaseToolsManager) detectTerraformDriver() string {
 	return "terraform"
 }
 
-// checkTerraform ensures Terraform or OpenTofu is available in the system's PATH using execLookPath.
+// CheckTerraform ensures Terraform or OpenTofu is available in the system's PATH using execLookPath.
 // It checks for the configured driver command in the system's PATH and verifies its version.
 // Returns nil if found and meets the minimum version requirement, else an error indicating it is not available or outdated.
-func (t *BaseToolsManager) checkTerraform() error {
+// Exported (unlike the other check* methods) so callers that need Terraform unconditionally —
+// e.g. the composer's standard module resolver, which shells out to `terraform init` to resolve
+// git/registry-sourced modules regardless of terraform.enabled — can get the same
+// missingToolError/outdatedToolError messages as CheckRequirements without going through its
+// config-gated Terraform field.
+func (t *BaseToolsManager) CheckTerraform() error {
 	command := t.GetTerraformCommand()
 	if _, err := execLookPath(command); err != nil {
 		return missingToolError(command)

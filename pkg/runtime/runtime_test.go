@@ -114,6 +114,7 @@ type MockToolsManager struct {
 	CheckFunc               func() error
 	CheckRequirementsFunc   func(reqs tools.Requirements) error
 	CheckAuthFunc           func() error
+	CheckTerraformFunc      func() error
 	GetTerraformCommandFunc func() string
 }
 
@@ -151,6 +152,13 @@ func (m *MockToolsManager) CheckRequirements(reqs tools.Requirements) error {
 func (m *MockToolsManager) CheckAuth() error {
 	if m.CheckAuthFunc != nil {
 		return m.CheckAuthFunc()
+	}
+	return nil
+}
+
+func (m *MockToolsManager) CheckTerraform() error {
+	if m.CheckTerraformFunc != nil {
+		return m.CheckTerraformFunc()
 	}
 	return nil
 }
@@ -938,6 +946,70 @@ func TestRuntime_HandleSessionReset(t *testing.T) {
 
 		if !resetCalled {
 			t.Error("Expected Reset to be called when no session token")
+		}
+		if os.Getenv("NO_CACHE") != "true" {
+			t.Errorf("Expected NO_CACHE to default to true, got %q", os.Getenv("NO_CACHE"))
+		}
+	})
+
+	t.Run("PreservesExplicitNoCacheFalseOnReset", func(t *testing.T) {
+		// Given a caller that explicitly opted back into caching (e.g. `NO_CACHE=false windsor
+		// exec -- ...`), and no session token — so a reset is still triggered
+		t.Cleanup(func() {
+			os.Unsetenv("NO_CACHE")
+			os.Unsetenv("WINDSOR_SESSION_TOKEN")
+		})
+		os.Unsetenv("WINDSOR_SESSION_TOKEN")
+		t.Setenv("NO_CACHE", "false")
+
+		mocks := setupRuntimeMocks(t)
+		rt := mocks.Runtime
+
+		mockShell := mocks.Shell.(*shell.MockShell)
+		mockShell.CheckResetFlagsFunc = func() (bool, error) {
+			return false, nil
+		}
+
+		// When HandleSessionReset is called
+		err := rt.HandleSessionReset()
+
+		// Then the reset still runs, but the caller's explicit NO_CACHE=false is not
+		// force-overwritten to true
+		if err != nil {
+			t.Errorf("Expected no error, got: %v", err)
+		}
+		if os.Getenv("NO_CACHE") != "false" {
+			t.Errorf("Expected explicit NO_CACHE=false to be preserved, got %q", os.Getenv("NO_CACHE"))
+		}
+	})
+
+	t.Run("PreservesExplicitNoCacheTrueOnReset", func(t *testing.T) {
+		// Given a caller that already set NO_CACHE=true itself, and no session token
+		t.Cleanup(func() {
+			os.Unsetenv("NO_CACHE")
+			os.Unsetenv("WINDSOR_SESSION_TOKEN")
+		})
+		os.Unsetenv("WINDSOR_SESSION_TOKEN")
+		t.Setenv("NO_CACHE", "true")
+
+		mocks := setupRuntimeMocks(t)
+		rt := mocks.Runtime
+
+		mockShell := mocks.Shell.(*shell.MockShell)
+		mockShell.CheckResetFlagsFunc = func() (bool, error) {
+			return false, nil
+		}
+
+		// When HandleSessionReset is called
+		err := rt.HandleSessionReset()
+
+		// Then the pre-existing value is left alone (not re-set, though the observable result
+		// is the same either way)
+		if err != nil {
+			t.Errorf("Expected no error, got: %v", err)
+		}
+		if os.Getenv("NO_CACHE") != "true" {
+			t.Errorf("Expected NO_CACHE to remain true, got %q", os.Getenv("NO_CACHE"))
 		}
 	})
 

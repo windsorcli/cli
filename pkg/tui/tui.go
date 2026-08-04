@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/briandowns/spinner"
+	"golang.org/x/term"
 )
 
 // The tui package provides centralized terminal user interface primitives for the Windsor CLI.
@@ -26,6 +27,7 @@ type termSpinner struct {
 	message           string
 	paused            int
 	pauseCursorSaved  bool
+	lastFallbackLine  string
 }
 
 // verboseSpinner is the Spinner implementation used in verbose mode.
@@ -159,6 +161,13 @@ func WithProgress(message string, fn func() error) error {
 // Start stops any existing spinner and begins a new one with the given message.
 // WithWriterFile binds the animation's terminal check to stderr, the stream the frames go to;
 // WithWriter would leave that check on stdout, silencing the animation whenever stdout is redirected.
+// The underlying spinner library silently no-ops its animation when stderr isn't a real
+// terminal (piped, redirected, captured by a log) — with nothing else printed until Done/Fail,
+// every step would otherwise appear to jump straight from nothing to its final result with no
+// visible waiting/in-progress phase. isInteractiveStderr falls back to printing the message as
+// a static line in that case, the same non-animated behavior verboseSpinner already uses. Start
+// always prints its message (announcing the new phase) and resets the dedup baseline Update
+// checks against, even if it happens to match the previous phase's last line.
 func (s *termSpinner) Start(message string) {
 	if s.spin != nil && s.spin.Active() {
 		s.spin.Stop()
@@ -169,16 +178,34 @@ func (s *termSpinner) Start(message string) {
 	s.spin = spinner.New(spinner.CharSets[14], 100*time.Millisecond, spinner.WithColor("green"), spinner.WithWriterFile(os.Stderr))
 	s.spin.Suffix = " " + message
 	s.spin.Start()
+	if !isInteractiveStderr() {
+		fmt.Fprintln(os.Stderr, message)
+	}
+	s.lastFallbackLine = message
 }
 
 // Update changes the spinner suffix to the given message without altering the stored message.
+// Falls back to printing the message as a static line when stderr isn't a terminal, for the
+// same reason Start does — see Start's doc comment. Skips the print when message is identical
+// to the last line printed (by Start or a prior Update), so a polling loop that calls Update
+// with an often-unchanged message (e.g. "waiting on X" across many ticks while nothing resolves)
+// doesn't spam duplicate lines while stderr is captured.
 func (s *termSpinner) Update(message string) {
-	if s.spin != nil {
-		s.spin.Suffix = " " + message
+	if s.spin == nil {
+		return
 	}
+	s.spin.Suffix = " " + message
+	if isInteractiveStderr() || message == s.lastFallbackLine {
+		return
+	}
+	fmt.Fprintln(os.Stderr, message)
+	s.lastFallbackLine = message
 }
 
-// Done stops the spinner and prints a green success line to stderr.
+// Done stops the spinner and prints a green success line to stderr. When stderr isn't a
+// terminal, Start/Update already printed the message as a plain fallback line, so no
+// checkmark or color decoration is added here — the same undecorated behavior verboseSpinner
+// already uses for non-interactive output.
 func (s *termSpinner) Done() {
 	if s.spin != nil && s.spin.Active() {
 		s.spin.Stop()
@@ -189,10 +216,15 @@ func (s *termSpinner) Done() {
 		fmt.Fprint(os.Stderr, "\033[u\033[2K\r")
 		s.pauseCursorSaved = false
 	}
+	if !isInteractiveStderr() && s.lastFallbackLine == s.message {
+		return
+	}
 	fmt.Fprintf(os.Stderr, "\033[32m✔\033[0m %s - \033[32mDone\033[0m\n", s.message)
 }
 
-// Fail stops the spinner and prints a red failure line to stderr.
+// Fail stops the spinner and prints a red failure line to stderr. When stderr isn't a
+// terminal, no failure line is printed — the same undecorated behavior verboseSpinner
+// already uses for non-interactive output, relying on the returned error to surface failure.
 func (s *termSpinner) Fail() {
 	if s.spin != nil && s.spin.Active() {
 		s.spin.Stop()
@@ -203,27 +235,15 @@ func (s *termSpinner) Fail() {
 		fmt.Fprint(os.Stderr, "\033[u\033[2K\r")
 		s.pauseCursorSaved = false
 	}
+	if !isInteractiveStderr() && s.lastFallbackLine == s.message {
+		return
+	}
 	fmt.Fprintf(os.Stderr, "\033[31m✗ %s - Failed\033[0m\n", s.message)
 }
 
 // Pause stops the spinner animation without printing Done or Fail, preserving the message for Resume.
 func (s *termSpinner) Pause() {
 	s.pause(false)
-}
-
-// pause stops the spinner animation and optionally prints a static progress line.
-func (s *termSpinner) pause(printMessage bool) {
-	if s.spin != nil {
-		if s.paused == 0 {
-			fmt.Fprint(os.Stderr, "\033[s")
-			s.pauseCursorSaved = true
-			s.spin.Stop()
-			if printMessage {
-				fmt.Fprintf(os.Stderr, "… %s\n", s.message)
-			}
-		}
-		s.paused++
-	}
 }
 
 // Resume restarts the spinner animation using the previously set message.
@@ -258,3 +278,26 @@ func (s *verboseSpinner) Pause() {}
 // Resume is a no-op in verbose mode since there is no animation to restart.
 func (s *verboseSpinner) Resume() {}
 
+// =============================================================================
+// Private Methods
+// =============================================================================
+
+// isInteractiveStderr reports whether stderr is attached to a real terminal.
+func isInteractiveStderr() bool {
+	return term.IsTerminal(int(os.Stderr.Fd())) // #nosec G115 -- file descriptors are small, safe to cast to int
+}
+
+// pause stops the spinner animation and optionally prints a static progress line.
+func (s *termSpinner) pause(printMessage bool) {
+	if s.spin != nil {
+		if s.paused == 0 {
+			fmt.Fprint(os.Stderr, "\033[s")
+			s.pauseCursorSaved = true
+			s.spin.Stop()
+			if printMessage {
+				fmt.Fprintf(os.Stderr, "… %s\n", s.message)
+			}
+		}
+		s.paused++
+	}
+}

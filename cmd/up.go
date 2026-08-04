@@ -110,7 +110,7 @@ windsor up --blueprint=ghcr.io/myorg/blueprint:v1.0.0`,
 
 		var halted bool
 		var postRunMessages []blueprintv1alpha1.Message
-		if err := stacklock.With(cmd.Context(), proj.Runtime, "up", func() error {
+		if err := stacklock.With(cmd.Context(), proj.Runtime, "up", lockTimeout, func() error {
 			_, h, err := proj.Up()
 			if err != nil {
 				return err

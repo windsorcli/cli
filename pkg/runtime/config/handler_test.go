@@ -1486,6 +1486,42 @@ additionalProperties: false
 		}
 	})
 
+	t.Run("RefersBackToWarningWhenSameErrorsAlreadyReported", func(t *testing.T) {
+		handler, tmpDir := setupPrivateTestHandler(t)
+		schemaPath := filepath.Join(tmpDir, "schema.yaml")
+		schemaContent := `$schema: https://json-schema.org/draft/2020-12/schema
+type: object
+properties:
+  allowed:
+    type: string
+additionalProperties: false
+`
+		os.WriteFile(schemaPath, []byte(schemaContent), 0644)
+		if err := handler.LoadSchema(schemaPath); err != nil {
+			t.Fatalf("Expected no error loading schema, got %v", err)
+		}
+		handler.data = map[string]any{"dynamic_key": "value"}
+
+		// Given the same invalid data was already validated and warned about earlier (e.g. by
+		// valuesSource.Load) in this invocation
+		result, err := handler.schemaValidator.Validate(handler.data)
+		if err != nil {
+			t.Fatalf("Expected no error validating, got %v", err)
+		}
+		handler.schemaValidator.MarkErrorsReported(result.Errors)
+
+		// When ValidateContextValues revalidates the identical data
+		err = handler.ValidateContextValues()
+
+		// Then it refers back to the earlier warning instead of re-dumping the same error list
+		if err == nil {
+			t.Fatal("Expected validation error")
+		}
+		if err.Error() != "context value validation failed (see the values.yaml warning above)" {
+			t.Errorf("Expected a reference to the earlier warning, got %v", err)
+		}
+	})
+
 	t.Run("ValidatesStaticFieldsAgainstSchema", func(t *testing.T) {
 		handler, tmpDir := setupPrivateTestHandler(t)
 		schemaPath := filepath.Join(tmpDir, "schema.yaml")
