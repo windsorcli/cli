@@ -1343,7 +1343,7 @@ func (a *ArtifactBuilder) validateAndSanitizePath(path string) (string, error) {
 }
 
 // extractTarEntries extracts specific entries from a tar archive into the given destination directory for caching and reuse.
-// Only entries within the "_template/" and "terraform/" directories, as well as the "metadata.yaml" file, are extracted.
+// Only entries within the "_template/", "kustomize/", and "terraform/" directories, as well as the "metadata.yaml" file, are extracted.
 // Directories and files are handled appropriately, and file permissions are set as specified in the tar headers.
 // The extraction process performs path validation to prevent directory traversal attacks, and the destination directory must preexist.
 // Returns an error if any part of the extraction or validation fails.
@@ -1363,6 +1363,7 @@ func (a *ArtifactBuilder) extractTarEntries(tarReader TarReader, destDir string)
 		}
 
 		if !strings.HasPrefix(sanitizedPath, "_template/") &&
+			!strings.HasPrefix(sanitizedPath, "kustomize/") &&
 			!strings.HasPrefix(sanitizedPath, "terraform/") &&
 			sanitizedPath != "metadata.yaml" {
 			if header.Typeflag != tar.TypeDir {
