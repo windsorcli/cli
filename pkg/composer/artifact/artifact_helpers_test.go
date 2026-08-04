@@ -560,4 +560,40 @@ func TestValidateCliVersion(t *testing.T) {
 			t.Errorf("Expected error to contain 'does not satisfy required constraint', got: %v", err)
 		}
 	})
+
+	t.Run("ReturnsNilWhenReleaseCandidateSatisfiesGreaterThanEqualConstraint", func(t *testing.T) {
+		// Given a release-candidate CLI version whose release satisfies a >= constraint
+		// When validating
+		err := ValidateCliVersion("0.9.0-rc.1", ">=0.9.0")
+
+		// Then should return nil — the RC is treated as its release version
+		if err != nil {
+			t.Errorf("Expected nil for RC version satisfying constraint, got: %v", err)
+		}
+	})
+
+	t.Run("ReturnsNilWhenReleaseCandidateWithVPrefixSatisfiesConstraint", func(t *testing.T) {
+		// Given a v-prefixed release-candidate CLI version
+		// When validating
+		err := ValidateCliVersion("v0.9.0-rc.1", ">=0.9.0")
+
+		// Then should return nil
+		if err != nil {
+			t.Errorf("Expected nil for v-prefixed RC version satisfying constraint, got: %v", err)
+		}
+	})
+
+	t.Run("ReturnsErrorWhenReleaseCandidateDoesNotSatisfyConstraint", func(t *testing.T) {
+		// Given a release-candidate CLI version whose release does not satisfy the constraint
+		// When validating
+		err := ValidateCliVersion("0.8.0-rc.1", ">=0.9.0")
+
+		// Then should return error
+		if err == nil {
+			t.Error("Expected error when RC's release version doesn't satisfy constraint")
+		}
+		if !strings.Contains(err.Error(), "does not satisfy required constraint") {
+			t.Errorf("Expected error to contain 'does not satisfy required constraint', got: %v", err)
+		}
+	})
 }

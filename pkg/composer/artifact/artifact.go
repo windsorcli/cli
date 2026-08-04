@@ -748,6 +748,10 @@ func IsAuthenticationError(err error) bool {
 // specified in the template metadata. If constraint is empty, validation is skipped.
 // If cliVersion is empty, validation is skipped (caller cannot determine version).
 // If the CLI version is "dev" or "main" or "latest", validation is skipped as these are development builds.
+// A pre-release CLI version (e.g. "0.9.0-rc.1") is checked against its release version
+// (Masterminds/semver excludes pre-releases from a range unless the constraint itself
+// declares one, which would otherwise fail every release-candidate build against an
+// ordinary ">=" constraint).
 // Returns an error if the constraint is specified and the version does not satisfy it.
 func ValidateCliVersion(cliVersion, constraint string) error {
 	if constraint == "" {
@@ -773,7 +777,12 @@ func ValidateCliVersion(cliVersion, constraint string) error {
 		return fmt.Errorf("invalid cliVersion constraint '%s': %w", constraint, err)
 	}
 
-	if !c.Check(version) {
+	releaseVersion, err := version.SetPrerelease("")
+	if err != nil {
+		return fmt.Errorf("invalid CLI version format '%s': %w", cliVersion, err)
+	}
+
+	if !c.Check(&releaseVersion) {
 		return fmt.Errorf("CLI version %s does not satisfy required constraint '%s'", cliVersion, constraint)
 	}
 
