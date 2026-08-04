@@ -62,6 +62,34 @@ Every implementation file begins with a 4-line class header:
 
 Every function and method has a header comment. No explanatory comments inside function bodies — context belongs in the header.
 
+### Function length
+
+Functions may be long when a single cohesive operation warrants it — this codebase does not chase
+artificially small functions. But length has a ceiling, checked against the codebase's own current
+distribution rather than picked arbitrarily: **under 100 lines is the norm** (the large majority of
+functions today), **100–150 lines is a look-twice zone** (worth a second read to confirm the body is
+genuinely one operation, not several stitched together), and **150+ lines should split** into private
+helper methods in the same file's Private Methods section — currently only a handful of functions in
+the whole codebase exceed that, and each is worth checking against this bar as its file comes up for
+cleanup. The one standing exception is mechanical, field-by-field methods (`DeepCopy`, marshal/
+unmarshal glue) where every line is a distinct field and splitting would fragment one operation into
+several without reducing its actual complexity.
+
+### No planning or process artifacts in comments
+
+A comment — header or, in the rare permitted case, in-body — documents current behavior only. It
+never contains:
+
+- **WIP or historical narrative** — "TODO: revisit after X ships," "previously did Y, now does Z,"
+  fix-history explanations. The codebase is always "now"; history lives in git and PR descriptions,
+  never in the source.
+- **ADR, ticket, or issue references** — `// per ADR 0002` or `// see #3104` describes why a decision
+  was made, which belongs in the ADR or the commit that implemented it, not in the code the decision
+  produced. A reader six months from now needs to know what the function does, not which planning
+  document justified it.
+- **Phase or wave labels** — "Phase 2:", "Wave 1 cleanup:" — these are release-planning vocabulary,
+  not descriptions of behavior, and go stale the moment the release ships.
+
 ## In-body comments are a smell, not a tool
 
 The non-negotiable: **do not write explanatory comments inside function bodies.** Not single lines, not multi-line "novels," not "// Note: ..." asides. If you feel the urge to explain *why* the code does what it does at the point of the code, that belongs in:
@@ -195,6 +223,10 @@ All tests for public methods belong under a single `// Test Public Methods` head
 - Section headers are valid, in required order, and use generic category names only.
 - All functions have header comments.
 - No inline comments inside function bodies.
+- No header comment cites an ADR, ticket/issue number, WIP marker, phase/wave label, or "previously
+  X now Y" narrative — it describes current behavior only.
+- No function exceeds ~150 lines without a specific reason (mechanical field-by-field methods are
+  the only standing exception); 100–150 is worth a second look.
 - Naming is consistent with existing package terminology.
 - No dump files introduced.
 - No `strings.Contains(err.Error(), ...)` (or equivalent) for error classification. Use `errors.As` / `errors.Is` against typed errors; if a library lacks one, define a typed wrapper at the boundary.
