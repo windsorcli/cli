@@ -1104,7 +1104,7 @@ func TestComposer_writeLocalGitignores(t *testing.T) {
 		if err := os.MkdirAll(contextDir, 0750); err != nil {
 			t.Fatalf("Failed to create context dir: %v", err)
 		}
-		staleContent := ".kube/\n.talos/\n.omni/\n.aws/\n.azure/\n.gcp/\n.env\n"
+		staleContent := ".kube/\n.talos/\n.omni/\n.aws/\n.azure/\n.gcp/\n.env\nsecrets.yaml\nsecrets.yml\n"
 		path := filepath.Join(contextDir, ".gitignore")
 		if err := os.WriteFile(path, []byte(staleContent), 0644); err != nil {
 			t.Fatalf("Failed to seed stale .gitignore: %v", err)
