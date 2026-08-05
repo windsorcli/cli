@@ -24,6 +24,8 @@ contexts/
     ├── blueprint.yaml                      referential blueprint for this context
     ├── values.yaml                         user-set values that feed the schema
     ├── .env                                git-ignored operator env vars (e.g. provider credentials)
+    ├── secrets.enc.yaml                    SOPS-encrypted secrets, safe to commit
+    ├── secrets.yaml                        git-ignored plaintext secrets (pre-encryption / local-only)
     ├── terraform/<component-id>.tfvars     user-edited Terraform variable overrides
     ├── terraform/<component-id>.tfvars.json  JSON variant of the above
     ├── terraform/backend.tfvars            optional Terraform backend overrides
@@ -52,6 +54,27 @@ contexts/
 The same template is reused across every context. Per-context inputs
 live under `contexts/<context-name>/`.
 
+### Marking values sensitive
+
+Add `sensitive: true` alongside any property in `schema.yaml` (or `windsor.yaml`'s own schema) to
+have that value's path redacted as `<sensitive>` wherever config is displayed — currently
+[`windsor show values`](commands/show-values.md). It doesn't change how the value is stored or
+resolved, only how it's rendered back to the operator.
+
+```yaml
+properties:
+  hetzner:
+    properties:
+      token:
+        type: string
+        sensitive: true
+```
+
+A `substitutions`/`substitute` value that references a `sensitive: true` property is rejected at
+composition time rather than rendered into a plaintext ConfigMap — see the note in the
+[Blueprint reference](blueprint.md). No built-in Windsor schema marks a property sensitive today;
+this is for custom facet/context schemas that need it.
+
 ## `<context-name>/`
 
 | Path | Type | Description |
@@ -63,6 +86,8 @@ live under `contexts/<context-name>/`.
 | `terraform/backend.tfvars` | HCL | Optional overrides applied to the Terraform backend init. |
 | `terraform/.env` | dotenv | Terraform-only operator env vars, auto-git-ignored. See [Terraform-scoped `.env`](#terraform-scoped-env) below. |
 | `.env` | dotenv | Operator-supplied environment variables, auto-git-ignored. See [`.env` files](#env-files) below. |
+| `secrets.yaml`, `secrets.yml` | YAML | Secrets file, auto-git-ignored. See [Secrets files](#secrets-files) below. |
+| `secrets.enc.yaml`, `secrets.enc.yml` | YAML | SOPS-encrypted secrets file, safe to commit. See [Secrets files](#secrets-files) below. |
 | `.aws/config`, `.aws/credentials` | INI | AWS CLI files; the env hook sets `AWS_CONFIG_FILE` and `AWS_SHARED_CREDENTIALS_FILE` so `aws` commands inside the windsor shell write here instead of `~/.aws/`. |
 | `.azure/` | Directory | Azure CLI config; `AZURE_CONFIG_DIR` points `az` here. |
 | `.gcp/gcloud/` | Directory | gcloud CLI config; `CLOUDSDK_CONFIG` points `gcloud` here. |
@@ -114,6 +139,26 @@ line would just have it silently reappear. Appending `!.env` after it is
 stable: the line is still present, so Windsor leaves the file alone, and
 git's own last-match-wins rule un-ignores the file anyway.
 
+## Secrets files
+
+`contexts/<context-name>/secrets.yaml` (or `secrets.yml`) holds values resolved by `secret(...)`
+expressions elsewhere in config — the counterpart to `.env` for values that fit a nested YAML
+structure rather than a flat key/value dotenv file. Nested keys flatten to dot-path lookups (e.g.
+a `database: {password: ...}` entry resolves as `database.password`). Content, not the filename,
+decides whether a file is treated as SOPS-encrypted: an operator's own SOPS output can carry
+either the `secrets.yaml` or `secrets.enc.yaml` name. Windsor tries to decrypt every
+`secrets*.yaml`/`secrets*.yml` file it finds, in the order above.
+
+A `secrets.yaml`/`secrets.yml` that fails to decrypt is refused with a clear error — "refusing to
+load unencrypted secrets file ...: encrypt it with sops before use (see secrets.enc.yaml)" —
+rather than a raw SOPS failure, because the far more likely cause is a genuinely plaintext file
+that was never encrypted. Encrypt it with `sops -e` and rename it `secrets.enc.yaml` (or
+`secrets.enc.yml`) once it holds real values.
+
+- `secrets.yaml`/`secrets.yml` — conventionally plaintext (pre-encryption or local-only scratch
+  values); auto-git-ignored, same as `.env`.
+- `secrets.enc.yaml`/`secrets.enc.yml` — SOPS-encrypted; safe to commit and stays tracked.
+
 ## Terraform-scoped `.env`
 
 `contexts/<context-name>/terraform/.env` is a second, narrower dotenv file
@@ -138,3 +183,4 @@ latency.
 - [Blueprint reference](blueprint.md), [Configuration reference](configuration.md)
 - [Metadata reference](metadata.md), [Testing reference](testing.md)
 - [`init`](commands/init.md), [`set`](commands/set.md), [`get`](commands/get.md), [`bootstrap`](commands/bootstrap.md)
+- [Global flags](global-flags.md)

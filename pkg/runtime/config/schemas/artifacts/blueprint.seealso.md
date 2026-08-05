@@ -1,4 +1,5 @@
-- [Facets reference](facets.md), [Metadata reference](metadata.md), [Schema reference](schema.md)
+- [Facets reference](facets.md), [Metadata reference](metadata.md)
+- [Contexts directory](contexts.md) — `schema.yaml`, the JSON Schema that validates context input values
 - [`apply`](commands/apply.md), [`up`](commands/up.md), [`bootstrap`](commands/bootstrap.md), [`destroy`](commands/destroy.md)
 - [`show blueprint`](commands/show-blueprint.md), [`explain`](commands/explain.md)
 - [Lifecycle guide](https://www.windsorcli.dev/docs/cli/lifecycle), [Sharing blueprints](https://www.windsorcli.dev/docs/blueprints/sharing)
