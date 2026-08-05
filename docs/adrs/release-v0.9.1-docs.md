@@ -51,17 +51,29 @@ validation bug like azure/flux were.
       and the dot-path key flattening directly against `cmd/root.go` and
       `pkg/runtime/secrets/sops_provider.go` before writing.
 
-### 3. Docs PR — `blueprint.md` field-table completeness (depends on step 1's outcome)
+### 3. Docs PR — `blueprint.md` field-table completeness — done
 
-- [ ] Add `secrets` row + subsection to `flux[]`/`kustomize[]` tables (namespaces sub-key,
-      dockerconfigjson synthesis, owner-tracked pruning, auto-roll-on-change behavior).
-- [ ] Add `globalDependency` row.
-- [ ] Flesh out `contexts{}.terraform.lock.timeout` — currently only a source-code pointer, no
-      field/type/example.
-- [ ] Document the `sensitive: true` schema-authoring keyword (not used by any built-in schema
-      yet, but real and undiscoverable today).
-- [ ] Note near the `substitutions` field: `secret()` values are rejected there (must use
-      `secrets:` instead).
+- [x] Added `flux[].secrets` row + `### flux[].secrets` subsection (`namespaces`, `data`,
+      dockerconfigjson synthesis, owner-tracked pruning, auto-roll-on-change). Noted
+      `kustomize[].secrets` is composer-internal only (`yaml:"-"`), not user-authored — no row
+      needed there.
+- [x] Added `flux[].globalDependency` row.
+- [x] `contexts{}.terraform.lock.timeout` — new subsection in `configuration.md` with real
+      field/type/default/example, verified against `pkg/runtime/terraform/provider.go`. Corrected
+      the actual constraint along the way: it's not `secret()` calls specifically that get
+      rejected in substitutions, it's any reference to a property marked `sensitive: true` — a
+      broader and more accurate rule.
+- [x] Documented the `sensitive: true` schema-authoring keyword — new `### Marking values
+      sensitive` section in `contexts.md`, cross-linked from `show-values.md` (where the
+      `<sensitive>` redaction actually renders) and from the substitutions-rejection note in
+      `blueprint.md`.
+- [x] Disambiguated the two same-named "lock timeout" concepts two ways: Windsor's own stack lock
+      (`--lock-timeout` global flag, step 2) vs. terraform's native state lock
+      (`terraform.lock.timeout` config field, this step) — each page now links to the other.
+
+All claims verified directly against source before writing (`pkg/composer/blueprint/processor.go`
+`evaluateSubstitutions`/`sensitivePathsInValue`, `pkg/runtime/config/values_renderer.go`
+`RedactSensitiveValues`, `cmd/show.go`) rather than trusting the earlier recon-agent summaries.
 
 ### 4. Docs PR — small consistency fixes
 

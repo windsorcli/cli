@@ -27,6 +27,12 @@ variable substitutions shared across them.
 | `substitutions` | `map<string>` | Blueprint-level substitutions injected into 'values-common' and made available to every kustomization via PostBuild substitution. Values may use expression syntax (e.g. '${dns.domain}') resolved against facet config blocks. |
 | `terraform` | `array<object>` | Terraform components included in the blueprint, in declaration order. Components are reordered topologically by dependsOn at apply time. |
 
+Any `substitutions`/`substitute` value (blueprint-level, or on a `kustomize[]`, `flux[].install`,
+or `flux[].resources[]` entry) that references a schema property marked `sensitive: true` is
+rejected at composition time — substitutions render into a plaintext ConfigMap, so a sensitive
+value would leak. Use [`flux[].secrets`](#fluxsecrets) instead; it resolves and places the value
+as a real Kubernetes Secret, never rendered in plaintext.
+
 ## metadata
 
 | Field | Type | Description |
@@ -42,10 +48,12 @@ variable substitutions shared across them.
 | `dependsOn` | `array<string>` | Cross-layer edges to other systems (a bare '<other>' resolves to '<other>-install'). Attached to the install tier when present (resources reach them transitively), otherwise to each variant. |
 | `destroy` | `boolean / string` | Whether the system's kustomizations are removed on teardown. Defaults to true. |
 | `enabled` | `boolean / string` | Include or exclude the whole system. Defaults to true. |
+| `globalDependency` | `boolean` | When true, every kustomization and system outside this system's own dependency closure is wired to depend on its terminal tier (resources if present, else install). Declares a cluster-wide precondition (e.g. admission policies that must be enforcing before any workload lands) once, instead of repeating it as a dependsOn on every consumer. |
 | `install` | `object` | Controller/operator tier. Reuses the Kustomization shape — its components/substitute and operational properties (interval, timeout, wait, prune, patches, namespace, …) flow to '<name>-install'; its name/path/dependsOn are derived. When every component prunes to empty, no install Kustomization is emitted. |
 | `ordinal` | `integer` | Overrides the facet ordinal for this system's merge precedence. |
 | `path` | `string` | Base path; tiers reconcile from '<path>/install' and '<path>/resources'. Defaults to name. |
 | `resources` | `array<object>` | Custom-resource tier variants, all sharing '<path>/resources'. |
+| `secrets` | `map<object>` | Kubernetes Secrets for this system, keyed by Secret name. See [flux[].secrets](#fluxsecrets) below. |
 | `source` | `string` | Name of the source that provides the tier bases. |
 | `strategy` | `string` | How a system with this name merges across facets. Defaults to merge. One of: `merge`, `replace`, `remove`. |
 | `when` | `string` | Gates the system; combined (AND) with each resources variant's condition. |
@@ -138,6 +146,20 @@ variable substitutions shared across them.
 | `patch` | `string` |  |
 | `path` | `string` |  |
 | `target` | `object` |  |
+
+### flux[].secrets
+
+| Field | Type | Description |
+|------|------|-------------|
+| `namespaces` | `array<string>` | Namespaces to place this Secret into. Empty means auto-resolve the single namespace the owning kustomization creates; each named namespace must be one that kustomization provably created. |
+| `data` | `map<string>` | Secret data: data key -> expression resolved at apply time (a '${...}' config reference, a secret() call, or an env("NAME") lookup) — never a plaintext literal, and never rendered or written in plaintext. Materializes as an Opaque Secret by default; a '.dockerconfigjson' key, or 'docker-username' plus 'docker-password' (optional 'docker-server', defaulting to 'ghcr.io'), materializes as kubernetes.io/dockerconfigjson instead, for use as an imagePullSecret. |
+
+Removing an entry prunes the corresponding cluster Secret on the next apply. Changing an entry's
+resolved data rolls the workloads that reference it, so consumers pick up the new value without a
+manual restart.
+
+`kustomize[]` entries carry an internal `Secrets` field of the same shape, populated by composition
+from the owning `flux[]` system — it isn't user-authored and doesn't appear in `kustomize.yaml`.
 
 ## kustomize[]
 
@@ -286,7 +308,9 @@ substitutions:
 
 ## See also
 
-- [Facets reference](facets.md), [Metadata reference](metadata.md), [Schema reference](schema.md)
+- [Facets reference](facets.md), [Metadata reference](metadata.md)
+- [Contexts directory](contexts.md) — `schema.yaml`, the JSON Schema that validates context input
+  values
 - [`apply`](commands/apply.md), [`up`](commands/up.md), [`bootstrap`](commands/bootstrap.md), [`destroy`](commands/destroy.md)
 - [`show blueprint`](commands/show-blueprint.md), [`explain`](commands/explain.md)
 - [Lifecycle guide](https://www.windsorcli.dev/docs/cli/lifecycle), [Sharing blueprints](https://www.windsorcli.dev/docs/blueprints/sharing)

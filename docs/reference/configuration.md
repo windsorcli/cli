@@ -173,7 +173,13 @@ system-managed and not covered here.
 |------|------|-------------|
 | `backend` | `object` | State backend configuration (type plus per-type fields). See api/v1alpha1/terraform/terraform_config.go for the full BackendConfig field set (s3, azurerm, kubernetes, local, oss). |
 | `enabled` | `boolean` | Whether terraform components are applied for this context. |
-| `lock` | `object` | State-lock policy (timeout). See api/v1alpha1/terraform/terraform_config.go for LockConfig fields. |
+| `lock` | `object` | State-lock policy. See below. |
+
+#### contexts{}.terraform.lock
+
+| Field | Type | Description |
+|------|------|-------------|
+| `timeout` | `string` | How long terraform waits to acquire its own state lock before failing, as a Go duration string (e.g. '30s', '5m'). Passed as `-lock-timeout` to every state-touching terraform subcommand (init, plan, apply, refresh, destroy, import). Defaults to '5m'. An invalid duration is rejected before terraform runs. This is terraform's native state lock, distinct from Windsor's own stack lock — see the global [`--lock-timeout`](commands/global-flags.md) flag and [`unlock`](commands/unlock.md) for that one. |
 
 ### contexts{}.vm
 

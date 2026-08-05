@@ -10,6 +10,8 @@ windsor show values [flags]
 
 Print the effective context values, merging schema defaults with values.yaml overrides. YAML output includes schema descriptions as comments. Use --json for plain JSON.
 
+A property marked `sensitive: true` in its schema renders as `<sensitive>` instead of its actual value. See [Marking values sensitive](../contexts.md#marking-values-sensitive).
+
 ## Flags
 
 | Flag | Default | Description |
