@@ -186,6 +186,9 @@ $defs:
       kubelogin_mode:
         type: string
         description: kubelogin auth mode (e.g. 'azurecli', 'workloadidentity').
+      region:
+        type: string
+        description: Azure region. Exported to downstream tools as TF_VAR_region.
   gcp:
     type: object
     additionalProperties: false

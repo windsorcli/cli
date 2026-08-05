@@ -54,6 +54,16 @@ If a change needs to run terraform or change how/when it runs, it belongs in `pk
 - Shims wrappers for external/system calls to keep logic testable (`pkg/runtime/*/shims.go`).
 - Explicit lifecycle sequencing in orchestration entrypoints (`cmd/env.go`, `pkg/runtime/runtime.go`).
 
+## Config/blueprint fields: three sources must agree
+
+A field on an `api/v1alpha1` struct (e.g. `AzureConfig`, `FluxSystem`) is not usable until three
+places agree: the Go struct, the JSON schema artifact under `pkg/runtime/config/schemas/artifacts/
+*.yaml` that the validator actually loads, and `docs/reference/*.md`. These artifacts declare
+`additionalProperties: false`, so a struct field missing from the artifact is silently rejected at
+validation time even though the Go type supports it — a real bug, not just a doc gap. When adding or
+renaming a field on a config/blueprint struct, update the schema artifact and the reference doc in
+the same PR; don't treat the struct change as done on its own.
+
 ## Do not introduce
 
 - Provider-specific syntax branching inside evaluator core.

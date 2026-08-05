@@ -357,6 +357,13 @@ properties:
         ordinal:
           type: integer
           description: Overrides the facet ordinal for this system's merge precedence.
+        globalDependency:
+          type: boolean
+          description: |
+            When true, every kustomization and system outside this system's own
+            dependency closure is wired to depend on its terminal tier (resources
+            if present, else install). Declares a cluster-wide precondition once
+            instead of repeating it as dependsOn on every consumer.
         install:
           type: object
           additionalProperties: false
@@ -557,6 +564,36 @@ properties:
                       name:
                         type: string
                         description: The Secret's name, resolved in the variant's namespace.
+        secrets:
+          type: object
+          additionalProperties:
+            type: object
+            additionalProperties: false
+            properties:
+              namespaces:
+                type: array
+                items:
+                  type: string
+                description: |
+                  Namespaces to place this Secret into. Empty means auto-resolve the
+                  single namespace the owning kustomization creates; each named
+                  namespace must be one that kustomization provably created.
+              data:
+                type: object
+                additionalProperties:
+                  type: string
+                description: |
+                  Secret data: data key -> expression resolved at apply time (a
+                  '${...}' config reference, a secret() call, or an env("NAME")
+                  lookup), never a plaintext literal, and never rendered or written
+                  in plaintext. Materializes as an Opaque Secret by default; a
+                  '.dockerconfigjson' key, or 'docker-username' plus
+                  'docker-password' (optional 'docker-server', defaulting to
+                  'ghcr.io'), materializes as kubernetes.io/dockerconfigjson instead.
+          description: |
+            Kubernetes Secrets for this system, keyed by Secret name. Removing an
+            entry prunes the corresponding cluster Secret on next apply; changing
+            an entry's resolved data rolls workloads that reference it.
   substitutions:
     type: object
     additionalProperties:
