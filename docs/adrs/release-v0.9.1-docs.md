@@ -35,12 +35,21 @@ regression toward over-permissiveness). `go build ./...`, `go vet ./pkg/runtime/
 
 Staged, not committed — awaiting review before commit.
 
-### 2. Docs PR — global flags + secrets-file convention
+Swept every other top-level config block (`vsphere`, `aws`, `docker`, `git`, `cluster`, `network`,
+`dns`) struct-field-by-struct-field against its schema artifact as a sanity check — no further
+drift found. `cluster.controlplanes`/`.workers` are `additionalProperties: true` (permissive), so
+their under-documented field list is a pre-existing docs gap (already tracked in step 3), not a
+validation bug like azure/flux were.
 
-- [ ] Document `--lock-timeout`, `--no-cache`, `--verbose` (persistent flags on `cmd/root.go`,
-      currently absent from every command's flag table and from any global-flags page).
-- [ ] `docs/reference/contexts.md` — `secrets.yaml`/`.yml` (plaintext, gitignored) vs.
-      `secrets.enc.yaml`/`.yml` (SOPS-encrypted) convention, and the plaintext-refusal error.
+### 2. Docs PR — global flags + secrets-file convention — done
+
+- [x] New `docs/reference/commands/global-flags.md` documenting `--lock-timeout`, `--no-cache`,
+      `-v`/`--verbose`; cross-linked from `unlock.md`, `bootstrap.md`, `contexts.md`.
+- [x] `docs/reference/contexts.md` — new `## Secrets files` section covering `secrets.yaml`/`.yml`
+      (plaintext, gitignored) vs. `secrets.enc.yaml`/`.yml` (SOPS-encrypted), the content-not-
+      filename detection, and the plaintext-refusal error message. Verified flag defaults/behavior
+      and the dot-path key flattening directly against `cmd/root.go` and
+      `pkg/runtime/secrets/sops_provider.go` before writing.
 
 ### 3. Docs PR — `blueprint.md` field-table completeness (depends on step 1's outcome)
 

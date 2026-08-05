@@ -42,4 +42,5 @@ windsor bootstrap prod --yes
 ## See also
 
 - [`init`](init.md), [`apply`](apply.md), [`destroy`](destroy.md)
+- [Global flags](global-flags.md) — `--no-cache`, `--lock-timeout`, `--verbose`
 - Source: [cmd/bootstrap.go](https://github.com/windsorcli/cli/blob/main/cmd/bootstrap.go)

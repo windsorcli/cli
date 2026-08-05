@@ -32,4 +32,5 @@ windsor unlock --force
 ## See also
 
 - [`destroy`](destroy.md), [`up`](up.md)
+- [Global flags](global-flags.md) — `--lock-timeout` waits for a lock instead of failing immediately
 - Source: [cmd/unlock.go](https://github.com/windsorcli/cli/blob/main/cmd/unlock.go)
