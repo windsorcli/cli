@@ -140,7 +140,9 @@ windsor show kustomization dns --json`,
 var showValuesCmd = &cobra.Command{
 	Use:   "values",
 	Short: "Display the effective context values.",
-	Long:  `Print the effective context values, merging schema defaults with values.yaml overrides. YAML output includes schema descriptions as comments. Use --json for plain JSON.`,
+	Long: `Print the effective context values, merging schema defaults with values.yaml overrides. YAML output includes schema descriptions as comments. Use --json for plain JSON.
+
+A property marked 'sensitive: true' in its schema renders as '<sensitive>' instead of its actual value. See [Marking values sensitive](../contexts.md) in the Contexts reference.`,
 	Example: `# Effective values for the current context, with schema descriptions
 windsor show values
 

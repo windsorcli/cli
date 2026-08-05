@@ -66,7 +66,14 @@ $defs:
           - vsphere
         description: |
           Target deployment platform. Selects platform-specific facets and
-          drives backend type inference.
+          drives backend type inference. When --platform/--vm-driver on
+          init/up/bootstrap set the platform and terraform.backend.type is
+          otherwise unset, the backend defaults per platform: aws -> s3;
+          azure -> azurerm; metal, docker, incus, hetzner, hyperv, vsphere ->
+          kubernetes (the cluster stores its own components' state as
+          Secrets; hetzner defaults here too because its Object Storage keys
+          can't be provisioned via API). gcp has no default yet. An explicit
+          --set terraform.backend.type=... always wins.
       provider:
         type: string
         description: |
@@ -346,10 +353,20 @@ $defs:
           BackendConfig field set (s3, azurerm, kubernetes, local, oss).
       lock:
         type: object
-        additionalProperties: true
-        description: |
-          State-lock policy (timeout). See
-          api/v1alpha1/terraform/terraform_config.go for LockConfig fields.
+        additionalProperties: false
+        description: State-lock policy.
+        properties:
+          timeout:
+            type: string
+            description: |
+              How long terraform waits to acquire its own state lock before
+              failing, as a Go duration string (e.g. '30s', '5m'). Passed as
+              -lock-timeout to every state-touching terraform subcommand
+              (init, plan, apply, refresh, destroy, import). Defaults to
+              '5m'. An invalid duration is rejected before terraform runs.
+              This is terraform's native state lock, distinct from Windsor's
+              own stack lock — see the global --lock-timeout flag and the
+              unlock command for that one.
   vm:
     type: object
     additionalProperties: false

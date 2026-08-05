@@ -54,6 +54,27 @@ contexts/
 The same template is reused across every context. Per-context inputs
 live under `contexts/<context-name>/`.
 
+### Marking values sensitive
+
+Add `sensitive: true` alongside any property in `schema.yaml` (or `windsor.yaml`'s own schema) to
+have that value's path redacted as `<sensitive>` wherever config is displayed — currently
+[`windsor show values`](commands/show-values.md). It doesn't change how the value is stored or
+resolved, only how it's rendered back to the operator.
+
+```yaml
+properties:
+  hetzner:
+    properties:
+      token:
+        type: string
+        sensitive: true
+```
+
+A `substitutions`/`substitute` value that references a `sensitive: true` property is rejected at
+composition time rather than rendered into a plaintext ConfigMap — see the note in the
+[Blueprint reference](blueprint.md). No built-in Windsor schema marks a property sensitive today;
+this is for custom facet/context schemas that need it.
+
 ## `<context-name>/`
 
 | Path | Type | Description |
@@ -162,4 +183,4 @@ latency.
 - [Blueprint reference](blueprint.md), [Configuration reference](configuration.md)
 - [Metadata reference](metadata.md), [Testing reference](testing.md)
 - [`init`](commands/init.md), [`set`](commands/set.md), [`get`](commands/get.md), [`bootstrap`](commands/bootstrap.md)
-- [Global flags](commands/global-flags.md)
+- [Global flags](global-flags.md)

@@ -65,7 +65,8 @@ windsor bootstrap staging --platform=aws --blueprint=ghcr.io/myorg/blueprint:v1.
 # Re-bootstrap an existing context, scripted (skip the prompt)
 windsor bootstrap prod --yes`,
 	Annotations: map[string]string{
-		"docs.seealso": "[`init`](init.md), [`apply`](apply.md), [`destroy`](destroy.md)",
+		"docs.seealso": "[`init`](init.md), [`apply`](apply.md), [`destroy`](destroy.md)\n" +
+			"[Global flags](../global-flags.md) — `--no-cache`, `--lock-timeout`, `--verbose`",
 		"docs.source":  "cmd/bootstrap.go",
 	},
 	Args:         cobra.MaximumNArgs(1),

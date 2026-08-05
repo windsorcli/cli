@@ -24,7 +24,7 @@ variable substitutions shared across them.
 | `messages` | `array<object>` | Operator-facing post-run notes contributed by active facets. Carried as raw when/text templates through composition; GenerateResolved evaluates each against composed scope, keeping only when-true entries with interpolated text for the command to print at the end of a run. |
 | `repository` | `object` | Source repository this blueprint was bootstrapped from. Reconciled on a short, continuously-polled interval (unlike sources[], which are presumed pinned vendor dependencies): this is expected to be a live, actively-pushed branch, and changes can land here without any windsor command running. |
 | `sources` | `array<object>` | External resources referenced by the blueprint. Each source is an OCI blueprint artifact or a Git repository that contributes Terraform modules and/or kustomize bases consumable by the components below. |
-| `substitutions` | `map<string>` | Blueprint-level substitutions injected into 'values-common' and made available to every kustomization via PostBuild substitution. Values may use expression syntax (e.g. '${dns.domain}') resolved against facet config blocks. |
+| `substitutions` | `map<string>` | Blueprint-level substitutions injected into 'values-common' and made available to every kustomization via PostBuild substitution. Values may use expression syntax (e.g. '${dns.domain}') resolved against facet config blocks. A value referencing a property marked 'sensitive: true' is rejected at composition time, since substitutions render into a plaintext ConfigMap; use a flux system's secrets: field instead. The same rule applies to substitute/substitutions on kustomize: entries and on flux: install/resources tiers. |
 | `terraform` | `array<object>` | Terraform components included in the blueprint, in declaration order. Components are reordered topologically by dependsOn at apply time. |
 
 ## metadata
@@ -42,10 +42,12 @@ variable substitutions shared across them.
 | `dependsOn` | `array<string>` | Cross-layer edges to other systems (a bare '<other>' resolves to '<other>-install'). Attached to the install tier when present (resources reach them transitively), otherwise to each variant. |
 | `destroy` | `boolean / string` | Whether the system's kustomizations are removed on teardown. Defaults to true. |
 | `enabled` | `boolean / string` | Include or exclude the whole system. Defaults to true. |
+| `globalDependency` | `boolean` | When true, every kustomization and system outside this system's own dependency closure is wired to depend on its terminal tier (resources if present, else install). Declares a cluster-wide precondition (e.g. admission policies that must be enforcing before any workload lands) once, instead of repeating it as dependsOn on every consumer. |
 | `install` | `object` | Controller/operator tier. Reuses the Kustomization shape — its components/substitute and operational properties (interval, timeout, wait, prune, patches, namespace, …) flow to '<name>-install'; its name/path/dependsOn are derived. When every component prunes to empty, no install Kustomization is emitted. |
 | `ordinal` | `integer` | Overrides the facet ordinal for this system's merge precedence. |
 | `path` | `string` | Base path; tiers reconcile from '<path>/install' and '<path>/resources'. Defaults to name. |
 | `resources` | `array<object>` | Custom-resource tier variants, all sharing '<path>/resources'. |
+| `secrets` | `map<object>` | Kubernetes Secrets for this system, keyed by Secret name. Removing an entry prunes the corresponding cluster Secret on next apply; changing an entry's resolved data rolls workloads that reference it. |
 | `source` | `string` | Name of the source that provides the tier bases. |
 | `strategy` | `string` | How a system with this name merges across facets. Defaults to merge. One of: `merge`, `replace`, `remove`. |
 | `when` | `string` | Gates the system; combined (AND) with each resources variant's condition. |
@@ -138,6 +140,13 @@ variable substitutions shared across them.
 | `patch` | `string` |  |
 | `path` | `string` |  |
 | `target` | `object` |  |
+
+### flux[].secrets{}
+
+| Field | Type | Description |
+|------|------|-------------|
+| `data` | `map<string>` | Secret data: data key -> expression resolved at apply time (a '${...}' config reference, a secret() call, or an env("NAME") lookup), never a plaintext literal, and never rendered or written in plaintext. Materializes as an Opaque Secret by default; a '.dockerconfigjson' key, or 'docker-username' plus 'docker-password' (optional 'docker-server', defaulting to 'ghcr.io'), materializes as kubernetes.io/dockerconfigjson instead, for use as an imagePullSecret. |
+| `namespaces` | `array<string>` | Namespaces to place this Secret into. Empty means auto-resolve the single namespace the owning kustomization creates; each named namespace must be one that kustomization provably created. |
 
 ## kustomize[]
 
@@ -286,7 +295,8 @@ substitutions:
 
 ## See also
 
-- [Facets reference](facets.md), [Metadata reference](metadata.md), [Schema reference](schema.md)
+- [Facets reference](facets.md), [Metadata reference](metadata.md)
+- [Contexts directory](contexts.md) — `schema.yaml`, the JSON Schema that validates context input values
 - [`apply`](commands/apply.md), [`up`](commands/up.md), [`bootstrap`](commands/bootstrap.md), [`destroy`](commands/destroy.md)
 - [`show blueprint`](commands/show-blueprint.md), [`explain`](commands/explain.md)
 - [Lifecycle guide](https://www.windsorcli.dev/docs/cli/lifecycle), [Sharing blueprints](https://www.windsorcli.dev/docs/blueprints/sharing)

@@ -362,8 +362,9 @@ properties:
           description: |
             When true, every kustomization and system outside this system's own
             dependency closure is wired to depend on its terminal tier (resources
-            if present, else install). Declares a cluster-wide precondition once
-            instead of repeating it as dependsOn on every consumer.
+            if present, else install). Declares a cluster-wide precondition (e.g.
+            admission policies that must be enforcing before any workload lands)
+            once, instead of repeating it as dependsOn on every consumer.
         install:
           type: object
           additionalProperties: false
@@ -589,7 +590,8 @@ properties:
                   in plaintext. Materializes as an Opaque Secret by default; a
                   '.dockerconfigjson' key, or 'docker-username' plus
                   'docker-password' (optional 'docker-server', defaulting to
-                  'ghcr.io'), materializes as kubernetes.io/dockerconfigjson instead.
+                  'ghcr.io'), materializes as kubernetes.io/dockerconfigjson
+                  instead, for use as an imagePullSecret.
           description: |
             Kubernetes Secrets for this system, keyed by Secret name. Removing an
             entry prunes the corresponding cluster Secret on next apply; changing
@@ -602,7 +604,11 @@ properties:
       Blueprint-level substitutions injected into 'values-common' and made
       available to every kustomization via PostBuild substitution. Values may
       use expression syntax (e.g. '${dns.domain}') resolved against facet
-      config blocks.
+      config blocks. A value referencing a property marked 'sensitive: true'
+      is rejected at composition time, since substitutions render into a
+      plaintext ConfigMap; use a flux system's secrets: field instead. The
+      same rule applies to substitute/substitutions on kustomize: entries and
+      on flux: install/resources tiers.
   configMaps:
     type: object
     additionalProperties:

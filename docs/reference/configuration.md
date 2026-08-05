@@ -33,7 +33,7 @@ system-managed and not covered here.
 | `git` | `object` | Git / livereload configuration. |
 | `id` | `string` | Stable identifier for the context, distinct from its map key. Used for cross-context references where the key may change. |
 | `network` | `object` | Cluster network configuration. |
-| `platform` | `string` | Target deployment platform. Selects platform-specific facets and drives backend type inference. One of: `none`, `docker`, `incus`, `metal`, `hetzner`, `aws`, `azure`, `gcp`, `hyperv`, `vsphere`. |
+| `platform` | `string` | Target deployment platform. Selects platform-specific facets and drives backend type inference. When --platform/--vm-driver on init/up/bootstrap set the platform and terraform.backend.type is otherwise unset, the backend defaults per platform: aws -> s3; azure -> azurerm; metal, docker, incus, hetzner, hyperv, vsphere -> kubernetes (the cluster stores its own components' state as Secrets; hetzner defaults here too because its Object Storage keys can't be provisioned via API). gcp has no default yet. An explicit --set terraform.backend.type=... always wins. One of: `none`, `docker`, `incus`, `metal`, `hetzner`, `aws`, `azure`, `gcp`, `hyperv`, `vsphere`. |
 | `provider` | `string` | Deprecated alias for 'platform'. New configs should use 'platform'; the loader still reads 'provider' for backwards compatibility. |
 | `secrets` | `object` | Secrets provider configuration. Currently 1Password is the only supported provider. |
 | `terraform` | `object` | Per-context Terraform settings (state backend, lock policy, timeout). The runtime-validator sub-types (BackendConfig, LockConfig) are authored in api/v1alpha1/terraform/terraform_config.go; expansion to full field detail is a planned follow-up. |
@@ -64,6 +64,7 @@ system-managed and not covered here.
 |------|------|-------------|
 | `environment` | `string` | Azure environment name (AzurePublicCloud, AzureChinaCloud, etc.). |
 | `kubelogin_mode` | `string` | kubelogin auth mode (e.g. 'azurecli', 'workloadidentity'). |
+| `region` | `string` | Azure region. Exported to downstream tools as TF_VAR_region. |
 | `subscription_id` | `string` | Azure subscription ID for API calls. |
 | `tenant_id` | `string` | Azure tenant ID for authentication. |
 
@@ -173,7 +174,13 @@ system-managed and not covered here.
 |------|------|-------------|
 | `backend` | `object` | State backend configuration (type plus per-type fields). See api/v1alpha1/terraform/terraform_config.go for the full BackendConfig field set (s3, azurerm, kubernetes, local, oss). |
 | `enabled` | `boolean` | Whether terraform components are applied for this context. |
-| `lock` | `object` | State-lock policy (timeout). See api/v1alpha1/terraform/terraform_config.go for LockConfig fields. |
+| `lock` | `object` | State-lock policy. |
+
+#### contexts{}.terraform.lock
+
+| Field | Type | Description |
+|------|------|-------------|
+| `timeout` | `string` | How long terraform waits to acquire its own state lock before failing, as a Go duration string (e.g. '30s', '5m'). Passed as -lock-timeout to every state-touching terraform subcommand (init, plan, apply, refresh, destroy, import). Defaults to '5m'. An invalid duration is rejected before terraform runs. This is terraform's native state lock, distinct from Windsor's own stack lock — see the global --lock-timeout flag and the unlock command for that one. |
 
 ### contexts{}.vm
 

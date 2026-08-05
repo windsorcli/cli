@@ -28,7 +28,8 @@ windsor unlock
 # Scripted recovery
 windsor unlock --force`,
 	Annotations: map[string]string{
-		"docs.seealso": "[`destroy`](destroy.md), [`up`](up.md)",
+		"docs.seealso": "[`destroy`](destroy.md), [`up`](up.md)\n" +
+			"[Global flags](../global-flags.md) — `--lock-timeout` waits for a lock instead of failing immediately",
 		"docs.source":  "cmd/unlock.go",
 	},
 	Args:         cobra.NoArgs,
