@@ -1298,6 +1298,13 @@ func (k *BaseKubernetesManager) ApplyBlueprint(blueprint *blueprintv1alpha1.Blue
 //     orphaned cloud resources. Re-running destroy after the operator restores the
 //     controller picks up where it left off — already-deleted Kustomizations
 //     short-circuit to NotFound on retry.
+//
+//     Every abort path (suspend failure, load balancer remediation failure, or a
+//     per-Kustomization resume/delete failure) runs abortDestroy first, which
+//     un-suspends the full eligible set before returning. Without this, Kustomizations
+//     suspended by the up-front suspend loop but not yet reached by the destroy walk
+//     would stay suspended forever — Install/ApplyBlueprint never resets spec.suspend
+//     on existing objects, so no subsequent bootstrap would self-heal them.
 func (k *BaseKubernetesManager) DeleteBlueprint(blueprint *blueprintv1alpha1.Blueprint, namespace string) error {
 	defaultSourceName := blueprint.Metadata.Name
 
@@ -1331,28 +1338,45 @@ func (k *BaseKubernetesManager) DeleteBlueprint(blueprint *blueprintv1alpha1.Blu
 	}
 	for _, kustomization := range eligible {
 		if err := k.setKustomizationSuspend(kustomization.Name, namespace, true); err != nil {
-			return fmt.Errorf("destroy aborted: failed to suspend kustomization %q: %w", kustomization.Name, err)
+			return k.abortDestroy(eligible, namespace, fmt.Errorf("destroy aborted: failed to suspend kustomization %q: %w", kustomization.Name, err))
 		}
 	}
 
 	if err := k.remediateLoadBalancerOwners(eligible, namespace); err != nil {
-		return fmt.Errorf("destroy aborted: %w", err)
+		return k.abortDestroy(eligible, namespace, fmt.Errorf("destroy aborted: %w", err))
 	}
 
 	for _, kustomization := range orderForDestroy(eligible, "destroy") {
 		tui.Start(fmt.Sprintf("Destroying kustomization %s", kustomization.Name))
 		if err := k.setKustomizationSuspend(kustomization.Name, namespace, false); err != nil {
 			tui.Fail()
-			return fmt.Errorf("destroy aborted: failed to resume kustomization %q before delete: %w", kustomization.Name, err)
+			return k.abortDestroy(eligible, namespace, fmt.Errorf("destroy aborted: failed to resume kustomization %q before delete: %w", kustomization.Name, err))
 		}
 		if err := k.DeleteKustomization(kustomization.Name, namespace); err != nil {
 			tui.Fail()
-			return fmt.Errorf("destroy aborted: failed to delete kustomization %q: %w (further deletions skipped to avoid cascading orphans)", kustomization.Name, err)
+			return k.abortDestroy(eligible, namespace, fmt.Errorf("destroy aborted: failed to delete kustomization %q: %w (further deletions skipped to avoid cascading orphans)", kustomization.Name, err))
 		}
 		tui.Done()
 	}
 
 	return nil
+}
+
+// abortDestroy un-suspends every eligible Kustomization before propagating cause, so a
+// DeleteBlueprint failure never leaves objects suspended by the up-front suspend loop with
+// nothing left to resume them — Install/ApplyBlueprint never resets spec.suspend on existing
+// objects, so a leftover suspend from an aborted destroy would otherwise persist indefinitely
+// across subsequent bootstrap runs. setKustomizationSuspend is a no-op against objects that are
+// already unsuspended or gone, so calling it on the full eligible set is safe regardless of how
+// far the destroy walk got. Un-suspend failures are joined with cause rather than swallowed.
+func (k *BaseKubernetesManager) abortDestroy(eligible []blueprintv1alpha1.Kustomization, namespace string, cause error) error {
+	errs := []error{cause}
+	for _, kustomization := range eligible {
+		if err := k.setKustomizationSuspend(kustomization.Name, namespace, false); err != nil {
+			errs = append(errs, fmt.Errorf("failed to un-suspend kustomization %q during abort cleanup: %w", kustomization.Name, err))
+		}
+	}
+	return errors.Join(errs...)
 }
 
 // PruneBlueprint deletes Kustomizations belonging to the current context that are no longer part of
