@@ -300,4 +300,39 @@ func TestWarnOnProfileMismatch(t *testing.T) {
 			t.Errorf("expected warning to name the actual profile found, got %q", msg)
 		}
 	})
+
+	t.Run("NeverColorizesWhenWriterIsNotAFile", func(t *testing.T) {
+		// A bytes.Buffer (or any non-*os.File io.Writer, e.g. a captured-output
+		// test double) is never a terminal, so the warning must stay plain text.
+		root := writeAWSDir(t, "[profile actual]\nregion = us-west-2\n", "")
+		var buf bytes.Buffer
+
+		WarnOnProfileMismatch(&buf, ForContext(root), "prod")
+
+		if strings.Contains(buf.String(), "\033[") {
+			t.Errorf("expected no ANSI escape codes for a non-terminal writer, got %q", buf.String())
+		}
+	})
+
+	t.Run("NeverColorizesPlainFileEvenWhenNOCOLORUnset", func(t *testing.T) {
+		// A redirected/piped destination (`windsor env > out.log`) is a real
+		// *os.File but never a terminal — confirms the terminal check itself,
+		// not just the non-*os.File short-circuit above, keeps output clean.
+		root := writeAWSDir(t, "[profile actual]\nregion = us-west-2\n", "")
+		f, err := os.CreateTemp(t.TempDir(), "warn-output")
+		if err != nil {
+			t.Fatalf("create temp file: %v", err)
+		}
+		defer f.Close()
+
+		WarnOnProfileMismatch(f, ForContext(root), "prod")
+
+		data, err := os.ReadFile(f.Name())
+		if err != nil {
+			t.Fatalf("read temp file: %v", err)
+		}
+		if strings.Contains(string(data), "\033[") {
+			t.Errorf("expected no ANSI escape codes when writing to a non-terminal file, got %q", data)
+		}
+	})
 }

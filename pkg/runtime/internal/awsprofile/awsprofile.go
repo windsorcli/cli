@@ -12,6 +12,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"golang.org/x/term"
 )
 
 // Resolver carries the AWS config and credentials file paths a single profile
@@ -103,8 +105,28 @@ func WarnOnProfileMismatch(w io.Writer, r Resolver, expected string) {
 	if len(found) == 0 {
 		return
 	}
-	fmt.Fprintf(w, "\033[33mWarning: AWS profile %q not found; found %s instead. Set aws.awsProfile to match, or rename the profile to %q.\033[0m\n",
+	msg := fmt.Sprintf("Warning: AWS profile %q not found; found %s instead. Set aws.awsProfile to match, or rename the profile to %q.",
 		expected, strings.Join(found, ", "), expected)
+	if shouldColorize(w) {
+		msg = "\033[33m" + msg + "\033[0m"
+	}
+	fmt.Fprintln(w, msg)
+}
+
+// shouldColorize reports whether w is safe to color: NO_COLOR is unset (its mere presence, any
+// value, opts out per the spec) and w is a terminal file descriptor. A non-terminal writer —
+// a pipe, a redirected log file, or any io.Writer that isn't *os.File at all (e.g. a test's
+// bytes.Buffer) — never gets raw ANSI escapes, so captured/piped `windsor env` output stays
+// clean instead of showing literal \033[33m garbage.
+func shouldColorize(w io.Writer) bool {
+	if _, present := os.LookupEnv("NO_COLOR"); present {
+		return false
+	}
+	f, ok := w.(*os.File)
+	if !ok {
+		return false
+	}
+	return term.IsTerminal(int(f.Fd())) // #nosec G115 -- file descriptors are small, safe to cast to int
 }
 
 // profileNamesInFile scans path for INI section headers and returns the profile name each one
