@@ -402,9 +402,12 @@ func (h *BaseModuleResolver) removeTfvarsFiles(dir string) error {
 
 // addTfvarsHeader adds a Windsor CLI management header to the tfvars file body.
 // It includes a module source comment if provided, ensuring users are aware of CLI management and module provenance.
+// The header states plainly that the file is fully regenerated (matching generateTfvarsFile's
+// actual behavior) and names the supported override path, rather than inviting hand edits that
+// the next run silently discards — see cli#3150.
 func addTfvarsHeader(body *hclwrite.Body, source string) {
 	windsorHeaderToken := "Managed by Windsor CLI:"
-	headerComment := fmt.Sprintf("# %s This file is partially managed by the windsor CLI. Your changes will not be overwritten.", windsorHeaderToken)
+	headerComment := fmt.Sprintf("# %s this file is regenerated on every run from the blueprint's component inputs. Edits here are discarded without warning — set values via this component's `inputs:` in blueprint.yaml instead.", windsorHeaderToken)
 	body.AppendUnstructuredTokens(hclwrite.Tokens{
 		{Type: hclsyntax.TokenComment, Bytes: []byte(headerComment + "\n")},
 	})
