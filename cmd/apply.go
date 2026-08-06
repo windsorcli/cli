@@ -186,6 +186,19 @@ windsor apply kustomize dns --wait`,
 		if blueprint == nil {
 			return fmt.Errorf("blueprint is not available")
 		}
+
+		scope := make(map[string]bool)
+		if len(args) == 0 {
+			for _, k := range blueprint.Kustomizations {
+				scope[k.Name] = true
+			}
+		} else {
+			scope[args[0]] = true
+		}
+		if deferred := proj.Composer.BlueprintHandler.GetDeferredPaths(); deferredSubstitutionsInScope(deferred, scope) {
+			return fmt.Errorf("unresolved terraform_output() substitutions in scope; run `windsor apply` (or `windsor upgrade`) first so this apply doesn't overwrite a resolved ConfigMap value with raw expression text")
+		}
+
 		waitBlueprint := blueprint
 
 		return stacklock.With(cmd.Context(), proj.Runtime, "apply", lockTimeout, func() error {
@@ -219,6 +232,32 @@ windsor apply kustomize dns --wait`,
 			return nil
 		})
 	},
+}
+
+// deferredSubstitutionsInScope reports whether any deferred substitution path is something
+// `apply kustomize` is about to write to the cluster. Blueprint-level ConfigMaps and global
+// substitutions are always in scope, since ApplyBlueprint writes them unconditionally regardless
+// of which single kustomization was requested; per-kustomization substitutions are in scope only
+// when their owning kustomization name appears in scope. `apply kustomize` calls Generate(), not
+// GenerateResolved(), so any still-deferred terraform_output() expression would otherwise be
+// serialized into a values-<kustomization> ConfigMap as raw, unevaluated text — silently
+// overwriting whatever a prior full apply had already resolved there.
+func deferredSubstitutionsInScope(deferred map[string]bool, scope map[string]bool) bool {
+	for path := range deferred {
+		if strings.HasPrefix(path, "configmaps.") || strings.HasPrefix(path, "substitutions.") {
+			return true
+		}
+		rest, ok := strings.CutPrefix(path, "kustomize.")
+		if !ok {
+			continue
+		}
+		for name := range scope {
+			if rest == name || strings.HasPrefix(rest, name+".") {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func init() {
