@@ -46,6 +46,7 @@ type KubernetesClient interface {
 	ApplyResource(gvr schema.GroupVersionResource, obj *unstructured.Unstructured, opts metav1.ApplyOptions) (*unstructured.Unstructured, error)
 	DeleteResource(gvr schema.GroupVersionResource, namespace, name string, opts metav1.DeleteOptions) error
 	ResourceFor(gvk schema.GroupVersionKind) (schema.GroupVersionResource, error)
+	IsNamespaced(gvk schema.GroupVersionKind) (bool, error)
 	PatchResource(ctx context.Context, gvr schema.GroupVersionResource, namespace, name string, pt types.PatchType, data []byte, opts metav1.PatchOptions) (*unstructured.Unstructured, error)
 	CheckHealth(ctx context.Context, endpoint string) error
 	GetNodeReadyStatus(ctx context.Context, nodeNames []string) (map[string]bool, error)
@@ -139,6 +140,21 @@ func (c *DynamicKubernetesClient) ResourceFor(gvk schema.GroupVersionKind) (sche
 		return schema.GroupVersionResource{}, err
 	}
 	return mapping.Resource, nil
+}
+
+// IsNamespaced reports whether a GroupVersionKind is namespace-scoped, using the same discovery
+// data as ResourceFor. Callers walking an ownerReference chain need this alongside the resolved
+// GVR: a cluster-scoped owner (e.g. GatewayClass, ClusterRole) must be addressed with an empty
+// namespace, never the child object's namespace.
+func (c *DynamicKubernetesClient) IsNamespaced(gvk schema.GroupVersionKind) (bool, error) {
+	if err := c.ensureClient(); err != nil {
+		return false, err
+	}
+	mapping, err := c.mapper.RESTMapping(gvk.GroupKind(), gvk.Version)
+	if err != nil {
+		return false, err
+	}
+	return mapping.Scope.Name() == meta.RESTScopeNameNamespace, nil
 }
 
 // PatchResource patches a resource. The caller-supplied ctx is honoured so

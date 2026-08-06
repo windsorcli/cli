@@ -134,6 +134,105 @@ func TestBaseKubernetesManager_remediateLoadBalancerOwners(t *testing.T) {
 		}
 	})
 
+	t.Run("ForegroundDeletesClusterScopedOwner", func(t *testing.T) {
+		// Given a LoadBalancer Service owned by a cluster-scoped GatewayClass (Envoy Gateway's
+		// actual ownerReference target, cli#3160) that IS in the eligible kustomization's
+		// inventory, encoded with an empty namespace segment as Flux does for cluster-scoped
+		// entries
+		manager := setup(t)
+		kubernetesClient := client.NewMockKubernetesClient()
+		gatewayClassOwner := metav1.OwnerReference{
+			APIVersion: "gateway.networking.k8s.io/v1",
+			Kind:       "GatewayClass",
+			Name:       "envoy",
+			Controller: &controller,
+		}
+		gatewayClassesGVR := schema.GroupVersionResource{Group: "gateway.networking.k8s.io", Version: "v1", Resource: "gatewayclasses"}
+		kubernetesClient.GetResourceFunc = func(gvr schema.GroupVersionResource, namespace, name string) (*unstructured.Unstructured, error) {
+			if gvr.Resource == "kustomizations" {
+				return kustomizationWithInventory("_envoy_gateway.networking.k8s.io_GatewayClass"), nil
+			}
+			return nil, fmt.Errorf("%s %q not found", gvr.Resource, name)
+		}
+		kubernetesClient.ListResourcesFunc = func(gvr schema.GroupVersionResource, namespace string) (*unstructured.UnstructuredList, error) {
+			return &unstructured.UnstructuredList{Items: []unstructured.Unstructured{
+				lbService("system-gateway", "envoy-system-gateway-external", &gatewayClassOwner),
+			}}, nil
+		}
+		kubernetesClient.ResourceForFunc = func(gvk schema.GroupVersionKind) (schema.GroupVersionResource, error) {
+			return gatewayClassesGVR, nil
+		}
+		kubernetesClient.IsNamespacedFunc = func(gvk schema.GroupVersionKind) (bool, error) {
+			return gvk.Kind != "GatewayClass", nil
+		}
+		var deletedGVR schema.GroupVersionResource
+		var deletedNamespace, deletedName string
+		kubernetesClient.DeleteResourceFunc = func(gvr schema.GroupVersionResource, namespace, name string, opts metav1.DeleteOptions) error {
+			deletedGVR, deletedNamespace, deletedName = gvr, namespace, name
+			return nil
+		}
+		manager.client = kubernetesClient
+
+		// When remediation runs
+		if err := manager.remediateLoadBalancerOwners(eligible, "system-gitops"); err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+
+		// Then the cluster-scoped GatewayClass is recognized as owned and foreground-deleted
+		// with an empty namespace, rather than being silently treated as foreign
+		if deletedGVR != gatewayClassesGVR {
+			t.Errorf("Expected delete on %v, got %v", gatewayClassesGVR, deletedGVR)
+		}
+		if deletedName != "envoy" {
+			t.Errorf("Expected the owning GatewayClass 'envoy' deleted, got %q", deletedName)
+		}
+		if deletedNamespace != "" {
+			t.Errorf("Expected cluster-scoped delete with empty namespace, got %q", deletedNamespace)
+		}
+	})
+
+	t.Run("PropagatesTransientIsNamespacedError", func(t *testing.T) {
+		// Given a client whose scope resolution fails transiently after the owner's GVR
+		// resolves successfully
+		manager := setup(t)
+		kubernetesClient := client.NewMockKubernetesClient()
+		kubernetesClient.GetResourceFunc = func(gvr schema.GroupVersionResource, namespace, name string) (*unstructured.Unstructured, error) {
+			if gvr.Resource == "kustomizations" {
+				return kustomizationWithInventory(gatewayInventoryID), nil
+			}
+			return nil, fmt.Errorf("%s %q not found", gvr.Resource, name)
+		}
+		kubernetesClient.ListResourcesFunc = func(gvr schema.GroupVersionResource, namespace string) (*unstructured.UnstructuredList, error) {
+			return &unstructured.UnstructuredList{Items: []unstructured.Unstructured{
+				lbService("system-gateway", "cilium-gateway-external", &gatewayOwner),
+			}}, nil
+		}
+		kubernetesClient.ResourceForFunc = func(gvk schema.GroupVersionKind) (schema.GroupVersionResource, error) {
+			return gatewaysGVR, nil
+		}
+		kubernetesClient.IsNamespacedFunc = func(gvk schema.GroupVersionKind) (bool, error) {
+			return false, fmt.Errorf("the server is currently unable to handle the request")
+		}
+		deleted := false
+		kubernetesClient.DeleteResourceFunc = func(gvr schema.GroupVersionResource, namespace, name string, opts metav1.DeleteOptions) error {
+			deleted = true
+			return nil
+		}
+		manager.client = kubernetesClient
+
+		// When remediation runs
+		err := manager.remediateLoadBalancerOwners(eligible, "system-gitops")
+
+		// Then the transient error aborts remediation rather than silently treating the
+		// owner as foreign
+		if err == nil {
+			t.Fatal("Expected a transient scope-resolution error to abort remediation, got nil")
+		}
+		if deleted {
+			t.Error("Expected no delete when scope resolution failed transiently")
+		}
+	})
+
 	t.Run("SkipsForeignLoadBalancer", func(t *testing.T) {
 		manager := setup(t)
 		kubernetesClient := client.NewMockKubernetesClient()

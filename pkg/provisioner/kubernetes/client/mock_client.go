@@ -25,6 +25,7 @@ type MockKubernetesClient struct {
 	ApplyResourceFunc        func(gvr schema.GroupVersionResource, obj *unstructured.Unstructured, opts metav1.ApplyOptions) (*unstructured.Unstructured, error)
 	DeleteResourceFunc       func(gvr schema.GroupVersionResource, namespace, name string, opts metav1.DeleteOptions) error
 	ResourceForFunc          func(gvk schema.GroupVersionKind) (schema.GroupVersionResource, error)
+	IsNamespacedFunc         func(gvk schema.GroupVersionKind) (bool, error)
 	PatchResourceFunc        func(ctx context.Context, gvr schema.GroupVersionResource, namespace, name string, pt types.PatchType, data []byte, opts metav1.PatchOptions) (*unstructured.Unstructured, error)
 	CheckHealthFunc          func(ctx context.Context, endpoint string) error
 	GetNodeReadyStatusFunc   func(ctx context.Context, nodeNames []string) (map[string]bool, error)
@@ -89,6 +90,15 @@ func (m *MockKubernetesClient) ResourceFor(gvk schema.GroupVersionKind) (schema.
 		return m.ResourceForFunc(gvk)
 	}
 	return schema.GroupVersionResource{}, nil
+}
+
+// IsNamespaced implements KubernetesClient interface. Defaults to true (namespaced) when
+// IsNamespacedFunc is unset, matching every existing owner-walk test's implicit assumption.
+func (m *MockKubernetesClient) IsNamespaced(gvk schema.GroupVersionKind) (bool, error) {
+	if m.IsNamespacedFunc != nil {
+		return m.IsNamespacedFunc(gvk)
+	}
+	return true, nil
 }
 
 // PatchResource implements KubernetesClient interface
