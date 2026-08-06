@@ -350,6 +350,42 @@ contexts:
 		}
 	})
 
+	t.Run("GlobalModeNeverWarnsOnMismatch", func(t *testing.T) {
+		// Given global mode with an ambient ~/.aws/config that has unrelated
+		// profiles for other projects, but none matching this context — normal
+		// in global mode, not evidence of misconfiguration, since the ambient
+		// file is shared across every project the operator touches
+		mocks := setupAwsEnvMocks(t)
+		configStr := `
+version: v1alpha1
+contexts:
+  test-context: {}
+`
+		if err := mocks.ConfigHandler.LoadConfigString(configStr); err != nil {
+			t.Fatalf("Failed to load config: %v", err)
+		}
+		mocks.Shell.IsGlobalFunc = func() bool { return true }
+		withAmbientProfile(t, "[profile some-other-project]\nregion = us-east-1\n")
+		env := NewAwsEnvPrinter(mocks.Shell, mocks.ConfigHandler)
+		env.shims = mocks.Shims
+		var stderr bytes.Buffer
+		env.warningWriter = &stderr
+
+		// When GetEnvVars is called
+		envVars, err := env.GetEnvVars()
+		if err != nil {
+			t.Fatalf("GetEnvVars returned an error: %v", err)
+		}
+
+		// Then AWS_PROFILE is absent (unchanged) and no warning is written
+		if _, ok := envVars["AWS_PROFILE"]; ok {
+			t.Errorf("AWS_PROFILE should be absent, got %q", envVars["AWS_PROFILE"])
+		}
+		if stderr.Len() != 0 {
+			t.Errorf("expected no warning in global mode against the shared ambient config, got %q", stderr.String())
+		}
+	})
+
 	t.Run("WarnsWhenExpectedProfileMissingButOtherProfileExists", func(t *testing.T) {
 		// cli#3155: a bare `aws configure sso` (no --profile) names the profile
 		// after the SSO role/account rather than the windsor context, so the
