@@ -7,6 +7,8 @@ package env
 
 import (
 	"fmt"
+	"io"
+	"os"
 	"path/filepath"
 
 	"github.com/windsorcli/cli/pkg/runtime/config"
@@ -21,6 +23,7 @@ import (
 // AwsEnvPrinter is a struct that implements AWS environment configuration
 type AwsEnvPrinter struct {
 	BaseEnvPrinter
+	warningWriter io.Writer
 }
 
 // =============================================================================
@@ -38,6 +41,7 @@ func NewAwsEnvPrinter(shell shell.Shell, configHandler config.ConfigHandler) *Aw
 
 	return &AwsEnvPrinter{
 		BaseEnvPrinter: *NewBaseEnvPrinter(shell, configHandler),
+		warningWriter:  os.Stderr,
 	}
 }
 
@@ -53,7 +57,13 @@ func NewAwsEnvPrinter(shell shell.Shell, configHandler config.ConfigHandler) *Aw
 // AWS_CONFIG_FILE override) in global mode. When the profile is absent the var
 // is omitted so the AWS SDK falls through to env keys, IMDS, ECS task creds,
 // or whatever else the credential chain finds rather than failing with
-// "profile not found" against a file the named profile was never in.
+// "profile not found" against a file the named profile was never in. In
+// project mode, when some other profile is defined instead (e.g. a bare
+// `aws configure sso` named it after the SSO role rather than the context),
+// WarnOnProfileMismatch writes a non-fatal hint to warningWriter naming what
+// was expected vs. what exists. Global mode never warns on this: the ambient
+// ~/.aws/config is shared across every project the operator touches, so an
+// unrelated profile there is normal, not evidence of misconfiguration.
 func (e *AwsEnvPrinter) GetEnvVars() (map[string]string, error) {
 	envVars := make(map[string]string)
 	global := e.shell.IsGlobal()
@@ -101,6 +111,8 @@ func (e *AwsEnvPrinter) GetEnvVars() (map[string]string, error) {
 		}
 		if resolver.HasProfile(profileName) {
 			envVars["AWS_PROFILE"] = profileName
+		} else if !global {
+			awsprofile.WarnOnProfileMismatch(e.warningWriter, resolver, profileName)
 		}
 	}
 

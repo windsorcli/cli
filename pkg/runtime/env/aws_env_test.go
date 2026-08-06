@@ -1,6 +1,7 @@
 package env
 
 import (
+	"bytes"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -346,6 +347,101 @@ contexts:
 		// credentials, IMDS, or whatever else the credential chain finds
 		if _, ok := envVars["AWS_PROFILE"]; ok {
 			t.Errorf("AWS_PROFILE should be absent when ambient config lacks the profile, got %q", envVars["AWS_PROFILE"])
+		}
+	})
+
+	t.Run("GlobalModeNeverWarnsOnMismatch", func(t *testing.T) {
+		// Given global mode with an ambient ~/.aws/config that has unrelated
+		// profiles for other projects, but none matching this context — normal
+		// in global mode, not evidence of misconfiguration, since the ambient
+		// file is shared across every project the operator touches
+		mocks := setupAwsEnvMocks(t)
+		configStr := `
+version: v1alpha1
+contexts:
+  test-context: {}
+`
+		if err := mocks.ConfigHandler.LoadConfigString(configStr); err != nil {
+			t.Fatalf("Failed to load config: %v", err)
+		}
+		mocks.Shell.IsGlobalFunc = func() bool { return true }
+		withAmbientProfile(t, "[profile some-other-project]\nregion = us-east-1\n")
+		env := NewAwsEnvPrinter(mocks.Shell, mocks.ConfigHandler)
+		env.shims = mocks.Shims
+		var stderr bytes.Buffer
+		env.warningWriter = &stderr
+
+		// When GetEnvVars is called
+		envVars, err := env.GetEnvVars()
+		if err != nil {
+			t.Fatalf("GetEnvVars returned an error: %v", err)
+		}
+
+		// Then AWS_PROFILE is absent (unchanged) and no warning is written
+		if _, ok := envVars["AWS_PROFILE"]; ok {
+			t.Errorf("AWS_PROFILE should be absent, got %q", envVars["AWS_PROFILE"])
+		}
+		if stderr.Len() != 0 {
+			t.Errorf("expected no warning in global mode against the shared ambient config, got %q", stderr.String())
+		}
+	})
+
+	t.Run("WarnsWhenExpectedProfileMissingButOtherProfileExists", func(t *testing.T) {
+		// cli#3155: a bare `aws configure sso` (no --profile) names the profile
+		// after the SSO role/account rather than the windsor context, so the
+		// context's .aws/config has a profile, just not the expected one
+		mocks := setupAwsEnvMocks(t)
+		withProfile(t, mocks, "[profile AdministratorAccess-105746947080]\nregion = us-west-2\n", "")
+		env := NewAwsEnvPrinter(mocks.Shell, mocks.ConfigHandler)
+		env.shims = mocks.Shims
+		var stderr bytes.Buffer
+		env.warningWriter = &stderr
+
+		// When GetEnvVars is called
+		envVars, err := env.GetEnvVars()
+		if err != nil {
+			t.Fatalf("GetEnvVars returned an error: %v", err)
+		}
+
+		// Then AWS_PROFILE is still omitted (unchanged safety behavior) but a
+		// warning names both the expected and the actual profile
+		if _, ok := envVars["AWS_PROFILE"]; ok {
+			t.Errorf("AWS_PROFILE should still be absent, got %q", envVars["AWS_PROFILE"])
+		}
+		msg := stderr.String()
+		if !strings.Contains(msg, `"default"`) {
+			t.Errorf("expected warning to name the expected profile, got %q", msg)
+		}
+		if !strings.Contains(msg, "AdministratorAccess-105746947080") {
+			t.Errorf("expected warning to name the actual profile found, got %q", msg)
+		}
+	})
+
+	t.Run("NoWarningWhenAWSDirEntirelyUnconfigured", func(t *testing.T) {
+		// Given a project-mode context whose .aws/ has no profile at all — not a
+		// mismatch, just not configured yet, so no warning should fire
+		mocks := setupAwsEnvMocks(t)
+		configStr := `
+version: v1alpha1
+contexts:
+  test-context: {}
+`
+		if err := mocks.ConfigHandler.LoadConfigString(configStr); err != nil {
+			t.Fatalf("Failed to load config: %v", err)
+		}
+		env := NewAwsEnvPrinter(mocks.Shell, mocks.ConfigHandler)
+		env.shims = mocks.Shims
+		var stderr bytes.Buffer
+		env.warningWriter = &stderr
+
+		// When GetEnvVars is called
+		if _, err := env.GetEnvVars(); err != nil {
+			t.Fatalf("GetEnvVars returned an error: %v", err)
+		}
+
+		// Then no warning is written
+		if stderr.Len() != 0 {
+			t.Errorf("expected no warning for an unconfigured AWS setup, got %q", stderr.String())
 		}
 	})
 

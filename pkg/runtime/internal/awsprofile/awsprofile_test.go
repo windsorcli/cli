@@ -1,8 +1,10 @@
 package awsprofile
 
 import (
+	"bytes"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -197,6 +199,140 @@ func TestAmbient_HasProfile(t *testing.T) {
 		// Then the fallback path resolves to <home>/.aws/config and finds it
 		if !got {
 			t.Errorf("expected true when profile defined in $HOME/.aws/config, got false")
+		}
+	})
+}
+
+func TestForContext_ListProfileNames(t *testing.T) {
+	t.Run("ReturnsEmptyWhenAWSDirMissing", func(t *testing.T) {
+		root := t.TempDir()
+
+		got := ForContext(root).ListProfileNames()
+
+		if len(got) != 0 {
+			t.Errorf("expected no profile names for missing .aws/, got %v", got)
+		}
+	})
+
+	t.Run("ListsConfigAndCredentialsProfiles", func(t *testing.T) {
+		// Given a config file naming one profile via "[profile ...]" and a
+		// credentials file naming a different one via the bare "[...]" form
+		root := writeAWSDir(t,
+			"[profile AdministratorAccess-105746947080]\nregion = us-west-2\n",
+			"[legacy]\naws_access_key_id = AKIA...\n")
+
+		got := ForContext(root).ListProfileNames()
+
+		// Then both names are reported, config file first
+		want := []string{"AdministratorAccess-105746947080", "legacy"}
+		if len(got) != len(want) || got[0] != want[0] || got[1] != want[1] {
+			t.Errorf("expected %v, got %v", want, got)
+		}
+	})
+
+	t.Run("ReportsDefaultFromEitherFile", func(t *testing.T) {
+		root := writeAWSDir(t, "[default]\nregion = us-west-2\n", "")
+
+		got := ForContext(root).ListProfileNames()
+
+		if len(got) != 1 || got[0] != "default" {
+			t.Errorf("expected [default], got %v", got)
+		}
+	})
+
+	t.Run("DeduplicatesNameAppearingInBothFiles", func(t *testing.T) {
+		root := writeAWSDir(t, "[profile prod]\nregion = us-west-2\n", "[prod]\naws_access_key_id = AKIA...\n")
+
+		got := ForContext(root).ListProfileNames()
+
+		if len(got) != 1 || got[0] != "prod" {
+			t.Errorf("expected [prod] deduplicated, got %v", got)
+		}
+	})
+
+	t.Run("IgnoresLookAlikeHeadersInsideConfigFile", func(t *testing.T) {
+		root := writeAWSDir(t, "[profile staging]\n# comment about [profile prod]\nrole_arn = arn:aws:iam::1:role/prod\n", "")
+
+		got := ForContext(root).ListProfileNames()
+
+		if len(got) != 1 || got[0] != "staging" {
+			t.Errorf("expected only [staging], got %v", got)
+		}
+	})
+}
+
+func TestWarnOnProfileMismatch(t *testing.T) {
+	t.Run("SilentWhenExpectedProfilePresent", func(t *testing.T) {
+		root := writeAWSDir(t, "[profile prod]\nregion = us-west-2\n", "")
+		var buf bytes.Buffer
+
+		WarnOnProfileMismatch(&buf, ForContext(root), "prod")
+
+		if buf.Len() != 0 {
+			t.Errorf("expected no warning when the expected profile exists, got %q", buf.String())
+		}
+	})
+
+	t.Run("SilentWhenNoProfileConfiguredAtAll", func(t *testing.T) {
+		root := t.TempDir()
+		var buf bytes.Buffer
+
+		WarnOnProfileMismatch(&buf, ForContext(root), "prod")
+
+		if buf.Len() != 0 {
+			t.Errorf("expected no warning for an entirely unconfigured AWS setup, got %q", buf.String())
+		}
+	})
+
+	t.Run("WarnsNamingExpectedAndActualWhenMismatched", func(t *testing.T) {
+		// The cli#3155 scenario: a bare `aws configure sso` (no --profile) named
+		// the profile after the SSO role/account rather than the windsor context
+		root := writeAWSDir(t, "[profile AdministratorAccess-105746947080]\nregion = us-west-2\n", "")
+		var buf bytes.Buffer
+
+		WarnOnProfileMismatch(&buf, ForContext(root), "prod")
+
+		msg := buf.String()
+		if !strings.Contains(msg, `"prod"`) {
+			t.Errorf("expected warning to name the expected profile, got %q", msg)
+		}
+		if !strings.Contains(msg, "AdministratorAccess-105746947080") {
+			t.Errorf("expected warning to name the actual profile found, got %q", msg)
+		}
+	})
+
+	t.Run("NeverColorizesWhenWriterIsNotAFile", func(t *testing.T) {
+		// A bytes.Buffer (or any non-*os.File io.Writer, e.g. a captured-output
+		// test double) is never a terminal, so the warning must stay plain text.
+		root := writeAWSDir(t, "[profile actual]\nregion = us-west-2\n", "")
+		var buf bytes.Buffer
+
+		WarnOnProfileMismatch(&buf, ForContext(root), "prod")
+
+		if strings.Contains(buf.String(), "\033[") {
+			t.Errorf("expected no ANSI escape codes for a non-terminal writer, got %q", buf.String())
+		}
+	})
+
+	t.Run("NeverColorizesPlainFileEvenWhenNOCOLORUnset", func(t *testing.T) {
+		// A redirected/piped destination (`windsor env > out.log`) is a real
+		// *os.File but never a terminal — confirms the terminal check itself,
+		// not just the non-*os.File short-circuit above, keeps output clean.
+		root := writeAWSDir(t, "[profile actual]\nregion = us-west-2\n", "")
+		f, err := os.CreateTemp(t.TempDir(), "warn-output")
+		if err != nil {
+			t.Fatalf("create temp file: %v", err)
+		}
+		defer f.Close()
+
+		WarnOnProfileMismatch(f, ForContext(root), "prod")
+
+		data, err := os.ReadFile(f.Name())
+		if err != nil {
+			t.Fatalf("read temp file: %v", err)
+		}
+		if strings.Contains(string(data), "\033[") {
+			t.Errorf("expected no ANSI escape codes when writing to a non-terminal file, got %q", data)
 		}
 	})
 }
