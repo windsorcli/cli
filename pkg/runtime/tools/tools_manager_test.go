@@ -636,25 +636,78 @@ contexts:
 		}
 	})
 
-	t.Run("TalosClusterDriverWithoutDockerNeverChecksCPU", func(t *testing.T) {
-		// Given cluster.driver is talos but no docker-family workstation runtime is
-		// configured (e.g. Talos on bare metal/cloud) — the CPU microarchitecture
-		// check only applies to Talos-in-Docker, so it must never fire here
+	t.Run("TalosClusterDriverWithDockerChecksCPU", func(t *testing.T) {
+		// Given docker.enabled AND cluster.driver: talos together — the one
+		// combination that must actually wire through to the CPU check. Stubs
+		// checkCPUMicroarchitecture itself so the assertion doesn't depend on
+		// this test runner's real CPU features.
 		_, toolsManager := setup(t, `
 contexts:
   test:
+    docker:
+      enabled: true
     cluster:
       driver: talos
 `)
+		originalExecLookPath := execLookPath
+		execLookPath = func(name string) (string, error) {
+			return "/usr/bin/" + name, nil
+		}
+		t.Cleanup(func() { execLookPath = originalExecLookPath })
+
+		originalCheckCPUMicroarchitecture := checkCPUMicroarchitecture
+		var called bool
+		checkCPUMicroarchitecture = func() error {
+			called = true
+			return nil
+		}
+		t.Cleanup(func() { checkCPUMicroarchitecture = originalCheckCPUMicroarchitecture })
+
+		// When CheckRequirements runs with Docker requested
+		if err := toolsManager.CheckRequirements(Requirements{Docker: true}); err != nil {
+			t.Errorf("Expected no error, got: %v", err)
+		}
+
+		// Then the CPU check actually fired — this is the wiring a regression
+		// (dropped call, or a broken "talos" string match) would silently break
+		if !called {
+			t.Error("Expected checkCPUMicroarchitecture to be called for docker+talos, got not called")
+		}
+	})
+
+	t.Run("TalosClusterDriverWithoutDockerNeverChecksCPU", func(t *testing.T) {
+		// Given cluster.driver is talos but no docker-family workstation runtime is
+		// configured (e.g. Talos on bare metal/cloud) — the CPU microarchitecture
+		// check only applies to Talos-in-Docker, so it must never fire here.
+		// docker.enabled is explicitly false: setupMocks' own defaultConfig sets
+		// it true for context "test", and LoadConfigString merges rather than
+		// replaces, so omitting it here would silently leave docker enabled.
+		_, toolsManager := setup(t, `
+contexts:
+  test:
+    docker:
+      enabled: false
+    cluster:
+      driver: talos
+`)
+		originalCheckCPUMicroarchitecture := checkCPUMicroarchitecture
+		var called bool
+		checkCPUMicroarchitecture = func() error {
+			called = true
+			return nil
+		}
+		t.Cleanup(func() { checkCPUMicroarchitecture = originalCheckCPUMicroarchitecture })
 
 		// When CheckRequirements runs with Docker requested
 		err := toolsManager.CheckRequirements(Requirements{Docker: true})
 
 		// Then it succeeds trivially — the docker check itself is skipped since
 		// needsDocker is false, so the CPU check nested inside it never runs
-		// regardless of this host's actual CPU
 		if err != nil {
 			t.Errorf("Expected no error when docker isn't needed, got: %v", err)
+		}
+		if called {
+			t.Error("Expected checkCPUMicroarchitecture NOT to be called when docker isn't needed")
 		}
 	})
 
@@ -675,13 +728,24 @@ contexts:
 		}
 		t.Cleanup(func() { execLookPath = originalExecLookPath })
 
+		originalCheckCPUMicroarchitecture := checkCPUMicroarchitecture
+		var called bool
+		checkCPUMicroarchitecture = func() error {
+			called = true
+			return nil
+		}
+		t.Cleanup(func() { checkCPUMicroarchitecture = originalCheckCPUMicroarchitecture })
+
 		// When CheckRequirements runs with Docker requested
 		err := toolsManager.CheckRequirements(Requirements{Docker: true})
 
-		// Then it succeeds regardless of this host's actual CPU — the
-		// microarchitecture check is scoped to cluster.driver == "talos" only
+		// Then it succeeds and the microarchitecture check never fired — it's
+		// scoped to cluster.driver == "talos" only
 		if err != nil {
 			t.Errorf("Expected no error for a non-talos cluster driver, got: %v", err)
+		}
+		if called {
+			t.Error("Expected checkCPUMicroarchitecture NOT to be called for a non-talos cluster driver")
 		}
 	})
 

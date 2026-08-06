@@ -265,7 +265,12 @@ func (t *BaseToolsManager) checkColima() error {
 // golang.org/x/sys/cpu — no shelling out) fails fast during `windsor check` instead. A no-op on
 // non-amd64 hosts: Apple Silicon's Docker Desktop runs an ARM Linux VM, where this constraint
 // doesn't apply. See cli#1268.
-func checkCPUMicroarchitecture() error {
+//
+// Declared as a variable, not a func, so CheckRequirements' wiring to it — that it fires when
+// docker.enabled/workstation.runtime needs Docker AND cluster.driver is "talos" — is verifiable
+// in tests without depending on the test runner's actual CPU features; golang.org/x/sys/cpu.X86
+// has no injection point of its own.
+var checkCPUMicroarchitecture = func() error {
 	if runtime.GOARCH != "amd64" {
 		return nil
 	}
