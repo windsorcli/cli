@@ -636,6 +636,55 @@ contexts:
 		}
 	})
 
+	t.Run("TalosClusterDriverWithoutDockerNeverChecksCPU", func(t *testing.T) {
+		// Given cluster.driver is talos but no docker-family workstation runtime is
+		// configured (e.g. Talos on bare metal/cloud) — the CPU microarchitecture
+		// check only applies to Talos-in-Docker, so it must never fire here
+		_, toolsManager := setup(t, `
+contexts:
+  test:
+    cluster:
+      driver: talos
+`)
+
+		// When CheckRequirements runs with Docker requested
+		err := toolsManager.CheckRequirements(Requirements{Docker: true})
+
+		// Then it succeeds trivially — the docker check itself is skipped since
+		// needsDocker is false, so the CPU check nested inside it never runs
+		// regardless of this host's actual CPU
+		if err != nil {
+			t.Errorf("Expected no error when docker isn't needed, got: %v", err)
+		}
+	})
+
+	t.Run("NonTalosClusterDriverNeverChecksCPU", func(t *testing.T) {
+		// Given a docker-family workstation runtime with a non-talos cluster driver
+		// (e.g. an EKS/AKS/GKE cluster where docker is only used for local tooling)
+		_, toolsManager := setup(t, `
+contexts:
+  test:
+    docker:
+      enabled: true
+    cluster:
+      driver: eks
+`)
+		originalExecLookPath := execLookPath
+		execLookPath = func(name string) (string, error) {
+			return "/usr/bin/" + name, nil
+		}
+		t.Cleanup(func() { execLookPath = originalExecLookPath })
+
+		// When CheckRequirements runs with Docker requested
+		err := toolsManager.CheckRequirements(Requirements{Docker: true})
+
+		// Then it succeeds regardless of this host's actual CPU — the
+		// microarchitecture check is scoped to cluster.driver == "talos" only
+		if err != nil {
+			t.Errorf("Expected no error for a non-talos cluster driver, got: %v", err)
+		}
+	})
+
 	t.Run("SecretsRequestedChecksBothSopsAndOnePassword", func(t *testing.T) {
 		// Given both sops and 1password are enabled in config and Secrets is requested
 		_, toolsManager := setup(t, configWithEverythingEnabled)
@@ -1035,6 +1084,67 @@ func TestToolsManager_checkColima(t *testing.T) {
 		// Then an error indicating version is too low should be returned
 		if err == nil || !strings.Contains(err.Error(), "Lima 0.5.0 is below the minimum required version") {
 			t.Errorf("Expected limactl version too low error, got %v", err)
+		}
+	})
+}
+
+// Tests for the x86-64-v2 microarchitecture baseline check (cli#1268)
+func TestCheckX86V2Baseline(t *testing.T) {
+	fullBaseline := x86V2Features{
+		HasCX16: true, HasPOPCNT: true, HasSSE3: true, HasSSSE3: true, HasSSE41: true, HasSSE42: true,
+	}
+
+	t.Run("SucceedsWhenEveryFeaturePresent", func(t *testing.T) {
+		if err := checkX86V2Baseline(fullBaseline); err != nil {
+			t.Errorf("Expected no error for a full v2 baseline, got: %v", err)
+		}
+	})
+
+	t.Run("NamesEachMissingFeature", func(t *testing.T) {
+		f := fullBaseline
+		f.HasPOPCNT = false
+		f.HasSSE42 = false
+
+		err := checkX86V2Baseline(f)
+
+		if err == nil {
+			t.Fatal("Expected an error when features are missing, got nil")
+		}
+		if !strings.Contains(err.Error(), "POPCNT") {
+			t.Errorf("Expected error to name POPCNT, got: %v", err)
+		}
+		if !strings.Contains(err.Error(), "SSE4.2") {
+			t.Errorf("Expected error to name SSE4.2, got: %v", err)
+		}
+		if strings.Contains(err.Error(), "CMPXCHG16B") {
+			t.Errorf("Expected error not to name a feature that IS present, got: %v", err)
+		}
+	})
+
+	t.Run("FailsWhenEveryFeatureMissing", func(t *testing.T) {
+		err := checkX86V2Baseline(x86V2Features{})
+
+		if err == nil {
+			t.Fatal("Expected an error for a CPU with none of the baseline features, got nil")
+		}
+		for _, feature := range []string{"CMPXCHG16B", "POPCNT", "SSE3", "SSSE3", "SSE4.1", "SSE4.2"} {
+			if !strings.Contains(err.Error(), feature) {
+				t.Errorf("Expected error to name %s, got: %v", feature, err)
+			}
+		}
+	})
+}
+
+func TestCheckCPUMicroarchitecture(t *testing.T) {
+	t.Run("NoOpOnNonAMD64Architectures", func(t *testing.T) {
+		// runtime.GOARCH is fixed for this test binary, so this only exercises the
+		// gate directly when the test runner itself is non-amd64 (e.g. macOS/Linux
+		// arm64 in CI); the feature-level logic is covered by TestCheckX86V2Baseline.
+		if runtime.GOARCH == "amd64" {
+			t.Skip("test binary is amd64; the non-amd64 no-op path isn't exercised here")
+		}
+		if err := checkCPUMicroarchitecture(); err != nil {
+			t.Errorf("Expected no error on a non-amd64 host, got: %v", err)
 		}
 	})
 }

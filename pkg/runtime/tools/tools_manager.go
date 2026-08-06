@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"strconv"
 	"strings"
 	"time"
@@ -14,6 +15,7 @@ import (
 	"github.com/windsorcli/cli/pkg/runtime/config"
 	"github.com/windsorcli/cli/pkg/runtime/internal/awsprofile"
 	"github.com/windsorcli/cli/pkg/runtime/shell"
+	"golang.org/x/sys/cpu"
 )
 
 // The ToolsManager is a core component that manages development tools and dependencies
@@ -147,6 +149,11 @@ func (t *BaseToolsManager) CheckRequirements(reqs Requirements) error {
 		if err := t.checkDocker(); err != nil {
 			return err
 		}
+		if t.configHandler.GetString("cluster.driver", "") == "talos" {
+			if err := checkCPUMicroarchitecture(); err != nil {
+				return err
+			}
+		}
 	}
 
 	if reqs.Terraform && t.configHandler.GetBool("terraform.enabled") {
@@ -248,6 +255,63 @@ func (t *BaseToolsManager) checkColima() error {
 		return outdatedToolError("limactl", limactlVersion)
 	}
 
+	return nil
+}
+
+// checkCPUMicroarchitecture reports an error when the host CPU lacks the x86-64-v2 instruction
+// baseline that Talos requires. Talos's own container image already refuses to start with "This
+// program can only be run on AMD64 processors with v2 microarchitecture support," but that
+// failure surfaces deep inside the docker driver's startup path; catching it here (via
+// golang.org/x/sys/cpu — no shelling out) fails fast during `windsor check` instead. A no-op on
+// non-amd64 hosts: Apple Silicon's Docker Desktop runs an ARM Linux VM, where this constraint
+// doesn't apply. See cli#1268.
+func checkCPUMicroarchitecture() error {
+	if runtime.GOARCH != "amd64" {
+		return nil
+	}
+	return checkX86V2Baseline(x86V2Features{
+		HasCX16:   cpu.X86.HasCX16,
+		HasPOPCNT: cpu.X86.HasPOPCNT,
+		HasSSE3:   cpu.X86.HasSSE3,
+		HasSSSE3:  cpu.X86.HasSSSE3,
+		HasSSE41:  cpu.X86.HasSSE41,
+		HasSSE42:  cpu.X86.HasSSE42,
+	})
+}
+
+// x86V2Features is the subset of golang.org/x/sys/cpu.X86Info that defines the x86-64-v2
+// microarchitecture baseline (CMPXCHG16B, POPCNT, SSE3, SSSE3, SSE4.1, SSE4.2), taken as a
+// parameter so checkX86V2Baseline is testable without needing to run on hardware that actually
+// lacks these features.
+type x86V2Features struct {
+	HasCX16, HasPOPCNT, HasSSE3, HasSSSE3, HasSSE41, HasSSE42 bool
+}
+
+// checkX86V2Baseline returns an error naming every x86-64-v2 feature f is missing, or nil if f
+// satisfies the full baseline.
+func checkX86V2Baseline(f x86V2Features) error {
+	var missing []string
+	if !f.HasCX16 {
+		missing = append(missing, "CMPXCHG16B")
+	}
+	if !f.HasPOPCNT {
+		missing = append(missing, "POPCNT")
+	}
+	if !f.HasSSE3 {
+		missing = append(missing, "SSE3")
+	}
+	if !f.HasSSSE3 {
+		missing = append(missing, "SSSE3")
+	}
+	if !f.HasSSE41 {
+		missing = append(missing, "SSE4.1")
+	}
+	if !f.HasSSE42 {
+		missing = append(missing, "SSE4.2")
+	}
+	if len(missing) > 0 {
+		return fmt.Errorf("CPU lacks x86-64-v2 microarchitecture support (missing: %s); Talos requires a v2-capable host CPU and will fail to start in Docker", strings.Join(missing, ", "))
+	}
 	return nil
 }
 
