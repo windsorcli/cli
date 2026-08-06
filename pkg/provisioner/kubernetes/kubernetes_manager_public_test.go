@@ -3330,6 +3330,78 @@ func TestBaseKubernetesManager_DeleteBlueprint(t *testing.T) {
 		}
 	})
 
+	t.Run("UnsuspendsRemainingKustomizationsWhenDeleteFails", func(t *testing.T) {
+		// Given a blueprint with two eligible kustomizations, ordered so that
+		// deleting the first fails
+		manager := setup(t)
+		kubernetesClient := client.NewMockKubernetesClient()
+
+		var events []string
+		kubernetesClient.PatchResourceFunc = func(ctx context.Context, gvr schema.GroupVersionResource, namespace, name string, pt types.PatchType, data []byte, opts metav1.PatchOptions) (*unstructured.Unstructured, error) {
+			switch string(data) {
+			case `{"spec":{"suspend":true}}`:
+				events = append(events, "suspend:"+name)
+			case `{"spec":{"suspend":false}}`:
+				events = append(events, "resume:"+name)
+			}
+			return nil, nil
+		}
+		kubernetesClient.DeleteResourceFunc = func(gvr schema.GroupVersionResource, namespace, name string, opts metav1.DeleteOptions) error {
+			events = append(events, "delete:"+name)
+			if name == "test-kustomization-2" {
+				return fmt.Errorf("finalizer stuck")
+			}
+			return nil
+		}
+		kubernetesClient.GetResourceFunc = func(gvr schema.GroupVersionResource, namespace, name string) (*unstructured.Unstructured, error) {
+			return nil, fmt.Errorf("the server could not find the requested resource")
+		}
+		manager.client = kubernetesClient
+
+		blueprint := &blueprintv1alpha1.Blueprint{
+			Metadata: blueprintv1alpha1.Metadata{Name: "test-blueprint"},
+			Kustomizations: []blueprintv1alpha1.Kustomization{
+				{Name: "test-kustomization-1"},
+				{Name: "test-kustomization-2"},
+			},
+		}
+
+		// When the blueprint delete aborts on the first-processed kustomization's
+		// failed delete (no DependsOn, so the destroy walk visits the input in
+		// reverse: test-kustomization-2 then test-kustomization-1)
+		err := manager.DeleteBlueprint(blueprint, "test-namespace")
+
+		// Then the error is surfaced and test-kustomization-1 — suspended up
+		// front but never reached by the destroy walk before the abort — is
+		// resumed by the abort cleanup instead of being left permanently suspended
+		if err == nil {
+			t.Fatal("Expected error when delete fails, got nil")
+		}
+		if !strings.Contains(err.Error(), "failed to delete kustomization") {
+			t.Errorf("Expected delete-failure error, got %v", err)
+		}
+
+		resumed := map[string]bool{}
+		for _, e := range events {
+			if strings.HasPrefix(e, "resume:") {
+				resumed[strings.TrimPrefix(e, "resume:")] = true
+			}
+		}
+		if !resumed["test-kustomization-1"] {
+			t.Errorf("Expected test-kustomization-1 to be resumed by abort cleanup, got events %v", events)
+		}
+
+		deleted := map[string]bool{}
+		for _, e := range events {
+			if strings.HasPrefix(e, "delete:") {
+				deleted[strings.TrimPrefix(e, "delete:")] = true
+			}
+		}
+		if deleted["test-kustomization-1"] {
+			t.Errorf("Expected test-kustomization-1 not to be deleted after abort, got events %v", events)
+		}
+	})
+
 	t.Run("SuccessWithDestroyOnlyKustomizations", func(t *testing.T) {
 		manager := setup(t)
 		kubernetesClient := client.NewMockKubernetesClient()
