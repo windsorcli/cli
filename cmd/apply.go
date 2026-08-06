@@ -190,6 +190,9 @@ windsor apply kustomize dns --wait`,
 		scope := make(map[string]bool)
 		if len(args) == 0 {
 			for _, k := range blueprint.Kustomizations {
+				if k.DestroyOnly != nil && *k.DestroyOnly {
+					continue
+				}
 				scope[k.Name] = true
 			}
 		} else {

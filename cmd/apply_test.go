@@ -836,6 +836,39 @@ func TestApplyKustomizeCmd(t *testing.T) {
 		}
 	})
 
+	t.Run("SuccessWhenDeferredSubstitutionBelongsOnlyToDestroyOnlyKustomization", func(t *testing.T) {
+		// Given a whole-blueprint apply (no name argument) where the only deferred
+		// substitution belongs to a destroyOnly kustomization — ApplyBlueprint skips
+		// destroyOnly entries when writing ConfigMaps/substitutions, so nothing would
+		// actually be overwritten
+		mocks := setupApplyTest(t)
+		destroyOnly := true
+		testBlueprint := &blueprintv1alpha1.Blueprint{
+			Metadata: blueprintv1alpha1.Metadata{Name: "test"},
+			Kustomizations: []blueprintv1alpha1.Kustomization{
+				{Name: "my-app"},
+				{Name: "backup-hook", DestroyOnly: &destroyOnly},
+			},
+		}
+		mocks.BlueprintHandler.GenerateFunc = func() *blueprintv1alpha1.Blueprint { return testBlueprint }
+		mocks.BlueprintHandler.GetDeferredPathsFunc = func() map[string]bool {
+			return map[string]bool{"kustomize.backup-hook.substitutions.cert": true}
+		}
+		proj := newApplyKustomizeProject(mocks)
+
+		// When executing apply kustomize with no name argument
+		cmd := createTestApplyKustomizeCmd()
+		ctx := context.WithValue(context.Background(), projectOverridesKey, proj)
+		cmd.SetContext(ctx)
+		err := cmd.Execute()
+
+		// Then no error occurs, since the deferred substitution is scoped only to
+		// a destroyOnly kustomization that apply never touches
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+	})
+
 	t.Run("SuccessWithWaitAll", func(t *testing.T) {
 		t.Cleanup(func() { applyWaitFlag = false })
 		// Given a blueprint with multiple kustomizations and --wait but no name argument
