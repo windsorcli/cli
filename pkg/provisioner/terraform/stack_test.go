@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -904,6 +905,38 @@ func TestStack_MigrateState(t *testing.T) {
 		}
 		if !strings.Contains(err.Error(), "backend not reachable") {
 			t.Errorf("Expected error to wrap the underlying cause, got: %v", err)
+		}
+	})
+
+	t.Run("HintsAtStaleProviderLockWithoutAddingUpgrade", func(t *testing.T) {
+		// Given a component whose migrate-state init fails with the stale-provider-lock
+		// signature — MigrateState must still never pass -upgrade (cli#3157: the hint is
+		// diagnostic only, not a retry, precisely because this contract must hold)
+		stack, mocks := setup(t)
+		blueprint := createTestBlueprint()
+
+		var sawUpgrade bool
+		mocks.Shell.ExecSilentWithEnvFunc = func(command string, env map[string]string, args ...string) (string, error) {
+			if len(args) >= 2 && args[1] == "init" {
+				if slices.Contains(args, "-upgrade") {
+					sawUpgrade = true
+				}
+				return "", fmt.Errorf("Error: Failed to query available provider packages\n\nCould not retrieve the list of available versions for provider hashicorp/aws: locked provider registry.terraform.io/hashicorp/aws 6.47.0 does not match configured version constraint 6.57.1; must use terraform init -upgrade to allow selection of new versions")
+			}
+			return "", nil
+		}
+
+		_, err := stack.MigrateState(blueprint)
+
+		// Then the error carries the hint but no init call ever added -upgrade
+		if err == nil {
+			t.Fatal("Expected MigrateState to return an error")
+		}
+		if !strings.Contains(err.Error(), "provider version outside the current constraint") && !strings.Contains(err.Error(), "local terraform cache for this component is stale") {
+			t.Errorf("Expected a stale-provider-lock hint, got: %v", err)
+		}
+		if sawUpgrade {
+			t.Error("Expected MigrateState never to pass -upgrade, even when hinting at a stale lock")
 		}
 	})
 
@@ -2712,6 +2745,84 @@ func TestStack_Apply(t *testing.T) {
 		}
 	})
 
+	t.Run("HintsAtStaleCacheOnStaleProviderLockForScratchComponent", func(t *testing.T) {
+		// Given a scratch (Source-set) component whose init fails with Terraform's
+		// stale-provider-lock signature
+		stack, mocks := setup(t)
+		staleLockErr := "Error: Failed to query available provider packages\n\nCould not retrieve the list of available versions for provider hashicorp/aws: locked provider registry.terraform.io/hashicorp/aws 6.47.0 does not match configured version constraint 6.57.1; must use terraform init -upgrade to allow selection of new versions"
+		mocks.Shell.ExecSilentWithEnvFunc = func(command string, env map[string]string, args ...string) (string, error) {
+			if command == "terraform" && len(args) > 1 && args[1] == "init" {
+				return "", fmt.Errorf("%s", staleLockErr)
+			}
+			return "", nil
+		}
+		blueprint := createTestBlueprint()
+
+		// When applying the scratch component
+		err := stack.Apply(blueprint, "remote/path")
+
+		// Then the error is a windsor-native hint naming the scratch cache directory to
+		// clear, wrapping (not replacing) Terraform's own error text
+		if err == nil {
+			t.Fatal("Expected an error, got nil")
+		}
+		if !strings.Contains(err.Error(), "local terraform cache for this component is stale") {
+			t.Errorf("Expected a scratch-cache hint, got %v", err)
+		}
+		if !strings.Contains(err.Error(), staleLockErr) {
+			t.Errorf("Expected the underlying terraform error preserved, got %v", err)
+		}
+	})
+
+	t.Run("HintsAtLockFileOnStaleProviderLockForNonScratchComponent", func(t *testing.T) {
+		// Given a plain local (no Name, no Source) component whose init fails with the same
+		// stale-provider-lock signature — its .terraform.lock.hcl may be an intentional,
+		// git-tracked pin, so the hint must not presume to say "delete this directory"
+		stack, mocks := setup(t)
+		mocks.Shell.ExecSilentWithEnvFunc = func(command string, env map[string]string, args ...string) (string, error) {
+			if command == "terraform" && len(args) > 1 && args[1] == "init" {
+				return "", fmt.Errorf("Error: Failed to query available provider packages\n\nCould not retrieve the list of available versions for provider hashicorp/aws: locked provider registry.terraform.io/hashicorp/aws 6.47.0 does not match configured version constraint 6.57.1; must use terraform init -upgrade to allow selection of new versions")
+			}
+			return "", nil
+		}
+		blueprint := createTestBlueprint()
+
+		// When applying the non-scratch component
+		err := stack.Apply(blueprint, "local/path")
+
+		// Then the hint points at re-running init with -upgrade in that directory, not at
+		// deleting anything
+		if err == nil {
+			t.Fatal("Expected an error, got nil")
+		}
+		if !strings.Contains(err.Error(), "terraform init -upgrade") {
+			t.Errorf("Expected a lock-file hint pointing at terraform init -upgrade, got %v", err)
+		}
+	})
+
+	t.Run("UnrelatedInitFailureGetsNoHint", func(t *testing.T) {
+		// Given an init failure that is not the stale-provider-lock signature
+		stack, mocks := setup(t)
+		mocks.Shell.ExecSilentWithEnvFunc = func(command string, env map[string]string, args ...string) (string, error) {
+			if command == "terraform" && len(args) > 1 && args[1] == "init" {
+				return "", fmt.Errorf("mock error running terraform init")
+			}
+			return "", nil
+		}
+		blueprint := createTestBlueprint()
+
+		// When applying
+		err := stack.Apply(blueprint, "local/path")
+
+		// Then no stale-lock hint is added
+		if err == nil {
+			t.Fatal("Expected an error, got nil")
+		}
+		if strings.Contains(err.Error(), "provider lock") || strings.Contains(err.Error(), "terraform init -upgrade") {
+			t.Errorf("Expected no stale-lock hint on an unrelated failure, got %v", err)
+		}
+	})
+
 	t.Run("ErrorRunningTerraformPlan", func(t *testing.T) {
 		// Given a stack whose shell fails on terraform plan
 		stack, mocks := setup(t)
@@ -3854,6 +3965,59 @@ func TestStack_Destroy(t *testing.T) {
 			if strings.HasSuffix(p, "/terraform.tfstate") {
 				t.Errorf("Backend pointer must not be cleared on destroy failure, got removals: %v", removed)
 			}
+		}
+	})
+}
+
+func TestIsScratchComponent(t *testing.T) {
+	t.Run("TrueWhenNameSet", func(t *testing.T) {
+		c := &blueprintv1alpha1.TerraformComponent{Name: "cluster"}
+		if !isScratchComponent(c) {
+			t.Error("Expected true when Name is set")
+		}
+	})
+
+	t.Run("TrueWhenSourceSet", func(t *testing.T) {
+		c := &blueprintv1alpha1.TerraformComponent{Source: "core"}
+		if !isScratchComponent(c) {
+			t.Error("Expected true when Source is set")
+		}
+	})
+
+	t.Run("FalseWhenNeitherSet", func(t *testing.T) {
+		c := &blueprintv1alpha1.TerraformComponent{Path: "local/path"}
+		if isScratchComponent(c) {
+			t.Error("Expected false when neither Name nor Source is set")
+		}
+	})
+}
+
+func TestIsStaleProviderLockError(t *testing.T) {
+	t.Run("NilError", func(t *testing.T) {
+		if isStaleProviderLockError(nil) {
+			t.Error("Expected false for nil error")
+		}
+	})
+
+	t.Run("MatchesTerraformsStaleLockSignature", func(t *testing.T) {
+		err := fmt.Errorf("Error: Failed to query available provider packages\n\nCould not retrieve the list of available versions for provider hashicorp/aws: locked provider registry.terraform.io/hashicorp/aws 6.47.0 does not match configured version constraint 6.57.1; must use terraform init -upgrade to allow selection of new versions")
+		if !isStaleProviderLockError(err) {
+			t.Error("Expected true for terraform's stale-provider-lock error text")
+		}
+	})
+
+	t.Run("UnrelatedErrorDoesNotMatch", func(t *testing.T) {
+		err := fmt.Errorf("mock error running terraform init")
+		if isStaleProviderLockError(err) {
+			t.Error("Expected false for an unrelated init failure")
+		}
+	})
+
+	t.Run("PartialMarkerMatchDoesNotMatch", func(t *testing.T) {
+		// Only one of the two markers present — must not false-positive.
+		err := fmt.Errorf("does not match configured version constraint, but no upgrade hint here")
+		if isStaleProviderLockError(err) {
+			t.Error("Expected false when only one marker is present")
 		}
 	})
 }

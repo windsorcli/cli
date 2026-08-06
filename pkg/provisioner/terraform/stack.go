@@ -1556,7 +1556,9 @@ func (s *TerraformStack) prepareComponentOp(blueprint *blueprintv1alpha1.Bluepri
 // a single CLI run share one terraform invocation; failed inits aren't
 // cached. On cache miss without -migrate-state, clearStaleBackendPointer
 // drops a stale pointer file before init runs. Dedup assumes sequential
-// callers; parallel iteration would need per-key sync.Once.
+// callers; parallel iteration would need per-key sync.Once. A failure
+// matching isStaleProviderLockError gets staleProviderLockHint appended
+// rather than passing Terraform's raw error through unexplained.
 func (s *TerraformStack) runTerraformInit(component *blueprintv1alpha1.TerraformComponent, terraformVars map[string]string, scopedKeys []string, terraformArgs *envvars.TerraformArgs, extraFlags ...string) error {
 	migrateState := slices.Contains(extraFlags, "-migrate-state")
 	key := initCacheKey{
@@ -1581,6 +1583,9 @@ func (s *TerraformStack) runTerraformInit(component *blueprintv1alpha1.Terraform
 	initEnv := selectTerraformCommandEnv(terraformVars, false, scopedKeys)
 	_, err := s.runtime.Shell.ExecSilentWithEnv(terraformCommand, initEnv, initArgs...)
 	if err != nil {
+		if isStaleProviderLockError(err) {
+			return fmt.Errorf("error running terraform init for %s: %s: %w", component.Path, staleProviderLockHint(component), err)
+		}
 		return fmt.Errorf("error running terraform init for %s: %w", component.Path, err)
 	}
 
@@ -1678,6 +1683,51 @@ func (s *TerraformStack) getTerraformEnv() *envvars.TerraformEnvPrinter {
 // =============================================================================
 // Helpers
 // =============================================================================
+
+// isScratchComponent reports whether a component's module content lives in windsor's own
+// OCI/git-sourced scratch cache (.windsor/contexts/<context>/terraform), rather than a plain local
+// directory the operator authors and version-controls directly. Mirrors the useScratchPath
+// condition in resolveComponentPaths, which is where this same distinction determines FullPath.
+func isScratchComponent(component *blueprintv1alpha1.TerraformComponent) bool {
+	return component.Name != "" || component.Source != ""
+}
+
+// staleProviderLockMarkers are substrings that together identify Terraform's "locked provider ...
+// does not match configured version constraint" failure — the signature of a leftover local
+// .terraform.lock.hcl from a previous windsor run whose module source has since changed. All
+// markers must be present since Terraform's wording could otherwise coincidentally partial-match
+// an unrelated error.
+var staleProviderLockMarkers = []string{
+	"does not match configured version constraint",
+	"terraform init -upgrade",
+}
+
+// isStaleProviderLockError reports whether err is Terraform's stale-provider-lock failure, the
+// one -upgrade actually resolves. See staleProviderLockMarkers.
+func isStaleProviderLockError(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := err.Error()
+	for _, marker := range staleProviderLockMarkers {
+		if !strings.Contains(msg, marker) {
+			return false
+		}
+	}
+	return true
+}
+
+// staleProviderLockHint names the likely cause and remedy for isStaleProviderLockError; never
+// auto-retried with -upgrade since the MigrateState caller must not touch providers during a
+// state move. A windsor-managed scratch component's cache directory is safe to point at directly;
+// a plain local component's .terraform.lock.hcl may be an intentional, git-tracked pin, so the
+// hint asks the operator to re-init it themselves instead.
+func staleProviderLockHint(component *blueprintv1alpha1.TerraformComponent) string {
+	if isScratchComponent(component) {
+		return fmt.Sprintf("the local terraform cache for this component is stale (its module source changed since the last local init); remove %s and re-run to pick up the new provider constraint", component.FullPath)
+	}
+	return fmt.Sprintf("the .terraform.lock.hcl in %s may be pinned to a provider version outside the current constraint; run `terraform init -upgrade` there (or remove the lock file if it isn't intentionally version-controlled) and retry", component.FullPath)
+}
 
 // parseTerraformPlanJSON parses the line-delimited JSON event stream emitted by
 // `terraform plan -json` and extracts both the summary counts and the per-resource
