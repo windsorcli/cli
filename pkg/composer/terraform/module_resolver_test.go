@@ -1047,6 +1047,45 @@ func TestBaseModuleResolver_GenerateTfvars(t *testing.T) {
 		}
 	})
 
+	t.Run("HeaderStatesFullRegenerationAndOverridePath", func(t *testing.T) {
+		// cli#3150: the header used to claim "your changes will not be overwritten"
+		// while the implementation always fully regenerates the file — a direct
+		// contradiction that invited hand-edits the next run silently discarded.
+		resolver, mocks := setup(t)
+
+		projectRoot, _ := mocks.Shell.GetProjectRootFunc()
+		variablesDir := filepath.Join(projectRoot, ".windsor", "contexts", "local", "terraform", "test-module")
+		if err := os.MkdirAll(variablesDir, 0755); err != nil {
+			t.Fatalf("Failed to create dir: %v", err)
+		}
+		if err := os.WriteFile(filepath.Join(variablesDir, "variables.tf"), []byte(`variable "cluster_name" { type = string }`), 0644); err != nil {
+			t.Fatalf("Failed to write variables.tf: %v", err)
+		}
+
+		// When generating tfvars
+		if err := resolver.GenerateTfvars(false); err != nil {
+			t.Fatalf("Expected no error, got: %v", err)
+		}
+
+		// Then the written header states the file is regenerated and names the
+		// actual override path, and never claims edits are preserved
+		tfvarsPath := filepath.Join(variablesDir, "terraform.tfvars")
+		data, err := os.ReadFile(tfvarsPath)
+		if err != nil {
+			t.Fatalf("Failed to read generated tfvars: %v", err)
+		}
+		content := string(data)
+		if !strings.Contains(content, "regenerated on every run") {
+			t.Errorf("expected header to state the file is fully regenerated, got:\n%s", content)
+		}
+		if !strings.Contains(content, "`inputs:` in blueprint.yaml") {
+			t.Errorf("expected header to name the inputs: override path, got:\n%s", content)
+		}
+		if strings.Contains(content, "will not be overwritten") {
+			t.Errorf("expected the old, contradicted claim to be gone, got:\n%s", content)
+		}
+	})
+
 	t.Run("HandlesMultiLineStringValues", func(t *testing.T) {
 		// Given a resolver with a variable that has a multi-line string value
 		resolver, mocks := setup(t)
