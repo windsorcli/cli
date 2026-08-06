@@ -7,6 +7,8 @@ package awsprofile
 
 import (
 	"bufio"
+	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -63,6 +65,88 @@ func (r Resolver) HasProfile(name string) bool {
 		return true
 	}
 	return iniContainsSection(r.credentialsPath, "["+name+"]")
+}
+
+// ListProfileNames returns every profile name defined across the resolver's config and
+// credentials files, deduplicated, in the order first encountered (config file scanned before
+// credentials). Used for diagnostics when an expected profile isn't found, so the caller can
+// name what's actually configured instead of just "not found" — e.g. a bare `aws configure sso`
+// (without --profile) names the profile after the SSO role/account rather than the windsor
+// context, which HasProfile alone can't distinguish from "nothing configured at all."
+func (r Resolver) ListProfileNames() []string {
+	seen := make(map[string]bool)
+	var names []string
+	for _, name := range profileNamesInFile(r.configPath, true) {
+		if !seen[name] {
+			seen[name] = true
+			names = append(names, name)
+		}
+	}
+	for _, name := range profileNamesInFile(r.credentialsPath, false) {
+		if !seen[name] {
+			seen[name] = true
+			names = append(names, name)
+		}
+	}
+	return names
+}
+
+// WarnOnProfileMismatch writes a non-fatal warning to w when expected is not defined in r's
+// files but at least one other profile is — the "configured under the wrong name" case HasProfile
+// alone can't distinguish from "nothing configured yet." Silent when expected is present (nothing
+// to warn about) or when no profile is defined at all (unconfigured, not mismatched).
+func WarnOnProfileMismatch(w io.Writer, r Resolver, expected string) {
+	if r.HasProfile(expected) {
+		return
+	}
+	found := r.ListProfileNames()
+	if len(found) == 0 {
+		return
+	}
+	fmt.Fprintf(w, "\033[33mWarning: AWS profile %q not found; found %s instead. Set aws.awsProfile to match, or rename the profile to %q.\033[0m\n",
+		expected, strings.Join(found, ", "), expected)
+}
+
+// profileNamesInFile scans path for INI section headers and returns the profile name each one
+// names. isConfigFile selects the config file's "[profile <name>]" / "[default]" header shape;
+// the credentials file uses a bare "[<name>]" for every profile including default. Returns nil
+// for a missing or unreadable file, matching iniContainsSection's tolerance.
+func profileNamesInFile(path string, isConfigFile bool) []string {
+	if path == "" {
+		return nil
+	}
+	// #nosec G304 - path is composed from the caller's trusted configRoot or AWS-SDK-equivalent env vars
+	f, err := os.Open(path)
+	if err != nil {
+		return nil
+	}
+	defer f.Close()
+
+	var names []string
+	scanner := bufio.NewScanner(f)
+	for scanner.Scan() {
+		line := scanner.Text()
+		if i := strings.IndexAny(line, "#;"); i >= 0 {
+			line = line[:i]
+		}
+		line = strings.TrimSpace(line)
+		if !strings.HasPrefix(line, "[") || !strings.HasSuffix(line, "]") {
+			continue
+		}
+		inner := line[1 : len(line)-1]
+		if isConfigFile {
+			if inner == "default" {
+				names = append(names, "default")
+			} else if name, ok := strings.CutPrefix(inner, "profile "); ok && name != "" {
+				names = append(names, name)
+			}
+			continue
+		}
+		if inner != "" {
+			names = append(names, inner)
+		}
+	}
+	return names
 }
 
 // iniContainsSection scans the file at path for a line whose trimmed contents
