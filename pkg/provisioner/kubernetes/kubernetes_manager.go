@@ -1698,6 +1698,13 @@ func (k *BaseKubernetesManager) ownedInventorySet(eligible []blueprintv1alpha1.K
 // is its own target; otherwise the ascent follows the controller ownerReference upward, fetching
 // each owner to read its own references, until an owned ancestor is found or the chain ends.
 // Returns found=false when no ancestor is ours (a foreign LoadBalancer we must not touch).
+//
+// Each hop resolves its own scope via IsNamespaced rather than reusing the Service's namespace
+// unconditionally: a cluster-scoped owner (e.g. GatewayClass, ClusterRole) is addressed with an
+// empty namespace, both for the inventory lookup and the GetResource call. Flux's inventory
+// likewise encodes cluster-scoped entries with an empty namespace, so treating a cluster-scoped
+// owner as if it lived in the Service's namespace makes both the inventory lookup and the
+// GetResource call miss — the walk silently classifies an owned root as foreign and gives up.
 func (k *BaseKubernetesManager) ownedRootForService(svc *unstructured.Unstructured, owned map[string]bool) (ownedTarget, bool, error) {
 	namespace := svc.GetNamespace()
 	if owned[inventoryKey("", "Service", namespace, svc.GetName())] {
@@ -1714,17 +1721,29 @@ func (k *BaseKubernetesManager) ownedRootForService(svc *unstructured.Unstructur
 		if err != nil {
 			return ownedTarget{}, false, nil
 		}
-		gvr, err := k.client.ResourceFor(gv.WithKind(owner.Kind))
+		gvk := gv.WithKind(owner.Kind)
+		gvr, err := k.client.ResourceFor(gvk)
 		if err != nil {
 			if apimeta.IsNoMatchError(err) {
 				return ownedTarget{}, false, nil
 			}
 			return ownedTarget{}, false, fmt.Errorf("error resolving load balancer owner %s %q: %w", owner.Kind, owner.Name, err)
 		}
-		if owned[inventoryKey(gv.Group, owner.Kind, namespace, owner.Name)] {
-			return ownedTarget{gvr: gvr, namespace: namespace, name: owner.Name}, true, nil
+		namespaced, err := k.client.IsNamespaced(gvk)
+		if err != nil {
+			if apimeta.IsNoMatchError(err) {
+				return ownedTarget{}, false, nil
+			}
+			return ownedTarget{}, false, fmt.Errorf("error resolving scope of load balancer owner %s %q: %w", owner.Kind, owner.Name, err)
 		}
-		next, err := k.client.GetResource(gvr, namespace, owner.Name)
+		ownerNamespace := namespace
+		if !namespaced {
+			ownerNamespace = ""
+		}
+		if owned[inventoryKey(gv.Group, owner.Kind, ownerNamespace, owner.Name)] {
+			return ownedTarget{gvr: gvr, namespace: ownerNamespace, name: owner.Name}, true, nil
+		}
+		next, err := k.client.GetResource(gvr, ownerNamespace, owner.Name)
 		if err != nil {
 			if isNotFoundError(err) {
 				return ownedTarget{}, false, nil
