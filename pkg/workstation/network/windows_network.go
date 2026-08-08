@@ -8,6 +8,7 @@ import (
 	"os"
 	"strings"
 
+	"github.com/windsorcli/cli/pkg/constants"
 	"github.com/windsorcli/cli/pkg/tui"
 )
 
@@ -75,7 +76,7 @@ if ($rule) {
 func (n *BaseNetworkManager) ConfigureHostRoute() error {
 	networkCIDR := n.configHandler.GetString("network.cidr_block")
 	if networkCIDR == "" {
-		return fmt.Errorf("network CIDR is not configured")
+		networkCIDR = constants.DefaultNetworkCIDR
 	}
 	cidr, err := validateCIDR(networkCIDR)
 	if err != nil {

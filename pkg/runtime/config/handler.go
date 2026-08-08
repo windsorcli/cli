@@ -301,7 +301,7 @@ func (c *configHandler) SaveConfig(overwrite ...bool) error {
 
 // SaveWorkstationState extracts workstation-managed keys from config data and writes them
 // to .windsor/contexts/<context>/workstation.yaml. This is the canonical persistence point for system-derived
-// workstation configuration (runtime, address, platform, DNS settings).
+// workstation configuration (runtime, address, platform, DNS settings, network CIDR block).
 func (c *configHandler) SaveWorkstationState() error {
 	if c.shell == nil {
 		return fmt.Errorf("shell not initialized")

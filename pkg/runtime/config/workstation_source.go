@@ -8,7 +8,8 @@ import (
 // The WorkstationSource is a configuration source for system-managed workstation state.
 // It provides load, save, and delete operations for context-scoped workstation.yaml files,
 // The WorkstationSource isolates ephemeral workstation persistence from user-authored values,
-// and centralizes filtering/policy logic for workstation-managed keys and platform persistence.
+// and centralizes filtering/policy logic for workstation-managed keys, platform persistence,
+// and the computed network.cidr_block a standalone 'configure network' needs to read back.
 
 // =============================================================================
 // Types
