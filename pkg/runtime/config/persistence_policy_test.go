@@ -79,6 +79,74 @@ func TestPersistencePolicy_Partition(t *testing.T) {
 		}
 	})
 
+	t.Run("RoutesNetworkCIDRBlockToWorkstationWhenRuntimeConfigured", func(t *testing.T) {
+		policy := newPersistencePolicy()
+		data := map[string]any{
+			"network": map[string]any{
+				"cidr_block":       "10.5.0.0/16",
+				"loadbalancer_ips": map[string]any{"start": "10.5.0.10"},
+			},
+		}
+
+		partition := policy.Partition(data, persistencePolicyInput{
+			WorkstationRuntime: "colima",
+		})
+
+		workstationNetwork, ok := partition.Workstation["network"].(map[string]any)
+		if !ok {
+			t.Fatalf("Expected network map in workstation partition, got %v", partition.Workstation["network"])
+		}
+		if workstationNetwork["cidr_block"] != "10.5.0.0/16" {
+			t.Errorf("Expected cidr_block in workstation partition, got %v", workstationNetwork["cidr_block"])
+		}
+		if _, ok := workstationNetwork["loadbalancer_ips"]; ok {
+			t.Errorf("Did not expect loadbalancer_ips in workstation partition, got %v", workstationNetwork)
+		}
+
+		valuesNetwork, ok := partition.Values["network"].(map[string]any)
+		if !ok {
+			t.Fatalf("Expected network map in values partition, got %v", partition.Values["network"])
+		}
+		if valuesNetwork["cidr_block"] != "10.5.0.0/16" {
+			t.Errorf("Expected cidr_block still present in values partition, got %v", valuesNetwork["cidr_block"])
+		}
+		if _, ok := valuesNetwork["loadbalancer_ips"]; !ok {
+			t.Errorf("Expected loadbalancer_ips still present in values partition, got %v", valuesNetwork)
+		}
+	})
+
+	t.Run("RoutesNetworkToValuesOnlyWhenRuntimeNotConfigured", func(t *testing.T) {
+		policy := newPersistencePolicy()
+		data := map[string]any{
+			"network": map[string]any{"cidr_block": "10.5.0.0/16"},
+		}
+
+		partition := policy.Partition(data, persistencePolicyInput{})
+
+		if _, ok := partition.Workstation["network"]; ok {
+			t.Errorf("Did not expect network in workstation partition, got %v", partition.Workstation["network"])
+		}
+		valuesNetwork, ok := partition.Values["network"].(map[string]any)
+		if !ok || valuesNetwork["cidr_block"] != "10.5.0.0/16" {
+			t.Errorf("Expected cidr_block in values partition, got %v", partition.Values["network"])
+		}
+	})
+
+	t.Run("SkipsWorkstationNetworkWhenCIDRBlockAbsent", func(t *testing.T) {
+		policy := newPersistencePolicy()
+		data := map[string]any{
+			"network": map[string]any{"loadbalancer_ips": map[string]any{"start": "10.5.0.10"}},
+		}
+
+		partition := policy.Partition(data, persistencePolicyInput{
+			WorkstationRuntime: "colima",
+		})
+
+		if _, ok := partition.Workstation["network"]; ok {
+			t.Errorf("Did not expect network in workstation partition, got %v", partition.Workstation["network"])
+		}
+	})
+
 	t.Run("RoutesNonManagedKeysToValuesPartition", func(t *testing.T) {
 		policy := newPersistencePolicy()
 		data := map[string]any{

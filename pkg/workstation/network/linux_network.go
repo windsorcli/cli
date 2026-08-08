@@ -8,6 +8,7 @@ import (
 	"os"
 	"strings"
 
+	"github.com/windsorcli/cli/pkg/constants"
 	"github.com/windsorcli/cli/pkg/tui"
 )
 
@@ -44,7 +45,7 @@ const systemdResolvedSymlinkHint = "systemd-resolved is active but /etc/resolv.c
 func (n *BaseNetworkManager) ConfigureHostRoute() error {
 	networkCIDR := n.configHandler.GetString("network.cidr_block")
 	if networkCIDR == "" {
-		return fmt.Errorf("network CIDR is not configured")
+		networkCIDR = constants.DefaultNetworkCIDR
 	}
 	guestIP := n.configHandler.GetString("workstation.address")
 	if guestIP == "" {

@@ -2,8 +2,9 @@ package config
 
 // The PersistencePolicy is a partitioning component for config persistence targets.
 // It provides deterministic routing of merged config data into values and workstation maps,
-// The PersistencePolicy centralizes conditional ownership rules for special keys like platform,
-// and removes policy-specific booleans from file source save method signatures.
+// The PersistencePolicy centralizes conditional ownership rules for special keys like platform
+// and the computed network.cidr_block, and removes policy-specific booleans from file source
+// save method signatures.
 
 // =============================================================================
 // Types
@@ -43,6 +44,7 @@ func (p *persistencePolicy) Partition(data map[string]any, input persistencePoli
 	workstation := make(map[string]any)
 
 	persistPlatform := p.shouldPersistPlatform(input)
+	persistNetwork := p.shouldPersistNetwork(input)
 	for key, value := range data {
 		if key == "provider" {
 			continue
@@ -54,6 +56,11 @@ func (p *persistencePolicy) Partition(data map[string]any, input persistencePoli
 		if key == "platform" && persistPlatform {
 			workstation[key] = value
 			continue
+		}
+		if key == "network" && persistNetwork {
+			if cidrBlock, ok := networkCIDRBlock(value); ok {
+				workstation["network"] = map[string]any{"cidr_block": cidrBlock}
+			}
 		}
 		values[key] = value
 	}
@@ -77,6 +84,17 @@ func (p *persistencePolicy) shouldPersistPlatform(input persistencePolicyInput) 
 	return input.WorkstationRuntime != ""
 }
 
+// shouldPersistNetwork reports whether the computed network.cidr_block should be duplicated into
+// workstation state. Same condition as shouldPersistPlatform today, kept as its own predicate so a
+// future change to platform-persistence rules doesn't silently change network CIDR persistence too.
+func (p *persistencePolicy) shouldPersistNetwork(input persistencePolicyInput) bool {
+	if input.IsDevMode {
+		return true
+	}
+
+	return input.WorkstationRuntime != ""
+}
+
 // isWorkstationManagedKey reports whether key is always workstation-managed.
 func (p *persistencePolicy) isWorkstationManagedKey(key string) bool {
 	for _, managedKey := range workstationStateManagedKeys {
@@ -86,4 +104,17 @@ func (p *persistencePolicy) isWorkstationManagedKey(key string) bool {
 	}
 
 	return false
+}
+
+// networkCIDRBlock extracts the cidr_block field from a network config map, if present.
+func networkCIDRBlock(value any) (any, bool) {
+	network, ok := value.(map[string]any)
+	if !ok {
+		return nil, false
+	}
+	cidrBlock, ok := network["cidr_block"]
+	if !ok {
+		return nil, false
+	}
+	return cidrBlock, true
 }

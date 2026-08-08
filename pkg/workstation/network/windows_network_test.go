@@ -36,8 +36,9 @@ func TestWindowsNetworkManager_ConfigureHostRoute(t *testing.T) {
 		}
 	})
 
-	t.Run("NoNetworkCIDR", func(t *testing.T) {
-		// Given a network manager with no CIDR configured
+	t.Run("FallsBackToDefaultCIDRWhenNotConfigured", func(t *testing.T) {
+		// Given a network manager with no CIDR configured (e.g. a facet-computed default that
+		// never reached configHandler, or a standalone 'configure network' invocation)
 		manager, mocks := setup(t)
 		mocks.ConfigHandler.Set("network.cidr_block", "")
 		mocks.ConfigHandler.Set("workstation.address", "192.168.1.10")
@@ -45,13 +46,9 @@ func TestWindowsNetworkManager_ConfigureHostRoute(t *testing.T) {
 		// And configuring the host route
 		err := manager.ConfigureHostRoute()
 
-		// Then an error should occur
-		if err == nil {
-			t.Fatalf("expected error, got nil")
-		}
-		expectedError := "network CIDR is not configured"
-		if !strings.Contains(err.Error(), expectedError) {
-			t.Fatalf("expected error %q, got %q", expectedError, err.Error())
+		// Then it succeeds using constants.DefaultNetworkCIDR instead of erroring
+		if err != nil {
+			t.Fatalf("expected no error, got %v", err)
 		}
 	})
 

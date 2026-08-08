@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 
 	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
+	"github.com/windsorcli/cli/pkg/constants"
 	"github.com/windsorcli/cli/pkg/runtime"
 	"github.com/windsorcli/cli/pkg/runtime/config"
 	"github.com/windsorcli/cli/pkg/runtime/evaluator"
@@ -479,6 +480,9 @@ func (w *Workstation) PendingNetworkChanges() []NetworkChange {
 	var changes []NetworkChange
 	if w.NetworkManager.NeedsPrivilegeForCluster() {
 		cidr := w.configHandler.GetString("network.cidr_block")
+		if cidr == "" {
+			cidr = constants.DefaultNetworkCIDR
+		}
 		gateway := w.configHandler.GetString("workstation.address")
 		changes = append(changes,
 			NetworkChange{Kind: "host-route", Detail: fmt.Sprintf("%s via %s", cidr, gateway)},
