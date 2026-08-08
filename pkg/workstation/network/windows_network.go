@@ -8,6 +8,7 @@ import (
 	"os"
 	"strings"
 
+	"github.com/windsorcli/cli/pkg/constants"
 	"github.com/windsorcli/cli/pkg/tui"
 )
 
@@ -73,10 +74,7 @@ if ($rule) {
 // Guest address is read from config (workstation.address). It checks if the route exists via
 // PowerShell; if not, adds a route to the VM guest.
 func (n *BaseNetworkManager) ConfigureHostRoute() error {
-	networkCIDR := n.configHandler.GetString("network.cidr_block")
-	if networkCIDR == "" {
-		return fmt.Errorf("network CIDR is not configured")
-	}
+	networkCIDR := n.configHandler.GetString("network.cidr_block", constants.DefaultNetworkCIDR)
 	cidr, err := validateCIDR(networkCIDR)
 	if err != nil {
 		return err
