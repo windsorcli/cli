@@ -44,6 +44,7 @@ func (p *persistencePolicy) Partition(data map[string]any, input persistencePoli
 	workstation := make(map[string]any)
 
 	persistPlatform := p.shouldPersistPlatform(input)
+	persistNetwork := p.shouldPersistNetwork(input)
 	for key, value := range data {
 		if key == "provider" {
 			continue
@@ -56,7 +57,7 @@ func (p *persistencePolicy) Partition(data map[string]any, input persistencePoli
 			workstation[key] = value
 			continue
 		}
-		if key == "network" && persistPlatform {
+		if key == "network" && persistNetwork {
 			if cidrBlock, ok := networkCIDRBlock(value); ok {
 				workstation["network"] = map[string]any{"cidr_block": cidrBlock}
 			}
@@ -76,6 +77,17 @@ func (p *persistencePolicy) Partition(data map[string]any, input persistencePoli
 
 // shouldPersistPlatform reports whether platform should be owned by workstation state.
 func (p *persistencePolicy) shouldPersistPlatform(input persistencePolicyInput) bool {
+	if input.IsDevMode {
+		return true
+	}
+
+	return input.WorkstationRuntime != ""
+}
+
+// shouldPersistNetwork reports whether the computed network.cidr_block should be duplicated into
+// workstation state. Same condition as shouldPersistPlatform today, kept as its own predicate so a
+// future change to platform-persistence rules doesn't silently change network CIDR persistence too.
+func (p *persistencePolicy) shouldPersistNetwork(input persistencePolicyInput) bool {
 	if input.IsDevMode {
 		return true
 	}
