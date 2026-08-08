@@ -74,7 +74,10 @@ if ($rule) {
 // Guest address is read from config (workstation.address). It checks if the route exists via
 // PowerShell; if not, adds a route to the VM guest.
 func (n *BaseNetworkManager) ConfigureHostRoute() error {
-	networkCIDR := n.configHandler.GetString("network.cidr_block", constants.DefaultNetworkCIDR)
+	networkCIDR := n.configHandler.GetString("network.cidr_block")
+	if networkCIDR == "" {
+		networkCIDR = constants.DefaultNetworkCIDR
+	}
 	cidr, err := validateCIDR(networkCIDR)
 	if err != nil {
 		return err

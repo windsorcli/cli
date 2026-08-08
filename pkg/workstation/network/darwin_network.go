@@ -29,7 +29,10 @@ import (
 // if no primary network service can be detected, the live route is left in place and a warning is
 // printed.
 func (n *BaseNetworkManager) ConfigureHostRoute() error {
-	networkCIDR := n.configHandler.GetString("network.cidr_block", constants.DefaultNetworkCIDR)
+	networkCIDR := n.configHandler.GetString("network.cidr_block")
+	if networkCIDR == "" {
+		networkCIDR = constants.DefaultNetworkCIDR
+	}
 	guestIP := n.configHandler.GetString("workstation.address")
 	if guestIP == "" {
 		return fmt.Errorf("guest address is required")

@@ -479,7 +479,10 @@ func (w *Workstation) PendingNetworkChanges() []NetworkChange {
 	}
 	var changes []NetworkChange
 	if w.NetworkManager.NeedsPrivilegeForCluster() {
-		cidr := w.configHandler.GetString("network.cidr_block", constants.DefaultNetworkCIDR)
+		cidr := w.configHandler.GetString("network.cidr_block")
+		if cidr == "" {
+			cidr = constants.DefaultNetworkCIDR
+		}
 		gateway := w.configHandler.GetString("workstation.address")
 		changes = append(changes,
 			NetworkChange{Kind: "host-route", Detail: fmt.Sprintf("%s via %s", cidr, gateway)},
