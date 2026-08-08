@@ -91,6 +91,35 @@ func TestWorkstationSource_Save(t *testing.T) {
 		}
 	})
 
+	t.Run("RoundTripsNetworkCIDRBlockForStandaloneConfigureNetwork", func(t *testing.T) {
+		source := newWorkstationSource(NewShims(), newPersistencePolicy())
+		projectRoot := t.TempDir()
+		contextName := "local"
+		data := map[string]any{
+			"workstation": map[string]any{"runtime": "colima"},
+			"network":     map[string]any{"cidr_block": "10.5.0.0/16"},
+		}
+
+		if err := source.Save(projectRoot, contextName, data, persistencePolicyInput{WorkstationRuntime: "colima"}); err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+
+		values, found, err := source.Load(projectRoot, contextName)
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		if !found {
+			t.Fatal("Expected workstation.yaml to be found")
+		}
+		network, ok := values["network"].(map[string]any)
+		if !ok {
+			t.Fatalf("Expected network map, got %T", values["network"])
+		}
+		if network["cidr_block"] != "10.5.0.0/16" {
+			t.Errorf("Expected network.cidr_block to round-trip, got %v", network["cidr_block"])
+		}
+	})
+
 	t.Run("DeletesStateFileWhenNoWorkstationPartition", func(t *testing.T) {
 		source := newWorkstationSource(NewShims(), newPersistencePolicy())
 		projectRoot := t.TempDir()
