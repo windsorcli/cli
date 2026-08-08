@@ -21,6 +21,7 @@ type MockArtifact struct {
 	ListTagsFunc                      func(ociRef string) ([]string, error)
 	GetCliVersionConstraintFunc       func(ociRef string) (string, error)
 	VerifyCliVersionCompatibilityFunc func(ociRef string) error
+	SetForceRefreshFloatingTagsFunc   func(force bool)
 }
 
 // =============================================================================
@@ -117,6 +118,13 @@ func (m *MockArtifact) GetCacheDir(registry, repository, tag string) (string, er
 		return m.GetCacheDirFunc(registry, repository, tag)
 	}
 	return "", nil
+}
+
+// SetForceRefreshFloatingTags calls the mock SetForceRefreshFloatingTagsFunc if set, otherwise does nothing
+func (m *MockArtifact) SetForceRefreshFloatingTags(force bool) {
+	if m.SetForceRefreshFloatingTagsFunc != nil {
+		m.SetForceRefreshFloatingTagsFunc(force)
+	}
 }
 
 // =============================================================================

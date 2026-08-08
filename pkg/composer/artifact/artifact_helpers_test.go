@@ -597,3 +597,31 @@ func TestValidateCliVersion(t *testing.T) {
 		}
 	})
 }
+
+func TestIsFloatingTag(t *testing.T) {
+	testCases := []struct {
+		name     string
+		tag      string
+		expected bool
+	}{
+		{name: "Latest", tag: "latest", expected: true},
+		{name: "Main", tag: "main", expected: true},
+		{name: "Stable", tag: "stable", expected: true},
+		{name: "Empty", tag: "", expected: true},
+		{name: "SemverWithVPrefix", tag: "v1.2.3", expected: false},
+		{name: "SemverWithoutVPrefix", tag: "1.2.3", expected: false},
+		{name: "SemverPrerelease", tag: "v1.2.3-rc.1", expected: false},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			// When checking whether the tag is floating
+			result := IsFloatingTag(tc.tag)
+
+			// Then it should match the expected classification
+			if result != tc.expected {
+				t.Errorf("IsFloatingTag(%q) = %v, expected %v", tc.tag, result, tc.expected)
+			}
+		})
+	}
+}

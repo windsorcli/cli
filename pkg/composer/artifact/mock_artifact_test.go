@@ -383,3 +383,31 @@ func TestMockArtifact_GetCacheDir(t *testing.T) {
 		}
 	})
 }
+
+func TestMockArtifact_SetForceRefreshFloatingTags(t *testing.T) {
+	t.Run("CallsSetForceRefreshFloatingTagsFuncWhenSet", func(t *testing.T) {
+		// Given
+		mockArtifact := setupMockArtifactMocks(t)
+		var received bool
+		mockArtifact.SetForceRefreshFloatingTagsFunc = func(force bool) {
+			received = force
+		}
+
+		// When setting force refresh
+		mockArtifact.SetForceRefreshFloatingTags(true)
+
+		// Then the mock func should have been called with the given value
+		if !received {
+			t.Error("Expected SetForceRefreshFloatingTagsFunc to be called with true")
+		}
+	})
+
+	t.Run("DoesNothingWhenSetForceRefreshFloatingTagsFuncNotSet", func(t *testing.T) {
+		// Given
+		mockArtifact := setupMockArtifactMocks(t)
+
+		// When setting force refresh without func set
+		// Then it should not panic
+		mockArtifact.SetForceRefreshFloatingTags(true)
+	})
+}

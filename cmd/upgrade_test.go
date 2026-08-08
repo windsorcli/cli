@@ -10,11 +10,32 @@ import (
 
 	"github.com/spf13/cobra"
 	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
+	"github.com/windsorcli/cli/pkg/composer"
+	"github.com/windsorcli/cli/pkg/composer/artifact"
 	"github.com/windsorcli/cli/pkg/composer/blueprint"
 	"github.com/windsorcli/cli/pkg/constants"
+	"github.com/windsorcli/cli/pkg/project"
+	"github.com/windsorcli/cli/pkg/provisioner"
 	"github.com/windsorcli/cli/pkg/provisioner/kubernetes"
 	"github.com/windsorcli/cli/pkg/runtime/config"
 )
+
+// newApplyAllProjectWithArtifact wires the same mocks as newApplyAllProject, but with the given
+// ArtifactBuilder in place of the composer's default, so a test can spy on artifact-level calls
+// (e.g. SetForceRefreshFloatingTags) that newApplyAllProject's real ArtifactBuilder can't observe.
+func newApplyAllProjectWithArtifact(mocks *ApplyMocks, artifactBuilder artifact.Artifact) *project.Project {
+	comp := composer.NewComposer(mocks.Runtime)
+	comp.BlueprintHandler = mocks.BlueprintHandler
+	comp.ArtifactBuilder = artifactBuilder
+	return project.NewProject("", &project.Project{
+		Runtime:  mocks.Runtime,
+		Composer: comp,
+		Provisioner: provisioner.NewProvisioner(mocks.Runtime, comp.BlueprintHandler, &provisioner.Provisioner{
+			TerraformStack:    mocks.TerraformStack,
+			KubernetesManager: mocks.KubernetesManager,
+		}),
+	})
+}
 
 func TestUpgradeCmd(t *testing.T) {
 	createTestUpgradeCmd := func() *cobra.Command { return makeApplyTestCmd(upgradeCmd) }
@@ -439,6 +460,91 @@ func TestUpgradeCmd_Latest(t *testing.T) {
 		}
 		if !strings.Contains(err.Error(), "resolving latest source versions") {
 			t.Errorf("Expected a resolution error, got: %v", err)
+		}
+	})
+}
+
+func TestUpgradeCmd_Refresh(t *testing.T) {
+	createTestUpgradeCmd := func() *cobra.Command { return makeApplyTestCmd(upgradeCmd) }
+
+	suppressProcessStdout(t)
+	suppressProcessStderr(t)
+
+	upgradeYes = true
+	t.Cleanup(func() { upgradeYes = false })
+
+	t.Run("SetsForceRefreshFloatingTagsAndNoticeWhenFlagPassed", func(t *testing.T) {
+		// Given --refresh is set
+		mocks := setupApplyTest(t)
+		mockArtifact := artifact.NewMockArtifact()
+		var received bool
+		var receivedCount int
+		mockArtifact.SetForceRefreshFloatingTagsFunc = func(force bool) {
+			received = force
+			receivedCount++
+		}
+		proj := newApplyAllProjectWithArtifact(mocks, mockArtifact)
+
+		upgradeRefresh = true
+		t.Cleanup(func() { upgradeRefresh = false })
+
+		// When running upgrade
+		var out bytes.Buffer
+		cmd := createTestUpgradeCmd()
+		cmd.SetOut(&out)
+		ctx := stdcontext.WithValue(stdcontext.Background(), projectOverridesKey, proj)
+		cmd.SetContext(ctx)
+		if err := cmd.Execute(); err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+
+		// Then the artifact builder is told to force-refresh floating tags
+		if receivedCount != 1 {
+			t.Fatalf("Expected SetForceRefreshFloatingTags to be called once, got %d calls", receivedCount)
+		}
+		if !received {
+			t.Error("Expected SetForceRefreshFloatingTags to be called with true")
+		}
+
+		// And a notice is printed
+		if !strings.Contains(out.String(), "Refreshing floating-tag sources") {
+			t.Errorf("Expected a refresh notice, got: %q", out.String())
+		}
+	})
+
+	t.Run("LeavesForceRefreshFloatingTagsFalseByDefault", func(t *testing.T) {
+		// Given --refresh is not set (the default)
+		mocks := setupApplyTest(t)
+		mockArtifact := artifact.NewMockArtifact()
+		var received bool
+		var receivedCount int
+		mockArtifact.SetForceRefreshFloatingTagsFunc = func(force bool) {
+			received = force
+			receivedCount++
+		}
+		proj := newApplyAllProjectWithArtifact(mocks, mockArtifact)
+
+		// When running bare upgrade
+		var out bytes.Buffer
+		cmd := createTestUpgradeCmd()
+		cmd.SetOut(&out)
+		ctx := stdcontext.WithValue(stdcontext.Background(), projectOverridesKey, proj)
+		cmd.SetContext(ctx)
+		if err := cmd.Execute(); err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+
+		// Then the artifact builder is told NOT to force-refresh floating tags
+		if receivedCount != 1 {
+			t.Fatalf("Expected SetForceRefreshFloatingTags to be called once, got %d calls", receivedCount)
+		}
+		if received {
+			t.Error("Expected SetForceRefreshFloatingTags to be called with false")
+		}
+
+		// And no refresh notice is printed
+		if strings.Contains(out.String(), "Refreshing floating-tag sources") {
+			t.Errorf("Expected no refresh notice, got: %q", out.String())
 		}
 	})
 }

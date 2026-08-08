@@ -60,6 +60,7 @@ type Artifact interface {
 	ListTags(ociRef string) ([]string, error)
 	GetCliVersionConstraint(ociRef string) (string, error)
 	VerifyCliVersionCompatibility(ociRef string) error
+	SetForceRefreshFloatingTags(force bool)
 }
 
 // =============================================================================
@@ -127,12 +128,13 @@ type PathProcessor struct {
 
 // ArtifactBuilder implements the Artifact interface
 type ArtifactBuilder struct {
-	files       map[string]FileInfo
-	shims       *Shims
-	shell       shell.Shell
-	runtime     *runtime.Runtime
-	tarballPath string
-	metadata    BlueprintMetadataInput
+	files                    map[string]FileInfo
+	shims                    *Shims
+	shell                    shell.Shell
+	runtime                  *runtime.Runtime
+	tarballPath              string
+	metadata                 BlueprintMetadataInput
+	forceRefreshFloatingTags bool
 }
 
 // =============================================================================
@@ -477,7 +479,9 @@ func (a *ArtifactBuilder) Push(registryBase string, repoName string, tag string)
 // of cache directory paths keyed by their registry/repository:tag identifier.
 // The method provides efficient caching to avoid duplicate downloads of the same artifact.
 // It checks disk cache first, then downloads if needed, and extracts artifacts to disk cache.
-// Returns cache directory paths instead of binary data.
+// Returns cache directory paths instead of binary data. NO_CACHE bypasses the disk cache for
+// every ref; SetForceRefreshFloatingTags(true) scopes that bypass to only the refs whose tag
+// is not a valid semver (e.g. "latest"), leaving semver-pinned refs in the same call cached.
 func (a *ArtifactBuilder) Pull(ociRefs []string) (map[string]string, error) {
 	ociArtifacts := make(map[string]string)
 
@@ -509,7 +513,7 @@ func (a *ArtifactBuilder) Pull(ociRefs []string) (map[string]string, error) {
 			return nil, fmt.Errorf("failed to get cache directory: %w", err)
 		}
 
-		if noCache {
+		if noCache || (a.forceRefreshFloatingTags && IsFloatingTag(tag)) {
 			artifactsToDownload = append(artifactsToDownload, ref)
 			continue
 		}
@@ -559,6 +563,13 @@ func (a *ArtifactBuilder) Pull(ociRefs []string) (map[string]string, error) {
 	}
 
 	return ociArtifacts, nil
+}
+
+// SetForceRefreshFloatingTags controls whether Pull bypasses the disk cache for refs on a
+// floating (non-semver) tag, so a caller can force a stale floating tag like "latest" to
+// re-pull without disturbing cache behavior for semver-pinned refs.
+func (a *ArtifactBuilder) SetForceRefreshFloatingTags(force bool) {
+	a.forceRefreshFloatingTags = force
 }
 
 // Bundle traverses the project directories and collects all relevant files to be
@@ -697,6 +708,13 @@ func ParseOCIReference(ociRef string) (*OCIArtifactInfo, error) {
 		URL:  fullURL,
 		Tag:  version,
 	}, nil
+}
+
+// IsFloatingTag reports whether tag is not a valid semver reference, meaning it moves as new
+// content is published under the same tag (e.g. "latest", "main", "stable").
+func IsFloatingTag(tag string) bool {
+	_, err := semver.NewVersion(tag)
+	return err != nil
 }
 
 // ParseRegistryURL parses a registry URL string into its components.

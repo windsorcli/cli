@@ -2057,6 +2057,109 @@ func TestArtifactBuilder_Pull(t *testing.T) {
 		}
 	})
 
+	t.Run("ForceRefreshFloatingTagsBypassesCacheForFloatingTagOnly", func(t *testing.T) {
+		// Given an ArtifactBuilder with a valid disk cache for a floating-tag ref and a
+		// semver-pinned ref, and SetForceRefreshFloatingTags enabled
+		builder, mocks := setup(t)
+
+		floatingCacheDir, err := builder.GetCacheDir("registry.example.com", "my-repo", "latest")
+		if err != nil {
+			t.Fatalf("Failed to get cache dir: %v", err)
+		}
+		semverCacheDir, err := builder.GetCacheDir("registry.example.com", "my-repo", "v1.0.0")
+		if err != nil {
+			t.Fatalf("Failed to get cache dir: %v", err)
+		}
+
+		testTarData := createTestTarGz(t, map[string][]byte{
+			"metadata.yaml":       []byte("name: test\nversion: v1.0.0\n"),
+			"_template/test.yaml": []byte("test content"),
+		})
+
+		for _, dir := range []string{floatingCacheDir, semverCacheDir} {
+			if err := os.MkdirAll(dir, 0755); err != nil {
+				t.Fatalf("Failed to create cache dir: %v", err)
+			}
+			if err := os.WriteFile(filepath.Join(dir, artifactTarFilename), testTarData, 0644); err != nil {
+				t.Fatalf("Failed to write artifact.tar: %v", err)
+			}
+		}
+
+		mocks.Shims.Stat = os.Stat
+
+		downloadCount := 0
+		mocks.Shims.LayerUncompressed = func(layer v1.Layer) (io.ReadCloser, error) {
+			downloadCount++
+			return io.NopCloser(bytes.NewReader(testTarData)), nil
+		}
+
+		builder.SetForceRefreshFloatingTags(true)
+
+		// When Pull is called with both refs in the same batch
+		artifacts, err := builder.Pull([]string{
+			"oci://registry.example.com/my-repo:latest",
+			"oci://registry.example.com/my-repo:v1.0.0",
+		})
+
+		// Then no error should occur
+		if err != nil {
+			t.Errorf("expected no error, got %v", err)
+		}
+		if len(artifacts) != 2 {
+			t.Errorf("expected 2 artifacts, got %d", len(artifacts))
+		}
+
+		// And only the floating-tag ref should have been re-downloaded
+		if downloadCount != 1 {
+			t.Errorf("expected 1 download (floating tag only bypasses cache), got %d", downloadCount)
+		}
+	})
+
+	t.Run("ForceRefreshFloatingTagsDoesNothingWhenUnset", func(t *testing.T) {
+		// Given an ArtifactBuilder with a valid disk cache for a floating-tag ref and
+		// SetForceRefreshFloatingTags left at its default (false)
+		builder, mocks := setup(t)
+
+		cacheDir, err := builder.GetCacheDir("registry.example.com", "my-repo", "latest")
+		if err != nil {
+			t.Fatalf("Failed to get cache dir: %v", err)
+		}
+
+		testTarData := createTestTarGz(t, map[string][]byte{
+			"metadata.yaml":       []byte("name: test\nversion: v1.0.0\n"),
+			"_template/test.yaml": []byte("test content"),
+		})
+
+		if err := os.MkdirAll(cacheDir, 0755); err != nil {
+			t.Fatalf("Failed to create cache dir: %v", err)
+		}
+		if err := os.WriteFile(filepath.Join(cacheDir, artifactTarFilename), testTarData, 0644); err != nil {
+			t.Fatalf("Failed to write artifact.tar: %v", err)
+		}
+
+		mocks.Shims.Stat = os.Stat
+
+		downloadCount := 0
+		mocks.Shims.LayerUncompressed = func(layer v1.Layer) (io.ReadCloser, error) {
+			downloadCount++
+			return io.NopCloser(bytes.NewReader(testTarData)), nil
+		}
+
+		// When Pull is called for the floating-tag ref without enabling the force-refresh flag
+		artifacts, err := builder.Pull([]string{"oci://registry.example.com/my-repo:latest"})
+
+		// Then no error should occur and the cache should be used
+		if err != nil {
+			t.Errorf("expected no error, got %v", err)
+		}
+		if len(artifacts) != 1 {
+			t.Errorf("expected 1 artifact, got %d", len(artifacts))
+		}
+		if downloadCount != 0 {
+			t.Errorf("expected 0 downloads (cache used by default), got %d", downloadCount)
+		}
+	})
+
 	t.Run("UsesDiskCacheWhenAvailable", func(t *testing.T) {
 		builder, mocks := setup(t)
 

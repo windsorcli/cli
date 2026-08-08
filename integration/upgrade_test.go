@@ -147,6 +147,27 @@ func TestUpgrade_AcceptsYesFlag(t *testing.T) {
 	_ = err // fails without a live cluster; the flag must be accepted
 }
 
+func TestUpgrade_AcceptsRefreshFlag(t *testing.T) {
+	t.Parallel()
+	dir, env := helpers.CopyFixtureOnly(t, "plan")
+	helpers.MarkAsGitRepo(t, dir)
+	if _, stderr, err := helpers.RunCLI(dir, []string{"init", "local"}, env); err != nil {
+		t.Fatalf("init local: %v\nstderr: %s", err, stderr)
+	}
+	env = append(env, "WINDSOR_CONTEXT=local")
+
+	// --refresh must be a recognised flag that prints the bypass notice before reconciling
+	// (which then fails without a live cluster, same as --yes alone).
+	stdout, stderr, err := helpers.RunCLI(dir, []string{"upgrade", "--yes", "--refresh"}, env)
+	if strings.Contains(string(stderr), "unknown flag") {
+		t.Errorf("--refresh should be a recognised flag on upgrade, got: %s", stderr)
+	}
+	if !strings.Contains(string(stdout), "Refreshing floating-tag sources") {
+		t.Errorf("expected the refresh notice on stdout, got: %s", stdout)
+	}
+	_ = err // fails without a live cluster; the flag must be accepted
+}
+
 // =============================================================================
 // Integration Tests — upgrade cluster
 // =============================================================================

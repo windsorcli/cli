@@ -24,6 +24,7 @@ var (
 	upgradeSources        []string
 	upgradeYes            bool
 	upgradeAllowDowngrade bool
+	upgradeRefresh        bool
 	upgradeRebootMode     string
 
 	upgradeNodeAddr           string
@@ -36,7 +37,7 @@ var (
 var upgradeCmd = &cobra.Command{
 	Use:   "upgrade",
 	Short: "Move sources to their latest version and reconcile the blueprint.",
-	Long: `With no arguments, move every declared OCI source to its latest stable version, then reconcile: apply terraform and the Flux blueprint, wait, and prune kustomizations this context no longer declares. Use --source name=url to move named sources to specific versions instead. The whole reconcile — including the prune — is gated by --yes.
+	Long: `With no arguments, move every declared OCI source to its latest stable version, then reconcile: apply terraform and the Flux blueprint, wait, and prune kustomizations this context no longer declares. Use --source name=url to move named sources to specific versions instead. Sources already on a floating tag (e.g. :latest) are left untouched unless --refresh is set, since the on-disk cache never expires them on its own. The whole reconcile — including the prune — is gated by --yes.
 
 Use the 'cluster' or 'node' subcommand to upgrade Talos nodes instead.`,
 	Example: `# Move all sources to their latest stable version and reconcile
@@ -78,6 +79,10 @@ windsor upgrade cluster --nodes=10.0.0.5 --image=ghcr.io/siderolabs/installer:v1
 		}
 
 		proj.SetToolRequirements(tools.AllRequirements())
+		proj.Composer.ArtifactBuilder.SetForceRefreshFloatingTags(upgradeRefresh)
+		if upgradeRefresh {
+			fmt.Fprintln(cmd.OutOrStdout(), "Refreshing floating-tag sources, bypassing cache.")
+		}
 		if err := proj.Initialize(false); err != nil {
 			return err
 		}
@@ -434,6 +439,7 @@ func init() {
 	upgradeCmd.Flags().StringArrayVar(&upgradeSources, "source", nil, "Retarget a declared source to a new tagged URL (name=url); repeatable. Persisted to blueprint.yaml.")
 	upgradeCmd.Flags().BoolVar(&upgradeYes, "yes", false, "Proceed without confirmation when the upgrade would prune kustomizations.")
 	upgradeCmd.Flags().BoolVar(&upgradeAllowDowngrade, "allow-downgrade", false, "Permit moving a source to an older version. Reverts infrastructure declaratively; does NOT reverse application data.")
+	upgradeCmd.Flags().BoolVar(&upgradeRefresh, "refresh", false, "Force sources on a floating tag (e.g. :latest) to bypass the artifact cache and pull fresh. Semver-pinned sources are unaffected.")
 
 	upgradeClusterCmd.Flags().StringSliceVar(&upgradeNodes, "nodes", []string{}, "Node addresses to upgrade. Required.")
 	upgradeClusterCmd.Flags().StringVar(&upgradeImage, "image", "", "Talos image to upgrade to. Required.")
