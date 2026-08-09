@@ -185,9 +185,14 @@ const bootIDPath = "/proc/sys/kernel/random/boot_id"
 
 // CaptureNodeBootIDs reads each node's current kernel boot ID, dialing its endpoint
 // directly. A node whose boot ID can't be read (permission denied, unreachable) is
-// omitted from the result rather than failing the capture outright.
+// omitted from the result rather than failing the capture outright. If the client
+// itself can't be initialized (e.g. TALOSCONFIG unset), every node is omitted.
 func (c *TalosClusterClient) CaptureNodeBootIDs(ctx context.Context, nodeAddresses []string) map[string]string {
 	bootIDs := make(map[string]string, len(nodeAddresses))
+
+	if err := c.ensureClient(); err != nil {
+		return bootIDs
+	}
 
 	for _, nodeAddress := range nodeAddresses {
 		bootID, err := c.getNodeBootID(ctx, nodeAddress)

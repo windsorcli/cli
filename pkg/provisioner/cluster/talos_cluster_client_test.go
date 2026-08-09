@@ -715,6 +715,8 @@ func TestTalosClusterClient_CaptureNodeBootIDs(t *testing.T) {
 
 	t.Run("Success", func(t *testing.T) {
 		client := setup(t)
+		os.Setenv("TALOSCONFIG", "/tmp/talosconfig")
+		defer os.Unsetenv("TALOSCONFIG")
 		client.shims.TalosRead = func(ctx context.Context, c *talosclient.Client, path string) (io.ReadCloser, error) {
 			return io.NopCloser(strings.NewReader("abc-123")), nil
 		}
@@ -730,9 +732,21 @@ func TestTalosClusterClient_CaptureNodeBootIDs(t *testing.T) {
 
 	t.Run("UnreadableNodeOmitted", func(t *testing.T) {
 		client := setup(t)
+		os.Setenv("TALOSCONFIG", "/tmp/talosconfig")
+		defer os.Unsetenv("TALOSCONFIG")
 		client.shims.TalosRead = func(ctx context.Context, c *talosclient.Client, path string) (io.ReadCloser, error) {
 			return nil, fmt.Errorf("permission denied")
 		}
+
+		bootIDs := client.CaptureNodeBootIDs(context.Background(), []string{"10.0.0.1"})
+		if len(bootIDs) != 0 {
+			t.Errorf("Expected no boot IDs, got %v", bootIDs)
+		}
+	})
+
+	t.Run("ClientNotConfiguredOmitsAllNodes", func(t *testing.T) {
+		client := setup(t)
+		os.Unsetenv("TALOSCONFIG")
 
 		bootIDs := client.CaptureNodeBootIDs(context.Background(), []string{"10.0.0.1"})
 		if len(bootIDs) != 0 {
