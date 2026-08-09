@@ -338,6 +338,7 @@ func (s *TerraformStack) Up(blueprint *blueprintv1alpha1.Blueprint, onApply ...f
 			}
 
 			applyArgs := []string{fmt.Sprintf("-chdir=%s", component.FullPath), "apply"}
+			applyArgs = append(applyArgs, noColorArgs()...)
 			applyArgs = append(applyArgs, terraformArgs.ApplyArgs...)
 			applyEnv := selectTerraformCommandEnv(terraformVars, false, scopedKeys)
 			if _, err = s.runtime.Shell.ExecProgressWithEnv(fmt.Sprintf("Applying Terraform changes in %s", component.Path), terraformCommand, applyEnv, applyArgs...); err != nil {
@@ -693,6 +694,7 @@ func (s *TerraformStack) DestroyAll(blueprint *blueprintv1alpha1.Blueprint, cont
 				destroyRefreshFlag = "-refresh=true"
 			}
 			destroyArgs := []string{fmt.Sprintf("-chdir=%s", component.FullPath), "destroy", destroyRefreshFlag}
+			destroyArgs = append(destroyArgs, noColorArgs()...)
 			destroyArgs = append(destroyArgs, terraformArgs.DestroyArgs...)
 			destroyEnv := selectTerraformCommandEnv(terraformVars, true, scopedKeys)
 			output, err := s.runtime.Shell.ExecSilentWithEnvAndTimeout(terraformCommand, destroyEnv, destroyArgs, constants.DefaultTerraformDestroyTimeout)
@@ -848,6 +850,7 @@ func (s *TerraformStack) Apply(blueprint *blueprintv1alpha1.Blueprint, component
 		}
 
 		applyArgs := []string{fmt.Sprintf("-chdir=%s", component.FullPath), "apply"}
+		applyArgs = append(applyArgs, noColorArgs()...)
 		applyArgs = append(applyArgs, terraformArgs.ApplyArgs...)
 		applyEnv := selectTerraformCommandEnv(terraformVars, false, scopedKeys)
 		if _, err := s.runtime.Shell.ExecProgressWithEnv(fmt.Sprintf("Applying Terraform changes in %s", component.Path), terraformCommand, applyEnv, applyArgs...); err != nil {
@@ -926,6 +929,7 @@ func (s *TerraformStack) Destroy(blueprint *blueprintv1alpha1.Blueprint, compone
 			destroyRefreshFlag = "-refresh=true"
 		}
 		destroyArgs := []string{fmt.Sprintf("-chdir=%s", component.FullPath), "destroy", destroyRefreshFlag}
+		destroyArgs = append(destroyArgs, noColorArgs()...)
 		destroyArgs = append(destroyArgs, terraformArgs.DestroyArgs...)
 		destroyEnv := selectTerraformCommandEnv(terraformVars, true, scopedKeys)
 
@@ -1579,6 +1583,7 @@ func (s *TerraformStack) runTerraformInit(component *blueprintv1alpha1.Terraform
 	terraformCommand := s.runtime.ToolsManager.GetTerraformCommand()
 	initArgs := []string{fmt.Sprintf("-chdir=%s", component.FullPath), "init"}
 	initArgs = append(initArgs, extraFlags...)
+	initArgs = append(initArgs, noColorArgs()...)
 	initArgs = append(initArgs, terraformArgs.InitArgs...)
 	initEnv := selectTerraformCommandEnv(terraformVars, false, scopedKeys)
 	_, err := s.runtime.Shell.ExecSilentWithEnv(terraformCommand, initEnv, initArgs...)
@@ -1727,6 +1732,20 @@ func staleProviderLockHint(component *blueprintv1alpha1.TerraformComponent) stri
 		return fmt.Sprintf("the local terraform cache for this component is stale (its module source changed since the last local init); remove %s and re-run to pick up the new provider constraint", component.FullPath)
 	}
 	return fmt.Sprintf("the .terraform.lock.hcl in %s may be pinned to a provider version outside the current constraint; run `terraform init -upgrade` there (or remove the lock file if it isn't intentionally version-controlled) and retry", component.FullPath)
+}
+
+// noColorArgs returns []string{"-no-color"} when NO_COLOR is present (its mere
+// presence, any value including empty, opts out per the spec — see
+// awsprofile.shouldColorize for the same convention), honoring the convention
+// windsor's own TUI output already follows (see tuiplan.Summary callers).
+// Terraform's own TTY auto-detection doesn't reliably disable color under
+// piped subprocess capture, so apply/destroy/init need this passed explicitly
+// to keep raw ANSI codes out of logs and CI artifacts.
+func noColorArgs() []string {
+	if _, present := os.LookupEnv("NO_COLOR"); present {
+		return []string{"-no-color"}
+	}
+	return nil
 }
 
 // parseTerraformPlanJSON parses the line-delimited JSON event stream emitted by

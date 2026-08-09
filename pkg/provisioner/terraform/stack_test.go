@@ -415,6 +415,69 @@ func TestStack_Up(t *testing.T) {
 		}
 	})
 
+	t.Run("PassesNoColorToInitAndApplyWhenNoColorEnvSet", func(t *testing.T) {
+		stack, mocks := setup(t)
+		t.Setenv("NO_COLOR", "1")
+		var initArgs, applyArgs []string
+		mocks.Shell.ExecSilentWithEnvFunc = func(command string, env map[string]string, args ...string) (string, error) {
+			if command == "terraform" && len(args) > 1 && args[1] == "init" {
+				initArgs = args
+			}
+			if command == "terraform" && len(args) >= 3 && args[1] == "show" && args[2] == "-json" {
+				return `{"values":{"root_module":{"resources":[]}}}`, nil
+			}
+			return "", nil
+		}
+		mocks.Shell.ExecProgressWithEnvFunc = func(message string, command string, env map[string]string, args ...string) (string, error) {
+			if command == "terraform" && len(args) > 1 && args[1] == "apply" {
+				applyArgs = args
+			}
+			return "", nil
+		}
+
+		blueprint := createTestBlueprint()
+		if _, err := stack.Up(blueprint); err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		if !slices.Contains(initArgs, "-no-color") {
+			t.Errorf("Expected init args to contain -no-color, got %v", initArgs)
+		}
+		if !slices.Contains(applyArgs, "-no-color") {
+			t.Errorf("Expected apply args to contain -no-color, got %v", applyArgs)
+		}
+	})
+
+	t.Run("OmitsNoColorFromInitAndApplyByDefault", func(t *testing.T) {
+		stack, mocks := setup(t)
+		var initArgs, applyArgs []string
+		mocks.Shell.ExecSilentWithEnvFunc = func(command string, env map[string]string, args ...string) (string, error) {
+			if command == "terraform" && len(args) > 1 && args[1] == "init" {
+				initArgs = args
+			}
+			if command == "terraform" && len(args) >= 3 && args[1] == "show" && args[2] == "-json" {
+				return `{"values":{"root_module":{"resources":[]}}}`, nil
+			}
+			return "", nil
+		}
+		mocks.Shell.ExecProgressWithEnvFunc = func(message string, command string, env map[string]string, args ...string) (string, error) {
+			if command == "terraform" && len(args) > 1 && args[1] == "apply" {
+				applyArgs = args
+			}
+			return "", nil
+		}
+
+		blueprint := createTestBlueprint()
+		if _, err := stack.Up(blueprint); err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		if slices.Contains(initArgs, "-no-color") {
+			t.Errorf("Expected init args to omit -no-color, got %v", initArgs)
+		}
+		if slices.Contains(applyArgs, "-no-color") {
+			t.Errorf("Expected apply args to omit -no-color, got %v", applyArgs)
+		}
+	})
+
 	t.Run("NilBlueprint", func(t *testing.T) {
 		stack, _ := setup(t)
 		_, err := stack.Up(nil)
@@ -3122,6 +3185,41 @@ func TestStack_Destroy(t *testing.T) {
 		}
 	})
 
+	t.Run("PassesNoColorWhenNoColorEnvSet", func(t *testing.T) {
+		stack, mocks := setup(t)
+		t.Setenv("NO_COLOR", "1")
+		var destroyArgs []string
+		mocks.Shell.ExecSilentWithEnvAndTimeoutFunc = func(command string, env map[string]string, args []string, timeout time.Duration) (string, error) {
+			destroyArgs = args
+			return "", nil
+		}
+
+		blueprint := createTestBlueprint()
+		if _, err := stack.Destroy(blueprint, "local/path"); err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		if !slices.Contains(destroyArgs, "-no-color") {
+			t.Errorf("Expected destroy args to contain -no-color, got %v", destroyArgs)
+		}
+	})
+
+	t.Run("OmitsNoColorByDefault", func(t *testing.T) {
+		stack, mocks := setup(t)
+		var destroyArgs []string
+		mocks.Shell.ExecSilentWithEnvAndTimeoutFunc = func(command string, env map[string]string, args []string, timeout time.Duration) (string, error) {
+			destroyArgs = args
+			return "", nil
+		}
+
+		blueprint := createTestBlueprint()
+		if _, err := stack.Destroy(blueprint, "local/path"); err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		if slices.Contains(destroyArgs, "-no-color") {
+			t.Errorf("Expected destroy args to omit -no-color, got %v", destroyArgs)
+		}
+	})
+
 	t.Run("NilBlueprint", func(t *testing.T) {
 		// Given a stack with a nil blueprint
 		stack, _ := setup(t)
@@ -4018,6 +4116,28 @@ func TestIsStaleProviderLockError(t *testing.T) {
 		err := fmt.Errorf("does not match configured version constraint, but no upgrade hint here")
 		if isStaleProviderLockError(err) {
 			t.Error("Expected false when only one marker is present")
+		}
+	})
+}
+
+func TestNoColorArgs(t *testing.T) {
+	t.Run("ReturnsNoColorFlagWhenNoColorEnvSet", func(t *testing.T) {
+		t.Setenv("NO_COLOR", "1")
+		if got := noColorArgs(); !slices.Equal(got, []string{"-no-color"}) {
+			t.Errorf("Expected [-no-color], got %v", got)
+		}
+	})
+
+	t.Run("ReturnsNoColorFlagWhenNoColorEnvSetToEmptyString", func(t *testing.T) {
+		t.Setenv("NO_COLOR", "")
+		if got := noColorArgs(); !slices.Equal(got, []string{"-no-color"}) {
+			t.Errorf("Expected [-no-color], got %v", got)
+		}
+	})
+
+	t.Run("ReturnsNilByDefault", func(t *testing.T) {
+		if got := noColorArgs(); got != nil {
+			t.Errorf("Expected nil, got %v", got)
 		}
 	})
 }
