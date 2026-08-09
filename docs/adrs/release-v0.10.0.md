@@ -202,7 +202,7 @@ execution (a merge) remains:
 
 ## ADR sequence
 
-Numbers below continue from the carried-forward series above (next available is 0008). Waves are
+Numbers below continue from the carried-forward series above (next available is 0009). Waves are
 ordered; ADRs within a wave may proceed in parallel unless a dependency is noted.
 
 ### Wave 0 — North star (must land first)
@@ -319,6 +319,22 @@ first implementation step, then do the header rewrite under that net.
   cancellation and context propagation.
 - **ADR — Interactive input.** Selection menus and chat-style prompting for missing values and
   secrets, sourced through the same presenter/event contract.
+
+### Outside the waves — feature ADRs sharing the numbering sequence
+
+These are not part of the refactor charter and do not gate any wave. They share `docs/adrs/`
+numbering because the lifecycle policy below numbers sequentially per release cycle, not per
+program of work.
+
+- **[0008 — Airgap media and hydration](0008-airgap-media-and-hydration.md).** Write-once media
+  carrying the full dependency set of a blueprint, and a disconnected `windsor bootstrap` that
+  consumes it. Scoped to `platform: docker`/`incus`/`metal`; cloud platforms are explicitly
+  excluded from the no-egress claim. Builds on mechanisms already in the tree (the Renovate-derived
+  `artifact-manifest.yaml`, the workstation pull-through registries and their cache volumes, the
+  OCI disk cache) rather than new plumbing. Gated on eight named feasibility spikes, of which the
+  observed-vs-declared image delta (S6) is the one that can change the design rather than its
+  parameters. Depends on cross-repo work in `windsorcli/core` (config-derived Helm repository URLs,
+  pre-computed Talos schematic IDs) from phase 3 onward.
 
 ## Implementation sequence
 
