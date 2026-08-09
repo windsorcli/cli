@@ -4128,6 +4128,13 @@ func TestNoColorArgs(t *testing.T) {
 		}
 	})
 
+	t.Run("ReturnsNoColorFlagWhenNoColorEnvSetToEmptyString", func(t *testing.T) {
+		t.Setenv("NO_COLOR", "")
+		if got := noColorArgs(); !slices.Equal(got, []string{"-no-color"}) {
+			t.Errorf("Expected [-no-color], got %v", got)
+		}
+	})
+
 	t.Run("ReturnsNilByDefault", func(t *testing.T) {
 		if got := noColorArgs(); got != nil {
 			t.Errorf("Expected nil, got %v", got)

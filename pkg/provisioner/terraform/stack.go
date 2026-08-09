@@ -1734,13 +1734,15 @@ func staleProviderLockHint(component *blueprintv1alpha1.TerraformComponent) stri
 	return fmt.Sprintf("the .terraform.lock.hcl in %s may be pinned to a provider version outside the current constraint; run `terraform init -upgrade` there (or remove the lock file if it isn't intentionally version-controlled) and retry", component.FullPath)
 }
 
-// noColorArgs returns []string{"-no-color"} when NO_COLOR is set, honoring the
-// convention windsor's own TUI output already follows (see tuiplan.Summary
-// callers). Terraform's own TTY auto-detection doesn't reliably disable color
-// under piped subprocess capture, so apply/destroy/init need this passed
-// explicitly to keep raw ANSI codes out of logs and CI artifacts.
+// noColorArgs returns []string{"-no-color"} when NO_COLOR is present (its mere
+// presence, any value including empty, opts out per the spec — see
+// awsprofile.shouldColorize for the same convention), honoring the convention
+// windsor's own TUI output already follows (see tuiplan.Summary callers).
+// Terraform's own TTY auto-detection doesn't reliably disable color under
+// piped subprocess capture, so apply/destroy/init need this passed explicitly
+// to keep raw ANSI codes out of logs and CI artifacts.
 func noColorArgs() []string {
-	if os.Getenv("NO_COLOR") != "" {
+	if _, present := os.LookupEnv("NO_COLOR"); present {
 		return []string{"-no-color"}
 	}
 	return nil
