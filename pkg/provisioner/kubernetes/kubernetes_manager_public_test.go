@@ -516,6 +516,50 @@ func TestBaseKubernetesManager_WaitForKustomizations(t *testing.T) {
 		}
 	})
 
+	t.Run("SurvivesPeriodicReconcileFlipOnceObservedReady", func(t *testing.T) {
+		// "a" goes Ready on its first poll, then flips back on every later poll; "b" stays Ready throughout.
+		manager := setup(t)
+		kubernetesClient := client.NewMockKubernetesClient()
+		callsForA := 0
+		readyCondition := func(status string) *unstructured.Unstructured {
+			return &unstructured.Unstructured{
+				Object: map[string]any{
+					"status": map[string]any{
+						"conditions": []any{
+							map[string]any{"type": "Ready", "status": status},
+						},
+					},
+				},
+			}
+		}
+		kubernetesClient.GetResourceFunc = func(gvr schema.GroupVersionResource, ns, name string) (*unstructured.Unstructured, error) {
+			if name == "a" {
+				callsForA++
+				if callsForA == 1 {
+					return readyCondition("True"), nil
+				}
+				return readyCondition("False"), nil
+			}
+			return readyCondition("True"), nil
+		}
+		manager.client = kubernetesClient
+
+		blueprint := &blueprintv1alpha1.Blueprint{
+			Kustomizations: []blueprintv1alpha1.Kustomization{
+				{Name: "a", Timeout: &blueprintv1alpha1.DurationString{Duration: 500 * time.Millisecond}},
+				{Name: "b", Timeout: &blueprintv1alpha1.DurationString{Duration: 500 * time.Millisecond}},
+			},
+		}
+
+		err := manager.WaitForKustomizations(context.Background(), "Waiting for kustomizations", blueprint)
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+		if callsForA != 1 {
+			t.Errorf("Expected \"a\" to be checked exactly once after becoming Ready, got %d calls", callsForA)
+		}
+	})
+
 	t.Run("NotFoundKeepsPollingUntilReady", func(t *testing.T) {
 		// Given a kustomization that isn't created yet, then becomes Ready
 		manager := setup(t)

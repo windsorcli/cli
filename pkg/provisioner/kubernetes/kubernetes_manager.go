@@ -347,6 +347,10 @@ func kustomizationReady(obj *unstructured.Unstructured) bool {
 // load-balancer failover) is tolerated and retried on the next tick, but a persistent failure
 // like broken cluster auth ends the wait immediately with the underlying error surfaced, rather
 // than silently retrying it for the full timeout budget.
+//
+// Readiness is tracked per kustomization: once observed Ready, a kustomization is dropped from
+// further polling, so a later periodic reconcile flipping it back to Reconciling doesn't reset
+// the wait.
 func (k *BaseKubernetesManager) WaitForKustomizations(ctx context.Context, message string, blueprint *blueprintv1alpha1.Blueprint) error {
 	if blueprint == nil {
 		return fmt.Errorf("blueprint not provided")
@@ -368,6 +372,7 @@ func (k *BaseKubernetesManager) WaitForKustomizations(ctx context.Context, messa
 	defer ticker.Stop()
 
 	consecutiveErrors := 0
+	readyKustomizations := make(map[string]bool, len(kustomizationNames))
 
 	for {
 		select {
@@ -378,9 +383,11 @@ func (k *BaseKubernetesManager) WaitForKustomizations(ctx context.Context, messa
 			tui.Fail()
 			return fmt.Errorf("timeout waiting for kustomizations%s", k.describeNotReadyKustomizations(kustomizationNames, k.gitopsNamespace()))
 		case <-ticker.C:
-			allReady := true
 			var tickErr error
 			for _, name := range kustomizationNames {
+				if readyKustomizations[name] {
+					continue
+				}
 				gvr := schema.GroupVersionResource{
 					Group:    "kustomize.toolkit.fluxcd.io",
 					Version:  "v1",
@@ -388,43 +395,33 @@ func (k *BaseKubernetesManager) WaitForKustomizations(ctx context.Context, messa
 				}
 				obj, err := k.client.GetResource(gvr, k.gitopsNamespace(), name)
 				if err != nil && isNotFoundError(err) {
-					allReady = false
-					break
+					continue
 				}
 				if err != nil {
-					allReady = false
 					tickErr = fmt.Errorf("error checking kustomization %s: %w", name, err)
 					break
 				}
 				var kustomizationObj map[string]any
 				if err := k.shims.FromUnstructured(obj.UnstructuredContent(), &kustomizationObj); err != nil {
-					allReady = false
-					break
+					continue
 				}
 				status, ok := kustomizationObj["status"].(map[string]any)
 				if !ok {
-					allReady = false
-					break
+					continue
 				}
 				conditions, ok := status["conditions"].([]any)
 				if !ok {
-					allReady = false
-					break
+					continue
 				}
-				ready := false
 				for _, cond := range conditions {
 					condMap, ok := cond.(map[string]any)
 					if !ok {
 						continue
 					}
 					if condMap["type"] == "Ready" && condMap["status"] == "True" {
-						ready = true
+						readyKustomizations[name] = true
 						break
 					}
-				}
-				if !ready {
-					allReady = false
-					break
 				}
 			}
 			if tickErr != nil {
@@ -436,7 +433,7 @@ func (k *BaseKubernetesManager) WaitForKustomizations(ctx context.Context, messa
 				continue
 			}
 			consecutiveErrors = 0
-			if allReady {
+			if len(readyKustomizations) == len(kustomizationNames) {
 				tui.Done()
 				return nil
 			}
