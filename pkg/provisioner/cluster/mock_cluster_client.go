@@ -18,7 +18,8 @@ import (
 type MockClusterClient struct {
 	BaseClusterClient
 	WaitForNodesHealthyFunc         func(ctx context.Context, nodeAddresses []string, expectedVersion string, skipServices []string) error
-	WaitForNodesRebootFunc          func(ctx context.Context, nodeAddresses []string, expectedVersion string, skipServices []string, offlineTimeout time.Duration) error
+	CaptureNodeBootIDsFunc          func(ctx context.Context, nodeAddresses []string) map[string]string
+	WaitForNodesRebootFunc          func(ctx context.Context, nodeAddresses []string, preActionBootIDs map[string]string, expectedVersion string, skipServices []string, offlineTimeout time.Duration) error
 	UpgradeNodesFunc                func(ctx context.Context, nodeAddresses []string, image string, powercycle bool) error
 	WaitForControlPlaneAPIReadyFunc func(ctx context.Context, nodeAddress string, outputFunc func(string)) error
 	CloseFunc                       func()
@@ -45,10 +46,18 @@ func (m *MockClusterClient) WaitForNodesHealthy(ctx context.Context, nodeAddress
 	return nil
 }
 
+// CaptureNodeBootIDs calls the mock CaptureNodeBootIDsFunc if set, otherwise returns nil
+func (m *MockClusterClient) CaptureNodeBootIDs(ctx context.Context, nodeAddresses []string) map[string]string {
+	if m.CaptureNodeBootIDsFunc != nil {
+		return m.CaptureNodeBootIDsFunc(ctx, nodeAddresses)
+	}
+	return nil
+}
+
 // WaitForNodesReboot calls the mock WaitForNodesRebootFunc if set, otherwise returns nil
-func (m *MockClusterClient) WaitForNodesReboot(ctx context.Context, nodeAddresses []string, expectedVersion string, skipServices []string, offlineTimeout time.Duration) error {
+func (m *MockClusterClient) WaitForNodesReboot(ctx context.Context, nodeAddresses []string, preActionBootIDs map[string]string, expectedVersion string, skipServices []string, offlineTimeout time.Duration) error {
 	if m.WaitForNodesRebootFunc != nil {
-		return m.WaitForNodesRebootFunc(ctx, nodeAddresses, expectedVersion, skipServices, offlineTimeout)
+		return m.WaitForNodesRebootFunc(ctx, nodeAddresses, preActionBootIDs, expectedVersion, skipServices, offlineTimeout)
 	}
 	return nil
 }

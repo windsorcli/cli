@@ -20,10 +20,18 @@ type ClusterClient interface {
 	// skipServices is a list of service names to ignore during health checks
 	WaitForNodesHealthy(ctx context.Context, nodeAddresses []string, expectedVersion string, skipServices []string) error
 
-	// WaitForNodesReboot waits for nodes to go offline (reboot started) then come back healthy.
-	// Phase 1 polls the Talos version endpoint until all nodes are unreachable (offlineTimeout caps this phase).
-	// Phase 2 polls until all nodes are healthy again within the remaining context deadline.
-	WaitForNodesReboot(ctx context.Context, nodeAddresses []string, expectedVersion string, skipServices []string, offlineTimeout time.Duration) error
+	// CaptureNodeBootIDs reads each node's current kernel boot ID, for later comparison
+	// by WaitForNodesReboot. A node whose boot ID can't be read (e.g. permission denied,
+	// unreachable) is simply omitted from the result; WaitForNodesReboot skips the
+	// per-node check for any node missing from preActionBootIDs.
+	CaptureNodeBootIDs(ctx context.Context, nodeAddresses []string) map[string]string
+
+	// WaitForNodesReboot waits for nodes to reboot (confirmed by each node's kernel boot ID
+	// changing from preActionBootIDs) then come back healthy. Phase 1 polls each node's
+	// boot ID until it differs from before or offlineTimeout elapses; a node missing from
+	// preActionBootIDs is treated as already satisfied. Phase 2 polls until all nodes are
+	// healthy again within the remaining context deadline.
+	WaitForNodesReboot(ctx context.Context, nodeAddresses []string, preActionBootIDs map[string]string, expectedVersion string, skipServices []string, offlineTimeout time.Duration) error
 
 	// UpgradeNodes upgrades the specified nodes to the specified image. powercycle requests
 	// a full ACPI reboot instead of the default kexec.
@@ -75,8 +83,14 @@ func (c *BaseClusterClient) WaitForNodesHealthy(ctx context.Context, nodeAddress
 	return fmt.Errorf("WaitForNodesHealthy not implemented")
 }
 
+// CaptureNodeBootIDs is a stub that returns an empty map.
+// Provider-specific implementations should override this.
+func (c *BaseClusterClient) CaptureNodeBootIDs(ctx context.Context, nodeAddresses []string) map[string]string {
+	return nil
+}
+
 // WaitForNodesReboot implements the default reboot-wait behavior
-func (c *BaseClusterClient) WaitForNodesReboot(ctx context.Context, nodeAddresses []string, expectedVersion string, skipServices []string, offlineTimeout time.Duration) error {
+func (c *BaseClusterClient) WaitForNodesReboot(ctx context.Context, nodeAddresses []string, preActionBootIDs map[string]string, expectedVersion string, skipServices []string, offlineTimeout time.Duration) error {
 	return fmt.Errorf("WaitForNodesReboot not implemented")
 }
 

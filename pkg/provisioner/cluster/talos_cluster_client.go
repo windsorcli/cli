@@ -8,6 +8,7 @@ package cluster
 import (
 	"context"
 	"fmt"
+	"io"
 	"net"
 	"os"
 	"strings"
@@ -178,13 +179,66 @@ func (c *TalosClusterClient) UpgradeNodes(ctx context.Context, nodeAddresses []s
 	return nil
 }
 
-// WaitForNodesReboot waits for nodes to go offline (reboot started) then come back online healthy.
-// Phase 1 polls the Talos version endpoint per node until all nodes are unreachable, confirming
-// the reboot has begun. offlineTimeout caps phase 1; zero uses the context deadline. Phase 2
-// re-initializes the client and delegates to WaitForNodesHealthy to wait for all nodes to return
-// to a healthy state within the remaining context deadline. Returns an error if either phase
-// times out or if the client cannot be initialized.
-func (c *TalosClusterClient) WaitForNodesReboot(ctx context.Context, nodeAddresses []string, expectedVersion string, skipServices []string, offlineTimeout time.Duration) error {
+// bootIDPath is the standard Linux kernel pseudo-file exposing a unique ID
+// generated fresh on every boot, used to confirm a genuine reboot occurred.
+const bootIDPath = "/proc/sys/kernel/random/boot_id"
+
+// CaptureNodeBootIDs reads each node's current kernel boot ID, dialing its endpoint
+// directly. A node whose boot ID can't be read (permission denied, unreachable) is
+// omitted from the result rather than failing the capture outright. If the client
+// itself can't be initialized (e.g. TALOSCONFIG unset), every node is omitted.
+func (c *TalosClusterClient) CaptureNodeBootIDs(ctx context.Context, nodeAddresses []string) map[string]string {
+	bootIDs := make(map[string]string, len(nodeAddresses))
+
+	if err := c.ensureClient(); err != nil {
+		return bootIDs
+	}
+
+	for _, nodeAddress := range nodeAddresses {
+		bootID, err := c.getNodeBootID(ctx, nodeAddress)
+		if err != nil {
+			continue
+		}
+
+		bootIDs[nodeAddress] = bootID
+	}
+
+	return bootIDs
+}
+
+// getNodeBootID reads a single node's kernel boot ID, dialing its endpoint directly.
+func (c *TalosClusterClient) getNodeBootID(ctx context.Context, nodeAddress string) (string, error) {
+	nodeClient, err := c.shims.TalosNewClient(ctx, client.WithConfig(c.config), client.WithEndpoints(nodeAddress))
+	if err != nil {
+		return "", err
+	}
+	defer c.shims.TalosClose(nodeClient)
+
+	reader, err := c.shims.TalosRead(ctx, nodeClient, bootIDPath)
+	if err != nil {
+		return "", err
+	}
+	defer reader.Close() //nolint:errcheck
+
+	body, err := io.ReadAll(reader)
+	if err != nil {
+		return "", err
+	}
+
+	return strings.TrimSpace(string(body)), nil
+}
+
+// WaitForNodesReboot waits for nodes to reboot then come back online healthy. Phase 1
+// polls each node's kernel boot ID until it differs from preActionBootIDs, confirming a
+// genuine reboot occurred; unlike watching for the node to become unreachable, this
+// can't miss a reboot that completes between polls, and isn't fooled by transient
+// connectivity blips that were never a real reboot. A node missing from
+// preActionBootIDs (its boot ID couldn't be captured beforehand) is treated as already
+// satisfied. offlineTimeout caps phase 1; zero uses the context deadline. Phase 2
+// re-initializes the client and delegates to WaitForNodesHealthy to wait for all nodes
+// to return to a healthy state within the remaining context deadline. Returns an error
+// if either phase times out or if the client cannot be initialized.
+func (c *TalosClusterClient) WaitForNodesReboot(ctx context.Context, nodeAddresses []string, preActionBootIDs map[string]string, expectedVersion string, skipServices []string, offlineTimeout time.Duration) error {
 	if err := c.ensureClient(); err != nil {
 		return fmt.Errorf("failed to initialize Talos client: %w", err)
 	}
@@ -197,47 +251,54 @@ func (c *TalosClusterClient) WaitForNodesReboot(ctx context.Context, nodeAddress
 		defer cancel()
 	}
 
-	// Phase 1: poll the version endpoint until all nodes stop responding.
+	// Phase 1: poll each node's boot ID until it differs from before the upgrade.
 	// Use offlineTimeout as a sub-deadline so we don't burn the full timeout waiting.
-	offlineDeadline := overallDeadline
+	rebootDeadline := overallDeadline
 	if offlineTimeout > 0 {
 		candidate := time.Now().Add(offlineTimeout)
-		if candidate.Before(offlineDeadline) {
-			offlineDeadline = candidate
+		if candidate.Before(rebootDeadline) {
+			rebootDeadline = candidate
 		}
 	}
 
-	fmt.Printf("Waiting for nodes to go offline...\n")
-	offlineDetected := false
-	for !offlineDetected && time.Now().Before(offlineDeadline) {
+	fmt.Printf("Waiting for nodes to reboot...\n")
+	rebootConfirmed := false
+	for !rebootConfirmed && time.Now().Before(rebootDeadline) {
 		select {
 		case <-ctx.Done():
-			return fmt.Errorf("timeout waiting for nodes to go offline")
+			return fmt.Errorf("timeout waiting for nodes to reboot")
 		default:
 		}
 
-		allOffline := true
+		allRebooted := true
 		for _, nodeAddress := range nodeAddresses {
-			_, err := c.getNodeVersion(ctx, nodeAddress)
-			if err == nil {
-				fmt.Printf("Node %s: ONLINE (waiting for reboot)\n", nodeAddress)
-				allOffline = false
-			} else {
-				fmt.Printf("Node %s: OFFLINE\n", nodeAddress)
+			preBootID, tracked := preActionBootIDs[nodeAddress]
+			if !tracked {
+				continue
 			}
+
+			currentBootID, err := c.getNodeBootID(ctx, nodeAddress)
+			if err != nil || currentBootID == preBootID {
+				fmt.Printf("Node %s: waiting for reboot\n", nodeAddress)
+				allRebooted = false
+				continue
+			}
+
+			fmt.Printf("Node %s: rebooted\n", nodeAddress)
 		}
-		if allOffline {
-			offlineDetected = true
+
+		if allRebooted {
+			rebootConfirmed = true
 		} else {
 			time.Sleep(c.healthCheckPollInterval)
 		}
 	}
 
-	if !offlineDetected {
-		return fmt.Errorf("timeout waiting for nodes to go offline")
+	if !rebootConfirmed {
+		return fmt.Errorf("timeout waiting for nodes to reboot")
 	}
 
-	fmt.Printf("All nodes offline, waiting for reboot to complete...\n")
+	fmt.Printf("All nodes rebooted, waiting for reboot to complete...\n")
 
 	// Phase 2: reset client and wait for nodes to come back healthy.
 	c.Close()
@@ -444,16 +505,17 @@ func (c *TalosClusterClient) isControlPlaneNode(ctx context.Context, nodeAddress
 	return false, nil
 }
 
-// getNodeVersion gets the version of a single node.
-// It creates a node-specific context targeting the given node address, then calls
-// the Talos Version API to retrieve version information from that node. The method
-// extracts the version tag from the API response and removes any leading 'v' prefix
-// to return a clean version string. Returns an error if the API call fails or if
-// the response format is unexpected.
+// getNodeVersion gets the version of a single node, dialing its endpoint directly
+// rather than proxying through the shared client, so an unreachable node fails
+// promptly instead of the proxy masking it. Returns an error if the API call fails.
 func (c *TalosClusterClient) getNodeVersion(ctx context.Context, nodeAddress string) (string, error) {
-	nodeCtx := c.shims.TalosWithNodes(ctx, nodeAddress)
+	nodeClient, err := c.shims.TalosNewClient(ctx, client.WithConfig(c.config), client.WithEndpoints(nodeAddress))
+	if err != nil {
+		return "", err
+	}
+	defer c.shims.TalosClose(nodeClient)
 
-	version, err := c.shims.TalosVersion(nodeCtx, c.client)
+	version, err := c.shims.TalosVersion(ctx, nodeClient)
 	if err != nil {
 		return "", err
 	}

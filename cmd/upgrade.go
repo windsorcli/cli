@@ -214,7 +214,7 @@ windsor upgrade node --node=10.0.0.5 --image=ghcr.io/siderolabs/installer:v1.13.
 # Same with a longer overall timeout for slow rebooters
 windsor upgrade node --node=10.0.0.5 --image=ghcr.io/siderolabs/installer:v1.13.0 --timeout=20m
 
-# Nested-virtualized platforms can take longer than 3m to go offline after the upgrade request
+# Nested-virtualized platforms can take longer than 3m to confirm the reboot
 windsor upgrade node --node=10.0.0.5 --image=ghcr.io/siderolabs/installer:v1.13.0 --offline-timeout=8m
 
 # Some platforms don't reliably register kexec as an offline transition; powercycle is slower but more reliable
@@ -444,7 +444,7 @@ func init() {
 	upgradeNodeCmd.Flags().StringVar(&upgradeNodeAddr, "node", "", "Node IP address to upgrade. Required.")
 	upgradeNodeCmd.Flags().StringVar(&upgradeNodeImage, "image", "", "Talos image to upgrade to. Required.")
 	upgradeNodeCmd.Flags().DurationVar(&upgradeNodeTimeout, "timeout", 0, "Overall timeout for the whole upgrade, including the offline wait (see --offline-timeout). Default 10m.")
-	upgradeNodeCmd.Flags().DurationVar(&upgradeNodeOfflineTimeout, "offline-timeout", 0, "Timeout for the node to go offline after the upgrade request, before it's assumed rebooting. Raise this on slow-rebooting or nested-virtualized platforms. Default 3m.")
+	upgradeNodeCmd.Flags().DurationVar(&upgradeNodeOfflineTimeout, "offline-timeout", 0, "Timeout for the node to confirm it rebooted (kernel boot ID changed) after the upgrade request. Raise this on slow-rebooting or nested-virtualized platforms. Default 3m.")
 	upgradeNodeCmd.Flags().StringVar(&upgradeNodeRebootMode, "reboot-mode", "default", "Reboot mode: \"default\" (kexec, fast) or \"powercycle\" (full ACPI reset). Use powercycle on platforms where kexec doesn't reliably register as offline (e.g. nested virtualization).")
 	_ = upgradeNodeCmd.MarkFlagRequired("node")
 	_ = upgradeNodeCmd.MarkFlagRequired("image")
