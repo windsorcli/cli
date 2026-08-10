@@ -3345,6 +3345,164 @@ func TestKustomization_Decryption_DeepCopyAndMerge(t *testing.T) {
 	})
 }
 
+func TestKustomization_HealthCheckExprs(t *testing.T) {
+	cnpgReady := HealthCheckExpr{
+		APIVersion: "postgresql.cnpg.io/v1",
+		Kind:       "Cluster",
+		Current:    "status.conditions.exists(e, e.type == 'Ready' && e.status == 'True')",
+	}
+
+	t.Run("UnmarshalsCamelCaseKeys", func(t *testing.T) {
+		// Given a kustomization authored with healthCheckExprs
+		yamlData := []byte(`name: identity-resources-database
+healthCheckExprs:
+  - apiVersion: postgresql.cnpg.io/v1
+    kind: Cluster
+    current: status.conditions.exists(e, e.type == 'Ready' && e.status == 'True')
+    inProgress: status.conditions.exists(e, e.type == 'Initialized')
+    failed: status.conditions.exists(e, e.type == 'Failed')
+`)
+
+		// When unmarshaled
+		var k Kustomization
+		if err := yaml.Unmarshal(yamlData, &k); err != nil {
+			t.Fatalf("Failed to unmarshal Kustomization with healthCheckExprs: %v", err)
+		}
+
+		// Then every camelCase key lands on its field
+		if len(k.HealthCheckExprs) != 1 {
+			t.Fatalf("Expected 1 health check expression, got %d", len(k.HealthCheckExprs))
+		}
+		expr := k.HealthCheckExprs[0]
+		if expr.APIVersion != "postgresql.cnpg.io/v1" {
+			t.Errorf("Expected APIVersion 'postgresql.cnpg.io/v1', got %q", expr.APIVersion)
+		}
+		if expr.Kind != "Cluster" {
+			t.Errorf("Expected Kind 'Cluster', got %q", expr.Kind)
+		}
+		if expr.Current != "status.conditions.exists(e, e.type == 'Ready' && e.status == 'True')" {
+			t.Errorf("Expected Current CEL expression, got %q", expr.Current)
+		}
+		if expr.InProgress != "status.conditions.exists(e, e.type == 'Initialized')" {
+			t.Errorf("Expected InProgress CEL expression, got %q", expr.InProgress)
+		}
+		if expr.Failed != "status.conditions.exists(e, e.type == 'Failed')" {
+			t.Errorf("Expected Failed CEL expression, got %q", expr.Failed)
+		}
+	})
+
+	t.Run("ConvertsToFluxHealthCheckExprs", func(t *testing.T) {
+		// Given a waiting kustomization with a CNPG health check
+		wait := true
+		kustomization := &Kustomization{
+			Name:             "identity-resources-database",
+			Wait:             &wait,
+			HealthCheckExprs: []HealthCheckExpr{cnpgReady},
+		}
+
+		// When converted to a Flux Kustomization
+		result := kustomization.ToFluxKustomization("system-gitops", "core", []Source{}, constants.GitopsModePull)
+
+		// Then the expression is carried onto spec.healthCheckExprs
+		if len(result.Spec.HealthCheckExprs) != 1 {
+			t.Fatalf("Expected 1 health check expression on the Flux spec, got %d", len(result.Spec.HealthCheckExprs))
+		}
+		got := result.Spec.HealthCheckExprs[0]
+		if got.APIVersion != cnpgReady.APIVersion || got.Kind != cnpgReady.Kind {
+			t.Errorf("Expected %s/%s under evaluation, got %s/%s", cnpgReady.APIVersion, cnpgReady.Kind, got.APIVersion, got.Kind)
+		}
+		if got.Current != cnpgReady.Current {
+			t.Errorf("Expected Current %q, got %q", cnpgReady.Current, got.Current)
+		}
+	})
+
+	t.Run("OmitsFluxHealthCheckExprsWhenUnset", func(t *testing.T) {
+		// Given a kustomization with no health check expressions
+		kustomization := &Kustomization{Name: "policy"}
+
+		// When converted to a Flux Kustomization
+		result := kustomization.ToFluxKustomization("system-gitops", "core", []Source{}, constants.GitopsModePull)
+
+		// Then spec.healthCheckExprs stays nil so it is omitted from the rendered output
+		if result.Spec.HealthCheckExprs != nil {
+			t.Errorf("Expected nil HealthCheckExprs, got %+v", result.Spec.HealthCheckExprs)
+		}
+	})
+
+	t.Run("DeepCopyIndependentOfOriginal", func(t *testing.T) {
+		// Given a kustomization with a health check expression
+		original := &Kustomization{Name: "k", HealthCheckExprs: []HealthCheckExpr{cnpgReady}}
+
+		// When deep-copied and the copy mutated
+		clone := original.DeepCopy()
+		clone.HealthCheckExprs[0].Current = "false"
+
+		// Then the original is unchanged
+		if original.HealthCheckExprs[0].Current != cnpgReady.Current {
+			t.Errorf("Expected original unchanged, got %q", original.HealthCheckExprs[0].Current)
+		}
+	})
+
+	t.Run("OverlayReplacesMatchingApiVersionAndKind", func(t *testing.T) {
+		// Given a base and an overlay gating the same resource kind
+		base := Kustomization{Name: "k", HealthCheckExprs: []HealthCheckExpr{cnpgReady}}
+		overlay := Kustomization{Name: "k", HealthCheckExprs: []HealthCheckExpr{{
+			APIVersion: "postgresql.cnpg.io/v1",
+			Kind:       "Cluster",
+			Current:    "status.conditions.exists(e, e.type == 'ConsistentSystemID')",
+		}}}
+
+		// When merged
+		merged := MergeKustomizationFields(base, overlay)
+
+		// Then the overlay expression replaces the base one rather than duplicating it
+		if len(merged.HealthCheckExprs) != 1 {
+			t.Fatalf("Expected 1 health check expression, got %d", len(merged.HealthCheckExprs))
+		}
+		if merged.HealthCheckExprs[0].Current != "status.conditions.exists(e, e.type == 'ConsistentSystemID')" {
+			t.Errorf("Expected overlay expression to win, got %q", merged.HealthCheckExprs[0].Current)
+		}
+	})
+
+	t.Run("OverlayAppendsUnmatchedKindAndLeavesBaseIntact", func(t *testing.T) {
+		// Given a base gating one kind and an overlay gating another
+		base := Kustomization{Name: "k", HealthCheckExprs: []HealthCheckExpr{cnpgReady}}
+		overlay := Kustomization{Name: "k", HealthCheckExprs: []HealthCheckExpr{{
+			APIVersion: "helm.toolkit.fluxcd.io/v2",
+			Kind:       "HelmRelease",
+			Current:    "status.conditions.exists(e, e.type == 'Ready' && e.status == 'True')",
+		}}}
+
+		// When merged
+		merged := MergeKustomizationFields(base, overlay)
+
+		// Then both gates survive and the base slice is not mutated
+		if len(merged.HealthCheckExprs) != 2 {
+			t.Fatalf("Expected 2 health check expressions, got %d", len(merged.HealthCheckExprs))
+		}
+		if merged.HealthCheckExprs[0].Kind != "Cluster" || merged.HealthCheckExprs[1].Kind != "HelmRelease" {
+			t.Errorf("Expected Cluster then HelmRelease, got %s then %s", merged.HealthCheckExprs[0].Kind, merged.HealthCheckExprs[1].Kind)
+		}
+		if len(base.HealthCheckExprs) != 1 {
+			t.Errorf("Expected base left intact, got %d expressions", len(base.HealthCheckExprs))
+		}
+	})
+
+	t.Run("EmptyOverlayLeavesBaseExpressions", func(t *testing.T) {
+		// Given a base with a health check and an overlay without one
+		base := Kustomization{Name: "k", HealthCheckExprs: []HealthCheckExpr{cnpgReady}}
+		overlay := Kustomization{Name: "k"}
+
+		// When merged
+		merged := MergeKustomizationFields(base, overlay)
+
+		// Then the base expression survives
+		if len(merged.HealthCheckExprs) != 1 || merged.HealthCheckExprs[0].Current != cnpgReady.Current {
+			t.Errorf("Expected base expression preserved, got %+v", merged.HealthCheckExprs)
+		}
+	})
+}
+
 func TestTerraformComponent_DeepCopy(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
 		component := &TerraformComponent{

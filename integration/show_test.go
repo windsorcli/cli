@@ -184,6 +184,59 @@ func TestShowKustomization_RendersDecryptionThroughFacetMerge(t *testing.T) {
 	}
 }
 
+func TestShowKustomization_RendersHealthCheckExprsAccumulatedAcrossFacets(t *testing.T) {
+	t.Parallel()
+	dir, env := helpers.PrepareFixture(t, "facet-tiers")
+	env = append(env, "WINDSOR_CONTEXT=default")
+	// pki.yaml gates cert-manager's install tier on Issuer and addon-cert-manager-extra.yaml adds a
+	// ClusterIssuer gate to the same tier, so both rendering on spec.healthCheckExprs proves the
+	// field survives cross-facet merge and reaches the Flux CR.
+	stdout, stderr, err := helpers.RunCLI(dir, []string{"show", "kustomization", "cert-manager-install"}, env)
+	if err != nil {
+		t.Fatalf("show kustomization cert-manager-install: %v\nstderr: %s", err, stderr)
+	}
+	var k struct {
+		Spec struct {
+			HealthCheckExprs []struct {
+				APIVersion string `yaml:"apiVersion"`
+				Kind       string `yaml:"kind"`
+				Current    string `yaml:"current"`
+			} `yaml:"healthCheckExprs"`
+		} `yaml:"spec"`
+	}
+	if err := yaml.Unmarshal(stdout, &k); err != nil {
+		t.Fatalf("parse kustomization YAML: %v\nstdout: %s", err, stdout)
+	}
+	if len(k.Spec.HealthCheckExprs) != 2 {
+		t.Fatalf("expected 2 health check expressions, got %d\nstdout: %s", len(k.Spec.HealthCheckExprs), stdout)
+	}
+	kinds := []string{k.Spec.HealthCheckExprs[0].Kind, k.Spec.HealthCheckExprs[1].Kind}
+	if !slices.Contains(kinds, "Issuer") || !slices.Contains(kinds, "ClusterIssuer") {
+		t.Errorf("expected Issuer and ClusterIssuer gates, got %v", kinds)
+	}
+	for _, expr := range k.Spec.HealthCheckExprs {
+		if expr.APIVersion != "cert-manager.io/v1" {
+			t.Errorf("expected apiVersion cert-manager.io/v1, got %q", expr.APIVersion)
+		}
+		if expr.Current != "status.conditions.exists(e, e.type == 'Ready' && e.status == 'True')" {
+			t.Errorf("expected Ready CEL expression for %s, got %q", expr.Kind, expr.Current)
+		}
+	}
+}
+
+func TestShowKustomization_OmitsHealthCheckExprsWhenUnset(t *testing.T) {
+	t.Parallel()
+	dir, env := helpers.PrepareFixture(t, "facet-tiers")
+	env = append(env, "WINDSOR_CONTEXT=default")
+	stdout, stderr, err := helpers.RunCLI(dir, []string{"show", "kustomization", "dns"}, env)
+	if err != nil {
+		t.Fatalf("show kustomization dns: %v\nstderr: %s", err, stderr)
+	}
+	if strings.Contains(string(stdout), "healthCheckExprs") {
+		t.Errorf("expected no healthCheckExprs on a kustomization that declares none, got:\n%s", stdout)
+	}
+}
+
 func TestShowKustomization_PathDefaultsToNameWhenUnset(t *testing.T) {
 	t.Parallel()
 	dir, env := helpers.PrepareFixture(t, "facet-tiers")

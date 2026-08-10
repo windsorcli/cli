@@ -348,6 +348,26 @@ func (d *Decryption) DeepCopy() *Decryption {
 	return c
 }
 
+// HealthCheckExpr evaluates the health of a custom resource with CEL, mapping to an entry in Flux's
+// spec.healthCheckExprs. It gates a waiting Kustomization on resources kstatus reports Current
+// immediately — those exposing no status.observedGeneration and no Reconciling/Stalled condition.
+type HealthCheckExpr struct {
+	// APIVersion of the custom resource under evaluation.
+	APIVersion string `yaml:"apiVersion,omitempty"`
+
+	// Kind of the custom resource under evaluation.
+	Kind string `yaml:"kind,omitempty"`
+
+	// Current is the CEL expression matching the resource's desired state.
+	Current string `yaml:"current,omitempty"`
+
+	// InProgress is the CEL expression matching a resource still converging.
+	InProgress string `yaml:"inProgress,omitempty"`
+
+	// Failed is the CEL expression matching a resource that failed to converge.
+	Failed string `yaml:"failed,omitempty"`
+}
+
 // Blueprint is a configuration blueprint for initializing a project.
 type Blueprint struct {
 	// Kind is the blueprint type, following Kubernetes conventions.
@@ -631,6 +651,9 @@ type Kustomization struct {
 
 	// Prune enables garbage collection of resources that are no longer present in the source.
 	Prune *bool `yaml:"prune,omitempty"`
+
+	// HealthCheckExprs are CEL health checks for custom resources kstatus cannot evaluate.
+	HealthCheckExprs []HealthCheckExpr `yaml:"healthCheckExprs,omitempty"`
 
 	// Components to include in the kustomization.
 	Components []string `yaml:"components,omitempty"`
@@ -1344,27 +1367,28 @@ func (k *Kustomization) DeepCopy() *Kustomization {
 	}
 
 	return &Kustomization{
-		Name:            k.Name,
-		Path:            k.Path,
-		Source:          k.Source,
-		Namespace:       k.Namespace,
-		TargetNamespace: k.TargetNamespace,
-		DependsOn:       slices.Clone(k.DependsOn),
-		Interval:        k.Interval,
-		RetryInterval:   k.RetryInterval,
-		Timeout:         k.Timeout,
-		Patches:         slices.Clone(k.Patches),
-		Wait:            k.Wait,
-		Force:           k.Force,
-		Prune:           k.Prune,
-		Components:      slices.Clone(k.Components),
-		Destroy:         k.Destroy.DeepCopy(),
-		DestroyOnly:     k.DestroyOnly,
-		Enabled:         k.Enabled.DeepCopy(),
-		Substitutions:   maps.Clone(k.Substitutions),
-		Substitute:      maps.Clone(k.Substitute),
-		Secrets:         cloneSecretData(k.Secrets),
-		Decryption:      k.Decryption.DeepCopy(),
+		Name:             k.Name,
+		Path:             k.Path,
+		Source:           k.Source,
+		Namespace:        k.Namespace,
+		TargetNamespace:  k.TargetNamespace,
+		DependsOn:        slices.Clone(k.DependsOn),
+		Interval:         k.Interval,
+		RetryInterval:    k.RetryInterval,
+		Timeout:          k.Timeout,
+		Patches:          slices.Clone(k.Patches),
+		Wait:             k.Wait,
+		Force:            k.Force,
+		Prune:            k.Prune,
+		HealthCheckExprs: slices.Clone(k.HealthCheckExprs),
+		Components:       slices.Clone(k.Components),
+		Destroy:          k.Destroy.DeepCopy(),
+		DestroyOnly:      k.DestroyOnly,
+		Enabled:          k.Enabled.DeepCopy(),
+		Substitutions:    maps.Clone(k.Substitutions),
+		Substitute:       maps.Clone(k.Substitute),
+		Secrets:          cloneSecretData(k.Secrets),
+		Decryption:       k.Decryption.DeepCopy(),
 	}
 }
 
@@ -1526,6 +1550,8 @@ func (k *Kustomization) ToFluxKustomization(namespace string, defaultSourceName 
 		})
 	}
 
+	healthCheckExprs := toFluxHealthCheckExprs(k.HealthCheckExprs)
+
 	var postBuild *kustomizev1.PostBuild
 	if !IsCrdLayerName(k.Name) {
 		if len(k.Substitutions) > 0 {
@@ -1579,20 +1605,21 @@ func (k *Kustomization) ToFluxKustomization(namespace string, defaultSourceName 
 				Name:      sourceName,
 				Namespace: sourceRefNamespace,
 			},
-			Path:            path,
-			DependsOn:       dependsOn,
-			Interval:        interval,
-			RetryInterval:   &retryInterval,
-			Timeout:         &timeout,
-			Wait:            wait,
-			Force:           force,
-			Prune:           prune,
-			DeletionPolicy:  deletionPolicy,
-			Patches:         patches,
-			Components:      k.Components,
-			PostBuild:       postBuild,
-			TargetNamespace: k.TargetNamespace,
-			Decryption:      decryption,
+			Path:             path,
+			DependsOn:        dependsOn,
+			Interval:         interval,
+			RetryInterval:    &retryInterval,
+			Timeout:          &timeout,
+			Wait:             wait,
+			Force:            force,
+			Prune:            prune,
+			HealthCheckExprs: healthCheckExprs,
+			DeletionPolicy:   deletionPolicy,
+			Patches:          patches,
+			Components:       k.Components,
+			PostBuild:        postBuild,
+			TargetNamespace:  k.TargetNamespace,
+			Decryption:       decryption,
 		},
 	}
 }
@@ -1643,6 +1670,24 @@ func subtractKustomizationFields(existing, removal Kustomization) Kustomization 
 	}
 
 	return existing
+}
+
+// toFluxHealthCheckExprs converts blueprint health check expressions to their Flux equivalents,
+// returning nil for an empty input so spec.healthCheckExprs is omitted from the rendered resource.
+func toFluxHealthCheckExprs(exprs []HealthCheckExpr) []kustomize.CustomHealthCheck {
+	var converted []kustomize.CustomHealthCheck
+	for _, expr := range exprs {
+		converted = append(converted, kustomize.CustomHealthCheck{
+			APIVersion: expr.APIVersion,
+			Kind:       expr.Kind,
+			HealthCheckExpressions: kustomize.HealthCheckExpressions{
+				Current:    expr.Current,
+				InProgress: expr.InProgress,
+				Failed:     expr.Failed,
+			},
+		})
+	}
+	return converted
 }
 
 // validateTerraformComponents validates that all terraform component IDs are unique.
@@ -1754,8 +1799,9 @@ func (b *Blueprint) strategicMergeKustomization(kustomization Kustomization) err
 
 // MergeKustomizationFields deep-merges overlay onto base and returns the result without mutating
 // either input: Components and DependsOn accumulate (deduplicated, Components sorted), Patches
-// accumulate, Substitutions copy in, and every other field is overridden by overlay when overlay
-// sets it. Callers that need
+// accumulate, Substitutions copy in, HealthCheckExprs accumulate with overlay entries replacing
+// base entries of the same apiVersion and kind, and every other field is overridden by overlay when
+// overlay sets it. Callers that need
 // by-name matching within a Blueprint's Kustomizations list use strategicMergeKustomization, which
 // calls this once a match is found; callers merging two already-matched Kustomization values
 // directly (e.g. FluxSystem tiers, which carry no Name until tier compilation) call this directly.
@@ -1764,6 +1810,7 @@ func MergeKustomizationFields(base, overlay Kustomization) Kustomization {
 	existing.Components = slices.Clone(base.Components)
 	existing.DependsOn = slices.Clone(base.DependsOn)
 	existing.Patches = slices.Clone(base.Patches)
+	existing.HealthCheckExprs = slices.Clone(base.HealthCheckExprs)
 	existing.Substitutions = maps.Clone(base.Substitutions)
 	for _, component := range overlay.Components {
 		if component == "" || !slices.Contains(existing.Components, component) {
@@ -1817,6 +1864,16 @@ func MergeKustomizationFields(base, overlay Kustomization) Kustomization {
 	}
 	if len(overlay.Patches) > 0 {
 		existing.Patches = append(existing.Patches, overlay.Patches...)
+	}
+	for _, expr := range overlay.HealthCheckExprs {
+		index := slices.IndexFunc(existing.HealthCheckExprs, func(candidate HealthCheckExpr) bool {
+			return candidate.APIVersion == expr.APIVersion && candidate.Kind == expr.Kind
+		})
+		if index >= 0 {
+			existing.HealthCheckExprs[index] = expr
+			continue
+		}
+		existing.HealthCheckExprs = append(existing.HealthCheckExprs, expr)
 	}
 	if len(overlay.Substitutions) > 0 {
 		if existing.Substitutions == nil {
