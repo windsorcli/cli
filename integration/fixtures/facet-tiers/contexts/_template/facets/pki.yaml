@@ -17,6 +17,10 @@ flux:
       provider: sops
       secretRef:
         name: sops-age
+    healthCheckExprs:
+    - apiVersion: cert-manager.io/v1
+      kind: Issuer
+      current: status.conditions.exists(e, e.type == 'Ready' && e.status == 'True')
   resources:
   - components:
     - private-issuer/ca

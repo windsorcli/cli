@@ -10,6 +10,10 @@ flux:
   install:
     components:
     - helm-release-extra-metrics
+    healthCheckExprs:
+    - apiVersion: cert-manager.io/v1
+      kind: ClusterIssuer
+      current: status.conditions.exists(e, e.type == 'Ready' && e.status == 'True')
   resources:
   - name: extra
     components:

@@ -302,8 +302,9 @@ $defs:
     description: |
       Inherits every field from the blueprint's Kustomization shape (name,
       path, source, namespace, targetNamespace, dependsOn, interval,
-      retryInterval, timeout, patches, wait, force, prune, components, destroy,
-      destroyOnly, enabled, substitutions, substitute) and adds the conditional
+      retryInterval, timeout, patches, wait, force, prune, healthCheckExprs,
+      components, destroy, destroyOnly, enabled, substitutions, substitute)
+      and adds the conditional
       fields below. See the [Blueprint reference](blueprint.md) for the inherited
       fields.
     properties:

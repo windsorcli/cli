@@ -253,6 +253,33 @@ properties:
         prune:
           type: boolean
           description: Garbage-collect resources removed from the source. Defaults to true.
+        healthCheckExprs:
+          type: array
+          description: |
+            CEL health checks for custom resources kstatus cannot evaluate — those
+            exposing no status.observedGeneration and no Reconciling/Stalled
+            condition, which kstatus reports healthy the moment they are applied.
+            Each entry gates 'wait' on the named resource kind, and with it any
+            dependsOn edge pointing at this kustomization.
+          items:
+            type: object
+            additionalProperties: false
+            properties:
+              apiVersion:
+                type: string
+                description: APIVersion of the custom resource under evaluation.
+              kind:
+                type: string
+                description: Kind of the custom resource under evaluation.
+              current:
+                type: string
+                description: CEL expression matching the resource's desired state.
+              inProgress:
+                type: string
+                description: CEL expression matching a resource still converging.
+              failed:
+                type: string
+                description: CEL expression matching a resource that failed to converge.
         components:
           type: array
           items:
@@ -416,6 +443,33 @@ properties:
             prune:
               type: boolean
               description: Garbage-collect resources removed from the source. Defaults to true.
+            healthCheckExprs:
+              type: array
+              description: |
+                CEL health checks for custom resources kstatus cannot evaluate — those
+                exposing no status.observedGeneration and no Reconciling/Stalled
+                condition, which kstatus reports healthy the moment they are applied.
+                Each entry gates 'wait' on the named resource kind, and with it any
+                dependsOn edge pointing at this kustomization.
+              items:
+                type: object
+                additionalProperties: false
+                properties:
+                  apiVersion:
+                    type: string
+                    description: APIVersion of the custom resource under evaluation.
+                  kind:
+                    type: string
+                    description: Kind of the custom resource under evaluation.
+                  current:
+                    type: string
+                    description: CEL expression matching the resource's desired state.
+                  inProgress:
+                    type: string
+                    description: CEL expression matching a resource still converging.
+                  failed:
+                    type: string
+                    description: CEL expression matching a resource that failed to converge.
             components:
               type: array
               items:
@@ -520,6 +574,33 @@ properties:
               prune:
                 type: boolean
                 description: Garbage-collect resources removed from the source. Defaults to true.
+              healthCheckExprs:
+                type: array
+                description: |
+                  CEL health checks for custom resources kstatus cannot evaluate — those
+                  exposing no status.observedGeneration and no Reconciling/Stalled
+                  condition, which kstatus reports healthy the moment they are applied.
+                  Each entry gates 'wait' on the named resource kind, and with it any
+                  dependsOn edge pointing at this kustomization.
+                items:
+                  type: object
+                  additionalProperties: false
+                  properties:
+                    apiVersion:
+                      type: string
+                      description: APIVersion of the custom resource under evaluation.
+                    kind:
+                      type: string
+                      description: Kind of the custom resource under evaluation.
+                    current:
+                      type: string
+                      description: CEL expression matching the resource's desired state.
+                    inProgress:
+                      type: string
+                      description: CEL expression matching a resource still converging.
+                    failed:
+                      type: string
+                      description: CEL expression matching a resource that failed to converge.
               components:
                 type: array
                 items:
