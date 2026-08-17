@@ -28,9 +28,10 @@ func TestProvisioner_Bootstrap(t *testing.T) {
 	})
 
 	t.Run("KubernetesBackendWithoutBlueprintBackendCollapsesToUp", func(t *testing.T) {
-		// terraform.backend.type=kubernetes with no Blueprint.Backend is the
-		// "external cluster already provisioned" case. Bootstrap forwards to Up
-		// without the local-pin/migrate dance — len(tier) == 0 short-circuits.
+		// terraform.backend.type=kubernetes with no Blueprint.Backend and a present
+		// kubeconfig (setupProvisionerMocks seeds one by default) is the "cluster
+		// already provisioned" case — len(tier) == 0 short-circuits straight to a
+		// plain apply, no local-pin/migrate dance and no fail-fast guard.
 		mocks := setupProvisionerMocks(t)
 		bp := &blueprintv1alpha1.Blueprint{
 			TerraformComponents: []blueprintv1alpha1.TerraformComponent{
@@ -67,6 +68,72 @@ func TestProvisioner_Bootstrap(t *testing.T) {
 		// Must be a plain Up — no backend pinning, no migrate dance.
 		if len(ops) != 1 || ops[0] != "up" {
 			t.Errorf("Expected ops=[up], got %v", ops)
+		}
+	})
+
+	t.Run("RefusesKubernetesBackendWithoutTierWhenClusterNotYetCreated", func(t *testing.T) {
+		// terraform.backend.type=kubernetes, no Blueprint.Backend, and no kubeconfig for
+		// this context is the from-zero case: the blueprint gives no tier
+		// boundary to pivot on, so applying anything would dial a cluster that cannot
+		// exist yet. Refuse up front with an actionable error instead of letting
+		// terraform's raw connection-refused surface.
+		mocks := setupProvisionerMocks(t)
+		bp := &blueprintv1alpha1.Blueprint{
+			TerraformComponents: []blueprintv1alpha1.TerraformComponent{
+				{Path: "cluster/talos"},
+			},
+		}
+		mockCH := mocks.ConfigHandler.(*config.MockConfigHandler)
+		mockCH.GetStringFunc = func(key string, defaultValue ...string) string {
+			if key == "terraform.backend.type" {
+				return "kubernetes"
+			}
+			if len(defaultValue) > 0 {
+				return defaultValue[0]
+			}
+			return ""
+		}
+		mockStack := terraforminfra.NewMockStack()
+		upCalled := false
+		mockStack.UpFunc = func(_ *blueprintv1alpha1.Blueprint, _ ...func(id string) (bool, error)) (bool, error) {
+			upCalled = true
+			return false, nil
+		}
+		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{TerraformStack: mockStack})
+		provisioner.configRoot = t.TempDir() // no .kube/config — cluster not yet created
+
+		if _, err := provisioner.Bootstrap(bp); err == nil {
+			t.Fatal("Expected error, got nil")
+		} else if !strings.Contains(err.Error(), "no kubeconfig") || !strings.Contains(err.Error(), "backend:") {
+			t.Errorf("Expected error to explain the missing tier declaration, got: %v", err)
+		}
+		if upCalled {
+			t.Error("TerraformStack.Up must not run when the guard refuses")
+		}
+	})
+
+	t.Run("EmptyBlueprintOnKubernetesBackendDoesNotTripTheGuard", func(t *testing.T) {
+		// No terraform components at all means there is nothing to apply against the
+		// cluster in the first place — the from-zero guard must not refuse a legitimate
+		// no-op just because the backend happens to be kubernetes.
+		mocks := setupProvisionerMocks(t)
+		bp := &blueprintv1alpha1.Blueprint{}
+		mockCH := mocks.ConfigHandler.(*config.MockConfigHandler)
+		mockCH.GetStringFunc = func(key string, defaultValue ...string) string {
+			if key == "terraform.backend.type" {
+				return "kubernetes"
+			}
+			if len(defaultValue) > 0 {
+				return defaultValue[0]
+			}
+			return ""
+		}
+		mockStack := terraforminfra.NewMockStack()
+		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{TerraformStack: mockStack})
+		provisioner.configRoot = t.TempDir() // no kubeconfig
+
+		if _, err := provisioner.Bootstrap(bp); err != nil {
+			t.Fatalf("Expected no error for an empty blueprint, got %v", err)
 		}
 	})
 
@@ -617,6 +684,102 @@ func TestProvisioner_Bootstrap(t *testing.T) {
 		}
 		if !sawSecondUp {
 			t.Errorf("Expected Stage 3 Up after cleanup warning, got %v", ops)
+		}
+	})
+}
+
+func TestProvisioner_Up_BackendPivot(t *testing.T) {
+	t.Run("PivotsDeclaredBackendTierWithoutBootstrap", func(t *testing.T) {
+		// windsor up, called directly on a from-zero context whose blueprint declares
+		// a backend tier, must run the same local-pin/migrate/apply sequence Bootstrap
+		// runs — up no longer needs bootstrap called first.
+		mocks := setupProvisionerMocks(t)
+		bp := &blueprintv1alpha1.Blueprint{
+			Backend: "cluster",
+			TerraformComponents: []blueprintv1alpha1.TerraformComponent{
+				{Name: "cluster", Path: "cluster/talos"},
+				{Path: "gitops/flux"},
+			},
+		}
+
+		mockCH := mocks.ConfigHandler.(*config.MockConfigHandler)
+		mockCH.GetStringFunc = func(key string, defaultValue ...string) string {
+			if key == "terraform.backend.type" {
+				return "kubernetes"
+			}
+			if len(defaultValue) > 0 {
+				return defaultValue[0]
+			}
+			return ""
+		}
+
+		var ops []string
+		mockCH.SetFunc = func(key string, value any) error {
+			if key == "terraform.backend.type" {
+				ops = append(ops, fmt.Sprintf("set:%v", value))
+			}
+			return nil
+		}
+		mockStack := terraforminfra.NewMockStack()
+		mockStack.UpFunc = func(_ *blueprintv1alpha1.Blueprint, _ ...func(id string) (bool, error)) (bool, error) {
+			ops = append(ops, "up")
+			return false, nil
+		}
+		mockStack.MigrateStateFunc = func(_ *blueprintv1alpha1.Blueprint) ([]string, error) {
+			ops = append(ops, "migrate")
+			return nil, nil
+		}
+		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{TerraformStack: mockStack})
+		provisioner.configRoot = t.TempDir() // no kubeconfig — genuinely from zero
+
+		if _, err := provisioner.Up(bp); err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+
+		expected := []string{"set:local", "migrate", "up", "set:kubernetes", "migrate", "up"}
+		if len(ops) != len(expected) {
+			t.Fatalf("Expected %v, got %v", expected, ops)
+		}
+		for i, want := range expected {
+			if ops[i] != want {
+				t.Errorf("op %d: got %q, want %q (full: %v)", i, ops[i], want, ops)
+			}
+		}
+	})
+
+	t.Run("NoTierDeclaredStillAppliesDirectlyOnceClusterExists", func(t *testing.T) {
+		// Steady state: kubeconfig present (already bootstrapped), no declared tier —
+		// Up applies directly against the configured backend, same as before this fix.
+		mocks := setupProvisionerMocks(t)
+		bp := &blueprintv1alpha1.Blueprint{
+			TerraformComponents: []blueprintv1alpha1.TerraformComponent{
+				{Path: "gitops/flux"},
+			},
+		}
+		mockCH := mocks.ConfigHandler.(*config.MockConfigHandler)
+		mockCH.GetStringFunc = func(key string, defaultValue ...string) string {
+			if key == "terraform.backend.type" {
+				return "kubernetes"
+			}
+			if len(defaultValue) > 0 {
+				return defaultValue[0]
+			}
+			return ""
+		}
+		mockStack := terraforminfra.NewMockStack()
+		upCalled := false
+		mockStack.UpFunc = func(_ *blueprintv1alpha1.Blueprint, _ ...func(id string) (bool, error)) (bool, error) {
+			upCalled = true
+			return false, nil
+		}
+		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{TerraformStack: mockStack})
+		// setupProvisionerMocks seeds a kubeconfig by default — cluster already exists.
+
+		if _, err := provisioner.Up(bp); err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		if !upCalled {
+			t.Error("Expected TerraformStack.Up to run directly")
 		}
 	})
 }

@@ -1,0 +1,7 @@
+kind: Blueprint
+apiVersion: blueprints.windsorcli.dev/v1alpha1
+metadata:
+  name: backend-first-no-tier
+  description: Fixture with a terraform component and no declared backend tier, used to exercise the kubernetes-backend-from-zero fail-fast guard.
+terraform:
+  - path: "cluster"
