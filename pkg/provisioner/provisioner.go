@@ -207,10 +207,11 @@ func (i *Provisioner) OnTerraformPostApply(fn func(id string) error) {
 
 // Up orchestrates the high-level infrastructure deployment process. When the blueprint
 // declares a backend tier it pivots through local state first, then the configured backend
-// (applyWithBackendPivot); otherwise it applies directly. A kubernetes backend with no
-// declared tier and no kubeconfig yet is refused with an actionable error rather than a raw
-// terraform connection failure. Returns (halted, err); halted=true means a hook stopped the
-// run cleanly after a component. The blueprint parameter is required.
+// (applyWithBackendPivot) — unconfirmed, same as any other apply through this method,
+// including from cmd/apply.go and cmd/up.go; confirmation is a cmd/bootstrap.go concern, not
+// this method's. Without a declared tier it applies directly. A kubernetes backend with no
+// tier and no kubeconfig yet is refused with an actionable error instead of a raw terraform
+// connection failure. Returns (halted, err); halted=true means a hook stopped after a component.
 func (i *Provisioner) Up(blueprint *blueprintv1alpha1.Blueprint, onApply ...func(id string) (bool, error)) (bool, error) {
 	if blueprint == nil {
 		return false, fmt.Errorf("blueprint not provided")
