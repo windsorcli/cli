@@ -205,37 +205,27 @@ func (i *Provisioner) OnTerraformPostApply(fn func(id string) error) {
 	}
 }
 
-// Up orchestrates the high-level infrastructure deployment process. It runs Terraform apply
-// when terraform.enabled and the stack exists, invoking the given onApply hooks after each
-// component apply (after any hooks registered via OnTerraformApply). The blueprint parameter
-// is required.
-//
-// Returns (halted bool, err error). halted=true means a hook signaled a clean stop after a
-// component apply — the apply succeeded, but subsequent components were intentionally
-// skipped. err remains the path for real failures.
+// Up orchestrates the high-level infrastructure deployment process. When the blueprint
+// declares a backend tier it pivots through local state first, then the configured backend
+// (applyWithBackendPivot) — unconfirmed, same as any other apply through this method,
+// including from cmd/apply.go and cmd/up.go; confirmation is a cmd/bootstrap.go concern, not
+// this method's. Without a declared tier it applies directly. A kubernetes backend with no
+// tier and no kubeconfig yet is refused with an actionable error instead of a raw terraform
+// connection failure. Returns (halted, err); halted=true means a hook stopped after a component.
 func (i *Provisioner) Up(blueprint *blueprintv1alpha1.Blueprint, onApply ...func(id string) (bool, error)) (bool, error) {
 	if blueprint == nil {
 		return false, fmt.Errorf("blueprint not provided")
 	}
-	if err := i.ensureTerraformStack(); err != nil {
-		return false, err
+
+	backendType := i.configHandler.GetString("terraform.backend.type", "local")
+	tier := blueprint.BackendTier()
+	if backendType == "" || backendType == "local" || len(tier) == 0 {
+		if backendType == "kubernetes" && len(tier) == 0 && hasEnabledTerraformComponent(blueprint) && !i.kubeconfigPresent() {
+			return false, fmt.Errorf("context has no kubeconfig (cluster not yet created) and the blueprint declares no backend tier for the kubernetes backend; add `backend: <component-id>` to the blueprint naming the component that creates the cluster, or set terraform.backend.type to \"local\" until it exists")
+		}
+		return i.applyDirect(blueprint, onApply...)
 	}
-	if i.TerraformStack == nil {
-		return false, nil
-	}
-	if err := i.recoverHalfMigratedComponents(blueprint); err != nil {
-		return false, err
-	}
-	hooks := append([]func(id string) (bool, error){}, i.onTerraformApply...)
-	hooks = append(hooks, onApply...)
-	if len(i.onTerraformPostApply) > 0 {
-		i.TerraformStack.PostApply(i.onTerraformPostApply...)
-	}
-	halted, err := i.TerraformStack.Up(blueprint, hooks...)
-	if err != nil {
-		return false, fmt.Errorf("failed to run terraform up: %w", err)
-	}
-	return halted, nil
+	return i.applyWithBackendPivot(blueprint, tier, onApply...)
 }
 
 // MigrateState reinitializes every Terraform component's backend against the currently configured
@@ -1894,6 +1884,43 @@ func (i *Provisioner) Close() {
 // =============================================================================
 // Private Methods
 // =============================================================================
+
+// applyDirect runs terraform apply directly against the configured backend, with no tier
+// detection or pivot. Used by Up when no tier applies, and by applyWithBackendPivot's Stage
+// 1/3 sub-applies, which must not re-derive a tier from an already-sliced blueprint.
+func (i *Provisioner) applyDirect(blueprint *blueprintv1alpha1.Blueprint, onApply ...func(id string) (bool, error)) (bool, error) {
+	if err := i.ensureTerraformStack(); err != nil {
+		return false, err
+	}
+	if i.TerraformStack == nil {
+		return false, nil
+	}
+	if err := i.recoverHalfMigratedComponents(blueprint); err != nil {
+		return false, err
+	}
+	hooks := append([]func(id string) (bool, error){}, i.onTerraformApply...)
+	hooks = append(hooks, onApply...)
+	if len(i.onTerraformPostApply) > 0 {
+		i.TerraformStack.PostApply(i.onTerraformPostApply...)
+	}
+	halted, err := i.TerraformStack.Up(blueprint, hooks...)
+	if err != nil {
+		return false, fmt.Errorf("failed to run terraform up: %w", err)
+	}
+	return halted, nil
+}
+
+// hasEnabledTerraformComponent reports whether the blueprint has at least one terraform
+// component that isn't explicitly disabled. Guards against refusing an apply for a
+// kubernetes backend when there is nothing to apply in the first place.
+func hasEnabledTerraformComponent(blueprint *blueprintv1alpha1.Blueprint) bool {
+	for _, c := range blueprint.TerraformComponents {
+		if c.Enabled == nil || c.Enabled.IsEnabled() {
+			return true
+		}
+	}
+	return false
+}
 
 // recoverHalfMigratedComponents migrates leftover local state to the
 // configured remote backend for components with local state but no remote

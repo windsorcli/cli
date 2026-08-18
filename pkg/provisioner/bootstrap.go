@@ -32,70 +32,13 @@ type BootstrapConfirmFn func(*BootstrapSummary) bool
 // Public Methods
 // =============================================================================
 
-// Bootstrap brings up a context's infrastructure end-to-end. For local or external backends
-// it forwards to Up. For an in-blueprint backend tier (Blueprint.Backend set) it always
-// pivots the tier: Stage 1 pins local, pulls any existing tier state from the configured
-// backend to local, applies the tier against local; Stage 2 pushes tier state to the
-// configured backend; Stage 3 applies non-tier components. The algorithm is idempotent —
-// every bootstrap runs the same flow regardless of whether the backend already exists.
-//
-// Returns (halted, err). halted=true means one of the inner Up calls signaled a clean
-// halt-after-component (e.g. cluster reachability needs operator action). On halt the
-// caller surfaces the deferred-work summary; bootstrap is partially complete and the
-// operator re-runs after addressing it. Operator confirmation is the project layer's
-// responsibility — callers gate Bootstrap on the operator's decision so declining the
-// plan never reaches privileged work (workstation startup, DNS, etc.).
+// Bootstrap brings up a context's infrastructure end-to-end; it is a thin alias for Up — see
+// Up's doc for the backend-tier pivot. Kept as a distinct, self-documenting entry point for
+// `windsor bootstrap`'s explicit-confirmation flow. Returns (halted, err); halted=true means
+// an inner apply call stopped cleanly after a component (e.g. cluster reachability needs
+// operator action), leaving bootstrap partially complete until the operator re-runs it.
 func (i *Provisioner) Bootstrap(blueprint *blueprintv1alpha1.Blueprint, onApply ...func(id string) (bool, error)) (bool, error) {
-	if blueprint == nil {
-		return false, fmt.Errorf("blueprint not provided")
-	}
-
-	backendType := i.configHandler.GetString("terraform.backend.type", "local")
-	tier := blueprint.BackendTier()
-	if backendType == "" || backendType == "local" || len(tier) == 0 {
-		return i.Up(blueprint, onApply...)
-	}
-
-	tierBP := blueprintWithComponents(blueprint, tier)
-	nonTierBP := blueprintWithoutComponents(blueprint, tier)
-
-	var tierHalted bool
-	if err := i.withBackendOverride("bootstrap", func() error {
-		if _, err := i.MigrateState(tierBP); err != nil {
-			return err
-		}
-		halted, err := i.Up(tierBP, onApply...)
-		if err != nil {
-			return err
-		}
-		tierHalted = halted
-		return nil
-	}); err != nil {
-		return false, err
-	}
-	if tierHalted {
-		// Halt during tier apply — don't migrate state or run non-tier components yet.
-		return true, nil
-	}
-
-	skipped, err := i.MigrateState(tierBP)
-	if err != nil {
-		return false, err
-	}
-	if len(skipped) > 0 {
-		return false, fmt.Errorf("bootstrap migration skipped tier components after a successful local apply: %v — their directories should have been materialised by Up", skipped)
-	}
-
-	for _, c := range tier {
-		if err := i.RemoveLocalState(c.GetID()); err != nil {
-			fmt.Fprintf(os.Stderr, "warning: failed to remove local state file for %q after migration: %v\n", c.GetID(), err)
-		}
-	}
-
-	if len(nonTierBP.TerraformComponents) == 0 {
-		return false, nil
-	}
-	return i.Up(nonTierBP, onApply...)
+	return i.Up(blueprint, onApply...)
 }
 
 // BuildBootstrapSummary constructs the operator-visible intent description for a bootstrap,
@@ -129,6 +72,53 @@ func BuildBootstrapSummary(blueprint *blueprintv1alpha1.Blueprint, contextName, 
 // =============================================================================
 // Private Helpers
 // =============================================================================
+
+// applyWithBackendPivot pins local, migrates any existing tier state to local, applies the
+// tier locally, migrates it to the configured backend, then applies non-tier components
+// directly against it. Idempotent regardless of whether the backend already exists.
+// Sub-applies use applyDirect, not Up, to avoid re-deriving a tier and recursing.
+func (i *Provisioner) applyWithBackendPivot(blueprint *blueprintv1alpha1.Blueprint, tier []*blueprintv1alpha1.TerraformComponent, onApply ...func(id string) (bool, error)) (bool, error) {
+	tierBP := blueprintWithComponents(blueprint, tier)
+	nonTierBP := blueprintWithoutComponents(blueprint, tier)
+
+	var tierHalted bool
+	if err := i.withBackendOverride("backend-pivot", func() error {
+		if _, err := i.MigrateState(tierBP); err != nil {
+			return err
+		}
+		halted, err := i.applyDirect(tierBP, onApply...)
+		if err != nil {
+			return err
+		}
+		tierHalted = halted
+		return nil
+	}); err != nil {
+		return false, err
+	}
+	if tierHalted {
+		// Halt during tier apply — don't migrate state or run non-tier components yet.
+		return true, nil
+	}
+
+	skipped, err := i.MigrateState(tierBP)
+	if err != nil {
+		return false, err
+	}
+	if len(skipped) > 0 {
+		return false, fmt.Errorf("backend-tier migration skipped components after a successful local apply: %v — their directories should have been materialised by the local apply", skipped)
+	}
+
+	for _, c := range tier {
+		if err := i.RemoveLocalState(c.GetID()); err != nil {
+			fmt.Fprintf(os.Stderr, "warning: failed to remove local state file for %q after migration: %v\n", c.GetID(), err)
+		}
+	}
+
+	if len(nonTierBP.TerraformComponents) == 0 {
+		return false, nil
+	}
+	return i.applyDirect(nonTierBP, onApply...)
+}
 
 // blueprintWithComponents returns a shallow copy of bp containing only the given
 // terraform components, in their order in the slice. Non-terraform fields are shared.

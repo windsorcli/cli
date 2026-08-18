@@ -156,6 +156,33 @@ func TestBootstrap_DanceIsScopedToTier(t *testing.T) {
 	}
 }
 
+// TestBootstrap_RefusesKubernetesBackendWithoutTierFromZero verifies the from-zero fail-fast
+// guard: a kubernetes backend with no declared backend tier and no kubeconfig for the
+// context (the cluster was never created) fails with an actionable error naming the missing
+// `backend:` declaration, instead of terraform surfacing a raw connection-refused once it
+// reaches the component that needs the not-yet-existent cluster.
+func TestBootstrap_RefusesKubernetesBackendWithoutTierFromZero(t *testing.T) {
+	t.Parallel()
+	dir, env := helpers.CopyFixtureOnly(t, "backend-first-no-tier")
+	helpers.MarkAsGitRepo(t, dir)
+	if _, stderr, err := helpers.RunCLI(dir, []string{"init", "local", "--set", "terraform.backend.type=kubernetes"}, env); err != nil {
+		t.Fatalf("init local: %v\nstderr: %s", err, stderr)
+	}
+	env = append(env, "WINDSOR_CONTEXT=local")
+
+	stdout, stderr, err := helpers.RunCLI(dir, []string{"bootstrap", "--yes"}, env)
+	if err == nil {
+		t.Fatalf("expected bootstrap to refuse a from-zero kubernetes backend with no declared tier, got success\nstdout: %s\nstderr: %s", stdout, stderr)
+	}
+	combined := string(stdout) + string(stderr)
+	if !strings.Contains(combined, "no kubeconfig") {
+		t.Errorf("expected error to explain the cluster does not exist yet, got:\n%s", combined)
+	}
+	if !strings.Contains(combined, "backend:") {
+		t.Errorf("expected error to name the missing `backend:` declaration, got:\n%s", combined)
+	}
+}
+
 // TestBootstrap_WritesContextFileOnFirstRun verifies the positional context arg
 // persists to .windsor/context even when bootstrap later fails at the install
 // step. Users on other machines need this file to resolve the same context,
