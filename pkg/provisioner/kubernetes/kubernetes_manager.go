@@ -93,10 +93,10 @@ type BaseKubernetesManager struct {
 	client        client.KubernetesClient
 	configHandler config.ConfigHandler
 
-	kustomizationWaitPollInterval         time.Duration
-	kustomizationWaitMaxConsecutiveErrors int
-	kustomizationReconcileTimeout         time.Duration
-	kustomizationReconcileSleep           time.Duration
+	kustomizationWaitPollInterval     time.Duration
+	kustomizationWaitMinErrorDuration time.Duration
+	kustomizationReconcileTimeout     time.Duration
+	kustomizationReconcileSleep       time.Duration
 
 	notReadyDescribeBudget time.Duration
 
@@ -115,16 +115,16 @@ func NewKubernetesManager(kubernetesClient client.KubernetesClient, configHandle
 	}
 
 	manager := &BaseKubernetesManager{
-		client:                                kubernetesClient,
-		configHandler:                         configHandler,
-		shims:                                 NewShims(),
-		kustomizationWaitPollInterval:         2 * time.Second,
-		kustomizationWaitMaxConsecutiveErrors: 3,
-		kustomizationReconcileTimeout:         5 * time.Minute,
-		kustomizationReconcileSleep:           2 * time.Second,
-		notReadyDescribeBudget:                10 * time.Second,
-		healthCheckPollInterval:               10 * time.Second,
-		nodeReadyPollInterval:                 5 * time.Second,
+		client:                            kubernetesClient,
+		configHandler:                     configHandler,
+		shims:                             NewShims(),
+		kustomizationWaitPollInterval:     2 * time.Second,
+		kustomizationWaitMinErrorDuration: 30 * time.Second,
+		kustomizationReconcileTimeout:     5 * time.Minute,
+		kustomizationReconcileSleep:       2 * time.Second,
+		notReadyDescribeBudget:            10 * time.Second,
+		healthCheckPollInterval:           10 * time.Second,
+		nodeReadyPollInterval:             5 * time.Second,
 	}
 
 	return manager
@@ -336,17 +336,41 @@ func kustomizationReady(obj *unstructured.Unstructured) bool {
 	return false
 }
 
+// kustomizationWaitErrorBudgetFraction bounds how much of the total wait timeout a streak of
+// transient GetResource errors may consume before WaitForKustomizations gives up: a sustained
+// apiserver slowdown gets patience proportional to how patient the overall wait already is,
+// rather than a fixed tick count that's either too tight for a big blueprint or too loose for
+// a small one.
+const kustomizationWaitErrorBudgetFraction = 0.25
+
 // WaitForKustomizations waits for kustomizations to be ready, calculating the timeout
 // from the longest dependency chain in the blueprint. Outputs a debug message describing
 // the total wait timeout being used before beginning polling. The wait also honors ctx:
 // a cancelled or deadline-exceeded context ends the wait immediately and returns ctx.Err(),
 // so a parent SIGTERM/Ctrl+C or command deadline can interrupt it (rather than requiring a
 // SIGKILL that bypasses the caller's defer cleanup). A not-found GetResource error is treated
-// as not-ready-yet and keeps polling. Any other error (auth, connection, RBAC) counts toward
-// kustomizationWaitMaxConsecutiveErrors: a single transient blip (a brief apiserver restart, a
-// load-balancer failover) is tolerated and retried on the next tick, but a persistent failure
-// like broken cluster auth ends the wait immediately with the underlying error surfaced, rather
-// than silently retrying it for the full timeout budget.
+// as not-ready-yet and keeps polling.
+//
+// Every other GetResource error (auth, RBAC, TLS, connection, apiserver timeout) starts an
+// error streak timer and is tolerated as long as the streak stays within
+// kustomizationWaitErrorBudgetFraction of the total timeout (floored at
+// kustomizationWaitMinErrorDuration so a short wait still gets a few retries); the streak
+// resets the moment any tick completes with no error. Errors are deliberately not classified
+// into permanent-vs-transient buckets: kustomize-controller and helm-controller, reconciling
+// this exact kind of dependency-readiness check against the same apiserver, don't either —
+// their terminal (no-retry) path is reserved for static errors in the object's own spec (an
+// invalid CEL expression, their own cross-namespace ACL denial), never a raw API error, on the
+// grounds that auth/RBAC/certs can change out from under a long-running wait just as easily as
+// a load-balancer failover can. The budget is proportional to wall-clock time rather than tick
+// count for the same reason it applies uniformly: a CPU-starved apiserver can make a single
+// tick's sequential GetResource calls take far longer than the nominal poll interval, so
+// counting ticks either fails fast on a cluster that would have recovered, or (if loosened)
+// tolerates a wildly inconsistent amount of real time depending on how slow each tick happened
+// to be.
+//
+// A tick that hits an error on one kustomization keeps checking the rest of the pending list
+// rather than aborting the tick outright, so one flaky item doesn't mask readiness progress on
+// everything else scheduled to reconcile that tick.
 //
 // Readiness is tracked per kustomization: once observed Ready, a kustomization is dropped from
 // further polling, so a later periodic reconcile flipping it back to Reconciling doesn't reset
@@ -365,13 +389,18 @@ func (k *BaseKubernetesManager) WaitForKustomizations(ctx context.Context, messa
 		kustomizationNames = append(kustomizationNames, kustomization.Name)
 	}
 
+	maxErrorDuration := time.Duration(float64(timeout) * kustomizationWaitErrorBudgetFraction)
+	if maxErrorDuration < k.kustomizationWaitMinErrorDuration {
+		maxErrorDuration = k.kustomizationWaitMinErrorDuration
+	}
+
 	tui.Start(message)
 
 	timeoutChan := time.After(timeout)
 	ticker := time.NewTicker(k.kustomizationWaitPollInterval)
 	defer ticker.Stop()
 
-	consecutiveErrors := 0
+	var errorStreakStart time.Time
 	readyKustomizations := make(map[string]bool, len(kustomizationNames))
 
 	for {
@@ -398,8 +427,10 @@ func (k *BaseKubernetesManager) WaitForKustomizations(ctx context.Context, messa
 					continue
 				}
 				if err != nil {
-					tickErr = fmt.Errorf("error checking kustomization %s: %w", name, err)
-					break
+					if tickErr == nil {
+						tickErr = fmt.Errorf("error checking kustomization %s: %w", name, err)
+					}
+					continue
 				}
 				var kustomizationObj map[string]any
 				if err := k.shims.FromUnstructured(obj.UnstructuredContent(), &kustomizationObj); err != nil {
@@ -425,14 +456,16 @@ func (k *BaseKubernetesManager) WaitForKustomizations(ctx context.Context, messa
 				}
 			}
 			if tickErr != nil {
-				consecutiveErrors++
-				if consecutiveErrors >= k.kustomizationWaitMaxConsecutiveErrors {
+				if errorStreakStart.IsZero() {
+					errorStreakStart = time.Now()
+				}
+				if time.Since(errorStreakStart) >= maxErrorDuration {
 					tui.Fail()
-					return tickErr
+					return fmt.Errorf("kustomization readiness checks failing for over %s: %w", maxErrorDuration, tickErr)
 				}
 				continue
 			}
-			consecutiveErrors = 0
+			errorStreakStart = time.Time{}
 			if len(readyKustomizations) == len(kustomizationNames) {
 				tui.Done()
 				return nil

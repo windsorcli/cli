@@ -18,6 +18,7 @@ import (
 	"github.com/windsorcli/cli/pkg/constants"
 	"github.com/windsorcli/cli/pkg/provisioner/kubernetes/client"
 	"github.com/windsorcli/cli/pkg/runtime/config"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -475,6 +476,7 @@ func TestBaseKubernetesManager_WaitForKustomizations(t *testing.T) {
 		manager := NewKubernetesManager(mocks.KubernetesClient, mocks.ConfigHandler)
 		// Use shorter timeouts for tests
 		manager.kustomizationWaitPollInterval = 50 * time.Millisecond
+		manager.kustomizationWaitMinErrorDuration = 150 * time.Millisecond
 		manager.kustomizationReconcileTimeout = 100 * time.Millisecond
 		manager.kustomizationReconcileSleep = 50 * time.Millisecond
 		return manager
@@ -603,15 +605,19 @@ func TestBaseKubernetesManager_WaitForKustomizations(t *testing.T) {
 		}
 	})
 
-	t.Run("PersistentErrorFailsFastInsteadOfBurningTimeout", func(t *testing.T) {
-		// Given GetResource returns a persistent, non-transient error (e.g. broken cluster auth)
-		// on every poll
+	t.Run("AuthErrorGetsTheSameBudgetAsAnyOtherError", func(t *testing.T) {
+		// Given GetResource returns a typed auth error (the way the real dynamic client
+		// surfaces it) on every poll, with no recovery in sight — mirroring
+		// kustomize-controller and helm-controller, which don't special-case auth/RBAC/TLS
+		// as terminal either: their own dependency-readiness checks retry-with-backoff on
+		// any apiserver error, reserving no-retry for static errors in the object's own spec
 		manager := setup(t)
+		manager.kustomizationWaitMinErrorDuration = 150 * time.Millisecond
 		kubernetesClient := client.NewMockKubernetesClient()
 		calls := 0
 		kubernetesClient.GetResourceFunc = func(gvr schema.GroupVersionResource, ns, name string) (*unstructured.Unstructured, error) {
 			calls++
-			return nil, fmt.Errorf("Unauthorized")
+			return nil, apierrors.NewUnauthorized("cluster credentials rejected")
 		}
 		manager.client = kubernetesClient
 
@@ -619,7 +625,7 @@ func TestBaseKubernetesManager_WaitForKustomizations(t *testing.T) {
 			Kustomizations: []blueprintv1alpha1.Kustomization{
 				{
 					Name:    "test-kustomization",
-					Timeout: &blueprintv1alpha1.DurationString{Duration: 10 * time.Minute},
+					Timeout: &blueprintv1alpha1.DurationString{Duration: 5 * time.Second},
 				},
 			},
 		}
@@ -627,31 +633,32 @@ func TestBaseKubernetesManager_WaitForKustomizations(t *testing.T) {
 		// When waiting for kustomizations
 		err := manager.WaitForKustomizations(context.Background(), "Waiting for kustomizations", blueprint)
 
-		// Then the wait ends after a few consecutive failures with the underlying error, instead of
-		// retrying silently for the full timeout budget
+		// Then the wait retries across the same error budget as any other error — it doesn't
+		// fail on the very first occurrence — but still ends once the budget is exceeded,
+		// well before the much longer total timeout, with the underlying error surfaced
 		if err == nil {
 			t.Fatal("Expected error, got nil")
 		}
-		if !strings.Contains(err.Error(), "Unauthorized") {
+		if !strings.Contains(err.Error(), "cluster credentials rejected") {
 			t.Errorf("Expected error to surface the underlying failure, got: %v", err)
 		}
 		if strings.Contains(err.Error(), "timeout waiting for kustomizations") {
-			t.Errorf("Expected a fail-fast error, not the generic timeout error, got: %v", err)
+			t.Errorf("Expected the error-budget path, not the generic timeout error, got: %v", err)
 		}
-		if calls != manager.kustomizationWaitMaxConsecutiveErrors {
-			t.Errorf("Expected GetResource to be called exactly %d times before failing fast, got %d calls", manager.kustomizationWaitMaxConsecutiveErrors, calls)
+		if calls < 2 {
+			t.Errorf("Expected multiple retries before giving up, got %d calls", calls)
 		}
 	})
 
 	t.Run("TransientErrorIsToleratedThenSucceeds", func(t *testing.T) {
-		// Given GetResource fails with a non-not-found error a couple of times (e.g. a brief
-		// apiserver restart) but recovers before hitting the consecutive-failure threshold
+		// Given GetResource fails with a non-not-found error a few times (e.g. a brief
+		// apiserver restart) but recovers well within the error-tolerance budget
 		manager := setup(t)
 		kubernetesClient := client.NewMockKubernetesClient()
 		calls := 0
 		kubernetesClient.GetResourceFunc = func(gvr schema.GroupVersionResource, ns, name string) (*unstructured.Unstructured, error) {
 			calls++
-			if calls <= manager.kustomizationWaitMaxConsecutiveErrors-1 {
+			if calls <= 5 {
 				return nil, fmt.Errorf("connection refused")
 			}
 			return &unstructured.Unstructured{
@@ -678,9 +685,146 @@ func TestBaseKubernetesManager_WaitForKustomizations(t *testing.T) {
 		// When waiting for kustomizations
 		err := manager.WaitForKustomizations(context.Background(), "Waiting for kustomizations", blueprint)
 
-		// Then the transient errors are tolerated and the wait succeeds once the resource recovers
+		// Then the transient errors are tolerated — well past the old fixed 3-strike limit —
+		// and the wait succeeds once the resource recovers
 		if err != nil {
 			t.Errorf("Expected no error, got %v", err)
+		}
+	})
+
+	t.Run("TransientErrorStreakExceedingBudgetEventuallyFails", func(t *testing.T) {
+		// Given GetResource fails transiently on every poll, with no recovery in sight, and an
+		// error-tolerance budget dominated by the small floor (well below the total timeout)
+		manager := setup(t)
+		manager.kustomizationWaitMinErrorDuration = 150 * time.Millisecond
+		kubernetesClient := client.NewMockKubernetesClient()
+		calls := 0
+		kubernetesClient.GetResourceFunc = func(gvr schema.GroupVersionResource, ns, name string) (*unstructured.Unstructured, error) {
+			calls++
+			return nil, fmt.Errorf("connection refused")
+		}
+		manager.client = kubernetesClient
+
+		blueprint := &blueprintv1alpha1.Blueprint{
+			Kustomizations: []blueprintv1alpha1.Kustomization{
+				{
+					Name:    "test-kustomization",
+					Timeout: &blueprintv1alpha1.DurationString{Duration: 5 * time.Second},
+				},
+			},
+		}
+
+		// When waiting for kustomizations
+		err := manager.WaitForKustomizations(context.Background(), "Waiting for kustomizations", blueprint)
+
+		// Then the wait ends once the error streak exceeds its time budget — well before the
+		// much longer total timeout — with a message distinct from the generic timeout error
+		if err == nil {
+			t.Fatal("Expected error, got nil")
+		}
+		if !strings.Contains(err.Error(), "connection refused") {
+			t.Errorf("Expected error to surface the underlying failure, got: %v", err)
+		}
+		if !strings.Contains(err.Error(), "checks failing") {
+			t.Errorf("Expected the error-budget message, got: %v", err)
+		}
+		if strings.Contains(err.Error(), "timeout waiting for kustomizations") {
+			t.Errorf("Expected the error-budget path, not the generic timeout error, got: %v", err)
+		}
+		if calls < 2 {
+			t.Errorf("Expected multiple retries before giving up, got %d calls", calls)
+		}
+	})
+
+	t.Run("ErrorStreakResetsAfterAnIntermediateSuccess", func(t *testing.T) {
+		// Given GetResource alternates between short transient-error streaks and single
+		// successful ticks, with no streak individually exceeding the error budget
+		manager := setup(t)
+		kubernetesClient := client.NewMockKubernetesClient()
+		calls := 0
+		kubernetesClient.GetResourceFunc = func(gvr schema.GroupVersionResource, ns, name string) (*unstructured.Unstructured, error) {
+			calls++
+			// Two failures, then one clean (not-yet-ready) tick, repeated, then Ready for good
+			// from call 10 on. The clean tick has no error, so it resets the streak.
+			if calls >= 10 || calls%3 == 0 {
+				readyStatus := "False"
+				if calls >= 10 {
+					readyStatus = "True"
+				}
+				return &unstructured.Unstructured{
+					Object: map[string]any{
+						"status": map[string]any{
+							"conditions": []any{
+								map[string]any{"type": "Ready", "status": readyStatus},
+							},
+						},
+					},
+				}, nil
+			}
+			return nil, fmt.Errorf("connection refused")
+		}
+		manager.client = kubernetesClient
+
+		blueprint := &blueprintv1alpha1.Blueprint{
+			Kustomizations: []blueprintv1alpha1.Kustomization{
+				{
+					Name:    "test-kustomization",
+					Timeout: &blueprintv1alpha1.DurationString{Duration: 10 * time.Second},
+				},
+			},
+		}
+
+		// When waiting for kustomizations
+		err := manager.WaitForKustomizations(context.Background(), "Waiting for kustomizations", blueprint)
+
+		// Then no individual streak ever exceeds the budget, so the wait succeeds
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+		if calls < 10 {
+			t.Errorf("Expected at least 10 calls, got %d", calls)
+		}
+	})
+
+	t.Run("TransientErrorOnOneKustomizationDoesNotBlockOthersInSameTick", func(t *testing.T) {
+		// Given "a" always fails transiently and "b" is Ready from the first poll
+		manager := setup(t)
+		kubernetesClient := client.NewMockKubernetesClient()
+		var callsForB int
+		kubernetesClient.GetResourceFunc = func(gvr schema.GroupVersionResource, ns, name string) (*unstructured.Unstructured, error) {
+			if name == "a" {
+				return nil, fmt.Errorf("connection refused")
+			}
+			callsForB++
+			return &unstructured.Unstructured{
+				Object: map[string]any{
+					"status": map[string]any{
+						"conditions": []any{
+							map[string]any{"type": "Ready", "status": "True"},
+						},
+					},
+				},
+			}, nil
+		}
+		manager.client = kubernetesClient
+
+		blueprint := &blueprintv1alpha1.Blueprint{
+			Kustomizations: []blueprintv1alpha1.Kustomization{
+				{Name: "a", Timeout: &blueprintv1alpha1.DurationString{Duration: 500 * time.Millisecond}},
+				{Name: "b", Timeout: &blueprintv1alpha1.DurationString{Duration: 500 * time.Millisecond}},
+			},
+		}
+
+		// When waiting for kustomizations
+		_ = manager.WaitForKustomizations(context.Background(), "Waiting for kustomizations", blueprint)
+
+		// Then "b" is observed Ready and dropped from polling well before "a"'s errors end the
+		// wait, instead of "a" masking the rest of the tick's progress
+		if callsForB == 0 {
+			t.Fatal("Expected \"b\" to be checked despite \"a\" erroring in the same tick")
+		}
+		if callsForB > 2 {
+			t.Errorf("Expected \"b\" to be dropped from polling once Ready, got %d calls", callsForB)
 		}
 	})
 
