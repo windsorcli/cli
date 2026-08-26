@@ -2880,6 +2880,7 @@ func TestBaseKubernetesManager_WaitForKubernetesHealthy(t *testing.T) {
 		mocks := setupKubernetesMocks(t)
 		manager := NewKubernetesManager(mocks.KubernetesClient, mocks.ConfigHandler)
 		manager.healthCheckPollInterval = 50 * time.Millisecond
+		manager.healthCheckSettleDuration = 120 * time.Millisecond
 		manager.nodeReadyPollInterval = 50 * time.Millisecond
 		return manager
 	}
@@ -2966,6 +2967,88 @@ func TestBaseKubernetesManager_WaitForKubernetesHealthy(t *testing.T) {
 		}
 		if callCount < 2 {
 			t.Error("Expected CheckHealth to be called multiple times")
+		}
+	})
+
+	t.Run("SettlesBeforeReturningHealthy", func(t *testing.T) {
+		// Given an API that reports healthy on the very first check
+		manager := setup(t)
+		kubernetesClient := client.NewMockKubernetesClient()
+		var mu sync.Mutex
+		var checkTimes []time.Time
+		kubernetesClient.CheckHealthFunc = func(ctx context.Context, endpoint string) error {
+			mu.Lock()
+			checkTimes = append(checkTimes, time.Now())
+			mu.Unlock()
+			return nil
+		}
+		manager.client = kubernetesClient
+
+		ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
+		defer cancel()
+
+		start := time.Now()
+		err := manager.WaitForKubernetesHealthy(ctx, "https://test-endpoint:6443", nil)
+		elapsed := time.Since(start)
+
+		// Then it does not return on the first success: it keeps polling until
+		// healthCheckSettleDuration has elapsed with no observed failure, so a
+		// static-pod recreation that lands moments after the first success is
+		// still caught.
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+		if elapsed < manager.healthCheckSettleDuration {
+			t.Errorf("Expected wait to span at least the settle duration (%v), took %v", manager.healthCheckSettleDuration, elapsed)
+		}
+		mu.Lock()
+		defer mu.Unlock()
+		if len(checkTimes) < 2 {
+			t.Errorf("Expected CheckHealth to be called more than once to confirm the settle window, got %d calls", len(checkTimes))
+		}
+	})
+
+	t.Run("FailureDuringSettleWindowResetsTheClock", func(t *testing.T) {
+		// Given a health check that succeeds, then fails once (simulating an
+		// async static-pod restart), then succeeds continuously afterward
+		manager := setup(t)
+		kubernetesClient := client.NewMockKubernetesClient()
+		var mu sync.Mutex
+		callCount := 0
+		failedOnce := false
+		kubernetesClient.CheckHealthFunc = func(ctx context.Context, endpoint string) error {
+			mu.Lock()
+			defer mu.Unlock()
+			callCount++
+			if callCount == 2 {
+				failedOnce = true
+				return fmt.Errorf("apiserver restarting")
+			}
+			return nil
+		}
+		manager.client = kubernetesClient
+
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		defer cancel()
+
+		err := manager.WaitForKubernetesHealthy(ctx, "https://test-endpoint:6443", nil)
+
+		// Then the mid-window failure is not masked by the earlier success: the
+		// wait only returns once a fresh, uninterrupted settle window completes
+		// after the failure, so at least a settle-duration's worth of ticks must
+		// follow it before the wait is allowed to return.
+		if err != nil {
+			t.Errorf("Expected no error once the restart resolves, got %v", err)
+		}
+		if !failedOnce {
+			t.Fatal("Expected the mid-window failure to have occurred")
+		}
+		mu.Lock()
+		successesAfterFailure := callCount - 2
+		mu.Unlock()
+		minTicksAfterFailure := int(manager.healthCheckSettleDuration / manager.healthCheckPollInterval)
+		if successesAfterFailure < minTicksAfterFailure {
+			t.Errorf("Expected at least %d successful checks after the failure to satisfy the settle window, got %d", minTicksAfterFailure, successesAfterFailure)
 		}
 	})
 

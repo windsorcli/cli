@@ -101,8 +101,9 @@ type BaseKubernetesManager struct {
 
 	notReadyDescribeBudget time.Duration
 
-	healthCheckPollInterval time.Duration
-	nodeReadyPollInterval   time.Duration
+	healthCheckPollInterval   time.Duration
+	healthCheckSettleDuration time.Duration
+	nodeReadyPollInterval     time.Duration
 }
 
 // NewKubernetesManager creates a new instance of BaseKubernetesManager.
@@ -125,6 +126,7 @@ func NewKubernetesManager(kubernetesClient client.KubernetesClient, configHandle
 		kustomizationReconcileSleep:       2 * time.Second,
 		notReadyDescribeBudget:            10 * time.Second,
 		healthCheckPollInterval:           10 * time.Second,
+		healthCheckSettleDuration:         30 * time.Second,
 		nodeReadyPollInterval:             5 * time.Second,
 	}
 
@@ -1152,7 +1154,13 @@ func decodeInventoryID(id string) (InventoryEntry, bool) {
 
 // WaitForKubernetesHealthy waits for the Kubernetes API to become healthy within the context deadline.
 // If nodeNames are provided, verifies all specified nodes reach Ready state before returning.
-// Returns an error if the API is unreachable or any specified nodes are not Ready within the deadline.
+// A machine config apply (e.g. Talos resource reservations touching the apiServer/controllerManager/
+// scheduler static pods) is accepted synchronously but reconciled asynchronously, so the very next
+// health check can still observe the pre-change apiserver and return healthy moments before it's
+// recreated. To catch that race, a success only counts once the API (and, if requested, node
+// readiness) has held continuously for healthCheckSettleDuration; any failure during that window
+// resets the clock. Returns an error if the API is unreachable or any specified nodes are not Ready
+// within the deadline.
 func (k *BaseKubernetesManager) WaitForKubernetesHealthy(ctx context.Context, endpoint string, outputFunc func(string), nodeNames ...string) error {
 	if k.client == nil {
 		return fmt.Errorf("kubernetes client not initialized")
@@ -1168,7 +1176,13 @@ func (k *BaseKubernetesManager) WaitForKubernetesHealthy(ctx context.Context, en
 		pollInterval = 10 * time.Second
 	}
 
+	settleDuration := k.healthCheckSettleDuration
+	if settleDuration == 0 {
+		settleDuration = 30 * time.Second
+	}
+
 	var lastErr error
+	var settleSince time.Time
 	for time.Now().Before(deadline) {
 		select {
 		case <-ctx.Done():
@@ -1176,6 +1190,7 @@ func (k *BaseKubernetesManager) WaitForKubernetesHealthy(ctx context.Context, en
 		default:
 			if err := k.client.CheckHealth(ctx, endpoint); err != nil {
 				lastErr = fmt.Errorf("health check for API endpoint %s failed: %w", endpoint, err)
+				settleSince = time.Time{}
 				select {
 				case <-ctx.Done():
 					return healthyTimeoutError(lastErr)
@@ -1187,12 +1202,25 @@ func (k *BaseKubernetesManager) WaitForKubernetesHealthy(ctx context.Context, en
 			if len(nodeNames) > 0 {
 				if err := k.waitForNodesReady(ctx, nodeNames, outputFunc); err != nil {
 					lastErr = err
+					settleSince = time.Time{}
 					select {
 					case <-ctx.Done():
 						return healthyTimeoutError(lastErr)
 					case <-time.After(pollInterval):
 						continue
 					}
+				}
+			}
+
+			if settleSince.IsZero() {
+				settleSince = time.Now()
+			}
+			if time.Since(settleSince) < settleDuration {
+				select {
+				case <-ctx.Done():
+					return healthyTimeoutError(lastErr)
+				case <-time.After(pollInterval):
+					continue
 				}
 			}
 
