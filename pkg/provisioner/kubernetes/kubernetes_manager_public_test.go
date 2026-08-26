@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -825,6 +826,115 @@ func TestBaseKubernetesManager_WaitForKustomizations(t *testing.T) {
 		}
 		if callsForB > 2 {
 			t.Errorf("Expected \"b\" to be dropped from polling once Ready, got %d calls", callsForB)
+		}
+	})
+
+	t.Run("ChecksRunConcurrentlyWithinATick", func(t *testing.T) {
+		// Given two kustomizations whose GetResource calls each block until both have
+		// started, so a sequential implementation would deadlock waiting on itself
+		manager := setup(t)
+		kubernetesClient := client.NewMockKubernetesClient()
+		var mu sync.Mutex
+		started := map[string]bool{}
+		bothStarted := make(chan struct{})
+		var closeOnce sync.Once
+		kubernetesClient.GetResourceFunc = func(gvr schema.GroupVersionResource, ns, name string) (*unstructured.Unstructured, error) {
+			mu.Lock()
+			started[name] = true
+			both := started["a"] && started["b"]
+			mu.Unlock()
+			if both {
+				closeOnce.Do(func() { close(bothStarted) })
+			}
+			select {
+			case <-bothStarted:
+			case <-time.After(2 * time.Second):
+				t.Errorf("expected \"a\" and \"b\" to be checked concurrently within the same tick")
+			}
+			return &unstructured.Unstructured{
+				Object: map[string]any{
+					"status": map[string]any{
+						"conditions": []any{
+							map[string]any{"type": "Ready", "status": "True"},
+						},
+					},
+				},
+			}, nil
+		}
+		manager.client = kubernetesClient
+
+		blueprint := &blueprintv1alpha1.Blueprint{
+			Kustomizations: []blueprintv1alpha1.Kustomization{
+				{Name: "a", Timeout: &blueprintv1alpha1.DurationString{Duration: 2 * time.Second}},
+				{Name: "b", Timeout: &blueprintv1alpha1.DurationString{Duration: 2 * time.Second}},
+			},
+		}
+
+		// When waiting for kustomizations
+		err := manager.WaitForKustomizations(context.Background(), "Waiting for kustomizations", blueprint)
+
+		// Then the wait succeeds without either check having to wait for the other to finish first
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+	})
+
+	t.Run("LimitsConcurrentChecksPerTick", func(t *testing.T) {
+		// Given more kustomizations than the concurrency limit, each check briefly stalls
+		// so overlapping in-flight calls can be observed
+		manager := setup(t)
+		kubernetesClient := client.NewMockKubernetesClient()
+		var mu sync.Mutex
+		inFlight := 0
+		peak := 0
+		kubernetesClient.GetResourceFunc = func(gvr schema.GroupVersionResource, ns, name string) (*unstructured.Unstructured, error) {
+			mu.Lock()
+			inFlight++
+			if inFlight > peak {
+				peak = inFlight
+			}
+			mu.Unlock()
+			time.Sleep(20 * time.Millisecond)
+			mu.Lock()
+			inFlight--
+			mu.Unlock()
+			return &unstructured.Unstructured{
+				Object: map[string]any{
+					"status": map[string]any{
+						"conditions": []any{
+							map[string]any{"type": "Ready", "status": "True"},
+						},
+					},
+				},
+			}, nil
+		}
+		manager.client = kubernetesClient
+
+		kustomizations := make([]blueprintv1alpha1.Kustomization, 0, kustomizationCheckConcurrencyLimit+5)
+		for i := 0; i < kustomizationCheckConcurrencyLimit+5; i++ {
+			kustomizations = append(kustomizations, blueprintv1alpha1.Kustomization{
+				Name:    fmt.Sprintf("k%d", i),
+				Timeout: &blueprintv1alpha1.DurationString{Duration: 2 * time.Second},
+			})
+		}
+		blueprint := &blueprintv1alpha1.Blueprint{Kustomizations: kustomizations}
+
+		// When waiting for kustomizations
+		err := manager.WaitForKustomizations(context.Background(), "Waiting for kustomizations", blueprint)
+
+		// Then the wait succeeds, but the observed in-flight peak never exceeds the cap
+		// while still showing checks genuinely ran concurrently, not one at a time
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+		mu.Lock()
+		finalPeak := peak
+		mu.Unlock()
+		if finalPeak > kustomizationCheckConcurrencyLimit {
+			t.Errorf("Expected concurrency capped at %d, observed peak of %d", kustomizationCheckConcurrencyLimit, finalPeak)
+		}
+		if finalPeak < 2 {
+			t.Errorf("Expected checks to run concurrently, observed peak of %d", finalPeak)
 		}
 	})
 

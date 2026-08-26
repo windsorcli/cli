@@ -15,6 +15,7 @@ import (
 	"maps"
 	"os"
 	"strings"
+	"sync"
 	"time"
 
 	helmv2 "github.com/fluxcd/helm-controller/api/v2"
@@ -343,6 +344,11 @@ func kustomizationReady(obj *unstructured.Unstructured) bool {
 // a small one.
 const kustomizationWaitErrorBudgetFraction = 0.25
 
+// kustomizationCheckConcurrencyLimit caps how many GetResource calls WaitForKustomizations
+// issues at once within a single tick, so a blueprint with a large number of kustomizations
+// doesn't burst the apiserver with one request per kustomization on every poll interval.
+const kustomizationCheckConcurrencyLimit = 10
+
 // WaitForKustomizations waits for kustomizations to be ready, calculating the timeout
 // from the longest dependency chain in the blueprint. Outputs a debug message describing
 // the total wait timeout being used before beginning polling. The wait also honors ctx:
@@ -362,15 +368,15 @@ const kustomizationWaitErrorBudgetFraction = 0.25
 // invalid CEL expression, their own cross-namespace ACL denial), never a raw API error, on the
 // grounds that auth/RBAC/certs can change out from under a long-running wait just as easily as
 // a load-balancer failover can. The budget is proportional to wall-clock time rather than tick
-// count for the same reason it applies uniformly: a CPU-starved apiserver can make a single
-// tick's sequential GetResource calls take far longer than the nominal poll interval, so
-// counting ticks either fails fast on a cluster that would have recovered, or (if loosened)
-// tolerates a wildly inconsistent amount of real time depending on how slow each tick happened
-// to be.
+// count for the same reason it applies uniformly: even with per-kustomization checks run
+// concurrently, a CPU-starved apiserver can still make a tick take far longer than the nominal
+// poll interval, so counting ticks either fails fast on a cluster that would have recovered, or
+// (if loosened) tolerates a wildly inconsistent amount of real time depending on how slow each
+// tick happened to be.
 //
-// A tick that hits an error on one kustomization keeps checking the rest of the pending list
-// rather than aborting the tick outright, so one flaky item doesn't mask readiness progress on
-// everything else scheduled to reconcile that tick.
+// Each pending kustomization is checked concurrently within a tick, up to
+// kustomizationCheckConcurrencyLimit at once, so one slow or erroring GetResource call
+// doesn't hold up observing the rest of that tick's readiness progress.
 //
 // Readiness is tracked per kustomization: once observed Ready, a kustomization is dropped from
 // further polling, so a later periodic reconcile flipping it back to Reconciling doesn't reset
@@ -412,47 +418,42 @@ func (k *BaseKubernetesManager) WaitForKustomizations(ctx context.Context, messa
 			tui.Fail()
 			return fmt.Errorf("timeout waiting for kustomizations%s", k.describeNotReadyKustomizations(kustomizationNames, k.gitopsNamespace()))
 		case <-ticker.C:
-			var tickErr error
+			pending := make([]string, 0, len(kustomizationNames))
+			seen := make(map[string]bool, len(kustomizationNames))
 			for _, name := range kustomizationNames {
-				if readyKustomizations[name] {
+				if readyKustomizations[name] || seen[name] {
 					continue
 				}
-				gvr := schema.GroupVersionResource{
-					Group:    "kustomize.toolkit.fluxcd.io",
-					Version:  "v1",
-					Resource: "kustomizations",
-				}
-				obj, err := k.client.GetResource(gvr, k.gitopsNamespace(), name)
-				if err != nil && isNotFoundError(err) {
-					continue
-				}
-				if err != nil {
+				seen[name] = true
+				pending = append(pending, name)
+			}
+
+			results := make([]kustomizationCheckResult, len(pending))
+			var wg sync.WaitGroup
+			sem := make(chan struct{}, kustomizationCheckConcurrencyLimit)
+			for i, name := range pending {
+				wg.Add(1)
+				sem <- struct{}{}
+				go func(i int, name string) {
+					defer wg.Done()
+					defer func() { <-sem }()
+					ready, err := k.checkKustomizationReady(name)
+					results[i] = kustomizationCheckResult{ready: ready, err: err}
+				}(i, name)
+			}
+			wg.Wait()
+
+			var tickErr error
+			for i, name := range pending {
+				result := results[i]
+				if result.err != nil {
 					if tickErr == nil {
-						tickErr = fmt.Errorf("error checking kustomization %s: %w", name, err)
+						tickErr = fmt.Errorf("error checking kustomization %s: %w", name, result.err)
 					}
 					continue
 				}
-				var kustomizationObj map[string]any
-				if err := k.shims.FromUnstructured(obj.UnstructuredContent(), &kustomizationObj); err != nil {
-					continue
-				}
-				status, ok := kustomizationObj["status"].(map[string]any)
-				if !ok {
-					continue
-				}
-				conditions, ok := status["conditions"].([]any)
-				if !ok {
-					continue
-				}
-				for _, cond := range conditions {
-					condMap, ok := cond.(map[string]any)
-					if !ok {
-						continue
-					}
-					if condMap["type"] == "Ready" && condMap["status"] == "True" {
-						readyKustomizations[name] = true
-						break
-					}
+				if result.ready {
+					readyKustomizations[name] = true
 				}
 			}
 			if tickErr != nil {
@@ -1636,6 +1637,54 @@ waitLoop:
 // =============================================================================
 // Private Methods
 // =============================================================================
+
+// kustomizationCheckResult carries one kustomization's readiness outcome back from a
+// concurrent checkKustomizationReady call to WaitForKustomizations' tick loop.
+type kustomizationCheckResult struct {
+	ready bool
+	err   error
+}
+
+// checkKustomizationReady fetches a single Kustomization and reports whether its status
+// carries a Ready=True condition. A not-found resource is reported not-ready with no error,
+// since it hasn't reconciled into existence yet; any other GetResource or decode failure is
+// reported not-ready with the error, for the caller's error-budget accounting.
+func (k *BaseKubernetesManager) checkKustomizationReady(name string) (bool, error) {
+	gvr := schema.GroupVersionResource{
+		Group:    "kustomize.toolkit.fluxcd.io",
+		Version:  "v1",
+		Resource: "kustomizations",
+	}
+	obj, err := k.client.GetResource(gvr, k.gitopsNamespace(), name)
+	if err != nil {
+		if isNotFoundError(err) {
+			return false, nil
+		}
+		return false, err
+	}
+	var kustomizationObj map[string]any
+	if err := k.shims.FromUnstructured(obj.UnstructuredContent(), &kustomizationObj); err != nil {
+		return false, nil
+	}
+	status, ok := kustomizationObj["status"].(map[string]any)
+	if !ok {
+		return false, nil
+	}
+	conditions, ok := status["conditions"].([]any)
+	if !ok {
+		return false, nil
+	}
+	for _, cond := range conditions {
+		condMap, ok := cond.(map[string]any)
+		if !ok {
+			continue
+		}
+		if condMap["type"] == "Ready" && condMap["status"] == "True" {
+			return true, nil
+		}
+	}
+	return false, nil
+}
 
 // servicesGVR is the core v1 Services resource, scanned during destroy to find cloud
 // LoadBalancers that must be released before their controller is torn down.
