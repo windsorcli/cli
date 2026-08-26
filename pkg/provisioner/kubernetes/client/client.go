@@ -8,6 +8,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"sync"
 	"time"
 
 	"k8s.io/apimachinery/pkg/api/meta"
@@ -58,6 +59,7 @@ type KubernetesClient interface {
 
 // DynamicKubernetesClient implements KubernetesClient using dynamic client
 type DynamicKubernetesClient struct {
+	mu       sync.Mutex
 	client   dynamic.Interface
 	mapper   meta.RESTMapper
 	endpoint string
@@ -175,7 +177,9 @@ func (c *DynamicKubernetesClient) PatchResource(ctx context.Context, gvr schema.
 // If an endpoint is specified, it overrides the default kubeconfig for this check.
 // Returns an error if the client cannot be initialized or the API is unreachable.
 func (c *DynamicKubernetesClient) CheckHealth(ctx context.Context, endpoint string) error {
+	c.mu.Lock()
 	c.endpoint = endpoint
+	c.mu.Unlock()
 
 	if err := c.ensureClient(); err != nil {
 		return fmt.Errorf("failed to initialize Kubernetes client: %w", err)
@@ -248,7 +252,12 @@ func (c *DynamicKubernetesClient) GetNodeReadyStatus(ctx context.Context, nodeNa
 // ensureClient initializes the dynamic Kubernetes client and REST mapper if unset. Uses endpoint,
 // in-cluster, or kubeconfig as available. The mapper is a deferred discovery mapper, so it performs
 // no API calls until the first ResourceFor lookup. Returns error if client setup fails at any stage.
+// Safe for concurrent use: initialization is guarded by a mutex so callers issuing overlapping
+// requests (e.g. a wait loop polling several resources at once) don't race the first setup.
 func (c *DynamicKubernetesClient) ensureClient() error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
 	if c.client != nil {
 		return nil
 	}
