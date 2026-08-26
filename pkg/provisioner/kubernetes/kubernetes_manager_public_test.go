@@ -3052,6 +3052,35 @@ func TestBaseKubernetesManager_WaitForKubernetesHealthy(t *testing.T) {
 		}
 	})
 
+	t.Run("SettleDurationBoundedByCallerDeadline", func(t *testing.T) {
+		// Given a caller whose total context budget is no larger than the
+		// configured settle duration itself (e.g. windsor destroy's fail-fast
+		// reachability check, which hands WaitForKubernetesHealthy a 30s context
+		// against the same 30s default settle duration), and a health check that
+		// always succeeds
+		manager := setup(t)
+		manager.healthCheckSettleDuration = 300 * time.Millisecond
+		kubernetesClient := client.NewMockKubernetesClient()
+		kubernetesClient.CheckHealthFunc = func(ctx context.Context, endpoint string) error {
+			return nil
+		}
+		manager.client = kubernetesClient
+
+		ctx, cancel := context.WithTimeout(context.Background(), 300*time.Millisecond)
+		defer cancel()
+
+		// When it waits for health
+		err := manager.WaitForKubernetesHealthy(ctx, "https://test-endpoint:6443", nil)
+
+		// Then it still succeeds: the settle window is bounded by the remaining
+		// context deadline rather than being layered on top of it, so a healthy
+		// cluster isn't guaranteed to time out just because the caller's overall
+		// budget isn't comfortably larger than the settle duration.
+		if err != nil {
+			t.Errorf("Expected settle duration to be bounded by the caller's deadline so a healthy cluster still succeeds, got %v", err)
+		}
+	})
+
 	t.Run("TimeoutWaitingForHealth", func(t *testing.T) {
 		manager := setup(t)
 		kubernetesClient := client.NewMockKubernetesClient()

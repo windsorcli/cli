@@ -1159,7 +1159,11 @@ func decodeInventoryID(id string) (InventoryEntry, bool) {
 // health check can still observe the pre-change apiserver and return healthy moments before it's
 // recreated. To catch that race, a success only counts once the API (and, if requested, node
 // readiness) has held continuously for healthCheckSettleDuration; any failure during that window
-// resets the clock. Returns an error if the API is unreachable or any specified nodes are not Ready
+// resets the clock. healthCheckSettleDuration is bounded by the context's own remaining deadline
+// (minus one poll interval of margin) so a caller with a short overall timeout — e.g. the 30s
+// reachability check windsor destroy runs before invoking terraform — still has a reachable window
+// in which to succeed, rather than the settle requirement alone guaranteeing a timeout regardless of
+// cluster health. Returns an error if the API is unreachable or any specified nodes are not Ready
 // within the deadline.
 func (k *BaseKubernetesManager) WaitForKubernetesHealthy(ctx context.Context, endpoint string, outputFunc func(string), nodeNames ...string) error {
 	if k.client == nil {
@@ -1179,6 +1183,12 @@ func (k *BaseKubernetesManager) WaitForKubernetesHealthy(ctx context.Context, en
 	settleDuration := k.healthCheckSettleDuration
 	if settleDuration == 0 {
 		settleDuration = 30 * time.Second
+	}
+	if remaining := time.Until(deadline) - pollInterval; settleDuration > remaining {
+		if remaining < 0 {
+			remaining = 0
+		}
+		settleDuration = remaining
 	}
 
 	var lastErr error
