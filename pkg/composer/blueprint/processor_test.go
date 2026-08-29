@@ -7211,6 +7211,55 @@ func TestEvaluateCondition_EvaluatesAgainstScope(t *testing.T) {
 			t.Error("Expected condition to be false when platform is 'docker'")
 		}
 	})
+
+	t.Run("ReturnsNamedErrorWhenExpressionEvaluatesToDeferredValue", func(t *testing.T) {
+		// Given a when: expression that resolves to a deferred value
+		mocks := setupProcessorMocks(t)
+		mocks.Evaluator.EvaluateFunc = func(expression string, featurePath string, scope map[string]any, evaluateDeferred bool) (any, error) {
+			return evaluator.DeferredValue{Expression: "terraform_output('compute', 'host_cpu')"}, nil
+		}
+		processor := NewBlueprintProcessor(mocks.Runtime)
+
+		// When evaluating the condition
+		got, err := processor.evaluateCondition("terraform_output('compute', 'host_cpu') > 4", "", nil)
+
+		// Then it returns a named error identifying the unresolved expression, not a type-name leak
+		if got {
+			t.Error("Expected false result on error")
+		}
+		if err == nil {
+			t.Fatal("Expected an error")
+		}
+		if !strings.Contains(err.Error(), "not yet resolved") {
+			t.Errorf("Expected error to name the unresolved-value cause, got: %v", err)
+		}
+		if strings.Contains(err.Error(), "evaluator.DeferredValue") {
+			t.Errorf("Expected error not to leak the internal Go type name, got: %v", err)
+		}
+		if !strings.Contains(err.Error(), "terraform_output('compute', 'host_cpu')") {
+			t.Errorf("Expected error to include the deferred expression text, got: %v", err)
+		}
+	})
+
+	t.Run("ReturnsNamedErrorWhenExpressionEvaluatesToDeferredValuePointer", func(t *testing.T) {
+		// Given a when: expression that resolves to a deferred value in its pointer form
+		mocks := setupProcessorMocks(t)
+		mocks.Evaluator.EvaluateFunc = func(expression string, featurePath string, scope map[string]any, evaluateDeferred bool) (any, error) {
+			return &evaluator.DeferredValue{Expression: "terraform_output('pki', 'cert')"}, nil
+		}
+		processor := NewBlueprintProcessor(mocks.Runtime)
+
+		// When evaluating the condition
+		got, err := processor.evaluateCondition("terraform_output('pki', 'cert') != ''", "", nil)
+
+		// Then it returns the same named not-yet-resolved error as the value form
+		if got {
+			t.Error("Expected false result on error")
+		}
+		if err == nil || !strings.Contains(err.Error(), "not yet resolved") {
+			t.Errorf("Expected a named not-yet-resolved error, got: %v", err)
+		}
+	})
 }
 
 // =============================================================================

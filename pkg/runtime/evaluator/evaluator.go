@@ -252,6 +252,7 @@ func (e *expressionEvaluator) evaluate(s string, facetPath string, scope map[str
 	}
 	result := s
 	deferredEncountered := false
+	nestedResultRescan := false
 	searchStart := 0
 	for iter := 0; iter < 20; iter++ {
 		idx := strings.Index(result[searchStart:], "${")
@@ -261,6 +262,9 @@ func (e *expressionEvaluator) evaluate(s string, facetPath string, scope map[str
 		start := searchStart + idx
 		end := findExpressionEnd(result, start)
 		if end == -1 {
+			if nestedResultRescan {
+				return "", fmt.Errorf("a nested expression's result still contains an unresolved expression that could not be re-parsed for further evaluation (likely an embedded reference that is not yet resolved): %.300s", result)
+			}
 			return "", fmt.Errorf("unclosed expression in string: %s", s)
 		}
 		expr := result[start+2 : end]
@@ -288,6 +292,7 @@ func (e *expressionEvaluator) evaluate(s string, facetPath string, scope map[str
 					return value, nil
 				}
 				result = str
+				nestedResultRescan = true
 				searchStart = 0
 				continue
 			}

@@ -2198,6 +2198,12 @@ func (p *BaseBlueprintProcessor) evaluateCondition(expr string, path string, sco
 	if err != nil {
 		return false, err
 	}
+	if evaluator.IsDeferredValue(evaluated) {
+		if deferredExpr, ok := evaluator.DeferredExpression(evaluated); ok {
+			return false, fmt.Errorf("condition references a value that is not yet resolved (still evaluating config, or awaiting a terraform apply): %s", deferredExpr)
+		}
+		return false, fmt.Errorf("condition references a value that is not yet resolved (still evaluating config, or awaiting a terraform apply)")
+	}
 	var result bool
 	switch v := evaluated.(type) {
 	case nil:
