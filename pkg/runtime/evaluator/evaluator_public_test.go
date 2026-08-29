@@ -800,6 +800,59 @@ func TestExpressionEvaluator_Evaluate(t *testing.T) {
 		}
 	})
 
+	t.Run("ReturnsOriginalUnclosedErrorForAPlainLaterTypoNotProducedByNesting", func(t *testing.T) {
+		// Given a string with one expression that resolves fine and a second, independent
+		// expression that was already unclosed in the original literal input
+		evaluator, mockConfigHandler, _, _ := setupEvaluatorTest(t)
+		mockHandler := mockConfigHandler.(*config.MockConfigHandler)
+		mockHandler.GetContextValuesFunc = func() (map[string]any, error) {
+			return map[string]any{"b": "X"}, nil
+		}
+
+		// When evaluating the string
+		_, err := evaluator.Evaluate("${b} rest ${bad", "", nil, false)
+
+		// Then the original-input message is returned, not the nested-rescan message — the first
+		// expression resolving successfully must not misattribute the second's plain typo
+		if err == nil {
+			t.Fatal("Expected an error")
+		}
+		if !strings.Contains(err.Error(), "unclosed expression in string: ${b} rest ${bad") {
+			t.Errorf("Expected the original-input message, got: %v", err)
+		}
+		if strings.Contains(err.Error(), "nested expression") {
+			t.Errorf("Expected no nested-expression misattribution, got: %v", err)
+		}
+	})
+
+	t.Run("ReturnsNamedErrorWhenANestedFunctionResultStillContainsAnUnresolvedExpression", func(t *testing.T) {
+		// Given a single expression whose own result (from string()) is itself a string that
+		// still contains an unresolved, unclosed expression — the pattern a preserved/deferred
+		// value produces once embedded in a larger value and stringified
+		evaluator, mockConfigHandler, _, _ := setupEvaluatorTest(t)
+		mockHandler := mockConfigHandler.(*config.MockConfigHandler)
+		mockHandler.GetContextValuesFunc = func() (map[string]any, error) {
+			return map[string]any{"b": "X", "raw": "${b} tail ${nope"}, nil
+		}
+
+		// When evaluating the string
+		_, err := evaluator.Evaluate("${string(raw)}", "", nil, false)
+
+		// Then the nested-rescan message names the cause instead of dumping the original input
+		if err == nil {
+			t.Fatal("Expected an error")
+		}
+		if strings.Contains(err.Error(), "unclosed expression in string: ${string(raw)}") {
+			t.Errorf("Expected the nested-rescan message, not the original-input message, got: %v", err)
+		}
+		if !strings.Contains(err.Error(), "still contains an unresolved expression") {
+			t.Errorf("Expected the nested-rescan error, got: %v", err)
+		}
+		if !strings.Contains(err.Error(), "X tail") {
+			t.Errorf("Expected the error to reference the re-scanned result, got: %v", err)
+		}
+	})
+
 	t.Run("SingleExprStringWithNestedExpressionContinuesUntilResolved", func(t *testing.T) {
 		evaluator, mockConfigHandler, _, _ := setupEvaluatorTest(t)
 		mockHandler := mockConfigHandler.(*config.MockConfigHandler)
