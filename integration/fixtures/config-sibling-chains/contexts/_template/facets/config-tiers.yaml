@@ -1,0 +1,50 @@
+kind: Facet
+apiVersion: blueprints.windsorcli.dev/v1alpha1
+metadata:
+  name: config-tiers
+  description: >-
+    Two independent same-block sibling chains, each tapering a factor from a resource ratio
+    through several same-block references (ratio -> factor -> constrained flag -> reserve),
+    the shape that produced #3206: one chain's reserve value read the other chain's factor.
+
+when: (resources ?? null) != null
+
+config:
+- name: tiers
+  value:
+    a_threshold: { cpu: 2, memory: 4 }
+    b_threshold: { cpu: 4, memory: 4 }
+
+- name: tiers
+  value:
+    a_cpu_ratio: "${resources.a.cpu / tiers.a_threshold.cpu}"
+    a_memory_ratio: "${resources.a.memory / tiers.a_threshold.memory}"
+    a_ratio: "${tiers.a_cpu_ratio < tiers.a_memory_ratio ? tiers.a_cpu_ratio : tiers.a_memory_ratio}"
+    a_factor: "${tiers.a_ratio > 2 ? 0 : (tiers.a_ratio < 1 ? 1 : (2 - tiers.a_ratio))}"
+    a_constrained: "${tiers.a_factor > 0}"
+
+    b_cpu_ratio: "${resources.b.cpu / tiers.b_threshold.cpu}"
+    b_memory_ratio: "${resources.b.memory / tiers.b_threshold.memory}"
+    b_ratio: "${tiers.b_cpu_ratio < tiers.b_memory_ratio ? tiers.b_cpu_ratio : tiers.b_memory_ratio}"
+    b_factor: "${tiers.b_ratio > 2 ? 0 : (tiers.b_ratio < 1 ? 1 : (2 - tiers.b_ratio))}"
+    b_constrained: "${tiers.b_factor > 0}"
+    any_constrained: "${tiers.a_constrained || tiers.b_constrained}"
+
+- name: tiers
+  when: tiers.a_constrained
+  value:
+    a_reserve:
+      cpu: "${string(int(500 * tiers.a_factor + 0.5)) + 'm'}"
+
+- name: tiers
+  when: tiers.any_constrained
+  value:
+    b_reserve:
+      cpu: "${string(int(80 * tiers.b_factor + 0.5)) + 'm'}"
+
+terraform:
+- name: cluster
+  path: cluster/test
+  inputs:
+    a_reserve_cpu: "${tiers.a_reserve.cpu}"
+    b_reserve_cpu: "${tiers.b_reserve.cpu}"

@@ -1,0 +1,8 @@
+$schema: https://json-schema.org/draft/2020-12/schema
+title: Config Sibling Chains Fixture Schema
+type: object
+properties:
+  resources:
+    type: object
+    additionalProperties: true
+additionalProperties: true

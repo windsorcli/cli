@@ -1811,6 +1811,97 @@ func TestProcessor_ProcessFacets_ConfigBlockSameBlockSiblingRefs(t *testing.T) {
 	// which registers a real deferred helper and exercises this post-convergence validation.
 }
 
+// TestProcessor_ProcessFacets_ConfigBlockDeepSameBlockChain reconstructs the shape of the
+// resource-tapering config in windsorcli/core's config-talos.yaml (#3206): sibling fields chained
+// five-plus levels deep within one config block (ratio -> factor -> a boolean derived from the
+// factor -> a boolean OR'd from two such booleans -> a when:-gated block reading the factor again).
+// A same-block convergence budget too small for the chain's depth causes a field partway through
+// the chain to freeze at a stale value instead of erroring, so a structurally-identical sibling
+// chain (the worker axis) silently resolves using a value read from a different chain (the
+// control-plane axis) instead of its own.
+func TestProcessor_ProcessFacets_ConfigBlockDeepSameBlockChain(t *testing.T) {
+	t.Run("StructurallyIdenticalSiblingChainsResolveIndependently", func(t *testing.T) {
+		// Given two independent tiers computing a taper factor via a chained ratio -> factor ->
+		// constrained-flag -> reserve pipeline, five-plus same-block references deep, gated
+		// behind when: clauses that themselves depend on earlier links in the same chain
+		mocks := setupProcessorMocks(t)
+		mocks.ConfigHandler.GetContextValuesFunc = func() (map[string]any, error) {
+			return map[string]any{
+				"cluster_resources_effective": map[string]any{
+					"controlplanes": map[string]any{"cpu": 100, "memory": 6},
+					"workers":       map[string]any{"cpu": 100, "memory": 5},
+				},
+			}, nil
+		}
+		processor := NewBlueprintProcessor(mocks.Runtime)
+
+		facets := []blueprintv1alpha1.Facet{
+			{
+				Metadata: blueprintv1alpha1.Metadata{Name: "talos"},
+				Config: []blueprintv1alpha1.ConfigBlock{
+					{Name: "talos_common", Body: map[string]any{"value": map[string]any{
+						"cp_tier":          map[string]any{"threshold": map[string]any{"cpu": 2, "memory": 4}, "max": map[string]any{"kubelet_cpu": 500}},
+						"worker_threshold": map[string]any{"cpu": 4, "memory": 4},
+						"worker_max":       map[string]any{"kubelet_cpu": 80},
+					}}},
+					{Name: "talos_common", Body: map[string]any{"value": map[string]any{
+						"cp_cpu_ratio":          "${cluster_resources_effective.controlplanes.cpu / talos_common.cp_tier.threshold.cpu}",
+						"cp_memory_ratio":       "${cluster_resources_effective.controlplanes.memory / talos_common.cp_tier.threshold.memory}",
+						"cp_ratio":              "${talos_common.cp_cpu_ratio < talos_common.cp_memory_ratio ? talos_common.cp_cpu_ratio : talos_common.cp_memory_ratio}",
+						"cp_factor":             "${talos_common.cp_ratio > 2 ? 0 : (talos_common.cp_ratio < 1 ? 1 : (2 - talos_common.cp_ratio))}",
+						"resource_constrained":  "${talos_common.cp_factor > 0}",
+						"worker_cpu_ratio":      "${cluster_resources_effective.workers.cpu / talos_common.worker_threshold.cpu}",
+						"worker_memory_ratio":   "${cluster_resources_effective.workers.memory / talos_common.worker_threshold.memory}",
+						"worker_ratio":          "${talos_common.worker_cpu_ratio < talos_common.worker_memory_ratio ? talos_common.worker_cpu_ratio : talos_common.worker_memory_ratio}",
+						"worker_factor":         "${talos_common.worker_ratio > 2 ? 0 : (talos_common.worker_ratio < 1 ? 1 : (2 - talos_common.worker_ratio))}",
+						"worker_constrained":    "${talos_common.worker_factor > 0}",
+						"worker_reserve_needed": "${talos_common.resource_constrained || talos_common.worker_constrained}",
+					}}},
+					{Name: "talos_common", When: "talos_common.resource_constrained", Body: map[string]any{"value": map[string]any{
+						"cp_reserve": map[string]any{
+							"kubelet_cpu": "${string(int(talos_common.cp_tier.max.kubelet_cpu * talos_common.cp_factor + 0.5)) + 'm'}",
+						},
+					}}},
+					{Name: "talos_common", When: "talos_common.worker_reserve_needed", Body: map[string]any{"value": map[string]any{
+						"worker_reserve": map[string]any{
+							"kubelet_cpu": "${string(int(talos_common.worker_max.kubelet_cpu * talos_common.worker_factor + 0.5)) + 'm'}",
+						},
+					}}},
+				},
+			},
+		}
+
+		// When processing
+		scope, err := processor.ProcessFacets(&blueprintv1alpha1.Blueprint{}, facets)
+
+		// Then both chains converge, and the worker chain resolves using its own factor
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		block := scope["talos_common"].(map[string]any)
+		if block["cp_factor"] != 0.5 {
+			t.Errorf("Expected cp_factor 0.5, got %v", block["cp_factor"])
+		}
+		if block["worker_factor"] != 0.75 {
+			t.Errorf("Expected worker_factor 0.75, got %v", block["worker_factor"])
+		}
+		cpReserve, ok := block["cp_reserve"].(map[string]any)
+		if !ok {
+			t.Fatalf("Expected cp_reserve to resolve, got %#v", block["cp_reserve"])
+		}
+		if cpReserve["kubelet_cpu"] != "250m" {
+			t.Errorf("Expected cp_reserve.kubelet_cpu 250m, got %v", cpReserve["kubelet_cpu"])
+		}
+		workerReserve, ok := block["worker_reserve"].(map[string]any)
+		if !ok {
+			t.Fatalf("Expected worker_reserve to resolve, got %#v", block["worker_reserve"])
+		}
+		if workerReserve["kubelet_cpu"] != "60m" {
+			t.Errorf("Expected worker_reserve.kubelet_cpu 60m (worker_factor 0.75), not a value collided from cp_factor, got %v", workerReserve["kubelet_cpu"])
+		}
+	})
+}
+
 func TestProcessor_ProcessFacets_ConfigBlockEvaluationOrder(t *testing.T) {
 	// These tests pin the dependency-driven evaluation order for config blocks. The
 	// processor must evaluate a block AFTER every block it references via ${...}, no
@@ -2306,6 +2397,52 @@ func TestProcessor_ProcessFacets_ConfigDeferredValues(t *testing.T) {
 		deferred := processor.GetDeferredPaths()
 		if !deferred["substitutions.helm_registry"] {
 			t.Errorf("Expected helm_registry to be marked as deferred, got deferred paths: %v (value: %q)", deferred, helmReg)
+		}
+	})
+
+	t.Run("PermanentlyUnresolvableKeyStopsPassesEarlyRegardlessOfBlockSize", func(t *testing.T) {
+		// Given a large config block (so the same-block pass cap, sized to the block's own key
+		// count, would be large too) where one key can never resolve at composition time
+		mocks := setupProcessorMocks(t)
+		mocks.ConfigHandler.GetContextValuesFunc = func() (map[string]any, error) {
+			return map[string]any{}, nil
+		}
+
+		realEval := evaluator.NewExpressionEvaluator(mocks.ConfigHandler, mocks.Runtime.ProjectRoot, mocks.Runtime.ConfigRoot)
+		calls := 0
+		realEval.Register("deferred_helper", func(params []any, deferred bool) (any, error) {
+			calls++
+			if !deferred {
+				return nil, &evaluator.DeferredError{Expression: "deferred_helper()", Message: "deferred"}
+			}
+			return "resolved", nil
+		}, new(func() any))
+
+		mocks.Evaluator.EvaluateFunc = realEval.Evaluate
+		mocks.Evaluator.EvaluateMapFunc = realEval.EvaluateMap
+
+		processor := NewBlueprintProcessor(mocks.Runtime)
+		body := map[string]any{"deferred_field": "${deferred_helper()}"}
+		for i := 0; i < 30; i++ {
+			body[fmt.Sprintf("padding_%d", i)] = fmt.Sprintf("literal_%d", i)
+		}
+		facets := []blueprintv1alpha1.Facet{{
+			Metadata: blueprintv1alpha1.Metadata{Name: "test-facet"},
+			Config: []blueprintv1alpha1.ConfigBlock{
+				{Name: "wide_block", Body: map[string]any{"value": body}},
+			},
+		}}
+
+		// When processing
+		_, err := processor.ProcessFacets(&blueprintv1alpha1.Blueprint{}, facets)
+
+		// Then the pass loop stops as soon as re-evaluation stops changing, not after burning
+		// through all 30+ keys' worth of passes on a value that can never resolve here
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		if calls > 20 {
+			t.Errorf("Expected the pass loop to stop quickly once stable rather than scaling with the block's 31 keys, got %d calls to the never-resolving helper", calls)
 		}
 	})
 }
