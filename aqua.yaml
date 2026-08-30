@@ -22,7 +22,7 @@ packages:
 - name: securego/gosec@v2.28.0
 - name: docker/compose@v5.4.0
 - name: google/go-jsonnet@v0.22.0
-- name: mikefarah/yq@v4.53.3
+- name: mikefarah/yq@v4.53.6
 - name: goreleaser/goreleaser@v2.17.1
 - name: helm/helm@v4.2.4
 - name: 1password/cli@v2.30.3
