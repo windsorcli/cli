@@ -755,14 +755,12 @@ func (p *BaseBlueprintProcessor) mergeConfigBlocks(scope map[string]any, existin
 	return out, merged, nil
 }
 
-// evaluateGlobalScopeConfig evaluates all config block body expressions in globalScope in
-// blueprint context. The evaluation scope is contextScope (values from ConfigHandler) merged
-// with globalScope (facet config blocks) so expressions can reference both (e.g.
-// cluster.controlplanes.schedulable from values and talos.controlplanes from config blocks).
-// Same-block references are supported by re-evaluating each block until stable. Mutates
-// globalScope in place. Block evaluation order is determined by topoSortConfigBlocks —
-// each block evaluates after every block it references, regardless of which facet wrote
-// which first; alphabetical tiebreak for independent blocks.
+// evaluateGlobalScopeConfig evaluates every config block body in globalScope against contextScope
+// (ConfigHandler values) merged with globalScope (facet config blocks), so expressions can
+// reference both. Same-block sibling references converge by re-evaluating a block repeatedly, up
+// to its own key count — a chain of N dependent keys can take up to N passes, since each pass only
+// propagates values one dependency level further. Cross-block order comes from
+// topoSortConfigBlocks (alphabetical tiebreak for independents). Mutates globalScope in place.
 func (p *BaseBlueprintProcessor) evaluateGlobalScopeConfig(globalScope map[string]any, contextScope map[string]any) error {
 	if globalScope == nil {
 		return nil
@@ -776,7 +774,7 @@ func (p *BaseBlueprintProcessor) evaluateGlobalScopeConfig(globalScope map[strin
 	if err != nil {
 		return err
 	}
-	const maxSameBlockPasses = 5
+	const minSameBlockPasses = 5
 	const maxCrossBlockRounds = 5
 	for round := 0; round < maxCrossBlockRounds; round++ {
 		anyBlockChanged := false
@@ -810,6 +808,10 @@ func (p *BaseBlueprintProcessor) evaluateGlobalScopeConfig(globalScope map[strin
 					derivedKeys[k] = s
 				}
 			}
+			maxSameBlockPasses := len(bodyMap)
+			if maxSameBlockPasses < minSameBlockPasses {
+				maxSameBlockPasses = minSameBlockPasses
+			}
 			var previousEvaluatedOnly map[string]any
 			for pass := 0; pass < maxSameBlockPasses; pass++ {
 				var blockVal any
@@ -828,7 +830,7 @@ func (p *BaseBlueprintProcessor) evaluateGlobalScopeConfig(globalScope map[strin
 				if normalized, ok := normalizeDeferredValue(evaluated).(map[string]any); ok {
 					evaluated = normalized
 				}
-				if previousEvaluatedOnly != nil && reflect.DeepEqual(evaluated, previousEvaluatedOnly) && !containsExpressionInValue(evaluated) {
+				if previousEvaluatedOnly != nil && reflect.DeepEqual(evaluated, previousEvaluatedOnly) {
 					for k, orig := range derivedKeys {
 						evaluated[k] = orig
 					}

@@ -64,6 +64,25 @@ func TestWindsorTest_DerivedConfigFixture(t *testing.T) {
 	}
 }
 
+// TestWindsorTest_ConfigSiblingChainsFixture reproduces #3206: two structurally identical
+// same-block sibling chains (ratio -> factor -> constrained flag -> reserve, several
+// references deep) must resolve independently. A same-block convergence budget too small for
+// the chain depth previously froze one chain's fields mid-resolution, so the second chain's
+// reserve value silently read the first chain's factor instead of its own.
+func TestWindsorTest_ConfigSiblingChainsFixture(t *testing.T) {
+	t.Parallel()
+	dir, env := helpers.PrepareFixture(t, "config-sibling-chains")
+	env = append(env, "WINDSOR_CONTEXT=test")
+	stdout, stderr, err := helpers.RunCLI(dir, []string{"test"}, env)
+	if err != nil {
+		t.Fatalf("windsor test: %v\nstdout: %s\nstderr: %s", err, stdout, stderr)
+	}
+	out := string(stdout) + string(stderr)
+	if !strings.Contains(out, "PASS") && !strings.Contains(out, "✓") {
+		t.Errorf("expected PASS or ✓ in output: %s", out)
+	}
+}
+
 // TestShowBlueprint_CrdsFacetSection verifies a facet's `crds:` declaration composes into the
 // blueprint's first-class `crds:` section (a flat scalar list, not kustomization objects), and that
 // the stack's root depends on the synthesized "crds" layer via the barrier.

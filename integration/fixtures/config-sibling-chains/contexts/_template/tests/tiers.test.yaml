@@ -1,0 +1,17 @@
+cases:
+- name: two independent sibling chains resolve their own factor, not each other's (#3206)
+  values:
+    resources:
+      a:
+        cpu: 100
+        memory: 6
+      b:
+        cpu: 100
+        memory: 5
+  expect:
+    terraform:
+    - name: cluster
+      path: cluster/test
+      inputs:
+        a_reserve_cpu: 250m
+        b_reserve_cpu: 60m
