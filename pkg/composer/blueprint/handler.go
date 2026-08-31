@@ -118,11 +118,15 @@ func (h *BaseBlueprintHandler) SetTraceCollector(tc TraceCollector) {
 // for all source blueprints and composes them into a single unified blueprint, applying the user
 // blueprint as the final override layer. The blueprintURL parameter stores URLs that should be added
 // to sources during initialization. These URLs are loaded first so their metadata names can be used.
+// Each call starts a fresh pipeline: sourceBlueprintLoaders is reset first, so a second call on the
+// same handler (e.g. after RetargetSource changes a source's URL) re-pulls every source instead of
+// reusing loaders cached from the previous call.
 func (h *BaseBlueprintHandler) LoadBlueprint(blueprintURL ...string) error {
 	h.initBlueprintURLs = blueprintURL
 	h.deferredPathsMu.Lock()
 	h.deferredPaths = make(map[string]bool)
 	h.deferredPathsMu.Unlock()
+	h.sourceBlueprintLoaders = make(map[string]BlueprintLoader)
 
 	if err := h.loadInitBlueprints(); err != nil {
 		return fmt.Errorf("failed to load init blueprints: %w", err)

@@ -374,6 +374,90 @@ sources:
 		}
 	})
 
+	t.Run("ReloadPullsSourceContentChangedSinceThePreviousLoad", func(t *testing.T) {
+		// Given a source pinned to one tag, loaded once
+		mocks := setupHandlerMocks(t)
+
+		oldDir := filepath.Join(mocks.Runtime.ProjectRoot, "core-old")
+		os.MkdirAll(oldDir, 0755)
+		os.WriteFile(filepath.Join(oldDir, "blueprint.yaml"), []byte(`kind: Blueprint
+apiVersion: blueprints.windsorcli.dev/v1alpha1
+metadata:
+  name: core
+terraform:
+  - path: old-path
+`), 0644)
+
+		newDir := filepath.Join(mocks.Runtime.ProjectRoot, "core-new")
+		os.MkdirAll(newDir, 0755)
+		os.WriteFile(filepath.Join(newDir, "blueprint.yaml"), []byte(`kind: Blueprint
+apiVersion: blueprints.windsorcli.dev/v1alpha1
+metadata:
+  name: core
+terraform:
+  - path: new-path
+`), 0644)
+
+		currentTag := "v1.0.0"
+		mocks.ArtifactBuilder.ParseOCIRefFunc = func(ref string) (string, string, string, error) {
+			return "example.com", "core", currentTag, nil
+		}
+		mocks.ArtifactBuilder.PullFunc = func(refs []string) (map[string]string, error) {
+			dir := oldDir
+			if currentTag == "v2.0.0" {
+				dir = newDir
+			}
+			return map[string]string{"example.com/core:" + currentTag: dir}, nil
+		}
+
+		os.WriteFile(filepath.Join(mocks.Runtime.ConfigRoot, "blueprint.yaml"), []byte(`kind: Blueprint
+apiVersion: blueprints.windsorcli.dev/v1alpha1
+metadata:
+  name: test
+sources:
+  - name: core
+    url: oci://example.com/core:v1.0.0
+`), 0644)
+
+		handler := NewBlueprintHandler(mocks.Runtime, mocks.ArtifactBuilder)
+		if err := handler.LoadBlueprint(); err != nil {
+			t.Fatalf("Expected no error on first load, got %v", err)
+		}
+		hasPath := func(path string) bool {
+			for _, comp := range handler.composedBlueprint.TerraformComponents {
+				if comp.Path == path {
+					return true
+				}
+			}
+			return false
+		}
+		if !hasPath("old-path") {
+			t.Fatalf("Expected first load to include old-path, got %v", handler.composedBlueprint.TerraformComponents)
+		}
+
+		// When the source is retargeted to a tag with different content, persisted, and reloaded
+		// on the same handler — mirroring windsor upgrade's RetargetSource -> Write -> LoadBlueprint
+		if _, err := handler.RetargetSource("core", "oci://example.com/core:v2.0.0"); err != nil {
+			t.Fatalf("RetargetSource: %v", err)
+		}
+		if err := handler.Write(true); err != nil {
+			t.Fatalf("Write: %v", err)
+		}
+		currentTag = "v2.0.0"
+		if err := handler.LoadBlueprint(); err != nil {
+			t.Fatalf("Expected no error on reload, got %v", err)
+		}
+
+		// Then the reload pulls the new source content instead of reusing the loader cached from
+		// the first LoadBlueprint call
+		if hasPath("old-path") {
+			t.Errorf("Expected reload to drop stale content from the old source, got %v", handler.composedBlueprint.TerraformComponents)
+		}
+		if !hasPath("new-path") {
+			t.Errorf("Expected reload to pull the new source content, got %v", handler.composedBlueprint.TerraformComponents)
+		}
+	})
+
 	t.Run("DanglingDependencyOnExcludedFacetNamesTheFacetAndCondition", func(t *testing.T) {
 		// Given a local template where one facet (excluded by a false when:) would contribute the
 		// "cluster" component, and an always-on facet's "cni" depends on it.
