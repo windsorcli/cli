@@ -1,6 +1,6 @@
 module github.com/windsorcli/cli
 
-go 1.26.5
+go 1.26.6
 
 require (
 	github.com/1password/onepassword-sdk-go v0.4.1
@@ -20,7 +20,7 @@ require (
 	github.com/hashicorp/hcl/v2 v2.24.0
 	github.com/kaptinlin/jsonschema v0.9.8
 	github.com/shirou/gopsutil v3.21.11+incompatible
-	github.com/siderolabs/talos/pkg/machinery v1.13.8
+	github.com/siderolabs/talos/pkg/machinery v1.13.9
 	github.com/spf13/cobra v1.10.2
 	github.com/spf13/pflag v1.0.10
 	github.com/zclconf/go-cty v1.19.0
