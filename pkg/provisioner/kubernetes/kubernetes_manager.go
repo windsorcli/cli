@@ -351,38 +351,30 @@ const kustomizationWaitErrorBudgetFraction = 0.25
 // doesn't burst the apiserver with one request per kustomization on every poll interval.
 const kustomizationCheckConcurrencyLimit = 10
 
-// WaitForKustomizations waits for kustomizations to be ready, calculating the timeout
-// from the longest dependency chain in the blueprint. Outputs a debug message describing
-// the total wait timeout being used before beginning polling. The wait also honors ctx:
-// a cancelled or deadline-exceeded context ends the wait immediately and returns ctx.Err(),
-// so a parent SIGTERM/Ctrl+C or command deadline can interrupt it (rather than requiring a
-// SIGKILL that bypasses the caller's defer cleanup). A not-found GetResource error is treated
-// as not-ready-yet and keeps polling.
+// WaitForKustomizations waits for kustomizations to be ready, calculating the timeout from the
+// longest dependency chain in the blueprint. It honors ctx: a cancelled or deadline-exceeded
+// context ends the wait immediately and returns ctx.Err(), so a parent SIGTERM/Ctrl+C or command
+// deadline can interrupt it cleanly.
 //
-// Every other GetResource error (auth, RBAC, TLS, connection, apiserver timeout) starts an
-// error streak timer and is tolerated as long as the streak stays within
+// A not-found GetResource error is treated as not-ready-yet. Any other GetResource error (auth,
+// RBAC, TLS, connection, apiserver timeout) is tolerated for up to
 // kustomizationWaitErrorBudgetFraction of the total timeout (floored at
-// kustomizationWaitMinErrorDuration so a short wait still gets a few retries); the streak
-// resets the moment any tick completes with no error. Errors are deliberately not classified
-// into permanent-vs-transient buckets: kustomize-controller and helm-controller, reconciling
-// this exact kind of dependency-readiness check against the same apiserver, don't either —
-// their terminal (no-retry) path is reserved for static errors in the object's own spec (an
-// invalid CEL expression, their own cross-namespace ACL denial), never a raw API error, on the
-// grounds that auth/RBAC/certs can change out from under a long-running wait just as easily as
-// a load-balancer failover can. The budget is proportional to wall-clock time rather than tick
-// count for the same reason it applies uniformly: even with per-kustomization checks run
-// concurrently, a CPU-starved apiserver can still make a tick take far longer than the nominal
-// poll interval, so counting ticks either fails fast on a cluster that would have recovered, or
-// (if loosened) tolerates a wildly inconsistent amount of real time depending on how slow each
-// tick happened to be.
+// kustomizationWaitMinErrorDuration), and the streak resets on any clean tick. These errors are
+// deliberately not classified as permanent vs. transient — matching kustomize-controller and
+// helm-controller, which reserve their no-retry path for a static error in the object's own
+// spec, never a raw API error.
+//
+// A Kustomization's own Ready=False condition is different: a Reason in
+// kustomizationTerminalReasons (BuildFailed, ArtifactFailed, ReconciliationFailed) ends the wait
+// immediately, since kustomize-controller repeats the same reason on every retry. Any other
+// Reason (Progressing, DependencyNotReady, or none yet) still counts as not-ready and keeps
+// polling.
 //
 // Each pending kustomization is checked concurrently within a tick, up to
-// kustomizationCheckConcurrencyLimit at once, so one slow or erroring GetResource call
-// doesn't hold up observing the rest of that tick's readiness progress.
-//
-// Readiness is tracked per kustomization: once observed Ready, a kustomization is dropped from
-// further polling, so a later periodic reconcile flipping it back to Reconciling doesn't reset
-// the wait.
+// kustomizationCheckConcurrencyLimit, so one slow or erroring check doesn't block the rest. Once
+// observed Ready, a kustomization is dropped from polling, so a later reconcile flipping it back
+// doesn't reset the wait. The tracked name set is deduplicated, since withCrdLayer can prepend a
+// CRD kustomization whose name collides with one declared elsewhere.
 func (k *BaseKubernetesManager) WaitForKustomizations(ctx context.Context, message string, blueprint *blueprintv1alpha1.Blueprint) error {
 	if blueprint == nil {
 		return fmt.Errorf("blueprint not provided")
@@ -390,10 +382,15 @@ func (k *BaseKubernetesManager) WaitForKustomizations(ctx context.Context, messa
 
 	timeout := k.calculateTotalWaitTime(blueprint)
 	kustomizationNames := make([]string, 0, len(blueprint.Kustomizations))
+	seenNames := make(map[string]bool, len(blueprint.Kustomizations))
 	for _, kustomization := range blueprint.Kustomizations {
 		if kustomization.DestroyOnly != nil && *kustomization.DestroyOnly {
 			continue
 		}
+		if seenNames[kustomization.Name] {
+			continue
+		}
+		seenNames[kustomization.Name] = true
 		kustomizationNames = append(kustomizationNames, kustomization.Name)
 	}
 
@@ -449,6 +446,11 @@ func (k *BaseKubernetesManager) WaitForKustomizations(ctx context.Context, messa
 			for i, name := range pending {
 				result := results[i]
 				if result.err != nil {
+					var failed *kustomizationFailedError
+					if errors.As(result.err, &failed) {
+						tui.Fail()
+						return fmt.Errorf("kustomization will not become ready: %w", failed)
+					}
 					if tickErr == nil {
 						tickErr = fmt.Errorf("error checking kustomization %s: %w", name, result.err)
 					}
@@ -973,8 +975,8 @@ func (k *BaseKubernetesManager) CheckGitRepositoryStatus() error {
 
 // GetKustomizationStatus returns a map indicating readiness for each specified kustomization in the default
 // Flux system namespace. If a kustomization is not found, its status is set to false. If any kustomization
-// has a Ready condition with Status False and Reason "ReconciliationFailed", an error is returned with the
-// failure message.
+// has a Ready condition with Status False and a Reason in kustomizationTerminalReasons, an error is
+// returned with the failure message.
 func (k *BaseKubernetesManager) GetKustomizationStatus(names []string) (map[string]bool, error) {
 	gvr := schema.GroupVersionResource{
 		Group:    "kustomize.toolkit.fluxcd.io",
@@ -1002,7 +1004,7 @@ func (k *BaseKubernetesManager) GetKustomizationStatus(names []string) (map[stri
 			if condition.Type == "Ready" {
 				if condition.Status == "True" {
 					ready = true
-				} else if condition.Status == "False" && (condition.Reason == "ReconciliationFailed" || condition.Reason == "ArtifactFailed") {
+				} else if condition.Status == "False" && kustomizationTerminalReasons[condition.Reason] {
 					return nil, fmt.Errorf("kustomization %s failed: %s", kustomizeObj.Name, condition.Message)
 				}
 				break
@@ -1683,10 +1685,38 @@ type kustomizationCheckResult struct {
 	err   error
 }
 
+// kustomizationTerminalReasons are Ready=False Reasons that describe a permanent problem: a
+// build error, an artifact fetch failure, or a failed apply. kustomize-controller repeats the
+// same reason on every retry, so waiting longer never helps. This differs from a reason like
+// "Progressing" or "DependencyNotReady", which does resolve with time. GetKustomizationStatus
+// and checkKustomizationReady both treat these reasons as fatal instead of polling to the
+// timeout.
+var kustomizationTerminalReasons = map[string]bool{
+	meta.BuildFailedReason:          true,
+	meta.ArtifactFailedReason:       true,
+	meta.ReconciliationFailedReason: true,
+}
+
+// kustomizationFailedError signals a Ready condition with a Reason in kustomizationTerminalReasons:
+// a failure polling will never resolve. WaitForKustomizations fails immediately on this error.
+// A raw GetResource API error still gets the error-streak tolerance instead (see WaitForKustomizations).
+type kustomizationFailedError struct {
+	name    string
+	reason  string
+	message string
+}
+
+func (e *kustomizationFailedError) Error() string {
+	return fmt.Sprintf("kustomization %s failed (%s): %s", e.name, e.reason, e.message)
+}
+
 // checkKustomizationReady fetches a single Kustomization and reports whether its status
 // carries a Ready=True condition. A not-found resource is reported not-ready with no error,
 // since it hasn't reconciled into existence yet; any other GetResource or decode failure is
-// reported not-ready with the error, for the caller's error-budget accounting.
+// reported not-ready with the error, for the caller's error-budget accounting. A Ready=False
+// condition with a Reason in kustomizationTerminalReasons returns a *kustomizationFailedError
+// instead, so WaitForKustomizations can fail immediately rather than poll a Kustomization
+// that will never become Ready.
 func (k *BaseKubernetesManager) checkKustomizationReady(name string) (bool, error) {
 	gvr := schema.GroupVersionResource{
 		Group:    "kustomize.toolkit.fluxcd.io",
@@ -1717,9 +1747,20 @@ func (k *BaseKubernetesManager) checkKustomizationReady(name string) (bool, erro
 		if !ok {
 			continue
 		}
-		if condMap["type"] == "Ready" && condMap["status"] == "True" {
+		if condMap["type"] != "Ready" {
+			continue
+		}
+		if condMap["status"] == "True" {
 			return true, nil
 		}
+		if condMap["status"] == "False" {
+			reason, _ := condMap["reason"].(string)
+			if kustomizationTerminalReasons[reason] {
+				message, _ := condMap["message"].(string)
+				return false, &kustomizationFailedError{name: name, reason: reason, message: message}
+			}
+		}
+		break
 	}
 	return false, nil
 }

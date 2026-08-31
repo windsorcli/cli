@@ -389,37 +389,6 @@ func (i *Provisioner) DestroyAllTerraform(blueprint *blueprintv1alpha1.Blueprint
 	return i.destroyAllTerraform(blueprint, continueOnError, true, excludeIDs...)
 }
 
-// destroyAllTerraform is the shared implementation behind DestroyAllTerraform. checkReachability
-// is false only for Teardown's Stage 2 tier destroy: by the time Stage 2 runs, Stage 1 has
-// already destroyed the cluster by design, so an unreachable Kubernetes API is the expected state
-// rather than a signal of broken auth, and the backend tier never has a kubernetes/helm provider
-// dependency for the check to protect.
-func (i *Provisioner) destroyAllTerraform(blueprint *blueprintv1alpha1.Blueprint, continueOnError bool, checkReachability bool, excludeIDs ...string) (DestroyResult, error) {
-	var result DestroyResult
-	if blueprint == nil {
-		return result, fmt.Errorf("blueprint not provided")
-	}
-	if err := i.ensureTerraformStack(); err != nil {
-		return result, err
-	}
-	if i.TerraformStack == nil {
-		return result, fmt.Errorf("terraform is disabled")
-	}
-	if checkReachability {
-		if err := i.checkKubernetesReachableForDestroy(); err != nil {
-			return result, err
-		}
-	}
-	outcome, err := i.TerraformStack.DestroyAll(blueprint, continueOnError, excludeIDs...)
-	result.Destroyed = outcome.Destroyed
-	result.Skipped = outcome.Skipped
-	result.Failed = outcome.Failed
-	if err != nil {
-		return result, fmt.Errorf("failed to run terraform destroy: %w", err)
-	}
-	return result, nil
-}
-
 // Apply runs terraform init, plan, and apply for a single component identified by componentID.
 // Returns an error if terraform is disabled, the stack cannot be initialized, the component is
 // not found, or any terraform operation fails.
@@ -1202,193 +1171,12 @@ func (i *Provisioner) PlaceSecrets(ctx context.Context, resolved ResolvedSecrets
 	})
 }
 
-// secretDigest returns a stable content digest for a secret's resolved data, used to roll consuming
-// workloads only when the content actually changes. Keys are sorted and each key and value is
-// length-delimited by a NUL so distinct maps cannot collide, then hashed with SHA-256. The digest is
-// one-way: it detects change without revealing the plaintext it summarizes.
-func secretDigest(stringData map[string]string) string {
-	keys := make([]string, 0, len(stringData))
-	for k := range stringData {
-		keys = append(keys, k)
-	}
-	slices.Sort(keys)
-	h := sha256.New()
-	for _, k := range keys {
-		h.Write([]byte(k))
-		h.Write([]byte{0})
-		h.Write([]byte(stringData[k]))
-		h.Write([]byte{0})
-	}
-	return hex.EncodeToString(h.Sum(nil))
-}
-
-// trySecretNamespaces reports where a secret should be placed and whether every target namespace exists
-// yet, without blocking, so PlaceSecrets can place the ready ones and poll for the rest. When the entry
-// names namespaces explicitly they are the targets, gated on each existing in the cluster regardless of
-// which kustomization created it — the author named the target, so a secret whose namespace is created by a
-// different kustomization is not blocked on the owning kustomization's inventory. When it names none the
-// target is auto-resolved from the owning kustomization's Flux inventory: the namespace it creates, or —
-// when it creates none — the single namespace its resources are deployed into. Auto-resolution fails closed
-// when that spans more than one namespace (ambiguous — the author must name the target via `namespaces:`),
-// and once the kustomization has reconciled but offers nothing to infer from (its inventory is populated
-// yet names no namespace), rather than waiting forever. A (nil, false, nil) return means "not resolvable
-// yet, keep polling" — the named namespaces don't exist, or the owning kustomization has not reconciled.
-// Gating on the namespace existing — not on the owning kustomization being Ready — lets a secret be placed
-// the moment its namespace appears, so a consumer whose readiness depends on it can never deadlock.
-func (i *Provisioner) trySecretNamespaces(kustomizationName string, explicit []string) ([]string, bool, error) {
-	if len(explicit) > 0 {
-		missing, err := i.missingClusterNamespaces(explicit)
-		if err != nil {
-			return nil, false, err
-		}
-		if len(missing) == 0 {
-			return slices.Clone(explicit), true, nil
-		}
-		return nil, false, nil
-	}
-	entries, err := i.KubernetesManager.GetKustomizationInventory(kustomizationName, i.fluxNamespace())
-	if err != nil {
-		return nil, false, fmt.Errorf("reading inventory for kustomization %q: %w", kustomizationName, err)
-	}
-	candidates := autoResolveNamespaces(entries)
-	switch {
-	case len(candidates) == 1:
-		return candidates, true, nil
-	case len(candidates) > 1:
-		return nil, false, fmt.Errorf("kustomization %q spans multiple namespaces (%s); set `namespaces:` on the secret to choose where to place it", kustomizationName, strings.Join(candidates, ", "))
-	case len(entries) > 0:
-		return nil, false, fmt.Errorf("kustomization %q creates no namespace and deploys no namespaced resources to infer one from; set `namespaces:` on the secret to choose where to place it", kustomizationName)
-	}
-	return nil, false, nil
-}
-
-// pendingSummary renders the secrets still awaiting a namespace as sorted "secret (kustomization)" entries —
-// naming the explicit target namespaces when the entry declared them — for the progress and timeout lines.
-func pendingSummary(pending []pendingPlacement) string {
-	parts := make([]string, 0, len(pending))
-	for _, p := range pending {
-		if len(p.secret.Namespaces) > 0 {
-			parts = append(parts, fmt.Sprintf("%s (%s)→%s", p.secretName, p.kustomization, strings.Join(p.secret.Namespaces, ",")))
-		} else {
-			parts = append(parts, fmt.Sprintf("%s (%s)", p.secretName, p.kustomization))
-		}
-	}
-	slices.Sort(parts)
-	return strings.Join(parts, ", ")
-}
-
-// autoResolveNamespaces infers where a secret should land when its entry names no namespace, from the
-// owning kustomization's Flux inventory. It prefers the Namespace object(s) the kustomization creates; when
-// it creates none, it falls back to the distinct namespaces its namespaced resources are deployed into, so
-// a kustomization that deploys into a namespace another kustomization created is still resolvable. The
-// result is sorted so a multi-namespace outcome reads deterministically.
-func autoResolveNamespaces(entries []kubernetes.InventoryEntry) []string {
-	created := make(map[string]struct{})
-	deployed := make(map[string]struct{})
-	for _, entry := range entries {
-		if entry.Kind == "Namespace" {
-			created[entry.Name] = struct{}{}
-		}
-		if entry.Namespace != "" {
-			deployed[entry.Namespace] = struct{}{}
-		}
-	}
-	chosen := created
-	if len(chosen) == 0 {
-		chosen = deployed
-	}
-	out := make([]string, 0, len(chosen))
-	for ns := range chosen {
-		out = append(out, ns)
-	}
-	slices.Sort(out)
-	return out
-}
-
-// missingClusterNamespaces returns the members of want that do not yet exist in the cluster, preserving
-// want's order. It is how placement gates a secret that names its target namespace(s) explicitly: on those
-// namespaces existing, regardless of which kustomization created them.
-func (i *Provisioner) missingClusterNamespaces(want []string) ([]string, error) {
-	var missing []string
-	for _, ns := range want {
-		exists, err := i.KubernetesManager.NamespaceExists(ns)
-		if err != nil {
-			return nil, fmt.Errorf("checking namespace %q: %w", ns, err)
-		}
-		if !exists {
-			missing = append(missing, ns)
-		}
-	}
-	return missing, nil
-}
-
-// reconcileKustomizations requests an immediate flux reconcile of the named Kustomizations, best-effort: it
-// initializes the notifier if needed and swallows any error, so a placement round is never failed by a
-// reconcile nudge. A nil or empty names slice is a no-op.
-func (i *Provisioner) reconcileKustomizations(ctx context.Context, names []string) {
-	if len(names) == 0 {
-		return
-	}
-	if err := i.ensureNotifier(); err != nil {
-		return
-	}
-	_ = i.Notifier.ReconcileKustomizations(ctx, names)
-}
-
-// helmReleaseReady reports whether a HelmRelease currently carries a Ready=True condition.
-func helmReleaseReady(hr helmv2.HelmRelease) bool {
-	for _, c := range hr.Status.Conditions {
-		if c.Type == "Ready" {
-			return c.Status == "True"
-		}
-	}
-	return false
-}
-
-// forceStalledHelmReleases force-reconciles any HelmRelease owned by the given kustomizations that is not
-// Ready. A release that failed to install or upgrade — e.g. because a secret it needs was not yet present —
-// stalls and will not retry on a plain reconcile of its owning Kustomization, since the release spec is
-// unchanged; forcing it (requestedAt + forceAt) makes helm-controller retry now that its inputs may be in
-// place. Best-effort: read failures and the reconcile request are swallowed, and healthy releases are left
-// untouched so no needless upgrade fires.
-func (i *Provisioner) forceStalledHelmReleases(ctx context.Context, kustomizations []string) {
-	var refs []fluxinfra.HelmReleaseRef
-	seen := make(map[string]struct{})
-	for _, name := range kustomizations {
-		hrs, err := i.KubernetesManager.GetHelmReleasesForKustomization(name, i.fluxNamespace())
-		if err != nil {
-			continue
-		}
-		for _, hr := range hrs {
-			if helmReleaseReady(hr) {
-				continue
-			}
-			key := hr.Namespace + "/" + hr.Name
-			if _, dup := seen[key]; dup {
-				continue
-			}
-			seen[key] = struct{}{}
-			refs = append(refs, fluxinfra.HelmReleaseRef{Namespace: hr.Namespace, Name: hr.Name})
-		}
-	}
-	if len(refs) == 0 {
-		return
-	}
-	if err := i.ensureNotifier(); err != nil {
-		return
-	}
-	_ = i.Notifier.ReconcileHelmReleases(ctx, refs, true)
-}
-
-// Converge actively drives the blueprint's kustomizations toward Ready within timeout, best-effort. Each
-// round it reads readiness (without failing on a failed kustomization) and, for every kustomization not yet
-// Ready, requests an immediate reconcile and forces any stalled HelmRelease it owns — so a chain that
-// stalled after apply (a dependent waiting on a now-ready dependency, or a HelmRelease that failed and
-// exhausted its remediation) recovers in seconds rather than at the next flux interval. Nudges are
-// throttled to keep reconcile traffic modest. It returns as soon as every kustomization is Ready, or when
-// timeout elapses; it is a driver, not a gate, so a still-unready cluster is not an error here — callers
-// that must fail on un-readiness use Wait afterward. A nil blueprint or missing kubernetes manager is a
-// no-op.
+// Converge drives the blueprint's kustomizations toward Ready within timeout, best-effort. Each
+// round it reads readiness, then reconciles and force-nudges any stalled HelmRelease for every
+// kustomization not yet Ready, so a stalled chain recovers in seconds instead of waiting for the
+// next Flux interval. It returns once everything is Ready or the timeout elapses; a still-unready
+// cluster is not an error here (use Wait for that). A nil blueprint or missing kubernetes manager
+// is a no-op.
 func (i *Provisioner) Converge(ctx context.Context, blueprint *blueprintv1alpha1.Blueprint, timeout time.Duration) error {
 	if blueprint == nil || i.KubernetesManager == nil {
 		return nil
@@ -1421,88 +1209,6 @@ func (i *Provisioner) Converge(ctx context.Context, blueprint *blueprintv1alpha1
 			}
 		}
 	})
-}
-
-// convergeNames returns the names of the blueprint's non-destroyOnly kustomizations, the set Converge
-// drives toward Ready.
-func convergeNames(bp *blueprintv1alpha1.Blueprint) []string {
-	names := make([]string, 0, len(bp.Kustomizations))
-	for _, k := range bp.Kustomizations {
-		if k.DestroyOnly != nil && *k.DestroyOnly {
-			continue
-		}
-		names = append(names, k.Name)
-	}
-	return names
-}
-
-// nudgeFrontier requests an immediate reconcile of the blueprint's "frontier" kustomizations — those not
-// yet Ready whose every dependency is already Ready — and force-reconciles any stalled HelmRelease they own.
-// The frontier is the only set a nudge can actually advance: an already-Ready kustomization would just churn
-// (needless reconciles that flap otherwise-healthy resources), and one still blocked on a not-ready
-// dependency will not progress no matter how often it is poked. Each frontier member is nudged at most once
-// while it stays not-Ready — recorded in nudged and cleared when it goes Ready — so successive calls do not
-// re-poke the same resource; instead, as a layer goes Ready the next layer becomes the frontier and gets its
-// single nudge, walking the DAG upward by state transition rather than a blanket timer. Best-effort: a
-// readiness read error is a no-op, and nudged carries the one-shot state across calls within one operation.
-func (i *Provisioner) nudgeFrontier(ctx context.Context, blueprint *blueprintv1alpha1.Blueprint, nudged map[string]struct{}) []string {
-	if blueprint == nil {
-		return nil
-	}
-	names := convergeNames(blueprint)
-	if len(names) == 0 {
-		return nil
-	}
-	readiness, err := i.KubernetesManager.GetKustomizationReadiness(names)
-	if err != nil {
-		return names // unknown readiness: report all not-Ready so a caller keeps waiting, but nudge nothing
-	}
-	deps := make(map[string][]string, len(blueprint.Kustomizations))
-	for _, k := range blueprint.Kustomizations {
-		deps[k.Name] = k.DependsOn
-	}
-
-	var notReady, frontier []string
-	for _, name := range names {
-		if readiness[name] {
-			delete(nudged, name) // Ready now — permit a fresh nudge if it later regresses
-			continue
-		}
-		notReady = append(notReady, name)
-		if _, done := nudged[name]; done {
-			continue // already nudged while not-Ready; wait for it to progress rather than re-poking
-		}
-		depsReady := true
-		for _, d := range deps[name] {
-			if r, known := readiness[d]; known && !r {
-				depsReady = false
-				break
-			}
-		}
-		if depsReady {
-			frontier = append(frontier, name)
-		}
-	}
-	if len(frontier) > 0 {
-		slices.Sort(frontier)
-		for _, n := range frontier {
-			nudged[n] = struct{}{}
-		}
-		i.reconcileKustomizations(ctx, frontier)
-		i.forceStalledHelmReleases(ctx, frontier)
-	}
-	slices.Sort(notReady)
-	return notReady
-}
-
-// sortedStringKeys returns the keys of a set as a sorted slice.
-func sortedStringKeys(m map[string]struct{}) []string {
-	out := make([]string, 0, len(m))
-	for k := range m {
-		out = append(out, k)
-	}
-	slices.Sort(out)
-	return out
 }
 
 // WriteVersionMarker records the blueprint version applied to this context as a marker ConfigMap
@@ -1884,6 +1590,287 @@ func (i *Provisioner) Close() {
 // =============================================================================
 // Private Methods
 // =============================================================================
+
+// convergeNames returns the deduplicated names of the blueprint's non-destroyOnly kustomizations.
+// This is the set Converge drives toward Ready. withCrdLayer prepends CRD kustomizations
+// without checking for name collisions. Dedup keeps a collision from double-printing in
+// progress output.
+func convergeNames(bp *blueprintv1alpha1.Blueprint) []string {
+	names := make([]string, 0, len(bp.Kustomizations))
+	seen := make(map[string]bool, len(bp.Kustomizations))
+	for _, k := range bp.Kustomizations {
+		if k.DestroyOnly != nil && *k.DestroyOnly {
+			continue
+		}
+		if seen[k.Name] {
+			continue
+		}
+		seen[k.Name] = true
+		names = append(names, k.Name)
+	}
+	return names
+}
+
+// nudgeFrontier reconciles the blueprint's "frontier" kustomizations: those not yet Ready whose
+// dependencies are all Ready. It also force-reconciles any stalled HelmRelease they own. Each
+// frontier member is nudged once per not-Ready streak, tracked in nudged, so repeat calls do not
+// re-poke it. On a readiness read error, every kustomization is reported not-ready and nothing is
+// nudged.
+func (i *Provisioner) nudgeFrontier(ctx context.Context, blueprint *blueprintv1alpha1.Blueprint, nudged map[string]struct{}) []string {
+	if blueprint == nil {
+		return nil
+	}
+	names := convergeNames(blueprint)
+	if len(names) == 0 {
+		return nil
+	}
+	readiness, err := i.KubernetesManager.GetKustomizationReadiness(names)
+	if err != nil {
+		return names
+	}
+	deps := make(map[string][]string, len(blueprint.Kustomizations))
+	for _, k := range blueprint.Kustomizations {
+		deps[k.Name] = k.DependsOn
+	}
+
+	var notReady, frontier []string
+	for _, name := range names {
+		if readiness[name] {
+			delete(nudged, name)
+			continue
+		}
+		notReady = append(notReady, name)
+		if _, done := nudged[name]; done {
+			continue
+		}
+		depsReady := true
+		for _, d := range deps[name] {
+			if r, known := readiness[d]; known && !r {
+				depsReady = false
+				break
+			}
+		}
+		if depsReady {
+			frontier = append(frontier, name)
+		}
+	}
+	if len(frontier) > 0 {
+		slices.Sort(frontier)
+		for _, n := range frontier {
+			nudged[n] = struct{}{}
+		}
+		i.reconcileKustomizations(ctx, frontier)
+		i.forceStalledHelmReleases(ctx, frontier)
+	}
+	slices.Sort(notReady)
+	return notReady
+}
+
+// sortedStringKeys returns the keys of a set as a sorted slice.
+func sortedStringKeys(m map[string]struct{}) []string {
+	out := make([]string, 0, len(m))
+	for k := range m {
+		out = append(out, k)
+	}
+	slices.Sort(out)
+	return out
+}
+
+// destroyAllTerraform is the shared implementation behind DestroyAllTerraform. checkReachability
+// is false only for Teardown's Stage 2 tier destroy. By that stage, Stage 1 has already destroyed
+// the cluster, so an unreachable Kubernetes API is expected, not a sign of broken auth. The
+// backend tier also has no kubernetes/helm provider dependency for the check to protect.
+func (i *Provisioner) destroyAllTerraform(blueprint *blueprintv1alpha1.Blueprint, continueOnError bool, checkReachability bool, excludeIDs ...string) (DestroyResult, error) {
+	var result DestroyResult
+	if blueprint == nil {
+		return result, fmt.Errorf("blueprint not provided")
+	}
+	if err := i.ensureTerraformStack(); err != nil {
+		return result, err
+	}
+	if i.TerraformStack == nil {
+		return result, fmt.Errorf("terraform is disabled")
+	}
+	if checkReachability {
+		if err := i.checkKubernetesReachableForDestroy(); err != nil {
+			return result, err
+		}
+	}
+	outcome, err := i.TerraformStack.DestroyAll(blueprint, continueOnError, excludeIDs...)
+	result.Destroyed = outcome.Destroyed
+	result.Skipped = outcome.Skipped
+	result.Failed = outcome.Failed
+	if err != nil {
+		return result, fmt.Errorf("failed to run terraform destroy: %w", err)
+	}
+	return result, nil
+}
+
+// secretDigest returns a stable content digest for a secret's resolved data. Consumers use it to
+// roll workloads only when the content changes. Keys are sorted, and each key and value is
+// NUL-delimited so distinct maps cannot collide, then hashed with SHA-256. The digest is one-way:
+// it detects change without revealing the plaintext.
+func secretDigest(stringData map[string]string) string {
+	keys := make([]string, 0, len(stringData))
+	for k := range stringData {
+		keys = append(keys, k)
+	}
+	slices.Sort(keys)
+	h := sha256.New()
+	for _, k := range keys {
+		h.Write([]byte(k))
+		h.Write([]byte{0})
+		h.Write([]byte(stringData[k]))
+		h.Write([]byte{0})
+	}
+	return hex.EncodeToString(h.Sum(nil))
+}
+
+// trySecretNamespaces resolves where to place a secret and reports whether every target namespace
+// exists yet. Explicit namespaces are gated on existing in the cluster. With no explicit
+// namespaces, the target is auto-resolved from the owning kustomization's Flux inventory, and
+// fails if that resolves to more than one namespace. A (nil, false, nil) return means not
+// resolvable yet: keep polling.
+func (i *Provisioner) trySecretNamespaces(kustomizationName string, explicit []string) ([]string, bool, error) {
+	if len(explicit) > 0 {
+		missing, err := i.missingClusterNamespaces(explicit)
+		if err != nil {
+			return nil, false, err
+		}
+		if len(missing) == 0 {
+			return slices.Clone(explicit), true, nil
+		}
+		return nil, false, nil
+	}
+	entries, err := i.KubernetesManager.GetKustomizationInventory(kustomizationName, i.fluxNamespace())
+	if err != nil {
+		return nil, false, fmt.Errorf("reading inventory for kustomization %q: %w", kustomizationName, err)
+	}
+	candidates := autoResolveNamespaces(entries)
+	switch {
+	case len(candidates) == 1:
+		return candidates, true, nil
+	case len(candidates) > 1:
+		return nil, false, fmt.Errorf("kustomization %q spans multiple namespaces (%s); set `namespaces:` on the secret to choose where to place it", kustomizationName, strings.Join(candidates, ", "))
+	case len(entries) > 0:
+		return nil, false, fmt.Errorf("kustomization %q creates no namespace and deploys no namespaced resources to infer one from; set `namespaces:` on the secret to choose where to place it", kustomizationName)
+	}
+	return nil, false, nil
+}
+
+// pendingSummary renders secrets still awaiting a namespace as sorted "secret (kustomization)"
+// entries, naming explicit target namespaces when the entry declared them.
+func pendingSummary(pending []pendingPlacement) string {
+	parts := make([]string, 0, len(pending))
+	for _, p := range pending {
+		if len(p.secret.Namespaces) > 0 {
+			parts = append(parts, fmt.Sprintf("%s (%s)→%s", p.secretName, p.kustomization, strings.Join(p.secret.Namespaces, ",")))
+		} else {
+			parts = append(parts, fmt.Sprintf("%s (%s)", p.secretName, p.kustomization))
+		}
+	}
+	slices.Sort(parts)
+	return strings.Join(parts, ", ")
+}
+
+// autoResolveNamespaces infers where a secret should land when its entry names no namespace, using
+// the owning kustomization's Flux inventory. It prefers namespaces the kustomization creates, and
+// falls back to the namespaces its resources deploy into. The result is sorted.
+func autoResolveNamespaces(entries []kubernetes.InventoryEntry) []string {
+	created := make(map[string]struct{})
+	deployed := make(map[string]struct{})
+	for _, entry := range entries {
+		if entry.Kind == "Namespace" {
+			created[entry.Name] = struct{}{}
+		}
+		if entry.Namespace != "" {
+			deployed[entry.Namespace] = struct{}{}
+		}
+	}
+	chosen := created
+	if len(chosen) == 0 {
+		chosen = deployed
+	}
+	out := make([]string, 0, len(chosen))
+	for ns := range chosen {
+		out = append(out, ns)
+	}
+	slices.Sort(out)
+	return out
+}
+
+// missingClusterNamespaces returns the members of want that do not yet exist in the cluster,
+// preserving want's order.
+func (i *Provisioner) missingClusterNamespaces(want []string) ([]string, error) {
+	var missing []string
+	for _, ns := range want {
+		exists, err := i.KubernetesManager.NamespaceExists(ns)
+		if err != nil {
+			return nil, fmt.Errorf("checking namespace %q: %w", ns, err)
+		}
+		if !exists {
+			missing = append(missing, ns)
+		}
+	}
+	return missing, nil
+}
+
+// reconcileKustomizations requests an immediate Flux reconcile of the named Kustomizations. It is
+// best-effort: errors are swallowed, so a placement round never fails on a reconcile nudge. A nil
+// or empty names slice is a no-op.
+func (i *Provisioner) reconcileKustomizations(ctx context.Context, names []string) {
+	if len(names) == 0 {
+		return
+	}
+	if err := i.ensureNotifier(); err != nil {
+		return
+	}
+	_ = i.Notifier.ReconcileKustomizations(ctx, names)
+}
+
+// helmReleaseReady reports whether a HelmRelease currently carries a Ready=True condition.
+func helmReleaseReady(hr helmv2.HelmRelease) bool {
+	for _, c := range hr.Status.Conditions {
+		if c.Type == "Ready" {
+			return c.Status == "True"
+		}
+	}
+	return false
+}
+
+// forceStalledHelmReleases force-reconciles any HelmRelease owned by the given kustomizations that
+// is not Ready. A release that failed to install or upgrade (for example, a missing secret) stalls
+// and does not retry on a plain Kustomization reconcile, since its spec is unchanged. Forcing it
+// makes helm-controller retry. Best-effort: failures are swallowed, and healthy releases are left
+// untouched.
+func (i *Provisioner) forceStalledHelmReleases(ctx context.Context, kustomizations []string) {
+	var refs []fluxinfra.HelmReleaseRef
+	seen := make(map[string]struct{})
+	for _, name := range kustomizations {
+		hrs, err := i.KubernetesManager.GetHelmReleasesForKustomization(name, i.fluxNamespace())
+		if err != nil {
+			continue
+		}
+		for _, hr := range hrs {
+			if helmReleaseReady(hr) {
+				continue
+			}
+			key := hr.Namespace + "/" + hr.Name
+			if _, dup := seen[key]; dup {
+				continue
+			}
+			seen[key] = struct{}{}
+			refs = append(refs, fluxinfra.HelmReleaseRef{Namespace: hr.Namespace, Name: hr.Name})
+		}
+	}
+	if len(refs) == 0 {
+		return
+	}
+	if err := i.ensureNotifier(); err != nil {
+		return
+	}
+	_ = i.Notifier.ReconcileHelmReleases(ctx, refs, true)
+}
 
 // applyDirect runs terraform apply directly against the configured backend, with no tier
 // detection or pivot. Used by Up when no tier applies, and by applyWithBackendPivot's Stage
