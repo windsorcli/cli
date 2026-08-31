@@ -100,6 +100,9 @@ windsor upgrade cluster --nodes=10.0.0.5 --image=ghcr.io/siderolabs/installer:v1
 				return err
 			}
 		}
+		if err := recomposeBlueprint(proj); err != nil {
+			return err
+		}
 		blueprint = proj.Composer.BlueprintHandler.Generate()
 		if blueprint == nil {
 			return fmt.Errorf("blueprint is not available")
@@ -327,6 +330,17 @@ func upgradeToLatest(cmd *cobra.Command, proj *project.Project) error {
 	}
 	for _, u := range upgrades {
 		fmt.Fprintf(cmd.OutOrStdout(), "Upgraded %s from %s to %s\n", u.Name, u.From, u.To)
+	}
+	return nil
+}
+
+// recomposeBlueprint reloads the blueprint from disk and recomposes it against the sources'
+// current content. RetargetSource and UpgradeSourcesToLatest only change source URLs in memory.
+// Write persists those URLs to blueprint.yaml but does not recompose. Without this call, Up,
+// Install, and Wait would build manifests from the blueprint composed before the source change.
+func recomposeBlueprint(proj *project.Project) error {
+	if err := proj.Composer.BlueprintHandler.LoadBlueprint(); err != nil {
+		return fmt.Errorf("error recomposing blueprint against updated sources: %w", err)
 	}
 	return nil
 }

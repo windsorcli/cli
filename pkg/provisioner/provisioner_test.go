@@ -4762,6 +4762,41 @@ func TestProvisioner_ResolveSecrets(t *testing.T) {
 	})
 }
 
+func TestConvergeNames(t *testing.T) {
+	t.Run("DeduplicatesACollidingName", func(t *testing.T) {
+		// Given a blueprint where a kustomization name appears twice — e.g. withCrdLayer's
+		// synthesized CRD kustomization colliding with a name already declared elsewhere
+		bp := &blueprintv1alpha1.Blueprint{Kustomizations: []blueprintv1alpha1.Kustomization{
+			{Name: "crds-core"},
+			{Name: "crds-core"},
+			{Name: "lb-install"},
+		}}
+
+		// When collecting the names Converge drives toward Ready
+		names := convergeNames(bp)
+
+		// Then the duplicate collapses to one entry, so a nudgeFrontier readiness comparison
+		// against this set can't be inflated past what is actually reachable
+		if !slices.Equal(names, []string{"crds-core", "lb-install"}) {
+			t.Errorf("expected deduplicated [crds-core lb-install], got %v", names)
+		}
+	})
+
+	t.Run("SkipsDestroyOnlyRegardlessOfADuplicateNonDestroyOnlyEntry", func(t *testing.T) {
+		destroyOnly := true
+		bp := &blueprintv1alpha1.Blueprint{Kustomizations: []blueprintv1alpha1.Kustomization{
+			{Name: "a"},
+			{Name: "a", DestroyOnly: &destroyOnly},
+		}}
+
+		names := convergeNames(bp)
+
+		if !slices.Equal(names, []string{"a"}) {
+			t.Errorf("expected [a], got %v", names)
+		}
+	})
+}
+
 func TestProvisioner_nudgeFrontier(t *testing.T) {
 	// crds Ready; lb depends on crds (frontier); gateway depends on the not-ready lb (blocked, not frontier).
 	bp := &blueprintv1alpha1.Blueprint{Kustomizations: []blueprintv1alpha1.Kustomization{
@@ -4790,6 +4825,29 @@ func TestProvisioner_nudgeFrontier(t *testing.T) {
 		newProv(mocks, notifier).nudgeFrontier(context.Background(), bp, map[string]struct{}{})
 		if len(nudgedNames) != 1 || !slices.Equal(nudgedNames[0], []string{"lb-install"}) {
 			t.Errorf("expected only lb-install nudged, got %v", nudgedNames)
+		}
+	})
+
+	t.Run("DuplicateNameIsQueriedOnce", func(t *testing.T) {
+		// Given a blueprint whose crds kustomization name is declared twice (e.g. a collision
+		// with withCrdLayer's synthesized entry), all Ready
+		dup := &blueprintv1alpha1.Blueprint{Kustomizations: []blueprintv1alpha1.Kustomization{
+			{Name: "crds"},
+			{Name: "crds"},
+			{Name: "lb-install", DependsOn: []string{"crds"}},
+		}}
+		mocks := setupProvisionerMocks(t)
+		var queried []string
+		mocks.KubernetesManager.GetKustomizationReadinessFunc = func(names []string) (map[string]bool, error) {
+			queried = names
+			return map[string]bool{"crds": true, "lb-install": false}, nil
+		}
+		notifier := fluxinfra.NewMockNotifier()
+
+		// When nudging, the duplicate is queried once rather than twice
+		newProv(mocks, notifier).nudgeFrontier(context.Background(), dup, map[string]struct{}{})
+		if len(queried) != 2 || !slices.Contains(queried, "crds") || !slices.Contains(queried, "lb-install") {
+			t.Errorf("expected [crds lb-install] queried once each, got %v", queried)
 		}
 	})
 

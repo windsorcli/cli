@@ -419,6 +419,51 @@ func TestUpgradeCmd_Latest(t *testing.T) {
 		}
 	})
 
+	t.Run("RecomposesAfterUpgradeBeforeGeneratingManifests", func(t *testing.T) {
+		// Given a bare upgrade that moves a source to its latest tag
+		mocks := setupApplyTest(t)
+		mocks.BlueprintHandler.UpgradeSourcesToLatestFunc = func() ([]blueprint.SourceUpgrade, error) {
+			return []blueprint.SourceUpgrade{{
+				Name: "core",
+				From: "oci://ghcr.io/windsorcli/core:v0.5.0",
+				To:   "oci://ghcr.io/windsorcli/core:v0.6.0",
+			}}, nil
+		}
+		var order []string
+		mocks.BlueprintHandler.WriteFunc = func(overwrite ...bool) error {
+			order = append(order, "write")
+			return nil
+		}
+		mocks.BlueprintHandler.LoadBlueprintFunc = func(...string) error {
+			order = append(order, "recompose")
+			return nil
+		}
+		proj := newApplyAllProject(mocks)
+
+		// When running bare upgrade
+		cmd := createTestUpgradeCmd()
+		ctx := stdcontext.WithValue(stdcontext.Background(), projectOverridesKey, proj)
+		cmd.SetContext(ctx)
+		if err := cmd.Execute(); err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+
+		// Then the blueprint is reloaded and recomposed against the persisted bump, matching the
+		// --source retarget path's recompose behavior
+		writeIdx, recomposeIdx := -1, -1
+		for i, ev := range order {
+			if ev == "write" {
+				writeIdx = i
+			}
+			if ev == "recompose" {
+				recomposeIdx = i
+			}
+		}
+		if writeIdx == -1 || recomposeIdx == -1 || recomposeIdx < writeIdx {
+			t.Errorf("Expected recompose to follow the persisted write, got order: %v", order)
+		}
+	})
+
 	t.Run("ResolutionErrorAborts", func(t *testing.T) {
 		// Given resolving latest fails
 		mocks := setupApplyTest(t)
@@ -490,6 +535,102 @@ func TestUpgradeCmd_Source(t *testing.T) {
 		}
 		if !strings.Contains(out.String(), "Retargeted core") {
 			t.Errorf("Expected a retarget report, got: %q", out.String())
+		}
+	})
+
+	t.Run("RecomposesAfterRetargetBeforeGeneratingManifests", func(t *testing.T) {
+		t.Cleanup(func() { upgradeSources = nil })
+		// Given a retarget that persists a new source URL to blueprint.yaml
+		mocks := setupApplyTest(t)
+		var order []string
+		mocks.BlueprintHandler.RetargetSourceFunc = func(name, url string) (string, error) {
+			order = append(order, "retarget")
+			return "oci://ghcr.io/windsorcli/core:v0.3.0", nil
+		}
+		mocks.BlueprintHandler.WriteFunc = func(overwrite ...bool) error {
+			order = append(order, "write")
+			return nil
+		}
+		mocks.BlueprintHandler.LoadBlueprintFunc = func(...string) error {
+			order = append(order, "recompose")
+			return nil
+		}
+		generated := 0
+		mocks.BlueprintHandler.GenerateFunc = func() *blueprintv1alpha1.Blueprint {
+			generated++
+			order = append(order, fmt.Sprintf("generate-%d", generated))
+			return &blueprintv1alpha1.Blueprint{Metadata: blueprintv1alpha1.Metadata{Name: "test"}}
+		}
+		proj := newApplyAllProject(mocks)
+
+		// When upgrading with --source
+		cmd := createTestUpgradeCmd()
+		cmd.SetArgs([]string{"--source", "core=oci://ghcr.io/windsorcli/core:v0.6.0"})
+		ctx := stdcontext.WithValue(stdcontext.Background(), projectOverridesKey, proj)
+		cmd.SetContext(ctx)
+		if err := cmd.Execute(); err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+
+		// Then the blueprint is reloaded and recomposed against the persisted source before the
+		// Generate() call whose result Up/Install/Wait actually build manifests from
+		recomposeIdx, writeIdx, lastGenerateIdx := -1, -1, -1
+		for i, ev := range order {
+			switch {
+			case ev == "write":
+				writeIdx = i
+			case ev == "recompose":
+				recomposeIdx = i
+			case strings.HasPrefix(ev, "generate-"):
+				lastGenerateIdx = i
+			}
+		}
+		if writeIdx == -1 || recomposeIdx == -1 || recomposeIdx < writeIdx {
+			t.Errorf("Expected recompose to follow the persisted write, got order: %v", order)
+		}
+		if lastGenerateIdx == -1 || lastGenerateIdx < recomposeIdx {
+			t.Errorf("Expected the final Generate() to follow recompose, got order: %v", order)
+		}
+	})
+
+	t.Run("RecomposeFailureAbortsBeforeApplying", func(t *testing.T) {
+		t.Cleanup(func() { upgradeSources = nil })
+		// Given a retarget whose recompose fails to pull the newly targeted source
+		mocks := setupApplyTest(t)
+		mocks.BlueprintHandler.RetargetSourceFunc = func(name, url string) (string, error) {
+			return "oci://ghcr.io/windsorcli/core:v0.3.0", nil
+		}
+		loadCalls := 0
+		mocks.BlueprintHandler.LoadBlueprintFunc = func(...string) error {
+			loadCalls++
+			if loadCalls == 1 {
+				return nil // Initialize's own load, before the retarget
+			}
+			return fmt.Errorf("failed to load source 'core': registry unreachable")
+		}
+		applied := false
+		mocks.KubernetesManager.ApplyBlueprintFunc = func(bp *blueprintv1alpha1.Blueprint, namespace string) error {
+			applied = true
+			return nil
+		}
+		proj := newApplyAllProject(mocks)
+
+		// When upgrading with --source
+		cmd := createTestUpgradeCmd()
+		cmd.SetArgs([]string{"--source", "core=oci://ghcr.io/windsorcli/core:v0.6.0"})
+		ctx := stdcontext.WithValue(stdcontext.Background(), projectOverridesKey, proj)
+		cmd.SetContext(ctx)
+		err := cmd.Execute()
+
+		// Then it aborts with the recompose error before applying anything to the cluster
+		if err == nil {
+			t.Fatal("Expected an error when recompose fails, got nil")
+		}
+		if !strings.Contains(err.Error(), "recomposing blueprint") {
+			t.Errorf("Expected a recompose error, got: %v", err)
+		}
+		if applied {
+			t.Error("Expected no blueprint apply when recompose fails")
 		}
 	})
 
