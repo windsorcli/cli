@@ -326,15 +326,16 @@ These are not part of the refactor charter and do not gate any wave. They share 
 numbering because the lifecycle policy below numbers sequentially per release cycle, not per
 program of work.
 
-- **[0008 — Airgap media and hydration](0008-airgap-media-and-hydration.md).** Write-once media
-  carrying the full dependency set of a blueprint, and a disconnected `windsor bootstrap` that
-  consumes it. Scoped to `platform: docker`/`incus`/`metal`; cloud platforms are explicitly
-  excluded from the no-egress claim. Builds on mechanisms already in the tree (the Renovate-derived
-  `artifact-manifest.yaml`, the workstation pull-through registries and their cache volumes, the
-  OCI disk cache) rather than new plumbing. Gated on eight named feasibility spikes, of which the
-  observed-vs-declared image delta (S6) is the one that can change the design rather than its
-  parameters. Depends on cross-repo work in `windsorcli/core` (config-derived Helm repository URLs,
-  pre-computed Talos schematic IDs) from phase 3 onward.
+- **[0008 — OCI registry mirror for images, charts, and Terraform providers](0008-airgap-media-and-hydration.md).**
+  Extends the existing image/blueprint OCI mirror mode to close the one gap it doesn't reach:
+  Terraform providers, which HashiCorp's `terraform` has no OCI client for
+  (`hashicorp/terraform#31463`, open since 2022, no roadmap movement). `windsor push` gains
+  `images`/`providers`/`mirror` objects; `windsor pull providers` materializes a local
+  `filesystem_mirror` for `terraform init`/`tofu init`. Providers are stored as OCI Image Indexes
+  using OpenTofu's own provider-mirror layout, so the same registry content works for both drivers.
+  Rescoped 2026-09-01 from a full write-once airgap media design (physical distribution, BOM
+  completeness, offline Talos provisioning, signing) down to this network-mirror piece for
+  v0.10.0 — the original broader design remains in this file's git history for a future ADR.
 
 ## Implementation sequence
 
