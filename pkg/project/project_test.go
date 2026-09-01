@@ -273,6 +273,12 @@ func TestNewProject(t *testing.T) {
 
 		proj := NewProject("test-context", &Project{Runtime: mocks.Runtime})
 
+		if proj.Workstation != nil {
+			t.Error("Expected Workstation to be nil until EnsureWorkstation resolves config")
+		}
+
+		proj.EnsureWorkstation()
+
 		if proj.Workstation == nil {
 			t.Error("Expected Workstation to be created when workstation.runtime is set")
 		}
@@ -292,6 +298,12 @@ func TestNewProject(t *testing.T) {
 
 		if proj.Workstation != nil {
 			t.Error("Expected Workstation to be nil when not in dev mode")
+		}
+
+		proj.EnsureWorkstation()
+
+		if proj.Workstation != nil {
+			t.Error("Expected Workstation to remain nil after EnsureWorkstation when workstation.runtime is unset")
 		}
 	})
 

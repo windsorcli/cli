@@ -320,6 +320,8 @@ func (c *configHandler) SaveWorkstationState() error {
 
 // SetDefault sets the default context configuration in the config handler's internal data.
 // It marshals the given v1alpha1.Context struct to a map and merges it into the handler's data.
+// Values already present in data take precedence over the default, so this is safe to call
+// regardless of load order or how many times it runs.
 // This method is typically used during initialization when context files do not yet exist.
 // The original default config is stored so it can be used when saving a new config file to ensure
 // all default values are preserved even if they were empty/nil (which would be omitted by omitempty tags).
@@ -334,7 +336,7 @@ func (c *configHandler) SetDefault(context v1alpha1.Context) error {
 		return fmt.Errorf("error decoding context: %w", err)
 	}
 
-	c.data = c.deepMerge(c.data, contextMap)
+	c.data = c.deepMerge(contextMap, c.data)
 
 	contextCopy := context
 	c.defaultConfig = &contextCopy

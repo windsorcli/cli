@@ -1116,23 +1116,116 @@ func TestRuntime_HandleSessionReset(t *testing.T) {
 }
 
 func TestRuntime_ApplyConfigDefaults(t *testing.T) {
-	t.Run("SkipsWhenConfigAlreadyLoaded", func(t *testing.T) {
-		// Given a runtime with config already loaded
+	t.Run("AppliesDevDefaultsAfterConfigIsLoaded", func(t *testing.T) {
+		// Given a runtime whose config is already loaded and dev mode is now known
+		// (e.g. "dev: true" was only discoverable once values.yaml was read)
 		mocks := setupRuntimeMocks(t)
 		rt := mocks.Runtime
+		rt.ContextName = "remote"
 
 		mockConfigHandler := mocks.ConfigHandler.(*config.MockConfigHandler)
 		mockConfigHandler.IsLoadedFunc = func() bool {
 			return true
 		}
+		mockConfigHandler.IsDevModeFunc = func(contextName string) bool {
+			return true
+		}
+		mockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
+			return ""
+		}
+
+		setDefaultCalled := false
+		mockConfigHandler.SetDefaultFunc = func(cfg v1alpha1.Context) error {
+			setDefaultCalled = true
+			return nil
+		}
 
 		// When ApplyConfigDefaults is called
 		err := rt.ApplyConfigDefaults()
 
-		// Then no error should be returned
-
+		// Then it should still apply dev-mode defaults rather than skip them
 		if err != nil {
 			t.Errorf("Expected no error, got: %v", err)
+		}
+		if !setDefaultCalled {
+			t.Error("Expected SetDefault to be called even though config was already loaded")
+		}
+	})
+
+	t.Run("SkipsBaselineSelectionWhenNotLoadedAndDevModeUnknown", func(t *testing.T) {
+		// Given a runtime that has not yet loaded config and whose dev mode cannot be
+		// determined by name (only a persisted "dev: true" would answer it, and nothing
+		// has been loaded yet)
+		mocks := setupRuntimeMocks(t)
+		rt := mocks.Runtime
+		rt.ContextName = "remote"
+
+		mockConfigHandler := mocks.ConfigHandler.(*config.MockConfigHandler)
+		mockConfigHandler.IsLoadedFunc = func() bool {
+			return false
+		}
+		mockConfigHandler.IsDevModeFunc = func(contextName string) bool {
+			return false
+		}
+		mockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
+			return ""
+		}
+
+		setDefaultCalled := false
+		mockConfigHandler.SetDefaultFunc = func(cfg v1alpha1.Context) error {
+			setDefaultCalled = true
+			return nil
+		}
+
+		// When ApplyConfigDefaults is called
+		err := rt.ApplyConfigDefaults()
+
+		// Then it must not commit a baseline (e.g. platform: "none") before dev mode can
+		// be confirmed one way or the other, since that baseline would look like an
+		// explicit choice to a later call made once config is actually loaded
+		if err != nil {
+			t.Errorf("Expected no error, got: %v", err)
+		}
+		if setDefaultCalled {
+			t.Error("Expected SetDefault not to be called before load with dev mode still unknown")
+		}
+	})
+
+	t.Run("BackfillNeverSkipsEvenWhenLoadFoundNothing", func(t *testing.T) {
+		// Given a from-zero context (e.g. global mode with no windsor.yaml/values.yaml
+		// anywhere), where LoadConfig has already run but found no files to merge, so
+		// IsLoaded() stays false even though the load was genuinely attempted
+		mocks := setupRuntimeMocks(t)
+		rt := mocks.Runtime
+		rt.ContextName = "prod"
+
+		mockConfigHandler := mocks.ConfigHandler.(*config.MockConfigHandler)
+		mockConfigHandler.IsLoadedFunc = func() bool {
+			return false
+		}
+		mockConfigHandler.IsDevModeFunc = func(contextName string) bool {
+			return false
+		}
+		mockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
+			return ""
+		}
+
+		setDefaultCalled := false
+		mockConfigHandler.SetDefaultFunc = func(cfg v1alpha1.Context) error {
+			setDefaultCalled = true
+			return nil
+		}
+
+		// When the post-load backfill runs (as ResolveConfig does right after LoadConfig)
+		err := rt.setConfigDefaults()
+
+		// Then it must still commit the baseline: by this point a load was attempted and
+		// dev mode is as resolved as it will ever be, regardless of whether any file existed
+		if err != nil {
+			t.Errorf("Expected no error, got: %v", err)
+		}
+		if !setDefaultCalled {
+			t.Error("Expected SetDefault to be called on backfill even when nothing was found to load")
 		}
 	})
 
@@ -1246,14 +1339,14 @@ func TestRuntime_ApplyConfigDefaults(t *testing.T) {
 	})
 
 	t.Run("SetsDefaultsForNonDevMode", func(t *testing.T) {
-		// Given a runtime not in dev mode
+		// Given a runtime not in dev mode, confirmed by a completed config load
 		mocks := setupRuntimeMocks(t)
 		rt := mocks.Runtime
 		rt.ContextName = "prod"
 
 		mockConfigHandler := mocks.ConfigHandler.(*config.MockConfigHandler)
 		mockConfigHandler.IsLoadedFunc = func() bool {
-			return false
+			return true
 		}
 		mockConfigHandler.IsDevModeFunc = func(contextName string) bool {
 			return false
@@ -1371,14 +1464,14 @@ func TestRuntime_ApplyConfigDefaults(t *testing.T) {
 	})
 
 	t.Run("UsesStandardConfigForNonDevMode", func(t *testing.T) {
-		// Given a runtime not in dev mode
+		// Given a runtime not in dev mode, confirmed by a completed config load
 		mocks := setupRuntimeMocks(t)
 		rt := mocks.Runtime
 		rt.ContextName = "prod"
 
 		mockConfigHandler := mocks.ConfigHandler.(*config.MockConfigHandler)
 		mockConfigHandler.IsLoadedFunc = func() bool {
-			return false
+			return true
 		}
 		mockConfigHandler.IsDevModeFunc = func(contextName string) bool {
 			return false

@@ -665,3 +665,40 @@ func TestInit_AzureRegionPersistsAcrossInit(t *testing.T) {
 		t.Errorf("expected azure.region=eastus2 in values.yaml, got %v", region)
 	}
 }
+
+// TestInit_DevConfigOnNonLocalContextDefaultsWorkstation verifies that a persisted
+// dev: true on a context whose name does not match the local/local- naming
+// convention still triggers the same workstation.runtime/platform defaulting that
+// a local-named dev context gets for free. values.yaml is seeded with dev: true
+// before init ever runs, the way an operator hand-authoring a new context would,
+// so the very first config load (not a naming heuristic) is what discovers dev mode.
+func TestInit_DevConfigOnNonLocalContextDefaultsWorkstation(t *testing.T) {
+	t.Parallel()
+	dir, env := helpers.CopyFixtureOnly(t, "default")
+	helpers.MarkAsGitRepo(t, dir)
+
+	contextDir := filepath.Join(dir, "contexts", "remote")
+	if err := os.MkdirAll(contextDir, 0755); err != nil {
+		t.Fatalf("failed to create context dir: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(contextDir, "values.yaml"), []byte("dev: true\n"), 0644); err != nil {
+		t.Fatalf("failed to seed values.yaml with dev: true: %v", err)
+	}
+
+	_, stderr, err := helpers.RunCLI(dir, []string{"init", "remote"}, env)
+	if err != nil {
+		t.Fatalf("init remote with dev\\:true pre-seeded: %v\nstderr: %s", err, stderr)
+	}
+
+	statePath := filepath.Join(dir, ".windsor", "contexts", "remote", "workstation.yaml")
+	if !hasFile(statePath) {
+		t.Fatalf("expected workstation.yaml for remote context with dev:true persisted, found none")
+	}
+	state := readYAMLFile(t, statePath)
+	if platform, ok := getPathValue(state, "platform"); !ok || platform == "" {
+		t.Errorf("expected platform to be defaulted for dev:true non-local context, got %v", platform)
+	}
+	if wsRuntime, ok := getPathValue(state, "workstation", "runtime"); !ok || wsRuntime == "" {
+		t.Errorf("expected workstation.runtime to be defaulted for dev:true non-local context, got %v", wsRuntime)
+	}
+}
