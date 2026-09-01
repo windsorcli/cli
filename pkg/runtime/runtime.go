@@ -426,114 +426,19 @@ func (rt *Runtime) InitializeComponents() error {
 	return nil
 }
 
-// ApplyConfigDefaults applies base configuration defaults if no config is currently loaded.
-// It sets "dev" mode in config if the context is a dev context, chooses a default workstation runtime
-// (optionally honoring flagOverrides["workstation.runtime"]), and sets
-// platform to "docker" in dev mode if not already set, or "incus" when overrides or config specify incus.
-// After those, it loads a default configuration set, choosing among standard, full, localhost, or none
-// defaults depending on platform, dev mode, and workstation runtime.
-// This must be called before loading from disk to ensure proper defaulting. Returns error on config operation failure.
+// ApplyConfigDefaults sets pre-load defaults: dev mode, workstation runtime, platform, and a
+// baseline config set. Defers entirely when dev mode isn't knowable yet (no explicit platform,
+// no confirmed dev mode, nothing loaded), so it doesn't commit platform: "none" before
+// ResolveConfig's post-load call (setConfigDefaults) sees the real value.
 func (rt *Runtime) ApplyConfigDefaults(flagOverrides ...map[string]any) error {
-	if !rt.ConfigHandler.IsLoaded() {
-		existingPlatform := rt.ConfigHandler.GetString("platform")
-		if existingPlatform == "" {
-			existingPlatform = rt.ConfigHandler.GetString("provider")
-		}
-		isDevMode := rt.ConfigHandler.IsDevMode(rt.ContextName)
-
-		if isDevMode {
-			if err := rt.ConfigHandler.Set("dev", true); err != nil {
-				return fmt.Errorf("failed to set dev mode: %w", err)
-			}
-		}
-
-		workstationRuntime := rt.ConfigHandler.GetString("workstation.runtime")
-		hadRuntime := workstationRuntime != ""
-		if workstationRuntime == "" && len(flagOverrides) > 0 && flagOverrides[0] != nil {
-			if driver, ok := flagOverrides[0]["workstation.runtime"].(string); ok && driver != "" {
-				workstationRuntime = driver
-			}
-		}
-		overridePlatform := ""
-		if len(flagOverrides) > 0 && flagOverrides[0] != nil {
-			if p, ok := flagOverrides[0]["platform"].(string); ok && p != "" {
-				overridePlatform = p
-			}
-		}
-		effectivePlatform := overridePlatform
-		if effectivePlatform == "" {
-			effectivePlatform = existingPlatform
-		}
-		needsWorkstationRuntime := effectivePlatform == "" || effectivePlatform == "docker" || effectivePlatform == "incus"
-		if isDevMode && workstationRuntime == "" && needsWorkstationRuntime {
-			switch runtime.GOOS {
-			case "darwin", "windows":
-				workstationRuntime = "docker-desktop"
-			default:
-				workstationRuntime = "docker"
-			}
-		}
-
-		if isDevMode && !hadRuntime && workstationRuntime != "" {
-			if err := rt.ConfigHandler.Set("workstation.runtime", workstationRuntime); err != nil {
-				return fmt.Errorf("failed to set workstation.runtime: %w", err)
-			}
-		}
-		vmRuntime := ""
-		if len(flagOverrides) > 0 && flagOverrides[0] != nil {
-			if r, ok := flagOverrides[0]["vm.runtime"].(string); ok && r != "" {
-				vmRuntime = r
-			}
-		}
-		if vmRuntime == "" {
-			vmRuntime = rt.ConfigHandler.GetString("vm.runtime", "docker")
-		}
-
-		if existingPlatform == "" && isDevMode {
-			if overridePlatform != "" {
-				if err := rt.ConfigHandler.Set("platform", overridePlatform); err != nil {
-					return fmt.Errorf("failed to set platform from overrides: %w", err)
-				}
-			} else if workstationRuntime == "colima" && vmRuntime == "incus" {
-				fmt.Fprintln(os.Stderr, "\033[33mWarning: vm.runtime is deprecated; use platform: incus in your context configuration instead. Support for vm.runtime will be removed in a future version.\033[0m")
-				if err := rt.ConfigHandler.Set("platform", "incus"); err != nil {
-					return fmt.Errorf("failed to set platform to incus: %w", err)
-				}
-			} else {
-				if err := rt.ConfigHandler.Set("platform", "docker"); err != nil {
-					return fmt.Errorf("failed to set platform: %w", err)
-				}
-			}
-		}
-
-		platform := rt.ConfigHandler.GetString("platform")
-		if platform == "" {
-			platform = rt.ConfigHandler.GetString("provider")
-		}
-		if platform == "none" {
-			defaultConfig := config.DefaultConfig
-			nonePlatform := "none"
-			defaultConfig.Platform = &nonePlatform
-			if err := rt.ConfigHandler.SetDefault(defaultConfig); err != nil {
-				return fmt.Errorf("failed to set default config: %w", err)
-			}
-		} else if isDevMode {
-			if err := rt.ConfigHandler.SetDefault(config.DefaultConfig_Dev); err != nil {
-				return fmt.Errorf("failed to set default config: %w", err)
-			}
-		} else {
-			if err := rt.ConfigHandler.SetDefault(config.DefaultConfig); err != nil {
-				return fmt.Errorf("failed to set default config: %w", err)
-			}
-		}
+	if rt.canonicalPlatform() == "" && !rt.ConfigHandler.IsDevMode(rt.ContextName) && !rt.ConfigHandler.IsLoaded() {
+		return nil
 	}
-
-	return nil
+	return rt.setConfigDefaults(flagOverrides...)
 }
 
-// ResolveConfig runs the full config pipeline: infer platform for dev when missing, apply pre-load
-// defaults, load from disk, apply flag overrides, then
-// apply dev-mode platform normalization (colima+incus). Call this once to produce final config.
+// ResolveConfig runs the full config pipeline: pre-load defaults, load from disk, post-load
+// defaults, flag overrides, then dev-mode platform normalization. Call once per command.
 // Mutates flagOverrides when inferring platform. Returns error on config load or set failure.
 func (rt *Runtime) ResolveConfig(flagOverrides map[string]any) error {
 	if flagOverrides == nil {
@@ -559,6 +464,9 @@ func (rt *Runtime) ResolveConfig(flagOverrides map[string]any) error {
 	}
 	if err := rt.ConfigHandler.LoadConfig(); err != nil {
 		return fmt.Errorf("failed to load config: %w", err)
+	}
+	if err := rt.setConfigDefaults(preLoadOverrides); err != nil {
+		return fmt.Errorf("failed to apply post-load config defaults: %w", err)
 	}
 	for key, value := range flagOverrides {
 		if key == "provider" {
@@ -651,6 +559,99 @@ func (rt *Runtime) PrepareToolsFor(reqs tools.Requirements) error {
 // =============================================================================
 // Private Methods
 // =============================================================================
+
+// setConfigDefaults holds the defaulting work for ApplyConfigDefaults, and is also what
+// ResolveConfig calls directly for its post-load pass, once LoadConfig has already run and
+// dev mode is fully resolved (unlike ApplyConfigDefaults, this never defers).
+func (rt *Runtime) setConfigDefaults(flagOverrides ...map[string]any) error {
+	existingPlatform := rt.canonicalPlatform()
+	isDevMode := rt.ConfigHandler.IsDevMode(rt.ContextName)
+
+	if isDevMode {
+		if err := rt.ConfigHandler.Set("dev", true); err != nil {
+			return fmt.Errorf("failed to set dev mode: %w", err)
+		}
+	}
+
+	workstationRuntime := rt.ConfigHandler.GetString("workstation.runtime")
+	hadRuntime := workstationRuntime != ""
+	if workstationRuntime == "" && len(flagOverrides) > 0 && flagOverrides[0] != nil {
+		if driver, ok := flagOverrides[0]["workstation.runtime"].(string); ok && driver != "" {
+			workstationRuntime = driver
+		}
+	}
+	overridePlatform := ""
+	if len(flagOverrides) > 0 && flagOverrides[0] != nil {
+		if p, ok := flagOverrides[0]["platform"].(string); ok && p != "" {
+			overridePlatform = p
+		}
+	}
+	effectivePlatform := overridePlatform
+	if effectivePlatform == "" {
+		effectivePlatform = existingPlatform
+	}
+	needsWorkstationRuntime := effectivePlatform == "" || effectivePlatform == "docker" || effectivePlatform == "incus"
+	if isDevMode && workstationRuntime == "" && needsWorkstationRuntime {
+		switch runtime.GOOS {
+		case "darwin", "windows":
+			workstationRuntime = "docker-desktop"
+		default:
+			workstationRuntime = "docker"
+		}
+	}
+
+	if isDevMode && !hadRuntime && workstationRuntime != "" {
+		if err := rt.ConfigHandler.Set("workstation.runtime", workstationRuntime); err != nil {
+			return fmt.Errorf("failed to set workstation.runtime: %w", err)
+		}
+	}
+	vmRuntime := ""
+	if len(flagOverrides) > 0 && flagOverrides[0] != nil {
+		if r, ok := flagOverrides[0]["vm.runtime"].(string); ok && r != "" {
+			vmRuntime = r
+		}
+	}
+	if vmRuntime == "" {
+		vmRuntime = rt.ConfigHandler.GetString("vm.runtime", "docker")
+	}
+
+	if existingPlatform == "" && isDevMode {
+		if overridePlatform != "" {
+			if err := rt.ConfigHandler.Set("platform", overridePlatform); err != nil {
+				return fmt.Errorf("failed to set platform from overrides: %w", err)
+			}
+		} else if workstationRuntime == "colima" && vmRuntime == "incus" {
+			fmt.Fprintln(os.Stderr, "\033[33mWarning: vm.runtime is deprecated; use platform: incus in your context configuration instead. Support for vm.runtime will be removed in a future version.\033[0m")
+			if err := rt.ConfigHandler.Set("platform", "incus"); err != nil {
+				return fmt.Errorf("failed to set platform to incus: %w", err)
+			}
+		} else {
+			if err := rt.ConfigHandler.Set("platform", "docker"); err != nil {
+				return fmt.Errorf("failed to set platform: %w", err)
+			}
+		}
+	}
+
+	platform := rt.canonicalPlatform()
+	if platform == "none" {
+		defaultConfig := config.DefaultConfig
+		nonePlatform := "none"
+		defaultConfig.Platform = &nonePlatform
+		if err := rt.ConfigHandler.SetDefault(defaultConfig); err != nil {
+			return fmt.Errorf("failed to set default config: %w", err)
+		}
+	} else if isDevMode {
+		if err := rt.ConfigHandler.SetDefault(config.DefaultConfig_Dev); err != nil {
+			return fmt.Errorf("failed to set default config: %w", err)
+		}
+	} else {
+		if err := rt.ConfigHandler.SetDefault(config.DefaultConfig); err != nil {
+			return fmt.Errorf("failed to set default config: %w", err)
+		}
+	}
+
+	return nil
+}
 
 // explicitPlatformFromOverrides extracts an explicitly provided platform selection from CLI overrides.
 // It treats both "platform" and legacy "provider" override keys as explicit platform intent.

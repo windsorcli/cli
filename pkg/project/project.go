@@ -39,8 +39,9 @@ type Project struct {
 // =============================================================================
 
 // NewProject creates and initializes a new Project instance with all required managers.
-// It sets up the execution context, creates provisioner and composer, and creates the
-// workstation when in dev mode or when is true (config is loaded if needed for the latter).
+// It sets up the execution context and creates provisioner and composer. A name-driven dev
+// context (local/local-*) gets its Workstation eagerly; every other context is left nil and
+// picked up later by EnsureWorkstation, once Configure() has resolved config.
 // Panics if required dependencies are nil. After creation, call Configure() to apply flag overrides.
 // Optional overrides can be provided via opts to inject mocks for testing.
 // If opts contains a Project with Runtime set, that runtime will be reused.
@@ -92,13 +93,6 @@ func NewProject(contextName string, opts ...*Project) *Project {
 		ws = overrides.Workstation
 	} else if rt.ConfigHandler.IsDevMode(contextName) {
 		ws = workstation.NewWorkstation(rt)
-	} else {
-		if !rt.ConfigHandler.IsLoaded() {
-			_ = rt.ConfigHandler.LoadConfig()
-		}
-		if rt.ConfigHandler.GetString("workstation.runtime") != "" {
-			ws = workstation.NewWorkstation(rt)
-		}
 	}
 
 	var prov *provisioner.Provisioner

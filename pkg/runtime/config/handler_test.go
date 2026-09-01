@@ -944,6 +944,27 @@ func TestConfigHandler_SetDefault(t *testing.T) {
 		}
 	})
 
+	t.Run("DoesNotOverwriteValueAlreadySetBeforeIt", func(t *testing.T) {
+		mocks := setupConfigMocks(t)
+		handler := NewConfigHandler(mocks.Shell)
+
+		handler.Set("provider", "already_set_provider")
+
+		defaultContext := v1alpha1.Context{
+			Provider: ptrString("default_provider"),
+		}
+		err := handler.SetDefault(defaultContext)
+
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+
+		provider := handler.GetString("provider")
+		if provider != "already_set_provider" {
+			t.Errorf("Expected SetDefault called after Set to not clobber the existing value, got '%s'", provider)
+		}
+	})
+
 	t.Run("HandlesMarshalError", func(t *testing.T) {
 		// Given a config handler with failing marshal
 		handler, _ := setupPrivateTestHandler(t)
