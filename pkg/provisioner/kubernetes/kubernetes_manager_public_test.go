@@ -392,6 +392,110 @@ func TestBaseKubernetesManager_DeleteKustomization(t *testing.T) {
 		}
 	})
 
+	t.Run("TimeoutSurfacesHelmReleaseCondition", func(t *testing.T) {
+		// Given a stuck kustomization with a bare "Progressing" status, but its
+		// inventory names a HelmRelease that is itself stalled
+		manager := setup(t)
+		kubernetesClient := client.NewMockKubernetesClient()
+		kubernetesClient.DeleteResourceFunc = func(gvr schema.GroupVersionResource, namespace, name string, opts metav1.DeleteOptions) error {
+			return nil
+		}
+		kubernetesClient.GetResourceFunc = func(gvr schema.GroupVersionResource, namespace, name string) (*unstructured.Unstructured, error) {
+			if gvr.Group == "helm.toolkit.fluxcd.io" && gvr.Resource == "helmreleases" {
+				return &unstructured.Unstructured{Object: map[string]any{
+					"apiVersion": "helm.toolkit.fluxcd.io/v2",
+					"kind":       "HelmRelease",
+					"metadata": map[string]any{
+						"name":      "cloudnativepg",
+						"namespace": "system-database",
+					},
+					"status": map[string]any{
+						"conditions": []any{
+							map[string]any{
+								"type":    "Stalled",
+								"status":  "True",
+								"reason":  "UninstallFailed",
+								"message": "CustomResourceDefinition/clusters.postgresql.cnpg.io: still has 1 instance(s)",
+							},
+						},
+					},
+				}}, nil
+			}
+			return &unstructured.Unstructured{Object: map[string]any{
+				"status": map[string]any{
+					"conditions": []any{
+						map[string]any{
+							"type":   "Ready",
+							"status": "Unknown",
+							"reason": "Progressing",
+						},
+					},
+					"inventory": map[string]any{
+						"entries": []any{
+							map[string]any{
+								"id": "system-database_cloudnativepg_helm.toolkit.fluxcd.io_HelmRelease",
+							},
+						},
+					},
+				},
+			}}, nil
+		}
+		manager.client = kubernetesClient
+		manager.kustomizationReconcileTimeout = 100 * time.Millisecond
+		manager.kustomizationWaitPollInterval = 50 * time.Millisecond
+
+		// When DeleteKustomization times out
+		err := manager.DeleteKustomization("database-install", "system-gitops")
+
+		// Then the error surfaces the HelmRelease's own stuck reason
+		if err == nil {
+			t.Fatal("Expected timeout error, got nil")
+		}
+		if !strings.Contains(err.Error(), "HelmRelease system-database/cloudnativepg") {
+			t.Errorf("Expected error to name the stuck HelmRelease, got: %v", err)
+		}
+		if !strings.Contains(err.Error(), "UninstallFailed") {
+			t.Errorf("Expected error to surface the HelmRelease's condition reason, got: %v", err)
+		}
+		if !strings.Contains(err.Error(), "still has 1 instance(s)") {
+			t.Errorf("Expected error to surface the HelmRelease's condition message, got: %v", err)
+		}
+	})
+
+	t.Run("TimeoutHelmReleaseLookupErrorIsSwallowed", func(t *testing.T) {
+		// Given a stuck kustomization whose HelmRelease lookup itself fails
+		manager := setup(t)
+		kubernetesClient := client.NewMockKubernetesClient()
+		kubernetesClient.DeleteResourceFunc = func(gvr schema.GroupVersionResource, namespace, name string, opts metav1.DeleteOptions) error {
+			return nil
+		}
+		calls := 0
+		kubernetesClient.GetResourceFunc = func(gvr schema.GroupVersionResource, namespace, name string) (*unstructured.Unstructured, error) {
+			calls++
+			if calls == 1 {
+				// deletion-status poll: one call, then timeout
+				return &unstructured.Unstructured{}, nil
+			}
+			// describeStuckHelmReleases' own re-fetch
+			return nil, fmt.Errorf("apiserver unreachable")
+		}
+		manager.client = kubernetesClient
+		// timeout < poll interval: deletion-status loop makes exactly one call
+		manager.kustomizationReconcileTimeout = 10 * time.Millisecond
+		manager.kustomizationWaitPollInterval = 50 * time.Millisecond
+
+		// When DeleteKustomization times out
+		err := manager.DeleteKustomization("test-kustomization", "test-namespace")
+
+		// Then the timeout error still surfaces; the lookup failure is swallowed
+		if err == nil {
+			t.Fatal("Expected timeout error, got nil")
+		}
+		if !strings.Contains(err.Error(), "timeout") {
+			t.Errorf("Expected error mentioning timeout, got: %v", err)
+		}
+	})
+
 	t.Run("ErrorCheckingDeletionStatus", func(t *testing.T) {
 		manager := setup(t)
 		kubernetesClient := client.NewMockKubernetesClient()
