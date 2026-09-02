@@ -1249,6 +1249,17 @@ func (sys FluxSystem) TierNames() []string {
 	return names
 }
 
+// EffectivePath returns the system's Path. If Path is empty, it returns the Name.
+// This is the single source for the default that compileFluxSystemTiers applies to each tier.
+// Use this method, not the Path field, to read a system's path outside tier compilation.
+// A test assertion against a FluxSystem before tier compilation is one example.
+func (sys FluxSystem) EffectivePath() string {
+	if sys.Path == "" {
+		return sys.Name
+	}
+	return sys.Path
+}
+
 // compileFluxSystemTiers converts a pre-evaluated FluxSystem into its tier Kustomizations without
 // any expression evaluation. Install compiles to "<name>-install" at "<path>/install"; each
 // resources variant compiles to "<name>-resources[-<variant>]" at "<path>/resources". A timeout-less
@@ -1257,10 +1268,7 @@ func (sys FluxSystem) TierNames() []string {
 // first resources tier (out[0]) — so placement finds them after FluxSystems are flattened away.
 func compileFluxSystemTiers(sys FluxSystem) []Kustomization {
 	name := sys.Name
-	base := sys.Path
-	if base == "" {
-		base = name
-	}
+	base := sys.EffectivePath()
 	installName := name + "-install"
 
 	var out []Kustomization

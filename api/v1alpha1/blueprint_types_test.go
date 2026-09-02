@@ -5408,6 +5408,24 @@ func TestFluxSystem_TierNames(t *testing.T) {
 	})
 }
 
+func TestFluxSystem_EffectivePath(t *testing.T) {
+	t.Run("ReturnsPathWhenSet", func(t *testing.T) {
+		sys := FluxSystem{Name: "cert-manager", Path: "custom-path"}
+
+		if got := sys.EffectivePath(); got != "custom-path" {
+			t.Errorf("expected %q, got %q", "custom-path", got)
+		}
+	})
+
+	t.Run("FallsBackToNameWhenPathUnset", func(t *testing.T) {
+		sys := FluxSystem{Name: "cert-manager"}
+
+		if got := sys.EffectivePath(); got != "cert-manager" {
+			t.Errorf("expected %q, got %q", "cert-manager", got)
+		}
+	})
+}
+
 func TestBlueprint_AllKustomizations_InstallTierTimeoutDefault(t *testing.T) {
 	t.Run("InstallTierFallsBackToInstallTimeoutDefaultWhenUnset", func(t *testing.T) {
 		// Given a flux system whose install tier sets no timeout of its own

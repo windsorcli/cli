@@ -2480,6 +2480,40 @@ func TestTestRunner_matchFluxSystem(t *testing.T) {
 		}
 	})
 
+	t.Run("PathFallsBackToNameWhenActualPathOmitted", func(t *testing.T) {
+		// Given an actual system with no Path, and an expected Path equal to the system's Name
+		mocks := setupTestRunnerMocks(t)
+		runner := createRunnerWithMockGenerator(mocks)
+
+		actual := &blueprintv1alpha1.FluxSystem{Name: "demo"}
+		expect := blueprintv1alpha1.FluxSystem{Name: "demo", Path: "demo"}
+
+		// When matching the systems
+		diffs := runner.matchFluxSystem(actual, expect)
+
+		// Then the match returns no diffs
+		if len(diffs) != 0 {
+			t.Errorf("Expected no diffs, got: %v", diffs)
+		}
+	})
+
+	t.Run("ReturnsDiffWhenActualPathOmittedAndNameDoesNotMatchExpectedPath", func(t *testing.T) {
+		// Given an actual system with no Path, and an expected Path different from the system's Name
+		mocks := setupTestRunnerMocks(t)
+		runner := createRunnerWithMockGenerator(mocks)
+
+		actual := &blueprintv1alpha1.FluxSystem{Name: "demo"}
+		expect := blueprintv1alpha1.FluxSystem{Name: "demo", Path: "other"}
+
+		// When matching the systems
+		diffs := runner.matchFluxSystem(actual, expect)
+
+		// Then the match returns one diff
+		if len(diffs) != 1 {
+			t.Errorf("Expected 1 diff, got: %d", len(diffs))
+		}
+	})
+
 	t.Run("ReturnsDiffWhenSourceMismatches", func(t *testing.T) {
 		mocks := setupTestRunnerMocks(t)
 		runner := createRunnerWithMockGenerator(mocks)

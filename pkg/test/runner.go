@@ -773,22 +773,31 @@ func (r *TestRunner) matchKustomization(actual *blueprintv1alpha1.Kustomization,
 	return diffs
 }
 
-// matchFluxSystem compares an actual FluxSystem (from bp.FluxSystems, post facet-merge and
-// when-expression evaluation) against expected properties and returns a list of differences. It uses
-// partial matching: only properties set in the expect system are validated. Path, source, when, strategy,
-// and dependsOn are compared as the author wrote them (dependsOn is the system's own cross-layer edges,
-// not a composer-computed one). Ordinal and globalDependency compare when the expectation sets them;
-// globalDependency only asserts the true direction, since false is indistinguishable from unset. Install
-// and each Resources variant delegate to matchKustomization for their Kustomization fields. Enabled and
-// Destroy are not compared: neither is evaluated during composition, so they carry only the raw authored
-// expression at this stage, not a rendering outcome. Returns an empty slice if all specified properties
-// match.
+// matchFluxSystem compares an actual FluxSystem against expected properties. The actual system comes
+// from bp.FluxSystems, after facet merge and when-expression evaluation. The function returns a list
+// of differences.
+//
+// The function uses partial matching. It checks only the properties set on the expect system.
+//
+// The function compares fields this way:
+//   - Path: compares against actual.EffectivePath(), the same name fallback compileFluxSystemTiers
+//     uses. A fixture that omits path: still matches.
+//   - Source, When, Strategy, DependsOn: compares the raw values the author wrote. DependsOn is the
+//     system's own cross-layer edges, not a value the composer computes.
+//   - Ordinal, GlobalDependency: compares only when the expectation sets them. GlobalDependency
+//     checks only the true direction, because false is indistinguishable from unset.
+//   - Install, Resources: delegates to matchKustomization for each Kustomization field.
+//   - Enabled, Destroy: not compared. Composition does not evaluate these fields, so they hold the
+//     raw authored expression, not a rendering outcome.
+//
+// The function returns an empty slice when all specified properties match.
 func (r *TestRunner) matchFluxSystem(actual *blueprintv1alpha1.FluxSystem, expect blueprintv1alpha1.FluxSystem) []string {
 	var diffs []string
 	name := expect.Name
 
-	if expect.Path != "" && actual.Path != expect.Path {
-		diffs = append(diffs, fmt.Sprintf("flux[%s].path: expected %q, got %q", name, expect.Path, actual.Path))
+	actualPath := actual.EffectivePath()
+	if expect.Path != "" && actualPath != expect.Path {
+		diffs = append(diffs, fmt.Sprintf("flux[%s].path: expected %q, got %q", name, expect.Path, actualPath))
 	}
 
 	if expect.Source != "" && actual.Source != expect.Source {
