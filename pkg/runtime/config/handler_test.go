@@ -1568,6 +1568,38 @@ properties:
 		}
 	})
 
+	t.Run("RejectsExplicitIDNotMatchingRequiredShapeEvenWithNoSchemaLoaded", func(t *testing.T) {
+		// Given a handler with no schema loaded (e.g. a fresh `windsor init` before any
+		// blueprint schema exists) and an id set outside GenerateContextID's own safe-shape path
+		handler, _ := setupPrivateTestHandler(t)
+		handler.data = map[string]any{"id": "566b0c12a370"}
+
+		// When validating context values
+		err := handler.ValidateContextValues()
+
+		// Then it should reject the digit-leading id instead of silently accepting it
+		if err == nil {
+			t.Fatal("Expected validation error for id not matching the required shape")
+		}
+		if !strings.Contains(err.Error(), "context value validation failed") {
+			t.Errorf("Expected validation failure error, got %v", err)
+		}
+	})
+
+	t.Run("AcceptsIDMatchingRequiredShapeWithNoSchemaLoaded", func(t *testing.T) {
+		// Given a handler with no schema loaded and an id matching the required shape
+		handler, _ := setupPrivateTestHandler(t)
+		handler.data = map[string]any{"id": "wabc1234"}
+
+		// When validating context values
+		err := handler.ValidateContextValues()
+
+		// Then it should pass
+		if err != nil {
+			t.Errorf("Expected no error for a valid id, got %v", err)
+		}
+	})
+
 	t.Run("FiresCrossFieldRuleSpanningStaticAndDynamic", func(t *testing.T) {
 		handler, tmpDir := setupPrivateTestHandler(t)
 		schemaPath := filepath.Join(tmpDir, "schema.yaml")
