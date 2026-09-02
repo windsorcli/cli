@@ -180,6 +180,10 @@ func (k *BaseKubernetesManager) ApplyKustomization(kustomization kustomizev1.Kus
 // (LBs, EBS volumes, DNS records) leak. Returning an error here surfaces the stuck
 // state so the operator can re-deploy the controller, let it finish cleanup, and
 // re-run destroy — vs. silently masking the failure.
+//
+// The Kustomization's own conditions are often uninformative while stuck ("Progressing").
+// describeStuckHelmReleases checks its HelmReleases for a better reason (e.g. a CRD still
+// has live instances) and adds it to the error.
 func (k *BaseKubernetesManager) DeleteKustomization(name, namespace string) error {
 	gvr := schema.GroupVersionResource{
 		Group:    "kustomize.toolkit.fluxcd.io",
@@ -214,7 +218,7 @@ func (k *BaseKubernetesManager) DeleteKustomization(name, namespace string) erro
 		time.Sleep(k.kustomizationWaitPollInterval)
 	}
 
-	reason := describeStuckKustomization(lastObj)
+	reason := describeStuckKustomization(lastObj) + k.describeStuckHelmReleases(name, namespace)
 	return fmt.Errorf("timeout waiting for kustomization %s/%s to be deleted%s; an inventory item is likely stuck on a cloud-controller finalizer — inspect with `kubectl get kustomization %s -n %s -o yaml` (status.conditions, status.inventory) and `kubectl get pvc,svc,ingress,certificate -A | grep Terminating` to find the stuck object", namespace, name, reason, name, namespace)
 }
 
@@ -1677,6 +1681,52 @@ waitLoop:
 // =============================================================================
 // Private Methods
 // =============================================================================
+
+// describeStuckHelmReleases returns the most diagnostic non-Ready condition from a stuck
+// Kustomization's HelmReleases, for DeleteKustomization's timeout error. Lookup errors are
+// swallowed. Returns "" if there's nothing more specific to add.
+func (k *BaseKubernetesManager) describeStuckHelmReleases(name, namespace string) string {
+	helmReleases, err := k.GetHelmReleasesForKustomization(name, namespace)
+	if err != nil || len(helmReleases) == 0 {
+		return ""
+	}
+
+	var parts []string
+	for _, hr := range helmReleases {
+		var stalled, ready, other *metav1.Condition
+		for i := range hr.Status.Conditions {
+			cond := &hr.Status.Conditions[i]
+			switch {
+			case cond.Type == "Stalled" && cond.Status == "True":
+				stalled = cond
+			case cond.Type == "Ready" && cond.Status != "True":
+				ready = cond
+			case cond.Status != "True" && other == nil:
+				other = cond
+			}
+		}
+		pick := stalled
+		if pick == nil {
+			pick = ready
+		}
+		if pick == nil {
+			pick = other
+		}
+		if pick == nil || pick.Message == "" {
+			continue
+		}
+		message := strings.ReplaceAll(strings.TrimSpace(pick.Message), "\n", " ")
+		if pick.Reason != "" {
+			parts = append(parts, fmt.Sprintf("HelmRelease %s/%s (%s=%s %s: %s)", hr.Namespace, hr.Name, pick.Type, pick.Status, pick.Reason, message))
+		} else {
+			parts = append(parts, fmt.Sprintf("HelmRelease %s/%s (%s=%s: %s)", hr.Namespace, hr.Name, pick.Type, pick.Status, message))
+		}
+	}
+	if len(parts) == 0 {
+		return ""
+	}
+	return "; " + strings.Join(parts, ", ")
+}
 
 // kustomizationCheckResult carries one kustomization's readiness outcome back from a
 // concurrent checkKustomizationReady call to WaitForKustomizations' tick loop.
