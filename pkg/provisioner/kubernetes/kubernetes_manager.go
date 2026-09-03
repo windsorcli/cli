@@ -194,10 +194,10 @@ func (k *BaseKubernetesManager) DeleteKustomization(name, namespace string) erro
 		return err
 	}
 
-	start := time.Now()
+	start := k.shims.TimeNow()
 	waitFor := k.kustomizationReconcileTimeout
 	var lastObj *unstructured.Unstructured
-	for time.Now().Before(start.Add(waitFor)) {
+	for k.shims.TimeNow().Before(start.Add(waitFor)) {
 		obj, err := k.client.GetResource(gvr, namespace, name)
 		if err != nil && isNotFoundError(err) {
 			return nil
@@ -213,7 +213,7 @@ func (k *BaseKubernetesManager) DeleteKustomization(name, namespace string) erro
 			}
 		}
 
-		time.Sleep(k.kustomizationWaitPollInterval)
+		k.shims.TimeSleep(k.kustomizationWaitPollInterval)
 	}
 
 	inspectCmd := fmt.Sprintf("`kubectl get kustomization %s -n %s -o yaml`", name, namespace)
@@ -1210,7 +1210,7 @@ func (k *BaseKubernetesManager) WaitForKubernetesHealthy(ctx context.Context, en
 
 	deadline, ok := ctx.Deadline()
 	if !ok {
-		deadline = time.Now().Add(5 * time.Minute)
+		deadline = k.shims.TimeNow().Add(5 * time.Minute)
 	}
 
 	pollInterval := k.healthCheckPollInterval
@@ -1222,7 +1222,7 @@ func (k *BaseKubernetesManager) WaitForKubernetesHealthy(ctx context.Context, en
 	if settleDuration == 0 {
 		settleDuration = 30 * time.Second
 	}
-	if remaining := time.Until(deadline) - pollInterval; settleDuration > remaining {
+	if remaining := deadline.Sub(k.shims.TimeNow()) - pollInterval; settleDuration > remaining {
 		if remaining < 0 {
 			remaining = 0
 		}
@@ -1231,7 +1231,7 @@ func (k *BaseKubernetesManager) WaitForKubernetesHealthy(ctx context.Context, en
 
 	var lastErr error
 	var settleSince time.Time
-	for time.Now().Before(deadline) {
+	for k.shims.TimeNow().Before(deadline) {
 		select {
 		case <-ctx.Done():
 			return healthyTimeoutError(lastErr)
@@ -1261,9 +1261,9 @@ func (k *BaseKubernetesManager) WaitForKubernetesHealthy(ctx context.Context, en
 			}
 
 			if settleSince.IsZero() {
-				settleSince = time.Now()
+				settleSince = k.shims.TimeNow()
 			}
-			if time.Since(settleSince) < settleDuration {
+			if k.shims.TimeNow().Sub(settleSince) < settleDuration {
 				select {
 				case <-ctx.Done():
 					return healthyTimeoutError(lastErr)
