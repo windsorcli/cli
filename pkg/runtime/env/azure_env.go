@@ -55,7 +55,9 @@ func NewAzureEnvPrinter(shell shell.Shell, configHandler config.ConfigHandler) *
 // modes — the ARM_* vars describe the target account/tenant and the TF_VAR_*
 // vars feed terraform, which runs from global shells too. TF_VAR_region is
 // omitted when azure.region is unset so consuming modules fall back to their
-// own variable defaults rather than receiving an empty string.
+// own variable defaults rather than receiving an empty string. Every emitted
+// key is registered as managed, so WindsorEnvPrinter unsets it once a context
+// switch stops this printer from emitting it.
 func (e *AzureEnvPrinter) GetEnvVars() (map[string]string, error) {
 	envVars := make(map[string]string)
 	global := e.shell.IsGlobal()
@@ -87,6 +89,10 @@ func (e *AzureEnvPrinter) GetEnvVars() (map[string]string, error) {
 	}
 
 	envVars["TF_VAR_kubelogin_mode"] = e.resolveKubeloginMode(config)
+
+	for key := range envVars {
+		e.SetManagedEnv(key)
+	}
 
 	return envVars, nil
 }

@@ -226,3 +226,93 @@ func TestTerraformDotEnv_AbsentFromHookOutsideTerraformDirectory(t *testing.T) {
 		t.Errorf("expected HYPERV_HOST to be absent outside a Terraform directory, got:\n%s", stdout)
 	}
 }
+
+// exportedEnvFrom parses "export KEY=VALUE" and "export KEY='VALUE'" lines from
+// `windsor env --hook` output into an env slice, simulating what the shell hook's
+// `eval` would have applied to the live shell before the next invocation.
+func exportedEnvFrom(stdout []byte) []string {
+	var result []string
+	for _, line := range strings.Split(string(stdout), "\n") {
+		rest, ok := strings.CutPrefix(line, "export ")
+		if !ok {
+			continue
+		}
+		key, value, ok := strings.Cut(rest, "=")
+		if !ok {
+			continue
+		}
+		value = strings.Trim(value, "'\"")
+		result = append(result, key+"="+value)
+	}
+	return result
+}
+
+// TestAzureEnv_UnsetOnContextSwitchAway reproduces cli#3245: switching from an
+// azure-platform context to one with no azure config must unset the ARM_* and
+// TF_VAR_* vars the prior context exported, not leave them live in the shell.
+func TestAzureEnv_UnsetOnContextSwitchAway(t *testing.T) {
+	t.Parallel()
+	dir, env := helpers.CopyFixtureOnly(t, "default")
+
+	windsorYamlPath := filepath.Join(dir, "windsor.yaml")
+	windsorYaml := `version: v1alpha1
+contexts:
+  local: {}
+  azure-test:
+    platform: azure
+    azure:
+      subscription_id: "11111111-1111-1111-1111-111111111111"
+      tenant_id: "22222222-2222-2222-2222-222222222222"
+      region: eastus2
+`
+	if err := os.WriteFile(windsorYamlPath, []byte(windsorYaml), 0644); err != nil {
+		t.Fatalf("write windsor.yaml: %v", err)
+	}
+	helpers.MarkAsGitRepo(t, dir)
+	if _, stderr, err := helpers.RunCLI(dir, []string{"init"}, env); err != nil {
+		t.Fatalf("windsor init: %v\nstderr: %s", err, stderr)
+	}
+	if _, stderr, err := helpers.RunCLI(dir, []string{"init", "azure-test"}, env); err != nil {
+		t.Fatalf("windsor init azure-test: %v\nstderr: %s", err, stderr)
+	}
+
+	if _, stderr, err := helpers.RunCLI(dir, []string{"set", "context", "azure-test"}, env); err != nil {
+		t.Fatalf("set context azure-test: %v\nstderr: %s", err, stderr)
+	}
+
+	azureStdout, stderr, err := helpers.RunCLI(dir, []string{"env", "--hook"}, env)
+	if err != nil {
+		t.Fatalf("env --hook (azure-test): %v\nstderr: %s", err, stderr)
+	}
+	if !strings.Contains(string(azureStdout), "ARM_SUBSCRIPTION_ID") {
+		t.Fatalf("expected ARM_SUBSCRIPTION_ID while on azure-test, got:\n%s", azureStdout)
+	}
+
+	envAfterAzure := append(append([]string{}, env...), exportedEnvFrom(azureStdout)...)
+	if _, stderr, err := helpers.RunCLI(dir, []string{"set", "context", "local"}, envAfterAzure); err != nil {
+		t.Fatalf("set context local: %v\nstderr: %s", err, stderr)
+	}
+
+	localStdout, stderr, err := helpers.RunCLI(dir, []string{"env", "--hook"}, envAfterAzure)
+	if err != nil {
+		t.Fatalf("env --hook (local): %v\nstderr: %s", err, stderr)
+	}
+
+	unset := map[string]bool{}
+	for _, line := range strings.Split(string(localStdout), "\n") {
+		rest, ok := strings.CutPrefix(line, "unset ")
+		if !ok {
+			continue
+		}
+		for _, key := range strings.Fields(rest) {
+			unset[key] = true
+		}
+	}
+	for _, key := range []string{
+		"ARM_SUBSCRIPTION_ID", "ARM_TENANT_ID", "TF_VAR_region", "TF_VAR_kubelogin_mode",
+	} {
+		if !unset[key] {
+			t.Errorf("expected %q to be unset after switching away from azure-test, got:\n%s", key, localStdout)
+		}
+	}
+}

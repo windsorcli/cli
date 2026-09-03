@@ -57,7 +57,9 @@ func NewVsphereEnvPrinter(shell shell.Shell, configHandler config.ConfigHandler)
 // datastore, network, etc.) are Terraform variable inputs wired by the facet
 // — they are not read from the environment. VSPHERE_PASSWORD must be
 // supplied via secrets or the ambient environment; plaintext passwords are
-// never written to the shell config file.
+// never written to the shell config file. Every emitted key is registered as
+// managed, so WindsorEnvPrinter unsets it once a context switch stops this
+// printer from emitting it.
 func (e *VsphereEnvPrinter) GetEnvVars() (map[string]string, error) {
 	envVars := make(map[string]string)
 	global := e.shell.IsGlobal()
@@ -75,6 +77,9 @@ func (e *VsphereEnvPrinter) GetEnvVars() (map[string]string, error) {
 
 	cfg := e.configHandler.GetConfig()
 	if cfg == nil || cfg.VSphere == nil {
+		for key := range envVars {
+			e.SetManagedEnv(key)
+		}
 		return envVars, nil
 	}
 
@@ -87,6 +92,10 @@ func (e *VsphereEnvPrinter) GetEnvVars() (map[string]string, error) {
 	}
 	if v.Insecure != nil {
 		envVars["VSPHERE_ALLOW_UNVERIFIED_SSL"] = strconv.FormatBool(*v.Insecure)
+	}
+
+	for key := range envVars {
+		e.SetManagedEnv(key)
 	}
 
 	return envVars, nil

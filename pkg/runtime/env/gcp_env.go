@@ -51,7 +51,13 @@ func NewGcpEnvPrinter(shell shell.Shell, configHandler config.ConfigHandler) *Gc
 // is only emitted when gcp.credentials_path is set explicitly. The project
 // identifiers (GOOGLE_CLOUD_PROJECT, GCLOUD_PROJECT, GOOGLE_CLOUD_QUOTA_PROJECT)
 // are still emitted because they describe which GCP project the context
-// targets, not whose credentials are used.
+// targets, not whose credentials are used. Every emitted key except
+// GOOGLE_APPLICATION_CREDENTIALS is registered as managed, so WindsorEnvPrinter
+// unsets it once a context switch stops this printer from emitting it.
+// GOOGLE_APPLICATION_CREDENTIALS is excluded because it is left untouched
+// whenever it's already present in the shell, so Windsor cannot tell its own
+// prior export apart from a value the operator set intentionally and must not
+// risk clearing the latter.
 func (e *GcpEnvPrinter) GetEnvVars() (map[string]string, error) {
 	envVars := make(map[string]string)
 	global := e.shell.IsGlobal()
@@ -92,6 +98,13 @@ func (e *GcpEnvPrinter) GetEnvVars() (map[string]string, error) {
 		if config.GCP.QuotaProject != nil {
 			envVars["GOOGLE_CLOUD_QUOTA_PROJECT"] = *config.GCP.QuotaProject
 		}
+	}
+
+	for key := range envVars {
+		if key == "GOOGLE_APPLICATION_CREDENTIALS" {
+			continue
+		}
+		e.SetManagedEnv(key)
 	}
 
 	return envVars, nil

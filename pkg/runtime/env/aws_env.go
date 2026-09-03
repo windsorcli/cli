@@ -63,7 +63,9 @@ func NewAwsEnvPrinter(shell shell.Shell, configHandler config.ConfigHandler) *Aw
 // WarnOnProfileMismatch writes a non-fatal hint to warningWriter naming what
 // was expected vs. what exists. Global mode never warns on this: the ambient
 // ~/.aws/config is shared across every project the operator touches, so an
-// unrelated profile there is normal, not evidence of misconfiguration.
+// unrelated profile there is normal, not evidence of misconfiguration. Every
+// emitted key is registered as managed, so WindsorEnvPrinter unsets it once a
+// context switch stops this printer from emitting it.
 func (e *AwsEnvPrinter) GetEnvVars() (map[string]string, error) {
 	envVars := make(map[string]string)
 	global := e.shell.IsGlobal()
@@ -114,6 +116,10 @@ func (e *AwsEnvPrinter) GetEnvVars() (map[string]string, error) {
 		} else if !global {
 			awsprofile.WarnOnProfileMismatch(e.warningWriter, resolver, profileName)
 		}
+	}
+
+	for key := range envVars {
+		e.SetManagedEnv(key)
 	}
 
 	return envVars, nil
