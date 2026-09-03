@@ -94,10 +94,12 @@ type BaseKubernetesManager struct {
 	client        client.KubernetesClient
 	configHandler config.ConfigHandler
 
-	kustomizationWaitPollInterval     time.Duration
-	kustomizationWaitMinErrorDuration time.Duration
-	kustomizationReconcileTimeout     time.Duration
-	kustomizationReconcileSleep       time.Duration
+	kustomizationWaitPollInterval        time.Duration
+	kustomizationWaitMinErrorDuration    time.Duration
+	kustomizationReconcileTimeout        time.Duration
+	kustomizationReconcileSleep          time.Duration
+	kustomizationDeletionPerEntryTimeout time.Duration
+	kustomizationDeletionMaxExtraTimeout time.Duration
 
 	notReadyDescribeBudget time.Duration
 
@@ -117,17 +119,19 @@ func NewKubernetesManager(kubernetesClient client.KubernetesClient, configHandle
 	}
 
 	manager := &BaseKubernetesManager{
-		client:                            kubernetesClient,
-		configHandler:                     configHandler,
-		shims:                             NewShims(),
-		kustomizationWaitPollInterval:     2 * time.Second,
-		kustomizationWaitMinErrorDuration: 30 * time.Second,
-		kustomizationReconcileTimeout:     5 * time.Minute,
-		kustomizationReconcileSleep:       2 * time.Second,
-		notReadyDescribeBudget:            10 * time.Second,
-		healthCheckPollInterval:           10 * time.Second,
-		healthCheckSettleDuration:         30 * time.Second,
-		nodeReadyPollInterval:             5 * time.Second,
+		client:                               kubernetesClient,
+		configHandler:                        configHandler,
+		shims:                                NewShims(),
+		kustomizationWaitPollInterval:        2 * time.Second,
+		kustomizationWaitMinErrorDuration:    30 * time.Second,
+		kustomizationReconcileTimeout:        5 * time.Minute,
+		kustomizationReconcileSleep:          2 * time.Second,
+		kustomizationDeletionPerEntryTimeout: 3 * time.Second,
+		kustomizationDeletionMaxExtraTimeout: 20 * time.Minute,
+		notReadyDescribeBudget:               10 * time.Second,
+		healthCheckPollInterval:              10 * time.Second,
+		healthCheckSettleDuration:            30 * time.Second,
+		nodeReadyPollInterval:                5 * time.Second,
 	}
 
 	return manager
@@ -164,26 +168,12 @@ func (k *BaseKubernetesManager) ApplyKustomization(kustomization kustomizev1.Kus
 	return k.applyWithRetry(gvr, obj, opts)
 }
 
-// DeleteKustomization removes a Kustomization resource using background deletion.
-// Background deletion allows the kustomization to enter "Terminating" state while its
-// children are deleted in the background. The method waits for the deletion to complete.
-//
-// On timeout (Flux's WaitForTermination has not lifted its finalizer within
-// kustomizationReconcileTimeout), the method returns an error rather than stripping
-// finalizers. The timeout almost always means an inventory item is stuck on a
-// cloud-controller finalizer (CSI external-attacher, aws-load-balancer-controller's
-// service.k8s.aws/resources, cert-manager) — stripping the Kustomization's own
-// finalizer at that point reaps the Kustomization from etcd but leaves the inventory
-// items orphaned in their namespace, where the controller that should lift their
-// finalizers may already be torn down. The orphan then blocks namespace termination
-// and (worse) lets terraform proceed to destroy the cluster while cloud resources
-// (LBs, EBS volumes, DNS records) leak. Returning an error here surfaces the stuck
-// state so the operator can re-deploy the controller, let it finish cleanup, and
-// re-run destroy — vs. silently masking the failure.
-//
-// The Kustomization's own conditions are often uninformative while stuck ("Progressing").
-// describeStuckHelmReleases checks its HelmReleases for a better reason (e.g. a CRD still
-// has live instances) and adds it to the error.
+// DeleteKustomization removes a Kustomization using background deletion and waits for
+// it to disappear, scaling the wait by inventory size for CRD-heavy layers. On timeout
+// it returns an error instead of stripping finalizers, which would orphan inventory
+// items and let terraform destroy the cluster while their cloud resources leak. The
+// error asserts a stuck finalizer only when a status condition confirms one; otherwise
+// it reports the timeout as unconfirmed.
 func (k *BaseKubernetesManager) DeleteKustomization(name, namespace string) error {
 	gvr := schema.GroupVersionResource{
 		Group:    "kustomize.toolkit.fluxcd.io",
@@ -204,9 +194,10 @@ func (k *BaseKubernetesManager) DeleteKustomization(name, namespace string) erro
 		return err
 	}
 
-	timeout := time.Now().Add(k.kustomizationReconcileTimeout)
+	start := time.Now()
+	waitFor := k.kustomizationReconcileTimeout
 	var lastObj *unstructured.Unstructured
-	for time.Now().Before(timeout) {
+	for time.Now().Before(start.Add(waitFor)) {
 		obj, err := k.client.GetResource(gvr, namespace, name)
 		if err != nil && isNotFoundError(err) {
 			return nil
@@ -215,11 +206,52 @@ func (k *BaseKubernetesManager) DeleteKustomization(name, namespace string) erro
 			return fmt.Errorf("error checking kustomization deletion status: %w", err)
 		}
 		lastObj = obj
+
+		if size := inventorySize(obj); size > 0 {
+			if scaled := k.kustomizationDeletionTimeout(size); scaled > waitFor {
+				waitFor = scaled
+			}
+		}
+
 		time.Sleep(k.kustomizationWaitPollInterval)
 	}
 
+	inspectCmd := fmt.Sprintf("`kubectl get kustomization %s -n %s -o yaml`", name, namespace)
+	const terminatingCmd = "`kubectl get pvc,svc,ingress,certificate -A | grep Terminating`"
+
 	reason := describeStuckKustomization(lastObj) + k.describeStuckHelmReleases(name, namespace)
-	return fmt.Errorf("timeout waiting for kustomization %s/%s to be deleted%s; an inventory item is likely stuck on a cloud-controller finalizer — inspect with `kubectl get kustomization %s -n %s -o yaml` (status.conditions, status.inventory) and `kubectl get pvc,svc,ingress,certificate -A | grep Terminating` to find the stuck object", namespace, name, reason, name, namespace)
+	if reason == "" {
+		return fmt.Errorf("timeout waiting for kustomization %s/%s to be deleted after %s; no status condition confirms a stuck finalizer, but that does not rule one out — check whether %s (status.inventory) is still shrinking before retrying; if it is not shrinking, find the stuck object with %s", namespace, name, waitFor, inspectCmd, terminatingCmd)
+	}
+	return fmt.Errorf("timeout waiting for kustomization %s/%s to be deleted%s; an inventory item is likely stuck on a cloud-controller finalizer — inspect with %s (status.conditions, status.inventory) and %s to find the stuck object", namespace, name, reason, inspectCmd, terminatingCmd)
+}
+
+// inventorySize counts a Kustomization's status.inventory.entries. It returns 0 for a
+// nil object or a missing/malformed inventory.
+func inventorySize(obj *unstructured.Unstructured) int {
+	if obj == nil {
+		return 0
+	}
+	entries, found, err := unstructured.NestedSlice(obj.Object, "status", "inventory", "entries")
+	if err != nil || !found {
+		return 0
+	}
+	return len(entries)
+}
+
+// kustomizationDeletionTimeout scales DeleteKustomization's wait window by inventory
+// size, capped at kustomizationDeletionMaxExtraTimeout so a corrupted or unusually
+// large count cannot stall destroy indefinitely.
+func (k *BaseKubernetesManager) kustomizationDeletionTimeout(entryCount int) time.Duration {
+	const maxEntryCount = 100_000 // guards the Duration multiplication below against overflow
+	if entryCount > maxEntryCount {
+		entryCount = maxEntryCount
+	}
+	extra := time.Duration(entryCount) * k.kustomizationDeletionPerEntryTimeout
+	if extra > k.kustomizationDeletionMaxExtraTimeout {
+		extra = k.kustomizationDeletionMaxExtraTimeout
+	}
+	return k.kustomizationReconcileTimeout + extra
 }
 
 // describeStuckKustomization extracts the most diagnostic status condition from a

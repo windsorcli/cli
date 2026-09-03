@@ -544,6 +544,173 @@ func TestBaseKubernetesManager_DeleteKustomization(t *testing.T) {
 			t.Errorf("Expected PropagationPolicy to be DeletePropagationBackground, got %s", *capturedOptions.PropagationPolicy)
 		}
 	})
+
+	t.Run("TimeoutWithoutConfirmedReasonIsHonestAboutUncertainty", func(t *testing.T) {
+		// Given a kustomization that never disappears and carries no diagnostic
+		// condition, so a still-deleting kustomization looks identical to a
+		// genuinely stuck one from status.conditions alone
+		manager := setup(t)
+		kubernetesClient := client.NewMockKubernetesClient()
+		kubernetesClient.DeleteResourceFunc = func(gvr schema.GroupVersionResource, namespace, name string, opts metav1.DeleteOptions) error {
+			return nil
+		}
+		kubernetesClient.GetResourceFunc = func(gvr schema.GroupVersionResource, namespace, name string) (*unstructured.Unstructured, error) {
+			return &unstructured.Unstructured{}, nil
+		}
+		manager.client = kubernetesClient
+		manager.kustomizationReconcileTimeout = 100 * time.Millisecond
+		manager.kustomizationWaitPollInterval = 50 * time.Millisecond
+
+		// When DeleteKustomization times out
+		err := manager.DeleteKustomization("test-kustomization", "test-namespace")
+
+		// Then the error does not assert a stuck finalizer it cannot confirm, and
+		// tells the operator to check whether deletion is still progressing
+		if err == nil {
+			t.Fatal("Expected timeout error, got nil")
+		}
+		if strings.Contains(err.Error(), "is likely stuck on a cloud-controller finalizer") {
+			t.Errorf("Expected no unconfirmed stuck-finalizer claim, got: %v", err)
+		}
+		if !strings.Contains(err.Error(), "does not rule one out") {
+			t.Errorf("Expected error to acknowledge the uncertainty, got: %v", err)
+		}
+	})
+
+	t.Run("TimeoutWithConfirmedReasonKeepsStuckFinalizerWording", func(t *testing.T) {
+		// Given a kustomization that never disappears and carries a diagnostic
+		// condition confirming it is genuinely stuck
+		manager := setup(t)
+		kubernetesClient := client.NewMockKubernetesClient()
+		kubernetesClient.DeleteResourceFunc = func(gvr schema.GroupVersionResource, namespace, name string, opts metav1.DeleteOptions) error {
+			return nil
+		}
+		kubernetesClient.GetResourceFunc = func(gvr schema.GroupVersionResource, namespace, name string) (*unstructured.Unstructured, error) {
+			return &unstructured.Unstructured{Object: map[string]any{
+				"status": map[string]any{
+					"conditions": []any{
+						map[string]any{
+							"type":    "Stalled",
+							"status":  "True",
+							"reason":  "PruneFailed",
+							"message": "ServiceAccount/telemetry/collector still has finalizer",
+						},
+					},
+				},
+			}}, nil
+		}
+		manager.client = kubernetesClient
+		manager.kustomizationReconcileTimeout = 100 * time.Millisecond
+		manager.kustomizationWaitPollInterval = 50 * time.Millisecond
+
+		// When DeleteKustomization times out
+		err := manager.DeleteKustomization("test-kustomization", "test-namespace")
+
+		// Then the error keeps asserting the stuck finalizer, since Flux's own
+		// condition confirms it, and does not use the unconfirmed wording
+		if err == nil {
+			t.Fatal("Expected timeout error, got nil")
+		}
+		if !strings.Contains(err.Error(), "is likely stuck on a cloud-controller finalizer") {
+			t.Errorf("Expected confirmed stuck-finalizer wording, got: %v", err)
+		}
+		if strings.Contains(err.Error(), "does not rule one out") {
+			t.Errorf("Expected no unconfirmed-deletion wording, got: %v", err)
+		}
+	})
+
+	t.Run("TimeoutWindowScalesWithInventorySize", func(t *testing.T) {
+		// Given a kustomization with a large inventory (a CRD-heavy layer)
+		// that never disappears within the base timeout
+		manager := setup(t)
+		manager.kustomizationReconcileTimeout = 20 * time.Millisecond
+		manager.kustomizationWaitPollInterval = 10 * time.Millisecond
+		manager.kustomizationDeletionPerEntryTimeout = 1 * time.Millisecond
+		manager.kustomizationDeletionMaxExtraTimeout = time.Second
+
+		inventoryEntries := make([]any, 100)
+		for i := range inventoryEntries {
+			inventoryEntries[i] = map[string]any{"id": fmt.Sprintf("ns_res%d_v1_ConfigMap", i)}
+		}
+
+		kubernetesClient := client.NewMockKubernetesClient()
+		kubernetesClient.DeleteResourceFunc = func(gvr schema.GroupVersionResource, namespace, name string, opts metav1.DeleteOptions) error {
+			return nil
+		}
+		kubernetesClient.GetResourceFunc = func(gvr schema.GroupVersionResource, namespace, name string) (*unstructured.Unstructured, error) {
+			return &unstructured.Unstructured{Object: map[string]any{
+				"status": map[string]any{
+					"inventory": map[string]any{
+						"entries": inventoryEntries,
+					},
+				},
+			}}, nil
+		}
+		manager.client = kubernetesClient
+
+		// When DeleteKustomization times out
+		start := time.Now()
+		err := manager.DeleteKustomization("test-kustomization", "test-namespace")
+		elapsed := time.Since(start)
+
+		// Then it waits past the base timeout, scaled by the 100-entry inventory
+		// (100 * 1ms = 100ms extra), instead of aborting at the fixed 20ms window
+		if err == nil {
+			t.Fatal("Expected timeout error, got nil")
+		}
+		if elapsed < 100*time.Millisecond {
+			t.Errorf("Expected wait window scaled by inventory size (>=100ms), got %s", elapsed)
+		}
+	})
+
+	t.Run("TimeoutWindowScalesEvenWhenFirstReadHasNoInventory", func(t *testing.T) {
+		// Given a kustomization whose inventory is empty on the first poll (a status
+		// write racing the delete) but populated on every later poll
+		manager := setup(t)
+		manager.kustomizationReconcileTimeout = 20 * time.Millisecond
+		manager.kustomizationWaitPollInterval = 10 * time.Millisecond
+		manager.kustomizationDeletionPerEntryTimeout = 1 * time.Millisecond
+		manager.kustomizationDeletionMaxExtraTimeout = time.Second
+
+		inventoryEntries := make([]any, 100)
+		for i := range inventoryEntries {
+			inventoryEntries[i] = map[string]any{"id": fmt.Sprintf("ns_res%d_v1_ConfigMap", i)}
+		}
+
+		calls := 0
+		kubernetesClient := client.NewMockKubernetesClient()
+		kubernetesClient.DeleteResourceFunc = func(gvr schema.GroupVersionResource, namespace, name string, opts metav1.DeleteOptions) error {
+			return nil
+		}
+		kubernetesClient.GetResourceFunc = func(gvr schema.GroupVersionResource, namespace, name string) (*unstructured.Unstructured, error) {
+			calls++
+			if calls == 1 {
+				return &unstructured.Unstructured{}, nil
+			}
+			return &unstructured.Unstructured{Object: map[string]any{
+				"status": map[string]any{
+					"inventory": map[string]any{
+						"entries": inventoryEntries,
+					},
+				},
+			}}, nil
+		}
+		manager.client = kubernetesClient
+
+		// When DeleteKustomization times out
+		start := time.Now()
+		err := manager.DeleteKustomization("test-kustomization", "test-namespace")
+		elapsed := time.Since(start)
+
+		// Then a later, populated read still scales the wait window — the empty
+		// first read does not permanently lock in the unscaled base timeout
+		if err == nil {
+			t.Fatal("Expected timeout error, got nil")
+		}
+		if elapsed < 100*time.Millisecond {
+			t.Errorf("Expected wait window scaled by a later inventory read (>=100ms), got %s", elapsed)
+		}
+	})
 }
 
 func TestBaseKubernetesManager_describeNotReadyKustomizations(t *testing.T) {
