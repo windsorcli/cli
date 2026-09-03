@@ -24,6 +24,7 @@ type Shims struct {
 	YamlUnmarshal     func(data []byte, v any, opts ...yaml.JSONOpt) error
 	K8sYamlUnmarshal  func(data []byte, v any, opts ...yaml.JSONOpt) error
 	TimeSleep         func(d time.Duration)
+	TimeNow           func() time.Time
 	ToUnstructured    func(obj any) (map[string]any, error)
 	FromUnstructured  func(obj map[string]any, target any) error
 }
@@ -40,6 +41,7 @@ func NewShims() *Shims {
 		YamlUnmarshal:     yaml.Unmarshal,
 		K8sYamlUnmarshal:  yaml.Unmarshal,
 		TimeSleep:         time.Sleep,
+		TimeNow:           time.Now,
 		ToUnstructured: func(obj any) (map[string]any, error) {
 			return runtime.DefaultUnstructuredConverter.ToUnstructured(obj)
 		},

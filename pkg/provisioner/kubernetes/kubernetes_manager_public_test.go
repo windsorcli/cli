@@ -83,6 +83,24 @@ func setupDefaultShims() *Shims {
 	return shims
 }
 
+// fakeClock gives a real-time polling loop a deterministic, instantly-advancing Now/Sleep pair,
+// so tests asserting on elapsed time don't depend on actual CI scheduler timing.
+type fakeClock struct {
+	now time.Time
+}
+
+func newFakeClock() *fakeClock {
+	return &fakeClock{now: time.Now()}
+}
+
+func (c *fakeClock) Now() time.Time {
+	return c.now
+}
+
+func (c *fakeClock) Sleep(d time.Duration) {
+	c.now = c.now.Add(d)
+}
+
 func TestBaseKubernetesManager_ApplyKustomization(t *testing.T) {
 	setup := func(t *testing.T) *BaseKubernetesManager {
 		t.Helper()
@@ -222,6 +240,9 @@ func TestBaseKubernetesManager_DeleteKustomization(t *testing.T) {
 		manager.kustomizationWaitPollInterval = 50 * time.Millisecond
 		manager.kustomizationReconcileTimeout = 100 * time.Millisecond
 		manager.kustomizationReconcileSleep = 50 * time.Millisecond
+		clock := newFakeClock()
+		manager.shims.TimeNow = clock.Now
+		manager.shims.TimeSleep = clock.Sleep
 		return manager
 	}
 
@@ -649,9 +670,9 @@ func TestBaseKubernetesManager_DeleteKustomization(t *testing.T) {
 		manager.client = kubernetesClient
 
 		// When DeleteKustomization times out
-		start := time.Now()
+		start := manager.shims.TimeNow()
 		err := manager.DeleteKustomization("test-kustomization", "test-namespace")
-		elapsed := time.Since(start)
+		elapsed := manager.shims.TimeNow().Sub(start)
 
 		// Then it waits past the base timeout, scaled by the 100-entry inventory
 		// (100 * 1ms = 100ms extra), instead of aborting at the fixed 20ms window
@@ -698,9 +719,9 @@ func TestBaseKubernetesManager_DeleteKustomization(t *testing.T) {
 		manager.client = kubernetesClient
 
 		// When DeleteKustomization times out
-		start := time.Now()
+		start := manager.shims.TimeNow()
 		err := manager.DeleteKustomization("test-kustomization", "test-namespace")
-		elapsed := time.Since(start)
+		elapsed := manager.shims.TimeNow().Sub(start)
 
 		// Then a later, populated read still scales the wait window — the empty
 		// first read does not permanently lock in the unscaled base timeout
@@ -3544,16 +3565,20 @@ func TestBaseKubernetesManager_WaitForKubernetesHealthy(t *testing.T) {
 		// configured settle duration itself (e.g. windsor destroy's fail-fast
 		// reachability check, which hands WaitForKubernetesHealthy a 30s context
 		// against the same 30s default settle duration), and a health check that
-		// always succeeds
+		// always succeeds. The poll interval is widened from the suite default so
+		// the real slack between the clamped settle window and the context
+		// deadline (exactly one poll interval, by construction) has enough
+		// absolute headroom to absorb CI scheduler jitter.
 		manager := setup(t)
-		manager.healthCheckSettleDuration = 300 * time.Millisecond
+		manager.healthCheckPollInterval = 150 * time.Millisecond
+		manager.healthCheckSettleDuration = 900 * time.Millisecond
 		kubernetesClient := client.NewMockKubernetesClient()
 		kubernetesClient.CheckHealthFunc = func(ctx context.Context, endpoint string) error {
 			return nil
 		}
 		manager.client = kubernetesClient
 
-		ctx, cancel := context.WithTimeout(context.Background(), 300*time.Millisecond)
+		ctx, cancel := context.WithTimeout(context.Background(), 900*time.Millisecond)
 		defer cancel()
 
 		// When it waits for health
