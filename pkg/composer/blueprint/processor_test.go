@@ -1902,6 +1902,85 @@ func TestProcessor_ProcessFacets_ConfigBlockDeepSameBlockChain(t *testing.T) {
 	})
 }
 
+// TestProcessor_ProcessFacets_ConfigBlockWhenChainAcrossRounds covers #3209: a config block's
+// `when:` only sees the previous round's resolved scope, so a block gated on another block that
+// is itself newly-included this round needs a further outer round to see that block's value. The
+// outer round loop used to stop as soon as the included-facet set stopped changing, which for the
+// common case of facets with no facet-level `when:` is already true from round zero — so a `when:`
+// chain two or more blocks deep across different config blocks never got the extra round it needed
+// and stayed permanently (and silently) excluded.
+func TestProcessor_ProcessFacets_ConfigBlockWhenChainAcrossRounds(t *testing.T) {
+	t.Run("CrossBlockWhenChainResolvesRegardlessOfFileOrder", func(t *testing.T) {
+		// Given a two-hop when: chain (tier_b depends on tier_a, tier_a depends on sizing) split
+		// across three facets declared in the most adversarial order — the deepest consumer first,
+		// the root producer last — dependency order must still win over declaration order.
+		mocks := setupProcessorMocks(t)
+		mocks.ConfigHandler.GetContextValuesFunc = func() (map[string]any, error) {
+			return map[string]any{"cluster_resources": map[string]any{"controlplanes": map[string]any{"cpu": 100}}}, nil
+		}
+		processor := NewBlueprintProcessor(mocks.Runtime)
+		facets := []blueprintv1alpha1.Facet{
+			{
+				Metadata: blueprintv1alpha1.Metadata{Name: "a-tier-b"},
+				Config: []blueprintv1alpha1.ConfigBlock{
+					{Name: "tier_b", When: "(tier_a.big ?? false) == true", Body: map[string]any{"value": map[string]any{"bigger": true}}},
+				},
+			},
+			{
+				Metadata: blueprintv1alpha1.Metadata{Name: "b-tier-a"},
+				Config: []blueprintv1alpha1.ConfigBlock{
+					{Name: "tier_a", When: "(sizing.cpu ?? 0) > 50", Body: map[string]any{"value": map[string]any{"big": true}}},
+				},
+			},
+			{
+				Metadata: blueprintv1alpha1.Metadata{Name: "c-sizing"},
+				Config: []blueprintv1alpha1.ConfigBlock{
+					{Name: "sizing", Body: map[string]any{"value": map[string]any{"cpu": "${cluster_resources.controlplanes.cpu}"}}},
+				},
+			},
+		}
+
+		scope, err := processor.ProcessFacets(&blueprintv1alpha1.Blueprint{}, facets)
+
+		if err != nil {
+			t.Fatalf("Expected the when: chain to resolve, got: %v", err)
+		}
+		tierB, ok := scope["tier_b"].(map[string]any)
+		if !ok || tierB["bigger"] != true {
+			t.Errorf("Expected tier_b.bigger to resolve to true, got: %#v", scope["tier_b"])
+		}
+	})
+
+	t.Run("OscillatingWhenDependencyErrorsInsteadOfLoopingForever", func(t *testing.T) {
+		// Given two blocks whose when: clauses each gate on the other's absence, inclusion flips
+		// every round and never settles. Composition must fail clearly rather than silently return
+		// whichever round happened to run last, or loop until an unrelated caller-side timeout.
+		mocks := setupProcessorMocks(t)
+		mocks.ConfigHandler.GetContextValuesFunc = func() (map[string]any, error) {
+			return map[string]any{}, nil
+		}
+		processor := NewBlueprintProcessor(mocks.Runtime)
+		facets := []blueprintv1alpha1.Facet{
+			{
+				Metadata: blueprintv1alpha1.Metadata{Name: "oscillator"},
+				Config: []blueprintv1alpha1.ConfigBlock{
+					{Name: "a", When: "(b.flag ?? false) == false", Body: map[string]any{"value": map[string]any{"flag": true}}},
+					{Name: "b", When: "(a.flag ?? false) == true", Body: map[string]any{"value": map[string]any{"flag": true}}},
+				},
+			},
+		}
+
+		_, err := processor.ProcessFacets(&blueprintv1alpha1.Blueprint{}, facets)
+
+		if err == nil {
+			t.Fatal("Expected an error for a when: dependency that never converges, got nil")
+		}
+		if !strings.Contains(err.Error(), "did not converge") {
+			t.Errorf("Expected a convergence error, got: %v", err)
+		}
+	})
+}
+
 func TestProcessor_ProcessFacets_ConfigBlockEvaluationOrder(t *testing.T) {
 	// These tests pin the dependency-driven evaluation order for config blocks. The
 	// processor must evaluate a block AFTER every block it references via ${...}, no
@@ -7674,7 +7753,13 @@ func TestProcessor_ProcessFacets_Requires(t *testing.T) {
 		}
 	})
 
-	t.Run("SelfReferenceNeverSatisfied", func(t *testing.T) {
+	t.Run("SelfReferenceSatisfiedAcrossRounds", func(t *testing.T) {
+		// A lone facet requiring a path only its own config block produces is the same shape as
+		// FacetOwnConfigSatisfiesItsRequiresAcrossRounds above, just without a second facet to keep
+		// the round loop going past round one. The loop must keep running on its own until the
+		// resolved scope itself stabilizes, not stop as soon as the (here, empty) included-facet set
+		// repeats — otherwise this and the multi-facet case resolve inconsistently for no reason a
+		// blueprint author controls.
 		mocks := setupProcessorMocks(t)
 		mocks.ConfigHandler.GetContextValuesFunc = func() (map[string]any, error) {
 			return map[string]any{"platform": "incus", "cluster": map[string]any{"name": "demo"}}, nil
@@ -7693,12 +7778,13 @@ func TestProcessor_ProcessFacets_Requires(t *testing.T) {
 				},
 			},
 		}
-		_, err := processor.ProcessFacets(target, facets)
-		if err == nil {
-			t.Fatal("Expected error for self-referenced requirement, got nil")
+		scope, err := processor.ProcessFacets(target, facets)
+		if err != nil {
+			t.Fatalf("Expected facet's own config to satisfy its requires across rounds, got: %v", err)
 		}
-		if !strings.Contains(err.Error(), "self.k") {
-			t.Errorf("Expected self.k path in error, got: %s", err.Error())
+		self, ok := scope["self"].(map[string]any)
+		if !ok || self["k"] != "demo" {
+			t.Errorf("Expected self.k to resolve to 'demo', got: %#v", scope["self"])
 		}
 	})
 }

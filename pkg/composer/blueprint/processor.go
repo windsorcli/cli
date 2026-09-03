@@ -334,16 +334,23 @@ func (p *BaseBlueprintProcessor) ProcessGlobally(sources []SourceFacetSet) (map[
 // (contextScope deep-merged with globalScope), and the included facets. Excluded facets are recorded,
 // and a requirements error is returned if any included facet's requires stay unmet. It emits no
 // components — split from ProcessFacets so cross-source composition can resolve config and inclusion
-// once, globally, before emitting each source's components.
+// once, globally, before emitting each source's components. A round stops the loop only when the
+// included-facet set and the resolved config scope both match the prior round, since a config block's
+// `when:` can depend on a block only just included this round. It errors if the scope never settles
+// within maxFacetRounds, instead of silently returning whichever round ran last.
 func (p *BaseBlueprintProcessor) resolveConfigAndInclusion(sortedFacets []blueprintv1alpha1.Facet, contextScope map[string]any, operatorOverlay map[string]any) (map[string]any, map[string]any, []blueprintv1alpha1.Facet, error) {
 	scope := contextScope
 	var globalScope map[string]any
+	var prevGlobalScope map[string]any
 	var cfgEntries map[string]*blueprintv1alpha1.ConfigBlock
 	includedFacets := make([]blueprintv1alpha1.Facet, 0, len(sortedFacets))
 	prevIncludedSet := make(map[string]bool)
 	pendingRequirements := make(map[string]facetRequirementMisses)
 	const maxFacetRounds = 10
+	converged := false
+	var unstableNames []string
 	for range make([]struct{}, maxFacetRounds) {
+		prevGlobalScope = globalScope
 		includedFacets = includedFacets[:0]
 		globalScope = nil
 		cfgEntries = nil
@@ -363,7 +370,7 @@ func (p *BaseBlueprintProcessor) resolveConfigAndInclusion(sortedFacets []bluepr
 			if !shouldInclude {
 				continue
 			}
-			misses, err := p.evaluateRequirements(facet, passScope)
+			misses, err := p.evaluateRequirements(facet, passScope, contextScope)
 			if err != nil {
 				return nil, nil, nil, err
 			}
@@ -394,19 +401,36 @@ func (p *BaseBlueprintProcessor) resolveConfigAndInclusion(sortedFacets []bluepr
 		for _, f := range includedFacets {
 			currSet[f.Metadata.Name] = true
 		}
-		if len(currSet) == len(prevIncludedSet) {
-			eq := true
+		facetsStable := len(currSet) == len(prevIncludedSet)
+		if facetsStable {
 			for n := range currSet {
 				if !prevIncludedSet[n] {
-					eq = false
+					facetsStable = false
 					break
 				}
 			}
-			if eq {
-				break
-			}
+		}
+		if facetsStable && reflect.DeepEqual(globalScope, prevGlobalScope) {
+			converged = true
+			break
+		}
+		if !facetsStable {
+			unstableNames = unstableSetNames(currSet, prevIncludedSet)
+		} else {
+			unstableNames = nil
 		}
 		prevIncludedSet = currSet
+	}
+
+	if !converged {
+		named := unstableNames
+		if len(named) == 0 {
+			named = unstableConfigBlockNames(globalScope, prevGlobalScope)
+		}
+		return nil, nil, nil, fmt.Errorf(
+			"config did not converge after %d rounds. Check for a 'when:' or 'value:' cycle involving: %s",
+			maxFacetRounds, strings.Join(named, ", "),
+		)
 	}
 
 	if len(pendingRequirements) > 0 {
@@ -574,18 +598,16 @@ func (p *BaseBlueprintProcessor) scopeForConfigBlock(contextScope, globalScope m
 	return scope
 }
 
-// mergeFacetScopeIntoGlobal merges the facet's config block structure into the global scope
-// (accumulated from prior facets) without evaluating config body expressions. Returns the
-// updated global scope and per-block meta (ordinal and strategy). Config body expressions
-// are evaluated later in evaluateGlobalScopeConfig, which determines its own evaluation
-// order via topoSortConfigBlocks based on inter-block references.
-// For a given name, only blocks whose when condition is true contribute; if multiple blocks
-// with the same name have when true, their bodies are deep-merged in list order (later overlay).
-// Merge precedence: higher ordinal wins; when ordinals match, strategy precedence remove > replace > merge.
-// A block's `when:` is evaluated against evalScope made blind to the keys that same block writes
-// (falling them back to contextScope, the round-0 operator/schema values), so a "default only when
-// unset" guard tests operator intent rather than the block's own prior-round contribution and does not
-// cancel itself across rounds.
+// mergeFacetScopeIntoGlobal merges the facet's config blocks into globalScope (accumulated from
+// prior facets), without evaluating body expressions. Returns the updated global scope and
+// per-block meta (ordinal, strategy). evaluateGlobalScopeConfig evaluates bodies later, in the
+// dependency order topoSortConfigBlocks computes from inter-block references. A block contributes
+// only when its `when:` is true; blocks sharing a name deep-merge in list order (later overlays
+// earlier). Higher ordinal wins; equal ordinals fall back to strategy precedence (remove > replace
+// > merge). A block's `when:` evaluates against evalScope made blind to the keys that same block
+// writes, falling those keys back to contextScope (the round-0 operator/schema values), so a
+// "default only when unset" guard tests operator intent, not the block's own prior-round output,
+// and cannot cancel itself across rounds.
 func (p *BaseBlueprintProcessor) mergeFacetScopeIntoGlobal(facet blueprintv1alpha1.Facet, globalScope map[string]any, existing map[string]*blueprintv1alpha1.ConfigBlock, evalScope, contextScope map[string]any) (map[string]any, map[string]*blueprintv1alpha1.ConfigBlock, error) {
 	facetOrdinal := resolvedFacetOrdinal(facet)
 	incoming := make(map[string]*blueprintv1alpha1.ConfigBlock)
@@ -755,11 +777,51 @@ func (p *BaseBlueprintProcessor) mergeConfigBlocks(scope map[string]any, existin
 	return out, merged, nil
 }
 
+// unstableSetNames returns, sorted, the names present in exactly one of curr and prev. Used to
+// name the facets a non-convergence error should point an operator at, when facet inclusion
+// itself (not config values) is still changing between rounds.
+func unstableSetNames(curr, prev map[string]bool) []string {
+	var out []string
+	for name := range curr {
+		if !prev[name] {
+			out = append(out, name)
+		}
+	}
+	for name := range prev {
+		if !curr[name] {
+			out = append(out, name)
+		}
+	}
+	sort.Strings(out)
+	return out
+}
+
+// unstableConfigBlockNames returns, sorted, the names of config blocks whose presence or value
+// differs between two rounds' resolved scopes. Used to name the blocks a non-convergence error
+// should point an operator at.
+func unstableConfigBlockNames(a, b map[string]any) []string {
+	names := make(map[string]bool, len(a)+len(b))
+	for name := range a {
+		names[name] = true
+	}
+	for name := range b {
+		names[name] = true
+	}
+	var out []string
+	for name := range names {
+		if !reflect.DeepEqual(a[name], b[name]) {
+			out = append(out, name)
+		}
+	}
+	sort.Strings(out)
+	return out
+}
+
 // evaluateGlobalScopeConfig evaluates every config block body in globalScope against contextScope
 // (ConfigHandler values) merged with globalScope (facet config blocks), so expressions can
 // reference both. Same-block sibling references converge by re-evaluating a block repeatedly, up
-// to its own key count — a chain of N dependent keys can take up to N passes, since each pass only
-// propagates values one dependency level further. Cross-block order comes from
+// to its own key count. A chain of N dependent keys can take up to N passes, since each pass
+// propagates values only one dependency level further. Cross-block order comes from
 // topoSortConfigBlocks (alphabetical tiebreak for independents). Mutates globalScope in place.
 func (p *BaseBlueprintProcessor) evaluateGlobalScopeConfig(globalScope map[string]any, contextScope map[string]any) error {
 	if globalScope == nil {
@@ -2378,8 +2440,11 @@ func (p *BaseBlueprintProcessor) evaluateIntegerExpression(expr string, facetPat
 // so the component's needs only bind when it would actually be included. The miss's Condition is
 // the AND of facet.When, component.When (when applicable), and block.When; the formatter buckets
 // misses by Condition so each effective scope renders as its own "Because" section. An error is
-// returned only when a When expression fails to evaluate.
-func (p *BaseBlueprintProcessor) evaluateRequirements(facet blueprintv1alpha1.Facet, scope map[string]any) ([]requirementBlockMiss, error) {
+// returned only when a When expression fails to evaluate. contextScope blinds a config block's own
+// When the same way mergeFacetScopeIntoGlobal does. Without it, a block whose value replaces its
+// whole name (e.g. a scalar) would see its own prior-round contribution by a later round. A
+// `.field` access on that scalar would then fail.
+func (p *BaseBlueprintProcessor) evaluateRequirements(facet blueprintv1alpha1.Facet, scope, contextScope map[string]any) ([]requirementBlockMiss, error) {
 	var misses []requirementBlockMiss
 
 	facetMisses, err := p.evaluateRequirementBlocks(facet.Requires, scope, facet.Path, facet.Metadata.Name, facet.When)
@@ -2392,7 +2457,8 @@ func (p *BaseBlueprintProcessor) evaluateRequirements(facet blueprintv1alpha1.Fa
 		if len(cb.Requires) == 0 {
 			continue
 		}
-		include, err := p.shouldIncludeComponent(cb.When, facet.Path, scope)
+		guardScope := scopeBlindToBlockKeys(scope, contextScope, cb.Name, cb.Body)
+		include, err := p.shouldIncludeComponent(cb.When, facet.Path, guardScope)
 		if err != nil {
 			return nil, fmt.Errorf("error evaluating config block when '%s' in facet '%s': %w", cb.When, facet.Metadata.Name, err)
 		}
@@ -2710,14 +2776,15 @@ func deepMergeMap(base, overlay map[string]any) map[string]any {
 	return result
 }
 
-// scopeBlindToBlockKeys returns a scope in which the keys a config block writes under its own name
-// resolve to their round-0 context value rather than to what composition has accumulated, so the
-// block's `when:` guard cannot see the block's own contribution from a prior round. A guard like
-// `(network.cidr_block ?? '') == ''` therefore tests whether the operator or schema set cidr_block,
-// not whether this block already defaulted it, and no longer flips false after the block writes it.
-// Keys the block does not write — sibling keys other facets set, other blocks — are untouched; a block
-// whose value is not a map writes the whole name, so the whole name falls back to context. evalScope is
-// returned unchanged when the block writes nothing, so the common (unguarded) path allocates nothing.
+// scopeBlindToBlockKeys returns evalScope with the keys a config block writes under its own name
+// replaced by their round-0 context value, instead of what composition has since accumulated, so
+// the block's `when:` guard is blind to the block's own contribution from a prior round. A guard
+// like `(network.cidr_block ?? '') == ''` therefore tests whether the operator or schema set
+// cidr_block, not whether this block already defaulted it, and cannot flip false after the block
+// writes it. Keys the block does not write — other blocks' keys, sibling facets' keys — stay
+// untouched; a block whose value is not a map writes its whole name, so the whole name falls back
+// to context. Returns evalScope unchanged when the block writes nothing, so the common path
+// allocates nothing.
 func scopeBlindToBlockKeys(evalScope, contextScope map[string]any, blockName string, body map[string]any) map[string]any {
 	keys, wholeName := blockWrittenKeys(body)
 	if !wholeName && len(keys) == 0 {
