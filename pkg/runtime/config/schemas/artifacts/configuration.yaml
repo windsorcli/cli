@@ -48,9 +48,11 @@ $defs:
     properties:
       id:
         type: string
+        pattern: ^[a-z][a-z0-9]*$
         description: |
           Stable identifier for the context, distinct from its map key.
           Used for cross-context references where the key may change.
+          Starts with a lowercase letter. Contains only lowercase letters and digits.
       platform:
         type: string
         enum:
