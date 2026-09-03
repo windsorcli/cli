@@ -221,7 +221,7 @@ func (k *BaseKubernetesManager) DeleteKustomization(name, namespace string) erro
 
 	reason := describeStuckKustomization(lastObj) + k.describeStuckHelmReleases(name, namespace)
 	if reason == "" {
-		return fmt.Errorf("timeout waiting for kustomization %s/%s to be deleted after %s; no status condition confirms a stuck finalizer, but that does not rule one out — check whether %s (status.inventory) is still shrinking before re-running `windsor destroy`; if it is not shrinking, find the stuck object with %s", namespace, name, waitFor, inspectCmd, terminatingCmd)
+		return fmt.Errorf("timeout waiting for kustomization %s/%s to be deleted after %s; no status condition confirms a stuck finalizer, but that does not rule one out — check whether %s (status.inventory) is still shrinking before retrying; if it is not shrinking, find the stuck object with %s", namespace, name, waitFor, inspectCmd, terminatingCmd)
 	}
 	return fmt.Errorf("timeout waiting for kustomization %s/%s to be deleted%s; an inventory item is likely stuck on a cloud-controller finalizer — inspect with %s (status.conditions, status.inventory) and %s to find the stuck object", namespace, name, reason, inspectCmd, terminatingCmd)
 }
