@@ -784,6 +784,50 @@ contexts:
 			t.Errorf("Second token %q should be different from the first token %q", secondToken, firstToken)
 		}
 	})
+
+	t.Run("UnsetsKeysNoLongerManagedByAnyPrinter", func(t *testing.T) {
+		// Given a prior invocation's WINDSOR_MANAGED_ENV names keys no printer
+		// registers this round (e.g. a context switch away from Azure)
+		mocks := setupWindsorEnvMocks(t)
+		printer := NewWindsorEnvPrinter(mocks.Shell, mocks.ConfigHandler, nil, []EnvPrinter{})
+		printer.shims = mocks.Shims
+		t.Setenv("WINDSOR_MANAGED_ENV", "ARM_SUBSCRIPTION_ID,ARM_TENANT_ID")
+
+		// When GetEnvVars is called
+		envVars, err := printer.GetEnvVars()
+		if err != nil {
+			t.Fatalf("GetEnvVars returned an error: %v", err)
+		}
+
+		// Then both stale keys are explicitly unset
+		for _, key := range []string{"ARM_SUBSCRIPTION_ID", "ARM_TENANT_ID"} {
+			if got, ok := envVars[key]; !ok || got != "" {
+				t.Errorf("%s = %q, ok=%v, want empty string to unset it", key, got, ok)
+			}
+		}
+	})
+
+	t.Run("DoesNotUnsetKeysStillManagedByAnotherPrinter", func(t *testing.T) {
+		// Given a prior invocation's WINDSOR_MANAGED_ENV names a key that another
+		// printer still registers as managed this round
+		mocks := setupWindsorEnvMocks(t)
+		mockPrinter := NewMockEnvPrinter()
+		mockPrinter.GetManagedEnvFunc = func() []string { return []string{"AWS_REGION"} }
+		printer := NewWindsorEnvPrinter(mocks.Shell, mocks.ConfigHandler, nil, []EnvPrinter{mockPrinter})
+		printer.shims = mocks.Shims
+		t.Setenv("WINDSOR_MANAGED_ENV", "AWS_REGION")
+
+		// When GetEnvVars is called
+		envVars, err := printer.GetEnvVars()
+		if err != nil {
+			t.Fatalf("GetEnvVars returned an error: %v", err)
+		}
+
+		// Then AWS_REGION is not unset
+		if _, ok := envVars["AWS_REGION"]; ok {
+			t.Errorf("AWS_REGION should not be unset while still managed, got %q", envVars["AWS_REGION"])
+		}
+	})
 }
 
 // TestWindsorEnv_PostEnvHook tests the PostEnvHook method of the WindsorEnvPrinter

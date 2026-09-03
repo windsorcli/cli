@@ -67,13 +67,12 @@ func NewWindsorEnvPrinter(shell shell.Shell, configHandler config.ConfigHandler,
 	}
 }
 
-// GetEnvVars constructs a map of Windsor-specific environment variables by retrieving
-// the current context, project root, and session token. It resolves secrets in custom
-// environment variables using configured providers, handles caching of values, and
-// manages environment variables and aliases. For secrets, it leverages the secrets cache
-// to avoid unnecessary decryption while ensuring variables are properly tracked in the
-// managed environment list. Windsor-prefixed variables are automatically included in
-// the final environment setup to provide a comprehensive configuration.
+// GetEnvVars sets WINDSOR_CONTEXT, WINDSOR_CONTEXT_ID, WINDSOR_PROJECT_ROOT,
+// WINDSOR_SESSION_TOKEN, and BUILD_ID. It evaluates secret expressions in the context's
+// custom environment variables and caches the resolved values. It merges GetManagedEnv
+// and GetManagedAlias from every printer into WINDSOR_MANAGED_ENV and WINDSOR_MANAGED_ALIAS.
+// This printer runs last among all env printers. It then unsets any key the previous
+// WINDSOR_MANAGED_ENV listed that no printer manages this round.
 func (e *WindsorEnvPrinter) GetEnvVars() (map[string]string, error) {
 	envVars := make(map[string]string)
 
@@ -127,15 +126,12 @@ func (e *WindsorEnvPrinter) GetEnvVars() (map[string]string, error) {
 		}
 	}
 
-	// Collect managed envs and aliases from all env printers
 	var allManagedEnv []string
 	var allManagedAlias []string
 
-	// Add our own managed envs and aliases
 	allManagedEnv = append(allManagedEnv, e.GetManagedEnv()...)
 	allManagedAlias = append(allManagedAlias, e.GetManagedAlias()...)
 
-	// Collect from other env printers
 	for _, printer := range e.allEnvPrinters {
 		if printer != nil && printer != e {
 			allManagedEnv = append(allManagedEnv, printer.GetManagedEnv()...)
@@ -143,11 +139,9 @@ func (e *WindsorEnvPrinter) GetEnvVars() (map[string]string, error) {
 		}
 	}
 
-	// Add Windsor prefixed vars to managed env (excluding BUILD_ID if not available)
 	windsorVars := make([]string, 0, len(WindsorPrefixedVars))
 	for _, varName := range WindsorPrefixedVars {
 		if varName == "BUILD_ID" {
-			// Only include BUILD_ID if it's actually set
 			if _, exists := envVars["BUILD_ID"]; exists {
 				windsorVars = append(windsorVars, varName)
 			}
@@ -157,7 +151,23 @@ func (e *WindsorEnvPrinter) GetEnvVars() (map[string]string, error) {
 	}
 	allManagedEnv = append(allManagedEnv, windsorVars...)
 
-	// Set the combined managed env and alias
+	if prevManagedEnv, exists := e.shims.LookupEnv("WINDSOR_MANAGED_ENV"); exists && prevManagedEnv != "" {
+		stillManaged := make(map[string]bool, len(allManagedEnv))
+		for _, k := range allManagedEnv {
+			stillManaged[k] = true
+		}
+		for k := range strings.SplitSeq(prevManagedEnv, ",") {
+			k = strings.TrimSpace(k)
+			if k == "" || stillManaged[k] {
+				continue
+			}
+			if _, alreadySet := envVars[k]; alreadySet {
+				continue
+			}
+			envVars[k] = ""
+		}
+	}
+
 	envVars["WINDSOR_MANAGED_ENV"] = strings.Join(allManagedEnv, ",")
 	envVars["WINDSOR_MANAGED_ALIAS"] = strings.Join(allManagedAlias, ",")
 
