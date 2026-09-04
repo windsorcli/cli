@@ -378,11 +378,13 @@ func TestTerraformEnv_GetEnvVars(t *testing.T) {
 	})
 
 	t.Run("ResetManagedDynamicTFVarsWhenNoProjectPathFound", func(t *testing.T) {
+		// Given a prior GetEnvVars call recorded its dynamic component-input TF_VAR_*
+		// keys in WINDSOR_MANAGED_TERRAFORM_ENV, the durable record this printer owns
 		printer, mocks := setup(t)
 
 		mocks.Shims.Getenv = func(key string) string {
-			if key == "WINDSOR_MANAGED_ENV" {
-				return "WINDSOR_CONTEXT,TF_VAR_cluster_endpoint,TF_VAR_controlplanes,TF_CLI_ARGS_refresh"
+			if key == "WINDSOR_MANAGED_TERRAFORM_ENV" {
+				return "TF_VAR_cluster_endpoint,TF_VAR_controlplanes,TF_CLI_ARGS_refresh"
 			}
 			return ""
 		}
@@ -413,6 +415,42 @@ func TestTerraformEnv_GetEnvVars(t *testing.T) {
 		}
 		if val, exists := envVars["TF_CLI_ARGS_refresh"]; !exists || val != "" {
 			t.Errorf("Expected TF_CLI_ARGS_refresh to be empty string, got %v", val)
+		}
+	})
+
+	t.Run("LeavesAnotherPrinterManagedTFVarAloneWhenNoProjectPathFound", func(t *testing.T) {
+		// Given AzureEnvPrinter's TF_VAR_kubelogin_mode is currently set and listed in
+		// WINDSOR_MANAGED_ENV, but this printer never emitted it itself (windsorcli/cli#3253)
+		printer, mocks := setup(t)
+
+		mocks.Shims.Getenv = func(key string) string {
+			if key == "WINDSOR_MANAGED_ENV" {
+				return "WINDSOR_CONTEXT,TF_VAR_kubelogin_mode,ARM_SUBSCRIPTION_ID"
+			}
+			return ""
+		}
+		mocks.Shims.LookupEnv = func(key string) (string, bool) {
+			if key == "TF_VAR_kubelogin_mode" {
+				return "workloadidentity", true
+			}
+			return "", false
+		}
+
+		mockProvider := setupMockTerraformProvider(mocks)
+		mockProvider.FindRelativeProjectPathFunc = func(directory ...string) (string, error) {
+			return "", nil
+		}
+		printer = setupTerraformEnvPrinter(t, mocks, mockProvider)
+
+		// When GetEnvVars is called outside a Terraform directory
+		envVars, err := printer.GetEnvVars()
+
+		// Then the other printer's managed var is left untouched, not scheduled for unset
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+		if _, exists := envVars["TF_VAR_kubelogin_mode"]; exists {
+			t.Errorf("Expected TF_VAR_kubelogin_mode to be left alone, got an entry: %v", envVars["TF_VAR_kubelogin_mode"])
 		}
 	})
 
@@ -554,9 +592,10 @@ func TestTerraformEnv_GetEnvVars(t *testing.T) {
 			t.Errorf("Expected HYPERV_HOST to be tracked in managed env, got %v", managed)
 		}
 
-		// And the durable record of which keys came from terraform/.env should be set and managed
-		if envVars["WINDSOR_MANAGED_TERRAFORM_ENV"] != "HYPERV_HOST" {
-			t.Errorf("Expected WINDSOR_MANAGED_TERRAFORM_ENV=HYPERV_HOST, got %q", envVars["WINDSOR_MANAGED_TERRAFORM_ENV"])
+		// And the durable record of every emitted key, including the terraform/.env one,
+		// should be set and managed
+		if envVars["WINDSOR_MANAGED_TERRAFORM_ENV"] != "HYPERV_HOST,TF_DATA_DIR" {
+			t.Errorf("Expected WINDSOR_MANAGED_TERRAFORM_ENV=HYPERV_HOST,TF_DATA_DIR, got %q", envVars["WINDSOR_MANAGED_TERRAFORM_ENV"])
 		}
 		if !slices.Contains(managed, "WINDSOR_MANAGED_TERRAFORM_ENV") {
 			t.Errorf("Expected WINDSOR_MANAGED_TERRAFORM_ENV to be tracked in managed env, got %v", managed)
