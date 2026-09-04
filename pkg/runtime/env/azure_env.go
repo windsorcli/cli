@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 
 	"github.com/windsorcli/cli/api/v1alpha1"
+	"github.com/windsorcli/cli/pkg/debug"
 	"github.com/windsorcli/cli/pkg/runtime/config"
 	"github.com/windsorcli/cli/pkg/runtime/shell"
 )
@@ -89,6 +90,7 @@ func (e *AzureEnvPrinter) GetEnvVars() (map[string]string, error) {
 	}
 
 	envVars["TF_VAR_kubelogin_mode"] = e.resolveKubeloginMode(config)
+	debug.Log("azure env: resolved TF_VAR_kubelogin_mode=%q", envVars["TF_VAR_kubelogin_mode"])
 
 	for key := range envVars {
 		e.SetManagedEnv(key)

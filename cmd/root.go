@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/spf13/cobra"
+	"github.com/windsorcli/cli/pkg/debug"
 	"github.com/windsorcli/cli/pkg/project"
 	"github.com/windsorcli/cli/pkg/runtime/tools"
 	"github.com/windsorcli/cli/pkg/tui"
@@ -14,6 +15,10 @@ import (
 
 // verbose is a flag for verbose output
 var verbose bool
+
+// debugFlag turns on internal diagnostic logging via the debug package.
+// WINDSOR_DEBUG=true enables it too, for runs that cannot pass a flag.
+var debugFlag bool
 
 // noCache is a flag for bypassing the OCI artifact cache. When true, every
 // command's preflight sets NO_CACHE=true so ArtifactBuilder.Pull skips the
@@ -75,6 +80,8 @@ func init() {
 	// Define the --lock-timeout flag. Persistent so every command that acquires the stack
 	// lock (apply, up, destroy, plan, bootstrap, upgrade) inherits it.
 	rootCmd.PersistentFlags().DurationVar(&lockTimeout, "lock-timeout", 0, "Duration to wait for the stack lock before failing (e.g. 30s, 5m). Defaults to 0 (fail immediately).")
+	// Define the --debug flag. Persistent so every command inherits it.
+	rootCmd.PersistentFlags().BoolVar(&debugFlag, "debug", false, "Enable internal debug logging to stderr")
 }
 
 // commandPreflight orchestrates global CLI preflight checks and context initialization for all commands.
@@ -190,7 +197,8 @@ func silenceErrorsOnAncestors(cmd *cobra.Command) {
 // setting the env var is the smallest-blast-radius path that works for every command
 // without threading a flag through the project/runtime/composer construction chain.
 // An explicit --no-cache always wins; a pre-existing NO_CACHE in the environment is
-// preserved when the flag is not set.
+// preserved when the flag is not set. --debug and WINDSOR_DEBUG=true both enable
+// debug.Log output for the run; either one is enough.
 func setupGlobalContext(cmd *cobra.Command) error {
 	ctx := cmd.Root().Context()
 	if ctx == nil {
@@ -204,6 +212,8 @@ func setupGlobalContext(cmd *cobra.Command) error {
 			return fmt.Errorf("failed to set NO_CACHE environment variable: %w", err)
 		}
 	}
+	debug.Init(debugFlag || os.Getenv("WINDSOR_DEBUG") == "true")
+	debug.Log("debug logging enabled")
 	cmd.SetContext(ctx)
 	tui.Init(verbose)
 	return nil

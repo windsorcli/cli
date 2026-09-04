@@ -15,6 +15,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/windsorcli/cli/pkg/debug"
 	"github.com/windsorcli/cli/pkg/runtime/config"
 	"github.com/windsorcli/cli/pkg/runtime/evaluator"
 	"github.com/windsorcli/cli/pkg/runtime/secrets"
@@ -164,6 +165,7 @@ func (e *WindsorEnvPrinter) GetEnvVars() (map[string]string, error) {
 			if _, alreadySet := envVars[k]; alreadySet {
 				continue
 			}
+			debug.Log("windsor env: unsetting stale managed var %s (no printer reports it this round)", k)
 			envVars[k] = ""
 		}
 	}

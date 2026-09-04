@@ -20,6 +20,7 @@ import (
 
 	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
 	"github.com/windsorcli/cli/pkg/constants"
+	"github.com/windsorcli/cli/pkg/debug"
 	"github.com/windsorcli/cli/pkg/runtime"
 	envvars "github.com/windsorcli/cli/pkg/runtime/env"
 	"github.com/windsorcli/cli/pkg/tui"
@@ -333,6 +334,7 @@ func (s *TerraformStack) Up(blueprint *blueprintv1alpha1.Blueprint, onApply ...f
 			planArgs := []string{fmt.Sprintf("-chdir=%s", component.FullPath), "plan", "-refresh=false"}
 			planArgs = append(planArgs, terraformArgs.PlanArgs...)
 			planEnv := selectTerraformCommandEnv(terraformVars, true, scopedKeys)
+			debug.Log("terraform plan for %s: TF_VAR_kubelogin_mode=%q (effective)", component.Path, effectiveTerraformEnvValue(planEnv, "TF_VAR_kubelogin_mode"))
 			if _, err = s.runtime.Shell.ExecSilentWithEnv(terraformCommand, planEnv, planArgs...); err != nil {
 				return fmt.Errorf("error running terraform plan for %s: %w", component.Path, err)
 			}
@@ -341,6 +343,7 @@ func (s *TerraformStack) Up(blueprint *blueprintv1alpha1.Blueprint, onApply ...f
 			applyArgs = append(applyArgs, noColorArgs()...)
 			applyArgs = append(applyArgs, terraformArgs.ApplyArgs...)
 			applyEnv := selectTerraformCommandEnv(terraformVars, false, scopedKeys)
+			debug.Log("terraform apply for %s: TF_VAR_kubelogin_mode=%q (effective)", component.Path, effectiveTerraformEnvValue(applyEnv, "TF_VAR_kubelogin_mode"))
 			if _, err = s.runtime.Shell.ExecProgressWithEnv(fmt.Sprintf("Applying Terraform changes in %s", component.Path), terraformCommand, applyEnv, applyArgs...); err != nil {
 				return fmt.Errorf("error running terraform apply for %s: %w", component.Path, err)
 			}
@@ -1943,6 +1946,17 @@ func selectTerraformCommandEnv(terraformVars map[string]string, includeTFVars bo
 		}
 	}
 	return selected
+}
+
+// effectiveTerraformEnvValue reports the value of key as the terraform subprocess would
+// actually see it: commandEnv's value when present (selectTerraformCommandEnv's output),
+// otherwise the CLI process's own inherited environment, since mergeEnvVars falls back to
+// that for any key commandEnv does not override.
+func effectiveTerraformEnvValue(commandEnv map[string]string, key string) string {
+	if value, exists := commandEnv[key]; exists {
+		return value
+	}
+	return os.Getenv(key)
 }
 
 // =============================================================================
