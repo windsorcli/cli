@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 
 	"github.com/windsorcli/cli/pkg/runtime/config"
@@ -61,18 +62,20 @@ func NewTerraformEnvPrinter(shell shell.Shell, configHandler config.ConfigHandle
 // Public Methods
 // =============================================================================
 
-// terraformScopedEnvKeysVar is the managed env var recording which keys the current
-// contexts/<context>/terraform/.env last exported, so getEmptyEnvVars can unset exactly
-// those keys on a later invocation even if the file has since changed or been removed.
+// terraformScopedEnvKeysVar is the managed env var recording every key this printer's
+// GetEnvVars last exported — its own base vars, any dynamic TF_VAR_* from the current
+// component's inputs, and any contexts/<context>/terraform/.env content — so
+// getEmptyEnvVars can unset exactly those keys on a later invocation even if the current
+// component, its inputs, or the .env file have since changed.
 const terraformScopedEnvKeysVar = "WINDSOR_MANAGED_TERRAFORM_ENV"
 
 // GetEnvVars returns a map of environment variables for Terraform operations.
 // If not in a Terraform project directory, it unsets managed variables present in the environment.
 // Otherwise, it generates Terraform arguments for the current project, merged with any
 // contexts/<context>/terraform/.env content. Every returned key is tracked as managed so it
-// is unset cleanly when the operator leaves the directory; the terraform/.env key names are
-// additionally recorded in WINDSOR_MANAGED_TERRAFORM_ENV so getEmptyEnvVars can still unset
-// them later even if the file's contents change or the file is removed in the meantime.
+// is unset cleanly when the operator leaves the directory; the full set of emitted key names
+// is additionally recorded in WINDSOR_MANAGED_TERRAFORM_ENV so getEmptyEnvVars can still unset
+// them later even if the component, its inputs, or the .env file have since changed.
 // Returns the environment variable map or an error if resolution fails.
 func (e *TerraformEnvPrinter) GetEnvVars() (map[string]string, error) {
 	projectPath, err := e.terraformProvider.FindRelativeProjectPath()
@@ -84,18 +87,20 @@ func (e *TerraformEnvPrinter) GetEnvVars() (map[string]string, error) {
 		return e.getEmptyEnvVars(), nil
 	}
 
-	terraformVars, scopedKeys, _, err := e.terraformProvider.GetEnvVars(projectPath, true)
-	for key := range terraformVars {
-		e.SetManagedEnv(key)
+	terraformVars, _, _, err := e.terraformProvider.GetEnvVars(projectPath, true)
+	if terraformVars == nil {
+		terraformVars = make(map[string]string)
 	}
 
-	if len(scopedKeys) > 0 {
-		if terraformVars == nil {
-			terraformVars = make(map[string]string)
-		}
-		terraformVars[terraformScopedEnvKeysVar] = strings.Join(scopedKeys, ",")
-		e.SetManagedEnv(terraformScopedEnvKeysVar)
+	emittedKeys := make([]string, 0, len(terraformVars))
+	for key := range terraformVars {
+		emittedKeys = append(emittedKeys, key)
+		e.SetManagedEnv(key)
 	}
+	sort.Strings(emittedKeys)
+
+	terraformVars[terraformScopedEnvKeysVar] = strings.Join(emittedKeys, ",")
+	e.SetManagedEnv(terraformScopedEnvKeysVar)
 
 	return terraformVars, err
 }
@@ -136,11 +141,11 @@ func (e *TerraformEnvPrinter) restoreEnvVar(key, originalValue string) {
 }
 
 // getEmptyEnvVars returns env vars for unsetting managed variables when not in a terraform
-// project, including any keys the last-visited contexts/<context>/terraform/.env exported.
-// Those key names come from WINDSOR_MANAGED_TERRAFORM_ENV (recorded by GetEnvVars when the
-// keys were actually exported) rather than re-reading the current terraform/.env: the file
-// may have changed or been removed since, and re-reading it would miss keys it no longer
-// declares, leaking them in the shell indefinitely.
+// project, scoped to exactly the keys this printer itself emits: its fixed base-var list,
+// plus any contexts/<context>/terraform/.env keys named in WINDSOR_MANAGED_TERRAFORM_ENV
+// (recorded by GetEnvVars when those keys were actually exported, since the file may have
+// changed or been removed since). It never sweeps WINDSOR_MANAGED_ENV for other printers'
+// TF_VAR_* keys — cross-printer cleanup on a context switch is WindsorEnvPrinter's job.
 func (e *TerraformEnvPrinter) getEmptyEnvVars() map[string]string {
 	envVars := make(map[string]string)
 	managedVars := []string{
@@ -157,17 +162,6 @@ func (e *TerraformEnvPrinter) getEmptyEnvVars() map[string]string {
 		"TF_VAR_os_type",
 		"TF_VAR_operation",
 		terraformScopedEnvKeysVar,
-	}
-	if managedEnv := e.shims.Getenv("WINDSOR_MANAGED_ENV"); managedEnv != "" {
-		for _, key := range strings.Split(managedEnv, ",") {
-			key = strings.TrimSpace(key)
-			if key == "" {
-				continue
-			}
-			if strings.HasPrefix(key, "TF_VAR_") || strings.HasPrefix(key, "TF_CLI_ARGS_") || key == "TF_DATA_DIR" {
-				managedVars = append(managedVars, key)
-			}
-		}
 	}
 	if scoped := e.shims.Getenv(terraformScopedEnvKeysVar); scoped != "" {
 		for _, key := range strings.Split(scoped, ",") {
