@@ -2224,6 +2224,34 @@ func TestTerraformStack_setupTerraformEnvironment(t *testing.T) {
 			t.Error("Expected UNRELATED to be omitted since it isn't in scopedKeys")
 		}
 	})
+
+	t.Run("EffectiveEnvValuePrefersCommandEnvOverProcessEnv", func(t *testing.T) {
+		// Given a command env that overrides a key also set in the process env
+		t.Setenv("TF_VAR_kubelogin_mode", "azurecli")
+		commandEnv := map[string]string{"TF_VAR_kubelogin_mode": "workloadidentity"}
+
+		// When resolving the effective value
+		value := effectiveTerraformEnvValue(commandEnv, "TF_VAR_kubelogin_mode")
+
+		// Then the command env's value wins
+		if value != "workloadidentity" {
+			t.Errorf("Expected workloadidentity, got %q", value)
+		}
+	})
+
+	t.Run("EffectiveEnvValueFallsBackToProcessEnv", func(t *testing.T) {
+		// Given a command env that does not carry the key
+		t.Setenv("TF_VAR_kubelogin_mode", "azurecli")
+		commandEnv := map[string]string{}
+
+		// When resolving the effective value
+		value := effectiveTerraformEnvValue(commandEnv, "TF_VAR_kubelogin_mode")
+
+		// Then the inherited process env value is returned
+		if value != "azurecli" {
+			t.Errorf("Expected azurecli, got %q", value)
+		}
+	})
 }
 
 func TestStack_Plan(t *testing.T) {
