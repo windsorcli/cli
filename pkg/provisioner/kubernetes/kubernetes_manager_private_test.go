@@ -1472,8 +1472,6 @@ func TestBaseKubernetesManager_applyBlueprintOCIRepository(t *testing.T) {
 		}
 		repo := *captured
 
-		// The digest is not mistaken for a tag containing a colon: the URL is truncated to the
-		// bare repository, and the digest lands in Reference.Digest, not Reference.Tag.
 		if repo.Spec.URL != "oci://ghcr.io/windsorcli/core" {
 			t.Errorf("expected URL 'oci://ghcr.io/windsorcli/core', got %s", repo.Spec.URL)
 		}

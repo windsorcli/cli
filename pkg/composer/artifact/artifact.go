@@ -198,15 +198,12 @@ func (a *ArtifactBuilder) Write(outputPath string, tag string) (string, error) {
 	return finalOutputPath, nil
 }
 
-// ParseOCIRef parses an OCI reference into registry, repository, and tag components.
-// Requires the format "oci://registry/repository:tag" or "oci://registry/repository@sha256:digest".
-// The registry may itself contain a colon (an explicit port, e.g. "localhost:5000/repo:tag"), so
-// registry/repository are split on the first "/" before the tag is found at the last ":" — a
-// repository containing a colon (e.g. "repo:tag:extra") is rejected rather than silently
-// misparsed. A digest reference is checked first, since "sha256:<hex>" itself contains a colon
-// that the last-":" tag split would otherwise misparse. The returned tag is the bare
-// "sha256:<hex>" string (no "@") for a digest reference — callers pass it to FormatOCIRef, which
-// reconstructs the correct "@" or ":" separator.
+// ParseOCIRef parses an OCI reference into registry, repository, and tag.
+// Accepts "oci://registry/repository:tag" or "oci://registry/repository@sha256:digest".
+// The registry may contain a port, so repository and tag split on the last colon.
+// A repository containing a colon is rejected to avoid a wrong split.
+// A digest reference returns tag as the bare "sha256:<hex>" string.
+// Pass tag to FormatOCIRef to rebuild the correct separator.
 func (a *ArtifactBuilder) ParseOCIRef(ociRef string) (registry, repository, tag string, err error) {
 	if !strings.HasPrefix(ociRef, "oci://") {
 		return "", "", "", fmt.Errorf("invalid OCI reference format: %s", ociRef)
@@ -243,11 +240,9 @@ func (a *ArtifactBuilder) ParseOCIRef(ociRef string) (registry, repository, tag 
 	return registry, repository, tag, nil
 }
 
-// FormatOCIRef reconstructs a "registry/repository:tag" reference, or "registry/repository@tag"
-// when tag is a digest (the "sha256:<hex>" form ParseOCIRef returns for an "@sha256:" reference).
-// The single formatting point every ParseOCIRef caller uses to rebuild a reference or cache key,
-// so a digest reference round-trips correctly everywhere instead of each call site reassembling
-// registry/repository:tag by hand.
+// FormatOCIRef builds "registry/repository:tag", or "registry/repository@tag" when tag is a
+// digest ("sha256:<hex>"). Every ParseOCIRef caller uses this to rebuild a reference or cache
+// key, so a digest round-trips correctly.
 func FormatOCIRef(registry, repository, tag string) string {
 	if strings.HasPrefix(tag, "sha256:") {
 		return fmt.Sprintf("%s/%s@%s", registry, repository, tag)
@@ -671,9 +666,9 @@ func (a *ArtifactBuilder) ExtractModulePath(registry, repository, tag, modulePat
 // =============================================================================
 
 // ParseOCIReference parses a blueprint reference string in OCI URL or org/repo:tag format and returns an OCIArtifactInfo struct.
-// Accepts full OCI URLs (e.g., oci://ghcr.io/org/repo:v1.0.0), org/repo:v1.0.0, and a
-// "@sha256:<hex>" digest in place of the tag in either form. Tag holds the bare "sha256:<hex>"
-// string (no "@") for a digest reference.
+// Accepts full OCI URLs (e.g., oci://ghcr.io/org/repo:v1.0.0) and org/repo:v1.0.0 formats.
+// Both formats also accept a "@sha256:<hex>" digest in place of the tag, checked before the
+// version colon since the digest itself contains one. Tag holds the bare digest string, without "@".
 // Returns nil if the reference is empty, missing a version, or not in a supported format.
 func ParseOCIReference(ociRef string) (*OCIArtifactInfo, error) {
 	if ociRef == "" {
@@ -685,8 +680,6 @@ func ParseOCIReference(ociRef string) (*OCIArtifactInfo, error) {
 	if strings.HasPrefix(ociRef, "oci://") {
 		fullURL = ociRef
 		remaining := strings.TrimPrefix(ociRef, "oci://")
-		// Checked before the last-":" split below: "sha256:<hex>" itself contains a colon,
-		// which that split would otherwise misparse as part of the version.
 		var pathPart string
 		if atIdx := strings.Index(remaining, "@sha256:"); atIdx >= 0 {
 			version = remaining[atIdx+1:]

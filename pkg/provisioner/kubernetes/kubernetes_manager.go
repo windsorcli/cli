@@ -2284,12 +2284,11 @@ func (k *BaseKubernetesManager) applyBlueprintGitRepository(source blueprintv1al
 // applyBlueprintOCIRepository converts and applies a blueprint Source as an OCIRepository.
 // isPrimary selects the short, continuously-polled interval default for the blueprint's own
 // repository rather than the long pinned-vendor-source default; see constants.FluxSourceInterval.
+// Checks for a "@sha256:<hex>" digest before the tag split, since the digest also has a colon.
 func (k *BaseKubernetesManager) applyBlueprintOCIRepository(source blueprintv1alpha1.Source, namespace string, isPrimary bool) error {
 	ociURL := source.Url
 	var ref *sourcev1.OCIRepositoryRef
 
-	// Checked before the tag split below: "sha256:<hex>" itself contains a colon, which the
-	// last-":" tag split would otherwise misparse as part of the tag.
 	if atIdx := strings.Index(ociURL, "@sha256:"); atIdx > len("oci://") {
 		ociURL = ociURL[:atIdx]
 		ref = &sourcev1.OCIRepositoryRef{
