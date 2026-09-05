@@ -560,9 +560,13 @@ func (rt *Runtime) PrepareToolsFor(reqs tools.Requirements) error {
 // Private Methods
 // =============================================================================
 
-// setConfigDefaults holds the defaulting work for ApplyConfigDefaults, and is also what
-// ResolveConfig calls directly for its post-load pass, once LoadConfig has already run and
-// dev mode is fully resolved (unlike ApplyConfigDefaults, this never defers).
+// setConfigDefaults applies the shared config defaults.
+// ApplyConfigDefaults calls this once, before ResolveConfig loads the config file.
+// ResolveConfig calls this again right after the load. The second call never defers.
+//
+// It sets workstation.runtime in dev mode. It also sets workstation.runtime when
+// this run passes an explicit docker or incus platform. A platform saved from an
+// earlier run does not trigger this default.
 func (rt *Runtime) setConfigDefaults(flagOverrides ...map[string]any) error {
 	existingPlatform := rt.canonicalPlatform()
 	isDevMode := rt.ConfigHandler.IsDevMode(rt.ContextName)
@@ -590,8 +594,10 @@ func (rt *Runtime) setConfigDefaults(flagOverrides ...map[string]any) error {
 	if effectivePlatform == "" {
 		effectivePlatform = existingPlatform
 	}
-	needsWorkstationRuntime := effectivePlatform == "" || effectivePlatform == "docker" || effectivePlatform == "incus"
-	if isDevMode && workstationRuntime == "" && needsWorkstationRuntime {
+	needsWorkstationRuntime := effectivePlatform == "" || isWorkstationPlatform(effectivePlatform)
+	explicitWorkstationPlatform := isWorkstationPlatform(overridePlatform)
+	shouldDefaultWorkstationRuntime := isDevMode || explicitWorkstationPlatform
+	if shouldDefaultWorkstationRuntime && workstationRuntime == "" && needsWorkstationRuntime {
 		switch runtime.GOOS {
 		case "darwin", "windows":
 			workstationRuntime = "docker-desktop"
@@ -600,7 +606,7 @@ func (rt *Runtime) setConfigDefaults(flagOverrides ...map[string]any) error {
 		}
 	}
 
-	if isDevMode && !hadRuntime && workstationRuntime != "" {
+	if shouldDefaultWorkstationRuntime && !hadRuntime && workstationRuntime != "" {
 		if err := rt.ConfigHandler.Set("workstation.runtime", workstationRuntime); err != nil {
 			return fmt.Errorf("failed to set workstation.runtime: %w", err)
 		}
@@ -651,6 +657,11 @@ func (rt *Runtime) setConfigDefaults(flagOverrides ...map[string]any) error {
 	}
 
 	return nil
+}
+
+// isWorkstationPlatform reports whether platform requires a workstation runtime.
+func isWorkstationPlatform(platform string) bool {
+	return platform == "docker" || platform == "incus"
 }
 
 // explicitPlatformFromOverrides extracts an explicitly provided platform selection from CLI overrides.

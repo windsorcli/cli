@@ -1940,6 +1940,110 @@ func TestRuntime_ApplyConfigDefaults(t *testing.T) {
 		}
 	})
 
+	t.Run("DefaultsWorkstationRuntimeForFlagOverridePlatformOutsideDevMode", func(t *testing.T) {
+		for _, platform := range []string{"docker", "incus"} {
+			t.Run(platform, func(t *testing.T) {
+				mocks := setupRuntimeMocks(t)
+				rt := mocks.Runtime
+				rt.ContextName = "docker"
+
+				mockConfigHandler := mocks.ConfigHandler.(*config.MockConfigHandler)
+				// Config is loaded here, matching ResolveConfig's post-load call to
+				// setConfigDefaults, which is the call bootstrap actually reaches.
+				mockConfigHandler.IsLoadedFunc = func() bool { return true }
+				mockConfigHandler.IsDevModeFunc = func(_ string) bool { return false }
+				mockConfigHandler.GetStringFunc = func(_ string, defaultValue ...string) string {
+					if len(defaultValue) > 0 {
+						return defaultValue[0]
+					}
+					return ""
+				}
+				mockConfigHandler.SetDefaultFunc = func(_ v1alpha1.Context) error { return nil }
+
+				setCalls := make(map[string]any)
+				mockConfigHandler.SetFunc = func(key string, value any) error {
+					setCalls[key] = value
+					return nil
+				}
+
+				if err := rt.ApplyConfigDefaults(map[string]any{"platform": platform}); err != nil {
+					t.Fatalf("Expected no error, got: %v", err)
+				}
+				if _, ok := setCalls["workstation.runtime"]; !ok {
+					t.Errorf("Expected workstation.runtime to be set for platform=%q outside dev mode, got setCalls=%v", platform, setCalls)
+				}
+			})
+		}
+	})
+
+	t.Run("SkipsWorkstationRuntimeDefaultWhenNoPlatformOutsideDevMode", func(t *testing.T) {
+		mocks := setupRuntimeMocks(t)
+		rt := mocks.Runtime
+		rt.ContextName = "docker"
+
+		mockConfigHandler := mocks.ConfigHandler.(*config.MockConfigHandler)
+		mockConfigHandler.IsLoadedFunc = func() bool { return true }
+		mockConfigHandler.IsDevModeFunc = func(_ string) bool { return false }
+		mockConfigHandler.GetStringFunc = func(_ string, defaultValue ...string) string {
+			if len(defaultValue) > 0 {
+				return defaultValue[0]
+			}
+			return ""
+		}
+		mockConfigHandler.SetDefaultFunc = func(_ v1alpha1.Context) error { return nil }
+
+		setCalls := make(map[string]any)
+		mockConfigHandler.SetFunc = func(key string, value any) error {
+			setCalls[key] = value
+			return nil
+		}
+
+		if err := rt.ApplyConfigDefaults(); err != nil {
+			t.Fatalf("Expected no error, got: %v", err)
+		}
+		if _, ok := setCalls["workstation.runtime"]; ok {
+			t.Errorf("Expected workstation.runtime NOT to be set with no platform outside dev mode, got setCalls=%v", setCalls)
+		}
+	})
+
+	t.Run("SkipsWorkstationRuntimeDefaultForPersistedPlatformOutsideDevMode", func(t *testing.T) {
+		for _, platform := range []string{"docker", "incus"} {
+			t.Run(platform, func(t *testing.T) {
+				mocks := setupRuntimeMocks(t)
+				rt := mocks.Runtime
+				rt.ContextName = "docker"
+
+				mockConfigHandler := mocks.ConfigHandler.(*config.MockConfigHandler)
+				mockConfigHandler.IsLoadedFunc = func() bool { return true }
+				mockConfigHandler.IsDevModeFunc = func(_ string) bool { return false }
+				mockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
+					if key == "platform" {
+						return platform
+					}
+					if len(defaultValue) > 0 {
+						return defaultValue[0]
+					}
+					return ""
+				}
+				mockConfigHandler.SetDefaultFunc = func(_ v1alpha1.Context) error { return nil }
+
+				setCalls := make(map[string]any)
+				mockConfigHandler.SetFunc = func(key string, value any) error {
+					setCalls[key] = value
+					return nil
+				}
+
+				// No --platform flag this run; platform comes only from persisted config.
+				if err := rt.ApplyConfigDefaults(); err != nil {
+					t.Fatalf("Expected no error, got: %v", err)
+				}
+				if _, ok := setCalls["workstation.runtime"]; ok {
+					t.Errorf("Expected workstation.runtime NOT to be set for persisted platform=%q outside dev mode, got setCalls=%v", platform, setCalls)
+				}
+			})
+		}
+	})
+
 	t.Run("DefaultsWorkstationRuntimeWhenNoPlatformInDevMode", func(t *testing.T) {
 		mocks := setupRuntimeMocks(t)
 		rt := mocks.Runtime
