@@ -124,7 +124,9 @@ tasks:
     desc: Scan for security vulnerabilities
     cmds:
       - go install github.com/securego/gosec/v2/cmd/gosec@latest
+      - go install golang.org/x/vuln/cmd/govulncheck@latest
       - gosec ./...
+      - govulncheck ./...
 
   docs:gen:commands:
     desc: Regenerate docs/reference/commands/ from the cobra command tree. CI fails on any diff.
