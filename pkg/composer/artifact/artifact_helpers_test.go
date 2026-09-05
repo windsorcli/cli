@@ -60,6 +60,26 @@ func TestParseOCIReference(t *testing.T) {
 			expected:    nil,
 			expectError: true,
 		},
+		{
+			name:  "FullOCIURLWithDigest",
+			input: "oci://ghcr.io/windsorcli/core@sha256:abcd1234abcd1234abcd1234abcd1234abcd1234abcd1234abcd1234abcd1234",
+			expected: &OCIArtifactInfo{
+				Name: "core",
+				URL:  "oci://ghcr.io/windsorcli/core@sha256:abcd1234abcd1234abcd1234abcd1234abcd1234abcd1234abcd1234abcd1234",
+				Tag:  "sha256:abcd1234abcd1234abcd1234abcd1234abcd1234abcd1234abcd1234abcd1234",
+			},
+			expectError: false,
+		},
+		{
+			name:  "ShortFormatWithDigest",
+			input: "windsorcli/core@sha256:abcd1234abcd1234abcd1234abcd1234abcd1234abcd1234abcd1234abcd1234",
+			expected: &OCIArtifactInfo{
+				Name: "core",
+				URL:  "oci://ghcr.io/windsorcli/core@sha256:abcd1234abcd1234abcd1234abcd1234abcd1234abcd1234abcd1234abcd1234",
+				Tag:  "sha256:abcd1234abcd1234abcd1234abcd1234abcd1234abcd1234abcd1234abcd1234",
+			},
+			expectError: false,
+		},
 	}
 
 	for _, tc := range testCases {
