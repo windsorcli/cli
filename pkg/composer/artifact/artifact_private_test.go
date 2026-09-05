@@ -1282,6 +1282,52 @@ func TestArtifactBuilder_ParseOCIRef(t *testing.T) {
 			t.Errorf("expected tag 'v1.0.0', got %s", tag)
 		}
 	})
+
+	t.Run("DigestReference", func(t *testing.T) {
+		// Given an ArtifactBuilder
+		builder, _ := setup(t)
+
+		// When ParseOCIRef is called with an "@sha256:" digest instead of a tag
+		registry, repository, tag, err := builder.ParseOCIRef("oci://ghcr.io/windsorcli/core@sha256:abcd1234abcd1234abcd1234abcd1234abcd1234abcd1234abcd1234abcd1234")
+
+		// Then no error should occur
+		if err != nil {
+			t.Errorf("expected no error, got %v", err)
+		}
+
+		// And the digest is not mistaken for a tag containing a colon
+		if registry != "ghcr.io" {
+			t.Errorf("expected registry 'ghcr.io', got %s", registry)
+		}
+		if repository != "windsorcli/core" {
+			t.Errorf("expected repository 'windsorcli/core', got %s", repository)
+		}
+		if tag != "sha256:abcd1234abcd1234abcd1234abcd1234abcd1234abcd1234abcd1234abcd1234" {
+			t.Errorf("expected tag 'sha256:abcd1234abcd1234abcd1234abcd1234abcd1234abcd1234abcd1234abcd1234', got %s", tag)
+		}
+	})
+}
+
+func TestFormatOCIRef(t *testing.T) {
+	t.Run("Tag", func(t *testing.T) {
+		// When FormatOCIRef is called with a plain tag
+		result := FormatOCIRef("ghcr.io", "windsorcli/core", "v1.0.0")
+
+		// Then it joins registry and repository with a colon
+		if result != "ghcr.io/windsorcli/core:v1.0.0" {
+			t.Errorf("expected 'ghcr.io/windsorcli/core:v1.0.0', got %s", result)
+		}
+	})
+
+	t.Run("Digest", func(t *testing.T) {
+		// When FormatOCIRef is called with a "sha256:<hex>" digest
+		result := FormatOCIRef("ghcr.io", "windsorcli/core", "sha256:abcd1234")
+
+		// Then it joins registry and repository with an "@", not a colon
+		if result != "ghcr.io/windsorcli/core@sha256:abcd1234" {
+			t.Errorf("expected 'ghcr.io/windsorcli/core@sha256:abcd1234', got %s", result)
+		}
+	})
 }
 
 func TestArtifactBuilder_downloadOCIArtifact(t *testing.T) {

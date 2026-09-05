@@ -199,10 +199,14 @@ func (a *ArtifactBuilder) Write(outputPath string, tag string) (string, error) {
 }
 
 // ParseOCIRef parses an OCI reference into registry, repository, and tag components.
-// Requires the format "oci://registry/repository:tag". The registry may itself contain a
-// colon (an explicit port, e.g. "localhost:5000/repo:tag"), so registry/repository are split
-// on the first "/" before the tag is found at the last ":" — a repository containing a colon
-// (e.g. "repo:tag:extra") is rejected rather than silently misparsed.
+// Requires the format "oci://registry/repository:tag" or "oci://registry/repository@sha256:digest".
+// The registry may itself contain a colon (an explicit port, e.g. "localhost:5000/repo:tag"), so
+// registry/repository are split on the first "/" before the tag is found at the last ":" — a
+// repository containing a colon (e.g. "repo:tag:extra") is rejected rather than silently
+// misparsed. A digest reference is checked first, since "sha256:<hex>" itself contains a colon
+// that the last-":" tag split would otherwise misparse. The returned tag is the bare
+// "sha256:<hex>" string (no "@") for a digest reference — callers pass it to FormatOCIRef, which
+// reconstructs the correct "@" or ":" separator.
 func (a *ArtifactBuilder) ParseOCIRef(ociRef string) (registry, repository, tag string, err error) {
 	if !strings.HasPrefix(ociRef, "oci://") {
 		return "", "", "", fmt.Errorf("invalid OCI reference format: %s", ociRef)
@@ -215,19 +219,40 @@ func (a *ArtifactBuilder) ParseOCIRef(ociRef string) (registry, repository, tag 
 		return "", "", "", fmt.Errorf("invalid OCI reference format, expected registry/repository:tag: %s", ociRef)
 	}
 	registry = ref[:firstSlash]
-	repoAndTag := ref[firstSlash+1:]
+	repoAndVersion := ref[firstSlash+1:]
 
-	lastColon := strings.LastIndex(repoAndTag, ":")
-	if lastColon <= 0 || lastColon == len(repoAndTag)-1 {
+	if atIdx := strings.Index(repoAndVersion, "@sha256:"); atIdx >= 0 {
+		repository = repoAndVersion[:atIdx]
+		tag = repoAndVersion[atIdx+1:]
+		if repository == "" || strings.Contains(repository, ":") {
+			return "", "", "", fmt.Errorf("invalid OCI reference format, expected registry/repository@sha256:digest: %s", ociRef)
+		}
+		return registry, repository, tag, nil
+	}
+
+	lastColon := strings.LastIndex(repoAndVersion, ":")
+	if lastColon <= 0 || lastColon == len(repoAndVersion)-1 {
 		return "", "", "", fmt.Errorf("invalid OCI reference format, expected registry/repository:tag: %s", ociRef)
 	}
-	repository = repoAndTag[:lastColon]
-	tag = repoAndTag[lastColon+1:]
+	repository = repoAndVersion[:lastColon]
+	tag = repoAndVersion[lastColon+1:]
 	if strings.Contains(repository, ":") {
 		return "", "", "", fmt.Errorf("invalid OCI reference format, expected registry/repository:tag: %s", ociRef)
 	}
 
 	return registry, repository, tag, nil
+}
+
+// FormatOCIRef reconstructs a "registry/repository:tag" reference, or "registry/repository@tag"
+// when tag is a digest (the "sha256:<hex>" form ParseOCIRef returns for an "@sha256:" reference).
+// The single formatting point every ParseOCIRef caller uses to rebuild a reference or cache key,
+// so a digest reference round-trips correctly everywhere instead of each call site reassembling
+// registry/repository:tag by hand.
+func FormatOCIRef(registry, repository, tag string) string {
+	if strings.HasPrefix(tag, "sha256:") {
+		return fmt.Sprintf("%s/%s@%s", registry, repository, tag)
+	}
+	return fmt.Sprintf("%s/%s:%s", registry, repository, tag)
 }
 
 // ListTags returns the tags published for the repository of an OCI reference (the tag in ociRef is
@@ -257,7 +282,7 @@ func (a *ArtifactBuilder) GetCliVersionConstraint(ociRef string) (string, error)
 		return "", err
 	}
 
-	ref := fmt.Sprintf("%s/%s:%s", registry, repository, tag)
+	ref := FormatOCIRef(registry, repository, tag)
 	parsedRef, err := a.shims.ParseReference(ref)
 	if err != nil {
 		return "", fmt.Errorf("failed to parse reference %s: %w", ref, err)
@@ -294,7 +319,7 @@ func (a *ArtifactBuilder) VerifyCliVersionCompatibility(ociRef string) error {
 	if err != nil {
 		return err
 	}
-	cacheKey := fmt.Sprintf("%s/%s:%s", registry, repository, tag)
+	cacheKey := FormatOCIRef(registry, repository, tag)
 	cacheDir, ok := artifacts[cacheKey]
 	if !ok {
 		return fmt.Errorf("failed to retrieve cache directory for %s", ociRef)
@@ -360,15 +385,15 @@ func ResolveCompatibleTag(artifactBuilder Artifact, urlPrefix string, tags []str
 
 // GetCacheDir returns the cache directory path for an OCI artifact identified by registry, repository, and tag.
 // The cache directory is located at <projectRoot>/.windsor/cache/oci/<extractionKey> where extractionKey
-// is the cacheKey with / and : replaced with _ for filesystem safety.
+// is the cacheKey with /, :, and @ replaced with _ for filesystem safety.
 // Returns an error if project root is empty.
 func (a *ArtifactBuilder) GetCacheDir(registry, repository, tag string) (string, error) {
 	if a.runtime == nil || a.runtime.ProjectRoot == "" {
 		return "", fmt.Errorf("project root is not set")
 	}
 
-	cacheKey := fmt.Sprintf("%s/%s:%s", registry, repository, tag)
-	extractionKey := strings.ReplaceAll(strings.ReplaceAll(cacheKey, "/", "_"), ":", "_")
+	cacheKey := FormatOCIRef(registry, repository, tag)
+	extractionKey := strings.NewReplacer("/", "_", ":", "_", "@", "_").Replace(cacheKey)
 	cacheDir := filepath.Join(a.runtime.ProjectRoot, ".windsor", "cache", "oci", extractionKey)
 
 	return cacheDir, nil
@@ -502,7 +527,7 @@ func (a *ArtifactBuilder) Pull(ociRefs []string) (map[string]string, error) {
 			return nil, fmt.Errorf("failed to parse OCI reference %s: %w", ref, err)
 		}
 
-		cacheKey := fmt.Sprintf("%s/%s:%s", registry, repository, tag)
+		cacheKey := FormatOCIRef(registry, repository, tag)
 
 		cacheDir, err := a.GetCacheDir(registry, repository, tag)
 		if err != nil {
@@ -534,7 +559,7 @@ func (a *ArtifactBuilder) Pull(ociRefs []string) (map[string]string, error) {
 					return fmt.Errorf("failed to parse OCI reference %s: %w", ref, err)
 				}
 
-				cacheKey := fmt.Sprintf("%s/%s:%s", registry, repository, tag)
+				cacheKey := FormatOCIRef(registry, repository, tag)
 
 				artifactData, err := a.downloadOCIArtifact(registry, repository, tag)
 				if err != nil {
@@ -646,7 +671,9 @@ func (a *ArtifactBuilder) ExtractModulePath(registry, repository, tag, modulePat
 // =============================================================================
 
 // ParseOCIReference parses a blueprint reference string in OCI URL or org/repo:tag format and returns an OCIArtifactInfo struct.
-// Accepts full OCI URLs (e.g., oci://ghcr.io/org/repo:v1.0.0) and org/repo:v1.0.0 formats only.
+// Accepts full OCI URLs (e.g., oci://ghcr.io/org/repo:v1.0.0), org/repo:v1.0.0, and a
+// "@sha256:<hex>" digest in place of the tag in either form. Tag holds the bare "sha256:<hex>"
+// string (no "@") for a digest reference.
 // Returns nil if the reference is empty, missing a version, or not in a supported format.
 func ParseOCIReference(ociRef string) (*OCIArtifactInfo, error) {
 	if ociRef == "" {
@@ -658,31 +685,41 @@ func ParseOCIReference(ociRef string) (*OCIArtifactInfo, error) {
 	if strings.HasPrefix(ociRef, "oci://") {
 		fullURL = ociRef
 		remaining := strings.TrimPrefix(ociRef, "oci://")
-		if lastColon := strings.LastIndex(remaining, ":"); lastColon > 0 {
+		// Checked before the last-":" split below: "sha256:<hex>" itself contains a colon,
+		// which that split would otherwise misparse as part of the version.
+		var pathPart string
+		if atIdx := strings.Index(remaining, "@sha256:"); atIdx >= 0 {
+			version = remaining[atIdx+1:]
+			pathPart = remaining[:atIdx]
+		} else if lastColon := strings.LastIndex(remaining, ":"); lastColon > 0 {
 			version = remaining[lastColon+1:]
-			pathPart := remaining[:lastColon]
+			pathPart = remaining[:lastColon]
+		} else {
+			return nil, fmt.Errorf("blueprint reference '%s' is missing a version (e.g., core:v1.0.0)", ociRef)
+		}
+		if lastSlash := strings.LastIndex(pathPart, "/"); lastSlash >= 0 {
+			name = pathPart[lastSlash+1:]
+		} else {
+			return nil, fmt.Errorf("blueprint reference '%s' is missing a version (e.g., core:v1.0.0)", ociRef)
+		}
+	} else {
+		var pathPart string
+		if atIdx := strings.Index(ociRef, "@sha256:"); atIdx >= 0 {
+			version = ociRef[atIdx+1:]
+			pathPart = ociRef[:atIdx]
+		} else if colonIdx := strings.LastIndex(ociRef, ":"); colonIdx > 0 {
+			version = ociRef[colonIdx+1:]
+			pathPart = ociRef[:colonIdx]
+		} else {
+			return nil, fmt.Errorf("blueprint reference '%s' is missing a version (e.g., core:v1.0.0)", ociRef)
+		}
+		if strings.Count(pathPart, "/") >= 1 {
 			if lastSlash := strings.LastIndex(pathPart, "/"); lastSlash >= 0 {
 				name = pathPart[lastSlash+1:]
 			} else {
 				return nil, fmt.Errorf("blueprint reference '%s' is missing a version (e.g., core:v1.0.0)", ociRef)
 			}
-		} else {
-			return nil, fmt.Errorf("blueprint reference '%s' is missing a version (e.g., core:v1.0.0)", ociRef)
-		}
-	} else {
-		if colonIdx := strings.LastIndex(ociRef, ":"); colonIdx > 0 {
-			pathPart := ociRef[:colonIdx]
-			version = ociRef[colonIdx+1:]
-			if strings.Count(pathPart, "/") >= 1 {
-				if lastSlash := strings.LastIndex(pathPart, "/"); lastSlash >= 0 {
-					name = pathPart[lastSlash+1:]
-				} else {
-					return nil, fmt.Errorf("blueprint reference '%s' is missing a version (e.g., core:v1.0.0)", ociRef)
-				}
-				fullURL = "oci://ghcr.io/" + ociRef
-			} else {
-				return nil, fmt.Errorf("blueprint reference '%s' is missing a version (e.g., core:v1.0.0)", ociRef)
-			}
+			fullURL = "oci://ghcr.io/" + ociRef
 		} else {
 			return nil, fmt.Errorf("blueprint reference '%s' is missing a version (e.g., core:v1.0.0)", ociRef)
 		}
@@ -1511,7 +1548,7 @@ func (a *ArtifactBuilder) extractArtifactToCache(artifactData []byte, extraction
 // If the anonymous retry also fails, the original keychain error is returned so the
 // underlying auth failure remains visible.
 func (a *ArtifactBuilder) downloadOCIArtifact(registry, repository, tag string) ([]byte, error) {
-	ref := fmt.Sprintf("%s/%s:%s", registry, repository, tag)
+	ref := FormatOCIRef(registry, repository, tag)
 
 	parsedRef, err := a.shims.ParseReference(ref)
 	if err != nil {

@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	sourcev1 "github.com/fluxcd/source-controller/api/v1"
 	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
 	"github.com/windsorcli/cli/pkg/constants"
 	"github.com/windsorcli/cli/pkg/provisioner/kubernetes/client"
@@ -1415,4 +1416,97 @@ func equalStringSlice(a, b []string) bool {
 		}
 	}
 	return true
+}
+
+func TestBaseKubernetesManager_applyBlueprintOCIRepository(t *testing.T) {
+	// setup returns a manager whose ToUnstructured shim intercepts the *sourcev1.OCIRepository
+	// applyBlueprintOCIRepository builds, capturing it into *captured so the test can inspect
+	// the Spec fields the digest/tag parsing logic actually produced.
+	setup := func(t *testing.T) (manager *BaseKubernetesManager, captured **sourcev1.OCIRepository) {
+		t.Helper()
+		mocks := setupKubernetesMocks(t)
+		manager = NewKubernetesManager(mocks.KubernetesClient, mocks.ConfigHandler)
+		kubernetesClient := client.NewMockKubernetesClient()
+		kubernetesClient.GetResourceFunc = func(gvr schema.GroupVersionResource, namespace, name string) (*unstructured.Unstructured, error) {
+			return nil, fmt.Errorf("not found")
+		}
+		kubernetesClient.ApplyResourceFunc = func(gvr schema.GroupVersionResource, obj *unstructured.Unstructured, opts metav1.ApplyOptions) (*unstructured.Unstructured, error) {
+			return obj, nil
+		}
+		manager.client = kubernetesClient
+
+		var repo *sourcev1.OCIRepository
+		captured = &repo
+		manager.shims.ToUnstructured = func(obj any) (map[string]any, error) {
+			r, ok := obj.(*sourcev1.OCIRepository)
+			if !ok {
+				return nil, fmt.Errorf("expected *sourcev1.OCIRepository, got %T", obj)
+			}
+			*captured = r
+			return map[string]any{
+				"apiVersion": "source.toolkit.fluxcd.io/v1",
+				"kind":       "OCIRepository",
+				"metadata": map[string]any{
+					"name":      r.Name,
+					"namespace": r.Namespace,
+				},
+				"spec": map[string]any{
+					"url": r.Spec.URL,
+				},
+			}, nil
+		}
+		return manager, captured
+	}
+
+	t.Run("DigestReference", func(t *testing.T) {
+		manager, captured := setup(t)
+
+		source := blueprintv1alpha1.Source{
+			Name: "core",
+			Url:  "oci://ghcr.io/windsorcli/core@sha256:abcd1234abcd1234abcd1234abcd1234abcd1234abcd1234abcd1234abcd1234",
+		}
+
+		err := manager.applyBlueprintSource(source, "system-gitops", true)
+		if err != nil {
+			t.Fatalf("expected no error, got %v", err)
+		}
+		repo := *captured
+
+		// The digest is not mistaken for a tag containing a colon: the URL is truncated to the
+		// bare repository, and the digest lands in Reference.Digest, not Reference.Tag.
+		if repo.Spec.URL != "oci://ghcr.io/windsorcli/core" {
+			t.Errorf("expected URL 'oci://ghcr.io/windsorcli/core', got %s", repo.Spec.URL)
+		}
+		if repo.Spec.Reference == nil {
+			t.Fatalf("expected a non-nil Reference")
+		}
+		if repo.Spec.Reference.Digest != "sha256:abcd1234abcd1234abcd1234abcd1234abcd1234abcd1234abcd1234abcd1234" {
+			t.Errorf("expected Digest 'sha256:abcd...', got %q", repo.Spec.Reference.Digest)
+		}
+		if repo.Spec.Reference.Tag != "" {
+			t.Errorf("expected empty Tag for a digest reference, got %q", repo.Spec.Reference.Tag)
+		}
+	})
+
+	t.Run("TagReference", func(t *testing.T) {
+		manager, captured := setup(t)
+
+		source := blueprintv1alpha1.Source{
+			Name: "core",
+			Url:  "oci://ghcr.io/windsorcli/core:latest",
+		}
+
+		err := manager.applyBlueprintSource(source, "system-gitops", true)
+		if err != nil {
+			t.Fatalf("expected no error, got %v", err)
+		}
+		repo := *captured
+
+		if repo.Spec.URL != "oci://ghcr.io/windsorcli/core" {
+			t.Errorf("expected URL 'oci://ghcr.io/windsorcli/core', got %s", repo.Spec.URL)
+		}
+		if repo.Spec.Reference == nil || repo.Spec.Reference.Tag != "latest" {
+			t.Errorf("expected Reference.Tag 'latest', got %+v", repo.Spec.Reference)
+		}
+	})
 }

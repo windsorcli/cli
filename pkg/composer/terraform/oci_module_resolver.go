@@ -161,7 +161,7 @@ func (h *OCIModuleResolver) extractOCIModule(resolvedSource string, ociArtifacts
 		return "", fmt.Errorf("failed to parse OCI reference: %w", err)
 	}
 
-	cacheKey := fmt.Sprintf("%s/%s:%s", registry, repository, tag)
+	cacheKey := artifact.FormatOCIRef(registry, repository, tag)
 	if _, exists := ociArtifacts[cacheKey]; !exists {
 		return "", fmt.Errorf("OCI artifact %s not found in cache", cacheKey)
 	}

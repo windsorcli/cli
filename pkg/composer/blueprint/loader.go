@@ -208,7 +208,7 @@ func (l *BaseBlueprintLoader) loadFromOCI() error {
 		return fmt.Errorf("failed to parse OCI reference: %w", err)
 	}
 
-	cacheKey := fmt.Sprintf("%s/%s:%s", registry, repository, tag)
+	cacheKey := artifact.FormatOCIRef(registry, repository, tag)
 	cacheDir, exists := artifacts[cacheKey]
 	if !exists {
 		return fmt.Errorf("failed to retrieve cache directory for %s", l.sourceURL)

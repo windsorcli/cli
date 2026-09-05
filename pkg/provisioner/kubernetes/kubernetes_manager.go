@@ -2288,7 +2288,14 @@ func (k *BaseKubernetesManager) applyBlueprintOCIRepository(source blueprintv1al
 	ociURL := source.Url
 	var ref *sourcev1.OCIRepositoryRef
 
-	if lastColon := strings.LastIndex(ociURL, ":"); lastColon > len("oci://") {
+	// Checked before the tag split below: "sha256:<hex>" itself contains a colon, which the
+	// last-":" tag split would otherwise misparse as part of the tag.
+	if atIdx := strings.Index(ociURL, "@sha256:"); atIdx > len("oci://") {
+		ociURL = ociURL[:atIdx]
+		ref = &sourcev1.OCIRepositoryRef{
+			Digest: source.Url[atIdx+1:],
+		}
+	} else if lastColon := strings.LastIndex(ociURL, ":"); lastColon > len("oci://") {
 		if tagPart := ociURL[lastColon+1:]; tagPart != "" && !strings.Contains(tagPart, "/") {
 			ociURL = ociURL[:lastColon]
 			ref = &sourcev1.OCIRepositoryRef{
