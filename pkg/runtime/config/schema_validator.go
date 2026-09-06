@@ -387,11 +387,11 @@ var structuralValidationKeywords = map[string]bool{
 	"if":         true,
 }
 
-// validationError pairs a fully formatted error line with the keyword that produced it, so
-// collectErrors can dedup and prioritize without re-parsing the formatted string.
+// validationError pairs a formatted error line with its instance location and keyword.
 type validationError struct {
-	keyword string
-	line    string
+	location string
+	keyword  string
+	line     string
 }
 
 // collectErrors flattens a kaptinlin EvaluationResult into a deduplicated, prioritized list of
@@ -429,6 +429,8 @@ func flattenErrorList(list *jsonschema.List) []string {
 		deduped = append(deduped, e)
 	}
 
+	deduped = focusOnInvalidPlatform(deduped)
+
 	sort.SliceStable(deduped, func(i, j int) bool {
 		return !structuralValidationKeywords[deduped[i].keyword] && structuralValidationKeywords[deduped[j].keyword]
 	})
@@ -455,13 +457,33 @@ func walkList(list *jsonschema.List, parent string, errs *[]validationError) {
 	}
 	for keyword, msg := range list.Errors {
 		*errs = append(*errs, validationError{
-			keyword: keyword,
-			line:    fmt.Sprintf("%s: %s: %s", display, keyword, msg),
+			location: display,
+			keyword:  keyword,
+			line:     fmt.Sprintf("%s: %s: %s", display, keyword, msg),
 		})
 	}
 	for i := range list.Details {
 		walkList(&list.Details[i], loc, errs)
 	}
+}
+
+// focusOnInvalidPlatform hides other errors when platform fails its enum check. An invalid
+// platform value matches no platform-conditional branch, so those branches also report
+// unrelated required and type errors.
+func focusOnInvalidPlatform(errs []validationError) []validationError {
+	var platformErrs []validationError
+	for _, e := range errs {
+		if e.keyword == "enum" && e.location == "/platform" {
+			platformErrs = append(platformErrs, e)
+		}
+	}
+	if len(platformErrs) == 0 || len(platformErrs) == len(errs) {
+		return errs
+	}
+
+	suppressed := len(errs) - len(platformErrs)
+	note := fmt.Sprintf("%d other error(s) are hidden because 'platform' is invalid. Fix 'platform' and run the command again.", suppressed)
+	return append(platformErrs, validationError{line: note})
 }
 
 // joinInstanceLocation concatenates two JSON Pointer fragments, treating "" and "/" as the
