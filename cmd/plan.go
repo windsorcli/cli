@@ -21,6 +21,7 @@ import (
 var planNoColor bool
 var planSummary bool
 var planJSON bool
+var planOutput string
 
 var planCmd = &cobra.Command{
 	Use:   "plan [component]",
@@ -161,7 +162,13 @@ windsor plan terraform cluster
 windsor plan terraform --summary
 
 # Machine-readable JSON of all component plans
-windsor plan terraform --json`,
+windsor plan terraform --json
+
+# Full plan document for a security scanner (one component per run)
+windsor plan terraform cluster --output=json-plan | checkov -f -
+
+# One compact plan document per line, one line per component
+windsor plan terraform --output=json-plan`,
 	Annotations: map[string]string{
 		"docs.seealso": "[`plan`](plan.md), [`apply terraform`](apply-terraform.md), [`destroy terraform`](destroy-terraform.md)",
 		"docs.source": "cmd/plan.go",
@@ -179,9 +186,35 @@ windsor plan terraform --json`,
 			return err
 		}
 
+		if planOutput != "" {
+			if planOutput != "json-plan" {
+				return fmt.Errorf("invalid --output value %q: supported values: json-plan", planOutput)
+			}
+			if planSummary {
+				return fmt.Errorf("--output=json-plan cannot be combined with --summary")
+			}
+			if planJSON {
+				return fmt.Errorf("--output=json-plan cannot be combined with --json")
+			}
+		}
+
 		blueprint := proj.Composer.BlueprintHandler.Generate()
 
 		return stacklock.With(cmd.Context(), proj.Runtime, "plan", lockTimeout, func() error {
+			if planOutput != "" {
+				fmt.Fprintln(cmd.ErrOrStderr(), "This output can include sensitive values in plaintext. Handle it as sensitive data.")
+				if len(args) == 0 {
+					if err := proj.Provisioner.PlanTerraformAllResourceChangesJSON(blueprint); err != nil {
+						return fmt.Errorf("error running plan: %w", err)
+					}
+					return nil
+				}
+				if err := proj.Provisioner.PlanTerraformResourceChangesJSON(blueprint, args[0]); err != nil {
+					return fmt.Errorf("error planning terraform for %s: %w", args[0], err)
+				}
+				return nil
+			}
+
 			if len(args) == 0 {
 				if planJSON && !planSummary {
 					return proj.Provisioner.PlanTerraformAllJSON(blueprint)
@@ -301,6 +334,7 @@ func init() {
 	planCmd.PersistentFlags().BoolVar(&planNoColor, "no-color", false, "Disable color output.")
 	planCmd.PersistentFlags().BoolVar(&planSummary, "summary", false, "Show a compact summary table instead of streaming output.")
 	planCmd.PersistentFlags().BoolVar(&planJSON, "json", false, "Output as JSON. Streams full plan JSON on subcommands; emits the summary as JSON on root 'plan'.")
+	planTerraformCmd.Flags().StringVar(&planOutput, "output", "", "Set to 'json-plan' to print the plan document from 'terraform show -json', instead of the progress log.")
 	planCmd.AddCommand(planTerraformCmd)
 	planCmd.AddCommand(planKustomizeCmd)
 	rootCmd.AddCommand(planCmd)

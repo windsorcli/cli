@@ -188,6 +188,69 @@ func TestPlanTerraform_JSONFlagOutputsJSON(t *testing.T) {
 	}
 }
 
+func TestPlanTerraform_OutputJSONPlanFlagForComponent(t *testing.T) {
+	t.Parallel()
+	dir, env := helpers.CopyFixtureOnly(t, "plan")
+	helpers.MarkAsGitRepo(t, dir)
+	_, stderr, err := helpers.RunCLI(dir, []string{"init", "local"}, env)
+	if err != nil {
+		t.Fatalf("init local: %v\nstderr: %s", err, stderr)
+	}
+	env = append(env, "WINDSOR_CONTEXT=local")
+	stdout, stderr, err := helpers.RunCLI(dir, []string{"plan", "terraform", "null", "--output=json-plan"}, env)
+	if err != nil {
+		t.Fatalf("plan terraform null --output=json-plan: %v\nstderr: %s", err, stderr)
+	}
+	if !strings.Contains(string(stdout), `"format_version"`) || !strings.Contains(string(stdout), `"terraform_version"`) {
+		t.Errorf("expected a terraform plan document (format_version/terraform_version) in stdout, got: %s", stdout)
+	}
+	if !strings.Contains(string(stderr), "sensitive") {
+		t.Errorf("expected a sensitive-data advisory on stderr, got: %s", stderr)
+	}
+}
+
+func TestPlanTerraform_OutputJSONPlanFlagForAllComponents(t *testing.T) {
+	t.Parallel()
+	dir, env := helpers.CopyFixtureOnly(t, "plan")
+	helpers.MarkAsGitRepo(t, dir)
+	_, stderr, err := helpers.RunCLI(dir, []string{"init", "local"}, env)
+	if err != nil {
+		t.Fatalf("init local: %v\nstderr: %s", err, stderr)
+	}
+	env = append(env, "WINDSOR_CONTEXT=local")
+	stdout, stderr, err := helpers.RunCLI(dir, []string{"plan", "terraform", "--output=json-plan"}, env)
+	if err != nil {
+		t.Fatalf("plan terraform --output=json-plan: %v\nstderr: %s", err, stderr)
+	}
+	lines := strings.Split(strings.TrimSpace(string(stdout)), "\n")
+	if len(lines) == 0 || lines[0] == "" {
+		t.Fatalf("expected at least one plan document line, got: %s", stdout)
+	}
+	for _, line := range lines {
+		if !strings.Contains(line, `"format_version"`) {
+			t.Errorf("expected each line to be a terraform plan document, got: %s", line)
+		}
+	}
+}
+
+func TestPlanTerraform_OutputFlagRejectsUnsupportedValue(t *testing.T) {
+	t.Parallel()
+	dir, env := helpers.CopyFixtureOnly(t, "plan")
+	helpers.MarkAsGitRepo(t, dir)
+	_, stderr, err := helpers.RunCLI(dir, []string{"init", "local"}, env)
+	if err != nil {
+		t.Fatalf("init local: %v\nstderr: %s", err, stderr)
+	}
+	env = append(env, "WINDSOR_CONTEXT=local")
+	_, stderr, err = helpers.RunCLI(dir, []string{"plan", "terraform", "null", "--output=bogus"}, env)
+	if err == nil {
+		t.Fatal("expected failure for an unsupported --output value")
+	}
+	if !strings.Contains(string(stderr), "invalid --output value") {
+		t.Errorf("expected an invalid --output error, got: %s", stderr)
+	}
+}
+
 func TestPlanTerraform_SummaryFlagWithComponent(t *testing.T) {
 	t.Parallel()
 	dir, env := helpers.CopyFixtureOnly(t, "plan")

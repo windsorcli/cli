@@ -587,6 +587,38 @@ func (i *Provisioner) PlanTerraformJSON(blueprint *blueprintv1alpha1.Blueprint, 
 	return i.TerraformStack.PlanJSON(blueprint, componentID)
 }
 
+// PlanTerraformResourceChangesJSON runs terraform plan and show -json for a single component,
+// printing the resulting plan document directly to stdout. Returns an error if blueprint
+// is nil, the stack cannot be initialised, or the plan fails.
+func (i *Provisioner) PlanTerraformResourceChangesJSON(blueprint *blueprintv1alpha1.Blueprint, componentID string) error {
+	if blueprint == nil {
+		return fmt.Errorf("blueprint not provided")
+	}
+	if err := i.ensureTerraformStack(); err != nil {
+		return err
+	}
+	if i.TerraformStack == nil {
+		return fmt.Errorf("terraform is disabled")
+	}
+	return i.TerraformStack.PlanResourceChangesJSON(blueprint, componentID)
+}
+
+// PlanTerraformAllResourceChangesJSON runs terraform plan and show -json for every enabled
+// component, printing each component's plan document directly to stdout. Returns an error
+// if blueprint is nil, the stack cannot be initialised, or any component's plan fails.
+func (i *Provisioner) PlanTerraformAllResourceChangesJSON(blueprint *blueprintv1alpha1.Blueprint) error {
+	if blueprint == nil {
+		return fmt.Errorf("blueprint not provided")
+	}
+	if err := i.ensureTerraformStack(); err != nil {
+		return err
+	}
+	if i.TerraformStack == nil {
+		return fmt.Errorf("terraform is disabled")
+	}
+	return i.TerraformStack.PlanAllResourceChangesJSON(blueprint)
+}
+
 // PlanKustomizeJSON runs kustomize build for the named kustomization (or all when componentID
 // is "all") and writes the rendered manifests as JSON to stdout. Returns an error if blueprint
 // is nil, the stack cannot be initialised, or the build fails.
