@@ -7,6 +7,7 @@ package env
 
 import (
 	"slices"
+	"strings"
 
 	"github.com/windsorcli/cli/pkg/runtime/config"
 	"github.com/windsorcli/cli/pkg/runtime/dotenv"
@@ -99,6 +100,25 @@ func (e *BaseEnvPrinter) SetManagedEnv(env string) {
 		return
 	}
 	e.managedEnv = append(e.managedEnv, env)
+}
+
+// ShouldSetManagedValue reports whether a printer may set key. It returns true when
+// key has no value in the environment yet, or when the previous round's
+// WINDSOR_MANAGED_ENV already lists key as Windsor's own. It returns false when an
+// operator's own value occupies key, so that value is left untouched.
+func (e *BaseEnvPrinter) ShouldSetManagedValue(key string) bool {
+	_, exists := e.shims.LookupEnv(key)
+	if !exists {
+		return true
+	}
+
+	managedEnvStr := e.shims.Getenv("WINDSOR_MANAGED_ENV")
+	for _, managedKey := range strings.Split(managedEnvStr, ",") {
+		if strings.TrimSpace(managedKey) == key {
+			return true
+		}
+	}
+	return false
 }
 
 // SetManagedAlias sets the shell aliases that are managed by Windsor.
