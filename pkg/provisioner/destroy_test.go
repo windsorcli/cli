@@ -61,6 +61,23 @@ func TestProvisioner_CheckComponentDestroyable(t *testing.T) {
 			t.Errorf("expected local backend to allow any component, got %v", err)
 		}
 	})
+
+	t.Run("RefusesWhenBackendFieldUnresolved", func(t *testing.T) {
+		// Tier membership is undeterminable; refuse rather than guess.
+		unresolved := &blueprintv1alpha1.Blueprint{
+			Backend: "ghost",
+			TerraformComponents: []blueprintv1alpha1.TerraformComponent{
+				{Name: "compute", Path: "compute/hcloud"},
+			},
+		}
+		mocks := setupProvisionerMocks(t)
+		kubernetesBackend(mocks)
+		prov := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{})
+		err := prov.CheckComponentDestroyable(unresolved, "compute")
+		if err == nil || !strings.Contains(err.Error(), `"ghost"`) {
+			t.Errorf("expected refusal naming the unresolved backend, got %v", err)
+		}
+	})
 }
 
 func TestProvisioner_PivotToLocalIfClusterGone(t *testing.T) {
@@ -408,6 +425,46 @@ func TestProvisioner_Teardown(t *testing.T) {
 		}
 		if migrateCalled {
 			t.Error("MigrateState must not run when there is no backend tier")
+		}
+	})
+
+	t.Run("RefusesUnresolvedBackendField", func(t *testing.T) {
+		// Backend names no real component; must not collapse to "no tier".
+		mocks := setupProvisionerMocks(t)
+		bp := &blueprintv1alpha1.Blueprint{
+			Backend: "backend",
+			TerraformComponents: []blueprintv1alpha1.TerraformComponent{
+				{Path: "network/gcp-vpc"},
+				{Path: "cluster/gcp-gke"},
+			},
+		}
+		mockCH := mocks.ConfigHandler.(*config.MockConfigHandler)
+		mockCH.GetStringFunc = func(key string, defaultValue ...string) string {
+			if key == "terraform.backend.type" {
+				return "gcs"
+			}
+			if len(defaultValue) > 0 {
+				return defaultValue[0]
+			}
+			return ""
+		}
+		mockStack := terraforminfra.NewMockStack()
+		destroyAllCalled := false
+		mockStack.DestroyAllFunc = func(_ *blueprintv1alpha1.Blueprint, _ bool, _ ...string) (terraforminfra.DestroyOutcome, error) {
+			destroyAllCalled = true
+			return terraforminfra.DestroyOutcome{}, nil
+		}
+		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{KubernetesManager: mocks.KubernetesManager, TerraformStack: mockStack})
+
+		_, err := provisioner.Teardown(bp, true, false)
+		if err == nil {
+			t.Fatal("Expected error for unresolved Backend field, got nil")
+		}
+		if !strings.Contains(err.Error(), `"backend"`) {
+			t.Errorf("Expected error to name the unresolved backend, got: %v", err)
+		}
+		if destroyAllCalled {
+			t.Error("DestroyAll must not run when the backend tier cannot be resolved")
 		}
 	})
 

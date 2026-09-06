@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
+	composerblueprint "github.com/windsorcli/cli/pkg/composer/blueprint"
 	terraforminfra "github.com/windsorcli/cli/pkg/provisioner/terraform"
 )
 
@@ -44,33 +45,37 @@ type DestroyResult struct {
 // Public Methods
 // =============================================================================
 
-// Teardown reverses Bootstrap. With no backend tier it forwards to DestroyAll
+// Teardown reverses Bootstrap. With no backend tier, it forwards to DestroyAll
 // (or DestroyAllTerraform when terraformOnly). With a tier declared via
-// Blueprint.Backend, Stage 1 destroys non-tier components against the
-// configured backend, then Stage 2 pins local, pulls every tier member's state
-// to local, and destroys the tier in reverse declaration order. When
-// continueOnError is true, per-component destroy errors in Stage 1 are
-// collected rather than aborting the loop; the backend tier is only attempted
-// when Stage 1 produced zero failures, to avoid destroying the state store
-// while other components still depend on it. The tier-deferred flag on the
-// result signals when Stage 2 was skipped for this reason. Stage 2's tier
-// destroy skips the Kubernetes-reachability preflight: Stage 1 has, by
-// design, already destroyed the cluster (it is never a tier member), so an
-// unreachable API at this point is the expected state, not a broken-auth
-// signal, and the backend tier never has a kubernetes/helm provider
-// dependency for the check to protect.
+// Blueprint.Backend, Stage 1 destroys non-tier components; Stage 2 migrates
+// tier state to local and destroys the tier, but only when Stage 1 had zero
+// failures — see hasTerraformFailure — so the state store never goes before
+// its dependents. TierDeferred marks a skipped Stage 2. On a remote backend,
+// a Backend that names no real component is refused rather than silently
+// treated as "no tier" — see resolveBackendTier.
 func (i *Provisioner) Teardown(blueprint *blueprintv1alpha1.Blueprint, terraformOnly bool, continueOnError bool) (DestroyResult, error) {
 	var result DestroyResult
 	backendType := i.configHandler.GetString("terraform.backend.type", "local")
 	if backendType == "kubernetes" && blueprint.Backend == "" {
 		return result, fmt.Errorf("blueprint configures terraform.backend.type=kubernetes but does not declare Blueprint.Backend; set `backend: <cluster-component-id>` at the blueprint top level to name the terraform component that provisions the cluster")
 	}
-	tier := blueprint.BackendTier()
-	if backendType == "" || backendType == "local" || len(tier) == 0 {
+
+	destroyFlat := func() (DestroyResult, error) {
 		if terraformOnly {
 			return i.DestroyAllTerraform(blueprint, continueOnError)
 		}
 		return i.DestroyAll(blueprint, continueOnError)
+	}
+	if backendType == "" || backendType == "local" {
+		return destroyFlat()
+	}
+
+	tier, err := resolveBackendTier(blueprint)
+	if err != nil {
+		return result, err
+	}
+	if len(tier) == 0 {
+		return destroyFlat()
 	}
 
 	tierIDs := make([]string, 0, len(tier))
@@ -94,7 +99,7 @@ func (i *Provisioner) Teardown(blueprint *blueprintv1alpha1.Blueprint, terraform
 	}
 
 	tierBP := blueprintWithComponents(blueprint, tier)
-	err := i.withBackendOverride("destroy", func() error {
+	err = i.withBackendOverride("destroy", func() error {
 		migrationSkipped, err := i.MigrateState(tierBP)
 		if err != nil {
 			return err
@@ -124,13 +129,32 @@ func (i *Provisioner) TeardownComponent(blueprint *blueprintv1alpha1.Blueprint, 
 // On a non-local backend a backend-tier member is refused: its state provides the backend every other
 // component uses, so destroying it directly would orphan their state. Callers run this before generating a
 // destroy plan so the refusal is surfaced up front, rather than as a raw terraform init error when the
-// component tries to reach a kubernetes backend whose cluster may already be gone.
+// component tries to reach a kubernetes backend whose cluster may already be gone. A Backend that names
+// no real component also refuses outright — see resolveBackendTier.
 func (i *Provisioner) CheckComponentDestroyable(blueprint *blueprintv1alpha1.Blueprint, componentID string) error {
 	backendType := i.configHandler.GetString("terraform.backend.type", "local")
-	if backendType != "" && backendType != "local" && blueprint.IsBackendTierMember(componentID) {
-		return fmt.Errorf("cannot destroy backend-tier component %q in isolation: its state provides the %s backend that every other component uses, so destroying it directly would orphan their state. Run `windsor destroy` (no arguments) for the full-cycle teardown that migrates state to local first", componentID, backendType)
+	if backendType == "" || backendType == "local" {
+		return nil
+	}
+	tier, err := resolveBackendTier(blueprint)
+	if err != nil {
+		return err
+	}
+	for _, c := range tier {
+		if c.GetID() == componentID {
+			return fmt.Errorf("cannot destroy backend-tier component %q in isolation: its state provides the %s backend that every other component uses, so destroying it directly would orphan their state. Run `windsor destroy` (no arguments) for the full-cycle teardown that migrates state to local first", componentID, backendType)
+		}
 	}
 	return nil
+}
+
+// ValidateBackendTier reports an error when Blueprint.Backend is set but names no real
+// component. Callers run this before generating a destroy plan, the same way
+// CheckComponentDestroyable does for a targeted destroy, so a stale backend name is refused up
+// front rather than after the operator has already confirmed.
+func (i *Provisioner) ValidateBackendTier(blueprint *blueprintv1alpha1.Blueprint) error {
+	_, err := resolveBackendTier(blueprint)
+	return err
 }
 
 // PrepareLocalTeardown makes a kubernetes-backend teardown operate entirely against local state. Because
@@ -202,6 +226,18 @@ func (i *Provisioner) clusterReachableForTeardown() bool {
 // =============================================================================
 // Private Helpers
 // =============================================================================
+
+// resolveBackendTier resolves the backend tier named by Blueprint.Backend.
+// It runs ValidateComposedBlueprint first: destroy and apply skip blueprint
+// validation at load time (to tolerate a deployed-but-misordered blueprint),
+// so a stale Backend name must still fail loud here rather than silently
+// collapse BackendTier to "no tier" and leave the backend unprotected.
+func resolveBackendTier(blueprint *blueprintv1alpha1.Blueprint) ([]*blueprintv1alpha1.TerraformComponent, error) {
+	if err := composerblueprint.ValidateComposedBlueprint(blueprint); err != nil {
+		return nil, err
+	}
+	return blueprint.BackendTier(), nil
+}
 
 // hasTerraformFailure reports whether the failure list contains any entry
 // that belongs to a terraform component (i.e., not the kustomize-aggregate

@@ -437,6 +437,32 @@ func TestProvisioner_Up(t *testing.T) {
 		}
 	})
 
+	t.Run("RefusesUnresolvedBackendField", func(t *testing.T) {
+		// Backend names no real component; must not collapse to "no tier".
+		mocks := setupProvisionerMocks(t)
+		mockCH := mocks.ConfigHandler.(*config.MockConfigHandler)
+		mockCH.GetStringFunc = func(key string, defaultValue ...string) string {
+			if key == "terraform.backend.type" {
+				return "gcs"
+			}
+			if len(defaultValue) > 0 {
+				return defaultValue[0]
+			}
+			return ""
+		}
+		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler)
+
+		bp := &blueprintv1alpha1.Blueprint{
+			Backend: "backend",
+			TerraformComponents: []blueprintv1alpha1.TerraformComponent{
+				{Path: "network/gcp-vpc"},
+			},
+		}
+		_, err := provisioner.Up(bp)
+		if err == nil || !strings.Contains(err.Error(), `"backend"`) {
+			t.Errorf("expected refusal naming the unresolved backend, got %v", err)
+		}
+	})
 }
 
 func TestProvisioner_MigrateState(t *testing.T) {

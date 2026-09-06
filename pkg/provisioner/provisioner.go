@@ -211,19 +211,31 @@ func (i *Provisioner) OnTerraformPostApply(fn func(id string) error) {
 // including from cmd/apply.go and cmd/up.go; confirmation is a cmd/bootstrap.go concern, not
 // this method's. Without a declared tier it applies directly. A kubernetes backend with no
 // tier and no kubeconfig yet is refused with an actionable error instead of a raw terraform
-// connection failure. Returns (halted, err); halted=true means a hook stopped after a component.
+// connection failure. On a remote backend, a declared Backend that names no real component is
+// refused rather than silently treated as "no tier" — see resolveBackendTier. Returns
+// (halted, err); halted=true means a hook stopped after a component.
 func (i *Provisioner) Up(blueprint *blueprintv1alpha1.Blueprint, onApply ...func(id string) (bool, error)) (bool, error) {
 	if blueprint == nil {
 		return false, fmt.Errorf("blueprint not provided")
 	}
 
 	backendType := i.configHandler.GetString("terraform.backend.type", "local")
-	tier := blueprint.BackendTier()
-	if backendType == "" || backendType == "local" || len(tier) == 0 {
-		if backendType == "kubernetes" && len(tier) == 0 && hasEnabledTerraformComponent(blueprint) && !i.kubeconfigPresent() {
+	applyFlat := func() (bool, error) {
+		if backendType == "kubernetes" && hasEnabledTerraformComponent(blueprint) && !i.kubeconfigPresent() {
 			return false, fmt.Errorf("context has no kubeconfig (cluster not yet created) and the blueprint declares no backend tier for the kubernetes backend; add `backend: <component-id>` to the blueprint naming the component that creates the cluster, or set terraform.backend.type to \"local\" until it exists")
 		}
 		return i.applyDirect(blueprint, onApply...)
+	}
+	if backendType == "" || backendType == "local" {
+		return applyFlat()
+	}
+
+	tier, err := resolveBackendTier(blueprint)
+	if err != nil {
+		return false, err
+	}
+	if len(tier) == 0 {
+		return applyFlat()
 	}
 	return i.applyWithBackendPivot(blueprint, tier, onApply...)
 }
