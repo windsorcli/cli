@@ -44,52 +44,56 @@ func NewGcpEnvPrinter(shell shell.Shell, configHandler config.ConfigHandler) *Gc
 // Public Methods
 // =============================================================================
 
-// GetEnvVars retrieves the environment variables for the GCP environment.
-// In global mode (no windsor.yaml in the project tree) windsor defers to the
-// operator's ambient gcloud setup: CLOUDSDK_CONFIG is not emitted, the
-// context-scoped gcloud directory is not created, and GOOGLE_APPLICATION_CREDENTIALS
-// is only emitted when gcp.credentials_path is set explicitly. The project
-// identifiers (GOOGLE_CLOUD_PROJECT, GCLOUD_PROJECT, GOOGLE_CLOUD_QUOTA_PROJECT)
-// are still emitted because they describe which GCP project the context
-// targets, not whose credentials are used. Every emitted key except
-// GOOGLE_APPLICATION_CREDENTIALS is registered as managed, so WindsorEnvPrinter
-// unsets it once a context switch stops this printer from emitting it.
-// GOOGLE_APPLICATION_CREDENTIALS is excluded because it is left untouched
-// whenever it's already present in the shell, so Windsor cannot tell its own
-// prior export apart from a value the operator set intentionally and must not
-// risk clearing the latter.
+// GetEnvVars returns the GCP environment variables for the current context. Project mode
+// always sets CLOUDSDK_CONFIG. Google client libraries do not read it, so
+// GOOGLE_APPLICATION_CREDENTIALS bridges the gap: gcp.credentials_path first, then the
+// service-account file, then the gcloud ADC file, else it stays unset. A set-but-missing
+// path breaks Google client libraries outright, so Windsor never guesses one. Global mode
+// defers to the operator's ambient gcloud setup. GOOGLE_CLOUD_PROJECT, GCLOUD_PROJECT, and
+// GOOGLE_CLOUD_QUOTA_PROJECT need a gcp: field. Windsor never overwrites an existing
+// GOOGLE_APPLICATION_CREDENTIALS value.
 func (e *GcpEnvPrinter) GetEnvVars() (map[string]string, error) {
 	envVars := make(map[string]string)
 	global := e.shell.IsGlobal()
 
 	config := e.configHandler.GetConfig()
+	var credentialsPath *string
 	if config != nil && config.GCP != nil {
-		if !global {
-			configRoot, err := e.configHandler.GetConfigRoot()
-			if err != nil {
-				return nil, fmt.Errorf("error retrieving configuration root directory: %w", err)
-			}
-			gcpConfigDir := filepath.Join(configRoot, ".gcp")
-			gcloudConfigDir := filepath.Join(gcpConfigDir, "gcloud")
-			if err := e.shims.MkdirAll(gcloudConfigDir, 0755); err != nil {
-				return nil, fmt.Errorf("error creating GCP config directory: %w", err)
-			}
-			envVars["CLOUDSDK_CONFIG"] = filepath.ToSlash(gcloudConfigDir)
+		credentialsPath = config.GCP.CredentialsPath
+	}
 
-			if _, exists := e.shims.LookupEnv("GOOGLE_APPLICATION_CREDENTIALS"); !exists {
-				if config.GCP.CredentialsPath != nil {
-					envVars["GOOGLE_APPLICATION_CREDENTIALS"] = *config.GCP.CredentialsPath
-				} else {
-					serviceAccountPath := filepath.Join(gcpConfigDir, "service-accounts", "default.json")
+	if !global {
+		configRoot, err := e.configHandler.GetConfigRoot()
+		if err != nil {
+			return nil, fmt.Errorf("error retrieving configuration root directory: %w", err)
+		}
+		gcpConfigDir := filepath.Join(configRoot, ".gcp")
+		gcloudConfigDir := filepath.Join(gcpConfigDir, "gcloud")
+		if err := e.shims.MkdirAll(gcloudConfigDir, 0755); err != nil {
+			return nil, fmt.Errorf("error creating GCP config directory: %w", err)
+		}
+		envVars["CLOUDSDK_CONFIG"] = filepath.ToSlash(gcloudConfigDir)
+
+		if _, exists := e.shims.LookupEnv("GOOGLE_APPLICATION_CREDENTIALS"); !exists {
+			if credentialsPath != nil {
+				envVars["GOOGLE_APPLICATION_CREDENTIALS"] = *credentialsPath
+			} else {
+				serviceAccountPath := filepath.Join(gcpConfigDir, "service-accounts", "default.json")
+				adcPath := filepath.Join(gcloudConfigDir, "application_default_credentials.json")
+				if _, statErr := e.shims.Stat(serviceAccountPath); statErr == nil {
 					envVars["GOOGLE_APPLICATION_CREDENTIALS"] = filepath.ToSlash(serviceAccountPath)
+				} else if _, statErr := e.shims.Stat(adcPath); statErr == nil {
+					envVars["GOOGLE_APPLICATION_CREDENTIALS"] = filepath.ToSlash(adcPath)
 				}
 			}
-		} else if config.GCP.CredentialsPath != nil {
-			if _, exists := e.shims.LookupEnv("GOOGLE_APPLICATION_CREDENTIALS"); !exists {
-				envVars["GOOGLE_APPLICATION_CREDENTIALS"] = *config.GCP.CredentialsPath
-			}
 		}
+	} else if credentialsPath != nil {
+		if _, exists := e.shims.LookupEnv("GOOGLE_APPLICATION_CREDENTIALS"); !exists {
+			envVars["GOOGLE_APPLICATION_CREDENTIALS"] = *credentialsPath
+		}
+	}
 
+	if config != nil && config.GCP != nil {
 		if config.GCP.ProjectID != nil {
 			envVars["GOOGLE_CLOUD_PROJECT"] = *config.GCP.ProjectID
 			envVars["GCLOUD_PROJECT"] = *config.GCP.ProjectID

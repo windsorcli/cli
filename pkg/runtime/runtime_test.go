@@ -2954,17 +2954,11 @@ func TestRuntime_initializeEnvPrinters(t *testing.T) {
 	})
 
 	t.Run("InitializesGcpEnvWhenEnabled", func(t *testing.T) {
-		// Given a runtime with GCP enabled
+		// Given a runtime with a gcp: config block present
 		mocks := setupRuntimeMocks(t)
 		rt := mocks.Runtime
 
 		mockConfigHandler := mocks.ConfigHandler.(*config.MockConfigHandler)
-		mockConfigHandler.GetBoolFunc = func(key string, defaultValue ...bool) bool {
-			if key == "gcp.enabled" {
-				return true
-			}
-			return false
-		}
 		mockConfigHandler.GetConfigFunc = func() *v1alpha1.Context {
 			return &v1alpha1.Context{
 				GCP: &gcpv1alpha1.GCPConfig{},
@@ -2978,6 +2972,28 @@ func TestRuntime_initializeEnvPrinters(t *testing.T) {
 
 		if rt.EnvPrinters.GcpEnv == nil {
 			t.Error("Expected GcpEnv to be initialized")
+		}
+	})
+
+	t.Run("InitializesGcpEnvWhenPlatformIsGcp", func(t *testing.T) {
+		// Given a runtime with platform=gcp and no gcp block
+		mocks := setupRuntimeMocks(t)
+		rt := mocks.Runtime
+
+		mockConfigHandler := mocks.ConfigHandler.(*config.MockConfigHandler)
+		mockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
+			if key == "platform" {
+				return "gcp"
+			}
+			return ""
+		}
+
+		// When initializeEnvPrinters is called
+		rt.initializeEnvPrinters()
+
+		// Then GCP env printer should be initialized from the platform signal alone
+		if rt.EnvPrinters.GcpEnv == nil {
+			t.Error("Expected GcpEnv to be initialized when platform=gcp")
 		}
 	})
 
