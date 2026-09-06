@@ -723,6 +723,82 @@ func TestTerraformProvider_generateBackendConfigArgs(t *testing.T) {
 		}
 	})
 
+	t.Run("GeneratesGcsBackendArgs", func(t *testing.T) {
+		// Given a provider with gcs backend configuration
+		mocks := setupMocks(t)
+		provider := mocks.Provider
+		mockConfig := provider.configHandler.(*config.MockConfigHandler)
+
+		configRoot := "/test/config"
+		mockConfig.GetConfigRootFunc = func() (string, error) {
+			return configRoot, nil
+		}
+
+		mockConfig.GetStringFunc = func(key string, defaultValue ...string) string {
+			if key == "terraform.backend.type" {
+				return "gcs"
+			}
+			if len(defaultValue) > 0 {
+				return defaultValue[0]
+			}
+			return ""
+		}
+
+		mockConfig.GetContextFunc = func() string {
+			return "default"
+		}
+
+		mockConfig.GetConfigFunc = func() *v1alpha1.Context {
+			bucket := "bucket"
+			return &v1alpha1.Context{
+				Terraform: &terraform.TerraformConfig{
+					Backend: &terraform.BackendConfig{
+						GCS: &terraform.GCSBackend{
+							Bucket: &bucket,
+						},
+					},
+				},
+			}
+		}
+
+		provider.Shims.Stat = func(path string) (os.FileInfo, error) {
+			return nil, os.ErrNotExist
+		}
+
+		provider.Shims.YamlMarshal = func(v any) ([]byte, error) {
+			return []byte("bucket: bucket"), nil
+		}
+
+		provider.Shims.YamlUnmarshal = func(data []byte, v any) error {
+			m := v.(*map[string]any)
+			*m = map[string]any{
+				"bucket": "bucket",
+			}
+			return nil
+		}
+
+		// When generating backend config args
+		args, err := provider.generateBackendConfigArgs("test/path", configRoot)
+
+		// Then it should generate gcs backend args, keyed by "prefix" (a folder in the
+		// bucket) rather than "key" (a single object path) since that's the argument
+		// terraform's gcs backend accepts.
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+
+		foundPrefix := false
+		for _, arg := range args {
+			if strings.Contains(arg, "prefix=") && strings.Contains(arg, "test/path") {
+				foundPrefix = true
+				break
+			}
+		}
+		if !foundPrefix {
+			t.Errorf("Expected args to contain prefix for test/path, got %v", args)
+		}
+	})
+
 	t.Run("ReturnsErrorForUnsupportedBackend", func(t *testing.T) {
 		// Given a provider with unsupported backend type
 		mocks := setupMocks(t)

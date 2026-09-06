@@ -142,9 +142,10 @@ func TestGcpEnv_GetEnvVars(t *testing.T) {
 			t.Errorf("GetEnvVars returned GOOGLE_CLOUD_QUOTA_PROJECT=%v, want billing-project", envVars["GOOGLE_CLOUD_QUOTA_PROJECT"])
 		}
 
-		expectedServiceAccountPath := filepath.ToSlash(filepath.Join(configRoot, ".gcp", "service-accounts", "default.json"))
-		if envVars["GOOGLE_APPLICATION_CREDENTIALS"] != expectedServiceAccountPath {
-			t.Errorf("GetEnvVars returned GOOGLE_APPLICATION_CREDENTIALS=%v, want %v", envVars["GOOGLE_APPLICATION_CREDENTIALS"], expectedServiceAccountPath)
+		// The default service-account file does not exist, so GOOGLE_APPLICATION_CREDENTIALS
+		// is omitted.
+		if _, ok := envVars["GOOGLE_APPLICATION_CREDENTIALS"]; ok {
+			t.Errorf("Expected no GOOGLE_APPLICATION_CREDENTIALS when the default file doesn't exist, got %v", envVars["GOOGLE_APPLICATION_CREDENTIALS"])
 		}
 	})
 
@@ -182,13 +183,14 @@ contexts:
 			t.Errorf("GetEnvVars returned CLOUDSDK_CONFIG=%v, want %v", envVars["CLOUDSDK_CONFIG"], expectedGcloudConfigDir)
 		}
 
-		expectedServiceAccountPath := filepath.ToSlash(filepath.Join(configRoot, ".gcp", "service-accounts", "default.json"))
-		if envVars["GOOGLE_APPLICATION_CREDENTIALS"] != expectedServiceAccountPath {
-			t.Errorf("GetEnvVars returned GOOGLE_APPLICATION_CREDENTIALS=%v, want %v", envVars["GOOGLE_APPLICATION_CREDENTIALS"], expectedServiceAccountPath)
+		// The default service-account file does not exist, so GOOGLE_APPLICATION_CREDENTIALS
+		// is omitted.
+		if _, ok := envVars["GOOGLE_APPLICATION_CREDENTIALS"]; ok {
+			t.Errorf("Expected no GOOGLE_APPLICATION_CREDENTIALS when the default file doesn't exist, got %v", envVars["GOOGLE_APPLICATION_CREDENTIALS"])
 		}
 
-		if len(envVars) != 2 {
-			t.Errorf("Expected 2 environment variables, got %d: %v", len(envVars), envVars)
+		if len(envVars) != 1 {
+			t.Errorf("Expected 1 environment variable, got %d: %v", len(envVars), envVars)
 		}
 	})
 
@@ -335,7 +337,8 @@ contexts:
 		}
 	})
 
-	t.Run("MissingConfiguration", func(t *testing.T) {
+	t.Run("EmitsBaseVarsEvenWithoutGcpBlock", func(t *testing.T) {
+		// Given a context with no gcp: block at all
 		baseMocks := setupEnvMocks(t)
 		mocks := setupGcpEnvMocks(t, &EnvTestMocks{
 			ConfigHandler: config.NewConfigHandler(baseMocks.Shell),
@@ -351,14 +354,31 @@ contexts:
 		mocks.ConfigHandler.SetContext("test-context")
 		printer := NewGcpEnvPrinter(mocks.Shell, mocks.ConfigHandler)
 		printer.shims = mocks.Shims
+		mocks.Shims.LookupEnv = func(key string) (string, bool) {
+			return "", false
+		}
 
+		// When GetEnvVars is called
 		envVars, err := printer.GetEnvVars()
 
+		// Then CLOUDSDK_CONFIG is still emitted. GOOGLE_APPLICATION_CREDENTIALS and the
+		// project/quota vars are omitted.
 		if err != nil {
 			t.Errorf("Expected no error, got %v", err)
 		}
-		if len(envVars) != 0 {
-			t.Errorf("Expected empty environment variables, got %v", envVars)
+		configRoot, err := mocks.ConfigHandler.GetConfigRoot()
+		if err != nil {
+			t.Fatalf("Failed to get config root: %v", err)
+		}
+		expectedGcloudConfigDir := filepath.ToSlash(filepath.Join(configRoot, ".gcp", "gcloud"))
+		if envVars["CLOUDSDK_CONFIG"] != expectedGcloudConfigDir {
+			t.Errorf("GetEnvVars returned CLOUDSDK_CONFIG=%v, want %v", envVars["CLOUDSDK_CONFIG"], expectedGcloudConfigDir)
+		}
+		if _, ok := envVars["GOOGLE_APPLICATION_CREDENTIALS"]; ok {
+			t.Errorf("Expected no GOOGLE_APPLICATION_CREDENTIALS when the default file doesn't exist, got %v", envVars["GOOGLE_APPLICATION_CREDENTIALS"])
+		}
+		if _, ok := envVars["GOOGLE_CLOUD_PROJECT"]; ok {
+			t.Errorf("Expected no GOOGLE_CLOUD_PROJECT without a gcp: block, got %v", envVars["GOOGLE_CLOUD_PROJECT"])
 		}
 	})
 
@@ -428,11 +448,91 @@ contexts:
 			t.Errorf("Expected no error, got %v", err)
 		}
 
-		// GOOGLE_APPLICATION_CREDENTIALS should be set even if file doesn't exist yet,
-		// to allow CLIs to generate auth files in the right location
+		// GOOGLE_APPLICATION_CREDENTIALS is set because the default service-account file
+		// actually exists at that path.
 		expectedPath := filepath.ToSlash(serviceAccountPath)
 		if envVars["GOOGLE_APPLICATION_CREDENTIALS"] != expectedPath {
 			t.Errorf("GetEnvVars returned GOOGLE_APPLICATION_CREDENTIALS=%v, want %v", envVars["GOOGLE_APPLICATION_CREDENTIALS"], expectedPath)
+		}
+	})
+
+	t.Run("UsesApplicationDefaultCredentialsFileWhenItExists", func(t *testing.T) {
+		// Given ADC login with no credentials_path and no service-account file
+		mocks := setupGcpEnvMocks(t)
+		configStr := `
+version: v1alpha1
+contexts:
+  test-context:
+    gcp:
+      enabled: true
+      project_id: "my-project"
+`
+		if err := mocks.ConfigHandler.LoadConfigString(configStr); err != nil {
+			t.Fatalf("Failed to load config: %v", err)
+		}
+		printer := NewGcpEnvPrinter(mocks.Shell, mocks.ConfigHandler)
+		printer.shims = mocks.Shims
+
+		configRoot, err := mocks.ConfigHandler.GetConfigRoot()
+		if err != nil {
+			t.Fatalf("Failed to get config root: %v", err)
+		}
+		adcPath := filepath.Join(configRoot, ".gcp", "gcloud", "application_default_credentials.json")
+		mocks.Shims.LookupEnv = func(key string) (string, bool) {
+			return "", false
+		}
+		mocks.Shims.Stat = func(name string) (os.FileInfo, error) {
+			if name == adcPath {
+				return nil, nil
+			}
+			return nil, os.ErrNotExist
+		}
+
+		// When GetEnvVars is called
+		envVars, err := printer.GetEnvVars()
+
+		// Then GOOGLE_APPLICATION_CREDENTIALS points at the context-scoped ADC file.
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+		expectedPath := filepath.ToSlash(adcPath)
+		if envVars["GOOGLE_APPLICATION_CREDENTIALS"] != expectedPath {
+			t.Errorf("GetEnvVars returned GOOGLE_APPLICATION_CREDENTIALS=%v, want %v", envVars["GOOGLE_APPLICATION_CREDENTIALS"], expectedPath)
+		}
+	})
+
+	t.Run("OmitsCredentialsWhenNoCredentialsFileExistsAnywhere", func(t *testing.T) {
+		// Given no credentials_path, no service-account file, and no ADC login
+		mocks := setupGcpEnvMocks(t)
+		configStr := `
+version: v1alpha1
+contexts:
+  test-context:
+    gcp:
+      enabled: true
+      project_id: "my-project"
+`
+		if err := mocks.ConfigHandler.LoadConfigString(configStr); err != nil {
+			t.Fatalf("Failed to load config: %v", err)
+		}
+		printer := NewGcpEnvPrinter(mocks.Shell, mocks.ConfigHandler)
+		printer.shims = mocks.Shims
+		mocks.Shims.LookupEnv = func(key string) (string, bool) {
+			return "", false
+		}
+
+		// When GetEnvVars is called
+		envVars, err := printer.GetEnvVars()
+
+		// Then GOOGLE_APPLICATION_CREDENTIALS is omitted, so it doesn't point at a missing file.
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+		if _, ok := envVars["GOOGLE_APPLICATION_CREDENTIALS"]; ok {
+			t.Errorf("Expected no GOOGLE_APPLICATION_CREDENTIALS with no credentials file anywhere, got %v", envVars["GOOGLE_APPLICATION_CREDENTIALS"])
+		}
+		if _, ok := envVars["CLOUDSDK_CONFIG"]; !ok {
+			t.Error("Expected CLOUDSDK_CONFIG to still be set")
 		}
 	})
 
@@ -489,11 +589,6 @@ contexts:
 			return "", false
 		}
 
-		configRoot, err := mocks.ConfigHandler.GetConfigRoot()
-		if err != nil {
-			t.Fatalf("Failed to get config root: %v", err)
-		}
-
 		envVars, err := printer.GetEnvVars()
 		if err != nil {
 			t.Errorf("Expected no error, got %v", err)
@@ -507,9 +602,8 @@ contexts:
 			t.Errorf("GetEnvVars returned GCLOUD_PROJECT=%v, want my-project", envVars["GCLOUD_PROJECT"])
 		}
 
-		expectedServiceAccountPath := filepath.ToSlash(filepath.Join(configRoot, ".gcp", "service-accounts", "default.json"))
-		if envVars["GOOGLE_APPLICATION_CREDENTIALS"] != expectedServiceAccountPath {
-			t.Errorf("GetEnvVars returned GOOGLE_APPLICATION_CREDENTIALS=%v, want %v", envVars["GOOGLE_APPLICATION_CREDENTIALS"], expectedServiceAccountPath)
+		if _, ok := envVars["GOOGLE_APPLICATION_CREDENTIALS"]; ok {
+			t.Errorf("Expected no GOOGLE_APPLICATION_CREDENTIALS when the default file doesn't exist, got %v", envVars["GOOGLE_APPLICATION_CREDENTIALS"])
 		}
 	})
 }

@@ -387,10 +387,11 @@ var structuralValidationKeywords = map[string]bool{
 	"if":         true,
 }
 
-// validationError pairs a formatted error line with its instance location and keyword.
+// validationError pairs a formatted error line with its instance location, keyword, and message.
 type validationError struct {
 	location string
 	keyword  string
+	message  string
 	line     string
 }
 
@@ -429,7 +430,7 @@ func flattenErrorList(list *jsonschema.List) []string {
 		deduped = append(deduped, e)
 	}
 
-	deduped = focusOnInvalidPlatform(deduped)
+	deduped = focusOnSpecificViolations(deduped)
 
 	sort.SliceStable(deduped, func(i, j int) bool {
 		return !structuralValidationKeywords[deduped[i].keyword] && structuralValidationKeywords[deduped[j].keyword]
@@ -459,6 +460,7 @@ func walkList(list *jsonschema.List, parent string, errs *[]validationError) {
 		*errs = append(*errs, validationError{
 			location: display,
 			keyword:  keyword,
+			message:  msg,
 			line:     fmt.Sprintf("%s: %s: %s", display, keyword, msg),
 		})
 	}
@@ -467,36 +469,77 @@ func walkList(list *jsonschema.List, parent string, errs *[]validationError) {
 	}
 }
 
-// cascadeProneKeywords are keywords a missed platform branch reports as fallout, not a real
-// violation.
-var cascadeProneKeywords = map[string]bool{
-	"required": true,
-	"type":     true,
+// quotedToken extracts the first single-quoted token from a message, e.g. "Required property
+// 'identity' is missing" -> "identity". Returns "" when the message quotes nothing.
+func quotedToken(message string) string {
+	start := strings.IndexByte(message, '\'')
+	if start < 0 {
+		return ""
+	}
+	end := strings.IndexByte(message[start+1:], '\'')
+	if end < 0 {
+		return ""
+	}
+	return message[start+1 : start+1+end]
 }
 
-// focusOnInvalidPlatform hides cascade-prone errors when platform fails its enum check. It
-// keeps specific violations, like a bad pattern, since those hold regardless of platform.
-func focusOnInvalidPlatform(errs []validationError) []validationError {
-	var platformErrs []validationError
-	var kept []validationError
-	hidden := 0
+// cascadePairedNames finds property names with both a root "required" failure and a matching
+// "type: null but should be object" failure. Only object-typed fields get this pairing;
+// composition fills those in later. A missing scalar, like platform, never pairs.
+func cascadePairedNames(errs []validationError) map[string]bool {
+	nullAt := map[string]bool{}
 	for _, e := range errs {
-		switch {
-		case e.keyword == "enum" && e.location == "/platform":
-			platformErrs = append(platformErrs, e)
-		case cascadeProneKeywords[e.keyword] || structuralValidationKeywords[e.keyword]:
-			hidden++
-		default:
-			kept = append(kept, e)
+		if e.keyword == "type" && strings.Contains(e.message, "null") && strings.Contains(e.message, "object") {
+			nullAt[strings.TrimPrefix(e.location, "/")] = true
 		}
 	}
-	if len(platformErrs) == 0 || hidden == 0 {
+	paired := map[string]bool{}
+	for _, e := range errs {
+		if e.location != "/" || e.keyword != "required" {
+			continue
+		}
+		if name := quotedToken(e.message); name != "" && nullAt[name] {
+			paired[name] = true
+		}
+	}
+	return paired
+}
+
+// isCascadeProne reports whether e is part of a pair from cascadePairedNames. A nested
+// required error, an unpaired required error, or a non-null type error stays visible.
+func isCascadeProne(e validationError, paired map[string]bool) bool {
+	switch e.keyword {
+	case "required":
+		return e.location == "/" && paired[quotedToken(e.message)]
+	case "type":
+		return paired[strings.TrimPrefix(e.location, "/")]
+	}
+	return false
+}
+
+// focusOnSpecificViolations hides cascade-prone and structural errors when a specific
+// violation is also present. It returns errs unchanged when either side is empty.
+func focusOnSpecificViolations(errs []validationError) []validationError {
+	paired := cascadePairedNames(errs)
+	var specific, noise []validationError
+	cascadeCount := 0
+	for _, e := range errs {
+		switch {
+		case isCascadeProne(e, paired):
+			cascadeCount++
+			noise = append(noise, e)
+		case structuralValidationKeywords[e.keyword]:
+			noise = append(noise, e)
+		default:
+			specific = append(specific, e)
+		}
+	}
+	if len(specific) == 0 || cascadeCount == 0 {
 		return errs
 	}
 
-	note := fmt.Sprintf("%d other error(s) are hidden because 'platform' is invalid. Fix 'platform' and run the command again.", hidden)
-	result := append(platformErrs, kept...)
-	return append(result, validationError{line: note})
+	note := fmt.Sprintf("%d other error(s) are hidden. Fix the error(s) above and run the command again.", len(noise))
+	return append(specific, validationError{line: note})
 }
 
 // joinInstanceLocation concatenates two JSON Pointer fragments, treating "" and "/" as the

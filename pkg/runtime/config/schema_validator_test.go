@@ -1037,36 +1037,65 @@ func TestFlattenErrorList(t *testing.T) {
 		if !strings.Contains(errs[0], "/platform: enum:") {
 			t.Errorf("Expected the platform enum error first, got %v", errs)
 		}
-		if !strings.Contains(errs[1], "5 other error(s) are hidden") || !strings.Contains(errs[1], "'platform' is invalid") {
+		if !strings.Contains(errs[1], "5 other error(s) are hidden") {
 			t.Errorf("Expected a summary note about hidden errors, got %v", errs)
 		}
 	})
 
-	t.Run("LeavesUnrelatedErrorsAloneWhenPlatformIsValid", func(t *testing.T) {
-		// Given failures with no enum error on /platform at all
+	t.Run("SuppressesCascadeFromAnyOtherSpecificViolation", func(t *testing.T) {
+		// Given an invalid /gcp block plus the same identity required/type/properties fallout
 		list := &jsonschema.List{
 			Details: []jsonschema.List{
 				{InstanceLocation: "/", Errors: map[string]string{"required": "Required property 'identity' is missing"}},
-				{InstanceLocation: "/network/cidr_block", Errors: map[string]string{"pattern": "Value does not match the required pattern"}},
+				{InstanceLocation: "/identity", Errors: map[string]string{"type": "Value is null but should be object"}},
+				{InstanceLocation: "/gcp", Errors: map[string]string{"additionalProperties": "Additional properties 'project', 'zone' do not match the schema"}},
+				{InstanceLocation: "/gcp/project", Errors: map[string]string{"schema": "No values are allowed because the schema is set to 'false'"}},
+				{InstanceLocation: "/", Errors: map[string]string{"properties": "Property 'gcp' does not match the schema"}},
 			},
 		}
 
 		// When flattening
 		errs := flattenErrorList(list)
 
-		// Then nothing is suppressed
+		// Then the two /gcp violations survive and the identity fallout collapses into a note
+		if len(errs) != 3 {
+			t.Fatalf("Expected 3 errors, got %d: %v", len(errs), errs)
+		}
+		joined := strings.Join(errs, "\n")
+		if !strings.Contains(joined, "/gcp: additionalProperties:") || !strings.Contains(joined, "/gcp/project: schema:") {
+			t.Errorf("Expected both /gcp violations to survive, got %v", errs)
+		}
+		if !strings.Contains(joined, "3 other error(s) are hidden") {
+			t.Errorf("Expected a summary note about hidden errors, got %v", errs)
+		}
+	})
+
+	t.Run("ShowsAllErrorsWhenNoneAreSpecific", func(t *testing.T) {
+		// Given only cascade-prone failures — no concrete violation to point to instead
+		list := &jsonschema.List{
+			Details: []jsonschema.List{
+				{InstanceLocation: "/", Errors: map[string]string{"required": "Required property 'identity' is missing"}},
+				{InstanceLocation: "/identity", Errors: map[string]string{"type": "Value is null but should be object"}},
+			},
+		}
+
+		// When flattening
+		errs := flattenErrorList(list)
+
+		// Then nothing is suppressed — required/type are the only information available
 		if len(errs) != 2 {
 			t.Errorf("Expected 2 errors unchanged, got %d: %v", len(errs), errs)
 		}
 	})
 
 	t.Run("KeepsIndependentErrorsAlongsideAnInvalidPlatform", func(t *testing.T) {
-		// Given an invalid platform value, a cascade-prone required error, and a specific,
-		// self-contained pattern violation that holds regardless of platform
+		// Given an invalid platform value, a cascade-paired identity error, and an
+		// independent pattern violation
 		list := &jsonschema.List{
 			Details: []jsonschema.List{
 				{InstanceLocation: "/platform", Errors: map[string]string{"enum": "Value gcp should be one of the allowed values: none, aws, azure"}},
 				{InstanceLocation: "/", Errors: map[string]string{"required": "Required property 'identity' is missing"}},
+				{InstanceLocation: "/identity", Errors: map[string]string{"type": "Value is null but should be object"}},
 				{InstanceLocation: "/network/cidr_block", Errors: map[string]string{"pattern": "Value does not match the required pattern"}},
 			},
 		}
@@ -1075,7 +1104,7 @@ func TestFlattenErrorList(t *testing.T) {
 		errs := flattenErrorList(list)
 
 		// Then the platform error and the independent pattern error both survive, and only the
-		// cascade-prone required error is hidden
+		// cascade-paired identity required/type errors are hidden
 		if len(errs) != 3 {
 			t.Fatalf("Expected 3 errors, got %d: %v", len(errs), errs)
 		}
@@ -1086,8 +1115,27 @@ func TestFlattenErrorList(t *testing.T) {
 		if !strings.Contains(joined, "/network/cidr_block: pattern:") {
 			t.Errorf("Expected the independent pattern error to survive, got %v", errs)
 		}
-		if !strings.Contains(joined, "1 other error(s) are hidden") {
-			t.Errorf("Expected exactly one hidden error noted, got %v", errs)
+		if !strings.Contains(joined, "2 other error(s) are hidden") {
+			t.Errorf("Expected two hidden errors noted, got %v", errs)
+		}
+	})
+
+	t.Run("LeavesAnUnpairedRequiredErrorVisible", func(t *testing.T) {
+		// Given a plain required failure with no null-type companion, alongside an
+		// unrelated specific violation
+		list := &jsonschema.List{
+			Details: []jsonschema.List{
+				{InstanceLocation: "/", Errors: map[string]string{"required": "Required property 'provider' is missing"}},
+				{InstanceLocation: "/", Errors: map[string]string{"additionalProperties": "Additional property 'oidc' does not match the schema"}},
+			},
+		}
+
+		// When flattening
+		errs := flattenErrorList(list)
+
+		// Then both violations stay visible — nothing is hidden
+		if len(errs) != 2 {
+			t.Fatalf("Expected 2 errors, got %d: %v", len(errs), errs)
 		}
 	})
 

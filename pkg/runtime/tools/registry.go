@@ -87,6 +87,11 @@ var toolRegistry = map[string]toolInfo{
 		minVersion: constants.MinimumVersionAzure,
 		download:   "https://learn.microsoft.com/en-us/cli/azure/install-azure-cli",
 	},
+	"gcloud": {
+		name:       "Google Cloud CLI",
+		minVersion: constants.MinimumVersionGCP,
+		download:   "https://cloud.google.com/sdk/docs/install",
+	},
 }
 
 // =============================================================================

@@ -562,13 +562,9 @@ func TestInit_PlatformHetznerDefaultsBackendTypeToKubernetes(t *testing.T) {
 	}
 }
 
-// TestInit_UnmappedPlatformDoesNotDefaultBackendType confirms that platforms
-// outside the supported default mapping (currently gcp, pending GCS schema work)
-// leave terraform.backend.type unset in values.yaml — operators must configure
-// backend type explicitly. Out-of-band setups (operator-managed buckets,
-// alternative state stores) must continue to work without our defaults silently
-// overriding the user's choice.
-func TestInit_UnmappedPlatformDoesNotDefaultBackendType(t *testing.T) {
+// TestInit_PlatformGcpDefaultsBackendTypeToGcs confirms --platform gcp defaults
+// terraform.backend.type to "gcs", the canonical Cloud Storage state store on GCP.
+func TestInit_PlatformGcpDefaultsBackendTypeToGcs(t *testing.T) {
 	t.Parallel()
 	dir, env := helpers.CopyFixtureOnly(t, "plan")
 	helpers.MarkAsGitRepo(t, dir)
@@ -583,8 +579,8 @@ func TestInit_UnmappedPlatformDoesNotDefaultBackendType(t *testing.T) {
 		t.Fatalf("expected values.yaml at %s, got %v\nstdout: %s\nstderr: %s", valuesPath, readErr, stdout, stderr)
 	}
 	body := string(data)
-	if strings.Contains(body, "type: s3") || strings.Contains(body, "type: azurerm") || strings.Contains(body, "type: kubernetes") {
-		t.Errorf("expected no platform-default backend type for --platform gcp, got values.yaml:\n%s", body)
+	if !strings.Contains(body, "terraform:") || !strings.Contains(body, "type: gcs") {
+		t.Errorf("expected terraform.backend.type=gcs persisted for --platform gcp, got values.yaml:\n%s", body)
 	}
 }
 

@@ -56,9 +56,7 @@ func applyWorkstationFlagOverrides(overrides map[string]any, vmDriver, platform 
 //     cluster it manages. Hetzner joins this group because its Object Storage
 //     keys can't be provisioned via API, so in-cluster state avoids a manual
 //     key step)
-//
-// gcp is intentionally not defaulted today: GCS backend support requires a
-// GCSBackend schema struct and provider.go branches that don't yet exist.
+//   - gcp     → gcs       (Cloud Storage is the canonical state store on GCP)
 func defaultTerraformBackendType(overrides map[string]any) {
 	if _, set := overrides["terraform.backend.type"]; set {
 		return
@@ -68,6 +66,8 @@ func defaultTerraformBackendType(overrides map[string]any) {
 		overrides["terraform.backend.type"] = "s3"
 	case "azure":
 		overrides["terraform.backend.type"] = "azurerm"
+	case "gcp":
+		overrides["terraform.backend.type"] = "gcs"
 	case "metal", "docker", "incus", "hetzner", "hyperv", "vsphere":
 		overrides["terraform.backend.type"] = "kubernetes"
 	}
