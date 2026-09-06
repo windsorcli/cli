@@ -1,0 +1,5 @@
+kind: Blueprint
+apiVersion: blueprints.windsorcli.dev/v1alpha1
+metadata:
+  name: test-config-assertion
+  description: Exercises expect config assertions against the composed config scope
