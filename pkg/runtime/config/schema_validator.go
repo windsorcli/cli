@@ -467,23 +467,36 @@ func walkList(list *jsonschema.List, parent string, errs *[]validationError) {
 	}
 }
 
-// focusOnInvalidPlatform hides other errors when platform fails its enum check. An invalid
-// platform value matches no platform-conditional branch, so those branches also report
-// unrelated required and type errors.
+// cascadeProneKeywords are keywords a missed platform branch reports as fallout, not a real
+// violation.
+var cascadeProneKeywords = map[string]bool{
+	"required": true,
+	"type":     true,
+}
+
+// focusOnInvalidPlatform hides cascade-prone errors when platform fails its enum check. It
+// keeps specific violations, like a bad pattern, since those hold regardless of platform.
 func focusOnInvalidPlatform(errs []validationError) []validationError {
 	var platformErrs []validationError
+	var kept []validationError
+	hidden := 0
 	for _, e := range errs {
-		if e.keyword == "enum" && e.location == "/platform" {
+		switch {
+		case e.keyword == "enum" && e.location == "/platform":
 			platformErrs = append(platformErrs, e)
+		case cascadeProneKeywords[e.keyword] || structuralValidationKeywords[e.keyword]:
+			hidden++
+		default:
+			kept = append(kept, e)
 		}
 	}
-	if len(platformErrs) == 0 || len(platformErrs) == len(errs) {
+	if len(platformErrs) == 0 || hidden == 0 {
 		return errs
 	}
 
-	suppressed := len(errs) - len(platformErrs)
-	note := fmt.Sprintf("%d other error(s) are hidden because 'platform' is invalid. Fix 'platform' and run the command again.", suppressed)
-	return append(platformErrs, validationError{line: note})
+	note := fmt.Sprintf("%d other error(s) are hidden because 'platform' is invalid. Fix 'platform' and run the command again.", hidden)
+	result := append(platformErrs, kept...)
+	return append(result, validationError{line: note})
 }
 
 // joinInstanceLocation concatenates two JSON Pointer fragments, treating "" and "/" as the
