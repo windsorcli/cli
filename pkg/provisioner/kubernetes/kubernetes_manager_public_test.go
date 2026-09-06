@@ -732,6 +732,106 @@ func TestBaseKubernetesManager_DeleteKustomization(t *testing.T) {
 			t.Errorf("Expected wait window scaled by a later inventory read (>=100ms), got %s", elapsed)
 		}
 	})
+
+	t.Run("TimeoutWindowRespectsSpecTimeout", func(t *testing.T) {
+		// Given a kustomization whose own spec.timeout is larger than the base window
+		// (an operator-configured allowance for a slow-to-delete resource)
+		manager := setup(t)
+		manager.kustomizationReconcileTimeout = 20 * time.Millisecond
+		manager.kustomizationWaitPollInterval = 10 * time.Millisecond
+
+		kubernetesClient := client.NewMockKubernetesClient()
+		kubernetesClient.DeleteResourceFunc = func(gvr schema.GroupVersionResource, namespace, name string, opts metav1.DeleteOptions) error {
+			return nil
+		}
+		kubernetesClient.GetResourceFunc = func(gvr schema.GroupVersionResource, namespace, name string) (*unstructured.Unstructured, error) {
+			return &unstructured.Unstructured{Object: map[string]any{
+				"spec": map[string]any{"timeout": "150ms"},
+			}}, nil
+		}
+		manager.client = kubernetesClient
+
+		// When DeleteKustomization times out
+		start := manager.shims.TimeNow()
+		err := manager.DeleteKustomization("test-kustomization", "test-namespace")
+		elapsed := manager.shims.TimeNow().Sub(start)
+
+		// Then it waits out spec.timeout instead of aborting at the base window,
+		// and does not run away past it on every poll tick
+		if err == nil {
+			t.Fatal("Expected timeout error, got nil")
+		}
+		if elapsed < 150*time.Millisecond {
+			t.Errorf("Expected wait window raised to spec.timeout (>=150ms), got %s", elapsed)
+		}
+		if elapsed > 250*time.Millisecond {
+			t.Errorf("Expected wait window bounded near spec.timeout (<=250ms), got %s", elapsed)
+		}
+	})
+
+	t.Run("TimeoutWindowCapsSpecTimeoutAtCeiling", func(t *testing.T) {
+		// Given a spec.timeout far larger than the configured ceiling (a corrupted
+		// or absurd value, e.g. from a hand-edited blueprint)
+		manager := setup(t)
+		manager.kustomizationReconcileTimeout = 20 * time.Millisecond
+		manager.kustomizationWaitPollInterval = 10 * time.Millisecond
+		manager.kustomizationSpecTimeoutCeiling = 100 * time.Millisecond
+
+		kubernetesClient := client.NewMockKubernetesClient()
+		kubernetesClient.DeleteResourceFunc = func(gvr schema.GroupVersionResource, namespace, name string, opts metav1.DeleteOptions) error {
+			return nil
+		}
+		kubernetesClient.GetResourceFunc = func(gvr schema.GroupVersionResource, namespace, name string) (*unstructured.Unstructured, error) {
+			return &unstructured.Unstructured{Object: map[string]any{
+				"spec": map[string]any{"timeout": "876000h"},
+			}}, nil
+		}
+		manager.client = kubernetesClient
+
+		// When DeleteKustomization times out
+		start := manager.shims.TimeNow()
+		err := manager.DeleteKustomization("test-kustomization", "test-namespace")
+		elapsed := manager.shims.TimeNow().Sub(start)
+
+		// Then the wait is bounded by the ceiling, not the declared spec.timeout
+		if err == nil {
+			t.Fatal("Expected timeout error, got nil")
+		}
+		if elapsed < 100*time.Millisecond || elapsed > 250*time.Millisecond {
+			t.Errorf("Expected wait window capped near the ceiling (~100ms), got %s", elapsed)
+		}
+	})
+
+	t.Run("TimeoutIgnoresUnparseableSpecTimeout", func(t *testing.T) {
+		// Given a kustomization whose spec.timeout is present but malformed
+		manager := setup(t)
+		manager.kustomizationReconcileTimeout = 20 * time.Millisecond
+		manager.kustomizationWaitPollInterval = 10 * time.Millisecond
+
+		kubernetesClient := client.NewMockKubernetesClient()
+		kubernetesClient.DeleteResourceFunc = func(gvr schema.GroupVersionResource, namespace, name string, opts metav1.DeleteOptions) error {
+			return nil
+		}
+		kubernetesClient.GetResourceFunc = func(gvr schema.GroupVersionResource, namespace, name string) (*unstructured.Unstructured, error) {
+			return &unstructured.Unstructured{Object: map[string]any{
+				"spec": map[string]any{"timeout": "not-a-duration"},
+			}}, nil
+		}
+		manager.client = kubernetesClient
+
+		// When DeleteKustomization times out
+		start := manager.shims.TimeNow()
+		err := manager.DeleteKustomization("test-kustomization", "test-namespace")
+		elapsed := manager.shims.TimeNow().Sub(start)
+
+		// Then it falls back to the base window rather than erroring on the bad value
+		if err == nil {
+			t.Fatal("Expected timeout error, got nil")
+		}
+		if elapsed > 100*time.Millisecond {
+			t.Errorf("Expected base window (~20ms) when spec.timeout is unparseable, got %s", elapsed)
+		}
+	})
 }
 
 func TestBaseKubernetesManager_describeNotReadyKustomizations(t *testing.T) {

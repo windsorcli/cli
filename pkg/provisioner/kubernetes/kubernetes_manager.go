@@ -100,6 +100,7 @@ type BaseKubernetesManager struct {
 	kustomizationReconcileSleep          time.Duration
 	kustomizationDeletionPerEntryTimeout time.Duration
 	kustomizationDeletionMaxExtraTimeout time.Duration
+	kustomizationSpecTimeoutCeiling      time.Duration
 
 	notReadyDescribeBudget time.Duration
 
@@ -128,6 +129,7 @@ func NewKubernetesManager(kubernetesClient client.KubernetesClient, configHandle
 		kustomizationReconcileSleep:          2 * time.Second,
 		kustomizationDeletionPerEntryTimeout: 3 * time.Second,
 		kustomizationDeletionMaxExtraTimeout: 20 * time.Minute,
+		kustomizationSpecTimeoutCeiling:      2 * time.Hour,
 		notReadyDescribeBudget:               10 * time.Second,
 		healthCheckPollInterval:              10 * time.Second,
 		healthCheckSettleDuration:            30 * time.Second,
@@ -169,11 +171,15 @@ func (k *BaseKubernetesManager) ApplyKustomization(kustomization kustomizev1.Kus
 }
 
 // DeleteKustomization removes a Kustomization using background deletion and waits for
-// it to disappear, scaling the wait by inventory size for CRD-heavy layers. On timeout
-// it returns an error instead of stripping finalizers, which would orphan inventory
-// items and let terraform destroy the cluster while their cloud resources leak. The
-// error asserts a stuck finalizer only when a status condition confirms one; otherwise
-// it reports the timeout as unconfirmed.
+// it to disappear. The wait floor rises to the Kustomization's own spec.timeout when
+// it declares one larger than the default, capped at kustomizationSpecTimeoutCeiling.
+// A slow-to-delete resource (e.g. a Crossplane-managed database) often sets a long
+// install timeout; deletion deserves the same allowance. The wait also scales with
+// inventory size for CRD-heavy layers. On timeout it returns an error instead of
+// stripping finalizers, which would orphan inventory items and let terraform destroy
+// the cluster while their cloud resources leak. The error asserts a stuck finalizer
+// only when a status condition confirms one; otherwise it reports the timeout as
+// unconfirmed.
 func (k *BaseKubernetesManager) DeleteKustomization(name, namespace string) error {
 	gvr := schema.GroupVersionResource{
 		Group:    "kustomize.toolkit.fluxcd.io",
@@ -208,9 +214,10 @@ func (k *BaseKubernetesManager) DeleteKustomization(name, namespace string) erro
 		lastObj = obj
 
 		if size := inventorySize(obj); size > 0 {
-			if scaled := k.kustomizationDeletionTimeout(size); scaled > waitFor {
-				waitFor = scaled
-			}
+			waitFor = extendWaitFor(waitFor, k.kustomizationDeletionTimeout(size))
+		}
+		if specTO, ok := specTimeout(obj); ok {
+			waitFor = extendWaitFor(waitFor, min(specTO, k.kustomizationSpecTimeoutCeiling))
 		}
 
 		k.shims.TimeSleep(k.kustomizationWaitPollInterval)
@@ -237,6 +244,33 @@ func inventorySize(obj *unstructured.Unstructured) int {
 		return 0
 	}
 	return len(entries)
+}
+
+// specTimeout reads a Kustomization's own spec.timeout. Windsor writes this field from
+// the blueprint's Kustomization.Timeout at apply time; see ToFluxKustomization. It
+// returns false for a nil object or a missing or unparseable value.
+func specTimeout(obj *unstructured.Unstructured) (time.Duration, bool) {
+	if obj == nil {
+		return 0, false
+	}
+	value, found, err := unstructured.NestedString(obj.Object, "spec", "timeout")
+	if err != nil || !found {
+		return 0, false
+	}
+	d, err := time.ParseDuration(value)
+	if err != nil {
+		return 0, false
+	}
+	return d, true
+}
+
+// extendWaitFor raises waitFor to candidate when candidate is larger, otherwise
+// returns waitFor unchanged.
+func extendWaitFor(waitFor, candidate time.Duration) time.Duration {
+	if candidate > waitFor {
+		return candidate
+	}
+	return waitFor
 }
 
 // kustomizationDeletionTimeout scales DeleteKustomization's wait window by inventory
