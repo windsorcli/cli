@@ -3,12 +3,12 @@ title: Facets
 description: |
   Conditional blueprint fragments that compose into a base blueprint. A facet
   declares terraform components, kustomizations, configuration blocks, and
-  substitutions that are merged into the blueprint only when the facet's
-  'when' expression evaluates to true against the operator's configuration.
-  Facets live under contexts/_template/facets/ as one .yaml file per facet
-  and are composed in ordinal order (lower-priority first) within a single
-  blueprint. Across blueprints, a source composes before the blueprint that
-  references it; see the Composition order reference.
+  substitutions. Windsor merges these into the blueprint only when the
+  facet's 'when' expression evaluates to true against the operator's
+  configuration. Facets live under contexts/_template/facets/ as one .yaml
+  file per facet, and compose in ordinal order (lower-priority first) within
+  a single blueprint. Across blueprints, a source composes before the
+  blueprint that references it; see the Composition order reference.
 type: object
 required:
   - kind
@@ -43,13 +43,12 @@ properties:
     type: integer
     description: |
       Merge precedence relative to other facets in the same blueprint. Higher
-      ordinal wins on conflict (processed later). When unset, the loader
-      derives an ordinal from the file basename: 'config-*' = 100;
-      'provider-*' or 'platform-*' with '-base' in the name = 199; other
-      'provider-*' / 'platform-*' = 200; 'option-*' / 'options-*' = 300;
-      'addon-*' / 'addons-*' = 400; no match = 0. Ordinal does not cross a
-      source boundary: a blueprint's facets always compose after the facets
-      of the sources it references, whatever ordinal either side sets.
+      ordinal wins on conflict (processed later). Default by file-name prefix:
+      'config-*' 100, 'provider-*'/'platform-*' with '-base' 199, other
+      'provider-*'/'platform-*' 200, 'option-*'/'options-*' 300,
+      'addon-*'/'addons-*' 400, otherwise 0. Ordinal does not cross a source
+      boundary: a blueprint's facets always compose after the facets of the
+      sources it references, whatever ordinal either side sets.
   when:
     type: string
     description: |
@@ -79,15 +78,15 @@ properties:
       Input-requirement blocks for the facet as a whole. When the facet is
       active and a block's optional 'when' holds, every path in that block
       must resolve to a present, non-empty value in the merged scope.
-      Unsatisfied paths across every active facet are aggregated into a
-      single user-facing error.
+      Windsor aggregates unsatisfied paths across every active facet into
+      one user-facing error.
     items:
       $ref: '#/$defs/requirementBlock'
   terraform:
     type: array
     description: |
       Terraform components contributed by this facet. Each entry extends the
-      blueprint's TerraformComponent shape with conditional fields (when,
+      blueprint's TerraformComponent fields with conditional fields (when,
       strategy, ordinal, requires).
     items:
       $ref: '#/$defs/conditionalTerraformComponent'
@@ -95,9 +94,9 @@ properties:
     type: array
     description: |
       Kustomizations contributed by this facet. Each entry extends the
-      blueprint's Kustomization shape with conditional fields (when,
-      strategy, ordinal, requires). Deprecated alias of 'flux:'; both keys are
-      accepted and merge into the same list.
+      blueprint's Kustomization fields with conditional fields (when,
+      strategy, ordinal, requires). Deprecated alias of 'flux:'; both keys
+      are accepted and merge into the same list.
     items:
       $ref: '#/$defs/conditionalKustomization'
   flux:
@@ -265,7 +264,7 @@ $defs:
     type: object
     additionalProperties: true
     description: |
-      Inherits every field from the blueprint's TerraformComponent shape
+      Inherits every field from the blueprint's TerraformComponent schema
       (name, source, path, dependsOn, inputs, destroy, parallelism,
       enabled) and adds the conditional fields below. See the [Blueprint
       reference](blueprint.md) for the inherited fields.
@@ -301,7 +300,7 @@ $defs:
     type: object
     additionalProperties: true
     description: |
-      Inherits every field from the blueprint's Kustomization shape (name,
+      Inherits every field from the blueprint's Kustomization schema (name,
       path, source, namespace, targetNamespace, dependsOn, interval,
       retryInterval, timeout, patches, wait, force, prune, healthCheckExprs,
       healthChecks, components, destroy, destroyOnly, enabled, substitutions,

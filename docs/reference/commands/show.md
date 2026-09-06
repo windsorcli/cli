@@ -2,7 +2,6 @@
 title: "windsor show"
 description: "Display rendered resources."
 ---
-# windsor show
 
 ```sh
 windsor show

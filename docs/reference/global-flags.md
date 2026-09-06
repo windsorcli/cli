@@ -2,7 +2,6 @@
 title: "Global flags"
 description: "Persistent flags accepted by every windsor command."
 ---
-# Global flags
 
 These are persistent flags defined on the root command (`cmd/root.go`), not on any single
 subcommand — they're accepted by every `windsor` command but never appear on an individual

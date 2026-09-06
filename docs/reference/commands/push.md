@@ -2,7 +2,6 @@
 title: "windsor push"
 description: "Push the blueprint to an OCI registry."
 ---
-# windsor push
 
 ```sh
 windsor push <registry/repo[:tag]>

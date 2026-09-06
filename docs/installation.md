@@ -53,7 +53,7 @@ chmod +x /usr/local/bin/windsor
 windsor version
 ```
 
-**Shell hook (optional).** You don't need this to install blueprints or run `windsor bootstrap`, and `windsor exec -- <command>` runs any one-off command with the right environment. It's mainly for developing Terraform on top of a blueprint: add `eval "$(windsor hook bash)"` (or `zsh`) to your shell profile so your context's variables — `KUBECONFIG`, cloud profile, Talos config — stay current on every prompt. See [Environment injection](/contexts/environment-injection).
+**Shell hook (optional).** You don't need this to install blueprints or run `windsor bootstrap`. `windsor exec -- <command>` already runs any one-off command with the right environment. The hook is mainly for developing Terraform on top of a blueprint. Add `eval "$(windsor hook bash)"` (or `zsh`) to your shell profile to keep your context's variables (`KUBECONFIG`, cloud profile, Talos config) current on every prompt. See [Environment injection](/contexts/environment-injection).
 
 <!-- os:windows -->
 
@@ -91,7 +91,7 @@ if ($currentPath -notlike "*$installDir*") {
 windsor version
 ```
 
-**Shell hook (optional).** You don't need this to install blueprints or run `windsor bootstrap`, and `windsor exec -- <command>` runs any one-off command with the right environment. It's mainly for developing Terraform on top of a blueprint: add `Invoke-Expression (& windsor hook powershell)` to your PowerShell profile so your context's variables stay current on every prompt. See [Environment injection](/contexts/environment-injection).
+**Shell hook (optional).** You don't need this to install blueprints or run `windsor bootstrap`. `windsor exec -- <command>` already runs any one-off command with the right environment. The hook is mainly for developing Terraform on top of a blueprint. Add `Invoke-Expression (& windsor hook powershell)` to your PowerShell profile to keep your context's variables current on every prompt. See [Environment injection](/contexts/environment-injection).
 
 <!-- os:linux -->
 
@@ -125,4 +125,4 @@ sudo chmod +x /usr/local/bin/windsor
 windsor version
 ```
 
-**Shell hook (optional).** You don't need this to install blueprints or run `windsor bootstrap`, and `windsor exec -- <command>` runs any one-off command with the right environment. It's mainly for developing Terraform on top of a blueprint: add `eval "$(windsor hook bash)"` (or `zsh`) to your shell profile so your context's variables — `KUBECONFIG`, cloud profile, Talos config — stay current on every prompt. See [Environment injection](/contexts/environment-injection).
+**Shell hook (optional).** You don't need this to install blueprints or run `windsor bootstrap`. `windsor exec -- <command>` already runs any one-off command with the right environment. The hook is mainly for developing Terraform on top of a blueprint. Add `eval "$(windsor hook bash)"` (or `zsh`) to your shell profile to keep your context's variables (`KUBECONFIG`, cloud profile, Talos config) current on every prompt. See [Environment injection](/contexts/environment-injection).

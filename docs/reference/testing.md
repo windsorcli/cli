@@ -2,12 +2,11 @@
 title: "Testing"
 description: "Schema for windsor test files (*.test.yaml) consumed by 'windsor test'."
 ---
-# Testing
 
 Schema for windsor test files (*.test.yaml) consumed by 'windsor test'. Test
-files live under contexts/_template/tests/ and define cases that apply input
-values to configuration, compose the blueprint in isolation, and assert that
-specific terraform components and kustomizations are present (or absent).
+files live under contexts/_template/tests/. Each case applies input values to
+configuration, composes the blueprint in isolation, and asserts that specific
+terraform components and kustomizations are present or absent.
 
 ## Fields
 
@@ -124,5 +123,5 @@ cases:
 
 - [`windsor test`](commands/test.md)
 - [Blueprint reference](blueprint.md), [Facets reference](facets.md)
-- [Blueprint testing](https://www.windsorcli.dev/docs/blueprints/testing)
+- [Blueprint testing](https://www.windsorcli.dev/blueprints/testing)
 - Source schema: [pkg/runtime/config/schemas/artifacts/testing.yaml](https://github.com/windsorcli/cli/blob/main/pkg/runtime/config/schemas/artifacts/testing.yaml)

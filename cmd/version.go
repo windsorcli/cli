@@ -18,7 +18,7 @@ var versionCmd = &cobra.Command{
 	Short: "Print the CLI version, commit, build date, Go toolchain, and platform.",
 	Long: `Print five lines: the semver Version, the build's Commit SHA, the Build Date, the Go toolchain that built the binary, and the target Platform (GOOS/GOARCH).
 
-Snapshot builds emitted by goreleaser have ' (nightly build)' appended to the Version line so operators can tell at a glance that the binary is an unreleased main-branch build rather than a tagged release. Tagged releases use clean semver and are returned unchanged.`,
+Goreleaser appends ' (nightly build)' to the Version line for snapshot builds. This marks the binary as an unreleased main-branch build, not a tagged release. Tagged releases show clean semver, unchanged.`,
 	Example: `$ windsor version
 Version: 0.9.0
 Commit SHA: 4e0d9104

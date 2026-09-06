@@ -2,7 +2,6 @@
 title: "windsor init"
 description: "Scaffold or re-initialize a Windsor context."
 ---
-# windsor init
 
 ```sh
 windsor init [context] [flags]

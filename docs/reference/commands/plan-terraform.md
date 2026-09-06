@@ -2,7 +2,6 @@
 title: "windsor plan terraform"
 description: "Plan Terraform changes."
 ---
-# windsor plan terraform
 
 ```sh
 windsor plan terraform [component] [flags]

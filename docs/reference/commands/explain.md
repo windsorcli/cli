@@ -2,7 +2,6 @@
 title: "windsor explain"
 description: "Trace a blueprint value back to its sources."
 ---
-# windsor explain
 
 ```sh
 windsor explain <path>

@@ -2,7 +2,6 @@
 title: "windsor set context"
 description: "Switch the current context."
 ---
-# windsor set context
 
 ```sh
 windsor set context [context-name]

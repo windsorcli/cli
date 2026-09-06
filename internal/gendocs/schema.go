@@ -132,11 +132,12 @@ func writeSchemaFile(schemaPath, outPath, seealsoPath string) error {
 }
 
 // renderSchema produces the per-page markdown. Mirrors the structure used by
-// the cobra renderer (frontmatter → h1 → prose → tables → example → see also)
-// so the docs site presents schema and command pages consistently. examples
-// is the ordered (MapSlice) re-parse of the schema's examples array so each
-// example renders in author-defined field order; seealso is the raw markdown
-// body of the per-schema sidecar file (empty when absent).
+// the cobra renderer (frontmatter → prose → tables → example → see also) so
+// the docs site presents schema and command pages consistently. The page
+// title lives in frontmatter only; no body H1 repeats it. examples is the
+// ordered (MapSlice) re-parse of the schema's examples array so each example
+// renders in author-defined field order; seealso is the raw markdown body of
+// the per-schema sidecar file (empty when absent).
 func renderSchema(w io.Writer, schema map[string]any, examples []yaml.MapSlice, sourcePath, seealso string) error {
 	ew := &errWriter{w: w}
 
@@ -147,7 +148,7 @@ func renderSchema(w io.Writer, schema map[string]any, examples []yaml.MapSlice, 
 	intro, _ := schema["description"].(string)
 
 	writeSchemaFrontmatter(ew, title, summarize(intro))
-	fmt.Fprintf(ew, "# %s\n\n", title)
+	fmt.Fprintln(ew)
 	if intro != "" {
 		fmt.Fprintln(ew, strings.TrimSpace(intro))
 		fmt.Fprintln(ew)

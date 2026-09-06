@@ -2,8 +2,8 @@ $schema: https://json-schema.org/draft/2020-12/schema
 title: Metadata
 description: |
   Optional metadata.yaml file that ships alongside a blueprint at
-  contexts/_template/metadata.yaml. Used by 'windsor bundle' and 'windsor push'
-  to derive the artifact name and tag, and by the CLI to validate version
+  contexts/_template/metadata.yaml. 'windsor bundle' and 'windsor push' use it
+  to derive the artifact name and tag. The CLI also uses it to validate version
   compatibility before loading the blueprint.
 type: object
 required:
@@ -38,7 +38,7 @@ properties:
     description: |
       Semver constraint for the required CLI version. When set, the CLI validates
       that its current version satisfies this constraint before loading the
-      blueprint. Examples: '>=0.7.1', '~0.7.0', '>=0.7.0 <0.8.0'. If the constraint
+      blueprint. Examples: '>=0.9.0', '~0.9.0', '>=0.9.0 <0.10.0'. If the constraint
       is not satisfied, blueprint loading fails with an explanatory error.
 examples:
   - name: my-blueprint
@@ -50,4 +50,4 @@ examples:
       - kubernetes
     homepage: https://example.com/my-blueprint
     license: MIT
-    cliVersion: ">=0.7.1"
+    cliVersion: ">=0.9.0"

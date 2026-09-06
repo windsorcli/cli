@@ -2,7 +2,6 @@
 title: "windsor test"
 description: "Run blueprint composition tests."
 ---
-# windsor test
 
 ```sh
 windsor test [test-name]

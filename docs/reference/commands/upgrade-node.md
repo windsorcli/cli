@@ -2,7 +2,6 @@
 title: "windsor upgrade node"
 description: "Upgrade a single cluster node and wait for it to rejoin."
 ---
-# windsor upgrade node
 
 ```sh
 windsor upgrade node [flags]

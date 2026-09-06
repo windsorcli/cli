@@ -2,7 +2,6 @@
 title: "windsor build-id"
 description: "Print or generate a build ID."
 ---
-# windsor build-id
 
 ```sh
 windsor build-id [flags]

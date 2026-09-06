@@ -2,7 +2,6 @@
 title: "Contexts directory"
 description: "On-disk layout of contexts/ at the project root."
 ---
-# Contexts directory
 
 `contexts/` lives at the project root. It holds one subdirectory per
 context (`contexts/<name>/`) plus a shared `contexts/_template/`
@@ -51,7 +50,7 @@ contexts/
 | `terraform/<path>/` | Directory | Local Terraform modules referenced by blueprint components. |
 | `kustomize/<path>/` | Directory | Kustomization bases and patches referenced by blueprint kustomizations. |
 
-The same template is reused across every context. Per-context inputs
+Windsor reuses the same template across every context. Per-context inputs
 live under `contexts/<context-name>/`.
 
 ### Marking values sensitive
@@ -98,9 +97,9 @@ this is for custom facet/context schemas that need it.
 | `.vsphere/` | Directory | Terraform vSphere provider SOAP/REST session cache; `VSPHERE_VIM_SESSION_PATH` and `VSPHERE_REST_SESSION_PATH` point here with `VSPHERE_PERSIST_SESSION=true`, in project mode only. |
 
 Hidden subdirectories (`.aws/`, `.azure/`, `.gcp/`, `.kube/`,
-`.talos/`, `.omni/`, `.vsphere/`) keep CLI state scoped to the context so
-that tools invoked through the windsor shell never touch the operator's
-global config under `~/`.
+`.talos/`, `.omni/`, `.vsphere/`) keep CLI state scoped to the context.
+Tools invoked through the windsor shell never touch the operator's global
+config under `~/`.
 
 ## `.env` files
 

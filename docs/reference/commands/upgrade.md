@@ -2,7 +2,6 @@
 title: "windsor upgrade"
 description: "Move sources to their latest version and reconcile the blueprint."
 ---
-# windsor upgrade
 
 ```sh
 windsor upgrade [flags]

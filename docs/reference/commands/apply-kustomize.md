@@ -2,7 +2,6 @@
 title: "windsor apply kustomize"
 description: "Apply Flux kustomization(s) to the cluster."
 ---
-# windsor apply kustomize
 
 ```sh
 windsor apply kustomize [name] [flags]

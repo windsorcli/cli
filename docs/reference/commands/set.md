@@ -2,7 +2,6 @@
 title: "windsor set"
 description: "Set a Windsor resource."
 ---
-# windsor set
 
 ```sh
 windsor set

@@ -2,7 +2,6 @@
 title: "Configuration"
 description: "Operator-authored windsor.yaml schema."
 ---
-# Configuration
 
 Operator-authored windsor.yaml schema. Lives at the project root and
 declares the per-context settings every Windsor command reads. The system
@@ -77,7 +76,7 @@ system-managed and not covered here.
 | `enabled` | `boolean` | Whether the cluster integration is active for this context. |
 | `endpoint` | `string` | Kubernetes API endpoint URL. |
 | `image` | `string` | Default node image (typically a Talos image reference). |
-| `workers` | `object` | Worker node group settings. Same shape as controlplanes; see api/v1alpha1/cluster/cluster_config.go. |
+| `workers` | `object` | Worker node group settings. Same fields as controlplanes; see api/v1alpha1/cluster/cluster_config.go. |
 
 ### contexts{}.dns
 
@@ -173,7 +172,7 @@ system-managed and not covered here.
 | Field | Type | Description |
 |------|------|-------------|
 | `backend` | `object` | State backend configuration (type plus per-type fields). See api/v1alpha1/terraform/terraform_config.go for the full BackendConfig field set (s3, azurerm, kubernetes, local, oss). |
-| `enabled` | `boolean` | Whether terraform components are applied for this context. |
+| `enabled` | `boolean` | Whether windsor applies terraform components for this context. |
 | `lock` | `object` | State-lock policy. |
 
 #### contexts{}.terraform.lock
@@ -248,5 +247,5 @@ contexts:
 - [Contexts reference](contexts.md) — context layout, on-disk files, and lifecycle
 - [Blueprint reference](blueprint.md), [Facets reference](facets.md)
 - [`init`](commands/init.md), [`show values`](commands/show-values.md), [`get contexts`](commands/get-contexts.md)
-- [Lifecycle guide](https://www.windsorcli.dev/docs/cli/lifecycle), [Contexts guide](https://www.windsorcli.dev/docs/cli/contexts)
+- [Lifecycle guide](https://www.windsorcli.dev/contexts/lifecycle), [Contexts guide](https://www.windsorcli.dev/contexts/overview)
 - Source schema: [pkg/runtime/config/schemas/artifacts/configuration.yaml](https://github.com/windsorcli/cli/blob/main/pkg/runtime/config/schemas/artifacts/configuration.yaml)

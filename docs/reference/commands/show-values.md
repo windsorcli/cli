@@ -2,7 +2,6 @@
 title: "windsor show values"
 description: "Display the effective context values."
 ---
-# windsor show values
 
 ```sh
 windsor show values [flags]

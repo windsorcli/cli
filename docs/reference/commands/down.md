@@ -2,7 +2,6 @@
 title: "windsor down"
 description: "Stop the local workstation environment."
 ---
-# windsor down
 
 ```sh
 windsor down

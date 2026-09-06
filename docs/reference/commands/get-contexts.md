@@ -2,7 +2,6 @@
 title: "windsor get contexts"
 description: "List all available contexts."
 ---
-# windsor get contexts
 
 ```sh
 windsor get contexts

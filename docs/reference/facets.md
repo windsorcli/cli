@@ -2,16 +2,15 @@
 title: "Facets"
 description: "Conditional blueprint fragments that compose into a base blueprint."
 ---
-# Facets
 
 Conditional blueprint fragments that compose into a base blueprint. A facet
 declares terraform components, kustomizations, configuration blocks, and
-substitutions that are merged into the blueprint only when the facet's
-'when' expression evaluates to true against the operator's configuration.
-Facets live under contexts/_template/facets/ as one .yaml file per facet
-and are composed in ordinal order (lower-priority first) within a single
-blueprint. Across blueprints, a source composes before the blueprint that
-references it; see the Composition order reference.
+substitutions. Windsor merges these into the blueprint only when the
+facet's 'when' expression evaluates to true against the operator's
+configuration. Facets live under contexts/_template/facets/ as one .yaml
+file per facet, and compose in ordinal order (lower-priority first) within
+a single blueprint. Across blueprints, a source composes before the
+blueprint that references it; see the Composition order reference.
 
 ## Fields
 
@@ -24,12 +23,12 @@ references it; see the Composition order reference.
 | `config` | `array<object>` | Named configuration blocks exposed at scope root. Terraform inputs and kustomize substitutions reference '<name>' (scalar/list values) or '<name>.<key>' (map values), e.g. 'talos.controlplanes'. |
 | `crds` | `array<string>` | References into the vendored CRD catalog, version-pinned (e.g. 'cert-manager-1.16.2'). The composer collects these across all enabled facets and dedups them; a facet's CRDs install from the source that carries it — the blueprint's own (default/project) crds: list, or that source's crds when it comes from an install:true OCI source. The provisioner installs each ahead of the kustomize layer, so every kustomization sees its CRDs Established without a facet author naming a CRD in dependsOn. Entries may use '${...}' expressions that resolve against the facet scope and prune to empty — e.g. "${gateway.driver == 'envoy' ? 'envoy-gateway-1.7.1' : ''}" — so one facet can select different CRDs per driver. Each resolved reference must be a single path segment; values containing '/', '\', or '..' are rejected at composition time because they would escape the crds/ catalog directory. |
 | `flux` | `array<object>` | System entries contributed by this facet — functional layers that each compile to an install Kustomization plus resources-variant Kustomizations. Distinct from 'kustomize:' (1:1 passthrough). See the flux: shape in the [Blueprint reference](blueprint.md): name (required), path, source, enabled, destroy, when, dependsOn, strategy, ordinal, install, resources, secrets. 'secrets' maps <secret-name> to a data map of <key>: <value>, where each value is an expression resolved at apply time — a ${...} reference to any config property, a secret() call, or an env("NAME") lookup (nil when unset, so it composes with ??, e.g. `${hetzner.token ?? env("HETZNER_TOKEN")}`) — not a plaintext literal. Each entry is materialized as a Kubernetes Secret with those data keys in the system's namespace, typed Opaque by default. Two data-key conventions synthesize a kubernetes.io/dockerconfigjson Secret instead, for use as an imagePullSecret: a '.dockerconfigjson' key is materialized as-is, or 'docker-username' plus 'docker-password' (with an optional 'docker-server', defaulting to 'ghcr.io') are combined into a '.dockerconfigjson' entry and dropped from the Secret's data. |
-| `kustomize` | `array<object>` | Kustomizations contributed by this facet. Each entry extends the blueprint's Kustomization shape with conditional fields (when, strategy, ordinal, requires). Deprecated alias of 'flux:'; both keys are accepted and merge into the same list. |
+| `kustomize` | `array<object>` | Kustomizations contributed by this facet. Each entry extends the blueprint's Kustomization fields with conditional fields (when, strategy, ordinal, requires). Deprecated alias of 'flux:'; both keys are accepted and merge into the same list. |
 | `messages` | `array<object>` | Operator-facing notes rendered at the end of a bootstrap/apply run. Unlike a requires: message (failure path, pre-flight, verbatim), a post-run message is on the success path, rendered after apply, and interpolated against composed scope — so its text can carry run values (e.g. terraform_output). |
-| `ordinal` | `integer` | Merge precedence relative to other facets in the same blueprint. Higher ordinal wins on conflict (processed later). When unset, the loader derives an ordinal from the file basename: 'config-*' = 100; 'provider-*' or 'platform-*' with '-base' in the name = 199; other 'provider-*' / 'platform-*' = 200; 'option-*' / 'options-*' = 300; 'addon-*' / 'addons-*' = 400; no match = 0. Ordinal does not cross a source boundary: a blueprint's facets always compose after the facets of the sources it references, whatever ordinal either side sets. |
-| `requires` | `array<object>` | Input-requirement blocks for the facet as a whole. When the facet is active and a block's optional 'when' holds, every path in that block must resolve to a present, non-empty value in the merged scope. Unsatisfied paths across every active facet are aggregated into a single user-facing error. |
+| `ordinal` | `integer` | Merge precedence relative to other facets in the same blueprint. Higher ordinal wins on conflict (processed later). Default by file-name prefix: 'config-*' 100, 'provider-*'/'platform-*' with '-base' 199, other 'provider-*'/'platform-*' 200, 'option-*'/'options-*' 300, 'addon-*'/'addons-*' 400, otherwise 0. Ordinal does not cross a source boundary: a blueprint's facets always compose after the facets of the sources it references, whatever ordinal either side sets. |
+| `requires` | `array<object>` | Input-requirement blocks for the facet as a whole. When the facet is active and a block's optional 'when' holds, every path in that block must resolve to a present, non-empty value in the merged scope. Windsor aggregates unsatisfied paths across every active facet into one user-facing error. |
 | `substitutions` | `map<string>` | Top-level key/value pairs evaluated with facet scope and injected into 'values-common', making them available to every kustomization via PostBuild substitution. Values may use expression syntax (e.g. '${dns.domain}') resolved against active facet config blocks. |
-| `terraform` | `array<object>` | Terraform components contributed by this facet. Each entry extends the blueprint's TerraformComponent shape with conditional fields (when, strategy, ordinal, requires). |
+| `terraform` | `array<object>` | Terraform components contributed by this facet. Each entry extends the blueprint's TerraformComponent fields with conditional fields (when, strategy, ordinal, requires). |
 | `when` | `string` | Expression that gates the facet. Evaluated against merged configuration values; the facet is applied only when the expression yields true. Examples: "platform == 'aws'", "observability.enabled == true && observability.backend == 'quickwit'". Empty 'when' means the facet always applies. |
 
 ## metadata
@@ -155,5 +154,5 @@ kustomize:
 - [Blueprint reference](blueprint.md) — for the inherited TerraformComponent and Kustomization fields
 - [Composition order](composition-order.md) — how ordinal and source depth decide what composes first
 - [`apply`](commands/apply.md), [`up`](commands/up.md), [`explain`](commands/explain.md)
-- [Lifecycle guide](https://www.windsorcli.dev/docs/cli/lifecycle)
+- [Lifecycle guide](https://www.windsorcli.dev/contexts/lifecycle)
 - Source schema: [pkg/runtime/config/schemas/artifacts/facets.yaml](https://github.com/windsorcli/cli/blob/main/pkg/runtime/config/schemas/artifacts/facets.yaml)

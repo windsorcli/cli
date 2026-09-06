@@ -1,10 +1,10 @@
 $schema: https://json-schema.org/draft/2020-12/schema
 title: Blueprint
 description: |
-  Top-level blueprint definition. Lives at contexts/<context>/blueprint.yaml and
-  declares the Terraform components and Flux kustomizations that windsor will
-  apply for that context, plus the sources those components come from and the
-  variable substitutions shared across them.
+  Top-level blueprint definition. Lives at contexts/<context>/blueprint.yaml.
+  It declares the Terraform components and Flux kustomizations windsor applies
+  for that context, the sources they draw from, and the variable substitutions
+  shared across them.
 type: object
 required:
   - kind
@@ -47,11 +47,11 @@ properties:
       rest of the graph.
   repository:
     description: |
-      Source repository this blueprint was bootstrapped from. Reconciled on a
-      short, continuously-polled interval (unlike sources[], which are
-      presumed pinned vendor dependencies): this is expected to be a live,
-      actively-pushed branch, and changes can land here without any windsor
-      command running.
+      Repository that 'windsor bootstrap' used to create this blueprint.
+      Windsor reconciles it on a short, continuously-polled interval, unlike
+      'sources[]', which holds pinned vendor dependencies. This is expected
+      to be a live, actively-pushed branch: changes can land here without
+      any windsor command running.
     type: object
     additionalProperties: false
     properties:
@@ -228,9 +228,9 @@ properties:
           type: array
           description: |
             Strategic-merge or Flux-style patches applied to the kustomization.
-            Each entry is either a 'path:' to a patch file relative to the
-            kustomization, or a 'patch:' inline YAML body with an optional
-            'target:' selector (kind / name / namespace).
+            Each entry takes one of two forms: a 'path:' to a patch file
+            relative to the kustomization, or a 'patch:' inline YAML body with
+            an optional 'target:' selector (kind / name / namespace).
           items:
             type: object
             additionalProperties: false
@@ -818,7 +818,7 @@ examples:
       description: Local workstation blueprint
     sources:
       - name: core
-        url: oci://ghcr.io/windsorcli/core:v0.3.0
+        url: oci://ghcr.io/windsorcli/core:v0.8.0
       - name: modules
         url: github.com/org/terraform-modules
         ref:

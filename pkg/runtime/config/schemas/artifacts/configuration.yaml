@@ -345,7 +345,7 @@ $defs:
     properties:
       enabled:
         type: boolean
-        description: Whether terraform components are applied for this context.
+        description: Whether windsor applies terraform components for this context.
       backend:
         type: object
         additionalProperties: true
@@ -433,7 +433,7 @@ $defs:
         type: object
         additionalProperties: true
         description: |
-          Worker node group settings. Same shape as controlplanes; see
+          Worker node group settings. Same fields as controlplanes; see
           api/v1alpha1/cluster/cluster_config.go.
   network:
     type: object

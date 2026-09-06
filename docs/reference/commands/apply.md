@@ -2,7 +2,6 @@
 title: "windsor apply"
 description: "Apply terraform and install the blueprint."
 ---
-# windsor apply
 
 ```sh
 windsor apply [flags]

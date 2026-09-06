@@ -51,7 +51,7 @@ func (e *errWriter) Write(p []byte) (int, error) {
 func renderCommand(w io.Writer, cmd *cobra.Command) error {
 	ew := &errWriter{w: w}
 	writeFrontmatter(ew, cmd)
-	fmt.Fprintf(ew, "# %s\n\n", cmd.CommandPath())
+	fmt.Fprintln(ew)
 	writeSynopsis(ew, cmd)
 	writeLong(ew, cmd)
 	writeFlagsTable(ew, cmd)

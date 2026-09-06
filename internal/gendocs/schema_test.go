@@ -308,7 +308,6 @@ func TestRenderSchema(t *testing.T) {
 		// Then the output contains every expected section in order
 		for _, want := range []string{
 			`title: "Metadata"`,
-			"# Metadata\n",
 			"## Fields\n",
 			"| `name` | `string` | Blueprint name. **(required)** |",
 			"| `version` | `string` | Blueprint version. |",
@@ -323,6 +322,11 @@ func TestRenderSchema(t *testing.T) {
 			if !strings.Contains(out, want) {
 				t.Errorf("expected output to contain %q", want)
 			}
+		}
+
+		// And no body h1 duplicates the frontmatter title
+		if strings.Contains(out, "# Metadata\n") {
+			t.Error("output has a body h1 duplicating the frontmatter title")
 		}
 	})
 

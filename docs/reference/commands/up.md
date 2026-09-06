@@ -2,7 +2,6 @@
 title: "windsor up"
 description: "Bring up the local workstation environment."
 ---
-# windsor up
 
 ```sh
 windsor up [flags]

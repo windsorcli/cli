@@ -2,7 +2,6 @@
 title: "windsor install"
 description: "Install the blueprint's Flux kustomizations."
 ---
-# windsor install
 
 ```sh
 windsor install [flags]

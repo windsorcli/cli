@@ -2,7 +2,6 @@
 title: "windsor destroy terraform"
 description: "Destroy Terraform component(s)."
 ---
-# windsor destroy terraform
 
 ```sh
 windsor destroy terraform [component]
