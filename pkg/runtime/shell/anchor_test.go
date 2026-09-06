@@ -36,7 +36,8 @@ func TestEnsureProjectAnchor(t *testing.T) {
 		tmpDir := setup(t)
 
 		// When EnsureProjectAnchor is called
-		if err := EnsureProjectAnchor(); err != nil {
+		resolved, err := EnsureProjectAnchor()
+		if err != nil {
 			t.Fatalf("Expected no error, got %v", err)
 		}
 
@@ -47,6 +48,9 @@ func TestEnsureProjectAnchor(t *testing.T) {
 		}
 		if !strings.Contains(string(data), "version: v1alpha1") {
 			t.Errorf("Expected minimal v1alpha1 root config, got: %s", string(data))
+		}
+		if resolved != tmpDir {
+			t.Errorf("Expected resolved dir %s, got %s", tmpDir, resolved)
 		}
 	})
 
@@ -59,7 +63,8 @@ func TestEnsureProjectAnchor(t *testing.T) {
 		}
 
 		// When EnsureProjectAnchor is called
-		if err := EnsureProjectAnchor(); err != nil {
+		resolved, err := EnsureProjectAnchor()
+		if err != nil {
 			t.Fatalf("Expected no error, got %v", err)
 		}
 
@@ -70,6 +75,9 @@ func TestEnsureProjectAnchor(t *testing.T) {
 		}
 		if string(data) != string(existing) {
 			t.Errorf("Expected existing windsor.yaml preserved, got: %s", string(data))
+		}
+		if resolved != tmpDir {
+			t.Errorf("Expected resolved dir %s, got %s", tmpDir, resolved)
 		}
 	})
 
@@ -88,13 +96,17 @@ func TestEnsureProjectAnchor(t *testing.T) {
 		}
 
 		// When EnsureProjectAnchor is called
-		if err := EnsureProjectAnchor(); err != nil {
+		resolved, err := EnsureProjectAnchor()
+		if err != nil {
 			t.Fatalf("Expected no error, got %v", err)
 		}
 
-		// Then no windsor.yaml should be created in the subdir
+		// Then no windsor.yaml should be created in the subdir, and the parent is reported
 		if _, err := os.Stat(filepath.Join(subDir, "windsor.yaml")); err == nil {
 			t.Error("Expected no windsor.yaml in subdir (parent already has one)")
+		}
+		if resolved != tmpDir {
+			t.Errorf("Expected resolved dir %s, got %s", tmpDir, resolved)
 		}
 	})
 }

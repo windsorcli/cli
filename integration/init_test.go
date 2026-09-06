@@ -365,7 +365,8 @@ func TestInit_RejectsNonGitDirectory(t *testing.T) {
 
 // TestInit_NoAnchorWhenProjectExistsInParent verifies that running
 // `windsor init` in a subdirectory of an existing project reuses the parent's
-// windsor.yaml instead of creating a stray one in the subdirectory.
+// windsor.yaml instead of creating a stray one in the subdirectory, and that
+// it discloses the resolved parent root rather than resolving silently.
 func TestInit_NoAnchorWhenProjectExistsInParent(t *testing.T) {
 	t.Parallel()
 	dir, env := helpers.CopyFixtureOnly(t, "default")
@@ -382,6 +383,15 @@ func TestInit_NoAnchorWhenProjectExistsInParent(t *testing.T) {
 
 	if _, err := os.Stat(filepath.Join(subDir, "windsor.yaml")); err == nil {
 		t.Error("expected no windsor.yaml in subdir because parent already has one")
+	}
+
+	resolvedDir, err := filepath.EvalSymlinks(dir)
+	if err != nil {
+		t.Fatalf("resolve dir symlinks: %v", err)
+	}
+	wantNotice := "Windsor uses the existing project at " + resolvedDir
+	if !strings.Contains(string(stderr), wantNotice) {
+		t.Errorf("expected stderr to contain %q, got: %s", wantNotice, stderr)
 	}
 }
 
