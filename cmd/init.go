@@ -70,8 +70,12 @@ windsor init staging --platform=aws --aws-profile=staging`,
 			if err := shell.EnsureGitRepository(); err != nil {
 				return err
 			}
-			if err := shell.EnsureProjectAnchor(); err != nil {
+			anchorDir, err := shell.EnsureProjectAnchor()
+			if err != nil {
 				return fmt.Errorf("failed to initialize project: %w", err)
+			}
+			if cwd, err := os.Getwd(); err == nil && anchorDir != cwd {
+				fmt.Fprintf(os.Stderr, "Windsor uses the existing project at %s.\n", anchorDir)
 			}
 		}
 

@@ -49,18 +49,20 @@ func EnsureGitRepository() error {
 // anchors `windsor init` to the cwd so subsequent runtime resolution does not
 // fall back to global mode and silently operate against $HOME/.config/windsor.
 // If a project file already exists at or above the cwd, this is a no-op.
-func EnsureProjectAnchor() error {
+// Returns the directory holding the project file: cwd when this call created
+// it, or the ancestor directory when one already existed there.
+func EnsureProjectAnchor() (string, error) {
 	cwd, err := os.Getwd()
 	if err != nil {
-		return fmt.Errorf("failed to get working directory: %w", err)
+		return "", fmt.Errorf("failed to get working directory: %w", err)
 	}
 	dir := cwd
 	for i := 0; i <= MaxFolderSearchDepth; i++ {
 		if _, err := os.Stat(filepath.Join(dir, "windsor.yaml")); err == nil {
-			return nil
+			return dir, nil
 		}
 		if _, err := os.Stat(filepath.Join(dir, "windsor.yml")); err == nil {
-			return nil
+			return dir, nil
 		}
 		parent := filepath.Dir(dir)
 		if parent == dir {
@@ -68,7 +70,8 @@ func EnsureProjectAnchor() error {
 		}
 		dir = parent
 	}
-	// windsor.yaml is user-readable project config, 0644 matches the project
-	// convention used by typed_source.EnsureRoot.
-	return os.WriteFile(filepath.Join(cwd, "windsor.yaml"), []byte("version: v1alpha1\n"), 0644) // #nosec G306
+	if err := os.WriteFile(filepath.Join(cwd, "windsor.yaml"), []byte("version: v1alpha1\n"), 0644); err != nil { // #nosec G306
+		return "", err
+	}
+	return cwd, nil
 }
