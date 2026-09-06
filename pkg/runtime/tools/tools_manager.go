@@ -523,6 +523,11 @@ func (t *BaseToolsManager) CheckAuth() error {
 			return err
 		}
 	}
+	if t.gcpEnabled() {
+		if err := t.checkGCPAuth(); err != nil {
+			return err
+		}
+	}
 	return nil
 }
 
@@ -901,6 +906,123 @@ func (t *BaseToolsManager) azureAuthHint() string {
 // azureEnvPointsAtContext reports whether AZURE_CONFIG_DIR already resolves to configDir.
 func azureEnvPointsAtContext(configDir string) bool {
 	cd := os.Getenv("AZURE_CONFIG_DIR")
+	if cd == "" {
+		return false
+	}
+	return filepath.ToSlash(cd) == filepath.ToSlash(configDir)
+}
+
+// gcpEnabled reports whether the current context exercises GCP.
+func (t *BaseToolsManager) gcpEnabled() bool {
+	platform := t.configHandler.GetString("platform")
+	if platform == "" {
+		platform = t.configHandler.GetString("provider")
+	}
+	if platform == "gcp" {
+		return true
+	}
+	cfg := t.configHandler.GetConfig()
+	return cfg != nil && cfg.GCP != nil
+}
+
+// checkGCPAuth verifies the gcloud CLI is present at the minimum version and that
+// Application Default Credentials resolve. Probes `gcloud auth application-default
+// print-access-token` — a live token mint, not a cached-account listing — so a revoked
+// or expired credential is caught here rather than at terraform apply time. When ambient
+// SDK credentials are present and gcloud is absent, defers to terraform's own SDK rather
+// than failing preflight.
+func (t *BaseToolsManager) checkGCPAuth() error {
+	if hasAmbientGCPCredentials() {
+		if _, err := execLookPath("gcloud"); err != nil {
+			return nil
+		}
+	}
+	if err := t.checkGCPBinary(); err != nil {
+		return err
+	}
+	env, err := t.gcpContextEnv()
+	if err != nil {
+		return fmt.Errorf("cannot resolve context-scoped GCP env for credential check: %w", err)
+	}
+	if _, err := t.shell.ExecSilentWithEnvAndTimeout("gcloud", env, []string{"auth", "application-default", "print-access-token"}, 10*time.Second); err != nil {
+		return fmt.Errorf("%s", t.gcpAuthHint())
+	}
+	return nil
+}
+
+// gcpContextEnv returns env vars pointing the gcloud CLI at the context's config dir.
+// In project mode CLOUDSDK_CONFIG points at the context's .gcp/gcloud/ so credentials stay
+// scoped to the context; returns nil in global mode (defer to ~/.config/gcloud) or when
+// ambient credentials are present (don't mask the native chain).
+func (t *BaseToolsManager) gcpContextEnv() (map[string]string, error) {
+	if hasAmbientGCPCredentials() {
+		return nil, nil
+	}
+	if t.shell.IsGlobal() {
+		return nil, nil
+	}
+	configRoot, err := t.configHandler.GetConfigRoot()
+	if err != nil {
+		return nil, err
+	}
+	gcloudConfigDir := filepath.Join(configRoot, ".gcp", "gcloud")
+	return map[string]string{
+		"CLOUDSDK_CONFIG": filepath.ToSlash(gcloudConfigDir),
+	}, nil
+}
+
+// hasAmbientGCPCredentials reports whether the parent env already carries GCP Application
+// Default Credentials (a service account key or Workload Identity Federation config file).
+// Workload Identity via the metadata server has no env signal and is intentionally not
+// detected here — those runners fall through to the gcloud CLI check.
+func hasAmbientGCPCredentials() bool {
+	return os.Getenv("GOOGLE_APPLICATION_CREDENTIALS") != ""
+}
+
+// checkGCPBinary verifies the gcloud CLI is available in PATH and meets the minimum version.
+func (t *BaseToolsManager) checkGCPBinary() error {
+	if _, err := execLookPath("gcloud"); err != nil {
+		return missingToolError("gcloud")
+	}
+
+	out, err := t.shell.ExecSilentWithTimeout("gcloud", []string{"--version"}, 10*time.Second)
+	if err != nil {
+		return fmt.Errorf("gcloud --version failed: %v", err)
+	}
+	version := extractVersion(out)
+	if version == "" {
+		return fmt.Errorf("failed to extract gcloud CLI version")
+	}
+	if compareVersion(version, constants.MinimumVersionGCP) < 0 {
+		return outdatedToolError("gcloud", version)
+	}
+
+	return nil
+}
+
+// gcpAuthHint returns the recovery command for a GCP auth failure: `gcloud auth
+// application-default login`, prefixed with CLOUDSDK_CONFIG in project mode when the
+// current env doesn't already point at the context dir.
+func (t *BaseToolsManager) gcpAuthHint() string {
+	if t.shell.IsGlobal() {
+		return "GCP application-default credentials have likely expired or are not initialized. Run:\n  gcloud auth application-default login"
+	}
+	configRoot, err := t.configHandler.GetConfigRoot()
+	if err != nil || configRoot == "" {
+		return "GCP application-default credentials have likely expired or are not initialized. Run:\n  gcloud auth application-default login"
+	}
+	gcloudConfigDir := filepath.Join(configRoot, ".gcp", "gcloud")
+	prefix := ""
+	if !gcpEnvPointsAtContext(gcloudConfigDir) {
+		prefix = fmt.Sprintf("CLOUDSDK_CONFIG=%q ", filepath.ToSlash(gcloudConfigDir))
+	}
+	return fmt.Sprintf("GCP application-default credentials for context %q have likely expired or are not initialized. Run:\n  %sgcloud auth application-default login",
+		t.configHandler.GetContext(), prefix)
+}
+
+// gcpEnvPointsAtContext reports whether CLOUDSDK_CONFIG already resolves to configDir.
+func gcpEnvPointsAtContext(configDir string) bool {
+	cd := os.Getenv("CLOUDSDK_CONFIG")
 	if cd == "" {
 		return false
 	}

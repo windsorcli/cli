@@ -251,19 +251,17 @@ func TestDefaultTerraformBackendType(t *testing.T) {
 		}
 	})
 
-	t.Run("UnmappedPlatformDoesNotDefaultBackendType", func(t *testing.T) {
-		// Given platform=gcp (not yet wired up — GCSBackend schema is missing)
-		// the default switch must not invent a value. Operators on gcp are
-		// expected to configure terraform.backend.type explicitly until the
-		// schema lands.
+	t.Run("GcpPlatformDefaultsBackendToGcs", func(t *testing.T) {
+		// Given platform=gcp and no explicit terraform.backend.type override
 		overrides := map[string]any{"platform": "gcp"}
 
 		// When the default is applied
 		defaultTerraformBackendType(overrides)
 
-		// Then no backend default is injected
-		if _, set := overrides["terraform.backend.type"]; set {
-			t.Errorf("Expected no backend default for unmapped platform, got %v", overrides["terraform.backend.type"])
+		// Then terraform.backend.type defaults to "gcs" since Cloud Storage is the
+		// canonical state store on GCP.
+		if overrides["terraform.backend.type"] != "gcs" {
+			t.Errorf("Expected terraform.backend.type=gcs, got %v", overrides["terraform.backend.type"])
 		}
 	})
 }

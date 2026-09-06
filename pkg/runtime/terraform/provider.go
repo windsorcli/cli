@@ -201,7 +201,7 @@ func (p *terraformProvider) IsInTerraformProject() bool {
 // based on the configured backend type. This file is used to override Terraform backend configuration
 // at runtime without modifying the original Terraform files. If the backend type is 'none', it removes
 // the override file if it exists. Otherwise, it writes a backend_override.tf file with the appropriate
-// backend stanza for local, s3, kubernetes, or azurerm backends. Returns an error for unsupported backend types.
+// backend stanza for local, s3, kubernetes, azurerm, or gcs backends. Returns an error for unsupported backend types.
 func (p *terraformProvider) GenerateBackendOverride(directory string) error {
 	backend := p.configHandler.GetString("terraform.backend.type", "local")
 
@@ -230,6 +230,10 @@ func (p *terraformProvider) GenerateBackendOverride(directory string) error {
 	case "azurerm":
 		backendConfig = `terraform {
   backend "azurerm" {}
+}`
+	case "gcs":
+		backendConfig = `terraform {
+  backend "gcs" {}
 }`
 	default:
 		return fmt.Errorf("unsupported backend: %s", backend)
@@ -713,8 +717,8 @@ func (p *terraformProvider) GetStatePath(componentID string) (string, error) {
 //
 // Default for unrecognized backend types is true: the predicate's job is to
 // catch the well-understood first-time-bootstrap case for the backends
-// Windsor knows about. For anything else (gcs, http, consul, remote, cos),
-// we don't know what's required — let the probe run and surface real init
+// Windsor knows about. For anything else (http, consul, remote, cos), we
+// don't know what's required — let the probe run and surface real init
 // failures via the warning path rather than silently disable detection.
 func (p *terraformProvider) BackendConfigComplete() bool {
 	backendType := p.configHandler.GetString("terraform.backend.type", "local")
@@ -748,6 +752,9 @@ func (p *terraformProvider) BackendConfigComplete() bool {
 	case "s3":
 		return cfg != nil && cfg.Backend != nil && cfg.Backend.S3 != nil &&
 			cfg.Backend.S3.Bucket != nil
+	case "gcs":
+		return cfg != nil && cfg.Backend != nil && cfg.Backend.GCS != nil &&
+			cfg.Backend.GCS.Bucket != nil
 	}
 
 	return true
@@ -1185,6 +1192,15 @@ func (p *terraformProvider) generateBackendConfigArgs(projectPath, configRoot st
 		if backend := p.configHandler.GetConfig().Terraform.Backend.AzureRM; backend != nil {
 			if err := p.processBackendConfig(backend, addBackendConfigArg); err != nil {
 				return nil, fmt.Errorf("error processing AzureRM backend config: %w", err)
+			}
+		}
+	case "gcs":
+		appendBackendTfvars()
+		prefixPath := fmt.Sprintf("%s%s", prefix, filepath.ToSlash(projectPath))
+		addBackendConfigArg("prefix", prefixPath)
+		if backend := p.configHandler.GetConfig().Terraform.Backend.GCS; backend != nil {
+			if err := p.processBackendConfig(backend, addBackendConfigArg); err != nil {
+				return nil, fmt.Errorf("error processing GCS backend config: %w", err)
 			}
 		}
 	default:

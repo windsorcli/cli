@@ -20,6 +20,7 @@ type BackendConfig struct {
 	Kubernetes *KubernetesBackend `yaml:"kubernetes,omitempty"`
 	Local      *LocalBackend      `yaml:"local,omitempty"`
 	AzureRM    *AzureRMBackend    `yaml:"azurerm,omitempty"`
+	GCS        *GCSBackend        `yaml:"gcs,omitempty"`
 	Prefix     *string            `yaml:"prefix,omitempty"`
 }
 
@@ -28,7 +29,7 @@ type S3Backend struct {
 	Bucket                         *string   `yaml:"bucket,omitempty"`
 	Key                            *string   `yaml:"key,omitempty"`
 	Region                         *string   `yaml:"region,omitempty"`
-	AccessKey                      *string   `yaml:"access_key,omitempty"`    // #nosec G117 - legitimate credential field for terraform backend
+	AccessKey                      *string   `yaml:"access_key,omitempty"` // #nosec G117 - legitimate credential field for terraform backend
 	SecretKey                      *string   `yaml:"secret_key,omitempty"`
 	SessionToken                   *string   `yaml:"session_token,omitempty"` // #nosec G117 - legitimate credential field for terraform backend
 	RoleArn                        *string   `yaml:"role_arn,omitempty"`
@@ -72,10 +73,10 @@ type KubernetesBackend struct {
 	InClusterConfig       *bool              `yaml:"in_cluster_config,omitempty"`
 	Host                  *string            `yaml:"host,omitempty"`
 	Username              *string            `yaml:"username,omitempty"`
-	Password              *string            `yaml:"password,omitempty"`          // #nosec G117 - legitimate credential field for terraform backend
+	Password              *string            `yaml:"password,omitempty"` // #nosec G117 - legitimate credential field for terraform backend
 	Insecure              *bool              `yaml:"insecure,omitempty"`
 	ClientCertificate     *string            `yaml:"client_certificate,omitempty"`
-	ClientKey             *string            `yaml:"client_key,omitempty"`        // #nosec G117 - legitimate credential field for terraform backend
+	ClientKey             *string            `yaml:"client_key,omitempty"` // #nosec G117 - legitimate credential field for terraform backend
 	ClusterCACertificate  *string            `yaml:"cluster_ca_certificate,omitempty"`
 	ConfigPath            *string            `yaml:"config_path,omitempty"`
 	ConfigPaths           *[]string          `yaml:"config_paths,omitempty"`
@@ -131,6 +132,19 @@ type AzureRMBackend struct {
 	OidcRequestToken               *string `yaml:"oidc_request_token,omitempty"`
 	OidcToken                      *string `yaml:"oidc_token,omitempty"`
 	OidcTokenFilePath              *string `yaml:"oidc_token_file_path,omitempty"`
+}
+
+// https://developer.hashicorp.com/terraform/language/backend/gcs#configuration
+type GCSBackend struct {
+	Bucket                             *string   `yaml:"bucket,omitempty"`
+	Prefix                             *string   `yaml:"prefix,omitempty"`
+	Credentials                        *string   `yaml:"credentials,omitempty"`  // #nosec G117 - legitimate credential field for terraform backend
+	AccessToken                        *string   `yaml:"access_token,omitempty"` // #nosec G117 - legitimate credential field for terraform backend
+	ImpersonateServiceAccount          *string   `yaml:"impersonate_service_account,omitempty"`
+	ImpersonateServiceAccountDelegates *[]string `yaml:"impersonate_service_account_delegates,omitempty"`
+	EncryptionKey                      *string   `yaml:"encryption_key,omitempty"` // #nosec G117 - legitimate credential field for terraform backend
+	KmsEncryptionKey                   *string   `yaml:"kms_encryption_key,omitempty"`
+	StorageCustomEndpoint              *string   `yaml:"storage_custom_endpoint,omitempty"`
 }
 
 // Merge performs a simple merge of the current TerraformConfig with another TerraformConfig.

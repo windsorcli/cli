@@ -556,6 +556,23 @@ func TestTerraformProvider_GenerateBackendOverride(t *testing.T) {
 		}
 	})
 
+	t.Run("CreatesGcsBackendOverride", func(t *testing.T) {
+		// Given a provider with gcs backend type
+		mocks := setupMocks(t, &SetupOptions{BackendType: "gcs"})
+
+		mocks.Provider.Shims.WriteFile = func(path string, data []byte, perm os.FileMode) error {
+			return nil
+		}
+
+		// When generating backend override
+		err := mocks.Provider.GenerateBackendOverride("/test/dir")
+
+		// Then it should succeed
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+	})
+
 	t.Run("RemovesBackendOverrideForNone", func(t *testing.T) {
 		// Given a provider with none backend type
 		mocks := setupMocks(t, &SetupOptions{BackendType: "none"})
@@ -2659,14 +2676,14 @@ func TestTerraformProvider_BackendConfigComplete(t *testing.T) {
 	t.Run("UnrecognizedBackendDefaultsToComplete", func(t *testing.T) {
 		// Regression: the trailing default previously returned false, which
 		// permanently disabled the probe for any backend Windsor doesn't
-		// special-case (gcs, http, consul, remote, cos, ...). Default-allow
-		// lets the probe run; real init failures surface via the warning path.
-		mocks := setupMocks(t, &SetupOptions{BackendType: "gcs"})
+		// special-case (http, consul, remote, cos, ...). Default-allow lets
+		// the probe run; real init failures surface via the warning path.
+		mocks := setupMocks(t, &SetupOptions{BackendType: "http"})
 		mocks.ConfigHandler.GetConfigFunc = func() *blueprintv1alpha1.Context {
 			return &blueprintv1alpha1.Context{}
 		}
 		if !mocks.Provider.BackendConfigComplete() {
-			t.Error("Expected unrecognized backend type 'gcs' to default to complete")
+			t.Error("Expected unrecognized backend type 'http' to default to complete")
 		}
 	})
 
@@ -2732,6 +2749,30 @@ func TestTerraformProvider_BackendConfigComplete(t *testing.T) {
 		}
 		if !mocks.Provider.BackendConfigComplete() {
 			t.Error("Expected s3 with bucket to be complete")
+		}
+	})
+
+	t.Run("GCSRequiresBucket", func(t *testing.T) {
+		mocks := setupMocks(t, &SetupOptions{BackendType: "gcs"})
+
+		mocks.ConfigHandler.GetConfigFunc = func() *blueprintv1alpha1.Context {
+			return &blueprintv1alpha1.Context{
+				Terraform: &terraformcfg.TerraformConfig{Backend: &terraformcfg.BackendConfig{}},
+			}
+		}
+		if mocks.Provider.BackendConfigComplete() {
+			t.Error("Expected gcs with no nested config to be incomplete")
+		}
+
+		mocks.ConfigHandler.GetConfigFunc = func() *blueprintv1alpha1.Context {
+			return &blueprintv1alpha1.Context{
+				Terraform: &terraformcfg.TerraformConfig{Backend: &terraformcfg.BackendConfig{
+					GCS: &terraformcfg.GCSBackend{Bucket: stringPtr("b")},
+				}},
+			}
+		}
+		if !mocks.Provider.BackendConfigComplete() {
+			t.Error("Expected gcs with bucket to be complete")
 		}
 	})
 }

@@ -71,10 +71,10 @@ $defs:
           drives backend type inference. When --platform/--vm-driver on
           init/up/bootstrap set the platform and terraform.backend.type is
           otherwise unset, the backend defaults per platform: aws -> s3;
-          azure -> azurerm; metal, docker, incus, hetzner, hyperv, vsphere ->
-          kubernetes (the cluster stores its own components' state as
-          Secrets; hetzner defaults here too because its Object Storage keys
-          can't be provisioned via API). gcp has no default yet. An explicit
+          azure -> azurerm; gcp -> gcs; metal, docker, incus, hetzner,
+          hyperv, vsphere -> kubernetes (the cluster stores its own
+          components' state as Secrets; hetzner defaults here too because
+          its Object Storage keys can't be provisioned via API). An explicit
           --set terraform.backend.type=... always wins.
       provider:
         type: string
