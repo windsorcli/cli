@@ -18,6 +18,7 @@ type MockBlueprintHandler struct {
 	GenerateResolvedFunc       func() (*blueprintv1alpha1.Blueprint, error)
 	ExplainFunc                func(string) (*ExplainTrace, error)
 	GetDeferredPathsFunc       func() map[string]bool
+	GetConfigScopeFunc         func() map[string]any
 	skipValidation             bool
 }
 
@@ -134,6 +135,14 @@ func (m *MockBlueprintHandler) Explain(path string) (*ExplainTrace, error) {
 func (m *MockBlueprintHandler) GetDeferredPaths() map[string]bool {
 	if m.GetDeferredPathsFunc != nil {
 		return m.GetDeferredPathsFunc()
+	}
+	return nil
+}
+
+// GetConfigScope calls the mock GetConfigScopeFunc if set, otherwise returns nil.
+func (m *MockBlueprintHandler) GetConfigScope() map[string]any {
+	if m.GetConfigScopeFunc != nil {
+		return m.GetConfigScopeFunc()
 	}
 	return nil
 }

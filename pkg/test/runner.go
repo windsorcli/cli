@@ -265,6 +265,7 @@ func (r *TestRunner) createGenerator(terraformOutputs map[string]map[string]any,
 		if bp == nil {
 			return nil, fmt.Errorf("failed to generate blueprint")
 		}
+		bp.Config = testBlueprintHandler.GetConfigScope()
 
 		if err := validateTerraformOutputReferences(bp, referencedComponents, &referencedMu); err != nil {
 			return nil, err
@@ -480,11 +481,13 @@ func (r *TestRunner) runTestCase(tc blueprintv1alpha1.TestCase) (TestResult, err
 // matchBlueprint compares the actual composed blueprint against expected blueprint structure and returns
 // a list of differences. It uses partial matching semantics: only fields explicitly specified in the expect
 // blueprint are validated, allowing tests to focus on specific aspects without asserting the entire structure.
-// The function validates Terraform components, Kustomizations, and the crds: layer, checking for presence
-// and matching properties. For each expected component, it searches the actual blueprint, reports missing
-// components, and compares specified properties (source, path, dependsOn, etc.); each expect.crds entry must
-// appear in the blueprint's crds: list. Returns an empty slice if all expectations are met, or a list of
-// descriptive difference messages if mismatches are found.
+// The function validates Terraform components, Kustomizations, the crds: layer, and the config: scope,
+// checking for presence and matching properties. For each expected component, it searches the actual
+// blueprint, reports missing components, and compares specified properties (source, path, dependsOn, etc.);
+// each expect.crds entry must appear in the blueprint's crds: list. Each expect.config entry is matched by
+// top-level block name against bp.Config using subset semantics (see deepEqualInputsValue), so a nested
+// path like config: cluster: controlplanes: cpu: 7 checks only the keys named. Returns an empty slice if
+// all expectations are met, or a list of descriptive difference messages if mismatches are found.
 func (r *TestRunner) matchBlueprint(bp *blueprintv1alpha1.Blueprint, expect *blueprintv1alpha1.Blueprint) []string {
 	var diffs []string
 
@@ -535,6 +538,17 @@ func (r *TestRunner) matchBlueprint(bp *blueprintv1alpha1.Blueprint, expect *blu
 		}
 	}
 
+	for name, expectedValue := range expect.Config {
+		actualValue, exists := bp.Config[name]
+		if !exists {
+			diffs = append(diffs, fmt.Sprintf("config[%s]: key not found", name))
+			continue
+		}
+		if !deepEqualInputsValue(expectedValue, actualValue) {
+			diffs = append(diffs, fmt.Sprintf("config[%s]: expected %v, got %v", name, expectedValue, actualValue))
+		}
+	}
+
 	return diffs
 }
 
@@ -545,9 +559,11 @@ func (r *TestRunner) matchBlueprint(bp *blueprintv1alpha1.Blueprint, expect *blu
 // name for Kustomizations. A Kustomization exclusion that also sets components: doesn't assert the
 // whole entry is absent — the containing kustomization is expected to exist, so this asserts only
 // that those specific components are absent from it (see matchComponentExclusion); a
-// bare name: with no components: keeps whole-entry-absence semantics. If any excluded component is
-// found in the blueprint, a descriptive error message is added to the differences list. Returns an
-// empty slice if all exclusions are satisfied.
+// bare name: with no components: keeps whole-entry-absence semantics. Each exclude.config entry is
+// matched by top-level block name against bp.Config using the same subset semantics matchBlueprint
+// uses for expect.config; a match is a violation, a missing key or a non-matching value is not. If
+// any excluded component or config value is found in the blueprint, a descriptive error message is
+// added to the differences list. Returns an empty slice if all exclusions are satisfied.
 func (r *TestRunner) matchExclusions(bp *blueprintv1alpha1.Blueprint, exclude *blueprintv1alpha1.Blueprint) []string {
 	var diffs []string
 
@@ -593,6 +609,16 @@ func (r *TestRunner) matchExclusions(bp *blueprintv1alpha1.Blueprint, exclude *b
 	for _, ref := range exclude.Crds {
 		if blueprintInstallsCrd(bp, ref) {
 			diffs = append(diffs, fmt.Sprintf("crd reference should not exist: %s", ref))
+		}
+	}
+
+	for name, excludeValue := range exclude.Config {
+		actualValue, exists := bp.Config[name]
+		if !exists {
+			continue
+		}
+		if deepEqualInputsValue(excludeValue, actualValue) {
+			diffs = append(diffs, fmt.Sprintf("config[%s] should not match: %v", name, excludeValue))
 		}
 	}
 

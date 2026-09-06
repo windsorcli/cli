@@ -1,0 +1,12 @@
+kind: Facet
+apiVersion: blueprints.windsorcli.dev/v1alpha1
+metadata:
+  name: cluster
+  description: contributes a config block for cluster sizing, gated on cluster.enabled
+
+config:
+  - name: cluster
+    when: (cluster.enabled ?? false)
+    value:
+      controlplanes:
+        cpu: 7

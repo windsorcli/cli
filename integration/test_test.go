@@ -101,3 +101,38 @@ func TestWindsorTest_FluxSystemTiersFixture(t *testing.T) {
 		t.Errorf("expected PASS or ✓ in output: %s", out)
 	}
 }
+
+// TestWindsorTest_ConfigAssertionFixture exercises expect.config against the composed config
+// scope: the cluster facet's config block fires when cluster.enabled is true, resolving
+// controlplanes.cpu to 7 as the case expects.
+func TestWindsorTest_ConfigAssertionFixture(t *testing.T) {
+	t.Parallel()
+	dir, env := helpers.PrepareFixture(t, "test-config-assertion")
+	env = append(env, "WINDSOR_CONTEXT=test")
+	stdout, stderr, err := helpers.RunCLI(dir, []string{"test", "config_matches_when_enabled"}, env)
+	if err != nil {
+		t.Fatalf("windsor test: %v\nstdout: %s\nstderr: %s", err, stdout, stderr)
+	}
+	out := string(stdout) + string(stderr)
+	if !strings.Contains(out, "PASS") && !strings.Contains(out, "✓") {
+		t.Errorf("expected PASS or ✓ in output: %s", out)
+	}
+}
+
+// TestWindsorTest_ConfigAssertionRegressionFixture exercises the bug report's reproduction:
+// the cluster facet's config block is gated off (cluster.enabled is false), so
+// config.cluster never resolves. The case still declares expect.config.cluster.controlplanes.cpu:
+// 7 — before the fix this passed unconditionally; it must now fail windsor test.
+func TestWindsorTest_ConfigAssertionRegressionFixture(t *testing.T) {
+	t.Parallel()
+	dir, env := helpers.PrepareFixture(t, "test-config-assertion")
+	env = append(env, "WINDSOR_CONTEXT=test")
+	stdout, stderr, err := helpers.RunCLI(dir, []string{"test", "config_mismatch_when_disabled"}, env)
+	if err == nil {
+		t.Fatalf("expected windsor test to fail, but it succeeded\nstdout: %s\nstderr: %s", stdout, stderr)
+	}
+	out := string(stdout) + string(stderr)
+	if !strings.Contains(out, "config[cluster]") {
+		t.Errorf("expected diff to name config[cluster], got: %s", out)
+	}
+}

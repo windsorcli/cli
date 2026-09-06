@@ -30,6 +30,7 @@ type BlueprintHandler interface {
 	GenerateResolved() (*blueprintv1alpha1.Blueprint, error)
 	Explain(path string) (*ExplainTrace, error)
 	GetDeferredPaths() map[string]bool
+	GetConfigScope() map[string]any
 }
 
 // =============================================================================
@@ -435,6 +436,13 @@ func (h *BaseBlueprintHandler) GetDeferredPaths() map[string]bool {
 		out[k] = v
 	}
 	return out
+}
+
+// GetConfigScope returns the composed config scope: facet config: block names mapped to their
+// fully evaluated values, merged with context values. Populated by LoadBlueprint(); nil before
+// the first successful load.
+func (h *BaseBlueprintHandler) GetConfigScope() map[string]any {
+	return h.composedScope
 }
 
 // =============================================================================

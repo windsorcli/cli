@@ -772,6 +772,48 @@ terraform:
 		}
 	})
 
+	t.Run("ReturnsFailedResultWhenExpectConfigDisagreesWithComposedValue", func(t *testing.T) {
+		// Given a facet whose config: block is gated by when:, mirroring the reported bug: an
+		// expect: config: assertion must fail once the contributing facet stops firing, not
+		// silently keep passing against a stale expectation
+		mocks := setupTestRunnerMocks(t)
+		templateDir := filepath.Join(mocks.TmpDir, "contexts", "_template")
+		facetsDir := filepath.Join(templateDir, "facets")
+		createTestFile(t, facetsDir, "cluster.yaml", `kind: Facet
+apiVersion: blueprints.windsorcli.dev/v1alpha1
+metadata:
+  name: cluster
+config:
+  - name: cluster
+    when: (cluster.enabled ?? false)
+    value:
+      controlplanes:
+        cpu: 7
+`)
+		runner := createRunnerWithMockGenerator(mocks)
+
+		tc := blueprintv1alpha1.TestCase{
+			Name:   "config-expectation",
+			Values: map[string]any{"cluster": map[string]any{"enabled": false}},
+			Expect: &blueprintv1alpha1.Blueprint{
+				Config: map[string]any{
+					"cluster": map[string]any{"controlplanes": map[string]any{"cpu": 7}},
+				},
+			},
+		}
+
+		// When running the test case with the facet's when: forced false
+		result, err := runner.runTestCase(tc)
+
+		// Then the test fails because the config block never resolved
+		if err != nil {
+			t.Errorf("Expected no error, got: %v", err)
+		}
+		if result.Passed {
+			t.Error("Expected test to fail when the expected config block did not resolve")
+		}
+	})
+
 	t.Run("ReturnsPassedResultWhenErrorExpectedAndOccurs", func(t *testing.T) {
 		// Given a test case expecting an error and composition fails
 		// Set up a test runner without a blueprint.yaml so composition will fail
@@ -1260,6 +1302,80 @@ func TestTestRunner_matchBlueprint(t *testing.T) {
 			t.Errorf("Expected variant-not-found diff, got: %v", diffs)
 		}
 	})
+
+	t.Run("ReturnsNoDiffsWhenConfigMatches", func(t *testing.T) {
+		// Given a composed blueprint carrying a resolved config scope
+		mocks := setupTestRunnerMocks(t)
+		runner := createRunnerWithMockGenerator(mocks)
+
+		blueprint := &blueprintv1alpha1.Blueprint{
+			Config: map[string]any{
+				"cluster": map[string]any{"controlplanes": map[string]any{"cpu": 7}},
+			},
+		}
+
+		// When the expectation asserts a nested subset of the config scope
+		expect := &blueprintv1alpha1.Blueprint{
+			Config: map[string]any{
+				"cluster": map[string]any{"controlplanes": map[string]any{"cpu": 7}},
+			},
+		}
+		diffs := runner.matchBlueprint(blueprint, expect)
+
+		// Then no diffs are returned
+		if len(diffs) != 0 {
+			t.Errorf("Expected no diffs, got: %v", diffs)
+		}
+	})
+
+	t.Run("ReturnsDiffWhenConfigValueMismatches", func(t *testing.T) {
+		// Given a composed blueprint whose config scope disagrees with the expectation
+		mocks := setupTestRunnerMocks(t)
+		runner := createRunnerWithMockGenerator(mocks)
+
+		blueprint := &blueprintv1alpha1.Blueprint{
+			Config: map[string]any{
+				"cluster": map[string]any{"controlplanes": map[string]any{"cpu": 4}},
+			},
+		}
+
+		expect := &blueprintv1alpha1.Blueprint{
+			Config: map[string]any{
+				"cluster": map[string]any{"controlplanes": map[string]any{"cpu": 7}},
+			},
+		}
+
+		// When matching the blueprint
+		diffs := runner.matchBlueprint(blueprint, expect)
+
+		// Then a single diff reports the mismatched config value
+		if len(diffs) != 1 || !strings.Contains(diffs[0], "config[cluster]:") {
+			t.Errorf("Expected a config mismatch diff, got: %v", diffs)
+		}
+	})
+
+	t.Run("ReturnsDiffWhenConfigBlockNotFound", func(t *testing.T) {
+		// Given a composed blueprint that never resolved the expected config block, e.g. because
+		// the contributing facet's when: evaluated to false
+		mocks := setupTestRunnerMocks(t)
+		runner := createRunnerWithMockGenerator(mocks)
+
+		blueprint := &blueprintv1alpha1.Blueprint{}
+
+		expect := &blueprintv1alpha1.Blueprint{
+			Config: map[string]any{
+				"cluster": map[string]any{"controlplanes": map[string]any{"cpu": 7}},
+			},
+		}
+
+		// When matching the blueprint
+		diffs := runner.matchBlueprint(blueprint, expect)
+
+		// Then a diff reports the missing config block
+		if len(diffs) != 1 || !strings.Contains(diffs[0], "config[cluster]: key not found") {
+			t.Errorf("Expected a config-not-found diff, got: %v", diffs)
+		}
+	})
 }
 
 func TestTestRunner_matchExclusions(t *testing.T) {
@@ -1739,6 +1855,59 @@ func TestTestRunner_matchExclusions(t *testing.T) {
 		}
 		if len(diffs) == 1 && strings.Contains(diffs[0], "variant should not exist") {
 			t.Errorf("Expected a narrowed diff, not whole-variant-absence, got: %v", diffs)
+		}
+	})
+
+	t.Run("ReportsExcludedConfigValuePresent", func(t *testing.T) {
+		// Given a composed blueprint whose config scope still carries the excluded value, e.g.
+		// because the contributing facet's when: was not actually forced off
+		mocks := setupTestRunnerMocks(t)
+		runner := createRunnerWithMockGenerator(mocks)
+
+		blueprint := &blueprintv1alpha1.Blueprint{
+			Config: map[string]any{
+				"cluster": map[string]any{"controlplanes": map[string]any{"cpu": 7}},
+			},
+		}
+
+		exclude := &blueprintv1alpha1.Blueprint{
+			Config: map[string]any{
+				"cluster": map[string]any{"controlplanes": map[string]any{"cpu": 7}},
+			},
+		}
+
+		// When matching exclusions
+		diffs := runner.matchExclusions(blueprint, exclude)
+
+		// Then a diff reports the config value should not match
+		if len(diffs) != 1 || !strings.Contains(diffs[0], "config[cluster] should not match:") {
+			t.Errorf("Expected a config exclusion diff, got: %v", diffs)
+		}
+	})
+
+	t.Run("ReturnsNoDiffsWhenExcludedConfigValueAbsent", func(t *testing.T) {
+		// Given a composed blueprint whose config scope no longer matches the excluded value
+		mocks := setupTestRunnerMocks(t)
+		runner := createRunnerWithMockGenerator(mocks)
+
+		blueprint := &blueprintv1alpha1.Blueprint{
+			Config: map[string]any{
+				"cluster": map[string]any{"controlplanes": map[string]any{"cpu": 4}},
+			},
+		}
+
+		exclude := &blueprintv1alpha1.Blueprint{
+			Config: map[string]any{
+				"cluster": map[string]any{"controlplanes": map[string]any{"cpu": 7}},
+			},
+		}
+
+		// When matching exclusions
+		diffs := runner.matchExclusions(blueprint, exclude)
+
+		// Then no diffs are returned
+		if len(diffs) != 0 {
+			t.Errorf("Expected no diffs, got: %v", diffs)
 		}
 	})
 }
@@ -3366,6 +3535,44 @@ terraform:
 		// Then composition succeeds: dns-zone is in the composition and its output resolves
 		if err != nil {
 			t.Fatalf("Expected no error when component is registered, got: %v", err)
+		}
+	})
+
+	t.Run("PopulatesBlueprintConfigFromFacetConfigBlock", func(t *testing.T) {
+		// Given a facet contributing a config: block
+		mocks := setupTestRunnerMocks(t)
+		templateDir := filepath.Join(mocks.TmpDir, "contexts", "_template")
+		facetsDir := filepath.Join(templateDir, "facets")
+		createTestFile(t, facetsDir, "cluster.yaml", `kind: Facet
+apiVersion: blueprints.windsorcli.dev/v1alpha1
+metadata:
+  name: cluster
+config:
+  - name: cluster
+    value:
+      controlplanes:
+        cpu: 7
+`)
+		runner := createRunnerWithMockGenerator(mocks)
+		generator := runner.createGenerator(nil, nil, false)
+
+		// When the generator composes the blueprint
+		bp, err := generator(map[string]any{})
+		if err != nil {
+			t.Fatalf("Expected no error, got: %v", err)
+		}
+
+		// Then the composed blueprint's Config carries the facet's resolved config block
+		cluster, ok := bp.Config["cluster"].(map[string]any)
+		if !ok {
+			t.Fatalf("Expected bp.Config[\"cluster\"] to be a map, got: %#v", bp.Config["cluster"])
+		}
+		controlplanes, ok := cluster["controlplanes"].(map[string]any)
+		if !ok {
+			t.Fatalf("Expected controlplanes to be a map, got: %#v", cluster["controlplanes"])
+		}
+		if fmt.Sprint(controlplanes["cpu"]) != "7" {
+			t.Errorf("Expected cpu=7, got: %v", controlplanes["cpu"])
 		}
 	})
 

@@ -1,0 +1,28 @@
+# Cases exercising expect: config: assertions against the composed config scope. These
+# assertions used to be silently inert no-ops regardless of what the facet actually resolved.
+
+cases:
+
+  # cluster.enabled is true: the cluster facet's config block fires and controlplanes.cpu
+  # resolves to 7, matching the expectation.
+  - name: config_matches_when_enabled
+    values:
+      cluster:
+        enabled: true
+    expect:
+      config:
+        cluster:
+          controlplanes:
+            cpu: 7
+
+  # cluster.enabled is false: the cluster facet's config block is gated off, so config.cluster
+  # never resolves. The same expectation must now fail rather than silently pass.
+  - name: config_mismatch_when_disabled
+    values:
+      cluster:
+        enabled: false
+    expect:
+      config:
+        cluster:
+          controlplanes:
+            cpu: 7

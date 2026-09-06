@@ -2587,6 +2587,25 @@ func TestBlueprint_DeepCopy(t *testing.T) {
 			t.Errorf("Expected copy.Backend=\"cluster\", got %q", copy.Backend)
 		}
 	})
+
+	t.Run("DeepCopiesConfigIndependently", func(t *testing.T) {
+		// Given a blueprint with a nested config scope
+		blueprint := &Blueprint{
+			Config: map[string]any{
+				"cluster": map[string]any{"controlplanes": map[string]any{"cpu": 7}},
+			},
+		}
+
+		// When deep-copied and the original is mutated
+		copy := blueprint.DeepCopy()
+		blueprint.Config["cluster"].(map[string]any)["controlplanes"].(map[string]any)["cpu"] = 99
+
+		// Then the copy keeps its own value, unaffected by the mutation
+		copiedCPU := copy.Config["cluster"].(map[string]any)["controlplanes"].(map[string]any)["cpu"]
+		if copiedCPU != 7 {
+			t.Errorf("Expected copy.Config cpu=7, got %v", copiedCPU)
+		}
+	})
 }
 
 // Helper function to check if slice contains a value

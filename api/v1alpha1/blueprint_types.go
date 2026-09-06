@@ -418,6 +418,11 @@ type Blueprint struct {
 	// text/when templates through composition; GenerateResolved evaluates each against composed
 	// scope, keeping only the when-true entries with interpolated text for the command to print.
 	Messages []Message `yaml:"messages,omitempty"`
+
+	// Config is the composed config scope: facet config: block names mapped to their fully
+	// evaluated values. TestRunner populates this field so a test case's expect:/exclude: can
+	// assert on it; production composition and windsor show leave it unset.
+	Config map[string]any `yaml:"config,omitempty"`
 }
 
 // CrdKustomizationName returns the name of the kustomization the provisioner synthesizes for a CRD
@@ -910,6 +915,7 @@ func (b *Blueprint) DeepCopy() *Blueprint {
 		Substitutions:       maps.Clone(b.Substitutions),
 		ConfigMaps:          configMapsCopy,
 		Messages:            slices.Clone(b.Messages),
+		Config:              deepCopyMapStringAny(b.Config),
 	}
 }
 
