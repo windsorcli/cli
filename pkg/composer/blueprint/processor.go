@@ -3,6 +3,7 @@ package blueprint
 import (
 	"fmt"
 	"maps"
+	"math"
 	"reflect"
 	"slices"
 	"sort"
@@ -209,6 +210,8 @@ func facetProvides(facet blueprintv1alpha1.Facet) []string {
 // An active facet contributes its config blocks (not its components) even while its requires are unmet, so
 // facets with mutually dependent config and requires resolve across rounds; a facet still unsatisfied when the
 // loop settles fails composition, so a permanently-blocked facet never leaks config into a successful blueprint.
+// An operator's own explicit value wins over a facet's computed value for the same key. This
+// matches the guarantee ProcessGlobally provides.
 func (p *BaseBlueprintProcessor) ProcessFacets(target *blueprintv1alpha1.Blueprint, facets []blueprintv1alpha1.Facet, sourceName ...string) (map[string]any, error) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -233,7 +236,11 @@ func (p *BaseBlueprintProcessor) ProcessFacets(target *blueprintv1alpha1.Bluepri
 		return sortedFacets[i].Metadata.Name < sortedFacets[j].Metadata.Name
 	})
 
-	globalScope, scope, includedFacets, err := p.resolveConfigAndInclusion(sortedFacets, contextScope, nil)
+	var operatorOverlay map[string]any
+	if p.runtime != nil && p.runtime.ConfigHandler != nil {
+		operatorOverlay = p.runtime.ConfigHandler.GetSetValues()
+	}
+	globalScope, scope, includedFacets, err := p.resolveConfigAndInclusion(sortedFacets, contextScope, operatorOverlay)
 	if err != nil {
 		return nil, err
 	}
@@ -272,7 +279,8 @@ type SourceFacetSet struct {
 // each source's included components into its own target blueprint. Facets are ranked by a
 // depth-adjusted ordinal so a deeper source's config wins over a shallower one's for the same key,
 // while derivations resolve against the final merged scope and an upstream facet's when: sees a
-// downstream source's config. Returns the resolved global scope.
+// downstream source's config. Returns the resolved global scope. An operator's explicit raw value
+// always wins over a facet's computed value for the same key — see resolveConfigAndInclusion.
 func (p *BaseBlueprintProcessor) ProcessGlobally(sources []SourceFacetSet) (map[string]any, error) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -338,6 +346,12 @@ func (p *BaseBlueprintProcessor) ProcessGlobally(sources []SourceFacetSet) (map[
 // included-facet set and the resolved config scope both match the prior round, since a config block's
 // `when:` can depend on a block only just included this round. It errors if the scope never settles
 // within maxFacetRounds, instead of silently returning whichever round ran last.
+//
+// A config: block always computes its own value. It cannot defer to an operator's raw
+// override on its own. Each round, after facets merge their blocks, operatorOverlay joins as one
+// more contributor. It carries the highest ordinal. mergeConfigBlocks' existing precedence rule
+// then makes it win. This runs before block bodies evaluate. So a block referencing another
+// block's key sees the operator's corrected value too.
 func (p *BaseBlueprintProcessor) resolveConfigAndInclusion(sortedFacets []blueprintv1alpha1.Facet, contextScope map[string]any, operatorOverlay map[string]any) (map[string]any, map[string]any, []blueprintv1alpha1.Facet, error) {
 	scope := contextScope
 	var globalScope map[string]any
@@ -385,6 +399,13 @@ func (p *BaseBlueprintProcessor) resolveConfigAndInclusion(sortedFacets []bluepr
 			}
 			includedFacets = append(includedFacets, facet)
 		}
+		if incoming := operatorOverlayConfigBlocks(globalScope, operatorOverlay); len(incoming) > 0 {
+			var err error
+			globalScope, cfgEntries, err = p.mergeConfigBlocks(globalScope, cfgEntries, incoming)
+			if err != nil {
+				return nil, nil, nil, err
+			}
+		}
 		if err := p.evaluateGlobalScopeConfig(globalScope, contextScope); err != nil {
 			return nil, nil, nil, err
 		}
@@ -393,9 +414,6 @@ func (p *BaseBlueprintProcessor) resolveConfigAndInclusion(sortedFacets []bluepr
 			mergeBase = make(map[string]any)
 		}
 		passScope = blueprintv1alpha1.DeepMergeMaps(mergeBase, globalScope)
-		if len(operatorOverlay) > 0 {
-			passScope = blueprintv1alpha1.DeepMergeMaps(passScope, operatorOverlay)
-		}
 		scope = passScope
 		currSet := make(map[string]bool, len(includedFacets))
 		for _, f := range includedFacets {
@@ -2839,6 +2857,38 @@ func blockWrittenKeys(body map[string]any) (keys []string, wholeName bool) {
 		keys = append(keys, k)
 	}
 	return keys, false
+}
+
+// operatorOverlayConfigBlocks builds synthetic config-block entries from operatorOverlay.
+// operatorOverlay holds the operator's own explicit values (ConfigHandler.GetSetValues), never
+// schema defaults. One entry is built per name globalScope already has. Each entry carries the
+// highest possible ordinal. mergeConfigBlocks' own precedence rule then makes it win. That is the
+// same rule that settles every facet-vs-facet conflict. Each entry uses "merge" strategy. An
+// untouched key still surfaces from the facet's own value. A name absent from globalScope is
+// skipped. No facet claims it this round, so it is context, not config. An operator value alone
+// must never manufacture a new config: scope entry.
+func operatorOverlayConfigBlocks(globalScope map[string]any, operatorOverlay map[string]any) map[string]*blueprintv1alpha1.ConfigBlock {
+	if len(globalScope) == 0 || len(operatorOverlay) == 0 {
+		return nil
+	}
+	maxOrdinal := math.MaxInt
+	var incoming map[string]*blueprintv1alpha1.ConfigBlock
+	for name := range globalScope {
+		value, ok := operatorOverlay[name]
+		if !ok {
+			continue
+		}
+		if incoming == nil {
+			incoming = make(map[string]*blueprintv1alpha1.ConfigBlock)
+		}
+		incoming[name] = &blueprintv1alpha1.ConfigBlock{
+			Name:     name,
+			Strategy: "merge",
+			Ordinal:  &maxOrdinal,
+			Body:     map[string]any{"value": value},
+		}
+	}
+	return incoming
 }
 
 // mergeBlockValueOverContext overlays a config block's in-progress value on the context value under

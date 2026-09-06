@@ -2,7 +2,9 @@ package blueprint
 
 import (
 	"fmt"
+	"math"
 	"os"
+	"reflect"
 	"slices"
 	"strings"
 	"testing"
@@ -1194,6 +1196,41 @@ func TestProcessor_ProcessFacets(t *testing.T) {
 		}
 	})
 
+	t.Run("RemoveStrategyLeavesNoNameForAnOperatorValueToCorrect", func(t *testing.T) {
+		// Given a remove: strategy block wins, so no facet ends up contributing 'cluster' this
+		// round, and the operator separately set a raw value under that same name
+		mocks := setupProcessorMocks(t)
+		mocks.ConfigHandler.GetSetValuesFunc = func() map[string]any {
+			return map[string]any{"cluster": map[string]any{"endpoint": "operator-value"}}
+		}
+		processor := NewBlueprintProcessor(mocks.Runtime)
+		facets := []blueprintv1alpha1.Facet{
+			{
+				Metadata: blueprintv1alpha1.Metadata{Name: "add-cluster"},
+				Config: []blueprintv1alpha1.ConfigBlock{
+					{Name: "cluster", Body: map[string]any{"value": map[string]any{"endpoint": "x"}}},
+				},
+			},
+			{
+				Metadata: blueprintv1alpha1.Metadata{Name: "remove-cluster"},
+				Config: []blueprintv1alpha1.ConfigBlock{
+					{Name: "cluster", Strategy: "remove", Body: map[string]any{"value": nil}},
+				},
+			},
+		}
+		target := &blueprintv1alpha1.Blueprint{}
+		scope, err := processor.ProcessFacets(target, facets)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+
+		// Then 'cluster' stays absent: no facet claims the name, so the operator's raw value
+		// is context, not config, and does not resurrect a config: scope entry
+		if _, ok := scope["cluster"]; ok {
+			t.Error("Expected 'cluster' to stay removed; an operator value alone must not resurrect it")
+		}
+	})
+
 	t.Run("ReturnsErrorForInvalidConfigBlockStrategy", func(t *testing.T) {
 		mocks := setupProcessorMocks(t)
 		processor := NewBlueprintProcessor(mocks.Runtime)
@@ -2256,6 +2293,82 @@ func TestProcessor_ProcessFacets_ConfigBlockReadsContextUnderOwnName(t *testing.
 		}
 		if ips["start"] != "10.9.1.10" {
 			t.Errorf("Expected loadbalancer_ips.start derived from block value, got %v", ips["start"])
+		}
+	})
+
+	t.Run("OperatorExplicitValueWinsOverUnconditionalBlockOnSingleSourcePath", func(t *testing.T) {
+		// Given an operator's own explicit value, and a block that unconditionally computes a
+		// different value for that same key, via ProcessFacets (the single-source path)
+		mocks := setupProcessorMocks(t)
+		mocks.ConfigHandler.GetContextValuesFunc = func() (map[string]any, error) {
+			return map[string]any{}, nil
+		}
+		operatorValues := map[string]any{
+			"cluster": map[string]any{"controlplanes": map[string]any{"cpu": 3}},
+		}
+		mocks.ConfigHandler.GetSetValuesFunc = func() map[string]any { return operatorValues }
+		processor := NewBlueprintProcessor(mocks.Runtime)
+		facets := []blueprintv1alpha1.Facet{
+			{
+				Metadata: blueprintv1alpha1.Metadata{Name: "cluster-sizing"},
+				Config: []blueprintv1alpha1.ConfigBlock{
+					{Name: "cluster", Body: map[string]any{"value": map[string]any{
+						"controlplanes": map[string]any{"cpu": 7},
+					}}},
+				},
+			},
+		}
+
+		// When the facets are processed
+		scope, err := processor.ProcessFacets(&blueprintv1alpha1.Blueprint{}, facets)
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+
+		// Then the operator's explicit value wins, matching ProcessGlobally's guarantee
+		controlplanes := scope["cluster"].(map[string]any)["controlplanes"].(map[string]any)
+		if controlplanes["cpu"] != 3 {
+			t.Errorf("Expected operator cpu=3 to win over facet-computed cpu=7, got %v", controlplanes["cpu"])
+		}
+	})
+
+	t.Run("OperatorOverrideVisibleToASiblingBlockDerivingFromItInTheSameRound", func(t *testing.T) {
+		// Given one block the operator overrides, and a sibling block that derives its own
+		// value from the first block's key
+		mocks := setupProcessorMocks(t)
+		mocks.ConfigHandler.GetContextValuesFunc = func() (map[string]any, error) {
+			return map[string]any{}, nil
+		}
+		operatorValues := map[string]any{
+			"cluster": map[string]any{"controlplanes": map[string]any{"cpu": 3}},
+		}
+		mocks.ConfigHandler.GetSetValuesFunc = func() map[string]any { return operatorValues }
+		processor := NewBlueprintProcessor(mocks.Runtime)
+		facets := []blueprintv1alpha1.Facet{
+			{
+				Metadata: blueprintv1alpha1.Metadata{Name: "cluster-sizing"},
+				Config: []blueprintv1alpha1.ConfigBlock{
+					{Name: "cluster", Body: map[string]any{"value": map[string]any{
+						"controlplanes": map[string]any{"cpu": 7},
+					}}},
+					{Name: "vm_sizing", Body: map[string]any{"value": map[string]any{
+						"memory": "${cluster.controlplanes.cpu * 4}",
+					}}},
+				},
+			},
+		}
+
+		// When the facets are processed
+		scope, err := processor.ProcessFacets(&blueprintv1alpha1.Blueprint{}, facets)
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+
+		// Then the sibling block's derivation used the operator's value (3), not the facet's
+		// unconditional computation (7): 3*4=12, not 7*4=28
+		vmSizing := scope["vm_sizing"].(map[string]any)
+		if vmSizing["memory"] != 12 {
+			t.Errorf("Expected memory derived from the operator's cpu=3 (12), got %v", vmSizing["memory"])
 		}
 	})
 
@@ -3838,6 +3951,84 @@ func TestProcessor_mergeHelpers(t *testing.T) {
 		}
 	})
 
+	t.Run("OperatorOverlayConfigBlocksBuildsAnEntryForACollidingName", func(t *testing.T) {
+		globalScope := map[string]any{
+			"cluster": map[string]any{"controlplanes": map[string]any{"cpu": 7}},
+		}
+		operatorOverlay := map[string]any{
+			"cluster": map[string]any{"controlplanes": map[string]any{"cpu": 3}},
+		}
+		incoming := operatorOverlayConfigBlocks(globalScope, operatorOverlay)
+		cluster, ok := incoming["cluster"]
+		if !ok {
+			t.Fatal("Expected a synthetic entry for 'cluster'")
+		}
+		if cluster.Strategy != "merge" {
+			t.Errorf("Expected strategy 'merge', got %q", cluster.Strategy)
+		}
+		if cluster.Ordinal == nil || *cluster.Ordinal != math.MaxInt {
+			t.Errorf("Expected ordinal math.MaxInt, got %v", cluster.Ordinal)
+		}
+		if !reflect.DeepEqual(cluster.Body["value"], operatorOverlay["cluster"]) {
+			t.Errorf("Expected body value %v, got %v", operatorOverlay["cluster"], cluster.Body["value"])
+		}
+	})
+
+	t.Run("OperatorOverlayConfigBlocksSkipsNamesAbsentFromGlobalScope", func(t *testing.T) {
+		globalScope := map[string]any{
+			"cluster": map[string]any{"controlplanes": map[string]any{"cpu": 7}},
+		}
+		operatorOverlay := map[string]any{
+			"cluster":   map[string]any{"controlplanes": map[string]any{"cpu": 3}},
+			"terraform": map[string]any{"enabled": true},
+		}
+		incoming := operatorOverlayConfigBlocks(globalScope, operatorOverlay)
+		if _, exists := incoming["terraform"]; exists {
+			t.Error("Expected an operator key with no matching config block to be skipped")
+		}
+	})
+
+	t.Run("OperatorOverlayConfigBlocksHandlesNilGlobalScope", func(t *testing.T) {
+		if incoming := operatorOverlayConfigBlocks(nil, map[string]any{"cluster": map[string]any{"cpu": 3}}); incoming != nil {
+			t.Errorf("Expected nil for nil globalScope, got %v", incoming)
+		}
+	})
+
+	t.Run("OperatorOverlayConfigBlocksHandlesEmptyOverlay", func(t *testing.T) {
+		globalScope := map[string]any{"cluster": map[string]any{"cpu": 7}}
+		if incoming := operatorOverlayConfigBlocks(globalScope, nil); incoming != nil {
+			t.Errorf("Expected nil for an empty overlay, got %v", incoming)
+		}
+	})
+
+	t.Run("OperatorOverlayConfigBlocksMergedIntoScopeOverridesCollidingKeyAndKeepsSiblings", func(t *testing.T) {
+		// Given a merge helper's synthetic entry fed through the same mergeConfigBlocks
+		// pipeline every facet-vs-facet conflict already uses
+		mocks := setupProcessorMocks(t)
+		processor := NewBlueprintProcessor(mocks.Runtime)
+		globalScope := map[string]any{
+			"cluster": map[string]any{"controlplanes": map[string]any{"cpu": 7, "memory": 16}},
+		}
+		operatorOverlay := map[string]any{
+			"cluster": map[string]any{"controlplanes": map[string]any{"cpu": 3}},
+		}
+		incoming := operatorOverlayConfigBlocks(globalScope, operatorOverlay)
+
+		// When merged via mergeConfigBlocks
+		out, _, err := processor.mergeConfigBlocks(globalScope, nil, incoming)
+		if err != nil {
+			t.Fatalf("mergeConfigBlocks failed: %v", err)
+		}
+
+		// Then the operator's value wins at the colliding key, and the untouched sibling remains
+		controlplanes := out["cluster"].(map[string]any)["controlplanes"].(map[string]any)
+		if controlplanes["cpu"] != 3 {
+			t.Errorf("Expected operator cpu=3 to win, got %v", controlplanes["cpu"])
+		}
+		if controlplanes["memory"] != 16 {
+			t.Errorf("Expected untouched key memory=16 to remain, got %v", controlplanes["memory"])
+		}
+	})
 }
 
 // =============================================================================

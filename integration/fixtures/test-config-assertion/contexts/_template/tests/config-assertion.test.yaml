@@ -26,3 +26,18 @@ cases:
         cluster:
           controlplanes:
             cpu: 7
+
+  # cluster.enabled is true, and the operator also sets controlplanes.cpu directly. The facet
+  # computes cpu unconditionally (no ?? guard of its own), but the operator's explicit value
+  # must still win over the facet's computed one.
+  - name: operator_value_wins_over_unconditional_facet_config
+    values:
+      cluster:
+        enabled: true
+        controlplanes:
+          cpu: 3
+    expect:
+      config:
+        cluster:
+          controlplanes:
+            cpu: 3
