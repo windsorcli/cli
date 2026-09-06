@@ -45,13 +45,14 @@ func NewGcpEnvPrinter(shell shell.Shell, configHandler config.ConfigHandler) *Gc
 // =============================================================================
 
 // GetEnvVars returns the GCP environment variables for the current context. Project mode
-// always sets CLOUDSDK_CONFIG. Google client libraries do not read it, so
-// GOOGLE_APPLICATION_CREDENTIALS bridges the gap: gcp.credentials_path first, then the
-// service-account file, then the gcloud ADC file, else it stays unset. A set-but-missing
+// always sets CLOUDSDK_CONFIG. Google client libraries do not read it. GOOGLE_APPLICATION_CREDENTIALS
+// bridges the gap. Windsor tries gcp.credentials_path first, then the service-account
+// file, then the gcloud ADC file, else it leaves the variable unset. A set-but-missing
 // path breaks Google client libraries outright, so Windsor never guesses one. Global mode
 // defers to the operator's ambient gcloud setup. GOOGLE_CLOUD_PROJECT, GCLOUD_PROJECT, and
-// GOOGLE_CLOUD_QUOTA_PROJECT need a gcp: field. Windsor never overwrites an existing
-// GOOGLE_APPLICATION_CREDENTIALS value.
+// GOOGLE_CLOUD_QUOTA_PROJECT need a gcp: field. Windsor recomputes GOOGLE_APPLICATION_CREDENTIALS
+// on every call unless an operator's own value already occupies it. This lets a removed
+// service-account file or a switch to ADC take effect on the next command.
 func (e *GcpEnvPrinter) GetEnvVars() (map[string]string, error) {
 	envVars := make(map[string]string)
 	global := e.shell.IsGlobal()
@@ -61,6 +62,8 @@ func (e *GcpEnvPrinter) GetEnvVars() (map[string]string, error) {
 	if config != nil && config.GCP != nil {
 		credentialsPath = config.GCP.CredentialsPath
 	}
+
+	shouldSetCredentials := e.ShouldSetManagedValue("GOOGLE_APPLICATION_CREDENTIALS")
 
 	if !global {
 		configRoot, err := e.configHandler.GetConfigRoot()
@@ -74,7 +77,7 @@ func (e *GcpEnvPrinter) GetEnvVars() (map[string]string, error) {
 		}
 		envVars["CLOUDSDK_CONFIG"] = filepath.ToSlash(gcloudConfigDir)
 
-		if _, exists := e.shims.LookupEnv("GOOGLE_APPLICATION_CREDENTIALS"); !exists {
+		if shouldSetCredentials {
 			if credentialsPath != nil {
 				envVars["GOOGLE_APPLICATION_CREDENTIALS"] = *credentialsPath
 			} else {
@@ -87,10 +90,8 @@ func (e *GcpEnvPrinter) GetEnvVars() (map[string]string, error) {
 				}
 			}
 		}
-	} else if credentialsPath != nil {
-		if _, exists := e.shims.LookupEnv("GOOGLE_APPLICATION_CREDENTIALS"); !exists {
-			envVars["GOOGLE_APPLICATION_CREDENTIALS"] = *credentialsPath
-		}
+	} else if credentialsPath != nil && shouldSetCredentials {
+		envVars["GOOGLE_APPLICATION_CREDENTIALS"] = *credentialsPath
 	}
 
 	if config != nil && config.GCP != nil {
@@ -105,9 +106,6 @@ func (e *GcpEnvPrinter) GetEnvVars() (map[string]string, error) {
 	}
 
 	for key := range envVars {
-		if key == "GOOGLE_APPLICATION_CREDENTIALS" {
-			continue
-		}
 		e.SetManagedEnv(key)
 	}
 

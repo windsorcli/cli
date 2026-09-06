@@ -10,7 +10,6 @@ import (
 	"net"
 	"os"
 	"path/filepath"
-	"strings"
 
 	"github.com/windsorcli/cli/pkg/runtime/config"
 	"github.com/windsorcli/cli/pkg/runtime/shell"
@@ -59,18 +58,7 @@ func (e *VirtEnvPrinter) GetEnvVars() (map[string]string, error) {
 	workstationRuntime := e.configHandler.GetString("workstation.runtime")
 	platform := e.configHandler.GetString("platform")
 
-	isDockerHostManaged := false
-	if managedEnvStr := e.shims.Getenv("WINDSOR_MANAGED_ENV"); managedEnvStr != "" {
-		for _, key := range strings.Split(managedEnvStr, ",") {
-			if strings.TrimSpace(key) == "DOCKER_HOST" {
-				isDockerHostManaged = true
-				break
-			}
-		}
-	}
-
-	_, dockerHostExists := e.shims.LookupEnv("DOCKER_HOST")
-	shouldSetDockerHost := !dockerHostExists || isDockerHostManaged
+	shouldSetDockerHost := e.ShouldSetManagedValue("DOCKER_HOST")
 
 	if platform != "incus" && workstationRuntime != "" {
 		homeDir, err := e.shims.UserHomeDir()

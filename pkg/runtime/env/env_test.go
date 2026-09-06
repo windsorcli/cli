@@ -27,6 +27,7 @@ func setupDefaultShims(tmpDir string) *Shims {
 	shims := NewShims()
 
 	shims.LookupEnv = func(key string) (string, bool) { return "", false }
+	shims.Getenv = func(key string) string { return "" }
 	shims.WriteFile = func(name string, data []byte, perm os.FileMode) error { return nil }
 	shims.ReadFile = func(name string) ([]byte, error) { return []byte{}, nil }
 	shims.MkdirAll = func(path string, perm os.FileMode) error { return nil }
@@ -329,6 +330,60 @@ func TestBaseEnvPrinter_SetManagedEnv(t *testing.T) {
 		}
 		if managedEnv[0] != "SET_TEST_VAR1" {
 			t.Errorf("expected [SET_TEST_VAR1], got %v", managedEnv)
+		}
+	})
+}
+
+// TestBaseEnvPrinter_ShouldSetManagedValue tests the ShouldSetManagedValue method of the BaseEnvPrinter struct
+func TestBaseEnvPrinter_ShouldSetManagedValue(t *testing.T) {
+	setup := func(t *testing.T) (*BaseEnvPrinter, *EnvTestMocks) {
+		t.Helper()
+		mocks := setupEnvMocks(t)
+		printer := NewBaseEnvPrinter(mocks.Shell, mocks.ConfigHandler)
+		printer.shims = mocks.Shims
+		return printer, mocks
+	}
+
+	t.Run("KeyNotSet", func(t *testing.T) {
+		// Given a key with no value in the environment
+		printer, mocks := setup(t)
+		mocks.Shims.LookupEnv = func(key string) (string, bool) { return "", false }
+
+		// When checking whether it should be set
+		// Then the printer may set it
+		if !printer.ShouldSetManagedValue("SOME_VAR") {
+			t.Error("expected ShouldSetManagedValue to return true for an unset key")
+		}
+	})
+
+	t.Run("KeySetByOperator", func(t *testing.T) {
+		// Given a key holding a value with no record in WINDSOR_MANAGED_ENV
+		printer, mocks := setup(t)
+		mocks.Shims.LookupEnv = func(key string) (string, bool) { return "operator-value", true }
+		mocks.Shims.Getenv = func(key string) string { return "" }
+
+		// When checking whether it should be set
+		// Then the operator's value is left alone
+		if printer.ShouldSetManagedValue("SOME_VAR") {
+			t.Error("expected ShouldSetManagedValue to return false for an operator-owned key")
+		}
+	})
+
+	t.Run("KeyPreviouslyManagedByWindsor", func(t *testing.T) {
+		// Given a key holding a value Windsor itself set on a prior round
+		printer, mocks := setup(t)
+		mocks.Shims.LookupEnv = func(key string) (string, bool) { return "windsor-value", true }
+		mocks.Shims.Getenv = func(key string) string {
+			if key == "WINDSOR_MANAGED_ENV" {
+				return "OTHER_VAR,SOME_VAR"
+			}
+			return ""
+		}
+
+		// When checking whether it should be set
+		// Then Windsor may recompute its own value
+		if !printer.ShouldSetManagedValue("SOME_VAR") {
+			t.Error("expected ShouldSetManagedValue to return true for a Windsor-managed key")
 		}
 	})
 }

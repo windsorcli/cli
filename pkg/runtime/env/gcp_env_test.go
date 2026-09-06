@@ -569,6 +569,149 @@ contexts:
 		}
 	})
 
+	t.Run("RecomputesWhenWindsorManagedValueIsStale", func(t *testing.T) {
+		// Given a shell where Windsor previously set GOOGLE_APPLICATION_CREDENTIALS
+		// (tracked in WINDSOR_MANAGED_ENV) to a service-account file that was since removed,
+		// and the operator has since logged in with ADC instead
+		mocks := setupGcpEnvMocks(t)
+		configStr := `
+version: v1alpha1
+contexts:
+  test-context:
+    gcp:
+      enabled: true
+`
+		if err := mocks.ConfigHandler.LoadConfigString(configStr); err != nil {
+			t.Fatalf("Failed to load config: %v", err)
+		}
+		printer := NewGcpEnvPrinter(mocks.Shell, mocks.ConfigHandler)
+		printer.shims = mocks.Shims
+
+		configRoot, err := mocks.ConfigHandler.GetConfigRoot()
+		if err != nil {
+			t.Fatalf("Failed to get config root: %v", err)
+		}
+		adcPath := filepath.Join(configRoot, ".gcp", "gcloud", "application_default_credentials.json")
+
+		mocks.Shims.Getenv = func(key string) string {
+			if key == "WINDSOR_MANAGED_ENV" {
+				return "GOOGLE_APPLICATION_CREDENTIALS,CLOUDSDK_CONFIG"
+			}
+			return ""
+		}
+		mocks.Shims.LookupEnv = func(key string) (string, bool) {
+			if key == "GOOGLE_APPLICATION_CREDENTIALS" {
+				return "/removed/service-account.json", true
+			}
+			return "", false
+		}
+		mocks.Shims.Stat = func(name string) (os.FileInfo, error) {
+			if name == adcPath {
+				return nil, nil
+			}
+			return nil, os.ErrNotExist
+		}
+
+		// When GetEnvVars runs
+		envVars, err := printer.GetEnvVars()
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+
+		// Then it recomputes to the ADC file rather than keeping the stale path
+		expectedPath := filepath.ToSlash(adcPath)
+		if got := envVars["GOOGLE_APPLICATION_CREDENTIALS"]; got != expectedPath {
+			t.Errorf("GetEnvVars returned GOOGLE_APPLICATION_CREDENTIALS=%v, want %v", got, expectedPath)
+		}
+	})
+
+	t.Run("OmitsCredentialsWhenWindsorManagedFileIsGone", func(t *testing.T) {
+		// Given a shell where Windsor previously set GOOGLE_APPLICATION_CREDENTIALS
+		// and neither the service-account file nor an ADC file exists any more
+		mocks := setupGcpEnvMocks(t)
+		configStr := `
+version: v1alpha1
+contexts:
+  test-context:
+    gcp:
+      enabled: true
+`
+		if err := mocks.ConfigHandler.LoadConfigString(configStr); err != nil {
+			t.Fatalf("Failed to load config: %v", err)
+		}
+		printer := NewGcpEnvPrinter(mocks.Shell, mocks.ConfigHandler)
+		printer.shims = mocks.Shims
+
+		mocks.Shims.Getenv = func(key string) string {
+			if key == "WINDSOR_MANAGED_ENV" {
+				return "GOOGLE_APPLICATION_CREDENTIALS"
+			}
+			return ""
+		}
+		mocks.Shims.LookupEnv = func(key string) (string, bool) {
+			if key == "GOOGLE_APPLICATION_CREDENTIALS" {
+				return "/removed/service-account.json", true
+			}
+			return "", false
+		}
+		mocks.Shims.Stat = func(name string) (os.FileInfo, error) {
+			return nil, os.ErrNotExist
+		}
+
+		// When GetEnvVars runs
+		envVars, err := printer.GetEnvVars()
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+
+		// Then it omits the key rather than reporting the now-missing stale path, so the
+		// caller (WindsorEnvPrinter) unsets it in the shell.
+		if _, exists := envVars["GOOGLE_APPLICATION_CREDENTIALS"]; exists {
+			t.Errorf("Expected no GOOGLE_APPLICATION_CREDENTIALS when the managed file no longer exists, got %v", envVars["GOOGLE_APPLICATION_CREDENTIALS"])
+		}
+	})
+
+	t.Run("SetsManagedEnvWhenCredentialsAreComputed", func(t *testing.T) {
+		// Given a fresh shell with no prior GOOGLE_APPLICATION_CREDENTIALS
+		mocks := setupGcpEnvMocks(t)
+		configStr := `
+version: v1alpha1
+contexts:
+  test-context:
+    gcp:
+      enabled: true
+      credentials_path: "/path/to/credentials.json"
+`
+		if err := mocks.ConfigHandler.LoadConfigString(configStr); err != nil {
+			t.Fatalf("Failed to load config: %v", err)
+		}
+		printer := NewGcpEnvPrinter(mocks.Shell, mocks.ConfigHandler)
+		printer.shims = mocks.Shims
+
+		mocks.Shims.LookupEnv = func(key string) (string, bool) {
+			return "", false
+		}
+
+		// When GetEnvVars runs
+		if _, err := printer.GetEnvVars(); err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+
+		// Then GOOGLE_APPLICATION_CREDENTIALS is tracked as managed, so a later run can
+		// tell Windsor's own value apart from an operator-supplied one.
+		managed := printer.GetManagedEnv()
+		found := false
+		for _, k := range managed {
+			if k == "GOOGLE_APPLICATION_CREDENTIALS" {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Errorf("Expected GOOGLE_APPLICATION_CREDENTIALS to be tracked in managed env, got %v", managed)
+		}
+	})
+
 	t.Run("OnlyProjectIDSet", func(t *testing.T) {
 		mocks := setupGcpEnvMocks(t)
 		configStr := `
