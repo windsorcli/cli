@@ -15,21 +15,23 @@ import (
 
 // MockStack is a mock implementation of the Stack interface for testing.
 type MockStack struct {
-	UpFunc                    func(blueprint *blueprintv1alpha1.Blueprint, onApply ...func(id string) (bool, error)) (bool, error)
-	MigrateStateFunc          func(blueprint *blueprintv1alpha1.Blueprint) ([]string, error)
-	MigrateComponentStateFunc func(blueprint *blueprintv1alpha1.Blueprint, componentID string) error
-	HasRemoteStateFunc             func(blueprint *blueprintv1alpha1.Blueprint, componentID string) (bool, error)
-	HasLocalStateWithResourcesFunc func(componentID string) (bool, error)
-	InitComponentFunc              func(blueprint *blueprintv1alpha1.Blueprint, componentID string) error
-	RemoveLocalStateFunc           func(componentID string) error
-	PostApplyFunc             func(fns ...func(id string) error)
-	DestroyAllFunc            func(blueprint *blueprintv1alpha1.Blueprint, continueOnError bool, excludeIDs ...string) (DestroyOutcome, error)
-	PlanFunc                  func(blueprint *blueprintv1alpha1.Blueprint, componentID string) error
-	PlanAllFunc               func(blueprint *blueprintv1alpha1.Blueprint) error
-	PlanJSONFunc              func(blueprint *blueprintv1alpha1.Blueprint, componentID string) error
-	PlanAllJSONFunc           func(blueprint *blueprintv1alpha1.Blueprint) error
-	ApplyFunc                 func(blueprint *blueprintv1alpha1.Blueprint, componentID string) error
-	DestroyFunc               func(blueprint *blueprintv1alpha1.Blueprint, componentID string) (bool, error)
+	UpFunc                          func(blueprint *blueprintv1alpha1.Blueprint, onApply ...func(id string) (bool, error)) (bool, error)
+	MigrateStateFunc                func(blueprint *blueprintv1alpha1.Blueprint) ([]string, error)
+	MigrateComponentStateFunc       func(blueprint *blueprintv1alpha1.Blueprint, componentID string) error
+	HasRemoteStateFunc              func(blueprint *blueprintv1alpha1.Blueprint, componentID string) (bool, error)
+	HasLocalStateWithResourcesFunc  func(componentID string) (bool, error)
+	InitComponentFunc               func(blueprint *blueprintv1alpha1.Blueprint, componentID string) error
+	RemoveLocalStateFunc            func(componentID string) error
+	PostApplyFunc                   func(fns ...func(id string) error)
+	DestroyAllFunc                  func(blueprint *blueprintv1alpha1.Blueprint, continueOnError bool, excludeIDs ...string) (DestroyOutcome, error)
+	PlanFunc                        func(blueprint *blueprintv1alpha1.Blueprint, componentID string) error
+	PlanAllFunc                     func(blueprint *blueprintv1alpha1.Blueprint) error
+	PlanJSONFunc                    func(blueprint *blueprintv1alpha1.Blueprint, componentID string) error
+	PlanAllJSONFunc                 func(blueprint *blueprintv1alpha1.Blueprint) error
+	PlanResourceChangesJSONFunc     func(blueprint *blueprintv1alpha1.Blueprint, componentID string) error
+	PlanAllResourceChangesJSONFunc  func(blueprint *blueprintv1alpha1.Blueprint) error
+	ApplyFunc                       func(blueprint *blueprintv1alpha1.Blueprint, componentID string) error
+	DestroyFunc                     func(blueprint *blueprintv1alpha1.Blueprint, componentID string) (bool, error)
 	PlanSummaryFunc                 func(blueprint *blueprintv1alpha1.Blueprint) []TerraformComponentPlan
 	PlanComponentSummaryFunc        func(blueprint *blueprintv1alpha1.Blueprint, componentID string) TerraformComponentPlan
 	PlanDestroySummaryFunc          func(blueprint *blueprintv1alpha1.Blueprint) []TerraformComponentPlan
@@ -148,6 +150,22 @@ func (m *MockStack) PlanAllJSON(blueprint *blueprintv1alpha1.Blueprint) error {
 func (m *MockStack) PlanJSON(blueprint *blueprintv1alpha1.Blueprint, componentID string) error {
 	if m.PlanJSONFunc != nil {
 		return m.PlanJSONFunc(blueprint, componentID)
+	}
+	return nil
+}
+
+// PlanResourceChangesJSON is a mock implementation of the PlanResourceChangesJSON method.
+func (m *MockStack) PlanResourceChangesJSON(blueprint *blueprintv1alpha1.Blueprint, componentID string) error {
+	if m.PlanResourceChangesJSONFunc != nil {
+		return m.PlanResourceChangesJSONFunc(blueprint, componentID)
+	}
+	return nil
+}
+
+// PlanAllResourceChangesJSON is a mock implementation of the PlanAllResourceChangesJSON method.
+func (m *MockStack) PlanAllResourceChangesJSON(blueprint *blueprintv1alpha1.Blueprint) error {
+	if m.PlanAllResourceChangesJSONFunc != nil {
+		return m.PlanAllResourceChangesJSONFunc(blueprint)
 	}
 	return nil
 }

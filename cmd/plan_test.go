@@ -551,6 +551,138 @@ func TestPlanTerraformCmd(t *testing.T) {
 			t.Error("PlanAll must not run when credential preflight fails")
 		}
 	})
+
+	t.Run("OutputJSONPlanFlagCallsResourceChangesForComponent", func(t *testing.T) {
+		// Given a plan terraform command with --output=json-plan and a component
+		mocks := setupPlanTest(t)
+		var capturedComponentID string
+		mocks.TerraformStack.PlanResourceChangesJSONFunc = func(bp *blueprintv1alpha1.Blueprint, componentID string) error {
+			capturedComponentID = componentID
+			return nil
+		}
+		proj := newPlanProject(mocks)
+
+		// When executing with --output=json-plan and a component ID
+		cmd := createTestPlanTerraformCmd()
+		planOutput = "json-plan"
+		t.Cleanup(func() { planOutput = "" })
+		ctx := context.WithValue(context.Background(), projectOverridesKey, proj)
+		cmd.SetArgs([]string{"cluster"})
+		cmd.SetContext(ctx)
+		err := cmd.Execute()
+
+		// Then PlanResourceChangesJSON is called for that component
+		if err != nil {
+			t.Errorf("expected no error, got %v", err)
+		}
+		if capturedComponentID != "cluster" {
+			t.Errorf("expected PlanResourceChangesJSON to be called with %q, got %q", "cluster", capturedComponentID)
+		}
+	})
+
+	t.Run("OutputJSONPlanFlagCallsResourceChangesForAllComponents", func(t *testing.T) {
+		// Given a plan terraform command with --output=json-plan and no component
+		mocks := setupPlanTest(t)
+		allCalled := false
+		mocks.TerraformStack.PlanAllResourceChangesJSONFunc = func(bp *blueprintv1alpha1.Blueprint) error {
+			allCalled = true
+			return nil
+		}
+		proj := newPlanProject(mocks)
+
+		// When executing with --output=json-plan and no component ID
+		cmd := createTestPlanTerraformCmd()
+		planOutput = "json-plan"
+		t.Cleanup(func() { planOutput = "" })
+		ctx := context.WithValue(context.Background(), projectOverridesKey, proj)
+		cmd.SetContext(ctx)
+		err := cmd.Execute()
+
+		// Then PlanAllResourceChangesJSON is called
+		if err != nil {
+			t.Errorf("expected no error, got %v", err)
+		}
+		if !allCalled {
+			t.Error("expected PlanAllResourceChangesJSON to be called for no-arg --output=json-plan")
+		}
+	})
+
+	t.Run("OutputFlagRejectsUnsupportedValue", func(t *testing.T) {
+		// Given a plan terraform command with an unsupported --output value
+		mocks := setupPlanTest(t)
+		proj := newPlanProject(mocks)
+
+		// When executing with --output=bogus
+		cmd := createTestPlanTerraformCmd()
+		planOutput = "bogus"
+		t.Cleanup(func() { planOutput = "" })
+		ctx := context.WithValue(context.Background(), projectOverridesKey, proj)
+		cmd.SetArgs([]string{"cluster"})
+		cmd.SetContext(ctx)
+		err := cmd.Execute()
+
+		// Then an error names the unsupported value
+		if err == nil {
+			t.Error("expected error, got nil")
+		}
+		if !strings.Contains(err.Error(), `invalid --output value "bogus"`) {
+			t.Errorf("expected invalid --output error, got: %v", err)
+		}
+	})
+
+	t.Run("OutputFlagRejectsCombinationWithSummary", func(t *testing.T) {
+		// Given a plan terraform command with --output=json-plan and --summary together
+		mocks := setupPlanTest(t)
+		proj := newPlanProject(mocks)
+
+		// When executing with both flags set
+		cmd := createTestPlanTerraformCmd()
+		planOutput = "json-plan"
+		planSummary = true
+		t.Cleanup(func() {
+			planOutput = ""
+			planSummary = false
+		})
+		ctx := context.WithValue(context.Background(), projectOverridesKey, proj)
+		cmd.SetArgs([]string{"cluster"})
+		cmd.SetContext(ctx)
+		err := cmd.Execute()
+
+		// Then an error rejects the combination
+		if err == nil {
+			t.Error("expected error, got nil")
+		}
+		if !strings.Contains(err.Error(), "cannot be combined with --summary") {
+			t.Errorf("expected combination error, got: %v", err)
+		}
+	})
+
+	t.Run("OutputFlagRejectsCombinationWithJSON", func(t *testing.T) {
+		// Given a plan terraform command with --output=json-plan and --json together
+		mocks := setupPlanTest(t)
+		proj := newPlanProject(mocks)
+
+		// When executing with both flags set
+		cmd := createTestPlanTerraformCmd()
+		planOutput = "json-plan"
+		planJSON = true
+		t.Cleanup(func() {
+			planOutput = ""
+			planJSON = false
+		})
+		ctx := context.WithValue(context.Background(), projectOverridesKey, proj)
+		cmd.SetArgs([]string{"cluster"})
+		cmd.SetContext(ctx)
+		err := cmd.Execute()
+
+		// Then an error rejects the combination
+		if err == nil {
+			t.Error("expected error, got nil")
+		}
+		if !strings.Contains(err.Error(), "cannot be combined with --json") {
+			t.Errorf("expected combination error, got: %v", err)
+		}
+	})
 }
 
 func TestPlanKustomizeCmd(t *testing.T) {

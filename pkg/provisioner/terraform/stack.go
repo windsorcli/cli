@@ -211,6 +211,8 @@ type Stack interface {
 	PlanAll(blueprint *blueprintv1alpha1.Blueprint) error
 	PlanJSON(blueprint *blueprintv1alpha1.Blueprint, componentID string) error
 	PlanAllJSON(blueprint *blueprintv1alpha1.Blueprint) error
+	PlanResourceChangesJSON(blueprint *blueprintv1alpha1.Blueprint, componentID string) error
+	PlanAllResourceChangesJSON(blueprint *blueprintv1alpha1.Blueprint) error
 	Apply(blueprint *blueprintv1alpha1.Blueprint, componentID string) error
 	Destroy(blueprint *blueprintv1alpha1.Blueprint, componentID string) (bool, error)
 	PlanSummary(blueprint *blueprintv1alpha1.Blueprint) []TerraformComponentPlan
@@ -1081,6 +1083,12 @@ func (s *TerraformStack) PlanComponentSummary(blueprint *blueprintv1alpha1.Bluep
 // Private Methods
 // =============================================================================
 
+// printComponentHeader prints a section header naming the component to stderr, ahead of
+// streaming its terraform output. Shared by every per-component loop over all components.
+func (s *TerraformStack) printComponentHeader(componentPath string) {
+	fmt.Fprintf(os.Stderr, "\n%s\n", tui.SectionHeader("Terraform: "+componentPath))
+}
+
 // migrateOneComponent runs `terraform init -migrate-state -force-copy` for a single
 // component, registering any generated backend_override.tf for cleanup via
 // backendOverridePaths. Returns (false, nil) when the component's directory does not
@@ -1144,7 +1152,7 @@ func (s *TerraformStack) planComponents(blueprint *blueprintv1alpha1.Blueprint, 
 	for i := range components {
 		component := &components[i]
 
-		fmt.Fprintf(os.Stderr, "\n%s\n", tui.SectionHeader("Terraform: "+component.Path))
+		s.printComponentHeader(component.Path)
 
 		terraformVars, scopedKeys, terraformArgs, cleanup, err := s.prepareComponentEnv(component)
 		if err != nil {
