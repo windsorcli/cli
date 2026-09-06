@@ -228,10 +228,10 @@ func (i *Provisioner) clusterReachableForTeardown() bool {
 // =============================================================================
 
 // resolveBackendTier resolves the backend tier named by Blueprint.Backend.
-// It runs ValidateComposedBlueprint first: destroy and apply skip blueprint
-// validation at load time (to tolerate a deployed-but-misordered blueprint),
-// so a stale Backend name must still fail loud here rather than silently
-// collapse BackendTier to "no tier" and leave the backend unprotected.
+// It runs ValidateComposedBlueprint first: destroy (and down/env) skip
+// blueprint validation at load time, so a stale Backend name must still
+// fail loud here. Apply already validates at load, so this same check is
+// defense-in-depth there, not load-bearing.
 func resolveBackendTier(blueprint *blueprintv1alpha1.Blueprint) ([]*blueprintv1alpha1.TerraformComponent, error) {
 	if err := composerblueprint.ValidateComposedBlueprint(blueprint); err != nil {
 		return nil, err
