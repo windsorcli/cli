@@ -2676,6 +2676,69 @@ func TestHandler_processAndCompose(t *testing.T) {
 		}
 	})
 
+	t.Run("ExplicitOperatorValueWinsOverUnconditionalFacetConfig", func(t *testing.T) {
+		// Given an operator's own explicit value for a key. A facet unconditionally computes a
+		// different value for that same key, with no `??` guard of its own.
+		mocks := setupHandlerMocks(t)
+		mocks.ConfigHandler.GetContextValuesFunc = func() (map[string]any, error) {
+			return map[string]any{}, nil
+		}
+		operatorValues := map[string]any{
+			"cluster": map[string]any{"controlplanes": map[string]any{"cpu": 3}},
+		}
+		mocks.ConfigHandler.GetSetValuesFunc = func() map[string]any { return operatorValues }
+		handler := NewBlueprintHandler(mocks.Runtime, mocks.ArtifactBuilder)
+
+		templateBp := &blueprintv1alpha1.Blueprint{}
+		handler.sourceBlueprintLoaders["template"] = &mockLoaderImpl{
+			getBlueprintFunc:  func() *blueprintv1alpha1.Blueprint { return templateBp },
+			getSourceNameFunc: func() string { return "template" },
+			getFacetsFunc: func() []blueprintv1alpha1.Facet {
+				return []blueprintv1alpha1.Facet{
+					{
+						Metadata: blueprintv1alpha1.Metadata{Name: "cluster-sizing"},
+						Config: []blueprintv1alpha1.ConfigBlock{
+							{
+								Name: "cluster",
+								Body: map[string]any{"value": map[string]any{"controlplanes": map[string]any{"cpu": 7}}},
+							},
+						},
+					},
+				}
+			},
+		}
+		trueVal := true
+		handler.userBlueprintLoader = &mockLoaderImpl{
+			getBlueprintFunc: func() *blueprintv1alpha1.Blueprint {
+				return &blueprintv1alpha1.Blueprint{
+					Sources: []blueprintv1alpha1.Source{
+						{Name: "template", Install: &blueprintv1alpha1.BoolExpression{Value: &trueVal, IsExpr: false}},
+					},
+				}
+			},
+			getSourceNameFunc: func() string { return "user" },
+		}
+
+		// When processing and composing
+		if err := handler.processAndCompose(); err != nil {
+			t.Fatalf("processAndCompose failed: %v", err)
+		}
+
+		// Then the composed scope reflects the operator's explicit value, not the facet's
+		// unconditional computation
+		cluster, ok := handler.composedScope["cluster"].(map[string]any)
+		if !ok {
+			t.Fatal("Expected composed scope to contain 'cluster'")
+		}
+		controlplanes, ok := cluster["controlplanes"].(map[string]any)
+		if !ok {
+			t.Fatalf("Expected cluster.controlplanes to be a map, got %T", cluster["controlplanes"])
+		}
+		if cpu := controlplanes["cpu"]; cpu != 3 {
+			t.Errorf("Expected operator's explicit cpu=3 to win over facet-computed cpu=7, got %v", cpu)
+		}
+	})
+
 	t.Run("CallsSetConfigScopeWhenProviderExists", func(t *testing.T) {
 		// Given a handler with terraform provider and loaders
 		mocks := setupHandlerMocks(t)

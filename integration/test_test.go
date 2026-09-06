@@ -136,3 +136,21 @@ func TestWindsorTest_ConfigAssertionRegressionFixture(t *testing.T) {
 		t.Errorf("expected diff to name config[cluster], got: %s", out)
 	}
 }
+
+// TestWindsorTest_OperatorConfigOverrideFixture exercises a composer bug: an operator's explicit
+// raw value did not survive a facet's unconditional config: block for the same key. The cluster
+// facet unconditionally computes controlplanes.cpu. The operator also sets it directly. The
+// operator's value must win.
+func TestWindsorTest_OperatorConfigOverrideFixture(t *testing.T) {
+	t.Parallel()
+	dir, env := helpers.PrepareFixture(t, "test-config-assertion")
+	env = append(env, "WINDSOR_CONTEXT=test")
+	stdout, stderr, err := helpers.RunCLI(dir, []string{"test", "operator_value_wins_over_unconditional_facet_config"}, env)
+	if err != nil {
+		t.Fatalf("windsor test: %v\nstdout: %s\nstderr: %s", err, stdout, stderr)
+	}
+	out := string(stdout) + string(stderr)
+	if !strings.Contains(out, "PASS") && !strings.Contains(out, "✓") {
+		t.Errorf("expected PASS or ✓ in output: %s", out)
+	}
+}
