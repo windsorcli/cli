@@ -415,6 +415,51 @@ func TestDestroyCmd(t *testing.T) {
 		}
 	})
 
+	t.Run("HaltsBeforeConfirmationWhenBackendUnresolved", func(t *testing.T) {
+		// Given a blueprint whose Backend field names no real component.
+		mocks := setupDestroyTest(t)
+		mockCH := mocks.ConfigHandler.(*config.MockConfigHandler)
+		mockCH.GetStringFunc = func(key string, defaultValue ...string) string {
+			if key == "terraform.backend.type" {
+				return "s3"
+			}
+			if len(defaultValue) > 0 {
+				return defaultValue[0]
+			}
+			return ""
+		}
+		mocks.BlueprintHandler.GenerateFunc = func() *blueprintv1alpha1.Blueprint {
+			return &blueprintv1alpha1.Blueprint{
+				Metadata:            blueprintv1alpha1.Metadata{Name: "test"},
+				Backend:             "backend",
+				TerraformComponents: []blueprintv1alpha1.TerraformComponent{{Path: "cluster"}},
+			}
+		}
+		destroyed := false
+		mocks.TerraformStack.DestroyAllFunc = func(*blueprintv1alpha1.Blueprint, bool, ...string) (terraforminfra.DestroyOutcome, error) {
+			destroyed = true
+			return terraforminfra.DestroyOutcome{}, nil
+		}
+		proj := newDestroyProject(mocks)
+
+		cmd := createTestDestroyCmd()
+		ctx := context.WithValue(context.Background(), projectOverridesKey, proj)
+		cmd.SetArgs([]string{"--confirm=test-context"})
+		cmd.SetContext(ctx)
+		err := cmd.Execute()
+
+		// Then it refuses before the confirmation gate and destroys nothing.
+		if err == nil {
+			t.Fatal("Expected unresolved-backend error, got nil")
+		}
+		if !strings.Contains(err.Error(), `"backend"`) {
+			t.Errorf("Expected error naming the unresolved backend, got: %v", err)
+		}
+		if destroyed {
+			t.Error("Expected no destroy to run when the backend field is unresolved")
+		}
+	})
+
 	t.Run("ErrorDestroyAllWrongConfirmation", func(t *testing.T) {
 		// Given wrong interactive confirmation input.
 		mocks := setupDestroyTest(t)
@@ -938,6 +983,48 @@ func TestDestroyTerraformCmd(t *testing.T) {
 		}
 		if destroyed {
 			t.Error("Expected no destroy to run when plan generation failed")
+		}
+	})
+
+	t.Run("HaltsBeforeConfirmationWhenBackendUnresolved", func(t *testing.T) {
+		// Given a blueprint whose Backend field names no real component.
+		mocks := setupDestroyTest(t)
+		mockCH := mocks.ConfigHandler.(*config.MockConfigHandler)
+		mockCH.GetStringFunc = func(key string, defaultValue ...string) string {
+			if key == "terraform.backend.type" {
+				return "s3"
+			}
+			if len(defaultValue) > 0 {
+				return defaultValue[0]
+			}
+			return ""
+		}
+		mocks.BlueprintHandler.GenerateFunc = func() *blueprintv1alpha1.Blueprint {
+			return &blueprintv1alpha1.Blueprint{
+				Metadata:            blueprintv1alpha1.Metadata{Name: "test"},
+				Backend:             "backend",
+				TerraformComponents: []blueprintv1alpha1.TerraformComponent{{Path: "cluster"}},
+			}
+		}
+		destroyed := false
+		mocks.TerraformStack.DestroyAllFunc = func(*blueprintv1alpha1.Blueprint, bool, ...string) (terraforminfra.DestroyOutcome, error) {
+			destroyed = true
+			return terraforminfra.DestroyOutcome{}, nil
+		}
+		proj := newDestroyProject(mocks)
+
+		cmd := createTestDestroyTerraformCmd()
+		ctx := context.WithValue(context.Background(), projectOverridesKey, proj)
+		cmd.SetArgs([]string{"--confirm=test-context"})
+		cmd.SetContext(ctx)
+		err := cmd.Execute()
+
+		// Then it refuses before the confirmation gate and destroys nothing.
+		if err == nil || !strings.Contains(err.Error(), `"backend"`) {
+			t.Fatalf("Expected error naming the unresolved backend, got: %v", err)
+		}
+		if destroyed {
+			t.Error("Expected no destroy to run when the backend field is unresolved")
 		}
 	})
 

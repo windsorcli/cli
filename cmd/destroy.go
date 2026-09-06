@@ -75,6 +75,12 @@ windsor destroy --confirm=local --continue`,
 		blueprint := proj.Composer.BlueprintHandler.Generate()
 
 		if len(args) == 0 {
+			// A stale Backend name must surface before the plan and confirmation
+			// prompt, the same way CheckComponentDestroyable does for a targeted
+			// destroy, so the operator never confirms a run that would fail on it.
+			if err := proj.Provisioner.ValidateBackendTier(blueprint); err != nil {
+				return err
+			}
 			// Auth must precede the plan: terraform plan -destroy and the live
 			// inventory query both need credentials, and a credential failure
 			// should surface before the operator is asked to confirm.
@@ -230,6 +236,11 @@ windsor destroy terraform --confirm=local`,
 		blueprint := proj.Composer.BlueprintHandler.Generate()
 
 		if len(args) == 0 {
+			// A stale Backend name must surface before the plan and confirmation
+			// prompt; see the matching check in the top-level destroy command.
+			if err := proj.Provisioner.ValidateBackendTier(blueprint); err != nil {
+				return err
+			}
 			if err := requireCloudAuth(cmd, proj); err != nil {
 				return err
 			}
