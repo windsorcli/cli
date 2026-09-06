@@ -1013,6 +1013,84 @@ func TestFlattenErrorList(t *testing.T) {
 		}
 	})
 
+	t.Run("SuppressesCascadingErrorsWhenPlatformEnumFails", func(t *testing.T) {
+		// Given an invalid platform value plus the required/type/properties failures that
+		// cascade from no platform-conditional branch matching it
+		list := &jsonschema.List{
+			Details: []jsonschema.List{
+				{InstanceLocation: "/", Errors: map[string]string{"required": "Required property 'identity' is missing"}},
+				{InstanceLocation: "/identity", Errors: map[string]string{"type": "Value is null but should be object"}},
+				{InstanceLocation: "/", Errors: map[string]string{"required": "Required property 'cluster' is missing"}},
+				{InstanceLocation: "/cluster", Errors: map[string]string{"type": "Value is null but should be object"}},
+				{InstanceLocation: "/platform", Errors: map[string]string{"enum": "Value gcp should be one of the allowed values: none, aws, azure"}},
+				{InstanceLocation: "/", Errors: map[string]string{"properties": "Property 'platform' does not match the schema"}},
+			},
+		}
+
+		// When flattening
+		errs := flattenErrorList(list)
+
+		// Then only the platform error and a summary note survive
+		if len(errs) != 2 {
+			t.Fatalf("Expected 2 errors, got %d: %v", len(errs), errs)
+		}
+		if !strings.Contains(errs[0], "/platform: enum:") {
+			t.Errorf("Expected the platform enum error first, got %v", errs)
+		}
+		if !strings.Contains(errs[1], "5 other error(s) are hidden") || !strings.Contains(errs[1], "'platform' is invalid") {
+			t.Errorf("Expected a summary note about hidden errors, got %v", errs)
+		}
+	})
+
+	t.Run("LeavesUnrelatedErrorsAloneWhenPlatformIsValid", func(t *testing.T) {
+		// Given failures with no enum error on /platform at all
+		list := &jsonschema.List{
+			Details: []jsonschema.List{
+				{InstanceLocation: "/", Errors: map[string]string{"required": "Required property 'identity' is missing"}},
+				{InstanceLocation: "/network/cidr_block", Errors: map[string]string{"pattern": "Value does not match the required pattern"}},
+			},
+		}
+
+		// When flattening
+		errs := flattenErrorList(list)
+
+		// Then nothing is suppressed
+		if len(errs) != 2 {
+			t.Errorf("Expected 2 errors unchanged, got %d: %v", len(errs), errs)
+		}
+	})
+
+	t.Run("KeepsIndependentErrorsAlongsideAnInvalidPlatform", func(t *testing.T) {
+		// Given an invalid platform value, a cascade-prone required error, and a specific,
+		// self-contained pattern violation that holds regardless of platform
+		list := &jsonschema.List{
+			Details: []jsonschema.List{
+				{InstanceLocation: "/platform", Errors: map[string]string{"enum": "Value gcp should be one of the allowed values: none, aws, azure"}},
+				{InstanceLocation: "/", Errors: map[string]string{"required": "Required property 'identity' is missing"}},
+				{InstanceLocation: "/network/cidr_block", Errors: map[string]string{"pattern": "Value does not match the required pattern"}},
+			},
+		}
+
+		// When flattening
+		errs := flattenErrorList(list)
+
+		// Then the platform error and the independent pattern error both survive, and only the
+		// cascade-prone required error is hidden
+		if len(errs) != 3 {
+			t.Fatalf("Expected 3 errors, got %d: %v", len(errs), errs)
+		}
+		if !strings.Contains(errs[0], "/platform: enum:") {
+			t.Errorf("Expected the platform enum error first, got %v", errs)
+		}
+		joined := strings.Join(errs, "\n")
+		if !strings.Contains(joined, "/network/cidr_block: pattern:") {
+			t.Errorf("Expected the independent pattern error to survive, got %v", errs)
+		}
+		if !strings.Contains(joined, "1 other error(s) are hidden") {
+			t.Errorf("Expected exactly one hidden error noted, got %v", errs)
+		}
+	})
+
 	t.Run("ReturnsPlaceholderWhenListHasNoErrors", func(t *testing.T) {
 		// Given a list with no error entries anywhere
 		list := &jsonschema.List{}
