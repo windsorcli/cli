@@ -15,7 +15,7 @@ packages:
 - name: siderolabs/omni/omnictl@v1.10.5
 - name: siderolabs/omni/omni@v1.10.5
 - name: kubernetes/kubectl@v1.34.3 # renovate: ignore
-- name: go-task/task@v3.52.0
+- name: go-task/task@v3.53.1
 - name: golang/go@go1.26.5
 - name: getsops/sops@v3.11.0
 - name: docker/cli@v27.4.1
