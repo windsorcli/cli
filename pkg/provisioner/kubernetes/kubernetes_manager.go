@@ -15,7 +15,6 @@ import (
 	"maps"
 	"os"
 	"strings"
-	"sync"
 	"time"
 
 	helmv2 "github.com/fluxcd/helm-controller/api/v2"
@@ -123,7 +122,7 @@ func NewKubernetesManager(kubernetesClient client.KubernetesClient, configHandle
 		client:                               kubernetesClient,
 		configHandler:                        configHandler,
 		shims:                                NewShims(),
-		kustomizationWaitPollInterval:        2 * time.Second,
+		kustomizationWaitPollInterval:        constants.DefaultKustomizationWaitPollInterval,
 		kustomizationWaitMinErrorDuration:    30 * time.Second,
 		kustomizationReconcileTimeout:        5 * time.Minute,
 		kustomizationReconcileSleep:          2 * time.Second,
@@ -363,11 +362,6 @@ func describeStuckKustomization(obj *unstructured.Unstructured) string {
 // minutes; total probing is therefore capped at notReadyDescribeBudget. Once the
 // budget is spent the remaining kustomizations are named without condition detail.
 func (k *BaseKubernetesManager) describeNotReadyKustomizations(names []string, namespace string) string {
-	gvr := schema.GroupVersionResource{
-		Group:    "kustomize.toolkit.fluxcd.io",
-		Version:  "v1",
-		Resource: "kustomizations",
-	}
 	start := time.Now()
 	var stuck []string
 	for _, name := range names {
@@ -375,7 +369,7 @@ func (k *BaseKubernetesManager) describeNotReadyKustomizations(names []string, n
 			stuck = append(stuck, name)
 			continue
 		}
-		obj, err := k.client.GetResource(gvr, namespace, name)
+		obj, err := k.client.GetResource(kustomizationsGVR, namespace, name)
 		if err != nil {
 			stuck = append(stuck, name)
 			continue
@@ -392,8 +386,11 @@ func (k *BaseKubernetesManager) describeNotReadyKustomizations(names []string, n
 }
 
 // kustomizationReady reports whether a Kustomization's status carries a
-// Ready=True condition. A missing status or conditions slice reads as not ready.
+// Ready=True condition. A nil object or a missing status or conditions slice reads as not ready.
 func kustomizationReady(obj *unstructured.Unstructured) bool {
+	if obj == nil {
+		return false
+	}
 	conditions, found, err := unstructured.NestedSlice(obj.Object, "status", "conditions")
 	if err != nil || !found {
 		return false
@@ -411,41 +408,39 @@ func kustomizationReady(obj *unstructured.Unstructured) bool {
 }
 
 // kustomizationWaitErrorBudgetFraction bounds how much of the total wait timeout a streak of
-// transient GetResource errors may consume before WaitForKustomizations gives up: a sustained
+// transient ListResources errors may consume before WaitForKustomizations gives up. A sustained
 // apiserver slowdown gets patience proportional to how patient the overall wait already is,
 // rather than a fixed tick count that's either too tight for a big blueprint or too loose for
 // a small one.
 const kustomizationWaitErrorBudgetFraction = 0.25
 
-// kustomizationCheckConcurrencyLimit caps how many GetResource calls WaitForKustomizations
-// issues at once within a single tick, so a blueprint with a large number of kustomizations
-// doesn't burst the apiserver with one request per kustomization on every poll interval.
-const kustomizationCheckConcurrencyLimit = 10
+// kustomizationsGVR is the Flux Kustomization resource. WaitForKustomizations lists it once per
+// tick rather than issuing one GetResource per pending name.
+var kustomizationsGVR = schema.GroupVersionResource{
+	Group:    "kustomize.toolkit.fluxcd.io",
+	Version:  "v1",
+	Resource: "kustomizations",
+}
 
 // WaitForKustomizations waits for kustomizations to be ready, calculating the timeout from the
 // longest dependency chain in the blueprint. It honors ctx: a cancelled or deadline-exceeded
 // context ends the wait immediately and returns ctx.Err(), so a parent SIGTERM/Ctrl+C or command
 // deadline can interrupt it cleanly.
 //
-// A not-found GetResource error is treated as not-ready-yet. Any other GetResource error (auth,
-// RBAC, TLS, connection, apiserver timeout) is tolerated for up to
-// kustomizationWaitErrorBudgetFraction of the total timeout (floored at
-// kustomizationWaitMinErrorDuration), and the streak resets on any clean tick. These errors are
-// deliberately not classified as permanent vs. transient — matching kustomize-controller and
-// helm-controller, which reserve their no-retry path for a static error in the object's own
-// spec, never a raw API error.
+// Each tick lists every Kustomization in the gitops namespace once. A blueprint with many
+// kustomizations costs one API call per tick, not one per kustomization. A name absent from the
+// list is treated as not-ready-yet. A not-found list error (the Kustomization CRD not yet
+// registered) is free and does not count against the error budget. Any other list error is
+// tolerated for up to kustomizationWaitErrorBudgetFraction of the total timeout (floored at
+// kustomizationWaitMinErrorDuration), and the streak resets on any clean tick.
 //
 // A Kustomization's own Ready=False condition is different: a Reason in
 // kustomizationTerminalReasons (BuildFailed, ArtifactFailed, ReconciliationFailed) ends the wait
 // immediately, since kustomize-controller repeats the same reason on every retry. Any other
 // Reason (Progressing, DependencyNotReady, or none yet) still counts as not-ready and keeps
-// polling.
-//
-// Each pending kustomization is checked concurrently within a tick, up to
-// kustomizationCheckConcurrencyLimit, so one slow or erroring check doesn't block the rest. Once
-// observed Ready, a kustomization is dropped from polling, so a later reconcile flipping it back
-// doesn't reset the wait. The tracked name set is deduplicated, since withCrdLayer can prepend a
-// CRD kustomization whose name collides with one declared elsewhere.
+// polling. Once observed Ready, a kustomization is dropped from evaluation, so a later reconcile
+// flipping it back doesn't reset the wait. The tracked name set is deduplicated, since
+// withCrdLayer can prepend a CRD kustomization whose name collides with one declared elsewhere.
 func (k *BaseKubernetesManager) WaitForKustomizations(ctx context.Context, message string, blueprint *blueprintv1alpha1.Blueprint) error {
 	if blueprint == nil {
 		return fmt.Errorf("blueprint not provided")
@@ -488,59 +483,48 @@ func (k *BaseKubernetesManager) WaitForKustomizations(ctx context.Context, messa
 			tui.Fail()
 			return fmt.Errorf("timeout waiting for kustomizations%s", k.describeNotReadyKustomizations(kustomizationNames, k.gitopsNamespace()))
 		case <-ticker.C:
-			pending := make([]string, 0, len(kustomizationNames))
-			seen := make(map[string]bool, len(kustomizationNames))
-			for _, name := range kustomizationNames {
-				if readyKustomizations[name] || seen[name] {
-					continue
-				}
-				seen[name] = true
-				pending = append(pending, name)
+			objList, err := k.client.ListResources(kustomizationsGVR, k.gitopsNamespace())
+			if err != nil && isNotFoundError(err) {
+				errorStreakStart = time.Time{}
+				continue
 			}
-
-			results := make([]kustomizationCheckResult, len(pending))
-			var wg sync.WaitGroup
-			sem := make(chan struct{}, kustomizationCheckConcurrencyLimit)
-			for i, name := range pending {
-				wg.Add(1)
-				sem <- struct{}{}
-				go func(i int, name string) {
-					defer wg.Done()
-					defer func() { <-sem }()
-					ready, err := k.checkKustomizationReady(name)
-					results[i] = kustomizationCheckResult{ready: ready, err: err}
-				}(i, name)
-			}
-			wg.Wait()
-
-			var tickErr error
-			for i, name := range pending {
-				result := results[i]
-				if result.err != nil {
-					var failed *kustomizationFailedError
-					if errors.As(result.err, &failed) {
-						tui.Fail()
-						return fmt.Errorf("kustomization will not become ready: %w", failed)
-					}
-					if tickErr == nil {
-						tickErr = fmt.Errorf("error checking kustomization %s: %w", name, result.err)
-					}
-					continue
-				}
-				if result.ready {
-					readyKustomizations[name] = true
-				}
-			}
-			if tickErr != nil {
+			if err != nil {
 				if errorStreakStart.IsZero() {
 					errorStreakStart = time.Now()
 				}
 				if time.Since(errorStreakStart) >= maxErrorDuration {
 					tui.Fail()
-					return fmt.Errorf("kustomization readiness checks failing for over %s: %w", maxErrorDuration, tickErr)
+					return fmt.Errorf("kustomization readiness checks failing for over %s: %w", maxErrorDuration, err)
 				}
 				continue
 			}
+			if objList == nil {
+				objList = &unstructured.UnstructuredList{}
+			}
+
+			byName := make(map[string]*unstructured.Unstructured, len(objList.Items))
+			for i := range objList.Items {
+				byName[objList.Items[i].GetName()] = &objList.Items[i]
+			}
+
+			for _, name := range kustomizationNames {
+				if readyKustomizations[name] {
+					continue
+				}
+				obj, exists := byName[name]
+				if !exists {
+					continue
+				}
+				ready, failed := kustomizationConditionStatus(obj)
+				if failed != nil {
+					tui.Fail()
+					return fmt.Errorf("kustomization will not become ready: %w", failed)
+				}
+				if ready {
+					readyKustomizations[name] = true
+				}
+			}
+
 			errorStreakStart = time.Time{}
 			if len(readyKustomizations) == len(kustomizationNames) {
 				tui.Done()
@@ -1049,13 +1033,7 @@ func (k *BaseKubernetesManager) CheckGitRepositoryStatus() error {
 // has a Ready condition with Status False and a Reason in kustomizationTerminalReasons, an error is
 // returned with the failure message.
 func (k *BaseKubernetesManager) GetKustomizationStatus(names []string) (map[string]bool, error) {
-	gvr := schema.GroupVersionResource{
-		Group:    "kustomize.toolkit.fluxcd.io",
-		Version:  "v1",
-		Resource: "kustomizations",
-	}
-
-	objList, err := k.client.ListResources(gvr, k.gitopsNamespace())
+	objList, err := k.client.ListResources(kustomizationsGVR, k.gitopsNamespace())
 	if err != nil {
 		return nil, fmt.Errorf("failed to list kustomizations: %w", err)
 	}
@@ -1099,13 +1077,7 @@ func (k *BaseKubernetesManager) GetKustomizationStatus(names []string) (map[stri
 // failed one is simply reported not-ready — so a convergence driver can keep nudging it toward Ready rather
 // than aborting. Names absent from the cluster report false; only an API list error propagates.
 func (k *BaseKubernetesManager) GetKustomizationReadiness(names []string) (map[string]bool, error) {
-	gvr := schema.GroupVersionResource{
-		Group:    "kustomize.toolkit.fluxcd.io",
-		Version:  "v1",
-		Resource: "kustomizations",
-	}
-
-	objList, err := k.client.ListResources(gvr, k.gitopsNamespace())
+	objList, err := k.client.ListResources(kustomizationsGVR, k.gitopsNamespace())
 	if err != nil {
 		return nil, fmt.Errorf("failed to list kustomizations: %w", err)
 	}
@@ -1126,12 +1098,7 @@ func (k *BaseKubernetesManager) GetKustomizationReadiness(names []string) (map[s
 // KustomizationExists returns true if a Kustomization resource with the given name exists in the given namespace.
 // Returns false (not an error) when the resource is simply absent; propagates other API errors.
 func (k *BaseKubernetesManager) KustomizationExists(name, namespace string) (bool, error) {
-	gvr := schema.GroupVersionResource{
-		Group:    "kustomize.toolkit.fluxcd.io",
-		Version:  "v1",
-		Resource: "kustomizations",
-	}
-	_, err := k.client.GetResource(gvr, namespace, name)
+	_, err := k.client.GetResource(kustomizationsGVR, namespace, name)
 	if err != nil {
 		if isNotFoundError(err) {
 			return false, nil
@@ -1818,18 +1785,11 @@ func (k *BaseKubernetesManager) describeStuckHelmReleases(name, namespace string
 	return "; " + strings.Join(parts, ", ")
 }
 
-// kustomizationCheckResult carries one kustomization's readiness outcome back from a
-// concurrent checkKustomizationReady call to WaitForKustomizations' tick loop.
-type kustomizationCheckResult struct {
-	ready bool
-	err   error
-}
-
 // kustomizationTerminalReasons are Ready=False Reasons that describe a permanent problem: a
 // build error, an artifact fetch failure, or a failed apply. kustomize-controller repeats the
 // same reason on every retry, so waiting longer never helps. This differs from a reason like
 // "Progressing" or "DependencyNotReady", which does resolve with time. GetKustomizationStatus
-// and checkKustomizationReady both treat these reasons as fatal instead of polling to the
+// and kustomizationConditionStatus both treat these reasons as fatal instead of polling to the
 // timeout.
 var kustomizationTerminalReasons = map[string]bool{
 	meta.BuildFailedReason:          true,
@@ -1839,7 +1799,7 @@ var kustomizationTerminalReasons = map[string]bool{
 
 // kustomizationFailedError signals a Ready condition with a Reason in kustomizationTerminalReasons:
 // a failure polling will never resolve. WaitForKustomizations fails immediately on this error.
-// A raw GetResource API error still gets the error-streak tolerance instead (see WaitForKustomizations).
+// A list error at the tick level still gets the error-streak tolerance instead (see WaitForKustomizations).
 type kustomizationFailedError struct {
 	name    string
 	reason  string
@@ -1850,36 +1810,18 @@ func (e *kustomizationFailedError) Error() string {
 	return fmt.Sprintf("kustomization %s failed (%s): %s", e.name, e.reason, e.message)
 }
 
-// checkKustomizationReady fetches a single Kustomization and reports whether its status
-// carries a Ready=True condition. A not-found resource is reported not-ready with no error,
-// since it hasn't reconciled into existence yet; any other GetResource or decode failure is
-// reported not-ready with the error, for the caller's error-budget accounting. A Ready=False
-// condition with a Reason in kustomizationTerminalReasons returns a *kustomizationFailedError
-// instead, so WaitForKustomizations can fail immediately rather than poll a Kustomization
-// that will never become Ready.
-func (k *BaseKubernetesManager) checkKustomizationReady(name string) (bool, error) {
-	gvr := schema.GroupVersionResource{
-		Group:    "kustomize.toolkit.fluxcd.io",
-		Version:  "v1",
-		Resource: "kustomizations",
-	}
-	obj, err := k.client.GetResource(gvr, k.gitopsNamespace(), name)
-	if err != nil {
-		if isNotFoundError(err) {
-			return false, nil
-		}
-		return false, err
-	}
-	var kustomizationObj map[string]any
-	if err := k.shims.FromUnstructured(obj.UnstructuredContent(), &kustomizationObj); err != nil {
+// kustomizationConditionStatus reports whether a Kustomization object's status carries a
+// Ready=True condition. A Ready=False condition with a Reason in kustomizationTerminalReasons
+// returns a *kustomizationFailedError. WaitForKustomizations then fails immediately instead of
+// polling a Kustomization that will never become Ready. Any other condition state (nil object,
+// missing status, missing conditions, Progressing, DependencyNotReady) reports not-ready with no
+// error.
+func kustomizationConditionStatus(obj *unstructured.Unstructured) (bool, *kustomizationFailedError) {
+	if obj == nil {
 		return false, nil
 	}
-	status, ok := kustomizationObj["status"].(map[string]any)
-	if !ok {
-		return false, nil
-	}
-	conditions, ok := status["conditions"].([]any)
-	if !ok {
+	conditions, found, err := unstructured.NestedSlice(obj.Object, "status", "conditions")
+	if err != nil || !found {
 		return false, nil
 	}
 	for _, cond := range conditions {
@@ -1897,7 +1839,7 @@ func (k *BaseKubernetesManager) checkKustomizationReady(name string) (bool, erro
 			reason, _ := condMap["reason"].(string)
 			if kustomizationTerminalReasons[reason] {
 				message, _ := condMap["message"].(string)
-				return false, &kustomizationFailedError{name: name, reason: reason, message: message}
+				return false, &kustomizationFailedError{name: obj.GetName(), reason: reason, message: message}
 			}
 		}
 		break
