@@ -77,6 +77,14 @@ type initCacheKey struct {
 	migrateState bool
 }
 
+// planDiagnostic mirrors one `diagnostic` event from a terraform -json plan stream.
+type planDiagnostic struct {
+	Severity string `json:"severity"`
+	Summary  string `json:"summary"`
+	Address  string `json:"address"`
+	Detail   string `json:"detail"`
+}
+
 // TerraformComponentPlan holds the plan result for a single Terraform component.
 // ComponentID is the unique identifier (Name when set, else Path). Path carries the
 // component's blueprint Path field (e.g., "cluster/aws-eks") so renderers can show
@@ -802,7 +810,8 @@ func (s *TerraformStack) PlanJSON(blueprint *blueprintv1alpha1.Blueprint, compon
 	planEnv := selectTerraformCommandEnv(terraformVars, true, scopedKeys)
 	planOutput, err := s.runtime.Shell.ExecSilentWithEnv(terraformCommand, planEnv, planArgs...)
 	if err != nil {
-		return fmt.Errorf("error running terraform plan for %s: %w", component.Path, err)
+		wrapped := fmt.Errorf("error running terraform plan for %s: %w", component.Path, err)
+		return wrapPlanError(wrapped, extractPlanErrorDiagnostics(planOutput))
 	}
 	if planOutput != "" {
 		fmt.Fprint(os.Stdout, planOutput)
@@ -1175,7 +1184,8 @@ func (s *TerraformStack) planComponents(blueprint *blueprintv1alpha1.Blueprint, 
 		planOutput, err := s.runtime.Shell.ExecSilentWithEnv(terraformCommand, planEnv, planArgs...)
 		cleanup()
 		if err != nil {
-			return fmt.Errorf("error running terraform plan for %s: %w", component.Path, err)
+			wrapped := fmt.Errorf("error running terraform plan for %s: %w", component.Path, err)
+			return wrapPlanError(wrapped, extractPlanErrorDiagnostics(planOutput))
 		}
 		if planOutput != "" {
 			fmt.Fprint(os.Stdout, planOutput)
@@ -1400,7 +1410,8 @@ func (s *TerraformStack) planOneTerraformSummary(component *blueprintv1alpha1.Te
 	planEnv := selectTerraformCommandEnv(terraformVars, true, scopedKeys)
 	planOutput, err := s.runtime.Shell.ExecCaptureWithEnv(terraformCommand, planEnv, planArgs...)
 	if err != nil {
-		result.Err = fmt.Errorf("error running terraform plan for %s: %w", component.Path, err)
+		wrapped := fmt.Errorf("error running terraform plan for %s: %w", component.Path, err)
+		result.Err = wrapPlanError(wrapped, extractPlanErrorDiagnostics(planOutput))
 		return result
 	}
 
@@ -1453,28 +1464,29 @@ func (s *TerraformStack) planOneTerraformDestroySummary(component *blueprintv1al
 	planArgs = append(planArgs, terraformArgs.PlanDestroyArgs...)
 	planEnv := selectTerraformCommandEnv(terraformVars, true, scopedKeys)
 	planOutput, err := s.runtime.Shell.ExecCaptureWithEnv(terraformCommand, planEnv, planArgs...)
-	// terraform exits non-zero when any resource has prevent_destroy = true,
-	// but still emits the diagnostic events naming them. Look for those addresses
-	// regardless of exec error so the warning can surface them; otherwise the
-	// operator just sees a raw plan failure.
-	protected := extractPreventDestroyAddresses(planOutput)
-	if err != nil {
-		if len(protected) > 0 {
-			// Parse whatever planned_change / change_summary events terraform
-			// emitted before the diagnostic — without this, plan counts stay
-			// zero and the renderer shows "(no changes)" while the warning
-			// says N resources can't be destroyed, two directly contradictory
-			// signals to the operator.
-			result.Add, result.Change, result.Destroy, result.NoChanges, result.Resources = parseTerraformPlanJSON(planOutput)
-			result.Protected = protected
-			return result
-		}
-		result.Err = fmt.Errorf("error running terraform plan -destroy for %s: %w", component.Path, err)
+	if err == nil {
+		result.Add, result.Change, result.Destroy, result.NoChanges, result.Resources = parseTerraformPlanJSON(planOutput)
 		return result
 	}
 
+	// A protected resource and a real error can occur in the same run; check both.
+	diags := planDiagnostics(planOutput)
+	protected := preventDestroyAddressesFromDiagnostics(diags)
+	skip := map[string]bool{}
+	if len(protected) > 0 {
+		skip[preventDestroySummary] = true
+	}
+	otherErrors := planErrorMessages(diags, skip)
+
+	// Parse counts even on failure, so a protected-resource warning isn't paired with "(no changes)".
 	result.Add, result.Change, result.Destroy, result.NoChanges, result.Resources = parseTerraformPlanJSON(planOutput)
 	result.Protected = protected
+	if len(protected) > 0 && len(otherErrors) == 0 {
+		return result
+	}
+
+	wrapped := fmt.Errorf("error running terraform plan -destroy for %s: %w", component.Path, err)
+	result.Err = wrapPlanError(wrapped, otherErrors)
 	return result
 }
 
@@ -1821,30 +1833,19 @@ func parseTerraformPlanJSON(output string) (add, change, destroy int, noChanges 
 	return
 }
 
-// extractPreventDestroyAddresses scans the line-delimited JSON event stream
-// emitted by `terraform plan -destroy -json` for diagnostic events that
-// terraform produces when a resource has `lifecycle { prevent_destroy = true }`.
-// The diagnostic summary is the canonical signal — terraform emits
-// "Instance cannot be destroyed" verbatim for this case. The address comes from
-// `diagnostic.address` when present (newer terraform/tofu), with a fallback to
-// parsing the `detail` string which always starts with "Resource <addr> has
-// lifecycle.prevent_destroy set". Returns the addresses in the order they
-// appear; duplicates are preserved so callers see each occurrence. Lines that
-// aren't JSON or don't parse are silently skipped, since terraform interleaves
-// non-event output.
-func extractPreventDestroyAddresses(output string) []string {
-	type diagnostic struct {
-		Severity string `json:"severity"`
-		Summary  string `json:"summary"`
-		Address  string `json:"address"`
-		Detail   string `json:"detail"`
-	}
+// preventDestroySummary is the diagnostic summary terraform emits verbatim for
+// a resource protected by `lifecycle { prevent_destroy = true }`.
+const preventDestroySummary = "Instance cannot be destroyed"
+
+// planDiagnostics returns every diagnostic event from a `plan [-destroy]
+// -json` stream, in order. Non-event lines are skipped.
+func planDiagnostics(output string) []planDiagnostic {
 	type event struct {
-		Type       string      `json:"type"`
-		Diagnostic *diagnostic `json:"diagnostic,omitempty"`
+		Type       string          `json:"type"`
+		Diagnostic *planDiagnostic `json:"diagnostic,omitempty"`
 	}
 
-	var addresses []string
+	var diags []planDiagnostic
 	for _, line := range strings.Split(output, "\n") {
 		line = strings.TrimSpace(line)
 		if line == "" || !strings.HasPrefix(line, "{") {
@@ -1857,15 +1858,23 @@ func extractPreventDestroyAddresses(output string) []string {
 		if ev.Type != "diagnostic" || ev.Diagnostic == nil {
 			continue
 		}
-		if ev.Diagnostic.Severity != "error" {
+		diags = append(diags, *ev.Diagnostic)
+	}
+	return diags
+}
+
+// preventDestroyAddressesFromDiagnostics returns the addresses of resources
+// protected by `lifecycle { prevent_destroy = true }`, in order. Falls back to
+// parsing detail when address is absent.
+func preventDestroyAddressesFromDiagnostics(diags []planDiagnostic) []string {
+	var addresses []string
+	for _, d := range diags {
+		if d.Severity != "error" || d.Summary != preventDestroySummary {
 			continue
 		}
-		if ev.Diagnostic.Summary != "Instance cannot be destroyed" {
-			continue
-		}
-		addr := ev.Diagnostic.Address
+		addr := d.Address
 		if addr == "" {
-			addr = preventDestroyAddressFromDetail(ev.Diagnostic.Detail)
+			addr = preventDestroyAddressFromDetail(d.Detail)
 		}
 		if addr == "" {
 			continue
@@ -1873,6 +1882,57 @@ func extractPreventDestroyAddresses(output string) []string {
 		addresses = append(addresses, stripModuleMain(addr))
 	}
 	return addresses
+}
+
+// extractPreventDestroyAddresses runs preventDestroyAddressesFromDiagnostics
+// over a raw -json plan stream. See that function for the extraction rules.
+func extractPreventDestroyAddresses(output string) []string {
+	return preventDestroyAddressesFromDiagnostics(planDiagnostics(output))
+}
+
+// planErrorMessages formats each error-severity diagnostic as "summary:
+// detail", skipping summaries named in skip. Flattens embedded newlines and
+// drops duplicates.
+func planErrorMessages(diags []planDiagnostic, skip map[string]bool) []string {
+	var messages []string
+	seen := make(map[string]bool, len(diags))
+	for _, d := range diags {
+		if d.Severity != "error" || d.Summary == "" || skip[d.Summary] {
+			continue
+		}
+		msg := sanitizeDiagnosticLine(d.Summary)
+		if d.Detail != "" {
+			msg = fmt.Sprintf("%s: %s", msg, sanitizeDiagnosticLine(d.Detail))
+		}
+		if seen[msg] {
+			continue
+		}
+		seen[msg] = true
+		messages = append(messages, msg)
+	}
+	return messages
+}
+
+// sanitizeDiagnosticLine collapses a diagnostic summary or detail to one
+// line, replacing embedded newlines with a space.
+func sanitizeDiagnosticLine(s string) string {
+	return strings.Join(strings.Fields(s), " ")
+}
+
+// extractPlanErrorDiagnostics returns every error diagnostic in a raw -json
+// plan stream. `plan -json` reports its real error on stdout, not stderr, so
+// a bare exec error carries none of it.
+func extractPlanErrorDiagnostics(output string) []string {
+	return planErrorMessages(planDiagnostics(output), nil)
+}
+
+// wrapPlanError appends messages to err's text, one per line. Returns err
+// unchanged when messages is empty.
+func wrapPlanError(err error, messages []string) error {
+	if len(messages) == 0 {
+		return err
+	}
+	return fmt.Errorf("%w\n%s", err, strings.Join(messages, "\n"))
 }
 
 // preventDestroyAddressFromDetail extracts the resource address from a
