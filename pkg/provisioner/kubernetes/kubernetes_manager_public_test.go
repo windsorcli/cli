@@ -847,6 +847,12 @@ func TestBaseKubernetesManager_DeleteKustomization(t *testing.T) {
 		}}
 	}
 
+	waitForTerminationKustomization := func() *unstructured.Unstructured {
+		obj := drainedKustomization()
+		obj.Object["spec"] = map[string]any{"deletionPolicy": "WaitForTermination"}
+		return obj
+	}
+
 	t.Run("TimeoutReportsDrainedKustomizationAsStuckFinalizer", func(t *testing.T) {
 		// Given every inventory entry's own live object confirmed gone
 		manager := setup(t)
@@ -985,6 +991,195 @@ func TestBaseKubernetesManager_DeleteKustomization(t *testing.T) {
 		}
 		if strings.Contains(err.Error(), "fully drained") {
 			t.Errorf("Expected fallback wording when no inventory was ever reported, got: %v", err)
+		}
+	})
+
+	t.Run("DisappearedReportsAbandonedInventoryWhenEntryStillLive", func(t *testing.T) {
+		// Given a WaitForTermination kustomization that disappears after one tick, and
+		// its last-known inventory entry stays live through the grace retries —
+		// kustomize-controller gave up and stripped its own finalizer early
+		manager := setup(t)
+		kubernetesClient := client.NewMockKubernetesClient()
+		kubernetesClient.DeleteResourceFunc = func(gvr schema.GroupVersionResource, namespace, name string, opts metav1.DeleteOptions) error {
+			return nil
+		}
+		calls := 0
+		kubernetesClient.GetResourceFunc = func(gvr schema.GroupVersionResource, namespace, name string) (*unstructured.Unstructured, error) {
+			if name == "test-kustomization" {
+				calls++
+				if calls == 1 {
+					return waitForTerminationKustomization(), nil
+				}
+				return nil, fmt.Errorf("the server could not find the requested resource")
+			}
+			if name == "entry-one" {
+				return &unstructured.Unstructured{Object: map[string]any{}}, nil
+			}
+			return nil, fmt.Errorf("the server could not find the requested resource")
+		}
+		manager.client = kubernetesClient
+
+		// When DeleteKustomization sees the object disappear
+		err := manager.DeleteKustomization("test-kustomization", "test-namespace")
+
+		// Then it reports the still-live entry instead of a clean delete
+		if err == nil {
+			t.Fatal("Expected an error naming the abandoned inventory, got nil")
+		}
+		if !strings.Contains(err.Error(), "entry-one") {
+			t.Errorf("Expected error to name the still-live entry, got: %v", err)
+		}
+	})
+
+	t.Run("DisappearedRecoversWhenEntrySettlesDuringGracePeriod", func(t *testing.T) {
+		// Given a still-live entry that finishes its own normal termination within the
+		// grace retries — not a sign Flux gave up, just a resource a moment from gone
+		manager := setup(t)
+		kubernetesClient := client.NewMockKubernetesClient()
+		kubernetesClient.DeleteResourceFunc = func(gvr schema.GroupVersionResource, namespace, name string, opts metav1.DeleteOptions) error {
+			return nil
+		}
+		calls, entryCalls := 0, 0
+		kubernetesClient.GetResourceFunc = func(gvr schema.GroupVersionResource, namespace, name string) (*unstructured.Unstructured, error) {
+			if name == "test-kustomization" {
+				calls++
+				if calls == 1 {
+					return waitForTerminationKustomization(), nil
+				}
+				return nil, fmt.Errorf("the server could not find the requested resource")
+			}
+			if name == "entry-one" {
+				entryCalls++
+				if entryCalls == 1 {
+					return &unstructured.Unstructured{Object: map[string]any{}}, nil
+				}
+			}
+			return nil, fmt.Errorf("the server could not find the requested resource")
+		}
+		manager.client = kubernetesClient
+
+		// When DeleteKustomization sees the object disappear
+		err := manager.DeleteKustomization("test-kustomization", "test-namespace")
+
+		// Then it reports success once the entry settles
+		if err != nil {
+			t.Errorf("Expected no error once the entry settles within the grace period, got %v", err)
+		}
+	})
+
+	t.Run("DisappearedIsCleanWhenPolicyIsMirrorPrune", func(t *testing.T) {
+		// Given a MirrorPrune kustomization (destroy:false) whose last-known inventory
+		// entry is still live — MirrorPrune deletes resources without waiting for them,
+		// so a live entry here is expected, not a sign of a stuck finalizer
+		manager := setup(t)
+		kubernetesClient := client.NewMockKubernetesClient()
+		kubernetesClient.DeleteResourceFunc = func(gvr schema.GroupVersionResource, namespace, name string, opts metav1.DeleteOptions) error {
+			return nil
+		}
+		calls := 0
+		kubernetesClient.GetResourceFunc = func(gvr schema.GroupVersionResource, namespace, name string) (*unstructured.Unstructured, error) {
+			if name == "test-kustomization" {
+				calls++
+				if calls == 1 {
+					return drainedKustomization(), nil
+				}
+				return nil, fmt.Errorf("the server could not find the requested resource")
+			}
+			if name == "entry-one" {
+				return &unstructured.Unstructured{Object: map[string]any{}}, nil
+			}
+			return nil, fmt.Errorf("the server could not find the requested resource")
+		}
+		manager.client = kubernetesClient
+
+		// When DeleteKustomization sees the object disappear
+		err := manager.DeleteKustomization("test-kustomization", "test-namespace")
+
+		// Then it reports success rather than a false abandoned-inventory error
+		if err != nil {
+			t.Errorf("Expected no error for a MirrorPrune delete, got %v", err)
+		}
+	})
+
+	t.Run("DisappearedIsCleanWhenLastKnownInventoryIsDrained", func(t *testing.T) {
+		// Given a kustomization that disappears after one tick, and every last-known
+		// inventory entry is confirmed gone — a genuinely clean delete
+		manager := setup(t)
+		kubernetesClient := client.NewMockKubernetesClient()
+		kubernetesClient.DeleteResourceFunc = func(gvr schema.GroupVersionResource, namespace, name string, opts metav1.DeleteOptions) error {
+			return nil
+		}
+		calls := 0
+		kubernetesClient.GetResourceFunc = func(gvr schema.GroupVersionResource, namespace, name string) (*unstructured.Unstructured, error) {
+			if name == "test-kustomization" {
+				calls++
+				if calls == 1 {
+					return waitForTerminationKustomization(), nil
+				}
+			}
+			return nil, fmt.Errorf("the server could not find the requested resource")
+		}
+		manager.client = kubernetesClient
+
+		// When DeleteKustomization sees the object disappear
+		err := manager.DeleteKustomization("test-kustomization", "test-namespace")
+
+		// Then it reports success
+		if err != nil {
+			t.Errorf("Expected no error for a drained delete, got %v", err)
+		}
+	})
+
+	t.Run("DisappearedIsCleanWhenInventoryCheckInconclusive", func(t *testing.T) {
+		// Given a kustomization that disappears after one tick, but the live-check on
+		// its last-known inventory entry fails with a real API error — nothing may be
+		// asserted from an inconclusive lookup
+		manager := setup(t)
+		kubernetesClient := client.NewMockKubernetesClient()
+		kubernetesClient.DeleteResourceFunc = func(gvr schema.GroupVersionResource, namespace, name string, opts metav1.DeleteOptions) error {
+			return nil
+		}
+		calls := 0
+		kubernetesClient.GetResourceFunc = func(gvr schema.GroupVersionResource, namespace, name string) (*unstructured.Unstructured, error) {
+			if name == "test-kustomization" {
+				calls++
+				if calls == 1 {
+					return waitForTerminationKustomization(), nil
+				}
+				return nil, fmt.Errorf("the server could not find the requested resource")
+			}
+			return nil, fmt.Errorf("connection refused")
+		}
+		manager.client = kubernetesClient
+
+		// When DeleteKustomization sees the object disappear
+		err := manager.DeleteKustomization("test-kustomization", "test-namespace")
+
+		// Then it falls back to reporting success rather than a false positive
+		if err != nil {
+			t.Errorf("Expected no error on an inconclusive check, got %v", err)
+		}
+	})
+
+	t.Run("DisappearedIsCleanWhenNoInventoryWasEverReported", func(t *testing.T) {
+		// Given a kustomization that disappears on the very first check — no
+		// last-known object was ever captured
+		manager := setup(t)
+		kubernetesClient := client.NewMockKubernetesClient()
+		kubernetesClient.DeleteResourceFunc = func(gvr schema.GroupVersionResource, namespace, name string, opts metav1.DeleteOptions) error {
+			return nil
+		}
+		kubernetesClient.GetResourceFunc = func(gvr schema.GroupVersionResource, namespace, name string) (*unstructured.Unstructured, error) {
+			return nil, fmt.Errorf("the server could not find the requested resource")
+		}
+		manager.client = kubernetesClient
+
+		// When DeleteKustomization sees the object disappear
+		err := manager.DeleteKustomization("test-kustomization", "test-namespace")
+
+		// Then it reports success
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
 		}
 	})
 }
