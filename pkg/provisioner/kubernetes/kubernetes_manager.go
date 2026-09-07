@@ -169,12 +169,18 @@ func (k *BaseKubernetesManager) ApplyKustomization(kustomization kustomizev1.Kus
 	return k.applyWithRetry(gvr, obj, opts)
 }
 
+// abandonedInventoryGraceChecks bounds how many extra polls DeleteKustomization spends
+// re-checking a still-live inventory entry after the Kustomization disappears. It gives a
+// resource still finishing its own normal termination a chance to clear before the delete
+// is reported as abandoned rather than clean.
+const abandonedInventoryGraceChecks = 3
+
 // DeleteKustomization deletes a Kustomization and waits for it to disappear. The wait
 // floor rises to spec.timeout when set, and scales with inventory size (see
-// kustomizationSpecTimeoutCeiling). On timeout, it checks whether every inventory item
-// is already gone (see allInventoryEntriesGone); if so, the error names this as a stuck
-// Flux finalizer rather than a guess, since infrastructure has not leaked. Any less
-// certain timeout falls back to the condition-based diagnosis below.
+// kustomizationSpecTimeoutCeiling). On timeout or a clean disappearance, it checks the
+// last-known inventory (see allInventoryEntriesGone, describeAbandonedInventory) before
+// trusting the result. A still-live entry gets a few retries first, to rule out normal
+// in-flight termination.
 func (k *BaseKubernetesManager) DeleteKustomization(name, namespace string) error {
 	gvr := schema.GroupVersionResource{
 		Group:    "kustomize.toolkit.fluxcd.io",
@@ -201,7 +207,19 @@ func (k *BaseKubernetesManager) DeleteKustomization(name, namespace string) erro
 	for k.shims.TimeNow().Before(start.Add(waitFor)) {
 		obj, err := k.client.GetResource(gvr, namespace, name)
 		if err != nil && isNotFoundError(err) {
-			return nil
+			entry := k.describeAbandonedInventory(lastObj)
+			for i := 0; entry != nil && i < abandonedInventoryGraceChecks; i++ {
+				k.shims.TimeSleep(k.kustomizationWaitPollInterval)
+				entry = k.describeAbandonedInventory(lastObj)
+			}
+			if entry == nil {
+				return nil
+			}
+			inspectCmd := fmt.Sprintf("`kubectl get %s %s`", entry.gvr.Resource, entry.Name)
+			if entry.Namespace != "" {
+				inspectCmd = fmt.Sprintf("`kubectl get %s %s -n %s`", entry.gvr.Resource, entry.Name, entry.Namespace)
+			}
+			return fmt.Errorf("kustomization %s/%s disappeared but %s/%s from its inventory is still live. Flux likely gave up waiting and removed the finalizer early. Inspect it with %s before retrying", namespace, name, entry.Kind, entry.Name, inspectCmd)
 		}
 		if err != nil {
 			return fmt.Errorf("error checking kustomization deletion status: %w", err)
@@ -262,6 +280,21 @@ func specTimeout(obj *unstructured.Unstructured) (time.Duration, bool) {
 		return 0, false
 	}
 	return d, true
+}
+
+// waitsForTermination reports whether a Kustomization's own spec.deletionPolicy is
+// WaitForTermination; see ToFluxKustomization. A destroy:false kustomization gets
+// MirrorPrune instead. MirrorPrune deletes resources without waiting for them. A live
+// entry there does not mean Flux gave up.
+func waitsForTermination(obj *unstructured.Unstructured) bool {
+	if obj == nil {
+		return false
+	}
+	value, found, err := unstructured.NestedString(obj.Object, "spec", "deletionPolicy")
+	if err != nil || !found {
+		return false
+	}
+	return value == "WaitForTermination"
 }
 
 // extendWaitFor raises waitFor to candidate when candidate is larger, otherwise
@@ -2143,16 +2176,36 @@ func (k *BaseKubernetesManager) resolveScopedGVR(gvk schema.GroupVersionKind, na
 }
 
 // allInventoryEntriesGone reports whether every inventory entry's own live object is
-// confirmed absent, independent of the Kustomization's finalizer state. An entry whose
-// API type no longer exists counts as gone. It returns false on the first entry still
-// present. It returns an error, not false, on any inconclusive lookup: a wrong "all
-// gone" reading here is exactly what could clear a finalizer while resources still exist.
+// confirmed absent, independent of the Kustomization's finalizer state. It returns an
+// error, not false, on any inconclusive lookup: a wrong "all gone" reading here is
+// exactly what could clear a finalizer while resources still exist.
 func (k *BaseKubernetesManager) allInventoryEntriesGone(entries []InventoryEntry) (bool, error) {
+	live, err := k.firstLiveInventoryEntry(entries)
+	if err != nil {
+		return false, err
+	}
+	return live == nil, nil
+}
+
+// liveInventoryEntry is an inventory entry confirmed still live, paired with its
+// resolved GVR. The GVR's Resource is the plural name kubectl accepts, not a guess
+// from Kind.
+type liveInventoryEntry struct {
+	InventoryEntry
+	gvr schema.GroupVersionResource
+}
+
+// firstLiveInventoryEntry returns the first inventory entry whose own live object is
+// still present, or nil if every entry is confirmed absent. An entry whose API type no
+// longer exists counts as gone. It returns an error, not a false negative, on an
+// inconclusive lookup. A wrong "gone" reading could clear a finalizer or report a
+// false clean delete.
+func (k *BaseKubernetesManager) firstLiveInventoryEntry(entries []InventoryEntry) (*liveInventoryEntry, error) {
 	for _, entry := range entries {
 		gvk := schema.GroupVersionKind{Group: entry.Group, Kind: entry.Kind}
 		gvr, namespace, ok, err := k.resolveScopedGVR(gvk, entry.Namespace)
 		if err != nil {
-			return false, err
+			return nil, err
 		}
 		if !ok {
 			continue
@@ -2161,11 +2214,32 @@ func (k *BaseKubernetesManager) allInventoryEntriesGone(entries []InventoryEntry
 			if isNotFoundError(err) {
 				continue
 			}
-			return false, err
+			return nil, err
 		}
-		return false, nil
+		return &liveInventoryEntry{InventoryEntry: entry, gvr: gvr}, nil
 	}
-	return true, nil
+	return nil, nil
+}
+
+// describeAbandonedInventory checks lastObj's last-known inventory for an entry whose
+// live object is confirmed still present, after the Kustomization itself has already
+// disappeared. It only applies to a WaitForTermination kustomization; see
+// waitsForTermination. A MirrorPrune one is expected to leave live entries behind.
+// Returns nil when there is no inventory to check, or the lookup is inconclusive. A
+// genuinely clean delete is never second-guessed.
+func (k *BaseKubernetesManager) describeAbandonedInventory(lastObj *unstructured.Unstructured) *liveInventoryEntry {
+	if !waitsForTermination(lastObj) {
+		return nil
+	}
+	entries, found := inventoryEntriesFromObject(lastObj)
+	if !found {
+		return nil
+	}
+	live, err := k.firstLiveInventoryEntry(entries)
+	if err != nil {
+		return nil
+	}
+	return live
 }
 
 // gitopsMode returns the configured gitops mode, defaulting to pull. Centralising
