@@ -20,6 +20,7 @@ import (
 	"github.com/windsorcli/cli/pkg/provisioner/kubernetes/client"
 	"github.com/windsorcli/cli/pkg/runtime/config"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -830,6 +831,160 @@ func TestBaseKubernetesManager_DeleteKustomization(t *testing.T) {
 		}
 		if elapsed > 100*time.Millisecond {
 			t.Errorf("Expected base window (~20ms) when spec.timeout is unparseable, got %s", elapsed)
+		}
+	})
+
+	drainedKustomization := func() *unstructured.Unstructured {
+		return &unstructured.Unstructured{Object: map[string]any{
+			"status": map[string]any{
+				"inventory": map[string]any{
+					"entries": []any{
+						map[string]any{"id": "test-namespace_entry-one__ConfigMap"},
+						map[string]any{"id": "test-namespace_entry-two_apps_Deployment"},
+					},
+				},
+			},
+		}}
+	}
+
+	t.Run("TimeoutReportsDrainedKustomizationAsStuckFinalizer", func(t *testing.T) {
+		// Given every inventory entry's own live object confirmed gone
+		manager := setup(t)
+		kubernetesClient := client.NewMockKubernetesClient()
+		kubernetesClient.DeleteResourceFunc = func(gvr schema.GroupVersionResource, namespace, name string, opts metav1.DeleteOptions) error {
+			return nil
+		}
+		kubernetesClient.GetResourceFunc = func(gvr schema.GroupVersionResource, namespace, name string) (*unstructured.Unstructured, error) {
+			if name == "test-kustomization" {
+				return drainedKustomization(), nil
+			}
+			return nil, fmt.Errorf("the server could not find the requested resource")
+		}
+		manager.client = kubernetesClient
+
+		// When DeleteKustomization times out
+		err := manager.DeleteKustomization("test-kustomization", "test-namespace")
+
+		// Then it reports the drained state and a manual fix, not a suspected leak
+		if err == nil {
+			t.Fatal("Expected timeout error, got nil")
+		}
+		if !strings.Contains(err.Error(), "fully drained") || !strings.Contains(err.Error(), "kubectl patch") {
+			t.Errorf("Expected drained-and-stuck-finalizer wording naming a fix, got: %v", err)
+		}
+	})
+
+	t.Run("TimeoutDoesNotClaimDrainedWhenEntryStillLive", func(t *testing.T) {
+		// Given one inventory entry whose live object still exists — the safety-critical
+		// case: nothing here may be treated as drained
+		manager := setup(t)
+		kubernetesClient := client.NewMockKubernetesClient()
+		kubernetesClient.DeleteResourceFunc = func(gvr schema.GroupVersionResource, namespace, name string, opts metav1.DeleteOptions) error {
+			return nil
+		}
+		kubernetesClient.GetResourceFunc = func(gvr schema.GroupVersionResource, namespace, name string) (*unstructured.Unstructured, error) {
+			if name == "test-kustomization" {
+				return drainedKustomization(), nil
+			}
+			if name == "entry-one" {
+				return &unstructured.Unstructured{Object: map[string]any{}}, nil
+			}
+			return nil, fmt.Errorf("the server could not find the requested resource")
+		}
+		manager.client = kubernetesClient
+
+		// When DeleteKustomization times out
+		err := manager.DeleteKustomization("test-kustomization", "test-namespace")
+
+		// Then it does not claim the kustomization is drained
+		if err == nil {
+			t.Fatal("Expected timeout error, got nil")
+		}
+		if strings.Contains(err.Error(), "fully drained") {
+			t.Errorf("Expected fallback wording when an entry is still live, got: %v", err)
+		}
+	})
+
+	t.Run("TimeoutFallsBackWhenInventoryCheckInconclusive", func(t *testing.T) {
+		// Given an inventory entry whose live status can't be determined (a real API error,
+		// not a NotFound) — a false "all gone" reading here is the exact risk to avoid
+		manager := setup(t)
+		kubernetesClient := client.NewMockKubernetesClient()
+		kubernetesClient.DeleteResourceFunc = func(gvr schema.GroupVersionResource, namespace, name string, opts metav1.DeleteOptions) error {
+			return nil
+		}
+		kubernetesClient.GetResourceFunc = func(gvr schema.GroupVersionResource, namespace, name string) (*unstructured.Unstructured, error) {
+			if name == "test-kustomization" {
+				return drainedKustomization(), nil
+			}
+			return nil, fmt.Errorf("connection refused")
+		}
+		manager.client = kubernetesClient
+
+		// When DeleteKustomization times out
+		err := manager.DeleteKustomization("test-kustomization", "test-namespace")
+
+		// Then it falls back to the original diagnosis rather than claiming drained
+		if err == nil {
+			t.Fatal("Expected timeout error, got nil")
+		}
+		if strings.Contains(err.Error(), "fully drained") {
+			t.Errorf("Expected fallback wording on an inconclusive check, got: %v", err)
+		}
+	})
+
+	t.Run("TimeoutTreatsDeletedResourceTypeAsGone", func(t *testing.T) {
+		// Given an inventory entry whose CRD no longer exists — nothing left to leak
+		manager := setup(t)
+		kubernetesClient := client.NewMockKubernetesClient()
+		kubernetesClient.DeleteResourceFunc = func(gvr schema.GroupVersionResource, namespace, name string, opts metav1.DeleteOptions) error {
+			return nil
+		}
+		kubernetesClient.ResourceForFunc = func(gvk schema.GroupVersionKind) (schema.GroupVersionResource, error) {
+			return schema.GroupVersionResource{}, &apimeta.NoKindMatchError{GroupKind: gvk.GroupKind()}
+		}
+		kubernetesClient.GetResourceFunc = func(gvr schema.GroupVersionResource, namespace, name string) (*unstructured.Unstructured, error) {
+			if name == "test-kustomization" {
+				return drainedKustomization(), nil
+			}
+			return nil, fmt.Errorf("should not be called when the type cannot be resolved")
+		}
+		manager.client = kubernetesClient
+
+		// When DeleteKustomization times out
+		err := manager.DeleteKustomization("test-kustomization", "test-namespace")
+
+		// Then a deleted resource type still counts as drained
+		if err == nil {
+			t.Fatal("Expected timeout error, got nil")
+		}
+		if !strings.Contains(err.Error(), "fully drained") {
+			t.Errorf("Expected drained wording when the entry's type no longer exists, got: %v", err)
+		}
+	})
+
+	t.Run("TimeoutIgnoresInventoryNeverReported", func(t *testing.T) {
+		// Given a Kustomization that has never reconciled far enough to report an
+		// inventory at all — not the same as a reconciled, now-empty one
+		manager := setup(t)
+		kubernetesClient := client.NewMockKubernetesClient()
+		kubernetesClient.DeleteResourceFunc = func(gvr schema.GroupVersionResource, namespace, name string, opts metav1.DeleteOptions) error {
+			return nil
+		}
+		kubernetesClient.GetResourceFunc = func(gvr schema.GroupVersionResource, namespace, name string) (*unstructured.Unstructured, error) {
+			return &unstructured.Unstructured{Object: map[string]any{}}, nil
+		}
+		manager.client = kubernetesClient
+
+		// When DeleteKustomization times out
+		err := manager.DeleteKustomization("test-kustomization", "test-namespace")
+
+		// Then it does not claim the kustomization is drained
+		if err == nil {
+			t.Fatal("Expected timeout error, got nil")
+		}
+		if strings.Contains(err.Error(), "fully drained") {
+			t.Errorf("Expected fallback wording when no inventory was ever reported, got: %v", err)
 		}
 	})
 }

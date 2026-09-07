@@ -170,16 +170,12 @@ func (k *BaseKubernetesManager) ApplyKustomization(kustomization kustomizev1.Kus
 	return k.applyWithRetry(gvr, obj, opts)
 }
 
-// DeleteKustomization removes a Kustomization using background deletion and waits for
-// it to disappear. The wait floor rises to the Kustomization's own spec.timeout when
-// it declares one larger than the default, capped at kustomizationSpecTimeoutCeiling.
-// A slow-to-delete resource (e.g. a Crossplane-managed database) often sets a long
-// install timeout; deletion deserves the same allowance. The wait also scales with
-// inventory size for CRD-heavy layers. On timeout it returns an error instead of
-// stripping finalizers, which would orphan inventory items and let terraform destroy
-// the cluster while their cloud resources leak. The error asserts a stuck finalizer
-// only when a status condition confirms one; otherwise it reports the timeout as
-// unconfirmed.
+// DeleteKustomization deletes a Kustomization and waits for it to disappear. The wait
+// floor rises to spec.timeout when set, and scales with inventory size (see
+// kustomizationSpecTimeoutCeiling). On timeout, it checks whether every inventory item
+// is already gone (see allInventoryEntriesGone); if so, the error names this as a stuck
+// Flux finalizer rather than a guess, since infrastructure has not leaked. Any less
+// certain timeout falls back to the condition-based diagnosis below.
 func (k *BaseKubernetesManager) DeleteKustomization(name, namespace string) error {
 	gvr := schema.GroupVersionResource{
 		Group:    "kustomize.toolkit.fluxcd.io",
@@ -225,6 +221,11 @@ func (k *BaseKubernetesManager) DeleteKustomization(name, namespace string) erro
 
 	inspectCmd := fmt.Sprintf("`kubectl get kustomization %s -n %s -o yaml`", name, namespace)
 	const terminatingCmd = "`kubectl get pvc,svc,ingress,certificate -A | grep Terminating`"
+
+	entries, inventoryFound := inventoryEntriesFromObject(lastObj)
+	if drained, checkErr := k.allInventoryEntriesGone(entries); inventoryFound && checkErr == nil && drained {
+		return fmt.Errorf("kustomization %s/%s is fully drained (every inventory item confirmed gone) but its own finalizer is stuck; this is Flux bookkeeping, not leaked infrastructure — clear it with `kubectl patch kustomization %s -n %s --type=merge -p '{\"metadata\":{\"finalizers\":null}}'`", namespace, name, name, namespace)
+	}
 
 	reason := describeStuckKustomization(lastObj) + k.describeStuckHelmReleases(name, namespace)
 	if reason == "" {
@@ -1189,6 +1190,29 @@ func (k *BaseKubernetesManager) GetKustomizationInventory(name, namespace string
 	if !found {
 		return []InventoryEntry{}, nil
 	}
+	return decodeInventoryEntries(rawEntries), nil
+}
+
+// inventoryEntriesFromObject decodes status.inventory.entries directly from an
+// already-fetched object, avoiding another API round trip. found reports whether the
+// object has ever reported an inventory at all — false for a Kustomization that has
+// not reconciled that far, which is not the same as a reconciled, now-empty one.
+// Callers must not treat "not found" as "confirmed empty."
+func inventoryEntriesFromObject(obj *unstructured.Unstructured) (entries []InventoryEntry, found bool) {
+	if obj == nil {
+		return nil, false
+	}
+	rawEntries, found, err := unstructured.NestedSlice(obj.Object, "status", "inventory", "entries")
+	if err != nil || !found {
+		return nil, false
+	}
+	return decodeInventoryEntries(rawEntries), true
+}
+
+// decodeInventoryEntries decodes a raw status.inventory.entries slice. Individual
+// entries that fail to decode (malformed IDs, unexpected field shapes) are dropped
+// rather than failing the whole read.
+func decodeInventoryEntries(rawEntries []any) []InventoryEntry {
 	entries := make([]InventoryEntry, 0, len(rawEntries))
 	for _, raw := range rawEntries {
 		entryMap, ok := raw.(map[string]any)
@@ -1202,7 +1226,7 @@ func (k *BaseKubernetesManager) GetKustomizationInventory(name, namespace string
 		}
 		entries = append(entries, entry)
 	}
-	return entries, nil
+	return entries
 }
 
 // decodeInventoryID parses a flux inventory ID of the form
@@ -1996,23 +2020,12 @@ func (k *BaseKubernetesManager) ownedRootForService(svc *unstructured.Unstructur
 			return ownedTarget{}, false, nil
 		}
 		gvk := gv.WithKind(owner.Kind)
-		gvr, err := k.client.ResourceFor(gvk)
+		gvr, ownerNamespace, ok, err := k.resolveScopedGVR(gvk, namespace)
 		if err != nil {
-			if apimeta.IsNoMatchError(err) {
-				return ownedTarget{}, false, nil
-			}
 			return ownedTarget{}, false, fmt.Errorf("error resolving load balancer owner %s %q: %w", owner.Kind, owner.Name, err)
 		}
-		namespaced, err := k.client.IsNamespaced(gvk)
-		if err != nil {
-			if apimeta.IsNoMatchError(err) {
-				return ownedTarget{}, false, nil
-			}
-			return ownedTarget{}, false, fmt.Errorf("error resolving scope of load balancer owner %s %q: %w", owner.Kind, owner.Name, err)
-		}
-		ownerNamespace := namespace
-		if !namespaced {
-			ownerNamespace = ""
+		if !ok {
+			return ownedTarget{}, false, nil
 		}
 		if owned[inventoryKey(gv.Group, owner.Kind, ownerNamespace, owner.Name)] {
 			return ownedTarget{gvr: gvr, namespace: ownerNamespace, name: owner.Name}, true, nil
@@ -2135,19 +2148,11 @@ func (k *BaseKubernetesManager) applyBlueprintSource(source blueprintv1alpha1.So
 }
 
 // setKustomizationSuspend patches spec.suspend on a Kustomization. DeleteBlueprint
-// suspends every eligible Kustomization up front to freeze reconciliation: an
-// un-deleted Kustomization that keeps reconciling can re-create a (often
-// cluster-scoped) resource that another component's Helm uninstall is mid-way
-// through deleting, deadlocking it — Helm waits for the resource to disappear while
-// Flux restores it, so the HelmRelease never drops its finalizers.fluxcd.io
-// finalizer and the namespace hangs in Terminating until destroy times out. The
-// frozen Kustomizations are then resumed (suspend=false) one at a time, each
-// immediately before its own delete: the kustomize-controller's finalizer prunes
-// managed inventory only when the object is NOT suspended, so deleting a still-
-// suspended Kustomization strips its finalizer without garbage-collecting its
-// resources, orphaning them and letting destroy race ahead. Resuming just before
-// delete keeps every other Kustomization frozen while letting the one being deleted
-// prune. A NotFound Kustomization is treated as success.
+// suspends every eligible Kustomization up front, since an un-deleted one that keeps
+// reconciling can re-create a resource another component's Helm uninstall is mid-way
+// through deleting, deadlocking it. It then resumes each one right before deleting it,
+// since the finalizer only prunes inventory when not suspended — deleting while still
+// suspended would orphan resources. A NotFound Kustomization is treated as success.
 func (k *BaseKubernetesManager) setKustomizationSuspend(name, namespace string, suspend bool) error {
 	gvr := schema.GroupVersionResource{
 		Group:    "kustomize.toolkit.fluxcd.io",
@@ -2163,6 +2168,56 @@ func (k *BaseKubernetesManager) setKustomizationSuspend(name, namespace string, 
 		return err
 	}
 	return nil
+}
+
+// resolveScopedGVR resolves gvk to its GroupVersionResource and correct namespace scope
+// via discovery. namespace is the caller's default scope, cleared when the resolved kind
+// is cluster-scoped. ok is false when the API type no longer exists.
+func (k *BaseKubernetesManager) resolveScopedGVR(gvk schema.GroupVersionKind, namespace string) (gvr schema.GroupVersionResource, scopedNamespace string, ok bool, err error) {
+	gvr, err = k.client.ResourceFor(gvk)
+	if err != nil {
+		if apimeta.IsNoMatchError(err) {
+			return schema.GroupVersionResource{}, "", false, nil
+		}
+		return schema.GroupVersionResource{}, "", false, err
+	}
+	namespaced, err := k.client.IsNamespaced(gvk)
+	if err != nil {
+		if apimeta.IsNoMatchError(err) {
+			return schema.GroupVersionResource{}, "", false, nil
+		}
+		return schema.GroupVersionResource{}, "", false, err
+	}
+	if !namespaced {
+		namespace = ""
+	}
+	return gvr, namespace, true, nil
+}
+
+// allInventoryEntriesGone reports whether every inventory entry's own live object is
+// confirmed absent, independent of the Kustomization's finalizer state. An entry whose
+// API type no longer exists counts as gone. It returns false on the first entry still
+// present. It returns an error, not false, on any inconclusive lookup: a wrong "all
+// gone" reading here is exactly what could clear a finalizer while resources still exist.
+func (k *BaseKubernetesManager) allInventoryEntriesGone(entries []InventoryEntry) (bool, error) {
+	for _, entry := range entries {
+		gvk := schema.GroupVersionKind{Group: entry.Group, Kind: entry.Kind}
+		gvr, namespace, ok, err := k.resolveScopedGVR(gvk, entry.Namespace)
+		if err != nil {
+			return false, err
+		}
+		if !ok {
+			continue
+		}
+		if _, err := k.client.GetResource(gvr, namespace, entry.Name); err != nil {
+			if isNotFoundError(err) {
+				continue
+			}
+			return false, err
+		}
+		return false, nil
+	}
+	return true, nil
 }
 
 // gitopsMode returns the configured gitops mode, defaulting to pull. Centralising
