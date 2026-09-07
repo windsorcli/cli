@@ -63,6 +63,7 @@ variable substitutions shared across them.
 | `enabled` | `boolean / string` | Whether to include this tier in the final blueprint. Boolean or expression. Defaults to true. |
 | `force` | `boolean` | Force-apply resources Flux would otherwise refuse to update. |
 | `healthCheckExprs` | `array<object>` | CEL health checks for custom resources kstatus cannot evaluate — those exposing no status.observedGeneration and no Reconciling/Stalled condition, which kstatus reports healthy the moment they are applied. Each entry gates 'wait' on the named resource kind, and with it any dependsOn edge pointing at this kustomization. |
+| `healthChecks` | `array<object>` | External resources to wait on before Ready, such as one a HelmRelease this kustomization applies creates indirectly. Any entry here disables 'wait' over this kustomization's own applied resources; it waits only on the resources named here instead. |
 | `interval` | `string` | Reconciliation interval as a Go duration string (e.g. '5m', '1h'). |
 | `namespace` | `string` | Namespace where the Flux Kustomization object lives. Defaults to the gitops namespace. |
 | `patches` | `array<object>` | Strategic-merge or Flux-style patches applied to this tier. |
@@ -98,6 +99,15 @@ variable substitutions shared across them.
 | `inProgress` | `string` | CEL expression matching a resource still converging. |
 | `kind` | `string` | Kind of the custom resource under evaluation. |
 
+#### flux[].install.healthChecks[]
+
+| Field | Type | Description |
+|------|------|-------------|
+| `apiVersion` | `string` | APIVersion of the resource to wait on. |
+| `kind` | `string` | Kind of the resource to wait on. |
+| `name` | `string` | Name of the resource to wait on. |
+| `namespace` | `string` | Namespace of the resource. Defaults to the kustomization's own namespace. |
+
 #### flux[].install.patches[]
 
 | Field | Type | Description |
@@ -118,6 +128,7 @@ variable substitutions shared across them.
 | `enabled` | `boolean / string` | Whether to include this variant in the final blueprint. Boolean or expression. Defaults to true. |
 | `force` | `boolean` | Force-apply resources Flux would otherwise refuse to update. |
 | `healthCheckExprs` | `array<object>` | CEL health checks for custom resources kstatus cannot evaluate — those exposing no status.observedGeneration and no Reconciling/Stalled condition, which kstatus reports healthy the moment they are applied. Each entry gates 'wait' on the named resource kind, and with it any dependsOn edge pointing at this kustomization. |
+| `healthChecks` | `array<object>` | External resources to wait on before Ready, such as one a HelmRelease this kustomization applies creates indirectly. Any entry here disables 'wait' over this kustomization's own applied resources; it waits only on the resources named here instead. |
 | `interval` | `string` | Reconciliation interval as a Go duration string (e.g. '5m', '1h'). |
 | `name` | `string` | Variant suffix ('<system>-resources-<name>'); omit for a single unnamed variant. |
 | `namespace` | `string` | Namespace where the Flux Kustomization object lives. Defaults to the gitops namespace. |
@@ -155,6 +166,15 @@ variable substitutions shared across them.
 | `inProgress` | `string` | CEL expression matching a resource still converging. |
 | `kind` | `string` | Kind of the custom resource under evaluation. |
 
+#### flux[].resources[].healthChecks[]
+
+| Field | Type | Description |
+|------|------|-------------|
+| `apiVersion` | `string` | APIVersion of the resource to wait on. |
+| `kind` | `string` | Kind of the resource to wait on. |
+| `name` | `string` | Name of the resource to wait on. |
+| `namespace` | `string` | Namespace of the resource. Defaults to the kustomization's own namespace. |
+
 #### flux[].resources[].patches[]
 
 | Field | Type | Description |
@@ -183,6 +203,7 @@ variable substitutions shared across them.
 | `enabled` | `boolean / string` | Whether to include this kustomization in the final blueprint. Boolean or expression. Defaults to true. |
 | `force` | `boolean` | Force-apply resources Flux would otherwise refuse to update. |
 | `healthCheckExprs` | `array<object>` | CEL health checks for custom resources kstatus cannot evaluate — those exposing no status.observedGeneration and no Reconciling/Stalled condition, which kstatus reports healthy the moment they are applied. Each entry gates 'wait' on the named resource kind, and with it any dependsOn edge pointing at this kustomization. |
+| `healthChecks` | `array<object>` | External resources to wait on before Ready, such as one a HelmRelease this kustomization applies creates indirectly. Any entry here disables 'wait' over this kustomization's own applied resources; it waits only on the resources named here instead. |
 | `interval` | `string` | Reconciliation interval, expressed as a Go duration string (e.g. '5m', '1h'). Defaults to 1m when source is unset (falls back to the blueprint's own repository, presumed live and actively pushed); defaults to 1h when source names a vendor entry (presumed pinned and explicitly re-triggered rather than continuously tracked). |
 | `namespace` | `string` | Namespace where the Flux Kustomization object itself lives. Defaults to the gitops namespace. DependsOn references always resolve in the gitops namespace; cross-namespace dependencies are not supported. |
 | `patches` | `array<object>` | Strategic-merge or Flux-style patches applied to the kustomization. Each entry is either a 'path:' to a patch file relative to the kustomization, or a 'patch:' inline YAML body with an optional 'target:' selector (kind / name / namespace). |
@@ -218,6 +239,15 @@ variable substitutions shared across them.
 | `failed` | `string` | CEL expression matching a resource that failed to converge. |
 | `inProgress` | `string` | CEL expression matching a resource still converging. |
 | `kind` | `string` | Kind of the custom resource under evaluation. |
+
+### kustomize[].healthChecks[]
+
+| Field | Type | Description |
+|------|------|-------------|
+| `apiVersion` | `string` | APIVersion of the resource to wait on. |
+| `kind` | `string` | Kind of the resource to wait on. |
+| `name` | `string` | Name of the resource to wait on. |
+| `namespace` | `string` | Namespace of the resource. Defaults to the kustomization's own namespace. |
 
 ### kustomize[].patches[]
 

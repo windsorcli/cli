@@ -280,6 +280,29 @@ properties:
               failed:
                 type: string
                 description: CEL expression matching a resource that failed to converge.
+        healthChecks:
+          type: array
+          description: |
+            External resources to wait on before Ready, such as one a
+            HelmRelease this kustomization applies creates indirectly. Any
+            entry here disables 'wait' over this kustomization's own applied
+            resources; it waits only on the resources named here instead.
+          items:
+            type: object
+            additionalProperties: false
+            properties:
+              apiVersion:
+                type: string
+                description: APIVersion of the resource to wait on.
+              kind:
+                type: string
+                description: Kind of the resource to wait on.
+              name:
+                type: string
+                description: Name of the resource to wait on.
+              namespace:
+                type: string
+                description: Namespace of the resource. Defaults to the kustomization's own namespace.
         components:
           type: array
           items:
@@ -470,6 +493,29 @@ properties:
                   failed:
                     type: string
                     description: CEL expression matching a resource that failed to converge.
+            healthChecks:
+              type: array
+              description: |
+                External resources to wait on before Ready, such as one a
+                HelmRelease this kustomization applies creates indirectly. Any
+                entry here disables 'wait' over this kustomization's own applied
+                resources; it waits only on the resources named here instead.
+              items:
+                type: object
+                additionalProperties: false
+                properties:
+                  apiVersion:
+                    type: string
+                    description: APIVersion of the resource to wait on.
+                  kind:
+                    type: string
+                    description: Kind of the resource to wait on.
+                  name:
+                    type: string
+                    description: Name of the resource to wait on.
+                  namespace:
+                    type: string
+                    description: Namespace of the resource. Defaults to the kustomization's own namespace.
             components:
               type: array
               items:
@@ -601,6 +647,29 @@ properties:
                     failed:
                       type: string
                       description: CEL expression matching a resource that failed to converge.
+              healthChecks:
+                type: array
+                description: |
+                  External resources to wait on before Ready, such as one a
+                  HelmRelease this kustomization applies creates indirectly. Any
+                  entry here disables 'wait' over this kustomization's own applied
+                  resources; it waits only on the resources named here instead.
+                items:
+                  type: object
+                  additionalProperties: false
+                  properties:
+                    apiVersion:
+                      type: string
+                      description: APIVersion of the resource to wait on.
+                    kind:
+                      type: string
+                      description: Kind of the resource to wait on.
+                    name:
+                      type: string
+                      description: Name of the resource to wait on.
+                    namespace:
+                      type: string
+                      description: Namespace of the resource. Defaults to the kustomization's own namespace.
               components:
                 type: array
                 items:
