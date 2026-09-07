@@ -3522,6 +3522,194 @@ healthCheckExprs:
 	})
 }
 
+func TestKustomization_HealthChecks(t *testing.T) {
+	webhookDeployment := HealthCheckRef{
+		APIVersion: "apps/v1",
+		Kind:       "Deployment",
+		Name:       "kyverno-admission-controller",
+		Namespace:  "system-policy",
+	}
+
+	t.Run("UnmarshalsCamelCaseKeys", func(t *testing.T) {
+		// Given a kustomization authored with healthChecks
+		yamlData := []byte(`name: policy-install
+healthChecks:
+  - apiVersion: apps/v1
+    kind: Deployment
+    name: kyverno-admission-controller
+    namespace: system-policy
+`)
+
+		// When unmarshaled
+		var k Kustomization
+		if err := yaml.Unmarshal(yamlData, &k); err != nil {
+			t.Fatalf("Failed to unmarshal Kustomization with healthChecks: %v", err)
+		}
+
+		// Then every camelCase key lands on its field
+		if len(k.HealthChecks) != 1 {
+			t.Fatalf("Expected 1 health check reference, got %d", len(k.HealthChecks))
+		}
+		ref := k.HealthChecks[0]
+		if ref.APIVersion != "apps/v1" {
+			t.Errorf("Expected APIVersion 'apps/v1', got %q", ref.APIVersion)
+		}
+		if ref.Kind != "Deployment" {
+			t.Errorf("Expected Kind 'Deployment', got %q", ref.Kind)
+		}
+		if ref.Name != "kyverno-admission-controller" {
+			t.Errorf("Expected Name 'kyverno-admission-controller', got %q", ref.Name)
+		}
+		if ref.Namespace != "system-policy" {
+			t.Errorf("Expected Namespace 'system-policy', got %q", ref.Namespace)
+		}
+	})
+
+	t.Run("ConvertsToFluxHealthChecksAndForcesWaitFalse", func(t *testing.T) {
+		// Given a kustomization that explicitly requests Wait true, alongside a health check ref
+		wait := true
+		kustomization := &Kustomization{
+			Name:         "policy-install",
+			Wait:         &wait,
+			HealthChecks: []HealthCheckRef{webhookDeployment},
+		}
+
+		// When converted to a Flux Kustomization
+		result := kustomization.ToFluxKustomization("system-gitops", "core", []Source{}, constants.GitopsModePull)
+
+		// Then the reference is carried onto spec.healthChecks
+		if len(result.Spec.HealthChecks) != 1 {
+			t.Fatalf("Expected 1 health check reference on the Flux spec, got %d", len(result.Spec.HealthChecks))
+		}
+		got := result.Spec.HealthChecks[0]
+		if got.APIVersion != webhookDeployment.APIVersion || got.Kind != webhookDeployment.Kind {
+			t.Errorf("Expected %s/%s, got %s/%s", webhookDeployment.APIVersion, webhookDeployment.Kind, got.APIVersion, got.Kind)
+		}
+		if got.Name != webhookDeployment.Name || got.Namespace != webhookDeployment.Namespace {
+			t.Errorf("Expected %s/%s, got %s/%s", webhookDeployment.Namespace, webhookDeployment.Name, got.Namespace, got.Name)
+		}
+
+		// And Flux's own Wait is forced false, since Flux ignores spec.healthChecks otherwise,
+		// even though this kustomization explicitly asked for Wait true
+		if result.Spec.Wait {
+			t.Error("Expected Wait forced false when HealthChecks is set, got true")
+		}
+	})
+
+	t.Run("OmitsFluxHealthChecksWhenUnsetAndLeavesWaitAlone", func(t *testing.T) {
+		// Given a kustomization with no health check references
+		kustomization := &Kustomization{Name: "policy"}
+
+		// When converted to a Flux Kustomization
+		result := kustomization.ToFluxKustomization("system-gitops", "core", []Source{}, constants.GitopsModePull)
+
+		// Then spec.healthChecks stays nil so it is omitted from the rendered output
+		if result.Spec.HealthChecks != nil {
+			t.Errorf("Expected nil HealthChecks, got %+v", result.Spec.HealthChecks)
+		}
+
+		// And Wait keeps its default rather than being forced false
+		if !result.Spec.Wait {
+			t.Error("Expected Wait to keep its default of true, got false")
+		}
+	})
+
+	t.Run("DeepCopyIndependentOfOriginal", func(t *testing.T) {
+		// Given a kustomization with a health check reference
+		original := &Kustomization{Name: "k", HealthChecks: []HealthCheckRef{webhookDeployment}}
+
+		// When deep-copied and the copy mutated
+		clone := original.DeepCopy()
+		clone.HealthChecks[0].Name = "other"
+
+		// Then the original is unchanged
+		if original.HealthChecks[0].Name != webhookDeployment.Name {
+			t.Errorf("Expected original unchanged, got %q", original.HealthChecks[0].Name)
+		}
+	})
+
+	t.Run("OverlayReplacesMatchingReference", func(t *testing.T) {
+		// Given a base and an overlay naming the same resource
+		base := Kustomization{Name: "k", HealthChecks: []HealthCheckRef{webhookDeployment}}
+		overlay := Kustomization{Name: "k", HealthChecks: []HealthCheckRef{{
+			APIVersion: "apps/v1",
+			Kind:       "Deployment",
+			Name:       "kyverno-admission-controller",
+			Namespace:  "system-policy",
+		}}}
+
+		// When merged
+		merged := MergeKustomizationFields(base, overlay)
+
+		// Then the overlay reference replaces the base one rather than duplicating it
+		if len(merged.HealthChecks) != 1 {
+			t.Fatalf("Expected 1 health check reference, got %d", len(merged.HealthChecks))
+		}
+	})
+
+	t.Run("OverlayReplacesMatchingReferenceRegardlessOfNamespace", func(t *testing.T) {
+		// Given a base entry with Namespace left empty (defaults to the kustomization's own
+		// namespace) and an overlay entry naming the same resource with Namespace spelled out
+		base := Kustomization{Name: "k", HealthChecks: []HealthCheckRef{{
+			APIVersion: "apps/v1",
+			Kind:       "Deployment",
+			Name:       "kyverno-admission-controller",
+		}}}
+		overlay := Kustomization{Name: "k", HealthChecks: []HealthCheckRef{webhookDeployment}}
+
+		// When merged
+		merged := MergeKustomizationFields(base, overlay)
+
+		// Then the two entries are recognized as the same resource and replace rather than
+		// duplicate, since Namespace does not participate in the identity match
+		if len(merged.HealthChecks) != 1 {
+			t.Fatalf("Expected 1 health check reference, got %d", len(merged.HealthChecks))
+		}
+		if merged.HealthChecks[0].Namespace != webhookDeployment.Namespace {
+			t.Errorf("Expected the overlay's namespace to win, got %q", merged.HealthChecks[0].Namespace)
+		}
+	})
+
+	t.Run("OverlayAppendsUnmatchedReferenceAndLeavesBaseIntact", func(t *testing.T) {
+		// Given a base naming one resource and an overlay naming another
+		base := Kustomization{Name: "k", HealthChecks: []HealthCheckRef{webhookDeployment}}
+		overlay := Kustomization{Name: "k", HealthChecks: []HealthCheckRef{{
+			APIVersion: "apps/v1",
+			Kind:       "Deployment",
+			Name:       "kyverno-background-controller",
+			Namespace:  "system-policy",
+		}}}
+
+		// When merged
+		merged := MergeKustomizationFields(base, overlay)
+
+		// Then both references survive and the base slice is not mutated
+		if len(merged.HealthChecks) != 2 {
+			t.Fatalf("Expected 2 health check references, got %d", len(merged.HealthChecks))
+		}
+		if merged.HealthChecks[0].Name != "kyverno-admission-controller" || merged.HealthChecks[1].Name != "kyverno-background-controller" {
+			t.Errorf("Expected admission-controller then background-controller, got %s then %s", merged.HealthChecks[0].Name, merged.HealthChecks[1].Name)
+		}
+		if len(base.HealthChecks) != 1 {
+			t.Errorf("Expected base left intact, got %d references", len(base.HealthChecks))
+		}
+	})
+
+	t.Run("EmptyOverlayLeavesBaseReferences", func(t *testing.T) {
+		// Given a base with a health check reference and an overlay without one
+		base := Kustomization{Name: "k", HealthChecks: []HealthCheckRef{webhookDeployment}}
+		overlay := Kustomization{Name: "k"}
+
+		// When merged
+		merged := MergeKustomizationFields(base, overlay)
+
+		// Then the base reference survives
+		if len(merged.HealthChecks) != 1 || merged.HealthChecks[0].Name != webhookDeployment.Name {
+			t.Errorf("Expected base reference preserved, got %+v", merged.HealthChecks)
+		}
+	})
+}
+
 func TestTerraformComponent_DeepCopy(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
 		component := &TerraformComponent{

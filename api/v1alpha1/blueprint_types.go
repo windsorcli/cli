@@ -368,6 +368,23 @@ type HealthCheckExpr struct {
 	Failed string `yaml:"failed,omitempty"`
 }
 
+// HealthCheckRef names an external resource a Kustomization waits on before Ready, mirroring
+// Flux's spec.healthChecks. Setting any entry forces Wait to false and disables HealthCheckExprs,
+// since Flux only evaluates those when Wait is true.
+type HealthCheckRef struct {
+	// APIVersion of the resource to wait on.
+	APIVersion string `yaml:"apiVersion,omitempty"`
+
+	// Kind of the resource to wait on.
+	Kind string `yaml:"kind,omitempty"`
+
+	// Name of the resource to wait on.
+	Name string `yaml:"name,omitempty"`
+
+	// Namespace of the resource to wait on. Defaults to the Kustomization's own namespace.
+	Namespace string `yaml:"namespace,omitempty"`
+}
+
 // Blueprint is a configuration blueprint for initializing a project.
 type Blueprint struct {
 	// Kind is the blueprint type, following Kubernetes conventions.
@@ -659,6 +676,9 @@ type Kustomization struct {
 
 	// HealthCheckExprs are CEL health checks for custom resources kstatus cannot evaluate.
 	HealthCheckExprs []HealthCheckExpr `yaml:"healthCheckExprs,omitempty"`
+
+	// HealthChecks are external resources to wait on before Ready. See HealthCheckRef.
+	HealthChecks []HealthCheckRef `yaml:"healthChecks,omitempty"`
 
 	// Components to include in the kustomization.
 	Components []string `yaml:"components,omitempty"`
@@ -1395,6 +1415,7 @@ func (k *Kustomization) DeepCopy() *Kustomization {
 		Force:            k.Force,
 		Prune:            k.Prune,
 		HealthCheckExprs: slices.Clone(k.HealthCheckExprs),
+		HealthChecks:     slices.Clone(k.HealthChecks),
 		Components:       slices.Clone(k.Components),
 		Destroy:          k.Destroy.DeepCopy(),
 		DestroyOnly:      k.DestroyOnly,
@@ -1527,6 +1548,9 @@ func (k *Kustomization) ToFluxKustomization(namespace string, defaultSourceName 
 	if k.Wait != nil {
 		wait = *k.Wait
 	}
+	if len(k.HealthChecks) > 0 {
+		wait = false
+	}
 
 	force := constants.DefaultFluxKustomizationForce
 	if k.Force != nil {
@@ -1565,6 +1589,7 @@ func (k *Kustomization) ToFluxKustomization(namespace string, defaultSourceName 
 	}
 
 	healthCheckExprs := toFluxHealthCheckExprs(k.HealthCheckExprs)
+	healthChecks := toFluxHealthChecks(k.HealthChecks)
 
 	var postBuild *kustomizev1.PostBuild
 	if !IsCrdLayerName(k.Name) {
@@ -1628,6 +1653,7 @@ func (k *Kustomization) ToFluxKustomization(namespace string, defaultSourceName 
 			Force:            force,
 			Prune:            prune,
 			HealthCheckExprs: healthCheckExprs,
+			HealthChecks:     healthChecks,
 			DeletionPolicy:   deletionPolicy,
 			Patches:          patches,
 			Components:       k.Components,
@@ -1699,6 +1725,22 @@ func toFluxHealthCheckExprs(exprs []HealthCheckExpr) []kustomize.CustomHealthChe
 				InProgress: expr.InProgress,
 				Failed:     expr.Failed,
 			},
+		})
+	}
+	return converted
+}
+
+// toFluxHealthChecks converts blueprint external health check references to their Flux
+// equivalents, returning nil for an empty input so spec.healthChecks is omitted from the
+// rendered resource.
+func toFluxHealthChecks(refs []HealthCheckRef) []meta.NamespacedObjectKindReference {
+	var converted []meta.NamespacedObjectKindReference
+	for _, ref := range refs {
+		converted = append(converted, meta.NamespacedObjectKindReference{
+			APIVersion: ref.APIVersion,
+			Kind:       ref.Kind,
+			Name:       ref.Name,
+			Namespace:  ref.Namespace,
 		})
 	}
 	return converted
@@ -1812,19 +1854,26 @@ func (b *Blueprint) strategicMergeKustomization(kustomization Kustomization) err
 }
 
 // MergeKustomizationFields deep-merges overlay onto base and returns the result without mutating
-// either input: Components and DependsOn accumulate (deduplicated, Components sorted), Patches
-// accumulate, Substitutions copy in, HealthCheckExprs accumulate with overlay entries replacing
-// base entries of the same apiVersion and kind, and every other field is overridden by overlay when
-// overlay sets it. Callers that need
-// by-name matching within a Blueprint's Kustomizations list use strategicMergeKustomization, which
-// calls this once a match is found; callers merging two already-matched Kustomization values
-// directly (e.g. FluxSystem tiers, which carry no Name until tier compilation) call this directly.
+// either input. Components and DependsOn accumulate, deduplicated, with Components sorted.
+// Patches accumulate. Substitutions copy in. Every other field is overridden by overlay when
+// overlay sets it.
+//
+// HealthCheckExprs accumulate, with an overlay entry replacing a base entry of the same
+// APIVersion and Kind. HealthChecks accumulate the same way, matching on APIVersion, Kind, and
+// Name. Namespace is excluded from that match, since it defaults to the kustomization's own
+// namespace and so cannot reliably distinguish one entry from another.
+//
+// Callers that need by-name matching within a Blueprint's Kustomizations list use
+// strategicMergeKustomization, which calls this once a match is found; callers merging two
+// already-matched Kustomization values directly (e.g. FluxSystem tiers, which carry no Name
+// until tier compilation) call this directly.
 func MergeKustomizationFields(base, overlay Kustomization) Kustomization {
 	existing := base
 	existing.Components = slices.Clone(base.Components)
 	existing.DependsOn = slices.Clone(base.DependsOn)
 	existing.Patches = slices.Clone(base.Patches)
 	existing.HealthCheckExprs = slices.Clone(base.HealthCheckExprs)
+	existing.HealthChecks = slices.Clone(base.HealthChecks)
 	existing.Substitutions = maps.Clone(base.Substitutions)
 	for _, component := range overlay.Components {
 		if component == "" || !slices.Contains(existing.Components, component) {
@@ -1888,6 +1937,17 @@ func MergeKustomizationFields(base, overlay Kustomization) Kustomization {
 			continue
 		}
 		existing.HealthCheckExprs = append(existing.HealthCheckExprs, expr)
+	}
+	for _, ref := range overlay.HealthChecks {
+		index := slices.IndexFunc(existing.HealthChecks, func(candidate HealthCheckRef) bool {
+			return candidate.APIVersion == ref.APIVersion && candidate.Kind == ref.Kind &&
+				candidate.Name == ref.Name
+		})
+		if index >= 0 {
+			existing.HealthChecks[index] = ref
+			continue
+		}
+		existing.HealthChecks = append(existing.HealthChecks, ref)
 	}
 	if len(overlay.Substitutions) > 0 {
 		if existing.Substitutions == nil {
