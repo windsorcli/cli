@@ -641,6 +641,81 @@ func TestBaseKubernetesManager_DeleteKustomization(t *testing.T) {
 		}
 	})
 
+	t.Run("TimeoutWithMirrorPruneDoesNotClaimStuckFinalizer", func(t *testing.T) {
+		// Given a MirrorPrune kustomization (destroy:false) that never disappears and
+		// carries no diagnostic condition — MirrorPrune never waits on inventory, so a
+		// timeout here cannot be a stuck cloud-controller finalizer
+		manager := setup(t)
+		kubernetesClient := client.NewMockKubernetesClient()
+		kubernetesClient.DeleteResourceFunc = func(gvr schema.GroupVersionResource, namespace, name string, opts metav1.DeleteOptions) error {
+			return nil
+		}
+		kubernetesClient.GetResourceFunc = func(gvr schema.GroupVersionResource, namespace, name string) (*unstructured.Unstructured, error) {
+			return &unstructured.Unstructured{Object: map[string]any{
+				"spec": map[string]any{"deletionPolicy": "MirrorPrune"},
+			}}, nil
+		}
+		manager.client = kubernetesClient
+		manager.kustomizationReconcileTimeout = 100 * time.Millisecond
+		manager.kustomizationWaitPollInterval = 50 * time.Millisecond
+
+		// When DeleteKustomization times out
+		err := manager.DeleteKustomization("test-kustomization", "test-namespace")
+
+		// Then the error names MirrorPrune instead of blaming a stuck finalizer
+		if err == nil {
+			t.Fatal("Expected timeout error, got nil")
+		}
+		if strings.Contains(err.Error(), "stuck on a cloud-controller finalizer") {
+			t.Errorf("Expected no cloud-controller-finalizer wording for MirrorPrune, got: %v", err)
+		}
+		if !strings.Contains(err.Error(), "MirrorPrune") {
+			t.Errorf("Expected error to name MirrorPrune, got: %v", err)
+		}
+	})
+
+	t.Run("TimeoutWithMirrorPruneAndConfirmedReasonNamesConditionNotInventory", func(t *testing.T) {
+		// Given a MirrorPrune kustomization with a diagnostic condition confirming a
+		// suspended reconcile, not a stuck inventory item
+		manager := setup(t)
+		kubernetesClient := client.NewMockKubernetesClient()
+		kubernetesClient.DeleteResourceFunc = func(gvr schema.GroupVersionResource, namespace, name string, opts metav1.DeleteOptions) error {
+			return nil
+		}
+		kubernetesClient.GetResourceFunc = func(gvr schema.GroupVersionResource, namespace, name string) (*unstructured.Unstructured, error) {
+			return &unstructured.Unstructured{Object: map[string]any{
+				"spec": map[string]any{"deletionPolicy": "MirrorPrune"},
+				"status": map[string]any{
+					"conditions": []any{
+						map[string]any{
+							"type":    "Ready",
+							"status":  "False",
+							"reason":  "ReconciliationSuspended",
+							"message": "reconciliation is suspended",
+						},
+					},
+				},
+			}}, nil
+		}
+		manager.client = kubernetesClient
+		manager.kustomizationReconcileTimeout = 100 * time.Millisecond
+		manager.kustomizationWaitPollInterval = 50 * time.Millisecond
+
+		// When DeleteKustomization times out
+		err := manager.DeleteKustomization("test-kustomization", "test-namespace")
+
+		// Then the error keeps the condition detail but drops the cloud-controller-finalizer wording
+		if err == nil {
+			t.Fatal("Expected timeout error, got nil")
+		}
+		if !strings.Contains(err.Error(), "ReconciliationSuspended") {
+			t.Errorf("Expected error to keep the status condition detail, got: %v", err)
+		}
+		if strings.Contains(err.Error(), "stuck on a cloud-controller finalizer") {
+			t.Errorf("Expected no cloud-controller-finalizer wording for MirrorPrune, got: %v", err)
+		}
+	})
+
 	t.Run("TimeoutWindowScalesWithInventorySize", func(t *testing.T) {
 		// Given a kustomization with a large inventory (a CRD-heavy layer)
 		// that never disappears within the base timeout
@@ -5556,6 +5631,69 @@ func TestBaseKubernetesManager_DeleteBlueprint(t *testing.T) {
 		}
 		if !strings.Contains(err.Error(), "failed to delete kustomization") {
 			t.Errorf("Expected error containing 'failed to delete kustomization', got %v", err)
+		}
+	})
+
+	t.Run("AbandonedInventoryUsesCurrentDestroySettingNotStaleLiveField", func(t *testing.T) {
+		// Given a kustomization last applied with destroy:false (live object still
+		// carries deletionPolicy=MirrorPrune), whose blueprint entry now sets
+		// destroy:true, and this destroy run never re-applies it first
+		manager := setup(t)
+		kubernetesClient := client.NewMockKubernetesClient()
+		kubernetesClient.DeleteResourceFunc = func(gvr schema.GroupVersionResource, namespace, name string, opts metav1.DeleteOptions) error {
+			return nil
+		}
+		liveObj := &unstructured.Unstructured{Object: map[string]any{
+			"spec": map[string]any{"deletionPolicy": "MirrorPrune"},
+			"status": map[string]any{
+				"inventory": map[string]any{
+					"entries": []any{
+						map[string]any{"id": "test-namespace_entry-one__ConfigMap"},
+					},
+				},
+			},
+		}}
+		calls := 0
+		kubernetesClient.GetResourceFunc = func(gvr schema.GroupVersionResource, namespace, name string) (*unstructured.Unstructured, error) {
+			if name == "test-kustomization" {
+				calls++
+				// The first call is remediateLoadBalancerOwners' pre-destroy inventory
+				// snapshot; the delete wait loop's own first check is the second.
+				if calls <= 2 {
+					return liveObj, nil
+				}
+				return nil, fmt.Errorf("the server could not find the requested resource")
+			}
+			if name == "entry-one" {
+				return &unstructured.Unstructured{Object: map[string]any{}}, nil
+			}
+			return nil, fmt.Errorf("the server could not find the requested resource")
+		}
+		manager.client = kubernetesClient
+
+		destroyTrue := true
+		blueprint := &blueprintv1alpha1.Blueprint{
+			Metadata: blueprintv1alpha1.Metadata{
+				Name: "test-blueprint",
+			},
+			Kustomizations: []blueprintv1alpha1.Kustomization{
+				{
+					Name:    "test-kustomization",
+					Destroy: &blueprintv1alpha1.BoolExpression{Value: &destroyTrue, IsExpr: false},
+				},
+			},
+		}
+
+		// When DeleteBlueprint deletes it
+		err := manager.DeleteBlueprint(blueprint, "test-namespace")
+
+		// Then it still reports the abandoned inventory: the current blueprint's
+		// destroy:true is trusted over the live object's stale MirrorPrune field
+		if err == nil {
+			t.Fatal("Expected an error naming the abandoned inventory, got nil")
+		}
+		if !strings.Contains(err.Error(), "entry-one") {
+			t.Errorf("Expected error to name the still-live entry, got: %v", err)
 		}
 	})
 

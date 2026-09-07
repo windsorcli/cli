@@ -182,6 +182,13 @@ const abandonedInventoryGraceChecks = 3
 // trusting the result. A still-live entry gets a few retries first, to rule out normal
 // in-flight termination.
 func (k *BaseKubernetesManager) DeleteKustomization(name, namespace string) error {
+	return k.deleteKustomization(name, namespace, nil)
+}
+
+// deleteKustomization is DeleteKustomization with an optional known destroy expectation.
+// A non-nil expectWaitForTermination overrides the live object's own, possibly stale,
+// deletionPolicy; see kustomizationDeletionPolicy.
+func (k *BaseKubernetesManager) deleteKustomization(name, namespace string, expectWaitForTermination *bool) error {
 	gvr := schema.GroupVersionResource{
 		Group:    "kustomize.toolkit.fluxcd.io",
 		Version:  "v1",
@@ -207,10 +214,10 @@ func (k *BaseKubernetesManager) DeleteKustomization(name, namespace string) erro
 	for k.shims.TimeNow().Before(start.Add(waitFor)) {
 		obj, err := k.client.GetResource(gvr, namespace, name)
 		if err != nil && isNotFoundError(err) {
-			entry := k.describeAbandonedInventory(lastObj)
+			entry := k.describeAbandonedInventory(lastObj, expectWaitForTermination)
 			for i := 0; entry != nil && i < abandonedInventoryGraceChecks; i++ {
 				k.shims.TimeSleep(k.kustomizationWaitPollInterval)
-				entry = k.describeAbandonedInventory(lastObj)
+				entry = k.describeAbandonedInventory(lastObj, expectWaitForTermination)
 			}
 			if entry == nil {
 				return nil
@@ -245,6 +252,12 @@ func (k *BaseKubernetesManager) DeleteKustomization(name, namespace string) erro
 	}
 
 	reason := describeStuckKustomization(lastObj) + k.describeStuckHelmReleases(name, namespace)
+	if waitForTermination, ok := kustomizationDeletionPolicy(lastObj, expectWaitForTermination); ok && !waitForTermination {
+		if reason == "" {
+			return fmt.Errorf("timeout waiting for kustomization %s/%s to be deleted after %s. It uses MirrorPrune instead of WaitForTermination. MirrorPrune deletes resources without waiting for them. A timeout here does not mean an inventory item is stuck. Check for a suspended reconcile or an RBAC failure. Inspect with %s and %s", namespace, name, waitFor, inspectCmd, terminatingCmd)
+		}
+		return fmt.Errorf("timeout waiting for kustomization %s/%s to be deleted%s. It uses MirrorPrune instead of WaitForTermination. MirrorPrune deletes resources without waiting for them. A timeout here does not mean an inventory item is stuck. Inspect with %s (status.conditions) and %s", namespace, name, reason, inspectCmd, terminatingCmd)
+	}
 	if reason == "" {
 		return fmt.Errorf("timeout waiting for kustomization %s/%s to be deleted after %s; no status condition confirms a stuck finalizer, but that does not rule one out — check whether %s (status.inventory) is still shrinking before retrying; if it is not shrinking, find the stuck object with %s", namespace, name, waitFor, inspectCmd, terminatingCmd)
 	}
@@ -282,19 +295,28 @@ func specTimeout(obj *unstructured.Unstructured) (time.Duration, bool) {
 	return d, true
 }
 
-// waitsForTermination reports whether a Kustomization's own spec.deletionPolicy is
-// WaitForTermination; see ToFluxKustomization. A destroy:false kustomization gets
-// MirrorPrune instead. MirrorPrune deletes resources without waiting for them. A live
-// entry there does not mean Flux gave up.
-func waitsForTermination(obj *unstructured.Unstructured) bool {
+// kustomizationDeletionPolicy resolves a Kustomization's effective deletionPolicy: expect
+// when the caller already knows it, otherwise obj's own spec.deletionPolicy. ok is false
+// when neither source resolves a value.
+func kustomizationDeletionPolicy(obj *unstructured.Unstructured, expect *bool) (waitForTermination, ok bool) {
+	if expect != nil {
+		return *expect, true
+	}
 	if obj == nil {
-		return false
+		return false, false
 	}
 	value, found, err := unstructured.NestedString(obj.Object, "spec", "deletionPolicy")
 	if err != nil || !found {
-		return false
+		return false, false
 	}
-	return value == "WaitForTermination"
+	switch value {
+	case "WaitForTermination":
+		return true, true
+	case "MirrorPrune":
+		return false, true
+	default:
+		return false, false
+	}
 }
 
 // extendWaitFor raises waitFor to candidate when candidate is larger, otherwise
@@ -1436,43 +1458,14 @@ func (k *BaseKubernetesManager) ApplyBlueprint(blueprint *blueprintv1alpha1.Blue
 	return nil
 }
 
-// DeleteBlueprint tears the blueprint down in two phases:
-//
-//  1. Destroy-only kustomizations: apply, wait ready, delete in reverse-topological
-//     order. These are blueprint entries that exist only at destroy time for bespoke
-//     teardown work (e.g. backups, snapshots, last-mile state exports). Any errors
-//     from this phase are joined and returned immediately — the destroy walk does
-//     not start until the destroy hooks succeed.
-//
-//  2. Regular kustomizations in reverse-topological order. Each Kustomization carries
-//     spec.deletionPolicy=WaitForTermination (set at apply time by ToFluxKustomization),
-//     so DELETE blocks until every managed resource is fully gone from etcd. The chain
-//     for cloud resources is:
-//
-//     K8s DELETE → controller's finalizer holds the object in etcd
-//     → controller calls cloud API to release external state
-//     → finalizer lifts → object NotFound
-//     → WaitForTermination satisfied
-//
-//     This is what makes CSI volumes, LB Services, Ingresses, and cert-manager
-//     Certificates clean up cloud-side without the orchestrator ever calling a
-//     cloud API. external-dns is the one outlier — it has no finalizer; the DNS
-//     record is removed on its next reconcile after the K8s object disappears.
-//
-//     Phase 2 aborts on the first per-Kustomization failure (typically an inventory
-//     item stuck on a cloud-controller finalizer). Continuing the walk would tear
-//     down upstream controllers (lb-base, dns, pki-base) still needed to lift those
-//     finalizers, turning a recoverable stuck-Kustomization into a cascade of
-//     orphaned cloud resources. Re-running destroy after the operator restores the
-//     controller picks up where it left off — already-deleted Kustomizations
-//     short-circuit to NotFound on retry.
-//
-//     Every abort path (suspend failure, load balancer remediation failure, or a
-//     per-Kustomization resume/delete failure) runs abortDestroy first, which
-//     un-suspends the full eligible set before returning. Without this, Kustomizations
-//     suspended by the up-front suspend loop but not yet reached by the destroy walk
-//     would stay suspended forever — Install/ApplyBlueprint never resets spec.suspend
-//     on existing objects, so no subsequent bootstrap would self-heal them.
+// DeleteBlueprint tears the blueprint down in two phases: destroy-only kustomizations first
+// (applied, waited ready, then deleted, for bespoke teardown work like backups), then regular
+// kustomizations in reverse-topological order. Each regular delete blocks on
+// spec.deletionPolicy=WaitForTermination, so cloud resources release before the object
+// disappears. Phase 2 aborts on the first per-Kustomization failure rather than risk orphaning
+// cloud resources a later Kustomization still needs; a retry picks up where it left off. Every
+// abort path runs abortDestroy first to un-suspend the full eligible set, since
+// Install/ApplyBlueprint never resets spec.suspend on existing objects.
 func (k *BaseKubernetesManager) DeleteBlueprint(blueprint *blueprintv1alpha1.Blueprint, namespace string) error {
 	defaultSourceName := blueprint.Metadata.Name
 
@@ -1520,7 +1513,9 @@ func (k *BaseKubernetesManager) DeleteBlueprint(blueprint *blueprintv1alpha1.Blu
 			tui.Fail()
 			return k.abortDestroy(eligible, namespace, fmt.Errorf("destroy aborted: failed to resume kustomization %q before delete: %w", kustomization.Name, err))
 		}
-		if err := k.DeleteKustomization(kustomization.Name, namespace); err != nil {
+		destroy := kustomization.Destroy.ToBool()
+		expectWaitForTermination := destroy == nil || *destroy
+		if err := k.deleteKustomization(kustomization.Name, namespace, &expectWaitForTermination); err != nil {
 			tui.Fail()
 			return k.abortDestroy(eligible, namespace, fmt.Errorf("destroy aborted: failed to delete kustomization %q: %w (further deletions skipped to avoid cascading orphans)", kustomization.Name, err))
 		}
@@ -2224,11 +2219,12 @@ func (k *BaseKubernetesManager) firstLiveInventoryEntry(entries []InventoryEntry
 // describeAbandonedInventory checks lastObj's last-known inventory for an entry whose
 // live object is confirmed still present, after the Kustomization itself has already
 // disappeared. It only applies to a WaitForTermination kustomization; see
-// waitsForTermination. A MirrorPrune one is expected to leave live entries behind.
-// Returns nil when there is no inventory to check, or the lookup is inconclusive. A
-// genuinely clean delete is never second-guessed.
-func (k *BaseKubernetesManager) describeAbandonedInventory(lastObj *unstructured.Unstructured) *liveInventoryEntry {
-	if !waitsForTermination(lastObj) {
+// kustomizationDeletionPolicy. A MirrorPrune one is expected to leave live entries
+// behind. Returns nil when there is no inventory to check, or the lookup is
+// inconclusive. A genuinely clean delete is never second-guessed.
+func (k *BaseKubernetesManager) describeAbandonedInventory(lastObj *unstructured.Unstructured, expectWaitForTermination *bool) *liveInventoryEntry {
+	waitForTermination, ok := kustomizationDeletionPolicy(lastObj, expectWaitForTermination)
+	if !ok || !waitForTermination {
 		return nil
 	}
 	entries, found := inventoryEntriesFromObject(lastObj)
