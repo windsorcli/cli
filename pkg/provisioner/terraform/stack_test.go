@@ -2575,6 +2575,33 @@ func TestStack_PlanAll(t *testing.T) {
 	})
 }
 
+func TestStack_PlanAllJSON(t *testing.T) {
+	t.Run("SurfacesTheRealDiagnosticOnPlanFailure", func(t *testing.T) {
+		// Given a plan that fails with a real provider error
+		mocks := setupWindsorStackMocks(t)
+		stack := NewStack(mocks.Runtime).(*TerraformStack)
+		stack.shims = mocks.Shims
+		mocks.Shell.ExecSilentWithEnvFunc = func(command string, env map[string]string, args ...string) (string, error) {
+			if len(args) > 1 && args[1] == "plan" {
+				output := `{"type":"diagnostic","diagnostic":{"severity":"error","summary":"Error 403: Permission denied","detail":"googleapi: Error 403"}}` + "\n"
+				return output, fmt.Errorf("exit status 1")
+			}
+			return "", nil
+		}
+
+		// When PlanAllJSON is called
+		err := stack.PlanAllJSON(createTestBlueprint())
+
+		// Then the real diagnostic reaches the caller, not just "exit status 1"
+		if err == nil {
+			t.Fatal("expected an error, got nil")
+		}
+		if !strings.Contains(err.Error(), "Error 403: Permission denied") {
+			t.Errorf("expected the real diagnostic in the error, got: %v", err)
+		}
+	})
+}
+
 func TestStack_PlanJSON(t *testing.T) {
 	setup := func(t *testing.T) (*TerraformStack, *TerraformTestMocks) {
 		t.Helper()
@@ -2606,6 +2633,29 @@ func TestStack_PlanJSON(t *testing.T) {
 		}
 		if capturedEnv["TF_VAR_operation"] != "apply" {
 			t.Errorf("Expected TF_VAR_operation to be %q, got %q", "apply", capturedEnv["TF_VAR_operation"])
+		}
+	})
+
+	t.Run("SurfacesTheRealDiagnosticOnPlanFailure", func(t *testing.T) {
+		// Given a plan that fails with a real provider error
+		stack, mocks := setup(t)
+		mocks.Shell.ExecSilentWithEnvFunc = func(command string, env map[string]string, args ...string) (string, error) {
+			if len(args) > 1 && args[1] == "plan" {
+				output := `{"type":"diagnostic","diagnostic":{"severity":"error","summary":"Error 403: Permission denied","detail":"googleapi: Error 403"}}` + "\n"
+				return output, fmt.Errorf("exit status 1")
+			}
+			return "", nil
+		}
+
+		// When PlanJSON is called
+		err := stack.PlanJSON(createTestBlueprint(), "local/path")
+
+		// Then the real diagnostic reaches the caller, not just "exit status 1"
+		if err == nil {
+			t.Fatal("expected an error, got nil")
+		}
+		if !strings.Contains(err.Error(), "Error 403: Permission denied") {
+			t.Errorf("expected the real diagnostic in the error, got: %v", err)
 		}
 	})
 }
@@ -4660,6 +4710,39 @@ func TestStack_PlanSummary(t *testing.T) {
 			}
 		}
 	})
+
+	t.Run("SurfacesTheRealDiagnosticOnPlanFailure", func(t *testing.T) {
+		// Given a plan that fails with a real provider error
+		stack, mocks := setup(t)
+		mocks.Shell.ExecSilentWithEnvFunc = func(command string, env map[string]string, args ...string) (string, error) {
+			if len(args) > 2 && args[1] == "show" && args[2] == "-json" {
+				return `{"values":{"root_module":{"resources":[{"address":"google_container_cluster.main"}]}}}`, nil
+			}
+			if len(args) > 1 && args[1] == "plan" {
+				output := `{"type":"diagnostic","diagnostic":{"severity":"error","summary":"Error 403: Permission denied","detail":"googleapi: Error 403: Required 'compute.instances.create' permission"}}` + "\n"
+				return output, fmt.Errorf("exit status 1")
+			}
+			return "", nil
+		}
+		bp := &blueprintv1alpha1.Blueprint{
+			Metadata:            blueprintv1alpha1.Metadata{Name: "t"},
+			TerraformComponents: []blueprintv1alpha1.TerraformComponent{{Path: "cluster"}},
+		}
+
+		// When PlanSummary runs
+		results := stack.PlanSummary(bp)
+
+		// Then the result's error carries the real diagnostic, not just "exit status 1"
+		if len(results) != 1 {
+			t.Fatalf("expected 1 result, got %d: %#v", len(results), results)
+		}
+		if results[0].Err == nil {
+			t.Fatal("expected an error, got nil")
+		}
+		if !strings.Contains(results[0].Err.Error(), "Error 403: Permission denied") || !strings.Contains(results[0].Err.Error(), "compute.instances.create") {
+			t.Errorf("expected the real diagnostic in the error, got: %v", results[0].Err)
+		}
+	})
 }
 
 func TestStack_PlanDestroySummary(t *testing.T) {
@@ -4802,6 +4885,83 @@ func TestStack_PlanDestroySummary(t *testing.T) {
 		}
 		if results[0].Path != "b" {
 			t.Errorf("expected path=b, got %q", results[0].Path)
+		}
+	})
+
+	t.Run("SurfacesTheRealDiagnosticOnPlanFailure", func(t *testing.T) {
+		// Given a plan -destroy that fails with a real provider error, not a
+		// prevent_destroy diagnostic
+		stack, mocks := setup(t)
+		mocks.Shell.ExecSilentWithEnvFunc = func(command string, env map[string]string, args ...string) (string, error) {
+			if len(args) > 2 && args[1] == "show" && args[2] == "-json" {
+				return `{"values":{"root_module":{"resources":[{"address":"google_container_cluster.main"}]}}}`, nil
+			}
+			if len(args) > 1 && args[1] == "plan" {
+				output := `{"type":"diagnostic","diagnostic":{"severity":"error","summary":"Error 403: Permission denied","detail":"googleapi: Error 403: Required 'compute.instances.delete' permission"}}` + "\n"
+				return output, fmt.Errorf("exit status 1")
+			}
+			return "", nil
+		}
+		bp := &blueprintv1alpha1.Blueprint{
+			Metadata:            blueprintv1alpha1.Metadata{Name: "t"},
+			TerraformComponents: []blueprintv1alpha1.TerraformComponent{{Path: "cluster"}},
+		}
+
+		// When PlanDestroySummary runs
+		results := stack.PlanDestroySummary(bp)
+
+		// Then the result's error carries the real diagnostic, not just "exit status 1"
+		if len(results) != 1 {
+			t.Fatalf("expected 1 result, got %d: %#v", len(results), results)
+		}
+		if results[0].Err == nil {
+			t.Fatal("expected an error, got nil")
+		}
+		if !strings.Contains(results[0].Err.Error(), "Error 403: Permission denied") || !strings.Contains(results[0].Err.Error(), "compute.instances.delete") {
+			t.Errorf("expected the real diagnostic in the error, got: %v", results[0].Err)
+		}
+	})
+
+	t.Run("SurfacesARealErrorAlongsideAProtectedResource", func(t *testing.T) {
+		// Given a plan -destroy that fails with both a prevent_destroy diagnostic
+		// for one resource and an unrelated real error for another — the
+		// protected-resource warning must never mask the real error
+		stack, mocks := setup(t)
+		mocks.Shell.ExecSilentWithEnvFunc = func(command string, env map[string]string, args ...string) (string, error) {
+			if len(args) > 2 && args[1] == "show" && args[2] == "-json" {
+				return `{"values":{"root_module":{"resources":[{"address":"x.y"}]}}}`, nil
+			}
+			if len(args) > 1 && args[1] == "plan" {
+				output := strings.Join([]string{
+					`{"type":"diagnostic","diagnostic":{"severity":"error","summary":"Instance cannot be destroyed","address":"null_resource.guarded"}}`,
+					`{"type":"diagnostic","diagnostic":{"severity":"error","summary":"Error 403: Permission denied","detail":"googleapi: Error 403"}}`,
+					``,
+				}, "\n")
+				return output, fmt.Errorf("exit status 1")
+			}
+			return "", nil
+		}
+		bp := &blueprintv1alpha1.Blueprint{
+			Metadata:            blueprintv1alpha1.Metadata{Name: "t"},
+			TerraformComponents: []blueprintv1alpha1.TerraformComponent{{Path: "cluster"}},
+		}
+
+		// When PlanDestroySummary runs
+		results := stack.PlanDestroySummary(bp)
+
+		// Then both the protected resource and the real error are reported
+		if len(results) != 1 {
+			t.Fatalf("expected 1 result, got %d: %#v", len(results), results)
+		}
+		r := results[0]
+		if len(r.Protected) != 1 || r.Protected[0] != "null_resource.guarded" {
+			t.Errorf("expected the protected resource reported, got: %#v", r.Protected)
+		}
+		if r.Err == nil {
+			t.Fatal("expected the unrelated error to still be reported, got nil")
+		}
+		if !strings.Contains(r.Err.Error(), "Error 403: Permission denied") {
+			t.Errorf("expected the real diagnostic in the error, got: %v", r.Err)
 		}
 	})
 }
@@ -5094,6 +5254,114 @@ func TestExtractPreventDestroyAddresses(t *testing.T) {
 		// Then nothing is reported — silent skip beats reporting empty strings
 		if got != nil {
 			t.Errorf("expected nil for unparseable diagnostics, got %#v", got)
+		}
+	})
+}
+
+func TestExtractPlanErrorDiagnostics(t *testing.T) {
+	t.Run("ReturnsNilForEmptyOrNonDiagnosticOutput", func(t *testing.T) {
+		// Given an event stream with only planned_change and change_summary events
+		output := strings.Join([]string{
+			`{"type":"planned_change","change":{"resource":{"addr":"module.main.aws_s3_bucket.x"},"action":"delete"}}`,
+			`{"type":"change_summary","changes":{"add":0,"change":0,"remove":1}}`,
+			``,
+		}, "\n")
+
+		// When extracting error diagnostics
+		got := extractPlanErrorDiagnostics(output)
+
+		// Then none are reported
+		if got != nil {
+			t.Errorf("expected nil, got %#v", got)
+		}
+		if extractPlanErrorDiagnostics("") != nil {
+			t.Error("expected nil for empty output")
+		}
+	})
+
+	t.Run("ExtractsSummaryAndDetailForEveryErrorDiagnostic", func(t *testing.T) {
+		// Given a provider error diagnostic like a real destroy-plan failure would emit
+		output := strings.Join([]string{
+			`Initialising backend...`,
+			`{"type":"diagnostic","diagnostic":{"severity":"error","summary":"Error 403: Permission denied","detail":"googleapi: Error 403: Required 'compute.instances.delete' permission, forbidden"}}`,
+			`trailing junk`,
+			``,
+		}, "\n")
+
+		// When extracting
+		got := extractPlanErrorDiagnostics(output)
+
+		// Then the summary and detail both reach the caller
+		if len(got) != 1 {
+			t.Fatalf("expected 1 diagnostic, got %d: %#v", len(got), got)
+		}
+		if !strings.Contains(got[0], "Error 403: Permission denied") || !strings.Contains(got[0], "compute.instances.delete") {
+			t.Errorf("expected summary and detail both present, got %q", got[0])
+		}
+	})
+
+	t.Run("OmitsDetailWhenAbsent", func(t *testing.T) {
+		// Given a diagnostic with only a summary
+		output := `{"type":"diagnostic","diagnostic":{"severity":"error","summary":"Provider produced inconsistent result"}}`
+
+		// When extracting
+		got := extractPlanErrorDiagnostics(output)
+
+		// Then the bare summary is reported with no trailing separator
+		if len(got) != 1 || got[0] != "Provider produced inconsistent result" {
+			t.Errorf("expected bare summary, got %#v", got)
+		}
+	})
+
+	t.Run("IgnoresNonErrorSeverityAndNonDiagnosticEvents", func(t *testing.T) {
+		// Given a warning and a differently-typed event carrying a diagnostic field
+		output := strings.Join([]string{
+			`{"type":"diagnostic","diagnostic":{"severity":"warning","summary":"deprecated argument"}}`,
+			`{"type":"some_other_event","diagnostic":{"severity":"error","summary":"should not surface"}}`,
+			``,
+		}, "\n")
+
+		// When extracting
+		got := extractPlanErrorDiagnostics(output)
+
+		// Then neither qualifies
+		if got != nil {
+			t.Errorf("expected nil, got %#v", got)
+		}
+	})
+
+	t.Run("CollapsesDuplicateMessages", func(t *testing.T) {
+		// Given the same diagnostic repeated, e.g. once per affected resource instance
+		output := strings.Join([]string{
+			`{"type":"diagnostic","diagnostic":{"severity":"error","summary":"Error 500","detail":"internal error"}}`,
+			`{"type":"diagnostic","diagnostic":{"severity":"error","summary":"Error 500","detail":"internal error"}}`,
+			``,
+		}, "\n")
+
+		// When extracting
+		got := extractPlanErrorDiagnostics(output)
+
+		// Then it is reported once
+		if len(got) != 1 {
+			t.Errorf("expected duplicates collapsed to 1, got %d: %#v", len(got), got)
+		}
+	})
+
+	t.Run("FlattensEmbeddedNewlinesToOneLine", func(t *testing.T) {
+		// Given a detail that spans multiple lines — callers render each returned
+		// line as its own bullet, so an unflattened detail would look like
+		// several distinct diagnostics
+		output := `{"type":"diagnostic","diagnostic":{"severity":"error","summary":"Error 403","detail":"googleapi: Error 403:\nRequired permission denied\nfor project x"}}`
+
+		// When extracting
+		got := extractPlanErrorDiagnostics(output)
+
+		// Then it is reported as a single, newline-free line
+		if len(got) != 1 {
+			t.Fatalf("expected 1 diagnostic, got %d: %#v", len(got), got)
+		}
+		if strings.Contains(got[0], "\n") {
+			t.Errorf("expected no embedded newlines, got %q", got[0])
 		}
 	})
 }
