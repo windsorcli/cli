@@ -5657,9 +5657,10 @@ func TestBaseKubernetesManager_DeleteBlueprint(t *testing.T) {
 		kubernetesClient.GetResourceFunc = func(gvr schema.GroupVersionResource, namespace, name string) (*unstructured.Unstructured, error) {
 			if name == "test-kustomization" {
 				calls++
-				// The first call is remediateLoadBalancerOwners' pre-destroy inventory
-				// snapshot; the delete wait loop's own first check is the second.
-				if calls <= 2 {
+				// Call 1 is remediateLoadBalancerOwners' pre-destroy inventory snapshot,
+				// calls 2-3 are waitForResumeReconcile's checks after resume, and the
+				// delete wait loop's own first check is the fourth.
+				if calls <= 4 {
 					return liveObj, nil
 				}
 				return nil, fmt.Errorf("the server could not find the requested resource")

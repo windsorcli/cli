@@ -1508,3 +1508,121 @@ func TestBaseKubernetesManager_applyBlueprintOCIRepository(t *testing.T) {
 		}
 	})
 }
+
+func TestBaseKubernetesManager_waitForResumeReconcile(t *testing.T) {
+	setup := func(t *testing.T) *BaseKubernetesManager {
+		t.Helper()
+		mocks := setupKubernetesMocks(t)
+		manager := NewKubernetesManager(mocks.KubernetesClient, mocks.ConfigHandler)
+		manager.kustomizationWaitPollInterval = 10 * time.Millisecond
+		manager.kustomizationReconcileSleep = 30 * time.Millisecond
+		clock := newFakeClock()
+		manager.shims.TimeNow = clock.Now
+		manager.shims.TimeSleep = clock.Sleep
+		return manager
+	}
+
+	staleObj := func() *unstructured.Unstructured {
+		return &unstructured.Unstructured{Object: map[string]any{
+			"metadata": map[string]any{"generation": int64(2)},
+			"status":   map[string]any{"observedGeneration": int64(1)},
+		}}
+	}
+
+	t.Run("ReturnsAsSoonAsGenerationSettles", func(t *testing.T) {
+		// Given a Kustomization whose observedGeneration catches up on the second read
+		manager := setup(t)
+		kubernetesClient := client.NewMockKubernetesClient()
+		calls := 0
+		kubernetesClient.GetResourceFunc = func(gvr schema.GroupVersionResource, namespace, name string) (*unstructured.Unstructured, error) {
+			calls++
+			if calls >= 2 {
+				return &unstructured.Unstructured{Object: map[string]any{
+					"metadata": map[string]any{"generation": int64(2)},
+					"status":   map[string]any{"observedGeneration": int64(2)},
+				}}, nil
+			}
+			return staleObj(), nil
+		}
+		manager.client = kubernetesClient
+
+		// When waiting for the resume to settle
+		manager.waitForResumeReconcile("test-kustomization", "test-namespace")
+
+		// Then it stops polling right after the generations match
+		if calls != 2 {
+			t.Errorf("Expected exactly 2 GetResource calls before settling, got %d", calls)
+		}
+	})
+
+	t.Run("GivesUpAfterTheBudgetWithoutSettling", func(t *testing.T) {
+		// Given a Kustomization whose observedGeneration never catches up
+		manager := setup(t)
+		kubernetesClient := client.NewMockKubernetesClient()
+		kubernetesClient.GetResourceFunc = func(gvr schema.GroupVersionResource, namespace, name string) (*unstructured.Unstructured, error) {
+			return staleObj(), nil
+		}
+		manager.client = kubernetesClient
+
+		// When waiting for the resume to settle, it must return once the fake clock
+		// passes kustomizationReconcileSleep rather than loop forever
+		manager.waitForResumeReconcile("test-kustomization", "test-namespace")
+	})
+
+	t.Run("ReturnsImmediatelyOnAReadError", func(t *testing.T) {
+		// Given the Kustomization can't be read at all
+		manager := setup(t)
+		kubernetesClient := client.NewMockKubernetesClient()
+		calls := 0
+		kubernetesClient.GetResourceFunc = func(gvr schema.GroupVersionResource, namespace, name string) (*unstructured.Unstructured, error) {
+			calls++
+			return nil, fmt.Errorf("the server could not find the requested resource")
+		}
+		manager.client = kubernetesClient
+
+		// When waiting for the resume to settle
+		manager.waitForResumeReconcile("test-kustomization", "test-namespace")
+
+		// Then it gives up on the first error rather than retrying
+		if calls != 1 {
+			t.Errorf("Expected exactly 1 GetResource call before giving up on error, got %d", calls)
+		}
+	})
+}
+
+func TestReconcileGenerationSettled(t *testing.T) {
+	t.Run("FalseForNilObject", func(t *testing.T) {
+		if reconcileGenerationSettled(nil) {
+			t.Error("Expected false for a nil object")
+		}
+	})
+
+	t.Run("FalseWhenObservedGenerationMissing", func(t *testing.T) {
+		obj := &unstructured.Unstructured{Object: map[string]any{
+			"metadata": map[string]any{"generation": int64(2)},
+		}}
+		if reconcileGenerationSettled(obj) {
+			t.Error("Expected false when status.observedGeneration is missing")
+		}
+	})
+
+	t.Run("FalseWhenObservedGenerationLagsBehind", func(t *testing.T) {
+		obj := &unstructured.Unstructured{Object: map[string]any{
+			"metadata": map[string]any{"generation": int64(3)},
+			"status":   map[string]any{"observedGeneration": int64(2)},
+		}}
+		if reconcileGenerationSettled(obj) {
+			t.Error("Expected false when observedGeneration lags generation")
+		}
+	})
+
+	t.Run("TrueWhenObservedGenerationCaughtUp", func(t *testing.T) {
+		obj := &unstructured.Unstructured{Object: map[string]any{
+			"metadata": map[string]any{"generation": int64(3)},
+			"status":   map[string]any{"observedGeneration": int64(3)},
+		}}
+		if !reconcileGenerationSettled(obj) {
+			t.Error("Expected true when observedGeneration matches generation")
+		}
+	})
+}
