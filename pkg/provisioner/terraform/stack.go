@@ -1105,7 +1105,9 @@ func (s *TerraformStack) printComponentHeader(componentPath string) {
 // success, and (false, err) on any other failure. Shared by MigrateState (which
 // tolerates missing dirs by collecting skipped IDs) and MigrateComponentState (which
 // treats a missing dir as an error because the caller is asking for a specific
-// component to be migrated).
+// component to be migrated). refreshProviderLock runs first so a provider constraint
+// bumped upstream since this component's last init doesn't surface as an unexplained
+// failure on the one init path that must not silently bump providers itself.
 func (s *TerraformStack) migrateOneComponent(component *blueprintv1alpha1.TerraformComponent, backendOverridePaths *[]string) (bool, error) {
 	if _, statErr := s.shims.Stat(component.FullPath); statErr != nil {
 		if os.IsNotExist(statErr) {
@@ -1123,10 +1125,30 @@ func (s *TerraformStack) migrateOneComponent(component *blueprintv1alpha1.Terraf
 		return false, err
 	}
 
+	if err := s.refreshProviderLock(component, terraformVars, scopedKeys); err != nil {
+		return false, err
+	}
+
 	if err := s.runTerraformInit(component, terraformVars, scopedKeys, terraformArgs, "-migrate-state", "-force-copy"); err != nil {
 		return false, err
 	}
 	return true, nil
+}
+
+// refreshProviderLock runs `terraform init -upgrade -backend=false` for component, bringing a
+// stale .terraform.lock.hcl current with the module's present provider constraints. -backend=false
+// skips backend configuration entirely, so this never touches state or contends for a state lock —
+// only providers and modules are resolved. Runs independently of runTerraformInit's cache and
+// argument composition, since terraformArgs.InitArgs unconditionally carries -backend=true.
+func (s *TerraformStack) refreshProviderLock(component *blueprintv1alpha1.TerraformComponent, terraformVars map[string]string, scopedKeys []string) error {
+	terraformCommand := s.runtime.ToolsManager.GetTerraformCommand()
+	initArgs := []string{fmt.Sprintf("-chdir=%s", component.FullPath), "init", "-upgrade", "-backend=false", "-input=false"}
+	initArgs = append(initArgs, noColorArgs()...)
+	initEnv := selectTerraformCommandEnv(terraformVars, false, scopedKeys)
+	if _, err := s.runtime.Shell.ExecSilentWithEnv(terraformCommand, initEnv, initArgs...); err != nil {
+		return fmt.Errorf("error refreshing provider lock for %s: %w", component.Path, err)
+	}
+	return nil
 }
 
 // hasResources reports whether this module or any descendant contains a resource in state.
