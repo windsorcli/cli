@@ -5,9 +5,12 @@ package shell
 
 import (
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"testing"
+	"time"
 )
 
 // The UnixShellTest is a test suite for Unix-specific shell operations.
@@ -400,6 +403,67 @@ func TestDefaultShell_PrintEnvVars(t *testing.T) {
 		}
 		if strings.Contains(output, "export") {
 			t.Errorf("Expected no export commands, got: %s", output)
+		}
+	})
+}
+
+// TestSetProcessGroup_InterruptProcessGroup verifies the real syscalls behind the interrupt
+// guard: a command placed in its own process group survives outside that group's signal
+// delivery, and interruptProcessGroup can still reach and terminate it directly.
+func TestSetProcessGroup_InterruptProcessGroup(t *testing.T) {
+	t.Run("PlacesTheChildInADifferentProcessGroupFromTheTestProcess", func(t *testing.T) {
+		cmd := exec.Command("sleep", "5")
+		setProcessGroup(cmd)
+
+		if err := cmd.Start(); err != nil {
+			t.Fatalf("failed to start test process: %v", err)
+		}
+		defer func() { _ = cmd.Process.Kill() }()
+
+		ownPgid, err := syscall.Getpgid(os.Getpid())
+		if err != nil {
+			t.Fatalf("failed to get own pgid: %v", err)
+		}
+		childPgid, err := syscall.Getpgid(cmd.Process.Pid)
+		if err != nil {
+			t.Fatalf("failed to get child pgid: %v", err)
+		}
+		if childPgid == ownPgid {
+			t.Errorf("expected child to be in its own process group, got the test process's group %d", ownPgid)
+		}
+	})
+
+	t.Run("TerminatesTheChildEvenThoughItIsInADifferentProcessGroup", func(t *testing.T) {
+		cmd := exec.Command("sleep", "5")
+		setProcessGroup(cmd)
+
+		if err := cmd.Start(); err != nil {
+			t.Fatalf("failed to start test process: %v", err)
+		}
+
+		if err := interruptProcessGroup(cmd); err != nil {
+			_ = cmd.Process.Kill()
+			t.Fatalf("interruptProcessGroup returned an error: %v", err)
+		}
+
+		waitErr := make(chan error, 1)
+		go func() { waitErr <- cmd.Wait() }()
+
+		select {
+		case err := <-waitErr:
+			if err == nil {
+				t.Error("expected the child to exit with an error from the delivered signal, got nil")
+			}
+		case <-time.After(2 * time.Second):
+			_ = cmd.Process.Kill()
+			t.Fatal("child did not exit after interruptProcessGroup")
+		}
+	})
+
+	t.Run("NoOpWhenTheProcessHasNotStarted", func(t *testing.T) {
+		cmd := exec.Command("sleep", "5")
+		if err := interruptProcessGroup(cmd); err != nil {
+			t.Errorf("expected no error for an unstarted process, got %v", err)
 		}
 	})
 }
