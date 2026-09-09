@@ -9,11 +9,14 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
 	"text/template"
 	"time"
+
+	"github.com/windsorcli/cli/pkg/tui"
 )
 
 // The ShellTest is a test suite for the Shell interface and its implementations.
@@ -3793,12 +3796,15 @@ func TestShell_ExecProgress(t *testing.T) {
 	})
 }
 
-// syncWriter wraps a bytes.Buffer with a channel signaled after every Write, letting a test block
-// until the writer goroutine has processed a given signal instead of racing on a sleep.
+// syncWriter wraps a bytes.Buffer with a channel signaled after every Write. A test
+// can wait on the channel instead of racing on a sleep. onWrite, when set, runs
+// before the write is recorded. Use it to place a write among other events, such
+// as a spinner pause and resume.
 type syncWriter struct {
 	mu      sync.Mutex
 	buf     bytes.Buffer
 	written chan struct{}
+	onWrite func()
 }
 
 func newSyncWriter() *syncWriter {
@@ -3806,6 +3812,9 @@ func newSyncWriter() *syncWriter {
 }
 
 func (w *syncWriter) Write(p []byte) (int, error) {
+	if w.onWrite != nil {
+		w.onWrite()
+	}
 	w.mu.Lock()
 	n, err := w.buf.Write(p)
 	w.mu.Unlock()
@@ -3943,6 +3952,56 @@ func TestInterruptGuard_Watch(t *testing.T) {
 		close(done)
 		waitFinished(t, finished)
 	})
+
+	t.Run("PausesAndResumesTheSpinnerAroundEachWarning", func(t *testing.T) {
+		// termSpinner redraws its line every 100ms. An unpaused write here would
+		// get clobbered by the next frame. Each warning must pause, then resume.
+		originalActive := tui.Active
+		t.Cleanup(func() { tui.Active = originalActive })
+
+		var mu sync.Mutex
+		var events []string
+		spinner := tui.NewMockSpinner()
+		spinner.PauseFunc = func() {
+			mu.Lock()
+			events = append(events, "pause")
+			mu.Unlock()
+		}
+		spinner.ResumeFunc = func() {
+			mu.Lock()
+			events = append(events, "resume")
+			mu.Unlock()
+		}
+		tui.Active = spinner
+
+		warn := newSyncWriter()
+		warn.onWrite = func() {
+			mu.Lock()
+			events = append(events, "write")
+			mu.Unlock()
+		}
+		g := &interruptGuard{
+			forward:   func() error { return nil },
+			warn:      warn,
+			component: "cluster/aws-eks",
+		}
+		sigCh := make(chan os.Signal, 1)
+		done := make(chan struct{})
+
+		finished := runWatch(t, g, sigCh, done)
+		sigCh <- os.Interrupt
+		<-warn.written
+		close(done)
+		waitFinished(t, finished)
+
+		mu.Lock()
+		got := append([]string(nil), events...)
+		mu.Unlock()
+		want := []string{"pause", "write", "resume"}
+		if !slices.Equal(got, want) {
+			t.Errorf("expected %v, got %v", want, got)
+		}
+	})
 }
 
 func TestShell_ExecProgressWithEnv_InterruptGuard(t *testing.T) {
@@ -4031,6 +4090,31 @@ func TestShell_ExecProgressWithEnv_InterruptGuard(t *testing.T) {
 		// Then the guard should still be registered and stopped exactly once
 		if notifyCalls != 1 || stopCalls != 1 {
 			t.Errorf("expected exactly one SignalNotify and one SignalStop call, got %d and %d", notifyCalls, stopCalls)
+		}
+	})
+
+	t.Run("SkipsTheGuardForSudo", func(t *testing.T) {
+		// Setpgid would move a sudo child out of the terminal's foreground group.
+		// Its password prompt would then stall on SIGTTIN. The guard must not run.
+		shell, mocks := setup(t)
+
+		notifyCalls := 0
+		mocks.Shims.SignalNotify = func(c chan<- os.Signal, sig ...os.Signal) { notifyCalls++ }
+		var capturedCmd *exec.Cmd
+		mocks.Shims.Command = func(name string, args ...string) *exec.Cmd {
+			capturedCmd = exec.Command("sudo")
+			return capturedCmd
+		}
+
+		if _, err := shell.ExecProgressWithEnv("Applying test", "sudo", nil); err != nil {
+			t.Fatalf("expected no error, got %v", err)
+		}
+
+		if notifyCalls != 0 {
+			t.Errorf("expected the interrupt guard not to register for sudo, got %d SignalNotify calls", notifyCalls)
+		}
+		if capturedCmd.SysProcAttr != nil {
+			t.Error("expected sudo's process group to be left untouched")
 		}
 	})
 }

@@ -407,9 +407,9 @@ func TestDefaultShell_PrintEnvVars(t *testing.T) {
 	})
 }
 
-// TestSetProcessGroup_InterruptProcessGroup verifies the real syscalls behind the interrupt
-// guard: a command placed in its own process group survives outside that group's signal
-// delivery, and interruptProcessGroup can still reach and terminate it directly.
+// TestSetProcessGroup_InterruptProcessGroup verifies the real syscalls behind the
+// interrupt guard. A command in its own process group sits outside the test
+// process's signal delivery. interruptProcessGroup can still reach and terminate it.
 func TestSetProcessGroup_InterruptProcessGroup(t *testing.T) {
 	t.Run("PlacesTheChildInADifferentProcessGroupFromTheTestProcess", func(t *testing.T) {
 		cmd := exec.Command("sleep", "5")

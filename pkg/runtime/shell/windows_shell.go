@@ -92,16 +92,15 @@ func (s *DefaultShell) ExecSudo(message string, command string, args ...string) 
 	return s.Exec(command, args...)
 }
 
-// setProcessGroup places cmd in its own console process group so a second terminal interrupt
-// (Ctrl+C) is not also delivered to it directly — only the one an interruptGuard forwards via
-// interruptProcessGroup reaches it.
+// setProcessGroup places cmd in its own console process group. A second terminal
+// interrupt then reaches cmd only through interruptGuard's call to interruptProcessGroup.
 func setProcessGroup(cmd *exec.Cmd) {
 	cmd.SysProcAttr = &syscall.SysProcAttr{CreationFlags: windows.CREATE_NEW_PROCESS_GROUP}
 }
 
-// interruptProcessGroup sends CTRL_BREAK_EVENT to cmd's console process group. Windows has no
-// SIGINT to relay directly; a process in its own process group (set by setProcessGroup) receives
-// CTRL_BREAK_EVENT the same way it would receive Ctrl+C in the foreground group.
+// interruptProcessGroup sends CTRL_BREAK_EVENT to cmd's console process group.
+// Windows has no SIGINT. A process in its own group (set by setProcessGroup)
+// receives CTRL_BREAK_EVENT the way a foreground process receives Ctrl+C.
 func interruptProcessGroup(cmd *exec.Cmd) error {
 	if cmd.Process == nil {
 		return nil

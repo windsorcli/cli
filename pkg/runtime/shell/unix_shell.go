@@ -137,15 +137,14 @@ func (s *DefaultShell) ExecSudo(message string, command string, args ...string) 
 	return s.scrubString(stdoutBuf.String()), nil
 }
 
-// setProcessGroup places cmd in its own process group so a second terminal interrupt (Ctrl+C) is
-// not also delivered to it directly — only the one an interruptGuard forwards via
-// interruptProcessGroup reaches it.
+// setProcessGroup places cmd in its own process group. A second terminal interrupt
+// then reaches cmd only through interruptGuard's call to interruptProcessGroup.
 func setProcessGroup(cmd *exec.Cmd) {
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 }
 
-// interruptProcessGroup sends SIGINT to cmd's process group. The negative pid targets the whole
-// group, mirroring what the terminal would otherwise deliver directly.
+// interruptProcessGroup sends SIGINT to cmd's process group. The negative pid
+// targets the whole group, the same as a terminal-delivered interrupt would.
 func interruptProcessGroup(cmd *exec.Cmd) error {
 	if cmd.Process == nil {
 		return nil
