@@ -1105,9 +1105,8 @@ func (s *TerraformStack) printComponentHeader(componentPath string) {
 // success, and (false, err) on any other failure. Shared by MigrateState (which
 // tolerates missing dirs by collecting skipped IDs) and MigrateComponentState (which
 // treats a missing dir as an error because the caller is asking for a specific
-// component to be migrated). refreshProviderLock runs first so a provider constraint
-// bumped upstream since this component's last init doesn't surface as an unexplained
-// failure on the one init path that must not silently bump providers itself.
+// component to be migrated). A failed init matching isStaleProviderLockError triggers
+// one refreshProviderLock call, then one retry, so a normal migration stays offline.
 func (s *TerraformStack) migrateOneComponent(component *blueprintv1alpha1.TerraformComponent, backendOverridePaths *[]string) (bool, error) {
 	if _, statErr := s.shims.Stat(component.FullPath); statErr != nil {
 		if os.IsNotExist(statErr) {
@@ -1125,21 +1124,24 @@ func (s *TerraformStack) migrateOneComponent(component *blueprintv1alpha1.Terraf
 		return false, err
 	}
 
-	if err := s.refreshProviderLock(component, terraformVars, scopedKeys); err != nil {
-		return false, err
+	migrateErr := s.runTerraformInit(component, terraformVars, scopedKeys, terraformArgs, "-migrate-state", "-force-copy")
+	if migrateErr != nil && isStaleProviderLockError(migrateErr) {
+		if refreshErr := s.refreshProviderLock(component, terraformVars, scopedKeys); refreshErr != nil {
+			return false, refreshErr
+		}
+		migrateErr = s.runTerraformInit(component, terraformVars, scopedKeys, terraformArgs, "-migrate-state", "-force-copy")
 	}
-
-	if err := s.runTerraformInit(component, terraformVars, scopedKeys, terraformArgs, "-migrate-state", "-force-copy"); err != nil {
-		return false, err
+	if migrateErr != nil {
+		return false, migrateErr
 	}
 	return true, nil
 }
 
-// refreshProviderLock runs `terraform init -upgrade -backend=false` for component, bringing a
-// stale .terraform.lock.hcl current with the module's present provider constraints. -backend=false
-// skips backend configuration entirely, so this never touches state or contends for a state lock —
-// only providers and modules are resolved. Runs independently of runTerraformInit's cache and
-// argument composition, since terraformArgs.InitArgs unconditionally carries -backend=true.
+// refreshProviderLock runs `terraform init -upgrade -backend=false` for component. This
+// brings a stale .terraform.lock.hcl current with the module's present provider
+// constraints. -backend=false skips backend configuration. The call never touches
+// state and never contends for a state lock. It builds its own init args rather than
+// reusing runTerraformInit, since terraformArgs.InitArgs always carries -backend=true.
 func (s *TerraformStack) refreshProviderLock(component *blueprintv1alpha1.TerraformComponent, terraformVars map[string]string, scopedKeys []string) error {
 	terraformCommand := s.runtime.ToolsManager.GetTerraformCommand()
 	initArgs := []string{fmt.Sprintf("-chdir=%s", component.FullPath), "init", "-upgrade", "-backend=false", "-input=false"}
