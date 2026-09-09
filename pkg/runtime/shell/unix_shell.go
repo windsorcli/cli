@@ -7,8 +7,10 @@ import (
 	"bytes"
 	"fmt"
 	"os"
+	"os/exec"
 	"sort"
 	"strings"
+	"syscall"
 
 	"github.com/windsorcli/cli/pkg/tui"
 )
@@ -62,7 +64,6 @@ func (s *DefaultShell) RenderAliases(aliases map[string]string) string {
 	}
 	return result.String()
 }
-
 
 // ExecSudo runs a command with 'sudo', ensuring elevated privileges. It handles password prompts by
 // connecting to the terminal and captures the command's output. If verbose mode is enabled or no TTY
@@ -136,6 +137,22 @@ func (s *DefaultShell) ExecSudo(message string, command string, args ...string) 
 	return s.scrubString(stdoutBuf.String()), nil
 }
 
+// setProcessGroup places cmd in its own process group so a second terminal interrupt (Ctrl+C) is
+// not also delivered to it directly — only the one an interruptGuard forwards via
+// interruptProcessGroup reaches it.
+func setProcessGroup(cmd *exec.Cmd) {
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+}
+
+// interruptProcessGroup sends SIGINT to cmd's process group. The negative pid targets the whole
+// group, mirroring what the terminal would otherwise deliver directly.
+func interruptProcessGroup(cmd *exec.Cmd) error {
+	if cmd.Process == nil {
+		return nil
+	}
+	return syscall.Kill(-cmd.Process.Pid, syscall.SIGINT)
+}
+
 // =============================================================================
 // Private Methods
 // =============================================================================
@@ -161,4 +178,3 @@ func (s *DefaultShell) renderEnvVarsWithExport(envVars map[string]string) string
 	}
 	return result.String()
 }
-

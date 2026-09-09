@@ -6,6 +6,7 @@ import (
 	"io"
 	"maps"
 	"os"
+	"os/exec"
 	"path"
 	"path/filepath"
 	"slices"
@@ -88,6 +89,20 @@ type DefaultShell struct {
 	shims        *Shims
 	secrets      []string
 	secretsMu    sync.Mutex
+}
+
+// interruptGuard relays exactly one interrupt to a supervised child process, then withholds
+// further interrupts for the rest of its run. Terraform's own graceful stop already cancels the
+// context of whatever operation is in flight on the first interrupt it receives, which is enough
+// on its own to leave a resource tainted mid-create — windsor cannot prevent that. What windsor
+// can prevent is a second, impatient interrupt bypassing that graceful stop with a hard kill,
+// which risks leaving state and reality disagreeing with no tainted marker at all. forward is
+// platform-specific: it delivers the guarded interrupt to the child's own process group so a
+// second terminal interrupt does not also reach it directly.
+type interruptGuard struct {
+	forward   func() error
+	warn      io.Writer
+	component string
 }
 
 // =============================================================================
@@ -404,6 +419,7 @@ func (s *DefaultShell) ExecProgressWithEnv(message string, command string, env m
 		if command == "sudo" {
 			cmd.Stdin = os.Stdin
 		}
+		defer s.startInterruptGuard(cmd, message)()
 		if err := s.shims.CmdStart(cmd); err != nil {
 			return stdoutBuf.String(), fmt.Errorf("command start failed: %w", err)
 		}
@@ -432,6 +448,7 @@ func (s *DefaultShell) ExecProgressWithEnv(message string, command string, env m
 		return "", err
 	}
 
+	defer s.startInterruptGuard(cmd, message)()
 	if err := s.shims.CmdStart(cmd); err != nil {
 		return "", err
 	}
@@ -896,6 +913,53 @@ func (s *DefaultShell) scrubStringWithMaxLen(input string) (string, int) {
 // newScrubbingWriter builds a scrubbingWriter over w bound to this shell's registered secrets.
 func (s *DefaultShell) newScrubbingWriter(w io.Writer) *scrubbingWriter {
 	return &scrubbingWriter{writer: w, scrubWithMaxLen: s.scrubStringWithMaxLen}
+}
+
+// startInterruptGuard places cmd in its own process group and begins relaying exactly one
+// terminal interrupt to it, suppressing any further interrupt for the rest of its run — see
+// interruptGuard. Used around long-running, user-visible operations (terraform apply, privileged
+// network configuration) where a second, impatient interrupt hard-killing the child is worse than
+// letting the first one's graceful stop run its course. The returned stop func must be called
+// once cmd has exited.
+func (s *DefaultShell) startInterruptGuard(cmd *exec.Cmd, message string) (stop func()) {
+	setProcessGroup(cmd)
+
+	sigCh := make(chan os.Signal, 4)
+	s.shims.SignalNotify(sigCh, os.Interrupt)
+	done := make(chan struct{})
+
+	guard := &interruptGuard{
+		forward:   func() error { return interruptProcessGroup(cmd) },
+		warn:      os.Stderr,
+		component: message,
+	}
+	go guard.watch(sigCh, done)
+
+	return func() {
+		close(done)
+		s.shims.SignalStop(sigCh)
+	}
+}
+
+// watch relays the first signal received on sigCh to the guarded child via forward, then prints
+// a warning (without forwarding) for every subsequent signal until done is closed. It returns once
+// done is closed, which the caller does as soon as the child process exits.
+func (g *interruptGuard) watch(sigCh <-chan os.Signal, done <-chan struct{}) {
+	forwarded := false
+	for {
+		select {
+		case <-done:
+			return
+		case <-sigCh:
+			if !forwarded {
+				forwarded = true
+				fmt.Fprintf(g.warn, "windsor: interrupt received while applying %s; the in-flight resource operation may now be tainted in Terraform state. Waiting for terraform to stop gracefully — further interrupts will not force it. If it hangs, stop it from another terminal.\n", g.component)
+				_ = g.forward()
+				continue
+			}
+			fmt.Fprintf(g.warn, "windsor: still waiting for terraform to stop gracefully for %s. Forcing now can corrupt state. If it hangs, stop it from another terminal.\n", g.component)
+		}
+	}
 }
 
 // PrintEnvVars is a platform-specific method that will be implemented by Unix/Windows-specific files
