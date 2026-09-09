@@ -1731,12 +1731,15 @@ var staleProviderLockMarkers = []string{
 }
 
 // isStaleProviderLockError reports whether err is Terraform's stale-provider-lock failure, the
-// one -upgrade actually resolves. See staleProviderLockMarkers.
+// one -upgrade actually resolves. See staleProviderLockMarkers. Terraform's own diagnostic
+// renderer word-wraps its message at a fixed column width, so a marker can straddle a line
+// break in the captured text; whitespace (including newlines) is collapsed before matching so
+// wrap position never affects detection.
 func isStaleProviderLockError(err error) bool {
 	if err == nil {
 		return false
 	}
-	msg := err.Error()
+	msg := strings.Join(strings.Fields(err.Error()), " ")
 	for _, marker := range staleProviderLockMarkers {
 		if !strings.Contains(msg, marker) {
 			return false

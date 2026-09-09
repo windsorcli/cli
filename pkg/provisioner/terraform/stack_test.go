@@ -1990,7 +1990,6 @@ func TestNewShims(t *testing.T) {
 	})
 }
 
-
 func TestTerraformStack_PlanComponentSummary(t *testing.T) {
 	setup := func(t *testing.T) (*TerraformStack, *TerraformTestMocks) {
 		t.Helper()
@@ -2069,7 +2068,6 @@ func TestTerraformStack_PlanComponentSummary(t *testing.T) {
 	})
 
 }
-
 
 // =============================================================================
 // Test Private Methods
@@ -4146,6 +4144,15 @@ func TestIsStaleProviderLockError(t *testing.T) {
 			t.Error("Expected false when only one marker is present")
 		}
 	})
+
+	t.Run("MatchesWhenTerraformWrapsTheMarkerAcrossLines", func(t *testing.T) {
+		// Terraform's diagnostic renderer word-wraps at a fixed column width; here that
+		// wrap lands between "terraform" and "init -upgrade", splitting the second marker.
+		err := fmt.Errorf("Error: Failed to query available provider packages\n\nCould not retrieve the list of available versions for provider\nhashicorp/azurerm: locked provider registry.terraform.io/hashicorp/azurerm\n5.0.1 does not match configured version constraint 5.4.0; must use terraform\ninit -upgrade to allow selection of new versions")
+		if !isStaleProviderLockError(err) {
+			t.Error("Expected true when the marker is split across a wrapped line")
+		}
+	})
 }
 
 func TestNoColorArgs(t *testing.T) {
@@ -5365,4 +5372,3 @@ func TestExtractPlanErrorDiagnostics(t *testing.T) {
 		}
 	})
 }
-
