@@ -11,6 +11,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"os/signal"
 	"path/filepath"
 	"text/template"
 
@@ -84,6 +85,10 @@ type Shims struct {
 
 	// Terminal operations
 	IsTerminal func(fd int) bool
+
+	// Signal operations
+	SignalNotify func(c chan<- os.Signal, sig ...os.Signal)
+	SignalStop   func(c chan<- os.Signal)
 }
 
 // =============================================================================
@@ -176,6 +181,10 @@ func NewShims() *Shims {
 
 		// Terminal operations
 		IsTerminal: term.IsTerminal,
+
+		// Signal operations
+		SignalNotify: signal.Notify,
+		SignalStop:   signal.Stop,
 	}
 	return s
 }

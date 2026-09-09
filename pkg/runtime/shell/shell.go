@@ -6,6 +6,7 @@ import (
 	"io"
 	"maps"
 	"os"
+	"os/exec"
 	"path"
 	"path/filepath"
 	"slices"
@@ -88,6 +89,16 @@ type DefaultShell struct {
 	shims        *Shims
 	secrets      []string
 	secretsMu    sync.Mutex
+}
+
+// interruptGuard relays one interrupt to a child process. It blocks every interrupt
+// after that for the rest of the run. A second interrupt can force-kill the child
+// before it exits cleanly. forward sends the interrupt to the child's own process
+// group. This stops a second terminal interrupt from reaching the child directly.
+type interruptGuard struct {
+	forward   func() error
+	warn      io.Writer
+	component string
 }
 
 // =============================================================================
@@ -404,6 +415,7 @@ func (s *DefaultShell) ExecProgressWithEnv(message string, command string, env m
 		if command == "sudo" {
 			cmd.Stdin = os.Stdin
 		}
+		defer s.startInterruptGuard(cmd, command, message)()
 		if err := s.shims.CmdStart(cmd); err != nil {
 			return stdoutBuf.String(), fmt.Errorf("command start failed: %w", err)
 		}
@@ -432,6 +444,7 @@ func (s *DefaultShell) ExecProgressWithEnv(message string, command string, env m
 		return "", err
 	}
 
+	defer s.startInterruptGuard(cmd, command, message)()
 	if err := s.shims.CmdStart(cmd); err != nil {
 		return "", err
 	}
@@ -896,6 +909,58 @@ func (s *DefaultShell) scrubStringWithMaxLen(input string) (string, int) {
 // newScrubbingWriter builds a scrubbingWriter over w bound to this shell's registered secrets.
 func (s *DefaultShell) newScrubbingWriter(w io.Writer) *scrubbingWriter {
 	return &scrubbingWriter{writer: w, scrubWithMaxLen: s.scrubStringWithMaxLen}
+}
+
+// startInterruptGuard places cmd in its own process group. It relays the first
+// terminal interrupt to cmd, then blocks every interrupt after that. See
+// interruptGuard. It skips sudo. Setpgid would strand sudo's password prompt on
+// SIGTTIN. Call the returned stop func once cmd exits. It no-ops when skipped.
+func (s *DefaultShell) startInterruptGuard(cmd *exec.Cmd, command string, message string) (stop func()) {
+	if command == "sudo" {
+		return func() {}
+	}
+
+	setProcessGroup(cmd)
+
+	sigCh := make(chan os.Signal, 4)
+	s.shims.SignalNotify(sigCh, os.Interrupt)
+	done := make(chan struct{})
+
+	guard := &interruptGuard{
+		forward:   func() error { return interruptProcessGroup(cmd) },
+		warn:      os.Stderr,
+		component: message,
+	}
+	go guard.watch(sigCh, done)
+
+	return func() {
+		close(done)
+		s.shims.SignalStop(sigCh)
+	}
+}
+
+// watch forwards the first signal on sigCh to the child via forward. Every signal
+// after that prints a warning instead of forwarding. Each warning pauses the active
+// spinner first, since termSpinner redraws its line and would clobber the warning.
+// watch returns once done closes. The caller closes done when the child exits.
+func (g *interruptGuard) watch(sigCh <-chan os.Signal, done <-chan struct{}) {
+	forwarded := false
+	for {
+		select {
+		case <-done:
+			return
+		case <-sigCh:
+			tui.Pause()
+			if !forwarded {
+				forwarded = true
+				fmt.Fprintf(g.warn, "warning: interrupt received during apply of %s. The resource may now be tainted in Terraform state. Windsor waits for terraform to stop gracefully. A further interrupt will not force it. If terraform hangs, stop it from another terminal.\n", g.component)
+				_ = g.forward()
+			} else {
+				fmt.Fprintf(g.warn, "warning: still waiting for terraform to stop gracefully for %s. Forcing now can corrupt state. If it hangs, stop it from another terminal.\n", g.component)
+			}
+			tui.Resume()
+		}
+	}
 }
 
 // PrintEnvVars is a platform-specific method that will be implemented by Unix/Windows-specific files

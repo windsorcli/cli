@@ -9,11 +9,14 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
 	"text/template"
 	"time"
+
+	"github.com/windsorcli/cli/pkg/tui"
 )
 
 // The ShellTest is a test suite for the Shell interface and its implementations.
@@ -3789,6 +3792,329 @@ func TestShell_ExecProgress(t *testing.T) {
 		}
 		if output != "test output\n" {
 			t.Errorf("Expected output 'test output', got '%s'", output)
+		}
+	})
+}
+
+// syncWriter wraps a bytes.Buffer with a channel signaled after every Write. A test
+// can wait on the channel instead of racing on a sleep. onWrite, when set, runs
+// before the write is recorded. Use it to place a write among other events, such
+// as a spinner pause and resume.
+type syncWriter struct {
+	mu      sync.Mutex
+	buf     bytes.Buffer
+	written chan struct{}
+	onWrite func()
+}
+
+func newSyncWriter() *syncWriter {
+	return &syncWriter{written: make(chan struct{}, 16)}
+}
+
+func (w *syncWriter) Write(p []byte) (int, error) {
+	if w.onWrite != nil {
+		w.onWrite()
+	}
+	w.mu.Lock()
+	n, err := w.buf.Write(p)
+	w.mu.Unlock()
+	w.written <- struct{}{}
+	return n, err
+}
+
+func (w *syncWriter) String() string {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return w.buf.String()
+}
+
+func TestInterruptGuard_Watch(t *testing.T) {
+	setup := func() (*interruptGuard, *syncWriter, func() int) {
+		warn := newSyncWriter()
+		var mu sync.Mutex
+		forwardCount := 0
+		g := &interruptGuard{
+			forward: func() error {
+				mu.Lock()
+				forwardCount++
+				mu.Unlock()
+				return nil
+			},
+			warn:      warn,
+			component: "cluster/aws-eks",
+		}
+		count := func() int {
+			mu.Lock()
+			defer mu.Unlock()
+			return forwardCount
+		}
+		return g, warn, count
+	}
+
+	runWatch := func(t *testing.T, g *interruptGuard, sigCh chan os.Signal, done chan struct{}) <-chan struct{} {
+		t.Helper()
+		finished := make(chan struct{})
+		go func() {
+			g.watch(sigCh, done)
+			close(finished)
+		}()
+		return finished
+	}
+
+	waitFinished := func(t *testing.T, finished <-chan struct{}) {
+		t.Helper()
+		select {
+		case <-finished:
+		case <-time.After(time.Second):
+			t.Fatal("watch did not return after done was closed")
+		}
+	}
+
+	t.Run("ReturnsWithoutForwardingWhenNoSignalArrives", func(t *testing.T) {
+		g, warn, count := setup()
+		sigCh := make(chan os.Signal, 1)
+		done := make(chan struct{})
+
+		finished := runWatch(t, g, sigCh, done)
+		close(done)
+		waitFinished(t, finished)
+
+		if count() != 0 {
+			t.Errorf("expected forward not to be called, got %d calls", count())
+		}
+		if warn.String() != "" {
+			t.Errorf("expected no warning output, got %q", warn.String())
+		}
+	})
+
+	t.Run("ForwardsOnlyTheFirstOfSeveralSignals", func(t *testing.T) {
+		g, warn, count := setup()
+		sigCh := make(chan os.Signal, 4)
+		done := make(chan struct{})
+
+		finished := runWatch(t, g, sigCh, done)
+
+		sigCh <- os.Interrupt
+		<-warn.written
+		sigCh <- os.Interrupt
+		<-warn.written
+		sigCh <- os.Interrupt
+		<-warn.written
+
+		close(done)
+		waitFinished(t, finished)
+
+		if count() != 1 {
+			t.Errorf("expected forward to be called exactly once, got %d", count())
+		}
+		lines := strings.Count(warn.String(), "\n")
+		if lines != 3 {
+			t.Errorf("expected one warning line per signal (3), got %d in %q", lines, warn.String())
+		}
+		if !strings.Contains(warn.String(), "cluster/aws-eks") {
+			t.Errorf("expected warning to mention the component, got %q", warn.String())
+		}
+	})
+
+	t.Run("SecondWarningIsDistinctFromTheFirst", func(t *testing.T) {
+		g, warn, _ := setup()
+		sigCh := make(chan os.Signal, 2)
+		done := make(chan struct{})
+
+		finished := runWatch(t, g, sigCh, done)
+
+		sigCh <- os.Interrupt
+		<-warn.written
+		sigCh <- os.Interrupt
+		<-warn.written
+
+		close(done)
+		waitFinished(t, finished)
+
+		lines := strings.Split(strings.TrimRight(warn.String(), "\n"), "\n")
+		if len(lines) != 2 {
+			t.Fatalf("expected exactly two warning lines, got %d: %q", len(lines), warn.String())
+		}
+		if lines[0] == lines[1] {
+			t.Errorf("expected a distinct follow-up warning, got the same line twice: %q", lines[0])
+		}
+		if !strings.Contains(lines[1], "corrupt") {
+			t.Errorf("expected the second warning to warn that forcing can corrupt state, got %q", lines[1])
+		}
+	})
+
+	t.Run("ReturnsPromptlyOnceDoneIsClosed", func(t *testing.T) {
+		g, _, _ := setup()
+		sigCh := make(chan os.Signal, 1)
+		done := make(chan struct{})
+
+		finished := runWatch(t, g, sigCh, done)
+		close(done)
+		waitFinished(t, finished)
+	})
+
+	t.Run("PausesAndResumesTheSpinnerAroundEachWarning", func(t *testing.T) {
+		// termSpinner redraws its line every 100ms. An unpaused write here would
+		// get clobbered by the next frame. Each warning must pause, then resume.
+		originalActive := tui.Active
+		t.Cleanup(func() { tui.Active = originalActive })
+
+		var mu sync.Mutex
+		var events []string
+		spinner := tui.NewMockSpinner()
+		spinner.PauseFunc = func() {
+			mu.Lock()
+			events = append(events, "pause")
+			mu.Unlock()
+		}
+		spinner.ResumeFunc = func() {
+			mu.Lock()
+			events = append(events, "resume")
+			mu.Unlock()
+		}
+		tui.Active = spinner
+
+		warn := newSyncWriter()
+		warn.onWrite = func() {
+			mu.Lock()
+			events = append(events, "write")
+			mu.Unlock()
+		}
+		g := &interruptGuard{
+			forward:   func() error { return nil },
+			warn:      warn,
+			component: "cluster/aws-eks",
+		}
+		sigCh := make(chan os.Signal, 1)
+		done := make(chan struct{})
+
+		finished := runWatch(t, g, sigCh, done)
+		sigCh <- os.Interrupt
+		<-warn.written
+		close(done)
+		waitFinished(t, finished)
+
+		mu.Lock()
+		got := append([]string(nil), events...)
+		mu.Unlock()
+		want := []string{"pause", "write", "resume"}
+		if !slices.Equal(got, want) {
+			t.Errorf("expected %v, got %v", want, got)
+		}
+	})
+}
+
+func TestShell_ExecProgressWithEnv_InterruptGuard(t *testing.T) {
+	setup := func(t *testing.T) (*DefaultShell, *ShellTestMocks) {
+		t.Helper()
+		mocks := setupShellMocks(t)
+		shell := NewDefaultShell()
+		shell.shims = mocks.Shims
+		return shell, mocks
+	}
+
+	t.Run("RegistersAndStopsAnInterruptGuardAroundTheCommand", func(t *testing.T) {
+		// Given a shell whose SignalNotify/SignalStop calls are observed
+		shell, mocks := setup(t)
+
+		var notifiedSignals []os.Signal
+		var notifyCh chan<- os.Signal
+		stopped := false
+		mocks.Shims.SignalNotify = func(c chan<- os.Signal, sig ...os.Signal) {
+			notifyCh = c
+			notifiedSignals = sig
+		}
+		mocks.Shims.SignalStop = func(c chan<- os.Signal) {
+			if c == notifyCh {
+				stopped = true
+			}
+		}
+
+		// When executing a command with progress
+		if _, err := shell.ExecProgressWithEnv("Applying test", "test", nil); err != nil {
+			t.Fatalf("expected no error, got %v", err)
+		}
+
+		// Then the guard registered for os.Interrupt and stopped once the command finished
+		if len(notifiedSignals) != 1 || notifiedSignals[0] != os.Interrupt {
+			t.Errorf("expected SignalNotify to be called with os.Interrupt, got %v", notifiedSignals)
+		}
+		if !stopped {
+			t.Error("expected SignalStop to be called with the same channel passed to SignalNotify")
+		}
+	})
+
+	t.Run("PlacesTheCommandInItsOwnProcessGroup", func(t *testing.T) {
+		// Given a shell that captures the command built for execution
+		shell, mocks := setup(t)
+
+		var capturedCmd *exec.Cmd
+		mocks.Shims.Command = func(name string, args ...string) *exec.Cmd {
+			capturedCmd = exec.Command("test")
+			return capturedCmd
+		}
+
+		// When executing a command with progress
+		if _, err := shell.ExecProgressWithEnv("Applying test", "test", nil); err != nil {
+			t.Fatalf("expected no error, got %v", err)
+		}
+
+		// Then setProcessGroup should have set SysProcAttr, isolating it from a repeat
+		// terminal interrupt so only the guard's forwarded signal reaches it
+		if capturedCmd.SysProcAttr == nil {
+			t.Error("expected SysProcAttr to be set so the command runs in its own process group")
+		}
+	})
+
+	t.Run("VerboseModeAlsoRegistersAndStopsTheGuard", func(t *testing.T) {
+		// Given a verbose shell whose SignalNotify/SignalStop calls are observed
+		shell, mocks := setup(t)
+		shell.SetVerbosity(true)
+
+		notifyCalls := 0
+		stopCalls := 0
+		mocks.Shims.SignalNotify = func(c chan<- os.Signal, sig ...os.Signal) { notifyCalls++ }
+		mocks.Shims.SignalStop = func(c chan<- os.Signal) { stopCalls++ }
+		mocks.Shims.Command = func(name string, args ...string) *exec.Cmd {
+			cmd := exec.Command("test")
+			cmd.Stdout = new(bytes.Buffer)
+			cmd.Stderr = new(bytes.Buffer)
+			return cmd
+		}
+
+		// When executing a command with progress in verbose mode
+		if _, err := shell.ExecProgressWithEnv("Applying test", "test", nil); err != nil {
+			t.Fatalf("expected no error, got %v", err)
+		}
+
+		// Then the guard should still be registered and stopped exactly once
+		if notifyCalls != 1 || stopCalls != 1 {
+			t.Errorf("expected exactly one SignalNotify and one SignalStop call, got %d and %d", notifyCalls, stopCalls)
+		}
+	})
+
+	t.Run("SkipsTheGuardForSudo", func(t *testing.T) {
+		// Setpgid would move a sudo child out of the terminal's foreground group.
+		// Its password prompt would then stall on SIGTTIN. The guard must not run.
+		shell, mocks := setup(t)
+
+		notifyCalls := 0
+		mocks.Shims.SignalNotify = func(c chan<- os.Signal, sig ...os.Signal) { notifyCalls++ }
+		var capturedCmd *exec.Cmd
+		mocks.Shims.Command = func(name string, args ...string) *exec.Cmd {
+			capturedCmd = exec.Command("sudo")
+			return capturedCmd
+		}
+
+		if _, err := shell.ExecProgressWithEnv("Applying test", "sudo", nil); err != nil {
+			t.Fatalf("expected no error, got %v", err)
+		}
+
+		if notifyCalls != 0 {
+			t.Errorf("expected the interrupt guard not to register for sudo, got %d SignalNotify calls", notifyCalls)
+		}
+		if capturedCmd.SysProcAttr != nil {
+			t.Error("expected sudo's process group to be left untouched")
 		}
 	})
 }

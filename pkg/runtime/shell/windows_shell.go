@@ -6,8 +6,12 @@ package shell
 import (
 	"fmt"
 	"os"
+	"os/exec"
 	"sort"
 	"strings"
+	"syscall"
+
+	"golang.org/x/sys/windows"
 )
 
 // The WindowsShell is a platform-specific implementation of shell operations for Windows systems.
@@ -88,6 +92,21 @@ func (s *DefaultShell) ExecSudo(message string, command string, args ...string) 
 	return s.Exec(command, args...)
 }
 
+// setProcessGroup places cmd in its own console process group. A second terminal
+// interrupt then reaches cmd only through interruptGuard's call to interruptProcessGroup.
+func setProcessGroup(cmd *exec.Cmd) {
+	cmd.SysProcAttr = &syscall.SysProcAttr{CreationFlags: windows.CREATE_NEW_PROCESS_GROUP}
+}
+
+// interruptProcessGroup sends CTRL_BREAK_EVENT to cmd's console process group.
+// Windows has no SIGINT. A process in its own group (set by setProcessGroup)
+// receives CTRL_BREAK_EVENT the way a foreground process receives Ctrl+C.
+func interruptProcessGroup(cmd *exec.Cmd) error {
+	if cmd.Process == nil {
+		return nil
+	}
+	return windows.GenerateConsoleCtrlEvent(windows.CTRL_BREAK_EVENT, uint32(cmd.Process.Pid)) // #nosec G115 -- process IDs are small, safe to cast to uint32
+}
 
 // =============================================================================
 // Private Methods
