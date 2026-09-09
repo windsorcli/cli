@@ -203,7 +203,7 @@ func (p *terraformProvider) IsInTerraformProject() bool {
 // the override file if it exists. Otherwise, it writes a backend_override.tf file with the appropriate
 // backend stanza for local, s3, kubernetes, azurerm, or gcs backends. Returns an error for unsupported backend types.
 func (p *terraformProvider) GenerateBackendOverride(directory string) error {
-	backend := p.configHandler.GetString("terraform.backend.type", "local")
+	backend := p.configHandler.GetTerraformBackendType()
 
 	var backendConfig string
 	switch backend {
@@ -721,7 +721,7 @@ func (p *terraformProvider) GetStatePath(componentID string) (string, error) {
 // don't know what's required — let the probe run and surface real init
 // failures via the warning path rather than silently disable detection.
 func (p *terraformProvider) BackendConfigComplete() bool {
-	backendType := p.configHandler.GetString("terraform.backend.type", "local")
+	backendType := p.configHandler.GetTerraformBackendType()
 	if backendType == "" || backendType == "local" {
 		return true
 	}
@@ -1126,7 +1126,7 @@ func (p *terraformProvider) restoreEnvVars(originalEnvVars map[string]string) {
 // Returns a slice of backend configuration arguments or an error if required configuration or paths are unavailable.
 func (p *terraformProvider) generateBackendConfigArgs(projectPath, configRoot string) ([]string, error) {
 	var backendConfigArgs []string
-	backend := p.configHandler.GetString("terraform.backend.type", "local")
+	backend := p.configHandler.GetTerraformBackendType()
 
 	addBackendConfigArg := func(key, value string) {
 		if value != "" {

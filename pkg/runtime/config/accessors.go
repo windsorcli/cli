@@ -88,6 +88,24 @@ func (c *configHandler) GetString(key string, defaultValue ...string) string {
 	return fmt.Sprintf("%v", value)
 }
 
+// GetTerraformBackendType returns the effective terraform.backend.type: the explicit value when
+// set, else the canonical default for the context's platform (see
+// DefaultTerraformBackendTypeForPlatform), else "local". Platform falls back to the deprecated
+// "provider" key when "platform" is unset, matching how the rest of config treats that migration.
+func (c *configHandler) GetTerraformBackendType() string {
+	if explicit := c.GetString("terraform.backend.type"); explicit != "" {
+		return explicit
+	}
+	platform := c.GetString("platform")
+	if platform == "" {
+		platform = c.GetString("provider")
+	}
+	if def := DefaultTerraformBackendTypeForPlatform(platform); def != "" {
+		return def
+	}
+	return "local"
+}
+
 // GetInt retrieves an integer value for the specified key from the configuration.
 // It accepts an optional default value. The function safely converts supported types (int, int64, uint64, uint)
 // to int with appropriate overflow protection, and parses string values if they represent valid integer literals.

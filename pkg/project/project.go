@@ -242,7 +242,7 @@ func (p *Project) Bootstrap(confirm provisioner.BootstrapConfirmFn) (*blueprintv
 	}
 
 	if confirm != nil {
-		backendType := p.configHandler.GetString("terraform.backend.type", "local")
+		backendType := p.configHandler.GetTerraformBackendType()
 		summary := provisioner.BuildBootstrapSummary(blueprint, p.contextName, backendType)
 		if !confirm(summary) {
 			return blueprint, false, false, nil

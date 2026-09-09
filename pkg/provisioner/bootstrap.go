@@ -151,7 +151,7 @@ func blueprintWithoutComponents(bp *blueprintv1alpha1.Blueprint, components []*b
 // withBackendOverride pins terraform.backend.type to "local" for the duration of fn,
 // restoring the previously-configured value via defer.
 func (i *Provisioner) withBackendOverride(opLabel string, fn func() error) error {
-	original := i.configHandler.GetString("terraform.backend.type", "local")
+	original := i.configHandler.GetTerraformBackendType()
 	if err := i.configHandler.Set("terraform.backend.type", "local"); err != nil {
 		return fmt.Errorf("failed to override backend for %s: %w", opLabel, err)
 	}

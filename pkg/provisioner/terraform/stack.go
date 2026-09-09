@@ -1614,7 +1614,7 @@ func (s *TerraformStack) runTerraformInit(component *blueprintv1alpha1.Terraform
 	migrateState := slices.Contains(extraFlags, "-migrate-state")
 	key := initCacheKey{
 		componentID:  component.GetID(),
-		backendType:  s.runtime.ConfigHandler.GetString("terraform.backend.type", "local"),
+		backendType:  s.runtime.ConfigHandler.GetTerraformBackendType(),
 		migrateState: migrateState,
 	}
 	s.initCacheMu.Lock()
@@ -1690,7 +1690,7 @@ func (s *TerraformStack) clearStaleBackendPointer(terraformVars map[string]strin
 		_ = s.shims.Remove(pointerPath)
 		return
 	}
-	configuredBackend := s.runtime.ConfigHandler.GetString("terraform.backend.type", "local")
+	configuredBackend := s.runtime.ConfigHandler.GetTerraformBackendType()
 	if pointer.Backend.Type != "" && pointer.Backend.Type != configuredBackend {
 		_ = s.shims.Remove(pointerPath)
 	}

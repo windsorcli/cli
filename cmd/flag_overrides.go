@@ -7,6 +7,7 @@ import (
 	"github.com/Masterminds/semver/v3"
 	"github.com/windsorcli/cli/pkg/composer/artifact"
 	"github.com/windsorcli/cli/pkg/constants"
+	"github.com/windsorcli/cli/pkg/runtime/config"
 )
 
 // =============================================================================
@@ -47,29 +48,17 @@ func applyWorkstationFlagOverrides(overrides map[string]any, vmDriver, platform 
 
 // defaultTerraformBackendType fills in terraform.backend.type from
 // overrides["platform"] when the key is absent, so explicit --set values
-// (merged into the same map by callers after this runs) always win:
-//
-//   - aws     → s3       (S3 is the canonical state store on AWS)
-//   - azure   → azurerm  (Azure Blob Storage via the azurerm backend)
-//   - metal, docker, incus, hetzner, hyperv, vsphere → kubernetes  (the cluster
-//     IS the state store; each component's state lives as a Secret in the
-//     cluster it manages. Hetzner joins this group because its Object Storage
-//     keys can't be provisioned via API, so in-cluster state avoids a manual
-//     key step)
-//   - gcp     → gcs       (Cloud Storage is the canonical state store on GCP)
+// (merged into the same map by callers after this runs) always win. The
+// platform-to-backend mapping lives in config.DefaultTerraformBackendTypeForPlatform,
+// the same function ConfigHandler.GetTerraformBackendType falls back to when the
+// key is unset at read time, so init-time and runtime defaulting can't drift apart.
 func defaultTerraformBackendType(overrides map[string]any) {
 	if _, set := overrides["terraform.backend.type"]; set {
 		return
 	}
-	switch overrides["platform"] {
-	case "aws":
-		overrides["terraform.backend.type"] = "s3"
-	case "azure":
-		overrides["terraform.backend.type"] = "azurerm"
-	case "gcp":
-		overrides["terraform.backend.type"] = "gcs"
-	case "metal", "docker", "incus", "hetzner", "hyperv", "vsphere":
-		overrides["terraform.backend.type"] = "kubernetes"
+	platform, _ := overrides["platform"].(string)
+	if def := config.DefaultTerraformBackendTypeForPlatform(platform); def != "" {
+		overrides["terraform.backend.type"] = def
 	}
 }
 

@@ -314,3 +314,73 @@ func TestConfigHandler_AccessorTypeCoercionHelpers(t *testing.T) {
 		}
 	})
 }
+
+func TestConfigHandler_GetTerraformBackendType(t *testing.T) {
+	t.Run("ExplicitValueWins", func(t *testing.T) {
+		mocks := setupConfigMocks(t)
+		handler := NewConfigHandler(mocks.Shell)
+		handler.Set("platform", "gcp")
+		handler.Set("terraform.backend.type", "local")
+
+		if got := handler.GetTerraformBackendType(); got != "local" {
+			t.Errorf("Expected the explicit value to win over the platform default, got %q", got)
+		}
+	})
+
+	t.Run("FallsBackToThePlatformDefault", func(t *testing.T) {
+		testCases := []struct {
+			platform string
+			want     string
+		}{
+			{"aws", "s3"},
+			{"azure", "azurerm"},
+			{"gcp", "gcs"},
+			{"metal", "kubernetes"},
+			{"docker", "kubernetes"},
+			{"incus", "kubernetes"},
+			{"hetzner", "kubernetes"},
+			{"hyperv", "kubernetes"},
+			{"vsphere", "kubernetes"},
+		}
+		for _, tc := range testCases {
+			t.Run(tc.platform, func(t *testing.T) {
+				mocks := setupConfigMocks(t)
+				handler := NewConfigHandler(mocks.Shell)
+				handler.Set("platform", tc.platform)
+
+				if got := handler.GetTerraformBackendType(); got != tc.want {
+					t.Errorf("Expected platform %q to default to %q, got %q", tc.platform, tc.want, got)
+				}
+			})
+		}
+	})
+
+	t.Run("FallsBackToProviderWhenPlatformUnset", func(t *testing.T) {
+		mocks := setupConfigMocks(t)
+		handler := NewConfigHandler(mocks.Shell)
+		handler.Set("provider", "gcp")
+
+		if got := handler.GetTerraformBackendType(); got != "gcs" {
+			t.Errorf("Expected the deprecated provider key to drive the default, got %q", got)
+		}
+	})
+
+	t.Run("FallsBackToLocalForAnUnrecognizedPlatform", func(t *testing.T) {
+		mocks := setupConfigMocks(t)
+		handler := NewConfigHandler(mocks.Shell)
+		handler.Set("platform", "none")
+
+		if got := handler.GetTerraformBackendType(); got != "local" {
+			t.Errorf("Expected local for a platform with no canonical backend, got %q", got)
+		}
+	})
+
+	t.Run("FallsBackToLocalWhenNeitherPlatformNorProviderIsSet", func(t *testing.T) {
+		mocks := setupConfigMocks(t)
+		handler := NewConfigHandler(mocks.Shell)
+
+		if got := handler.GetTerraformBackendType(); got != "local" {
+			t.Errorf("Expected local with no platform information at all, got %q", got)
+		}
+	})
+}
