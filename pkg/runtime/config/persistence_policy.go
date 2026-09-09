@@ -106,6 +106,21 @@ func (p *persistencePolicy) isWorkstationManagedKey(key string) bool {
 	return false
 }
 
+// volatileTopLevelKeys lists top-level keys this policy may relocate or discard depending on
+// input (see shouldPersistPlatform) or the provider→platform migration in Runtime.SaveConfig.
+// Their absence from one save compared to an earlier one is never itself evidence of dropped
+// data, unlike an ordinary key such as "terraform".
+var volatileTopLevelKeys = map[string]bool{
+	"provider": true,
+	"platform": true,
+}
+
+// isVolatile reports whether key is a top-level key Partition may legitimately relocate or
+// discard on its own, independent of isWorkstationManagedKey.
+func (p *persistencePolicy) isVolatile(key string) bool {
+	return volatileTopLevelKeys[key] || p.isWorkstationManagedKey(key)
+}
+
 // networkCIDRBlock extracts the cidr_block field from a network config map, if present.
 func networkCIDRBlock(value any) (any, bool) {
 	network, ok := value.(map[string]any)

@@ -721,6 +721,11 @@ properties:
 		valuesPath := filepath.Join(contextDir, "values.yaml")
 		os.WriteFile(valuesPath, []byte("existing_key: old_value\n"), 0644)
 
+		// LoadConfig first, as every real caller does, so existing_key carries into
+		// c.data. A save that never loaded it would look like a drop otherwise.
+		if err := handler.LoadConfig(); err != nil {
+			t.Fatalf("Expected no error loading config, got %v", err)
+		}
 		handler.Set("dynamic_key", "new_value")
 		if err := handler.SaveConfig(); err != nil {
 			t.Fatalf("Expected no error saving without overwrite, got %v", err)

@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 )
 
 // The ValuesSource is a configuration source for context values.yaml files.
@@ -101,6 +102,13 @@ func (s *valuesSource) Save(
 	}
 
 	partition := s.policy.Partition(data, input)
+
+	if valuesExists {
+		if dropped := s.droppedTopLevelKeys(valuesPath, partition.Values); len(dropped) > 0 {
+			return fmt.Errorf("refusing to write values.yaml for context %q: this write would drop top-level section(s) %v present in the current file. This looks like a bug, not an intended change. No changes were written", contextName, dropped)
+		}
+	}
+
 	marshaled, err := s.shims.YamlMarshal(partition.Values)
 	if err != nil {
 		return fmt.Errorf("error marshalling values.yaml: %w", err)
@@ -111,4 +119,39 @@ func (s *valuesSource) Save(
 	}
 
 	return nil
+}
+
+// =============================================================================
+// Private Methods
+// =============================================================================
+
+// droppedTopLevelKeys compares the top-level keys already on disk at valuesPath against next,
+// the map about to be written, and returns any key present on disk but absent from next. Save
+// persists the full merged config, a superset of disk by construction, so a legitimate write
+// should never produce a strict subset of the prior top-level keys. isVolatile keys are skipped,
+// since the policy may relocate or discard those on its own. An unreadable or unparseable
+// existing file returns no dropped keys rather than blocking the write, since there is nothing
+// trustworthy left to compare against.
+func (s *valuesSource) droppedTopLevelKeys(valuesPath string, next map[string]any) []string {
+	current, err := s.shims.ReadFile(valuesPath)
+	if err != nil {
+		return nil
+	}
+
+	var existing map[string]any
+	if err := s.shims.YamlUnmarshal(current, &existing); err != nil {
+		return nil
+	}
+
+	var dropped []string
+	for key := range existing {
+		if s.policy.isVolatile(key) {
+			continue
+		}
+		if _, ok := next[key]; !ok {
+			dropped = append(dropped, key)
+		}
+	}
+	sort.Strings(dropped)
+	return dropped
 }
