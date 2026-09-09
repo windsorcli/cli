@@ -1,0 +1,13 @@
+kind: Facet
+apiVersion: blueprints.windsorcli.dev/v1alpha1
+metadata:
+  name: cert-manager
+  description: Flux system whose install tier declares no components
+
+flux:
+- name: cert-manager
+  path: cert-manager
+  install: {}
+  resources:
+  - components:
+    - private-issuer/ca

@@ -1,0 +1,14 @@
+# An install tier with no components still renders: its own kustomization.yaml can
+# carry real content (a namespace, say) on its own. windsor test confirms the
+# cert-manager-install tier compiles instead of being silently dropped.
+
+cases:
+
+  - name: install_tier_with_no_components_still_renders
+    values: {}
+    expect:
+      kustomize:
+        - name: cert-manager-install
+        - name: cert-manager-resources
+          dependsOn:
+            - cert-manager-install

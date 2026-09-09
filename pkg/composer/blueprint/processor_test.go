@@ -3576,22 +3576,26 @@ func TestProcessor_ProcessFacets_Tiers(t *testing.T) {
 		}
 	})
 
-	t.Run("InstallPrunesToNothingWhenComponentsEmpty", func(t *testing.T) {
+	t.Run("InstallRendersWhenComponentsPruneToEmpty", func(t *testing.T) {
 		target := process(t, blueprintv1alpha1.FluxSystem{
 			Name:      "gateway",
 			Path:      "gateway",
 			Install:   &blueprintv1alpha1.Kustomization{Components: []string{"${false ? 'helm-release' : ''}"}},
 			Resources: []blueprintv1alpha1.FluxVariant{{Kustomization: blueprintv1alpha1.Kustomization{Components: []string{"internal"}}}},
 		})
-		if _, ok := find(target, "gateway-install"); ok {
-			t.Error("expected no install tier when its components prune to empty")
+		install, ok := find(target, "gateway-install")
+		if !ok {
+			t.Fatalf("expected an install tier even when its components prune to empty, got %+v", target.AllKustomizations())
+		}
+		if len(install.Components) != 0 {
+			t.Errorf("expected empty components, got %v", install.Components)
 		}
 		res, ok := find(target, "gateway-resources")
 		if !ok {
 			t.Fatalf("expected gateway-resources, got %+v", target.AllKustomizations())
 		}
-		if slices.Contains(res.DependsOn, "gateway-install") {
-			t.Errorf("expected no implicit install edge when install pruned away, got %v", res.DependsOn)
+		if !slices.Contains(res.DependsOn, "gateway-install") {
+			t.Errorf("expected the implicit install edge since install rendered, got %v", res.DependsOn)
 		}
 	})
 
@@ -3864,6 +3868,19 @@ func TestProcessor_ProcessFacets_Tiers(t *testing.T) {
 		}
 		if len(sys.Resources) != 1 || sys.Resources[0].Name != "external" {
 			t.Errorf("expected only the 'external' resources variant to remain, got %+v", sys.Resources)
+		}
+	})
+
+	t.Run("InstallWithNoComponentsAtAllIsKept", func(t *testing.T) {
+		target := process(t, blueprintv1alpha1.FluxSystem{
+			Name:    "cert-manager",
+			Install: &blueprintv1alpha1.Kustomization{Timeout: &blueprintv1alpha1.DurationString{Duration: 5 * time.Minute}},
+		})
+		if len(target.FluxSystems) != 1 || target.FluxSystems[0].Install == nil {
+			t.Fatalf("expected install to survive with no components declared, got %+v", target.FluxSystems)
+		}
+		if len(target.FluxSystems[0].Install.Components) != 0 {
+			t.Errorf("expected install components to stay empty, got %v", target.FluxSystems[0].Install.Components)
 		}
 	})
 }

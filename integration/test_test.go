@@ -119,6 +119,24 @@ func TestWindsorTest_ConfigAssertionFixture(t *testing.T) {
 	}
 }
 
+// TestWindsorTest_InstallTierNoComponentsFixture reproduces the bug report. A flux system's
+// install tier declares no components. compileFluxSystemTiers used to skip the tier in this
+// case, dropping any base content its own kustomization.yaml carried. The fixture confirms
+// the tier now compiles.
+func TestWindsorTest_InstallTierNoComponentsFixture(t *testing.T) {
+	t.Parallel()
+	dir, env := helpers.PrepareFixture(t, "facet-install-tier-no-components")
+	env = append(env, "WINDSOR_CONTEXT=test")
+	stdout, stderr, err := helpers.RunCLI(dir, []string{"test"}, env)
+	if err != nil {
+		t.Fatalf("windsor test: %v\nstdout: %s\nstderr: %s", err, stdout, stderr)
+	}
+	out := string(stdout) + string(stderr)
+	if !strings.Contains(out, "PASS") && !strings.Contains(out, "✓") {
+		t.Errorf("expected PASS or ✓ in output: %s", out)
+	}
+}
+
 // TestWindsorTest_ConfigAssertionRegressionFixture exercises the bug report's reproduction:
 // the cluster facet's config block is gated off (cluster.enabled is false), so
 // config.cluster never resolves. The case still declares expect.config.cluster.controlplanes.cpu:
