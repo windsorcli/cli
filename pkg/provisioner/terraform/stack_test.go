@@ -836,21 +836,107 @@ func TestStack_MigrateState(t *testing.T) {
 		}
 	})
 
-	t.Run("DoesNotPassUpgradeFlag", func(t *testing.T) {
-		// MigrateState must not include -upgrade: its contract is moving state, not
-		// reinstalling providers or rewriting .terraform.lock.hcl. Execution flags are
-		// added per operation at each call site, and MigrateState's call site passes
-		// only -migrate-state + -force-copy.
+	t.Run("DoesNotRefreshWhenMigrateStateSucceeds", func(t *testing.T) {
+		// refreshProviderLock reaches the provider registry. Running it on every call
+		// would break migrate-state in network-restricted or air-gapped environments
+		// that previously worked offline. It must run only after a failed init.
 		stack, mocks := setup(t)
 		blueprint := createTestBlueprint()
 
-		var upgradeSeen bool
+		var refreshCalls int
 		mocks.Shell.ExecSilentWithEnvFunc = func(command string, env map[string]string, args ...string) (string, error) {
-			if len(args) >= 2 && args[1] == "init" {
-				for _, a := range args {
-					if a == "-upgrade" {
-						upgradeSeen = true
-					}
+			if len(args) >= 2 && args[1] == "init" && slices.Contains(args, "-backend=false") {
+				refreshCalls++
+			}
+			return "", nil
+		}
+
+		if _, err := stack.MigrateState(blueprint); err != nil {
+			t.Fatalf("Expected MigrateState to succeed, got %v", err)
+		}
+
+		if refreshCalls != 0 {
+			t.Errorf("Expected no provider-lock refresh when migrate-state succeeds, got %d calls", refreshCalls)
+		}
+	})
+
+	t.Run("RefreshesAndRetriesAfterAStaleLockFailure", func(t *testing.T) {
+		// A stale .terraform.lock.hcl left over from a prior init isn't invalidated
+		// when the module's provider constraint changes upstream, and -migrate-state
+		// must never carry -upgrade to self-heal it. On that specific failure,
+		// migrateOneComponent refreshes the lock once, then retries -migrate-state once.
+		stack, mocks := setup(t)
+		blueprint := createTestBlueprint()
+		targetID := blueprint.TerraformComponents[0].GetID()
+
+		var migrateStateInits int
+		mocks.Shell.ExecSilentWithEnvFunc = func(command string, env map[string]string, args ...string) (string, error) {
+			if len(args) < 2 || args[1] != "init" {
+				return "", nil
+			}
+			if slices.Contains(args, "-migrate-state") {
+				migrateStateInits++
+				if migrateStateInits == 1 {
+					return "", fmt.Errorf("Error: Failed to query available provider packages\n\nCould not retrieve the list of available versions for provider hashicorp/aws: locked provider registry.terraform.io/hashicorp/aws 6.47.0 does not match configured version constraint 6.57.1; must use terraform init -upgrade to allow selection of new versions")
+				}
+			}
+			return "", nil
+		}
+
+		if err := stack.MigrateComponentState(blueprint, targetID); err != nil {
+			t.Fatalf("Expected MigrateComponentState to succeed after the retry, got %v", err)
+		}
+
+		if migrateStateInits != 2 {
+			t.Errorf("Expected the -migrate-state init to run once, fail, then run once more, got %d calls", migrateStateInits)
+		}
+	})
+
+	t.Run("StopsAfterAFailedRefresh", func(t *testing.T) {
+		// If the provider-lock refresh itself fails, migrateOneComponent must not
+		// retry -migrate-state at all. A component with unresolved providers
+		// has no business attempting a state move.
+		stack, mocks := setup(t)
+		blueprint := createTestBlueprint()
+
+		var migrateStateInits int
+		mocks.Shell.ExecSilentWithEnvFunc = func(command string, env map[string]string, args ...string) (string, error) {
+			if len(args) < 2 || args[1] != "init" {
+				return "", nil
+			}
+			if slices.Contains(args, "-migrate-state") {
+				migrateStateInits++
+				return "", fmt.Errorf("Error: Failed to query available provider packages\n\nCould not retrieve the list of available versions for provider hashicorp/aws: locked provider registry.terraform.io/hashicorp/aws 6.47.0 does not match configured version constraint 6.57.1; must use terraform init -upgrade to allow selection of new versions")
+			}
+			return "", fmt.Errorf("registry unreachable")
+		}
+
+		_, err := stack.MigrateState(blueprint)
+		if err == nil {
+			t.Fatal("Expected MigrateState to return an error when the provider-lock refresh fails")
+		}
+		if !strings.Contains(err.Error(), "registry unreachable") {
+			t.Errorf("Expected error to wrap the refresh failure, got: %v", err)
+		}
+		if migrateStateInits != 1 {
+			t.Errorf("Expected exactly one failed -migrate-state init and no retry, got %d", migrateStateInits)
+		}
+	})
+
+	t.Run("DoesNotPassUpgradeFlag", func(t *testing.T) {
+		// The -migrate-state init call itself must not include -upgrade: its
+		// contract is moving state, not reinstalling providers. The separate,
+		// backend-disconnected refreshProviderLock pre-step legitimately passes
+		// -upgrade before this runs — see TestTerraformStack_refreshProviderLock —
+		// but the migrate-state call must never carry it.
+		stack, mocks := setup(t)
+		blueprint := createTestBlueprint()
+
+		var upgradeOnMigrateState bool
+		mocks.Shell.ExecSilentWithEnvFunc = func(command string, env map[string]string, args ...string) (string, error) {
+			if len(args) >= 2 && args[1] == "init" && slices.Contains(args, "-migrate-state") {
+				if slices.Contains(args, "-upgrade") {
+					upgradeOnMigrateState = true
 				}
 			}
 			return "", nil
@@ -861,9 +947,9 @@ func TestStack_MigrateState(t *testing.T) {
 			t.Fatalf("Expected MigrateState to succeed, got %v", err)
 		}
 
-		// Then no init invocation carried -upgrade
-		if upgradeSeen {
-			t.Error("Expected MigrateState's init not to include -upgrade; state migration must not reinstall providers")
+		// Then the -migrate-state init call never carried -upgrade
+		if upgradeOnMigrateState {
+			t.Error("Expected the -migrate-state init call not to include -upgrade; state migration must not reinstall providers")
 		}
 	})
 
@@ -921,7 +1007,7 @@ func TestStack_MigrateState(t *testing.T) {
 		blueprint := createTestBlueprint()
 
 		mocks.Shell.ExecSilentWithEnvFunc = func(command string, env map[string]string, args ...string) (string, error) {
-			if len(args) >= 2 && args[1] == "init" {
+			if len(args) >= 2 && args[1] == "init" && slices.Contains(args, "-migrate-state") {
 				return "", fmt.Errorf("backend not reachable")
 			}
 			return "", nil
@@ -940,17 +1026,19 @@ func TestStack_MigrateState(t *testing.T) {
 	})
 
 	t.Run("HintsAtStaleProviderLockWithoutAddingUpgrade", func(t *testing.T) {
-		// Given a component whose migrate-state init fails with the stale-provider-lock
-		// signature — MigrateState must still never pass -upgrade (cli#3157: the hint is
-		// diagnostic only, not a retry, precisely because this contract must hold)
+		// Given a component whose migrate-state init still fails with the stale-
+		// provider-lock signature even after the pre-flight refreshProviderLock
+		// step succeeds — the -migrate-state call itself must still never pass
+		// -upgrade (cli#3157: the hint is diagnostic only, not a retry, precisely
+		// because this contract must hold)
 		stack, mocks := setup(t)
 		blueprint := createTestBlueprint()
 
-		var sawUpgrade bool
+		var upgradeOnMigrateState bool
 		mocks.Shell.ExecSilentWithEnvFunc = func(command string, env map[string]string, args ...string) (string, error) {
-			if len(args) >= 2 && args[1] == "init" {
+			if len(args) >= 2 && args[1] == "init" && slices.Contains(args, "-migrate-state") {
 				if slices.Contains(args, "-upgrade") {
-					sawUpgrade = true
+					upgradeOnMigrateState = true
 				}
 				return "", fmt.Errorf("Error: Failed to query available provider packages\n\nCould not retrieve the list of available versions for provider hashicorp/aws: locked provider registry.terraform.io/hashicorp/aws 6.47.0 does not match configured version constraint 6.57.1; must use terraform init -upgrade to allow selection of new versions")
 			}
@@ -959,15 +1047,15 @@ func TestStack_MigrateState(t *testing.T) {
 
 		_, err := stack.MigrateState(blueprint)
 
-		// Then the error carries the hint but no init call ever added -upgrade
+		// Then the error carries the hint but the -migrate-state call never added -upgrade
 		if err == nil {
 			t.Fatal("Expected MigrateState to return an error")
 		}
 		if !strings.Contains(err.Error(), "provider version outside the current constraint") && !strings.Contains(err.Error(), "local terraform cache for this component is stale") {
 			t.Errorf("Expected a stale-provider-lock hint, got: %v", err)
 		}
-		if sawUpgrade {
-			t.Error("Expected MigrateState never to pass -upgrade, even when hinting at a stale lock")
+		if upgradeOnMigrateState {
+			t.Error("Expected the -migrate-state init call never to pass -upgrade, even when hinting at a stale lock")
 		}
 	})
 
@@ -1059,13 +1147,8 @@ func TestStack_MigrateComponentState(t *testing.T) {
 		var migrateStateInits int
 		var initChdirs []string
 		mocks.Shell.ExecSilentWithEnvFunc = func(command string, env map[string]string, args ...string) (string, error) {
-			if len(args) >= 2 && args[1] == "init" {
-				for _, a := range args {
-					if a == "-migrate-state" {
-						migrateStateInits++
-						break
-					}
-				}
+			if len(args) >= 2 && args[1] == "init" && slices.Contains(args, "-migrate-state") {
+				migrateStateInits++
 				if strings.HasPrefix(args[0], "-chdir=") {
 					initChdirs = append(initChdirs, strings.TrimPrefix(args[0], "-chdir="))
 				}
@@ -1116,7 +1199,7 @@ func TestStack_MigrateComponentState(t *testing.T) {
 		targetID := blueprint.TerraformComponents[0].GetID()
 
 		mocks.Shell.ExecSilentWithEnvFunc = func(command string, env map[string]string, args ...string) (string, error) {
-			if len(args) >= 2 && args[1] == "init" {
+			if len(args) >= 2 && args[1] == "init" && slices.Contains(args, "-migrate-state") {
 				return "", fmt.Errorf("backend not reachable")
 			}
 			return "", nil
@@ -4280,6 +4363,65 @@ contexts:
 
 		if readCalled || removeCalled {
 			t.Errorf("expected no I/O when TF_DATA_DIR empty, got read=%v remove=%v", readCalled, removeCalled)
+		}
+	})
+}
+
+func TestTerraformStack_refreshProviderLock(t *testing.T) {
+	setup := func(t *testing.T) (*TerraformStack, *TerraformTestMocks) {
+		t.Helper()
+		mocks := setupWindsorStackMocks(t)
+		stack := NewStack(mocks.Runtime).(*TerraformStack)
+		stack.shims = mocks.Shims
+		return stack, mocks
+	}
+
+	component := &blueprintv1alpha1.TerraformComponent{
+		Path:     "backend/azurerm",
+		FullPath: "/tmp/scratch/terraform/backend",
+	}
+
+	t.Run("RunsUpgradeWithBackendDisabled", func(t *testing.T) {
+		// -backend=false skips backend configuration entirely, so this can never
+		// touch state or contend for a state lock — only providers and modules
+		// are resolved and the lock file is brought current.
+		stack, mocks := setup(t)
+
+		var args []string
+		mocks.Shell.ExecSilentWithEnvFunc = func(command string, env map[string]string, a ...string) (string, error) {
+			args = a
+			return "", nil
+		}
+
+		if err := stack.refreshProviderLock(component, nil, nil); err != nil {
+			t.Fatalf("expected no error, got %v", err)
+		}
+
+		if !slices.Contains(args, "init") {
+			t.Errorf("expected an init invocation, got %v", args)
+		}
+		for _, want := range []string{"-upgrade", "-backend=false", "-input=false", "-chdir=/tmp/scratch/terraform/backend"} {
+			if !slices.Contains(args, want) {
+				t.Errorf("expected args to contain %q, got %v", want, args)
+			}
+		}
+		if slices.Contains(args, "-migrate-state") {
+			t.Error("expected no -migrate-state flag; this call must never touch state")
+		}
+	})
+
+	t.Run("WrapsTheUnderlyingError", func(t *testing.T) {
+		stack, mocks := setup(t)
+		mocks.Shell.ExecSilentWithEnvFunc = func(command string, env map[string]string, args ...string) (string, error) {
+			return "", fmt.Errorf("registry unreachable")
+		}
+
+		err := stack.refreshProviderLock(component, nil, nil)
+		if err == nil {
+			t.Fatal("expected an error")
+		}
+		if !strings.Contains(err.Error(), "backend/azurerm") || !strings.Contains(err.Error(), "registry unreachable") {
+			t.Errorf("expected error to name the component and wrap the cause, got: %v", err)
 		}
 	})
 }
