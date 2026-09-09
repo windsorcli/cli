@@ -1042,6 +1042,36 @@ func TestFlattenErrorList(t *testing.T) {
 		}
 	})
 
+	t.Run("SuppressesThenAlongsideIf", func(t *testing.T) {
+		// Given a driver/platform coherence check's "then" branch failing (the if-condition
+		// matched, so only "then" fires — mirrors a real driver/platform mismatch), plus the
+		// unrelated required/type cascade a mismatched top-level value produces elsewhere, plus
+		// the one concrete const violation an operator can act on
+		list := &jsonschema.List{
+			Details: []jsonschema.List{
+				{InstanceLocation: "/", Errors: map[string]string{"required": "Required property 'identity' is missing"}},
+				{InstanceLocation: "/identity", Errors: map[string]string{"type": "Value is null but should be object"}},
+				{InstanceLocation: "/", Errors: map[string]string{"then": "Value meets the 'if' condition but does not match the 'then' schema"}},
+				{InstanceLocation: "/database/postgres/driver", Errors: map[string]string{"const": "Value does not match the constant value"}},
+			},
+		}
+
+		// When flattening
+		errs := flattenErrorList(list)
+
+		// Then only the driver violation and a summary note survive — "then" is filtered the
+		// same as its sibling "if", not left standing as a second, uninformative violation
+		if len(errs) != 2 {
+			t.Fatalf("Expected 2 errors, got %d: %v", len(errs), errs)
+		}
+		if !strings.Contains(errs[0], "/database/postgres/driver: const:") {
+			t.Errorf("Expected the driver const error first, got %v", errs)
+		}
+		if !strings.Contains(errs[1], "3 other error(s) are hidden") {
+			t.Errorf("Expected a summary note about hidden errors, got %v", errs)
+		}
+	})
+
 	t.Run("SuppressesCascadeFromAnyOtherSpecificViolation", func(t *testing.T) {
 		// Given an invalid /gcp block plus the same identity required/type/properties fallout
 		list := &jsonschema.List{
