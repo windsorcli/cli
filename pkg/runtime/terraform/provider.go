@@ -1167,9 +1167,11 @@ func (p *terraformProvider) generateBackendConfigArgs(projectPath, configRoot st
 		appendBackendTfvars()
 		keyPath := fmt.Sprintf("%s%s", prefix, filepath.ToSlash(filepath.Join(projectPath, "terraform.tfstate")))
 		addBackendConfigArg("key", keyPath)
-		if backend := p.configHandler.GetConfig().Terraform.Backend.S3; backend != nil {
-			if err := p.processBackendConfig(backend, addBackendConfigArg); err != nil {
-				return nil, fmt.Errorf("error processing S3 backend config: %w", err)
+		if tfConfig := p.configHandler.GetConfig().Terraform; tfConfig != nil && tfConfig.Backend != nil {
+			if backend := tfConfig.Backend.S3; backend != nil {
+				if err := p.processBackendConfig(backend, addBackendConfigArg); err != nil {
+					return nil, fmt.Errorf("error processing S3 backend config: %w", err)
+				}
 			}
 		}
 	case "kubernetes":
@@ -1180,27 +1182,33 @@ func (p *terraformProvider) generateBackendConfigArgs(projectPath, configRoot st
 		}
 		secretSuffix = sanitizeForK8s(secretSuffix)
 		addBackendConfigArg("secret_suffix", secretSuffix)
-		if backend := p.configHandler.GetConfig().Terraform.Backend.Kubernetes; backend != nil {
-			if err := p.processBackendConfig(backend, addBackendConfigArg); err != nil {
-				return nil, fmt.Errorf("error processing Kubernetes backend config: %w", err)
+		if tfConfig := p.configHandler.GetConfig().Terraform; tfConfig != nil && tfConfig.Backend != nil {
+			if backend := tfConfig.Backend.Kubernetes; backend != nil {
+				if err := p.processBackendConfig(backend, addBackendConfigArg); err != nil {
+					return nil, fmt.Errorf("error processing Kubernetes backend config: %w", err)
+				}
 			}
 		}
 	case "azurerm":
 		appendBackendTfvars()
 		keyPath := fmt.Sprintf("%s%s", prefix, filepath.ToSlash(filepath.Join(projectPath, "terraform.tfstate")))
 		addBackendConfigArg("key", keyPath)
-		if backend := p.configHandler.GetConfig().Terraform.Backend.AzureRM; backend != nil {
-			if err := p.processBackendConfig(backend, addBackendConfigArg); err != nil {
-				return nil, fmt.Errorf("error processing AzureRM backend config: %w", err)
+		if tfConfig := p.configHandler.GetConfig().Terraform; tfConfig != nil && tfConfig.Backend != nil {
+			if backend := tfConfig.Backend.AzureRM; backend != nil {
+				if err := p.processBackendConfig(backend, addBackendConfigArg); err != nil {
+					return nil, fmt.Errorf("error processing AzureRM backend config: %w", err)
+				}
 			}
 		}
 	case "gcs":
 		appendBackendTfvars()
 		prefixPath := fmt.Sprintf("%s%s", prefix, filepath.ToSlash(projectPath))
 		addBackendConfigArg("prefix", prefixPath)
-		if backend := p.configHandler.GetConfig().Terraform.Backend.GCS; backend != nil {
-			if err := p.processBackendConfig(backend, addBackendConfigArg); err != nil {
-				return nil, fmt.Errorf("error processing GCS backend config: %w", err)
+		if tfConfig := p.configHandler.GetConfig().Terraform; tfConfig != nil && tfConfig.Backend != nil {
+			if backend := tfConfig.Backend.GCS; backend != nil {
+				if err := p.processBackendConfig(backend, addBackendConfigArg); err != nil {
+					return nil, fmt.Errorf("error processing GCS backend config: %w", err)
+				}
 			}
 		}
 	default:

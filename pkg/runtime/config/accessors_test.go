@@ -327,7 +327,7 @@ func TestConfigHandler_GetTerraformBackendType(t *testing.T) {
 		}
 	})
 
-	t.Run("FallsBackToThePlatformDefault", func(t *testing.T) {
+	t.Run("FallsBackToTheCloudPlatformDefault", func(t *testing.T) {
 		testCases := []struct {
 			platform string
 			want     string
@@ -335,12 +335,6 @@ func TestConfigHandler_GetTerraformBackendType(t *testing.T) {
 			{"aws", "s3"},
 			{"azure", "azurerm"},
 			{"gcp", "gcs"},
-			{"metal", "kubernetes"},
-			{"docker", "kubernetes"},
-			{"incus", "kubernetes"},
-			{"hetzner", "kubernetes"},
-			{"hyperv", "kubernetes"},
-			{"vsphere", "kubernetes"},
 		}
 		for _, tc := range testCases {
 			t.Run(tc.platform, func(t *testing.T) {
@@ -350,6 +344,21 @@ func TestConfigHandler_GetTerraformBackendType(t *testing.T) {
 
 				if got := handler.GetTerraformBackendType(); got != tc.want {
 					t.Errorf("Expected platform %q to default to %q, got %q", tc.platform, tc.want, got)
+				}
+			})
+		}
+	})
+
+	t.Run("FallsBackToLocalForAWorkstationPlatformWithNoExplicitBackend", func(t *testing.T) {
+		// The kubernetes default needs a live cluster, so it stays out of this fallback.
+		for _, platform := range []string{"metal", "docker", "incus", "hetzner", "hyperv", "vsphere"} {
+			t.Run(platform, func(t *testing.T) {
+				mocks := setupConfigMocks(t)
+				handler := NewConfigHandler(mocks.Shell)
+				handler.Set("platform", platform)
+
+				if got := handler.GetTerraformBackendType(); got != "local" {
+					t.Errorf("Expected platform %q to fall back to local, not the kubernetes default, got %q", platform, got)
 				}
 			})
 		}
