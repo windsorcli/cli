@@ -1454,19 +1454,10 @@ func (p *BaseBlueprintProcessor) evalDropEmpty(raw []string, facetPath string, s
 	return slices.DeleteFunc(evaluated, func(s string) bool { return s == "" }), nil
 }
 
-// collectFluxSystems evaluates a facet's flux: system descriptors — resolving expressions on
-// DependsOn, Install components/substitutions, and each resources variant — and stores the result
-// in fluxSystemByName. A resources variant is dropped only when its own when condition (combined
-// with the system's) is false — never merely because its components prune to empty, matching how
-// a plain kustomize: entry is always emitted regardless of its resolved component count; a
-// dependsOn reference to it stays valid whether or not the variant's own components ended up
-// empty. An install tier whose components prune to empty and carries no substitutions or patches sets
-// Install to nil, since install is optional per system and an empty install is equivalent to none
-// declared; a components-less tier that still carries substitutions or patches is kept so a downstream
-// facet can override an upstream system's install without redeclaring its components. The system's
-// when is cleared once inclusion is decided (mirroring each variant's when):
-// it has already gated the system and its variants here, and often references composition-only derived
-// config that does not exist downstream, so emitting it would leak an unresolvable condition.
+// collectFluxSystems evaluates a facet's flux: system descriptors and stores the result in
+// fluxSystemByName. It clears each system's when once inclusion is decided. Neither an install
+// tier nor a resources variant is dropped for an empty component list. Only a system's own
+// when controls whether it is included at all.
 func (p *BaseBlueprintProcessor) collectFluxSystems(facet blueprintv1alpha1.Facet, sourceName []string, fluxSystemByName map[string]*blueprintv1alpha1.FluxSystem, facetScope map[string]any) error {
 	for _, system := range facet.FluxSystems {
 		when := system.When
@@ -1506,16 +1497,12 @@ func (p *BaseBlueprintProcessor) collectFluxSystems(facet blueprintv1alpha1.Face
 			if err != nil {
 				return fmt.Errorf("error evaluating install components for system '%s': %w", system.Name, err)
 			}
-			if len(comps) > 0 || strategy == "remove" || len(system.Install.Substitutions) > 0 || len(system.Install.Patches) > 0 {
-				installCopy := *system.Install.DeepCopy()
-				installCopy.Components = comps
-				if err := p.evalKustomizationSubstitutions(&installCopy, facet.Path, "flux."+system.Name+".install.substitutions.", facetScope); err != nil {
-					return fmt.Errorf("error evaluating install substitutions for system '%s': %w", system.Name, err)
-				}
-				system.Install = &installCopy
-			} else {
-				system.Install = nil
+			installCopy := *system.Install.DeepCopy()
+			installCopy.Components = comps
+			if err := p.evalKustomizationSubstitutions(&installCopy, facet.Path, "flux."+system.Name+".install.substitutions.", facetScope); err != nil {
+				return fmt.Errorf("error evaluating install substitutions for system '%s': %w", system.Name, err)
 			}
+			system.Install = &installCopy
 		}
 
 		seenVariants := make(map[string]bool)

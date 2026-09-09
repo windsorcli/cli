@@ -5600,6 +5600,18 @@ func TestFluxSystem_TierNames(t *testing.T) {
 		}
 	})
 
+	t.Run("ReturnsInstallForADeclaredTierWithNoComponents", func(t *testing.T) {
+		// A declared install tier renders even with no components: its own
+		// kustomization.yaml can carry real content (a namespace, say) on its own.
+		sys := FluxSystem{Name: "cert-manager", Install: &Kustomization{}}
+
+		names := sys.TierNames()
+
+		if len(names) != 1 || names[0] != "cert-manager-install" {
+			t.Fatalf("expected [cert-manager-install], got %v", names)
+		}
+	})
+
 	t.Run("DoesNotLeakAnUnrelatedSystemsNamePrefixCollision", func(t *testing.T) {
 		// Given a system literally named "cert-manager-resources", distinct from "cert-manager"
 		sys := FluxSystem{

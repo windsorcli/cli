@@ -1287,20 +1287,19 @@ func (sys FluxSystem) EffectivePath() string {
 }
 
 // compileFluxSystemTiers converts a pre-evaluated FluxSystem into its tier Kustomizations without
-// any expression evaluation. Install compiles to "<name>-install" at "<path>/install"; each
-// resources variant compiles to "<name>-resources[-<variant>]" at "<path>/resources". A timeout-less
-// install tier falls back to DefaultFluxKustomizationInstallTimeout instead of the generic default.
-// The system's Secrets attach to its namespace-owning tier — the install tier when emitted, else the
-// first resources tier (out[0]) — so placement finds them after FluxSystems are flattened away.
+// any expression evaluation. Install compiles to "<name>-install" at "<path>/install" whenever
+// declared, with or without components. A resources variant is never gated on its own component
+// count either. A timeout-less install tier falls back to DefaultFluxKustomizationInstallTimeout.
+// The system's Secrets attach to its namespace-owning tier — the install tier when declared, else
+// the first resources tier (out[0]).
 func compileFluxSystemTiers(sys FluxSystem) []Kustomization {
 	name := sys.Name
 	base := sys.EffectivePath()
 	installName := name + "-install"
 
 	var out []Kustomization
-	installEmitted := false
 
-	if sys.Install != nil && len(sys.Install.Components) > 0 {
+	if sys.Install != nil {
 		k := *sys.Install.DeepCopy()
 		k.Name = installName
 		k.Path = path.Join(base, "install")
@@ -1310,7 +1309,6 @@ func compileFluxSystemTiers(sys FluxSystem) []Kustomization {
 			k.Timeout = &DurationString{Duration: constants.DefaultFluxKustomizationInstallTimeout}
 		}
 		out = append(out, k)
-		installEmitted = true
 	}
 
 	for _, v := range sys.Resources {
@@ -1321,7 +1319,7 @@ func compileFluxSystemTiers(sys FluxSystem) []Kustomization {
 		k := *v.Kustomization.DeepCopy()
 		k.Name = variantName
 		k.Path = path.Join(base, "resources")
-		if installEmitted {
+		if sys.Install != nil {
 			k.DependsOn = append([]string{installName}, v.DependsOn...)
 		} else {
 			k.DependsOn = append(slices.Clone(sys.DependsOn), v.DependsOn...)
