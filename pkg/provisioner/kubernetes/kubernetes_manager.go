@@ -248,7 +248,7 @@ func (k *BaseKubernetesManager) deleteKustomization(name, namespace string, expe
 
 	entries, inventoryFound := inventoryEntriesFromObject(lastObj)
 	if drained, checkErr := k.allInventoryEntriesGone(entries); inventoryFound && checkErr == nil && drained {
-		return fmt.Errorf("kustomization %s/%s is fully drained (every inventory item confirmed gone) but its own finalizer is stuck; this is Flux bookkeeping, not leaked infrastructure — clear it with `kubectl patch kustomization %s -n %s --type=merge -p '{\"metadata\":{\"finalizers\":null}}'`", namespace, name, name, namespace)
+		return fmt.Errorf("kustomization %s/%s is fully drained (every inventory item confirmed gone) but its own finalizer is stuck. This is Flux bookkeeping, not leaked infrastructure. Clear it with `kubectl patch kustomization %s -n %s --type=merge -p '{\"metadata\":{\"finalizers\":null}}'`", namespace, name, name, namespace)
 	}
 
 	reason := describeStuckKustomization(lastObj) + k.describeStuckHelmReleases(name, namespace)
@@ -1465,7 +1465,9 @@ func (k *BaseKubernetesManager) ApplyBlueprint(blueprint *blueprintv1alpha1.Blue
 // disappears. Phase 2 aborts on the first per-Kustomization failure rather than risk orphaning
 // cloud resources a later Kustomization still needs; a retry picks up where it left off. Every
 // abort path runs abortDestroy first to un-suspend the full eligible set, since
-// Install/ApplyBlueprint never resets spec.suspend on existing objects.
+// Install/ApplyBlueprint never resets spec.suspend on existing objects. waitForResumeReconcile
+// runs between each resume and its delete, giving the resume's own reconcile a chance to settle
+// first.
 func (k *BaseKubernetesManager) DeleteBlueprint(blueprint *blueprintv1alpha1.Blueprint, namespace string) error {
 	defaultSourceName := blueprint.Metadata.Name
 
@@ -1513,6 +1515,7 @@ func (k *BaseKubernetesManager) DeleteBlueprint(blueprint *blueprintv1alpha1.Blu
 			tui.Fail()
 			return k.abortDestroy(eligible, namespace, fmt.Errorf("destroy aborted: failed to resume kustomization %q before delete: %w", kustomization.Name, err))
 		}
+		k.waitForResumeReconcile(kustomization.Name, namespace)
 		destroy := kustomization.Destroy.ToBool()
 		expectWaitForTermination := destroy == nil || *destroy
 		if err := k.deleteKustomization(kustomization.Name, namespace, &expectWaitForTermination); err != nil {
@@ -2144,6 +2147,46 @@ func (k *BaseKubernetesManager) setKustomizationSuspend(name, namespace string, 
 		return err
 	}
 	return nil
+}
+
+// waitForResumeReconcile polls up to kustomizationReconcileSleep for a Kustomization's
+// status.observedGeneration to catch up to metadata.generation after a resume. A resume
+// triggers a reconcile. Deleting before that reconcile settles can race
+// kustomize-controller and strand the object mid-delete. This check is best effort. It
+// returns on any read error or on timeout. Each sleep between polls is capped to the
+// time left in the budget, so it never adds a full kustomizationWaitPollInterval on top
+// of an already-expired deadline. deleteKustomization's own wait loop is the real safety
+// net.
+func (k *BaseKubernetesManager) waitForResumeReconcile(name, namespace string) {
+	deadline := k.shims.TimeNow().Add(k.kustomizationReconcileSleep)
+	for {
+		obj, err := k.client.GetResource(kustomizationsGVR, namespace, name)
+		if err != nil {
+			return
+		}
+		if reconcileGenerationSettled(obj) {
+			return
+		}
+		remaining := deadline.Sub(k.shims.TimeNow())
+		if remaining <= 0 {
+			return
+		}
+		k.shims.TimeSleep(min(k.kustomizationWaitPollInterval, remaining))
+	}
+}
+
+// reconcileGenerationSettled reports whether a Kustomization's status.observedGeneration
+// has caught up to metadata.generation. A match means the most recent spec change has
+// been through a full reconcile.
+func reconcileGenerationSettled(obj *unstructured.Unstructured) bool {
+	if obj == nil {
+		return false
+	}
+	observed, found, err := unstructured.NestedInt64(obj.Object, "status", "observedGeneration")
+	if err != nil || !found {
+		return false
+	}
+	return observed >= obj.GetGeneration()
 }
 
 // resolveScopedGVR resolves gvk to its GroupVersionResource and correct namespace scope
