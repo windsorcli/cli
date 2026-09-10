@@ -4,13 +4,15 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"sort"
+	"strings"
+
+	"github.com/goccy/go-yaml/ast"
+	"github.com/goccy/go-yaml/parser"
 )
 
 // The ValuesSource is a configuration source for context values.yaml files.
-// It provides load and save operations for dynamic context configuration values,
-// The ValuesSource applies schema validation warnings during load and workstation filtering on save,
-// and keeps values.yaml persistence behavior isolated from handler orchestration.
+// It loads and saves dynamic context configuration values.
+// Save patches an existing file at changed paths only; other writes are full.
 
 // =============================================================================
 // Types
@@ -74,11 +76,13 @@ func (s *valuesSource) Load(projectRoot, contextName string) (map[string]any, bo
 	return values, true, nil
 }
 
-// Save writes values.yaml for a context, with optional overwrite and workstation-key cleaning.
+// Save writes values.yaml for a context, patching an existing file at overrides/deletes only.
 func (s *valuesSource) Save(
 	projectRoot string,
 	contextName string,
 	data map[string]any,
+	overrides map[string]any,
+	deletes []string,
 	overwrite bool,
 	input persistencePolicyInput,
 ) error {
@@ -104,9 +108,7 @@ func (s *valuesSource) Save(
 	partition := s.policy.Partition(data, input)
 
 	if valuesExists {
-		if dropped := s.droppedKeys(valuesPath, partition.Values); len(dropped) > 0 {
-			return fmt.Errorf("refusing to write values.yaml for context %q: this write would drop %v present in the current file. This looks like a bug, not an intended change. No changes were written", contextName, dropped)
-		}
+		return s.patchValues(valuesPath, overrides, deletes, partition.Values, input)
 	}
 
 	marshaled, err := s.shims.YamlMarshal(partition.Values)
@@ -125,62 +127,117 @@ func (s *valuesSource) Save(
 // Private Methods
 // =============================================================================
 
-// droppedKeys compares the file already on disk at valuesPath against next, the map about to be
-// written, and returns each dotted path (e.g. "terraform.backend.type") present on disk but
-// missing from next. It walks into nested maps rather than stopping at the top level, since a
-// field buried inside a section that itself survives the write is just as much a loss as the
-// whole section disappearing. Save persists the full merged config, a superset of disk by
-// construction, so a legitimate write should never lose a path that was there before. A
-// top-level isVolatile key is skipped, since the policy may relocate or discard those on its
-// own; the same name reappearing nested is an unrelated field and is not exempted. An
-// unreadable or unparseable existing file returns no dropped keys rather than blocking the
-// write, since there is nothing trustworthy left to compare against.
-func (s *valuesSource) droppedKeys(valuesPath string, next map[string]any) []string {
-	current, err := s.shims.ReadFile(valuesPath)
-	if err != nil {
+// patchValues merges overrides and removes deletes at valuesPath, or writes fullValues whole
+// when the existing file can't be parsed.
+func (s *valuesSource) patchValues(valuesPath string, overrides map[string]any, deletes []string, fullValues map[string]any, input persistencePolicyInput) error {
+	overridesPartition := s.policy.Partition(overrides, input)
+	if len(overridesPartition.Values) == 0 && len(deletes) == 0 {
 		return nil
 	}
 
-	var existing map[string]any
-	if err := s.shims.YamlUnmarshal(current, &existing); err != nil {
-		return nil
+	merged, patchable := s.mergedValuesYAML(valuesPath, overridesPartition.Values, deletes)
+	if !patchable {
+		if len(fullValues) == 0 {
+			return nil
+		}
+		var err error
+		merged, err = s.shims.YamlMarshal(fullValues)
+		if err != nil {
+			return fmt.Errorf("error marshalling values.yaml: %w", err)
+		}
 	}
 
-	dropped := s.droppedKeysIn("", existing, next)
-	sort.Strings(dropped)
-	return dropped
+	if err := s.shims.WriteFile(valuesPath, merged, 0644); err != nil {
+		return fmt.Errorf("error writing values.yaml: %w", err)
+	}
+
+	return nil
 }
 
-// droppedKeysIn walks one level of the comparison droppedKeys performs, prefixing every reported
-// path with prefix so a nested miss reads as "terraform.backend.type" rather than bare "type".
-// A key present in existing but absent from next is dropped outright. A key present in both as a
-// map recurses; a key present in both as anything else is left alone, since droppedKeys only
-// tracks disappearance, not value changes. isVolatile only exempts a top-level key (prefix ""),
-// matching its own top-level-only contract; a nested key that happens to share a volatile name
-// (e.g. "secrets.provider") is an unrelated field and is tracked like any other.
-func (s *valuesSource) droppedKeysIn(prefix string, existing, next map[string]any) []string {
-	var dropped []string
-	for key, existingValue := range existing {
-		if prefix == "" && s.policy.isVolatile(key) {
-			continue
-		}
+// mergedValuesYAML merges overrideValues and deletes into valuesPath's content, or false if
+// either side fails to parse as a YAML mapping.
+func (s *valuesSource) mergedValuesYAML(valuesPath string, overrideValues map[string]any, deletes []string) ([]byte, bool) {
+	current, err := s.shims.ReadFile(valuesPath)
+	if err != nil {
+		return nil, false
+	}
 
-		path := key
-		if prefix != "" {
-			path = prefix + "." + key
-		}
+	dstMap, ok := parseRootMapping(current)
+	if !ok {
+		return nil, false
+	}
 
-		nextValue, ok := next[key]
+	if len(overrideValues) > 0 {
+		srcBytes, err := s.shims.YamlMarshal(overrideValues)
+		if err != nil {
+			return nil, false
+		}
+		srcMap, ok := parseRootMapping(srcBytes)
 		if !ok {
-			dropped = append(dropped, path)
+			return nil, false
+		}
+		mergeMappingNodes(dstMap, srcMap)
+	}
+
+	removeMappingKeys(dstMap, deletes)
+
+	rendered := dstMap.String()
+	if !strings.HasSuffix(rendered, "\n") {
+		rendered += "\n"
+	}
+	return []byte(rendered), true
+}
+
+// parseRootMapping parses source and returns its root mapping node, or false on failure.
+func parseRootMapping(source []byte) (*ast.MappingNode, bool) {
+	file, err := parser.ParseBytes(source, parser.ParseComments)
+	if err != nil || len(file.Docs) == 0 || file.Docs[0].Body == nil {
+		return nil, false
+	}
+	m, ok := file.Docs[0].Body.(*ast.MappingNode)
+	return m, ok
+}
+
+// mergeMappingNodes recursively merges src into dst, leaving dst-only keys untouched.
+func mergeMappingNodes(dst, src *ast.MappingNode) {
+	byKey := make(map[string]*ast.MappingValueNode, len(dst.Values))
+	for _, v := range dst.Values {
+		byKey[v.Key.String()] = v
+	}
+
+	for _, srcVal := range src.Values {
+		dstVal, exists := byKey[srcVal.Key.String()]
+		if !exists {
+			dst.Values = append(dst.Values, srcVal)
 			continue
 		}
 
-		if existingMap, isMap := existingValue.(map[string]any); isMap {
-			if nextMap, isMap := nextValue.(map[string]any); isMap {
-				dropped = append(dropped, s.droppedKeysIn(path, existingMap, nextMap)...)
-			}
+		dstChild, dstIsMap := dstVal.Value.(*ast.MappingNode)
+		srcChild, srcIsMap := srcVal.Value.(*ast.MappingNode)
+		if dstIsMap && srcIsMap {
+			mergeMappingNodes(dstChild, srcChild)
+			continue
+		}
+		dstVal.Value = srcVal.Value
+	}
+}
+
+// removeMappingKeys drops each named top-level key from m, in place.
+func removeMappingKeys(m *ast.MappingNode, keys []string) {
+	if len(keys) == 0 {
+		return
+	}
+
+	remove := make(map[string]bool, len(keys))
+	for _, key := range keys {
+		remove[key] = true
+	}
+
+	kept := m.Values[:0]
+	for _, v := range m.Values {
+		if !remove[v.Key.String()] {
+			kept = append(kept, v)
 		}
 	}
-	return dropped
+	m.Values = kept
 }

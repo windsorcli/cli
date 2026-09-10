@@ -126,7 +126,7 @@ func TestValuesSource_Save(t *testing.T) {
 			"workstation": map[string]any{"runtime": "colima"},
 		}
 
-		if err := source.Save(projectRoot, contextName, data, true, persistencePolicyInput{IsDevMode: true}); err != nil {
+		if err := source.Save(projectRoot, contextName, data, nil, nil, true, persistencePolicyInput{IsDevMode: true}); err != nil {
 			t.Fatalf("Expected no error, got %v", err)
 		}
 
@@ -160,7 +160,8 @@ func TestValuesSource_Save(t *testing.T) {
 			t.Fatalf("Expected no error writing initial values file, got %v", err)
 		}
 
-		if err := source.Save(projectRoot, contextName, map[string]any{"cluster": map[string]any{"driver": "talos"}}, false, persistencePolicyInput{IsDevMode: true}); err != nil {
+		data := map[string]any{"cluster": map[string]any{"driver": "talos"}}
+		if err := source.Save(projectRoot, contextName, data, data, nil, false, persistencePolicyInput{IsDevMode: true}); err != nil {
 			t.Fatalf("Expected no error, got %v", err)
 		}
 
@@ -174,9 +175,8 @@ func TestValuesSource_Save(t *testing.T) {
 		}
 	})
 
-	t.Run("RefusesAnOverwriteThatWouldDropATopLevelKey", func(t *testing.T) {
-		// Save persists the full merged config, a superset of disk by construction. A write
-		// that would drop a top-level key like "terraform" is never legitimate.
+	t.Run("PatchesOnlyTheOverriddenPathLeavingSiblingsIntact", func(t *testing.T) {
+		// backend.type must patch in without disturbing backend.bucket or component.
 		source := newValuesSource(NewShims(), nil, newPersistencePolicy())
 		projectRoot := t.TempDir()
 		contextName := "local"
@@ -184,141 +184,37 @@ func TestValuesSource_Save(t *testing.T) {
 		if err := os.MkdirAll(contextDir, 0755); err != nil {
 			t.Fatalf("Expected no error creating context dir, got %v", err)
 		}
-		initial := "id: abc123\nterraform:\n    backend:\n        type: gcs\n"
+		initial := "id: abc123\nterraform:\n    component: cluster\n    backend:\n        type: s3\n        bucket: mybucket\n"
 		valuesPath := filepath.Join(contextDir, "values.yaml")
 		if err := os.WriteFile(valuesPath, []byte(initial), 0644); err != nil {
 			t.Fatalf("Expected no error writing initial values file, got %v", err)
 		}
 
-		err := source.Save(projectRoot, contextName, map[string]any{"id": "abc123"}, true, persistencePolicyInput{})
-
-		if err == nil {
-			t.Fatal("Expected an error when the write would drop the terraform section")
-		}
-		if !contains(err.Error(), "terraform") || !contains(err.Error(), "drop") {
-			t.Errorf("Expected the error to name the dropped section, got: %v", err)
-		}
-
-		content, readErr := os.ReadFile(valuesPath)
-		if readErr != nil {
-			t.Fatalf("Expected values.yaml to still be readable, got %v", readErr)
-		}
-		if string(content) != initial {
-			t.Errorf("Expected values.yaml to be unchanged after the refused write, got %s", string(content))
-		}
-	})
-
-	t.Run("RefusesAnOverwriteThatWouldDropANestedKey", func(t *testing.T) {
-		// A field can disappear from inside a section that itself survives the write, e.g.
-		// terraform.backend.type vanishing while terraform stays present with other content.
-		// The top-level key alone is not enough to prove nothing was lost.
-		source := newValuesSource(NewShims(), nil, newPersistencePolicy())
-		projectRoot := t.TempDir()
-		contextName := "local"
-		contextDir := filepath.Join(projectRoot, "contexts", contextName)
-		if err := os.MkdirAll(contextDir, 0755); err != nil {
-			t.Fatalf("Expected no error creating context dir, got %v", err)
-		}
-		initial := "id: abc123\nterraform:\n    backend:\n        type: gcs\n    component: cluster\n"
-		valuesPath := filepath.Join(contextDir, "values.yaml")
-		if err := os.WriteFile(valuesPath, []byte(initial), 0644); err != nil {
-			t.Fatalf("Expected no error writing initial values file, got %v", err)
-		}
-
-		data := map[string]any{
-			"id":        "abc123",
-			"terraform": map[string]any{"component": "cluster", "backend": map[string]any{}},
-		}
-		err := source.Save(projectRoot, contextName, data, true, persistencePolicyInput{})
-
-		if err == nil {
-			t.Fatal("Expected an error when the write would drop terraform.backend.type")
-		}
-		if !contains(err.Error(), "terraform.backend.type") || !contains(err.Error(), "drop") {
-			t.Errorf("Expected the error to name the dropped nested path, got: %v", err)
-		}
-
-		content, readErr := os.ReadFile(valuesPath)
-		if readErr != nil {
-			t.Fatalf("Expected values.yaml to still be readable, got %v", readErr)
-		}
-		if string(content) != initial {
-			t.Errorf("Expected values.yaml to be unchanged after the refused write, got %s", string(content))
-		}
-	})
-
-	t.Run("RefusesAnOverwriteThatWouldDropANestedKeySharingAVolatileName", func(t *testing.T) {
-		// isVolatile's exemption is documented as top-level only. A nested field that happens
-		// to share a volatile name, like secrets.provider, is an unrelated value and must still
-		// be caught if it disappears.
-		source := newValuesSource(NewShims(), nil, newPersistencePolicy())
-		projectRoot := t.TempDir()
-		contextName := "local"
-		contextDir := filepath.Join(projectRoot, "contexts", contextName)
-		if err := os.MkdirAll(contextDir, 0755); err != nil {
-			t.Fatalf("Expected no error creating context dir, got %v", err)
-		}
-		initial := "id: abc123\nsecrets:\n    provider: onepassword\n"
-		valuesPath := filepath.Join(contextDir, "values.yaml")
-		if err := os.WriteFile(valuesPath, []byte(initial), 0644); err != nil {
-			t.Fatalf("Expected no error writing initial values file, got %v", err)
-		}
-
-		data := map[string]any{"id": "abc123", "secrets": map[string]any{}}
-		err := source.Save(projectRoot, contextName, data, true, persistencePolicyInput{})
-
-		if err == nil {
-			t.Fatal("Expected an error when the write would drop secrets.provider")
-		}
-		if !contains(err.Error(), "secrets.provider") || !contains(err.Error(), "drop") {
-			t.Errorf("Expected the error to name the dropped nested path, got: %v", err)
-		}
-
-		content, readErr := os.ReadFile(valuesPath)
-		if readErr != nil {
-			t.Fatalf("Expected values.yaml to still be readable, got %v", readErr)
-		}
-		if string(content) != initial {
-			t.Errorf("Expected values.yaml to be unchanged after the refused write, got %s", string(content))
-		}
-	})
-
-	t.Run("AllowsAnOverwriteThatKeepsEveryPriorKey", func(t *testing.T) {
-		source := newValuesSource(NewShims(), nil, newPersistencePolicy())
-		projectRoot := t.TempDir()
-		contextName := "local"
-		contextDir := filepath.Join(projectRoot, "contexts", contextName)
-		if err := os.MkdirAll(contextDir, 0755); err != nil {
-			t.Fatalf("Expected no error creating context dir, got %v", err)
-		}
-		initial := "id: abc123\nterraform:\n    backend:\n        type: gcs\n"
-		valuesPath := filepath.Join(contextDir, "values.yaml")
-		if err := os.WriteFile(valuesPath, []byte(initial), 0644); err != nil {
-			t.Fatalf("Expected no error writing initial values file, got %v", err)
-		}
-
-		data := map[string]any{
-			"id":        "abc123",
-			"terraform": map[string]any{"backend": map[string]any{"type": "gcs"}},
-			"gcp":       map[string]any{"project_id": "new-project"},
-		}
-		if err := source.Save(projectRoot, contextName, data, true, persistencePolicyInput{}); err != nil {
-			t.Fatalf("Expected no error when every prior key is kept, got %v", err)
+		overrides := map[string]any{"terraform": map[string]any{"backend": map[string]any{"type": "gcs"}}}
+		if err := source.Save(projectRoot, contextName, overrides, overrides, nil, true, persistencePolicyInput{}); err != nil {
+			t.Fatalf("Expected no error patching a nested override, got %v", err)
 		}
 
 		content, err := os.ReadFile(valuesPath)
 		if err != nil {
 			t.Fatalf("Expected values.yaml to be readable, got %v", err)
 		}
-		if !contains(string(content), "gcp:") {
-			t.Errorf("Expected the new gcp key to be written, got %s", string(content))
+		values := map[string]any{}
+		if err := NewShims().YamlUnmarshal(content, &values); err != nil {
+			t.Fatalf("Expected the patched file to still be valid YAML, got %v: %s", err, content)
+		}
+		if got := getPathValue(t, values, "terraform", "backend", "type"); got != "gcs" {
+			t.Errorf("Expected terraform.backend.type=gcs, got %v", got)
+		}
+		if got := getPathValue(t, values, "terraform", "backend", "bucket"); got != "mybucket" {
+			t.Errorf("Expected terraform.backend.bucket to survive the patch untouched, got %v", got)
+		}
+		if got := getPathValue(t, values, "terraform", "component"); got != "cluster" {
+			t.Errorf("Expected terraform.component to survive the patch untouched, got %v", got)
 		}
 	})
 
-	t.Run("AllowsAVolatileKeyToDisappearOnOverwrite", func(t *testing.T) {
-		// provider is dropped outright by the provider→platform migration in
-		// Runtime.SaveConfig, and platform relocates to workstation.yaml under dev/
-		// workstation-runtime input. Neither absence is evidence of a bug.
+	t.Run("PatchPreservesKeyOrderAndComments", func(t *testing.T) {
 		source := newValuesSource(NewShims(), nil, newPersistencePolicy())
 		projectRoot := t.TempDir()
 		contextName := "local"
@@ -326,15 +222,105 @@ func TestValuesSource_Save(t *testing.T) {
 		if err := os.MkdirAll(contextDir, 0755); err != nil {
 			t.Fatalf("Expected no error creating context dir, got %v", err)
 		}
-		initial := "provider: docker\nplatform: docker\nid: abc123\n"
+		initial := "zed: last\nid: abc123\n# a note about terraform\nterraform:\n    backend:\n        type: s3\nabc: first\n"
 		valuesPath := filepath.Join(contextDir, "values.yaml")
 		if err := os.WriteFile(valuesPath, []byte(initial), 0644); err != nil {
 			t.Fatalf("Expected no error writing initial values file, got %v", err)
 		}
 
-		data := map[string]any{"platform": "docker", "id": "abc123"}
-		if err := source.Save(projectRoot, contextName, data, true, persistencePolicyInput{IsDevMode: true}); err != nil {
-			t.Fatalf("Expected no error when only volatile keys disappear, got %v", err)
+		overrides := map[string]any{"terraform": map[string]any{"backend": map[string]any{"type": "gcs"}}}
+		if err := source.Save(projectRoot, contextName, overrides, overrides, nil, true, persistencePolicyInput{}); err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+
+		content, err := os.ReadFile(valuesPath)
+		if err != nil {
+			t.Fatalf("Expected values.yaml to be readable, got %v", err)
+		}
+		expected := "zed: last\nid: abc123\n# a note about terraform\nterraform:\n    backend:\n        type: gcs\nabc: first\n"
+		if string(content) != expected {
+			t.Errorf("Expected order and comments preserved with only type changed,\nwant: %q\ngot:  %q", expected, string(content))
+		}
+	})
+
+	t.Run("PatchAppendsANewTopLevelKey", func(t *testing.T) {
+		source := newValuesSource(NewShims(), nil, newPersistencePolicy())
+		projectRoot := t.TempDir()
+		contextName := "local"
+		contextDir := filepath.Join(projectRoot, "contexts", contextName)
+		if err := os.MkdirAll(contextDir, 0755); err != nil {
+			t.Fatalf("Expected no error creating context dir, got %v", err)
+		}
+		initial := "id: abc123\n"
+		valuesPath := filepath.Join(contextDir, "values.yaml")
+		if err := os.WriteFile(valuesPath, []byte(initial), 0644); err != nil {
+			t.Fatalf("Expected no error writing initial values file, got %v", err)
+		}
+
+		overrides := map[string]any{"gcp": map[string]any{"project_id": "new-project"}}
+		if err := source.Save(projectRoot, contextName, overrides, overrides, nil, true, persistencePolicyInput{}); err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+
+		content, err := os.ReadFile(valuesPath)
+		if err != nil {
+			t.Fatalf("Expected values.yaml to be readable, got %v", err)
+		}
+		if !contains(string(content), "id: abc123") || !contains(string(content), "gcp:") {
+			t.Errorf("Expected both the prior id and the new gcp key present, got %s", string(content))
+		}
+	})
+
+	t.Run("PatchRoutesPlatformAwayWhileStillWritingOtherOverrides", func(t *testing.T) {
+		// platform must not land in values.yaml even alongside a real override.
+		source := newValuesSource(NewShims(), nil, newPersistencePolicy())
+		projectRoot := t.TempDir()
+		contextName := "local"
+		contextDir := filepath.Join(projectRoot, "contexts", contextName)
+		if err := os.MkdirAll(contextDir, 0755); err != nil {
+			t.Fatalf("Expected no error creating context dir, got %v", err)
+		}
+		initial := "id: abc123\n"
+		valuesPath := filepath.Join(contextDir, "values.yaml")
+		if err := os.WriteFile(valuesPath, []byte(initial), 0644); err != nil {
+			t.Fatalf("Expected no error writing initial values file, got %v", err)
+		}
+
+		overrides := map[string]any{"platform": "docker", "dns": map[string]any{"enabled": false}}
+		if err := source.Save(projectRoot, contextName, overrides, overrides, nil, true, persistencePolicyInput{IsDevMode: true}); err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+
+		content, err := os.ReadFile(valuesPath)
+		if err != nil {
+			t.Fatalf("Expected values.yaml to be readable, got %v", err)
+		}
+		if contains(string(content), "platform:") {
+			t.Errorf("Expected platform to be routed away from values.yaml, got %s", string(content))
+		}
+		if !contains(string(content), "dns:") {
+			t.Errorf("Expected dns to still be written, got %s", string(content))
+		}
+	})
+
+	t.Run("PatchRemovesADeletedTopLevelKey", func(t *testing.T) {
+		// A merge alone can't remove a key; deletes must.
+		source := newValuesSource(NewShims(), nil, newPersistencePolicy())
+		projectRoot := t.TempDir()
+		contextName := "local"
+		contextDir := filepath.Join(projectRoot, "contexts", contextName)
+		if err := os.MkdirAll(contextDir, 0755); err != nil {
+			t.Fatalf("Expected no error creating context dir, got %v", err)
+		}
+		initial := "provider: docker\nid: abc123\n"
+		valuesPath := filepath.Join(contextDir, "values.yaml")
+		if err := os.WriteFile(valuesPath, []byte(initial), 0644); err != nil {
+			t.Fatalf("Expected no error writing initial values file, got %v", err)
+		}
+
+		overrides := map[string]any{"platform": "docker"}
+		if err := source.Save(projectRoot, contextName, overrides, overrides, []string{"provider"}, true, persistencePolicyInput{}); err != nil {
+			t.Fatalf("Expected no error, got %v", err)
 		}
 
 		content, err := os.ReadFile(valuesPath)
@@ -342,11 +328,42 @@ func TestValuesSource_Save(t *testing.T) {
 			t.Fatalf("Expected values.yaml to be readable, got %v", err)
 		}
 		if contains(string(content), "provider:") {
-			t.Errorf("Expected provider to be gone from values.yaml, got %s", string(content))
+			t.Errorf("Expected provider to be removed, got %s", string(content))
+		}
+		if !contains(string(content), "id: abc123") || !contains(string(content), "platform: docker") {
+			t.Errorf("Expected id and the new platform to remain, got %s", string(content))
 		}
 	})
 
-	t.Run("FailsOpenWhenTheExistingFileIsUnparseable", func(t *testing.T) {
+	t.Run("SkipsTheWriteWhenNothingIsOverriddenOrDeleted", func(t *testing.T) {
+		source := newValuesSource(NewShims(), nil, newPersistencePolicy())
+		projectRoot := t.TempDir()
+		contextName := "local"
+		contextDir := filepath.Join(projectRoot, "contexts", contextName)
+		if err := os.MkdirAll(contextDir, 0755); err != nil {
+			t.Fatalf("Expected no error creating context dir, got %v", err)
+		}
+		initial := "id: abc123\n"
+		valuesPath := filepath.Join(contextDir, "values.yaml")
+		if err := os.WriteFile(valuesPath, []byte(initial), 0644); err != nil {
+			t.Fatalf("Expected no error writing initial values file, got %v", err)
+		}
+
+		data := map[string]any{"id": "abc123"}
+		if err := source.Save(projectRoot, contextName, data, nil, nil, true, persistencePolicyInput{}); err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+
+		content, err := os.ReadFile(valuesPath)
+		if err != nil {
+			t.Fatalf("Expected values.yaml to be readable, got %v", err)
+		}
+		if string(content) != initial {
+			t.Errorf("Expected values.yaml to be untouched, got %s", string(content))
+		}
+	})
+
+	t.Run("FallsBackToAFullRewriteWhenTheExistingFileIsUnparseable", func(t *testing.T) {
 		source := newValuesSource(NewShims(), nil, newPersistencePolicy())
 		projectRoot := t.TempDir()
 		contextName := "local"
@@ -359,16 +376,36 @@ func TestValuesSource_Save(t *testing.T) {
 			t.Fatalf("Expected no error writing initial values file, got %v", err)
 		}
 
-		if err := source.Save(projectRoot, contextName, map[string]any{"id": "abc123"}, true, persistencePolicyInput{}); err != nil {
-			t.Fatalf("Expected the write to proceed despite an unparseable prior file, got %v", err)
+		data := map[string]any{"id": "abc123", "gcp": map[string]any{"project_id": "p"}}
+		overrides := map[string]any{"id": "abc123"}
+		if err := source.Save(projectRoot, contextName, data, overrides, nil, true, persistencePolicyInput{}); err != nil {
+			t.Fatalf("Expected the write to fall back to the full config, got %v", err)
 		}
 
 		content, err := os.ReadFile(valuesPath)
 		if err != nil {
 			t.Fatalf("Expected values.yaml to be readable, got %v", err)
 		}
-		if !contains(string(content), "id:") {
-			t.Errorf("Expected the new content to be written, got %s", string(content))
+		if !contains(string(content), "id:") || !contains(string(content), "gcp:") {
+			t.Errorf("Expected the full config written as the fallback, got %s", string(content))
 		}
 	})
+}
+
+// getPathValue walks a decoded YAML map through keys, failing the test if any step is missing
+// or not itself a map.
+func getPathValue(t *testing.T, values map[string]any, keys ...string) any {
+	t.Helper()
+	var current any = values
+	for _, key := range keys {
+		m, ok := current.(map[string]any)
+		if !ok {
+			t.Fatalf("Expected a map while walking to %v, got %T at %q", keys, current, key)
+		}
+		current, ok = m[key]
+		if !ok {
+			t.Fatalf("Expected key %q present while walking %v", key, keys)
+		}
+	}
+	return current
 }

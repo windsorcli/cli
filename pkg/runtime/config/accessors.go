@@ -234,7 +234,8 @@ func (c *configHandler) GetStringMap(key string, defaultValue ...map[string]stri
 // Set does not validate against the schema; callers that compose configuration via multiple Set calls leave
 // the map in transient states that only satisfy cross-field rules once composition completes. Run
 // ValidateContextValues after composition to surface schema violations. Returns an error if the path is
-// invalid or if value assignment encounters an issue. Changes are in-memory; persist via SaveConfig.
+// invalid or if value assignment encounters an issue. Changes are in-memory; persist via SaveConfig,
+// which also records the path for a later patch write.
 func (c *configHandler) Set(path string, value any) error {
 	if path == "" {
 		return fmt.Errorf("path cannot be empty")
@@ -246,6 +247,19 @@ func (c *configHandler) Set(path string, value any) error {
 	convertedValue := c.convertStringValue(value)
 	pathKeys := parsePath(path)
 	setValueInMap(c.data, pathKeys, convertedValue)
+
+	if convertedValue == nil && len(pathKeys) == 1 {
+		if c.pendingDeletes == nil {
+			c.pendingDeletes = map[string]bool{}
+		}
+		c.pendingDeletes[pathKeys[0]] = true
+		return nil
+	}
+
+	if c.pendingOverrides == nil {
+		c.pendingOverrides = map[string]any{}
+	}
+	setValueInMap(c.pendingOverrides, pathKeys, convertedValue)
 	return nil
 }
 

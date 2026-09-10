@@ -93,6 +93,10 @@ type configHandler struct {
 	defaultConfig   *v1alpha1.Context
 	providers       map[string]ValueProvider
 
+	// pendingOverrides and pendingDeletes feed SaveConfig's patch write.
+	pendingOverrides map[string]any
+	pendingDeletes   map[string]bool
+
 	// applySchemaDefaults forces schema-default materialization in GetContextValues even for a
 	// test context, which otherwise skips it. Consumers that want the production composition path
 	// under a test context (the facet test runner, per case) set this; it is a no-op elsewhere.
@@ -268,11 +272,9 @@ func (c *configHandler) LoadConfigForContext(contextName string) error {
 	return nil
 }
 
-// SaveConfig writes the current configuration state to a single values.yaml file within the
-// context directory under the project root. The root windsor.yaml is created if missing.
-// Context-level windsor.yaml is no longer generated; all context configuration goes to values.yaml.
-// If overwrite is specified, an existing values.yaml will be overwritten; otherwise, it is only
-// created if missing. Returns an error if writing fails or required dependencies are uninitialized.
+// SaveConfig writes the current configuration to values.yaml for the context, creating the root
+// windsor.yaml first if missing. A missing values.yaml gets the full config; an existing one is
+// patched at Set-touched paths when overwrite is true, and left alone otherwise.
 func (c *configHandler) SaveConfig(overwrite ...bool) error {
 	if c.shell == nil {
 		return fmt.Errorf("shell not initialized")
@@ -294,10 +296,17 @@ func (c *configHandler) SaveConfig(overwrite ...bool) error {
 		}
 	}
 
+	deletes := make([]string, 0, len(c.pendingDeletes))
+	for key := range c.pendingDeletes {
+		deletes = append(deletes, key)
+	}
+
 	if err := c.values.Save(
 		projectRoot,
 		c.GetContext(),
 		c.data,
+		c.pendingOverrides,
+		deletes,
 		shouldOverwrite,
 		c.getPersistencePolicyInput(),
 	); err != nil {
@@ -413,6 +422,8 @@ func (c *configHandler) WithContext(name string) ConfigHandler {
 	cp.context = name
 	cp.data = maps.Clone(c.data)
 	cp.providers = maps.Clone(c.providers)
+	cp.pendingOverrides = maps.Clone(c.pendingOverrides)
+	cp.pendingDeletes = maps.Clone(c.pendingDeletes)
 	return &cp
 }
 
