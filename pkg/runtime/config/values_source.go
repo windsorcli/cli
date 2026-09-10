@@ -130,10 +130,11 @@ func (s *valuesSource) Save(
 // missing from next. It walks into nested maps rather than stopping at the top level, since a
 // field buried inside a section that itself survives the write is just as much a loss as the
 // whole section disappearing. Save persists the full merged config, a superset of disk by
-// construction, so a legitimate write should never lose a path that was there before. isVolatile
-// keys are skipped at every depth, since the policy may relocate or discard those on its own. An
-// unreadable or unparseable existing file returns no dropped keys rather than blocking the write,
-// since there is nothing trustworthy left to compare against.
+// construction, so a legitimate write should never lose a path that was there before. A
+// top-level isVolatile key is skipped, since the policy may relocate or discard those on its
+// own; the same name reappearing nested is an unrelated field and is not exempted. An
+// unreadable or unparseable existing file returns no dropped keys rather than blocking the
+// write, since there is nothing trustworthy left to compare against.
 func (s *valuesSource) droppedKeys(valuesPath string, next map[string]any) []string {
 	current, err := s.shims.ReadFile(valuesPath)
 	if err != nil {
@@ -154,11 +155,13 @@ func (s *valuesSource) droppedKeys(valuesPath string, next map[string]any) []str
 // path with prefix so a nested miss reads as "terraform.backend.type" rather than bare "type".
 // A key present in existing but absent from next is dropped outright. A key present in both as a
 // map recurses; a key present in both as anything else is left alone, since droppedKeys only
-// tracks disappearance, not value changes.
+// tracks disappearance, not value changes. isVolatile only exempts a top-level key (prefix ""),
+// matching its own top-level-only contract; a nested key that happens to share a volatile name
+// (e.g. "secrets.provider") is an unrelated field and is tracked like any other.
 func (s *valuesSource) droppedKeysIn(prefix string, existing, next map[string]any) []string {
 	var dropped []string
 	for key, existingValue := range existing {
-		if s.policy.isVolatile(key) {
+		if prefix == "" && s.policy.isVolatile(key) {
 			continue
 		}
 

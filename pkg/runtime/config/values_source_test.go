@@ -247,6 +247,42 @@ func TestValuesSource_Save(t *testing.T) {
 		}
 	})
 
+	t.Run("RefusesAnOverwriteThatWouldDropANestedKeySharingAVolatileName", func(t *testing.T) {
+		// isVolatile's exemption is documented as top-level only. A nested field that happens
+		// to share a volatile name, like secrets.provider, is an unrelated value and must still
+		// be caught if it disappears.
+		source := newValuesSource(NewShims(), nil, newPersistencePolicy())
+		projectRoot := t.TempDir()
+		contextName := "local"
+		contextDir := filepath.Join(projectRoot, "contexts", contextName)
+		if err := os.MkdirAll(contextDir, 0755); err != nil {
+			t.Fatalf("Expected no error creating context dir, got %v", err)
+		}
+		initial := "id: abc123\nsecrets:\n    provider: onepassword\n"
+		valuesPath := filepath.Join(contextDir, "values.yaml")
+		if err := os.WriteFile(valuesPath, []byte(initial), 0644); err != nil {
+			t.Fatalf("Expected no error writing initial values file, got %v", err)
+		}
+
+		data := map[string]any{"id": "abc123", "secrets": map[string]any{}}
+		err := source.Save(projectRoot, contextName, data, true, persistencePolicyInput{})
+
+		if err == nil {
+			t.Fatal("Expected an error when the write would drop secrets.provider")
+		}
+		if !contains(err.Error(), "secrets.provider") || !contains(err.Error(), "drop") {
+			t.Errorf("Expected the error to name the dropped nested path, got: %v", err)
+		}
+
+		content, readErr := os.ReadFile(valuesPath)
+		if readErr != nil {
+			t.Fatalf("Expected values.yaml to still be readable, got %v", readErr)
+		}
+		if string(content) != initial {
+			t.Errorf("Expected values.yaml to be unchanged after the refused write, got %s", string(content))
+		}
+	})
+
 	t.Run("AllowsAnOverwriteThatKeepsEveryPriorKey", func(t *testing.T) {
 		source := newValuesSource(NewShims(), nil, newPersistencePolicy())
 		projectRoot := t.TempDir()
