@@ -275,7 +275,8 @@ func (c *configHandler) LoadConfigForContext(contextName string) error {
 
 // SaveConfig writes the current configuration to values.yaml for the context, creating the root
 // windsor.yaml first if missing. A missing values.yaml gets the full config; an existing one is
-// patched at Set-touched paths when overwrite is true, and left alone otherwise.
+// patched at Set-touched paths when overwrite is true, and left alone otherwise. A successful
+// write clears the pending Set paths, so a later SaveConfig only patches what changed since.
 func (c *configHandler) SaveConfig(overwrite ...bool) error {
 	if c.shell == nil {
 		return fmt.Errorf("shell not initialized")
@@ -302,7 +303,7 @@ func (c *configHandler) SaveConfig(overwrite ...bool) error {
 		deletes = append(deletes, key)
 	}
 
-	if err := c.values.Save(
+	wrote, err := c.values.Save(
 		projectRoot,
 		c.GetContext(),
 		c.data,
@@ -310,8 +311,13 @@ func (c *configHandler) SaveConfig(overwrite ...bool) error {
 		deletes,
 		shouldOverwrite,
 		c.getPersistencePolicyInput(),
-	); err != nil {
+	)
+	if err != nil {
 		return err
+	}
+	if wrote {
+		c.pendingOverrides = nil
+		c.pendingDeletes = nil
 	}
 
 	return nil
@@ -416,15 +422,16 @@ func (c *configHandler) GetContext() string {
 // WithContext returns a new ConfigHandler that is a shallow copy of the receiver with an
 // in-memory context override applied. The override takes highest priority in GetContext,
 // bypassing the .windsor/context file and the WINDSOR_CONTEXT env var. The original handler
-// is not modified. Maps (data, providers) are copied shallowly to prevent aliasing.
+// is not modified. Maps (data, providers) are copied shallowly to prevent aliasing. Pending
+// Set paths are not carried over: they target the receiver's own values.yaml, not the copy's.
 // Use this for ephemeral overrides (e.g. windsor test) that must not touch the filesystem.
 func (c *configHandler) WithContext(name string) ConfigHandler {
 	cp := *c
 	cp.context = name
 	cp.data = maps.Clone(c.data)
 	cp.providers = maps.Clone(c.providers)
-	cp.pendingOverrides = maps.Clone(c.pendingOverrides)
-	cp.pendingDeletes = maps.Clone(c.pendingDeletes)
+	cp.pendingOverrides = nil
+	cp.pendingDeletes = nil
 	return &cp
 }
 

@@ -744,6 +744,41 @@ properties:
 		}
 	})
 
+	t.Run("ClearsPendingWritesAfterASuccessfulSaveSoALaterSaveDoesNotReapplyAStaleDelete", func(t *testing.T) {
+		handler, tmpDir := setupPrivateTestHandler(t)
+		handler.SetContext("test-context")
+		contextDir := filepath.Join(tmpDir, "contexts", "test-context")
+		os.MkdirAll(contextDir, 0755)
+		valuesPath := filepath.Join(contextDir, "values.yaml")
+		os.WriteFile(valuesPath, []byte("provider: docker\n"), 0644)
+
+		if err := handler.LoadConfig(); err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		handler.Set("provider", nil)
+		if err := handler.SaveConfig(true); err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		firstSave, _ := os.ReadFile(valuesPath)
+		if contains(string(firstSave), "provider:") {
+			t.Fatalf("Expected provider removed by the first save, got:\n%s", string(firstSave))
+		}
+
+		// Something else legitimately writes provider back afterward. A later save,
+		// triggered by an unrelated Set, must not silently strip it again just
+		// because it was deleted once, earlier in this handler's life.
+		os.WriteFile(valuesPath, []byte("provider: docker\nid: abc123\n"), 0644)
+		handler.Set("id", "abc123")
+		if err := handler.SaveConfig(true); err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+
+		secondSave, _ := os.ReadFile(valuesPath)
+		if !contains(string(secondSave), "provider: docker") {
+			t.Errorf("Expected the stale delete not to reapply on a later save, got:\n%s", string(secondSave))
+		}
+	})
+
 	t.Run("SaveAndReloadPreservesExplicitData", func(t *testing.T) {
 		handler, _ := setupPrivateTestHandler(t)
 		handler.SetContext("save-test")
@@ -1776,6 +1811,21 @@ func TestConfigHandler_WithContext(t *testing.T) {
 
 		if context != "override-context" {
 			t.Errorf("Expected 'override-context', got '%s'", context)
+		}
+	})
+
+	t.Run("DoesNotCarryPendingWritesToTheCopy", func(t *testing.T) {
+		handler, _ := setupPrivateTestHandler(t)
+		handler.Set("provider", "docker")
+		handler.Set("provider", nil)
+
+		override := handler.WithContext("override-context").(*configHandler)
+
+		if len(override.pendingOverrides) != 0 {
+			t.Errorf("Expected no pending overrides on the copy, got %v", override.pendingOverrides)
+		}
+		if len(override.pendingDeletes) != 0 {
+			t.Errorf("Expected no pending deletes on the copy, got %v", override.pendingDeletes)
 		}
 	})
 }

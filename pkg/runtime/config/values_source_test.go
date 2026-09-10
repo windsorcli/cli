@@ -126,7 +126,7 @@ func TestValuesSource_Save(t *testing.T) {
 			"workstation": map[string]any{"runtime": "colima"},
 		}
 
-		if err := source.Save(projectRoot, contextName, data, nil, nil, true, persistencePolicyInput{IsDevMode: true}); err != nil {
+		if _, err := source.Save(projectRoot, contextName, data, nil, nil, true, persistencePolicyInput{IsDevMode: true}); err != nil {
 			t.Fatalf("Expected no error, got %v", err)
 		}
 
@@ -161,8 +161,12 @@ func TestValuesSource_Save(t *testing.T) {
 		}
 
 		data := map[string]any{"cluster": map[string]any{"driver": "talos"}}
-		if err := source.Save(projectRoot, contextName, data, data, nil, false, persistencePolicyInput{IsDevMode: true}); err != nil {
+		wrote, err := source.Save(projectRoot, contextName, data, data, nil, false, persistencePolicyInput{IsDevMode: true})
+		if err != nil {
 			t.Fatalf("Expected no error, got %v", err)
+		}
+		if wrote {
+			t.Error("Expected wrote=false when overwrite is false and the file already exists")
 		}
 
 		valuesPath := filepath.Join(contextDir, "values.yaml")
@@ -191,7 +195,7 @@ func TestValuesSource_Save(t *testing.T) {
 		}
 
 		overrides := map[string]any{"terraform": map[string]any{"backend": map[string]any{"type": "gcs"}}}
-		if err := source.Save(projectRoot, contextName, overrides, overrides, nil, true, persistencePolicyInput{}); err != nil {
+		if _, err := source.Save(projectRoot, contextName, overrides, overrides, nil, true, persistencePolicyInput{}); err != nil {
 			t.Fatalf("Expected no error patching a nested override, got %v", err)
 		}
 
@@ -229,7 +233,7 @@ func TestValuesSource_Save(t *testing.T) {
 		}
 
 		overrides := map[string]any{"terraform": map[string]any{"backend": map[string]any{"type": "gcs"}}}
-		if err := source.Save(projectRoot, contextName, overrides, overrides, nil, true, persistencePolicyInput{}); err != nil {
+		if _, err := source.Save(projectRoot, contextName, overrides, overrides, nil, true, persistencePolicyInput{}); err != nil {
 			t.Fatalf("Expected no error, got %v", err)
 		}
 
@@ -258,7 +262,7 @@ func TestValuesSource_Save(t *testing.T) {
 		}
 
 		overrides := map[string]any{"gcp": map[string]any{"project_id": "new-project"}}
-		if err := source.Save(projectRoot, contextName, overrides, overrides, nil, true, persistencePolicyInput{}); err != nil {
+		if _, err := source.Save(projectRoot, contextName, overrides, overrides, nil, true, persistencePolicyInput{}); err != nil {
 			t.Fatalf("Expected no error, got %v", err)
 		}
 
@@ -287,7 +291,7 @@ func TestValuesSource_Save(t *testing.T) {
 		}
 
 		overrides := map[string]any{"platform": "docker", "dns": map[string]any{"enabled": false}}
-		if err := source.Save(projectRoot, contextName, overrides, overrides, nil, true, persistencePolicyInput{IsDevMode: true}); err != nil {
+		if _, err := source.Save(projectRoot, contextName, overrides, overrides, nil, true, persistencePolicyInput{IsDevMode: true}); err != nil {
 			t.Fatalf("Expected no error, got %v", err)
 		}
 
@@ -319,7 +323,7 @@ func TestValuesSource_Save(t *testing.T) {
 		}
 
 		overrides := map[string]any{"platform": "docker"}
-		if err := source.Save(projectRoot, contextName, overrides, overrides, []string{"provider"}, true, persistencePolicyInput{}); err != nil {
+		if _, err := source.Save(projectRoot, contextName, overrides, overrides, []string{"provider"}, true, persistencePolicyInput{}); err != nil {
 			t.Fatalf("Expected no error, got %v", err)
 		}
 
@@ -350,8 +354,12 @@ func TestValuesSource_Save(t *testing.T) {
 		}
 
 		data := map[string]any{"id": "abc123"}
-		if err := source.Save(projectRoot, contextName, data, nil, nil, true, persistencePolicyInput{}); err != nil {
+		wrote, err := source.Save(projectRoot, contextName, data, nil, nil, true, persistencePolicyInput{})
+		if err != nil {
 			t.Fatalf("Expected no error, got %v", err)
+		}
+		if wrote {
+			t.Error("Expected wrote=false when nothing was overridden or deleted")
 		}
 
 		content, err := os.ReadFile(valuesPath)
@@ -378,7 +386,7 @@ func TestValuesSource_Save(t *testing.T) {
 
 		data := map[string]any{"id": "abc123", "gcp": map[string]any{"project_id": "p"}}
 		overrides := map[string]any{"id": "abc123"}
-		if err := source.Save(projectRoot, contextName, data, overrides, nil, true, persistencePolicyInput{}); err != nil {
+		if _, err := source.Save(projectRoot, contextName, data, overrides, nil, true, persistencePolicyInput{}); err != nil {
 			t.Fatalf("Expected the write to fall back to the full config, got %v", err)
 		}
 

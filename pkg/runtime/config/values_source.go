@@ -77,6 +77,8 @@ func (s *valuesSource) Load(projectRoot, contextName string) (map[string]any, bo
 }
 
 // Save writes values.yaml for a context, patching an existing file at overrides/deletes only.
+// wrote reports whether a write actually happened, so a caller tracking pending writes knows
+// whether they were consumed or are still outstanding.
 func (s *valuesSource) Save(
 	projectRoot string,
 	contextName string,
@@ -85,14 +87,14 @@ func (s *valuesSource) Save(
 	deletes []string,
 	overwrite bool,
 	input persistencePolicyInput,
-) error {
+) (wrote bool, err error) {
 	contextDir := filepath.Join(projectRoot, "contexts", contextName)
 	if err := s.shims.MkdirAll(contextDir, 0755); err != nil {
-		return fmt.Errorf("error creating context directory: %w", err)
+		return false, fmt.Errorf("error creating context directory: %w", err)
 	}
 
 	if len(data) == 0 {
-		return nil
+		return false, nil
 	}
 
 	valuesPath := filepath.Join(contextDir, "values.yaml")
@@ -102,7 +104,7 @@ func (s *valuesSource) Save(
 	}
 
 	if valuesExists && !overwrite {
-		return nil
+		return false, nil
 	}
 
 	partition := s.policy.Partition(data, input)
@@ -113,14 +115,14 @@ func (s *valuesSource) Save(
 
 	marshaled, err := s.shims.YamlMarshal(partition.Values)
 	if err != nil {
-		return fmt.Errorf("error marshalling values.yaml: %w", err)
+		return false, fmt.Errorf("error marshalling values.yaml: %w", err)
 	}
 
 	if err := s.shims.WriteFile(valuesPath, marshaled, 0644); err != nil {
-		return fmt.Errorf("error writing values.yaml: %w", err)
+		return false, fmt.Errorf("error writing values.yaml: %w", err)
 	}
 
-	return nil
+	return true, nil
 }
 
 // =============================================================================
@@ -129,29 +131,29 @@ func (s *valuesSource) Save(
 
 // patchValues merges overrides and removes deletes at valuesPath, or writes fullValues whole
 // when the existing file can't be parsed.
-func (s *valuesSource) patchValues(valuesPath string, overrides map[string]any, deletes []string, fullValues map[string]any, input persistencePolicyInput) error {
+func (s *valuesSource) patchValues(valuesPath string, overrides map[string]any, deletes []string, fullValues map[string]any, input persistencePolicyInput) (bool, error) {
 	overridesPartition := s.policy.Partition(overrides, input)
 	if len(overridesPartition.Values) == 0 && len(deletes) == 0 {
-		return nil
+		return false, nil
 	}
 
 	merged, patchable := s.mergedValuesYAML(valuesPath, overridesPartition.Values, deletes)
 	if !patchable {
 		if len(fullValues) == 0 {
-			return nil
+			return false, nil
 		}
 		var err error
 		merged, err = s.shims.YamlMarshal(fullValues)
 		if err != nil {
-			return fmt.Errorf("error marshalling values.yaml: %w", err)
+			return false, fmt.Errorf("error marshalling values.yaml: %w", err)
 		}
 	}
 
 	if err := s.shims.WriteFile(valuesPath, merged, 0644); err != nil {
-		return fmt.Errorf("error writing values.yaml: %w", err)
+		return false, fmt.Errorf("error writing values.yaml: %w", err)
 	}
 
-	return nil
+	return true, nil
 }
 
 // mergedValuesYAML merges overrideValues and deletes into valuesPath's content, or false if

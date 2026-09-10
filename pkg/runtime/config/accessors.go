@@ -267,6 +267,7 @@ func (c *configHandler) Set(path string, value any) error {
 	setValueInMap(c.data, pathKeys, convertedValue)
 
 	if convertedValue == nil && len(pathKeys) == 1 {
+		delete(c.pendingOverrides, pathKeys[0])
 		if c.pendingDeletes == nil {
 			c.pendingDeletes = map[string]bool{}
 		}
@@ -274,6 +275,7 @@ func (c *configHandler) Set(path string, value any) error {
 		return nil
 	}
 
+	delete(c.pendingDeletes, pathKeys[0])
 	if c.pendingOverrides == nil {
 		c.pendingOverrides = map[string]any{}
 	}
