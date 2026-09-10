@@ -169,7 +169,7 @@ func (i *Provisioner) ValidateBackendTier(blueprint *blueprintv1alpha1.Blueprint
 // copy, so it proceeds against it. Returns whether it pivoted; a non-kubernetes backend is a no-op.
 func (i *Provisioner) PrepareLocalTeardown(blueprint *blueprintv1alpha1.Blueprint) (bool, error) {
 	backendType := i.configHandler.GetTerraformBackendType()
-	if backendType == "" || backendType == "local" {
+	if backendType != "kubernetes" {
 		return false, nil
 	}
 

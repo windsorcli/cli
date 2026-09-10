@@ -220,6 +220,28 @@ func TestProvisioner_PrepareLocalTeardown(t *testing.T) {
 		}
 	})
 
+	t.Run("NoOpOnNonKubernetesRemoteBackend", func(t *testing.T) {
+		// Given a remote non-kubernetes backend (its state store isn't going away with the cluster)
+		mocks := setupProvisionerMocks(t)
+		mockCH := mocks.ConfigHandler.(*config.MockConfigHandler)
+		mockCH.GetTerraformBackendTypeFunc = func() string { return "gcs" }
+		set := false
+		mockCH.SetFunc = func(_ string, _ any) error { set = true; return nil }
+		migrated := false
+		mockStack := terraforminfra.NewMockStack()
+		mockStack.MigrateStateFunc = func(_ *blueprintv1alpha1.Blueprint) ([]string, error) { migrated = true; return nil, nil }
+		prov := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{TerraformStack: mockStack})
+
+		// When preparing, it leaves the backend type alone so Teardown still gates the backend tier
+		pivoted, err := prov.PrepareLocalTeardown(bp)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if pivoted || set || migrated {
+			t.Errorf("expected no-op on gcs backend, pivoted=%v set=%v migrated=%v", pivoted, set, migrated)
+		}
+	})
+
 	t.Run("AbortsAndRevertsPivotOnMigrationFailureWhileClusterReachable", func(t *testing.T) {
 		// Given a migration failure while the cluster is still up — destroying now would orphan resources
 		mocks := setupProvisionerMocks(t)
@@ -1015,9 +1037,58 @@ func TestProvisioner_Teardown(t *testing.T) {
 		}
 	})
 
+	t.Run("StillDefersTierAfterPrepareLocalTeardownOnRemoteBackend", func(t *testing.T) {
+		// Given a gcs backend whose PrepareLocalTeardown ran first, then a non-tier
+		// destroy failure under continueOnError mode
+		mocks := setupProvisionerMocks(t)
+		bp := &blueprintv1alpha1.Blueprint{
+			Backend:  "backend",
+			Metadata: blueprintv1alpha1.Metadata{Name: "test"},
+			TerraformComponents: []blueprintv1alpha1.TerraformComponent{
+				{Path: "backend"},
+				{Path: "cluster"},
+			},
+		}
+		backendType := "gcs"
+		mockCH := mocks.ConfigHandler.(*config.MockConfigHandler)
+		mockCH.GetTerraformBackendTypeFunc = func() string { return backendType }
+		mockCH.SetFunc = func(key string, value any) error {
+			if key == "terraform.backend.type" {
+				backendType = fmt.Sprintf("%v", value)
+			}
+			return nil
+		}
+		mockStack := terraforminfra.NewMockStack()
+		mockStack.DestroyAllFunc = func(_ *blueprintv1alpha1.Blueprint, _ bool, _ ...string) (terraforminfra.DestroyOutcome, error) {
+			return terraforminfra.DestroyOutcome{
+				Failed: []terraforminfra.ComponentFailure{{ID: "cluster", Err: fmt.Errorf("cluster destroy failed")}},
+			}, nil
+		}
+		mockStack.MigrateStateFunc = func(_ *blueprintv1alpha1.Blueprint) ([]string, error) { return nil, nil }
+		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{KubernetesManager: mocks.KubernetesManager, TerraformStack: mockStack})
+
+		// When PrepareLocalTeardown runs first, then Teardown with continueOnError=true
+		if _, err := provisioner.PrepareLocalTeardown(bp); err != nil {
+			t.Fatalf("Expected no error from PrepareLocalTeardown, got %v", err)
+		}
+		result, err := provisioner.Teardown(bp, false, true)
+
+		// Then the backend type is untouched, the tier is still deferred, and the
+		// backend component is never destroyed alongside the failed component
+		if err != nil {
+			t.Fatalf("Expected continueOnError to absorb per-component failure, got %v", err)
+		}
+		if backendType != "gcs" {
+			t.Errorf("Expected PrepareLocalTeardown to leave terraform.backend.type=gcs untouched, got %q", backendType)
+		}
+		if !result.TierDeferred {
+			t.Error("Expected TierDeferred=true when non-tier destroy left a failure, even after PrepareLocalTeardown ran")
+		}
+	})
+
 	t.Run("ContinueCollectsLocalBackendFailures", func(t *testing.T) {
 		// Given a local backend (no tier) and a stack that reports per-component
-		// failures via DestroyResult.Failed in continueOnError mode
+		// failures under continueOnError mode
 		mocks := setupProvisionerMocks(t)
 		mockCH := mocks.ConfigHandler.(*config.MockConfigHandler)
 		mockCH.GetStringFunc = func(key string, defaultValue ...string) string {
