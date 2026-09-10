@@ -248,6 +248,36 @@ func TestInit_PreservesUserValuesAcrossInit(t *testing.T) {
 	}
 }
 
+// TestInit_SetPreservesUntouchedNestedValuesInExistingContext guards against the incident that
+// motivated patch writes: a --set against one nested field silently dropping an untouched sibling.
+func TestInit_SetPreservesUntouchedNestedValuesInExistingContext(t *testing.T) {
+	t.Parallel()
+	dir, env := helpers.CopyFixtureOnly(t, "default")
+	helpers.MarkAsGitRepo(t, dir)
+	contextDir := filepath.Join(dir, "contexts", "prod")
+	if err := os.MkdirAll(contextDir, 0755); err != nil {
+		t.Fatalf("expected no error creating context dir, got %v", err)
+	}
+	valuesPath := filepath.Join(contextDir, "values.yaml")
+	initial := "custom:\n    keep: me\n    change: old\nprovider: aws\n"
+	if err := os.WriteFile(valuesPath, []byte(initial), 0644); err != nil {
+		t.Fatalf("expected no error writing initial values.yaml, got %v", err)
+	}
+
+	_, stderr, err := helpers.RunCLI(dir, []string{"init", "prod", "--set", "custom.change=new"}, env)
+	if err != nil {
+		t.Fatalf("init prod --set custom.change=new: %v\nstderr: %s", err, stderr)
+	}
+
+	values := readYAMLFile(t, valuesPath)
+	if changed, ok := getPathValue(values, "custom", "change"); !ok || changed != "new" {
+		t.Errorf("expected custom.change=new, got %v", changed)
+	}
+	if kept, ok := getPathValue(values, "custom", "keep"); !ok || kept != "me" {
+		t.Errorf("expected custom.keep=me to survive the --set untouched, got %v", kept)
+	}
+}
+
 func TestInit_SetContextThenInitUsesSelectedContext(t *testing.T) {
 	t.Parallel()
 	dir, env := helpers.CopyFixtureOnly(t, "default")

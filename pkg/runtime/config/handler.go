@@ -94,6 +94,10 @@ type configHandler struct {
 	defaultConfig   *v1alpha1.Context
 	providers       map[string]ValueProvider
 
+	// pendingOverrides and pendingDeletes feed SaveConfig's patch write.
+	pendingOverrides map[string]any
+	pendingDeletes   map[string]bool
+
 	// applySchemaDefaults forces schema-default materialization in GetContextValues even for a
 	// test context, which otherwise skips it. Consumers that want the production composition path
 	// under a test context (the facet test runner, per case) set this; it is a no-op elsewhere.
@@ -269,11 +273,10 @@ func (c *configHandler) LoadConfigForContext(contextName string) error {
 	return nil
 }
 
-// SaveConfig writes the current configuration state to a single values.yaml file within the
-// context directory under the project root. The root windsor.yaml is created if missing.
-// Context-level windsor.yaml is no longer generated; all context configuration goes to values.yaml.
-// If overwrite is specified, an existing values.yaml will be overwritten; otherwise, it is only
-// created if missing. Returns an error if writing fails or required dependencies are uninitialized.
+// SaveConfig writes the current configuration to values.yaml for the context, creating the root
+// windsor.yaml first if missing. A missing values.yaml gets the full config; an existing one is
+// patched at Set-touched paths when overwrite is true, and left alone otherwise. A successful
+// write clears the pending Set paths, so a later SaveConfig only patches what changed since.
 func (c *configHandler) SaveConfig(overwrite ...bool) error {
 	if c.shell == nil {
 		return fmt.Errorf("shell not initialized")
@@ -295,14 +298,26 @@ func (c *configHandler) SaveConfig(overwrite ...bool) error {
 		}
 	}
 
-	if err := c.values.Save(
+	deletes := make([]string, 0, len(c.pendingDeletes))
+	for key := range c.pendingDeletes {
+		deletes = append(deletes, key)
+	}
+
+	wrote, err := c.values.Save(
 		projectRoot,
 		c.GetContext(),
 		c.data,
+		c.pendingOverrides,
+		deletes,
 		shouldOverwrite,
 		c.getPersistencePolicyInput(),
-	); err != nil {
+	)
+	if err != nil {
 		return err
+	}
+	if wrote {
+		c.pendingOverrides = nil
+		c.pendingDeletes = nil
 	}
 
 	return nil
@@ -407,13 +422,16 @@ func (c *configHandler) GetContext() string {
 // WithContext returns a new ConfigHandler that is a shallow copy of the receiver with an
 // in-memory context override applied. The override takes highest priority in GetContext,
 // bypassing the .windsor/context file and the WINDSOR_CONTEXT env var. The original handler
-// is not modified. Maps (data, providers) are copied shallowly to prevent aliasing.
+// is not modified. Maps (data, providers) are copied shallowly to prevent aliasing. Pending
+// Set paths are not carried over: they target the receiver's own values.yaml, not the copy's.
 // Use this for ephemeral overrides (e.g. windsor test) that must not touch the filesystem.
 func (c *configHandler) WithContext(name string) ConfigHandler {
 	cp := *c
 	cp.context = name
 	cp.data = maps.Clone(c.data)
 	cp.providers = maps.Clone(c.providers)
+	cp.pendingOverrides = nil
+	cp.pendingDeletes = nil
 	return &cp
 }
 

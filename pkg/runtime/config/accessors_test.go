@@ -248,6 +248,42 @@ additionalProperties: false
 			t.Fatal("Expected validation error from ValidateContextValues for disallowed key")
 		}
 	})
+
+	t.Run("SetAfterDeleteOfSameKeyWinsOverTheDelete", func(t *testing.T) {
+		handler, _ := setupPrivateTestHandler(t)
+
+		if err := handler.Set("provider", nil); err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		if err := handler.Set("provider", "docker"); err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+
+		if handler.pendingDeletes["provider"] {
+			t.Error("Expected the later Set to clear the pending delete")
+		}
+		if got := handler.pendingOverrides["provider"]; got != "docker" {
+			t.Errorf("Expected the later Set to win, got %v", got)
+		}
+	})
+
+	t.Run("DeleteAfterSetOfSameKeyWinsOverTheSet", func(t *testing.T) {
+		handler, _ := setupPrivateTestHandler(t)
+
+		if err := handler.Set("provider", "docker"); err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		if err := handler.Set("provider", nil); err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+
+		if _, exists := handler.pendingOverrides["provider"]; exists {
+			t.Error("Expected the later delete to clear the pending override")
+		}
+		if !handler.pendingDeletes["provider"] {
+			t.Error("Expected the delete to be pending")
+		}
+	})
 }
 
 func TestConfigHandler_AccessorTypeCoercionHelpers(t *testing.T) {
