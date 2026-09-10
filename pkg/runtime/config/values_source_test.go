@@ -208,6 +208,45 @@ func TestValuesSource_Save(t *testing.T) {
 		}
 	})
 
+	t.Run("RefusesAnOverwriteThatWouldDropANestedKey", func(t *testing.T) {
+		// A field can disappear from inside a section that itself survives the write, e.g.
+		// terraform.backend.type vanishing while terraform stays present with other content.
+		// The top-level key alone is not enough to prove nothing was lost.
+		source := newValuesSource(NewShims(), nil, newPersistencePolicy())
+		projectRoot := t.TempDir()
+		contextName := "local"
+		contextDir := filepath.Join(projectRoot, "contexts", contextName)
+		if err := os.MkdirAll(contextDir, 0755); err != nil {
+			t.Fatalf("Expected no error creating context dir, got %v", err)
+		}
+		initial := "id: abc123\nterraform:\n    backend:\n        type: gcs\n    component: cluster\n"
+		valuesPath := filepath.Join(contextDir, "values.yaml")
+		if err := os.WriteFile(valuesPath, []byte(initial), 0644); err != nil {
+			t.Fatalf("Expected no error writing initial values file, got %v", err)
+		}
+
+		data := map[string]any{
+			"id":        "abc123",
+			"terraform": map[string]any{"component": "cluster", "backend": map[string]any{}},
+		}
+		err := source.Save(projectRoot, contextName, data, true, persistencePolicyInput{})
+
+		if err == nil {
+			t.Fatal("Expected an error when the write would drop terraform.backend.type")
+		}
+		if !contains(err.Error(), "terraform.backend.type") || !contains(err.Error(), "drop") {
+			t.Errorf("Expected the error to name the dropped nested path, got: %v", err)
+		}
+
+		content, readErr := os.ReadFile(valuesPath)
+		if readErr != nil {
+			t.Fatalf("Expected values.yaml to still be readable, got %v", readErr)
+		}
+		if string(content) != initial {
+			t.Errorf("Expected values.yaml to be unchanged after the refused write, got %s", string(content))
+		}
+	})
+
 	t.Run("AllowsAnOverwriteThatKeepsEveryPriorKey", func(t *testing.T) {
 		source := newValuesSource(NewShims(), nil, newPersistencePolicy())
 		projectRoot := t.TempDir()

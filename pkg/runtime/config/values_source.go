@@ -104,8 +104,8 @@ func (s *valuesSource) Save(
 	partition := s.policy.Partition(data, input)
 
 	if valuesExists {
-		if dropped := s.droppedTopLevelKeys(valuesPath, partition.Values); len(dropped) > 0 {
-			return fmt.Errorf("refusing to write values.yaml for context %q: this write would drop top-level section(s) %v present in the current file. This looks like a bug, not an intended change. No changes were written", contextName, dropped)
+		if dropped := s.droppedKeys(valuesPath, partition.Values); len(dropped) > 0 {
+			return fmt.Errorf("refusing to write values.yaml for context %q: this write would drop %v present in the current file. This looks like a bug, not an intended change. No changes were written", contextName, dropped)
 		}
 	}
 
@@ -125,14 +125,16 @@ func (s *valuesSource) Save(
 // Private Methods
 // =============================================================================
 
-// droppedTopLevelKeys compares the top-level keys already on disk at valuesPath against next,
-// the map about to be written, and returns any key present on disk but absent from next. Save
-// persists the full merged config, a superset of disk by construction, so a legitimate write
-// should never produce a strict subset of the prior top-level keys. isVolatile keys are skipped,
-// since the policy may relocate or discard those on its own. An unreadable or unparseable
-// existing file returns no dropped keys rather than blocking the write, since there is nothing
-// trustworthy left to compare against.
-func (s *valuesSource) droppedTopLevelKeys(valuesPath string, next map[string]any) []string {
+// droppedKeys compares the file already on disk at valuesPath against next, the map about to be
+// written, and returns each dotted path (e.g. "terraform.backend.type") present on disk but
+// missing from next. It walks into nested maps rather than stopping at the top level, since a
+// field buried inside a section that itself survives the write is just as much a loss as the
+// whole section disappearing. Save persists the full merged config, a superset of disk by
+// construction, so a legitimate write should never lose a path that was there before. isVolatile
+// keys are skipped at every depth, since the policy may relocate or discard those on its own. An
+// unreadable or unparseable existing file returns no dropped keys rather than blocking the write,
+// since there is nothing trustworthy left to compare against.
+func (s *valuesSource) droppedKeys(valuesPath string, next map[string]any) []string {
 	current, err := s.shims.ReadFile(valuesPath)
 	if err != nil {
 		return nil
@@ -143,15 +145,39 @@ func (s *valuesSource) droppedTopLevelKeys(valuesPath string, next map[string]an
 		return nil
 	}
 
+	dropped := s.droppedKeysIn("", existing, next)
+	sort.Strings(dropped)
+	return dropped
+}
+
+// droppedKeysIn walks one level of the comparison droppedKeys performs, prefixing every reported
+// path with prefix so a nested miss reads as "terraform.backend.type" rather than bare "type".
+// A key present in existing but absent from next is dropped outright. A key present in both as a
+// map recurses; a key present in both as anything else is left alone, since droppedKeys only
+// tracks disappearance, not value changes.
+func (s *valuesSource) droppedKeysIn(prefix string, existing, next map[string]any) []string {
 	var dropped []string
-	for key := range existing {
+	for key, existingValue := range existing {
 		if s.policy.isVolatile(key) {
 			continue
 		}
-		if _, ok := next[key]; !ok {
-			dropped = append(dropped, key)
+
+		path := key
+		if prefix != "" {
+			path = prefix + "." + key
+		}
+
+		nextValue, ok := next[key]
+		if !ok {
+			dropped = append(dropped, path)
+			continue
+		}
+
+		if existingMap, isMap := existingValue.(map[string]any); isMap {
+			if nextMap, isMap := nextValue.(map[string]any); isMap {
+				dropped = append(dropped, s.droppedKeysIn(path, existingMap, nextMap)...)
+			}
 		}
 	}
-	sort.Strings(dropped)
 	return dropped
 }
