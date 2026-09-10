@@ -125,7 +125,7 @@ jobs:
             edit the PR.
           claude_args: |
             --model claude-sonnet-5
-            --max-turns 40
+            --max-turns 80
             --allowedTools Read,Grep,Glob,Bash(git diff:*),Bash(git log:*),Write
             --disallowedTools WebSearch,WebFetch
       - name: Publish review
@@ -227,7 +227,7 @@ jobs:
             edit the PR.
           claude_args: |
             --model claude-sonnet-5
-            --max-turns 40
+            --max-turns 80
             --allowedTools Read,Grep,Glob,Bash(git diff:*),Bash(git log:*),Write
             --disallowedTools WebSearch,WebFetch
       - name: Publish review
@@ -337,6 +337,6 @@ jobs:
             description. Be fast.
           claude_args: |
             --model claude-sonnet-5
-            --max-turns 40
+            --max-turns 80
             --allowedTools Read,Bash(gh:*),Bash(cat:*),Bash(jq:*)
             --disallowedTools WebSearch,WebFetch
