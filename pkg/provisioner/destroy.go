@@ -55,7 +55,7 @@ type DestroyResult struct {
 // treated as "no tier" — see resolveBackendTier.
 func (i *Provisioner) Teardown(blueprint *blueprintv1alpha1.Blueprint, terraformOnly bool, continueOnError bool) (DestroyResult, error) {
 	var result DestroyResult
-	backendType := i.configHandler.GetString("terraform.backend.type", "local")
+	backendType := i.configHandler.GetTerraformBackendType()
 	if backendType == "kubernetes" && blueprint.Backend == "" {
 		return result, fmt.Errorf("blueprint configures terraform.backend.type=kubernetes but does not declare Blueprint.Backend; set `backend: <cluster-component-id>` at the blueprint top level to name the terraform component that provisions the cluster")
 	}
@@ -132,7 +132,7 @@ func (i *Provisioner) TeardownComponent(blueprint *blueprintv1alpha1.Blueprint, 
 // component tries to reach a kubernetes backend whose cluster may already be gone. A Backend that names
 // no real component also refuses outright — see resolveBackendTier.
 func (i *Provisioner) CheckComponentDestroyable(blueprint *blueprintv1alpha1.Blueprint, componentID string) error {
-	backendType := i.configHandler.GetString("terraform.backend.type", "local")
+	backendType := i.configHandler.GetTerraformBackendType()
 	if backendType == "" || backendType == "local" {
 		return nil
 	}
@@ -168,7 +168,7 @@ func (i *Provisioner) ValidateBackendTier(blueprint *blueprintv1alpha1.Blueprint
 // cluster is gone (a resumed teardown) the state was already migrated on the earlier pass and is the local
 // copy, so it proceeds against it. Returns whether it pivoted; a non-kubernetes backend is a no-op.
 func (i *Provisioner) PrepareLocalTeardown(blueprint *blueprintv1alpha1.Blueprint) (bool, error) {
-	backendType := i.configHandler.GetString("terraform.backend.type", "local")
+	backendType := i.configHandler.GetTerraformBackendType()
 	if backendType == "" || backendType == "local" {
 		return false, nil
 	}
@@ -199,7 +199,7 @@ func (i *Provisioner) PrepareLocalTeardown(blueprint *blueprintv1alpha1.Blueprin
 // the cluster is up and on the already-migrated local state once the cluster is gone. A reachable cluster or
 // non-kubernetes backend is a no-op. Returns whether it pivoted.
 func (i *Provisioner) PivotToLocalIfClusterGone() (bool, error) {
-	backendType := i.configHandler.GetString("terraform.backend.type", "local")
+	backendType := i.configHandler.GetTerraformBackendType()
 	if backendType == "" || backendType == "local" {
 		return false, nil
 	}

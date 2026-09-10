@@ -148,6 +148,73 @@ func TestGetContextsCmd(t *testing.T) {
 		}
 	})
 
+	t.Run("ShowsTheFallbackBackendWhenTypeIsUnset", func(t *testing.T) {
+		stdout, _ := setup(t)
+		tmpDir := t.TempDir()
+
+		contextsDir := filepath.Join(tmpDir, "contexts")
+		if err := os.MkdirAll(contextsDir, 0755); err != nil {
+			t.Fatalf("Failed to create contexts directory: %v", err)
+		}
+
+		gcpDir := filepath.Join(contextsDir, "gcp-test")
+		if err := os.MkdirAll(gcpDir, 0755); err != nil {
+			t.Fatalf("Failed to create gcp-test context directory: %v", err)
+		}
+		noneDir := filepath.Join(contextsDir, "bare")
+		if err := os.MkdirAll(noneDir, 0755); err != nil {
+			t.Fatalf("Failed to create bare context directory: %v", err)
+		}
+
+		windsorYaml := filepath.Join(tmpDir, "windsor.yaml")
+		if err := os.WriteFile(windsorYaml, []byte("version: v1alpha1\n"), 0644); err != nil {
+			t.Fatalf("Failed to create windsor.yaml: %v", err)
+		}
+
+		// Neither context sets terraform.backend.type explicitly.
+		gcpConfig := filepath.Join(gcpDir, "windsor.yaml")
+		if err := os.WriteFile(gcpConfig, []byte("platform: gcp\n"), 0644); err != nil {
+			t.Fatalf("Failed to create gcp-test config: %v", err)
+		}
+		noneConfig := filepath.Join(noneDir, "windsor.yaml")
+		if err := os.WriteFile(noneConfig, []byte("version: v1alpha1\n"), 0644); err != nil {
+			t.Fatalf("Failed to create bare config: %v", err)
+		}
+
+		mockShell := shell.NewMockShell()
+		mockShell.GetProjectRootFunc = func() (string, error) {
+			return tmpDir, nil
+		}
+
+		rtOverride := &runtime.Runtime{
+			Shell:       mockShell,
+			ProjectRoot: tmpDir,
+		}
+		rt := runtime.NewRuntime(rtOverride)
+		if rt == nil {
+			t.Fatal("Failed to create runtime")
+		}
+
+		ctx := context.WithValue(context.Background(), runtimeOverridesKey, rt)
+		rootCmd.SetContext(ctx)
+
+		rootCmd.SetArgs([]string{"get", "contexts"})
+
+		err := Execute()
+
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+
+		output := stdout.String()
+		if !strings.Contains(output, "gcs") {
+			t.Errorf("Expected the gcp-test context to show the platform-derived backend gcs, got %q", output)
+		}
+		if !strings.Contains(output, "local") {
+			t.Errorf("Expected the bare context to show the local fallback backend, got %q", output)
+		}
+	})
+
 	t.Run("ExcludesTemplateDirectory", func(t *testing.T) {
 		stdout, _ := setup(t)
 		tmpDir := t.TempDir()

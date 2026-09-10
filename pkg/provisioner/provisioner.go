@@ -219,7 +219,7 @@ func (i *Provisioner) Up(blueprint *blueprintv1alpha1.Blueprint, onApply ...func
 		return false, fmt.Errorf("blueprint not provided")
 	}
 
-	backendType := i.configHandler.GetString("terraform.backend.type", "local")
+	backendType := i.configHandler.GetTerraformBackendType()
 	applyFlat := func() (bool, error) {
 		if backendType == "kubernetes" && hasEnabledTerraformComponent(blueprint) && !i.kubeconfigPresent() {
 			return false, fmt.Errorf("context has no kubeconfig (cluster not yet created) and the blueprint declares no backend tier for the kubernetes backend; add `backend: <component-id>` to the blueprint naming the component that creates the cluster, or set terraform.backend.type to \"local\" until it exists")
@@ -1962,7 +1962,7 @@ func hasEnabledTerraformComponent(blueprint *blueprintv1alpha1.Blueprint) bool {
 // rather than fall through; -force-copy would otherwise overwrite good
 // remote state with stale local content.
 func (i *Provisioner) recoverHalfMigratedComponents(blueprint *blueprintv1alpha1.Blueprint) error {
-	backendType := i.configHandler.GetString("terraform.backend.type", "local")
+	backendType := i.configHandler.GetTerraformBackendType()
 	if backendType == "" || backendType == "local" {
 		return nil
 	}

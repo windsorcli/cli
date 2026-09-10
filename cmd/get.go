@@ -97,9 +97,7 @@ var getContextsCmd = &cobra.Command{
 				} else if p := ctxConfigHandler.GetString("provider"); p != "" {
 					platform = p
 				}
-				if b := ctxConfigHandler.GetString("terraform.backend.type"); b != "" {
-					backend = b
-				}
+				backend = ctxConfigHandler.GetTerraformBackendType()
 			}
 
 			contextInfos = append(contextInfos, contextInfo{

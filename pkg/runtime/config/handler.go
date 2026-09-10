@@ -34,6 +34,7 @@ type ConfigHandler interface {
 	LoadConfigForContext(contextName string) error
 	LoadConfigString(content string) error
 	GetString(key string, defaultValue ...string) string
+	GetTerraformBackendType() string
 	GetInt(key string, defaultValue ...int) int
 	GetBool(key string, defaultValue ...bool) bool
 	GetStringSlice(key string, defaultValue ...[]string) []string

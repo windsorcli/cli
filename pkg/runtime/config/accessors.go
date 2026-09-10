@@ -88,6 +88,24 @@ func (c *configHandler) GetString(key string, defaultValue ...string) string {
 	return fmt.Sprintf("%v", value)
 }
 
+// GetTerraformBackendType returns the explicit terraform.backend.type when set, else the cloud
+// default for platform (aws/azure/gcp), else "local". Platform falls back to "provider" when
+// unset. It skips the kubernetes default, since that needs a live cluster that only
+// init/up/bootstrap sets up explicitly.
+func (c *configHandler) GetTerraformBackendType() string {
+	if explicit := c.GetString("terraform.backend.type"); explicit != "" {
+		return explicit
+	}
+	platform := c.GetString("platform")
+	if platform == "" {
+		platform = c.GetString("provider")
+	}
+	if def := DefaultTerraformBackendTypeForPlatform(platform); def != "" && def != "kubernetes" {
+		return def
+	}
+	return "local"
+}
+
 // GetInt retrieves an integer value for the specified key from the configuration.
 // It accepts an optional default value. The function safely converts supported types (int, int64, uint64, uint)
 // to int with appropriate overflow protection, and parses string values if they represent valid integer literals.
