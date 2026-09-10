@@ -9,39 +9,40 @@ import (
 
 // MockConfigHandler is a mock implementation of the ConfigHandler interface
 type MockConfigHandler struct {
-	contextOverride string
-	LoadConfigFunc             func() error
-	LoadConfigForContextFunc   func(contextName string) error
-	LoadConfigStringFunc       func(content string) error
-	IsLoadedFunc               func() bool
-	GetStringFunc              func(key string, defaultValue ...string) string
-	GetIntFunc                 func(key string, defaultValue ...int) int
-	GetBoolFunc                func(key string, defaultValue ...bool) bool
-	GetStringSliceFunc         func(key string, defaultValue ...[]string) []string
-	GetStringMapFunc           func(key string, defaultValue ...map[string]string) map[string]string
-	SetFunc                    func(key string, value any) error
-	SaveConfigFunc             func(overwrite ...bool) error
-	SaveWorkstationStateFunc func() error
-	GetFunc                  func(key string) any
-	SetDefaultFunc             func(context v1alpha1.Context) error
-	GetConfigFunc              func() *v1alpha1.Context
-	GetContextFunc             func() string
-	IsDevModeFunc              func(contextName string) bool
-	SetContextFunc             func(context string) error
-	GetConfigRootFunc          func() (string, error)
-	GetWindsorScratchPathFunc  func() (string, error)
-	CleanFunc                  func() error
-	GenerateContextIDFunc      func() error
-	LoadSchemaFunc             func(schemaPath string) error
-	LoadSchemaFromBytesFunc    func(schemaContent []byte) error
-	GetSchemaFunc              func() map[string]any
-	GetContextValuesFunc       func() (map[string]any, error)
-	GetSetValuesFunc           func() map[string]any
-	SetApplySchemaDefaultsFunc func(enabled bool)
-	GetSensitivePathsFunc      func() []string
-	IsSensitivePathFunc        func(path string) bool
-	RegisterProviderFunc       func(prefix string, provider ValueProvider)
-	ValidateContextValuesFunc  func() error
+	contextOverride             string
+	LoadConfigFunc              func() error
+	LoadConfigForContextFunc    func(contextName string) error
+	LoadConfigStringFunc        func(content string) error
+	IsLoadedFunc                func() bool
+	GetStringFunc               func(key string, defaultValue ...string) string
+	GetTerraformBackendTypeFunc func() string
+	GetIntFunc                  func(key string, defaultValue ...int) int
+	GetBoolFunc                 func(key string, defaultValue ...bool) bool
+	GetStringSliceFunc          func(key string, defaultValue ...[]string) []string
+	GetStringMapFunc            func(key string, defaultValue ...map[string]string) map[string]string
+	SetFunc                     func(key string, value any) error
+	SaveConfigFunc              func(overwrite ...bool) error
+	SaveWorkstationStateFunc    func() error
+	GetFunc                     func(key string) any
+	SetDefaultFunc              func(context v1alpha1.Context) error
+	GetConfigFunc               func() *v1alpha1.Context
+	GetContextFunc              func() string
+	IsDevModeFunc               func(contextName string) bool
+	SetContextFunc              func(context string) error
+	GetConfigRootFunc           func() (string, error)
+	GetWindsorScratchPathFunc   func() (string, error)
+	CleanFunc                   func() error
+	GenerateContextIDFunc       func() error
+	LoadSchemaFunc              func(schemaPath string) error
+	LoadSchemaFromBytesFunc     func(schemaContent []byte) error
+	GetSchemaFunc               func() map[string]any
+	GetContextValuesFunc        func() (map[string]any, error)
+	GetSetValuesFunc            func() map[string]any
+	SetApplySchemaDefaultsFunc  func(enabled bool)
+	GetSensitivePathsFunc       func() []string
+	IsSensitivePathFunc         func(path string) bool
+	RegisterProviderFunc        func(prefix string, provider ValueProvider)
+	ValidateContextValuesFunc   func() error
 }
 
 // =============================================================================
@@ -98,6 +99,16 @@ func (m *MockConfigHandler) GetString(key string, defaultValue ...string) string
 		return defaultValue[0]
 	}
 	return "mock-string"
+}
+
+// GetTerraformBackendType calls the mock GetTerraformBackendTypeFunc if set, otherwise falls back
+// to GetString("terraform.backend.type", "local") so a test that only stubs GetStringFunc keeps
+// working without also stubbing this method.
+func (m *MockConfigHandler) GetTerraformBackendType() string {
+	if m.GetTerraformBackendTypeFunc != nil {
+		return m.GetTerraformBackendTypeFunc()
+	}
+	return m.GetString("terraform.backend.type", "local")
 }
 
 // GetInt calls the mock GetIntFunc if set, otherwise returns a reasonable default int

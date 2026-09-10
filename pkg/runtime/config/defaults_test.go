@@ -32,3 +32,30 @@ func TestDefaultConfigurations(t *testing.T) {
 		}
 	})
 }
+
+func TestDefaultTerraformBackendTypeForPlatform(t *testing.T) {
+	testCases := []struct {
+		platform string
+		want     string
+	}{
+		{"aws", "s3"},
+		{"azure", "azurerm"},
+		{"gcp", "gcs"},
+		{"metal", "kubernetes"},
+		{"docker", "kubernetes"},
+		{"incus", "kubernetes"},
+		{"hetzner", "kubernetes"},
+		{"hyperv", "kubernetes"},
+		{"vsphere", "kubernetes"},
+		{"none", ""},
+		{"", ""},
+		{"unrecognized", ""},
+	}
+	for _, tc := range testCases {
+		t.Run(tc.platform, func(t *testing.T) {
+			if got := DefaultTerraformBackendTypeForPlatform(tc.platform); got != tc.want {
+				t.Errorf("Expected platform %q to map to %q, got %q", tc.platform, tc.want, got)
+			}
+		})
+	}
+}
