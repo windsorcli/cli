@@ -173,7 +173,7 @@ func NewProvisioner(rt *runtime.Runtime, blueprintHandler blueprint.BlueprintHan
 	}
 
 	if provisioner.KubernetesClient == nil {
-		provisioner.KubernetesClient = k8sclient.NewDynamicKubernetesClient()
+		provisioner.KubernetesClient = k8sclient.NewDynamicKubernetesClient(rt.Shell)
 	}
 
 	if provisioner.KubernetesManager == nil {
