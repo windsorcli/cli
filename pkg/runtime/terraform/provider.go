@@ -79,6 +79,7 @@ type TerraformProvider interface {
 	GenerateTerraformArgs(componentID string, interactive bool) (*TerraformArgs, error)
 	GetTerraformComponent(componentID string) *blueprintv1alpha1.TerraformComponent
 	GetTerraformComponents() []blueprintv1alpha1.TerraformComponent
+	GetTerraformComponentForPath(directory string) *blueprintv1alpha1.TerraformComponent
 	SetTerraformComponents(components []blueprintv1alpha1.TerraformComponent)
 	SetConfigScope(scope map[string]any)
 	GetTerraformOutputs(componentID string) (map[string]any, error)
@@ -377,6 +378,21 @@ func (p *terraformProvider) GetTerraformComponent(componentID string) *blueprint
 	components := p.GetTerraformComponents()
 	for i := range components {
 		if components[i].Path == componentID || (components[i].Name != "" && components[i].Name == componentID) {
+			return &components[i]
+		}
+	}
+	return nil
+}
+
+// GetTerraformComponentForPath finds the loaded blueprint component whose resolved FullPath
+// matches directory. Terraform module directories are shared on disk across contexts, so this
+// confirms directory actually belongs to the active context's blueprint before a caller treats
+// it as one of its components. Returns nil if no component resolves to directory.
+func (p *terraformProvider) GetTerraformComponentForPath(directory string) *blueprintv1alpha1.TerraformComponent {
+	directory = filepath.Clean(directory)
+	components := p.GetTerraformComponents()
+	for i := range components {
+		if filepath.Clean(components[i].FullPath) == directory {
 			return &components[i]
 		}
 	}
