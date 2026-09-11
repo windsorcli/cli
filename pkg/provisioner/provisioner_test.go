@@ -829,7 +829,9 @@ func TestProvisioner_DestroyAllTerraform(t *testing.T) {
 		}
 	})
 
-	t.Run("ErrorKubernetesUnreachable", func(t *testing.T) {
+	t.Run("DoesNotGateOnKubernetesReachability", func(t *testing.T) {
+		// Provisioner runs no reachability preflight at all; an unreachable cluster only
+		// ever surfaces from the terraform refresh/destroy timeout, not an upfront block.
 		mocks := setupProvisionerMocks(t)
 		mocks.KubernetesManager.WaitForKubernetesHealthyFunc = func(ctx context.Context, endpoint string, outputFunc func(string), nodeNames ...string) error {
 			return fmt.Errorf("connection refused")
@@ -843,16 +845,11 @@ func TestProvisioner_DestroyAllTerraform(t *testing.T) {
 		opts := &Provisioner{KubernetesManager: mocks.KubernetesManager, TerraformStack: mockStack}
 		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
 
-		_, err := provisioner.DestroyAllTerraform(createTestBlueprint(), false)
-
-		if err == nil {
-			t.Fatal("Expected error when kubernetes is unreachable")
+		if _, err := provisioner.DestroyAllTerraform(createTestBlueprint(), false); err != nil {
+			t.Fatalf("Expected no error: Provisioner must not gate on Kubernetes reachability, got: %v", err)
 		}
-		if !strings.Contains(err.Error(), "kubernetes API is unreachable") {
-			t.Errorf("Expected specific error message, got: %v", err)
-		}
-		if destroyAllCalled {
-			t.Error("Expected terraform DestroyAll not to run when kubernetes is unreachable")
+		if !destroyAllCalled {
+			t.Error("Expected terraform DestroyAll to run: Provisioner must not gate on Kubernetes reachability itself")
 		}
 	})
 }
@@ -2441,7 +2438,9 @@ func TestProvisioner_Destroy(t *testing.T) {
 		}
 	})
 
-	t.Run("ErrorKubernetesUnreachable", func(t *testing.T) {
+	t.Run("DoesNotGateOnKubernetesReachability", func(t *testing.T) {
+		// Provisioner runs no reachability preflight at all; an unreachable cluster only
+		// ever surfaces from the terraform refresh/destroy timeout, not an upfront block.
 		mocks := setupProvisionerMocks(t)
 		mocks.KubernetesManager.WaitForKubernetesHealthyFunc = func(ctx context.Context, endpoint string, outputFunc func(string), nodeNames ...string) error {
 			return fmt.Errorf("connection refused")
@@ -2455,16 +2454,11 @@ func TestProvisioner_Destroy(t *testing.T) {
 		opts := &Provisioner{KubernetesManager: mocks.KubernetesManager, TerraformStack: mockStack}
 		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
 
-		_, err := provisioner.Destroy(createTestBlueprint(), "remote/path")
-
-		if err == nil {
-			t.Fatal("Expected error when kubernetes is unreachable")
+		if _, err := provisioner.Destroy(createTestBlueprint(), "remote/path"); err != nil {
+			t.Fatalf("Expected no error: Provisioner must not gate on Kubernetes reachability, got: %v", err)
 		}
-		if !strings.Contains(err.Error(), "kubernetes API is unreachable") {
-			t.Errorf("Expected specific error message, got: %v", err)
-		}
-		if destroyCalled {
-			t.Error("Expected terraform Destroy not to run when kubernetes is unreachable")
+		if !destroyCalled {
+			t.Error("Expected terraform Destroy to run: Provisioner must not gate on Kubernetes reachability itself")
 		}
 	})
 }
@@ -2771,7 +2765,9 @@ func TestProvisioner_DestroyAll(t *testing.T) {
 		}
 	})
 
-	t.Run("ErrorKubernetesUnreachable", func(t *testing.T) {
+	t.Run("DoesNotGateOnKubernetesReachability", func(t *testing.T) {
+		// Provisioner runs no reachability preflight at all; an unreachable cluster only
+		// ever surfaces from the terraform refresh/destroy timeout, not an upfront block.
 		mocks := setupProvisionerMocks(t)
 		mocks.KubernetesManager.DeleteBlueprintFunc = func(bp *blueprintv1alpha1.Blueprint, namespace string) error { return nil }
 		mocks.KubernetesManager.WaitForKubernetesHealthyFunc = func(ctx context.Context, endpoint string, outputFunc func(string), nodeNames ...string) error {
@@ -2786,16 +2782,11 @@ func TestProvisioner_DestroyAll(t *testing.T) {
 		opts := &Provisioner{KubernetesManager: mocks.KubernetesManager, TerraformStack: mockStack}
 		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
 
-		_, err := provisioner.DestroyAll(createTestBlueprint(), false)
-
-		if err == nil {
-			t.Fatal("Expected error when kubernetes is unreachable")
+		if _, err := provisioner.DestroyAll(createTestBlueprint(), false); err != nil {
+			t.Fatalf("Expected no error: Provisioner must not gate on Kubernetes reachability, got: %v", err)
 		}
-		if !strings.Contains(err.Error(), "kubernetes API is unreachable") {
-			t.Errorf("Expected specific error message, got: %v", err)
-		}
-		if destroyAllCalled {
-			t.Error("Expected terraform DestroyAll not to run when kubernetes is unreachable")
+		if !destroyAllCalled {
+			t.Error("Expected terraform DestroyAll to run: Provisioner must not gate on Kubernetes reachability itself")
 		}
 	})
 }

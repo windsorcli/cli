@@ -2,6 +2,7 @@ package shell
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"io"
 	"maps"
@@ -39,6 +40,13 @@ const SessionTokenPrefix = ".session."
 // Short common words/values ("true", "1", "admin", "dev") carry no real confidentiality, and
 // scrubbing them would mangle unrelated output every time that substring happens to appear.
 const minRegisteredSecretLength = 8
+
+// =============================================================================
+// Errors
+// =============================================================================
+
+// ErrCommandTimedOut marks a command killed for exceeding its timeout.
+var ErrCommandTimedOut = errors.New("command timed out")
 
 // =============================================================================
 // Types
@@ -1033,7 +1041,7 @@ func executeWithTimeout(execFn func() (string, error), cleanupFn func(), timeout
 		return res.out, res.err
 	case <-time.After(timeout):
 		cleanupOnce.Do(cleanupFn)
-		return "", fmt.Errorf("command timed out after %v", timeout)
+		return "", fmt.Errorf("%w after %v", ErrCommandTimedOut, timeout)
 	}
 }
 

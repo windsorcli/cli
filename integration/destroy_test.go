@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/windsorcli/cli/integration/helpers"
 )
@@ -345,5 +346,57 @@ func TestDestroyTerraform_WarnsWhenPreventDestroySet(t *testing.T) {
 	}
 	if !strings.Contains(combined, "remove the lifecycle block") {
 		t.Errorf("expected remediation hint in output, got:\n%s", combined)
+	}
+}
+
+// TestDestroyTerraform_IgnoresStaleKubeconfigWhenNoComponentNeedsCluster verifies that a
+// leftover kubeconfig file does not block destroying a terraform component that never
+// dials a cluster. Windsor runs no reachability preflight; the component's own destroy
+// never talks to the stale endpoint below, so destroy is not slowed by it either.
+func TestDestroyTerraform_IgnoresStaleKubeconfigWhenNoComponentNeedsCluster(t *testing.T) {
+	t.Parallel()
+	dir, env := helpers.CopyFixtureOnly(t, "destroy-no-kube-preflight")
+	helpers.MarkAsGitRepo(t, dir)
+	_, stderr, err := helpers.RunCLI(dir, []string{"init", "local"}, env)
+	if err != nil {
+		t.Fatalf("init local: %v\nstderr: %s", err, stderr)
+	}
+	env = append(env, "WINDSOR_CONTEXT=local")
+	_, stderr, err = helpers.RunCLI(dir, []string{"apply", "terraform", "null"}, env)
+	if err != nil {
+		t.Fatalf("apply terraform null: %v\nstderr: %s", err, stderr)
+	}
+
+	kubeDir := filepath.Join(dir, "contexts", "local", ".kube")
+	if err := os.MkdirAll(kubeDir, 0o755); err != nil {
+		t.Fatalf("mkdir kube dir: %v", err)
+	}
+	staleKubeconfig := []byte(`apiVersion: v1
+kind: Config
+clusters:
+  - name: stale
+    cluster:
+      server: https://127.0.0.1:1
+contexts:
+  - name: stale
+    context:
+      cluster: stale
+current-context: stale
+`)
+	kubeconfigPath := filepath.Join(kubeDir, "config")
+	if err := os.WriteFile(kubeconfigPath, staleKubeconfig, 0o644); err != nil {
+		t.Fatalf("write stale kubeconfig: %v", err)
+	}
+	env = append(env, "KUBECONFIG="+kubeconfigPath)
+
+	start := time.Now()
+	_, stderr, err = helpers.RunCLI(dir, []string{"destroy", "--confirm=null", "terraform", "null"}, env)
+	elapsed := time.Since(start)
+
+	if err != nil {
+		t.Fatalf("destroy terraform null: %v\nstderr: %s", err, stderr)
+	}
+	if elapsed > 10*time.Second {
+		t.Errorf("expected destroy to skip the Kubernetes reachability preflight and return quickly, took %v", elapsed)
 	}
 }
