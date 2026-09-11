@@ -271,9 +271,7 @@ func (c *DynamicKubernetesClient) ensureClient() error {
 	if err != nil {
 		return err
 	}
-	if c.shell == nil || !c.shell.IsVerbose() {
-		config.WarningHandler = rest.NoWarnings{}
-	}
+	config.WarningHandler = warningHandlerFor(c.shell)
 
 	cli, err := dynamic.NewForConfig(config)
 	if err != nil {
@@ -311,6 +309,16 @@ func (c *DynamicKubernetesClient) restConfig() (*rest.Config, error) {
 		kubeconfig = home + "/.kube/config"
 	}
 	return clientcmd.BuildConfigFromFlags("", kubeconfig)
+}
+
+// warningHandlerFor returns the REST config warning handler to use for the given shell.
+// Suppresses server-side API deprecation warnings unless the shell is in verbose mode.
+// A nil shell is treated as non-verbose.
+func warningHandlerFor(sh shell.Shell) rest.WarningHandler {
+	if sh == nil || !sh.IsVerbose() {
+		return rest.NoWarnings{}
+	}
+	return nil
 }
 
 // isNodeReady checks if a node is in Ready state by examining its conditions.
