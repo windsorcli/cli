@@ -1265,7 +1265,7 @@ func (s *TerraformStack) refreshBeforeDestroy(component *blueprintv1alpha1.Terra
 		return false, nil
 	}
 	if errors.Is(err, shell.ErrCommandTimedOut) {
-		return false, fmt.Errorf("kubernetes API is unreachable, refusing to destroy %s. terraform refresh did not respond within %s: %w", component.Path, constants.DefaultTerraformRefreshTimeout, err)
+		return false, fmt.Errorf("terraform refresh for %s timed out after %s; its provider looks unreachable: %w", component.Path, constants.DefaultTerraformRefreshTimeout, err)
 	}
 	fmt.Fprintf(s.warningWriter, "warning: terraform refresh failed for %s; falling through to destroy -refresh=true (terraform will retry refresh during destroy): %v\n", component.Path, err)
 	return true, nil

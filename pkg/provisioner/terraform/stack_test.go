@@ -1946,7 +1946,7 @@ func TestStack_DestroyAll(t *testing.T) {
 		if err == nil {
 			t.Fatal("Expected DestroyAll to fail when refresh times out")
 		}
-		if !strings.Contains(err.Error(), "kubernetes API is unreachable") {
+		if !strings.Contains(err.Error(), "timed out") || !strings.Contains(err.Error(), "provider looks unreachable") {
 			t.Errorf("Expected an actionable unreachable-provider error, got %v", err)
 		}
 		if sawDestroy {
@@ -4032,7 +4032,7 @@ func TestStack_Destroy(t *testing.T) {
 		if err == nil {
 			t.Fatal("Expected Destroy to fail when refresh times out")
 		}
-		if !strings.Contains(err.Error(), "kubernetes API is unreachable") {
+		if !strings.Contains(err.Error(), "timed out") || !strings.Contains(err.Error(), "provider looks unreachable") {
 			t.Errorf("Expected an actionable unreachable-provider error, got %v", err)
 		}
 		if sawDestroy {
