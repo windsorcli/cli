@@ -22,6 +22,8 @@ import (
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/restmapper"
 	"k8s.io/client-go/tools/clientcmd"
+
+	"github.com/windsorcli/cli/pkg/runtime/shell"
 )
 
 // =============================================================================
@@ -63,15 +65,17 @@ type DynamicKubernetesClient struct {
 	client   dynamic.Interface
 	mapper   meta.RESTMapper
 	endpoint string
+	shell    shell.Shell
 }
 
 // =============================================================================
 // Constructor
 // =============================================================================
 
-// NewDynamicKubernetesClient creates a new DynamicKubernetesClient
-func NewDynamicKubernetesClient() *DynamicKubernetesClient {
-	return &DynamicKubernetesClient{}
+// NewDynamicKubernetesClient creates a new DynamicKubernetesClient. The shell's verbosity
+// controls whether server-side API deprecation warnings are printed.
+func NewDynamicKubernetesClient(shell shell.Shell) *DynamicKubernetesClient {
+	return &DynamicKubernetesClient{shell: shell}
 }
 
 // =============================================================================
@@ -254,6 +258,7 @@ func (c *DynamicKubernetesClient) GetNodeReadyStatus(ctx context.Context, nodeNa
 // no API calls until the first ResourceFor lookup. Returns error if client setup fails at any stage.
 // Safe for concurrent use: initialization is guarded by a mutex so callers issuing overlapping
 // requests (e.g. a wait loop polling several resources at once) don't race the first setup.
+// Suppresses server-side API deprecation warnings unless the shell is in verbose mode.
 func (c *DynamicKubernetesClient) ensureClient() error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -266,6 +271,7 @@ func (c *DynamicKubernetesClient) ensureClient() error {
 	if err != nil {
 		return err
 	}
+	config.WarningHandler = warningHandlerFor(c.shell)
 
 	cli, err := dynamic.NewForConfig(config)
 	if err != nil {
@@ -303,6 +309,16 @@ func (c *DynamicKubernetesClient) restConfig() (*rest.Config, error) {
 		kubeconfig = home + "/.kube/config"
 	}
 	return clientcmd.BuildConfigFromFlags("", kubeconfig)
+}
+
+// warningHandlerFor returns the REST config warning handler to use for the given shell.
+// Suppresses server-side API deprecation warnings unless the shell is in verbose mode.
+// A nil shell is treated as non-verbose.
+func warningHandlerFor(sh shell.Shell) rest.WarningHandler {
+	if sh == nil || !sh.IsVerbose() {
+		return rest.NoWarnings{}
+	}
+	return nil
 }
 
 // isNodeReady checks if a node is in Ready state by examining its conditions.
