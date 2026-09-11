@@ -176,6 +176,9 @@ const DefaultKustomizationWaitMaxFailures = 5
 // Bounds a single `terraform destroy` invocation so a hung provider call fails, not blocks forever.
 const DefaultTerraformDestroyTimeout = 30 * time.Minute
 
+// Bounds terraform refresh before destroy. Short on purpose: a hung refresh means the provider is unreachable.
+const DefaultTerraformRefreshTimeout = 2 * time.Minute
+
 // Bounds the pre-destroy Kubernetes reachability preflight.
 const DefaultKubernetesReachabilityCheckTimeout = 30 * time.Second
 

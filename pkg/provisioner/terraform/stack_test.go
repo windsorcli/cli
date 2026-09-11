@@ -1311,8 +1311,8 @@ func TestStack_DestroyAll(t *testing.T) {
 		if !sawRefresh {
 			t.Fatal("Expected terraform refresh to run via ExecSilentWithEnvAndTimeout")
 		}
-		if gotTimeout != constants.DefaultTerraformDestroyTimeout {
-			t.Errorf("Expected timeout %v, got %v", constants.DefaultTerraformDestroyTimeout, gotTimeout)
+		if gotTimeout != constants.DefaultTerraformRefreshTimeout {
+			t.Errorf("Expected timeout %v, got %v", constants.DefaultTerraformRefreshTimeout, gotTimeout)
 		}
 	})
 
@@ -1918,6 +1918,39 @@ func TestStack_DestroyAll(t *testing.T) {
 		}
 		if strings.Contains(warningOutput, "warning: terraform refresh failed for remote/path") {
 			t.Errorf("No warning expected for remote/path (refresh succeeded), got: %q", warningOutput)
+		}
+	})
+
+	t.Run("RefreshTimeoutAbortsWithoutDestroyFallback", func(t *testing.T) {
+		// Given a component whose refresh times out. A timeout means the provider is
+		// unreachable, not that the failure is transient, so destroy must abort this
+		// component now instead of retrying refresh inside `terraform destroy -refresh=true`.
+		stack, mocks := setup(t)
+		blueprint := createTestBlueprint()
+
+		var sawDestroy bool
+		mocks.Shell.ExecSilentWithEnvAndTimeoutFunc = func(command string, env map[string]string, args []string, timeout time.Duration) (string, error) {
+			if command == "terraform" && len(args) >= 2 && args[1] == "refresh" {
+				return "", fmt.Errorf("%w after %v", shell.ErrCommandTimedOut, timeout)
+			}
+			if command == "terraform" && len(args) >= 2 && args[1] == "destroy" {
+				sawDestroy = true
+			}
+			return "", nil
+		}
+
+		// When DestroyAll runs
+		_, err := stack.DestroyAll(blueprint, false)
+
+		// Then it fails fast with an actionable error and never runs destroy
+		if err == nil {
+			t.Fatal("Expected DestroyAll to fail when refresh times out")
+		}
+		if !strings.Contains(err.Error(), "kubernetes API is unreachable") {
+			t.Errorf("Expected an actionable unreachable-provider error, got %v", err)
+		}
+		if sawDestroy {
+			t.Error("Expected terraform destroy not to run after a refresh timeout")
 		}
 	})
 
@@ -3382,8 +3415,8 @@ func TestStack_Destroy(t *testing.T) {
 		if !sawRefresh {
 			t.Fatal("Expected terraform refresh to run via ExecSilentWithEnvAndTimeout")
 		}
-		if gotTimeout != constants.DefaultTerraformDestroyTimeout {
-			t.Errorf("Expected timeout %v, got %v", constants.DefaultTerraformDestroyTimeout, gotTimeout)
+		if gotTimeout != constants.DefaultTerraformRefreshTimeout {
+			t.Errorf("Expected timeout %v, got %v", constants.DefaultTerraformRefreshTimeout, gotTimeout)
 		}
 	})
 
@@ -3971,6 +4004,39 @@ func TestStack_Destroy(t *testing.T) {
 		}
 		if !strings.Contains(warningOutput, "mock error refreshing state") {
 			t.Errorf("Expected warning to include underlying refresh error for diagnostics, got: %q", warningOutput)
+		}
+	})
+
+	t.Run("RefreshTimeoutAbortsWithoutDestroyFallback", func(t *testing.T) {
+		// Given a component whose refresh times out. A timeout means the provider is
+		// unreachable, not that the failure is transient, so destroy must abort now
+		// instead of retrying refresh inside `terraform destroy -refresh=true`.
+		stack, mocks := setup(t)
+		blueprint := createTestBlueprint()
+
+		var sawDestroy bool
+		mocks.Shell.ExecSilentWithEnvAndTimeoutFunc = func(command string, env map[string]string, args []string, timeout time.Duration) (string, error) {
+			if command == "terraform" && len(args) >= 2 && args[1] == "refresh" {
+				return "", fmt.Errorf("%w after %v", shell.ErrCommandTimedOut, timeout)
+			}
+			if command == "terraform" && len(args) >= 2 && args[1] == "destroy" {
+				sawDestroy = true
+			}
+			return "", nil
+		}
+
+		// When destroying the component
+		_, err := stack.Destroy(blueprint, "local/path")
+
+		// Then it fails fast with an actionable error and never runs destroy
+		if err == nil {
+			t.Fatal("Expected Destroy to fail when refresh times out")
+		}
+		if !strings.Contains(err.Error(), "kubernetes API is unreachable") {
+			t.Errorf("Expected an actionable unreachable-provider error, got %v", err)
+		}
+		if sawDestroy {
+			t.Error("Expected terraform destroy not to run after a refresh timeout")
 		}
 	})
 
