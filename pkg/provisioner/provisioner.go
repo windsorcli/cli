@@ -395,10 +395,10 @@ func (i *Provisioner) Down(blueprint *blueprintv1alpha1.Blueprint) error {
 // even when a later component fails. Skipped components had nothing in state to destroy (never
 // applied, fully torn down already, or upstream destroy collapsed their cloud objects out from
 // under them); cmd-layer callers surface them in the user-facing summary so an operator can see
-// "these were no-ops" alongside "these were destroyed". Runs checkKubernetesReachableForDestroy
-// once terraform is confirmed enabled.
+// "these were no-ops" alongside "these were destroyed". TerraformStack bounds refresh and
+// destroy with a timeout, so an unreachable provider fails within that time instead of hanging.
 func (i *Provisioner) DestroyAllTerraform(blueprint *blueprintv1alpha1.Blueprint, continueOnError bool, excludeIDs ...string) (DestroyResult, error) {
-	return i.destroyAllTerraform(blueprint, continueOnError, true, excludeIDs...)
+	return i.destroyAllTerraform(blueprint, continueOnError, excludeIDs...)
 }
 
 // Apply runs terraform init, plan, and apply for a single component identified by componentID.
@@ -424,8 +424,8 @@ func (i *Provisioner) Apply(blueprint *blueprintv1alpha1.Blueprint, componentID 
 // Returns (skipped, nil) when the component's state is empty (nothing to destroy), (false, nil)
 // when destroy ran successfully, or (false, err) on any failure. Returns an error if the
 // blueprint is nil, terraform is disabled, the stack cannot be initialized, the component is
-// not found, or any terraform operation fails. Runs checkKubernetesReachableForDestroy once
-// terraform is confirmed enabled.
+// not found, or any terraform operation fails. TerraformStack bounds refresh and destroy
+// with a timeout, so an unreachable provider fails within that time instead of hanging.
 func (i *Provisioner) Destroy(blueprint *blueprintv1alpha1.Blueprint, componentID string) (bool, error) {
 	if blueprint == nil {
 		return false, fmt.Errorf("blueprint not provided")
@@ -435,9 +435,6 @@ func (i *Provisioner) Destroy(blueprint *blueprintv1alpha1.Blueprint, componentI
 	}
 	if i.TerraformStack == nil {
 		return false, fmt.Errorf("terraform is disabled")
-	}
-	if err := i.checkKubernetesReachableForDestroy(); err != nil {
-		return false, err
 	}
 	skipped, err := i.TerraformStack.Destroy(blueprint, componentID)
 	if err != nil {
@@ -490,8 +487,8 @@ func (i *Provisioner) DestroyKustomize(blueprint *blueprintv1alpha1.Blueprint, c
 // last). Returns the IDs of terraform components that were skipped because their state
 // was empty (never applied, already torn down) alongside any error from either step —
 // paired with the error so callers see what was no-op'd even when a later step fails.
-// Returns an error if either step fails. checkKubernetesReachableForDestroy runs after the
-// kustomize step (so it never fires if kustomize already hard-failed) and before terraform.
+// Returns an error if either step fails. TerraformStack bounds refresh and destroy with a
+// timeout, so an unreachable provider fails within that time instead of hanging.
 func (i *Provisioner) DestroyAll(blueprint *blueprintv1alpha1.Blueprint, continueOnError bool, excludeIDs ...string) (DestroyResult, error) {
 	var result DestroyResult
 	if blueprint == nil {
@@ -517,9 +514,6 @@ func (i *Provisioner) DestroyAll(blueprint *blueprintv1alpha1.Blueprint, continu
 		return result, err
 	}
 	if i.TerraformStack != nil {
-		if err := i.checkKubernetesReachableForDestroy(); err != nil {
-			return result, err
-		}
 		outcome, err := i.TerraformStack.DestroyAll(blueprint, continueOnError, excludeIDs...)
 		result.Destroyed = append(result.Destroyed, outcome.Destroyed...)
 		result.Skipped = append(result.Skipped, outcome.Skipped...)
@@ -1720,11 +1714,8 @@ func sortedStringKeys(m map[string]struct{}) []string {
 	return out
 }
 
-// destroyAllTerraform is the shared implementation behind DestroyAllTerraform. checkReachability
-// is false only for Teardown's Stage 2 tier destroy. By that stage, Stage 1 has already destroyed
-// the cluster, so an unreachable Kubernetes API is expected, not a sign of broken auth. The
-// backend tier also has no kubernetes/helm provider dependency for the check to protect.
-func (i *Provisioner) destroyAllTerraform(blueprint *blueprintv1alpha1.Blueprint, continueOnError bool, checkReachability bool, excludeIDs ...string) (DestroyResult, error) {
+// destroyAllTerraform is the shared implementation behind DestroyAllTerraform.
+func (i *Provisioner) destroyAllTerraform(blueprint *blueprintv1alpha1.Blueprint, continueOnError bool, excludeIDs ...string) (DestroyResult, error) {
 	var result DestroyResult
 	if blueprint == nil {
 		return result, fmt.Errorf("blueprint not provided")
@@ -1734,11 +1725,6 @@ func (i *Provisioner) destroyAllTerraform(blueprint *blueprintv1alpha1.Blueprint
 	}
 	if i.TerraformStack == nil {
 		return result, fmt.Errorf("terraform is disabled")
-	}
-	if checkReachability {
-		if err := i.checkKubernetesReachableForDestroy(); err != nil {
-			return result, err
-		}
 	}
 	outcome, err := i.TerraformStack.DestroyAll(blueprint, continueOnError, excludeIDs...)
 	result.Destroyed = outcome.Destroyed

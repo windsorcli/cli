@@ -17,6 +17,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"time"
 
 	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
 	"github.com/windsorcli/cli/pkg/constants"
@@ -678,7 +679,7 @@ func (s *TerraformStack) DestroyAll(blueprint *blueprintv1alpha1.Blueprint, cont
 			// — without it, a recurring credential or connectivity issue is invisible until
 			// destroy errors out, and a successful fallback leaves no trace at all.
 			refreshFailed := false
-			if err := s.refreshComponentState(&component, terraformVars, scopedKeys, terraformArgs); err != nil {
+			if err := s.refreshComponentState(&component, terraformVars, scopedKeys, terraformArgs, constants.DefaultTerraformDestroyTimeout); err != nil {
 				refreshFailed = true
 				fmt.Fprintf(s.warningWriter, "warning: terraform refresh failed for %s; falling through to destroy -refresh=true (terraform will retry refresh during destroy): %v\n", component.Path, err)
 			}
@@ -921,7 +922,7 @@ func (s *TerraformStack) Destroy(blueprint *blueprintv1alpha1.Blueprint, compone
 		}
 
 		refreshFailed := false
-		if err := s.refreshComponentState(component, terraformVars, scopedKeys, terraformArgs); err != nil {
+		if err := s.refreshComponentState(component, terraformVars, scopedKeys, terraformArgs, constants.DefaultTerraformDestroyTimeout); err != nil {
 			refreshFailed = true
 			fmt.Fprintf(s.warningWriter, "warning: terraform refresh failed for %s; falling through to destroy -refresh=true (terraform will retry refresh during destroy): %v\n", component.Path, err)
 		}
@@ -1236,7 +1237,7 @@ func (s *TerraformStack) refreshIfStateNonEmpty(component *blueprintv1alpha1.Ter
 	if !hasResources {
 		return nil
 	}
-	if err := s.refreshComponentState(component, terraformVars, scopedKeys, terraformArgs); err != nil {
+	if err := s.refreshComponentState(component, terraformVars, scopedKeys, terraformArgs, 0); err != nil {
 		fmt.Fprintf(s.warningWriter, "warning: terraform refresh failed for %s; continuing with plan against the last-known state (plan runs with -refresh=false; any persistent state divergence will surface as a plan error): %v\n", component.Path, err)
 	}
 	return nil
@@ -1245,13 +1246,21 @@ func (s *TerraformStack) refreshIfStateNonEmpty(component *blueprintv1alpha1.Ter
 // refreshComponentState runs `terraform refresh` to reconcile state with cloud reality.
 // Errors are returned to the caller. Destroy callers tolerate refresh failures for non-
 // empty-state components by falling through to `terraform destroy -refresh=true`; see
-// Destroy / DestroyAll for the rationale.
-func (s *TerraformStack) refreshComponentState(component *blueprintv1alpha1.TerraformComponent, terraformVars map[string]string, scopedKeys []string, terraformArgs *envvars.TerraformArgs) error {
+// Destroy / DestroyAll for the rationale. A zero timeout runs unbounded; destroy callers
+// pass constants.DefaultTerraformDestroyTimeout, since refresh is where a resource's own
+// kubernetes/helm provider would hang dialing an unreachable cluster.
+func (s *TerraformStack) refreshComponentState(component *blueprintv1alpha1.TerraformComponent, terraformVars map[string]string, scopedKeys []string, terraformArgs *envvars.TerraformArgs, timeout time.Duration) error {
 	terraformCommand := s.runtime.ToolsManager.GetTerraformCommand()
 	refreshArgs := []string{fmt.Sprintf("-chdir=%s", component.FullPath), "refresh"}
 	refreshArgs = append(refreshArgs, terraformArgs.RefreshArgs...)
 	refreshEnv := selectTerraformCommandEnv(terraformVars, true, scopedKeys)
-	if _, err := s.runtime.Shell.ExecSilentWithEnv(terraformCommand, refreshEnv, refreshArgs...); err != nil {
+	var err error
+	if timeout > 0 {
+		_, err = s.runtime.Shell.ExecSilentWithEnvAndTimeout(terraformCommand, refreshEnv, refreshArgs, timeout)
+	} else {
+		_, err = s.runtime.Shell.ExecSilentWithEnv(terraformCommand, refreshEnv, refreshArgs...)
+	}
+	if err != nil {
 		return fmt.Errorf("error refreshing terraform state for %s: %w", component.Path, err)
 	}
 	return nil

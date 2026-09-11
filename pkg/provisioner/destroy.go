@@ -104,7 +104,7 @@ func (i *Provisioner) Teardown(blueprint *blueprintv1alpha1.Blueprint, terraform
 		if err != nil {
 			return err
 		}
-		tierResult, destroyErr := i.destroyAllTerraform(tierBP, continueOnError, false)
+		tierResult, destroyErr := i.destroyAllTerraform(tierBP, continueOnError)
 		result.Destroyed = append(result.Destroyed, tierResult.Destroyed...)
 		result.Skipped = mergeSkipped(result.Skipped, mergeSkipped(migrationSkipped, tierResult.Skipped))
 		result.Failed = append(result.Failed, tierResult.Failed...)

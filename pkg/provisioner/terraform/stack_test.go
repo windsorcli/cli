@@ -1287,6 +1287,35 @@ func TestStack_DestroyAll(t *testing.T) {
 		}
 	})
 
+	t.Run("UsesRefreshTimeout", func(t *testing.T) {
+		// Given a stack whose terraform refresh exec is bounded by a timeout
+		stack, mocks := setup(t)
+		var gotTimeout time.Duration
+		var sawRefresh bool
+		mocks.Shell.ExecSilentWithEnvAndTimeoutFunc = func(command string, env map[string]string, args []string, timeout time.Duration) (string, error) {
+			if command == "terraform" && len(args) >= 2 && args[1] == "refresh" {
+				sawRefresh = true
+				gotTimeout = timeout
+			}
+			return "", nil
+		}
+		blueprint := createTestBlueprint()
+
+		// When DestroyAll runs
+		if _, err := stack.DestroyAll(blueprint, false); err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+
+		// Then the refresh exec runs with the bounded timeout: a component's own
+		// kubernetes/helm provider can't hang the whole destroy dialing a broken cluster
+		if !sawRefresh {
+			t.Fatal("Expected terraform refresh to run via ExecSilentWithEnvAndTimeout")
+		}
+		if gotTimeout != constants.DefaultTerraformDestroyTimeout {
+			t.Errorf("Expected timeout %v, got %v", constants.DefaultTerraformDestroyTimeout, gotTimeout)
+		}
+	})
+
 	t.Run("ErrorGettingCurrentDirectory", func(t *testing.T) {
 		stack, mocks := setup(t)
 		mocks.Shims.Getwd = func() (string, error) {
@@ -3326,6 +3355,35 @@ func TestStack_Destroy(t *testing.T) {
 		}
 		if !slices.Contains(destroyArgs, "-no-color") {
 			t.Errorf("Expected destroy args to contain -no-color, got %v", destroyArgs)
+		}
+	})
+
+	t.Run("UsesRefreshTimeout", func(t *testing.T) {
+		// Given a stack whose terraform refresh exec is bounded by a timeout
+		stack, mocks := setup(t)
+		var gotTimeout time.Duration
+		var sawRefresh bool
+		mocks.Shell.ExecSilentWithEnvAndTimeoutFunc = func(command string, env map[string]string, args []string, timeout time.Duration) (string, error) {
+			if command == "terraform" && len(args) >= 2 && args[1] == "refresh" {
+				sawRefresh = true
+				gotTimeout = timeout
+			}
+			return "", nil
+		}
+		blueprint := createTestBlueprint()
+
+		// When destroying the component
+		if _, err := stack.Destroy(blueprint, "local/path"); err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+
+		// Then the refresh exec runs with the bounded timeout: a component's own
+		// kubernetes/helm provider can't hang the whole destroy dialing a broken cluster
+		if !sawRefresh {
+			t.Fatal("Expected terraform refresh to run via ExecSilentWithEnvAndTimeout")
+		}
+		if gotTimeout != constants.DefaultTerraformDestroyTimeout {
+			t.Errorf("Expected timeout %v, got %v", constants.DefaultTerraformDestroyTimeout, gotTimeout)
 		}
 	})
 
