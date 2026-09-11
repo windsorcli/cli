@@ -319,7 +319,7 @@ func TestBaseKubernetesManager_DeleteKustomization(t *testing.T) {
 		if err == nil {
 			t.Fatal("Expected timeout error, got nil")
 		}
-		if !strings.Contains(err.Error(), "timeout") {
+		if !strings.Contains(err.Error(), "timed out") {
 			t.Errorf("Expected error mentioning timeout, got: %v", err)
 		}
 		if !strings.Contains(err.Error(), "test-kustomization") {
@@ -513,7 +513,7 @@ func TestBaseKubernetesManager_DeleteKustomization(t *testing.T) {
 		if err == nil {
 			t.Fatal("Expected timeout error, got nil")
 		}
-		if !strings.Contains(err.Error(), "timeout") {
+		if !strings.Contains(err.Error(), "timed out") {
 			t.Errorf("Expected error mentioning timeout, got: %v", err)
 		}
 	})
@@ -535,7 +535,7 @@ func TestBaseKubernetesManager_DeleteKustomization(t *testing.T) {
 		if err == nil {
 			t.Error("Expected error, got nil")
 		}
-		if !strings.Contains(err.Error(), "error checking kustomization deletion status") {
+		if !strings.Contains(err.Error(), "error checking kustomization test-namespace/test-kustomization deletion status") {
 			t.Errorf("Expected error checking status, got: %v", err)
 		}
 	})
@@ -594,7 +594,7 @@ func TestBaseKubernetesManager_DeleteKustomization(t *testing.T) {
 		if strings.Contains(err.Error(), "is likely stuck on a cloud-controller finalizer") {
 			t.Errorf("Expected no unconfirmed stuck-finalizer claim, got: %v", err)
 		}
-		if !strings.Contains(err.Error(), "does not rule one out") {
+		if !strings.Contains(err.Error(), "No status condition confirms a stuck finalizer") {
 			t.Errorf("Expected error to acknowledge the uncertainty, got: %v", err)
 		}
 	})
@@ -636,7 +636,7 @@ func TestBaseKubernetesManager_DeleteKustomization(t *testing.T) {
 		if !strings.Contains(err.Error(), "is likely stuck on a cloud-controller finalizer") {
 			t.Errorf("Expected confirmed stuck-finalizer wording, got: %v", err)
 		}
-		if strings.Contains(err.Error(), "does not rule one out") {
+		if strings.Contains(err.Error(), "No status condition confirms a stuck finalizer") {
 			t.Errorf("Expected no unconfirmed-deletion wording, got: %v", err)
 		}
 	})
