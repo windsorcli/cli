@@ -205,7 +205,7 @@ func (k *BaseKubernetesManager) deleteKustomization(name, namespace string, expe
 		return nil
 	}
 	if err != nil {
-		return err
+		return fmt.Errorf("error deleting kustomization %s/%s: %w", namespace, name, err)
 	}
 
 	start := k.shims.TimeNow()
@@ -226,10 +226,10 @@ func (k *BaseKubernetesManager) deleteKustomization(name, namespace string, expe
 			if entry.Namespace != "" {
 				inspectCmd = fmt.Sprintf("`kubectl get %s %s -n %s`", entry.gvr.Resource, entry.Name, entry.Namespace)
 			}
-			return fmt.Errorf("kustomization %s/%s disappeared but %s/%s from its inventory is still live. Flux likely gave up waiting and removed the finalizer early. Inspect it with %s before retrying", namespace, name, entry.Kind, entry.Name, inspectCmd)
+			return fmt.Errorf("kustomization %s/%s disappeared. %s/%s from its inventory is still live. Flux likely gave up waiting and removed the finalizer early. Inspect it with %s before retrying", namespace, name, entry.Kind, entry.Name, inspectCmd)
 		}
 		if err != nil {
-			return fmt.Errorf("error checking kustomization deletion status: %w", err)
+			return fmt.Errorf("error checking kustomization %s/%s deletion status: %w", namespace, name, err)
 		}
 		lastObj = obj
 
@@ -248,20 +248,20 @@ func (k *BaseKubernetesManager) deleteKustomization(name, namespace string, expe
 
 	entries, inventoryFound := inventoryEntriesFromObject(lastObj)
 	if drained, checkErr := k.allInventoryEntriesGone(entries); inventoryFound && checkErr == nil && drained {
-		return fmt.Errorf("kustomization %s/%s is fully drained (every inventory item confirmed gone) but its own finalizer is stuck. This is Flux bookkeeping, not leaked infrastructure. Clear it with `kubectl patch kustomization %s -n %s --type=merge -p '{\"metadata\":{\"finalizers\":null}}'`", namespace, name, name, namespace)
+		return fmt.Errorf("kustomization %s/%s is fully drained. Every inventory item is confirmed gone, but its own finalizer is stuck. This is Flux bookkeeping, not leaked infrastructure. Clear it with `kubectl patch kustomization %s -n %s --type=merge -p '{\"metadata\":{\"finalizers\":null}}'`", namespace, name, name, namespace)
 	}
 
 	reason := describeStuckKustomization(lastObj) + k.describeStuckHelmReleases(name, namespace)
 	if waitForTermination, ok := kustomizationDeletionPolicy(lastObj, expectWaitForTermination); ok && !waitForTermination {
 		if reason == "" {
-			return fmt.Errorf("timeout waiting for kustomization %s/%s to be deleted after %s. It uses MirrorPrune instead of WaitForTermination. MirrorPrune deletes resources without waiting for them. A timeout here does not mean an inventory item is stuck. Check for a suspended reconcile or an RBAC failure. Inspect with %s and %s", namespace, name, waitFor, inspectCmd, terminatingCmd)
+			return fmt.Errorf("windsor timed out after %s waiting for kustomization %s/%s to delete. It uses MirrorPrune, which deletes resources without waiting for confirmation, so this timeout does not mean an inventory item is stuck. Check for a suspended reconcile or an RBAC failure. Inspect with %s and %s", waitFor, namespace, name, inspectCmd, terminatingCmd)
 		}
-		return fmt.Errorf("timeout waiting for kustomization %s/%s to be deleted%s. It uses MirrorPrune instead of WaitForTermination. MirrorPrune deletes resources without waiting for them. A timeout here does not mean an inventory item is stuck. Inspect with %s (status.conditions) and %s", namespace, name, reason, inspectCmd, terminatingCmd)
+		return fmt.Errorf("windsor timed out after %s waiting for kustomization %s/%s to delete%s. It uses MirrorPrune, which deletes resources without waiting for confirmation, so this timeout does not mean an inventory item is stuck. Inspect with %s (status.conditions) and %s", waitFor, namespace, name, reason, inspectCmd, terminatingCmd)
 	}
 	if reason == "" {
-		return fmt.Errorf("timeout waiting for kustomization %s/%s to be deleted after %s; no status condition confirms a stuck finalizer, but that does not rule one out — check whether %s (status.inventory) is still shrinking before retrying; if it is not shrinking, find the stuck object with %s", namespace, name, waitFor, inspectCmd, terminatingCmd)
+		return fmt.Errorf("windsor timed out after %s waiting for kustomization %s/%s to delete. No status condition confirms a stuck finalizer. Check its inventory with %s:\n  - if it is still shrinking, wait and retry\n  - if it is not shrinking, find the stuck object with %s", waitFor, namespace, name, inspectCmd, terminatingCmd)
 	}
-	return fmt.Errorf("timeout waiting for kustomization %s/%s to be deleted%s; an inventory item is likely stuck on a cloud-controller finalizer — inspect with %s (status.conditions, status.inventory) and %s to find the stuck object", namespace, name, reason, inspectCmd, terminatingCmd)
+	return fmt.Errorf("windsor timed out after %s waiting for kustomization %s/%s to delete%s. An inventory item is likely stuck on a cloud-controller finalizer. Inspect with %s (status.conditions, status.inventory) and %s to find the stuck object", waitFor, namespace, name, reason, inspectCmd, terminatingCmd)
 }
 
 // inventorySize counts a Kustomization's status.inventory.entries. It returns 0 for a
@@ -1520,7 +1520,7 @@ func (k *BaseKubernetesManager) DeleteBlueprint(blueprint *blueprintv1alpha1.Blu
 		expectWaitForTermination := destroy == nil || *destroy
 		if err := k.deleteKustomization(kustomization.Name, namespace, &expectWaitForTermination); err != nil {
 			tui.Fail()
-			return k.abortDestroy(eligible, namespace, fmt.Errorf("destroy aborted: failed to delete kustomization %q: %w (further deletions skipped to avoid cascading orphans)", kustomization.Name, err))
+			return k.abortDestroy(eligible, namespace, fmt.Errorf("destroy aborted: failed to delete kustomization: %w. Windsor skipped the remaining kustomizations to avoid orphaning them", err))
 		}
 		tui.Done()
 	}
