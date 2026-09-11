@@ -376,27 +376,18 @@ func (i *Provisioner) Down(blueprint *blueprintv1alpha1.Blueprint) error {
 	if i.TerraformStack == nil {
 		return nil
 	}
-	// Down ignores the skipped flag from Destroy: an empty-state workstation component is
-	// effectively a successful tear-down for the workstation flow's purposes (nothing to
-	// destroy = nothing left). The cmd-level destroy paths surface skip status; Down does
-	// not need to.
 	if _, err := i.TerraformStack.Destroy(blueprint, "workstation"); err != nil {
 		return fmt.Errorf("failed to destroy workstation terraform component: %w", err)
 	}
 	return nil
 }
 
-// DestroyAllTerraform destroys all terraform components in the stack in reverse dependency order.
-// Components with Destroy set to false are skipped. excludeIDs are skipped entirely (used by the
-// cmd-layer symmetric-destroy flow to peel the backend component off the bulk pass and migrate
-// it before destroying it last). If terraform is disabled, returns an error. Returns the IDs of
-// components that were skipped because their state was empty alongside any error, mirroring the
-// MigrateState contract — the slice is paired with the error so callers see partial progress
-// even when a later component fails. Skipped components had nothing in state to destroy (never
-// applied, fully torn down already, or upstream destroy collapsed their cloud objects out from
-// under them); cmd-layer callers surface them in the user-facing summary so an operator can see
-// "these were no-ops" alongside "these were destroyed". TerraformStack bounds refresh and
-// destroy with a timeout, so an unreachable provider fails within that time instead of hanging.
+// DestroyAllTerraform destroys all terraform components in reverse dependency order.
+// Components with Destroy set to false, or listed in excludeIDs, are skipped. The
+// cmd-layer symmetric-destroy flow excludes the backend component here, to migrate
+// and destroy it last.
+// Returns the IDs of components skipped for empty state, alongside any error, so
+// callers see partial progress even when a later component fails.
 func (i *Provisioner) DestroyAllTerraform(blueprint *blueprintv1alpha1.Blueprint, continueOnError bool, excludeIDs ...string) (DestroyResult, error) {
 	return i.destroyAllTerraform(blueprint, continueOnError, excludeIDs...)
 }
@@ -475,20 +466,13 @@ func (i *Provisioner) DestroyKustomize(blueprint *blueprintv1alpha1.Blueprint, c
 	return nil
 }
 
-// DestroyAll destroys all infrastructure components: first uninstalls all kustomizations,
-// then destroys all terraform components. The kustomization uninstall step is skipped
-// when no kubeconfig exists at the context-scoped path — the cluster is gone (or was
-// never bootstrapped past terraform), so trying to talk to its API would fail with a
-// stat error and abort the whole destroy. Skipping idempotently lets `windsor destroy`
-// run cleanly after the cluster's already been torn down by a prior partial destroy or
-// out-of-band action. excludeIDs are forwarded to the terraform destroy pass so
-// cmd-layer callers can peel off the backend component for the symmetric-destroy flow
-// (destroy non-backend against live remote state, then migrate-and-destroy backend
-// last). Returns the IDs of terraform components that were skipped because their state
-// was empty (never applied, already torn down) alongside any error from either step —
-// paired with the error so callers see what was no-op'd even when a later step fails.
-// Returns an error if either step fails. TerraformStack bounds refresh and destroy with a
-// timeout, so an unreachable provider fails within that time instead of hanging.
+// DestroyAll destroys every infrastructure component: kustomizations first, then terraform.
+// It skips the kustomization step when no kubeconfig exists, since the cluster is
+// already gone. This keeps `windsor destroy` idempotent after a partial teardown.
+// excludeIDs skips components in the terraform pass. cmd-layer callers use it to
+// destroy the backend component last, after migrating its state.
+// Returns the IDs of terraform components skipped for empty state, alongside any
+// error, so callers see partial progress even when a later step fails.
 func (i *Provisioner) DestroyAll(blueprint *blueprintv1alpha1.Blueprint, continueOnError bool, excludeIDs ...string) (DestroyResult, error) {
 	var result DestroyResult
 	if blueprint == nil {
