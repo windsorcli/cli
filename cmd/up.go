@@ -85,32 +85,32 @@ windsor up --blueprint=ghcr.io/myorg/blueprint:v1.0.0`,
 		// values, and (for azure contexts) authenticates to AKS. Request the full set so any
 		// of those tools are validated up front.
 		proj.SetToolRequirements(tools.AllRequirements())
-		if err := proj.Initialize(false, blueprintURL...); err != nil {
-			return err
-		}
 
-		// Initialize already persisted config with overwrite=false; re-save with
-		// overwrite=true only when --set was provided so user values land in
-		// values.yaml. Runs before the workstation guard so non-workstation
-		// contexts can still receive --set overrides.
-		if len(upSetFlags) > 0 {
-			if err := proj.Runtime.SaveConfig(true); err != nil {
-				return fmt.Errorf("failed to save configuration: %w", err)
-			}
-		}
-
-		if proj.Workstation == nil {
-			fmt.Fprintln(os.Stderr, "windsor up is only applicable when a workstation is enabled; use windsor apply to apply infrastructure")
-			return nil
-		}
-
-		if err := requireCloudAuth(cmd, proj); err != nil {
-			return err
-		}
-
+		// Run Initialize and the --set re-save inside the lock. This prevents two
+		// overlapping up runs from racing an unlocked read-modify-write on values.yaml.
 		var halted bool
 		var postRunMessages []blueprintv1alpha1.Message
 		if err := stacklock.With(cmd.Context(), proj.Runtime, "up", lockTimeout, func() error {
+			if err := proj.Initialize(false, blueprintURL...); err != nil {
+				return err
+			}
+
+			// Re-save with overwrite=true only for --set. Runs before the workstation
+			// check so non-workstation contexts still receive --set overrides.
+			if len(upSetFlags) > 0 {
+				if err := proj.Runtime.SaveConfig(true); err != nil {
+					return fmt.Errorf("failed to save configuration: %w", err)
+				}
+			}
+
+			if proj.Workstation == nil {
+				return nil
+			}
+
+			if err := requireCloudAuth(cmd, proj); err != nil {
+				return err
+			}
+
 			_, h, err := proj.Up()
 			if err != nil {
 				return err
@@ -146,6 +146,11 @@ windsor up --blueprint=ghcr.io/myorg/blueprint:v1.0.0`,
 			return nil
 		}); err != nil {
 			return err
+		}
+
+		if proj.Workstation == nil {
+			fmt.Fprintln(os.Stderr, "windsor up is only applicable when a workstation is enabled; use windsor apply to apply infrastructure")
+			return nil
 		}
 
 		if !halted {

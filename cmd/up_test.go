@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"strings"
@@ -15,6 +16,7 @@ import (
 	"github.com/windsorcli/cli/pkg/project"
 	"github.com/windsorcli/cli/pkg/provisioner"
 	"github.com/windsorcli/cli/pkg/provisioner/kubernetes"
+	"github.com/windsorcli/cli/pkg/provisioner/stacklock"
 	terraforminfra "github.com/windsorcli/cli/pkg/provisioner/terraform"
 	"github.com/windsorcli/cli/pkg/runtime"
 	"github.com/windsorcli/cli/pkg/runtime/config"
@@ -206,6 +208,43 @@ func TestUpCmd(t *testing.T) {
 		// Then no error should occur and a descriptive message is printed
 		if err != nil {
 			t.Errorf("Expected no error, got %v", err)
+		}
+	})
+
+	t.Run("HoldsStackLockThroughInitializeAndSaveConfig", func(t *testing.T) {
+		// Regression test for windsorcli/cli#3315. Two overlapping up runs could race an
+		// unlocked read-modify-write on values.yaml. Proves the fix by acquiring a second,
+		// contending lock (timeout 0) from inside LoadBlueprint, which Initialize calls.
+		// A busy result means the outer lock is already held.
+		mocks := setupUpTest(t)
+		proj := newUpTestProject(mocks, true)
+
+		var acquireErr error
+		mocks.BlueprintHandler.LoadBlueprintFunc = func(urls ...string) error {
+			lock, err := stacklock.ForRuntime(mocks.Runtime)
+			if err != nil {
+				t.Fatalf("Failed to resolve stack lock: %v", err)
+			}
+			var release stacklock.Release
+			release, acquireErr = lock.Acquire(context.Background(), stacklock.NewInfo(mocks.Runtime, "contender"), 0)
+			if release != nil {
+				release()
+			}
+			return nil
+		}
+
+		cmd := createTestUpCmd()
+		ctx := context.WithValue(context.Background(), projectOverridesKey, proj)
+		cmd.SetArgs([]string{})
+		cmd.SetContext(ctx)
+
+		if err := cmd.Execute(); err != nil {
+			t.Fatalf("Expected success, got %v", err)
+		}
+
+		var busyErr *stacklock.LockBusyError
+		if !errors.As(acquireErr, &busyErr) {
+			t.Fatalf("Expected a contending lock acquire during Initialize to be busy, got %v", acquireErr)
 		}
 	})
 

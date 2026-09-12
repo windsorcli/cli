@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -17,6 +18,7 @@ import (
 	"github.com/windsorcli/cli/pkg/provisioner"
 	fluxinfra "github.com/windsorcli/cli/pkg/provisioner/flux"
 	"github.com/windsorcli/cli/pkg/provisioner/kubernetes"
+	"github.com/windsorcli/cli/pkg/provisioner/stacklock"
 	terraforminfra "github.com/windsorcli/cli/pkg/provisioner/terraform"
 	"github.com/windsorcli/cli/pkg/runtime"
 	"github.com/windsorcli/cli/pkg/runtime/config"
@@ -201,10 +203,9 @@ func TestBootstrapCmd(t *testing.T) {
 	})
 
 	t.Run("DoesNotPanicWhenContextOverrideOmitsComposer", func(t *testing.T) {
-		// Reproduces windsorcli/cli#3348: a --context override (setupGlobalContext, root.go)
-		// injects a *project.Project carrying only Runtime, leaving Composer nil. Before the
-		// fix, bootstrap's own NewProject fallback ran only when proj itself was nil, so this
-		// non-nil-but-Composer-nil proj reached proj.Composer.ArtifactBuilder and panicked.
+		// Reproduces windsorcli/cli#3348. A --context override injects a project with only
+		// Runtime set, leaving Composer nil. Before the fix, the NewProject fallback ran
+		// only when proj was nil, so proj.Composer.ArtifactBuilder panicked below.
 		mocks := setupBootstrapTest(t)
 		fullProj := newBootstrapTestProject(mocks)
 		bareProj := &project.Project{Runtime: mocks.Runtime}
@@ -218,18 +219,53 @@ func TestBootstrapCmd(t *testing.T) {
 		cmd := createTestBootstrapCmd()
 		ctx := context.WithValue(context.Background(), projectOverridesKey, bareProj)
 		ctx = context.WithValue(ctx, composerOverridesKey, fullProj.Composer)
-		// A non-"local" context matches the actual repro and takes resolveBlueprintURL's
-		// early-return path, so this test doesn't also depend on a working ArtifactBuilder.
+		// A non-"local" context avoids resolveBlueprintURL's ArtifactBuilder path.
 		cmd.SetArgs([]string{"gcp-test", "--yes"})
 		cmd.SetContext(ctx)
 
-		// When executing bootstrap — this must not panic
+		// Must not panic.
 		_ = cmd.Execute()
 
-		// Then execution reached blueprint loading, which is only possible with a non-nil
-		// Composer — proving it got past the historical crash site.
+		// LoadBlueprint only runs with a non-nil Composer.
 		if !loadBlueprintCalled {
 			t.Error("Expected LoadBlueprint to be called, proving Composer was defaulted")
+		}
+	})
+
+	t.Run("HoldsStackLockThroughInitializeAndSaveConfig", func(t *testing.T) {
+		// Regression test for windsorcli/cli#3315. Two overlapping bootstrap runs could
+		// race an unlocked read-modify-write on values.yaml. Proves the fix by acquiring
+		// a second, contending lock (timeout 0) from inside LoadBlueprint, which
+		// Initialize calls. A busy result means the outer lock is already held.
+		mocks := setupBootstrapTest(t)
+		proj := newBootstrapTestProject(mocks)
+
+		var acquireErr error
+		mocks.BlueprintHandler.LoadBlueprintFunc = func(urls ...string) error {
+			lock, err := stacklock.ForRuntime(mocks.Runtime)
+			if err != nil {
+				t.Fatalf("Failed to resolve stack lock: %v", err)
+			}
+			var release stacklock.Release
+			release, acquireErr = lock.Acquire(context.Background(), stacklock.NewInfo(mocks.Runtime, "contender"), 0)
+			if release != nil {
+				release()
+			}
+			return nil
+		}
+
+		cmd := createTestBootstrapCmd()
+		ctx := context.WithValue(context.Background(), projectOverridesKey, proj)
+		cmd.SetArgs([]string{"--yes"})
+		cmd.SetContext(ctx)
+
+		if err := cmd.Execute(); err != nil {
+			t.Fatalf("Expected success, got %v", err)
+		}
+
+		var busyErr *stacklock.LockBusyError
+		if !errors.As(acquireErr, &busyErr) {
+			t.Fatalf("Expected a contending lock acquire during Initialize to be busy, got %v", acquireErr)
 		}
 	})
 

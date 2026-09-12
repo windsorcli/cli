@@ -174,9 +174,6 @@ windsor bootstrap prod --yes`,
 		// and wait. Every tool family may be exercised, so request the full set up front and
 		// let CheckAuth (called below) validate cloud credentials separately.
 		proj.SetToolRequirements(tools.AllRequirements())
-		if err := proj.Initialize(false, blueprintURL...); err != nil {
-			return err
-		}
 
 		// Cloud auth and SaveConfig are paired by the "auth gates state mutation" invariant:
 		// nothing writes config until cloud credentials have been validated. In --yes mode
@@ -207,21 +204,28 @@ windsor bootstrap prod --yes`,
 				}
 				return true
 			}
-		} else {
-			if err := requireCloudAuth(cmd, proj); err != nil {
-				return err
-			}
-			if err := proj.Runtime.SaveConfig(saveSet); err != nil {
-				return fmt.Errorf("failed to save configuration: %w", err)
-			}
 		}
 
-		// The bootstrap confirm prompt fires from inside proj.Bootstrap, so the operator
-		// briefly holds the stack lock while answering. Acceptable today since bootstrap
-		// is rare; revisit if the prompt grows into a longer flow.
+		// Run Initialize and, in --yes mode, SaveConfig inside the lock. This prevents two
+		// overlapping bootstrap runs from racing an unlocked read-modify-write on
+		// values.yaml. The interactive branch's SaveConfig already runs inside the lock,
+		// via confirmFn called from proj.Bootstrap below.
 		var applied, halted bool
 		var postRunMessages []blueprintv1alpha1.Message
 		if err := stacklock.With(cmd.Context(), proj.Runtime, "bootstrap", lockTimeout, func() error {
+			if err := proj.Initialize(false, blueprintURL...); err != nil {
+				return err
+			}
+
+			if bootstrapYes {
+				if err := requireCloudAuth(cmd, proj); err != nil {
+					return err
+				}
+				if err := proj.Runtime.SaveConfig(saveSet); err != nil {
+					return fmt.Errorf("failed to save configuration: %w", err)
+				}
+			}
+
 			_, ok, h, err := proj.Bootstrap(confirmFn)
 			finishPlan(err)
 			if err != nil {
