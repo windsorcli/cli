@@ -24,14 +24,14 @@ import (
 // It coordinates context, provisioner, composer, and workstation managers
 // to provide a unified interface for project initialization and management.
 type Project struct {
-	Runtime           *runtime.Runtime
-	configHandler     config.ConfigHandler
-	contextName       string
-	projectRoot       string
-	Provisioner       *provisioner.Provisioner
-	Composer          *composer.Composer
-	Workstation       *workstation.Workstation
-	toolRequirements  *tools.Requirements
+	Runtime          *runtime.Runtime
+	configHandler    config.ConfigHandler
+	contextName      string
+	projectRoot      string
+	Provisioner      *provisioner.Provisioner
+	Composer         *composer.Composer
+	Workstation      *workstation.Workstation
+	toolRequirements *tools.Requirements
 }
 
 // =============================================================================
@@ -45,6 +45,8 @@ type Project struct {
 // Panics if required dependencies are nil. After creation, call Configure() to apply flag overrides.
 // Optional overrides can be provided via opts to inject mocks for testing.
 // If opts contains a Project with Runtime set, that runtime will be reused.
+// An explicit contextName also sets rt.ConfigHandler's own context, not just
+// rt.ContextName/rt.ConfigRoot, since most lookups call rt.ConfigHandler.GetContext() directly.
 func NewProject(contextName string, opts ...*Project) *Project {
 	var rt *runtime.Runtime
 
@@ -76,6 +78,8 @@ func NewProject(contextName string, opts ...*Project) *Project {
 		if contextName == "" {
 			contextName = "local"
 		}
+	} else {
+		rt.ConfigHandler = rt.ConfigHandler.WithContext(contextName)
 	}
 
 	rt.ContextName = contextName

@@ -9,6 +9,9 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/windsorcli/cli/pkg/debug"
 	"github.com/windsorcli/cli/pkg/project"
+	"github.com/windsorcli/cli/pkg/runtime"
+	"github.com/windsorcli/cli/pkg/runtime/config"
+	"github.com/windsorcli/cli/pkg/runtime/shell"
 	"github.com/windsorcli/cli/pkg/runtime/tools"
 	"github.com/windsorcli/cli/pkg/tui"
 )
@@ -29,6 +32,9 @@ var noCache bool
 // failing. Defaults to 0 (fail immediately on contention, matching terraform's own
 // -lock-timeout default) rather than silently blocking; pass a duration to wait instead.
 var lockTimeout time.Duration
+
+// contextFlag overrides the windsor context for this invocation. See setupGlobalContext.
+var contextFlag string
 
 // Define a custom type for context keys
 type contextKey string
@@ -82,6 +88,8 @@ func init() {
 	rootCmd.PersistentFlags().DurationVar(&lockTimeout, "lock-timeout", 0, "Duration to wait for the stack lock before failing (e.g. 30s, 5m). Defaults to 0 (fail immediately).")
 	// Define the --debug flag. Persistent so every command inherits it.
 	rootCmd.PersistentFlags().BoolVar(&debugFlag, "debug", false, "Enable internal debug logging to stderr")
+	// Define the --context flag. Persistent so every command inherits it.
+	rootCmd.PersistentFlags().StringVarP(&contextFlag, "context", "c", "", "Override the windsor context for this command")
 }
 
 // commandPreflight orchestrates global CLI preflight checks and context initialization for all commands.
@@ -198,7 +206,9 @@ func silenceErrorsOnAncestors(cmd *cobra.Command) {
 // without threading a flag through the project/runtime/composer construction chain.
 // An explicit --no-cache always wins; a pre-existing NO_CACHE in the environment is
 // preserved when the flag is not set. --debug and WINDSOR_DEBUG=true both enable
-// debug.Log output for the run; either one is enough.
+// debug.Log output for the run; either one is enough. --context builds a runtime override
+// through NewRuntime, so every field (Evaluator, ToolsManager, ...) is fully hydrated, then
+// injects it under both override keys a caller might read.
 func setupGlobalContext(cmd *cobra.Command) error {
 	ctx := cmd.Root().Context()
 	if ctx == nil {
@@ -210,6 +220,20 @@ func setupGlobalContext(cmd *cobra.Command) error {
 	if noCache {
 		if err := os.Setenv("NO_CACHE", "true"); err != nil {
 			return fmt.Errorf("failed to set NO_CACHE environment variable: %w", err)
+		}
+	}
+	if contextFlag != "" {
+		sh := shell.NewDefaultShell()
+		rtOverride := runtime.NewRuntime(&runtime.Runtime{
+			Shell:         sh,
+			ConfigHandler: config.NewConfigHandler(sh).WithContext(contextFlag),
+			ContextName:   contextFlag,
+		})
+		if ctx.Value(runtimeOverridesKey) == nil {
+			ctx = context.WithValue(ctx, runtimeOverridesKey, rtOverride)
+		}
+		if ctx.Value(projectOverridesKey) == nil {
+			ctx = context.WithValue(ctx, projectOverridesKey, &project.Project{Runtime: rtOverride})
 		}
 	}
 	debug.Init(debugFlag || os.Getenv("WINDSOR_DEBUG") == "true")
