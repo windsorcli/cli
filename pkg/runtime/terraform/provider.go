@@ -41,6 +41,15 @@ type terraformProvider struct {
 	configScope   map[string]any
 	warningWriter io.Writer
 	mu            sync.RWMutex
+
+	// scopeMu is separate from mu. GetTerraformComponents holds mu while calling
+	// loadTerraformComponents, which calls providerScope.
+	scopeMu            sync.RWMutex
+	scopeResolved      bool
+	scopeErr           error
+	contextName        string
+	configRoot         string
+	windsorScratchPath string
 }
 
 // terraformContext provides a scoped environment for Terraform operations with automatic cleanup.
@@ -254,14 +263,9 @@ func (p *terraformProvider) GenerateBackendOverride(directory string) error {
 // and builds the init, plan, apply, refresh, import, destroy, and plan-destroy arg sets.
 // Returns a fully populated TerraformArgs structure or an error if processing or lookup fails.
 func (p *terraformProvider) GenerateTerraformArgs(componentID string, interactive bool) (*TerraformArgs, error) {
-	configRoot, err := p.configHandler.GetConfigRoot()
+	_, configRoot, windsorScratchPath, err := p.providerScope()
 	if err != nil {
-		return nil, fmt.Errorf("error getting config root: %w", err)
-	}
-
-	windsorScratchPath, err := p.configHandler.GetWindsorScratchPath()
-	if err != nil {
-		return nil, fmt.Errorf("error getting windsor scratch path: %w", err)
+		return nil, fmt.Errorf("error resolving provider scope: %w", err)
 	}
 
 	component := p.GetTerraformComponent(componentID)
@@ -447,9 +451,9 @@ func (p *terraformProvider) SetConfigScope(scope map[string]any) {
 // This path is used by Terraform to store its working directory data and state.
 // Returns the path with forward slashes or an error if scratch path lookup fails.
 func (p *terraformProvider) GetTFDataDir(componentID string) (string, error) {
-	windsorScratchPath, err := p.configHandler.GetWindsorScratchPath()
+	_, _, windsorScratchPath, err := p.providerScope()
 	if err != nil {
-		return "", fmt.Errorf("error getting windsor scratch path: %w", err)
+		return "", fmt.Errorf("error resolving provider scope: %w", err)
 	}
 
 	component := p.GetTerraformComponent(componentID)
@@ -561,9 +565,9 @@ func (p *terraformProvider) GetEnvVars(componentID string, interactive bool) (ma
 // without resolving any values or paying secret-resolution cost. Used to identify which
 // environment variables to unset when leaving a Terraform directory.
 func (p *terraformProvider) TerraformScopedEnvKeys() ([]string, error) {
-	configRoot, err := p.configHandler.GetConfigRoot()
+	_, configRoot, _, err := p.providerScope()
 	if err != nil {
-		return nil, fmt.Errorf("error retrieving config root: %w", err)
+		return nil, fmt.Errorf("error resolving provider scope: %w", err)
 	}
 
 	dotEnvPath := filepath.Join(configRoot, "terraform", ".env")
@@ -704,9 +708,9 @@ func (p *terraformProvider) ClearCache() {
 // If a backend prefix is configured, it is included in the path to support multi-tenant or
 // multi-environment deployments where state files need to be namespaced.
 func (p *terraformProvider) GetStatePath(componentID string) (string, error) {
-	windsorScratchPath, err := p.configHandler.GetWindsorScratchPath()
+	_, _, windsorScratchPath, err := p.providerScope()
 	if err != nil {
-		return "", fmt.Errorf("error getting windsor scratch path: %w", err)
+		return "", fmt.Errorf("error resolving provider scope: %w", err)
 	}
 
 	component := p.GetTerraformComponent(componentID)
@@ -742,7 +746,7 @@ func (p *terraformProvider) BackendConfigComplete() bool {
 		return true
 	}
 
-	if configRoot, err := p.configHandler.GetConfigRoot(); err == nil {
+	if _, configRoot, _, err := p.providerScope(); err == nil {
 		for _, candidate := range []string{
 			filepath.Join(configRoot, "backend.tfvars"),
 			filepath.Join(configRoot, "terraform", "backend.tfvars"),
@@ -779,6 +783,34 @@ func (p *terraformProvider) BackendConfigComplete() bool {
 // =============================================================================
 // Private Methods
 // =============================================================================
+
+// providerScope resolves the active context, config root, and Windsor scratch path once, then
+// reuses the result. configHandler.GetContext() reads a file shared by every windsor process in
+// the checkout. A live read on each call would let a concurrent windsor process for another
+// context change this provider's Terraform args mid-run.
+func (p *terraformProvider) providerScope() (contextName, configRoot, windsorScratchPath string, err error) {
+	p.scopeMu.RLock()
+	if p.scopeResolved {
+		defer p.scopeMu.RUnlock()
+		return p.contextName, p.configRoot, p.windsorScratchPath, p.scopeErr
+	}
+	p.scopeMu.RUnlock()
+
+	p.scopeMu.Lock()
+	defer p.scopeMu.Unlock()
+	if p.scopeResolved {
+		return p.contextName, p.configRoot, p.windsorScratchPath, p.scopeErr
+	}
+
+	p.contextName = p.configHandler.GetContext()
+	p.configRoot, p.scopeErr = p.configHandler.GetConfigRoot()
+	if p.scopeErr == nil {
+		p.windsorScratchPath, p.scopeErr = p.configHandler.GetWindsorScratchPath()
+	}
+	p.scopeResolved = true
+
+	return p.contextName, p.configRoot, p.windsorScratchPath, p.scopeErr
+}
 
 // registerTerraformOutputHelper registers the terraform_output helper function with the evaluator.
 // This allows blueprint expressions to reference Terraform outputs from other components using
@@ -872,9 +904,9 @@ func (p *terraformProvider) getOutput(componentID, key string, expression string
 // These variables ensure Terraform can locate its state, use the correct backend configuration,
 // and have access to context-specific information during execution.
 func (p *terraformProvider) getBaseEnvVarsForComponent(terraformArgs *TerraformArgs) (map[string]string, error) {
-	configRoot, err := p.configHandler.GetConfigRoot()
+	contextName, configRoot, _, err := p.providerScope()
 	if err != nil {
-		return nil, fmt.Errorf("error getting config root: %w", err)
+		return nil, fmt.Errorf("error resolving provider scope: %w", err)
 	}
 	projectRoot, err := p.shell.GetProjectRoot()
 	if err != nil {
@@ -889,7 +921,7 @@ func (p *terraformProvider) getBaseEnvVarsForComponent(terraformArgs *TerraformA
 	envVars["TF_CLI_ARGS_refresh"] = p.FormatArgsForEnv(terraformArgs.RefreshArgs)
 	envVars["TF_CLI_ARGS_import"] = p.FormatArgsForEnv(terraformArgs.ImportArgs)
 	envVars["TF_CLI_ARGS_destroy"] = p.FormatArgsForEnv(terraformArgs.DestroyArgs)
-	envVars["TF_VAR_context"] = p.configHandler.GetContext()
+	envVars["TF_VAR_context"] = contextName
 	envVars["TF_VAR_project_root"] = filepath.ToSlash(projectRoot)
 	envVars["TF_VAR_context_path"] = filepath.ToSlash(configRoot)
 	envVars["TF_VAR_context_id"] = p.configHandler.GetString("id", "")
@@ -912,9 +944,9 @@ func (p *terraformProvider) getBaseEnvVarsForComponent(terraformArgs *TerraformA
 func (p *terraformProvider) loadTerraformScopedEnv() (map[string]string, error) {
 	envVars := make(map[string]string)
 
-	configRoot, err := p.configHandler.GetConfigRoot()
+	_, configRoot, _, err := p.providerScope()
 	if err != nil {
-		return nil, fmt.Errorf("error retrieving config root: %w", err)
+		return nil, fmt.Errorf("error resolving provider scope: %w", err)
 	}
 
 	dotEnvPath := filepath.Join(configRoot, "terraform", ".env")
@@ -1032,7 +1064,7 @@ func (p *terraformProvider) withTerraformContext(componentID string, fn func(*te
 // of a Source field and the resolved project root. Components with a Source are located in Windsor scratch
 // space, while local components are in the project root. Returns the list of TerraformComponents found with FullPath fields set.
 func (p *terraformProvider) loadTerraformComponents() []blueprintv1alpha1.TerraformComponent {
-	configRoot, err := p.configHandler.GetConfigRoot()
+	contextName, configRoot, _, err := p.providerScope()
 	if err != nil {
 		return []blueprintv1alpha1.TerraformComponent{}
 	}
@@ -1050,8 +1082,7 @@ func (p *terraformProvider) loadTerraformComponents() []blueprintv1alpha1.Terraf
 
 	projectRoot, err := p.shell.GetProjectRoot()
 	if err == nil {
-		context := p.configHandler.GetContext()
-		windsorScratchPath := filepath.Join(projectRoot, ".windsor", "contexts", context)
+		windsorScratchPath := filepath.Join(projectRoot, ".windsor", "contexts", contextName)
 		for i := range blueprint.TerraformComponents {
 			component := &blueprint.TerraformComponents[i]
 			componentID := component.GetID()
@@ -1083,7 +1114,7 @@ func (p *terraformProvider) resolveModulePath(component *blueprintv1alpha1.Terra
 
 	useScratchPath := component.Name != "" || component.Source != ""
 	if useScratchPath {
-		windsorScratchPath, err := p.configHandler.GetWindsorScratchPath()
+		_, _, windsorScratchPath, err := p.providerScope()
 		if err != nil {
 			return "", err
 		}
@@ -1151,7 +1182,7 @@ func (p *terraformProvider) generateBackendConfigArgs(projectPath, configRoot st
 	}
 
 	appendBackendTfvars := func() {
-		if p.configHandler.GetContext() == "" {
+		if contextName, _, _, _ := p.providerScope(); contextName == "" {
 			return
 		}
 		backendTfvarsPath := filepath.Join(configRoot, "backend.tfvars")

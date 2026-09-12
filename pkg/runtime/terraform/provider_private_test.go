@@ -864,8 +864,8 @@ func TestTerraformProvider_generateBackendConfigArgs(t *testing.T) {
 		if err == nil {
 			t.Error("Expected error when GetWindsorScratchPath fails")
 		}
-		if !strings.Contains(err.Error(), "windsor scratch path") {
-			t.Errorf("Expected error about windsor scratch path, got: %v", err)
+		if !strings.Contains(err.Error(), "scratch path error") {
+			t.Errorf("Expected error about scratch path, got: %v", err)
 		}
 	})
 
@@ -1401,4 +1401,78 @@ func TestTerraformProvider_restoreEnvVars(t *testing.T) {
 		}
 	})
 
+}
+
+func TestTerraformProvider_providerScope(t *testing.T) {
+	t.Run("ResolvesOnceAndReusesResultOnSubsequentCalls", func(t *testing.T) {
+		// Given context and paths that change between calls, simulating a concurrent windsor
+		// process overwriting the shared context file
+		mocks := setupMocks(t)
+		provider := mocks.Provider
+		mockConfig := provider.configHandler.(*config.MockConfigHandler)
+
+		callCount := 0
+		mockConfig.GetContextFunc = func() string {
+			callCount++
+			if callCount == 1 {
+				return "ctxA"
+			}
+			return "ctxB"
+		}
+		mockConfig.GetConfigRootFunc = func() (string, error) {
+			if callCount <= 1 {
+				return "/contexts/ctxA", nil
+			}
+			return "/contexts/ctxB", nil
+		}
+		mockConfig.GetWindsorScratchPathFunc = func() (string, error) {
+			if callCount <= 1 {
+				return "/.windsor/contexts/ctxA", nil
+			}
+			return "/.windsor/contexts/ctxB", nil
+		}
+
+		// When resolving scope twice
+		context1, configRoot1, scratch1, err1 := provider.providerScope()
+		context2, configRoot2, scratch2, err2 := provider.providerScope()
+
+		// Then both calls return the first-resolved values
+		if err1 != nil || err2 != nil {
+			t.Fatalf("Expected no error, got %v / %v", err1, err2)
+		}
+		if context1 != "ctxA" || context2 != "ctxA" {
+			t.Errorf("Expected both calls to return 'ctxA', got %q and %q", context1, context2)
+		}
+		if configRoot1 != "/contexts/ctxA" || configRoot2 != "/contexts/ctxA" {
+			t.Errorf("Expected both calls to return the ctxA config root, got %q and %q", configRoot1, configRoot2)
+		}
+		if scratch1 != "/.windsor/contexts/ctxA" || scratch2 != "/.windsor/contexts/ctxA" {
+			t.Errorf("Expected both calls to return the ctxA scratch path, got %q and %q", scratch1, scratch2)
+		}
+	})
+
+	t.Run("CachesErrorAndDoesNotRetry", func(t *testing.T) {
+		// Given GetConfigRoot always fails
+		mocks := setupMocks(t)
+		provider := mocks.Provider
+		mockConfig := provider.configHandler.(*config.MockConfigHandler)
+
+		callCount := 0
+		mockConfig.GetConfigRootFunc = func() (string, error) {
+			callCount++
+			return "", fmt.Errorf("config root error")
+		}
+
+		// When resolving scope twice
+		_, _, _, err1 := provider.providerScope()
+		_, _, _, err2 := provider.providerScope()
+
+		// Then both calls return the error, and GetConfigRoot is called only once
+		if err1 == nil || err2 == nil {
+			t.Fatal("Expected both calls to return an error")
+		}
+		if callCount != 1 {
+			t.Errorf("Expected GetConfigRoot to be called exactly once, got %d calls", callCount)
+		}
+	})
 }

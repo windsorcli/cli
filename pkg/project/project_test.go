@@ -1396,6 +1396,20 @@ func TestProject_Up(t *testing.T) {
 			}
 			return false
 		}
+		mockConfig.GetStringFunc = func(key string, defaultValue ...string) string {
+			switch key {
+			case "cluster.driver":
+				return "talos"
+			case "workstation.runtime":
+				return "colima"
+			case "provider":
+				return ""
+			}
+			if len(defaultValue) > 0 {
+				return defaultValue[0]
+			}
+			return ""
+		}
 		proj := NewProject("test-context", &Project{
 			Runtime:     mocks.Runtime,
 			Composer:    mocks.Composer,
@@ -1412,20 +1426,6 @@ func TestProject_Up(t *testing.T) {
 		}
 		proj.Workstation.VirtualMachine = mockVM
 		proj.Workstation.NetworkManager = nil
-		mockConfig.GetStringFunc = func(key string, defaultValue ...string) string {
-			switch key {
-			case "cluster.driver":
-				return "talos"
-			case "workstation.runtime":
-				return "colima"
-			case "provider":
-				return ""
-			}
-			if len(defaultValue) > 0 {
-				return defaultValue[0]
-			}
-			return ""
-		}
 
 		_, _, err := proj.Up()
 
