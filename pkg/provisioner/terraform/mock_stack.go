@@ -15,27 +15,31 @@ import (
 
 // MockStack is a mock implementation of the Stack interface for testing.
 type MockStack struct {
-	UpFunc                          func(blueprint *blueprintv1alpha1.Blueprint, onApply ...func(id string) (bool, error)) (bool, error)
-	MigrateStateFunc                func(blueprint *blueprintv1alpha1.Blueprint) ([]string, error)
-	MigrateComponentStateFunc       func(blueprint *blueprintv1alpha1.Blueprint, componentID string) error
-	HasRemoteStateFunc              func(blueprint *blueprintv1alpha1.Blueprint, componentID string) (bool, error)
-	HasLocalStateWithResourcesFunc  func(componentID string) (bool, error)
-	InitComponentFunc               func(blueprint *blueprintv1alpha1.Blueprint, componentID string) error
-	RemoveLocalStateFunc            func(componentID string) error
-	PostApplyFunc                   func(fns ...func(id string) error)
-	DestroyAllFunc                  func(blueprint *blueprintv1alpha1.Blueprint, continueOnError bool, excludeIDs ...string) (DestroyOutcome, error)
-	PlanFunc                        func(blueprint *blueprintv1alpha1.Blueprint, componentID string) error
-	PlanAllFunc                     func(blueprint *blueprintv1alpha1.Blueprint) error
-	PlanJSONFunc                    func(blueprint *blueprintv1alpha1.Blueprint, componentID string) error
-	PlanAllJSONFunc                 func(blueprint *blueprintv1alpha1.Blueprint) error
-	PlanResourceChangesJSONFunc     func(blueprint *blueprintv1alpha1.Blueprint, componentID string) error
-	PlanAllResourceChangesJSONFunc  func(blueprint *blueprintv1alpha1.Blueprint) error
-	ApplyFunc                       func(blueprint *blueprintv1alpha1.Blueprint, componentID string) error
-	DestroyFunc                     func(blueprint *blueprintv1alpha1.Blueprint, componentID string) (bool, error)
-	PlanSummaryFunc                 func(blueprint *blueprintv1alpha1.Blueprint) []TerraformComponentPlan
-	PlanComponentSummaryFunc        func(blueprint *blueprintv1alpha1.Blueprint, componentID string) TerraformComponentPlan
-	PlanDestroySummaryFunc          func(blueprint *blueprintv1alpha1.Blueprint) []TerraformComponentPlan
-	PlanDestroyComponentSummaryFunc func(blueprint *blueprintv1alpha1.Blueprint, componentID string) TerraformComponentPlan
+	UpFunc                            func(blueprint *blueprintv1alpha1.Blueprint, onApply ...func(id string) (bool, error)) (bool, error)
+	MigrateStateFunc                  func(blueprint *blueprintv1alpha1.Blueprint) ([]string, error)
+	MigrateComponentStateFunc         func(blueprint *blueprintv1alpha1.Blueprint, componentID string) error
+	HasRemoteStateFunc                func(blueprint *blueprintv1alpha1.Blueprint, componentID string) (bool, error)
+	HasLocalStateWithResourcesFunc    func(componentID string) (bool, error)
+	InitComponentFunc                 func(blueprint *blueprintv1alpha1.Blueprint, componentID string) error
+	RemoveLocalStateFunc              func(componentID string) error
+	ListLocalStateComponentIDsFunc    func() ([]string, error)
+	InitOrphanedComponentFunc         func(componentID string) (bool, error)
+	HasOrphanedRemoteStateFunc        func(componentID string) (bool, error)
+	MigrateOrphanedComponentStateFunc func(componentID string) error
+	PostApplyFunc                     func(fns ...func(id string) error)
+	DestroyAllFunc                    func(blueprint *blueprintv1alpha1.Blueprint, continueOnError bool, excludeIDs ...string) (DestroyOutcome, error)
+	PlanFunc                          func(blueprint *blueprintv1alpha1.Blueprint, componentID string) error
+	PlanAllFunc                       func(blueprint *blueprintv1alpha1.Blueprint) error
+	PlanJSONFunc                      func(blueprint *blueprintv1alpha1.Blueprint, componentID string) error
+	PlanAllJSONFunc                   func(blueprint *blueprintv1alpha1.Blueprint) error
+	PlanResourceChangesJSONFunc       func(blueprint *blueprintv1alpha1.Blueprint, componentID string) error
+	PlanAllResourceChangesJSONFunc    func(blueprint *blueprintv1alpha1.Blueprint) error
+	ApplyFunc                         func(blueprint *blueprintv1alpha1.Blueprint, componentID string) error
+	DestroyFunc                       func(blueprint *blueprintv1alpha1.Blueprint, componentID string) (bool, error)
+	PlanSummaryFunc                   func(blueprint *blueprintv1alpha1.Blueprint) []TerraformComponentPlan
+	PlanComponentSummaryFunc          func(blueprint *blueprintv1alpha1.Blueprint, componentID string) TerraformComponentPlan
+	PlanDestroySummaryFunc            func(blueprint *blueprintv1alpha1.Blueprint) []TerraformComponentPlan
+	PlanDestroyComponentSummaryFunc   func(blueprint *blueprintv1alpha1.Blueprint, componentID string) TerraformComponentPlan
 }
 
 // =============================================================================
@@ -103,6 +107,38 @@ func (m *MockStack) InitComponent(blueprint *blueprintv1alpha1.Blueprint, compon
 func (m *MockStack) RemoveLocalState(componentID string) error {
 	if m.RemoveLocalStateFunc != nil {
 		return m.RemoveLocalStateFunc(componentID)
+	}
+	return nil
+}
+
+// ListLocalStateComponentIDs is a mock implementation of the ListLocalStateComponentIDs method.
+func (m *MockStack) ListLocalStateComponentIDs() ([]string, error) {
+	if m.ListLocalStateComponentIDsFunc != nil {
+		return m.ListLocalStateComponentIDsFunc()
+	}
+	return nil, nil
+}
+
+// InitOrphanedComponent is a mock implementation of the InitOrphanedComponent method.
+func (m *MockStack) InitOrphanedComponent(componentID string) (bool, error) {
+	if m.InitOrphanedComponentFunc != nil {
+		return m.InitOrphanedComponentFunc(componentID)
+	}
+	return false, nil
+}
+
+// HasOrphanedRemoteState is a mock implementation of the HasOrphanedRemoteState method.
+func (m *MockStack) HasOrphanedRemoteState(componentID string) (bool, error) {
+	if m.HasOrphanedRemoteStateFunc != nil {
+		return m.HasOrphanedRemoteStateFunc(componentID)
+	}
+	return false, nil
+}
+
+// MigrateOrphanedComponentState is a mock implementation of the MigrateOrphanedComponentState method.
+func (m *MockStack) MigrateOrphanedComponentState(componentID string) error {
+	if m.MigrateOrphanedComponentStateFunc != nil {
+		return m.MigrateOrphanedComponentStateFunc(componentID)
 	}
 	return nil
 }

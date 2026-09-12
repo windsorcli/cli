@@ -1215,6 +1215,317 @@ func TestStack_MigrateComponentState(t *testing.T) {
 	})
 }
 
+// setupWindsorStackMocksForOrphanTests builds a stack for the orphaned-component recovery
+// tests below, matching the setup pattern TestStack_MigrateComponentState uses. Unlike the
+// shared default (which treats every path as existing), Stat delegates to the real filesystem:
+// these tests care specifically about which on-disk directory convention exists.
+func setupWindsorStackMocksForOrphanTests(t *testing.T) (*TerraformStack, *TerraformTestMocks) {
+	t.Helper()
+	mocks := setupWindsorStackMocks(t)
+	mocks.Shims.Stat = os.Stat
+	stack := NewStack(mocks.Runtime).(*TerraformStack)
+	stack.shims = mocks.Shims
+	return stack, mocks
+}
+
+func TestStack_ListLocalStateComponentIDs(t *testing.T) {
+	t.Run("DelegatesToTerraformProvider", func(t *testing.T) {
+		// Given a stack whose TerraformProvider reports two componentIDs with local state
+		stack, mocks := setupWindsorStackMocksForOrphanTests(t)
+		mocks.Runtime.TerraformProvider = &terraformRuntime.MockTerraformProvider{
+			ListLocalStateComponentIDsFunc: func() ([]string, error) {
+				return []string{"network", "crossplane-identity-gcp"}, nil
+			},
+		}
+
+		// When listing local state componentIDs
+		ids, err := stack.ListLocalStateComponentIDs()
+
+		// Then the TerraformProvider's own list is returned unchanged
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		if len(ids) != 2 || ids[0] != "network" || ids[1] != "crossplane-identity-gcp" {
+			t.Errorf("Expected the provider's componentIDs, got %v", ids)
+		}
+	})
+
+	t.Run("PropagatesProviderError", func(t *testing.T) {
+		stack, mocks := setupWindsorStackMocksForOrphanTests(t)
+		mocks.Runtime.TerraformProvider = &terraformRuntime.MockTerraformProvider{
+			ListLocalStateComponentIDsFunc: func() ([]string, error) {
+				return nil, fmt.Errorf("scratch path error")
+			},
+		}
+
+		_, err := stack.ListLocalStateComponentIDs()
+		if err == nil {
+			t.Fatal("Expected error, got nil")
+		}
+	})
+}
+
+func TestStack_InitOrphanedComponent(t *testing.T) {
+	t.Run("ReturnsFalseWhenNoDirectoryExistsUnderEitherConvention", func(t *testing.T) {
+		// Given a componentID with no scratch or local directory on disk
+		stack, _ := setupWindsorStackMocksForOrphanTests(t)
+
+		found, err := stack.InitOrphanedComponent("crossplane-identity-gcp")
+
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		if found {
+			t.Error("Expected found=false when no directory exists")
+		}
+	})
+
+	t.Run("RunsInitAgainstScratchPathWhenItExists", func(t *testing.T) {
+		// Given a leftover scratch-cache directory for a componentID no longer in the
+		// blueprint (the shape a source- or name-based component leaves behind)
+		stack, mocks := setupWindsorStackMocksForOrphanTests(t)
+		projectRoot := os.Getenv("WINDSOR_PROJECT_ROOT")
+		contextName := mocks.Runtime.ContextName
+		dir := filepath.Join(projectRoot, ".windsor", "contexts", contextName, "terraform", "crossplane-identity-gcp")
+		if err := os.MkdirAll(dir, 0755); err != nil {
+			t.Fatalf("Failed to create directory: %v", err)
+		}
+
+		var initChdirs []string
+		mocks.Shell.ExecSilentWithEnvFunc = func(command string, env map[string]string, args ...string) (string, error) {
+			if len(args) >= 2 && args[1] == "init" {
+				initChdirs = append(initChdirs, strings.TrimPrefix(args[0], "-chdir="))
+			}
+			return "", nil
+		}
+
+		found, err := stack.InitOrphanedComponent("crossplane-identity-gcp")
+
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		if !found {
+			t.Error("Expected found=true when the scratch directory exists")
+		}
+		if len(initChdirs) != 1 || filepath.Clean(initChdirs[0]) != filepath.Clean(dir) {
+			t.Errorf("Expected init to run against %s, got %v", dir, initChdirs)
+		}
+	})
+
+	t.Run("FallsBackToLocalPathWhenNoScratchDirectoryExists", func(t *testing.T) {
+		// Given a leftover directory only under the bare local (no source/name) convention
+		stack, mocks := setupWindsorStackMocksForOrphanTests(t)
+		projectRoot := os.Getenv("WINDSOR_PROJECT_ROOT")
+		dir := filepath.Join(projectRoot, "terraform", "old-local-component")
+		if err := os.MkdirAll(dir, 0755); err != nil {
+			t.Fatalf("Failed to create directory: %v", err)
+		}
+
+		var initChdirs []string
+		mocks.Shell.ExecSilentWithEnvFunc = func(command string, env map[string]string, args ...string) (string, error) {
+			if len(args) >= 2 && args[1] == "init" {
+				initChdirs = append(initChdirs, strings.TrimPrefix(args[0], "-chdir="))
+			}
+			return "", nil
+		}
+
+		found, err := stack.InitOrphanedComponent("old-local-component")
+
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		if !found {
+			t.Error("Expected found=true when the local directory exists")
+		}
+		if len(initChdirs) != 1 || filepath.Clean(initChdirs[0]) != filepath.Clean(dir) {
+			t.Errorf("Expected init to run against %s, got %v", dir, initChdirs)
+		}
+	})
+
+	t.Run("ReturnsErrorWhenInitFails", func(t *testing.T) {
+		stack, mocks := setupWindsorStackMocksForOrphanTests(t)
+		projectRoot := os.Getenv("WINDSOR_PROJECT_ROOT")
+		contextName := mocks.Runtime.ContextName
+		dir := filepath.Join(projectRoot, ".windsor", "contexts", contextName, "terraform", "crossplane-identity-gcp")
+		if err := os.MkdirAll(dir, 0755); err != nil {
+			t.Fatalf("Failed to create directory: %v", err)
+		}
+		mocks.Shell.ExecSilentWithEnvFunc = func(command string, env map[string]string, args ...string) (string, error) {
+			if len(args) >= 2 && args[1] == "init" {
+				return "", fmt.Errorf("backend not reachable")
+			}
+			return "", nil
+		}
+
+		_, err := stack.InitOrphanedComponent("crossplane-identity-gcp")
+		if err == nil {
+			t.Fatal("Expected error when terraform init fails")
+		}
+		if !strings.Contains(err.Error(), "backend not reachable") {
+			t.Errorf("Expected error to wrap the underlying cause, got %v", err)
+		}
+	})
+}
+
+func TestStack_HasOrphanedRemoteState(t *testing.T) {
+	t.Run("ReturnsFalseWhenNoDirectoryExists", func(t *testing.T) {
+		stack, _ := setupWindsorStackMocksForOrphanTests(t)
+
+		hasRemote, err := stack.HasOrphanedRemoteState("crossplane-identity-gcp")
+
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		if hasRemote {
+			t.Error("Expected hasRemote=false when no directory exists")
+		}
+	})
+
+	t.Run("ReturnsTrueWhenStateHasResources", func(t *testing.T) {
+		stack, mocks := setupWindsorStackMocksForOrphanTests(t)
+		projectRoot := os.Getenv("WINDSOR_PROJECT_ROOT")
+		contextName := mocks.Runtime.ContextName
+		dir := filepath.Join(projectRoot, ".windsor", "contexts", contextName, "terraform", "crossplane-identity-gcp")
+		if err := os.MkdirAll(dir, 0755); err != nil {
+			t.Fatalf("Failed to create directory: %v", err)
+		}
+		mocks.Shell.ExecSilentWithEnvFunc = func(command string, env map[string]string, args ...string) (string, error) {
+			if command == "terraform" && len(args) >= 3 && args[1] == "show" && args[2] == "-json" {
+				return `{"values":{"root_module":{"resources":[{"address":"aws_s3_bucket.example"}]}}}`, nil
+			}
+			return "", nil
+		}
+
+		hasRemote, err := stack.HasOrphanedRemoteState("crossplane-identity-gcp")
+
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		if !hasRemote {
+			t.Error("Expected hasRemote=true when state has resources")
+		}
+	})
+
+	t.Run("ReturnsFalseWhenStateIsEmpty", func(t *testing.T) {
+		stack, mocks := setupWindsorStackMocksForOrphanTests(t)
+		projectRoot := os.Getenv("WINDSOR_PROJECT_ROOT")
+		contextName := mocks.Runtime.ContextName
+		dir := filepath.Join(projectRoot, ".windsor", "contexts", contextName, "terraform", "crossplane-identity-gcp")
+		if err := os.MkdirAll(dir, 0755); err != nil {
+			t.Fatalf("Failed to create directory: %v", err)
+		}
+		mocks.Shell.ExecSilentWithEnvFunc = func(command string, env map[string]string, args ...string) (string, error) {
+			if command == "terraform" && len(args) >= 3 && args[1] == "show" && args[2] == "-json" {
+				return `{}`, nil
+			}
+			return "", nil
+		}
+
+		hasRemote, err := stack.HasOrphanedRemoteState("crossplane-identity-gcp")
+
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		if hasRemote {
+			t.Error("Expected hasRemote=false when state is empty")
+		}
+	})
+
+	t.Run("ReturnsErrorWhenInitFails", func(t *testing.T) {
+		stack, mocks := setupWindsorStackMocksForOrphanTests(t)
+		projectRoot := os.Getenv("WINDSOR_PROJECT_ROOT")
+		contextName := mocks.Runtime.ContextName
+		dir := filepath.Join(projectRoot, ".windsor", "contexts", contextName, "terraform", "crossplane-identity-gcp")
+		if err := os.MkdirAll(dir, 0755); err != nil {
+			t.Fatalf("Failed to create directory: %v", err)
+		}
+		mocks.Shell.ExecSilentWithEnvFunc = func(command string, env map[string]string, args ...string) (string, error) {
+			if len(args) >= 2 && args[1] == "init" {
+				return "", fmt.Errorf("auth timeout")
+			}
+			return "", nil
+		}
+
+		_, err := stack.HasOrphanedRemoteState("crossplane-identity-gcp")
+		if err == nil {
+			t.Fatal("Expected error when terraform init fails")
+		}
+	})
+}
+
+func TestStack_MigrateOrphanedComponentState(t *testing.T) {
+	t.Run("NoOpWhenNoDirectoryExists", func(t *testing.T) {
+		stack, mocks := setupWindsorStackMocksForOrphanTests(t)
+		execCalled := false
+		mocks.Shell.ExecSilentWithEnvFunc = func(command string, env map[string]string, args ...string) (string, error) {
+			execCalled = true
+			return "", nil
+		}
+
+		if err := stack.MigrateOrphanedComponentState("crossplane-identity-gcp"); err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		if execCalled {
+			t.Error("Expected no terraform invocation when no directory exists")
+		}
+	})
+
+	t.Run("RunsInitWithMigrateStateAgainstOnDiskDirectory", func(t *testing.T) {
+		// Given a leftover local-state directory for a component that was renamed away
+		stack, mocks := setupWindsorStackMocksForOrphanTests(t)
+		projectRoot := os.Getenv("WINDSOR_PROJECT_ROOT")
+		contextName := mocks.Runtime.ContextName
+		dir := filepath.Join(projectRoot, ".windsor", "contexts", contextName, "terraform", "crossplane-identity-gcp")
+		if err := os.MkdirAll(dir, 0755); err != nil {
+			t.Fatalf("Failed to create directory: %v", err)
+		}
+
+		var migrateStateInits int
+		var initChdirs []string
+		mocks.Shell.ExecSilentWithEnvFunc = func(command string, env map[string]string, args ...string) (string, error) {
+			if len(args) >= 2 && args[1] == "init" && slices.Contains(args, "-migrate-state") {
+				migrateStateInits++
+				initChdirs = append(initChdirs, strings.TrimPrefix(args[0], "-chdir="))
+			}
+			return "", nil
+		}
+
+		if err := stack.MigrateOrphanedComponentState("crossplane-identity-gcp"); err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		if migrateStateInits != 1 {
+			t.Errorf("Expected 1 migrate-state init, got %d", migrateStateInits)
+		}
+		if len(initChdirs) != 1 || filepath.Clean(initChdirs[0]) != filepath.Clean(dir) {
+			t.Errorf("Expected init to run against %s, got %v", dir, initChdirs)
+		}
+	})
+
+	t.Run("ReturnsErrorWhenInitFails", func(t *testing.T) {
+		stack, mocks := setupWindsorStackMocksForOrphanTests(t)
+		projectRoot := os.Getenv("WINDSOR_PROJECT_ROOT")
+		contextName := mocks.Runtime.ContextName
+		dir := filepath.Join(projectRoot, ".windsor", "contexts", contextName, "terraform", "crossplane-identity-gcp")
+		if err := os.MkdirAll(dir, 0755); err != nil {
+			t.Fatalf("Failed to create directory: %v", err)
+		}
+		mocks.Shell.ExecSilentWithEnvFunc = func(command string, env map[string]string, args ...string) (string, error) {
+			if len(args) >= 2 && args[1] == "init" && slices.Contains(args, "-migrate-state") {
+				return "", fmt.Errorf("backend not reachable")
+			}
+			return "", nil
+		}
+
+		err := stack.MigrateOrphanedComponentState("crossplane-identity-gcp")
+		if err == nil {
+			t.Fatal("Expected error when terraform init fails")
+		}
+		if !strings.Contains(err.Error(), "backend not reachable") {
+			t.Errorf("Expected error to wrap the underlying cause, got %v", err)
+		}
+	})
+}
+
 func TestStack_DestroyAll(t *testing.T) {
 	setup := func(t *testing.T) (*TerraformStack, *TerraformTestMocks) {
 		t.Helper()
