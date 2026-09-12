@@ -777,7 +777,9 @@ func IsAuthenticationError(err error) bool {
 // ValidateCliVersion validates that the provided CLI version satisfies the cliVersion constraint
 // specified in the template metadata. If constraint is empty, validation is skipped.
 // If cliVersion is empty, validation is skipped (caller cannot determine version).
-// If the CLI version is "dev" or "main" or "latest", validation is skipped as these are development builds.
+// If the CLI version is "dev", "main", or "latest", validation is skipped as these are development builds.
+// If the CLI version starts with "nightly", validation is skipped: the nightly release builds a
+// non-SemVer snapshot string ("nightly-SNAPSHOT-<sha>") that has no real version to check.
 // A pre-release CLI version (e.g. "0.9.0-rc.1") is checked against its release version
 // (Masterminds/semver excludes pre-releases from a range unless the constraint itself
 // declares one, which would otherwise fail every release-candidate build against an
@@ -793,6 +795,10 @@ func ValidateCliVersion(cliVersion, constraint string) error {
 	}
 
 	if cliVersion == "dev" || cliVersion == "main" || cliVersion == "latest" {
+		return nil
+	}
+
+	if strings.HasPrefix(cliVersion, "nightly") {
 		return nil
 	}
 

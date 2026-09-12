@@ -442,6 +442,17 @@ func TestValidateCliVersion(t *testing.T) {
 		}
 	})
 
+	t.Run("ReturnsNilForNightlyVersion", func(t *testing.T) {
+		// Given the nightly release's snapshot version string
+		// When validating
+		err := ValidateCliVersion("nightly-SNAPSHOT-c6a65a53", ">=1.0.0")
+
+		// Then should return nil
+		if err != nil {
+			t.Errorf("Expected nil for nightly version, got: %v", err)
+		}
+	})
+
 	t.Run("ReturnsErrorForInvalidCliVersionFormat", func(t *testing.T) {
 		// Given an invalid CLI version format
 		// When validating
