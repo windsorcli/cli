@@ -6,23 +6,24 @@ import (
 
 // MockTerraformProvider is a mock implementation of TerraformProvider for testing.
 type MockTerraformProvider struct {
-	FindRelativeProjectPathFunc func(directory ...string) (string, error)
-	IsInTerraformProjectFunc    func() bool
-	GenerateBackendOverrideFunc func(directory string) error
-	GenerateTerraformArgsFunc   func(componentID string, interactive bool) (*TerraformArgs, error)
-	GetTerraformComponentFunc   func(componentID string) *blueprintv1alpha1.TerraformComponent
-	GetTerraformComponentsFunc  func() []blueprintv1alpha1.TerraformComponent
-	SetTerraformComponentsFunc  func(components []blueprintv1alpha1.TerraformComponent)
-	SetConfigScopeFunc          func(scope map[string]any)
-	GetTerraformOutputsFunc     func(componentID string) (map[string]any, error)
-	CacheOutputsFunc            func(componentID string) error
-	GetTFDataDirFunc            func(componentID string) (string, error)
-	GetStatePathFunc            func(componentID string) (string, error)
-	BackendConfigCompleteFunc   func() bool
-	GetEnvVarsFunc              func(componentID string, interactive bool) (map[string]string, []string, *TerraformArgs, error)
-	FormatArgsForEnvFunc        func(args []string) string
-	ClearCacheFunc              func()
-	TerraformScopedEnvKeysFunc  func() ([]string, error)
+	FindRelativeProjectPathFunc      func(directory ...string) (string, error)
+	IsInTerraformProjectFunc         func() bool
+	GenerateBackendOverrideFunc      func(directory string) error
+	GenerateTerraformArgsFunc        func(componentID string, interactive bool) (*TerraformArgs, error)
+	GetTerraformComponentFunc        func(componentID string) *blueprintv1alpha1.TerraformComponent
+	GetTerraformComponentsFunc       func() []blueprintv1alpha1.TerraformComponent
+	GetTerraformComponentForPathFunc func(directory string) *blueprintv1alpha1.TerraformComponent
+	SetTerraformComponentsFunc       func(components []blueprintv1alpha1.TerraformComponent)
+	SetConfigScopeFunc               func(scope map[string]any)
+	GetTerraformOutputsFunc          func(componentID string) (map[string]any, error)
+	CacheOutputsFunc                 func(componentID string) error
+	GetTFDataDirFunc                 func(componentID string) (string, error)
+	GetStatePathFunc                 func(componentID string) (string, error)
+	BackendConfigCompleteFunc        func() bool
+	GetEnvVarsFunc                   func(componentID string, interactive bool) (map[string]string, []string, *TerraformArgs, error)
+	FormatArgsForEnvFunc             func(args []string) string
+	ClearCacheFunc                   func()
+	TerraformScopedEnvKeysFunc       func() ([]string, error)
 }
 
 // FindRelativeProjectPath implements TerraformProvider.
@@ -71,6 +72,14 @@ func (m *MockTerraformProvider) GetTerraformComponents() []blueprintv1alpha1.Ter
 		return m.GetTerraformComponentsFunc()
 	}
 	return []blueprintv1alpha1.TerraformComponent{}
+}
+
+// GetTerraformComponentForPath implements TerraformProvider.
+func (m *MockTerraformProvider) GetTerraformComponentForPath(directory string) *blueprintv1alpha1.TerraformComponent {
+	if m.GetTerraformComponentForPathFunc != nil {
+		return m.GetTerraformComponentForPathFunc(directory)
+	}
+	return nil
 }
 
 // SetTerraformComponents implements TerraformProvider.

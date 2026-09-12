@@ -134,6 +134,12 @@ func setupMockTerraformProvider(mocks *EnvTestMocks) *terraform.MockTerraformPro
 		GetTerraformComponentsFunc: func() []blueprintv1alpha1.TerraformComponent {
 			return []blueprintv1alpha1.TerraformComponent{}
 		},
+		// Directory resolves to a component of the active blueprint by default, since most tests
+		// are exercising something other than this check. Tests for the "cwd not in the active
+		// blueprint" case override this to return nil.
+		GetTerraformComponentForPathFunc: func(directory string) *blueprintv1alpha1.TerraformComponent {
+			return &blueprintv1alpha1.TerraformComponent{FullPath: directory}
+		},
 		GetTFDataDirFunc: func(componentID string) (string, error) {
 			windsorScratchPath, err := mocks.ConfigHandler.GetWindsorScratchPath()
 			if err != nil {
@@ -885,6 +891,37 @@ func TestTerraformEnv_PostEnvHook(t *testing.T) {
 		}
 		if !strings.Contains(err.Error(), "error writing backend_override.tf") {
 			t.Errorf("Expected error message to contain 'error writing backend_override.tf', got %v", err)
+		}
+	})
+
+	t.Run("SkipsWhenDirectoryNotInActiveBlueprint", func(t *testing.T) {
+		printer, mocks := setup(t)
+
+		// Given a directory that has *.tf files but resolves to no component of the active
+		// blueprint — e.g. a terraform module directory shared on disk with another context
+		mockProvider := setupMockTerraformProvider(mocks)
+		mockProvider.FindRelativeProjectPathFunc = func(directory ...string) (string, error) {
+			return "cluster/gcp-gke", nil
+		}
+		mockProvider.GetTerraformComponentForPathFunc = func(directory string) *blueprintv1alpha1.TerraformComponent {
+			return nil
+		}
+		generateCalled := false
+		mockProvider.GenerateBackendOverrideFunc = func(directory string) error {
+			generateCalled = true
+			return nil
+		}
+		printer = setupTerraformEnvPrinter(t, mocks, mockProvider)
+
+		// When the PostEnvHook function is called
+		err := printer.PostEnvHook()
+
+		// Then it succeeds without writing a backend override into the unrelated directory
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+		if generateCalled {
+			t.Error("Expected GenerateBackendOverride not to be called for a directory outside the active blueprint")
 		}
 	})
 }

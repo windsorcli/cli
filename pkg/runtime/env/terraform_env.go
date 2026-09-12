@@ -105,7 +105,10 @@ func (e *TerraformEnvPrinter) GetEnvVars() (map[string]string, error) {
 	return terraformVars, err
 }
 
-// PostEnvHook executes operations after setting the environment variables.
+// PostEnvHook executes operations after setting the environment variables. It writes
+// backend_override.tf only when the directory resolves to a component of the active context's
+// blueprint (see GetTerraformComponentForPath) — terraform module directories are shared on disk
+// across contexts, so a bare *.tf-file check is not enough to confirm directory belongs here.
 func (e *TerraformEnvPrinter) PostEnvHook(directory ...string) error {
 	var currentPath string
 	if len(directory) > 0 {
@@ -122,6 +125,9 @@ func (e *TerraformEnvPrinter) PostEnvHook(directory ...string) error {
 		return fmt.Errorf("error finding project path: %w", err)
 	}
 	if projectPath == "" {
+		return nil
+	}
+	if e.terraformProvider.GetTerraformComponentForPath(currentPath) == nil {
 		return nil
 	}
 	return e.terraformProvider.GenerateBackendOverride(currentPath)

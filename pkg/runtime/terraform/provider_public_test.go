@@ -1258,6 +1258,73 @@ terraform:
 	})
 }
 
+func TestTerraformProvider_GetTerraformComponentForPath(t *testing.T) {
+	setup := func(t *testing.T) *Mocks {
+		t.Helper()
+		mocks := setupMocks(t)
+
+		configRoot := "/test/config"
+		mocks.ConfigHandler.GetConfigRootFunc = func() (string, error) {
+			return configRoot, nil
+		}
+
+		blueprintYAML := `apiVersion: blueprints.windsorcli.dev/v1alpha1
+kind: Blueprint
+metadata:
+  name: test
+terraform:
+  - path: test/path`
+
+		mocks.Provider.Shims.ReadFile = func(path string) ([]byte, error) {
+			if path == filepath.Join(configRoot, "blueprint.yaml") {
+				return []byte(blueprintYAML), nil
+			}
+			return nil, os.ErrNotExist
+		}
+
+		mocks.Shell.GetProjectRootFunc = func() (string, error) {
+			return "/test/project", nil
+		}
+
+		mocks.ConfigHandler.GetContextFunc = func() string {
+			return "default"
+		}
+
+		return mocks
+	}
+
+	t.Run("FindsComponentByFullPath", func(t *testing.T) {
+		// Given a blueprint with a component whose FullPath resolves under the project root
+		mocks := setup(t)
+		wantPath := filepath.Join("/test/project", "terraform", "test/path")
+
+		// When resolving that exact directory
+		component := mocks.Provider.GetTerraformComponentForPath(wantPath)
+
+		// Then the matching component is returned
+		if component == nil {
+			t.Fatal("Expected component to be found")
+		}
+		if component.Path != "test/path" {
+			t.Errorf("Expected component path to be 'test/path', got %s", component.Path)
+		}
+	})
+
+	t.Run("ReturnsNilWhenDirectoryNotInBlueprint", func(t *testing.T) {
+		// Given the same blueprint, and a directory none of its components resolve to — e.g. a
+		// terraform module directory shared on disk with a different context's blueprint
+		mocks := setup(t)
+
+		// When resolving an unrelated directory
+		component := mocks.Provider.GetTerraformComponentForPath("/test/project/terraform/cluster/gcp-gke")
+
+		// Then no component is returned
+		if component != nil {
+			t.Errorf("Expected nil for a directory outside the active blueprint, got %+v", component)
+		}
+	})
+}
+
 func TestTerraformProvider_ResolveModulePath(t *testing.T) {
 	t.Run("ResolvesPathForComponentWithName", func(t *testing.T) {
 		// Given a component with name
