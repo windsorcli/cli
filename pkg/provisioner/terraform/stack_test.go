@@ -1532,6 +1532,49 @@ func TestStack_DestroyAll(t *testing.T) {
 		}
 	})
 
+	t.Run("ClearsBackendPointerForComponentWithDestroyFalse", func(t *testing.T) {
+		// A skipped destroy: false component still gets its backend pointer cleared.
+		stack, mocks := setup(t)
+
+		mocks.Runtime.TerraformProvider.ClearCache()
+
+		var removed []string
+		mocks.Shims.Remove = func(path string) error {
+			removed = append(removed, filepath.ToSlash(path))
+			return nil
+		}
+
+		projectRoot := os.Getenv("WINDSOR_PROJECT_ROOT")
+		destroyFalse := false
+		blueprint := createTestBlueprint()
+		blueprint.TerraformComponents = []blueprintv1alpha1.TerraformComponent{
+			{
+				Source:   "source1",
+				Path:     "module/path1",
+				FullPath: filepath.Join(projectRoot, ".windsor", "contexts", "local", "terraform", "module/path1"),
+				Destroy:  &blueprintv1alpha1.BoolExpression{Value: &destroyFalse, IsExpr: false},
+			},
+		}
+		if err := os.MkdirAll(blueprint.TerraformComponents[0].FullPath, 0755); err != nil {
+			t.Fatalf("Failed to create directory: %v", err)
+		}
+
+		if _, err := stack.DestroyAll(blueprint, false); err != nil {
+			t.Errorf("Expected DestroyAll to return nil, got %v", err)
+		}
+
+		var pointerRemoved bool
+		for _, p := range removed {
+			if strings.HasSuffix(p, "/terraform.tfstate") {
+				pointerRemoved = true
+				break
+			}
+		}
+		if !pointerRemoved {
+			t.Errorf("Expected the backend pointer for the skipped component to be removed, got removals: %v", removed)
+		}
+	})
+
 	t.Run("ErrorRunningTerraformDestroy", func(t *testing.T) {
 		// DestroyAll runs every terraform subcommand via ExecSilentWithEnv so the outer
 		// "Destroying <path>" progress span is the only label the user sees. state list

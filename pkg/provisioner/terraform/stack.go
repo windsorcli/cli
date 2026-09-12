@@ -577,15 +577,18 @@ func (s *TerraformStack) MigrateComponentState(blueprint *blueprintv1alpha1.Blue
 	return nil
 }
 
-// DestroyAll destroys components in reverse dependency order using the idempotent flow:
-// init → pre-refresh state check → refresh → post-refresh state check → destroy, skipping
-// the rest when state is empty at either check. Components with Destroy=false are skipped.
-// excludeIDs are skipped entirely (used by symmetric-destroy flow at the cmd layer to peel
-// off the backend component from the bulk pass — it gets destroyed last, after its state
-// is migrated to local). When continueOnError is true, per-component destroy errors are
-// collected in DestroyOutcome.Failed and the loop proceeds to the next component; when
-// false, the first error aborts and is returned alongside a partial DestroyOutcome. Each
-// destroy is bounded by constants.DefaultTerraformDestroyTimeout; refresh by refreshBeforeDestroy.
+// DestroyAll destroys components in reverse dependency order. For each component, it runs
+// init, checks state, refreshes, checks state again, then destroys, skipping the rest of
+// the flow once state is empty.
+//
+//   - Destroy=false: skips the component, but still clears its backend pointer.
+//   - excludeIDs: skips the component entirely. The cmd layer uses this to destroy the
+//     backend component last, after migrating its state to local.
+//   - continueOnError=true: collects each error in DestroyOutcome.Failed and continues.
+//   - continueOnError=false: stops at the first error and returns a partial DestroyOutcome.
+//
+// Each destroy is bounded by constants.DefaultTerraformDestroyTimeout; each refresh by
+// refreshBeforeDestroy.
 func (s *TerraformStack) DestroyAll(blueprint *blueprintv1alpha1.Blueprint, continueOnError bool, excludeIDs ...string) (DestroyOutcome, error) {
 	var result DestroyOutcome
 	if blueprint == nil {
@@ -629,6 +632,9 @@ func (s *TerraformStack) DestroyAll(blueprint *blueprintv1alpha1.Blueprint, cont
 		if component.Destroy != nil {
 			destroy := component.Destroy.ToBool()
 			if destroy != nil && !*destroy {
+				if terraformVars, _, _, err := s.runtime.TerraformProvider.GetEnvVars(component.GetID(), false); err == nil {
+					s.clearBackendPointer(terraformVars)
+				}
 				continue
 			}
 		}
