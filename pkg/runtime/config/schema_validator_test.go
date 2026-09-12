@@ -986,6 +986,34 @@ func TestFlattenErrorList(t *testing.T) {
 		}
 	})
 
+	t.Run("FiltersThenAsStructuralNoise", func(t *testing.T) {
+		// Given a root "then" failure (the if condition matched but the then branch didn't),
+		// an unrelated required/type cascade, and one real const violation
+		list := &jsonschema.List{
+			Details: []jsonschema.List{
+				{InstanceLocation: "/", Errors: map[string]string{"then": "Value meets the 'if' condition but does not match the 'then' schema"}},
+				{InstanceLocation: "/", Errors: map[string]string{"required": "Required property 'identity' is missing"}},
+				{InstanceLocation: "/identity", Errors: map[string]string{"type": "Value is null but should be object"}},
+				{InstanceLocation: "/database/postgres/driver", Errors: map[string]string{"const": "Value does not match the constant value"}},
+			},
+		}
+
+		// When flattening
+		errs := flattenErrorList(list)
+
+		// Then only the const violation and a summary note survive; "then" does not leak
+		// through as if it were an actionable violation
+		if len(errs) != 2 {
+			t.Fatalf("Expected 2 errors, got %d: %v", len(errs), errs)
+		}
+		if !strings.Contains(errs[0], "/database/postgres/driver: const:") {
+			t.Errorf("Expected the const error first, got %v", errs)
+		}
+		if !strings.Contains(errs[1], "3 other error(s) are hidden") {
+			t.Errorf("Expected a summary note about hidden errors, got %v", errs)
+		}
+	})
+
 	t.Run("PreservesRelativeOrderWithinEachPriorityGroup", func(t *testing.T) {
 		// Given two specific (non-structural) failures and two structural failures, interleaved
 		list := &jsonschema.List{
