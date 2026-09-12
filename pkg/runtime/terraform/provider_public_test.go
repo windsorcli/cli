@@ -2624,8 +2624,8 @@ terraform:
 		if err == nil {
 			t.Error("Expected error when GetWindsorScratchPath fails")
 		}
-		if !strings.Contains(err.Error(), "windsor scratch path") {
-			t.Errorf("Expected error about windsor scratch path, got: %v", err)
+		if !strings.Contains(err.Error(), "scratch path error") {
+			t.Errorf("Expected error about scratch path, got: %v", err)
 		}
 	})
 }
@@ -3386,13 +3386,9 @@ terraform:
 		}
 		mocks.Provider.SetTerraformComponents([]blueprintv1alpha1.TerraformComponent{component})
 
-		callCount := 0
-		mocks.ConfigHandler.GetConfigRootFunc = func() (string, error) {
-			callCount++
-			if callCount <= 1 {
-				return "/test/config", nil
-			}
-			return "", errors.New("config root error")
+		// Only getBaseEnvVarsForComponent calls GetProjectRoot in this flow.
+		mocks.Shell.GetProjectRootFunc = func() (string, error) {
+			return "", errors.New("project root error")
 		}
 
 		_, _, _, err := mocks.Provider.GetEnvVars("cluster", false)
@@ -3400,8 +3396,8 @@ terraform:
 		if err == nil {
 			t.Fatal("Expected error when getBaseEnvVarsForComponent fails")
 		}
-		if !strings.Contains(err.Error(), "config root") {
-			t.Errorf("Expected error to mention config root, got: %v", err)
+		if !strings.Contains(err.Error(), "project root") {
+			t.Errorf("Expected error to mention project root, got: %v", err)
 		}
 	})
 
