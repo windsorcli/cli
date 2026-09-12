@@ -200,6 +200,39 @@ func TestBootstrapCmd(t *testing.T) {
 		}
 	})
 
+	t.Run("DoesNotPanicWhenContextOverrideOmitsComposer", func(t *testing.T) {
+		// Reproduces windsorcli/cli#3348: a --context override (setupGlobalContext, root.go)
+		// injects a *project.Project carrying only Runtime, leaving Composer nil. Before the
+		// fix, bootstrap's own NewProject fallback ran only when proj itself was nil, so this
+		// non-nil-but-Composer-nil proj reached proj.Composer.ArtifactBuilder and panicked.
+		mocks := setupBootstrapTest(t)
+		fullProj := newBootstrapTestProject(mocks)
+		bareProj := &project.Project{Runtime: mocks.Runtime}
+
+		loadBlueprintCalled := false
+		mocks.BlueprintHandler.LoadBlueprintFunc = func(urls ...string) error {
+			loadBlueprintCalled = true
+			return nil
+		}
+
+		cmd := createTestBootstrapCmd()
+		ctx := context.WithValue(context.Background(), projectOverridesKey, bareProj)
+		ctx = context.WithValue(ctx, composerOverridesKey, fullProj.Composer)
+		// A non-"local" context matches the actual repro and takes resolveBlueprintURL's
+		// early-return path, so this test doesn't also depend on a working ArtifactBuilder.
+		cmd.SetArgs([]string{"gcp-test", "--yes"})
+		cmd.SetContext(ctx)
+
+		// When executing bootstrap — this must not panic
+		_ = cmd.Execute()
+
+		// Then execution reached blueprint loading, which is only possible with a non-nil
+		// Composer — proving it got past the historical crash site.
+		if !loadBlueprintCalled {
+			t.Error("Expected LoadBlueprint to be called, proving Composer was defaulted")
+		}
+	})
+
 	t.Run("WaitFailureIsNonFatalWhenBlueprintHasMessages", func(t *testing.T) {
 		// Given a blueprint that carries a post-run message (a facet-declared manual step) and a wait
 		// that does not converge — a kustomization legitimately pending on that step

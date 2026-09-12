@@ -127,8 +127,16 @@ windsor bootstrap prod --yes`,
 			flagOverrides[parts[0]] = parts[1]
 		}
 
-		if proj == nil {
-			projectOpts := &project.Project{Runtime: rt}
+		// A --context override injects a project carrying only Runtime (setupGlobalContext,
+		// root.go), leaving Composer nil even though proj isn't. Route through NewProject
+		// whenever Composer is missing, not just when proj is nil, so it gets defaulted like
+		// every other command gets from configureProject. Reusing proj as the overrides
+		// preserves whatever it already set.
+		if proj == nil || proj.Composer == nil {
+			projectOpts := proj
+			if projectOpts == nil {
+				projectOpts = &project.Project{Runtime: rt}
+			}
 			if composerOverrideVal := cmd.Context().Value(composerOverridesKey); composerOverrideVal != nil {
 				projectOpts.Composer = composerOverrideVal.(*composer.Composer)
 			}
