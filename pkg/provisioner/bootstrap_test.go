@@ -1100,13 +1100,16 @@ func TestProvisioner_recoverHalfMigratedComponents(t *testing.T) {
 		}
 	})
 
-	t.Run("RecoversLocalStateStrandedUnderAComponentsPreviousID", func(t *testing.T) {
+	t.Run("DetectsAndWarnsAboutStateStrandedUnderAComponentsPreviousID", func(t *testing.T) {
 		// Reproduces windsorcli/cli#3324: a component renamed since its last partial
 		// apply leaves local state behind under its old ID. Before this fix,
 		// recoverHalfMigratedComponents only iterated the current blueprint's
 		// componentIDs, so "crossplane-identity-gcp" (the old ID; the blueprint now
-		// only declares "crossplane-identity") was invisible to the sweep and its
-		// local state was never migrated or cleaned up.
+		// only declares "crossplane-identity") was invisible to the sweep. The fix
+		// only detects and warns — it deliberately does not migrate or remove
+		// anything, since an orphaned ID is just as consistent with a proper
+		// destroy-then-remove as with a rename, and the two can't be told apart from
+		// an on-disk ID alone.
 		mocks := setupProvisionerMocks(t)
 		bp := &blueprintv1alpha1.Blueprint{
 			TerraformComponents: []blueprintv1alpha1.TerraformComponent{
@@ -1124,79 +1127,72 @@ func TestProvisioner_recoverHalfMigratedComponents(t *testing.T) {
 			}
 			return ""
 		}
-		var ops []string
-		mockCH.SetFunc = func(key string, value any) error {
-			if key == "terraform.backend.type" {
-				ops = append(ops, fmt.Sprintf("set:%v", value))
-			}
-			return nil
-		}
+		var probed []string
 		mockStack := terraforminfra.NewMockStack()
 		mockStack.ListLocalStateComponentIDsFunc = func() ([]string, error) {
 			return []string{"crossplane-identity-gcp"}, nil
 		}
 		mockStack.HasLocalStateWithResourcesFunc = func(componentID string) (bool, error) {
-			ops = append(ops, fmt.Sprintf("probe-local:%s", componentID))
+			probed = append(probed, componentID)
 			// Only the old ID has local state — "crossplane-identity" (the current,
 			// renamed-to ID) has never run, so it has none.
 			return componentID == "crossplane-identity-gcp", nil
 		}
-		mockStack.HasOrphanedRemoteStateFunc = func(componentID string) (bool, error) {
-			ops = append(ops, fmt.Sprintf("probe-orphaned-remote:%s", componentID))
-			return false, nil
-		}
-		mockStack.InitOrphanedComponentFunc = func(componentID string) (bool, error) {
-			ops = append(ops, fmt.Sprintf("init-orphaned:%s", componentID))
-			return true, nil
-		}
-		mockStack.MigrateOrphanedComponentStateFunc = func(componentID string) error {
-			ops = append(ops, fmt.Sprintf("migrate-orphaned:%s", componentID))
-			return nil
-		}
-		mockStack.RemoveLocalStateFunc = func(componentID string) error {
-			ops = append(ops, fmt.Sprintf("remove-local:%s", componentID))
-			return nil
-		}
 		mockStack.UpFunc = func(_ *blueprintv1alpha1.Blueprint, _ ...func(id string) (bool, error)) (bool, error) {
-			ops = append(ops, "up")
 			return false, nil
 		}
-		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{TerraformStack: mockStack})
 
-		if _, err := provisioner.Up(bp); err != nil {
+		// Capture stderr to verify the warning names the orphaned componentID.
+		r, w, pipeErr := os.Pipe()
+		if pipeErr != nil {
+			t.Fatalf("Pipe failed: %v", pipeErr)
+		}
+		origStderr := os.Stderr
+		os.Stderr = w
+		defer func() { os.Stderr = origStderr }()
+
+		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{TerraformStack: mockStack})
+		_, err := provisioner.Up(bp)
+
+		w.Close()
+		stderrBytes, _ := io.ReadAll(r)
+		stderrOutput := string(stderrBytes)
+
+		if err != nil {
 			t.Fatalf("Expected no error, got %v", err)
 		}
 
-		expected := []string{
-			// The current-blueprint sweep probes "crossplane-identity" (the new ID) and
-			// finds no local state, so it's skipped with no further ops. The orphan sweep
-			// then finds "crossplane-identity-gcp" (the old ID) still has local state.
-			"probe-local:crossplane-identity",
-			"probe-local:crossplane-identity-gcp",
-			"probe-orphaned-remote:crossplane-identity-gcp",
-			"set:local",
-			"init-orphaned:crossplane-identity-gcp",
-			"set:gcs",
-			"migrate-orphaned:crossplane-identity-gcp",
-			"remove-local:crossplane-identity-gcp",
-			"up",
+		// Both IDs get probed for local state — the current one by the sweep above,
+		// the orphaned one by the detection pass below.
+		expectedProbed := []string{"crossplane-identity", "crossplane-identity-gcp"}
+		if len(probed) != len(expectedProbed) {
+			t.Fatalf("Expected probes %v, got %v", expectedProbed, probed)
 		}
-		if len(ops) != len(expected) {
-			t.Fatalf("Expected ops %v, got %v", expected, ops)
-		}
-		for i, want := range expected {
-			if ops[i] != want {
-				t.Errorf("op %d: got %q, want %q (full: %v)", i, ops[i], want, ops)
+		for i, want := range expectedProbed {
+			if probed[i] != want {
+				t.Errorf("probe %d: got %q, want %q (full: %v)", i, probed[i], want, probed)
 			}
+		}
+		if !strings.Contains(stderrOutput, "crossplane-identity-gcp") {
+			t.Errorf("Expected a warning naming the orphaned componentID, got: %q", stderrOutput)
+		}
+		if !strings.Contains(stderrOutput, "not migrated automatically") {
+			t.Errorf("Expected the warning to say state was not migrated automatically, got: %q", stderrOutput)
 		}
 	})
 
-	t.Run("WarnsInsteadOfMigratingWhenOrphanedDirectoryIsGone", func(t *testing.T) {
-		// The orphaned component's local state file has resources, but its terraform
-		// directory no longer exists on disk (e.g. it was cleaned up separately).
-		// Recovery must not error or silently claim success — it warns and moves on.
+	t.Run("DoesNotTreatADisabledComponentAsOrphaned", func(t *testing.T) {
+		// A component the operator has merely toggled off (Enabled: false) is still
+		// declared in the blueprint — not renamed, not removed. The orphan-detection
+		// pass must not mistake it for one just because the enabled-only sweep above
+		// skips it before recording its ID.
 		mocks := setupProvisionerMocks(t)
-		bp := &blueprintv1alpha1.Blueprint{TerraformComponents: nil}
+		disabled := false
+		bp := &blueprintv1alpha1.Blueprint{
+			TerraformComponents: []blueprintv1alpha1.TerraformComponent{
+				{Path: "network", Enabled: &blueprintv1alpha1.BoolExpression{Value: &disabled, IsExpr: false}},
+			},
+		}
 
 		mockCH := mocks.ConfigHandler.(*config.MockConfigHandler)
 		mockCH.GetStringFunc = func(key string, defaultValue ...string) string {
@@ -1210,40 +1206,44 @@ func TestProvisioner_recoverHalfMigratedComponents(t *testing.T) {
 		}
 		mockStack := terraforminfra.NewMockStack()
 		mockStack.ListLocalStateComponentIDsFunc = func() ([]string, error) {
-			return []string{"crossplane-identity-gcp"}, nil
+			return []string{"network"}, nil
 		}
+		probeLocalCalled := false
 		mockStack.HasLocalStateWithResourcesFunc = func(componentID string) (bool, error) {
+			probeLocalCalled = true
 			return true, nil
-		}
-		mockStack.HasOrphanedRemoteStateFunc = func(componentID string) (bool, error) {
-			return false, nil
-		}
-		mockStack.InitOrphanedComponentFunc = func(componentID string) (bool, error) {
-			return false, nil
-		}
-		migrateCalled := false
-		mockStack.MigrateOrphanedComponentStateFunc = func(componentID string) error {
-			migrateCalled = true
-			return nil
-		}
-		removeCalled := false
-		mockStack.RemoveLocalStateFunc = func(componentID string) error {
-			removeCalled = true
-			return nil
 		}
 		mockStack.UpFunc = func(_ *blueprintv1alpha1.Blueprint, _ ...func(id string) (bool, error)) (bool, error) {
 			return false, nil
 		}
-		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{TerraformStack: mockStack})
 
-		if _, err := provisioner.Up(bp); err != nil {
+		r, w, pipeErr := os.Pipe()
+		if pipeErr != nil {
+			t.Fatalf("Pipe failed: %v", pipeErr)
+		}
+		origStderr := os.Stderr
+		os.Stderr = w
+		defer func() { os.Stderr = origStderr }()
+
+		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{TerraformStack: mockStack})
+		_, err := provisioner.Up(bp)
+
+		w.Close()
+		stderrBytes, _ := io.ReadAll(r)
+		stderrOutput := string(stderrBytes)
+
+		if err != nil {
 			t.Fatalf("Expected no error, got %v", err)
 		}
-		if migrateCalled {
-			t.Error("MigrateOrphanedComponentState must not run when the directory is gone")
+
+		// The enabled-only sweep skips "network" entirely (disabled), so its local
+		// state is never even probed there. The orphan-detection pass must also leave
+		// it alone — no probe, no warning — since "network" is still declared.
+		if probeLocalCalled {
+			t.Error("HasLocalStateWithResources must not be called for a disabled component")
 		}
-		if removeCalled {
-			t.Error("RemoveLocalState must not run when nothing was migrated")
+		if strings.Contains(stderrOutput, "network") {
+			t.Errorf("Expected no warning about a still-declared component, got: %q", stderrOutput)
 		}
 	})
 }

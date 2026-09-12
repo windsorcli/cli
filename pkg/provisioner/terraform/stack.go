@@ -217,9 +217,6 @@ type Stack interface {
 	InitComponent(blueprint *blueprintv1alpha1.Blueprint, componentID string) error
 	RemoveLocalState(componentID string) error
 	ListLocalStateComponentIDs() ([]string, error)
-	InitOrphanedComponent(componentID string) (bool, error)
-	HasOrphanedRemoteState(componentID string) (bool, error)
-	MigrateOrphanedComponentState(componentID string) error
 	PostApply(fns ...func(id string) error)
 	DestroyAll(blueprint *blueprintv1alpha1.Blueprint, continueOnError bool, excludeIDs ...string) (DestroyOutcome, error)
 	Plan(blueprint *blueprintv1alpha1.Blueprint, componentID string) error
@@ -476,58 +473,6 @@ func (s *TerraformStack) RemoveLocalState(componentID string) error {
 // TerraformProvider owns the on-disk .tfstate layout.
 func (s *TerraformStack) ListLocalStateComponentIDs() ([]string, error) {
 	return s.runtime.TerraformProvider.ListLocalStateComponentIDs()
-}
-
-// InitOrphanedComponent runs `terraform init` for a componentID no longer declared in the
-// blueprint, using the on-disk directory convention in place of a blueprint lookup. Returns
-// (false, nil), not an error, when no directory exists under either convention: module
-// resolution never recreates one for an ID absent from the blueprint, so there is nothing to
-// run terraform against.
-func (s *TerraformStack) InitOrphanedComponent(componentID string) (bool, error) {
-	fullPath := s.orphanedComponentFullPath(componentID)
-	if fullPath == "" {
-		return false, nil
-	}
-	component := &blueprintv1alpha1.TerraformComponent{Path: componentID, FullPath: fullPath}
-	terraformVars, scopedKeys, terraformArgs, err := s.setupTerraformEnvironment(*component)
-	if err != nil {
-		return false, err
-	}
-	return true, s.runTerraformInit(component, terraformVars, scopedKeys, terraformArgs, defaultInitFlags...)
-}
-
-// HasOrphanedRemoteState mirrors HasRemoteState for a componentID no longer declared in the
-// blueprint. Returns (false, nil) when its on-disk directory is gone.
-func (s *TerraformStack) HasOrphanedRemoteState(componentID string) (bool, error) {
-	fullPath := s.orphanedComponentFullPath(componentID)
-	if fullPath == "" {
-		return false, nil
-	}
-	component := &blueprintv1alpha1.TerraformComponent{Path: componentID, FullPath: fullPath}
-	terraformVars, scopedKeys, terraformArgs, err := s.setupTerraformEnvironment(*component)
-	if err != nil {
-		return false, err
-	}
-	if err := s.runTerraformInit(component, terraformVars, scopedKeys, terraformArgs, defaultInitFlags...); err != nil {
-		return false, err
-	}
-	return s.hasStateResources(component, terraformVars, scopedKeys)
-}
-
-// MigrateOrphanedComponentState mirrors MigrateComponentState for a componentID no longer
-// declared in the blueprint, running `terraform init -migrate-state -force-copy` against its
-// on-disk directory. A no-op when that directory is gone.
-func (s *TerraformStack) MigrateOrphanedComponentState(componentID string) error {
-	fullPath := s.orphanedComponentFullPath(componentID)
-	if fullPath == "" {
-		return nil
-	}
-	component := &blueprintv1alpha1.TerraformComponent{Path: componentID, FullPath: fullPath}
-	terraformVars, scopedKeys, terraformArgs, err := s.setupTerraformEnvironment(*component)
-	if err != nil {
-		return err
-	}
-	return s.runTerraformInit(component, terraformVars, scopedKeys, terraformArgs, "-migrate-state", "-force-copy")
 }
 
 // MigrateState runs `terraform init -migrate-state -force-copy` per component to move state
@@ -1156,24 +1101,6 @@ func (s *TerraformStack) PlanComponentSummary(blueprint *blueprintv1alpha1.Bluep
 // streaming its terraform output. Shared by every per-component loop over all components.
 func (s *TerraformStack) printComponentHeader(componentPath string) {
 	fmt.Fprintf(os.Stderr, "\n%s\n", tui.SectionHeader("Terraform: "+componentPath))
-}
-
-// orphanedComponentFullPath resolves the on-disk terraform module directory for a componentID
-// no longer declared in the blueprint (typically because the component was renamed), trying
-// both directory conventions resolveComponentPaths uses for a live component: the
-// windsor-managed scratch cache first (a source- or name-based component), then the plain
-// project-relative layout (a bare local component). Returns "" when neither exists.
-func (s *TerraformStack) orphanedComponentFullPath(componentID string) string {
-	projectRoot := s.runtime.ProjectRoot
-	scratchPath := filepath.FromSlash(filepath.Join(projectRoot, ".windsor", "contexts", s.runtime.ContextName, "terraform", componentID))
-	if _, err := s.shims.Stat(scratchPath); err == nil {
-		return scratchPath
-	}
-	localPath := filepath.FromSlash(filepath.Join(projectRoot, "terraform", componentID))
-	if _, err := s.shims.Stat(localPath); err == nil {
-		return localPath
-	}
-	return ""
 }
 
 // migrateOneComponent runs `terraform init -migrate-state -force-copy` for a single
