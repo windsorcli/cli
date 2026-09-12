@@ -375,7 +375,7 @@ func collectSensitivePaths(schema map[string]any, prefix string, out *[]string) 
 
 // structuralValidationKeywords are keywords whose failure is a symptom of a nested, more
 // specific failure elsewhere rather than the actionable violation itself — "properties" only
-// ever says "property X doesn't match its schema", never why; "allOf"/"anyOf"/"oneOf"/"if"
+// ever says "property X doesn't match its schema", never why; "allOf"/"anyOf"/"oneOf"/"if"/"then"
 // are the same shape one level up. collectErrors sorts these after every other keyword so an
 // operator sees the specific cause (additionalProperties, const, required, type, ...) first,
 // instead of every ancestor schema that failed as a consequence of it.
@@ -385,6 +385,7 @@ var structuralValidationKeywords = map[string]bool{
 	"anyOf":      true,
 	"oneOf":      true,
 	"if":         true,
+	"then":       true,
 }
 
 // validationError pairs a formatted error line with its instance location, keyword, and message.
