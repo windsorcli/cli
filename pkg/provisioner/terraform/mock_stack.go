@@ -22,6 +22,7 @@ type MockStack struct {
 	HasLocalStateWithResourcesFunc  func(componentID string) (bool, error)
 	InitComponentFunc               func(blueprint *blueprintv1alpha1.Blueprint, componentID string) error
 	RemoveLocalStateFunc            func(componentID string) error
+	ListLocalStateComponentIDsFunc  func() ([]string, error)
 	PostApplyFunc                   func(fns ...func(id string) error)
 	DestroyAllFunc                  func(blueprint *blueprintv1alpha1.Blueprint, continueOnError bool, excludeIDs ...string) (DestroyOutcome, error)
 	PlanFunc                        func(blueprint *blueprintv1alpha1.Blueprint, componentID string) error
@@ -105,6 +106,14 @@ func (m *MockStack) RemoveLocalState(componentID string) error {
 		return m.RemoveLocalStateFunc(componentID)
 	}
 	return nil
+}
+
+// ListLocalStateComponentIDs is a mock implementation of the ListLocalStateComponentIDs method.
+func (m *MockStack) ListLocalStateComponentIDs() ([]string, error) {
+	if m.ListLocalStateComponentIDsFunc != nil {
+		return m.ListLocalStateComponentIDsFunc()
+	}
+	return nil, nil
 }
 
 // PostApply is a mock implementation of the PostApply method.

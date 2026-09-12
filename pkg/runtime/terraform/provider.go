@@ -95,6 +95,7 @@ type TerraformProvider interface {
 	CacheOutputs(componentID string) error
 	GetTFDataDir(componentID string) (string, error)
 	GetStatePath(componentID string) (string, error)
+	ListLocalStateComponentIDs() ([]string, error)
 	BackendConfigComplete() bool
 	GetEnvVars(componentID string, interactive bool) (map[string]string, []string, *TerraformArgs, error)
 	FormatArgsForEnv(args []string) string
@@ -728,6 +729,32 @@ func (p *terraformProvider) GetStatePath(componentID string) (string, error) {
 	return statePath, nil
 }
 
+// ListLocalStateComponentIDs returns every componentID with a local Terraform state file on
+// disk, whether or not that componentID is still declared in the active blueprint. Used by the
+// bootstrap recovery sweep to find state stranded under a component's previous ID after a
+// rename — recoverHalfMigratedComponents only iterates the current blueprint's componentIDs, so
+// a renamed component's old state is otherwise invisible to it. Walks the same directory tree
+// GetStatePath writes into, so the two stay in sync by construction. A missing .tfstate root is
+// not an error: it just means nothing has ever applied locally.
+func (p *terraformProvider) ListLocalStateComponentIDs() ([]string, error) {
+	_, _, windsorScratchPath, err := p.providerScope()
+	if err != nil {
+		return nil, fmt.Errorf("error resolving provider scope: %w", err)
+	}
+
+	root := filepath.Join(windsorScratchPath, ".tfstate")
+	if prefix := p.configHandler.GetString("terraform.backend.prefix", ""); prefix != "" {
+		root = filepath.Join(root, prefix)
+	}
+
+	var ids []string
+	if err := p.walkLocalStateDir(root, "", &ids); err != nil {
+		return nil, err
+	}
+	sort.Strings(ids)
+	return ids, nil
+}
+
 // BackendConfigComplete reports whether the configured remote backend has
 // enough config — a backend.tfvars file or a populated nested config block —
 // for `terraform init` to even attempt connecting. Local/empty backends are
@@ -783,6 +810,41 @@ func (p *terraformProvider) BackendConfigComplete() bool {
 // =============================================================================
 // Private Methods
 // =============================================================================
+
+// walkLocalStateDir recursively visits dir, collecting one componentID (its path relative to
+// the .tfstate root, using "/" as the separator) per directory that directly contains a
+// terraform.tfstate file. componentIDs may nest — a component's Path can itself contain
+// slashes — so this walks the full tree rather than assuming a flat, one-level layout.
+func (p *terraformProvider) walkLocalStateDir(dir, rel string, ids *[]string) error {
+	entries, err := p.Shims.ReadDir(dir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return fmt.Errorf("error reading local state directory %s: %w", dir, err)
+	}
+
+	hasState := false
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			if entry.Name() == "terraform.tfstate" {
+				hasState = true
+			}
+			continue
+		}
+		childRel := entry.Name()
+		if rel != "" {
+			childRel = rel + "/" + entry.Name()
+		}
+		if err := p.walkLocalStateDir(filepath.Join(dir, entry.Name()), childRel, ids); err != nil {
+			return err
+		}
+	}
+	if hasState && rel != "" {
+		*ids = append(*ids, rel)
+	}
+	return nil
+}
 
 // providerScope resolves the active context, config root, and Windsor scratch path once, then
 // reuses the result. configHandler.GetContext() reads a file shared by every windsor process in

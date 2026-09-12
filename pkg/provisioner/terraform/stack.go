@@ -216,6 +216,7 @@ type Stack interface {
 	HasLocalStateWithResources(componentID string) (bool, error)
 	InitComponent(blueprint *blueprintv1alpha1.Blueprint, componentID string) error
 	RemoveLocalState(componentID string) error
+	ListLocalStateComponentIDs() ([]string, error)
 	PostApply(fns ...func(id string) error)
 	DestroyAll(blueprint *blueprintv1alpha1.Blueprint, continueOnError bool, excludeIDs ...string) (DestroyOutcome, error)
 	Plan(blueprint *blueprintv1alpha1.Blueprint, componentID string) error
@@ -465,6 +466,13 @@ func (s *TerraformStack) RemoveLocalState(componentID string) error {
 		return fmt.Errorf("error removing local state backup %s: %w", statePath, err)
 	}
 	return nil
+}
+
+// ListLocalStateComponentIDs returns every componentID with local Terraform state on disk,
+// whether or not it is still declared in the active blueprint. Thin passthrough:
+// TerraformProvider owns the on-disk .tfstate layout.
+func (s *TerraformStack) ListLocalStateComponentIDs() ([]string, error) {
+	return s.runtime.TerraformProvider.ListLocalStateComponentIDs()
 }
 
 // MigrateState runs `terraform init -migrate-state -force-copy` per component to move state

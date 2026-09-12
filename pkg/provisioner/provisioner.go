@@ -350,6 +350,18 @@ func (i *Provisioner) RemoveLocalState(componentID string) error {
 	return i.TerraformStack.RemoveLocalState(componentID)
 }
 
+// ListLocalStateComponentIDs returns every componentID with local Terraform state on disk,
+// whether or not it is still declared in the active blueprint.
+func (i *Provisioner) ListLocalStateComponentIDs() ([]string, error) {
+	if err := i.ensureTerraformStack(); err != nil {
+		return nil, err
+	}
+	if i.TerraformStack == nil {
+		return nil, fmt.Errorf("terraform is disabled")
+	}
+	return i.TerraformStack.ListLocalStateComponentIDs()
+}
+
 // Down destroys the "workstation" terraform component if it is present in the blueprint, then returns.
 // All other terraform components are left untouched; use Destroy / DestroyAll for those.
 // If terraform is disabled or the blueprint has no "workstation" component, Down is a no-op.
@@ -1923,18 +1935,29 @@ func hasEnabledTerraformComponent(blueprint *blueprintv1alpha1.Blueprint) bool {
 	return false
 }
 
-// recoverHalfMigratedComponents migrates leftover local state to the
-// configured remote backend for components with local state but no remote
-// state — typical residue from an interrupted bootstrap. Per affected
-// component: init under local override (resets the pointer to local), exit
-// override, migrate local→remote, remove the local file. Local-backend
-// contexts short-circuit. Probe failures abort with the underlying error
-// rather than fall through; -force-copy would otherwise overwrite good
-// remote state with stale local content.
+// recoverHalfMigratedComponents migrates leftover local state to the configured remote
+// backend. It targets components with local state but no remote state — typical residue from
+// an interrupted bootstrap.
+//
+//   - Local backend: skip the sweep entirely.
+//   - Per component: init under a local backend override, exit the override, migrate the
+//     local state to remote, then remove the local file.
+//   - Probe failure: abort with the underlying error. Otherwise -force-copy could overwrite
+//     good remote state with a stale local file.
+//   - Disabled component: still counts as declared. The sweep above skips it, but it must
+//     not be mistaken for an orphan below.
+//
+// After the sweep, warnAboutOrphanedLocalState checks for local state under a componentID no
+// longer in the blueprint (usually a rename) and warns instead of migrating it.
 func (i *Provisioner) recoverHalfMigratedComponents(blueprint *blueprintv1alpha1.Blueprint) error {
 	backendType := i.configHandler.GetTerraformBackendType()
 	if backendType == "" || backendType == "local" {
 		return nil
+	}
+
+	currentIDs := make(map[string]bool, len(blueprint.TerraformComponents))
+	for _, c := range blueprint.TerraformComponents {
+		currentIDs[c.GetID()] = true
 	}
 
 	for _, c := range blueprint.TerraformComponents {
@@ -1978,6 +2001,43 @@ func (i *Provisioner) recoverHalfMigratedComponents(blueprint *blueprintv1alpha1
 		}); err != nil {
 			return fmt.Errorf("recovery sweep failed for %s: %w", componentID, err)
 		}
+	}
+
+	return i.warnAboutOrphanedLocalState(currentIDs)
+}
+
+// warnAboutOrphanedLocalState finds componentIDs that still have local Terraform state with
+// resources on disk but no longer appear in the blueprint — typically because the component
+// was renamed. Without this, such state is invisible to the sweep above, which only iterates
+// the current blueprint's componentIDs. currentIDs is the set already handled by that sweep,
+// so this only visits IDs it skipped.
+//
+// This deliberately only detects and warns; it does not migrate or remove anything. An
+// orphaned ID is just as consistent with the component having been properly destroyed and
+// removed from the blueprint as with a rename — the two are indistinguishable from an on-disk
+// ID alone — and force-copying into the shared remote backend is not safe to run unattended
+// for either case: a decommissioned component's stale local state would get published into
+// the shared backend forever, under an ID nothing will ever reference again.
+func (i *Provisioner) warnAboutOrphanedLocalState(currentIDs map[string]bool) error {
+	localIDs, err := i.ListLocalStateComponentIDs()
+	if err != nil {
+		return fmt.Errorf("error listing local state during recovery sweep: %w", err)
+	}
+
+	for _, componentID := range localIDs {
+		if currentIDs[componentID] {
+			continue
+		}
+
+		hasLocal, err := i.HasLocalStateWithResources(componentID)
+		if err != nil {
+			return fmt.Errorf("error inspecting local state for %s during recovery sweep: %w", componentID, err)
+		}
+		if !hasLocal {
+			continue
+		}
+
+		fmt.Fprintf(os.Stderr, "warning: found local terraform state for %q, which is no longer in the blueprint; state was not migrated automatically — if this component was renamed, re-add it under this ID to migrate its state, or reconcile it manually\n", componentID)
 	}
 	return nil
 }

@@ -1215,6 +1215,51 @@ func TestStack_MigrateComponentState(t *testing.T) {
 	})
 }
 
+func TestStack_ListLocalStateComponentIDs(t *testing.T) {
+	setup := func(t *testing.T) (*TerraformStack, *TerraformTestMocks) {
+		t.Helper()
+		mocks := setupWindsorStackMocks(t)
+		stack := NewStack(mocks.Runtime).(*TerraformStack)
+		stack.shims = mocks.Shims
+		return stack, mocks
+	}
+
+	t.Run("DelegatesToTerraformProvider", func(t *testing.T) {
+		// Given a stack whose TerraformProvider reports two componentIDs with local state
+		stack, mocks := setup(t)
+		mocks.Runtime.TerraformProvider = &terraformRuntime.MockTerraformProvider{
+			ListLocalStateComponentIDsFunc: func() ([]string, error) {
+				return []string{"network", "crossplane-identity-gcp"}, nil
+			},
+		}
+
+		// When listing local state componentIDs
+		ids, err := stack.ListLocalStateComponentIDs()
+
+		// Then the TerraformProvider's own list is returned unchanged
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		if len(ids) != 2 || ids[0] != "network" || ids[1] != "crossplane-identity-gcp" {
+			t.Errorf("Expected the provider's componentIDs, got %v", ids)
+		}
+	})
+
+	t.Run("PropagatesProviderError", func(t *testing.T) {
+		stack, mocks := setup(t)
+		mocks.Runtime.TerraformProvider = &terraformRuntime.MockTerraformProvider{
+			ListLocalStateComponentIDsFunc: func() ([]string, error) {
+				return nil, fmt.Errorf("scratch path error")
+			},
+		}
+
+		_, err := stack.ListLocalStateComponentIDs()
+		if err == nil {
+			t.Fatal("Expected error, got nil")
+		}
+	})
+}
+
 func TestStack_DestroyAll(t *testing.T) {
 	setup := func(t *testing.T) (*TerraformStack, *TerraformTestMocks) {
 		t.Helper()

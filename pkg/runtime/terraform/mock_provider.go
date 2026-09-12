@@ -19,6 +19,7 @@ type MockTerraformProvider struct {
 	CacheOutputsFunc                 func(componentID string) error
 	GetTFDataDirFunc                 func(componentID string) (string, error)
 	GetStatePathFunc                 func(componentID string) (string, error)
+	ListLocalStateComponentIDsFunc   func() ([]string, error)
 	BackendConfigCompleteFunc        func() bool
 	GetEnvVarsFunc                   func(componentID string, interactive bool) (map[string]string, []string, *TerraformArgs, error)
 	FormatArgsForEnvFunc             func(args []string) string
@@ -126,6 +127,14 @@ func (m *MockTerraformProvider) GetStatePath(componentID string) (string, error)
 		return m.GetStatePathFunc(componentID)
 	}
 	return "", nil
+}
+
+// ListLocalStateComponentIDs implements TerraformProvider.
+func (m *MockTerraformProvider) ListLocalStateComponentIDs() ([]string, error) {
+	if m.ListLocalStateComponentIDsFunc != nil {
+		return m.ListLocalStateComponentIDsFunc()
+	}
+	return nil, nil
 }
 
 // BackendConfigComplete implements TerraformProvider. Default is true so most
