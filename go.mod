@@ -1,6 +1,6 @@
 module github.com/windsorcli/cli
 
-go 1.27
+go 1.27.0
 
 require (
 	github.com/1password/onepassword-sdk-go v0.4.1
@@ -18,7 +18,7 @@ require (
 	github.com/google/go-containerregistry v0.22.1
 	github.com/google/go-jsonnet v0.22.0
 	github.com/hashicorp/hcl/v2 v2.24.0
-	github.com/kaptinlin/jsonschema v0.9.9
+	github.com/kaptinlin/jsonschema v0.9.10
 	github.com/shirou/gopsutil v3.21.11+incompatible
 	github.com/siderolabs/talos/pkg/machinery v1.14.0
 	github.com/spf13/cobra v1.10.2
@@ -108,6 +108,7 @@ require (
 	github.com/tetratelabs/wabin v0.0.0-20230304001439-f6f874872834 // indirect
 	github.com/tetratelabs/wazero v1.11.0 // indirect
 	github.com/x448/float16 v0.8.4 // indirect
+	github.com/yosida95/uritemplate/v3 v3.0.2 // indirect
 	github.com/yusufpapurcu/wmi v1.2.4 // indirect
 	go.opentelemetry.io/proto/otlp v1.9.0 // indirect
 	go.uber.org/multierr v1.11.0 // indirect
