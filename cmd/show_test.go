@@ -107,7 +107,6 @@ func setupShowTest(t *testing.T, opts ...*SetupOptions) *ShowMocks {
 	mockBlueprintHandler.GetDeferredPathsFunc = func() map[string]bool {
 		return map[string]bool{
 			"terraform.test-component.inputs.deferred":                     true,
-			"kustomize.test-kustomization.path":                            true,
 			"kustomize.test-kustomization.substitutions.DEFERRED_ENDPOINT": true,
 		}
 	}
@@ -819,7 +818,6 @@ func TestShowValuesCmd(t *testing.T) {
 func TestShowKustomizationCmd(t *testing.T) {
 	createTestCmd := func() *cobra.Command {
 		showKustomizationJSON = false
-		showKustomizationRaw = false
 		cmd := &cobra.Command{
 			Use:          "kustomization",
 			Short:        "Display the Flux Kustomization resource for a component",
@@ -924,8 +922,8 @@ func TestShowKustomizationCmd(t *testing.T) {
 		if kustomization.APIVersion != "kustomize.toolkit.fluxcd.io/v1" {
 			t.Errorf("Expected APIVersion 'kustomize.toolkit.fluxcd.io/v1', got %q", kustomization.APIVersion)
 		}
-		if got := kustomization.Spec.Path; got != "<deferred>" {
-			t.Errorf("Expected deferred kustomization path to be <deferred>, got %q", got)
+		if got := kustomization.Spec.Path; got != "kustomize/${terraform_output(\"cluster\", \"path\")}" {
+			t.Errorf("Expected kustomization path unredacted (a Kustomization's Path is never deferred in practice), got %q", got)
 		}
 
 		if stderr.String() != "" {
@@ -971,51 +969,10 @@ func TestShowKustomizationCmd(t *testing.T) {
 		if !strings.Contains(output, "\"kind\"") {
 			t.Error("Expected JSON output to contain JSON structure")
 		}
-		if got := kustomization.Spec.Path; got != "<deferred>" {
-			t.Errorf("Expected deferred kustomization path to be <deferred>, got %q", got)
-		}
-
-		if stderr.String() != "" {
-			t.Error("Expected empty stderr")
-		}
-	})
-
-	t.Run("SuccessWithRawYAMLOutput", func(t *testing.T) {
-		mocks := setupShowTest(t)
-
-		comp := composer.NewComposer(mocks.Runtime)
-		comp.BlueprintHandler = mocks.BlueprintHandler
-
-		proj := project.NewProject("", &project.Project{
-			Runtime:  mocks.Runtime,
-			Composer: comp,
-		})
-
-		stdout, stderr, closePipes := setupOutput(t)
-
-		cmd := createTestCmd()
-		ctx := context.WithValue(context.Background(), projectOverridesKey, proj)
-		cmd.SetContext(ctx)
-		cmd.SetArgs([]string{"test-kustomization", "--raw"})
-		_ = cmd.Execute()
-
-		closePipes()
-
-		output := stdout.String()
-		if output == "" {
-			t.Error("Expected non-empty stdout output")
-		}
-
-		var kustomization kustomizev1.Kustomization
-		if err := yaml.Unmarshal([]byte(output), &kustomization); err != nil {
-			t.Errorf("Expected valid YAML output, got error: %v", err)
-		}
 		if got := kustomization.Spec.Path; got != "kustomize/${terraform_output(\"cluster\", \"path\")}" {
-			t.Errorf("Expected deferred path to remain expression in raw mode, got %q", got)
+			t.Errorf("Expected kustomization path unredacted (a Kustomization's Path is never deferred in practice), got %q", got)
 		}
-		if strings.Contains(output, "<deferred>") {
-			t.Error("Expected raw mode output to not contain <deferred>")
-		}
+
 		if stderr.String() != "" {
 			t.Error("Expected empty stderr")
 		}
@@ -1345,12 +1302,8 @@ func TestShowKustomizationCmd(t *testing.T) {
 		if jsonFlag.Usage == "" {
 			t.Error("Expected non-empty flag usage")
 		}
-		rawFlag := cmd.Flags().Lookup("raw")
-		if rawFlag == nil {
-			t.Error("Expected --raw flag to be defined")
-		}
-		if rawFlag.Usage == "" {
-			t.Error("Expected non-empty raw flag usage")
+		if cmd.Flags().Lookup("raw") != nil {
+			t.Error("Expected no --raw flag: a Kustomization's Path can never be deferred")
 		}
 	})
 }

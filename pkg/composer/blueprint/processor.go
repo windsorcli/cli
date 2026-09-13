@@ -1230,9 +1230,8 @@ func (p *BaseBlueprintProcessor) collectKustomizations(facet blueprintv1alpha1.F
 				return fmt.Errorf("error evaluating path for kustomization '%s': %w", processed.Name, err)
 			}
 			if containsDeferredInValue(evaluatedPath) {
-				p.markDeferredPath("kustomize." + processed.Name + ".path")
+				return fmt.Errorf("kustomization '%s' path references a terraform output that is not yet available; a path must resolve at compose time, not after a terraform apply", processed.Name)
 			}
-			evaluatedPath = normalizeDeferredValue(evaluatedPath)
 			if pathStr, ok := evaluatedPath.(string); ok {
 				processed.Path = pathStr
 			} else if evaluatedPath != nil {

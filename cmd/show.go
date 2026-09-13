@@ -19,7 +19,6 @@ import (
 var showBlueprintJSON bool
 var showBlueprintRaw bool
 var showKustomizationJSON bool
-var showKustomizationRaw bool
 var showValuesJSON bool
 
 var showCmd = &cobra.Command{
@@ -79,7 +78,7 @@ var showKustomizationCmd = &cobra.Command{
 	Use:     "kustomization [component-name]",
 	Aliases: []string{"kustomizations"},
 	Short:   "Display the Flux Kustomization resource for a component.",
-	Long:    `Print the Flux Kustomization resource for the named component, including blueprint-level ConfigMaps in postBuild.substituteFrom. The output matches what 'windsor apply' would write to the cluster. Omit the name to list every compiled component. Defaults to YAML; use --json for JSON. Unresolved deferred values render as '<deferred>' by default; use --raw to keep the original expression text instead.`,
+	Long:    `Print the Flux Kustomization resource for the named component, including blueprint-level ConfigMaps in postBuild.substituteFrom. The output matches what 'windsor apply' would write to the cluster. Omit the name to list every compiled component. Defaults to YAML; use --json for JSON.`,
 	Example: `# List every compiled component
 windsor show kustomization
 
@@ -123,7 +122,7 @@ windsor show kustomization dns --json`,
 		namespace := proj.Runtime.ConfigHandler.GetString("gitops.namespace", constants.DefaultGitopsNamespace)
 		mode := constants.ParseGitopsMode(proj.Runtime.ConfigHandler.GetString("gitops.mode", ""))
 		fluxKustomization := buildFluxKustomization(blueprint, &kustomization, namespace, mode)
-		resource := blueprintcomposer.RenderForDisplay(fluxKustomization, showKustomizationRaw, deferredPaths)
+		resource := blueprintcomposer.RenderForDisplay(fluxKustomization, true, deferredPaths)
 
 		if err := outputResource(resource, showKustomizationJSON, "kustomization"); err != nil {
 			return err
@@ -173,7 +172,6 @@ func init() {
 	showBlueprintCmd.Flags().BoolVar(&showBlueprintJSON, "json", false, "Output as JSON instead of YAML.")
 	showBlueprintCmd.Flags().BoolVar(&showBlueprintRaw, "raw", false, "Keep deferred expressions as text instead of <deferred>.")
 	showKustomizationCmd.Flags().BoolVar(&showKustomizationJSON, "json", false, "Output as JSON instead of YAML.")
-	showKustomizationCmd.Flags().BoolVar(&showKustomizationRaw, "raw", false, "Keep deferred expressions as text instead of <deferred>.")
 	showValuesCmd.Flags().BoolVar(&showValuesJSON, "json", false, "Output as JSON instead of YAML.")
 	showCmd.AddCommand(showBlueprintCmd)
 	showCmd.AddCommand(showKustomizationCmd)

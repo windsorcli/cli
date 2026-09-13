@@ -2327,6 +2327,31 @@ func TestBaseKubernetesManager_ApplyConfigMap(t *testing.T) {
 		}
 	})
 
+	t.Run("RefusesUnresolvedExpression", func(t *testing.T) {
+		manager := setup(t)
+		kubernetesClient := client.NewMockKubernetesClient()
+		var applied bool
+		kubernetesClient.ApplyResourceFunc = func(gvr schema.GroupVersionResource, obj *unstructured.Unstructured, opts metav1.ApplyOptions) (*unstructured.Unstructured, error) {
+			applied = true
+			return obj, nil
+		}
+		manager.client = kubernetesClient
+
+		data := map[string]string{
+			"key1": "${terraform_output(\"cluster\", \"endpoint\")}",
+		}
+		err := manager.ApplyConfigMap("test-configmap", "test-namespace", data)
+		if err == nil {
+			t.Fatal("Expected error, got nil")
+		}
+		if !strings.Contains(err.Error(), "unresolved expression") {
+			t.Errorf("Expected unresolved-expression error, got: %v", err)
+		}
+		if applied {
+			t.Error("Expected the ConfigMap not to be applied when a value is unresolved")
+		}
+	})
+
 	t.Run("ImmutableConfigMap", func(t *testing.T) {
 		manager := setup(t)
 		kubernetesClient := client.NewMockKubernetesClient()

@@ -31,20 +31,12 @@ func RenderForDisplay(resource any, raw bool, deferredPaths map[string]bool) any
 		}
 		return *cp
 	case kustomizev1.Kustomization:
-		cp := r.DeepCopy()
-		if !raw {
-			applyDeferredPathsToFluxKustomization(cp, deferredPaths)
-		}
-		return *cp
+		return *r.DeepCopy()
 	case *kustomizev1.Kustomization:
 		if r == nil {
 			return r
 		}
-		cp := r.DeepCopy()
-		if !raw {
-			applyDeferredPathsToFluxKustomization(cp, deferredPaths)
-		}
-		return cp
+		return r.DeepCopy()
 	default:
 		return resource
 	}
@@ -77,9 +69,6 @@ func applyDeferredPathsToBlueprint(bp *blueprintv1alpha1.Blueprint, deferredPath
 	}
 	for i := range bp.Kustomizations {
 		name := bp.Kustomizations[i].Name
-		if deferredPaths["kustomize."+name+".path"] {
-			bp.Kustomizations[i].Path = deferredPlaceholder
-		}
 		for key := range bp.Kustomizations[i].Substitutions {
 			if deferredPaths["kustomize."+name+".substitutions."+key] {
 				bp.Kustomizations[i].Substitutions[key] = deferredPlaceholder
@@ -103,16 +92,5 @@ func applyDeferredPathsToBlueprint(bp *blueprintv1alpha1.Blueprint, deferredPath
 				}
 			}
 		}
-	}
-}
-
-// applyDeferredPathsToFluxKustomization rewrites deferred fields on flux kustomization output.
-func applyDeferredPathsToFluxKustomization(k *kustomizev1.Kustomization, deferredPaths map[string]bool) {
-	if k == nil {
-		return
-	}
-	pathKey := "kustomize." + k.Name + ".path"
-	if deferredPaths[pathKey] {
-		k.Spec.Path = deferredPlaceholder
 	}
 }

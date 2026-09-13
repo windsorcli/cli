@@ -2908,6 +2908,84 @@ func TestProcessor_ProcessFacets_Substitutions(t *testing.T) {
 	})
 }
 
+func TestProcessor_ProcessFacets_KustomizationPath(t *testing.T) {
+	t.Run("EvaluatesPathExpressionAgainstConfigScope", func(t *testing.T) {
+		// Given a facet with config block and a kustomization path expression referencing it
+		mocks := setupProcessorMocks(t)
+		mocks.ConfigHandler.GetContextValuesFunc = func() (map[string]any, error) {
+			return map[string]any{}, nil
+		}
+		processor := NewBlueprintProcessor(mocks.Runtime)
+		target := &blueprintv1alpha1.Blueprint{}
+		facets := []blueprintv1alpha1.Facet{
+			{
+				Metadata: blueprintv1alpha1.Metadata{Name: "dns"},
+				Config: []blueprintv1alpha1.ConfigBlock{
+					{Name: "platform", Body: map[string]any{"value": "aws"}},
+				},
+				Kustomizations: []blueprintv1alpha1.ConditionalKustomization{
+					{Kustomization: blueprintv1alpha1.Kustomization{Name: "dns", Path: "kustomize/${platform}/dns"}},
+				},
+			},
+		}
+
+		// When processing facets
+		_, err := processor.ProcessFacets(target, facets)
+
+		// Then the path expression resolves against config scope
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		if got := target.Kustomizations[0].Path; got != "kustomize/aws/dns" {
+			t.Errorf("Expected path 'kustomize/aws/dns', got %q", got)
+		}
+	})
+
+	t.Run("RefusesPathThatReferencesAnUnappliedTerraformOutput", func(t *testing.T) {
+		// Given a kustomization path expression that defers to a not-yet-applied
+		// terraform output; a path names a directory in the repo, so unlike a
+		// substitution it can never legitimately wait on infrastructure state
+		mocks := setupProcessorMocks(t)
+		mocks.ConfigHandler.GetContextValuesFunc = func() (map[string]any, error) {
+			return map[string]any{}, nil
+		}
+		realEval := evaluator.NewExpressionEvaluator(mocks.ConfigHandler, mocks.Runtime.ProjectRoot, mocks.Runtime.ConfigRoot)
+		realEval.Register("terraform_output", func(params []any, deferred bool) (any, error) {
+			if !deferred {
+				return nil, &evaluator.DeferredError{
+					Expression: "terraform_output(\"cluster\", \"path\")",
+					Message:    "deferred",
+				}
+			}
+			return "resolved", nil
+		}, new(func(string, string) any))
+		mocks.Evaluator.EvaluateFunc = realEval.Evaluate
+		mocks.Evaluator.EvaluateMapFunc = realEval.EvaluateMap
+
+		processor := NewBlueprintProcessor(mocks.Runtime)
+		target := &blueprintv1alpha1.Blueprint{}
+		facets := []blueprintv1alpha1.Facet{
+			{
+				Metadata: blueprintv1alpha1.Metadata{Name: "dns"},
+				Kustomizations: []blueprintv1alpha1.ConditionalKustomization{
+					{Kustomization: blueprintv1alpha1.Kustomization{Name: "dns", Path: "${terraform_output(\"cluster\", \"path\")}"}},
+				},
+			},
+		}
+
+		// When processing facets
+		_, err := processor.ProcessFacets(target, facets)
+
+		// Then composition refuses, naming the offending kustomization
+		if err == nil {
+			t.Fatal("Expected error, got nil")
+		}
+		if !strings.Contains(err.Error(), "dns") || !strings.Contains(err.Error(), "not yet available") {
+			t.Errorf("Expected an error naming the kustomization and the unresolved output, got: %v", err)
+		}
+	})
+}
+
 func TestProcessor_ProcessFacets_Backend(t *testing.T) {
 	t.Run("FacetBackendCopiedToTarget", func(t *testing.T) {
 		// Given a single facet naming a backend tier terminus
