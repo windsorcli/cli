@@ -565,10 +565,13 @@ func TestProvisioner_Teardown(t *testing.T) {
 		}
 	})
 
-	t.Run("MultiComponentTierDestroyedTogether", func(t *testing.T) {
-		// VPC + IAM + cluster as the tier. Stage 1 destroys non-tier (workloads)
-		// against the configured backend; Stage 2a migrates all three tier members'
-		// state to local; Stage 2b destroys the whole tier against local.
+	t.Run("MultiComponentTierDestroysMembersThenBackend", func(t *testing.T) {
+		// VPC + IAM + cluster as the tier, Backend="cluster" (the last-declared
+		// member, not the first). Stage 1 destroys non-tier (workloads) against the
+		// configured backend; Stage 2a migrates all three tier members' state to
+		// local and destroys the tier's non-backend members (vpc, iam); Stage 2b
+		// destroys the backend component (cluster) alone, only after Stage 2a comes
+		// back clean.
 		mocks := setupProvisionerMocks(t)
 		bp := &blueprintv1alpha1.Blueprint{
 			Backend:  "cluster",
@@ -612,21 +615,33 @@ func TestProvisioner_Teardown(t *testing.T) {
 			t.Fatalf("Expected no error, got %v", err)
 		}
 
-		if len(destroyAllBlueprints) != 2 {
-			t.Fatalf("Expected two DestroyAll calls, got %d", len(destroyAllBlueprints))
+		if len(destroyAllBlueprints) != 3 {
+			t.Fatalf("Expected three DestroyAll calls (Stage 1, Stage 2a, Stage 2b), got %d", len(destroyAllBlueprints))
 		}
-		expectedExcludes := []string{"networking/vpc", "iam", "cluster"}
+		expectedStage1Excludes := []string{"networking/vpc", "iam", "cluster"}
 		if len(destroyAllExcludes[0]) != 3 {
 			t.Fatalf("Stage 1 excludes should list all 3 tier IDs, got %v", destroyAllExcludes[0])
 		}
-		for i, want := range expectedExcludes {
+		for i, want := range expectedStage1Excludes {
 			if destroyAllExcludes[0][i] != want {
 				t.Errorf("Stage 1 exclude[%d]: got %q, want %q", i, destroyAllExcludes[0][i], want)
 			}
 		}
-		stage2Components := destroyAllBlueprints[1].TerraformComponents
-		if len(stage2Components) != 3 {
-			t.Fatalf("Stage 2 DestroyAll should target 3-component tier, got %d", len(stage2Components))
+
+		stage2aComponents := destroyAllBlueprints[1].TerraformComponents
+		if len(stage2aComponents) != 3 {
+			t.Fatalf("Stage 2a should still target the full 3-component tier (member exclusion happens via excludeIDs), got %d", len(stage2aComponents))
+		}
+		if len(destroyAllExcludes[1]) != 1 || destroyAllExcludes[1][0] != "cluster" {
+			t.Errorf("Stage 2a should exclude only the backend component %q, got %v", "cluster", destroyAllExcludes[1])
+		}
+
+		stage2bComponents := destroyAllBlueprints[2].TerraformComponents
+		if len(stage2bComponents) != 1 || stage2bComponents[0].GetID() != "cluster" {
+			t.Fatalf("Stage 2b should target only the backend component [cluster], got %#v", stage2bComponents)
+		}
+		if len(destroyAllExcludes[2]) != 0 {
+			t.Errorf("Stage 2b should exclude nothing, got %v", destroyAllExcludes[2])
 		}
 
 		if len(migrateBlueprints) != 1 {
@@ -634,6 +649,70 @@ func TestProvisioner_Teardown(t *testing.T) {
 		}
 		if len(migrateBlueprints[0].TerraformComponents) != 3 {
 			t.Errorf("MigrateState should target the 3-component tier, got %d", len(migrateBlueprints[0].TerraformComponents))
+		}
+	})
+
+	t.Run("MultiComponentTierMateFailureDefersBackend", func(t *testing.T) {
+		// Regression for #3355: a tier with more than one member (vpc + cluster,
+		// Backend="cluster") where a tier-mate (vpc) fails during Stage 2a. The
+		// backend component (cluster) must NOT be destroyed in the same pass —
+		// otherwise every other tier member's state (and any `--continue` retry)
+		// is stranded once the backend that stores it is gone.
+		mocks := setupProvisionerMocks(t)
+		bp := &blueprintv1alpha1.Blueprint{
+			Backend:  "cluster",
+			Metadata: blueprintv1alpha1.Metadata{Name: "test"},
+			TerraformComponents: []blueprintv1alpha1.TerraformComponent{
+				{Path: "networking/vpc"},
+				{Name: "cluster", Path: "cluster/eks"},
+			},
+		}
+		mockCH := mocks.ConfigHandler.(*config.MockConfigHandler)
+		mockCH.GetStringFunc = func(key string, defaultValue ...string) string {
+			if key == "terraform.backend.type" {
+				return "gcs"
+			}
+			if len(defaultValue) > 0 {
+				return defaultValue[0]
+			}
+			return ""
+		}
+		mockCH.SetFunc = func(_ string, _ any) error { return nil }
+
+		destroyAllCalls := 0
+		var stage2bCalled bool
+		mockStack := terraforminfra.NewMockStack()
+		mockStack.DestroyAllFunc = func(b *blueprintv1alpha1.Blueprint, _ bool, excludeIDs ...string) (terraforminfra.DestroyOutcome, error) {
+			destroyAllCalls++
+			if destroyAllCalls == 1 {
+				// Stage 1: no non-tier components in this blueprint.
+				return terraforminfra.DestroyOutcome{}, nil
+			}
+			if len(excludeIDs) == 1 && excludeIDs[0] == "cluster" {
+				// Stage 2a: the tier-mate fails.
+				return terraforminfra.DestroyOutcome{
+					Failed: []terraforminfra.ComponentFailure{{ID: "networking/vpc", Err: fmt.Errorf("network still in use")}},
+				}, nil
+			}
+			// Stage 2b would destroy the backend component alone — must not be reached.
+			stage2bCalled = true
+			return terraforminfra.DestroyOutcome{Destroyed: []string{"cluster"}}, nil
+		}
+		mockStack.MigrateStateFunc = func(_ *blueprintv1alpha1.Blueprint) ([]string, error) { return nil, nil }
+		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{KubernetesManager: mocks.KubernetesManager, TerraformStack: mockStack})
+
+		result, err := provisioner.Teardown(bp, true, true)
+		if err != nil {
+			t.Fatalf("Expected continueOnError to absorb the tier-mate failure, got %v", err)
+		}
+		if stage2bCalled {
+			t.Error("Backend component must not be destroyed in the same pass a tier-mate failed in")
+		}
+		if !result.TierDeferred {
+			t.Error("Expected TierDeferred=true when a tier-mate failed during Stage 2a")
+		}
+		if len(result.Failed) != 1 || result.Failed[0].ID != "networking/vpc" {
+			t.Errorf("Expected the tier-mate failure to surface in result.Failed, got %v", result.Failed)
 		}
 	})
 

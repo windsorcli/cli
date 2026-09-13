@@ -45,14 +45,21 @@ type DestroyResult struct {
 // Public Methods
 // =============================================================================
 
-// Teardown reverses Bootstrap. With no backend tier, it forwards to DestroyAll
-// (or DestroyAllTerraform when terraformOnly). With a tier declared via
-// Blueprint.Backend, Stage 1 destroys non-tier components; Stage 2 migrates
-// tier state to local and destroys the tier, but only when Stage 1 had zero
-// failures — see hasTerraformFailure — so the state store never goes before
-// its dependents. TierDeferred marks a skipped Stage 2. On a remote backend,
-// a Backend that names no real component is refused rather than silently
-// treated as "no tier" — see resolveBackendTier.
+// Teardown reverses Bootstrap.
+//
+// Without a backend tier, Teardown forwards to DestroyAll (or
+// DestroyAllTerraform when terraformOnly is true).
+//
+// With a tier declared via Blueprint.Backend, Teardown destroys in stages:
+//  1. Destroy every non-tier component.
+//  2. Destroy the tier's non-backend members, if Stage 1 had no failures.
+//  3. Destroy the backend component, if Stage 2 had no failures.
+//
+// This order keeps the state store alive until its dependents are gone. See
+// hasTerraformFailure for the failure check between stages. TierDeferred
+// marks a skipped stage.
+//
+// A Backend that names no real component is refused; see resolveBackendTier.
 func (i *Provisioner) Teardown(blueprint *blueprintv1alpha1.Blueprint, terraformOnly bool, continueOnError bool) (DestroyResult, error) {
 	var result DestroyResult
 	backendType := i.configHandler.GetTerraformBackendType()
@@ -104,6 +111,28 @@ func (i *Provisioner) Teardown(blueprint *blueprintv1alpha1.Blueprint, terraform
 		if err != nil {
 			return err
 		}
+
+		if len(tier) > 1 {
+			membersResult, destroyErr := i.destroyAllTerraform(tierBP, continueOnError, blueprint.Backend)
+			result.Destroyed = append(result.Destroyed, membersResult.Destroyed...)
+			result.Skipped = mergeSkipped(result.Skipped, mergeSkipped(migrationSkipped, membersResult.Skipped))
+			result.Failed = append(result.Failed, membersResult.Failed...)
+			if destroyErr != nil {
+				return destroyErr
+			}
+			if hasTerraformFailure(membersResult.Failed) {
+				result.TierDeferred = true
+				return nil
+			}
+
+			backendBP := blueprintWithComponents(blueprint, tier[len(tier)-1:])
+			backendResult, backendErr := i.destroyAllTerraform(backendBP, continueOnError)
+			result.Destroyed = append(result.Destroyed, backendResult.Destroyed...)
+			result.Skipped = mergeSkipped(result.Skipped, backendResult.Skipped)
+			result.Failed = append(result.Failed, backendResult.Failed...)
+			return backendErr
+		}
+
 		tierResult, destroyErr := i.destroyAllTerraform(tierBP, continueOnError)
 		result.Destroyed = append(result.Destroyed, tierResult.Destroyed...)
 		result.Skipped = mergeSkipped(result.Skipped, mergeSkipped(migrationSkipped, tierResult.Skipped))
