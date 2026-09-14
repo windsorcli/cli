@@ -2976,12 +2976,59 @@ func TestProcessor_ProcessFacets_KustomizationPath(t *testing.T) {
 		// When processing facets
 		_, err := processor.ProcessFacets(target, facets)
 
-		// Then composition refuses, naming the offending kustomization
+		// Then composition refuses, naming the offending kustomization and expression
 		if err == nil {
 			t.Fatal("Expected error, got nil")
 		}
-		if !strings.Contains(err.Error(), "dns") || !strings.Contains(err.Error(), "not yet available") {
-			t.Errorf("Expected an error naming the kustomization and the unresolved output, got: %v", err)
+		if !strings.Contains(err.Error(), "dns") || !strings.Contains(err.Error(), `terraform_output("cluster", "path")`) {
+			t.Errorf("Expected an error naming the kustomization and the deferred expression, got: %v", err)
+		}
+	})
+
+	t.Run("RefusesPathThatReferencesAnUnresolvedSecret", func(t *testing.T) {
+		// Given a kustomization path expression that defers via secret(), not
+		// terraform_output() — the error must not assume a single deferral source
+		mocks := setupProcessorMocks(t)
+		mocks.ConfigHandler.GetContextValuesFunc = func() (map[string]any, error) {
+			return map[string]any{}, nil
+		}
+		realEval := evaluator.NewExpressionEvaluator(mocks.ConfigHandler, mocks.Runtime.ProjectRoot, mocks.Runtime.ConfigRoot)
+		realEval.Register("secret", func(params []any, deferred bool) (any, error) {
+			if !deferred {
+				return nil, &evaluator.DeferredError{
+					Expression: `secret("vault", "item", "field")`,
+					Message:    "deferred",
+				}
+			}
+			return "resolved", nil
+		}, new(func(string, string, string) any))
+		mocks.Evaluator.EvaluateFunc = realEval.Evaluate
+		mocks.Evaluator.EvaluateMapFunc = realEval.EvaluateMap
+
+		processor := NewBlueprintProcessor(mocks.Runtime)
+		target := &blueprintv1alpha1.Blueprint{}
+		facets := []blueprintv1alpha1.Facet{
+			{
+				Metadata: blueprintv1alpha1.Metadata{Name: "dns"},
+				Kustomizations: []blueprintv1alpha1.ConditionalKustomization{
+					{Kustomization: blueprintv1alpha1.Kustomization{Name: "dns", Path: `${secret("vault", "item", "field")}`}},
+				},
+			},
+		}
+
+		// When processing facets
+		_, err := processor.ProcessFacets(target, facets)
+
+		// Then composition refuses, naming the actual expression rather than
+		// assuming it was a terraform_output()
+		if err == nil {
+			t.Fatal("Expected error, got nil")
+		}
+		if !strings.Contains(err.Error(), `secret("vault", "item", "field")`) {
+			t.Errorf("Expected an error naming the deferred secret() expression, got: %v", err)
+		}
+		if strings.Contains(err.Error(), "terraform") {
+			t.Errorf("Expected no mention of terraform for a secret()-deferred path, got: %v", err)
 		}
 	})
 }
