@@ -972,6 +972,26 @@ func TestFluxStack_PlanDestroySummary(t *testing.T) {
 		}
 	})
 
+	t.Run("PropagatesMidQueryConnectionResetToCaller", func(t *testing.T) {
+		// A reset on an already-established connection is a *net.OpError, but not
+		// one from dial: the server was reachable moments ago. It must hard-fail the
+		// plan rather than latching the cluster as gone for every remaining name.
+		m := setupFluxMocks(t)
+		m.kubernetesManager.GetKustomizationInventoryFunc = func(name, namespace string) ([]kubernetes.InventoryEntry, error) {
+			return nil, &net.OpError{Op: "read", Net: "tcp", Err: fmt.Errorf("connection reset by peer")}
+		}
+		s := newTestFluxStack(m)
+
+		_, err := s.PlanDestroySummary(testBlueprint())
+
+		if err == nil {
+			t.Fatal("expected connection-reset failure to propagate as an error, got nil")
+		}
+		if !strings.Contains(err.Error(), "connection reset by peer") {
+			t.Errorf("expected reset error to propagate, got %v", err)
+		}
+	})
+
 	t.Run("TreatsMissingKubeconfigAsNotDeployed", func(t *testing.T) {
 		// After `windsor destroy` tears down the cluster's terraform component,
 		// the kubeconfig is gone. Subsequent destroy cycles must still produce a

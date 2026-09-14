@@ -329,12 +329,15 @@ func notDeployedKustomizePlan(name string) KustomizePlan {
 }
 
 // isClusterUnreachable reports whether err is a network-layer failure, not a
-// response from the API server. A refused connection, a DNS failure, or a
-// client-side timeout all count. A TLS or certificate error also implements
-// net.Error, but not as *net.OpError or a real timeout, so it does not count.
+// response from the API server. A refused connection or a DNS failure counts:
+// both fail during dial, before any connection exists. A client-side timeout
+// also counts. A reset or closed connection does not: it had already reached
+// a live server, so it is not treated as the cluster being gone. A TLS or
+// certificate error implements net.Error too, but not as a dial *net.OpError
+// or a real timeout, so it does not count either.
 func isClusterUnreachable(err error) bool {
 	var opErr *net.OpError
-	if errors.As(err, &opErr) {
+	if errors.As(err, &opErr) && opErr.Op == "dial" {
 		return true
 	}
 	var netErr net.Error
