@@ -181,7 +181,7 @@ const DefaultTerraformRefreshTimeout = 2 * time.Minute
 
 // Number of times a single component's terraform destroy is attempted before the destroy fails.
 // Only a failure that returns before its timeout is retried. A timed-out attempt fails immediately.
-const DefaultTerraformDestroyRetryAttempts = 3
+const DefaultTerraformDestroyRetryAttempts = 2
 
 // Wait between terraform destroy retry attempts.
 const DefaultTerraformDestroyRetryBackoff = 30 * time.Second
