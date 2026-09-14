@@ -367,26 +367,7 @@ func TestDestroyTerraform_IgnoresStaleKubeconfigWhenNoComponentNeedsCluster(t *t
 		t.Fatalf("apply terraform null: %v\nstderr: %s", err, stderr)
 	}
 
-	kubeDir := filepath.Join(dir, "contexts", "local", ".kube")
-	if err := os.MkdirAll(kubeDir, 0o755); err != nil {
-		t.Fatalf("mkdir kube dir: %v", err)
-	}
-	staleKubeconfig := []byte(`apiVersion: v1
-kind: Config
-clusters:
-  - name: stale
-    cluster:
-      server: https://127.0.0.1:1
-contexts:
-  - name: stale
-    context:
-      cluster: stale
-current-context: stale
-`)
-	kubeconfigPath := filepath.Join(kubeDir, "config")
-	if err := os.WriteFile(kubeconfigPath, staleKubeconfig, 0o644); err != nil {
-		t.Fatalf("write stale kubeconfig: %v", err)
-	}
+	kubeconfigPath := helpers.WriteStaleKubeconfig(t, dir, "local")
 	env = append(env, "KUBECONFIG="+kubeconfigPath)
 
 	start := time.Now()
@@ -398,5 +379,41 @@ current-context: stale
 	}
 	if elapsed > 10*time.Second {
 		t.Errorf("expected destroy to skip the Kubernetes reachability preflight and return quickly, took %v", elapsed)
+	}
+}
+
+// TestDestroy_SkipsUnreachableFluxInventoryQuery reproduces `windsor destroy
+// --continue` after an earlier pass destroyed the cluster. The kubeconfig
+// remains, but its API server is gone. --confirm intentionally mismatches, so
+// the run fails at confirmation, never reaching a real teardown.
+func TestDestroy_SkipsUnreachableFluxInventoryQuery(t *testing.T) {
+	t.Parallel()
+	dir, env := helpers.CopyFixtureOnly(t, "destroy-flux-inventory-unreachable")
+	helpers.MarkAsGitRepo(t, dir)
+	_, stderr, err := helpers.RunCLI(dir, []string{"init", "local"}, env)
+	if err != nil {
+		t.Fatalf("init local: %v\nstderr: %s", err, stderr)
+	}
+	env = append(env, "WINDSOR_CONTEXT=local")
+	_, stderr, err = helpers.RunCLI(dir, []string{"apply", "terraform", "null"}, env)
+	if err != nil {
+		t.Fatalf("apply terraform null: %v\nstderr: %s", err, stderr)
+	}
+
+	kubeconfigPath := helpers.WriteStaleKubeconfig(t, dir, "local")
+	env = append(env, "KUBECONFIG="+kubeconfigPath)
+
+	start := time.Now()
+	_, stderr, err = helpers.RunCLI(dir, []string{"destroy", "--continue", "--confirm=wrong"}, env)
+	elapsed := time.Since(start)
+
+	if err == nil {
+		t.Fatal("expected confirmation mismatch to fail the command")
+	}
+	if !strings.Contains(string(stderr), "confirmation failed") {
+		t.Errorf("expected stderr to mention 'confirmation failed', got: %s", stderr)
+	}
+	if elapsed > 15*time.Second {
+		t.Errorf("expected destroy-plan generation to skip the unreachable Flux inventory query and return quickly, took %v", elapsed)
 	}
 }

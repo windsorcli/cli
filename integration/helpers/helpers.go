@@ -163,6 +163,35 @@ func MarkAsGitRepo(t *testing.T, workDir string) {
 	}
 }
 
+// WriteStaleKubeconfig writes a kubeconfig for contextName pointing at
+// 127.0.0.1:1, where nothing listens. Use it to simulate a kubeconfig an
+// earlier destroy pass left behind. Returns the path. Pass it as KUBECONFIG
+// in the test's env.
+func WriteStaleKubeconfig(t *testing.T, workDir, contextName string) string {
+	t.Helper()
+	kubeDir := filepath.Join(workDir, "contexts", contextName, ".kube")
+	if err := os.MkdirAll(kubeDir, 0o755); err != nil {
+		t.Fatalf("mkdir kube dir: %v", err)
+	}
+	staleKubeconfig := []byte(`apiVersion: v1
+kind: Config
+clusters:
+  - name: stale
+    cluster:
+      server: https://127.0.0.1:1
+contexts:
+  - name: stale
+    context:
+      cluster: stale
+current-context: stale
+`)
+	kubeconfigPath := filepath.Join(kubeDir, "config")
+	if err := os.WriteFile(kubeconfigPath, staleKubeconfig, 0o644); err != nil {
+		t.Fatalf("write stale kubeconfig: %v", err)
+	}
+	return kubeconfigPath
+}
+
 // MinimalPATHEnv returns env with any PATH entry replaced by a minimal PATH (/usr/bin:/bin).
 // Use this when a test asserts that a tool the host might happen to have installed (docker,
 // terraform, sops, etc.) is treated as missing — without stripping PATH the assertion would

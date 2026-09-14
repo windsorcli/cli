@@ -1,0 +1,14 @@
+kind: Blueprint
+apiVersion: blueprints.windsorcli.dev/v1alpha1
+metadata:
+  name: destroy-flux-inventory-unreachable
+  description: Fixture with a terraform component and a kustomization, for testing destroy-plan generation against an unreachable cluster
+
+terraform:
+- path: "null"
+
+kustomize:
+- name: app
+  path: app
+- name: app-config
+  path: app-config

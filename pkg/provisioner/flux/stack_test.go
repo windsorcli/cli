@@ -1,7 +1,9 @@
 package flux
 
 import (
+	"context"
 	"fmt"
+	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -14,6 +16,17 @@ import (
 	"github.com/windsorcli/cli/pkg/runtime/config"
 	"github.com/windsorcli/cli/pkg/runtime/shell"
 )
+
+// fakeTimeoutError implements net.Error without being a *net.OpError, standing
+// in for a TLS/certificate failure.
+type fakeTimeoutError struct {
+	msg     string
+	timeout bool
+}
+
+func (e fakeTimeoutError) Error() string   { return e.msg }
+func (e fakeTimeoutError) Timeout() bool   { return e.timeout }
+func (e fakeTimeoutError) Temporary() bool { return e.timeout }
 
 // exitError returns a real *exec.ExitError with the requested exit code by
 // running a trivial shell one-liner. Tests that need to simulate flux diff
@@ -866,12 +879,11 @@ func TestFluxStack_PlanDestroySummary(t *testing.T) {
 		}
 	})
 
-	t.Run("PropagatesClusterErrorToCaller", func(t *testing.T) {
-		// Cluster unreachable: destroy can't proceed without it, so we error
-		// rather than return a misleading partial plan.
+	t.Run("PropagatesNonConnectivityErrorToCaller", func(t *testing.T) {
+		// A structured API error is real, not "cluster gone". It must fail the plan.
 		m := setupFluxMocks(t)
 		m.kubernetesManager.GetKustomizationInventoryFunc = func(name, namespace string) ([]kubernetes.InventoryEntry, error) {
-			return nil, fmt.Errorf("connection refused")
+			return nil, fmt.Errorf("forbidden")
 		}
 		s := newTestFluxStack(m)
 
@@ -880,8 +892,103 @@ func TestFluxStack_PlanDestroySummary(t *testing.T) {
 		if err == nil {
 			t.Fatal("expected error from cluster failure, got nil")
 		}
-		if !strings.Contains(err.Error(), "connection refused") {
+		if !strings.Contains(err.Error(), "forbidden") {
 			t.Errorf("expected cluster error to propagate, got %v", err)
+		}
+	})
+
+	t.Run("StopsQueryingOnceClusterUnreachable", func(t *testing.T) {
+		// A refused dial marks the cluster unreachable on the first kustomization.
+		// Every remaining kustomization then skips its query and reports not-deployed.
+		m := setupFluxMocks(t)
+		var visited []string
+		m.kubernetesManager.GetKustomizationInventoryFunc = func(name, namespace string) ([]kubernetes.InventoryEntry, error) {
+			visited = append(visited, name)
+			return nil, &net.OpError{Op: "dial", Net: "tcp", Err: fmt.Errorf("connection refused")}
+		}
+		s := newTestFluxStack(m)
+
+		results, err := s.PlanDestroySummary(testBlueprint())
+
+		if err != nil {
+			t.Fatalf("expected nil error once the cluster is confirmed unreachable, got %v", err)
+		}
+		// testBlueprint has my-app, infra-base, cleanup-only (destroyOnly, filtered).
+		if len(visited) != 1 || visited[0] != "my-app" {
+			t.Errorf("expected only the first eligible kustomization to be queried, got %v", visited)
+		}
+		if len(results) != 2 {
+			t.Fatalf("expected 2 results, got %d: %#v", len(results), results)
+		}
+		for _, r := range results {
+			if !r.IsNew {
+				t.Errorf("expected IsNew=true for kustomization %q once cluster is unreachable, got false", r.Name)
+			}
+		}
+	})
+
+	t.Run("StopsQueryingOnClientSideTimeout", func(t *testing.T) {
+		// A context deadline is a net.Error with Timeout()=true, not a *net.OpError.
+		// It must also mark the cluster unreachable.
+		m := setupFluxMocks(t)
+		var visited []string
+		m.kubernetesManager.GetKustomizationInventoryFunc = func(name, namespace string) ([]kubernetes.InventoryEntry, error) {
+			visited = append(visited, name)
+			return nil, fmt.Errorf("Get %q: %w", "https://203.0.113.1/", context.DeadlineExceeded)
+		}
+		s := newTestFluxStack(m)
+
+		results, err := s.PlanDestroySummary(testBlueprint())
+
+		if err != nil {
+			t.Fatalf("expected nil error once the cluster is confirmed unreachable, got %v", err)
+		}
+		if len(visited) != 1 {
+			t.Errorf("expected only the first eligible kustomization to be queried, got %v", visited)
+		}
+		for _, r := range results {
+			if !r.IsNew {
+				t.Errorf("expected IsNew=true for kustomization %q, got false", r.Name)
+			}
+		}
+	})
+
+	t.Run("PropagatesTLSErrorToCaller", func(t *testing.T) {
+		// A TLS/certificate failure implements net.Error but reports Timeout()=false.
+		// The server did answer, so this must hard-fail the plan, not mark not-deployed.
+		m := setupFluxMocks(t)
+		m.kubernetesManager.GetKustomizationInventoryFunc = func(name, namespace string) ([]kubernetes.InventoryEntry, error) {
+			return nil, fakeTimeoutError{msg: "x509: certificate signed by unknown authority", timeout: false}
+		}
+		s := newTestFluxStack(m)
+
+		_, err := s.PlanDestroySummary(testBlueprint())
+
+		if err == nil {
+			t.Fatal("expected TLS failure to propagate as an error, got nil")
+		}
+		if !strings.Contains(err.Error(), "certificate signed by unknown authority") {
+			t.Errorf("expected TLS error to propagate, got %v", err)
+		}
+	})
+
+	t.Run("PropagatesMidQueryConnectionResetToCaller", func(t *testing.T) {
+		// A reset on an already-established connection is a *net.OpError, but not
+		// one from dial: the server was reachable moments ago. It must hard-fail the
+		// plan rather than latching the cluster as gone for every remaining name.
+		m := setupFluxMocks(t)
+		m.kubernetesManager.GetKustomizationInventoryFunc = func(name, namespace string) ([]kubernetes.InventoryEntry, error) {
+			return nil, &net.OpError{Op: "read", Net: "tcp", Err: fmt.Errorf("connection reset by peer")}
+		}
+		s := newTestFluxStack(m)
+
+		_, err := s.PlanDestroySummary(testBlueprint())
+
+		if err == nil {
+			t.Fatal("expected connection-reset failure to propagate as an error, got nil")
+		}
+		if !strings.Contains(err.Error(), "connection reset by peer") {
+			t.Errorf("expected reset error to propagate, got %v", err)
 		}
 	})
 
