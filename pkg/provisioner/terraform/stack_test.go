@@ -7,6 +7,7 @@ package terraform
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -171,6 +172,7 @@ contexts:
 	shims.ReadFile = func(_ string) ([]byte, error) {
 		return nil, os.ErrNotExist
 	}
+	shims.TimeSleep = func(time.Duration) {}
 
 	t.Cleanup(func() {
 		os.Unsetenv("WINDSOR_PROJECT_ROOT")
@@ -1659,6 +1661,128 @@ func TestStack_DestroyAll(t *testing.T) {
 		}
 	})
 
+	t.Run("RetriesTerraformDestroyThenSucceeds", func(t *testing.T) {
+		// Given a terraform destroy that fails once (a transient async cloud-side
+		// dependency, e.g. an orphaned firewall) then succeeds on retry
+		stack, mocks := setup(t)
+		var captured strings.Builder
+		stack.warningWriter = &captured
+		var destroyCalls int
+		mocks.Shell.ExecSilentWithEnvFunc = func(command string, env map[string]string, args ...string) (string, error) {
+			if command == "terraform" && len(args) >= 3 && args[1] == "show" && args[2] == "-json" {
+				if len(args) == 3 {
+					return `{"values":{"root_module":{"resources":[{"address":"aws_s3_bucket.example"}]}}}`, nil
+				}
+				return `{"resource_changes":[{"change":{"actions":["update"]}}]}`, nil
+			}
+			if command == "terraform" && len(args) > 1 && args[1] == "destroy" && strings.Contains(filepath.ToSlash(args[0]), "/local/path") {
+				destroyCalls++
+				if destroyCalls == 1 {
+					return "boom", fmt.Errorf("mock transient destroy failure")
+				}
+			}
+			return "", nil
+		}
+		blueprint := createTestBlueprint()
+
+		// When DestroyAll runs
+		result, err := stack.DestroyAll(blueprint, false)
+
+		// Then the component destroys successfully after one retry, and the failed
+		// first attempt is still visible via warningWriter rather than vanishing
+		if err != nil {
+			t.Fatalf("Expected the retry to absorb the transient failure, got %v", err)
+		}
+		if destroyCalls != 2 {
+			t.Errorf("Expected terraform destroy to run twice, got %d", destroyCalls)
+		}
+		if !slices.Contains(result.Destroyed, "local/path") {
+			t.Errorf("Expected local/path to be reported as destroyed, got %v", result)
+		}
+		warningOutput := captured.String()
+		if !strings.Contains(warningOutput, "attempt 1/") || !strings.Contains(warningOutput, "boom") {
+			t.Errorf("Expected the failed first attempt to be logged via warningWriter, got %q", warningOutput)
+		}
+	})
+
+	t.Run("GivesUpAfterExhaustingDestroyRetries", func(t *testing.T) {
+		// Given a terraform destroy that fails on every attempt with a distinct
+		// diagnostic each time
+		stack, mocks := setup(t)
+		var captured strings.Builder
+		stack.warningWriter = &captured
+		var destroyCalls int
+		var sleepCalls int
+		mocks.Shims.TimeSleep = func(time.Duration) { sleepCalls++ }
+		mocks.Shell.ExecSilentWithEnvFunc = func(command string, env map[string]string, args ...string) (string, error) {
+			if command == "terraform" && len(args) >= 3 && args[1] == "show" && args[2] == "-json" {
+				if len(args) == 3 {
+					return `{"values":{"root_module":{"resources":[{"address":"aws_s3_bucket.example"}]}}}`, nil
+				}
+				return `{"resource_changes":[{"change":{"actions":["update"]}}]}`, nil
+			}
+			if command == "terraform" && len(args) > 1 && args[1] == "destroy" && strings.Contains(filepath.ToSlash(args[0]), "/local/path") {
+				destroyCalls++
+				return fmt.Sprintf("boom-%d", destroyCalls), fmt.Errorf("mock persistent destroy failure %d", destroyCalls)
+			}
+			return "", nil
+		}
+		blueprint := createTestBlueprint()
+
+		// When DestroyAll runs
+		_, err := stack.DestroyAll(blueprint, false)
+
+		// Then every attempt is exhausted, with a backoff wait and a warningWriter
+		// line naming each non-final attempt's own diagnostic before the wrapped
+		// error surfaces the last one
+		if err == nil {
+			t.Fatal("Expected an error once retries are exhausted")
+		}
+		if destroyCalls != stack.destroyRetryAttempts {
+			t.Errorf("Expected %d destroy attempts, got %d", stack.destroyRetryAttempts, destroyCalls)
+		}
+		if sleepCalls != stack.destroyRetryAttempts-1 {
+			t.Errorf("Expected %d backoff waits, got %d", stack.destroyRetryAttempts-1, sleepCalls)
+		}
+		warningOutput := captured.String()
+		for attempt := 1; attempt < stack.destroyRetryAttempts; attempt++ {
+			if !strings.Contains(warningOutput, fmt.Sprintf("boom-%d", attempt)) {
+				t.Errorf("Expected attempt %d's own diagnostic %q to be logged via warningWriter, got %q", attempt, fmt.Sprintf("boom-%d", attempt), warningOutput)
+			}
+		}
+	})
+
+	t.Run("StopsRetryingOnDestroyTimeout", func(t *testing.T) {
+		// Given a terraform destroy that times out. A timeout means the provider is
+		// unreachable rather than momentarily inconsistent, so it must not be retried.
+		stack, mocks := setup(t)
+		var destroyCalls int
+		var sleepCalls int
+		mocks.Shims.TimeSleep = func(time.Duration) { sleepCalls++ }
+		mocks.Shell.ExecSilentWithEnvAndTimeoutFunc = func(command string, env map[string]string, args []string, timeout time.Duration) (string, error) {
+			if command == "terraform" && len(args) > 1 && args[1] == "destroy" {
+				destroyCalls++
+				return "", fmt.Errorf("%w after %v", shell.ErrCommandTimedOut, timeout)
+			}
+			return "", nil
+		}
+		blueprint := createTestBlueprint()
+
+		// When DestroyAll runs
+		_, err := stack.DestroyAll(blueprint, false)
+
+		// Then the timeout fails immediately, with no retry and no backoff wait
+		if err == nil || !errors.Is(err, shell.ErrCommandTimedOut) {
+			t.Fatalf("Expected an error wrapping ErrCommandTimedOut, got %v", err)
+		}
+		if destroyCalls != 1 {
+			t.Errorf("Expected exactly one destroy attempt before giving up on timeout, got %d", destroyCalls)
+		}
+		if sleepCalls != 0 {
+			t.Errorf("Expected no backoff wait after a timeout, got %d", sleepCalls)
+		}
+	})
+
 	t.Run("NilBlueprint", func(t *testing.T) {
 		stack, _ := setup(t)
 		_, err := stack.DestroyAll(nil, false)
@@ -2093,8 +2217,9 @@ func TestStack_DestroyAll(t *testing.T) {
 
 	t.Run("NoContinueAbortsOnFirstFailure", func(t *testing.T) {
 		// Given the same two-component blueprint where the first-processed (reverse
-		// order: "second") destroy fails, continueOnError=false must abort and the
-		// follow-up component must not be attempted.
+		// order: "second") destroy fails every retry attempt, continueOnError=false
+		// must abort once retries are exhausted and the follow-up component must
+		// never be attempted.
 		stack, mocks := setup(t)
 		mocks.Runtime.TerraformProvider.ClearCache()
 
@@ -2133,12 +2258,19 @@ func TestStack_DestroyAll(t *testing.T) {
 		// When DestroyAll runs with continueOnError=false
 		_, err := stack.DestroyAll(blueprint, false)
 
-		// Then the first failure aborts and the follow-up component is not attempted
+		// Then every retry attempt targets "second" and the follow-up component
+		// is never attempted
 		if err == nil {
-			t.Fatal("Expected destroy to abort on first error")
+			t.Fatal("Expected destroy to abort once retries are exhausted")
 		}
-		if len(destroyAttempts) != 1 || destroyAttempts[0] != "second" {
-			t.Errorf("Expected only \"second\" to have been attempted before abort, got %v", destroyAttempts)
+		if len(destroyAttempts) != stack.destroyRetryAttempts {
+			t.Fatalf("Expected %d attempts against \"second\", got %v", stack.destroyRetryAttempts, destroyAttempts)
+		}
+		for _, attempt := range destroyAttempts {
+			if attempt != "second" {
+				t.Errorf("Expected only \"second\" to have been attempted before abort, got %v", destroyAttempts)
+				break
+			}
 		}
 	})
 
@@ -3667,6 +3799,78 @@ func TestStack_Destroy(t *testing.T) {
 		warningOutput := captured.String()
 		if !strings.Contains(warningOutput, tfDiagnostic) {
 			t.Errorf("Expected terraform diagnostic %q to be surfaced via warningWriter, got %q", tfDiagnostic, warningOutput)
+		}
+	})
+
+	t.Run("RetriesTerraformDestroyThenSucceeds", func(t *testing.T) {
+		// Given a terraform destroy that fails once then succeeds on retry
+		stack, mocks := setup(t)
+		var captured strings.Builder
+		stack.warningWriter = &captured
+		var destroyCalls int
+		mocks.Shell.ExecSilentWithEnvFunc = func(command string, env map[string]string, args ...string) (string, error) {
+			if command == "terraform" && len(args) > 1 && args[1] == "destroy" {
+				destroyCalls++
+				if destroyCalls == 1 {
+					return "boom", fmt.Errorf("mock transient destroy failure")
+				}
+				return "", nil
+			}
+			if command == "terraform" && len(args) > 2 && args[1] == "show" && args[2] == "-json" {
+				return `{"values":{"root_module":{"resources":[{"address":"aws_s3_bucket.example"}]}}}`, nil
+			}
+			return "", nil
+		}
+		blueprint := createTestBlueprint()
+
+		// When destroying
+		skipped, err := stack.Destroy(blueprint, "local/path")
+
+		// Then the component destroys successfully after one retry, and the failed
+		// first attempt is still visible via warningWriter rather than vanishing
+		if err != nil {
+			t.Fatalf("Expected the retry to absorb the transient failure, got %v", err)
+		}
+		if skipped {
+			t.Error("Expected the component not to be reported as skipped")
+		}
+		if destroyCalls != 2 {
+			t.Errorf("Expected terraform destroy to run twice, got %d", destroyCalls)
+		}
+		warningOutput := captured.String()
+		if !strings.Contains(warningOutput, "attempt 1/") || !strings.Contains(warningOutput, "boom") {
+			t.Errorf("Expected the failed first attempt to be logged via warningWriter, got %q", warningOutput)
+		}
+	})
+
+	t.Run("StopsRetryingOnDestroyTimeout", func(t *testing.T) {
+		// Given a terraform destroy that times out. A timeout means the provider is
+		// unreachable rather than momentarily inconsistent, so it must not be retried.
+		stack, mocks := setup(t)
+		var destroyCalls int
+		var sleepCalls int
+		mocks.Shims.TimeSleep = func(time.Duration) { sleepCalls++ }
+		mocks.Shell.ExecSilentWithEnvAndTimeoutFunc = func(command string, env map[string]string, args []string, timeout time.Duration) (string, error) {
+			if command == "terraform" && len(args) > 1 && args[1] == "destroy" {
+				destroyCalls++
+				return "", fmt.Errorf("%w after %v", shell.ErrCommandTimedOut, timeout)
+			}
+			return "", nil
+		}
+		blueprint := createTestBlueprint()
+
+		// When destroying
+		_, err := stack.Destroy(blueprint, "local/path")
+
+		// Then the timeout fails immediately, with no retry and no backoff wait
+		if err == nil || !errors.Is(err, shell.ErrCommandTimedOut) {
+			t.Fatalf("Expected an error wrapping ErrCommandTimedOut, got %v", err)
+		}
+		if destroyCalls != 1 {
+			t.Errorf("Expected exactly one destroy attempt before giving up on timeout, got %d", destroyCalls)
+		}
+		if sleepCalls != 0 {
+			t.Errorf("Expected no backoff wait after a timeout, got %d", sleepCalls)
 		}
 	})
 

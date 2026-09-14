@@ -179,6 +179,17 @@ const DefaultTerraformDestroyTimeout = 30 * time.Minute
 // Bounds terraform refresh before destroy. Short on purpose: a hung refresh means the provider is unreachable.
 const DefaultTerraformRefreshTimeout = 2 * time.Minute
 
+// Number of times a single component's terraform destroy is attempted before the destroy fails.
+// Only a failure that returns before its timeout is retried. A timed-out attempt fails immediately.
+const DefaultTerraformDestroyRetryAttempts = 3
+
+// Wait between terraform destroy retry attempts.
+const DefaultTerraformDestroyRetryBackoff = 30 * time.Second
+
+// Bounds each terraform destroy retry attempt. Shorter than DefaultTerraformDestroyTimeout because a
+// retry only has to finish the resources the prior attempt left behind, not redo the whole destroy.
+const DefaultTerraformDestroyRetryTimeout = 5 * time.Minute
+
 // Bounds the pre-destroy Kubernetes reachability preflight.
 const DefaultKubernetesReachabilityCheckTimeout = 30 * time.Second
 

@@ -62,13 +62,16 @@ var defaultInitFlags = []string{"-upgrade", "-input=false"}
 // fragile os.Stderr-redirect-with-pipe pattern, which deadlocks on Windows when the TUI
 // spinner shares the redirected stream.
 type TerraformStack struct {
-	runtime       *runtime.Runtime
-	shims         *Shims
-	terraformEnv  *envvars.TerraformEnvPrinter
-	postApply     []func(id string) error
-	warningWriter io.Writer
-	initCache     map[initCacheKey]struct{}
-	initCacheMu   sync.Mutex
+	runtime              *runtime.Runtime
+	shims                *Shims
+	terraformEnv         *envvars.TerraformEnvPrinter
+	postApply            []func(id string) error
+	warningWriter        io.Writer
+	initCache            map[initCacheKey]struct{}
+	initCacheMu          sync.Mutex
+	destroyRetryAttempts int
+	destroyRetryBackoff  time.Duration
+	destroyRetryTimeout  time.Duration
 }
 
 // initCacheKey identifies a previously-completed `terraform init`. Three
@@ -244,9 +247,12 @@ func NewStack(rt *runtime.Runtime, opts ...*TerraformStack) Stack {
 	}
 
 	stack := &TerraformStack{
-		runtime:       rt,
-		shims:         NewShims(),
-		warningWriter: os.Stderr,
+		runtime:              rt,
+		shims:                NewShims(),
+		warningWriter:        os.Stderr,
+		destroyRetryAttempts: constants.DefaultTerraformDestroyRetryAttempts,
+		destroyRetryBackoff:  constants.DefaultTerraformDestroyRetryBackoff,
+		destroyRetryTimeout:  constants.DefaultTerraformDestroyRetryTimeout,
 	}
 
 	if len(opts) > 0 && opts[0] != nil {
@@ -595,8 +601,8 @@ func (s *TerraformStack) MigrateComponentState(blueprint *blueprintv1alpha1.Blue
 //   - continueOnError=true: collects each error in DestroyOutcome.Failed and continues.
 //   - continueOnError=false: stops at the first error and returns a partial DestroyOutcome.
 //
-// Each destroy is bounded by constants.DefaultTerraformDestroyTimeout; each refresh by
-// refreshBeforeDestroy.
+// Each destroy is bounded by constants.DefaultTerraformDestroyTimeout and retried via
+// execTerraformDestroyWithRetry; each refresh by refreshBeforeDestroy.
 func (s *TerraformStack) DestroyAll(blueprint *blueprintv1alpha1.Blueprint, continueOnError bool, excludeIDs ...string) (DestroyOutcome, error) {
 	var result DestroyOutcome
 	if blueprint == nil {
@@ -716,7 +722,7 @@ func (s *TerraformStack) DestroyAll(blueprint *blueprintv1alpha1.Blueprint, cont
 			destroyArgs = append(destroyArgs, noColorArgs()...)
 			destroyArgs = append(destroyArgs, terraformArgs.DestroyArgs...)
 			destroyEnv := selectTerraformCommandEnv(terraformVars, true, scopedKeys)
-			output, err := s.runtime.Shell.ExecSilentWithEnvAndTimeout(terraformCommand, destroyEnv, destroyArgs, constants.DefaultTerraformDestroyTimeout)
+			output, err := s.execTerraformDestroyWithRetry(component.Path, terraformCommand, destroyEnv, destroyArgs)
 			if err != nil {
 				if trimmed := strings.TrimSpace(output); trimmed != "" {
 					fmt.Fprintf(s.warningWriter, "terraform destroy output for %s:\n%s\n", component.Path, trimmed)
@@ -894,7 +900,8 @@ func (s *TerraformStack) Apply(blueprint *blueprintv1alpha1.Blueprint, component
 // for backend) would otherwise produce inconsistent "Destroying X" / "Destroying terraform
 // for X" lines side by side. The terraform destroy exec runs silently inside the spinner
 // for the same reason: the bulk loop is silent, so single-component Destroy must be too.
-// Destroy is bounded by constants.DefaultTerraformDestroyTimeout; refresh by refreshBeforeDestroy.
+// Destroy is bounded by constants.DefaultTerraformDestroyTimeout and retried via
+// execTerraformDestroyWithRetry; refresh by refreshBeforeDestroy.
 func (s *TerraformStack) Destroy(blueprint *blueprintv1alpha1.Blueprint, componentID string) (bool, error) {
 	if blueprint == nil {
 		return false, fmt.Errorf("blueprint not provided")
@@ -952,7 +959,7 @@ func (s *TerraformStack) Destroy(blueprint *blueprintv1alpha1.Blueprint, compone
 		destroyArgs = append(destroyArgs, terraformArgs.DestroyArgs...)
 		destroyEnv := selectTerraformCommandEnv(terraformVars, true, scopedKeys)
 
-		output, err := s.runtime.Shell.ExecSilentWithEnvAndTimeout(terraformCommand, destroyEnv, destroyArgs, constants.DefaultTerraformDestroyTimeout)
+		output, err := s.execTerraformDestroyWithRetry(component.Path, terraformCommand, destroyEnv, destroyArgs)
 		if err != nil {
 			if trimmed := strings.TrimSpace(output); trimmed != "" {
 				fmt.Fprintf(s.warningWriter, "terraform destroy output for %s:\n%s\n", component.Path, trimmed)
@@ -1140,6 +1147,38 @@ func (s *TerraformStack) migrateOneComponent(component *blueprintv1alpha1.Terraf
 		return false, migrateErr
 	}
 	return true, nil
+}
+
+// execTerraformDestroyWithRetry runs `terraform destroy` for one component, retrying up to
+// destroyRetryAttempts times with destroyRetryBackoff between attempts to absorb a transient
+// async cloud-side dependency. Each failed non-final attempt is logged via warningWriter before
+// retrying, so a failure reason that changes between attempts stays visible. The first attempt
+// uses DefaultTerraformDestroyTimeout; retries use the shorter DefaultTerraformDestroyRetryTimeout.
+// A timeout (shell.ErrCommandTimedOut) fails immediately without retrying. Returns the last
+// attempt's output and error.
+func (s *TerraformStack) execTerraformDestroyWithRetry(componentPath, terraformCommand string, destroyEnv map[string]string, destroyArgs []string) (string, error) {
+	timeout := constants.DefaultTerraformDestroyTimeout
+	var output string
+	var err error
+	for attempt := 1; attempt <= s.destroyRetryAttempts; attempt++ {
+		output, err = s.runtime.Shell.ExecSilentWithEnvAndTimeout(terraformCommand, destroyEnv, destroyArgs, timeout)
+		if err == nil {
+			return output, nil
+		}
+		if errors.Is(err, shell.ErrCommandTimedOut) {
+			return output, err
+		}
+		if attempt < s.destroyRetryAttempts {
+			if trimmed := strings.TrimSpace(output); trimmed != "" {
+				fmt.Fprintf(s.warningWriter, "terraform destroy attempt %d/%d for %s failed, retrying:\n%s\n", attempt, s.destroyRetryAttempts, componentPath, trimmed)
+			} else {
+				fmt.Fprintf(s.warningWriter, "terraform destroy attempt %d/%d for %s failed, retrying: %v\n", attempt, s.destroyRetryAttempts, componentPath, err)
+			}
+			s.shims.TimeSleep(s.destroyRetryBackoff)
+		}
+		timeout = s.destroyRetryTimeout
+	}
+	return output, err
 }
 
 // refreshProviderLock runs `terraform init -upgrade -backend=false` for component. This
