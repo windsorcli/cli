@@ -11,6 +11,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -280,26 +281,16 @@ func (s *FluxStack) PlanComponentSummary(blueprint *blueprintv1alpha1.Blueprint,
 	return s.planOneKustomizeSummary(blueprint, k, namespace, fluxMissing, kustomizeMissing)
 }
 
-// PlanDestroySummary returns the per-kustomization preview of what
-// `windsor destroy` will tear down at the flux layer. Unlike PlanSummary,
-// this is sourced from the cluster's live state — specifically the
-// .status.inventory.entries on each Kustomization, which is exactly what flux
-// uses to drive prune behavior — rather than from `kustomize build` of the
-// blueprint. Showing blueprint-derived resources for a destroy preview would
-// lie when the cluster has drifted, so we read truth from the cluster.
+// PlanDestroySummary previews what `windsor destroy` will remove at the flux
+// layer, read from each Kustomization's live .status.inventory.entries. A
+// kustomization absent from the cluster, or a cluster with no kubeconfig, is
+// reported as not-deployed (IsNew=true).
 //
-// The kustomization set mirrors DeleteBlueprint's eligibility gate: regular
-// kustomizations only (DestroyOnly hooks are applied during destroy and are
-// not user-facing here), and any pinned with destroy=false are filtered out.
-// A kustomization that is absent from the cluster yields IsNew=true so the
-// renderer shows "(not deployed)". A missing kubeconfig is treated the same
-// way: kustomizations are cluster-scoped resources, so "no cluster reachable"
-// implies "nothing deployed" by definition. This keeps `windsor destroy`
-// idempotent — after the cluster's terraform component tears down the
-// kubeconfig, a subsequent destroy can still plan and run terraform-only
-// teardown rather than failing to query a cluster that no longer exists.
-// Other cluster errors still propagate, since they can indicate transient
-// connectivity problems where falling back would produce a misleading plan.
+// A kubeconfig that still names a since-destroyed cluster fails with a
+// network-layer error, not a missing-file error. The first such failure marks
+// the cluster unreachable for the rest of this call. Every remaining
+// kustomization is then reported as not-deployed, not queried again. Any
+// other error still propagates.
 func (s *FluxStack) PlanDestroySummary(blueprint *blueprintv1alpha1.Blueprint) ([]KustomizePlan, error) {
 	if blueprint == nil {
 		return nil, nil
@@ -308,17 +299,46 @@ func (s *FluxStack) PlanDestroySummary(blueprint *blueprintv1alpha1.Blueprint) (
 	namespace := s.gitopsNamespace()
 
 	var results []KustomizePlan
+	clusterUnreachable := false
 	for _, k := range blueprint.Kustomizations {
 		if !KustomizationDestroyEligible(k) {
 			continue
 		}
+		if clusterUnreachable {
+			results = append(results, notDeployedKustomizePlan(k.Name))
+			continue
+		}
 		result, err := s.planOneKustomizeDestroySummary(k, namespace)
 		if err != nil {
+			if isClusterUnreachable(err) {
+				clusterUnreachable = true
+				results = append(results, notDeployedKustomizePlan(k.Name))
+				continue
+			}
 			return nil, err
 		}
 		results = append(results, result)
 	}
 	return results, nil
+}
+
+// notDeployedKustomizePlan builds the destroy-plan result for a kustomization known
+// not to be on the cluster.
+func notDeployedKustomizePlan(name string) KustomizePlan {
+	return KustomizePlan{Name: name, IsNew: true}
+}
+
+// isClusterUnreachable reports whether err is a network-layer failure, not a
+// response from the API server. A refused connection, a DNS failure, or a
+// client-side timeout all count. A TLS or certificate error also implements
+// net.Error, but not as *net.OpError or a real timeout, so it does not count.
+func isClusterUnreachable(err error) bool {
+	var opErr *net.OpError
+	if errors.As(err, &opErr) {
+		return true
+	}
+	var netErr net.Error
+	return errors.As(err, &netErr) && netErr.Timeout()
 }
 
 // PlanDestroyComponentSummary returns the destroy preview for a single named

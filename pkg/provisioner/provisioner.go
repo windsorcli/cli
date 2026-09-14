@@ -779,13 +779,11 @@ func (i *Provisioner) PlanDestroyTerraformSummary(blueprint *blueprintv1alpha1.B
 }
 
 // PlanDestroyKustomizeSummary previews the destroy plan for every eligible
-// Flux kustomization by querying live cluster inventory. Returns an error if
-// the cluster is unreachable — destroy itself cannot proceed without it, so a
-// blueprint-derived fallback would mislead. DestroyOnly hooks and destroy=
-// false pinned kustomizations are filtered to match DeleteBlueprint. The
-// blueprint is passed through withCrdLayer so FluxSystem tiers and synthesized
-// CRD layers are flattened into Kustomizations — matching Uninstall's teardown
-// set exactly, so the plan lists the same kustomizations the destroy removes.
+// Flux kustomization from live cluster inventory. A stale kubeconfig reports
+// every kustomization as not-deployed; see FluxStack.PlanDestroySummary.
+// DestroyOnly hooks and destroy=false pinned kustomizations are filtered to
+// match DeleteBlueprint. withCrdLayer flattens FluxSystem tiers and CRD
+// layers first, so the plan matches Uninstall's teardown set.
 func (i *Provisioner) PlanDestroyKustomizeSummary(blueprint *blueprintv1alpha1.Blueprint) (*DestroyPlanSummary, error) {
 	if blueprint == nil {
 		return nil, fmt.Errorf("blueprint not provided")
@@ -806,10 +804,9 @@ func (i *Provisioner) PlanDestroyKustomizeSummary(blueprint *blueprintv1alpha1.B
 }
 
 // PlanDestroyAll previews the destroy plan across both Terraform and Flux
-// layers. Initialises each stack as needed and aggregates the results into
-// a single DestroyPlanSummary for rendering. A cluster failure on the flux
-// side aborts the whole plan — destroy needs the cluster, so a partial plan
-// would be misleading.
+// layers, aggregating both into one DestroyPlanSummary. See
+// PlanDestroyKustomizeSummary for the flux-side unreachable-cluster
+// classification.
 func (i *Provisioner) PlanDestroyAll(blueprint *blueprintv1alpha1.Blueprint) (*DestroyPlanSummary, error) {
 	if blueprint == nil {
 		return nil, fmt.Errorf("blueprint not provided")
