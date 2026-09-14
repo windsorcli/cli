@@ -25,6 +25,7 @@ import (
 	"github.com/windsorcli/cli/pkg/constants"
 	"github.com/windsorcli/cli/pkg/provisioner/kubernetes/client"
 	"github.com/windsorcli/cli/pkg/runtime/config"
+	"github.com/windsorcli/cli/pkg/runtime/evaluator"
 	runtimegit "github.com/windsorcli/cli/pkg/runtime/git"
 	"github.com/windsorcli/cli/pkg/tui"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
@@ -633,8 +634,15 @@ func (k *BaseKubernetesManager) DeleteNamespace(name string) error {
 	return k.client.DeleteResource(gvr, "", name, metav1.DeleteOptions{})
 }
 
-// ApplyConfigMap creates or updates a ConfigMap using SSA
+// ApplyConfigMap creates or updates a ConfigMap using SSA. It refuses to write a value that still
+// contains an unresolved expression, such as an unresolved terraform_output().
 func (k *BaseKubernetesManager) ApplyConfigMap(name, namespace string, data map[string]string) error {
+	for key, value := range data {
+		if evaluator.ContainsExpression(value) {
+			return fmt.Errorf("configmap %s: value for %q still contains an unresolved expression; run `windsor apply` (or `windsor upgrade`) first to resolve it", name, key)
+		}
+	}
+
 	obj := &unstructured.Unstructured{
 		Object: map[string]any{
 			"apiVersion": "v1",
