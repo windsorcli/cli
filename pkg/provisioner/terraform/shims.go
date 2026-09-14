@@ -7,6 +7,7 @@ package terraform
 
 import (
 	"os"
+	"time"
 )
 
 // =============================================================================
@@ -25,6 +26,7 @@ type Shims struct {
 	RemoveAll func(string) error
 	WriteFile func(string, []byte, os.FileMode) error
 	ReadFile  func(string) ([]byte, error)
+	TimeSleep func(time.Duration)
 }
 
 // =============================================================================
@@ -44,5 +46,6 @@ func NewShims() *Shims {
 		RemoveAll: os.RemoveAll,
 		WriteFile: os.WriteFile,
 		ReadFile:  os.ReadFile,
+		TimeSleep: time.Sleep,
 	}
 }
