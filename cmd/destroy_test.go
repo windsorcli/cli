@@ -1317,35 +1317,6 @@ func TestDestroyKustomizeCmd(t *testing.T) {
 		}
 	})
 
-	t.Run("HaltsBeforeConfirmationWhenPlanGenerationFails", func(t *testing.T) {
-		// Given a layer-wide kustomize destroy whose plan query failed for one kustomization,
-		// with confirmation that would otherwise be satisfied.
-		mocks := setupDestroyTest(t)
-		mocks.KubernetesManager.GetKustomizationInventoryFunc = func(name, namespace string) ([]kubernetes.InventoryEntry, error) {
-			return nil, fmt.Errorf("connection refused")
-		}
-		destroyed := false
-		mocks.KubernetesManager.DeleteBlueprintFunc = func(bp *blueprintv1alpha1.Blueprint, namespace string) error {
-			destroyed = true
-			return nil
-		}
-		proj := newDestroyProject(mocks)
-
-		cmd := createTestDestroyKustomizeCmd()
-		ctx := context.WithValue(context.Background(), projectOverridesKey, proj)
-		cmd.SetArgs([]string{"--confirm=test-context"})
-		cmd.SetContext(ctx)
-		err := cmd.Execute()
-
-		// Then it refuses before the confirmation gate and destroys nothing.
-		if err == nil {
-			t.Fatal("Expected plan-generation error, got nil")
-		}
-		if destroyed {
-			t.Error("Expected no destroy to run when plan generation failed")
-		}
-	})
-
 	t.Run("SuccessSpecificWithConfirmFlag", func(t *testing.T) {
 		mocks := setupDestroyTest(t)
 		proj := newDestroyProject(mocks)

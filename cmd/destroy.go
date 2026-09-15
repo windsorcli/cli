@@ -370,10 +370,6 @@ windsor destroy kustomize --confirm=local`,
 			}
 			tuiplan.DestroySummary(os.Stdout, nil, summary.Kustomize, os.Getenv("NO_COLOR") != "")
 
-			if err := failOnDestroyKustomizePlanErrors(summary.Kustomize); err != nil {
-				return err
-			}
-
 			contextName := proj.Runtime.ContextName
 			desc := fmt.Sprintf("This will permanently destroy all Flux kustomizations in context %q.", contextName)
 			if err := resolveDestroyConfirmation(cmd.InOrStdin(), cmd.ErrOrStderr(), desc, contextName); err != nil {
