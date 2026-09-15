@@ -66,6 +66,9 @@ func (i *Provisioner) Teardown(blueprint *blueprintv1alpha1.Blueprint, terraform
 	if backendType == "kubernetes" && blueprint.Backend == "" {
 		return result, fmt.Errorf("blueprint configures terraform.backend.type=kubernetes but does not declare Blueprint.Backend; set `backend: <cluster-component-id>` at the blueprint top level to name the terraform component that provisions the cluster")
 	}
+	if err := i.checkOrphanedLocalState(blueprint); err != nil {
+		return result, err
+	}
 
 	destroyFlat := func() (DestroyResult, error) {
 		if terraformOnly {
@@ -149,6 +152,9 @@ func (i *Provisioner) Teardown(blueprint *blueprintv1alpha1.Blueprint, terraform
 // full-cycle teardown.
 func (i *Provisioner) TeardownComponent(blueprint *blueprintv1alpha1.Blueprint, componentID string) (bool, error) {
 	if err := i.CheckComponentDestroyable(blueprint, componentID); err != nil {
+		return false, err
+	}
+	if err := i.checkOrphanedLocalState(blueprint); err != nil {
 		return false, err
 	}
 	return i.Destroy(blueprint, componentID)

@@ -218,6 +218,9 @@ func (i *Provisioner) Up(blueprint *blueprintv1alpha1.Blueprint, onApply ...func
 	if blueprint == nil {
 		return false, fmt.Errorf("blueprint not provided")
 	}
+	if err := i.checkOrphanedLocalState(blueprint); err != nil {
+		return false, err
+	}
 
 	backendType := i.configHandler.GetTerraformBackendType()
 	applyFlat := func() (bool, error) {
@@ -416,6 +419,9 @@ func (i *Provisioner) Apply(blueprint *blueprintv1alpha1.Blueprint, componentID 
 	}
 	if i.TerraformStack == nil {
 		return fmt.Errorf("terraform is disabled")
+	}
+	if err := i.checkOrphanedLocalState(blueprint); err != nil {
+		return err
 	}
 	if err := i.TerraformStack.Apply(blueprint, componentID); err != nil {
 		return fmt.Errorf("failed to run terraform apply for %s: %w", componentID, err)
@@ -1942,19 +1948,16 @@ func hasEnabledTerraformComponent(blueprint *blueprintv1alpha1.Blueprint) bool {
 //   - Probe failure: abort with the underlying error. Otherwise -force-copy could overwrite
 //     good remote state with a stale local file.
 //   - Disabled component: still counts as declared. The sweep above skips it, but it must
-//     not be mistaken for an orphan below.
+//     not be mistaken for an orphan by checkOrphanedLocalState.
 //
-// After the sweep, warnAboutOrphanedLocalState checks for local state under a componentID no
-// longer in the blueprint (usually a rename) and warns instead of migrating it.
+// checkOrphanedLocalState covers the orphan case separately, outside this function. A caller
+// applying a declared backend tier runs this sweep under a terraform.backend.type override
+// pinned to "local". The early return above would skip orphan detection for exactly the
+// components most exposed to it.
 func (i *Provisioner) recoverHalfMigratedComponents(blueprint *blueprintv1alpha1.Blueprint) error {
 	backendType := i.configHandler.GetTerraformBackendType()
 	if backendType == "" || backendType == "local" {
 		return nil
-	}
-
-	currentIDs := make(map[string]bool, len(blueprint.TerraformComponents))
-	for _, c := range blueprint.TerraformComponents {
-		currentIDs[c.GetID()] = true
 	}
 
 	for _, c := range blueprint.TerraformComponents {
@@ -2000,25 +2003,53 @@ func (i *Provisioner) recoverHalfMigratedComponents(blueprint *blueprintv1alpha1
 		}
 	}
 
+	return nil
+}
+
+// checkOrphanedLocalState warns about local Terraform state under a componentID no longer in
+// the blueprint. A rename is the usual cause.
+//
+// The check does not depend on the configured backend type. A local backend can strand state
+// under an old componentID just as a remote one can.
+//
+// Call it once per operation, with the full, unsliced blueprint. It ignores any
+// terraform.backend.type override already in effect. Callers do not need to sequence it around
+// one. A disabled terraform stack has no local state to check, so this is a no-op then, not an
+// error.
+func (i *Provisioner) checkOrphanedLocalState(blueprint *blueprintv1alpha1.Blueprint) error {
+	if blueprint == nil {
+		return fmt.Errorf("blueprint not provided")
+	}
+	if err := i.ensureTerraformStack(); err != nil {
+		return err
+	}
+	if i.TerraformStack == nil {
+		return nil
+	}
+
+	currentIDs := make(map[string]bool, len(blueprint.TerraformComponents))
+	for _, c := range blueprint.TerraformComponents {
+		currentIDs[c.GetID()] = true
+	}
 	return i.warnAboutOrphanedLocalState(currentIDs)
 }
 
-// warnAboutOrphanedLocalState finds componentIDs that still have local Terraform state with
-// resources on disk but no longer appear in the blueprint — typically because the component
-// was renamed. Without this, such state is invisible to the sweep above, which only iterates
-// the current blueprint's componentIDs. currentIDs is the set already handled by that sweep,
-// so this only visits IDs it skipped.
+// warnAboutOrphanedLocalState finds componentIDs with local Terraform state on disk that are no
+// longer in the blueprint. A rename is the usual cause.
 //
-// This deliberately only detects and warns; it does not migrate or remove anything. An
-// orphaned ID is just as consistent with the component having been properly destroyed and
-// removed from the blueprint as with a rename — the two are indistinguishable from an on-disk
-// ID alone — and force-copying into the shared remote backend is not safe to run unattended
-// for either case: a decommissioned component's stale local state would get published into
-// the shared backend forever, under an ID nothing will ever reference again.
+// It only detects and warns. It never migrates or removes anything. An orphaned ID is just as
+// consistent with a proper destroy-then-remove as with a rename. The two look the same from an
+// on-disk ID alone. Force-copying into the shared remote backend is not safe to run unattended
+// for either case: a decommissioned component's stale local state would get published into the
+// shared backend forever, under an ID nothing will ever reference again.
+//
+// A failure to inspect local state is reported as a warning, not a returned error. This check is
+// advisory, so it must not block the apply or destroy it runs alongside.
 func (i *Provisioner) warnAboutOrphanedLocalState(currentIDs map[string]bool) error {
 	localIDs, err := i.ListLocalStateComponentIDs()
 	if err != nil {
-		return fmt.Errorf("error listing local state during recovery sweep: %w", err)
+		fmt.Fprintf(os.Stderr, "warning: could not check for orphaned local terraform state: %v\n", err)
+		return nil
 	}
 
 	for _, componentID := range localIDs {
@@ -2028,7 +2059,8 @@ func (i *Provisioner) warnAboutOrphanedLocalState(currentIDs map[string]bool) er
 
 		hasLocal, err := i.HasLocalStateWithResources(componentID)
 		if err != nil {
-			return fmt.Errorf("error inspecting local state for %s during recovery sweep: %w", componentID, err)
+			fmt.Fprintf(os.Stderr, "warning: could not inspect local terraform state for %q: %v\n", componentID, err)
+			continue
 		}
 		if !hasLocal {
 			continue
