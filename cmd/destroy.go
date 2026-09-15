@@ -179,6 +179,9 @@ windsor destroy --confirm=local --continue`,
 		if err := failOnDestroyPlanErrors(tfResults); err != nil {
 			return err
 		}
+		if err := failOnDestroyKustomizePlanErrors(k8sResults); err != nil {
+			return err
+		}
 
 		desc := fmt.Sprintf("This will permanently destroy component %q across all layers.", componentID)
 		if err := resolveDestroyConfirmation(cmd.InOrStdin(), cmd.ErrOrStderr(), desc, componentID); err != nil {
@@ -391,6 +394,10 @@ windsor destroy kustomize --confirm=local`,
 		}
 		tuiplan.DestroySummary(os.Stdout, nil, []fluxinfra.KustomizePlan{k8sResult}, os.Getenv("NO_COLOR") != "")
 
+		if err := failOnDestroyKustomizePlanErrors([]fluxinfra.KustomizePlan{k8sResult}); err != nil {
+			return err
+		}
+
 		desc := fmt.Sprintf("This will permanently destroy Flux kustomization %q.", componentID)
 		if err := resolveDestroyConfirmation(cmd.InOrStdin(), cmd.ErrOrStderr(), desc, componentID); err != nil {
 			return err
@@ -492,6 +499,25 @@ func failOnDestroyPlanErrors(plans []terraforminfra.TerraformComponentPlan) erro
 		return nil
 	}
 	return fmt.Errorf("destroy-plan generation failed for %d component(s): %s; resolve the errors above and rerun — refusing to confirm a destroy that cannot tear these down", len(failed), strings.Join(failed, ", "))
+}
+
+// failOnDestroyKustomizePlanErrors is failOnDestroyPlanErrors for the Flux layer.
+// PlanDestroyComponentSummary carries a query failure on the plan's Err field rather
+// than returning it, so without this gate the flow proceeds to the prompt and offers
+// to destroy a kustomization the CLI could not fully plan — for example a stale
+// kubeconfig left by an earlier partial destroy. No-op when every kustomization
+// planned cleanly.
+func failOnDestroyKustomizePlanErrors(plans []fluxinfra.KustomizePlan) error {
+	var failed []string
+	for _, p := range plans {
+		if p.Err != nil {
+			failed = append(failed, fmt.Sprintf("%s (%v)", p.Name, p.Err))
+		}
+	}
+	if len(failed) == 0 {
+		return nil
+	}
+	return fmt.Errorf("destroy-plan generation failed for %d kustomization(s): %s; resolve the errors above and rerun — refusing to confirm a destroy that cannot tear these down", len(failed), strings.Join(failed, ", "))
 }
 
 // resolveDestroyConfirmation gates a destructive operation. If --confirm was supplied it must
