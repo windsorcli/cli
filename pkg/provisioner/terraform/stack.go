@@ -14,6 +14,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -48,6 +49,19 @@ import (
 // asking for confirmation: EOF". -input=false makes that surface as a clear, fail-fast error
 // instead of a stdin read against nothing.
 var defaultInitFlags = []string{"-upgrade", "-input=false"}
+
+// destroyBehaviorAttributes are the resource attributes known to change how a provider
+// performs a delete. plan -destroy never re-diffs these against config, since the resource
+// is being removed, not updated. A stale value can then persist silently through destroy
+// until an intervening plan or apply reconciles it — see cli#3328. This list stays small and
+// curated on purpose. General attribute drift is common and mostly harmless to an imminent
+// destroy; flagging all of it would make the warning too noisy to trust.
+var destroyBehaviorAttributes = []string{
+	"deletion_policy",
+	"deletion_protection",
+	"force_destroy",
+	"skip_final_snapshot",
+}
 
 // =============================================================================
 // Types
@@ -138,7 +152,24 @@ type TerraformComponentPlan struct {
 	// gate should consume TF_VAR_operation / TF_VAR_ephemeral and design the
 	// destroy contract in HCL.
 	Protected []string
-	Err       error
+	// DriftedAttributes lists destroy-behavior attributes (see destroyBehaviorAttributes)
+	// whose config value disagrees with state on a resource this plan will destroy.
+	// plan -destroy never re-diffs these against config, so a stale state value would
+	// otherwise persist silently through destroy. Populated only on destroy-plan paths.
+	// Best-effort: a failure detecting drift never fails the plan, so this can be nil
+	// even when drift exists.
+	DriftedAttributes []DestroyAttributeDrift
+	Err               error
+}
+
+// DestroyAttributeDrift names one destroy-behavior attribute whose config value disagrees
+// with what terraform has recorded in state for a resource. State is the value plan -destroy
+// will actually use; Config is what the current .tf declares.
+type DestroyAttributeDrift struct {
+	Address   string
+	Attribute string
+	State     string
+	Config    string
 }
 
 // Action enumerates the kinds of changes a plan can produce for a single resource.
@@ -1557,6 +1588,8 @@ func (s *TerraformStack) planOneTerraformDestroySummary(component *blueprintv1al
 	planOutput, err := s.runtime.Shell.ExecCaptureWithEnv(terraformCommand, planEnv, planArgs...)
 	if err == nil {
 		result.Add, result.Change, result.Destroy, result.NoChanges, result.Resources = parseTerraformPlanJSON(planOutput)
+		drifted := s.destroyBehaviorDrift(component, terraformVars, scopedKeys, terraformArgs)
+		result.DriftedAttributes = filterDriftToDestroyed(drifted, result.Resources)
 		return result
 	}
 
@@ -1579,6 +1612,80 @@ func (s *TerraformStack) planOneTerraformDestroySummary(component *blueprintv1al
 	wrapped := fmt.Errorf("error running terraform plan -destroy for %s: %w", component.Path, err)
 	result.Err = wrapPlanError(wrapped, otherErrors)
 	return result
+}
+
+// destroyBehaviorDriftPlanFile is the scratch plan file destroyBehaviorDrift saves its own
+// regular plan to, in the same TF_DATA_DIR the component's real plan/apply artifacts live
+// in. It is deliberately never the shared apply-mode plan file (terraformArgs.PlanArgs' own
+// -out=): `windsor env` points a manually-run `terraform apply` at that same file via
+// TF_CLI_ARGS_apply, so overwriting it here — even when the destroy is later declined —
+// would leave a stale, unreviewed create/update plan for a later bare `terraform apply` to
+// silently consume.
+const destroyBehaviorDriftPlanFile = "windsor-destroy-drift.tfplan"
+
+// destroyBehaviorDrift runs a regular (non-destroy) plan for the component and returns any
+// destroy-behavior attribute (see destroyBehaviorAttributes) whose config value disagrees
+// with state. -refresh=false skips a live cloud refresh, so this stays a fast, local diff
+// against whatever state is already on disk. The plan is saved to its own scratch file, not
+// the component's shared apply-mode plan file, and removed afterward. Best-effort: any
+// failure returns nil rather than surfacing a new error, since this is a supplementary
+// check, not a requirement for the destroy plan itself.
+func (s *TerraformStack) destroyBehaviorDrift(component *blueprintv1alpha1.TerraformComponent, terraformVars map[string]string, scopedKeys []string, terraformArgs *envvars.TerraformArgs) []DestroyAttributeDrift {
+	sharedPlanFile := planOutputPath(terraformArgs.PlanArgs)
+	if sharedPlanFile == "" {
+		return nil
+	}
+	driftPlanFile := path.Join(path.Dir(sharedPlanFile), destroyBehaviorDriftPlanFile)
+	defer func() { _ = s.shims.Remove(driftPlanFile) }()
+
+	terraformCommand := s.runtime.ToolsManager.GetTerraformCommand()
+	planEnv := selectTerraformCommandEnv(terraformVars, true, scopedKeys)
+
+	planArgs := []string{fmt.Sprintf("-chdir=%s", component.FullPath), "plan", "-refresh=false", "-no-color", fmt.Sprintf("-out=%s", driftPlanFile)}
+	planArgs = append(planArgs, planArgsWithoutOut(terraformArgs.PlanArgs)...)
+	if _, err := s.runtime.Shell.ExecCaptureWithEnv(terraformCommand, planEnv, planArgs...); err != nil {
+		return nil
+	}
+
+	showArgs := []string{fmt.Sprintf("-chdir=%s", component.FullPath), "show", "-json", driftPlanFile}
+	planJSON, err := s.runtime.Shell.ExecCaptureWithEnv(terraformCommand, planEnv, showArgs...)
+	if err != nil {
+		return nil
+	}
+
+	return parseDestroyBehaviorDrift(planJSON)
+}
+
+// planArgsWithoutOut drops any -out=<path> entries, so a caller can supply its own -out=
+// without producing two conflicting flags on the same command.
+func planArgsWithoutOut(args []string) []string {
+	filtered := make([]string, 0, len(args))
+	for _, a := range args {
+		if strings.HasPrefix(a, "-out=") {
+			continue
+		}
+		filtered = append(filtered, a)
+	}
+	return filtered
+}
+
+// filterDriftToDestroyed keeps only the drift entries whose address this destroy plan will
+// actually delete, so a drifted attribute on a resource this run leaves untouched is never
+// reported as a destroy-time risk.
+func filterDriftToDestroyed(drifted []DestroyAttributeDrift, resources []ResourceChange) []DestroyAttributeDrift {
+	destroyed := make(map[string]bool, len(resources))
+	for _, r := range resources {
+		if r.Action == ActionDelete {
+			destroyed[r.Address] = true
+		}
+	}
+	var filtered []DestroyAttributeDrift
+	for _, d := range drifted {
+		if destroyed[d.Address] {
+			filtered = append(filtered, d)
+		}
+	}
+	return filtered
 }
 
 // componentDestroyEnabled reports whether a component should be included in a
@@ -1925,6 +2032,76 @@ func parseTerraformPlanJSON(output string) (add, change, destroy int, noChanges 
 		noChanges = true
 	}
 	return
+}
+
+// planOutputPath extracts the -out=<path> value from a set of plan arguments, or "" when
+// none is present.
+func planOutputPath(args []string) string {
+	for _, a := range args {
+		if path, ok := strings.CutPrefix(a, "-out="); ok {
+			return path
+		}
+	}
+	return ""
+}
+
+// parseDestroyBehaviorDrift extracts destroy-behavior attribute drift (see
+// destroyBehaviorAttributes) from the structured JSON `terraform show -json <planfile>`
+// emits for a regular plan. Only resource_changes carrying an "update" action are
+// considered — those are exactly the resources whose config disagrees with state.
+// Malformed or unrecognized input yields no drift rather than an error, consistent with
+// destroyBehaviorDrift's best-effort contract.
+func parseDestroyBehaviorDrift(output string) []DestroyAttributeDrift {
+	var plan struct {
+		ResourceChanges []struct {
+			Address string `json:"address"`
+			Change  struct {
+				Actions []string        `json:"actions"`
+				Before  json.RawMessage `json:"before"`
+				After   json.RawMessage `json:"after"`
+			} `json:"change"`
+		} `json:"resource_changes"`
+	}
+	if err := json.Unmarshal([]byte(output), &plan); err != nil {
+		return nil
+	}
+
+	var drifted []DestroyAttributeDrift
+	for _, rc := range plan.ResourceChanges {
+		if !slices.Contains(rc.Change.Actions, "update") {
+			continue
+		}
+		var before, after map[string]any
+		if json.Unmarshal(rc.Change.Before, &before) != nil || json.Unmarshal(rc.Change.After, &after) != nil {
+			continue
+		}
+		for _, attr := range destroyBehaviorAttributes {
+			beforeVal, hasBefore := before[attr]
+			afterVal, hasAfter := after[attr]
+			if !hasBefore || !hasAfter || fmt.Sprint(beforeVal) == fmt.Sprint(afterVal) {
+				continue
+			}
+			drifted = append(drifted, DestroyAttributeDrift{
+				Address:   stripModuleMain(rc.Address),
+				Attribute: attr,
+				State:     formatDriftValue(beforeVal),
+				Config:    formatDriftValue(afterVal),
+			})
+		}
+	}
+	return drifted
+}
+
+// formatDriftValue renders a decoded JSON attribute value for a drift warning: quoted for a
+// string, "null" for an absent value, and Go's default format otherwise (bool, number).
+func formatDriftValue(v any) string {
+	if v == nil {
+		return "null"
+	}
+	if s, ok := v.(string); ok {
+		return fmt.Sprintf("%q", s)
+	}
+	return fmt.Sprint(v)
 }
 
 // preventDestroySummary is the diagnostic summary terraform emits verbatim for

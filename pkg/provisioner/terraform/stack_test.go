@@ -5336,7 +5336,10 @@ func TestStack_PlanDestroySummary(t *testing.T) {
 			if len(args) > 2 && args[1] == "show" && args[2] == "-json" {
 				return `{"values":{"root_module":{"resources":[{"address":"aws_s3_bucket.example"}]}}}`, nil
 			}
-			if len(args) > 1 && args[1] == "plan" {
+			// Only the destroy plan (carrying -destroy) is captured here; the
+			// drift-check's own regular plan runs afterward and is exercised by
+			// TestStack_destroyBehaviorDrift instead.
+			if capturedArgs == nil && len(args) > 1 && args[1] == "plan" && slices.Contains(args, "-destroy") {
 				capturedArgs = append([]string{}, args...)
 				capturedEnv = env
 				return strings.Join([]string{
@@ -5388,6 +5391,69 @@ func TestStack_PlanDestroySummary(t *testing.T) {
 			if rc.Action != ActionDelete {
 				t.Errorf("expected ActionDelete, got %v for %q", rc.Action, rc.Address)
 			}
+		}
+	})
+
+	t.Run("AttachesDestroyBehaviorDriftForAResourceBeingDestroyed", func(t *testing.T) {
+		// Given a destroy plan targeting aws_s3_bucket.logs, and a drift-check plan
+		// reporting a curated attribute drifted on that same resource (cli#3328)
+		stack, mocks := setup(t)
+		mocks.Shell.ExecSilentWithEnvFunc = func(command string, env map[string]string, args ...string) (string, error) {
+			if len(args) > 3 && args[1] == "show" && args[2] == "-json" {
+				return `{"resource_changes":[{"address":"module.main.aws_s3_bucket.logs","change":{"actions":["update"],"before":{"force_destroy":false},"after":{"force_destroy":true}}}]}`, nil
+			}
+			if len(args) > 2 && args[1] == "show" && args[2] == "-json" {
+				return `{"values":{"root_module":{"resources":[{"address":"aws_s3_bucket.logs"}]}}}`, nil
+			}
+			if len(args) > 1 && args[1] == "plan" && slices.Contains(args, "-destroy") {
+				return `{"type":"planned_change","change":{"resource":{"addr":"aws_s3_bucket.logs"},"action":"delete"}}` + "\n" +
+					`{"type":"change_summary","changes":{"add":0,"change":0,"remove":1}}` + "\n", nil
+			}
+			return "", nil
+		}
+
+		// When PlanDestroySummary runs
+		results := stack.PlanDestroySummary(createTestBlueprint())
+
+		// Then the drift is attached to the result naming the resource being destroyed
+		if len(results) == 0 {
+			t.Fatal("expected at least one result")
+		}
+		r := results[0]
+		if len(r.DriftedAttributes) != 1 {
+			t.Fatalf("expected 1 drifted attribute, got %#v", r.DriftedAttributes)
+		}
+		d := r.DriftedAttributes[0]
+		if d.Address != "aws_s3_bucket.logs" || d.Attribute != "force_destroy" {
+			t.Errorf("expected drift on aws_s3_bucket.logs/force_destroy, got %#v", d)
+		}
+	})
+
+	t.Run("OmitsDriftForAResourceNotBeingDestroyed", func(t *testing.T) {
+		// Given the drift-check plan reports drift on a resource absent from the
+		// destroy plan's own resource list
+		stack, mocks := setup(t)
+		mocks.Shell.ExecSilentWithEnvFunc = func(command string, env map[string]string, args ...string) (string, error) {
+			if len(args) > 3 && args[1] == "show" && args[2] == "-json" {
+				return `{"resource_changes":[{"address":"module.main.aws_db_instance.untouched","change":{"actions":["update"],"before":{"deletion_protection":true},"after":{"deletion_protection":false}}}]}`, nil
+			}
+			if len(args) > 2 && args[1] == "show" && args[2] == "-json" {
+				return `{"values":{"root_module":{"resources":[{"address":"aws_s3_bucket.logs"}]}}}`, nil
+			}
+			if len(args) > 1 && args[1] == "plan" && slices.Contains(args, "-destroy") {
+				return `{"type":"planned_change","change":{"resource":{"addr":"aws_s3_bucket.logs"},"action":"delete"}}` + "\n" +
+					`{"type":"change_summary","changes":{"add":0,"change":0,"remove":1}}` + "\n", nil
+			}
+			return "", nil
+		}
+
+		results := stack.PlanDestroySummary(createTestBlueprint())
+
+		if len(results) == 0 {
+			t.Fatal("expected at least one result")
+		}
+		if len(results[0].DriftedAttributes) != 0 {
+			t.Errorf("expected no drift reported for a resource this destroy leaves untouched, got %#v", results[0].DriftedAttributes)
 		}
 	})
 
@@ -5708,6 +5774,219 @@ func TestParseTerraformPlanJSON(t *testing.T) {
 		// Then noChanges remains false — distinguishes "no output" from "no diff"
 		if noChanges {
 			t.Error("expected noChanges=false for empty output")
+		}
+	})
+}
+
+func TestParseDestroyBehaviorDrift(t *testing.T) {
+	t.Run("ReportsACuratedAttributeThatDisagreesWithState", func(t *testing.T) {
+		// Given a plan JSON showing deletion_policy changing on an update action
+		output := `{"resource_changes":[{"address":"module.main.google_service_networking_connection.cloudsql","change":{"actions":["update"],"before":{"deletion_policy":"DELETE"},"after":{"deletion_policy":"REMOVE_PEERING"}}}]}`
+
+		// When parsed
+		drifted := parseDestroyBehaviorDrift(output)
+
+		// Then it reports the address (module.main. stripped), attribute, and both values
+		if len(drifted) != 1 {
+			t.Fatalf("expected 1 drift, got %#v", drifted)
+		}
+		want := DestroyAttributeDrift{
+			Address:   "google_service_networking_connection.cloudsql",
+			Attribute: "deletion_policy",
+			State:     `"DELETE"`,
+			Config:    `"REMOVE_PEERING"`,
+		}
+		if drifted[0] != want {
+			t.Errorf("expected %#v, got %#v", want, drifted[0])
+		}
+	})
+
+	t.Run("IgnoresAttributesOutsideTheCuratedList", func(t *testing.T) {
+		// Given an update that changes an attribute we don't track
+		output := `{"resource_changes":[{"address":"aws_s3_bucket.logs","change":{"actions":["update"],"before":{"tags":{"env":"old"}},"after":{"tags":{"env":"new"}}}}]}`
+
+		drifted := parseDestroyBehaviorDrift(output)
+
+		if len(drifted) != 0 {
+			t.Errorf("expected no drift for an uncurated attribute, got %#v", drifted)
+		}
+	})
+
+	t.Run("IgnoresResourcesNotBeingUpdated", func(t *testing.T) {
+		// Given a create action carrying a curated attribute (before is absent, not drifted)
+		output := `{"resource_changes":[{"address":"aws_db_instance.new","change":{"actions":["create"],"before":null,"after":{"deletion_protection":true}}}]}`
+
+		drifted := parseDestroyBehaviorDrift(output)
+
+		if len(drifted) != 0 {
+			t.Errorf("expected no drift for a create action, got %#v", drifted)
+		}
+	})
+
+	t.Run("IgnoresAnUnchangedCuratedAttribute", func(t *testing.T) {
+		// Given an update where the curated attribute itself did not change
+		output := `{"resource_changes":[{"address":"aws_db_instance.primary","change":{"actions":["update"],"before":{"deletion_protection":true,"other":"a"},"after":{"deletion_protection":true,"other":"b"}}}]}`
+
+		drifted := parseDestroyBehaviorDrift(output)
+
+		if len(drifted) != 0 {
+			t.Errorf("expected no drift when the curated attribute is unchanged, got %#v", drifted)
+		}
+	})
+
+	t.Run("ReturnsNilForMalformedInput", func(t *testing.T) {
+		if drifted := parseDestroyBehaviorDrift("not json"); drifted != nil {
+			t.Errorf("expected nil for malformed input, got %#v", drifted)
+		}
+		if drifted := parseDestroyBehaviorDrift(""); drifted != nil {
+			t.Errorf("expected nil for empty input, got %#v", drifted)
+		}
+	})
+}
+
+func TestStack_destroyBehaviorDrift(t *testing.T) {
+	setup := func(t *testing.T) (*TerraformStack, *TerraformTestMocks) {
+		t.Helper()
+		mocks := setupWindsorStackMocks(t)
+		stack := NewStack(mocks.Runtime).(*TerraformStack)
+		stack.shims = mocks.Shims
+		return stack, mocks
+	}
+
+	component := &blueprintv1alpha1.TerraformComponent{Path: "database/gcp-cloudsql", FullPath: "/tmp/database"}
+	sharedPlanFile := ".windsor/contexts/local/.terraform/database/terraform.tfplan"
+	terraformArgs := &envvars.TerraformArgs{PlanArgs: []string{fmt.Sprintf("-out=%s", sharedPlanFile), "-var-file=terraform.tfvars.json"}}
+
+	t.Run("ReturnsDriftFromItsOwnScratchPlanFile", func(t *testing.T) {
+		// Given a regular plan that succeeds, then a show -json of that plan file
+		// reporting drift on a curated attribute
+		stack, mocks := setup(t)
+		var sawRefreshFalse, sawVarFile bool
+		var planOutArg, showedPlanFile string
+		var removedPath string
+		stack.shims.Remove = func(path string) error {
+			removedPath = path
+			return nil
+		}
+		mocks.Shell.ExecSilentWithEnvFunc = func(command string, env map[string]string, args ...string) (string, error) {
+			if len(args) > 3 && args[1] == "show" && args[2] == "-json" {
+				showedPlanFile = args[3]
+				return `{"resource_changes":[{"address":"aws_db_instance.primary","change":{"actions":["update"],"before":{"deletion_protection":true},"after":{"deletion_protection":false}}}]}`, nil
+			}
+			if len(args) > 1 && args[1] == "plan" {
+				sawRefreshFalse = slices.Contains(args, "-refresh=false")
+				sawVarFile = slices.Contains(args, "-var-file=terraform.tfvars.json")
+				for _, a := range args {
+					if v, ok := strings.CutPrefix(a, "-out="); ok {
+						planOutArg = v
+					}
+				}
+				return "", nil
+			}
+			return "", nil
+		}
+
+		drifted := stack.destroyBehaviorDrift(component, map[string]string{}, nil, terraformArgs)
+
+		if len(drifted) != 1 || drifted[0].Attribute != "deletion_protection" {
+			t.Fatalf("expected 1 deletion_protection drift, got %#v", drifted)
+		}
+		if !sawRefreshFalse {
+			t.Error("expected the drift-check plan to run with -refresh=false")
+		}
+		if !sawVarFile {
+			t.Error("expected the drift-check plan to carry through the component's var-file args")
+		}
+		// The regular plan must never write to the shared apply-mode plan file: that
+		// file is what `windsor env`'s TF_CLI_ARGS_apply points a manually-run
+		// `terraform apply` at, so clobbering it here would leave a stale,
+		// unreviewed plan for a later bare apply to silently consume (cli#3328).
+		wantDriftFile := ".windsor/contexts/local/.terraform/database/windsor-destroy-drift.tfplan"
+		if planOutArg != wantDriftFile {
+			t.Errorf("expected -out=%q, got %q", wantDriftFile, planOutArg)
+		}
+		if planOutArg == sharedPlanFile {
+			t.Fatal("drift check must not write to the shared apply-mode plan file")
+		}
+		if showedPlanFile != wantDriftFile {
+			t.Errorf("expected show -json against the scratch plan file, got %q", showedPlanFile)
+		}
+		if removedPath != wantDriftFile {
+			t.Errorf("expected the scratch plan file to be removed afterward, got %q", removedPath)
+		}
+	})
+
+	t.Run("ReturnsNilWhenThePlanCallFails", func(t *testing.T) {
+		// Given the regular plan itself fails
+		stack, mocks := setup(t)
+		mocks.Shell.ExecSilentWithEnvFunc = func(command string, env map[string]string, args ...string) (string, error) {
+			if len(args) > 1 && args[1] == "plan" {
+				return "", fmt.Errorf("exit status 1")
+			}
+			return "", nil
+		}
+
+		// Then drift detection degrades to nil rather than propagating an error
+		if drifted := stack.destroyBehaviorDrift(component, map[string]string{}, nil, terraformArgs); drifted != nil {
+			t.Errorf("expected nil on plan failure, got %#v", drifted)
+		}
+	})
+
+	t.Run("ReturnsNilWhenTheShowCallFails", func(t *testing.T) {
+		// Given the plan succeeds but reading it back fails
+		stack, mocks := setup(t)
+		mocks.Shell.ExecSilentWithEnvFunc = func(command string, env map[string]string, args ...string) (string, error) {
+			if len(args) > 2 && args[1] == "show" && args[2] == "-json" {
+				return "", fmt.Errorf("no such file")
+			}
+			return "", nil
+		}
+
+		if drifted := stack.destroyBehaviorDrift(component, map[string]string{}, nil, terraformArgs); drifted != nil {
+			t.Errorf("expected nil when show fails, got %#v", drifted)
+		}
+	})
+
+	t.Run("ReturnsNilWhenNoPlanFileIsConfigured", func(t *testing.T) {
+		// Given terraformArgs.PlanArgs carries no -out=, so there is nothing to read back
+		stack, mocks := setup(t)
+		called := false
+		mocks.Shell.ExecSilentWithEnvFunc = func(command string, env map[string]string, args ...string) (string, error) {
+			called = true
+			return "", nil
+		}
+
+		if drifted := stack.destroyBehaviorDrift(component, map[string]string{}, nil, &envvars.TerraformArgs{}); drifted != nil {
+			t.Errorf("expected nil, got %#v", drifted)
+		}
+		if called {
+			t.Error("expected no terraform invocation when no plan file is configured")
+		}
+	})
+}
+
+func TestFilterDriftToDestroyed(t *testing.T) {
+	t.Run("KeepsOnlyDriftOnResourcesBeingDeleted", func(t *testing.T) {
+		drifted := []DestroyAttributeDrift{
+			{Address: "aws_db_instance.primary", Attribute: "deletion_protection"},
+			{Address: "aws_s3_bucket.untouched", Attribute: "force_destroy"},
+		}
+		resources := []ResourceChange{
+			{Address: "aws_db_instance.primary", Action: ActionDelete},
+			{Address: "aws_s3_bucket.untouched", Action: ActionUpdate},
+		}
+
+		filtered := filterDriftToDestroyed(drifted, resources)
+
+		if len(filtered) != 1 || filtered[0].Address != "aws_db_instance.primary" {
+			t.Errorf("expected only the destroyed resource's drift, got %#v", filtered)
+		}
+	})
+
+	t.Run("ReturnsNilWhenNothingMatches", func(t *testing.T) {
+		drifted := []DestroyAttributeDrift{{Address: "aws_db_instance.orphan"}}
+		if filtered := filterDriftToDestroyed(drifted, nil); filtered != nil {
+			t.Errorf("expected nil, got %#v", filtered)
 		}
 	})
 }
