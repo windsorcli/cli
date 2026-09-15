@@ -419,6 +419,95 @@ func TestBaseKubernetesManager_remediateLoadBalancerOwners(t *testing.T) {
 			t.Errorf("Expected error to name the stuck service, got %v", err)
 		}
 	})
+
+	t.Run("ErrorsWhenOwnedRootStaysTerminatingAfterServiceReleases", func(t *testing.T) {
+		// Given a Service that clears quickly via normal ownerReference garbage collection, but
+		// whose foreground-deleted owner (e.g. a GatewayClass held by its own
+		// gateway-exists-finalizer, cli#3293) never actually disappears
+		manager := setup(t)
+		kubernetesClient := client.NewMockKubernetesClient()
+		kubernetesClient.GetResourceFunc = func(gvr schema.GroupVersionResource, namespace, name string) (*unstructured.Unstructured, error) {
+			if gvr.Resource == "kustomizations" {
+				return kustomizationWithInventory(gatewayInventoryID), nil
+			}
+			if gvr.Resource == "services" {
+				return nil, fmt.Errorf("services %q not found", name)
+			}
+			if gvr == gatewaysGVR {
+				return &unstructured.Unstructured{Object: map[string]any{
+					"metadata": map[string]any{"name": name},
+				}}, nil
+			}
+			return nil, fmt.Errorf("%s %q not found", gvr.Resource, name)
+		}
+		kubernetesClient.ListResourcesFunc = func(gvr schema.GroupVersionResource, namespace string) (*unstructured.UnstructuredList, error) {
+			return &unstructured.UnstructuredList{Items: []unstructured.Unstructured{
+				lbService("system-gateway", "cilium-gateway-external", &gatewayOwner),
+			}}, nil
+		}
+		kubernetesClient.ResourceForFunc = func(gvk schema.GroupVersionKind) (schema.GroupVersionResource, error) {
+			return gatewaysGVR, nil
+		}
+		kubernetesClient.DeleteResourceFunc = func(gvr schema.GroupVersionResource, namespace, name string, opts metav1.DeleteOptions) error {
+			return nil
+		}
+		manager.client = kubernetesClient
+
+		// When remediation runs
+		err := manager.remediateLoadBalancerOwners(eligible, "system-gitops")
+
+		// Then it reports the stuck owner as an error instead of silently succeeding on the
+		// Service's release alone
+		if err == nil {
+			t.Fatal("Expected a timeout error when the owned root never releases, got nil")
+		}
+		if !strings.Contains(err.Error(), "external") {
+			t.Errorf("Expected error to name the stuck owner %q, got %v", "external", err)
+		}
+	})
+
+	t.Run("ErrorsAndNamesBothStuckObjects", func(t *testing.T) {
+		// Given neither the Service nor its foreground-deleted owner ever disappears
+		manager := setup(t)
+		kubernetesClient := client.NewMockKubernetesClient()
+		kubernetesClient.GetResourceFunc = func(gvr schema.GroupVersionResource, namespace, name string) (*unstructured.Unstructured, error) {
+			if gvr.Resource == "kustomizations" {
+				return kustomizationWithInventory(gatewayInventoryID), nil
+			}
+			if gvr.Resource == "services" || gvr == gatewaysGVR {
+				return &unstructured.Unstructured{Object: map[string]any{
+					"metadata": map[string]any{"namespace": namespace, "name": name},
+				}}, nil
+			}
+			return nil, fmt.Errorf("%s %q not found", gvr.Resource, name)
+		}
+		kubernetesClient.ListResourcesFunc = func(gvr schema.GroupVersionResource, namespace string) (*unstructured.UnstructuredList, error) {
+			return &unstructured.UnstructuredList{Items: []unstructured.Unstructured{
+				lbService("system-gateway", "cilium-gateway-external", &gatewayOwner),
+			}}, nil
+		}
+		kubernetesClient.ResourceForFunc = func(gvk schema.GroupVersionKind) (schema.GroupVersionResource, error) {
+			return gatewaysGVR, nil
+		}
+		kubernetesClient.DeleteResourceFunc = func(gvr schema.GroupVersionResource, namespace, name string, opts metav1.DeleteOptions) error {
+			return nil
+		}
+		manager.client = kubernetesClient
+
+		// When remediation runs
+		err := manager.remediateLoadBalancerOwners(eligible, "system-gitops")
+
+		// Then the error names both the stuck Service and the stuck owner, not just one
+		if err == nil {
+			t.Fatal("Expected a timeout error when neither the service nor the owner releases, got nil")
+		}
+		if !strings.Contains(err.Error(), "cilium-gateway-external") {
+			t.Errorf("Expected error to name the stuck service, got %v", err)
+		}
+		if !strings.Contains(err.Error(), "gateways external") {
+			t.Errorf("Expected error to name the stuck owner distinctly from the service, got %v", err)
+		}
+	})
 }
 
 func TestBaseKubernetesManager_waitForNodesReady(t *testing.T) {

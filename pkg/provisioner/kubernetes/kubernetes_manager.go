@@ -2029,12 +2029,13 @@ func (k *BaseKubernetesManager) ownedRootForService(svc *unstructured.Unstructur
 	return ownedTarget{}, false, nil
 }
 
-// foregroundDeleteAndWaitService foreground-deletes an owned load balancer root and waits for the
-// backing LoadBalancer Service to disappear, confirming the cloud-controller-manager released the
-// LB. Foreground propagation holds the owner until its garbage-collected children clear, so the
-// child Service's cloud finalizer runs while the CCM is still alive. A NotFound on delete is
-// treated as already-gone. On timeout the LoadBalancer is likely orphaned, so it returns an error
-// rather than letting destroy proceed into the terraform teardown that the orphan would wedge.
+// foregroundDeleteAndWaitService foreground-deletes an owned load balancer root. It waits for the
+// Service to confirm the cloud-controller-manager released the LB. It also waits for the root
+// itself to confirm deletion finished, since some finalizers do not use ownerReferences. The
+// Gateway API's gateway-exists-finalizer on a GatewayClass is one example. That finalizer clears
+// only when no Gateway still names the GatewayClass. When the target is the Service itself, the two
+// waits collapse into one. A NotFound on delete counts as already gone. On timeout the error names
+// every object still present, since proceeding could wedge the terraform teardown.
 func (k *BaseKubernetesManager) foregroundDeleteAndWaitService(target ownedTarget, svc *unstructured.Unstructured) error {
 	policy := metav1.DeletePropagationForeground
 	err := k.client.DeleteResource(target.gvr, target.namespace, target.name, metav1.DeleteOptions{PropagationPolicy: &policy})
@@ -2042,19 +2043,63 @@ func (k *BaseKubernetesManager) foregroundDeleteAndWaitService(target ownedTarge
 		return fmt.Errorf("error foreground-deleting load balancer owner %s/%s: %w", target.namespace, target.name, err)
 	}
 
-	namespace, name := svc.GetNamespace(), svc.GetName()
+	svcNamespace, svcName := svc.GetNamespace(), svc.GetName()
+	rootIsService := target.gvr == servicesGVR && target.namespace == svcNamespace && target.name == svcName
+	serviceGone := false
+	rootGone := rootIsService
+
 	timeout := time.Now().Add(k.kustomizationReconcileTimeout)
 	for time.Now().Before(timeout) {
-		_, err := k.client.GetResource(servicesGVR, namespace, name)
-		if err != nil && isNotFoundError(err) {
-			return nil
+		if !serviceGone {
+			gone, err := k.resourceGone(servicesGVR, svcNamespace, svcName)
+			if err != nil {
+				return fmt.Errorf("error waiting for load balancer service %s/%s deletion: %w", svcNamespace, svcName, err)
+			}
+			serviceGone = gone
 		}
-		if err != nil {
-			return fmt.Errorf("error waiting for load balancer service %s/%s deletion: %w", namespace, name, err)
+		if !rootGone {
+			gone, err := k.resourceGone(target.gvr, target.namespace, target.name)
+			if err != nil {
+				return fmt.Errorf("error waiting for load balancer owner %s/%s deletion: %w", target.namespace, target.name, err)
+			}
+			rootGone = gone
+		}
+		if serviceGone && rootGone {
+			return nil
 		}
 		time.Sleep(k.kustomizationWaitPollInterval)
 	}
-	return fmt.Errorf("timeout waiting for load balancer service %s/%s to be released; its cloud finalizer has not lifted and the cloud load balancer may be orphaned — inspect with `kubectl get svc %s -n %s -o yaml` and confirm the cloud-controller-manager is still running", namespace, name, name, namespace)
+
+	return foregroundDeleteTimeoutError(svcNamespace, svcName, serviceGone, target, rootGone)
+}
+
+// resourceGone reports whether a resource is gone (NotFound), or a non-NotFound error if the check
+// itself failed. It backs the Service and root polls in foregroundDeleteAndWaitService.
+func (k *BaseKubernetesManager) resourceGone(gvr schema.GroupVersionResource, namespace, name string) (bool, error) {
+	if _, err := k.client.GetResource(gvr, namespace, name); err != nil {
+		if isNotFoundError(err) {
+			return true, nil
+		}
+		return false, err
+	}
+	return false, nil
+}
+
+// foregroundDeleteTimeoutError builds the timeout error for foregroundDeleteAndWaitService, naming
+// every object still present — the Service, the root, or both — so an operator is never pointed at
+// the wrong one.
+func foregroundDeleteTimeoutError(svcNamespace, svcName string, serviceGone bool, target ownedTarget, rootGone bool) error {
+	var stuck []string
+	var hints []string
+	if !serviceGone {
+		stuck = append(stuck, fmt.Sprintf("load balancer service %s/%s", svcNamespace, svcName))
+		hints = append(hints, fmt.Sprintf("`kubectl get svc %s -n %s -o yaml`", svcName, svcNamespace))
+	}
+	if !rootGone {
+		stuck = append(stuck, fmt.Sprintf("load balancer owner %s %s", target.gvr.Resource, target.name))
+		hints = append(hints, fmt.Sprintf("`kubectl get %s %s%s -o yaml`", target.gvr.Resource, target.name, namespaceFlag(target.namespace)))
+	}
+	return fmt.Errorf("timeout waiting for load balancer teardown. %s still present. A finalizer has not lifted. Inspect with %s", strings.Join(stuck, " and "), strings.Join(hints, " and "))
 }
 
 // gitopsNamespace returns the configured gitops namespace, defaulting to DefaultGitopsNamespace.
@@ -2520,6 +2565,15 @@ func inventoryKey(group, kind, namespace, name string) string {
 func isLoadBalancerService(svc *unstructured.Unstructured) bool {
 	svcType, found, err := unstructured.NestedString(svc.Object, "spec", "type")
 	return err == nil && found && svcType == "LoadBalancer"
+}
+
+// namespaceFlag formats a kubectl -n flag for a diagnostic hint. It returns an empty string for a
+// cluster-scoped resource, so a GatewayClass or other cluster-scoped root never gets -n "".
+func namespaceFlag(namespace string) string {
+	if namespace == "" {
+		return ""
+	}
+	return fmt.Sprintf(" -n %s", namespace)
 }
 
 // controllerOwnerRef returns the controller ownerReference of an object, falling back to the first
