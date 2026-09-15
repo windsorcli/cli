@@ -2,8 +2,6 @@ package provisioner
 
 import (
 	"fmt"
-	"io"
-	"os"
 	"slices"
 	"strings"
 	"testing"
@@ -649,21 +647,11 @@ func TestProvisioner_Bootstrap(t *testing.T) {
 			return fmt.Errorf("permission denied")
 		}
 
-		// Capture stderr to verify the warning surfaces without aborting Bootstrap.
-		r, w, pipeErr := os.Pipe()
-		if pipeErr != nil {
-			t.Fatalf("Pipe failed: %v", pipeErr)
-		}
-		origStderr := os.Stderr
-		os.Stderr = w
-		defer func() { os.Stderr = origStderr }()
-
 		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{TerraformStack: mockStack})
-		_, err := provisioner.Bootstrap(bp)
-
-		w.Close()
-		stderrBytes, _ := io.ReadAll(r)
-		stderrOutput := string(stderrBytes)
+		var err error
+		stderrOutput := captureStderr(t, func() {
+			_, err = provisioner.Bootstrap(bp)
+		})
 
 		if err != nil {
 			t.Fatalf("Expected no error (cleanup failure is warning-only), got %v", err)
@@ -780,6 +768,61 @@ func TestProvisioner_Up_BackendPivot(t *testing.T) {
 		}
 		if !upCalled {
 			t.Error("Expected TerraformStack.Up to run directly")
+		}
+	})
+
+	t.Run("DetectsOrphanedBackendTierStateDespiteTheLocalPivot", func(t *testing.T) {
+		// windsorcli/cli#3367: a backend-tier component (e.g. "backend") round-trips
+		// through a local-backend override on every apply. Before this fix, the only
+		// orphan check ran inside recoverHalfMigratedComponents. That check bails out
+		// whenever terraform.backend.type is "local", which is true for the whole
+		// pivot. So a renamed backend-tier component's stranded local state was
+		// invisible on exactly the runs most likely to produce it. The check now runs
+		// once, up front, against the real configured backend. The pivot's temporary
+		// override no longer affects it.
+		mocks := setupProvisionerMocks(t)
+		bp := &blueprintv1alpha1.Blueprint{
+			Backend: "backend",
+			TerraformComponents: []blueprintv1alpha1.TerraformComponent{
+				{Name: "backend", Path: "backend"},
+			},
+		}
+		mockCH := mocks.ConfigHandler.(*config.MockConfigHandler)
+		mockCH.GetStringFunc = func(key string, defaultValue ...string) string {
+			if key == "terraform.backend.type" {
+				return "s3"
+			}
+			if len(defaultValue) > 0 {
+				return defaultValue[0]
+			}
+			return ""
+		}
+		mockStack := terraforminfra.NewMockStack()
+		mockStack.ListLocalStateComponentIDsFunc = func() ([]string, error) {
+			return []string{"backend-old"}, nil
+		}
+		mockStack.HasLocalStateWithResourcesFunc = func(componentID string) (bool, error) {
+			return componentID == "backend-old", nil
+		}
+		mockStack.UpFunc = func(_ *blueprintv1alpha1.Blueprint, _ ...func(id string) (bool, error)) (bool, error) {
+			return false, nil
+		}
+		mockStack.MigrateStateFunc = func(_ *blueprintv1alpha1.Blueprint) ([]string, error) {
+			return nil, nil
+		}
+		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{TerraformStack: mockStack})
+		provisioner.configRoot = t.TempDir()
+
+		var err error
+		stderrOutput := captureStderr(t, func() {
+			_, err = provisioner.Up(bp)
+		})
+
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		if !strings.Contains(stderrOutput, "backend-old") {
+			t.Errorf("Expected a warning naming the orphaned backend-tier componentID, got: %q", stderrOutput)
 		}
 	})
 }
@@ -1017,6 +1060,51 @@ func TestProvisioner_recoverHalfMigratedComponents(t *testing.T) {
 		}
 	})
 
+	t.Run("StillDetectsOrphansUnderALocalBackend", func(t *testing.T) {
+		// checkOrphanedLocalState is independent of backend type: a componentID can
+		// drift under a pure local backend too, and local IS the real backend there —
+		// not a staging area recoverHalfMigratedComponents can skip past.
+		mocks := setupProvisionerMocks(t)
+		bp := &blueprintv1alpha1.Blueprint{
+			TerraformComponents: []blueprintv1alpha1.TerraformComponent{
+				{Path: "vpc"},
+			},
+		}
+		mockCH := mocks.ConfigHandler.(*config.MockConfigHandler)
+		mockCH.GetStringFunc = func(key string, defaultValue ...string) string {
+			if key == "terraform.backend.type" {
+				return "local"
+			}
+			if len(defaultValue) > 0 {
+				return defaultValue[0]
+			}
+			return ""
+		}
+		mockStack := terraforminfra.NewMockStack()
+		mockStack.ListLocalStateComponentIDsFunc = func() ([]string, error) {
+			return []string{"vpc-old"}, nil
+		}
+		mockStack.HasLocalStateWithResourcesFunc = func(componentID string) (bool, error) {
+			return componentID == "vpc-old", nil
+		}
+		mockStack.UpFunc = func(_ *blueprintv1alpha1.Blueprint, _ ...func(id string) (bool, error)) (bool, error) {
+			return false, nil
+		}
+		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{TerraformStack: mockStack})
+
+		var err error
+		stderrOutput := captureStderr(t, func() {
+			_, err = provisioner.Up(bp)
+		})
+
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		if !strings.Contains(stderrOutput, "vpc-old") {
+			t.Errorf("Expected a warning naming the orphaned componentID under a local backend, got: %q", stderrOutput)
+		}
+	})
+
 	t.Run("AbortsOnProbeFailureToAvoidSilentStateOverwrite", func(t *testing.T) {
 		// The reset-and-migrate uses terraform init -migrate-state -force-copy,
 		// which unconditionally overwrites the destination. If HasRemoteState
@@ -1110,6 +1198,10 @@ func TestProvisioner_recoverHalfMigratedComponents(t *testing.T) {
 		// anything, since an orphaned ID is just as consistent with a proper
 		// destroy-then-remove as with a rename, and the two can't be told apart from
 		// an on-disk ID alone.
+		//
+		// checkOrphanedLocalState (windsorcli/cli#3367) now runs this detection once
+		// up front, before recoverHalfMigratedComponents' own sweep — so the orphaned
+		// ID is probed first, ahead of the current ID.
 		mocks := setupProvisionerMocks(t)
 		bp := &blueprintv1alpha1.Blueprint{
 			TerraformComponents: []blueprintv1alpha1.TerraformComponent{
@@ -1142,29 +1234,19 @@ func TestProvisioner_recoverHalfMigratedComponents(t *testing.T) {
 			return false, nil
 		}
 
-		// Capture stderr to verify the warning names the orphaned componentID.
-		r, w, pipeErr := os.Pipe()
-		if pipeErr != nil {
-			t.Fatalf("Pipe failed: %v", pipeErr)
-		}
-		origStderr := os.Stderr
-		os.Stderr = w
-		defer func() { os.Stderr = origStderr }()
-
 		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{TerraformStack: mockStack})
-		_, err := provisioner.Up(bp)
-
-		w.Close()
-		stderrBytes, _ := io.ReadAll(r)
-		stderrOutput := string(stderrBytes)
+		var err error
+		stderrOutput := captureStderr(t, func() {
+			_, err = provisioner.Up(bp)
+		})
 
 		if err != nil {
 			t.Fatalf("Expected no error, got %v", err)
 		}
 
-		// Both IDs get probed for local state — the current one by the sweep above,
-		// the orphaned one by the detection pass below.
-		expectedProbed := []string{"crossplane-identity", "crossplane-identity-gcp"}
+		// Both IDs get probed for local state — the orphaned one by checkOrphanedLocalState
+		// up front, the current one by the migration sweep that runs after it.
+		expectedProbed := []string{"crossplane-identity-gcp", "crossplane-identity"}
 		if len(probed) != len(expectedProbed) {
 			t.Fatalf("Expected probes %v, got %v", expectedProbed, probed)
 		}
@@ -1217,20 +1299,11 @@ func TestProvisioner_recoverHalfMigratedComponents(t *testing.T) {
 			return false, nil
 		}
 
-		r, w, pipeErr := os.Pipe()
-		if pipeErr != nil {
-			t.Fatalf("Pipe failed: %v", pipeErr)
-		}
-		origStderr := os.Stderr
-		os.Stderr = w
-		defer func() { os.Stderr = origStderr }()
-
 		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{TerraformStack: mockStack})
-		_, err := provisioner.Up(bp)
-
-		w.Close()
-		stderrBytes, _ := io.ReadAll(r)
-		stderrOutput := string(stderrBytes)
+		var err error
+		stderrOutput := captureStderr(t, func() {
+			_, err = provisioner.Up(bp)
+		})
 
 		if err != nil {
 			t.Fatalf("Expected no error, got %v", err)

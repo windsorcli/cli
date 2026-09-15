@@ -3,7 +3,6 @@ package provisioner
 import (
 	"context"
 	"fmt"
-	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -314,6 +313,23 @@ func TestProvisioner_PrepareLocalTeardown(t *testing.T) {
 // =============================================================================
 
 func TestProvisioner_Teardown(t *testing.T) {
+	t.Run("ErrorNilBlueprint", func(t *testing.T) {
+		// checkOrphanedLocalState must fail gracefully on a nil blueprint, the same
+		// way DestroyAll/DestroyAllTerraform already do downstream, rather than
+		// panicking on blueprint.TerraformComponents.
+		mocks := setupProvisionerMocks(t)
+		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler)
+
+		_, err := provisioner.Teardown(nil, false, false)
+
+		if err == nil {
+			t.Fatal("Expected error for nil blueprint, got nil")
+		}
+		if !strings.Contains(err.Error(), "blueprint not provided") {
+			t.Errorf("Expected specific error message, got: %v", err)
+		}
+	})
+
 	t.Run("KubernetesWithoutBackendFieldErrorsBeforeAnyDestroy", func(t *testing.T) {
 		// A kubernetes-configured backend with no Blueprint.Backend would silently
 		// fall through to plain DestroyAll, destroying the cluster while other
@@ -447,6 +463,103 @@ func TestProvisioner_Teardown(t *testing.T) {
 		}
 		if migrateCalled {
 			t.Error("MigrateState must not run when there is no backend tier")
+		}
+	})
+
+	t.Run("WarnsAboutOrphanedLocalStateBeforeDestroying", func(t *testing.T) {
+		// windsorcli/cli#3367: `windsor destroy` never ran the orphaned-local-state
+		// check at all. Surface the same warning apply's Up already gives, before any
+		// destroy runs.
+		mocks := setupProvisionerMocks(t)
+		bp := &blueprintv1alpha1.Blueprint{
+			Metadata: blueprintv1alpha1.Metadata{Name: "test"},
+			TerraformComponents: []blueprintv1alpha1.TerraformComponent{
+				{Path: "vpc"},
+			},
+		}
+		mockCH := mocks.ConfigHandler.(*config.MockConfigHandler)
+		mockCH.GetStringFunc = func(key string, defaultValue ...string) string {
+			if key == "terraform.backend.type" {
+				return "s3"
+			}
+			if len(defaultValue) > 0 {
+				return defaultValue[0]
+			}
+			return ""
+		}
+		mockStack := terraforminfra.NewMockStack()
+		mockStack.ListLocalStateComponentIDsFunc = func() ([]string, error) {
+			return []string{"vpc-old"}, nil
+		}
+		mockStack.HasLocalStateWithResourcesFunc = func(componentID string) (bool, error) {
+			return componentID == "vpc-old", nil
+		}
+		mockStack.DestroyAllFunc = func(_ *blueprintv1alpha1.Blueprint, _ bool, _ ...string) (terraforminfra.DestroyOutcome, error) {
+			return terraforminfra.DestroyOutcome{}, nil
+		}
+		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{KubernetesManager: mocks.KubernetesManager, TerraformStack: mockStack})
+
+		var err error
+		stderrOutput := captureStderr(t, func() {
+			_, err = provisioner.Teardown(bp, true, false)
+		})
+
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		if !strings.Contains(stderrOutput, "vpc-old") {
+			t.Errorf("Expected a warning naming the orphaned componentID, got: %q", stderrOutput)
+		}
+	})
+
+	t.Run("OrphanInspectionFailureWarnsButDoesNotBlockDestroy", func(t *testing.T) {
+		// The orphan check is advisory. A corrupted or unreadable state file under
+		// some unrelated, already-orphaned componentID must not block destroy — the
+		// tool an operator reaches for to recover from exactly this kind of drift.
+		mocks := setupProvisionerMocks(t)
+		bp := &blueprintv1alpha1.Blueprint{
+			Metadata: blueprintv1alpha1.Metadata{Name: "test"},
+			TerraformComponents: []blueprintv1alpha1.TerraformComponent{
+				{Path: "vpc"},
+			},
+		}
+		mockCH := mocks.ConfigHandler.(*config.MockConfigHandler)
+		mockCH.GetStringFunc = func(key string, defaultValue ...string) string {
+			if key == "terraform.backend.type" {
+				return "s3"
+			}
+			if len(defaultValue) > 0 {
+				return defaultValue[0]
+			}
+			return ""
+		}
+		mockStack := terraforminfra.NewMockStack()
+		mockStack.ListLocalStateComponentIDsFunc = func() ([]string, error) {
+			return []string{"vpc-old"}, nil
+		}
+		mockStack.HasLocalStateWithResourcesFunc = func(_ string) (bool, error) {
+			return false, fmt.Errorf("corrupted terraform.tfstate: unexpected end of JSON input")
+		}
+		destroyAllCalled := false
+		mockStack.DestroyAllFunc = func(_ *blueprintv1alpha1.Blueprint, _ bool, _ ...string) (terraforminfra.DestroyOutcome, error) {
+			destroyAllCalled = true
+			return terraforminfra.DestroyOutcome{}, nil
+		}
+		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{KubernetesManager: mocks.KubernetesManager, TerraformStack: mockStack})
+
+		var err error
+		stderrOutput := captureStderr(t, func() {
+			_, err = provisioner.Teardown(bp, true, false)
+		})
+
+		if err != nil {
+			t.Fatalf("Expected no error — an orphan-inspection failure must only warn, got %v", err)
+		}
+		if !destroyAllCalled {
+			t.Error("Expected DestroyAll to still run despite the orphan-inspection failure")
+		}
+		if !strings.Contains(stderrOutput, "vpc-old") {
+			t.Errorf("Expected a warning naming the componentID that failed inspection, got: %q", stderrOutput)
 		}
 	})
 
@@ -870,20 +983,11 @@ func TestProvisioner_Teardown(t *testing.T) {
 		}
 		mockStack.MigrateStateFunc = func(_ *blueprintv1alpha1.Blueprint) ([]string, error) { return nil, nil }
 
-		r, w, pipeErr := os.Pipe()
-		if pipeErr != nil {
-			t.Fatalf("Pipe failed: %v", pipeErr)
-		}
-		origStderr := os.Stderr
-		os.Stderr = w
-		defer func() { os.Stderr = origStderr }()
-
 		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{KubernetesManager: mocks.KubernetesManager, TerraformStack: mockStack})
-		_, err := provisioner.Teardown(bp, true, false)
-
-		w.Close()
-		stderrBytes, _ := io.ReadAll(r)
-		stderrOutput := string(stderrBytes)
+		var err error
+		stderrOutput := captureStderr(t, func() {
+			_, err = provisioner.Teardown(bp, true, false)
+		})
 
 		if err != nil {
 			t.Fatalf("Expected destroy to succeed despite restore failure, got %v", err)
@@ -1242,6 +1346,23 @@ func TestProvisioner_TeardownComponent(t *testing.T) {
 		}
 	}
 
+	t.Run("ErrorNilBlueprint", func(t *testing.T) {
+		// checkOrphanedLocalState must fail gracefully on a nil blueprint, the same
+		// way Destroy already does downstream, rather than panicking on
+		// blueprint.TerraformComponents.
+		mocks := setupProvisionerMocks(t)
+		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler)
+
+		_, err := provisioner.TeardownComponent(nil, "cluster")
+
+		if err == nil {
+			t.Fatal("Expected error for nil blueprint, got nil")
+		}
+		if !strings.Contains(err.Error(), "blueprint not provided") {
+			t.Errorf("Expected specific error message, got: %v", err)
+		}
+	})
+
 	t.Run("RefusesAnyTierMemberOnRemoteBackend", func(t *testing.T) {
 		// A tier member on any remote backend (s3, azurerm, kubernetes) is refused —
 		// destroying it in isolation would orphan state for downstream components.
@@ -1412,6 +1533,44 @@ func TestProvisioner_TeardownComponent(t *testing.T) {
 					t.Error("Expected backend.type Set NOT to be called for non-tier component")
 				}
 			})
+		}
+	})
+
+	t.Run("WarnsAboutOrphanedLocalStateBeforeDestroying", func(t *testing.T) {
+		// windsorcli/cli#3367: a targeted `windsor destroy terraform <component>` never
+		// ran the orphaned-local-state check at all. Surface the same warning here as
+		// on a full Teardown, so a drifted componentID is flagged before destroy runs.
+		mocks := setupProvisionerMocks(t)
+		mockCH := mocks.ConfigHandler.(*config.MockConfigHandler)
+		mockCH.GetStringFunc = func(key string, defaultValue ...string) string {
+			if key == "terraform.backend.type" {
+				return "local"
+			}
+			if len(defaultValue) > 0 {
+				return defaultValue[0]
+			}
+			return ""
+		}
+		mockStack := terraforminfra.NewMockStack()
+		mockStack.ListLocalStateComponentIDsFunc = func() ([]string, error) {
+			return []string{"cluster-old"}, nil
+		}
+		mockStack.HasLocalStateWithResourcesFunc = func(componentID string) (bool, error) {
+			return componentID == "cluster-old", nil
+		}
+		mockStack.DestroyFunc = func(_ *blueprintv1alpha1.Blueprint, _ string) (bool, error) { return false, nil }
+		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{TerraformStack: mockStack})
+
+		var err error
+		stderrOutput := captureStderr(t, func() {
+			_, err = provisioner.TeardownComponent(bpWithBackend(), "cluster")
+		})
+
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		if !strings.Contains(stderrOutput, "cluster-old") {
+			t.Errorf("Expected a warning naming the orphaned componentID, got: %q", stderrOutput)
 		}
 	})
 }

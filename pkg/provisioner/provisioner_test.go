@@ -3,6 +3,7 @@ package provisioner
 import (
 	"context"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"slices"
@@ -58,6 +59,23 @@ func createTestBlueprint() *blueprintv1alpha1.Blueprint {
 			},
 		},
 	}
+}
+
+// captureStderr redirects os.Stderr for the duration of fn and returns what fn wrote to it.
+func captureStderr(t *testing.T, fn func()) string {
+	t.Helper()
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatalf("Pipe failed: %v", err)
+	}
+	origStderr := os.Stderr
+	os.Stderr = w
+	fn()
+	os.Stderr = origStderr
+
+	w.Close()
+	output, _ := io.ReadAll(r)
+	return string(output)
 }
 
 // ProvisionerTestMocks contains all the mock dependencies for testing the Provisioner
@@ -1036,6 +1054,46 @@ func TestProvisioner_Apply(t *testing.T) {
 		}
 		if !strings.Contains(err.Error(), "failed to run terraform apply for") {
 			t.Errorf("Expected specific error message, got: %v", err)
+		}
+	})
+
+	t.Run("WarnsAboutOrphanedLocalStateBeforeApplying", func(t *testing.T) {
+		// windsorcli/cli#3367: `windsor apply terraform <component>` never ran the
+		// orphaned-local-state check at all — only Up did, and only outside a
+		// backend-tier pivot. A single-component apply must surface the same warning,
+		// including under a plain local backend, which is the common case here.
+		mocks := setupProvisionerMocks(t)
+		mockCH := mocks.ConfigHandler.(*config.MockConfigHandler)
+		mockCH.GetStringFunc = func(key string, defaultValue ...string) string {
+			if key == "terraform.backend.type" {
+				return "local"
+			}
+			if len(defaultValue) > 0 {
+				return defaultValue[0]
+			}
+			return ""
+		}
+		mockStack := terraforminfra.NewMockStack()
+		mockStack.ApplyFunc = func(bp *blueprintv1alpha1.Blueprint, componentID string) error { return nil }
+		mockStack.ListLocalStateComponentIDsFunc = func() ([]string, error) {
+			return []string{"remote/old-path"}, nil
+		}
+		mockStack.HasLocalStateWithResourcesFunc = func(componentID string) (bool, error) {
+			return componentID == "remote/old-path", nil
+		}
+		opts := &Provisioner{TerraformStack: mockStack}
+		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
+
+		var err error
+		stderrOutput := captureStderr(t, func() {
+			err = provisioner.Apply(createTestBlueprint(), "remote/path")
+		})
+
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		if !strings.Contains(stderrOutput, "remote/old-path") {
+			t.Errorf("Expected a warning naming the orphaned componentID, got: %q", stderrOutput)
 		}
 	})
 }
