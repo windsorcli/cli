@@ -17,6 +17,7 @@ import (
 	"github.com/windsorcli/cli/pkg/composer/blueprint"
 	"github.com/windsorcli/cli/pkg/project"
 	"github.com/windsorcli/cli/pkg/provisioner"
+	fluxinfra "github.com/windsorcli/cli/pkg/provisioner/flux"
 	"github.com/windsorcli/cli/pkg/provisioner/kubernetes"
 	terraforminfra "github.com/windsorcli/cli/pkg/provisioner/terraform"
 	"github.com/windsorcli/cli/pkg/runtime"
@@ -300,6 +301,50 @@ func TestFailOnDestroyPlanErrors(t *testing.T) {
 	})
 }
 
+func TestFailOnDestroyKustomizePlanErrors(t *testing.T) {
+	t.Run("NilWhenEveryKustomizationPlannedCleanly", func(t *testing.T) {
+		// Given kustomizations that all generated successfully
+		plans := []fluxinfra.KustomizePlan{
+			{Name: "my-app", Removed: 4},
+			{Name: "ingress", Removed: 2},
+		}
+
+		// When the gate runs
+		err := failOnDestroyKustomizePlanErrors(plans)
+
+		// Then it does not halt the destroy
+		if err != nil {
+			t.Errorf("expected no error, got %v", err)
+		}
+	})
+
+	t.Run("HaltsAndNamesEveryKustomizationThatFailedToPlan", func(t *testing.T) {
+		// Given a mix of cleanly-planned and plan-failed kustomizations
+		plans := []fluxinfra.KustomizePlan{
+			{Name: "my-app", Err: fmt.Errorf("connection refused")},
+			{Name: "ingress", Removed: 2},
+		}
+
+		// When the gate runs
+		err := failOnDestroyKustomizePlanErrors(plans)
+
+		// Then it halts, reports the count, and names the failed kustomization with its error
+		if err == nil {
+			t.Fatal("expected error, got nil")
+		}
+		out := err.Error()
+		if !strings.Contains(out, "1 kustomization(s)") {
+			t.Errorf("expected count '1 kustomization(s)' in error, got %q", out)
+		}
+		if !strings.Contains(out, "my-app") || !strings.Contains(out, "connection refused") {
+			t.Errorf("expected failed kustomization and its error in output, got %q", out)
+		}
+		if strings.Contains(out, "ingress") {
+			t.Errorf("did not expect cleanly-planned kustomization named, got %q", out)
+		}
+	})
+}
+
 // =============================================================================
 // Test Cases
 // =============================================================================
@@ -512,6 +557,35 @@ func TestDestroyCmd(t *testing.T) {
 		cmd := createTestDestroyCmd()
 		ctx := context.WithValue(context.Background(), projectOverridesKey, proj)
 		cmd.SetArgs([]string{"--confirm=cluster", "cluster"})
+		cmd.SetContext(ctx)
+		err := cmd.Execute()
+
+		// Then it refuses before the confirmation gate and destroys nothing.
+		if err == nil || !strings.Contains(err.Error(), "destroy-plan generation failed") {
+			t.Fatalf("Expected plan-generation error, got: %v", err)
+		}
+		if destroyed {
+			t.Error("Expected no destroy to run when plan generation failed")
+		}
+	})
+
+	t.Run("HaltsBeforeConfirmationWhenKustomizeComponentPlanGenerationFails", func(t *testing.T) {
+		// Given a single-component destroy whose kustomize inventory query failed (error carried
+		// on the plan's Err field, not returned), with confirmation that would otherwise be satisfied.
+		mocks := setupDestroyTest(t)
+		mocks.KubernetesManager.GetKustomizationInventoryFunc = func(name, namespace string) ([]kubernetes.InventoryEntry, error) {
+			return nil, fmt.Errorf("connection refused")
+		}
+		destroyed := false
+		mocks.KubernetesManager.DeleteKustomizationFunc = func(name, namespace string) error {
+			destroyed = true
+			return nil
+		}
+		proj := newDestroyProject(mocks)
+
+		cmd := createTestDestroyCmd()
+		ctx := context.WithValue(context.Background(), projectOverridesKey, proj)
+		cmd.SetArgs([]string{"--confirm=my-app", "my-app"})
 		cmd.SetContext(ctx)
 		err := cmd.Execute()
 
@@ -1243,6 +1317,35 @@ func TestDestroyKustomizeCmd(t *testing.T) {
 		}
 	})
 
+	t.Run("HaltsBeforeConfirmationWhenPlanGenerationFails", func(t *testing.T) {
+		// Given a layer-wide kustomize destroy whose plan query failed for one kustomization,
+		// with confirmation that would otherwise be satisfied.
+		mocks := setupDestroyTest(t)
+		mocks.KubernetesManager.GetKustomizationInventoryFunc = func(name, namespace string) ([]kubernetes.InventoryEntry, error) {
+			return nil, fmt.Errorf("connection refused")
+		}
+		destroyed := false
+		mocks.KubernetesManager.DeleteBlueprintFunc = func(bp *blueprintv1alpha1.Blueprint, namespace string) error {
+			destroyed = true
+			return nil
+		}
+		proj := newDestroyProject(mocks)
+
+		cmd := createTestDestroyKustomizeCmd()
+		ctx := context.WithValue(context.Background(), projectOverridesKey, proj)
+		cmd.SetArgs([]string{"--confirm=test-context"})
+		cmd.SetContext(ctx)
+		err := cmd.Execute()
+
+		// Then it refuses before the confirmation gate and destroys nothing.
+		if err == nil {
+			t.Fatal("Expected plan-generation error, got nil")
+		}
+		if destroyed {
+			t.Error("Expected no destroy to run when plan generation failed")
+		}
+	})
+
 	t.Run("SuccessSpecificWithConfirmFlag", func(t *testing.T) {
 		mocks := setupDestroyTest(t)
 		proj := newDestroyProject(mocks)
@@ -1271,6 +1374,35 @@ func TestDestroyKustomizeCmd(t *testing.T) {
 
 		if err != nil {
 			t.Errorf("Expected no error with correct confirmation, got %v", err)
+		}
+	})
+
+	t.Run("HaltsBeforeConfirmationWhenComponentPlanGenerationFails", func(t *testing.T) {
+		// Given a single-kustomization destroy whose inventory query failed (error carried on
+		// the plan's Err field, not returned), with confirmation that would otherwise be satisfied.
+		mocks := setupDestroyTest(t)
+		mocks.KubernetesManager.GetKustomizationInventoryFunc = func(name, namespace string) ([]kubernetes.InventoryEntry, error) {
+			return nil, fmt.Errorf("connection refused")
+		}
+		destroyed := false
+		mocks.KubernetesManager.DeleteKustomizationFunc = func(name, namespace string) error {
+			destroyed = true
+			return nil
+		}
+		proj := newDestroyProject(mocks)
+
+		cmd := createTestDestroyKustomizeCmd()
+		ctx := context.WithValue(context.Background(), projectOverridesKey, proj)
+		cmd.SetArgs([]string{"--confirm=my-app", "my-app"})
+		cmd.SetContext(ctx)
+		err := cmd.Execute()
+
+		// Then it refuses before the confirmation gate and destroys nothing.
+		if err == nil || !strings.Contains(err.Error(), "destroy-plan generation failed") {
+			t.Fatalf("Expected plan-generation error, got: %v", err)
+		}
+		if destroyed {
+			t.Error("Expected no destroy to run when plan generation failed")
 		}
 	})
 
