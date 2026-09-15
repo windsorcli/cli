@@ -14,6 +14,7 @@ import (
 	"github.com/windsorcli/cli/pkg/runtime/config"
 	"github.com/windsorcli/cli/pkg/runtime/evaluator"
 	"github.com/windsorcli/cli/pkg/runtime/shell"
+	terraformruntime "github.com/windsorcli/cli/pkg/runtime/terraform"
 )
 
 // =============================================================================
@@ -296,6 +297,147 @@ func TestComposer_NewComposer(t *testing.T) {
 
 		if composer.TerraformResolver == nil {
 			t.Error("Expected terraform resolver to be initialized")
+		}
+	})
+}
+
+// =============================================================================
+// Test Public Functions
+// =============================================================================
+
+func TestLoadBlueprintIfTerraformProject(t *testing.T) {
+	t.Run("SkipsWhenTerraformDisabled", func(t *testing.T) {
+		// Given terraform is disabled
+		mocks := setupComposerMocks(t)
+		mockCH := mocks.ConfigHandler.(*config.MockConfigHandler)
+		mockCH.GetBoolFunc = func(key string, defaultValue ...bool) bool {
+			if key == "terraform.enabled" {
+				return false
+			}
+			if len(defaultValue) > 0 {
+				return defaultValue[0]
+			}
+			return false
+		}
+		loadCalled := false
+		mocks.BlueprintHandler.LoadBlueprintFunc = func(...string) error {
+			loadCalled = true
+			return nil
+		}
+
+		// When LoadBlueprintIfTerraformProject is called
+		overrideComposer := &Composer{BlueprintHandler: mocks.BlueprintHandler}
+		err := LoadBlueprintIfTerraformProject(mocks.Runtime, true, overrideComposer)
+
+		// Then no error is returned and LoadBlueprint is never called
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		if loadCalled {
+			t.Error("Expected LoadBlueprint not to be called when terraform is disabled")
+		}
+	})
+
+	t.Run("SkipsWhenNotInTerraformProject", func(t *testing.T) {
+		// Given terraform is enabled but the project has no terraform components
+		mocks := setupComposerMocks(t)
+		mockCH := mocks.ConfigHandler.(*config.MockConfigHandler)
+		mockCH.GetBoolFunc = func(key string, defaultValue ...bool) bool {
+			if key == "terraform.enabled" {
+				return true
+			}
+			if len(defaultValue) > 0 {
+				return defaultValue[0]
+			}
+			return false
+		}
+		mocks.Runtime.TerraformProvider = &terraformruntime.MockTerraformProvider{
+			IsInTerraformProjectFunc: func() bool { return false },
+		}
+		loadCalled := false
+		mocks.BlueprintHandler.LoadBlueprintFunc = func(...string) error {
+			loadCalled = true
+			return nil
+		}
+
+		// When LoadBlueprintIfTerraformProject is called
+		overrideComposer := &Composer{BlueprintHandler: mocks.BlueprintHandler}
+		err := LoadBlueprintIfTerraformProject(mocks.Runtime, true, overrideComposer)
+
+		// Then no error is returned and LoadBlueprint is never called
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		if loadCalled {
+			t.Error("Expected LoadBlueprint not to be called outside a terraform project")
+		}
+	})
+
+	t.Run("LoadsAndSkipsValidationInATerraformProject", func(t *testing.T) {
+		// Given terraform is enabled and the project has terraform components
+		mocks := setupComposerMocks(t)
+		mockCH := mocks.ConfigHandler.(*config.MockConfigHandler)
+		mockCH.GetBoolFunc = func(key string, defaultValue ...bool) bool {
+			if key == "terraform.enabled" {
+				return true
+			}
+			if len(defaultValue) > 0 {
+				return defaultValue[0]
+			}
+			return false
+		}
+		mocks.Runtime.TerraformProvider = &terraformruntime.MockTerraformProvider{
+			IsInTerraformProjectFunc: func() bool { return true },
+		}
+		loadCalled := false
+		mocks.BlueprintHandler.LoadBlueprintFunc = func(...string) error {
+			loadCalled = true
+			return nil
+		}
+
+		// When LoadBlueprintIfTerraformProject is called
+		overrideComposer := &Composer{BlueprintHandler: mocks.BlueprintHandler}
+		err := LoadBlueprintIfTerraformProject(mocks.Runtime, true, overrideComposer)
+
+		// Then LoadBlueprint is called with validation skipped
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		if !loadCalled {
+			t.Error("Expected LoadBlueprint to be called inside a terraform project")
+		}
+		if !mocks.BlueprintHandler.SkipValidation() {
+			t.Error("Expected SetSkipValidation(true) to be recorded")
+		}
+	})
+
+	t.Run("ReturnsBlueprintLoadError", func(t *testing.T) {
+		// Given LoadBlueprint fails
+		mocks := setupComposerMocks(t)
+		mockCH := mocks.ConfigHandler.(*config.MockConfigHandler)
+		mockCH.GetBoolFunc = func(key string, defaultValue ...bool) bool {
+			if key == "terraform.enabled" {
+				return true
+			}
+			if len(defaultValue) > 0 {
+				return defaultValue[0]
+			}
+			return false
+		}
+		mocks.Runtime.TerraformProvider = &terraformruntime.MockTerraformProvider{
+			IsInTerraformProjectFunc: func() bool { return true },
+		}
+		mocks.BlueprintHandler.LoadBlueprintFunc = func(...string) error {
+			return fmt.Errorf("blueprint parse failure")
+		}
+
+		// When LoadBlueprintIfTerraformProject is called
+		overrideComposer := &Composer{BlueprintHandler: mocks.BlueprintHandler}
+		err := LoadBlueprintIfTerraformProject(mocks.Runtime, true, overrideComposer)
+
+		// Then the underlying error is returned
+		if err == nil || !strings.Contains(err.Error(), "blueprint parse failure") {
+			t.Errorf("Expected error to wrap the underlying failure, got %v", err)
 		}
 	})
 }

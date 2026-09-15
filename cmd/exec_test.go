@@ -421,6 +421,60 @@ func TestExecCmd_ErrorScenarios(t *testing.T) {
 		}
 	})
 
+	t.Run("SkipsBlueprintLoadWhenNotInTerraformProject", func(t *testing.T) {
+		// Given terraform is enabled but not in a terraform project
+		setup(t)
+		mocks := setupTerraformMocks(t, false)
+		rootCmd.SetContext(context.Background())
+		verbose = false
+		mocks.Shell.ExecFunc = func(command string, args ...string) (string, error) {
+			return "", nil
+		}
+
+		// When executing the exec command
+		ctx := context.WithValue(context.Background(), runtimeOverridesKey, mocks.Runtime)
+		rootCmd.SetContext(ctx)
+		t.Cleanup(func() {
+			rootCmd.SetContext(context.Background())
+			rootCmd.SetArgs([]string{})
+			verbose = false
+		})
+		rootCmd.SetArgs([]string{"exec", "go", "version"})
+		err := Execute()
+
+		// Then no error should occur
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+	})
+
+	t.Run("AttemptsBlueprintLoadWhenInTerraformProject", func(t *testing.T) {
+		// Given terraform is enabled and in a terraform project
+		setup(t)
+		mocks := setupTerraformMocks(t, true)
+		rootCmd.SetContext(context.Background())
+		verbose = false
+		mocks.Shell.ExecFunc = func(command string, args ...string) (string, error) {
+			return "", nil
+		}
+
+		// When executing the exec command
+		ctx := context.WithValue(context.Background(), runtimeOverridesKey, mocks.Runtime)
+		rootCmd.SetContext(ctx)
+		t.Cleanup(func() {
+			rootCmd.SetContext(context.Background())
+			rootCmd.SetArgs([]string{})
+			verbose = false
+		})
+		rootCmd.SetArgs([]string{"exec", "go", "version"})
+		err := Execute()
+
+		// Then exec propagates a blueprint load error instead of swallowing it
+		if err != nil && !strings.Contains(err.Error(), "failed to load blueprint") {
+			t.Errorf("Expected either success or a blueprint load error, got: %v", err)
+		}
+	})
+
 	t.Run("HandlesShellExecError", func(t *testing.T) {
 		// Given proper output capture and mock setup with exec failure
 		setup(t)
