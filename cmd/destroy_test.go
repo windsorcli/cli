@@ -254,6 +254,55 @@ func TestWarnPreventDestroy(t *testing.T) {
 	})
 }
 
+func TestWarnDestroyAttributeDrift(t *testing.T) {
+	t.Run("EmitsNothingWhenNoDrift", func(t *testing.T) {
+		// Given plans with no drifted attributes
+		plans := []terraforminfra.TerraformComponentPlan{
+			{ComponentID: "vpc", Destroy: 3},
+			{ComponentID: "cluster", Destroy: 5},
+		}
+		var buf strings.Builder
+
+		// When the warning runs
+		warnDestroyAttributeDrift(&buf, plans)
+
+		// Then stderr is silent — common path, no noise
+		if buf.Len() != 0 {
+			t.Errorf("expected no output, got %q", buf.String())
+		}
+	})
+
+	t.Run("NamesEveryDriftedAttributeAcrossComponentsWithRemediation", func(t *testing.T) {
+		// Given multiple components, one of which reports drift on two resources
+		plans := []terraforminfra.TerraformComponentPlan{
+			{ComponentID: "vpc", Destroy: 3},
+			{ComponentID: "database", DriftedAttributes: []terraforminfra.DestroyAttributeDrift{
+				{Address: "google_service_networking_connection.cloudsql", Attribute: "deletion_policy", State: `"DELETE"`, Config: `"REMOVE_PEERING"`},
+				{Address: "aws_s3_bucket.logs", Attribute: "force_destroy", State: "false", Config: "true"},
+			}},
+		}
+		var buf strings.Builder
+
+		// When the warning runs
+		warnDestroyAttributeDrift(&buf, plans)
+
+		// Then it names every address, its attribute and both values, and the count
+		out := buf.String()
+		if !strings.Contains(out, "2 resource(s)") {
+			t.Errorf("expected count '2 resource(s)' in output, got %q", out)
+		}
+		if !strings.Contains(out, "google_service_networking_connection.cloudsql: deletion_policy state=\"DELETE\" config=\"REMOVE_PEERING\"") {
+			t.Errorf("expected the cloudsql drift line in output, got %q", out)
+		}
+		if !strings.Contains(out, "aws_s3_bucket.logs: force_destroy state=false config=true") {
+			t.Errorf("expected the s3 drift line in output, got %q", out)
+		}
+		if !strings.Contains(out, "terraform apply") {
+			t.Errorf("expected the remediation hint in output, got %q", out)
+		}
+	})
+}
+
 func TestFailOnDestroyPlanErrors(t *testing.T) {
 	t.Run("NilWhenEveryComponentPlannedCleanly", func(t *testing.T) {
 		// Given plans that all generated successfully

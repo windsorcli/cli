@@ -33,7 +33,7 @@ var destroyCmd = &cobra.Command{
 
 Every form requires confirmation. Either type the context or component name at the prompt, or pass --confirm=<expected> to satisfy the gate non-interactively (CI-safe). The --confirm value must match the prompt token exactly; mismatches abort the operation.
 
-If terraform reports resources protected by 'lifecycle { prevent_destroy = true }', destroy warns up front so the operator knows the destroy may halt partway through. Resources whose state is empty are skipped with a warning naming any potentially orphaned cloud resources.
+If terraform reports resources protected by 'lifecycle { prevent_destroy = true }', destroy warns up front so the operator knows the destroy may halt partway through. It also warns when deletion_policy, deletion_protection, force_destroy, or skip_final_snapshot has drifted from state. Resources whose state is empty are skipped with a warning naming any potentially orphaned cloud resources.
 
 If any component fails destroy-plan generation, destroy halts before the confirmation prompt and names the failed components, rather than offering to destroy a plan it cannot fully execute. This is distinct from --continue, which governs failures during execution, after confirmation.
 
@@ -105,6 +105,7 @@ windsor destroy --confirm=local --continue`,
 			tuiplan.DestroySummary(os.Stdout, summary.Terraform, summary.Kustomize, os.Getenv("NO_COLOR") != "")
 
 			warnPreventDestroy(cmd.ErrOrStderr(), summary.Terraform)
+			warnDestroyAttributeDrift(cmd.ErrOrStderr(), summary.Terraform)
 
 			if err := failOnDestroyPlanErrors(summary.Terraform); err != nil {
 				return err
@@ -175,6 +176,7 @@ windsor destroy --confirm=local --continue`,
 		tuiplan.DestroySummary(os.Stdout, tfResults, k8sResults, os.Getenv("NO_COLOR") != "")
 
 		warnPreventDestroy(cmd.ErrOrStderr(), tfResults)
+		warnDestroyAttributeDrift(cmd.ErrOrStderr(), tfResults)
 
 		if err := failOnDestroyPlanErrors(tfResults); err != nil {
 			return err
@@ -264,6 +266,7 @@ windsor destroy terraform --confirm=local`,
 			tuiplan.DestroySummary(os.Stdout, summary.Terraform, nil, os.Getenv("NO_COLOR") != "")
 
 			warnPreventDestroy(cmd.ErrOrStderr(), summary.Terraform)
+			warnDestroyAttributeDrift(cmd.ErrOrStderr(), summary.Terraform)
 
 			if err := failOnDestroyPlanErrors(summary.Terraform); err != nil {
 				return err
@@ -308,6 +311,7 @@ windsor destroy terraform --confirm=local`,
 		tuiplan.DestroySummary(os.Stdout, []terraforminfra.TerraformComponentPlan{tfResult}, nil, os.Getenv("NO_COLOR") != "")
 
 		warnPreventDestroy(cmd.ErrOrStderr(), []terraforminfra.TerraformComponentPlan{tfResult})
+		warnDestroyAttributeDrift(cmd.ErrOrStderr(), []terraforminfra.TerraformComponentPlan{tfResult})
 
 		if err := failOnDestroyPlanErrors([]terraforminfra.TerraformComponentPlan{tfResult}); err != nil {
 			return err
@@ -475,6 +479,28 @@ func warnPreventDestroy(w io.Writer, plans []terraforminfra.TerraformComponentPl
 		fmt.Fprintf(w, "  %s\n", addr)
 	}
 	fmt.Fprintln(w, "   the destroy may halt partway; remove the lifecycle block in HCL to enable tear-down.")
+}
+
+// warnDestroyAttributeDrift emits a stderr warning naming any destroy-behavior attribute
+// drift. plan -destroy never re-diffs these attributes against config, since the resource is
+// being removed, not updated. A stale state value can persist silently through destroy until
+// an intervening plan or apply reconciles it; see #3328. This mirrors warnPreventDestroy: it
+// warns but does not refuse, since a blocked destroy leaves more mess than a completed one.
+// No-op when no plan reports drift.
+func warnDestroyAttributeDrift(w io.Writer, plans []terraforminfra.TerraformComponentPlan) {
+	var drifted []terraforminfra.DestroyAttributeDrift
+	for _, p := range plans {
+		drifted = append(drifted, p.DriftedAttributes...)
+	}
+	if len(drifted) == 0 {
+		return
+	}
+	fmt.Fprintf(w, "warning: %d resource(s) have destroy-behavior attributes that drifted from state:\n", len(drifted))
+	for _, d := range drifted {
+		fmt.Fprintf(w, "  %s: %s state=%s config=%s\n", d.Address, d.Attribute, d.State, d.Config)
+	}
+	fmt.Fprintln(w, "   destroy will use the value already in state, not your current config.")
+	fmt.Fprintln(w, "   run `terraform apply` first to reconcile state, or expect the destroy to repeat this failure.")
 }
 
 // failOnDestroyPlanErrors halts the destroy before the confirmation prompt when
