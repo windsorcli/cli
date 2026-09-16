@@ -3035,7 +3035,7 @@ func TestProcessor_ProcessFacets_KustomizationPath(t *testing.T) {
 
 func TestProcessor_ProcessFacets_Backend(t *testing.T) {
 	t.Run("FacetBackendCopiedToTarget", func(t *testing.T) {
-		// Given a single facet naming a backend tier terminus
+		// Given a single facet naming a backend terminus
 		mocks := setupProcessorMocks(t)
 		processor := NewBlueprintProcessor(mocks.Runtime)
 		target := &blueprintv1alpha1.Blueprint{}

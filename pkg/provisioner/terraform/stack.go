@@ -222,7 +222,7 @@ type ComponentFailure struct {
 // Destroyed lists component IDs whose terraform destroy ran to completion;
 // Skipped lists component IDs whose state was empty (no-op); Failed lists
 // per-component failures collected when continue-on-error is true. Aggregate
-// cross-layer concerns (backend-tier deferral, kustomize counts) live on the
+// cross-layer concerns (terraform deferral, kustomize counts) live on the
 // provisioner-layer result type, not here.
 type DestroyOutcome struct {
 	Destroyed []string

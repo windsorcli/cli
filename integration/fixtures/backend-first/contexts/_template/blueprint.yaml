@@ -2,7 +2,7 @@ kind: Blueprint
 apiVersion: blueprints.windsorcli.dev/v1alpha1
 metadata:
   name: backend-first
-  description: Fixture with a backend tier (single component) followed by a non-tier component. Used to exercise bootstrap tier-pivot and symmetric destroy.
+  description: Fixture with a declared backend (single component) followed by a non-backend component. Used to exercise the bootstrap backend-pivot and symmetric destroy.
 backend: backend
 terraform:
   - path: "backend"

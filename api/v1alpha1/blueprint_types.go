@@ -396,7 +396,7 @@ type Blueprint struct {
 	// Metadata includes the blueprint's name and description.
 	Metadata Metadata `yaml:"metadata"`
 
-	// Backend names the terraform component that terminates the backend tier.
+	// Backend names the terraform component that terminates the backend's component chain.
 	Backend string `yaml:"backend,omitempty"`
 
 	// Repository details the source repository of the blueprint.
@@ -814,7 +814,7 @@ type SubstituteReference struct {
 // Public Methods
 // =============================================================================
 
-// BackendComponentID returns Blueprint.Backend, or "" when no backend tier is declared.
+// BackendComponentID returns Blueprint.Backend, or "" when no backend is declared.
 func (b *Blueprint) BackendComponentID() string {
 	if b == nil {
 		return ""
@@ -822,31 +822,31 @@ func (b *Blueprint) BackendComponentID() string {
 	return b.Backend
 }
 
-// BackendTier returns the named backend component plus every component declared before
-// it in TerraformComponents, in declaration order. Returns nil when Backend is unset or
-// names a component not present (validation catches the latter at load).
-func (b *Blueprint) BackendTier() []*TerraformComponent {
+// BackendComponents returns the named backend component plus every component declared
+// before it in TerraformComponents, in declaration order. Returns nil when Backend is
+// unset or names a component not present (validation catches the latter at load).
+func (b *Blueprint) BackendComponents() []*TerraformComponent {
 	if b == nil || b.Backend == "" {
 		return nil
 	}
 	for i := range b.TerraformComponents {
 		if b.TerraformComponents[i].GetID() == b.Backend {
-			tier := make([]*TerraformComponent, 0, i+1)
+			components := make([]*TerraformComponent, 0, i+1)
 			for j := 0; j <= i; j++ {
-				tier = append(tier, &b.TerraformComponents[j])
+				components = append(components, &b.TerraformComponents[j])
 			}
-			return tier
+			return components
 		}
 	}
 	return nil
 }
 
-// IsBackendTierMember reports whether the component ID appears in BackendTier.
-func (b *Blueprint) IsBackendTierMember(id string) bool {
+// IsBackendComponent reports whether the component ID appears in BackendComponents.
+func (b *Blueprint) IsBackendComponent(id string) bool {
 	if id == "" {
 		return false
 	}
-	for _, c := range b.BackendTier() {
+	for _, c := range b.BackendComponents() {
 		if c.GetID() == id {
 			return true
 		}

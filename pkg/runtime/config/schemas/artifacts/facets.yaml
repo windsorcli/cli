@@ -62,8 +62,9 @@ properties:
     type: string
     description: |
       Contributes to Blueprint.backend (the terraform component that
-      terminates the backend tier). The composer merges this across active
-      facets by ordinal precedence; the highest-ordinal non-empty value wins.
+      terminates the backend's component chain). The composer merges this
+      across active facets by ordinal precedence; the highest-ordinal
+      non-empty value wins.
   config:
     type: array
     description: |

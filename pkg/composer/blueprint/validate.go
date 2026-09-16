@@ -37,7 +37,7 @@ func ValidateComposedBlueprint(blueprint *blueprintv1alpha1.Blueprint) error {
 	}
 
 	return fmt.Errorf(
-		"%w\n\nBlueprint configuration: backend names terraform component %q but no component with that ID is declared. Set backend to the ID of an existing terraform component, or remove the backend field to opt out of the in-blueprint backend tier.",
+		"%w\n\nBlueprint configuration: backend names terraform component %q but no component with that ID is declared. Set backend to the ID of an existing terraform component, or remove the backend field to opt out of the in-blueprint backend.",
 		ErrBlueprintInvalid, blueprint.Backend,
 	)
 }

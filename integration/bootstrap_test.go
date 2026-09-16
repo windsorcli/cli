@@ -117,14 +117,13 @@ func TestBootstrap_GlobalModeExitsCleanlyWhenPlanDeclined(t *testing.T) {
 	}
 }
 
-// TestBootstrap_DanceIsScopedToTier exercises the always-on tier pivot end to end
-// against the backend-first fixture with a remote backend configured. Stage 1 must
-// apply only the tier (backend) against local state, Stage 2 must attempt to
-// migrate state to the configured remote, and Stage 3 (non-tier — here, the "null"
-// module) must NOT run once migration fails. The assertion proves the dance is
-// scoped to the tier rather than the legacy "apply everything local then migrate
-// everything" path.
-func TestBootstrap_DanceIsScopedToTier(t *testing.T) {
+// TestBootstrap_DanceIsScopedToBackendComponents exercises the always-on backend pivot end to
+// end against the backend-first fixture with a remote backend configured. Stage 1 must apply
+// only the backend components against local state, Stage 2 must attempt to migrate state to
+// the configured remote, and Stage 3 (non-backend — here, the "null" module) must NOT run once
+// migration fails. The assertion proves the dance is scoped to the backend components rather
+// than the legacy "apply everything local then migrate everything" path.
+func TestBootstrap_DanceIsScopedToBackendComponents(t *testing.T) {
 	t.Parallel()
 	dir, env := helpers.CopyFixtureOnly(t, "backend-first")
 	helpers.MarkAsGitRepo(t, dir)
@@ -139,29 +138,29 @@ func TestBootstrap_DanceIsScopedToTier(t *testing.T) {
 	}
 	combined := string(stdout) + string(stderr)
 
-	// Stage 1: only the tier was applied locally. The "null" module is non-tier
-	// and must not appear in Stage 1's apply output.
+	// Stage 1: only the backend components were applied locally. The "null" module
+	// is non-backend and must not appear in Stage 1's apply output.
 	if !strings.Contains(combined, "Applying backend") {
-		t.Errorf("expected tier apply line for backend, got:\n%s", combined)
+		t.Errorf("expected backend apply line for backend, got:\n%s", combined)
 	}
 	// Stage 2 was reached.
 	if !strings.Contains(combined, "Migrating terraform state") {
 		t.Errorf("expected migrate stage to be reached, got:\n%s", combined)
 	}
 	// Stage 3 was NOT reached because migrate failed. "Applying null" is the
-	// signature of a non-tier component apply; its presence here would mean
-	// the dance ran against the full stack instead of just the tier.
+	// signature of a non-backend component apply; its presence here would mean
+	// the dance ran against the full stack instead of just the backend components.
 	if strings.Contains(combined, "Applying null") {
 		t.Errorf("Stage 3 must not run after migrate failure; saw 'Applying null':\n%s", combined)
 	}
 }
 
-// TestBootstrap_RefusesKubernetesBackendWithoutTierFromZero verifies the from-zero fail-fast
-// guard: a kubernetes backend with no declared backend tier and no kubeconfig for the
+// TestBootstrap_RefusesKubernetesBackendWithoutDeclaredBackendFromZero verifies the from-zero
+// fail-fast guard: a kubernetes backend with no declared backend and no kubeconfig for the
 // context (the cluster was never created) fails with an actionable error naming the missing
 // `backend:` declaration, instead of terraform surfacing a raw connection-refused once it
 // reaches the component that needs the not-yet-existent cluster.
-func TestBootstrap_RefusesKubernetesBackendWithoutTierFromZero(t *testing.T) {
+func TestBootstrap_RefusesKubernetesBackendWithoutDeclaredBackendFromZero(t *testing.T) {
 	t.Parallel()
 	dir, env := helpers.CopyFixtureOnly(t, "backend-first-no-tier")
 	helpers.MarkAsGitRepo(t, dir)
@@ -172,7 +171,7 @@ func TestBootstrap_RefusesKubernetesBackendWithoutTierFromZero(t *testing.T) {
 
 	stdout, stderr, err := helpers.RunCLI(dir, []string{"bootstrap", "--yes"}, env)
 	if err == nil {
-		t.Fatalf("expected bootstrap to refuse a from-zero kubernetes backend with no declared tier, got success\nstdout: %s\nstderr: %s", stdout, stderr)
+		t.Fatalf("expected bootstrap to refuse a from-zero kubernetes backend with no declared backend, got success\nstdout: %s\nstderr: %s", stdout, stderr)
 	}
 	combined := string(stdout) + string(stderr)
 	if !strings.Contains(combined, "no kubeconfig") {
