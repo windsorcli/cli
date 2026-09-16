@@ -469,16 +469,16 @@ func TestInit_DoesNotRequireDocker_EvenWhenDockerEnabled(t *testing.T) {
 	}
 }
 
-// TestInit_AcceptsBlueprintWithDeclaredBackendTier confirms that a blueprint that
+// TestInit_AcceptsBlueprintWithDeclaredBackend confirms that a blueprint that
 // declares its backend via the Backend field and lists the named component in
 // terraform passes validation.
-func TestInit_AcceptsBlueprintWithDeclaredBackendTier(t *testing.T) {
+func TestInit_AcceptsBlueprintWithDeclaredBackend(t *testing.T) {
 	t.Parallel()
 	dir, env := helpers.CopyFixtureOnly(t, "backend-first")
 	helpers.MarkAsGitRepo(t, dir)
 	stdout, stderr, err := helpers.RunCLI(dir, []string{"init", "local"}, env)
 	if err != nil {
-		t.Fatalf("expected init to succeed for backend-tier fixture, got %v\nstdout: %s\nstderr: %s", err, stdout, stderr)
+		t.Fatalf("expected init to succeed for declared-backend fixture, got %v\nstdout: %s\nstderr: %s", err, stdout, stderr)
 	}
 }
 
@@ -499,7 +499,7 @@ func TestInit_RejectsBlueprintWithUnresolvedBackendField(t *testing.T) {
 		t.Errorf("expected validation error to name the unresolved Backend value, got:\n%s", combined)
 	}
 	if !strings.Contains(combined, "backend") {
-		t.Errorf("expected validation error to mention the backend tier, got:\n%s", combined)
+		t.Errorf("expected validation error to mention the backend, got:\n%s", combined)
 	}
 }
 

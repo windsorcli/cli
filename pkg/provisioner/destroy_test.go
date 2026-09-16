@@ -34,26 +34,26 @@ func TestProvisioner_CheckComponentDestroyable(t *testing.T) {
 		}
 	}
 
-	t.Run("RefusesBackendTierMemberOnKubernetesBackend", func(t *testing.T) {
+	t.Run("RefusesBackendComponentOnKubernetesBackend", func(t *testing.T) {
 		mocks := setupProvisionerMocks(t)
 		kubernetesBackend(mocks)
 		prov := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{})
 		err := prov.CheckComponentDestroyable(bp, "compute")
-		if err == nil || !strings.Contains(err.Error(), "backend-tier") {
-			t.Errorf("expected refusal naming backend-tier, got %v", err)
+		if err == nil || !strings.Contains(err.Error(), "backend") {
+			t.Errorf("expected refusal naming backend, got %v", err)
 		}
 	})
 
-	t.Run("AllowsNonTierMemberOnKubernetesBackend", func(t *testing.T) {
+	t.Run("AllowsNonBackendComponentOnKubernetesBackend", func(t *testing.T) {
 		mocks := setupProvisionerMocks(t)
 		kubernetesBackend(mocks)
 		prov := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{})
 		if err := prov.CheckComponentDestroyable(bp, "dns"); err != nil {
-			t.Errorf("expected non-tier member allowed, got %v", err)
+			t.Errorf("expected non-backend component allowed, got %v", err)
 		}
 	})
 
-	t.Run("AllowsBackendTierMemberOnLocalBackend", func(t *testing.T) {
+	t.Run("AllowsBackendComponentOnLocalBackend", func(t *testing.T) {
 		mocks := setupProvisionerMocks(t)
 		prov := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{})
 		if err := prov.CheckComponentDestroyable(bp, "compute"); err != nil {
@@ -62,7 +62,7 @@ func TestProvisioner_CheckComponentDestroyable(t *testing.T) {
 	})
 
 	t.Run("RefusesWhenBackendFieldUnresolved", func(t *testing.T) {
-		// Tier membership is undeterminable; refuse rather than guess.
+		// Backend membership is undeterminable; refuse rather than guess.
 		unresolved := &blueprintv1alpha1.Blueprint{
 			Backend: "ghost",
 			TerraformComponents: []blueprintv1alpha1.TerraformComponent{
@@ -231,7 +231,7 @@ func TestProvisioner_PrepareLocalTeardown(t *testing.T) {
 		mockStack.MigrateStateFunc = func(_ *blueprintv1alpha1.Blueprint) ([]string, error) { migrated = true; return nil, nil }
 		prov := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{TerraformStack: mockStack})
 
-		// When preparing, it leaves the backend type alone so Teardown still gates the backend tier
+		// When preparing, it leaves the backend type alone so Teardown still gates the backend components
 		pivoted, err := prov.PrepareLocalTeardown(bp)
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
@@ -413,7 +413,7 @@ func TestProvisioner_Teardown(t *testing.T) {
 	})
 
 	t.Run("NoBackendFieldCollapsesToDestroyAllTerraform", func(t *testing.T) {
-		// Without Blueprint.Backend, there is no in-blueprint backend tier;
+		// Without Blueprint.Backend, there is no declared backend;
 		// every component uses the configured backend. Teardown forwards to
 		// DestroyAllTerraform.
 		mocks := setupProvisionerMocks(t)
@@ -456,13 +456,13 @@ func TestProvisioner_Teardown(t *testing.T) {
 			t.Fatalf("Expected no error, got %v", err)
 		}
 		if setCalled {
-			t.Error("Expected no backend override when blueprint has no backend tier")
+			t.Error("Expected no backend override when blueprint has no declared backend")
 		}
 		if len(seenExclude) != 0 {
-			t.Errorf("Expected no excludes when there is no backend tier, got %v", seenExclude)
+			t.Errorf("Expected no excludes when there is no declared backend, got %v", seenExclude)
 		}
 		if migrateCalled {
-			t.Error("MigrateState must not run when there is no backend tier")
+			t.Error("MigrateState must not run when there is no declared backend")
 		}
 	})
 
@@ -564,7 +564,7 @@ func TestProvisioner_Teardown(t *testing.T) {
 	})
 
 	t.Run("RefusesUnresolvedBackendField", func(t *testing.T) {
-		// Backend names no real component; must not collapse to "no tier".
+		// Backend names no real component; must not collapse to "no backend".
 		mocks := setupProvisionerMocks(t)
 		bp := &blueprintv1alpha1.Blueprint{
 			Backend: "backend",
@@ -599,13 +599,13 @@ func TestProvisioner_Teardown(t *testing.T) {
 			t.Errorf("Expected error to name the unresolved backend, got: %v", err)
 		}
 		if destroyAllCalled {
-			t.Error("DestroyAll must not run when the backend tier cannot be resolved")
+			t.Error("DestroyAll must not run when the backend components cannot be resolved")
 		}
 	})
 
-	t.Run("SingleTierComponentDestroysNonTierThenTier", func(t *testing.T) {
-		// Stage 1: destroy non-tier against the configured backend.
-		// Stage 2: pin local, migrate tier state to local, destroy tier against local.
+	t.Run("SingleBackendComponentDestroysNonBackendThenBackend", func(t *testing.T) {
+		// Stage 1: destroy non-backend against the configured backend.
+		// Stage 2: pin local, migrate backend-component state to local, destroy the backend components against local.
 		mocks := setupProvisionerMocks(t)
 		bp := &blueprintv1alpha1.Blueprint{
 			Backend:  "backend",
@@ -674,15 +674,15 @@ func TestProvisioner_Teardown(t *testing.T) {
 		}
 		stage2Components := destroyAllBlueprints[1].TerraformComponents
 		if len(stage2Components) != 1 || stage2Components[0].Path != "backend" {
-			t.Errorf("Stage 2 DestroyAll should target tier [backend], got %#v", stage2Components)
+			t.Errorf("Stage 2 DestroyAll should target the backend [backend], got %#v", stage2Components)
 		}
 	})
 
-	t.Run("MultiComponentTierDestroysMembersThenBackend", func(t *testing.T) {
-		// VPC + IAM + cluster as the tier, Backend="cluster" (the last-declared
-		// member, not the first). Stage 1 destroys non-tier (workloads) against the
-		// configured backend; Stage 2a migrates all three tier members' state to
-		// local and destroys the tier's non-backend members (vpc, iam); Stage 2b
+	t.Run("MultiComponentBackendDestroysMembersThenBackend", func(t *testing.T) {
+		// VPC + IAM + cluster as the backend components, Backend="cluster" (the last-declared
+		// member, not the first). Stage 1 destroys non-backend (workloads) against the
+		// configured backend; Stage 2a migrates all three backend components. state to
+		// local and destroys the other backend components (vpc, iam); Stage 2b
 		// destroys the backend component (cluster) alone, only after Stage 2a comes
 		// back clean.
 		mocks := setupProvisionerMocks(t)
@@ -733,7 +733,7 @@ func TestProvisioner_Teardown(t *testing.T) {
 		}
 		expectedStage1Excludes := []string{"networking/vpc", "iam", "cluster"}
 		if len(destroyAllExcludes[0]) != 3 {
-			t.Fatalf("Stage 1 excludes should list all 3 tier IDs, got %v", destroyAllExcludes[0])
+			t.Fatalf("Stage 1 excludes should list all 3 backend component IDs, got %v", destroyAllExcludes[0])
 		}
 		for i, want := range expectedStage1Excludes {
 			if destroyAllExcludes[0][i] != want {
@@ -743,7 +743,7 @@ func TestProvisioner_Teardown(t *testing.T) {
 
 		stage2aComponents := destroyAllBlueprints[1].TerraformComponents
 		if len(stage2aComponents) != 3 {
-			t.Fatalf("Stage 2a should still target the full 3-component tier (member exclusion happens via excludeIDs), got %d", len(stage2aComponents))
+			t.Fatalf("Stage 2a should still target the full 3-component backend set (member exclusion happens via excludeIDs), got %d", len(stage2aComponents))
 		}
 		if len(destroyAllExcludes[1]) != 1 || destroyAllExcludes[1][0] != "cluster" {
 			t.Errorf("Stage 2a should exclude only the backend component %q, got %v", "cluster", destroyAllExcludes[1])
@@ -761,15 +761,15 @@ func TestProvisioner_Teardown(t *testing.T) {
 			t.Fatalf("Expected one MigrateState call, got %d", len(migrateBlueprints))
 		}
 		if len(migrateBlueprints[0].TerraformComponents) != 3 {
-			t.Errorf("MigrateState should target the 3-component tier, got %d", len(migrateBlueprints[0].TerraformComponents))
+			t.Errorf("MigrateState should target the 3-component backend set, got %d", len(migrateBlueprints[0].TerraformComponents))
 		}
 	})
 
-	t.Run("MultiComponentTierMateFailureDefersBackend", func(t *testing.T) {
-		// Regression for #3355: a tier with more than one member (vpc + cluster,
-		// Backend="cluster") where a tier-mate (vpc) fails during Stage 2a. The
+	t.Run("MultiComponentBackendMateFailureDefersBackend", func(t *testing.T) {
+		// Regression for #3355: a backend with more than one component (vpc + cluster,
+		// Backend="cluster") where a fellow backend component (vpc) fails during Stage 2a. The
 		// backend component (cluster) must NOT be destroyed in the same pass —
-		// otherwise every other tier member's state (and any `--continue` retry)
+		// otherwise every other backend component.s state (and any `--continue` retry)
 		// is stranded once the backend that stores it is gone.
 		mocks := setupProvisionerMocks(t)
 		bp := &blueprintv1alpha1.Blueprint{
@@ -798,11 +798,11 @@ func TestProvisioner_Teardown(t *testing.T) {
 		mockStack.DestroyAllFunc = func(b *blueprintv1alpha1.Blueprint, _ bool, excludeIDs ...string) (terraforminfra.DestroyOutcome, error) {
 			destroyAllCalls++
 			if destroyAllCalls == 1 {
-				// Stage 1: no non-tier components in this blueprint.
+				// Stage 1: no non-backend components in this blueprint.
 				return terraforminfra.DestroyOutcome{}, nil
 			}
 			if len(excludeIDs) == 1 && excludeIDs[0] == "cluster" {
-				// Stage 2a: the tier-mate fails.
+				// Stage 2a: the fellow backend component fails.
 				return terraforminfra.DestroyOutcome{
 					Failed: []terraforminfra.ComponentFailure{{ID: "networking/vpc", Err: fmt.Errorf("network still in use")}},
 				}, nil
@@ -816,16 +816,16 @@ func TestProvisioner_Teardown(t *testing.T) {
 
 		result, err := provisioner.Teardown(bp, true, true)
 		if err != nil {
-			t.Fatalf("Expected continueOnError to absorb the tier-mate failure, got %v", err)
+			t.Fatalf("Expected continueOnError to absorb the fellow-component failure, got %v", err)
 		}
 		if stage2bCalled {
-			t.Error("Backend component must not be destroyed in the same pass a tier-mate failed in")
+			t.Error("Backend component must not be destroyed in the same pass a fellow backend component failed in")
 		}
-		if !result.TierDeferred {
-			t.Error("Expected TierDeferred=true when a tier-mate failed during Stage 2a")
+		if !result.TerraformDeferred {
+			t.Error("Expected TerraformDeferred=true when a fellow backend component failed during Stage 2a")
 		}
 		if len(result.Failed) != 1 || result.Failed[0].ID != "networking/vpc" {
-			t.Errorf("Expected the tier-mate failure to surface in result.Failed, got %v", result.Failed)
+			t.Errorf("Expected the fellow-component failure to surface in result.Failed, got %v", result.Failed)
 		}
 	})
 
@@ -856,7 +856,7 @@ func TestProvisioner_Teardown(t *testing.T) {
 		}
 		mockStack := terraforminfra.NewMockStack()
 		mockStack.DestroyAllFunc = func(_ *blueprintv1alpha1.Blueprint, _ bool, _ ...string) (terraforminfra.DestroyOutcome, error) {
-			return terraforminfra.DestroyOutcome{}, fmt.Errorf("non-tier destroy failed")
+			return terraforminfra.DestroyOutcome{}, fmt.Errorf("non-backend destroy failed")
 		}
 		migrateCalled := false
 		mockStack.MigrateStateFunc = func(_ *blueprintv1alpha1.Blueprint) ([]string, error) {
@@ -869,7 +869,7 @@ func TestProvisioner_Teardown(t *testing.T) {
 		if err == nil {
 			t.Fatal("Expected error from Stage 1 failure, got nil")
 		}
-		if !strings.Contains(err.Error(), "non-tier destroy failed") {
+		if !strings.Contains(err.Error(), "non-backend destroy failed") {
 			t.Errorf("Expected error to wrap Stage 1 failure, got %v", err)
 		}
 		if migrateCalled {
@@ -880,9 +880,9 @@ func TestProvisioner_Teardown(t *testing.T) {
 		}
 	})
 
-	t.Run("Stage2MigrationFailureAbortsTierDestroyAndRestoresBackend", func(t *testing.T) {
+	t.Run("Stage2MigrationFailureAbortsBackendDestroyAndRestoresBackend", func(t *testing.T) {
 		// When the Stage 2 MigrateState fails (e.g. configured backend is intermittent),
-		// no tier destroy may run — operating against partially-migrated state could
+		// no backend destroy may run — operating against partially-migrated state could
 		// strand the operator. The deferred restore in withBackendOverride must still
 		// fire so subsequent commands see the configured backend.
 		mocks := setupProvisionerMocks(t)
@@ -933,7 +933,7 @@ func TestProvisioner_Teardown(t *testing.T) {
 			t.Errorf("Expected underlying migration cause in error, got %v", err)
 		}
 		if destroyAllCalls != 1 {
-			t.Errorf("Stage 2 tier destroy must not run when migration fails (expected 1 DestroyAll from Stage 1, got %d)", destroyAllCalls)
+			t.Errorf("Stage 2 backend destroy must not run when migration fails (expected 1 DestroyAll from Stage 1, got %d)", destroyAllCalls)
 		}
 		// Restore must still fire via defer.
 		var sawRestore bool
@@ -949,7 +949,7 @@ func TestProvisioner_Teardown(t *testing.T) {
 
 	t.Run("BackendRestoreFailureEmitsStderrWarning", func(t *testing.T) {
 		// When the deferred Set (restore to configured backend) fails after a
-		// successful tier destroy, the call still returns nil but the operator
+		// successful backend destroy, the call still returns nil but the operator
 		// needs to know so subsequent commands aren't surprised by a stale
 		// in-memory override.
 		mocks := setupProvisionerMocks(t)
@@ -1054,8 +1054,8 @@ func TestProvisioner_Teardown(t *testing.T) {
 		}
 	})
 
-	t.Run("ContinueDefersTierWhenNonTierHasFailures", func(t *testing.T) {
-		// Given a blueprint with a backend tier and a non-tier component whose
+	t.Run("ContinueDefersTerraformWhenNonBackendHasFailures", func(t *testing.T) {
+		// Given a blueprint with a declared backend and a non-backend component whose
 		// Stage 1 destroy reported a failure under continueOnError mode
 		mocks := setupProvisionerMocks(t)
 		bp := &blueprintv1alpha1.Blueprint{
@@ -1097,26 +1097,26 @@ func TestProvisioner_Teardown(t *testing.T) {
 		// When Teardown runs with continueOnError=true
 		result, err := provisioner.Teardown(bp, true, true)
 
-		// Then no error is returned (failure is collected), the tier is deferred,
+		// Then no error is returned (failure is collected), terraform is deferred,
 		// and Stage 2 backend migration never engages
 		if err != nil {
 			t.Fatalf("Expected continueOnError to absorb per-component failure, got %v", err)
 		}
-		if !result.TierDeferred {
-			t.Error("Expected TierDeferred=true when non-tier destroy left a failure")
+		if !result.TerraformDeferred {
+			t.Error("Expected TerraformDeferred=true when non-backend destroy left a failure")
 		}
 		if len(result.Failed) != 1 || result.Failed[0].ID != "cluster" {
 			t.Errorf("Expected failures to include cluster, got %v", result.Failed)
 		}
 		if migrateCalled {
-			t.Error("MigrateState must not run when non-tier failures left the tier deferred")
+			t.Error("MigrateState must not run when non-backend failures left terraform deferred")
 		}
 		if setCalled {
-			t.Error("Backend override must not engage when tier is deferred")
+			t.Error("Backend override must not engage when terraform is deferred")
 		}
 	})
 
-	t.Run("ContinueAttemptsTierWhenStage1Clean", func(t *testing.T) {
+	t.Run("ContinueAttemptsTerraformWhenStage1Clean", func(t *testing.T) {
 		// Given a Stage 1 destroy that completes with zero failures
 		mocks := setupProvisionerMocks(t)
 		bp := &blueprintv1alpha1.Blueprint{
@@ -1154,12 +1154,12 @@ func TestProvisioner_Teardown(t *testing.T) {
 		// When Teardown runs with continueOnError=true
 		result, err := provisioner.Teardown(bp, true, true)
 
-		// Then the backend tier is attempted (Stage 2 runs) and TierDeferred stays false
+		// Then terraform is attempted (Stage 2 runs) and TerraformDeferred stays false
 		if err != nil {
 			t.Fatalf("Expected no error, got %v", err)
 		}
-		if result.TierDeferred {
-			t.Error("Expected TierDeferred=false when Stage 1 was clean")
+		if result.TerraformDeferred {
+			t.Error("Expected TerraformDeferred=false when Stage 1 was clean")
 		}
 		if !migrateCalled {
 			t.Error("Expected MigrateState to run when Stage 1 produced no failures")
@@ -1169,8 +1169,8 @@ func TestProvisioner_Teardown(t *testing.T) {
 		}
 	})
 
-	t.Run("StillDefersTierAfterPrepareLocalTeardownOnRemoteBackend", func(t *testing.T) {
-		// Given a gcs backend whose PrepareLocalTeardown ran first, then a non-tier
+	t.Run("StillDefersTerraformAfterPrepareLocalTeardownOnRemoteBackend", func(t *testing.T) {
+		// Given a gcs backend whose PrepareLocalTeardown ran first, then a non-backend
 		// destroy failure under continueOnError mode
 		mocks := setupProvisionerMocks(t)
 		bp := &blueprintv1alpha1.Blueprint{
@@ -1205,7 +1205,7 @@ func TestProvisioner_Teardown(t *testing.T) {
 		}
 		result, err := provisioner.Teardown(bp, false, true)
 
-		// Then the backend type is untouched, the tier is still deferred, and the
+		// Then the backend type is untouched, terraform is still deferred, and the
 		// backend component is never destroyed alongside the failed component
 		if err != nil {
 			t.Fatalf("Expected continueOnError to absorb per-component failure, got %v", err)
@@ -1213,13 +1213,13 @@ func TestProvisioner_Teardown(t *testing.T) {
 		if backendType != "gcs" {
 			t.Errorf("Expected PrepareLocalTeardown to leave terraform.backend.type=gcs untouched, got %q", backendType)
 		}
-		if !result.TierDeferred {
-			t.Error("Expected TierDeferred=true when non-tier destroy left a failure, even after PrepareLocalTeardown ran")
+		if !result.TerraformDeferred {
+			t.Error("Expected TerraformDeferred=true when non-backend destroy left a failure, even after PrepareLocalTeardown ran")
 		}
 	})
 
 	t.Run("ContinueCollectsLocalBackendFailures", func(t *testing.T) {
-		// Given a local backend (no tier) and a stack that reports per-component
+		// Given a local backend (no declared backend) and a stack that reports per-component
 		// failures under continueOnError mode
 		mocks := setupProvisionerMocks(t)
 		mockCH := mocks.ConfigHandler.(*config.MockConfigHandler)
@@ -1259,13 +1259,87 @@ func TestProvisioner_Teardown(t *testing.T) {
 		}
 	})
 
-	t.Run("ContinueAttemptsTierWhenOnlyKustomizeFailed", func(t *testing.T) {
-		// Given a tier blueprint where kustomize Uninstall fails but every
-		// non-tier terraform component destroys cleanly. Kustomize does not
-		// depend on terraform state, so the backend tier MUST still be
-		// attempted — otherwise the tier is permanently deferred on every
-		// rerun (kustomize is most likely to fail against a cluster that's
-		// already partially gone).
+	t.Run("ContinueDefersTerraformWhenKustomizeFailsAndClusterReachable", func(t *testing.T) {
+		// Given a declared-backend blueprint where kustomize Uninstall fails while the cluster is
+		// still reachable. A live controller (e.g. Crossplane) may still be mid-teardown
+		// of a cloud-backed resource terraform never tracked, so terraform —
+		// which would destroy the cluster hosting that controller — MUST be deferred,
+		// not attempted. See #3385.
+		mocks := setupProvisionerMocks(t)
+		bp := &blueprintv1alpha1.Blueprint{
+			Backend:  "backend",
+			Metadata: blueprintv1alpha1.Metadata{Name: "test"},
+			TerraformComponents: []blueprintv1alpha1.TerraformComponent{
+				{Path: "backend"},
+				{Path: "cluster"},
+			},
+		}
+		mockCH := mocks.ConfigHandler.(*config.MockConfigHandler)
+		mockCH.GetStringFunc = func(key string, defaultValue ...string) string {
+			if key == "terraform.backend.type" {
+				return "s3"
+			}
+			if len(defaultValue) > 0 {
+				return defaultValue[0]
+			}
+			return ""
+		}
+		mockCH.SetFunc = func(_ string, _ any) error { return nil }
+		mocks.KubernetesManager.DeleteBlueprintFunc = func(_ *blueprintv1alpha1.Blueprint, _ string) error {
+			return fmt.Errorf("destroy aborted: timeout waiting for load balancer teardown")
+		}
+		// WaitForKubernetesHealthyFunc left unset: the default mock returns nil, i.e. the
+		// cluster is reachable — the scenario this test exercises.
+		mockStack := terraforminfra.NewMockStack()
+		migrateCalled := false
+		destroyAllCalls := 0
+		mockStack.DestroyAllFunc = func(_ *blueprintv1alpha1.Blueprint, _ bool, _ ...string) (terraforminfra.DestroyOutcome, error) {
+			destroyAllCalls++
+			return terraforminfra.DestroyOutcome{Destroyed: []string{fmt.Sprintf("pass%d", destroyAllCalls)}}, nil
+		}
+		mockStack.MigrateStateFunc = func(_ *blueprintv1alpha1.Blueprint) ([]string, error) {
+			migrateCalled = true
+			return nil, nil
+		}
+		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{
+			TerraformStack:    mockStack,
+			KubernetesManager: mocks.KubernetesManager,
+		})
+
+		// When Teardown runs the full destroy (terraformOnly=false) with continueOnError=true
+		result, err := provisioner.Teardown(bp, false, true)
+
+		// Then the kustomize failure is recorded and terraform is deferred entirely —
+		// Stage 1 itself aborts before touching terraform (via Provisioner.DestroyAll's
+		// own gate), so Stage 2/3 never run either.
+		if err != nil {
+			t.Fatalf("Expected continueOnError to absorb kustomize failure, got %v", err)
+		}
+		if !result.TerraformDeferred {
+			t.Error("Expected TerraformDeferred=true when kustomize failed while the cluster is reachable")
+		}
+		if migrateCalled {
+			t.Error("MigrateState must not run when terraform is deferred")
+		}
+		if destroyAllCalls != 0 {
+			t.Errorf("Expected no terraform DestroyAll calls, got %d", destroyAllCalls)
+		}
+		var foundKustomize bool
+		for _, f := range result.Failed {
+			if f.ID == KustomizeFailureID {
+				foundKustomize = true
+			}
+		}
+		if !foundKustomize {
+			t.Errorf("Expected kustomize failure to remain in result.Failed, got %v", result.Failed)
+		}
+	})
+
+	t.Run("ContinueAttemptsTerraformWhenKustomizeFailsAndClusterUnreachable", func(t *testing.T) {
+		// Given a declared-backend blueprint where kustomize Uninstall fails because the cluster
+		// itself is unreachable. Nothing is left alive to orphan, and deferring here
+		// would deadlock every rerun — kustomize is most likely to fail against a
+		// cluster that's already gone. Terraform MUST still be attempted.
 		mocks := setupProvisionerMocks(t)
 		bp := &blueprintv1alpha1.Blueprint{
 			Backend:  "backend",
@@ -1289,6 +1363,9 @@ func TestProvisioner_Teardown(t *testing.T) {
 		mocks.KubernetesManager.DeleteBlueprintFunc = func(_ *blueprintv1alpha1.Blueprint, _ string) error {
 			return fmt.Errorf("cluster API unreachable")
 		}
+		mocks.KubernetesManager.WaitForKubernetesHealthyFunc = func(_ context.Context, _ string, _ func(string), _ ...string) error {
+			return fmt.Errorf("cluster API unreachable")
+		}
 		mockStack := terraforminfra.NewMockStack()
 		migrateCalled := false
 		destroyAllCalls := 0
@@ -1308,13 +1385,12 @@ func TestProvisioner_Teardown(t *testing.T) {
 		// When Teardown runs the full destroy (terraformOnly=false) with continueOnError=true
 		result, err := provisioner.Teardown(bp, false, true)
 
-		// Then the kustomize failure is recorded, but the tier is NOT deferred —
-		// terraform component failures are the only thing that should defer the tier.
+		// Then the kustomize failure is recorded, but terraform is NOT deferred.
 		if err != nil {
 			t.Fatalf("Expected continueOnError to absorb kustomize failure, got %v", err)
 		}
-		if result.TierDeferred {
-			t.Error("Expected TierDeferred=false when only kustomize failed (kustomize does not depend on terraform state)")
+		if result.TerraformDeferred {
+			t.Error("Expected TerraformDeferred=false when kustomize failed because the cluster is unreachable")
 		}
 		if !migrateCalled {
 			t.Error("Expected MigrateState to run when terraform stage 1 was clean")
@@ -1332,6 +1408,56 @@ func TestProvisioner_Teardown(t *testing.T) {
 			t.Errorf("Expected kustomize failure to remain in result.Failed, got %v", result.Failed)
 		}
 	})
+}
+
+func TestProvisioner_blocksNextStage(t *testing.T) {
+	tests := []struct {
+		name      string
+		failed    []ComponentFailure
+		reachable bool
+		want      bool
+	}{
+		{
+			name:      "NoFailures",
+			failed:    nil,
+			reachable: true,
+			want:      false,
+		},
+		{
+			name:      "TerraformFailureAlwaysBlocks",
+			failed:    []ComponentFailure{{ID: "cluster", Err: fmt.Errorf("boom")}},
+			reachable: false,
+			want:      true,
+		},
+		{
+			name:      "KustomizeFailureBlocksWhileClusterReachable",
+			failed:    []ComponentFailure{{ID: KustomizeFailureID, Err: fmt.Errorf("boom")}},
+			reachable: true,
+			want:      true,
+		},
+		{
+			name:      "KustomizeFailureDoesNotBlockWhenClusterUnreachable",
+			failed:    []ComponentFailure{{ID: KustomizeFailureID, Err: fmt.Errorf("boom")}},
+			reachable: false,
+			want:      false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			mocks := setupProvisionerMocks(t)
+			if !tt.reachable {
+				mocks.Runtime.ConfigRoot = t.TempDir()
+			}
+			provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{KubernetesManager: mocks.KubernetesManager})
+
+			got := provisioner.blocksNextStage(tt.failed)
+
+			if got != tt.want {
+				t.Errorf("blocksNextStage() = %v, want %v", got, tt.want)
+			}
+		})
+	}
 }
 
 func TestProvisioner_TeardownComponent(t *testing.T) {
@@ -1363,8 +1489,8 @@ func TestProvisioner_TeardownComponent(t *testing.T) {
 		}
 	})
 
-	t.Run("RefusesAnyTierMemberOnRemoteBackend", func(t *testing.T) {
-		// A tier member on any remote backend (s3, azurerm, kubernetes) is refused —
+	t.Run("RefusesAnyBackendComponentOnRemoteBackend", func(t *testing.T) {
+		// A backend component on any remote backend (s3, azurerm, kubernetes) is refused —
 		// destroying it in isolation would orphan state for downstream components.
 		for _, backendType := range []string{"kubernetes", "s3", "azurerm"} {
 			t.Run(backendType, func(t *testing.T) {
@@ -1391,8 +1517,8 @@ func TestProvisioner_TeardownComponent(t *testing.T) {
 				if err == nil {
 					t.Fatal("Expected refusal error, got nil")
 				}
-				if !strings.Contains(err.Error(), "backend-tier component") {
-					t.Errorf("Expected refusal message naming the tier, got: %v", err)
+				if !strings.Contains(err.Error(), "backend component") {
+					t.Errorf("Expected refusal message naming the backend component, got: %v", err)
 				}
 				if !strings.Contains(err.Error(), backendType) {
 					t.Errorf("Expected refusal message naming %s backend, got: %v", backendType, err)
@@ -1407,8 +1533,8 @@ func TestProvisioner_TeardownComponent(t *testing.T) {
 		}
 	})
 
-	t.Run("RefusesPreBackendTierMemberOnRemoteBackend", func(t *testing.T) {
-		// A component declared before the named backend is also a tier member
+	t.Run("RefusesPreBackendComponentOnRemoteBackend", func(t *testing.T) {
+		// A component declared before the named backend is also a backend component
 		// and triggers the same refusal.
 		mocks := setupProvisionerMocks(t)
 		bp := &blueprintv1alpha1.Blueprint{
@@ -1440,18 +1566,18 @@ func TestProvisioner_TeardownComponent(t *testing.T) {
 
 		_, err := provisioner.TeardownComponent(bp, "networking/vpc")
 		if err == nil {
-			t.Fatal("Expected refusal for pre-backend tier member, got nil")
+			t.Fatal("Expected refusal for a pre-backend component, got nil")
 		}
 		if !strings.Contains(err.Error(), "networking/vpc") {
-			t.Errorf("Expected error to name the tier member, got: %v", err)
+			t.Errorf("Expected error to name the backend component, got: %v", err)
 		}
 		if destroyCalled {
 			t.Error("Destroy must not run when refusing")
 		}
 	})
 
-	t.Run("AllowsBackendTierMemberOnLocalBackend", func(t *testing.T) {
-		// On a local backend there is no shared remote storage to orphan; a tier
+	t.Run("AllowsBackendComponentOnLocalBackend", func(t *testing.T) {
+		// On a local backend there is no shared remote storage to orphan; a backend component
 		// member destroys directly.
 		mocks := setupProvisionerMocks(t)
 		mockCH := mocks.ConfigHandler.(*config.MockConfigHandler)
@@ -1483,8 +1609,8 @@ func TestProvisioner_TeardownComponent(t *testing.T) {
 		}
 	})
 
-	t.Run("NonTierComponentUsesDirectDestroyOnAnyBackend", func(t *testing.T) {
-		// Non-tier components destroy directly regardless of backend type — the
+	t.Run("NonBackendComponentUsesDirectDestroyOnAnyBackend", func(t *testing.T) {
+		// Non-backend components destroy directly regardless of backend type — the
 		// configured backend still exists, no migration needed.
 		for _, backendType := range []string{"local", "kubernetes", "s3", "azurerm"} {
 			t.Run(backendType, func(t *testing.T) {
@@ -1527,10 +1653,10 @@ func TestProvisioner_TeardownComponent(t *testing.T) {
 					t.Error("Expected Destroy to be called")
 				}
 				if migrateCalled {
-					t.Error("Expected MigrateComponentState NOT to be called for non-tier component")
+					t.Error("Expected MigrateComponentState NOT to be called for non-backend component")
 				}
 				if setCalled {
-					t.Error("Expected backend.type Set NOT to be called for non-tier component")
+					t.Error("Expected backend.type Set NOT to be called for non-backend component")
 				}
 			})
 		}

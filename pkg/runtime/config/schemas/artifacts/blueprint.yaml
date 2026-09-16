@@ -40,10 +40,11 @@ properties:
   backend:
     type: string
     description: |
-      Names the terraform component that terminates the backend tier. When set,
-      'windsor bootstrap' applies the backend component (and every component
-      declared before it) against local state first, then migrates state to the
-      configured remote backend before applying the rest of the graph.
+      Names the terraform component that terminates the backend's component
+      chain. When set, 'windsor bootstrap' applies the backend component (and
+      every component declared before it) against local state first, then
+      migrates state to the configured remote backend before applying the
+      rest of the graph.
   repository:
     description: |
       Source repository this blueprint was bootstrapped from. Reconciled on a

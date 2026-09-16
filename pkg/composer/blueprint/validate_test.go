@@ -108,7 +108,7 @@ func TestValidateComposedBlueprint(t *testing.T) {
 	t.Run("NamingConventionIsNotRecognised", func(t *testing.T) {
 		// Hard cut: a component named "backend" without Blueprint.Backend set is NOT
 		// treated as a backend. The blueprint validates cleanly; the orchestration
-		// just won't pivot — the component is a regular non-tier component.
+		// just won't pivot — the component is a regular non-backend component.
 		bp := &blueprintv1alpha1.Blueprint{
 			TerraformComponents: []blueprintv1alpha1.TerraformComponent{
 				{Path: "vpc"},

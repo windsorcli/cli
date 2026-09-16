@@ -40,11 +40,11 @@ var (
 // non-workstation contexts (staging, production). Unlike `windsor init`, bootstrap does not anchor the current directory as
 // a project root — it is allowed to run in global mode, where directory trust is implicit.
 //
-// When the blueprint declares a backend tier via Blueprint.Backend, bootstrap pivots the
-// tier through local state on every run (always-on, idempotent) so the chicken-and-egg of
-// a backend living inside the infrastructure it provisions is resolved without any
-// first-run / subsequent-run branching. Without an in-blueprint backend tier, bootstrap
-// forwards to a single Up pass against the configured backend.
+// When the blueprint declares a backend via Blueprint.Backend, bootstrap pivots its
+// components through local state on every run (always-on, idempotent) so the
+// chicken-and-egg of a backend living inside the infrastructure it provisions is
+// resolved without any first-run / subsequent-run branching. Without a declared
+// backend, bootstrap forwards to a single Up pass against the configured backend.
 var bootstrapCmd = &cobra.Command{
 	Use:   "bootstrap [context]",
 	Short: "Bootstrap a fresh environment end-to-end.",

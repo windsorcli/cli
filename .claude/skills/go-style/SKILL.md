@@ -136,18 +136,19 @@ Struct fields are not docstring real estate. They get one short line — the nam
 ```go
 // ❌ Multi-line struct field "what + why + downstream usage" novel
 //
-// Backend names the terraform component that terminates the backend tier — the
-// component whose apply provisions the remote-state store every other component
-// will use. When set, this component plus every terraform component declared before
-// it in the TerraformComponents list form the backend tier; that tier is brought up
-// with local state and migrated to the configured terraform.backend.* on every
-// bootstrap, and torn down with state pulled back to local on full destroy. When
-// empty, the blueprint has no in-blueprint backend tier and every component uses
-// the configured backend directly (the "external backend" case).
+// Backend names the terraform component that terminates the backend's
+// component chain — the component whose apply provisions the remote-state
+// store every other component will use. When set, this component plus every
+// terraform component declared before it in the TerraformComponents list
+// form that chain; it is brought up with local state and migrated to the
+// configured terraform.backend.* on every bootstrap, and torn down with
+// state pulled back to local on full destroy. When empty, the blueprint
+// declares no backend components and every component uses the configured
+// backend directly (the "external backend" case).
 Backend string `yaml:"backend,omitempty"`
 
 // ✅ One line — name carries the meaning, type header carries the model
-// Backend names the terraform component that terminates the backend tier.
+// Backend names the terraform component that terminates the backend's component chain.
 Backend string `yaml:"backend,omitempty"`
 ```
 

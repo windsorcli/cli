@@ -130,7 +130,7 @@ func TestFacetDeepCopy(t *testing.T) {
 	})
 
 	t.Run("PreservesBackend", func(t *testing.T) {
-		// Given a facet that names the backend tier terminus
+		// Given a facet that names the backend terminus
 		original := &Facet{Backend: "cluster"}
 
 		// When deep-copied
@@ -542,7 +542,7 @@ func TestFacetYAMLTags(t *testing.T) {
 	})
 
 	t.Run("FacetMarshalsAndUnmarshalsBackend", func(t *testing.T) {
-		// Given a facet that names a backend tier terminus
+		// Given a facet that names a backend terminus
 		facet := Facet{
 			Kind:       "Facet",
 			ApiVersion: "blueprints.windsorcli.dev/v1alpha1",

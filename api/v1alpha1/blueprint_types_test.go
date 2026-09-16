@@ -2576,7 +2576,7 @@ func TestBlueprint_DeepCopy(t *testing.T) {
 	})
 
 	t.Run("PreservesBackend", func(t *testing.T) {
-		// Given a blueprint with a declared backend tier terminus
+		// Given a blueprint with a declared backend terminus
 		blueprint := &Blueprint{Backend: "cluster"}
 
 		// When deep-copied
@@ -3906,9 +3906,9 @@ func TestBlueprint_BackendComponentID(t *testing.T) {
 	})
 }
 
-func TestBlueprint_BackendTier(t *testing.T) {
+func TestBlueprint_BackendComponents(t *testing.T) {
 	t.Run("ReturnsTerminusPlusAllPriorComponents", func(t *testing.T) {
-		// Given a blueprint with backend tier (vpc, iam, cluster) and non-tier (workloads)
+		// Given a blueprint with backend components (vpc, iam, cluster) and a non-backend one (workloads)
 		bp := &Blueprint{
 			Backend: "cluster",
 			TerraformComponents: []TerraformComponent{
@@ -3919,14 +3919,14 @@ func TestBlueprint_BackendTier(t *testing.T) {
 			},
 		}
 
-		tier := bp.BackendTier()
+		components := bp.BackendComponents()
 
-		if len(tier) != 3 {
-			t.Fatalf("Expected tier of 3 components, got %d", len(tier))
+		if len(components) != 3 {
+			t.Fatalf("Expected 3 backend components, got %d", len(components))
 		}
 		for i, expected := range []string{"vpc", "iam", "cluster"} {
-			if tier[i].GetID() != expected {
-				t.Errorf("Expected tier[%d]=%q, got %q", i, expected, tier[i].GetID())
+			if components[i].GetID() != expected {
+				t.Errorf("Expected components[%d]=%q, got %q", i, expected, components[i].GetID())
 			}
 		}
 	})
@@ -3940,10 +3940,10 @@ func TestBlueprint_BackendTier(t *testing.T) {
 			},
 		}
 
-		tier := bp.BackendTier()
+		components := bp.BackendComponents()
 
-		if len(tier) != 1 || tier[0].GetID() != "backend" {
-			t.Errorf("Expected single-element tier [backend], got %+v", tier)
+		if len(components) != 1 || components[0].GetID() != "backend" {
+			t.Errorf("Expected single-element result [backend], got %+v", components)
 		}
 	})
 
@@ -3952,13 +3952,13 @@ func TestBlueprint_BackendTier(t *testing.T) {
 			TerraformComponents: []TerraformComponent{{Path: "vpc"}, {Path: "cluster"}},
 		}
 
-		if tier := bp.BackendTier(); tier != nil {
-			t.Errorf("Expected nil tier when Backend is unset, got %+v", tier)
+		if components := bp.BackendComponents(); components != nil {
+			t.Errorf("Expected nil when Backend is unset, got %+v", components)
 		}
 	})
 
 	t.Run("ReturnsNilWhenBackendDoesNotResolve", func(t *testing.T) {
-		// Validation should reject this at load time, but BackendTier returns nil
+		// Validation should reject this at load time, but BackendComponents returns nil
 		// when the named component is not found so a callsite that runs without
 		// validation does not panic.
 		bp := &Blueprint{
@@ -3966,22 +3966,22 @@ func TestBlueprint_BackendTier(t *testing.T) {
 			TerraformComponents: []TerraformComponent{{Path: "vpc"}, {Path: "cluster"}},
 		}
 
-		if tier := bp.BackendTier(); tier != nil {
-			t.Errorf("Expected nil tier when Backend does not resolve, got %+v", tier)
+		if components := bp.BackendComponents(); components != nil {
+			t.Errorf("Expected nil when Backend does not resolve, got %+v", components)
 		}
 	})
 
 	t.Run("ReturnsNilWhenNilBlueprint", func(t *testing.T) {
 		var bp *Blueprint
-		if tier := bp.BackendTier(); tier != nil {
-			t.Errorf("Expected nil tier for nil blueprint, got %+v", tier)
+		if components := bp.BackendComponents(); components != nil {
+			t.Errorf("Expected nil for nil blueprint, got %+v", components)
 		}
 	})
 
-	t.Run("TierMembersPointIntoBlueprintSlice", func(t *testing.T) {
-		// The returned tier slice holds pointers into Blueprint.TerraformComponents
-		// so callers can mutate component state in place if needed (e.g., for
-		// in-flight orchestration bookkeeping). Verify the addresses match.
+	t.Run("MembersPointIntoBlueprintSlice", func(t *testing.T) {
+		// The returned slice holds pointers into Blueprint.TerraformComponents so callers
+		// can mutate component state in place if needed (e.g., for in-flight orchestration
+		// bookkeeping). Verify the addresses match.
 		bp := &Blueprint{
 			Backend: "cluster",
 			TerraformComponents: []TerraformComponent{
@@ -3990,15 +3990,15 @@ func TestBlueprint_BackendTier(t *testing.T) {
 			},
 		}
 
-		tier := bp.BackendTier()
+		components := bp.BackendComponents()
 
-		if &bp.TerraformComponents[0] != tier[0] || &bp.TerraformComponents[1] != tier[1] {
-			t.Error("Expected tier entries to be pointers into Blueprint.TerraformComponents")
+		if &bp.TerraformComponents[0] != components[0] || &bp.TerraformComponents[1] != components[1] {
+			t.Error("Expected entries to be pointers into Blueprint.TerraformComponents")
 		}
 	})
 }
 
-func TestBlueprint_IsBackendTierMember(t *testing.T) {
+func TestBlueprint_IsBackendComponent(t *testing.T) {
 	bp := &Blueprint{
 		Backend: "cluster",
 		TerraformComponents: []TerraformComponent{
@@ -4010,34 +4010,34 @@ func TestBlueprint_IsBackendTierMember(t *testing.T) {
 	}
 
 	t.Run("ReportsTrueForTerminusComponent", func(t *testing.T) {
-		if !bp.IsBackendTierMember("cluster") {
-			t.Error("Expected cluster (terminus) to be a tier member")
+		if !bp.IsBackendComponent("cluster") {
+			t.Error("Expected cluster (terminus) to be a backend component")
 		}
 	})
 
 	t.Run("ReportsTrueForComponentBeforeTerminus", func(t *testing.T) {
 		for _, id := range []string{"vpc", "iam"} {
-			if !bp.IsBackendTierMember(id) {
-				t.Errorf("Expected %q (declared before terminus) to be a tier member", id)
+			if !bp.IsBackendComponent(id) {
+				t.Errorf("Expected %q (declared before terminus) to be a backend component", id)
 			}
 		}
 	})
 
 	t.Run("ReportsFalseForComponentAfterTerminus", func(t *testing.T) {
-		if bp.IsBackendTierMember("workloads") {
-			t.Error("Expected workloads (declared after terminus) to be non-tier")
+		if bp.IsBackendComponent("workloads") {
+			t.Error("Expected workloads (declared after terminus) to be non-backend")
 		}
 	})
 
 	t.Run("ReportsFalseForUnknownComponent", func(t *testing.T) {
-		if bp.IsBackendTierMember("ghost") {
-			t.Error("Expected unknown component to be non-tier")
+		if bp.IsBackendComponent("ghost") {
+			t.Error("Expected unknown component to be non-backend")
 		}
 	})
 
 	t.Run("ReportsFalseForEmptyID", func(t *testing.T) {
-		if bp.IsBackendTierMember("") {
-			t.Error("Expected empty ID to be non-tier")
+		if bp.IsBackendComponent("") {
+			t.Error("Expected empty ID to be non-backend")
 		}
 	})
 
@@ -4045,8 +4045,8 @@ func TestBlueprint_IsBackendTierMember(t *testing.T) {
 		external := &Blueprint{
 			TerraformComponents: []TerraformComponent{{Path: "vpc"}, {Path: "cluster"}},
 		}
-		if external.IsBackendTierMember("vpc") {
-			t.Error("Expected non-tier membership when Backend is unset (external backend case)")
+		if external.IsBackendComponent("vpc") {
+			t.Error("Expected non-backend membership when Backend is unset (external backend case)")
 		}
 	})
 }
@@ -5367,12 +5367,12 @@ terraform:
 		if id := bp.BackendComponentID(); id != "cluster" {
 			t.Errorf("Expected BackendComponentID=\"cluster\", got %q", id)
 		}
-		tier := bp.BackendTier()
-		if len(tier) != 2 {
-			t.Fatalf("Expected tier of 2 (vpc + cluster), got %d", len(tier))
+		components := bp.BackendComponents()
+		if len(components) != 2 {
+			t.Fatalf("Expected 2 backend components (vpc + cluster), got %d", len(components))
 		}
-		if tier[0].Path != "networking/vpc" || tier[1].GetID() != "cluster" {
-			t.Errorf("Expected tier=[networking/vpc, cluster], got [%s, %s]", tier[0].Path, tier[1].GetID())
+		if components[0].Path != "networking/vpc" || components[1].GetID() != "cluster" {
+			t.Errorf("Expected components=[networking/vpc, cluster], got [%s, %s]", components[0].Path, components[1].GetID())
 		}
 	})
 

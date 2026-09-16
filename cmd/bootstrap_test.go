@@ -481,7 +481,7 @@ func TestBootstrapCmd(t *testing.T) {
 
 		// Always-on tier pivot: Stage 1 pulls (migrate under local override) and
 		// applies; Stage 2 pushes (migrate after override restore); Stage 3 applies
-		// non-tier components.
+		// non-backend components.
 		expected := []string{"set=local", "migrate", "up", "set=kubernetes", "migrate", "up"}
 		if len(timeline) != len(expected) {
 			t.Fatalf("Expected timeline %v, got %v", expected, timeline)

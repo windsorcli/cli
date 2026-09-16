@@ -16,16 +16,22 @@ If terraform reports resources protected by 'lifecycle { prevent_destroy = true 
 
 If any component fails destroy-plan generation, destroy halts before the confirmation prompt and names the failed components, rather than offering to destroy a plan it cannot fully execute. This is distinct from --continue, which governs failures during execution, after confirmation.
 
-The default behavior is to abort on the first per-component destroy failure. Pass --continue to keep going past individual failures, collect them, and print a one-line summary at the end (windsor destroy: N destroyed, N no-op (empty state), N failed (...), backend tier deferred). --continue is layer-wide only and is refused when combined with a component argument — on a single component there is nothing to continue past. When --continue leaves any non-tier component un-destroyed, the backend tier is NOT attempted — this prevents destroying the state store while other components still depend on it. Rerun 'windsor destroy --continue' after resolving the underlying failures; the second pass picks up where the first left off and converges on a clean slate.
+The default behavior is to abort on the first per-component destroy failure. Pass --continue to keep going past failures and print a one-line summary at the end (windsor destroy: N destroyed, N no-op (empty state), N failed (...), terraform deferred). --continue applies to a layer-wide destroy only; it is refused with a component argument.
 
-When terraform.backend.type is 'kubernetes', a full-cycle destroy (no argument) migrates every component's state to local before destroying anything, then destroys entirely against that local copy — the kubernetes backend stores state on the cluster the destroy is about to tear down, so reads pivot away from it up front rather than stranding mid-teardown once the cluster is gone. A single component can't be destroyed in isolation while it's a member of the backend tier, since destroying it directly would orphan every other component's state; run a full 'windsor destroy' instead.
+Terraform is skipped in two cases:
+- A non-backend component is left un-destroyed.
+- A Flux kustomization fails to delete while the cluster is still reachable. A live controller, such as Crossplane, may still be tearing down a cloud resource that terraform never tracked. Destroying the cluster now would orphan that resource.
+
+Rerun 'windsor destroy --continue' after you resolve the failures. The next pass picks up where the last one stopped.
+
+When terraform.backend.type is 'kubernetes', a full-cycle destroy (no argument) migrates every component's state to local before destroying anything, then destroys entirely against that local copy — the kubernetes backend stores state on the cluster the destroy is about to tear down, so reads pivot away from it up front rather than stranding mid-teardown once the cluster is gone. A single component can't be destroyed in isolation while it's one of the backend's components, since destroying it directly would orphan every other component's state; run a full 'windsor destroy' instead.
 
 ## Flags
 
 | Flag | Default | Description |
 |------|---------|-------------|
 | `--confirm` | `""` | Context or component name to confirm destruction. Must match the prompt token exactly; mismatches abort. |
-| `--continue` | `false` | Continue past per-component destroy failures and report a summary at the end. Layer-wide destroy only — refuses when combined with a component argument. Backend tier is deferred when any non-tier component fails. |
+| `--continue` | `false` | Continue past per-component destroy failures and report a summary at the end. Layer-wide destroy only. Defers terraform when a kustomize failure leaves the cluster reachable, or when a non-backend component fails. |
 
 ## Subcommands
 

@@ -33,7 +33,7 @@ type BootstrapConfirmFn func(*BootstrapSummary) bool
 // =============================================================================
 
 // Bootstrap brings up a context's infrastructure end-to-end; it is a thin alias for Up — see
-// Up's doc for the backend-tier pivot. Kept as a distinct, self-documenting entry point for
+// Up's doc for the backend pivot. Kept as a distinct, self-documenting entry point for
 // `windsor bootstrap`'s explicit-confirmation flow. Returns (halted, err); halted=true means
 // an inner apply call stopped cleanly after a component (e.g. cluster reachability needs
 // operator action), leaving bootstrap partially complete until the operator re-runs it.
@@ -73,51 +73,52 @@ func BuildBootstrapSummary(blueprint *blueprintv1alpha1.Blueprint, contextName, 
 // Private Helpers
 // =============================================================================
 
-// applyWithBackendPivot pins local, migrates any existing tier state to local, applies the
-// tier locally, migrates it to the configured backend, then applies non-tier components
-// directly against it. Idempotent regardless of whether the backend already exists.
-// Sub-applies use applyDirect, not Up, to avoid re-deriving a tier and recursing.
-func (i *Provisioner) applyWithBackendPivot(blueprint *blueprintv1alpha1.Blueprint, tier []*blueprintv1alpha1.TerraformComponent, onApply ...func(id string) (bool, error)) (bool, error) {
-	tierBP := blueprintWithComponents(blueprint, tier)
-	nonTierBP := blueprintWithoutComponents(blueprint, tier)
+// applyWithBackendPivot pins local, migrates any existing backend-component state to local,
+// applies those components locally, migrates them to the configured backend, then applies
+// the remaining components directly against it. Idempotent regardless of whether the backend
+// already exists. Sub-applies use applyDirect, not Up, to avoid re-deriving the backend
+// components and recursing.
+func (i *Provisioner) applyWithBackendPivot(blueprint *blueprintv1alpha1.Blueprint, backendComponents []*blueprintv1alpha1.TerraformComponent, onApply ...func(id string) (bool, error)) (bool, error) {
+	backendComponentsBP := blueprintWithComponents(blueprint, backendComponents)
+	nonBackendBP := blueprintWithoutComponents(blueprint, backendComponents)
 
-	var tierHalted bool
+	var backendHalted bool
 	if err := i.withBackendOverride("backend-pivot", func() error {
-		if _, err := i.MigrateState(tierBP); err != nil {
+		if _, err := i.MigrateState(backendComponentsBP); err != nil {
 			return err
 		}
-		halted, err := i.applyDirect(tierBP, onApply...)
+		halted, err := i.applyDirect(backendComponentsBP, onApply...)
 		if err != nil {
 			return err
 		}
-		tierHalted = halted
+		backendHalted = halted
 		return nil
 	}); err != nil {
 		return false, err
 	}
-	if tierHalted {
-		// Halt during tier apply — don't migrate state or run non-tier components yet.
+	if backendHalted {
+		// Halt during the backend components' apply — don't migrate state or run the rest yet.
 		return true, nil
 	}
 
-	skipped, err := i.MigrateState(tierBP)
+	skipped, err := i.MigrateState(backendComponentsBP)
 	if err != nil {
 		return false, err
 	}
 	if len(skipped) > 0 {
-		return false, fmt.Errorf("backend-tier migration skipped components after a successful local apply: %v — their directories should have been materialised by the local apply", skipped)
+		return false, fmt.Errorf("backend migration skipped components after a successful local apply: %v — their directories should have been materialised by the local apply", skipped)
 	}
 
-	for _, c := range tier {
+	for _, c := range backendComponents {
 		if err := i.RemoveLocalState(c.GetID()); err != nil {
 			fmt.Fprintf(os.Stderr, "warning: failed to remove local state file for %q after migration: %v\n", c.GetID(), err)
 		}
 	}
 
-	if len(nonTierBP.TerraformComponents) == 0 {
+	if len(nonBackendBP.TerraformComponents) == 0 {
 		return false, nil
 	}
-	return i.applyDirect(nonTierBP, onApply...)
+	return i.applyDirect(nonBackendBP, onApply...)
 }
 
 // blueprintWithComponents returns a shallow copy of bp containing only the given

@@ -28,7 +28,7 @@ func TestProvisioner_Bootstrap(t *testing.T) {
 	t.Run("KubernetesBackendWithoutBlueprintBackendCollapsesToUp", func(t *testing.T) {
 		// terraform.backend.type=kubernetes with no Blueprint.Backend and a present
 		// kubeconfig (setupProvisionerMocks seeds one by default) is the "cluster
-		// already provisioned" case — len(tier) == 0 short-circuits straight to a
+		// already provisioned" case — len(backendComponents) == 0 short-circuits straight to a
 		// plain apply, no local-pin/migrate dance and no fail-fast guard.
 		mocks := setupProvisionerMocks(t)
 		bp := &blueprintv1alpha1.Blueprint{
@@ -69,9 +69,9 @@ func TestProvisioner_Bootstrap(t *testing.T) {
 		}
 	})
 
-	t.Run("RefusesKubernetesBackendWithoutTierWhenClusterNotYetCreated", func(t *testing.T) {
+	t.Run("RefusesKubernetesBackendWithNoBackendWhenClusterNotYetCreated", func(t *testing.T) {
 		// terraform.backend.type=kubernetes, no Blueprint.Backend, and no kubeconfig for
-		// this context is the from-zero case: the blueprint gives no tier
+		// this context is the from-zero case: the blueprint gives no backend
 		// boundary to pivot on, so applying anything would dial a cluster that cannot
 		// exist yet. Refuse up front with an actionable error instead of letting
 		// terraform's raw connection-refused surface.
@@ -103,7 +103,7 @@ func TestProvisioner_Bootstrap(t *testing.T) {
 		if _, err := provisioner.Bootstrap(bp); err == nil {
 			t.Fatal("Expected error, got nil")
 		} else if !strings.Contains(err.Error(), "no kubeconfig") || !strings.Contains(err.Error(), "backend:") {
-			t.Errorf("Expected error to explain the missing tier declaration, got: %v", err)
+			t.Errorf("Expected error to explain the missing backend declaration, got: %v", err)
 		}
 		if upCalled {
 			t.Error("TerraformStack.Up must not run when the guard refuses")
@@ -183,8 +183,8 @@ func TestProvisioner_Bootstrap(t *testing.T) {
 	})
 
 	t.Run("NoBackendFieldCollapsesToUp", func(t *testing.T) {
-		// Without Blueprint.Backend set, the blueprint has no in-blueprint backend
-		// tier. Bootstrap forwards to Up — every component uses the configured backend.
+		// Without Blueprint.Backend set, the blueprint declares no backend components.
+		// Bootstrap forwards to Up — every component uses the configured backend.
 		mocks := setupProvisionerMocks(t)
 		bp := &blueprintv1alpha1.Blueprint{
 			TerraformComponents: []blueprintv1alpha1.TerraformComponent{
@@ -228,11 +228,11 @@ func TestProvisioner_Bootstrap(t *testing.T) {
 		}
 	})
 
-	t.Run("SingleTierComponentRunsExpectedOpSequence", func(t *testing.T) {
-		// Backend names a single component → tier = [backend].
-		// Stage 1: set:local → migrate(tier) → up(tier) → set:configured.
-		// Stage 2: migrate(tier) — push state up.
-		// Stage 3: up(non-tier).
+	t.Run("SingleBackendComponentRunsExpectedOpSequence", func(t *testing.T) {
+		// Backend names a single component → backend components = [backend].
+		// Stage 1: set:local → migrate(backend) → up(backend) → set:configured.
+		// Stage 2: migrate(backend) — push state up.
+		// Stage 3: up(non-backend).
 		mocks := setupProvisionerMocks(t)
 		bp := &blueprintv1alpha1.Blueprint{
 			Backend: "backend",
@@ -296,11 +296,11 @@ func TestProvisioner_Bootstrap(t *testing.T) {
 		}
 		stage1Up := upBlueprints[0].TerraformComponents
 		if len(stage1Up) != 1 || stage1Up[0].Path != "backend" {
-			t.Errorf("Stage 1 Up should run tier [backend], got %#v", stage1Up)
+			t.Errorf("Stage 1 Up should run the backend [backend], got %#v", stage1Up)
 		}
 		stage3Up := upBlueprints[1].TerraformComponents
 		if len(stage3Up) != 2 || stage3Up[0].Path != "cluster" || stage3Up[1].Path != "gitops" {
-			t.Errorf("Stage 3 Up should run non-tier [cluster, gitops], got %#v", stage3Up)
+			t.Errorf("Stage 3 Up should run non-backend [cluster, gitops], got %#v", stage3Up)
 		}
 
 		if len(migrateBlueprints) != 2 {
@@ -308,15 +308,15 @@ func TestProvisioner_Bootstrap(t *testing.T) {
 		}
 		for i, m := range migrateBlueprints {
 			if len(m.TerraformComponents) != 1 || m.TerraformComponents[0].Path != "backend" {
-				t.Errorf("MigrateState call %d should target tier only, got %#v", i, m.TerraformComponents)
+				t.Errorf("MigrateState call %d should target the backend components only, got %#v", i, m.TerraformComponents)
 			}
 		}
 	})
 
-	t.Run("MultiComponentTierAllAppliedTogether", func(t *testing.T) {
-		// Backend names the last component of a multi-component tier (vpc, iam, cluster).
-		// Stage 1 Up receives the whole tier [vpc, iam, cluster]; Stage 3 Up receives only
-		// workloads. Both MigrateState calls operate on the full tier.
+	t.Run("MultiComponentBackendAllAppliedTogether", func(t *testing.T) {
+		// Backend names the last component of a multi-component backend (vpc, iam, cluster).
+		// Stage 1 Up receives the whole backend component set [vpc, iam, cluster]; Stage 3 Up receives only
+		// workloads. Both MigrateState calls operate on the full backend component set.
 		mocks := setupProvisionerMocks(t)
 		bp := &blueprintv1alpha1.Blueprint{
 			Backend: "cluster",
@@ -378,12 +378,12 @@ func TestProvisioner_Bootstrap(t *testing.T) {
 
 		stage1Up := upBlueprints[0].TerraformComponents
 		if len(stage1Up) != 3 {
-			t.Fatalf("Stage 1 Up should run 3 tier components, got %d: %#v", len(stage1Up), stage1Up)
+			t.Fatalf("Stage 1 Up should run 3 backend components, got %d: %#v", len(stage1Up), stage1Up)
 		}
-		expectedTier := []string{"networking/vpc", "iam", "cluster"}
-		for i, want := range expectedTier {
+		expectedBackendComponents := []string{"networking/vpc", "iam", "cluster"}
+		for i, want := range expectedBackendComponents {
 			if stage1Up[i].GetID() != want {
-				t.Errorf("Stage 1 tier[%d]: got %q, want %q", i, stage1Up[i].GetID(), want)
+				t.Errorf("Stage 1 backend[%d]: got %q, want %q", i, stage1Up[i].GetID(), want)
 			}
 		}
 		stage3Up := upBlueprints[1].TerraformComponents
@@ -393,13 +393,13 @@ func TestProvisioner_Bootstrap(t *testing.T) {
 
 		for i, m := range migrateBlueprints {
 			if len(m.TerraformComponents) != 3 {
-				t.Errorf("MigrateState call %d should target the 3-component tier, got %d components", i, len(m.TerraformComponents))
+				t.Errorf("MigrateState call %d should target the 3-component backend, got %d components", i, len(m.TerraformComponents))
 			}
 		}
 	})
 
-	t.Run("TierOnlyBlueprintSkipsStage3", func(t *testing.T) {
-		// When every component is part of the tier, Stage 3 has nothing to apply.
+	t.Run("BackendOnlyBlueprintSkipsStage3", func(t *testing.T) {
+		// When every component is part of the backend, Stage 3 has nothing to apply.
 		mocks := setupProvisionerMocks(t)
 		bp := &blueprintv1alpha1.Blueprint{
 			Backend: "backend",
@@ -557,8 +557,8 @@ func TestProvisioner_Bootstrap(t *testing.T) {
 		}
 	})
 
-	t.Run("SkippedTierComponentAfterApplyIsAnError", func(t *testing.T) {
-		// If Stage 2's MigrateState reports a tier component skipped (its directory
+	t.Run("SkippedBackendComponentAfterApplyIsAnError", func(t *testing.T) {
+		// If Stage 2's MigrateState reports a backend component skipped (its directory
 		// disappeared between Up and migrate), Bootstrap surfaces the anomaly.
 		mocks := setupProvisionerMocks(t)
 		bp := &blueprintv1alpha1.Blueprint{
@@ -677,9 +677,9 @@ func TestProvisioner_Bootstrap(t *testing.T) {
 }
 
 func TestProvisioner_Up_BackendPivot(t *testing.T) {
-	t.Run("PivotsDeclaredBackendTierWithoutBootstrap", func(t *testing.T) {
+	t.Run("PivotsDeclaredBackendWithoutBootstrap", func(t *testing.T) {
 		// windsor up, called directly on a from-zero context whose blueprint declares
-		// a backend tier, must run the same local-pin/migrate/apply sequence Bootstrap
+		// a declared backend, must run the same local-pin/migrate/apply sequence Bootstrap
 		// runs — up no longer needs bootstrap called first.
 		mocks := setupProvisionerMocks(t)
 		bp := &blueprintv1alpha1.Blueprint{
@@ -735,8 +735,8 @@ func TestProvisioner_Up_BackendPivot(t *testing.T) {
 		}
 	})
 
-	t.Run("NoTierDeclaredStillAppliesDirectlyOnceClusterExists", func(t *testing.T) {
-		// Steady state: kubeconfig present (already bootstrapped), no declared tier —
+	t.Run("NoBackendDeclaredStillAppliesDirectlyOnceClusterExists", func(t *testing.T) {
+		// Steady state: kubeconfig present (already bootstrapped), no declared backend —
 		// Up applies directly against the configured backend, same as before this fix.
 		mocks := setupProvisionerMocks(t)
 		bp := &blueprintv1alpha1.Blueprint{
@@ -771,12 +771,12 @@ func TestProvisioner_Up_BackendPivot(t *testing.T) {
 		}
 	})
 
-	t.Run("DetectsOrphanedBackendTierStateDespiteTheLocalPivot", func(t *testing.T) {
-		// windsorcli/cli#3367: a backend-tier component (e.g. "backend") round-trips
+	t.Run("DetectsOrphanedBackendStateDespiteTheLocalPivot", func(t *testing.T) {
+		// windsorcli/cli#3367: a backend component (e.g. "backend") round-trips
 		// through a local-backend override on every apply. Before this fix, the only
 		// orphan check ran inside recoverHalfMigratedComponents. That check bails out
 		// whenever terraform.backend.type is "local", which is true for the whole
-		// pivot. So a renamed backend-tier component's stranded local state was
+		// pivot. So a renamed backend component's stranded local state was
 		// invisible on exactly the runs most likely to produce it. The check now runs
 		// once, up front, against the real configured backend. The pivot's temporary
 		// override no longer affects it.
@@ -822,7 +822,7 @@ func TestProvisioner_Up_BackendPivot(t *testing.T) {
 			t.Fatalf("Expected no error, got %v", err)
 		}
 		if !strings.Contains(stderrOutput, "backend-old") {
-			t.Errorf("Expected a warning naming the orphaned backend-tier componentID, got: %q", stderrOutput)
+			t.Errorf("Expected a warning naming the orphaned backend componentID, got: %q", stderrOutput)
 		}
 	})
 }

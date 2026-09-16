@@ -206,14 +206,14 @@ func (i *Provisioner) OnTerraformPostApply(fn func(id string) error) {
 }
 
 // Up orchestrates the high-level infrastructure deployment process. When the blueprint
-// declares a backend tier it pivots through local state first, then the configured backend
+// declares a backend it pivots through local state first, then the configured backend
 // (applyWithBackendPivot) — unconfirmed, same as any other apply through this method,
 // including from cmd/apply.go and cmd/up.go; confirmation is a cmd/bootstrap.go concern, not
-// this method's. Without a declared tier it applies directly. A kubernetes backend with no
-// tier and no kubeconfig yet is refused with an actionable error instead of a raw terraform
-// connection failure. On a remote backend, a declared Backend that names no real component is
-// refused rather than silently treated as "no tier" — see resolveBackendTier. Returns
-// (halted, err); halted=true means a hook stopped after a component.
+// this method's. Without a declared backend it applies directly. A kubernetes backend with
+// no declared backend and no kubeconfig yet is refused with an actionable error instead of a
+// raw terraform connection failure. On a remote backend, a declared Backend that names no real
+// component is refused rather than silently treated as unset — see resolveBackendComponents.
+// Returns (halted, err); halted=true means a hook stopped after a component.
 func (i *Provisioner) Up(blueprint *blueprintv1alpha1.Blueprint, onApply ...func(id string) (bool, error)) (bool, error) {
 	if blueprint == nil {
 		return false, fmt.Errorf("blueprint not provided")
@@ -225,7 +225,7 @@ func (i *Provisioner) Up(blueprint *blueprintv1alpha1.Blueprint, onApply ...func
 	backendType := i.configHandler.GetTerraformBackendType()
 	applyFlat := func() (bool, error) {
 		if backendType == "kubernetes" && hasEnabledTerraformComponent(blueprint) && !i.kubeconfigPresent() {
-			return false, fmt.Errorf("context has no kubeconfig (cluster not yet created) and the blueprint declares no backend tier for the kubernetes backend; add `backend: <component-id>` to the blueprint naming the component that creates the cluster, or set terraform.backend.type to \"local\" until it exists")
+			return false, fmt.Errorf("context has no kubeconfig (cluster not yet created) and the blueprint declares no backend for the kubernetes backend type; add `backend: <component-id>` to the blueprint naming the component that creates the cluster, or set terraform.backend.type to \"local\" until it exists")
 		}
 		return i.applyDirect(blueprint, onApply...)
 	}
@@ -233,14 +233,14 @@ func (i *Provisioner) Up(blueprint *blueprintv1alpha1.Blueprint, onApply ...func
 		return applyFlat()
 	}
 
-	tier, err := resolveBackendTier(blueprint)
+	backendComponents, err := resolveBackendComponents(blueprint)
 	if err != nil {
 		return false, err
 	}
-	if len(tier) == 0 {
+	if len(backendComponents) == 0 {
 		return applyFlat()
 	}
-	return i.applyWithBackendPivot(blueprint, tier, onApply...)
+	return i.applyWithBackendPivot(blueprint, backendComponents, onApply...)
 }
 
 // MigrateState reinitializes every Terraform component's backend against the currently configured
@@ -485,12 +485,9 @@ func (i *Provisioner) DestroyKustomize(blueprint *blueprintv1alpha1.Blueprint, c
 }
 
 // DestroyAll destroys every infrastructure component: kustomizations first, then terraform.
-// It skips the kustomization step when no kubeconfig exists, since the cluster is
-// already gone. This keeps `windsor destroy` idempotent after a partial teardown.
-// excludeIDs skips components in the terraform pass. cmd-layer callers use it to
-// destroy the backend component last, after migrating its state.
-// Returns the IDs of terraform components skipped for empty state, alongside any
-// error, so callers see partial progress even when a later step fails.
+// Skips kustomizations when no kubeconfig exists. Under continueOnError, a kustomize failure
+// defers terraform (see blocksNextStage) while the cluster is still reachable. excludeIDs
+// skips components in the terraform pass, so callers can destroy the backend component last.
 func (i *Provisioner) DestroyAll(blueprint *blueprintv1alpha1.Blueprint, continueOnError bool, excludeIDs ...string) (DestroyResult, error) {
 	var result DestroyResult
 	if blueprint == nil {
@@ -503,6 +500,10 @@ func (i *Provisioner) DestroyAll(blueprint *blueprintv1alpha1.Blueprint, continu
 				return result, err
 			}
 			result.Failed = append(result.Failed, ComponentFailure{ID: KustomizeFailureID, Err: err})
+			if i.clusterReachableForTeardown() {
+				result.TerraformDeferred = true
+				return result, nil
+			}
 		} else {
 			for _, k := range blueprint.AllKustomizations() {
 				if fluxinfra.KustomizationDestroyEligible(k) {
@@ -1901,9 +1902,9 @@ func (i *Provisioner) forceStalledHelmReleases(ctx context.Context, kustomizatio
 	_ = i.Notifier.ReconcileHelmReleases(ctx, refs, true)
 }
 
-// applyDirect runs terraform apply directly against the configured backend, with no tier
-// detection or pivot. Used by Up when no tier applies, and by applyWithBackendPivot's Stage
-// 1/3 sub-applies, which must not re-derive a tier from an already-sliced blueprint.
+// applyDirect runs terraform apply directly against the configured backend, with no backend
+// detection or pivot. Used by Up when no backend applies, and by applyWithBackendPivot's Stage
+// 1/3 sub-applies, which must not re-derive a backend from an already-sliced blueprint.
 func (i *Provisioner) applyDirect(blueprint *blueprintv1alpha1.Blueprint, onApply ...func(id string) (bool, error)) (bool, error) {
 	if err := i.ensureTerraformStack(); err != nil {
 		return false, err
@@ -1951,9 +1952,9 @@ func hasEnabledTerraformComponent(blueprint *blueprintv1alpha1.Blueprint) bool {
 //     not be mistaken for an orphan by checkOrphanedLocalState.
 //
 // checkOrphanedLocalState covers the orphan case separately, outside this function. A caller
-// applying a declared backend tier runs this sweep under a terraform.backend.type override
-// pinned to "local". The early return above would skip orphan detection for exactly the
-// components most exposed to it.
+// applying a declared backend runs this sweep under a terraform.backend.type override pinned
+// to "local". The early return above would skip orphan detection for exactly the components
+// most exposed to it.
 func (i *Provisioner) recoverHalfMigratedComponents(blueprint *blueprintv1alpha1.Blueprint) error {
 	backendType := i.configHandler.GetTerraformBackendType()
 	if backendType == "" || backendType == "local" {

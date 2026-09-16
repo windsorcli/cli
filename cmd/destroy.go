@@ -37,9 +37,15 @@ If terraform reports resources protected by 'lifecycle { prevent_destroy = true 
 
 If any component fails destroy-plan generation, destroy halts before the confirmation prompt and names the failed components, rather than offering to destroy a plan it cannot fully execute. This is distinct from --continue, which governs failures during execution, after confirmation.
 
-The default behavior is to abort on the first per-component destroy failure. Pass --continue to keep going past individual failures, collect them, and print a one-line summary at the end (windsor destroy: N destroyed, N no-op (empty state), N failed (...), backend tier deferred). --continue is layer-wide only and is refused when combined with a component argument — on a single component there is nothing to continue past. When --continue leaves any non-tier component un-destroyed, the backend tier is NOT attempted — this prevents destroying the state store while other components still depend on it. Rerun 'windsor destroy --continue' after resolving the underlying failures; the second pass picks up where the first left off and converges on a clean slate.
+The default behavior is to abort on the first per-component destroy failure. Pass --continue to keep going past failures and print a one-line summary at the end (windsor destroy: N destroyed, N no-op (empty state), N failed (...), terraform deferred). --continue applies to a layer-wide destroy only; it is refused with a component argument.
 
-When terraform.backend.type is 'kubernetes', a full-cycle destroy (no argument) migrates every component's state to local before destroying anything, then destroys entirely against that local copy — the kubernetes backend stores state on the cluster the destroy is about to tear down, so reads pivot away from it up front rather than stranding mid-teardown once the cluster is gone. A single component can't be destroyed in isolation while it's a member of the backend tier, since destroying it directly would orphan every other component's state; run a full 'windsor destroy' instead.`,
+Terraform is skipped in two cases:
+- A non-backend component is left un-destroyed.
+- A Flux kustomization fails to delete while the cluster is still reachable. A live controller, such as Crossplane, may still be tearing down a cloud resource that terraform never tracked. Destroying the cluster now would orphan that resource.
+
+Rerun 'windsor destroy --continue' after you resolve the failures. The next pass picks up where the last one stopped.
+
+When terraform.backend.type is 'kubernetes', a full-cycle destroy (no argument) migrates every component's state to local before destroying anything, then destroys entirely against that local copy — the kubernetes backend stores state on the cluster the destroy is about to tear down, so reads pivot away from it up front rather than stranding mid-teardown once the cluster is gone. A single component can't be destroyed in isolation while it's one of the backend's components, since destroying it directly would orphan every other component's state; run a full 'windsor destroy' instead.`,
 	Example: `# Destroy everything in the current context (interactive)
 windsor destroy
 # → prompts: Type "local" to confirm:
@@ -78,7 +84,7 @@ windsor destroy --confirm=local --continue`,
 			// A stale Backend name must surface before the plan and confirmation
 			// prompt, the same way CheckComponentDestroyable does for a targeted
 			// destroy, so the operator never confirms a run that would fail on it.
-			if err := proj.Provisioner.ValidateBackendTier(blueprint); err != nil {
+			if err := proj.Provisioner.ValidateBackendComponents(blueprint); err != nil {
 				return err
 			}
 			// Auth must precede the plan: terraform plan -destroy and the live
@@ -141,7 +147,7 @@ windsor destroy --confirm=local --continue`,
 				return err
 			}
 			// If the kubernetes backend's cluster is gone, operate on the local state a prior teardown
-			// migrated; otherwise refuse a backend-tier component up front, before the plan runs terraform
+			// migrated; otherwise refuse a backend component up front, before the plan runs terraform
 			// init against the kubernetes backend — the operator gets the clean "run windsor destroy"
 			// guidance instead of a raw init connection error.
 			if _, err := proj.Provisioner.PivotToLocalIfClusterGone(); err != nil {
@@ -243,7 +249,7 @@ windsor destroy terraform --confirm=local`,
 		if len(args) == 0 {
 			// A stale Backend name must surface before the plan and confirmation
 			// prompt; see the matching check in the top-level destroy command.
-			if err := proj.Provisioner.ValidateBackendTier(blueprint); err != nil {
+			if err := proj.Provisioner.ValidateBackendComponents(blueprint); err != nil {
 				return err
 			}
 			if err := requireCloudAuth(cmd, proj); err != nil {
@@ -292,7 +298,7 @@ windsor destroy terraform --confirm=local`,
 			return err
 		}
 		// Targeted destroy: if the kubernetes backend's cluster is gone, operate on the local state a prior
-		// teardown migrated; otherwise refuse a backend-tier member (destroying it while its backend is live
+		// teardown migrated; otherwise refuse a backend component (destroying it while its backend is live
 		// would orphan every other component's state) before the plan surfaces a raw init error.
 		if _, err := proj.Provisioner.PivotToLocalIfClusterGone(); err != nil {
 			return err
@@ -597,8 +603,8 @@ func finishContinueDestroy(w io.Writer, result provisioner.DestroyResult) error 
 	} else {
 		parts = append(parts, "0 failed")
 	}
-	if result.TierDeferred {
-		parts = append(parts, "backend tier deferred")
+	if result.TerraformDeferred {
+		parts = append(parts, "terraform deferred")
 	}
 	fmt.Fprintf(w, "windsor destroy: %s\n", strings.Join(parts, ", "))
 	if len(result.Failed) > 0 {
@@ -612,14 +618,14 @@ func finishContinueDestroy(w io.Writer, result provisioner.DestroyResult) error 
 	return nil
 }
 
-// init registers destroy subcommands and persistent flags. --confirm must exactly match the
-// context name (for layer-wide destroy) or component name (for targeted destroy); this is the
-// CI-safe equivalent of the interactive prompt. --continue switches the bulk destroy passes
-// to best-effort: per-component failures are collected rather than aborting, and the backend
-// tier is deferred when any non-tier component is left un-destroyed (rerun to converge).
+// init registers destroy subcommands and persistent flags. --confirm must match the context
+// name (layer-wide destroy) or component name (targeted destroy) exactly; this is the CI-safe
+// equivalent of the interactive prompt. --continue makes the bulk destroy passes best-effort:
+// it collects per-component failures instead of aborting, and defers terraform when a kustomize
+// failure leaves the cluster reachable or a non-backend component is left un-destroyed.
 func init() {
 	destroyCmd.PersistentFlags().StringVar(&destroyConfirm, "confirm", "", "Context or component name to confirm destruction. Must match the prompt token exactly; mismatches abort.")
-	destroyCmd.PersistentFlags().BoolVar(&destroyContinue, "continue", false, "Continue past per-component destroy failures and report a summary at the end. Layer-wide destroy only — refuses when combined with a component argument. Backend tier is deferred when any non-tier component fails.")
+	destroyCmd.PersistentFlags().BoolVar(&destroyContinue, "continue", false, "Continue past per-component destroy failures and report a summary at the end. Layer-wide destroy only. Defers terraform when a kustomize failure leaves the cluster reachable, or when a non-backend component fails.")
 	destroyCmd.AddCommand(destroyTerraformCmd)
 	destroyCmd.AddCommand(destroyKustomizeCmd)
 	rootCmd.AddCommand(destroyCmd)

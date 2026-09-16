@@ -456,7 +456,7 @@ func TestProvisioner_Up(t *testing.T) {
 	})
 
 	t.Run("RefusesUnresolvedBackendField", func(t *testing.T) {
-		// Backend names no real component; must not collapse to "no tier".
+		// Backend names no real component; must not collapse to "no backend".
 		mocks := setupProvisionerMocks(t)
 		mockCH := mocks.ConfigHandler.(*config.MockConfigHandler)
 		mockCH.GetStringFunc = func(key string, defaultValue ...string) string {
@@ -1060,7 +1060,7 @@ func TestProvisioner_Apply(t *testing.T) {
 	t.Run("WarnsAboutOrphanedLocalStateBeforeApplying", func(t *testing.T) {
 		// windsorcli/cli#3367: `windsor apply terraform <component>` never ran the
 		// orphaned-local-state check at all — only Up did, and only outside a
-		// backend-tier pivot. A single-component apply must surface the same warning,
+		// backend pivot. A single-component apply must surface the same warning,
 		// including under a plain local backend, which is the common case here.
 		mocks := setupProvisionerMocks(t)
 		mockCH := mocks.ConfigHandler.(*config.MockConfigHandler)
@@ -2742,6 +2742,79 @@ func TestProvisioner_DestroyAll(t *testing.T) {
 		}
 		if !uninstallCalled {
 			t.Error("expected DeleteBlueprint to run when kubeconfig is present")
+		}
+	})
+
+	t.Run("ContinueDefersTerraformWhenKustomizeFailsAndClusterReachable", func(t *testing.T) {
+		// Given kustomize Uninstall fails under continueOnError while the cluster is
+		// still reachable (default mock: WaitForKubernetesHealthyFunc unset ⇒ reachable).
+		// A live controller may still be mid-teardown of a cloud-backed resource
+		// terraform never tracked, so the terraform pass MUST NOT run. See #3385.
+		mocks := setupProvisionerMocks(t)
+		mocks.KubernetesManager.DeleteBlueprintFunc = func(bp *blueprintv1alpha1.Blueprint, namespace string) error {
+			return fmt.Errorf("destroy aborted: timeout waiting for load balancer teardown")
+		}
+		var terraformDestroyCalled bool
+		mockStack := terraforminfra.NewMockStack()
+		mockStack.DestroyAllFunc = func(bp *blueprintv1alpha1.Blueprint, _ bool, excludeIDs ...string) (terraforminfra.DestroyOutcome, error) {
+			terraformDestroyCalled = true
+			return terraforminfra.DestroyOutcome{}, nil
+		}
+		opts := &Provisioner{KubernetesManager: mocks.KubernetesManager, TerraformStack: mockStack}
+		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
+
+		result, err := provisioner.DestroyAll(createTestBlueprint(), true)
+
+		if err != nil {
+			t.Fatalf("expected continueOnError to absorb the kustomize failure, got: %v", err)
+		}
+		if terraformDestroyCalled {
+			t.Error("expected terraform DestroyAll not to run when kustomize failed while the cluster is reachable")
+		}
+		if !result.TerraformDeferred {
+			t.Error("expected TerraformDeferred=true")
+		}
+		var foundKustomize bool
+		for _, f := range result.Failed {
+			if f.ID == KustomizeFailureID {
+				foundKustomize = true
+			}
+		}
+		if !foundKustomize {
+			t.Errorf("expected kustomize failure in result.Failed, got %v", result.Failed)
+		}
+	})
+
+	t.Run("ContinueRunsTerraformWhenKustomizeFailsAndClusterUnreachable", func(t *testing.T) {
+		// Given kustomize Uninstall fails under continueOnError because the cluster
+		// itself is unreachable. Nothing is left alive to orphan, and deferring here
+		// would deadlock every rerun, so terraform MUST still run.
+		mocks := setupProvisionerMocks(t)
+		mocks.KubernetesManager.DeleteBlueprintFunc = func(bp *blueprintv1alpha1.Blueprint, namespace string) error {
+			return fmt.Errorf("delete blueprint failed")
+		}
+		mocks.KubernetesManager.WaitForKubernetesHealthyFunc = func(_ context.Context, _ string, _ func(string), _ ...string) error {
+			return fmt.Errorf("cluster API unreachable")
+		}
+		var terraformDestroyCalled bool
+		mockStack := terraforminfra.NewMockStack()
+		mockStack.DestroyAllFunc = func(bp *blueprintv1alpha1.Blueprint, _ bool, excludeIDs ...string) (terraforminfra.DestroyOutcome, error) {
+			terraformDestroyCalled = true
+			return terraforminfra.DestroyOutcome{}, nil
+		}
+		opts := &Provisioner{KubernetesManager: mocks.KubernetesManager, TerraformStack: mockStack}
+		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
+
+		result, err := provisioner.DestroyAll(createTestBlueprint(), true)
+
+		if err != nil {
+			t.Fatalf("expected continueOnError to absorb the kustomize failure, got: %v", err)
+		}
+		if !terraformDestroyCalled {
+			t.Error("expected terraform DestroyAll to run when the cluster is unreachable")
+		}
+		if result.TerraformDeferred {
+			t.Error("expected TerraformDeferred=false when the cluster is unreachable")
 		}
 	})
 
