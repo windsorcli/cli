@@ -485,25 +485,27 @@ func (i *Provisioner) DestroyKustomize(blueprint *blueprintv1alpha1.Blueprint, c
 }
 
 // DestroyAll destroys every infrastructure component: kustomizations first, then terraform.
-// Skips kustomizations when no kubeconfig exists. Under continueOnError, a kustomize failure
-// defers terraform (see blocksNextStage) while the cluster is still reachable. excludeIDs
-// skips components in the terraform pass, so callers can destroy the backend component last.
+// Kustomize destroy always runs when a KubernetesManager is configured — a missing or stale
+// local kubeconfig is not treated as proof the cluster is gone, since it may just never have
+// been materialized here (a fresh checkout, a new CI runner) against a cluster that's very
+// much alive. Under continueOnError, any kustomize failure unconditionally defers terraform
+// (see blocksNextStage): Windsor cannot tell whether a live controller is still mid-delete of
+// a resource terraform never tracked, so it never guesses. excludeIDs skips components in the
+// terraform pass, so callers can destroy the backend component last.
 func (i *Provisioner) DestroyAll(blueprint *blueprintv1alpha1.Blueprint, continueOnError bool, excludeIDs ...string) (DestroyResult, error) {
 	var result DestroyResult
 	if blueprint == nil {
 		return result, fmt.Errorf("blueprint not provided")
 	}
 
-	if i.KubernetesManager != nil && i.kubeconfigPresent() {
+	if i.KubernetesManager != nil {
 		if err := i.Uninstall(blueprint); err != nil {
 			if !continueOnError {
 				return result, err
 			}
 			result.Failed = append(result.Failed, ComponentFailure{ID: KustomizeFailureID, Err: err})
-			if i.clusterReachableForTeardown() {
-				result.TerraformDeferred = true
-				return result, nil
-			}
+			result.TerraformDeferred = true
+			return result, nil
 		} else {
 			for _, k := range blueprint.AllKustomizations() {
 				if fluxinfra.KustomizationDestroyEligible(k) {

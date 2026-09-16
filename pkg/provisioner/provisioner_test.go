@@ -2685,63 +2685,43 @@ func TestProvisioner_DestroyAll(t *testing.T) {
 		}
 	})
 
-	t.Run("SkipsUninstallWhenKubeconfigMissing", func(t *testing.T) {
-		// Cluster's already gone (or was never bootstrapped past terraform), so
-		// no kubeconfig exists at the context-scoped path. DestroyAll must skip
-		// kustomization deletion and proceed to terraform destroy directly —
-		// otherwise destroy aborts with "stat .kube/config: no such file" and
-		// the operator can't tear down the leftover terraform state.
-		mocks := setupProvisionerMocks(t)
-		// Override ConfigRoot to an empty temp dir without .kube/config.
-		mocks.Runtime.ConfigRoot = t.TempDir()
+	t.Run("AlwaysRunsUninstallRegardlessOfKubeconfig", func(t *testing.T) {
+		// A missing local kubeconfig is not proof the cluster is gone — it may simply never
+		// have been materialized here (a fresh checkout, a new CI runner) against a cluster
+		// that's fully alive. DestroyAll must attempt kustomize destroy either way and let a
+		// genuine connection failure surface as a recorded failure, never silently skip it.
+		for _, tc := range []struct {
+			name              string
+			missingKubeconfig bool
+		}{
+			{name: "KubeconfigPresent", missingKubeconfig: false},
+			{name: "KubeconfigMissing", missingKubeconfig: true},
+		} {
+			t.Run(tc.name, func(t *testing.T) {
+				mocks := setupProvisionerMocks(t)
+				if tc.missingKubeconfig {
+					mocks.Runtime.ConfigRoot = t.TempDir()
+				}
 
-		var uninstallCalled, terraformDestroyCalled bool
-		mocks.KubernetesManager.DeleteBlueprintFunc = func(bp *blueprintv1alpha1.Blueprint, namespace string) error {
-			uninstallCalled = true
-			return nil
-		}
-		mockStack := terraforminfra.NewMockStack()
-		mockStack.DestroyAllFunc = func(bp *blueprintv1alpha1.Blueprint, _ bool, excludeIDs ...string) (terraforminfra.DestroyOutcome, error) {
-			terraformDestroyCalled = true
-			return terraforminfra.DestroyOutcome{}, nil
-		}
-		opts := &Provisioner{KubernetesManager: mocks.KubernetesManager, TerraformStack: mockStack}
-		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
+				var uninstallCalled bool
+				mocks.KubernetesManager.DeleteBlueprintFunc = func(bp *blueprintv1alpha1.Blueprint, namespace string) error {
+					uninstallCalled = true
+					return nil
+				}
+				mockStack := terraforminfra.NewMockStack()
+				mockStack.DestroyAllFunc = func(bp *blueprintv1alpha1.Blueprint, _ bool, excludeIDs ...string) (terraforminfra.DestroyOutcome, error) {
+					return terraforminfra.DestroyOutcome{}, nil
+				}
+				opts := &Provisioner{KubernetesManager: mocks.KubernetesManager, TerraformStack: mockStack}
+				provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
 
-		_, err := provisioner.DestroyAll(createTestBlueprint(), false)
-		if err != nil {
-			t.Fatalf("expected no error when kubeconfig missing, got: %v", err)
-		}
-		if uninstallCalled {
-			t.Error("expected DeleteBlueprint to be skipped when kubeconfig is missing")
-		}
-		if !terraformDestroyCalled {
-			t.Error("expected terraform DestroyAll to still run when kubeconfig is missing")
-		}
-	})
-
-	t.Run("RunsUninstallWhenKubeconfigPresent", func(t *testing.T) {
-		// Sanity: with the default seeded kubeconfig in setupProvisionerMocks,
-		// DeleteBlueprint runs as the first step of DestroyAll. Pin the existing
-		// behaviour so a future regression in the gate is caught.
-		mocks := setupProvisionerMocks(t)
-		var uninstallCalled bool
-		mocks.KubernetesManager.DeleteBlueprintFunc = func(bp *blueprintv1alpha1.Blueprint, namespace string) error {
-			uninstallCalled = true
-			return nil
-		}
-		mockStack := terraforminfra.NewMockStack()
-		mockStack.DestroyAllFunc = func(bp *blueprintv1alpha1.Blueprint, _ bool, excludeIDs ...string) (terraforminfra.DestroyOutcome, error) {
-			return terraforminfra.DestroyOutcome{}, nil
-		}
-		opts := &Provisioner{KubernetesManager: mocks.KubernetesManager, TerraformStack: mockStack}
-		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
-
-		if _, err := provisioner.DestroyAll(createTestBlueprint(), false); err != nil {
-			t.Fatalf("expected no error, got: %v", err)
-		}
-		if !uninstallCalled {
-			t.Error("expected DeleteBlueprint to run when kubeconfig is present")
+				if _, err := provisioner.DestroyAll(createTestBlueprint(), false); err != nil {
+					t.Fatalf("expected no error, got: %v", err)
+				}
+				if !uninstallCalled {
+					t.Error("expected DeleteBlueprint to run")
+				}
+			})
 		}
 	})
 
@@ -2785,10 +2765,11 @@ func TestProvisioner_DestroyAll(t *testing.T) {
 		}
 	})
 
-	t.Run("ContinueRunsTerraformWhenKustomizeFailsAndClusterUnreachable", func(t *testing.T) {
-		// Given kustomize Uninstall fails under continueOnError because the cluster
-		// itself is unreachable. Nothing is left alive to orphan, and deferring here
-		// would deadlock every rerun, so terraform MUST still run.
+	t.Run("ContinueDefersTerraformWhenKustomizeFailsAndClusterUnreachable", func(t *testing.T) {
+		// Given kustomize Uninstall fails under continueOnError and the cluster is also
+		// unreachable. There is no reachability exception: unreachable is not proof the
+		// cluster is gone (a network blip, an expired credential, a control-plane restart
+		// all look identical), so terraform is deferred here too.
 		mocks := setupProvisionerMocks(t)
 		mocks.KubernetesManager.DeleteBlueprintFunc = func(bp *blueprintv1alpha1.Blueprint, namespace string) error {
 			return fmt.Errorf("delete blueprint failed")
@@ -2810,11 +2791,11 @@ func TestProvisioner_DestroyAll(t *testing.T) {
 		if err != nil {
 			t.Fatalf("expected continueOnError to absorb the kustomize failure, got: %v", err)
 		}
-		if !terraformDestroyCalled {
-			t.Error("expected terraform DestroyAll to run when the cluster is unreachable")
+		if terraformDestroyCalled {
+			t.Error("expected terraform DestroyAll not to run even when the cluster is unreachable")
 		}
-		if result.TerraformDeferred {
-			t.Error("expected TerraformDeferred=false when the cluster is unreachable")
+		if !result.TerraformDeferred {
+			t.Error("expected TerraformDeferred=true even when the cluster is unreachable")
 		}
 	})
 

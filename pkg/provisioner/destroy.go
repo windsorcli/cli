@@ -14,9 +14,7 @@ import (
 
 // KustomizeFailureID is the sentinel ID for a kustomize Uninstall failure under
 // continue-on-error mode. The kustomize layer reports one aggregate failure, not
-// one per Kustomization. blocksNextStage uses this ID to tell a kustomize failure
-// (blocks only while the cluster is reachable) apart from a terraform-component
-// failure (always blocks).
+// one per Kustomization.
 const KustomizeFailureID = "kustomize"
 
 // =============================================================================
@@ -31,9 +29,9 @@ type ComponentFailure = terraforminfra.ComponentFailure
 // DestroyResult is the cmd-facing aggregate of a destroy pass. Destroyed, Skipped,
 // and Failed roll up every component the provisioner attempted, kustomize and
 // terraform. TerraformDeferred marks that the terraform stage was skipped: a
-// kustomize failure left the cluster reachable, or a non-backend component still
-// needs work. Add fields for other destroy layers, such as Helm, to this type,
-// not to the terraform-package outcome.
+// kustomize failure occurred, or a non-backend component still needs work. Add
+// fields for other destroy layers, such as Helm, to this type, not to the
+// terraform-package outcome.
 type DestroyResult struct {
 	Destroyed         []string
 	Skipped           []string
@@ -103,7 +101,7 @@ func (i *Provisioner) Teardown(blueprint *blueprintv1alpha1.Blueprint, terraform
 		return result, stage1Err
 	}
 
-	if i.blocksNextStage(result.Failed) {
+	if blocksNextStage(result.Failed) {
 		result.TerraformDeferred = true
 		return result, nil
 	}
@@ -123,7 +121,7 @@ func (i *Provisioner) Teardown(blueprint *blueprintv1alpha1.Blueprint, terraform
 			if destroyErr != nil {
 				return destroyErr
 			}
-			if i.blocksNextStage(membersResult.Failed) {
+			if blocksNextStage(membersResult.Failed) {
 				result.TerraformDeferred = true
 				return nil
 			}
@@ -254,28 +252,12 @@ func resolveBackendComponents(blueprint *blueprintv1alpha1.Blueprint) ([]*bluepr
 	return blueprint.BackendComponents(), nil
 }
 
-// hasTerraformFailure reports whether the failure list contains any entry
-// that belongs to a terraform component (i.e., not the kustomize-aggregate
-// sentinel). A terraform-component failure always blocks the next destroy
-// stage; see blocksNextStage for the full gate, which also accounts for
-// kustomize failures.
-func hasTerraformFailure(failed []ComponentFailure) bool {
-	for _, f := range failed {
-		if f.ID != KustomizeFailureID {
-			return true
-		}
-	}
-	return false
-}
-
-// blocksNextStage reports whether failed should stop the next destroy stage. A terraform
-// failure always blocks; a kustomize failure blocks only while the cluster is reachable, since
-// a live controller may still be tearing down a resource terraform never tracked.
-func (i *Provisioner) blocksNextStage(failed []ComponentFailure) bool {
-	if hasTerraformFailure(failed) {
-		return true
-	}
-	return len(failed) > 0 && i.clusterReachableForTeardown()
+// blocksNextStage reports whether any failure — kustomize or terraform — should stop the
+// destroy from proceeding to its next stage. There is no reachability exception: Windsor has
+// no way to tell whether a stuck kustomize teardown still has a live controller mid-delete of
+// a resource terraform never tracked, so any failure is treated as blocking.
+func blocksNextStage(failed []ComponentFailure) bool {
+	return len(failed) > 0
 }
 
 // mergeSkipped returns the union of two skipped-component lists in input order

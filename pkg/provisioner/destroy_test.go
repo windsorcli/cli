@@ -1261,10 +1261,9 @@ func TestProvisioner_Teardown(t *testing.T) {
 
 	t.Run("ContinueDefersTerraformWhenKustomizeFailsAndClusterReachable", func(t *testing.T) {
 		// Given a declared-backend blueprint where kustomize Uninstall fails while the cluster is
-		// still reachable. A live controller (e.g. Crossplane) may still be mid-teardown
-		// of a cloud-backed resource terraform never tracked, so terraform —
-		// which would destroy the cluster hosting that controller — MUST be deferred,
-		// not attempted. See #3385.
+		// reachable. A live controller (e.g. Crossplane) may still be mid-teardown of a
+		// cloud-backed resource terraform never tracked, so terraform — which would destroy the
+		// cluster hosting that controller — MUST be deferred, not attempted. See #3385.
 		mocks := setupProvisionerMocks(t)
 		bp := &blueprintv1alpha1.Blueprint{
 			Backend:  "backend",
@@ -1335,11 +1334,12 @@ func TestProvisioner_Teardown(t *testing.T) {
 		}
 	})
 
-	t.Run("ContinueAttemptsTerraformWhenKustomizeFailsAndClusterUnreachable", func(t *testing.T) {
-		// Given a declared-backend blueprint where kustomize Uninstall fails because the cluster
-		// itself is unreachable. Nothing is left alive to orphan, and deferring here
-		// would deadlock every rerun — kustomize is most likely to fail against a
-		// cluster that's already gone. Terraform MUST still be attempted.
+	t.Run("ContinueDefersTerraformWhenKustomizeFailsAndClusterUnreachable", func(t *testing.T) {
+		// Given a declared-backend blueprint where kustomize Uninstall fails and the cluster
+		// also happens to be unreachable. There is no reachability exception: an unreachable
+		// cluster is not proof it's actually gone (a network blip, an expired credential, a
+		// control-plane restart all look the same), so terraform is deferred here too, exactly
+		// as it would be if the cluster were reachable.
 		mocks := setupProvisionerMocks(t)
 		bp := &blueprintv1alpha1.Blueprint{
 			Backend:  "backend",
@@ -1385,18 +1385,19 @@ func TestProvisioner_Teardown(t *testing.T) {
 		// When Teardown runs the full destroy (terraformOnly=false) with continueOnError=true
 		result, err := provisioner.Teardown(bp, false, true)
 
-		// Then the kustomize failure is recorded, but terraform is NOT deferred.
+		// Then the kustomize failure is recorded and terraform is deferred, same as the
+		// reachable case.
 		if err != nil {
 			t.Fatalf("Expected continueOnError to absorb kustomize failure, got %v", err)
 		}
-		if result.TerraformDeferred {
-			t.Error("Expected TerraformDeferred=false when kustomize failed because the cluster is unreachable")
+		if !result.TerraformDeferred {
+			t.Error("Expected TerraformDeferred=true even when the cluster is unreachable")
 		}
-		if !migrateCalled {
-			t.Error("Expected MigrateState to run when terraform stage 1 was clean")
+		if migrateCalled {
+			t.Error("MigrateState must not run when terraform is deferred")
 		}
-		if destroyAllCalls != 2 {
-			t.Errorf("Expected Stage 1 + Stage 2 DestroyAll calls (2), got %d", destroyAllCalls)
+		if destroyAllCalls != 0 {
+			t.Errorf("Expected no terraform DestroyAll calls, got %d", destroyAllCalls)
 		}
 		var foundKustomize bool
 		for _, f := range result.Failed {
@@ -1412,46 +1413,30 @@ func TestProvisioner_Teardown(t *testing.T) {
 
 func TestProvisioner_blocksNextStage(t *testing.T) {
 	tests := []struct {
-		name      string
-		failed    []ComponentFailure
-		reachable bool
-		want      bool
+		name   string
+		failed []ComponentFailure
+		want   bool
 	}{
 		{
-			name:      "NoFailures",
-			failed:    nil,
-			reachable: true,
-			want:      false,
+			name:   "NoFailures",
+			failed: nil,
+			want:   false,
 		},
 		{
-			name:      "TerraformFailureAlwaysBlocks",
-			failed:    []ComponentFailure{{ID: "cluster", Err: fmt.Errorf("boom")}},
-			reachable: false,
-			want:      true,
+			name:   "TerraformFailureBlocks",
+			failed: []ComponentFailure{{ID: "cluster", Err: fmt.Errorf("boom")}},
+			want:   true,
 		},
 		{
-			name:      "KustomizeFailureBlocksWhileClusterReachable",
-			failed:    []ComponentFailure{{ID: KustomizeFailureID, Err: fmt.Errorf("boom")}},
-			reachable: true,
-			want:      true,
-		},
-		{
-			name:      "KustomizeFailureDoesNotBlockWhenClusterUnreachable",
-			failed:    []ComponentFailure{{ID: KustomizeFailureID, Err: fmt.Errorf("boom")}},
-			reachable: false,
-			want:      false,
+			name:   "KustomizeFailureBlocks",
+			failed: []ComponentFailure{{ID: KustomizeFailureID, Err: fmt.Errorf("boom")}},
+			want:   true,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			mocks := setupProvisionerMocks(t)
-			if !tt.reachable {
-				mocks.Runtime.ConfigRoot = t.TempDir()
-			}
-			provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{KubernetesManager: mocks.KubernetesManager})
-
-			got := provisioner.blocksNextStage(tt.failed)
+			got := blocksNextStage(tt.failed)
 
 			if got != tt.want {
 				t.Errorf("blocksNextStage() = %v, want %v", got, tt.want)

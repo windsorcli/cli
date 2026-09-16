@@ -41,7 +41,7 @@ The default behavior is to abort on the first per-component destroy failure. Pas
 
 Terraform is skipped in two cases:
 - A non-backend component is left un-destroyed.
-- A Flux kustomization fails to delete while the cluster is still reachable. A live controller, such as Crossplane, may still be tearing down a cloud resource that terraform never tracked. Destroying the cluster now would orphan that resource.
+- A Flux kustomization fails to delete. A live controller, such as Crossplane, may still be tearing down a cloud resource that terraform never tracked, and Windsor cannot tell whether that's the case — so it never guesses. Destroying the cluster now could orphan that resource permanently.
 
 Rerun 'windsor destroy --continue' after you resolve the failures. The next pass picks up where the last one stopped.
 
@@ -621,11 +621,11 @@ func finishContinueDestroy(w io.Writer, result provisioner.DestroyResult) error 
 // init registers destroy subcommands and persistent flags. --confirm must match the context
 // name (layer-wide destroy) or component name (targeted destroy) exactly; this is the CI-safe
 // equivalent of the interactive prompt. --continue makes the bulk destroy passes best-effort:
-// it collects per-component failures instead of aborting, and defers terraform when a kustomize
-// failure leaves the cluster reachable or a non-backend component is left un-destroyed.
+// it collects per-component failures instead of aborting, and defers terraform whenever a
+// kustomize failure occurs or a non-backend component is left un-destroyed.
 func init() {
 	destroyCmd.PersistentFlags().StringVar(&destroyConfirm, "confirm", "", "Context or component name to confirm destruction. Must match the prompt token exactly; mismatches abort.")
-	destroyCmd.PersistentFlags().BoolVar(&destroyContinue, "continue", false, "Continue past per-component destroy failures and report a summary at the end. Layer-wide destroy only. Defers terraform when a kustomize failure leaves the cluster reachable, or when a non-backend component fails.")
+	destroyCmd.PersistentFlags().BoolVar(&destroyContinue, "continue", false, "Continue past per-component destroy failures and report a summary at the end. Layer-wide destroy only. Defers terraform on any kustomize failure, or when a non-backend component fails.")
 	destroyCmd.AddCommand(destroyTerraformCmd)
 	destroyCmd.AddCommand(destroyKustomizeCmd)
 	rootCmd.AddCommand(destroyCmd)

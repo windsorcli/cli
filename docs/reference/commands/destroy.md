@@ -20,7 +20,7 @@ The default behavior is to abort on the first per-component destroy failure. Pas
 
 Terraform is skipped in two cases:
 - A non-backend component is left un-destroyed.
-- A Flux kustomization fails to delete while the cluster is still reachable. A live controller, such as Crossplane, may still be tearing down a cloud resource that terraform never tracked. Destroying the cluster now would orphan that resource.
+- A Flux kustomization fails to delete. A live controller, such as Crossplane, may still be tearing down a cloud resource that terraform never tracked, and Windsor cannot tell whether that's the case — so it never guesses. Destroying the cluster now could orphan that resource permanently.
 
 Rerun 'windsor destroy --continue' after you resolve the failures. The next pass picks up where the last one stopped.
 
@@ -31,7 +31,7 @@ When terraform.backend.type is 'kubernetes', a full-cycle destroy (no argument) 
 | Flag | Default | Description |
 |------|---------|-------------|
 | `--confirm` | `""` | Context or component name to confirm destruction. Must match the prompt token exactly; mismatches abort. |
-| `--continue` | `false` | Continue past per-component destroy failures and report a summary at the end. Layer-wide destroy only. Defers terraform when a kustomize failure leaves the cluster reachable, or when a non-backend component fails. |
+| `--continue` | `false` | Continue past per-component destroy failures and report a summary at the end. Layer-wide destroy only. Defers terraform on any kustomize failure, or when a non-backend component fails. |
 
 ## Subcommands
 
