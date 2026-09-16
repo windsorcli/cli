@@ -100,6 +100,28 @@ func NewComposer(rt *runtime.Runtime, opts ...*Composer) *Composer {
 }
 
 // =============================================================================
+// Public Functions
+// =============================================================================
+
+// LoadBlueprintIfTerraformProject composes the blueprint when terraform is enabled and the
+// project has terraform components. It skips composition otherwise. A component's inputs
+// can reference another component's output through terraform_output(...). Callers that load
+// environment variables must run this first. opts overrides the constructed Composer's
+// dependencies, the same as NewComposer.
+func LoadBlueprintIfTerraformProject(rt *runtime.Runtime, skipValidation bool, opts ...*Composer) error {
+	if !rt.ConfigHandler.GetBool("terraform.enabled", true) {
+		return nil
+	}
+	if !rt.TerraformProvider.IsInTerraformProject() {
+		return nil
+	}
+
+	comp := NewComposer(rt, opts...)
+	comp.BlueprintHandler.SetSkipValidation(skipValidation)
+	return comp.BlueprintHandler.LoadBlueprint()
+}
+
+// =============================================================================
 // Public Methods
 // =============================================================================
 

@@ -5,6 +5,7 @@ import (
 	"os"
 
 	"github.com/spf13/cobra"
+	"github.com/windsorcli/cli/pkg/composer"
 	"github.com/windsorcli/cli/pkg/runtime"
 )
 
@@ -58,6 +59,14 @@ windsor exec ./scripts/deploy.sh`,
 
 		if err := rt.ConfigHandler.LoadConfig(); err != nil {
 			return err
+		}
+
+		if err := rt.InitializeComponents(); err != nil {
+			return fmt.Errorf("failed to initialize components: %w", err)
+		}
+
+		if err := composer.LoadBlueprintIfTerraformProject(rt, true); err != nil {
+			return fmt.Errorf("failed to load blueprint: %w", err)
 		}
 
 		if err := rt.LoadEnvironment(true); err != nil {

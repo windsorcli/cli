@@ -92,17 +92,11 @@ windsor env`,
 			return fmt.Errorf("failed to initialize components: %w", err)
 		}
 
-		if rt.ConfigHandler.GetBool("terraform.enabled", true) {
-			if rt.TerraformProvider.IsInTerraformProject() {
-				comp := composer.NewComposer(rt)
-				comp.BlueprintHandler.SetSkipValidation(true)
-				if err := comp.BlueprintHandler.LoadBlueprint(); err != nil {
-					if hook || !verboseVal {
-						return nil
-					}
-					return fmt.Errorf("failed to load blueprint: %w", err)
-				}
+		if err := composer.LoadBlueprintIfTerraformProject(rt, true); err != nil {
+			if hook || !verboseVal {
+				return nil
 			}
+			return fmt.Errorf("failed to load blueprint: %w", err)
 		}
 
 		if err := rt.LoadEnvironment(decrypt); err != nil {
