@@ -2299,7 +2299,7 @@ func TestStack_DestroyAll(t *testing.T) {
 
 		// Inject a TerraformProvider whose GetEnvVars fails for "broken" only.
 		mocks.Runtime.TerraformProvider = &terraformRuntime.MockTerraformProvider{
-			GetEnvVarsFunc: func(componentID string, interactive bool) (map[string]string, []string, *terraformRuntime.TerraformArgs, error) {
+			GetEnvVarsFunc: func(componentID string, interactive bool, forDestroy bool) (map[string]string, []string, *terraformRuntime.TerraformArgs, error) {
 				if strings.Contains(componentID, "broken") {
 					return nil, nil, nil, fmt.Errorf("mock setup failure for %s", componentID)
 				}
@@ -2472,7 +2472,7 @@ func TestTerraformStack_setupTerraformEnvironment(t *testing.T) {
 			_ = os.Unsetenv("TF_VAR_talos_version")
 		}()
 
-		terraformVars, _, terraformArgs, err := stack.setupTerraformEnvironment(component)
+		terraformVars, _, terraformArgs, err := stack.setupTerraformEnvironment(component, false)
 		if err != nil {
 			t.Fatalf("Expected no error, got %v", err)
 		}
@@ -2501,7 +2501,7 @@ func TestTerraformStack_setupTerraformEnvironment(t *testing.T) {
 			FullPath: filepath.Join(os.Getenv("WINDSOR_PROJECT_ROOT"), "terraform", "test", "path"),
 		}
 
-		_, _, _, err := stack.setupTerraformEnvironment(component)
+		_, _, _, err := stack.setupTerraformEnvironment(component, false)
 		if err == nil {
 			t.Fatal("Expected error when terraformEnv is nil")
 		}
@@ -2521,7 +2521,7 @@ func TestTerraformStack_setupTerraformEnvironment(t *testing.T) {
 
 		mocks.ConfigHandler.Set("terraform.backend.type", "unsupported")
 
-		_, _, _, err := stack.setupTerraformEnvironment(component)
+		_, _, _, err := stack.setupTerraformEnvironment(component, false)
 		if err == nil {
 			t.Fatal("Expected error when GenerateTerraformArgs fails")
 		}
@@ -3567,6 +3567,29 @@ func TestStack_Destroy(t *testing.T) {
 		}
 	})
 
+	t.Run("PassesForDestroyTrueToTerraformProvider", func(t *testing.T) {
+		// Given a stack whose TerraformProvider records the forDestroy flag it receives
+		stack, mocks := setup(t)
+		var gotForDestroy bool
+		mocks.Runtime.TerraformProvider = &terraformRuntime.MockTerraformProvider{
+			GetEnvVarsFunc: func(componentID string, interactive bool, forDestroy bool) (map[string]string, []string, *terraformRuntime.TerraformArgs, error) {
+				gotForDestroy = forDestroy
+				return map[string]string{}, nil, &terraformRuntime.TerraformArgs{}, nil
+			},
+		}
+		blueprint := createTestBlueprint()
+
+		// When destroying the local component by ID
+		if _, err := stack.Destroy(blueprint, "local/path"); err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+
+		// Then the real destroy execution requested the destroy fallback
+		if !gotForDestroy {
+			t.Error("expected forDestroy=true for real destroy execution")
+		}
+	})
+
 	t.Run("UsesDestroyTimeout", func(t *testing.T) {
 		// Given a stack whose terraform destroy exec is bounded by a timeout
 		stack, mocks := setup(t)
@@ -3878,7 +3901,7 @@ func TestStack_Destroy(t *testing.T) {
 		// Given a stack whose provider returns RefreshArgs containing a var-file flag
 		stack, mocks := setup(t)
 		mocks.Runtime.TerraformProvider = &terraformRuntime.MockTerraformProvider{
-			GetEnvVarsFunc: func(componentID string, interactive bool) (map[string]string, []string, *terraformRuntime.TerraformArgs, error) {
+			GetEnvVarsFunc: func(componentID string, interactive bool, forDestroy bool) (map[string]string, []string, *terraformRuntime.TerraformArgs, error) {
 				return map[string]string{}, nil, &terraformRuntime.TerraformArgs{
 					RefreshArgs: []string{"-var-file=secrets.tfvars"},
 				}, nil
@@ -5323,6 +5346,37 @@ func TestStack_PlanDestroySummary(t *testing.T) {
 		stack, _ := setup(t)
 		if got := stack.PlanDestroySummary(nil); got != nil {
 			t.Errorf("expected nil, got %v", got)
+		}
+	})
+
+	t.Run("PassesForDestroyTrueToTerraformProvider", func(t *testing.T) {
+		// Given a stack whose TerraformProvider records the forDestroy flag it receives
+		stack, mocks := setup(t)
+		var gotForDestroy []bool
+		mocks.Runtime.TerraformProvider = &terraformRuntime.MockTerraformProvider{
+			GetEnvVarsFunc: func(componentID string, interactive bool, forDestroy bool) (map[string]string, []string, *terraformRuntime.TerraformArgs, error) {
+				gotForDestroy = append(gotForDestroy, forDestroy)
+				return map[string]string{}, nil, &terraformRuntime.TerraformArgs{}, nil
+			},
+		}
+		mocks.Shell.ExecSilentWithEnvFunc = func(command string, env map[string]string, args ...string) (string, error) {
+			if len(args) > 2 && args[1] == "show" && args[2] == "-json" {
+				return `{"values":{"root_module":{"resources":[{"address":"aws_s3_bucket.example"}]}}}`, nil
+			}
+			return "", nil
+		}
+
+		// When PlanDestroySummary runs
+		stack.PlanDestroySummary(createTestBlueprint())
+
+		// Then every component's destroy-plan setup requested the destroy fallback
+		if len(gotForDestroy) == 0 {
+			t.Fatal("expected GetEnvVars to be called")
+		}
+		for _, v := range gotForDestroy {
+			if !v {
+				t.Error("expected forDestroy=true for every destroy-plan component")
+			}
 		}
 	})
 

@@ -32,6 +32,7 @@ type Shims struct {
 	Stat           func(string) (os.FileInfo, error)
 	Remove         func(string) error
 	WriteFile      func(string, []byte, os.FileMode) error
+	MkdirAll       func(string, os.FileMode) error
 	ReadDir        func(string) ([]os.DirEntry, error)
 	Getwd          func() (string, error)
 	YamlUnmarshal  func([]byte, any) error
@@ -59,6 +60,7 @@ func NewShims() *Shims {
 		Stat:           os.Stat,
 		Remove:         os.Remove,
 		WriteFile:      os.WriteFile,
+		MkdirAll:       os.MkdirAll,
 		ReadDir:        os.ReadDir,
 		Getwd:          os.Getwd,
 		YamlUnmarshal:  yaml.Unmarshal,

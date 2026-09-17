@@ -5,6 +5,7 @@
 package terraform
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"maps"
@@ -36,11 +37,12 @@ type terraformProvider struct {
 	toolsManager  tools.ToolsManager
 	evaluator     evaluator.ExpressionEvaluator
 	Shims         *Shims // Exported for testing
-	cache         map[string]map[string]any
-	components    []blueprintv1alpha1.TerraformComponent
-	configScope   map[string]any
-	warningWriter io.Writer
-	mu            sync.RWMutex
+	cache           map[string]map[string]any
+	components      []blueprintv1alpha1.TerraformComponent
+	configScope     map[string]any
+	destroyFallback bool
+	warningWriter   io.Writer
+	mu              sync.RWMutex
 
 	// scopeMu is separate from mu. GetTerraformComponents holds mu while calling
 	// loadTerraformComponents, which calls providerScope.
@@ -97,7 +99,7 @@ type TerraformProvider interface {
 	GetStatePath(componentID string) (string, error)
 	ListLocalStateComponentIDs() ([]string, error)
 	BackendConfigComplete() bool
-	GetEnvVars(componentID string, interactive bool) (map[string]string, []string, *TerraformArgs, error)
+	GetEnvVars(componentID string, interactive bool, forDestroy bool) (map[string]string, []string, *TerraformArgs, error)
 	FormatArgsForEnv(args []string) string
 	ClearCache()
 	TerraformScopedEnvKeys() ([]string, error)
@@ -469,15 +471,24 @@ func (p *terraformProvider) GetTFDataDir(componentID string) (string, error) {
 
 // GetEnvVars constructs the environment variables required for Terraform execution for the specified
 // component ID: base vars (TF_DATA_DIR, TF_CLI_ARGS_*, TF_VAR_context_*), contexts/<context>/terraform/.env
-// content, and TF_VAR_* from the component's own inputs (evaluated via terraform_output(); outputs from
-// other components are used only to evaluate inputs, never emitted as separate TF_VAR_* variables).
-// Returns the environment variables map, the terraform/.env key names (for callers that must pass them
-// through a narrower allowlist or track them for later cleanup), the TerraformArgs struct, and any error.
-func (p *terraformProvider) GetEnvVars(componentID string, interactive bool) (map[string]string, []string, *TerraformArgs, error) {
+// content, and TF_VAR_* from the component's own inputs (evaluated via terraform_output()). forDestroy
+// lets a terraform_output() referencing a since-destroyed sibling fall back to that sibling's last
+// persisted outputs instead of resolving null, so a stale dependency no longer blocks destroy-plan
+// validation. Returns the env vars, the terraform/.env key names, the TerraformArgs, and any error.
+func (p *terraformProvider) GetEnvVars(componentID string, interactive bool, forDestroy bool) (map[string]string, []string, *TerraformArgs, error) {
 	terraformArgs, err := p.GenerateTerraformArgs(componentID, interactive)
 	if err != nil {
 		return nil, nil, nil, fmt.Errorf("error generating terraform args: %w", err)
 	}
+
+	p.mu.Lock()
+	p.destroyFallback = forDestroy
+	p.mu.Unlock()
+	defer func() {
+		p.mu.Lock()
+		p.destroyFallback = false
+		p.mu.Unlock()
+	}()
 
 	envVars, err := p.getBaseEnvVarsForComponent(terraformArgs)
 	if err != nil {
@@ -675,6 +686,8 @@ func (p *terraformProvider) GetTerraformOutputs(componentID string) (map[string]
 // CacheOutputs proactively fetches and caches all outputs for a component.
 // This is called after terraform apply to warm the cache, so subsequent terraform_output()
 // calls for this component will hit the cache instead of running terraform output again.
+// A non-empty result is also persisted to disk, so a later destroy-plan for a dependent
+// component can fall back to it once this component's own state is gone.
 func (p *terraformProvider) CacheOutputs(componentID string) error {
 	outputs, err := p.GetTerraformOutputs(componentID)
 	if err != nil {
@@ -682,14 +695,16 @@ func (p *terraformProvider) CacheOutputs(componentID string) error {
 	}
 
 	p.mu.Lock()
-	defer p.mu.Unlock()
-
 	if p.cache[componentID] == nil {
 		p.cache[componentID] = make(map[string]any)
 	}
 	maps.Copy(p.cache[componentID], outputs)
+	p.mu.Unlock()
 
-	return nil
+	if len(outputs) == 0 {
+		return nil
+	}
+	return p.persistOutputsSnapshot(componentID, outputs)
 }
 
 // ClearCache clears the session cache for all components and the config scope.
@@ -900,13 +915,13 @@ func (p *terraformProvider) registerTerraformOutputHelper(evaluator evaluator.Ex
 	}, new(func(string, string) any))
 }
 
-// getOutput retrieves a single output value for a Terraform component by key.
-// If outputs for the component are requested for the first time, all outputs are fetched from Terraform
-// and cached for subsequent requests. Cached values are used for later accesses to avoid redundant retrievals.
-// When deferred is false, this function returns a DeferredError to signal that the expression should be preserved.
-// When deferred is true, it returns the actual output value if available, or nil if the key is absent — whether
-// the component has no outputs at all or has outputs but not this key. Returning nil in both cases lets the
-// ?? operator fall back uniformly across unapplied and partial-destroy states.
+// getOutput retrieves a single output value for a Terraform component by key, fetching and
+// caching the full output set on first request. When deferred is false it returns a
+// DeferredError so the expression is preserved for later evaluation. When deferred is true it
+// returns the value, or nil if the component has no outputs or lacks this key — letting the ??
+// operator treat unapplied and partial-destroy states alike. During a destroy operation
+// (p.destroyFallback), a component with no live outputs falls back to its last persisted
+// snapshot, so a since-destroyed sibling no longer blocks a dependent's destroy-plan validation.
 func (p *terraformProvider) getOutput(componentID, key string, expression string, deferred bool) (any, error) {
 	if !deferred {
 		return nil, &evaluator.DeferredError{
@@ -921,8 +936,6 @@ func (p *terraformProvider) getOutput(componentID, key string, expression string
 			p.mu.RUnlock()
 			return value, nil
 		}
-		// Component outputs are cached as a complete set, so an absent key here
-		// is authoritative — refetching cannot reveal it.
 		p.mu.RUnlock()
 		return nil, nil
 	}
@@ -931,6 +944,18 @@ func (p *terraformProvider) getOutput(componentID, key string, expression string
 	outputs, err := p.GetTerraformOutputs(componentID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get terraform outputs for component '%s': %w", componentID, err)
+	}
+	if len(outputs) == 0 {
+		p.mu.RLock()
+		fallback := p.destroyFallback
+		p.mu.RUnlock()
+		if fallback {
+			snapshot, err := p.loadPersistedOutputsSnapshot(componentID)
+			if err != nil {
+				return nil, err
+			}
+			outputs = snapshot
+		}
 	}
 	if len(outputs) == 0 {
 		return nil, nil
@@ -956,6 +981,69 @@ func (p *terraformProvider) getOutput(componentID, key string, expression string
 	}
 
 	return nil, nil
+}
+
+// persistOutputsSnapshot writes a component's outputs to its snapshot file under the Windsor
+// scratch path, creating the parent directory as needed. See outputsSnapshotPath for the layout.
+func (p *terraformProvider) persistOutputsSnapshot(componentID string, outputs map[string]any) error {
+	path, err := p.outputsSnapshotPath(componentID)
+	if err != nil {
+		return err
+	}
+	data, err := p.Shims.JsonMarshal(outputs)
+	if err != nil {
+		return fmt.Errorf("failed to marshal outputs snapshot for component '%s': %w", componentID, err)
+	}
+	if err := p.Shims.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return fmt.Errorf("failed to create outputs snapshot directory for component '%s': %w", componentID, err)
+	}
+	if err := p.Shims.WriteFile(path, data, 0o644); err != nil {
+		return fmt.Errorf("failed to write outputs snapshot for component '%s': %w", componentID, err)
+	}
+	return nil
+}
+
+// loadPersistedOutputsSnapshot reads a component's last persisted outputs snapshot. A missing
+// snapshot is not an error: it returns a nil map, since nothing was ever applied or cached.
+func (p *terraformProvider) loadPersistedOutputsSnapshot(componentID string) (map[string]any, error) {
+	path, err := p.outputsSnapshotPath(componentID)
+	if err != nil {
+		return nil, err
+	}
+	data, err := p.Shims.ReadFile(path)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("failed to read outputs snapshot for component '%s': %w", componentID, err)
+	}
+	var snapshot map[string]any
+	if err := p.Shims.JsonUnmarshal(data, &snapshot); err != nil {
+		return nil, fmt.Errorf("failed to parse outputs snapshot for component '%s': %w", componentID, err)
+	}
+	return snapshot, nil
+}
+
+// outputsSnapshotPath returns the path to a component's persisted outputs snapshot, mirroring
+// GetStatePath's .tfstate/<prefix>/<componentID> layout under .tfoutputs instead.
+func (p *terraformProvider) outputsSnapshotPath(componentID string) (string, error) {
+	_, _, windsorScratchPath, err := p.providerScope()
+	if err != nil {
+		return "", fmt.Errorf("error resolving provider scope: %w", err)
+	}
+
+	component := p.GetTerraformComponent(componentID)
+	actualComponentID := componentID
+	if component != nil {
+		actualComponentID = component.GetID()
+	}
+
+	prefix := p.configHandler.GetString("terraform.backend.prefix", "")
+	path := filepath.Join(windsorScratchPath, ".tfoutputs")
+	if prefix != "" {
+		path = filepath.Join(path, prefix)
+	}
+	return filepath.Join(path, actualComponentID, "outputs.json"), nil
 }
 
 // getBaseEnvVarsForComponent returns the base environment variables for a Terraform component

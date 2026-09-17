@@ -1,0 +1,10 @@
+kind: Blueprint
+apiVersion: blueprints.windsorcli.dev/v1alpha1
+metadata:
+  name: destroy-stale-sibling-output
+  description: Destroy fixture with a dependent component consuming a sibling's output
+terraform:
+  - path: network
+  - path: database
+    inputs:
+      vpc_id: '${terraform_output("network", "vpc_id")}'

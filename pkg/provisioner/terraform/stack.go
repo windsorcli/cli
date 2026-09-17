@@ -363,7 +363,7 @@ func (s *TerraformStack) Up(blueprint *blueprintv1alpha1.Blueprint, onApply ...f
 				return fmt.Errorf("directory %s does not exist", component.FullPath)
 			}
 
-			terraformVars, scopedKeys, terraformArgs, err := s.setupTerraformEnvironment(component)
+			terraformVars, scopedKeys, terraformArgs, err := s.setupTerraformEnvironment(component, false)
 			backendOverridePath := filepath.Join(component.FullPath, "backend_override.tf")
 			if _, statErr := s.shims.Stat(backendOverridePath); statErr == nil {
 				backendOverridePaths = append(backendOverridePaths, backendOverridePath)
@@ -441,7 +441,7 @@ func (s *TerraformStack) Up(blueprint *blueprintv1alpha1.Blueprint, onApply ...f
 // state in the currently-configured backend. Runs init + `terraform show
 // -json`; callers must invoke before any in-memory backend override.
 func (s *TerraformStack) HasRemoteState(blueprint *blueprintv1alpha1.Blueprint, componentID string) (bool, error) {
-	component, terraformVars, scopedKeys, terraformArgs, cleanup, err := s.prepareComponentOp(blueprint, componentID)
+	component, terraformVars, scopedKeys, terraformArgs, cleanup, err := s.prepareComponentOp(blueprint, componentID, false)
 	if err != nil {
 		return false, err
 	}
@@ -456,7 +456,7 @@ func (s *TerraformStack) HasRemoteState(blueprint *blueprintv1alpha1.Blueprint, 
 // InitComponent runs `terraform init` for one component using the currently-
 // configured backend; no -migrate-state, no plan, no apply.
 func (s *TerraformStack) InitComponent(blueprint *blueprintv1alpha1.Blueprint, componentID string) error {
-	component, terraformVars, scopedKeys, terraformArgs, cleanup, err := s.prepareComponentOp(blueprint, componentID)
+	component, terraformVars, scopedKeys, terraformArgs, cleanup, err := s.prepareComponentOp(blueprint, componentID, false)
 	if err != nil {
 		return err
 	}
@@ -677,7 +677,7 @@ func (s *TerraformStack) DestroyAll(blueprint *blueprintv1alpha1.Blueprint, cont
 		if component.Destroy != nil {
 			destroy := component.Destroy.ToBool()
 			if destroy != nil && !*destroy {
-				if terraformVars, _, _, err := s.runtime.TerraformProvider.GetEnvVars(component.GetID(), false); err == nil {
+				if terraformVars, _, _, err := s.runtime.TerraformProvider.GetEnvVars(component.GetID(), false, false); err == nil {
 					s.clearBackendPointer(terraformVars)
 				}
 				continue
@@ -689,7 +689,7 @@ func (s *TerraformStack) DestroyAll(blueprint *blueprintv1alpha1.Blueprint, cont
 			continue
 		}
 
-		terraformVars, scopedKeys, terraformArgs, err := s.setupTerraformEnvironment(component)
+		terraformVars, scopedKeys, terraformArgs, err := s.setupTerraformEnvironment(component, true)
 		backendOverridePath := filepath.Join(component.FullPath, "backend_override.tf")
 		if _, statErr := s.shims.Stat(backendOverridePath); statErr == nil {
 			backendOverridePaths = append(backendOverridePaths, backendOverridePath)
@@ -792,7 +792,7 @@ func (s *TerraformStack) Plan(blueprint *blueprintv1alpha1.Blueprint, componentI
 		return fmt.Errorf("component ID not provided")
 	}
 
-	component, terraformVars, scopedKeys, terraformArgs, cleanup, err := s.prepareComponentOp(blueprint, componentID)
+	component, terraformVars, scopedKeys, terraformArgs, cleanup, err := s.prepareComponentOp(blueprint, componentID, false)
 	if err != nil {
 		return err
 	}
@@ -836,7 +836,7 @@ func (s *TerraformStack) PlanJSON(blueprint *blueprintv1alpha1.Blueprint, compon
 		return fmt.Errorf("component ID not provided")
 	}
 
-	component, terraformVars, scopedKeys, terraformArgs, cleanup, err := s.prepareComponentOp(blueprint, componentID)
+	component, terraformVars, scopedKeys, terraformArgs, cleanup, err := s.prepareComponentOp(blueprint, componentID, false)
 	if err != nil {
 		return err
 	}
@@ -882,7 +882,7 @@ func (s *TerraformStack) Apply(blueprint *blueprintv1alpha1.Blueprint, component
 		return fmt.Errorf("component ID not provided")
 	}
 
-	component, terraformVars, scopedKeys, terraformArgs, cleanup, err := s.prepareComponentOp(blueprint, componentID)
+	component, terraformVars, scopedKeys, terraformArgs, cleanup, err := s.prepareComponentOp(blueprint, componentID, false)
 	if err != nil {
 		return err
 	}
@@ -941,7 +941,7 @@ func (s *TerraformStack) Destroy(blueprint *blueprintv1alpha1.Blueprint, compone
 		return false, fmt.Errorf("component ID not provided")
 	}
 
-	component, terraformVars, scopedKeys, terraformArgs, cleanup, err := s.prepareComponentOp(blueprint, componentID)
+	component, terraformVars, scopedKeys, terraformArgs, cleanup, err := s.prepareComponentOp(blueprint, componentID, true)
 	if err != nil {
 		return false, err
 	}
@@ -1158,7 +1158,7 @@ func (s *TerraformStack) migrateOneComponent(component *blueprintv1alpha1.Terraf
 		return false, fmt.Errorf("error checking component directory %s: %w", component.FullPath, statErr)
 	}
 
-	terraformVars, scopedKeys, terraformArgs, err := s.setupTerraformEnvironment(*component)
+	terraformVars, scopedKeys, terraformArgs, err := s.setupTerraformEnvironment(*component, false)
 	backendOverridePath := filepath.Join(component.FullPath, "backend_override.tf")
 	if _, statErr := s.shims.Stat(backendOverridePath); statErr == nil {
 		*backendOverridePaths = append(*backendOverridePaths, backendOverridePath)
@@ -1262,7 +1262,7 @@ func (s *TerraformStack) planComponents(blueprint *blueprintv1alpha1.Blueprint, 
 
 		s.printComponentHeader(component.Path)
 
-		terraformVars, scopedKeys, terraformArgs, cleanup, err := s.prepareComponentEnv(component)
+		terraformVars, scopedKeys, terraformArgs, cleanup, err := s.prepareComponentEnv(component, false)
 		if err != nil {
 			return err
 		}
@@ -1500,7 +1500,7 @@ func (s *TerraformStack) resolveComponentPaths(blueprint *blueprintv1alpha1.Blue
 func (s *TerraformStack) planOneTerraformSummary(component *blueprintv1alpha1.TerraformComponent) TerraformComponentPlan {
 	result := TerraformComponentPlan{ComponentID: component.GetID(), Path: component.Path}
 
-	terraformVars, scopedKeys, terraformArgs, cleanup, err := s.prepareComponentEnv(component)
+	terraformVars, scopedKeys, terraformArgs, cleanup, err := s.prepareComponentEnv(component, false)
 	if err != nil {
 		result.Err = err
 		return result
@@ -1558,7 +1558,7 @@ func (s *TerraformStack) planOneTerraformSummary(component *blueprintv1alpha1.Te
 func (s *TerraformStack) planOneTerraformDestroySummary(component *blueprintv1alpha1.TerraformComponent) TerraformComponentPlan {
 	result := TerraformComponentPlan{ComponentID: component.GetID(), Path: component.Path}
 
-	terraformVars, scopedKeys, terraformArgs, cleanup, err := s.prepareComponentEnv(component)
+	terraformVars, scopedKeys, terraformArgs, cleanup, err := s.prepareComponentEnv(component, true)
 	if err != nil {
 		result.Err = err
 		return result
@@ -1707,8 +1707,9 @@ func componentDestroyEnabled(component *blueprintv1alpha1.TerraformComponent) bo
 // sets up the terraform environment, and returns a cleanup func that restores the working directory
 // and removes any backend_override.tf. It is the shared setup used by planComponents,
 // planOneTerraformSummary, and prepareComponentOp. scopedKeys names the
-// contexts/<context>/terraform/.env keys selectTerraformCommandEnv must pass through.
-func (s *TerraformStack) prepareComponentEnv(component *blueprintv1alpha1.TerraformComponent) (map[string]string, []string, *envvars.TerraformArgs, func(), error) {
+// contexts/<context>/terraform/.env keys selectTerraformCommandEnv must pass through. forDestroy
+// is passed through to setupTerraformEnvironment for the sibling-output fallback.
+func (s *TerraformStack) prepareComponentEnv(component *blueprintv1alpha1.TerraformComponent, forDestroy bool) (map[string]string, []string, *envvars.TerraformArgs, func(), error) {
 	currentDir, err := s.shims.Getwd()
 	if err != nil {
 		return nil, nil, nil, func() {}, fmt.Errorf("error getting current directory: %w", err)
@@ -1725,7 +1726,7 @@ func (s *TerraformStack) prepareComponentEnv(component *blueprintv1alpha1.Terraf
 		}
 	}
 
-	terraformVars, scopedKeys, terraformArgs, err := s.setupTerraformEnvironment(*component)
+	terraformVars, scopedKeys, terraformArgs, err := s.setupTerraformEnvironment(*component, forDestroy)
 	if err != nil {
 		removeBackendOverride()
 		return nil, nil, nil, func() {}, err
@@ -1741,8 +1742,9 @@ func (s *TerraformStack) prepareComponentEnv(component *blueprintv1alpha1.Terraf
 
 // prepareComponentOp validates inputs, resolves the named component from the blueprint, saves/restores
 // the working directory, sets up the terraform environment, and registers backend override cleanup.
-// The returned cleanup func must be called via defer by the caller.
-func (s *TerraformStack) prepareComponentOp(blueprint *blueprintv1alpha1.Blueprint, componentID string) (
+// The returned cleanup func must be called via defer by the caller. forDestroy is passed through
+// to prepareComponentEnv for the sibling-output fallback.
+func (s *TerraformStack) prepareComponentOp(blueprint *blueprintv1alpha1.Blueprint, componentID string, forDestroy bool) (
 	*blueprintv1alpha1.TerraformComponent,
 	map[string]string,
 	[]string,
@@ -1767,7 +1769,7 @@ func (s *TerraformStack) prepareComponentOp(blueprint *blueprintv1alpha1.Bluepri
 		return nil, nil, nil, nil, func() {}, fmt.Errorf("terraform component %q not found", componentID)
 	}
 
-	terraformVars, scopedKeys, terraformArgs, cleanup, err := s.prepareComponentEnv(component)
+	terraformVars, scopedKeys, terraformArgs, cleanup, err := s.prepareComponentEnv(component, forDestroy)
 	if err != nil {
 		return nil, nil, nil, nil, func() {}, err
 	}
@@ -1870,17 +1872,17 @@ func (s *TerraformStack) clearStaleBackendPointer(terraformVars map[string]strin
 	}
 }
 
-// setupTerraformEnvironment computes Terraform-specific environment values and args for a component.
 // setupTerraformEnvironment computes Terraform-specific environment values and args for a
 // component, plus the contexts/<context>/terraform/.env key names (scopedKeys) that
 // selectTerraformCommandEnv must pass through unconditionally regardless of includeTFVars.
-func (s *TerraformStack) setupTerraformEnvironment(component blueprintv1alpha1.TerraformComponent) (map[string]string, []string, *envvars.TerraformArgs, error) {
+// forDestroy is passed through to GetEnvVars so a destroyed sibling's stale output can fall back.
+func (s *TerraformStack) setupTerraformEnvironment(component blueprintv1alpha1.TerraformComponent, forDestroy bool) (map[string]string, []string, *envvars.TerraformArgs, error) {
 	terraformEnv := s.getTerraformEnv()
 	if terraformEnv == nil {
 		return nil, nil, nil, fmt.Errorf("terraform environment printer not available")
 	}
 
-	terraformVars, scopedKeys, terraformArgs, err := s.runtime.TerraformProvider.GetEnvVars(component.GetID(), false)
+	terraformVars, scopedKeys, terraformArgs, err := s.runtime.TerraformProvider.GetEnvVars(component.GetID(), false, forDestroy)
 	if err != nil {
 		return nil, nil, nil, fmt.Errorf("error getting terraform env vars: %w", err)
 	}

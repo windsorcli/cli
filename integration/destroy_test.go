@@ -198,6 +198,40 @@ func TestDestroyTerraform_SkipsComponentWithEmptyState(t *testing.T) {
 	}
 }
 
+// TestDestroyTerraform_SurvivesDestroyedSiblingOutput is the regression test for a
+// dependent component's destroy-plan failing permanently once a sibling it references
+// via terraform_output(...) has already been destroyed. The database fixture component
+// has a variable whose validation block rejects a null value; before the fix, a
+// destroyed network component's empty live output resolved to null and destroying
+// database failed forever. The fix persists a component's outputs on apply and falls
+// back to that snapshot during destroy when the live lookup comes back empty.
+func TestDestroyTerraform_SurvivesDestroyedSiblingOutput(t *testing.T) {
+	t.Parallel()
+	dir, env := helpers.CopyFixtureOnly(t, "destroy-stale-sibling-output")
+	helpers.MarkAsGitRepo(t, dir)
+	_, stderr, err := helpers.RunCLI(dir, []string{"init", "local"}, env)
+	if err != nil {
+		t.Fatalf("init local: %v\nstderr: %s", err, stderr)
+	}
+	env = append(env, "WINDSOR_CONTEXT=local")
+
+	if _, stderr, err := helpers.RunCLI(dir, []string{"apply", "terraform", "network"}, env); err != nil {
+		t.Fatalf("apply terraform network: %v\nstderr: %s", err, stderr)
+	}
+	if _, stderr, err := helpers.RunCLI(dir, []string{"apply", "terraform", "database"}, env); err != nil {
+		t.Fatalf("apply terraform database: %v\nstderr: %s", err, stderr)
+	}
+
+	if _, stderr, err := helpers.RunCLI(dir, []string{"destroy", "--confirm=network", "terraform", "network"}, env); err != nil {
+		t.Fatalf("destroy terraform network: %v\nstderr: %s", err, stderr)
+	}
+
+	_, stderr, err = helpers.RunCLI(dir, []string{"destroy", "--confirm=database", "terraform", "database"}, env)
+	if err != nil {
+		t.Fatalf("destroy terraform database after sibling was destroyed: %v\nstderr: %s", err, stderr)
+	}
+}
+
 // TestDestroyTerraform_LocalBackendSkipsMigrationDance confirms that when a
 // blueprint declares a backend terraform component but the configured backend is
 // "local" (the default for fixtures without a cloud platform), the destroy flow

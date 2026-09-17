@@ -135,6 +135,10 @@ func setupMocks(t *testing.T, opts ...*SetupOptions) *Mocks {
 		return nil
 	}
 
+	concreteProvider.Shims.MkdirAll = func(path string, perm os.FileMode) error {
+		return nil
+	}
+
 	return &Mocks{
 		Provider:      concreteProvider,
 		ConfigHandler: configHandler,
@@ -315,6 +319,83 @@ func TestTerraformProvider_CacheOutputs(t *testing.T) {
 		}
 		if !strings.Contains(err.Error(), "failed to prepare terraform context") {
 			t.Errorf("Expected terraform context preparation error, got: %v", err)
+		}
+	})
+
+	t.Run("PersistsOutputsSnapshotToDisk", func(t *testing.T) {
+		// Given a component with live outputs
+		mocks := setupMocks(t)
+		mocks.Provider.mu.Lock()
+		mocks.Provider.components = []blueprintv1alpha1.TerraformComponent{
+			{Path: "test-component"},
+		}
+		mocks.Provider.mu.Unlock()
+
+		mocks.Shell.ExecSilentFunc = func(command string, args ...string) (string, error) {
+			if command == "terraform" && len(args) >= 2 && args[1] == "output" {
+				return `{"output1": {"value": "cached-value"}}`, nil
+			}
+			return "", nil
+		}
+
+		var mkdirPath string
+		var writePath string
+		var writeData []byte
+		mocks.Provider.Shims.MkdirAll = func(path string, perm os.FileMode) error {
+			mkdirPath = path
+			return nil
+		}
+		mocks.Provider.Shims.WriteFile = func(path string, data []byte, perm os.FileMode) error {
+			writePath = path
+			writeData = data
+			return nil
+		}
+
+		// When outputs are cached
+		if err := mocks.Provider.CacheOutputs("test-component"); err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+
+		// Then the outputs snapshot is written under .tfoutputs for the component
+		expectedPath := filepath.Join("/test/scratch", ".tfoutputs", "test-component", "outputs.json")
+		if writePath != expectedPath {
+			t.Errorf("Expected snapshot path %q, got %q", expectedPath, writePath)
+		}
+		if mkdirPath != filepath.Dir(expectedPath) {
+			t.Errorf("Expected mkdir path %q, got %q", filepath.Dir(expectedPath), mkdirPath)
+		}
+		if !strings.Contains(string(writeData), "cached-value") {
+			t.Errorf("Expected snapshot content to contain 'cached-value', got %s", writeData)
+		}
+	})
+
+	t.Run("DoesNotPersistWhenOutputsAreEmpty", func(t *testing.T) {
+		// Given a component with no live outputs
+		mocks := setupMocks(t)
+		mocks.Provider.mu.Lock()
+		mocks.Provider.components = []blueprintv1alpha1.TerraformComponent{
+			{Path: "test-component"},
+		}
+		mocks.Provider.mu.Unlock()
+
+		mocks.Shell.ExecSilentFunc = func(command string, args ...string) (string, error) {
+			return "{}", nil
+		}
+
+		var wrote bool
+		mocks.Provider.Shims.WriteFile = func(path string, data []byte, perm os.FileMode) error {
+			wrote = true
+			return nil
+		}
+
+		// When outputs are cached
+		if err := mocks.Provider.CacheOutputs("test-component"); err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+
+		// Then no snapshot is written
+		if wrote {
+			t.Error("Expected no snapshot file to be written for empty outputs")
 		}
 	})
 }
@@ -3066,7 +3147,7 @@ terraform:
 		}
 
 		// When getting env vars
-		envVars, _, _, err := mocks.Provider.GetEnvVars("cluster", false)
+		envVars, _, _, err := mocks.Provider.GetEnvVars("cluster", false, false)
 		if err != nil {
 			t.Fatalf("Expected no error, got: %v", err)
 		}
@@ -3152,7 +3233,7 @@ terraform:
 			return "", nil
 		}
 
-		envVars, _, _, err := mocks.Provider.GetEnvVars("cluster", false)
+		envVars, _, _, err := mocks.Provider.GetEnvVars("cluster", false, false)
 		if err != nil {
 			t.Fatalf("Expected no error, got: %v", err)
 		}
@@ -3224,7 +3305,7 @@ terraform:
 		mocks.Provider.evaluator = mockEvaluator
 
 		// When getting env vars
-		envVars, _, _, err := mocks.Provider.GetEnvVars("cluster", false)
+		envVars, _, _, err := mocks.Provider.GetEnvVars("cluster", false, false)
 
 		// Then inputs with expressions should be evaluated
 		if err != nil {
@@ -3249,7 +3330,7 @@ terraform:
 		mocks := setupMocks(t, &SetupOptions{BlueprintYAML: blueprintYAML, BackendType: "none"})
 
 		// When getting env vars
-		envVars, _, _, err := mocks.Provider.GetEnvVars("cluster", false)
+		envVars, _, _, err := mocks.Provider.GetEnvVars("cluster", false, false)
 
 		// Then non-expression inputs should not be emitted as TF_VAR_*
 		if err != nil {
@@ -3272,7 +3353,7 @@ terraform:
 			return "/my/project", nil
 		}
 
-		envVars, _, _, err := mocks.Provider.GetEnvVars("nonexistent", false)
+		envVars, _, _, err := mocks.Provider.GetEnvVars("nonexistent", false, false)
 		if err != nil {
 			t.Fatalf("Expected no error, got: %v", err)
 		}
@@ -3290,7 +3371,7 @@ terraform:
 		mocks := setupMocks(t, &SetupOptions{BackendType: "none"})
 
 		// When getting env vars for nonexistent component
-		envVars, _, _, err := mocks.Provider.GetEnvVars("nonexistent", false)
+		envVars, _, _, err := mocks.Provider.GetEnvVars("nonexistent", false, false)
 
 		// Then it should return empty env vars without error
 		if err != nil {
@@ -3310,7 +3391,7 @@ terraform:
 		}
 
 		// When getting env vars for nonexistent component
-		_, _, _, err := mocks.Provider.GetEnvVars("nonexistent", false)
+		_, _, _, err := mocks.Provider.GetEnvVars("nonexistent", false, false)
 
 		// Then it should return an error
 		if err == nil {
@@ -3335,7 +3416,7 @@ terraform:
 		mocks.Provider.evaluator = mockEvaluator
 
 		// When getting env vars
-		_, _, _, err := mocks.Provider.GetEnvVars("cluster", false)
+		_, _, _, err := mocks.Provider.GetEnvVars("cluster", false, false)
 
 		// Then it should return an error
 		if err == nil {
@@ -3370,7 +3451,7 @@ terraform:
 		}
 
 		// When getting env vars
-		envVars, _, _, err := mocks.Provider.GetEnvVars("cluster", false)
+		envVars, _, _, err := mocks.Provider.GetEnvVars("cluster", false, false)
 
 		// Then non-string values should be JSON marshaled
 		if err != nil {
@@ -3409,7 +3490,7 @@ terraform:
 		}
 
 		// When getting env vars
-		envVars, _, _, err := mocks.Provider.GetEnvVars("cluster", false)
+		envVars, _, _, err := mocks.Provider.GetEnvVars("cluster", false, false)
 
 		// Then marshal error should be skipped and var not set
 		if err != nil {
@@ -3434,7 +3515,7 @@ terraform:
 			return "", errors.New("scratch path error")
 		}
 
-		_, _, _, err := mocks.Provider.GetEnvVars("cluster", false)
+		_, _, _, err := mocks.Provider.GetEnvVars("cluster", false, false)
 
 		if err == nil {
 			t.Fatal("Expected error when GenerateTerraformArgs fails")
@@ -3458,7 +3539,7 @@ terraform:
 			return "", errors.New("project root error")
 		}
 
-		_, _, _, err := mocks.Provider.GetEnvVars("cluster", false)
+		_, _, _, err := mocks.Provider.GetEnvVars("cluster", false, false)
 
 		if err == nil {
 			t.Fatal("Expected error when getBaseEnvVarsForComponent fails")
@@ -3483,7 +3564,7 @@ terraform:
 		}
 		mocks.Provider.evaluator = mockEvaluator
 
-		envVars, _, _, err := mocks.Provider.GetEnvVars("cluster", false)
+		envVars, _, _, err := mocks.Provider.GetEnvVars("cluster", false, false)
 
 		if err != nil {
 			t.Fatalf("Expected no error, got: %v", err)
@@ -3529,7 +3610,7 @@ terraform:
 		mocks.Provider.SetTerraformComponents([]blueprintv1alpha1.TerraformComponent{component})
 
 		// When getting env vars
-		envVars, _, _, err := mocks.Provider.GetEnvVars("cluster", false)
+		envVars, _, _, err := mocks.Provider.GetEnvVars("cluster", false, false)
 
 		// Then non-runtime expressions should remain tfvars-only and not emit TF_VAR
 		if err != nil {
@@ -3555,7 +3636,7 @@ terraform:
 		mocks.Provider.SetTerraformComponents([]blueprintv1alpha1.TerraformComponent{component})
 
 		// When getting env vars
-		envVars, _, _, err := mocks.Provider.GetEnvVars("cluster", false)
+		envVars, _, _, err := mocks.Provider.GetEnvVars("cluster", false, false)
 
 		// Then non-expression input should remain tfvars-only and not emit TF_VAR
 		if err != nil {
@@ -3575,7 +3656,7 @@ terraform:
       talos_version: "${config.kubernetes.version}"`
 
 		mocks := setupMocks(t, &SetupOptions{BlueprintYAML: blueprintYAML, BackendType: "none"})
-		envVars, _, _, err := mocks.Provider.GetEnvVars("cluster", false)
+		envVars, _, _, err := mocks.Provider.GetEnvVars("cluster", false, false)
 		if err != nil {
 			t.Fatalf("Expected no error, got: %v", err)
 		}
@@ -3602,7 +3683,7 @@ terraform:
 		}
 		mocks.Provider.evaluator = mockEvaluator
 
-		envVars, _, _, err := mocks.Provider.GetEnvVars("cluster", false)
+		envVars, _, _, err := mocks.Provider.GetEnvVars("cluster", false, false)
 		if err != nil {
 			t.Fatalf("Expected no error, got: %v", err)
 		}
@@ -3637,7 +3718,7 @@ terraform:
 		}
 		mocks.Provider.evaluator = mockEvaluator
 
-		envVars, _, _, err := mocks.Provider.GetEnvVars("cluster", false)
+		envVars, _, _, err := mocks.Provider.GetEnvVars("cluster", false, false)
 		if err != nil {
 			t.Fatalf("Expected no error, got: %v", err)
 		}
@@ -3687,7 +3768,7 @@ terraform:
 		mocks.Provider.evaluator = mockEvaluator
 
 		// When GetEnvVars is called
-		envVars, _, _, err := mocks.Provider.GetEnvVars("compute", false)
+		envVars, _, _, err := mocks.Provider.GetEnvVars("compute", false, false)
 		if err != nil {
 			t.Fatalf("Expected no error, got: %v", err)
 		}
@@ -3716,7 +3797,7 @@ terraform:
 		}
 
 		// When GetEnvVars is called
-		envVars, _, _, err := mocks.Provider.GetEnvVars("compute", false)
+		envVars, _, _, err := mocks.Provider.GetEnvVars("compute", false, false)
 		if err != nil {
 			t.Fatalf("Expected no error, got: %v", err)
 		}
@@ -3748,7 +3829,7 @@ terraform:
 		mocks.Provider.warningWriter = &stderr
 
 		// When GetEnvVars is called
-		if _, _, _, err := mocks.Provider.GetEnvVars("compute", false); err != nil {
+		if _, _, _, err := mocks.Provider.GetEnvVars("compute", false, false); err != nil {
 			t.Fatalf("Expected no error, got: %v", err)
 		}
 
@@ -3779,7 +3860,7 @@ terraform:
 		mocks.Provider.warningWriter = &stderr
 
 		// When GetEnvVars is called
-		if _, _, _, err := mocks.Provider.GetEnvVars("compute", false); err != nil {
+		if _, _, _, err := mocks.Provider.GetEnvVars("compute", false, false); err != nil {
 			t.Fatalf("Expected no error, got: %v", err)
 		}
 
@@ -3815,7 +3896,7 @@ terraform:
 		mocks.Provider.evaluator = mockEvaluator
 
 		// When GetEnvVars is called
-		envVars, _, _, err := mocks.Provider.GetEnvVars("compute", false)
+		envVars, _, _, err := mocks.Provider.GetEnvVars("compute", false, false)
 		if err != nil {
 			t.Fatalf("Expected no error, got: %v", err)
 		}
@@ -3844,7 +3925,7 @@ terraform:
 		}
 
 		// When GetEnvVars is called
-		_, _, _, err := mocks.Provider.GetEnvVars("compute", false)
+		_, _, _, err := mocks.Provider.GetEnvVars("compute", false, false)
 
 		// Then an error should be returned
 		if err == nil {
@@ -3852,6 +3933,102 @@ terraform:
 		}
 		if !strings.Contains(err.Error(), "error reading") {
 			t.Errorf("Unexpected error message: %v", err)
+		}
+	})
+
+	t.Run("FallsBackToPersistedSnapshotOnDestroyWhenSiblingOutputIsEmpty", func(t *testing.T) {
+		// Given a destroyed sibling (empty live output) with a persisted snapshot on disk
+		blueprintYAML := `apiVersion: blueprints.windsorcli.dev/v1alpha1
+kind: Blueprint
+metadata:
+  name: test
+terraform:
+  - path: network
+    name: network
+  - path: database
+    name: database
+    inputs:
+      vpc_id: '${terraform_output("network", "vpc_id")}'`
+
+		configHandler := config.NewMockConfigHandler()
+		testEvaluator := evaluator.NewExpressionEvaluator(configHandler, "/test/project", "/test/template")
+		mocks := setupMocks(t, &SetupOptions{BlueprintYAML: blueprintYAML, BackendType: "local", Evaluator: testEvaluator})
+		mocks.Provider.evaluator = testEvaluator
+
+		snapshotPath := filepath.Join("/test/scratch", ".tfoutputs", "network", "outputs.json")
+		mocks.Provider.Shims.ReadFile = func(path string) ([]byte, error) {
+			if path == filepath.Join("/test/config", "blueprint.yaml") {
+				return []byte(blueprintYAML), nil
+			}
+			if path == snapshotPath {
+				return []byte(`{"vpc_id": "vpc-123"}`), nil
+			}
+			return nil, os.ErrNotExist
+		}
+		mocks.Shell.ExecSilentFunc = func(command string, args ...string) (string, error) {
+			if command == "terraform" && len(args) >= 2 && args[1] == "output" {
+				return "{}", nil
+			}
+			return "", nil
+		}
+
+		// When getting env vars for a destroy operation
+		envVars, _, _, err := mocks.Provider.GetEnvVars("database", false, true)
+		if err != nil {
+			t.Fatalf("Expected no error, got: %v", err)
+		}
+
+		// Then the persisted snapshot resolves the sibling's stale output
+		if envVars["TF_VAR_vpc_id"] != "vpc-123" {
+			t.Errorf("Expected TF_VAR_vpc_id to fall back to 'vpc-123', got: %q", envVars["TF_VAR_vpc_id"])
+		}
+	})
+
+	t.Run("DoesNotFallBackToPersistedSnapshotOnApplyWhenSiblingOutputIsEmpty", func(t *testing.T) {
+		// Given an unapplied sibling (empty live output) with a persisted snapshot on disk
+		blueprintYAML := `apiVersion: blueprints.windsorcli.dev/v1alpha1
+kind: Blueprint
+metadata:
+  name: test
+terraform:
+  - path: network
+    name: network
+  - path: database
+    name: database
+    inputs:
+      vpc_id: '${terraform_output("network", "vpc_id")}'`
+
+		configHandler := config.NewMockConfigHandler()
+		testEvaluator := evaluator.NewExpressionEvaluator(configHandler, "/test/project", "/test/template")
+		mocks := setupMocks(t, &SetupOptions{BlueprintYAML: blueprintYAML, BackendType: "local", Evaluator: testEvaluator})
+		mocks.Provider.evaluator = testEvaluator
+
+		snapshotPath := filepath.Join("/test/scratch", ".tfoutputs", "network", "outputs.json")
+		mocks.Provider.Shims.ReadFile = func(path string) ([]byte, error) {
+			if path == filepath.Join("/test/config", "blueprint.yaml") {
+				return []byte(blueprintYAML), nil
+			}
+			if path == snapshotPath {
+				return []byte(`{"vpc_id": "vpc-123"}`), nil
+			}
+			return nil, os.ErrNotExist
+		}
+		mocks.Shell.ExecSilentFunc = func(command string, args ...string) (string, error) {
+			if command == "terraform" && len(args) >= 2 && args[1] == "output" {
+				return "{}", nil
+			}
+			return "", nil
+		}
+
+		// When getting env vars for an apply operation
+		envVars, _, _, err := mocks.Provider.GetEnvVars("database", false, false)
+		if err != nil {
+			t.Fatalf("Expected no error, got: %v", err)
+		}
+
+		// Then the stale snapshot is not used and the variable is left unset
+		if _, exists := envVars["TF_VAR_vpc_id"]; exists {
+			t.Errorf("Expected TF_VAR_vpc_id to be unset, got: %q", envVars["TF_VAR_vpc_id"])
 		}
 	})
 }

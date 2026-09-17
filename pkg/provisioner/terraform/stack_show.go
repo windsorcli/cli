@@ -33,7 +33,7 @@ func (s *TerraformStack) PlanResourceChangesJSON(blueprint *blueprintv1alpha1.Bl
 		return fmt.Errorf("component ID not provided")
 	}
 
-	component, terraformVars, scopedKeys, terraformArgs, cleanup, err := s.prepareComponentOp(blueprint, componentID)
+	component, terraformVars, scopedKeys, terraformArgs, cleanup, err := s.prepareComponentOp(blueprint, componentID, false)
 	if err != nil {
 		return err
 	}
@@ -62,7 +62,7 @@ func (s *TerraformStack) PlanAllResourceChangesJSON(blueprint *blueprintv1alpha1
 
 		s.printComponentHeader(component.Path)
 
-		terraformVars, scopedKeys, terraformArgs, cleanup, err := s.prepareComponentEnv(component)
+		terraformVars, scopedKeys, terraformArgs, cleanup, err := s.prepareComponentEnv(component, false)
 		if err != nil {
 			return err
 		}

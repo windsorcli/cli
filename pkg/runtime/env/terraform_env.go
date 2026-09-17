@@ -87,7 +87,7 @@ func (e *TerraformEnvPrinter) GetEnvVars() (map[string]string, error) {
 		return e.getEmptyEnvVars(), nil
 	}
 
-	terraformVars, _, _, err := e.terraformProvider.GetEnvVars(projectPath, true)
+	terraformVars, _, _, err := e.terraformProvider.GetEnvVars(projectPath, true, false)
 	if terraformVars == nil {
 		terraformVars = make(map[string]string)
 	}
