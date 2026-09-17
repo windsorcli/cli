@@ -2027,6 +2027,32 @@ func TestConfigHandler_SetContext(t *testing.T) {
 			t.Errorf("Expected 'production' after SetContext, got '%s'", got)
 		}
 	})
+
+	t.Run("ConcurrentWithGetContextDoesNotRace", func(t *testing.T) {
+		// Given many goroutines reading context while one sets it
+		mocks := setupConfigMocks(t)
+		handler := NewConfigHandler(mocks.Shell)
+
+		var wg sync.WaitGroup
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			_ = handler.SetContext("new-context")
+		}()
+		for i := 0; i < 20; i++ {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				_ = handler.GetContext()
+			}()
+		}
+		wg.Wait()
+
+		// Then the handler settles on the set value, with no race (run with -race to verify)
+		if got := handler.GetContext(); got != "new-context" {
+			t.Errorf("Expected 'new-context' after concurrent SetContext, got '%s'", got)
+		}
+	})
 }
 
 func TestConfigHandler_IsLoaded(t *testing.T) {

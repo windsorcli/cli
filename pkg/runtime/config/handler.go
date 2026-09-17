@@ -108,8 +108,9 @@ type configHandler struct {
 	resolvedContext *contextCache
 }
 
-// contextCache memoizes GetContext's resolved value. It is a pointer so WithContext's shallow
-// copy can swap in its own cache instead of sharing one.
+// contextCache memoizes GetContext's resolved value and guards concurrent access to it and to
+// configHandler.context. It is a pointer so WithContext's shallow copy can swap in its own cache
+// instead of sharing one.
 type contextCache struct {
 	mu       sync.RWMutex
 	resolved bool
@@ -411,16 +412,23 @@ func (c *configHandler) GetConfig() *v1alpha1.Context {
 // Steps 2-4 run once per handler and cache in resolvedContext. This isolates a running command
 // from a concurrent "windsor set context" changing the file mid-run. A new handler still reads
 // fresh, so a later command sees the change.
+//
+// The override field c.context and resolvedContext share one lock (resolvedContext.mu): SetContext
+// writes c.context after this handler is already in use, so reading it here needs the same
+// synchronization the cache gets.
 func (c *configHandler) GetContext() string {
-	if c.context != "" {
-		return c.context
-	}
-
 	if c.resolvedContext == nil {
+		if c.context != "" {
+			return c.context
+		}
 		return c.resolveContextFromFileOrEnv()
 	}
 
 	c.resolvedContext.mu.RLock()
+	if c.context != "" {
+		defer c.resolvedContext.mu.RUnlock()
+		return c.context
+	}
 	if c.resolvedContext.resolved {
 		defer c.resolvedContext.mu.RUnlock()
 		return c.resolvedContext.value
@@ -429,6 +437,9 @@ func (c *configHandler) GetContext() string {
 
 	c.resolvedContext.mu.Lock()
 	defer c.resolvedContext.mu.Unlock()
+	if c.context != "" {
+		return c.context
+	}
 	if c.resolvedContext.resolved {
 		return c.resolvedContext.value
 	}
@@ -493,7 +504,14 @@ func (c *configHandler) SetContext(context string) error {
 		return fmt.Errorf("error setting WINDSOR_CONTEXT environment variable: %w", err)
 	}
 
+	if c.resolvedContext == nil {
+		c.context = context
+		return nil
+	}
+
+	c.resolvedContext.mu.Lock()
 	c.context = context
+	c.resolvedContext.mu.Unlock()
 
 	return nil
 }
