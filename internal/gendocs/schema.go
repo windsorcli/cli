@@ -1,12 +1,13 @@
 // schema.go emits docs/reference/<name>.md from JSON Schema files under
 // pkg/runtime/config/schemas/. The schema is the single source of truth for
 // the artifact's shape (windsor.yaml, metadata.yaml, blueprint.yaml, etc.);
-// the walker renders frontmatter, an h1 + intro from the top-level
-// title/description, a field table per object schema, nested-object subsections,
-// an optional Example block from the schema's examples array, and a See also
-// section sourced from an optional '<name>.seealso.md' sidecar file alongside
-// the schema. The sidecar pattern keeps schemas pure JSON Schema (no vendor
-// extensions) while still letting authors curate cross-links per page.
+// the walker renders frontmatter, an intro from the top-level description, a
+// field table per object schema, nested-object subsections, an optional
+// Example block from the schema's examples array, and a See also section
+// sourced from an optional '<name>.seealso.md' sidecar file alongside the
+// schema. The page title lives in frontmatter only; no body H1 repeats it.
+// The sidecar pattern keeps schemas pure JSON Schema (no vendor extensions)
+// while still letting authors curate cross-links per page.
 //
 // Supported schema features: object (with properties + required), array (with
 // items.type), string/integer/boolean/number primitives, enum, default,
