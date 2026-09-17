@@ -1142,6 +1142,48 @@ func TestBaseKubernetesManager_DeleteKustomization(t *testing.T) {
 		}
 	})
 
+	t.Run("DisappearedGraceWindowScalesWithInventorySize", func(t *testing.T) {
+		// Given a still-live entry that settles after more polls than the fixed
+		// abandonedInventoryGraceChecks floor allows, but within the window the
+		// 2-entry last-known inventory extends past that floor
+		manager := setup(t)
+		manager.kustomizationDeletionPerEntryTimeout = 100 * time.Millisecond
+		kubernetesClient := client.NewMockKubernetesClient()
+		kubernetesClient.DeleteResourceFunc = func(gvr schema.GroupVersionResource, namespace, name string, opts metav1.DeleteOptions) error {
+			return nil
+		}
+		calls, entryCalls := 0, 0
+		kubernetesClient.GetResourceFunc = func(gvr schema.GroupVersionResource, namespace, name string) (*unstructured.Unstructured, error) {
+			if name == "test-kustomization" {
+				calls++
+				if calls == 1 {
+					return waitForTerminationKustomization(), nil
+				}
+				return nil, fmt.Errorf("the server could not find the requested resource")
+			}
+			if name == "entry-one" {
+				entryCalls++
+				if entryCalls <= 5 {
+					return &unstructured.Unstructured{Object: map[string]any{}}, nil
+				}
+			}
+			return nil, fmt.Errorf("the server could not find the requested resource")
+		}
+		manager.client = kubernetesClient
+
+		// When DeleteKustomization sees the object disappear
+		err := manager.DeleteKustomization("test-kustomization", "test-namespace")
+
+		// Then it still recovers, because the inventory size extended the grace
+		// window past the abandonedInventoryGraceChecks floor
+		if err != nil {
+			t.Errorf("Expected no error once the entry settles within the scaled grace window, got %v", err)
+		}
+		if entryCalls <= abandonedInventoryGraceChecks {
+			t.Fatalf("Test invalid: entry settled within the old fixed floor (%d calls), does not exercise scaling", entryCalls)
+		}
+	})
+
 	t.Run("DisappearedIsCleanWhenPolicyIsMirrorPrune", func(t *testing.T) {
 		// Given a MirrorPrune kustomization (destroy:false) whose last-known inventory
 		// entry is still live — MirrorPrune deletes resources without waiting for them,

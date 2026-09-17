@@ -101,6 +101,7 @@ type BaseKubernetesManager struct {
 	kustomizationDeletionPerEntryTimeout time.Duration
 	kustomizationDeletionMaxExtraTimeout time.Duration
 	kustomizationSpecTimeoutCeiling      time.Duration
+	kustomizationAbandonedGraceMaxExtra  time.Duration
 
 	notReadyDescribeBudget time.Duration
 
@@ -130,6 +131,7 @@ func NewKubernetesManager(kubernetesClient client.KubernetesClient, configHandle
 		kustomizationDeletionPerEntryTimeout: 3 * time.Second,
 		kustomizationDeletionMaxExtraTimeout: 20 * time.Minute,
 		kustomizationSpecTimeoutCeiling:      2 * time.Hour,
+		kustomizationAbandonedGraceMaxExtra:  3 * time.Minute,
 		notReadyDescribeBudget:               10 * time.Second,
 		healthCheckPollInterval:              10 * time.Second,
 		healthCheckSettleDuration:            30 * time.Second,
@@ -170,10 +172,11 @@ func (k *BaseKubernetesManager) ApplyKustomization(kustomization kustomizev1.Kus
 	return k.applyWithRetry(gvr, obj, opts)
 }
 
-// abandonedInventoryGraceChecks bounds how many extra polls DeleteKustomization spends
-// re-checking a still-live inventory entry after the Kustomization disappears. It gives a
-// resource still finishing its own normal termination a chance to clear before the delete
-// is reported as abandoned rather than clean.
+// abandonedInventoryGraceChecks is the minimum number of extra polls DeleteKustomization
+// spends re-checking a still-live inventory entry after the Kustomization disappears,
+// regardless of inventory size. It gives a resource still finishing its own normal
+// termination a chance to clear before the delete is reported as abandoned rather than
+// clean; see abandonedInventoryGraceWindow for the size-scaled window built on top of it.
 const abandonedInventoryGraceChecks = 3
 
 // DeleteKustomization deletes a Kustomization and waits for it to disappear. The wait
@@ -216,7 +219,8 @@ func (k *BaseKubernetesManager) deleteKustomization(name, namespace string, expe
 		obj, err := k.client.GetResource(gvr, namespace, name)
 		if err != nil && isNotFoundError(err) {
 			entry := k.describeAbandonedInventory(lastObj, expectWaitForTermination)
-			for i := 0; entry != nil && i < abandonedInventoryGraceChecks; i++ {
+			graceDeadline := k.shims.TimeNow().Add(k.abandonedInventoryGraceWindow(inventorySize(lastObj)))
+			for entry != nil && k.shims.TimeNow().Before(graceDeadline) {
 				k.shims.TimeSleep(k.kustomizationWaitPollInterval)
 				entry = k.describeAbandonedInventory(lastObj, expectWaitForTermination)
 			}
@@ -329,19 +333,37 @@ func extendWaitFor(waitFor, candidate time.Duration) time.Duration {
 	return waitFor
 }
 
+// scaledExtraTimeout multiplies entryCount by perEntry, capped at maxExtra so a corrupted
+// or unusually large count cannot stall destroy indefinitely. entryCount is clamped before
+// the multiplication to guard against Duration overflow.
+func scaledExtraTimeout(entryCount int, perEntry, maxExtra time.Duration) time.Duration {
+	const maxEntryCount = 100_000
+	if entryCount > maxEntryCount {
+		entryCount = maxEntryCount
+	}
+	extra := time.Duration(entryCount) * perEntry
+	if extra > maxExtra {
+		extra = maxExtra
+	}
+	return extra
+}
+
 // kustomizationDeletionTimeout scales DeleteKustomization's wait window by inventory
 // size, capped at kustomizationDeletionMaxExtraTimeout so a corrupted or unusually
 // large count cannot stall destroy indefinitely.
 func (k *BaseKubernetesManager) kustomizationDeletionTimeout(entryCount int) time.Duration {
-	const maxEntryCount = 100_000 // guards the Duration multiplication below against overflow
-	if entryCount > maxEntryCount {
-		entryCount = maxEntryCount
-	}
-	extra := time.Duration(entryCount) * k.kustomizationDeletionPerEntryTimeout
-	if extra > k.kustomizationDeletionMaxExtraTimeout {
-		extra = k.kustomizationDeletionMaxExtraTimeout
-	}
+	extra := scaledExtraTimeout(entryCount, k.kustomizationDeletionPerEntryTimeout, k.kustomizationDeletionMaxExtraTimeout)
 	return k.kustomizationReconcileTimeout + extra
+}
+
+// abandonedInventoryGraceWindow scales DeleteKustomization's re-check window for a
+// still-live inventory entry by inventory size, capped at kustomizationAbandonedGraceMaxExtra
+// so a corrupted or unusually large count cannot stall destroy indefinitely.
+// abandonedInventoryGraceChecks sets the floor.
+func (k *BaseKubernetesManager) abandonedInventoryGraceWindow(entryCount int) time.Duration {
+	base := time.Duration(abandonedInventoryGraceChecks) * k.kustomizationWaitPollInterval
+	extra := scaledExtraTimeout(entryCount, k.kustomizationDeletionPerEntryTimeout, k.kustomizationAbandonedGraceMaxExtra)
+	return base + extra
 }
 
 // describeStuckKustomization extracts the most diagnostic status condition from a
