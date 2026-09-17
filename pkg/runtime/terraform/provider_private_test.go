@@ -1404,75 +1404,52 @@ func TestTerraformProvider_restoreEnvVars(t *testing.T) {
 }
 
 func TestTerraformProvider_providerScope(t *testing.T) {
-	t.Run("ResolvesOnceAndReusesResultOnSubsequentCalls", func(t *testing.T) {
-		// Given context and paths that change between calls, simulating a concurrent windsor
-		// process overwriting the shared context file
+	t.Run("DelegatesDirectlyToConfigHandlerEachCall", func(t *testing.T) {
+		// Given a config handler backing this provider — isolation from a concurrent windsor
+		// process changing context mid-run now lives in ConfigHandler.GetContext's own cache,
+		// not in providerScope, so this only needs to verify correct delegation
 		mocks := setupMocks(t)
 		provider := mocks.Provider
 		mockConfig := provider.configHandler.(*config.MockConfigHandler)
 
-		callCount := 0
-		mockConfig.GetContextFunc = func() string {
-			callCount++
-			if callCount == 1 {
-				return "ctxA"
-			}
-			return "ctxB"
-		}
-		mockConfig.GetConfigRootFunc = func() (string, error) {
-			if callCount <= 1 {
-				return "/contexts/ctxA", nil
-			}
-			return "/contexts/ctxB", nil
-		}
-		mockConfig.GetWindsorScratchPathFunc = func() (string, error) {
-			if callCount <= 1 {
-				return "/.windsor/contexts/ctxA", nil
-			}
-			return "/.windsor/contexts/ctxB", nil
-		}
+		mockConfig.GetContextFunc = func() string { return "ctxA" }
+		mockConfig.GetConfigRootFunc = func() (string, error) { return "/contexts/ctxA", nil }
+		mockConfig.GetWindsorScratchPathFunc = func() (string, error) { return "/.windsor/contexts/ctxA", nil }
 
-		// When resolving scope twice
-		context1, configRoot1, scratch1, err1 := provider.providerScope()
-		context2, configRoot2, scratch2, err2 := provider.providerScope()
+		// When resolving scope
+		contextName, configRoot, scratch, err := provider.providerScope()
 
-		// Then both calls return the first-resolved values
-		if err1 != nil || err2 != nil {
-			t.Fatalf("Expected no error, got %v / %v", err1, err2)
+		// Then it returns exactly what the config handler reports
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
 		}
-		if context1 != "ctxA" || context2 != "ctxA" {
-			t.Errorf("Expected both calls to return 'ctxA', got %q and %q", context1, context2)
-		}
-		if configRoot1 != "/contexts/ctxA" || configRoot2 != "/contexts/ctxA" {
-			t.Errorf("Expected both calls to return the ctxA config root, got %q and %q", configRoot1, configRoot2)
-		}
-		if scratch1 != "/.windsor/contexts/ctxA" || scratch2 != "/.windsor/contexts/ctxA" {
-			t.Errorf("Expected both calls to return the ctxA scratch path, got %q and %q", scratch1, scratch2)
+		if contextName != "ctxA" || configRoot != "/contexts/ctxA" || scratch != "/.windsor/contexts/ctxA" {
+			t.Errorf("Expected 'ctxA' / '/contexts/ctxA' / '/.windsor/contexts/ctxA', got %q / %q / %q", contextName, configRoot, scratch)
 		}
 	})
 
-	t.Run("CachesErrorAndDoesNotRetry", func(t *testing.T) {
-		// Given GetConfigRoot always fails
+	t.Run("PropagatesConfigRootErrorWithoutCallingWindsorScratchPath", func(t *testing.T) {
+		// Given GetConfigRoot fails
 		mocks := setupMocks(t)
 		provider := mocks.Provider
 		mockConfig := provider.configHandler.(*config.MockConfigHandler)
 
-		callCount := 0
-		mockConfig.GetConfigRootFunc = func() (string, error) {
-			callCount++
-			return "", fmt.Errorf("config root error")
+		mockConfig.GetConfigRootFunc = func() (string, error) { return "", fmt.Errorf("config root error") }
+		scratchCalled := false
+		mockConfig.GetWindsorScratchPathFunc = func() (string, error) {
+			scratchCalled = true
+			return "", nil
 		}
 
-		// When resolving scope twice
-		_, _, _, err1 := provider.providerScope()
-		_, _, _, err2 := provider.providerScope()
+		// When resolving scope
+		_, _, _, err := provider.providerScope()
 
-		// Then both calls return the error, and GetConfigRoot is called only once
-		if err1 == nil || err2 == nil {
-			t.Fatal("Expected both calls to return an error")
+		// Then the error is returned, and GetWindsorScratchPath is never attempted
+		if err == nil {
+			t.Fatal("Expected an error")
 		}
-		if callCount != 1 {
-			t.Errorf("Expected GetConfigRoot to be called exactly once, got %d calls", callCount)
+		if scratchCalled {
+			t.Error("Expected GetWindsorScratchPath not to be called once GetConfigRoot fails")
 		}
 	})
 }
