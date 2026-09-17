@@ -3,6 +3,7 @@ package kubernetes
 import (
 	"context"
 	"fmt"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -506,6 +507,163 @@ func TestBaseKubernetesManager_remediateLoadBalancerOwners(t *testing.T) {
 		}
 		if !strings.Contains(err.Error(), "gateways external") {
 			t.Errorf("Expected error to name the stuck owner distinctly from the service, got %v", err)
+		}
+	})
+
+	gatewayClassesGVR := schema.GroupVersionResource{Group: "gateway.networking.k8s.io", Version: "v1", Resource: "gatewayclasses"}
+	resourceForGatewayOrClass := func(gvk schema.GroupVersionKind) (schema.GroupVersionResource, error) {
+		if gvk.Kind == "GatewayClass" {
+			return gatewayClassesGVR, nil
+		}
+		return gatewaysGVR, nil
+	}
+	isGatewayClassNamespaced := func(gvk schema.GroupVersionKind) (bool, error) {
+		return gvk.Kind != "GatewayClass", nil
+	}
+
+	t.Run("ClearsBlockingGatewayFromAnotherKustomizationBeforeDeletingGatewayClass", func(t *testing.T) {
+		// Given a stray LoadBalancer Service owned by a GatewayClass (gateway-install's
+		// inventory), and a Gateway naming that class in a different Kustomization's
+		// inventory (gateway-resources) that the ordered walk hasn't reached yet (cli#3385)
+		manager := setup(t)
+		twoKustomizations := []blueprintv1alpha1.Kustomization{{Name: "gateway-install"}, {Name: "gateway-resources"}}
+		kubernetesClient := client.NewMockKubernetesClient()
+		kubernetesClient.GetResourceFunc = func(gvr schema.GroupVersionResource, namespace, name string) (*unstructured.Unstructured, error) {
+			if gvr.Resource == "kustomizations" {
+				if name == "gateway-install" {
+					return kustomizationWithInventory("_envoy_gateway.networking.k8s.io_GatewayClass"), nil
+				}
+				return kustomizationWithInventory(gatewayInventoryID), nil
+			}
+			if gvr == gatewaysGVR {
+				return &unstructured.Unstructured{Object: map[string]any{
+					"metadata": map[string]any{"namespace": "system-gateway", "name": "external"},
+					"spec":     map[string]any{"gatewayClassName": "envoy"},
+				}}, nil
+			}
+			return nil, fmt.Errorf("%s %q not found", gvr.Resource, name)
+		}
+		kubernetesClient.ListResourcesFunc = func(gvr schema.GroupVersionResource, namespace string) (*unstructured.UnstructuredList, error) {
+			gatewayClassOwner := metav1.OwnerReference{
+				APIVersion: "gateway.networking.k8s.io/v1",
+				Kind:       "GatewayClass",
+				Name:       "envoy",
+				Controller: &controller,
+			}
+			return &unstructured.UnstructuredList{Items: []unstructured.Unstructured{
+				lbService("system-gateway", "envoy-system-gateway-external", &gatewayClassOwner),
+			}}, nil
+		}
+		kubernetesClient.ResourceForFunc = resourceForGatewayOrClass
+		kubernetesClient.IsNamespacedFunc = isGatewayClassNamespaced
+		var deleted []string
+		kubernetesClient.DeleteResourceFunc = func(gvr schema.GroupVersionResource, namespace, name string, opts metav1.DeleteOptions) error {
+			deleted = append(deleted, gvr.Resource+"/"+name)
+			return nil
+		}
+		manager.client = kubernetesClient
+
+		// When remediation runs
+		if err := manager.remediateLoadBalancerOwners(twoKustomizations, "system-gitops"); err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+
+		// Then the blocking Gateway is deleted before/alongside the GatewayClass, rather than
+		// remediation timing out waiting on a finalizer nothing ever cleared
+		if !slices.Contains(deleted, "gateways/external") {
+			t.Errorf("Expected the blocking gateway 'external' to be deleted, got %v", deleted)
+		}
+		if !slices.Contains(deleted, "gatewayclasses/envoy") {
+			t.Errorf("Expected the gatewayclass 'envoy' to be deleted, got %v", deleted)
+		}
+	})
+
+	t.Run("LeavesGatewayForADifferentGatewayClassUntouched", func(t *testing.T) {
+		// Given a Gateway in inventory that names a different GatewayClass than the one
+		// being remediated
+		manager := setup(t)
+		twoKustomizations := []blueprintv1alpha1.Kustomization{{Name: "gateway-install"}, {Name: "gateway-resources"}}
+		kubernetesClient := client.NewMockKubernetesClient()
+		kubernetesClient.GetResourceFunc = func(gvr schema.GroupVersionResource, namespace, name string) (*unstructured.Unstructured, error) {
+			if gvr.Resource == "kustomizations" {
+				if name == "gateway-install" {
+					return kustomizationWithInventory("_envoy_gateway.networking.k8s.io_GatewayClass"), nil
+				}
+				return kustomizationWithInventory(gatewayInventoryID), nil
+			}
+			if gvr == gatewaysGVR {
+				return &unstructured.Unstructured{Object: map[string]any{
+					"metadata": map[string]any{"namespace": "system-gateway", "name": "external"},
+					"spec":     map[string]any{"gatewayClassName": "other-class"},
+				}}, nil
+			}
+			return nil, fmt.Errorf("%s %q not found", gvr.Resource, name)
+		}
+		kubernetesClient.ListResourcesFunc = func(gvr schema.GroupVersionResource, namespace string) (*unstructured.UnstructuredList, error) {
+			gatewayClassOwner := metav1.OwnerReference{
+				APIVersion: "gateway.networking.k8s.io/v1",
+				Kind:       "GatewayClass",
+				Name:       "envoy",
+				Controller: &controller,
+			}
+			return &unstructured.UnstructuredList{Items: []unstructured.Unstructured{
+				lbService("system-gateway", "envoy-system-gateway-external", &gatewayClassOwner),
+			}}, nil
+		}
+		kubernetesClient.ResourceForFunc = resourceForGatewayOrClass
+		kubernetesClient.IsNamespacedFunc = isGatewayClassNamespaced
+		var deleted []string
+		kubernetesClient.DeleteResourceFunc = func(gvr schema.GroupVersionResource, namespace, name string, opts metav1.DeleteOptions) error {
+			deleted = append(deleted, gvr.Resource+"/"+name)
+			return nil
+		}
+		manager.client = kubernetesClient
+
+		// When remediation runs
+		if err := manager.remediateLoadBalancerOwners(twoKustomizations, "system-gitops"); err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+
+		// Then the gateway naming a different class is left alone
+		if slices.Contains(deleted, "gateways/external") {
+			t.Errorf("Expected gateway 'external' (different class) to be left untouched, got %v", deleted)
+		}
+	})
+
+	t.Run("SkipsGatewayClearingForNonGatewayClassOwner", func(t *testing.T) {
+		// Given an owned root that is a Gateway, not a GatewayClass
+		manager := setup(t)
+		kubernetesClient := client.NewMockKubernetesClient()
+		kubernetesClient.GetResourceFunc = func(gvr schema.GroupVersionResource, namespace, name string) (*unstructured.Unstructured, error) {
+			if gvr.Resource == "kustomizations" {
+				return kustomizationWithInventory(gatewayInventoryID), nil
+			}
+			return nil, fmt.Errorf("%s %q not found", gvr.Resource, name)
+		}
+		kubernetesClient.ListResourcesFunc = func(gvr schema.GroupVersionResource, namespace string) (*unstructured.UnstructuredList, error) {
+			return &unstructured.UnstructuredList{Items: []unstructured.Unstructured{
+				lbService("system-gateway", "cilium-gateway-external", &gatewayOwner),
+			}}, nil
+		}
+		kubernetesClient.ResourceForFunc = func(gvk schema.GroupVersionKind) (schema.GroupVersionResource, error) {
+			return gatewaysGVR, nil
+		}
+		deleteCount := 0
+		kubernetesClient.DeleteResourceFunc = func(gvr schema.GroupVersionResource, namespace, name string, opts metav1.DeleteOptions) error {
+			deleteCount++
+			return nil
+		}
+		manager.client = kubernetesClient
+
+		// When remediation runs
+		if err := manager.remediateLoadBalancerOwners(eligible, "system-gitops"); err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+
+		// Then only the owned Gateway itself is deleted — no extra gateway-clearing pass runs
+		// for a root that isn't a GatewayClass
+		if deleteCount != 1 {
+			t.Errorf("Expected exactly 1 delete, got %d", deleteCount)
 		}
 	})
 }
