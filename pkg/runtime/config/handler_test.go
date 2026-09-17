@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/windsorcli/cli/api/v1alpha1"
@@ -1791,6 +1792,108 @@ func TestConfigHandler_GetContext(t *testing.T) {
 			t.Errorf("Expected default 'local', got '%s'", context)
 		}
 	})
+
+	t.Run("CachesResolvedContextForTheLifeOfTheHandler", func(t *testing.T) {
+		// Given a handler that has already resolved its context once
+		mocks := setupConfigMocks(t)
+		tmpDir, _ := mocks.Shell.GetProjectRoot()
+
+		os.Unsetenv("WINDSOR_CONTEXT")
+		defer os.Setenv("WINDSOR_CONTEXT", "test-context")
+
+		handler := NewConfigHandler(mocks.Shell)
+
+		contextFilePath := filepath.Join(tmpDir, ".windsor", "context")
+		os.MkdirAll(filepath.Dir(contextFilePath), 0755)
+		os.WriteFile(contextFilePath, []byte("first-context"), 0644)
+
+		if first := handler.GetContext(); first != "first-context" {
+			t.Fatalf("Expected 'first-context' on first read, got '%s'", first)
+		}
+
+		// When the context file changes underneath it, as a concurrent "windsor set context"
+		// in another process would
+		os.WriteFile(contextFilePath, []byte("second-context"), 0644)
+
+		// Then this handler keeps returning its first resolution, not the new file content
+		if second := handler.GetContext(); second != "first-context" {
+			t.Errorf("Expected the cached 'first-context' to survive a later file change, got '%s'", second)
+		}
+	})
+
+	t.Run("FreshHandlerReResolvesAfterAConcurrentContextChange", func(t *testing.T) {
+		// Given a context file changed after one handler already resolved it
+		mocks := setupConfigMocks(t)
+		tmpDir, _ := mocks.Shell.GetProjectRoot()
+
+		os.Unsetenv("WINDSOR_CONTEXT")
+		defer os.Setenv("WINDSOR_CONTEXT", "test-context")
+
+		contextFilePath := filepath.Join(tmpDir, ".windsor", "context")
+		os.MkdirAll(filepath.Dir(contextFilePath), 0755)
+		os.WriteFile(contextFilePath, []byte("first-context"), 0644)
+
+		if first := NewConfigHandler(mocks.Shell).GetContext(); first != "first-context" {
+			t.Fatalf("Expected 'first-context', got '%s'", first)
+		}
+
+		os.WriteFile(contextFilePath, []byte("second-context"), 0644)
+
+		// When a new handler resolves context, as the next "windsor" command's fresh process would
+		second := NewConfigHandler(mocks.Shell).GetContext()
+
+		// Then it sees the current file content, not anything cached by the earlier handler
+		if second != "second-context" {
+			t.Errorf("Expected a new handler to see 'second-context', got '%s'", second)
+		}
+	})
+
+	t.Run("ConcurrentReadsResolveConsistently", func(t *testing.T) {
+		// Given many goroutines reading the same handler's context at once
+		mocks := setupConfigMocks(t)
+		tmpDir, _ := mocks.Shell.GetProjectRoot()
+
+		os.Unsetenv("WINDSOR_CONTEXT")
+		defer os.Setenv("WINDSOR_CONTEXT", "test-context")
+
+		handler := NewConfigHandler(mocks.Shell)
+
+		contextFilePath := filepath.Join(tmpDir, ".windsor", "context")
+		os.MkdirAll(filepath.Dir(contextFilePath), 0755)
+		os.WriteFile(contextFilePath, []byte("concurrent-context"), 0644)
+
+		var wg sync.WaitGroup
+		results := make([]string, 20)
+		for i := range results {
+			wg.Add(1)
+			go func(i int) {
+				defer wg.Done()
+				results[i] = handler.GetContext()
+			}(i)
+		}
+		wg.Wait()
+
+		// Then every goroutine observes the same resolved value, with no race
+		for i, r := range results {
+			if r != "concurrent-context" {
+				t.Errorf("goroutine %d: expected 'concurrent-context', got '%s'", i, r)
+			}
+		}
+	})
+
+	t.Run("HandlesNilResolvedContextGracefully", func(t *testing.T) {
+		// Given a handler built by hand, skipping NewConfigHandler's cache initialization
+		os.Setenv("WINDSOR_CONTEXT", "env-context")
+		defer os.Setenv("WINDSOR_CONTEXT", "test-context")
+
+		handler := &configHandler{shims: NewShims()}
+
+		// When getting context
+		// Then it falls back to an uncached resolve instead of panicking on a nil cache
+		if got := handler.GetContext(); got != "env-context" {
+			t.Errorf("Expected 'env-context', got '%s'", got)
+		}
+	})
 }
 
 func TestConfigHandler_WithContext(t *testing.T) {
@@ -1885,6 +1988,43 @@ func TestConfigHandler_SetContext(t *testing.T) {
 		// Then it should return WriteFile error
 		if err == nil {
 			t.Error("Expected WriteFile error")
+		}
+	})
+
+	t.Run("SameHandlerSeesItsOwnSetContextImmediately", func(t *testing.T) {
+		// Given a handler that has already cached a resolved context
+		mocks := setupConfigMocks(t)
+		handler := NewConfigHandler(mocks.Shell)
+
+		if first := handler.GetContext(); first == "new-context" {
+			t.Fatalf("Test invalid: 'new-context' must not already be the resolved value")
+		}
+
+		// When this same handler sets a new context
+		if err := handler.SetContext("new-context"); err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+
+		// Then it sees the new value on its very next read, unlike a concurrent handler's
+		// unrelated file change, which GetContext's own cache is meant to ignore
+		if got := handler.GetContext(); got != "new-context" {
+			t.Errorf("Expected 'new-context' immediately after SetContext, got '%s'", got)
+		}
+	})
+
+	t.Run("OverridesEvenAWithContextDerivedHandler", func(t *testing.T) {
+		// Given a handler with a WithContext override already applied
+		mocks := setupConfigMocks(t)
+		handler := NewConfigHandler(mocks.Shell).WithContext("staging")
+
+		// When that same handler sets a new context
+		if err := handler.SetContext("production"); err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+
+		// Then the new value wins, not the earlier override
+		if got := handler.GetContext(); got != "production" {
+			t.Errorf("Expected 'production' after SetContext, got '%s'", got)
 		}
 	})
 }

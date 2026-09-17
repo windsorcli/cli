@@ -41,15 +41,6 @@ type terraformProvider struct {
 	configScope   map[string]any
 	warningWriter io.Writer
 	mu            sync.RWMutex
-
-	// scopeMu is separate from mu. GetTerraformComponents holds mu while calling
-	// loadTerraformComponents, which calls providerScope.
-	scopeMu            sync.RWMutex
-	scopeResolved      bool
-	scopeErr           error
-	contextName        string
-	configRoot         string
-	windsorScratchPath string
 }
 
 // terraformContext provides a scoped environment for Terraform operations with automatic cleanup.
@@ -846,32 +837,18 @@ func (p *terraformProvider) walkLocalStateDir(dir, rel string, ids *[]string) er
 	return nil
 }
 
-// providerScope resolves the active context, config root, and Windsor scratch path once, then
-// reuses the result. configHandler.GetContext() reads a file shared by every windsor process in
-// the checkout. A live read on each call would let a concurrent windsor process for another
-// context change this provider's Terraform args mid-run.
+// providerScope resolves the active context, config root, and Windsor scratch path.
+// configHandler.GetContext() caches itself, so this needs no cache of its own.
 func (p *terraformProvider) providerScope() (contextName, configRoot, windsorScratchPath string, err error) {
-	p.scopeMu.RLock()
-	if p.scopeResolved {
-		defer p.scopeMu.RUnlock()
-		return p.contextName, p.configRoot, p.windsorScratchPath, p.scopeErr
-	}
-	p.scopeMu.RUnlock()
+	contextName = p.configHandler.GetContext()
 
-	p.scopeMu.Lock()
-	defer p.scopeMu.Unlock()
-	if p.scopeResolved {
-		return p.contextName, p.configRoot, p.windsorScratchPath, p.scopeErr
+	configRoot, err = p.configHandler.GetConfigRoot()
+	if err != nil {
+		return contextName, "", "", err
 	}
 
-	p.contextName = p.configHandler.GetContext()
-	p.configRoot, p.scopeErr = p.configHandler.GetConfigRoot()
-	if p.scopeErr == nil {
-		p.windsorScratchPath, p.scopeErr = p.configHandler.GetWindsorScratchPath()
-	}
-	p.scopeResolved = true
-
-	return p.contextName, p.configRoot, p.windsorScratchPath, p.scopeErr
+	windsorScratchPath, err = p.configHandler.GetWindsorScratchPath()
+	return contextName, configRoot, windsorScratchPath, err
 }
 
 // registerTerraformOutputHelper registers the terraform_output helper function with the evaluator.

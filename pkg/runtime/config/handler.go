@@ -6,6 +6,7 @@ import (
 	"maps"
 	"path/filepath"
 	"strings"
+	"sync"
 
 	"github.com/windsorcli/cli/api/v1alpha1"
 	"github.com/windsorcli/cli/pkg/runtime/shell"
@@ -102,6 +103,17 @@ type configHandler struct {
 	// test context, which otherwise skips it. Consumers that want the production composition path
 	// under a test context (the facet test runner, per case) set this; it is a no-op elsewhere.
 	applySchemaDefaults bool
+
+	// resolvedContext memoizes GetContext's file/env/default lookup; see GetContext.
+	resolvedContext *contextCache
+}
+
+// contextCache memoizes GetContext's resolved value. It is a pointer so WithContext's shallow
+// copy can swap in its own cache instead of sharing one.
+type contextCache struct {
+	mu       sync.RWMutex
+	resolved bool
+	value    string
 }
 
 // =============================================================================
@@ -115,10 +127,11 @@ func NewConfigHandler(shell shell.Shell) ConfigHandler {
 	}
 
 	handler := &configHandler{
-		shell:     shell,
-		shims:     NewShims(),
-		data:      make(map[string]any),
-		providers: make(map[string]ValueProvider),
+		shell:           shell,
+		shims:           NewShims(),
+		data:            make(map[string]any),
+		providers:       make(map[string]ValueProvider),
+		resolvedContext: &contextCache{},
 	}
 
 	handler.schemaValidator = NewSchemaValidator(shell)
@@ -394,29 +407,35 @@ func (c *configHandler) GetConfig() *v1alpha1.Context {
 // File takes precedence over env var so that commands run immediately after
 // "windsor set context" use the new context before the shell hook has a chance to update
 // the WINDSOR_CONTEXT variable in the user's shell.
+//
+// Steps 2-4 run once per handler and cache in resolvedContext. This isolates a running command
+// from a concurrent "windsor set context" changing the file mid-run. A new handler still reads
+// fresh, so a later command sees the change.
 func (c *configHandler) GetContext() string {
 	if c.context != "" {
 		return c.context
 	}
 
-	if c.shell != nil {
-		projectRoot, err := c.shell.GetProjectRoot()
-		if err == nil {
-			contextFilePath := filepath.Join(projectRoot, windsorDirName, contextFileName)
-			data, err := c.shims.ReadFile(contextFilePath)
-			if err == nil {
-				if fileContext := strings.TrimSpace(string(data)); fileContext != "" {
-					return fileContext
-				}
-			}
-		}
+	if c.resolvedContext == nil {
+		return c.resolveContextFromFileOrEnv()
 	}
 
-	if envContext := c.shims.Getenv("WINDSOR_CONTEXT"); envContext != "" {
-		return envContext
+	c.resolvedContext.mu.RLock()
+	if c.resolvedContext.resolved {
+		defer c.resolvedContext.mu.RUnlock()
+		return c.resolvedContext.value
+	}
+	c.resolvedContext.mu.RUnlock()
+
+	c.resolvedContext.mu.Lock()
+	defer c.resolvedContext.mu.Unlock()
+	if c.resolvedContext.resolved {
+		return c.resolvedContext.value
 	}
 
-	return "local"
+	c.resolvedContext.value = c.resolveContextFromFileOrEnv()
+	c.resolvedContext.resolved = true
+	return c.resolvedContext.value
 }
 
 // WithContext returns a new ConfigHandler that is a shallow copy of the receiver with an
@@ -424,6 +443,7 @@ func (c *configHandler) GetContext() string {
 // bypassing the .windsor/context file and the WINDSOR_CONTEXT env var. The original handler
 // is not modified. Maps (data, providers) are copied shallowly to prevent aliasing. Pending
 // Set paths are not carried over: they target the receiver's own values.yaml, not the copy's.
+// The copy gets its own resolvedContext cache.
 // Use this for ephemeral overrides (e.g. windsor test) that must not touch the filesystem.
 func (c *configHandler) WithContext(name string) ConfigHandler {
 	cp := *c
@@ -432,6 +452,7 @@ func (c *configHandler) WithContext(name string) ConfigHandler {
 	cp.providers = maps.Clone(c.providers)
 	cp.pendingOverrides = nil
 	cp.pendingDeletes = nil
+	cp.resolvedContext = &contextCache{}
 	return &cp
 }
 
@@ -447,7 +468,10 @@ func (c *configHandler) IsDevMode(contextName string) bool {
 	return contextName == "local" || strings.HasPrefix(contextName, "local-")
 }
 
-// SetContext sets the current context in the file and updates the cache
+// SetContext writes the current context to the file and env var, and sets this handler's own
+// override so GetContext returns the new value immediately, taking priority the same way an
+// override from WithContext does. A different handler still sees the change only on its own
+// next resolution.
 func (c *configHandler) SetContext(context string) error {
 	projectRoot, err := c.shell.GetProjectRoot()
 	if err != nil {
@@ -468,6 +492,8 @@ func (c *configHandler) SetContext(context string) error {
 	if err := c.shims.Setenv("WINDSOR_CONTEXT", context); err != nil {
 		return fmt.Errorf("error setting WINDSOR_CONTEXT environment variable: %w", err)
 	}
+
+	c.context = context
 
 	return nil
 }
@@ -648,6 +674,29 @@ func (c *configHandler) GenerateContextID() error {
 // =============================================================================
 // Private Methods
 // =============================================================================
+
+// resolveContextFromFileOrEnv resolves context from file, env, or default. GetContext caches
+// the result.
+func (c *configHandler) resolveContextFromFileOrEnv() string {
+	if c.shell != nil {
+		projectRoot, err := c.shell.GetProjectRoot()
+		if err == nil {
+			contextFilePath := filepath.Join(projectRoot, windsorDirName, contextFileName)
+			data, err := c.shims.ReadFile(contextFilePath)
+			if err == nil {
+				if fileContext := strings.TrimSpace(string(data)); fileContext != "" {
+					return fileContext
+				}
+			}
+		}
+	}
+
+	if envContext := c.shims.Getenv("WINDSOR_CONTEXT"); envContext != "" {
+		return envContext
+	}
+
+	return "local"
+}
 
 // getPersistencePolicyInput builds policy input for persistence ownership decisions.
 func (c *configHandler) getPersistencePolicyInput() persistencePolicyInput {
