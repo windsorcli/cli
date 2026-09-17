@@ -340,8 +340,7 @@ $defs:
     description: |
       Per-context Terraform settings (state backend, lock policy, timeout).
       The runtime-validator sub-types (BackendConfig, LockConfig) are
-      authored in api/v1alpha1/terraform/terraform_config.go; expansion to
-      full field detail is a planned follow-up.
+      authored in api/v1alpha1/terraform/terraform_config.go.
     properties:
       enabled:
         type: boolean
@@ -407,8 +406,7 @@ $defs:
     description: |
       Kubernetes cluster configuration. Node-group sub-types
       (NodeGroupConfig) are authored in
-      api/v1alpha1/cluster/cluster_config.go; expansion to full field
-      detail is a planned follow-up.
+      api/v1alpha1/cluster/cluster_config.go.
     properties:
       enabled:
         type: boolean
