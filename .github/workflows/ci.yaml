@@ -225,7 +225,7 @@ jobs:
       # subject). Docs describe the current state; ADRs are excluded since
       # discussing deferred work is their actual job.
       - name: Validate no future-work framing in docs
-        run: task docs:no-future-work
+        run: scripts/no-future-work.sh
 
   build-nightly:
     runs-on: windows-latest
