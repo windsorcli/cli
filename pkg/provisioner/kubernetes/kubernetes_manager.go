@@ -1900,6 +1900,13 @@ var servicesGVR = schema.GroupVersionResource{Group: "", Version: "v1", Resource
 // LoadBalancer Service, guarding against cyclic or pathologically deep owner chains.
 const maxOwnerWalkDepth = 8
 
+// gatewayAPIGroup and gatewayClassResource identify a Gateway API GatewayClass, so
+// deleteBlockingGateways knows when an owned root needs its blocking Gateways cleared.
+const (
+	gatewayAPIGroup      = "gateway.networking.k8s.io"
+	gatewayClassResource = "gatewayclasses"
+)
+
 // ownedTarget identifies an inventory-owned resource to foreground-delete during load balancer
 // remediation, addressed by its resolved GVR, namespace, and name.
 type ownedTarget struct {
@@ -1920,7 +1927,7 @@ type ownedTarget struct {
 // ownerReference cascade blocks on the child Service's cloud finalizer while the CCM can still
 // release the LB. Services with no inventory-owned ancestor are foreign and left untouched.
 func (k *BaseKubernetesManager) remediateLoadBalancerOwners(eligible []blueprintv1alpha1.Kustomization, namespace string) error {
-	owned, err := k.ownedInventorySet(eligible, namespace)
+	owned, entries, err := k.ownedInventorySet(eligible, namespace)
 	if err != nil {
 		return err
 	}
@@ -1954,6 +1961,9 @@ func (k *BaseKubernetesManager) remediateLoadBalancerOwners(eligible []blueprint
 			continue
 		}
 		handled[key] = true
+		if err := k.deleteBlockingGateways(target.gvr, target.name, entries); err != nil {
+			return err
+		}
 		if err := k.foregroundDeleteAndWaitService(target, svc); err != nil {
 			return err
 		}
@@ -1962,20 +1972,23 @@ func (k *BaseKubernetesManager) remediateLoadBalancerOwners(eligible []blueprint
 }
 
 // ownedInventorySet returns the set of resources managed by the eligible kustomizations, keyed by
-// group/kind/namespace/name, from each kustomization's Flux inventory. This is the ground truth of
-// "resources we own" that scopes load balancer remediation to our own LoadBalancers.
-func (k *BaseKubernetesManager) ownedInventorySet(eligible []blueprintv1alpha1.Kustomization, namespace string) (map[string]bool, error) {
+// group/kind/namespace/name, alongside the raw entries, from each kustomization's Flux inventory.
+// The set is the ground truth of "resources we own" that scopes load balancer remediation to our
+// own LoadBalancers; the raw entries let callers filter by kind, e.g. deleteBlockingGateways.
+func (k *BaseKubernetesManager) ownedInventorySet(eligible []blueprintv1alpha1.Kustomization, namespace string) (map[string]bool, []InventoryEntry, error) {
 	owned := make(map[string]bool)
+	var all []InventoryEntry
 	for _, kustomization := range eligible {
 		entries, err := k.GetKustomizationInventory(kustomization.Name, namespace)
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 		for _, entry := range entries {
 			owned[inventoryKey(entry.Group, entry.Kind, entry.Namespace, entry.Name)] = true
+			all = append(all, entry)
 		}
 	}
-	return owned, nil
+	return owned, all, nil
 }
 
 // ownedRootForService walks a LoadBalancer Service's ownerReferences to the first ancestor present
@@ -2027,6 +2040,46 @@ func (k *BaseKubernetesManager) ownedRootForService(svc *unstructured.Unstructur
 		current = next
 	}
 	return ownedTarget{}, false, nil
+}
+
+// deleteBlockingGateways foreground-deletes every eligible-inventory Gateway naming the given
+// GatewayClass before its own foreground-delete-and-wait begins. The class's gateway-exists-
+// finalizer only lifts once no Gateway anywhere still names it, and without this a Gateway
+// belonging to a not-yet-reached Kustomization — one orderForDestroy would delete moments later
+// anyway — can time out remediation for no reason. Only inventory Gateways are touched; a
+// foreign one is left alone, matching remediation's existing scope. A no-op for any other kind
+// of owned root.
+func (k *BaseKubernetesManager) deleteBlockingGateways(classGVR schema.GroupVersionResource, className string, entries []InventoryEntry) error {
+	if classGVR.Group != gatewayAPIGroup || classGVR.Resource != gatewayClassResource {
+		return nil
+	}
+	gatewayGVR, err := k.client.ResourceFor(schema.GroupVersionKind{Group: classGVR.Group, Version: classGVR.Version, Kind: "Gateway"})
+	if err != nil {
+		if apimeta.IsNoMatchError(err) {
+			return nil
+		}
+		return fmt.Errorf("error resolving gateway resource while clearing gatewayclass %s: %w", className, err)
+	}
+	for _, entry := range entries {
+		if entry.Kind != "Gateway" || entry.Group != gatewayAPIGroup {
+			continue
+		}
+		gw, err := k.client.GetResource(gatewayGVR, entry.Namespace, entry.Name)
+		if err != nil {
+			if isNotFoundError(err) {
+				continue
+			}
+			return fmt.Errorf("error reading gateway %s/%s while clearing gatewayclass %s: %w", entry.Namespace, entry.Name, className, err)
+		}
+		gatewayClassName, _, _ := unstructured.NestedString(gw.Object, "spec", "gatewayClassName")
+		if gatewayClassName != className {
+			continue
+		}
+		if err := k.client.DeleteResource(gatewayGVR, entry.Namespace, entry.Name, metav1.DeleteOptions{}); err != nil && !isNotFoundError(err) {
+			return fmt.Errorf("error deleting gateway %s/%s to release gatewayclass %s: %w", entry.Namespace, entry.Name, className, err)
+		}
+	}
+	return nil
 }
 
 // foregroundDeleteAndWaitService foreground-deletes an owned load balancer root. It waits for the
