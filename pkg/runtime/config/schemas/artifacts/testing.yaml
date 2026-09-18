@@ -2,9 +2,9 @@ $schema: https://json-schema.org/draft/2020-12/schema
 title: Testing
 description: |
   Schema for windsor test files (*.test.yaml) consumed by 'windsor test'. Test
-  files live under contexts/_template/tests/ and define cases that apply input
-  values to configuration, compose the blueprint in isolation, and assert that
-  specific terraform components and kustomizations are present (or absent).
+  files live under contexts/_template/tests/. Each case applies input values to
+  configuration, composes the blueprint in isolation, and asserts that specific
+  terraform components and kustomizations are present or absent.
 type: object
 required:
   - cases
@@ -76,7 +76,7 @@ $defs:
   expectation:
     type: object
     description: |
-      A subset of the Blueprint shape, used for assertions. Additional
+      A subset of the Blueprint schema, used for assertions. Additional
       Blueprint fields are accepted but not checked — only the fields below
       participate in matching.
     additionalProperties: true

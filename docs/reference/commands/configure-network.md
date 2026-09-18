@@ -2,7 +2,6 @@
 title: "windsor configure network"
 description: "Configure workstation host/guest networking and DNS."
 ---
-# windsor configure network
 
 ```sh
 windsor configure network [flags]

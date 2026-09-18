@@ -2,7 +2,6 @@
 title: "windsor get"
 description: "Display Windsor resources."
 ---
-# windsor get
 
 ```sh
 windsor get

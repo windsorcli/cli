@@ -2,7 +2,6 @@
 title: "windsor unlock"
 description: "Release a stuck stack lock."
 ---
-# windsor unlock
 
 ```sh
 windsor unlock [flags]

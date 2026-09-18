@@ -2,7 +2,6 @@
 title: "Composition order"
 description: "How facets and components are ordered when blueprints compose, within a blueprint and across its sources."
 ---
-# Composition order
 
 Two independent levels decide what composes before what. Keeping them
 apart is the whole trick: `ordinal` orders facets **within a single

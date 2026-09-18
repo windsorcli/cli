@@ -340,12 +340,11 @@ $defs:
     description: |
       Per-context Terraform settings (state backend, lock policy, timeout).
       The runtime-validator sub-types (BackendConfig, LockConfig) are
-      authored in api/v1alpha1/terraform/terraform_config.go; expansion to
-      full field detail is a planned follow-up.
+      authored in api/v1alpha1/terraform/terraform_config.go.
     properties:
       enabled:
         type: boolean
-        description: Whether terraform components are applied for this context.
+        description: Whether windsor applies terraform components for this context.
       backend:
         type: object
         additionalProperties: true
@@ -407,8 +406,7 @@ $defs:
     description: |
       Kubernetes cluster configuration. Node-group sub-types
       (NodeGroupConfig) are authored in
-      api/v1alpha1/cluster/cluster_config.go; expansion to full field
-      detail is a planned follow-up.
+      api/v1alpha1/cluster/cluster_config.go.
     properties:
       enabled:
         type: boolean
@@ -433,7 +431,7 @@ $defs:
         type: object
         additionalProperties: true
         description: |
-          Worker node group settings. Same shape as controlplanes; see
+          Worker node group settings. Same fields as controlplanes; see
           api/v1alpha1/cluster/cluster_config.go.
   network:
     type: object

@@ -2,7 +2,6 @@
 title: "windsor apply terraform"
 description: "Apply Terraform changes for a single component."
 ---
-# windsor apply terraform
 
 ```sh
 windsor apply terraform <component>

@@ -2,7 +2,6 @@
 title: "windsor plan kustomize"
 description: "Plan Flux kustomization changes."
 ---
-# windsor plan kustomize
 
 ```sh
 windsor plan kustomize [component]

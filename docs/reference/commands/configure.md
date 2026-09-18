@@ -2,7 +2,6 @@
 title: "windsor configure"
 description: "Configure workstation resources."
 ---
-# windsor configure
 
 ```sh
 windsor configure

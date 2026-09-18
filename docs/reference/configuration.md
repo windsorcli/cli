@@ -2,7 +2,6 @@
 title: "Configuration"
 description: "Operator-authored windsor.yaml schema."
 ---
-# Configuration
 
 Operator-authored windsor.yaml schema. Lives at the project root and
 declares the per-context settings every Windsor command reads. The system
@@ -25,7 +24,7 @@ system-managed and not covered here.
 |------|------|-------------|
 | `aws` | `object` | AWS integration. Activates whenever this block is present (or when platform is 'aws'); there is no separate 'enabled' flag. |
 | `azure` | `object` | Azure integration. |
-| `cluster` | `object` | Kubernetes cluster configuration. Node-group sub-types (NodeGroupConfig) are authored in api/v1alpha1/cluster/cluster_config.go; expansion to full field detail is a planned follow-up. |
+| `cluster` | `object` | Kubernetes cluster configuration. Node-group sub-types (NodeGroupConfig) are authored in api/v1alpha1/cluster/cluster_config.go. |
 | `dns` | `object` | DNS configuration. |
 | `docker` | `object` | Docker / container-registry configuration. |
 | `environment` | `map<string>` | Environment variables exported into every command run in this context. Values may contain `${...}` expressions, including `secret(...)` references. This key is declarative and lives in version control; for local, git-ignored values instead, see [`.env` files](contexts.md#env-files). |
@@ -36,7 +35,7 @@ system-managed and not covered here.
 | `platform` | `string` | Target deployment platform. Selects platform-specific facets and drives backend type inference. When --platform/--vm-driver on init/up/bootstrap set the platform and terraform.backend.type is otherwise unset, the backend defaults per platform: aws -> s3; azure -> azurerm; gcp -> gcs; metal, docker, incus, hetzner, hyperv, vsphere -> kubernetes (the cluster stores its own components' state as Secrets; hetzner defaults here too because its Object Storage keys can't be provisioned via API). An explicit --set terraform.backend.type=... always wins. One of: `none`, `docker`, `incus`, `metal`, `hetzner`, `aws`, `azure`, `gcp`, `hyperv`, `vsphere`. |
 | `provider` | `string` | Deprecated alias for 'platform'. New configs should use 'platform'; the loader still reads 'provider' for backwards compatibility. |
 | `secrets` | `object` | Secrets provider configuration. Currently 1Password is the only supported provider. |
-| `terraform` | `object` | Per-context Terraform settings (state backend, lock policy, timeout). The runtime-validator sub-types (BackendConfig, LockConfig) are authored in api/v1alpha1/terraform/terraform_config.go; expansion to full field detail is a planned follow-up. |
+| `terraform` | `object` | Per-context Terraform settings (state backend, lock policy, timeout). The runtime-validator sub-types (BackendConfig, LockConfig) are authored in api/v1alpha1/terraform/terraform_config.go. |
 | `vm` | `object` | Workstation VM settings. Applies to colima / colima-incus / docker- desktop driver choices; ignored when the workstation runs directly on Docker without a VM. |
 | `vsphere` | `object` | vSphere integration. Activates whenever this block is present (or when platform is 'vsphere'); there is no separate 'enabled' flag. Connection credentials (server, user, password) are env-var driven by the Terraform provider (VSPHERE_SERVER, VSPHERE_USER, VSPHERE_PASSWORD, VSPHERE_ALLOW_UNVERIFIED_SSL). Server and user may optionally be set here so the CLI can export them into the shell; password must come from secrets or the ambient environment and is never written to this file. Inventory pointers (datacenter, cluster, datastore, network) are wired as Terraform variable inputs by the vsphere platform facet. In project mode the CLI also exports VSPHERE_PERSIST_SESSION, VSPHERE_VIM_SESSION_PATH, and VSPHERE_REST_SESSION_PATH, scoping the provider's SOAP/REST session cache to the context's .vsphere/ directory (mirrors .aws/, .azure/, .gcp/); global mode omits these three so the provider falls back to its own ~/.govmomi/ defaults. |
 
@@ -77,7 +76,7 @@ system-managed and not covered here.
 | `enabled` | `boolean` | Whether the cluster integration is active for this context. |
 | `endpoint` | `string` | Kubernetes API endpoint URL. |
 | `image` | `string` | Default node image (typically a Talos image reference). |
-| `workers` | `object` | Worker node group settings. Same shape as controlplanes; see api/v1alpha1/cluster/cluster_config.go. |
+| `workers` | `object` | Worker node group settings. Same fields as controlplanes; see api/v1alpha1/cluster/cluster_config.go. |
 
 ### contexts{}.dns
 
@@ -173,7 +172,7 @@ system-managed and not covered here.
 | Field | Type | Description |
 |------|------|-------------|
 | `backend` | `object` | State backend configuration (type plus per-type fields). See api/v1alpha1/terraform/terraform_config.go for the full BackendConfig field set (s3, azurerm, kubernetes, local, oss). |
-| `enabled` | `boolean` | Whether terraform components are applied for this context. |
+| `enabled` | `boolean` | Whether windsor applies terraform components for this context. |
 | `lock` | `object` | State-lock policy. |
 
 #### contexts{}.terraform.lock
@@ -248,5 +247,5 @@ contexts:
 - [Contexts reference](contexts.md) — context layout, on-disk files, and lifecycle
 - [Blueprint reference](blueprint.md), [Facets reference](facets.md)
 - [`init`](commands/init.md), [`show values`](commands/show-values.md), [`get contexts`](commands/get-contexts.md)
-- [Lifecycle guide](https://www.windsorcli.dev/docs/cli/lifecycle), [Contexts guide](https://www.windsorcli.dev/docs/cli/contexts)
+- [Lifecycle guide](https://www.windsorcli.dev/contexts/lifecycle), [Contexts guide](https://www.windsorcli.dev/contexts/overview)
 - Source schema: [pkg/runtime/config/schemas/artifacts/configuration.yaml](https://github.com/windsorcli/cli/blob/main/pkg/runtime/config/schemas/artifacts/configuration.yaml)

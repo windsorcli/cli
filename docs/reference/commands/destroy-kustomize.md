@@ -2,7 +2,6 @@
 title: "windsor destroy kustomize"
 description: "Destroy Flux kustomization(s)."
 ---
-# windsor destroy kustomize
 
 ```sh
 windsor destroy kustomize [name]

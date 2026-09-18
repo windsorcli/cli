@@ -2,7 +2,6 @@
 title: "windsor upgrade cluster"
 description: "Upgrade cluster nodes in parallel."
 ---
-# windsor upgrade cluster
 
 ```sh
 windsor upgrade cluster [flags]

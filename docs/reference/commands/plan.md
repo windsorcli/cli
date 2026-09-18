@@ -2,7 +2,6 @@
 title: "windsor plan"
 description: "Preview terraform and Flux changes."
 ---
-# windsor plan
 
 ```sh
 windsor plan [component]

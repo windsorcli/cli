@@ -2,12 +2,11 @@
 title: "Blueprint"
 description: "Top-level blueprint definition."
 ---
-# Blueprint
 
-Top-level blueprint definition. Lives at contexts/<context>/blueprint.yaml and
-declares the Terraform components and Flux kustomizations that windsor will
-apply for that context, plus the sources those components come from and the
-variable substitutions shared across them.
+Top-level blueprint definition. Lives at contexts/<context>/blueprint.yaml.
+It declares the Terraform components and Flux kustomizations windsor applies
+for that context, the sources they draw from, and the variable substitutions
+shared across them.
 
 ## Fields
 
@@ -22,7 +21,7 @@ variable substitutions shared across them.
 | `flux` | `array<object>` | System entries — functional layers that each compile to an install Kustomization plus one or more resources-variant Kustomizations. Distinct from 'kustomize:', which is a 1:1 Kustomization passthrough. |
 | `kustomize` | `array<object>` | Plain Flux kustomizations included in the blueprint — a 1:1 passthrough: each entry maps to one Kustomization the provisioner applies, in topologically sorted dependsOn order. System entries (install/resources tiers) live under 'flux:' instead. |
 | `messages` | `array<object>` | Operator-facing post-run notes contributed by active facets. Carried as raw when/text templates through composition; GenerateResolved evaluates each against composed scope, keeping only when-true entries with interpolated text for the command to print at the end of a run. |
-| `repository` | `object` | Source repository this blueprint was bootstrapped from. Reconciled on a short, continuously-polled interval (unlike sources[], which are presumed pinned vendor dependencies): this is expected to be a live, actively-pushed branch, and changes can land here without any windsor command running. |
+| `repository` | `object` | Repository that 'windsor bootstrap' used to create this blueprint. Windsor reconciles it on a short, continuously-polled interval, unlike 'sources[]', which holds pinned vendor dependencies. This is expected to be a live, actively-pushed branch: changes can land here without any windsor command running. |
 | `sources` | `array<object>` | External resources referenced by the blueprint. Each source is an OCI blueprint artifact or a Git repository that contributes Terraform modules and/or kustomize bases consumable by the components below. |
 | `substitutions` | `map<string>` | Blueprint-level substitutions injected into 'values-common' and made available to every kustomization via PostBuild substitution. Values may use expression syntax (e.g. '${dns.domain}') resolved against facet config blocks. A value referencing a property marked 'sensitive: true' is rejected at composition time, since substitutions render into a plaintext ConfigMap; use a flux system's secrets: field instead. The same rule applies to substitute/substitutions on kustomize: entries and on flux: install/resources tiers. |
 | `terraform` | `array<object>` | Terraform components included in the blueprint, in declaration order. Components are reordered topologically by dependsOn at apply time. |
@@ -206,7 +205,7 @@ variable substitutions shared across them.
 | `healthChecks` | `array<object>` | External resources to wait on before Ready, such as one a HelmRelease this kustomization applies creates indirectly. Any entry here disables 'wait' over this kustomization's own applied resources; it waits only on the resources named here instead. |
 | `interval` | `string` | Reconciliation interval, expressed as a Go duration string (e.g. '5m', '1h'). Defaults to 1m when source is unset (falls back to the blueprint's own repository, presumed live and actively pushed); defaults to 1h when source names a vendor entry (presumed pinned and explicitly re-triggered rather than continuously tracked). |
 | `namespace` | `string` | Namespace where the Flux Kustomization object itself lives. Defaults to the gitops namespace. DependsOn references always resolve in the gitops namespace; cross-namespace dependencies are not supported. |
-| `patches` | `array<object>` | Strategic-merge or Flux-style patches applied to the kustomization. Each entry is either a 'path:' to a patch file relative to the kustomization, or a 'patch:' inline YAML body with an optional 'target:' selector (kind / name / namespace). |
+| `patches` | `array<object>` | Strategic-merge or Flux-style patches applied to the kustomization. Each entry takes one of two forms: a 'path:' to a patch file relative to the kustomization, or a 'patch:' inline YAML body with an optional 'target:' selector (kind / name / namespace). |
 | `path` | `string` | Path within the source containing the kustomize base. Defaults to name. |
 | `prune` | `boolean` | Garbage-collect resources removed from the source. Defaults to true. |
 | `retryInterval` | `string` | Duration to wait before retrying a failed reconciliation (e.g. '2m'). |
@@ -327,7 +326,7 @@ metadata:
   name: local
 sources:
   - name: core
-    url: oci://ghcr.io/windsorcli/core:v0.3.0
+    url: oci://ghcr.io/windsorcli/core:v0.8.0
   - name: modules
     ref:
       branch: main
@@ -358,9 +357,9 @@ substitutions:
 
 ## See also
 
-- [Facets reference](facets.md), [Metadata reference](metadata.md)
+- [Facets reference](facets.md), [Metadata reference](metadata.md), [Schema reference](https://www.windsorcli.dev/blueprints/schema)
 - [Contexts directory](contexts.md) — `schema.yaml`, the JSON Schema that validates context input values
 - [`apply`](commands/apply.md), [`up`](commands/up.md), [`bootstrap`](commands/bootstrap.md), [`destroy`](commands/destroy.md)
 - [`show blueprint`](commands/show-blueprint.md), [`explain`](commands/explain.md)
-- [Lifecycle guide](https://www.windsorcli.dev/docs/cli/lifecycle), [Sharing blueprints](https://www.windsorcli.dev/docs/blueprints/sharing)
+- [Lifecycle guide](https://www.windsorcli.dev/contexts/lifecycle), [Sharing blueprints](https://www.windsorcli.dev/blueprints/sharing)
 - Source schema: [pkg/runtime/config/schemas/artifacts/blueprint.yaml](https://github.com/windsorcli/cli/blob/main/pkg/runtime/config/schemas/artifacts/blueprint.yaml)

@@ -2,7 +2,6 @@
 title: "windsor destroy"
 description: "Destroy live infrastructure."
 ---
-# windsor destroy
 
 ```sh
 windsor destroy [component]

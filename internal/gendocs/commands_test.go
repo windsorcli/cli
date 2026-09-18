@@ -293,9 +293,9 @@ func TestGenerateCommands(t *testing.T) {
 		}
 
 		// Then a stable, low-churn command (version) has a file emitted with valid
-		// frontmatter and the expected h1. Using version because its surface is
-		// minimal — any other command would also work but version is least likely
-		// to change shape over time.
+		// frontmatter and no redundant body heading. Using version because its
+		// surface is minimal — any other command would also work but version is
+		// least likely to change shape over time.
 		raw, err := os.ReadFile(filepath.Join(out, "version.md"))
 		if err != nil {
 			t.Fatalf("read version.md: %v", err)
@@ -307,8 +307,8 @@ func TestGenerateCommands(t *testing.T) {
 		if !strings.Contains(body, `title: "windsor version"`) {
 			t.Error("version.md missing expected title in frontmatter")
 		}
-		if !strings.Contains(body, "# windsor version\n") {
-			t.Error("version.md missing expected h1 heading")
+		if strings.Contains(body, "# windsor version\n") {
+			t.Error("version.md has a body h1 duplicating the frontmatter title")
 		}
 	})
 

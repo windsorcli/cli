@@ -1,12 +1,13 @@
 // schema.go emits docs/reference/<name>.md from JSON Schema files under
 // pkg/runtime/config/schemas/. The schema is the single source of truth for
 // the artifact's shape (windsor.yaml, metadata.yaml, blueprint.yaml, etc.);
-// the walker renders frontmatter, an h1 + intro from the top-level
-// title/description, a field table per object schema, nested-object subsections,
-// an optional Example block from the schema's examples array, and a See also
-// section sourced from an optional '<name>.seealso.md' sidecar file alongside
-// the schema. The sidecar pattern keeps schemas pure JSON Schema (no vendor
-// extensions) while still letting authors curate cross-links per page.
+// the walker renders frontmatter, an intro from the top-level description, a
+// field table per object schema, nested-object subsections, an optional
+// Example block from the schema's examples array, and a See also section
+// sourced from an optional '<name>.seealso.md' sidecar file alongside the
+// schema. The page title lives in frontmatter only; no body H1 repeats it.
+// The sidecar pattern keeps schemas pure JSON Schema (no vendor extensions)
+// while still letting authors curate cross-links per page.
 //
 // Supported schema features: object (with properties + required), array (with
 // items.type), string/integer/boolean/number primitives, enum, default,
@@ -132,11 +133,12 @@ func writeSchemaFile(schemaPath, outPath, seealsoPath string) error {
 }
 
 // renderSchema produces the per-page markdown. Mirrors the structure used by
-// the cobra renderer (frontmatter → h1 → prose → tables → example → see also)
-// so the docs site presents schema and command pages consistently. examples
-// is the ordered (MapSlice) re-parse of the schema's examples array so each
-// example renders in author-defined field order; seealso is the raw markdown
-// body of the per-schema sidecar file (empty when absent).
+// the cobra renderer (frontmatter → prose → tables → example → see also) so
+// the docs site presents schema and command pages consistently. The page
+// title lives in frontmatter only; no body H1 repeats it. examples is the
+// ordered (MapSlice) re-parse of the schema's examples array so each example
+// renders in author-defined field order; seealso is the raw markdown body of
+// the per-schema sidecar file (empty when absent).
 func renderSchema(w io.Writer, schema map[string]any, examples []yaml.MapSlice, sourcePath, seealso string) error {
 	ew := &errWriter{w: w}
 
@@ -147,7 +149,7 @@ func renderSchema(w io.Writer, schema map[string]any, examples []yaml.MapSlice, 
 	intro, _ := schema["description"].(string)
 
 	writeSchemaFrontmatter(ew, title, summarize(intro))
-	fmt.Fprintf(ew, "# %s\n\n", title)
+	fmt.Fprintln(ew)
 	if intro != "" {
 		fmt.Fprintln(ew, strings.TrimSpace(intro))
 		fmt.Fprintln(ew)

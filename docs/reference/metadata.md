@@ -2,11 +2,10 @@
 title: "Metadata"
 description: "Optional metadata.yaml file that ships alongside a blueprint at contexts/_template/metadata.yaml."
 ---
-# Metadata
 
 Optional metadata.yaml file that ships alongside a blueprint at
-contexts/_template/metadata.yaml. Used by 'windsor bundle' and 'windsor push'
-to derive the artifact name and tag, and by the CLI to validate version
+contexts/_template/metadata.yaml. 'windsor bundle' and 'windsor push' use it
+to derive the artifact name and tag. The CLI also uses it to validate version
 compatibility before loading the blueprint.
 
 ## Fields
@@ -15,7 +14,7 @@ compatibility before loading the blueprint.
 |------|------|-------------|
 | `name` | `string` | Blueprint name. Required for bundling and pushing. **(required)** |
 | `author` | `string` | Author or maintainer of the blueprint. |
-| `cliVersion` | `string` | Semver constraint for the required CLI version. When set, the CLI validates that its current version satisfies this constraint before loading the blueprint. Examples: '>=0.7.1', '~0.7.0', '>=0.7.0 <0.8.0'. If the constraint is not satisfied, blueprint loading fails with an explanatory error. |
+| `cliVersion` | `string` | Semver constraint for the required CLI version. When set, the CLI validates that its current version satisfies this constraint before loading the blueprint. Examples: '>=0.9.0', '~0.9.0', '>=0.9.0 <0.10.0'. If the constraint is not satisfied, blueprint loading fails with an explanatory error. |
 | `description` | `string` | One-line description of the blueprint. |
 | `homepage` | `string` | URL to the blueprint's homepage or documentation. |
 | `license` | `string` | License identifier (e.g., MIT, Apache-2.0). |
@@ -34,11 +33,11 @@ tags:
   - kubernetes
 homepage: https://example.com/my-blueprint
 license: MIT
-cliVersion: ">=0.7.1"
+cliVersion: ">=0.9.0"
 ```
 
 ## See also
 
 - [`windsor bundle`](commands/bundle.md), [`windsor push`](commands/push.md)
-- [Sharing blueprints](https://www.windsorcli.dev/docs/blueprints/sharing)
+- [Sharing blueprints](https://www.windsorcli.dev/blueprints/sharing)
 - Source schema: [pkg/runtime/config/schemas/artifacts/metadata.yaml](https://github.com/windsorcli/cli/blob/main/pkg/runtime/config/schemas/artifacts/metadata.yaml)

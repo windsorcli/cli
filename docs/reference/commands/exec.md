@@ -2,7 +2,6 @@
 title: "windsor exec"
 description: "Run a command with project env vars injected."
 ---
-# windsor exec
 
 ```sh
 windsor exec [--] <command> [args...]

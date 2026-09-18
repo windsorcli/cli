@@ -1,9 +1,10 @@
 // render.go produces the markdown for one cobra command. The output shape
 // matches the windsorcli.github.io house style for CLI reference: frontmatter
-// for the Astro content collection, h1 for the command name, a synopsis fence,
-// the cmd.Long body as prose, a flag table (own flags only — inherited globals
-// are excluded as noise), an optional examples block, an optional subcommands
-// list, and a "See also" section sourced from cmd.Annotations.
+// for the Astro content collection, a synopsis fence, the cmd.Long body as
+// prose, a flag table (own flags only — inherited globals are excluded as
+// noise), an optional examples block, an optional subcommands list, and a
+// "See also" section sourced from cmd.Annotations. The page title lives in
+// frontmatter only; no body H1 repeats it.
 //
 // Annotations consumed:
 //
@@ -51,7 +52,7 @@ func (e *errWriter) Write(p []byte) (int, error) {
 func renderCommand(w io.Writer, cmd *cobra.Command) error {
 	ew := &errWriter{w: w}
 	writeFrontmatter(ew, cmd)
-	fmt.Fprintf(ew, "# %s\n\n", cmd.CommandPath())
+	fmt.Fprintln(ew)
 	writeSynopsis(ew, cmd)
 	writeLong(ew, cmd)
 	writeFlagsTable(ew, cmd)

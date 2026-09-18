@@ -2,7 +2,6 @@
 title: "windsor check node-health"
 description: "Check the health of cluster nodes."
 ---
-# windsor check node-health
 
 ```sh
 windsor check node-health [flags]

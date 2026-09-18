@@ -2,7 +2,6 @@
 title: "windsor check"
 description: "Verify required tools are installed."
 ---
-# windsor check
 
 ```sh
 windsor check

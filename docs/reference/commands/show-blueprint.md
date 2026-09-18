@@ -2,7 +2,6 @@
 title: "windsor show blueprint"
 description: "Display the fully rendered blueprint."
 ---
-# windsor show blueprint
 
 ```sh
 windsor show blueprint [flags]

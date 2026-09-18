@@ -2,7 +2,6 @@
 title: "windsor bundle"
 description: "Bundle the blueprint into a .tar.gz archive."
 ---
-# windsor bundle
 
 ```sh
 windsor bundle [flags]

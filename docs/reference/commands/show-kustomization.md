@@ -2,7 +2,6 @@
 title: "windsor show kustomization"
 description: "Display the Flux Kustomization resource for a component."
 ---
-# windsor show kustomization
 
 ```sh
 windsor show kustomization [component-name] [flags]

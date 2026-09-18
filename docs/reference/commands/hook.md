@@ -2,7 +2,6 @@
 title: "windsor hook"
 description: "Print shell init code for the given shell."
 ---
-# windsor hook
 
 ```sh
 windsor hook <shell>

@@ -2,7 +2,6 @@
 title: "windsor env"
 description: "Print shell commands to export project env vars."
 ---
-# windsor env
 
 ```sh
 windsor env [flags]

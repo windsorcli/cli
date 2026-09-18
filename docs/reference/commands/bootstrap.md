@@ -2,7 +2,6 @@
 title: "windsor bootstrap"
 description: "Bootstrap a fresh environment end-to-end."
 ---
-# windsor bootstrap
 
 ```sh
 windsor bootstrap [context] [flags]

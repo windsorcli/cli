@@ -2,7 +2,6 @@
 title: "windsor get context"
 description: "Print the current context."
 ---
-# windsor get context
 
 ```sh
 windsor get context
