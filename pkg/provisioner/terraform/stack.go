@@ -1190,9 +1190,8 @@ func (s *TerraformStack) migrateOneComponent(component *blueprintv1alpha1.Terraf
 // A timeout (shell.ErrCommandTimedOut) fails immediately without retrying.
 //
 // A timeout interrupts terraform before it kills the process. See
-// ExecSilentWithEnvAndGracefulTimeout and #3402: a hard kill on timeout gave terraform no chance
-// to write a state checkpoint or release its backend lock. Returns the last attempt's output and
-// error.
+// ExecSilentWithEnvAndGracefulTimeout. A hard kill on timeout gave terraform no chance to write
+// a state checkpoint or release its backend lock. Returns the last attempt's output and error.
 func (s *TerraformStack) execTerraformDestroyWithRetry(componentPath, terraformCommand string, destroyEnv map[string]string, destroyArgs []string) (string, error) {
 	timeout := constants.DefaultTerraformDestroyTimeout
 	var output string

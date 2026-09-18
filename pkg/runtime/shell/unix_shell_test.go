@@ -471,10 +471,10 @@ func TestSetProcessGroup_InterruptProcessGroup(t *testing.T) {
 
 func TestKillProcessGroup(t *testing.T) {
 	t.Run("KillsAGrandchildTheChildSpawnedIntoTheSameGroup", func(t *testing.T) {
-		// A single-process kill only reaches cmd's own pid, leaving a subprocess it forked
+		// A single-process kill only reaches cmd's own pid. That leaves a subprocess it forked
 		// (terraform's own provider plugins, in production) orphaned and still running. The
 		// shell here forks a grandchild sleep, in the same process group by inheritance, and
-		// writes its pid so the test can confirm killProcessGroup reaches it too. See #3404.
+		// writes its pid so the test can confirm killProcessGroup reaches it too.
 		pidFile := filepath.Join(t.TempDir(), "grandchild.pid")
 		cmd := exec.Command("sh", "-c", "sleep 30 & echo $! > "+pidFile+"; wait")
 		setProcessGroup(cmd)

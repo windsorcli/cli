@@ -190,9 +190,9 @@ const DefaultTerraformDestroyRetryBackoff = 30 * time.Second
 // retry only has to finish the resources the prior attempt left behind, not redo the whole destroy.
 const DefaultTerraformDestroyRetryTimeout = 5 * time.Minute
 
-// Grace period after a terraform destroy timeout interrupts the process, before a hard kill. Gives
-// terraform a chance to cancel its in-flight provider call and write a state checkpoint, so a
-// SIGKILL never lands as the first signal. See #3402.
+// Grace period after a terraform destroy timeout interrupts the process, before a hard kill.
+// Terraform gets a chance to cancel its in-flight provider call and write a state checkpoint.
+// A SIGKILL never lands as the first signal.
 const DefaultTerraformDestroyGracePeriod = 2 * time.Minute
 
 // Bounds the pre-destroy Kubernetes reachability preflight.

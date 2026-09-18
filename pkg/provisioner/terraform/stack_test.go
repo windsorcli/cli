@@ -1310,8 +1310,8 @@ func TestStack_DestroyAll(t *testing.T) {
 
 	t.Run("UsesDestroyTimeoutAndGracePeriod", func(t *testing.T) {
 		// Given a stack whose terraform destroy exec is bounded by a timeout and a grace
-		// period. See #3402: a hard kill on timeout gave terraform no chance to checkpoint
-		// state or release its backend lock, so destroy must run through the graceful variant.
+		// period. A hard kill on timeout gave terraform no chance to checkpoint state or
+		// release its backend lock, so destroy must run through the graceful variant.
 		stack, mocks := setup(t)
 		var gotTimeout, gotGracePeriod time.Duration
 		var sawDestroy bool
@@ -3575,8 +3575,7 @@ func TestStack_Destroy(t *testing.T) {
 	})
 
 	t.Run("UsesDestroyTimeoutAndGracePeriod", func(t *testing.T) {
-		// Given a stack whose terraform destroy exec is bounded by a timeout and a grace
-		// period. See #3402.
+		// Given a stack whose terraform destroy exec is bounded by a timeout and a grace period
 		stack, mocks := setup(t)
 		var gotTimeout, gotGracePeriod time.Duration
 		var sawDestroy bool

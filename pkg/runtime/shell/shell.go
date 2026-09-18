@@ -397,11 +397,15 @@ func (s *DefaultShell) ExecSilentWithEnvAndTimeout(command string, env map[strin
 	return executeWithTimeout(execFn, cleanupFn, timeout)
 }
 
-// ExecSilentWithEnvAndGracefulTimeout is ExecSilentWithEnvAndTimeout, but a timeout interrupts
-// the process group first and waits up to gracePeriod for it to exit before a hard kill. Use
-// this for a command whose abrupt termination can corrupt external state, such as `terraform
-// destroy` losing its chance to write a checkpoint and release its backend lock. See #3402.
-// Ordinary timeout-bound commands hold no external state and should keep using
+// ExecSilentWithEnvAndGracefulTimeout is ExecSilentWithEnvAndTimeout with a softer timeout. On
+// timeout, it interrupts the process group first. It waits up to gracePeriod for the process to
+// exit. Only then does it force-kill.
+//
+// Use this for a command whose abrupt termination can corrupt external state. `terraform
+// destroy` is the motivating case: a hard kill mid-run loses its chance to write a checkpoint
+// and release its backend lock.
+//
+// Ordinary timeout-bound commands hold no external state. They should keep using
 // ExecSilentWithEnvAndTimeout, which kills immediately.
 func (s *DefaultShell) ExecSilentWithEnvAndGracefulTimeout(command string, env map[string]string, args []string, timeout, gracePeriod time.Duration) (string, error) {
 	var stdoutBuf, stderrBuf bytes.Buffer
