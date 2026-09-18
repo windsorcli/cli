@@ -33,11 +33,11 @@ var destroyCmd = &cobra.Command{
 
 Every form requires confirmation. Either type the context or component name at the prompt, or pass --confirm=<expected> to satisfy the gate non-interactively (CI-safe). The --confirm value must match the prompt token exactly; mismatches abort the operation.
 
-If terraform reports resources protected by 'lifecycle { prevent_destroy = true }', destroy warns up front so the operator knows the destroy may halt partway through. It also warns when deletion_policy, deletion_protection, force_destroy, or skip_final_snapshot has drifted from state. Resources whose state is empty are skipped with a warning naming any potentially orphaned cloud resources.
+If terraform reports resources protected by 'lifecycle { prevent_destroy = true }', destroy warns up front so the operator knows the destroy may halt partway through. It also warns when deletion_policy, deletion_protection, force_destroy, or skip_final_snapshot has drifted from state. Terraform components whose state is empty are skipped with a warning naming any potentially orphaned cloud resources. Destroy skips kustomizations separately when no local kubeconfig exists for the context. This case prints no orphan warning: the cluster is already gone.
 
 If any component fails destroy-plan generation, destroy halts before the confirmation prompt and names the failed components, rather than offering to destroy a plan it cannot fully execute. This is distinct from --continue, which governs failures during execution, after confirmation.
 
-The default behavior is to abort on the first per-component destroy failure. Pass --continue to keep going past failures and print a one-line summary at the end (windsor destroy: N destroyed, N no-op (empty state), N failed (...), terraform deferred). --continue applies to a layer-wide destroy only; it is refused with a component argument.
+The default behavior is to abort on the first per-component destroy failure. Pass --continue to keep going past failures and print a one-line summary at the end (windsor destroy: N destroyed, N no-op (empty state), N no-op (cluster gone), N failed (...), terraform deferred). --continue applies to a layer-wide destroy only; it is refused with a component argument.
 
 Terraform is skipped in two cases:
 - A non-backend component is left un-destroyed.
@@ -125,6 +125,7 @@ windsor destroy --confirm=local --continue`,
 			return stacklock.With(cmd.Context(), proj.Runtime, "destroy", lockTimeout, func() error {
 				result, err := proj.Provisioner.Teardown(blueprint, false, destroyContinue)
 				reportSkippedDestroyComponents(cmd.ErrOrStderr(), result.Skipped)
+				reportSkippedClusterGoneKustomizations(cmd.ErrOrStderr(), result.SkippedClusterGone)
 				if err != nil {
 					return fmt.Errorf("error destroying all components: %w", err)
 				}
@@ -463,6 +464,21 @@ func reportSkippedDestroyComponents(w io.Writer, skipped []string) {
 	fmt.Fprintln(w, "   verify in your cloud console; remediate with `terraform import` if needed.")
 }
 
+// reportSkippedClusterGoneKustomizations prints a stderr note naming
+// kustomizations skipped for a missing kubeconfig. This is the expected
+// result of a destroy re-run after the cluster is already gone, not an
+// orphan hazard. No-op when skipped is empty.
+func reportSkippedClusterGoneKustomizations(w io.Writer, skipped []string) {
+	if len(skipped) == 0 {
+		return
+	}
+	if len(skipped) == 1 {
+		fmt.Fprintf(w, "note: kustomization %q was already gone (no local kubeconfig) and was skipped\n", skipped[0])
+	} else {
+		fmt.Fprintf(w, "note: %d kustomizations were already gone (no local kubeconfig) and were skipped: %s\n", len(skipped), strings.Join(skipped, ", "))
+	}
+}
+
 // warnPreventDestroy emits a stderr warning naming any resource addresses
 // that terraform's plan -destroy flagged with `lifecycle { prevent_destroy =
 // true }`. The wrapper deliberately does not refuse — operators who run
@@ -593,6 +609,7 @@ func finishContinueDestroy(w io.Writer, result provisioner.DestroyResult) error 
 	parts := []string{
 		fmt.Sprintf("%d destroyed", len(result.Destroyed)),
 		fmt.Sprintf("%d no-op (empty state)", len(result.Skipped)),
+		fmt.Sprintf("%d no-op (cluster gone)", len(result.SkippedClusterGone)),
 	}
 	if len(result.Failed) > 0 {
 		failedIDs := make([]string, 0, len(result.Failed))

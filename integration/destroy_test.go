@@ -417,3 +417,34 @@ func TestDestroy_SkipsUnreachableFluxInventoryQuery(t *testing.T) {
 		t.Errorf("expected destroy-plan generation to skip the unreachable Flux inventory query and return quickly, took %v", elapsed)
 	}
 }
+
+// TestDestroy_SkipsKustomizeExecutionWhenKubeconfigAbsent reproduces #3397: a re-run of
+// `windsor destroy` on a context whose kubeconfig was never written (e.g. a prior destroy
+// pass already removed the cluster and its kubeconfig). Kustomize execution must treat the
+// missing kubeconfig as "already torn down" and proceed to terraform, rather than hard-fail
+// trying to suspend kustomizations against a client that can never be built.
+func TestDestroy_SkipsKustomizeExecutionWhenKubeconfigAbsent(t *testing.T) {
+	t.Parallel()
+	dir, env := helpers.CopyFixtureOnly(t, "destroy-flux-inventory-unreachable")
+	helpers.MarkAsGitRepo(t, dir)
+	_, stderr, err := helpers.RunCLI(dir, []string{"init", "local"}, env)
+	if err != nil {
+		t.Fatalf("init local: %v\nstderr: %s", err, stderr)
+	}
+	env = append(env, "WINDSOR_CONTEXT=local")
+	_, stderr, err = helpers.RunCLI(dir, []string{"apply", "terraform", "null"}, env)
+	if err != nil {
+		t.Fatalf("apply terraform null: %v\nstderr: %s", err, stderr)
+	}
+
+	// No kubeconfig is ever written for this context, matching a cluster component
+	// already destroyed in a prior run.
+	stdout, stderr, err := helpers.RunCLI(dir, []string{"destroy", "--confirm=local"}, env)
+	if err != nil {
+		t.Fatalf("destroy: %v\nstderr: %s", err, stderr)
+	}
+	combined := string(stdout) + string(stderr)
+	if strings.Contains(combined, "failed to suspend kustomization") {
+		t.Errorf("expected kustomize destroy to be skipped, not attempted, got:\n%s", combined)
+	}
+}
