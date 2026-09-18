@@ -440,9 +440,7 @@ func (s *DefaultShell) ExecSilentWithEnvAndGracefulTimeout(command string, env m
 			return
 		case <-time.After(gracePeriod):
 		}
-		if cmd.Process != nil {
-			_ = cmd.Process.Kill()
-		}
+		_ = s.shims.KillProcessGroup(cmd)
 		waitOnce.Do(func() {
 			_ = s.shims.CmdWait(cmd)
 			close(waitDone)

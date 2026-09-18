@@ -3275,11 +3275,11 @@ func TestShell_ExecSilentWithEnvAndGracefulTimeout(t *testing.T) {
 		}
 	})
 
-	t.Run("TimeoutInterruptsProcessGroupBeforeKilling", func(t *testing.T) {
+	t.Run("TimeoutInterruptsThenKillsWholeProcessGroup", func(t *testing.T) {
 		// Given a command that outlives both the timeout and the grace period (simulates a
 		// child that ignores the interrupt), bounded so the test itself does not hang
 		shell, mocks := setup(t)
-		var interrupted bool
+		var interrupted, killed bool
 		mocks.Shims.CmdStart = func(cmd *exec.Cmd) error { return nil }
 		mocks.Shims.CmdWait = func(cmd *exec.Cmd) error {
 			time.Sleep(100 * time.Millisecond)
@@ -3289,11 +3289,18 @@ func TestShell_ExecSilentWithEnvAndGracefulTimeout(t *testing.T) {
 			interrupted = true
 			return nil
 		}
+		mocks.Shims.KillProcessGroup = func(cmd *exec.Cmd) error {
+			killed = true
+			return nil
+		}
 
 		// When executing with a short timeout and a short grace period
 		out, err := shell.ExecSilentWithEnvAndGracefulTimeout("test", nil, []string{"arg"}, 20*time.Millisecond, 20*time.Millisecond)
 
-		// Then the timeout still surfaces, but only after the process group was interrupted first
+		// Then the timeout still surfaces, but only after the process group was interrupted
+		// first, and the eventual hard kill also targets the whole group — not just the
+		// terraform process itself — so a still-running provider-plugin subprocess doesn't
+		// survive orphaned. See #3404.
 		if err == nil || !strings.Contains(err.Error(), "timed out") {
 			t.Errorf("Expected timeout error, got %v", err)
 		}
@@ -3302,6 +3309,9 @@ func TestShell_ExecSilentWithEnvAndGracefulTimeout(t *testing.T) {
 		}
 		if !interrupted {
 			t.Error("Expected the process group to be interrupted before the timeout was reported")
+		}
+		if !killed {
+			t.Error("Expected the process group to be hard-killed after the grace period elapsed")
 		}
 	})
 

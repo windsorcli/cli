@@ -92,6 +92,7 @@ type Shims struct {
 
 	// Process group operations
 	InterruptProcessGroup func(cmd *exec.Cmd) error
+	KillProcessGroup      func(cmd *exec.Cmd) error
 }
 
 // =============================================================================
@@ -191,6 +192,7 @@ func NewShims() *Shims {
 
 		// Process group operations
 		InterruptProcessGroup: interruptProcessGroup,
+		KillProcessGroup:      killProcessGroup,
 	}
 	return s
 }

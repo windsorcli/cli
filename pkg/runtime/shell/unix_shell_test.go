@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"syscall"
 	"testing"
@@ -463,6 +464,63 @@ func TestSetProcessGroup_InterruptProcessGroup(t *testing.T) {
 	t.Run("NoOpWhenTheProcessHasNotStarted", func(t *testing.T) {
 		cmd := exec.Command("sleep", "5")
 		if err := interruptProcessGroup(cmd); err != nil {
+			t.Errorf("expected no error for an unstarted process, got %v", err)
+		}
+	})
+}
+
+func TestKillProcessGroup(t *testing.T) {
+	t.Run("KillsAGrandchildTheChildSpawnedIntoTheSameGroup", func(t *testing.T) {
+		// A single-process kill only reaches cmd's own pid, leaving a subprocess it forked
+		// (terraform's own provider plugins, in production) orphaned and still running. The
+		// shell here forks a grandchild sleep, in the same process group by inheritance, and
+		// writes its pid so the test can confirm killProcessGroup reaches it too. See #3404.
+		pidFile := filepath.Join(t.TempDir(), "grandchild.pid")
+		cmd := exec.Command("sh", "-c", "sleep 30 & echo $! > "+pidFile+"; wait")
+		setProcessGroup(cmd)
+
+		if err := cmd.Start(); err != nil {
+			t.Fatalf("failed to start test process: %v", err)
+		}
+		defer func() { _ = cmd.Wait() }()
+
+		var grandchildPid int
+		deadline := time.Now().Add(2 * time.Second)
+		for time.Now().Before(deadline) {
+			data, err := os.ReadFile(pidFile)
+			if err == nil {
+				if pid, convErr := strconv.Atoi(strings.TrimSpace(string(data))); convErr == nil && pid > 0 {
+					grandchildPid = pid
+					break
+				}
+			}
+			time.Sleep(10 * time.Millisecond)
+		}
+		if grandchildPid == 0 {
+			_ = cmd.Process.Kill()
+			t.Fatal("grandchild pid was never written")
+		}
+
+		if err := killProcessGroup(cmd); err != nil {
+			_ = cmd.Process.Kill()
+			_ = syscall.Kill(grandchildPid, syscall.SIGKILL)
+			t.Fatalf("killProcessGroup returned an error: %v", err)
+		}
+
+		deadline = time.Now().Add(2 * time.Second)
+		for time.Now().Before(deadline) {
+			if err := syscall.Kill(grandchildPid, 0); err != nil {
+				return
+			}
+			time.Sleep(10 * time.Millisecond)
+		}
+		_ = syscall.Kill(grandchildPid, syscall.SIGKILL)
+		t.Error("expected the grandchild to be killed along with the group, but it is still alive")
+	})
+
+	t.Run("NoOpWhenTheProcessHasNotStarted", func(t *testing.T) {
+		cmd := exec.Command("sleep", "5")
+		if err := killProcessGroup(cmd); err != nil {
 			t.Errorf("expected no error for an unstarted process, got %v", err)
 		}
 	})
