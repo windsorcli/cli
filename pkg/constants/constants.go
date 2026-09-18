@@ -173,6 +173,11 @@ const DefaultKustomizationWaitPollInterval = 5 * time.Second
 // Maximum number of consecutive failures before giving up
 const DefaultKustomizationWaitMaxFailures = 5
 
+// Bounds foregroundDeleteAndWaitService's wait for a cloud-controller to release a LoadBalancer
+// Service's finalizer during destroy. Longer than a kustomization reconcile wait on purpose:
+// cloud-provider LB deprovisioning (notably on AKS) can run well past 5 minutes.
+const DefaultLoadBalancerTeardownTimeout = 15 * time.Minute
+
 // Bounds a single `terraform destroy` invocation so a hung provider call fails, not blocks forever.
 const DefaultTerraformDestroyTimeout = 30 * time.Minute
 

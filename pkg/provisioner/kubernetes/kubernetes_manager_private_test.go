@@ -25,6 +25,7 @@ func TestBaseKubernetesManager_remediateLoadBalancerOwners(t *testing.T) {
 		manager := NewKubernetesManager(mocks.KubernetesClient, mocks.ConfigHandler)
 		manager.kustomizationWaitPollInterval = 20 * time.Millisecond
 		manager.kustomizationReconcileTimeout = 100 * time.Millisecond
+		manager.loadBalancerTeardownTimeout = 100 * time.Millisecond
 		return manager
 	}
 
@@ -418,6 +419,47 @@ func TestBaseKubernetesManager_remediateLoadBalancerOwners(t *testing.T) {
 		}
 		if !strings.Contains(err.Error(), "cilium-gateway-external") {
 			t.Errorf("Expected error to name the stuck service, got %v", err)
+		}
+	})
+
+	t.Run("UsesLoadBalancerTeardownTimeoutNotKustomizationReconcileTimeout", func(t *testing.T) {
+		// Given a manager whose kustomization reconcile timeout is long but whose dedicated
+		// load balancer teardown timeout is short
+		manager := setup(t)
+		manager.kustomizationReconcileTimeout = time.Hour
+		manager.loadBalancerTeardownTimeout = 100 * time.Millisecond
+		kubernetesClient := client.NewMockKubernetesClient()
+		kubernetesClient.GetResourceFunc = func(gvr schema.GroupVersionResource, namespace, name string) (*unstructured.Unstructured, error) {
+			if gvr.Resource == "kustomizations" {
+				return kustomizationWithInventory(gatewayInventoryID), nil
+			}
+			if gvr.Resource == "services" {
+				return &unstructured.Unstructured{Object: map[string]any{
+					"metadata": map[string]any{"namespace": namespace, "name": name},
+				}}, nil
+			}
+			return nil, fmt.Errorf("%s %q not found", gvr.Resource, name)
+		}
+		kubernetesClient.ListResourcesFunc = func(gvr schema.GroupVersionResource, namespace string) (*unstructured.UnstructuredList, error) {
+			return &unstructured.UnstructuredList{Items: []unstructured.Unstructured{
+				lbService("system-gateway", "cilium-gateway-external", &gatewayOwner),
+			}}, nil
+		}
+		kubernetesClient.ResourceForFunc = func(gvk schema.GroupVersionKind) (schema.GroupVersionResource, error) {
+			return gatewaysGVR, nil
+		}
+		kubernetesClient.DeleteResourceFunc = func(gvr schema.GroupVersionResource, namespace, name string, opts metav1.DeleteOptions) error {
+			return nil
+		}
+		manager.client = kubernetesClient
+
+		// When the load balancer service never releases
+		err := manager.remediateLoadBalancerOwners(eligible, "system-gitops")
+
+		// Then remediation still times out on the short teardown budget, not the long
+		// reconcile timeout
+		if err == nil {
+			t.Fatal("Expected a timeout error bounded by loadBalancerTeardownTimeout, got nil")
 		}
 	})
 
