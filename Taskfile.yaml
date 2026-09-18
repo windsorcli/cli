@@ -142,11 +142,6 @@ tasks:
       - task: docs:gen:commands
       - task: docs:gen:schema
 
-  docs:no-future-work:
-    desc: Fail if any doc uses future-work framing (a "not covered yet" heading, roadmap/TODO phrasing) outside ADRs
-    cmds:
-      - scripts/no-future-work.sh
-
   run:
     desc: Run the Windsor CLI
     cmds:
