@@ -103,6 +103,8 @@ type BaseKubernetesManager struct {
 	kustomizationSpecTimeoutCeiling      time.Duration
 	kustomizationAbandonedGraceMaxExtra  time.Duration
 
+	loadBalancerTeardownTimeout time.Duration
+
 	notReadyDescribeBudget time.Duration
 
 	healthCheckPollInterval   time.Duration
@@ -132,6 +134,7 @@ func NewKubernetesManager(kubernetesClient client.KubernetesClient, configHandle
 		kustomizationDeletionMaxExtraTimeout: 20 * time.Minute,
 		kustomizationSpecTimeoutCeiling:      2 * time.Hour,
 		kustomizationAbandonedGraceMaxExtra:  3 * time.Minute,
+		loadBalancerTeardownTimeout:          constants.DefaultLoadBalancerTeardownTimeout,
 		notReadyDescribeBudget:               10 * time.Second,
 		healthCheckPollInterval:              10 * time.Second,
 		healthCheckSettleDuration:            30 * time.Second,
@@ -2109,8 +2112,10 @@ func (k *BaseKubernetesManager) deleteBlockingGateways(classGVR schema.GroupVers
 // itself to confirm deletion finished, since some finalizers do not use ownerReferences. The
 // Gateway API's gateway-exists-finalizer on a GatewayClass is one example. That finalizer clears
 // only when no Gateway still names the GatewayClass. When the target is the Service itself, the two
-// waits collapse into one. A NotFound on delete counts as already gone. On timeout the error names
-// every object still present, since proceeding could wedge the terraform teardown.
+// waits collapse into one. A NotFound on delete counts as already gone. The wait uses
+// loadBalancerTeardownTimeout, not kustomizationReconcileTimeout: cloud-provider LB deprovisioning
+// is a longer, unrelated wait. On timeout the error names every object still present, since
+// proceeding could wedge the terraform teardown.
 func (k *BaseKubernetesManager) foregroundDeleteAndWaitService(target ownedTarget, svc *unstructured.Unstructured) error {
 	policy := metav1.DeletePropagationForeground
 	err := k.client.DeleteResource(target.gvr, target.namespace, target.name, metav1.DeleteOptions{PropagationPolicy: &policy})
@@ -2123,7 +2128,7 @@ func (k *BaseKubernetesManager) foregroundDeleteAndWaitService(target ownedTarge
 	serviceGone := false
 	rootGone := rootIsService
 
-	timeout := time.Now().Add(k.kustomizationReconcileTimeout)
+	timeout := time.Now().Add(k.loadBalancerTeardownTimeout)
 	for time.Now().Before(timeout) {
 		if !serviceGone {
 			gone, err := k.resourceGone(servicesGVR, svcNamespace, svcName)
