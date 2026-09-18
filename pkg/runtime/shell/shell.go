@@ -72,6 +72,7 @@ type Shell interface {
 	ExecCaptureWithEnv(command string, env map[string]string, args ...string) (string, error)
 	ExecSilentWithTimeout(command string, args []string, timeout time.Duration) (string, error)
 	ExecSilentWithEnvAndTimeout(command string, env map[string]string, args []string, timeout time.Duration) (string, error)
+	ExecSilentWithEnvAndGracefulTimeout(command string, env map[string]string, args []string, timeout, gracePeriod time.Duration) (string, error)
 	ExecSudo(message string, command string, args ...string) (string, error)
 	ExecProgress(message string, command string, args ...string) (string, error)
 	ExecProgressWithEnv(message string, command string, env map[string]string, args ...string) (string, error)
@@ -391,6 +392,61 @@ func (s *DefaultShell) ExecSilentWithEnvAndTimeout(command string, env map[strin
 				_ = s.shims.CmdWait(cmd)
 			})
 		}
+	}
+
+	return executeWithTimeout(execFn, cleanupFn, timeout)
+}
+
+// ExecSilentWithEnvAndGracefulTimeout is ExecSilentWithEnvAndTimeout, but a timeout interrupts
+// the process group first and waits up to gracePeriod for it to exit before a hard kill. Use
+// this for a command whose abrupt termination can corrupt external state, such as `terraform
+// destroy` losing its chance to write a checkpoint and release its backend lock. See #3402.
+// Ordinary timeout-bound commands hold no external state and should keep using
+// ExecSilentWithEnvAndTimeout, which kills immediately.
+func (s *DefaultShell) ExecSilentWithEnvAndGracefulTimeout(command string, env map[string]string, args []string, timeout, gracePeriod time.Duration) (string, error) {
+	var stdoutBuf, stderrBuf bytes.Buffer
+	cmd := s.shims.Command(command, args...)
+	if cmd == nil {
+		return "", fmt.Errorf("failed to create command")
+	}
+
+	cmd.Stdout = &stdoutBuf
+	cmd.Stderr = &stderrBuf
+	cmd.Env = mergeEnvVars(s.shims.Environ(), env)
+	setProcessGroup(cmd)
+
+	if err := s.shims.CmdStart(cmd); err != nil {
+		return "", fmt.Errorf("command start failed: %w", err)
+	}
+
+	var waitOnce sync.Once
+	waitDone := make(chan struct{})
+	execFn := func() (string, error) {
+		var waitErr error
+		waitOnce.Do(func() {
+			waitErr = s.shims.CmdWait(cmd)
+			close(waitDone)
+		})
+		if waitErr != nil {
+			return s.scrubString(stdoutBuf.String()), fmt.Errorf("command execution failed: %w\n%s", waitErr, s.scrubString(stderrBuf.String()))
+		}
+		return s.scrubString(stdoutBuf.String()), nil
+	}
+
+	cleanupFn := func() {
+		_ = s.shims.InterruptProcessGroup(cmd)
+		select {
+		case <-waitDone:
+			return
+		case <-time.After(gracePeriod):
+		}
+		if cmd.Process != nil {
+			_ = cmd.Process.Kill()
+		}
+		waitOnce.Do(func() {
+			_ = s.shims.CmdWait(cmd)
+			close(waitDone)
+		})
 	}
 
 	return executeWithTimeout(execFn, cleanupFn, timeout)

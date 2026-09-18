@@ -3250,6 +3250,107 @@ func TestShell_ExecSilentWithEnvAndTimeout(t *testing.T) {
 	})
 }
 
+func TestShell_ExecSilentWithEnvAndGracefulTimeout(t *testing.T) {
+	setup := func(t *testing.T) (*DefaultShell, *ShellTestMocks) {
+		t.Helper()
+		mocks := setupShellMocks(t)
+		shell := NewDefaultShell()
+		shell.shims = mocks.Shims
+		return shell, mocks
+	}
+
+	t.Run("Success", func(t *testing.T) {
+		// Given a shell with mocked command execution that finishes well within the timeout
+		shell, _ := setup(t)
+
+		// When executing with a grace period
+		out, err := shell.ExecSilentWithEnvAndGracefulTimeout("test", map[string]string{"FOO": "bar"}, []string{"arg"}, 5*time.Second, time.Second)
+
+		// Then it succeeds and returns the captured output, same as the non-graceful variant
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+		if out != "test\n" {
+			t.Errorf("Expected output 'test\\n', got %q", out)
+		}
+	})
+
+	t.Run("TimeoutInterruptsProcessGroupBeforeKilling", func(t *testing.T) {
+		// Given a command that outlives both the timeout and the grace period (simulates a
+		// child that ignores the interrupt), bounded so the test itself does not hang
+		shell, mocks := setup(t)
+		var interrupted bool
+		mocks.Shims.CmdStart = func(cmd *exec.Cmd) error { return nil }
+		mocks.Shims.CmdWait = func(cmd *exec.Cmd) error {
+			time.Sleep(100 * time.Millisecond)
+			return nil
+		}
+		mocks.Shims.InterruptProcessGroup = func(cmd *exec.Cmd) error {
+			interrupted = true
+			return nil
+		}
+
+		// When executing with a short timeout and a short grace period
+		out, err := shell.ExecSilentWithEnvAndGracefulTimeout("test", nil, []string{"arg"}, 20*time.Millisecond, 20*time.Millisecond)
+
+		// Then the timeout still surfaces, but only after the process group was interrupted first
+		if err == nil || !strings.Contains(err.Error(), "timed out") {
+			t.Errorf("Expected timeout error, got %v", err)
+		}
+		if out != "" {
+			t.Errorf("Expected empty output on timeout, got %q", out)
+		}
+		if !interrupted {
+			t.Error("Expected the process group to be interrupted before the timeout was reported")
+		}
+	})
+
+	t.Run("ReturnsPromptlyWhenProcessExitsWithinGracePeriod", func(t *testing.T) {
+		// Given a command that exits shortly after the timeout fires — simulating a process
+		// that honors the interrupt and exits cleanly, well inside a generous grace period
+		shell, mocks := setup(t)
+		mocks.Shims.CmdStart = func(cmd *exec.Cmd) error { return nil }
+		mocks.Shims.CmdWait = func(cmd *exec.Cmd) error {
+			time.Sleep(30 * time.Millisecond)
+			return nil
+		}
+
+		start := time.Now()
+		_, err := shell.ExecSilentWithEnvAndGracefulTimeout("test", nil, []string{"arg"}, 20*time.Millisecond, time.Hour)
+		elapsed := time.Since(start)
+
+		// Then the call returns once the process exits, not after the full (very long) grace period
+		if err == nil || !strings.Contains(err.Error(), "timed out") {
+			t.Errorf("Expected timeout error, got %v", err)
+		}
+		if elapsed > 500*time.Millisecond {
+			t.Errorf("Expected cleanup to return once the process exited, not wait out the grace period, took %v", elapsed)
+		}
+	})
+
+	t.Run("CommandNil", func(t *testing.T) {
+		// Given a Command shim that returns nil
+		shell, mocks := setup(t)
+		mocks.Shims.Command = func(name string, args ...string) *exec.Cmd {
+			return nil
+		}
+
+		// When executing
+		output, err := shell.ExecSilentWithEnvAndGracefulTimeout("test", nil, []string{"arg"}, 5*time.Second, time.Second)
+
+		// Then a command-creation error is returned
+		if err == nil {
+			t.Error("Expected error, got nil")
+		}
+		if !strings.Contains(err.Error(), "failed to create command") {
+			t.Errorf("Expected error about command creation, got: %v", err)
+		}
+		if output != "" {
+			t.Errorf("Expected empty output, got %q", output)
+		}
+	})
+}
+
 func TestShell_ExecProgress(t *testing.T) {
 	setup := func(t *testing.T) (*DefaultShell, *ShellTestMocks) {
 		t.Helper()
