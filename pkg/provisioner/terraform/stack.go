@@ -86,6 +86,7 @@ type TerraformStack struct {
 	destroyRetryAttempts int
 	destroyRetryBackoff  time.Duration
 	destroyRetryTimeout  time.Duration
+	destroyGracePeriod   time.Duration
 }
 
 // initCacheKey identifies a previously-completed `terraform init`. Three
@@ -284,6 +285,7 @@ func NewStack(rt *runtime.Runtime, opts ...*TerraformStack) Stack {
 		destroyRetryAttempts: constants.DefaultTerraformDestroyRetryAttempts,
 		destroyRetryBackoff:  constants.DefaultTerraformDestroyRetryBackoff,
 		destroyRetryTimeout:  constants.DefaultTerraformDestroyRetryTimeout,
+		destroyGracePeriod:   constants.DefaultTerraformDestroyGracePeriod,
 	}
 
 	if len(opts) > 0 && opts[0] != nil {
@@ -1185,14 +1187,17 @@ func (s *TerraformStack) migrateOneComponent(component *blueprintv1alpha1.Terraf
 // async cloud-side dependency. Each failed non-final attempt is logged via warningWriter before
 // retrying, so a failure reason that changes between attempts stays visible. The first attempt
 // uses DefaultTerraformDestroyTimeout; retries use the shorter DefaultTerraformDestroyRetryTimeout.
-// A timeout (shell.ErrCommandTimedOut) fails immediately without retrying. Returns the last
-// attempt's output and error.
+// A timeout (shell.ErrCommandTimedOut) fails immediately without retrying.
+//
+// A timeout interrupts terraform before it kills the process. See
+// ExecSilentWithEnvAndGracefulTimeout. A hard kill on timeout gave terraform no chance to write
+// a state checkpoint or release its backend lock. Returns the last attempt's output and error.
 func (s *TerraformStack) execTerraformDestroyWithRetry(componentPath, terraformCommand string, destroyEnv map[string]string, destroyArgs []string) (string, error) {
 	timeout := constants.DefaultTerraformDestroyTimeout
 	var output string
 	var err error
 	for attempt := 1; attempt <= s.destroyRetryAttempts; attempt++ {
-		output, err = s.runtime.Shell.ExecSilentWithEnvAndTimeout(terraformCommand, destroyEnv, destroyArgs, timeout)
+		output, err = s.runtime.Shell.ExecSilentWithEnvAndGracefulTimeout(terraformCommand, destroyEnv, destroyArgs, timeout, s.destroyGracePeriod)
 		if err == nil {
 			return output, nil
 		}

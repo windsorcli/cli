@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"sort"
+	"strconv"
 	"strings"
 	"syscall"
 
@@ -106,6 +107,16 @@ func interruptProcessGroup(cmd *exec.Cmd) error {
 		return nil
 	}
 	return windows.GenerateConsoleCtrlEvent(windows.CTRL_BREAK_EVENT, uint32(cmd.Process.Pid)) // #nosec G115 -- process IDs are small, safe to cast to uint32
+}
+
+// killProcessGroup force-kills cmd's whole process tree via `taskkill /T /F`. Windows has
+// no direct equivalent of a negative-pid group kill; taskkill's /T flag walks the tree, so
+// a subprocess cmd spawned (e.g. terraform's own provider plugins) dies too, not just cmd.
+func killProcessGroup(cmd *exec.Cmd) error {
+	if cmd.Process == nil {
+		return nil
+	}
+	return exec.Command("taskkill", "/T", "/F", "/PID", strconv.Itoa(cmd.Process.Pid)).Run()
 }
 
 // =============================================================================

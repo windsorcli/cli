@@ -89,6 +89,10 @@ type Shims struct {
 	// Signal operations
 	SignalNotify func(c chan<- os.Signal, sig ...os.Signal)
 	SignalStop   func(c chan<- os.Signal)
+
+	// Process group operations
+	InterruptProcessGroup func(cmd *exec.Cmd) error
+	KillProcessGroup      func(cmd *exec.Cmd) error
 }
 
 // =============================================================================
@@ -185,6 +189,10 @@ func NewShims() *Shims {
 		// Signal operations
 		SignalNotify: signal.Notify,
 		SignalStop:   signal.Stop,
+
+		// Process group operations
+		InterruptProcessGroup: interruptProcessGroup,
+		KillProcessGroup:      killProcessGroup,
 	}
 	return s
 }

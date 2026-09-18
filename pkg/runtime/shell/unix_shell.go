@@ -152,6 +152,16 @@ func interruptProcessGroup(cmd *exec.Cmd) error {
 	return syscall.Kill(-cmd.Process.Pid, syscall.SIGINT)
 }
 
+// killProcessGroup sends SIGKILL to cmd's process group. The negative pid targets the
+// whole group, so a subprocess cmd spawned (e.g. terraform's own provider plugins) dies
+// too, not just cmd itself.
+func killProcessGroup(cmd *exec.Cmd) error {
+	if cmd.Process == nil {
+		return nil
+	}
+	return syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
+}
+
 // =============================================================================
 // Private Methods
 // =============================================================================
