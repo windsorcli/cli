@@ -2348,6 +2348,30 @@ func TestProvisioner_Uninstall(t *testing.T) {
 		}
 	})
 
+	t.Run("SkipsWhenKubeconfigMissing", func(t *testing.T) {
+		// A missing kubeconfig means the cluster is already gone. Uninstall must not attempt
+		// to build a client against it. See #3397.
+		mocks := setupProvisionerMocks(t)
+		mocks.Runtime.ConfigRoot = t.TempDir()
+
+		var deleteBlueprintCalled bool
+		mocks.KubernetesManager.DeleteBlueprintFunc = func(blueprint *blueprintv1alpha1.Blueprint, namespace string) error {
+			deleteBlueprintCalled = true
+			return nil
+		}
+		opts := &Provisioner{KubernetesManager: mocks.KubernetesManager}
+		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
+
+		err := provisioner.Uninstall(createTestBlueprint())
+
+		if err != nil {
+			t.Errorf("Expected no error, got: %v", err)
+		}
+		if deleteBlueprintCalled {
+			t.Error("expected DeleteBlueprint not to run when kubeconfig is missing")
+		}
+	})
+
 	t.Run("ErrorNilBlueprint", func(t *testing.T) {
 		mocks := setupProvisionerMocks(t)
 		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler)
@@ -2596,6 +2620,30 @@ func TestProvisioner_DestroyKustomize(t *testing.T) {
 			t.Errorf("Expected specific error message, got: %v", err)
 		}
 	})
+
+	t.Run("SkipsWhenKubeconfigMissing", func(t *testing.T) {
+		// A missing kubeconfig means the cluster is already gone. DestroyKustomize must not
+		// attempt to build a client against it. See #3397.
+		mocks := setupProvisionerMocks(t)
+		mocks.Runtime.ConfigRoot = t.TempDir()
+
+		var deleteKustomizationCalled bool
+		mocks.KubernetesManager.DeleteKustomizationFunc = func(name, namespace string) error {
+			deleteKustomizationCalled = true
+			return nil
+		}
+		opts := &Provisioner{KubernetesManager: mocks.KubernetesManager}
+		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
+
+		err := provisioner.DestroyKustomize(createTestBlueprint(), "test-kustomization")
+
+		if err != nil {
+			t.Errorf("Expected no error, got: %v", err)
+		}
+		if deleteKustomizationCalled {
+			t.Error("expected DeleteKustomization not to run when kubeconfig is missing")
+		}
+	})
 }
 
 func TestProvisioner_DestroyAll(t *testing.T) {
@@ -2685,43 +2733,73 @@ func TestProvisioner_DestroyAll(t *testing.T) {
 		}
 	})
 
-	t.Run("AlwaysRunsUninstallRegardlessOfKubeconfig", func(t *testing.T) {
-		// A missing local kubeconfig is not proof the cluster is gone — it may simply never
-		// have been materialized here (a fresh checkout, a new CI runner) against a cluster
-		// that's fully alive. DestroyAll must attempt kustomize destroy either way and let a
-		// genuine connection failure surface as a recorded failure, never silently skip it.
-		for _, tc := range []struct {
-			name              string
-			missingKubeconfig bool
-		}{
-			{name: "KubeconfigPresent", missingKubeconfig: false},
-			{name: "KubeconfigMissing", missingKubeconfig: true},
-		} {
-			t.Run(tc.name, func(t *testing.T) {
-				mocks := setupProvisionerMocks(t)
-				if tc.missingKubeconfig {
-					mocks.Runtime.ConfigRoot = t.TempDir()
-				}
+	t.Run("RunsUninstallWhenKubeconfigPresentEvenIfStale", func(t *testing.T) {
+		// A kubeconfig that is present but stale (points at an unreachable cluster) is not
+		// proof the cluster is gone. DestroyAll must still attempt kustomize destroy and let
+		// a genuine connection failure surface as a recorded failure, never silently skip it.
+		mocks := setupProvisionerMocks(t)
 
-				var uninstallCalled bool
-				mocks.KubernetesManager.DeleteBlueprintFunc = func(bp *blueprintv1alpha1.Blueprint, namespace string) error {
-					uninstallCalled = true
-					return nil
-				}
-				mockStack := terraforminfra.NewMockStack()
-				mockStack.DestroyAllFunc = func(bp *blueprintv1alpha1.Blueprint, _ bool, excludeIDs ...string) (terraforminfra.DestroyOutcome, error) {
-					return terraforminfra.DestroyOutcome{}, nil
-				}
-				opts := &Provisioner{KubernetesManager: mocks.KubernetesManager, TerraformStack: mockStack}
-				provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
+		var uninstallCalled bool
+		mocks.KubernetesManager.DeleteBlueprintFunc = func(bp *blueprintv1alpha1.Blueprint, namespace string) error {
+			uninstallCalled = true
+			return nil
+		}
+		mockStack := terraforminfra.NewMockStack()
+		mockStack.DestroyAllFunc = func(bp *blueprintv1alpha1.Blueprint, _ bool, excludeIDs ...string) (terraforminfra.DestroyOutcome, error) {
+			return terraforminfra.DestroyOutcome{}, nil
+		}
+		opts := &Provisioner{KubernetesManager: mocks.KubernetesManager, TerraformStack: mockStack}
+		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
 
-				if _, err := provisioner.DestroyAll(createTestBlueprint(), false); err != nil {
-					t.Fatalf("expected no error, got: %v", err)
-				}
-				if !uninstallCalled {
-					t.Error("expected DeleteBlueprint to run")
-				}
-			})
+		if _, err := provisioner.DestroyAll(createTestBlueprint(), false); err != nil {
+			t.Fatalf("expected no error, got: %v", err)
+		}
+		if !uninstallCalled {
+			t.Error("expected DeleteBlueprint to run")
+		}
+	})
+
+	t.Run("SkipsUninstallWhenKubeconfigMissing", func(t *testing.T) {
+		// A missing kubeconfig means the cluster is already gone — typically a prior destroy
+		// run already tore it down. DestroyAll must not attempt to suspend or delete
+		// kustomizations against a client that can never be built, and must still proceed
+		// to the terraform layer. See #3397.
+		mocks := setupProvisionerMocks(t)
+		mocks.Runtime.ConfigRoot = t.TempDir()
+
+		var uninstallCalled bool
+		mocks.KubernetesManager.DeleteBlueprintFunc = func(bp *blueprintv1alpha1.Blueprint, namespace string) error {
+			uninstallCalled = true
+			return nil
+		}
+		var terraformDestroyCalled bool
+		mockStack := terraforminfra.NewMockStack()
+		mockStack.DestroyAllFunc = func(bp *blueprintv1alpha1.Blueprint, _ bool, excludeIDs ...string) (terraforminfra.DestroyOutcome, error) {
+			terraformDestroyCalled = true
+			return terraforminfra.DestroyOutcome{}, nil
+		}
+		opts := &Provisioner{KubernetesManager: mocks.KubernetesManager, TerraformStack: mockStack}
+		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
+
+		result, err := provisioner.DestroyAll(createTestBlueprint(), false)
+
+		if err != nil {
+			t.Fatalf("expected no error, got: %v", err)
+		}
+		if uninstallCalled {
+			t.Error("expected DeleteBlueprint not to run when kubeconfig is missing")
+		}
+		if !terraformDestroyCalled {
+			t.Error("expected terraform destroy to still run when kubeconfig is missing")
+		}
+		if result.TerraformDeferred {
+			t.Error("expected TerraformDeferred=false when kustomize destroy was skipped, not failed")
+		}
+		if len(result.Destroyed) != 0 {
+			t.Errorf("expected no kustomizations in Destroyed, got %v", result.Destroyed)
+		}
+		if len(result.Skipped) != 1 || result.Skipped[0] != "test-kustomization" {
+			t.Errorf("expected kustomization counted in Skipped, got %v", result.Skipped)
 		}
 	})
 

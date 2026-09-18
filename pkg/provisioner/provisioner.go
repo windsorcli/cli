@@ -452,7 +452,9 @@ func (i *Provisioner) Destroy(blueprint *blueprintv1alpha1.Blueprint, componentI
 	return skipped, nil
 }
 
-// DestroyKustomize deletes a single kustomization by name from the cluster.
+// DestroyKustomize deletes a single kustomization by name from the cluster. It is a no-op
+// when no local kubeconfig exists (see kubeconfigPresent): the cluster is already gone, so
+// the kustomization is already gone with it.
 // Returns an error if the blueprint is nil, the kubernetes manager is not configured,
 // the kustomization is not found in the blueprint, or the delete operation fails.
 func (i *Provisioner) DestroyKustomize(blueprint *blueprintv1alpha1.Blueprint, componentID string) error {
@@ -475,6 +477,10 @@ func (i *Provisioner) DestroyKustomize(blueprint *blueprintv1alpha1.Blueprint, c
 		return fmt.Errorf("kustomization %q not found in blueprint", componentID)
 	}
 
+	if !i.kubeconfigPresent() {
+		return nil
+	}
+
 	if err := tui.WithProgress(fmt.Sprintf("Destroying kustomization %s", componentID), func() error {
 		return i.KubernetesManager.DeleteKustomization(componentID, i.fluxNamespace())
 	}); err != nil {
@@ -485,13 +491,16 @@ func (i *Provisioner) DestroyKustomize(blueprint *blueprintv1alpha1.Blueprint, c
 }
 
 // DestroyAll destroys every infrastructure component: kustomizations first, then terraform.
-// Kustomize destroy always runs when a KubernetesManager is configured — a missing or stale
-// local kubeconfig is not treated as proof the cluster is gone, since it may just never have
-// been materialized here (a fresh checkout, a new CI runner) against a cluster that's very
-// much alive. Under continueOnError, any kustomize failure unconditionally defers terraform
-// (see blocksNextStage): Windsor cannot tell whether a live controller is still mid-delete of
-// a resource terraform never tracked, so it never guesses. excludeIDs skips components in the
-// terraform pass, so callers can destroy the backend component last.
+// Uninstall is a no-op when no local kubeconfig exists. See kubeconfigPresent. DestroyAll then
+// counts eligible kustomizations as Skipped, not Destroyed. This keeps `windsor destroy`
+// idempotent after a prior run already tore the cluster down.
+//
+// Under continueOnError, any kustomize failure defers terraform. See blocksNextStage. Windsor
+// cannot tell whether a live controller is still mid-delete of a resource terraform never
+// tracked, so it never guesses.
+//
+// excludeIDs skips components in the terraform pass. Callers use this to destroy the backend
+// component last.
 func (i *Provisioner) DestroyAll(blueprint *blueprintv1alpha1.Blueprint, continueOnError bool, excludeIDs ...string) (DestroyResult, error) {
 	var result DestroyResult
 	if blueprint == nil {
@@ -499,6 +508,7 @@ func (i *Provisioner) DestroyAll(blueprint *blueprintv1alpha1.Blueprint, continu
 	}
 
 	if i.KubernetesManager != nil {
+		clusterGone := !i.kubeconfigPresent()
 		if err := i.Uninstall(blueprint); err != nil {
 			if !continueOnError {
 				return result, err
@@ -506,11 +516,15 @@ func (i *Provisioner) DestroyAll(blueprint *blueprintv1alpha1.Blueprint, continu
 			result.Failed = append(result.Failed, ComponentFailure{ID: KustomizeFailureID, Err: err})
 			result.TerraformDeferred = true
 			return result, nil
-		} else {
-			for _, k := range blueprint.AllKustomizations() {
-				if fluxinfra.KustomizationDestroyEligible(k) {
-					result.Destroyed = append(result.Destroyed, k.Name)
-				}
+		}
+		for _, k := range blueprint.AllKustomizations() {
+			if !fluxinfra.KustomizationDestroyEligible(k) {
+				continue
+			}
+			if clusterGone {
+				result.Skipped = append(result.Skipped, k.Name)
+			} else {
+				result.Destroyed = append(result.Destroyed, k.Name)
 			}
 		}
 	}
@@ -1405,6 +1419,10 @@ func (i *Provisioner) CheckVersionGate(blueprint *blueprintv1alpha1.Blueprint) (
 // inner per-Kustomization output and produce a single opaque "Removing blueprint
 // resources" line that hides the long per-Kustomization waits inherent to
 // WaitForTermination-driven teardown.
+//
+// Uninstall is a no-op when no local kubeconfig exists. See kubeconfigPresent for the reasoning:
+// a missing kubeconfig means the cluster is already gone, so there is nothing to suspend or
+// delete, and building a client would only fail with a stat error.
 func (i *Provisioner) Uninstall(blueprint *blueprintv1alpha1.Blueprint) error {
 	if blueprint == nil {
 		return fmt.Errorf("blueprint not provided")
@@ -1412,6 +1430,10 @@ func (i *Provisioner) Uninstall(blueprint *blueprintv1alpha1.Blueprint) error {
 
 	if i.KubernetesManager == nil {
 		return fmt.Errorf("kubernetes manager not configured")
+	}
+
+	if !i.kubeconfigPresent() {
+		return nil
 	}
 
 	blueprint = withCrdLayer(blueprint)
