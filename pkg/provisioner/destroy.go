@@ -32,11 +32,18 @@ type ComponentFailure = terraforminfra.ComponentFailure
 // kustomize failure occurred, or a non-backend component still needs work. Add
 // fields for other destroy layers, such as Helm, to this type, not to the
 // terraform-package outcome.
+//
+// SkippedClusterGone is separate from Skipped. It names kustomizations skipped
+// for a missing kubeconfig, not empty terraform state. An empty terraform
+// state may be an orphan hazard. A missing kubeconfig on a destroy re-run
+// just means the cluster is already gone. See reportSkippedDestroyComponents
+// and reportSkippedClusterGoneKustomizations in cmd/destroy.go.
 type DestroyResult struct {
-	Destroyed         []string
-	Skipped           []string
-	Failed            []ComponentFailure
-	TerraformDeferred bool
+	Destroyed          []string
+	Skipped            []string
+	SkippedClusterGone []string
+	Failed             []ComponentFailure
+	TerraformDeferred  bool
 }
 
 // =============================================================================

@@ -2798,8 +2798,11 @@ func TestProvisioner_DestroyAll(t *testing.T) {
 		if len(result.Destroyed) != 0 {
 			t.Errorf("expected no kustomizations in Destroyed, got %v", result.Destroyed)
 		}
-		if len(result.Skipped) != 1 || result.Skipped[0] != "test-kustomization" {
-			t.Errorf("expected kustomization counted in Skipped, got %v", result.Skipped)
+		if len(result.Skipped) != 0 {
+			t.Errorf("expected no terraform-style empty-state skips, got %v", result.Skipped)
+		}
+		if len(result.SkippedClusterGone) != 1 || result.SkippedClusterGone[0] != "test-kustomization" {
+			t.Errorf("expected kustomization counted in SkippedClusterGone, got %v", result.SkippedClusterGone)
 		}
 	})
 

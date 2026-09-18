@@ -12,11 +12,11 @@ Destroy live infrastructure. With no argument, removes every Flux kustomization,
 
 Every form requires confirmation. Either type the context or component name at the prompt, or pass --confirm=<expected> to satisfy the gate non-interactively (CI-safe). The --confirm value must match the prompt token exactly; mismatches abort the operation.
 
-If terraform reports resources protected by 'lifecycle { prevent_destroy = true }', destroy warns up front so the operator knows the destroy may halt partway through. It also warns when deletion_policy, deletion_protection, force_destroy, or skip_final_snapshot has drifted from state. Resources whose state is empty are skipped with a warning naming any potentially orphaned cloud resources.
+If terraform reports resources protected by 'lifecycle { prevent_destroy = true }', destroy warns up front so the operator knows the destroy may halt partway through. It also warns when deletion_policy, deletion_protection, force_destroy, or skip_final_snapshot has drifted from state. Terraform components whose state is empty are skipped with a warning naming any potentially orphaned cloud resources. Destroy skips kustomizations separately when no local kubeconfig exists for the context. This case prints no orphan warning: the cluster is already gone.
 
 If any component fails destroy-plan generation, destroy halts before the confirmation prompt and names the failed components, rather than offering to destroy a plan it cannot fully execute. This is distinct from --continue, which governs failures during execution, after confirmation.
 
-The default behavior is to abort on the first per-component destroy failure. Pass --continue to keep going past failures and print a one-line summary at the end (windsor destroy: N destroyed, N no-op (empty state), N failed (...), terraform deferred). --continue applies to a layer-wide destroy only; it is refused with a component argument.
+The default behavior is to abort on the first per-component destroy failure. Pass --continue to keep going past failures and print a one-line summary at the end (windsor destroy: N destroyed, N no-op (empty state), N no-op (cluster gone), N failed (...), terraform deferred). --continue applies to a layer-wide destroy only; it is refused with a component argument.
 
 Terraform is skipped in two cases:
 - A non-backend component is left un-destroyed.

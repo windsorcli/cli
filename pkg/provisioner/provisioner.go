@@ -492,8 +492,8 @@ func (i *Provisioner) DestroyKustomize(blueprint *blueprintv1alpha1.Blueprint, c
 
 // DestroyAll destroys every infrastructure component: kustomizations first, then terraform.
 // Uninstall is a no-op when no local kubeconfig exists. See kubeconfigPresent. DestroyAll then
-// counts eligible kustomizations as Skipped, not Destroyed. This keeps `windsor destroy`
-// idempotent after a prior run already tore the cluster down.
+// counts eligible kustomizations as SkippedClusterGone, not Destroyed. This keeps `windsor
+// destroy` idempotent after a prior run already tore the cluster down.
 //
 // Under continueOnError, any kustomize failure defers terraform. See blocksNextStage. Windsor
 // cannot tell whether a live controller is still mid-delete of a resource terraform never
@@ -522,7 +522,7 @@ func (i *Provisioner) DestroyAll(blueprint *blueprintv1alpha1.Blueprint, continu
 				continue
 			}
 			if clusterGone {
-				result.Skipped = append(result.Skipped, k.Name)
+				result.SkippedClusterGone = append(result.SkippedClusterGone, k.Name)
 			} else {
 				result.Destroyed = append(result.Destroyed, k.Name)
 			}

@@ -106,7 +106,9 @@ func setupDestroyTest(t *testing.T, opts ...*SetupOptions) *DestroyMocks {
 	mockBlueprintHandler.GenerateFunc = func() *blueprintv1alpha1.Blueprint { return testBlueprint }
 
 	mockTerraformStack := terraforminfra.NewMockStack()
-	mockTerraformStack.DestroyAllFunc = func(bp *blueprintv1alpha1.Blueprint, _ bool, excludeIDs ...string) (terraforminfra.DestroyOutcome, error) { return terraforminfra.DestroyOutcome{}, nil }
+	mockTerraformStack.DestroyAllFunc = func(bp *blueprintv1alpha1.Blueprint, _ bool, excludeIDs ...string) (terraforminfra.DestroyOutcome, error) {
+		return terraforminfra.DestroyOutcome{}, nil
+	}
 	mockTerraformStack.DestroyFunc = func(bp *blueprintv1alpha1.Blueprint, componentID string) (bool, error) { return false, nil }
 
 	mockKubernetesManager := kubernetes.NewMockKubernetesManager()
@@ -390,6 +392,48 @@ func TestFailOnDestroyKustomizePlanErrors(t *testing.T) {
 		}
 		if strings.Contains(out, "ingress") {
 			t.Errorf("did not expect cleanly-planned kustomization named, got %q", out)
+		}
+	})
+}
+
+func TestReportSkippedClusterGoneKustomizations(t *testing.T) {
+	t.Run("EmitsNothingWhenNoneSkipped", func(t *testing.T) {
+		var buf strings.Builder
+
+		reportSkippedClusterGoneKustomizations(&buf, nil)
+
+		if buf.Len() != 0 {
+			t.Errorf("expected no output, got %q", buf.String())
+		}
+	})
+
+	t.Run("NamesTheSingleSkippedKustomizationWithoutOrphanWarning", func(t *testing.T) {
+		var buf strings.Builder
+
+		reportSkippedClusterGoneKustomizations(&buf, []string{"my-app"})
+
+		out := buf.String()
+		if !strings.Contains(out, `"my-app"`) {
+			t.Errorf("expected kustomization name in output, got %q", out)
+		}
+		if strings.Contains(out, "orphaned") || strings.Contains(out, "cloud console") {
+			t.Errorf("expected no orphan-hazard wording for a cluster-gone skip, got %q", out)
+		}
+	})
+
+	t.Run("NamesEveryKustomizationWithCount", func(t *testing.T) {
+		var buf strings.Builder
+
+		reportSkippedClusterGoneKustomizations(&buf, []string{"my-app", "ingress"})
+
+		out := buf.String()
+		if !strings.Contains(out, "2 kustomizations") {
+			t.Errorf("expected count '2 kustomizations' in output, got %q", out)
+		}
+		for _, name := range []string{"my-app", "ingress"} {
+			if !strings.Contains(out, name) {
+				t.Errorf("expected kustomization %q in output, got %q", name, out)
+			}
 		}
 	})
 }
@@ -936,6 +980,48 @@ func TestDestroyCmd(t *testing.T) {
 		}
 		if !strings.Contains(out, "0 failed") {
 			t.Errorf("Expected summary to report 0 failed, got: %q", out)
+		}
+	})
+
+	t.Run("ClusterGoneKustomizationsReportedWithoutOrphanWarning", func(t *testing.T) {
+		// Given no local kubeconfig exists (the cluster was already torn down by a
+		// prior run), DestroyAll skips kustomize teardown into SkippedClusterGone.
+		// The cmd layer must surface that distinctly from a terraform empty-state
+		// skip: a plain notice, not the "cloud resources may now be orphaned"
+		// warning, and a "no-op (cluster gone)" segment in the --continue summary.
+		mocks := setupDestroyTest(t)
+		configRoot, err := mocks.ConfigHandler.GetConfigRoot()
+		if err != nil {
+			t.Fatalf("failed to resolve config root: %v", err)
+		}
+		if err := os.Remove(filepath.Join(configRoot, ".kube", "config")); err != nil {
+			t.Fatalf("failed to remove seeded kubeconfig: %v", err)
+		}
+		mocks.TerraformStack.DestroyAllFunc = func(_ *blueprintv1alpha1.Blueprint, _ bool, _ ...string) (terraforminfra.DestroyOutcome, error) {
+			return terraforminfra.DestroyOutcome{Destroyed: []string{"cluster"}}, nil
+		}
+		proj := newDestroyProject(mocks)
+
+		var stderr bytes.Buffer
+		cmd := createTestDestroyCmd()
+		cmd.SetErr(&stderr)
+		ctx := context.WithValue(context.Background(), projectOverridesKey, proj)
+		cmd.SetArgs([]string{"--confirm=test-context", "--continue"})
+		cmd.SetContext(ctx)
+		err = cmd.Execute()
+
+		if err != nil {
+			t.Fatalf("Expected a cluster-gone skip to succeed, got %v", err)
+		}
+		out := stderr.String()
+		if !strings.Contains(out, `note: kustomization "my-app" was already gone`) {
+			t.Errorf("Expected a cluster-gone notice naming the kustomization, got: %q", out)
+		}
+		if strings.Contains(out, "orphaned") || strings.Contains(out, "cloud console") {
+			t.Errorf("Did not expect orphan-hazard wording for a cluster-gone skip, got: %q", out)
+		}
+		if !strings.Contains(out, "1 no-op (cluster gone)") {
+			t.Errorf("Expected summary to report 1 no-op (cluster gone), got: %q", out)
 		}
 	})
 
