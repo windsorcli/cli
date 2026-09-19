@@ -633,17 +633,13 @@ func (c *BaseBlueprintComposer) mergeLegacySpecialVariables(mergedCommonValues m
 	}
 }
 
-// discoverContextPatches discovers and adds patches from the context directory to kustomizations.
-// Patches are discovered from contexts/<context>/patches/<name>/ and added to the corresponding
-// kustomize: entry or FluxSystem tier. <name> may be a plain kustomization name, a compiled tier
-// name ("<system>-install" or "<system>-resources[-<variant>]"), or a bare FluxSystem name — which
-// resolves to that system's install tier, or its lone resources variant when there is no install
-// tier and exactly one resources variant; a bare name is left unmatched when that would be
-// ambiguous, so the tier-qualified name must be used instead. A directory matching neither is not
-// an error (patches are opt-in overlays; composition still succeeds), but is reported to stderr —
-// a typo'd or stale directory would otherwise apply nothing with no indication why. Supports both
-// strategic merge patches (standard Kubernetes YAML) and JSON 6902 patches (with a patches field
-// containing JSON 6902 operations).
+// discoverContextPatches applies patches from contexts/<context>/patches/<name>/ onto the
+// matching kustomize: entry or FluxSystem tier. <name> is a plain kustomization name, a
+// compiled tier name, or a bare FluxSystem name; see buildFluxTierMap for tier resolution.
+// An unmatched directory only warns, since patches are opt-in. An unreadable patch directory
+// or file, or a YAML parse failure, fails composition — each case is likely operator error.
+// Hidden entries (a leading dot) are skipped, so a stray file such as a macOS AppleDouble
+// sidecar is never mistaken for a malformed patch.
 func (c *BaseBlueprintComposer) discoverContextPatches(blueprint *blueprintv1alpha1.Blueprint) error {
 	if c.runtime == nil || c.runtime.ConfigRoot == "" {
 		return nil
@@ -664,8 +660,12 @@ func (c *BaseBlueprintComposer) discoverContextPatches(blueprint *blueprintv1alp
 		kustomizationMap[blueprint.Kustomizations[i].Name] = &blueprint.Kustomizations[i]
 	}
 	fluxTierMap := buildFluxTierMap(blueprint)
+	validNames := validPatchTargetNames(kustomizationMap, fluxTierMap)
 
 	for _, entry := range entries {
+		if strings.HasPrefix(entry.Name(), ".") {
+			continue
+		}
 		if !entry.IsDir() {
 			continue
 		}
@@ -676,14 +676,15 @@ func (c *BaseBlueprintComposer) discoverContextPatches(blueprint *blueprintv1alp
 			kustomization, exists = fluxTierMap[kustomizationName]
 		}
 		if !exists {
-			fmt.Fprintf(os.Stderr, "Warning: %s does not match any kustomization or FluxSystem tier; patches ignored\n", filepath.Join(patchesDir, kustomizationName))
+			fmt.Fprintf(os.Stderr, "Warning: %s does not match any kustomization or FluxSystem tier; patches ignored. Valid names: %s\n",
+				filepath.Join(patchesDir, kustomizationName), validNames)
 			continue
 		}
 
 		kustomizationPatchesDir := filepath.Join(patchesDir, kustomizationName)
 		patchFiles, err := c.shims.ReadDir(kustomizationPatchesDir)
 		if err != nil {
-			continue
+			return fmt.Errorf("failed to read patches directory %s: %w", kustomizationPatchesDir, err)
 		}
 
 		for _, patchFile := range patchFiles {
@@ -692,6 +693,9 @@ func (c *BaseBlueprintComposer) discoverContextPatches(blueprint *blueprintv1alp
 			}
 
 			fileName := patchFile.Name()
+			if strings.HasPrefix(fileName, ".") {
+				continue
+			}
 			if !strings.HasSuffix(fileName, ".yaml") && !strings.HasSuffix(fileName, ".yml") {
 				continue
 			}
@@ -699,12 +703,12 @@ func (c *BaseBlueprintComposer) discoverContextPatches(blueprint *blueprintv1alp
 			patchPath := filepath.Join(kustomizationPatchesDir, fileName)
 			patchData, err := c.shims.ReadFile(patchPath)
 			if err != nil {
-				continue
+				return fmt.Errorf("failed to read patch file %s: %w", patchPath, err)
 			}
 
-			patch, err := c.parsePatch(patchData, fileName)
+			patch, err := c.parsePatch(patchData, patchPath)
 			if err != nil {
-				continue
+				return err
 			}
 
 			if patch != nil {
@@ -714,6 +718,23 @@ func (c *BaseBlueprintComposer) discoverContextPatches(blueprint *blueprintv1alp
 	}
 
 	return nil
+}
+
+// validPatchTargetNames returns the sorted, deduplicated, comma-separated list of names a
+// context-patch directory may match. The list combines every plain kustomization name with
+// every compiled tier name for a FluxSystem. Windsor shows this list in the unmatched-directory
+// warning. This lets an operator see the valid names without cross-referencing the blueprint.
+func validPatchTargetNames(kustomizationMap, fluxTierMap map[string]*blueprintv1alpha1.Kustomization) string {
+	merged := accumulateMapKeys(kustomizationMap, fluxTierMap)
+	names := make([]string, 0, len(merged))
+	for name := range merged {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	if len(names) == 0 {
+		return "(none)"
+	}
+	return strings.Join(names, ", ")
 }
 
 // buildFluxTierMap indexes a blueprint's FluxSystems by every name a context-patch directory may
@@ -760,14 +781,14 @@ func buildFluxTierMap(blueprint *blueprintv1alpha1.Blueprint) map[string]*bluepr
 // a strategic merge patch (standard Kubernetes YAML) or a JSON 6902 patch (with a patches field).
 // For JSON 6902 patches, it extracts the target selector from the resource metadata.
 // Returns nil if the patch data is empty or whitespace-only.
-func (c *BaseBlueprintComposer) parsePatch(data []byte, fileName string) (*blueprintv1alpha1.BlueprintPatch, error) {
+func (c *BaseBlueprintComposer) parsePatch(data []byte, path string) (*blueprintv1alpha1.BlueprintPatch, error) {
 	if len(strings.TrimSpace(string(data))) == 0 {
 		return nil, nil
 	}
 
 	var patchContent map[string]any
 	if err := c.shims.YamlUnmarshal(data, &patchContent); err != nil {
-		return nil, fmt.Errorf("failed to unmarshal patch file %s: %w", fileName, err)
+		return nil, fmt.Errorf("failed to parse patch file %s: %w", path, err)
 	}
 
 	if len(patchContent) == 0 {
