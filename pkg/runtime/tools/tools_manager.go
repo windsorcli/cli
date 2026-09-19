@@ -928,15 +928,10 @@ func (t *BaseToolsManager) gcpEnabled() bool {
 // checkGCPAuth verifies the gcloud CLI is present at the minimum version and that
 // Application Default Credentials resolve. Probes `gcloud auth application-default
 // print-access-token` — a live token mint, not a cached-account listing — so a revoked
-// or expired credential is caught here rather than at terraform apply time. When ambient
-// SDK credentials are present and gcloud is absent, defers to terraform's own SDK rather
-// than failing preflight.
+// or expired credential is caught here rather than at terraform apply time. gcloud is
+// required regardless of ambient credentials: GKE auth (via gke-gcloud-auth-plugin) and
+// terraform teardown cleanup both shell out to it directly.
 func (t *BaseToolsManager) checkGCPAuth() error {
-	if hasAmbientGCPCredentials() {
-		if _, err := execLookPath("gcloud"); err != nil {
-			return nil
-		}
-	}
 	if err := t.checkGCPBinary(); err != nil {
 		return err
 	}

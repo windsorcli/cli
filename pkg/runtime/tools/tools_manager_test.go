@@ -3605,6 +3605,35 @@ contexts:
 		}
 	})
 
+	t.Run("GCPPlatformWithAmbientCredentialsAndGcloudMissing", func(t *testing.T) {
+		// Given platform: gcp, ambient Application Default Credentials are present
+		// (GOOGLE_APPLICATION_CREDENTIALS set, as google-github-actions/auth does in CI),
+		// and the gcloud CLI is not in PATH
+		_, toolsManager := setup(t, `
+contexts:
+  test:
+    platform: gcp
+`)
+		t.Setenv("GOOGLE_APPLICATION_CREDENTIALS", "/var/run/secrets/gcp/key.json")
+		originalExecLookPath := execLookPath
+		execLookPath = func(name string) (string, error) {
+			return "", exec.ErrNotFound
+		}
+		t.Cleanup(func() { execLookPath = originalExecLookPath })
+
+		// When CheckAuth runs
+		err := toolsManager.CheckAuth()
+		// Then the missing-binary error still surfaces — ambient credentials satisfy
+		// terraform's SDK auth but not gke-gcloud-auth-plugin or gcloud-shelling teardown
+		// cleanup, so a missing gcloud must never pass silently.
+		if err == nil {
+			t.Fatal("Expected error when gcloud CLI is missing, even with ambient credentials")
+		}
+		if !strings.Contains(err.Error(), "Google Cloud CLI") || !strings.Contains(err.Error(), "not found on PATH") {
+			t.Errorf("Expected 'Google Cloud CLI ... not found on PATH' error, got: %v", err)
+		}
+	})
+
 	t.Run("GCPPlatformWithValidCredentials", func(t *testing.T) {
 		// Given platform: gcp, the gcloud CLI is installed, and application-default
 		// credentials mint a live access token
