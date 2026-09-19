@@ -2688,6 +2688,43 @@ spec:
 		}
 	})
 
+	t.Run("SkipsHiddenDirectoriesUnderPatchesRoot", func(t *testing.T) {
+		// Given a hidden directory directly under patches/, alongside a real one
+		mocks := setupComposerMocks(t)
+		os.MkdirAll(mocks.Runtime.ConfigRoot+"/patches/.git", 0755)
+		os.WriteFile(mocks.Runtime.ConfigRoot+"/patches/.git/HEAD", []byte("ref: refs/heads/main"), 0644)
+		patchesDir := mocks.Runtime.ConfigRoot + "/patches/my-app"
+		os.MkdirAll(patchesDir, 0755)
+		os.WriteFile(patchesDir+"/patch.yaml", []byte("valid: patch"), 0644)
+		composer := NewBlueprintComposer(mocks.Runtime)
+		blueprint := &blueprintv1alpha1.Blueprint{
+			Kustomizations: []blueprintv1alpha1.Kustomization{
+				{Name: "my-app"},
+			},
+		}
+
+		// When discovering patches
+		oldStderr := os.Stderr
+		r, w, _ := os.Pipe()
+		os.Stderr = w
+		err := composer.discoverContextPatches(blueprint)
+		w.Close()
+		var buf strings.Builder
+		_, _ = io.Copy(&buf, r)
+		os.Stderr = oldStderr
+
+		// Then the hidden directory is skipped with no warning, and the real patch applies
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		if len(blueprint.Kustomizations[0].Patches) != 1 {
+			t.Fatalf("Expected 1 patch, got %d", len(blueprint.Kustomizations[0].Patches))
+		}
+		if strings.Contains(buf.String(), ".git") {
+			t.Errorf("Expected no warning for the hidden '.git' directory, got: %q", buf.String())
+		}
+	})
+
 	t.Run("IgnoresPatchesForNonExistentKustomizationAndWarns", func(t *testing.T) {
 		// Given a composer with patches for kustomization that doesn't exist
 		mocks := setupComposerMocks(t)
@@ -2711,7 +2748,8 @@ spec:
 		_, _ = io.Copy(&buf, r)
 		os.Stderr = oldStderr
 
-		// Then patches should be ignored, but a warning is printed naming the unmatched directory
+		// Then patches should be ignored, but a warning is printed naming the unmatched
+		// directory and the valid names it could have used instead
 		if err != nil {
 			t.Fatalf("Expected no error, got %v", err)
 		}
@@ -2720,6 +2758,9 @@ spec:
 		}
 		if !strings.Contains(buf.String(), "non-existent") || !strings.Contains(buf.String(), "does not match") {
 			t.Errorf("Expected warning naming the unmatched 'non-existent' directory, got: %q", buf.String())
+		}
+		if !strings.Contains(buf.String(), "Valid names: my-app") {
+			t.Errorf("Expected warning to list 'my-app' as a valid name, got: %q", buf.String())
 		}
 	})
 
@@ -2756,13 +2797,14 @@ spec:
 		}
 	})
 
-	t.Run("SkipsInvalidPatchFiles", func(t *testing.T) {
-		// Given a composer with invalid YAML patch file
+	t.Run("SkipsHiddenFiles", func(t *testing.T) {
+		// Given a patches directory containing a malformed hidden file alongside a valid
+		// patch. A macOS AppleDouble sidecar (._patch.yaml) is one real-world example.
 		mocks := setupComposerMocks(t)
 		patchesDir := mocks.Runtime.ConfigRoot + "/patches/my-app"
 		os.MkdirAll(patchesDir, 0755)
-		os.WriteFile(patchesDir+"/invalid.yaml", []byte("invalid: yaml: content: [unclosed"), 0644)
-		os.WriteFile(patchesDir+"/valid.yaml", []byte("valid: patch"), 0644)
+		os.WriteFile(patchesDir+"/patch.yaml", []byte("valid: patch"), 0644)
+		os.WriteFile(patchesDir+"/._patch.yaml", []byte{0x00, 0x05, 0x16, 0x07}, 0644)
 		composer := NewBlueprintComposer(mocks.Runtime)
 		blueprint := &blueprintv1alpha1.Blueprint{
 			Kustomizations: []blueprintv1alpha1.Kustomization{
@@ -2773,12 +2815,39 @@ spec:
 		// When discovering patches
 		err := composer.discoverContextPatches(blueprint)
 
-		// Then invalid patches should be skipped, valid ones processed
+		// Then the hidden sidecar file is skipped rather than failing composition, and the
+		// real patch is still applied
 		if err != nil {
 			t.Fatalf("Expected no error, got %v", err)
 		}
 		if len(blueprint.Kustomizations[0].Patches) != 1 {
 			t.Fatalf("Expected 1 patch, got %d", len(blueprint.Kustomizations[0].Patches))
+		}
+	})
+
+	t.Run("FailsCompositionOnInvalidPatchYaml", func(t *testing.T) {
+		// Given a composer with an invalid YAML patch file
+		mocks := setupComposerMocks(t)
+		patchesDir := mocks.Runtime.ConfigRoot + "/patches/my-app"
+		os.MkdirAll(patchesDir, 0755)
+		os.WriteFile(patchesDir+"/invalid.yaml", []byte("invalid: yaml: content: [unclosed"), 0644)
+		composer := NewBlueprintComposer(mocks.Runtime)
+		blueprint := &blueprintv1alpha1.Blueprint{
+			Kustomizations: []blueprintv1alpha1.Kustomization{
+				{Name: "my-app"},
+			},
+		}
+
+		// When discovering patches
+		err := composer.discoverContextPatches(blueprint)
+
+		// Then composition fails loudly, naming the file and the parse error, rather than
+		// silently applying without the operator's patch
+		if err == nil {
+			t.Fatal("Expected an error for invalid patch YAML")
+		}
+		if !strings.Contains(err.Error(), "invalid.yaml") {
+			t.Errorf("Expected error to name the invalid file, got: %v", err)
 		}
 	})
 
@@ -2806,14 +2875,25 @@ spec:
 		}
 	})
 
-	t.Run("HandlesReadDirErrorForKustomizationDirectory", func(t *testing.T) {
-		// Given a composer with patches directory but unreadable kustomization subdirectory
+	t.Run("FailsCompositionOnReadDirErrorForKustomizationDirectory", func(t *testing.T) {
+		// Given a composer with patches directory but an unreadable kustomization subdirectory.
+		// The read failure is injected via the ReadDir shim rather than real filesystem
+		// permissions, since permission bits don't reliably block directory listing on
+		// Windows CI runners.
 		mocks := setupComposerMocks(t)
 		patchesDir := mocks.Runtime.ConfigRoot + "/patches"
-		os.MkdirAll(patchesDir, 0755)
-		kustomizationDir := patchesDir + "/my-app"
-		os.MkdirAll(kustomizationDir, 0000)
+		kustomizationDir := filepath.Join(patchesDir, "my-app")
+		os.MkdirAll(kustomizationDir, 0755)
+
 		composer := NewBlueprintComposer(mocks.Runtime)
+		originalReadDir := composer.shims.ReadDir
+		composer.shims.ReadDir = func(path string) ([]os.DirEntry, error) {
+			if filepath.Clean(path) == filepath.Clean(kustomizationDir) {
+				return nil, os.ErrPermission
+			}
+			return originalReadDir(path)
+		}
+
 		blueprint := &blueprintv1alpha1.Blueprint{
 			Kustomizations: []blueprintv1alpha1.Kustomization{
 				{Name: "my-app"},
@@ -2823,18 +2903,17 @@ spec:
 		// When discovering patches
 		err := composer.discoverContextPatches(blueprint)
 
-		// Then should skip unreadable directory without error
-		if err != nil {
-			t.Fatalf("Expected no error, got %v", err)
+		// Then composition fails loudly, naming the unreadable directory. A permissions
+		// mistake must never look like "no patches configured".
+		if err == nil {
+			t.Fatal("Expected an error for unreadable kustomization patches directory")
 		}
-		if len(blueprint.Kustomizations[0].Patches) != 0 {
-			t.Errorf("Expected 0 patches, got %d", len(blueprint.Kustomizations[0].Patches))
+		if !strings.Contains(err.Error(), "my-app") {
+			t.Errorf("Expected error to name the unreadable directory, got: %v", err)
 		}
-
-		os.Chmod(kustomizationDir, 0755)
 	})
 
-	t.Run("HandlesReadFileError", func(t *testing.T) {
+	t.Run("FailsCompositionOnReadFileError", func(t *testing.T) {
 		// Given a composer with unreadable patch file
 		mocks := setupComposerMocks(t)
 		patchesDir := filepath.Join(mocks.Runtime.ConfigRoot, "patches", "my-app")
@@ -2860,12 +2939,12 @@ spec:
 		// When discovering patches
 		err := composer.discoverContextPatches(blueprint)
 
-		// Then should skip unreadable file without error
-		if err != nil {
-			t.Fatalf("Expected no error, got %v", err)
+		// Then composition fails loudly, naming the unreadable file
+		if err == nil {
+			t.Fatal("Expected an error for unreadable patch file")
 		}
-		if len(blueprint.Kustomizations[0].Patches) != 0 {
-			t.Errorf("Expected 0 patches, got %d", len(blueprint.Kustomizations[0].Patches))
+		if !strings.Contains(err.Error(), "patch.yaml") {
+			t.Errorf("Expected error to name the unreadable file, got: %v", err)
 		}
 	})
 
@@ -2891,6 +2970,44 @@ spec:
 		}
 		if len(blueprint.Kustomizations[0].Patches) != 0 {
 			t.Errorf("Expected 0 patches for empty file, got %d", len(blueprint.Kustomizations[0].Patches))
+		}
+	})
+}
+
+// =============================================================================
+// Test validPatchTargetNames
+// =============================================================================
+
+func TestValidPatchTargetNames(t *testing.T) {
+	t.Run("DeduplicatesNameCollidingAcrossBothMaps", func(t *testing.T) {
+		// Given a plain kustomization name that collides with a compiled FluxSystem tier name
+		blueprint := &blueprintv1alpha1.Blueprint{
+			FluxSystems: []blueprintv1alpha1.FluxSystem{
+				{Name: "myapp", Install: &blueprintv1alpha1.Kustomization{Components: []string{"c"}}},
+			},
+		}
+		kustomizationMap := map[string]*blueprintv1alpha1.Kustomization{
+			"myapp-install": {Name: "myapp-install"},
+		}
+		fluxTierMap := buildFluxTierMap(blueprint)
+
+		// When building the valid-names list
+		result := validPatchTargetNames(kustomizationMap, fluxTierMap)
+
+		// Then the colliding name appears exactly once
+		if strings.Count(result, "myapp-install") != 1 {
+			t.Errorf("Expected 'myapp-install' to appear exactly once, got: %q", result)
+		}
+	})
+
+	t.Run("ReturnsPlaceholderWhenNoNamesExist", func(t *testing.T) {
+		// Given no kustomizations or FluxSystem tiers
+		// When building the valid-names list
+		result := validPatchTargetNames(nil, nil)
+
+		// Then a placeholder is returned rather than an empty string
+		if result != "(none)" {
+			t.Errorf("Expected '(none)', got: %q", result)
 		}
 	})
 }
