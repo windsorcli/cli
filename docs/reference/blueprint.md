@@ -57,6 +57,7 @@ shared across them.
 |------|------|-------------|
 | `components` | `array<string>` | Kustomize components to compose into the install tier. |
 | `decryption` | `object` | In-cluster decryption for this tier's manifests, mapping to Flux's spec.decryption. Set provider (e.g. 'sops') and a secretRef naming the in-cluster key Secret. |
+| `deleteTimeout` | `string` | Delete-wait timeout override for destroy. Set it when delete outlasts install. Falls back to a timeout-derived heuristic when unset. |
 | `destroy` | `boolean / string` | Whether to delete this tier during 'windsor down'. Boolean or expression. Defaults to true. |
 | `destroyOnly` | `boolean` | When true, this tier only runs during destroy operations. |
 | `enabled` | `boolean / string` | Whether to include this tier in the final blueprint. Boolean or expression. Defaults to true. |
@@ -121,6 +122,7 @@ shared across them.
 |------|------|-------------|
 | `components` | `array<string>` | Kustomize components to compose into this variant. |
 | `decryption` | `object` | In-cluster decryption for this variant's manifests, mapping to Flux's spec.decryption. Set provider (e.g. 'sops') and a secretRef naming the in-cluster key Secret. |
+| `deleteTimeout` | `string` | Delete-wait timeout override for destroy. Set it when delete outlasts install. Falls back to a timeout-derived heuristic when unset. |
 | `dependsOn` | `array<string>` | Extra cross-layer edges, appended to the implicit install edge. |
 | `destroy` | `boolean / string` | Whether to delete this variant during 'windsor down'. Boolean or expression. Defaults to true. |
 | `destroyOnly` | `boolean` | When true, this variant only runs during destroy operations. |
@@ -196,6 +198,7 @@ shared across them.
 | `name` | `string` | Identifier for the kustomization; referenced by dependsOn. **(required)** |
 | `components` | `array<string>` | Kustomize components to compose into this kustomization. |
 | `decryption` | `object` | In-cluster decryption for this kustomization's manifests, mapping to Flux's spec.decryption. Set provider (e.g. 'sops') and a secretRef naming the in-cluster key Secret; kustomize-controller then decrypts encrypted files in the source during reconciliation. |
+| `deleteTimeout` | `string` | Delete-wait timeout override for destroy. Set it when delete outlasts install (e.g. '45m' for a managed database). Falls back to a timeout-derived heuristic when unset. |
 | `dependsOn` | `array<string>` | Names of kustomizations that must reconcile before this one. |
 | `destroy` | `boolean / string` | Whether to delete this kustomization during 'windsor down' / 'windsor destroy'. Boolean or expression. Defaults to true. |
 | `destroyOnly` | `boolean` | When true, the kustomization only runs during destroy. Useful for teardown-only resources (e.g. cleanup jobs). |

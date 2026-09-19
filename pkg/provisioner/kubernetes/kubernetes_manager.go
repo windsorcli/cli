@@ -101,6 +101,7 @@ type BaseKubernetesManager struct {
 	kustomizationDeletionPerEntryTimeout time.Duration
 	kustomizationDeletionMaxExtraTimeout time.Duration
 	kustomizationSpecTimeoutCeiling      time.Duration
+	kustomizationDeleteTimeoutCeiling    time.Duration
 	kustomizationAbandonedGraceMaxExtra  time.Duration
 
 	loadBalancerTeardownTimeout time.Duration
@@ -133,6 +134,7 @@ func NewKubernetesManager(kubernetesClient client.KubernetesClient, configHandle
 		kustomizationDeletionPerEntryTimeout: 3 * time.Second,
 		kustomizationDeletionMaxExtraTimeout: 20 * time.Minute,
 		kustomizationSpecTimeoutCeiling:      2 * time.Hour,
+		kustomizationDeleteTimeoutCeiling:    6 * time.Hour,
 		kustomizationAbandonedGraceMaxExtra:  3 * time.Minute,
 		loadBalancerTeardownTimeout:          constants.DefaultLoadBalancerTeardownTimeout,
 		notReadyDescribeBudget:               10 * time.Second,
@@ -189,13 +191,16 @@ const abandonedInventoryGraceChecks = 3
 // trusting the result. A still-live entry gets a few retries first, to rule out normal
 // in-flight termination.
 func (k *BaseKubernetesManager) DeleteKustomization(name, namespace string) error {
-	return k.deleteKustomization(name, namespace, nil)
+	return k.deleteKustomization(name, namespace, nil, nil)
 }
 
-// deleteKustomization is DeleteKustomization with an optional known destroy expectation.
-// A non-nil expectWaitForTermination overrides the live object's own, possibly stale,
-// deletionPolicy; see kustomizationDeletionPolicy.
-func (k *BaseKubernetesManager) deleteKustomization(name, namespace string, expectWaitForTermination *bool) error {
+// deleteKustomization is DeleteKustomization with an optional known destroy expectation
+// and an optional delete-wait override. A non-nil expectWaitForTermination overrides the
+// live object's own, possibly stale, deletionPolicy; see kustomizationDeletionPolicy. A
+// non-nil deleteTimeoutOverride replaces the spec.timeout-derived wait floor instead of
+// stacking with it. spec.timeout is authored for install waits; see DeleteTimeout on the
+// blueprint Kustomization type for why a delete needs its own budget.
+func (k *BaseKubernetesManager) deleteKustomization(name, namespace string, expectWaitForTermination *bool, deleteTimeoutOverride *time.Duration) error {
 	gvr := schema.GroupVersionResource{
 		Group:    "kustomize.toolkit.fluxcd.io",
 		Version:  "v1",
@@ -244,7 +249,9 @@ func (k *BaseKubernetesManager) deleteKustomization(name, namespace string, expe
 		if size := inventorySize(obj); size > 0 {
 			waitFor = extendWaitFor(waitFor, k.kustomizationDeletionTimeout(size))
 		}
-		if specTO, ok := specTimeout(obj); ok {
+		if deleteTimeoutOverride != nil {
+			waitFor = extendWaitFor(waitFor, min(*deleteTimeoutOverride, k.kustomizationDeleteTimeoutCeiling))
+		} else if specTO, ok := specTimeout(obj); ok {
 			waitFor = extendWaitFor(waitFor, min(specTO, k.kustomizationSpecTimeoutCeiling))
 		}
 
@@ -325,6 +332,16 @@ func kustomizationDeletionPolicy(obj *unstructured.Unstructured, expect *bool) (
 	default:
 		return false, false
 	}
+}
+
+// kustomizationDeleteTimeout returns kustomization's DeleteTimeout as deleteKustomization's
+// override parameter, or nil when unset.
+func kustomizationDeleteTimeout(kustomization blueprintv1alpha1.Kustomization) *time.Duration {
+	if kustomization.DeleteTimeout == nil {
+		return nil
+	}
+	d := kustomization.DeleteTimeout.Duration
+	return &d
 }
 
 // extendWaitFor raises waitFor to candidate when candidate is larger, otherwise
@@ -1495,12 +1512,15 @@ func (k *BaseKubernetesManager) ApplyBlueprint(blueprint *blueprintv1alpha1.Blue
 // (applied, waited ready, then deleted, for bespoke teardown work like backups), then regular
 // kustomizations in reverse-topological order. Each regular delete blocks on
 // spec.deletionPolicy=WaitForTermination, so cloud resources release before the object
-// disappears. Phase 2 aborts on the first per-Kustomization failure rather than risk orphaning
-// cloud resources a later Kustomization still needs; a retry picks up where it left off. Every
-// abort path runs abortDestroy first to un-suspend the full eligible set, since
-// Install/ApplyBlueprint never resets spec.suspend on existing objects. waitForResumeReconcile
-// runs between each resume and its delete, giving the resume's own reconcile a chance to settle
-// first.
+// disappears. Its delete-wait floor uses the Kustomization's own DeleteTimeout when set.
+// Otherwise it falls back to deleteKustomization's spec.timeout-derived heuristic, since
+// install and delete latency for the same resource can differ substantially (a managed
+// database, for example). Phase 2 aborts on the first per-Kustomization failure rather than
+// risk orphaning cloud resources a later Kustomization still needs; a retry picks up where it
+// left off. Every abort path runs abortDestroy first to un-suspend the full eligible set,
+// since Install/ApplyBlueprint never resets spec.suspend on existing objects.
+// waitForResumeReconcile runs between each resume and its delete, giving the resume's own
+// reconcile a chance to settle first.
 func (k *BaseKubernetesManager) DeleteBlueprint(blueprint *blueprintv1alpha1.Blueprint, namespace string) error {
 	defaultSourceName := blueprint.Metadata.Name
 
@@ -1551,7 +1571,7 @@ func (k *BaseKubernetesManager) DeleteBlueprint(blueprint *blueprintv1alpha1.Blu
 		k.waitForResumeReconcile(kustomization.Name, namespace)
 		destroy := kustomization.Destroy.ToBool()
 		expectWaitForTermination := destroy == nil || *destroy
-		if err := k.deleteKustomization(kustomization.Name, namespace, &expectWaitForTermination); err != nil {
+		if err := k.deleteKustomization(kustomization.Name, namespace, &expectWaitForTermination, kustomizationDeleteTimeout(kustomization)); err != nil {
 			tui.Fail()
 			return k.abortDestroy(eligible, namespace, fmt.Errorf("destroy aborted: failed to delete kustomization: %w. Windsor skipped the remaining kustomizations to avoid orphaning them", err))
 		}
@@ -1698,7 +1718,7 @@ func (k *BaseKubernetesManager) processDestroyOnlyKustomizations(kustomizations 
 				errors = append(errors, fmt.Errorf("failed to create ConfigMap for destroy-only kustomization %s: %w", kustomization.Name, err))
 				for i := len(appliedKustomizations) - 1; i >= 0; i-- {
 					appliedKust := appliedKustomizations[i]
-					if deleteErr := k.DeleteKustomization(appliedKust.Name, namespace); deleteErr != nil {
+					if deleteErr := k.deleteKustomization(appliedKust.Name, namespace, nil, kustomizationDeleteTimeout(appliedKust)); deleteErr != nil {
 						errors = append(errors, fmt.Errorf("failed to delete failed destroy-only kustomization %s: %w", appliedKust.Name, deleteErr))
 					}
 				}
@@ -1728,7 +1748,7 @@ func (k *BaseKubernetesManager) processDestroyOnlyKustomizations(kustomizations 
 			errors = append(errors, fmt.Errorf("failed to apply destroy-only kustomization %s: %w", kustomization.Name, err))
 			for i := len(appliedKustomizations) - 1; i >= 0; i-- {
 				appliedKust := appliedKustomizations[i]
-				if deleteErr := k.DeleteKustomization(appliedKust.Name, namespace); deleteErr != nil {
+				if deleteErr := k.deleteKustomization(appliedKust.Name, namespace, nil, kustomizationDeleteTimeout(appliedKust)); deleteErr != nil {
 					errors = append(errors, fmt.Errorf("failed to delete failed destroy-only kustomization %s: %w", appliedKust.Name, deleteErr))
 				}
 			}
@@ -1780,7 +1800,7 @@ waitLoop:
 		}
 		for i := len(kustomizations) - 1; i >= 0; i-- {
 			kustomization := kustomizations[i]
-			if deleteErr := k.DeleteKustomization(kustomization.Name, namespace); deleteErr != nil {
+			if deleteErr := k.deleteKustomization(kustomization.Name, namespace, nil, kustomizationDeleteTimeout(kustomization)); deleteErr != nil {
 				errors = append(errors, fmt.Errorf("failed to delete failed destroy-only kustomization %s: %w", kustomization.Name, deleteErr))
 			}
 		}
@@ -1791,7 +1811,7 @@ waitLoop:
 	for _, kustomization := range orderForDestroy(kustomizations, "destroy-only") {
 		tui.Start(fmt.Sprintf("Destroying destroy-only kustomization %s", kustomization.Name))
 
-		if err := k.DeleteKustomization(kustomization.Name, namespace); err != nil {
+		if err := k.deleteKustomization(kustomization.Name, namespace, nil, kustomizationDeleteTimeout(kustomization)); err != nil {
 			tui.Fail()
 			errors = append(errors, fmt.Errorf("failed to delete destroy-only kustomization %s: %w", kustomization.Name, err))
 		} else {
