@@ -3364,6 +3364,36 @@ func TestKustomization_Decryption_DeepCopyAndMerge(t *testing.T) {
 	})
 }
 
+func TestKustomization_DeleteTimeout_Merge(t *testing.T) {
+	t.Run("OverlayDeleteTimeoutWins", func(t *testing.T) {
+		// Given a base with no delete timeout and an overlay that sets one
+		base := Kustomization{Name: "k"}
+		overlay := Kustomization{Name: "k", DeleteTimeout: &DurationString{Duration: 45 * time.Minute}}
+
+		// When merged
+		merged := MergeKustomizationFields(base, overlay)
+
+		// Then the overlay's delete timeout is applied
+		if merged.DeleteTimeout == nil || merged.DeleteTimeout.Duration != 45*time.Minute {
+			t.Fatalf("Expected overlay delete timeout applied, got %+v", merged.DeleteTimeout)
+		}
+	})
+
+	t.Run("NilOverlayDeleteTimeoutLeavesBaseIntact", func(t *testing.T) {
+		// Given a base that already has a delete timeout and an overlay that does not set one
+		base := Kustomization{Name: "k", DeleteTimeout: &DurationString{Duration: 45 * time.Minute}}
+		overlay := Kustomization{Name: "k"}
+
+		// When merged
+		merged := MergeKustomizationFields(base, overlay)
+
+		// Then the base delete timeout survives
+		if merged.DeleteTimeout == nil || merged.DeleteTimeout.Duration != 45*time.Minute {
+			t.Errorf("Expected base delete timeout preserved, got %+v", merged.DeleteTimeout)
+		}
+	})
+}
+
 func TestKustomization_HealthCheckExprs(t *testing.T) {
 	cnpgReady := HealthCheckExpr{
 		APIVersion: "postgresql.cnpg.io/v1",
@@ -4056,6 +4086,7 @@ func TestKustomization_DeepCopy(t *testing.T) {
 		interval := DurationString{Duration: 5 * time.Minute}
 		retryInterval := DurationString{Duration: 2 * time.Minute}
 		timeout := DurationString{Duration: 10 * time.Minute}
+		deleteTimeout := DurationString{Duration: 45 * time.Minute}
 		wait := true
 		force := false
 		prune := true
@@ -4072,6 +4103,7 @@ func TestKustomization_DeepCopy(t *testing.T) {
 			Interval:        &interval,
 			RetryInterval:   &retryInterval,
 			Timeout:         &timeout,
+			DeleteTimeout:   &deleteTimeout,
 			Patches: []BlueprintPatch{
 				{
 					Patch: "test-patch",
@@ -4121,6 +4153,9 @@ func TestKustomization_DeepCopy(t *testing.T) {
 		}
 		if copy.Timeout == nil || copy.Timeout.Duration != 10*time.Minute {
 			t.Errorf("Expected timeout 10m, got %v", copy.Timeout)
+		}
+		if copy.DeleteTimeout == nil || copy.DeleteTimeout.Duration != 45*time.Minute {
+			t.Errorf("Expected delete timeout 45m, got %v", copy.DeleteTimeout)
 		}
 		if len(copy.Patches) != 1 {
 			t.Errorf("Expected 1 patch, got %d", len(copy.Patches))
@@ -4336,6 +4371,7 @@ path: test/path
 interval: 5m
 retryInterval: 2m
 timeout: 10m
+deleteTimeout: 45m
 `)
 
 		var k Kustomization
@@ -4367,6 +4403,12 @@ timeout: 10m
 			t.Error("Expected Timeout to be set, got nil")
 		} else if k.Timeout.Duration != 10*time.Minute {
 			t.Errorf("Expected Timeout duration 10m, got %v", k.Timeout.Duration)
+		}
+
+		if k.DeleteTimeout == nil {
+			t.Error("Expected DeleteTimeout to be set, got nil")
+		} else if k.DeleteTimeout.Duration != 45*time.Minute {
+			t.Errorf("Expected DeleteTimeout duration 45m, got %v", k.DeleteTimeout.Duration)
 		}
 	})
 

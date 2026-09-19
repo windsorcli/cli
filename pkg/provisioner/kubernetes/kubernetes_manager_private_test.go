@@ -1879,6 +1879,136 @@ func TestBaseKubernetesManager_waitForResumeReconcile(t *testing.T) {
 	})
 }
 
+func TestBaseKubernetesManager_deleteKustomization_DeleteTimeoutOverride(t *testing.T) {
+	setup := func(t *testing.T) *BaseKubernetesManager {
+		t.Helper()
+		mocks := setupKubernetesMocks(t)
+		manager := NewKubernetesManager(mocks.KubernetesClient, mocks.ConfigHandler)
+		manager.kustomizationReconcileTimeout = 20 * time.Millisecond
+		manager.kustomizationWaitPollInterval = 10 * time.Millisecond
+		clock := newFakeClock()
+		manager.shims.TimeNow = clock.Now
+		manager.shims.TimeSleep = clock.Sleep
+		return manager
+	}
+
+	t.Run("OverrideRaisesWaitPastSmallerSpecTimeout", func(t *testing.T) {
+		// Given a DeleteTimeout override larger than the live spec.timeout (a
+		// blueprint declaring that delete legitimately outlasts install)
+		manager := setup(t)
+		kubernetesClient := client.NewMockKubernetesClient()
+		kubernetesClient.DeleteResourceFunc = func(gvr schema.GroupVersionResource, namespace, name string, opts metav1.DeleteOptions) error {
+			return nil
+		}
+		kubernetesClient.GetResourceFunc = func(gvr schema.GroupVersionResource, namespace, name string) (*unstructured.Unstructured, error) {
+			return &unstructured.Unstructured{Object: map[string]any{
+				"spec": map[string]any{"timeout": "30ms"},
+			}}, nil
+		}
+		manager.client = kubernetesClient
+		override := 150 * time.Millisecond
+
+		// When deleteKustomization times out
+		start := manager.shims.TimeNow()
+		err := manager.deleteKustomization("test-kustomization", "test-namespace", nil, &override)
+		elapsed := manager.shims.TimeNow().Sub(start)
+
+		// Then it waits out the override instead of the smaller spec.timeout
+		if err == nil {
+			t.Fatal("Expected timeout error, got nil")
+		}
+		if elapsed < 150*time.Millisecond {
+			t.Errorf("Expected wait window raised to the override (>=150ms), got %s", elapsed)
+		}
+	})
+
+	t.Run("OverrideNotClampedByInstallCeiling", func(t *testing.T) {
+		// Given an install-oriented ceiling too small for the override (a delete
+		// budget is allowed to exceed what a sane install timeout would be)
+		manager := setup(t)
+		manager.kustomizationSpecTimeoutCeiling = 50 * time.Millisecond
+		kubernetesClient := client.NewMockKubernetesClient()
+		kubernetesClient.DeleteResourceFunc = func(gvr schema.GroupVersionResource, namespace, name string, opts metav1.DeleteOptions) error {
+			return nil
+		}
+		kubernetesClient.GetResourceFunc = func(gvr schema.GroupVersionResource, namespace, name string) (*unstructured.Unstructured, error) {
+			return &unstructured.Unstructured{}, nil
+		}
+		manager.client = kubernetesClient
+		override := 150 * time.Millisecond
+
+		// When deleteKustomization times out
+		start := manager.shims.TimeNow()
+		err := manager.deleteKustomization("test-kustomization", "test-namespace", nil, &override)
+		elapsed := manager.shims.TimeNow().Sub(start)
+
+		// Then the wait reaches the override, unaffected by the smaller install ceiling
+		if err == nil {
+			t.Fatal("Expected timeout error, got nil")
+		}
+		if elapsed < 150*time.Millisecond {
+			t.Errorf("Expected wait window to reach the override (>=150ms), got %s", elapsed)
+		}
+	})
+
+	t.Run("OverrideCapsAtCeiling", func(t *testing.T) {
+		// Given an override far larger than the configured ceiling
+		manager := setup(t)
+		manager.kustomizationDeleteTimeoutCeiling = 100 * time.Millisecond
+		kubernetesClient := client.NewMockKubernetesClient()
+		kubernetesClient.DeleteResourceFunc = func(gvr schema.GroupVersionResource, namespace, name string, opts metav1.DeleteOptions) error {
+			return nil
+		}
+		kubernetesClient.GetResourceFunc = func(gvr schema.GroupVersionResource, namespace, name string) (*unstructured.Unstructured, error) {
+			return &unstructured.Unstructured{}, nil
+		}
+		manager.client = kubernetesClient
+		override := 876000 * time.Hour
+
+		// When deleteKustomization times out
+		start := manager.shims.TimeNow()
+		err := manager.deleteKustomization("test-kustomization", "test-namespace", nil, &override)
+		elapsed := manager.shims.TimeNow().Sub(start)
+
+		// Then the wait is bounded by the ceiling, not the declared override
+		if err == nil {
+			t.Fatal("Expected timeout error, got nil")
+		}
+		if elapsed < 100*time.Millisecond || elapsed > 250*time.Millisecond {
+			t.Errorf("Expected wait window capped near the ceiling (~100ms), got %s", elapsed)
+		}
+	})
+
+	t.Run("NoOverrideFallsBackToSpecTimeout", func(t *testing.T) {
+		// Given no override and a live spec.timeout larger than the base window
+		// (today's behavior, unaffected by this blueprint remaining unset)
+		manager := setup(t)
+		kubernetesClient := client.NewMockKubernetesClient()
+		kubernetesClient.DeleteResourceFunc = func(gvr schema.GroupVersionResource, namespace, name string, opts metav1.DeleteOptions) error {
+			return nil
+		}
+		kubernetesClient.GetResourceFunc = func(gvr schema.GroupVersionResource, namespace, name string) (*unstructured.Unstructured, error) {
+			return &unstructured.Unstructured{Object: map[string]any{
+				"spec": map[string]any{"timeout": "150ms"},
+			}}, nil
+		}
+		manager.client = kubernetesClient
+
+		// When deleteKustomization times out with no override
+		start := manager.shims.TimeNow()
+		err := manager.deleteKustomization("test-kustomization", "test-namespace", nil, nil)
+		elapsed := manager.shims.TimeNow().Sub(start)
+
+		// Then it still waits out spec.timeout, same as before this change
+		if err == nil {
+			t.Fatal("Expected timeout error, got nil")
+		}
+		if elapsed < 150*time.Millisecond {
+			t.Errorf("Expected wait window raised to spec.timeout (>=150ms), got %s", elapsed)
+		}
+	})
+}
+
 func TestReconcileGenerationSettled(t *testing.T) {
 	t.Run("FalseForNilObject", func(t *testing.T) {
 		if reconcileGenerationSettled(nil) {

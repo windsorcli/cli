@@ -659,8 +659,14 @@ type Kustomization struct {
 	// RetryInterval before retrying a failed kustomization.
 	RetryInterval *DurationString `yaml:"retryInterval,omitempty"`
 
-	// Timeout for the kustomization to complete.
+	// Timeout for the kustomization to complete. Governs install/reconcile waits.
+	// Also seeds the destroy delete-wait floor when DeleteTimeout is unset.
 	Timeout *DurationString `yaml:"timeout,omitempty"`
+
+	// DeleteTimeout bounds how long destroy waits for this kustomization to delete.
+	// Set it when delete outlasts install, for example a managed database.
+	// Falls back to a Timeout-derived heuristic when unset.
+	DeleteTimeout *DurationString `yaml:"deleteTimeout,omitempty"`
 
 	// Patches to apply to the kustomization.
 	Patches []BlueprintPatch `yaml:"patches,omitempty"`
@@ -1408,6 +1414,7 @@ func (k *Kustomization) DeepCopy() *Kustomization {
 		Interval:         k.Interval,
 		RetryInterval:    k.RetryInterval,
 		Timeout:          k.Timeout,
+		DeleteTimeout:    k.DeleteTimeout,
 		Patches:          slices.Clone(k.Patches),
 		Wait:             k.Wait,
 		Force:            k.Force,
@@ -1913,6 +1920,9 @@ func MergeKustomizationFields(base, overlay Kustomization) Kustomization {
 	}
 	if overlay.Timeout != nil {
 		existing.Timeout = overlay.Timeout
+	}
+	if overlay.DeleteTimeout != nil {
+		existing.DeleteTimeout = overlay.DeleteTimeout
 	}
 	if overlay.Wait != nil {
 		existing.Wait = overlay.Wait

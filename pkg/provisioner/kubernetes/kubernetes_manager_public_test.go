@@ -4442,6 +4442,60 @@ func TestBaseKubernetesManager_DeleteBlueprint(t *testing.T) {
 		}
 	})
 
+	t.Run("DeleteTimeoutOverrideSurvivesDeleteLongerThanSpecTimeout", func(t *testing.T) {
+		// Given a Kustomization whose install spec.timeout (30ms) is much
+		// smaller than how long it actually takes to delete, but which
+		// declares its own DeleteTimeout (150ms) for the destroy path
+		manager := setup(t)
+		manager.kustomizationReconcileTimeout = 20 * time.Millisecond
+		manager.kustomizationWaitPollInterval = 10 * time.Millisecond
+		manager.kustomizationReconcileSleep = 0
+		clock := newFakeClock()
+		manager.shims.TimeNow = clock.Now
+		manager.shims.TimeSleep = clock.Sleep
+
+		kubernetesClient := client.NewMockKubernetesClient()
+		kubernetesClient.DeleteResourceFunc = func(gvr schema.GroupVersionResource, namespace, name string, opts metav1.DeleteOptions) error {
+			return nil
+		}
+		var getCalls int
+		kubernetesClient.GetResourceFunc = func(gvr schema.GroupVersionResource, namespace, name string) (*unstructured.Unstructured, error) {
+			getCalls++
+			// Two calls precede DeleteKustomization's own wait loop (inventory
+			// lookup for load-balancer remediation, then the post-resume
+			// reconcile check), then the loop itself polls live for 6 more
+			// iterations (60ms of its own wait) before disappearing — past the
+			// 30ms spec.timeout-derived window a pre-fix DeleteBlueprint would
+			// have aborted at, but well inside the 150ms DeleteTimeout override.
+			if getCalls < 9 {
+				return &unstructured.Unstructured{Object: map[string]any{
+					"spec": map[string]any{"timeout": "30ms"},
+				}}, nil
+			}
+			return nil, fmt.Errorf("the server could not find the requested resource")
+		}
+		manager.client = kubernetesClient
+
+		blueprint := &blueprintv1alpha1.Blueprint{
+			Metadata: blueprintv1alpha1.Metadata{Name: "test-blueprint"},
+			Kustomizations: []blueprintv1alpha1.Kustomization{
+				{
+					Name:          "demo-resources",
+					DeleteTimeout: &blueprintv1alpha1.DurationString{Duration: 150 * time.Millisecond},
+				},
+			},
+		}
+
+		// When DeleteBlueprint deletes it
+		err := manager.DeleteBlueprint(blueprint, "test-namespace")
+
+		// Then it does not abort at the spec.timeout-derived window, since
+		// DeleteTimeout replaces that heuristic as the wait floor
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+	})
+
 	t.Run("SuccessSkipsDestroyFalse", func(t *testing.T) {
 		manager := setup(t)
 		kubernetesClient := client.NewMockKubernetesClient()
@@ -4839,6 +4893,77 @@ func TestBaseKubernetesManager_DeleteBlueprint(t *testing.T) {
 
 		if len(deleteCalls) != 2 {
 			t.Errorf("Expected 2 delete calls (destroy-only + regular), got %d", len(deleteCalls))
+		}
+	})
+
+	t.Run("DestroyOnlyDeleteTimeoutOverrideSurvivesDeleteLongerThanSpecTimeout", func(t *testing.T) {
+		// Given a destroy-only Kustomization — the backup/managed-resource teardown
+		// case DeleteBlueprint's own doc comment cites — whose install spec.timeout
+		// (15ms) is much smaller than how long it actually takes to delete, but
+		// which declares its own DeleteTimeout (150ms)
+		manager := setup(t)
+		manager.kustomizationReconcileTimeout = 20 * time.Millisecond
+		manager.kustomizationWaitPollInterval = 10 * time.Millisecond
+
+		kubernetesClient := client.NewMockKubernetesClient()
+		kubernetesClient.ApplyResourceFunc = func(gvr schema.GroupVersionResource, obj *unstructured.Unstructured, opts metav1.ApplyOptions) (*unstructured.Unstructured, error) {
+			return obj, nil
+		}
+		kubernetesClient.ListResourcesFunc = func(gvr schema.GroupVersionResource, namespace string) (*unstructured.UnstructuredList, error) {
+			return &unstructured.UnstructuredList{
+				Items: []unstructured.Unstructured{
+					{
+						Object: map[string]any{
+							"apiVersion": "kustomize.toolkit.fluxcd.io/v1",
+							"kind":       "Kustomization",
+							"metadata":   map[string]any{"name": "backup-cleanup"},
+							"status": map[string]any{
+								"conditions": []any{
+									map[string]any{"type": "Ready", "status": "True"},
+								},
+							},
+						},
+					},
+				},
+			}, nil
+		}
+		kubernetesClient.DeleteResourceFunc = func(gvr schema.GroupVersionResource, namespace, name string, opts metav1.DeleteOptions) error {
+			return nil
+		}
+		var getCalls int
+		kubernetesClient.GetResourceFunc = func(gvr schema.GroupVersionResource, namespace, name string) (*unstructured.Unstructured, error) {
+			getCalls++
+			// Stays live for 6 polls (60ms) — past the 15ms/20ms spec.timeout-
+			// and reconcile-derived window a pre-fix destroy-only delete would
+			// have aborted at — then disappears well inside the 150ms override.
+			if getCalls < 7 {
+				return &unstructured.Unstructured{Object: map[string]any{
+					"spec": map[string]any{"timeout": "15ms"},
+				}}, nil
+			}
+			return nil, fmt.Errorf("the server could not find the requested resource")
+		}
+		manager.client = kubernetesClient
+
+		destroyOnlyTrue := true
+		blueprint := &blueprintv1alpha1.Blueprint{
+			Metadata: blueprintv1alpha1.Metadata{Name: "test-blueprint"},
+			Kustomizations: []blueprintv1alpha1.Kustomization{
+				{
+					Name:          "backup-cleanup",
+					DestroyOnly:   &destroyOnlyTrue,
+					DeleteTimeout: &blueprintv1alpha1.DurationString{Duration: 150 * time.Millisecond},
+				},
+			},
+		}
+
+		// When DeleteBlueprint deletes it
+		err := manager.DeleteBlueprint(blueprint, "test-namespace")
+
+		// Then it does not abort at the spec.timeout-derived window, since
+		// DeleteTimeout replaces that heuristic for destroy-only kustomizations too
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
 		}
 	})
 
