@@ -10,10 +10,10 @@
 
 ## Context
 
-`DeleteBlueprint` (`pkg/provisioner/kubernetes/kubernetes_manager.go:1540`) walks a blueprint's
-Kustomizations in reverse-dependency order. Each goes through `deleteKustomization` (`:207`), which
+`DeleteBlueprint` (`pkg/provisioner/kubernetes/kubernetes_manager.go`) walks a blueprint's
+Kustomizations in reverse-dependency order. Each goes through `deleteKustomization`, which
 requires individually-confirmed disappearance before moving on, and any single failure aborts the
-whole remaining walk through `abortDestroy` (`:1607`). cli#3417 frames the cost precisely: across
+whole remaining walk through `abortDestroy`. cli#3417 frames the cost precisely: across
 roughly 15 links, run-level failure probability compounds as `1 - (per-link reliability)^15`, and
 each failed link burns 20 to 38 minutes before it surfaces.
 
@@ -33,16 +33,16 @@ One throttled or timed-out API call during a poll is enough. `DefaultKustomizati
 has sat in `pkg/constants/constants.go:174` for exactly this, unreferenced, until Decision 1
 wired it up.
 
-The budget that decides when to give up is an install budget. cli#3277 wired `specTimeout` (`:314`)
+The budget that decides when to give up is an install budget. cli#3277 wired `specTimeout`
 to the Kustomization's own `spec.timeout`, and `core`'s facets do declare one on nearly every tier:
 26 at 5m, 19 at 10m, 8 at 15m, 7 at 20m, 6 at 30m. That number dominates the `inventorySize`
-scaling in `kustomizationDeletionTimeout` (`:390`), so the barrier is not as short as a one-entry
+scaling in `kustomizationDeletionTimeout`, so the barrier is not as short as a one-entry
 inventory would suggest. It is simply the wrong number: `spec.timeout` is what the author budgeted
 for the chart to install, and `DeleteTimeout` exists precisely because delete latency differs. Every
 one of `core`'s 27 HelmReleases declares `spec.timeout`; none declares `spec.uninstall.timeout`.
 
-**Verification stops at the HelmRelease wrapper.** `firstLiveInventoryEntry` (`:2410`) resolves
-each inventory entry through `resolveScopedGVR` (`:2364`) and issues a live `GetResource`. For an
+**Verification stops at the HelmRelease wrapper.** `firstLiveInventoryEntry` resolves
+each inventory entry through `resolveScopedGVR` and issues a live `GetResource`. For an
 entry that is the resource, `NotFound` is complete proof. For a `helm.toolkit.fluxcd.io/HelmRelease`
 entry it proves only that helm-controller cleared its own finalizer, which it can do after
 abandoning a stuck uninstall. This is not a corner case in `windsorcli/core`: **27 of 31 install
@@ -54,12 +54,12 @@ verifiable today.
 **The HelmRelease API already exposes what windsor needs, and nothing reads it.** helm-controller's
 `v2.HelmRelease` (api v1.6.4, against the Flux 2.9.5 that `core` deploys) carries
 `status.inventory` as a `ResourceInventory`, whose `ResourceRef.ID` uses the identical
-`<namespace>_<name>_<group>_<kind>` encoding windsor already parses in `decodeInventoryID` (`:1329`).
+`<namespace>_<name>_<group>_<kind>` encoding windsor already parses in `decodeInventoryID`.
 `spec.uninstall` carries `timeout`, `keepHistory`, `disableWait`, and a `deletionPropagation` enum
 of `background` (default), `foreground`, or `orphan`. `status.history` records each release
 snapshot's Helm `Status`, and `status.storageNamespace` names where the release Secret lives.
-Windsor reads none of it. `GetHelmReleasesForKustomization` (`:1007`) already decodes HelmRelease
-entries out of a Kustomization's inventory, but only feeds `describeStuckHelmReleases` (`:1848`),
+Windsor reads none of it. `GetHelmReleasesForKustomization` already decodes HelmRelease
+entries out of a Kustomization's inventory, but only feeds `describeStuckHelmReleases`,
 which appends condition text to a timeout message.
 
 One more finding from auditing `core`: exactly one HelmRelease of the 27 sets uninstall semantics at
@@ -98,7 +98,16 @@ everything a retry was going to approximate.
 
 For a HelmRelease entry, `deleteKustomization` SHOULD read `spec.uninstall.timeout` and extend the
 wait with it, the way `extendWaitFor` already folds in the other sources. Resolve it exactly as
-`Uninstall.GetTimeout` does, falling back to the HelmRelease's `spec.timeout`.
+`Uninstall.GetTimeout` does, falling back to the HelmRelease's `spec.timeout`. Where a Kustomization
+wraps several HelmReleases, take the longest, since the barrier clears only when the slowest does.
+A HelmRelease that declares neither timeout, or that cannot be read, MUST contribute nothing rather
+than a default, so this never shortens a wait. Cap it at `kustomizationSpecTimeoutCeiling`, the same
+bound the Kustomization's own `spec.timeout` already answers to.
+
+An explicit `DeleteTimeout` MUST still bound the result. `DeleteTimeout` is documented as bounding a
+delete, so the chart-declared budget belongs with the other spec-derived floors it replaces, not
+stacked on top of it — otherwise a blueprint that sets a deliberately short delete window silently
+inherits a chart's much longer one, and the operator's knob does nothing.
 
 This decision only pays off once `core` declares the field, and that ordering is the point rather
 than a caveat. With `spec.uninstall.timeout` unset, `GetTimeout` returns `spec.timeout`, which
@@ -160,7 +169,7 @@ delete `provisioning-install`, the Crossplane controller, while `demo-resources`
 
 So `abortDestroy` MUST skip every pending Kustomization inside K's transitive dependency closure,
 and SHOULD continue the walk outside it, using the `DependsOn` edges
-`reverseTopologicalKustomizations` (`:2958`) already walks. The payoff is uneven:
+`reverseTopologicalKustomizations` already walks. The payoff is uneven:
 `applyCrdLayerBarrier` (`pkg/composer/blueprint/composer.go:960`) puts the CRD layer inside almost
 every closure, so the gain is for a stall on a leaf whose siblings never named it.
 
@@ -190,8 +199,11 @@ blanket would trade one stall class for another.
   worth shipping.
 - Verification depth is bounded by what helm-controller populates. When `status.inventory` is
   absent, windsor falls back to today's behavior: fail with a message, change nothing.
-- Reading a HelmRelease per poll adds API traffic during a delete wait, bounded by the number of
-  HelmRelease entries in one Kustomization's inventory, which is typically one.
+- Decision 2 reads each HelmRelease once per delete, on the first poll whose `status.inventory` is
+  readable, since a spec does not change mid-teardown. It retries on later polls rather than
+  latching on a first attempt that found nothing, because a Kustomization applied moments earlier
+  may not have reconciled that far. Decision 3 needs a read per poll instead, because it tracks
+  `status.inventory` as it shrinks.
 - cli#3405 (terraform destroy's fixed 30-minute bound and its skip-retry-on-timeout) stays out of
   scope: same shape, different subsystem, own constants, own open question about the bound.
 - cli#3371 (progress visibility) stays deferred to the TUI overhaul.
@@ -242,15 +254,15 @@ blanket would trade one stall class for another.
 ## References
 
 - cli#3417, cli#3405, cli#3395/#3396, cli#3279/#3277, cli#3371
-- `pkg/provisioner/kubernetes/kubernetes_manager.go`: `deleteKustomization` (207), `specTimeout`
-  (314), `GetHelmReleasesForKustomization` (1007), `decodeInventoryID` (1329), `DeleteBlueprint`
-  (1540), `abortDestroy` (1607), `describeStuckHelmReleases` (1848), `allInventoryEntriesGone`
-  (2389), `resolveScopedGVR` (2364), `firstLiveInventoryEntry` (2410),
-  `reverseTopologicalKustomizations` (2958)
+- `pkg/provisioner/kubernetes/kubernetes_manager.go`: `deleteKustomization`, `specTimeout`
+  (314), `GetHelmReleasesForKustomization`, `decodeInventoryID`, `DeleteBlueprint`
+  (1540), `abortDestroy`, `describeStuckHelmReleases`, `allInventoryEntriesGone`
+  (2389), `resolveScopedGVR`, `firstLiveInventoryEntry`,
+  `reverseTopologicalKustomizations`
 - `github.com/fluxcd/helm-controller/api v1.6.4`, package `v2`: `ResourceInventory` /
   `ResourceRef.ID` (`inventory_types.go`), `Uninstall` with `Timeout` / `KeepHistory` /
   `DisableWait` / `DeletionPropagation` and `GetTimeout` (`helmrelease_types.go:1215-1262`),
-  `HelmReleaseStatus.Inventory` / `History` / `StorageNamespace` (`:1316-1331`), `Snapshot.Status`
+  `HelmReleaseStatus.Inventory` / `History` / `StorageNamespace`, `Snapshot.Status`
   (`snapshot_types.go`)
 - `pkg/provisioner/kubernetes/client/client.go`: `PatchResource`, `ListResourcesByLabel` (48), and
   the absence of any discovery method

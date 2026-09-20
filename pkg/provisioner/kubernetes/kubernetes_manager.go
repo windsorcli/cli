@@ -196,14 +196,12 @@ func (k *BaseKubernetesManager) DeleteKustomization(name, namespace string) erro
 	return k.deleteKustomization(name, namespace, nil, nil)
 }
 
-// deleteKustomization is DeleteKustomization with an optional known destroy expectation
-// and an optional delete-wait override. A non-nil expectWaitForTermination overrides the
-// live object's own, possibly stale, deletionPolicy; see kustomizationDeletionPolicy. A
-// non-nil deleteTimeoutOverride replaces the spec.timeout-derived wait floor instead of
-// stacking with it. spec.timeout is authored for install waits; see DeleteTimeout for why a
-// delete needs its own budget. The wait absorbs kustomizationWaitMaxReadFailures consecutive
-// read errors, but fails if the object disappears before any read succeeded: an unread
-// inventory cannot confirm the resources are gone.
+// deleteKustomization is DeleteKustomization with a known destroy expectation and a delete-wait
+// override, both optional. expectWaitForTermination overrides the live object's own, possibly
+// stale, deletionPolicy; see kustomizationDeletionPolicy. deleteTimeoutOverride replaces every
+// spec-derived floor, spec.timeout and helmReleaseUninstallTimeout alike, keeping an explicit
+// DeleteTimeout a bound. The wait absorbs kustomizationWaitMaxReadFailures consecutive read
+// errors, but fails if the object disappears before any read succeeded.
 func (k *BaseKubernetesManager) deleteKustomization(name, namespace string, expectWaitForTermination *bool, deleteTimeoutOverride *time.Duration) error {
 	gvr := schema.GroupVersionResource{
 		Group:    "kustomize.toolkit.fluxcd.io",
@@ -229,6 +227,7 @@ func (k *BaseKubernetesManager) deleteKustomization(name, namespace string, expe
 	var lastObj *unstructured.Unstructured
 	var lastReadErr error
 	readFailures := 0
+	helmTimeoutResolved := false
 	for k.shims.TimeNow().Before(start.Add(waitFor)) {
 		obj, err := k.client.GetResource(gvr, namespace, name)
 		if err != nil && isNotFoundError(err) {
@@ -267,8 +266,16 @@ func (k *BaseKubernetesManager) deleteKustomization(name, namespace string, expe
 		}
 		if deleteTimeoutOverride != nil {
 			waitFor = extendWaitFor(waitFor, min(*deleteTimeoutOverride, k.kustomizationDeleteTimeoutCeiling))
-		} else if specTO, ok := specTimeout(obj); ok {
-			waitFor = extendWaitFor(waitFor, min(specTO, k.kustomizationSpecTimeoutCeiling))
+		} else {
+			if specTO, ok := specTimeout(obj); ok {
+				waitFor = extendWaitFor(waitFor, min(specTO, k.kustomizationSpecTimeoutCeiling))
+			}
+			if !helmTimeoutResolved {
+				if declared, ok := k.helmReleaseUninstallTimeout(obj); ok {
+					waitFor = extendWaitFor(waitFor, min(declared, k.kustomizationSpecTimeoutCeiling))
+					helmTimeoutResolved = true
+				}
+			}
 		}
 
 		k.shims.TimeSleep(k.kustomizationWaitPollInterval)
@@ -1841,6 +1848,36 @@ waitLoop:
 // =============================================================================
 // Private Methods
 // =============================================================================
+
+// helmReleaseUninstallTimeout returns the longest uninstall budget the HelmRelease entries in
+// obj's inventory declare, resolved the way flux does: spec.uninstall.timeout, else the
+// HelmRelease's own spec.timeout. A HelmRelease that declares neither, or that cannot be read,
+// contributes nothing, so the caller never shortens a wait on a lookup failure.
+func (k *BaseKubernetesManager) helmReleaseUninstallTimeout(obj *unstructured.Unstructured) (time.Duration, bool) {
+	entries, found := inventoryEntriesFromObject(obj)
+	if !found {
+		return 0, false
+	}
+
+	var longest time.Duration
+	for _, entry := range entries {
+		if entry.Group != "helm.toolkit.fluxcd.io" || entry.Kind != "HelmRelease" {
+			continue
+		}
+		helmRelease, err := k.getHelmRelease(entry.Name, entry.Namespace)
+		if err != nil {
+			continue
+		}
+		var fallback metav1.Duration
+		if helmRelease.Spec.Timeout != nil {
+			fallback = *helmRelease.Spec.Timeout
+		}
+		if declared := helmRelease.GetUninstall().GetTimeout(fallback).Duration; declared > longest {
+			longest = declared
+		}
+	}
+	return longest, longest > 0
+}
 
 // describeStuckHelmReleases returns the most diagnostic non-Ready condition from a stuck
 // Kustomization's HelmReleases, for DeleteKustomization's timeout error. Lookup errors are

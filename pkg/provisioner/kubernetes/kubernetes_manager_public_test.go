@@ -4,6 +4,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"regexp"
 	"strings"
 	"sync"
 	"testing"
@@ -6038,6 +6039,191 @@ func TestBaseKubernetesManager_DeleteBlueprint(t *testing.T) {
 		}
 		if appliedKustomization.Labels["windsorcli.dev/context-id"] != "test-context-id" {
 			t.Errorf("Expected ObjectMeta 'windsorcli.dev/context-id' label 'test-context-id', got '%s'", appliedKustomization.Labels["windsorcli.dev/context-id"])
+		}
+	})
+}
+
+func TestBaseKubernetesManager_DeleteKustomizationHelmUninstallTimeout(t *testing.T) {
+	setup := func(t *testing.T) *BaseKubernetesManager {
+		t.Helper()
+		mocks := setupKubernetesMocks(t)
+		manager := NewKubernetesManager(mocks.KubernetesClient, mocks.ConfigHandler)
+		manager.kustomizationWaitPollInterval = 5 * time.Millisecond
+		manager.kustomizationReconcileTimeout = 20 * time.Millisecond
+		manager.kustomizationDeletionPerEntryTimeout = 0
+		manager.kustomizationDeletionMaxExtraTimeout = 0
+		clock := newFakeClock()
+		manager.shims.TimeNow = clock.Now
+		manager.shims.TimeSleep = clock.Sleep
+		return manager
+	}
+
+	kustomizationWithHelmRelease := &unstructured.Unstructured{Object: map[string]any{
+		"status": map[string]any{"inventory": map[string]any{"entries": []any{
+			map[string]any{"id": "system-gitops_cert-manager_helm.toolkit.fluxcd.io_HelmRelease", "v": "v2"},
+		}}},
+	}}
+
+	helmRelease := func(specTimeout, uninstallTimeout string) *unstructured.Unstructured {
+		spec := map[string]any{}
+		if specTimeout != "" {
+			spec["timeout"] = specTimeout
+		}
+		if uninstallTimeout != "" {
+			spec["uninstall"] = map[string]any{"timeout": uninstallTimeout}
+		}
+		return &unstructured.Unstructured{Object: map[string]any{
+			"apiVersion": "helm.toolkit.fluxcd.io/v2",
+			"kind":       "HelmRelease",
+			"metadata":   map[string]any{"name": "cert-manager", "namespace": "system-gitops"},
+			"spec":       spec,
+		}}
+	}
+
+	// resolvedBudget runs a delete that never completes and returns the wait budget the
+	// timeout error reports, which is the value the extension logic resolved.
+	resolvedBudget := func(t *testing.T, manager *BaseKubernetesManager, hr *unstructured.Unstructured, kustomization *unstructured.Unstructured) string {
+		t.Helper()
+		kubernetesClient := client.NewMockKubernetesClient()
+		kubernetesClient.DeleteResourceFunc = func(gvr schema.GroupVersionResource, namespace, name string, opts metav1.DeleteOptions) error {
+			return nil
+		}
+		kubernetesClient.GetResourceFunc = func(gvr schema.GroupVersionResource, namespace, name string) (*unstructured.Unstructured, error) {
+			if gvr.Resource == "helmreleases" {
+				if hr == nil {
+					return nil, fmt.Errorf("etcdserver: request timed out")
+				}
+				return hr, nil
+			}
+			return kustomization, nil
+		}
+		manager.client = kubernetesClient
+
+		err := manager.DeleteKustomization("pki-install", "system-gitops")
+		if err == nil {
+			t.Fatal("Expected the never-deleted kustomization to time out, got nil")
+		}
+		match := regexp.MustCompile(`timed out after (\S+) waiting`).FindStringSubmatch(err.Error())
+		if match == nil {
+			t.Fatalf("Expected a timeout error naming its budget, got: %v", err)
+		}
+		return match[1]
+	}
+
+	t.Run("AdoptsUninstallTimeout", func(t *testing.T) {
+		// Given a HelmRelease declaring an uninstall budget longer than the
+		// kustomization's own reconcile timeout
+		manager := setup(t)
+
+		// When the delete waits
+		budget := resolvedBudget(t, manager, helmRelease("", "45m"), kustomizationWithHelmRelease)
+
+		// Then the barrier honors the chart's declared teardown budget
+		if budget != "45m0s" {
+			t.Errorf("Expected the wait to adopt spec.uninstall.timeout (45m0s), got %s", budget)
+		}
+	})
+
+	t.Run("FallsBackToHelmReleaseSpecTimeout", func(t *testing.T) {
+		// Given a HelmRelease that declares only spec.timeout, which is how flux
+		// itself resolves an unset uninstall timeout
+		manager := setup(t)
+
+		// When the delete waits
+		budget := resolvedBudget(t, manager, helmRelease("45m", ""), kustomizationWithHelmRelease)
+
+		// Then that value stands in for the uninstall budget
+		if budget != "45m0s" {
+			t.Errorf("Expected the wait to fall back to the HelmRelease spec.timeout (45m0s), got %s", budget)
+		}
+	})
+
+	t.Run("PrefersUninstallTimeoutOverSpecTimeout", func(t *testing.T) {
+		// Given a HelmRelease declaring both, where the uninstall budget is the
+		// shorter and more specific of the two
+		manager := setup(t)
+
+		// When the delete waits
+		budget := resolvedBudget(t, manager, helmRelease("45m", "25m"), kustomizationWithHelmRelease)
+
+		// Then the uninstall budget wins rather than the larger install one
+		if budget != "25m0s" {
+			t.Errorf("Expected spec.uninstall.timeout (25m0s) to win, got %s", budget)
+		}
+	})
+
+	t.Run("TakesTheLongestAcrossHelmReleases", func(t *testing.T) {
+		// Given a kustomization wrapping two HelmReleases, since the barrier clears
+		// only when the slowest chart does
+		manager := setup(t)
+		twoReleases := &unstructured.Unstructured{Object: map[string]any{
+			"status": map[string]any{"inventory": map[string]any{"entries": []any{
+				map[string]any{"id": "system-gitops_cert-manager_helm.toolkit.fluxcd.io_HelmRelease", "v": "v2"},
+				map[string]any{"id": "system-gitops_trust-manager_helm.toolkit.fluxcd.io_HelmRelease", "v": "v2"},
+			}}},
+		}}
+
+		// When the delete waits, with both releases answering the same 40m budget
+		budget := resolvedBudget(t, manager, helmRelease("", "40m"), twoReleases)
+
+		// Then the longest declared budget governs
+		if budget != "40m0s" {
+			t.Errorf("Expected the longest declared budget (40m0s), got %s", budget)
+		}
+	})
+
+	t.Run("IgnoresHelmReleaseDeclaringNoTimeout", func(t *testing.T) {
+		// Given a HelmRelease that declares neither timeout
+		manager := setup(t)
+
+		// When the delete waits
+		budget := resolvedBudget(t, manager, helmRelease("", ""), kustomizationWithHelmRelease)
+
+		// Then the wait keeps its existing budget rather than inventing one
+		if budget != "20ms" {
+			t.Errorf("Expected the unextended budget (20ms), got %s", budget)
+		}
+	})
+
+	t.Run("SurvivesUnreadableHelmRelease", func(t *testing.T) {
+		// Given a HelmRelease entry whose object cannot be fetched
+		manager := setup(t)
+
+		// When the delete waits
+		budget := resolvedBudget(t, manager, nil, kustomizationWithHelmRelease)
+
+		// Then the lookup failure neither extends nor breaks the wait
+		if budget != "20ms" {
+			t.Errorf("Expected the unextended budget (20ms), got %s", budget)
+		}
+	})
+
+	t.Run("ExplicitDeleteTimeoutBoundsTheChartBudget", func(t *testing.T) {
+		// Given a blueprint that sets DeleteTimeout to bound this delete, on a
+		// kustomization wrapping a chart declaring far longer
+		manager := setup(t)
+		kubernetesClient := client.NewMockKubernetesClient()
+		kubernetesClient.DeleteResourceFunc = func(gvr schema.GroupVersionResource, namespace, name string, opts metav1.DeleteOptions) error {
+			return nil
+		}
+		kubernetesClient.GetResourceFunc = func(gvr schema.GroupVersionResource, namespace, name string) (*unstructured.Unstructured, error) {
+			if gvr.Resource == "helmreleases" {
+				return helmRelease("", "45m"), nil
+			}
+			return kustomizationWithHelmRelease, nil
+		}
+		manager.client = kubernetesClient
+		override := 10 * time.Minute
+
+		// When the delete waits
+		err := manager.deleteKustomization("pki-install", "system-gitops", nil, &override)
+
+		// Then the operator's explicit bound wins over the chart's declaration
+		if err == nil {
+			t.Fatal("Expected the never-deleted kustomization to time out, got nil")
+		}
+		if !strings.Contains(err.Error(), "timed out after 10m0s") {
+			t.Errorf("Expected DeleteTimeout (10m0s) to bound the wait, got: %v", err)
 		}
 	})
 }
