@@ -126,13 +126,19 @@ For an inventory entry whose GVK is `helm.toolkit.fluxcd.io/HelmRelease`, `first
 SHOULD read that HelmRelease's `status.inventory`, decode its entries with the existing
 `decodeInventoryID`, and verify each through the same `resolveScopedGVR` plus `GetResource` path it
 already uses. The ID encoding is identical, so this reuses the decoder, the scope resolution, and
-the liveness check without new machinery. Bound the recursion at one level: a chart that itself
-deploys HelmReleases is rare, and unbounded descent is not worth the risk.
+the liveness check without new machinery. Bound the walk at one level: a nested HelmRelease is
+checked for liveness like any other resource, but not descended into. Skipping it outright would
+count a live one as gone.
 
-`deleteKustomization`'s wait loop MUST capture each HelmRelease's inventory as it polls, retaining
-the last-known value. Reading it only after the Kustomization disappears is too late, since the
-HelmRelease is usually gone by then. Windsor already refetches the Kustomization every interval and
-holds `lastObj`; this extends that habit one level down.
+`deleteKustomization`'s wait loop MUST capture each HelmRelease's inventory as it polls. Reading it
+only after the Kustomization disappears is too late, since the HelmRelease is usually gone by then.
+Windsor already refetches the Kustomization every interval and holds `lastObj`; this extends that
+habit one level down.
+
+Accumulate a union across polls rather than keeping the last reading. Implementation found the
+reason: helm-controller shrinks `status.inventory` as an uninstall proceeds, so the final reading
+can be empty while the resources it listed moments earlier are still live. Keeping only the last
+one would verify nothing precisely when there is most to verify.
 
 This resolves the `helm.sh/resource-policy: keep` case as a side effect, and that is worth stating
 because two earlier drafts could not. A kept resource was applied by the release, so it appears in
@@ -141,6 +147,21 @@ reports the Kustomization as not drained.
 
 Degrade explicitly. `status.inventory` is an optional field, so when it is absent the entry stays
 unverifiable and Decision 4 MUST NOT act on it.
+
+A HelmRelease windsor never observed live MUST be unverifiable, including one already absent on the
+first poll. An earlier draft made that case clean, reasoning that flux must have finished the
+uninstall before windsor looked. Review found it reopens the exact leak this decision closes, on
+the run where it matters most: after helm-controller abandons an uninstall and the operator reruns,
+the first poll of the rerun finds the HelmRelease already gone. The snapshot lives in memory for
+one call, so nothing from the failed run survives, and the abandoned resources appear in no
+inventory at all. Every entry would verify as gone and terraform would destroy the cluster over
+them.
+
+Three states, not two. A HelmRelease never observed is unverifiable. One whose inventory only
+partly decodes is unverifiable, since a short list must not be verified as though it were the whole
+chart. One observed live that never published an inventory records nothing and falls back to the
+older, shallower answer, because that flux cannot report what a chart owns and failing every
+destroy on that basis would be worse than the gap it closes.
 
 #### Verified on a live cluster, 2026-09-20
 
@@ -160,22 +181,29 @@ as a double underscore, so 36 of those 331 entries carry more than four undersco
 The previous `SplitN(id, "_", 4)` truncated the name and swept group and kind into `Kind`. Those
 entries then failed to resolve and were counted as gone.
 
-#### What Decision 3 must close on its way in
+#### The failure bias this decision closes, and what it leaves open
 
-That last failure is the pattern to watch. Three paths turn an entry windsor cannot read into an
-entry windsor calls absent: `decodeInventoryEntries` drops what it cannot decode,
-`resolveScopedGVR` reports a `NoMatchError` as not-found, and `firstLiveInventoryEntry` continues
-past both. Every one fails toward "gone", which on a destroy path means "safe to proceed".
+That last failure is the pattern. Three paths turn an entry windsor cannot read into an entry
+windsor calls absent: `decodeInventoryEntries` drops what it cannot decode, `resolveScopedGVR`
+reports a `NoMatchError` as not-found, and the liveness walk continues past both. Every one fails
+toward "gone", which on a destroy path means "safe to proceed".
 
-Two consequences of that bias MUST be fixed as part of this decision, since verification
-correctness is the whole point of it:
+Two consequences of that bias are fixed here, since verification correctness is the point of this
+decision:
 
-- `deleteKustomization` reads `inventoryFound` from the raw slice while `entries` holds the decoded
-  list. If every entry were dropped at decode, the drained check would treat an unreadable inventory
-  as a confirmed-empty one and report "fully drained".
-- `describeAbandonedInventory` swallows `firstLiveInventoryEntry`'s error and returns nil, so an API
-  failure on the liveness lookup becomes a clean delete. `allInventoryEntriesGone` already takes the
-  opposite stance, returning an error rather than false on an inconclusive lookup.
+- The drained check read `inventoryFound` from the raw slice while `entries` held the decoded list.
+  An inventory that failed to decode would have been reported "fully drained". It now requires
+  every entry to decode.
+- `describeAbandonedInventory` swallowed the liveness error and returned nil, so an API failure
+  became a clean delete. It now returns the error, and the caller fails rather than reports a delete
+  it could not confirm.
+
+One path stays open, deliberately. `resolveScopedGVR` still reports a `NoMatchError` as not-found,
+so an inventory entry whose API type no longer exists counts as gone. That is usually right: the
+CRD layers tear down last, and removing a CRD cascades its custom resources. It is wrong only where
+a chart installs CRDs without the dependency edge that would order them, and closing it risks
+failing destroys that are legitimately complete. Worth revisiting with evidence from a real run
+rather than on principle.
 
 ### 4. Auto-heal a stuck finalizer only where the whole chain verified
 
@@ -243,6 +271,15 @@ blanket would trade one stall class for another.
 - cli#3405 (terraform destroy's fixed 30-minute bound and its skip-retry-on-timeout) stays out of
   scope: same shape, different subsystem, own constants, own open question about the bound.
 - cli#3371 (progress visibility) stays deferred to the TUI overhaul.
+- `--continue` does not weaken any of this. A kustomize-stage failure stops terraform either way:
+  `Provisioner.DestroyAll` returns the error without the flag, and defers the terraform stage with
+  it. So a Kustomization windsor cannot confirm is drained never becomes a cluster terraform
+  destroys underneath it. What changes is the operator's experience: a run that used to report
+  clean over a HelmRelease-wrapped tier can now stop. A rerun re-walks the whole blueprint, since
+  windsor keeps no resume state; Kustomizations already gone return immediately.
+- An inventory entry windsor cannot decode now fails the destroy rather than being dropped from the
+  set. After the decoder fix this is rare, and the alternative is verifying a list that is shorter
+  than the inventory it came from.
 
 ## Alternatives considered
 
