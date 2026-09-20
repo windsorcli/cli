@@ -33,11 +33,13 @@ One throttled or timed-out API call during a poll is enough. `DefaultKustomizati
 has sat in `pkg/constants/constants.go:174` for exactly this, unreferenced, until Decision 1
 wired it up.
 
-The budget that decides when to give up is derived from a signal that does not measure the work.
-`inventorySize` (`:300`) counts a Kustomization's own inventory entries, and
-`kustomizationDeletionTimeout` (`:390`) scales the wait by that count. For a HelmRelease-wrapped
-tier the count is 1 no matter how large the chart is, so the tier whose teardown is slowest gets
-the smallest scaled budget.
+The budget that decides when to give up is an install budget. cli#3277 wired `specTimeout` (`:314`)
+to the Kustomization's own `spec.timeout`, and `core`'s facets do declare one on nearly every tier:
+26 at 5m, 19 at 10m, 8 at 15m, 7 at 20m, 6 at 30m. That number dominates the `inventorySize`
+scaling in `kustomizationDeletionTimeout` (`:390`), so the barrier is not as short as a one-entry
+inventory would suggest. It is simply the wrong number: `spec.timeout` is what the author budgeted
+for the chart to install, and `DeleteTimeout` exists precisely because delete latency differs. Every
+one of `core`'s 27 HelmReleases declares `spec.timeout`; none declares `spec.uninstall.timeout`.
 
 **Verification stops at the HelmRelease wrapper.** `firstLiveInventoryEntry` (`:2410`) resolves
 each inventory entry through `resolveScopedGVR` (`:2364`) and issues a live `GetResource`. For an
@@ -94,12 +96,20 @@ declines to treat one unreadable poll as proof that Flux stopped working.
 The barrier should wait as long as the work declares it needs, which is the direct fix for
 everything a retry was going to approximate.
 
-`specTimeout` (`:314`) already reads a Kustomization's own `spec.timeout` to set the delete-wait
-floor. Do the same one level down: for a HelmRelease entry, read `spec.uninstall.timeout`, falling
-back to `spec.timeout` exactly as `Uninstall.GetTimeout` defines, and extend the wait with it the
-way `extendWaitFor` already handles the other sources. A chart that declares a 30-minute uninstall
-gets a 30-minute barrier instead of the roughly 5 minutes `inventorySize` scaling currently yields
-for a one-entry inventory.
+For a HelmRelease entry, `deleteKustomization` SHOULD read `spec.uninstall.timeout` and extend the
+wait with it, the way `extendWaitFor` already folds in the other sources. Resolve it exactly as
+`Uninstall.GetTimeout` does, falling back to the HelmRelease's `spec.timeout`.
+
+This decision only pays off once `core` declares the field, and that ordering is the point rather
+than a caveat. With `spec.uninstall.timeout` unset, `GetTimeout` returns `spec.timeout`, which
+tracks the Kustomization timeout windsor already reads — cert-manager declares 20m against the
+facet's 20m, kyverno 30m against 30m — so windsor would read a second number that matches the
+first. Declaring it is what creates the signal.
+
+Declaring it earns its keep in `core` independently of this decision. helm-controller bounds its own
+uninstall operations by that value, so a chart whose teardown genuinely outlasts its install gets
+longer before helm-controller abandons the uninstall and clears its finalizer — which is the
+upstream half of the failure Decision 3 exists to detect.
 
 ### 3. Follow the HelmRelease's own inventory, and snapshot it during the wait
 
@@ -158,17 +168,23 @@ every closure, so the gain is for a stall on a leaf whose siblings never named i
 
 `core` sets uninstall semantics on 1 of 27 HelmReleases. The `aws-lb-controller` case is real
 precedent — a controller that must release cloud load balancers before it disappears — and it is
-undocumented. This ADR does not mandate a value, because `deletionPropagation: foreground` is slower
-and can hang visibly, so applying it blanket would trade one stall class for another. What `core`
-SHOULD do is decide that default deliberately and record the reasoning, now that Decision 4 makes
-`orphan` and `disableWait: true` load-bearing for whether windsor trusts a delete at all.
+undocumented.
+
+Two things follow. `core` SHOULD declare `spec.uninstall.timeout` per chart, chosen for how long
+that chart's teardown actually takes rather than copied from `spec.timeout`, since a value equal to
+the install budget carries no information for Decision 2 to read. And `core` SHOULD decide its
+`deletionPropagation` default deliberately and record the reasoning, now that Decision 4 makes
+`orphan` and `disableWait: true` load-bearing for whether windsor trusts a delete at all. This ADR
+does not mandate a propagation value: `foreground` is slower and can hang visibly, so applying it
+blanket would trade one stall class for another.
 
 ## Consequences
 
 - Decision 1 lands standalone and removes a single failed API read as a cause of run-wide destroy
   failure. It adds no schema, no API surface, and no new constant.
-- Decision 2 replaces a misleading wait-sizing signal with the chart's own declared budget, which is
-  the honest form of "wait longer" that a retry would only have approximated.
+- Decision 2 replaces an install budget with a teardown budget, which is the honest form of "wait
+  longer" that a retry would only have approximated. It is inert until `core` declares
+  `spec.uninstall.timeout`, so the two changes are worth sequencing together.
 - Decisions 3 and 4 together extend auto-heal from the roughly half of the walk that is raw-manifest
   to the HelmRelease-wrapped majority, which is what made the narrower version of this ADR barely
   worth shipping.
