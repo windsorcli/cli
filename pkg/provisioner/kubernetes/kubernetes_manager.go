@@ -189,7 +189,7 @@ const abandonedInventoryGraceChecks = 3
 // DeleteKustomization deletes a Kustomization and waits for it to disappear. The wait
 // floor rises to spec.timeout when set, and scales with inventory size (see
 // kustomizationSpecTimeoutCeiling). On timeout or a clean disappearance, it checks the
-// last-known inventory (see allInventoryEntriesGone, describeAbandonedInventory) before
+// last-known inventory (see firstLiveInventoryEntry, describeAbandonedInventory) before
 // trusting the result. A still-live entry gets a few retries first, to rule out normal
 // in-flight termination.
 func (k *BaseKubernetesManager) DeleteKustomization(name, namespace string) error {
@@ -228,26 +228,29 @@ func (k *BaseKubernetesManager) deleteKustomization(name, namespace string, expe
 	var lastReadErr error
 	readFailures := 0
 	helmTimeoutResolved := false
+	helmInventory := helmReleaseInventory{}
 	for k.shims.TimeNow().Before(start.Add(waitFor)) {
 		obj, err := k.client.GetResource(gvr, namespace, name)
 		if err != nil && isNotFoundError(err) {
 			if lastObj == nil && readFailures > 0 {
 				return fmt.Errorf("kustomization %s/%s disappeared before windsor could read its inventory: %w. Windsor cannot confirm the resources it managed are gone. Check for leftovers with `kubectl get pvc,svc,ingress,certificate -A | grep Terminating` before retrying", namespace, name, lastReadErr)
 			}
-			entry := k.describeAbandonedInventory(lastObj, expectWaitForTermination)
+			entry, checkErr := k.describeAbandonedInventory(lastObj, expectWaitForTermination, helmInventory)
 			graceDeadline := k.shims.TimeNow().Add(k.abandonedInventoryGraceWindow(inventorySize(lastObj)))
-			for entry != nil && k.shims.TimeNow().Before(graceDeadline) {
+			for (entry != nil || checkErr != nil) && k.shims.TimeNow().Before(graceDeadline) {
+				if errors.Is(checkErr, errUnverifiableInventory) {
+					break
+				}
 				k.shims.TimeSleep(k.kustomizationWaitPollInterval)
-				entry = k.describeAbandonedInventory(lastObj, expectWaitForTermination)
+				entry, checkErr = k.describeAbandonedInventory(lastObj, expectWaitForTermination, helmInventory)
+			}
+			if checkErr != nil {
+				return fmt.Errorf("kustomization %s/%s disappeared and windsor could not confirm its resources are gone: %w. Inspect the namespace before retrying", namespace, name, checkErr)
 			}
 			if entry == nil {
 				return nil
 			}
-			inspectCmd := fmt.Sprintf("`kubectl get %s %s`", entry.gvr.Resource, entry.Name)
-			if entry.Namespace != "" {
-				inspectCmd = fmt.Sprintf("`kubectl get %s %s -n %s`", entry.gvr.Resource, entry.Name, entry.Namespace)
-			}
-			return fmt.Errorf("kustomization %s/%s disappeared. %s/%s from its inventory is still live. Flux likely gave up waiting and removed the finalizer early. Inspect it with %s before retrying", namespace, name, entry.Kind, entry.Name, inspectCmd)
+			return fmt.Errorf("kustomization %s/%s disappeared. %s/%s from its inventory is still live. Flux likely gave up waiting and removed the finalizer early. Inspect it with %s before retrying", namespace, name, entry.Kind, entry.Name, liveEntryInspectCmd(entry))
 		}
 		if err != nil {
 			readFailures++
@@ -260,6 +263,7 @@ func (k *BaseKubernetesManager) deleteKustomization(name, namespace string, expe
 		}
 		readFailures = 0
 		lastObj = obj
+		k.snapshotHelmReleaseInventories(obj, helmInventory)
 
 		if size := inventorySize(obj); size > 0 {
 			waitFor = extendWaitFor(waitFor, k.kustomizationDeletionTimeout(size))
@@ -284,12 +288,12 @@ func (k *BaseKubernetesManager) deleteKustomization(name, namespace string, expe
 	inspectCmd := fmt.Sprintf("`kubectl get kustomization %s -n %s -o yaml`", name, namespace)
 	const terminatingCmd = "`kubectl get pvc,svc,ingress,certificate -A | grep Terminating`"
 
-	entries, inventoryFound := inventoryEntriesFromObject(lastObj)
-	if drained, checkErr := k.allInventoryEntriesGone(entries); inventoryFound && checkErr == nil && drained {
+	entries, inventoryFound, dropped := inventoryEntriesFromObject(lastObj)
+	live, checkErr := k.firstLiveInventoryEntry(entries, helmInventory)
+	if inventoryFound && checkErr == nil && dropped == 0 && live == nil {
 		return fmt.Errorf("kustomization %s/%s is fully drained. Every inventory item is confirmed gone, but its own finalizer is stuck. This is Flux bookkeeping, not leaked infrastructure. Clear it with `kubectl patch kustomization %s -n %s --type=merge -p '{\"metadata\":{\"finalizers\":null}}'`", namespace, name, name, namespace)
 	}
-
-	reason := describeStuckKustomization(lastObj) + k.describeStuckHelmReleases(name, namespace)
+	reason := describeStuckKustomization(lastObj) + k.describeStuckHelmReleases(name, namespace) + describeInventoryVerdict(live, checkErr)
 	if waitForTermination, ok := kustomizationDeletionPolicy(lastObj, expectWaitForTermination); ok && !waitForTermination {
 		if reason == "" {
 			return fmt.Errorf("windsor timed out after %s waiting for kustomization %s/%s to delete. It uses MirrorPrune, which deletes resources without waiting for confirmation, so this timeout does not mean an inventory item is stuck. Check for a suspended reconcile or an RBAC failure. Inspect with %s and %s", waitFor, namespace, name, inspectCmd, terminatingCmd)
@@ -1289,43 +1293,135 @@ func (k *BaseKubernetesManager) GetKustomizationInventory(name, namespace string
 	if !found {
 		return []InventoryEntry{}, nil
 	}
-	return decodeInventoryEntries(rawEntries), nil
+	entries, _ := decodeInventoryEntries(rawEntries)
+	return entries, nil
 }
 
 // inventoryEntriesFromObject decodes status.inventory.entries directly from an
 // already-fetched object, avoiding another API round trip. found reports whether the
 // object has ever reported an inventory at all — false for a Kustomization that has
 // not reconciled that far, which is not the same as a reconciled, now-empty one.
-// Callers must not treat "not found" as "confirmed empty."
-func inventoryEntriesFromObject(obj *unstructured.Unstructured) (entries []InventoryEntry, found bool) {
+// Callers must not treat "not found" as "confirmed empty." dropped counts entries that could
+// not be decoded, which makes the returned list incomplete for the same reason.
+func inventoryEntriesFromObject(obj *unstructured.Unstructured) (entries []InventoryEntry, found bool, dropped int) {
 	if obj == nil {
-		return nil, false
+		return nil, false, 0
 	}
 	rawEntries, found, err := unstructured.NestedSlice(obj.Object, "status", "inventory", "entries")
 	if err != nil || !found {
-		return nil, false
+		return nil, false, 0
 	}
-	return decodeInventoryEntries(rawEntries), true
+	entries, dropped = decodeInventoryEntries(rawEntries)
+	return entries, true, dropped
 }
 
-// decodeInventoryEntries decodes a raw status.inventory.entries slice. Individual
-// entries that fail to decode (malformed IDs, unexpected field shapes) are dropped
-// rather than failing the whole read.
-func decodeInventoryEntries(rawEntries []any) []InventoryEntry {
-	entries := make([]InventoryEntry, 0, len(rawEntries))
+// decodeInventoryEntries decodes a raw status.inventory.entries slice. An entry that fails to
+// decode is dropped rather than failing the whole read. dropped counts them. A caller must not
+// read a short list as a confirmed-empty one.
+func decodeInventoryEntries(rawEntries []any) (entries []InventoryEntry, dropped int) {
+	entries = make([]InventoryEntry, 0, len(rawEntries))
 	for _, raw := range rawEntries {
 		entryMap, ok := raw.(map[string]any)
 		if !ok {
+			dropped++
 			continue
 		}
 		id, _ := entryMap["id"].(string)
 		entry, ok := decodeInventoryID(id)
 		if !ok {
+			dropped++
 			continue
 		}
 		entries = append(entries, entry)
 	}
-	return entries
+	return entries, dropped
+}
+
+// chartInventory is what windsor learned about one HelmRelease. partial marks an inventory that
+// only decoded in part, which cannot be verified as though it were whole.
+type chartInventory struct {
+	entries []InventoryEntry
+	partial bool
+}
+
+// helmReleaseInventory holds what each HelmRelease in a Kustomization's inventory reported
+// managing, keyed by "namespace/name". A HelmRelease is usually gone by the time its parent
+// Kustomization disappears, so the entries are captured while it is still readable. A key absent
+// from the map was never observed live, which is not the same as observed managing nothing.
+type helmReleaseInventory map[string]*chartInventory
+
+// helmReleaseKey identifies a HelmRelease within a helmReleaseInventory.
+func helmReleaseKey(namespace, name string) string {
+	return namespace + "/" + name
+}
+
+// isHelmReleaseEntry reports whether entry names a flux HelmRelease.
+func isHelmReleaseEntry(entry InventoryEntry) bool {
+	return entry.Group == "helm.toolkit.fluxcd.io" && entry.Kind == "HelmRelease"
+}
+
+// record notes that a HelmRelease was observed live, and adds whatever inventory it reported to
+// what is already known. It accumulates a union rather than replacing: helm-controller shrinks
+// status.inventory as an uninstall proceeds, so the last reading can be empty while the resources
+// it listed moments earlier are still live.
+func (h helmReleaseInventory) record(namespace, name string, entries []InventoryEntry, partial bool) {
+	key := helmReleaseKey(namespace, name)
+	known := h[key]
+	if known == nil {
+		known = &chartInventory{}
+		h[key] = known
+	}
+	known.partial = known.partial || partial
+
+	seen := make(map[InventoryEntry]struct{}, len(known.entries))
+	for _, existing := range known.entries {
+		seen[existing] = struct{}{}
+	}
+	for _, entry := range entries {
+		if _, ok := seen[entry]; ok {
+			continue
+		}
+		seen[entry] = struct{}{}
+		known.entries = append(known.entries, entry)
+	}
+}
+
+// snapshotHelmReleaseInventories records what every HelmRelease in obj's inventory reports
+// managing, while it can still be read. A read that fails records nothing, NotFound included.
+// Windsor cannot tell a chart that finished cleanly from one helm-controller abandoned. An
+// unobserved HelmRelease is reported as unverifiable, never as gone. An inventory that only
+// partly decodes is marked partial.
+func (k *BaseKubernetesManager) snapshotHelmReleaseInventories(obj *unstructured.Unstructured, into helmReleaseInventory) {
+	entries, found, _ := inventoryEntriesFromObject(obj)
+	if !found {
+		return
+	}
+	for _, entry := range entries {
+		if !isHelmReleaseEntry(entry) {
+			continue
+		}
+		helmRelease, err := k.getHelmRelease(entry.Name, entry.Namespace)
+		if err != nil {
+			continue
+		}
+		child, childFound, dropped := inventoryEntriesFromObject(&unstructured.Unstructured{Object: map[string]any{
+			"status": map[string]any{"inventory": helmReleaseInventoryMap(helmRelease)},
+		}})
+		into.record(entry.Namespace, entry.Name, child, childFound && dropped > 0)
+	}
+}
+
+// helmReleaseInventoryMap renders a HelmRelease's status.inventory back into the untyped shape
+// inventoryEntriesFromObject reads, so both layers decode through one path.
+func helmReleaseInventoryMap(helmRelease *helmv2.HelmRelease) map[string]any {
+	if helmRelease == nil || helmRelease.Status.Inventory == nil {
+		return nil
+	}
+	raw := make([]any, 0, len(helmRelease.Status.Inventory.Entries))
+	for _, ref := range helmRelease.Status.Inventory.Entries {
+		raw = append(raw, map[string]any{"id": ref.ID, "v": ref.Version})
+	}
+	return map[string]any{"entries": raw}
 }
 
 // decodeInventoryID parses a flux inventory ID of the form
@@ -1859,14 +1955,14 @@ waitLoop:
 // HelmRelease's own spec.timeout. A HelmRelease that declares neither, or that cannot be read,
 // contributes nothing, so the caller never shortens a wait on a lookup failure.
 func (k *BaseKubernetesManager) helmReleaseUninstallTimeout(obj *unstructured.Unstructured) (time.Duration, bool) {
-	entries, found := inventoryEntriesFromObject(obj)
+	entries, found, _ := inventoryEntriesFromObject(obj)
 	if !found {
 		return 0, false
 	}
 
 	var longest time.Duration
 	for _, entry := range entries {
-		if entry.Group != "helm.toolkit.fluxcd.io" || entry.Kind != "HelmRelease" {
+		if !isHelmReleaseEntry(entry) {
 			continue
 		}
 		helmRelease, err := k.getHelmRelease(entry.Name, entry.Namespace)
@@ -2424,17 +2520,8 @@ func (k *BaseKubernetesManager) resolveScopedGVR(gvk schema.GroupVersionKind, na
 	return gvr, namespace, true, nil
 }
 
-// allInventoryEntriesGone reports whether every inventory entry's own live object is
-// confirmed absent, independent of the Kustomization's finalizer state. It returns an
-// error, not false, on any inconclusive lookup: a wrong "all gone" reading here is
-// exactly what could clear a finalizer while resources still exist.
-func (k *BaseKubernetesManager) allInventoryEntriesGone(entries []InventoryEntry) (bool, error) {
-	live, err := k.firstLiveInventoryEntry(entries)
-	if err != nil {
-		return false, err
-	}
-	return live == nil, nil
-}
+// errUnverifiableInventory reports an entry neither confirmed live nor confirmed gone.
+var errUnverifiableInventory = errors.New("inventory entry cannot be verified")
 
 // liveInventoryEntry is an inventory entry confirmed still live, paired with its
 // resolved GVR. The GVR's Resource is the plural name kubectl accepts, not a guess
@@ -2449,7 +2536,7 @@ type liveInventoryEntry struct {
 // longer exists counts as gone. It returns an error, not a false negative, on an
 // inconclusive lookup. A wrong "gone" reading could clear a finalizer or report a
 // false clean delete.
-func (k *BaseKubernetesManager) firstLiveInventoryEntry(entries []InventoryEntry) (*liveInventoryEntry, error) {
+func (k *BaseKubernetesManager) firstLiveInventoryEntry(entries []InventoryEntry, helmInventory helmReleaseInventory) (*liveInventoryEntry, error) {
 	for _, entry := range entries {
 		gvk := schema.GroupVersionKind{Group: entry.Group, Kind: entry.Kind}
 		gvr, namespace, ok, err := k.resolveScopedGVR(gvk, entry.Namespace)
@@ -2460,36 +2547,77 @@ func (k *BaseKubernetesManager) firstLiveInventoryEntry(entries []InventoryEntry
 			continue
 		}
 		if _, err := k.client.GetResource(gvr, namespace, entry.Name); err != nil {
-			if isNotFoundError(err) {
+			if !isNotFoundError(err) {
+				return nil, err
+			}
+			if !isHelmReleaseEntry(entry) {
 				continue
 			}
-			return nil, err
+			live, err := k.firstLiveChartResource(entry, helmInventory)
+			if err != nil {
+				return nil, err
+			}
+			if live != nil {
+				return live, nil
+			}
+			continue
 		}
 		return &liveInventoryEntry{InventoryEntry: entry, gvr: gvr}, nil
 	}
 	return nil, nil
 }
 
-// describeAbandonedInventory checks lastObj's last-known inventory for an entry whose
-// live object is confirmed still present, after the Kustomization itself has already
-// disappeared. It only applies to a WaitForTermination kustomization; see
-// kustomizationDeletionPolicy. A MirrorPrune one is expected to leave live entries
-// behind. Returns nil when there is no inventory to check, or the lookup is
-// inconclusive. A genuinely clean delete is never second-guessed.
-func (k *BaseKubernetesManager) describeAbandonedInventory(lastObj *unstructured.Unstructured, expectWaitForTermination *bool) *liveInventoryEntry {
+// firstLiveChartResource verifies what a vanished HelmRelease managed. Its disappearance proves
+// only that helm-controller cleared its own finalizer. It can do that after abandoning a stuck
+// uninstall. So each resource the HelmRelease reported managing is checked. A HelmRelease never
+// observed, or one whose inventory only partly decoded, is unverifiable. A nested HelmRelease is
+// checked for liveness but not descended into.
+func (k *BaseKubernetesManager) firstLiveChartResource(entry InventoryEntry, helmInventory helmReleaseInventory) (*liveInventoryEntry, error) {
+	known := helmInventory[helmReleaseKey(entry.Namespace, entry.Name)]
+	if known == nil {
+		return nil, fmt.Errorf("windsor never read what helmrelease %s/%s managed: %w", entry.Namespace, entry.Name, errUnverifiableInventory)
+	}
+	if known.partial {
+		return nil, fmt.Errorf("helmrelease %s/%s reported an inventory windsor could not fully decode: %w", entry.Namespace, entry.Name, errUnverifiableInventory)
+	}
+	for _, child := range known.entries {
+		gvk := schema.GroupVersionKind{Group: child.Group, Kind: child.Kind}
+		gvr, namespace, ok, err := k.resolveScopedGVR(gvk, child.Namespace)
+		if err != nil {
+			return nil, err
+		}
+		if !ok {
+			continue
+		}
+		if _, err := k.client.GetResource(gvr, namespace, child.Name); err != nil {
+			if isNotFoundError(err) {
+				continue
+			}
+			return nil, err
+		}
+		return &liveInventoryEntry{InventoryEntry: child, gvr: gvr}, nil
+	}
+	return nil, nil
+}
+
+// describeAbandonedInventory checks lastObj's last-known inventory for an entry still live, after
+// the Kustomization itself disappeared. It only applies to a WaitForTermination kustomization;
+// see kustomizationDeletionPolicy. A MirrorPrune one is expected to leave live entries behind.
+// It returns nil when there is no inventory to check. It returns an error when the answer is
+// inconclusive. An inventory windsor cannot read is not one it can call empty.
+func (k *BaseKubernetesManager) describeAbandonedInventory(lastObj *unstructured.Unstructured, expectWaitForTermination *bool, helmInventory helmReleaseInventory) (*liveInventoryEntry, error) {
 	waitForTermination, ok := kustomizationDeletionPolicy(lastObj, expectWaitForTermination)
 	if !ok || !waitForTermination {
-		return nil
+		return nil, nil
 	}
-	entries, found := inventoryEntriesFromObject(lastObj)
+	entries, found, dropped := inventoryEntriesFromObject(lastObj)
 	if !found {
-		return nil
+		return nil, nil
 	}
-	live, err := k.firstLiveInventoryEntry(entries)
-	if err != nil {
-		return nil
+	if dropped > 0 {
+		return nil, fmt.Errorf("%d of %d inventory entries could not be decoded: %w", dropped, dropped+len(entries), errUnverifiableInventory)
 	}
-	return live
+	return k.firstLiveInventoryEntry(entries, helmInventory)
 }
 
 // gitopsMode returns the configured gitops mode, defaulting to pull. Centralising
@@ -2711,6 +2839,28 @@ func (k *BaseKubernetesManager) applyBlueprintOCIRepository(source blueprintv1al
 // =============================================================================
 // Helpers
 // =============================================================================
+
+// describeInventoryVerdict renders what the inventory check found, for a timeout error. It names
+// a still-live entry, or reports that the check could not conclude. Both add to whatever the
+// Kustomization and its HelmReleases already said, since neither replaces the other.
+func describeInventoryVerdict(live *liveInventoryEntry, checkErr error) string {
+	switch {
+	case live != nil:
+		return fmt.Sprintf(". %s/%s from its inventory is still live; inspect it with %s", live.Kind, live.Name, liveEntryInspectCmd(live))
+	case checkErr != nil:
+		return fmt.Sprintf(". Windsor could not confirm its resources are gone: %v", checkErr)
+	default:
+		return ""
+	}
+}
+
+// liveEntryInspectCmd builds the kubectl hint that names a still-live inventory entry.
+func liveEntryInspectCmd(entry *liveInventoryEntry) string {
+	if entry.Namespace == "" {
+		return fmt.Sprintf("`kubectl get %s %s`", entry.gvr.Resource, entry.Name)
+	}
+	return fmt.Sprintf("`kubectl get %s %s -n %s`", entry.gvr.Resource, entry.Name, entry.Namespace)
+}
 
 // inventoryKey builds the group/kind/namespace/name key used to match live objects against a
 // kustomization's Flux inventory. Group is empty for core API objects; namespace is empty for

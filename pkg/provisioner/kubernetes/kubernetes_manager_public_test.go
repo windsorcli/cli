@@ -1249,10 +1249,10 @@ func TestBaseKubernetesManager_DeleteKustomization(t *testing.T) {
 		}
 	})
 
-	t.Run("DisappearedIsCleanWhenInventoryCheckInconclusive", func(t *testing.T) {
+	t.Run("DisappearedFailsWhenInventoryCheckInconclusive", func(t *testing.T) {
 		// Given a kustomization that disappears after one tick, but the live-check on
 		// its last-known inventory entry fails with a real API error — nothing may be
-		// asserted from an inconclusive lookup
+		// asserted from an inconclusive lookup, least of all that the resources are gone
 		manager := setup(t)
 		kubernetesClient := client.NewMockKubernetesClient()
 		kubernetesClient.DeleteResourceFunc = func(gvr schema.GroupVersionResource, namespace, name string, opts metav1.DeleteOptions) error {
@@ -1274,9 +1274,12 @@ func TestBaseKubernetesManager_DeleteKustomization(t *testing.T) {
 		// When DeleteKustomization sees the object disappear
 		err := manager.DeleteKustomization("test-kustomization", "test-namespace")
 
-		// Then it falls back to reporting success rather than a false positive
-		if err != nil {
-			t.Errorf("Expected no error on an inconclusive check, got %v", err)
+		// Then the destroy stops rather than reporting a delete it could not confirm
+		if err == nil {
+			t.Fatal("Expected an inconclusive check to fail, got nil")
+		}
+		if !strings.Contains(err.Error(), "could not confirm its resources are gone") {
+			t.Errorf("Expected an unconfirmed-delete error, got: %v", err)
 		}
 	})
 
@@ -8351,6 +8354,400 @@ func TestBaseKubernetesManager_RollWorkloadsForSecret(t *testing.T) {
 		// When rolling workloads, the API failure surfaces rather than being swallowed
 		if err := manager.RollWorkloadsForSecret(context.Background(), "system-telemetry", secretName, "digest-1"); err == nil {
 			t.Error("Expected error when listing workloads fails")
+		}
+	})
+}
+
+func TestBaseKubernetesManager_DeleteKustomizationVerifiesChartResources(t *testing.T) {
+	setup := func(t *testing.T) *BaseKubernetesManager {
+		t.Helper()
+		mocks := setupKubernetesMocks(t)
+		manager := NewKubernetesManager(mocks.KubernetesClient, mocks.ConfigHandler)
+		manager.kustomizationWaitPollInterval = 5 * time.Millisecond
+		manager.kustomizationReconcileTimeout = 40 * time.Millisecond
+		manager.kustomizationDeletionPerEntryTimeout = 0
+		manager.kustomizationDeletionMaxExtraTimeout = 0
+		manager.kustomizationAbandonedGraceMaxExtra = 0
+		clock := newFakeClock()
+		manager.shims.TimeNow = clock.Now
+		manager.shims.TimeSleep = clock.Sleep
+		return manager
+	}
+
+	// A kustomization whose whole inventory is one HelmRelease, as 27 of core's 31
+	// install tiers are built.
+	kustomizationWrappingChart := func() *unstructured.Unstructured {
+		return &unstructured.Unstructured{Object: map[string]any{
+			"spec": map[string]any{"deletionPolicy": "WaitForTermination"},
+			"status": map[string]any{"inventory": map[string]any{"entries": []any{
+				map[string]any{"id": "system-pki_cert-manager_helm.toolkit.fluxcd.io_HelmRelease", "v": "v2"},
+			}}},
+		}}
+	}
+
+	helmReleaseManaging := func(ids ...string) *unstructured.Unstructured {
+		raw := make([]any, 0, len(ids))
+		for _, id := range ids {
+			raw = append(raw, map[string]any{"id": id, "v": "v1"})
+		}
+		return &unstructured.Unstructured{Object: map[string]any{
+			"apiVersion": "helm.toolkit.fluxcd.io/v2",
+			"kind":       "HelmRelease",
+			"metadata":   map[string]any{"name": "cert-manager", "namespace": "system-pki"},
+			"status":     map[string]any{"inventory": map[string]any{"entries": raw}},
+		}}
+	}
+
+	const chartWebhook = "system-pki_cert-manager-webhook__dynamic-serving_rbac.authorization.k8s.io_Role"
+
+	withGVRs := func(c *client.MockKubernetesClient) *client.MockKubernetesClient {
+		c.ResourceForFunc = func(gvk schema.GroupVersionKind) (schema.GroupVersionResource, error) {
+			plural := map[string]string{
+				"Kustomization": "kustomizations",
+				"HelmRelease":   "helmreleases",
+				"Role":          "roles",
+			}[gvk.Kind]
+			if plural == "" {
+				return schema.GroupVersionResource{}, fmt.Errorf("no match for kind %q", gvk.Kind)
+			}
+			return schema.GroupVersionResource{Group: gvk.Group, Version: "v1", Resource: plural}, nil
+		}
+		return c
+	}
+
+	t.Run("ReportsAChartResourceLeftBehindByAVanishedHelmRelease", func(t *testing.T) {
+		// Given a kustomization that disappears along with its HelmRelease, while a
+		// resource the chart managed is still live
+		manager := setup(t)
+		kubernetesClient := withGVRs(client.NewMockKubernetesClient())
+		kubernetesClient.DeleteResourceFunc = func(gvr schema.GroupVersionResource, namespace, name string, opts metav1.DeleteOptions) error {
+			return nil
+		}
+		reads := 0
+		kubernetesClient.GetResourceFunc = func(gvr schema.GroupVersionResource, namespace, name string) (*unstructured.Unstructured, error) {
+			switch {
+			case gvr.Resource == "kustomizations":
+				reads++
+				if reads == 1 {
+					return kustomizationWrappingChart(), nil
+				}
+				return nil, fmt.Errorf("the server could not find the requested resource")
+			case gvr.Resource == "helmreleases":
+				if reads <= 1 {
+					return helmReleaseManaging(chartWebhook), nil
+				}
+				return nil, fmt.Errorf("the server could not find the requested resource")
+			default:
+				return &unstructured.Unstructured{Object: map[string]any{}}, nil
+			}
+		}
+		manager.client = kubernetesClient
+
+		// When DeleteKustomization runs
+		err := manager.DeleteKustomization("cert-manager", "system-pki")
+
+		// Then the leftover is named, rather than the wrapper's absence being trusted
+		if err == nil {
+			t.Fatal("Expected a live chart resource to fail the delete, got nil")
+		}
+		if !strings.Contains(err.Error(), "cert-manager-webhook:dynamic-serving") {
+			t.Errorf("Expected the leftover chart resource to be named, got: %v", err)
+		}
+	})
+
+	t.Run("AcceptsADeleteWhoseChartResourcesAreAllGone", func(t *testing.T) {
+		// Given the same teardown, with every chart resource confirmed absent
+		manager := setup(t)
+		kubernetesClient := withGVRs(client.NewMockKubernetesClient())
+		kubernetesClient.DeleteResourceFunc = func(gvr schema.GroupVersionResource, namespace, name string, opts metav1.DeleteOptions) error {
+			return nil
+		}
+		reads := 0
+		kubernetesClient.GetResourceFunc = func(gvr schema.GroupVersionResource, namespace, name string) (*unstructured.Unstructured, error) {
+			switch {
+			case gvr.Resource == "kustomizations":
+				reads++
+				if reads == 1 {
+					return kustomizationWrappingChart(), nil
+				}
+				return nil, fmt.Errorf("the server could not find the requested resource")
+			case gvr.Resource == "helmreleases":
+				if reads <= 1 {
+					return helmReleaseManaging(chartWebhook), nil
+				}
+				return nil, fmt.Errorf("the server could not find the requested resource")
+			default:
+				return nil, fmt.Errorf("the server could not find the requested resource")
+			}
+		}
+		manager.client = kubernetesClient
+
+		// When DeleteKustomization runs
+		err := manager.DeleteKustomization("cert-manager", "system-pki")
+
+		// Then the delete is clean
+		if err != nil {
+			t.Errorf("Expected a fully drained chart to pass, got: %v", err)
+		}
+	})
+
+	t.Run("FailsWhenAHelmReleaseWasNeverReadable", func(t *testing.T) {
+		// Given a HelmRelease whose reads fail with a transient API error, so nothing
+		// is ever learned about what its chart managed
+		manager := setup(t)
+		kubernetesClient := withGVRs(client.NewMockKubernetesClient())
+		kubernetesClient.DeleteResourceFunc = func(gvr schema.GroupVersionResource, namespace, name string, opts metav1.DeleteOptions) error {
+			return nil
+		}
+		reads := 0
+		kubernetesClient.GetResourceFunc = func(gvr schema.GroupVersionResource, namespace, name string) (*unstructured.Unstructured, error) {
+			switch {
+			case gvr.Resource == "kustomizations":
+				reads++
+				if reads == 1 {
+					return kustomizationWrappingChart(), nil
+				}
+				return nil, fmt.Errorf("the server could not find the requested resource")
+			case gvr.Resource == "helmreleases" && reads <= 1:
+				return nil, fmt.Errorf("etcdserver: request timed out")
+			default:
+				return nil, fmt.Errorf("the server could not find the requested resource")
+			}
+		}
+		manager.client = kubernetesClient
+
+		// When DeleteKustomization runs
+		err := manager.DeleteKustomization("cert-manager", "system-pki")
+
+		// Then an unread chart inventory is not treated as an empty one
+		if err == nil {
+			t.Fatal("Expected an unverifiable HelmRelease to fail the delete, got nil")
+		}
+		if !strings.Contains(err.Error(), "never read what helmrelease system-pki/cert-manager managed") {
+			t.Errorf("Expected an unread-chart error naming the release, got: %v", err)
+		}
+	})
+
+	t.Run("FailsWhenAHelmReleaseWasAlreadyGoneBeforeTheFirstPoll", func(t *testing.T) {
+		// Given a HelmRelease already absent on the first poll, which is what a rerun
+		// sees after helm-controller abandoned an uninstall and left resources behind
+		manager := setup(t)
+		kubernetesClient := withGVRs(client.NewMockKubernetesClient())
+		kubernetesClient.DeleteResourceFunc = func(gvr schema.GroupVersionResource, namespace, name string, opts metav1.DeleteOptions) error {
+			return nil
+		}
+		reads := 0
+		kubernetesClient.GetResourceFunc = func(gvr schema.GroupVersionResource, namespace, name string) (*unstructured.Unstructured, error) {
+			if gvr.Resource == "kustomizations" {
+				reads++
+				if reads == 1 {
+					return kustomizationWrappingChart(), nil
+				}
+			}
+			return nil, fmt.Errorf("the server could not find the requested resource")
+		}
+		manager.client = kubernetesClient
+
+		// When DeleteKustomization runs
+		err := manager.DeleteKustomization("cert-manager", "system-pki")
+
+		// Then an unobserved chart is not credited as a clean teardown
+		if err == nil {
+			t.Fatal("Expected an unobserved HelmRelease to fail the delete, got nil")
+		}
+		if !strings.Contains(err.Error(), "never read what helmrelease system-pki/cert-manager managed") {
+			t.Errorf("Expected an unread-chart error naming the release, got: %v", err)
+		}
+	})
+
+	t.Run("AcceptsAHelmReleaseThatPublishesNoInventory", func(t *testing.T) {
+		// Given a HelmRelease observed live on a flux that never reports what a chart
+		// owns, where the deeper answer is simply unavailable
+		manager := setup(t)
+		kubernetesClient := withGVRs(client.NewMockKubernetesClient())
+		kubernetesClient.DeleteResourceFunc = func(gvr schema.GroupVersionResource, namespace, name string, opts metav1.DeleteOptions) error {
+			return nil
+		}
+		reads := 0
+		kubernetesClient.GetResourceFunc = func(gvr schema.GroupVersionResource, namespace, name string) (*unstructured.Unstructured, error) {
+			switch {
+			case gvr.Resource == "kustomizations":
+				reads++
+				if reads == 1 {
+					return kustomizationWrappingChart(), nil
+				}
+				return nil, fmt.Errorf("the server could not find the requested resource")
+			case gvr.Resource == "helmreleases" && reads <= 1:
+				return &unstructured.Unstructured{Object: map[string]any{
+					"apiVersion": "helm.toolkit.fluxcd.io/v2",
+					"kind":       "HelmRelease",
+					"metadata":   map[string]any{"name": "cert-manager", "namespace": "system-pki"},
+				}}, nil
+			default:
+				return nil, fmt.Errorf("the server could not find the requested resource")
+			}
+		}
+		manager.client = kubernetesClient
+
+		// When DeleteKustomization runs
+		err := manager.DeleteKustomization("cert-manager", "system-pki")
+
+		// Then it falls back to the older answer rather than failing every destroy
+		if err != nil {
+			t.Errorf("Expected a flux without chart inventory to degrade, got: %v", err)
+		}
+	})
+
+	t.Run("FailsWhenAChartInventoryOnlyPartlyDecodes", func(t *testing.T) {
+		// Given a HelmRelease whose reported inventory holds an entry windsor cannot
+		// decode, so the list it can read is not the whole chart
+		manager := setup(t)
+		kubernetesClient := withGVRs(client.NewMockKubernetesClient())
+		kubernetesClient.DeleteResourceFunc = func(gvr schema.GroupVersionResource, namespace, name string, opts metav1.DeleteOptions) error {
+			return nil
+		}
+		reads := 0
+		kubernetesClient.GetResourceFunc = func(gvr schema.GroupVersionResource, namespace, name string) (*unstructured.Unstructured, error) {
+			switch {
+			case gvr.Resource == "kustomizations":
+				reads++
+				if reads == 1 {
+					return kustomizationWrappingChart(), nil
+				}
+				return nil, fmt.Errorf("the server could not find the requested resource")
+			case gvr.Resource == "helmreleases" && reads <= 1:
+				return helmReleaseManaging("malformed-id"), nil
+			default:
+				return nil, fmt.Errorf("the server could not find the requested resource")
+			}
+		}
+		manager.client = kubernetesClient
+
+		// When DeleteKustomization runs
+		err := manager.DeleteKustomization("cert-manager", "system-pki")
+
+		// Then a partial reading is not verified as if it were complete
+		if err == nil {
+			t.Fatal("Expected a partly-decoded chart inventory to fail the delete, got nil")
+		}
+		if !strings.Contains(err.Error(), "could not fully decode") {
+			t.Errorf("Expected a partial-inventory error, got: %v", err)
+		}
+	})
+
+	t.Run("ReportsALiveNestedHelmRelease", func(t *testing.T) {
+		// Given a chart that itself deploys a HelmRelease, which is still live after
+		// the outer release vanished
+		manager := setup(t)
+		kubernetesClient := withGVRs(client.NewMockKubernetesClient())
+		kubernetesClient.DeleteResourceFunc = func(gvr schema.GroupVersionResource, namespace, name string, opts metav1.DeleteOptions) error {
+			return nil
+		}
+		reads := 0
+		kubernetesClient.GetResourceFunc = func(gvr schema.GroupVersionResource, namespace, name string) (*unstructured.Unstructured, error) {
+			switch {
+			case gvr.Resource == "kustomizations":
+				reads++
+				if reads == 1 {
+					return kustomizationWrappingChart(), nil
+				}
+				return nil, fmt.Errorf("the server could not find the requested resource")
+			case gvr.Resource == "helmreleases" && name == "cert-manager":
+				if reads <= 1 {
+					return helmReleaseManaging("system-pki_inner_helm.toolkit.fluxcd.io_HelmRelease"), nil
+				}
+				return nil, fmt.Errorf("the server could not find the requested resource")
+			default:
+				return &unstructured.Unstructured{Object: map[string]any{}}, nil
+			}
+		}
+		manager.client = kubernetesClient
+
+		// When DeleteKustomization runs
+		err := manager.DeleteKustomization("cert-manager", "system-pki")
+
+		// Then the nested release is reported rather than skipped as gone
+		if err == nil {
+			t.Fatal("Expected a live nested HelmRelease to fail the delete, got nil")
+		}
+		if !strings.Contains(err.Error(), "HelmRelease/inner") {
+			t.Errorf("Expected the nested release to be named, got: %v", err)
+		}
+	})
+
+	t.Run("WillNotClaimDrainedWhenAnEntryCannotBeDecoded", func(t *testing.T) {
+		// Given a kustomization that never disappears, holding an inventory entry
+		// windsor cannot decode
+		manager := setup(t)
+		kubernetesClient := withGVRs(client.NewMockKubernetesClient())
+		kubernetesClient.DeleteResourceFunc = func(gvr schema.GroupVersionResource, namespace, name string, opts metav1.DeleteOptions) error {
+			return nil
+		}
+		kubernetesClient.GetResourceFunc = func(gvr schema.GroupVersionResource, namespace, name string) (*unstructured.Unstructured, error) {
+			if gvr.Resource == "kustomizations" {
+				return &unstructured.Unstructured{Object: map[string]any{
+					"spec": map[string]any{"deletionPolicy": "WaitForTermination"},
+					"status": map[string]any{"inventory": map[string]any{"entries": []any{
+						map[string]any{"id": "malformed-id", "v": "v1"},
+					}}},
+				}}, nil
+			}
+			return nil, fmt.Errorf("the server could not find the requested resource")
+		}
+		manager.client = kubernetesClient
+
+		// When the delete times out
+		err := manager.DeleteKustomization("cert-manager", "system-pki")
+
+		// Then an undecodable inventory is not reported as a confirmed-empty one
+		if err == nil {
+			t.Fatal("Expected the delete to time out, got nil")
+		}
+		if strings.Contains(err.Error(), "fully drained") {
+			t.Errorf("Expected no drained claim over an undecodable inventory, got: %v", err)
+		}
+	})
+
+	t.Run("RemembersChartResourcesAfterTheInventoryShrinks", func(t *testing.T) {
+		// Given a HelmRelease whose reported inventory empties as its uninstall runs,
+		// while one of the resources it listed earlier is still live
+		manager := setup(t)
+		kubernetesClient := withGVRs(client.NewMockKubernetesClient())
+		kubernetesClient.DeleteResourceFunc = func(gvr schema.GroupVersionResource, namespace, name string, opts metav1.DeleteOptions) error {
+			return nil
+		}
+		reads := 0
+		kubernetesClient.GetResourceFunc = func(gvr schema.GroupVersionResource, namespace, name string) (*unstructured.Unstructured, error) {
+			switch {
+			case gvr.Resource == "kustomizations":
+				reads++
+				if reads <= 2 {
+					return kustomizationWrappingChart(), nil
+				}
+				return nil, fmt.Errorf("the server could not find the requested resource")
+			case gvr.Resource == "helmreleases":
+				if reads == 1 {
+					return helmReleaseManaging(chartWebhook), nil
+				}
+				if reads == 2 {
+					return helmReleaseManaging(), nil
+				}
+				return nil, fmt.Errorf("the server could not find the requested resource")
+			default:
+				return &unstructured.Unstructured{Object: map[string]any{}}, nil
+			}
+		}
+		manager.client = kubernetesClient
+
+		// When DeleteKustomization runs
+		err := manager.DeleteKustomization("cert-manager", "system-pki")
+
+		// Then the earlier reading still governs, rather than the empty later one
+		if err == nil {
+			t.Fatal("Expected the remembered chart resource to fail the delete, got nil")
+		}
+		if !strings.Contains(err.Error(), "cert-manager-webhook:dynamic-serving") {
+			t.Errorf("Expected the remembered chart resource to be named, got: %v", err)
 		}
 	})
 }
