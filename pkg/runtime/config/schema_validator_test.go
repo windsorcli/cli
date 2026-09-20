@@ -1,11 +1,14 @@
 package config
 
 import (
+	"bytes"
+	"io"
 	"os"
 	"strings"
 	"testing"
 
 	"github.com/kaptinlin/jsonschema"
+	"github.com/windsorcli/cli/pkg/debug"
 	"github.com/windsorcli/cli/pkg/runtime/shell"
 )
 
@@ -1011,6 +1014,50 @@ func TestFlattenErrorList(t *testing.T) {
 		}
 		if !strings.Contains(errs[1], "3 other error(s) are hidden") {
 			t.Errorf("Expected a summary note about hidden errors, got %v", errs)
+		}
+		if !strings.Contains(errs[1], "--debug") {
+			t.Errorf("Expected the summary note to point at --debug, got %v", errs)
+		}
+	})
+
+	t.Run("LogsHiddenErrorsToDebugWhenEnabled", func(t *testing.T) {
+		// Given the same shape as above, with debug logging enabled
+		debug.Init(true)
+		t.Cleanup(func() { debug.Init(false) })
+
+		list := &jsonschema.List{
+			Details: []jsonschema.List{
+				{InstanceLocation: "/", Errors: map[string]string{"then": "Value meets the 'if' condition but does not match the 'then' schema"}},
+				{InstanceLocation: "/", Errors: map[string]string{"required": "Required property 'identity' is missing"}},
+				{InstanceLocation: "/identity", Errors: map[string]string{"type": "Value is null but should be object"}},
+				{InstanceLocation: "/database/postgres/driver", Errors: map[string]string{"const": "Value does not match the constant value"}},
+			},
+		}
+
+		// When flattening
+		r, w, err := os.Pipe()
+		if err != nil {
+			t.Fatalf("failed to create pipe: %v", err)
+		}
+		old := os.Stderr
+		os.Stderr = w
+		flattenErrorList(list)
+		w.Close()
+		os.Stderr = old
+		var buf bytes.Buffer
+		io.Copy(&buf, r)
+		r.Close()
+		output := buf.String()
+
+		// Then every hidden line reaches the debug log
+		for _, want := range []string{"/: then:", "/: required:", "/identity: type:"} {
+			if !strings.Contains(output, want) {
+				t.Errorf("Expected debug output to contain %q, got %q", want, output)
+			}
+		}
+		// And the one visible violation is not logged as hidden
+		if strings.Contains(output, "/database/postgres/driver: const:") {
+			t.Errorf("Did not expect the visible violation to be logged as hidden, got %q", output)
 		}
 	})
 

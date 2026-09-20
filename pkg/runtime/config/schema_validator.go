@@ -8,6 +8,7 @@ import (
 
 	"github.com/goccy/go-yaml"
 	"github.com/kaptinlin/jsonschema"
+	"github.com/windsorcli/cli/pkg/debug"
 	"github.com/windsorcli/cli/pkg/runtime/shell"
 )
 
@@ -519,7 +520,8 @@ func isCascadeProne(e validationError, paired map[string]bool) bool {
 }
 
 // focusOnSpecificViolations hides cascade-prone and structural errors when a specific
-// violation is also present. It returns errs unchanged when either side is empty.
+// violation is also present. It returns errs unchanged when either side is empty. It logs
+// every hidden line via debug.Log, so an operator can rerun with --debug to see them.
 func focusOnSpecificViolations(errs []validationError) []validationError {
 	paired := cascadePairedNames(errs)
 	var specific, noise []validationError
@@ -539,7 +541,11 @@ func focusOnSpecificViolations(errs []validationError) []validationError {
 		return errs
 	}
 
-	note := fmt.Sprintf("%d other error(s) are hidden. Fix the error(s) above and run the command again.", len(noise))
+	for _, e := range noise {
+		debug.Log("hidden validation error: %s", e.line)
+	}
+
+	note := fmt.Sprintf("%d other error(s) are hidden. Run with --debug to see them. Fix the error(s) above and run the command again.", len(noise))
 	return append(specific, validationError{line: note})
 }
 
