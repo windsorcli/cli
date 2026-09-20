@@ -1,0 +1,246 @@
+# ADR 0009 — windsor destroy: hold the barrier as long as the work declares
+
+- Status: Proposed
+- Date: 2026-09-20
+- Deciders: Ryan VanGundy
+- Surfaced investigating cli#3417 (three independent destroy stalls in one acceptance run)
+  alongside cli#3395/#3396 (abandoned-inventory grace window) and cli#3279/#3277 (finalizer-race
+  false positives). Earlier drafts proposed a blueprint classification field, a Helm label
+  sweep, and a delete retry. None survived scrutiny; all three are recorded under Alternatives.
+
+## Context
+
+`DeleteBlueprint` (`pkg/provisioner/kubernetes/kubernetes_manager.go:1540`) walks a blueprint's
+Kustomizations in reverse-dependency order. Each goes through `deleteKustomization` (`:207`), which
+requires individually-confirmed disappearance before moving on, and any single failure aborts the
+whole remaining walk through `abortDestroy` (`:1607`). cli#3417 frames the cost precisely: across
+roughly 15 links, run-level failure probability compounds as `1 - (per-link reliability)^15`, and
+each failed link burns 20 to 38 minutes before it surfaces.
+
+Two point fixes already landed. cli#3396 scaled the abandoned-inventory grace window by inventory
+size; cli#3277 wired the delete-wait floor to a Kustomization's `spec.timeout`. Both narrow
+per-link risk. Neither addresses the gaps below.
+
+**The wait is a barrier, and it gives up for the wrong reasons.** kustomize-controller is a
+reconciler. It holds a finalizer, prunes the inventory, and retries its own reconcile
+indefinitely. Windsor does not make a delete happen and cannot speed one up. It blocks only so
+Terraform does not destroy the cluster while Flux is still deleting things inside it. Every
+defect below is the barrier reporting failure while Flux was still converging.
+
+A single transient read ends the whole run. The wait loop returns on any non-NotFound error from
+one `GetResource`, which fails that Kustomization, which aborts the remaining walk.
+One throttled or timed-out API call during a poll is enough. `DefaultKustomizationWaitMaxFailures`
+has sat in `pkg/constants/constants.go:174` for exactly this, unreferenced, until Decision 1
+wired it up.
+
+The budget that decides when to give up is derived from a signal that does not measure the work.
+`inventorySize` (`:300`) counts a Kustomization's own inventory entries, and
+`kustomizationDeletionTimeout` (`:390`) scales the wait by that count. For a HelmRelease-wrapped
+tier the count is 1 no matter how large the chart is, so the tier whose teardown is slowest gets
+the smallest scaled budget.
+
+**Verification stops at the HelmRelease wrapper.** `firstLiveInventoryEntry` (`:2410`) resolves
+each inventory entry through `resolveScopedGVR` (`:2364`) and issues a live `GetResource`. For an
+entry that is the resource, `NotFound` is complete proof. For a `helm.toolkit.fluxcd.io/HelmRelease`
+entry it proves only that helm-controller cleared its own finalizer, which it can do after
+abandoning a stuck uninstall. This is not a corner case in `windsorcli/core`: **27 of 31 install
+tiers are HelmRelease-wrapped**, including `provisioning/install/crossplane`,
+`pki/install/cert-manager`, `policy/install/kyverno`, and every CSI driver. Resources tiers run the
+other way, 12 of 14 raw, which is why `demo-resources` and `database-resources` are directly
+verifiable today.
+
+**The HelmRelease API already exposes what windsor needs, and nothing reads it.** helm-controller's
+`v2.HelmRelease` (api v1.6.4, against the Flux 2.9.5 that `core` deploys) carries
+`status.inventory` as a `ResourceInventory`, whose `ResourceRef.ID` uses the identical
+`<namespace>_<name>_<group>_<kind>` encoding windsor already parses in `decodeInventoryID` (`:1329`).
+`spec.uninstall` carries `timeout`, `keepHistory`, `disableWait`, and a `deletionPropagation` enum
+of `background` (default), `foreground`, or `orphan`. `status.history` records each release
+snapshot's Helm `Status`, and `status.storageNamespace` names where the release Secret lives.
+Windsor reads none of it. `GetHelmReleasesForKustomization` (`:1007`) already decodes HelmRelease
+entries out of a Kustomization's inventory, but only feeds `describeStuckHelmReleases` (`:1848`),
+which appends condition text to a timeout message.
+
+One more finding from auditing `core`: exactly one HelmRelease of the 27 sets uninstall semantics at
+all. `lb/install/aws-lb-controller/helm-release.yaml` sets `deletionPropagation: foreground` and
+`disableWait: false`. Someone hit the failure that setting prevents, fixed it in place, and the
+other 26 charts still run on defaults.
+
+## Decision
+
+### 1. Tolerate a transient read during the delete wait
+
+Ship this first and alone. It is the smallest change here and it removes a single point of failure
+for the whole destroy run.
+
+The wait loop MUST NOT abort on one failed status read. It SHOULD tolerate up to
+`DefaultKustomizationWaitMaxFailures` consecutive read errors, sleeping a poll interval between
+them, and MUST reset that count on any successful read so only a sustained outage surfaces. A
+NotFound keeps its own meaning and its existing branch. A persistent read failure still fails the
+delete, with the error it fails on today.
+
+Tolerance opens one window that MUST be closed with it. `lastObj` is assigned only on a successful
+read, and it is the snapshot the NotFound branch verifies its inventory against. If every read
+fails and the Kustomization then disappears, `lastObj` is nil, `describeAbandonedInventory` finds
+no entries, and the delete reports clean without windsor having read the inventory once. So a
+disappearance with a nil `lastObj` and at least one failed read MUST fail, naming the read error.
+A first read that returns NotFound with no failures stays a clean delete, which is the existing
+fast-path and is unchanged.
+
+This is not a retry of the delete. Nothing is re-issued and no budget is extended. The loop simply
+declines to treat one unreadable poll as proof that Flux stopped working.
+
+### 2. Size the wait from the HelmRelease's uninstall timeout
+
+The barrier should wait as long as the work declares it needs, which is the direct fix for
+everything a retry was going to approximate.
+
+`specTimeout` (`:314`) already reads a Kustomization's own `spec.timeout` to set the delete-wait
+floor. Do the same one level down: for a HelmRelease entry, read `spec.uninstall.timeout`, falling
+back to `spec.timeout` exactly as `Uninstall.GetTimeout` defines, and extend the wait with it the
+way `extendWaitFor` already handles the other sources. A chart that declares a 30-minute uninstall
+gets a 30-minute barrier instead of the roughly 5 minutes `inventorySize` scaling currently yields
+for a one-entry inventory.
+
+### 3. Follow the HelmRelease's own inventory, and snapshot it during the wait
+
+For an inventory entry whose GVK is `helm.toolkit.fluxcd.io/HelmRelease`, `firstLiveInventoryEntry`
+SHOULD read that HelmRelease's `status.inventory`, decode its entries with the existing
+`decodeInventoryID`, and verify each through the same `resolveScopedGVR` plus `GetResource` path it
+already uses. The ID encoding is identical, so this reuses the decoder, the scope resolution, and
+the liveness check without new machinery. Bound the recursion at one level: a chart that itself
+deploys HelmReleases is rare, and unbounded descent is not worth the risk.
+
+`deleteKustomization`'s wait loop MUST capture each HelmRelease's inventory as it polls, retaining
+the last-known value. Reading it only after the Kustomization disappears is too late, since the
+HelmRelease is usually gone by then. Windsor already refetches the Kustomization every interval and
+holds `lastObj`; this extends that habit one level down.
+
+This resolves the `helm.sh/resource-policy: keep` case as a side effect, and that is worth stating
+because two earlier drafts could not. A kept resource was applied by the release, so it appears in
+the release's inventory. Verifying that entry finds the object still live, and windsor correctly
+reports the Kustomization as not drained.
+
+Degrade explicitly. `status.inventory` is an optional field, so when it is absent the entry stays
+unverifiable and Decision 4 MUST NOT act on it.
+
+### 4. Auto-heal a stuck finalizer only where the whole chain verified
+
+Where every inventory entry, including every HelmRelease child entry from Decision 3, is confirmed
+gone, `deleteKustomization` SHOULD issue the `PatchResource` call its error currently asks the
+operator to run by hand. Nothing else can hold the object: every applied resource is
+confirmed absent, and Kubernetes garbage-collects their children. This closes cli#3279's ask.
+
+Where any entry is unverifiable, windsor MUST keep failing with a message and MUST NOT clear the
+finalizer. Trading a loud failure for a silent orphan is the wrong direction.
+
+Two `spec.uninstall` settings make a HelmRelease unverifiable no matter what its inventory says, and
+windsor MUST treat them as such: `deletionPropagation: orphan`, which deliberately leaves dependents
+behind, and `disableWait: true`, which returns before resources are gone. Neither appears in `core`
+today. Detecting them is a cheap read on an object windsor already fetches.
+
+### 5. Scope the abort to the failed Kustomization's dependency closure
+
+Deferred behind the others. It carries the most risk of the five, because it changes a safety
+property rather than adding one.
+
+Destroy runs reverse-topologically, so K's dependents are already deleted when K is attempted, and
+what stays pending is K's own dependency closure plus unrelated nodes. The hazard is specific:
+delete `provisioning-install`, the Crossplane controller, while `demo-resources`'s
+`DatabaseInstance` is mid-delete, and no finalizer ever reconciles that cloud database again.
+
+So `abortDestroy` MUST skip every pending Kustomization inside K's transitive dependency closure,
+and SHOULD continue the walk outside it, using the `DependsOn` edges
+`reverseTopologicalKustomizations` (`:2958`) already walks. The payoff is uneven:
+`applyCrdLayerBarrier` (`pkg/composer/blueprint/composer.go:960`) puts the CRD layer inside almost
+every closure, so the gain is for a stall on a leaf whose siblings never named it.
+
+## Follow-on for `core`, not decided here
+
+`core` sets uninstall semantics on 1 of 27 HelmReleases. The `aws-lb-controller` case is real
+precedent — a controller that must release cloud load balancers before it disappears — and it is
+undocumented. This ADR does not mandate a value, because `deletionPropagation: foreground` is slower
+and can hang visibly, so applying it blanket would trade one stall class for another. What `core`
+SHOULD do is decide that default deliberately and record the reasoning, now that Decision 4 makes
+`orphan` and `disableWait: true` load-bearing for whether windsor trusts a delete at all.
+
+## Consequences
+
+- Decision 1 lands standalone and removes a single failed API read as a cause of run-wide destroy
+  failure. It adds no schema, no API surface, and no new constant.
+- Decision 2 replaces a misleading wait-sizing signal with the chart's own declared budget, which is
+  the honest form of "wait longer" that a retry would only have approximated.
+- Decisions 3 and 4 together extend auto-heal from the roughly half of the walk that is raw-manifest
+  to the HelmRelease-wrapped majority, which is what made the narrower version of this ADR barely
+  worth shipping.
+- Verification depth is bounded by what helm-controller populates. When `status.inventory` is
+  absent, windsor falls back to today's behavior: fail with a message, change nothing.
+- Reading a HelmRelease per poll adds API traffic during a delete wait, bounded by the number of
+  HelmRelease entries in one Kustomization's inventory, which is typically one.
+- cli#3405 (terraform destroy's fixed 30-minute bound and its skip-retry-on-timeout) stays out of
+  scope: same shape, different subsystem, own constants, own open question about the bound.
+- cli#3371 (progress visibility) stays deferred to the TUI overhaul.
+
+## Alternatives considered
+
+- **Retrying a failed Kustomization delete**, bounded and gated on inventory progress, mirroring
+  `execTerraformDestroyWithRetry` (`pkg/provisioner/terraform/stack.go:1195`). This was Decision 1
+  in an earlier draft and was implemented before being withdrawn. Rejected on two grounds. First,
+  it does not do what its evidence claims: cli#3395's converging rerun and cli#3417's CI retries
+  show that more elapsed time worked, not that re-entering the delete worked. Since
+  kustomize-controller never stopped reconciling, a retry only re-issues a `DeleteResource` that is
+  a no-op against a terminating object and then polls again, which is a longer wait spelled as a
+  loop. Decision 2 buys the same time by declaring it. Second, it is unsafe at the boundary: a
+  Kustomization that vanishes between attempts sends the next attempt into
+  `deleteKustomization`'s `NotFound`-on-entry branch, which returns nil, and a retry starts with no
+  `lastObj`, so the abandoned-inventory check it would have tripped cannot run. The retry converts
+  a live orphan into a reported success — the precise failure the surrounding machinery exists to
+  catch. A pre-commit review found this on the implemented version.
+- **A facet-author-declared `externalResources` field**, marking a Kustomization as owning nothing
+  outside the cluster so its wait could shorten. Rejected: a static claim about dynamic reality. A
+  StatefulSet's PVC on a dynamically-provisioned storage class makes a CSI driver delete a real
+  cloud disk on reclaim, invisible in the facet YAML and dependent on whichever storage class an end
+  user's config resolves to. A stale classification would not error. It would under-wait, report
+  success, and abandon infrastructure.
+- **Sweeping the namespace for objects labeled with the Helm release.** Rejected:
+  `meta.helm.sh/release-name` is an annotation, so no label selector expresses release membership;
+  `ListResourcesByLabel` takes one GVR and the client has no discovery call; and a namespace sweep
+  misses cluster-scoped chart resources, including the `ProviderConfig` in cli#3395. Decision 2
+  obtains the same answer from the release's own inventory instead.
+- **Gating the auto-heal on Helm's release Secret.** Rejected as a gate: `resource-policy: keep`
+  resources outlive an uninstall Helm reports clean, and the Secret is deleted on success unless
+  `keepHistory` is set. Decision 2 supersedes the need for it.
+- **Reading `HelmRelease.status.history` after the fact.** Rejected: readable only while the object
+  exists. Decision 2's snapshot-during-the-wait is the same idea applied at a point where the data
+  is actually there.
+- **Suspending and resuming a terminating Kustomization** to force a fresh reconcile when a delete
+  stalls. Rejected on risk, and recorded because `DeleteBlueprint` already suspends and resumes
+  around each delete: Flux skips suspended objects, finalizer processing included, so suspending
+  one mid-delete can wedge the deletion the nudge was meant to unstick.
+- **Stopping the dependents of a failed Kustomization** rather than its dependencies. An earlier
+  draft of Decision 5, and it inverts the hazard: under reverse-topological order the dependents are
+  already gone, so it would halt an empty set and keep deleting what a terminating Kustomization
+  still needs.
+- **Leaving abort-everything in place** and relying on the merged point fixes. Rejected: cli#3396 and
+  cli#3277 narrow per-link risk without touching the run-level compounding.
+
+## References
+
+- cli#3417, cli#3405, cli#3395/#3396, cli#3279/#3277, cli#3371
+- `pkg/provisioner/kubernetes/kubernetes_manager.go`: `deleteKustomization` (207), `specTimeout`
+  (314), `GetHelmReleasesForKustomization` (1007), `decodeInventoryID` (1329), `DeleteBlueprint`
+  (1540), `abortDestroy` (1607), `describeStuckHelmReleases` (1848), `allInventoryEntriesGone`
+  (2389), `resolveScopedGVR` (2364), `firstLiveInventoryEntry` (2410),
+  `reverseTopologicalKustomizations` (2958)
+- `github.com/fluxcd/helm-controller/api v1.6.4`, package `v2`: `ResourceInventory` /
+  `ResourceRef.ID` (`inventory_types.go`), `Uninstall` with `Timeout` / `KeepHistory` /
+  `DisableWait` / `DeletionPropagation` and `GetTimeout` (`helmrelease_types.go:1215-1262`),
+  `HelmReleaseStatus.Inventory` / `History` / `StorageNamespace` (`:1316-1331`), `Snapshot.Status`
+  (`snapshot_types.go`)
+- `pkg/provisioner/kubernetes/client/client.go`: `PatchResource`, `ListResourcesByLabel` (48), and
+  the absence of any discovery method
+- `pkg/provisioner/terraform/stack.go`: `execTerraformDestroyWithRetry` (1195), the retry
+  pattern Alternatives rejects for this path
+- `pkg/composer/blueprint/composer.go`: `applyCrdLayerBarrier` (960)
+- `core`: 27 of 31 install tiers HelmRelease-wrapped, 12 of 14 resources tiers raw;
+  `kustomize/lb/install/aws-lb-controller/helm-release.yaml:20-22` the sole uninstall config;
+  `terraform/gitops/flux/variables.tf` (Flux 2.9.5)

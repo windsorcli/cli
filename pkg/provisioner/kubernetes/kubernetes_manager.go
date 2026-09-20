@@ -95,6 +95,7 @@ type BaseKubernetesManager struct {
 	configHandler config.ConfigHandler
 
 	kustomizationWaitPollInterval        time.Duration
+	kustomizationWaitMaxReadFailures     int
 	kustomizationWaitMinErrorDuration    time.Duration
 	kustomizationReconcileTimeout        time.Duration
 	kustomizationReconcileSleep          time.Duration
@@ -128,6 +129,7 @@ func NewKubernetesManager(kubernetesClient client.KubernetesClient, configHandle
 		configHandler:                        configHandler,
 		shims:                                NewShims(),
 		kustomizationWaitPollInterval:        constants.DefaultKustomizationWaitPollInterval,
+		kustomizationWaitMaxReadFailures:     constants.DefaultKustomizationWaitMaxFailures,
 		kustomizationWaitMinErrorDuration:    30 * time.Second,
 		kustomizationReconcileTimeout:        5 * time.Minute,
 		kustomizationReconcileSleep:          2 * time.Second,
@@ -198,8 +200,10 @@ func (k *BaseKubernetesManager) DeleteKustomization(name, namespace string) erro
 // and an optional delete-wait override. A non-nil expectWaitForTermination overrides the
 // live object's own, possibly stale, deletionPolicy; see kustomizationDeletionPolicy. A
 // non-nil deleteTimeoutOverride replaces the spec.timeout-derived wait floor instead of
-// stacking with it. spec.timeout is authored for install waits; see DeleteTimeout on the
-// blueprint Kustomization type for why a delete needs its own budget.
+// stacking with it. spec.timeout is authored for install waits; see DeleteTimeout for why a
+// delete needs its own budget. The wait absorbs kustomizationWaitMaxReadFailures consecutive
+// read errors, but fails if the object disappears before any read succeeded: an unread
+// inventory cannot confirm the resources are gone.
 func (k *BaseKubernetesManager) deleteKustomization(name, namespace string, expectWaitForTermination *bool, deleteTimeoutOverride *time.Duration) error {
 	gvr := schema.GroupVersionResource{
 		Group:    "kustomize.toolkit.fluxcd.io",
@@ -223,9 +227,14 @@ func (k *BaseKubernetesManager) deleteKustomization(name, namespace string, expe
 	start := k.shims.TimeNow()
 	waitFor := k.kustomizationReconcileTimeout
 	var lastObj *unstructured.Unstructured
+	var lastReadErr error
+	readFailures := 0
 	for k.shims.TimeNow().Before(start.Add(waitFor)) {
 		obj, err := k.client.GetResource(gvr, namespace, name)
 		if err != nil && isNotFoundError(err) {
+			if lastObj == nil && readFailures > 0 {
+				return fmt.Errorf("kustomization %s/%s disappeared before windsor could read its inventory: %w. Windsor cannot confirm the resources it managed are gone. Check for leftovers with `kubectl get pvc,svc,ingress,certificate -A | grep Terminating` before retrying", namespace, name, lastReadErr)
+			}
 			entry := k.describeAbandonedInventory(lastObj, expectWaitForTermination)
 			graceDeadline := k.shims.TimeNow().Add(k.abandonedInventoryGraceWindow(inventorySize(lastObj)))
 			for entry != nil && k.shims.TimeNow().Before(graceDeadline) {
@@ -242,8 +251,15 @@ func (k *BaseKubernetesManager) deleteKustomization(name, namespace string, expe
 			return fmt.Errorf("kustomization %s/%s disappeared. %s/%s from its inventory is still live. Flux likely gave up waiting and removed the finalizer early. Inspect it with %s before retrying", namespace, name, entry.Kind, entry.Name, inspectCmd)
 		}
 		if err != nil {
-			return fmt.Errorf("error checking kustomization %s/%s deletion status: %w", namespace, name, err)
+			readFailures++
+			lastReadErr = err
+			if readFailures > k.kustomizationWaitMaxReadFailures {
+				return fmt.Errorf("error checking kustomization %s/%s deletion status: %w", namespace, name, err)
+			}
+			k.shims.TimeSleep(k.kustomizationWaitPollInterval)
+			continue
 		}
+		readFailures = 0
 		lastObj = obj
 
 		if size := inventorySize(obj); size > 0 {
