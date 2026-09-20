@@ -1037,14 +1037,15 @@ func (k *BaseKubernetesManager) GetHelmReleasesForKustomization(name, namespace 
 	}
 
 	for _, entry := range kustomization.Status.Inventory.Entries {
-		parts := strings.Split(entry.ID, "_")
-		if len(parts) >= 4 && parts[2] == "helm.toolkit.fluxcd.io" && parts[3] == "HelmRelease" {
-			helmRelease, err := k.getHelmRelease(parts[1], parts[0])
-			if err != nil {
-				return nil, err
-			}
-			helmReleases = append(helmReleases, *helmRelease)
+		decoded, ok := decodeInventoryID(entry.ID)
+		if !ok || decoded.Group != "helm.toolkit.fluxcd.io" || decoded.Kind != "HelmRelease" {
+			continue
 		}
+		helmRelease, err := k.getHelmRelease(decoded.Name, decoded.Namespace)
+		if err != nil {
+			return nil, err
+		}
+		helmReleases = append(helmReleases, *helmRelease)
 	}
 
 	return helmReleases, nil
@@ -1328,21 +1329,25 @@ func decodeInventoryEntries(rawEntries []any) []InventoryEntry {
 }
 
 // decodeInventoryID parses a flux inventory ID of the form
-// "<namespace>_<name>_<group>_<kind>" into an InventoryEntry. Namespace is
-// empty for cluster-scoped resources; group is empty for core API objects.
-// Returns (zero, false) when the ID does not have exactly four underscore-
-// separated fields — flux always emits four, so anything else is a malformed
-// entry we should drop rather than misrender.
+// "<namespace>_<name>_<group>_<kind>" into an InventoryEntry. Namespace is empty for
+// cluster-scoped resources, group for core API objects. Flux writes a colon in an RBAC name as
+// a double underscore. So the fields are read from the right, and the name is restored, which
+// matches how cli-utils parses the same ID. A malformed ID is dropped, not misrendered.
 func decodeInventoryID(id string) (InventoryEntry, bool) {
-	parts := strings.SplitN(id, "_", 4)
-	if len(parts) != 4 {
+	parts := strings.Split(id, "_")
+	if len(parts) < 4 {
+		return InventoryEntry{}, false
+	}
+	name := strings.ReplaceAll(strings.Join(parts[1:len(parts)-2], "_"), "__", ":")
+	kind := parts[len(parts)-1]
+	if name == "" || kind == "" {
 		return InventoryEntry{}, false
 	}
 	return InventoryEntry{
 		Namespace: parts[0],
-		Name:      parts[1],
-		Group:     parts[2],
-		Kind:      parts[3],
+		Name:      name,
+		Group:     parts[len(parts)-2],
+		Kind:      kind,
 	}, true
 }
 
