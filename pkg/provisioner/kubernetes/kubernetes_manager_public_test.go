@@ -530,6 +530,7 @@ func TestBaseKubernetesManager_DeleteKustomization(t *testing.T) {
 		manager.client = kubernetesClient
 		manager.kustomizationReconcileTimeout = 100 * time.Millisecond
 		manager.kustomizationWaitPollInterval = 50 * time.Millisecond
+		manager.kustomizationWaitMaxReadFailures = 0
 
 		err := manager.DeleteKustomization("test-kustomization", "test-namespace")
 		if err == nil {
@@ -6037,6 +6038,142 @@ func TestBaseKubernetesManager_DeleteBlueprint(t *testing.T) {
 		}
 		if appliedKustomization.Labels["windsorcli.dev/context-id"] != "test-context-id" {
 			t.Errorf("Expected ObjectMeta 'windsorcli.dev/context-id' label 'test-context-id', got '%s'", appliedKustomization.Labels["windsorcli.dev/context-id"])
+		}
+	})
+}
+
+func TestBaseKubernetesManager_DeleteKustomizationReadFailures(t *testing.T) {
+	setup := func(t *testing.T) *BaseKubernetesManager {
+		t.Helper()
+		mocks := setupKubernetesMocks(t)
+		manager := NewKubernetesManager(mocks.KubernetesClient, mocks.ConfigHandler)
+		manager.kustomizationWaitPollInterval = 10 * time.Millisecond
+		manager.kustomizationReconcileTimeout = 500 * time.Millisecond
+		manager.kustomizationDeletionPerEntryTimeout = time.Millisecond
+		return manager
+	}
+
+	t.Run("ToleratesTransientReadFailure", func(t *testing.T) {
+		// Given a delete whose status reads fail twice with a transient API error,
+		// then succeed, before the kustomization goes away
+		manager := setup(t)
+		kubernetesClient := client.NewMockKubernetesClient()
+		kubernetesClient.DeleteResourceFunc = func(gvr schema.GroupVersionResource, namespace, name string, opts metav1.DeleteOptions) error {
+			return nil
+		}
+		reads := 0
+		kubernetesClient.GetResourceFunc = func(gvr schema.GroupVersionResource, namespace, name string) (*unstructured.Unstructured, error) {
+			reads++
+			if reads <= 2 {
+				return nil, fmt.Errorf("etcdserver: request timed out")
+			}
+			if reads == 3 {
+				return &unstructured.Unstructured{Object: map[string]any{}}, nil
+			}
+			return nil, fmt.Errorf("the server could not find the requested resource")
+		}
+		manager.client = kubernetesClient
+
+		// When DeleteKustomization runs
+		err := manager.DeleteKustomization("demo-resources", "system-gitops")
+
+		// Then the blip does not abort a delete flux went on to complete
+		if err != nil {
+			t.Errorf("Expected transient read failures to be tolerated, got error: %v", err)
+		}
+		if reads < 4 {
+			t.Errorf("Expected the wait to poll past the failures, got %d reads", reads)
+		}
+	})
+
+	t.Run("FailsWhenKustomizationDisappearsBeforeAnySuccessfulRead", func(t *testing.T) {
+		// Given reads that fail transiently until the kustomization vanishes, so
+		// windsor never read the inventory it would verify against
+		manager := setup(t)
+		kubernetesClient := client.NewMockKubernetesClient()
+		kubernetesClient.DeleteResourceFunc = func(gvr schema.GroupVersionResource, namespace, name string, opts metav1.DeleteOptions) error {
+			return nil
+		}
+		reads := 0
+		kubernetesClient.GetResourceFunc = func(gvr schema.GroupVersionResource, namespace, name string) (*unstructured.Unstructured, error) {
+			reads++
+			if reads <= 2 {
+				return nil, fmt.Errorf("etcdserver: request timed out")
+			}
+			return nil, fmt.Errorf("the server could not find the requested resource")
+		}
+		manager.client = kubernetesClient
+
+		// When DeleteKustomization runs
+		err := manager.DeleteKustomization("demo-resources", "system-gitops")
+
+		// Then an unverifiable disappearance fails rather than reporting a clean delete
+		if err == nil {
+			t.Fatal("Expected an unverified disappearance to fail, got nil")
+		}
+		if !strings.Contains(err.Error(), "before windsor could read its inventory") {
+			t.Errorf("Expected an unread-inventory error, got: %v", err)
+		}
+	})
+
+	t.Run("FailsAfterMaxConsecutiveReadFailures", func(t *testing.T) {
+		// Given status reads that keep failing past the tolerance
+		manager := setup(t)
+		manager.kustomizationWaitMaxReadFailures = 2
+		kubernetesClient := client.NewMockKubernetesClient()
+		kubernetesClient.DeleteResourceFunc = func(gvr schema.GroupVersionResource, namespace, name string, opts metav1.DeleteOptions) error {
+			return nil
+		}
+		reads := 0
+		kubernetesClient.GetResourceFunc = func(gvr schema.GroupVersionResource, namespace, name string) (*unstructured.Unstructured, error) {
+			reads++
+			return nil, fmt.Errorf("etcdserver: request timed out")
+		}
+		manager.client = kubernetesClient
+
+		// When DeleteKustomization runs
+		err := manager.DeleteKustomization("demo-resources", "system-gitops")
+
+		// Then it absorbs exactly the configured tolerance before surfacing
+		if err == nil {
+			t.Fatal("Expected persistent read failures to surface, got nil")
+		}
+		if !strings.Contains(err.Error(), "deletion status") {
+			t.Errorf("Expected a deletion-status error, got: %v", err)
+		}
+		if reads != 3 {
+			t.Errorf("Expected 3 reads for a tolerance of 2, got %d", reads)
+		}
+	})
+
+	t.Run("ResetsToleranceAfterASuccessfulRead", func(t *testing.T) {
+		// Given reads that alternate failure and success, never exceeding the
+		// tolerance consecutively, before the kustomization goes away
+		manager := setup(t)
+		manager.kustomizationWaitMaxReadFailures = 1
+		kubernetesClient := client.NewMockKubernetesClient()
+		kubernetesClient.DeleteResourceFunc = func(gvr schema.GroupVersionResource, namespace, name string, opts metav1.DeleteOptions) error {
+			return nil
+		}
+		reads := 0
+		kubernetesClient.GetResourceFunc = func(gvr schema.GroupVersionResource, namespace, name string) (*unstructured.Unstructured, error) {
+			reads++
+			if reads >= 7 {
+				return nil, fmt.Errorf("the server could not find the requested resource")
+			}
+			if reads%2 == 1 {
+				return nil, fmt.Errorf("etcdserver: request timed out")
+			}
+			return &unstructured.Unstructured{Object: map[string]any{}}, nil
+		}
+		manager.client = kubernetesClient
+
+		// When DeleteKustomization runs
+		err := manager.DeleteKustomization("demo-resources", "system-gitops")
+
+		// Then a successful read clears the count rather than accumulating
+		if err != nil {
+			t.Errorf("Expected alternating failures to be tolerated, got error: %v", err)
 		}
 	})
 }
