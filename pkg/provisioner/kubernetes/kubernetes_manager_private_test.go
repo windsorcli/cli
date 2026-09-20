@@ -2045,3 +2045,87 @@ func TestReconcileGenerationSettled(t *testing.T) {
 		}
 	})
 }
+
+func TestDecodeInventoryID(t *testing.T) {
+	tests := []struct {
+		name      string
+		id        string
+		wantOK    bool
+		namespace string
+		objName   string
+		group     string
+		kind      string
+	}{
+		{
+			name:   "NamespacedCoreObject",
+			id:     "system-pki_cert-manager__ServiceAccount",
+			wantOK: true, namespace: "system-pki", objName: "cert-manager", group: "", kind: "ServiceAccount",
+		},
+		{
+			name:   "ClusterScopedGroupedObject",
+			id:     "_cilium_rbac.authorization.k8s.io_ClusterRole",
+			wantOK: true, namespace: "", objName: "cilium", group: "rbac.authorization.k8s.io", kind: "ClusterRole",
+		},
+		{
+			name:   "ClusterScopedNameHoldingAColon",
+			id:     "_cert-manager-webhook__subjectaccessreviews_rbac.authorization.k8s.io_ClusterRole",
+			wantOK: true, namespace: "", objName: "cert-manager-webhook:subjectaccessreviews",
+			group: "rbac.authorization.k8s.io", kind: "ClusterRole",
+		},
+		{
+			name:   "NamespacedNameHoldingAColon",
+			id:     "system-pki-trust_trust-manager__leaderelection_rbac.authorization.k8s.io_Role",
+			wantOK: true, namespace: "system-pki-trust", objName: "trust-manager:leaderelection",
+			group: "rbac.authorization.k8s.io", kind: "Role",
+		},
+		{
+			name:   "NameHoldingTwoColons",
+			id:     "_system__controller__bootstrap-signer_rbac.authorization.k8s.io_ClusterRole",
+			wantOK: true, namespace: "", objName: "system:controller:bootstrap-signer",
+			group: "rbac.authorization.k8s.io", kind: "ClusterRole",
+		},
+		{
+			name:   "TooFewFields",
+			id:     "system-pki_cert-manager_ServiceAccount",
+			wantOK: false,
+		},
+		{
+			name:   "EmptyName",
+			id:     "system-pki__rbac.authorization.k8s.io_Role",
+			wantOK: false,
+		},
+		{
+			name:   "EmptyKind",
+			id:     "system-pki_cert-manager_rbac.authorization.k8s.io_",
+			wantOK: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Given a flux inventory id
+			// When it is decoded
+			entry, ok := decodeInventoryID(tt.id)
+
+			// Then its fields resolve to the object the id names
+			if ok != tt.wantOK {
+				t.Fatalf("Expected ok=%v for %q, got %v", tt.wantOK, tt.id, ok)
+			}
+			if !tt.wantOK {
+				return
+			}
+			if entry.Namespace != tt.namespace {
+				t.Errorf("Expected namespace %q, got %q", tt.namespace, entry.Namespace)
+			}
+			if entry.Name != tt.objName {
+				t.Errorf("Expected name %q, got %q", tt.objName, entry.Name)
+			}
+			if entry.Group != tt.group {
+				t.Errorf("Expected group %q, got %q", tt.group, entry.Group)
+			}
+			if entry.Kind != tt.kind {
+				t.Errorf("Expected kind %q, got %q", tt.kind, entry.Kind)
+			}
+		})
+	}
+}

@@ -142,6 +142,41 @@ reports the Kustomization as not drained.
 Degrade explicitly. `status.inventory` is an optional field, so when it is absent the entry stays
 unverifiable and Decision 4 MUST NOT act on it.
 
+#### Verified on a live cluster, 2026-09-20
+
+A `local` context running Flux 2.9.5 with helm-controller v1.6.4 settles the open questions.
+
+- `status.inventory` is populated on every one of its 13 HelmReleases. The optional field is not a
+  theoretical dependency at this version.
+- It is where the resources actually are. The Kustomization layer sees 189 entries; the HelmRelease
+  layer beneath holds 331. One Kustomization inventory entry stands in for 67 objects under
+  `kube-prometheus-stack`, 52 under `kyverno`, 51 under `cilium`, 41 under `cert-manager`.
+- The ID encoding really is identical, confirmed against `cli-utils@v1.3.0` `ParseObjMetadata`,
+  which `kustomize-controller@v1.7.3/internal/inventory` uses for the Kustomization side. One
+  decoder serves both layers.
+
+The decoder needed fixing first, and that shipped separately. Flux encodes a colon in an RBAC name
+as a double underscore, so 36 of those 331 entries carry more than four underscore-separated fields.
+The previous `SplitN(id, "_", 4)` truncated the name and swept group and kind into `Kind`. Those
+entries then failed to resolve and were counted as gone.
+
+#### What Decision 3 must close on its way in
+
+That last failure is the pattern to watch. Three paths turn an entry windsor cannot read into an
+entry windsor calls absent: `decodeInventoryEntries` drops what it cannot decode,
+`resolveScopedGVR` reports a `NoMatchError` as not-found, and `firstLiveInventoryEntry` continues
+past both. Every one fails toward "gone", which on a destroy path means "safe to proceed".
+
+Two consequences of that bias MUST be fixed as part of this decision, since verification
+correctness is the whole point of it:
+
+- `deleteKustomization` reads `inventoryFound` from the raw slice while `entries` holds the decoded
+  list. If every entry were dropped at decode, the drained check would treat an unreadable inventory
+  as a confirmed-empty one and report "fully drained".
+- `describeAbandonedInventory` swallows `firstLiveInventoryEntry`'s error and returns nil, so an API
+  failure on the liveness lookup becomes a clean delete. `allInventoryEntriesGone` already takes the
+  opposite stance, returning an error rather than false on an inconclusive lookup.
+
 ### 4. Auto-heal a stuck finalizer only where the whole chain verified
 
 Where every inventory entry, including every HelmRelease child entry from Decision 3, is confirmed
@@ -197,8 +232,9 @@ blanket would trade one stall class for another.
 - Decisions 3 and 4 together extend auto-heal from the roughly half of the walk that is raw-manifest
   to the HelmRelease-wrapped majority, which is what made the narrower version of this ADR barely
   worth shipping.
-- Verification depth is bounded by what helm-controller populates. When `status.inventory` is
-  absent, windsor falls back to today's behavior: fail with a message, change nothing.
+- Verification depth is bounded by what helm-controller populates. A live cluster at Flux 2.9.5
+  populates `status.inventory` on every HelmRelease; where it is absent, windsor falls back to
+  today's behavior: fail with a message, change nothing.
 - Decision 2 reads each HelmRelease once per delete, on the first poll whose `status.inventory` is
   readable, since a spec does not change mid-teardown. It retries on later polls rather than
   latching on a first attempt that found nothing, because a Kustomization applied moments earlier
