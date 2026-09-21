@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -748,14 +749,12 @@ func (r *TestRunner) matchTerraformComponent(actual *blueprintv1alpha1.Terraform
 	return diffs
 }
 
-// matchKustomization compares an actual Kustomization against expected properties and returns a list
-// of differences. It uses partial matching: only properties explicitly set in the expect kustomization
-// are validated. The function checks path, source, dependsOn, components, and substitutions fields. For
-// dependsOn and components, it verifies that all expected items are present in the actual kustomization's
-// lists. For substitutions, it performs strict value equality checking - each expected key must exist with
-// the exact expected value. label prefixes each diff message so callers nested under a flux system (Install,
-// a Resources variant) can identify the field's origin without borrowing the kustomization's own Name.
-// Returns an empty slice if all specified properties match.
+// matchKustomization compares an actual Kustomization against expected properties and returns a
+// list of differences. It uses partial matching. Only properties explicitly set on expect are
+// validated. Path, source, timeout, interval, retryInterval, deleteTimeout, and wait check exact
+// value equality. DependsOn, components, healthChecks, and healthCheckExprs check that every
+// expected item has a match in the actual list. Substitutions checks an exact value per key. label
+// prefixes each diff so a caller nested under a flux system can identify the field's origin.
 func (r *TestRunner) matchKustomization(actual *blueprintv1alpha1.Kustomization, expect blueprintv1alpha1.Kustomization, label string) []string {
 	var diffs []string
 
@@ -792,6 +791,35 @@ func (r *TestRunner) matchKustomization(actual *blueprintv1alpha1.Kustomization,
 			}
 			if expectedValue != actualValue {
 				diffs = append(diffs, fmt.Sprintf("kustomize[%s].substitutions[%s]: expected %q, got %q", label, key, expectedValue, actualValue))
+			}
+		}
+	}
+
+	diffs = matchDuration(diffs, label, "timeout", actual.Timeout, expect.Timeout)
+	diffs = matchDuration(diffs, label, "interval", actual.Interval, expect.Interval)
+	diffs = matchDuration(diffs, label, "retryInterval", actual.RetryInterval, expect.RetryInterval)
+	diffs = matchDuration(diffs, label, "deleteTimeout", actual.DeleteTimeout, expect.DeleteTimeout)
+
+	if expect.Wait != nil && (actual.Wait == nil || *actual.Wait != *expect.Wait) {
+		got := "unset"
+		if actual.Wait != nil {
+			got = fmt.Sprintf("%t", *actual.Wait)
+		}
+		diffs = append(diffs, fmt.Sprintf("kustomize[%s].wait: expected %t, got %s", label, *expect.Wait, got))
+	}
+
+	if len(expect.HealthChecks) > 0 {
+		for _, hc := range expect.HealthChecks {
+			if !slices.ContainsFunc(actual.HealthChecks, func(a blueprintv1alpha1.HealthCheckRef) bool { return healthCheckMatches(a, hc) }) {
+				diffs = append(diffs, fmt.Sprintf("kustomize[%s].healthChecks: missing %+v", label, hc))
+			}
+		}
+	}
+
+	if len(expect.HealthCheckExprs) > 0 {
+		for _, hce := range expect.HealthCheckExprs {
+			if !slices.ContainsFunc(actual.HealthCheckExprs, func(a blueprintv1alpha1.HealthCheckExpr) bool { return healthCheckExprMatches(a, hce) }) {
+				diffs = append(diffs, fmt.Sprintf("kustomize[%s].healthCheckExprs: missing %+v", label, hce))
 			}
 		}
 	}
@@ -1214,6 +1242,55 @@ func containsAll(haystack []string, needles []string) bool {
 		}
 	}
 	return true
+}
+
+// healthCheckMatches reports whether actual satisfies expect. It uses partial matching, the same
+// as matchKustomization's other fields: a field left blank on expect is not compared.
+func healthCheckMatches(actual, expect blueprintv1alpha1.HealthCheckRef) bool {
+	if expect.APIVersion != "" && actual.APIVersion != expect.APIVersion {
+		return false
+	}
+	if expect.Kind != "" && actual.Kind != expect.Kind {
+		return false
+	}
+	if expect.Name != "" && actual.Name != expect.Name {
+		return false
+	}
+	return expect.Namespace == "" || actual.Namespace == expect.Namespace
+}
+
+// healthCheckExprMatches reports whether actual satisfies expect. It uses partial matching, the
+// same as matchKustomization's other fields: a field left blank on expect is not compared.
+func healthCheckExprMatches(actual, expect blueprintv1alpha1.HealthCheckExpr) bool {
+	if expect.APIVersion != "" && actual.APIVersion != expect.APIVersion {
+		return false
+	}
+	if expect.Kind != "" && actual.Kind != expect.Kind {
+		return false
+	}
+	if expect.Current != "" && actual.Current != expect.Current {
+		return false
+	}
+	if expect.InProgress != "" && actual.InProgress != expect.InProgress {
+		return false
+	}
+	return expect.Failed == "" || actual.Failed == expect.Failed
+}
+
+// matchDuration appends a diff when expect is set and actual does not equal it. It leaves diffs
+// untouched when expect is nil, since that means the fixture left the field unset.
+func matchDuration(diffs []string, label, field string, actual, expect *blueprintv1alpha1.DurationString) []string {
+	if expect == nil {
+		return diffs
+	}
+	got := "unset"
+	if actual != nil {
+		got = actual.Duration.String()
+	}
+	if actual == nil || actual.Duration != expect.Duration {
+		diffs = append(diffs, fmt.Sprintf("kustomize[%s].%s: expected %s, got %s", label, field, expect.Duration, got))
+	}
+	return diffs
 }
 
 // blueprintInstallsCrd reports whether the composed blueprint installs ref — either from its own
