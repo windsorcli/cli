@@ -2,11 +2,13 @@ package kubernetes
 
 import (
 	"fmt"
+	"strings"
 	"testing"
 
 	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
 	"github.com/windsorcli/cli/pkg/provisioner/kubernetes/client"
 	"github.com/windsorcli/cli/pkg/runtime/config"
+	"github.com/windsorcli/cli/pkg/tui"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -79,6 +81,10 @@ func TestBaseKubernetesManager_PruneBlueprint(t *testing.T) {
 		blueprint := &blueprintv1alpha1.Blueprint{
 			Kustomizations: []blueprintv1alpha1.Kustomization{{Name: "app"}},
 		}
+		originalActive := tui.Active
+		t.Cleanup(func() { tui.Active = originalActive })
+		var started []string
+		tui.Active = &tui.MockSpinner{StartFunc: func(message string) { started = append(started, message) }}
 
 		// When pruning
 		if err := manager.PruneBlueprint(blueprint, "system-gitops"); err != nil {
@@ -88,6 +94,16 @@ func TestBaseKubernetesManager_PruneBlueprint(t *testing.T) {
 		// Then only the orphan is deleted; the desired kustomization is kept
 		if len(*deleted) != 1 || (*deleted)[0] != "old-thing" {
 			t.Errorf("Expected only 'old-thing' pruned, got %v", *deleted)
+		}
+		// And an operator watching the run sees the prune in progress, not silence
+		found := false
+		for _, s := range started {
+			if strings.Contains(s, "old-thing") {
+				found = true
+			}
+		}
+		if !found {
+			t.Errorf("Expected a progress spinner naming the pruned orphan, got: %v", started)
 		}
 	})
 

@@ -246,6 +246,7 @@ func (k *BaseKubernetesManager) deleteKustomization(name, namespace string, expe
 			if readFailures > k.kustomizationWaitMaxReadFailures {
 				return fmt.Errorf("error checking kustomization %s/%s deletion status: %w", namespace, name, err)
 			}
+			tui.Update(fmt.Sprintf("waiting for kustomization %s/%s to delete; retrying after a read error (%d/%d)", namespace, name, readFailures, k.kustomizationWaitMaxReadFailures))
 			k.shims.TimeSleep(k.kustomizationWaitPollInterval)
 			continue
 		}
@@ -270,6 +271,7 @@ func (k *BaseKubernetesManager) deleteKustomization(name, namespace string, expe
 			}
 		}
 
+		tui.Update(fmt.Sprintf("waiting up to %s for kustomization %s/%s to delete", waitFor, namespace, name))
 		k.shims.TimeSleep(k.kustomizationWaitPollInterval)
 	}
 
@@ -277,6 +279,7 @@ func (k *BaseKubernetesManager) deleteKustomization(name, namespace string, expe
 		if preEntries, _, _ := inventoryEntriesFromObject(lastObj); len(preEntries) > 0 {
 			if live, _, checkErr := k.firstLiveInventoryEntry(preEntries, helmInventory, destroying); checkErr == nil && live != nil {
 				k.triggerReconcile(live)
+				tui.Update(fmt.Sprintf("kustomization %s/%s timed out with %s/%s still live; asked it to reconcile again", namespace, name, live.Kind, live.Name))
 				recheckDeadline := k.shims.TimeNow().Add(time.Duration(abandonedInventoryGraceChecks) * k.kustomizationWaitPollInterval)
 				for k.shims.TimeNow().Before(recheckDeadline) {
 					k.shims.TimeSleep(k.kustomizationWaitPollInterval)
@@ -334,6 +337,7 @@ func (k *BaseKubernetesManager) handleKustomizationDisappeared(name, namespace s
 		}
 		if entry != nil {
 			k.triggerReconcile(entry)
+			tui.Update(fmt.Sprintf("kustomization %s/%s disappeared with %s/%s still live; asked it to reconcile again", namespace, name, entry.Kind, entry.Name))
 		}
 		k.shims.TimeSleep(k.kustomizationWaitPollInterval)
 		entry, surviving, checkErr = k.describeAbandonedInventory(lastObj, expectWaitForTermination, helmInventory, destroying)
@@ -1824,9 +1828,13 @@ func (k *BaseKubernetesManager) PruneBlueprint(blueprint *blueprintv1alpha1.Blue
 
 	var errs []error
 	for _, orphan := range orderForDestroy(orphans, "prune") {
+		tui.Start(fmt.Sprintf("Pruning orphaned kustomization %s", orphan.Name))
 		if err := k.DeleteKustomization(orphan.Name, namespace); err != nil {
+			tui.Fail()
 			errs = append(errs, fmt.Errorf("failed to prune kustomization %q: %w", orphan.Name, err))
+			continue
 		}
+		tui.Done()
 	}
 	return errors.Join(errs...)
 }
