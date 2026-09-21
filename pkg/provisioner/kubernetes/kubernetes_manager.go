@@ -1739,7 +1739,11 @@ func (k *BaseKubernetesManager) blockDependencyClosure(eligible []blueprintv1alp
 		return
 	}
 	slices.Sort(skipped)
-	fmt.Fprintf(os.Stderr, "warning: kustomization %s failed to delete; skipping %d dependency it may still need: %s\n", failedName, len(skipped), strings.Join(skipped, ", "))
+	word := "dependency"
+	if len(skipped) != 1 {
+		word = "dependencies"
+	}
+	fmt.Fprintf(os.Stderr, "warning: kustomization %s failed to delete; skipping %d %s it may still need: %s\n", failedName, len(skipped), word, strings.Join(skipped, ", "))
 }
 
 // abortDestroy un-suspends every eligible Kustomization before propagating cause, so a

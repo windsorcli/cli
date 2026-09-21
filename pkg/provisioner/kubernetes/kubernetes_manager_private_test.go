@@ -1,8 +1,10 @@
 package kubernetes
 
 import (
+	"bytes"
 	"context"
 	"fmt"
+	"os"
 	"slices"
 	"strings"
 	"testing"
@@ -2363,6 +2365,69 @@ func TestDependencyClosure(t *testing.T) {
 		// Then it is not in the closure
 		if closure["unrelated"] {
 			t.Errorf("expected unrelated excluded from closure, got %v", closure)
+		}
+	})
+}
+
+func TestBaseKubernetesManager_blockDependencyClosure(t *testing.T) {
+	captureStderr := func(t *testing.T, fn func()) string {
+		t.Helper()
+		r, w, err := os.Pipe()
+		if err != nil {
+			t.Fatalf("failed to create pipe: %v", err)
+		}
+		original := os.Stderr
+		os.Stderr = w
+		defer func() { os.Stderr = original }()
+
+		fn()
+
+		w.Close()
+		var buf bytes.Buffer
+		_, _ = buf.ReadFrom(r)
+		return buf.String()
+	}
+
+	mocks := setupKubernetesMocks(t)
+	manager := NewKubernetesManager(mocks.KubernetesClient, mocks.ConfigHandler)
+
+	t.Run("PluralizesDependenciesForMoreThanOneSkipped", func(t *testing.T) {
+		ks := []blueprintv1alpha1.Kustomization{
+			{Name: "app", DependsOn: []string{"a", "b"}},
+			{Name: "a"},
+			{Name: "b"},
+		}
+
+		// Given a failed kustomization whose closure skips two others
+		// When blockDependencyClosure runs
+		output := captureStderr(t, func() {
+			manager.blockDependencyClosure(ks, "app", map[string]bool{})
+		})
+
+		// Then the warning uses the plural
+		if !strings.Contains(output, "skipping 2 dependencies") {
+			t.Errorf("expected plural wording for 2 skipped, got: %s", output)
+		}
+	})
+
+	t.Run("KeepsDependencySingularForExactlyOneSkipped", func(t *testing.T) {
+		ks := []blueprintv1alpha1.Kustomization{
+			{Name: "app", DependsOn: []string{"a"}},
+			{Name: "a"},
+		}
+
+		// Given a failed kustomization whose closure skips exactly one other
+		// When blockDependencyClosure runs
+		output := captureStderr(t, func() {
+			manager.blockDependencyClosure(ks, "app", map[string]bool{})
+		})
+
+		// Then the warning stays singular
+		if !strings.Contains(output, "skipping 1 dependency ") {
+			t.Errorf("expected singular wording for 1 skipped, got: %s", output)
+		}
+		if strings.Contains(output, "dependencies") {
+			t.Errorf("expected no plural wording for 1 skipped, got: %s", output)
 		}
 	})
 }
