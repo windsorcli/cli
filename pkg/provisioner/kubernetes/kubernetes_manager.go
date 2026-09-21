@@ -270,19 +270,21 @@ func (k *BaseKubernetesManager) deleteKustomization(name, namespace string, expe
 		k.shims.TimeSleep(k.kustomizationWaitPollInterval)
 	}
 
-	if preEntries, _, _ := inventoryEntriesFromObject(lastObj); len(preEntries) > 0 {
-		if live, _, checkErr := k.firstLiveInventoryEntry(preEntries, helmInventory, destroying); checkErr == nil && live != nil {
-			k.triggerReconcile(live)
-			recheckDeadline := k.shims.TimeNow().Add(time.Duration(abandonedInventoryGraceChecks) * k.kustomizationWaitPollInterval)
-			for k.shims.TimeNow().Before(recheckDeadline) {
-				k.shims.TimeSleep(k.kustomizationWaitPollInterval)
-				obj, err := k.client.GetResource(gvr, namespace, name)
-				if err != nil && isNotFoundError(err) {
-					return k.handleKustomizationDisappeared(name, namespace, lastObj, readFailures, lastReadErr, expectWaitForTermination, helmInventory, destroying)
-				}
-				if err == nil {
-					lastObj = obj
-					k.snapshotHelmReleaseInventories(obj, helmInventory)
+	if waitForTermination, ok := kustomizationDeletionPolicy(lastObj, expectWaitForTermination); !ok || waitForTermination {
+		if preEntries, _, _ := inventoryEntriesFromObject(lastObj); len(preEntries) > 0 {
+			if live, _, checkErr := k.firstLiveInventoryEntry(preEntries, helmInventory, destroying); checkErr == nil && live != nil {
+				k.triggerReconcile(live)
+				recheckDeadline := k.shims.TimeNow().Add(time.Duration(abandonedInventoryGraceChecks) * k.kustomizationWaitPollInterval)
+				for k.shims.TimeNow().Before(recheckDeadline) {
+					k.shims.TimeSleep(k.kustomizationWaitPollInterval)
+					obj, err := k.client.GetResource(gvr, namespace, name)
+					if err != nil && isNotFoundError(err) {
+						return k.handleKustomizationDisappeared(name, namespace, lastObj, readFailures, lastReadErr, expectWaitForTermination, helmInventory, destroying)
+					}
+					if err == nil {
+						lastObj = obj
+						k.snapshotHelmReleaseInventories(obj, helmInventory)
+					}
 				}
 			}
 		}

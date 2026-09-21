@@ -1096,6 +1096,57 @@ func TestBaseKubernetesManager_DeleteKustomization(t *testing.T) {
 		}
 	})
 
+	t.Run("TimeoutWithMirrorPruneSkipsTheRecheckTrigger", func(t *testing.T) {
+		// Given a MirrorPrune kustomization that times out with a still-live entry —
+		// its normal, by-design outcome, since MirrorPrune never waits on inventory
+		manager := setup(t)
+		manager.kustomizationReconcileTimeout = 20 * time.Millisecond
+		manager.kustomizationWaitPollInterval = 10 * time.Millisecond
+		// A 2-entry inventory would otherwise extend waitFor via kustomizationDeletionTimeout,
+		// making the assertion below about elapsed time depend on inventory size.
+		manager.kustomizationDeletionPerEntryTimeout = 0
+		manager.kustomizationDeletionMaxExtraTimeout = 0
+		kubernetesClient := withGVRs(client.NewMockKubernetesClient())
+		kubernetesClient.DeleteResourceFunc = func(gvr schema.GroupVersionResource, namespace, name string, opts metav1.DeleteOptions) error {
+			return nil
+		}
+		kubernetesClient.GetResourceFunc = func(gvr schema.GroupVersionResource, namespace, name string) (*unstructured.Unstructured, error) {
+			if name == "test-kustomization" {
+				obj := drainedKustomization()
+				obj.Object["spec"] = map[string]any{"deletionPolicy": "MirrorPrune"}
+				return obj, nil
+			}
+			if name == "entry-one" {
+				return blockingObject(), nil
+			}
+			return nil, fmt.Errorf("the server could not find the requested resource")
+		}
+		var triggered []string
+		kubernetesClient.PatchResourceFunc = func(ctx context.Context, gvr schema.GroupVersionResource, namespace, name string, pt types.PatchType, data []byte, opts metav1.PatchOptions) (*unstructured.Unstructured, error) {
+			triggered = append(triggered, name)
+			return nil, nil
+		}
+		manager.client = kubernetesClient
+
+		// When DeleteKustomization times out
+		start := manager.shims.TimeNow()
+		err := manager.DeleteKustomization("test-kustomization", "test-namespace")
+		elapsed := manager.shims.TimeNow().Sub(start)
+
+		// Then it reports the timeout without triggering a reconcile or spending
+		// the post-timeout recheck window on an entry MirrorPrune expects to
+		// leave behind
+		if err == nil {
+			t.Fatal("Expected timeout error, got nil")
+		}
+		if len(triggered) != 0 {
+			t.Errorf("Expected no reconcile trigger for MirrorPrune, got: %v", triggered)
+		}
+		if elapsed > 100*time.Millisecond {
+			t.Errorf("Expected no post-timeout recheck delay for MirrorPrune, got %s", elapsed)
+		}
+	})
+
 	t.Run("TimeoutNamesResidueInsteadOfClaimingFullyDrained", func(t *testing.T) {
 		// Given one inventory entry gone and one live with no finalizer, during a
 		// destroy — real residue, not a confirmed-gone state
