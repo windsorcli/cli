@@ -14,6 +14,7 @@ import (
 	"fmt"
 	"maps"
 	"os"
+	"slices"
 	"strings"
 	"time"
 
@@ -189,11 +190,12 @@ const abandonedInventoryGraceChecks = 3
 // DeleteKustomization deletes a Kustomization and waits for it to disappear. The wait
 // floor rises to spec.timeout when set, and scales with inventory size (see
 // kustomizationSpecTimeoutCeiling). On timeout or a clean disappearance, it checks the
-// last-known inventory (see firstLiveInventoryEntry, describeAbandonedInventory) before
-// trusting the result. A still-live entry gets a few retries first, to rule out normal
-// in-flight termination.
+// last-known inventory (see firstLiveInventoryEntry) before trusting the result. A
+// still-live entry gets a few retries first, to rule out normal in-flight termination.
+// This runs outside a destroy. The cluster stays up, so a finalizer-free leftover still
+// blocks, the same as any other live one.
 func (k *BaseKubernetesManager) DeleteKustomization(name, namespace string) error {
-	return k.deleteKustomization(name, namespace, nil, nil)
+	return k.deleteKustomization(name, namespace, nil, nil, false)
 }
 
 // deleteKustomization is DeleteKustomization with a known destroy expectation and a delete-wait
@@ -201,8 +203,9 @@ func (k *BaseKubernetesManager) DeleteKustomization(name, namespace string) erro
 // stale, deletionPolicy; see kustomizationDeletionPolicy. deleteTimeoutOverride replaces every
 // spec-derived floor, spec.timeout and helmReleaseUninstallTimeout alike, keeping an explicit
 // DeleteTimeout a bound. The wait absorbs kustomizationWaitMaxReadFailures consecutive read
-// errors, but fails if the object disappears before any read succeeded.
-func (k *BaseKubernetesManager) deleteKustomization(name, namespace string, expectWaitForTermination *bool, deleteTimeoutOverride *time.Duration) error {
+// errors, but fails if the object disappears before any read succeeded. destroying MUST be true
+// only during a full cluster teardown. See firstLiveInventoryEntry.
+func (k *BaseKubernetesManager) deleteKustomization(name, namespace string, expectWaitForTermination *bool, deleteTimeoutOverride *time.Duration, destroying bool) error {
 	gvr := schema.GroupVersionResource{
 		Group:    "kustomize.toolkit.fluxcd.io",
 		Version:  "v1",
@@ -235,15 +238,16 @@ func (k *BaseKubernetesManager) deleteKustomization(name, namespace string, expe
 			if lastObj == nil && readFailures > 0 {
 				return fmt.Errorf("kustomization %s/%s disappeared before windsor could read its inventory: %w. Windsor cannot confirm the resources it managed are gone. Check for leftovers with `kubectl get pvc,svc,ingress,certificate -A | grep Terminating` before retrying", namespace, name, lastReadErr)
 			}
-			entry, checkErr := k.describeAbandonedInventory(lastObj, expectWaitForTermination, helmInventory)
+			entry, surviving, checkErr := k.describeAbandonedInventory(lastObj, expectWaitForTermination, helmInventory, destroying)
 			graceDeadline := k.shims.TimeNow().Add(k.abandonedInventoryGraceWindow(inventorySize(lastObj)))
 			for (entry != nil || checkErr != nil) && k.shims.TimeNow().Before(graceDeadline) {
 				if errors.Is(checkErr, errUnverifiableInventory) {
 					break
 				}
 				k.shims.TimeSleep(k.kustomizationWaitPollInterval)
-				entry, checkErr = k.describeAbandonedInventory(lastObj, expectWaitForTermination, helmInventory)
+				entry, surviving, checkErr = k.describeAbandonedInventory(lastObj, expectWaitForTermination, helmInventory, destroying)
 			}
+			reportSurvivingResources(namespace, name, surviving)
 			if checkErr != nil {
 				return fmt.Errorf("kustomization %s/%s disappeared and windsor could not confirm its resources are gone: %w. Inspect the namespace before retrying", namespace, name, checkErr)
 			}
@@ -289,9 +293,13 @@ func (k *BaseKubernetesManager) deleteKustomization(name, namespace string, expe
 	const terminatingCmd = "`kubectl get pvc,svc,ingress,certificate -A | grep Terminating`"
 
 	entries, inventoryFound, dropped := inventoryEntriesFromObject(lastObj)
-	live, checkErr := k.firstLiveInventoryEntry(entries, helmInventory)
+	live, surviving, checkErr := k.firstLiveInventoryEntry(entries, helmInventory, destroying)
+	reportSurvivingResources(namespace, name, surviving)
 	if inventoryFound && checkErr == nil && dropped == 0 && live == nil {
-		return fmt.Errorf("kustomization %s/%s is fully drained. Every inventory item is confirmed gone, but its own finalizer is stuck. This is Flux bookkeeping, not leaked infrastructure. Clear it with `kubectl patch kustomization %s -n %s --type=merge -p '{\"metadata\":{\"finalizers\":null}}'`", namespace, name, name, namespace)
+		if len(surviving) == 0 {
+			return fmt.Errorf("kustomization %s/%s is fully drained. Every inventory item is confirmed gone, but its own finalizer is stuck. This is Flux bookkeeping, not leaked infrastructure. Clear it with `kubectl patch kustomization %s -n %s --type=merge -p '{\"metadata\":{\"finalizers\":null}}'`", namespace, name, name, namespace)
+		}
+		return fmt.Errorf("kustomization %s/%s left %d resource(s) behind. None of it blocks the cluster, but its own finalizer is stuck. This is Flux bookkeeping, not leaked infrastructure. Clear it with `kubectl patch kustomization %s -n %s --type=merge -p '{\"metadata\":{\"finalizers\":null}}'`", namespace, name, len(surviving), name, namespace)
 	}
 	reason := describeStuckKustomization(lastObj) + k.describeStuckHelmReleases(name, namespace) + describeInventoryVerdict(live, checkErr)
 	if waitForTermination, ok := kustomizationDeletionPolicy(lastObj, expectWaitForTermination); ok && !waitForTermination {
@@ -1695,7 +1703,7 @@ func (k *BaseKubernetesManager) DeleteBlueprint(blueprint *blueprintv1alpha1.Blu
 		k.waitForResumeReconcile(kustomization.Name, namespace)
 		destroy := kustomization.Destroy.ToBool()
 		expectWaitForTermination := destroy == nil || *destroy
-		if err := k.deleteKustomization(kustomization.Name, namespace, &expectWaitForTermination, kustomizationDeleteTimeout(kustomization)); err != nil {
+		if err := k.deleteKustomization(kustomization.Name, namespace, &expectWaitForTermination, kustomizationDeleteTimeout(kustomization), true); err != nil {
 			tui.Fail()
 			return k.abortDestroy(eligible, namespace, fmt.Errorf("destroy aborted: failed to delete kustomization: %w. Windsor skipped the remaining kustomizations to avoid orphaning them", err))
 		}
@@ -1842,7 +1850,7 @@ func (k *BaseKubernetesManager) processDestroyOnlyKustomizations(kustomizations 
 				errors = append(errors, fmt.Errorf("failed to create ConfigMap for destroy-only kustomization %s: %w", kustomization.Name, err))
 				for i := len(appliedKustomizations) - 1; i >= 0; i-- {
 					appliedKust := appliedKustomizations[i]
-					if deleteErr := k.deleteKustomization(appliedKust.Name, namespace, nil, kustomizationDeleteTimeout(appliedKust)); deleteErr != nil {
+					if deleteErr := k.deleteKustomization(appliedKust.Name, namespace, nil, kustomizationDeleteTimeout(appliedKust), true); deleteErr != nil {
 						errors = append(errors, fmt.Errorf("failed to delete failed destroy-only kustomization %s: %w", appliedKust.Name, deleteErr))
 					}
 				}
@@ -1872,7 +1880,7 @@ func (k *BaseKubernetesManager) processDestroyOnlyKustomizations(kustomizations 
 			errors = append(errors, fmt.Errorf("failed to apply destroy-only kustomization %s: %w", kustomization.Name, err))
 			for i := len(appliedKustomizations) - 1; i >= 0; i-- {
 				appliedKust := appliedKustomizations[i]
-				if deleteErr := k.deleteKustomization(appliedKust.Name, namespace, nil, kustomizationDeleteTimeout(appliedKust)); deleteErr != nil {
+				if deleteErr := k.deleteKustomization(appliedKust.Name, namespace, nil, kustomizationDeleteTimeout(appliedKust), true); deleteErr != nil {
 					errors = append(errors, fmt.Errorf("failed to delete failed destroy-only kustomization %s: %w", appliedKust.Name, deleteErr))
 				}
 			}
@@ -1924,7 +1932,7 @@ waitLoop:
 		}
 		for i := len(kustomizations) - 1; i >= 0; i-- {
 			kustomization := kustomizations[i]
-			if deleteErr := k.deleteKustomization(kustomization.Name, namespace, nil, kustomizationDeleteTimeout(kustomization)); deleteErr != nil {
+			if deleteErr := k.deleteKustomization(kustomization.Name, namespace, nil, kustomizationDeleteTimeout(kustomization), true); deleteErr != nil {
 				errors = append(errors, fmt.Errorf("failed to delete failed destroy-only kustomization %s: %w", kustomization.Name, deleteErr))
 			}
 		}
@@ -1935,7 +1943,7 @@ waitLoop:
 	for _, kustomization := range orderForDestroy(kustomizations, "destroy-only") {
 		tui.Start(fmt.Sprintf("Destroying destroy-only kustomization %s", kustomization.Name))
 
-		if err := k.deleteKustomization(kustomization.Name, namespace, nil, kustomizationDeleteTimeout(kustomization)); err != nil {
+		if err := k.deleteKustomization(kustomization.Name, namespace, nil, kustomizationDeleteTimeout(kustomization), true); err != nil {
 			tui.Fail()
 			errors = append(errors, fmt.Errorf("failed to delete destroy-only kustomization %s: %w", kustomization.Name, err))
 		} else {
@@ -2523,6 +2531,22 @@ func (k *BaseKubernetesManager) resolveScopedGVR(gvk schema.GroupVersionKind, na
 // errUnverifiableInventory reports an entry neither confirmed live nor confirmed gone.
 var errUnverifiableInventory = errors.New("inventory entry cannot be verified")
 
+// blocksClusterTeardown reports whether a live object must be waited on before terraform destroys
+// the cluster. A finalizer means a controller must still act, and a deletionTimestamp means
+// something is already preventing the object from going. Anything else dies with the cluster.
+// A finalizer is the only native way to require work before deletion, so a controller that owns
+// state outside the cluster must use one; flux sets finalizers.fluxcd.io on anything it handles.
+func blocksClusterTeardown(obj *unstructured.Unstructured) bool {
+	if obj == nil {
+		return false
+	}
+	if finalizers, found, err := unstructured.NestedStringSlice(obj.Object, "metadata", "finalizers"); err == nil && found && len(finalizers) > 0 {
+		return true
+	}
+	deletionTimestamp, found, err := unstructured.NestedString(obj.Object, "metadata", "deletionTimestamp")
+	return err == nil && found && deletionTimestamp != ""
+}
+
 // liveInventoryEntry is an inventory entry confirmed still live, paired with its
 // resolved GVR. The GVR's Resource is the plural name kubectl accepts, not a guess
 // from Kind.
@@ -2536,88 +2560,109 @@ type liveInventoryEntry struct {
 // longer exists counts as gone. It returns an error, not a false negative, on an
 // inconclusive lookup. A wrong "gone" reading could clear a finalizer or report a
 // false clean delete.
-func (k *BaseKubernetesManager) firstLiveInventoryEntry(entries []InventoryEntry, helmInventory helmReleaseInventory) (*liveInventoryEntry, error) {
+//
+// destroying MUST be true only right before terraform destroy. A finalizer-free object then
+// counts as residue, since the cluster removes it anyway. Outside a destroy, such as
+// PruneBlueprint's cleanup, the cluster keeps running. There a finalizer-free object still
+// blocks, or it would never get cleaned up.
+func (k *BaseKubernetesManager) firstLiveInventoryEntry(entries []InventoryEntry, helmInventory helmReleaseInventory, destroying bool) (*liveInventoryEntry, []InventoryEntry, error) {
+	var surviving []InventoryEntry
 	for _, entry := range entries {
 		gvk := schema.GroupVersionKind{Group: entry.Group, Kind: entry.Kind}
 		gvr, namespace, ok, err := k.resolveScopedGVR(gvk, entry.Namespace)
 		if err != nil {
-			return nil, err
+			return nil, surviving, err
 		}
 		if !ok {
 			continue
 		}
-		if _, err := k.client.GetResource(gvr, namespace, entry.Name); err != nil {
+		obj, err := k.client.GetResource(gvr, namespace, entry.Name)
+		if err != nil {
 			if !isNotFoundError(err) {
-				return nil, err
+				return nil, surviving, err
 			}
 			if !isHelmReleaseEntry(entry) {
 				continue
 			}
-			live, err := k.firstLiveChartResource(entry, helmInventory)
+			blocking, childSurviving, err := k.firstLiveChartResource(entry, helmInventory, destroying)
+			surviving = append(surviving, childSurviving...)
 			if err != nil {
-				return nil, err
+				return nil, surviving, err
 			}
-			if live != nil {
-				return live, nil
+			if blocking != nil {
+				return blocking, surviving, nil
 			}
 			continue
 		}
-		return &liveInventoryEntry{InventoryEntry: entry, gvr: gvr}, nil
+		if destroying && !blocksClusterTeardown(obj) {
+			surviving = append(surviving, entry)
+			continue
+		}
+		return &liveInventoryEntry{InventoryEntry: entry, gvr: gvr}, surviving, nil
 	}
-	return nil, nil
+	return nil, surviving, nil
 }
 
 // firstLiveChartResource verifies what a vanished HelmRelease managed. Its disappearance proves
 // only that helm-controller cleared its own finalizer. It can do that after abandoning a stuck
 // uninstall. So each resource the HelmRelease reported managing is checked. A HelmRelease never
 // observed, or one whose inventory only partly decoded, is unverifiable. A nested HelmRelease is
-// checked for liveness but not descended into.
-func (k *BaseKubernetesManager) firstLiveChartResource(entry InventoryEntry, helmInventory helmReleaseInventory) (*liveInventoryEntry, error) {
+// checked for liveness but not descended into. destroying gates blocksClusterTeardown: see
+// firstLiveInventoryEntry.
+func (k *BaseKubernetesManager) firstLiveChartResource(entry InventoryEntry, helmInventory helmReleaseInventory, destroying bool) (*liveInventoryEntry, []InventoryEntry, error) {
 	known := helmInventory[helmReleaseKey(entry.Namespace, entry.Name)]
 	if known == nil {
-		return nil, fmt.Errorf("windsor never read what helmrelease %s/%s managed: %w", entry.Namespace, entry.Name, errUnverifiableInventory)
+		return nil, nil, fmt.Errorf("windsor never read what helmrelease %s/%s managed: %w", entry.Namespace, entry.Name, errUnverifiableInventory)
 	}
 	if known.partial {
-		return nil, fmt.Errorf("helmrelease %s/%s reported an inventory windsor could not fully decode: %w", entry.Namespace, entry.Name, errUnverifiableInventory)
+		return nil, nil, fmt.Errorf("helmrelease %s/%s reported an inventory windsor could not fully decode: %w", entry.Namespace, entry.Name, errUnverifiableInventory)
 	}
+
+	var surviving []InventoryEntry
 	for _, child := range known.entries {
 		gvk := schema.GroupVersionKind{Group: child.Group, Kind: child.Kind}
 		gvr, namespace, ok, err := k.resolveScopedGVR(gvk, child.Namespace)
 		if err != nil {
-			return nil, err
+			return nil, surviving, err
 		}
 		if !ok {
 			continue
 		}
-		if _, err := k.client.GetResource(gvr, namespace, child.Name); err != nil {
+		obj, err := k.client.GetResource(gvr, namespace, child.Name)
+		if err != nil {
 			if isNotFoundError(err) {
 				continue
 			}
-			return nil, err
+			return nil, surviving, err
 		}
-		return &liveInventoryEntry{InventoryEntry: child, gvr: gvr}, nil
+		if destroying && !blocksClusterTeardown(obj) {
+			surviving = append(surviving, child)
+			continue
+		}
+		return &liveInventoryEntry{InventoryEntry: child, gvr: gvr}, surviving, nil
 	}
-	return nil, nil
+	return nil, surviving, nil
 }
 
 // describeAbandonedInventory checks lastObj's last-known inventory for an entry still live, after
 // the Kustomization itself disappeared. It only applies to a WaitForTermination kustomization;
 // see kustomizationDeletionPolicy. A MirrorPrune one is expected to leave live entries behind.
 // It returns nil when there is no inventory to check. It returns an error when the answer is
-// inconclusive. An inventory windsor cannot read is not one it can call empty.
-func (k *BaseKubernetesManager) describeAbandonedInventory(lastObj *unstructured.Unstructured, expectWaitForTermination *bool, helmInventory helmReleaseInventory) (*liveInventoryEntry, error) {
+// inconclusive. An inventory windsor cannot read is not one it can call empty. destroying is
+// forwarded to firstLiveInventoryEntry unchanged.
+func (k *BaseKubernetesManager) describeAbandonedInventory(lastObj *unstructured.Unstructured, expectWaitForTermination *bool, helmInventory helmReleaseInventory, destroying bool) (*liveInventoryEntry, []InventoryEntry, error) {
 	waitForTermination, ok := kustomizationDeletionPolicy(lastObj, expectWaitForTermination)
 	if !ok || !waitForTermination {
-		return nil, nil
+		return nil, nil, nil
 	}
 	entries, found, dropped := inventoryEntriesFromObject(lastObj)
 	if !found {
-		return nil, nil
+		return nil, nil, nil
 	}
 	if dropped > 0 {
-		return nil, fmt.Errorf("%d of %d inventory entries could not be decoded: %w", dropped, dropped+len(entries), errUnverifiableInventory)
+		return nil, nil, fmt.Errorf("%d of %d inventory entries could not be decoded: %w", dropped, dropped+len(entries), errUnverifiableInventory)
 	}
-	return k.firstLiveInventoryEntry(entries, helmInventory)
+	return k.firstLiveInventoryEntry(entries, helmInventory, destroying)
 }
 
 // gitopsMode returns the configured gitops mode, defaulting to pull. Centralising
@@ -2852,6 +2897,21 @@ func describeInventoryVerdict(live *liveInventoryEntry, checkErr error) string {
 	default:
 		return ""
 	}
+}
+
+// reportSurvivingResources warns about objects a delete left behind that hold nothing back. They
+// die with the cluster, so they do not stop a destroy, but they are evidence a chart did not
+// clean up after itself.
+func reportSurvivingResources(namespace, name string, surviving []InventoryEntry) {
+	if len(surviving) == 0 {
+		return
+	}
+	named := make([]string, 0, len(surviving))
+	for _, entry := range surviving {
+		named = append(named, entry.Kind+"/"+entry.Name)
+	}
+	slices.Sort(named)
+	fmt.Fprintf(os.Stderr, "warning: kustomization %s/%s left %d resource(s) behind, which will go with the cluster: %s\n", namespace, name, len(named), strings.Join(named, ", "))
 }
 
 // liveEntryInspectCmd builds the kubectl hint that names a still-live inventory entry.

@@ -1910,7 +1910,7 @@ func TestBaseKubernetesManager_deleteKustomization_DeleteTimeoutOverride(t *test
 
 		// When deleteKustomization times out
 		start := manager.shims.TimeNow()
-		err := manager.deleteKustomization("test-kustomization", "test-namespace", nil, &override)
+		err := manager.deleteKustomization("test-kustomization", "test-namespace", nil, &override, true)
 		elapsed := manager.shims.TimeNow().Sub(start)
 
 		// Then it waits out the override instead of the smaller spec.timeout
@@ -1939,7 +1939,7 @@ func TestBaseKubernetesManager_deleteKustomization_DeleteTimeoutOverride(t *test
 
 		// When deleteKustomization times out
 		start := manager.shims.TimeNow()
-		err := manager.deleteKustomization("test-kustomization", "test-namespace", nil, &override)
+		err := manager.deleteKustomization("test-kustomization", "test-namespace", nil, &override, true)
 		elapsed := manager.shims.TimeNow().Sub(start)
 
 		// Then the wait reaches the override, unaffected by the smaller install ceiling
@@ -1967,7 +1967,7 @@ func TestBaseKubernetesManager_deleteKustomization_DeleteTimeoutOverride(t *test
 
 		// When deleteKustomization times out
 		start := manager.shims.TimeNow()
-		err := manager.deleteKustomization("test-kustomization", "test-namespace", nil, &override)
+		err := manager.deleteKustomization("test-kustomization", "test-namespace", nil, &override, true)
 		elapsed := manager.shims.TimeNow().Sub(start)
 
 		// Then the wait is bounded by the ceiling, not the declared override
@@ -1996,7 +1996,7 @@ func TestBaseKubernetesManager_deleteKustomization_DeleteTimeoutOverride(t *test
 
 		// When deleteKustomization times out with no override
 		start := manager.shims.TimeNow()
-		err := manager.deleteKustomization("test-kustomization", "test-namespace", nil, nil)
+		err := manager.deleteKustomization("test-kustomization", "test-namespace", nil, nil, true)
 		elapsed := manager.shims.TimeNow().Sub(start)
 
 		// Then it still waits out spec.timeout, same as before this change
