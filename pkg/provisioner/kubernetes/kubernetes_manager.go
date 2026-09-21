@@ -199,17 +199,21 @@ func (k *BaseKubernetesManager) DeleteKustomization(name, namespace string) erro
 }
 
 // deleteKustomization is DeleteKustomization with a known destroy expectation and a delete-wait
-// override, both optional. expectWaitForTermination overrides the live object's own, possibly
-// stale, deletionPolicy; see kustomizationDeletionPolicy. deleteTimeoutOverride replaces every
-// spec-derived floor, spec.timeout and helmReleaseUninstallTimeout alike, keeping an explicit
-// DeleteTimeout a bound. The wait absorbs kustomizationWaitMaxReadFailures consecutive read
-// errors, but fails if the object disappears before any read succeeded. destroying MUST be true
-// only during a full cluster teardown. See firstLiveInventoryEntry.
+// override, both optional. expectWaitForTermination overrides the object's own deletionPolicy,
+// and deleteTimeoutOverride replaces every spec-derived timeout floor, keeping an explicit
+// DeleteTimeout a bound. It snapshots every HelmRelease's inventory once before requesting the
+// delete, so a fast chart teardown still leaves a verifiable record. The wait tolerates
+// kustomizationWaitMaxReadFailures read errors; destroying MUST be true only during a full teardown.
 func (k *BaseKubernetesManager) deleteKustomization(name, namespace string, expectWaitForTermination *bool, deleteTimeoutOverride *time.Duration, destroying bool) error {
 	gvr := schema.GroupVersionResource{
 		Group:    "kustomize.toolkit.fluxcd.io",
 		Version:  "v1",
 		Resource: "kustomizations",
+	}
+
+	helmInventory := helmReleaseInventory{}
+	if preObj, err := k.client.GetResource(gvr, namespace, name); err == nil {
+		k.snapshotHelmReleaseInventories(preObj, helmInventory)
 	}
 
 	propagationPolicy := metav1.DeletePropagationBackground
@@ -231,7 +235,6 @@ func (k *BaseKubernetesManager) deleteKustomization(name, namespace string, expe
 	var lastReadErr error
 	readFailures := 0
 	helmTimeoutResolved := false
-	helmInventory := helmReleaseInventory{}
 	for k.shims.TimeNow().Before(start.Add(waitFor)) {
 		obj, err := k.client.GetResource(gvr, namespace, name)
 		if err != nil && isNotFoundError(err) {
