@@ -1,8 +1,10 @@
 package kubernetes
 
 import (
+	"bytes"
 	"context"
 	"fmt"
+	"os"
 	"slices"
 	"strings"
 	"testing"
@@ -2284,5 +2286,148 @@ func TestBaseKubernetesManager_triggerReconcile(t *testing.T) {
 		// When triggerReconcile runs
 		// Then it does not panic or otherwise surface the failure
 		manager.triggerReconcile(entry)
+	})
+}
+
+func TestDependencyClosure(t *testing.T) {
+	t.Run("IncludesStartWithNoDependencies", func(t *testing.T) {
+		ks := []blueprintv1alpha1.Kustomization{{Name: "solo"}}
+
+		// Given a kustomization with no DependsOn
+		// When dependencyClosure runs
+		closure := dependencyClosure(ks, "solo")
+
+		// Then the closure is just itself
+		if len(closure) != 1 || !closure["solo"] {
+			t.Errorf("expected closure {solo}, got %v", closure)
+		}
+	})
+
+	t.Run("IncludesADirectDependency", func(t *testing.T) {
+		ks := []blueprintv1alpha1.Kustomization{
+			{Name: "app", DependsOn: []string{"controller"}},
+			{Name: "controller"},
+		}
+
+		// Given app depends on controller
+		// When dependencyClosure runs from app
+		closure := dependencyClosure(ks, "app")
+
+		// Then both are in the closure
+		if !closure["app"] || !closure["controller"] {
+			t.Errorf("expected closure {app, controller}, got %v", closure)
+		}
+	})
+
+	t.Run("FollowsATransitiveChain", func(t *testing.T) {
+		ks := []blueprintv1alpha1.Kustomization{
+			{Name: "app", DependsOn: []string{"controller"}},
+			{Name: "controller", DependsOn: []string{"crds"}},
+			{Name: "crds"},
+		}
+
+		// Given app depends on controller, which depends on crds
+		// When dependencyClosure runs from app
+		closure := dependencyClosure(ks, "app")
+
+		// Then the closure reaches all three
+		if !closure["app"] || !closure["controller"] || !closure["crds"] {
+			t.Errorf("expected closure {app, controller, crds}, got %v", closure)
+		}
+	})
+
+	t.Run("TreatsAMissingDependsOnNameAsNoEdge", func(t *testing.T) {
+		ks := []blueprintv1alpha1.Kustomization{
+			{Name: "app", DependsOn: []string{"not-in-blueprint"}},
+		}
+
+		// Given app depends on a name absent from the blueprint
+		// When dependencyClosure runs from app
+		closure := dependencyClosure(ks, "app")
+
+		// Then the closure is just app; the missing name is not followed
+		if len(closure) != 1 || !closure["app"] {
+			t.Errorf("expected closure {app}, got %v", closure)
+		}
+	})
+
+	t.Run("DoesNotIncludeAnUnrelatedKustomization", func(t *testing.T) {
+		ks := []blueprintv1alpha1.Kustomization{
+			{Name: "app", DependsOn: []string{"controller"}},
+			{Name: "controller"},
+			{Name: "unrelated"},
+		}
+
+		// Given a third kustomization with no path from app
+		// When dependencyClosure runs from app
+		closure := dependencyClosure(ks, "app")
+
+		// Then it is not in the closure
+		if closure["unrelated"] {
+			t.Errorf("expected unrelated excluded from closure, got %v", closure)
+		}
+	})
+}
+
+func TestBaseKubernetesManager_blockDependencyClosure(t *testing.T) {
+	captureStderr := func(t *testing.T, fn func()) string {
+		t.Helper()
+		r, w, err := os.Pipe()
+		if err != nil {
+			t.Fatalf("failed to create pipe: %v", err)
+		}
+		original := os.Stderr
+		os.Stderr = w
+		defer func() { os.Stderr = original }()
+
+		fn()
+
+		w.Close()
+		var buf bytes.Buffer
+		_, _ = buf.ReadFrom(r)
+		return buf.String()
+	}
+
+	mocks := setupKubernetesMocks(t)
+	manager := NewKubernetesManager(mocks.KubernetesClient, mocks.ConfigHandler)
+
+	t.Run("PluralizesDependenciesForMoreThanOneSkipped", func(t *testing.T) {
+		ks := []blueprintv1alpha1.Kustomization{
+			{Name: "app", DependsOn: []string{"a", "b"}},
+			{Name: "a"},
+			{Name: "b"},
+		}
+
+		// Given a failed kustomization whose closure skips two others
+		// When blockDependencyClosure runs
+		output := captureStderr(t, func() {
+			manager.blockDependencyClosure(ks, "app", map[string]bool{})
+		})
+
+		// Then the warning uses the plural
+		if !strings.Contains(output, "skipping 2 dependencies") {
+			t.Errorf("expected plural wording for 2 skipped, got: %s", output)
+		}
+	})
+
+	t.Run("KeepsDependencySingularForExactlyOneSkipped", func(t *testing.T) {
+		ks := []blueprintv1alpha1.Kustomization{
+			{Name: "app", DependsOn: []string{"a"}},
+			{Name: "a"},
+		}
+
+		// Given a failed kustomization whose closure skips exactly one other
+		// When blockDependencyClosure runs
+		output := captureStderr(t, func() {
+			manager.blockDependencyClosure(ks, "app", map[string]bool{})
+		})
+
+		// Then the warning stays singular
+		if !strings.Contains(output, "skipping 1 dependency ") {
+			t.Errorf("expected singular wording for 1 skipped, got: %s", output)
+		}
+		if strings.Contains(output, "dependencies") {
+			t.Errorf("expected no plural wording for 1 skipped, got: %s", output)
+		}
 	})
 }

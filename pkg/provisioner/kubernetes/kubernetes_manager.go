@@ -1643,19 +1643,14 @@ func (k *BaseKubernetesManager) ApplyBlueprint(blueprint *blueprintv1alpha1.Blue
 	return nil
 }
 
-// DeleteBlueprint tears the blueprint down in two phases: destroy-only kustomizations first
-// (applied, waited ready, then deleted, for bespoke teardown work like backups), then regular
-// kustomizations in reverse-topological order. Each regular delete blocks on
+// DeleteBlueprint tears the blueprint down in two phases: destroy-only kustomizations first,
+// then regular ones in reverse-topological order. Each delete blocks on
 // spec.deletionPolicy=WaitForTermination, so cloud resources release before the object
-// disappears. Its delete-wait floor uses the Kustomization's own DeleteTimeout when set.
-// Otherwise it falls back to deleteKustomization's spec.timeout-derived heuristic, since
-// install and delete latency for the same resource can differ substantially (a managed
-// database, for example). Phase 2 aborts on the first per-Kustomization failure rather than
-// risk orphaning cloud resources a later Kustomization still needs; a retry picks up where it
-// left off. Every abort path runs abortDestroy first to un-suspend the full eligible set,
-// since Install/ApplyBlueprint never resets spec.suspend on existing objects.
-// waitForResumeReconcile runs between each resume and its delete, giving the resume's own
-// reconcile a chance to settle first.
+// disappears.
+//
+// A Phase 2 failure skips only that Kustomization's own dependency closure (see
+// dependencyClosure), not the rest of the run. A retry re-walks the whole blueprint; anything
+// already gone returns immediately.
 func (k *BaseKubernetesManager) DeleteBlueprint(blueprint *blueprintv1alpha1.Blueprint, namespace string) error {
 	defaultSourceName := blueprint.Metadata.Name
 
@@ -1697,23 +1692,58 @@ func (k *BaseKubernetesManager) DeleteBlueprint(blueprint *blueprintv1alpha1.Blu
 		return k.abortDestroy(eligible, namespace, fmt.Errorf("destroy aborted: %w", err))
 	}
 
+	blocked := map[string]bool{}
+	var failures []error
 	for _, kustomization := range orderForDestroy(eligible, "destroy") {
+		if blocked[kustomization.Name] {
+			continue
+		}
 		tui.Start(fmt.Sprintf("Destroying kustomization %s", kustomization.Name))
 		if err := k.setKustomizationSuspend(kustomization.Name, namespace, false); err != nil {
 			tui.Fail()
-			return k.abortDestroy(eligible, namespace, fmt.Errorf("destroy aborted: failed to resume kustomization %q before delete: %w", kustomization.Name, err))
+			failures = append(failures, fmt.Errorf("failed to resume kustomization %q before delete: %w", kustomization.Name, err))
+			k.blockDependencyClosure(eligible, kustomization.Name, blocked)
+			continue
 		}
 		k.waitForResumeReconcile(kustomization.Name, namespace)
 		destroy := kustomization.Destroy.ToBool()
 		expectWaitForTermination := destroy == nil || *destroy
 		if err := k.deleteKustomization(kustomization.Name, namespace, &expectWaitForTermination, kustomizationDeleteTimeout(kustomization), true); err != nil {
 			tui.Fail()
-			return k.abortDestroy(eligible, namespace, fmt.Errorf("destroy aborted: failed to delete kustomization: %w. Windsor skipped the remaining kustomizations to avoid orphaning them", err))
+			failures = append(failures, fmt.Errorf("failed to delete kustomization %q: %w", kustomization.Name, err))
+			k.blockDependencyClosure(eligible, kustomization.Name, blocked)
+			continue
 		}
 		tui.Done()
 	}
 
+	if len(failures) > 0 {
+		return fmt.Errorf("%d kustomization(s) failed to delete. Each one's dependency closure was left alone, to avoid orphaning what it may still need: %w", len(failures), errors.Join(failures...))
+	}
 	return nil
+}
+
+// blockDependencyClosure adds failedName's dependencyClosure to blocked and warns about the rest
+// of it, so the walk skips them rather than tearing down a controller the stall may still need.
+// failedName itself is not warned about again; its own failure already produced an error.
+func (k *BaseKubernetesManager) blockDependencyClosure(eligible []blueprintv1alpha1.Kustomization, failedName string, blocked map[string]bool) {
+	closure := dependencyClosure(eligible, failedName)
+	skipped := make([]string, 0, len(closure))
+	for name := range closure {
+		blocked[name] = true
+		if name != failedName {
+			skipped = append(skipped, name)
+		}
+	}
+	if len(skipped) == 0 {
+		return
+	}
+	slices.Sort(skipped)
+	word := "dependency"
+	if len(skipped) != 1 {
+		word = "dependencies"
+	}
+	fmt.Fprintf(os.Stderr, "warning: kustomization %s failed to delete; skipping %d %s it may still need: %s\n", failedName, len(skipped), word, strings.Join(skipped, ", "))
 }
 
 // abortDestroy un-suspends every eligible Kustomization before propagating cause, so a
@@ -3300,4 +3330,31 @@ func reverseTopologicalKustomizations(ks []blueprintv1alpha1.Kustomization) ([]b
 		out[len(forward)-1-i] = ks[idx]
 	}
 	return out, nil
+}
+
+// dependencyClosure returns start and every name its DependsOn edges reach, transitively. In
+// reverse-topological order these are exactly what is still pending when start stalls, and one of
+// them may still be needed to resolve it. A DependsOn name missing from ks is treated as no-edge,
+// matching reverseTopologicalKustomizations.
+func dependencyClosure(ks []blueprintv1alpha1.Kustomization, start string) map[string]bool {
+	byName := make(map[string]blueprintv1alpha1.Kustomization, len(ks))
+	for _, k := range ks {
+		byName[k.Name] = k
+	}
+
+	closure := map[string]bool{}
+	var visit func(name string)
+	visit = func(name string) {
+		if closure[name] {
+			return
+		}
+		closure[name] = true
+		for _, dep := range byName[name].DependsOn {
+			if _, ok := byName[dep]; ok {
+				visit(dep)
+			}
+		}
+	}
+	visit(start)
+	return closure
 }

@@ -4944,9 +4944,9 @@ func TestBaseKubernetesManager_DeleteBlueprint(t *testing.T) {
 		}
 	})
 
-	t.Run("UnsuspendsRemainingKustomizationsWhenDeleteFails", func(t *testing.T) {
-		// Given a blueprint with two eligible kustomizations, ordered so that
-		// deleting the first fails
+	t.Run("StillResumesAndDeletesAnUnrelatedKustomizationAfterAFailure", func(t *testing.T) {
+		// Given two eligible kustomizations with no DependsOn edge between them,
+		// ordered so that deleting the first fails
 		manager := setup(t)
 		kubernetesClient := client.NewMockKubernetesClient()
 
@@ -4980,29 +4980,18 @@ func TestBaseKubernetesManager_DeleteBlueprint(t *testing.T) {
 			},
 		}
 
-		// When the blueprint delete aborts on the first-processed kustomization's
-		// failed delete (no DependsOn, so the destroy walk visits the input in
-		// reverse: test-kustomization-2 then test-kustomization-1)
+		// When test-kustomization-2 fails to delete (no DependsOn, so the destroy
+		// walk visits the input in reverse: test-kustomization-2 then
+		// test-kustomization-1)
 		err := manager.DeleteBlueprint(blueprint, "test-namespace")
 
-		// Then the error is surfaced and test-kustomization-1 — suspended up
-		// front but never reached by the destroy walk before the abort — is
-		// resumed by the abort cleanup instead of being left permanently suspended
+		// Then the failure is surfaced, and the unrelated test-kustomization-1 is
+		// still resumed and deleted rather than left behind
 		if err == nil {
 			t.Fatal("Expected error when delete fails, got nil")
 		}
 		if !strings.Contains(err.Error(), "failed to delete kustomization") {
 			t.Errorf("Expected delete-failure error, got %v", err)
-		}
-
-		resumed := map[string]bool{}
-		for _, e := range events {
-			if strings.HasPrefix(e, "resume:") {
-				resumed[strings.TrimPrefix(e, "resume:")] = true
-			}
-		}
-		if !resumed["test-kustomization-1"] {
-			t.Errorf("Expected test-kustomization-1 to be resumed by abort cleanup, got events %v", events)
 		}
 
 		deleted := map[string]bool{}
@@ -5011,8 +5000,8 @@ func TestBaseKubernetesManager_DeleteBlueprint(t *testing.T) {
 				deleted[strings.TrimPrefix(e, "delete:")] = true
 			}
 		}
-		if deleted["test-kustomization-1"] {
-			t.Errorf("Expected test-kustomization-1 not to be deleted after abort, got events %v", events)
+		if !deleted["test-kustomization-1"] {
+			t.Errorf("Expected the unrelated test-kustomization-1 to still be deleted, got events %v", events)
 		}
 	})
 
@@ -6088,36 +6077,40 @@ func TestBaseKubernetesManager_DeleteBlueprint(t *testing.T) {
 		}
 	})
 
-	t.Run("AbortsRemainingDeletionsOnFirstFailure", func(t *testing.T) {
-		// Pins the contract that DeleteBlueprint aborts on the first per-Kustomization
-		// failure rather than continuing the walk. Continuing would tear down upstream
-		// controllers needed to lift cloud-side finalizers on the stuck object,
-		// turning a recoverable stuck-Kustomization into a cascade of orphaned cloud
-		// resources. A regression that reintroduced accumulate-and-continue would
-		// fail this test by issuing a second DeleteResource call.
+	t.Run("ContinuesPastAnUnrelatedFailureButSkipsAFailedKustomizationsOwnDependency", func(t *testing.T) {
+		// Pins the corrected contract: DeleteBlueprint does not abort the whole run
+		// on a single failure. Two independent kustomizations (no DependsOn between
+		// them) do not cascade-abort each other — a regression that reintroduced
+		// abort-everything would fail this test by issuing only one DeleteResource
+		// call. A kustomization's own dependency is still protected: it is never
+		// attempted, since it may be the controller the failure needs to resolve.
 		manager := setup(t)
 		kubernetesClient := client.NewMockKubernetesClient()
 
 		var deleteCalls []string
 		kubernetesClient.DeleteResourceFunc = func(gvr schema.GroupVersionResource, namespace, name string, opts metav1.DeleteOptions) error {
 			deleteCalls = append(deleteCalls, name)
-			return fmt.Errorf("delete error")
+			if name == "second-kust" {
+				return fmt.Errorf("delete error")
+			}
+			return nil
 		}
 		kubernetesClient.GetResourceFunc = func(gvr schema.GroupVersionResource, namespace, name string) (*unstructured.Unstructured, error) {
 			return nil, fmt.Errorf("the server could not find the requested resource")
 		}
 		manager.client = kubernetesClient
 
-		// Two independent kustomizations (no dependsOn between them). Reverse-topo
-		// will tie-break by reverse input order, so first-deleted is "second-kust"
-		// and "first-kust" should not be attempted after the abort.
+		// second-kust depends on its-dependency; first-kust is unrelated to both.
+		// Reverse-topo destroys a dependent before its dependency, so the walk
+		// attempts second-kust before its-dependency.
 		blueprint := &blueprintv1alpha1.Blueprint{
 			Metadata: blueprintv1alpha1.Metadata{
 				Name: "test-blueprint",
 			},
 			Kustomizations: []blueprintv1alpha1.Kustomization{
 				{Name: "first-kust"},
-				{Name: "second-kust"},
+				{Name: "second-kust", DependsOn: []string{"its-dependency"}},
+				{Name: "its-dependency"},
 			},
 		}
 
@@ -6125,14 +6118,19 @@ func TestBaseKubernetesManager_DeleteBlueprint(t *testing.T) {
 		if err == nil {
 			t.Fatal("Expected error, got nil")
 		}
-		if len(deleteCalls) != 1 {
-			t.Errorf("Expected exactly 1 delete call (abort on first failure), got %d: %v", len(deleteCalls), deleteCalls)
-		}
-		if len(deleteCalls) >= 1 && deleteCalls[0] != "second-kust" {
-			t.Errorf("Expected first attempted delete to be 'second-kust' (reverse-topo order), got %s", deleteCalls[0])
-		}
 		if !strings.Contains(err.Error(), "second-kust") {
 			t.Errorf("Expected error to name the failing kustomization 'second-kust', got %v", err)
+		}
+
+		attempted := map[string]bool{}
+		for _, name := range deleteCalls {
+			attempted[name] = true
+		}
+		if !attempted["first-kust"] {
+			t.Errorf("Expected the unrelated first-kust to still be attempted, got %v", deleteCalls)
+		}
+		if attempted["its-dependency"] {
+			t.Errorf("Expected second-kust's own dependency to be skipped, got %v", deleteCalls)
 		}
 	})
 
