@@ -29,6 +29,7 @@ type MockKubernetesClient struct {
 	PatchResourceFunc        func(ctx context.Context, gvr schema.GroupVersionResource, namespace, name string, pt types.PatchType, data []byte, opts metav1.PatchOptions) (*unstructured.Unstructured, error)
 	CheckHealthFunc          func(ctx context.Context, endpoint string) error
 	GetNodeReadyStatusFunc   func(ctx context.Context, nodeNames []string) (map[string]bool, error)
+	IsVerboseFunc            func() bool
 }
 
 // =============================================================================
@@ -123,4 +124,12 @@ func (m *MockKubernetesClient) GetNodeReadyStatus(ctx context.Context, nodeNames
 		return m.GetNodeReadyStatusFunc(ctx, nodeNames)
 	}
 	return make(map[string]bool), nil
+}
+
+// IsVerbose implements KubernetesClient interface
+func (m *MockKubernetesClient) IsVerbose() bool {
+	if m.IsVerboseFunc != nil {
+		return m.IsVerboseFunc()
+	}
+	return false
 }

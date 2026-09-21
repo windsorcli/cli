@@ -295,7 +295,7 @@ func (k *BaseKubernetesManager) deleteKustomization(name, namespace string, expe
 
 	entries, inventoryFound, dropped := inventoryEntriesFromObject(lastObj)
 	live, surviving, checkErr := k.firstLiveInventoryEntry(entries, helmInventory, destroying)
-	reportSurvivingResources(namespace, name, surviving)
+	k.reportSurvivingResources(namespace, name, surviving)
 	if inventoryFound && checkErr == nil && dropped == 0 && live == nil {
 		if len(surviving) == 0 {
 			return fmt.Errorf("kustomization %s/%s is fully drained. Every inventory item is confirmed gone, but its own finalizer is stuck. This is Flux bookkeeping, not leaked infrastructure. Clear it with `kubectl patch kustomization %s -n %s --type=merge -p '{\"metadata\":{\"finalizers\":null}}'`", namespace, name, name, namespace)
@@ -335,7 +335,7 @@ func (k *BaseKubernetesManager) handleKustomizationDisappeared(name, namespace s
 		k.shims.TimeSleep(k.kustomizationWaitPollInterval)
 		entry, surviving, checkErr = k.describeAbandonedInventory(lastObj, expectWaitForTermination, helmInventory, destroying)
 	}
-	reportSurvivingResources(namespace, name, surviving)
+	k.reportSurvivingResources(namespace, name, surviving)
 	if checkErr != nil {
 		return fmt.Errorf("kustomization %s/%s disappeared and windsor could not confirm its resources are gone: %w. Inspect the namespace before retrying", namespace, name, checkErr)
 	}
@@ -2760,6 +2760,22 @@ func (k *BaseKubernetesManager) describeAbandonedInventory(lastObj *unstructured
 	return k.firstLiveInventoryEntry(entries, helmInventory, destroying)
 }
 
+// reportSurvivingResources warns about objects a delete left behind that hold nothing back. They
+// die with the cluster, so they do not stop a destroy, but they are evidence a chart did not
+// clean up after itself. Only printed in verbose mode: routine MirrorPrune-style residue is not
+// worth surfacing on every run.
+func (k *BaseKubernetesManager) reportSurvivingResources(namespace, name string, surviving []InventoryEntry) {
+	if len(surviving) == 0 || !k.client.IsVerbose() {
+		return
+	}
+	named := make([]string, 0, len(surviving))
+	for _, entry := range surviving {
+		named = append(named, entry.Kind+"/"+entry.Name)
+	}
+	slices.Sort(named)
+	fmt.Fprintf(os.Stderr, "warning: kustomization %s/%s left %d resource(s) behind, which will go with the cluster: %s\n", namespace, name, len(named), strings.Join(named, ", "))
+}
+
 // gitopsMode returns the configured gitops mode, defaulting to pull. Centralising
 // the "gitops.mode" config read here keeps the several call sites below in sync:
 // Kustomization intervals (ApplyBlueprint, deleteKustomizationWithCleanup,
@@ -2992,21 +3008,6 @@ func describeInventoryVerdict(live *liveInventoryEntry, checkErr error) string {
 	default:
 		return ""
 	}
-}
-
-// reportSurvivingResources warns about objects a delete left behind that hold nothing back. They
-// die with the cluster, so they do not stop a destroy, but they are evidence a chart did not
-// clean up after itself.
-func reportSurvivingResources(namespace, name string, surviving []InventoryEntry) {
-	if len(surviving) == 0 {
-		return
-	}
-	named := make([]string, 0, len(surviving))
-	for _, entry := range surviving {
-		named = append(named, entry.Kind+"/"+entry.Name)
-	}
-	slices.Sort(named)
-	fmt.Fprintf(os.Stderr, "warning: kustomization %s/%s left %d resource(s) behind, which will go with the cluster: %s\n", namespace, name, len(named), strings.Join(named, ", "))
 }
 
 // liveEntryInspectCmd builds the kubectl hint that names a still-live inventory entry.
