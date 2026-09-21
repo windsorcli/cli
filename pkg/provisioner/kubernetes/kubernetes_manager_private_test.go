@@ -16,6 +16,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/apimachinery/pkg/types"
 )
 
 func TestBaseKubernetesManager_remediateLoadBalancerOwners(t *testing.T) {
@@ -2128,4 +2129,60 @@ func TestDecodeInventoryID(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestBaseKubernetesManager_abortDestroy(t *testing.T) {
+	eligible := []blueprintv1alpha1.Kustomization{{Name: "crds"}, {Name: "database-install"}, {Name: "demo-resources"}}
+
+	t.Run("StopsAfterFirstRequestTimeoutRatherThanRepeatingIt", func(t *testing.T) {
+		mocks := setupKubernetesMocks(t)
+		kubernetesClient := client.NewMockKubernetesClient()
+		var attempted []string
+		kubernetesClient.PatchResourceFunc = func(ctx context.Context, gvr schema.GroupVersionResource, namespace, name string, pt types.PatchType, data []byte, opts metav1.PatchOptions) (*unstructured.Unstructured, error) {
+			attempted = append(attempted, name)
+			return nil, context.DeadlineExceeded
+		}
+		manager := NewKubernetesManager(kubernetesClient, mocks.ConfigHandler)
+
+		// Given a request timeout on the first un-suspend attempt
+		// When abortDestroy runs
+		err := manager.abortDestroy(eligible, "system-gitops", fmt.Errorf("original failure"))
+
+		// Then it stops instead of repeating the timeout on every remaining kustomization
+		if len(attempted) != 1 {
+			t.Fatalf("expected exactly 1 un-suspend attempt, got %d: %v", len(attempted), attempted)
+		}
+		if attempted[0] != "crds" {
+			t.Errorf("expected the first eligible kustomization attempted, got %q", attempted[0])
+		}
+		if err == nil || !strings.Contains(err.Error(), "stopping abort cleanup after a request timeout") {
+			t.Errorf("expected an early-stop note in the joined error, got: %v", err)
+		}
+		if err == nil || !strings.Contains(err.Error(), "2 more kustomization(s) left un-suspended") {
+			t.Errorf("expected the remaining count in the joined error, got: %v", err)
+		}
+	})
+
+	t.Run("ContinuesPastANonTimeoutFailure", func(t *testing.T) {
+		mocks := setupKubernetesMocks(t)
+		kubernetesClient := client.NewMockKubernetesClient()
+		var attempted []string
+		kubernetesClient.PatchResourceFunc = func(ctx context.Context, gvr schema.GroupVersionResource, namespace, name string, pt types.PatchType, data []byte, opts metav1.PatchOptions) (*unstructured.Unstructured, error) {
+			attempted = append(attempted, name)
+			return nil, fmt.Errorf("conflict: object has been modified")
+		}
+		manager := NewKubernetesManager(kubernetesClient, mocks.ConfigHandler)
+
+		// Given a non-timeout rejection on every un-suspend attempt
+		// When abortDestroy runs
+		err := manager.abortDestroy(eligible, "system-gitops", fmt.Errorf("original failure"))
+
+		// Then it still attempts every eligible kustomization
+		if len(attempted) != len(eligible) {
+			t.Fatalf("expected all %d kustomizations attempted, got %d: %v", len(eligible), len(attempted), attempted)
+		}
+		if err == nil || strings.Contains(err.Error(), "stopping abort cleanup") {
+			t.Errorf("expected no early-stop note for a non-timeout failure, got: %v", err)
+		}
+	})
 }
