@@ -2186,3 +2186,103 @@ func TestBaseKubernetesManager_abortDestroy(t *testing.T) {
 		}
 	})
 }
+
+func TestBaseKubernetesManager_triggerReconcile(t *testing.T) {
+	t.Run("UsesFluxAnnotationForAKustomization", func(t *testing.T) {
+		mocks := setupKubernetesMocks(t)
+		kubernetesClient := client.NewMockKubernetesClient()
+		var gotGVR schema.GroupVersionResource
+		var gotName string
+		var gotPatch []byte
+		kubernetesClient.PatchResourceFunc = func(ctx context.Context, gvr schema.GroupVersionResource, namespace, name string, pt types.PatchType, data []byte, opts metav1.PatchOptions) (*unstructured.Unstructured, error) {
+			gotGVR, gotName, gotPatch = gvr, name, data
+			return nil, nil
+		}
+		manager := NewKubernetesManager(kubernetesClient, mocks.ConfigHandler)
+		entry := &liveInventoryEntry{
+			InventoryEntry: InventoryEntry{Namespace: "system-gitops", Name: "crds", Group: "kustomize.toolkit.fluxcd.io", Kind: "Kustomization"},
+			gvr:            schema.GroupVersionResource{Group: "kustomize.toolkit.fluxcd.io", Version: "v1", Resource: "kustomizations"},
+		}
+
+		// Given a blocking entry that is a Kustomization
+		// When triggerReconcile runs
+		manager.triggerReconcile(entry)
+
+		// Then it patches Flux's own documented reconcile-trigger annotation
+		if gotName != "crds" || gotGVR.Resource != "kustomizations" {
+			t.Fatalf("expected a patch against the Kustomization, got %q %v", gotName, gotGVR)
+		}
+		if !strings.Contains(string(gotPatch), fluxReconcileAnnotation) {
+			t.Errorf("expected the flux reconcile annotation in the patch, got: %s", gotPatch)
+		}
+	})
+
+	t.Run("UsesWindsorAnnotationForANonFluxObject", func(t *testing.T) {
+		mocks := setupKubernetesMocks(t)
+		kubernetesClient := client.NewMockKubernetesClient()
+		var gotPatch []byte
+		kubernetesClient.PatchResourceFunc = func(ctx context.Context, gvr schema.GroupVersionResource, namespace, name string, pt types.PatchType, data []byte, opts metav1.PatchOptions) (*unstructured.Unstructured, error) {
+			gotPatch = data
+			return nil, nil
+		}
+		manager := NewKubernetesManager(kubernetesClient, mocks.ConfigHandler)
+		entry := &liveInventoryEntry{
+			InventoryEntry: InventoryEntry{Namespace: "demo-database", Name: "provider-sql-demo-db", Group: "postgresql.sql.m.crossplane.io", Kind: "ProviderConfig"},
+			gvr:            schema.GroupVersionResource{Group: "postgresql.sql.m.crossplane.io", Version: "v1alpha1", Resource: "providerconfigs"},
+		}
+
+		// Given a blocking entry outside Flux's own kinds
+		// When triggerReconcile runs
+		manager.triggerReconcile(entry)
+
+		// Then it patches windsor's own annotation, not Flux's
+		if !strings.Contains(string(gotPatch), windsorReconcileAnnotation) {
+			t.Errorf("expected the windsor reconcile annotation in the patch, got: %s", gotPatch)
+		}
+		if strings.Contains(string(gotPatch), fluxReconcileAnnotation) {
+			t.Errorf("expected no flux annotation on a non-flux object, got: %s", gotPatch)
+		}
+	})
+
+	t.Run("NeverTouchesFinalizers", func(t *testing.T) {
+		mocks := setupKubernetesMocks(t)
+		kubernetesClient := client.NewMockKubernetesClient()
+		var gotPatch []byte
+		kubernetesClient.PatchResourceFunc = func(ctx context.Context, gvr schema.GroupVersionResource, namespace, name string, pt types.PatchType, data []byte, opts metav1.PatchOptions) (*unstructured.Unstructured, error) {
+			gotPatch = data
+			return nil, nil
+		}
+		manager := NewKubernetesManager(kubernetesClient, mocks.ConfigHandler)
+		entry := &liveInventoryEntry{
+			InventoryEntry: InventoryEntry{Namespace: "demo-database", Name: "provider-sql-demo-db", Group: "postgresql.sql.m.crossplane.io", Kind: "ProviderConfig"},
+			gvr:            schema.GroupVersionResource{Group: "postgresql.sql.m.crossplane.io", Version: "v1alpha1", Resource: "providerconfigs"},
+		}
+
+		// Given any blocking entry
+		// When triggerReconcile runs
+		manager.triggerReconcile(entry)
+
+		// Then the patch never names finalizers
+		if strings.Contains(string(gotPatch), "finalizers") {
+			t.Errorf("expected the patch to never touch finalizers, got: %s", gotPatch)
+		}
+	})
+
+	t.Run("IgnoresAPatchFailure", func(t *testing.T) {
+		mocks := setupKubernetesMocks(t)
+		kubernetesClient := client.NewMockKubernetesClient()
+		kubernetesClient.PatchResourceFunc = func(ctx context.Context, gvr schema.GroupVersionResource, namespace, name string, pt types.PatchType, data []byte, opts metav1.PatchOptions) (*unstructured.Unstructured, error) {
+			return nil, fmt.Errorf("forbidden")
+		}
+		manager := NewKubernetesManager(kubernetesClient, mocks.ConfigHandler)
+		entry := &liveInventoryEntry{
+			InventoryEntry: InventoryEntry{Namespace: "demo-database", Name: "provider-sql-demo-db", Group: "postgresql.sql.m.crossplane.io", Kind: "ProviderConfig"},
+			gvr:            schema.GroupVersionResource{Group: "postgresql.sql.m.crossplane.io", Version: "v1alpha1", Resource: "providerconfigs"},
+		}
+
+		// Given a patch that fails
+		// When triggerReconcile runs
+		// Then it does not panic or otherwise surface the failure
+		manager.triggerReconcile(entry)
+	})
+}

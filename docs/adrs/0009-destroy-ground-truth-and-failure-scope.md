@@ -3,7 +3,8 @@
 - Status: Proposed. Decisions 1 through 3 have shipped. 4 and 5 are revised below a second time: a
   live GCP run first showed the per-tier abort was wrong, and the classification-based gate written
   to replace it was itself withdrawn before implementation for the reason recorded under
-  Alternatives.
+  Alternatives. Decision 6 has shipped for the grace-window retry path; the main-loop-timeout path it
+  does not yet cover is noted where that gap is.
 - Date: 2026-09-20
 - Deciders: Ryan VanGundy
 - Surfaced investigating cli#3417 (three independent destroy stalls in one acceptance run)
@@ -470,22 +471,39 @@ Two cases, not one, since the guaranteed form and the best-effort form rest on d
 Either way the technique is the same shape: patch a value that changes on every attempt, so the write
 is never a no-op mutation a client might coalesce away.
 
-So while a Kustomization's wait is running, `deleteKustomization` MAY, on every poll, patch the
-appropriate trigger annotation onto each object still holding obligation. Periodic beats one-shot:
-the live run below cleared within seconds of a single patch, well inside any poll interval, so
+So while a Kustomization's wait is running, `deleteKustomization` patches the appropriate trigger
+annotation onto each object still holding obligation, on every poll. Periodic beats one-shot: the
+live run below cleared within seconds of a single patch, well inside any poll interval, so
 triggering every poll catches a missed-reconcile stall almost as soon as it happens rather than only
 at the edge of the tier's full budget. Nothing else in Decision 4's report changes: if the object
 still holds obligation when the budget runs out regardless, the report fires exactly as specified.
 This MUST NOT touch `metadata.finalizers` under any circumstance — only the trigger annotation. A
 controller that never notices the trigger is no worse off than one windsor never touched.
 
+Shipped in `triggerReconcile`, wired into the grace-window retry loop that already re-checks a
+still-live entry after a Kustomization disappears (`deleteKustomization`, the branch guarded by
+`abandonedInventoryGraceWindow`) — the exact loop, and the exact scenario, the live verification
+below exercised. `fluxReconcileAnnotationGroups` selects `reconcile.fluxcd.io/requestedAt` for
+`kustomize.toolkit.fluxcd.io`/`helm.toolkit.fluxcd.io` entries and `windsorcli.dev/reconcile-
+requested-at` for everything else, matching the two cases above exactly. A patch failure is not
+surfaced: the caller's existing wait and timeout handling already covers an entry that never clears,
+for any reason including the trigger doing nothing.
+
+Not yet covered: the other place `firstLiveInventoryEntry` runs, when the Kustomization itself never
+disappears and the main wait loop times out on its own budget (`deleteKustomization`, past the `for`
+loop). That path reads the inventory once, to build the final error, with no retry loop to hang a
+trigger off of. Worth adding — a single trigger-and-recheck before giving up would match this
+decision's own reasoning — but it changes that code path's shape rather than reusing one already
+there, so it is left for a follow-up rather than folded into this change.
+
 #### Verified on a live GCP cluster, 2026-09-20
 
 The exact deadlock from earlier in this ADR was reproduced on a second `gcp-test` destroy:
 `ProviderConfig demo-database/provider-sql-demo-db` held `in-use.crossplane.io` with a
 deletionTimestamp set and zero live `ProviderConfigUsage` objects, identical to the first
-occurrence. A single manual `kubectl annotate ... windsorcli.dev/reconcile-nudge=<timestamp>`
-against the stuck object was followed, on the very next check, by `NotFound` — the object was gone.
+occurrence. A single manual `kubectl annotate` against the stuck object, using an ad hoc key ahead
+of `windsorReconcileAnnotation` being named, was followed, on the very next check, by `NotFound` —
+the object was gone.
 The owning namespace finished terminating shortly after, on its next controller sweep. `windsor
 destroy`'s own walk crossed `demo-resources` and `database-resources` without ever reaching Decision
 4's report: the trigger resolved the object faster than the tier's own wait budget would have
@@ -663,7 +681,8 @@ reports it.
   (314), `GetHelmReleasesForKustomization`, `decodeInventoryID`, `DeleteBlueprint`
   (1540), `abortDestroy`, `describeStuckHelmReleases`, `allInventoryEntriesGone`
   (2389), `resolveScopedGVR`, `firstLiveInventoryEntry`,
-  `reverseTopologicalKustomizations`
+  `reverseTopologicalKustomizations`, `triggerReconcile`,
+  `fluxReconcileAnnotationGroups`
 - `github.com/fluxcd/helm-controller/api v1.6.4`, package `v2`: `ResourceInventory` /
   `ResourceRef.ID` (`inventory_types.go`), `Uninstall` with `Timeout` / `KeepHistory` /
   `DisableWait` / `DeletionPropagation` and `GetTimeout` (`helmrelease_types.go:1215-1262`),
