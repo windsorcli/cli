@@ -53,6 +53,7 @@ type KubernetesClient interface {
 	PatchResource(ctx context.Context, gvr schema.GroupVersionResource, namespace, name string, pt types.PatchType, data []byte, opts metav1.PatchOptions) (*unstructured.Unstructured, error)
 	CheckHealth(ctx context.Context, endpoint string) error
 	GetNodeReadyStatus(ctx context.Context, nodeNames []string) (map[string]bool, error)
+	IsVerbose() bool
 }
 
 // =============================================================================
@@ -247,6 +248,12 @@ func (c *DynamicKubernetesClient) GetNodeReadyStatus(ctx context.Context, nodeNa
 	}
 
 	return readyStatus, nil
+}
+
+// IsVerbose reports whether the shell backing this client is in verbose mode.
+// A nil shell is treated as non-verbose.
+func (c *DynamicKubernetesClient) IsVerbose() bool {
+	return c.shell != nil && c.shell.IsVerbose()
 }
 
 // =============================================================================
