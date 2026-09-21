@@ -1200,6 +1200,39 @@ func TestBaseKubernetesManager_DeleteKustomization(t *testing.T) {
 		}
 	})
 
+	t.Run("DisappearedSucceedsWhenOnlyResidueSurvives", func(t *testing.T) {
+		// Given a destroy where the kustomization disappears and its last-known
+		// inventory entries stay live throughout, but none carry a finalizer —
+		// real residue, never a reason to block
+		manager := setup(t)
+		kubernetesClient := withGVRs(client.NewMockKubernetesClient())
+		kubernetesClient.DeleteResourceFunc = func(gvr schema.GroupVersionResource, namespace, name string, opts metav1.DeleteOptions) error {
+			return nil
+		}
+		calls := 0
+		kubernetesClient.GetResourceFunc = func(gvr schema.GroupVersionResource, namespace, name string) (*unstructured.Unstructured, error) {
+			if name == "test-kustomization" {
+				calls++
+				if calls == 1 {
+					return drainedKustomization(), nil
+				}
+				return nil, fmt.Errorf("the server could not find the requested resource")
+			}
+			// entry-one and entry-two: live for the rest of the run, no finalizer
+			return &unstructured.Unstructured{}, nil
+		}
+		manager.client = kubernetesClient
+		expectWaitForTermination := true
+
+		// When the destroy walk sees the kustomization disappear
+		err := manager.deleteKustomization("test-kustomization", "test-namespace", &expectWaitForTermination, nil, true)
+
+		// Then the delete succeeds: neither entry ever blocked it
+		if err != nil {
+			t.Errorf("Expected residue to let the delete succeed, got: %v", err)
+		}
+	})
+
 	t.Run("DisappearedGraceWindowScalesWithInventorySize", func(t *testing.T) {
 		// Given a still-live entry that settles after more polls than the fixed
 		// abandonedInventoryGraceChecks floor allows, but within the window the
