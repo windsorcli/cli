@@ -8,6 +8,7 @@ import (
 	goruntime "runtime"
 	"strings"
 	"testing"
+	"time"
 
 	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
 	"github.com/windsorcli/cli/pkg/composer/artifact"
@@ -2481,6 +2482,332 @@ func TestTestRunner_matchKustomization(t *testing.T) {
 		// Then diffs should indicate missing key
 		if len(diffs) != 1 {
 			t.Errorf("Expected 1 diff, got: %d", len(diffs))
+		}
+	})
+
+	t.Run("ReturnsDiffWhenTimeoutMismatches", func(t *testing.T) {
+		// Given a kustomization whose timeout differs from the expectation
+		mocks := setupTestRunnerMocks(t)
+		runner := createRunnerWithMockGenerator(mocks)
+
+		actual := &blueprintv1alpha1.Kustomization{
+			Name:    "cert-manager",
+			Timeout: &blueprintv1alpha1.DurationString{Duration: 5 * time.Minute},
+		}
+
+		expect := blueprintv1alpha1.Kustomization{
+			Name:    "cert-manager",
+			Timeout: &blueprintv1alpha1.DurationString{Duration: 20 * time.Minute},
+		}
+
+		// When matching
+		diffs := runner.matchKustomization(actual, expect, expect.Name)
+
+		// Then diffs should indicate the timeout mismatch
+		if len(diffs) != 1 {
+			t.Errorf("Expected 1 diff, got: %d", len(diffs))
+		}
+	})
+
+	t.Run("ReturnsDiffWhenTimeoutUnset", func(t *testing.T) {
+		// Given an expectation naming a timeout the actual kustomization never sets
+		mocks := setupTestRunnerMocks(t)
+		runner := createRunnerWithMockGenerator(mocks)
+
+		actual := &blueprintv1alpha1.Kustomization{Name: "cert-manager"}
+		expect := blueprintv1alpha1.Kustomization{
+			Name:    "cert-manager",
+			Timeout: &blueprintv1alpha1.DurationString{Duration: 20 * time.Minute},
+		}
+
+		// When matching
+		diffs := runner.matchKustomization(actual, expect, expect.Name)
+
+		// Then diffs should indicate the timeout is unset, not silently pass
+		if len(diffs) != 1 {
+			t.Errorf("Expected 1 diff, got: %d", len(diffs))
+		}
+	})
+
+	t.Run("ReturnsNoDiffWhenTimeoutMatches", func(t *testing.T) {
+		// Given a kustomization whose timeout matches the expectation
+		mocks := setupTestRunnerMocks(t)
+		runner := createRunnerWithMockGenerator(mocks)
+
+		actual := &blueprintv1alpha1.Kustomization{
+			Name:    "cert-manager",
+			Timeout: &blueprintv1alpha1.DurationString{Duration: 20 * time.Minute},
+		}
+		expect := blueprintv1alpha1.Kustomization{
+			Name:    "cert-manager",
+			Timeout: &blueprintv1alpha1.DurationString{Duration: 20 * time.Minute},
+		}
+
+		// When matching
+		diffs := runner.matchKustomization(actual, expect, expect.Name)
+
+		// Then no diffs should be returned
+		if len(diffs) != 0 {
+			t.Errorf("Expected no diffs, got: %v", diffs)
+		}
+	})
+
+	t.Run("ReturnsDiffWhenIntervalMismatches", func(t *testing.T) {
+		// Given a kustomization whose interval differs from the expectation
+		mocks := setupTestRunnerMocks(t)
+		runner := createRunnerWithMockGenerator(mocks)
+
+		actual := &blueprintv1alpha1.Kustomization{
+			Name:     "cert-manager",
+			Interval: &blueprintv1alpha1.DurationString{Duration: time.Minute},
+		}
+		expect := blueprintv1alpha1.Kustomization{
+			Name:     "cert-manager",
+			Interval: &blueprintv1alpha1.DurationString{Duration: 5 * time.Minute},
+		}
+
+		// When matching
+		diffs := runner.matchKustomization(actual, expect, expect.Name)
+
+		// Then diffs should indicate the interval mismatch
+		if len(diffs) != 1 {
+			t.Errorf("Expected 1 diff, got: %d", len(diffs))
+		}
+	})
+
+	t.Run("ReturnsDiffWhenRetryIntervalMismatches", func(t *testing.T) {
+		// Given a kustomization whose retryInterval differs from the expectation
+		mocks := setupTestRunnerMocks(t)
+		runner := createRunnerWithMockGenerator(mocks)
+
+		actual := &blueprintv1alpha1.Kustomization{
+			Name:          "cert-manager",
+			RetryInterval: &blueprintv1alpha1.DurationString{Duration: 30 * time.Second},
+		}
+		expect := blueprintv1alpha1.Kustomization{
+			Name:          "cert-manager",
+			RetryInterval: &blueprintv1alpha1.DurationString{Duration: time.Minute},
+		}
+
+		// When matching
+		diffs := runner.matchKustomization(actual, expect, expect.Name)
+
+		// Then diffs should indicate the retryInterval mismatch
+		if len(diffs) != 1 {
+			t.Errorf("Expected 1 diff, got: %d", len(diffs))
+		}
+	})
+
+	t.Run("ReturnsDiffWhenDeleteTimeoutMismatches", func(t *testing.T) {
+		// Given a kustomization whose deleteTimeout differs from the expectation
+		mocks := setupTestRunnerMocks(t)
+		runner := createRunnerWithMockGenerator(mocks)
+
+		actual := &blueprintv1alpha1.Kustomization{
+			Name:          "database",
+			DeleteTimeout: &blueprintv1alpha1.DurationString{Duration: 10 * time.Minute},
+		}
+		expect := blueprintv1alpha1.Kustomization{
+			Name:          "database",
+			DeleteTimeout: &blueprintv1alpha1.DurationString{Duration: 45 * time.Minute},
+		}
+
+		// When matching
+		diffs := runner.matchKustomization(actual, expect, expect.Name)
+
+		// Then diffs should indicate the deleteTimeout mismatch
+		if len(diffs) != 1 {
+			t.Errorf("Expected 1 diff, got: %d", len(diffs))
+		}
+	})
+
+	t.Run("ReturnsNoDiffWhenDeleteTimeoutMatches", func(t *testing.T) {
+		// Given a kustomization whose deleteTimeout matches the expectation
+		mocks := setupTestRunnerMocks(t)
+		runner := createRunnerWithMockGenerator(mocks)
+
+		actual := &blueprintv1alpha1.Kustomization{
+			Name:          "database",
+			DeleteTimeout: &blueprintv1alpha1.DurationString{Duration: 45 * time.Minute},
+		}
+		expect := blueprintv1alpha1.Kustomization{
+			Name:          "database",
+			DeleteTimeout: &blueprintv1alpha1.DurationString{Duration: 45 * time.Minute},
+		}
+
+		// When matching
+		diffs := runner.matchKustomization(actual, expect, expect.Name)
+
+		// Then no diffs should be returned
+		if len(diffs) != 0 {
+			t.Errorf("Expected no diffs, got: %v", diffs)
+		}
+	})
+
+	t.Run("ReturnsDiffWhenWaitMismatches", func(t *testing.T) {
+		// Given a kustomization whose wait differs from the expectation
+		mocks := setupTestRunnerMocks(t)
+		runner := createRunnerWithMockGenerator(mocks)
+
+		actualWait := false
+		expectWait := true
+		actual := &blueprintv1alpha1.Kustomization{Name: "cert-manager", Wait: &actualWait}
+		expect := blueprintv1alpha1.Kustomization{Name: "cert-manager", Wait: &expectWait}
+
+		// When matching
+		diffs := runner.matchKustomization(actual, expect, expect.Name)
+
+		// Then diffs should indicate the wait mismatch
+		if len(diffs) != 1 {
+			t.Errorf("Expected 1 diff, got: %d", len(diffs))
+		}
+	})
+
+	t.Run("ReturnsNoDiffWhenWaitMatches", func(t *testing.T) {
+		// Given a kustomization whose wait matches the expectation
+		mocks := setupTestRunnerMocks(t)
+		runner := createRunnerWithMockGenerator(mocks)
+
+		wait := true
+		actual := &blueprintv1alpha1.Kustomization{Name: "cert-manager", Wait: &wait}
+		expect := blueprintv1alpha1.Kustomization{Name: "cert-manager", Wait: &wait}
+
+		// When matching
+		diffs := runner.matchKustomization(actual, expect, expect.Name)
+
+		// Then no diffs should be returned
+		if len(diffs) != 0 {
+			t.Errorf("Expected no diffs, got: %v", diffs)
+		}
+	})
+
+	t.Run("ReturnsDiffWhenHealthCheckMissing", func(t *testing.T) {
+		// Given a kustomization missing an expected health check
+		mocks := setupTestRunnerMocks(t)
+		runner := createRunnerWithMockGenerator(mocks)
+
+		actual := &blueprintv1alpha1.Kustomization{
+			Name: "policy",
+			HealthChecks: []blueprintv1alpha1.HealthCheckRef{
+				{APIVersion: "apps/v1", Kind: "Deployment", Name: "other-controller", Namespace: "system-policy"},
+			},
+		}
+		expect := blueprintv1alpha1.Kustomization{
+			Name: "policy",
+			HealthChecks: []blueprintv1alpha1.HealthCheckRef{
+				{APIVersion: "apps/v1", Kind: "Deployment", Name: "kyverno-admission-controller", Namespace: "system-policy"},
+			},
+		}
+
+		// When matching
+		diffs := runner.matchKustomization(actual, expect, expect.Name)
+
+		// Then diffs should indicate the missing health check
+		if len(diffs) != 1 {
+			t.Errorf("Expected 1 diff, got: %d", len(diffs))
+		}
+	})
+
+	t.Run("ReturnsNoDiffWhenHealthCheckPresent", func(t *testing.T) {
+		// Given a kustomization whose health checks include the expected one
+		mocks := setupTestRunnerMocks(t)
+		runner := createRunnerWithMockGenerator(mocks)
+
+		check := blueprintv1alpha1.HealthCheckRef{APIVersion: "apps/v1", Kind: "Deployment", Name: "kyverno-admission-controller", Namespace: "system-policy"}
+		actual := &blueprintv1alpha1.Kustomization{
+			Name:         "policy",
+			HealthChecks: []blueprintv1alpha1.HealthCheckRef{check},
+		}
+		expect := blueprintv1alpha1.Kustomization{
+			Name:         "policy",
+			HealthChecks: []blueprintv1alpha1.HealthCheckRef{check},
+		}
+
+		// When matching
+		diffs := runner.matchKustomization(actual, expect, expect.Name)
+
+		// Then no diffs should be returned
+		if len(diffs) != 0 {
+			t.Errorf("Expected no diffs, got: %v", diffs)
+		}
+	})
+
+	t.Run("ReturnsNoDiffWhenHealthCheckLeavesNamespaceAndAPIVersionUnset", func(t *testing.T) {
+		// Given a fixture that only names kind and name, leaving apiVersion and namespace
+		// unset since the actual namespace defaults to the kustomization's own
+		mocks := setupTestRunnerMocks(t)
+		runner := createRunnerWithMockGenerator(mocks)
+
+		actual := &blueprintv1alpha1.Kustomization{
+			Name: "policy",
+			HealthChecks: []blueprintv1alpha1.HealthCheckRef{
+				{APIVersion: "apps/v1", Kind: "Deployment", Name: "kyverno-admission-controller", Namespace: "system-policy"},
+			},
+		}
+		expect := blueprintv1alpha1.Kustomization{
+			Name: "policy",
+			HealthChecks: []blueprintv1alpha1.HealthCheckRef{
+				{Kind: "Deployment", Name: "kyverno-admission-controller"},
+			},
+		}
+
+		// When matching
+		diffs := runner.matchKustomization(actual, expect, expect.Name)
+
+		// Then no diffs should be returned: the unset fields are not compared
+		if len(diffs) != 0 {
+			t.Errorf("Expected no diffs, got: %v", diffs)
+		}
+	})
+
+	t.Run("ReturnsDiffWhenHealthCheckExprMissing", func(t *testing.T) {
+		// Given a kustomization missing an expected CEL health check expression
+		mocks := setupTestRunnerMocks(t)
+		runner := createRunnerWithMockGenerator(mocks)
+
+		actual := &blueprintv1alpha1.Kustomization{
+			Name: "crossplane",
+			HealthCheckExprs: []blueprintv1alpha1.HealthCheckExpr{
+				{APIVersion: "example.com/v1", Kind: "Widget", Current: "status.ready == false"},
+			},
+		}
+		expect := blueprintv1alpha1.Kustomization{
+			Name: "crossplane",
+			HealthCheckExprs: []blueprintv1alpha1.HealthCheckExpr{
+				{APIVersion: "example.com/v1", Kind: "Widget", Current: "status.ready == true"},
+			},
+		}
+
+		// When matching
+		diffs := runner.matchKustomization(actual, expect, expect.Name)
+
+		// Then diffs should indicate the missing health check expression
+		if len(diffs) != 1 {
+			t.Errorf("Expected 1 diff, got: %d", len(diffs))
+		}
+	})
+
+	t.Run("ReturnsNoDiffWhenHealthCheckExprPresent", func(t *testing.T) {
+		// Given a kustomization whose health check expressions include the expected one
+		mocks := setupTestRunnerMocks(t)
+		runner := createRunnerWithMockGenerator(mocks)
+
+		expr := blueprintv1alpha1.HealthCheckExpr{APIVersion: "example.com/v1", Kind: "Widget", Current: "status.ready == true"}
+		actual := &blueprintv1alpha1.Kustomization{
+			Name:             "crossplane",
+			HealthCheckExprs: []blueprintv1alpha1.HealthCheckExpr{expr},
+		}
+		expect := blueprintv1alpha1.Kustomization{
+			Name:             "crossplane",
+			HealthCheckExprs: []blueprintv1alpha1.HealthCheckExpr{expr},
+		}
+
+		// When matching
+		diffs := runner.matchKustomization(actual, expect, expect.Name)
+
+		// Then no diffs should be returned
+		if len(diffs) != 0 {
+			t.Errorf("Expected no diffs, got: %v", diffs)
 		}
 	})
 }
