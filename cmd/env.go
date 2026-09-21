@@ -45,7 +45,7 @@ windsor env`,
 			}
 		}
 		var rtOpts []*runtime.Runtime
-		if overridesVal := cmd.Root().Context().Value(runtimeOverridesKey); overridesVal != nil {
+		if overridesVal := cmd.Context().Value(runtimeOverridesKey); overridesVal != nil {
 			rtOpts = []*runtime.Runtime{overridesVal.(*runtime.Runtime)}
 		}
 

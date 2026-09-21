@@ -330,6 +330,45 @@ func TestEnvCmd_SuccessScenarios(t *testing.T) {
 	})
 }
 
+// TestEnvCmd_ContextOverride verifies env reads its runtime override from the command's
+// own context, the way commandPreflight/setupGlobalContext actually leaves it for a real
+// --context invocation, rather than from the root command's context. A prior regression
+// read cmd.Root().Context(), so --context silently had no effect on env: it kept resolving
+// the on-disk default context instead of the one the flag named.
+func TestEnvCmd_ContextOverride(t *testing.T) {
+	envVarsBefore := captureEnvVars()
+	t.Cleanup(func() {
+		isolateTestState(t)
+		restoreEnvVars(t, envVarsBefore)
+	})
+
+	t.Run("PrefersLeafCommandContextOverRootContext", func(t *testing.T) {
+		// Given a different override on rootCmd's context than on envCmd's own context —
+		// mirroring a real --context run, where setupGlobalContext sets the override on the
+		// leaf command handed to it, and rootCmd's own context never receives it
+		setupOutputCapture(t)
+		rootCmd.SetContext(context.Background())
+
+		rootMocks := setupMocks(t)
+		rootMocks.Shell.CheckTrustedDirectoryFunc = func() error {
+			return fmt.Errorf("used the override on rootCmd's context, not envCmd's own")
+		}
+		rootCmd.SetContext(context.WithValue(context.Background(), runtimeOverridesKey, rootMocks.Runtime))
+
+		leafMocks := setupMocks(t)
+		envCmd.SetContext(context.WithValue(context.Background(), runtimeOverridesKey, leafMocks.Runtime))
+		t.Cleanup(func() { envCmd.SetContext(context.Background()) })
+
+		// When running env directly against that command
+		err := envCmd.RunE(envCmd, []string{})
+
+		// Then it should succeed using envCmd's own override, not rootCmd's
+		if err != nil {
+			t.Errorf("Expected success using envCmd's own context override, got: %v", err)
+		}
+	})
+}
+
 func TestEnvCmd_ErrorScenarios(t *testing.T) {
 	envVarsBefore := captureEnvVars()
 	os.Unsetenv("WINDSOR_CONTEXT")
