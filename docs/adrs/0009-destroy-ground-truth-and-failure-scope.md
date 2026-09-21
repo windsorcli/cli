@@ -1,9 +1,10 @@
 # ADR 0009 — windsor destroy: respect every finalizer, decide nothing on its behalf
 
-- Status: Proposed. Decisions 1 through 3, 5, and 6 have shipped. 4 is revised below a second time: a
-  live GCP run first showed the per-tier abort was wrong, and the classification-based gate written
-  to replace it was itself withdrawn before implementation for the reason recorded under
-  Alternatives.
+- Status: Accepted. Decisions 1 through 3, 5, and 6 have shipped. Decision 4's stop-and-report
+  principle holds without new code. Its cluster-wide sweep is withdrawn a second time, for a new
+  reason recorded under Alternatives: it assumes a terraform destroy always removes the cluster,
+  which windsor's own selective and targeted destroy paths already disprove, and it scopes
+  `windsor destroy` to the whole cluster rather than to the blueprint it was asked to destroy.
 - Date: 2026-09-20
 - Deciders: Ryan VanGundy
 - Surfaced investigating cli#3417 (three independent destroy stalls in one acceptance run)
@@ -361,38 +362,22 @@ dangling `ProviderConfig` was safe to clear by hand after reading exactly this e
 composite gone, no referencing objects. Windsor now assembles that evidence and hands it over rather
 than reaching the same conclusion on its own.
 
-#### The terminal check reads the cluster directly, not Flux's account of it
+#### The check stays scoped to the blueprint, not the cluster
 
-The report above is scoped to what Flux tracked, because that is the mechanism doing the deleting.
-It says nothing about a Crossplane managed resource an operator applied by hand, a `LoadBalancer`
-Service outside any GitOps tree, or a PersistentVolume a StatefulSet provisioned dynamically — none
-of those appear in any Kustomization's inventory, so the walk above cannot see them. Neither could
-the withdrawn gate, which scoped its check the same way.
+An earlier draft of this decision proposed a second check here, run once immediately before
+terraform, that enumerated every resource type the cluster's API server serves and listed every
+object of every type, blocking on any finalizer or deletionTimestamp regardless of source. That
+cluster-wide sweep is withdrawn before implementation. Reasoning for its withdrawal is recorded under
+Alternatives; in short, it assumed a terraform destroy always removes the cluster, which windsor
+cannot assume, and it answered a bigger question than `windsor destroy` should ask — whether the
+cluster holds anything live at all, rather than whether the blueprint being destroyed is gone.
 
-So the check that runs immediately before terraform MUST NOT be scoped to any inventory. It MUST
-enumerate every resource type the cluster's API server serves, using discovery
-(`k8s.io/client-go/discovery`, the same mechanism `kubectl api-resources` uses), and list every
-object of every type — metadata only, via `k8s.io/client-go/metadata`, since the check needs only
-`finalizers` and `deletionTimestamp`. Every object carrying either MUST block, with no exception for
-kind.
-
-This is not the withdrawn gate returning under a new name. That gate matched live objects against a
-curated set of kinds believed to own external state and let the run proceed past anything outside
-it. This asks one uniform question of every object the cluster actually contains — does it still
-carry obligation — and answers it exactly the way Decision 4 already does everywhere else. The list
-is gone. The completeness an earlier draft achieved only for a curated subset is now total: nothing
-about this check depends on knowing what a resource is, only on reading two fields every object in
-Kubernetes carries.
-
-A resource type whose List call fails, or a discovery call that cannot complete, MUST fail the check
-rather than being skipped. This is the same rule Decision 3 applies to an inventory entry that will
-not decode: unverifiable is not clean, and silently skipping a type windsor could not query is
-indistinguishable, from the operator's side, from deciding it held nothing.
-
-The sweep runs once, immediately before an already-expensive terraform destroy. A metadata-only list
-against a few hundred resource types costs seconds, not minutes, and the overwhelming majority —
-Events, Leases, EndpointSlices — carry no finalizer and contribute nothing to the report regardless
-of how many exist.
+So the report above stays exactly what it says: scoped to what Flux tracked, through
+`deleteKustomization`'s own Kustomization and, per Decision 3, the HelmReleases it wraps. A
+Crossplane managed resource an operator applied by hand, a `LoadBalancer` Service outside any GitOps
+tree, or a PersistentVolume a StatefulSet provisioned dynamically falls outside that scope on
+purpose: none of those belong to the blueprint `windsor destroy` was asked to tear down, so none of
+them are windsor's obligation to verify.
 
 ### 5. Never tear down a controller a stalled object still needs
 
@@ -561,15 +546,16 @@ reports it.
 - Decision 2 replaces an install budget with a teardown budget, which is the honest form of "wait
   longer" that a retry would only have approximated. It is inert until `core` declares
   `spec.uninstall.timeout`, so the two changes are worth sequencing together.
-- Decision 4 keeps a standalone check immediately before terraform, but removes what that check used
-  to do. It no longer classifies and it grants no permission past anything it finds; it enumerates
-  the cluster directly, reports what still carries obligation, and blocks. Windsor never writes to
-  another controller's finalizer, in either direction.
-- The cluster-wide sweep is strictly more complete than the per-Kustomization report that precedes
-  it, because it does not depend on Flux having tracked a resource in the first place. A
-  hand-applied managed resource, an out-of-band `LoadBalancer` Service, or a dynamically-provisioned
-  PV now blocks terraform exactly as a stalled Kustomization does, where today none of them would be
-  seen at all.
+- Decision 4 keeps a standalone check immediately before terraform, but removes what an earlier draft
+  had that check do. It no longer classifies and it grants no permission past anything it finds; it
+  reports what still carries obligation, within the blueprint's own tracked resources, and blocks.
+  Windsor never writes to another controller's finalizer, in either direction.
+- Windsor's confirmed-drain check stays scoped to what the blueprint declares: each Kustomization's
+  own inventory, followed one level into any HelmRelease it wraps per Decision 3. A hand-applied
+  managed resource, an out-of-band `LoadBalancer` Service, or a dynamically-provisioned PV outside
+  that inventory is not verified by `windsor destroy`, on the same reasoning that withdrew the
+  cluster-wide sweep: verifying it would require assuming the destroy is removing the cluster, which
+  windsor does not assume. See Alternatives.
 - A destroy that genuinely cannot finish now stops sooner and more precisely than before — at the
   Kustomization whose budget actually ran out, with the specific objects and their owner-reference
   state, rather than as a generic timeout an operator has to go investigate cold. It does not stop
@@ -598,10 +584,10 @@ reports it.
   reported, per Decisions 1 through 3 and the object-level detail Decision 4 adds. A rerun still
   re-walks the whole blueprint, since windsor keeps no resume state, and Kustomizations already gone
   return immediately.
-- The cluster-wide sweep adds a new place terraform can be deferred from: a kustomize stage that
-  reports every Kustomization drained can still fail here, on an object Flux never tracked. That is
-  new information surfacing, not a regression — the object was always there and always at risk; only
-  the check that finds it is new.
+- This also holds for windsor's selective and targeted destroy paths — `excludeIDs`, and
+  `windsor destroy terraform <id>` against a single component. Confirmed drain applies to whatever
+  the blueprint's own Kustomizations track, regardless of which terraform components a given run
+  destroys or leaves standing, and regardless of whether any of them hosts the cluster.
 - An inventory entry windsor cannot decode now fails the destroy rather than being dropped from the
   set. After the decoder fix this is rare, and the alternative is verifying a list that is shorter
   than the inventory it came from.
@@ -683,6 +669,26 @@ reports it.
   still needs.
 - **Leaving abort-everything in place** and relying on the merged point fixes. Rejected: cli#3396 and
   cli#3277 narrow per-link risk without touching the run-level compounding.
+- **A cluster-wide sweep before terraform destroy**, enumerating every resource type via discovery
+  and every object via a metadata-only list, blocking on any finalizer or deletionTimestamp
+  regardless of source. Drafted as the second half of Decision 4 and withdrawn before implementation,
+  on two grounds, either sufficient alone. First, it assumes every terraform destroy removes the
+  cluster. Windsor's own selective and targeted destroy paths already disprove that —
+  `Provisioner.DestroyAllTerraform`'s `excludeIDs` and `windsor destroy terraform <id>` against a
+  single component both destroy terraform resources while an unrelated component, cluster included,
+  is left standing — and a terraform component carries no field marking it as the one that hosts a
+  cluster, so the sweep has no way to tell a destroy that puts the cluster at risk from one that does
+  not. It would have blocked a destroy of a DNS zone or a database component on in-cluster
+  obligations that were never actually at risk. Second, even against a destroy that does remove the
+  cluster, sweeping the whole cluster answers a larger question than `windsor destroy` is asked to
+  answer — whether the cluster has anything left alive in it, rather than whether the blueprint being
+  destroyed is gone. The GCP run used to motivate this decision does not require it either: the
+  object that actually blocked, `ProviderConfig demo-database/provider-sql-demo-db`, was blocking
+  `Namespace/demo-database`, which was already present in `demo-resources`' own inventory and so
+  already caught by Decisions 1 through 3 with no sweep involved. `windsor destroy` confirms the
+  blueprint is gone — each Kustomization's own inventory, and the HelmReleases it wraps. A
+  hand-applied resource or an out-of-band Service outside that inventory is out of scope, on the same
+  reasoning.
 
 ## References
 
@@ -699,12 +705,10 @@ reports it.
   `DisableWait` / `DeletionPropagation` and `GetTimeout` (`helmrelease_types.go:1215-1262`),
   `HelmReleaseStatus.Inventory` / `History` / `StorageNamespace`, `Snapshot.Status`
   (`snapshot_types.go`)
-- `pkg/provisioner/kubernetes/client/client.go`: `PatchResource`, `ListResourcesByLabel` (48). No
-  discovery or metadata-list method exists yet; Decision 4's cluster-wide sweep needs one added.
-- `k8s.io/client-go/discovery`: `ServerPreferredResources`, the API the cluster-wide sweep enumerates
-  resource types with
-- `k8s.io/client-go/metadata`: `NewForConfig`, `Getter.List` with `PartialObjectMetadataList`, the
-  metadata-only list the sweep uses instead of fetching full objects
+- `pkg/provisioner/kubernetes/client/client.go`: `PatchResource`, `ListResourcesByLabel` (48)
+- `pkg/provisioner/provisioner.go`: `DestroyAllTerraform` (406), `DestroyAll` (504), both taking
+  `excludeIDs ...string`; `Destroy` (438) for a single named terraform component — the selective and
+  targeted destroy paths the withdrawn cluster-wide sweep did not account for
 - `pkg/provisioner/terraform/stack.go`: `execTerraformDestroyWithRetry` (1195), the retry
   pattern Alternatives rejects for this path
 - `pkg/composer/blueprint/composer.go`: `applyCrdLayerBarrier` (960)

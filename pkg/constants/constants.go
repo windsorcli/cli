@@ -178,8 +178,15 @@ const DefaultKustomizationWaitMaxFailures = 5
 // cloud-provider LB deprovisioning (notably on AKS) can run well past 5 minutes.
 const DefaultLoadBalancerTeardownTimeout = 15 * time.Minute
 
-// Bounds a single `terraform destroy` invocation so a hung provider call fails, not blocks forever.
-const DefaultTerraformDestroyTimeout = 30 * time.Minute
+// Bounds a `terraform destroy` invocation's silence, not its total runtime. Resets on every line
+// of output, so a hung or broken-auth provider call fails fast while a slow but progressing
+// teardown keeps running as long as it keeps reporting progress.
+const DefaultTerraformDestroyIdleTimeout = 5 * time.Minute
+
+// Backstops a `terraform destroy` invocation against one that never stops emitting output
+// without finishing. Deliberately generous: it should not bind on any legitimately progressing
+// destroy, only on a pathological runaway.
+const DefaultTerraformDestroyAbsoluteTimeout = 2 * time.Hour
 
 // Bounds terraform refresh before destroy. Short on purpose: a hung refresh means the provider is unreachable.
 const DefaultTerraformRefreshTimeout = 2 * time.Minute
@@ -190,10 +197,6 @@ const DefaultTerraformDestroyRetryAttempts = 2
 
 // Wait between terraform destroy retry attempts.
 const DefaultTerraformDestroyRetryBackoff = 30 * time.Second
-
-// Bounds each terraform destroy retry attempt. Shorter than DefaultTerraformDestroyTimeout because a
-// retry only has to finish the resources the prior attempt left behind, not redo the whole destroy.
-const DefaultTerraformDestroyRetryTimeout = 5 * time.Minute
 
 // Grace period after a terraform destroy timeout interrupts the process, before a hard kill.
 // Terraform gets a chance to cancel its in-flight provider call and write a state checkpoint.
