@@ -1706,17 +1706,22 @@ func (k *BaseKubernetesManager) DeleteBlueprint(blueprint *blueprintv1alpha1.Blu
 }
 
 // abortDestroy un-suspends every eligible Kustomization before propagating cause, so a
-// DeleteBlueprint failure never leaves objects suspended by the up-front suspend loop with
-// nothing left to resume them — Install/ApplyBlueprint never resets spec.suspend on existing
-// objects, so a leftover suspend from an aborted destroy would otherwise persist indefinitely
-// across subsequent bootstrap runs. setKustomizationSuspend is a no-op against objects that are
-// already unsuspended or gone, so calling it on the full eligible set is safe regardless of how
-// far the destroy walk got. Un-suspend failures are joined with cause rather than swallowed.
+// DeleteBlueprint failure never leaves objects suspended with nothing left to resume them.
+// setKustomizationSuspend is a no-op against objects already unsuspended or gone. It stops early
+// on a request timeout rather than repeating a call the unreachable cluster will fail again.
 func (k *BaseKubernetesManager) abortDestroy(eligible []blueprintv1alpha1.Kustomization, namespace string, cause error) error {
 	errs := []error{cause}
-	for _, kustomization := range eligible {
-		if err := k.setKustomizationSuspend(kustomization.Name, namespace, false); err != nil {
-			errs = append(errs, fmt.Errorf("failed to un-suspend kustomization %q during abort cleanup: %w", kustomization.Name, err))
+	for idx, kustomization := range eligible {
+		err := k.setKustomizationSuspend(kustomization.Name, namespace, false)
+		if err == nil {
+			continue
+		}
+		errs = append(errs, fmt.Errorf("failed to un-suspend kustomization %q during abort cleanup: %w", kustomization.Name, err))
+		if errors.Is(err, context.DeadlineExceeded) {
+			if remaining := len(eligible) - idx - 1; remaining > 0 {
+				errs = append(errs, fmt.Errorf("stopping abort cleanup after a request timeout: %d more kustomization(s) left un-suspended, since the cluster is not answering", remaining))
+			}
+			break
 		}
 	}
 	return errors.Join(errs...)
