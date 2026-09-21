@@ -302,7 +302,8 @@ func (c *DynamicKubernetesClient) ensureClient() (dynamic.Interface, meta.RESTMa
 	endpointChanged := c.endpoint != c.builtEndpoint
 	built, err := c.buildClient()
 	if err != nil {
-		if c.client != nil && !endpointChanged && !errors.Is(err, os.ErrNotExist) {
+		keepCachedClient := c.client != nil && !endpointChanged && !errors.Is(err, os.ErrNotExist)
+		if keepCachedClient {
 			return c.client, c.mapper, nil
 		}
 		return nil, nil, err
@@ -327,17 +328,18 @@ func (c *DynamicKubernetesClient) connectionChangedLocked() bool {
 	if c.kubeconfigPath == "" {
 		return false
 	}
-	data, err := os.ReadFile(c.kubeconfigPath) // #nosec G304 - kubeconfigPath is the path this same client already read via restConfig, from the operator's own KUBECONFIG env var
+	hash, err := kubeconfigHash(c.kubeconfigPath)
 	if err != nil {
 		return errors.Is(err, os.ErrNotExist)
 	}
-	return sha256.Sum256(data) != c.kubeconfigHash
+	return hash != c.kubeconfigHash
 }
 
 // buildClient builds a dynamic client, REST mapper, and (for a kubeconfig file) its content hash.
-// It does not mutate c, so a failed attempt leaves any existing client untouched. It reads the
-// kubeconfig file again here, separately from restConfig, to hash it: restConfig must use
-// clientcmd's full loading rules so relative certificate/key/exec paths resolve correctly.
+// It does not mutate c, so a failed attempt leaves any existing client untouched. It hashes the
+// kubeconfig file again here, separately from restConfig, since restConfig must use clientcmd's
+// full loading rules so relative certificate/key/exec paths resolve correctly, and those rules
+// have no way to hand back the raw bytes they read.
 func (c *DynamicKubernetesClient) buildClient() (builtClient, error) {
 	config, kubeconfigPath, err := c.restConfig()
 	if err != nil {
@@ -361,8 +363,8 @@ func (c *DynamicKubernetesClient) buildClient() (builtClient, error) {
 	}
 	if kubeconfigPath != "" {
 		built.kubeconfigPath = kubeconfigPath
-		if data, readErr := os.ReadFile(kubeconfigPath); readErr == nil { // #nosec G304 - kubeconfigPath is the same path restConfig just read, from the operator's own KUBECONFIG env var
-			built.kubeconfigHash = sha256.Sum256(data)
+		if hash, hashErr := kubeconfigHash(kubeconfigPath); hashErr == nil {
+			built.kubeconfigHash = hash
 		} else if kubeconfigPath == c.kubeconfigPath {
 			// Same path as last time; this read failed transiently right after restConfig's own
 			// read succeeded. Keep the last known hash rather than dropping tracking entirely,
@@ -372,6 +374,15 @@ func (c *DynamicKubernetesClient) buildClient() (builtClient, error) {
 		}
 	}
 	return built, nil
+}
+
+// kubeconfigHash reads path and returns a hash of its content, for change detection.
+func kubeconfigHash(path string) ([sha256.Size]byte, error) {
+	data, err := os.ReadFile(path) // #nosec G304 - path is the operator's own KUBECONFIG env var, or the default ~/.kube/config
+	if err != nil {
+		return [sha256.Size]byte{}, err
+	}
+	return sha256.Sum256(data), nil
 }
 
 // restConfig builds a REST config: an explicit endpoint first, then in-cluster config, then the
