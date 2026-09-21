@@ -2286,3 +2286,83 @@ func TestBaseKubernetesManager_triggerReconcile(t *testing.T) {
 		manager.triggerReconcile(entry)
 	})
 }
+
+func TestDependencyClosure(t *testing.T) {
+	t.Run("IncludesStartWithNoDependencies", func(t *testing.T) {
+		ks := []blueprintv1alpha1.Kustomization{{Name: "solo"}}
+
+		// Given a kustomization with no DependsOn
+		// When dependencyClosure runs
+		closure := dependencyClosure(ks, "solo")
+
+		// Then the closure is just itself
+		if len(closure) != 1 || !closure["solo"] {
+			t.Errorf("expected closure {solo}, got %v", closure)
+		}
+	})
+
+	t.Run("IncludesADirectDependency", func(t *testing.T) {
+		ks := []blueprintv1alpha1.Kustomization{
+			{Name: "app", DependsOn: []string{"controller"}},
+			{Name: "controller"},
+		}
+
+		// Given app depends on controller
+		// When dependencyClosure runs from app
+		closure := dependencyClosure(ks, "app")
+
+		// Then both are in the closure
+		if !closure["app"] || !closure["controller"] {
+			t.Errorf("expected closure {app, controller}, got %v", closure)
+		}
+	})
+
+	t.Run("FollowsATransitiveChain", func(t *testing.T) {
+		ks := []blueprintv1alpha1.Kustomization{
+			{Name: "app", DependsOn: []string{"controller"}},
+			{Name: "controller", DependsOn: []string{"crds"}},
+			{Name: "crds"},
+		}
+
+		// Given app depends on controller, which depends on crds
+		// When dependencyClosure runs from app
+		closure := dependencyClosure(ks, "app")
+
+		// Then the closure reaches all three
+		if !closure["app"] || !closure["controller"] || !closure["crds"] {
+			t.Errorf("expected closure {app, controller, crds}, got %v", closure)
+		}
+	})
+
+	t.Run("TreatsAMissingDependsOnNameAsNoEdge", func(t *testing.T) {
+		ks := []blueprintv1alpha1.Kustomization{
+			{Name: "app", DependsOn: []string{"not-in-blueprint"}},
+		}
+
+		// Given app depends on a name absent from the blueprint
+		// When dependencyClosure runs from app
+		closure := dependencyClosure(ks, "app")
+
+		// Then the closure is just app; the missing name is not followed
+		if len(closure) != 1 || !closure["app"] {
+			t.Errorf("expected closure {app}, got %v", closure)
+		}
+	})
+
+	t.Run("DoesNotIncludeAnUnrelatedKustomization", func(t *testing.T) {
+		ks := []blueprintv1alpha1.Kustomization{
+			{Name: "app", DependsOn: []string{"controller"}},
+			{Name: "controller"},
+			{Name: "unrelated"},
+		}
+
+		// Given a third kustomization with no path from app
+		// When dependencyClosure runs from app
+		closure := dependencyClosure(ks, "app")
+
+		// Then it is not in the closure
+		if closure["unrelated"] {
+			t.Errorf("expected unrelated excluded from closure, got %v", closure)
+		}
+	})
+}

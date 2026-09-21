@@ -1,6 +1,6 @@
 # ADR 0009 — windsor destroy: respect every finalizer, decide nothing on its behalf
 
-- Status: Proposed. Decisions 1 through 3 have shipped. 4 and 5 are revised below a second time: a
+- Status: Proposed. Decisions 1 through 3 and 5 have shipped. 4 is revised below a second time: a
   live GCP run first showed the per-tier abort was wrong, and the classification-based gate written
   to replace it was itself withdrawn before implementation for the reason recorded under
   Alternatives. Decision 6 has shipped for the grace-window retry path; the main-loop-timeout path it
@@ -409,12 +409,19 @@ terraform, since the `DatabaseInstance`'s finalizer never cleared — but by the
 could have resolved it is gone, and the operator is left with a harder recovery than the stall
 itself warranted.
 
-So `abortDestroy` MUST NOT proceed into a stalled Kustomization's transitive dependency closure,
+So `DeleteBlueprint` MUST NOT proceed into a stalled Kustomization's transitive dependency closure,
 using the `DependsOn` edges `reverseTopologicalKustomizations` already walks, regardless of what
 the stalled object is or what its finalizer names. It SHOULD continue deleting Kustomizations
 outside that closure, so one stall does not stop progress on unrelated tiers. This is unconditional
 on purpose: the whole point of Decision 4 is that windsor no longer decides which stalls are the
 dangerous kind, so this decision cannot make that distinction either.
+
+Shipped: `dependencyClosure` computes the closure; `blockDependencyClosure` adds it to a `blocked`
+set and warns which names were skipped; `DeleteBlueprint`'s destroy loop checks `blocked` before
+attempting each Kustomization, records the failure, and continues rather than returning. The
+up-front suspend loop and `remediateLoadBalancerOwners` still abort the whole run on failure —
+nothing has been deleted yet at that point, so there is no partial progress worth preserving, and
+no closure to compute.
 
 The payoff is uneven, and that is unchanged from the earlier draft:
 `applyCrdLayerBarrier` (`pkg/composer/blueprint/composer.go:960`) puts the CRD layer inside almost
@@ -682,7 +689,7 @@ reports it.
   (1540), `abortDestroy`, `describeStuckHelmReleases`, `allInventoryEntriesGone`
   (2389), `resolveScopedGVR`, `firstLiveInventoryEntry`,
   `reverseTopologicalKustomizations`, `triggerReconcile`,
-  `fluxReconcileAnnotationGroups`
+  `fluxReconcileAnnotationGroups`, `dependencyClosure`, `blockDependencyClosure`
 - `github.com/fluxcd/helm-controller/api v1.6.4`, package `v2`: `ResourceInventory` /
   `ResourceRef.ID` (`inventory_types.go`), `Uninstall` with `Timeout` / `KeepHistory` /
   `DisableWait` / `DeletionPropagation` and `GetTimeout` (`helmrelease_types.go:1215-1262`),
