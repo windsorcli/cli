@@ -72,7 +72,7 @@ type Shell interface {
 	ExecCaptureWithEnv(command string, env map[string]string, args ...string) (string, error)
 	ExecSilentWithTimeout(command string, args []string, timeout time.Duration) (string, error)
 	ExecSilentWithEnvAndTimeout(command string, env map[string]string, args []string, timeout time.Duration) (string, error)
-	ExecSilentWithEnvAndGracefulTimeout(command string, env map[string]string, args []string, timeout, gracePeriod time.Duration) (string, error)
+	ExecSilentWithEnvAndIdleTimeout(command string, env map[string]string, args []string, idleTimeout, absoluteTimeout, gracePeriod time.Duration) (string, error)
 	ExecSudo(message string, command string, args ...string) (string, error)
 	ExecProgress(message string, command string, args ...string) (string, error)
 	ExecProgressWithEnv(message string, command string, env map[string]string, args ...string) (string, error)
@@ -397,47 +397,108 @@ func (s *DefaultShell) ExecSilentWithEnvAndTimeout(command string, env map[strin
 	return executeWithTimeout(execFn, cleanupFn, timeout)
 }
 
-// ExecSilentWithEnvAndGracefulTimeout is ExecSilentWithEnvAndTimeout with a softer timeout. On
-// timeout, it interrupts the process group first. It waits up to gracePeriod for the process to
-// exit. Only then does it force-kill.
+// ExecSilentWithEnvAndIdleTimeout runs command, streaming its output so a stall can be detected
+// without bounding how long a legitimately slow but still-progressing run may take. idleTimeout
+// resets on every line the command emits; only silence for that long counts as stuck.
+// absoluteTimeout is a generous backstop against a command that keeps emitting output without
+// ever finishing. Either firing interrupts the process group first, waits up to gracePeriod for
+// the process to exit, and only then force-kills.
 //
-// Use this for a command whose abrupt termination can corrupt external state. `terraform
-// destroy` is the motivating case: a hard kill mid-run loses its chance to write a checkpoint
-// and release its backend lock.
+// Use this for a long-running command whose own duration varies with what it is acting on, and
+// whose abrupt termination can corrupt external state. `terraform destroy` is the motivating
+// case: a wall-clock timeout kills a slow-but-healthy cloud teardown as readily as a genuinely
+// hung one, and a hard kill mid-run loses its chance to write a state checkpoint and release its
+// backend lock.
 //
-// Ordinary timeout-bound commands hold no external state. They should keep using
-// ExecSilentWithEnvAndTimeout, which kills immediately.
-func (s *DefaultShell) ExecSilentWithEnvAndGracefulTimeout(command string, env map[string]string, args []string, timeout, gracePeriod time.Duration) (string, error) {
-	var stdoutBuf, stderrBuf bytes.Buffer
+// Ordinary timeout-bound commands hold no external state and have no progress output to key off
+// of. They should keep using ExecSilentWithEnvAndTimeout, which kills immediately on one flat
+// deadline.
+func (s *DefaultShell) ExecSilentWithEnvAndIdleTimeout(command string, env map[string]string, args []string, idleTimeout, absoluteTimeout, gracePeriod time.Duration) (string, error) {
 	cmd := s.shims.Command(command, args...)
 	if cmd == nil {
 		return "", fmt.Errorf("failed to create command")
 	}
-
-	cmd.Stdout = &stdoutBuf
-	cmd.Stderr = &stderrBuf
 	cmd.Env = mergeEnvVars(s.shims.Environ(), env)
 	setProcessGroup(cmd)
+
+	stdoutPipe, err := s.shims.StdoutPipe(cmd)
+	if err != nil {
+		return "", err
+	}
+	stderrPipe, err := s.shims.StderrPipe(cmd)
+	if err != nil {
+		return "", err
+	}
 
 	if err := s.shims.CmdStart(cmd); err != nil {
 		return "", fmt.Errorf("command start failed: %w", err)
 	}
 
-	var waitOnce sync.Once
-	waitDone := make(chan struct{})
-	execFn := func() (string, error) {
-		var waitErr error
-		waitOnce.Do(func() {
-			waitErr = s.shims.CmdWait(cmd)
-			close(waitDone)
-		})
-		if waitErr != nil {
-			return s.scrubString(stdoutBuf.String()), fmt.Errorf("command execution failed: %w\n%s", waitErr, s.scrubString(stderrBuf.String()))
+	var stdoutBuf, stderrBuf bytes.Buffer
+	var bufMu sync.Mutex
+	activity := make(chan struct{}, 1)
+	notifyActivity := func() {
+		select {
+		case activity <- struct{}{}:
+		default:
 		}
-		return s.scrubString(stdoutBuf.String()), nil
 	}
 
-	cleanupFn := func() {
+	scanErrs := make(chan error, 2)
+	scan := func(pipe io.Reader, buf *bytes.Buffer) {
+		scanner := s.shims.NewScanner(pipe)
+		if scanner == nil {
+			scanErrs <- fmt.Errorf("failed to create scanner")
+			return
+		}
+		scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
+		for s.shims.ScannerScan(scanner) {
+			line := s.shims.ScannerText(scanner)
+			bufMu.Lock()
+			buf.WriteString(line + "\n")
+			bufMu.Unlock()
+			notifyActivity()
+		}
+		if err := s.shims.ScannerErr(scanner); err != nil && err != io.EOF && !isClosedPipe(err) {
+			scanErrs <- fmt.Errorf("error reading output: %w", err)
+			return
+		}
+		scanErrs <- nil
+	}
+
+	var wg sync.WaitGroup
+	wg.Add(2)
+	go func() { defer wg.Done(); scan(stdoutPipe, &stdoutBuf) }()
+	go func() { defer wg.Done(); scan(stderrPipe, &stderrBuf) }()
+
+	waitDone := make(chan error, 1)
+	go func() {
+		wg.Wait()
+		var scanErr error
+		for range [2]struct{}{} {
+			if e := <-scanErrs; e != nil && scanErr == nil {
+				scanErr = e
+			}
+		}
+		cmdErr := s.shims.CmdWait(cmd)
+		if scanErr != nil {
+			if cmdErr != nil {
+				waitDone <- fmt.Errorf("%w (also: command execution failed: %v)", scanErr, cmdErr)
+				return
+			}
+			waitDone <- scanErr
+			return
+		}
+		waitDone <- cmdErr
+	}()
+
+	output := func() string {
+		bufMu.Lock()
+		defer bufMu.Unlock()
+		return s.scrubString(stdoutBuf.String())
+	}
+
+	interrupt := func() {
 		_ = s.shims.InterruptProcessGroup(cmd)
 		select {
 		case <-waitDone:
@@ -445,13 +506,40 @@ func (s *DefaultShell) ExecSilentWithEnvAndGracefulTimeout(command string, env m
 		case <-time.After(gracePeriod):
 		}
 		_ = s.shims.KillProcessGroup(cmd)
-		waitOnce.Do(func() {
-			_ = s.shims.CmdWait(cmd)
-			close(waitDone)
-		})
+		<-waitDone
 	}
 
-	return executeWithTimeout(execFn, cleanupFn, timeout)
+	idleTimer := time.NewTimer(idleTimeout)
+	defer idleTimer.Stop()
+	absoluteTimer := time.NewTimer(absoluteTimeout)
+	defer absoluteTimer.Stop()
+
+	for {
+		select {
+		case waitErr := <-waitDone:
+			if waitErr != nil {
+				bufMu.Lock()
+				errOut := s.scrubString(stderrBuf.String())
+				bufMu.Unlock()
+				return output(), fmt.Errorf("command execution failed: %w\n%s", waitErr, errOut)
+			}
+			return output(), nil
+		case <-idleTimer.C:
+			interrupt()
+			return output(), fmt.Errorf("%w: no output for %v", ErrCommandTimedOut, idleTimeout)
+		case <-absoluteTimer.C:
+			interrupt()
+			return output(), fmt.Errorf("%w after %v", ErrCommandTimedOut, absoluteTimeout)
+		case <-activity:
+			if !idleTimer.Stop() {
+				select {
+				case <-idleTimer.C:
+				default:
+				}
+			}
+			idleTimer.Reset(idleTimeout)
+		}
+	}
 }
 
 // ExecProgress is a method of the DefaultShell struct that executes a command with a progress indicator.

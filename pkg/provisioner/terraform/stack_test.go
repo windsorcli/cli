@@ -1308,16 +1308,18 @@ func TestStack_DestroyAll(t *testing.T) {
 		}
 	})
 
-	t.Run("UsesDestroyTimeoutAndGracePeriod", func(t *testing.T) {
-		// Given a stack whose terraform destroy exec is bounded by a timeout and a grace
-		// period. A hard kill on timeout gave terraform no chance to checkpoint state or
-		// release its backend lock, so destroy must run through the graceful variant.
+	t.Run("UsesDestroyIdleAbsoluteAndGracePeriod", func(t *testing.T) {
+		// Given a stack whose terraform destroy exec is bounded by an idle timeout, an
+		// absolute backstop, and a grace period. A hard kill on timeout gave terraform no
+		// chance to checkpoint state or release its backend lock, so destroy must run
+		// through the idle-timeout variant.
 		stack, mocks := setup(t)
-		var gotTimeout, gotGracePeriod time.Duration
+		var gotIdleTimeout, gotAbsoluteTimeout, gotGracePeriod time.Duration
 		var sawDestroy bool
-		mocks.Shell.ExecSilentWithEnvAndGracefulTimeoutFunc = func(command string, env map[string]string, args []string, timeout, gracePeriod time.Duration) (string, error) {
+		mocks.Shell.ExecSilentWithEnvAndIdleTimeoutFunc = func(command string, env map[string]string, args []string, idleTimeout, absoluteTimeout, gracePeriod time.Duration) (string, error) {
 			sawDestroy = true
-			gotTimeout = timeout
+			gotIdleTimeout = idleTimeout
+			gotAbsoluteTimeout = absoluteTimeout
 			gotGracePeriod = gracePeriod
 			return "", nil
 		}
@@ -1328,13 +1330,16 @@ func TestStack_DestroyAll(t *testing.T) {
 			t.Fatalf("Expected no error, got %v", err)
 		}
 
-		// Then the destroy exec runs with the bounded timeout and grace period, not the
-		// immediate-kill variant
+		// Then the destroy exec runs with the bounded idle timeout, absolute backstop, and
+		// grace period, not the immediate-kill variant
 		if !sawDestroy {
-			t.Fatal("Expected terraform destroy to run via ExecSilentWithEnvAndGracefulTimeout")
+			t.Fatal("Expected terraform destroy to run via ExecSilentWithEnvAndIdleTimeout")
 		}
-		if gotTimeout != constants.DefaultTerraformDestroyTimeout {
-			t.Errorf("Expected timeout %v, got %v", constants.DefaultTerraformDestroyTimeout, gotTimeout)
+		if gotIdleTimeout != constants.DefaultTerraformDestroyIdleTimeout {
+			t.Errorf("Expected idle timeout %v, got %v", constants.DefaultTerraformDestroyIdleTimeout, gotIdleTimeout)
+		}
+		if gotAbsoluteTimeout != constants.DefaultTerraformDestroyAbsoluteTimeout {
+			t.Errorf("Expected absolute timeout %v, got %v", constants.DefaultTerraformDestroyAbsoluteTimeout, gotAbsoluteTimeout)
 		}
 		if gotGracePeriod != constants.DefaultTerraformDestroyGracePeriod {
 			t.Errorf("Expected grace period %v, got %v", constants.DefaultTerraformDestroyGracePeriod, gotGracePeriod)
@@ -3574,14 +3579,16 @@ func TestStack_Destroy(t *testing.T) {
 		}
 	})
 
-	t.Run("UsesDestroyTimeoutAndGracePeriod", func(t *testing.T) {
-		// Given a stack whose terraform destroy exec is bounded by a timeout and a grace period
+	t.Run("UsesDestroyIdleAbsoluteAndGracePeriod", func(t *testing.T) {
+		// Given a stack whose terraform destroy exec is bounded by an idle timeout, an
+		// absolute backstop, and a grace period
 		stack, mocks := setup(t)
-		var gotTimeout, gotGracePeriod time.Duration
+		var gotIdleTimeout, gotAbsoluteTimeout, gotGracePeriod time.Duration
 		var sawDestroy bool
-		mocks.Shell.ExecSilentWithEnvAndGracefulTimeoutFunc = func(command string, env map[string]string, args []string, timeout, gracePeriod time.Duration) (string, error) {
+		mocks.Shell.ExecSilentWithEnvAndIdleTimeoutFunc = func(command string, env map[string]string, args []string, idleTimeout, absoluteTimeout, gracePeriod time.Duration) (string, error) {
 			sawDestroy = true
-			gotTimeout = timeout
+			gotIdleTimeout = idleTimeout
+			gotAbsoluteTimeout = absoluteTimeout
 			gotGracePeriod = gracePeriod
 			return "", nil
 		}
@@ -3590,16 +3597,19 @@ func TestStack_Destroy(t *testing.T) {
 		// When destroying the local component by ID
 		_, err := stack.Destroy(blueprint, "local/path")
 
-		// Then the destroy exec runs with the bounded timeout and grace period, not the
-		// immediate-kill variant
+		// Then the destroy exec runs with the bounded idle timeout, absolute backstop, and
+		// grace period, not the immediate-kill variant
 		if err != nil {
 			t.Fatalf("Expected no error, got %v", err)
 		}
 		if !sawDestroy {
-			t.Fatal("Expected terraform destroy to run via ExecSilentWithEnvAndGracefulTimeout")
+			t.Fatal("Expected terraform destroy to run via ExecSilentWithEnvAndIdleTimeout")
 		}
-		if gotTimeout != constants.DefaultTerraformDestroyTimeout {
-			t.Errorf("Expected timeout %v, got %v", constants.DefaultTerraformDestroyTimeout, gotTimeout)
+		if gotIdleTimeout != constants.DefaultTerraformDestroyIdleTimeout {
+			t.Errorf("Expected idle timeout %v, got %v", constants.DefaultTerraformDestroyIdleTimeout, gotIdleTimeout)
+		}
+		if gotAbsoluteTimeout != constants.DefaultTerraformDestroyAbsoluteTimeout {
+			t.Errorf("Expected absolute timeout %v, got %v", constants.DefaultTerraformDestroyAbsoluteTimeout, gotAbsoluteTimeout)
 		}
 		if gotGracePeriod != constants.DefaultTerraformDestroyGracePeriod {
 			t.Errorf("Expected grace period %v, got %v", constants.DefaultTerraformDestroyGracePeriod, gotGracePeriod)

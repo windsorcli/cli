@@ -16,32 +16,32 @@ import (
 
 type MockShell struct {
 	DefaultShell
-	RenderEnvVarsFunc                       func(envVars map[string]string, export bool) string
-	RenderAliasesFunc                       func(aliases map[string]string) string
-	GetProjectRootFunc                      func() (string, error)
-	ExecFunc                                func(command string, args ...string) (string, error)
-	ExecSilentFunc                          func(command string, args ...string) (string, error)
-	ExecSilentWithEnvFunc                   func(command string, env map[string]string, args ...string) (string, error)
-	ExecCaptureWithEnvFunc                  func(command string, env map[string]string, args ...string) (string, error)
-	ExecSilentWithTimeoutFunc               func(command string, args []string, timeout time.Duration) (string, error)
-	ExecSilentWithEnvAndTimeoutFunc         func(command string, env map[string]string, args []string, timeout time.Duration) (string, error)
-	ExecSilentWithEnvAndGracefulTimeoutFunc func(command string, env map[string]string, args []string, timeout, gracePeriod time.Duration) (string, error)
-	ExecProgressFunc                        func(message string, command string, args ...string) (string, error)
-	ExecProgressWithEnvFunc                 func(message string, command string, env map[string]string, args ...string) (string, error)
-	ExecSudoFunc                            func(message string, command string, args ...string) (string, error)
-	InstallHookFunc                         func(shellName string) error
-	SetVerbosityFunc                        func(verbose bool)
-	IsVerboseFunc                           func() bool
-	IsGlobalFunc                            func() bool
-	AddCurrentDirToTrustedFileFunc          func() error
-	CheckTrustedDirectoryFunc               func() error
-	UnsetEnvsFunc                           func(envVars []string)
-	UnsetAliasFunc                          func(aliases []string)
-	WriteResetTokenFunc                     func() (string, error)
-	GetSessionTokenFunc                     func() (string, error)
-	CheckResetFlagsFunc                     func() (bool, error)
-	ResetFunc                               func(...bool)
-	RegisterSecretFunc                      func(value string)
+	RenderEnvVarsFunc                   func(envVars map[string]string, export bool) string
+	RenderAliasesFunc                   func(aliases map[string]string) string
+	GetProjectRootFunc                  func() (string, error)
+	ExecFunc                            func(command string, args ...string) (string, error)
+	ExecSilentFunc                      func(command string, args ...string) (string, error)
+	ExecSilentWithEnvFunc               func(command string, env map[string]string, args ...string) (string, error)
+	ExecCaptureWithEnvFunc              func(command string, env map[string]string, args ...string) (string, error)
+	ExecSilentWithTimeoutFunc           func(command string, args []string, timeout time.Duration) (string, error)
+	ExecSilentWithEnvAndTimeoutFunc     func(command string, env map[string]string, args []string, timeout time.Duration) (string, error)
+	ExecSilentWithEnvAndIdleTimeoutFunc func(command string, env map[string]string, args []string, idleTimeout, absoluteTimeout, gracePeriod time.Duration) (string, error)
+	ExecProgressFunc                    func(message string, command string, args ...string) (string, error)
+	ExecProgressWithEnvFunc             func(message string, command string, env map[string]string, args ...string) (string, error)
+	ExecSudoFunc                        func(message string, command string, args ...string) (string, error)
+	InstallHookFunc                     func(shellName string) error
+	SetVerbosityFunc                    func(verbose bool)
+	IsVerboseFunc                       func() bool
+	IsGlobalFunc                        func() bool
+	AddCurrentDirToTrustedFileFunc      func() error
+	CheckTrustedDirectoryFunc           func() error
+	UnsetEnvsFunc                       func(envVars []string)
+	UnsetAliasFunc                      func(aliases []string)
+	WriteResetTokenFunc                 func() (string, error)
+	GetSessionTokenFunc                 func() (string, error)
+	CheckResetFlagsFunc                 func() (bool, error)
+	ResetFunc                           func(...bool)
+	RegisterSecretFunc                  func(value string)
 }
 
 // =============================================================================
@@ -138,14 +138,15 @@ func (s *MockShell) ExecSilentWithEnvAndTimeout(command string, env map[string]s
 	return s.ExecSilent(command, args...)
 }
 
-// ExecSilentWithEnvAndGracefulTimeout calls the custom ExecSilentWithEnvAndGracefulTimeoutFunc if
-// provided. Falls back to ExecSilentWithEnvAndTimeout (ignoring gracePeriod) and its own fallback
-// chain, so existing tests that stub a simpler variant keep working.
-func (s *MockShell) ExecSilentWithEnvAndGracefulTimeout(command string, env map[string]string, args []string, timeout, gracePeriod time.Duration) (string, error) {
-	if s.ExecSilentWithEnvAndGracefulTimeoutFunc != nil {
-		return s.ExecSilentWithEnvAndGracefulTimeoutFunc(command, env, args, timeout, gracePeriod)
+// ExecSilentWithEnvAndIdleTimeout calls the custom ExecSilentWithEnvAndIdleTimeoutFunc if
+// provided. Falls back to ExecSilentWithEnvAndTimeout, reusing idleTimeout as its flat timeout
+// and ignoring absoluteTimeout and gracePeriod, so existing tests that stub a simpler variant
+// keep working.
+func (s *MockShell) ExecSilentWithEnvAndIdleTimeout(command string, env map[string]string, args []string, idleTimeout, absoluteTimeout, gracePeriod time.Duration) (string, error) {
+	if s.ExecSilentWithEnvAndIdleTimeoutFunc != nil {
+		return s.ExecSilentWithEnvAndIdleTimeoutFunc(command, env, args, idleTimeout, absoluteTimeout, gracePeriod)
 	}
-	return s.ExecSilentWithEnvAndTimeout(command, env, args, timeout)
+	return s.ExecSilentWithEnvAndTimeout(command, env, args, idleTimeout)
 }
 
 // ExecProgress calls the custom ExecProgressFunc if provided.
