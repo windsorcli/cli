@@ -1161,6 +1161,10 @@ func (i *Provisioner) PlaceSecrets(ctx context.Context, resolved ResolvedSecrets
 		waitCtx, cancel := context.WithTimeout(ctx, constants.DefaultFluxKustomizationInstallTimeout)
 		defer cancel()
 
+		reportInterval := 2 * pollInterval
+		start := time.Now()
+		lastReport := start
+
 		nudged := make(map[string]struct{})
 		for len(pending) > 0 {
 			var stillPending []pendingPlacement
@@ -1174,7 +1178,7 @@ func (i *Provisioner) PlaceSecrets(ctx context.Context, resolved ResolvedSecrets
 					stillPending = append(stillPending, p)
 					continue
 				}
-				tui.Update(fmt.Sprintf("Placing secrets: %s (%s)", p.secretName, p.kustomization))
+				tui.Update(fmt.Sprintf("placed %s (%s)", p.secretName, p.kustomization))
 				for _, namespace := range namespaces {
 					if err := i.KubernetesManager.ApplySecret(p.secretName, namespace, p.secret.Data, p.kustomization); err != nil {
 						return fmt.Errorf("applying secret %q to namespace %q: %w", p.secretName, namespace, err)
@@ -1207,7 +1211,10 @@ func (i *Provisioner) PlaceSecrets(ctx context.Context, resolved ResolvedSecrets
 			// kustomizations (e.g. crds) are never touched, and a member blocked upstream is left alone
 			// until its dependency clears, so this advances the chain without churning healthy resources.
 			i.nudgeFrontier(ctx, blueprint, nudged)
-			tui.Update(fmt.Sprintf("Placing secrets: waiting on %s", pendingSummary(pending)))
+			if now := time.Now(); now.Sub(lastReport) >= reportInterval {
+				tui.Update(fmt.Sprintf("waiting on %s (%s elapsed, timeout %s)", pendingSummary(pending), now.Sub(start).Round(time.Second), constants.DefaultFluxKustomizationInstallTimeout))
+				lastReport = now
+			}
 			select {
 			case <-waitCtx.Done():
 				return fmt.Errorf("timed out waiting on namespaces before placing secrets: %s", pendingSummary(pending))
@@ -1248,6 +1255,10 @@ func (i *Provisioner) Converge(ctx context.Context, blueprint *blueprintv1alpha1
 	waitCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
+	reportInterval := 2 * pollInterval
+	start := time.Now()
+	lastReport := start
+
 	return tui.WithProgress("Reconciling resources", func() error {
 		nudged := make(map[string]struct{})
 		for {
@@ -1255,7 +1266,10 @@ func (i *Provisioner) Converge(ctx context.Context, blueprint *blueprintv1alpha1
 			if len(notReady) == 0 {
 				return nil
 			}
-			tui.Update(fmt.Sprintf("Reconciling resources: waiting on %s", strings.Join(notReady, ", ")))
+			if now := time.Now(); now.Sub(lastReport) >= reportInterval {
+				tui.Update(fmt.Sprintf("waiting on %s (%s elapsed, timeout %s)", strings.Join(notReady, ", "), now.Sub(start).Round(time.Second), timeout))
+				lastReport = now
+			}
 			select {
 			case <-waitCtx.Done():
 				return nil

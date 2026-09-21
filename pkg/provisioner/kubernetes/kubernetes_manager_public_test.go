@@ -6606,8 +6606,9 @@ func TestBaseKubernetesManager_DeleteKustomizationReadFailures(t *testing.T) {
 	}
 
 	t.Run("ToleratesTransientReadFailure", func(t *testing.T) {
-		// Given a delete whose status reads fail twice with a transient API error,
-		// then succeed, before the kustomization goes away
+		// Given a delete whose status reads fail twice with a transient error, then
+		// succeed across two still-live polls (long enough for a progress update to
+		// be due), before the kustomization goes away
 		manager := setup(t)
 		kubernetesClient := withGVRs(client.NewMockKubernetesClient())
 		kubernetesClient.DeleteResourceFunc = func(gvr schema.GroupVersionResource, namespace, name string, opts metav1.DeleteOptions) error {
@@ -6619,7 +6620,7 @@ func TestBaseKubernetesManager_DeleteKustomizationReadFailures(t *testing.T) {
 			if reads <= 2 {
 				return nil, fmt.Errorf("etcdserver: request timed out")
 			}
-			if reads == 3 {
+			if reads <= 4 {
 				return blockingObject(), nil
 			}
 			return nil, fmt.Errorf("the server could not find the requested resource")
@@ -6647,7 +6648,7 @@ func TestBaseKubernetesManager_DeleteKustomizationReadFailures(t *testing.T) {
 			if strings.Contains(u, "retrying after a read error") {
 				sawRetry = true
 			}
-			if strings.Contains(u, "waiting up to") {
+			if strings.Contains(u, "waiting to delete") {
 				sawWaiting = true
 			}
 		}

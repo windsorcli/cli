@@ -231,6 +231,8 @@ func (k *BaseKubernetesManager) deleteKustomization(name, namespace string, expe
 
 	start := k.shims.TimeNow()
 	waitFor := k.kustomizationReconcileTimeout
+	reportInterval := 2 * k.kustomizationWaitPollInterval
+	lastReport := start
 	var lastObj *unstructured.Unstructured
 	var lastReadErr error
 	readFailures := 0
@@ -246,7 +248,7 @@ func (k *BaseKubernetesManager) deleteKustomization(name, namespace string, expe
 			if readFailures > k.kustomizationWaitMaxReadFailures {
 				return fmt.Errorf("error checking kustomization %s/%s deletion status: %w", namespace, name, err)
 			}
-			tui.Update(fmt.Sprintf("waiting for kustomization %s/%s to delete; retrying after a read error (%d/%d)", namespace, name, readFailures, k.kustomizationWaitMaxReadFailures))
+			tui.Update(fmt.Sprintf("retrying after a read error (%d/%d)", readFailures, k.kustomizationWaitMaxReadFailures))
 			k.shims.TimeSleep(k.kustomizationWaitPollInterval)
 			continue
 		}
@@ -271,7 +273,10 @@ func (k *BaseKubernetesManager) deleteKustomization(name, namespace string, expe
 			}
 		}
 
-		tui.Update(fmt.Sprintf("waiting up to %s for kustomization %s/%s to delete", waitFor, namespace, name))
+		if now := k.shims.TimeNow(); now.Sub(lastReport) >= reportInterval {
+			tui.Update(fmt.Sprintf("waiting to delete (%s elapsed, timeout %s)", now.Sub(start).Round(time.Second), waitFor))
+			lastReport = now
+		}
 		k.shims.TimeSleep(k.kustomizationWaitPollInterval)
 	}
 
