@@ -235,29 +235,7 @@ func (k *BaseKubernetesManager) deleteKustomization(name, namespace string, expe
 	for k.shims.TimeNow().Before(start.Add(waitFor)) {
 		obj, err := k.client.GetResource(gvr, namespace, name)
 		if err != nil && isNotFoundError(err) {
-			if lastObj == nil && readFailures > 0 {
-				return fmt.Errorf("kustomization %s/%s disappeared before windsor could read its inventory: %w. Windsor cannot confirm the resources it managed are gone. Check for leftovers with `kubectl get pvc,svc,ingress,certificate -A | grep Terminating` before retrying", namespace, name, lastReadErr)
-			}
-			entry, surviving, checkErr := k.describeAbandonedInventory(lastObj, expectWaitForTermination, helmInventory, destroying)
-			graceDeadline := k.shims.TimeNow().Add(k.abandonedInventoryGraceWindow(inventorySize(lastObj)))
-			for (entry != nil || checkErr != nil) && k.shims.TimeNow().Before(graceDeadline) {
-				if errors.Is(checkErr, errUnverifiableInventory) {
-					break
-				}
-				if entry != nil {
-					k.triggerReconcile(entry)
-				}
-				k.shims.TimeSleep(k.kustomizationWaitPollInterval)
-				entry, surviving, checkErr = k.describeAbandonedInventory(lastObj, expectWaitForTermination, helmInventory, destroying)
-			}
-			reportSurvivingResources(namespace, name, surviving)
-			if checkErr != nil {
-				return fmt.Errorf("kustomization %s/%s disappeared and windsor could not confirm its resources are gone: %w. Inspect the namespace before retrying", namespace, name, checkErr)
-			}
-			if entry == nil {
-				return nil
-			}
-			return fmt.Errorf("kustomization %s/%s disappeared. %s/%s from its inventory is still live. Flux likely gave up waiting and removed the finalizer early. Inspect it with %s before retrying", namespace, name, entry.Kind, entry.Name, liveEntryInspectCmd(entry))
+			return k.handleKustomizationDisappeared(name, namespace, lastObj, readFailures, lastReadErr, expectWaitForTermination, helmInventory, destroying)
 		}
 		if err != nil {
 			readFailures++
@@ -292,6 +270,26 @@ func (k *BaseKubernetesManager) deleteKustomization(name, namespace string, expe
 		k.shims.TimeSleep(k.kustomizationWaitPollInterval)
 	}
 
+	if waitForTermination, ok := kustomizationDeletionPolicy(lastObj, expectWaitForTermination); !ok || waitForTermination {
+		if preEntries, _, _ := inventoryEntriesFromObject(lastObj); len(preEntries) > 0 {
+			if live, _, checkErr := k.firstLiveInventoryEntry(preEntries, helmInventory, destroying); checkErr == nil && live != nil {
+				k.triggerReconcile(live)
+				recheckDeadline := k.shims.TimeNow().Add(time.Duration(abandonedInventoryGraceChecks) * k.kustomizationWaitPollInterval)
+				for k.shims.TimeNow().Before(recheckDeadline) {
+					k.shims.TimeSleep(k.kustomizationWaitPollInterval)
+					obj, err := k.client.GetResource(gvr, namespace, name)
+					if err != nil && isNotFoundError(err) {
+						return k.handleKustomizationDisappeared(name, namespace, lastObj, readFailures, lastReadErr, expectWaitForTermination, helmInventory, destroying)
+					}
+					if err == nil {
+						lastObj = obj
+						k.snapshotHelmReleaseInventories(obj, helmInventory)
+					}
+				}
+			}
+		}
+	}
+
 	inspectCmd := fmt.Sprintf("`kubectl get kustomization %s -n %s -o yaml`", name, namespace)
 	const terminatingCmd = "`kubectl get pvc,svc,ingress,certificate -A | grep Terminating`"
 
@@ -315,6 +313,36 @@ func (k *BaseKubernetesManager) deleteKustomization(name, namespace string, expe
 		return fmt.Errorf("windsor timed out after %s waiting for kustomization %s/%s to delete. No status condition confirms a stuck finalizer. Check its inventory with %s:\n  - if it is still shrinking, wait and retry\n  - if it is not shrinking, find the stuck object with %s", waitFor, namespace, name, inspectCmd, terminatingCmd)
 	}
 	return fmt.Errorf("windsor timed out after %s waiting for kustomization %s/%s to delete%s. An inventory item is likely stuck on a cloud-controller finalizer. Inspect with %s (status.conditions, status.inventory) and %s to find the stuck object", waitFor, namespace, name, reason, inspectCmd, terminatingCmd)
+}
+
+// handleKustomizationDisappeared runs once name/namespace itself is confirmed gone (NotFound),
+// from deleteKustomization's main wait loop or its post-timeout recheck. It checks lastObj's
+// last-known inventory for anything still live, triggering a reconcile on a blocking entry
+// through its own grace-window retry.
+func (k *BaseKubernetesManager) handleKustomizationDisappeared(name, namespace string, lastObj *unstructured.Unstructured, readFailures int, lastReadErr error, expectWaitForTermination *bool, helmInventory helmReleaseInventory, destroying bool) error {
+	if lastObj == nil && readFailures > 0 {
+		return fmt.Errorf("kustomization %s/%s disappeared before windsor could read its inventory: %w. Windsor cannot confirm the resources it managed are gone. Check for leftovers with `kubectl get pvc,svc,ingress,certificate -A | grep Terminating` before retrying", namespace, name, lastReadErr)
+	}
+	entry, surviving, checkErr := k.describeAbandonedInventory(lastObj, expectWaitForTermination, helmInventory, destroying)
+	graceDeadline := k.shims.TimeNow().Add(k.abandonedInventoryGraceWindow(inventorySize(lastObj)))
+	for (entry != nil || checkErr != nil) && k.shims.TimeNow().Before(graceDeadline) {
+		if errors.Is(checkErr, errUnverifiableInventory) {
+			break
+		}
+		if entry != nil {
+			k.triggerReconcile(entry)
+		}
+		k.shims.TimeSleep(k.kustomizationWaitPollInterval)
+		entry, surviving, checkErr = k.describeAbandonedInventory(lastObj, expectWaitForTermination, helmInventory, destroying)
+	}
+	reportSurvivingResources(namespace, name, surviving)
+	if checkErr != nil {
+		return fmt.Errorf("kustomization %s/%s disappeared and windsor could not confirm its resources are gone: %w. Inspect the namespace before retrying", namespace, name, checkErr)
+	}
+	if entry == nil {
+		return nil
+	}
+	return fmt.Errorf("kustomization %s/%s disappeared. %s/%s from its inventory is still live. Flux likely gave up waiting and removed the finalizer early. Inspect it with %s before retrying", namespace, name, entry.Kind, entry.Name, liveEntryInspectCmd(entry))
 }
 
 // inventorySize counts a Kustomization's status.inventory.entries. It returns 0 for a

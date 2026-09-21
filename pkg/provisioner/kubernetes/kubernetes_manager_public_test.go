@@ -1008,6 +1008,145 @@ func TestBaseKubernetesManager_DeleteKustomization(t *testing.T) {
 		}
 	})
 
+	t.Run("TimeoutTriggersReconcileOnTheBlockingEntryBeforeReporting", func(t *testing.T) {
+		// Given the same still-live, still-blocking entry as above, staying live
+		// through the post-timeout recheck too
+		manager := setup(t)
+		kubernetesClient := withGVRs(client.NewMockKubernetesClient())
+		kubernetesClient.DeleteResourceFunc = func(gvr schema.GroupVersionResource, namespace, name string, opts metav1.DeleteOptions) error {
+			return nil
+		}
+		kubernetesClient.GetResourceFunc = func(gvr schema.GroupVersionResource, namespace, name string) (*unstructured.Unstructured, error) {
+			if name == "test-kustomization" {
+				return drainedKustomization(), nil
+			}
+			if name == "entry-one" {
+				return blockingObject(), nil
+			}
+			return nil, fmt.Errorf("the server could not find the requested resource")
+		}
+		var triggered []string
+		kubernetesClient.PatchResourceFunc = func(ctx context.Context, gvr schema.GroupVersionResource, namespace, name string, pt types.PatchType, data []byte, opts metav1.PatchOptions) (*unstructured.Unstructured, error) {
+			triggered = append(triggered, name)
+			return nil, nil
+		}
+		manager.client = kubernetesClient
+
+		// When DeleteKustomization times out with the entry never clearing
+		err := manager.DeleteKustomization("test-kustomization", "test-namespace")
+
+		// Then it still reports the timeout, but only after asking the blocking
+		// entry's controller to look again
+		if err == nil {
+			t.Fatal("Expected timeout error, got nil")
+		}
+		if len(triggered) == 0 {
+			t.Fatal("Expected at least one reconcile trigger against the blocking entry, got none")
+		}
+		for _, name := range triggered {
+			if name != "entry-one" {
+				t.Errorf("Expected the trigger to target entry-one, got: %s", name)
+			}
+		}
+	})
+
+	t.Run("TimeoutSucceedsWhenTheKustomizationDisappearsDuringTheRecheck", func(t *testing.T) {
+		// Given the blocking entry clears and the kustomization itself vanishes
+		// shortly after the post-timeout trigger — the main wait loop alone
+		// would have reported a timeout, never learning either happened
+		manager := setup(t)
+		// A 2-entry inventory would otherwise extend waitFor via
+		// kustomizationDeletionTimeout, changing how many reads the main loop
+		// itself makes before this test's post-timeout recheck is even reached.
+		manager.kustomizationDeletionPerEntryTimeout = 0
+		manager.kustomizationDeletionMaxExtraTimeout = 0
+		kubernetesClient := withGVRs(client.NewMockKubernetesClient())
+		kubernetesClient.DeleteResourceFunc = func(gvr schema.GroupVersionResource, namespace, name string, opts metav1.DeleteOptions) error {
+			return nil
+		}
+		kustCalls := 0
+		entryCalls := 0
+		kubernetesClient.GetResourceFunc = func(gvr schema.GroupVersionResource, namespace, name string) (*unstructured.Unstructured, error) {
+			switch name {
+			case "test-kustomization":
+				kustCalls++
+				if kustCalls <= 2 {
+					return waitForTerminationKustomization(), nil
+				}
+				return nil, fmt.Errorf("the server could not find the requested resource")
+			case "entry-one":
+				entryCalls++
+				if entryCalls == 1 {
+					return blockingObject(), nil
+				}
+				return nil, fmt.Errorf("the server could not find the requested resource")
+			default:
+				return nil, fmt.Errorf("the server could not find the requested resource")
+			}
+		}
+		manager.client = kubernetesClient
+
+		// When DeleteKustomization runs
+		err := manager.DeleteKustomization("test-kustomization", "test-namespace")
+
+		// Then the recheck catches the disappearance and the clear entry, and
+		// the delete succeeds instead of reporting a timeout
+		if err != nil {
+			t.Errorf("Expected the recheck to catch the disappearance and succeed, got: %v", err)
+		}
+	})
+
+	t.Run("TimeoutWithMirrorPruneSkipsTheRecheckTrigger", func(t *testing.T) {
+		// Given a MirrorPrune kustomization that times out with a still-live entry —
+		// its normal, by-design outcome, since MirrorPrune never waits on inventory
+		manager := setup(t)
+		manager.kustomizationReconcileTimeout = 20 * time.Millisecond
+		manager.kustomizationWaitPollInterval = 10 * time.Millisecond
+		// A 2-entry inventory would otherwise extend waitFor via kustomizationDeletionTimeout,
+		// making the assertion below about elapsed time depend on inventory size.
+		manager.kustomizationDeletionPerEntryTimeout = 0
+		manager.kustomizationDeletionMaxExtraTimeout = 0
+		kubernetesClient := withGVRs(client.NewMockKubernetesClient())
+		kubernetesClient.DeleteResourceFunc = func(gvr schema.GroupVersionResource, namespace, name string, opts metav1.DeleteOptions) error {
+			return nil
+		}
+		kubernetesClient.GetResourceFunc = func(gvr schema.GroupVersionResource, namespace, name string) (*unstructured.Unstructured, error) {
+			if name == "test-kustomization" {
+				obj := drainedKustomization()
+				obj.Object["spec"] = map[string]any{"deletionPolicy": "MirrorPrune"}
+				return obj, nil
+			}
+			if name == "entry-one" {
+				return blockingObject(), nil
+			}
+			return nil, fmt.Errorf("the server could not find the requested resource")
+		}
+		var triggered []string
+		kubernetesClient.PatchResourceFunc = func(ctx context.Context, gvr schema.GroupVersionResource, namespace, name string, pt types.PatchType, data []byte, opts metav1.PatchOptions) (*unstructured.Unstructured, error) {
+			triggered = append(triggered, name)
+			return nil, nil
+		}
+		manager.client = kubernetesClient
+
+		// When DeleteKustomization times out
+		start := manager.shims.TimeNow()
+		err := manager.DeleteKustomization("test-kustomization", "test-namespace")
+		elapsed := manager.shims.TimeNow().Sub(start)
+
+		// Then it reports the timeout without triggering a reconcile or spending
+		// the post-timeout recheck window on an entry MirrorPrune expects to
+		// leave behind
+		if err == nil {
+			t.Fatal("Expected timeout error, got nil")
+		}
+		if len(triggered) != 0 {
+			t.Errorf("Expected no reconcile trigger for MirrorPrune, got: %v", triggered)
+		}
+		if elapsed > 100*time.Millisecond {
+			t.Errorf("Expected no post-timeout recheck delay for MirrorPrune, got %s", elapsed)
+		}
+	})
+
 	t.Run("TimeoutNamesResidueInsteadOfClaimingFullyDrained", func(t *testing.T) {
 		// Given one inventory entry gone and one live with no finalizer, during a
 		// destroy — real residue, not a confirmed-gone state

@@ -1,10 +1,9 @@
 # ADR 0009 — windsor destroy: respect every finalizer, decide nothing on its behalf
 
-- Status: Proposed. Decisions 1 through 3 and 5 have shipped. 4 is revised below a second time: a
+- Status: Proposed. Decisions 1 through 3, 5, and 6 have shipped. 4 is revised below a second time: a
   live GCP run first showed the per-tier abort was wrong, and the classification-based gate written
   to replace it was itself withdrawn before implementation for the reason recorded under
-  Alternatives. Decision 6 has shipped for the grace-window retry path; the main-loop-timeout path it
-  does not yet cover is noted where that gap is.
+  Alternatives.
 - Date: 2026-09-20
 - Deciders: Ryan VanGundy
 - Surfaced investigating cli#3417 (three independent destroy stalls in one acceptance run)
@@ -496,12 +495,16 @@ requested-at` for everything else, matching the two cases above exactly. A patch
 surfaced: the caller's existing wait and timeout handling already covers an entry that never clears,
 for any reason including the trigger doing nothing.
 
-Not yet covered: the other place `firstLiveInventoryEntry` runs, when the Kustomization itself never
-disappears and the main wait loop times out on its own budget (`deleteKustomization`, past the `for`
-loop). That path reads the inventory once, to build the final error, with no retry loop to hang a
-trigger off of. Worth adding — a single trigger-and-recheck before giving up would match this
-decision's own reasoning — but it changes that code path's shape rather than reusing one already
-there, so it is left for a follow-up rather than folded into this change.
+Also shipped: the other place `firstLiveInventoryEntry` runs, when the Kustomization itself never
+disappears and the main wait loop times out on its own budget. That path had no retry loop to hang a
+trigger off of, unlike the grace-window one, so `deleteKustomization`'s NotFound handling was
+extracted into `handleKustomizationDisappeared` — reused by both the main loop and this path, rather
+than duplicated. Once the main loop times out, if `firstLiveInventoryEntry` finds a blocking entry,
+`deleteKustomization` triggers it once and re-polls the Kustomization itself for
+`abandonedInventoryGraceChecks` more intervals. If the Kustomization disappears during that window,
+the run falls into the same `handleKustomizationDisappeared` path a normal disappearance would have,
+so a resolved stall here can still report a clean delete rather than the timeout the main loop alone
+would have produced.
 
 #### Verified on a live GCP cluster, 2026-09-20
 
@@ -689,7 +692,8 @@ reports it.
   (1540), `abortDestroy`, `describeStuckHelmReleases`, `allInventoryEntriesGone`
   (2389), `resolveScopedGVR`, `firstLiveInventoryEntry`,
   `reverseTopologicalKustomizations`, `triggerReconcile`,
-  `fluxReconcileAnnotationGroups`, `dependencyClosure`, `blockDependencyClosure`
+  `fluxReconcileAnnotationGroups`, `dependencyClosure`, `blockDependencyClosure`,
+  `handleKustomizationDisappeared`
 - `github.com/fluxcd/helm-controller/api v1.6.4`, package `v2`: `ResourceInventory` /
   `ResourceRef.ID` (`inventory_types.go`), `Uninstall` with `Timeout` / `KeepHistory` /
   `DisableWait` / `DeletionPropagation` and `GetTimeout` (`helmrelease_types.go:1215-1262`),
