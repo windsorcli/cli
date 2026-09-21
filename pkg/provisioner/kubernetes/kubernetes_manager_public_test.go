@@ -1326,6 +1326,68 @@ func TestBaseKubernetesManager_DeleteKustomization(t *testing.T) {
 	})
 }
 
+// TestBaseKubernetesManager_DeleteKustomizationOutsideADestroy covers PruneBlueprint's call
+// path: the public DeleteKustomization, run while the cluster stays up. There a finalizer-free
+// object still blocks, unlike during an actual destroy.
+func TestBaseKubernetesManager_DeleteKustomizationOutsideADestroy(t *testing.T) {
+	setup := func(t *testing.T) *BaseKubernetesManager {
+		t.Helper()
+		mocks := setupKubernetesMocks(t)
+		manager := NewKubernetesManager(mocks.KubernetesClient, mocks.ConfigHandler)
+		manager.kustomizationWaitPollInterval = 5 * time.Millisecond
+		manager.kustomizationReconcileTimeout = 40 * time.Millisecond
+		manager.kustomizationDeletionPerEntryTimeout = 0
+		manager.kustomizationDeletionMaxExtraTimeout = 0
+		manager.kustomizationAbandonedGraceMaxExtra = 0
+		clock := newFakeClock()
+		manager.shims.TimeNow = clock.Now
+		manager.shims.TimeSleep = clock.Sleep
+		return manager
+	}
+
+	t.Run("StillBlocksOnALiveObjectWithNoFinalizer", func(t *testing.T) {
+		// Given an orphaned kustomization whose inventory names a live,
+		// finalizer-free object
+		manager := setup(t)
+		kubernetesClient := withGVRs(client.NewMockKubernetesClient())
+		kubernetesClient.DeleteResourceFunc = func(gvr schema.GroupVersionResource, namespace, name string, opts metav1.DeleteOptions) error {
+			return nil
+		}
+		reads := 0
+		kubernetesClient.GetResourceFunc = func(gvr schema.GroupVersionResource, namespace, name string) (*unstructured.Unstructured, error) {
+			switch {
+			case gvr.Resource == "kustomizations":
+				reads++
+				if reads == 1 {
+					return &unstructured.Unstructured{Object: map[string]any{
+						"spec": map[string]any{"deletionPolicy": "WaitForTermination"},
+						"status": map[string]any{"inventory": map[string]any{"entries": []any{
+							map[string]any{"id": "test-namespace_leftover_example.com_Widget", "v": "v1"},
+						}}},
+					}}, nil
+				}
+				return nil, fmt.Errorf("the server could not find the requested resource")
+			default:
+				// The leftover object is live. Nothing holds a finalizer on it.
+				return &unstructured.Unstructured{}, nil
+			}
+		}
+		manager.client = kubernetesClient
+
+		// When DeleteKustomization runs outside a destroy, the way PruneBlueprint calls it
+		err := manager.DeleteKustomization("orphaned-kustomization", "test-namespace")
+
+		// Then the finalizer-free object still blocks. The cluster keeps running, so
+		// nothing else will remove it.
+		if err == nil {
+			t.Fatal("Expected a live object with no finalizer to still block outside a destroy, got nil")
+		}
+		if !strings.Contains(err.Error(), "Widget/leftover") {
+			t.Errorf("Expected the leftover object to be named, got: %v", err)
+		}
+	})
+}
+
 func TestBaseKubernetesManager_describeNotReadyKustomizations(t *testing.T) {
 	t.Run("ExhaustedBudgetNamesWithoutProbing", func(t *testing.T) {
 		// Given a diagnostic budget that is already spent before the first probe
@@ -6242,7 +6304,7 @@ func TestBaseKubernetesManager_DeleteKustomizationHelmUninstallTimeout(t *testin
 		override := 10 * time.Minute
 
 		// When the delete waits
-		err := manager.deleteKustomization("pki-install", "system-gitops", nil, &override)
+		err := manager.deleteKustomization("pki-install", "system-gitops", nil, &override, true)
 
 		// Then the operator's explicit bound wins over the chart's declaration
 		if err == nil {
