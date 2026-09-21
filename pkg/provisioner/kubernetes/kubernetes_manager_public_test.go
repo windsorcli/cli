@@ -1164,6 +1164,48 @@ func TestBaseKubernetesManager_DeleteKustomization(t *testing.T) {
 		}
 	})
 
+	t.Run("DisappearedTriggersReconcileOnTheBlockingEntry", func(t *testing.T) {
+		// Given the same still-live, still-blocking entry as above
+		manager := setup(t)
+		kubernetesClient := withGVRs(client.NewMockKubernetesClient())
+		kubernetesClient.DeleteResourceFunc = func(gvr schema.GroupVersionResource, namespace, name string, opts metav1.DeleteOptions) error {
+			return nil
+		}
+		calls := 0
+		kubernetesClient.GetResourceFunc = func(gvr schema.GroupVersionResource, namespace, name string) (*unstructured.Unstructured, error) {
+			if name == "test-kustomization" {
+				calls++
+				if calls == 1 {
+					return waitForTerminationKustomization(), nil
+				}
+				return nil, fmt.Errorf("the server could not find the requested resource")
+			}
+			if name == "entry-one" {
+				return blockingObject(), nil
+			}
+			return nil, fmt.Errorf("the server could not find the requested resource")
+		}
+		var triggered []string
+		kubernetesClient.PatchResourceFunc = func(ctx context.Context, gvr schema.GroupVersionResource, namespace, name string, pt types.PatchType, data []byte, opts metav1.PatchOptions) (*unstructured.Unstructured, error) {
+			triggered = append(triggered, name)
+			return nil, nil
+		}
+		manager.client = kubernetesClient
+
+		// When DeleteKustomization waits out the grace retries
+		_ = manager.DeleteKustomization("test-kustomization", "test-namespace")
+
+		// Then the blocking entry is asked to reconcile, not just re-read
+		if len(triggered) == 0 {
+			t.Fatal("Expected at least one reconcile trigger against the blocking entry, got none")
+		}
+		for _, name := range triggered {
+			if name != "entry-one" {
+				t.Errorf("Expected the trigger to target entry-one, got: %s", name)
+			}
+		}
+	})
+
 	t.Run("DisappearedRecoversWhenEntrySettlesDuringGracePeriod", func(t *testing.T) {
 		// Given a still-live entry that finishes its own normal termination within the
 		// grace retries — not a sign Flux gave up, just a resource a moment from gone

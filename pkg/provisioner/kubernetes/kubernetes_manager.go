@@ -244,6 +244,9 @@ func (k *BaseKubernetesManager) deleteKustomization(name, namespace string, expe
 				if errors.Is(checkErr, errUnverifiableInventory) {
 					break
 				}
+				if entry != nil {
+					k.triggerReconcile(entry)
+				}
 				k.shims.TimeSleep(k.kustomizationWaitPollInterval)
 				entry, surviving, checkErr = k.describeAbandonedInventory(lastObj, expectWaitForTermination, helmInventory, destroying)
 			}
@@ -2550,6 +2553,35 @@ func blocksClusterTeardown(obj *unstructured.Unstructured) bool {
 	}
 	deletionTimestamp, found, err := unstructured.NestedString(obj.Object, "metadata", "deletionTimestamp")
 	return err == nil && found && deletionTimestamp != ""
+}
+
+// fluxReconcileAnnotationGroups are the groups whose controllers watch
+// fluxReconcileAnnotation by contract. Any other group falls back to
+// windsorReconcileAnnotation, which reaches a controller only if it filters nothing.
+var fluxReconcileAnnotationGroups = map[string]bool{
+	"kustomize.toolkit.fluxcd.io": true,
+	"helm.toolkit.fluxcd.io":      true,
+}
+
+const (
+	fluxReconcileAnnotation    = "reconcile.fluxcd.io/requestedAt"
+	windsorReconcileAnnotation = "windsorcli.dev/reconcile-requested-at"
+)
+
+// triggerReconcile asks entry's own controller to look again. It asserts nothing
+// about the object's state and never touches metadata.finalizers. Every controller
+// MUST already tolerate an unsolicited reconcile, so this is always safe. A patch
+// failure is not reported; the caller's own wait handles an entry that never
+// clears regardless. See ADR 0009 Decision 6.
+func (k *BaseKubernetesManager) triggerReconcile(entry *liveInventoryEntry) {
+	key := windsorReconcileAnnotation
+	if fluxReconcileAnnotationGroups[entry.Group] {
+		key = fluxReconcileAnnotation
+	}
+	value := k.shims.TimeNow().UTC().Format(time.RFC3339Nano)
+	patch := fmt.Appendf(nil, `{"metadata":{"annotations":{%q:%q}}}`, key, value)
+	opts := metav1.PatchOptions{FieldManager: "windsor-cli"}
+	_, _ = k.client.PatchResource(context.Background(), entry.gvr, entry.Namespace, entry.Name, types.MergePatchType, patch, opts)
 }
 
 // liveInventoryEntry is an inventory entry confirmed still live, paired with its
