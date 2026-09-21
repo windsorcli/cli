@@ -103,6 +103,25 @@ func (c *fakeClock) Sleep(d time.Duration) {
 	c.now = c.now.Add(d)
 }
 
+// withGVRs resolves a kind to its plural resource, as a RESTMapper does. Without it every lookup
+// collapses onto one empty GVR and a mock cannot tell the layers apart.
+func withGVRs(c *client.MockKubernetesClient) *client.MockKubernetesClient {
+	c.ResourceForFunc = func(gvk schema.GroupVersionKind) (schema.GroupVersionResource, error) {
+		if gvk.Kind == "" {
+			return schema.GroupVersionResource{}, nil
+		}
+		return schema.GroupVersionResource{Group: gvk.Group, Version: "v1", Resource: strings.ToLower(gvk.Kind) + "s"}, nil
+	}
+	return c
+}
+
+// blockingObject is a live object a destroy must wait on: something still holds a finalizer.
+func blockingObject() *unstructured.Unstructured {
+	return &unstructured.Unstructured{Object: map[string]any{
+		"metadata": map[string]any{"finalizers": []any{"example.com/cleanup"}},
+	}}
+}
+
 func TestBaseKubernetesManager_ApplyKustomization(t *testing.T) {
 	setup := func(t *testing.T) *BaseKubernetesManager {
 		t.Helper()
@@ -419,7 +438,7 @@ func TestBaseKubernetesManager_DeleteKustomization(t *testing.T) {
 		// Given a stuck kustomization with a bare "Progressing" status, but its
 		// inventory names a HelmRelease that is itself stalled
 		manager := setup(t)
-		kubernetesClient := client.NewMockKubernetesClient()
+		kubernetesClient := withGVRs(client.NewMockKubernetesClient())
 		kubernetesClient.DeleteResourceFunc = func(gvr schema.GroupVersionResource, namespace, name string, opts metav1.DeleteOptions) error {
 			return nil
 		}
@@ -429,8 +448,9 @@ func TestBaseKubernetesManager_DeleteKustomization(t *testing.T) {
 					"apiVersion": "helm.toolkit.fluxcd.io/v2",
 					"kind":       "HelmRelease",
 					"metadata": map[string]any{
-						"name":      "cloudnativepg",
-						"namespace": "system-database",
+						"name":       "cloudnativepg",
+						"namespace":  "system-database",
+						"finalizers": []any{"finalizers.fluxcd.io"},
 					},
 					"status": map[string]any{
 						"conditions": []any{
@@ -488,7 +508,7 @@ func TestBaseKubernetesManager_DeleteKustomization(t *testing.T) {
 	t.Run("TimeoutHelmReleaseLookupErrorIsSwallowed", func(t *testing.T) {
 		// Given a stuck kustomization whose HelmRelease lookup itself fails
 		manager := setup(t)
-		kubernetesClient := client.NewMockKubernetesClient()
+		kubernetesClient := withGVRs(client.NewMockKubernetesClient())
 		kubernetesClient.DeleteResourceFunc = func(gvr schema.GroupVersionResource, namespace, name string, opts metav1.DeleteOptions) error {
 			return nil
 		}
@@ -521,7 +541,7 @@ func TestBaseKubernetesManager_DeleteKustomization(t *testing.T) {
 
 	t.Run("ErrorCheckingDeletionStatus", func(t *testing.T) {
 		manager := setup(t)
-		kubernetesClient := client.NewMockKubernetesClient()
+		kubernetesClient := withGVRs(client.NewMockKubernetesClient())
 		kubernetesClient.DeleteResourceFunc = func(gvr schema.GroupVersionResource, namespace, name string, opts metav1.DeleteOptions) error {
 			return nil
 		}
@@ -544,7 +564,7 @@ func TestBaseKubernetesManager_DeleteKustomization(t *testing.T) {
 
 	t.Run("UsesCorrectDeleteOptions", func(t *testing.T) {
 		manager := setup(t)
-		kubernetesClient := client.NewMockKubernetesClient()
+		kubernetesClient := withGVRs(client.NewMockKubernetesClient())
 		var capturedOptions metav1.DeleteOptions
 		kubernetesClient.DeleteResourceFunc = func(gvr schema.GroupVersionResource, namespace, name string, opts metav1.DeleteOptions) error {
 			capturedOptions = opts
@@ -574,7 +594,7 @@ func TestBaseKubernetesManager_DeleteKustomization(t *testing.T) {
 		// condition, so a still-deleting kustomization looks identical to a
 		// genuinely stuck one from status.conditions alone
 		manager := setup(t)
-		kubernetesClient := client.NewMockKubernetesClient()
+		kubernetesClient := withGVRs(client.NewMockKubernetesClient())
 		kubernetesClient.DeleteResourceFunc = func(gvr schema.GroupVersionResource, namespace, name string, opts metav1.DeleteOptions) error {
 			return nil
 		}
@@ -605,7 +625,7 @@ func TestBaseKubernetesManager_DeleteKustomization(t *testing.T) {
 		// Given a kustomization that never disappears and carries a diagnostic
 		// condition confirming it is genuinely stuck
 		manager := setup(t)
-		kubernetesClient := client.NewMockKubernetesClient()
+		kubernetesClient := withGVRs(client.NewMockKubernetesClient())
 		kubernetesClient.DeleteResourceFunc = func(gvr schema.GroupVersionResource, namespace, name string, opts metav1.DeleteOptions) error {
 			return nil
 		}
@@ -648,7 +668,7 @@ func TestBaseKubernetesManager_DeleteKustomization(t *testing.T) {
 		// carries no diagnostic condition — MirrorPrune never waits on inventory, so a
 		// timeout here cannot be a stuck cloud-controller finalizer
 		manager := setup(t)
-		kubernetesClient := client.NewMockKubernetesClient()
+		kubernetesClient := withGVRs(client.NewMockKubernetesClient())
 		kubernetesClient.DeleteResourceFunc = func(gvr schema.GroupVersionResource, namespace, name string, opts metav1.DeleteOptions) error {
 			return nil
 		}
@@ -680,7 +700,7 @@ func TestBaseKubernetesManager_DeleteKustomization(t *testing.T) {
 		// Given a MirrorPrune kustomization with a diagnostic condition confirming a
 		// suspended reconcile, not a stuck inventory item
 		manager := setup(t)
-		kubernetesClient := client.NewMockKubernetesClient()
+		kubernetesClient := withGVRs(client.NewMockKubernetesClient())
 		kubernetesClient.DeleteResourceFunc = func(gvr schema.GroupVersionResource, namespace, name string, opts metav1.DeleteOptions) error {
 			return nil
 		}
@@ -732,7 +752,7 @@ func TestBaseKubernetesManager_DeleteKustomization(t *testing.T) {
 			inventoryEntries[i] = map[string]any{"id": fmt.Sprintf("ns_res%d_v1_ConfigMap", i)}
 		}
 
-		kubernetesClient := client.NewMockKubernetesClient()
+		kubernetesClient := withGVRs(client.NewMockKubernetesClient())
 		kubernetesClient.DeleteResourceFunc = func(gvr schema.GroupVersionResource, namespace, name string, opts metav1.DeleteOptions) error {
 			return nil
 		}
@@ -777,7 +797,7 @@ func TestBaseKubernetesManager_DeleteKustomization(t *testing.T) {
 		}
 
 		calls := 0
-		kubernetesClient := client.NewMockKubernetesClient()
+		kubernetesClient := withGVRs(client.NewMockKubernetesClient())
 		kubernetesClient.DeleteResourceFunc = func(gvr schema.GroupVersionResource, namespace, name string, opts metav1.DeleteOptions) error {
 			return nil
 		}
@@ -818,7 +838,7 @@ func TestBaseKubernetesManager_DeleteKustomization(t *testing.T) {
 		manager.kustomizationReconcileTimeout = 20 * time.Millisecond
 		manager.kustomizationWaitPollInterval = 10 * time.Millisecond
 
-		kubernetesClient := client.NewMockKubernetesClient()
+		kubernetesClient := withGVRs(client.NewMockKubernetesClient())
 		kubernetesClient.DeleteResourceFunc = func(gvr schema.GroupVersionResource, namespace, name string, opts metav1.DeleteOptions) error {
 			return nil
 		}
@@ -855,7 +875,7 @@ func TestBaseKubernetesManager_DeleteKustomization(t *testing.T) {
 		manager.kustomizationWaitPollInterval = 10 * time.Millisecond
 		manager.kustomizationSpecTimeoutCeiling = 100 * time.Millisecond
 
-		kubernetesClient := client.NewMockKubernetesClient()
+		kubernetesClient := withGVRs(client.NewMockKubernetesClient())
 		kubernetesClient.DeleteResourceFunc = func(gvr schema.GroupVersionResource, namespace, name string, opts metav1.DeleteOptions) error {
 			return nil
 		}
@@ -886,7 +906,7 @@ func TestBaseKubernetesManager_DeleteKustomization(t *testing.T) {
 		manager.kustomizationReconcileTimeout = 20 * time.Millisecond
 		manager.kustomizationWaitPollInterval = 10 * time.Millisecond
 
-		kubernetesClient := client.NewMockKubernetesClient()
+		kubernetesClient := withGVRs(client.NewMockKubernetesClient())
 		kubernetesClient.DeleteResourceFunc = func(gvr schema.GroupVersionResource, namespace, name string, opts metav1.DeleteOptions) error {
 			return nil
 		}
@@ -933,7 +953,7 @@ func TestBaseKubernetesManager_DeleteKustomization(t *testing.T) {
 	t.Run("TimeoutReportsDrainedKustomizationAsStuckFinalizer", func(t *testing.T) {
 		// Given every inventory entry's own live object confirmed gone
 		manager := setup(t)
-		kubernetesClient := client.NewMockKubernetesClient()
+		kubernetesClient := withGVRs(client.NewMockKubernetesClient())
 		kubernetesClient.DeleteResourceFunc = func(gvr schema.GroupVersionResource, namespace, name string, opts metav1.DeleteOptions) error {
 			return nil
 		}
@@ -961,7 +981,7 @@ func TestBaseKubernetesManager_DeleteKustomization(t *testing.T) {
 		// Given one inventory entry whose live object still exists — the safety-critical
 		// case: nothing here may be treated as drained
 		manager := setup(t)
-		kubernetesClient := client.NewMockKubernetesClient()
+		kubernetesClient := withGVRs(client.NewMockKubernetesClient())
 		kubernetesClient.DeleteResourceFunc = func(gvr schema.GroupVersionResource, namespace, name string, opts metav1.DeleteOptions) error {
 			return nil
 		}
@@ -970,7 +990,7 @@ func TestBaseKubernetesManager_DeleteKustomization(t *testing.T) {
 				return drainedKustomization(), nil
 			}
 			if name == "entry-one" {
-				return &unstructured.Unstructured{Object: map[string]any{}}, nil
+				return blockingObject(), nil
 			}
 			return nil, fmt.Errorf("the server could not find the requested resource")
 		}
@@ -992,7 +1012,7 @@ func TestBaseKubernetesManager_DeleteKustomization(t *testing.T) {
 		// Given an inventory entry whose live status can't be determined (a real API error,
 		// not a NotFound) — a false "all gone" reading here is the exact risk to avoid
 		manager := setup(t)
-		kubernetesClient := client.NewMockKubernetesClient()
+		kubernetesClient := withGVRs(client.NewMockKubernetesClient())
 		kubernetesClient.DeleteResourceFunc = func(gvr schema.GroupVersionResource, namespace, name string, opts metav1.DeleteOptions) error {
 			return nil
 		}
@@ -1019,7 +1039,7 @@ func TestBaseKubernetesManager_DeleteKustomization(t *testing.T) {
 	t.Run("TimeoutTreatsDeletedResourceTypeAsGone", func(t *testing.T) {
 		// Given an inventory entry whose CRD no longer exists — nothing left to leak
 		manager := setup(t)
-		kubernetesClient := client.NewMockKubernetesClient()
+		kubernetesClient := withGVRs(client.NewMockKubernetesClient())
 		kubernetesClient.DeleteResourceFunc = func(gvr schema.GroupVersionResource, namespace, name string, opts metav1.DeleteOptions) error {
 			return nil
 		}
@@ -1050,12 +1070,12 @@ func TestBaseKubernetesManager_DeleteKustomization(t *testing.T) {
 		// Given a Kustomization that has never reconciled far enough to report an
 		// inventory at all — not the same as a reconciled, now-empty one
 		manager := setup(t)
-		kubernetesClient := client.NewMockKubernetesClient()
+		kubernetesClient := withGVRs(client.NewMockKubernetesClient())
 		kubernetesClient.DeleteResourceFunc = func(gvr schema.GroupVersionResource, namespace, name string, opts metav1.DeleteOptions) error {
 			return nil
 		}
 		kubernetesClient.GetResourceFunc = func(gvr schema.GroupVersionResource, namespace, name string) (*unstructured.Unstructured, error) {
-			return &unstructured.Unstructured{Object: map[string]any{}}, nil
+			return blockingObject(), nil
 		}
 		manager.client = kubernetesClient
 
@@ -1076,7 +1096,7 @@ func TestBaseKubernetesManager_DeleteKustomization(t *testing.T) {
 		// its last-known inventory entry stays live through the grace retries —
 		// kustomize-controller gave up and stripped its own finalizer early
 		manager := setup(t)
-		kubernetesClient := client.NewMockKubernetesClient()
+		kubernetesClient := withGVRs(client.NewMockKubernetesClient())
 		kubernetesClient.DeleteResourceFunc = func(gvr schema.GroupVersionResource, namespace, name string, opts metav1.DeleteOptions) error {
 			return nil
 		}
@@ -1090,7 +1110,7 @@ func TestBaseKubernetesManager_DeleteKustomization(t *testing.T) {
 				return nil, fmt.Errorf("the server could not find the requested resource")
 			}
 			if name == "entry-one" {
-				return &unstructured.Unstructured{Object: map[string]any{}}, nil
+				return blockingObject(), nil
 			}
 			return nil, fmt.Errorf("the server could not find the requested resource")
 		}
@@ -1112,7 +1132,7 @@ func TestBaseKubernetesManager_DeleteKustomization(t *testing.T) {
 		// Given a still-live entry that finishes its own normal termination within the
 		// grace retries — not a sign Flux gave up, just a resource a moment from gone
 		manager := setup(t)
-		kubernetesClient := client.NewMockKubernetesClient()
+		kubernetesClient := withGVRs(client.NewMockKubernetesClient())
 		kubernetesClient.DeleteResourceFunc = func(gvr schema.GroupVersionResource, namespace, name string, opts metav1.DeleteOptions) error {
 			return nil
 		}
@@ -1128,7 +1148,7 @@ func TestBaseKubernetesManager_DeleteKustomization(t *testing.T) {
 			if name == "entry-one" {
 				entryCalls++
 				if entryCalls == 1 {
-					return &unstructured.Unstructured{Object: map[string]any{}}, nil
+					return blockingObject(), nil
 				}
 			}
 			return nil, fmt.Errorf("the server could not find the requested resource")
@@ -1150,7 +1170,7 @@ func TestBaseKubernetesManager_DeleteKustomization(t *testing.T) {
 		// 2-entry last-known inventory extends past that floor
 		manager := setup(t)
 		manager.kustomizationDeletionPerEntryTimeout = 100 * time.Millisecond
-		kubernetesClient := client.NewMockKubernetesClient()
+		kubernetesClient := withGVRs(client.NewMockKubernetesClient())
 		kubernetesClient.DeleteResourceFunc = func(gvr schema.GroupVersionResource, namespace, name string, opts metav1.DeleteOptions) error {
 			return nil
 		}
@@ -1166,7 +1186,7 @@ func TestBaseKubernetesManager_DeleteKustomization(t *testing.T) {
 			if name == "entry-one" {
 				entryCalls++
 				if entryCalls <= 5 {
-					return &unstructured.Unstructured{Object: map[string]any{}}, nil
+					return blockingObject(), nil
 				}
 			}
 			return nil, fmt.Errorf("the server could not find the requested resource")
@@ -1191,7 +1211,7 @@ func TestBaseKubernetesManager_DeleteKustomization(t *testing.T) {
 		// entry is still live — MirrorPrune deletes resources without waiting for them,
 		// so a live entry here is expected, not a sign of a stuck finalizer
 		manager := setup(t)
-		kubernetesClient := client.NewMockKubernetesClient()
+		kubernetesClient := withGVRs(client.NewMockKubernetesClient())
 		kubernetesClient.DeleteResourceFunc = func(gvr schema.GroupVersionResource, namespace, name string, opts metav1.DeleteOptions) error {
 			return nil
 		}
@@ -1205,7 +1225,7 @@ func TestBaseKubernetesManager_DeleteKustomization(t *testing.T) {
 				return nil, fmt.Errorf("the server could not find the requested resource")
 			}
 			if name == "entry-one" {
-				return &unstructured.Unstructured{Object: map[string]any{}}, nil
+				return blockingObject(), nil
 			}
 			return nil, fmt.Errorf("the server could not find the requested resource")
 		}
@@ -1224,7 +1244,7 @@ func TestBaseKubernetesManager_DeleteKustomization(t *testing.T) {
 		// Given a kustomization that disappears after one tick, and every last-known
 		// inventory entry is confirmed gone — a genuinely clean delete
 		manager := setup(t)
-		kubernetesClient := client.NewMockKubernetesClient()
+		kubernetesClient := withGVRs(client.NewMockKubernetesClient())
 		kubernetesClient.DeleteResourceFunc = func(gvr schema.GroupVersionResource, namespace, name string, opts metav1.DeleteOptions) error {
 			return nil
 		}
@@ -1254,7 +1274,7 @@ func TestBaseKubernetesManager_DeleteKustomization(t *testing.T) {
 		// its last-known inventory entry fails with a real API error — nothing may be
 		// asserted from an inconclusive lookup, least of all that the resources are gone
 		manager := setup(t)
-		kubernetesClient := client.NewMockKubernetesClient()
+		kubernetesClient := withGVRs(client.NewMockKubernetesClient())
 		kubernetesClient.DeleteResourceFunc = func(gvr schema.GroupVersionResource, namespace, name string, opts metav1.DeleteOptions) error {
 			return nil
 		}
@@ -1287,7 +1307,7 @@ func TestBaseKubernetesManager_DeleteKustomization(t *testing.T) {
 		// Given a kustomization that disappears on the very first check — no
 		// last-known object was ever captured
 		manager := setup(t)
-		kubernetesClient := client.NewMockKubernetesClient()
+		kubernetesClient := withGVRs(client.NewMockKubernetesClient())
 		kubernetesClient.DeleteResourceFunc = func(gvr schema.GroupVersionResource, namespace, name string, opts metav1.DeleteOptions) error {
 			return nil
 		}
@@ -1312,7 +1332,7 @@ func TestBaseKubernetesManager_describeNotReadyKustomizations(t *testing.T) {
 		mocks := setupKubernetesMocks(t)
 		manager := NewKubernetesManager(mocks.KubernetesClient, mocks.ConfigHandler)
 		manager.notReadyDescribeBudget = 0
-		kubernetesClient := client.NewMockKubernetesClient()
+		kubernetesClient := withGVRs(client.NewMockKubernetesClient())
 		called := false
 		kubernetesClient.GetResourceFunc = func(gvr schema.GroupVersionResource, ns, name string) (*unstructured.Unstructured, error) {
 			called = true
@@ -1369,7 +1389,7 @@ func TestBaseKubernetesManager_WaitForKustomizations(t *testing.T) {
 
 	t.Run("Success", func(t *testing.T) {
 		manager := setup(t)
-		kubernetesClient := client.NewMockKubernetesClient()
+		kubernetesClient := withGVRs(client.NewMockKubernetesClient())
 		kubernetesClient.ListResourcesFunc = func(gvr schema.GroupVersionResource, ns string) (*unstructured.UnstructuredList, error) {
 			return &unstructured.UnstructuredList{Items: []unstructured.Unstructured{
 				kustomizationListItem("test-kustomization", "True", "", ""),
@@ -1399,7 +1419,7 @@ func TestBaseKubernetesManager_WaitForKustomizations(t *testing.T) {
 		// only becomes Ready on the second list — forcing a second tick to prove "a"'s flip
 		// is ignored rather than un-readying it and stalling the wait.
 		manager := setup(t)
-		kubernetesClient := client.NewMockKubernetesClient()
+		kubernetesClient := withGVRs(client.NewMockKubernetesClient())
 		listCalls := 0
 		kubernetesClient.ListResourcesFunc = func(gvr schema.GroupVersionResource, ns string) (*unstructured.UnstructuredList, error) {
 			listCalls++
@@ -5863,7 +5883,7 @@ func TestBaseKubernetesManager_DeleteBlueprint(t *testing.T) {
 				return nil, fmt.Errorf("the server could not find the requested resource")
 			}
 			if name == "entry-one" {
-				return &unstructured.Unstructured{Object: map[string]any{}}, nil
+				return blockingObject(), nil
 			}
 			return nil, fmt.Errorf("the server could not find the requested resource")
 		}
@@ -6078,8 +6098,11 @@ func TestBaseKubernetesManager_DeleteKustomizationHelmUninstallTimeout(t *testin
 		return &unstructured.Unstructured{Object: map[string]any{
 			"apiVersion": "helm.toolkit.fluxcd.io/v2",
 			"kind":       "HelmRelease",
-			"metadata":   map[string]any{"name": "cert-manager", "namespace": "system-gitops"},
-			"spec":       spec,
+			"metadata": map[string]any{
+				"name": "cert-manager", "namespace": "system-gitops",
+				"finalizers": []any{"finalizers.fluxcd.io"},
+			},
+			"spec": spec,
 		}}
 	}
 
@@ -6087,7 +6110,7 @@ func TestBaseKubernetesManager_DeleteKustomizationHelmUninstallTimeout(t *testin
 	// timeout error reports, which is the value the extension logic resolved.
 	resolvedBudget := func(t *testing.T, manager *BaseKubernetesManager, hr *unstructured.Unstructured, kustomization *unstructured.Unstructured) string {
 		t.Helper()
-		kubernetesClient := client.NewMockKubernetesClient()
+		kubernetesClient := withGVRs(client.NewMockKubernetesClient())
 		kubernetesClient.DeleteResourceFunc = func(gvr schema.GroupVersionResource, namespace, name string, opts metav1.DeleteOptions) error {
 			return nil
 		}
@@ -6205,7 +6228,7 @@ func TestBaseKubernetesManager_DeleteKustomizationHelmUninstallTimeout(t *testin
 		// Given a blueprint that sets DeleteTimeout to bound this delete, on a
 		// kustomization wrapping a chart declaring far longer
 		manager := setup(t)
-		kubernetesClient := client.NewMockKubernetesClient()
+		kubernetesClient := withGVRs(client.NewMockKubernetesClient())
 		kubernetesClient.DeleteResourceFunc = func(gvr schema.GroupVersionResource, namespace, name string, opts metav1.DeleteOptions) error {
 			return nil
 		}
@@ -6246,7 +6269,7 @@ func TestBaseKubernetesManager_DeleteKustomizationReadFailures(t *testing.T) {
 		// Given a delete whose status reads fail twice with a transient API error,
 		// then succeed, before the kustomization goes away
 		manager := setup(t)
-		kubernetesClient := client.NewMockKubernetesClient()
+		kubernetesClient := withGVRs(client.NewMockKubernetesClient())
 		kubernetesClient.DeleteResourceFunc = func(gvr schema.GroupVersionResource, namespace, name string, opts metav1.DeleteOptions) error {
 			return nil
 		}
@@ -6257,7 +6280,7 @@ func TestBaseKubernetesManager_DeleteKustomizationReadFailures(t *testing.T) {
 				return nil, fmt.Errorf("etcdserver: request timed out")
 			}
 			if reads == 3 {
-				return &unstructured.Unstructured{Object: map[string]any{}}, nil
+				return blockingObject(), nil
 			}
 			return nil, fmt.Errorf("the server could not find the requested resource")
 		}
@@ -6279,7 +6302,7 @@ func TestBaseKubernetesManager_DeleteKustomizationReadFailures(t *testing.T) {
 		// Given reads that fail transiently until the kustomization vanishes, so
 		// windsor never read the inventory it would verify against
 		manager := setup(t)
-		kubernetesClient := client.NewMockKubernetesClient()
+		kubernetesClient := withGVRs(client.NewMockKubernetesClient())
 		kubernetesClient.DeleteResourceFunc = func(gvr schema.GroupVersionResource, namespace, name string, opts metav1.DeleteOptions) error {
 			return nil
 		}
@@ -6309,7 +6332,7 @@ func TestBaseKubernetesManager_DeleteKustomizationReadFailures(t *testing.T) {
 		// Given status reads that keep failing past the tolerance
 		manager := setup(t)
 		manager.kustomizationWaitMaxReadFailures = 2
-		kubernetesClient := client.NewMockKubernetesClient()
+		kubernetesClient := withGVRs(client.NewMockKubernetesClient())
 		kubernetesClient.DeleteResourceFunc = func(gvr schema.GroupVersionResource, namespace, name string, opts metav1.DeleteOptions) error {
 			return nil
 		}
@@ -6353,7 +6376,7 @@ func TestBaseKubernetesManager_DeleteKustomizationReadFailures(t *testing.T) {
 			if reads%2 == 1 {
 				return nil, fmt.Errorf("etcdserver: request timed out")
 			}
-			return &unstructured.Unstructured{Object: map[string]any{}}, nil
+			return blockingObject(), nil
 		}
 		manager.client = kubernetesClient
 
@@ -8393,27 +8416,15 @@ func TestBaseKubernetesManager_DeleteKustomizationVerifiesChartResources(t *test
 		return &unstructured.Unstructured{Object: map[string]any{
 			"apiVersion": "helm.toolkit.fluxcd.io/v2",
 			"kind":       "HelmRelease",
-			"metadata":   map[string]any{"name": "cert-manager", "namespace": "system-pki"},
-			"status":     map[string]any{"inventory": map[string]any{"entries": raw}},
+			"metadata": map[string]any{
+				"name": "cert-manager", "namespace": "system-pki",
+				"finalizers": []any{"finalizers.fluxcd.io"},
+			},
+			"status": map[string]any{"inventory": map[string]any{"entries": raw}},
 		}}
 	}
 
 	const chartWebhook = "system-pki_cert-manager-webhook__dynamic-serving_rbac.authorization.k8s.io_Role"
-
-	withGVRs := func(c *client.MockKubernetesClient) *client.MockKubernetesClient {
-		c.ResourceForFunc = func(gvk schema.GroupVersionKind) (schema.GroupVersionResource, error) {
-			plural := map[string]string{
-				"Kustomization": "kustomizations",
-				"HelmRelease":   "helmreleases",
-				"Role":          "roles",
-			}[gvk.Kind]
-			if plural == "" {
-				return schema.GroupVersionResource{}, fmt.Errorf("no match for kind %q", gvk.Kind)
-			}
-			return schema.GroupVersionResource{Group: gvk.Group, Version: "v1", Resource: plural}, nil
-		}
-		return c
-	}
 
 	t.Run("ReportsAChartResourceLeftBehindByAVanishedHelmRelease", func(t *testing.T) {
 		// Given a kustomization that disappears along with its HelmRelease, while a
@@ -8438,7 +8449,7 @@ func TestBaseKubernetesManager_DeleteKustomizationVerifiesChartResources(t *test
 				}
 				return nil, fmt.Errorf("the server could not find the requested resource")
 			default:
-				return &unstructured.Unstructured{Object: map[string]any{}}, nil
+				return blockingObject(), nil
 			}
 		}
 		manager.client = kubernetesClient
@@ -8658,7 +8669,7 @@ func TestBaseKubernetesManager_DeleteKustomizationVerifiesChartResources(t *test
 				}
 				return nil, fmt.Errorf("the server could not find the requested resource")
 			default:
-				return &unstructured.Unstructured{Object: map[string]any{}}, nil
+				return blockingObject(), nil
 			}
 		}
 		manager.client = kubernetesClient
@@ -8734,7 +8745,7 @@ func TestBaseKubernetesManager_DeleteKustomizationVerifiesChartResources(t *test
 				}
 				return nil, fmt.Errorf("the server could not find the requested resource")
 			default:
-				return &unstructured.Unstructured{Object: map[string]any{}}, nil
+				return blockingObject(), nil
 			}
 		}
 		manager.client = kubernetesClient
