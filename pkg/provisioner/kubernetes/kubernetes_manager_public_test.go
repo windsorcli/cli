@@ -1279,7 +1279,7 @@ func TestBaseKubernetesManager_DeleteKustomization(t *testing.T) {
 		kubernetesClient.GetResourceFunc = func(gvr schema.GroupVersionResource, namespace, name string) (*unstructured.Unstructured, error) {
 			if name == "test-kustomization" {
 				calls++
-				if calls == 1 {
+				if calls <= 2 {
 					return waitForTerminationKustomization(), nil
 				}
 				return nil, fmt.Errorf("the server could not find the requested resource")
@@ -1314,7 +1314,7 @@ func TestBaseKubernetesManager_DeleteKustomization(t *testing.T) {
 		kubernetesClient.GetResourceFunc = func(gvr schema.GroupVersionResource, namespace, name string) (*unstructured.Unstructured, error) {
 			if name == "test-kustomization" {
 				calls++
-				if calls == 1 {
+				if calls <= 2 {
 					return waitForTerminationKustomization(), nil
 				}
 				return nil, fmt.Errorf("the server could not find the requested resource")
@@ -1357,7 +1357,7 @@ func TestBaseKubernetesManager_DeleteKustomization(t *testing.T) {
 		kubernetesClient.GetResourceFunc = func(gvr schema.GroupVersionResource, namespace, name string) (*unstructured.Unstructured, error) {
 			if name == "test-kustomization" {
 				calls++
-				if calls == 1 {
+				if calls <= 2 {
 					return waitForTerminationKustomization(), nil
 				}
 				return nil, fmt.Errorf("the server could not find the requested resource")
@@ -1394,7 +1394,7 @@ func TestBaseKubernetesManager_DeleteKustomization(t *testing.T) {
 		kubernetesClient.GetResourceFunc = func(gvr schema.GroupVersionResource, namespace, name string) (*unstructured.Unstructured, error) {
 			if name == "test-kustomization" {
 				calls++
-				if calls == 1 {
+				if calls <= 2 {
 					return drainedKustomization(), nil
 				}
 				return nil, fmt.Errorf("the server could not find the requested resource")
@@ -1428,7 +1428,7 @@ func TestBaseKubernetesManager_DeleteKustomization(t *testing.T) {
 		kubernetesClient.GetResourceFunc = func(gvr schema.GroupVersionResource, namespace, name string) (*unstructured.Unstructured, error) {
 			if name == "test-kustomization" {
 				calls++
-				if calls == 1 {
+				if calls <= 2 {
 					return waitForTerminationKustomization(), nil
 				}
 				return nil, fmt.Errorf("the server could not find the requested resource")
@@ -1469,7 +1469,7 @@ func TestBaseKubernetesManager_DeleteKustomization(t *testing.T) {
 		kubernetesClient.GetResourceFunc = func(gvr schema.GroupVersionResource, namespace, name string) (*unstructured.Unstructured, error) {
 			if name == "test-kustomization" {
 				calls++
-				if calls == 1 {
+				if calls <= 2 {
 					return drainedKustomization(), nil
 				}
 				return nil, fmt.Errorf("the server could not find the requested resource")
@@ -1502,7 +1502,7 @@ func TestBaseKubernetesManager_DeleteKustomization(t *testing.T) {
 		kubernetesClient.GetResourceFunc = func(gvr schema.GroupVersionResource, namespace, name string) (*unstructured.Unstructured, error) {
 			if name == "test-kustomization" {
 				calls++
-				if calls == 1 {
+				if calls <= 2 {
 					return waitForTerminationKustomization(), nil
 				}
 			}
@@ -1532,7 +1532,7 @@ func TestBaseKubernetesManager_DeleteKustomization(t *testing.T) {
 		kubernetesClient.GetResourceFunc = func(gvr schema.GroupVersionResource, namespace, name string) (*unstructured.Unstructured, error) {
 			if name == "test-kustomization" {
 				calls++
-				if calls == 1 {
+				if calls <= 2 {
 					return waitForTerminationKustomization(), nil
 				}
 				return nil, fmt.Errorf("the server could not find the requested resource")
@@ -1608,7 +1608,7 @@ func TestBaseKubernetesManager_DeleteKustomizationOutsideADestroy(t *testing.T) 
 			switch {
 			case gvr.Resource == "kustomizations":
 				reads++
-				if reads == 1 {
+				if reads <= 2 {
 					return &unstructured.Unstructured{Object: map[string]any{
 						"spec": map[string]any{"deletionPolicy": "WaitForTermination"},
 						"status": map[string]any{"inventory": map[string]any{"entries": []any{
@@ -6176,9 +6176,10 @@ func TestBaseKubernetesManager_DeleteBlueprint(t *testing.T) {
 			if name == "test-kustomization" {
 				calls++
 				// Call 1 is remediateLoadBalancerOwners' pre-destroy inventory snapshot,
-				// calls 2-3 are waitForResumeReconcile's checks after resume, and the
-				// delete wait loop's own first check is the fourth.
-				if calls <= 4 {
+				// calls 2-3 are waitForResumeReconcile's checks after resume, call 4 is
+				// deleteKustomization's own pre-delete snapshot, and the delete wait
+				// loop's own first check is the fifth.
+				if calls <= 5 {
 					return liveObj, nil
 				}
 				return nil, fmt.Errorf("the server could not find the requested resource")
@@ -6663,8 +6664,8 @@ func TestBaseKubernetesManager_DeleteKustomizationReadFailures(t *testing.T) {
 		if !strings.Contains(err.Error(), "deletion status") {
 			t.Errorf("Expected a deletion-status error, got: %v", err)
 		}
-		if reads != 3 {
-			t.Errorf("Expected 3 reads for a tolerance of 2, got %d", reads)
+		if reads != 4 {
+			t.Errorf("Expected 4 reads (the pre-delete snapshot plus 3 for a tolerance of 2), got %d", reads)
 		}
 	})
 
@@ -8749,7 +8750,7 @@ func TestBaseKubernetesManager_DeleteKustomizationVerifiesChartResources(t *test
 			switch {
 			case gvr.Resource == "kustomizations":
 				reads++
-				if reads == 1 {
+				if reads <= 2 {
 					return kustomizationWrappingChart(), nil
 				}
 				return nil, fmt.Errorf("the server could not find the requested resource")
@@ -8788,7 +8789,7 @@ func TestBaseKubernetesManager_DeleteKustomizationVerifiesChartResources(t *test
 			switch {
 			case gvr.Resource == "kustomizations":
 				reads++
-				if reads == 1 {
+				if reads <= 2 {
 					return kustomizationWrappingChart(), nil
 				}
 				return nil, fmt.Errorf("the server could not find the requested resource")
@@ -8825,7 +8826,7 @@ func TestBaseKubernetesManager_DeleteKustomizationVerifiesChartResources(t *test
 			switch {
 			case gvr.Resource == "kustomizations":
 				reads++
-				if reads == 1 {
+				if reads <= 2 {
 					return kustomizationWrappingChart(), nil
 				}
 				return nil, fmt.Errorf("the server could not find the requested resource")
@@ -8861,7 +8862,7 @@ func TestBaseKubernetesManager_DeleteKustomizationVerifiesChartResources(t *test
 		kubernetesClient.GetResourceFunc = func(gvr schema.GroupVersionResource, namespace, name string) (*unstructured.Unstructured, error) {
 			if gvr.Resource == "kustomizations" {
 				reads++
-				if reads == 1 {
+				if reads <= 2 {
 					return kustomizationWrappingChart(), nil
 				}
 			}
@@ -8894,7 +8895,7 @@ func TestBaseKubernetesManager_DeleteKustomizationVerifiesChartResources(t *test
 			switch {
 			case gvr.Resource == "kustomizations":
 				reads++
-				if reads == 1 {
+				if reads <= 2 {
 					return kustomizationWrappingChart(), nil
 				}
 				return nil, fmt.Errorf("the server could not find the requested resource")
@@ -8932,7 +8933,7 @@ func TestBaseKubernetesManager_DeleteKustomizationVerifiesChartResources(t *test
 			switch {
 			case gvr.Resource == "kustomizations":
 				reads++
-				if reads == 1 {
+				if reads <= 2 {
 					return kustomizationWrappingChart(), nil
 				}
 				return nil, fmt.Errorf("the server could not find the requested resource")
@@ -8969,7 +8970,7 @@ func TestBaseKubernetesManager_DeleteKustomizationVerifiesChartResources(t *test
 			switch {
 			case gvr.Resource == "kustomizations":
 				reads++
-				if reads == 1 {
+				if reads <= 2 {
 					return kustomizationWrappingChart(), nil
 				}
 				return nil, fmt.Errorf("the server could not find the requested resource")
@@ -8993,6 +8994,46 @@ func TestBaseKubernetesManager_DeleteKustomizationVerifiesChartResources(t *test
 		}
 		if !strings.Contains(err.Error(), "HelmRelease/inner") {
 			t.Errorf("Expected the nested release to be named, got: %v", err)
+		}
+	})
+
+	t.Run("AcceptsAHelmReleaseThatDeletesBeforeTheFirstPoll", func(t *testing.T) {
+		// Given a HelmRelease that helm-controller tears down as soon as delete is
+		// requested, faster than one poll interval, but still alive when windsor
+		// reads it immediately beforehand
+		manager := setup(t)
+		kubernetesClient := withGVRs(client.NewMockKubernetesClient())
+		deleted := false
+		kubernetesClient.DeleteResourceFunc = func(gvr schema.GroupVersionResource, namespace, name string, opts metav1.DeleteOptions) error {
+			deleted = true
+			return nil
+		}
+		reads := 0
+		kubernetesClient.GetResourceFunc = func(gvr schema.GroupVersionResource, namespace, name string) (*unstructured.Unstructured, error) {
+			switch {
+			case gvr.Resource == "kustomizations":
+				reads++
+				if reads <= 2 {
+					return kustomizationWrappingChart(), nil
+				}
+				return nil, fmt.Errorf("the server could not find the requested resource")
+			case gvr.Resource == "helmreleases":
+				if !deleted {
+					return helmReleaseManaging(chartWebhook), nil
+				}
+				return nil, fmt.Errorf("the server could not find the requested resource")
+			default:
+				return nil, fmt.Errorf("the server could not find the requested resource")
+			}
+		}
+		manager.client = kubernetesClient
+
+		// When DeleteKustomization runs
+		err := manager.DeleteKustomization("cert-manager", "system-pki")
+
+		// Then the pre-delete snapshot still verifies the chart's resources are gone
+		if err != nil {
+			t.Errorf("Expected a fast-deleting chart captured before delete to pass, got: %v", err)
 		}
 	})
 
