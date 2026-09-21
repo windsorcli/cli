@@ -296,7 +296,10 @@ func (k *BaseKubernetesManager) deleteKustomization(name, namespace string, expe
 	live, surviving, checkErr := k.firstLiveInventoryEntry(entries, helmInventory, destroying)
 	reportSurvivingResources(namespace, name, surviving)
 	if inventoryFound && checkErr == nil && dropped == 0 && live == nil {
-		return fmt.Errorf("kustomization %s/%s is fully drained. Every inventory item is confirmed gone, but its own finalizer is stuck. This is Flux bookkeeping, not leaked infrastructure. Clear it with `kubectl patch kustomization %s -n %s --type=merge -p '{\"metadata\":{\"finalizers\":null}}'`", namespace, name, name, namespace)
+		if len(surviving) == 0 {
+			return fmt.Errorf("kustomization %s/%s is fully drained. Every inventory item is confirmed gone, but its own finalizer is stuck. This is Flux bookkeeping, not leaked infrastructure. Clear it with `kubectl patch kustomization %s -n %s --type=merge -p '{\"metadata\":{\"finalizers\":null}}'`", namespace, name, name, namespace)
+		}
+		return fmt.Errorf("kustomization %s/%s left %d resource(s) behind. None of it blocks the cluster, but its own finalizer is stuck. This is Flux bookkeeping, not leaked infrastructure. Clear it with `kubectl patch kustomization %s -n %s --type=merge -p '{\"metadata\":{\"finalizers\":null}}'`", namespace, name, len(surviving), name, namespace)
 	}
 	reason := describeStuckKustomization(lastObj) + k.describeStuckHelmReleases(name, namespace) + describeInventoryVerdict(live, checkErr)
 	if waitForTermination, ok := kustomizationDeletionPolicy(lastObj, expectWaitForTermination); ok && !waitForTermination {

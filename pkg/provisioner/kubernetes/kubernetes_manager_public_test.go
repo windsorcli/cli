@@ -1008,6 +1008,42 @@ func TestBaseKubernetesManager_DeleteKustomization(t *testing.T) {
 		}
 	})
 
+	t.Run("TimeoutNamesResidueInsteadOfClaimingFullyDrained", func(t *testing.T) {
+		// Given one inventory entry gone and one live with no finalizer, during a
+		// destroy — real residue, not a confirmed-gone state
+		manager := setup(t)
+		kubernetesClient := withGVRs(client.NewMockKubernetesClient())
+		kubernetesClient.DeleteResourceFunc = func(gvr schema.GroupVersionResource, namespace, name string, opts metav1.DeleteOptions) error {
+			return nil
+		}
+		kubernetesClient.GetResourceFunc = func(gvr schema.GroupVersionResource, namespace, name string) (*unstructured.Unstructured, error) {
+			switch name {
+			case "test-kustomization":
+				return drainedKustomization(), nil
+			case "entry-one":
+				return &unstructured.Unstructured{}, nil
+			default:
+				return nil, fmt.Errorf("the server could not find the requested resource")
+			}
+		}
+		manager.client = kubernetesClient
+		expectWaitForTermination := true
+
+		// When the destroy walk times out
+		err := manager.deleteKustomization("test-kustomization", "test-namespace", &expectWaitForTermination, nil, true)
+
+		// Then it names the leftover count, not the fully-drained wording
+		if err == nil {
+			t.Fatal("Expected timeout error, got nil")
+		}
+		if strings.Contains(err.Error(), "fully drained") {
+			t.Errorf("Expected residue wording, got: %v", err)
+		}
+		if !strings.Contains(err.Error(), "left 1 resource(s) behind") {
+			t.Errorf("Expected the leftover count named, got: %v", err)
+		}
+	})
+
 	t.Run("TimeoutFallsBackWhenInventoryCheckInconclusive", func(t *testing.T) {
 		// Given an inventory entry whose live status can't be determined (a real API error,
 		// not a NotFound) — a false "all gone" reading here is the exact risk to avoid
