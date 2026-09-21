@@ -20,6 +20,7 @@ import (
 	"github.com/windsorcli/cli/pkg/constants"
 	"github.com/windsorcli/cli/pkg/provisioner/kubernetes/client"
 	"github.com/windsorcli/cli/pkg/runtime/config"
+	"github.com/windsorcli/cli/pkg/tui"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -1031,6 +1032,10 @@ func TestBaseKubernetesManager_DeleteKustomization(t *testing.T) {
 			return nil, nil
 		}
 		manager.client = kubernetesClient
+		originalActive := tui.Active
+		t.Cleanup(func() { tui.Active = originalActive })
+		var updates []string
+		tui.Active = &tui.MockSpinner{UpdateFunc: func(message string) { updates = append(updates, message) }}
 
 		// When DeleteKustomization times out with the entry never clearing
 		err := manager.DeleteKustomization("test-kustomization", "test-namespace")
@@ -1047,6 +1052,16 @@ func TestBaseKubernetesManager_DeleteKustomization(t *testing.T) {
 			if name != "entry-one" {
 				t.Errorf("Expected the trigger to target entry-one, got: %s", name)
 			}
+		}
+		// And an operator watching the run sees why it is still waiting, not silence
+		found := false
+		for _, u := range updates {
+			if strings.Contains(u, "entry-one") && strings.Contains(u, "asked it to reconcile again") {
+				found = true
+			}
+		}
+		if !found {
+			t.Errorf("Expected a progress update naming entry-one, got: %v", updates)
 		}
 	})
 
@@ -1330,6 +1345,10 @@ func TestBaseKubernetesManager_DeleteKustomization(t *testing.T) {
 			return nil, nil
 		}
 		manager.client = kubernetesClient
+		originalActive := tui.Active
+		t.Cleanup(func() { tui.Active = originalActive })
+		var updates []string
+		tui.Active = &tui.MockSpinner{UpdateFunc: func(message string) { updates = append(updates, message) }}
 
 		// When DeleteKustomization waits out the grace retries
 		_ = manager.DeleteKustomization("test-kustomization", "test-namespace")
@@ -1342,6 +1361,16 @@ func TestBaseKubernetesManager_DeleteKustomization(t *testing.T) {
 			if name != "entry-one" {
 				t.Errorf("Expected the trigger to target entry-one, got: %s", name)
 			}
+		}
+		// And an operator watching the run sees why it is still waiting, not silence
+		found := false
+		for _, u := range updates {
+			if strings.Contains(u, "entry-one") && strings.Contains(u, "asked it to reconcile again") {
+				found = true
+			}
+		}
+		if !found {
+			t.Errorf("Expected a progress update naming entry-one, got: %v", updates)
 		}
 	})
 
@@ -6596,6 +6625,10 @@ func TestBaseKubernetesManager_DeleteKustomizationReadFailures(t *testing.T) {
 			return nil, fmt.Errorf("the server could not find the requested resource")
 		}
 		manager.client = kubernetesClient
+		originalActive := tui.Active
+		t.Cleanup(func() { tui.Active = originalActive })
+		var updates []string
+		tui.Active = &tui.MockSpinner{UpdateFunc: func(message string) { updates = append(updates, message) }}
 
 		// When DeleteKustomization runs
 		err := manager.DeleteKustomization("demo-resources", "system-gitops")
@@ -6606,6 +6639,23 @@ func TestBaseKubernetesManager_DeleteKustomizationReadFailures(t *testing.T) {
 		}
 		if reads < 4 {
 			t.Errorf("Expected the wait to poll past the failures, got %d reads", reads)
+		}
+		// And an operator watching the run sees both the retry and the ongoing wait,
+		// not silence for the whole poll
+		sawRetry, sawWaiting := false, false
+		for _, u := range updates {
+			if strings.Contains(u, "retrying after a read error") {
+				sawRetry = true
+			}
+			if strings.Contains(u, "waiting up to") {
+				sawWaiting = true
+			}
+		}
+		if !sawRetry {
+			t.Errorf("Expected a progress update naming the read-error retry, got: %v", updates)
+		}
+		if !sawWaiting {
+			t.Errorf("Expected a progress update naming the ongoing wait, got: %v", updates)
 		}
 	})
 
