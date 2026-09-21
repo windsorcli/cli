@@ -6,6 +6,8 @@ package client
 
 import (
 	"context"
+	"crypto/sha256"
+	"errors"
 	"fmt"
 	"os"
 	"sync"
@@ -62,11 +64,23 @@ type KubernetesClient interface {
 
 // DynamicKubernetesClient implements KubernetesClient using dynamic client
 type DynamicKubernetesClient struct {
-	mu       sync.Mutex
-	client   dynamic.Interface
-	mapper   meta.RESTMapper
-	endpoint string
-	shell    shell.Shell
+	mu             sync.Mutex
+	client         dynamic.Interface
+	mapper         meta.RESTMapper
+	endpoint       string
+	builtEndpoint  string
+	kubeconfigPath string
+	kubeconfigHash [sha256.Size]byte
+	shell          shell.Shell
+}
+
+// builtClient holds a freshly built client and the connection info that produced it. ensureClient
+// commits it to the receiver only after a build fully succeeds.
+type builtClient struct {
+	client         dynamic.Interface
+	mapper         meta.RESTMapper
+	kubeconfigPath string
+	kubeconfigHash [sha256.Size]byte
 }
 
 // =============================================================================
@@ -85,64 +99,70 @@ func NewDynamicKubernetesClient(shell shell.Shell) *DynamicKubernetesClient {
 
 // GetResource gets a resource by name and namespace
 func (c *DynamicKubernetesClient) GetResource(gvr schema.GroupVersionResource, namespace, name string) (*unstructured.Unstructured, error) {
-	if err := c.ensureClient(); err != nil {
+	cli, _, err := c.ensureClient()
+	if err != nil {
 		return nil, err
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), requestTimeout)
 	defer cancel()
-	return c.client.Resource(gvr).Namespace(namespace).Get(ctx, name, metav1.GetOptions{})
+	return cli.Resource(gvr).Namespace(namespace).Get(ctx, name, metav1.GetOptions{})
 }
 
 // ListResources lists resources in a namespace
 func (c *DynamicKubernetesClient) ListResources(gvr schema.GroupVersionResource, namespace string) (*unstructured.UnstructuredList, error) {
-	if err := c.ensureClient(); err != nil {
+	cli, _, err := c.ensureClient()
+	if err != nil {
 		return nil, err
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), requestTimeout)
 	defer cancel()
-	return c.client.Resource(gvr).Namespace(namespace).List(ctx, metav1.ListOptions{})
+	return cli.Resource(gvr).Namespace(namespace).List(ctx, metav1.ListOptions{})
 }
 
 // ListResourcesByLabel lists resources of the given kind narrowed to a label selector; an empty
 // namespace lists across all namespaces. It lets callers ask the API server to return only the objects
 // they care about (e.g. this context's CLI-placed secrets) rather than listing everything and filtering.
 func (c *DynamicKubernetesClient) ListResourcesByLabel(gvr schema.GroupVersionResource, namespace, labelSelector string) (*unstructured.UnstructuredList, error) {
-	if err := c.ensureClient(); err != nil {
+	cli, _, err := c.ensureClient()
+	if err != nil {
 		return nil, err
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), requestTimeout)
 	defer cancel()
-	return c.client.Resource(gvr).Namespace(namespace).List(ctx, metav1.ListOptions{LabelSelector: labelSelector})
+	return cli.Resource(gvr).Namespace(namespace).List(ctx, metav1.ListOptions{LabelSelector: labelSelector})
 }
 
 // ApplyResource applies a resource using server-side apply
 func (c *DynamicKubernetesClient) ApplyResource(gvr schema.GroupVersionResource, obj *unstructured.Unstructured, opts metav1.ApplyOptions) (*unstructured.Unstructured, error) {
-	if err := c.ensureClient(); err != nil {
+	cli, _, err := c.ensureClient()
+	if err != nil {
 		return nil, err
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), applyTimeout)
 	defer cancel()
-	return c.client.Resource(gvr).Namespace(obj.GetNamespace()).Apply(ctx, obj.GetName(), obj, opts)
+	return cli.Resource(gvr).Namespace(obj.GetNamespace()).Apply(ctx, obj.GetName(), obj, opts)
 }
 
 // DeleteResource deletes a resource
 func (c *DynamicKubernetesClient) DeleteResource(gvr schema.GroupVersionResource, namespace, name string, opts metav1.DeleteOptions) error {
-	if err := c.ensureClient(); err != nil {
+	cli, _, err := c.ensureClient()
+	if err != nil {
 		return err
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), requestTimeout)
 	defer cancel()
-	return c.client.Resource(gvr).Namespace(namespace).Delete(ctx, name, opts)
+	return cli.Resource(gvr).Namespace(namespace).Delete(ctx, name, opts)
 }
 
 // ResourceFor resolves a GroupVersionKind to its GroupVersionResource using the API server's
 // discovery data, so callers holding only an ownerReference (apiVersion + kind) can address the
 // owning object with the dynamic client. Resolution is cached by the deferred discovery mapper.
 func (c *DynamicKubernetesClient) ResourceFor(gvk schema.GroupVersionKind) (schema.GroupVersionResource, error) {
-	if err := c.ensureClient(); err != nil {
+	_, mapper, err := c.ensureClient()
+	if err != nil {
 		return schema.GroupVersionResource{}, err
 	}
-	mapping, err := c.mapper.RESTMapping(gvk.GroupKind(), gvk.Version)
+	mapping, err := mapper.RESTMapping(gvk.GroupKind(), gvk.Version)
 	if err != nil {
 		return schema.GroupVersionResource{}, err
 	}
@@ -154,10 +174,11 @@ func (c *DynamicKubernetesClient) ResourceFor(gvk schema.GroupVersionKind) (sche
 // GVR: a cluster-scoped owner (e.g. GatewayClass, ClusterRole) must be addressed with an empty
 // namespace, never the child object's namespace.
 func (c *DynamicKubernetesClient) IsNamespaced(gvk schema.GroupVersionKind) (bool, error) {
-	if err := c.ensureClient(); err != nil {
+	_, mapper, err := c.ensureClient()
+	if err != nil {
 		return false, err
 	}
-	mapping, err := c.mapper.RESTMapping(gvk.GroupKind(), gvk.Version)
+	mapping, err := mapper.RESTMapping(gvk.GroupKind(), gvk.Version)
 	if err != nil {
 		return false, err
 	}
@@ -170,12 +191,13 @@ func (c *DynamicKubernetesClient) IsNamespaced(gvk schema.GroupVersionKind) (boo
 // in-flight requests. A requestTimeout is layered on top as an upper bound so
 // callers that pass context.Background() still get the pre-existing 30s cap.
 func (c *DynamicKubernetesClient) PatchResource(ctx context.Context, gvr schema.GroupVersionResource, namespace, name string, pt types.PatchType, data []byte, opts metav1.PatchOptions) (*unstructured.Unstructured, error) {
-	if err := c.ensureClient(); err != nil {
+	cli, _, err := c.ensureClient()
+	if err != nil {
 		return nil, err
 	}
 	ctx, cancel := context.WithTimeout(ctx, requestTimeout)
 	defer cancel()
-	return c.client.Resource(gvr).Namespace(namespace).Patch(ctx, name, pt, data, opts)
+	return cli.Resource(gvr).Namespace(namespace).Patch(ctx, name, pt, data, opts)
 }
 
 // CheckHealth verifies Kubernetes API connectivity by listing nodes using the dynamic client.
@@ -186,7 +208,8 @@ func (c *DynamicKubernetesClient) CheckHealth(ctx context.Context, endpoint stri
 	c.endpoint = endpoint
 	c.mu.Unlock()
 
-	if err := c.ensureClient(); err != nil {
+	cli, _, err := c.ensureClient()
+	if err != nil {
 		return fmt.Errorf("failed to initialize Kubernetes client: %w", err)
 	}
 
@@ -196,8 +219,7 @@ func (c *DynamicKubernetesClient) CheckHealth(ctx context.Context, endpoint stri
 		Resource: "nodes",
 	}
 
-	_, err := c.client.Resource(nodeGVR).List(ctx, metav1.ListOptions{Limit: 1})
-	if err != nil {
+	if _, err := cli.Resource(nodeGVR).List(ctx, metav1.ListOptions{Limit: 1}); err != nil {
 		return fmt.Errorf("failed to connect to Kubernetes API: %w", err)
 	}
 
@@ -209,7 +231,8 @@ func (c *DynamicKubernetesClient) CheckHealth(ctx context.Context, endpoint stri
 // If nodeNames is empty, all nodes are checked. Nodes not found are omitted from the result.
 // Returns a map of node names to Ready status (true if Ready, false if NotReady), or an error if listing fails.
 func (c *DynamicKubernetesClient) GetNodeReadyStatus(ctx context.Context, nodeNames []string) (map[string]bool, error) {
-	if err := c.ensureClient(); err != nil {
+	cli, _, err := c.ensureClient()
+	if err != nil {
 		return nil, fmt.Errorf("failed to initialize Kubernetes client: %w", err)
 	}
 
@@ -219,7 +242,7 @@ func (c *DynamicKubernetesClient) GetNodeReadyStatus(ctx context.Context, nodeNa
 		Resource: "nodes",
 	}
 
-	nodes, err := c.client.Resource(nodeGVR).List(ctx, metav1.ListOptions{})
+	nodes, err := cli.Resource(nodeGVR).List(ctx, metav1.ListOptions{})
 	if err != nil {
 		return nil, fmt.Errorf("failed to list nodes: %w", err)
 	}
@@ -260,62 +283,124 @@ func (c *DynamicKubernetesClient) IsVerbose() bool {
 // Private Methods
 // =============================================================================
 
-// ensureClient initializes the dynamic Kubernetes client and REST mapper if unset. Uses endpoint,
-// in-cluster, or kubeconfig as available. The mapper is a deferred discovery mapper, so it performs
-// no API calls until the first ResourceFor lookup. Returns error if client setup fails at any stage.
-// Safe for concurrent use: initialization is guarded by a mutex so callers issuing overlapping
-// requests (e.g. a wait loop polling several resources at once) don't race the first setup.
-// Suppresses server-side API deprecation warnings unless the shell is in verbose mode.
-func (c *DynamicKubernetesClient) ensureClient() error {
+// ensureClient builds the client and mapper on first use. It rebuilds them when the endpoint or
+// kubeconfig file changes, so a client built before a Terraform apply does not keep serving a
+// cluster the apply has since replaced. A rebuild triggered by a kubeconfig file change falls
+// back to the last known-good client on a transient failure (e.g. the file caught mid-write), but
+// not when the file is confirmed missing. A rebuild triggered by a new explicit endpoint never
+// falls back: the caller asked for that endpoint specifically, so silently serving the old one
+// would misreport it. Returns the client and mapper as of this call. Another goroutine's call can
+// reassign c.client/c.mapper at any time, so callers MUST use only the returned pair.
+func (c *DynamicKubernetesClient) ensureClient() (dynamic.Interface, meta.RESTMapper, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	if c.client != nil {
-		return nil
+	if c.client != nil && !c.connectionChangedLocked() {
+		return c.client, c.mapper, nil
 	}
 
-	config, err := c.restConfig()
+	endpointChanged := c.endpoint != c.builtEndpoint
+	built, err := c.buildClient()
 	if err != nil {
-		return err
+		if c.client != nil && !endpointChanged && !errors.Is(err, os.ErrNotExist) {
+			return c.client, c.mapper, nil
+		}
+		return nil, nil, err
+	}
+
+	c.client = built.client
+	c.mapper = built.mapper
+	c.builtEndpoint = c.endpoint
+	c.kubeconfigPath = built.kubeconfigPath
+	c.kubeconfigHash = built.kubeconfigHash
+	return c.client, c.mapper, nil
+}
+
+// connectionChangedLocked reports whether the endpoint or kubeconfig file behind the cached
+// client has changed. Caller MUST hold c.mu. Returns false when there is no file to compare (an
+// endpoint or in-cluster config) or on a transient read failure. Returns true when the kubeconfig
+// is confirmed missing: that is a real signal to stop trusting the cache, not a transient error.
+func (c *DynamicKubernetesClient) connectionChangedLocked() bool {
+	if c.endpoint != c.builtEndpoint {
+		return true
+	}
+	if c.kubeconfigPath == "" {
+		return false
+	}
+	data, err := os.ReadFile(c.kubeconfigPath) // #nosec G304 - kubeconfigPath is the path this same client already read via restConfig, from the operator's own KUBECONFIG env var
+	if err != nil {
+		return errors.Is(err, os.ErrNotExist)
+	}
+	return sha256.Sum256(data) != c.kubeconfigHash
+}
+
+// buildClient builds a dynamic client, REST mapper, and (for a kubeconfig file) its content hash.
+// It does not mutate c, so a failed attempt leaves any existing client untouched. It reads the
+// kubeconfig file again here, separately from restConfig, to hash it: restConfig must use
+// clientcmd's full loading rules so relative certificate/key/exec paths resolve correctly.
+func (c *DynamicKubernetesClient) buildClient() (builtClient, error) {
+	config, kubeconfigPath, err := c.restConfig()
+	if err != nil {
+		return builtClient{}, err
 	}
 	config.WarningHandler = warningHandlerFor(c.shell)
 
 	cli, err := dynamic.NewForConfig(config)
 	if err != nil {
-		return err
+		return builtClient{}, err
 	}
 
 	discoveryClient, err := discovery.NewDiscoveryClientForConfig(config)
 	if err != nil {
-		return err
+		return builtClient{}, err
 	}
 
-	c.mapper = restmapper.NewDeferredDiscoveryRESTMapper(memory.NewMemCacheClient(discoveryClient))
-	c.client = cli
-	return nil
+	built := builtClient{
+		client: cli,
+		mapper: restmapper.NewDeferredDiscoveryRESTMapper(memory.NewMemCacheClient(discoveryClient)),
+	}
+	if kubeconfigPath != "" {
+		built.kubeconfigPath = kubeconfigPath
+		if data, readErr := os.ReadFile(kubeconfigPath); readErr == nil { // #nosec G304 - kubeconfigPath is the same path restConfig just read, from the operator's own KUBECONFIG env var
+			built.kubeconfigHash = sha256.Sum256(data)
+		} else if kubeconfigPath == c.kubeconfigPath {
+			// Same path as last time; this read failed transiently right after restConfig's own
+			// read succeeded. Keep the last known hash rather than dropping tracking entirely,
+			// so a real change still gets caught (at worst one extra rebuild attempt later)
+			// instead of silently going unwatched until the process restarts.
+			built.kubeconfigHash = c.kubeconfigHash
+		}
+	}
+	return built, nil
 }
 
-// restConfig builds a Kubernetes REST config, preferring an explicit endpoint, then in-cluster
-// config, then the KUBECONFIG (or ~/.kube/config) kubeconfig file.
-func (c *DynamicKubernetesClient) restConfig() (*rest.Config, error) {
+// restConfig builds a REST config: an explicit endpoint first, then in-cluster config, then the
+// KUBECONFIG (or ~/.kube/config) file via clientcmd's full loading rules, so relative
+// certificate/key/exec paths resolve as they do for kubectl. The second return is the kubeconfig
+// path read, empty otherwise. A missing file returns an os.ErrNotExist-wrapping error.
+func (c *DynamicKubernetesClient) restConfig() (*rest.Config, string, error) {
 	if c.endpoint != "" {
-		return &rest.Config{Host: c.endpoint}, nil
+		return &rest.Config{Host: c.endpoint}, "", nil
 	}
 
 	config, err := rest.InClusterConfig()
 	if err == nil {
-		return config, nil
+		return config, "", nil
 	}
 
 	kubeconfig := os.Getenv("KUBECONFIG")
 	if kubeconfig == "" {
 		home, err := os.UserHomeDir()
 		if err != nil {
-			return nil, err
+			return nil, "", err
 		}
 		kubeconfig = home + "/.kube/config"
 	}
-	return clientcmd.BuildConfigFromFlags("", kubeconfig)
+	config, err = clientcmd.BuildConfigFromFlags("", kubeconfig)
+	if err != nil {
+		return nil, "", err
+	}
+	return config, kubeconfig, nil
 }
 
 // warningHandlerFor returns the REST config warning handler to use for the given shell.

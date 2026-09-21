@@ -202,6 +202,33 @@ func TestApplyCmd_Prune(t *testing.T) {
 		}
 	})
 
+	t.Run("WarnsWhenVersionGateCheckFails", func(t *testing.T) {
+		// Given a version marker read that fails (e.g. the cluster is not reachable yet)
+		mocks := setupApplyTest(t)
+		seedKubeconfig(t, mocks)
+		mocks.KubernetesManager.GetVersionMarkerFunc = func(namespace string) (kubernetes.VersionMarker, bool, error) {
+			return kubernetes.VersionMarker{}, false, fmt.Errorf("dial tcp: lookup cluster-old: no such host")
+		}
+		proj := newApplyAllProject(mocks)
+
+		// When applying
+		var stderr bytes.Buffer
+		cmd := createTestApplyCmd()
+		cmd.SetErr(&stderr)
+		ctx := context.WithValue(context.Background(), projectOverridesKey, proj)
+		cmd.SetContext(ctx)
+		err := cmd.Execute()
+
+		// Then it warns but does not refuse — a gate check failure is not blocking, but it
+		// must not vanish silently either
+		if err != nil {
+			t.Errorf("Expected apply to proceed despite the gate check failing, got %v", err)
+		}
+		if !strings.Contains(stderr.String(), "pre-apply version check") {
+			t.Errorf("Expected a gate-check-failure warning on stderr, got: %q", stderr.String())
+		}
+	})
+
 	t.Run("ReportsOrphansWithoutPrune", func(t *testing.T) {
 		t.Cleanup(func() { applyPruneFlag = false })
 		// Given a reconcile that would prune a kustomization

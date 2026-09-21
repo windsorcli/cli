@@ -57,10 +57,12 @@ windsor apply kustomize dns`,
 			return fmt.Errorf("blueprint is not available")
 		}
 
-		// apply reconciles to the declared blueprint and never refuses on version, but an
-		// interrupted upgrade leaves the marker mid-transition; surface that (best-effort) so the
-		// operator can finish it with `upgrade` rather than silently reconciling past it.
-		if gate, gateErr := proj.Provisioner.CheckVersionGate(blueprint); gateErr == nil && gate.InFlight {
+		// apply always reconciles regardless of version. An interrupted upgrade leaves the
+		// marker mid-transition; warn (best-effort) so the operator can finish it with `upgrade`.
+		// A gate check failure (e.g. an unreachable cluster) is warned the same way, not swallowed.
+		if gate, gateErr := proj.Provisioner.CheckVersionGate(blueprint); gateErr != nil {
+			fmt.Fprintf(cmd.ErrOrStderr(), "Warning: pre-apply version check: %v\n", gateErr)
+		} else if gate.InFlight {
 			fmt.Fprintln(cmd.ErrOrStderr(), "Warning: an upgrade is in progress or was interrupted for this context. apply will reconcile to the declared blueprint; run `windsor upgrade` to complete the version transition.")
 		}
 
