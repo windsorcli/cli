@@ -3309,7 +3309,7 @@ func TestShell_ExecSilentWithEnvAndIdleTimeout(t *testing.T) {
 		}
 
 		// When executing with a short idle timeout, a long absolute timeout, and a short grace period
-		out, err := shell.ExecSilentWithEnvAndIdleTimeout("test", nil, []string{"arg"}, 20*time.Millisecond, time.Hour, 20*time.Millisecond)
+		out, err := shell.ExecSilentWithEnvAndIdleTimeout("test", nil, []string{"arg"}, 50*time.Millisecond, time.Hour, 50*time.Millisecond)
 
 		// Then the idle timeout fires, naming the silence, only after the process group was
 		// interrupted first; the eventual hard kill also targets the whole group, not just
@@ -3330,8 +3330,10 @@ func TestShell_ExecSilentWithEnvAndIdleTimeout(t *testing.T) {
 	})
 
 	t.Run("ActivityResetsIdleTimeoutSoASlowButProgressingCommandSucceeds", func(t *testing.T) {
-		// Given a command that writes a line every 15ms for 60ms total — longer than the idle
-		// timeout, but never silent for that long at a stretch
+		// Given a command that writes a line every 150ms for 750ms total — longer than the
+		// idle timeout, but never silent for that long at a stretch. The gap between writes
+		// stays a small fraction of the idle timeout so scheduler jitter on a loaded CI
+		// runner cannot make a single gap look like a stall.
 		shell, mocks := setup(t)
 		stdoutR, stdoutW := io.Pipe()
 		mocks.Shims.StdoutPipe = func(cmd *exec.Cmd) (io.ReadCloser, error) { return stdoutR, nil }
@@ -3341,21 +3343,21 @@ func TestShell_ExecSilentWithEnvAndIdleTimeout(t *testing.T) {
 			return r, nil
 		}
 		go func() {
-			for i := range 4 {
-				time.Sleep(15 * time.Millisecond)
+			for i := range 5 {
+				time.Sleep(150 * time.Millisecond)
 				fmt.Fprintf(stdoutW, "line %d\n", i)
 			}
 			stdoutW.Close()
 		}()
 
 		// When executing with an idle timeout shorter than the command's total runtime
-		out, err := shell.ExecSilentWithEnvAndIdleTimeout("test", nil, []string{"arg"}, 30*time.Millisecond, time.Hour, time.Second)
+		out, err := shell.ExecSilentWithEnvAndIdleTimeout("test", nil, []string{"arg"}, 500*time.Millisecond, time.Hour, time.Second)
 
 		// Then it succeeds: each line resets the idle window before it can expire
 		if err != nil {
 			t.Errorf("Expected the periodic output to keep resetting the idle timeout, got: %v", err)
 		}
-		if !strings.Contains(out, "line 3") {
+		if !strings.Contains(out, "line 4") {
 			t.Errorf("Expected every line to be captured, got: %q", out)
 		}
 	})
@@ -3382,7 +3384,7 @@ func TestShell_ExecSilentWithEnvAndIdleTimeout(t *testing.T) {
 		stop := make(chan struct{})
 		defer close(stop)
 		go func() {
-			ticker := time.NewTicker(5 * time.Millisecond)
+			ticker := time.NewTicker(10 * time.Millisecond)
 			defer ticker.Stop()
 			for {
 				select {
@@ -3396,7 +3398,7 @@ func TestShell_ExecSilentWithEnvAndIdleTimeout(t *testing.T) {
 
 		// When executing with an idle timeout the activity never lets expire, and a short
 		// absolute timeout
-		out, err := shell.ExecSilentWithEnvAndIdleTimeout("test", nil, []string{"arg"}, time.Hour, 30*time.Millisecond, 20*time.Millisecond)
+		out, err := shell.ExecSilentWithEnvAndIdleTimeout("test", nil, []string{"arg"}, time.Hour, 100*time.Millisecond, 50*time.Millisecond)
 
 		// Then the absolute backstop fires anyway, and still interrupts before it kills,
 		// surfacing whatever output was captured before the cutoff
@@ -3427,7 +3429,7 @@ func TestShell_ExecSilentWithEnvAndIdleTimeout(t *testing.T) {
 		}
 		mocks.Shims.InterruptProcessGroup = func(cmd *exec.Cmd) error {
 			go func() {
-				time.Sleep(10 * time.Millisecond)
+				time.Sleep(20 * time.Millisecond)
 				_ = stdoutW.Close()
 			}()
 			return nil
@@ -3435,7 +3437,7 @@ func TestShell_ExecSilentWithEnvAndIdleTimeout(t *testing.T) {
 
 		// When executing with a short idle timeout and a very long grace period
 		start := time.Now()
-		_, err := shell.ExecSilentWithEnvAndIdleTimeout("test", nil, []string{"arg"}, 20*time.Millisecond, time.Hour, time.Hour)
+		_, err := shell.ExecSilentWithEnvAndIdleTimeout("test", nil, []string{"arg"}, 50*time.Millisecond, time.Hour, time.Hour)
 		elapsed := time.Since(start)
 
 		// Then the call returns once the process exits, not after the full (very long) grace period
