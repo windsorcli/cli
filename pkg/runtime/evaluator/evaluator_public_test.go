@@ -30,6 +30,25 @@ func setupEvaluatorTest(t *testing.T) (ExpressionEvaluator, config.ConfigHandler
 	return evaluator, mockConfigHandler, projectRoot, templateRoot
 }
 
+// assertDeferredExpression fails the test unless result is a DeferredValue wrapping input, with no error.
+func assertDeferredExpression(t *testing.T, result any, err error, input string) {
+	t.Helper()
+
+	if err != nil {
+		t.Fatalf("Expected no error, got: %v", err)
+	}
+	if !IsDeferredValue(result) {
+		t.Fatalf("Expected deferred value, got %T (%v)", result, result)
+	}
+	expr, ok := DeferredExpression(result)
+	if !ok {
+		t.Fatalf("Expected deferred expression to be available")
+	}
+	if expr != input {
+		t.Errorf("Expected deferred expression %q, got %q", input, expr)
+	}
+}
+
 func setupEvaluatorWithMockShims(t *testing.T) (ExpressionEvaluator, *Shims, config.ConfigHandler) {
 	t.Helper()
 
@@ -1341,7 +1360,7 @@ func TestExpressionEvaluator_EvaluateMap(t *testing.T) {
 		}
 	})
 
-	t.Run("PreservesOriginalWhenEvaluatedIsStringWithExpression", func(t *testing.T) {
+	t.Run("MarksResultDeferredWhenEvaluatedIsStringWithExpression", func(t *testing.T) {
 		evaluator, mockConfigHandler, _, _ := setupEvaluatorTest(t)
 		mockHandler := mockConfigHandler.(*config.MockConfigHandler)
 		mockHandler.GetContextValuesFunc = func() (map[string]any, error) {
@@ -1355,8 +1374,12 @@ func TestExpressionEvaluator_EvaluateMap(t *testing.T) {
 		if err != nil {
 			t.Fatalf("Expected no error, got: %v", err)
 		}
-		if result["x"] != "${foo}" {
-			t.Errorf("Expected original value preserved when evaluated string contains expression, got %v", result["x"])
+		if !IsDeferredValue(result["x"]) {
+			t.Fatalf("Expected deferred value when evaluated string still contains an expression, got %T (%v)", result["x"], result["x"])
+		}
+		expr, ok := DeferredExpression(result["x"])
+		if !ok || expr != "${foo}" {
+			t.Errorf("Expected deferred expression %q, got %q (ok=%v)", "${foo}", expr, ok)
 		}
 	})
 
@@ -1691,6 +1714,95 @@ func TestExpressionEvaluator_EvaluateMap(t *testing.T) {
 		}
 		if expr != input {
 			t.Errorf("Expected deferred expression %q, got %q", input, expr)
+		}
+	})
+
+	t.Run("MarksFixedPointUnresolvedExpressionAsDeferred", func(t *testing.T) {
+		// Given a helper whose result, once re-scanned, is identical to the original expression
+		// (no DeferredError raised, so the loop reaches a fixed point with residual "${...}" text)
+		evaluator, _, _, _ := setupEvaluatorTest(t)
+		evaluator.Register("echoSelf", func(params []any, deferred bool) (any, error) {
+			return "${echoSelf()}", nil
+		}, new(func() any))
+
+		input := "${echoSelf()}"
+
+		// When evaluating the self-referential expression
+		result, err := evaluator.Evaluate(input, "", nil, false)
+
+		// Then it must be marked deferred rather than silently returned as resolved text
+		assertDeferredExpression(t, result, err, input)
+	})
+
+	t.Run("MarksSoleStructuredResultWithResidualExpressionAsDeferred", func(t *testing.T) {
+		// Given a helper that is the entire expression string and returns a structured (map) result
+		// still containing an unresolved nested expression once marshaled
+		evaluator, _, _, _ := setupEvaluatorTest(t)
+		evaluator.Register("nestedConfigSolo", func(params []any, deferred bool) (any, error) {
+			return map[string]any{"key": "${still_unresolved}"}, nil
+		}, new(func() any))
+
+		input := "${nestedConfigSolo()}"
+
+		// When evaluating the sole structured-result expression
+		result, err := evaluator.Evaluate(input, "", nil, false)
+
+		// Then it must be marked deferred rather than silently returned as a resolved structured value
+		assertDeferredExpression(t, result, err, input)
+	})
+
+	t.Run("MarksEmbeddedStructuredResultWithResidualExpressionAsDeferred", func(t *testing.T) {
+		// Given a helper embedded mid-string whose structured (map) result still contains an
+		// unresolved nested expression once marshaled, so the marshaled text still contains "${...}"
+		evaluator, _, _, _ := setupEvaluatorTest(t)
+		evaluator.Register("nestedConfig", func(params []any, deferred bool) (any, error) {
+			return map[string]any{"key": "${still_unresolved}"}, nil
+		}, new(func() any))
+
+		input := "prefix-${nestedConfig()}-suffix"
+
+		// When evaluating the embedded expression
+		result, err := evaluator.Evaluate(input, "", nil, false)
+
+		// Then it must be marked deferred rather than silently returned as a resolved structured value
+		assertDeferredExpression(t, result, err, input)
+	})
+
+	t.Run("MarksExhaustedIterationResultWithResidualExpressionAsDeferred", func(t *testing.T) {
+		// Given a helper embedded mid-string whose result echoes its own call text verbatim, so the
+		// loop makes no progress across all 20 iterations without ever raising a DeferredError
+		evaluator, _, _, _ := setupEvaluatorTest(t)
+		evaluator.Register("echoSelfEmbedded", func(params []any, deferred bool) (any, error) {
+			return "${echoSelfEmbedded()}", nil
+		}, new(func() any))
+
+		input := "prefix-${echoSelfEmbedded()}-suffix"
+
+		// When evaluating the embedded self-referential expression
+		result, err := evaluator.Evaluate(input, "", nil, false)
+
+		// Then it must be marked deferred rather than silently returned as resolved text
+		assertDeferredExpression(t, result, err, input)
+	})
+
+	t.Run("ErrorsOnResidualExpressionWhenEvaluateDeferredIsTrue", func(t *testing.T) {
+		// Given the same self-referential helper as the fixed-point case above, but evaluated with
+		// evaluateDeferred=true (the forced, last-chance resolution used by resolveDeferred/secrets),
+		// where there is no later retry to defer to
+		evaluator, _, _, _ := setupEvaluatorTest(t)
+		evaluator.Register("echoSelf", func(params []any, deferred bool) (any, error) {
+			return "${echoSelf()}", nil
+		}, new(func() any))
+
+		// When forcing resolution
+		_, err := evaluator.Evaluate("${echoSelf()}", "", nil, true)
+
+		// Then it must fail rather than silently returning the still-unresolved text as final
+		if err == nil {
+			t.Fatal("Expected an error when a forced resolution still contains an unresolved expression")
+		}
+		if !strings.Contains(err.Error(), "still contains an unresolved expression") {
+			t.Errorf("Expected error to describe the residual expression, got: %v", err)
 		}
 	})
 

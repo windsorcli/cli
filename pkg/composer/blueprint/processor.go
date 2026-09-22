@@ -939,10 +939,11 @@ func (p *BaseBlueprintProcessor) evaluateGlobalScopeConfig(globalScope map[strin
 					if err != nil || resolved == nil {
 						continue
 					}
+					resolved = normalizeDeferredValue(resolved)
 					if reflect.DeepEqual(resolved, v) {
 						continue
 					}
-					current[k] = normalizeDeferredValue(resolved)
+					current[k] = resolved
 					scopeWithBlock[name] = current
 					resolvedAny = true
 				}
@@ -2315,7 +2316,11 @@ func (p *BaseBlueprintProcessor) evaluateSubstitutions(subs map[string]string, f
 			continue
 		}
 		if evaluator.ContainsExpression(evaluated) {
+			if str, ok := evaluated.(string); ok {
+				value = str
+			}
 			result[key] = value
+			deferredKeys[key] = true
 			continue
 		}
 		if evaluated == nil {

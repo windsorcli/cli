@@ -242,10 +242,12 @@ func (e *expressionEvaluator) EvaluateMap(values map[string]any, facetPath strin
 // =============================================================================
 
 // evaluate runs the expression parsing loop over s, resolving each ${...} with evaluateExpression.
-// When scope is nil the config context is used; when non-nil (e.g. for yaml(path, input)) the given
-// scope is used. Stops after 20 iterations to avoid infinite loops on circular or pathological input.
-// When an expression returns DeferredError it is left in place and the loop advances to the next
-// ${...} so other expressions in the same string can still be resolved.
+// When scope is nil, the config context applies; a non-nil scope overrides it (e.g. yaml(path, input)).
+// The loop stops after 20 iterations to avoid infinite loops. A DeferredError leaves its ${...} in
+// place and advances to the next one, so sibling expressions can still resolve.
+//
+// A result still containing an unresolved ${...} never returns as if it were fully resolved: it
+// wraps as a DeferredValue when evaluateDeferred is false, or errors when evaluateDeferred is true.
 func (e *expressionEvaluator) evaluate(s string, facetPath string, scope map[string]any, evaluateDeferred bool) (any, error) {
 	if !strings.Contains(s, "${") {
 		return s, nil
@@ -289,12 +291,23 @@ func (e *expressionEvaluator) evaluate(s string, facetPath string, scope map[str
 		if singleExpr {
 			if str, ok := value.(string); ok && ContainsExpression(str) {
 				if str == result {
-					return value, nil
+					if !evaluateDeferred {
+						return DeferredValue{Expression: str}, nil
+					}
+					return "", fmt.Errorf("expression '${%s}' resolved to a value that still contains an unresolved expression and cannot be resolved further: %.300s", expr, str)
 				}
 				result = str
 				nestedResultRescan = true
 				searchStart = 0
 				continue
+			}
+			if isStructuredValue(value) {
+				if marshaled, err := valueToInterpolationString(value, e.Shims.YamlMarshal); err == nil && ContainsExpression(marshaled) {
+					if !evaluateDeferred {
+						return DeferredValue{Expression: result}, nil
+					}
+					return "", fmt.Errorf("expression '${%s}' resolved to a value that still contains an unresolved expression and cannot be resolved further: %.300s", expr, marshaled)
+				}
 			}
 			return value, nil
 		}
@@ -305,16 +318,22 @@ func (e *expressionEvaluator) evaluate(s string, facetPath string, scope map[str
 			if err != nil {
 				return "", fmt.Errorf("failed to marshal expression result to YAML: %w", err)
 			}
-			if !evaluateDeferred && ContainsExpression(replacement) && isStructuredValue(value) {
-				return value, nil
+			if ContainsExpression(replacement) && isStructuredValue(value) {
+				if !evaluateDeferred {
+					return DeferredValue{Expression: result}, nil
+				}
+				return "", fmt.Errorf("expression '${%s}' resolved to a value that still contains an unresolved expression and cannot be resolved further: %.300s", expr, replacement)
 			}
 			replacement = indentForEmbeddedYAML(before, replacement, 2)
 		}
 		result = before + replacement + after
 		searchStart = 0
 	}
-	if !evaluateDeferred && deferredEncountered {
+	if !evaluateDeferred && (deferredEncountered || ContainsExpression(result)) {
 		return DeferredValue{Expression: result}, nil
+	}
+	if evaluateDeferred && ContainsExpression(result) {
+		return "", fmt.Errorf("expression '%s' resolved to a value that still contains an unresolved expression and cannot be resolved further: %.300s", s, result)
 	}
 	return result, nil
 }
