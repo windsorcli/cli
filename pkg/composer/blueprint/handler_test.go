@@ -3089,6 +3089,87 @@ func TestHandler_deriveConfigMapDeferredPaths(t *testing.T) {
 	})
 }
 
+func TestHandler_DeferredSubstitutionsInScope(t *testing.T) {
+	t.Run("NoDeferredPaths", func(t *testing.T) {
+		handler := &BaseBlueprintHandler{}
+		if handler.DeferredSubstitutionsInScope(map[string]bool{"my-app": true}) {
+			t.Error("Expected false for no deferred paths")
+		}
+	})
+
+	t.Run("KustomizationInScope", func(t *testing.T) {
+		handler := &BaseBlueprintHandler{deferredPaths: map[string]bool{"kustomize.my-app.substitutions.cert": true}}
+		if !handler.DeferredSubstitutionsInScope(map[string]bool{"my-app": true}) {
+			t.Error("Expected true when the deferred kustomization is in scope")
+		}
+	})
+
+	t.Run("KustomizationOutOfScope", func(t *testing.T) {
+		handler := &BaseBlueprintHandler{deferredPaths: map[string]bool{"kustomize.other-app.substitutions.cert": true}}
+		if handler.DeferredSubstitutionsInScope(map[string]bool{"my-app": true}) {
+			t.Error("Expected false when the deferred kustomization is not in scope")
+		}
+	})
+
+	t.Run("NamePrefixCollisionDoesNotFalsePositive", func(t *testing.T) {
+		// A kustomization named "my-app-2" must not match scope {"my-app"} via a bare
+		// string-prefix check on the raw path.
+		handler := &BaseBlueprintHandler{deferredPaths: map[string]bool{"kustomize.my-app-2.substitutions.cert": true}}
+		if handler.DeferredSubstitutionsInScope(map[string]bool{"my-app": true}) {
+			t.Error("Expected false: 'my-app-2' is a different kustomization than 'my-app'")
+		}
+	})
+
+	t.Run("GlobalConfigMapAlwaysInScope", func(t *testing.T) {
+		handler := &BaseBlueprintHandler{deferredPaths: map[string]bool{"configmaps.shared.cert": true}}
+		if !handler.DeferredSubstitutionsInScope(map[string]bool{}) {
+			t.Error("Expected true: blueprint-level ConfigMaps are always in scope")
+		}
+	})
+
+	t.Run("GlobalSubstitutionAlwaysInScope", func(t *testing.T) {
+		handler := &BaseBlueprintHandler{deferredPaths: map[string]bool{"substitutions.tenant_id": true}}
+		if !handler.DeferredSubstitutionsInScope(map[string]bool{}) {
+			t.Error("Expected true: global substitutions are always in scope")
+		}
+	})
+
+	t.Run("UnrecognizedPrefixIgnored", func(t *testing.T) {
+		handler := &BaseBlueprintHandler{deferredPaths: map[string]bool{"messages.0": true}}
+		if handler.DeferredSubstitutionsInScope(map[string]bool{"my-app": true}) {
+			t.Error("Expected false for a path outside the recognized prefixes")
+		}
+	})
+
+	t.Run("FluxInstallTierInScope", func(t *testing.T) {
+		handler := &BaseBlueprintHandler{deferredPaths: map[string]bool{"flux.database.install.substitutions.cert": true}}
+		if !handler.DeferredSubstitutionsInScope(map[string]bool{"database-install": true}) {
+			t.Error("Expected true: the deferred flux install tier's compiled name is in scope")
+		}
+	})
+
+	t.Run("FluxResourcesTierInScope", func(t *testing.T) {
+		handler := &BaseBlueprintHandler{deferredPaths: map[string]bool{"flux.database.resources.substitutions.crossplane_gcp_service_account_email": true}}
+		if !handler.DeferredSubstitutionsInScope(map[string]bool{"database-resources": true}) {
+			t.Error("Expected true: the deferred flux resources tier's compiled name is in scope")
+		}
+	})
+
+	t.Run("FluxResourcesVariantTierInScope", func(t *testing.T) {
+		handler := &BaseBlueprintHandler{deferredPaths: map[string]bool{"flux.database.resources-primary.substitutions.cert": true}}
+		if !handler.DeferredSubstitutionsInScope(map[string]bool{"database-resources-primary": true}) {
+			t.Error("Expected true: the deferred flux resources variant's compiled name is in scope")
+		}
+	})
+
+	t.Run("FluxTierOutOfScope", func(t *testing.T) {
+		handler := &BaseBlueprintHandler{deferredPaths: map[string]bool{"flux.database.install.substitutions.cert": true}}
+		if handler.DeferredSubstitutionsInScope(map[string]bool{"other-install": true}) {
+			t.Error("Expected false when the deferred flux tier is not in scope")
+		}
+	})
+}
+
 func TestHandler_RetargetSource(t *testing.T) {
 	setup := func(t *testing.T) *BaseBlueprintHandler {
 		t.Helper()

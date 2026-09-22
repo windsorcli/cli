@@ -764,17 +764,14 @@ func TestApplyKustomizeCmd(t *testing.T) {
 	})
 
 	t.Run("ErrorRefusesUnresolvedSubstitutionsInScope", func(t *testing.T) {
-		// Given a blueprint whose requested kustomization still has a deferred
-		// terraform_output() substitution
+		// Given a blueprint handler reporting a deferred substitution in scope
 		mocks := setupApplyTest(t)
 		testBlueprint := &blueprintv1alpha1.Blueprint{
 			Metadata:       blueprintv1alpha1.Metadata{Name: "test"},
 			Kustomizations: []blueprintv1alpha1.Kustomization{{Name: "my-app"}},
 		}
 		mocks.BlueprintHandler.GenerateFunc = func() *blueprintv1alpha1.Blueprint { return testBlueprint }
-		mocks.BlueprintHandler.GetDeferredPathsFunc = func() map[string]bool {
-			return map[string]bool{"kustomize.my-app.substitutions.cert": true}
-		}
+		mocks.BlueprintHandler.DeferredSubstitutionsInScopeFunc = func(scope map[string]bool) bool { return true }
 		var applied bool
 		mocks.KubernetesManager.ApplyBlueprintFunc = func(bp *blueprintv1alpha1.Blueprint, namespace string) error {
 			applied = true
@@ -802,40 +799,8 @@ func TestApplyKustomizeCmd(t *testing.T) {
 		}
 	})
 
-	t.Run("ErrorRefusesUnresolvedGlobalConfigMapEvenForUnrelatedKustomization", func(t *testing.T) {
-		// Given a deferred substitution on a blueprint-level ConfigMap, which
-		// ApplyBlueprint writes unconditionally regardless of which single
-		// kustomization is requested
-		mocks := setupApplyTest(t)
-		testBlueprint := &blueprintv1alpha1.Blueprint{
-			Metadata:       blueprintv1alpha1.Metadata{Name: "test"},
-			Kustomizations: []blueprintv1alpha1.Kustomization{{Name: "my-app"}},
-		}
-		mocks.BlueprintHandler.GenerateFunc = func() *blueprintv1alpha1.Blueprint { return testBlueprint }
-		mocks.BlueprintHandler.GetDeferredPathsFunc = func() map[string]bool {
-			return map[string]bool{"configmaps.shared.cert": true}
-		}
-		proj := newApplyKustomizeProject(mocks)
-
-		// When executing apply kustomize my-app
-		cmd := createTestApplyKustomizeCmd()
-		ctx := context.WithValue(context.Background(), projectOverridesKey, proj)
-		cmd.SetArgs([]string{"my-app"})
-		cmd.SetContext(ctx)
-		err := cmd.Execute()
-
-		// Then an error is returned even though the deferred path names no kustomization
-		if err == nil {
-			t.Fatal("Expected error, got nil")
-		}
-		if !strings.Contains(err.Error(), "unresolved terraform_output() substitutions") {
-			t.Errorf("Expected unresolved-substitutions error, got: %v", err)
-		}
-	})
-
-	t.Run("SuccessWhenDeferredSubstitutionIsOutOfScope", func(t *testing.T) {
-		// Given a deferred substitution that belongs to a different kustomization
-		// than the one being applied
+	t.Run("SuccessWhenNoDeferredSubstitutionInScope", func(t *testing.T) {
+		// Given a blueprint handler reporting no deferred substitution in scope
 		mocks := setupApplyTest(t)
 		testBlueprint := &blueprintv1alpha1.Blueprint{
 			Metadata: blueprintv1alpha1.Metadata{Name: "test"},
@@ -845,9 +810,7 @@ func TestApplyKustomizeCmd(t *testing.T) {
 			},
 		}
 		mocks.BlueprintHandler.GenerateFunc = func() *blueprintv1alpha1.Blueprint { return testBlueprint }
-		mocks.BlueprintHandler.GetDeferredPathsFunc = func() map[string]bool {
-			return map[string]bool{"kustomize.other-app.substitutions.cert": true}
-		}
+		mocks.BlueprintHandler.DeferredSubstitutionsInScopeFunc = func(scope map[string]bool) bool { return false }
 		proj := newApplyKustomizeProject(mocks)
 
 		// When executing apply kustomize my-app
@@ -857,17 +820,16 @@ func TestApplyKustomizeCmd(t *testing.T) {
 		cmd.SetContext(ctx)
 		err := cmd.Execute()
 
-		// Then no error occurs, since the deferred substitution is out of scope
+		// Then no error occurs
 		if err != nil {
 			t.Errorf("Expected no error, got %v", err)
 		}
 	})
 
-	t.Run("SuccessWhenDeferredSubstitutionBelongsOnlyToDestroyOnlyKustomization", func(t *testing.T) {
-		// Given a whole-blueprint apply (no name argument) where the only deferred
-		// substitution belongs to a destroyOnly kustomization — ApplyBlueprint skips
-		// destroyOnly entries when writing ConfigMaps/substitutions, so nothing would
-		// actually be overwritten
+	t.Run("ScopePassedToHandlerExcludesDestroyOnlyKustomizations", func(t *testing.T) {
+		// Given a whole-blueprint apply (no name argument) with a destroyOnly
+		// kustomization mixed in — apply never touches destroyOnly entries, so the
+		// scope it hands the handler must exclude them
 		mocks := setupApplyTest(t)
 		destroyOnly := true
 		testBlueprint := &blueprintv1alpha1.Blueprint{
@@ -878,8 +840,10 @@ func TestApplyKustomizeCmd(t *testing.T) {
 			},
 		}
 		mocks.BlueprintHandler.GenerateFunc = func() *blueprintv1alpha1.Blueprint { return testBlueprint }
-		mocks.BlueprintHandler.GetDeferredPathsFunc = func() map[string]bool {
-			return map[string]bool{"kustomize.backup-hook.substitutions.cert": true}
+		var gotScope map[string]bool
+		mocks.BlueprintHandler.DeferredSubstitutionsInScopeFunc = func(scope map[string]bool) bool {
+			gotScope = scope
+			return false
 		}
 		proj := newApplyKustomizeProject(mocks)
 
@@ -887,12 +851,16 @@ func TestApplyKustomizeCmd(t *testing.T) {
 		cmd := createTestApplyKustomizeCmd()
 		ctx := context.WithValue(context.Background(), projectOverridesKey, proj)
 		cmd.SetContext(ctx)
-		err := cmd.Execute()
+		if err := cmd.Execute(); err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
 
-		// Then no error occurs, since the deferred substitution is scoped only to
-		// a destroyOnly kustomization that apply never touches
-		if err != nil {
-			t.Errorf("Expected no error, got %v", err)
+		// Then the scope names my-app but not the destroyOnly backup-hook
+		if !gotScope["my-app"] {
+			t.Error("Expected my-app in scope")
+		}
+		if gotScope["backup-hook"] {
+			t.Error("Expected backup-hook excluded from scope: it is destroyOnly")
 		}
 	})
 
@@ -1050,58 +1018,6 @@ func TestApplyKustomizeCmd(t *testing.T) {
 		}
 		if !strings.Contains(err.Error(), "blueprint is not available") {
 			t.Errorf("Expected blueprint error, got: %v", err)
-		}
-	})
-}
-
-func TestDeferredSubstitutionsInScope(t *testing.T) {
-	t.Run("NoDeferredPaths", func(t *testing.T) {
-		if deferredSubstitutionsInScope(nil, map[string]bool{"my-app": true}) {
-			t.Error("Expected false for no deferred paths")
-		}
-	})
-
-	t.Run("KustomizationInScope", func(t *testing.T) {
-		deferred := map[string]bool{"kustomize.my-app.substitutions.cert": true}
-		if !deferredSubstitutionsInScope(deferred, map[string]bool{"my-app": true}) {
-			t.Error("Expected true when the deferred kustomization is in scope")
-		}
-	})
-
-	t.Run("KustomizationOutOfScope", func(t *testing.T) {
-		deferred := map[string]bool{"kustomize.other-app.substitutions.cert": true}
-		if deferredSubstitutionsInScope(deferred, map[string]bool{"my-app": true}) {
-			t.Error("Expected false when the deferred kustomization is not in scope")
-		}
-	})
-
-	t.Run("NamePrefixCollisionDoesNotFalsePositive", func(t *testing.T) {
-		// A kustomization named "my-app-2" must not match scope {"my-app"} via a bare
-		// string-prefix check on the raw path.
-		deferred := map[string]bool{"kustomize.my-app-2.substitutions.cert": true}
-		if deferredSubstitutionsInScope(deferred, map[string]bool{"my-app": true}) {
-			t.Error("Expected false: 'my-app-2' is a different kustomization than 'my-app'")
-		}
-	})
-
-	t.Run("GlobalConfigMapAlwaysInScope", func(t *testing.T) {
-		deferred := map[string]bool{"configmaps.shared.cert": true}
-		if !deferredSubstitutionsInScope(deferred, map[string]bool{}) {
-			t.Error("Expected true: blueprint-level ConfigMaps are always in scope")
-		}
-	})
-
-	t.Run("GlobalSubstitutionAlwaysInScope", func(t *testing.T) {
-		deferred := map[string]bool{"substitutions.tenant_id": true}
-		if !deferredSubstitutionsInScope(deferred, map[string]bool{}) {
-			t.Error("Expected true: global substitutions are always in scope")
-		}
-	})
-
-	t.Run("UnrecognizedPrefixIgnored", func(t *testing.T) {
-		deferred := map[string]bool{"messages.0": true}
-		if deferredSubstitutionsInScope(deferred, map[string]bool{"my-app": true}) {
-			t.Error("Expected false for a path outside the recognized prefixes")
 		}
 	})
 }
