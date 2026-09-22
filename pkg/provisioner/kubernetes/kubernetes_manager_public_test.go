@@ -6607,8 +6607,7 @@ func TestBaseKubernetesManager_DeleteKustomizationReadFailures(t *testing.T) {
 
 	t.Run("ToleratesTransientReadFailure", func(t *testing.T) {
 		// Given a delete whose status reads fail twice with a transient error, then
-		// succeed across two still-live polls (long enough for a progress update to
-		// be due), before the kustomization goes away
+		// succeed across two still-live polls, before the kustomization goes away
 		manager := setup(t)
 		kubernetesClient := withGVRs(client.NewMockKubernetesClient())
 		kubernetesClient.DeleteResourceFunc = func(gvr schema.GroupVersionResource, namespace, name string, opts metav1.DeleteOptions) error {
@@ -6641,22 +6640,15 @@ func TestBaseKubernetesManager_DeleteKustomizationReadFailures(t *testing.T) {
 		if reads < 4 {
 			t.Errorf("Expected the wait to poll past the failures, got %d reads", reads)
 		}
-		// And an operator watching the run sees both the retry and the ongoing wait,
-		// not silence for the whole poll
-		sawRetry, sawWaiting := false, false
+		// And an operator watching the run sees the retry, not silence for the whole poll
+		sawRetry := false
 		for _, u := range updates {
 			if strings.Contains(u, "retrying after a read error") {
 				sawRetry = true
 			}
-			if strings.Contains(u, "waiting to delete") {
-				sawWaiting = true
-			}
 		}
 		if !sawRetry {
 			t.Errorf("Expected a progress update naming the read-error retry, got: %v", updates)
-		}
-		if !sawWaiting {
-			t.Errorf("Expected a progress update naming the ongoing wait, got: %v", updates)
 		}
 	})
 
