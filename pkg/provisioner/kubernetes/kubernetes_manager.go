@@ -300,7 +300,6 @@ func (k *BaseKubernetesManager) deleteKustomization(name, namespace string, expe
 
 	entries, inventoryFound, dropped := inventoryEntriesFromObject(lastObj)
 	live, surviving, checkErr := k.firstLiveInventoryEntry(entries, helmInventory, destroying)
-	k.reportSurvivingResources(namespace, name, surviving)
 	if inventoryFound && checkErr == nil && dropped == 0 && live == nil {
 		if len(surviving) == 0 {
 			return fmt.Errorf("kustomization %s/%s is fully drained. Every inventory item is confirmed gone, but its own finalizer is stuck. This is Flux bookkeeping, not leaked infrastructure. Clear it with `kubectl patch kustomization %s -n %s --type=merge -p '{\"metadata\":{\"finalizers\":null}}'`", namespace, name, name, namespace)
@@ -328,7 +327,7 @@ func (k *BaseKubernetesManager) handleKustomizationDisappeared(name, namespace s
 	if lastObj == nil && readFailures > 0 {
 		return fmt.Errorf("kustomization %s/%s disappeared before windsor could read its inventory: %w. Windsor cannot confirm the resources it managed are gone. Check for leftovers with `kubectl get pvc,svc,ingress,certificate -A | grep Terminating` before retrying", namespace, name, lastReadErr)
 	}
-	entry, surviving, checkErr := k.describeAbandonedInventory(lastObj, expectWaitForTermination, helmInventory, destroying)
+	entry, _, checkErr := k.describeAbandonedInventory(lastObj, expectWaitForTermination, helmInventory, destroying)
 	graceDeadline := k.shims.TimeNow().Add(k.abandonedInventoryGraceWindow(inventorySize(lastObj)))
 	for (entry != nil || checkErr != nil) && k.shims.TimeNow().Before(graceDeadline) {
 		if errors.Is(checkErr, errUnverifiableInventory) {
@@ -339,9 +338,8 @@ func (k *BaseKubernetesManager) handleKustomizationDisappeared(name, namespace s
 			tui.Update(fmt.Sprintf("kustomization %s/%s disappeared with %s/%s still live; asked it to reconcile again", namespace, name, entry.Kind, entry.Name))
 		}
 		k.shims.TimeSleep(k.kustomizationWaitPollInterval)
-		entry, surviving, checkErr = k.describeAbandonedInventory(lastObj, expectWaitForTermination, helmInventory, destroying)
+		entry, _, checkErr = k.describeAbandonedInventory(lastObj, expectWaitForTermination, helmInventory, destroying)
 	}
-	k.reportSurvivingResources(namespace, name, surviving)
 	if checkErr != nil {
 		return fmt.Errorf("kustomization %s/%s disappeared and windsor could not confirm its resources are gone: %w. Inspect the namespace before retrying", namespace, name, checkErr)
 	}
@@ -2768,22 +2766,6 @@ func (k *BaseKubernetesManager) describeAbandonedInventory(lastObj *unstructured
 		return nil, nil, fmt.Errorf("%d of %d inventory entries could not be decoded: %w", dropped, dropped+len(entries), errUnverifiableInventory)
 	}
 	return k.firstLiveInventoryEntry(entries, helmInventory, destroying)
-}
-
-// reportSurvivingResources warns about objects a delete left behind that hold nothing back. They
-// die with the cluster, so they do not stop a destroy, but they are evidence a chart did not
-// clean up after itself. Only printed in verbose mode: routine MirrorPrune-style residue is not
-// worth surfacing on every run.
-func (k *BaseKubernetesManager) reportSurvivingResources(namespace, name string, surviving []InventoryEntry) {
-	if len(surviving) == 0 || !k.client.IsVerbose() {
-		return
-	}
-	named := make([]string, 0, len(surviving))
-	for _, entry := range surviving {
-		named = append(named, entry.Kind+"/"+entry.Name)
-	}
-	slices.Sort(named)
-	fmt.Fprintf(os.Stderr, "warning: kustomization %s/%s left %d resource(s) behind, which will go with the cluster: %s\n", namespace, name, len(named), strings.Join(named, ", "))
 }
 
 // gitopsMode returns the configured gitops mode, defaulting to pull. Centralising

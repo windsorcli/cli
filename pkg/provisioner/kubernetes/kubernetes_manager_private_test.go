@@ -2433,39 +2433,3 @@ func TestBaseKubernetesManager_blockDependencyClosure(t *testing.T) {
 	})
 }
 
-func TestBaseKubernetesManager_reportSurvivingResources(t *testing.T) {
-	surviving := []InventoryEntry{{Kind: "ConfigMap", Name: "leftover", Namespace: "test-namespace"}}
-
-	t.Run("SilentWhenNotVerbose", func(t *testing.T) {
-		mocks := setupKubernetesMocks(t)
-		manager := NewKubernetesManager(mocks.KubernetesClient, mocks.ConfigHandler)
-
-		// Given a non-verbose client (the default)
-		// When reportSurvivingResources runs with residue to report
-		output := captureStderr(t, func() {
-			manager.reportSurvivingResources("test-namespace", "test-kustomization", surviving)
-		})
-
-		// Then it prints nothing
-		if output != "" {
-			t.Errorf("expected no output without --verbose, got: %s", output)
-		}
-	})
-
-	t.Run("WarnsWhenVerbose", func(t *testing.T) {
-		mocks := setupKubernetesMocks(t)
-		mocks.KubernetesClient.(*client.MockKubernetesClient).IsVerboseFunc = func() bool { return true }
-		manager := NewKubernetesManager(mocks.KubernetesClient, mocks.ConfigHandler)
-
-		// Given a verbose client
-		// When reportSurvivingResources runs with residue to report
-		output := captureStderr(t, func() {
-			manager.reportSurvivingResources("test-namespace", "test-kustomization", surviving)
-		})
-
-		// Then it names the surviving resource
-		if !strings.Contains(output, "ConfigMap/leftover") {
-			t.Errorf("expected the surviving resource named, got: %s", output)
-		}
-	})
-}
