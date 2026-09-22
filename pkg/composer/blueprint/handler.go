@@ -30,6 +30,7 @@ type BlueprintHandler interface {
 	GenerateResolved() (*blueprintv1alpha1.Blueprint, error)
 	Explain(path string) (*ExplainTrace, error)
 	GetDeferredPaths() map[string]bool
+	DeferredSubstitutionsInScope(scope map[string]bool) bool
 	GetConfigScope() map[string]any
 }
 
@@ -436,6 +437,51 @@ func (h *BaseBlueprintHandler) GetDeferredPaths() map[string]bool {
 		out[k] = v
 	}
 	return out
+}
+
+// DeferredSubstitutionsInScope reports whether a deferred substitution is about to be written by
+// `apply kustomize`. A blueprint-level ConfigMap or global substitution is always in scope. A
+// per-kustomization substitution is in scope only when its kustomization name is in scope. A plain
+// kustomize: entry names that kustomization directly, as "kustomize.<name>.substitutions.<key>". A
+// flux: system tier names it indirectly. fluxTierScopeName maps the tier path to its compiled
+// Kustomization name first.
+func (h *BaseBlueprintHandler) DeferredSubstitutionsInScope(scope map[string]bool) bool {
+	for path := range h.GetDeferredPaths() {
+		if strings.HasPrefix(path, "configmaps.") || strings.HasPrefix(path, "substitutions.") {
+			return true
+		}
+		if rest, ok := strings.CutPrefix(path, "kustomize."); ok {
+			for name := range scope {
+				if rest == name || strings.HasPrefix(rest, name+".") {
+					return true
+				}
+			}
+			continue
+		}
+		if rest, ok := strings.CutPrefix(path, "flux."); ok {
+			if name, ok := fluxTierScopeName(rest); ok && scope[name] {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// fluxTierScopeName converts a "flux."-prefixed deferred path's remainder (for example
+// "database.install.substitutions.cert" or "database.resources-primary.substitutions.cert") to
+// the compiled Kustomization name compileFluxSystemTiers produces for that tier ("database-install"
+// or "database-resources-primary"). Returns false when rest is not a recognized tier-substitution
+// path.
+func fluxTierScopeName(rest string) (string, bool) {
+	withoutSubs, _, ok := strings.Cut(rest, ".substitutions.")
+	if !ok {
+		return "", false
+	}
+	system, tier, ok := strings.Cut(withoutSubs, ".")
+	if !ok {
+		return "", false
+	}
+	return system + "-" + tier, true
 }
 
 // GetConfigScope returns the composed config scope: facet config: block names mapped to their
@@ -1199,7 +1245,6 @@ func orderLoadersByDependency(loaders []BlueprintLoader, names map[BlueprintLoad
 
 	return order
 }
-
 
 // getConfigValues retrieves the current context's configuration values from the ConfigHandler.
 // These values are used during facet evaluation to determine which facets should be included

@@ -6,20 +6,21 @@ import (
 
 // MockBlueprintHandler is a mock implementation of BlueprintHandler interface for testing.
 type MockBlueprintHandler struct {
-	LoadBlueprintFunc          func(...string) error
-	SetSkipValidationFunc      func(skip bool)
-	WriteFunc                  func(overwrite ...bool) error
-	RetargetSourceFunc         func(name, url string) (string, error)
-	UpgradeSourcesToLatestFunc func() ([]SourceUpgrade, error)
-	GetDeclaredSourcesFunc     func() ([]blueprintv1alpha1.Source, error)
-	GetTerraformComponentsFunc func() []blueprintv1alpha1.TerraformComponent
-	GetLocalTemplateDataFunc   func() (map[string][]byte, error)
-	GenerateFunc               func() *blueprintv1alpha1.Blueprint
-	GenerateResolvedFunc       func() (*blueprintv1alpha1.Blueprint, error)
-	ExplainFunc                func(string) (*ExplainTrace, error)
-	GetDeferredPathsFunc       func() map[string]bool
-	GetConfigScopeFunc         func() map[string]any
-	skipValidation             bool
+	LoadBlueprintFunc                func(...string) error
+	SetSkipValidationFunc            func(skip bool)
+	WriteFunc                        func(overwrite ...bool) error
+	RetargetSourceFunc               func(name, url string) (string, error)
+	UpgradeSourcesToLatestFunc       func() ([]SourceUpgrade, error)
+	GetDeclaredSourcesFunc           func() ([]blueprintv1alpha1.Source, error)
+	GetTerraformComponentsFunc       func() []blueprintv1alpha1.TerraformComponent
+	GetLocalTemplateDataFunc         func() (map[string][]byte, error)
+	GenerateFunc                     func() *blueprintv1alpha1.Blueprint
+	GenerateResolvedFunc             func() (*blueprintv1alpha1.Blueprint, error)
+	ExplainFunc                      func(string) (*ExplainTrace, error)
+	GetDeferredPathsFunc             func() map[string]bool
+	DeferredSubstitutionsInScopeFunc func(scope map[string]bool) bool
+	GetConfigScopeFunc               func() map[string]any
+	skipValidation                   bool
 }
 
 // =============================================================================
@@ -137,6 +138,14 @@ func (m *MockBlueprintHandler) GetDeferredPaths() map[string]bool {
 		return m.GetDeferredPathsFunc()
 	}
 	return nil
+}
+
+// DeferredSubstitutionsInScope calls the mock DeferredSubstitutionsInScopeFunc if set, otherwise returns false.
+func (m *MockBlueprintHandler) DeferredSubstitutionsInScope(scope map[string]bool) bool {
+	if m.DeferredSubstitutionsInScopeFunc != nil {
+		return m.DeferredSubstitutionsInScopeFunc(scope)
+	}
+	return false
 }
 
 // GetConfigScope calls the mock GetConfigScopeFunc if set, otherwise returns nil.
