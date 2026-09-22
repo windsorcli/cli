@@ -5765,6 +5765,36 @@ func TestBaseBlueprintProcessor_evaluateSubstitutions(t *testing.T) {
 		}
 	})
 
+	t.Run("MarksUntrackedUnresolvedExpressionAsDeferred", func(t *testing.T) {
+		mocks := setupProcessorMocks(t)
+
+		mocks.Evaluator.EvaluateFunc = func(expression string, featurePath string, scope map[string]any, evaluateDeferred bool) (any, error) {
+			return expression, nil
+		}
+
+		subs := map[string]string{
+			"stillUnresolved": "${database_effective.cloud_driver == 'cloudsql' ? terraform_output('crossplane-identity', 'x') : ''}",
+		}
+
+		baseProcessor := &BaseBlueprintProcessor{
+			runtime:   mocks.Runtime,
+			evaluator: mocks.Evaluator,
+		}
+		result, deferredKeys, err := baseProcessor.evaluateSubstitutions(subs, "", nil)
+
+		if err != nil {
+			t.Fatalf("Expected no error, got: %v", err)
+		}
+
+		if !deferredKeys["stillUnresolved"] {
+			t.Error("Expected key to be marked deferred when the evaluated result still contains an expression, even without a DeferredValue wrapper")
+		}
+
+		if result["stillUnresolved"] != subs["stillUnresolved"] {
+			t.Errorf("Expected the unresolved expression text to be preserved, got %q", result["stillUnresolved"])
+		}
+	})
+
 	t.Run("IncludesEmptyStringForNilResults", func(t *testing.T) {
 		mocks := setupProcessorMocks(t)
 
