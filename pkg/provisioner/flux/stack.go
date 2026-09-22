@@ -598,8 +598,17 @@ func (s *FluxStack) resolveSourceRoot(blueprint *blueprintv1alpha1.Blueprint, k 
 // A synthetic kustomization.yaml is written to <sourceRoot>/.windsor/plan/<name>/ that
 // mirrors what flux would generate at reconcile time: if localPath is a Component, it is
 // listed under components: (not resources:), matching flux's own wrapping behaviour.
+// localPath must itself hold a kustomization.yaml or .yml. Unlike Flux's kustomize-controller,
+// the local kustomize CLI this method shells out to cannot render a bare directory. See
+// requireKustomizationFile for the actionable error this produces instead of kustomize's own
+// low-level failure.
 func (s *FluxStack) runFromScratch(k blueprintv1alpha1.Kustomization, components []string, localPath, sourceRoot string) error {
-	baseIsComponent := s.isKustomizeComponent(localPath)
+	data, err := s.requireKustomizationFile(k.Name, localPath)
+	if err != nil {
+		return err
+	}
+
+	baseIsComponent := isKustomizeComponent(data)
 
 	if !baseIsComponent && len(components) == 0 {
 		return s.runKustomizeBuild(k.Name, localPath)
@@ -653,17 +662,35 @@ func (s *FluxStack) writeSyntheticKustomization(name, planDir, localPath string,
 	return nil
 }
 
-// isKustomizeComponent returns true if the kustomization.yaml in path declares kind: Component.
-// Flux wraps Component paths in a synthetic Kustomization at reconcile time; we must do the same.
-func (s *FluxStack) isKustomizeComponent(path string) bool {
-	for _, name := range []string{"kustomization.yaml", "kustomization.yml"} {
-		data, err := s.shims.ReadFile(filepath.Join(path, name))
-		if err != nil {
-			continue
+// requireKustomizationFile returns the contents of path's kustomization.yaml or .yml, trying
+// each name in turn. name identifies the kustomization in an error.
+//
+// A missing file returns an actionable error. windsor's local kustomize build always needs
+// one, even for a directory Flux's kustomize-controller could render on its own.
+//
+// A real read failure, such as a permission error, returns that error instead. A file that
+// exists but cannot be read is never reported as missing.
+func (s *FluxStack) requireKustomizationFile(name, path string) ([]byte, error) {
+	var readErr error
+	for _, fileName := range []string{"kustomization.yaml", "kustomization.yml"} {
+		data, err := s.shims.ReadFile(filepath.Join(path, fileName))
+		if err == nil {
+			return data, nil
 		}
-		return strings.Contains(string(data), "kind: Component")
+		if !os.IsNotExist(err) {
+			readErr = err
+		}
 	}
-	return false
+	if readErr != nil {
+		return nil, fmt.Errorf("failed to read a kustomization.yaml for %q in %q: %w", name, path, readErr)
+	}
+	return nil, fmt.Errorf("kustomization %q has no kustomization.yaml or kustomization.yml in %q. Add one. An empty \"resources: []\" is enough for kustomize to build from.", name, path)
+}
+
+// isKustomizeComponent returns true if data declares kind: Component. Flux wraps Component
+// paths in a synthetic Kustomization at reconcile time; we must do the same.
+func isKustomizeComponent(data []byte) bool {
+	return strings.Contains(string(data), "kind: Component")
 }
 
 // runKustomizeBuild executes "kustomize build <path>" to render all kubernetes manifests
@@ -759,9 +786,15 @@ func (s *FluxStack) captureFluxDiff(args ...string) (string, error) {
 
 // captureKustomizeBuild renders the kustomize manifests for a kustomization that does
 // not yet exist in the cluster and returns the raw YAML string without printing.
-// It follows the same synthetic-kustomization-file logic as runFromScratch.
+// It follows the same synthetic-kustomization-file logic as runFromScratch, including its
+// requireKustomizationFile precondition.
 func (s *FluxStack) captureKustomizeBuild(k blueprintv1alpha1.Kustomization, components []string, localPath, sourceRoot string) (string, error) {
-	baseIsComponent := s.isKustomizeComponent(localPath)
+	data, err := s.requireKustomizationFile(k.Name, localPath)
+	if err != nil {
+		return "", err
+	}
+
+	baseIsComponent := isKustomizeComponent(data)
 
 	if !baseIsComponent && len(components) == 0 {
 		return s.runtime.Shell.ExecCaptureWithEnv("kustomize", nil, "build", localPath)
