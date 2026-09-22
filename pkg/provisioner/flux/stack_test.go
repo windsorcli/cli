@@ -17,6 +17,10 @@ import (
 	"github.com/windsorcli/cli/pkg/runtime/shell"
 )
 
+// validKustomizationYAML is a minimal kustomization.yaml body, used by tests that need
+// readKustomizationFile to find a real file at a fake local path.
+const validKustomizationYAML = "apiVersion: kustomize.config.k8s.io/v1beta1\nkind: Kustomization\n"
+
 // fakeTimeoutError implements net.Error without being a *net.OpError, standing
 // in for a TLS/certificate failure.
 type fakeTimeoutError struct {
@@ -265,6 +269,7 @@ func TestFluxStack_Plan(t *testing.T) {
 		m.kubernetesManager.KustomizationExistsFunc = func(name, namespace string) (bool, error) {
 			return false, fmt.Errorf("stat /no/such/kubeconfig: no such file or directory")
 		}
+		m.shims.ReadFile = func(name string) ([]byte, error) { return []byte(validKustomizationYAML), nil }
 		var capturedCommand string
 		m.shell.ExecCaptureWithEnvFunc = func(command string, env map[string]string, args ...string) (string, error) {
 			capturedCommand = command
@@ -310,6 +315,7 @@ func TestFluxStack_Plan(t *testing.T) {
 		m.kubernetesManager.KustomizationExistsFunc = func(name, namespace string) (bool, error) {
 			return false, nil
 		}
+		m.shims.ReadFile = func(name string) ([]byte, error) { return []byte(validKustomizationYAML), nil }
 		m.shell.ExecCaptureWithEnvFunc = func(command string, env map[string]string, args ...string) (string, error) {
 			return "", fmt.Errorf("exit status 1")
 		}
@@ -327,12 +333,71 @@ func TestFluxStack_Plan(t *testing.T) {
 		}
 	})
 
+	t.Run("ErrorFromScratchMissingKustomizationFile", func(t *testing.T) {
+		// Given a stack where the kustomization does not exist and its local path has
+		// no kustomization.yaml or .yml of its own
+		m := setupFluxMocks(t)
+		m.kubernetesManager.KustomizationExistsFunc = func(name, namespace string) (bool, error) {
+			return false, nil
+		}
+		var ranKustomize bool
+		m.shell.ExecCaptureWithEnvFunc = func(command string, env map[string]string, args ...string) (string, error) {
+			ranKustomize = true
+			return "", nil
+		}
+		s := newTestFluxStack(m)
+
+		// When Plan is called for a non-existent kustomization
+		err := s.Plan(testBlueprint(), "my-app")
+
+		// Then an actionable error is returned naming the kustomization and its path,
+		// and kustomize is never invoked against an invalid base
+		if err == nil {
+			t.Fatal("expected error, got nil")
+		}
+		if !strings.Contains(err.Error(), "my-app") || !strings.Contains(err.Error(), "kustomization.yaml") {
+			t.Errorf("expected an error naming the kustomization and the missing file, got %v", err)
+		}
+		if ranKustomize {
+			t.Error("expected kustomize build to be skipped, but it ran")
+		}
+	})
+
+	t.Run("ErrorFromScratchKustomizationFileUnreadable", func(t *testing.T) {
+		// Given a stack where the kustomization does not exist and its local path's
+		// kustomization.yaml exists but cannot be read (a permission error, not an
+		// absence)
+		m := setupFluxMocks(t)
+		m.kubernetesManager.KustomizationExistsFunc = func(name, namespace string) (bool, error) {
+			return false, nil
+		}
+		m.shims.ReadFile = func(name string) ([]byte, error) {
+			return nil, &os.PathError{Op: "open", Path: name, Err: os.ErrPermission}
+		}
+		s := newTestFluxStack(m)
+
+		// When Plan is called
+		err := s.Plan(testBlueprint(), "my-app")
+
+		// Then the real read error is surfaced, not the "add one" missing-file message
+		if err == nil {
+			t.Fatal("expected error, got nil")
+		}
+		if strings.Contains(err.Error(), "Add one") {
+			t.Errorf("expected the permission error to be reported, not the missing-file message, got %v", err)
+		}
+		if !strings.Contains(err.Error(), "permission denied") {
+			t.Errorf("expected the underlying permission error, got %v", err)
+		}
+	})
+
 	t.Run("Success_FromScratch", func(t *testing.T) {
 		// Given a blueprint with a kustomization that does NOT exist in the cluster
 		m := setupFluxMocks(t)
 		m.kubernetesManager.KustomizationExistsFunc = func(name, namespace string) (bool, error) {
 			return false, nil
 		}
+		m.shims.ReadFile = func(name string) ([]byte, error) { return []byte(validKustomizationYAML), nil }
 		var capturedCommand string
 		var capturedArgs []string
 		m.shell.ExecCaptureWithEnvFunc = func(command string, env map[string]string, args ...string) (string, error) {
@@ -369,6 +434,7 @@ func TestFluxStack_Plan(t *testing.T) {
 				{Name: "dns", Components: []string{"coredns", "external-dns"}},
 			},
 		}
+		m.shims.ReadFile = func(name string) ([]byte, error) { return []byte(validKustomizationYAML), nil }
 		var capturedKustomizationYAML string
 		m.shims.WriteFile = func(name string, data []byte, perm os.FileMode) error {
 			capturedKustomizationYAML = string(data)
@@ -406,6 +472,7 @@ func TestFluxStack_Plan(t *testing.T) {
 				{Name: "dns", Components: []string{"coredns"}},
 			},
 		}
+		m.shims.ReadFile = func(name string) ([]byte, error) { return []byte(validKustomizationYAML), nil }
 		m.shims.MkdirAll = func(path string, perm os.FileMode) error {
 			return fmt.Errorf("no space left on device")
 		}
@@ -438,6 +505,7 @@ func TestFluxStack_Plan(t *testing.T) {
 				{Name: "dns", Source: "upstream"},
 			},
 		}
+		m.shims.ReadFile = func(name string) ([]byte, error) { return []byte(validKustomizationYAML), nil }
 		var capturedBuildPath string
 		m.shell.ExecCaptureWithEnvFunc = func(command string, env map[string]string, args ...string) (string, error) {
 			if command == "kustomize" && len(args) >= 2 && args[0] == "build" {
@@ -655,12 +723,42 @@ func TestFluxStack_PlanSummary(t *testing.T) {
 		}
 	})
 
+	t.Run("ReportsMissingKustomizationFileForNewKustomization", func(t *testing.T) {
+		// Given a kustomization that does not exist in the cluster and whose local path
+		// has no kustomization.yaml or .yml of its own
+		m := setupFluxMocks(t)
+		m.kubernetesManager.KustomizationExistsFunc = func(name, namespace string) (bool, error) {
+			return false, nil
+		}
+		s := newTestFluxStack(m)
+
+		// When PlanSummary is called
+		results, err := s.PlanSummary(testBlueprint())
+
+		// Then the same actionable error from captureKustomizeBuild's precondition is
+		// recorded against the result, not kustomize's own low-level failure
+		if err != nil {
+			t.Fatalf("expected no top-level error, got %v", err)
+		}
+		if len(results) == 0 {
+			t.Fatal("expected results")
+		}
+		r := results[0]
+		if r.Err == nil {
+			t.Fatal("expected an error naming the missing kustomization file")
+		}
+		if !strings.Contains(r.Err.Error(), "kustomization.yaml") {
+			t.Errorf("expected the missing-file error, got %v", r.Err)
+		}
+	})
+
 	t.Run("TreatsKustomizationAsNewWhenClusterUnreachable", func(t *testing.T) {
 		// Given a kubernetes manager that returns an error on KustomizationExists
 		m := setupFluxMocks(t)
 		m.kubernetesManager.KustomizationExistsFunc = func(name, namespace string) (bool, error) {
 			return false, fmt.Errorf("connection refused")
 		}
+		m.shims.ReadFile = func(name string) ([]byte, error) { return []byte(validKustomizationYAML), nil }
 		m.shell.ExecCaptureWithEnvFunc = func(command string, env map[string]string, args ...string) (string, error) {
 			if command == "kustomize" {
 				return "apiVersion: v1\nkind: Namespace\n", nil
@@ -691,6 +789,7 @@ func TestFluxStack_PlanSummary(t *testing.T) {
 		m.kubernetesManager.KustomizationExistsFunc = func(name, namespace string) (bool, error) {
 			return false, nil
 		}
+		m.shims.ReadFile = func(name string) ([]byte, error) { return []byte(validKustomizationYAML), nil }
 		m.shell.ExecCaptureWithEnvFunc = func(command string, env map[string]string, args ...string) (string, error) {
 			if command == "kustomize" {
 				return "apiVersion: v1\nkind: Namespace\n---\napiVersion: apps/v1\nkind: Deployment\n", nil
