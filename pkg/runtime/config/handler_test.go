@@ -1641,6 +1641,54 @@ properties:
 		}
 	})
 
+	t.Run("AcceptsIDContainingHyphens", func(t *testing.T) {
+		// Given a handler with no schema loaded and a hyphenated, user-chosen id
+		handler, _ := setupPrivateTestHandler(t)
+		handler.data = map[string]any{"id": "my-plant"}
+
+		// When validating context values
+		err := handler.ValidateContextValues()
+
+		// Then it should pass, since a hyphen is a valid DNS label character
+		if err != nil {
+			t.Errorf("Expected no error for a hyphenated id, got %v", err)
+		}
+	})
+
+	t.Run("RejectsIDEndingInHyphen", func(t *testing.T) {
+		// Given a handler with no schema loaded and an id ending in a hyphen
+		handler, _ := setupPrivateTestHandler(t)
+		handler.data = map[string]any{"id": "my-plant-"}
+
+		// When validating context values
+		err := handler.ValidateContextValues()
+
+		// Then it should reject the trailing hyphen
+		if err == nil {
+			t.Fatal("Expected validation error for an id ending in a hyphen")
+		}
+		if !strings.Contains(err.Error(), "context value validation failed") {
+			t.Errorf("Expected validation failure error, got %v", err)
+		}
+	})
+
+	t.Run("RejectsIDWithRepeatedHyphen", func(t *testing.T) {
+		// Given a handler with no schema loaded and an id containing a repeated hyphen
+		handler, _ := setupPrivateTestHandler(t)
+		handler.data = map[string]any{"id": "my--plant"}
+
+		// When validating context values
+		err := handler.ValidateContextValues()
+
+		// Then it should reject the repeated hyphen
+		if err == nil {
+			t.Fatal("Expected validation error for an id with a repeated hyphen")
+		}
+		if !strings.Contains(err.Error(), "context value validation failed") {
+			t.Errorf("Expected validation failure error, got %v", err)
+		}
+	})
+
 	t.Run("FiresCrossFieldRuleSpanningStaticAndDynamic", func(t *testing.T) {
 		handler, tmpDir := setupPrivateTestHandler(t)
 		schemaPath := filepath.Join(tmpDir, "schema.yaml")
