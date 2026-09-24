@@ -1939,6 +1939,99 @@ func TestProcessor_ProcessFacets_ConfigBlockDeepSameBlockChain(t *testing.T) {
 	})
 }
 
+// TestProcessor_ProcessFacets_ConfigBlockDerivedFromOwnBlock covers a field whose default calls a
+// function with a sibling field of the same block as an argument (e.g. cidrhost(network.cidr_block,
+// 1) inside the network block): it must resolve once the block settles, and it must still defer
+// when its own dependency (e.g. terraform_output) is not yet available.
+func TestProcessor_ProcessFacets_ConfigBlockDerivedFromOwnBlock(t *testing.T) {
+	t.Run("SelfReferencingFunctionCallResolvesAgainstSettledSibling", func(t *testing.T) {
+		// Given a block whose own field derives its default from a sibling field of the same
+		// block through a function call
+		mocks := setupProcessorMocks(t)
+		mocks.ConfigHandler.GetContextValuesFunc = func() (map[string]any, error) { return map[string]any{}, nil }
+		processor := NewBlueprintProcessor(mocks.Runtime)
+		facets := []blueprintv1alpha1.Facet{{
+			Metadata: blueprintv1alpha1.Metadata{Name: "platform-vsphere"},
+			Config: []blueprintv1alpha1.ConfigBlock{
+				{Name: "network", Body: map[string]any{"value": map[string]any{
+					"cidr_block": "10.10.0.0/24",
+					"gateway":    "${cidrhost(network.cidr_block ?? '10.5.0.0/16', 1)}",
+				}}},
+			},
+		}}
+
+		// When the facets are processed
+		scope, err := processor.ProcessFacets(&blueprintv1alpha1.Blueprint{}, facets)
+
+		// Then gateway resolves from the block's own cidr_block, not left as literal text
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		network, ok := scope["network"].(map[string]any)
+		if !ok {
+			t.Fatalf("Expected network map, got %T", scope["network"])
+		}
+		if network["gateway"] != "10.10.0.1" {
+			t.Errorf("Expected gateway derived from cidr_block 10.10.0.0/24, got %v", network["gateway"])
+		}
+	})
+
+	t.Run("DerivedFieldBlockedOnDeferredDependencyStaysRawForJIT", func(t *testing.T) {
+		// Regression guard for 63dbef0cd: a derived field (string(block.field)) whose target
+		// field still holds a genuinely deferred helper (terraform_output not yet available)
+		// must stay at a raw, still-deferred expression rather than being committed with a
+		// value that has baked the unresolved reference into it — a consumer resolves it later,
+		// once the dependency is final.
+		mocks := setupProcessorMocks(t)
+		mocks.ConfigHandler.GetContextValuesFunc = func() (map[string]any, error) { return map[string]any{}, nil }
+
+		realEval := evaluator.NewExpressionEvaluator(mocks.ConfigHandler, mocks.Runtime.ProjectRoot, mocks.Runtime.ConfigRoot)
+		realEval.Register("terraform_output", func(params []any, deferred bool) (any, error) {
+			if !deferred {
+				return nil, &evaluator.DeferredError{
+					Expression: fmt.Sprintf("terraform_output(%q, %q)", params[0], params[1]),
+					Message:    "deferred",
+				}
+			}
+			return map[string]any{"gcr.io": "mirror.test"}, nil
+		}, new(func(string, string) any))
+		mocks.Evaluator.EvaluateFunc = realEval.Evaluate
+		mocks.Evaluator.EvaluateMapFunc = realEval.EvaluateMap
+
+		processor := NewBlueprintProcessor(mocks.Runtime)
+		facets := []blueprintv1alpha1.Facet{{
+			Metadata: blueprintv1alpha1.Metadata{Name: "config-base"},
+			Config: []blueprintv1alpha1.ConfigBlock{
+				{Name: "block_a", Body: map[string]any{"value": map[string]any{
+					"common_patch": map[string]any{
+						"machine": map[string]any{
+							"registries": "${terraform_output('workstation', 'registries')}",
+						},
+					},
+					"common_config_patches": "${string(block_a.common_patch)}",
+				}}},
+			},
+		}}
+
+		// When the facets are processed
+		scope, err := processor.ProcessFacets(&blueprintv1alpha1.Blueprint{}, facets)
+
+		// Then no error surfaces, and the derived field stays deferred rather than committing
+		// a value that has lost the ability to resolve once terraform_output is available
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		block, ok := scope["block_a"].(map[string]any)
+		if !ok {
+			t.Fatalf("Expected block_a map, got %T", scope["block_a"])
+		}
+		patches, ok := block["common_config_patches"].(string)
+		if !ok || patches != "${string(block_a.common_patch)}" {
+			t.Errorf("Expected common_config_patches to stay at its raw expression for later JIT resolution, got %#v", block["common_config_patches"])
+		}
+	})
+}
+
 // TestProcessor_ProcessFacets_ConfigBlockWhenChainAcrossRounds covers #3209: a config block's
 // `when:` only sees the previous round's resolved scope, so a block gated on another block that
 // is itself newly-included this round needs a further outer round to see that block's value. The

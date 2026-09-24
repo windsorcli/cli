@@ -840,7 +840,10 @@ func unstableConfigBlockNames(a, b map[string]any) []string {
 // reference both. Same-block sibling references converge by re-evaluating a block repeatedly, up
 // to its own key count. A chain of N dependent keys can take up to N passes, since each pass
 // propagates values only one dependency level further. Cross-block order comes from
-// topoSortConfigBlocks (alphabetical tiebreak for independents). Mutates globalScope in place.
+// topoSortConfigBlocks (alphabetical tiebreak for independents). A key derived from its own block
+// (e.g. a call like cidrhost(network.cidr_block, 1) inside the network block) skips this same-block
+// pass and resolves once, later, against the settled block, keeping its raw expression when the
+// result is still deferred. Mutates globalScope in place.
 func (p *BaseBlueprintProcessor) evaluateGlobalScopeConfig(globalScope map[string]any, contextScope map[string]any) error {
 	if globalScope == nil {
 		return nil
@@ -932,11 +935,8 @@ func (p *BaseBlueprintProcessor) evaluateGlobalScopeConfig(globalScope map[strin
 					if !ok || !evaluator.ContainsExpression(s) {
 						continue
 					}
-					if expressionIsDerivedFromBlock(s, name) {
-						continue
-					}
 					resolved, err := p.evaluator.Evaluate(s, "", scopeWithBlock, false)
-					if err != nil || resolved == nil {
+					if err != nil || resolved == nil || evaluator.IsDeferredValue(resolved) {
 						continue
 					}
 					resolved = normalizeDeferredValue(resolved)
