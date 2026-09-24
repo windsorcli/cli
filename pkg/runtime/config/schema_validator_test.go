@@ -1214,6 +1214,80 @@ func TestFlattenErrorList(t *testing.T) {
 		}
 	})
 
+	t.Run("MergesDuplicateRequiredMessagesAtTheSameNestedLocation", func(t *testing.T) {
+		// Given three separate allOf branches each restating a required error for /cluster —
+		// the shape a cluster-driver coherence check, an oidc coherence check, and a storage
+		// coherence check produce independently
+		list := &jsonschema.List{
+			Details: []jsonschema.List{
+				{InstanceLocation: "/cluster", Errors: map[string]string{"required": "Required property 'oidc' is missing"}},
+				{InstanceLocation: "/cluster", Errors: map[string]string{"required": "Required property 'driver' is missing"}},
+				{InstanceLocation: "/cluster", Errors: map[string]string{"required": "Required properties 'storage', 'driver' are missing"}},
+			},
+		}
+
+		// When flattening
+		errs := flattenErrorList(list)
+
+		// Then the three lines collapse into one, naming every missing field exactly once,
+		// sorted for a deterministic message
+		if len(errs) != 1 {
+			t.Fatalf("Expected 1 merged error, got %d: %v", len(errs), errs)
+		}
+		want := "/cluster: required: Required properties 'driver', 'oidc', 'storage' are missing"
+		if errs[0] != want {
+			t.Errorf("Expected merged message %q, got %q", want, errs[0])
+		}
+	})
+
+	t.Run("DropsScalarTypeAndConstCompanionsOfANestedRequiredError", func(t *testing.T) {
+		// Given a nested required error (cluster.driver is missing) whose null value also
+		// trips a scalar type check and an unrelated const check from other allOf branches —
+		// the exact shape a string-typed field like cluster.driver produces, which the
+		// object-only root-only pairing in focusOnSpecificViolations never catches
+		list := &jsonschema.List{
+			Details: []jsonschema.List{
+				{InstanceLocation: "/cluster", Errors: map[string]string{"required": "Required property 'driver' is missing"}},
+				{InstanceLocation: "/cluster/driver", Errors: map[string]string{"type": "Value is null but should be string"}},
+				{InstanceLocation: "/cluster/driver", Errors: map[string]string{"const": "Value does not match the constant value"}},
+			},
+		}
+
+		// When flattening
+		errs := flattenErrorList(list)
+
+		// Then the required line survives — unconditionally, with nothing else specific
+		// present — and both restating companions collapse into a hidden-count note
+		if len(errs) != 2 {
+			t.Fatalf("Expected 2 errors, got %d: %v", len(errs), errs)
+		}
+		if !strings.Contains(errs[0], "/cluster: required: Required property 'driver' is missing") {
+			t.Errorf("Expected the required error to survive, got %v", errs)
+		}
+		if !strings.Contains(errs[1], "2 other error(s) are hidden") {
+			t.Errorf("Expected both companions folded into one hidden-count note, got %v", errs)
+		}
+	})
+
+	t.Run("KeepsAScalarTypeErrorWithNoRequiredCompanion", func(t *testing.T) {
+		// Given a type mismatch on a field that is present (not missing) — no required error
+		// names it, so the value carries real information a required error would not
+		list := &jsonschema.List{
+			Details: []jsonschema.List{
+				{InstanceLocation: "/cluster/driver", Errors: map[string]string{"type": "Value is null but should be string"}},
+			},
+		}
+
+		// When flattening
+		errs := flattenErrorList(list)
+
+		// Then the type error is not dropped — it is only a companion once required also
+		// lists the same field at the same parent
+		if len(errs) != 1 || !strings.Contains(errs[0], "/cluster/driver: type:") {
+			t.Errorf("Expected the unpaired type error to survive, got %v", errs)
+		}
+	})
+
 	t.Run("ReturnsPlaceholderWhenListHasNoErrors", func(t *testing.T) {
 		// Given a list with no error entries anywhere
 		list := &jsonschema.List{}

@@ -1212,7 +1212,7 @@ func (i *Provisioner) PlaceSecrets(ctx context.Context, resolved ResolvedSecrets
 			// until its dependency clears, so this advances the chain without churning healthy resources.
 			i.nudgeFrontier(ctx, blueprint, nudged)
 			if now := time.Now(); now.Sub(lastReport) >= reportInterval {
-				tui.Update(fmt.Sprintf("waiting on %s (%s elapsed, timeout %s)", pendingSummary(pending), now.Sub(start).Round(time.Second), constants.DefaultFluxKustomizationInstallTimeout))
+				tui.Update(fmt.Sprintf("waiting on %s", pendingSummary(pending)))
 				lastReport = now
 			}
 			select {
@@ -1267,7 +1267,7 @@ func (i *Provisioner) Converge(ctx context.Context, blueprint *blueprintv1alpha1
 				return nil
 			}
 			if now := time.Now(); now.Sub(lastReport) >= reportInterval {
-				tui.Update(fmt.Sprintf("waiting on %s (%s elapsed, timeout %s)", strings.Join(notReady, ", "), now.Sub(start).Round(time.Second), timeout))
+				tui.Update(fmt.Sprintf("waiting on %s", strings.Join(notReady, ", ")))
 				lastReport = now
 			}
 			select {
