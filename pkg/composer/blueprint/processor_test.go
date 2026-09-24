@@ -4008,6 +4008,71 @@ func TestProcessor_ProcessFacets_Tiers(t *testing.T) {
 			t.Errorf("expected install components to stay empty, got %v", target.FluxSystems[0].Install.Components)
 		}
 	})
+
+	t.Run("ResourcesInheritsTimeoutAndIntervalFromInstallWhenUnset", func(t *testing.T) {
+		target := process(t, blueprintv1alpha1.FluxSystem{
+			Name: "lb",
+			Path: "lb",
+			Install: &blueprintv1alpha1.Kustomization{
+				Components: []string{"metallb"},
+				Timeout:    &blueprintv1alpha1.DurationString{Duration: 5 * time.Minute},
+				Interval:   &blueprintv1alpha1.DurationString{Duration: 5 * time.Minute},
+			},
+			Resources: []blueprintv1alpha1.FluxVariant{{Kustomization: blueprintv1alpha1.Kustomization{Components: []string{"metallb/arp"}}}},
+		})
+		res, ok := find(target, "lb-resources")
+		if !ok {
+			t.Fatalf("expected lb-resources, got %+v", target.AllKustomizations())
+		}
+		if res.Timeout == nil || res.Timeout.Duration != 5*time.Minute {
+			t.Errorf("expected resources timeout to inherit 5m from install, got %+v", res.Timeout)
+		}
+		if res.Interval == nil || res.Interval.Duration != 5*time.Minute {
+			t.Errorf("expected resources interval to inherit 5m from install, got %+v", res.Interval)
+		}
+	})
+
+	t.Run("ResourcesExplicitTimeoutAndIntervalAreNotOverriddenByInstall", func(t *testing.T) {
+		target := process(t, blueprintv1alpha1.FluxSystem{
+			Name: "policy",
+			Path: "policy",
+			Install: &blueprintv1alpha1.Kustomization{
+				Components: []string{"kyverno"},
+				Timeout:    &blueprintv1alpha1.DurationString{Duration: 30 * time.Minute},
+				Interval:   &blueprintv1alpha1.DurationString{Duration: 5 * time.Minute},
+			},
+			Resources: []blueprintv1alpha1.FluxVariant{{Kustomization: blueprintv1alpha1.Kustomization{
+				Components: []string{"kyverno/resource-limits-requests"},
+				Timeout:    &blueprintv1alpha1.DurationString{Duration: 5 * time.Minute},
+				Interval:   &blueprintv1alpha1.DurationString{Duration: 5 * time.Minute},
+			}}},
+		})
+		res, ok := find(target, "policy-resources")
+		if !ok {
+			t.Fatalf("expected policy-resources, got %+v", target.AllKustomizations())
+		}
+		if res.Timeout == nil || res.Timeout.Duration != 5*time.Minute {
+			t.Errorf("expected the variant's own 5m timeout to survive, got %+v", res.Timeout)
+		}
+		if res.Interval == nil || res.Interval.Duration != 5*time.Minute {
+			t.Errorf("expected the variant's own 5m interval to survive, got %+v", res.Interval)
+		}
+	})
+
+	t.Run("ResourcesTimeoutAndIntervalStayUnsetWithNoInstallTier", func(t *testing.T) {
+		target := process(t, blueprintv1alpha1.FluxSystem{
+			Name:      "issuers",
+			Path:      "pki/issuers",
+			Resources: []blueprintv1alpha1.FluxVariant{{Kustomization: blueprintv1alpha1.Kustomization{Components: []string{"public-issuer"}}}},
+		})
+		res, ok := find(target, "issuers-resources")
+		if !ok {
+			t.Fatalf("expected issuers-resources, got %+v", target.AllKustomizations())
+		}
+		if res.Timeout != nil || res.Interval != nil {
+			t.Errorf("expected no install tier to leave timeout/interval unset, got timeout=%+v interval=%+v", res.Timeout, res.Interval)
+		}
+	})
 }
 
 func TestProcessor_ProcessFacets_StripsFluxSystemWhen(t *testing.T) {

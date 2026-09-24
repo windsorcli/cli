@@ -1458,7 +1458,9 @@ func (p *BaseBlueprintProcessor) evalDropEmpty(raw []string, facetPath string, s
 // collectFluxSystems evaluates a facet's flux: system descriptors and stores the result in
 // fluxSystemByName. It clears each system's when once inclusion is decided. Neither an install
 // tier nor a resources variant is dropped for an empty component list. Only a system's own
-// when controls whether it is included at all.
+// when controls whether it is included at all. A resources variant with no Timeout/Interval of
+// its own inherits both from the system's install tier; an explicit value on the variant always
+// wins.
 func (p *BaseBlueprintProcessor) collectFluxSystems(facet blueprintv1alpha1.Facet, sourceName []string, fluxSystemByName map[string]*blueprintv1alpha1.FluxSystem, facetScope map[string]any) error {
 	for _, system := range facet.FluxSystems {
 		when := system.When
@@ -1531,6 +1533,14 @@ func (p *BaseBlueprintProcessor) collectFluxSystems(facet blueprintv1alpha1.Face
 			seenVariants[variantKey] = true
 
 			evalV := blueprintv1alpha1.FluxVariant{Kustomization: *v.Kustomization.DeepCopy()}
+			if system.Install != nil {
+				if evalV.Timeout == nil {
+					evalV.Timeout = system.Install.Timeout
+				}
+				if evalV.Interval == nil {
+					evalV.Interval = system.Install.Interval
+				}
+			}
 			evalV.Components = comps
 			evalV.When = ""
 
