@@ -690,7 +690,9 @@ func addHiddenCount(errs []validationError, extra int) []validationError {
 	for i, e := range errs {
 		if e.keyword == "" && e.location == "" && strings.Contains(e.line, "other error(s) are hidden") {
 			var n int
-			fmt.Sscanf(e.line, "%d", &n)
+			if parsed, err := fmt.Sscanf(e.line, "%d", &n); err != nil || parsed != 1 {
+				n = 0
+			}
 			errs[i] = validationError{line: fmt.Sprintf(
 				"%d other error(s) are hidden. Run with --debug to see them. Fix the error(s) above and run the command again.", n+extra)}
 			return errs
