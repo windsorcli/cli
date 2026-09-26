@@ -26,9 +26,9 @@ require (
 	github.com/zclconf/go-cty v1.19.0
 	golang.org/x/sys v0.48.0
 	golang.org/x/term v0.46.0
-	k8s.io/api v0.37.0
-	k8s.io/apimachinery v0.37.0
-	k8s.io/client-go v0.37.0
+	k8s.io/api v0.37.1
+	k8s.io/apimachinery v0.37.1
+	k8s.io/client-go v0.37.1
 	sigs.k8s.io/yaml v1.6.0
 )
 
