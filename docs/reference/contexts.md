@@ -24,7 +24,7 @@ contexts/
     ├── values.yaml                         user-set values that feed the schema
     ├── .env                                git-ignored operator env vars (e.g. provider credentials)
     ├── secrets.enc.yaml                    SOPS-encrypted secrets, safe to commit
-    ├── secrets.yaml                        git-ignored plaintext secrets (pre-encryption / local-only)
+    ├── secrets.yaml                        git-ignored SOPS-encrypted secrets (plaintext is refused)
     ├── terraform/<component-id>.tfvars     user-edited Terraform variable overrides
     ├── terraform/<component-id>.tfvars.json  JSON variant of the above
     ├── terraform/backend.tfvars            optional Terraform backend overrides
@@ -151,11 +151,11 @@ either the `secrets.yaml` or `secrets.enc.yaml` name. Windsor tries to decrypt e
 A `secrets.yaml`/`secrets.yml` that fails to decrypt is refused with a clear error — "refusing to
 load unencrypted secrets file ...: encrypt it with sops before use (see secrets.enc.yaml)" —
 rather than a raw SOPS failure, because the far more likely cause is a genuinely plaintext file
-that was never encrypted. Encrypt it with `sops -e` and rename it `secrets.enc.yaml` (or
-`secrets.enc.yml`) once it holds real values.
+that was never encrypted. Encrypt it with `sops -e`. You can also rename it `secrets.enc.yaml` (or
+`secrets.enc.yml`) so git tracks it.
 
-- `secrets.yaml`/`secrets.yml` — conventionally plaintext (pre-encryption or local-only scratch
-  values); auto-git-ignored, same as `.env`.
+- `secrets.yaml`/`secrets.yml` — must be SOPS-encrypted to load. Windsor refuses a plaintext file.
+  Auto-git-ignored, same as `.env`.
 - `secrets.enc.yaml`/`secrets.enc.yml` — SOPS-encrypted; safe to commit and stays tracked.
 
 ## Terraform-scoped `.env`
