@@ -120,8 +120,18 @@ $defs:
   secrets:
     type: object
     additionalProperties: false
-    description: Secrets provider configuration. Currently 1Password is the only supported provider.
+    description: Secrets provider configuration. Supported providers are SOPS and 1Password.
     properties:
+      sops:
+        type: object
+        additionalProperties: false
+        properties:
+          enabled:
+            type: boolean
+            description: |
+              Registers the SOPS provider so 'sops.<key>' references resolve
+              from the context's 'secrets*.yaml' files. Windsor also checks
+              that the 'sops' binary is installed when this is true.
       onepassword:
         type: object
         additionalProperties: false
