@@ -2440,6 +2440,50 @@ func TestShell_CheckTrustedDirectory(t *testing.T) {
 		}
 	})
 
+	t.Run("PathMatching", func(t *testing.T) {
+		cases := []struct {
+			name        string
+			projectRoot string
+			trusted     string
+			wantTrusted bool
+		}{
+			{"ExactMatch", "/test/project", "/test/project", true},
+			{"ChildOfTrusted", "/test/project/sub", "/test/project", true},
+			{"TrailingSlashEntry", "/test/project", "/test/project/", true},
+			{"SiblingSharingPrefix", "/test/project-evil", "/test/project", false},
+			{"SiblingWithSuffixDigit", "/test/other2", "/test/other", false},
+			{"ParentOfTrusted", "/test", "/test/project", false},
+		}
+		for _, tc := range cases {
+			t.Run(tc.name, func(t *testing.T) {
+				// Given a project root and a single trusted entry
+				shell, mocks := setup(t)
+				mocks.Shims.Getwd = func() (string, error) { return tc.projectRoot, nil }
+				mocks.Shims.Stat = func(name string) (os.FileInfo, error) {
+					if name == filepath.Join(tc.projectRoot, "windsor.yaml") {
+						return nil, nil
+					}
+					return nil, os.ErrNotExist
+				}
+				mocks.Shims.UserHomeDir = func() (string, error) { return "/home/test", nil }
+				mocks.Shims.ReadFile = func(name string) ([]byte, error) {
+					return []byte(tc.trusted + "\n"), nil
+				}
+
+				// When checking the trusted directory
+				err := shell.CheckTrustedDirectory()
+
+				// Then trust follows path components, not string prefixes
+				if tc.wantTrusted && err != nil {
+					t.Errorf("Expected trusted, got %v", err)
+				}
+				if !tc.wantTrusted && err == nil {
+					t.Error("Expected not trusted, got nil")
+				}
+			})
+		}
+	})
+
 	t.Run("NoOpInGlobalMode", func(t *testing.T) {
 		// Given a shell that has resolved to global mode
 		shell, mocks := setup(t)
