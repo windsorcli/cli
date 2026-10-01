@@ -794,7 +794,8 @@ func (s *DefaultShell) AddCurrentDirToTrustedFile() error {
 	return nil
 }
 
-// CheckTrustedDirectory verifies if the current directory is in the trusted file list.
+// CheckTrustedDirectory verifies that the project root equals a trusted directory or is inside one.
+// It compares path components, so "/a/proj-evil" does not inherit trust from "/a/proj".
 // In global mode, trust is implicit for $HOME/.config/windsor and this check is skipped.
 func (s *DefaultShell) CheckTrustedDirectory() error {
 	projectRoot, err := s.GetProjectRoot()
@@ -826,7 +827,11 @@ func (s *DefaultShell) CheckTrustedDirectory() error {
 	trustedDirs := strings.Split(strings.TrimSpace(string(data)), "\n")
 	for _, trustedDir := range trustedDirs {
 		trimmedDir := strings.TrimSpace(trustedDir)
-		if trimmedDir != "" && strings.HasPrefix(projectRoot, trimmedDir) {
+		if trimmedDir == "" {
+			continue
+		}
+		rel, err := filepath.Rel(filepath.Clean(trimmedDir), filepath.Clean(projectRoot))
+		if err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
 			isTrusted = true
 			break
 		}
