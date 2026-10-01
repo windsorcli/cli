@@ -34,7 +34,7 @@ system-managed and not covered here.
 | `network` | `object` | Cluster network configuration. |
 | `platform` | `string` | Target deployment platform. Selects platform-specific facets and drives backend type inference. When --platform/--vm-driver on init/up/bootstrap set the platform and terraform.backend.type is otherwise unset, the backend defaults per platform: aws -> s3; azure -> azurerm; gcp -> gcs; metal, docker, incus, hetzner, hyperv, vsphere -> kubernetes (the cluster stores its own components' state as Secrets; hetzner defaults here too because its Object Storage keys can't be provisioned via API). An explicit --set terraform.backend.type=... always wins. One of: `none`, `docker`, `incus`, `metal`, `hetzner`, `aws`, `azure`, `gcp`, `hyperv`, `vsphere`. |
 | `provider` | `string` | Deprecated alias for 'platform'. New configs should use 'platform'; the loader still reads 'provider' for backwards compatibility. |
-| `secrets` | `object` | Secrets provider configuration. Currently 1Password is the only supported provider. |
+| `secrets` | `object` | Secrets provider configuration. Supported providers are SOPS and 1Password. |
 | `terraform` | `object` | Per-context Terraform settings (state backend, lock policy, timeout). The runtime-validator sub-types (BackendConfig, LockConfig) are authored in api/v1alpha1/terraform/terraform_config.go. |
 | `vm` | `object` | Workstation VM settings. Applies to colima / colima-incus / docker- desktop driver choices; ignored when the workstation runs directly on Docker without a VM. |
 | `vsphere` | `object` | vSphere integration. Activates whenever this block is present (or when platform is 'vsphere'); there is no separate 'enabled' flag. Connection credentials (server, user, password) are env-var driven by the Terraform provider (VSPHERE_SERVER, VSPHERE_USER, VSPHERE_PASSWORD, VSPHERE_ALLOW_UNVERIFIED_SSL). Server and user may optionally be set here so the CLI can export them into the shell; password must come from secrets or the ambient environment and is never written to this file. Inventory pointers (datacenter, cluster, datastore, network) are wired as Terraform variable inputs by the vsphere platform facet. In project mode the CLI also exports VSPHERE_PERSIST_SESSION, VSPHERE_VIM_SESSION_PATH, and VSPHERE_REST_SESSION_PATH, scoping the provider's SOAP/REST session cache to the context's .vsphere/ directory (mirrors .aws/, .azure/, .gcp/); global mode omits these three so the provider falls back to its own ~/.govmomi/ defaults. |
@@ -152,6 +152,7 @@ system-managed and not covered here.
 | Field | Type | Description |
 |------|------|-------------|
 | `onepassword` | `object` |  |
+| `sops` | `object` |  |
 
 #### contexts{}.secrets.onepassword
 
@@ -166,6 +167,12 @@ system-managed and not covered here.
 | `id` | `string` | 1Password vault ID. |
 | `name` | `string` | Human-readable vault name (defaults to the map key). |
 | `url` | `string` | 1Password instance URL. |
+
+#### contexts{}.secrets.sops
+
+| Field | Type | Description |
+|------|------|-------------|
+| `enabled` | `boolean` | Registers the SOPS provider so 'sops.<key>' references resolve from the context's 'secrets*.yaml' files. Windsor also checks that the 'sops' binary is installed when this is true. |
 
 ### contexts{}.terraform
 

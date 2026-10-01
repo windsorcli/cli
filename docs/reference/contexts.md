@@ -148,6 +148,10 @@ decides whether a file is treated as SOPS-encrypted: an operator's own SOPS outp
 either the `secrets.yaml` or `secrets.enc.yaml` name. Windsor tries to decrypt every
 `secrets*.yaml`/`secrets*.yml` file it finds, in the order above.
 
+Windsor registers the SOPS provider only when `secrets.sops.enabled` is `true`. Set it in
+`contexts/<context-name>/windsor.yaml`. Without it, `sops.<key>` references fail with
+`no provider found for vault "sops"`.
+
 A `secrets.yaml`/`secrets.yml` that fails to decrypt is refused with a clear error — "refusing to
 load unencrypted secrets file ...: encrypt it with sops before use (see secrets.enc.yaml)" —
 rather than a raw SOPS failure, because the far more likely cause is a genuinely plaintext file
