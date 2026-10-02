@@ -180,7 +180,7 @@ func TestNewTerraformProvider(t *testing.T) {
 		mockEvaluator := evaluator.NewMockExpressionEvaluator()
 		registerCalled := false
 		registerName := ""
-		mockEvaluator.RegisterFunc = func(name string, helper func(params []any, deferred bool) (any, error), signature any) {
+		mockEvaluator.RegisterFunc = func(name string, helper func(params []any, deferred bool) (any, error), signatures ...any) {
 			registerCalled = true
 			registerName = name
 		}

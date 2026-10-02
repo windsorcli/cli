@@ -1198,7 +1198,7 @@ func TestTerraformProvider_registerTerraformOutputHelper(t *testing.T) {
 		mocks := setupMocks(t)
 		mockEvaluator := evaluator.NewMockExpressionEvaluator()
 		var registeredName string
-		mockEvaluator.RegisterFunc = func(name string, helper func(params []any, deferred bool) (any, error), signature any) {
+		mockEvaluator.RegisterFunc = func(name string, helper func(params []any, deferred bool) (any, error), signatures ...any) {
 			registeredName = name
 		}
 
@@ -1216,7 +1216,7 @@ func TestTerraformProvider_registerTerraformOutputHelper(t *testing.T) {
 		mocks := setupMocks(t)
 		mockEvaluator := evaluator.NewMockExpressionEvaluator()
 		var helperFunc func(params []any, deferred bool) (any, error)
-		mockEvaluator.RegisterFunc = func(name string, helper func(params []any, deferred bool) (any, error), signature any) {
+		mockEvaluator.RegisterFunc = func(name string, helper func(params []any, deferred bool) (any, error), signatures ...any) {
 			helperFunc = helper
 		}
 

@@ -137,7 +137,7 @@ type ExpressionEvaluator interface {
 // This allows providers to extend expression evaluation capabilities without the evaluator
 // needing to know about provider-specific functionality.
 type HelperRegistrar interface {
-	Register(name string, helper func(params []any, deferred bool) (any, error), signature any)
+	Register(name string, helper func(params []any, deferred bool) (any, error), signatures ...any)
 }
 
 // =============================================================================
@@ -190,15 +190,15 @@ func (e *expressionEvaluator) SetConfigScope(scope map[string]any) {
 
 // Register adds a custom helper function to the evaluator for expression evaluation.
 // The provided helper function receives the deferred flag as a closure variable. The name parameter
-// specifies the function name used in expressions, helper is the custom function, and signature defines
-// the helper's input/output signature for the evaluator's use. This allows providers and consumers to
+// specifies the function name used in expressions, helper is the custom function, and signatures define
+// the helper's input/output signatures. Pass one signature per accepted argument count. This allows providers and consumers to
 // extend evaluator capabilities with domain-specific helpers.
-func (e *expressionEvaluator) Register(name string, helper func(params []any, deferred bool) (any, error), signature any) {
+func (e *expressionEvaluator) Register(name string, helper func(params []any, deferred bool) (any, error), signatures ...any) {
 	e.helpers = append(e.helpers, func(deferred bool) expr.Option {
 		wrappedHelper := func(params ...any) (any, error) {
 			return helper(params, deferred)
 		}
-		return expr.Function(name, wrappedHelper, signature)
+		return expr.Function(name, wrappedHelper, signatures...)
 	})
 }
 

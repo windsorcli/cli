@@ -16,9 +16,10 @@ var version = "dev"
 
 var legacyBracePattern = regexp.MustCompile(`\${{\s*(.*?)\s*}}`)
 
-// exactSecretCallPattern matches exactly secret("vault", "item", "field") with no surrounding operators.
+// exactSecretCallPattern matches exactly secret("vault", "item") or secret("vault", "item", "field")
+// with no surrounding operators.
 // Each argument may contain any characters except unescaped double-quotes.
-var exactSecretCallPattern = regexp.MustCompile(`^secret\(\s*"[^"]*"\s*,\s*"[^"]*"\s*,\s*"[^"]*"\s*\)$`)
+var exactSecretCallPattern = regexp.MustCompile(`^secret\(\s*"[^"]*"\s*,\s*"[^"]*"\s*(,\s*"[^"]*"\s*)?\)$`)
 
 // =============================================================================
 // Types
@@ -99,7 +100,7 @@ func (r *Resolver) Resolve(ref SecretRef) (string, error) {
 	return "", fmt.Errorf("no provider found for vault %q", ref.Vault)
 }
 
-// EvaluateHelper is the expr helper callback for secret(vault, item, field).
+// EvaluateHelper is the expr helper callback for secret(vault, item[, field]).
 // On first pass (deferred=false), returns DeferredError.
 // On second pass (deferred=true), resolves the secret.
 func (r *Resolver) EvaluateHelper(params []any, deferred bool) (any, error) {
@@ -216,10 +217,11 @@ func IsCacheable(expr string) bool {
 // Private Helpers
 // =============================================================================
 
-// parseHelperParams validates secret(...) helper has exactly 3 string arguments.
+// parseHelperParams validates the secret(...) helper has 2 or 3 string arguments. A missing
+// field argument is returned as an empty string.
 func parseHelperParams(params []any) (string, string, string, error) {
-	if len(params) != 3 {
-		return "", "", "", fmt.Errorf("secret() requires exactly 3 arguments (vault, item, field), got %d", len(params))
+	if len(params) != 2 && len(params) != 3 {
+		return "", "", "", fmt.Errorf("secret() requires 2 or 3 arguments (vault, item, field), got %d", len(params))
 	}
 	vault, ok := params[0].(string)
 	if !ok {
@@ -229,15 +231,18 @@ func parseHelperParams(params []any) (string, string, string, error) {
 	if !ok {
 		return "", "", "", fmt.Errorf("secret() item must be a string, got %T", params[1])
 	}
-	field, ok := params[2].(string)
-	if !ok {
-		return "", "", "", fmt.Errorf("secret() field must be a string, got %T", params[2])
+	field := ""
+	if len(params) == 3 {
+		field, ok = params[2].(string)
+		if !ok {
+			return "", "", "", fmt.Errorf("secret() field must be a string, got %T", params[2])
+		}
 	}
 	return vault, item, field, nil
 }
 
 // isExactSecretHelperCall reports whether expr is a standalone secret(...) call
-// with exactly three double-quoted string arguments and no surrounding operators.
+// with two or three double-quoted string arguments and no surrounding operators.
 func isExactSecretHelperCall(expr string) bool {
 	return exactSecretCallPattern.MatchString(expr)
 }

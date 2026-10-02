@@ -896,12 +896,15 @@ func (rt *Runtime) initializeSecretsProviders() {
 }
 
 // registerSecretHelper registers the secret() helper on the evaluator once.
+// The field argument is optional, so both two- and three-argument calls compile.
 func (rt *Runtime) registerSecretHelper() {
 	if rt.secretHelperRegistered || rt.Evaluator == nil || rt.Resolver == nil {
 		return
 	}
 
-	rt.Evaluator.Register("secret", rt.Resolver.EvaluateHelper, new(func(string, string, string) any))
+	rt.Evaluator.Register("secret", rt.Resolver.EvaluateHelper,
+		new(func(string, string) any),
+		new(func(string, string, string) any))
 	rt.secretHelperRegistered = true
 }
 

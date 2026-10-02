@@ -181,6 +181,37 @@ func TestResolver_EvaluateHelper(t *testing.T) {
 		}
 	})
 
+	t.Run("ResolvesTwoArgumentFormWithEmptyField", func(t *testing.T) {
+		sh := setupSecretsTestMocks(t)
+		var got SecretRef
+		p := &MockProvider{
+			ResolveFunc: func(ref SecretRef) (string, bool, error) {
+				got = ref
+				return "resolved", true, nil
+			},
+		}
+		r := NewResolver([]Provider{p}, sh)
+
+		result, err := r.EvaluateHelper([]any{"sops", "database.password"}, true)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if result != "resolved" {
+			t.Errorf("expected %q, got %v", "resolved", result)
+		}
+		if got.Item != "database.password" || got.Field != "" {
+			t.Errorf("expected item %q with empty field, got %+v", "database.password", got)
+		}
+	})
+
+	t.Run("ReturnsErrorForTooManyParams", func(t *testing.T) {
+		r := NewResolver([]Provider{}, nil)
+		_, err := r.EvaluateHelper([]any{"vault", "item", "field", "extra"}, true)
+		if err == nil {
+			t.Fatal("expected error for four arguments")
+		}
+	})
+
 	t.Run("ReturnsErrorForBadParams", func(t *testing.T) {
 		r := NewResolver([]Provider{}, nil)
 		_, err := r.EvaluateHelper([]any{"only-one"}, true)
@@ -293,6 +324,7 @@ func TestNormalizeLegacyBraces(t *testing.T) {
 func TestIsCacheable(t *testing.T) {
 	cacheableInputs := []string{
 		`secret("vault", "item", "field")`,
+		`secret("sops", "database.password")`,
 		`secret("vault", "path/to/item", "field")`,
 		`secret("vault", "item", "field:subfield")`,
 		"secret.op.vault.item.field",
@@ -300,6 +332,9 @@ func TestIsCacheable(t *testing.T) {
 	}
 	notCacheableInputs := []string{
 		`secret("v","i","f") + "suffix"`,
+		`secret("v","i") + "suffix"`,
+		`secret("v")`,
+		`secret("v","i","f","x")`,
 		"PLAIN_VAR",
 		"",
 	}
