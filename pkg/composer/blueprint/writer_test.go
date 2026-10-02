@@ -271,6 +271,47 @@ func TestWriter_Write(t *testing.T) {
 		}
 	})
 
+	t.Run("OmitsInstallForNonOCIInitURL", func(t *testing.T) {
+		// Given a writer, no existing file, and a local path as the init URL
+		mocks := setupWriterMocks(t)
+		writer := NewBlueprintWriter(mocks.Runtime)
+
+		var writtenData []byte
+		writer.shims.Stat = func(path string) (os.FileInfo, error) {
+			return nil, os.ErrNotExist
+		}
+		writer.shims.MkdirAll = func(path string, perm os.FileMode) error {
+			return nil
+		}
+		writer.shims.WriteFile = func(path string, data []byte, perm os.FileMode) error {
+			writtenData = data
+			return nil
+		}
+
+		blueprint := &blueprintv1alpha1.Blueprint{
+			Kind:       "Blueprint",
+			ApiVersion: "v1alpha1",
+			Metadata:   blueprintv1alpha1.Metadata{Name: "test-blueprint"},
+			Sources:    []blueprintv1alpha1.Source{},
+		}
+		initURL := "/path/to/core"
+
+		// When writing with the local path
+		err := writer.Write(blueprint, true, initURL)
+
+		// Then the source keeps its URL and does not set install
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		writtenStr := string(writtenData)
+		if !strings.Contains(writtenStr, initURL) {
+			t.Errorf("Expected written blueprint to contain %s, got:\n%s", initURL, writtenStr)
+		}
+		if strings.Contains(writtenStr, "install:") {
+			t.Errorf("Expected no install field for a non-OCI source, got:\n%s", writtenStr)
+		}
+	})
+
 	t.Run("SkipsWriteWhenFileExistsAndNotOverwrite", func(t *testing.T) {
 		// Given a writer with existing file and overwrite=false
 		mocks := setupWriterMocks(t)
