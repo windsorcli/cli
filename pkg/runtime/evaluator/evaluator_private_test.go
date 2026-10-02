@@ -365,6 +365,26 @@ func TestExpressionEvaluator_buildExprEnvironment(t *testing.T) {
 		}
 	})
 
+	t.Run("AcceptsEachRegisteredSignature", func(t *testing.T) {
+		// Given a helper registered with two- and three-argument signatures
+		evaluator, _, _, _ := setupEvaluatorTest(t)
+		evaluator.Register("pick", func(params []any, deferred bool) (any, error) {
+			return len(params), nil
+		}, new(func(string, string) any), new(func(string, string, string) any))
+
+		// When evaluating calls with two and three arguments
+		two, twoErr := evaluator.Evaluate(`${pick("a", "b")}`, "", nil, false)
+		three, threeErr := evaluator.Evaluate(`${pick("a", "b", "c")}`, "", nil, false)
+
+		// Then both calls compile and reach the helper
+		if twoErr != nil || threeErr != nil {
+			t.Fatalf("Expected no errors, got %v and %v", twoErr, threeErr)
+		}
+		if two != 2 || three != 3 {
+			t.Errorf("Expected 2 and 3 arguments, got %v and %v", two, three)
+		}
+	})
+
 	t.Run("IncludesMultipleRegisteredHelpers", func(t *testing.T) {
 		// Given an evaluator with multiple registered helpers
 		evaluator, _, _, _ := setupEvaluatorTest(t)

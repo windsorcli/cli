@@ -147,7 +147,7 @@ func TestMockExpressionEvaluator_Register(t *testing.T) {
 			return "result", nil
 		}
 		expectedSignature := new(func(string) any)
-		mockEvaluator.RegisterFunc = func(name string, helper func(params []any, deferred bool) (any, error), signature any) {
+		mockEvaluator.RegisterFunc = func(name string, helper func(params []any, deferred bool) (any, error), signatures ...any) {
 			called = true
 			if name != expectedName {
 				t.Errorf("Expected name %s, got %s", expectedName, name)
