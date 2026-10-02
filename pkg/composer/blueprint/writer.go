@@ -55,6 +55,7 @@ func NewBlueprintWriter(rt *runtime.Runtime) *BaseBlueprintWriter {
 // run "windsor show blueprint" to see the fully rendered blueprint. If overwrite is false
 // and the file exists, the write is skipped to preserve user modifications. The
 // initBlueprintURLs parameter contains blueprint URLs to add as sources when initializing.
+// Only oci:// sources get install: true, because composition rejects install on other sources.
 func (w *BaseBlueprintWriter) Write(blueprint *blueprintv1alpha1.Blueprint, overwrite bool, initBlueprintURLs ...string) error {
 	if blueprint == nil {
 		return fmt.Errorf("cannot write nil blueprint")
@@ -183,16 +184,20 @@ func (w *BaseBlueprintWriter) createMinimalBlueprint(blueprint *blueprintv1alpha
 		if source != nil && !existingSourceNames[source.Name] {
 			sourceCopy := *source
 			sourceCopy.Crds = nil
-			sourceCopy.Install = &blueprintv1alpha1.BoolExpression{Value: &trueVal, IsExpr: false}
+			if strings.HasPrefix(sourceCopy.Url, "oci://") {
+				sourceCopy.Install = &blueprintv1alpha1.BoolExpression{Value: &trueVal, IsExpr: false}
+			}
 			minimal.Sources = append(minimal.Sources, sourceCopy)
 			existingSourceNames[source.Name] = true
 		} else if source == nil {
 			sourceName := w.getSourceNameFromURL(url)
 			if !existingSourceNames[sourceName] {
 				newSource := blueprintv1alpha1.Source{
-					Name:    sourceName,
-					Url:     url,
-					Install: &blueprintv1alpha1.BoolExpression{Value: &trueVal, IsExpr: false},
+					Name: sourceName,
+					Url:  url,
+				}
+				if strings.HasPrefix(url, "oci://") {
+					newSource.Install = &blueprintv1alpha1.BoolExpression{Value: &trueVal, IsExpr: false}
 				}
 				minimal.Sources = append(minimal.Sources, newSource)
 				existingSourceNames[sourceName] = true
