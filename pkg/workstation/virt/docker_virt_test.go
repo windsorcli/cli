@@ -6,6 +6,9 @@ package virt
 
 import (
 	"fmt"
+	"io"
+	"io/fs"
+	"os"
 	"strings"
 	"testing"
 )
@@ -23,6 +26,22 @@ func setupDockerVirt(t *testing.T, opts ...func(*VirtTestMocks)) (*VirtTestMocks
 	}
 	dockerVirt := NewDockerVirt(mocks.Runtime)
 	return mocks, dockerVirt
+}
+
+// captureStderr runs fn and returns everything it wrote to os.Stderr.
+func captureStderr(t *testing.T, fn func()) string {
+	t.Helper()
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatalf("Failed to create pipe: %v", err)
+	}
+	old := os.Stderr
+	os.Stderr = w
+	defer func() { os.Stderr = old }()
+	fn()
+	w.Close()
+	out, _ := io.ReadAll(r)
+	return string(out)
 }
 
 // =============================================================================
@@ -95,6 +114,80 @@ func TestDockerVirt_WriteConfig(t *testing.T) {
 }
 
 func TestDockerVirt_Down(t *testing.T) {
+	t.Run("WhenDockerHostSocketMissingSkipsCleanupSilently", func(t *testing.T) {
+		// Given a DOCKER_HOST unix socket that does not exist
+		var execCalls []string
+		mocks, dockerVirt := setupDockerVirt(t)
+		dockerVirt.shims.Getenv = func(key string) string { return "unix:///home/u/.colima/windsor-local/docker.sock" }
+		dockerVirt.shims.Stat = func(name string) (os.FileInfo, error) { return nil, fs.ErrNotExist }
+		mocks.Shell.ExecSilentFunc = func(command string, args ...string) (string, error) {
+			execCalls = append(execCalls, command+" "+strings.Join(args, " "))
+			return "", nil
+		}
+
+		// When calling Down
+		stderr := captureStderr(t, func() {
+			if err := dockerVirt.Down(); err != nil {
+				t.Errorf("Expected nil, got %v", err)
+			}
+		})
+
+		// Then no docker command runs and nothing is written to stderr
+		if len(execCalls) != 0 {
+			t.Errorf("Expected no docker calls, got %v", execCalls)
+		}
+		if stderr != "" {
+			t.Errorf("Expected no stderr output, got %q", stderr)
+		}
+	})
+
+	t.Run("WhenDockerHostSocketExistsButDaemonFailsWarns", func(t *testing.T) {
+		// Given a DOCKER_HOST unix socket that exists while docker ps fails
+		mocks, dockerVirt := setupDockerVirt(t)
+		dockerVirt.shims.Getenv = func(key string) string { return "unix:///var/run/docker.sock" }
+		dockerVirt.shims.Stat = func(name string) (os.FileInfo, error) { return nil, nil }
+		mocks.Shell.ExecSilentFunc = func(command string, args ...string) (string, error) {
+			if command == "docker" && len(args) >= 1 && args[0] == "ps" {
+				return "", fmt.Errorf("ps failed")
+			}
+			return "", nil
+		}
+
+		// When calling Down
+		stderr := captureStderr(t, func() {
+			if err := dockerVirt.Down(); err != nil {
+				t.Errorf("Expected nil, got %v", err)
+			}
+		})
+
+		// Then the failure is reported and cleanup is not skipped
+		if !strings.Contains(stderr, "could not list containers") {
+			t.Errorf("Expected container list warning, got %q", stderr)
+		}
+	})
+
+	t.Run("WhenDockerHostIsNotUnixSocketProceedsWithCleanup", func(t *testing.T) {
+		// Given DOCKER_HOST set to a Windows named pipe and a Stat that would report not-exist
+		var execCalls []string
+		mocks, dockerVirt := setupDockerVirt(t)
+		dockerVirt.shims.Getenv = func(key string) string { return "npipe:////./pipe/docker_engine" }
+		dockerVirt.shims.Stat = func(name string) (os.FileInfo, error) { return nil, fs.ErrNotExist }
+		mocks.Shell.ExecSilentFunc = func(command string, args ...string) (string, error) {
+			execCalls = append(execCalls, command+" "+strings.Join(args, " "))
+			return "", nil
+		}
+
+		// When calling Down
+		if err := dockerVirt.Down(); err != nil {
+			t.Errorf("Expected nil, got %v", err)
+		}
+
+		// Then cleanup runs
+		if len(execCalls) == 0 {
+			t.Error("Expected docker cleanup calls for a non-unix DOCKER_HOST")
+		}
+	})
+
 	t.Run("WhenNetworkListFailsReturnsNil", func(t *testing.T) {
 		// Given a DockerVirt with shell that fails on docker network ls (in removeNetworkIfExists)
 		mocks, dockerVirt := setupDockerVirt(t)

@@ -5,7 +5,9 @@
 package virt
 
 import (
+	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"strings"
 
@@ -68,8 +70,12 @@ func (v *DockerVirt) WriteConfig() error {
 // Down stops and removes only resources for the current project/context: containers and named volumes
 // with label com.docker.compose.project=workstation-windsor-<context>, and the network windsor-<context>.
 // Anonymous volumes are removed with containers via rm -v. No global Docker cleanup is performed.
-// Best-effort: errors are logged to stderr but do not cause Down to return an error. Shows a progress spinner.
+// Returns nil with no output when DOCKER_HOST names a unix socket that no longer exists (the VM is gone).
+// Otherwise best-effort: errors are logged to stderr but do not cause Down to return an error. Shows a progress spinner.
 func (v *DockerVirt) Down() error {
+	if v.daemonSocketMissing() {
+		return nil
+	}
 	return tui.WithProgress("Cleaning up Docker resources", func() error {
 		contextName := v.configHandler.GetContext()
 		projectLabelValue := DockerComposeProjectPrefix + contextName
@@ -85,6 +91,17 @@ func (v *DockerVirt) Down() error {
 // =============================================================================
 // Private Methods
 // =============================================================================
+
+// daemonSocketMissing reports whether DOCKER_HOST names a unix socket that does not exist.
+// Any other endpoint (unset, npipe, tcp, ssh) or any other Stat error returns false, so cleanup proceeds.
+func (v *DockerVirt) daemonSocketMissing() bool {
+	path, ok := strings.CutPrefix(v.shims.Getenv("DOCKER_HOST"), "unix://")
+	if !ok || path == "" {
+		return false
+	}
+	_, err := v.shims.Stat(path)
+	return errors.Is(err, fs.ErrNotExist)
+}
 
 // cleanProjectContainers stops and removes only containers with the given compose project label
 // (com.docker.compose.project=<projectLabelValue>), including created-but-never-started. No other containers are touched.

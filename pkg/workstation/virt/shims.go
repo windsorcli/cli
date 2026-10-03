@@ -28,6 +28,7 @@ type YAMLEncoder interface {
 // Shims provides mockable wrappers around system and runtime functions
 type Shims struct {
 	Setenv         func(key, value string) error
+	Getenv         func(key string) string
 	UnmarshalJSON  func(data []byte, v any) error
 	UserHomeDir    func() (string, error)
 	MkdirAll       func(path string, perm os.FileMode) error
@@ -49,6 +50,7 @@ type Shims struct {
 func NewShims() *Shims {
 	return &Shims{
 		Setenv:        os.Setenv,
+		Getenv:        os.Getenv,
 		UnmarshalJSON: json.Unmarshal,
 		UserHomeDir:   os.UserHomeDir,
 		MkdirAll:      os.MkdirAll,
