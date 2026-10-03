@@ -50,13 +50,13 @@ const DefaultTalosImage = "ghcr.io/siderolabs/talos:v1.14.2"
 
 const DefaultTalosAPIPort = 50000
 
-const DefaultControlPlaneCPUSchedulable = 8
+const DefaultControlPlaneCPUSchedulable = 4
 
 const DefaultControlPlaneMemorySchedulable = 12
 
 const DefaultControlPlaneCPUDedicated = 4
 
-const DefaultControlPlaneMemoryDedicated = 4
+const DefaultControlPlaneMemoryDedicated = 8
 
 const DefaultWorkerCPU = 4
 
