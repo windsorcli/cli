@@ -38,6 +38,9 @@ func setupDefaultShims() *Shims {
 		UnmarshalJSON: func(data []byte, v any) error {
 			return json.Unmarshal(data, v)
 		},
+		Getenv: func(key string) string {
+			return ""
+		},
 		UserHomeDir: func() (string, error) {
 			return "/tmp", nil
 		},
