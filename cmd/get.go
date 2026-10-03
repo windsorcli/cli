@@ -19,7 +19,7 @@ var getCmd = &cobra.Command{
 	Short: "Display Windsor resources.",
 	Long:  `Display Windsor resources. Currently supports listing contexts and printing the current context.`,
 	Annotations: map[string]string{
-		"docs.seealso": "[`set`](set.md)",
+		"docs.seealso": "[`list`](list.md), [`set`](set.md)",
 		"docs.source": "cmd/get.go",
 	},
 }
@@ -36,7 +36,7 @@ var getContextsCmd = &cobra.Command{
 #   local   docker    <none>   *
 #   prod    aws       s3`,
 	Annotations: map[string]string{
-		"docs.seealso": "[`set`](set.md)",
+		"docs.seealso": "[`list`](list.md), [`set`](set.md)",
 		"docs.source": "cmd/get.go",
 	},
 	SilenceUsage: true,
