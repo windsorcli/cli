@@ -68,8 +68,12 @@ func (v *DockerVirt) WriteConfig() error {
 // Down stops and removes only resources for the current project/context: containers and named volumes
 // with label com.docker.compose.project=workstation-windsor-<context>, and the network windsor-<context>.
 // Anonymous volumes are removed with containers via rm -v. No global Docker cleanup is performed.
-// Best-effort: errors are logged to stderr but do not cause Down to return an error. Shows a progress spinner.
+// Returns nil without a spinner, cleanup, or warnings when the Docker daemon is unreachable, because nothing is left to clean.
+// Otherwise best-effort: errors are logged to stderr but do not cause Down to return an error. Shows a progress spinner.
 func (v *DockerVirt) Down() error {
+	if !v.daemonReachable() {
+		return nil
+	}
 	return tui.WithProgress("Cleaning up Docker resources", func() error {
 		contextName := v.configHandler.GetContext()
 		projectLabelValue := DockerComposeProjectPrefix + contextName
@@ -85,6 +89,12 @@ func (v *DockerVirt) Down() error {
 // =============================================================================
 // Private Methods
 // =============================================================================
+
+// daemonReachable reports whether `docker info` succeeds against the current Docker context.
+func (v *DockerVirt) daemonReachable() bool {
+	_, err := v.shell.ExecSilent("docker", "info")
+	return err == nil
+}
 
 // cleanProjectContainers stops and removes only containers with the given compose project label
 // (com.docker.compose.project=<projectLabelValue>), including created-but-never-started. No other containers are touched.

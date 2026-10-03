@@ -6,6 +6,8 @@ package virt
 
 import (
 	"fmt"
+	"io"
+	"os"
 	"strings"
 	"testing"
 )
@@ -23,6 +25,22 @@ func setupDockerVirt(t *testing.T, opts ...func(*VirtTestMocks)) (*VirtTestMocks
 	}
 	dockerVirt := NewDockerVirt(mocks.Runtime)
 	return mocks, dockerVirt
+}
+
+// captureStderr runs fn and returns everything it wrote to os.Stderr.
+func captureStderr(t *testing.T, fn func()) string {
+	t.Helper()
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatalf("Failed to create pipe: %v", err)
+	}
+	old := os.Stderr
+	os.Stderr = w
+	defer func() { os.Stderr = old }()
+	fn()
+	w.Close()
+	out, _ := io.ReadAll(r)
+	return string(out)
 }
 
 // =============================================================================
@@ -95,6 +113,54 @@ func TestDockerVirt_WriteConfig(t *testing.T) {
 }
 
 func TestDockerVirt_Down(t *testing.T) {
+	t.Run("WhenDaemonUnreachableSkipsCleanupSilently", func(t *testing.T) {
+		// Given a DockerVirt whose docker daemon is unreachable
+		var execCalls []string
+		mocks, dockerVirt := setupDockerVirt(t)
+		mocks.Shell.ExecSilentFunc = func(command string, args ...string) (string, error) {
+			execCalls = append(execCalls, command+" "+strings.Join(args, " "))
+			return "", fmt.Errorf("Cannot connect to the Docker daemon")
+		}
+
+		// When calling Down
+		stderr := captureStderr(t, func() {
+			if err := dockerVirt.Down(); err != nil {
+				t.Errorf("Expected nil, got %v", err)
+			}
+		})
+
+		// Then only the reachability check runs and nothing is written to stderr
+		if len(execCalls) != 1 || execCalls[0] != "docker info" {
+			t.Errorf("Expected only docker info to be called, got %v", execCalls)
+		}
+		if stderr != "" {
+			t.Errorf("Expected no stderr output, got %q", stderr)
+		}
+	})
+
+	t.Run("WhenDaemonReachableButListFailsWarns", func(t *testing.T) {
+		// Given a reachable daemon where docker ps fails
+		mocks, dockerVirt := setupDockerVirt(t)
+		mocks.Shell.ExecSilentFunc = func(command string, args ...string) (string, error) {
+			if command == "docker" && len(args) >= 1 && args[0] == "ps" {
+				return "", fmt.Errorf("ps failed")
+			}
+			return "", nil
+		}
+
+		// When calling Down
+		stderr := captureStderr(t, func() {
+			if err := dockerVirt.Down(); err != nil {
+				t.Errorf("Expected nil, got %v", err)
+			}
+		})
+
+		// Then the unexpected failure is still reported
+		if !strings.Contains(stderr, "could not list containers") {
+			t.Errorf("Expected container list warning, got %q", stderr)
+		}
+	})
+
 	t.Run("WhenNetworkListFailsReturnsNil", func(t *testing.T) {
 		// Given a DockerVirt with shell that fails on docker network ls (in removeNetworkIfExists)
 		mocks, dockerVirt := setupDockerVirt(t)
