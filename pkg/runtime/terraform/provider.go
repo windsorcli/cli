@@ -26,6 +26,13 @@ import (
 )
 
 // =============================================================================
+// Constants
+// =============================================================================
+
+// backendOverrideFileName is the generated Terraform backend override file.
+const backendOverrideFileName = "backend_override.tf"
+
+// =============================================================================
 // Types
 // =============================================================================
 
@@ -200,7 +207,8 @@ func (p *terraformProvider) IsInTerraformProject() bool {
 }
 
 // GenerateBackendOverride creates or removes the backend_override.tf file for the specified directory
-// based on the configured backend type. This file is used to override Terraform backend configuration
+// based on the configured backend type. When it writes the file under <project>/terraform/, it also
+// ensures <project>/terraform/.gitignore ignores backend_override.tf. This file is used to override Terraform backend configuration
 // at runtime without modifying the original Terraform files. If the backend type is 'none', it removes
 // the override file if it exists. Otherwise, it writes a backend_override.tf file with the appropriate
 // backend stanza for local, s3, kubernetes, azurerm, or gcs backends. Returns an error for unsupported backend types.
@@ -247,7 +255,7 @@ func (p *terraformProvider) GenerateBackendOverride(directory string) error {
 		return fmt.Errorf("error writing backend_override.tf: %w", err)
 	}
 
-	return nil
+	return p.ensureBackendOverrideIgnored(directory)
 }
 
 // GenerateTerraformArgs constructs Terraform CLI arguments for the specified component using the
@@ -801,6 +809,42 @@ func (p *terraformProvider) BackendConfigComplete() bool {
 // =============================================================================
 // Private Methods
 // =============================================================================
+
+// ensureBackendOverrideIgnored adds backend_override.tf to <project>/terraform/.gitignore, creating
+// the file when missing and appending the entry when absent. It does nothing when directory is outside
+// the project's terraform/ folder, because Windsor scratch folders under .windsor/ are already ignored.
+func (p *terraformProvider) ensureBackendOverrideIgnored(directory string) error {
+	projectRoot, err := p.shell.GetProjectRoot()
+	if err != nil {
+		return nil
+	}
+	terraformRoot := filepath.Join(projectRoot, "terraform")
+	rel, err := filepath.Rel(terraformRoot, directory)
+	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return nil
+	}
+
+	ignorePath := filepath.Join(terraformRoot, ".gitignore")
+	existing, err := p.Shims.ReadFile(ignorePath)
+	if err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("error reading terraform/.gitignore: %w", err)
+	}
+	for _, line := range strings.Split(string(existing), "\n") {
+		if strings.TrimSpace(line) == backendOverrideFileName {
+			return nil
+		}
+	}
+
+	content := string(existing)
+	if content != "" && !strings.HasSuffix(content, "\n") {
+		content += "\n"
+	}
+	content += backendOverrideFileName + "\n"
+	if err := p.Shims.WriteFile(ignorePath, []byte(content), 0644); err != nil {
+		return fmt.Errorf("error writing terraform/.gitignore: %w", err)
+	}
+	return nil
+}
 
 // walkLocalStateDir recursively visits dir, collecting one componentID (its path relative to
 // the .tfstate root, using "/" as the separator) per directory that directly contains a
