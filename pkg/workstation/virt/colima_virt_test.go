@@ -1158,12 +1158,12 @@ func TestColimaVirt_calculateVMResources(t *testing.T) {
 		// When calculating VM resources
 		cpu, memory := colimaVirt.calculateVMResources()
 
-		// Then CPU = (1 * 8) + 1 overhead = 9 (uses DefaultControlPlaneCPU=8)
-		if cpu != 9 {
-			t.Errorf("expected CPU 9, got %d", cpu)
+		// Then CPU = (1 * 4) + 1 overhead = 5 (uses DefaultControlPlaneCPUSchedulable=4)
+		if cpu != 5 {
+			t.Errorf("expected CPU 5, got %d", cpu)
 		}
 
-		// And memory = (1 * 12) + 3 overhead = 15 (uses DefaultControlPlaneMemory=12)
+		// And memory = (1 * 12) + 3 overhead = 15 (uses DefaultControlPlaneMemorySchedulable=12)
 		if memory != 15 {
 			t.Errorf("expected memory 15GB, got %d", memory)
 		}
@@ -1184,9 +1184,9 @@ func TestColimaVirt_calculateVMResources(t *testing.T) {
 			t.Errorf("expected CPU 9, got %d", cpu)
 		}
 
-		// And memory = (1 * 6) + (1 * 6) + 3 overhead = 15
-		if memory != 15 {
-			t.Errorf("expected memory 15GB, got %d", memory)
+		// And memory = (1 * 8) + (1 * 8) + 3 overhead = 19
+		if memory != 19 {
+			t.Errorf("expected memory 19GB, got %d", memory)
 		}
 	})
 

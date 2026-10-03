@@ -321,14 +321,11 @@ func (v *ColimaVirt) getDefaultValues(context string) (int, int, int, string, st
 	return cpu, disk, memory, hostname, arch
 }
 
-// calculateVMResources calculates the required CPU and memory for the Colima VM
-// based on cluster node topology and overhead. Explicit values from config take precedence;
-// when unset, topology-aware defaults are applied: control-plane count defaults to 1 when the key is
-// absent (the generic config resolver no longer synthesizes it) while an explicit count is honored, a
-// single controlplane with no workers gets larger resources since it handles everything, and a
-// CP/worker split uses smaller CP resources. Fixed overhead covers the VM base and services.
-// Warns if calculated resources exceed available host resources.
-// Returns calculated CPU count and memory in GB.
+// calculateVMResources returns the Colima VM CPU count and memory in GB for the cluster node topology.
+// Explicit cluster.controlplanes and cluster.workers values win. Unset node sizes fall back to the
+// constants package, which mirrors the defaults core applies to the nodes; update both together.
+// The control plane count defaults to 1. A control plane without workers runs workloads, so it uses the schedulable defaults.
+// The VM adds fixed overhead for the base system and services, and warns when it exceeds the host.
 func (v *ColimaVirt) calculateVMResources() (int, int) {
 	const (
 		vmAndServiceCPUOverhead    = 1
