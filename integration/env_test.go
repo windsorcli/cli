@@ -316,3 +316,31 @@ contexts:
 		}
 	}
 }
+
+// TestEnv_IgnoresBackendOverrideInProjectTerraformModule verifies that running `windsor env`
+// inside a project terraform module writes backend_override.tf and adds it to terraform/.gitignore.
+func TestEnv_IgnoresBackendOverrideInProjectTerraformModule(t *testing.T) {
+	t.Parallel()
+	dir, env := helpers.CopyFixtureOnly(t, "plan")
+	helpers.MarkAsGitRepo(t, dir)
+	if _, stderr, err := helpers.RunCLI(dir, []string{"init", "local"}, env); err != nil {
+		t.Fatalf("init local: %v\nstderr: %s", err, stderr)
+	}
+	env = append(env, "WINDSOR_CONTEXT=local")
+
+	moduleDir := filepath.Join(dir, "terraform", "null")
+	if _, stderr, err := helpers.RunCLI(moduleDir, []string{"env", "--hook"}, env); err != nil {
+		t.Fatalf("env --hook: %v\nstderr: %s", err, stderr)
+	}
+
+	if _, err := os.Stat(filepath.Join(moduleDir, "backend_override.tf")); err != nil {
+		t.Fatalf("expected backend_override.tf in %s: %v", moduleDir, err)
+	}
+	ignore, err := os.ReadFile(filepath.Join(dir, "terraform", ".gitignore"))
+	if err != nil {
+		t.Fatalf("read terraform/.gitignore: %v", err)
+	}
+	if !strings.Contains(string(ignore), "backend_override.tf") {
+		t.Errorf("expected backend_override.tf in terraform/.gitignore, got:\n%s", ignore)
+	}
+}
