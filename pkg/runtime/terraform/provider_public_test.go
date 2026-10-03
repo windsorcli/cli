@@ -497,6 +497,31 @@ func TestTerraformProvider_GenerateBackendOverride(t *testing.T) {
 		}
 	})
 
+	t.Run("WarnsAndSucceedsWhenGitignoreWriteFails", func(t *testing.T) {
+		// Given a gitignore write that fails after the override file is written
+		mocks := setupMocks(t, &SetupOptions{BackendType: "local"})
+		var stderr bytes.Buffer
+		mocks.Provider.warningWriter = &stderr
+		mocks.Provider.Shims.ReadFile = func(path string) ([]byte, error) { return nil, os.ErrNotExist }
+		mocks.Provider.Shims.WriteFile = func(path string, data []byte, perm os.FileMode) error {
+			if strings.HasSuffix(path, ".gitignore") {
+				return errors.New("read-only file system")
+			}
+			return nil
+		}
+
+		// When generating the backend override
+		err := mocks.Provider.GenerateBackendOverride(filepath.Join("/test/project", "terraform", "demo"))
+
+		// Then the call succeeds and the failure is reported as a warning
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		if !strings.Contains(stderr.String(), "terraform/.gitignore") {
+			t.Errorf("Expected gitignore warning, got %q", stderr.String())
+		}
+	})
+
 	t.Run("AppendsToExistingTerraformGitignore", func(t *testing.T) {
 		// Given an existing terraform/.gitignore without a trailing newline
 		mocks := setupMocks(t, &SetupOptions{BackendType: "local"})

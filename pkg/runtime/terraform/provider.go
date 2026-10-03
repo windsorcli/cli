@@ -208,7 +208,7 @@ func (p *terraformProvider) IsInTerraformProject() bool {
 
 // GenerateBackendOverride creates or removes the backend_override.tf file for the specified directory
 // based on the configured backend type. When it writes the file under <project>/terraform/, it also
-// ensures <project>/terraform/.gitignore ignores backend_override.tf. This file is used to override Terraform backend configuration
+// tries to ensure <project>/terraform/.gitignore ignores backend_override.tf; a failure there is a warning, not an error. This file is used to override Terraform backend configuration
 // at runtime without modifying the original Terraform files. If the backend type is 'none', it removes
 // the override file if it exists. Otherwise, it writes a backend_override.tf file with the appropriate
 // backend stanza for local, s3, kubernetes, azurerm, or gcs backends. Returns an error for unsupported backend types.
@@ -255,7 +255,10 @@ func (p *terraformProvider) GenerateBackendOverride(directory string) error {
 		return fmt.Errorf("error writing backend_override.tf: %w", err)
 	}
 
-	return p.ensureBackendOverrideIgnored(directory)
+	if err := p.ensureBackendOverrideIgnored(directory); err != nil {
+		fmt.Fprintf(p.warningWriter, "Warning: %v\n", err)
+	}
+	return nil
 }
 
 // GenerateTerraformArgs constructs Terraform CLI arguments for the specified component using the
