@@ -12,15 +12,12 @@ var hookCmd = &cobra.Command{
 	Short: "Print shell init code for the given shell.",
 	Long: `Print init code that wires 'windsor env' into your shell. The hook re-runs 'windsor env --hook' whenever your prompt fires, exporting Windsor's per-context environment variables automatically when you cd into a project.
 
-Supported shells: zsh, bash, fish, tcsh, powershell.
+Supported shells: zsh, bash, powershell.
 
 Add the output to your shell's rc file (or evaluate it directly during shell startup) so the hook installs on every new session.`,
 	Example: `# zsh / bash
 eval "$(windsor hook zsh)"
 eval "$(windsor hook bash)"
-
-# fish
-windsor hook fish | source
 
 # powershell
 windsor hook powershell | Out-String | Invoke-Expression`,
