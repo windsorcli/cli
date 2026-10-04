@@ -34,10 +34,6 @@ windsor env`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		hook, _ := cmd.Flags().GetBool("hook")
 		decrypt, _ := cmd.Flags().GetBool("decrypt")
-		verboseVal := false
-		if v, err := cmd.Root().PersistentFlags().GetBool("verbose"); err == nil {
-			verboseVal = v
-		}
 
 		if !hook && os.Getenv("NO_CACHE") == "" {
 			if err := os.Setenv("NO_CACHE", "true"); err != nil {
@@ -86,21 +82,21 @@ windsor env`,
 		}
 
 		if err := rt.InitializeComponents(); err != nil {
-			if hook || !verboseVal {
+			if hook {
 				return nil
 			}
 			return fmt.Errorf("failed to initialize components: %w", err)
 		}
 
 		if err := composer.LoadBlueprintIfTerraformProject(rt, true); err != nil {
-			if hook || !verboseVal {
+			if hook {
 				return nil
 			}
 			return fmt.Errorf("failed to load blueprint: %w", err)
 		}
 
 		if err := rt.LoadEnvironment(decrypt); err != nil {
-			if hook || !verboseVal {
+			if hook {
 				return nil
 			}
 			return fmt.Errorf("failed to load environment: %w", err)

@@ -344,3 +344,40 @@ func TestEnv_IgnoresBackendOverrideInProjectTerraformModule(t *testing.T) {
 		t.Errorf("expected backend_override.tf in terraform/.gitignore, got:\n%s", ignore)
 	}
 }
+
+// TestEnv_SurfacesErrorWithoutHookAndStaysSilentWithHook verifies that a failing environment load
+// returns an error from `windsor env` without needing --verbose, while `windsor env --hook` stays silent.
+func TestEnv_SurfacesErrorWithoutHookAndStaysSilentWithHook(t *testing.T) {
+	t.Parallel()
+	dir, env := helpers.PrepareFixture(t, "default")
+	contextDir := filepath.Join(dir, "contexts", "default")
+	if err := os.MkdirAll(contextDir, 0750); err != nil {
+		t.Fatalf("mkdir context dir: %v", err)
+	}
+	files := map[string]string{
+		"windsor.yaml": "secrets:\n  sops:\n    enabled: true\nenvironment:\n  DB_PASSWORD: ${secret(\"sops\", \"database.password\", \"\")}\n",
+		"secrets.yaml": "database:\n  password: hunter2\n",
+	}
+	for name, content := range files {
+		if err := os.WriteFile(filepath.Join(contextDir, name), []byte(content), 0600); err != nil {
+			t.Fatalf("write %s: %v", name, err)
+		}
+	}
+	env = append(env, "WINDSOR_CONTEXT=default")
+
+	_, stderr, err := helpers.RunCLI(dir, []string{"env", "--decrypt"}, env)
+	if err == nil {
+		t.Fatalf("expected env --decrypt to fail on an unencrypted secrets file, got success\nstderr: %s", stderr)
+	}
+	if !strings.Contains(string(stderr), "unencrypted secrets file") {
+		t.Errorf("expected the unencrypted secrets error on stderr, got:\n%s", stderr)
+	}
+
+	stdout, stderr, err := helpers.RunCLI(dir, []string{"env", "--decrypt", "--hook"}, env)
+	if err != nil {
+		t.Fatalf("env --decrypt --hook: %v\nstderr: %s", err, stderr)
+	}
+	if len(stdout) != 0 || len(stderr) != 0 {
+		t.Errorf("expected --hook to stay silent, got stdout %q stderr %q", stdout, stderr)
+	}
+}

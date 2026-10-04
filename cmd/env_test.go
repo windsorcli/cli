@@ -431,28 +431,28 @@ func TestEnvCmd_ErrorScenarios(t *testing.T) {
 		}
 	})
 
-	t.Run("SwallowsExecutePostEnvHooksErrorWithoutVerbose", func(t *testing.T) {
-		// Given mocks with PostEnvHook that fails and no verbose flag
-		_, stderr := setupOutputCapture(t)
+	t.Run("ReturnsExecutePostEnvHooksErrorWithoutHook", func(t *testing.T) {
+		// Given mocks with PostEnvHook that fails, wired onto envCmd's own context
+		setupOutputCapture(t)
 		mocks := setupMocks(t)
-		if mockWindsorEnv, ok := mocks.Runtime.EnvPrinters.WindsorEnv.(*env.MockEnvPrinter); ok {
-			mockWindsorEnv.PostEnvHookFunc = func(directory ...string) error {
-				return fmt.Errorf("hook failed")
-			}
+		mockWindsorEnv, ok := mocks.Runtime.EnvPrinters.WindsorEnv.(*env.MockEnvPrinter)
+		if !ok {
+			t.Fatal("Expected WindsorEnv to be a MockEnvPrinter")
 		}
-		setupTestContext(t, mocks)
-
-		// When executing the command without verbose flag
-		rootCmd.SetArgs([]string{"env"})
-		err := Execute()
-
-		// Then no error should be returned
-		if err != nil {
-			t.Errorf("Expected no error when verbose is false, got: %v", err)
+		mockWindsorEnv.PostEnvHookFunc = func(directory ...string) error {
+			return fmt.Errorf("hook failed")
 		}
-		// And stderr should be empty
-		if stderr.String() != "" {
-			t.Error("Expected empty stderr")
+		envCmd.SetContext(context.WithValue(context.Background(), runtimeOverridesKey, mocks.Runtime))
+		_ = envCmd.Flags().Set("hook", "false")
+		_ = rootCmd.PersistentFlags().Set("verbose", "false")
+		t.Cleanup(func() { envCmd.SetContext(context.Background()) })
+
+		// When running env without the hook or verbose flags
+		err := envCmd.RunE(envCmd, []string{})
+
+		// Then the error is returned
+		if err == nil || !strings.Contains(err.Error(), "failed to load environment") {
+			t.Errorf("Expected error about loading environment, got: %v", err)
 		}
 	})
 
@@ -527,26 +527,6 @@ func TestEnvCmd_ErrorScenarios(t *testing.T) {
 		// Then no error should be returned
 		if err != nil {
 			t.Errorf("Expected no error when blueprint load fails with hook, got: %v", err)
-		}
-		// And stderr should be empty
-		if stderr.String() != "" {
-			t.Error("Expected empty stderr")
-		}
-	})
-
-	t.Run("SwallowsBlueprintLoadErrorWithoutVerbose", func(t *testing.T) {
-		// Given terraform mocks with blueprint loading that may fail
-		_, stderr := setupOutputCapture(t)
-		mocks := setupTerraformMocks(t, true)
-		setupTestContext(t, mocks)
-
-		// When executing the command without verbose flag
-		rootCmd.SetArgs([]string{"env"})
-		err := Execute()
-
-		// Then no error should be returned
-		if err != nil {
-			t.Errorf("Expected no error when blueprint load fails without verbose, got: %v", err)
 		}
 		// And stderr should be empty
 		if stderr.String() != "" {
