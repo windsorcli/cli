@@ -909,6 +909,7 @@ func (s *DefaultShell) RegisterSecret(value string) {
 
 // RegisterResolvedSecret registers a value that a secret provider resolved. It skips the length floor
 // of RegisterSecret, because a resolved value is a deliberate secret. Empty values are ignored.
+// A short value hides every occurrence of that text in command output, including inside other words.
 func (s *DefaultShell) RegisterResolvedSecret(value string) {
 	if value == "" {
 		return
