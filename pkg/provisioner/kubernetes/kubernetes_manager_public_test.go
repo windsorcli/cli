@@ -2091,6 +2091,120 @@ func TestBaseKubernetesManager_WaitForKustomizations(t *testing.T) {
 		}
 	})
 
+	t.Run("ReconciliationFailedStreakSurvivesReadyFlippingToUnknown", func(t *testing.T) {
+		// Given a Kustomization whose Ready condition alternates between ReconciliationFailed and
+		// Unknown/Progressing on every poll, as kustomize-controller reports it while it keeps
+		// retrying a reconcile that can never succeed
+		manager := setup(t)
+		kubernetesClient := client.NewMockKubernetesClient()
+		calls := 0
+		kubernetesClient.ListResourcesFunc = func(gvr schema.GroupVersionResource, ns string) (*unstructured.UnstructuredList, error) {
+			calls++
+			if calls%2 == 0 {
+				return &unstructured.UnstructuredList{Items: []unstructured.Unstructured{
+					kustomizationListItem("test-kustomization", "Unknown", meta.ProgressingReason, "Reconciliation in progress"),
+				}}, nil
+			}
+			return &unstructured.UnstructuredList{Items: []unstructured.Unstructured{
+				kustomizationListItem("test-kustomization", "False", meta.ReconciliationFailedReason, "dry-run failed"),
+			}}, nil
+		}
+		manager.client = kubernetesClient
+
+		blueprint := &blueprintv1alpha1.Blueprint{
+			Kustomizations: []blueprintv1alpha1.Kustomization{
+				{Name: "test-kustomization", Timeout: &blueprintv1alpha1.DurationString{Duration: 2 * time.Second}},
+			},
+		}
+
+		// When waiting for kustomizations
+		err := manager.WaitForKustomizations(context.Background(), "Waiting for kustomizations", blueprint)
+
+		// Then the failure budget still applies and the wait fails before the overall timeout
+		if err == nil {
+			t.Fatal("Expected an error once the error budget is exceeded, got nil")
+		}
+		if !strings.Contains(err.Error(), "dry-run failed") {
+			t.Errorf("Expected the underlying message surfaced, got: %v", err)
+		}
+		if strings.Contains(err.Error(), "timeout waiting for kustomizations") {
+			t.Errorf("Expected the error-budget path, not the generic timeout error, got: %v", err)
+		}
+	})
+
+	t.Run("FailureBudgetUsesTheFailingKustomizationsOwnTimeout", func(t *testing.T) {
+		// Given a blueprint whose longest dependency chain makes the total timeout large, and a
+		// dependent Kustomization with a short timeout of its own that fails on every poll
+		manager := setup(t)
+		kubernetesClient := client.NewMockKubernetesClient()
+		kubernetesClient.ListResourcesFunc = func(gvr schema.GroupVersionResource, ns string) (*unstructured.UnstructuredList, error) {
+			return &unstructured.UnstructuredList{Items: []unstructured.Unstructured{
+				kustomizationListItem("base", "True", "", ""),
+				kustomizationListItem("slow", "False", meta.ReconciliationFailedReason, "dry-run failed"),
+			}}, nil
+		}
+		manager.client = kubernetesClient
+
+		blueprint := &blueprintv1alpha1.Blueprint{
+			Kustomizations: []blueprintv1alpha1.Kustomization{
+				{Name: "base", Timeout: &blueprintv1alpha1.DurationString{Duration: 4 * time.Second}},
+				{Name: "slow", DependsOn: []string{"base"}, Timeout: &blueprintv1alpha1.DurationString{Duration: 200 * time.Millisecond}},
+			},
+		}
+
+		// When waiting for kustomizations
+		started := time.Now()
+		err := manager.WaitForKustomizations(context.Background(), "Waiting for kustomizations", blueprint)
+		elapsed := time.Since(started)
+
+		// Then the wait fails near the failing Kustomization's own timeout, not a quarter of the total
+		if err == nil || !strings.Contains(err.Error(), "dry-run failed") {
+			t.Fatalf("Expected the error-budget failure, got: %v", err)
+		}
+		if elapsed > 700*time.Millisecond {
+			t.Errorf("Expected failure within the Kustomization's own budget, took %s", elapsed)
+		}
+	})
+
+	t.Run("FailureStreakRestartsAfterAFullBudgetWithoutFailures", func(t *testing.T) {
+		// Given a Kustomization that fails once, reports Progressing for longer than the budget,
+		// fails once more, then becomes Ready
+		manager := setup(t)
+		kubernetesClient := client.NewMockKubernetesClient()
+		calls := 0
+		kubernetesClient.ListResourcesFunc = func(gvr schema.GroupVersionResource, ns string) (*unstructured.UnstructuredList, error) {
+			calls++
+			switch {
+			case calls == 1, calls == 17:
+				return &unstructured.UnstructuredList{Items: []unstructured.Unstructured{
+					kustomizationListItem("test-kustomization", "False", meta.ReconciliationFailedReason, "transient"),
+				}}, nil
+			case calls > 17:
+				return &unstructured.UnstructuredList{Items: []unstructured.Unstructured{
+					kustomizationListItem("test-kustomization", "True", "", ""),
+				}}, nil
+			}
+			return &unstructured.UnstructuredList{Items: []unstructured.Unstructured{
+				kustomizationListItem("test-kustomization", "False", meta.ProgressingReason, ""),
+			}}, nil
+		}
+		manager.client = kubernetesClient
+
+		blueprint := &blueprintv1alpha1.Blueprint{
+			Kustomizations: []blueprintv1alpha1.Kustomization{
+				{Name: "test-kustomization", Timeout: &blueprintv1alpha1.DurationString{Duration: 2 * time.Second}},
+			},
+		}
+
+		// When waiting for kustomizations
+		err := manager.WaitForKustomizations(context.Background(), "Waiting for kustomizations", blueprint)
+
+		// Then the old failure no longer counts against the new one, and the wait succeeds
+		if err != nil {
+			t.Errorf("Expected the stale failure streak to expire, got %v", err)
+		}
+	})
+
 	t.Run("ProgressingConditionKeepsPollingUntilReady", func(t *testing.T) {
 		// Given a Kustomization that reports Ready=False/Progressing — a normal in-flight
 		// state, not a terminal failure — before becoming Ready

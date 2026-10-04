@@ -2433,3 +2433,49 @@ func TestBaseKubernetesManager_blockDependencyClosure(t *testing.T) {
 	})
 }
 
+
+func TestKubernetesWaitProgress(t *testing.T) {
+	t.Run("ListsPendingNamesWithElapsedAndTimeout", func(t *testing.T) {
+		// Given two names where one is ready
+		line := kustomizationWaitProgress(
+			[]string{"a", "b"}, map[string]bool{"a": true}, nil, 4*time.Minute+10*time.Second, 113*time.Minute)
+
+		// Then only the pending name appears, with elapsed time against the total timeout
+		want := "waiting on b, elapsed 4m10s of 1h53m0s"
+		if line != want {
+			t.Errorf("Expected %q, got %q", want, line)
+		}
+	})
+
+	t.Run("AppendsTheLatestFailureMessageOnOneLine", func(t *testing.T) {
+		// Given a pending name with a multi-line failure message
+		failures := map[string]*kustomizationFailedError{
+			"b": {name: "b", reason: "ReconciliationFailed", message: "dry-run failed\n  spec.selector: Required value"},
+		}
+
+		// When building the progress line
+		line := kustomizationWaitProgress([]string{"b"}, nil, failures, time.Minute, time.Hour)
+
+		// Then the failure reason and message follow the pending list on the same line
+		if !strings.Contains(line, "b failing (ReconciliationFailed): dry-run failed spec.selector: Required value") {
+			t.Errorf("Expected the failure message on the line, got %q", line)
+		}
+		if strings.Contains(line, "\n") {
+			t.Errorf("Expected a single line, got %q", line)
+		}
+	})
+
+	t.Run("TruncatesLongFailureMessages", func(t *testing.T) {
+		// Given a failure message longer than the limit
+		long := strings.Repeat("x", kustomizationWaitMessageLimit+50)
+		failures := map[string]*kustomizationFailedError{"b": {name: "b", reason: "ReconciliationFailed", message: long}}
+
+		// When building the progress line
+		line := kustomizationWaitProgress([]string{"b"}, nil, failures, time.Minute, time.Hour)
+
+		// Then the message is cut and marked
+		if !strings.HasSuffix(line, strings.Repeat("x", kustomizationWaitMessageLimit)+"...") {
+			t.Errorf("Expected a truncated message, got %q", line)
+		}
+	})
+}

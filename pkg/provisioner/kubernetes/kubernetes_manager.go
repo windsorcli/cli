@@ -456,6 +456,35 @@ func (k *BaseKubernetesManager) abandonedInventoryGraceWindow(entryCount int) ti
 	return base + extra
 }
 
+// kustomizationWaitProgress builds the periodic wait line: the pending names with elapsed time against
+// the total timeout, followed by the latest failure message of each pending kustomization that has one.
+func kustomizationWaitProgress(names []string, ready map[string]bool, failures map[string]*kustomizationFailedError, elapsed, timeout time.Duration) string {
+	var pending, failing []string
+	for _, name := range names {
+		if ready[name] {
+			continue
+		}
+		pending = append(pending, name)
+		if failure := failures[name]; failure != nil {
+			message := strings.Join(strings.Fields(failure.message), " ")
+			if len(message) > kustomizationWaitMessageLimit {
+				message = message[:kustomizationWaitMessageLimit] + "..."
+			}
+			failing = append(failing, fmt.Sprintf("%s failing (%s): %s", name, failure.reason, message))
+		}
+	}
+	line := fmt.Sprintf("waiting on %s, elapsed %s of %s", strings.Join(pending, ", "), formatWaitDuration(elapsed), formatWaitDuration(timeout))
+	if len(failing) > 0 {
+		line += "; " + strings.Join(failing, "; ")
+	}
+	return line
+}
+
+// formatWaitDuration renders a duration rounded to whole seconds.
+func formatWaitDuration(d time.Duration) string {
+	return d.Round(time.Second).String()
+}
+
 // describeStuckKustomization extracts the most diagnostic status condition from a
 // Kustomization that failed to delete in time, formatted as " (Type=Status Reason: message)"
 // for inline inclusion in the timeout error. Flux records the real failure cause
@@ -582,6 +611,18 @@ func kustomizationReady(obj *unstructured.Unstructured) bool {
 // a small one.
 const kustomizationWaitErrorBudgetFraction = 0.25
 
+// kustomizationWaitReportPolls is how many poll intervals pass between progress lines.
+const kustomizationWaitReportPolls = 6
+
+// kustomizationWaitMessageLimit caps the length of a failure message in a progress line.
+const kustomizationWaitMessageLimit = 200
+
+// kustomizationFailureStreak tracks when a Kustomization began failing and when it last did.
+type kustomizationFailureStreak struct {
+	start    time.Time
+	lastSeen time.Time
+}
+
 // kustomizationsGVR is the Flux Kustomization resource. WaitForKustomizations lists it once per
 // tick rather than issuing one GetResource per pending name.
 var kustomizationsGVR = schema.GroupVersionResource{
@@ -592,10 +633,10 @@ var kustomizationsGVR = schema.GroupVersionResource{
 
 // WaitForKustomizations waits for kustomizations to be ready, using a timeout derived from the
 // blueprint's longest dependency chain. It honors ctx cancellation and returns ctx.Err().
-//
-// A list-call error and a ReconciliationFailed condition share one error-budget tolerance before
-// they fail the wait. BuildFailed and ArtifactFailed fail immediately, since kustomize-controller
-// never recovers from them on its own.
+// A list-call error and a ReconciliationFailed condition fail the wait after an error budget.
+// A failing kustomization's budget is its own timeout, capped by a quarter of the total timeout.
+// The streak survives Ready flipping to Unknown between retries. BuildFailed and ArtifactFailed fail at once.
+// It prints elapsed time against the total timeout at a steady interval for the whole wait.
 func (k *BaseKubernetesManager) WaitForKustomizations(ctx context.Context, message string, blueprint *blueprintv1alpha1.Blueprint) error {
 	if blueprint == nil {
 		return fmt.Errorf("blueprint not provided")
@@ -603,6 +644,7 @@ func (k *BaseKubernetesManager) WaitForKustomizations(ctx context.Context, messa
 
 	timeout := k.calculateTotalWaitTime(blueprint)
 	kustomizationNames := make([]string, 0, len(blueprint.Kustomizations))
+	ownTimeouts := make(map[string]time.Duration, len(blueprint.Kustomizations))
 	seenNames := make(map[string]bool, len(blueprint.Kustomizations))
 	for _, kustomization := range blueprint.Kustomizations {
 		if kustomization.DestroyOnly != nil && *kustomization.DestroyOnly {
@@ -613,14 +655,32 @@ func (k *BaseKubernetesManager) WaitForKustomizations(ctx context.Context, messa
 		}
 		seenNames[kustomization.Name] = true
 		kustomizationNames = append(kustomizationNames, kustomization.Name)
+		ownTimeouts[kustomization.Name] = constants.DefaultFluxKustomizationTimeout
+		if kustomization.Timeout != nil && kustomization.Timeout.Duration != 0 {
+			ownTimeouts[kustomization.Name] = kustomization.Timeout.Duration
+		}
 	}
 
 	maxErrorDuration := time.Duration(float64(timeout) * kustomizationWaitErrorBudgetFraction)
 	if maxErrorDuration < k.kustomizationWaitMinErrorDuration {
 		maxErrorDuration = k.kustomizationWaitMinErrorDuration
 	}
+	failureBudget := func(name string) time.Duration {
+		budget := maxErrorDuration
+		if own := ownTimeouts[name]; own < budget {
+			budget = own
+		}
+		if budget < k.kustomizationWaitMinErrorDuration {
+			budget = k.kustomizationWaitMinErrorDuration
+		}
+		return budget
+	}
 
 	tui.Start(message)
+	start := time.Now()
+	reportInterval := kustomizationWaitReportPolls * k.kustomizationWaitPollInterval
+	lastReport := start
+	tui.Update(fmt.Sprintf("waiting on %d kustomizations, timeout %s", len(kustomizationNames), formatWaitDuration(timeout)))
 
 	timeoutChan := time.After(timeout)
 	ticker := time.NewTicker(k.kustomizationWaitPollInterval)
@@ -628,7 +688,8 @@ func (k *BaseKubernetesManager) WaitForKustomizations(ctx context.Context, messa
 
 	var errorStreakStart time.Time
 	readyKustomizations := make(map[string]bool, len(kustomizationNames))
-	failureStreakStart := make(map[string]time.Time, len(kustomizationNames))
+	failureStreaks := make(map[string]kustomizationFailureStreak, len(kustomizationNames))
+	latestFailure := make(map[string]*kustomizationFailedError, len(kustomizationNames))
 
 	for {
 		select {
@@ -677,19 +738,24 @@ func (k *BaseKubernetesManager) WaitForKustomizations(ctx context.Context, messa
 					return fmt.Errorf("kustomization will not become ready: %w", failed)
 				}
 				if pending != nil {
-					start, tracking := failureStreakStart[name]
-					if !tracking {
-						start = time.Now()
-						failureStreakStart[name] = start
+					budget := failureBudget(name)
+					now := time.Now()
+					streak, tracking := failureStreaks[name]
+					if !tracking || now.Sub(streak.lastSeen) >= budget {
+						streak.start = now
 					}
-					if time.Since(start) >= maxErrorDuration {
+					streak.lastSeen = now
+					failureStreaks[name] = streak
+					latestFailure[name] = pending
+					if now.Sub(streak.start) >= budget {
 						tui.Fail()
-						return fmt.Errorf("kustomization failing for over %s: %w", maxErrorDuration, pending)
+						return fmt.Errorf("kustomization failing for over %s: %w", budget, pending)
 					}
 					continue
 				}
-				delete(failureStreakStart, name)
 				if ready {
+					delete(failureStreaks, name)
+					delete(latestFailure, name)
 					readyKustomizations[name] = true
 				}
 			}
@@ -698,6 +764,10 @@ func (k *BaseKubernetesManager) WaitForKustomizations(ctx context.Context, messa
 			if len(readyKustomizations) == len(kustomizationNames) {
 				tui.Done()
 				return nil
+			}
+			if now := time.Now(); now.Sub(lastReport) >= reportInterval {
+				tui.Update(kustomizationWaitProgress(kustomizationNames, readyKustomizations, latestFailure, now.Sub(start), timeout))
+				lastReport = now
 			}
 		}
 	}
