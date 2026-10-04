@@ -86,6 +86,7 @@ type Shell interface {
 	CheckResetFlags() (bool, error)
 	Reset(quiet ...bool)
 	RegisterSecret(value string)
+	RegisterResolvedSecret(value string)
 }
 
 // DefaultShell is the default implementation of the Shell interface
@@ -903,15 +904,16 @@ func (s *DefaultShell) RegisterSecret(value string) {
 	if len(value) < minRegisteredSecretLength {
 		return
 	}
+	s.addSecret(value)
+}
 
-	s.secretsMu.Lock()
-	defer s.secretsMu.Unlock()
-
-	if slices.Contains(s.secrets, value) {
+// RegisterResolvedSecret registers a value that a secret provider resolved. It skips the length floor
+// of RegisterSecret, because a resolved value is a deliberate secret. Empty values are ignored.
+func (s *DefaultShell) RegisterResolvedSecret(value string) {
+	if value == "" {
 		return
 	}
-
-	s.secrets = append(s.secrets, value)
+	s.addSecret(value)
 }
 
 // Reset removes all managed environment variables and aliases.
@@ -1007,6 +1009,18 @@ func (s *DefaultShell) RenderEnvVars(envVars map[string]string, export bool) str
 // =============================================================================
 // Private Methods
 // =============================================================================
+
+// addSecret appends value to the scrub list unless it is already present.
+func (s *DefaultShell) addSecret(value string) {
+	s.secretsMu.Lock()
+	defer s.secretsMu.Unlock()
+
+	if slices.Contains(s.secrets, value) {
+		return
+	}
+
+	s.secrets = append(s.secrets, value)
+}
 
 // generateRandomString creates a secure random string of the given length using a predefined charset.
 func (s *DefaultShell) generateRandomString(length int) (string, error) {

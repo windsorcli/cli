@@ -42,6 +42,7 @@ type MockShell struct {
 	CheckResetFlagsFunc                 func() (bool, error)
 	ResetFunc                           func(...bool)
 	RegisterSecretFunc                  func(value string)
+	RegisterResolvedSecretFunc          func(value string)
 }
 
 // =============================================================================
@@ -273,6 +274,13 @@ func (s *MockShell) Reset(quiet ...bool) {
 func (s *MockShell) RegisterSecret(value string) {
 	if s.RegisterSecretFunc != nil {
 		s.RegisterSecretFunc(value)
+	}
+}
+
+// RegisterResolvedSecret calls the custom RegisterResolvedSecretFunc if provided.
+func (s *MockShell) RegisterResolvedSecret(value string) {
+	if s.RegisterResolvedSecretFunc != nil {
+		s.RegisterResolvedSecretFunc(value)
 	}
 }
 
