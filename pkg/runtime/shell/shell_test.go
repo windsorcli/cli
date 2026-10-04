@@ -4568,6 +4568,21 @@ func TestShell_RegisterSecret(t *testing.T) {
 		}
 	})
 
+	t.Run("RegisterResolvedSecretKeepsShortValues", func(t *testing.T) {
+		// Given a shell instance with no registered secrets
+		shell, _ := setup(t)
+
+		// When registering short values that a provider resolved, including an empty one
+		for _, short := range []string{"abc123", "dev", ""} {
+			shell.RegisterResolvedSecret(short)
+		}
+
+		// Then the non-empty values are stored despite the length floor
+		if len(shell.secrets) != 2 || shell.secrets[0] != "abc123" || shell.secrets[1] != "dev" {
+			t.Errorf("Expected [abc123 dev], got %v", shell.secrets)
+		}
+	})
+
 	t.Run("RegisterDuplicateSecrets", func(t *testing.T) {
 		// Given a shell instance with no registered secrets
 		shell, _ := setup(t)

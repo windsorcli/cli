@@ -1118,3 +1118,28 @@ func TestMockShell_RegisterSecret(t *testing.T) {
 		mockShell.RegisterSecret("test-secret")
 	})
 }
+
+func TestMockShell_RegisterResolvedSecret(t *testing.T) {
+	t.Run("CallsRegisterResolvedSecretFunc", func(t *testing.T) {
+		// Given a mock shell with RegisterResolvedSecretFunc configured
+		mockShell := setupMockShellMocks(t)
+		var received string
+		mockShell.RegisterResolvedSecretFunc = func(value string) { received = value }
+
+		// When RegisterResolvedSecret is called
+		mockShell.RegisterResolvedSecret("abc123")
+
+		// Then the mock function receives the value
+		if received != "abc123" {
+			t.Errorf("Expected abc123, got %q", received)
+		}
+	})
+
+	t.Run("NilFuncDoesNotPanic", func(t *testing.T) {
+		// Given a mock shell without RegisterResolvedSecretFunc
+		mockShell := setupMockShellMocks(t)
+
+		// When RegisterResolvedSecret is called, then it does not panic
+		mockShell.RegisterResolvedSecret("abc123")
+	})
+}

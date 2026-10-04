@@ -93,7 +93,7 @@ func (r *Resolver) Resolve(ref SecretRef) (string, error) {
 			return "", err
 		}
 		if r.shell != nil {
-			r.shell.RegisterSecret(value)
+			r.shell.RegisterResolvedSecret(value)
 		}
 		return value, nil
 	}

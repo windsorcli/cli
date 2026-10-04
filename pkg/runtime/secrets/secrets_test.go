@@ -56,7 +56,7 @@ func TestResolver_Resolve(t *testing.T) {
 	t.Run("DispatchesToMatchingProvider", func(t *testing.T) {
 		sh := setupSecretsTestMocks(t)
 		var registered string
-		sh.RegisterSecretFunc = func(secret string) {
+		sh.RegisterResolvedSecretFunc = func(secret string) {
 			registered = secret
 		}
 
