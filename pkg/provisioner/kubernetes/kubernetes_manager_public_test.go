@@ -2166,6 +2166,42 @@ func TestBaseKubernetesManager_WaitForKustomizations(t *testing.T) {
 		}
 	})
 
+	t.Run("FailureBudgetNeverDropsBelowTheMinimum", func(t *testing.T) {
+		// Given a failing Kustomization whose own timeout is shorter than the minimum error
+		// duration, in a blueprint whose total timeout is large
+		manager := setup(t)
+		kubernetesClient := client.NewMockKubernetesClient()
+		kubernetesClient.ListResourcesFunc = func(gvr schema.GroupVersionResource, ns string) (*unstructured.UnstructuredList, error) {
+			return &unstructured.UnstructuredList{Items: []unstructured.Unstructured{
+				kustomizationListItem("base", "True", "", ""),
+				kustomizationListItem("quick", "False", meta.ReconciliationFailedReason, "dry-run failed"),
+			}}, nil
+		}
+		manager.client = kubernetesClient
+
+		blueprint := &blueprintv1alpha1.Blueprint{
+			Kustomizations: []blueprintv1alpha1.Kustomization{
+				{Name: "base", Timeout: &blueprintv1alpha1.DurationString{Duration: 4 * time.Second}},
+				{Name: "quick", DependsOn: []string{"base"}, Timeout: &blueprintv1alpha1.DurationString{Duration: 20 * time.Millisecond}},
+			},
+		}
+
+		// When waiting for kustomizations
+		started := time.Now()
+		err := manager.WaitForKustomizations(context.Background(), "Waiting for kustomizations", blueprint)
+		elapsed := time.Since(started)
+
+		// Then the wait fails only after the minimum error duration, measured from the first observed
+		// failure one poll in, not at the shorter own timeout
+		if err == nil || !strings.Contains(err.Error(), "dry-run failed") {
+			t.Fatalf("Expected the error-budget failure, got: %v", err)
+		}
+		floor := manager.kustomizationWaitMinErrorDuration + manager.kustomizationWaitPollInterval/2
+		if elapsed < floor {
+			t.Errorf("Expected the wait to last at least %s, failed after %s", floor, elapsed)
+		}
+	})
+
 	t.Run("FailureStreakRestartsAfterAFullBudgetWithoutFailures", func(t *testing.T) {
 		// Given a Kustomization that fails once, reports Progressing for longer than the budget,
 		// fails once more, then becomes Ready

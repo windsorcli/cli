@@ -633,8 +633,8 @@ var kustomizationsGVR = schema.GroupVersionResource{
 
 // WaitForKustomizations waits for kustomizations to be ready, using a timeout derived from the
 // blueprint's longest dependency chain. It honors ctx cancellation and returns ctx.Err().
-// A list-call error and a ReconciliationFailed condition fail the wait after an error budget.
-// A failing kustomization's budget is its own timeout, capped by a quarter of the total timeout.
+// A list-call error or a ReconciliationFailed condition fails the wait after an error budget. For a
+// failing kustomization the budget is its own timeout, at most a quarter of the total and at least the minimum.
 // The streak survives Ready flipping to Unknown between retries. BuildFailed and ArtifactFailed fail at once.
 // It prints elapsed time against the total timeout at a steady interval for the whole wait.
 func (k *BaseKubernetesManager) WaitForKustomizations(ctx context.Context, message string, blueprint *blueprintv1alpha1.Blueprint) error {
@@ -741,7 +741,7 @@ func (k *BaseKubernetesManager) WaitForKustomizations(ctx context.Context, messa
 					budget := failureBudget(name)
 					now := time.Now()
 					streak, tracking := failureStreaks[name]
-					if !tracking || now.Sub(streak.lastSeen) >= budget {
+					if !tracking || now.Sub(streak.lastSeen) >= budget+k.kustomizationWaitPollInterval {
 						streak.start = now
 					}
 					streak.lastSeen = now
