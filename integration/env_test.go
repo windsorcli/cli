@@ -381,3 +381,32 @@ func TestEnv_SurfacesErrorWithoutHookAndStaysSilentWithHook(t *testing.T) {
 		t.Errorf("expected --hook to stay silent, got stdout %q stderr %q", stdout, stderr)
 	}
 }
+
+// TestEnv_RootFileContextEnablesSops verifies that secrets.sops.enabled under contexts.<name> in the root
+// windsor.yaml registers the SOPS provider, as it does in the per-context file. The plaintext secrets
+// file makes a registered provider refuse it, which proves the provider was reached.
+func TestEnv_RootFileContextEnablesSops(t *testing.T) {
+	t.Parallel()
+	dir, env := helpers.PrepareFixture(t, "default")
+	rootConfig := "version: v1alpha1\ncontexts:\n  default:\n    secrets:\n      sops:\n        enabled: true\n    environment:\n      DB_PASSWORD: ${secret(\"sops\", \"database.password\", \"\")}\n"
+	if err := os.WriteFile(filepath.Join(dir, "windsor.yaml"), []byte(rootConfig), 0600); err != nil {
+		t.Fatalf("write root windsor.yaml: %v", err)
+	}
+	contextDir := filepath.Join(dir, "contexts", "default")
+	if err := os.MkdirAll(contextDir, 0750); err != nil {
+		t.Fatalf("mkdir context dir: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(contextDir, "secrets.yaml"), []byte("database:\n  password: hunter2\n"), 0600); err != nil {
+		t.Fatalf("write secrets.yaml: %v", err)
+	}
+	env = append(env, "WINDSOR_CONTEXT=default")
+
+	_, stderr, err := helpers.RunCLI(dir, []string{"env", "--decrypt"}, env)
+
+	if err == nil {
+		t.Fatalf("expected env --decrypt to fail on an unencrypted secrets file, got success\nstderr: %s", stderr)
+	}
+	if !strings.Contains(string(stderr), "unencrypted secrets file") {
+		t.Errorf("expected the SOPS provider to refuse the plaintext file, got:\n%s", stderr)
+	}
+}

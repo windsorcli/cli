@@ -114,3 +114,45 @@ func TestSecretsConfig_Copy(t *testing.T) {
 		}
 	})
 }
+
+func TestSecretsConfig_Sops(t *testing.T) {
+	enabled := true
+	disabled := false
+
+	t.Run("MergeSetsEnabledFromOverlay", func(t *testing.T) {
+		base := &SecretsConfig{}
+		base.Merge(&SecretsConfig{Sops: &SopsConfig{Enabled: &enabled}})
+
+		if base.Sops == nil || base.Sops.Enabled == nil || !*base.Sops.Enabled {
+			t.Errorf("Expected sops.enabled=true after merge, got %+v", base.Sops)
+		}
+	})
+
+	t.Run("MergeKeepsBaseWhenOverlayLeavesEnabledUnset", func(t *testing.T) {
+		base := &SecretsConfig{Sops: &SopsConfig{Enabled: &enabled}}
+		base.Merge(&SecretsConfig{Sops: &SopsConfig{}})
+
+		if base.Sops == nil || base.Sops.Enabled == nil || !*base.Sops.Enabled {
+			t.Errorf("Expected sops.enabled to stay true, got %+v", base.Sops)
+		}
+	})
+
+	t.Run("MergeLetsOverlayDisable", func(t *testing.T) {
+		base := &SecretsConfig{Sops: &SopsConfig{Enabled: &enabled}}
+		base.Merge(&SecretsConfig{Sops: &SopsConfig{Enabled: &disabled}})
+
+		if base.Sops == nil || base.Sops.Enabled == nil || *base.Sops.Enabled {
+			t.Errorf("Expected sops.enabled=false after merge, got %+v", base.Sops)
+		}
+	})
+
+	t.Run("CopyDoesNotShareTheEnabledPointer", func(t *testing.T) {
+		original := &SecretsConfig{Sops: &SopsConfig{Enabled: &enabled}}
+		copied := original.Copy()
+		*copied.Sops.Enabled = false
+
+		if !*original.Sops.Enabled {
+			t.Error("Expected the original to be unchanged by edits to the copy")
+		}
+	})
+}

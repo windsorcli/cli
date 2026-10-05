@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/windsorcli/cli/api/v1alpha2/config/secrets/onepassword"
+	"github.com/windsorcli/cli/api/v1alpha2/config/secrets/sops"
 )
 
 func TestSecretsConfig_Merge(t *testing.T) {
@@ -111,6 +112,29 @@ func TestSecretsConfig_Copy(t *testing.T) {
 		// Ensure the copy is nil
 		if copy != nil {
 			t.Errorf("Copy is not nil, expected a nil copy")
+		}
+	})
+}
+
+func TestSecretsConfig_Sops(t *testing.T) {
+	enabled := true
+
+	t.Run("MergeCreatesSopsFromOverlay", func(t *testing.T) {
+		base := &SecretsConfig{}
+		base.Merge(&SecretsConfig{Sops: &sops.SopsConfig{Enabled: &enabled}})
+
+		if base.Sops == nil || base.Sops.Enabled == nil || !*base.Sops.Enabled {
+			t.Errorf("Expected sops.enabled=true after merge, got %+v", base.Sops)
+		}
+	})
+
+	t.Run("DeepCopyCopiesSops", func(t *testing.T) {
+		original := &SecretsConfig{Sops: &sops.SopsConfig{Enabled: &enabled}}
+		copied := original.DeepCopy()
+		*copied.Sops.Enabled = false
+
+		if !*original.Sops.Enabled {
+			t.Error("Expected the original to be unchanged by edits to the copy")
 		}
 	})
 }

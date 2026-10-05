@@ -60,6 +60,34 @@ contexts:
 		}
 	})
 
+	t.Run("KeepsSopsEnabledFromRootContextsBlock", func(t *testing.T) {
+		source := newTypedSource(NewShims(), nil)
+		projectRoot := t.TempDir()
+		rootConfig := `version: v1alpha1
+contexts:
+  local:
+    secrets:
+      sops:
+        enabled: true
+`
+		if err := os.WriteFile(filepath.Join(projectRoot, "windsor.yaml"), []byte(rootConfig), 0644); err != nil {
+			t.Fatalf("Expected no error writing root config, got %v", err)
+		}
+
+		contextMap, found, err := source.LoadRoot(projectRoot, "local", func([]byte) error { return nil })
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		if !found {
+			t.Fatal("Expected root config to be found")
+		}
+		secretsMap, _ := contextMap["secrets"].(map[string]any)
+		sopsMap, _ := secretsMap["sops"].(map[string]any)
+		if sopsMap["enabled"] != true {
+			t.Errorf("Expected secrets.sops.enabled=true to survive the typed root load, got %v", contextMap["secrets"])
+		}
+	})
+
 	t.Run("ReturnsErrorWhenV1Alpha2SchemaLoadingFails", func(t *testing.T) {
 		source := newTypedSource(NewShims(), NewSchemaValidator(shell.NewMockShell()))
 		projectRoot := t.TempDir()
