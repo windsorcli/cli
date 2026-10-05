@@ -2,7 +2,10 @@ package secrets
 
 import (
 	"reflect"
+	"strings"
 	"testing"
+
+	secretsv1alpha2 "github.com/windsorcli/cli/api/v1alpha2/config/secrets"
 )
 
 func TestSecretsConfig_Merge(t *testing.T) {
@@ -153,6 +156,29 @@ func TestSecretsConfig_Sops(t *testing.T) {
 
 		if !*original.Sops.Enabled {
 			t.Error("Expected the original to be unchanged by edits to the copy")
+		}
+	})
+}
+
+func TestSecretsConfig_CoversV1Alpha2Fields(t *testing.T) {
+	yamlKeys := func(typ reflect.Type) map[string]bool {
+		keys := make(map[string]bool)
+		for i := 0; i < typ.NumField(); i++ {
+			name, _, _ := strings.Cut(typ.Field(i).Tag.Get("yaml"), ",")
+			if name != "" && name != "-" {
+				keys[name] = true
+			}
+		}
+		return keys
+	}
+
+	t.Run("EveryV1Alpha2KeyExistsInV1Alpha1", func(t *testing.T) {
+		have := yamlKeys(reflect.TypeOf(SecretsConfig{}))
+
+		for key := range yamlKeys(reflect.TypeOf(secretsv1alpha2.SecretsConfig{})) {
+			if !have[key] {
+				t.Errorf("v1alpha2 SecretsConfig has %q but v1alpha1 SecretsConfig does not; root windsor.yaml loads decode into the v1alpha1 type, so add the field there too", key)
+			}
 		}
 	})
 }

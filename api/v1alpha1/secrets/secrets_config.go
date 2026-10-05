@@ -1,6 +1,7 @@
 package secrets
 
-// SecretsConfig represents the Secrets configuration
+// SecretsConfig represents the Secrets configuration. Root windsor.yaml loads decode into this type
+// for every version, so it must carry each field the v1alpha2 SecretsConfig has.
 type SecretsConfig struct {
 	OnePasswordConfig `yaml:"onepassword,omitempty"`
 	Sops              *SopsConfig `yaml:"sops,omitempty"`
