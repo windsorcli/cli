@@ -773,67 +773,177 @@ func TestLocalFlockLock_Inspect(t *testing.T) {
 }
 
 // =============================================================================
-// Test ForceRelease
+// Test IsHeld and ClearStale
 // =============================================================================
 
-func TestLocalFlockLock_ForceRelease(t *testing.T) {
-	// orphanedLock writes a lock file and sidecar with no process holding the flock,
-	// mirroring a holder that was SIGKILL'd before it could release. Files are created
-	// directly (not via Acquire) so no open fd lingers — os.Remove of an fd-held file
-	// fails on Windows, and the recovery scenario is precisely a dead holder.
-	orphanedLock := func(t *testing.T, info LockInfo) string {
+func TestLocalFlockLock_IsHeld(t *testing.T) {
+	t.Run("returns false and creates no file when the lock file is absent", func(t *testing.T) {
+		path := filepath.Join(t.TempDir(), ".stacklock")
+
+		held, err := NewLocalFlockLock(path).IsHeld(context.Background())
+
+		if err != nil || held {
+			t.Fatalf("expected (false, nil), got (%v, %v)", held, err)
+		}
+		if _, statErr := os.Stat(path); !os.IsNotExist(statErr) {
+			t.Fatalf("expected the probe to leave no lock file, stat err=%v", statErr)
+		}
+	})
+
+	t.Run("returns false when the lock file exists but no process holds it", func(t *testing.T) {
+		path := filepath.Join(t.TempDir(), ".stacklock")
+		if err := os.WriteFile(path, nil, lockInfoPerm); err != nil {
+			t.Fatalf("write lock file: %v", err)
+		}
+
+		held, err := NewLocalFlockLock(path).IsHeld(context.Background())
+
+		if err != nil || held {
+			t.Fatalf("expected (false, nil), got (%v, %v)", held, err)
+		}
+	})
+
+	t.Run("returns true while another instance holds the lock and false after release", func(t *testing.T) {
+		path := filepath.Join(t.TempDir(), ".stacklock")
+		release, err := NewLocalFlockLock(path).Acquire(context.Background(), newTestLockInfo(), 0)
+		if err != nil {
+			t.Fatalf("acquire: %v", err)
+		}
+		probe := NewLocalFlockLock(path)
+
+		heldDuring, errDuring := probe.IsHeld(context.Background())
+		_ = release()
+		heldAfter, errAfter := probe.IsHeld(context.Background())
+
+		if errDuring != nil || !heldDuring {
+			t.Fatalf("expected (true, nil) while held, got (%v, %v)", heldDuring, errDuring)
+		}
+		if errAfter != nil || heldAfter {
+			t.Fatalf("expected (false, nil) after release, got (%v, %v)", heldAfter, errAfter)
+		}
+	})
+
+	t.Run("leaves the lock acquirable after the probe", func(t *testing.T) {
+		path := filepath.Join(t.TempDir(), ".stacklock")
+		if err := os.WriteFile(path, nil, lockInfoPerm); err != nil {
+			t.Fatalf("write lock file: %v", err)
+		}
+		if _, err := NewLocalFlockLock(path).IsHeld(context.Background()); err != nil {
+			t.Fatalf("probe: %v", err)
+		}
+
+		release, err := NewLocalFlockLock(path).Acquire(context.Background(), newTestLockInfo(), 0)
+
+		if err != nil {
+			t.Fatalf("expected acquire to succeed after the probe, got %v", err)
+		}
+		_ = release()
+	})
+}
+
+func TestLocalFlockLock_ClearStale(t *testing.T) {
+	staleLock := func(t *testing.T) string {
 		t.Helper()
 		path := filepath.Join(t.TempDir(), ".stacklock")
 		if err := os.WriteFile(path, nil, lockInfoPerm); err != nil {
 			t.Fatalf("write lock file: %v", err)
 		}
-		writeHolderInfo(path+stackLockInfoSuffix, info)
+		writeHolderInfo(path+stackLockInfoSuffix, newTestLockInfo())
 		return path
 	}
 
-	t.Run("removes the lock file and sidecar", func(t *testing.T) {
-		// Given an orphaned lock with both files present
-		path := orphanedLock(t, newTestLockInfo())
+	t.Run("removes the sidecar and keeps the lock file when no process holds the lock", func(t *testing.T) {
+		path := staleLock(t)
 
-		// When force-releasing without an ID guard
-		if err := NewLocalFlockLock(path).ForceRelease(context.Background(), "", "test recovery"); err != nil {
-			t.Fatalf("force-release: %v", err)
+		if err := NewLocalFlockLock(path).ClearStale(context.Background(), "test recovery"); err != nil {
+			t.Fatalf("clear stale: %v", err)
 		}
 
-		// Then both the lock file and the sidecar are gone
-		if _, err := os.Stat(path); !os.IsNotExist(err) {
-			t.Fatalf("expected lock file removed, stat err=%v", err)
+		if _, err := os.Stat(path + stackLockInfoSuffix); !os.IsNotExist(err) {
+			t.Fatalf("expected sidecar removed, stat err=%v", err)
 		}
+		if _, err := os.Stat(path); err != nil {
+			t.Fatalf("expected lock file kept, stat err=%v", err)
+		}
+	})
+
+	t.Run("removes a corrupt sidecar", func(t *testing.T) {
+		path := staleLock(t)
+		if err := os.WriteFile(path+stackLockInfoSuffix, []byte(`{"id":"orphan`), lockInfoPerm); err != nil {
+			t.Fatalf("write corrupt sidecar: %v", err)
+		}
+
+		if err := NewLocalFlockLock(path).ClearStale(context.Background(), "test"); err != nil {
+			t.Fatalf("clear stale: %v", err)
+		}
+
+		if _, err := os.Stat(path + stackLockInfoSuffix); !os.IsNotExist(err) {
+			t.Fatalf("expected sidecar removed, stat err=%v", err)
+		}
+	})
+
+	t.Run("removes a sidecar that has no lock file", func(t *testing.T) {
+		dir := t.TempDir()
+		path := filepath.Join(dir, ".stacklock")
+		writeHolderInfo(path+stackLockInfoSuffix, newTestLockInfo())
+
+		if err := NewLocalFlockLock(path).ClearStale(context.Background(), "test"); err != nil {
+			t.Fatalf("clear stale: %v", err)
+		}
+
 		if _, err := os.Stat(path + stackLockInfoSuffix); !os.IsNotExist(err) {
 			t.Fatalf("expected sidecar removed, stat err=%v", err)
 		}
 	})
 
 	t.Run("is a no-op when no lock files exist", func(t *testing.T) {
-		// Given a path with no lock files
 		path := filepath.Join(t.TempDir(), ".stacklock")
 
-		// When force-releasing, then it succeeds (already clear)
-		if err := NewLocalFlockLock(path).ForceRelease(context.Background(), "", "test"); err != nil {
+		if err := NewLocalFlockLock(path).ClearStale(context.Background(), "test"); err != nil {
 			t.Fatalf("expected nil error for absent files, got %v", err)
 		}
 	})
 
-	t.Run("refuses when a different holder has acquired the lock", func(t *testing.T) {
-		// Given a lock now held by a holder whose ID differs from the caller's target
-		current := newTestLockInfo()
-		current.ID = "new-holder-id"
-		path := orphanedLock(t, current)
+	t.Run("refuses a live holder and leaves every file in place", func(t *testing.T) {
+		path := filepath.Join(t.TempDir(), ".stacklock")
+		info := newTestLockInfo()
+		release, err := NewLocalFlockLock(path).Acquire(context.Background(), info, 0)
+		if err != nil {
+			t.Fatalf("acquire: %v", err)
+		}
+		t.Cleanup(func() { _ = release() })
 
-		// When force-releasing against a stale target ID
-		err := NewLocalFlockLock(path).ForceRelease(context.Background(), "stale-target-id", "test")
+		err = NewLocalFlockLock(path).ClearStale(context.Background(), "test")
 
-		// Then it refuses and leaves the files intact
-		if err == nil || !strings.Contains(err.Error(), "different holder") {
-			t.Fatalf("expected refusal error, got %v", err)
+		var busy *LockBusyError
+		if !errors.As(err, &busy) {
+			t.Fatalf("expected *LockBusyError, got %T: %v", err, err)
+		}
+		if busy.Holder == nil || busy.Holder.ID != info.ID {
+			t.Fatalf("expected the holder %q to be named, got %+v", info.ID, busy.Holder)
 		}
 		if _, statErr := os.Stat(path); statErr != nil {
-			t.Fatalf("expected lock file preserved on refusal, got %v", statErr)
+			t.Fatalf("expected lock file kept, stat err=%v", statErr)
+		}
+		if _, statErr := os.Stat(path + stackLockInfoSuffix); statErr != nil {
+			t.Fatalf("expected sidecar kept, stat err=%v", statErr)
+		}
+	})
+
+	t.Run("keeps a live holder exclusive after a refused clear", func(t *testing.T) {
+		path := filepath.Join(t.TempDir(), ".stacklock")
+		release, err := NewLocalFlockLock(path).Acquire(context.Background(), newTestLockInfo(), 0)
+		if err != nil {
+			t.Fatalf("acquire: %v", err)
+		}
+		t.Cleanup(func() { _ = release() })
+		_ = NewLocalFlockLock(path).ClearStale(context.Background(), "test")
+
+		_, err = NewLocalFlockLock(path).Acquire(context.Background(), newTestLockInfo(), 0)
+
+		var busy *LockBusyError
+		if !errors.As(err, &busy) {
+			t.Fatalf("expected the live holder to stay exclusive, got %v", err)
 		}
 	})
 }

@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"errors"
 	"fmt"
 	"time"
 
@@ -17,11 +18,11 @@ var unlockForce bool
 
 var unlockCmd = &cobra.Command{
 	Use:   "unlock",
-	Short: "Release a stuck stack lock.",
-	Long: `Force-release a stuck stack lock for the current context.
+	Short: "Clear stale stack lock information.",
+	Long: `Clear stale stack lock information for the current context.
 
-A holder killed before it could release (CI cancellation, OOM, crash) leaves the lock behind, so later commands block until timeout and then fail. This clears it. It does not check whether the holder is still alive, so only run it when no other windsor process is using this context.`,
-	Example: `# Clear a stuck lock interactively
+The lock frees itself when its holder exits, including after a crash, an OOM kill, or a CI cancellation. A crash can leave holder details behind, and this command removes them. If a running process still holds the lock, the command names it and exits with an error. Stop that process to free the lock.`,
+	Example: `# Clear stale lock information interactively
 windsor unlock
 # → prompts: Type "local" to confirm:
 
@@ -35,9 +36,6 @@ windsor unlock --force`,
 	Args:         cobra.NoArgs,
 	SilenceUsage: true,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		// unlock only touches the local lock files; no terraform/k8s/docker tools are
-		// needed. Skip-validation so a deployed-but-misordered blueprint can't block
-		// the recovery path that exists precisely to unstick such a context.
 		proj, err := prepareProjectSkipValidation(cmd, tools.Requirements{})
 		if err != nil {
 			return err
@@ -51,11 +49,14 @@ windsor unlock --force`,
 		contextName := proj.Runtime.ContextName
 		w := cmd.ErrOrStderr()
 
-		// A missing sidecar means nothing is held. A corrupt/unreadable one (e.g. a
-		// partial write from a killed holder) is exactly the debris unlock clears, so
-		// warn and proceed rather than treating it as "nothing to release".
+		held, err := lock.IsHeld(cmd.Context())
+		if err != nil {
+			return fmt.Errorf("error checking stack lock: %w", err)
+		}
 		holder, inspectErr := lock.Inspect(cmd.Context())
-		lockID := ""
+		if held {
+			return heldLockError(contextName, holder)
+		}
 		switch {
 		case inspectErr != nil:
 			fmt.Fprintf(w, "Stack lock for context %q has unreadable holder info (%v); clearing it.\n", contextName, inspectErr)
@@ -63,24 +64,37 @@ windsor unlock --force`,
 			fmt.Fprintf(w, "No stack lock held for context %q; nothing to release.\n", contextName)
 			return nil
 		default:
-			lockID = holder.ID
-			fmt.Fprintf(w, "Stack lock for context %q is held by %s (PID=%d, operation=%s, started=%s).\n",
+			fmt.Fprintf(w, "No process holds the stack lock for context %q. Stale holder info remains from %s (PID=%d, operation=%s, started=%s).\n",
 				contextName, holder.Who, holder.PID, holder.Operation, holder.Created.Format(time.RFC3339))
 		}
 
 		if !unlockForce {
-			desc := fmt.Sprintf("This will force-release the stack lock for context %q. Only proceed if no other windsor process is operating on it.", contextName)
+			desc := fmt.Sprintf("This will clear the stale stack lock information for context %q.", contextName)
 			if err := confirmDestroy(cmd.InOrStdin(), w, desc, contextName); err != nil {
 				return err
 			}
 		}
 
-		if err := lock.ForceRelease(cmd.Context(), lockID, "windsor unlock"); err != nil {
-			return fmt.Errorf("error releasing stack lock: %w", err)
+		if err := lock.ClearStale(cmd.Context(), "windsor unlock"); err != nil {
+			var busy *stacklock.LockBusyError
+			if errors.As(err, &busy) {
+				return heldLockError(contextName, busy.Holder)
+			}
+			return fmt.Errorf("error clearing stack lock: %w", err)
 		}
-		fmt.Fprintf(w, "Released stack lock for context %q.\n", contextName)
+		fmt.Fprintf(w, "Cleared stale stack lock information for context %q.\n", contextName)
 		return nil
 	},
+}
+
+// heldLockError builds the error unlock returns when a live process holds the lock. It names
+// the holder when its details are known and tells the operator to stop that process.
+func heldLockError(contextName string, holder *stacklock.LockInfo) error {
+	if holder == nil {
+		return fmt.Errorf("a running windsor process holds the stack lock for context %q; stop it to free the lock", contextName)
+	}
+	return fmt.Errorf("a running windsor process holds the stack lock for context %q (%s, PID=%d, operation=%s, started=%s); stop it to free the lock",
+		contextName, holder.Who, holder.PID, holder.Operation, holder.Created.Format(time.RFC3339))
 }
 
 // init registers the unlock command and its --force flag, which skips the
