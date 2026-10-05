@@ -894,13 +894,19 @@ func TestLocalFlockLock_ClearStale(t *testing.T) {
 		if _, err := os.Stat(path + stackLockInfoSuffix); !os.IsNotExist(err) {
 			t.Fatalf("expected sidecar removed, stat err=%v", err)
 		}
+		if _, err := os.Stat(path); err != nil {
+			t.Fatalf("expected the flock to be taken on a created lock file, stat err=%v", err)
+		}
 	})
 
-	t.Run("is a no-op when no lock files exist", func(t *testing.T) {
-		path := filepath.Join(t.TempDir(), ".stacklock")
+	t.Run("is a no-op when the lock directory does not exist", func(t *testing.T) {
+		path := filepath.Join(t.TempDir(), "missing", ".stacklock")
 
 		if err := NewLocalFlockLock(path).ClearStale(context.Background(), "test"); err != nil {
-			t.Fatalf("expected nil error for absent files, got %v", err)
+			t.Fatalf("expected nil error for a missing directory, got %v", err)
+		}
+		if _, err := os.Stat(filepath.Dir(path)); !os.IsNotExist(err) {
+			t.Fatalf("expected no directory created, stat err=%v", err)
 		}
 	})
 

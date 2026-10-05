@@ -304,16 +304,14 @@ func (s *localFlockLock) IsHeld(ctx context.Context) (bool, error) {
 }
 
 // ClearStale removes the holder-info sidecar left behind by a holder that exited without
-// releasing. It takes the flock first. When a live process holds the lock, it returns a
-// *LockBusyError and changes nothing. It never removes the lock file: a process that holds
+// releasing. It always takes the flock first, creating the lock file when it is absent. When a
+// live process holds the lock, it returns a *LockBusyError and changes nothing. A missing lock
+// directory means there is nothing to clear. It never removes the lock file: a process that holds
 // or waits on the old file would keep locking it while a new process locked a fresh file at
 // the same path. reason is included in any failure message. A missing sidecar is not an error.
 func (s *localFlockLock) ClearStale(ctx context.Context, reason string) error {
 	infoPath := s.path + stackLockInfoSuffix
-	if _, err := os.Stat(s.path); errors.Is(err, os.ErrNotExist) {
-		if err := os.Remove(infoPath); err != nil && !os.IsNotExist(err) {
-			return fmt.Errorf("stacklock: clear stale (%s): %w", reason, err)
-		}
+	if _, err := os.Stat(filepath.Dir(s.path)); errors.Is(err, os.ErrNotExist) {
 		return nil
 	}
 	flk := flock.New(s.path)
