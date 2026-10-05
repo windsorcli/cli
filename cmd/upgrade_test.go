@@ -4,6 +4,8 @@ import (
 	"bytes"
 	stdcontext "context"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -843,6 +845,9 @@ func TestUpgradeCmd_Confirmation(t *testing.T) {
 
 	t.Run("RefusesWithoutYes", func(t *testing.T) {
 		t.Cleanup(func() { upgradeYes = false })
+		originalIsTerminal := upgradeStdinIsTerminal
+		upgradeStdinIsTerminal = func() bool { return false }
+		t.Cleanup(func() { upgradeStdinIsTerminal = originalIsTerminal })
 		// Given an upgrade that would rewrite blueprint.yaml and reconcile
 		mocks := setupApplyTest(t)
 		installed := false
@@ -904,6 +909,205 @@ func TestUpgradeCmd_Confirmation(t *testing.T) {
 		// Then the prune runs
 		if !pruned {
 			t.Error("Expected prune to run under --yes")
+		}
+	})
+}
+
+func TestUpgradeCmd_Prompt(t *testing.T) {
+	createTestUpgradeCmd := func() *cobra.Command { return makeApplyTestCmd(upgradeCmd) }
+
+	suppressProcessStdout(t)
+	suppressProcessStderr(t)
+
+	const originalBlueprint = "sources:\n- name: core\n  url: oci://ghcr.io/windsorcli/core:v0.5.0\n"
+	const bumpedBlueprint = "sources:\n- name: core\n  url: oci://ghcr.io/windsorcli/core:v0.6.0\n"
+
+	type promptRun struct {
+		err       error
+		stderr    string
+		blueprint string
+		installed bool
+		pruned    bool
+	}
+
+	run := func(t *testing.T, input string, setup func(*ApplyMocks)) promptRun {
+		t.Helper()
+		upgradeYes = false
+		originalIsTerminal := upgradeStdinIsTerminal
+		upgradeStdinIsTerminal = func() bool { return true }
+		t.Cleanup(func() {
+			upgradeYes = false
+			upgradeStdinIsTerminal = originalIsTerminal
+		})
+
+		mocks := setupApplyTest(t)
+		var blueprintPath string
+		mocks.BlueprintHandler.UpgradeSourcesToLatestFunc = func() ([]blueprint.SourceUpgrade, error) {
+			return []blueprint.SourceUpgrade{{
+				Name: "core",
+				From: "oci://ghcr.io/windsorcli/core:v0.5.0",
+				To:   "oci://ghcr.io/windsorcli/core:v0.6.0",
+			}}, nil
+		}
+		mocks.BlueprintHandler.WriteFunc = func(overwrite ...bool) error {
+			if len(overwrite) == 0 || !overwrite[0] {
+				return nil
+			}
+			return os.WriteFile(blueprintPath, []byte(bumpedBlueprint), 0644)
+		}
+		mocks.KubernetesManager.ListPrunableKustomizationsFunc = func(bp *blueprintv1alpha1.Blueprint, namespace string) ([]string, error) {
+			return []string{"old-thing"}, nil
+		}
+		result := promptRun{}
+		mocks.KubernetesManager.ApplyBlueprintFunc = func(bp *blueprintv1alpha1.Blueprint, namespace string) error {
+			result.installed = true
+			return nil
+		}
+		mocks.KubernetesManager.PruneBlueprintFunc = func(bp *blueprintv1alpha1.Blueprint, namespace string) error {
+			result.pruned = true
+			return nil
+		}
+		if setup != nil {
+			setup(mocks)
+		}
+		proj := newApplyAllProject(mocks)
+		blueprintPath = filepath.Join(proj.Runtime.ConfigRoot, "blueprint.yaml")
+		if err := os.MkdirAll(proj.Runtime.ConfigRoot, 0755); err != nil {
+			t.Fatalf("create config root: %v", err)
+		}
+		if err := os.WriteFile(blueprintPath, []byte(originalBlueprint), 0644); err != nil {
+			t.Fatalf("seed blueprint.yaml: %v", err)
+		}
+
+		var stderr bytes.Buffer
+		cmd := createTestUpgradeCmd()
+		cmd.SetIn(strings.NewReader(input))
+		cmd.SetErr(&stderr)
+		cmd.SetContext(stdcontext.WithValue(stdcontext.Background(), projectOverridesKey, proj))
+		result.err = cmd.Execute()
+		result.stderr = stderr.String()
+		data, err := os.ReadFile(blueprintPath)
+		if err != nil {
+			t.Fatalf("read blueprint.yaml: %v", err)
+		}
+		result.blueprint = string(data)
+		return result
+	}
+
+	t.Run("ConfirmedUpgradeProceedsAndKeepsTheBump", func(t *testing.T) {
+		// Given a terminal and a plan that moves a source and prunes a kustomization
+		// When the user answers yes
+		result := run(t, "y\n", nil)
+
+		// Then the plan was shown, the upgrade ran, and blueprint.yaml keeps the new version
+		if result.err != nil {
+			t.Fatalf("Expected no error, got %v", result.err)
+		}
+		for _, want := range []string{"core: oci://ghcr.io/windsorcli/core:v0.5.0 -> oci://ghcr.io/windsorcli/core:v0.6.0", "old-thing", "Proceed with the upgrade?"} {
+			if !strings.Contains(result.stderr, want) {
+				t.Errorf("Expected the plan to contain %q, got:\n%s", want, result.stderr)
+			}
+		}
+		if !result.installed || !result.pruned {
+			t.Errorf("Expected install and prune to run, got installed=%v pruned=%v", result.installed, result.pruned)
+		}
+		if result.blueprint != bumpedBlueprint {
+			t.Errorf("Expected blueprint.yaml to keep the bump, got %q", result.blueprint)
+		}
+	})
+
+	t.Run("DecliningRestoresBlueprintAndTouchesNothingElse", func(t *testing.T) {
+		// Given the same plan
+		// When the user answers no
+		result := run(t, "n\n", nil)
+
+		// Then the upgrade is cancelled, blueprint.yaml is back to its original bytes, and no cluster step ran
+		if result.err == nil || !strings.Contains(result.err.Error(), "upgrade cancelled") {
+			t.Fatalf("Expected a cancelled error, got %v", result.err)
+		}
+		if result.blueprint != originalBlueprint {
+			t.Errorf("Expected blueprint.yaml restored, got %q", result.blueprint)
+		}
+		if result.installed || result.pruned {
+			t.Errorf("Expected no install or prune, got installed=%v pruned=%v", result.installed, result.pruned)
+		}
+	})
+
+	t.Run("ClosedInputDeclines", func(t *testing.T) {
+		// Given a terminal whose input closes without an answer
+		result := run(t, "", nil)
+
+		// Then it declines and restores blueprint.yaml
+		if result.err == nil || !strings.Contains(result.err.Error(), "upgrade cancelled") {
+			t.Fatalf("Expected a cancelled error, got %v", result.err)
+		}
+		if result.blueprint != originalBlueprint {
+			t.Errorf("Expected blueprint.yaml restored, got %q", result.blueprint)
+		}
+	})
+
+	t.Run("FailureBeforeThePromptRestoresBlueprint", func(t *testing.T) {
+		// Given a recompose that fails after Initialize and after the bump was written
+		result := run(t, "y\n", func(mocks *ApplyMocks) {
+			loads := 0
+			mocks.BlueprintHandler.LoadBlueprintFunc = func(...string) error {
+				loads++
+				if loads > 1 {
+					return fmt.Errorf("recompose failed")
+				}
+				return nil
+			}
+		})
+
+		// Then the error surfaces and blueprint.yaml is restored
+		if result.err == nil || !strings.Contains(result.err.Error(), "recompose failed") {
+			t.Fatalf("Expected the recompose error, got %v", result.err)
+		}
+		if result.blueprint != originalBlueprint {
+			t.Errorf("Expected blueprint.yaml restored, got %q", result.blueprint)
+		}
+	})
+}
+
+func TestConfirmUpgrade(t *testing.T) {
+	changes := sourceChanges{{Name: "core", From: "oci://x/core:v1", To: "oci://x/core:v2"}}
+
+	t.Run("AcceptsYesInAnyCase", func(t *testing.T) {
+		for _, answer := range []string{"y\n", "yes\n", "YES\n", "  Y  \n"} {
+			if !confirmUpgrade(strings.NewReader(answer), &bytes.Buffer{}, "local", changes, nil, nil) {
+				t.Errorf("Expected %q to confirm", answer)
+			}
+		}
+	})
+
+	t.Run("DeclinesAnythingElse", func(t *testing.T) {
+		for _, answer := range []string{"\n", "n\n", "no\n", "maybe\n", ""} {
+			if confirmUpgrade(strings.NewReader(answer), &bytes.Buffer{}, "local", changes, nil, nil) {
+				t.Errorf("Expected %q to decline", answer)
+			}
+		}
+	})
+
+	t.Run("PlanStatesNoChangesAndNothingToPrune", func(t *testing.T) {
+		var out bytes.Buffer
+		confirmUpgrade(strings.NewReader("n\n"), &out, "local", nil, nil, nil)
+
+		for _, want := range []string{"Upgrade plan for context local", "Sources: no changes", "Kustomizations to prune: none"} {
+			if !strings.Contains(out.String(), want) {
+				t.Errorf("Expected %q in the plan, got:\n%s", want, out.String())
+			}
+		}
+	})
+
+	t.Run("PlanReportsAFailedPruneListingAndStillAsks", func(t *testing.T) {
+		var out bytes.Buffer
+		confirmed := confirmUpgrade(strings.NewReader("y\n"), &out, "local", changes, nil, fmt.Errorf("cluster unreachable"))
+
+		if !strings.Contains(out.String(), "Kustomizations to prune: unknown (cluster unreachable)") {
+			t.Errorf("Expected the listing failure in the plan, got:\n%s", out.String())
+		}
+		if !confirmed {
+			t.Error("Expected the operator's yes to count even when the prune listing failed")
 		}
 	})
 }

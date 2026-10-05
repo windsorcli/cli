@@ -1,8 +1,12 @@
 package cmd
 
 import (
+	"bufio"
 	"context"
 	"fmt"
+	"io"
+	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -16,6 +20,7 @@ import (
 	"github.com/windsorcli/cli/pkg/provisioner/stacklock"
 	"github.com/windsorcli/cli/pkg/runtime"
 	"github.com/windsorcli/cli/pkg/runtime/tools"
+	"golang.org/x/term"
 )
 
 var (
@@ -33,13 +38,24 @@ var (
 	upgradeNodeRebootMode     string
 )
 
+// sourceChanges lists the sources an upgrade moves, each with its previous and new URL.
+type sourceChanges = []blueprint.SourceUpgrade
+
+// upgradeStdinIsTerminal reports whether upgrade can ask for confirmation. Tests replace it.
+var upgradeStdinIsTerminal = func() bool {
+	return term.IsTerminal(int(os.Stdin.Fd())) // #nosec G115 -- file descriptors are small, safe to cast to int
+}
+
 var upgradeCmd = &cobra.Command{
 	Use:   "upgrade",
 	Short: "Move sources to their latest version and reconcile the blueprint.",
-	Long: `With no arguments, move every declared OCI source to its latest stable version, then reconcile: apply terraform and the Flux blueprint, wait, and prune kustomizations this context no longer declares. Use --source name=url to move named sources to specific versions instead. The whole reconcile — including the prune — is gated by --yes.
+	Long: `With no arguments, move every declared OCI source to its latest stable version, then reconcile: apply terraform and the Flux blueprint, wait, and prune kustomizations this context no longer declares. Use --source name=url to move named sources to specific versions instead. In a terminal, upgrade first prints the source moves and the kustomizations it would prune, then asks to proceed; --yes skips the prompt. Without a terminal, --yes is required.
 
 Use the 'cluster' or 'node' subcommand to upgrade Talos nodes instead.`,
-	Example: `# Move all sources to their latest stable version and reconcile
+	Example: `# Review the plan, confirm at the prompt, then move all sources to their latest stable version and reconcile
+windsor upgrade
+
+# Same, without the prompt (required in CI)
 windsor upgrade --yes
 
 # Move a specific source to a specific version
@@ -54,9 +70,10 @@ windsor upgrade cluster --nodes=10.0.0.5 --image=ghcr.io/siderolabs/installer:v1
 	Args:         cobra.NoArgs,
 	SilenceUsage: true,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		// Configure the project but defer Initialize (compose) until after the confirmation and
+		// Configure the project but defer Initialize (compose) until after the --yes and
 		// downgrade gates, so neither a missing --yes nor a refused downgrade pulls or composes
-		// any source. `windsor upgrade` runs the full blueprint — terraform components and Flux
+		// any source. The interactive prompt follows composition, because its plan needs the
+		// recomposed blueprint. `windsor upgrade` runs the full blueprint — terraform components and Flux
 		// kustomizations both — so the tool surface is not statically narrowable; mirror `apply`
 		// and request AllRequirements(), letting the per-tool config gates decide.
 		proj, err := configureProject(cmd)
@@ -64,8 +81,9 @@ windsor upgrade cluster --nodes=10.0.0.5 --image=ghcr.io/siderolabs/installer:v1
 			return err
 		}
 
-		if !upgradeYes {
-			msg := "upgrade rewrites blueprint.yaml and reconciles the cluster (apply, wait, prune); re-run with --yes to proceed, or use `windsor plan` to preview"
+		interactive := !upgradeYes && upgradeStdinIsTerminal()
+		if !upgradeYes && !interactive {
+			msg := "upgrade rewrites blueprint.yaml and reconciles the cluster (apply, wait, prune); run it in a terminal to confirm, re-run with --yes to proceed, or use `windsor plan` to preview"
 			fmt.Fprintln(cmd.ErrOrStderr(), msg)
 			silenceErrorsOnAncestors(cmd)
 			return fmt.Errorf("%s", msg)
@@ -91,21 +109,49 @@ windsor upgrade cluster --nodes=10.0.0.5 --image=ghcr.io/siderolabs/installer:v1
 			return fmt.Errorf("blueprint is not available")
 		}
 
-		if len(upgradeSources) > 0 {
-			if err := retargetSources(cmd, proj, upgradeSources); err != nil {
-				return err
-			}
-		} else {
-			if err := upgradeToLatest(cmd, proj); err != nil {
+		blueprintPath := filepath.Join(proj.Runtime.ConfigRoot, "blueprint.yaml")
+		var snapshot []byte
+		if interactive {
+			snapshot, err = snapshotFile(blueprintPath)
+			if err != nil {
 				return err
 			}
 		}
+		abort := func(cause error) error {
+			if !interactive {
+				return cause
+			}
+			if restoreErr := restoreFile(blueprintPath, snapshot); restoreErr != nil {
+				return fmt.Errorf("%w; also failed to restore blueprint.yaml: %v", cause, restoreErr)
+			}
+			return cause
+		}
+
+		var changes sourceChanges
+		if len(upgradeSources) > 0 {
+			changes, err = retargetSources(proj, upgradeSources)
+		} else {
+			changes, err = upgradeToLatest(proj)
+		}
+		if err != nil {
+			return abort(err)
+		}
 		if err := recomposeBlueprint(proj); err != nil {
-			return err
+			return abort(err)
 		}
 		blueprint = proj.Composer.BlueprintHandler.Generate()
 		if blueprint == nil {
-			return fmt.Errorf("blueprint is not available")
+			return abort(fmt.Errorf("blueprint is not available"))
+		}
+
+		if interactive {
+			prunable, pruneErr := proj.Provisioner.PrunableKustomizations(blueprint)
+			if !confirmUpgrade(cmd.InOrStdin(), cmd.ErrOrStderr(), proj.Runtime.ContextName, changes, prunable, pruneErr) {
+				silenceErrorsOnAncestors(cmd)
+				return abort(fmt.Errorf("upgrade cancelled; blueprint.yaml is unchanged"))
+			}
+		} else {
+			printSourceChanges(cmd.OutOrStdout(), changes, len(upgradeSources) > 0)
 		}
 
 		return stacklock.With(cmd.Context(), proj.Runtime, "upgrade", lockTimeout, func() error {
@@ -301,7 +347,7 @@ func parseRebootMode(mode string) (bool, error) {
 // pruneOrphaned deletes the kustomizations the blueprint no longer declares, after printing them.
 // prunable is the already-computed prune set (empty → no-op). The caller must have waited for the
 // desired set to be Ready first, so any migrated resources are adopted before a deletion. Shared by
-// apply (behind --prune) and upgrade (unconditional, since upgrade already required --yes to start).
+// apply (behind --prune) and upgrade (unconditional, since upgrade is confirmed or passed --yes before it starts).
 func pruneOrphaned(cmd *cobra.Command, proj *project.Project, blueprint *blueprintv1alpha1.Blueprint, prunable []string) error {
 	if len(prunable) == 0 {
 		return nil
@@ -313,25 +359,21 @@ func pruneOrphaned(cmd *cobra.Command, proj *project.Project, blueprint *bluepri
 	return nil
 }
 
-// upgradeToLatest moves every remote OCI source pinned to a semver to its latest stable tag,
-// persists the bumps to blueprint.yaml, and prints what changed. Sources that are not OCI, not
-// semver-pinned, or already current are left untouched; it reports when nothing moved.
-func upgradeToLatest(cmd *cobra.Command, proj *project.Project) error {
+// upgradeToLatest moves every remote OCI source pinned to a semver to its latest stable tag and
+// persists the bumps to blueprint.yaml. It returns what moved. Sources that are not OCI, not
+// semver-pinned, or already current are left untouched, and nothing is written when none moved.
+func upgradeToLatest(proj *project.Project) (sourceChanges, error) {
 	upgrades, err := proj.Composer.BlueprintHandler.UpgradeSourcesToLatest()
 	if err != nil {
-		return fmt.Errorf("error resolving latest source versions: %w", err)
+		return nil, fmt.Errorf("error resolving latest source versions: %w", err)
 	}
 	if len(upgrades) == 0 {
-		fmt.Fprintln(cmd.OutOrStdout(), "All sources are already at their latest version.")
-		return nil
+		return nil, nil
 	}
 	if err := proj.Composer.BlueprintHandler.Write(true); err != nil {
-		return fmt.Errorf("failed to persist source upgrades to blueprint.yaml: %w", err)
+		return nil, fmt.Errorf("failed to persist source upgrades to blueprint.yaml: %w", err)
 	}
-	for _, u := range upgrades {
-		fmt.Fprintf(cmd.OutOrStdout(), "Upgraded %s from %s to %s\n", u.Name, u.From, u.To)
-	}
-	return nil
+	return upgrades, nil
 }
 
 // recomposeBlueprint reloads the blueprint from disk and recomposes it against the sources'
@@ -357,31 +399,96 @@ func parseSourceSpec(spec string) (name, url string, err error) {
 }
 
 // retargetSources applies each `name=url` spec to the context's declared sources, persists the bumps
-// to blueprint.yaml via the same writer init uses, and prints what changed for the operator to
-// commit. An unknown source name or malformed spec aborts before anything is written, so a failed
-// retarget never leaves blueprint.yaml half-edited. Downgrades are refused earlier by
-// checkSourceDowngrades, before any source is composed.
-func retargetSources(cmd *cobra.Command, proj *project.Project, specs []string) error {
-	type change struct{ name, previous, target string }
-	changes := make([]change, 0, len(specs))
+// to blueprint.yaml via the same writer init uses, and returns what changed. An unknown source name
+// or malformed spec aborts before anything is written, so a failed retarget never leaves
+// blueprint.yaml half-edited. Downgrades are refused earlier by checkSourceDowngrades.
+func retargetSources(proj *project.Project, specs []string) (sourceChanges, error) {
+	changes := make(sourceChanges, 0, len(specs))
 	for _, spec := range specs {
 		name, url, err := parseSourceSpec(spec)
 		if err != nil {
-			return err
+			return nil, err
 		}
 		previous, err := proj.Composer.BlueprintHandler.RetargetSource(name, url)
 		if err != nil {
-			return err
+			return nil, err
 		}
-		changes = append(changes, change{name: name, previous: previous, target: url})
+		changes = append(changes, blueprint.SourceUpgrade{Name: name, From: previous, To: url})
 	}
 
 	if err := proj.Composer.BlueprintHandler.Write(true); err != nil {
-		return fmt.Errorf("failed to persist source changes to blueprint.yaml: %w", err)
+		return nil, fmt.Errorf("failed to persist source changes to blueprint.yaml: %w", err)
 	}
+	return changes, nil
+}
 
+// printSourceChanges reports the sources an upgrade moved, or that every source is already current.
+func printSourceChanges(w io.Writer, changes sourceChanges, retargeted bool) {
+	if len(changes) == 0 {
+		fmt.Fprintln(w, "All sources are already at their latest version.")
+		return
+	}
+	verb := "Upgraded"
+	if retargeted {
+		verb = "Retargeted"
+	}
 	for _, c := range changes {
-		fmt.Fprintf(cmd.OutOrStdout(), "Retargeted %s from %s to %s\n", c.name, c.previous, c.target)
+		fmt.Fprintf(w, "%s %s from %s to %s\n", verb, c.Name, c.From, c.To)
+	}
+}
+
+// confirmUpgrade prints the upgrade plan for the context and reads one line from r. Only "y" or
+// "yes" (any case) confirms; anything else, including closed input, declines. A failed prune
+// listing is reported in the plan instead of aborting, so the operator still decides.
+func confirmUpgrade(r io.Reader, w io.Writer, contextName string, changes sourceChanges, prunable []string, pruneErr error) bool {
+	fmt.Fprintf(w, "Upgrade plan for context %s:\n", contextName)
+	if len(changes) == 0 {
+		fmt.Fprintln(w, "  Sources: no changes")
+	} else {
+		fmt.Fprintln(w, "  Sources:")
+		for _, c := range changes {
+			fmt.Fprintf(w, "    %s: %s -> %s\n", c.Name, c.From, c.To)
+		}
+	}
+	switch {
+	case pruneErr != nil:
+		fmt.Fprintf(w, "  Kustomizations to prune: unknown (%v)\n", pruneErr)
+	case len(prunable) == 0:
+		fmt.Fprintln(w, "  Kustomizations to prune: none")
+	default:
+		fmt.Fprintf(w, "  Kustomizations to prune:\n    %s\n", strings.Join(prunable, "\n    "))
+	}
+	fmt.Fprint(w, "Proceed with the upgrade? [y/N]: ")
+	scanner := bufio.NewScanner(r)
+	if !scanner.Scan() {
+		return false
+	}
+	answer := strings.ToLower(strings.TrimSpace(scanner.Text()))
+	return answer == "y" || answer == "yes"
+}
+
+// snapshotFile returns the bytes of path, or nil when the file does not exist.
+func snapshotFile(path string) ([]byte, error) {
+	data, err := os.ReadFile(path) // #nosec G304 -- path is the context's own blueprint.yaml
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("failed to read %s: %w", path, err)
+	}
+	return data, nil
+}
+
+// restoreFile puts snapshot back at path, or removes the file when the snapshot is nil.
+func restoreFile(path string, snapshot []byte) error {
+	if snapshot == nil {
+		if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
+			return fmt.Errorf("failed to remove %s: %w", path, err)
+		}
+		return nil
+	}
+	if err := os.WriteFile(path, snapshot, 0644); err != nil { // #nosec G306 -- blueprint.yaml is a project file, readable like the writer's own output
+		return fmt.Errorf("failed to restore %s: %w", path, err)
 	}
 	return nil
 }
@@ -446,7 +553,7 @@ func init() {
 	upgradeCmd.AddCommand(upgradeNodeCmd)
 
 	upgradeCmd.Flags().StringArrayVar(&upgradeSources, "source", nil, "Retarget a declared source to a new tagged URL (name=url); repeatable. Persisted to blueprint.yaml.")
-	upgradeCmd.Flags().BoolVar(&upgradeYes, "yes", false, "Proceed without confirmation when the upgrade would prune kustomizations.")
+	upgradeCmd.Flags().BoolVar(&upgradeYes, "yes", false, "Skip the confirmation prompt.")
 	upgradeCmd.Flags().BoolVar(&upgradeAllowDowngrade, "allow-downgrade", false, "Permit moving a source to an older version. Reverts infrastructure declaratively; does NOT reverse application data.")
 
 	upgradeClusterCmd.Flags().StringSliceVar(&upgradeNodes, "nodes", []string{}, "Node addresses to upgrade. Required.")

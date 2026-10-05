@@ -7,7 +7,7 @@ description: "Move sources to their latest version and reconcile the blueprint."
 windsor upgrade [flags]
 ```
 
-With no arguments, move every declared OCI source to its latest stable version, then reconcile: apply terraform and the Flux blueprint, wait, and prune kustomizations this context no longer declares. Use --source name=url to move named sources to specific versions instead. The whole reconcile — including the prune — is gated by --yes.
+With no arguments, move every declared OCI source to its latest stable version, then reconcile: apply terraform and the Flux blueprint, wait, and prune kustomizations this context no longer declares. Use --source name=url to move named sources to specific versions instead. In a terminal, upgrade first prints the source moves and the kustomizations it would prune, then asks to proceed; --yes skips the prompt. Without a terminal, --yes is required.
 
 Use the 'cluster' or 'node' subcommand to upgrade Talos nodes instead.
 
@@ -17,7 +17,7 @@ Use the 'cluster' or 'node' subcommand to upgrade Talos nodes instead.
 |------|---------|-------------|
 | `--allow-downgrade` | `false` | Permit moving a source to an older version. Reverts infrastructure declaratively; does NOT reverse application data. |
 | `--source` | `[]` | Retarget a declared source to a new tagged URL (name=url); repeatable. Persisted to blueprint.yaml. |
-| `--yes` | `false` | Proceed without confirmation when the upgrade would prune kustomizations. |
+| `--yes` | `false` | Skip the confirmation prompt. |
 
 ## Subcommands
 
@@ -27,7 +27,10 @@ Use the 'cluster' or 'node' subcommand to upgrade Talos nodes instead.
 ## Examples
 
 ```sh
-# Move all sources to their latest stable version and reconcile
+# Review the plan, confirm at the prompt, then move all sources to their latest stable version and reconcile
+windsor upgrade
+
+# Same, without the prompt (required in CI)
 windsor upgrade --yes
 
 # Move a specific source to a specific version
