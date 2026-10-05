@@ -1,15 +1,8 @@
 package secrets
 
-// SecretsConfig represents the Secrets configuration. Root windsor.yaml loads decode into this type
-// for every version, so it must carry each field the v1alpha2 SecretsConfig has.
+// SecretsConfig represents the Secrets configuration
 type SecretsConfig struct {
 	OnePasswordConfig `yaml:"onepassword,omitempty"`
-	Sops              *SopsConfig `yaml:"sops,omitempty"`
-}
-
-// SopsConfig represents the SOPS secrets provider configuration.
-type SopsConfig struct {
-	Enabled *bool `yaml:"enabled,omitempty"`
 }
 
 type OnePasswordConfig struct {
@@ -45,11 +38,6 @@ func (base *SecretsConfig) Merge(overlay *SecretsConfig) {
 			base.Vaults[key] = overlayVault
 		}
 	}
-
-	if overlay.Sops != nil && overlay.Sops.Enabled != nil {
-		enabled := *overlay.Sops.Enabled
-		base.Sops = &SopsConfig{Enabled: &enabled}
-	}
 }
 
 // Copy creates a deep copy of the SecretsConfig object
@@ -66,14 +54,6 @@ func (c *SecretsConfig) Copy() *SecretsConfig {
 
 	for key, vault := range c.Vaults {
 		copy.Vaults[key] = vault
-	}
-
-	if c.Sops != nil {
-		copy.Sops = &SopsConfig{}
-		if c.Sops.Enabled != nil {
-			enabled := *c.Sops.Enabled
-			copy.Sops.Enabled = &enabled
-		}
 	}
 
 	return copy

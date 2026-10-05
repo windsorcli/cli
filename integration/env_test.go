@@ -382,19 +382,19 @@ func TestEnv_SurfacesErrorWithoutHookAndStaysSilentWithHook(t *testing.T) {
 	}
 }
 
-// TestEnv_RootFileContextEnablesSops verifies that secrets.sops.enabled under contexts.<name> in the root
-// windsor.yaml registers the SOPS provider, as it does in the per-context file. The plaintext secrets
-// file makes a registered provider refuse it, which proves the provider was reached.
-func TestEnv_RootFileContextEnablesSops(t *testing.T) {
+// TestEnv_ContextFileEnablesSops verifies that secrets.sops.enabled in the per-context windsor.yaml
+// registers the SOPS provider. The plaintext secrets file makes a registered provider refuse it,
+// which proves the provider was reached.
+func TestEnv_ContextFileEnablesSops(t *testing.T) {
 	t.Parallel()
 	dir, env := helpers.PrepareFixture(t, "default")
-	rootConfig := "version: v1alpha1\ncontexts:\n  default:\n    secrets:\n      sops:\n        enabled: true\n    environment:\n      DB_PASSWORD: ${secret(\"sops\", \"database.password\", \"\")}\n"
-	if err := os.WriteFile(filepath.Join(dir, "windsor.yaml"), []byte(rootConfig), 0600); err != nil {
-		t.Fatalf("write root windsor.yaml: %v", err)
-	}
 	contextDir := filepath.Join(dir, "contexts", "default")
 	if err := os.MkdirAll(contextDir, 0750); err != nil {
 		t.Fatalf("mkdir context dir: %v", err)
+	}
+	contextConfig := "secrets:\n  sops:\n    enabled: true\nenvironment:\n  DB_PASSWORD: ${secret(\"sops\", \"database.password\", \"\")}\n"
+	if err := os.WriteFile(filepath.Join(contextDir, "windsor.yaml"), []byte(contextConfig), 0600); err != nil {
+		t.Fatalf("write context windsor.yaml: %v", err)
 	}
 	if err := os.WriteFile(filepath.Join(contextDir, "secrets.yaml"), []byte("database:\n  password: hunter2\n"), 0600); err != nil {
 		t.Fatalf("write secrets.yaml: %v", err)
