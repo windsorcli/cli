@@ -1016,6 +1016,53 @@ func TestUpgradeCmd_Prompt(t *testing.T) {
 		}
 	})
 
+	t.Run("PrunesOnlyWhatTheOperatorConfirmed", func(t *testing.T) {
+		// Given a plan that listed old-thing, and a cluster that also holds new-orphan by prune time
+		calls := 0
+		result := run(t, "y\n", func(mocks *ApplyMocks) {
+			mocks.KubernetesManager.ListPrunableKustomizationsFunc = func(bp *blueprintv1alpha1.Blueprint, namespace string) ([]string, error) {
+				calls++
+				if calls == 1 {
+					return []string{"old-thing"}, nil
+				}
+				return []string{"old-thing", "new-orphan"}, nil
+			}
+		})
+
+		// Then the prune is skipped, the warning names the extra, and the upgrade still completes
+		if result.err != nil {
+			t.Fatalf("Expected no error, got %v", result.err)
+		}
+		if result.pruned {
+			t.Error("Expected the prune to be skipped when it exceeds the confirmed plan")
+		}
+		if !strings.Contains(result.stderr, "Skipping the prune") || !strings.Contains(result.stderr, "new-orphan") {
+			t.Errorf("Expected a warning naming new-orphan, got:\n%s", result.stderr)
+		}
+	})
+
+	t.Run("PrunesWhenTheSetShrinksAfterConfirmation", func(t *testing.T) {
+		// Given a plan that listed two kustomizations and a cluster that holds only one by prune time
+		calls := 0
+		result := run(t, "y\n", func(mocks *ApplyMocks) {
+			mocks.KubernetesManager.ListPrunableKustomizationsFunc = func(bp *blueprintv1alpha1.Blueprint, namespace string) ([]string, error) {
+				calls++
+				if calls == 1 {
+					return []string{"old-thing", "other-thing"}, nil
+				}
+				return []string{"old-thing"}, nil
+			}
+		})
+
+		// Then the prune runs
+		if result.err != nil {
+			t.Fatalf("Expected no error, got %v", result.err)
+		}
+		if !result.pruned {
+			t.Error("Expected the prune to run for a subset of the confirmed plan")
+		}
+	})
+
 	t.Run("DecliningRestoresBlueprintAndTouchesNothingElse", func(t *testing.T) {
 		// Given the same plan
 		// When the user answers no
@@ -1065,6 +1112,28 @@ func TestUpgradeCmd_Prompt(t *testing.T) {
 		}
 		if result.blueprint != originalBlueprint {
 			t.Errorf("Expected blueprint.yaml restored, got %q", result.blueprint)
+		}
+	})
+}
+
+func TestUnconfirmedPrunes(t *testing.T) {
+	t.Run("NilConfirmedMeansNoPlanWasShown", func(t *testing.T) {
+		if got := unconfirmedPrunes([]string{"a"}, nil); got != nil {
+			t.Errorf("Expected nil, got %v", got)
+		}
+	})
+
+	t.Run("ReturnsNamesOutsideTheConfirmedSet", func(t *testing.T) {
+		got := unconfirmedPrunes([]string{"a", "b", "c"}, map[string]bool{"a": true})
+		if strings.Join(got, ",") != "b,c" {
+			t.Errorf("Expected b,c, got %v", got)
+		}
+	})
+
+	t.Run("EmptyConfirmedSetFlagsEveryName", func(t *testing.T) {
+		got := unconfirmedPrunes([]string{"a"}, map[string]bool{})
+		if len(got) != 1 {
+			t.Errorf("Expected the name flagged, got %v", got)
 		}
 	})
 }

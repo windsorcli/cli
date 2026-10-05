@@ -144,8 +144,15 @@ windsor upgrade cluster --nodes=10.0.0.5 --image=ghcr.io/siderolabs/installer:v1
 			return abort(fmt.Errorf("blueprint is not available"))
 		}
 
+		var confirmedPrune map[string]bool
 		if interactive {
 			prunable, pruneErr := proj.Provisioner.PrunableKustomizations(blueprint)
+			if pruneErr == nil {
+				confirmedPrune = make(map[string]bool, len(prunable))
+				for _, name := range prunable {
+					confirmedPrune[name] = true
+				}
+			}
 			if !confirmUpgrade(cmd.InOrStdin(), cmd.ErrOrStderr(), proj.Runtime.ContextName, changes, prunable, pruneErr) {
 				silenceErrorsOnAncestors(cmd)
 				return abort(fmt.Errorf("upgrade cancelled; blueprint.yaml is unchanged"))
@@ -185,6 +192,10 @@ windsor upgrade cluster --nodes=10.0.0.5 --image=ghcr.io/siderolabs/installer:v1
 			prunable, err := proj.Provisioner.PrunableKustomizations(blueprint)
 			if err != nil {
 				return fmt.Errorf("error listing kustomizations to prune: %w", err)
+			}
+			if extras := unconfirmedPrunes(prunable, confirmedPrune); len(extras) > 0 {
+				fmt.Fprintf(cmd.ErrOrStderr(), "Skipping the prune: these kustomizations are no longer declared but were not in the plan you confirmed:\n  %s\nRun `windsor apply --prune` to remove them.\n", strings.Join(extras, "\n  "))
+				prunable = nil
 			}
 			if err := pruneOrphaned(cmd, proj, blueprint, prunable); err != nil {
 				return err
@@ -465,6 +476,21 @@ func confirmUpgrade(r io.Reader, w io.Writer, contextName string, changes source
 	}
 	answer := strings.ToLower(strings.TrimSpace(scanner.Text()))
 	return answer == "y" || answer == "yes"
+}
+
+// unconfirmedPrunes returns the names in prunable that the operator did not see in the confirmed
+// plan. A nil confirmed map means no plan was shown (--yes, or the listing failed), so it returns nil.
+func unconfirmedPrunes(prunable []string, confirmed map[string]bool) []string {
+	if confirmed == nil {
+		return nil
+	}
+	var extras []string
+	for _, name := range prunable {
+		if !confirmed[name] {
+			extras = append(extras, name)
+		}
+	}
+	return extras
 }
 
 // snapshotFile returns the bytes of path, or nil when the file does not exist.
