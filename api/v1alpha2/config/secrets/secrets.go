@@ -2,11 +2,13 @@ package secrets
 
 import (
 	"github.com/windsorcli/cli/api/v1alpha2/config/secrets/onepassword"
+	"github.com/windsorcli/cli/api/v1alpha2/config/secrets/sops"
 )
 
 // SecretsConfig represents the Secrets configuration
 type SecretsConfig struct {
 	OnePassword *onepassword.OnePasswordConfig `yaml:"onepassword,omitempty"`
+	Sops        *sops.SopsConfig               `yaml:"sops,omitempty"`
 }
 
 // Merge performs a deep merge of the current SecretsConfig with another SecretsConfig.
@@ -20,6 +22,12 @@ func (base *SecretsConfig) Merge(overlay *SecretsConfig) {
 		}
 		base.OnePassword.Merge(overlay.OnePassword)
 	}
+	if overlay.Sops != nil {
+		if base.Sops == nil {
+			base.Sops = &sops.SopsConfig{}
+		}
+		base.Sops.Merge(overlay.Sops)
+	}
 }
 
 // DeepCopy creates a deep copy of the SecretsConfig object
@@ -29,5 +37,6 @@ func (c *SecretsConfig) DeepCopy() *SecretsConfig {
 	}
 	return &SecretsConfig{
 		OnePassword: c.OnePassword.DeepCopy(),
+		Sops:        c.Sops.DeepCopy(),
 	}
 }
