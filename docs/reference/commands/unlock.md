@@ -1,15 +1,15 @@
 ---
 title: "windsor unlock"
-description: "Release a stuck stack lock."
+description: "Clear stale stack lock information."
 ---
 
 ```sh
 windsor unlock [flags]
 ```
 
-Force-release a stuck stack lock for the current context.
+Clear stale stack lock information for the current context.
 
-A holder killed before it could release (CI cancellation, OOM, crash) leaves the lock behind, so later commands block until timeout and then fail. This clears it. It does not check whether the holder is still alive, so only run it when no other windsor process is using this context.
+The lock frees itself when its holder exits, including after a crash, an OOM kill, or a CI cancellation. A crash can leave holder details behind, and this command removes them. If a running process still holds the lock, the command names it and exits with an error. Stop that process to free the lock.
 
 ## Flags
 
@@ -20,7 +20,7 @@ A holder killed before it could release (CI cancellation, OOM, crash) leaves the
 ## Examples
 
 ```sh
-# Clear a stuck lock interactively
+# Clear stale lock information interactively
 windsor unlock
 # → prompts: Type "local" to confirm:
 

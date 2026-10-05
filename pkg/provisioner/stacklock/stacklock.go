@@ -116,7 +116,8 @@ func (e *LockBusyError) Error() string {
 type StackLock interface {
 	Acquire(ctx context.Context, info LockInfo, timeout time.Duration) (Release, error)
 	Inspect(ctx context.Context) (*LockInfo, error)
-	ForceRelease(ctx context.Context, lockID string, reason string) error
+	IsHeld(ctx context.Context) (bool, error)
+	ClearStale(ctx context.Context, reason string) error
 }
 
 // =============================================================================
@@ -156,7 +157,7 @@ func With(ctx context.Context, rt *runtime.Runtime, operation string, timeout ti
 
 // ForRuntime returns the StackLock for the runtime's context — the same lock that
 // With acquires. It is exposed so operator-facing recovery (windsor unlock) can
-// inspect and force-release a stuck lock without duplicating the path derivation.
+// inspect a lock and clear its stale holder info without duplicating the path derivation.
 // Returns an error when the runtime is nil or has not been configured yet (empty
 // scratch path).
 func ForRuntime(rt *runtime.Runtime) (StackLock, error) {
@@ -280,29 +281,50 @@ func (s *localFlockLock) Inspect(ctx context.Context) (*LockInfo, error) {
 	return &info, nil
 }
 
-// ForceRelease clears a stuck lock by removing the lock file and its holder-info
-// sidecar, so the next Acquire starts from a clean slate. It is the operator-facing
-// recovery path (windsor unlock) for a holder that died without releasing. When
-// lockID is non-empty it guards against a race: if a different holder has acquired
-// the lock since the caller inspected it, the release is refused rather than yanking
-// a lock that is now legitimately held. reason is included in any failure message
-// for diagnostics. Missing files are not an error — the lock is already clear.
-func (s *localFlockLock) ForceRelease(ctx context.Context, lockID string, reason string) error {
+// IsHeld reports whether a live process holds the lock. It probes the lock file with a
+// non-blocking flock attempt and releases it at once when the attempt succeeds. A missing
+// lock file means nothing holds the lock, and the probe does not create one. The kernel drops
+// a flock when its holder exits, so a crashed holder never reads as held.
+func (s *localFlockLock) IsHeld(ctx context.Context) (bool, error) {
+	if _, err := os.Stat(s.path); errors.Is(err, os.ErrNotExist) {
+		return false, nil
+	}
+	flk := flock.New(s.path)
+	locked, err := flk.TryLock()
+	if err != nil {
+		return false, fmt.Errorf("flock probe: %w", err)
+	}
+	if !locked {
+		return true, nil
+	}
+	if err := flk.Unlock(); err != nil {
+		return false, fmt.Errorf("flock probe release: %w", err)
+	}
+	return false, nil
+}
+
+// ClearStale removes the holder-info sidecar left behind by a holder that exited without
+// releasing. It always takes the flock first, creating the lock file when it is absent. When a
+// live process holds the lock, it returns a *LockBusyError and changes nothing. A missing lock
+// directory means there is nothing to clear. It never removes the lock file: a process that holds
+// or waits on the old file would keep locking it while a new process locked a fresh file at
+// the same path. reason is included in any failure message. A missing sidecar is not an error.
+func (s *localFlockLock) ClearStale(ctx context.Context, reason string) error {
 	infoPath := s.path + stackLockInfoSuffix
-	if lockID != "" {
-		if info := readHolderInfo(infoPath); info != nil && info.ID != lockID {
-			return fmt.Errorf("stacklock: refusing to force-release: lock is now held by a different holder (%q, not %q) — a new windsor process acquired it", info.ID, lockID)
-		}
+	if _, err := os.Stat(filepath.Dir(s.path)); errors.Is(err, os.ErrNotExist) {
+		return nil
 	}
-	var errs []error
-	if err := os.Remove(s.path); err != nil && !os.IsNotExist(err) {
-		errs = append(errs, err)
+	flk := flock.New(s.path)
+	locked, err := flk.TryLock()
+	if err != nil {
+		return fmt.Errorf("stacklock: clear stale (%s): flock acquire: %w", reason, err)
 	}
+	if !locked {
+		return &LockBusyError{Path: s.path, Holder: readHolderInfo(infoPath)}
+	}
+	defer func() { _ = flk.Unlock() }()
 	if err := os.Remove(infoPath); err != nil && !os.IsNotExist(err) {
-		errs = append(errs, err)
-	}
-	if len(errs) > 0 {
-		return fmt.Errorf("stacklock: force-release (%s): %w", reason, errors.Join(errs...))
+		return fmt.Errorf("stacklock: clear stale (%s): %w", reason, err)
 	}
 	return nil
 }
