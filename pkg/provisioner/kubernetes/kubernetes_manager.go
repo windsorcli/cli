@@ -456,9 +456,9 @@ func (k *BaseKubernetesManager) abandonedInventoryGraceWindow(entryCount int) ti
 	return base + extra
 }
 
-// kustomizationWaitProgress builds the periodic wait line: the pending names with elapsed time against
-// the total timeout, followed by the latest failure message of each pending kustomization that has one.
-func kustomizationWaitProgress(names []string, ready map[string]bool, failures map[string]*kustomizationFailedError, elapsed, timeout time.Duration) string {
+// kustomizationWaitProgress builds the periodic wait line: the pending names with the elapsed time in
+// Terraform's "[00m10s elapsed]" style, followed by the latest failure message of each pending kustomization that has one.
+func kustomizationWaitProgress(names []string, ready map[string]bool, failures map[string]*kustomizationFailedError, elapsed time.Duration) string {
 	var pending, failing []string
 	for _, name := range names {
 		if ready[name] {
@@ -473,16 +473,21 @@ func kustomizationWaitProgress(names []string, ready map[string]bool, failures m
 			failing = append(failing, fmt.Sprintf("%s failing (%s): %s", name, failure.reason, message))
 		}
 	}
-	line := fmt.Sprintf("waiting on %s, elapsed %s of %s", strings.Join(pending, ", "), formatWaitDuration(elapsed), formatWaitDuration(timeout))
+	line := fmt.Sprintf("waiting on %s [%s elapsed]", strings.Join(pending, ", "), formatWaitDuration(elapsed))
 	if len(failing) > 0 {
 		line += "; " + strings.Join(failing, "; ")
 	}
 	return line
 }
 
-// formatWaitDuration renders a duration rounded to whole seconds.
+// formatWaitDuration renders a duration the way Terraform does: 00m10s, or 1h02m03s past an hour.
 func formatWaitDuration(d time.Duration) string {
-	return d.Round(time.Second).String()
+	total := int(d.Round(time.Second).Seconds())
+	h, m, sec := total/3600, total%3600/60, total%60
+	if h > 0 {
+		return fmt.Sprintf("%dh%02dm%02ds", h, m, sec)
+	}
+	return fmt.Sprintf("%02dm%02ds", m, sec)
 }
 
 // describeStuckKustomization extracts the most diagnostic status condition from a
@@ -636,7 +641,7 @@ var kustomizationsGVR = schema.GroupVersionResource{
 // A list-call error or a ReconciliationFailed condition fails the wait after an error budget. For a
 // failing kustomization the budget is its own timeout, at most a quarter of the total and at least the minimum.
 // The streak survives Ready flipping to Unknown between retries. BuildFailed and ArtifactFailed fail at once.
-// It prints elapsed time against the total timeout at a steady interval for the whole wait.
+// It prints the elapsed time at a steady interval for the whole wait.
 func (k *BaseKubernetesManager) WaitForKustomizations(ctx context.Context, message string, blueprint *blueprintv1alpha1.Blueprint) error {
 	if blueprint == nil {
 		return fmt.Errorf("blueprint not provided")
@@ -680,7 +685,7 @@ func (k *BaseKubernetesManager) WaitForKustomizations(ctx context.Context, messa
 	start := time.Now()
 	reportInterval := kustomizationWaitReportPolls * k.kustomizationWaitPollInterval
 	lastReport := start
-	tui.Update(fmt.Sprintf("waiting on %d kustomizations, timeout %s", len(kustomizationNames), formatWaitDuration(timeout)))
+	tui.Update(fmt.Sprintf("waiting on %d kustomizations", len(kustomizationNames)))
 
 	timeoutChan := time.After(timeout)
 	ticker := time.NewTicker(k.kustomizationWaitPollInterval)
@@ -766,7 +771,7 @@ func (k *BaseKubernetesManager) WaitForKustomizations(ctx context.Context, messa
 				return nil
 			}
 			if now := time.Now(); now.Sub(lastReport) >= reportInterval {
-				tui.Update(kustomizationWaitProgress(kustomizationNames, readyKustomizations, latestFailure, now.Sub(start), timeout))
+				tui.Update(kustomizationWaitProgress(kustomizationNames, readyKustomizations, latestFailure, now.Sub(start)))
 				lastReport = now
 			}
 		}

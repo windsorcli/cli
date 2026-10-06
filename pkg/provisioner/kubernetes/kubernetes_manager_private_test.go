@@ -2435,13 +2435,13 @@ func TestBaseKubernetesManager_blockDependencyClosure(t *testing.T) {
 
 
 func TestKubernetesWaitProgress(t *testing.T) {
-	t.Run("ListsPendingNamesWithElapsedAndTimeout", func(t *testing.T) {
+	t.Run("ListsPendingNamesWithElapsed", func(t *testing.T) {
 		// Given two names where one is ready
 		line := kustomizationWaitProgress(
-			[]string{"a", "b"}, map[string]bool{"a": true}, nil, 4*time.Minute+10*time.Second, 113*time.Minute)
+			[]string{"a", "b"}, map[string]bool{"a": true}, nil, 4*time.Minute+10*time.Second)
 
-		// Then only the pending name appears, with elapsed time against the total timeout
-		want := "waiting on b, elapsed 4m10s of 1h53m0s"
+		// Then only the pending name appears, with the elapsed time
+		want := "waiting on b [04m10s elapsed]"
 		if line != want {
 			t.Errorf("Expected %q, got %q", want, line)
 		}
@@ -2454,7 +2454,7 @@ func TestKubernetesWaitProgress(t *testing.T) {
 		}
 
 		// When building the progress line
-		line := kustomizationWaitProgress([]string{"b"}, nil, failures, time.Minute, time.Hour)
+		line := kustomizationWaitProgress([]string{"b"}, nil, failures, time.Minute)
 
 		// Then the failure reason and message follow the pending list on the same line
 		if !strings.Contains(line, "b failing (ReconciliationFailed): dry-run failed spec.selector: Required value") {
@@ -2471,7 +2471,7 @@ func TestKubernetesWaitProgress(t *testing.T) {
 		failures := map[string]*kustomizationFailedError{"b": {name: "b", reason: "ReconciliationFailed", message: long}}
 
 		// When building the progress line
-		line := kustomizationWaitProgress([]string{"b"}, nil, failures, time.Minute, time.Hour)
+		line := kustomizationWaitProgress([]string{"b"}, nil, failures, time.Minute)
 
 		// Then the message is cut and marked
 		if !strings.HasSuffix(line, strings.Repeat("x", kustomizationWaitMessageLimit)+"...") {
