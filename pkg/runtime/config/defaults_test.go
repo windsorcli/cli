@@ -47,6 +47,7 @@ func TestDefaultTerraformBackendTypeForPlatform(t *testing.T) {
 		{"hetzner", "kubernetes"},
 		{"hyperv", "kubernetes"},
 		{"vsphere", "kubernetes"},
+		{"proxmox", "kubernetes"},
 		{"none", ""},
 		{"", ""},
 		{"unrecognized", ""},
