@@ -1,6 +1,7 @@
 # ADR 0005 — Typed error model: `WindsorError`, doc-linkable codes, central rendering
 
-- Status: Proposed
+- Status: Accepted. `internal/werror` shipped. The central renderer ships with the `cmd/`
+  wiring.
 - Date: 2026-08-04
 - Deciders: Ryan VanGundy
 - Fills the "Typed error model" placeholder from `release-v0.10.0.md`'s Wave 1. Sequenced there
@@ -82,8 +83,9 @@ func IsCategory(err error, category string) bool
 
 `Unwrap()` is load-bearing, not incidental — `go-style`'s existing `errors.As`/`errors.Is` rule
 depends on the chain staying walkable through a `WindsorError`, so wrapping an error in one never
-breaks a downstream typed check. `DocsURL` is mechanical (`https://docs.windsor.sh/errors/<code>`),
-never authored per error — one less thing to keep in sync as codes are added.
+breaks a downstream typed check. `DocsURL` is mechanical
+(`https://www.windsorcli.dev/errors/<code>`, code lowercased), never authored per error — one less
+thing to keep in sync as codes are added.
 
 **A second, cheaper type sits below `WindsorError` for the common case that doesn't warrant a full
 code:**
@@ -118,7 +120,7 @@ package every file already imports.
 first-use — not reserved numeric ranges, which the release doc's open question raised as an
 alternative and this ADR rejects (see Alternatives). Codes appear directly in user-facing output
 (the decision made in scoping this ADR): visible, greppable, and linkable from docs — `DocsURL` is
-derived mechanically from the code (point 1) at construction time, so `docs.windsor.sh/errors/`
+derived mechanically from the code (point 1) at construction time, so `www.windsorcli.dev/errors/`
 only needs one page per code to stay accurate, never a second hand-maintained mapping.
 
 The domain list is **deliberately not a 1:1 copy of ADR 0002's architecture layer table.** That
@@ -153,8 +155,9 @@ print pattern scattered across `cmd/` today:
   Error [COMPOSER-014]: <message>
 
   <remediation>
-  Docs: <docs-url>
   ```
+  The renderer prints no `Docs:` line until the error pages exist on the docs site. Until then,
+  `DocsURL` stays on the type but is left out of console and JSON output.
 - If it doesn't (an untyped error — expected throughout the migration, and always possible for a
   genuinely unanticipated failure), render `Error: <err.Error()>` — the existing wrap-chain string,
   centralized to one formatting call instead of 84 scattered ones, but not fabricating a code or
@@ -173,11 +176,10 @@ print pattern scattered across `cmd/` today:
   This is why `Wrap` captures each frame's message structurally instead of leaning on
   `fmt.Errorf` string concatenation (Context) — the renderer never parses `err.Error()` to recover
   the frames, it walks the chain.
-- `--output json` (the global surface question the release doc's open question #2 raises is not
-  resolved here, but this ADR's error shape is designed to satisfy it either way): a `WindsorError`
-  serializes to `{"code", "category", "message", "remediation", "docs_url"}`; `"trace": [...]` (from
-  `Breadcrumbs`) and `"cause"` are included only under `--verbose`, since the wrapped chain can carry
-  internal detail (file paths, raw provider errors) not meant for default-mode output.
+- `--format json` (the global output flag from ADR 0007): a `WindsorError` serializes to
+  `{"code", "category", "message", "remediation"}`; `"trace": [...]` (from `Breadcrumbs`)
+  and `"cause"` are included only under `--verbose`, since the wrapped chain can carry internal
+  detail (file paths, raw provider errors) not meant for default-mode output.
 - This renderer is deliberately minimal — console text and JSON only, no TUI awareness. The
   not-yet-written Presenter/event-stream ADR (Wave 1) is what later unifies this with logging and
   progress rendering behind one contract; this ADR defines the *type* and a *interim* renderer the
