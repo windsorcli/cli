@@ -49,6 +49,8 @@ type ConsoleOptions struct {
 	Interactive bool
 	// Width returns the terminal width for line truncation, or 0 for no truncation.
 	Width func() int
+	// OnActive runs with true when the first operation starts and false when the last one ends.
+	OnActive func(active bool)
 }
 
 // Console renders events as an indented tree of lines.
@@ -61,6 +63,7 @@ type Console struct {
 	order  []*consoleOp
 	drawn  int
 	frame  int
+	paused int
 	stopCh chan struct{}
 }
 
@@ -116,6 +119,30 @@ func (c *Console) Emit(ctx context.Context, event Event) {
 	c.syncTicker()
 }
 
+// Pause erases the live region and stops the animation until a matching Resume. Calls nest.
+// Use it before another writer, such as a password prompt, takes the terminal.
+func (c *Console) Pause() {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.paused == 0 {
+		c.clear()
+	}
+	c.paused++
+	c.syncTicker()
+}
+
+// Resume redraws the live region and restarts the animation when the last Pause ends.
+func (c *Console) Resume() {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.paused == 0 {
+		return
+	}
+	c.paused--
+	c.redraw()
+	c.syncTicker()
+}
+
 // =============================================================================
 // Private Methods
 // =============================================================================
@@ -130,6 +157,9 @@ func (c *Console) start(event Event) {
 	}
 	c.ops[op.id] = op
 	c.order = append(c.order, op)
+	if len(c.order) == 1 && c.opts.OnActive != nil {
+		c.opts.OnActive(true)
+	}
 	if !c.opts.Interactive {
 		c.printHeader(op)
 		return
@@ -152,6 +182,9 @@ func (c *Console) finish(event Event) {
 	}
 	if parent := c.ops[event.ParentID]; parent != nil {
 		parent.children--
+	}
+	if len(c.order) == 0 && c.opts.OnActive != nil {
+		c.opts.OnActive(false)
 	}
 	icon := c.color(ansiGreen, "✔")
 	if event.Kind == KindFailed {
@@ -227,8 +260,9 @@ func (c *Console) clear() {
 }
 
 // redraw replaces the live region with one line per active leaf operation in interactive mode.
+// It draws nothing while the console is paused.
 func (c *Console) redraw() {
-	if !c.opts.Interactive {
+	if !c.opts.Interactive || c.paused > 0 {
 		return
 	}
 	c.clear()

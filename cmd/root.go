@@ -248,7 +248,8 @@ func silenceErrorsOnAncestors(cmd *cobra.Command) {
 // preserved when the flag is not set. --debug and WINDSOR_DEBUG=true both enable
 // debug.Log output for the run; either one is enough. --context builds a runtime override
 // through NewRuntime, so every field (Evaluator, ToolsManager, ...) is fully hydrated, then
-// injects it under both override keys a caller might read.
+// injects it under both override keys a caller might read. Under --format json, the legacy tui
+// spinner writes nothing.
 func setupGlobalContext(cmd *cobra.Command) error {
 	ctx := cmd.Root().Context()
 	if ctx == nil {
@@ -282,19 +283,41 @@ func setupGlobalContext(cmd *cobra.Command) error {
 	debug.Log("debug logging enabled")
 	cmd.SetContext(ctx)
 	tui.Init(verbose)
+	if format == logging.FormatJSON {
+		tui.Silence()
+	}
 	return nil
 }
 
 // withOutput returns ctx with a presenter for format that writes to w, and a logger that routes
 // into it. Logs show at debug level under --verbose and at warn level otherwise. The console
 // animates only when w is a terminal and --verbose is off, because verbose runs stream
-// subprocess output to the same terminal.
+// subprocess output to the same terminal. While the console shows an operation, the legacy tui
+// spinner stays silent, and tui.Pause also pauses the console.
 func withOutput(ctx context.Context, w io.Writer, format logging.Format) context.Context {
 	level := slog.LevelWarn
 	if verbose {
 		level = slog.LevelDebug
 	}
-	p := presenter.New(format, w, level, !verbose)
+	p := presenter.New(format, w, presenter.ConsoleOptions{Level: level, Interactive: !verbose, OnActive: holdLegacySpinner()})
+	if c, ok := p.(*presenter.Console); ok {
+		tui.SetPauseHooks(c.Pause, c.Resume)
+	}
 	ctx = presenter.NewContext(ctx, p)
 	return logging.NewContext(ctx, slog.New(presenter.NewLogHandler(p, level)))
+}
+
+// holdLegacySpinner returns an activity callback that holds the tui spinner while active is true.
+func holdLegacySpinner() func(bool) {
+	var release func()
+	return func(active bool) {
+		if active {
+			release = tui.Hold()
+			return
+		}
+		if release != nil {
+			release()
+			release = nil
+		}
+	}
 }

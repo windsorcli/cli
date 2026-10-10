@@ -33,6 +33,9 @@ type termSpinner struct {
 // verboseSpinner is the Spinner implementation used in verbose mode.
 type verboseSpinner struct{}
 
+// silentSpinner is the Spinner implementation that writes nothing.
+type silentSpinner struct{}
+
 // =============================================================================
 // Interfaces
 // =============================================================================
@@ -59,6 +62,9 @@ var Active Spinner = &termSpinner{}
 // package-level Start/Done/Fail are suppressed so only the outermost layer
 // produces a terminal output line.
 var activeDepth int32
+
+// pauseHook and resumeHook run on every Pause and Resume, after the spinner itself.
+var pauseHook, resumeHook func()
 
 // Init configures Active for the current run mode.
 // In verbose mode, Active is set to a verboseSpinner that prints messages without animation.
@@ -115,22 +121,51 @@ func Fail() {
 	Active.Fail()
 }
 
-// Pause stops the spinner animation without printing Done or Fail.
+// Pause stops the spinner animation without printing Done or Fail, then runs the pause hook.
 // Use before handing the terminal to an interactive subprocess; call Resume after it exits.
-func Pause() { Active.Pause() }
+func Pause() {
+	Active.Pause()
+	runHook(pauseHook)
+}
 
 // PauseWithMessage stops the spinner animation and prints a static progress line once.
 // Use this for interactive prompts where the current progress context should stay visible.
 func PauseWithMessage() {
 	if term, ok := Active.(*termSpinner); ok {
 		term.pause(true)
-		return
+	} else {
+		Active.Pause()
 	}
-	Active.Pause()
+	runHook(pauseHook)
 }
 
-// Resume restarts the spinner animation after a Pause.
-func Resume() { Active.Resume() }
+// Resume restarts the spinner animation after a Pause, then runs the resume hook.
+func Resume() {
+	Active.Resume()
+	runHook(resumeHook)
+}
+
+// Hold suppresses package-level Start, Done, Fail, and WithProgress output until the returned
+// release function runs, the same as an open WithProgress block. Release runs once.
+func Hold() func() {
+	atomic.AddInt32(&activeDepth, 1)
+	var released int32
+	return func() {
+		if atomic.CompareAndSwapInt32(&released, 0, 1) {
+			atomic.AddInt32(&activeDepth, -1)
+		}
+	}
+}
+
+// SetPauseHooks sets the functions that Pause and Resume run after the spinner. Nil clears a hook.
+func SetPauseHooks(pause, resume func()) {
+	pauseHook, resumeHook = pause, resume
+}
+
+// Silence sets Active to a spinner that writes nothing.
+func Silence() {
+	Active = &silentSpinner{}
+}
 
 // WithProgress runs fn with a progress spinner showing message.
 // Increments the nesting depth so that any Start/Done/Fail calls inside fn
@@ -278,6 +313,24 @@ func (s *verboseSpinner) Pause() {}
 // Resume is a no-op in verbose mode since there is no animation to restart.
 func (s *verboseSpinner) Resume() {}
 
+// Start does nothing.
+func (s *silentSpinner) Start(string) {}
+
+// Update does nothing.
+func (s *silentSpinner) Update(string) {}
+
+// Done does nothing.
+func (s *silentSpinner) Done() {}
+
+// Fail does nothing.
+func (s *silentSpinner) Fail() {}
+
+// Pause does nothing.
+func (s *silentSpinner) Pause() {}
+
+// Resume does nothing.
+func (s *silentSpinner) Resume() {}
+
 // =============================================================================
 // Private Methods
 // =============================================================================
@@ -299,5 +352,12 @@ func (s *termSpinner) pause(printMessage bool) {
 			}
 		}
 		s.paused++
+	}
+}
+
+// runHook calls hook when it is set.
+func runHook(hook func()) {
+	if hook != nil {
+		hook()
 	}
 }

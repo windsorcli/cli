@@ -140,8 +140,8 @@ func TestNew(t *testing.T) {
 		var buf bytes.Buffer
 
 		// When a presenter is created for each format
-		text := presenter.New(logging.FormatText, &buf, slog.LevelInfo, true)
-		jsonOut := presenter.New(logging.FormatJSON, &buf, slog.LevelInfo, true)
+		text := presenter.New(logging.FormatText, &buf, presenter.ConsoleOptions{Level: slog.LevelInfo, Interactive: true})
+		jsonOut := presenter.New(logging.FormatJSON, &buf, presenter.ConsoleOptions{Level: slog.LevelInfo, Interactive: true})
 
 		// Then text gets the console renderer and json gets the JSON renderer
 		if _, ok := text.(*presenter.Console); !ok {
@@ -155,7 +155,7 @@ func TestNew(t *testing.T) {
 	t.Run("RendersPlainOutputWhenTheWriterIsNotATerminal", func(t *testing.T) {
 		// Given a text presenter on a buffer with interactive output requested
 		var buf bytes.Buffer
-		p := presenter.New(logging.FormatText, &buf, slog.LevelInfo, true)
+		p := presenter.New(logging.FormatText, &buf, presenter.ConsoleOptions{Level: slog.LevelInfo, Interactive: true})
 
 		// When an operation runs
 		_ = presenter.Track(presenter.NewContext(context.Background(), p), "s", "Applying", func(context.Context) error { return nil })
@@ -505,6 +505,69 @@ func TestConsole_Interactive(t *testing.T) {
 		}
 		if got := screen(buf.String()); !reflect.DeepEqual(got, []string{"✔ waiting"}) {
 			t.Errorf("expected only the end line, got %q", got)
+		}
+	})
+}
+
+func TestConsole_Lifecycle(t *testing.T) {
+	t.Run("ReportsWhenOperationsAreActive", func(t *testing.T) {
+		// Given a console that records activity changes
+		var changes []bool
+		c := presenter.NewConsole(&bytes.Buffer{}, presenter.ConsoleOptions{OnActive: func(active bool) { changes = append(changes, active) }})
+		ctx := presenter.NewContext(context.Background(), c)
+
+		// When nested operations run twice in a row
+		for i := 0; i < 2; i++ {
+			_ = presenter.Track(ctx, "outer", "Outer", func(ctx context.Context) error {
+				return presenter.Track(ctx, "inner", "Inner", func(context.Context) error { return nil })
+			})
+		}
+
+		// Then activity starts and ends once per outer operation
+		if !reflect.DeepEqual(changes, []bool{true, false, true, false}) {
+			t.Errorf("unexpected activity changes %v", changes)
+		}
+	})
+
+	t.Run("PausesTheLiveRegionForAnotherWriter", func(t *testing.T) {
+		// Given an interactive console with a running operation
+		var buf syncBuffer
+		c := presenter.NewConsole(&buf, presenter.ConsoleOptions{Interactive: true})
+		_, end := presenter.Begin(presenter.NewContext(context.Background(), c), "s", "configuring DNS")
+
+		// When the console pauses twice, another writer prints, and one resume follows
+		c.Pause()
+		c.Pause()
+		_, _ = buf.Write([]byte("Password:\n"))
+		c.Resume()
+		paused := screen(buf.String())
+		c.Resume()
+		resumed := screen(buf.String())
+		end(nil)
+
+		// Then the live line stays hidden until the last resume and the prompt is never erased
+		if !reflect.DeepEqual(paused, []string{"Password:"}) {
+			t.Errorf("expected only the prompt while paused, got %q", paused)
+		}
+		if len(resumed) != 2 || resumed[0] != "Password:" || !strings.HasSuffix(resumed[1], " configuring DNS") {
+			t.Errorf("expected the prompt and the live line, got %q", resumed)
+		}
+		if got := screen(buf.String()); !reflect.DeepEqual(got, []string{"Password:", "✔ configuring DNS"}) {
+			t.Errorf("expected the prompt and the end line, got %q", got)
+		}
+	})
+
+	t.Run("IgnoresAResumeWithoutAPause", func(t *testing.T) {
+		// Given an interactive console with nothing running
+		var buf syncBuffer
+		c := presenter.NewConsole(&buf, presenter.ConsoleOptions{Interactive: true})
+
+		// When resume is called without a pause
+		c.Resume()
+
+		// Then nothing is written
+		if buf.String() != "" {
+			t.Errorf("expected no output, got %q", buf.String())
 		}
 	})
 }

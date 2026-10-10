@@ -245,6 +245,9 @@ converting them would conflate two unrelated mechanisms that happen to nest toda
 - **`pkg/tui` retires as packages migrate.** The console renderer has its own line-based tree and
   animation, so `pkg/tui`'s spinner, its global `Active`, and `WithProgress` lose their last caller
   when the final package moves to the presenter.
+  Until then, `cmd/` bridges the two. The console holds the legacy spinner silent with `tui.Hold`
+  while it shows an operation, `tui.Pause` and `tui.Resume` also pause the console around password
+  prompts, and `--format json` silences the legacy spinner. The bridge goes away with `pkg/tui`.
 - **Methods that emit events gain a `ctx` parameter** on `TerraformStack`, `KubernetesManager`,
   `Provisioner`, workstation types, and `ArtifactBuilder`. This is a mechanical signature change,
   landed in each package's Wave 2 pass, and it also prepares those methods for Wave 3 cancellation.

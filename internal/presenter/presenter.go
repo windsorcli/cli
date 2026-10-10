@@ -89,22 +89,23 @@ var nextID atomic.Uint64
 // Discard is a Presenter that drops every event. FromContext returns it when ctx has none.
 var Discard Presenter = discard{}
 
-// New returns the Presenter for format that writes to w. Log records below level are dropped.
-// The console renderer is interactive when w is a terminal and interactive is true.
-func New(format logging.Format, w io.Writer, level slog.Level, interactive bool) Presenter {
+// New returns the Presenter for format that writes to w. For text output, opts configures the
+// console, and Interactive stays on only when w is a terminal. JSON output ignores opts.
+func New(format logging.Format, w io.Writer, opts ConsoleOptions) Presenter {
 	if format == logging.FormatJSON {
 		return NewJSON(w)
 	}
-	opts := ConsoleOptions{Level: level}
-	if f, ok := w.(*os.File); ok && interactive && term.IsTerminal(int(f.Fd())) {
-		opts.Interactive = true
-		opts.Width = func() int {
-			width, _, err := term.GetSize(int(f.Fd()))
-			if err != nil {
-				return 0
-			}
-			return width
+	f, ok := w.(*os.File)
+	if !opts.Interactive || !ok || !term.IsTerminal(int(f.Fd())) {
+		opts.Interactive = false
+		return NewConsole(w, opts)
+	}
+	opts.Width = func() int {
+		width, _, err := term.GetSize(int(f.Fd()))
+		if err != nil {
+			return 0
 		}
+		return width
 	}
 	return NewConsole(w, opts)
 }
