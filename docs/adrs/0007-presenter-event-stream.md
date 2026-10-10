@@ -1,6 +1,7 @@
 # ADR 0007 — Presenter / event stream: the keystone seam
 
-- Status: Proposed
+- Status: Accepted. `internal/presenter` shipped. `Runtime` construction, the `--format` flag, and
+  the central error renderer ship with the `cmd/` wiring.
 - Date: 2026-08-04
 - Deciders: Ryan VanGundy
 - Fills the "Presenter / event stream" placeholder from `release-v0.10.0.md`'s Wave 1 — the last
@@ -32,10 +33,10 @@ keystone section names, just discovered to be worse than "logging vs. errors vs.
 prompts": progress reporting alone already has three competing internal shapes before a presenter
 unifies anything.
 
-**No global `--output json` flag exists today** (checked directly — the only `"output"` flag in
-`cmd/` is `bundle`'s unrelated archive-path flag). The release doc's open question #2 — "is JSON a
-global surface covering logs and errors and progress uniformly, or per-concern flags" — is still
-open, and both ADR 0005 and ADR 0006 explicitly punted it here rather than deciding it twice. This
+**No global JSON output flag exists today.** Two commands already define a local `--output` flag:
+`bundle` (archive path) and `plan terraform` (`json-plan`). The release doc's open question #2 —
+"is JSON a global surface covering logs and errors and progress uniformly, or per-concern flags" —
+is still open, and both ADR 0005 and ADR 0006 explicitly punted it here rather than deciding it twice. This
 ADR is where it gets resolved, since the presenter is the one seam all three concerns pass through.
 
 Checked against real prior art before finalizing this shape, not just recalled from memory — this
@@ -85,29 +86,41 @@ type Kind string
 const (
     KindApplying    Kind = "applying"     // an operation has started
     KindApplied     Kind = "applied"      // an operation finished successfully
-    KindFailed      Kind = "failed"       // an operation finished with a *werror.WindsorError
-    KindProgress    Kind = "progress"     // a status update mid-operation (today's outputFunc case)
+    KindFailed      Kind = "failed"       // an operation finished with an error
+    KindProgress    Kind = "progress"     // replaces the status text of a running operation
+    KindMessage     Kind = "message"      // a narrative line for the user, at info or warn level
     KindLog         Kind = "log"          // a structured log record (bridges ADR 0006's slog handler)
     KindInputNeeded Kind = "input_needed" // reserved — Wave 3's interactive-input ADR fills this in
 )
 
 type Event struct {
     Kind     Kind
-    Subject  string // "terraform:cluster", "kustomization:cert-manager" — what this is about
-    ParentID string // empty for top-level; set for a sub-resource event (Wave 3 hierarchy — reserved now)
+    ID       string        // operation ID; set on applying, applied, failed, and progress
+    ParentID string        // ID of the enclosing operation; empty at the top level
+    Subject  string        // "terraform:cluster", "kustomization:cert-manager" — what this is about
     Message  string
-    Err      *werror.WindsorError // set only when Kind == KindFailed
-    Record   *slog.Record         // set only when Kind == KindLog
+    Level    slog.Level    // info or warn, for KindMessage
+    Duration time.Duration // elapsed time, for KindApplied and KindFailed
+    Err      error         // set only when Kind == KindFailed; renderers errors.As for a code
+    Record   *slog.Record  // set only when Kind == KindLog
 }
 ```
 
 One envelope type with a discriminated `Kind`, not a Go interface with per-kind concrete types —
 deliberately matching Terraform's `-json` shape (Context) over the alternative sum-type-via-interface
 pattern, because every renderer (console, JSON, eventually TUI) needs to switch on kind anyway, and a
-single struct serializes to stable JSON without a custom `MarshalJSON` per event type. `ParentID` and
-`KindInputNeeded` are reserved now, unused until Wave 3, for the same reason ADR 0006 reserved its
-TUI-routing handler: the vocabulary shouldn't need to change shape once Wave 3 has something to put
-in those fields.
+single struct serializes to stable JSON without a custom `MarshalJSON` per event type.
+`KindInputNeeded` is reserved, unused until Wave 3, for the same reason ADR 0006 reserved its
+TUI-routing handler.
+
+The output model is a transcript of operations, not a log. `KindMessage` is the narrative channel:
+lines the user reads as part of the run ("found 3 components to apply"). `KindLog` carries
+diagnostic records, which the console shows only at the configured level. Business code MUST NOT
+use `slog.Info` for narrative output, because a log record is not part of the transcript.
+
+`ID` and `ParentID` make the stream a tree. Operations nest, and messages, progress, and log records
+attach to the operation that encloses them. The context carries the current operation, so call
+sites never pass IDs by hand (point 2).
 
 `Err`/`Record` are declared as typed optional fields directly on `Event`, not behind a generic
 `any Data` field requiring a type assertion at every renderer — this specific choice is validated
@@ -116,25 +129,33 @@ directly by `cli-utils`' `Event` (Context): it uses the identical pattern (`Appl
 production scale behind `kubectl apply`. A generic payload field was not seriously considered as an
 alternative for this reason — real prior art already settled the question in favor of typed fields.
 
-### 2. The presenter port: one method, plus one convenience wrapper
+### 2. The presenter port: one method, plus context-aware helpers
 
 ```go
 type Presenter interface {
     Emit(ctx context.Context, event Event)
 }
 
-// Track is sugar over Emit, matching today's tui.WithProgress call shape exactly — emits
-// KindApplying, runs fn, emits KindApplied or KindFailed based on the result. This is what most of
-// the ~13 WithProgress call sites convert to, nearly mechanically.
-func Track(ctx context.Context, p Presenter, subject string, fn func() error) error
+// Begin emits KindApplying under the operation in ctx and returns a context that carries the new
+// operation, plus an end function that emits KindApplied or KindFailed with the elapsed time.
+func Begin(ctx context.Context, p Presenter, subject, message string) (context.Context, func(error))
+
+// Track runs fn as one operation and passes fn the operation's context.
+func Track(ctx context.Context, p Presenter, subject, message string, fn func(context.Context) error) error
+
+// Message, Warn, and Progress attach to the operation in ctx.
+func Message(ctx context.Context, p Presenter, text string)
+func Warn(ctx context.Context, p Presenter, text string)
+func Progress(ctx context.Context, p Presenter, text string)
 ```
 
 `Emit` alone is deliberately the entire port — "one seam" from the keystone section, not a growing
-interface. `Track` exists purely to keep the migration cheap for the majority-case call site
-(1 above): a call site that reads `tui.WithProgress(msg, fn)` today reads `presenter.Track(ctx,
-subject, fn)` after, same shape, same risk profile. The asymmetric `tui.Start`/`Fail` sites (2) and
-the `outputFunc` sites (3) convert to explicit `Emit` calls instead, since they don't fit the
-wrap-a-closure shape `Track` assumes.
+interface. The helpers are package functions over `Emit`, so a renderer implements one method.
+`Track` keeps the migration cheap for the majority-case call site (1 above):
+`tui.WithProgress(msg, fn)` becomes `presenter.Track(ctx, p, subject, msg, fn)`, where `fn` takes
+the operation's context. The asymmetric `tui.Start`/`Fail` sites (2) convert to `Begin` and its end
+function, and the `outputFunc` sites (3) convert to `Progress` or `Message`. Because each helper
+reads its parent from `ctx`, nesting needs no extra arguments at any call site.
 
 ### 3. Presenter is injected, constructed by `Runtime`, same placement as the logger
 
@@ -151,29 +172,38 @@ of dependency, not introducing a third pattern.
 
 ### 4. Three renderers behind the port
 
-- **Console** (default) — `KindApplying`/`KindApplied`/`KindProgress` drive spinner-style terminal
-  output (the rendering logic already in `pkg/tui/tui.go`'s `termSpinner` moves here, adapted to
-  read `Event` instead of raw `Start`/`Update`/`Done`/`Fail` calls); `KindFailed` renders through
-  the same format ADR 0005's central renderer already defined (`Error [CODE]: message` +
-  remediation); `KindLog` renders through the `charmbracelet/log` console handler ADR 0006 already
-  selected.
-- **JSON** (`--output json`, now a **global persistent flag** — this ADR's resolution of the release
+- **Console** (default) — renders the transcript as an indented tree. Finished steps stay on
+  screen with their elapsed time, and nested steps print under their parent. In plain mode (not a
+  terminal, or `--verbose`) it prints one line per event, which suits CI logs. In interactive mode
+  it keeps a live region below the tree with one animated line per active leaf operation and its
+  progress text. `KindFailed` ends a step with a failure mark; the central `cmd/` renderer prints
+  the error itself once (ADR 0005). `KindLog` renders through the `charmbracelet/log` console
+  handler ADR 0006 selected. The console renderer does not use `pkg/tui`.
+
+  ```
+  ● Applying terraform
+    ✔ network       14s
+    ✔ cluster       2m03s
+    ⠋ gitops        waiting on 2 kustomizations
+  ```
+- **JSON** (`--format json`, now a **global persistent flag** — this ADR's resolution of the release
   doc's open question #2, decided as "yes, uniform," see Consequences) — every `Emit` call
   marshals the `Event` as one newline-delimited JSON object to stdout, directly matching Terraform's
   own `-json` shape (Context). Logs, errors, and progress are the same stream, distinguished only by
   `"kind"` — exactly what the keystone section asks for ("renderings of the same event stream, not
   four independent subsystems").
 - **TUI** (reserved, Wave 3) — routes `Event`s into a BubbleTea program's message channel instead of
-  stdout. Not built here; the port and the `KindInputNeeded`/`ParentID` reservations exist so Wave 3
-  implements a fourth renderer against an unchanged contract, not a contract redesign.
+  stdout. Not built here; the port, the operation tree, and the `KindInputNeeded` reservation exist
+  so Wave 3 implements a fourth renderer against an unchanged contract, not a contract redesign.
 
 ### 5. How this reconciles with ADR 0006 (logging) and ADR 0005 (errors) — neither is superseded
 
 - **Logging call sites are unchanged.** Business code still calls `slog.InfoContext(ctx, ...)`
   exactly as ADR 0006 decided. What changes is the **handler** `Runtime` wires into that logger:
-  `logging.NewPresenterHandler(presenter)` implements `slog.Handler` and, on `Handle()`, builds a
+  `presenter.NewLogHandler(p, level)` implements `slog.Handler` and, on `Handle()`, builds a
   `KindLog` event and calls `presenter.Emit`. This is precisely the "TUI-routing handler" seam ADR
-  0006 reserved — the presenter *is* the routing target that handler was reserved for.
+  0006 reserved — the presenter *is* the routing target that handler was reserved for. The
+  bridge lives in `presenter`, not `logging`, because the console renderer imports `logging`.
 - **`WindsorError` rendering is unchanged in shape, relocated in mechanism.** ADR 0005's central
   `cmd/`-boundary renderer stops formatting directly and instead builds `Event{Kind: KindFailed, Err:
   we}` and calls `presenter.Emit` — the format string, the `DocsURL` line, the `--verbose` breadcrumb
@@ -196,7 +226,7 @@ converting them would conflate two unrelated mechanisms that happen to nest toda
 
 ## Consequences
 
-- **Resolves the release doc's open question #2**: `--output json` is a single global persistent
+- **Resolves the release doc's open question #2**: `--format json` is a single global persistent
   flag (same tier as `--verbose`), and it covers logs, errors, and progress uniformly through one
   `Presenter` implementation — not per-concern flags. Decided here because the presenter is the only
   place this question has a real answer; deferring it further (as both 0005 and 0006 did) would have
@@ -205,9 +235,9 @@ converting them would conflate two unrelated mechanisms that happen to nest toda
   `tui.Start`/`Fail` pattern, and bespoke `outputFunc` parameters all become `Emit`/`Track` calls,
   closing a fragmentation problem this round's survey found was worse than the release doc's
   original framing (three mechanisms, not one, needed replacing).
-- **`pkg/tui` doesn't disappear** — its spinner *rendering* logic (the actual terminal animation
-  code in `termSpinner`) is reused inside the console renderer, not thrown away; what's removed is
-  the global `Active` singleton and direct business-layer reach into it.
+- **`pkg/tui` retires as packages migrate.** The console renderer has its own line-based tree and
+  animation, so `pkg/tui`'s spinner, its global `Active`, and `WithProgress` lose their last caller
+  when the final package moves to the presenter.
 - **Presenter is a fifth constructor dependency** on `TerraformStack`, `KubernetesManager`,
   `Provisioner`, workstation types, and `ArtifactBuilder` — a real, if mechanical, signature change
   to five widely-used types, landing during each one's already-scheduled Wave 2 pass rather than as
@@ -215,7 +245,7 @@ converting them would conflate two unrelated mechanisms that happen to nest toda
 - **The event vocabulary is a new piece of public-ish surface** (even though `internal/presenter`
   isn't externally importable, it's shared across every business package) — adding a `Kind` later is
   cheap and backward-compatible for JSON consumers (an unrecognized kind just doesn't match a
-  switch case); removing or renegotiating one is not, once `--output json` has real consumers.
+  switch case); removing or renegotiating one is not, once `--format json` has real consumers.
 
 ## Alternatives considered
 
@@ -225,7 +255,7 @@ converting them would conflate two unrelated mechanisms that happen to nest toda
   and `cli-utils`' `Event` struct (Context) without per-type `MarshalJSON` implementations.
 - **Buffer the full event sequence and emit one JSON document**, Pulumi's approach (Context), instead
   of streaming one JSON object per `Emit` call. Rejected for Windsor's case: a CI pipeline tailing
-  `windsor apply --output json` benefits more from incremental, tailable output (Terraform's choice,
+  `windsor apply --format json` benefits more from incremental, tailable output (Terraform's choice,
   and this ADR's) than from Pulumi's well-formedness guarantee — a killed process leaves a
   truncated-but-still-line-valid NDJSON stream, which is an acceptable failure mode for a log,
   whereas losing the whole document is not. Revisit only if a consumer needs the "always one valid
