@@ -24,7 +24,6 @@ import (
 type InitMocks struct {
 	ConfigHandler    config.ConfigHandler
 	Shell            *Mocks
-	Shims            *Shims
 	BlueprintHandler *blueprint.MockBlueprintHandler
 	ToolsManager     *tools.MockToolsManager
 	Runtime          *runtime.Runtime
@@ -74,7 +73,6 @@ func setupInitTest(t *testing.T, opts ...*SetupOptions) *InitMocks {
 	return &InitMocks{
 		ConfigHandler:    baseMocks.ConfigHandler,
 		Shell:            baseMocks,
-		Shims:            baseMocks.Shims,
 		BlueprintHandler: mockBlueprintHandler,
 		ToolsManager:     baseMocks.ToolsManager,
 		Runtime:          baseMocks.Runtime,
@@ -1157,4 +1155,3 @@ func TestInitCmd(t *testing.T) {
 		}
 	})
 }
-

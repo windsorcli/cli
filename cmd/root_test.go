@@ -11,7 +11,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"os/exec"
 	"strings"
 	"testing"
 
@@ -37,7 +36,6 @@ type Mocks struct {
 	EnvPrinter       *envvars.MockEnvPrinter
 	ToolsManager     *tools.MockToolsManager
 	Runtime          *runtime.Runtime
-	Shims            *Shims
 	BlueprintHandler *blueprintpkg.MockBlueprintHandler
 	TmpDir           string
 }
@@ -45,7 +43,6 @@ type Mocks struct {
 type SetupOptions struct {
 	ConfigHandler config.ConfigHandler
 	ConfigStr     string
-	Shims         *Shims
 	TmpDir        string
 }
 
@@ -126,35 +123,6 @@ func setupMocks(t *testing.T, opts ...*SetupOptions) *Mocks {
 	if len(opts) > 0 && opts[0] != nil {
 		options = opts[0]
 	}
-
-	// Store original shims and restore after test
-	origShims := shims
-	t.Cleanup(func() {
-		shims = origShims
-	})
-
-	// Create shims - Command is mocked but actual execution is handled by MockShell
-	testShims := &Shims{
-		Exit:        func(int) {},
-		UserHomeDir: func() (string, error) { return t.TempDir(), nil },
-		Stat:        func(string) (os.FileInfo, error) { return nil, nil },
-		RemoveAll:   func(string) error { return nil },
-		Getwd:       func() (string, error) { return "/test/project", nil },
-		Command:     func(string, ...string) *exec.Cmd { return exec.Command("true") },
-		Setenv:      func(string, string) error { return nil },
-		ReadFile: func(filename string) ([]byte, error) {
-			// Mock trusted file content that includes the current directory
-			return []byte("/test/project\n"), nil
-		},
-	}
-
-	// Override with provided shims if any
-	if options.Shims != nil {
-		testShims = options.Shims
-	}
-
-	// Set global shims
-	shims = testShims
 
 	// Create temporary directory for test (only if needed)
 	var tmpDir string
@@ -339,7 +307,6 @@ func setupMocks(t *testing.T, opts ...*SetupOptions) *Mocks {
 		EnvPrinter:       mockEnvPrinter,
 		ToolsManager:     mockToolsManager,
 		Runtime:          rt,
-		Shims:            testShims,
 		BlueprintHandler: mockBlueprintHandler,
 		TmpDir:           tmpDir,
 	}

@@ -48,12 +48,12 @@ tasks:
     cmds:
       - cmd: |
           if [ -n "{{.CLI_ARGS}}" ]; then
-            go test -covermode=atomic -coverprofile=coverage.out -run {{.CLI_ARGS}} ./api/... ./pkg/... ./cmd
+            go test -covermode=atomic -coverprofile=coverage.out -run {{.CLI_ARGS}} ./api/... ./internal/... ./pkg/... ./cmd
           else
-            go test -covermode=atomic -coverprofile=coverage.out ./api/... ./pkg/... ./cmd
+            go test -covermode=atomic -coverprofile=coverage.out ./api/... ./internal/... ./pkg/... ./cmd
           fi
         platforms: [linux, darwin]
-      - cmd: powershell -NoProfile -Command "if ('{{.CLI_ARGS}}') { go test -covermode=atomic -coverprofile='coverage.out' -run '{{.CLI_ARGS}}' ./api/... ./pkg/... ./cmd } else { go test -covermode=atomic -coverprofile='coverage.out' ./api/... ./pkg/... ./cmd }"
+      - cmd: powershell -NoProfile -Command "if ('{{.CLI_ARGS}}') { go test -covermode=atomic -coverprofile='coverage.out' -run '{{.CLI_ARGS}}' ./api/... ./internal/... ./pkg/... ./cmd } else { go test -covermode=atomic -coverprofile='coverage.out' ./api/... ./internal/... ./pkg/... ./cmd }"
         platforms: [windows]
       - go tool cover -html=coverage.out -o coverage.html
 

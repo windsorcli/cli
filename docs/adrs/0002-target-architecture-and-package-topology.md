@@ -1,6 +1,7 @@
 # ADR 0002 — Target architecture and package topology
 
-- Status: Proposed
+- Status: Accepted. Decision 3 shipped: `internal/shims` exists. Each package adopts it in its own
+  Wave 2 pass.
 - Date: 2026-08-04
 - Deciders: Ryan VanGundy
 - This is the release doc's Wave 0 "north star" ADR — the layer-ownership map and nested folder
@@ -94,14 +95,15 @@ fields, matching the existing `Shims` struct pattern exactly (same field-of-func
 new convention). Every package's own `shims.go` keeps its package-specific wrappers (terraform exec,
 Kubernetes client construction, `hcloud`/`aws` SDK calls, etc.) but **composes** `internal/shims` for
 the common primitives instead of re-declaring them — each package's own file shrinks to only what's
-genuinely specific to it. `cmd/shims.go` does the same. This is additive and mechanical per package
+genuinely specific to it. `cmd/shims.go` had no production reader, so it was removed instead of migrated. This is additive and mechanical per package
 (swap a locally-declared field for the shared one, update the constructor), not a redesign — it can
 land package-by-package in Wave 2 rather than as one cross-cutting commit.
 
 `internal/util` (same sibling location) holds pure, non-mockable helpers with no system-call surface
 — string/path manipulation, small generic collection helpers — kept separate from `shims` because
 mockability is the entire reason `shims` exists and a pure helper has no business behind a function
-field.
+field. Windsor creates `internal/util` when a pure helper is duplicated across packages. No such helper
+exists yet, so the package does not exist yet.
 
 ### 4. Monolith files split in place by cohesive concern, not into new sub-packages
 

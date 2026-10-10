@@ -44,8 +44,6 @@ const composerOverridesKey = contextKey("composerOverrides")
 const runtimeOverridesKey = contextKey("runtimeOverrides")
 const testRunnerOverridesKey = contextKey("testRunnerOverrides")
 
-var shims = NewShims()
-
 // Execute is the main entry point for the Windsor CLI application.
 // It executes the root command with the provided context or a new background context.
 // Sets the root command's context before execution so cmd.Root().Context() is correct
