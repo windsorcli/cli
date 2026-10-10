@@ -300,8 +300,8 @@ them fully spells out how it depends on the others' output.
 
 Done. `internal/shims`, `internal/werror`, `internal/logging`, and `internal/presenter` exist, and
 `cmd/` wires `--format`, the context logger, the presenter, and the central error renderer.
-`internal/util` waits for a duplicated pure helper. `Runtime` takes over logger and presenter
-construction when the first business package migrates.
+`internal/util` waits for a duplicated pure helper. The logger and the presenter travel in the
+command context.
 
 Five small, low-risk packages, in this order because each depends on the previous:
 

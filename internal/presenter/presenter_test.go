@@ -158,7 +158,7 @@ func TestNew(t *testing.T) {
 		p := presenter.New(logging.FormatText, &buf, slog.LevelInfo, true)
 
 		// When an operation runs
-		_ = presenter.Track(context.Background(), p, "s", "Applying", func(context.Context) error { return nil })
+		_ = presenter.Track(presenter.NewContext(context.Background(), p), "s", "Applying", func(context.Context) error { return nil })
 
 		// Then the output holds no escape codes
 		if strings.Contains(buf.String(), "\033") {
@@ -171,13 +171,45 @@ func TestNew(t *testing.T) {
 // Test Public Methods
 // =============================================================================
 
+func TestFromContext(t *testing.T) {
+	t.Run("ReturnsTheInjectedPresenter", func(t *testing.T) {
+		// Given a context that carries a presenter
+		rec := &recorder{}
+		ctx := presenter.NewContext(context.Background(), rec)
+
+		// When the presenter is read back
+		got := presenter.FromContext(ctx)
+
+		// Then it is the injected presenter
+		if got != rec {
+			t.Errorf("expected the injected presenter, got %T", got)
+		}
+	})
+
+	t.Run("ReturnsDiscardWhenNoneIsInjected", func(t *testing.T) {
+		// Given a context without a presenter
+		ctx := context.Background()
+
+		// When helpers run and the presenter is read
+		err := presenter.Track(ctx, "s", "Applying", func(ctx context.Context) error {
+			presenter.Message(ctx, "hello")
+			return nil
+		})
+
+		// Then the helpers succeed and the presenter is Discard
+		if err != nil || presenter.FromContext(ctx) != presenter.Discard {
+			t.Errorf("expected Discard and no error, got %T and %v", presenter.FromContext(ctx), err)
+		}
+	})
+}
+
 func TestTrack(t *testing.T) {
 	t.Run("EmitsApplyingThenAppliedForOneOperation", func(t *testing.T) {
 		// Given a recording presenter
 		rec := &recorder{}
 
 		// When a successful operation is tracked
-		err := presenter.Track(context.Background(), rec, "terraform:cluster", "Applying cluster", func(context.Context) error { return nil })
+		err := presenter.Track(presenter.NewContext(context.Background(), rec), "terraform:cluster", "Applying cluster", func(context.Context) error { return nil })
 
 		// Then applying and applied share one ID and carry the subject and message
 		if err != nil {
@@ -198,11 +230,11 @@ func TestTrack(t *testing.T) {
 	t.Run("SetsTheParentOfNestedOperations", func(t *testing.T) {
 		// Given a recording presenter
 		rec := &recorder{}
-		ctx := context.Background()
+		ctx := presenter.NewContext(context.Background(), rec)
 
 		// When one operation runs inside another
-		_ = presenter.Track(ctx, rec, "outer", "Outer", func(ctx context.Context) error {
-			return presenter.Track(ctx, rec, "inner", "Inner", func(context.Context) error { return nil })
+		_ = presenter.Track(ctx, "outer", "Outer", func(ctx context.Context) error {
+			return presenter.Track(ctx, "inner", "Inner", func(context.Context) error { return nil })
 		})
 
 		// Then the inner events name the outer operation as parent
@@ -220,7 +252,7 @@ func TestTrack(t *testing.T) {
 		rec := &recorder{}
 
 		// When a failing operation is tracked
-		err := presenter.Track(context.Background(), rec, "s", "Applying", func(context.Context) error { return errBoom })
+		err := presenter.Track(presenter.NewContext(context.Background(), rec), "s", "Applying", func(context.Context) error { return errBoom })
 
 		// Then failed carries the error and the same error is returned
 		if !errors.Is(err, errBoom) {
@@ -239,7 +271,7 @@ func TestBegin(t *testing.T) {
 	t.Run("EndsOnlyOnce", func(t *testing.T) {
 		// Given an operation started with Begin
 		rec := &recorder{}
-		_, end := presenter.Begin(context.Background(), rec, "s", "Waiting")
+		_, end := presenter.Begin(presenter.NewContext(context.Background(), rec), "s", "Waiting")
 
 		// When end is called twice
 		end(nil)
@@ -256,13 +288,13 @@ func TestMessageWarnProgress(t *testing.T) {
 	t.Run("AttachToTheCurrentOperation", func(t *testing.T) {
 		// Given an operation context
 		rec := &recorder{}
-		ctx, end := presenter.Begin(context.Background(), rec, "s", "Applying")
+		ctx, end := presenter.Begin(presenter.NewContext(context.Background(), rec), "s", "Applying")
 		id := rec.events[0].ID
 
 		// When a message, a warning, and progress are emitted inside it
-		presenter.Message(ctx, rec, "found 3 modules")
-		presenter.Warn(ctx, rec, "module is slow")
-		presenter.Progress(ctx, rec, "waiting")
+		presenter.Message(ctx, "found 3 modules")
+		presenter.Warn(ctx, "module is slow")
+		presenter.Progress(ctx, "waiting")
 		end(nil)
 
 		// Then each event refers to the operation
@@ -281,11 +313,11 @@ func TestMessageWarnProgress(t *testing.T) {
 	t.Run("StayAtTheTopLevelOutsideAnOperation", func(t *testing.T) {
 		// Given a context without an operation
 		rec := &recorder{}
-		ctx := context.Background()
+		ctx := presenter.NewContext(context.Background(), rec)
 
 		// When a message and progress are emitted
-		presenter.Message(ctx, rec, "hello")
-		presenter.Progress(ctx, rec, "waiting")
+		presenter.Message(ctx, "hello")
+		presenter.Progress(ctx, "waiting")
 
 		// Then the message has no parent and progress emits nothing
 		if len(rec.events) != 1 || rec.events[0].ParentID != "" {
@@ -299,14 +331,14 @@ func TestConsole_Plain(t *testing.T) {
 		// Given a plain console
 		var buf bytes.Buffer
 		c := presenter.NewConsole(&buf, presenter.ConsoleOptions{Level: slog.LevelInfo})
-		ctx := context.Background()
+		ctx := presenter.NewContext(context.Background(), c)
 
 		// When nested operations, a message, and a warning run and one step fails
-		_ = presenter.Track(ctx, c, "tf", "Applying terraform", func(ctx context.Context) error {
-			_ = presenter.Track(ctx, c, "tf:network", "network", func(context.Context) error { return nil })
-			presenter.Message(ctx, c, "found 2 modules")
-			presenter.Warn(ctx, c, "module is slow")
-			return presenter.Track(ctx, c, "tf:cluster", "cluster", func(context.Context) error { return errBoom })
+		_ = presenter.Track(ctx, "tf", "Applying terraform", func(ctx context.Context) error {
+			_ = presenter.Track(ctx, "tf:network", "network", func(context.Context) error { return nil })
+			presenter.Message(ctx, "found 2 modules")
+			presenter.Warn(ctx, "module is slow")
+			return presenter.Track(ctx, "tf:cluster", "cluster", func(context.Context) error { return errBoom })
 		})
 
 		// Then each event prints one line, indented under its parent
@@ -331,10 +363,10 @@ func TestConsole_Plain(t *testing.T) {
 		c := presenter.NewConsole(&buf, presenter.ConsoleOptions{Level: slog.LevelInfo})
 
 		// When an operation repeats a progress update
-		_ = presenter.Track(context.Background(), c, "s", "Waiting", func(ctx context.Context) error {
-			presenter.Progress(ctx, c, "2 pending")
-			presenter.Progress(ctx, c, "2 pending")
-			presenter.Progress(ctx, c, "1 pending")
+		_ = presenter.Track(presenter.NewContext(context.Background(), c), "s", "Waiting", func(ctx context.Context) error {
+			presenter.Progress(ctx, "2 pending")
+			presenter.Progress(ctx, "2 pending")
+			presenter.Progress(ctx, "1 pending")
 			return nil
 		})
 
@@ -405,12 +437,12 @@ func TestConsole_Interactive(t *testing.T) {
 		// Given an interactive console
 		var buf syncBuffer
 		c := presenter.NewConsole(&buf, presenter.ConsoleOptions{Level: slog.LevelInfo, Interactive: true})
-		ctx := context.Background()
+		ctx := presenter.NewContext(context.Background(), c)
 
 		// When nested operations run to completion
-		_ = presenter.Track(ctx, c, "tf", "Applying terraform", func(ctx context.Context) error {
-			_ = presenter.Track(ctx, c, "tf:network", "network", func(context.Context) error { return nil })
-			return presenter.Track(ctx, c, "tf:cluster", "cluster", func(context.Context) error { return nil })
+		_ = presenter.Track(ctx, "tf", "Applying terraform", func(ctx context.Context) error {
+			_ = presenter.Track(ctx, "tf:network", "network", func(context.Context) error { return nil })
+			return presenter.Track(ctx, "tf:cluster", "cluster", func(context.Context) error { return nil })
 		})
 
 		// Then the screen holds the tree with no live lines left
@@ -424,12 +456,12 @@ func TestConsole_Interactive(t *testing.T) {
 		// Given an interactive console with a running operation
 		var buf syncBuffer
 		c := presenter.NewConsole(&buf, presenter.ConsoleOptions{Level: slog.LevelInfo, Interactive: true})
-		ctx, end := presenter.Begin(context.Background(), c, "s", "gitops")
+		ctx, end := presenter.Begin(presenter.NewContext(context.Background(), c), "s", "gitops")
 		defer end(nil)
 
 		// When the operation reports progress and a message
-		presenter.Progress(ctx, c, "waiting on 2 kustomizations")
-		presenter.Message(ctx, c, "found 2 kustomizations")
+		presenter.Progress(ctx, "waiting on 2 kustomizations")
+		presenter.Message(ctx, "found 2 kustomizations")
 
 		// Then the message prints above a live line that shows the progress
 		got := screen(buf.String())
@@ -447,7 +479,7 @@ func TestConsole_Interactive(t *testing.T) {
 		c := presenter.NewConsole(&buf, presenter.ConsoleOptions{Interactive: true, Width: func() int { return 20 }})
 
 		// When an operation with a long message starts
-		_, end := presenter.Begin(context.Background(), c, "s", "a message much longer than twenty columns")
+		_, end := presenter.Begin(presenter.NewContext(context.Background(), c), "s", "a message much longer than twenty columns")
 		defer end(nil)
 
 		// Then the live line fits within the width
@@ -461,7 +493,7 @@ func TestConsole_Interactive(t *testing.T) {
 		// Given an interactive console with a running operation
 		var buf syncBuffer
 		c := presenter.NewConsole(&buf, presenter.ConsoleOptions{Interactive: true})
-		_, end := presenter.Begin(context.Background(), c, "s", "waiting")
+		_, end := presenter.Begin(presenter.NewContext(context.Background(), c), "s", "waiting")
 
 		// When time passes
 		time.Sleep(350 * time.Millisecond)
@@ -484,8 +516,8 @@ func TestJSON_Emit(t *testing.T) {
 		j := presenter.NewJSON(&buf)
 
 		// When an operation with a warning is tracked
-		_ = presenter.Track(context.Background(), j, "terraform:cluster", "Applying cluster", func(ctx context.Context) error {
-			presenter.Warn(ctx, j, "slow")
+		_ = presenter.Track(presenter.NewContext(context.Background(), j), "terraform:cluster", "Applying cluster", func(ctx context.Context) error {
+			presenter.Warn(ctx, "slow")
 			return nil
 		})
 
@@ -596,7 +628,7 @@ func TestLogHandler(t *testing.T) {
 		// Given a logger and an operation context
 		rec := &recorder{}
 		logger := slog.New(presenter.NewLogHandler(rec, slog.LevelInfo))
-		ctx, end := presenter.Begin(context.Background(), rec, "s", "Applying")
+		ctx, end := presenter.Begin(presenter.NewContext(context.Background(), rec), "s", "Applying")
 		defer end(nil)
 
 		// When a record is logged with the operation context

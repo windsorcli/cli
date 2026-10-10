@@ -52,7 +52,6 @@ const projectOverridesKey = contextKey("projectOverrides")
 const composerOverridesKey = contextKey("composerOverrides")
 const runtimeOverridesKey = contextKey("runtimeOverrides")
 const testRunnerOverridesKey = contextKey("testRunnerOverrides")
-const presenterKey = contextKey("presenter")
 
 // Execute is the main entry point for the Windsor CLI application.
 // It executes the root command with the provided context or a new background context.
@@ -296,6 +295,6 @@ func withOutput(ctx context.Context, w io.Writer, format logging.Format) context
 		level = slog.LevelDebug
 	}
 	p := presenter.New(format, w, level, !verbose)
-	ctx = context.WithValue(ctx, presenterKey, p)
+	ctx = presenter.NewContext(ctx, p)
 	return logging.NewContext(ctx, slog.New(presenter.NewLogHandler(p, level)))
 }

@@ -1,7 +1,7 @@
 // The presenter package is the single seam between business code and terminal output.
 // It provides one Event envelope, a Presenter port, and console and JSON renderers.
 // Business code emits operations, messages, and progress, and never writes to a stream directly.
-// Begin and Track carry the current operation in the context, so nested events find their parent.
+// The context carries the presenter and the current operation, so nested events find their parent.
 
 package presenter
 
@@ -64,6 +64,12 @@ type Event struct {
 // opKey is the context key for the ID of the current operation.
 type opKey struct{}
 
+// presenterKey is the context key for the presenter.
+type presenterKey struct{}
+
+// discard is a Presenter that drops every event.
+type discard struct{}
+
 // =============================================================================
 // Interfaces
 // =============================================================================
@@ -79,6 +85,9 @@ type Presenter interface {
 
 // nextID is the source of operation IDs, unique within the process.
 var nextID atomic.Uint64
+
+// Discard is a Presenter that drops every event. FromContext returns it when ctx has none.
+var Discard Presenter = discard{}
 
 // New returns the Presenter for format that writes to w. Log records below level are dropped.
 // The console renderer is interactive when w is a terminal and interactive is true.
@@ -104,10 +113,24 @@ func New(format logging.Format, w io.Writer, level slog.Level, interactive bool)
 // Public Methods
 // =============================================================================
 
+// NewContext returns a copy of ctx that carries p.
+func NewContext(ctx context.Context, p Presenter) context.Context {
+	return context.WithValue(ctx, presenterKey{}, p)
+}
+
+// FromContext returns the presenter in ctx, or Discard when ctx has none.
+func FromContext(ctx context.Context) Presenter {
+	if p, ok := ctx.Value(presenterKey{}).(Presenter); ok && p != nil {
+		return p
+	}
+	return Discard
+}
+
 // Begin emits KindApplying for a new operation under the operation in ctx. It returns a context
 // that carries the new operation and an end function that emits KindApplied for a nil error or
 // KindFailed otherwise, with the elapsed time. Calls to end after the first do nothing.
-func Begin(ctx context.Context, p Presenter, subject, message string) (context.Context, func(error)) {
+func Begin(ctx context.Context, subject, message string) (context.Context, func(error)) {
+	p := FromContext(ctx)
 	id := strconv.FormatUint(nextID.Add(1), 10)
 	parent := currentOp(ctx)
 	start := time.Now()
@@ -128,31 +151,34 @@ func Begin(ctx context.Context, p Presenter, subject, message string) (context.C
 
 // Track runs fn as an operation that Begin starts and ends. It passes fn the context of the
 // new operation and returns the error from fn unchanged.
-func Track(ctx context.Context, p Presenter, subject, message string, fn func(context.Context) error) error {
-	opCtx, end := Begin(ctx, p, subject, message)
+func Track(ctx context.Context, subject, message string, fn func(context.Context) error) error {
+	opCtx, end := Begin(ctx, subject, message)
 	err := fn(opCtx)
 	end(err)
 	return err
 }
 
 // Message emits an info-level narrative line under the operation in ctx.
-func Message(ctx context.Context, p Presenter, text string) {
-	p.Emit(ctx, Event{Kind: KindMessage, ParentID: currentOp(ctx), Message: text, Level: slog.LevelInfo})
+func Message(ctx context.Context, text string) {
+	FromContext(ctx).Emit(ctx, Event{Kind: KindMessage, ParentID: currentOp(ctx), Message: text, Level: slog.LevelInfo})
 }
 
 // Warn emits a warn-level narrative line under the operation in ctx.
-func Warn(ctx context.Context, p Presenter, text string) {
-	p.Emit(ctx, Event{Kind: KindMessage, ParentID: currentOp(ctx), Message: text, Level: slog.LevelWarn})
+func Warn(ctx context.Context, text string) {
+	FromContext(ctx).Emit(ctx, Event{Kind: KindMessage, ParentID: currentOp(ctx), Message: text, Level: slog.LevelWarn})
 }
 
 // Progress replaces the status text of the operation in ctx. It does nothing outside an operation.
-func Progress(ctx context.Context, p Presenter, text string) {
+func Progress(ctx context.Context, text string) {
 	id := currentOp(ctx)
 	if id == "" {
 		return
 	}
-	p.Emit(ctx, Event{Kind: KindProgress, ID: id, Message: text})
+	FromContext(ctx).Emit(ctx, Event{Kind: KindProgress, ID: id, Message: text})
 }
+
+// Emit drops event.
+func (discard) Emit(context.Context, Event) {}
 
 // =============================================================================
 // Helpers

@@ -1,8 +1,8 @@
 # ADR 0007 — Presenter / event stream: the keystone seam
 
 - Status: Accepted. `internal/presenter`, the global `--format` flag, and the central error
-  renderer shipped. `cmd/` builds the presenter and writes to stderr. `Runtime` takes over
-  construction when the first business package migrates.
+  renderer shipped. `cmd/` builds the presenter, writes it to stderr, and puts it in the command
+  context. Decision 3 changed from constructor injection to context injection; see that section.
 - Date: 2026-08-04
 - Deciders: Ryan VanGundy
 - Fills the "Presenter / event stream" placeholder from `release-v0.10.0.md`'s Wave 1 — the last
@@ -139,37 +139,42 @@ type Presenter interface {
 
 // Begin emits KindApplying under the operation in ctx and returns a context that carries the new
 // operation, plus an end function that emits KindApplied or KindFailed with the elapsed time.
-func Begin(ctx context.Context, p Presenter, subject, message string) (context.Context, func(error))
+func Begin(ctx context.Context, subject, message string) (context.Context, func(error))
 
 // Track runs fn as one operation and passes fn the operation's context.
-func Track(ctx context.Context, p Presenter, subject, message string, fn func(context.Context) error) error
+func Track(ctx context.Context, subject, message string, fn func(context.Context) error) error
 
-// Message, Warn, and Progress attach to the operation in ctx.
-func Message(ctx context.Context, p Presenter, text string)
-func Warn(ctx context.Context, p Presenter, text string)
-func Progress(ctx context.Context, p Presenter, text string)
+// Message, Warn, and Progress attach to the operation in ctx. Each helper reads the presenter
+// from ctx (point 3).
+func Message(ctx context.Context, text string)
+func Warn(ctx context.Context, text string)
+func Progress(ctx context.Context, text string)
 ```
 
 `Emit` alone is deliberately the entire port — "one seam" from the keystone section, not a growing
 interface. The helpers are package functions over `Emit`, so a renderer implements one method.
 `Track` keeps the migration cheap for the majority-case call site (1 above):
-`tui.WithProgress(msg, fn)` becomes `presenter.Track(ctx, p, subject, msg, fn)`, where `fn` takes
+`tui.WithProgress(msg, fn)` becomes `presenter.Track(ctx, subject, msg, fn)`, where `fn` takes
 the operation's context. The asymmetric `tui.Start`/`Fail` sites (2) convert to `Begin` and its end
 function, and the `outputFunc` sites (3) convert to `Progress` or `Message`. Because each helper
 reads its parent from `ctx`, nesting needs no extra arguments at any call site.
 
-### 3. Presenter is injected, constructed by `Runtime`, same placement as the logger
+### 3. The presenter travels in the context, the same as the logger
 
-Per ADR 0002's layer table (Runtime owns lifecycle/dependency wiring) and ADR 0006's precedent
-(logger constructed once, injected via context): `NewRuntime` constructs the active `Presenter`
-(console, JSON, or — once Wave 3 lands — TUI, selected the same way the logger's handler is
-selected) and makes it available for constructor injection into `TerraformStack`,
-`KubernetesManager`, `Provisioner`, `WorkstationVirt`/`NetworkManager`, and `ArtifactBuilder` — the
-same five call sites currently reaching `tui.Active` directly. This is dependency injection, not
-context-carried, unlike the logger: a presenter is a structural collaborator business types already
-take constructor dependencies for (`ConfigHandler`, `Shell`), where the logger is inherently
-per-call-site ambient state. Matching each to the injection style already established for its kind
-of dependency, not introducing a third pattern.
+`cmd/` builds the active `Presenter` once (console or JSON, chosen by `--format`) and stores it in
+the command context with `presenter.NewContext`. Business code reads it with
+`presenter.FromContext`, which returns `Discard` when the context has none, so code under test stays
+silent without setup. The helpers in point 2 take only `ctx`.
+
+An earlier draft chose constructor injection through `Runtime`. It changed for two reasons found
+when the first package migrated:
+
+- `cmd/` builds a `Runtime` at about 20 sites, and `project.NewProject` uses an override `Runtime`
+  as-is. Constructor injection would need the presenter at every one of those sites.
+- Nesting already requires `ctx` on every method that emits events, because the context carries the
+  current operation. With `ctx` present, the presenter in the same context costs nothing more.
+
+Methods that emit events MUST take `ctx context.Context` as their first parameter.
 
 ### 4. Three renderers behind the port
 
@@ -240,10 +245,9 @@ converting them would conflate two unrelated mechanisms that happen to nest toda
 - **`pkg/tui` retires as packages migrate.** The console renderer has its own line-based tree and
   animation, so `pkg/tui`'s spinner, its global `Active`, and `WithProgress` lose their last caller
   when the final package moves to the presenter.
-- **Presenter is a fifth constructor dependency** on `TerraformStack`, `KubernetesManager`,
-  `Provisioner`, workstation types, and `ArtifactBuilder` — a real, if mechanical, signature change
-  to five widely-used types, landing during each one's already-scheduled Wave 2 pass rather than as
-  a separate cross-cutting commit.
+- **Methods that emit events gain a `ctx` parameter** on `TerraformStack`, `KubernetesManager`,
+  `Provisioner`, workstation types, and `ArtifactBuilder`. This is a mechanical signature change,
+  landed in each package's Wave 2 pass, and it also prepares those methods for Wave 3 cancellation.
 - **The event vocabulary is a new piece of public-ish surface** (even though `internal/presenter`
   isn't externally importable, it's shared across every business package) — adding a `Kind` later is
   cheap and backward-compatible for JSON consumers (an unrecognized kind just doesn't match a
@@ -262,11 +266,9 @@ converting them would conflate two unrelated mechanisms that happen to nest toda
   truncated-but-still-line-valid NDJSON stream, which is an acceptable failure mode for a log,
   whereas losing the whole document is not. Revisit only if a consumer needs the "always one valid
   JSON blob" guarantee Pulumi optimized for, which no current Windsor use case does.
-- **Context-injected presenter, matching the logger's injection style.** Rejected: a presenter is a
-  structural collaborator the affected types already take similar dependencies for
-  (`ConfigHandler`, `Shell`) via constructor injection; forcing it through context would be a third
-  injection pattern for no benefit, where the logger's context injection exists specifically because
-  logging is called from many more places than the five presenter-consuming types.
+- **Constructor injection through `Runtime`** (this ADR's first draft). Rejected after the first
+  migration: it needs the presenter at about 20 `Runtime` construction sites in `cmd/`, and nesting
+  needs `ctx` on the same methods anyway (point 3).
 - **Keep JSON output as a per-command, per-concern flag** (e.g. `apply --json-errors`,
   `plan --json-output`) rather than one global flag. Rejected: this is exactly the fragmentation
   problem being solved for progress mechanisms; doing the same thing to output-format selection

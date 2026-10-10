@@ -809,7 +809,7 @@ func TestWithOutput(t *testing.T) {
 		logging.FromContext(ctx).Warn("slow apply")
 
 		// Then the presenter is in the context and the log reached it as a JSON log event
-		if _, ok := ctx.Value(presenterKey).(presenter.Presenter); !ok {
+		if presenter.FromContext(ctx) == presenter.Discard {
 			t.Error("expected a presenter in the context")
 		}
 		if !strings.Contains(buf.String(), `"kind":"log"`) || !strings.Contains(buf.String(), "slow apply") {
