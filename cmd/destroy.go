@@ -2,18 +2,19 @@ package cmd
 
 import (
 	"bufio"
+	"context"
 	"fmt"
 	"io"
 	"os"
 	"strings"
 
 	"github.com/spf13/cobra"
+	"github.com/windsorcli/cli/internal/presenter"
 	"github.com/windsorcli/cli/pkg/provisioner"
 	fluxinfra "github.com/windsorcli/cli/pkg/provisioner/flux"
 	"github.com/windsorcli/cli/pkg/provisioner/stacklock"
 	terraforminfra "github.com/windsorcli/cli/pkg/provisioner/terraform"
 	"github.com/windsorcli/cli/pkg/runtime/tools"
-	"github.com/windsorcli/cli/pkg/tui"
 	tuiplan "github.com/windsorcli/cli/pkg/tui/plan"
 )
 
@@ -101,7 +102,7 @@ windsor destroy --confirm=local --continue`,
 				return err
 			}
 			var summary *provisioner.DestroyPlanSummary
-			if err := tui.WithProgress("Generating destroy plan...", func() error {
+			if err := presenter.Track(cmd.Context(), "plan:destroy", "Generating destroy plan", func(context.Context) error {
 				var planErr error
 				summary, planErr = proj.Provisioner.PlanDestroyAll(blueprint)
 				return planErr
@@ -161,7 +162,7 @@ windsor destroy --confirm=local --continue`,
 
 		var tfResults []terraforminfra.TerraformComponentPlan
 		var k8sResults []fluxinfra.KustomizePlan
-		if err := tui.WithProgress("Generating destroy plan...", func() error {
+		if err := presenter.Track(cmd.Context(), "plan:destroy", "Generating destroy plan", func(context.Context) error {
 			if inTerraform {
 				result, err := proj.Provisioner.PlanDestroyTerraformComponentSummary(blueprint, componentID)
 				if err != nil {
@@ -263,7 +264,7 @@ windsor destroy terraform --confirm=local`,
 				return err
 			}
 			var summary *provisioner.DestroyPlanSummary
-			if err := tui.WithProgress("Generating destroy plan...", func() error {
+			if err := presenter.Track(cmd.Context(), "plan:destroy", "Generating destroy plan", func(context.Context) error {
 				var planErr error
 				summary, planErr = proj.Provisioner.PlanDestroyTerraformSummary(blueprint)
 				return planErr
@@ -308,7 +309,7 @@ windsor destroy terraform --confirm=local`,
 			return err
 		}
 		var tfResult terraforminfra.TerraformComponentPlan
-		if err := tui.WithProgress("Generating destroy plan...", func() error {
+		if err := presenter.Track(cmd.Context(), "plan:destroy", "Generating destroy plan", func(context.Context) error {
 			var planErr error
 			tfResult, planErr = proj.Provisioner.PlanDestroyTerraformComponentSummary(blueprint, componentID)
 			return planErr
@@ -372,7 +373,7 @@ windsor destroy kustomize --confirm=local`,
 
 		if len(args) == 0 {
 			var summary *provisioner.DestroyPlanSummary
-			if err := tui.WithProgress("Generating destroy plan...", func() error {
+			if err := presenter.Track(cmd.Context(), "plan:destroy", "Generating destroy plan", func(context.Context) error {
 				var planErr error
 				summary, planErr = proj.Provisioner.PlanDestroyKustomizeSummary(blueprint)
 				return planErr
@@ -396,7 +397,7 @@ windsor destroy kustomize --confirm=local`,
 
 		componentID := args[0]
 		var k8sResult fluxinfra.KustomizePlan
-		if err := tui.WithProgress("Generating destroy plan...", func() error {
+		if err := presenter.Track(cmd.Context(), "plan:destroy", "Generating destroy plan", func(context.Context) error {
 			var planErr error
 			k8sResult, planErr = proj.Provisioner.PlanDestroyKustomizeComponentSummary(blueprint, componentID)
 			return planErr

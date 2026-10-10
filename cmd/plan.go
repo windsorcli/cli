@@ -1,12 +1,14 @@
 package cmd
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"strings"
 
 	"github.com/spf13/cobra"
 	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
+	"github.com/windsorcli/cli/internal/presenter"
 	composerblueprint "github.com/windsorcli/cli/pkg/composer/blueprint"
 	"github.com/windsorcli/cli/pkg/project"
 	"github.com/windsorcli/cli/pkg/provisioner"
@@ -67,7 +69,7 @@ windsor plan terraform cluster`,
 			}
 			return stacklock.With(cmd.Context(), proj.Runtime, "plan", lockTimeout, func() error {
 				var summary *provisioner.PlanSummary
-				if err := tui.WithProgress("Generating plan...", func() error {
+				if err := presenter.Track(cmd.Context(), "plan", "Generating plan", func(context.Context) error {
 					var planErr error
 					summary, planErr = proj.Provisioner.PlanAll(blueprint)
 					return planErr

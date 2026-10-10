@@ -322,6 +322,26 @@ func setupMocks(t *testing.T, opts ...*SetupOptions) *Mocks {
 // Test Helpers
 // =============================================================================
 
+// eventRecorder records every presenter event it receives.
+type eventRecorder struct {
+	events []presenter.Event
+}
+
+func (r *eventRecorder) Emit(_ context.Context, e presenter.Event) {
+	r.events = append(r.events, e)
+}
+
+// operations returns the messages of the operations that started, in order.
+func (r *eventRecorder) operations() []string {
+	var ops []string
+	for _, e := range r.events {
+		if e.Kind == presenter.KindApplying {
+			ops = append(ops, e.Message)
+		}
+	}
+	return ops
+}
+
 // captureOutput creates buffers for stdout and stderr and returns them along with a cleanup function
 func captureOutput(t *testing.T) (*bytes.Buffer, *bytes.Buffer) {
 	t.Helper()
