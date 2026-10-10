@@ -344,6 +344,12 @@ ADR 0002's already-decided density/blast-radius order —
 4. `pkg/composer/artifact/` + `pkg/composer/terraform/` 5. `pkg/workstation/`
 6. `pkg/test/`, `pkg/tui/`, `cmd/`, `api/`
 
+The terraform path of `pkg/provisioner/` went first, ahead of `pkg/composer/blueprint/`, because
+the presenter needed a real caller before its API settled. Blueprint composition emits no progress,
+so it could not exercise the presenter. That pass added `ctx` to the terraform-path methods of
+`TerraformStack`, `Provisioner`, and `Project`, and moved their progress and warnings to the
+presenter. `pkg/provisioner/kubernetes/` and the kustomize paths of `pkg/provisioner/` are next.
+
 — a single pass applies, in order, within that package:
 
 1. **Black-box characterize** current public behavior (ADR 0003), if it doesn't already exist.

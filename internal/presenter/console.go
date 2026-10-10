@@ -214,18 +214,23 @@ func (c *Console) progress(event Event) {
 }
 
 // message prints a narrative line under its parent operation, with a marker for warnings.
+// Each further line of a multi-line message is indented to align under the first line's text.
 func (c *Console) message(event Event) {
 	depth := 0
 	if parent := c.ops[event.ParentID]; parent != nil {
 		depth = parent.depth + 1
 		c.printHeader(parent)
 	}
-	text := event.Message
+	prefix, cont := "", indent(depth)
 	if event.Level >= slog.LevelWarn {
-		text = c.color(ansiYellow, "⚠") + " " + text
+		prefix, cont = c.color(ansiYellow, "⚠")+" ", indent(depth)+"  "
 	}
-	line := indent(depth) + text
-	c.print(func() { fmt.Fprintln(c.w, line) })
+	lines := strings.Split(event.Message, "\n")
+	text := indent(depth) + prefix + lines[0]
+	for _, l := range lines[1:] {
+		text += "\n" + cont + l
+	}
+	c.print(func() { fmt.Fprintln(c.w, text) })
 }
 
 // printHeader prints the header line of op once.

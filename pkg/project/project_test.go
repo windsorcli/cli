@@ -1,6 +1,7 @@
 package project
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -1313,7 +1314,7 @@ func TestProject_Up(t *testing.T) {
 		}
 		proj := NewProject("test-context", &Project{Runtime: mocks.Runtime, Composer: mocks.Composer})
 
-		blueprint, _, err := proj.Up()
+		blueprint, _, err := proj.Up(context.Background())
 
 		if err != nil {
 			t.Errorf("Expected no error, got: %v", err)
@@ -1363,7 +1364,7 @@ func TestProject_Up(t *testing.T) {
 		}
 		proj.Workstation.NetworkManager = nil
 
-		blueprint, _, err := proj.Up()
+		blueprint, _, err := proj.Up(context.Background())
 
 		if err != nil {
 			t.Errorf("Expected no error, got: %v", err)
@@ -1427,7 +1428,7 @@ func TestProject_Up(t *testing.T) {
 		proj.Workstation.VirtualMachine = mockVM
 		proj.Workstation.NetworkManager = nil
 
-		_, _, err := proj.Up()
+		_, _, err := proj.Up(context.Background())
 
 		if err == nil {
 			t.Error("Expected error when Workstation.Up fails")
@@ -1504,7 +1505,7 @@ func TestProject_Up(t *testing.T) {
 		proj.Workstation.ContainerRuntime = nil
 
 		// When proj.Up runs
-		_, halted, err := proj.Up()
+		_, halted, err := proj.Up(context.Background())
 
 		// Then no error surfaces, halt propagates through the runApply / provisioner chain,
 		// and the workstation accumulated a required deferred-work item the cmd layer can render
@@ -1540,7 +1541,7 @@ func TestProject_Up(t *testing.T) {
 			Provisioner: prov,
 		})
 
-		_, _, err := proj.Up()
+		_, _, err := proj.Up(context.Background())
 
 		if err == nil {
 			t.Error("Expected error when Provisioner.Up fails")
@@ -1632,7 +1633,7 @@ func TestProject_Bootstrap(t *testing.T) {
 		proj.Workstation.ContainerRuntime = nil
 		proj.Workstation.NetworkManager = nil
 
-		if _, _, _, err := proj.Bootstrap(nil); err != nil {
+		if _, _, _, err := proj.Bootstrap(context.Background(), nil); err != nil {
 			t.Fatalf("Expected no error, got: %v", err)
 		}
 
@@ -1707,7 +1708,7 @@ func TestProject_Bootstrap(t *testing.T) {
 			return false
 		}
 
-		_, applied, _, err := proj.Bootstrap(confirm)
+		_, applied, _, err := proj.Bootstrap(context.Background(), confirm)
 		if err != nil {
 			t.Fatalf("Expected no error on decline, got: %v", err)
 		}
@@ -1745,7 +1746,7 @@ func TestProject_Bootstrap(t *testing.T) {
 			Provisioner: prov,
 		})
 
-		bp, applied, _, err := proj.Bootstrap(func(_ *provisioner.BootstrapSummary) bool { return false })
+		bp, applied, _, err := proj.Bootstrap(context.Background(), func(_ *provisioner.BootstrapSummary) bool { return false })
 		if err != nil {
 			t.Fatalf("Expected no error on decline, got: %v", err)
 		}
@@ -1778,7 +1779,7 @@ func TestProject_Bootstrap(t *testing.T) {
 			Provisioner: prov,
 		})
 
-		_, _, _, err := proj.Bootstrap(nil)
+		_, _, _, err := proj.Bootstrap(context.Background(), nil)
 		if err == nil {
 			t.Fatal("Expected error when provisioner errors")
 		}

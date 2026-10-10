@@ -192,7 +192,7 @@ func TestProvisioner_PrepareLocalTeardown(t *testing.T) {
 		prov := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{TerraformStack: mockStack})
 
 		// When preparing, it pivots the backend to local and migrates state up front
-		pivoted, err := prov.PrepareLocalTeardown(bp)
+		pivoted, err := prov.PrepareLocalTeardown(context.Background(), bp)
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -210,7 +210,7 @@ func TestProvisioner_PrepareLocalTeardown(t *testing.T) {
 		mockStack.MigrateStateFunc = func(_ *blueprintv1alpha1.Blueprint) ([]string, error) { migrated = true; return nil, nil }
 		prov := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{TerraformStack: mockStack})
 
-		pivoted, err := prov.PrepareLocalTeardown(bp)
+		pivoted, err := prov.PrepareLocalTeardown(context.Background(), bp)
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -232,7 +232,7 @@ func TestProvisioner_PrepareLocalTeardown(t *testing.T) {
 		prov := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{TerraformStack: mockStack})
 
 		// When preparing, it leaves the backend type alone so Teardown still gates the backend components
-		pivoted, err := prov.PrepareLocalTeardown(bp)
+		pivoted, err := prov.PrepareLocalTeardown(context.Background(), bp)
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -276,7 +276,7 @@ func TestProvisioner_PrepareLocalTeardown(t *testing.T) {
 
 		// When preparing, it aborts and reverts the pivot so nothing later reads a local backend with no
 		// migrated state behind it
-		_, err := prov.PrepareLocalTeardown(bp)
+		_, err := prov.PrepareLocalTeardown(context.Background(), bp)
 		if err == nil || !strings.Contains(err.Error(), "migrate terraform state") {
 			t.Errorf("expected abort on migration failure with cluster up, got %v", err)
 		}
@@ -298,7 +298,7 @@ func TestProvisioner_PrepareLocalTeardown(t *testing.T) {
 		prov.configRoot = t.TempDir() // no kubeconfig → cluster gone
 
 		// When preparing, it pivots and proceeds against the already-migrated local state
-		pivoted, err := prov.PrepareLocalTeardown(bp)
+		pivoted, err := prov.PrepareLocalTeardown(context.Background(), bp)
 		if err != nil {
 			t.Fatalf("expected resume to proceed, got %v", err)
 		}
@@ -320,7 +320,7 @@ func TestProvisioner_Teardown(t *testing.T) {
 		mocks := setupProvisionerMocks(t)
 		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler)
 
-		_, err := provisioner.Teardown(nil, false, false)
+		_, err := provisioner.Teardown(context.Background(), nil, false, false)
 
 		if err == nil {
 			t.Fatal("Expected error for nil blueprint, got nil")
@@ -359,7 +359,7 @@ func TestProvisioner_Teardown(t *testing.T) {
 		}
 		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{TerraformStack: mockStack})
 
-		_, err := provisioner.Teardown(bp, true, false)
+		_, err := provisioner.Teardown(context.Background(), bp, true, false)
 		if err == nil {
 			t.Fatal("Expected error for kubernetes backend without Blueprint.Backend, got nil")
 		}
@@ -401,7 +401,7 @@ func TestProvisioner_Teardown(t *testing.T) {
 		}
 		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{KubernetesManager: mocks.KubernetesManager, TerraformStack: mockStack})
 
-		if _, err := provisioner.Teardown(createTestBlueprint(), true, false); err != nil {
+		if _, err := provisioner.Teardown(context.Background(), createTestBlueprint(), true, false); err != nil {
 			t.Fatalf("Expected no error, got %v", err)
 		}
 		if destroyAllCalls != 1 {
@@ -452,7 +452,7 @@ func TestProvisioner_Teardown(t *testing.T) {
 		}
 		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{KubernetesManager: mocks.KubernetesManager, TerraformStack: mockStack})
 
-		if _, err := provisioner.Teardown(bp, true, false); err != nil {
+		if _, err := provisioner.Teardown(context.Background(), bp, true, false); err != nil {
 			t.Fatalf("Expected no error, got %v", err)
 		}
 		if setCalled {
@@ -501,7 +501,7 @@ func TestProvisioner_Teardown(t *testing.T) {
 
 		var err error
 		stderrOutput := captureStderr(t, func() {
-			_, err = provisioner.Teardown(bp, true, false)
+			_, err = provisioner.Teardown(context.Background(), bp, true, false)
 		})
 
 		if err != nil {
@@ -549,7 +549,7 @@ func TestProvisioner_Teardown(t *testing.T) {
 
 		var err error
 		stderrOutput := captureStderr(t, func() {
-			_, err = provisioner.Teardown(bp, true, false)
+			_, err = provisioner.Teardown(context.Background(), bp, true, false)
 		})
 
 		if err != nil {
@@ -591,7 +591,7 @@ func TestProvisioner_Teardown(t *testing.T) {
 		}
 		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{KubernetesManager: mocks.KubernetesManager, TerraformStack: mockStack})
 
-		_, err := provisioner.Teardown(bp, true, false)
+		_, err := provisioner.Teardown(context.Background(), bp, true, false)
 		if err == nil {
 			t.Fatal("Expected error for unresolved Backend field, got nil")
 		}
@@ -649,7 +649,7 @@ func TestProvisioner_Teardown(t *testing.T) {
 		}
 		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{KubernetesManager: mocks.KubernetesManager, TerraformStack: mockStack})
 
-		if _, err := provisioner.Teardown(bp, true, false); err != nil {
+		if _, err := provisioner.Teardown(context.Background(), bp, true, false); err != nil {
 			t.Fatalf("Expected no error, got %v", err)
 		}
 
@@ -724,7 +724,7 @@ func TestProvisioner_Teardown(t *testing.T) {
 		}
 		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{KubernetesManager: mocks.KubernetesManager, TerraformStack: mockStack})
 
-		if _, err := provisioner.Teardown(bp, true, false); err != nil {
+		if _, err := provisioner.Teardown(context.Background(), bp, true, false); err != nil {
 			t.Fatalf("Expected no error, got %v", err)
 		}
 
@@ -814,7 +814,7 @@ func TestProvisioner_Teardown(t *testing.T) {
 		mockStack.MigrateStateFunc = func(_ *blueprintv1alpha1.Blueprint) ([]string, error) { return nil, nil }
 		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{KubernetesManager: mocks.KubernetesManager, TerraformStack: mockStack})
 
-		result, err := provisioner.Teardown(bp, true, true)
+		result, err := provisioner.Teardown(context.Background(), bp, true, true)
 		if err != nil {
 			t.Fatalf("Expected continueOnError to absorb the fellow-component failure, got %v", err)
 		}
@@ -865,7 +865,7 @@ func TestProvisioner_Teardown(t *testing.T) {
 		}
 		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{KubernetesManager: mocks.KubernetesManager, TerraformStack: mockStack})
 
-		_, err := provisioner.Teardown(bp, true, false)
+		_, err := provisioner.Teardown(context.Background(), bp, true, false)
 		if err == nil {
 			t.Fatal("Expected error from Stage 1 failure, got nil")
 		}
@@ -925,7 +925,7 @@ func TestProvisioner_Teardown(t *testing.T) {
 		}
 		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{KubernetesManager: mocks.KubernetesManager, TerraformStack: mockStack})
 
-		_, err := provisioner.Teardown(bp, true, false)
+		_, err := provisioner.Teardown(context.Background(), bp, true, false)
 		if err == nil {
 			t.Fatal("Expected error from Stage 2 migration failure, got nil")
 		}
@@ -986,7 +986,7 @@ func TestProvisioner_Teardown(t *testing.T) {
 		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{KubernetesManager: mocks.KubernetesManager, TerraformStack: mockStack})
 		var err error
 		stderrOutput := captureStderr(t, func() {
-			_, err = provisioner.Teardown(bp, true, false)
+			_, err = provisioner.Teardown(context.Background(), bp, true, false)
 		})
 
 		if err != nil {
@@ -1039,7 +1039,7 @@ func TestProvisioner_Teardown(t *testing.T) {
 		}
 		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{KubernetesManager: mocks.KubernetesManager, TerraformStack: mockStack})
 
-		result, err := provisioner.Teardown(bp, true, false)
+		result, err := provisioner.Teardown(context.Background(), bp, true, false)
 		if err != nil {
 			t.Fatalf("Expected no error, got %v", err)
 		}
@@ -1095,7 +1095,7 @@ func TestProvisioner_Teardown(t *testing.T) {
 		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{KubernetesManager: mocks.KubernetesManager, TerraformStack: mockStack})
 
 		// When Teardown runs with continueOnError=true
-		result, err := provisioner.Teardown(bp, true, true)
+		result, err := provisioner.Teardown(context.Background(), bp, true, true)
 
 		// Then no error is returned (failure is collected), terraform is deferred,
 		// and Stage 2 backend migration never engages
@@ -1152,7 +1152,7 @@ func TestProvisioner_Teardown(t *testing.T) {
 		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{KubernetesManager: mocks.KubernetesManager, TerraformStack: mockStack})
 
 		// When Teardown runs with continueOnError=true
-		result, err := provisioner.Teardown(bp, true, true)
+		result, err := provisioner.Teardown(context.Background(), bp, true, true)
 
 		// Then terraform is attempted (Stage 2 runs) and TerraformDeferred stays false
 		if err != nil {
@@ -1200,10 +1200,10 @@ func TestProvisioner_Teardown(t *testing.T) {
 		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{KubernetesManager: mocks.KubernetesManager, TerraformStack: mockStack})
 
 		// When PrepareLocalTeardown runs first, then Teardown with continueOnError=true
-		if _, err := provisioner.PrepareLocalTeardown(bp); err != nil {
+		if _, err := provisioner.PrepareLocalTeardown(context.Background(), bp); err != nil {
 			t.Fatalf("Expected no error from PrepareLocalTeardown, got %v", err)
 		}
-		result, err := provisioner.Teardown(bp, false, true)
+		result, err := provisioner.Teardown(context.Background(), bp, false, true)
 
 		// Then the backend type is untouched, terraform is still deferred, and the
 		// backend component is never destroyed alongside the failed component
@@ -1245,7 +1245,7 @@ func TestProvisioner_Teardown(t *testing.T) {
 		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{KubernetesManager: mocks.KubernetesManager, TerraformStack: mockStack})
 
 		// When Teardown runs with continueOnError=true
-		result, err := provisioner.Teardown(createTestBlueprint(), true, true)
+		result, err := provisioner.Teardown(context.Background(), createTestBlueprint(), true, true)
 
 		// Then per-component failures surface in result.Failed without aborting
 		if err != nil {
@@ -1306,7 +1306,7 @@ func TestProvisioner_Teardown(t *testing.T) {
 		})
 
 		// When Teardown runs the full destroy (terraformOnly=false) with continueOnError=true
-		result, err := provisioner.Teardown(bp, false, true)
+		result, err := provisioner.Teardown(context.Background(), bp, false, true)
 
 		// Then the kustomize failure is recorded and terraform is deferred entirely —
 		// Stage 1 itself aborts before touching terraform (via Provisioner.DestroyAll's
@@ -1383,7 +1383,7 @@ func TestProvisioner_Teardown(t *testing.T) {
 		})
 
 		// When Teardown runs the full destroy (terraformOnly=false) with continueOnError=true
-		result, err := provisioner.Teardown(bp, false, true)
+		result, err := provisioner.Teardown(context.Background(), bp, false, true)
 
 		// Then the kustomize failure is recorded and terraform is deferred, same as the
 		// reachable case.
@@ -1464,7 +1464,7 @@ func TestProvisioner_TeardownComponent(t *testing.T) {
 		mocks := setupProvisionerMocks(t)
 		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler)
 
-		_, err := provisioner.TeardownComponent(nil, "cluster")
+		_, err := provisioner.TeardownComponent(context.Background(), nil, "cluster")
 
 		if err == nil {
 			t.Fatal("Expected error for nil blueprint, got nil")
@@ -1498,7 +1498,7 @@ func TestProvisioner_TeardownComponent(t *testing.T) {
 				}
 				provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{TerraformStack: mockStack})
 
-				_, err := provisioner.TeardownComponent(bpWithBackend(), "backend")
+				_, err := provisioner.TeardownComponent(context.Background(), bpWithBackend(), "backend")
 				if err == nil {
 					t.Fatal("Expected refusal error, got nil")
 				}
@@ -1549,7 +1549,7 @@ func TestProvisioner_TeardownComponent(t *testing.T) {
 		}
 		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{TerraformStack: mockStack})
 
-		_, err := provisioner.TeardownComponent(bp, "networking/vpc")
+		_, err := provisioner.TeardownComponent(context.Background(), bp, "networking/vpc")
 		if err == nil {
 			t.Fatal("Expected refusal for a pre-backend component, got nil")
 		}
@@ -1586,7 +1586,7 @@ func TestProvisioner_TeardownComponent(t *testing.T) {
 		}
 		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{KubernetesManager: mocks.KubernetesManager, TerraformStack: mockStack})
 
-		if _, err := provisioner.TeardownComponent(bpWithBackend(), "backend"); err != nil {
+		if _, err := provisioner.TeardownComponent(context.Background(), bpWithBackend(), "backend"); err != nil {
 			t.Fatalf("Expected no error, got %v", err)
 		}
 		if !destroyCalled {
@@ -1631,7 +1631,7 @@ func TestProvisioner_TeardownComponent(t *testing.T) {
 				}
 				provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{KubernetesManager: mocks.KubernetesManager, TerraformStack: mockStack})
 
-				if _, err := provisioner.TeardownComponent(bpWithBackend(), "cluster"); err != nil {
+				if _, err := provisioner.TeardownComponent(context.Background(), bpWithBackend(), "cluster"); err != nil {
 					t.Fatalf("Expected no error, got %v", err)
 				}
 				if !destroyCalled {
@@ -1674,7 +1674,7 @@ func TestProvisioner_TeardownComponent(t *testing.T) {
 
 		var err error
 		stderrOutput := captureStderr(t, func() {
-			_, err = provisioner.TeardownComponent(bpWithBackend(), "cluster")
+			_, err = provisioner.TeardownComponent(context.Background(), bpWithBackend(), "cluster")
 		})
 
 		if err != nil {

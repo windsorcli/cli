@@ -357,6 +357,24 @@ func TestConsole_Plain(t *testing.T) {
 		}
 	})
 
+	t.Run("IndentsEveryLineOfAMultiLineWarning", func(t *testing.T) {
+		// Given a plain console
+		var buf bytes.Buffer
+		c := presenter.NewConsole(&buf, presenter.ConsoleOptions{Level: slog.LevelInfo})
+
+		// When a multi-line warning is emitted inside an operation
+		_ = presenter.Track(presenter.NewContext(context.Background(), c), "s", "Destroying", func(ctx context.Context) error {
+			presenter.Warn(ctx, "destroy output:\nError: bucket not empty")
+			return nil
+		})
+
+		// Then the second line aligns under the first line's text
+		want := []string{"● Destroying", "  ⚠ destroy output:", "    Error: bucket not empty", "✔ Destroying"}
+		if got := plainLines(buf.String()); !reflect.DeepEqual(got, want) {
+			t.Errorf("expected %q, got %q", want, got)
+		}
+	})
+
 	t.Run("PrintsProgressOncePerChange", func(t *testing.T) {
 		// Given a plain console
 		var buf bytes.Buffer

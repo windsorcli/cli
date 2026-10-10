@@ -1,6 +1,7 @@
 package provisioner
 
 import (
+	"context"
 	"fmt"
 	"os"
 
@@ -37,8 +38,8 @@ type BootstrapConfirmFn func(*BootstrapSummary) bool
 // `windsor bootstrap`'s explicit-confirmation flow. Returns (halted, err); halted=true means
 // an inner apply call stopped cleanly after a component (e.g. cluster reachability needs
 // operator action), leaving bootstrap partially complete until the operator re-runs it.
-func (i *Provisioner) Bootstrap(blueprint *blueprintv1alpha1.Blueprint, onApply ...func(id string) (bool, error)) (bool, error) {
-	return i.Up(blueprint, onApply...)
+func (i *Provisioner) Bootstrap(ctx context.Context, blueprint *blueprintv1alpha1.Blueprint, onApply ...func(id string) (bool, error)) (bool, error) {
+	return i.Up(ctx, blueprint, onApply...)
 }
 
 // BuildBootstrapSummary constructs the operator-visible intent description for a bootstrap,
@@ -78,16 +79,16 @@ func BuildBootstrapSummary(blueprint *blueprintv1alpha1.Blueprint, contextName, 
 // the remaining components directly against it. Idempotent regardless of whether the backend
 // already exists. Sub-applies use applyDirect, not Up, to avoid re-deriving the backend
 // components and recursing.
-func (i *Provisioner) applyWithBackendPivot(blueprint *blueprintv1alpha1.Blueprint, backendComponents []*blueprintv1alpha1.TerraformComponent, onApply ...func(id string) (bool, error)) (bool, error) {
+func (i *Provisioner) applyWithBackendPivot(ctx context.Context, blueprint *blueprintv1alpha1.Blueprint, backendComponents []*blueprintv1alpha1.TerraformComponent, onApply ...func(id string) (bool, error)) (bool, error) {
 	backendComponentsBP := blueprintWithComponents(blueprint, backendComponents)
 	nonBackendBP := blueprintWithoutComponents(blueprint, backendComponents)
 
 	var backendHalted bool
 	if err := i.withBackendOverride("backend-pivot", func() error {
-		if _, err := i.MigrateState(backendComponentsBP); err != nil {
+		if _, err := i.MigrateState(ctx, backendComponentsBP); err != nil {
 			return err
 		}
-		halted, err := i.applyDirect(backendComponentsBP, onApply...)
+		halted, err := i.applyDirect(ctx, backendComponentsBP, onApply...)
 		if err != nil {
 			return err
 		}
@@ -101,7 +102,7 @@ func (i *Provisioner) applyWithBackendPivot(blueprint *blueprintv1alpha1.Bluepri
 		return true, nil
 	}
 
-	skipped, err := i.MigrateState(backendComponentsBP)
+	skipped, err := i.MigrateState(ctx, backendComponentsBP)
 	if err != nil {
 		return false, err
 	}
@@ -118,7 +119,7 @@ func (i *Provisioner) applyWithBackendPivot(blueprint *blueprintv1alpha1.Bluepri
 	if len(nonBackendBP.TerraformComponents) == 0 {
 		return false, nil
 	}
-	return i.applyDirect(nonBackendBP, onApply...)
+	return i.applyDirect(ctx, nonBackendBP, onApply...)
 }
 
 // blueprintWithComponents returns a shallow copy of bp containing only the given
