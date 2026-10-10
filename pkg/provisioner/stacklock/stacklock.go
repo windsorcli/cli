@@ -43,7 +43,7 @@ var DefaultTimeout = 5 * time.Minute
 const acquireRetryInterval = 50 * time.Millisecond
 
 // lockDirPerm is the mode used when creating the lock-file's parent directory.
-const lockDirPerm = 0o755
+const lockDirPerm = 0o750
 
 // stackLockFilename is the basename written under WindsorScratchPath.
 const stackLockFilename = ".stacklock"
@@ -54,7 +54,7 @@ const stackLockFilename = ".stacklock"
 const stackLockInfoSuffix = ".info"
 
 // lockInfoPerm is the mode used when writing the holder-info sidecar.
-const lockInfoPerm = 0o644
+const lockInfoPerm = 0o600
 
 // =============================================================================
 // Types
