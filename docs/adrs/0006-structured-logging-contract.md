@@ -1,6 +1,8 @@
 # ADR 0006 — Structured logging contract: `slog`, context-injected, level-aware
 
-- Status: Proposed
+- Status: Accepted. `internal/logging` shipped, and `cmd/` injects the logger into the command
+  context. `Runtime` takes over logger construction, and `Shell.IsVerbose` derives from the logger
+  level, when `pkg/runtime` gets its Wave 2 pass.
 - Date: 2026-08-04
 - Deciders: Ryan VanGundy
 - Fills the "Structured logging contract" placeholder from `release-v0.10.0.md`'s Wave 1 — the last
@@ -52,21 +54,22 @@ path the way a package global does.
 type ctxKey struct{}
 
 func NewContext(ctx context.Context, logger *slog.Logger) context.Context
-func FromContext(ctx context.Context) *slog.Logger // never nil — falls back to a safe default
+func FromContext(ctx context.Context) *slog.Logger // never nil; discards records when ctx has none
 ```
 
 This retires `cmd/root.go`'s bare `context.WithValue(ctx, "verbose", true)` in favor of the typed
 key above, closing the collision-risk smell found in Context — one mechanism, not two, and it's the
 existing `ctx` variable already being threaded, not a new context to plumb in.
 
-### 3. Handlers: console (default), JSON (`--output json`), TUI-routing (reserved seam)
+### 3. Handlers: console (default), JSON (`--format json`), TUI-routing (reserved seam)
 
 Three backends behind the same `slog.Handler` interface, selected once at construction:
 
 - **Console** (default) — `charmbracelet/log`, human-readable, leveled, colored. New dependency,
   added by this ADR (the release doc's scoping table already named it; this is where it lands).
-- **JSON** (`--output json` / CI, detected the same way other output-format decisions already are)
-  — `slog.JSONHandler`, stdlib, no new dependency.
+  It does not resolve `slog.LogValuer` attributes itself, so `NewHandler` wraps it in a handler
+  that resolves them first.
+- **JSON** (`--format json`) — `slog.JSONHandler`, stdlib, no new dependency.
 - **TUI-routing** (reserved now, implemented in Wave 3) — while a BubbleTea program owns the
   screen, a log record must not hit stdout directly, or it corrupts the TUI's own rendering. This
   ADR reserves the hook — a handler that checks an active-TUI signal (the same shape as `tui.go`'s
@@ -90,7 +93,7 @@ but that's a `pkg/runtime/shell` implementation choice, not a logging-contract d
 ### 5. Logger construction lives in `Runtime`, injected at the `cmd/` boundary
 
 Per the already-ratified layer table (ADR 0002: "Runtime — Lifecycle orchestration and dependency
-wiring"), `NewRuntime` constructs the base `*slog.Logger` (handler chosen by `--output`, level by
+wiring"), `NewRuntime` constructs the base `*slog.Logger` (handler chosen by `--format`, level by
 `--verbose`) as part of its existing dependency-wiring responsibility. `cmd/root.go`'s
 `PersistentPreRun`-equivalent injects it into the command's `context.Context` via
 `logging.NewContext` (point 2) once, at the top — every downstream `pkg/` call retrieves the same
@@ -129,9 +132,8 @@ context injection are ready for Presenter to build on, not a completed migration
   does not fix the nine-file coupling found in Context, it only stops making it worse (new/touched
   log call sites use the injected logger, not a new global) and prepares the handler seam Presenter
   will route through.
-- **`--output json` for logging is decided; the release doc's global-JSON-surface open question
-  (errors + progress + logs uniformly, or per-concern) stays open**, same posture ADR 0005 took for
-  errors — this ADR's handler choice satisfies either resolution.
+- **`--format json` for logging is decided.** ADR 0007 makes `--format` the one global flag for
+  logs, errors, and progress, so this handler choice needs no per-concern flag.
 
 ## Alternatives considered
 

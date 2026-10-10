@@ -2,11 +2,17 @@ package cmd
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"io"
+	"log/slog"
 	"os"
 	"time"
 
 	"github.com/spf13/cobra"
+	"github.com/windsorcli/cli/internal/logging"
+	"github.com/windsorcli/cli/internal/presenter"
+	"github.com/windsorcli/cli/internal/werror"
 	"github.com/windsorcli/cli/pkg/debug"
 	"github.com/windsorcli/cli/pkg/project"
 	"github.com/windsorcli/cli/pkg/runtime"
@@ -36,6 +42,9 @@ var lockTimeout time.Duration
 // contextFlag overrides the windsor context for this invocation. See setupGlobalContext.
 var contextFlag string
 
+// formatFlag selects the output format for progress, logs, and errors: text or json.
+var formatFlag string
+
 // Define a custom type for context keys
 type contextKey string
 
@@ -43,18 +52,24 @@ const projectOverridesKey = contextKey("projectOverrides")
 const composerOverridesKey = contextKey("composerOverrides")
 const runtimeOverridesKey = contextKey("runtimeOverrides")
 const testRunnerOverridesKey = contextKey("testRunnerOverrides")
+const presenterKey = contextKey("presenter")
 
 // Execute is the main entry point for the Windsor CLI application.
 // It executes the root command with the provided context or a new background context.
 // Sets the root command's context before execution so cmd.Root().Context() is correct
 // when RunE runs (Cobra does not always propagate context to root on subsequent runs).
+// It renders a returned error once, unless the failing command already reported it.
 func Execute() error {
 	ctx := rootCmd.Context()
 	if ctx == nil {
 		ctx = context.Background()
 	}
 	rootCmd.SetContext(ctx)
-	return rootCmd.ExecuteContext(ctx)
+	executed, err := rootCmd.ExecuteContextC(ctx)
+	if err != nil && (executed == nil || !executed.SilenceErrors) {
+		renderError(rootCmd.ErrOrStderr(), err)
+	}
+	return err
 }
 
 // RootCmd exposes the assembled cobra command tree for tooling that needs to
@@ -72,6 +87,7 @@ var rootCmd = &cobra.Command{
 	Short:             "CLI for cloud-native development workflows",
 	Long:              "CLI for cloud-native development workflows.",
 	PersistentPreRunE: commandPreflight,
+	SilenceErrors:     true,
 }
 
 func init() {
@@ -88,6 +104,8 @@ func init() {
 	rootCmd.PersistentFlags().BoolVar(&debugFlag, "debug", false, "Enable internal debug logging to stderr")
 	// Define the --context flag. Persistent so every command inherits it.
 	rootCmd.PersistentFlags().StringVarP(&contextFlag, "context", "c", "", "Override the windsor context for this command")
+	// Define the --format flag. Persistent so every command inherits it.
+	rootCmd.PersistentFlags().StringVar(&formatFlag, "format", string(logging.FormatText), "Output format for progress, logs, and errors: text or json")
 }
 
 // commandPreflight orchestrates global CLI preflight checks and context initialization for all commands.
@@ -185,6 +203,31 @@ func requireCloudAuth(cmd *cobra.Command, proj *project.Project) error {
 	return nil
 }
 
+// renderError writes err to w once, in the format that --format selects. A coded error shows its
+// code and remediation. Under --verbose, the breadcrumb trail follows when it has more than one
+// entry. JSON output is one failed event line without a trace.
+func renderError(w io.Writer, err error) {
+	if formatFlag == string(logging.FormatJSON) {
+		presenter.NewJSON(w).Emit(context.Background(), presenter.Event{Kind: presenter.KindFailed, Err: err})
+		return
+	}
+	var we *werror.WindsorError
+	if errors.As(err, &we) {
+		fmt.Fprintf(w, "Error [%s]: %s\n", we.Code, we.Message)
+		if we.Remediation != "" {
+			fmt.Fprintf(w, "\n%s\n", we.Remediation)
+		}
+	} else {
+		fmt.Fprintf(w, "Error: %s\n", err.Error())
+	}
+	if crumbs := werror.Breadcrumbs(err); verbose && len(crumbs) > 1 {
+		fmt.Fprintln(w, "\nTrace:")
+		for _, crumb := range crumbs {
+			fmt.Fprintf(w, "  %s\n", crumb)
+		}
+	}
+}
+
 // silenceErrorsOnAncestors walks up the cobra command tree setting SilenceErrors=true on
 // each ancestor. Cobra prints "Error: <msg>" by checking SilenceErrors on the command that
 // returned the error AND walking upward; setting it only on the leaf is not enough when
@@ -197,7 +240,7 @@ func silenceErrorsOnAncestors(cmd *cobra.Command) {
 }
 
 // setupGlobalContext injects global flags and context values into the command's context.
-// It sets the verbose flag in the context if enabled, and propagates --no-cache to the
+// It injects the logger and the presenter for --format, and propagates --no-cache to the
 // NO_CACHE environment variable that ArtifactBuilder.Pull reads — since the artifact
 // layer is already wired to honor NO_CACHE (see pkg/composer/artifact/artifact.go),
 // setting the env var is the smallest-blast-radius path that works for every command
@@ -212,9 +255,11 @@ func setupGlobalContext(cmd *cobra.Command) error {
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	if verbose {
-		ctx = context.WithValue(ctx, "verbose", true)
+	format, err := logging.ParseFormat(formatFlag)
+	if err != nil {
+		return werror.New("CLI-001", fmt.Sprintf("Unknown output format %q.", formatFlag), "Run the command again with --format text or --format json.", err)
 	}
+	ctx = withOutput(ctx, cmd.ErrOrStderr(), format)
 	if noCache {
 		if err := os.Setenv("NO_CACHE", "true"); err != nil {
 			return fmt.Errorf("failed to set NO_CACHE environment variable: %w", err)
@@ -239,4 +284,18 @@ func setupGlobalContext(cmd *cobra.Command) error {
 	cmd.SetContext(ctx)
 	tui.Init(verbose)
 	return nil
+}
+
+// withOutput returns ctx with a presenter for format that writes to w, and a logger that routes
+// into it. Logs show at debug level under --verbose and at warn level otherwise. The console
+// animates only when w is a terminal and --verbose is off, because verbose runs stream
+// subprocess output to the same terminal.
+func withOutput(ctx context.Context, w io.Writer, format logging.Format) context.Context {
+	level := slog.LevelWarn
+	if verbose {
+		level = slog.LevelDebug
+	}
+	p := presenter.New(format, w, level, !verbose)
+	ctx = context.WithValue(ctx, presenterKey, p)
+	return logging.NewContext(ctx, slog.New(presenter.NewLogHandler(p, level)))
 }

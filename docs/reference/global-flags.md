@@ -11,6 +11,7 @@ excluded from a subcommand's own flag table.
 | Flag | Default | Description |
 |------|---------|-------------|
 | `-v`, `--verbose` | `false` | Enable verbose output. |
+| `--format` | `text` | Output format for progress, logs, and errors: `text` or `json`. With `json`, Windsor writes one JSON object per line to stderr. Command output on stdout does not change. An unknown value fails with error `CLI-001`. |
 | `--no-cache` | `false` | Bypass the OCI artifact cache and force re-download of remote sources. Propagates to the `NO_CACHE` environment variable that `ArtifactBuilder.Pull` reads; an explicit `--no-cache` always wins over a pre-existing `NO_CACHE` in the environment. |
 | `--lock-timeout` | `0` (fail immediately) | Duration to wait for **Windsor's own stack lock** before failing, e.g. `30s`, `5m`. Every command that acquires the per-context stack lock (`apply`, `up`, `bootstrap`, `destroy`, …) fails fast on contention by default; pass a duration to wait instead. See [`unlock`](commands/unlock.md) for clearing stale holder information left by a crashed process. Distinct from `terraform.lock.timeout` in the [Configuration reference](configuration.md), which governs terraform's own native state lock. |
 
@@ -22,6 +23,9 @@ windsor apply --no-cache
 
 # Wait up to 5 minutes for the stack lock instead of failing immediately
 windsor apply --lock-timeout=5m
+
+# Write progress, logs, and errors as JSON lines to a file for CI
+windsor apply --format json 2> events.ndjson
 ```
 
 ## See also

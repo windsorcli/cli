@@ -8,13 +8,18 @@ package cmd
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
+	"log/slog"
 	"os"
 	"strings"
 	"testing"
 
 	"github.com/spf13/cobra"
+	"github.com/windsorcli/cli/internal/logging"
+	"github.com/windsorcli/cli/internal/presenter"
+	"github.com/windsorcli/cli/internal/werror"
 	blueprintpkg "github.com/windsorcli/cli/pkg/composer/blueprint"
 	"github.com/windsorcli/cli/pkg/project"
 	"github.com/windsorcli/cli/pkg/runtime"
@@ -527,7 +532,7 @@ func TestCommandPreflight(t *testing.T) {
 		}
 	})
 
-	t.Run("SetsVerboseInContext", func(t *testing.T) {
+	t.Run("EnablesDebugLoggingUnderVerbose", func(t *testing.T) {
 		// Given verbose flag is set
 		verbose = true
 		cmd := &cobra.Command{Use: "test"}
@@ -541,15 +546,12 @@ func TestCommandPreflight(t *testing.T) {
 			t.Errorf("Expected no error for preflight, got: %v", err)
 		}
 
-		// And verbose should be set in context
+		// And the context logger should accept debug records
 		if cmd.Context() == nil {
 			t.Fatal("Expected command context to be set")
 		}
-		verboseValue := cmd.Context().Value("verbose")
-		if verboseValue == nil {
-			t.Error("Expected verbose to be set in context")
-		} else if verboseVal, ok := verboseValue.(bool); !ok || !verboseVal {
-			t.Errorf("Expected verbose to be true, got: %v", verboseValue)
+		if !logging.FromContext(cmd.Context()).Enabled(cmd.Context(), slog.LevelDebug) {
+			t.Error("Expected the context logger to be enabled at debug level")
 		}
 	})
 
@@ -690,6 +692,146 @@ func TestRequireCloudAuth(t *testing.T) {
 		}
 		if leaf.SilenceErrors {
 			t.Error("Expected SilenceErrors to remain unset on success — only the failure path should touch it")
+		}
+	})
+}
+
+func TestExecute_RendersErrors(t *testing.T) {
+	t.Cleanup(func() {
+		formatFlag = string(logging.FormatText)
+		rootCmd.SetArgs([]string{})
+		rootCmd.SetErr(os.Stderr)
+	})
+
+	t.Run("RendersAnUnknownFormatAsACodedError", func(t *testing.T) {
+		// Given an unknown --format value
+		var stderr bytes.Buffer
+		rootCmd.SetErr(&stderr)
+		rootCmd.SetArgs([]string{"version", "--format", "yaml"})
+
+		// When executing
+		err := Execute()
+
+		// Then a CLI-001 error is returned and rendered once with its remediation
+		if !werror.IsCode(err, "CLI-001") {
+			t.Fatalf("expected CLI-001, got %v", err)
+		}
+		out := stderr.String()
+		if strings.Count(out, "Error [CLI-001]") != 1 || !strings.Contains(out, "--format text or --format json") {
+			t.Errorf("unexpected stderr %q", out)
+		}
+	})
+}
+
+func TestRenderError(t *testing.T) {
+	t.Cleanup(func() {
+		formatFlag = string(logging.FormatText)
+		verbose = false
+	})
+
+	t.Run("PrintsAnUntypedErrorWithThePlainPrefix", func(t *testing.T) {
+		// Given text format and an untyped error
+		formatFlag, verbose = string(logging.FormatText), false
+		var buf bytes.Buffer
+
+		// When the error is rendered
+		renderError(&buf, fmt.Errorf("context %q not found", "x"))
+
+		// Then the output matches the plain error line
+		if buf.String() != "Error: context \"x\" not found\n" {
+			t.Errorf("unexpected output %q", buf.String())
+		}
+	})
+
+	t.Run("PrintsACodedErrorWithItsRemediation", func(t *testing.T) {
+		// Given text format and a coded error under a frame
+		formatFlag, verbose = string(logging.FormatText), false
+		var buf bytes.Buffer
+		err := werror.Wrap(werror.New("CONFIG-002", "Context value is malformed.", "Run windsor set to fix it.", nil), "loading")
+
+		// When the error is rendered
+		renderError(&buf, err)
+
+		// Then the code, message, and remediation print without a trace
+		want := "Error [CONFIG-002]: Context value is malformed.\n\nRun windsor set to fix it.\n"
+		if buf.String() != want {
+			t.Errorf("expected %q, got %q", want, buf.String())
+		}
+	})
+
+	t.Run("AddsTheTraceUnderVerbose", func(t *testing.T) {
+		// Given verbose text output and a coded error with a cause under a frame
+		formatFlag, verbose = string(logging.FormatText), true
+		var buf bytes.Buffer
+		err := werror.Wrap(werror.New("TERRAFORM-002", "Apply failed.", "", fmt.Errorf("exit status 1")), "applying cluster")
+
+		// When the error is rendered
+		renderError(&buf, err)
+
+		// Then each breadcrumb prints under a trace heading
+		if !strings.Contains(buf.String(), "\nTrace:\n  applying cluster\n  Apply failed.\n  exit status 1\n") {
+			t.Errorf("expected trace, got %q", buf.String())
+		}
+	})
+
+	t.Run("WritesOneJSONLineInJSONFormat", func(t *testing.T) {
+		// Given JSON format and a coded error
+		formatFlag, verbose = string(logging.FormatJSON), false
+		var buf bytes.Buffer
+
+		// When the error is rendered
+		renderError(&buf, werror.New("CLI-001", "Unknown output format.", "Use text or json.", nil))
+
+		// Then one failed event line holds the error fields
+		var line struct {
+			Kind  string            `json:"kind"`
+			Error map[string]string `json:"error"`
+		}
+		if err := json.Unmarshal(buf.Bytes(), &line); err != nil {
+			t.Fatalf("expected one JSON line, got %q: %v", buf.String(), err)
+		}
+		if line.Kind != "failed" || line.Error["code"] != "CLI-001" || line.Error["remediation"] != "Use text or json." {
+			t.Errorf("unexpected line %+v", line)
+		}
+	})
+}
+
+func TestWithOutput(t *testing.T) {
+	t.Cleanup(func() { verbose = false })
+
+	t.Run("InjectsAPresenterAndALoggerThatRoutesIntoIt", func(t *testing.T) {
+		// Given JSON output to a buffer
+		verbose = false
+		var buf bytes.Buffer
+
+		// When output is wired and a warning is logged through the context logger
+		ctx := withOutput(context.Background(), &buf, logging.FormatJSON)
+		logging.FromContext(ctx).Warn("slow apply")
+
+		// Then the presenter is in the context and the log reached it as a JSON log event
+		if _, ok := ctx.Value(presenterKey).(presenter.Presenter); !ok {
+			t.Error("expected a presenter in the context")
+		}
+		if !strings.Contains(buf.String(), `"kind":"log"`) || !strings.Contains(buf.String(), "slow apply") {
+			t.Errorf("expected a JSON log event, got %q", buf.String())
+		}
+	})
+
+	t.Run("ShowsDebugLogsOnlyUnderVerbose", func(t *testing.T) {
+		// Given text output with and without --verbose
+		var quiet, loud bytes.Buffer
+		verbose = false
+		quietCtx := withOutput(context.Background(), &quiet, logging.FormatText)
+		verbose = true
+		loudCtx := withOutput(context.Background(), &loud, logging.FormatText)
+
+		// When a debug record is logged through each logger
+		logging.FromContext(quietCtx).Debug("resolving values")
+		logging.FromContext(loudCtx).Debug("resolving values")
+
+		// Then only the verbose logger writes it
+		if quiet.Len() != 0 || !strings.Contains(loud.String(), "resolving values") {
+			t.Errorf("unexpected output quiet=%q loud=%q", quiet.String(), loud.String())
 		}
 	})
 }
