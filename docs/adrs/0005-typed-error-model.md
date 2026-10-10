@@ -1,7 +1,7 @@
 # ADR 0005 — Typed error model: `WindsorError`, doc-linkable codes, central rendering
 
-- Status: Accepted. `internal/werror` shipped. The central renderer ships with the `cmd/`
-  wiring.
+- Status: Accepted. `internal/werror` and the central `cmd/` error renderer shipped. The first
+  code is `CLI-001` (unknown `--format` value).
 - Date: 2026-08-04
 - Deciders: Ryan VanGundy
 - Fills the "Typed error model" placeholder from `release-v0.10.0.md`'s Wave 1. Sequenced there

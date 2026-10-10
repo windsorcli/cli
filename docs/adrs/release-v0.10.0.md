@@ -298,6 +298,11 @@ them fully spells out how it depends on the others' output.
 
 ### Phase A — Foundational `internal/` packages (build once, no migration yet)
 
+Done. `internal/shims`, `internal/werror`, `internal/logging`, and `internal/presenter` exist, and
+`cmd/` wires `--format`, the context logger, the presenter, and the central error renderer.
+`internal/util` waits for a duplicated pure helper. `Runtime` takes over logger and presenter
+construction when the first business package migrates.
+
 Five small, low-risk packages, in this order because each depends on the previous:
 
 1. **`internal/shims` + `internal/util`** (ADR 0002) — no dependency on anything else in this list;
@@ -371,10 +376,11 @@ this phase just confirms none of them are blocked on Phase C finishing in full.
 
 1. ~~**Target-architecture vision**~~ — resolved: [ADR 0002](0002-target-architecture-and-package-topology.md)
    derives the topology from the current tree.
-2. **JSON output surface** — is JSON a global `--output json` that covers logs *and* errors *and*
-   progress events uniformly, or per-concern flags?
-3. **`WindsorError` code taxonomy** — flat string codes, numeric ranges per subsystem, or
-   category enums? Do codes appear in user-facing output for support/docs linking?
+2. ~~**JSON output surface**~~ — resolved: [ADR 0007](0007-presenter-event-stream.md) makes
+   `--format json` one global flag for logs, errors, and progress. The name is `--format` because
+   `bundle` and `plan terraform` already define a local `--output`.
+3. ~~**`WindsorError` code taxonomy**~~ — resolved: [ADR 0005](0005-typed-error-model.md) uses
+   `DOMAIN-NNN` string codes, shown in user-facing output.
 4. **Async blast radius** — is concurrent Terraform gated behind a flag initially (opt-in), or the
    default once the graph executor lands?
 5. **Per-package cleanup as PRs** — one PR per package (many small), or grouped by wave? Interacts

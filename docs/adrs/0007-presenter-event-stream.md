@@ -1,7 +1,8 @@
 # ADR 0007 — Presenter / event stream: the keystone seam
 
-- Status: Accepted. `internal/presenter` shipped. `Runtime` construction, the `--format` flag, and
-  the central error renderer ship with the `cmd/` wiring.
+- Status: Accepted. `internal/presenter`, the global `--format` flag, and the central error
+  renderer shipped. `cmd/` builds the presenter and writes to stderr. `Runtime` takes over
+  construction when the first business package migrates.
 - Date: 2026-08-04
 - Deciders: Ryan VanGundy
 - Fills the "Presenter / event stream" placeholder from `release-v0.10.0.md`'s Wave 1 — the last
@@ -188,8 +189,9 @@ of dependency, not introducing a third pattern.
   ```
 - **JSON** (`--format json`, now a **global persistent flag** — this ADR's resolution of the release
   doc's open question #2, decided as "yes, uniform," see Consequences) — every `Emit` call
-  marshals the `Event` as one newline-delimited JSON object to stdout, directly matching Terraform's
-  own `-json` shape (Context). Logs, errors, and progress are the same stream, distinguished only by
+  marshals the `Event` as one newline-delimited JSON object to stderr, in the same envelope as
+  Terraform's own `-json` output (Context). Stderr keeps stdout for each command's own output, such
+  as the `export` lines that `windsor env` prints. Logs, errors, and progress are the same stream, distinguished only by
   `"kind"` — exactly what the keystone section asks for ("renderings of the same event stream, not
   four independent subsystems").
 - **TUI** (reserved, Wave 3) — routes `Event`s into a BubbleTea program's message channel instead of

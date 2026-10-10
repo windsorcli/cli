@@ -1,7 +1,8 @@
 # ADR 0006 — Structured logging contract: `slog`, context-injected, level-aware
 
-- Status: Accepted. `internal/logging` shipped. `Runtime` construction and `cmd/` injection ship
-  with the wiring.
+- Status: Accepted. `internal/logging` shipped, and `cmd/` injects the logger into the command
+  context. `Runtime` takes over logger construction, and `Shell.IsVerbose` derives from the logger
+  level, when `pkg/runtime` gets its Wave 2 pass.
 - Date: 2026-08-04
 - Deciders: Ryan VanGundy
 - Fills the "Structured logging contract" placeholder from `release-v0.10.0.md`'s Wave 1 — the last
