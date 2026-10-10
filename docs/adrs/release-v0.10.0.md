@@ -83,29 +83,43 @@ the UX wave consumes.
 
 ## Current-state facts (verified from source)
 
+Measured on 2026-10-10 at commit `39b4bdf1`. Counts cover `pkg/`, `cmd/`, and `api/` and exclude
+test files, unless an item says otherwise.
+
 - **No logger, no logger interface, no structured logging.** All output is raw `fmt.Print*` /
   `Fprint*` to `os.Stdout` / `os.Stderr`, plus a hardcoded-ANSI spinner layer
-  ([`pkg/tui/tui.go`](../../pkg/tui/tui.go)). `logrus`/`zap`/`slog` appear only as transitive deps.
-- **877 `fmt.Errorf("...: %w")` wrap sites**, surfaced via Cobra's default printer with ad-hoc
+  ([`pkg/tui/tui.go`](../../pkg/tui/tui.go)). No file imports `log/slog`. `logrus` and `zap`
+  appear only as transitive deps.
+- **935 `fmt.Errorf("...: %w")` wrap sites**, surfaced via Cobra's default printer with ad-hoc
   `SilenceErrors` + manual `err.Error()` prints in `cmd/`. No central formatter. This is the
   nested-colon-string problem.
-- **Output reached via package globals** (`tui.Active`) and hardcoded OS streams inside the runtime
-  and provisioner layers — the coupling the keystone removes.
+- **Output reached via package globals and hardcoded OS streams.** Eight `pkg/` packages call the
+  package-level `tui` functions, which drive the global `Active` spinner. Ten `pkg/` packages write
+  to `os.Stdout` or `os.Stderr` directly, and `pkg/runtime/shell` alone has 20 of those sites. The
+  keystone removes this coupling.
 - **The one existing abstraction** is the spinner: `Spinner` interface + global `Active` +
-  `WithProgress` nesting ([`pkg/tui/tui.go:39`](../../pkg/tui/tui.go#L39)). BubbleTea grows out of
+  `WithProgress` nesting ([`pkg/tui/tui.go:41`](../../pkg/tui/tui.go#L41)). BubbleTea grows out of
   or replaces this.
-- **Monoliths over the 1000-line cap:** [`blueprint/processor.go`](../../pkg/composer/blueprint/processor.go)
-  (2685), [`kubernetes_manager.go`](../../pkg/provisioner/kubernetes/kubernetes_manager.go) (2312),
-  [`provisioner.go`](../../pkg/provisioner/provisioner.go) (2110),
-  [`blueprint_types.go`](../../api/v1alpha1/blueprint_types.go) (2106),
-  [`terraform/stack.go`](../../pkg/provisioner/terraform/stack.go) (1889),
-  [`evaluator.go`](../../pkg/runtime/evaluator/evaluator.go) (1605),
-  [`artifact.go`](../../pkg/composer/artifact/artifact.go) (1553),
-  [`test/runner.go`](../../pkg/test/runner.go) (1247). Largest test: `processor_test.go` (7322).
-- **`shims.go` hand-rolled in ~14 packages; no shared `util`/`internal` package.** Clearest DRY win.
-- **Tests are 100% white-box** (`package xxx` everywhere; `*_public_test.go` is a naming convention,
-  not black-box testing). 113 unit / 28 cmd / 17 integration. Mocks hand-written (no mockgen), 19 of
-  them; widest interfaces are `config/handler` (31 methods) and `shell` (25 methods).
+- **16 files over the 1000-line cap.** The eight largest are
+  [`kubernetes_manager.go`](../../pkg/provisioner/kubernetes/kubernetes_manager.go) (3456),
+  [`blueprint/processor.go`](../../pkg/composer/blueprint/processor.go) (3076),
+  [`blueprint_types.go`](../../api/v1alpha1/blueprint_types.go) (2316),
+  [`terraform/stack.go`](../../pkg/provisioner/terraform/stack.go) (2311),
+  [`provisioner.go`](../../pkg/provisioner/provisioner.go) (2271),
+  [`evaluator.go`](../../pkg/runtime/evaluator/evaluator.go) (1645),
+  [`artifact.go`](../../pkg/composer/artifact/artifact.go) (1599), and
+  [`blueprint/handler.go`](../../pkg/composer/blueprint/handler.go) (1477). The other eight are
+  between 1004 and 1447 lines: `runtime/terraform/provider.go`, `test/runner.go`,
+  `runtime/shell/shell.go`, `blueprint/composer.go`, `runtime/tools/tools_manager.go`,
+  `runtime/runtime.go`, `workstation/virt/incus_virt.go`, and `provisioner/flux/stack.go`. The
+  largest test files are `kubernetes_manager_public_test.go` (9308) and `processor_test.go` (9004).
+- **`shims.go` hand-rolled in 17 packages (16 under `pkg/`, plus `cmd/`); no shared
+  `util`/`internal` package.** Clearest DRY win.
+- **Tests are almost entirely white-box.** Only `pkg/debug/debug_test.go` uses an external `_test`
+  package. `*_public_test.go` is a naming convention, not black-box testing. Test files: 117 in
+  `pkg/`, 34 in `api/`, 29 in `cmd/`, 20 in `integration/`. Mocks are hand-written (no mockgen), 19
+  of them. The widest interfaces are `config.ConfigHandler` (34 methods) and `shell.Shell`
+  (27 methods).
 
 ## Carried forward from the prior round
 
