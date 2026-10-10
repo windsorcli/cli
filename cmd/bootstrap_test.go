@@ -31,7 +31,6 @@ import (
 type BootstrapMocks struct {
 	ConfigHandler     config.ConfigHandler
 	Shell             *shell.MockShell
-	Shims             *Shims
 	BlueprintHandler  *blueprint.MockBlueprintHandler
 	TerraformStack    *terraforminfra.MockStack
 	KubernetesManager *kubernetes.MockKubernetesManager
@@ -113,7 +112,6 @@ func setupBootstrapTest(t *testing.T, opts ...*SetupOptions) *BootstrapMocks {
 	return &BootstrapMocks{
 		ConfigHandler:     baseMocks.ConfigHandler,
 		Shell:             baseMocks.Shell,
-		Shims:             baseMocks.Shims,
 		BlueprintHandler:  mockBlueprintHandler,
 		TerraformStack:    mockTerraformStack,
 		KubernetesManager: mockKubernetesManager,

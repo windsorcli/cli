@@ -31,7 +31,6 @@ import (
 type ShowMocks struct {
 	ConfigHandler    config.ConfigHandler
 	Shell            *shell.MockShell
-	Shims            *Shims
 	BlueprintHandler *blueprint.MockBlueprintHandler
 	Runtime          *runtime.Runtime
 	TmpDir           string
@@ -124,7 +123,6 @@ func setupShowTest(t *testing.T, opts ...*SetupOptions) *ShowMocks {
 	return &ShowMocks{
 		ConfigHandler:    baseMocks.ConfigHandler,
 		Shell:            baseMocks.Shell,
-		Shims:            baseMocks.Shims,
 		BlueprintHandler: mockBlueprintHandler,
 		Runtime:          rt,
 		TmpDir:           tmpDir,
