@@ -45,6 +45,7 @@ jobs:
     timeout-minutes: 30
     if: >-
       github.event_name == 'pull_request' &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
       github.event.action != 'synchronize' &&
       github.event.pull_request.user.type != 'Bot' &&
       !contains(github.event.pull_request.labels.*.name, 'dependencies') &&
@@ -252,6 +253,7 @@ jobs:
     timeout-minutes: 10
     if: >-
       github.event_name == 'pull_request' &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
       github.event.action == 'synchronize' &&
       github.event.pull_request.user.type != 'Bot' &&
       !contains(github.event.pull_request.labels.*.name, 'dependencies') &&
