@@ -69,7 +69,7 @@ func (m *MockKubernetesManager) ApplyKustomization(kustomization kustomizev1.Kus
 }
 
 // DeleteKustomization implements KubernetesManager interface
-func (m *MockKubernetesManager) DeleteKustomization(name, namespace string) error {
+func (m *MockKubernetesManager) DeleteKustomization(_ context.Context, name, namespace string) error {
 	if m.DeleteKustomizationFunc != nil {
 		return m.DeleteKustomizationFunc(name, namespace)
 	}
@@ -253,7 +253,7 @@ func (m *MockKubernetesManager) ApplyBlueprint(blueprint *blueprintv1alpha1.Blue
 }
 
 // DeleteBlueprint implements KubernetesManager interface
-func (m *MockKubernetesManager) DeleteBlueprint(blueprint *blueprintv1alpha1.Blueprint, namespace string) error {
+func (m *MockKubernetesManager) DeleteBlueprint(_ context.Context, blueprint *blueprintv1alpha1.Blueprint, namespace string) error {
 	if m.DeleteBlueprintFunc != nil {
 		return m.DeleteBlueprintFunc(blueprint, namespace)
 	}
@@ -261,7 +261,7 @@ func (m *MockKubernetesManager) DeleteBlueprint(blueprint *blueprintv1alpha1.Blu
 }
 
 // PruneBlueprint implements KubernetesManager interface
-func (m *MockKubernetesManager) PruneBlueprint(blueprint *blueprintv1alpha1.Blueprint, namespace string) error {
+func (m *MockKubernetesManager) PruneBlueprint(_ context.Context, blueprint *blueprintv1alpha1.Blueprint, namespace string) error {
 	if m.PruneBlueprintFunc != nil {
 		return m.PruneBlueprintFunc(blueprint, namespace)
 	}

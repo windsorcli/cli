@@ -364,7 +364,7 @@ func pruneOrphaned(cmd *cobra.Command, proj *project.Project, blueprint *bluepri
 		return nil
 	}
 	fmt.Fprintf(cmd.OutOrStdout(), "Pruning kustomizations no longer declared:\n  %s\n", strings.Join(prunable, "\n  "))
-	if err := proj.Provisioner.Prune(blueprint); err != nil {
+	if err := proj.Provisioner.Prune(cmd.Context(), blueprint); err != nil {
 		return fmt.Errorf("error pruning orphaned kustomizations: %w", err)
 	}
 	return nil

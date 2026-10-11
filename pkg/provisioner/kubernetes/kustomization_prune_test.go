@@ -1,6 +1,7 @@
 package kubernetes
 
 import (
+	"context"
 	"fmt"
 	"strings"
 	"testing"
@@ -8,7 +9,6 @@ import (
 	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
 	"github.com/windsorcli/cli/pkg/provisioner/kubernetes/client"
 	"github.com/windsorcli/cli/pkg/runtime/config"
-	"github.com/windsorcli/cli/pkg/tui"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -81,13 +81,10 @@ func TestBaseKubernetesManager_PruneBlueprint(t *testing.T) {
 		blueprint := &blueprintv1alpha1.Blueprint{
 			Kustomizations: []blueprintv1alpha1.Kustomization{{Name: "app"}},
 		}
-		originalActive := tui.Active
-		t.Cleanup(func() { tui.Active = originalActive })
-		var started []string
-		tui.Active = &tui.MockSpinner{StartFunc: func(message string) { started = append(started, message) }}
+		ctx, rec := recordProgress(t)
 
 		// When pruning
-		if err := manager.PruneBlueprint(blueprint, "system-gitops"); err != nil {
+		if err := manager.PruneBlueprint(ctx, blueprint, "system-gitops"); err != nil {
 			t.Fatalf("Expected no error, got %v", err)
 		}
 
@@ -97,13 +94,13 @@ func TestBaseKubernetesManager_PruneBlueprint(t *testing.T) {
 		}
 		// And an operator watching the run sees the prune in progress, not silence
 		found := false
-		for _, s := range started {
+		for _, s := range rec.started() {
 			if strings.Contains(s, "old-thing") {
 				found = true
 			}
 		}
 		if !found {
-			t.Errorf("Expected a progress spinner naming the pruned orphan, got: %v", started)
+			t.Errorf("Expected a progress spinner naming the pruned orphan, got: %v", rec.started())
 		}
 	})
 
@@ -117,7 +114,7 @@ func TestBaseKubernetesManager_PruneBlueprint(t *testing.T) {
 		blueprint := &blueprintv1alpha1.Blueprint{Kustomizations: []blueprintv1alpha1.Kustomization{}}
 
 		// When pruning
-		if err := manager.PruneBlueprint(blueprint, "system-gitops"); err != nil {
+		if err := manager.PruneBlueprint(context.Background(), blueprint, "system-gitops"); err != nil {
 			t.Fatalf("Expected no error, got %v", err)
 		}
 
@@ -137,7 +134,7 @@ func TestBaseKubernetesManager_PruneBlueprint(t *testing.T) {
 		blueprint := &blueprintv1alpha1.Blueprint{Kustomizations: []blueprintv1alpha1.Kustomization{}}
 
 		// When pruning
-		if err := manager.PruneBlueprint(blueprint, "system-gitops"); err != nil {
+		if err := manager.PruneBlueprint(context.Background(), blueprint, "system-gitops"); err != nil {
 			t.Fatalf("Expected no error, got %v", err)
 		}
 
@@ -157,7 +154,7 @@ func TestBaseKubernetesManager_PruneBlueprint(t *testing.T) {
 		}
 
 		// When pruning
-		if err := manager.PruneBlueprint(blueprint, "system-gitops"); err != nil {
+		if err := manager.PruneBlueprint(context.Background(), blueprint, "system-gitops"); err != nil {
 			t.Fatalf("Expected no error, got %v", err)
 		}
 
@@ -170,7 +167,7 @@ func TestBaseKubernetesManager_PruneBlueprint(t *testing.T) {
 	t.Run("NilBlueprintReturnsError", func(t *testing.T) {
 		manager := setup(t)
 		wire(manager)
-		if err := manager.PruneBlueprint(nil, "system-gitops"); err == nil {
+		if err := manager.PruneBlueprint(context.Background(), nil, "system-gitops"); err == nil {
 			t.Error("Expected error for nil blueprint")
 		}
 	})
@@ -189,7 +186,7 @@ func TestBaseKubernetesManager_PruneBlueprint(t *testing.T) {
 		blueprint := &blueprintv1alpha1.Blueprint{Kustomizations: []blueprintv1alpha1.Kustomization{}}
 
 		// When pruning without a context id, the guard rejects it before listing anything
-		if err := manager.PruneBlueprint(blueprint, "system-gitops"); err == nil {
+		if err := manager.PruneBlueprint(context.Background(), blueprint, "system-gitops"); err == nil {
 			t.Error("Expected error when context id is not set")
 		}
 	})
@@ -205,7 +202,7 @@ func TestBaseKubernetesManager_PruneBlueprint(t *testing.T) {
 		blueprint := &blueprintv1alpha1.Blueprint{Kustomizations: []blueprintv1alpha1.Kustomization{}}
 
 		// When pruning, the list failure is surfaced rather than swallowed
-		if err := manager.PruneBlueprint(blueprint, "system-gitops"); err == nil {
+		if err := manager.PruneBlueprint(context.Background(), blueprint, "system-gitops"); err == nil {
 			t.Error("Expected error when listing kustomizations fails")
 		}
 	})
