@@ -84,6 +84,45 @@ func TestSetContextCmd(t *testing.T) {
 		}
 	})
 
+	t.Run("ValidatesTargetContextNotTheOneBeingLeft", func(t *testing.T) {
+		_, _ = setup(t)
+		tmpDir := t.TempDir()
+
+		if err := os.MkdirAll(filepath.Join(tmpDir, "contexts", "staging"), 0755); err != nil {
+			t.Fatalf("Failed to create staging context directory: %v", err)
+		}
+		if err := os.WriteFile(filepath.Join(tmpDir, "windsor.yaml"), []byte("version: v1alpha1\n"), 0644); err != nil {
+			t.Fatalf("Failed to create windsor.yaml: %v", err)
+		}
+
+		var loaded []string
+		mockConfig := config.NewMockConfigHandler()
+		mockConfig.LoadConfigFunc = func() error {
+			loaded = append(loaded, "<current context>")
+			return nil
+		}
+		mockConfig.LoadConfigForContextFunc = func(contextName string) error {
+			loaded = append(loaded, contextName)
+			return nil
+		}
+
+		mocks := setupMocks(t, &SetupOptions{ConfigHandler: mockConfig})
+		mocks.Shell.GetProjectRootFunc = func() (string, error) {
+			return tmpDir, nil
+		}
+
+		ctx := context.WithValue(context.Background(), runtimeOverridesKey, mocks.Runtime)
+		rootCmd.SetContext(ctx)
+		rootCmd.SetArgs([]string{"set", "context", "staging"})
+
+		if err := Execute(); err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		if len(loaded) != 1 || loaded[0] != "staging" {
+			t.Errorf("Expected only the target context to be loaded, got %v", loaded)
+		}
+	})
+
 	t.Run("ContextNotFound", func(t *testing.T) {
 		_, _ = setup(t)
 		tmpDir := t.TempDir()
@@ -188,7 +227,7 @@ func TestSetContextCmd(t *testing.T) {
 		}
 
 		mockConfigHandler := config.NewMockConfigHandler()
-		mockConfigHandler.LoadConfigFunc = func() error {
+		mockConfigHandler.LoadConfigForContextFunc = func(contextName string) error {
 			return fmt.Errorf("config load failed")
 		}
 		mockConfigHandler.GetContextFunc = func() string {

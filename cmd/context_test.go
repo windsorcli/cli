@@ -356,7 +356,7 @@ func TestContextCmd_ErrorScenarios(t *testing.T) {
 		}
 
 		mockConfigHandler := config.NewMockConfigHandler()
-		mockConfigHandler.LoadConfigFunc = func() error {
+		mockConfigHandler.LoadConfigForContextFunc = func(contextName string) error {
 			return fmt.Errorf("config load failed")
 		}
 		mockConfigHandler.GetContextFunc = func() string {
