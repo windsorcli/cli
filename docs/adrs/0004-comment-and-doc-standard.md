@@ -1,6 +1,7 @@
 # ADR 0004 — Comment and documentation standard
 
-- Status: Proposed
+- Status: Accepted. The `go-style` skill states the function-length guideline and the rule
+  against ADR, ticket, and phase references in comments.
 - Date: 2026-08-04
 - Deciders: Ryan VanGundy
 - Fills the "Comment & doc standard" placeholder from `release-v0.10.0.md`'s Wave 2. Ratifies
