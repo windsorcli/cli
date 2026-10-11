@@ -159,6 +159,12 @@ the operation's context. The asymmetric `tui.Start`/`Fail` sites (2) convert to 
 function, and the `outputFunc` sites (3) convert to `Progress` or `Message`. Because each helper
 reads its parent from `ctx`, nesting needs no extra arguments at any call site.
 
+A wait over many resources uses `presenter.NewGroup`, with one child step per resource. A child
+appears only when `Start` begins it, once the resource is actually being worked on, so resources
+still blocked on others stay hidden. Each child ends on its own as its resource becomes ready or
+fails, so the tree shows which resources are done instead of a joined "waiting on …" line.
+`Close` ends any started child still open.
+
 ### 3. The presenter travels in the context, the same as the logger
 
 `cmd/` builds the active `Presenter` once (console or JSON, chosen by `--format`) and stores it in
@@ -179,17 +185,26 @@ Methods that emit events MUST take `ctx context.Context` as their first paramete
 ### 4. Three renderers behind the port
 
 - **Console** (default) — renders the transcript as an indented tree. Finished steps stay on
-  screen with their elapsed time, and nested steps print under their parent. In plain mode (not a
-  terminal, or `--verbose`) it prints one line per event, which suits CI logs. In interactive mode
-  it keeps a live region below the tree with one animated line per active leaf operation, its
-  running time, and its progress text. Times read as seconds (`14s`), then minutes (`2m05s`), then
-  hours (`1h02m`). A parent operation that succeeds prints no end line, because its
-  header and its children's end lines already show the result; a failed parent still prints one. While that region is on screen, the console hides the cursor and turns off input
-  echo, so a typed key cannot move the cursor under the redraw. It discards keys typed meanwhile,
-  and restores the terminal on pause, on exit, and on an interrupt. On Windows it also turns on
-  virtual terminal processing, and it falls back to plain mode when that fails. `KindFailed` ends a step with a failure mark; the central `cmd/` renderer prints
-  the error itself once (ADR 0005). `KindLog` renders through the `charmbracelet/log` console
-  handler ADR 0006 selected. The console renderer does not use `pkg/tui`.
+  screen with their elapsed time, and nested steps print under their parent. A parent operation
+  that succeeds prints no end line, because its header and its children's end lines already show
+  the result; a failed parent still prints one. Times read as seconds (`14s`), then minutes
+  (`2m05s`), then hours (`1h02m`).
+
+  In plain mode (not a terminal, or `--verbose`) the console prints one line per event, which
+  suits CI logs. Progress lines carry the step's elapsed time, and unchanged progress reprints
+  every 30 seconds as a heartbeat.
+
+  In interactive mode the console keeps a live region below the tree, with one animated line per
+  active leaf operation, its running time, and its progress text. The region draws at most 10
+  lines, fewer on a short terminal, and counts the rest in an "… and N more" line. While the
+  region is on screen, the console hides the cursor and turns off input echo, so a typed key
+  cannot move the cursor under the redraw. It discards keys typed meanwhile, and it restores the
+  terminal on pause, on exit, and on an interrupt. On Windows it also turns on virtual terminal
+  processing, and it falls back to plain mode when that fails.
+
+  `KindFailed` ends a step with a failure mark; the central `cmd/` renderer prints the error
+  itself once (ADR 0005). `KindLog` renders through the `charmbracelet/log` console handler ADR
+  0006 selected. The console renderer does not use `pkg/tui`.
 
   ```
   ● Applying terraform

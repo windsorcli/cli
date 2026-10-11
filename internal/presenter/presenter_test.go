@@ -417,21 +417,27 @@ func TestConsole_Plain(t *testing.T) {
 		}
 	})
 
-	t.Run("PrintsProgressOncePerChange", func(t *testing.T) {
-		// Given a plain console
+	t.Run("PrintsProgressOncePerChangeWithAHeartbeat", func(t *testing.T) {
+		// Given a plain console on a fake clock
+		clock := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
 		var buf bytes.Buffer
-		c := presenter.NewConsole(&buf, presenter.ConsoleOptions{Level: slog.LevelInfo})
+		c := presenter.NewConsole(&buf, presenter.ConsoleOptions{Level: slog.LevelInfo, Now: func() time.Time { return clock }})
 
-		// When an operation repeats a progress update
+		// When an operation repeats progress text, changes it, and repeats it past the heartbeat
 		_ = presenter.Track(presenter.NewContext(context.Background(), c), "s", "Waiting", func(ctx context.Context) error {
 			presenter.Progress(ctx, "2 pending")
+			clock = clock.Add(10 * time.Second)
 			presenter.Progress(ctx, "2 pending")
+			presenter.Progress(ctx, "1 pending")
+			clock = clock.Add(20 * time.Second)
+			presenter.Progress(ctx, "1 pending")
+			clock = clock.Add(15 * time.Second)
 			presenter.Progress(ctx, "1 pending")
 			return nil
 		})
 
-		// Then each distinct update prints once
-		want := []string{"● Waiting", "  2 pending", "  1 pending", "✔ Waiting"}
+		// Then each change prints once, an unchanged line reprints after 30 seconds, and lines show elapsed time
+		want := []string{"● Waiting", "  2 pending", "  1 pending  10s", "  1 pending  45s", "✔ Waiting"}
 		if got := plainLines(buf.String()); !reflect.DeepEqual(got, want) {
 			t.Errorf("expected %q, got %q", want, got)
 		}
@@ -562,6 +568,49 @@ func TestConsole_Interactive(t *testing.T) {
 		}
 		if !strings.HasSuffix(minutes[0], " gitops  2m05s  still waiting") {
 			t.Errorf("expected 2m05s, got %q", minutes)
+		}
+	})
+
+	t.Run("CapsTheLiveRegionToTheTerminalHeight", func(t *testing.T) {
+		// Given an interactive console on a terminal 6 rows high
+		var buf syncBuffer
+		c := presenter.NewConsole(&buf, presenter.ConsoleOptions{Interactive: true, Height: func() int { return 6 }})
+		ctx, end := presenter.Begin(presenter.NewContext(context.Background(), c), "wait", "Waiting")
+		defer end(nil)
+
+		// When five children run at once
+		g := presenter.NewGroup(ctx, "k:")
+		for _, name := range []string{"a", "b", "c", "d", "e"} {
+			g.Start(name)
+		}
+		defer g.Close(nil)
+
+		// Then the live region shows three children and counts the other two
+		got := screen(buf.String())
+		if len(got) != 5 || got[0] != "● Waiting" || !strings.HasSuffix(got[3], " c") || got[4] != "  … and 2 more" {
+			t.Errorf("unexpected screen %q", got)
+		}
+	})
+
+	t.Run("CapsTheLiveRegionToTenLinesByDefault", func(t *testing.T) {
+		// Given an interactive console with no known height
+		var buf syncBuffer
+		c := presenter.NewConsole(&buf, presenter.ConsoleOptions{Interactive: true})
+		ctx, end := presenter.Begin(presenter.NewContext(context.Background(), c), "wait", "Waiting")
+		defer end(nil)
+
+		// When twelve children run at once
+		names := []string{"a", "b", "c", "d", "e", "f", "g", "h", "i", "j", "k", "l"}
+		g := presenter.NewGroup(ctx, "k:")
+		for _, name := range names {
+			g.Start(name)
+		}
+		defer g.Close(nil)
+
+		// Then nine children show and the last line counts the other three
+		got := screen(buf.String())
+		if len(got) != 11 || got[10] != "  … and 3 more" {
+			t.Errorf("unexpected screen %q", got)
 		}
 	})
 

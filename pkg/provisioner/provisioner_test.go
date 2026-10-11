@@ -6,6 +6,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"reflect"
 	"slices"
 	"strings"
 	"testing"
@@ -1435,7 +1436,7 @@ func TestProvisioner_Prune(t *testing.T) {
 		blueprint.Crds = []string{"example.com_widgets"}
 
 		// When pruning
-		if err := provisioner.Prune(blueprint); err != nil {
+		if err := provisioner.Prune(context.Background(), blueprint); err != nil {
 			t.Fatalf("Expected no error, got %v", err)
 		}
 
@@ -1466,7 +1467,7 @@ func TestProvisioner_Prune(t *testing.T) {
 	t.Run("NilBlueprintReturnsError", func(t *testing.T) {
 		mocks := setupProvisionerMocks(t)
 		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{KubernetesManager: mocks.KubernetesManager})
-		if err := provisioner.Prune(nil); err == nil {
+		if err := provisioner.Prune(context.Background(), nil); err == nil {
 			t.Error("Expected error for nil blueprint")
 		}
 	})
@@ -1475,7 +1476,7 @@ func TestProvisioner_Prune(t *testing.T) {
 		mocks := setupProvisionerMocks(t)
 		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{KubernetesManager: mocks.KubernetesManager})
 		provisioner.KubernetesManager = nil
-		if err := provisioner.Prune(createTestBlueprint()); err == nil {
+		if err := provisioner.Prune(context.Background(), createTestBlueprint()); err == nil {
 			t.Error("Expected error for nil kubernetes manager")
 		}
 	})
@@ -1829,6 +1830,39 @@ func TestProvisioner_Install(t *testing.T) {
 
 		if err != nil {
 			t.Errorf("Expected no error, got: %v", err)
+		}
+	})
+
+	t.Run("AppliesKustomizationsAsOneSectionWithAStepPerLayer", func(t *testing.T) {
+		// Given a provisioner with a recording presenter
+		mocks := setupProvisionerMocks(t)
+		mocks.KubernetesManager.ApplyBlueprintFunc = func(blueprint *blueprintv1alpha1.Blueprint, namespace string) error {
+			return nil
+		}
+		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{KubernetesManager: mocks.KubernetesManager})
+		rec := &eventRecorder{}
+
+		// When the blueprint resources are installed
+		err := provisioner.Install(presenter.NewContext(context.Background(), rec), createTestBlueprint(), false)
+
+		// Then one "Applying kustomizations" section holds a step per kustomization, and both end as applied
+		if err != nil {
+			t.Fatalf("expected no error, got %v", err)
+		}
+		if ops := rec.operations(); len(ops) != 2 || ops[0] != "Applying kustomizations" || ops[1] != "test-kustomization" {
+			t.Fatalf("unexpected operations %v", ops)
+		}
+		if rec.events[1].ParentID != rec.events[0].ID {
+			t.Errorf("expected the layer step under the section, got %+v", rec.events[1])
+		}
+		var applied []string
+		for _, e := range rec.events {
+			if e.Kind == presenter.KindApplied {
+				applied = append(applied, e.Message)
+			}
+		}
+		if strings.Join(applied, ",") != "test-kustomization,Applying kustomizations" {
+			t.Errorf("expected the layer then the section to end as applied, got %v", applied)
 		}
 	})
 
@@ -2251,7 +2285,7 @@ func TestProvisioner_Uninstall(t *testing.T) {
 		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
 
 		blueprint := createTestBlueprint()
-		err := provisioner.Uninstall(blueprint)
+		err := provisioner.Uninstall(context.Background(), blueprint)
 
 		if err != nil {
 			t.Errorf("Expected no error, got: %v", err)
@@ -2275,7 +2309,7 @@ func TestProvisioner_Uninstall(t *testing.T) {
 			},
 		}
 
-		err := provisioner.Uninstall(blueprint)
+		err := provisioner.Uninstall(context.Background(), blueprint)
 
 		if err != nil {
 			t.Errorf("Expected no error, got: %v", err)
@@ -2305,7 +2339,7 @@ func TestProvisioner_Uninstall(t *testing.T) {
 			},
 		}
 
-		err := provisioner.Uninstall(blueprint)
+		err := provisioner.Uninstall(context.Background(), blueprint)
 
 		if err != nil {
 			t.Errorf("Expected no error, got: %v", err)
@@ -2331,7 +2365,7 @@ func TestProvisioner_Uninstall(t *testing.T) {
 		}
 
 		// When uninstalling
-		if err := provisioner.Uninstall(blueprint); err != nil {
+		if err := provisioner.Uninstall(context.Background(), blueprint); err != nil {
 			t.Fatalf("Expected no error, got: %v", err)
 		}
 
@@ -2363,7 +2397,7 @@ func TestProvisioner_Uninstall(t *testing.T) {
 		opts := &Provisioner{KubernetesManager: mocks.KubernetesManager}
 		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
 
-		err := provisioner.Uninstall(createTestBlueprint())
+		err := provisioner.Uninstall(context.Background(), createTestBlueprint())
 
 		if err != nil {
 			t.Errorf("Expected no error, got: %v", err)
@@ -2377,7 +2411,7 @@ func TestProvisioner_Uninstall(t *testing.T) {
 		mocks := setupProvisionerMocks(t)
 		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler)
 
-		err := provisioner.Uninstall(nil)
+		err := provisioner.Uninstall(context.Background(), nil)
 
 		if err == nil {
 			t.Error("Expected error for nil blueprint")
@@ -2394,7 +2428,7 @@ func TestProvisioner_Uninstall(t *testing.T) {
 		provisioner.KubernetesManager = nil
 
 		blueprint := createTestBlueprint()
-		err := provisioner.Uninstall(blueprint)
+		err := provisioner.Uninstall(context.Background(), blueprint)
 
 		if err == nil {
 			t.Error("Expected error for nil kubernetes manager")
@@ -2416,7 +2450,7 @@ func TestProvisioner_Uninstall(t *testing.T) {
 		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
 
 		blueprint := createTestBlueprint()
-		err := provisioner.Uninstall(blueprint)
+		err := provisioner.Uninstall(context.Background(), blueprint)
 
 		if err == nil {
 			t.Error("Expected error for delete blueprint failure")
@@ -2553,7 +2587,7 @@ func TestProvisioner_DestroyKustomize(t *testing.T) {
 		opts := &Provisioner{KubernetesManager: mocks.KubernetesManager}
 		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
 
-		err := provisioner.DestroyKustomize(createTestBlueprint(), "test-kustomization")
+		err := provisioner.DestroyKustomize(context.Background(), createTestBlueprint(), "test-kustomization")
 
 		if err != nil {
 			t.Errorf("Expected no error, got: %v", err)
@@ -2564,7 +2598,7 @@ func TestProvisioner_DestroyKustomize(t *testing.T) {
 		mocks := setupProvisionerMocks(t)
 		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler)
 
-		err := provisioner.DestroyKustomize(nil, "test-kustomization")
+		err := provisioner.DestroyKustomize(context.Background(), nil, "test-kustomization")
 
 		if err == nil {
 			t.Error("Expected error for nil blueprint")
@@ -2579,7 +2613,7 @@ func TestProvisioner_DestroyKustomize(t *testing.T) {
 		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler)
 		provisioner.KubernetesManager = nil
 
-		err := provisioner.DestroyKustomize(createTestBlueprint(), "test-kustomization")
+		err := provisioner.DestroyKustomize(context.Background(), createTestBlueprint(), "test-kustomization")
 
 		if err == nil {
 			t.Error("Expected error for nil kubernetes manager")
@@ -2594,7 +2628,7 @@ func TestProvisioner_DestroyKustomize(t *testing.T) {
 		opts := &Provisioner{KubernetesManager: mocks.KubernetesManager}
 		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
 
-		err := provisioner.DestroyKustomize(createTestBlueprint(), "nonexistent")
+		err := provisioner.DestroyKustomize(context.Background(), createTestBlueprint(), "nonexistent")
 
 		if err == nil {
 			t.Error("Expected error for kustomization not found")
@@ -2612,7 +2646,7 @@ func TestProvisioner_DestroyKustomize(t *testing.T) {
 		opts := &Provisioner{KubernetesManager: mocks.KubernetesManager}
 		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
 
-		err := provisioner.DestroyKustomize(createTestBlueprint(), "test-kustomization")
+		err := provisioner.DestroyKustomize(context.Background(), createTestBlueprint(), "test-kustomization")
 
 		if err == nil {
 			t.Error("Expected error for delete kustomization failure")
@@ -2636,7 +2670,7 @@ func TestProvisioner_DestroyKustomize(t *testing.T) {
 		opts := &Provisioner{KubernetesManager: mocks.KubernetesManager}
 		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
 
-		err := provisioner.DestroyKustomize(createTestBlueprint(), "test-kustomization")
+		err := provisioner.DestroyKustomize(context.Background(), createTestBlueprint(), "test-kustomization")
 
 		if err != nil {
 			t.Errorf("Expected no error, got: %v", err)
@@ -5092,6 +5126,56 @@ func TestProvisioner_Converge(t *testing.T) {
 		return p
 	}
 
+	t.Run("ReportsEachKustomizationAsAChildStep", func(t *testing.T) {
+		// Given one kustomization that becomes Ready on the second read and one that never does
+		mocks := setupProvisionerMocks(t)
+		var reads int
+		mocks.KubernetesManager.GetKustomizationReadinessFunc = func(names []string) (map[string]bool, error) {
+			reads++
+			return map[string]bool{"pki-base": reads >= 2, "dns": false}, nil
+		}
+		bp := &blueprintv1alpha1.Blueprint{Kustomizations: []blueprintv1alpha1.Kustomization{{Name: "pki-base"}, {Name: "dns"}}}
+		rec := &eventRecorder{}
+
+		// When converging with a short timeout
+		err := newProv(mocks, fluxinfra.NewMockNotifier()).Converge(presenter.NewContext(context.Background(), rec), bp, 50*time.Millisecond)
+
+		// Then each kustomization is a child step: the ready one ends applied and the unready one failed
+		if err != nil {
+			t.Fatalf("expected no error, got %v", err)
+		}
+		ends := map[string]presenter.Kind{}
+		for _, e := range rec.events {
+			if e.Kind == presenter.KindApplied || e.Kind == presenter.KindFailed {
+				ends[e.Message] = e.Kind
+			}
+		}
+		if ends["pki-base"] != presenter.KindApplied || ends["dns"] != presenter.KindFailed || ends["Reconciling resources"] != presenter.KindApplied {
+			t.Errorf("unexpected step ends %v", ends)
+		}
+	})
+
+	t.Run("HidesKustomizationsBlockedOnADependency", func(t *testing.T) {
+		// Given a kustomization that never becomes Ready and one that depends on it
+		mocks := setupProvisionerMocks(t)
+		mocks.KubernetesManager.GetKustomizationReadinessFunc = func(names []string) (map[string]bool, error) {
+			return map[string]bool{"pki-base": false, "dns": false}, nil
+		}
+		bp := &blueprintv1alpha1.Blueprint{Kustomizations: []blueprintv1alpha1.Kustomization{
+			{Name: "pki-base"},
+			{Name: "dns", DependsOn: []string{"pki-base"}},
+		}}
+		rec := &eventRecorder{}
+
+		// When converging with a short timeout
+		_ = newProv(mocks, fluxinfra.NewMockNotifier()).Converge(presenter.NewContext(context.Background(), rec), bp, 30*time.Millisecond)
+
+		// Then only the reconciling kustomization appears, and the blocked one never does
+		if ops := rec.operations(); !reflect.DeepEqual(ops, []string{"Reconciling resources", "pki-base"}) {
+			t.Errorf("expected only pki-base to appear, got %v", ops)
+		}
+	})
+
 	t.Run("DrivesNotReadyKustomizationsAndForcesStalledHelmReleases", func(t *testing.T) {
 		// Given a kustomization not Ready on the first read then Ready, owning a stalled HelmRelease
 		mocks := setupProvisionerMocks(t)
@@ -5236,6 +5320,66 @@ func TestProvisioner_PlaceSecrets(t *testing.T) {
 		// Then the secret lands in the inventory namespace with the resolved value, owned by its kustomization
 		if gotName != "cloudflare-creds" || gotNs != "system-dns" || gotData["api_token"] != "resolved-token" || gotOwner != "cdn-install" {
 			t.Errorf("Unexpected ApplySecret args: name=%q ns=%q data=%v owner=%q", gotName, gotNs, gotData, gotOwner)
+		}
+	})
+
+	t.Run("EndsReadyLayersWhileASecretStillWaits", func(t *testing.T) {
+		// Given a ready kustomization and a secret whose namespace appears only on the second check
+		mocks := setupProvisionerMocks(t)
+		var inventoryReads int
+		mocks.KubernetesManager.GetKustomizationInventoryFunc = func(name, namespace string) ([]kubernetes.InventoryEntry, error) {
+			inventoryReads++
+			if inventoryReads < 2 {
+				return nil, nil
+			}
+			return []kubernetes.InventoryEntry{{Kind: "Namespace", Name: "system-dns"}}, nil
+		}
+		mocks.KubernetesManager.GetKustomizationReadinessFunc = func(names []string) (map[string]bool, error) {
+			return map[string]bool{"app": true, "cdn-install": false}, nil
+		}
+		prov := newProvisioner(mocks)
+		prov.secretPollInterval = time.Millisecond
+		layers := &layerRecorder{}
+		bp := &blueprintv1alpha1.Blueprint{Kustomizations: []blueprintv1alpha1.Kustomization{{Name: "app"}, {Name: "cdn-install"}}}
+
+		// When placing the secret
+		if err := prov.placeSecrets(context.Background(), layers, resolved(), bp, false); err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+
+		// Then the ready layer ends and the reconciling layer starts before the secret is placed
+		want := []string{
+			"progress cdn-install: waiting on a namespace for secret cloudflare-creds",
+			"done app",
+			"start cdn-install",
+			"progress cdn-install: placed secret cloudflare-creds",
+		}
+		if !reflect.DeepEqual(layers.calls, want) {
+			t.Errorf("Expected %q, got %q", want, layers.calls)
+		}
+	})
+
+	t.Run("ReportsPlacementAsProgressOnTheCurrentStep", func(t *testing.T) {
+		// Given a kustomization whose inventory holds one applied namespace, inside a recorded step
+		mocks := setupProvisionerMocks(t)
+		mocks.KubernetesManager.GetKustomizationInventoryFunc = func(name, namespace string) ([]kubernetes.InventoryEntry, error) {
+			return []kubernetes.InventoryEntry{{Kind: "Namespace", Name: "system-dns"}}, nil
+		}
+		rec := &eventRecorder{}
+		ctx, end := presenter.Begin(presenter.NewContext(context.Background(), rec), "kustomize:cdn-install", "Applying kustomization cdn-install")
+		defer end(nil)
+
+		// When placing the resolved secrets
+		if err := newProvisioner(mocks).PlaceSecrets(ctx, resolved(), nil, false); err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+
+		// Then placement is progress on that step, not a step of its own
+		if ops := rec.operations(); len(ops) != 1 {
+			t.Fatalf("Expected no extra steps, got %v", ops)
+		}
+		if e := rec.events[1]; e.Kind != presenter.KindProgress || e.ID != rec.events[0].ID || e.Message != "placed secret cloudflare-creds" {
+			t.Errorf("Expected a placement progress update on the step, got %+v", e)
 		}
 	})
 
@@ -5650,6 +5794,34 @@ type eventRecorder struct {
 
 func (r *eventRecorder) Emit(_ context.Context, e presenter.Event) {
 	r.events = append(r.events, e)
+}
+
+// layerRecorder records the per-kustomization calls a layerReporter receives.
+type layerRecorder struct {
+	calls []string
+}
+
+func (r *layerRecorder) Progress(name, text string) {
+	r.calls = append(r.calls, "progress "+name+": "+text)
+}
+
+func (r *layerRecorder) Start(name string) {
+	r.calls = append(r.calls, "start "+name)
+}
+
+func (r *layerRecorder) Done(name string) {
+	r.calls = append(r.calls, "done "+name)
+}
+
+// operations returns the messages of the operations that started, in order.
+func (r *eventRecorder) operations() []string {
+	var ops []string
+	for _, e := range r.events {
+		if e.Kind == presenter.KindApplying {
+			ops = append(ops, e.Message)
+		}
+	}
+	return ops
 }
 
 func TestProvisioner_UpProgress(t *testing.T) {

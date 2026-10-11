@@ -55,7 +55,7 @@ func TestMockKubernetesManager_DeleteKustomization(t *testing.T) {
 	t.Run("FuncSet", func(t *testing.T) {
 		manager := setup(t)
 		manager.DeleteKustomizationFunc = func(n, ns string) error { return fmt.Errorf("err") }
-		err := manager.DeleteKustomization(name, ns)
+		err := manager.DeleteKustomization(context.Background(), name, ns)
 		if err == nil || err.Error() != "err" {
 			t.Errorf("Expected error 'err', got %v", err)
 		}
@@ -63,7 +63,7 @@ func TestMockKubernetesManager_DeleteKustomization(t *testing.T) {
 
 	t.Run("FuncNotSet", func(t *testing.T) {
 		manager := setup(t)
-		err := manager.DeleteKustomization(name, ns)
+		err := manager.DeleteKustomization(context.Background(), name, ns)
 		if err != nil {
 			t.Errorf("Expected nil, got %v", err)
 		}
@@ -452,7 +452,7 @@ func TestMockKubernetesManager_DeleteBlueprint(t *testing.T) {
 			}
 			return fmt.Errorf("err")
 		}
-		err := manager.DeleteBlueprint(blueprint, namespace)
+		err := manager.DeleteBlueprint(context.Background(), blueprint, namespace)
 		if err == nil || err.Error() != "err" {
 			t.Errorf("Expected error 'err', got %v", err)
 		}
@@ -460,7 +460,7 @@ func TestMockKubernetesManager_DeleteBlueprint(t *testing.T) {
 
 	t.Run("FuncNotSet", func(t *testing.T) {
 		manager := setup(t)
-		err := manager.DeleteBlueprint(blueprint, namespace)
+		err := manager.DeleteBlueprint(context.Background(), blueprint, namespace)
 		if err != nil {
 			t.Errorf("Expected nil, got %v", err)
 		}

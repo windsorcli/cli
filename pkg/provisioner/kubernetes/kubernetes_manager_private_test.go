@@ -1913,7 +1913,7 @@ func TestBaseKubernetesManager_deleteKustomization_DeleteTimeoutOverride(t *test
 
 		// When deleteKustomization times out
 		start := manager.shims.TimeNow()
-		err := manager.deleteKustomization("test-kustomization", "test-namespace", nil, &override, true)
+		err := manager.deleteKustomization(context.Background(), "test-kustomization", "test-namespace", nil, &override, true)
 		elapsed := manager.shims.TimeNow().Sub(start)
 
 		// Then it waits out the override instead of the smaller spec.timeout
@@ -1942,7 +1942,7 @@ func TestBaseKubernetesManager_deleteKustomization_DeleteTimeoutOverride(t *test
 
 		// When deleteKustomization times out
 		start := manager.shims.TimeNow()
-		err := manager.deleteKustomization("test-kustomization", "test-namespace", nil, &override, true)
+		err := manager.deleteKustomization(context.Background(), "test-kustomization", "test-namespace", nil, &override, true)
 		elapsed := manager.shims.TimeNow().Sub(start)
 
 		// Then the wait reaches the override, unaffected by the smaller install ceiling
@@ -1970,7 +1970,7 @@ func TestBaseKubernetesManager_deleteKustomization_DeleteTimeoutOverride(t *test
 
 		// When deleteKustomization times out
 		start := manager.shims.TimeNow()
-		err := manager.deleteKustomization("test-kustomization", "test-namespace", nil, &override, true)
+		err := manager.deleteKustomization(context.Background(), "test-kustomization", "test-namespace", nil, &override, true)
 		elapsed := manager.shims.TimeNow().Sub(start)
 
 		// Then the wait is bounded by the ceiling, not the declared override
@@ -1999,7 +1999,7 @@ func TestBaseKubernetesManager_deleteKustomization_DeleteTimeoutOverride(t *test
 
 		// When deleteKustomization times out with no override
 		start := manager.shims.TimeNow()
-		err := manager.deleteKustomization("test-kustomization", "test-namespace", nil, nil, true)
+		err := manager.deleteKustomization(context.Background(), "test-kustomization", "test-namespace", nil, nil, true)
 		elapsed := manager.shims.TimeNow().Sub(start)
 
 		// Then it still waits out spec.timeout, same as before this change
@@ -2434,48 +2434,31 @@ func TestBaseKubernetesManager_blockDependencyClosure(t *testing.T) {
 }
 
 
-func TestKubernetesWaitProgress(t *testing.T) {
-	t.Run("ListsPendingNamesWithElapsed", func(t *testing.T) {
-		// Given two names where one is ready
-		line := kustomizationWaitProgress(
-			[]string{"a", "b"}, map[string]bool{"a": true}, nil, 4*time.Minute+10*time.Second)
+func TestKustomizationFailureText(t *testing.T) {
+	t.Run("JoinsAMultiLineMessageOntoOneLine", func(t *testing.T) {
+		// Given a failure with a multi-line message
+		failure := &kustomizationFailedError{name: "b", reason: "ReconciliationFailed", message: "dry-run failed\n  spec.selector: Required value"}
 
-		// Then only the pending name appears, with the elapsed time
-		want := "waiting on b [04m10s elapsed]"
-		if line != want {
-			t.Errorf("Expected %q, got %q", want, line)
+		// When the failure text is built
+		text := kustomizationFailureText(failure)
+
+		// Then the reason and the flattened message share one line
+		if text != "ReconciliationFailed: dry-run failed spec.selector: Required value" {
+			t.Errorf("Unexpected text %q", text)
 		}
 	})
 
-	t.Run("AppendsTheLatestFailureMessageOnOneLine", func(t *testing.T) {
-		// Given a pending name with a multi-line failure message
-		failures := map[string]*kustomizationFailedError{
-			"b": {name: "b", reason: "ReconciliationFailed", message: "dry-run failed\n  spec.selector: Required value"},
-		}
-
-		// When building the progress line
-		line := kustomizationWaitProgress([]string{"b"}, nil, failures, time.Minute)
-
-		// Then the failure reason and message follow the pending list on the same line
-		if !strings.Contains(line, "b failing (ReconciliationFailed): dry-run failed spec.selector: Required value") {
-			t.Errorf("Expected the failure message on the line, got %q", line)
-		}
-		if strings.Contains(line, "\n") {
-			t.Errorf("Expected a single line, got %q", line)
-		}
-	})
-
-	t.Run("TruncatesLongFailureMessages", func(t *testing.T) {
+	t.Run("TruncatesLongMessages", func(t *testing.T) {
 		// Given a failure message longer than the limit
 		long := strings.Repeat("x", kustomizationWaitMessageLimit+50)
-		failures := map[string]*kustomizationFailedError{"b": {name: "b", reason: "ReconciliationFailed", message: long}}
+		failure := &kustomizationFailedError{name: "b", reason: "ReconciliationFailed", message: long}
 
-		// When building the progress line
-		line := kustomizationWaitProgress([]string{"b"}, nil, failures, time.Minute)
+		// When the failure text is built
+		text := kustomizationFailureText(failure)
 
 		// Then the message is cut and marked
-		if !strings.HasSuffix(line, strings.Repeat("x", kustomizationWaitMessageLimit)+"...") {
-			t.Errorf("Expected a truncated message, got %q", line)
+		if text != "ReconciliationFailed: "+strings.Repeat("x", kustomizationWaitMessageLimit)+"..." {
+			t.Errorf("Unexpected text %q", text)
 		}
 	})
 }

@@ -31,6 +31,12 @@ var spinnerFrames = []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "�
 // frameInterval is the time between animation frames.
 const frameInterval = 100 * time.Millisecond
 
+// progressHeartbeat is how often plain mode reprints unchanged progress text.
+const progressHeartbeat = 30 * time.Second
+
+// maxLiveLines is the most lines the live region draws on a terminal of any height.
+const maxLiveLines = 10
+
 const (
 	ansiGreen     = "\033[32m"
 	ansiRed       = "\033[31m"
@@ -53,6 +59,8 @@ type ConsoleOptions struct {
 	Interactive bool
 	// Width returns the terminal width for line truncation, or 0 for no truncation.
 	Width func() int
+	// Height returns the terminal height that caps the live region, or 0 for the default cap.
+	Height func() int
 	// OnActive runs with true when the first operation starts and false when the last one ends.
 	OnActive func(active bool)
 	// Terminal enters the live display mode while the live region is on screen. Nil skips it.
@@ -88,6 +96,7 @@ type consoleOp struct {
 	lastShown string
 	started   time.Time
 	hadChild  bool
+	shownAt   time.Time
 }
 
 // =============================================================================
@@ -256,7 +265,8 @@ func (c *Console) finish(event Event) {
 	c.print(func() { fmt.Fprintln(c.w, line) })
 }
 
-// progress stores the status text of an operation. Plain mode prints it once per change.
+// progress stores the status text of an operation. Plain mode prints it with the elapsed time
+// when the text changes, and again after progressHeartbeat when it does not.
 func (c *Console) progress(event Event) {
 	op := c.ops[event.ID]
 	if op == nil {
@@ -267,11 +277,13 @@ func (c *Console) progress(event Event) {
 		c.redraw()
 		return
 	}
-	if event.Message == op.lastShown {
+	now := c.now()
+	if event.Message == op.lastShown && now.Sub(op.shownAt) < progressHeartbeat {
 		return
 	}
 	op.lastShown = event.Message
-	line := indent(op.depth+1) + event.Message
+	op.shownAt = now
+	line := indent(op.depth+1) + event.Message + c.elapsed(now.Sub(op.started))
 	c.print(func() { fmt.Fprintln(c.w, line) })
 }
 
@@ -327,7 +339,8 @@ func (c *Console) clear() {
 }
 
 // redraw replaces the live region with one line per active leaf operation in interactive mode.
-// Each line shows the time its operation has run so far. It draws nothing while paused.
+// Each line shows the time its operation has run so far. When more leaves are active than the
+// region holds, the last line counts the rest. It draws nothing while paused.
 func (c *Console) redraw() {
 	if !c.opts.Interactive || c.paused > 0 {
 		return
@@ -338,11 +351,18 @@ func (c *Console) redraw() {
 	if c.opts.Width != nil {
 		width = c.opts.Width()
 	}
-	var b strings.Builder
+	var leaves []*consoleOp
 	for _, op := range c.order {
-		if op.children > 0 {
-			continue
+		if op.children == 0 {
+			leaves = append(leaves, op)
 		}
+	}
+	shown, hidden := leaves, 0
+	if limit := c.liveLimit(); len(leaves) > limit {
+		shown, hidden = leaves[:limit-1], len(leaves)-(limit-1)
+	}
+	var b strings.Builder
+	for _, op := range shown {
 		line := indent(op.depth) + c.color(ansiGreen, frame) + " " + op.message + c.elapsed(c.now().Sub(op.started))
 		if op.progress != "" {
 			line += "  " + c.color(ansiDim, op.progress)
@@ -350,7 +370,27 @@ func (c *Console) redraw() {
 		b.WriteString(truncate(line, width) + "\n")
 		c.drawn++
 	}
+	if hidden > 0 {
+		line := indent(leaves[len(shown)].depth) + c.color(ansiDim, fmt.Sprintf("… and %d more", hidden))
+		b.WriteString(truncate(line, width) + "\n")
+		c.drawn++
+	}
 	fmt.Fprint(c.w, b.String())
+}
+
+// liveLimit returns how many lines the live region may draw: maxLiveLines, or two fewer than the
+// terminal height when that is smaller, and never fewer than two.
+func (c *Console) liveLimit() int {
+	limit := maxLiveLines
+	if c.opts.Height != nil {
+		if h := c.opts.Height() - 2; h > 0 && h < limit {
+			limit = h
+		}
+	}
+	if limit < 2 {
+		limit = 2
+	}
+	return limit
 }
 
 // syncTicker starts the animation ticker and enters the live display mode when the live region

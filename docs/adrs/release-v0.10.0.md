@@ -348,7 +348,8 @@ The terraform path of `pkg/provisioner/` went first, ahead of `pkg/composer/blue
 the presenter needed a real caller before its API settled. Blueprint composition emits no progress,
 so it could not exercise the presenter. That pass added `ctx` to the terraform-path methods of
 `TerraformStack`, `Provisioner`, and `Project`, and moved their progress and warnings to the
-presenter. `pkg/provisioner/kubernetes/` and the kustomize paths of `pkg/provisioner/` are next.
+presenter. The next pass did the same for `pkg/provisioner/kubernetes/` and the kustomize paths
+of `pkg/provisioner/`, which leaves no `pkg/tui` progress calls in `pkg/provisioner/`.
 
 — a single pass applies, in order, within that package:
 

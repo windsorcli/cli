@@ -200,7 +200,7 @@ windsor destroy --confirm=local --continue`,
 
 		return stacklock.With(cmd.Context(), proj.Runtime, "destroy", lockTimeout, func() error {
 			if inKustomize {
-				if err := proj.Provisioner.DestroyKustomize(blueprint, componentID); err != nil {
+				if err := proj.Provisioner.DestroyKustomize(cmd.Context(), blueprint, componentID); err != nil {
 					return fmt.Errorf("error destroying kustomization %s: %w", componentID, err)
 				}
 			}
@@ -388,7 +388,7 @@ windsor destroy kustomize --confirm=local`,
 				return err
 			}
 			return stacklock.With(cmd.Context(), proj.Runtime, "destroy", lockTimeout, func() error {
-				if err := proj.Provisioner.Uninstall(blueprint); err != nil {
+				if err := proj.Provisioner.Uninstall(cmd.Context(), blueprint); err != nil {
 					return fmt.Errorf("error destroying all kustomizations: %w", err)
 				}
 				return nil
@@ -415,7 +415,7 @@ windsor destroy kustomize --confirm=local`,
 			return err
 		}
 		return stacklock.With(cmd.Context(), proj.Runtime, "destroy", lockTimeout, func() error {
-			if err := proj.Provisioner.DestroyKustomize(blueprint, componentID); err != nil {
+			if err := proj.Provisioner.DestroyKustomize(cmd.Context(), blueprint, componentID); err != nil {
 				return fmt.Errorf("error destroying kustomization %s: %w", componentID, err)
 			}
 			return nil
