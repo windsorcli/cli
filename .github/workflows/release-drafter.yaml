@@ -12,8 +12,6 @@ permissions:
 
 jobs:
   update-release-draft:
-    # This job writes the release draft. A fork pull request has a read-only
-    # token, so the write fails. The job skips fork pull requests.
     if: >-
       github.event_name == 'push' ||
       github.event.pull_request.head.repo.full_name == github.repository

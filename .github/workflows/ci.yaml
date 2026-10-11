@@ -1,9 +1,5 @@
 name: CI
 
-# A push to a fork does not start a workflow in this repository. The
-# pull_request trigger starts the tests for every pull request, including a
-# pull request from a fork. GitHub gives a fork pull request a read-only token
-# and no secrets. The push trigger covers main and release tags only.
 on:
   push:
     branches:
@@ -13,13 +9,10 @@ on:
       - 'v[0-9]+.[0-9]+.[0-9]+-*'
   pull_request:
 
-# A new push to a pull request cancels the older run for that pull request.
-# Other runs use the run ID as the group, so they never cancel each other.
 concurrency:
   group: ${{ github.event_name == 'pull_request' && format('ci-pr-{0}', github.event.pull_request.number) || format('ci-run-{0}', github.run_id) }}
   cancel-in-progress: true
 
-# The default token is read-only. A job that publishes must request write access.
 permissions:
   contents: read
   issues: read
@@ -237,9 +230,6 @@ jobs:
     runs-on: windows-latest
     needs: [build-and-test, sast-scan]
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
-    # This job replaces the nightly release, so it needs a write token. A
-    # job-level permissions block replaces the workflow-level block, so the
-    # read grants are listed again.
     permissions:
       contents: write
       issues: read
