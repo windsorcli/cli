@@ -246,10 +246,11 @@ This ADR does not migrate the nine `tui.Active`-reaching files, the `outputFunc`
 `pkg/runtime/shell`) is already in Wave 2's per-package cleanup order — the migration happens as
 each package's pass reaches it, following ADR 0003's characterize-then-refactor rule: black-box
 characterize current progress-reporting behavior first (a fake `Presenter` capturing emitted events
-is the natural test double), then swap the mechanism, confirm the black-box tests still pass. `onApply
-func(id string) (bool, error)` hooks on `TerraformStack.Up`/`Provisioner.Up` are explicitly **out of
-scope** — they compose secret-placement and other post-apply logic, not user-facing output, and
-converting them would conflate two unrelated mechanisms that happen to nest today.
+is the natural test double), then swap the mechanism, confirm the black-box tests still pass. The
+`onApply` and post-apply hooks on `TerraformStack.Up`/`Provisioner.Up` stay hooks, not events, but
+they receive the `ctx` of the operation that runs them: an apply hook gets its component's
+operation, and a post-apply hook gets the "Applying terraform" operation. Work a hook starts, such
+as workstation network setup, then nests under the right step.
 
 ## Consequences
 
@@ -262,12 +263,14 @@ converting them would conflate two unrelated mechanisms that happen to nest toda
   `tui.Start`/`Fail` pattern, and bespoke `outputFunc` parameters all become `Emit`/`Track` calls,
   closing a fragmentation problem this round's survey found was worse than the release doc's
   original framing (three mechanisms, not one, needed replacing).
-- **`pkg/tui` retires as packages migrate.** The console renderer has its own line-based tree and
-  animation, so `pkg/tui`'s spinner, its global `Active`, and `WithProgress` lose their last caller
-  when the final package moves to the presenter.
-  Until then, `cmd/` bridges the two. The console holds the legacy spinner silent with `tui.Hold`
-  while it shows an operation, `tui.Pause` and `tui.Resume` also pause the console around password
-  prompts, and `--format json` silences the legacy spinner. The bridge goes away with `pkg/tui`.
+- **`pkg/tui` keeps only formatting helpers.** The spinner, its global `Active`, and
+  `WithProgress` are gone; the package holds `SectionHeader` and the `plan` summary renderer.
+- **The terminal is a process-wide resource.** `cmd/` makes the active presenter the process
+  default with `presenter.SetDefault`. Code that hands the terminal to another program, such as
+  `ExecSudo` and the shell's interrupt guard, calls `presenter.HandOff` for a matched pause and
+  resume. The console prints the active step's header before a handoff, so a password prompt
+  appears under the step that needs it. `presenter.Background` gives the default presenter to
+  code that has no context yet; each use goes away when its package gets `ctx`.
 - **Methods that emit events gain a `ctx` parameter** on `TerraformStack`, `KubernetesManager`,
   `Provisioner`, workstation types, and `ArtifactBuilder`. This is a mechanical signature change,
   landed in each package's Wave 2 pass, and it also prepares those methods for Wave 3 cancellation.

@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"bytes"
+	"context"
 	stdcontext "context"
 	"fmt"
 	"os"
@@ -311,7 +312,7 @@ func TestUpgradeCmd(t *testing.T) {
 	t.Run("ErrorTerraformFails", func(t *testing.T) {
 		// Given a terraform stack whose Up fails
 		mocks := setupApplyTest(t)
-		mocks.TerraformStack.UpFunc = func(bp *blueprintv1alpha1.Blueprint, onApply ...func(id string) (bool, error)) (bool, error) {
+		mocks.TerraformStack.UpFunc = func(bp *blueprintv1alpha1.Blueprint, onApply ...func(ctx context.Context, id string) (bool, error)) (bool, error) {
 			return false, fmt.Errorf("terraform up failed")
 		}
 		proj := newApplyAllProject(mocks)

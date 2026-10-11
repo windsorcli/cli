@@ -28,7 +28,6 @@ import (
 	"github.com/windsorcli/cli/pkg/runtime/secrets"
 	"github.com/windsorcli/cli/pkg/runtime/shell"
 	"github.com/windsorcli/cli/pkg/runtime/tools"
-	"github.com/windsorcli/cli/pkg/tui"
 )
 
 // =============================================================================
@@ -857,56 +856,30 @@ func TestWithOutput(t *testing.T) {
 	})
 }
 
-func TestHoldLegacySpinner(t *testing.T) {
-	t.Run("SilencesTheSpinnerWhileActive", func(t *testing.T) {
-		// Given a mock tui spinner and the activity callback
-		original := tui.Active
-		t.Cleanup(func() { tui.Active = original })
-		mock := tui.NewMockSpinner()
-		var starts []string
-		mock.StartFunc = func(message string) { starts = append(starts, message) }
-		tui.Active = mock
-		onActive := holdLegacySpinner()
-
-		// When the spinner starts while active, then after activity ends twice
-		onActive(true)
-		tui.Start("held")
-		onActive(false)
-		onActive(false)
-		tui.Start("free")
-
-		// Then only the start after activity ends reaches the spinner
-		if strings.Join(starts, ",") != "free" {
-			t.Errorf("expected only the free start, got %v", starts)
-		}
-	})
-}
-
 func TestSetupGlobalContext_Format(t *testing.T) {
 	t.Cleanup(func() {
 		formatFlag = string(logging.FormatText)
-		tui.Init(false)
+		presenter.SetDefault(nil)
 	})
 
-	t.Run("SilencesTheLegacySpinnerForJSON", func(t *testing.T) {
+	t.Run("MakesTheJSONPresenterTheProcessDefault", func(t *testing.T) {
 		// Given JSON format
 		formatFlag = string(logging.FormatJSON)
 		cmd := &cobra.Command{Use: "test"}
 		rootCmd.AddCommand(cmd)
 		t.Cleanup(func() { rootCmd.RemoveCommand(cmd) })
 
-		// When the global context is set up and the legacy spinner starts
+		// When the global context is set up
 		if err := setupGlobalContext(cmd); err != nil {
 			t.Fatalf("expected no error, got %v", err)
 		}
-		stderr, restore := captureProcessStderr(t)
-		tui.Start("loading")
-		tui.Done()
-		restore()
 
-		// Then the spinner writes nothing
-		if stderr.Len() != 0 {
-			t.Errorf("expected no spinner output, got %q", stderr.String())
+		// Then the process default and the command context share the JSON presenter
+		if _, ok := presenter.Default().(*presenter.JSON); !ok {
+			t.Errorf("expected a JSON default presenter, got %T", presenter.Default())
+		}
+		if presenter.FromContext(cmd.Context()) != presenter.Default() {
+			t.Error("expected the command context to carry the default presenter")
 		}
 	})
 }

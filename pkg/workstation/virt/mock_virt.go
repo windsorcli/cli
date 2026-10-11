@@ -5,6 +5,8 @@
 
 package virt
 
+import "context"
+
 // =============================================================================
 // Types
 // =============================================================================
@@ -31,7 +33,7 @@ func NewMockVirt() *MockVirt {
 
 // Up starts the mock virt.
 // If a custom UpFunc is provided, it will use that function instead.
-func (m *MockVirt) Up() error {
+func (m *MockVirt) Up(_ context.Context) error {
 	if m.UpFunc != nil {
 		return m.UpFunc()
 	}
@@ -40,7 +42,7 @@ func (m *MockVirt) Up() error {
 
 // Down stops the mock virt.
 // If a custom DownFunc is provided, it will use that function instead.
-func (m *MockVirt) Down() error {
+func (m *MockVirt) Down(_ context.Context) error {
 	if m.DownFunc != nil {
 		return m.DownFunc()
 	}

@@ -75,7 +75,7 @@ type TerraformStack struct {
 	runtime                *runtime.Runtime
 	shims                  *Shims
 	terraformEnv           *envvars.TerraformEnvPrinter
-	postApply              []func(id string) error
+	postApply              []func(ctx context.Context, id string) error
 	initCache              map[initCacheKey]struct{}
 	initCacheMu            sync.Mutex
 	destroyRetryAttempts   int
@@ -240,7 +240,7 @@ type DestroyOutcome struct {
 // explicit 'windsor configure network' invocation by the operator. Stack.Up returns
 // (halted bool, err error); halted=true indicates a clean stop, not a failure.
 type Stack interface {
-	Up(ctx context.Context, blueprint *blueprintv1alpha1.Blueprint, onApply ...func(id string) (bool, error)) (bool, error)
+	Up(ctx context.Context, blueprint *blueprintv1alpha1.Blueprint, onApply ...func(ctx context.Context, id string) (bool, error)) (bool, error)
 	MigrateState(ctx context.Context, blueprint *blueprintv1alpha1.Blueprint) ([]string, error)
 	MigrateComponentState(blueprint *blueprintv1alpha1.Blueprint, componentID string) error
 	HasRemoteState(blueprint *blueprintv1alpha1.Blueprint, componentID string) (bool, error)
@@ -248,7 +248,7 @@ type Stack interface {
 	InitComponent(blueprint *blueprintv1alpha1.Blueprint, componentID string) error
 	RemoveLocalState(componentID string) error
 	ListLocalStateComponentIDs() ([]string, error)
-	PostApply(fns ...func(id string) error)
+	PostApply(fns ...func(ctx context.Context, id string) error)
 	DestroyAll(ctx context.Context, blueprint *blueprintv1alpha1.Blueprint, continueOnError bool, excludeIDs ...string) (DestroyOutcome, error)
 	Plan(blueprint *blueprintv1alpha1.Blueprint, componentID string) error
 	PlanAll(blueprint *blueprintv1alpha1.Blueprint) error
@@ -306,7 +306,7 @@ func NewStack(rt *runtime.Runtime, opts ...*TerraformStack) Stack {
 
 // PostApply registers hooks to run after each component's WithProgress block completes (i.e. after Done is
 // printed). Hooks are consumed and cleared at the start of the next Up call so they are not retained.
-func (s *TerraformStack) PostApply(fns ...func(id string) error) {
+func (s *TerraformStack) PostApply(fns ...func(ctx context.Context, id string) error) {
 	s.postApply = append(s.postApply, fns...)
 }
 
@@ -321,7 +321,7 @@ func (s *TerraformStack) PostApply(fns ...func(id string) error) {
 // a clean stop — the TUI marks the component Done, no error is returned, and the caller can
 // surface a "deferred work" summary at the cmd layer. A non-nil err is a real failure as
 // before.
-func (s *TerraformStack) Up(ctx context.Context, blueprint *blueprintv1alpha1.Blueprint, onApply ...func(id string) (bool, error)) (bool, error) {
+func (s *TerraformStack) Up(ctx context.Context, blueprint *blueprintv1alpha1.Blueprint, onApply ...func(ctx context.Context, id string) (bool, error)) (bool, error) {
 	if blueprint == nil {
 		return false, fmt.Errorf("blueprint not provided")
 	}
@@ -399,7 +399,7 @@ func (s *TerraformStack) Up(ctx context.Context, blueprint *blueprintv1alpha1.Bl
 				if fn == nil {
 					continue
 				}
-				haltAfter, err := fn(componentID)
+				haltAfter, err := fn(ctx, componentID)
 				if err != nil {
 					return fmt.Errorf("post-apply hook %s: %w", componentID, err)
 				}
@@ -415,7 +415,7 @@ func (s *TerraformStack) Up(ctx context.Context, blueprint *blueprintv1alpha1.Bl
 		componentID := component.GetID()
 		for _, fn := range postApply {
 			if fn != nil {
-				if err := fn(componentID); err != nil {
+				if err := fn(ctx, componentID); err != nil {
 					return false, fmt.Errorf("post-apply hook %s: %w", componentID, err)
 				}
 			}

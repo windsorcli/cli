@@ -6,6 +6,7 @@
 package virt
 
 import (
+	"context"
 	"fmt"
 	"strings"
 	"testing"
@@ -253,7 +254,7 @@ func TestIncusVirt_Up(t *testing.T) {
 		incusVirt, _ := setup(t)
 
 		// When calling Up
-		err := incusVirt.Up()
+		err := incusVirt.Up(context.Background())
 
 		// Then no error should be returned
 		if err != nil {
@@ -272,7 +273,7 @@ func TestIncusVirt_Up(t *testing.T) {
 		}
 
 		// When calling Up
-		err := incusVirt.Up()
+		err := incusVirt.Up(context.Background())
 
 		// Then no error should be returned
 		if err != nil {
@@ -298,7 +299,7 @@ func TestIncusVirt_Up(t *testing.T) {
 		}
 
 		// When calling Up
-		err := incusVirt.Up()
+		err := incusVirt.Up(context.Background())
 
 		// Then an error should be returned
 		if err == nil {
@@ -353,7 +354,7 @@ func TestIncusVirt_Down(t *testing.T) {
 		}
 
 		// When calling Down
-		err := incusVirt.Down()
+		err := incusVirt.Down(context.Background())
 
 		// Then no error should be returned
 		if err != nil {
@@ -381,7 +382,7 @@ func TestIncusVirt_Down(t *testing.T) {
 		}
 
 		// When calling Down
-		err := incusVirt.Down()
+		err := incusVirt.Down(context.Background())
 
 		// Then no error should be returned
 		if err != nil {
@@ -435,7 +436,7 @@ func TestIncusVirt_Down(t *testing.T) {
 			return "", fmt.Errorf("unexpected command: %s %v", command, args)
 		}
 
-		err := incusVirt.Down()
+		err := incusVirt.Down(context.Background())
 
 		if err != nil {
 			t.Errorf("Expected no error, got %v", err)

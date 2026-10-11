@@ -6,6 +6,7 @@
 package virt
 
 import (
+	"context"
 	"testing"
 
 	"github.com/windsorcli/cli/pkg/runtime/config"
@@ -55,7 +56,7 @@ func TestMockVirt_Up(t *testing.T) {
 		}
 
 		// When calling Up
-		err := mockVirt.Up()
+		err := mockVirt.Up(context.Background())
 
 		// Then no error should be returned
 		if err != nil {
@@ -68,7 +69,7 @@ func TestMockVirt_Up(t *testing.T) {
 		mockVirt := NewMockVirt()
 
 		// When calling Up
-		err := mockVirt.Up()
+		err := mockVirt.Up(context.Background())
 
 		// Then no error should be returned
 		if err != nil {
@@ -87,7 +88,7 @@ func TestMockVirt_Down(t *testing.T) {
 		}
 
 		// When calling Down
-		err := mockVirt.Down()
+		err := mockVirt.Down(context.Background())
 
 		// Then no error should be returned
 		if err != nil {
@@ -100,7 +101,7 @@ func TestMockVirt_Down(t *testing.T) {
 		mockVirt := NewMockVirt()
 
 		// When calling Down
-		err := mockVirt.Down()
+		err := mockVirt.Down(context.Background())
 
 		// Then no error should be returned
 		if err != nil {

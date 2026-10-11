@@ -4,11 +4,14 @@
 package network
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"sort"
 	"strings"
 	"testing"
+
+	"github.com/windsorcli/cli/internal/presenter"
 )
 
 // =============================================================================
@@ -30,7 +33,7 @@ func TestLinuxNetworkManager_ConfigureHostRoute(t *testing.T) {
 		mocks.ConfigHandler.Set("workstation.address", "192.168.1.10")
 
 		// And configuring the host route
-		err := manager.ConfigureHostRoute()
+		err := manager.ConfigureHostRoute(context.Background())
 
 		// Then no error should occur
 		if err != nil {
@@ -46,7 +49,7 @@ func TestLinuxNetworkManager_ConfigureHostRoute(t *testing.T) {
 		mocks.ConfigHandler.Set("workstation.address", "192.168.1.10")
 
 		// And configuring the host route
-		err := manager.ConfigureHostRoute()
+		err := manager.ConfigureHostRoute(context.Background())
 
 		// Then it succeeds using constants.DefaultNetworkCIDR instead of erroring
 		if err != nil {
@@ -66,7 +69,7 @@ func TestLinuxNetworkManager_ConfigureHostRoute(t *testing.T) {
 		}
 
 		// And configuring the host route
-		err := manager.ConfigureHostRoute()
+		err := manager.ConfigureHostRoute(context.Background())
 
 		// Then an error should occur
 		if err == nil {
@@ -85,7 +88,7 @@ func TestLinuxNetworkManager_ConfigureHostRoute(t *testing.T) {
 		mocks.ConfigHandler.Set("workstation.address", "")
 
 		// And configuring the host route
-		err := manager.ConfigureHostRoute()
+		err := manager.ConfigureHostRoute(context.Background())
 
 		// Then an error should occur
 		if err == nil {
@@ -110,7 +113,7 @@ func TestLinuxNetworkManager_ConfigureHostRoute(t *testing.T) {
 		mocks.ConfigHandler.Set("workstation.address", "192.168.1.2")
 
 		// And configuring the host route
-		err := manager.ConfigureHostRoute()
+		err := manager.ConfigureHostRoute(context.Background())
 
 		// Then no error should occur
 		if err != nil {
@@ -131,7 +134,7 @@ func TestLinuxNetworkManager_ConfigureHostRoute(t *testing.T) {
 		mocks.ConfigHandler.Set("workstation.address", "192.168.5.100")
 
 		// And configuring the host route
-		err := manager.ConfigureHostRoute()
+		err := manager.ConfigureHostRoute(context.Background())
 
 		// Then no error should occur
 		if err != nil {
@@ -151,7 +154,7 @@ func TestLinuxNetworkManager_ConfigureHostRoute(t *testing.T) {
 		}
 
 		// And configuring the host route
-		err := manager.ConfigureHostRoute()
+		err := manager.ConfigureHostRoute(context.Background())
 
 		// Then an error should occur
 		if err == nil {
@@ -197,7 +200,7 @@ func TestLinuxNetworkManager_ConfigureHostRoute(t *testing.T) {
 			return "", nil
 		}
 
-		if err := manager.ConfigureHostRoute(); err != nil {
+		if err := manager.ConfigureHostRoute(context.Background()); err != nil {
 			t.Fatalf("expected no error, got %v", err)
 		}
 
@@ -243,7 +246,7 @@ func TestLinuxNetworkManager_ConfigureHostRoute(t *testing.T) {
 			return "", nil
 		}
 
-		if err := manager.ConfigureHostRoute(); err != nil {
+		if err := manager.ConfigureHostRoute(context.Background()); err != nil {
 			t.Fatalf("expected no error, got %v", err)
 		}
 
@@ -281,7 +284,7 @@ func TestLinuxNetworkManager_ConfigureHostRoute(t *testing.T) {
 			return "", nil
 		}
 
-		if err := manager.ConfigureHostRoute(); err != nil {
+		if err := manager.ConfigureHostRoute(context.Background()); err != nil {
 			t.Fatalf("expected no error, got %v", err)
 		}
 
@@ -314,11 +317,30 @@ func TestLinuxNetworkManager_ConfigureDNS(t *testing.T) {
 		}
 
 		// And configuring DNS
-		err := manager.ConfigureDNS()
+		err := manager.ConfigureDNS(context.Background())
 
 		// Then no error should occur
 		if err != nil {
 			t.Fatalf("expected no error, got %v", err)
+		}
+	})
+
+	t.Run("ReportsADropInChangeAsAStep", func(t *testing.T) {
+		// Given systemd-resolved in use with no drop-in yet and a recording presenter
+		manager, mocks := setup(t)
+		mocks.Shims.ReadLink = func(_ string) (string, error) {
+			return "../run/systemd/resolve/stub-resolv.conf", nil
+		}
+		rec := &progressRecorder{}
+
+		// When configuring DNS
+		if err := manager.ConfigureDNS(presenter.NewContext(context.Background(), rec)); err != nil {
+			t.Fatalf("expected no error, got %v", err)
+		}
+
+		// Then the change is one Configuring DNS step
+		if got := strings.Join(rec.steps(), ","); got != "applying:Configuring DNS,applied:Configuring DNS" {
+			t.Errorf("unexpected steps %q", got)
 		}
 	})
 
@@ -330,7 +352,7 @@ func TestLinuxNetworkManager_ConfigureDNS(t *testing.T) {
 		mocks.ConfigHandler.Set("workstation.dns.address", "")
 
 		// And configuring DNS
-		err := manager.ConfigureDNS()
+		err := manager.ConfigureDNS(context.Background())
 
 		// And mocking systemd-resolved being in use
 		mocks.Shims.ReadLink = func(_ string) (string, error) {
@@ -351,7 +373,7 @@ func TestLinuxNetworkManager_ConfigureDNS(t *testing.T) {
 		}
 
 		// And configuring DNS
-		err = manager.ConfigureDNS()
+		err = manager.ConfigureDNS(context.Background())
 
 		// Then no error should occur
 		if err != nil {
@@ -371,7 +393,7 @@ func TestLinuxNetworkManager_ConfigureDNS(t *testing.T) {
 		mocks.ConfigHandler.Set("dns.domain", "")
 
 		// And configuring DNS
-		err := manager.ConfigureDNS()
+		err := manager.ConfigureDNS(context.Background())
 
 		// Then an error should occur
 		if err == nil {
@@ -396,7 +418,7 @@ func TestLinuxNetworkManager_ConfigureDNS(t *testing.T) {
 		}
 
 		// And configuring DNS
-		err := manager.ConfigureDNS()
+		err := manager.ConfigureDNS(context.Background())
 
 		// Then an error should occur
 		if err == nil {
@@ -416,7 +438,7 @@ func TestLinuxNetworkManager_ConfigureDNS(t *testing.T) {
 		}
 
 		// When configuring DNS
-		err := manager.ConfigureDNS()
+		err := manager.ConfigureDNS(context.Background())
 
 		// Then the symlink-specific hint surfaces — names the actual condition
 		// and points at the symlink recovery, not 'systemctl enable --now'
@@ -450,7 +472,7 @@ func TestLinuxNetworkManager_ConfigureDNS(t *testing.T) {
 		}
 
 		// When configuring DNS
-		err := manager.ConfigureDNS()
+		err := manager.ConfigureDNS(context.Background())
 
 		// Then the same operator-facing hint surfaces — the symlink check is
 		// not reached, but the hint copy works for both failure modes
@@ -477,7 +499,7 @@ func TestLinuxNetworkManager_ConfigureDNS(t *testing.T) {
 		}
 
 		// And configuring DNS
-		err := manager.ConfigureDNS()
+		err := manager.ConfigureDNS(context.Background())
 
 		// Then no error should occur
 		if err != nil {
@@ -510,7 +532,7 @@ func TestLinuxNetworkManager_ConfigureDNS(t *testing.T) {
 		}
 
 		// And configuring DNS
-		err := manager.ConfigureDNS()
+		err := manager.ConfigureDNS(context.Background())
 
 		// Then an error should occur
 		if err == nil {
@@ -547,7 +569,7 @@ func TestLinuxNetworkManager_ConfigureDNS(t *testing.T) {
 		}
 
 		// And configuring DNS
-		err := manager.ConfigureDNS()
+		err := manager.ConfigureDNS(context.Background())
 
 		// Then an error should occur
 		if err == nil {
@@ -584,7 +606,7 @@ func TestLinuxNetworkManager_ConfigureDNS(t *testing.T) {
 		}
 
 		// And configuring DNS
-		err := manager.ConfigureDNS()
+		err := manager.ConfigureDNS(context.Background())
 
 		// Then an error should occur
 		if err == nil {
@@ -609,7 +631,7 @@ func TestLinuxNetworkManager_ConfigureDNS(t *testing.T) {
 		}
 
 		// When configuring DNS
-		err := manager.ConfigureDNS()
+		err := manager.ConfigureDNS(context.Background())
 
 		// Then no error should occur — the absolute symlink form is treated as systemd-resolved in use
 		if err != nil {
@@ -633,7 +655,7 @@ func TestLinuxNetworkManager_ConfigureDNS(t *testing.T) {
 		}
 
 		// When configuring DNS
-		err := manager.ConfigureDNS()
+		err := manager.ConfigureDNS(context.Background())
 
 		// Then the staging error surfaces and no sudo write is attempted
 		if err == nil {
@@ -661,7 +683,7 @@ func TestLinuxNetworkManager_ConfigureDNS(t *testing.T) {
 		}
 
 		// When configuring DNS
-		err := manager.ConfigureDNS()
+		err := manager.ConfigureDNS(context.Background())
 
 		// Then the helper's temp-dir error surfaces with context
 		if err == nil {
@@ -692,7 +714,7 @@ func TestLinuxNetworkManager_ConfigureDNS(t *testing.T) {
 		}
 
 		// When configuring DNS
-		err := manager.ConfigureDNS()
+		err := manager.ConfigureDNS(context.Background())
 
 		// Then the chmod error surfaces
 		if err == nil {
@@ -710,7 +732,7 @@ func TestLinuxNetworkManager_ConfigureDNS(t *testing.T) {
 		mocks.ConfigHandler.Set("dns.domain", "evil/../etc/passwd")
 
 		// When configuring DNS
-		err := manager.ConfigureDNS()
+		err := manager.ConfigureDNS(context.Background())
 
 		// Then validation rejects it before any filesystem or shell operation runs
 		if err == nil {
@@ -744,7 +766,7 @@ func TestLinuxNetworkManager_ConfigureDNS(t *testing.T) {
 		}
 
 		// When configuring DNS
-		if err := manager.ConfigureDNS(); err != nil {
+		if err := manager.ConfigureDNS(context.Background()); err != nil {
 			t.Fatalf("expected no error, got %v", err)
 		}
 
@@ -1097,7 +1119,7 @@ func TestLinuxNetworkManager_FlushDNS(t *testing.T) {
 		manager, _ := setup(t)
 
 		// When flushing the DNS cache
-		err := manager.FlushDNS()
+		err := manager.FlushDNS(context.Background())
 
 		// Then no error should occur (FlushDNS is a no-op on Linux)
 		if err != nil {

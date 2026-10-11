@@ -38,7 +38,7 @@ type BootstrapConfirmFn func(*BootstrapSummary) bool
 // `windsor bootstrap`'s explicit-confirmation flow. Returns (halted, err); halted=true means
 // an inner apply call stopped cleanly after a component (e.g. cluster reachability needs
 // operator action), leaving bootstrap partially complete until the operator re-runs it.
-func (i *Provisioner) Bootstrap(ctx context.Context, blueprint *blueprintv1alpha1.Blueprint, onApply ...func(id string) (bool, error)) (bool, error) {
+func (i *Provisioner) Bootstrap(ctx context.Context, blueprint *blueprintv1alpha1.Blueprint, onApply ...func(ctx context.Context, id string) (bool, error)) (bool, error) {
 	return i.Up(ctx, blueprint, onApply...)
 }
 
@@ -79,7 +79,7 @@ func BuildBootstrapSummary(blueprint *blueprintv1alpha1.Blueprint, contextName, 
 // the remaining components directly against it. Idempotent regardless of whether the backend
 // already exists. Sub-applies use applyDirect, not Up, to avoid re-deriving the backend
 // components and recursing.
-func (i *Provisioner) applyWithBackendPivot(ctx context.Context, blueprint *blueprintv1alpha1.Blueprint, backendComponents []*blueprintv1alpha1.TerraformComponent, onApply ...func(id string) (bool, error)) (bool, error) {
+func (i *Provisioner) applyWithBackendPivot(ctx context.Context, blueprint *blueprintv1alpha1.Blueprint, backendComponents []*blueprintv1alpha1.TerraformComponent, onApply ...func(ctx context.Context, id string) (bool, error)) (bool, error) {
 	backendComponentsBP := blueprintWithComponents(blueprint, backendComponents)
 	nonBackendBP := blueprintWithoutComponents(blueprint, backendComponents)
 

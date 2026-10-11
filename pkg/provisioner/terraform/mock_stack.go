@@ -17,7 +17,7 @@ import (
 
 // MockStack is a mock implementation of the Stack interface for testing.
 type MockStack struct {
-	UpFunc                          func(blueprint *blueprintv1alpha1.Blueprint, onApply ...func(id string) (bool, error)) (bool, error)
+	UpFunc                          func(blueprint *blueprintv1alpha1.Blueprint, onApply ...func(ctx context.Context, id string) (bool, error)) (bool, error)
 	MigrateStateFunc                func(blueprint *blueprintv1alpha1.Blueprint) ([]string, error)
 	MigrateComponentStateFunc       func(blueprint *blueprintv1alpha1.Blueprint, componentID string) error
 	HasRemoteStateFunc              func(blueprint *blueprintv1alpha1.Blueprint, componentID string) (bool, error)
@@ -25,7 +25,7 @@ type MockStack struct {
 	InitComponentFunc               func(blueprint *blueprintv1alpha1.Blueprint, componentID string) error
 	RemoveLocalStateFunc            func(componentID string) error
 	ListLocalStateComponentIDsFunc  func() ([]string, error)
-	PostApplyFunc                   func(fns ...func(id string) error)
+	PostApplyFunc                   func(fns ...func(ctx context.Context, id string) error)
 	DestroyAllFunc                  func(blueprint *blueprintv1alpha1.Blueprint, continueOnError bool, excludeIDs ...string) (DestroyOutcome, error)
 	PlanFunc                        func(blueprint *blueprintv1alpha1.Blueprint, componentID string) error
 	PlanAllFunc                     func(blueprint *blueprintv1alpha1.Blueprint) error
@@ -55,7 +55,7 @@ func NewMockStack() *MockStack {
 // =============================================================================
 
 // Up is a mock implementation of the Up method.
-func (m *MockStack) Up(_ context.Context, blueprint *blueprintv1alpha1.Blueprint, onApply ...func(id string) (bool, error)) (bool, error) {
+func (m *MockStack) Up(_ context.Context, blueprint *blueprintv1alpha1.Blueprint, onApply ...func(ctx context.Context, id string) (bool, error)) (bool, error) {
 	if m.UpFunc != nil {
 		return m.UpFunc(blueprint, onApply...)
 	}
@@ -119,7 +119,7 @@ func (m *MockStack) ListLocalStateComponentIDs() ([]string, error) {
 }
 
 // PostApply is a mock implementation of the PostApply method.
-func (m *MockStack) PostApply(fns ...func(id string) error) {
+func (m *MockStack) PostApply(fns ...func(ctx context.Context, id string) error) {
 	if m.PostApplyFunc != nil {
 		m.PostApplyFunc(fns...)
 	}

@@ -7,6 +7,7 @@ package virt
 
 import (
 	"bytes"
+	"context"
 	"fmt"
 	"math"
 	"net"
@@ -16,9 +17,9 @@ import (
 	"time"
 
 	colimaConfig "github.com/abiosoft/colima/config"
+	"github.com/windsorcli/cli/internal/presenter"
 	"github.com/windsorcli/cli/pkg/constants"
 	"github.com/windsorcli/cli/pkg/runtime"
-	"github.com/windsorcli/cli/pkg/tui"
 )
 
 // Test hook to force memory overflow
@@ -61,7 +62,7 @@ func NewColimaVirt(rt *runtime.Runtime) *ColimaVirt {
 // The VM address is set in the configuration handler for later use.
 // Kills stuck processes before starting if VM is not already running to prevent vmnet/daemon issues.
 // Returns an error if the VM fails to start or if the address cannot be set.
-func (v *ColimaVirt) Up() error {
+func (v *ColimaVirt) Up(ctx context.Context) error {
 	info, err := v.getVMInfo()
 	if err == nil && info.Address != "" {
 		if err := v.configHandler.Set("workstation.address", info.Address); err != nil {
@@ -70,7 +71,7 @@ func (v *ColimaVirt) Up() error {
 		return nil
 	}
 
-	return tui.WithProgress("Creating Colima VM", func() error {
+	return presenter.Track(ctx, "vm:colima", "Creating Colima VM", func(ctx context.Context) error {
 		info, err = v.startColima()
 		if err != nil {
 			return fmt.Errorf("failed to start Colima VM: %w", err)
@@ -86,8 +87,8 @@ func (v *ColimaVirt) Up() error {
 
 // Down stops and deletes the Colima VM, ensuring resources are reclaimed.
 // Attempts graceful shutdown, then deletes the VM. Returns an error if deletion fails.
-func (v *ColimaVirt) Down() error {
-	return tui.WithProgress("Deleting Colima VM", func() error {
+func (v *ColimaVirt) Down(ctx context.Context) error {
+	return presenter.Track(ctx, "vm:colima", "Deleting Colima VM", func(ctx context.Context) error {
 		contextName := v.configHandler.GetContext()
 		profileName := fmt.Sprintf("windsor-%s", contextName)
 		_, _ = v.shell.ExecSilent("colima", "stop", profileName)

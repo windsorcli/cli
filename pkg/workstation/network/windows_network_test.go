@@ -4,6 +4,7 @@
 package network
 
 import (
+	"context"
 	"fmt"
 	"strings"
 	"testing"
@@ -28,7 +29,7 @@ func TestWindowsNetworkManager_ConfigureHostRoute(t *testing.T) {
 		mocks.ConfigHandler.Set("workstation.address", "192.168.1.10")
 
 		// And configuring the host route
-		err := manager.ConfigureHostRoute()
+		err := manager.ConfigureHostRoute(context.Background())
 
 		// Then no error should occur
 		if err != nil {
@@ -44,7 +45,7 @@ func TestWindowsNetworkManager_ConfigureHostRoute(t *testing.T) {
 		mocks.ConfigHandler.Set("workstation.address", "192.168.1.10")
 
 		// And configuring the host route
-		err := manager.ConfigureHostRoute()
+		err := manager.ConfigureHostRoute(context.Background())
 
 		// Then it succeeds using constants.DefaultNetworkCIDR instead of erroring
 		if err != nil {
@@ -58,7 +59,7 @@ func TestWindowsNetworkManager_ConfigureHostRoute(t *testing.T) {
 		mocks.ConfigHandler.Set("workstation.address", "")
 
 		// And configuring the host route
-		err := manager.ConfigureHostRoute()
+		err := manager.ConfigureHostRoute(context.Background())
 
 		// Then an error should occur
 		if err == nil {
@@ -84,7 +85,7 @@ func TestWindowsNetworkManager_ConfigureHostRoute(t *testing.T) {
 		}
 
 		// And configuring the host route
-		err := manager.ConfigureHostRoute()
+		err := manager.ConfigureHostRoute(context.Background())
 
 		// Then an error should occur
 		if err == nil {
@@ -115,7 +116,7 @@ func TestWindowsNetworkManager_ConfigureHostRoute(t *testing.T) {
 		}
 
 		// And configuring the host route
-		err := manager.ConfigureHostRoute()
+		err := manager.ConfigureHostRoute(context.Background())
 
 		// Then an error should occur
 		if err == nil {
@@ -146,7 +147,7 @@ func TestWindowsNetworkManager_ConfigureDNS(t *testing.T) {
 		mocks.ConfigHandler.Set("workstation.dns.address", "8.8.8.8")
 
 		// And configuring DNS
-		err := manager.ConfigureDNS()
+		err := manager.ConfigureDNS(context.Background())
 
 		// Then no error should occur
 		if err != nil {
@@ -164,7 +165,7 @@ func TestWindowsNetworkManager_ConfigureDNS(t *testing.T) {
 		mocks.ConfigHandler.Set("workstation.runtime", "docker-desktop")
 
 		// And configuring DNS
-		err := manager.ConfigureDNS()
+		err := manager.ConfigureDNS(context.Background())
 
 		// Then no error should occur
 		if err != nil {
@@ -180,7 +181,7 @@ func TestWindowsNetworkManager_ConfigureDNS(t *testing.T) {
 		mocks.ConfigHandler.Set("dns.domain", "")
 
 		// And configuring DNS
-		err := manager.ConfigureDNS()
+		err := manager.ConfigureDNS(context.Background())
 
 		// Then an error should occur
 		if err == nil {
@@ -200,7 +201,7 @@ func TestWindowsNetworkManager_ConfigureDNS(t *testing.T) {
 		mocks.ConfigHandler.Set("workstation.dns.address", "")
 
 		// And configuring DNS
-		err := manager.ConfigureDNS()
+		err := manager.ConfigureDNS(context.Background())
 
 		// Then an error should occur
 		if err == nil {
@@ -221,7 +222,7 @@ func TestWindowsNetworkManager_ConfigureDNS(t *testing.T) {
 		mocks.ConfigHandler.Set("workstation.dns.address", "192.168.1.1")
 
 		// And configuring DNS
-		err := manager.ConfigureDNS()
+		err := manager.ConfigureDNS(context.Background())
 
 		// Then an error should occur
 		if err != nil {
@@ -240,7 +241,7 @@ func TestWindowsNetworkManager_ConfigureDNS(t *testing.T) {
 		mocks.ConfigHandler.Set("workstation.runtime", "docker-desktop")
 
 		// And configuring DNS
-		err := manager.ConfigureDNS()
+		err := manager.ConfigureDNS(context.Background())
 
 		// Then no error should occur
 		if err != nil {
@@ -269,7 +270,7 @@ func TestWindowsNetworkManager_ConfigureDNS(t *testing.T) {
 		}
 
 		// And configuring DNS
-		err = manager.ConfigureDNS()
+		err = manager.ConfigureDNS(context.Background())
 
 		// Then no error should occur
 		if err != nil {
@@ -310,7 +311,7 @@ func TestWindowsNetworkManager_ConfigureDNS(t *testing.T) {
 		}
 
 		// When configuring DNS
-		if err := manager.ConfigureDNS(); err != nil {
+		if err := manager.ConfigureDNS(context.Background()); err != nil {
 			t.Fatalf("expected no error, got %v", err)
 		}
 
@@ -330,7 +331,7 @@ func TestWindowsNetworkManager_ConfigureDNS(t *testing.T) {
 		mocks.ConfigHandler.Set("dns.domain", "")
 
 		// And configuring DNS
-		err := manager.ConfigureDNS()
+		err := manager.ConfigureDNS(context.Background())
 
 		// Then an error should occur
 		if err == nil {
@@ -350,7 +351,7 @@ func TestWindowsNetworkManager_ConfigureDNS(t *testing.T) {
 		mocks.ConfigHandler.Set("workstation.dns.address", "")
 
 		// And configuring DNS
-		err := manager.ConfigureDNS()
+		err := manager.ConfigureDNS(context.Background())
 
 		// Then an error should occur
 		if err == nil {
@@ -378,7 +379,7 @@ func TestWindowsNetworkManager_ConfigureDNS(t *testing.T) {
 		}
 
 		// And configuring DNS
-		err := manager.ConfigureDNS()
+		err := manager.ConfigureDNS(context.Background())
 
 		// Then an error should occur
 		if err == nil {
@@ -417,7 +418,7 @@ func TestWindowsNetworkManager_ConfigureDNS(t *testing.T) {
 		}
 
 		// And configuring DNS
-		err := manager.ConfigureDNS()
+		err := manager.ConfigureDNS(context.Background())
 
 		// Then an error should occur
 		if err == nil {
@@ -438,7 +439,7 @@ func TestWindowsNetworkManager_ConfigureDNS(t *testing.T) {
 		mocks.ConfigHandler.Set("workstation.runtime", "hyperv")
 
 		// And configuring DNS
-		err := manager.ConfigureDNS()
+		err := manager.ConfigureDNS(context.Background())
 
 		// Then an error should occur
 		if err == nil {
@@ -473,7 +474,7 @@ func TestWindowsNetworkManager_ConfigureDNS(t *testing.T) {
 		}
 
 		// When configuring DNS
-		err := manager.ConfigureDNS()
+		err := manager.ConfigureDNS(context.Background())
 
 		// Then validation rejects before any PowerShell process is spawned
 		if err == nil {
@@ -506,7 +507,7 @@ func TestWindowsNetworkManager_ConfigureDNS(t *testing.T) {
 		}
 
 		// When configuring DNS
-		if err := manager.ConfigureDNS(); err != nil {
+		if err := manager.ConfigureDNS(context.Background()); err != nil {
 			t.Fatalf("expected no error, got %v", err)
 		}
 
@@ -550,7 +551,7 @@ func TestWindowsNetworkManager_ConfigureDNS(t *testing.T) {
 			return "", nil
 		}
 
-		if err := manager.ConfigureDNS(); err != nil {
+		if err := manager.ConfigureDNS(context.Background()); err != nil {
 			t.Fatalf("expected no error, got %v", err)
 		}
 

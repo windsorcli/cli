@@ -5,14 +5,15 @@
 package virt
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io/fs"
 	"os"
 	"strings"
 
+	"github.com/windsorcli/cli/internal/presenter"
 	"github.com/windsorcli/cli/pkg/runtime"
-	"github.com/windsorcli/cli/pkg/tui"
 )
 
 // =============================================================================
@@ -58,7 +59,7 @@ func NewDockerVirt(rt *runtime.Runtime) *DockerVirt {
 // =============================================================================
 
 // Up is a no-op for DockerVirt; containers are started by Terraform or compose elsewhere.
-func (v *DockerVirt) Up() error {
+func (v *DockerVirt) Up(ctx context.Context) error {
 	return nil
 }
 
@@ -72,11 +73,11 @@ func (v *DockerVirt) WriteConfig() error {
 // Anonymous volumes are removed with containers via rm -v. No global Docker cleanup is performed.
 // Returns nil with no output when DOCKER_HOST names a unix socket that no longer exists (the VM is gone).
 // Otherwise best-effort: errors are logged to stderr but do not cause Down to return an error. Shows a progress spinner.
-func (v *DockerVirt) Down() error {
+func (v *DockerVirt) Down(ctx context.Context) error {
 	if v.daemonSocketMissing() {
 		return nil
 	}
-	return tui.WithProgress("Cleaning up Docker resources", func() error {
+	return presenter.Track(ctx, "runtime:docker", "Cleaning up Docker resources", func(ctx context.Context) error {
 		contextName := v.configHandler.GetContext()
 		projectLabelValue := DockerComposeProjectPrefix + contextName
 		netName := WindsorNetworkPrefix + contextName

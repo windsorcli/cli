@@ -16,7 +16,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/windsorcli/cli/pkg/tui"
+	"github.com/windsorcli/cli/internal/presenter"
 )
 
 // The Shell package is a unified interface for shell operations across different platforms.
@@ -543,15 +543,16 @@ func (s *DefaultShell) ExecSilentWithEnvAndIdleTimeout(command string, env map[s
 	}
 }
 
-// ExecProgress is a method of the DefaultShell struct that executes a command with a progress indicator.
+// ExecProgress is a method of the DefaultShell struct that executes a command for a progress step.
 // It takes a message, a command, and arguments, using the Exec method if verbose mode is enabled.
-// Otherwise, it captures stdout and stderr with pipes and uses a spinner to show progress.
+// Otherwise, it captures stdout and stderr with pipes; the caller's presenter step shows progress.
 // The method returns the command's stdout as a string and any error encountered.
 func (s *DefaultShell) ExecProgress(message string, command string, args ...string) (string, error) {
 	return s.ExecProgressWithEnv(message, command, nil, args...)
 }
 
-// ExecProgressWithEnv executes a command with a progress indicator and command-scoped env overrides.
+// ExecProgressWithEnv executes a command with command-scoped env overrides. In verbose mode it prints
+// message and streams output; otherwise it captures output and prints it only on failure.
 func (s *DefaultShell) ExecProgressWithEnv(message string, command string, env map[string]string, args ...string) (string, error) {
 	if s.verbose {
 		fmt.Fprintln(os.Stderr, message)
@@ -609,8 +610,6 @@ func (s *DefaultShell) ExecProgressWithEnv(message string, command string, env m
 	var wg sync.WaitGroup
 	wg.Add(2)
 
-	tui.Start(message)
-
 	go func() {
 		defer wg.Done()
 		scanner := s.shims.NewScanner(stdoutPipe)
@@ -664,7 +663,6 @@ func (s *DefaultShell) ExecProgressWithEnv(message string, command string, env m
 	cmdErr := s.shims.CmdWait(cmd)
 
 	if firstErr != nil || cmdErr != nil {
-		tui.Fail()
 		fmt.Fprintf(os.Stderr, "\n[ExecProgress ERROR]\nCommand: %s %v\nStdout:\n%s\nStderr:\n%s\nError: %v\n", command, s.scrubString(fmt.Sprintf("%v", args)), s.scrubString(stdoutBuf.String()), s.scrubString(stderrBuf.String()), firstErr)
 		if cmdErr != nil {
 			return s.scrubString(stdoutBuf.String()), fmt.Errorf("command execution failed: %w", cmdErr)
@@ -672,7 +670,6 @@ func (s *DefaultShell) ExecProgressWithEnv(message string, command string, env m
 		return s.scrubString(stdoutBuf.String()), firstErr
 	}
 
-	tui.Done()
 	return s.scrubString(stdoutBuf.String()), nil
 }
 
@@ -1089,7 +1086,7 @@ func (s *DefaultShell) newScrubbingWriter(w io.Writer) *scrubbingWriter {
 // terminal interrupt to cmd, then blocks every interrupt after that. See
 // interruptGuard. It skips sudo. Setpgid would strand sudo's password prompt on
 // SIGTTIN. Call the returned stop func once cmd exits. It no-ops when skipped.
-// While the guard runs, tui.InterruptsGuarded reports true.
+// While the guard runs, presenter.InterruptsGuarded reports true.
 func (s *DefaultShell) startInterruptGuard(cmd *exec.Cmd, command string, message string) (stop func()) {
 	if command == "sudo" {
 		return func() {}
@@ -1100,7 +1097,7 @@ func (s *DefaultShell) startInterruptGuard(cmd *exec.Cmd, command string, messag
 	sigCh := make(chan os.Signal, 4)
 	s.shims.SignalNotify(sigCh, os.Interrupt)
 	done := make(chan struct{})
-	release := tui.GuardInterrupts()
+	release := presenter.GuardInterrupts()
 
 	guard := &interruptGuard{
 		forward:   func() error { return interruptProcessGroup(cmd) },
@@ -1117,8 +1114,8 @@ func (s *DefaultShell) startInterruptGuard(cmd *exec.Cmd, command string, messag
 }
 
 // watch forwards the first signal on sigCh to the child via forward. Every signal
-// after that prints a warning instead of forwarding. Each warning pauses the active
-// spinner first, since termSpinner redraws its line and would clobber the warning.
+// after that prints a warning instead of forwarding. Each warning hands the terminal off
+// from the default presenter first, so its live region cannot draw over the warning.
 // watch returns once done closes. The caller closes done when the child exits.
 func (g *interruptGuard) watch(sigCh <-chan os.Signal, done <-chan struct{}) {
 	forwarded := false
@@ -1127,7 +1124,7 @@ func (g *interruptGuard) watch(sigCh <-chan os.Signal, done <-chan struct{}) {
 		case <-done:
 			return
 		case <-sigCh:
-			tui.Pause()
+			resume := presenter.HandOff()
 			if !forwarded {
 				forwarded = true
 				fmt.Fprintf(g.warn, "warning: interrupt received during apply of %s. The resource may now be tainted in Terraform state. Windsor waits for terraform to stop gracefully. A further interrupt will not force it. If terraform hangs, stop it from another terminal.\n", g.component)
@@ -1135,7 +1132,7 @@ func (g *interruptGuard) watch(sigCh <-chan os.Signal, done <-chan struct{}) {
 			} else {
 				fmt.Fprintf(g.warn, "warning: still waiting for terraform to stop gracefully for %s. Forcing now can corrupt state. If it hangs, stop it from another terminal.\n", g.component)
 			}
-			tui.Resume()
+			resume()
 		}
 	}
 }

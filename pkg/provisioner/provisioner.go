@@ -58,8 +58,8 @@ type Provisioner struct {
 	TerraformStack       terraforminfra.Stack
 	FluxStack            fluxinfra.Stack
 	Notifier             fluxinfra.Notifier
-	onTerraformApply     []func(id string) (bool, error)
-	onTerraformPostApply []func(id string) error
+	onTerraformApply     []func(ctx context.Context, id string) (bool, error)
+	onTerraformPostApply []func(ctx context.Context, id string) error
 	KubernetesManager    kubernetes.KubernetesManager
 	KubernetesClient     k8sclient.KubernetesClient
 	ClusterClient        cluster.ClusterClient
@@ -191,7 +191,7 @@ func NewProvisioner(rt *runtime.Runtime, blueprintHandler blueprint.BlueprintHan
 // progress spinner. The hook returns (haltAfter, err); haltAfter=true signals the component
 // apply succeeded but subsequent components must not be applied (e.g. cluster reachability
 // needs host configuration the operator hasn't done yet). Errors are real failures.
-func (i *Provisioner) OnTerraformApply(fn func(id string) (bool, error)) {
+func (i *Provisioner) OnTerraformApply(fn func(ctx context.Context, id string) (bool, error)) {
 	if fn != nil {
 		i.onTerraformApply = append(i.onTerraformApply, fn)
 	}
@@ -199,7 +199,7 @@ func (i *Provisioner) OnTerraformApply(fn func(id string) (bool, error)) {
 
 // OnTerraformPostApply registers a hook to run after each Terraform component's Done line is printed.
 // Use this for operations that must not run inside the progress spinner (e.g. interactive sudo prompts).
-func (i *Provisioner) OnTerraformPostApply(fn func(id string) error) {
+func (i *Provisioner) OnTerraformPostApply(fn func(ctx context.Context, id string) error) {
 	if fn != nil {
 		i.onTerraformPostApply = append(i.onTerraformPostApply, fn)
 	}
@@ -215,7 +215,7 @@ func (i *Provisioner) OnTerraformPostApply(fn func(id string) error) {
 // component is refused rather than silently treated as unset — see resolveBackendComponents.
 // Returns (halted, err); halted=true means a hook stopped after a component. The apply runs as
 // one "Applying terraform" operation, so each component shows as a step under it.
-func (i *Provisioner) Up(ctx context.Context, blueprint *blueprintv1alpha1.Blueprint, onApply ...func(id string) (bool, error)) (bool, error) {
+func (i *Provisioner) Up(ctx context.Context, blueprint *blueprintv1alpha1.Blueprint, onApply ...func(ctx context.Context, id string) (bool, error)) (bool, error) {
 	if blueprint == nil {
 		return false, fmt.Errorf("blueprint not provided")
 	}
@@ -1686,7 +1686,7 @@ func (i *Provisioner) placeSecrets(ctx context.Context, layers layerReporter, re
 // up applies the blueprint directly, or through the backend pivot when the blueprint declares
 // a backend on a remote backend type. A kubernetes backend with no declared backend and no
 // kubeconfig is refused with an actionable error.
-func (i *Provisioner) up(ctx context.Context, blueprint *blueprintv1alpha1.Blueprint, onApply ...func(id string) (bool, error)) (bool, error) {
+func (i *Provisioner) up(ctx context.Context, blueprint *blueprintv1alpha1.Blueprint, onApply ...func(ctx context.Context, id string) (bool, error)) (bool, error) {
 
 	backendType := i.configHandler.GetTerraformBackendType()
 	applyFlat := func() (bool, error) {
@@ -2015,7 +2015,7 @@ func (i *Provisioner) forceStalledHelmReleases(ctx context.Context, kustomizatio
 // applyDirect runs terraform apply directly against the configured backend, with no backend
 // detection or pivot. Used by Up when no backend applies, and by applyWithBackendPivot's Stage
 // 1/3 sub-applies, which must not re-derive a backend from an already-sliced blueprint.
-func (i *Provisioner) applyDirect(ctx context.Context, blueprint *blueprintv1alpha1.Blueprint, onApply ...func(id string) (bool, error)) (bool, error) {
+func (i *Provisioner) applyDirect(ctx context.Context, blueprint *blueprintv1alpha1.Blueprint, onApply ...func(ctx context.Context, id string) (bool, error)) (bool, error) {
 	if err := i.ensureTerraformStack(); err != nil {
 		return false, err
 	}
@@ -2025,7 +2025,7 @@ func (i *Provisioner) applyDirect(ctx context.Context, blueprint *blueprintv1alp
 	if err := i.recoverHalfMigratedComponents(ctx, blueprint); err != nil {
 		return false, err
 	}
-	hooks := append([]func(id string) (bool, error){}, i.onTerraformApply...)
+	hooks := append([]func(ctx context.Context, id string) (bool, error){}, i.onTerraformApply...)
 	hooks = append(hooks, onApply...)
 	if len(i.onTerraformPostApply) > 0 {
 		i.TerraformStack.PostApply(i.onTerraformPostApply...)
