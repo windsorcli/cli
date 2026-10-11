@@ -56,7 +56,9 @@ windsor get context
 			return fmt.Errorf("failed to check context directory: %w", err)
 		}
 
-		if err := rt.ConfigHandler.LoadConfig(); err != nil {
+		// Load the context being switched to. The current context is the one
+		// being left, and its problems are not the user's concern here.
+		if err := rt.ConfigHandler.LoadConfigForContext(contextName); err != nil {
 			return fmt.Errorf("failed to load config: %w", err)
 		}
 
