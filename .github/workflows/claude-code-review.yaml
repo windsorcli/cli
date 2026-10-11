@@ -43,8 +43,12 @@ jobs:
     name: Full Review
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    # GitHub gives no secrets to a pull request from a fork, so this job skips
+    # fork pull requests. A maintainer comments /review on the pull request to
+    # run the on-demand review instead.
     if: >-
       github.event_name == 'pull_request' &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
       github.event.action != 'synchronize' &&
       github.event.pull_request.user.type != 'Bot' &&
       !contains(github.event.pull_request.labels.*.name, 'dependencies') &&
@@ -250,8 +254,11 @@ jobs:
     name: Resolve Threads
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    # This job needs a secret. It skips fork pull requests for the same reason
+    # as the review job.
     if: >-
       github.event_name == 'pull_request' &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
       github.event.action == 'synchronize' &&
       github.event.pull_request.user.type != 'Bot' &&
       !contains(github.event.pull_request.labels.*.name, 'dependencies') &&
