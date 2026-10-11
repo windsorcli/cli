@@ -1,6 +1,7 @@
 # ADR 0003 — Test strategy: black-box default and characterize-then-refactor
 
-- Status: Proposed
+- Status: Accepted. The `test-engineer` skill states the black-box default and the
+  characterize-then-refactor rule. Each package adopts them in its own Wave 2 pass.
 - Date: 2026-08-04
 - Deciders: Ryan VanGundy
 - Promoted from Wave 2 to Wave 1 — this is a contract every later per-package cleanup pass depends

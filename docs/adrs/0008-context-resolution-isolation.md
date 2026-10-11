@@ -1,6 +1,7 @@
 # ADR 0008 — Context resolution: one read per process, not per call
 
-- Status: Proposed
+- Status: Accepted. All five decisions have shipped. `GetContext` caches its result in
+  `resolvedContext`, and `SetContext` sets the override on the same handler.
 - Date: 2026-09-17
 - Deciders: Ryan VanGundy
 - Surfaced while investigating destroy-isolation guarantees for cli#3385/#3395: neither issue

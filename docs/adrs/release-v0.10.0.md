@@ -349,7 +349,9 @@ the presenter needed a real caller before its API settled. Blueprint composition
 so it could not exercise the presenter. That pass added `ctx` to the terraform-path methods of
 `TerraformStack`, `Provisioner`, and `Project`, and moved their progress and warnings to the
 presenter. The next pass did the same for `pkg/provisioner/kubernetes/` and the kustomize paths
-of `pkg/provisioner/`, which leaves no `pkg/tui` progress calls in `pkg/provisioner/`.
+of `pkg/provisioner/`, which leaves no `pkg/tui` progress calls in `pkg/provisioner/`. Later
+passes moved `pkg/workstation/`, `pkg/composer/artifact/`, and `pkg/runtime/shell/` to the
+presenter and removed the spinner from `pkg/tui`.
 
 — a single pass applies, in order, within that package:
 
@@ -370,6 +372,10 @@ of `pkg/provisioner/`, which leaves no `pkg/tui` progress calls in `pkg/provisio
 
 Steps 3–6 don't all apply to every package (step 5 especially, per the list above) — this is a
 checklist to run per pass, not a mandate that every package changes in every dimension.
+
+The presenter passes above ran only step 5. No package has had steps 1–4 or step 6. On
+2026-10-11, 0 of the 16 local `shims.go` files used `internal/shims`. Production code had one
+`werror` call site and 935 `fmt.Errorf` wraps. Two of 181 test files were black-box.
 
 ### Phase D — Wave 3
 
