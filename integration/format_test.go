@@ -82,3 +82,34 @@ func TestFormat_RejectsAnUnknownFormat(t *testing.T) {
 		t.Errorf("expected CLI-001 with remediation, got:\n%s", stderr)
 	}
 }
+
+// TestFormat_JSONReportsTerraformProgress verifies that applying a terraform component under
+// --format json writes an applying and an applied event for that component to stderr.
+func TestFormat_JSONReportsTerraformProgress(t *testing.T) {
+	t.Parallel()
+	dir, env := helpers.CopyFixtureOnly(t, "plan")
+	helpers.MarkAsGitRepo(t, dir)
+	_, stderr, err := helpers.RunCLI(dir, []string{"init", "local"}, env)
+	if err != nil {
+		t.Fatalf("init local: %v\nstderr: %s", err, stderr)
+	}
+	env = append(env, "WINDSOR_CONTEXT=local")
+
+	_, stderr, err = helpers.RunCLI(dir, []string{"apply", "terraform", "null", "--format", "json"}, env)
+	if err != nil {
+		t.Fatalf("apply terraform null --format json: %v\nstderr: %s", err, stderr)
+	}
+	var kinds []string
+	for _, line := range strings.Split(strings.TrimSpace(string(stderr)), "\n") {
+		var event struct {
+			Kind    string `json:"kind"`
+			Subject string `json:"subject"`
+		}
+		if json.Unmarshal([]byte(line), &event) == nil && event.Subject == "terraform:null" {
+			kinds = append(kinds, event.Kind)
+		}
+	}
+	if strings.Join(kinds, ",") != "applying,applied" {
+		t.Errorf("expected applying,applied for terraform:null, got %v\nstderr: %s", kinds, stderr)
+	}
+}

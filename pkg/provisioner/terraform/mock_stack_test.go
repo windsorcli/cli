@@ -6,6 +6,7 @@ package terraform
 // verifying nil handling and custom function field behaviors.
 
 import (
+	"context"
 	"fmt"
 	"testing"
 
@@ -28,7 +29,7 @@ func TestMockStack_Up(t *testing.T) {
 
 		// When Up is called
 		blueprint := &blueprintv1alpha1.Blueprint{}
-		_, err := mock.Up(blueprint)
+		_, err := mock.Up(context.Background(), blueprint)
 
 		// Then the custom error should be returned
 		if err != mockUpErr {
@@ -42,7 +43,7 @@ func TestMockStack_Up(t *testing.T) {
 
 		// When Up is called
 		blueprint := &blueprintv1alpha1.Blueprint{}
-		_, err := mock.Up(blueprint)
+		_, err := mock.Up(context.Background(), blueprint)
 
 		// Then no error should be returned
 		if err != nil {
@@ -63,7 +64,7 @@ func TestMockStack_DestroyAll(t *testing.T) {
 
 		// When Down is called
 		blueprint := &blueprintv1alpha1.Blueprint{}
-		_, err := mock.DestroyAll(blueprint, false)
+		_, err := mock.DestroyAll(context.Background(), blueprint, false)
 
 		// Then the custom error should be returned
 		if err != mockDownErr {
@@ -77,7 +78,7 @@ func TestMockStack_DestroyAll(t *testing.T) {
 
 		// When Down is called
 		blueprint := &blueprintv1alpha1.Blueprint{}
-		_, err := mock.DestroyAll(blueprint, false)
+		_, err := mock.DestroyAll(context.Background(), blueprint, false)
 
 		// Then no error should be returned
 		if err != nil {

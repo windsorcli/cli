@@ -23,12 +23,12 @@ import (
 	meta "github.com/fluxcd/pkg/apis/meta"
 	sourcev1 "github.com/fluxcd/source-controller/api/v1"
 	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
+	"github.com/windsorcli/cli/internal/presenter"
 	"github.com/windsorcli/cli/pkg/constants"
 	"github.com/windsorcli/cli/pkg/provisioner/kubernetes/client"
 	"github.com/windsorcli/cli/pkg/runtime/config"
 	"github.com/windsorcli/cli/pkg/runtime/evaluator"
 	runtimegit "github.com/windsorcli/cli/pkg/runtime/git"
-	"github.com/windsorcli/cli/pkg/tui"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
@@ -45,7 +45,7 @@ import (
 // KubernetesManager defines methods for Kubernetes resource management
 type KubernetesManager interface {
 	ApplyKustomization(kustomization kustomizev1.Kustomization) error
-	DeleteKustomization(name, namespace string) error
+	DeleteKustomization(ctx context.Context, name, namespace string) error
 	WaitForKustomizations(ctx context.Context, message string, blueprint *blueprintv1alpha1.Blueprint) error
 	CreateNamespace(name string) error
 	DeleteNamespace(name string) error
@@ -65,8 +65,8 @@ type KubernetesManager interface {
 	WaitForKubernetesHealthy(ctx context.Context, endpoint string, outputFunc func(string), nodeNames ...string) error
 	GetNodeReadyStatus(ctx context.Context, nodeNames []string) (map[string]bool, error)
 	ApplyBlueprint(blueprint *blueprintv1alpha1.Blueprint, namespace string) error
-	DeleteBlueprint(blueprint *blueprintv1alpha1.Blueprint, namespace string) error
-	PruneBlueprint(blueprint *blueprintv1alpha1.Blueprint, namespace string) error
+	DeleteBlueprint(ctx context.Context, blueprint *blueprintv1alpha1.Blueprint, namespace string) error
+	PruneBlueprint(ctx context.Context, blueprint *blueprintv1alpha1.Blueprint, namespace string) error
 	ListPrunableKustomizations(blueprint *blueprintv1alpha1.Blueprint, namespace string) ([]string, error)
 	ApplyVersionMarker(namespace string, marker VersionMarker) error
 	GetVersionMarker(namespace string) (VersionMarker, bool, error)
@@ -194,8 +194,8 @@ const abandonedInventoryGraceChecks = 3
 // still-live entry gets a few retries first, to rule out normal in-flight termination.
 // This runs outside a destroy. The cluster stays up, so a finalizer-free leftover still
 // blocks, the same as any other live one.
-func (k *BaseKubernetesManager) DeleteKustomization(name, namespace string) error {
-	return k.deleteKustomization(name, namespace, nil, nil, false)
+func (k *BaseKubernetesManager) DeleteKustomization(ctx context.Context, name, namespace string) error {
+	return k.deleteKustomization(ctx, name, namespace, nil, nil, false)
 }
 
 // deleteKustomization is DeleteKustomization with a known destroy expectation and a delete-wait
@@ -204,7 +204,7 @@ func (k *BaseKubernetesManager) DeleteKustomization(name, namespace string) erro
 // DeleteTimeout a bound. It snapshots every HelmRelease's inventory once before requesting the
 // delete, so a fast chart teardown still leaves a verifiable record. The wait tolerates
 // kustomizationWaitMaxReadFailures read errors; destroying MUST be true only during a full teardown.
-func (k *BaseKubernetesManager) deleteKustomization(name, namespace string, expectWaitForTermination *bool, deleteTimeoutOverride *time.Duration, destroying bool) error {
+func (k *BaseKubernetesManager) deleteKustomization(ctx context.Context, name, namespace string, expectWaitForTermination *bool, deleteTimeoutOverride *time.Duration, destroying bool) error {
 	gvr := schema.GroupVersionResource{
 		Group:    "kustomize.toolkit.fluxcd.io",
 		Version:  "v1",
@@ -238,7 +238,7 @@ func (k *BaseKubernetesManager) deleteKustomization(name, namespace string, expe
 	for k.shims.TimeNow().Before(start.Add(waitFor)) {
 		obj, err := k.client.GetResource(gvr, namespace, name)
 		if err != nil && isNotFoundError(err) {
-			return k.handleKustomizationDisappeared(name, namespace, lastObj, readFailures, lastReadErr, expectWaitForTermination, helmInventory, destroying)
+			return k.handleKustomizationDisappeared(ctx, name, namespace, lastObj, readFailures, lastReadErr, expectWaitForTermination, helmInventory, destroying)
 		}
 		if err != nil {
 			readFailures++
@@ -246,7 +246,7 @@ func (k *BaseKubernetesManager) deleteKustomization(name, namespace string, expe
 			if readFailures > k.kustomizationWaitMaxReadFailures {
 				return fmt.Errorf("error checking kustomization %s/%s deletion status: %w", namespace, name, err)
 			}
-			tui.Update(fmt.Sprintf("retrying after a read error (%d/%d)", readFailures, k.kustomizationWaitMaxReadFailures))
+			presenter.Progress(ctx, fmt.Sprintf("retrying after a read error (%d/%d)", readFailures, k.kustomizationWaitMaxReadFailures))
 			k.shims.TimeSleep(k.kustomizationWaitPollInterval)
 			continue
 		}
@@ -278,13 +278,13 @@ func (k *BaseKubernetesManager) deleteKustomization(name, namespace string, expe
 		if preEntries, _, _ := inventoryEntriesFromObject(lastObj); len(preEntries) > 0 {
 			if live, _, checkErr := k.firstLiveInventoryEntry(preEntries, helmInventory, destroying); checkErr == nil && live != nil {
 				k.triggerReconcile(live)
-				tui.Update(fmt.Sprintf("kustomization %s/%s timed out with %s/%s still live; asked it to reconcile again", namespace, name, live.Kind, live.Name))
+				presenter.Progress(ctx, fmt.Sprintf("kustomization %s/%s timed out with %s/%s still live; asked it to reconcile again", namespace, name, live.Kind, live.Name))
 				recheckDeadline := k.shims.TimeNow().Add(time.Duration(abandonedInventoryGraceChecks) * k.kustomizationWaitPollInterval)
 				for k.shims.TimeNow().Before(recheckDeadline) {
 					k.shims.TimeSleep(k.kustomizationWaitPollInterval)
 					obj, err := k.client.GetResource(gvr, namespace, name)
 					if err != nil && isNotFoundError(err) {
-						return k.handleKustomizationDisappeared(name, namespace, lastObj, readFailures, lastReadErr, expectWaitForTermination, helmInventory, destroying)
+						return k.handleKustomizationDisappeared(ctx, name, namespace, lastObj, readFailures, lastReadErr, expectWaitForTermination, helmInventory, destroying)
 					}
 					if err == nil {
 						lastObj = obj
@@ -323,7 +323,7 @@ func (k *BaseKubernetesManager) deleteKustomization(name, namespace string, expe
 // from deleteKustomization's main wait loop or its post-timeout recheck. It checks lastObj's
 // last-known inventory for anything still live, triggering a reconcile on a blocking entry
 // through its own grace-window retry.
-func (k *BaseKubernetesManager) handleKustomizationDisappeared(name, namespace string, lastObj *unstructured.Unstructured, readFailures int, lastReadErr error, expectWaitForTermination *bool, helmInventory helmReleaseInventory, destroying bool) error {
+func (k *BaseKubernetesManager) handleKustomizationDisappeared(ctx context.Context, name, namespace string, lastObj *unstructured.Unstructured, readFailures int, lastReadErr error, expectWaitForTermination *bool, helmInventory helmReleaseInventory, destroying bool) error {
 	if lastObj == nil && readFailures > 0 {
 		return fmt.Errorf("kustomization %s/%s disappeared before windsor could read its inventory: %w. Windsor cannot confirm the resources it managed are gone. Check for leftovers with `kubectl get pvc,svc,ingress,certificate -A | grep Terminating` before retrying", namespace, name, lastReadErr)
 	}
@@ -335,7 +335,7 @@ func (k *BaseKubernetesManager) handleKustomizationDisappeared(name, namespace s
 		}
 		if entry != nil {
 			k.triggerReconcile(entry)
-			tui.Update(fmt.Sprintf("kustomization %s/%s disappeared with %s/%s still live; asked it to reconcile again", namespace, name, entry.Kind, entry.Name))
+			presenter.Progress(ctx, fmt.Sprintf("kustomization %s/%s disappeared with %s/%s still live; asked it to reconcile again", namespace, name, entry.Kind, entry.Name))
 		}
 		k.shims.TimeSleep(k.kustomizationWaitPollInterval)
 		entry, _, checkErr = k.describeAbandonedInventory(lastObj, expectWaitForTermination, helmInventory, destroying)
@@ -456,38 +456,25 @@ func (k *BaseKubernetesManager) abandonedInventoryGraceWindow(entryCount int) ti
 	return base + extra
 }
 
-// kustomizationWaitProgress builds the periodic wait line: the pending names with the elapsed time in
-// Terraform's "[00m10s elapsed]" style, followed by the latest failure message of each pending kustomization that has one.
-func kustomizationWaitProgress(names []string, ready map[string]bool, failures map[string]*kustomizationFailedError, elapsed time.Duration) string {
-	var pending, failing []string
-	for _, name := range names {
-		if ready[name] {
-			continue
-		}
-		pending = append(pending, name)
-		if failure := failures[name]; failure != nil {
-			message := strings.Join(strings.Fields(failure.message), " ")
-			if len(message) > kustomizationWaitMessageLimit {
-				message = message[:kustomizationWaitMessageLimit] + "..."
-			}
-			failing = append(failing, fmt.Sprintf("%s failing (%s): %s", name, failure.reason, message))
+// dependenciesReady reports whether every dependency that is part of the wait set is Ready.
+// A dependency outside the wait set does not block.
+func dependenciesReady(deps, waitSet []string, ready map[string]bool) bool {
+	for _, dep := range deps {
+		if slices.Contains(waitSet, dep) && !ready[dep] {
+			return false
 		}
 	}
-	line := fmt.Sprintf("waiting on %s [%s elapsed]", strings.Join(pending, ", "), formatWaitDuration(elapsed))
-	if len(failing) > 0 {
-		line += "; " + strings.Join(failing, "; ")
-	}
-	return line
+	return true
 }
 
-// formatWaitDuration renders a duration the way Terraform does: 00m10s, or 1h02m03s past an hour.
-func formatWaitDuration(d time.Duration) string {
-	total := int(d.Round(time.Second).Seconds())
-	h, m, sec := total/3600, total%3600/60, total%60
-	if h > 0 {
-		return fmt.Sprintf("%dh%02dm%02ds", h, m, sec)
+// kustomizationFailureText renders a kustomization failure as "reason: message" on one line, with the
+// message cut to kustomizationWaitMessageLimit.
+func kustomizationFailureText(failure *kustomizationFailedError) string {
+	message := strings.Join(strings.Fields(failure.message), " ")
+	if len(message) > kustomizationWaitMessageLimit {
+		message = message[:kustomizationWaitMessageLimit] + "..."
 	}
-	return fmt.Sprintf("%02dm%02ds", m, sec)
+	return failure.reason + ": " + message
 }
 
 // describeStuckKustomization extracts the most diagnostic status condition from a
@@ -616,9 +603,6 @@ func kustomizationReady(obj *unstructured.Unstructured) bool {
 // a small one.
 const kustomizationWaitErrorBudgetFraction = 0.25
 
-// kustomizationWaitReportPolls is how many poll intervals pass between progress lines.
-const kustomizationWaitReportPolls = 6
-
 // kustomizationWaitMessageLimit caps the length of a failure message in a progress line.
 const kustomizationWaitMessageLimit = 200
 
@@ -641,8 +625,10 @@ var kustomizationsGVR = schema.GroupVersionResource{
 // A list-call error or a ReconciliationFailed condition fails the wait after an error budget. For a
 // failing kustomization the budget is its own timeout, at most a quarter of the total and at least the minimum.
 // The streak survives Ready flipping to Unknown between retries. BuildFailed and ArtifactFailed fail at once.
-// It prints the elapsed time at a steady interval for the whole wait.
-func (k *BaseKubernetesManager) WaitForKustomizations(ctx context.Context, message string, blueprint *blueprintv1alpha1.Blueprint) error {
+// The wait is one presenter operation with one child step per kustomization. A child appears once
+// its dependencies in the wait are Ready, ends when its kustomization is Ready, shows the latest
+// failure as its progress, and fails with the wait.
+func (k *BaseKubernetesManager) WaitForKustomizations(ctx context.Context, message string, blueprint *blueprintv1alpha1.Blueprint) (err error) {
 	if blueprint == nil {
 		return fmt.Errorf("blueprint not provided")
 	}
@@ -681,11 +667,14 @@ func (k *BaseKubernetesManager) WaitForKustomizations(ctx context.Context, messa
 		return budget
 	}
 
-	tui.Start(message)
-	start := time.Now()
-	reportInterval := kustomizationWaitReportPolls * k.kustomizationWaitPollInterval
-	lastReport := start
-	tui.Update(fmt.Sprintf("waiting on %d kustomizations", len(kustomizationNames)))
+	ctx, end := presenter.Begin(ctx, "kustomize:wait", message)
+	defer func() { end(err) }()
+	layers := presenter.NewGroup(ctx, "kustomization:")
+	defer func() { layers.Close(err) }()
+	dependsOn := make(map[string][]string, len(blueprint.Kustomizations))
+	for _, kustomization := range blueprint.Kustomizations {
+		dependsOn[kustomization.Name] = kustomization.DependsOn
+	}
 
 	timeoutChan := time.After(timeout)
 	ticker := time.NewTicker(k.kustomizationWaitPollInterval)
@@ -694,15 +683,12 @@ func (k *BaseKubernetesManager) WaitForKustomizations(ctx context.Context, messa
 	var errorStreakStart time.Time
 	readyKustomizations := make(map[string]bool, len(kustomizationNames))
 	failureStreaks := make(map[string]kustomizationFailureStreak, len(kustomizationNames))
-	latestFailure := make(map[string]*kustomizationFailedError, len(kustomizationNames))
 
 	for {
 		select {
 		case <-ctx.Done():
-			tui.Pause()
 			return ctx.Err()
 		case <-timeoutChan:
-			tui.Fail()
 			return fmt.Errorf("timeout waiting for kustomizations%s", k.describeNotReadyKustomizations(kustomizationNames, k.gitopsNamespace()))
 		case <-ticker.C:
 			objList, err := k.client.ListResources(kustomizationsGVR, k.gitopsNamespace())
@@ -715,7 +701,6 @@ func (k *BaseKubernetesManager) WaitForKustomizations(ctx context.Context, messa
 					errorStreakStart = time.Now()
 				}
 				if time.Since(errorStreakStart) >= maxErrorDuration {
-					tui.Fail()
 					return fmt.Errorf("kustomization readiness checks failing for over %s: %w", maxErrorDuration, err)
 				}
 				continue
@@ -739,7 +724,6 @@ func (k *BaseKubernetesManager) WaitForKustomizations(ctx context.Context, messa
 				}
 				ready, pending, failed := kustomizationConditionStatus(obj)
 				if failed != nil {
-					tui.Fail()
 					return fmt.Errorf("kustomization will not become ready: %w", failed)
 				}
 				if pending != nil {
@@ -751,28 +735,27 @@ func (k *BaseKubernetesManager) WaitForKustomizations(ctx context.Context, messa
 					}
 					streak.lastSeen = now
 					failureStreaks[name] = streak
-					latestFailure[name] = pending
+					layers.Progress(name, kustomizationFailureText(pending))
 					if now.Sub(streak.start) >= budget {
-						tui.Fail()
 						return fmt.Errorf("kustomization failing for over %s: %w", budget, pending)
 					}
 					continue
 				}
 				if ready {
 					delete(failureStreaks, name)
-					delete(latestFailure, name)
 					readyKustomizations[name] = true
+					layers.Done(name)
 				}
 			}
 
 			errorStreakStart = time.Time{}
 			if len(readyKustomizations) == len(kustomizationNames) {
-				tui.Done()
 				return nil
 			}
-			if now := time.Now(); now.Sub(lastReport) >= reportInterval {
-				tui.Update(kustomizationWaitProgress(kustomizationNames, readyKustomizations, latestFailure, now.Sub(start)))
-				lastReport = now
+			for _, name := range kustomizationNames {
+				if !readyKustomizations[name] && dependenciesReady(dependsOn[name], kustomizationNames, readyKustomizations) {
+					layers.Start(name)
+				}
 			}
 		}
 	}
@@ -1758,7 +1741,7 @@ func (k *BaseKubernetesManager) ApplyBlueprint(blueprint *blueprintv1alpha1.Blue
 // A Phase 2 failure skips only that Kustomization's own dependency closure (see
 // dependencyClosure), not the rest of the run. A retry re-walks the whole blueprint; anything
 // already gone returns immediately.
-func (k *BaseKubernetesManager) DeleteBlueprint(blueprint *blueprintv1alpha1.Blueprint, namespace string) error {
+func (k *BaseKubernetesManager) DeleteBlueprint(ctx context.Context, blueprint *blueprintv1alpha1.Blueprint, namespace string) error {
 	defaultSourceName := blueprint.Metadata.Name
 
 	destroyOnly := []blueprintv1alpha1.Kustomization{}
@@ -1773,7 +1756,7 @@ func (k *BaseKubernetesManager) DeleteBlueprint(blueprint *blueprintv1alpha1.Blu
 		destroyOnly = append(destroyOnly, kustomization)
 	}
 	if len(destroyOnly) > 0 {
-		if errs := k.processDestroyOnlyKustomizations(destroyOnly, blueprint, namespace, defaultSourceName); len(errs) > 0 {
+		if errs := k.processDestroyOnlyKustomizations(ctx, destroyOnly, blueprint, namespace, defaultSourceName); len(errs) > 0 {
 			return fmt.Errorf("destroy-only hooks failed: %w", errors.Join(errs...))
 		}
 	}
@@ -1805,23 +1788,25 @@ func (k *BaseKubernetesManager) DeleteBlueprint(blueprint *blueprintv1alpha1.Blu
 		if blocked[kustomization.Name] {
 			continue
 		}
-		tui.Start(fmt.Sprintf("Destroying kustomization %s", kustomization.Name))
+		opCtx, end := presenter.Begin(ctx, "kustomize:"+kustomization.Name, fmt.Sprintf("Destroying kustomization %s", kustomization.Name))
 		if err := k.setKustomizationSuspend(kustomization.Name, namespace, false); err != nil {
-			tui.Fail()
-			failures = append(failures, fmt.Errorf("failed to resume kustomization %q before delete: %w", kustomization.Name, err))
+			failure := fmt.Errorf("failed to resume kustomization %q before delete: %w", kustomization.Name, err)
+			end(failure)
+			failures = append(failures, failure)
 			k.blockDependencyClosure(eligible, kustomization.Name, blocked)
 			continue
 		}
 		k.waitForResumeReconcile(kustomization.Name, namespace)
 		destroy := kustomization.Destroy.ToBool()
 		expectWaitForTermination := destroy == nil || *destroy
-		if err := k.deleteKustomization(kustomization.Name, namespace, &expectWaitForTermination, kustomizationDeleteTimeout(kustomization), true); err != nil {
-			tui.Fail()
-			failures = append(failures, fmt.Errorf("failed to delete kustomization %q: %w", kustomization.Name, err))
+		if err := k.deleteKustomization(opCtx, kustomization.Name, namespace, &expectWaitForTermination, kustomizationDeleteTimeout(kustomization), true); err != nil {
+			failure := fmt.Errorf("failed to delete kustomization %q: %w", kustomization.Name, err)
+			end(failure)
+			failures = append(failures, failure)
 			k.blockDependencyClosure(eligible, kustomization.Name, blocked)
 			continue
 		}
-		tui.Done()
+		end(nil)
 	}
 
 	if len(failures) > 0 {
@@ -1884,7 +1869,7 @@ func (k *BaseKubernetesManager) abortDestroy(eligible []blueprintv1alpha1.Kustom
 // honoring its own deletionPolicy. The caller passes the same prepared blueprint Install applied
 // (CRD layers included) so the synthesized crds/crds-<source> layers are recognized as desired and
 // not pruned. Deletion errors are collected and joined rather than aborting on the first.
-func (k *BaseKubernetesManager) PruneBlueprint(blueprint *blueprintv1alpha1.Blueprint, namespace string) error {
+func (k *BaseKubernetesManager) PruneBlueprint(ctx context.Context, blueprint *blueprintv1alpha1.Blueprint, namespace string) error {
 	if blueprint == nil {
 		return fmt.Errorf("blueprint not provided")
 	}
@@ -1900,13 +1885,14 @@ func (k *BaseKubernetesManager) PruneBlueprint(blueprint *blueprintv1alpha1.Blue
 
 	var errs []error
 	for _, orphan := range orderForDestroy(orphans, "prune") {
-		tui.Start(fmt.Sprintf("Pruning orphaned kustomization %s", orphan.Name))
-		if err := k.DeleteKustomization(orphan.Name, namespace); err != nil {
-			tui.Fail()
-			errs = append(errs, fmt.Errorf("failed to prune kustomization %q: %w", orphan.Name, err))
+		opCtx, end := presenter.Begin(ctx, "kustomize:"+orphan.Name, fmt.Sprintf("Pruning orphaned kustomization %s", orphan.Name))
+		if err := k.DeleteKustomization(opCtx, orphan.Name, namespace); err != nil {
+			failure := fmt.Errorf("failed to prune kustomization %q: %w", orphan.Name, err)
+			end(failure)
+			errs = append(errs, failure)
 			continue
 		}
-		tui.Done()
+		end(nil)
 	}
 	return errors.Join(errs...)
 }
@@ -1981,7 +1967,7 @@ func (k *BaseKubernetesManager) ListPrunableKustomizations(blueprint *blueprintv
 // processDestroyOnlyKustomizations applies all destroy-only kustomizations, waits for all to become ready, then deletes all.
 // This approach ensures dependencies remain available while Flux reconciles dependent kustomizations.
 // Returns a slice of errors encountered during the process, which may be empty if no errors occurred.
-func (k *BaseKubernetesManager) processDestroyOnlyKustomizations(kustomizations []blueprintv1alpha1.Kustomization, blueprint *blueprintv1alpha1.Blueprint, namespace, defaultSourceName string) []error {
+func (k *BaseKubernetesManager) processDestroyOnlyKustomizations(ctx context.Context, kustomizations []blueprintv1alpha1.Kustomization, blueprint *blueprintv1alpha1.Blueprint, namespace, defaultSourceName string) []error {
 	mode := k.gitopsMode()
 	var errors []error
 
@@ -1999,7 +1985,7 @@ func (k *BaseKubernetesManager) processDestroyOnlyKustomizations(kustomizations 
 				errors = append(errors, fmt.Errorf("failed to create ConfigMap for destroy-only kustomization %s: %w", kustomization.Name, err))
 				for i := len(appliedKustomizations) - 1; i >= 0; i-- {
 					appliedKust := appliedKustomizations[i]
-					if deleteErr := k.deleteKustomization(appliedKust.Name, namespace, nil, kustomizationDeleteTimeout(appliedKust), true); deleteErr != nil {
+					if deleteErr := k.deleteKustomization(ctx, appliedKust.Name, namespace, nil, kustomizationDeleteTimeout(appliedKust), true); deleteErr != nil {
 						errors = append(errors, fmt.Errorf("failed to delete failed destroy-only kustomization %s: %w", appliedKust.Name, deleteErr))
 					}
 				}
@@ -2022,20 +2008,21 @@ func (k *BaseKubernetesManager) processDestroyOnlyKustomizations(kustomizations 
 		}
 		fluxKustomization.Spec.DependsOn = filteredDependsOn
 
-		tui.Start(fmt.Sprintf("Applying destroy-only kustomization %s", kustomization.Name))
+		_, end := presenter.Begin(ctx, "kustomize:"+kustomization.Name, fmt.Sprintf("Applying destroy-only kustomization %s", kustomization.Name))
 
 		if err := k.ApplyKustomization(fluxKustomization); err != nil {
-			tui.Fail()
-			errors = append(errors, fmt.Errorf("failed to apply destroy-only kustomization %s: %w", kustomization.Name, err))
+			failure := fmt.Errorf("failed to apply destroy-only kustomization %s: %w", kustomization.Name, err)
+			end(failure)
+			errors = append(errors, failure)
 			for i := len(appliedKustomizations) - 1; i >= 0; i-- {
 				appliedKust := appliedKustomizations[i]
-				if deleteErr := k.deleteKustomization(appliedKust.Name, namespace, nil, kustomizationDeleteTimeout(appliedKust), true); deleteErr != nil {
+				if deleteErr := k.deleteKustomization(ctx, appliedKust.Name, namespace, nil, kustomizationDeleteTimeout(appliedKust), true); deleteErr != nil {
 					errors = append(errors, fmt.Errorf("failed to delete failed destroy-only kustomization %s: %w", appliedKust.Name, deleteErr))
 				}
 			}
 			return errors
 		}
-		tui.Done()
+		end(nil)
 		appliedKustomizations = append(appliedKustomizations, kustomization)
 	}
 
@@ -2044,7 +2031,7 @@ func (k *BaseKubernetesManager) processDestroyOnlyKustomizations(kustomizations 
 		kustomizationNames[i] = kust.Name
 	}
 
-	tui.Start(fmt.Sprintf("Waiting for %d destroy-only kustomization(s) to become ready", len(kustomizations)))
+	_, endWait := presenter.Begin(ctx, "kustomize:destroy-only-wait", fmt.Sprintf("Waiting for %d destroy-only kustomization(s) to become ready", len(kustomizations)))
 
 	waitTimeout := time.After(k.kustomizationReconcileTimeout)
 	ticker := time.NewTicker(k.kustomizationWaitPollInterval)
@@ -2075,28 +2062,29 @@ waitLoop:
 	ticker.Stop()
 
 	if !allReady {
-		tui.Fail()
+		endWait(fmt.Errorf("destroy-only kustomizations did not become ready"))
 		if !statusCheckFailed {
 			errors = append(errors, fmt.Errorf("destroy-only kustomizations did not become ready within timeout - cleanup may not have completed%s", k.describeNotReadyKustomizations(kustomizationNames, k.gitopsNamespace())))
 		}
 		for i := len(kustomizations) - 1; i >= 0; i-- {
 			kustomization := kustomizations[i]
-			if deleteErr := k.deleteKustomization(kustomization.Name, namespace, nil, kustomizationDeleteTimeout(kustomization), true); deleteErr != nil {
+			if deleteErr := k.deleteKustomization(ctx, kustomization.Name, namespace, nil, kustomizationDeleteTimeout(kustomization), true); deleteErr != nil {
 				errors = append(errors, fmt.Errorf("failed to delete failed destroy-only kustomization %s: %w", kustomization.Name, deleteErr))
 			}
 		}
 		return errors
 	}
-	tui.Done()
+	endWait(nil)
 
 	for _, kustomization := range orderForDestroy(kustomizations, "destroy-only") {
-		tui.Start(fmt.Sprintf("Destroying destroy-only kustomization %s", kustomization.Name))
+		opCtx, end := presenter.Begin(ctx, "kustomize:"+kustomization.Name, fmt.Sprintf("Destroying destroy-only kustomization %s", kustomization.Name))
 
-		if err := k.deleteKustomization(kustomization.Name, namespace, nil, kustomizationDeleteTimeout(kustomization), true); err != nil {
-			tui.Fail()
-			errors = append(errors, fmt.Errorf("failed to delete destroy-only kustomization %s: %w", kustomization.Name, err))
+		if err := k.deleteKustomization(opCtx, kustomization.Name, namespace, nil, kustomizationDeleteTimeout(kustomization), true); err != nil {
+			failure := fmt.Errorf("failed to delete destroy-only kustomization %s: %w", kustomization.Name, err)
+			end(failure)
+			errors = append(errors, failure)
 		} else {
-			tui.Done()
+			end(nil)
 		}
 	}
 

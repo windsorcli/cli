@@ -1,6 +1,7 @@
 package provisioner
 
 import (
+	"context"
 	"fmt"
 
 	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
@@ -65,7 +66,7 @@ type DestroyResult struct {
 // marks a skipped stage.
 //
 // A Backend that names no real component is refused; see resolveBackendComponents.
-func (i *Provisioner) Teardown(blueprint *blueprintv1alpha1.Blueprint, terraformOnly bool, continueOnError bool) (DestroyResult, error) {
+func (i *Provisioner) Teardown(ctx context.Context, blueprint *blueprintv1alpha1.Blueprint, terraformOnly bool, continueOnError bool) (DestroyResult, error) {
 	var result DestroyResult
 	backendType := i.configHandler.GetTerraformBackendType()
 	if backendType == "kubernetes" && blueprint.Backend == "" {
@@ -77,9 +78,9 @@ func (i *Provisioner) Teardown(blueprint *blueprintv1alpha1.Blueprint, terraform
 
 	destroyFlat := func() (DestroyResult, error) {
 		if terraformOnly {
-			return i.DestroyAllTerraform(blueprint, continueOnError)
+			return i.DestroyAllTerraform(ctx, blueprint, continueOnError)
 		}
-		return i.DestroyAll(blueprint, continueOnError)
+		return i.DestroyAll(ctx, blueprint, continueOnError)
 	}
 	if backendType == "" || backendType == "local" {
 		return destroyFlat()
@@ -100,9 +101,9 @@ func (i *Provisioner) Teardown(blueprint *blueprintv1alpha1.Blueprint, terraform
 
 	var stage1Err error
 	if terraformOnly {
-		result, stage1Err = i.DestroyAllTerraform(blueprint, continueOnError, backendComponentIDs...)
+		result, stage1Err = i.DestroyAllTerraform(ctx, blueprint, continueOnError, backendComponentIDs...)
 	} else {
-		result, stage1Err = i.DestroyAll(blueprint, continueOnError, backendComponentIDs...)
+		result, stage1Err = i.DestroyAll(ctx, blueprint, continueOnError, backendComponentIDs...)
 	}
 	if stage1Err != nil {
 		return result, stage1Err
@@ -115,13 +116,13 @@ func (i *Provisioner) Teardown(blueprint *blueprintv1alpha1.Blueprint, terraform
 
 	backendComponentsBP := blueprintWithComponents(blueprint, backendComponents)
 	err = i.withBackendOverride("destroy", func() error {
-		migrationSkipped, err := i.MigrateState(backendComponentsBP)
+		migrationSkipped, err := i.MigrateState(ctx, backendComponentsBP)
 		if err != nil {
 			return err
 		}
 
 		if len(backendComponents) > 1 {
-			membersResult, destroyErr := i.destroyAllTerraform(backendComponentsBP, continueOnError, blueprint.Backend)
+			membersResult, destroyErr := i.destroyAllTerraform(ctx, backendComponentsBP, continueOnError, blueprint.Backend)
 			result.Destroyed = append(result.Destroyed, membersResult.Destroyed...)
 			result.Skipped = mergeSkipped(result.Skipped, mergeSkipped(migrationSkipped, membersResult.Skipped))
 			result.Failed = append(result.Failed, membersResult.Failed...)
@@ -134,14 +135,14 @@ func (i *Provisioner) Teardown(blueprint *blueprintv1alpha1.Blueprint, terraform
 			}
 
 			backendBP := blueprintWithComponents(blueprint, backendComponents[len(backendComponents)-1:])
-			backendResult, backendErr := i.destroyAllTerraform(backendBP, continueOnError)
+			backendResult, backendErr := i.destroyAllTerraform(ctx, backendBP, continueOnError)
 			result.Destroyed = append(result.Destroyed, backendResult.Destroyed...)
 			result.Skipped = mergeSkipped(result.Skipped, backendResult.Skipped)
 			result.Failed = append(result.Failed, backendResult.Failed...)
 			return backendErr
 		}
 
-		backendComponentsResult, destroyErr := i.destroyAllTerraform(backendComponentsBP, continueOnError)
+		backendComponentsResult, destroyErr := i.destroyAllTerraform(ctx, backendComponentsBP, continueOnError)
 		result.Destroyed = append(result.Destroyed, backendComponentsResult.Destroyed...)
 		result.Skipped = mergeSkipped(result.Skipped, mergeSkipped(migrationSkipped, backendComponentsResult.Skipped))
 		result.Failed = append(result.Failed, backendComponentsResult.Failed...)
@@ -154,14 +155,14 @@ func (i *Provisioner) Teardown(blueprint *blueprintv1alpha1.Blueprint, terraform
 // component on a non-local backend is refused: its state provides the backend that
 // other components rely on, so destroying it in isolation would orphan their state.
 // Use `windsor destroy` (no arguments) for the full-cycle teardown.
-func (i *Provisioner) TeardownComponent(blueprint *blueprintv1alpha1.Blueprint, componentID string) (bool, error) {
+func (i *Provisioner) TeardownComponent(ctx context.Context, blueprint *blueprintv1alpha1.Blueprint, componentID string) (bool, error) {
 	if err := i.CheckComponentDestroyable(blueprint, componentID); err != nil {
 		return false, err
 	}
 	if err := i.checkOrphanedLocalState(blueprint); err != nil {
 		return false, err
 	}
-	return i.Destroy(blueprint, componentID)
+	return i.Destroy(ctx, blueprint, componentID)
 }
 
 // CheckComponentDestroyable reports whether a single terraform component may be destroyed in isolation.
@@ -198,7 +199,7 @@ func (i *Provisioner) ValidateBackendComponents(blueprint *blueprintv1alpha1.Blu
 // to local, so a kubernetes-backend teardown never dials the cluster it's about to destroy. A
 // migration failure aborts only while the cluster is still reachable; once it's gone, state was
 // already migrated on an earlier pass. No-op for a non-kubernetes backend.
-func (i *Provisioner) PrepareLocalTeardown(blueprint *blueprintv1alpha1.Blueprint) (bool, error) {
+func (i *Provisioner) PrepareLocalTeardown(ctx context.Context, blueprint *blueprintv1alpha1.Blueprint) (bool, error) {
 	backendType := i.configHandler.GetTerraformBackendType()
 	if backendType != "kubernetes" {
 		return false, nil
@@ -208,7 +209,7 @@ func (i *Provisioner) PrepareLocalTeardown(blueprint *blueprintv1alpha1.Blueprin
 		return false, fmt.Errorf("failed to pivot terraform backend to local for teardown: %w", err)
 	}
 
-	if _, err := i.MigrateState(blueprint); err != nil {
+	if _, err := i.MigrateState(ctx, blueprint); err != nil {
 		if i.clusterReachableForTeardown() {
 			_ = i.configHandler.Set("terraform.backend.type", backendType)
 			return false, fmt.Errorf("failed to migrate terraform state to local before teardown: %w", err)

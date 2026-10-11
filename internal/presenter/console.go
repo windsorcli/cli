@@ -1,7 +1,8 @@
 // The Console is the Presenter for human-readable terminal output.
 // It provides a tree of operations: finished steps stay on screen and nest under their parent.
 // In plain mode it prints one line per event, which suits logs and CI output.
-// In interactive mode it animates the active leaf operations in a live region below the tree.
+// In interactive mode it animates the active leaf operations in a live region below the tree,
+// and its Terminal hides the cursor and input echo while that region is on screen.
 
 package presenter
 
@@ -10,8 +11,11 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"os"
+	"os/signal"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/windsorcli/cli/internal/logging"
@@ -26,6 +30,12 @@ var spinnerFrames = []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "�
 
 // frameInterval is the time between animation frames.
 const frameInterval = 100 * time.Millisecond
+
+// progressHeartbeat is how often plain mode reprints unchanged progress text.
+const progressHeartbeat = 30 * time.Second
+
+// maxLiveLines is the most lines the live region draws on a terminal of any height.
+const maxLiveLines = 10
 
 const (
 	ansiGreen     = "\033[32m"
@@ -49,19 +59,30 @@ type ConsoleOptions struct {
 	Interactive bool
 	// Width returns the terminal width for line truncation, or 0 for no truncation.
 	Width func() int
+	// Height returns the terminal height that caps the live region, or 0 for the default cap.
+	Height func() int
+	// OnActive runs with true when the first operation starts and false when the last one ends.
+	OnActive func(active bool)
+	// Terminal enters the live display mode while the live region is on screen. Nil skips it.
+	Terminal Terminal
+	// Now returns the current time for elapsed counters. Nil uses time.Now.
+	Now func() time.Time
 }
 
 // Console renders events as an indented tree of lines.
 type Console struct {
-	mu     sync.Mutex
-	w      io.Writer
-	opts   ConsoleOptions
-	logs   slog.Handler
-	ops    map[string]*consoleOp
-	order  []*consoleOp
-	drawn  int
-	frame  int
-	stopCh chan struct{}
+	mu      sync.Mutex
+	w       io.Writer
+	opts    ConsoleOptions
+	logs    slog.Handler
+	ops     map[string]*consoleOp
+	order   []*consoleOp
+	drawn   int
+	frame   int
+	paused  int
+	stopCh  chan struct{}
+	entered bool
+	closed  bool
 }
 
 // consoleOp is the render state of one running operation.
@@ -73,6 +94,9 @@ type consoleOp struct {
 	printed   bool
 	children  int
 	lastShown string
+	started   time.Time
+	hadChild  bool
+	shownAt   time.Time
 }
 
 // =============================================================================
@@ -116,20 +140,89 @@ func (c *Console) Emit(ctx context.Context, event Event) {
 	c.syncTicker()
 }
 
+// Pause erases the live region and stops the animation until a matching Resume. Calls nest.
+// Use it before another writer, such as a password prompt, takes the terminal.
+func (c *Console) Pause() {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.paused == 0 {
+		c.clear()
+	}
+	c.paused++
+	c.syncTicker()
+}
+
+// Resume redraws the live region and restarts the animation when the last Pause ends.
+func (c *Console) Resume() {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.paused == 0 {
+		return
+	}
+	c.paused--
+	c.redraw()
+	c.syncTicker()
+}
+
+// Close stops the animation and leaves the live display mode for the rest of the run. The
+// console keeps rendering events afterward, with the cursor and input echo left on.
+func (c *Console) Close() {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.closed = true
+	c.syncTicker()
+}
+
+// WatchInterrupts restores the terminal when the process receives an interrupt or termination
+// signal. After the restore it stops watching and re-raises the signal, unless guarded reports
+// that another handler owns it. The returned function stops the watch.
+func (c *Console) WatchInterrupts(guarded func() bool) func() {
+	if !c.opts.Interactive {
+		return func() {}
+	}
+	sigCh := make(chan os.Signal, 1)
+	done := make(chan struct{})
+	signal.Notify(sigCh, os.Interrupt, syscall.SIGTERM)
+	go func() {
+		select {
+		case <-done:
+		case sig := <-sigCh:
+			c.Close()
+			signal.Stop(sigCh)
+			if guarded == nil || !guarded() {
+				raise(sig)
+			}
+		}
+	}()
+	var once sync.Once
+	return func() {
+		once.Do(func() {
+			signal.Stop(sigCh)
+			close(done)
+		})
+	}
+}
+
 // =============================================================================
 // Private Methods
 // =============================================================================
 
-// start registers an operation and prints its header in plain mode.
+// start registers an operation and prints its header in plain mode. It ends any pause, the
+// same as the legacy spinner, because legacy callers pause without a matching Resume.
 func (c *Console) start(event Event) {
-	op := &consoleOp{id: event.ID, message: event.Message}
+	c.paused = 0
+	op := &consoleOp{id: event.ID, message: event.Message, started: c.now()}
 	if parent := c.ops[event.ParentID]; parent != nil {
 		op.depth = parent.depth + 1
 		parent.children++
+		parent.hadChild = true
 		c.printHeader(parent)
 	}
 	c.ops[op.id] = op
 	c.order = append(c.order, op)
+	if len(c.order) == 1 && c.opts.OnActive != nil {
+		c.opts.OnActive(true)
+	}
 	if !c.opts.Interactive {
 		c.printHeader(op)
 		return
@@ -137,12 +230,16 @@ func (c *Console) start(event Event) {
 	c.redraw()
 }
 
-// finish removes an operation and prints its end line with the elapsed time.
+// finish removes an operation and prints its end line with the elapsed time. An operation that
+// had child operations prints no end line on success, because its header and its children's end
+// lines already show the result. It still prints one on failure. It ends any pause, the same
+// as start.
 func (c *Console) finish(event Event) {
 	op := c.ops[event.ID]
 	if op == nil {
 		return
 	}
+	c.paused = 0
 	delete(c.ops, op.id)
 	for i, o := range c.order {
 		if o == op {
@@ -153,6 +250,13 @@ func (c *Console) finish(event Event) {
 	if parent := c.ops[event.ParentID]; parent != nil {
 		parent.children--
 	}
+	if len(c.order) == 0 && c.opts.OnActive != nil {
+		c.opts.OnActive(false)
+	}
+	if op.hadChild && event.Kind == KindApplied {
+		c.redraw()
+		return
+	}
 	icon := c.color(ansiGreen, "✔")
 	if event.Kind == KindFailed {
 		icon = c.color(ansiRed, "✗")
@@ -161,7 +265,8 @@ func (c *Console) finish(event Event) {
 	c.print(func() { fmt.Fprintln(c.w, line) })
 }
 
-// progress stores the status text of an operation. Plain mode prints it once per change.
+// progress stores the status text of an operation. Plain mode prints it with the elapsed time
+// when the text changes, and again after progressHeartbeat when it does not.
 func (c *Console) progress(event Event) {
 	op := c.ops[event.ID]
 	if op == nil {
@@ -172,27 +277,34 @@ func (c *Console) progress(event Event) {
 		c.redraw()
 		return
 	}
-	if event.Message == op.lastShown {
+	now := c.now()
+	if event.Message == op.lastShown && now.Sub(op.shownAt) < progressHeartbeat {
 		return
 	}
 	op.lastShown = event.Message
-	line := indent(op.depth+1) + event.Message
+	op.shownAt = now
+	line := indent(op.depth+1) + event.Message + c.elapsed(now.Sub(op.started))
 	c.print(func() { fmt.Fprintln(c.w, line) })
 }
 
 // message prints a narrative line under its parent operation, with a marker for warnings.
+// Each further line of a multi-line message is indented to align under the first line's text.
 func (c *Console) message(event Event) {
 	depth := 0
 	if parent := c.ops[event.ParentID]; parent != nil {
 		depth = parent.depth + 1
 		c.printHeader(parent)
 	}
-	text := event.Message
+	prefix, cont := "", indent(depth)
 	if event.Level >= slog.LevelWarn {
-		text = c.color(ansiYellow, "⚠") + " " + text
+		prefix, cont = c.color(ansiYellow, "⚠")+" ", indent(depth)+"  "
 	}
-	line := indent(depth) + text
-	c.print(func() { fmt.Fprintln(c.w, line) })
+	lines := strings.Split(event.Message, "\n")
+	text := indent(depth) + prefix + lines[0]
+	for _, l := range lines[1:] {
+		text += "\n" + cont + l
+	}
+	c.print(func() { fmt.Fprintln(c.w, text) })
 }
 
 // printHeader prints the header line of op once.
@@ -227,8 +339,10 @@ func (c *Console) clear() {
 }
 
 // redraw replaces the live region with one line per active leaf operation in interactive mode.
+// Each line shows the time its operation has run so far. When more leaves are active than the
+// region holds, the last line counts the rest. It draws nothing while paused.
 func (c *Console) redraw() {
-	if !c.opts.Interactive {
+	if !c.opts.Interactive || c.paused > 0 {
 		return
 	}
 	c.clear()
@@ -237,31 +351,70 @@ func (c *Console) redraw() {
 	if c.opts.Width != nil {
 		width = c.opts.Width()
 	}
-	var b strings.Builder
+	var leaves []*consoleOp
 	for _, op := range c.order {
-		if op.children > 0 {
-			continue
+		if op.children == 0 {
+			leaves = append(leaves, op)
 		}
-		line := indent(op.depth) + c.color(ansiGreen, frame) + " " + op.message
+	}
+	shown, hidden := leaves, 0
+	if limit := c.liveLimit(); len(leaves) > limit {
+		shown, hidden = leaves[:limit-1], len(leaves)-(limit-1)
+	}
+	var b strings.Builder
+	for _, op := range shown {
+		line := indent(op.depth) + c.color(ansiGreen, frame) + " " + op.message + c.elapsed(c.now().Sub(op.started))
 		if op.progress != "" {
 			line += "  " + c.color(ansiDim, op.progress)
 		}
 		b.WriteString(truncate(line, width) + "\n")
 		c.drawn++
 	}
+	if hidden > 0 {
+		line := indent(leaves[len(shown)].depth) + c.color(ansiDim, fmt.Sprintf("… and %d more", hidden))
+		b.WriteString(truncate(line, width) + "\n")
+		c.drawn++
+	}
 	fmt.Fprint(c.w, b.String())
 }
 
-// syncTicker starts the animation ticker when the live region has lines and stops it otherwise.
+// liveLimit returns how many lines the live region may draw: maxLiveLines, or two fewer than the
+// terminal height when that is smaller, and never fewer than two.
+func (c *Console) liveLimit() int {
+	limit := maxLiveLines
+	if c.opts.Height != nil {
+		if h := c.opts.Height() - 2; h > 0 && h < limit {
+			limit = h
+		}
+	}
+	if limit < 2 {
+		limit = 2
+	}
+	return limit
+}
+
+// syncTicker starts the animation ticker and enters the live display mode when the live region
+// has lines, and stops both otherwise. After Close it never enters the display mode again.
 func (c *Console) syncTicker() {
 	active := c.opts.Interactive && c.drawn > 0
-	if active && c.stopCh == nil {
+	if active && c.stopCh == nil && !c.closed {
 		c.stopCh = make(chan struct{})
 		go c.tick(c.stopCh)
 	}
-	if !active && c.stopCh != nil {
+	if (!active || c.closed) && c.stopCh != nil {
 		close(c.stopCh)
 		c.stopCh = nil
+	}
+	if c.opts.Terminal == nil {
+		return
+	}
+	if active && !c.entered && !c.closed {
+		c.opts.Terminal.Enter()
+		c.entered = true
+	}
+	if (!active || c.closed) && c.entered {
+		c.opts.Terminal.Leave()
+		c.entered = false
 	}
 }
 
@@ -295,17 +448,34 @@ func (c *Console) elapsed(d time.Duration) string {
 	if d < time.Second {
 		return ""
 	}
-	d = d.Round(time.Second)
-	text := fmt.Sprintf("%ds", int(d.Seconds()))
-	if d >= time.Minute {
-		text = fmt.Sprintf("%dm%02ds", int(d.Minutes()), int(d.Seconds())%60)
+	return "  " + c.color(ansiDim, formatDuration(d))
+}
+
+// now returns the current time from the configured clock.
+func (c *Console) now() time.Time {
+	if c.opts.Now != nil {
+		return c.opts.Now()
 	}
-	return "  " + c.color(ansiDim, text)
+	return time.Now()
 }
 
 // =============================================================================
 // Helpers
 // =============================================================================
+
+// formatDuration returns d in whole seconds below one minute ("14s"), in minutes and seconds
+// below one hour ("2m05s"), and in hours and minutes from one hour ("1h02m").
+func formatDuration(d time.Duration) string {
+	d = d.Truncate(time.Second)
+	switch {
+	case d < time.Minute:
+		return fmt.Sprintf("%ds", int(d.Seconds()))
+	case d < time.Hour:
+		return fmt.Sprintf("%dm%02ds", int(d.Minutes()), int(d.Seconds())%60)
+	default:
+		return fmt.Sprintf("%dh%02dm", int(d.Hours()), int(d.Minutes())%60)
+	}
+}
 
 // indent returns two spaces per depth level.
 func indent(depth int) string {

@@ -2,18 +2,19 @@ package cmd
 
 import (
 	"bufio"
+	"context"
 	"fmt"
 	"io"
 	"os"
 	"strings"
 
 	"github.com/spf13/cobra"
+	"github.com/windsorcli/cli/internal/presenter"
 	"github.com/windsorcli/cli/pkg/provisioner"
 	fluxinfra "github.com/windsorcli/cli/pkg/provisioner/flux"
 	"github.com/windsorcli/cli/pkg/provisioner/stacklock"
 	terraforminfra "github.com/windsorcli/cli/pkg/provisioner/terraform"
 	"github.com/windsorcli/cli/pkg/runtime/tools"
-	"github.com/windsorcli/cli/pkg/tui"
 	tuiplan "github.com/windsorcli/cli/pkg/tui/plan"
 )
 
@@ -97,11 +98,11 @@ windsor destroy --confirm=local --continue`,
 			// local backend up front — before planning — so no step (plan or destroy) dials the kubernetes
 			// backend that this teardown is about to destroy. The "Migrating terraform state" progress line
 			// already signals the migration, so no extra note is printed here.
-			if _, err := proj.Provisioner.PrepareLocalTeardown(blueprint); err != nil {
+			if _, err := proj.Provisioner.PrepareLocalTeardown(cmd.Context(), blueprint); err != nil {
 				return err
 			}
 			var summary *provisioner.DestroyPlanSummary
-			if err := tui.WithProgress("Generating destroy plan...", func() error {
+			if err := presenter.Track(cmd.Context(), "plan:destroy", "Generating destroy plan", func(context.Context) error {
 				var planErr error
 				summary, planErr = proj.Provisioner.PlanDestroyAll(blueprint)
 				return planErr
@@ -123,7 +124,7 @@ windsor destroy --confirm=local --continue`,
 				return err
 			}
 			return stacklock.With(cmd.Context(), proj.Runtime, "destroy", lockTimeout, func() error {
-				result, err := proj.Provisioner.Teardown(blueprint, false, destroyContinue)
+				result, err := proj.Provisioner.Teardown(cmd.Context(), blueprint, false, destroyContinue)
 				reportSkippedDestroyComponents(cmd.ErrOrStderr(), result.Skipped)
 				reportSkippedClusterGoneKustomizations(cmd.ErrOrStderr(), result.SkippedClusterGone)
 				if err != nil {
@@ -161,7 +162,7 @@ windsor destroy --confirm=local --continue`,
 
 		var tfResults []terraforminfra.TerraformComponentPlan
 		var k8sResults []fluxinfra.KustomizePlan
-		if err := tui.WithProgress("Generating destroy plan...", func() error {
+		if err := presenter.Track(cmd.Context(), "plan:destroy", "Generating destroy plan", func(context.Context) error {
 			if inTerraform {
 				result, err := proj.Provisioner.PlanDestroyTerraformComponentSummary(blueprint, componentID)
 				if err != nil {
@@ -199,12 +200,12 @@ windsor destroy --confirm=local --continue`,
 
 		return stacklock.With(cmd.Context(), proj.Runtime, "destroy", lockTimeout, func() error {
 			if inKustomize {
-				if err := proj.Provisioner.DestroyKustomize(blueprint, componentID); err != nil {
+				if err := proj.Provisioner.DestroyKustomize(cmd.Context(), blueprint, componentID); err != nil {
 					return fmt.Errorf("error destroying kustomization %s: %w", componentID, err)
 				}
 			}
 			if inTerraform {
-				skipped, err := proj.Provisioner.TeardownComponent(blueprint, componentID)
+				skipped, err := proj.Provisioner.TeardownComponent(cmd.Context(), blueprint, componentID)
 				if err != nil {
 					return fmt.Errorf("error destroying terraform for %s: %w", componentID, err)
 				}
@@ -259,11 +260,11 @@ windsor destroy terraform --confirm=local`,
 			// Destroying every terraform component: pull state to local and pivot up front, like the full
 			// teardown, so the plan and destroy never dial the kubernetes backend being torn down. The
 			// "Migrating terraform state" progress line already signals the migration.
-			if _, err := proj.Provisioner.PrepareLocalTeardown(blueprint); err != nil {
+			if _, err := proj.Provisioner.PrepareLocalTeardown(cmd.Context(), blueprint); err != nil {
 				return err
 			}
 			var summary *provisioner.DestroyPlanSummary
-			if err := tui.WithProgress("Generating destroy plan...", func() error {
+			if err := presenter.Track(cmd.Context(), "plan:destroy", "Generating destroy plan", func(context.Context) error {
 				var planErr error
 				summary, planErr = proj.Provisioner.PlanDestroyTerraformSummary(blueprint)
 				return planErr
@@ -285,7 +286,7 @@ windsor destroy terraform --confirm=local`,
 				return err
 			}
 			return stacklock.With(cmd.Context(), proj.Runtime, "destroy", lockTimeout, func() error {
-				result, err := proj.Provisioner.Teardown(blueprint, true, destroyContinue)
+				result, err := proj.Provisioner.Teardown(cmd.Context(), blueprint, true, destroyContinue)
 				reportSkippedDestroyComponents(cmd.ErrOrStderr(), result.Skipped)
 				if err != nil {
 					return fmt.Errorf("error destroying all terraform: %w", err)
@@ -308,7 +309,7 @@ windsor destroy terraform --confirm=local`,
 			return err
 		}
 		var tfResult terraforminfra.TerraformComponentPlan
-		if err := tui.WithProgress("Generating destroy plan...", func() error {
+		if err := presenter.Track(cmd.Context(), "plan:destroy", "Generating destroy plan", func(context.Context) error {
 			var planErr error
 			tfResult, planErr = proj.Provisioner.PlanDestroyTerraformComponentSummary(blueprint, componentID)
 			return planErr
@@ -329,7 +330,7 @@ windsor destroy terraform --confirm=local`,
 			return err
 		}
 		return stacklock.With(cmd.Context(), proj.Runtime, "destroy", lockTimeout, func() error {
-			skipped, err := proj.Provisioner.TeardownComponent(blueprint, componentID)
+			skipped, err := proj.Provisioner.TeardownComponent(cmd.Context(), blueprint, componentID)
 			if err != nil {
 				return fmt.Errorf("error destroying terraform for %s: %w", componentID, err)
 			}
@@ -372,7 +373,7 @@ windsor destroy kustomize --confirm=local`,
 
 		if len(args) == 0 {
 			var summary *provisioner.DestroyPlanSummary
-			if err := tui.WithProgress("Generating destroy plan...", func() error {
+			if err := presenter.Track(cmd.Context(), "plan:destroy", "Generating destroy plan", func(context.Context) error {
 				var planErr error
 				summary, planErr = proj.Provisioner.PlanDestroyKustomizeSummary(blueprint)
 				return planErr
@@ -387,7 +388,7 @@ windsor destroy kustomize --confirm=local`,
 				return err
 			}
 			return stacklock.With(cmd.Context(), proj.Runtime, "destroy", lockTimeout, func() error {
-				if err := proj.Provisioner.Uninstall(blueprint); err != nil {
+				if err := proj.Provisioner.Uninstall(cmd.Context(), blueprint); err != nil {
 					return fmt.Errorf("error destroying all kustomizations: %w", err)
 				}
 				return nil
@@ -396,7 +397,7 @@ windsor destroy kustomize --confirm=local`,
 
 		componentID := args[0]
 		var k8sResult fluxinfra.KustomizePlan
-		if err := tui.WithProgress("Generating destroy plan...", func() error {
+		if err := presenter.Track(cmd.Context(), "plan:destroy", "Generating destroy plan", func(context.Context) error {
 			var planErr error
 			k8sResult, planErr = proj.Provisioner.PlanDestroyKustomizeComponentSummary(blueprint, componentID)
 			return planErr
@@ -414,7 +415,7 @@ windsor destroy kustomize --confirm=local`,
 			return err
 		}
 		return stacklock.With(cmd.Context(), proj.Runtime, "destroy", lockTimeout, func() error {
-			if err := proj.Provisioner.DestroyKustomize(blueprint, componentID); err != nil {
+			if err := proj.Provisioner.DestroyKustomize(cmd.Context(), blueprint, componentID); err != nil {
 				return fmt.Errorf("error destroying kustomization %s: %w", componentID, err)
 			}
 			return nil

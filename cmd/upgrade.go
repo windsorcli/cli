@@ -162,7 +162,7 @@ windsor upgrade cluster --nodes=10.0.0.5 --image=ghcr.io/siderolabs/installer:v1
 		}
 
 		return stacklock.With(cmd.Context(), proj.Runtime, "upgrade", lockTimeout, func() error {
-			if _, err := proj.Provisioner.Up(blueprint); err != nil {
+			if _, err := proj.Provisioner.Up(cmd.Context(), blueprint); err != nil {
 				return fmt.Errorf("error applying terraform: %w", err)
 			}
 
@@ -364,7 +364,7 @@ func pruneOrphaned(cmd *cobra.Command, proj *project.Project, blueprint *bluepri
 		return nil
 	}
 	fmt.Fprintf(cmd.OutOrStdout(), "Pruning kustomizations no longer declared:\n  %s\n", strings.Join(prunable, "\n  "))
-	if err := proj.Provisioner.Prune(blueprint); err != nil {
+	if err := proj.Provisioner.Prune(cmd.Context(), blueprint); err != nil {
 		return fmt.Errorf("error pruning orphaned kustomizations: %w", err)
 	}
 	return nil

@@ -1089,6 +1089,7 @@ func (s *DefaultShell) newScrubbingWriter(w io.Writer) *scrubbingWriter {
 // terminal interrupt to cmd, then blocks every interrupt after that. See
 // interruptGuard. It skips sudo. Setpgid would strand sudo's password prompt on
 // SIGTTIN. Call the returned stop func once cmd exits. It no-ops when skipped.
+// While the guard runs, tui.InterruptsGuarded reports true.
 func (s *DefaultShell) startInterruptGuard(cmd *exec.Cmd, command string, message string) (stop func()) {
 	if command == "sudo" {
 		return func() {}
@@ -1099,6 +1100,7 @@ func (s *DefaultShell) startInterruptGuard(cmd *exec.Cmd, command string, messag
 	sigCh := make(chan os.Signal, 4)
 	s.shims.SignalNotify(sigCh, os.Interrupt)
 	done := make(chan struct{})
+	release := tui.GuardInterrupts()
 
 	guard := &interruptGuard{
 		forward:   func() error { return interruptProcessGroup(cmd) },
@@ -1110,6 +1112,7 @@ func (s *DefaultShell) startInterruptGuard(cmd *exec.Cmd, command string, messag
 	return func() {
 		close(done)
 		s.shims.SignalStop(sigCh)
+		release()
 	}
 }
 

@@ -17,10 +17,10 @@ import (
 	meta "github.com/fluxcd/pkg/apis/meta"
 	sourcev1 "github.com/fluxcd/source-controller/api/v1"
 	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
+	"github.com/windsorcli/cli/internal/presenter"
 	"github.com/windsorcli/cli/pkg/constants"
 	"github.com/windsorcli/cli/pkg/provisioner/kubernetes/client"
 	"github.com/windsorcli/cli/pkg/runtime/config"
-	"github.com/windsorcli/cli/pkg/tui"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -280,7 +280,7 @@ func TestBaseKubernetesManager_DeleteKustomization(t *testing.T) {
 		}
 		manager.client = kubernetesClient
 
-		err := manager.DeleteKustomization("test-kustomization", "test-namespace")
+		err := manager.DeleteKustomization(context.Background(), "test-kustomization", "test-namespace")
 		if err != nil {
 			t.Errorf("Expected no error, got %v", err)
 		}
@@ -294,7 +294,7 @@ func TestBaseKubernetesManager_DeleteKustomization(t *testing.T) {
 		}
 		manager.client = kubernetesClient
 
-		err := manager.DeleteKustomization("test-kustomization", "test-namespace")
+		err := manager.DeleteKustomization(context.Background(), "test-kustomization", "test-namespace")
 		if err == nil {
 			t.Error("Expected error, got nil")
 		}
@@ -308,7 +308,7 @@ func TestBaseKubernetesManager_DeleteKustomization(t *testing.T) {
 		}
 		manager.client = kubernetesClient
 
-		err := manager.DeleteKustomization("test-kustomization", "test-namespace")
+		err := manager.DeleteKustomization(context.Background(), "test-kustomization", "test-namespace")
 		if err != nil {
 			t.Errorf("Expected no error for not found resource, got %v", err)
 		}
@@ -331,7 +331,7 @@ func TestBaseKubernetesManager_DeleteKustomization(t *testing.T) {
 		manager.kustomizationWaitPollInterval = 50 * time.Millisecond
 
 		// When DeleteKustomization is called
-		err := manager.DeleteKustomization("test-kustomization", "test-namespace")
+		err := manager.DeleteKustomization(context.Background(), "test-kustomization", "test-namespace")
 
 		// Then an error is returned describing the timeout — no finalizer strip
 		// happens. Stripping the Kustomization's own finalizer would reap it
@@ -375,7 +375,7 @@ func TestBaseKubernetesManager_DeleteKustomization(t *testing.T) {
 		manager.kustomizationWaitPollInterval = 50 * time.Millisecond
 
 		// When DeleteKustomization times out
-		err := manager.DeleteKustomization("test-kustomization", "test-namespace")
+		err := manager.DeleteKustomization(context.Background(), "test-kustomization", "test-namespace")
 
 		// Then the error surfaces the Flux condition reason and message inline so the
 		// operator sees why without a manual kubectl round-trip
@@ -417,7 +417,7 @@ func TestBaseKubernetesManager_DeleteKustomization(t *testing.T) {
 		manager.kustomizationWaitPollInterval = 50 * time.Millisecond
 
 		// When DeleteKustomization times out
-		err := manager.DeleteKustomization("test-kustomization", "test-namespace")
+		err := manager.DeleteKustomization(context.Background(), "test-kustomization", "test-namespace")
 
 		// Then the embedded newlines are flattened so the error stays on one line
 		if err == nil {
@@ -489,7 +489,7 @@ func TestBaseKubernetesManager_DeleteKustomization(t *testing.T) {
 		manager.kustomizationWaitPollInterval = 50 * time.Millisecond
 
 		// When DeleteKustomization times out
-		err := manager.DeleteKustomization("database-install", "system-gitops")
+		err := manager.DeleteKustomization(context.Background(), "database-install", "system-gitops")
 
 		// Then the error surfaces the HelmRelease's own stuck reason
 		if err == nil {
@@ -529,7 +529,7 @@ func TestBaseKubernetesManager_DeleteKustomization(t *testing.T) {
 		manager.kustomizationWaitPollInterval = 50 * time.Millisecond
 
 		// When DeleteKustomization times out
-		err := manager.DeleteKustomization("test-kustomization", "test-namespace")
+		err := manager.DeleteKustomization(context.Background(), "test-kustomization", "test-namespace")
 
 		// Then the timeout error still surfaces; the lookup failure is swallowed
 		if err == nil {
@@ -554,7 +554,7 @@ func TestBaseKubernetesManager_DeleteKustomization(t *testing.T) {
 		manager.kustomizationWaitPollInterval = 50 * time.Millisecond
 		manager.kustomizationWaitMaxReadFailures = 0
 
-		err := manager.DeleteKustomization("test-kustomization", "test-namespace")
+		err := manager.DeleteKustomization(context.Background(), "test-kustomization", "test-namespace")
 		if err == nil {
 			t.Error("Expected error, got nil")
 		}
@@ -577,7 +577,7 @@ func TestBaseKubernetesManager_DeleteKustomization(t *testing.T) {
 		}
 		manager.client = kubernetesClient
 
-		err := manager.DeleteKustomization("test-kustomization", "test-namespace")
+		err := manager.DeleteKustomization(context.Background(), "test-kustomization", "test-namespace")
 		if err != nil {
 			t.Errorf("Expected no error, got %v", err)
 		}
@@ -607,7 +607,7 @@ func TestBaseKubernetesManager_DeleteKustomization(t *testing.T) {
 		manager.kustomizationWaitPollInterval = 50 * time.Millisecond
 
 		// When DeleteKustomization times out
-		err := manager.DeleteKustomization("test-kustomization", "test-namespace")
+		err := manager.DeleteKustomization(context.Background(), "test-kustomization", "test-namespace")
 
 		// Then the error does not assert a stuck finalizer it cannot confirm, and
 		// tells the operator to check whether deletion is still progressing
@@ -649,7 +649,7 @@ func TestBaseKubernetesManager_DeleteKustomization(t *testing.T) {
 		manager.kustomizationWaitPollInterval = 50 * time.Millisecond
 
 		// When DeleteKustomization times out
-		err := manager.DeleteKustomization("test-kustomization", "test-namespace")
+		err := manager.DeleteKustomization(context.Background(), "test-kustomization", "test-namespace")
 
 		// Then the error keeps asserting the stuck finalizer, since Flux's own
 		// condition confirms it, and does not use the unconfirmed wording
@@ -683,7 +683,7 @@ func TestBaseKubernetesManager_DeleteKustomization(t *testing.T) {
 		manager.kustomizationWaitPollInterval = 50 * time.Millisecond
 
 		// When DeleteKustomization times out
-		err := manager.DeleteKustomization("test-kustomization", "test-namespace")
+		err := manager.DeleteKustomization(context.Background(), "test-kustomization", "test-namespace")
 
 		// Then the error names MirrorPrune instead of blaming a stuck finalizer
 		if err == nil {
@@ -725,7 +725,7 @@ func TestBaseKubernetesManager_DeleteKustomization(t *testing.T) {
 		manager.kustomizationWaitPollInterval = 50 * time.Millisecond
 
 		// When DeleteKustomization times out
-		err := manager.DeleteKustomization("test-kustomization", "test-namespace")
+		err := manager.DeleteKustomization(context.Background(), "test-kustomization", "test-namespace")
 
 		// Then the error keeps the condition detail but drops the cloud-controller-finalizer wording
 		if err == nil {
@@ -770,7 +770,7 @@ func TestBaseKubernetesManager_DeleteKustomization(t *testing.T) {
 
 		// When DeleteKustomization times out
 		start := manager.shims.TimeNow()
-		err := manager.DeleteKustomization("test-kustomization", "test-namespace")
+		err := manager.DeleteKustomization(context.Background(), "test-kustomization", "test-namespace")
 		elapsed := manager.shims.TimeNow().Sub(start)
 
 		// Then it waits past the base timeout, scaled by the 100-entry inventory
@@ -819,7 +819,7 @@ func TestBaseKubernetesManager_DeleteKustomization(t *testing.T) {
 
 		// When DeleteKustomization times out
 		start := manager.shims.TimeNow()
-		err := manager.DeleteKustomization("test-kustomization", "test-namespace")
+		err := manager.DeleteKustomization(context.Background(), "test-kustomization", "test-namespace")
 		elapsed := manager.shims.TimeNow().Sub(start)
 
 		// Then a later, populated read still scales the wait window — the empty
@@ -852,7 +852,7 @@ func TestBaseKubernetesManager_DeleteKustomization(t *testing.T) {
 
 		// When DeleteKustomization times out
 		start := manager.shims.TimeNow()
-		err := manager.DeleteKustomization("test-kustomization", "test-namespace")
+		err := manager.DeleteKustomization(context.Background(), "test-kustomization", "test-namespace")
 		elapsed := manager.shims.TimeNow().Sub(start)
 
 		// Then it waits out spec.timeout instead of aborting at the base window,
@@ -889,7 +889,7 @@ func TestBaseKubernetesManager_DeleteKustomization(t *testing.T) {
 
 		// When DeleteKustomization times out
 		start := manager.shims.TimeNow()
-		err := manager.DeleteKustomization("test-kustomization", "test-namespace")
+		err := manager.DeleteKustomization(context.Background(), "test-kustomization", "test-namespace")
 		elapsed := manager.shims.TimeNow().Sub(start)
 
 		// Then the wait is bounded by the ceiling, not the declared spec.timeout
@@ -920,7 +920,7 @@ func TestBaseKubernetesManager_DeleteKustomization(t *testing.T) {
 
 		// When DeleteKustomization times out
 		start := manager.shims.TimeNow()
-		err := manager.DeleteKustomization("test-kustomization", "test-namespace")
+		err := manager.DeleteKustomization(context.Background(), "test-kustomization", "test-namespace")
 		elapsed := manager.shims.TimeNow().Sub(start)
 
 		// Then it falls back to the base window rather than erroring on the bad value
@@ -967,7 +967,7 @@ func TestBaseKubernetesManager_DeleteKustomization(t *testing.T) {
 		manager.client = kubernetesClient
 
 		// When DeleteKustomization times out
-		err := manager.DeleteKustomization("test-kustomization", "test-namespace")
+		err := manager.DeleteKustomization(context.Background(), "test-kustomization", "test-namespace")
 
 		// Then it reports the drained state and a manual fix, not a suspected leak
 		if err == nil {
@@ -998,7 +998,7 @@ func TestBaseKubernetesManager_DeleteKustomization(t *testing.T) {
 		manager.client = kubernetesClient
 
 		// When DeleteKustomization times out
-		err := manager.DeleteKustomization("test-kustomization", "test-namespace")
+		err := manager.DeleteKustomization(context.Background(), "test-kustomization", "test-namespace")
 
 		// Then it does not claim the kustomization is drained
 		if err == nil {
@@ -1032,13 +1032,10 @@ func TestBaseKubernetesManager_DeleteKustomization(t *testing.T) {
 			return nil, nil
 		}
 		manager.client = kubernetesClient
-		originalActive := tui.Active
-		t.Cleanup(func() { tui.Active = originalActive })
-		var updates []string
-		tui.Active = &tui.MockSpinner{UpdateFunc: func(message string) { updates = append(updates, message) }}
+		ctx, rec := recordProgress(t)
 
 		// When DeleteKustomization times out with the entry never clearing
-		err := manager.DeleteKustomization("test-kustomization", "test-namespace")
+		err := manager.DeleteKustomization(ctx, "test-kustomization", "test-namespace")
 
 		// Then it still reports the timeout, but only after asking the blocking
 		// entry's controller to look again
@@ -1055,13 +1052,13 @@ func TestBaseKubernetesManager_DeleteKustomization(t *testing.T) {
 		}
 		// And an operator watching the run sees why it is still waiting, not silence
 		found := false
-		for _, u := range updates {
+		for _, u := range rec.progress() {
 			if strings.Contains(u, "entry-one") && strings.Contains(u, "asked it to reconcile again") {
 				found = true
 			}
 		}
 		if !found {
-			t.Errorf("Expected a progress update naming entry-one, got: %v", updates)
+			t.Errorf("Expected a progress update naming entry-one, got: %v", rec.progress())
 		}
 	})
 
@@ -1102,7 +1099,7 @@ func TestBaseKubernetesManager_DeleteKustomization(t *testing.T) {
 		manager.client = kubernetesClient
 
 		// When DeleteKustomization runs
-		err := manager.DeleteKustomization("test-kustomization", "test-namespace")
+		err := manager.DeleteKustomization(context.Background(), "test-kustomization", "test-namespace")
 
 		// Then the recheck catches the disappearance and the clear entry, and
 		// the delete succeeds instead of reporting a timeout
@@ -1145,7 +1142,7 @@ func TestBaseKubernetesManager_DeleteKustomization(t *testing.T) {
 
 		// When DeleteKustomization times out
 		start := manager.shims.TimeNow()
-		err := manager.DeleteKustomization("test-kustomization", "test-namespace")
+		err := manager.DeleteKustomization(context.Background(), "test-kustomization", "test-namespace")
 		elapsed := manager.shims.TimeNow().Sub(start)
 
 		// Then it reports the timeout without triggering a reconcile or spending
@@ -1184,7 +1181,7 @@ func TestBaseKubernetesManager_DeleteKustomization(t *testing.T) {
 		expectWaitForTermination := true
 
 		// When the destroy walk times out
-		err := manager.deleteKustomization("test-kustomization", "test-namespace", &expectWaitForTermination, nil, true)
+		err := manager.deleteKustomization(context.Background(), "test-kustomization", "test-namespace", &expectWaitForTermination, nil, true)
 
 		// Then it names the leftover count, not the fully-drained wording
 		if err == nil {
@@ -1215,7 +1212,7 @@ func TestBaseKubernetesManager_DeleteKustomization(t *testing.T) {
 		manager.client = kubernetesClient
 
 		// When DeleteKustomization times out
-		err := manager.DeleteKustomization("test-kustomization", "test-namespace")
+		err := manager.DeleteKustomization(context.Background(), "test-kustomization", "test-namespace")
 
 		// Then it falls back to the original diagnosis rather than claiming drained
 		if err == nil {
@@ -1245,7 +1242,7 @@ func TestBaseKubernetesManager_DeleteKustomization(t *testing.T) {
 		manager.client = kubernetesClient
 
 		// When DeleteKustomization times out
-		err := manager.DeleteKustomization("test-kustomization", "test-namespace")
+		err := manager.DeleteKustomization(context.Background(), "test-kustomization", "test-namespace")
 
 		// Then a deleted resource type still counts as drained
 		if err == nil {
@@ -1270,7 +1267,7 @@ func TestBaseKubernetesManager_DeleteKustomization(t *testing.T) {
 		manager.client = kubernetesClient
 
 		// When DeleteKustomization times out
-		err := manager.DeleteKustomization("test-kustomization", "test-namespace")
+		err := manager.DeleteKustomization(context.Background(), "test-kustomization", "test-namespace")
 
 		// Then it does not claim the kustomization is drained
 		if err == nil {
@@ -1307,7 +1304,7 @@ func TestBaseKubernetesManager_DeleteKustomization(t *testing.T) {
 		manager.client = kubernetesClient
 
 		// When DeleteKustomization sees the object disappear
-		err := manager.DeleteKustomization("test-kustomization", "test-namespace")
+		err := manager.DeleteKustomization(context.Background(), "test-kustomization", "test-namespace")
 
 		// Then it reports the still-live entry instead of a clean delete
 		if err == nil {
@@ -1345,13 +1342,10 @@ func TestBaseKubernetesManager_DeleteKustomization(t *testing.T) {
 			return nil, nil
 		}
 		manager.client = kubernetesClient
-		originalActive := tui.Active
-		t.Cleanup(func() { tui.Active = originalActive })
-		var updates []string
-		tui.Active = &tui.MockSpinner{UpdateFunc: func(message string) { updates = append(updates, message) }}
+		ctx, rec := recordProgress(t)
 
 		// When DeleteKustomization waits out the grace retries
-		_ = manager.DeleteKustomization("test-kustomization", "test-namespace")
+		_ = manager.DeleteKustomization(ctx, "test-kustomization", "test-namespace")
 
 		// Then the blocking entry is asked to reconcile, not just re-read
 		if len(triggered) == 0 {
@@ -1364,13 +1358,13 @@ func TestBaseKubernetesManager_DeleteKustomization(t *testing.T) {
 		}
 		// And an operator watching the run sees why it is still waiting, not silence
 		found := false
-		for _, u := range updates {
+		for _, u := range rec.progress() {
 			if strings.Contains(u, "entry-one") && strings.Contains(u, "asked it to reconcile again") {
 				found = true
 			}
 		}
 		if !found {
-			t.Errorf("Expected a progress update naming entry-one, got: %v", updates)
+			t.Errorf("Expected a progress update naming entry-one, got: %v", rec.progress())
 		}
 	})
 
@@ -1402,7 +1396,7 @@ func TestBaseKubernetesManager_DeleteKustomization(t *testing.T) {
 		manager.client = kubernetesClient
 
 		// When DeleteKustomization sees the object disappear
-		err := manager.DeleteKustomization("test-kustomization", "test-namespace")
+		err := manager.DeleteKustomization(context.Background(), "test-kustomization", "test-namespace")
 
 		// Then it reports success once the entry settles
 		if err != nil {
@@ -1435,7 +1429,7 @@ func TestBaseKubernetesManager_DeleteKustomization(t *testing.T) {
 		expectWaitForTermination := true
 
 		// When the destroy walk sees the kustomization disappear
-		err := manager.deleteKustomization("test-kustomization", "test-namespace", &expectWaitForTermination, nil, true)
+		err := manager.deleteKustomization(context.Background(), "test-kustomization", "test-namespace", &expectWaitForTermination, nil, true)
 
 		// Then the delete succeeds: neither entry ever blocked it
 		if err != nil {
@@ -1473,7 +1467,7 @@ func TestBaseKubernetesManager_DeleteKustomization(t *testing.T) {
 		manager.client = kubernetesClient
 
 		// When DeleteKustomization sees the object disappear
-		err := manager.DeleteKustomization("test-kustomization", "test-namespace")
+		err := manager.DeleteKustomization(context.Background(), "test-kustomization", "test-namespace")
 
 		// Then it still recovers, because the inventory size extended the grace
 		// window past the abandonedInventoryGraceChecks floor
@@ -1511,7 +1505,7 @@ func TestBaseKubernetesManager_DeleteKustomization(t *testing.T) {
 		manager.client = kubernetesClient
 
 		// When DeleteKustomization sees the object disappear
-		err := manager.DeleteKustomization("test-kustomization", "test-namespace")
+		err := manager.DeleteKustomization(context.Background(), "test-kustomization", "test-namespace")
 
 		// Then it reports success rather than a false abandoned-inventory error
 		if err != nil {
@@ -1540,7 +1534,7 @@ func TestBaseKubernetesManager_DeleteKustomization(t *testing.T) {
 		manager.client = kubernetesClient
 
 		// When DeleteKustomization sees the object disappear
-		err := manager.DeleteKustomization("test-kustomization", "test-namespace")
+		err := manager.DeleteKustomization(context.Background(), "test-kustomization", "test-namespace")
 
 		// Then it reports success
 		if err != nil {
@@ -1571,7 +1565,7 @@ func TestBaseKubernetesManager_DeleteKustomization(t *testing.T) {
 		manager.client = kubernetesClient
 
 		// When DeleteKustomization sees the object disappear
-		err := manager.DeleteKustomization("test-kustomization", "test-namespace")
+		err := manager.DeleteKustomization(context.Background(), "test-kustomization", "test-namespace")
 
 		// Then the destroy stops rather than reporting a delete it could not confirm
 		if err == nil {
@@ -1596,7 +1590,7 @@ func TestBaseKubernetesManager_DeleteKustomization(t *testing.T) {
 		manager.client = kubernetesClient
 
 		// When DeleteKustomization sees the object disappear
-		err := manager.DeleteKustomization("test-kustomization", "test-namespace")
+		err := manager.DeleteKustomization(context.Background(), "test-kustomization", "test-namespace")
 
 		// Then it reports success
 		if err != nil {
@@ -1654,7 +1648,7 @@ func TestBaseKubernetesManager_DeleteKustomizationOutsideADestroy(t *testing.T) 
 		manager.client = kubernetesClient
 
 		// When DeleteKustomization runs outside a destroy, the way PruneBlueprint calls it
-		err := manager.DeleteKustomization("orphaned-kustomization", "test-namespace")
+		err := manager.DeleteKustomization(context.Background(), "orphaned-kustomization", "test-namespace")
 
 		// Then the finalizer-free object still blocks. The cluster keeps running, so
 		// nothing else will remove it.
@@ -1752,6 +1746,119 @@ func TestBaseKubernetesManager_WaitForKustomizations(t *testing.T) {
 		err := manager.WaitForKustomizations(context.Background(), "Waiting for kustomizations", blueprint)
 		if err != nil {
 			t.Errorf("Expected no error, got %v", err)
+		}
+	})
+
+	t.Run("ReportsEachKustomizationAsAChildStep", func(t *testing.T) {
+		// Given a ready kustomization and a recording presenter
+		manager := setup(t)
+		kubernetesClient := withGVRs(client.NewMockKubernetesClient())
+		kubernetesClient.ListResourcesFunc = func(gvr schema.GroupVersionResource, ns string) (*unstructured.UnstructuredList, error) {
+			return &unstructured.UnstructuredList{Items: []unstructured.Unstructured{
+				kustomizationListItem("test-kustomization", "True", "", ""),
+			}}, nil
+		}
+		manager.client = kubernetesClient
+		ctx, rec := recordProgress(t)
+		blueprint := &blueprintv1alpha1.Blueprint{Kustomizations: []blueprintv1alpha1.Kustomization{{Name: "test-kustomization"}}}
+
+		// When the wait runs
+		err := manager.WaitForKustomizations(ctx, "Waiting for kustomizations", blueprint)
+
+		// Then the wait is one operation with one child per kustomization, and both end as applied
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		started := rec.started()
+		if len(started) != 3 || started[1] != "Waiting for kustomizations" || started[2] != "test-kustomization" {
+			t.Fatalf("Unexpected operations %v", started)
+		}
+		var ended []string
+		for _, e := range rec.events {
+			if e.Kind == presenter.KindApplied {
+				ended = append(ended, e.Message)
+			}
+		}
+		if strings.Join(ended, ",") != "test-kustomization,Waiting for kustomizations" {
+			t.Errorf("Expected the child then the wait to end as applied, got %v", ended)
+		}
+	})
+
+	t.Run("ShowsADependentLayerOnlyAfterItsDependencyIsReady", func(t *testing.T) {
+		// Given "a" Ready from the second list and "b", which depends on it, Ready from the third
+		manager := setup(t)
+		kubernetesClient := withGVRs(client.NewMockKubernetesClient())
+		lists := 0
+		kubernetesClient.ListResourcesFunc = func(gvr schema.GroupVersionResource, ns string) (*unstructured.UnstructuredList, error) {
+			lists++
+			aStatus, bStatus := "False", "False"
+			if lists >= 2 {
+				aStatus = "True"
+			}
+			if lists >= 3 {
+				bStatus = "True"
+			}
+			return &unstructured.UnstructuredList{Items: []unstructured.Unstructured{
+				kustomizationListItem("a", aStatus, "", ""),
+				kustomizationListItem("b", bStatus, "", ""),
+			}}, nil
+		}
+		manager.client = kubernetesClient
+		ctx, rec := recordProgress(t)
+		blueprint := &blueprintv1alpha1.Blueprint{Kustomizations: []blueprintv1alpha1.Kustomization{
+			{Name: "a", Timeout: &blueprintv1alpha1.DurationString{Duration: time.Second}},
+			{Name: "b", DependsOn: []string{"a"}, Timeout: &blueprintv1alpha1.DurationString{Duration: time.Second}},
+		}}
+
+		// When the wait runs
+		if err := manager.WaitForKustomizations(ctx, "Waiting for kustomizations", blueprint); err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+
+		// Then "b" starts only after "a" ends
+		var order []string
+		for _, e := range rec.events {
+			if e.Message == "a" || e.Message == "b" {
+				order = append(order, string(e.Kind)+":"+e.Message)
+			}
+		}
+		want := []string{"applying:a", "applied:a", "applying:b", "applied:b"}
+		if strings.Join(order, ",") != strings.Join(want, ",") {
+			t.Errorf("Expected %v, got %v", want, order)
+		}
+	})
+
+	t.Run("EndsUnreadyLayersAsFailedOnTimeout", func(t *testing.T) {
+		// Given a kustomization that never becomes ready and a recording presenter
+		manager := setup(t)
+		kubernetesClient := withGVRs(client.NewMockKubernetesClient())
+		kubernetesClient.ListResourcesFunc = func(gvr schema.GroupVersionResource, ns string) (*unstructured.UnstructuredList, error) {
+			return &unstructured.UnstructuredList{Items: []unstructured.Unstructured{
+				kustomizationListItem("test-kustomization", "False", "Progressing", "still reconciling"),
+			}}, nil
+		}
+		manager.client = kubernetesClient
+		ctx, rec := recordProgress(t)
+		blueprint := &blueprintv1alpha1.Blueprint{Kustomizations: []blueprintv1alpha1.Kustomization{{
+			Name:    "test-kustomization",
+			Timeout: &blueprintv1alpha1.DurationString{Duration: 200 * time.Millisecond},
+		}}}
+
+		// When the wait runs out of time
+		err := manager.WaitForKustomizations(ctx, "Waiting for kustomizations", blueprint)
+
+		// Then the unready kustomization and the wait both end as failed with the error
+		if err == nil {
+			t.Fatal("Expected a timeout error")
+		}
+		var failed []string
+		for _, e := range rec.events {
+			if e.Kind == presenter.KindFailed && e.Err != nil {
+				failed = append(failed, e.Message)
+			}
+		}
+		if strings.Join(failed, ",") != "test-kustomization,Waiting for kustomizations" {
+			t.Errorf("Expected the child then the wait to fail, got %v", failed)
 		}
 	})
 
@@ -4948,7 +5055,7 @@ func TestBaseKubernetesManager_DeleteBlueprint(t *testing.T) {
 			},
 		}
 
-		err := manager.DeleteBlueprint(blueprint, "test-namespace")
+		err := manager.DeleteBlueprint(context.Background(), blueprint, "test-namespace")
 		if err != nil {
 			t.Errorf("Expected no error, got %v", err)
 		}
@@ -5003,7 +5110,7 @@ func TestBaseKubernetesManager_DeleteBlueprint(t *testing.T) {
 		}
 
 		// When DeleteBlueprint deletes it
-		err := manager.DeleteBlueprint(blueprint, "test-namespace")
+		err := manager.DeleteBlueprint(context.Background(), blueprint, "test-namespace")
 
 		// Then it does not abort at the spec.timeout-derived window, since
 		// DeleteTimeout replaces that heuristic as the wait floor
@@ -5043,7 +5150,7 @@ func TestBaseKubernetesManager_DeleteBlueprint(t *testing.T) {
 			},
 		}
 
-		err := manager.DeleteBlueprint(blueprint, "test-namespace")
+		err := manager.DeleteBlueprint(context.Background(), blueprint, "test-namespace")
 		if err != nil {
 			t.Errorf("Expected no error, got %v", err)
 		}
@@ -5088,7 +5195,7 @@ func TestBaseKubernetesManager_DeleteBlueprint(t *testing.T) {
 			},
 		}
 
-		err := manager.DeleteBlueprint(blueprint, "test-namespace")
+		err := manager.DeleteBlueprint(context.Background(), blueprint, "test-namespace")
 		if err != nil {
 			t.Fatalf("Expected no error, got %v", err)
 		}
@@ -5142,7 +5249,7 @@ func TestBaseKubernetesManager_DeleteBlueprint(t *testing.T) {
 			Kustomizations: []blueprintv1alpha1.Kustomization{{Name: "test-kustomization-1"}},
 		}
 
-		err := manager.DeleteBlueprint(blueprint, "test-namespace")
+		err := manager.DeleteBlueprint(context.Background(), blueprint, "test-namespace")
 		if err == nil {
 			t.Fatal("Expected error when suspend fails, got nil")
 		}
@@ -5176,7 +5283,7 @@ func TestBaseKubernetesManager_DeleteBlueprint(t *testing.T) {
 			Kustomizations: []blueprintv1alpha1.Kustomization{{Name: "test-kustomization-1"}},
 		}
 
-		err := manager.DeleteBlueprint(blueprint, "test-namespace")
+		err := manager.DeleteBlueprint(context.Background(), blueprint, "test-namespace")
 		if err != nil {
 			t.Fatalf("Expected NotFound on suspend to be tolerated, got %v", err)
 		}
@@ -5219,7 +5326,7 @@ func TestBaseKubernetesManager_DeleteBlueprint(t *testing.T) {
 		}
 
 		// When the blueprint is deleted
-		err := manager.DeleteBlueprint(blueprint, "test-namespace")
+		err := manager.DeleteBlueprint(context.Background(), blueprint, "test-namespace")
 		if err != nil {
 			t.Fatalf("Expected no error, got %v", err)
 		}
@@ -5301,7 +5408,7 @@ func TestBaseKubernetesManager_DeleteBlueprint(t *testing.T) {
 		// When test-kustomization-2 fails to delete (no DependsOn, so the destroy
 		// walk visits the input in reverse: test-kustomization-2 then
 		// test-kustomization-1)
-		err := manager.DeleteBlueprint(blueprint, "test-namespace")
+		err := manager.DeleteBlueprint(context.Background(), blueprint, "test-namespace")
 
 		// Then the failure is surfaced, and the unrelated test-kustomization-1 is
 		// still resumed and deleted rather than left behind
@@ -5384,7 +5491,7 @@ func TestBaseKubernetesManager_DeleteBlueprint(t *testing.T) {
 			},
 		}
 
-		err := manager.DeleteBlueprint(blueprint, "test-namespace")
+		err := manager.DeleteBlueprint(context.Background(), blueprint, "test-namespace")
 		if err != nil {
 			t.Errorf("Expected no error, got %v", err)
 		}
@@ -5463,7 +5570,7 @@ func TestBaseKubernetesManager_DeleteBlueprint(t *testing.T) {
 		}
 
 		// When DeleteBlueprint deletes it
-		err := manager.DeleteBlueprint(blueprint, "test-namespace")
+		err := manager.DeleteBlueprint(context.Background(), blueprint, "test-namespace")
 
 		// Then it does not abort at the spec.timeout-derived window, since
 		// DeleteTimeout replaces that heuristic for destroy-only kustomizations too
@@ -5532,7 +5639,7 @@ func TestBaseKubernetesManager_DeleteBlueprint(t *testing.T) {
 			},
 		}
 
-		err := manager.DeleteBlueprint(blueprint, "test-namespace")
+		err := manager.DeleteBlueprint(context.Background(), blueprint, "test-namespace")
 		if err != nil {
 			t.Errorf("Expected no error, got %v", err)
 		}
@@ -5616,7 +5723,7 @@ func TestBaseKubernetesManager_DeleteBlueprint(t *testing.T) {
 			},
 		}
 
-		err := manager.DeleteBlueprint(blueprint, "test-namespace")
+		err := manager.DeleteBlueprint(context.Background(), blueprint, "test-namespace")
 		if err == nil {
 			t.Error("Expected error when destroy-only kustomization does not become ready")
 		}
@@ -5685,7 +5792,7 @@ func TestBaseKubernetesManager_DeleteBlueprint(t *testing.T) {
 			},
 		}
 
-		err := manager.DeleteBlueprint(blueprint, "test-namespace")
+		err := manager.DeleteBlueprint(context.Background(), blueprint, "test-namespace")
 		if err != nil {
 			t.Errorf("Expected no error, got %v", err)
 		}
@@ -5758,7 +5865,7 @@ func TestBaseKubernetesManager_DeleteBlueprint(t *testing.T) {
 			},
 		}
 
-		err := manager.DeleteBlueprint(blueprint, "test-namespace")
+		err := manager.DeleteBlueprint(context.Background(), blueprint, "test-namespace")
 		if err != nil {
 			t.Errorf("Expected no error, got %v", err)
 		}
@@ -5836,7 +5943,7 @@ func TestBaseKubernetesManager_DeleteBlueprint(t *testing.T) {
 			},
 		}
 
-		err := manager.DeleteBlueprint(blueprint, "test-namespace")
+		err := manager.DeleteBlueprint(context.Background(), blueprint, "test-namespace")
 		if err != nil {
 			t.Errorf("Expected no error, got %v", err)
 		}
@@ -5872,7 +5979,7 @@ func TestBaseKubernetesManager_DeleteBlueprint(t *testing.T) {
 			},
 		}
 
-		err := manager.DeleteBlueprint(blueprint, "test-namespace")
+		err := manager.DeleteBlueprint(context.Background(), blueprint, "test-namespace")
 		if err == nil {
 			t.Error("Expected error, got nil")
 		}
@@ -5928,7 +6035,7 @@ func TestBaseKubernetesManager_DeleteBlueprint(t *testing.T) {
 			},
 		}
 
-		err := manager.DeleteBlueprint(blueprint, "test-namespace")
+		err := manager.DeleteBlueprint(context.Background(), blueprint, "test-namespace")
 		if err == nil {
 			t.Error("Expected error, got nil")
 		}
@@ -5964,7 +6071,7 @@ func TestBaseKubernetesManager_DeleteBlueprint(t *testing.T) {
 			},
 		}
 
-		err := manager.DeleteBlueprint(blueprint, "test-namespace")
+		err := manager.DeleteBlueprint(context.Background(), blueprint, "test-namespace")
 		if err == nil {
 			t.Error("Expected error, got nil")
 		}
@@ -6016,7 +6123,7 @@ func TestBaseKubernetesManager_DeleteBlueprint(t *testing.T) {
 			},
 		}
 
-		err := manager.DeleteBlueprint(blueprint, "test-namespace")
+		err := manager.DeleteBlueprint(context.Background(), blueprint, "test-namespace")
 		if err == nil {
 			t.Error("Expected error, got nil")
 		}
@@ -6086,7 +6193,7 @@ func TestBaseKubernetesManager_DeleteBlueprint(t *testing.T) {
 			},
 		}
 
-		err := manager.DeleteBlueprint(blueprint, "test-namespace")
+		err := manager.DeleteBlueprint(context.Background(), blueprint, "test-namespace")
 		if err == nil {
 			t.Error("Expected error, got nil")
 		}
@@ -6184,7 +6291,7 @@ func TestBaseKubernetesManager_DeleteBlueprint(t *testing.T) {
 			},
 		}
 
-		err := manager.DeleteBlueprint(blueprint, "test-namespace")
+		err := manager.DeleteBlueprint(context.Background(), blueprint, "test-namespace")
 		if err != nil {
 			t.Errorf("Expected no error, got %v", err)
 		}
@@ -6273,7 +6380,7 @@ func TestBaseKubernetesManager_DeleteBlueprint(t *testing.T) {
 			},
 		}
 
-		err := manager.DeleteBlueprint(blueprint, "test-namespace")
+		err := manager.DeleteBlueprint(context.Background(), blueprint, "test-namespace")
 		if err != nil {
 			t.Errorf("Expected no error, got %v", err)
 		}
@@ -6322,7 +6429,7 @@ func TestBaseKubernetesManager_DeleteBlueprint(t *testing.T) {
 			},
 		}
 
-		err := manager.DeleteBlueprint(blueprint, "test-namespace")
+		err := manager.DeleteBlueprint(context.Background(), blueprint, "test-namespace")
 		if err == nil {
 			t.Error("Expected error, got nil")
 		}
@@ -6384,7 +6491,7 @@ func TestBaseKubernetesManager_DeleteBlueprint(t *testing.T) {
 		}
 
 		// When DeleteBlueprint deletes it
-		err := manager.DeleteBlueprint(blueprint, "test-namespace")
+		err := manager.DeleteBlueprint(context.Background(), blueprint, "test-namespace")
 
 		// Then it still reports the abandoned inventory: the current blueprint's
 		// destroy:true is trusted over the live object's stale MirrorPrune field
@@ -6433,7 +6540,7 @@ func TestBaseKubernetesManager_DeleteBlueprint(t *testing.T) {
 			},
 		}
 
-		err := manager.DeleteBlueprint(blueprint, "test-namespace")
+		err := manager.DeleteBlueprint(context.Background(), blueprint, "test-namespace")
 		if err == nil {
 			t.Fatal("Expected error, got nil")
 		}
@@ -6518,7 +6625,7 @@ func TestBaseKubernetesManager_DeleteBlueprint(t *testing.T) {
 			},
 		}
 
-		err := manager.DeleteBlueprint(blueprint, "test-namespace")
+		err := manager.DeleteBlueprint(context.Background(), blueprint, "test-namespace")
 		if err != nil {
 			t.Errorf("Expected no error, got %v", err)
 		}
@@ -6615,7 +6722,7 @@ func TestBaseKubernetesManager_DeleteKustomizationHelmUninstallTimeout(t *testin
 		}
 		manager.client = kubernetesClient
 
-		err := manager.DeleteKustomization("pki-install", "system-gitops")
+		err := manager.DeleteKustomization(context.Background(), "pki-install", "system-gitops")
 		if err == nil {
 			t.Fatal("Expected the never-deleted kustomization to time out, got nil")
 		}
@@ -6732,7 +6839,7 @@ func TestBaseKubernetesManager_DeleteKustomizationHelmUninstallTimeout(t *testin
 		override := 10 * time.Minute
 
 		// When the delete waits
-		err := manager.deleteKustomization("pki-install", "system-gitops", nil, &override, true)
+		err := manager.deleteKustomization(context.Background(), "pki-install", "system-gitops", nil, &override, true)
 
 		// Then the operator's explicit bound wins over the chart's declaration
 		if err == nil {
@@ -6775,13 +6882,10 @@ func TestBaseKubernetesManager_DeleteKustomizationReadFailures(t *testing.T) {
 			return nil, fmt.Errorf("the server could not find the requested resource")
 		}
 		manager.client = kubernetesClient
-		originalActive := tui.Active
-		t.Cleanup(func() { tui.Active = originalActive })
-		var updates []string
-		tui.Active = &tui.MockSpinner{UpdateFunc: func(message string) { updates = append(updates, message) }}
+		ctx, rec := recordProgress(t)
 
 		// When DeleteKustomization runs
-		err := manager.DeleteKustomization("demo-resources", "system-gitops")
+		err := manager.DeleteKustomization(ctx, "demo-resources", "system-gitops")
 
 		// Then the blip does not abort a delete flux went on to complete
 		if err != nil {
@@ -6792,13 +6896,13 @@ func TestBaseKubernetesManager_DeleteKustomizationReadFailures(t *testing.T) {
 		}
 		// And an operator watching the run sees the retry, not silence for the whole poll
 		sawRetry := false
-		for _, u := range updates {
+		for _, u := range rec.progress() {
 			if strings.Contains(u, "retrying after a read error") {
 				sawRetry = true
 			}
 		}
 		if !sawRetry {
-			t.Errorf("Expected a progress update naming the read-error retry, got: %v", updates)
+			t.Errorf("Expected a progress update naming the read-error retry, got: %v", rec.progress())
 		}
 	})
 
@@ -6821,7 +6925,7 @@ func TestBaseKubernetesManager_DeleteKustomizationReadFailures(t *testing.T) {
 		manager.client = kubernetesClient
 
 		// When DeleteKustomization runs
-		err := manager.DeleteKustomization("demo-resources", "system-gitops")
+		err := manager.DeleteKustomization(context.Background(), "demo-resources", "system-gitops")
 
 		// Then an unverifiable disappearance fails rather than reporting a clean delete
 		if err == nil {
@@ -6848,7 +6952,7 @@ func TestBaseKubernetesManager_DeleteKustomizationReadFailures(t *testing.T) {
 		manager.client = kubernetesClient
 
 		// When DeleteKustomization runs
-		err := manager.DeleteKustomization("demo-resources", "system-gitops")
+		err := manager.DeleteKustomization(context.Background(), "demo-resources", "system-gitops")
 
 		// Then it absorbs exactly the configured tolerance before surfacing
 		if err == nil {
@@ -6885,7 +6989,7 @@ func TestBaseKubernetesManager_DeleteKustomizationReadFailures(t *testing.T) {
 		manager.client = kubernetesClient
 
 		// When DeleteKustomization runs
-		err := manager.DeleteKustomization("demo-resources", "system-gitops")
+		err := manager.DeleteKustomization(context.Background(), "demo-resources", "system-gitops")
 
 		// Then a successful read clears the count rather than accumulating
 		if err != nil {
@@ -8959,7 +9063,7 @@ func TestBaseKubernetesManager_DeleteKustomizationVerifiesChartResources(t *test
 		manager.client = kubernetesClient
 
 		// When DeleteKustomization runs
-		err := manager.DeleteKustomization("cert-manager", "system-pki")
+		err := manager.DeleteKustomization(context.Background(), "cert-manager", "system-pki")
 
 		// Then the leftover is named, rather than the wrapper's absence being trusted
 		if err == nil {
@@ -8998,7 +9102,7 @@ func TestBaseKubernetesManager_DeleteKustomizationVerifiesChartResources(t *test
 		manager.client = kubernetesClient
 
 		// When DeleteKustomization runs
-		err := manager.DeleteKustomization("cert-manager", "system-pki")
+		err := manager.DeleteKustomization(context.Background(), "cert-manager", "system-pki")
 
 		// Then the delete is clean
 		if err != nil {
@@ -9032,7 +9136,7 @@ func TestBaseKubernetesManager_DeleteKustomizationVerifiesChartResources(t *test
 		manager.client = kubernetesClient
 
 		// When DeleteKustomization runs
-		err := manager.DeleteKustomization("cert-manager", "system-pki")
+		err := manager.DeleteKustomization(context.Background(), "cert-manager", "system-pki")
 
 		// Then an unread chart inventory is not treated as an empty one
 		if err == nil {
@@ -9064,7 +9168,7 @@ func TestBaseKubernetesManager_DeleteKustomizationVerifiesChartResources(t *test
 		manager.client = kubernetesClient
 
 		// When DeleteKustomization runs
-		err := manager.DeleteKustomization("cert-manager", "system-pki")
+		err := manager.DeleteKustomization(context.Background(), "cert-manager", "system-pki")
 
 		// Then an unobserved chart is not credited as a clean teardown
 		if err == nil {
@@ -9105,7 +9209,7 @@ func TestBaseKubernetesManager_DeleteKustomizationVerifiesChartResources(t *test
 		manager.client = kubernetesClient
 
 		// When DeleteKustomization runs
-		err := manager.DeleteKustomization("cert-manager", "system-pki")
+		err := manager.DeleteKustomization(context.Background(), "cert-manager", "system-pki")
 
 		// Then it falls back to the older answer rather than failing every destroy
 		if err != nil {
@@ -9139,7 +9243,7 @@ func TestBaseKubernetesManager_DeleteKustomizationVerifiesChartResources(t *test
 		manager.client = kubernetesClient
 
 		// When DeleteKustomization runs
-		err := manager.DeleteKustomization("cert-manager", "system-pki")
+		err := manager.DeleteKustomization(context.Background(), "cert-manager", "system-pki")
 
 		// Then a partial reading is not verified as if it were complete
 		if err == nil {
@@ -9179,7 +9283,7 @@ func TestBaseKubernetesManager_DeleteKustomizationVerifiesChartResources(t *test
 		manager.client = kubernetesClient
 
 		// When DeleteKustomization runs
-		err := manager.DeleteKustomization("cert-manager", "system-pki")
+		err := manager.DeleteKustomization(context.Background(), "cert-manager", "system-pki")
 
 		// Then the nested release is reported rather than skipped as gone
 		if err == nil {
@@ -9222,7 +9326,7 @@ func TestBaseKubernetesManager_DeleteKustomizationVerifiesChartResources(t *test
 		manager.client = kubernetesClient
 
 		// When DeleteKustomization runs
-		err := manager.DeleteKustomization("cert-manager", "system-pki")
+		err := manager.DeleteKustomization(context.Background(), "cert-manager", "system-pki")
 
 		// Then the pre-delete snapshot still verifies the chart's resources are gone
 		if err != nil {
@@ -9252,7 +9356,7 @@ func TestBaseKubernetesManager_DeleteKustomizationVerifiesChartResources(t *test
 		manager.client = kubernetesClient
 
 		// When the delete times out
-		err := manager.DeleteKustomization("cert-manager", "system-pki")
+		err := manager.DeleteKustomization(context.Background(), "cert-manager", "system-pki")
 
 		// Then an undecodable inventory is not reported as a confirmed-empty one
 		if err == nil {
@@ -9295,7 +9399,7 @@ func TestBaseKubernetesManager_DeleteKustomizationVerifiesChartResources(t *test
 		manager.client = kubernetesClient
 
 		// When DeleteKustomization runs
-		err := manager.DeleteKustomization("cert-manager", "system-pki")
+		err := manager.DeleteKustomization(context.Background(), "cert-manager", "system-pki")
 
 		// Then the earlier reading still governs, rather than the empty later one
 		if err == nil {

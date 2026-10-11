@@ -1,6 +1,7 @@
 package provisioner
 
 import (
+	"context"
 	"fmt"
 	"slices"
 	"strings"
@@ -20,7 +21,7 @@ func TestProvisioner_Bootstrap(t *testing.T) {
 		mocks := setupProvisionerMocks(t)
 		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler)
 
-		if _, err := provisioner.Bootstrap(nil); err == nil {
+		if _, err := provisioner.Bootstrap(context.Background(), nil); err == nil {
 			t.Fatal("Expected error for nil blueprint, got nil")
 		}
 	})
@@ -60,7 +61,7 @@ func TestProvisioner_Bootstrap(t *testing.T) {
 		}
 		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{TerraformStack: mockStack})
 
-		if _, err := provisioner.Bootstrap(bp); err != nil {
+		if _, err := provisioner.Bootstrap(context.Background(), bp); err != nil {
 			t.Fatalf("Expected no error, got %v", err)
 		}
 		// Must be a plain Up — no backend pinning, no migrate dance.
@@ -100,7 +101,7 @@ func TestProvisioner_Bootstrap(t *testing.T) {
 		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{TerraformStack: mockStack})
 		provisioner.configRoot = t.TempDir() // no .kube/config — cluster not yet created
 
-		if _, err := provisioner.Bootstrap(bp); err == nil {
+		if _, err := provisioner.Bootstrap(context.Background(), bp); err == nil {
 			t.Fatal("Expected error, got nil")
 		} else if !strings.Contains(err.Error(), "no kubeconfig") || !strings.Contains(err.Error(), "backend:") {
 			t.Errorf("Expected error to explain the missing backend declaration, got: %v", err)
@@ -130,7 +131,7 @@ func TestProvisioner_Bootstrap(t *testing.T) {
 		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{TerraformStack: mockStack})
 		provisioner.configRoot = t.TempDir() // no kubeconfig
 
-		if _, err := provisioner.Bootstrap(bp); err != nil {
+		if _, err := provisioner.Bootstrap(context.Background(), bp); err != nil {
 			t.Fatalf("Expected no error for an empty blueprint, got %v", err)
 		}
 	})
@@ -172,7 +173,7 @@ func TestProvisioner_Bootstrap(t *testing.T) {
 		}
 		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{TerraformStack: mockStack})
 
-		_, err := provisioner.Bootstrap(bp)
+		_, err := provisioner.Bootstrap(context.Background(), bp)
 		if err != nil {
 			t.Fatalf("Expected no error, got %v", err)
 		}
@@ -218,7 +219,7 @@ func TestProvisioner_Bootstrap(t *testing.T) {
 		}
 		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{TerraformStack: mockStack})
 
-		_, err := provisioner.Bootstrap(bp)
+		_, err := provisioner.Bootstrap(context.Background(), bp)
 		if err != nil {
 			t.Fatalf("Expected no error, got %v", err)
 		}
@@ -276,7 +277,7 @@ func TestProvisioner_Bootstrap(t *testing.T) {
 		}
 		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{TerraformStack: mockStack})
 
-		_, err := provisioner.Bootstrap(bp)
+		_, err := provisioner.Bootstrap(context.Background(), bp)
 		if err != nil {
 			t.Fatalf("Expected no error, got %v", err)
 		}
@@ -361,7 +362,7 @@ func TestProvisioner_Bootstrap(t *testing.T) {
 		}
 		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{TerraformStack: mockStack})
 
-		_, err := provisioner.Bootstrap(bp)
+		_, err := provisioner.Bootstrap(context.Background(), bp)
 		if err != nil {
 			t.Fatalf("Expected no error, got %v", err)
 		}
@@ -437,7 +438,7 @@ func TestProvisioner_Bootstrap(t *testing.T) {
 		}
 		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{TerraformStack: mockStack})
 
-		_, err := provisioner.Bootstrap(bp)
+		_, err := provisioner.Bootstrap(context.Background(), bp)
 		if err != nil {
 			t.Fatalf("Expected no error, got %v", err)
 		}
@@ -493,7 +494,7 @@ func TestProvisioner_Bootstrap(t *testing.T) {
 		}
 		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{TerraformStack: mockStack})
 
-		_, err := provisioner.Bootstrap(bp)
+		_, err := provisioner.Bootstrap(context.Background(), bp)
 		if err == nil {
 			t.Fatal("Expected error, got nil")
 		}
@@ -548,7 +549,7 @@ func TestProvisioner_Bootstrap(t *testing.T) {
 		}
 		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{TerraformStack: mockStack})
 
-		_, err := provisioner.Bootstrap(bp)
+		_, err := provisioner.Bootstrap(context.Background(), bp)
 		if err == nil {
 			t.Fatal("Expected error from Stage 2 migrate failure, got nil")
 		}
@@ -593,7 +594,7 @@ func TestProvisioner_Bootstrap(t *testing.T) {
 		}
 		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{TerraformStack: mockStack})
 
-		_, err := provisioner.Bootstrap(bp)
+		_, err := provisioner.Bootstrap(context.Background(), bp)
 		if err == nil {
 			t.Fatal("Expected error for skipped-after-apply, got nil")
 		}
@@ -650,7 +651,7 @@ func TestProvisioner_Bootstrap(t *testing.T) {
 		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{TerraformStack: mockStack})
 		var err error
 		stderrOutput := captureStderr(t, func() {
-			_, err = provisioner.Bootstrap(bp)
+			_, err = provisioner.Bootstrap(context.Background(), bp)
 		})
 
 		if err != nil {
@@ -720,7 +721,7 @@ func TestProvisioner_Up_BackendPivot(t *testing.T) {
 		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{TerraformStack: mockStack})
 		provisioner.configRoot = t.TempDir() // no kubeconfig — genuinely from zero
 
-		if _, err := provisioner.Up(bp); err != nil {
+		if _, err := provisioner.Up(context.Background(), bp); err != nil {
 			t.Fatalf("Expected no error, got %v", err)
 		}
 
@@ -763,7 +764,7 @@ func TestProvisioner_Up_BackendPivot(t *testing.T) {
 		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{TerraformStack: mockStack})
 		// setupProvisionerMocks seeds a kubeconfig by default — cluster already exists.
 
-		if _, err := provisioner.Up(bp); err != nil {
+		if _, err := provisioner.Up(context.Background(), bp); err != nil {
 			t.Fatalf("Expected no error, got %v", err)
 		}
 		if !upCalled {
@@ -815,7 +816,7 @@ func TestProvisioner_Up_BackendPivot(t *testing.T) {
 
 		var err error
 		stderrOutput := captureStderr(t, func() {
-			_, err = provisioner.Up(bp)
+			_, err = provisioner.Up(context.Background(), bp)
 		})
 
 		if err != nil {
@@ -979,7 +980,7 @@ func TestProvisioner_recoverHalfMigratedComponents(t *testing.T) {
 		}
 		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{TerraformStack: mockStack})
 
-		if _, err := provisioner.Up(bp); err != nil {
+		if _, err := provisioner.Up(context.Background(), bp); err != nil {
 			t.Fatalf("Expected no error, got %v", err)
 		}
 
@@ -1048,7 +1049,7 @@ func TestProvisioner_recoverHalfMigratedComponents(t *testing.T) {
 		}
 		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{TerraformStack: mockStack})
 
-		if _, err := provisioner.Up(bp); err != nil {
+		if _, err := provisioner.Up(context.Background(), bp); err != nil {
 			t.Fatalf("Expected no error, got %v", err)
 		}
 
@@ -1094,7 +1095,7 @@ func TestProvisioner_recoverHalfMigratedComponents(t *testing.T) {
 
 		var err error
 		stderrOutput := captureStderr(t, func() {
-			_, err = provisioner.Up(bp)
+			_, err = provisioner.Up(context.Background(), bp)
 		})
 
 		if err != nil {
@@ -1158,7 +1159,7 @@ func TestProvisioner_recoverHalfMigratedComponents(t *testing.T) {
 		}
 		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{TerraformStack: mockStack})
 
-		_, err := provisioner.Up(bp)
+		_, err := provisioner.Up(context.Background(), bp)
 		if err == nil {
 			t.Fatal("Expected Up to fail on recovery probe error, got nil")
 		}
@@ -1237,7 +1238,7 @@ func TestProvisioner_recoverHalfMigratedComponents(t *testing.T) {
 		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{TerraformStack: mockStack})
 		var err error
 		stderrOutput := captureStderr(t, func() {
-			_, err = provisioner.Up(bp)
+			_, err = provisioner.Up(context.Background(), bp)
 		})
 
 		if err != nil {
@@ -1302,7 +1303,7 @@ func TestProvisioner_recoverHalfMigratedComponents(t *testing.T) {
 		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{TerraformStack: mockStack})
 		var err error
 		stderrOutput := captureStderr(t, func() {
-			_, err = provisioner.Up(bp)
+			_, err = provisioner.Up(context.Background(), bp)
 		})
 
 		if err != nil {

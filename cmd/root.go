@@ -45,6 +45,9 @@ var contextFlag string
 // formatFlag selects the output format for progress, logs, and errors: text or json.
 var formatFlag string
 
+// closeOutput restores the terminal after the command. withOutput sets it.
+var closeOutput func()
+
 // Define a custom type for context keys
 type contextKey string
 
@@ -52,13 +55,13 @@ const projectOverridesKey = contextKey("projectOverrides")
 const composerOverridesKey = contextKey("composerOverrides")
 const runtimeOverridesKey = contextKey("runtimeOverrides")
 const testRunnerOverridesKey = contextKey("testRunnerOverrides")
-const presenterKey = contextKey("presenter")
 
 // Execute is the main entry point for the Windsor CLI application.
 // It executes the root command with the provided context or a new background context.
 // Sets the root command's context before execution so cmd.Root().Context() is correct
 // when RunE runs (Cobra does not always propagate context to root on subsequent runs).
-// It renders a returned error once, unless the failing command already reported it.
+// It restores the terminal, then renders a returned error once, unless the failing command
+// already reported it.
 func Execute() error {
 	ctx := rootCmd.Context()
 	if ctx == nil {
@@ -66,6 +69,10 @@ func Execute() error {
 	}
 	rootCmd.SetContext(ctx)
 	executed, err := rootCmd.ExecuteContextC(ctx)
+	if closeOutput != nil {
+		closeOutput()
+		closeOutput = nil
+	}
 	if err != nil && (executed == nil || !executed.SilenceErrors) {
 		renderError(rootCmd.ErrOrStderr(), err)
 	}
@@ -249,7 +256,8 @@ func silenceErrorsOnAncestors(cmd *cobra.Command) {
 // preserved when the flag is not set. --debug and WINDSOR_DEBUG=true both enable
 // debug.Log output for the run; either one is enough. --context builds a runtime override
 // through NewRuntime, so every field (Evaluator, ToolsManager, ...) is fully hydrated, then
-// injects it under both override keys a caller might read.
+// injects it under both override keys a caller might read. Under --format json, the legacy tui
+// spinner writes nothing.
 func setupGlobalContext(cmd *cobra.Command) error {
 	ctx := cmd.Root().Context()
 	if ctx == nil {
@@ -283,19 +291,47 @@ func setupGlobalContext(cmd *cobra.Command) error {
 	debug.Log("debug logging enabled")
 	cmd.SetContext(ctx)
 	tui.Init(verbose)
+	if format == logging.FormatJSON {
+		tui.Silence()
+	}
 	return nil
 }
 
 // withOutput returns ctx with a presenter for format that writes to w, and a logger that routes
 // into it. Logs show at debug level under --verbose and at warn level otherwise. The console
 // animates only when w is a terminal and --verbose is off, because verbose runs stream
-// subprocess output to the same terminal.
+// subprocess output to the same terminal. While the console shows an operation, the legacy tui
+// spinner stays silent, and tui.Pause also pauses the console. An interrupt restores the terminal
+// before the process exits, and Execute restores it after the command returns.
 func withOutput(ctx context.Context, w io.Writer, format logging.Format) context.Context {
 	level := slog.LevelWarn
 	if verbose {
 		level = slog.LevelDebug
 	}
-	p := presenter.New(format, w, level, !verbose)
-	ctx = context.WithValue(ctx, presenterKey, p)
+	p := presenter.New(format, w, presenter.ConsoleOptions{Level: level, Interactive: !verbose, OnActive: holdLegacySpinner()})
+	if c, ok := p.(*presenter.Console); ok {
+		tui.SetPauseHooks(c.Pause, c.Resume)
+		stopWatch := c.WatchInterrupts(tui.InterruptsGuarded)
+		closeOutput = func() {
+			stopWatch()
+			c.Close()
+		}
+	}
+	ctx = presenter.NewContext(ctx, p)
 	return logging.NewContext(ctx, slog.New(presenter.NewLogHandler(p, level)))
+}
+
+// holdLegacySpinner returns an activity callback that holds the tui spinner while active is true.
+func holdLegacySpinner() func(bool) {
+	var release func()
+	return func(active bool) {
+		if active {
+			release = tui.Hold()
+			return
+		}
+		if release != nil {
+			release()
+			release = nil
+		}
+	}
 }

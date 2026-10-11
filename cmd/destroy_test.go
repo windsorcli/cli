@@ -13,6 +13,7 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
 	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
+	"github.com/windsorcli/cli/internal/presenter"
 	"github.com/windsorcli/cli/pkg/composer"
 	"github.com/windsorcli/cli/pkg/composer/blueprint"
 	"github.com/windsorcli/cli/pkg/project"
@@ -1106,6 +1107,27 @@ func TestDestroyCmd(t *testing.T) {
 		}
 		if !strings.Contains(err.Error(), "--continue applies to layer-wide destroy only") {
 			t.Errorf("Expected scope-mismatch error, got: %v", err)
+		}
+	})
+
+	t.Run("TracksDestroyPlanGenerationAsAnOperation", func(t *testing.T) {
+		// Given a destroy command with a recording presenter and a matching confirmation
+		mocks := setupDestroyTest(t)
+		proj := newDestroyProject(mocks)
+		rec := &eventRecorder{}
+		cmd := createTestDestroyCmd()
+		cmd.SetArgs([]string{"--confirm=test-context"})
+		cmd.SetContext(presenter.NewContext(context.WithValue(context.Background(), projectOverridesKey, proj), rec))
+
+		// When destroy runs
+		err := cmd.Execute()
+
+		// Then destroy plan generation is the first operation
+		if err != nil {
+			t.Fatalf("expected no error, got %v", err)
+		}
+		if ops := rec.operations(); len(ops) == 0 || ops[0] != "Generating destroy plan" {
+			t.Errorf("expected Generating destroy plan first, got %v", ops)
 		}
 	})
 }
