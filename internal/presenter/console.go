@@ -1,7 +1,7 @@
 // The Console is the Presenter for human-readable terminal output.
-// It provides a tree of operations: finished steps stay on screen and nest under their parent.
-// In plain mode it prints one line per event, which suits logs and CI output.
-// In interactive mode it animates the active leaf operations in a live region below the tree,
+// In plain mode it writes one logfmt line per event, which suits verbose runs and CI logs.
+// In interactive mode it draws a tree of operations: finished steps stay on screen under their
+// parent. It animates the active leaf operations in a live region below the tree,
 // and its Terminal hides the cursor and input echo while that region is on screen.
 
 package presenter
@@ -67,12 +67,13 @@ type ConsoleOptions struct {
 	Now func() time.Time
 }
 
-// Console renders events as an indented tree of lines.
+// Console renders events as an indented tree of lines, or as logfmt lines in plain mode.
 type Console struct {
 	mu      sync.Mutex
 	w       io.Writer
 	opts    ConsoleOptions
 	logs    slog.Handler
+	steps   slog.Handler
 	ops     map[string]*consoleOp
 	order   []*consoleOp
 	drawn   int
@@ -88,6 +89,7 @@ type consoleOp struct {
 	id        string
 	depth     int
 	message   string
+	path      string
 	progress  string
 	printed   bool
 	children  int
@@ -104,10 +106,11 @@ type consoleOp struct {
 // NewConsole returns a Console that writes to w.
 func NewConsole(w io.Writer, opts ConsoleOptions) *Console {
 	return &Console{
-		w:    w,
-		opts: opts,
-		logs: logging.NewHandler(w, logging.FormatText, opts.Level),
-		ops:  map[string]*consoleOp{},
+		w:     w,
+		opts:  opts,
+		logs:  logging.NewHandler(w, logging.FormatText, opts.Level),
+		steps: logging.NewHandler(w, logging.FormatText, slog.LevelInfo),
+		ops:   map[string]*consoleOp{},
 	}
 }
 
@@ -115,12 +118,30 @@ func NewConsole(w io.Writer, opts ConsoleOptions) *Console {
 // Public Methods
 // =============================================================================
 
-// Emit renders event. Operation headers print when the operation starts in plain mode, or when
-// its first child appears in interactive mode. End lines show the elapsed time. Events that
-// refer to an unknown operation render at the top level.
+// FormatDuration returns d in whole seconds below one minute ("14s"), in minutes and seconds
+// below one hour ("2m05s"), and in hours and minutes from one hour ("1h02m").
+func FormatDuration(d time.Duration) string {
+	d = d.Truncate(time.Second)
+	switch {
+	case d < time.Minute:
+		return fmt.Sprintf("%ds", int(d.Seconds()))
+	case d < time.Hour:
+		return fmt.Sprintf("%dm%02ds", int(d.Minutes()), int(d.Seconds())%60)
+	default:
+		return fmt.Sprintf("%dh%02dm", int(d.Hours()), int(d.Minutes())%60)
+	}
+}
+
+// Emit renders event. In plain mode it writes one logfmt line, as emitPlain describes. In
+// interactive mode an operation header prints when its first child appears, and end lines show
+// the elapsed time. Events that refer to an unknown operation render at the top level.
 func (c *Console) Emit(ctx context.Context, event Event) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	if !c.opts.Interactive {
+		c.emitPlain(ctx, event)
+		return
+	}
 	switch event.Kind {
 	case KindApplying:
 		c.start(event)
@@ -214,7 +235,67 @@ func (c *Console) WatchInterrupts(guarded func() bool) func() {
 // Private Methods
 // =============================================================================
 
-// start registers an operation and prints its header in plain mode.
+// emitPlain writes event as one logfmt line. Each step line names the full step path, so lines
+// from concurrent steps stay readable when they interleave. Its status field is started, running,
+// done, or failed. Step and message lines show at info level or above, whatever the log level.
+// Progress lines repeat only when the text changes, or after progressHeartbeat.
+func (c *Console) emitPlain(ctx context.Context, event Event) {
+	switch event.Kind {
+	case KindApplying:
+		op := &consoleOp{id: event.ID, message: event.Message, path: event.Message, started: c.now()}
+		if parent := c.ops[event.ParentID]; parent != nil {
+			op.path = parent.path + " › " + event.Message
+		}
+		c.ops[op.id] = op
+		c.writeStep(ctx, slog.LevelInfo, op.path, slog.String("status", "started"))
+	case KindApplied, KindFailed:
+		op := c.ops[event.ID]
+		if op == nil {
+			return
+		}
+		delete(c.ops, op.id)
+		level, attrs := slog.LevelInfo, []slog.Attr{slog.String("status", "done")}
+		if event.Kind == KindFailed {
+			level, attrs = slog.LevelError, []slog.Attr{slog.String("status", "failed")}
+		}
+		attrs = append(attrs, elapsedAttrs(event.Duration)...)
+		if event.Err != nil {
+			attrs = append(attrs, slog.Any("error", event.Err))
+		}
+		c.writeStep(ctx, level, op.path, attrs...)
+	case KindProgress:
+		op := c.ops[event.ID]
+		if op == nil {
+			return
+		}
+		now := c.now()
+		if event.Message == op.lastShown && now.Sub(op.shownAt) < progressHeartbeat {
+			return
+		}
+		op.lastShown, op.shownAt = event.Message, now
+		attrs := append([]slog.Attr{slog.String("status", "running"), slog.String("progress", event.Message)}, elapsedAttrs(now.Sub(op.started))...)
+		c.writeStep(ctx, slog.LevelInfo, op.path, attrs...)
+	case KindMessage:
+		var attrs []slog.Attr
+		if parent := c.ops[event.ParentID]; parent != nil {
+			attrs = append(attrs, slog.String("step", parent.path))
+		}
+		c.writeStep(ctx, event.Level, event.Message, attrs...)
+	case KindLog:
+		if event.Record != nil && c.logs.Enabled(ctx, event.Record.Level) {
+			_ = c.logs.Handle(ctx, *event.Record)
+		}
+	}
+}
+
+// writeStep writes one logfmt record at level with msg and attrs, stamped with the console clock.
+func (c *Console) writeStep(ctx context.Context, level slog.Level, msg string, attrs ...slog.Attr) {
+	record := slog.NewRecord(c.now(), level, msg, 0)
+	record.AddAttrs(attrs...)
+	_ = c.steps.Handle(ctx, record)
+}
+
+// start registers an operation and redraws the live region.
 func (c *Console) start(event Event) {
 	op := &consoleOp{id: event.ID, message: event.Message, started: c.now()}
 	if parent := c.ops[event.ParentID]; parent != nil {
@@ -225,10 +306,6 @@ func (c *Console) start(event Event) {
 	}
 	c.ops[op.id] = op
 	c.order = append(c.order, op)
-	if !c.opts.Interactive {
-		c.printHeader(op)
-		return
-	}
 	c.redraw()
 }
 
@@ -262,26 +339,14 @@ func (c *Console) finish(event Event) {
 	c.print(func() { fmt.Fprintln(c.w, line) })
 }
 
-// progress stores the status text of an operation. Plain mode prints it with the elapsed time
-// when the text changes, and again after progressHeartbeat when it does not.
+// progress stores the status text of an operation and redraws the live region.
 func (c *Console) progress(event Event) {
 	op := c.ops[event.ID]
 	if op == nil {
 		return
 	}
 	op.progress = event.Message
-	if c.opts.Interactive {
-		c.redraw()
-		return
-	}
-	now := c.now()
-	if event.Message == op.lastShown && now.Sub(op.shownAt) < progressHeartbeat {
-		return
-	}
-	op.lastShown = event.Message
-	op.shownAt = now
-	line := indent(op.depth+1) + event.Message + c.elapsed(now.Sub(op.started))
-	c.print(func() { fmt.Fprintln(c.w, line) })
+	c.redraw()
 }
 
 // message prints a narrative line under its parent operation, with a marker for warnings.
@@ -445,7 +510,7 @@ func (c *Console) elapsed(d time.Duration) string {
 	if d < time.Second {
 		return ""
 	}
-	return "  " + c.color(ansiDim, formatDuration(d))
+	return "  " + c.color(ansiDim, FormatDuration(d))
 }
 
 // now returns the current time from the configured clock.
@@ -460,18 +525,12 @@ func (c *Console) now() time.Time {
 // Helpers
 // =============================================================================
 
-// formatDuration returns d in whole seconds below one minute ("14s"), in minutes and seconds
-// below one hour ("2m05s"), and in hours and minutes from one hour ("1h02m").
-func formatDuration(d time.Duration) string {
-	d = d.Truncate(time.Second)
-	switch {
-	case d < time.Minute:
-		return fmt.Sprintf("%ds", int(d.Seconds()))
-	case d < time.Hour:
-		return fmt.Sprintf("%dm%02ds", int(d.Minutes()), int(d.Seconds())%60)
-	default:
-		return fmt.Sprintf("%dh%02dm", int(d.Hours()), int(d.Minutes())%60)
+// elapsedAttrs returns an elapsed attribute for d, or none below one second.
+func elapsedAttrs(d time.Duration) []slog.Attr {
+	if d < time.Second {
+		return nil
 	}
+	return []slog.Attr{slog.String("elapsed", FormatDuration(d))}
 }
 
 // indent returns two spaces per depth level.

@@ -6,9 +6,11 @@ import (
 	"os"
 	"runtime"
 	"strings"
+	"time"
 
 	"github.com/spf13/cobra"
 	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
+	"github.com/windsorcli/cli/internal/presenter"
 	"github.com/windsorcli/cli/pkg/project"
 	"github.com/windsorcli/cli/pkg/provisioner/stacklock"
 	"github.com/windsorcli/cli/pkg/runtime/tools"
@@ -30,7 +32,7 @@ var upCmd = &cobra.Command{
 
 Returns once the install request has been issued. Pass --wait to block until kustomizations report ready.
 
-If any host-side network or DNS configuration was deferred (because it requires sudo / elevation), up prints a follow-up command at the end so the operator knows what to run next.`,
+If any host-side network or DNS configuration was deferred (because it requires sudo / elevation), up prints a follow-up command as the last section of its output.`,
 	Example: `# Bring up the workstation and wait for everything to be ready
 windsor up --wait
 
@@ -45,6 +47,7 @@ windsor up --blueprint=ghcr.io/myorg/blueprint:v1.0.0`,
 	},
 	SilenceUsage: true,
 	RunE: func(cmd *cobra.Command, args []string) error {
+		started := time.Now()
 		var opts []*project.Project
 		if overridesVal := cmd.Context().Value(projectOverridesKey); overridesVal != nil {
 			opts = []*project.Project{overridesVal.(*project.Project)}
@@ -149,23 +152,20 @@ windsor up --blueprint=ghcr.io/myorg/blueprint:v1.0.0`,
 		}
 
 		if !halted {
-			fmt.Fprintln(os.Stderr, "Windsor environment set up successfully.")
+			fmt.Fprintf(os.Stderr, "Windsor environment set up successfully in %s.\n", presenter.FormatDuration(time.Since(started)))
 		}
-		printDeferredWork(os.Stderr, proj.Workstation.DeferredWork(), runtime.GOOS)
 		printPostRunMessages(os.Stderr, postRunMessages)
+		printDeferredWork(os.Stderr, proj.Workstation.DeferredWork(), runtime.GOOS)
 		return nil
 	},
 }
 
-// printDeferredWork renders the end-of-run summary for items the apply skipped because they
-// require elevation Up() will not request. Required items render as halt sentences ("then
-// re-run 'windsor up'"); optional items render as outcome sentences below. Each required item
-// folds in the first not-yet-folded optional item that shares its command ("Run 'X' to <outcome>,
-// then re-run 'windsor up'.") so the same command is never printed twice for the same outcome.
-// Any optional item not folded into a required line — including a second outcome sharing a folded
-// command — still renders on its own line, so no outcome is silently dropped. Empty items produce
-// no output. goos selects the OS-specific elevation parenthetical: "(Administrator PowerShell)" on
-// windows, "(asks for sudo)" elsewhere.
+// printDeferredWork prints the items Up skipped because they need elevation, as the last section
+// of the run. The header is "Action required" when any item is required, and "Next steps" otherwise.
+// A required item renders as a halt sentence ending "then re-run 'windsor up'" and folds in the
+// first unfolded optional item with the same command. Every other optional item renders as its
+// own outcome sentence. goos selects "(Administrator PowerShell)" on windows and "(asks for sudo)"
+// elsewhere. Empty items print nothing.
 func printDeferredWork(w io.Writer, items []workstation.DeferredWorkItem, goos string) {
 	if len(items) == 0 {
 		return
@@ -174,6 +174,14 @@ func printDeferredWork(w io.Writer, items []workstation.DeferredWorkItem, goos s
 	if goos == "windows" {
 		paren = "(Administrator PowerShell)"
 	}
+	title := "Next steps"
+	for _, item := range items {
+		if item.Required {
+			title = "Action required"
+			break
+		}
+	}
+	printSectionHeader(w, title)
 	folded := make(map[int]bool)
 	for _, item := range items {
 		if !item.Required {

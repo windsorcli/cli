@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"regexp"
 	"strings"
 	"testing"
 
@@ -93,7 +94,9 @@ func setupBootstrapTest(t *testing.T, opts ...*SetupOptions) *BootstrapMocks {
 	mockBlueprintHandler.GenerateResolvedFunc = func() (*blueprintv1alpha1.Blueprint, error) { return testBlueprint, nil }
 
 	mockTerraformStack := terraforminfra.NewMockStack()
-	mockTerraformStack.UpFunc = func(blueprint *blueprintv1alpha1.Blueprint, onApply ...func(ctx context.Context, id string) (bool, error)) (bool, error) { return false, nil }
+	mockTerraformStack.UpFunc = func(blueprint *blueprintv1alpha1.Blueprint, onApply ...func(ctx context.Context, id string) (bool, error)) (bool, error) {
+		return false, nil
+	}
 
 	mockKubernetesManager := kubernetes.NewMockKubernetesManager()
 	mockKubernetesManager.ApplyBlueprintFunc = func(blueprint *blueprintv1alpha1.Blueprint, namespace string) error { return nil }
@@ -361,6 +364,31 @@ func TestBootstrapCmd(t *testing.T) {
 		}
 		if strings.Contains(stderrBuf.String(), "Windsor environment bootstrapped successfully") {
 			t.Errorf("expected success line to be suppressed after halt, got: %q", stderrBuf.String())
+		}
+	})
+
+	t.Run("SuccessLineShowsTheElapsedTime", func(t *testing.T) {
+		// Given a bootstrap test project
+		mocks := setupBootstrapTest(t)
+		proj := newBootstrapTestProject(mocks)
+
+		stderrBuf, restore := captureProcessStderr(t)
+		t.Cleanup(restore)
+
+		cmd := createTestBootstrapCmd()
+		ctx := context.WithValue(context.Background(), projectOverridesKey, proj)
+		cmd.SetArgs([]string{"--yes"})
+		cmd.SetContext(ctx)
+
+		// When executing bootstrap
+		if err := cmd.Execute(); err != nil {
+			t.Fatalf("Expected success, got error: %v", err)
+		}
+		restore()
+
+		// Then the success line names the wall-clock time of the run
+		if !regexp.MustCompile(`Windsor environment bootstrapped successfully in \d+s\.\n`).MatchString(stderrBuf.String()) {
+			t.Errorf("Expected success line with elapsed time, got: %q", stderrBuf.String())
 		}
 	})
 
