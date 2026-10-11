@@ -13,6 +13,7 @@ import (
 
 	helmv2 "github.com/fluxcd/helm-controller/api/v2"
 	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
+	"github.com/windsorcli/cli/internal/presenter"
 	"github.com/windsorcli/cli/pkg/composer/blueprint"
 	"github.com/windsorcli/cli/pkg/provisioner/cluster"
 	fluxinfra "github.com/windsorcli/cli/pkg/provisioner/flux"
@@ -334,7 +335,7 @@ func TestProvisioner_Up(t *testing.T) {
 		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
 
 		blueprint := createTestBlueprint()
-		_, err := provisioner.Up(blueprint)
+		_, err := provisioner.Up(context.Background(), blueprint)
 
 		if err != nil {
 			t.Errorf("Expected no error, got: %v", err)
@@ -345,7 +346,7 @@ func TestProvisioner_Up(t *testing.T) {
 		mocks := setupProvisionerMocks(t)
 		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler)
 
-		_, err := provisioner.Up(nil)
+		_, err := provisioner.Up(context.Background(), nil)
 
 		if err == nil {
 			t.Error("Expected error for nil blueprint")
@@ -371,7 +372,7 @@ func TestProvisioner_Up(t *testing.T) {
 		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler)
 
 		blueprint := createTestBlueprint()
-		_, err := provisioner.Up(blueprint)
+		_, err := provisioner.Up(context.Background(), blueprint)
 
 		if err != nil {
 			t.Errorf("Expected no error when terraform is disabled, got: %v", err)
@@ -401,7 +402,7 @@ func TestProvisioner_Up(t *testing.T) {
 		}
 
 		blueprint := createTestBlueprint()
-		_, err := provisioner.Up(blueprint)
+		_, err := provisioner.Up(context.Background(), blueprint)
 
 		if provisioner.TerraformStack == nil {
 			t.Error("Expected TerraformStack to be initialized after Up() when terraform is enabled, even if operation fails")
@@ -424,7 +425,7 @@ func TestProvisioner_Up(t *testing.T) {
 		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
 
 		blueprint := createTestBlueprint()
-		_, err := provisioner.Up(blueprint)
+		_, err := provisioner.Up(context.Background(), blueprint)
 
 		if err == nil {
 			t.Error("Expected error for terraform stack up failure")
@@ -448,7 +449,7 @@ func TestProvisioner_Up(t *testing.T) {
 		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
 		provisioner.OnTerraformApply(func(id string) (bool, error) { return false, nil })
 
-		_, _ = provisioner.Up(createTestBlueprint())
+		_, _ = provisioner.Up(context.Background(), createTestBlueprint())
 
 		if len(capturedOnApply) != 1 {
 			t.Errorf("Expected stack to receive 1 onApply hook, got %d", len(capturedOnApply))
@@ -476,7 +477,7 @@ func TestProvisioner_Up(t *testing.T) {
 				{Path: "network/gcp-vpc"},
 			},
 		}
-		_, err := provisioner.Up(bp)
+		_, err := provisioner.Up(context.Background(), bp)
 		if err == nil || !strings.Contains(err.Error(), `"backend"`) {
 			t.Errorf("expected refusal naming the unresolved backend, got %v", err)
 		}
@@ -488,7 +489,7 @@ func TestProvisioner_MigrateState(t *testing.T) {
 		mocks := setupProvisionerMocks(t)
 		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler)
 
-		skipped, err := provisioner.MigrateState(nil)
+		skipped, err := provisioner.MigrateState(context.Background(), nil)
 
 		if err == nil {
 			t.Fatal("Expected error for nil blueprint")
@@ -509,7 +510,7 @@ func TestProvisioner_MigrateState(t *testing.T) {
 		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
 
 		// When MigrateState runs
-		skipped, err := provisioner.MigrateState(createTestBlueprint())
+		skipped, err := provisioner.MigrateState(context.Background(), createTestBlueprint())
 
 		// Then the skip list is forwarded untouched to the caller
 		if err != nil {
@@ -536,7 +537,7 @@ func TestProvisioner_MigrateState(t *testing.T) {
 		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
 
 		// When MigrateState runs
-		skipped, err := provisioner.MigrateState(createTestBlueprint())
+		skipped, err := provisioner.MigrateState(context.Background(), createTestBlueprint())
 
 		// Then the provisioner surfaces both the underlying failure and the partial skip
 		if err == nil {
@@ -632,7 +633,7 @@ func TestProvisioner_OnTerraformApply(t *testing.T) {
 			return false, nil
 		})
 
-		_, err := provisioner.Up(createTestBlueprint())
+		_, err := provisioner.Up(context.Background(), createTestBlueprint())
 
 		if err != nil {
 			t.Errorf("Expected no error, got: %v", err)
@@ -661,7 +662,7 @@ func TestProvisioner_Down(t *testing.T) {
 		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler)
 
 		// Blueprint without a "workstation" component — Down should be a no-op
-		err := provisioner.Down(createTestBlueprint())
+		err := provisioner.Down(context.Background(), createTestBlueprint())
 
 		if err != nil {
 			t.Errorf("Expected no error, got: %v", err)
@@ -679,7 +680,7 @@ func TestProvisioner_Down(t *testing.T) {
 		opts := &Provisioner{TerraformStack: mockStack}
 		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
 
-		err := provisioner.Down(createWorkstationBlueprint())
+		err := provisioner.Down(context.Background(), createWorkstationBlueprint())
 
 		if err != nil {
 			t.Errorf("Expected no error, got: %v", err)
@@ -693,7 +694,7 @@ func TestProvisioner_Down(t *testing.T) {
 		mocks := setupProvisionerMocks(t)
 		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler)
 
-		err := provisioner.Down(nil)
+		err := provisioner.Down(context.Background(), nil)
 
 		if err == nil {
 			t.Error("Expected error for nil blueprint")
@@ -717,7 +718,7 @@ func TestProvisioner_Down(t *testing.T) {
 		}
 		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler)
 
-		err := provisioner.Down(createWorkstationBlueprint())
+		err := provisioner.Down(context.Background(), createWorkstationBlueprint())
 
 		if err != nil {
 			t.Errorf("Expected no error when terraform is disabled, got: %v", err)
@@ -743,7 +744,7 @@ func TestProvisioner_Down(t *testing.T) {
 		disabled := false
 		bp.TerraformComponents[len(bp.TerraformComponents)-1].Enabled = &blueprintv1alpha1.BoolExpression{Value: &disabled}
 
-		err := provisioner.Down(bp)
+		err := provisioner.Down(context.Background(), bp)
 
 		if err != nil {
 			t.Errorf("Expected no error for disabled workstation, got: %v", err)
@@ -762,7 +763,7 @@ func TestProvisioner_Down(t *testing.T) {
 		opts := &Provisioner{TerraformStack: mockStack}
 		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
 
-		err := provisioner.Down(createWorkstationBlueprint())
+		err := provisioner.Down(context.Background(), createWorkstationBlueprint())
 
 		if err == nil {
 			t.Error("Expected error for workstation destroy failure")
@@ -783,7 +784,7 @@ func TestProvisioner_DestroyAllTerraform(t *testing.T) {
 		opts := &Provisioner{KubernetesManager: mocks.KubernetesManager, TerraformStack: mockStack}
 		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
 
-		_, err := provisioner.DestroyAllTerraform(createTestBlueprint(), false)
+		_, err := provisioner.DestroyAllTerraform(context.Background(), createTestBlueprint(), false)
 
 		if err != nil {
 			t.Errorf("Expected no error, got: %v", err)
@@ -794,7 +795,7 @@ func TestProvisioner_DestroyAllTerraform(t *testing.T) {
 		mocks := setupProvisionerMocks(t)
 		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler)
 
-		_, err := provisioner.DestroyAllTerraform(nil, false)
+		_, err := provisioner.DestroyAllTerraform(context.Background(), nil, false)
 
 		if err == nil {
 			t.Error("Expected error for nil blueprint")
@@ -818,7 +819,7 @@ func TestProvisioner_DestroyAllTerraform(t *testing.T) {
 		}
 		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler)
 
-		_, err := provisioner.DestroyAllTerraform(createTestBlueprint(), false)
+		_, err := provisioner.DestroyAllTerraform(context.Background(), createTestBlueprint(), false)
 
 		if err == nil {
 			t.Error("Expected error when terraform is disabled")
@@ -837,7 +838,7 @@ func TestProvisioner_DestroyAllTerraform(t *testing.T) {
 		opts := &Provisioner{KubernetesManager: mocks.KubernetesManager, TerraformStack: mockStack}
 		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
 
-		_, err := provisioner.DestroyAllTerraform(createTestBlueprint(), false)
+		_, err := provisioner.DestroyAllTerraform(context.Background(), createTestBlueprint(), false)
 
 		if err == nil {
 			t.Error("Expected error for terraform destroy all failure")
@@ -863,7 +864,7 @@ func TestProvisioner_DestroyAllTerraform(t *testing.T) {
 		opts := &Provisioner{KubernetesManager: mocks.KubernetesManager, TerraformStack: mockStack}
 		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
 
-		if _, err := provisioner.DestroyAllTerraform(createTestBlueprint(), false); err != nil {
+		if _, err := provisioner.DestroyAllTerraform(context.Background(), createTestBlueprint(), false); err != nil {
 			t.Fatalf("Expected no error: Provisioner must not gate on Kubernetes reachability, got: %v", err)
 		}
 		if !destroyAllCalled {
@@ -975,7 +976,7 @@ func TestProvisioner_Apply(t *testing.T) {
 		opts := &Provisioner{TerraformStack: mockStack}
 		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
 
-		err := provisioner.Apply(createTestBlueprint(), "remote/path")
+		err := provisioner.Apply(context.Background(), createTestBlueprint(), "remote/path")
 
 		if err != nil {
 			t.Errorf("Expected no error, got: %v", err)
@@ -986,7 +987,7 @@ func TestProvisioner_Apply(t *testing.T) {
 		mocks := setupProvisionerMocks(t)
 		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler)
 
-		err := provisioner.Apply(nil, "remote/path")
+		err := provisioner.Apply(context.Background(), nil, "remote/path")
 
 		if err == nil {
 			t.Error("Expected error for nil blueprint")
@@ -1010,7 +1011,7 @@ func TestProvisioner_Apply(t *testing.T) {
 		}
 		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler)
 
-		err := provisioner.Apply(createTestBlueprint(), "remote/path")
+		err := provisioner.Apply(context.Background(), createTestBlueprint(), "remote/path")
 
 		if err == nil {
 			t.Error("Expected error when terraform is disabled")
@@ -1031,7 +1032,7 @@ func TestProvisioner_Apply(t *testing.T) {
 			t.Error("Expected TerraformStack to be nil before Apply() is called")
 		}
 
-		_ = provisioner.Apply(createTestBlueprint(), "remote/path")
+		_ = provisioner.Apply(context.Background(), createTestBlueprint(), "remote/path")
 
 		if provisioner.TerraformStack == nil {
 			t.Error("Expected TerraformStack to be initialized after Apply() when terraform is enabled")
@@ -1047,7 +1048,7 @@ func TestProvisioner_Apply(t *testing.T) {
 		opts := &Provisioner{TerraformStack: mockStack}
 		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
 
-		err := provisioner.Apply(createTestBlueprint(), "remote/path")
+		err := provisioner.Apply(context.Background(), createTestBlueprint(), "remote/path")
 
 		if err == nil {
 			t.Error("Expected error for terraform stack apply failure")
@@ -1086,7 +1087,7 @@ func TestProvisioner_Apply(t *testing.T) {
 
 		var err error
 		stderrOutput := captureStderr(t, func() {
-			err = provisioner.Apply(createTestBlueprint(), "remote/path")
+			err = provisioner.Apply(context.Background(), createTestBlueprint(), "remote/path")
 		})
 
 		if err != nil {
@@ -2435,7 +2436,7 @@ func TestProvisioner_Destroy(t *testing.T) {
 		opts := &Provisioner{KubernetesManager: mocks.KubernetesManager, TerraformStack: mockStack}
 		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
 
-		_, err := provisioner.Destroy(createTestBlueprint(), "remote/path")
+		_, err := provisioner.Destroy(context.Background(), createTestBlueprint(), "remote/path")
 
 		if err != nil {
 			t.Errorf("Expected no error, got: %v", err)
@@ -2446,7 +2447,7 @@ func TestProvisioner_Destroy(t *testing.T) {
 		mocks := setupProvisionerMocks(t)
 		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler)
 
-		_, err := provisioner.Destroy(nil, "remote/path")
+		_, err := provisioner.Destroy(context.Background(), nil, "remote/path")
 
 		if err == nil {
 			t.Error("Expected error for nil blueprint")
@@ -2470,7 +2471,7 @@ func TestProvisioner_Destroy(t *testing.T) {
 		}
 		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler)
 
-		_, err := provisioner.Destroy(createTestBlueprint(), "remote/path")
+		_, err := provisioner.Destroy(context.Background(), createTestBlueprint(), "remote/path")
 
 		if err == nil {
 			t.Error("Expected error when terraform is disabled")
@@ -2489,7 +2490,7 @@ func TestProvisioner_Destroy(t *testing.T) {
 		opts := &Provisioner{KubernetesManager: mocks.KubernetesManager, TerraformStack: mockStack}
 		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
 
-		_, err := provisioner.Destroy(createTestBlueprint(), "remote/path")
+		_, err := provisioner.Destroy(context.Background(), createTestBlueprint(), "remote/path")
 
 		if err == nil {
 			t.Error("Expected error for terraform stack destroy failure")
@@ -2511,7 +2512,7 @@ func TestProvisioner_Destroy(t *testing.T) {
 		opts := &Provisioner{KubernetesManager: mocks.KubernetesManager, TerraformStack: mockStack}
 		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
 
-		skipped, err := provisioner.Destroy(createTestBlueprint(), "remote/path")
+		skipped, err := provisioner.Destroy(context.Background(), createTestBlueprint(), "remote/path")
 		if err != nil {
 			t.Fatalf("Expected no error, got: %v", err)
 		}
@@ -2536,7 +2537,7 @@ func TestProvisioner_Destroy(t *testing.T) {
 		opts := &Provisioner{KubernetesManager: mocks.KubernetesManager, TerraformStack: mockStack}
 		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
 
-		if _, err := provisioner.Destroy(createTestBlueprint(), "remote/path"); err != nil {
+		if _, err := provisioner.Destroy(context.Background(), createTestBlueprint(), "remote/path"); err != nil {
 			t.Fatalf("Expected no error: Provisioner must not gate on Kubernetes reachability, got: %v", err)
 		}
 		if !destroyCalled {
@@ -2657,7 +2658,7 @@ func TestProvisioner_DestroyAll(t *testing.T) {
 		opts := &Provisioner{KubernetesManager: mocks.KubernetesManager, TerraformStack: mockStack}
 		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
 
-		_, err := provisioner.DestroyAll(createTestBlueprint(), false)
+		_, err := provisioner.DestroyAll(context.Background(), createTestBlueprint(), false)
 
 		if err != nil {
 			t.Errorf("Expected no error, got: %v", err)
@@ -2674,7 +2675,7 @@ func TestProvisioner_DestroyAll(t *testing.T) {
 		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
 		provisioner.KubernetesManager = nil
 
-		_, err := provisioner.DestroyAll(createTestBlueprint(), false)
+		_, err := provisioner.DestroyAll(context.Background(), createTestBlueprint(), false)
 
 		if err != nil {
 			t.Errorf("Expected no error when kubernetes manager is nil, got: %v", err)
@@ -2685,7 +2686,7 @@ func TestProvisioner_DestroyAll(t *testing.T) {
 		mocks := setupProvisionerMocks(t)
 		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler)
 
-		_, err := provisioner.DestroyAll(nil, false)
+		_, err := provisioner.DestroyAll(context.Background(), nil, false)
 
 		if err == nil {
 			t.Error("Expected error for nil blueprint")
@@ -2703,7 +2704,7 @@ func TestProvisioner_DestroyAll(t *testing.T) {
 		opts := &Provisioner{KubernetesManager: mocks.KubernetesManager}
 		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
 
-		_, err := provisioner.DestroyAll(createTestBlueprint(), false)
+		_, err := provisioner.DestroyAll(context.Background(), createTestBlueprint(), false)
 
 		if err == nil {
 			t.Error("Expected error when uninstall fails")
@@ -2723,7 +2724,7 @@ func TestProvisioner_DestroyAll(t *testing.T) {
 		opts := &Provisioner{KubernetesManager: mocks.KubernetesManager, TerraformStack: mockStack}
 		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
 
-		_, err := provisioner.DestroyAll(createTestBlueprint(), false)
+		_, err := provisioner.DestroyAll(context.Background(), createTestBlueprint(), false)
 
 		if err == nil {
 			t.Error("Expected error when terraform down fails")
@@ -2751,7 +2752,7 @@ func TestProvisioner_DestroyAll(t *testing.T) {
 		opts := &Provisioner{KubernetesManager: mocks.KubernetesManager, TerraformStack: mockStack}
 		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
 
-		if _, err := provisioner.DestroyAll(createTestBlueprint(), false); err != nil {
+		if _, err := provisioner.DestroyAll(context.Background(), createTestBlueprint(), false); err != nil {
 			t.Fatalf("expected no error, got: %v", err)
 		}
 		if !uninstallCalled {
@@ -2781,7 +2782,7 @@ func TestProvisioner_DestroyAll(t *testing.T) {
 		opts := &Provisioner{KubernetesManager: mocks.KubernetesManager, TerraformStack: mockStack}
 		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
 
-		result, err := provisioner.DestroyAll(createTestBlueprint(), false)
+		result, err := provisioner.DestroyAll(context.Background(), createTestBlueprint(), false)
 
 		if err != nil {
 			t.Fatalf("expected no error, got: %v", err)
@@ -2824,7 +2825,7 @@ func TestProvisioner_DestroyAll(t *testing.T) {
 		opts := &Provisioner{KubernetesManager: mocks.KubernetesManager, TerraformStack: mockStack}
 		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
 
-		result, err := provisioner.DestroyAll(createTestBlueprint(), true)
+		result, err := provisioner.DestroyAll(context.Background(), createTestBlueprint(), true)
 
 		if err != nil {
 			t.Fatalf("expected continueOnError to absorb the kustomize failure, got: %v", err)
@@ -2867,7 +2868,7 @@ func TestProvisioner_DestroyAll(t *testing.T) {
 		opts := &Provisioner{KubernetesManager: mocks.KubernetesManager, TerraformStack: mockStack}
 		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
 
-		result, err := provisioner.DestroyAll(createTestBlueprint(), true)
+		result, err := provisioner.DestroyAll(context.Background(), createTestBlueprint(), true)
 
 		if err != nil {
 			t.Fatalf("expected continueOnError to absorb the kustomize failure, got: %v", err)
@@ -2900,7 +2901,7 @@ func TestProvisioner_DestroyAll(t *testing.T) {
 		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
 
 		// When DestroyAll runs and Uninstall succeeds
-		result, err := provisioner.DestroyAll(bp, false)
+		result, err := provisioner.DestroyAll(context.Background(), bp, false)
 		if err != nil {
 			t.Fatalf("Expected no error, got %v", err)
 		}
@@ -2945,7 +2946,7 @@ func TestProvisioner_DestroyAll(t *testing.T) {
 		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
 
 		// When DestroyAll runs
-		result, err := provisioner.DestroyAll(bp, false)
+		result, err := provisioner.DestroyAll(context.Background(), bp, false)
 		if err != nil {
 			t.Fatalf("Expected no error, got %v", err)
 		}
@@ -2975,7 +2976,7 @@ func TestProvisioner_DestroyAll(t *testing.T) {
 		opts := &Provisioner{KubernetesManager: mocks.KubernetesManager, TerraformStack: mockStack}
 		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
 
-		if _, err := provisioner.DestroyAll(createTestBlueprint(), false); err != nil {
+		if _, err := provisioner.DestroyAll(context.Background(), createTestBlueprint(), false); err != nil {
 			t.Fatalf("Expected no error: Provisioner must not gate on Kubernetes reachability, got: %v", err)
 		}
 		if !destroyAllCalled {
@@ -5638,6 +5639,54 @@ func TestProvisioner_PlaceSecrets(t *testing.T) {
 		}
 		if reconciled {
 			t.Error("Expected no reconcile when prune is disabled")
+		}
+	})
+}
+
+// eventRecorder records every presenter event it receives.
+type eventRecorder struct {
+	events []presenter.Event
+}
+
+func (r *eventRecorder) Emit(_ context.Context, e presenter.Event) {
+	r.events = append(r.events, e)
+}
+
+func TestProvisioner_UpProgress(t *testing.T) {
+	t.Run("RunsTheApplyAsOneTerraformOperation", func(t *testing.T) {
+		// Given a provisioner with a mock stack and a recording presenter
+		mocks := setupProvisionerMocks(t)
+		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{TerraformStack: mocks.TerraformStack})
+		rec := &eventRecorder{}
+
+		// When the blueprint is applied
+		_, err := provisioner.Up(presenter.NewContext(context.Background(), rec), createTestBlueprint())
+
+		// Then one "Applying terraform" operation starts and ends
+		if err != nil {
+			t.Fatalf("expected no error, got %v", err)
+		}
+		if len(rec.events) != 2 || rec.events[0].Message != "Applying terraform" || rec.events[1].Kind != presenter.KindApplied {
+			t.Errorf("unexpected events %+v", rec.events)
+		}
+	})
+
+	t.Run("EndsTheOperationAsFailedWhenTheStackFails", func(t *testing.T) {
+		// Given a provisioner whose stack apply fails
+		mocks := setupProvisionerMocks(t)
+		stack := terraforminfra.NewMockStack()
+		stack.UpFunc = func(blueprint *blueprintv1alpha1.Blueprint, onApply ...func(id string) (bool, error)) (bool, error) {
+			return false, fmt.Errorf("apply failed")
+		}
+		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{TerraformStack: stack})
+		rec := &eventRecorder{}
+
+		// When the blueprint is applied
+		_, err := provisioner.Up(presenter.NewContext(context.Background(), rec), createTestBlueprint())
+
+		// Then the operation ends as failed with the error
+		if err == nil || len(rec.events) != 2 || rec.events[1].Kind != presenter.KindFailed {
+			t.Errorf("expected a failed operation, got err=%v events=%+v", err, rec.events)
 		}
 	})
 }

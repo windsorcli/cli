@@ -1,6 +1,8 @@
 package terraform
 
 import (
+	"context"
+
 	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
 )
 
@@ -53,7 +55,7 @@ func NewMockStack() *MockStack {
 // =============================================================================
 
 // Up is a mock implementation of the Up method.
-func (m *MockStack) Up(blueprint *blueprintv1alpha1.Blueprint, onApply ...func(id string) (bool, error)) (bool, error) {
+func (m *MockStack) Up(_ context.Context, blueprint *blueprintv1alpha1.Blueprint, onApply ...func(id string) (bool, error)) (bool, error) {
 	if m.UpFunc != nil {
 		return m.UpFunc(blueprint, onApply...)
 	}
@@ -61,7 +63,7 @@ func (m *MockStack) Up(blueprint *blueprintv1alpha1.Blueprint, onApply ...func(i
 }
 
 // MigrateState is a mock implementation of the MigrateState method.
-func (m *MockStack) MigrateState(blueprint *blueprintv1alpha1.Blueprint) ([]string, error) {
+func (m *MockStack) MigrateState(_ context.Context, blueprint *blueprintv1alpha1.Blueprint) ([]string, error) {
 	if m.MigrateStateFunc != nil {
 		return m.MigrateStateFunc(blueprint)
 	}
@@ -124,7 +126,7 @@ func (m *MockStack) PostApply(fns ...func(id string) error) {
 }
 
 // DestroyAll is a mock implementation of the DestroyAll method.
-func (m *MockStack) DestroyAll(blueprint *blueprintv1alpha1.Blueprint, continueOnError bool, excludeIDs ...string) (DestroyOutcome, error) {
+func (m *MockStack) DestroyAll(_ context.Context, blueprint *blueprintv1alpha1.Blueprint, continueOnError bool, excludeIDs ...string) (DestroyOutcome, error) {
 	if m.DestroyAllFunc != nil {
 		return m.DestroyAllFunc(blueprint, continueOnError, excludeIDs...)
 	}
@@ -180,7 +182,7 @@ func (m *MockStack) PlanAllResourceChangesJSON(blueprint *blueprintv1alpha1.Blue
 }
 
 // Apply is a mock implementation of the Apply method.
-func (m *MockStack) Apply(blueprint *blueprintv1alpha1.Blueprint, componentID string) error {
+func (m *MockStack) Apply(_ context.Context, blueprint *blueprintv1alpha1.Blueprint, componentID string) error {
 	if m.ApplyFunc != nil {
 		return m.ApplyFunc(blueprint, componentID)
 	}
@@ -188,7 +190,7 @@ func (m *MockStack) Apply(blueprint *blueprintv1alpha1.Blueprint, componentID st
 }
 
 // Destroy is a mock implementation of the Destroy method.
-func (m *MockStack) Destroy(blueprint *blueprintv1alpha1.Blueprint, componentID string) (bool, error) {
+func (m *MockStack) Destroy(_ context.Context, blueprint *blueprintv1alpha1.Blueprint, componentID string) (bool, error) {
 	if m.DestroyFunc != nil {
 		return m.DestroyFunc(blueprint, componentID)
 	}

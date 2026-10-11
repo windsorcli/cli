@@ -7,8 +7,11 @@ package terraform
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"fmt"
+	"io"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"slices"
@@ -17,6 +20,7 @@ import (
 	"time"
 
 	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
+	"github.com/windsorcli/cli/internal/presenter"
 	"github.com/windsorcli/cli/pkg/composer/blueprint"
 	"github.com/windsorcli/cli/pkg/constants"
 	"github.com/windsorcli/cli/pkg/runtime"
@@ -31,6 +35,20 @@ import (
 // =============================================================================
 // Test Setup
 // =============================================================================
+
+// warningPresenter writes each warning message to w as one line.
+type warningPresenter struct{ w io.Writer }
+
+func (p warningPresenter) Emit(_ context.Context, e presenter.Event) {
+	if e.Kind == presenter.KindMessage && e.Level >= slog.LevelWarn {
+		fmt.Fprintln(p.w, e.Message)
+	}
+}
+
+// withWarnings returns a context whose presenter writes warning messages to w.
+func withWarnings(w io.Writer) context.Context {
+	return presenter.NewContext(context.Background(), warningPresenter{w})
+}
 
 // createTestBlueprint creates a test blueprint with terraform components
 func createTestBlueprint() *blueprintv1alpha1.Blueprint {
@@ -283,7 +301,7 @@ func TestStack_Up(t *testing.T) {
 		stack, _ := setup(t)
 		blueprint := createTestBlueprint()
 
-		if _, err := stack.Up(blueprint); err != nil {
+		if _, err := stack.Up(context.Background(), blueprint); err != nil {
 			t.Errorf("Expected Up to return nil, got %v", err)
 		}
 	})
@@ -297,7 +315,7 @@ func TestStack_Up(t *testing.T) {
 			return false, nil
 		}
 
-		_, err := stack.Up(blueprint, hook)
+		_, err := stack.Up(context.Background(), blueprint, hook)
 
 		if err != nil {
 			t.Errorf("Expected Up to return nil, got %v", err)
@@ -321,7 +339,7 @@ func TestStack_Up(t *testing.T) {
 			return false, hookErr
 		}
 
-		_, err := stack.Up(blueprint, hook)
+		_, err := stack.Up(context.Background(), blueprint, hook)
 
 		if err == nil {
 			t.Fatal("Expected Up to return error when hook fails")
@@ -338,7 +356,7 @@ func TestStack_Up(t *testing.T) {
 		}
 
 		blueprint := createTestBlueprint()
-		_, err := stack.Up(blueprint)
+		_, err := stack.Up(context.Background(), blueprint)
 		expectedError := "error getting current directory"
 		if !strings.Contains(err.Error(), expectedError) {
 			t.Fatalf("Expected error to contain %q, got %q", expectedError, err.Error())
@@ -352,7 +370,7 @@ func TestStack_Up(t *testing.T) {
 		}
 
 		blueprint := createTestBlueprint()
-		_, err := stack.Up(blueprint)
+		_, err := stack.Up(context.Background(), blueprint)
 		if err == nil {
 			t.Fatalf("Expected an error, but got nil")
 		}
@@ -373,7 +391,7 @@ func TestStack_Up(t *testing.T) {
 		}
 
 		blueprint := createTestBlueprint()
-		_, err := stack.Up(blueprint)
+		_, err := stack.Up(context.Background(), blueprint)
 		expectedError := "error running terraform init for"
 		if !strings.Contains(err.Error(), expectedError) {
 			t.Fatalf("Expected error to contain %q, got %q", expectedError, err.Error())
@@ -393,7 +411,7 @@ func TestStack_Up(t *testing.T) {
 		}
 
 		blueprint := createTestBlueprint()
-		_, err := stack.Up(blueprint)
+		_, err := stack.Up(context.Background(), blueprint)
 		expectedError := "error running terraform plan for"
 		if !strings.Contains(err.Error(), expectedError) {
 			t.Fatalf("Expected error to contain %q, got %q", expectedError, err.Error())
@@ -410,7 +428,7 @@ func TestStack_Up(t *testing.T) {
 		}
 
 		blueprint := createTestBlueprint()
-		_, err := stack.Up(blueprint)
+		_, err := stack.Up(context.Background(), blueprint)
 		expectedError := "error running terraform apply for"
 		if !strings.Contains(err.Error(), expectedError) {
 			t.Fatalf("Expected error to contain %q, got %q", expectedError, err.Error())
@@ -437,7 +455,7 @@ func TestStack_Up(t *testing.T) {
 		}
 
 		blueprint := createTestBlueprint()
-		if _, err := stack.Up(blueprint); err != nil {
+		if _, err := stack.Up(context.Background(), blueprint); err != nil {
 			t.Fatalf("Expected no error, got %v", err)
 		}
 		if !slices.Contains(initArgs, "-no-color") {
@@ -450,7 +468,7 @@ func TestStack_Up(t *testing.T) {
 
 	t.Run("NilBlueprint", func(t *testing.T) {
 		stack, _ := setup(t)
-		_, err := stack.Up(nil)
+		_, err := stack.Up(context.Background(), nil)
 		if err == nil {
 			t.Error("Expected error, got nil")
 		}
@@ -463,7 +481,7 @@ func TestStack_Up(t *testing.T) {
 		stack, mocks := setup(t)
 		mocks.Runtime.ProjectRoot = ""
 		blueprint := createTestBlueprint()
-		_, err := stack.Up(blueprint)
+		_, err := stack.Up(context.Background(), blueprint)
 		if err == nil {
 			t.Error("Expected error, got nil")
 		}
@@ -489,7 +507,7 @@ func TestStack_Up(t *testing.T) {
 		blueprint := createTestBlueprint()
 
 		// When running Up
-		_, err := stack.Up(blueprint)
+		_, err := stack.Up(context.Background(), blueprint)
 
 		// Then it should succeed (cleanup errors are ignored)
 		if err != nil {
@@ -522,7 +540,7 @@ func TestStack_Up(t *testing.T) {
 			},
 		}
 
-		if _, err := stack.Up(blueprint); err != nil {
+		if _, err := stack.Up(context.Background(), blueprint); err != nil {
 			t.Errorf("Expected Up to succeed with named component, got %v", err)
 		}
 	})
@@ -559,7 +577,7 @@ func TestStack_Up(t *testing.T) {
 			},
 		}
 
-		if _, err := stack.Up(blueprint); err != nil {
+		if _, err := stack.Up(context.Background(), blueprint); err != nil {
 			t.Errorf("Expected Up to succeed with named component with source, got %v", err)
 		}
 	})
@@ -582,7 +600,7 @@ func TestStack_Up(t *testing.T) {
 			return "", nil
 		}
 
-		_, _ = stack.Up(blueprint)
+		_, _ = stack.Up(context.Background(), blueprint)
 
 		// Then TF_VAR_operation is "apply"
 		if capturedEnv == nil {
@@ -610,7 +628,7 @@ func TestStack_Up(t *testing.T) {
 			return "", nil
 		}
 
-		_, _ = stack.Up(blueprint)
+		_, _ = stack.Up(context.Background(), blueprint)
 
 		// Then plan was called with -refresh=false (refresh ran explicitly before)
 		var sawRefreshFalse bool
@@ -642,7 +660,7 @@ func TestStack_Up(t *testing.T) {
 		}
 
 		// When Up runs
-		_, _ = stack.Up(blueprint)
+		_, _ = stack.Up(context.Background(), blueprint)
 
 		// Then refresh was never invoked — empty state means nothing to reconcile
 		if sawRefreshExec {
@@ -667,7 +685,7 @@ func TestStack_Up(t *testing.T) {
 		}
 
 		// When Up runs
-		_, _ = stack.Up(blueprint)
+		_, _ = stack.Up(context.Background(), blueprint)
 
 		// Then refresh was invoked because state is non-empty
 		if !sawRefreshExec {
@@ -679,7 +697,7 @@ func TestStack_Up(t *testing.T) {
 		// Given a stack with non-empty state and a refresh that fails
 		stack, mocks := setup(t)
 		warnings := &bytes.Buffer{}
-		stack.warningWriter = warnings
+		ctx := withWarnings(warnings)
 
 		mocks.Shell.ExecSilentWithEnvFunc = func(command string, env map[string]string, args ...string) (string, error) {
 			if command == "terraform" && len(args) > 1 && args[1] == "refresh" {
@@ -693,7 +711,7 @@ func TestStack_Up(t *testing.T) {
 		blueprint := createTestBlueprint()
 
 		// When Up runs
-		_, err := stack.Up(blueprint)
+		_, err := stack.Up(ctx, blueprint)
 
 		// Then no error surfaces (warn-but-continue policy) and the warning names the failure
 		if err != nil {
@@ -716,7 +734,7 @@ func TestStack_Up(t *testing.T) {
 		blueprint := createTestBlueprint()
 
 		// When Up runs
-		_, err := stack.Up(blueprint)
+		_, err := stack.Up(context.Background(), blueprint)
 
 		// Then the state-check error propagates
 		if err == nil {
@@ -747,7 +765,7 @@ func TestStack_Up(t *testing.T) {
 		}
 
 		// When Up runs
-		if _, err := stack.Up(blueprint); err != nil {
+		if _, err := stack.Up(context.Background(), blueprint); err != nil {
 			t.Fatalf("Expected Up to succeed, got %v", err)
 		}
 
@@ -777,7 +795,7 @@ func TestStack_Up(t *testing.T) {
 		}
 
 		// When Up runs
-		if _, err := stack.Up(blueprint); err != nil {
+		if _, err := stack.Up(context.Background(), blueprint); err != nil {
 			t.Fatalf("Expected Up to succeed, got %v", err)
 		}
 
@@ -800,7 +818,7 @@ func TestStack_MigrateState(t *testing.T) {
 
 	t.Run("ReturnsErrorForNilBlueprint", func(t *testing.T) {
 		stack, _ := setup(t)
-		if _, err := stack.MigrateState(nil); err == nil {
+		if _, err := stack.MigrateState(context.Background(), nil); err == nil {
 			t.Fatal("Expected error for nil blueprint")
 		}
 	})
@@ -824,7 +842,7 @@ func TestStack_MigrateState(t *testing.T) {
 		}
 
 		// When MigrateState runs
-		skipped, err := stack.MigrateState(blueprint)
+		skipped, err := stack.MigrateState(context.Background(), blueprint)
 		if err != nil {
 			t.Fatalf("Expected MigrateState to succeed, got %v", err)
 		}
@@ -853,7 +871,7 @@ func TestStack_MigrateState(t *testing.T) {
 			return "", nil
 		}
 
-		if _, err := stack.MigrateState(blueprint); err != nil {
+		if _, err := stack.MigrateState(context.Background(), blueprint); err != nil {
 			t.Fatalf("Expected MigrateState to succeed, got %v", err)
 		}
 
@@ -913,7 +931,7 @@ func TestStack_MigrateState(t *testing.T) {
 			return "", fmt.Errorf("registry unreachable")
 		}
 
-		_, err := stack.MigrateState(blueprint)
+		_, err := stack.MigrateState(context.Background(), blueprint)
 		if err == nil {
 			t.Fatal("Expected MigrateState to return an error when the provider-lock refresh fails")
 		}
@@ -945,7 +963,7 @@ func TestStack_MigrateState(t *testing.T) {
 		}
 
 		// When MigrateState runs
-		if _, err := stack.MigrateState(blueprint); err != nil {
+		if _, err := stack.MigrateState(context.Background(), blueprint); err != nil {
 			t.Fatalf("Expected MigrateState to succeed, got %v", err)
 		}
 
@@ -991,7 +1009,7 @@ func TestStack_MigrateState(t *testing.T) {
 			return "", nil
 		}
 
-		skipped, err := stack.MigrateState(blueprint)
+		skipped, err := stack.MigrateState(context.Background(), blueprint)
 
 		// Then the error from the second component surfaces AND the skip from the first
 		// survives — callers that only looked at err previously would have silently lost
@@ -1015,7 +1033,7 @@ func TestStack_MigrateState(t *testing.T) {
 			return "", nil
 		}
 
-		_, err := stack.MigrateState(blueprint)
+		_, err := stack.MigrateState(context.Background(), blueprint)
 		if err == nil {
 			t.Fatal("Expected MigrateState to return an error when init fails")
 		}
@@ -1047,7 +1065,7 @@ func TestStack_MigrateState(t *testing.T) {
 			return "", nil
 		}
 
-		_, err := stack.MigrateState(blueprint)
+		_, err := stack.MigrateState(context.Background(), blueprint)
 
 		// Then the error carries the hint but the -migrate-state call never added -upgrade
 		if err == nil {
@@ -1085,7 +1103,7 @@ func TestStack_MigrateState(t *testing.T) {
 		}
 
 		// When MigrateState runs
-		skipped, err := stack.MigrateState(blueprint)
+		skipped, err := stack.MigrateState(context.Background(), blueprint)
 		if err != nil {
 			t.Fatalf("Expected no error when every component dir is missing, got %v", err)
 		}
@@ -1303,7 +1321,7 @@ func TestStack_DestroyAll(t *testing.T) {
 		stack, _ := setup(t)
 		blueprint := createTestBlueprint()
 
-		if _, err := stack.DestroyAll(blueprint, false); err != nil {
+		if _, err := stack.DestroyAll(context.Background(), blueprint, false); err != nil {
 			t.Errorf("Expected Down to return nil, got %v", err)
 		}
 	})
@@ -1326,7 +1344,7 @@ func TestStack_DestroyAll(t *testing.T) {
 		blueprint := createTestBlueprint()
 
 		// When DestroyAll runs
-		if _, err := stack.DestroyAll(blueprint, false); err != nil {
+		if _, err := stack.DestroyAll(context.Background(), blueprint, false); err != nil {
 			t.Fatalf("Expected no error, got %v", err)
 		}
 
@@ -1361,7 +1379,7 @@ func TestStack_DestroyAll(t *testing.T) {
 		blueprint := createTestBlueprint()
 
 		// When DestroyAll runs
-		if _, err := stack.DestroyAll(blueprint, false); err != nil {
+		if _, err := stack.DestroyAll(context.Background(), blueprint, false); err != nil {
 			t.Fatalf("Expected no error, got %v", err)
 		}
 
@@ -1382,7 +1400,7 @@ func TestStack_DestroyAll(t *testing.T) {
 		}
 
 		blueprint := createTestBlueprint()
-		_, err := stack.DestroyAll(blueprint, false)
+		_, err := stack.DestroyAll(context.Background(), blueprint, false)
 		expectedError := "error getting current directory"
 		if !strings.Contains(err.Error(), expectedError) {
 			t.Fatalf("Expected error to contain %q, got %q", expectedError, err.Error())
@@ -1398,7 +1416,7 @@ func TestStack_DestroyAll(t *testing.T) {
 
 		// When DestroyAll runs against a blueprint with two components
 		blueprint := createTestBlueprint()
-		skipped, err := stack.DestroyAll(blueprint, false)
+		skipped, err := stack.DestroyAll(context.Background(), blueprint, false)
 
 		// Then no error is returned and both components appear in the skipped list,
 		// matching MigrateState's contract for missing-on-disk components.
@@ -1444,7 +1462,7 @@ func TestStack_DestroyAll(t *testing.T) {
 			return "", nil
 		}
 
-		if _, err := stack.DestroyAll(blueprint, false, "backend"); err != nil {
+		if _, err := stack.DestroyAll(context.Background(), blueprint, false, "backend"); err != nil {
 			t.Errorf("Expected DestroyAll to return nil, got %v", err)
 		}
 
@@ -1503,7 +1521,7 @@ func TestStack_DestroyAll(t *testing.T) {
 			return "", nil
 		}
 
-		if _, err := stack.DestroyAll(blueprint, false); err != nil {
+		if _, err := stack.DestroyAll(context.Background(), blueprint, false); err != nil {
 			t.Errorf("Expected Down to return nil, got %v", err)
 		}
 
@@ -1567,7 +1585,7 @@ func TestStack_DestroyAll(t *testing.T) {
 			return "", nil
 		}
 
-		if _, err := stack.DestroyAll(blueprint, false); err != nil {
+		if _, err := stack.DestroyAll(context.Background(), blueprint, false); err != nil {
 			t.Errorf("Expected Down to return nil, got %v", err)
 		}
 
@@ -1618,7 +1636,7 @@ func TestStack_DestroyAll(t *testing.T) {
 			t.Fatalf("Failed to create directory: %v", err)
 		}
 
-		if _, err := stack.DestroyAll(blueprint, false); err != nil {
+		if _, err := stack.DestroyAll(context.Background(), blueprint, false); err != nil {
 			t.Errorf("Expected DestroyAll to return nil, got %v", err)
 		}
 
@@ -1639,10 +1657,10 @@ func TestStack_DestroyAll(t *testing.T) {
 		// "Destroying <path>" progress span is the only label the user sees. state list
 		// is seeded non-empty so the idempotency short-circuit does not fire. The mock
 		// returns a recognizable terraform diagnostic alongside the error to verify it
-		// is surfaced via warningWriter rather than discarded.
+		// is surfaced via presenter.Warn rather than discarded.
 		stack, mocks := setup(t)
 		var captured strings.Builder
-		stack.warningWriter = &captured
+		ctx := withWarnings(&captured)
 
 		const tfDiagnostic = "Error: deleting S3 Bucket (terraform-state-x): operation error S3: BucketNotEmpty"
 		mocks.Shell.ExecSilentWithEnvFunc = func(command string, env map[string]string, args ...string) (string, error) {
@@ -1659,7 +1677,7 @@ func TestStack_DestroyAll(t *testing.T) {
 		}
 
 		blueprint := createTestBlueprint()
-		_, err := stack.DestroyAll(blueprint, false)
+		_, err := stack.DestroyAll(ctx, blueprint, false)
 		expectedError := "error running terraform destroy for"
 		if err == nil {
 			t.Fatalf("Expected destroy error, got nil")
@@ -1669,7 +1687,7 @@ func TestStack_DestroyAll(t *testing.T) {
 		}
 		warningOutput := captured.String()
 		if !strings.Contains(warningOutput, tfDiagnostic) {
-			t.Errorf("Expected terraform diagnostic %q to be surfaced via warningWriter, got %q", tfDiagnostic, warningOutput)
+			t.Errorf("Expected terraform diagnostic %q to be surfaced via presenter.Warn, got %q", tfDiagnostic, warningOutput)
 		}
 	})
 
@@ -1678,7 +1696,7 @@ func TestStack_DestroyAll(t *testing.T) {
 		// dependency, e.g. an orphaned firewall) then succeeds on retry
 		stack, mocks := setup(t)
 		var captured strings.Builder
-		stack.warningWriter = &captured
+		ctx := withWarnings(&captured)
 		var destroyCalls int
 		mocks.Shell.ExecSilentWithEnvFunc = func(command string, env map[string]string, args ...string) (string, error) {
 			if command == "terraform" && len(args) >= 3 && args[1] == "show" && args[2] == "-json" {
@@ -1698,10 +1716,10 @@ func TestStack_DestroyAll(t *testing.T) {
 		blueprint := createTestBlueprint()
 
 		// When DestroyAll runs
-		result, err := stack.DestroyAll(blueprint, false)
+		result, err := stack.DestroyAll(ctx, blueprint, false)
 
 		// Then the component destroys successfully after one retry, and the failed
-		// first attempt is still visible via warningWriter rather than vanishing
+		// first attempt is still visible via presenter.Warn rather than vanishing
 		if err != nil {
 			t.Fatalf("Expected the retry to absorb the transient failure, got %v", err)
 		}
@@ -1713,7 +1731,7 @@ func TestStack_DestroyAll(t *testing.T) {
 		}
 		warningOutput := captured.String()
 		if !strings.Contains(warningOutput, "attempt 1/") || !strings.Contains(warningOutput, "boom") {
-			t.Errorf("Expected the failed first attempt to be logged via warningWriter, got %q", warningOutput)
+			t.Errorf("Expected the failed first attempt to be logged via presenter.Warn, got %q", warningOutput)
 		}
 	})
 
@@ -1722,7 +1740,7 @@ func TestStack_DestroyAll(t *testing.T) {
 		// diagnostic each time
 		stack, mocks := setup(t)
 		var captured strings.Builder
-		stack.warningWriter = &captured
+		ctx := withWarnings(&captured)
 		var destroyCalls int
 		var sleepCalls int
 		mocks.Shims.TimeSleep = func(time.Duration) { sleepCalls++ }
@@ -1742,9 +1760,9 @@ func TestStack_DestroyAll(t *testing.T) {
 		blueprint := createTestBlueprint()
 
 		// When DestroyAll runs
-		_, err := stack.DestroyAll(blueprint, false)
+		_, err := stack.DestroyAll(ctx, blueprint, false)
 
-		// Then every attempt is exhausted, with a backoff wait and a warningWriter
+		// Then every attempt is exhausted, with a backoff wait and a presenter.Warn
 		// line naming each non-final attempt's own diagnostic before the wrapped
 		// error surfaces the last one
 		if err == nil {
@@ -1759,7 +1777,7 @@ func TestStack_DestroyAll(t *testing.T) {
 		warningOutput := captured.String()
 		for attempt := 1; attempt < stack.destroyRetryAttempts; attempt++ {
 			if !strings.Contains(warningOutput, fmt.Sprintf("boom-%d", attempt)) {
-				t.Errorf("Expected attempt %d's own diagnostic %q to be logged via warningWriter, got %q", attempt, fmt.Sprintf("boom-%d", attempt), warningOutput)
+				t.Errorf("Expected attempt %d's own diagnostic %q to be logged via presenter.Warn, got %q", attempt, fmt.Sprintf("boom-%d", attempt), warningOutput)
 			}
 		}
 	})
@@ -1781,7 +1799,7 @@ func TestStack_DestroyAll(t *testing.T) {
 		blueprint := createTestBlueprint()
 
 		// When DestroyAll runs
-		_, err := stack.DestroyAll(blueprint, false)
+		_, err := stack.DestroyAll(context.Background(), blueprint, false)
 
 		// Then the timeout fails immediately, with no retry and no backoff wait
 		if err == nil || !errors.Is(err, shell.ErrCommandTimedOut) {
@@ -1797,7 +1815,7 @@ func TestStack_DestroyAll(t *testing.T) {
 
 	t.Run("NilBlueprint", func(t *testing.T) {
 		stack, _ := setup(t)
-		_, err := stack.DestroyAll(nil, false)
+		_, err := stack.DestroyAll(context.Background(), nil, false)
 		if err == nil {
 			t.Error("Expected error, got nil")
 		}
@@ -1810,7 +1828,7 @@ func TestStack_DestroyAll(t *testing.T) {
 		stack, mocks := setup(t)
 		mocks.Runtime.ProjectRoot = ""
 		blueprint := createTestBlueprint()
-		_, err := stack.DestroyAll(blueprint, false)
+		_, err := stack.DestroyAll(context.Background(), blueprint, false)
 		if err == nil {
 			t.Error("Expected error, got nil")
 		}
@@ -1836,7 +1854,7 @@ func TestStack_DestroyAll(t *testing.T) {
 		blueprint := createTestBlueprint()
 
 		// When running Down
-		_, err := stack.DestroyAll(blueprint, false)
+		_, err := stack.DestroyAll(context.Background(), blueprint, false)
 
 		// Then it should succeed (cleanup errors are ignored)
 		if err != nil {
@@ -1869,7 +1887,7 @@ func TestStack_DestroyAll(t *testing.T) {
 			},
 		}
 
-		if _, err := stack.DestroyAll(blueprint, false); err != nil {
+		if _, err := stack.DestroyAll(context.Background(), blueprint, false); err != nil {
 			t.Errorf("Expected Down to succeed with named component, got %v", err)
 		}
 	})
@@ -1906,7 +1924,7 @@ func TestStack_DestroyAll(t *testing.T) {
 			},
 		}
 
-		if _, err := stack.DestroyAll(blueprint, false); err != nil {
+		if _, err := stack.DestroyAll(context.Background(), blueprint, false); err != nil {
 			t.Errorf("Expected Down to succeed with named component with source, got %v", err)
 		}
 	})
@@ -1933,7 +1951,7 @@ func TestStack_DestroyAll(t *testing.T) {
 			return "", nil
 		}
 
-		_, _ = stack.DestroyAll(blueprint, false)
+		_, _ = stack.DestroyAll(context.Background(), blueprint, false)
 
 		// Then TF_VAR_operation is "destroy"
 		if capturedEnv == nil {
@@ -1999,7 +2017,7 @@ func TestStack_DestroyAll(t *testing.T) {
 		}
 
 		// When destroying all components
-		if _, err := stack.DestroyAll(blueprint, false); err != nil {
+		if _, err := stack.DestroyAll(context.Background(), blueprint, false); err != nil {
 			t.Fatalf("Expected no error, got %v", err)
 		}
 
@@ -2055,7 +2073,7 @@ func TestStack_DestroyAll(t *testing.T) {
 		// Capture warnings via the injected writer rather than redirecting os.Stderr
 		// (the TUI spinner shares os.Stderr; pipe-based redirect deadlocks on Windows).
 		var captured strings.Builder
-		stack.warningWriter = &captured
+		ctx := withWarnings(&captured)
 
 		var destroyArgsByComponent = map[string][]string{}
 		mocks.Shell.ExecSilentWithEnvFunc = func(command string, env map[string]string, args ...string) (string, error) {
@@ -2089,7 +2107,7 @@ func TestStack_DestroyAll(t *testing.T) {
 			return "", nil
 		}
 
-		skipped, err := stack.DestroyAll(blueprint, false)
+		skipped, err := stack.DestroyAll(ctx, blueprint, false)
 		warningOutput := captured.String()
 
 		if err != nil {
@@ -2134,13 +2152,13 @@ func TestStack_DestroyAll(t *testing.T) {
 
 		// Warning must surface for the failed component only — silent fallback would hide
 		// a recurring credential or connectivity issue across a bulk destroy.
-		if !strings.Contains(warningOutput, "warning: terraform refresh failed for local/path") {
+		if !strings.Contains(warningOutput, "terraform refresh failed for local/path") {
 			t.Errorf("Expected warning for failed component, got: %q", warningOutput)
 		}
 		if !strings.Contains(warningOutput, "mock refresh failure for local/path") {
 			t.Errorf("Expected warning to include underlying refresh error, got: %q", warningOutput)
 		}
-		if strings.Contains(warningOutput, "warning: terraform refresh failed for remote/path") {
+		if strings.Contains(warningOutput, "terraform refresh failed for remote/path") {
 			t.Errorf("No warning expected for remote/path (refresh succeeded), got: %q", warningOutput)
 		}
 	})
@@ -2164,7 +2182,7 @@ func TestStack_DestroyAll(t *testing.T) {
 		}
 
 		// When DestroyAll runs
-		_, err := stack.DestroyAll(blueprint, false)
+		_, err := stack.DestroyAll(context.Background(), blueprint, false)
 
 		// Then it fails fast with an actionable error and never runs destroy
 		if err == nil {
@@ -2213,7 +2231,7 @@ func TestStack_DestroyAll(t *testing.T) {
 		}
 
 		// When DestroyAll runs with continueOnError=true
-		result, err := stack.DestroyAll(blueprint, true)
+		result, err := stack.DestroyAll(context.Background(), blueprint, true)
 
 		// Then the failure is collected and the follow-up component still destroys
 		if err != nil {
@@ -2268,7 +2286,7 @@ func TestStack_DestroyAll(t *testing.T) {
 		}
 
 		// When DestroyAll runs with continueOnError=false
-		_, err := stack.DestroyAll(blueprint, false)
+		_, err := stack.DestroyAll(context.Background(), blueprint, false)
 
 		// Then every retry attempt targets "second" and the follow-up component
 		// is never attempted
@@ -2327,7 +2345,7 @@ func TestStack_DestroyAll(t *testing.T) {
 		}
 
 		// When DestroyAll runs with continueOnError=true
-		result, err := stack.DestroyAll(blueprint, true)
+		result, err := stack.DestroyAll(context.Background(), blueprint, true)
 
 		// Then the setup failure is collected and the follow-up component still destroys
 		if err != nil {
@@ -3050,7 +3068,7 @@ func TestStack_Apply(t *testing.T) {
 		blueprint := createTestBlueprint()
 
 		// When applying the local component by ID
-		err := stack.Apply(blueprint, "local/path")
+		err := stack.Apply(context.Background(), blueprint, "local/path")
 
 		// Then no error should occur
 		if err != nil {
@@ -3063,7 +3081,7 @@ func TestStack_Apply(t *testing.T) {
 		stack, _ := setup(t)
 
 		// When applying with nil blueprint
-		err := stack.Apply(nil, "local/path")
+		err := stack.Apply(context.Background(), nil, "local/path")
 
 		// Then an error should occur
 		if err == nil {
@@ -3080,7 +3098,7 @@ func TestStack_Apply(t *testing.T) {
 		blueprint := createTestBlueprint()
 
 		// When applying with an empty component ID
-		err := stack.Apply(blueprint, "")
+		err := stack.Apply(context.Background(), blueprint, "")
 
 		// Then an error should occur
 		if err == nil {
@@ -3097,7 +3115,7 @@ func TestStack_Apply(t *testing.T) {
 		blueprint := createTestBlueprint()
 
 		// When applying a component that does not exist in the blueprint
-		err := stack.Apply(blueprint, "does/not/exist")
+		err := stack.Apply(context.Background(), blueprint, "does/not/exist")
 
 		// Then an error should occur naming the missing component
 		if err == nil {
@@ -3115,7 +3133,7 @@ func TestStack_Apply(t *testing.T) {
 		blueprint := createTestBlueprint()
 
 		// When applying
-		err := stack.Apply(blueprint, "local/path")
+		err := stack.Apply(context.Background(), blueprint, "local/path")
 
 		// Then an error should occur
 		if err == nil {
@@ -3156,7 +3174,7 @@ func TestStack_Apply(t *testing.T) {
 		}
 
 		// When applying the local component
-		if err := stack.Apply(blueprint, "local/path"); err != nil {
+		if err := stack.Apply(context.Background(), blueprint, "local/path"); err != nil {
 			t.Fatalf("Expected Apply to return nil, got %v", err)
 		}
 
@@ -3181,7 +3199,7 @@ func TestStack_Apply(t *testing.T) {
 		blueprint := createTestBlueprint()
 
 		// When applying
-		err := stack.Apply(blueprint, "local/path")
+		err := stack.Apply(context.Background(), blueprint, "local/path")
 
 		// Then an error should occur
 		if !strings.Contains(err.Error(), "error getting current directory") {
@@ -3198,7 +3216,7 @@ func TestStack_Apply(t *testing.T) {
 		blueprint := createTestBlueprint()
 
 		// When applying
-		err := stack.Apply(blueprint, "local/path")
+		err := stack.Apply(context.Background(), blueprint, "local/path")
 
 		// Then an error should occur mentioning directory
 		if err == nil {
@@ -3221,7 +3239,7 @@ func TestStack_Apply(t *testing.T) {
 		blueprint := createTestBlueprint()
 
 		// When applying
-		err := stack.Apply(blueprint, "local/path")
+		err := stack.Apply(context.Background(), blueprint, "local/path")
 
 		// Then an error should occur
 		if !strings.Contains(err.Error(), "error running terraform init for") {
@@ -3243,7 +3261,7 @@ func TestStack_Apply(t *testing.T) {
 		blueprint := createTestBlueprint()
 
 		// When applying the scratch component
-		err := stack.Apply(blueprint, "remote/path")
+		err := stack.Apply(context.Background(), blueprint, "remote/path")
 
 		// Then the error is a windsor-native hint naming the scratch cache directory to
 		// clear, wrapping (not replacing) Terraform's own error text
@@ -3272,7 +3290,7 @@ func TestStack_Apply(t *testing.T) {
 		blueprint := createTestBlueprint()
 
 		// When applying the non-scratch component
-		err := stack.Apply(blueprint, "local/path")
+		err := stack.Apply(context.Background(), blueprint, "local/path")
 
 		// Then the hint points at re-running init with -upgrade in that directory, not at
 		// deleting anything
@@ -3296,7 +3314,7 @@ func TestStack_Apply(t *testing.T) {
 		blueprint := createTestBlueprint()
 
 		// When applying
-		err := stack.Apply(blueprint, "local/path")
+		err := stack.Apply(context.Background(), blueprint, "local/path")
 
 		// Then no stale-lock hint is added
 		if err == nil {
@@ -3322,7 +3340,7 @@ func TestStack_Apply(t *testing.T) {
 		blueprint := createTestBlueprint()
 
 		// When applying
-		err := stack.Apply(blueprint, "local/path")
+		err := stack.Apply(context.Background(), blueprint, "local/path")
 
 		// Then an error should occur
 		if !strings.Contains(err.Error(), "error running terraform plan for") {
@@ -3342,7 +3360,7 @@ func TestStack_Apply(t *testing.T) {
 		blueprint := createTestBlueprint()
 
 		// When applying
-		err := stack.Apply(blueprint, "local/path")
+		err := stack.Apply(context.Background(), blueprint, "local/path")
 
 		// Then an error should occur
 		if !strings.Contains(err.Error(), "error running terraform apply for") {
@@ -3365,7 +3383,7 @@ func TestStack_Apply(t *testing.T) {
 		}
 
 		// When applying by name
-		err := stack.Apply(blueprint, "cluster")
+		err := stack.Apply(context.Background(), blueprint, "cluster")
 
 		// Then no error should occur
 		if err != nil {
@@ -3391,7 +3409,7 @@ func TestStack_Apply(t *testing.T) {
 		blueprint := createTestBlueprint()
 
 		// When applying
-		err := stack.Apply(blueprint, "local/path")
+		err := stack.Apply(context.Background(), blueprint, "local/path")
 
 		// Then it should succeed — cleanup errors are ignored
 		if err != nil {
@@ -3417,7 +3435,7 @@ func TestStack_Apply(t *testing.T) {
 			return "", nil
 		}
 
-		_ = stack.Apply(blueprint, "local/path")
+		_ = stack.Apply(context.Background(), blueprint, "local/path")
 
 		// Then TF_VAR_operation is "apply"
 		if capturedEnv == nil {
@@ -3445,7 +3463,7 @@ func TestStack_Apply(t *testing.T) {
 			return "", nil
 		}
 
-		_ = stack.Apply(blueprint, "local/path")
+		_ = stack.Apply(context.Background(), blueprint, "local/path")
 
 		// Then plan was called with -refresh=false (refresh ran explicitly before)
 		var sawRefreshFalse bool
@@ -3477,7 +3495,7 @@ func TestStack_Apply(t *testing.T) {
 		}
 
 		// When Apply runs
-		_ = stack.Apply(blueprint, "local/path")
+		_ = stack.Apply(context.Background(), blueprint, "local/path")
 
 		// Then refresh was invoked because state is non-empty
 		if !sawRefreshExec {
@@ -3489,7 +3507,7 @@ func TestStack_Apply(t *testing.T) {
 		// Given a stack with non-empty state and a refresh that fails
 		stack, mocks := setup(t)
 		warnings := &bytes.Buffer{}
-		stack.warningWriter = warnings
+		ctx := withWarnings(warnings)
 
 		mocks.Shell.ExecSilentWithEnvFunc = func(command string, env map[string]string, args ...string) (string, error) {
 			if command == "terraform" && len(args) > 1 && args[1] == "refresh" {
@@ -3503,7 +3521,7 @@ func TestStack_Apply(t *testing.T) {
 		blueprint := createTestBlueprint()
 
 		// When Apply runs
-		err := stack.Apply(blueprint, "local/path")
+		err := stack.Apply(ctx, blueprint, "local/path")
 
 		// Then no error surfaces (warn-but-continue) and the warning names the failure
 		if err != nil {
@@ -3526,7 +3544,7 @@ func TestStack_Apply(t *testing.T) {
 		blueprint := createTestBlueprint()
 
 		// When Apply runs
-		err := stack.Apply(blueprint, "local/path")
+		err := stack.Apply(context.Background(), blueprint, "local/path")
 
 		// Then the state-check error propagates — Apply must not silently fall through
 		// to plan against an unknown state
@@ -3571,7 +3589,7 @@ func TestStack_Destroy(t *testing.T) {
 		blueprint := createTestBlueprint()
 
 		// When destroying the local component by ID
-		_, err := stack.Destroy(blueprint, "local/path")
+		_, err := stack.Destroy(context.Background(), blueprint, "local/path")
 
 		// Then no error should occur
 		if err != nil {
@@ -3595,7 +3613,7 @@ func TestStack_Destroy(t *testing.T) {
 		blueprint := createTestBlueprint()
 
 		// When destroying the local component by ID
-		_, err := stack.Destroy(blueprint, "local/path")
+		_, err := stack.Destroy(context.Background(), blueprint, "local/path")
 
 		// Then the destroy exec runs with the bounded idle timeout, absolute backstop, and
 		// grace period, not the immediate-kill variant
@@ -3625,7 +3643,7 @@ func TestStack_Destroy(t *testing.T) {
 		}
 
 		blueprint := createTestBlueprint()
-		if _, err := stack.Destroy(blueprint, "local/path"); err != nil {
+		if _, err := stack.Destroy(context.Background(), blueprint, "local/path"); err != nil {
 			t.Fatalf("Expected no error, got %v", err)
 		}
 		if !slices.Contains(destroyArgs, "-no-color") {
@@ -3648,7 +3666,7 @@ func TestStack_Destroy(t *testing.T) {
 		blueprint := createTestBlueprint()
 
 		// When destroying the component
-		if _, err := stack.Destroy(blueprint, "local/path"); err != nil {
+		if _, err := stack.Destroy(context.Background(), blueprint, "local/path"); err != nil {
 			t.Fatalf("Expected no error, got %v", err)
 		}
 
@@ -3667,7 +3685,7 @@ func TestStack_Destroy(t *testing.T) {
 		stack, _ := setup(t)
 
 		// When destroying with nil blueprint
-		_, err := stack.Destroy(nil, "local/path")
+		_, err := stack.Destroy(context.Background(), nil, "local/path")
 
 		// Then an error should occur
 		if err == nil {
@@ -3684,7 +3702,7 @@ func TestStack_Destroy(t *testing.T) {
 		blueprint := createTestBlueprint()
 
 		// When destroying with an empty component ID
-		_, err := stack.Destroy(blueprint, "")
+		_, err := stack.Destroy(context.Background(), blueprint, "")
 
 		// Then an error should occur
 		if err == nil {
@@ -3701,7 +3719,7 @@ func TestStack_Destroy(t *testing.T) {
 		blueprint := createTestBlueprint()
 
 		// When destroying a component that does not exist in the blueprint
-		_, err := stack.Destroy(blueprint, "does/not/exist")
+		_, err := stack.Destroy(context.Background(), blueprint, "does/not/exist")
 
 		// Then an error should occur naming the missing component
 		if err == nil {
@@ -3719,7 +3737,7 @@ func TestStack_Destroy(t *testing.T) {
 		blueprint := createTestBlueprint()
 
 		// When destroying
-		_, err := stack.Destroy(blueprint, "local/path")
+		_, err := stack.Destroy(context.Background(), blueprint, "local/path")
 
 		// Then an error should occur
 		if err == nil {
@@ -3739,7 +3757,7 @@ func TestStack_Destroy(t *testing.T) {
 		blueprint := createTestBlueprint()
 
 		// When destroying
-		_, err := stack.Destroy(blueprint, "local/path")
+		_, err := stack.Destroy(context.Background(), blueprint, "local/path")
 
 		// Then an error should occur
 		if !strings.Contains(err.Error(), "error getting current directory") {
@@ -3756,7 +3774,7 @@ func TestStack_Destroy(t *testing.T) {
 		blueprint := createTestBlueprint()
 
 		// When destroying
-		_, err := stack.Destroy(blueprint, "local/path")
+		_, err := stack.Destroy(context.Background(), blueprint, "local/path")
 
 		// Then an error should occur mentioning directory
 		if err == nil {
@@ -3779,7 +3797,7 @@ func TestStack_Destroy(t *testing.T) {
 		blueprint := createTestBlueprint()
 
 		// When destroying
-		_, err := stack.Destroy(blueprint, "local/path")
+		_, err := stack.Destroy(context.Background(), blueprint, "local/path")
 
 		// Then an error should occur
 		if !strings.Contains(err.Error(), "error running terraform init for") {
@@ -3791,10 +3809,10 @@ func TestStack_Destroy(t *testing.T) {
 		// Given a stack whose shell fails on terraform destroy. The single Destroy
 		// method uses ExecSilentWithEnv inside a tui.WithProgress wrapper to mirror
 		// the bulk DestroyAll loop body. The mock returns a recognizable terraform
-		// diagnostic alongside the error to verify it is surfaced via warningWriter.
+		// diagnostic alongside the error to verify it is surfaced via presenter.Warn.
 		stack, mocks := setup(t)
 		var captured strings.Builder
-		stack.warningWriter = &captured
+		ctx := withWarnings(&captured)
 
 		const tfDiagnostic = "Error: deleting EC2 Instance (i-abc123): InvalidInstanceID.NotFound"
 		mocks.Shell.ExecSilentWithEnvFunc = func(command string, env map[string]string, args ...string) (string, error) {
@@ -3809,7 +3827,7 @@ func TestStack_Destroy(t *testing.T) {
 		blueprint := createTestBlueprint()
 
 		// When destroying
-		_, err := stack.Destroy(blueprint, "local/path")
+		_, err := stack.Destroy(ctx, blueprint, "local/path")
 
 		// Then an error should occur
 		if err == nil {
@@ -3820,7 +3838,7 @@ func TestStack_Destroy(t *testing.T) {
 		}
 		warningOutput := captured.String()
 		if !strings.Contains(warningOutput, tfDiagnostic) {
-			t.Errorf("Expected terraform diagnostic %q to be surfaced via warningWriter, got %q", tfDiagnostic, warningOutput)
+			t.Errorf("Expected terraform diagnostic %q to be surfaced via presenter.Warn, got %q", tfDiagnostic, warningOutput)
 		}
 	})
 
@@ -3828,7 +3846,7 @@ func TestStack_Destroy(t *testing.T) {
 		// Given a terraform destroy that fails once then succeeds on retry
 		stack, mocks := setup(t)
 		var captured strings.Builder
-		stack.warningWriter = &captured
+		ctx := withWarnings(&captured)
 		var destroyCalls int
 		mocks.Shell.ExecSilentWithEnvFunc = func(command string, env map[string]string, args ...string) (string, error) {
 			if command == "terraform" && len(args) > 1 && args[1] == "destroy" {
@@ -3846,10 +3864,10 @@ func TestStack_Destroy(t *testing.T) {
 		blueprint := createTestBlueprint()
 
 		// When destroying
-		skipped, err := stack.Destroy(blueprint, "local/path")
+		skipped, err := stack.Destroy(ctx, blueprint, "local/path")
 
 		// Then the component destroys successfully after one retry, and the failed
-		// first attempt is still visible via warningWriter rather than vanishing
+		// first attempt is still visible via presenter.Warn rather than vanishing
 		if err != nil {
 			t.Fatalf("Expected the retry to absorb the transient failure, got %v", err)
 		}
@@ -3861,7 +3879,7 @@ func TestStack_Destroy(t *testing.T) {
 		}
 		warningOutput := captured.String()
 		if !strings.Contains(warningOutput, "attempt 1/") || !strings.Contains(warningOutput, "boom") {
-			t.Errorf("Expected the failed first attempt to be logged via warningWriter, got %q", warningOutput)
+			t.Errorf("Expected the failed first attempt to be logged via presenter.Warn, got %q", warningOutput)
 		}
 	})
 
@@ -3882,7 +3900,7 @@ func TestStack_Destroy(t *testing.T) {
 		blueprint := createTestBlueprint()
 
 		// When destroying
-		_, err := stack.Destroy(blueprint, "local/path")
+		_, err := stack.Destroy(context.Background(), blueprint, "local/path")
 
 		// Then the timeout fails immediately, with no retry and no backoff wait
 		if err == nil || !errors.Is(err, shell.ErrCommandTimedOut) {
@@ -3922,7 +3940,7 @@ func TestStack_Destroy(t *testing.T) {
 		blueprint := createTestBlueprint()
 
 		// When destroying
-		_, err := stack.Destroy(blueprint, "local/path")
+		_, err := stack.Destroy(context.Background(), blueprint, "local/path")
 
 		// Then no error should occur and RefreshArgs should be forwarded
 		if err != nil {
@@ -3959,7 +3977,7 @@ func TestStack_Destroy(t *testing.T) {
 			return "", nil
 		}
 
-		_, _ = stack.Destroy(blueprint, "local/path")
+		_, _ = stack.Destroy(context.Background(), blueprint, "local/path")
 
 		// Then TF_VAR_operation is "destroy"
 		if capturedEnv == nil {
@@ -4008,7 +4026,7 @@ func TestStack_Destroy(t *testing.T) {
 		}
 
 		// When destroying a single component
-		if _, err := stack.Destroy(blueprint, "local/path"); err != nil {
+		if _, err := stack.Destroy(context.Background(), blueprint, "local/path"); err != nil {
 			t.Fatalf("Expected no error, got %v", err)
 		}
 
@@ -4062,7 +4080,7 @@ func TestStack_Destroy(t *testing.T) {
 			return "", nil
 		}
 
-		if _, err := stack.Destroy(blueprint, "local/path"); err != nil {
+		if _, err := stack.Destroy(context.Background(), blueprint, "local/path"); err != nil {
 			t.Fatalf("Expected destroy to succeed against child-module state, got %v", err)
 		}
 		if !destroyCalled {
@@ -4092,7 +4110,7 @@ func TestStack_Destroy(t *testing.T) {
 			return "", nil
 		}
 
-		if _, err := stack.Destroy(blueprint, "local/path"); err != nil {
+		if _, err := stack.Destroy(context.Background(), blueprint, "local/path"); err != nil {
 			t.Fatalf("Expected destroy to succeed against deeply-nested state, got %v", err)
 		}
 		if !destroyCalled {
@@ -4134,7 +4152,7 @@ func TestStack_Destroy(t *testing.T) {
 			return "", nil
 		}
 
-		if _, err := stack.Destroy(blueprint, "local/path"); err != nil {
+		if _, err := stack.Destroy(context.Background(), blueprint, "local/path"); err != nil {
 			t.Fatalf("Expected destroy against empty state to succeed (idempotent), got %v", err)
 		}
 
@@ -4174,7 +4192,7 @@ func TestStack_Destroy(t *testing.T) {
 			return "", nil
 		}
 
-		if _, err := stack.Destroy(blueprint, "local/path"); err != nil {
+		if _, err := stack.Destroy(context.Background(), blueprint, "local/path"); err != nil {
 			t.Fatalf("Expected never-applied state to be treated as empty, got %v", err)
 		}
 		if destroyCalled {
@@ -4202,7 +4220,7 @@ func TestStack_Destroy(t *testing.T) {
 			return "", nil
 		}
 
-		if _, err := stack.Destroy(blueprint, "local/path"); err != nil {
+		if _, err := stack.Destroy(context.Background(), blueprint, "local/path"); err != nil {
 			t.Fatalf("Expected destroy to succeed, got %v", err)
 		}
 		if destroyArgs == nil {
@@ -4240,7 +4258,7 @@ func TestStack_Destroy(t *testing.T) {
 			return "", nil
 		}
 
-		if _, err := stack.Destroy(blueprint, "local/path"); err != nil {
+		if _, err := stack.Destroy(context.Background(), blueprint, "local/path"); err != nil {
 			t.Fatalf("Expected destroy to succeed, got %v", err)
 		}
 		if applyCalled {
@@ -4267,7 +4285,7 @@ func TestStack_Destroy(t *testing.T) {
 		// the TUI spinner shares os.Stderr and a pipe-based redirect deadlocks on Windows
 		// where the spinner goroutine cannot be reliably synchronized with w.Close().
 		var captured strings.Builder
-		stack.warningWriter = &captured
+		ctx := withWarnings(&captured)
 
 		showCalls := 0
 		var destroyArgs []string
@@ -4286,7 +4304,7 @@ func TestStack_Destroy(t *testing.T) {
 			return "", nil
 		}
 
-		skipped, err := stack.Destroy(blueprint, "local/path")
+		skipped, err := stack.Destroy(ctx, blueprint, "local/path")
 		warningOutput := captured.String()
 
 		if err != nil {
@@ -4313,7 +4331,7 @@ func TestStack_Destroy(t *testing.T) {
 		if !hasRefreshTrue {
 			t.Errorf("Expected destroy args to include -refresh=true, got %v", destroyArgs)
 		}
-		if !strings.Contains(warningOutput, "warning: terraform refresh failed for local/path") {
+		if !strings.Contains(warningOutput, "terraform refresh failed for local/path") {
 			t.Errorf("Expected warning naming the component, got: %q", warningOutput)
 		}
 		if !strings.Contains(warningOutput, "mock error refreshing state") {
@@ -4340,7 +4358,7 @@ func TestStack_Destroy(t *testing.T) {
 		}
 
 		// When destroying the component
-		_, err := stack.Destroy(blueprint, "local/path")
+		_, err := stack.Destroy(context.Background(), blueprint, "local/path")
 
 		// Then it fails fast with an actionable error and never runs destroy
 		if err == nil {
@@ -4385,7 +4403,7 @@ func TestStack_Destroy(t *testing.T) {
 			return "", nil
 		}
 
-		skipped, err := stack.Destroy(blueprint, "local/path")
+		skipped, err := stack.Destroy(context.Background(), blueprint, "local/path")
 		if err != nil {
 			t.Fatalf("Expected no error on empty-state skip, got %v", err)
 		}
@@ -4415,7 +4433,7 @@ func TestStack_Destroy(t *testing.T) {
 			return "", nil
 		}
 
-		_, err := stack.Destroy(blueprint, "local/path")
+		_, err := stack.Destroy(context.Background(), blueprint, "local/path")
 		if err == nil {
 			t.Fatal("Expected state-show error to be surfaced, got nil")
 		}
@@ -4439,7 +4457,7 @@ func TestStack_Destroy(t *testing.T) {
 			return "", nil
 		}
 
-		_, err := stack.Destroy(blueprint, "local/path")
+		_, err := stack.Destroy(context.Background(), blueprint, "local/path")
 		if err == nil {
 			t.Fatal("Expected parse error to be surfaced, got nil")
 		}
@@ -4491,7 +4509,7 @@ func TestStack_Destroy(t *testing.T) {
 			return "", nil
 		}
 
-		if _, err := stack.Destroy(blueprint, "local/path"); err != nil {
+		if _, err := stack.Destroy(context.Background(), blueprint, "local/path"); err != nil {
 			t.Fatalf("Expected partial-destruction destroy to succeed, got %v", err)
 		}
 
@@ -4524,7 +4542,7 @@ func TestStack_Destroy(t *testing.T) {
 		}
 		blueprint := createTestBlueprint()
 
-		_, err := stack.Destroy(blueprint, "local/path")
+		_, err := stack.Destroy(context.Background(), blueprint, "local/path")
 		if err != nil {
 			t.Fatalf("Expected no error, got %v", err)
 		}
@@ -4560,7 +4578,7 @@ func TestStack_Destroy(t *testing.T) {
 		}
 		blueprint := createTestBlueprint()
 
-		skipped, err := stack.Destroy(blueprint, "local/path")
+		skipped, err := stack.Destroy(context.Background(), blueprint, "local/path")
 		if err != nil {
 			t.Fatalf("Expected no error, got %v", err)
 		}
@@ -4601,7 +4619,7 @@ func TestStack_Destroy(t *testing.T) {
 		}
 		blueprint := createTestBlueprint()
 
-		_, err := stack.Destroy(blueprint, "local/path")
+		_, err := stack.Destroy(context.Background(), blueprint, "local/path")
 		if err == nil {
 			t.Fatal("Expected destroy to fail")
 		}
@@ -6228,6 +6246,96 @@ func TestExtractPlanErrorDiagnostics(t *testing.T) {
 		}
 		if strings.Contains(got[0], "\n") {
 			t.Errorf("expected no embedded newlines, got %q", got[0])
+		}
+	})
+}
+
+// eventRecorder records every presenter event it receives.
+type eventRecorder struct {
+	events []presenter.Event
+}
+
+func (r *eventRecorder) Emit(_ context.Context, e presenter.Event) {
+	r.events = append(r.events, e)
+}
+
+func TestStack_Progress(t *testing.T) {
+	setup := func(t *testing.T) (*TerraformStack, *TerraformTestMocks) {
+		t.Helper()
+		mocks := setupWindsorStackMocks(t)
+		stack := NewStack(mocks.Runtime).(*TerraformStack)
+		stack.shims = mocks.Shims
+		return stack, mocks
+	}
+
+	t.Run("UpTracksEachComponentUnderTheCallerOperation", func(t *testing.T) {
+		// Given a stack and a caller operation with a recording presenter
+		stack, _ := setup(t)
+		rec := &eventRecorder{}
+		ctx, end := presenter.Begin(presenter.NewContext(context.Background(), rec), "terraform", "Applying terraform")
+		parentID := rec.events[0].ID
+
+		// When the stack applies the blueprint
+		_, err := stack.Up(ctx, createTestBlueprint())
+		end(err)
+
+		// Then each component is one applied operation under the caller operation
+		if err != nil {
+			t.Fatalf("expected no error, got %v", err)
+		}
+		var applied []string
+		for _, e := range rec.events {
+			if e.Kind == presenter.KindApplied && e.ParentID == parentID {
+				if !strings.HasPrefix(e.Subject, "terraform:") {
+					t.Errorf("expected a terraform subject, got %q", e.Subject)
+				}
+				applied = append(applied, e.Message)
+			}
+		}
+		if strings.Join(applied, ",") != "Applying remote/path,Applying local/path" {
+			t.Errorf("unexpected applied operations %v", applied)
+		}
+	})
+
+	t.Run("UpEmitsFailedForTheFailingComponent", func(t *testing.T) {
+		// Given a stack whose terraform apply fails
+		stack, mocks := setup(t)
+		mocks.Shell.ExecProgressWithEnvFunc = func(message string, command string, env map[string]string, args ...string) (string, error) {
+			return "", fmt.Errorf("apply failed")
+		}
+		rec := &eventRecorder{}
+
+		// When the stack applies the blueprint
+		_, err := stack.Up(presenter.NewContext(context.Background(), rec), createTestBlueprint())
+
+		// Then the first component ends as failed with the error, and no later component starts
+		if err == nil {
+			t.Fatal("expected an error")
+		}
+		last := rec.events[len(rec.events)-1]
+		if last.Kind != presenter.KindFailed || last.Message != "Applying remote/path" || last.Err == nil {
+			t.Errorf("expected a failed event for remote/path, got %+v", last)
+		}
+		if len(rec.events) != 2 {
+			t.Errorf("expected only the first component's events, got %d", len(rec.events))
+		}
+	})
+
+	t.Run("DestroyTracksTheComponent", func(t *testing.T) {
+		// Given a stack and a recording presenter
+		stack, _ := setup(t)
+		rec := &eventRecorder{}
+		blueprint := createTestBlueprint()
+
+		// When one component is destroyed
+		_, err := stack.Destroy(presenter.NewContext(context.Background(), rec), blueprint, blueprint.TerraformComponents[1].GetID())
+
+		// Then the destroy is one operation that starts and ends
+		if err != nil {
+			t.Fatalf("expected no error, got %v", err)
+		}
+		if len(rec.events) != 2 || rec.events[0].Kind != presenter.KindApplying || rec.events[1].Kind != presenter.KindApplied || rec.events[0].Message != "Destroying local/path" {
+			t.Errorf("unexpected events %+v", rec.events)
 		}
 	})
 }

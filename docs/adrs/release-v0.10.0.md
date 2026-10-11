@@ -300,8 +300,8 @@ them fully spells out how it depends on the others' output.
 
 Done. `internal/shims`, `internal/werror`, `internal/logging`, and `internal/presenter` exist, and
 `cmd/` wires `--format`, the context logger, the presenter, and the central error renderer.
-`internal/util` waits for a duplicated pure helper. `Runtime` takes over logger and presenter
-construction when the first business package migrates.
+`internal/util` waits for a duplicated pure helper. The logger and the presenter travel in the
+command context.
 
 Five small, low-risk packages, in this order because each depends on the previous:
 
@@ -343,6 +343,12 @@ ADR 0002's already-decided density/blast-radius order —
 1. `pkg/composer/blueprint/` 2. `pkg/provisioner/` + `pkg/provisioner/kubernetes/` 3. `pkg/runtime/`
 4. `pkg/composer/artifact/` + `pkg/composer/terraform/` 5. `pkg/workstation/`
 6. `pkg/test/`, `pkg/tui/`, `cmd/`, `api/`
+
+The terraform path of `pkg/provisioner/` went first, ahead of `pkg/composer/blueprint/`, because
+the presenter needed a real caller before its API settled. Blueprint composition emits no progress,
+so it could not exercise the presenter. That pass added `ctx` to the terraform-path methods of
+`TerraformStack`, `Provisioner`, and `Project`, and moved their progress and warnings to the
+presenter. `pkg/provisioner/kubernetes/` and the kustomize paths of `pkg/provisioner/` are next.
 
 — a single pass applies, in order, within that package:
 

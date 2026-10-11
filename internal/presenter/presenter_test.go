@@ -113,6 +113,26 @@ func screen(out string) []string {
 	return lines
 }
 
+type fakeTerminal struct {
+	mu    sync.Mutex
+	calls []string
+}
+
+func (f *fakeTerminal) Enter() { f.record("enter") }
+func (f *fakeTerminal) Leave() { f.record("leave") }
+
+func (f *fakeTerminal) record(call string) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.calls = append(f.calls, call)
+}
+
+func (f *fakeTerminal) String() string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return strings.Join(f.calls, ",")
+}
+
 func plainLines(out string) []string {
 	return strings.Split(strings.TrimRight(out, "\n"), "\n")
 }
@@ -140,8 +160,8 @@ func TestNew(t *testing.T) {
 		var buf bytes.Buffer
 
 		// When a presenter is created for each format
-		text := presenter.New(logging.FormatText, &buf, slog.LevelInfo, true)
-		jsonOut := presenter.New(logging.FormatJSON, &buf, slog.LevelInfo, true)
+		text := presenter.New(logging.FormatText, &buf, presenter.ConsoleOptions{Level: slog.LevelInfo, Interactive: true})
+		jsonOut := presenter.New(logging.FormatJSON, &buf, presenter.ConsoleOptions{Level: slog.LevelInfo, Interactive: true})
 
 		// Then text gets the console renderer and json gets the JSON renderer
 		if _, ok := text.(*presenter.Console); !ok {
@@ -155,10 +175,10 @@ func TestNew(t *testing.T) {
 	t.Run("RendersPlainOutputWhenTheWriterIsNotATerminal", func(t *testing.T) {
 		// Given a text presenter on a buffer with interactive output requested
 		var buf bytes.Buffer
-		p := presenter.New(logging.FormatText, &buf, slog.LevelInfo, true)
+		p := presenter.New(logging.FormatText, &buf, presenter.ConsoleOptions{Level: slog.LevelInfo, Interactive: true})
 
 		// When an operation runs
-		_ = presenter.Track(context.Background(), p, "s", "Applying", func(context.Context) error { return nil })
+		_ = presenter.Track(presenter.NewContext(context.Background(), p), "s", "Applying", func(context.Context) error { return nil })
 
 		// Then the output holds no escape codes
 		if strings.Contains(buf.String(), "\033") {
@@ -171,13 +191,45 @@ func TestNew(t *testing.T) {
 // Test Public Methods
 // =============================================================================
 
+func TestFromContext(t *testing.T) {
+	t.Run("ReturnsTheInjectedPresenter", func(t *testing.T) {
+		// Given a context that carries a presenter
+		rec := &recorder{}
+		ctx := presenter.NewContext(context.Background(), rec)
+
+		// When the presenter is read back
+		got := presenter.FromContext(ctx)
+
+		// Then it is the injected presenter
+		if got != rec {
+			t.Errorf("expected the injected presenter, got %T", got)
+		}
+	})
+
+	t.Run("ReturnsDiscardWhenNoneIsInjected", func(t *testing.T) {
+		// Given a context without a presenter
+		ctx := context.Background()
+
+		// When helpers run and the presenter is read
+		err := presenter.Track(ctx, "s", "Applying", func(ctx context.Context) error {
+			presenter.Message(ctx, "hello")
+			return nil
+		})
+
+		// Then the helpers succeed and the presenter is Discard
+		if err != nil || presenter.FromContext(ctx) != presenter.Discard {
+			t.Errorf("expected Discard and no error, got %T and %v", presenter.FromContext(ctx), err)
+		}
+	})
+}
+
 func TestTrack(t *testing.T) {
 	t.Run("EmitsApplyingThenAppliedForOneOperation", func(t *testing.T) {
 		// Given a recording presenter
 		rec := &recorder{}
 
 		// When a successful operation is tracked
-		err := presenter.Track(context.Background(), rec, "terraform:cluster", "Applying cluster", func(context.Context) error { return nil })
+		err := presenter.Track(presenter.NewContext(context.Background(), rec), "terraform:cluster", "Applying cluster", func(context.Context) error { return nil })
 
 		// Then applying and applied share one ID and carry the subject and message
 		if err != nil {
@@ -198,11 +250,11 @@ func TestTrack(t *testing.T) {
 	t.Run("SetsTheParentOfNestedOperations", func(t *testing.T) {
 		// Given a recording presenter
 		rec := &recorder{}
-		ctx := context.Background()
+		ctx := presenter.NewContext(context.Background(), rec)
 
 		// When one operation runs inside another
-		_ = presenter.Track(ctx, rec, "outer", "Outer", func(ctx context.Context) error {
-			return presenter.Track(ctx, rec, "inner", "Inner", func(context.Context) error { return nil })
+		_ = presenter.Track(ctx, "outer", "Outer", func(ctx context.Context) error {
+			return presenter.Track(ctx, "inner", "Inner", func(context.Context) error { return nil })
 		})
 
 		// Then the inner events name the outer operation as parent
@@ -220,7 +272,7 @@ func TestTrack(t *testing.T) {
 		rec := &recorder{}
 
 		// When a failing operation is tracked
-		err := presenter.Track(context.Background(), rec, "s", "Applying", func(context.Context) error { return errBoom })
+		err := presenter.Track(presenter.NewContext(context.Background(), rec), "s", "Applying", func(context.Context) error { return errBoom })
 
 		// Then failed carries the error and the same error is returned
 		if !errors.Is(err, errBoom) {
@@ -239,7 +291,7 @@ func TestBegin(t *testing.T) {
 	t.Run("EndsOnlyOnce", func(t *testing.T) {
 		// Given an operation started with Begin
 		rec := &recorder{}
-		_, end := presenter.Begin(context.Background(), rec, "s", "Waiting")
+		_, end := presenter.Begin(presenter.NewContext(context.Background(), rec), "s", "Waiting")
 
 		// When end is called twice
 		end(nil)
@@ -256,13 +308,13 @@ func TestMessageWarnProgress(t *testing.T) {
 	t.Run("AttachToTheCurrentOperation", func(t *testing.T) {
 		// Given an operation context
 		rec := &recorder{}
-		ctx, end := presenter.Begin(context.Background(), rec, "s", "Applying")
+		ctx, end := presenter.Begin(presenter.NewContext(context.Background(), rec), "s", "Applying")
 		id := rec.events[0].ID
 
 		// When a message, a warning, and progress are emitted inside it
-		presenter.Message(ctx, rec, "found 3 modules")
-		presenter.Warn(ctx, rec, "module is slow")
-		presenter.Progress(ctx, rec, "waiting")
+		presenter.Message(ctx, "found 3 modules")
+		presenter.Warn(ctx, "module is slow")
+		presenter.Progress(ctx, "waiting")
 		end(nil)
 
 		// Then each event refers to the operation
@@ -281,11 +333,11 @@ func TestMessageWarnProgress(t *testing.T) {
 	t.Run("StayAtTheTopLevelOutsideAnOperation", func(t *testing.T) {
 		// Given a context without an operation
 		rec := &recorder{}
-		ctx := context.Background()
+		ctx := presenter.NewContext(context.Background(), rec)
 
 		// When a message and progress are emitted
-		presenter.Message(ctx, rec, "hello")
-		presenter.Progress(ctx, rec, "waiting")
+		presenter.Message(ctx, "hello")
+		presenter.Progress(ctx, "waiting")
 
 		// Then the message has no parent and progress emits nothing
 		if len(rec.events) != 1 || rec.events[0].ParentID != "" {
@@ -299,14 +351,14 @@ func TestConsole_Plain(t *testing.T) {
 		// Given a plain console
 		var buf bytes.Buffer
 		c := presenter.NewConsole(&buf, presenter.ConsoleOptions{Level: slog.LevelInfo})
-		ctx := context.Background()
+		ctx := presenter.NewContext(context.Background(), c)
 
 		// When nested operations, a message, and a warning run and one step fails
-		_ = presenter.Track(ctx, c, "tf", "Applying terraform", func(ctx context.Context) error {
-			_ = presenter.Track(ctx, c, "tf:network", "network", func(context.Context) error { return nil })
-			presenter.Message(ctx, c, "found 2 modules")
-			presenter.Warn(ctx, c, "module is slow")
-			return presenter.Track(ctx, c, "tf:cluster", "cluster", func(context.Context) error { return errBoom })
+		_ = presenter.Track(ctx, "tf", "Applying terraform", func(ctx context.Context) error {
+			_ = presenter.Track(ctx, "tf:network", "network", func(context.Context) error { return nil })
+			presenter.Message(ctx, "found 2 modules")
+			presenter.Warn(ctx, "module is slow")
+			return presenter.Track(ctx, "tf:cluster", "cluster", func(context.Context) error { return errBoom })
 		})
 
 		// Then each event prints one line, indented under its parent
@@ -325,16 +377,56 @@ func TestConsole_Plain(t *testing.T) {
 		}
 	})
 
+	t.Run("IndentsEveryLineOfAMultiLineWarning", func(t *testing.T) {
+		// Given a plain console
+		var buf bytes.Buffer
+		c := presenter.NewConsole(&buf, presenter.ConsoleOptions{Level: slog.LevelInfo})
+
+		// When a multi-line warning is emitted inside an operation
+		_ = presenter.Track(presenter.NewContext(context.Background(), c), "s", "Destroying", func(ctx context.Context) error {
+			presenter.Warn(ctx, "destroy output:\nError: bucket not empty")
+			return nil
+		})
+
+		// Then the second line aligns under the first line's text
+		want := []string{"● Destroying", "  ⚠ destroy output:", "    Error: bucket not empty", "✔ Destroying"}
+		if got := plainLines(buf.String()); !reflect.DeepEqual(got, want) {
+			t.Errorf("expected %q, got %q", want, got)
+		}
+	})
+
+	t.Run("EndsASuccessfulParentWithoutARepeatedLine", func(t *testing.T) {
+		// Given a plain console
+		var buf bytes.Buffer
+		c := presenter.NewConsole(&buf, presenter.ConsoleOptions{Level: slog.LevelInfo})
+
+		// When a parent with one child succeeds, then a leaf with a message succeeds
+		ctx := presenter.NewContext(context.Background(), c)
+		_ = presenter.Track(ctx, "tf", "Applying terraform", func(ctx context.Context) error {
+			return presenter.Track(ctx, "tf:network", "network", func(context.Context) error { return nil })
+		})
+		_ = presenter.Track(ctx, "flux", "gitops", func(ctx context.Context) error {
+			presenter.Message(ctx, "found 2 kustomizations")
+			return nil
+		})
+
+		// Then the parent has no end line, and the leaves keep theirs
+		want := []string{"● Applying terraform", "  ● network", "  ✔ network", "● gitops", "  found 2 kustomizations", "✔ gitops"}
+		if got := plainLines(buf.String()); !reflect.DeepEqual(got, want) {
+			t.Errorf("expected\n%s\ngot\n%s", strings.Join(want, "\n"), strings.Join(got, "\n"))
+		}
+	})
+
 	t.Run("PrintsProgressOncePerChange", func(t *testing.T) {
 		// Given a plain console
 		var buf bytes.Buffer
 		c := presenter.NewConsole(&buf, presenter.ConsoleOptions{Level: slog.LevelInfo})
 
 		// When an operation repeats a progress update
-		_ = presenter.Track(context.Background(), c, "s", "Waiting", func(ctx context.Context) error {
-			presenter.Progress(ctx, c, "2 pending")
-			presenter.Progress(ctx, c, "2 pending")
-			presenter.Progress(ctx, c, "1 pending")
+		_ = presenter.Track(presenter.NewContext(context.Background(), c), "s", "Waiting", func(ctx context.Context) error {
+			presenter.Progress(ctx, "2 pending")
+			presenter.Progress(ctx, "2 pending")
+			presenter.Progress(ctx, "1 pending")
 			return nil
 		})
 
@@ -352,14 +444,14 @@ func TestConsole_Plain(t *testing.T) {
 		ctx := context.Background()
 
 		// When operations end after different durations
-		for id, d := range map[string]time.Duration{"a": 400 * time.Millisecond, "b": 14 * time.Second, "c": 125 * time.Second} {
+		for id, d := range map[string]time.Duration{"a": 400 * time.Millisecond, "b": 14 * time.Second, "c": 125 * time.Second, "d": 3725 * time.Second} {
 			c.Emit(ctx, presenter.Event{Kind: presenter.KindApplying, ID: id, Message: id})
 			c.Emit(ctx, presenter.Event{Kind: presenter.KindApplied, ID: id, Duration: d})
 		}
 
-		// Then the end lines show seconds and minutes, and omit times below one second
+		// Then the end lines show seconds, minutes, and hours, and omit times below one second
 		out := buf.String()
-		for _, want := range []string{"✔ a\n", "✔ b  14s\n", "✔ c  2m05s\n"} {
+		for _, want := range []string{"✔ a\n", "✔ b  14s\n", "✔ c  2m05s\n", "✔ d  1h02m\n"} {
 			if !strings.Contains(out, want) {
 				t.Errorf("expected %q in %q", want, out)
 			}
@@ -405,16 +497,16 @@ func TestConsole_Interactive(t *testing.T) {
 		// Given an interactive console
 		var buf syncBuffer
 		c := presenter.NewConsole(&buf, presenter.ConsoleOptions{Level: slog.LevelInfo, Interactive: true})
-		ctx := context.Background()
+		ctx := presenter.NewContext(context.Background(), c)
 
 		// When nested operations run to completion
-		_ = presenter.Track(ctx, c, "tf", "Applying terraform", func(ctx context.Context) error {
-			_ = presenter.Track(ctx, c, "tf:network", "network", func(context.Context) error { return nil })
-			return presenter.Track(ctx, c, "tf:cluster", "cluster", func(context.Context) error { return nil })
+		_ = presenter.Track(ctx, "tf", "Applying terraform", func(ctx context.Context) error {
+			_ = presenter.Track(ctx, "tf:network", "network", func(context.Context) error { return nil })
+			return presenter.Track(ctx, "tf:cluster", "cluster", func(context.Context) error { return nil })
 		})
 
-		// Then the screen holds the tree with no live lines left
-		want := []string{"● Applying terraform", "  ✔ network", "  ✔ cluster", "✔ Applying terraform"}
+		// Then the screen holds the tree with no live lines left and no repeated parent line
+		want := []string{"● Applying terraform", "  ✔ network", "  ✔ cluster"}
 		if got := screen(buf.String()); !reflect.DeepEqual(got, want) {
 			t.Errorf("expected\n%s\ngot\n%s", strings.Join(want, "\n"), strings.Join(got, "\n"))
 		}
@@ -424,12 +516,12 @@ func TestConsole_Interactive(t *testing.T) {
 		// Given an interactive console with a running operation
 		var buf syncBuffer
 		c := presenter.NewConsole(&buf, presenter.ConsoleOptions{Level: slog.LevelInfo, Interactive: true})
-		ctx, end := presenter.Begin(context.Background(), c, "s", "gitops")
+		ctx, end := presenter.Begin(presenter.NewContext(context.Background(), c), "s", "gitops")
 		defer end(nil)
 
 		// When the operation reports progress and a message
-		presenter.Progress(ctx, c, "waiting on 2 kustomizations")
-		presenter.Message(ctx, c, "found 2 kustomizations")
+		presenter.Progress(ctx, "waiting on 2 kustomizations")
+		presenter.Message(ctx, "found 2 kustomizations")
 
 		// Then the message prints above a live line that shows the progress
 		got := screen(buf.String())
@@ -441,13 +533,45 @@ func TestConsole_Interactive(t *testing.T) {
 		}
 	})
 
+	t.Run("CountsElapsedTimeOnTheLiveLine", func(t *testing.T) {
+		// Given an interactive console on a fake clock with a running operation
+		var mu sync.Mutex
+		clock := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+		now := func() time.Time { mu.Lock(); defer mu.Unlock(); return clock }
+		advance := func(d time.Duration) { mu.Lock(); defer mu.Unlock(); clock = clock.Add(d) }
+		var buf syncBuffer
+		c := presenter.NewConsole(&buf, presenter.ConsoleOptions{Interactive: true, Now: now})
+		ctx, end := presenter.Begin(presenter.NewContext(context.Background(), c), "s", "gitops")
+		defer end(nil)
+		before := screen(buf.String())
+
+		// When time passes and progress redraws the line
+		advance(14 * time.Second)
+		presenter.Progress(ctx, "waiting")
+		seconds := screen(buf.String())
+		advance(111 * time.Second)
+		presenter.Progress(ctx, "still waiting")
+		minutes := screen(buf.String())
+
+		// Then the line has no counter under a second and then counts seconds and minutes
+		if !strings.HasSuffix(before[0], " gitops") {
+			t.Errorf("expected no counter at start, got %q", before)
+		}
+		if !strings.HasSuffix(seconds[0], " gitops  14s  waiting") {
+			t.Errorf("expected 14s, got %q", seconds)
+		}
+		if !strings.HasSuffix(minutes[0], " gitops  2m05s  still waiting") {
+			t.Errorf("expected 2m05s, got %q", minutes)
+		}
+	})
+
 	t.Run("TruncatesLiveLinesToTheWidth", func(t *testing.T) {
 		// Given an interactive console 20 columns wide
 		var buf syncBuffer
 		c := presenter.NewConsole(&buf, presenter.ConsoleOptions{Interactive: true, Width: func() int { return 20 }})
 
 		// When an operation with a long message starts
-		_, end := presenter.Begin(context.Background(), c, "s", "a message much longer than twenty columns")
+		_, end := presenter.Begin(presenter.NewContext(context.Background(), c), "s", "a message much longer than twenty columns")
 		defer end(nil)
 
 		// Then the live line fits within the width
@@ -461,7 +585,7 @@ func TestConsole_Interactive(t *testing.T) {
 		// Given an interactive console with a running operation
 		var buf syncBuffer
 		c := presenter.NewConsole(&buf, presenter.ConsoleOptions{Interactive: true})
-		_, end := presenter.Begin(context.Background(), c, "s", "waiting")
+		_, end := presenter.Begin(presenter.NewContext(context.Background(), c), "s", "waiting")
 
 		// When time passes
 		time.Sleep(350 * time.Millisecond)
@@ -477,6 +601,157 @@ func TestConsole_Interactive(t *testing.T) {
 	})
 }
 
+func TestConsole_Lifecycle(t *testing.T) {
+	t.Run("ReportsWhenOperationsAreActive", func(t *testing.T) {
+		// Given a console that records activity changes
+		var changes []bool
+		c := presenter.NewConsole(&bytes.Buffer{}, presenter.ConsoleOptions{OnActive: func(active bool) { changes = append(changes, active) }})
+		ctx := presenter.NewContext(context.Background(), c)
+
+		// When nested operations run twice in a row
+		for i := 0; i < 2; i++ {
+			_ = presenter.Track(ctx, "outer", "Outer", func(ctx context.Context) error {
+				return presenter.Track(ctx, "inner", "Inner", func(context.Context) error { return nil })
+			})
+		}
+
+		// Then activity starts and ends once per outer operation
+		if !reflect.DeepEqual(changes, []bool{true, false, true, false}) {
+			t.Errorf("unexpected activity changes %v", changes)
+		}
+	})
+
+	t.Run("PausesTheLiveRegionForAnotherWriter", func(t *testing.T) {
+		// Given an interactive console with a running operation
+		var buf syncBuffer
+		c := presenter.NewConsole(&buf, presenter.ConsoleOptions{Interactive: true})
+		_, end := presenter.Begin(presenter.NewContext(context.Background(), c), "s", "configuring DNS")
+
+		// When the console pauses twice, another writer prints, and one resume follows
+		c.Pause()
+		c.Pause()
+		_, _ = buf.Write([]byte("Password:\n"))
+		c.Resume()
+		paused := screen(buf.String())
+		c.Resume()
+		resumed := screen(buf.String())
+		end(nil)
+
+		// Then the live line stays hidden until the last resume and the prompt is never erased
+		if !reflect.DeepEqual(paused, []string{"Password:"}) {
+			t.Errorf("expected only the prompt while paused, got %q", paused)
+		}
+		if len(resumed) != 2 || resumed[0] != "Password:" || !strings.HasSuffix(resumed[1], " configuring DNS") {
+			t.Errorf("expected the prompt and the live line, got %q", resumed)
+		}
+		if got := screen(buf.String()); !reflect.DeepEqual(got, []string{"Password:", "✔ configuring DNS"}) {
+			t.Errorf("expected the prompt and the end line, got %q", got)
+		}
+	})
+
+	t.Run("EndsAnUnmatchedPauseWhenTheNextOperationStarts", func(t *testing.T) {
+		// Given an interactive console that a caller paused without resuming
+		var buf syncBuffer
+		c := presenter.NewConsole(&buf, presenter.ConsoleOptions{Interactive: true})
+		ctx := presenter.NewContext(context.Background(), c)
+		_ = presenter.Track(ctx, "s", "configuring DNS", func(context.Context) error {
+			c.Pause()
+			return nil
+		})
+
+		// When the next operation starts
+		_, end := presenter.Begin(ctx, "s", "applying cluster")
+		defer end(nil)
+
+		// Then its live line is drawn
+		got := screen(buf.String())
+		if len(got) != 2 || !strings.HasSuffix(got[1], " applying cluster") {
+			t.Errorf("expected the end line and a live line, got %q", got)
+		}
+	})
+
+	t.Run("IgnoresAResumeWithoutAPause", func(t *testing.T) {
+		// Given an interactive console with nothing running
+		var buf syncBuffer
+		c := presenter.NewConsole(&buf, presenter.ConsoleOptions{Interactive: true})
+
+		// When resume is called without a pause
+		c.Resume()
+
+		// Then nothing is written
+		if buf.String() != "" {
+			t.Errorf("expected no output, got %q", buf.String())
+		}
+	})
+}
+
+func TestConsole_Terminal(t *testing.T) {
+	t.Run("EntersOnlyWhileTheLiveRegionIsShown", func(t *testing.T) {
+		// Given an interactive console with a recording terminal
+		term := &fakeTerminal{}
+		c := presenter.NewConsole(&syncBuffer{}, presenter.ConsoleOptions{Interactive: true, Terminal: term})
+
+		// When an operation starts, pauses, resumes, and ends
+		_, end := presenter.Begin(presenter.NewContext(context.Background(), c), "s", "applying")
+		c.Pause()
+		c.Resume()
+		end(nil)
+
+		// Then the terminal enters and leaves around each visible stretch
+		if term.String() != "enter,leave,enter,leave" {
+			t.Errorf("unexpected terminal calls %q", term.String())
+		}
+	})
+
+	t.Run("LeavesForTheRestOfTheRunAfterClose", func(t *testing.T) {
+		// Given an interactive console with a running operation
+		term := &fakeTerminal{}
+		var buf syncBuffer
+		c := presenter.NewConsole(&buf, presenter.ConsoleOptions{Interactive: true, Terminal: term})
+		ctx := presenter.NewContext(context.Background(), c)
+		_, end := presenter.Begin(ctx, "s", "first")
+
+		// When the console closes and a second operation runs
+		c.Close()
+		end(nil)
+		_ = presenter.Track(ctx, "s", "second", func(context.Context) error { return nil })
+
+		// Then the terminal leaves once and never enters again, and output continues
+		if term.String() != "enter,leave" {
+			t.Errorf("unexpected terminal calls %q", term.String())
+		}
+		if got := screen(buf.String()); !reflect.DeepEqual(got, []string{"✔ first", "✔ second"}) {
+			t.Errorf("expected both end lines, got %q", got)
+		}
+	})
+
+	t.Run("NeverEntersInPlainMode", func(t *testing.T) {
+		// Given a plain console with a recording terminal
+		term := &fakeTerminal{}
+		c := presenter.NewConsole(&bytes.Buffer{}, presenter.ConsoleOptions{Terminal: term})
+
+		// When an operation runs
+		_ = presenter.Track(presenter.NewContext(context.Background(), c), "s", "applying", func(context.Context) error { return nil })
+
+		// Then the terminal is never touched
+		if term.String() != "" {
+			t.Errorf("expected no terminal calls, got %q", term.String())
+		}
+	})
+
+	t.Run("IgnoresInterruptsInPlainMode", func(t *testing.T) {
+		// Given a plain console
+		c := presenter.NewConsole(&bytes.Buffer{}, presenter.ConsoleOptions{})
+
+		// When interrupts are watched and the watch stops twice
+		stop := c.WatchInterrupts(nil)
+		stop()
+		stop()
+
+		// Then nothing panics and nothing is written
+	})
+}
+
 func TestJSON_Emit(t *testing.T) {
 	t.Run("WritesOneLinePerEvent", func(t *testing.T) {
 		// Given a JSON presenter
@@ -484,8 +759,8 @@ func TestJSON_Emit(t *testing.T) {
 		j := presenter.NewJSON(&buf)
 
 		// When an operation with a warning is tracked
-		_ = presenter.Track(context.Background(), j, "terraform:cluster", "Applying cluster", func(ctx context.Context) error {
-			presenter.Warn(ctx, j, "slow")
+		_ = presenter.Track(presenter.NewContext(context.Background(), j), "terraform:cluster", "Applying cluster", func(ctx context.Context) error {
+			presenter.Warn(ctx, "slow")
 			return nil
 		})
 
@@ -596,7 +871,7 @@ func TestLogHandler(t *testing.T) {
 		// Given a logger and an operation context
 		rec := &recorder{}
 		logger := slog.New(presenter.NewLogHandler(rec, slog.LevelInfo))
-		ctx, end := presenter.Begin(context.Background(), rec, "s", "Applying")
+		ctx, end := presenter.Begin(presenter.NewContext(context.Background(), rec), "s", "Applying")
 		defer end(nil)
 
 		// When a record is logged with the operation context

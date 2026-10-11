@@ -15,6 +15,7 @@ import (
 
 	helmv2 "github.com/fluxcd/helm-controller/api/v2"
 	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
+	"github.com/windsorcli/cli/internal/presenter"
 	"github.com/windsorcli/cli/pkg/composer/blueprint"
 	"github.com/windsorcli/cli/pkg/constants"
 	"github.com/windsorcli/cli/pkg/provisioner/cluster"
@@ -213,34 +214,22 @@ func (i *Provisioner) OnTerraformPostApply(fn func(id string) error) {
 // no declared backend and no kubeconfig yet is refused with an actionable error instead of a
 // raw terraform connection failure. On a remote backend, a declared Backend that names no real
 // component is refused rather than silently treated as unset — see resolveBackendComponents.
-// Returns (halted, err); halted=true means a hook stopped after a component.
-func (i *Provisioner) Up(blueprint *blueprintv1alpha1.Blueprint, onApply ...func(id string) (bool, error)) (bool, error) {
+// Returns (halted, err); halted=true means a hook stopped after a component. The apply runs as
+// one "Applying terraform" operation, so each component shows as a step under it.
+func (i *Provisioner) Up(ctx context.Context, blueprint *blueprintv1alpha1.Blueprint, onApply ...func(id string) (bool, error)) (bool, error) {
 	if blueprint == nil {
 		return false, fmt.Errorf("blueprint not provided")
 	}
 	if err := i.checkOrphanedLocalState(blueprint); err != nil {
 		return false, err
 	}
-
-	backendType := i.configHandler.GetTerraformBackendType()
-	applyFlat := func() (bool, error) {
-		if backendType == "kubernetes" && hasEnabledTerraformComponent(blueprint) && !i.kubeconfigPresent() {
-			return false, fmt.Errorf("context has no kubeconfig (cluster not yet created) and the blueprint declares no backend for the kubernetes backend type; add `backend: <component-id>` to the blueprint naming the component that creates the cluster, or set terraform.backend.type to \"local\" until it exists")
-		}
-		return i.applyDirect(blueprint, onApply...)
-	}
-	if backendType == "" || backendType == "local" {
-		return applyFlat()
-	}
-
-	backendComponents, err := resolveBackendComponents(blueprint)
-	if err != nil {
-		return false, err
-	}
-	if len(backendComponents) == 0 {
-		return applyFlat()
-	}
-	return i.applyWithBackendPivot(blueprint, backendComponents, onApply...)
+	var halted bool
+	err := presenter.Track(ctx, "terraform", "Applying terraform", func(ctx context.Context) error {
+		var err error
+		halted, err = i.up(ctx, blueprint, onApply...)
+		return err
+	})
+	return halted, err
 }
 
 // MigrateState reinitializes every Terraform component's backend against the currently configured
@@ -258,7 +247,7 @@ func (i *Provisioner) Up(blueprint *blueprintv1alpha1.Blueprint, onApply ...func
 // the context it needs to emit "A was skipped, then B failed" in a single diagnostic — the
 // exact signal the operator needs to investigate what removed A's directory between Up and
 // MigrateState.
-func (i *Provisioner) MigrateState(blueprint *blueprintv1alpha1.Blueprint) ([]string, error) {
+func (i *Provisioner) MigrateState(ctx context.Context, blueprint *blueprintv1alpha1.Blueprint) ([]string, error) {
 	if blueprint == nil {
 		return nil, fmt.Errorf("blueprint not provided")
 	}
@@ -268,7 +257,7 @@ func (i *Provisioner) MigrateState(blueprint *blueprintv1alpha1.Blueprint) ([]st
 	if i.TerraformStack == nil {
 		return nil, nil
 	}
-	skipped, err := i.TerraformStack.MigrateState(blueprint)
+	skipped, err := i.TerraformStack.MigrateState(ctx, blueprint)
 	if err != nil {
 		return skipped, fmt.Errorf("failed to migrate terraform state: %w", err)
 	}
@@ -369,7 +358,7 @@ func (i *Provisioner) ListLocalStateComponentIDs() ([]string, error) {
 // All other terraform components are left untouched; use Destroy / DestroyAll for those.
 // If terraform is disabled or the blueprint has no "workstation" component, Down is a no-op.
 // Returns an error if the blueprint is nil or the destroy operation fails.
-func (i *Provisioner) Down(blueprint *blueprintv1alpha1.Blueprint) error {
+func (i *Provisioner) Down(ctx context.Context, blueprint *blueprintv1alpha1.Blueprint) error {
 	if blueprint == nil {
 		return fmt.Errorf("blueprint not provided")
 	}
@@ -391,7 +380,7 @@ func (i *Provisioner) Down(blueprint *blueprintv1alpha1.Blueprint) error {
 	if i.TerraformStack == nil {
 		return nil
 	}
-	if _, err := i.TerraformStack.Destroy(blueprint, "workstation"); err != nil {
+	if _, err := i.TerraformStack.Destroy(ctx, blueprint, "workstation"); err != nil {
 		return fmt.Errorf("failed to destroy workstation terraform component: %w", err)
 	}
 	return nil
@@ -403,14 +392,14 @@ func (i *Provisioner) Down(blueprint *blueprintv1alpha1.Blueprint) error {
 // and destroy it last.
 // Returns the IDs of components skipped for empty state, alongside any error, so
 // callers see partial progress even when a later component fails.
-func (i *Provisioner) DestroyAllTerraform(blueprint *blueprintv1alpha1.Blueprint, continueOnError bool, excludeIDs ...string) (DestroyResult, error) {
-	return i.destroyAllTerraform(blueprint, continueOnError, excludeIDs...)
+func (i *Provisioner) DestroyAllTerraform(ctx context.Context, blueprint *blueprintv1alpha1.Blueprint, continueOnError bool, excludeIDs ...string) (DestroyResult, error) {
+	return i.destroyAllTerraform(ctx, blueprint, continueOnError, excludeIDs...)
 }
 
 // Apply runs terraform init, plan, and apply for a single component identified by componentID.
 // Returns an error if terraform is disabled, the stack cannot be initialized, the component is
 // not found, or any terraform operation fails.
-func (i *Provisioner) Apply(blueprint *blueprintv1alpha1.Blueprint, componentID string) error {
+func (i *Provisioner) Apply(ctx context.Context, blueprint *blueprintv1alpha1.Blueprint, componentID string) error {
 	if blueprint == nil {
 		return fmt.Errorf("blueprint not provided")
 	}
@@ -423,7 +412,7 @@ func (i *Provisioner) Apply(blueprint *blueprintv1alpha1.Blueprint, componentID 
 	if err := i.checkOrphanedLocalState(blueprint); err != nil {
 		return err
 	}
-	if err := i.TerraformStack.Apply(blueprint, componentID); err != nil {
+	if err := i.TerraformStack.Apply(ctx, blueprint, componentID); err != nil {
 		return fmt.Errorf("failed to run terraform apply for %s: %w", componentID, err)
 	}
 	return nil
@@ -435,7 +424,7 @@ func (i *Provisioner) Apply(blueprint *blueprintv1alpha1.Blueprint, componentID 
 // blueprint is nil, terraform is disabled, the stack cannot be initialized, the component is
 // not found, or any terraform operation fails. TerraformStack bounds refresh and destroy
 // with a timeout, so an unreachable provider fails within that time instead of hanging.
-func (i *Provisioner) Destroy(blueprint *blueprintv1alpha1.Blueprint, componentID string) (bool, error) {
+func (i *Provisioner) Destroy(ctx context.Context, blueprint *blueprintv1alpha1.Blueprint, componentID string) (bool, error) {
 	if blueprint == nil {
 		return false, fmt.Errorf("blueprint not provided")
 	}
@@ -445,7 +434,7 @@ func (i *Provisioner) Destroy(blueprint *blueprintv1alpha1.Blueprint, componentI
 	if i.TerraformStack == nil {
 		return false, fmt.Errorf("terraform is disabled")
 	}
-	skipped, err := i.TerraformStack.Destroy(blueprint, componentID)
+	skipped, err := i.TerraformStack.Destroy(ctx, blueprint, componentID)
 	if err != nil {
 		return false, fmt.Errorf("failed to run terraform destroy for %s: %w", componentID, err)
 	}
@@ -501,7 +490,7 @@ func (i *Provisioner) DestroyKustomize(blueprint *blueprintv1alpha1.Blueprint, c
 //
 // excludeIDs skips components in the terraform pass. Callers use this to destroy the backend
 // component last.
-func (i *Provisioner) DestroyAll(blueprint *blueprintv1alpha1.Blueprint, continueOnError bool, excludeIDs ...string) (DestroyResult, error) {
+func (i *Provisioner) DestroyAll(ctx context.Context, blueprint *blueprintv1alpha1.Blueprint, continueOnError bool, excludeIDs ...string) (DestroyResult, error) {
 	var result DestroyResult
 	if blueprint == nil {
 		return result, fmt.Errorf("blueprint not provided")
@@ -533,7 +522,7 @@ func (i *Provisioner) DestroyAll(blueprint *blueprintv1alpha1.Blueprint, continu
 		return result, err
 	}
 	if i.TerraformStack != nil {
-		outcome, err := i.TerraformStack.DestroyAll(blueprint, continueOnError, excludeIDs...)
+		outcome, err := i.TerraformStack.DestroyAll(ctx, blueprint, continueOnError, excludeIDs...)
 		result.Destroyed = append(result.Destroyed, outcome.Destroyed...)
 		result.Skipped = append(result.Skipped, outcome.Skipped...)
 		result.Failed = append(result.Failed, outcome.Failed...)
@@ -1667,6 +1656,32 @@ func (i *Provisioner) Close() {
 // Private Methods
 // =============================================================================
 
+// up applies the blueprint directly, or through the backend pivot when the blueprint declares
+// a backend on a remote backend type. A kubernetes backend with no declared backend and no
+// kubeconfig is refused with an actionable error.
+func (i *Provisioner) up(ctx context.Context, blueprint *blueprintv1alpha1.Blueprint, onApply ...func(id string) (bool, error)) (bool, error) {
+
+	backendType := i.configHandler.GetTerraformBackendType()
+	applyFlat := func() (bool, error) {
+		if backendType == "kubernetes" && hasEnabledTerraformComponent(blueprint) && !i.kubeconfigPresent() {
+			return false, fmt.Errorf("context has no kubeconfig (cluster not yet created) and the blueprint declares no backend for the kubernetes backend type; add `backend: <component-id>` to the blueprint naming the component that creates the cluster, or set terraform.backend.type to \"local\" until it exists")
+		}
+		return i.applyDirect(ctx, blueprint, onApply...)
+	}
+	if backendType == "" || backendType == "local" {
+		return applyFlat()
+	}
+
+	backendComponents, err := resolveBackendComponents(blueprint)
+	if err != nil {
+		return false, err
+	}
+	if len(backendComponents) == 0 {
+		return applyFlat()
+	}
+	return i.applyWithBackendPivot(ctx, blueprint, backendComponents, onApply...)
+}
+
 // convergeNames returns the deduplicated names of the blueprint's non-destroyOnly kustomizations.
 // This is the set Converge drives toward Ready. withCrdLayer prepends CRD kustomizations
 // without checking for name collisions. Dedup keeps a collision from double-printing in
@@ -1753,7 +1768,7 @@ func sortedStringKeys(m map[string]struct{}) []string {
 }
 
 // destroyAllTerraform is the shared implementation behind DestroyAllTerraform.
-func (i *Provisioner) destroyAllTerraform(blueprint *blueprintv1alpha1.Blueprint, continueOnError bool, excludeIDs ...string) (DestroyResult, error) {
+func (i *Provisioner) destroyAllTerraform(ctx context.Context, blueprint *blueprintv1alpha1.Blueprint, continueOnError bool, excludeIDs ...string) (DestroyResult, error) {
 	var result DestroyResult
 	if blueprint == nil {
 		return result, fmt.Errorf("blueprint not provided")
@@ -1764,7 +1779,7 @@ func (i *Provisioner) destroyAllTerraform(blueprint *blueprintv1alpha1.Blueprint
 	if i.TerraformStack == nil {
 		return result, fmt.Errorf("terraform is disabled")
 	}
-	outcome, err := i.TerraformStack.DestroyAll(blueprint, continueOnError, excludeIDs...)
+	outcome, err := i.TerraformStack.DestroyAll(ctx, blueprint, continueOnError, excludeIDs...)
 	result.Destroyed = outcome.Destroyed
 	result.Skipped = outcome.Skipped
 	result.Failed = outcome.Failed
@@ -1943,14 +1958,14 @@ func (i *Provisioner) forceStalledHelmReleases(ctx context.Context, kustomizatio
 // applyDirect runs terraform apply directly against the configured backend, with no backend
 // detection or pivot. Used by Up when no backend applies, and by applyWithBackendPivot's Stage
 // 1/3 sub-applies, which must not re-derive a backend from an already-sliced blueprint.
-func (i *Provisioner) applyDirect(blueprint *blueprintv1alpha1.Blueprint, onApply ...func(id string) (bool, error)) (bool, error) {
+func (i *Provisioner) applyDirect(ctx context.Context, blueprint *blueprintv1alpha1.Blueprint, onApply ...func(id string) (bool, error)) (bool, error) {
 	if err := i.ensureTerraformStack(); err != nil {
 		return false, err
 	}
 	if i.TerraformStack == nil {
 		return false, nil
 	}
-	if err := i.recoverHalfMigratedComponents(blueprint); err != nil {
+	if err := i.recoverHalfMigratedComponents(ctx, blueprint); err != nil {
 		return false, err
 	}
 	hooks := append([]func(id string) (bool, error){}, i.onTerraformApply...)
@@ -1958,7 +1973,7 @@ func (i *Provisioner) applyDirect(blueprint *blueprintv1alpha1.Blueprint, onAppl
 	if len(i.onTerraformPostApply) > 0 {
 		i.TerraformStack.PostApply(i.onTerraformPostApply...)
 	}
-	halted, err := i.TerraformStack.Up(blueprint, hooks...)
+	halted, err := i.TerraformStack.Up(ctx, blueprint, hooks...)
 	if err != nil {
 		return false, fmt.Errorf("failed to run terraform up: %w", err)
 	}
@@ -1993,7 +2008,7 @@ func hasEnabledTerraformComponent(blueprint *blueprintv1alpha1.Blueprint) bool {
 // applying a declared backend runs this sweep under a terraform.backend.type override pinned
 // to "local". The early return above would skip orphan detection for exactly the components
 // most exposed to it.
-func (i *Provisioner) recoverHalfMigratedComponents(blueprint *blueprintv1alpha1.Blueprint) error {
+func (i *Provisioner) recoverHalfMigratedComponents(ctx context.Context, blueprint *blueprintv1alpha1.Blueprint) error {
 	backendType := i.configHandler.GetTerraformBackendType()
 	if backendType == "" || backendType == "local" {
 		return nil
@@ -2022,7 +2037,7 @@ func (i *Provisioner) recoverHalfMigratedComponents(blueprint *blueprintv1alpha1
 		}
 
 		message := fmt.Sprintf("Migrating leftover local state for %s → %s", componentID, backendType)
-		if err := tui.WithProgress(message, func() error {
+		if err := presenter.Track(ctx, "terraform:"+componentID, message, func(ctx context.Context) error {
 			if err := i.withBackendOverride("local-recovery-init", func() error {
 				return i.InitComponent(blueprint, componentID)
 			}); err != nil {
@@ -2034,7 +2049,7 @@ func (i *Provisioner) recoverHalfMigratedComponents(blueprint *blueprintv1alpha1
 			}
 
 			if err := i.RemoveLocalState(componentID); err != nil {
-				fmt.Fprintf(os.Stderr, "warning: failed to remove local state file for %q after recovery migration: %v\n", componentID, err)
+				presenter.Warn(ctx, fmt.Sprintf("failed to remove local state file for %q after recovery migration: %v", componentID, err))
 			}
 			return nil
 		}); err != nil {

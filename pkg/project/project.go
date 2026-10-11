@@ -1,6 +1,7 @@
 package project
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"os"
@@ -226,8 +227,8 @@ func (p *Project) Initialize(overwrite bool, blueprintURL ...string) error {
 // component apply (e.g. cluster reachability needs host configuration the operator hasn't
 // done yet); err remains the path for real failures. Callers render the deferred-work
 // summary based on the halt and exit cleanly.
-func (p *Project) Up() (*blueprintv1alpha1.Blueprint, bool, error) {
-	return p.runApply(p.Provisioner.Up)
+func (p *Project) Up(ctx context.Context) (*blueprintv1alpha1.Blueprint, bool, error) {
+	return p.runApply(ctx, p.Provisioner.Up)
 }
 
 // Bootstrap is Up's first-run sibling. Operator confirmation runs first against a cheap
@@ -239,7 +240,7 @@ func (p *Project) Up() (*blueprintv1alpha1.Blueprint, bool, error) {
 // Returns (blueprint, applied, halted, err). applied=false when confirm declined; in that
 // case no workstation startup or terraform work has happened. halted=true means one of the
 // inner Up calls signaled a clean halt-after-component.
-func (p *Project) Bootstrap(confirm provisioner.BootstrapConfirmFn) (*blueprintv1alpha1.Blueprint, bool, bool, error) {
+func (p *Project) Bootstrap(ctx context.Context, confirm provisioner.BootstrapConfirmFn) (*blueprintv1alpha1.Blueprint, bool, bool, error) {
 	blueprint := p.Composer.BlueprintHandler.Generate()
 	if blueprint == nil {
 		return nil, false, false, fmt.Errorf("blueprint not loaded")
@@ -261,7 +262,7 @@ func (p *Project) Bootstrap(confirm provisioner.BootstrapConfirmFn) (*blueprintv
 	if onApply != nil {
 		hooks = []func(string) (bool, error){onApply}
 	}
-	halted, err := p.Provisioner.Bootstrap(blueprint, hooks...)
+	halted, err := p.Provisioner.Bootstrap(ctx, blueprint, hooks...)
 	if err != nil {
 		return nil, false, false, fmt.Errorf("error starting infrastructure: %w", err)
 	}
@@ -320,7 +321,7 @@ func (p *Project) PerformCleanup() error {
 // runApply runs workstation prep then dispatches to a Provisioner Up-style method (Up or
 // Bootstrap), wrapping any error as "error starting infrastructure". Propagates the halt
 // signal from the dispatched method so the caller can render the deferred-work summary.
-func (p *Project) runApply(fn func(*blueprintv1alpha1.Blueprint, ...func(string) (bool, error)) (bool, error)) (*blueprintv1alpha1.Blueprint, bool, error) {
+func (p *Project) runApply(ctx context.Context, fn func(context.Context, *blueprintv1alpha1.Blueprint, ...func(string) (bool, error)) (bool, error)) (*blueprintv1alpha1.Blueprint, bool, error) {
 	blueprint, onApply, err := p.prepareForApply()
 	if err != nil {
 		return nil, false, err
@@ -329,7 +330,7 @@ func (p *Project) runApply(fn func(*blueprintv1alpha1.Blueprint, ...func(string)
 	if onApply != nil {
 		hooks = []func(string) (bool, error){onApply}
 	}
-	halted, err := fn(blueprint, hooks...)
+	halted, err := fn(ctx, blueprint, hooks...)
 	if err != nil {
 		return nil, false, fmt.Errorf("error starting infrastructure: %w", err)
 	}

@@ -69,7 +69,7 @@ windsor apply kustomize dns`,
 		return stacklock.With(cmd.Context(), proj.Runtime, "apply", lockTimeout, func() error {
 			// 'apply' doesn't run the workstation prep that registers MakeApplyHook, so no
 			// onApply hooks fire and the halted return is always false. Ignore it.
-			if _, err := proj.Provisioner.Up(blueprint); err != nil {
+			if _, err := proj.Provisioner.Up(cmd.Context(), blueprint); err != nil {
 				return fmt.Errorf("error applying terraform: %w", err)
 			}
 
@@ -144,7 +144,7 @@ windsor apply tf cluster`,
 
 		blueprint := proj.Composer.BlueprintHandler.Generate()
 		return stacklock.With(cmd.Context(), proj.Runtime, "apply", lockTimeout, func() error {
-			if err := proj.Provisioner.Apply(blueprint, componentID); err != nil {
+			if err := proj.Provisioner.Apply(cmd.Context(), blueprint, componentID); err != nil {
 				return fmt.Errorf("error applying terraform for %s: %w", componentID, err)
 			}
 			return nil

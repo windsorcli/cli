@@ -162,7 +162,7 @@ windsor upgrade cluster --nodes=10.0.0.5 --image=ghcr.io/siderolabs/installer:v1
 		}
 
 		return stacklock.With(cmd.Context(), proj.Runtime, "upgrade", lockTimeout, func() error {
-			if _, err := proj.Provisioner.Up(blueprint); err != nil {
+			if _, err := proj.Provisioner.Up(cmd.Context(), blueprint); err != nil {
 				return fmt.Errorf("error applying terraform: %w", err)
 			}
 

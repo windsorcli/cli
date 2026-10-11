@@ -65,6 +65,100 @@ func TestStart(t *testing.T) {
 	})
 }
 
+// Tests for Hold suppression of package-level spinner calls
+func TestHold(t *testing.T) {
+	t.Run("SuppressesStartAndDoneUntilReleased", func(t *testing.T) {
+		// Given a mock Active spinner and a hold
+		var calls []string
+		mock := setupMock(t)
+		mock.StartFunc = func(message string) { calls = append(calls, "start") }
+		mock.DoneFunc = func() { calls = append(calls, "done") }
+		release := Hold()
+
+		// When Start and Done run during the hold, then again after a double release
+		Start("held")
+		Done()
+		release()
+		release()
+		Start("free")
+		Done()
+
+		// Then only the calls after the release reach the spinner
+		if strings.Join(calls, ",") != "start,done" {
+			t.Errorf("expected start,done, got %v", calls)
+		}
+	})
+}
+
+// Tests for interrupt guards
+func TestGuardInterrupts(t *testing.T) {
+	t.Run("ReportsGuardedUntilEveryGuardIsReleased", func(t *testing.T) {
+		// Given two open guards
+		first := GuardInterrupts()
+		second := GuardInterrupts()
+
+		// When the first guard is released twice, then the second once
+		first()
+		first()
+		stillGuarded := InterruptsGuarded()
+		second()
+
+		// Then interrupts stay guarded until the last guard is released
+		if !stillGuarded || InterruptsGuarded() {
+			t.Errorf("expected guarded then unguarded, got %v then %v", stillGuarded, InterruptsGuarded())
+		}
+	})
+}
+
+// Tests for pause hooks
+func TestSetPauseHooks(t *testing.T) {
+	t.Run("RunsHooksAfterThePauseAndResumeOfTheSpinner", func(t *testing.T) {
+		// Given a mock Active spinner and pause hooks
+		var calls []string
+		mock := setupMock(t)
+		mock.PauseFunc = func() { calls = append(calls, "spinner-pause") }
+		mock.ResumeFunc = func() { calls = append(calls, "spinner-resume") }
+		SetPauseHooks(func() { calls = append(calls, "hook-pause") }, func() { calls = append(calls, "hook-resume") })
+		t.Cleanup(func() { SetPauseHooks(nil, nil) })
+
+		// When the terminal is paused, paused with a message, and resumed
+		Pause()
+		PauseWithMessage()
+		Resume()
+
+		// Then each hook runs after the spinner
+		want := "spinner-pause,hook-pause,spinner-pause,hook-pause,spinner-resume,hook-resume"
+		if strings.Join(calls, ",") != want {
+			t.Errorf("expected %s, got %v", want, calls)
+		}
+	})
+}
+
+// Tests for Silence
+func TestSilence(t *testing.T) {
+	t.Run("ReplacesActiveWithASpinnerThatWritesNothing", func(t *testing.T) {
+		// Given the current spinner is restored after the test
+		original := Active
+		t.Cleanup(func() { Active = original })
+
+		// When the spinner is silenced and used
+		Silence()
+		out := captureStderr(t, func() {
+			Start("loading")
+			Update("still loading")
+			Pause()
+			Resume()
+			Done()
+			Fail()
+		})
+
+		// Then nothing is written
+		if out != "" {
+			t.Errorf("expected no output, got %q", out)
+		}
+	})
+}
+
 // Tests for package-level Update delegation
 func TestUpdate(t *testing.T) {
 	t.Run("DelegatesToActive", func(t *testing.T) {

@@ -9,10 +9,10 @@ package terraform
 // terraform environment configuration, and Terraform operations.
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"os"
 	"path"
 	"path/filepath"
@@ -22,6 +22,7 @@ import (
 	"time"
 
 	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
+	"github.com/windsorcli/cli/internal/presenter"
 	"github.com/windsorcli/cli/pkg/constants"
 	"github.com/windsorcli/cli/pkg/debug"
 	"github.com/windsorcli/cli/pkg/runtime"
@@ -69,18 +70,12 @@ var destroyBehaviorAttributes = []string{
 
 // TerraformStack manages Terraform infrastructure components by initializing and applying Terraform configurations.
 // It processes components in order, generating terraform arguments, running Terraform init, plan, and apply operations.
-//
-// warningWriter is the destination for non-blocking operator-facing warnings (e.g. the
-// refresh-fallback notice in destroy paths). Defaults to os.Stderr; tests inject a buffer.
-// Routing warnings through this field rather than os.Stderr directly keeps tests off the
-// fragile os.Stderr-redirect-with-pipe pattern, which deadlocks on Windows when the TUI
-// spinner shares the redirected stream.
+// Progress and non-blocking warnings go to the presenter in the context of each operation.
 type TerraformStack struct {
 	runtime                *runtime.Runtime
 	shims                  *Shims
 	terraformEnv           *envvars.TerraformEnvPrinter
 	postApply              []func(id string) error
-	warningWriter          io.Writer
 	initCache              map[initCacheKey]struct{}
 	initCacheMu            sync.Mutex
 	destroyRetryAttempts   int
@@ -245,8 +240,8 @@ type DestroyOutcome struct {
 // explicit 'windsor configure network' invocation by the operator. Stack.Up returns
 // (halted bool, err error); halted=true indicates a clean stop, not a failure.
 type Stack interface {
-	Up(blueprint *blueprintv1alpha1.Blueprint, onApply ...func(id string) (bool, error)) (bool, error)
-	MigrateState(blueprint *blueprintv1alpha1.Blueprint) ([]string, error)
+	Up(ctx context.Context, blueprint *blueprintv1alpha1.Blueprint, onApply ...func(id string) (bool, error)) (bool, error)
+	MigrateState(ctx context.Context, blueprint *blueprintv1alpha1.Blueprint) ([]string, error)
 	MigrateComponentState(blueprint *blueprintv1alpha1.Blueprint, componentID string) error
 	HasRemoteState(blueprint *blueprintv1alpha1.Blueprint, componentID string) (bool, error)
 	HasLocalStateWithResources(componentID string) (bool, error)
@@ -254,15 +249,15 @@ type Stack interface {
 	RemoveLocalState(componentID string) error
 	ListLocalStateComponentIDs() ([]string, error)
 	PostApply(fns ...func(id string) error)
-	DestroyAll(blueprint *blueprintv1alpha1.Blueprint, continueOnError bool, excludeIDs ...string) (DestroyOutcome, error)
+	DestroyAll(ctx context.Context, blueprint *blueprintv1alpha1.Blueprint, continueOnError bool, excludeIDs ...string) (DestroyOutcome, error)
 	Plan(blueprint *blueprintv1alpha1.Blueprint, componentID string) error
 	PlanAll(blueprint *blueprintv1alpha1.Blueprint) error
 	PlanJSON(blueprint *blueprintv1alpha1.Blueprint, componentID string) error
 	PlanAllJSON(blueprint *blueprintv1alpha1.Blueprint) error
 	PlanResourceChangesJSON(blueprint *blueprintv1alpha1.Blueprint, componentID string) error
 	PlanAllResourceChangesJSON(blueprint *blueprintv1alpha1.Blueprint) error
-	Apply(blueprint *blueprintv1alpha1.Blueprint, componentID string) error
-	Destroy(blueprint *blueprintv1alpha1.Blueprint, componentID string) (bool, error)
+	Apply(ctx context.Context, blueprint *blueprintv1alpha1.Blueprint, componentID string) error
+	Destroy(ctx context.Context, blueprint *blueprintv1alpha1.Blueprint, componentID string) (bool, error)
 	PlanSummary(blueprint *blueprintv1alpha1.Blueprint) []TerraformComponentPlan
 	PlanComponentSummary(blueprint *blueprintv1alpha1.Blueprint, componentID string) TerraformComponentPlan
 	PlanDestroySummary(blueprint *blueprintv1alpha1.Blueprint) []TerraformComponentPlan
@@ -282,7 +277,6 @@ func NewStack(rt *runtime.Runtime, opts ...*TerraformStack) Stack {
 	stack := &TerraformStack{
 		runtime:                rt,
 		shims:                  NewShims(),
-		warningWriter:          os.Stderr,
 		destroyRetryAttempts:   constants.DefaultTerraformDestroyRetryAttempts,
 		destroyRetryBackoff:    constants.DefaultTerraformDestroyRetryBackoff,
 		destroyIdleTimeout:     constants.DefaultTerraformDestroyIdleTimeout,
@@ -294,9 +288,6 @@ func NewStack(rt *runtime.Runtime, opts ...*TerraformStack) Stack {
 		overrides := opts[0]
 		if overrides.terraformEnv != nil {
 			stack.terraformEnv = overrides.terraformEnv
-		}
-		if overrides.warningWriter != nil {
-			stack.warningWriter = overrides.warningWriter
 		}
 	}
 
@@ -330,7 +321,7 @@ func (s *TerraformStack) PostApply(fns ...func(id string) error) {
 // a clean stop — the TUI marks the component Done, no error is returned, and the caller can
 // surface a "deferred work" summary at the cmd layer. A non-nil err is a real failure as
 // before.
-func (s *TerraformStack) Up(blueprint *blueprintv1alpha1.Blueprint, onApply ...func(id string) (bool, error)) (bool, error) {
+func (s *TerraformStack) Up(ctx context.Context, blueprint *blueprintv1alpha1.Blueprint, onApply ...func(id string) (bool, error)) (bool, error) {
 	if blueprint == nil {
 		return false, fmt.Errorf("blueprint not provided")
 	}
@@ -362,7 +353,7 @@ func (s *TerraformStack) Up(blueprint *blueprintv1alpha1.Blueprint, onApply ...f
 
 	for _, component := range components {
 		var componentHalted bool
-		if err := tui.WithProgress(fmt.Sprintf("Applying %s", component.Path), func() error {
+		if err := presenter.Track(ctx, "terraform:"+component.GetID(), fmt.Sprintf("Applying %s", component.Path), func(ctx context.Context) error {
 			if _, err := s.shims.Stat(component.FullPath); os.IsNotExist(err) {
 				return fmt.Errorf("directory %s does not exist", component.FullPath)
 			}
@@ -381,7 +372,7 @@ func (s *TerraformStack) Up(blueprint *blueprintv1alpha1.Blueprint, onApply ...f
 				return err
 			}
 
-			if err := s.refreshIfStateNonEmpty(&component, terraformVars, scopedKeys, terraformArgs); err != nil {
+			if err := s.refreshIfStateNonEmpty(ctx, &component, terraformVars, scopedKeys, terraformArgs); err != nil {
 				return err
 			}
 
@@ -520,7 +511,7 @@ func (s *TerraformStack) ListLocalStateComponentIDs() ([]string, error) {
 // to the currently configured backend. Components whose directories don't exist on disk are
 // skipped and their IDs returned in the skipped slice, paired with any error so callers see
 // both what migrated and what didn't. Stops on the first failure; safe to retry.
-func (s *TerraformStack) MigrateState(blueprint *blueprintv1alpha1.Blueprint) ([]string, error) {
+func (s *TerraformStack) MigrateState(ctx context.Context, blueprint *blueprintv1alpha1.Blueprint) ([]string, error) {
 	if blueprint == nil {
 		return nil, fmt.Errorf("blueprint not provided")
 	}
@@ -547,7 +538,7 @@ func (s *TerraformStack) MigrateState(blueprint *blueprintv1alpha1.Blueprint) ([
 	}()
 
 	var skipped []string
-	err = tui.WithProgress("Migrating terraform state", func() error {
+	err = presenter.Track(ctx, "terraform:migrate-state", "Migrating terraform state", func(context.Context) error {
 		for _, component := range components {
 			migrated, err := s.migrateOneComponent(&component, &backendOverridePaths)
 			if err != nil {
@@ -638,7 +629,7 @@ func (s *TerraformStack) MigrateComponentState(blueprint *blueprintv1alpha1.Blue
 //
 // Each destroy is bounded by destroyIdleTimeout/destroyAbsoluteTimeout and retried via
 // execTerraformDestroyWithRetry; each refresh by refreshBeforeDestroy.
-func (s *TerraformStack) DestroyAll(blueprint *blueprintv1alpha1.Blueprint, continueOnError bool, excludeIDs ...string) (DestroyOutcome, error) {
+func (s *TerraformStack) DestroyAll(ctx context.Context, blueprint *blueprintv1alpha1.Blueprint, continueOnError bool, excludeIDs ...string) (DestroyOutcome, error) {
 	var result DestroyOutcome
 	if blueprint == nil {
 		return result, fmt.Errorf("blueprint not provided")
@@ -707,7 +698,7 @@ func (s *TerraformStack) DestroyAll(blueprint *blueprintv1alpha1.Blueprint, cont
 		}
 
 		componentSkipped := false
-		if err := tui.WithProgress(fmt.Sprintf("Destroying %s", component.Path), func() error {
+		if err := presenter.Track(ctx, "terraform:"+component.GetID(), fmt.Sprintf("Destroying %s", component.Path), func(ctx context.Context) error {
 			terraformVars["TF_VAR_operation"] = "destroy"
 
 			if err := s.runTerraformInit(&component, terraformVars, scopedKeys, terraformArgs, defaultInitFlags...); err != nil {
@@ -725,7 +716,7 @@ func (s *TerraformStack) DestroyAll(blueprint *blueprintv1alpha1.Blueprint, cont
 				return nil
 			}
 
-			refreshFailed, err := s.refreshBeforeDestroy(&component, terraformVars, scopedKeys, terraformArgs)
+			refreshFailed, err := s.refreshBeforeDestroy(ctx, &component, terraformVars, scopedKeys, terraformArgs)
 			if err != nil {
 				return err
 			}
@@ -757,10 +748,10 @@ func (s *TerraformStack) DestroyAll(blueprint *blueprintv1alpha1.Blueprint, cont
 			destroyArgs = append(destroyArgs, noColorArgs()...)
 			destroyArgs = append(destroyArgs, terraformArgs.DestroyArgs...)
 			destroyEnv := selectTerraformCommandEnv(terraformVars, true, scopedKeys)
-			output, err := s.execTerraformDestroyWithRetry(component.Path, terraformCommand, destroyEnv, destroyArgs)
+			output, err := s.execTerraformDestroyWithRetry(ctx, component.Path, terraformCommand, destroyEnv, destroyArgs)
 			if err != nil {
 				if trimmed := strings.TrimSpace(output); trimmed != "" {
-					fmt.Fprintf(s.warningWriter, "terraform destroy output for %s:\n%s\n", component.Path, trimmed)
+					presenter.Warn(ctx, fmt.Sprintf("terraform destroy output for %s:\n%s", component.Path, trimmed))
 				}
 				return fmt.Errorf("error running terraform destroy for %s: %w", component.Path, err)
 			}
@@ -878,7 +869,7 @@ func (s *TerraformStack) PlanAllJSON(blueprint *blueprintv1alpha1.Blueprint) err
 // It resolves the component from the blueprint, sets up the environment, and executes
 // init, plan, then apply in sequence. Returns an error if the component is not found,
 // the directory does not exist, or any terraform operation fails.
-func (s *TerraformStack) Apply(blueprint *blueprintv1alpha1.Blueprint, componentID string) error {
+func (s *TerraformStack) Apply(ctx context.Context, blueprint *blueprintv1alpha1.Blueprint, componentID string) error {
 	if blueprint == nil {
 		return fmt.Errorf("blueprint not provided")
 	}
@@ -893,12 +884,12 @@ func (s *TerraformStack) Apply(blueprint *blueprintv1alpha1.Blueprint, component
 	defer cleanup()
 	terraformVars["TF_VAR_operation"] = "apply"
 
-	return tui.WithProgress(fmt.Sprintf("Applying %s", component.Path), func() error {
+	return presenter.Track(ctx, "terraform:"+component.GetID(), fmt.Sprintf("Applying %s", component.Path), func(ctx context.Context) error {
 		if err := s.runTerraformInit(component, terraformVars, scopedKeys, terraformArgs, defaultInitFlags...); err != nil {
 			return err
 		}
 
-		if err := s.refreshIfStateNonEmpty(component, terraformVars, scopedKeys, terraformArgs); err != nil {
+		if err := s.refreshIfStateNonEmpty(ctx, component, terraformVars, scopedKeys, terraformArgs); err != nil {
 			return err
 		}
 
@@ -929,7 +920,7 @@ func (s *TerraformStack) Apply(blueprint *blueprintv1alpha1.Blueprint, component
 // failure. Destroy-mode config (S3 force_destroy, etc.) is honored via TF_VAR_operation;
 // no prep-apply is run because that could recreate resources refresh just dropped.
 //
-// The whole sequence is wrapped in tui.WithProgress("Destroying <path>") so the visible
+// The whole sequence is wrapped in presenter.Track("Destroying <path>") so the visible
 // label matches the bulk DestroyAll loop body — mixing this method into the per-component
 // destroy dance (which calls bulk DestroyAll for non-backend components and this method
 // for backend) would otherwise produce inconsistent "Destroying X" / "Destroying terraform
@@ -937,7 +928,7 @@ func (s *TerraformStack) Apply(blueprint *blueprintv1alpha1.Blueprint, component
 // for the same reason: the bulk loop is silent, so single-component Destroy must be too.
 // Destroy is bounded by destroyIdleTimeout/destroyAbsoluteTimeout and retried via
 // execTerraformDestroyWithRetry; refresh by refreshBeforeDestroy.
-func (s *TerraformStack) Destroy(blueprint *blueprintv1alpha1.Blueprint, componentID string) (bool, error) {
+func (s *TerraformStack) Destroy(ctx context.Context, blueprint *blueprintv1alpha1.Blueprint, componentID string) (bool, error) {
 	if blueprint == nil {
 		return false, fmt.Errorf("blueprint not provided")
 	}
@@ -954,7 +945,7 @@ func (s *TerraformStack) Destroy(blueprint *blueprintv1alpha1.Blueprint, compone
 	terraformVars["TF_VAR_operation"] = "destroy"
 
 	skipped := false
-	if err := tui.WithProgress(fmt.Sprintf("Destroying %s", component.Path), func() error {
+	if err := presenter.Track(ctx, "terraform:"+component.GetID(), fmt.Sprintf("Destroying %s", component.Path), func(ctx context.Context) error {
 		if err := s.runTerraformInit(component, terraformVars, scopedKeys, terraformArgs, defaultInitFlags...); err != nil {
 			return err
 		}
@@ -968,7 +959,7 @@ func (s *TerraformStack) Destroy(blueprint *blueprintv1alpha1.Blueprint, compone
 			return nil
 		}
 
-		refreshFailed, err := s.refreshBeforeDestroy(component, terraformVars, scopedKeys, terraformArgs)
+		refreshFailed, err := s.refreshBeforeDestroy(ctx, component, terraformVars, scopedKeys, terraformArgs)
 		if err != nil {
 			return err
 		}
@@ -994,10 +985,10 @@ func (s *TerraformStack) Destroy(blueprint *blueprintv1alpha1.Blueprint, compone
 		destroyArgs = append(destroyArgs, terraformArgs.DestroyArgs...)
 		destroyEnv := selectTerraformCommandEnv(terraformVars, true, scopedKeys)
 
-		output, err := s.execTerraformDestroyWithRetry(component.Path, terraformCommand, destroyEnv, destroyArgs)
+		output, err := s.execTerraformDestroyWithRetry(ctx, component.Path, terraformCommand, destroyEnv, destroyArgs)
 		if err != nil {
 			if trimmed := strings.TrimSpace(output); trimmed != "" {
-				fmt.Fprintf(s.warningWriter, "terraform destroy output for %s:\n%s\n", component.Path, trimmed)
+				presenter.Warn(ctx, fmt.Sprintf("terraform destroy output for %s:\n%s", component.Path, trimmed))
 			}
 			return fmt.Errorf("error running terraform destroy for %s: %w", component.Path, err)
 		}
@@ -1186,7 +1177,7 @@ func (s *TerraformStack) migrateOneComponent(component *blueprintv1alpha1.Terraf
 
 // execTerraformDestroyWithRetry runs `terraform destroy` for one component, retrying up to
 // destroyRetryAttempts times with destroyRetryBackoff between attempts to absorb a transient
-// async cloud-side dependency. Each failed non-final attempt is logged via warningWriter before
+// async cloud-side dependency. Each failed non-final attempt is reported with presenter.Warn before
 // retrying, so a failure reason that changes between attempts stays visible. Every attempt is
 // bounded by destroyIdleTimeout and destroyAbsoluteTimeout, not a flat wall clock; a timeout
 // (shell.ErrCommandTimedOut) fails immediately without retrying.
@@ -1194,7 +1185,7 @@ func (s *TerraformStack) migrateOneComponent(component *blueprintv1alpha1.Terraf
 // A timeout interrupts terraform before it kills the process. See
 // ExecSilentWithEnvAndIdleTimeout. A hard kill on timeout gave terraform no chance to write
 // a state checkpoint or release its backend lock. Returns the last attempt's output and error.
-func (s *TerraformStack) execTerraformDestroyWithRetry(componentPath, terraformCommand string, destroyEnv map[string]string, destroyArgs []string) (string, error) {
+func (s *TerraformStack) execTerraformDestroyWithRetry(ctx context.Context, componentPath, terraformCommand string, destroyEnv map[string]string, destroyArgs []string) (string, error) {
 	var output string
 	var err error
 	for attempt := 1; attempt <= s.destroyRetryAttempts; attempt++ {
@@ -1207,9 +1198,9 @@ func (s *TerraformStack) execTerraformDestroyWithRetry(componentPath, terraformC
 		}
 		if attempt < s.destroyRetryAttempts {
 			if trimmed := strings.TrimSpace(output); trimmed != "" {
-				fmt.Fprintf(s.warningWriter, "terraform destroy attempt %d/%d for %s failed, retrying:\n%s\n", attempt, s.destroyRetryAttempts, componentPath, trimmed)
+				presenter.Warn(ctx, fmt.Sprintf("terraform destroy attempt %d/%d for %s failed, retrying:\n%s", attempt, s.destroyRetryAttempts, componentPath, trimmed))
 			} else {
-				fmt.Fprintf(s.warningWriter, "terraform destroy attempt %d/%d for %s failed, retrying: %v\n", attempt, s.destroyRetryAttempts, componentPath, err)
+				presenter.Warn(ctx, fmt.Sprintf("terraform destroy attempt %d/%d for %s failed, retrying: %v", attempt, s.destroyRetryAttempts, componentPath, err))
 			}
 			s.shims.TimeSleep(s.destroyRetryBackoff)
 		}
@@ -1303,12 +1294,12 @@ func (s *TerraformStack) planComponents(blueprint *blueprintv1alpha1.Blueprint, 
 // matching the §4.4 unified refresh policy: if state is empty there is nothing to reconcile,
 // so refresh is skipped (and the subsequent plan will surface any deeper config issue with
 // a clearer error than refresh would). When state is non-empty and refresh fails, the error
-// is logged to s.warningWriter and swallowed — the caller's plan/apply will run anyway, and
+// is reported with presenter.Warn and swallowed — the caller's plan/apply will run anyway, and
 // any persistent problem will resurface there with a more actionable message. The state-check
 // itself failing is propagated; callers can't safely proceed without knowing whether state is
 // empty. Used by Up and Apply; Destroy retains its own refresh handling because its fallback
 // (-refresh=true on destroy) is destroy-specific.
-func (s *TerraformStack) refreshIfStateNonEmpty(component *blueprintv1alpha1.TerraformComponent, terraformVars map[string]string, scopedKeys []string, terraformArgs *envvars.TerraformArgs) error {
+func (s *TerraformStack) refreshIfStateNonEmpty(ctx context.Context, component *blueprintv1alpha1.TerraformComponent, terraformVars map[string]string, scopedKeys []string, terraformArgs *envvars.TerraformArgs) error {
 	hasResources, err := s.hasStateResources(component, terraformVars, scopedKeys)
 	if err != nil {
 		return err
@@ -1317,7 +1308,7 @@ func (s *TerraformStack) refreshIfStateNonEmpty(component *blueprintv1alpha1.Ter
 		return nil
 	}
 	if err := s.refreshComponentState(component, terraformVars, scopedKeys, terraformArgs, 0); err != nil {
-		fmt.Fprintf(s.warningWriter, "warning: terraform refresh failed for %s; continuing with plan against the last-known state (plan runs with -refresh=false; any persistent state divergence will surface as a plan error): %v\n", component.Path, err)
+		presenter.Warn(ctx, fmt.Sprintf("terraform refresh failed for %s; continuing with plan against the last-known state (plan runs with -refresh=false; any persistent state divergence will surface as a plan error): %v", component.Path, err))
 	}
 	return nil
 }
@@ -1348,7 +1339,7 @@ func (s *TerraformStack) refreshComponentState(component *blueprintv1alpha1.Terr
 //     component now, instead of retrying refresh inside a full-length destroy.
 //   - Any other failure is plausibly transient. refreshFailed is true, err is nil. The caller
 //     falls through to `terraform destroy -refresh=true` for a second chance.
-func (s *TerraformStack) refreshBeforeDestroy(component *blueprintv1alpha1.TerraformComponent, terraformVars map[string]string, scopedKeys []string, terraformArgs *envvars.TerraformArgs) (bool, error) {
+func (s *TerraformStack) refreshBeforeDestroy(ctx context.Context, component *blueprintv1alpha1.TerraformComponent, terraformVars map[string]string, scopedKeys []string, terraformArgs *envvars.TerraformArgs) (bool, error) {
 	err := s.refreshComponentState(component, terraformVars, scopedKeys, terraformArgs, constants.DefaultTerraformRefreshTimeout)
 	if err == nil {
 		return false, nil
@@ -1356,7 +1347,7 @@ func (s *TerraformStack) refreshBeforeDestroy(component *blueprintv1alpha1.Terra
 	if errors.Is(err, shell.ErrCommandTimedOut) {
 		return false, fmt.Errorf("terraform refresh for %s timed out after %s; its provider looks unreachable: %w", component.Path, constants.DefaultTerraformRefreshTimeout, err)
 	}
-	fmt.Fprintf(s.warningWriter, "warning: terraform refresh failed for %s; falling through to destroy -refresh=true (terraform will retry refresh during destroy): %v\n", component.Path, err)
+	presenter.Warn(ctx, fmt.Sprintf("terraform refresh failed for %s; falling through to destroy -refresh=true (terraform will retry refresh during destroy): %v", component.Path, err))
 	return true, nil
 }
 

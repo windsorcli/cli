@@ -13,6 +13,7 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
 	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
+	"github.com/windsorcli/cli/internal/presenter"
 	"github.com/windsorcli/cli/pkg/composer"
 	"github.com/windsorcli/cli/pkg/composer/blueprint"
 	"github.com/windsorcli/cli/pkg/project"
@@ -215,6 +216,32 @@ func TestPlanCmd(t *testing.T) {
 		}
 		if !strings.Contains(err.Error(), "not found in blueprint") {
 			t.Errorf("expected not-found error, got: %v", err)
+		}
+	})
+
+	t.Run("TracksPlanGenerationAsAnOperation", func(t *testing.T) {
+		// Given a plan command with a recording presenter and suppressed process output
+		suppressProcessStdout(t)
+		suppressProcessStderr(t)
+		mocks := setupPlanTest(t)
+		proj := newPlanProject(mocks)
+		rec := &eventRecorder{}
+		cmd := createTestPlanCmd()
+		cmd.SetArgs([]string{})
+		cmd.SetContext(presenter.NewContext(context.WithValue(context.Background(), projectOverridesKey, proj), rec))
+
+		// When the full plan runs
+		err := cmd.Execute()
+
+		// Then plan generation is one operation that ends successfully
+		if err != nil {
+			t.Fatalf("expected no error, got %v", err)
+		}
+		if ops := rec.operations(); len(ops) != 1 || ops[0] != "Generating plan" {
+			t.Errorf("expected one Generating plan operation, got %v", ops)
+		}
+		if last := rec.events[len(rec.events)-1]; last.Kind != presenter.KindApplied {
+			t.Errorf("expected the operation to end as applied, got %+v", last)
 		}
 	})
 }
@@ -890,5 +917,3 @@ func TestPlanKustomizeCmd(t *testing.T) {
 		}
 	})
 }
-
-
