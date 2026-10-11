@@ -182,7 +182,10 @@ Methods that emit events MUST take `ctx context.Context` as their first paramete
   screen with their elapsed time, and nested steps print under their parent. In plain mode (not a
   terminal, or `--verbose`) it prints one line per event, which suits CI logs. In interactive mode
   it keeps a live region below the tree with one animated line per active leaf operation and its
-  progress text. `KindFailed` ends a step with a failure mark; the central `cmd/` renderer prints
+  progress text. While that region is on screen, the console hides the cursor and turns off input
+  echo, so a typed key cannot move the cursor under the redraw. It discards keys typed meanwhile,
+  and restores the terminal on pause, on exit, and on an interrupt. On Windows it also turns on
+  virtual terminal processing, and it falls back to plain mode when that fails. `KindFailed` ends a step with a failure mark; the central `cmd/` renderer prints
   the error itself once (ADR 0005). `KindLog` renders through the `charmbracelet/log` console
   handler ADR 0006 selected. The console renderer does not use `pkg/tui`.
 

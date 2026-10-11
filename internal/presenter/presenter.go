@@ -90,16 +90,22 @@ var nextID atomic.Uint64
 var Discard Presenter = discard{}
 
 // New returns the Presenter for format that writes to w. For text output, opts configures the
-// console, and Interactive stays on only when w is a terminal. JSON output ignores opts.
+// console. Interactive stays on only when w is a terminal that accepts ANSI codes, and then the
+// console hides the cursor and stdin echo while it animates. JSON output ignores opts.
 func New(format logging.Format, w io.Writer, opts ConsoleOptions) Presenter {
 	if format == logging.FormatJSON {
 		return NewJSON(w)
 	}
 	f, ok := w.(*os.File)
-	if !opts.Interactive || !ok || !term.IsTerminal(int(f.Fd())) {
+	if !opts.Interactive || !ok || !term.IsTerminal(int(f.Fd())) || enableVirtualTerminal(f) != nil {
 		opts.Interactive = false
 		return NewConsole(w, opts)
 	}
+	var in *os.File
+	if term.IsTerminal(int(os.Stdin.Fd())) {
+		in = os.Stdin
+	}
+	opts.Terminal = newTTYModes(in, w)
 	opts.Width = func() int {
 		width, _, err := term.GetSize(int(f.Fd()))
 		if err != nil {

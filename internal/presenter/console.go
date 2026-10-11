@@ -1,7 +1,8 @@
 // The Console is the Presenter for human-readable terminal output.
 // It provides a tree of operations: finished steps stay on screen and nest under their parent.
 // In plain mode it prints one line per event, which suits logs and CI output.
-// In interactive mode it animates the active leaf operations in a live region below the tree.
+// In interactive mode it animates the active leaf operations in a live region below the tree,
+// and its Terminal hides the cursor and input echo while that region is on screen.
 
 package presenter
 
@@ -10,8 +11,11 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"os"
+	"os/signal"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/windsorcli/cli/internal/logging"
@@ -51,20 +55,24 @@ type ConsoleOptions struct {
 	Width func() int
 	// OnActive runs with true when the first operation starts and false when the last one ends.
 	OnActive func(active bool)
+	// Terminal enters the live display mode while the live region is on screen. Nil skips it.
+	Terminal Terminal
 }
 
 // Console renders events as an indented tree of lines.
 type Console struct {
-	mu     sync.Mutex
-	w      io.Writer
-	opts   ConsoleOptions
-	logs   slog.Handler
-	ops    map[string]*consoleOp
-	order  []*consoleOp
-	drawn  int
-	frame  int
-	paused int
-	stopCh chan struct{}
+	mu      sync.Mutex
+	w       io.Writer
+	opts    ConsoleOptions
+	logs    slog.Handler
+	ops     map[string]*consoleOp
+	order   []*consoleOp
+	drawn   int
+	frame   int
+	paused  int
+	stopCh  chan struct{}
+	entered bool
+	closed  bool
 }
 
 // consoleOp is the render state of one running operation.
@@ -141,6 +149,45 @@ func (c *Console) Resume() {
 	c.paused--
 	c.redraw()
 	c.syncTicker()
+}
+
+// Close stops the animation and leaves the live display mode for the rest of the run. The
+// console keeps rendering events afterward, with the cursor and input echo left on.
+func (c *Console) Close() {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.closed = true
+	c.syncTicker()
+}
+
+// WatchInterrupts restores the terminal when the process receives an interrupt or termination
+// signal. After the restore it stops watching and re-raises the signal, unless guarded reports
+// that another handler owns it. The returned function stops the watch.
+func (c *Console) WatchInterrupts(guarded func() bool) func() {
+	if !c.opts.Interactive {
+		return func() {}
+	}
+	sigCh := make(chan os.Signal, 1)
+	done := make(chan struct{})
+	signal.Notify(sigCh, os.Interrupt, syscall.SIGTERM)
+	go func() {
+		select {
+		case <-done:
+		case sig := <-sigCh:
+			c.Close()
+			signal.Stop(sigCh)
+			if guarded == nil || !guarded() {
+				raise(sig)
+			}
+		}
+	}()
+	var once sync.Once
+	return func() {
+		once.Do(func() {
+			signal.Stop(sigCh)
+			close(done)
+		})
+	}
 }
 
 // =============================================================================
@@ -291,16 +338,28 @@ func (c *Console) redraw() {
 	fmt.Fprint(c.w, b.String())
 }
 
-// syncTicker starts the animation ticker when the live region has lines and stops it otherwise.
+// syncTicker starts the animation ticker and enters the live display mode when the live region
+// has lines, and stops both otherwise. After Close it never enters the display mode again.
 func (c *Console) syncTicker() {
 	active := c.opts.Interactive && c.drawn > 0
-	if active && c.stopCh == nil {
+	if active && c.stopCh == nil && !c.closed {
 		c.stopCh = make(chan struct{})
 		go c.tick(c.stopCh)
 	}
-	if !active && c.stopCh != nil {
+	if (!active || c.closed) && c.stopCh != nil {
 		close(c.stopCh)
 		c.stopCh = nil
+	}
+	if c.opts.Terminal == nil {
+		return
+	}
+	if active && !c.entered && !c.closed {
+		c.opts.Terminal.Enter()
+		c.entered = true
+	}
+	if (!active || c.closed) && c.entered {
+		c.opts.Terminal.Leave()
+		c.entered = false
 	}
 }
 

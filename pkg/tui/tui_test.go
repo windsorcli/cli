@@ -90,6 +90,26 @@ func TestHold(t *testing.T) {
 	})
 }
 
+// Tests for interrupt guards
+func TestGuardInterrupts(t *testing.T) {
+	t.Run("ReportsGuardedUntilEveryGuardIsReleased", func(t *testing.T) {
+		// Given two open guards
+		first := GuardInterrupts()
+		second := GuardInterrupts()
+
+		// When the first guard is released twice, then the second once
+		first()
+		first()
+		stillGuarded := InterruptsGuarded()
+		second()
+
+		// Then interrupts stay guarded until the last guard is released
+		if !stillGuarded || InterruptsGuarded() {
+			t.Errorf("expected guarded then unguarded, got %v then %v", stillGuarded, InterruptsGuarded())
+		}
+	})
+}
+
 // Tests for pause hooks
 func TestSetPauseHooks(t *testing.T) {
 	t.Run("RunsHooksAfterThePauseAndResumeOfTheSpinner", func(t *testing.T) {

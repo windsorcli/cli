@@ -66,6 +66,9 @@ var activeDepth int32
 // pauseHook and resumeHook run on every Pause and Resume, after the spinner itself.
 var pauseHook, resumeHook func()
 
+// interruptGuards counts the open interrupt guards, which handle interrupt signals themselves.
+var interruptGuards int32
+
 // Init configures Active for the current run mode.
 // In verbose mode, Active is set to a verboseSpinner that prints messages without animation.
 func Init(verbose bool) {
@@ -155,6 +158,23 @@ func Hold() func() {
 			atomic.AddInt32(&activeDepth, -1)
 		}
 	}
+}
+
+// GuardInterrupts marks that a caller handles interrupt signals itself until the returned
+// release function runs. Release runs once.
+func GuardInterrupts() func() {
+	atomic.AddInt32(&interruptGuards, 1)
+	var released int32
+	return func() {
+		if atomic.CompareAndSwapInt32(&released, 0, 1) {
+			atomic.AddInt32(&interruptGuards, -1)
+		}
+	}
+}
+
+// InterruptsGuarded reports whether an interrupt guard is open.
+func InterruptsGuarded() bool {
+	return atomic.LoadInt32(&interruptGuards) > 0
 }
 
 // SetPauseHooks sets the functions that Pause and Resume run after the spinner. Nil clears a hook.

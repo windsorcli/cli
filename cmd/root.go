@@ -45,6 +45,9 @@ var contextFlag string
 // formatFlag selects the output format for progress, logs, and errors: text or json.
 var formatFlag string
 
+// closeOutput restores the terminal after the command. withOutput sets it.
+var closeOutput func()
+
 // Define a custom type for context keys
 type contextKey string
 
@@ -57,7 +60,8 @@ const testRunnerOverridesKey = contextKey("testRunnerOverrides")
 // It executes the root command with the provided context or a new background context.
 // Sets the root command's context before execution so cmd.Root().Context() is correct
 // when RunE runs (Cobra does not always propagate context to root on subsequent runs).
-// It renders a returned error once, unless the failing command already reported it.
+// It restores the terminal, then renders a returned error once, unless the failing command
+// already reported it.
 func Execute() error {
 	ctx := rootCmd.Context()
 	if ctx == nil {
@@ -65,6 +69,10 @@ func Execute() error {
 	}
 	rootCmd.SetContext(ctx)
 	executed, err := rootCmd.ExecuteContextC(ctx)
+	if closeOutput != nil {
+		closeOutput()
+		closeOutput = nil
+	}
 	if err != nil && (executed == nil || !executed.SilenceErrors) {
 		renderError(rootCmd.ErrOrStderr(), err)
 	}
@@ -293,7 +301,8 @@ func setupGlobalContext(cmd *cobra.Command) error {
 // into it. Logs show at debug level under --verbose and at warn level otherwise. The console
 // animates only when w is a terminal and --verbose is off, because verbose runs stream
 // subprocess output to the same terminal. While the console shows an operation, the legacy tui
-// spinner stays silent, and tui.Pause also pauses the console.
+// spinner stays silent, and tui.Pause also pauses the console. An interrupt restores the terminal
+// before the process exits, and Execute restores it after the command returns.
 func withOutput(ctx context.Context, w io.Writer, format logging.Format) context.Context {
 	level := slog.LevelWarn
 	if verbose {
@@ -302,6 +311,11 @@ func withOutput(ctx context.Context, w io.Writer, format logging.Format) context
 	p := presenter.New(format, w, presenter.ConsoleOptions{Level: level, Interactive: !verbose, OnActive: holdLegacySpinner()})
 	if c, ok := p.(*presenter.Console); ok {
 		tui.SetPauseHooks(c.Pause, c.Resume)
+		stopWatch := c.WatchInterrupts(tui.InterruptsGuarded)
+		closeOutput = func() {
+			stopWatch()
+			c.Close()
+		}
 	}
 	ctx = presenter.NewContext(ctx, p)
 	return logging.NewContext(ctx, slog.New(presenter.NewLogHandler(p, level)))

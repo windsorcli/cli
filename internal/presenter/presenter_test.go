@@ -113,6 +113,26 @@ func screen(out string) []string {
 	return lines
 }
 
+type fakeTerminal struct {
+	mu    sync.Mutex
+	calls []string
+}
+
+func (f *fakeTerminal) Enter() { f.record("enter") }
+func (f *fakeTerminal) Leave() { f.record("leave") }
+
+func (f *fakeTerminal) record(call string) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.calls = append(f.calls, call)
+}
+
+func (f *fakeTerminal) String() string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return strings.Join(f.calls, ",")
+}
+
 func plainLines(out string) []string {
 	return strings.Split(strings.TrimRight(out, "\n"), "\n")
 }
@@ -587,6 +607,73 @@ func TestConsole_Lifecycle(t *testing.T) {
 		if buf.String() != "" {
 			t.Errorf("expected no output, got %q", buf.String())
 		}
+	})
+}
+
+func TestConsole_Terminal(t *testing.T) {
+	t.Run("EntersOnlyWhileTheLiveRegionIsShown", func(t *testing.T) {
+		// Given an interactive console with a recording terminal
+		term := &fakeTerminal{}
+		c := presenter.NewConsole(&syncBuffer{}, presenter.ConsoleOptions{Interactive: true, Terminal: term})
+
+		// When an operation starts, pauses, resumes, and ends
+		_, end := presenter.Begin(presenter.NewContext(context.Background(), c), "s", "applying")
+		c.Pause()
+		c.Resume()
+		end(nil)
+
+		// Then the terminal enters and leaves around each visible stretch
+		if term.String() != "enter,leave,enter,leave" {
+			t.Errorf("unexpected terminal calls %q", term.String())
+		}
+	})
+
+	t.Run("LeavesForTheRestOfTheRunAfterClose", func(t *testing.T) {
+		// Given an interactive console with a running operation
+		term := &fakeTerminal{}
+		var buf syncBuffer
+		c := presenter.NewConsole(&buf, presenter.ConsoleOptions{Interactive: true, Terminal: term})
+		ctx := presenter.NewContext(context.Background(), c)
+		_, end := presenter.Begin(ctx, "s", "first")
+
+		// When the console closes and a second operation runs
+		c.Close()
+		end(nil)
+		_ = presenter.Track(ctx, "s", "second", func(context.Context) error { return nil })
+
+		// Then the terminal leaves once and never enters again, and output continues
+		if term.String() != "enter,leave" {
+			t.Errorf("unexpected terminal calls %q", term.String())
+		}
+		if got := screen(buf.String()); !reflect.DeepEqual(got, []string{"✔ first", "✔ second"}) {
+			t.Errorf("expected both end lines, got %q", got)
+		}
+	})
+
+	t.Run("NeverEntersInPlainMode", func(t *testing.T) {
+		// Given a plain console with a recording terminal
+		term := &fakeTerminal{}
+		c := presenter.NewConsole(&bytes.Buffer{}, presenter.ConsoleOptions{Terminal: term})
+
+		// When an operation runs
+		_ = presenter.Track(presenter.NewContext(context.Background(), c), "s", "applying", func(context.Context) error { return nil })
+
+		// Then the terminal is never touched
+		if term.String() != "" {
+			t.Errorf("expected no terminal calls, got %q", term.String())
+		}
+	})
+
+	t.Run("IgnoresInterruptsInPlainMode", func(t *testing.T) {
+		// Given a plain console
+		c := presenter.NewConsole(&bytes.Buffer{}, presenter.ConsoleOptions{})
+
+		// When interrupts are watched and the watch stops twice
+		stop := c.WatchInterrupts(nil)
+		stop()
+		stop()
+
+		// Then nothing panics and nothing is written
 	})
 }
 
