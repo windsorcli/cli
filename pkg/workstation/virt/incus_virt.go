@@ -6,6 +6,7 @@
 package virt
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -13,8 +14,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/windsorcli/cli/internal/presenter"
 	"github.com/windsorcli/cli/pkg/runtime"
-	"github.com/windsorcli/cli/pkg/tui"
 )
 
 // =============================================================================
@@ -122,27 +123,27 @@ func NewIncusVirt(rt *runtime.Runtime) *IncusVirt {
 // operation to perform by checking the VM's running status. It performs Incus-specific
 // initialization when running as a container runtime, such as remote repository setup and
 // instance creation. Returns an error if any step of initialization or startup fails.
-func (v *IncusVirt) Up() error {
+func (v *IncusVirt) Up(ctx context.Context) error {
 	info, err := v.getVMInfo()
 	vmAlreadyRunning := err == nil && info.Address != ""
 
 	if !vmAlreadyRunning {
-		return v.ColimaVirt.Up()
+		return v.ColimaVirt.Up(ctx)
 	}
 
 	return v.startIncusContainers()
 }
 
 // Down stops the Colima Incus daemon and runs the parent's Down() to clean up the VM.
-func (v *IncusVirt) Down() error {
+func (v *IncusVirt) Down(ctx context.Context) error {
 	if v.configHandler.GetString("platform") != "incus" {
-		return v.ColimaVirt.Down()
+		return v.ColimaVirt.Down(ctx)
 	}
-	return tui.WithProgress("Deleting Incus VM", func() error {
+	return presenter.Track(ctx, "vm:incus", "Deleting Incus VM", func(ctx context.Context) error {
 		contextName := v.configHandler.GetContext()
 		profileName := fmt.Sprintf("windsor-%s", contextName)
 		_, _ = v.shell.ExecSilent("colima", "daemon", "stop", profileName)
-		if err := v.ColimaVirt.Down(); err != nil {
+		if err := v.ColimaVirt.Down(ctx); err != nil {
 			_ = v.cleanupVMForIncus()
 			return err
 		}

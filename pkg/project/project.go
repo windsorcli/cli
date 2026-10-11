@@ -254,7 +254,7 @@ func (p *Project) Bootstrap(ctx context.Context, confirm provisioner.BootstrapCo
 		}
 	}
 
-	onApply, err := p.prepareWorkstationForApply(blueprint)
+	onApply, err := p.prepareWorkstationForApply(ctx, blueprint)
 	if err != nil {
 		return nil, false, false, err
 	}
@@ -322,7 +322,7 @@ func (p *Project) PerformCleanup() error {
 // Bootstrap), wrapping any error as "error starting infrastructure". Propagates the halt
 // signal from the dispatched method so the caller can render the deferred-work summary.
 func (p *Project) runApply(ctx context.Context, fn func(context.Context, *blueprintv1alpha1.Blueprint, ...func(context.Context, string) (bool, error)) (bool, error)) (*blueprintv1alpha1.Blueprint, bool, error) {
-	blueprint, onApply, err := p.prepareForApply()
+	blueprint, onApply, err := p.prepareForApply(ctx)
 	if err != nil {
 		return nil, false, err
 	}
@@ -340,9 +340,9 @@ func (p *Project) runApply(ctx context.Context, fn func(context.Context, *bluepr
 // prepareForApply generates the blueprint and runs workstation lifecycle hooks before any
 // terraform applies. Used by Up; Bootstrap drives the two halves separately so confirmation
 // gates workstation prep.
-func (p *Project) prepareForApply() (*blueprintv1alpha1.Blueprint, func(context.Context, string) (bool, error), error) {
+func (p *Project) prepareForApply(ctx context.Context) (*blueprintv1alpha1.Blueprint, func(context.Context, string) (bool, error), error) {
 	blueprint := p.Composer.BlueprintHandler.Generate()
-	onApply, err := p.prepareWorkstationForApply(blueprint)
+	onApply, err := p.prepareWorkstationForApply(ctx, blueprint)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -353,13 +353,13 @@ func (p *Project) prepareForApply() (*blueprintv1alpha1.Blueprint, func(context.
 // (DNS resolver writes, host routes, container runtime). Split out so Bootstrap can gate
 // it on operator confirmation — declining the plan must not trigger sudo prompts or
 // /etc/resolver writes.
-func (p *Project) prepareWorkstationForApply(blueprint *blueprintv1alpha1.Blueprint) (func(context.Context, string) (bool, error), error) {
+func (p *Project) prepareWorkstationForApply(ctx context.Context, blueprint *blueprintv1alpha1.Blueprint) (func(context.Context, string) (bool, error), error) {
 	p.EnsureWorkstation()
 	if p.Workstation == nil {
 		return nil, nil
 	}
 	p.Workstation.PrepareForUp(blueprint)
-	if err := p.Workstation.Up(); err != nil {
+	if err := p.Workstation.Up(ctx); err != nil {
 		return nil, fmt.Errorf("error starting workstation: %w", err)
 	}
 	onApply := p.Workstation.MakeApplyHook()

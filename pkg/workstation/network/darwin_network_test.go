@@ -4,7 +4,9 @@
 package network
 
 import (
+	"context"
 	"fmt"
+	"github.com/windsorcli/cli/internal/presenter"
 	"os"
 	"strings"
 	"testing"
@@ -30,7 +32,7 @@ func TestDarwinNetworkManager_ConfigureHostRoute(t *testing.T) {
 		mocks.ConfigHandler.Set("workstation.address", "192.168.1.10")
 
 		// And configuring the host route
-		err := manager.ConfigureHostRoute()
+		err := manager.ConfigureHostRoute(context.Background())
 
 		// Then no error should occur
 		if err != nil {
@@ -46,7 +48,7 @@ func TestDarwinNetworkManager_ConfigureHostRoute(t *testing.T) {
 		mocks.ConfigHandler.Set("workstation.address", "192.168.1.10")
 
 		// And configuring the host route
-		err := manager.ConfigureHostRoute()
+		err := manager.ConfigureHostRoute(context.Background())
 
 		// Then it succeeds using constants.DefaultNetworkCIDR instead of erroring
 		if err != nil {
@@ -61,7 +63,7 @@ func TestDarwinNetworkManager_ConfigureHostRoute(t *testing.T) {
 		mocks.ConfigHandler.Set("workstation.address", "")
 
 		// And configuring the host route
-		err := manager.ConfigureHostRoute()
+		err := manager.ConfigureHostRoute(context.Background())
 
 		// Then an error should occur
 		if err == nil {
@@ -91,7 +93,7 @@ func TestDarwinNetworkManager_ConfigureHostRoute(t *testing.T) {
 		}
 
 		// And configuring the host route
-		err := manager.ConfigureHostRoute()
+		err := manager.ConfigureHostRoute(context.Background())
 
 		// Then no error should occur
 		if err != nil {
@@ -117,7 +119,7 @@ func TestDarwinNetworkManager_ConfigureHostRoute(t *testing.T) {
 		}
 
 		// And configuring the host route
-		err := manager.ConfigureHostRoute()
+		err := manager.ConfigureHostRoute(context.Background())
 
 		// Then an error should occur
 		if err == nil {
@@ -146,7 +148,7 @@ func TestDarwinNetworkManager_ConfigureHostRoute(t *testing.T) {
 		}
 
 		// And configuring the host route
-		err := manager.ConfigureHostRoute()
+		err := manager.ConfigureHostRoute(context.Background())
 
 		// Then an error should occur
 		if err == nil {
@@ -180,7 +182,7 @@ func TestDarwinNetworkManager_ConfigureHostRoute(t *testing.T) {
 			return "", nil
 		}
 
-		if err := manager.ConfigureHostRoute(); err != nil {
+		if err := manager.ConfigureHostRoute(context.Background()); err != nil {
 			t.Fatalf("expected no error, got %v", err)
 		}
 
@@ -218,7 +220,7 @@ func TestDarwinNetworkManager_ConfigureHostRoute(t *testing.T) {
 			return "", nil
 		}
 
-		if err := manager.ConfigureHostRoute(); err != nil {
+		if err := manager.ConfigureHostRoute(context.Background()); err != nil {
 			t.Fatalf("expected no error, got %v", err)
 		}
 
@@ -254,7 +256,7 @@ func TestDarwinNetworkManager_ConfigureHostRoute(t *testing.T) {
 			return "", nil
 		}
 
-		if err := manager.ConfigureHostRoute(); err != nil {
+		if err := manager.ConfigureHostRoute(context.Background()); err != nil {
 			t.Fatalf("expected no error, got %v", err)
 		}
 
@@ -281,11 +283,48 @@ func TestDarwinNetworkManager_ConfigureDNS(t *testing.T) {
 		mocks.ConfigHandler.Set("workstation.dns.address", "1.2.3.4")
 
 		// And configuring DNS
-		err := manager.ConfigureDNS()
+		err := manager.ConfigureDNS(context.Background())
 
 		// Then no error should occur
 		if err != nil {
 			t.Fatalf("expected no error, got %v", err)
+		}
+	})
+
+	t.Run("ReportsAResolverChangeAsAStep", func(t *testing.T) {
+		// Given a network manager whose resolver file is missing and a recording presenter
+		manager, mocks := setup(t)
+		mocks.ConfigHandler.Set("dns.domain", "example.com")
+		mocks.ConfigHandler.Set("workstation.dns.address", "1.2.3.4")
+		rec := &progressRecorder{}
+
+		// When configuring DNS
+		if err := manager.ConfigureDNS(presenter.NewContext(context.Background(), rec)); err != nil {
+			t.Fatalf("expected no error, got %v", err)
+		}
+
+		// Then the change is one Configuring DNS step
+		if got := strings.Join(rec.steps(), ","); got != "applying:Configuring DNS,applied:Configuring DNS" {
+			t.Errorf("unexpected steps %q", got)
+		}
+	})
+
+	t.Run("ShowsNothingWhenTheResolverIsAlreadyConfigured", func(t *testing.T) {
+		// Given a resolver file that already points at the resolver and a recording presenter
+		manager, mocks := setup(t)
+		mocks.ConfigHandler.Set("dns.domain", "example.com")
+		mocks.ConfigHandler.Set("workstation.dns.address", "1.2.3.4")
+		mocks.Shims.ReadFile = func(string) ([]byte, error) { return []byte("nameserver 1.2.3.4\n"), nil }
+		rec := &progressRecorder{}
+
+		// When configuring DNS
+		if err := manager.ConfigureDNS(presenter.NewContext(context.Background(), rec)); err != nil {
+			t.Fatalf("expected no error, got %v", err)
+		}
+
+		// Then no event is emitted
+		if len(rec.events) != 0 {
+			t.Errorf("expected no events, got %v", rec.steps())
 		}
 	})
 
@@ -305,7 +344,7 @@ func TestDarwinNetworkManager_ConfigureDNS(t *testing.T) {
 		}
 
 		// And configuring DNS
-		err := manager.ConfigureDNS()
+		err := manager.ConfigureDNS(context.Background())
 
 		// Then no error should occur
 		if err != nil {
@@ -327,7 +366,7 @@ func TestDarwinNetworkManager_ConfigureDNS(t *testing.T) {
 		mocks.ConfigHandler.Set("dns.domain", "")
 
 		// And configuring DNS
-		err := manager.ConfigureDNS()
+		err := manager.ConfigureDNS(context.Background())
 
 		// Then an error should occur
 		if err == nil {
@@ -347,7 +386,7 @@ func TestDarwinNetworkManager_ConfigureDNS(t *testing.T) {
 		mocks.ConfigHandler.Set("workstation.dns.address", "")
 
 		// And configuring DNS
-		err := manager.ConfigureDNS()
+		err := manager.ConfigureDNS(context.Background())
 
 		// Then an error should occur
 		if err == nil {
@@ -374,7 +413,7 @@ func TestDarwinNetworkManager_ConfigureDNS(t *testing.T) {
 		}
 
 		// And configuring DNS
-		err := manager.ConfigureDNS()
+		err := manager.ConfigureDNS(context.Background())
 
 		// Then no error should occur
 		if err != nil {
@@ -404,7 +443,7 @@ func TestDarwinNetworkManager_ConfigureDNS(t *testing.T) {
 		}
 
 		// And configuring DNS
-		err := manager.ConfigureDNS()
+		err := manager.ConfigureDNS(context.Background())
 
 		// Then an error should occur
 		if err == nil {
@@ -428,7 +467,7 @@ func TestDarwinNetworkManager_ConfigureDNS(t *testing.T) {
 		}
 
 		// And configuring DNS
-		err := manager.ConfigureDNS()
+		err := manager.ConfigureDNS(context.Background())
 
 		// Then an error should occur
 		if err == nil {
@@ -459,7 +498,7 @@ func TestDarwinNetworkManager_ConfigureDNS(t *testing.T) {
 		}
 
 		// And configuring DNS
-		err := manager.ConfigureDNS()
+		err := manager.ConfigureDNS(context.Background())
 
 		// Then an error should occur
 		if err == nil {
@@ -478,7 +517,7 @@ func TestDarwinNetworkManager_ConfigureDNS(t *testing.T) {
 		mocks.ConfigHandler.Set("workstation.dns.address", "127.0.0.1")
 
 		// And configuring DNS
-		err := manager.ConfigureDNS()
+		err := manager.ConfigureDNS(context.Background())
 
 		// Then no error should occur
 		if err != nil {
@@ -492,7 +531,7 @@ func TestDarwinNetworkManager_ConfigureDNS(t *testing.T) {
 		mocks.ConfigHandler.Set("dns.domain", "evil/../etc/passwd")
 
 		// When configuring DNS
-		err := manager.ConfigureDNS()
+		err := manager.ConfigureDNS(context.Background())
 
 		// Then validation rejects it before any filesystem or shell operation runs
 		if err == nil {
@@ -519,7 +558,7 @@ func TestDarwinNetworkManager_ConfigureDNS(t *testing.T) {
 		}
 
 		// When configuring DNS
-		err := manager.ConfigureDNS()
+		err := manager.ConfigureDNS(context.Background())
 
 		// Then validation rejects with the empty-label error before any sudo step runs
 		if err == nil {
@@ -722,7 +761,7 @@ func TestDarwinNetworkManager_FlushDNS(t *testing.T) {
 		manager, _ := setup(t)
 
 		// When flushing the DNS cache
-		err := manager.FlushDNS()
+		err := manager.FlushDNS(context.Background())
 
 		// Then no error should occur
 		if err != nil {
@@ -741,7 +780,7 @@ func TestDarwinNetworkManager_FlushDNS(t *testing.T) {
 		}
 
 		// When flushing the DNS cache
-		err := manager.FlushDNS()
+		err := manager.FlushDNS(context.Background())
 
 		// Then an error should be returned
 		if err == nil {
@@ -764,7 +803,7 @@ func TestDarwinNetworkManager_FlushDNS(t *testing.T) {
 		}
 
 		// When flushing the DNS cache
-		err := manager.FlushDNS()
+		err := manager.FlushDNS(context.Background())
 
 		// Then an error should be returned
 		if err == nil {

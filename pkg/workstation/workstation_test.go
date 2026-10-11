@@ -415,7 +415,7 @@ func TestWorkstation_Up(t *testing.T) {
 		})
 
 		// When calling Up() to start the workstation
-		err := workstation.Up()
+		err := workstation.Up(context.Background())
 
 		// Then the workstation should start successfully without errors
 		if err != nil {
@@ -433,7 +433,7 @@ func TestWorkstation_Up(t *testing.T) {
 		})
 
 		// When calling Up() to start the workstation
-		err := workstation.Up()
+		err := workstation.Up(context.Background())
 
 		// Then the workstation should start successfully
 		if err != nil {
@@ -469,7 +469,7 @@ func TestWorkstation_Up(t *testing.T) {
 		})
 
 		// When calling Up() to start the workstation
-		err := workstation.Up()
+		err := workstation.Up(context.Background())
 
 		// Then the workstation should start successfully
 		if err != nil {
@@ -504,7 +504,7 @@ func TestWorkstation_Up(t *testing.T) {
 		})
 
 		// When calling Up() to start the workstation
-		err := workstation.Up()
+		err := workstation.Up(context.Background())
 
 		// Then the workstation should start successfully
 		if err != nil {
@@ -544,7 +544,7 @@ func TestWorkstation_Up(t *testing.T) {
 		workstation.DeferHostGuestSetup = true
 
 		// When calling Up() to start the workstation
-		err := workstation.Up()
+		err := workstation.Up(context.Background())
 
 		// Then the workstation should start successfully
 		if err != nil {
@@ -576,7 +576,7 @@ func TestWorkstation_Up(t *testing.T) {
 		})
 
 		// When calling Up() to start the workstation
-		err := workstation.Up()
+		err := workstation.Up(context.Background())
 
 		// Then an error should be returned
 		if err == nil {
@@ -604,7 +604,7 @@ func TestWorkstation_Up(t *testing.T) {
 		})
 
 		// When calling Up() to start the workstation
-		err := workstation.Up()
+		err := workstation.Up(context.Background())
 
 		// Then an error should be returned
 		if err == nil {
@@ -629,7 +629,7 @@ func TestWorkstation_Up(t *testing.T) {
 		})
 
 		// When calling Up() to start the workstation
-		err := workstation.Up()
+		err := workstation.Up(context.Background())
 
 		// Then an error should be returned
 		if err == nil {
@@ -655,7 +655,7 @@ func TestWorkstation_Up(t *testing.T) {
 		})
 
 		// When ConfigureNetwork is called (e.g. from apply hook)
-		err := workstation.ConfigureNetwork("", false)
+		err := workstation.ConfigureNetwork(context.Background(), "", false)
 
 		// Then the error is propagated
 		if err == nil {
@@ -689,7 +689,7 @@ func TestWorkstation_Up(t *testing.T) {
 		workstation.DeferHostGuestSetup = false
 
 		// When calling Up()
-		err := workstation.Up()
+		err := workstation.Up(context.Background())
 
 		// Then no error occurs and FlushDNS was called
 		if err != nil {
@@ -722,7 +722,7 @@ func TestWorkstation_Up(t *testing.T) {
 		workstation.DeferHostGuestSetup = false
 
 		// When calling Up()
-		err := workstation.Up()
+		err := workstation.Up(context.Background())
 
 		// Then no error occurs and FlushDNS was not called
 		if err != nil {
@@ -753,7 +753,7 @@ func TestWorkstation_Up(t *testing.T) {
 		workstation.DeferHostGuestSetup = false
 
 		// When calling Up()
-		err := workstation.Up()
+		err := workstation.Up(context.Background())
 
 		// Then the error is propagated
 		if err == nil {
@@ -814,7 +814,7 @@ func TestWorkstation_DeferredWork(t *testing.T) {
 		w.appendDeferredWork(DeferredWorkItem{Required: true, Command: "windsor configure network"})
 
 		// When running Up()
-		if err := w.Up(); err != nil {
+		if err := w.Up(context.Background()); err != nil {
 			t.Fatalf("Expected Up to succeed, got %v", err)
 		}
 
@@ -911,7 +911,7 @@ func TestWorkstation_FlushDNS(t *testing.T) {
 		})
 
 		// When FlushDNS is called
-		err := workstation.FlushDNS()
+		err := workstation.FlushDNS(context.Background())
 
 		// Then no error occurs and FlushDNS was called on the network manager
 		if err != nil {
@@ -936,7 +936,7 @@ func TestWorkstation_FlushDNS(t *testing.T) {
 		})
 
 		// When FlushDNS is called
-		err := workstation.FlushDNS()
+		err := workstation.FlushDNS(context.Background())
 
 		// Then no error occurs and FlushDNS was not called
 		if err != nil {
@@ -963,7 +963,7 @@ func TestWorkstation_FlushDNS(t *testing.T) {
 		})
 
 		// When FlushDNS is called
-		err := workstation.FlushDNS()
+		err := workstation.FlushDNS(context.Background())
 
 		// Then the error is propagated
 		if err == nil {
@@ -977,7 +977,7 @@ func TestWorkstation_FlushDNS(t *testing.T) {
 		workstation := NewWorkstation(mocks.Runtime)
 
 		// When FlushDNS is called
-		err := workstation.FlushDNS()
+		err := workstation.FlushDNS(context.Background())
 
 		// Then no error occurs
 		if err != nil {
@@ -1609,7 +1609,7 @@ func TestWorkstation_Down(t *testing.T) {
 		workstation := NewWorkstation(mocks.Runtime)
 
 		// When
-		err := workstation.Down()
+		err := workstation.Down(context.Background())
 
 		// Then
 		if err != nil {
@@ -1630,7 +1630,7 @@ func TestWorkstation_Down(t *testing.T) {
 		})
 
 		// When
-		err := workstation.Down()
+		err := workstation.Down(context.Background())
 
 		// Then
 		if err != nil {
@@ -1654,7 +1654,7 @@ func TestWorkstation_Down(t *testing.T) {
 		})
 
 		// When
-		err := workstation.Down()
+		err := workstation.Down(context.Background())
 
 		// Then
 		if err != nil {
@@ -1676,7 +1676,7 @@ func TestWorkstation_Down(t *testing.T) {
 		})
 
 		// When
-		err := workstation.Down()
+		err := workstation.Down(context.Background())
 
 		// Then
 		if err == nil {
@@ -1698,7 +1698,7 @@ func TestWorkstation_Down(t *testing.T) {
 		})
 
 		// When
-		err := workstation.Down()
+		err := workstation.Down(context.Background())
 
 		// Then
 		if err == nil {
@@ -1724,7 +1724,7 @@ func TestWorkstation_Down(t *testing.T) {
 		})
 
 		// When tearing down
-		if err := ws.Down(); err != nil {
+		if err := ws.Down(context.Background()); err != nil {
 			t.Fatalf("expected nil error, got %v", err)
 		}
 
@@ -1755,7 +1755,7 @@ func TestWorkstation_Down(t *testing.T) {
 		})
 
 		// When tearing down
-		if err := ws.Down(); err != nil {
+		if err := ws.Down(context.Background()); err != nil {
 			t.Fatalf("expected nil error, got %v", err)
 		}
 
@@ -1787,7 +1787,7 @@ func TestWorkstation_Down(t *testing.T) {
 		})
 
 		// When tearing down
-		if err := ws.Down(); err != nil {
+		if err := ws.Down(context.Background()); err != nil {
 			t.Fatalf("expected nil error, got %v", err)
 		}
 
@@ -1829,7 +1829,7 @@ func TestWorkstation_Down(t *testing.T) {
 		t.Cleanup(restore)
 
 		// When tearing down
-		if err := ws.Down(); err != nil {
+		if err := ws.Down(context.Background()); err != nil {
 			t.Fatalf("expected teardown to succeed despite revert failure, got %v", err)
 		}
 		restore()
@@ -1880,7 +1880,7 @@ func TestWorkstation_Integration(t *testing.T) {
 		})
 
 		// When - Up
-		err := workstation.Up()
+		err := workstation.Up(context.Background())
 
 		// Then
 		if err != nil {
@@ -1888,7 +1888,7 @@ func TestWorkstation_Integration(t *testing.T) {
 		}
 
 		// When - Down
-		err = workstation.Down()
+		err = workstation.Down(context.Background())
 
 		// Then
 	})
@@ -1904,12 +1904,12 @@ func TestWorkstation_Integration(t *testing.T) {
 
 		// When - Multiple cycles
 		for i := 0; i < 3; i++ {
-			err := workstation.Up()
+			err := workstation.Up(context.Background())
 			if err != nil {
 				t.Errorf("Expected Up cycle %d to succeed, got error: %v", i+1, err)
 			}
 
-			err = workstation.Down()
+			err = workstation.Down(context.Background())
 			if err != nil {
 				t.Errorf("Expected Down cycle %d to succeed, got error: %v", i+1, err)
 			}

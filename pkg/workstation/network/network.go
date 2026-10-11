@@ -1,6 +1,7 @@
 package network
 
 import (
+	"context"
 	"fmt"
 	"net"
 	"path/filepath"
@@ -29,13 +30,13 @@ import (
 // to detect orphaned host configuration when the operator can't elevate
 // non-interactively, so a hint can point them at 'configure network --revert'.
 type NetworkManager interface {
-	ConfigureHostRoute() error
+	ConfigureHostRoute(ctx context.Context) error
 	ConfigureGuest() error
-	ConfigureDNS() error
+	ConfigureDNS(ctx context.Context) error
 	RevertHostRoute() error
 	RevertGuest() error
 	RevertDNS() error
-	FlushDNS() error
+	FlushDNS(ctx context.Context) error
 	NeedsPrivilegeForCluster() bool
 	NeedsPrivilegeForDNS() bool
 	IsHostRouteInstalled() bool
