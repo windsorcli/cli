@@ -1338,9 +1338,9 @@ func TestProject_Up(t *testing.T) {
 				},
 			}
 		}
-		var capturedOnApply []func(id string) (bool, error)
+		var capturedOnApply []func(ctx context.Context, id string) (bool, error)
 		mockStack := terraforminfra.NewMockStack()
-		mockStack.UpFunc = func(blueprint *v1alpha1.Blueprint, onApply ...func(id string) (bool, error)) (bool, error) {
+		mockStack.UpFunc = func(blueprint *v1alpha1.Blueprint, onApply ...func(ctx context.Context, id string) (bool, error)) (bool, error) {
 			capturedOnApply = onApply
 			return false, nil
 		}
@@ -1387,7 +1387,7 @@ func TestProject_Up(t *testing.T) {
 			return true
 		}
 		mockStack := terraforminfra.NewMockStack()
-		mockStack.UpFunc = func(blueprint *v1alpha1.Blueprint, onApply ...func(id string) (bool, error)) (bool, error) {
+		mockStack.UpFunc = func(blueprint *v1alpha1.Blueprint, onApply ...func(ctx context.Context, id string) (bool, error)) (bool, error) {
 			return false, nil
 		}
 		prov := provisioner.NewProvisioner(mocks.Runtime, mocks.Composer.BlueprintHandler, &provisioner.Provisioner{TerraformStack: mockStack})
@@ -1464,10 +1464,10 @@ func TestProject_Up(t *testing.T) {
 			}
 		}
 		mockStack := terraforminfra.NewMockStack()
-		mockStack.UpFunc = func(blueprint *v1alpha1.Blueprint, onApply ...func(id string) (bool, error)) (bool, error) {
+		mockStack.UpFunc = func(blueprint *v1alpha1.Blueprint, onApply ...func(ctx context.Context, id string) (bool, error)) (bool, error) {
 			// Simulate the terraform stack invoking the registered onApply hook for the workstation component
 			for _, fn := range onApply {
-				haltAfter, err := fn("workstation")
+				haltAfter, err := fn(context.Background(), "workstation")
 				if err != nil {
 					return false, err
 				}
@@ -1524,7 +1524,7 @@ func TestProject_Up(t *testing.T) {
 	t.Run("ErrorFromProvisionerUp", func(t *testing.T) {
 		mocks := setupProjectMocks(t)
 		mockStack := terraforminfra.NewMockStack()
-		mockStack.UpFunc = func(blueprint *v1alpha1.Blueprint, onApply ...func(id string) (bool, error)) (bool, error) {
+		mockStack.UpFunc = func(blueprint *v1alpha1.Blueprint, onApply ...func(ctx context.Context, id string) (bool, error)) (bool, error) {
 			return false, fmt.Errorf("terraform up failed")
 		}
 		mockConfig := mocks.ConfigHandler.(*config.MockConfigHandler)
@@ -1601,7 +1601,7 @@ func TestProject_Bootstrap(t *testing.T) {
 		var timeline []string
 
 		mockStack := terraforminfra.NewMockStack()
-		mockStack.UpFunc = func(blueprint *v1alpha1.Blueprint, onApply ...func(id string) (bool, error)) (bool, error) {
+		mockStack.UpFunc = func(blueprint *v1alpha1.Blueprint, onApply ...func(ctx context.Context, id string) (bool, error)) (bool, error) {
 			timeline = append(timeline, "up")
 			return false, nil
 		}
@@ -1676,7 +1676,7 @@ func TestProject_Bootstrap(t *testing.T) {
 		}
 
 		mockStack := terraforminfra.NewMockStack()
-		mockStack.UpFunc = func(_ *v1alpha1.Blueprint, _ ...func(id string) (bool, error)) (bool, error) {
+		mockStack.UpFunc = func(_ *v1alpha1.Blueprint, _ ...func(ctx context.Context, id string) (bool, error)) (bool, error) {
 			timeline = append(timeline, "provisioner_up")
 			return false, nil
 		}
@@ -1768,7 +1768,7 @@ func TestProject_Bootstrap(t *testing.T) {
 			return false
 		}
 		mockStack := terraforminfra.NewMockStack()
-		mockStack.UpFunc = func(_ *v1alpha1.Blueprint, _ ...func(id string) (bool, error)) (bool, error) {
+		mockStack.UpFunc = func(_ *v1alpha1.Blueprint, _ ...func(ctx context.Context, id string) (bool, error)) (bool, error) {
 			return false, fmt.Errorf("terraform up failed")
 		}
 		prov := provisioner.NewProvisioner(mocks.Runtime, mocks.Composer.BlueprintHandler, &provisioner.Provisioner{TerraformStack: mockStack})

@@ -1,6 +1,7 @@
 package workstation
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -298,11 +299,11 @@ func (w *Workstation) RevertNetwork(showStatus bool) error {
 // appends an optional DeferredWorkItem with the outcome the operator gets from running 'windsor
 // configure network' and continues (DNS is not load-bearing for subsequent components). Returns
 // nil when DeferHostGuestSetup is false.
-func (w *Workstation) MakeApplyHook() func(componentID string) (bool, error) {
+func (w *Workstation) MakeApplyHook() func(ctx context.Context, componentID string) (bool, error) {
 	if !w.DeferHostGuestSetup {
 		return nil
 	}
-	return func(componentID string) (bool, error) {
+	return func(ctx context.Context, componentID string) (bool, error) {
 		if componentID != "workstation" {
 			return false, nil
 		}
@@ -369,11 +370,11 @@ func (w *Workstation) FlushDNS() error {
 // MakePostApplyHook returns a callback for the provisioner's postApply when DeferHostGuestSetup is true.
 // The callback flushes the DNS cache after the workstation Terraform component if NetworkManager
 // reports DNSChanged. Returns nil when DeferHostGuestSetup is false.
-func (w *Workstation) MakePostApplyHook() func(componentID string) error {
+func (w *Workstation) MakePostApplyHook() func(ctx context.Context, componentID string) error {
 	if !w.DeferHostGuestSetup {
 		return nil
 	}
-	return func(componentID string) error {
+	return func(ctx context.Context, componentID string) error {
 		if componentID != "workstation" {
 			return nil
 		}

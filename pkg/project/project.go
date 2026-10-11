@@ -258,9 +258,9 @@ func (p *Project) Bootstrap(ctx context.Context, confirm provisioner.BootstrapCo
 	if err != nil {
 		return nil, false, false, err
 	}
-	var hooks []func(string) (bool, error)
+	var hooks []func(context.Context, string) (bool, error)
 	if onApply != nil {
-		hooks = []func(string) (bool, error){onApply}
+		hooks = []func(context.Context, string) (bool, error){onApply}
 	}
 	halted, err := p.Provisioner.Bootstrap(ctx, blueprint, hooks...)
 	if err != nil {
@@ -321,14 +321,14 @@ func (p *Project) PerformCleanup() error {
 // runApply runs workstation prep then dispatches to a Provisioner Up-style method (Up or
 // Bootstrap), wrapping any error as "error starting infrastructure". Propagates the halt
 // signal from the dispatched method so the caller can render the deferred-work summary.
-func (p *Project) runApply(ctx context.Context, fn func(context.Context, *blueprintv1alpha1.Blueprint, ...func(string) (bool, error)) (bool, error)) (*blueprintv1alpha1.Blueprint, bool, error) {
+func (p *Project) runApply(ctx context.Context, fn func(context.Context, *blueprintv1alpha1.Blueprint, ...func(context.Context, string) (bool, error)) (bool, error)) (*blueprintv1alpha1.Blueprint, bool, error) {
 	blueprint, onApply, err := p.prepareForApply()
 	if err != nil {
 		return nil, false, err
 	}
-	var hooks []func(string) (bool, error)
+	var hooks []func(context.Context, string) (bool, error)
 	if onApply != nil {
-		hooks = []func(string) (bool, error){onApply}
+		hooks = []func(context.Context, string) (bool, error){onApply}
 	}
 	halted, err := fn(ctx, blueprint, hooks...)
 	if err != nil {
@@ -340,7 +340,7 @@ func (p *Project) runApply(ctx context.Context, fn func(context.Context, *bluepr
 // prepareForApply generates the blueprint and runs workstation lifecycle hooks before any
 // terraform applies. Used by Up; Bootstrap drives the two halves separately so confirmation
 // gates workstation prep.
-func (p *Project) prepareForApply() (*blueprintv1alpha1.Blueprint, func(string) (bool, error), error) {
+func (p *Project) prepareForApply() (*blueprintv1alpha1.Blueprint, func(context.Context, string) (bool, error), error) {
 	blueprint := p.Composer.BlueprintHandler.Generate()
 	onApply, err := p.prepareWorkstationForApply(blueprint)
 	if err != nil {
@@ -353,7 +353,7 @@ func (p *Project) prepareForApply() (*blueprintv1alpha1.Blueprint, func(string) 
 // (DNS resolver writes, host routes, container runtime). Split out so Bootstrap can gate
 // it on operator confirmation — declining the plan must not trigger sudo prompts or
 // /etc/resolver writes.
-func (p *Project) prepareWorkstationForApply(blueprint *blueprintv1alpha1.Blueprint) (func(string) (bool, error), error) {
+func (p *Project) prepareWorkstationForApply(blueprint *blueprintv1alpha1.Blueprint) (func(context.Context, string) (bool, error), error) {
 	p.EnsureWorkstation()
 	if p.Workstation == nil {
 		return nil, nil

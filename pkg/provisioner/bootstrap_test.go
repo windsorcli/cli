@@ -55,7 +55,7 @@ func TestProvisioner_Bootstrap(t *testing.T) {
 			return nil
 		}
 		mockStack := terraforminfra.NewMockStack()
-		mockStack.UpFunc = func(_ *blueprintv1alpha1.Blueprint, _ ...func(id string) (bool, error)) (bool, error) {
+		mockStack.UpFunc = func(_ *blueprintv1alpha1.Blueprint, _ ...func(ctx context.Context, id string) (bool, error)) (bool, error) {
 			ops = append(ops, "up")
 			return false, nil
 		}
@@ -94,7 +94,7 @@ func TestProvisioner_Bootstrap(t *testing.T) {
 		}
 		mockStack := terraforminfra.NewMockStack()
 		upCalled := false
-		mockStack.UpFunc = func(_ *blueprintv1alpha1.Blueprint, _ ...func(id string) (bool, error)) (bool, error) {
+		mockStack.UpFunc = func(_ *blueprintv1alpha1.Blueprint, _ ...func(ctx context.Context, id string) (bool, error)) (bool, error) {
 			upCalled = true
 			return false, nil
 		}
@@ -167,7 +167,7 @@ func TestProvisioner_Bootstrap(t *testing.T) {
 			return nil
 		}
 		mockStack := terraforminfra.NewMockStack()
-		mockStack.UpFunc = func(_ *blueprintv1alpha1.Blueprint, _ ...func(id string) (bool, error)) (bool, error) {
+		mockStack.UpFunc = func(_ *blueprintv1alpha1.Blueprint, _ ...func(ctx context.Context, id string) (bool, error)) (bool, error) {
 			ops = append(ops, "up")
 			return false, nil
 		}
@@ -213,7 +213,7 @@ func TestProvisioner_Bootstrap(t *testing.T) {
 			return nil
 		}
 		mockStack := terraforminfra.NewMockStack()
-		mockStack.UpFunc = func(_ *blueprintv1alpha1.Blueprint, _ ...func(id string) (bool, error)) (bool, error) {
+		mockStack.UpFunc = func(_ *blueprintv1alpha1.Blueprint, _ ...func(ctx context.Context, id string) (bool, error)) (bool, error) {
 			ops = append(ops, "up")
 			return false, nil
 		}
@@ -265,7 +265,7 @@ func TestProvisioner_Bootstrap(t *testing.T) {
 			return nil
 		}
 		mockStack := terraforminfra.NewMockStack()
-		mockStack.UpFunc = func(b *blueprintv1alpha1.Blueprint, _ ...func(id string) (bool, error)) (bool, error) {
+		mockStack.UpFunc = func(b *blueprintv1alpha1.Blueprint, _ ...func(ctx context.Context, id string) (bool, error)) (bool, error) {
 			ops = append(ops, "up")
 			upBlueprints = append(upBlueprints, b)
 			return false, nil
@@ -350,7 +350,7 @@ func TestProvisioner_Bootstrap(t *testing.T) {
 			return nil
 		}
 		mockStack := terraforminfra.NewMockStack()
-		mockStack.UpFunc = func(b *blueprintv1alpha1.Blueprint, _ ...func(id string) (bool, error)) (bool, error) {
+		mockStack.UpFunc = func(b *blueprintv1alpha1.Blueprint, _ ...func(ctx context.Context, id string) (bool, error)) (bool, error) {
 			ops = append(ops, "up")
 			upBlueprints = append(upBlueprints, b)
 			return false, nil
@@ -428,7 +428,7 @@ func TestProvisioner_Bootstrap(t *testing.T) {
 			return nil
 		}
 		mockStack := terraforminfra.NewMockStack()
-		mockStack.UpFunc = func(_ *blueprintv1alpha1.Blueprint, _ ...func(id string) (bool, error)) (bool, error) {
+		mockStack.UpFunc = func(_ *blueprintv1alpha1.Blueprint, _ ...func(ctx context.Context, id string) (bool, error)) (bool, error) {
 			ops = append(ops, "up")
 			return false, nil
 		}
@@ -488,7 +488,7 @@ func TestProvisioner_Bootstrap(t *testing.T) {
 			ops = append(ops, "migrate")
 			return nil, nil
 		}
-		mockStack.UpFunc = func(_ *blueprintv1alpha1.Blueprint, _ ...func(id string) (bool, error)) (bool, error) {
+		mockStack.UpFunc = func(_ *blueprintv1alpha1.Blueprint, _ ...func(ctx context.Context, id string) (bool, error)) (bool, error) {
 			ops = append(ops, "up-fail")
 			return false, fmt.Errorf("apply blew up")
 		}
@@ -534,7 +534,7 @@ func TestProvisioner_Bootstrap(t *testing.T) {
 		}
 
 		mockStack := terraforminfra.NewMockStack()
-		mockStack.UpFunc = func(_ *blueprintv1alpha1.Blueprint, _ ...func(id string) (bool, error)) (bool, error) {
+		mockStack.UpFunc = func(_ *blueprintv1alpha1.Blueprint, _ ...func(ctx context.Context, id string) (bool, error)) (bool, error) {
 			return false, nil
 		}
 		migrateCalls := 0
@@ -581,7 +581,7 @@ func TestProvisioner_Bootstrap(t *testing.T) {
 		}
 
 		mockStack := terraforminfra.NewMockStack()
-		mockStack.UpFunc = func(_ *blueprintv1alpha1.Blueprint, _ ...func(id string) (bool, error)) (bool, error) {
+		mockStack.UpFunc = func(_ *blueprintv1alpha1.Blueprint, _ ...func(ctx context.Context, id string) (bool, error)) (bool, error) {
 			return false, nil
 		}
 		calls := 0
@@ -635,7 +635,7 @@ func TestProvisioner_Bootstrap(t *testing.T) {
 			return nil
 		}
 		mockStack := terraforminfra.NewMockStack()
-		mockStack.UpFunc = func(_ *blueprintv1alpha1.Blueprint, _ ...func(id string) (bool, error)) (bool, error) {
+		mockStack.UpFunc = func(_ *blueprintv1alpha1.Blueprint, _ ...func(ctx context.Context, id string) (bool, error)) (bool, error) {
 			ops = append(ops, "up")
 			return false, nil
 		}
@@ -710,7 +710,7 @@ func TestProvisioner_Up_BackendPivot(t *testing.T) {
 			return nil
 		}
 		mockStack := terraforminfra.NewMockStack()
-		mockStack.UpFunc = func(_ *blueprintv1alpha1.Blueprint, _ ...func(id string) (bool, error)) (bool, error) {
+		mockStack.UpFunc = func(_ *blueprintv1alpha1.Blueprint, _ ...func(ctx context.Context, id string) (bool, error)) (bool, error) {
 			ops = append(ops, "up")
 			return false, nil
 		}
@@ -757,7 +757,7 @@ func TestProvisioner_Up_BackendPivot(t *testing.T) {
 		}
 		mockStack := terraforminfra.NewMockStack()
 		upCalled := false
-		mockStack.UpFunc = func(_ *blueprintv1alpha1.Blueprint, _ ...func(id string) (bool, error)) (bool, error) {
+		mockStack.UpFunc = func(_ *blueprintv1alpha1.Blueprint, _ ...func(ctx context.Context, id string) (bool, error)) (bool, error) {
 			upCalled = true
 			return false, nil
 		}
@@ -805,7 +805,7 @@ func TestProvisioner_Up_BackendPivot(t *testing.T) {
 		mockStack.HasLocalStateWithResourcesFunc = func(componentID string) (bool, error) {
 			return componentID == "backend-old", nil
 		}
-		mockStack.UpFunc = func(_ *blueprintv1alpha1.Blueprint, _ ...func(id string) (bool, error)) (bool, error) {
+		mockStack.UpFunc = func(_ *blueprintv1alpha1.Blueprint, _ ...func(ctx context.Context, id string) (bool, error)) (bool, error) {
 			return false, nil
 		}
 		mockStack.MigrateStateFunc = func(_ *blueprintv1alpha1.Blueprint) ([]string, error) {
@@ -974,7 +974,7 @@ func TestProvisioner_recoverHalfMigratedComponents(t *testing.T) {
 			ops = append(ops, fmt.Sprintf("remove-local:%s", componentID))
 			return nil
 		}
-		mockStack.UpFunc = func(_ *blueprintv1alpha1.Blueprint, _ ...func(id string) (bool, error)) (bool, error) {
+		mockStack.UpFunc = func(_ *blueprintv1alpha1.Blueprint, _ ...func(ctx context.Context, id string) (bool, error)) (bool, error) {
 			ops = append(ops, "up")
 			return false, nil
 		}
@@ -1044,7 +1044,7 @@ func TestProvisioner_recoverHalfMigratedComponents(t *testing.T) {
 			probeRemoteCalled = true
 			return true, nil
 		}
-		mockStack.UpFunc = func(_ *blueprintv1alpha1.Blueprint, _ ...func(id string) (bool, error)) (bool, error) {
+		mockStack.UpFunc = func(_ *blueprintv1alpha1.Blueprint, _ ...func(ctx context.Context, id string) (bool, error)) (bool, error) {
 			return false, nil
 		}
 		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{TerraformStack: mockStack})
@@ -1088,7 +1088,7 @@ func TestProvisioner_recoverHalfMigratedComponents(t *testing.T) {
 		mockStack.HasLocalStateWithResourcesFunc = func(componentID string) (bool, error) {
 			return componentID == "vpc-old", nil
 		}
-		mockStack.UpFunc = func(_ *blueprintv1alpha1.Blueprint, _ ...func(id string) (bool, error)) (bool, error) {
+		mockStack.UpFunc = func(_ *blueprintv1alpha1.Blueprint, _ ...func(ctx context.Context, id string) (bool, error)) (bool, error) {
 			return false, nil
 		}
 		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{TerraformStack: mockStack})
@@ -1153,7 +1153,7 @@ func TestProvisioner_recoverHalfMigratedComponents(t *testing.T) {
 			return nil
 		}
 		upCalled := false
-		mockStack.UpFunc = func(_ *blueprintv1alpha1.Blueprint, _ ...func(id string) (bool, error)) (bool, error) {
+		mockStack.UpFunc = func(_ *blueprintv1alpha1.Blueprint, _ ...func(ctx context.Context, id string) (bool, error)) (bool, error) {
 			upCalled = true
 			return false, nil
 		}
@@ -1231,7 +1231,7 @@ func TestProvisioner_recoverHalfMigratedComponents(t *testing.T) {
 			// renamed-to ID) has never run, so it has none.
 			return componentID == "crossplane-identity-gcp", nil
 		}
-		mockStack.UpFunc = func(_ *blueprintv1alpha1.Blueprint, _ ...func(id string) (bool, error)) (bool, error) {
+		mockStack.UpFunc = func(_ *blueprintv1alpha1.Blueprint, _ ...func(ctx context.Context, id string) (bool, error)) (bool, error) {
 			return false, nil
 		}
 
@@ -1296,7 +1296,7 @@ func TestProvisioner_recoverHalfMigratedComponents(t *testing.T) {
 			probeLocalCalled = true
 			return true, nil
 		}
-		mockStack.UpFunc = func(_ *blueprintv1alpha1.Blueprint, _ ...func(id string) (bool, error)) (bool, error) {
+		mockStack.UpFunc = func(_ *blueprintv1alpha1.Blueprint, _ ...func(ctx context.Context, id string) (bool, error)) (bool, error) {
 			return false, nil
 		}
 

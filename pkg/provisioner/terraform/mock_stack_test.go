@@ -23,7 +23,7 @@ func TestMockStack_Up(t *testing.T) {
 	t.Run("WithFuncSet", func(t *testing.T) {
 		// Given a new MockStack with a custom UpFunc that returns an error
 		mock := NewMockStack()
-		mock.UpFunc = func(blueprint *blueprintv1alpha1.Blueprint, onApply ...func(id string) (bool, error)) (bool, error) {
+		mock.UpFunc = func(blueprint *blueprintv1alpha1.Blueprint, onApply ...func(ctx context.Context, id string) (bool, error)) (bool, error) {
 			return false, mockUpErr
 		}
 

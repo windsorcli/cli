@@ -2,6 +2,7 @@ package workstation
 
 import (
 	"bytes"
+	"context"
 	"fmt"
 	"io"
 	"os"
@@ -1277,7 +1278,7 @@ func TestWorkstation_MakeApplyHook(t *testing.T) {
 			t.Fatal("Expected non-nil hook when DeferHostGuestSetup is true")
 		}
 
-		_, err := hook("other-component")
+		_, err := hook(context.Background(), "other-component")
 
 		if err != nil {
 			t.Errorf("Expected no error for non-workstation component, got: %v", err)
@@ -1304,7 +1305,7 @@ func TestWorkstation_MakeApplyHook(t *testing.T) {
 		ws.DeferHostGuestSetup = true
 
 		// When the hook fires for the workstation component
-		_, err := ws.MakeApplyHook()("workstation")
+		_, err := ws.MakeApplyHook()(context.Background(), "workstation")
 
 		// Then the hook returns nil and never invokes any network configuration
 		if err != nil {
@@ -1331,7 +1332,7 @@ func TestWorkstation_MakeApplyHook(t *testing.T) {
 		ws.DeferHostGuestSetup = true
 
 		// When the hook fires for the workstation component
-		halt, err := ws.MakeApplyHook()("workstation")
+		halt, err := ws.MakeApplyHook()(context.Background(), "workstation")
 
 		// Then the hook signals halt with no error, appends a required deferred-work item,
 		// and never invokes inline ConfigureGuest/ConfigureHostRoute (windsor up must not prompt for sudo)
@@ -1367,7 +1368,7 @@ func TestWorkstation_MakeApplyHook(t *testing.T) {
 		ws.DeferHostGuestSetup = true
 
 		// When the hook fires
-		halt, err := ws.MakeApplyHook()("workstation")
+		halt, err := ws.MakeApplyHook()(context.Background(), "workstation")
 
 		// Then no halt is signaled and an optional deferred-work item describing the DNS outcome is appended
 		if err != nil {
@@ -1405,7 +1406,7 @@ func TestWorkstation_MakeApplyHook(t *testing.T) {
 		ws.DeferHostGuestSetup = true
 
 		// When the hook fires
-		halt, err := ws.MakeApplyHook()("workstation")
+		halt, err := ws.MakeApplyHook()(context.Background(), "workstation")
 
 		// Then the hook halts and records both items; the renderer collapses to the halt sentence
 		if err != nil {
@@ -1444,7 +1445,7 @@ func TestWorkstation_MakeApplyHook(t *testing.T) {
 		ws.DeferHostGuestSetup = true
 
 		// When the hook fires
-		halt, err := ws.MakeApplyHook()("workstation")
+		halt, err := ws.MakeApplyHook()(context.Background(), "workstation")
 
 		// Then the error bubbles with context, no halt is signaled, and no deferred work was
 		// recorded (the hook bailed before the privilege probes)
@@ -1483,7 +1484,7 @@ func TestWorkstation_MakeApplyHook(t *testing.T) {
 		ws.DeferHostGuestSetup = true
 
 		// When the hook fires
-		halt, err := ws.MakeApplyHook()("workstation")
+		halt, err := ws.MakeApplyHook()(context.Background(), "workstation")
 
 		// Then the Set failure bubbles with context and halt is not signaled
 		if err == nil || !strings.Contains(err.Error(), "config locked") {
@@ -1527,7 +1528,7 @@ func TestWorkstation_MakePostApplyHook(t *testing.T) {
 			t.Fatal("Expected non-nil hook when DeferHostGuestSetup is true")
 		}
 
-		err := hook("other-component")
+		err := hook(context.Background(), "other-component")
 
 		if err != nil {
 			t.Errorf("Expected no error for non-workstation component, got: %v", err)
@@ -1560,7 +1561,7 @@ func TestWorkstation_MakePostApplyHook(t *testing.T) {
 			t.Fatal("Expected non-nil hook when DeferHostGuestSetup is true")
 		}
 
-		err := hook("workstation")
+		err := hook(context.Background(), "workstation")
 
 		if err != nil {
 			t.Errorf("Expected no error, got: %v", err)
@@ -1590,7 +1591,7 @@ func TestWorkstation_MakePostApplyHook(t *testing.T) {
 			t.Fatal("Expected non-nil hook when DeferHostGuestSetup is true")
 		}
 
-		err := hook("workstation")
+		err := hook(context.Background(), "workstation")
 
 		if err != nil {
 			t.Errorf("Expected no error, got: %v", err)
