@@ -180,8 +180,9 @@ Methods that emit events MUST take `ctx context.Context` as their first paramete
 
 - **Console** (default) — renders the transcript as an indented tree. Finished steps stay on
   screen with their elapsed time, and nested steps print under their parent. In plain mode (not a
-  terminal, or `--verbose`) it prints one line per event, which suits CI logs. In interactive mode
-  it keeps a live region below the tree with one animated line per active leaf operation, its
+  terminal, or `--verbose`) it prints one line per event, which suits CI logs. Progress lines carry
+  the step's elapsed time, and unchanged progress reprints every 30 seconds as a heartbeat. In
+  interactive mode it keeps a live region below the tree with one animated line per active leaf operation, its
   running time, and its progress text. Times read as seconds (`14s`), then minutes (`2m05s`), then
   hours (`1h02m`). A parent operation that succeeds prints no end line, because its
   header and its children's end lines already show the result; a failed parent still prints one. While that region is on screen, the console hides the cursor and turns off input

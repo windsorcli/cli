@@ -31,6 +31,9 @@ var spinnerFrames = []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "�
 // frameInterval is the time between animation frames.
 const frameInterval = 100 * time.Millisecond
 
+// progressHeartbeat is how often plain mode reprints unchanged progress text.
+const progressHeartbeat = 30 * time.Second
+
 const (
 	ansiGreen     = "\033[32m"
 	ansiRed       = "\033[31m"
@@ -88,6 +91,7 @@ type consoleOp struct {
 	lastShown string
 	started   time.Time
 	hadChild  bool
+	shownAt   time.Time
 }
 
 // =============================================================================
@@ -256,7 +260,8 @@ func (c *Console) finish(event Event) {
 	c.print(func() { fmt.Fprintln(c.w, line) })
 }
 
-// progress stores the status text of an operation. Plain mode prints it once per change.
+// progress stores the status text of an operation. Plain mode prints it with the elapsed time
+// when the text changes, and again after progressHeartbeat when it does not.
 func (c *Console) progress(event Event) {
 	op := c.ops[event.ID]
 	if op == nil {
@@ -267,11 +272,13 @@ func (c *Console) progress(event Event) {
 		c.redraw()
 		return
 	}
-	if event.Message == op.lastShown {
+	now := c.now()
+	if event.Message == op.lastShown && now.Sub(op.shownAt) < progressHeartbeat {
 		return
 	}
 	op.lastShown = event.Message
-	line := indent(op.depth+1) + event.Message
+	op.shownAt = now
+	line := indent(op.depth+1) + event.Message + c.elapsed(now.Sub(op.started))
 	c.print(func() { fmt.Fprintln(c.w, line) })
 }
 
