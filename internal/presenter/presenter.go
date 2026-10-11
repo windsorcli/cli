@@ -113,6 +113,13 @@ func New(format logging.Format, w io.Writer, opts ConsoleOptions) Presenter {
 		}
 		return width
 	}
+	opts.Height = func() int {
+		_, height, err := term.GetSize(int(f.Fd()))
+		if err != nil {
+			return 0
+		}
+		return height
+	}
 	return NewConsole(w, opts)
 }
 

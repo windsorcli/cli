@@ -571,6 +571,49 @@ func TestConsole_Interactive(t *testing.T) {
 		}
 	})
 
+	t.Run("CapsTheLiveRegionToTheTerminalHeight", func(t *testing.T) {
+		// Given an interactive console on a terminal 6 rows high
+		var buf syncBuffer
+		c := presenter.NewConsole(&buf, presenter.ConsoleOptions{Interactive: true, Height: func() int { return 6 }})
+		ctx, end := presenter.Begin(presenter.NewContext(context.Background(), c), "wait", "Waiting")
+		defer end(nil)
+
+		// When five children run at once
+		g := presenter.NewGroup(ctx, "k:")
+		for _, name := range []string{"a", "b", "c", "d", "e"} {
+			g.Start(name)
+		}
+		defer g.Close(nil)
+
+		// Then the live region shows three children and counts the other two
+		got := screen(buf.String())
+		if len(got) != 5 || got[0] != "● Waiting" || !strings.HasSuffix(got[3], " c") || got[4] != "  … and 2 more" {
+			t.Errorf("unexpected screen %q", got)
+		}
+	})
+
+	t.Run("CapsTheLiveRegionToTenLinesByDefault", func(t *testing.T) {
+		// Given an interactive console with no known height
+		var buf syncBuffer
+		c := presenter.NewConsole(&buf, presenter.ConsoleOptions{Interactive: true})
+		ctx, end := presenter.Begin(presenter.NewContext(context.Background(), c), "wait", "Waiting")
+		defer end(nil)
+
+		// When twelve children run at once
+		names := []string{"a", "b", "c", "d", "e", "f", "g", "h", "i", "j", "k", "l"}
+		g := presenter.NewGroup(ctx, "k:")
+		for _, name := range names {
+			g.Start(name)
+		}
+		defer g.Close(nil)
+
+		// Then nine children show and the last line counts the other three
+		got := screen(buf.String())
+		if len(got) != 11 || got[10] != "  … and 3 more" {
+			t.Errorf("unexpected screen %q", got)
+		}
+	})
+
 	t.Run("TruncatesLiveLinesToTheWidth", func(t *testing.T) {
 		// Given an interactive console 20 columns wide
 		var buf syncBuffer
