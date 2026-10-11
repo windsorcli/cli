@@ -651,26 +651,7 @@ func TestConsole_Interactive(t *testing.T) {
 }
 
 func TestConsole_Lifecycle(t *testing.T) {
-	t.Run("ReportsWhenOperationsAreActive", func(t *testing.T) {
-		// Given a console that records activity changes
-		var changes []bool
-		c := presenter.NewConsole(&bytes.Buffer{}, presenter.ConsoleOptions{OnActive: func(active bool) { changes = append(changes, active) }})
-		ctx := presenter.NewContext(context.Background(), c)
-
-		// When nested operations run twice in a row
-		for i := 0; i < 2; i++ {
-			_ = presenter.Track(ctx, "outer", "Outer", func(ctx context.Context) error {
-				return presenter.Track(ctx, "inner", "Inner", func(context.Context) error { return nil })
-			})
-		}
-
-		// Then activity starts and ends once per outer operation
-		if !reflect.DeepEqual(changes, []bool{true, false, true, false}) {
-			t.Errorf("unexpected activity changes %v", changes)
-		}
-	})
-
-	t.Run("PausesTheLiveRegionForAnotherWriter", func(t *testing.T) {
+	t.Run("PausesUnderTheStepHeaderForAnotherWriter", func(t *testing.T) {
 		// Given an interactive console with a running operation
 		var buf syncBuffer
 		c := presenter.NewConsole(&buf, presenter.ConsoleOptions{Interactive: true})
@@ -686,36 +667,16 @@ func TestConsole_Lifecycle(t *testing.T) {
 		resumed := screen(buf.String())
 		end(nil)
 
-		// Then the live line stays hidden until the last resume and the prompt is never erased
-		if !reflect.DeepEqual(paused, []string{"Password:"}) {
-			t.Errorf("expected only the prompt while paused, got %q", paused)
+		// Then the prompt sits under the step header, the live line stays hidden until the last
+		// resume, and the prompt is never erased
+		if !reflect.DeepEqual(paused, []string{"● configuring DNS", "Password:"}) {
+			t.Errorf("expected the header and the prompt while paused, got %q", paused)
 		}
-		if len(resumed) != 2 || resumed[0] != "Password:" || !strings.HasSuffix(resumed[1], " configuring DNS") {
-			t.Errorf("expected the prompt and the live line, got %q", resumed)
+		if len(resumed) != 3 || resumed[1] != "Password:" || !strings.HasSuffix(resumed[2], " configuring DNS") {
+			t.Errorf("expected the header, the prompt, and the live line, got %q", resumed)
 		}
-		if got := screen(buf.String()); !reflect.DeepEqual(got, []string{"Password:", "✔ configuring DNS"}) {
-			t.Errorf("expected the prompt and the end line, got %q", got)
-		}
-	})
-
-	t.Run("EndsAnUnmatchedPauseWhenTheNextOperationStarts", func(t *testing.T) {
-		// Given an interactive console that a caller paused without resuming
-		var buf syncBuffer
-		c := presenter.NewConsole(&buf, presenter.ConsoleOptions{Interactive: true})
-		ctx := presenter.NewContext(context.Background(), c)
-		_ = presenter.Track(ctx, "s", "configuring DNS", func(context.Context) error {
-			c.Pause()
-			return nil
-		})
-
-		// When the next operation starts
-		_, end := presenter.Begin(ctx, "s", "applying cluster")
-		defer end(nil)
-
-		// Then its live line is drawn
-		got := screen(buf.String())
-		if len(got) != 2 || !strings.HasSuffix(got[1], " applying cluster") {
-			t.Errorf("expected the end line and a live line, got %q", got)
+		if got := screen(buf.String()); !reflect.DeepEqual(got, []string{"● configuring DNS", "Password:", "✔ configuring DNS"}) {
+			t.Errorf("expected the header, the prompt, and the end line, got %q", got)
 		}
 	})
 

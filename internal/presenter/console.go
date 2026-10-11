@@ -61,8 +61,6 @@ type ConsoleOptions struct {
 	Width func() int
 	// Height returns the terminal height that caps the live region, or 0 for the default cap.
 	Height func() int
-	// OnActive runs with true when the first operation starts and false when the last one ends.
-	OnActive func(active bool)
 	// Terminal enters the live display mode while the live region is on screen. Nil skips it.
 	Terminal Terminal
 	// Now returns the current time for elapsed counters. Nil uses time.Now.
@@ -140,15 +138,24 @@ func (c *Console) Emit(ctx context.Context, event Event) {
 	c.syncTicker()
 }
 
-// Pause erases the live region and stops the animation until a matching Resume. Calls nest.
-// Use it before another writer, such as a password prompt, takes the terminal.
+// Pause erases the live region and stops the animation until a matching Resume. Calls nest. On the
+// first Pause it prints the header of each active step, so the other writer's output, such as a
+// password prompt, appears under the step that asked for it.
 func (c *Console) Pause() {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if c.paused == 0 {
 		c.clear()
+		c.paused++
+		for _, op := range c.order {
+			if op.children == 0 && !op.printed {
+				op.printed = true
+				fmt.Fprintln(c.w, indent(op.depth)+"● "+op.message)
+			}
+		}
+	} else {
+		c.paused++
 	}
-	c.paused++
 	c.syncTicker()
 }
 
@@ -207,10 +214,8 @@ func (c *Console) WatchInterrupts(guarded func() bool) func() {
 // Private Methods
 // =============================================================================
 
-// start registers an operation and prints its header in plain mode. It ends any pause, the
-// same as the legacy spinner, because legacy callers pause without a matching Resume.
+// start registers an operation and prints its header in plain mode.
 func (c *Console) start(event Event) {
-	c.paused = 0
 	op := &consoleOp{id: event.ID, message: event.Message, started: c.now()}
 	if parent := c.ops[event.ParentID]; parent != nil {
 		op.depth = parent.depth + 1
@@ -220,9 +225,6 @@ func (c *Console) start(event Event) {
 	}
 	c.ops[op.id] = op
 	c.order = append(c.order, op)
-	if len(c.order) == 1 && c.opts.OnActive != nil {
-		c.opts.OnActive(true)
-	}
 	if !c.opts.Interactive {
 		c.printHeader(op)
 		return
@@ -232,14 +234,12 @@ func (c *Console) start(event Event) {
 
 // finish removes an operation and prints its end line with the elapsed time. An operation that
 // had child operations prints no end line on success, because its header and its children's end
-// lines already show the result. It still prints one on failure. It ends any pause, the same
-// as start.
+// lines already show the result. It still prints one on failure.
 func (c *Console) finish(event Event) {
 	op := c.ops[event.ID]
 	if op == nil {
 		return
 	}
-	c.paused = 0
 	delete(c.ops, op.id)
 	for i, o := range c.order {
 		if o == op {
@@ -249,9 +249,6 @@ func (c *Console) finish(event Event) {
 	}
 	if parent := c.ops[event.ParentID]; parent != nil {
 		parent.children--
-	}
-	if len(c.order) == 0 && c.opts.OnActive != nil {
-		c.opts.OnActive(false)
 	}
 	if op.hadChild && event.Kind == KindApplied {
 		c.redraw()
