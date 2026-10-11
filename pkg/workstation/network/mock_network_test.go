@@ -1,6 +1,7 @@
 package network
 
 import (
+	"context"
 	"testing"
 )
 
@@ -17,7 +18,7 @@ func TestMockNetworkManager_ConfigureHostRoute(t *testing.T) {
 		}
 
 		// When configuring the host route
-		err := mockManager.ConfigureHostRoute()
+		err := mockManager.ConfigureHostRoute(context.Background())
 
 		// Then no error should occur
 		if err != nil {
@@ -30,7 +31,7 @@ func TestMockNetworkManager_ConfigureHostRoute(t *testing.T) {
 		mockManager := NewMockNetworkManager()
 
 		// When configuring the host route
-		err := mockManager.ConfigureHostRoute()
+		err := mockManager.ConfigureHostRoute(context.Background())
 
 		// Then no error should occur
 		if err != nil {
@@ -79,7 +80,7 @@ func TestMockNetworkManager_ConfigureDNS(t *testing.T) {
 		}
 
 		// When configuring DNS
-		err := mockManager.ConfigureDNS()
+		err := mockManager.ConfigureDNS(context.Background())
 
 		// Then no error should occur
 		if err != nil {
@@ -92,7 +93,7 @@ func TestMockNetworkManager_ConfigureDNS(t *testing.T) {
 		mockManager := NewMockNetworkManager()
 
 		// When configuring DNS
-		err := mockManager.ConfigureDNS()
+		err := mockManager.ConfigureDNS(context.Background())
 
 		// Then no error should occur
 		if err != nil {

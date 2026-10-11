@@ -130,10 +130,10 @@ windsor configure network --revert`,
 		}
 
 		dnsAddr := configureNetworkDnsAddress
-		if err := proj.Workstation.ConfigureNetwork(dnsAddr, true); err != nil {
+		if err := proj.Workstation.ConfigureNetwork(cmd.Context(), dnsAddr, true); err != nil {
 			return err
 		}
-		return proj.Workstation.FlushDNS()
+		return proj.Workstation.FlushDNS(cmd.Context())
 	},
 }
 

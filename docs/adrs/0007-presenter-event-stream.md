@@ -246,10 +246,11 @@ This ADR does not migrate the nine `tui.Active`-reaching files, the `outputFunc`
 `pkg/runtime/shell`) is already in Wave 2's per-package cleanup order — the migration happens as
 each package's pass reaches it, following ADR 0003's characterize-then-refactor rule: black-box
 characterize current progress-reporting behavior first (a fake `Presenter` capturing emitted events
-is the natural test double), then swap the mechanism, confirm the black-box tests still pass. `onApply
-func(id string) (bool, error)` hooks on `TerraformStack.Up`/`Provisioner.Up` are explicitly **out of
-scope** — they compose secret-placement and other post-apply logic, not user-facing output, and
-converting them would conflate two unrelated mechanisms that happen to nest today.
+is the natural test double), then swap the mechanism, confirm the black-box tests still pass. The
+`onApply` and post-apply hooks on `TerraformStack.Up`/`Provisioner.Up` stay hooks, not events, but
+they receive the `ctx` of the operation that runs them: an apply hook gets its component's
+operation, and a post-apply hook gets the "Applying terraform" operation. Work a hook starts, such
+as workstation network setup, then nests under the right step.
 
 ## Consequences
 

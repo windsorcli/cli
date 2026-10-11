@@ -310,7 +310,7 @@ func TestStack_Up(t *testing.T) {
 		stack, _ := setup(t)
 		blueprint := createTestBlueprint()
 		var invokedIDs []string
-		hook := func(id string) (bool, error) {
+		hook := func(ctx context.Context, id string) (bool, error) {
 			invokedIDs = append(invokedIDs, id)
 			return false, nil
 		}
@@ -335,7 +335,7 @@ func TestStack_Up(t *testing.T) {
 		stack, _ := setup(t)
 		blueprint := createTestBlueprint()
 		hookErr := fmt.Errorf("hook failed")
-		hook := func(id string) (bool, error) {
+		hook := func(ctx context.Context, id string) (bool, error) {
 			return false, hookErr
 		}
 

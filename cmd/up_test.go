@@ -91,7 +91,7 @@ func setupUpTest(t *testing.T, opts ...*SetupOptions) *UpMocks {
 
 	// Add terraform stack mock
 	mockTerraformStack := terraforminfra.NewMockStack()
-	mockTerraformStack.UpFunc = func(blueprint *blueprintv1alpha1.Blueprint, onApply ...func(id string) (bool, error)) (bool, error) { return false, nil }
+	mockTerraformStack.UpFunc = func(blueprint *blueprintv1alpha1.Blueprint, onApply ...func(ctx context.Context, id string) (bool, error)) (bool, error) { return false, nil }
 
 	// Add kubernetes manager mock
 	mockKubernetesManager := kubernetes.NewMockKubernetesManager()
@@ -253,7 +253,7 @@ func TestUpCmd(t *testing.T) {
 	t.Run("ProvisionerUpError", func(t *testing.T) {
 		// Given a terraform stack that fails during Up
 		mocks := setupUpTest(t)
-		mocks.TerraformStack.UpFunc = func(blueprint *blueprintv1alpha1.Blueprint, onApply ...func(id string) (bool, error)) (bool, error) {
+		mocks.TerraformStack.UpFunc = func(blueprint *blueprintv1alpha1.Blueprint, onApply ...func(ctx context.Context, id string) (bool, error)) (bool, error) {
 			return false, fmt.Errorf("terraform stack up failed")
 		}
 		proj := newUpTestProject(mocks, true)
@@ -478,7 +478,7 @@ func TestUpCmd(t *testing.T) {
 		mocks := setupUpTest(t)
 		mocks.ToolsManager.CheckAuthFunc = func() error { return fmt.Errorf("aws credentials did not resolve") }
 		upCalled := false
-		mocks.TerraformStack.UpFunc = func(*blueprintv1alpha1.Blueprint, ...func(string) (bool, error)) (bool, error) {
+		mocks.TerraformStack.UpFunc = func(*blueprintv1alpha1.Blueprint, ...func(context.Context, string) (bool, error)) (bool, error) {
 			upCalled = true
 			return false, nil
 		}
@@ -505,7 +505,7 @@ func TestUpCmd(t *testing.T) {
 		// (the apply hook needed host configuration the operator hasn't done yet)
 		mocks := setupUpTest(t)
 		applyBlueprintCalled := false
-		mocks.TerraformStack.UpFunc = func(_ *blueprintv1alpha1.Blueprint, _ ...func(string) (bool, error)) (bool, error) {
+		mocks.TerraformStack.UpFunc = func(_ *blueprintv1alpha1.Blueprint, _ ...func(context.Context, string) (bool, error)) (bool, error) {
 			return true, nil
 		}
 		mocks.KubernetesManager.ApplyBlueprintFunc = func(_ *blueprintv1alpha1.Blueprint, _ string) error {

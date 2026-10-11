@@ -1,6 +1,7 @@
 package workstation
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -138,7 +139,7 @@ func (w *Workstation) Prepare() error {
 // Up initializes the workstation environment: starts VMs, container runtime, and networking.
 // Sets NO_CACHE, starts the virtual machine if configured, writes container runtime config,
 // and configures networking. All components must be created via Prepare() before calling Up().
-func (w *Workstation) Up() error {
+func (w *Workstation) Up(ctx context.Context) error {
 	w.deferredWork = nil
 	if err := os.Setenv("NO_CACHE", "true"); err != nil {
 		return fmt.Errorf("Error setting NO_CACHE environment variable: %w", err)
@@ -149,7 +150,7 @@ func (w *Workstation) Up() error {
 		if err := w.VirtualMachine.WriteConfig(); err != nil {
 			return fmt.Errorf("error writing virtual machine config: %w", err)
 		}
-		if err := w.VirtualMachine.Up(); err != nil {
+		if err := w.VirtualMachine.Up(ctx); err != nil {
 			return fmt.Errorf("error running virtual machine Up command: %w", err)
 		}
 		if err := w.WriteState(); err != nil {
@@ -166,7 +167,7 @@ func (w *Workstation) Up() error {
 		if err := w.ContainerRuntime.WriteConfig(); err != nil {
 			return fmt.Errorf("failed to write container runtime config: %w", err)
 		}
-		if err := w.ContainerRuntime.Up(); err != nil {
+		if err := w.ContainerRuntime.Up(ctx); err != nil {
 			return fmt.Errorf("error running container runtime Up command: %w", err)
 		}
 	}
@@ -178,17 +179,17 @@ func (w *Workstation) Up() error {
 			if err := w.NetworkManager.ConfigureGuest(); err != nil {
 				return fmt.Errorf("error configuring guest: %w", err)
 			}
-			if err := w.NetworkManager.ConfigureHostRoute(); err != nil {
+			if err := w.NetworkManager.ConfigureHostRoute(ctx); err != nil {
 				return fmt.Errorf("error configuring host route: %w", err)
 			}
 		}
 		dnsDomain := w.configHandler.GetString("dns.domain")
 		if dnsDomain != "" && w.configHandler.GetString("workstation.dns.address") != "" {
-			if err := w.NetworkManager.ConfigureDNS(); err != nil {
+			if err := w.NetworkManager.ConfigureDNS(ctx); err != nil {
 				return fmt.Errorf("error configuring DNS: %w", err)
 			}
 			if w.NetworkManager.DNSChanged() {
-				if err := w.FlushDNS(); err != nil {
+				if err := w.FlushDNS(ctx); err != nil {
 					return fmt.Errorf("error flushing DNS cache: %w", err)
 				}
 			}
@@ -220,7 +221,7 @@ func (w *Workstation) PrepareForUp(blueprint *blueprintv1alpha1.Blueprint) {
 // output) takes priority over config. DNS is configured whenever dns.domain and the resolver
 // address are both available — the operator opts in by running 'windsor configure network'.
 // No-op when NetworkManager is nil.
-func (w *Workstation) ConfigureNetwork(dnsAddressOverride string, showStatus bool) error {
+func (w *Workstation) ConfigureNetwork(ctx context.Context, dnsAddressOverride string, showStatus bool) error {
 	if w.NetworkManager == nil {
 		return nil
 	}
@@ -232,7 +233,7 @@ func (w *Workstation) ConfigureNetwork(dnsAddressOverride string, showStatus boo
 		if err := w.NetworkManager.ConfigureGuest(); err != nil {
 			return fmt.Errorf("error configuring guest: %w", err)
 		}
-		if err := w.NetworkManager.ConfigureHostRoute(); err != nil {
+		if err := w.NetworkManager.ConfigureHostRoute(ctx); err != nil {
 			return fmt.Errorf("error configuring host route: %w", err)
 		}
 		if showStatus {
@@ -243,7 +244,7 @@ func (w *Workstation) ConfigureNetwork(dnsAddressOverride string, showStatus boo
 	}
 	dnsDomain := w.configHandler.GetString("dns.domain")
 	if dnsDomain != "" && w.configHandler.GetString("workstation.dns.address") != "" {
-		if err := w.NetworkManager.ConfigureDNS(); err != nil {
+		if err := w.NetworkManager.ConfigureDNS(ctx); err != nil {
 			return fmt.Errorf("error configuring DNS: %w", err)
 		}
 		if showStatus {
@@ -298,11 +299,11 @@ func (w *Workstation) RevertNetwork(showStatus bool) error {
 // appends an optional DeferredWorkItem with the outcome the operator gets from running 'windsor
 // configure network' and continues (DNS is not load-bearing for subsequent components). Returns
 // nil when DeferHostGuestSetup is false.
-func (w *Workstation) MakeApplyHook() func(componentID string) (bool, error) {
+func (w *Workstation) MakeApplyHook() func(ctx context.Context, componentID string) (bool, error) {
 	if !w.DeferHostGuestSetup {
 		return nil
 	}
-	return func(componentID string) (bool, error) {
+	return func(ctx context.Context, componentID string) (bool, error) {
 		if componentID != "workstation" {
 			return false, nil
 		}
@@ -354,14 +355,14 @@ func (w *Workstation) MakeApplyHook() func(componentID string) (bool, error) {
 
 // FlushDNS flushes the DNS cache when DNS is fully configured.
 // It is a no-op when the network manager is absent or DNS domain/address are not set.
-func (w *Workstation) FlushDNS() error {
+func (w *Workstation) FlushDNS(ctx context.Context) error {
 	if w.NetworkManager == nil {
 		return nil
 	}
 	dnsDomain := w.configHandler.GetString("dns.domain")
 	dnsAddress := w.configHandler.GetString("workstation.dns.address")
 	if dnsDomain != "" && dnsAddress != "" {
-		return w.NetworkManager.FlushDNS()
+		return w.NetworkManager.FlushDNS(ctx)
 	}
 	return nil
 }
@@ -369,18 +370,18 @@ func (w *Workstation) FlushDNS() error {
 // MakePostApplyHook returns a callback for the provisioner's postApply when DeferHostGuestSetup is true.
 // The callback flushes the DNS cache after the workstation Terraform component if NetworkManager
 // reports DNSChanged. Returns nil when DeferHostGuestSetup is false.
-func (w *Workstation) MakePostApplyHook() func(componentID string) error {
+func (w *Workstation) MakePostApplyHook() func(ctx context.Context, componentID string) error {
 	if !w.DeferHostGuestSetup {
 		return nil
 	}
-	return func(componentID string) error {
+	return func(ctx context.Context, componentID string) error {
 		if componentID != "workstation" {
 			return nil
 		}
 		if w.NetworkManager == nil || !w.NetworkManager.DNSChanged() {
 			return nil
 		}
-		return w.FlushDNS()
+		return w.FlushDNS(ctx)
 	}
 }
 
@@ -394,7 +395,7 @@ func (w *Workstation) MakePostApplyHook() func(componentID string) error {
 // contract this command exists to support. Revert failures are warned and do not halt
 // teardown — the operator's primary intent is to stop the workstation. Workstation state is
 // preserved so that 'windsor up' can resume cleanly.
-func (w *Workstation) Down() error {
+func (w *Workstation) Down(ctx context.Context) error {
 	w.deferredWork = nil
 	if w.NetworkManager != nil && (w.NetworkManager.IsHostRouteInstalled() || w.NetworkManager.IsResolverInstalled()) {
 		if canElevateNonInteractively(w.shell) {
@@ -412,13 +413,13 @@ func (w *Workstation) Down() error {
 	platform := w.configHandler.GetString("platform")
 
 	if w.ContainerRuntime != nil {
-		if err := w.ContainerRuntime.Down(); err != nil {
+		if err := w.ContainerRuntime.Down(ctx); err != nil {
 			return fmt.Errorf("Error running container runtime Down command: %w", err)
 		}
 	}
 
 	if w.VirtualMachine != nil && platform != "incus" {
-		if err := w.VirtualMachine.Down(); err != nil {
+		if err := w.VirtualMachine.Down(ctx); err != nil {
 			return fmt.Errorf("Error running virtual machine Down command: %w", err)
 		}
 	}

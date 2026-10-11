@@ -55,7 +55,7 @@ windsor down`,
 			printDeferredWork(os.Stderr, proj.Workstation.DeferredWork(), runtime.GOOS)
 		}()
 
-		if err := proj.Workstation.Down(); err != nil {
+		if err := proj.Workstation.Down(cmd.Context()); err != nil {
 			return fmt.Errorf("error tearing down workstation: %w", err)
 		}
 

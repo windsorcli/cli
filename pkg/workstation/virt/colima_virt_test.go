@@ -6,7 +6,9 @@
 package virt
 
 import (
+	"context"
 	"fmt"
+	"github.com/windsorcli/cli/internal/presenter"
 	"io"
 	"math"
 	"os"
@@ -557,11 +559,27 @@ func TestColimaVirt_Up(t *testing.T) {
 		colimaVirt, _ := setup(t)
 
 		// When calling Up
-		err := colimaVirt.Up()
+		err := colimaVirt.Up(context.Background())
 
 		// Then no error should be returned
 		if err != nil {
 			t.Errorf("Expected no error, got %v", err)
+		}
+	})
+
+	t.Run("ShowsNothingWhenTheVMIsRunning", func(t *testing.T) {
+		// Given a running Colima VM and a recording presenter
+		colimaVirt, _ := setup(t)
+		rec := &progressRecorder{}
+
+		// When calling Up
+		if err := colimaVirt.Up(presenter.NewContext(context.Background(), rec)); err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+
+		// Then no step is shown
+		if len(rec.events) != 0 {
+			t.Errorf("expected no events, got %v", rec.steps())
 		}
 	})
 
@@ -590,7 +608,7 @@ func TestColimaVirt_Up(t *testing.T) {
 		}
 
 		// When calling Up
-		err := colimaVirt.Up()
+		err := colimaVirt.Up(context.Background())
 
 		// Then an error should be returned
 		if err == nil {
@@ -655,7 +673,7 @@ func TestColimaVirt_Up(t *testing.T) {
 		}
 
 		// When calling Up
-		err := colimaVirt.Up()
+		err := colimaVirt.Up(context.Background())
 
 		// Then an error should be returned
 		if err == nil {
@@ -675,6 +693,21 @@ func TestColimaVirt_Down(t *testing.T) {
 		colimaVirt.setShims(mocks.Shims)
 		return colimaVirt, mocks
 	}
+
+	t.Run("ReportsVMDeletionAsAStep", func(t *testing.T) {
+		// Given a ColimaVirt with mock components and a recording presenter
+		colimaVirt, _ := setup(t)
+		rec := &progressRecorder{}
+
+		// When calling Down
+		_ = colimaVirt.Down(presenter.NewContext(context.Background(), rec))
+
+		// Then deletion is one step that starts and ends
+		steps := rec.steps()
+		if len(steps) != 2 || steps[0] != "applying:Deleting Colima VM" || !strings.HasSuffix(steps[1], ":Deleting Colima VM") {
+			t.Errorf("unexpected steps %v", steps)
+		}
+	})
 
 	t.Run("Success", func(t *testing.T) {
 		// Given a ColimaVirt with mock components
@@ -704,7 +737,7 @@ func TestColimaVirt_Down(t *testing.T) {
 		}
 
 		// When calling Down
-		err := colimaVirt.Down()
+		err := colimaVirt.Down(context.Background())
 
 		// Then no error should be returned
 		if err != nil {
@@ -726,7 +759,7 @@ func TestColimaVirt_Down(t *testing.T) {
 		}
 
 		// When calling Down
-		err := colimaVirt.Down()
+		err := colimaVirt.Down(context.Background())
 
 		// Then no error should be returned (idempotent - safe to call when VM doesn't exist)
 		if err != nil {
@@ -762,7 +795,7 @@ func TestColimaVirt_Down(t *testing.T) {
 		}
 
 		// When calling Down
-		err := colimaVirt.Down()
+		err := colimaVirt.Down(context.Background())
 
 		// Then no error should be returned (skips stop since VM is already stopped)
 		if err != nil {
@@ -810,7 +843,7 @@ func TestColimaVirt_Down(t *testing.T) {
 		}
 
 		// When calling Down
-		err := colimaVirt.Down()
+		err := colimaVirt.Down(context.Background())
 
 		// Then no error should be returned (stop errors are ignored)
 		if err != nil {
@@ -846,7 +879,7 @@ func TestColimaVirt_Down(t *testing.T) {
 		}
 
 		// When calling Down
-		err := colimaVirt.Down()
+		err := colimaVirt.Down(context.Background())
 
 		// Then an error should be returned
 		if err == nil {
@@ -880,7 +913,7 @@ func TestColimaVirt_Down(t *testing.T) {
 		}
 
 		// When calling Down
-		err := colimaVirt.Down()
+		err := colimaVirt.Down(context.Background())
 
 		// Then an error should be returned
 		if err == nil {

@@ -157,7 +157,7 @@ func setupProvisionerMocks(t *testing.T, opts ...func(*ProvisionerTestMocks)) *P
 	}
 
 	terraformStack := terraforminfra.NewMockStack()
-	terraformStack.UpFunc = func(blueprint *blueprintv1alpha1.Blueprint, onApply ...func(id string) (bool, error)) (bool, error) {
+	terraformStack.UpFunc = func(blueprint *blueprintv1alpha1.Blueprint, onApply ...func(ctx context.Context, id string) (bool, error)) (bool, error) {
 		return false, nil
 	}
 	terraformStack.DestroyAllFunc = func(blueprint *blueprintv1alpha1.Blueprint, _ bool, excludeIDs ...string) (terraforminfra.DestroyOutcome, error) {
@@ -417,7 +417,7 @@ func TestProvisioner_Up(t *testing.T) {
 	t.Run("ErrorTerraformStackUp", func(t *testing.T) {
 		mocks := setupProvisionerMocks(t)
 		mockStack := terraforminfra.NewMockStack()
-		mockStack.UpFunc = func(blueprint *blueprintv1alpha1.Blueprint, onApply ...func(id string) (bool, error)) (bool, error) {
+		mockStack.UpFunc = func(blueprint *blueprintv1alpha1.Blueprint, onApply ...func(ctx context.Context, id string) (bool, error)) (bool, error) {
 			return false, fmt.Errorf("terraform stack up failed")
 		}
 		opts := &Provisioner{
@@ -440,15 +440,15 @@ func TestProvisioner_Up(t *testing.T) {
 
 	t.Run("PassesOnTerraformApplyHooksToStack", func(t *testing.T) {
 		mocks := setupProvisionerMocks(t)
-		var capturedOnApply []func(id string) (bool, error)
+		var capturedOnApply []func(ctx context.Context, id string) (bool, error)
 		mockStack := terraforminfra.NewMockStack()
-		mockStack.UpFunc = func(blueprint *blueprintv1alpha1.Blueprint, onApply ...func(id string) (bool, error)) (bool, error) {
+		mockStack.UpFunc = func(blueprint *blueprintv1alpha1.Blueprint, onApply ...func(ctx context.Context, id string) (bool, error)) (bool, error) {
 			capturedOnApply = onApply
 			return false, nil
 		}
 		opts := &Provisioner{TerraformStack: mockStack}
 		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
-		provisioner.OnTerraformApply(func(id string) (bool, error) { return false, nil })
+		provisioner.OnTerraformApply(func(ctx context.Context, id string) (bool, error) { return false, nil })
 
 		_, _ = provisioner.Up(context.Background(), createTestBlueprint())
 
@@ -620,15 +620,15 @@ func TestProvisioner_OnTerraformApply(t *testing.T) {
 		var hookCalled bool
 		var hookID string
 		mockStack := terraforminfra.NewMockStack()
-		mockStack.UpFunc = func(blueprint *blueprintv1alpha1.Blueprint, onApply ...func(id string) (bool, error)) (bool, error) {
+		mockStack.UpFunc = func(blueprint *blueprintv1alpha1.Blueprint, onApply ...func(ctx context.Context, id string) (bool, error)) (bool, error) {
 			if len(onApply) > 0 && onApply[0] != nil {
-				_, _ = onApply[0]("test-component")
+				_, _ = onApply[0](context.Background(), "test-component")
 			}
 			return false, nil
 		}
 		opts := &Provisioner{TerraformStack: mockStack}
 		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
-		provisioner.OnTerraformApply(func(id string) (bool, error) {
+		provisioner.OnTerraformApply(func(ctx context.Context, id string) (bool, error) {
 			hookCalled = true
 			hookID = id
 			return false, nil
@@ -5847,7 +5847,7 @@ func TestProvisioner_UpProgress(t *testing.T) {
 		// Given a provisioner whose stack apply fails
 		mocks := setupProvisionerMocks(t)
 		stack := terraforminfra.NewMockStack()
-		stack.UpFunc = func(blueprint *blueprintv1alpha1.Blueprint, onApply ...func(id string) (bool, error)) (bool, error) {
+		stack.UpFunc = func(blueprint *blueprintv1alpha1.Blueprint, onApply ...func(ctx context.Context, id string) (bool, error)) (bool, error) {
 			return false, fmt.Errorf("apply failed")
 		}
 		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{TerraformStack: stack})

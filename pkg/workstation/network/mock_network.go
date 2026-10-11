@@ -1,6 +1,7 @@
 package network
 
 import (
+	"context"
 	"net"
 )
 
@@ -44,7 +45,7 @@ func NewMockNetworkManager() *MockNetworkManager {
 // =============================================================================
 
 // ConfigureHostRoute calls the custom ConfigureHostRouteFunc if provided.
-func (m *MockNetworkManager) ConfigureHostRoute() error {
+func (m *MockNetworkManager) ConfigureHostRoute(_ context.Context) error {
 	if m.ConfigureHostRouteFunc != nil {
 		return m.ConfigureHostRouteFunc()
 	}
@@ -60,7 +61,7 @@ func (m *MockNetworkManager) ConfigureGuest() error {
 }
 
 // ConfigureDNS calls the custom ConfigureDNSFunc if provided.
-func (m *MockNetworkManager) ConfigureDNS() error {
+func (m *MockNetworkManager) ConfigureDNS(_ context.Context) error {
 	if m.ConfigureDNSFunc != nil {
 		return m.ConfigureDNSFunc()
 	}
@@ -92,7 +93,7 @@ func (m *MockNetworkManager) RevertDNS() error {
 }
 
 // FlushDNS calls the custom FlushDNSFunc if provided.
-func (m *MockNetworkManager) FlushDNS() error {
+func (m *MockNetworkManager) FlushDNS(_ context.Context) error {
 	if m.FlushDNSFunc != nil {
 		return m.FlushDNSFunc()
 	}

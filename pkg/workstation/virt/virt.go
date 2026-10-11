@@ -6,6 +6,7 @@
 package virt
 
 import (
+	"context"
 	"os"
 
 	"github.com/windsorcli/cli/pkg/runtime"
@@ -57,8 +58,8 @@ type BaseVirt struct {
 
 // Virt defines methods for the virt operations
 type Virt interface {
-	Up() error
-	Down() error
+	Up(ctx context.Context) error
+	Down(ctx context.Context) error
 	WriteConfig() error
 }
 

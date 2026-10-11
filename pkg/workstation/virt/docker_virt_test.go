@@ -5,6 +5,7 @@
 package virt
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"io/fs"
@@ -89,7 +90,7 @@ func TestDockerVirt_Up(t *testing.T) {
 		_, dockerVirt := setupDockerVirt(t)
 
 		// When calling Up
-		err := dockerVirt.Up()
+		err := dockerVirt.Up(context.Background())
 
 		// Then no error should be returned
 		if err != nil {
@@ -127,7 +128,7 @@ func TestDockerVirt_Down(t *testing.T) {
 
 		// When calling Down
 		stderr := captureStderr(t, func() {
-			if err := dockerVirt.Down(); err != nil {
+			if err := dockerVirt.Down(context.Background()); err != nil {
 				t.Errorf("Expected nil, got %v", err)
 			}
 		})
@@ -155,7 +156,7 @@ func TestDockerVirt_Down(t *testing.T) {
 
 		// When calling Down
 		stderr := captureStderr(t, func() {
-			if err := dockerVirt.Down(); err != nil {
+			if err := dockerVirt.Down(context.Background()); err != nil {
 				t.Errorf("Expected nil, got %v", err)
 			}
 		})
@@ -178,7 +179,7 @@ func TestDockerVirt_Down(t *testing.T) {
 		}
 
 		// When calling Down
-		if err := dockerVirt.Down(); err != nil {
+		if err := dockerVirt.Down(context.Background()); err != nil {
 			t.Errorf("Expected nil, got %v", err)
 		}
 
@@ -199,7 +200,7 @@ func TestDockerVirt_Down(t *testing.T) {
 		}
 
 		// When calling Down
-		err := dockerVirt.Down()
+		err := dockerVirt.Down(context.Background())
 
 		// Then Down returns nil (best-effort)
 		if err != nil {
@@ -221,7 +222,7 @@ func TestDockerVirt_Down(t *testing.T) {
 		}
 
 		// When calling Down
-		err := dockerVirt.Down()
+		err := dockerVirt.Down(context.Background())
 
 		// Then no error (no project containers; context network not present)
 		if err != nil {
@@ -246,7 +247,7 @@ func TestDockerVirt_Down(t *testing.T) {
 		}
 
 		// When calling Down
-		err := dockerVirt.Down()
+		err := dockerVirt.Down(context.Background())
 
 		// Then no error
 		if err != nil {
@@ -302,7 +303,7 @@ func TestDockerVirt_Down(t *testing.T) {
 		}
 
 		// When calling Down
-		err := dockerVirt.Down()
+		err := dockerVirt.Down(context.Background())
 
 		// Then no error
 		if err != nil {
@@ -330,7 +331,7 @@ func TestDockerVirt_Down(t *testing.T) {
 		}
 
 		// When calling Down
-		err := dockerVirt.Down()
+		err := dockerVirt.Down(context.Background())
 
 		// Then Down returns nil (best-effort; list failure is logged, network still removed if present)
 		if err != nil {
@@ -358,7 +359,7 @@ func TestDockerVirt_Down(t *testing.T) {
 		}
 
 		// When calling Down
-		err := dockerVirt.Down()
+		err := dockerVirt.Down(context.Background())
 
 		// Then no error
 		if err != nil {

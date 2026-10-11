@@ -4,13 +4,14 @@
 package network
 
 import (
+	"context"
 	"fmt"
 	"net"
 	"os"
 	"strings"
 
+	"github.com/windsorcli/cli/internal/presenter"
 	"github.com/windsorcli/cli/pkg/constants"
-	"github.com/windsorcli/cli/pkg/tui"
 )
 
 // The DarwinNetworkManager is a platform-specific network manager for macOS.
@@ -28,7 +29,7 @@ import (
 // `networksetup -setadditionalroutes` so it survives reboots. The persistence step is best-effort:
 // if no primary network service can be detected, the live route is left in place and a warning is
 // printed.
-func (n *BaseNetworkManager) ConfigureHostRoute() error {
+func (n *BaseNetworkManager) ConfigureHostRoute(ctx context.Context) error {
 	networkCIDR := n.configHandler.GetString("network.cidr_block")
 	if networkCIDR == "" {
 		networkCIDR = constants.DefaultNetworkCIDR
@@ -45,18 +46,18 @@ func (n *BaseNetworkManager) ConfigureHostRoute() error {
 
 	service, getRoutesOutput, err := n.macOSPrimaryServiceAndRoutes()
 	if err != nil {
-		// Persistence unavailable — fall back to ephemeral-only with warning.
-		if !routeInKernel {
-			tui.Pause()
-			if os.Geteuid() != 0 && !n.sudoCached() {
-				fmt.Fprintf(os.Stderr, "\033[33m⚠\033[0m Network configuration may require elevated privileges\n")
-			}
+		if routeInKernel {
+			presenter.Warn(ctx, fmt.Sprintf("host route to %s will not survive reboot on this system: %v", guestIP, err))
+			return nil
+		}
+		return presenter.Track(ctx, "network:route", "Configuring host route", func(ctx context.Context) error {
+			n.warnIfPrivilegeNeeded(ctx)
 			if out, addErr := n.shell.ExecSudo("Adding host route", "route", "-nv", "add", "-net", networkCIDR, guestIP); addErr != nil {
 				return fmt.Errorf("failed to add route: %w, output: %s", addErr, out)
 			}
-		}
-		fmt.Fprintf(os.Stderr, "⚠ host route to %s installed but will not survive reboot on this system: %v\n", guestIP, err)
-		return nil
+			presenter.Warn(ctx, fmt.Sprintf("host route to %s installed but will not survive reboot on this system: %v", guestIP, err))
+			return nil
+		})
 	}
 
 	routePersistent := macOSRouteAlreadyPersistent(getRoutesOutput, networkCIDR, guestIP)
@@ -65,33 +66,31 @@ func (n *BaseNetworkManager) ConfigureHostRoute() error {
 		return nil
 	}
 
-	tui.Pause()
-	if os.Geteuid() != 0 && !n.sudoCached() {
-		fmt.Fprintf(os.Stderr, "\033[33m⚠\033[0m Network configuration may require elevated privileges\n")
-	}
-
-	if !routeInKernel {
-		if out, err := n.shell.ExecSudo("Adding host route", "route", "-nv", "add", "-net", networkCIDR, guestIP); err != nil {
-			return fmt.Errorf("failed to add route: %w, output: %s", err, out)
+	return presenter.Track(ctx, "network:route", "Configuring host route", func(ctx context.Context) error {
+		n.warnIfPrivilegeNeeded(ctx)
+		if !routeInKernel {
+			if out, err := n.shell.ExecSudo("Adding host route", "route", "-nv", "add", "-net", networkCIDR, guestIP); err != nil {
+				return fmt.Errorf("failed to add route: %w, output: %s", err, out)
+			}
 		}
-	}
-
-	if !routePersistent {
+		if routePersistent {
+			return nil
+		}
 		args, err := macOSSetAdditionalRoutesArgs(service, getRoutesOutput, networkCIDR, guestIP)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "⚠ host route to %s installed but persistence step skipped: %v\n", guestIP, err)
+			presenter.Warn(ctx, fmt.Sprintf("host route to %s installed but persistence step skipped: %v", guestIP, err))
 			return nil
 		}
 		if _, err := n.shell.ExecSudo("Persisting host route", "networksetup", args...); err != nil {
-			fmt.Fprintf(os.Stderr, "⚠ host route to %s installed but persistence step failed: %v\n", guestIP, err)
+			presenter.Warn(ctx, fmt.Sprintf("host route to %s installed but persistence step failed: %v", guestIP, err))
 		}
-	}
-	return nil
+		return nil
+	})
 }
 
 // ConfigureDNS sets up DNS by modifying system files to route DNS queries.
 // Resolver IP is read from config via effectiveResolverIP (dns.address, or 127.0.0.1 in localhost mode when unset).
-func (n *BaseNetworkManager) ConfigureDNS() error {
+func (n *BaseNetworkManager) ConfigureDNS(ctx context.Context) error {
 	tld := n.configHandler.GetString("dns.domain")
 	if tld == "" {
 		return fmt.Errorf("DNS domain is not configured")
@@ -115,22 +114,18 @@ func (n *BaseNetworkManager) ConfigureDNS() error {
 	}
 
 	n.dnsChanged = true
-	tui.Pause()
-	if os.Geteuid() != 0 && !n.sudoCached() {
-		fmt.Fprintf(os.Stderr, "\033[33m⚠\033[0m DNS configuration may require elevated privileges\n")
-	}
-
-	if _, err := n.shims.Stat(resolverDir); os.IsNotExist(err) {
-		if _, err := n.shell.ExecSudo("", "mkdir", "-p", resolverDir); err != nil {
-			return fmt.Errorf("Error creating resolver directory: %w", err)
+	return presenter.Track(ctx, "network:dns", "Configuring DNS", func(ctx context.Context) error {
+		n.warnIfPrivilegeNeeded(ctx)
+		if _, err := n.shims.Stat(resolverDir); os.IsNotExist(err) {
+			if _, err := n.shell.ExecSudo("", "mkdir", "-p", resolverDir); err != nil {
+				return fmt.Errorf("Error creating resolver directory: %w", err)
+			}
 		}
-	}
-
-	if err := n.writeFileWithSudo(resolverFile, []byte(content)); err != nil {
-		return fmt.Errorf("Error installing resolver file: %w", err)
-	}
-
-	return nil
+		if err := n.writeFileWithSudo(resolverFile, []byte(content)); err != nil {
+			return fmt.Errorf("Error installing resolver file: %w", err)
+		}
+		return nil
+	})
 }
 
 // RevertHostRoute removes the host-to-guest route previously added by ConfigureHostRoute on macOS.
@@ -177,34 +172,30 @@ func (n *BaseNetworkManager) RevertDNS() error {
 }
 
 // FlushDNS flushes the macOS DNS cache by running dscacheutil and restarting mDNSResponder.
-func (n *BaseNetworkManager) FlushDNS() error {
-	tui.Pause()
-	if os.Geteuid() != 0 && !n.sudoCached() {
-		fmt.Fprintf(os.Stderr, "\033[33m⚠\033[0m DNS cache flush may require elevated privileges\n")
-	}
-	if _, err := n.shell.ExecSudo(
-		"",
-		"dscacheutil",
-		"-flushcache",
-	); err != nil {
-		return fmt.Errorf("Error flushing DNS cache: %w", err)
-	}
-
-	if _, err := n.shell.ExecSudo(
-		"",
-		"killall",
-		"-HUP",
-		"mDNSResponder",
-	); err != nil {
-		return fmt.Errorf("Error restarting mDNSResponder: %w", err)
-	}
-
-	return nil
+func (n *BaseNetworkManager) FlushDNS(ctx context.Context) error {
+	return presenter.Track(ctx, "network:dns-flush", "Flushing DNS cache", func(ctx context.Context) error {
+		n.warnIfPrivilegeNeeded(ctx)
+		if _, err := n.shell.ExecSudo("", "dscacheutil", "-flushcache"); err != nil {
+			return fmt.Errorf("Error flushing DNS cache: %w", err)
+		}
+		if _, err := n.shell.ExecSudo("", "killall", "-HUP", "mDNSResponder"); err != nil {
+			return fmt.Errorf("Error restarting mDNSResponder: %w", err)
+		}
+		return nil
+	})
 }
 
 // =============================================================================
 // Private Methods
 // =============================================================================
+
+// warnIfPrivilegeNeeded warns that sudo may ask for a password, unless the process runs as root or
+// sudo already holds cached credentials.
+func (n *BaseNetworkManager) warnIfPrivilegeNeeded(ctx context.Context) {
+	if os.Geteuid() != 0 && !n.sudoCached() {
+		presenter.Warn(ctx, "This step needs elevated privileges; sudo may ask for your password.")
+	}
+}
 
 // sudoCached reports whether sudo credentials are currently cached, i.e., sudo -n true succeeds without a password prompt.
 func (n *BaseNetworkManager) sudoCached() bool {

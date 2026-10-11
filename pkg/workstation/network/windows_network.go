@@ -4,12 +4,12 @@
 package network
 
 import (
+	"context"
 	"fmt"
-	"os"
 	"strings"
 
+	"github.com/windsorcli/cli/internal/presenter"
 	"github.com/windsorcli/cli/pkg/constants"
-	"github.com/windsorcli/cli/pkg/tui"
 )
 
 // The WindowsNetworkManager is a platform-specific network manager for Windows systems.
@@ -73,7 +73,7 @@ if ($rule) {
 // ConfigureHostRoute sets up the local development network.
 // Guest address is read from config (workstation.address). It checks if the route exists via
 // PowerShell; if not, adds a route to the VM guest.
-func (n *BaseNetworkManager) ConfigureHostRoute() error {
+func (n *BaseNetworkManager) ConfigureHostRoute(ctx context.Context) error {
 	networkCIDR := n.configHandler.GetString("network.cidr_block")
 	if networkCIDR == "" {
 		networkCIDR = constants.DefaultNetworkCIDR
@@ -104,22 +104,18 @@ func (n *BaseNetworkManager) ConfigureHostRoute() error {
 		return nil
 	}
 
-	fmt.Fprintf(os.Stderr, "\n\033[33m⚠\033[0m Network configuration requires elevated privileges\n")
-
-	tui.Start("Configuring host route")
-
-	output, err = n.shell.ExecSilent(
-		"powershell",
-		"-Command",
-		fmt.Sprintf("New-NetRoute -DestinationPrefix %s -NextHop %s -RouteMetric 1", cidr, guest),
-	)
-	if err != nil {
-		tui.Fail()
-		return fmt.Errorf("failed to add route: %w, output: %s", err, output)
-	}
-
-	tui.Done()
-	return nil
+	return presenter.Track(ctx, "network:route", "Configuring host route", func(ctx context.Context) error {
+		presenter.Warn(ctx, "This step requires elevated privileges.")
+		output, err := n.shell.ExecSilent(
+			"powershell",
+			"-Command",
+			fmt.Sprintf("New-NetRoute -DestinationPrefix %s -NextHop %s -RouteMetric 1", cidr, guest),
+		)
+		if err != nil {
+			return fmt.Errorf("failed to add route: %w, output: %s", err, output)
+		}
+		return nil
+	})
 }
 
 // ConfigureDNS installs a per-domain NRPT rule for dns.domain. The existence check returns the rule's
@@ -128,7 +124,7 @@ func (n *BaseNetworkManager) ConfigureHostRoute() error {
 // run. Privileged add/update fires only on first-IP mismatch. After a successful add/update (or when
 // the rule was already correct), probes Get-DnsClientNrptPolicy -Effective and warns non-fatally if
 // a GPO is overriding our rule. PowerShell args pass via $env:WINDSOR_NRPT_* (no string interpolation).
-func (n *BaseNetworkManager) ConfigureDNS() error {
+func (n *BaseNetworkManager) ConfigureDNS(ctx context.Context) error {
 	domain := n.configHandler.GetString("dns.domain")
 	if domain == "" {
 		return fmt.Errorf("DNS domain is not configured")
@@ -170,22 +166,19 @@ func (n *BaseNetworkManager) ConfigureDNS() error {
 
 	if currentIP != dns {
 		n.dnsChanged = true
-		fmt.Fprintf(os.Stderr, "\n\033[33m⚠\033[0m DNS configuration requires elevated privileges\n")
-
-		_, err = n.shell.ExecProgressWithEnv(
-			fmt.Sprintf("Configuring DNS for '*.%s'", domain),
-			"powershell",
-			nrptEnv,
-			"-Command",
-			nrptAddOrUpdateScript,
-		)
-		if err != nil {
-			return fmt.Errorf("failed to add or update DNS rule for %s: %w", domain, err)
+		if err := presenter.Track(ctx, "network:dns", fmt.Sprintf("Configuring DNS for '*.%s'", domain), func(ctx context.Context) error {
+			presenter.Warn(ctx, "This step requires elevated privileges.")
+			if _, err := n.shell.ExecProgressWithEnv(fmt.Sprintf("Configuring DNS for '*.%s'", domain), "powershell", nrptEnv, "-Command", nrptAddOrUpdateScript); err != nil {
+				return fmt.Errorf("failed to add or update DNS rule for %s: %w", domain, err)
+			}
+			return nil
+		}); err != nil {
+			return err
 		}
 	}
 
 	if msg := n.gpoOverridesNrptRuleWarning(nrptEnv, dns); msg != "" {
-		fmt.Fprintln(os.Stderr, msg)
+		presenter.Warn(ctx, msg)
 	}
 
 	return nil
@@ -233,7 +226,7 @@ func (n *BaseNetworkManager) RevertDNS() error {
 }
 
 // FlushDNS clears the Windows DNS client cache via PowerShell.
-func (n *BaseNetworkManager) FlushDNS() error {
+func (n *BaseNetworkManager) FlushDNS(ctx context.Context) error {
 	if _, err := n.shell.ExecSilent("powershell", "-Command", "Clear-DnsClientCache"); err != nil {
 		return fmt.Errorf("Error flushing DNS cache: %w", err)
 	}

@@ -4,12 +4,13 @@
 package network
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"strings"
 
+	"github.com/windsorcli/cli/internal/presenter"
 	"github.com/windsorcli/cli/pkg/constants"
-	"github.com/windsorcli/cli/pkg/tui"
 )
 
 // The LinuxNetworkManager is a platform-specific network manager for Linux systems.
@@ -42,7 +43,7 @@ const systemdResolvedSymlinkHint = "systemd-resolved is active but /etc/resolv.c
 // (or registers a persistent route via `nmcli` when NetworkManager owns the connection) so the
 // route survives reboot. When neither persistence mechanism is available the live route is left in
 // place and an actionable warning is printed.
-func (n *BaseNetworkManager) ConfigureHostRoute() error {
+func (n *BaseNetworkManager) ConfigureHostRoute(ctx context.Context) error {
 	networkCIDR := n.configHandler.GetString("network.cidr_block")
 	if networkCIDR == "" {
 		networkCIDR = constants.DefaultNetworkCIDR
@@ -58,17 +59,19 @@ func (n *BaseNetworkManager) ConfigureHostRoute() error {
 	}
 
 	if !routeInKernel {
-		if os.Geteuid() != 0 {
-			tui.Pause()
-			fmt.Fprintf(os.Stderr, "\n\033[33m⚠\033[0m Network configuration may require elevated privileges\n")
-		}
-		if out, err := n.shell.ExecSudo("Adding host route", "ip", "route", "add", networkCIDR, "via", guestIP); err != nil {
-			return fmt.Errorf("failed to add route: %w, output: %s", err, out)
+		if err := presenter.Track(ctx, "network:route", "Configuring host route", func(ctx context.Context) error {
+			n.warnIfPrivilegeNeeded(ctx)
+			if out, err := n.shell.ExecSudo("Adding host route", "ip", "route", "add", networkCIDR, "via", guestIP); err != nil {
+				return fmt.Errorf("failed to add route: %w, output: %s", err, out)
+			}
+			return nil
+		}); err != nil {
+			return err
 		}
 	}
 
 	if err := n.persistLinuxHostRoute(networkCIDR, guestIP); err != nil {
-		fmt.Fprintf(os.Stderr, "⚠ host route to %s installed but will not survive reboot on this system (%v). After every reboot you'll need to re-run 'windsor configure network'.\n", guestIP, err)
+		presenter.Warn(ctx, fmt.Sprintf("host route to %s installed but will not survive reboot on this system (%v). After every reboot, run 'windsor configure network' again.", guestIP, err))
 	}
 
 	return nil
@@ -78,7 +81,7 @@ func (n *BaseNetworkManager) ConfigureHostRoute() error {
 // unchanged. Probes `systemctl is-active systemd-resolved` first so distros that don't ship resolved
 // fail with an actionable hint, and warns non-fatally when NetworkManager's `dns=default` mode would
 // rewrite /etc/resolv.conf and shadow the drop-in.
-func (n *BaseNetworkManager) ConfigureDNS() error {
+func (n *BaseNetworkManager) ConfigureDNS(ctx context.Context) error {
 	domain := n.configHandler.GetString("dns.domain")
 	if domain == "" {
 		return fmt.Errorf("DNS domain is not configured")
@@ -111,33 +114,34 @@ func (n *BaseNetworkManager) ConfigureDNS() error {
 	}
 
 	n.dnsChanged = true
-	if os.Geteuid() != 0 {
-		tui.Pause()
-		fmt.Fprintf(os.Stderr, "\n\033[33m⚠\033[0m DNS configuration may require elevated privileges\n")
-	}
-
-	if _, err := n.shell.ExecSudo("", "mkdir", "-p", dropInDir); err != nil {
-		return fmt.Errorf("failed to create drop-in directory: %w", err)
-	}
-
-	if err := n.writeFileWithSudo(dropInFile, []byte(expectedContent)); err != nil {
-		return fmt.Errorf("failed to write DNS configuration: %w", err)
-	}
-
-	if _, err := n.shell.ExecSudo("", "systemctl", "restart", "systemd-resolved"); err != nil {
-		return fmt.Errorf("failed to restart systemd-resolved: %w", err)
-	}
-
-	if msg := n.networkManagerShadowsResolverWarning(domain); msg != "" {
-		fmt.Fprintln(os.Stderr, msg)
-	}
-
-	return nil
+	return presenter.Track(ctx, "network:dns", "Configuring DNS", func(ctx context.Context) error {
+		n.warnIfPrivilegeNeeded(ctx)
+		if _, err := n.shell.ExecSudo("", "mkdir", "-p", dropInDir); err != nil {
+			return fmt.Errorf("failed to create drop-in directory: %w", err)
+		}
+		if err := n.writeFileWithSudo(dropInFile, []byte(expectedContent)); err != nil {
+			return fmt.Errorf("failed to write DNS configuration: %w", err)
+		}
+		if _, err := n.shell.ExecSudo("", "systemctl", "restart", "systemd-resolved"); err != nil {
+			return fmt.Errorf("failed to restart systemd-resolved: %w", err)
+		}
+		if msg := n.networkManagerShadowsResolverWarning(domain); msg != "" {
+			presenter.Warn(ctx, msg)
+		}
+		return nil
+	})
 }
 
 // =============================================================================
 // Private Methods
 // =============================================================================
+
+// warnIfPrivilegeNeeded warns that sudo may ask for a password, unless the process runs as root.
+func (n *BaseNetworkManager) warnIfPrivilegeNeeded(ctx context.Context) {
+	if os.Geteuid() != 0 {
+		presenter.Warn(ctx, "This step needs elevated privileges; sudo may ask for your password.")
+	}
+}
 
 // RevertHostRoute removes the host-to-guest route previously added by ConfigureHostRoute on Linux.
 // Idempotent: no-op when the network CIDR is unset, tolerates "No such process" for the live
@@ -181,7 +185,7 @@ func (n *BaseNetworkManager) RevertDNS() error {
 }
 
 // FlushDNS is a no-op on Linux; DNS cache is cleared by restarting systemd-resolved during ConfigureDNS.
-func (n *BaseNetworkManager) FlushDNS() error {
+func (n *BaseNetworkManager) FlushDNS(ctx context.Context) error {
 	return nil
 }
 
