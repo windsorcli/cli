@@ -395,6 +395,28 @@ func TestConsole_Plain(t *testing.T) {
 		}
 	})
 
+	t.Run("EndsASuccessfulParentWithoutARepeatedLine", func(t *testing.T) {
+		// Given a plain console
+		var buf bytes.Buffer
+		c := presenter.NewConsole(&buf, presenter.ConsoleOptions{Level: slog.LevelInfo})
+
+		// When a parent with one child succeeds, then a leaf with a message succeeds
+		ctx := presenter.NewContext(context.Background(), c)
+		_ = presenter.Track(ctx, "tf", "Applying terraform", func(ctx context.Context) error {
+			return presenter.Track(ctx, "tf:network", "network", func(context.Context) error { return nil })
+		})
+		_ = presenter.Track(ctx, "flux", "gitops", func(ctx context.Context) error {
+			presenter.Message(ctx, "found 2 kustomizations")
+			return nil
+		})
+
+		// Then the parent has no end line, and the leaves keep theirs
+		want := []string{"● Applying terraform", "  ● network", "  ✔ network", "● gitops", "  found 2 kustomizations", "✔ gitops"}
+		if got := plainLines(buf.String()); !reflect.DeepEqual(got, want) {
+			t.Errorf("expected\n%s\ngot\n%s", strings.Join(want, "\n"), strings.Join(got, "\n"))
+		}
+	})
+
 	t.Run("PrintsProgressOncePerChange", func(t *testing.T) {
 		// Given a plain console
 		var buf bytes.Buffer
@@ -422,14 +444,14 @@ func TestConsole_Plain(t *testing.T) {
 		ctx := context.Background()
 
 		// When operations end after different durations
-		for id, d := range map[string]time.Duration{"a": 400 * time.Millisecond, "b": 14 * time.Second, "c": 125 * time.Second} {
+		for id, d := range map[string]time.Duration{"a": 400 * time.Millisecond, "b": 14 * time.Second, "c": 125 * time.Second, "d": 3725 * time.Second} {
 			c.Emit(ctx, presenter.Event{Kind: presenter.KindApplying, ID: id, Message: id})
 			c.Emit(ctx, presenter.Event{Kind: presenter.KindApplied, ID: id, Duration: d})
 		}
 
-		// Then the end lines show seconds and minutes, and omit times below one second
+		// Then the end lines show seconds, minutes, and hours, and omit times below one second
 		out := buf.String()
-		for _, want := range []string{"✔ a\n", "✔ b  14s\n", "✔ c  2m05s\n"} {
+		for _, want := range []string{"✔ a\n", "✔ b  14s\n", "✔ c  2m05s\n", "✔ d  1h02m\n"} {
 			if !strings.Contains(out, want) {
 				t.Errorf("expected %q in %q", want, out)
 			}
@@ -483,8 +505,8 @@ func TestConsole_Interactive(t *testing.T) {
 			return presenter.Track(ctx, "tf:cluster", "cluster", func(context.Context) error { return nil })
 		})
 
-		// Then the screen holds the tree with no live lines left
-		want := []string{"● Applying terraform", "  ✔ network", "  ✔ cluster", "✔ Applying terraform"}
+		// Then the screen holds the tree with no live lines left and no repeated parent line
+		want := []string{"● Applying terraform", "  ✔ network", "  ✔ cluster"}
 		if got := screen(buf.String()); !reflect.DeepEqual(got, want) {
 			t.Errorf("expected\n%s\ngot\n%s", strings.Join(want, "\n"), strings.Join(got, "\n"))
 		}
@@ -508,6 +530,38 @@ func TestConsole_Interactive(t *testing.T) {
 		}
 		if !strings.HasSuffix(got[2], " gitops  waiting on 2 kustomizations") {
 			t.Errorf("expected live line with progress, got %q", got[2])
+		}
+	})
+
+	t.Run("CountsElapsedTimeOnTheLiveLine", func(t *testing.T) {
+		// Given an interactive console on a fake clock with a running operation
+		var mu sync.Mutex
+		clock := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+		now := func() time.Time { mu.Lock(); defer mu.Unlock(); return clock }
+		advance := func(d time.Duration) { mu.Lock(); defer mu.Unlock(); clock = clock.Add(d) }
+		var buf syncBuffer
+		c := presenter.NewConsole(&buf, presenter.ConsoleOptions{Interactive: true, Now: now})
+		ctx, end := presenter.Begin(presenter.NewContext(context.Background(), c), "s", "gitops")
+		defer end(nil)
+		before := screen(buf.String())
+
+		// When time passes and progress redraws the line
+		advance(14 * time.Second)
+		presenter.Progress(ctx, "waiting")
+		seconds := screen(buf.String())
+		advance(111 * time.Second)
+		presenter.Progress(ctx, "still waiting")
+		minutes := screen(buf.String())
+
+		// Then the line has no counter under a second and then counts seconds and minutes
+		if !strings.HasSuffix(before[0], " gitops") {
+			t.Errorf("expected no counter at start, got %q", before)
+		}
+		if !strings.HasSuffix(seconds[0], " gitops  14s  waiting") {
+			t.Errorf("expected 14s, got %q", seconds)
+		}
+		if !strings.HasSuffix(minutes[0], " gitops  2m05s  still waiting") {
+			t.Errorf("expected 2m05s, got %q", minutes)
 		}
 	})
 
@@ -592,6 +646,27 @@ func TestConsole_Lifecycle(t *testing.T) {
 		}
 		if got := screen(buf.String()); !reflect.DeepEqual(got, []string{"Password:", "✔ configuring DNS"}) {
 			t.Errorf("expected the prompt and the end line, got %q", got)
+		}
+	})
+
+	t.Run("EndsAnUnmatchedPauseWhenTheNextOperationStarts", func(t *testing.T) {
+		// Given an interactive console that a caller paused without resuming
+		var buf syncBuffer
+		c := presenter.NewConsole(&buf, presenter.ConsoleOptions{Interactive: true})
+		ctx := presenter.NewContext(context.Background(), c)
+		_ = presenter.Track(ctx, "s", "configuring DNS", func(context.Context) error {
+			c.Pause()
+			return nil
+		})
+
+		// When the next operation starts
+		_, end := presenter.Begin(ctx, "s", "applying cluster")
+		defer end(nil)
+
+		// Then its live line is drawn
+		got := screen(buf.String())
+		if len(got) != 2 || !strings.HasSuffix(got[1], " applying cluster") {
+			t.Errorf("expected the end line and a live line, got %q", got)
 		}
 	})
 

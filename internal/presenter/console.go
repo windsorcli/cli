@@ -57,6 +57,8 @@ type ConsoleOptions struct {
 	OnActive func(active bool)
 	// Terminal enters the live display mode while the live region is on screen. Nil skips it.
 	Terminal Terminal
+	// Now returns the current time for elapsed counters. Nil uses time.Now.
+	Now func() time.Time
 }
 
 // Console renders events as an indented tree of lines.
@@ -84,6 +86,8 @@ type consoleOp struct {
 	printed   bool
 	children  int
 	lastShown string
+	started   time.Time
+	hadChild  bool
 }
 
 // =============================================================================
@@ -194,12 +198,15 @@ func (c *Console) WatchInterrupts(guarded func() bool) func() {
 // Private Methods
 // =============================================================================
 
-// start registers an operation and prints its header in plain mode.
+// start registers an operation and prints its header in plain mode. It ends any pause, the
+// same as the legacy spinner, because legacy callers pause without a matching Resume.
 func (c *Console) start(event Event) {
-	op := &consoleOp{id: event.ID, message: event.Message}
+	c.paused = 0
+	op := &consoleOp{id: event.ID, message: event.Message, started: c.now()}
 	if parent := c.ops[event.ParentID]; parent != nil {
 		op.depth = parent.depth + 1
 		parent.children++
+		parent.hadChild = true
 		c.printHeader(parent)
 	}
 	c.ops[op.id] = op
@@ -214,12 +221,16 @@ func (c *Console) start(event Event) {
 	c.redraw()
 }
 
-// finish removes an operation and prints its end line with the elapsed time.
+// finish removes an operation and prints its end line with the elapsed time. An operation that
+// had child operations prints no end line on success, because its header and its children's end
+// lines already show the result. It still prints one on failure. It ends any pause, the same
+// as start.
 func (c *Console) finish(event Event) {
 	op := c.ops[event.ID]
 	if op == nil {
 		return
 	}
+	c.paused = 0
 	delete(c.ops, op.id)
 	for i, o := range c.order {
 		if o == op {
@@ -232,6 +243,10 @@ func (c *Console) finish(event Event) {
 	}
 	if len(c.order) == 0 && c.opts.OnActive != nil {
 		c.opts.OnActive(false)
+	}
+	if op.hadChild && event.Kind == KindApplied {
+		c.redraw()
+		return
 	}
 	icon := c.color(ansiGreen, "✔")
 	if event.Kind == KindFailed {
@@ -312,7 +327,7 @@ func (c *Console) clear() {
 }
 
 // redraw replaces the live region with one line per active leaf operation in interactive mode.
-// It draws nothing while the console is paused.
+// Each line shows the time its operation has run so far. It draws nothing while paused.
 func (c *Console) redraw() {
 	if !c.opts.Interactive || c.paused > 0 {
 		return
@@ -328,7 +343,7 @@ func (c *Console) redraw() {
 		if op.children > 0 {
 			continue
 		}
-		line := indent(op.depth) + c.color(ansiGreen, frame) + " " + op.message
+		line := indent(op.depth) + c.color(ansiGreen, frame) + " " + op.message + c.elapsed(c.now().Sub(op.started))
 		if op.progress != "" {
 			line += "  " + c.color(ansiDim, op.progress)
 		}
@@ -393,17 +408,34 @@ func (c *Console) elapsed(d time.Duration) string {
 	if d < time.Second {
 		return ""
 	}
-	d = d.Round(time.Second)
-	text := fmt.Sprintf("%ds", int(d.Seconds()))
-	if d >= time.Minute {
-		text = fmt.Sprintf("%dm%02ds", int(d.Minutes()), int(d.Seconds())%60)
+	return "  " + c.color(ansiDim, formatDuration(d))
+}
+
+// now returns the current time from the configured clock.
+func (c *Console) now() time.Time {
+	if c.opts.Now != nil {
+		return c.opts.Now()
 	}
-	return "  " + c.color(ansiDim, text)
+	return time.Now()
 }
 
 // =============================================================================
 // Helpers
 // =============================================================================
+
+// formatDuration returns d in whole seconds below one minute ("14s"), in minutes and seconds
+// below one hour ("2m05s"), and in hours and minutes from one hour ("1h02m").
+func formatDuration(d time.Duration) string {
+	d = d.Truncate(time.Second)
+	switch {
+	case d < time.Minute:
+		return fmt.Sprintf("%ds", int(d.Seconds()))
+	case d < time.Hour:
+		return fmt.Sprintf("%dm%02ds", int(d.Minutes()), int(d.Seconds())%60)
+	default:
+		return fmt.Sprintf("%dh%02dm", int(d.Hours()), int(d.Minutes())%60)
+	}
+}
 
 // indent returns two spaces per depth level.
 func indent(depth int) string {
