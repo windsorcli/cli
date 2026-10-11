@@ -6,7 +6,6 @@ require (
 	github.com/1password/onepassword-sdk-go v0.4.1
 	github.com/Masterminds/semver/v3 v3.5.0
 	github.com/abiosoft/colima v0.10.3
-	github.com/briandowns/spinner v1.23.2
 	github.com/charmbracelet/log v1.0.0
 	github.com/expr-lang/expr v1.17.8
 	github.com/fluxcd/helm-controller/api v1.6.5
@@ -59,7 +58,6 @@ require (
 	github.com/dylibso/observe-sdk/go v0.0.0-20240828172851-9145d8ad07e1 // indirect
 	github.com/emicklei/go-restful/v3 v3.13.0 // indirect
 	github.com/extism/go-sdk v1.7.1 // indirect
-	github.com/fatih/color v1.19.0 // indirect
 	github.com/fluxcd/pkg/apis/acl v0.10.0 // indirect
 	github.com/fxamacker/cbor/v2 v2.9.2 // indirect
 	github.com/gertd/go-pluralize v0.2.1 // indirect
@@ -95,7 +93,6 @@ require (
 	github.com/kaptinlin/jsonpointer v0.4.28 // indirect
 	github.com/klauspost/compress v1.19.2 // indirect
 	github.com/lucasb-eyer/go-colorful v1.2.0 // indirect
-	github.com/mattn/go-colorable v0.1.14 // indirect
 	github.com/mattn/go-isatty v0.0.20 // indirect
 	github.com/mattn/go-runewidth v0.0.16 // indirect
 	github.com/mitchellh/go-wordwrap v1.0.1 // indirect

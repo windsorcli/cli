@@ -3,6 +3,7 @@ package shell
 import (
 	"bufio"
 	"bytes"
+	"context"
 	"fmt"
 	"io"
 	"os"
@@ -16,7 +17,7 @@ import (
 	"text/template"
 	"time"
 
-	"github.com/windsorcli/cli/pkg/tui"
+	"github.com/windsorcli/cli/internal/presenter"
 )
 
 // The ShellTest is a test suite for the Shell interface and its implementations.
@@ -4324,26 +4325,17 @@ func TestInterruptGuard_Watch(t *testing.T) {
 		waitFinished(t, finished)
 	})
 
-	t.Run("PausesAndResumesTheSpinnerAroundEachWarning", func(t *testing.T) {
-		// termSpinner redraws its line every 100ms. An unpaused write here would
-		// get clobbered by the next frame. Each warning must pause, then resume.
-		originalActive := tui.Active
-		t.Cleanup(func() { tui.Active = originalActive })
-
+	t.Run("HandsTheTerminalOffAroundEachWarning", func(t *testing.T) {
+		// The console redraws its live region on a timer. An unpaused write here would
+		// get drawn over by the next frame. Each warning must hand off, then take back.
 		var mu sync.Mutex
 		var events []string
-		spinner := tui.NewMockSpinner()
-		spinner.PauseFunc = func() {
+		presenter.SetDefault(&handoffRecorder{record: func(e string) {
 			mu.Lock()
-			events = append(events, "pause")
+			events = append(events, e)
 			mu.Unlock()
-		}
-		spinner.ResumeFunc = func() {
-			mu.Lock()
-			events = append(events, "resume")
-			mu.Unlock()
-		}
-		tui.Active = spinner
+		}})
+		t.Cleanup(func() { presenter.SetDefault(nil) })
 
 		warn := newSyncWriter()
 		warn.onWrite = func() {
@@ -4374,6 +4366,15 @@ func TestInterruptGuard_Watch(t *testing.T) {
 		}
 	})
 }
+
+// handoffRecorder is a presenter that records Pause and Resume calls.
+type handoffRecorder struct {
+	record func(string)
+}
+
+func (h *handoffRecorder) Emit(context.Context, presenter.Event) {}
+func (h *handoffRecorder) Pause()                                { h.record("pause") }
+func (h *handoffRecorder) Resume()                               { h.record("resume") }
 
 func TestShell_ExecProgressWithEnv_InterruptGuard(t *testing.T) {
 	setup := func(t *testing.T) (*DefaultShell, *ShellTestMocks) {

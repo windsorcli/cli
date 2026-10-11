@@ -3,6 +3,7 @@ package artifact
 import (
 	"archive/tar"
 	"bytes"
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -22,10 +23,10 @@ import (
 	"github.com/google/go-containerregistry/pkg/v1/remote/transport"
 	"github.com/google/go-containerregistry/pkg/v1/static"
 	"github.com/google/go-containerregistry/pkg/v1/types"
+	"github.com/windsorcli/cli/internal/presenter"
 	"github.com/windsorcli/cli/pkg/constants"
 	"github.com/windsorcli/cli/pkg/runtime"
 	"github.com/windsorcli/cli/pkg/runtime/shell"
-	"github.com/windsorcli/cli/pkg/tui"
 )
 
 // The ArtifactBuilder creates tar.gz artifacts from prepared build directories.
@@ -547,7 +548,7 @@ func (a *ArtifactBuilder) Pull(ociRefs []string) (map[string]string, error) {
 	}
 
 	if len(artifactsToDownload) > 0 {
-		if err := tui.WithProgress("Loading OCI sources", func() error {
+		if err := presenter.Track(presenter.Background(), "oci:load", "Loading OCI sources", func(context.Context) error {
 			for _, ref := range artifactsToDownload {
 				registry, repository, tag, err := a.ParseOCIRef(ref)
 				if err != nil {
