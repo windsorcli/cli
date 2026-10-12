@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"regexp"
 	"strings"
 	"testing"
 
@@ -91,7 +92,9 @@ func setupUpTest(t *testing.T, opts ...*SetupOptions) *UpMocks {
 
 	// Add terraform stack mock
 	mockTerraformStack := terraforminfra.NewMockStack()
-	mockTerraformStack.UpFunc = func(blueprint *blueprintv1alpha1.Blueprint, onApply ...func(ctx context.Context, id string) (bool, error)) (bool, error) { return false, nil }
+	mockTerraformStack.UpFunc = func(blueprint *blueprintv1alpha1.Blueprint, onApply ...func(ctx context.Context, id string) (bool, error)) (bool, error) {
+		return false, nil
+	}
 
 	// Add kubernetes manager mock
 	mockKubernetesManager := kubernetes.NewMockKubernetesManager()
@@ -535,6 +538,30 @@ func TestUpCmd(t *testing.T) {
 			t.Errorf("expected success line to be suppressed after halt, got: %q", stderr)
 		}
 	})
+
+	t.Run("SuccessLineShowsTheElapsedTime", func(t *testing.T) {
+		// Given a project with a workstation configured
+		mocks := setupUpTest(t)
+		proj := newUpTestProject(mocks, true)
+
+		stderrBuf, restore := captureProcessStderr(t)
+		t.Cleanup(restore)
+
+		// When executing up
+		cmd := createTestUpCmd()
+		ctx := context.WithValue(context.Background(), projectOverridesKey, proj)
+		cmd.SetArgs([]string{})
+		cmd.SetContext(ctx)
+		if err := cmd.Execute(); err != nil {
+			t.Fatalf("Expected success, got error: %v", err)
+		}
+		restore()
+
+		// Then the success line names the wall-clock time of the run
+		if !regexp.MustCompile(`Windsor environment set up successfully in \d+s\.\n`).MatchString(stderrBuf.String()) {
+			t.Errorf("Expected success line with elapsed time, got: %q", stderrBuf.String())
+		}
+	})
 }
 
 func TestBuildUpFlagOverrides(t *testing.T) {
@@ -644,6 +671,10 @@ func TestBuildUpFlagOverrides(t *testing.T) {
 }
 
 func TestPrintDeferredWork(t *testing.T) {
+	divider := strings.Repeat("═", 47)
+	actionRequired := "\nAction required\n" + divider + "\n"
+	nextSteps := "\nNext steps\n" + divider + "\n"
+
 	t.Run("EmptyItemsProducesNoOutput", func(t *testing.T) {
 		var buf strings.Builder
 		printDeferredWork(&buf, nil, "darwin")
@@ -657,7 +688,7 @@ func TestPrintDeferredWork(t *testing.T) {
 		printDeferredWork(&buf, []workstation.DeferredWorkItem{
 			{Required: true, Command: "windsor configure network"},
 		}, "darwin")
-		want := "Run 'windsor configure network' (asks for sudo), then re-run 'windsor up'.\n"
+		want := actionRequired + "Run 'windsor configure network' (asks for sudo), then re-run 'windsor up'.\n"
 		if buf.String() != want {
 			t.Errorf("Expected %q, got %q", want, buf.String())
 		}
@@ -668,7 +699,7 @@ func TestPrintDeferredWork(t *testing.T) {
 		printDeferredWork(&buf, []workstation.DeferredWorkItem{
 			{Required: true, Command: "windsor configure network"},
 		}, "windows")
-		want := "Run 'windsor configure network' (Administrator PowerShell), then re-run 'windsor up'.\n"
+		want := actionRequired + "Run 'windsor configure network' (Administrator PowerShell), then re-run 'windsor up'.\n"
 		if buf.String() != want {
 			t.Errorf("Expected %q, got %q", want, buf.String())
 		}
@@ -679,7 +710,7 @@ func TestPrintDeferredWork(t *testing.T) {
 		printDeferredWork(&buf, []workstation.DeferredWorkItem{
 			{Required: false, Command: "windsor configure network", Outcome: "use *.local.test in your browser"},
 		}, "darwin")
-		want := "Run 'windsor configure network' (asks for sudo) to use *.local.test in your browser.\n"
+		want := nextSteps + "Run 'windsor configure network' (asks for sudo) to use *.local.test in your browser.\n"
 		if buf.String() != want {
 			t.Errorf("Expected %q, got %q", want, buf.String())
 		}
@@ -695,7 +726,7 @@ func TestPrintDeferredWork(t *testing.T) {
 			{Required: false, Command: "windsor configure network", Outcome: "use *.local.test in your browser"},
 			{Required: true, Command: "windsor configure network"},
 		}, "darwin")
-		want := "Run 'windsor configure network' (asks for sudo) to use *.local.test in your browser, then re-run 'windsor up'.\n"
+		want := actionRequired + "Run 'windsor configure network' (asks for sudo) to use *.local.test in your browser, then re-run 'windsor up'.\n"
 		if buf.String() != want {
 			t.Errorf("Expected folded output %q, got %q", want, buf.String())
 		}
@@ -707,7 +738,7 @@ func TestPrintDeferredWork(t *testing.T) {
 			{Required: true, Command: "windsor configure network"},
 			{Required: false, Command: "windsor configure network --revert", Outcome: "remove host configuration"},
 		}, "darwin")
-		want := "Run 'windsor configure network' (asks for sudo), then re-run 'windsor up'.\n" +
+		want := actionRequired + "Run 'windsor configure network' (asks for sudo), then re-run 'windsor up'.\n" +
 			"Run 'windsor configure network --revert' (asks for sudo) to remove host configuration.\n"
 		if buf.String() != want {
 			t.Errorf("Expected halt + distinct optional %q, got %q", want, buf.String())
@@ -724,7 +755,7 @@ func TestPrintDeferredWork(t *testing.T) {
 			{Required: false, Command: "windsor configure network", Outcome: "use *.local.test in your browser"},
 			{Required: false, Command: "windsor configure network", Outcome: "reach the cluster ingress"},
 		}, "darwin")
-		want := "Run 'windsor configure network' (asks for sudo) to use *.local.test in your browser, then re-run 'windsor up'.\n" +
+		want := actionRequired + "Run 'windsor configure network' (asks for sudo) to use *.local.test in your browser, then re-run 'windsor up'.\n" +
 			"Run 'windsor configure network' (asks for sudo) to reach the cluster ingress.\n"
 		if buf.String() != want {
 			t.Errorf("Expected second outcome preserved %q, got %q", want, buf.String())
@@ -737,7 +768,7 @@ func TestPrintDeferredWork(t *testing.T) {
 			{Required: false, Command: "windsor configure network", Outcome: "use *.local.test in your browser"},
 			{Required: false, Command: "windsor configure network --revert", Outcome: "remove host configuration"},
 		}, "darwin")
-		want := "Run 'windsor configure network' (asks for sudo) to use *.local.test in your browser.\n" +
+		want := nextSteps + "Run 'windsor configure network' (asks for sudo) to use *.local.test in your browser.\n" +
 			"Run 'windsor configure network --revert' (asks for sudo) to remove host configuration.\n"
 		if buf.String() != want {
 			t.Errorf("Expected %q, got %q", want, buf.String())

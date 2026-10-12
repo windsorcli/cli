@@ -50,7 +50,7 @@ deliberate counter-cycle. It has two goals:
 | Error model | Typed `WindsorError` | Structured type: code/category + user message + remediation + wrapped cause; rendered by one central formatter. |
 | UX ambition | Framework + async everywhere | BubbleTea + concurrent multi-project Terraform via graph + live Kubernetes sub-resource updates + interactive menus + chat-style prompting. |
 | Cleanup breadth | Every package gets a pass | Systematic sweep of all `pkg/` packages. Highest schedule risk; first cut line. |
-| Logging | `slog` API + swappable handlers | Call sites target `log/slog`. Backends: `slog.JSONHandler` (JSON), `charmbracelet/log` (console), a TUI-routing handler (while BubbleTea owns the screen). Logger injected via context, never global. |
+| Logging | `slog` API + swappable handlers | Call sites target `log/slog`. Backends: `slog.JSONHandler` (JSON), `slog.TextHandler` (logfmt console), a TUI-routing handler (while BubbleTea owns the screen). Logger injected via context, never global. |
 
 ### Schedule risk
 
@@ -213,7 +213,7 @@ ordered; ADRs within a wave may proceed in parallel unless a dependency is noted
   `pkg/runtime/shell`, `pkg/provisioner*`) — confirming the keystone section's coupling claim.
   `log/slog` as the call-site API, retrieved from `context.Context` via a typed key in
   `internal/logging` (closing an existing string-keyed `context.WithValue("verbose", ...)` smell in
-  `cmd/root.go`); console (`charmbracelet/log`, new dep)/JSON (stdlib)/TUI-routing (reserved seam,
+  `cmd/root.go`); console (logfmt via `slog.TextHandler`)/JSON (stdlib)/TUI-routing (reserved seam,
   Wave 3 fills it in) handlers; `--verbose` unifies the two currently-disconnected verbosity
   mechanisms into one; `WindsorError` logs as structured fields via `LogValue()`, not string
   interpolation. Does **not** migrate the nine `tui.Active` call sites — that's explicitly the

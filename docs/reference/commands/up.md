@@ -11,7 +11,7 @@ Start the workstation VM, run Terraform components, then install the Flux bluepr
 
 Returns once the install request has been issued. Pass --wait to block until kustomizations report ready.
 
-If any host-side network or DNS configuration was deferred (because it requires sudo / elevation), up prints a follow-up command at the end so the operator knows what to run next.
+If any host-side network or DNS configuration was deferred (because it requires sudo / elevation), up prints a follow-up command as the last section of its output.
 
 ## Flags
 

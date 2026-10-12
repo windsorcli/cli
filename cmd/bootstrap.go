@@ -8,9 +8,11 @@ import (
 	"path/filepath"
 	stdruntime "runtime"
 	"strings"
+	"time"
 
 	"github.com/spf13/cobra"
 	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
+	"github.com/windsorcli/cli/internal/presenter"
 	"github.com/windsorcli/cli/pkg/composer"
 	"github.com/windsorcli/cli/pkg/project"
 	"github.com/windsorcli/cli/pkg/provisioner"
@@ -72,6 +74,7 @@ windsor bootstrap prod --yes`,
 	Args:         cobra.MaximumNArgs(1),
 	SilenceUsage: true,
 	RunE: func(cmd *cobra.Command, args []string) error {
+		started := time.Now()
 		var proj *project.Project
 		var rtOpts []*runtime.Runtime
 		if overridesVal := cmd.Context().Value(projectOverridesKey); overridesVal != nil {
@@ -277,12 +280,12 @@ windsor bootstrap prod --yes`,
 		}
 
 		if !halted {
-			fmt.Fprintln(os.Stderr, "Windsor environment bootstrapped successfully.")
+			fmt.Fprintf(os.Stderr, "Windsor environment bootstrapped successfully in %s.\n", presenter.FormatDuration(time.Since(started)))
 		}
+		printPostRunMessages(os.Stderr, postRunMessages)
 		if proj.Workstation != nil {
 			printDeferredWork(os.Stderr, proj.Workstation.DeferredWork(), stdruntime.GOOS)
 		}
-		printPostRunMessages(os.Stderr, postRunMessages)
 
 		return nil
 	},
@@ -296,13 +299,19 @@ func printPostRunMessages(w io.Writer, messages []blueprintv1alpha1.Message) {
 	if len(messages) == 0 {
 		return
 	}
-	fmt.Fprintf(w, "\nNotes\n%s\n", strings.Repeat("═", 47))
+	printSectionHeader(w, "Notes")
 	for i, m := range messages {
 		if i > 0 {
 			fmt.Fprintln(w)
 		}
 		fmt.Fprintln(w, m.Text)
 	}
+}
+
+// printSectionHeader writes a blank line, title, and a divider to w. The end-of-run sections use
+// it so each section stands out from the progress output above it.
+func printSectionHeader(w io.Writer, title string) {
+	fmt.Fprintf(w, "\n%s\n%s\n", title, strings.Repeat("═", 47))
 }
 
 // makeBootstrapConfirmFn builds the confirm callback the provisioner calls

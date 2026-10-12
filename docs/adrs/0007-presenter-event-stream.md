@@ -184,15 +184,24 @@ Methods that emit events MUST take `ctx context.Context` as their first paramete
 
 ### 4. Three renderers behind the port
 
-- **Console** (default) — renders the transcript as an indented tree. Finished steps stay on
+- **Console** (default) — in interactive mode, renders the transcript as an indented tree. Finished steps stay on
   screen with their elapsed time, and nested steps print under their parent. A parent operation
   that succeeds prints no end line, because its header and its children's end lines already show
   the result; a failed parent still prints one. Times read as seconds (`14s`), then minutes
   (`2m05s`), then hours (`1h02m`).
 
-  In plain mode (not a terminal, or `--verbose`) the console prints one line per event, which
-  suits CI logs. Progress lines carry the step's elapsed time, and unchanged progress reprints
-  every 30 seconds as a heartbeat.
+  In plain mode (not a terminal, or `--verbose`) the console writes one logfmt line per event,
+  in the same format as log records, so CI and verbose output read as one log. A step line names
+  the full step path, such as `Applying kustomizations › dns-install`, so lines from concurrent
+  steps stay readable when they interleave. Its `status` field is `started`, `running`, `done`, or
+  `failed`, and a failed step logs at error level with its error. Step lines show at info level
+  whatever the log level. Progress lines carry the step's elapsed time, and unchanged progress
+  repeats every 30 seconds as a heartbeat.
+
+  ```
+  time=2026-10-11T14:02:07.120-04:00 level=INFO msg="Applying kustomizations › dns-install" status=started
+  time=2026-10-11T14:02:17.481-04:00 level=INFO msg="Applying kustomizations › dns-install" status=done elapsed=10s
+  ```
 
   In interactive mode the console keeps a live region below the tree, with one animated line per
   active leaf operation, its running time, and its progress text. The region draws at most 10
@@ -203,8 +212,8 @@ Methods that emit events MUST take `ctx context.Context` as their first paramete
   processing, and it falls back to plain mode when that fails.
 
   `KindFailed` ends a step with a failure mark; the central `cmd/` renderer prints the error
-  itself once (ADR 0005). `KindLog` renders through the `charmbracelet/log` console handler ADR
-  0006 selected. The console renderer does not use `pkg/tui`.
+  itself once (ADR 0005). `KindLog` renders through the logfmt text handler ADR 0006
+  selected. The console renderer does not use `pkg/tui`.
 
   ```
   ● Applying terraform

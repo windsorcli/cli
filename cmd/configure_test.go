@@ -149,7 +149,7 @@ func TestIntegration_ConfigureNetwork(t *testing.T) {
 		if err != nil {
 			t.Errorf("Expected success, got error: %v", err)
 		}
-		if stderr != "" && !strings.Contains(stderr, "skipped") && !strings.Contains(stderr, "✔ ") {
+		if stderr != "" && !strings.Contains(stderr, "skipped") && !strings.Contains(stderr, "status=done") {
 			t.Errorf("Expected stderr to contain user message, got %q", stderr)
 		}
 	})
@@ -160,7 +160,7 @@ func TestIntegration_ConfigureNetwork(t *testing.T) {
 		if err != nil {
 			t.Errorf("Expected success, got error: %v", err)
 		}
-		if stderr != "" && !strings.Contains(stderr, "✔ ") {
+		if stderr != "" && !strings.Contains(stderr, "status=done") {
 			t.Errorf("Expected stderr to contain user message, got %q", stderr)
 		}
 		if env.Capture.TotalCalls() > 0 {
@@ -176,7 +176,7 @@ func TestIntegration_ConfigureNetwork(t *testing.T) {
 		if err != nil {
 			t.Errorf("Expected success, got error: %v", err)
 		}
-		if stderr != "" && !strings.Contains(stderr, "✔ ") {
+		if stderr != "" && !strings.Contains(stderr, "status=done") {
 			t.Errorf("Expected stderr to contain user message, got %q", stderr)
 		}
 		if env.Capture.TotalCalls() > 0 {

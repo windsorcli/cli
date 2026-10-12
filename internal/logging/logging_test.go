@@ -35,7 +35,7 @@ func TestNewHandler(t *testing.T) {
 		}
 	})
 
-	t.Run("TextWritesTheMessageAndAttributes", func(t *testing.T) {
+	t.Run("TextWritesLogfmt", func(t *testing.T) {
 		// Given a text handler at info level
 		var buf bytes.Buffer
 		logger := slog.New(logging.NewHandler(&buf, logging.FormatText, slog.LevelInfo))
@@ -43,9 +43,9 @@ func TestNewHandler(t *testing.T) {
 		// When a record with an attribute is logged
 		logger.Info("applied", "component", "cluster")
 
-		// Then the output holds the message and the attribute
+		// Then the output is a logfmt line with the full level name, the message, and the attribute
 		out := buf.String()
-		if !strings.Contains(out, "applied") || !strings.Contains(out, "component=cluster") {
+		if !strings.Contains(out, "level=INFO") || !strings.Contains(out, "msg=applied") || !strings.Contains(out, "component=cluster") {
 			t.Errorf("unexpected output %q", out)
 		}
 	})
@@ -124,8 +124,8 @@ func TestNewHandler_Derived(t *testing.T) {
 		// When a record with an attribute is logged
 		logger.Info("applying", "component", "cluster")
 
-		// Then the group name prefixes the message and the attribute is kept
-		if !strings.Contains(buf.String(), "terraform: applying") || !strings.Contains(buf.String(), "component=cluster") {
+		// Then the group name prefixes the attribute key
+		if !strings.Contains(buf.String(), "msg=applying") || !strings.Contains(buf.String(), "terraform.component=cluster") {
 			t.Errorf("expected grouped attribute, got %q", buf.String())
 		}
 	})

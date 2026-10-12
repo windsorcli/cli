@@ -64,10 +64,10 @@ existing `ctx` variable already being threaded, not a new context to plumb in.
 
 Three backends behind the same `slog.Handler` interface, selected once at construction:
 
-- **Console** (default) — `charmbracelet/log`, human-readable, leveled, colored. New dependency,
-  added by this ADR (the release doc's scoping table already named it; this is where it lands).
-  It does not resolve `slog.LogValuer` attributes itself, so `NewHandler` wraps it in a handler
-  that resolves them first.
+- **Console** (default) — `slog.TextHandler`, which writes logfmt lines
+  (`time=… level=INFO msg="…" key=value`) with full level names. Logfmt is a standard format
+  that log tools parse, and it needs no dependency. The handler resolves `slog.LogValuer`
+  attributes itself.
 - **JSON** (`--format json`) — `slog.JSONHandler`, stdlib, no new dependency.
 - **TUI-routing** (reserved now, implemented in Wave 3) — while a BubbleTea program owns the
   screen, a log record must not hit stdout directly, or it corrupts the TUI's own rendering. This
@@ -121,9 +121,7 @@ context injection are ready for Presenter to build on, not a completed migration
 
 - **One flag, one flow** for verbosity — closes the dual-mechanism (`SetVerbosity` +
   string-keyed context value) smell found in Context, and the string-key anti-pattern with it.
-- **New dependency** (`charmbracelet/log`) lands with this ADR rather than waiting for full
-  BubbleTea adoption in Wave 3 — reasonable since the console handler is needed immediately, not
-  just once the TUI exists.
+- **No new dependency.** Both handlers come from the standard library.
 - **The TUI-routing handler is a reserved seam, not a working feature** until Wave 3 — a log call
   made today behaves correctly (console or JSON) but doesn't yet coordinate with a TUI program,
   because no TUI program exists yet. No regression; nothing to coordinate with.
@@ -141,6 +139,9 @@ context injection are ready for Presenter to build on, not a completed migration
   Go 1.21 (this repo targets 1.26), needs no new dependency for the core API, and the release doc's
   own scoping table already locked in `slog` — this ADR implements that choice rather than
   relitigating it.
+- **`charmbracelet/log` for the console.** Rejected: it abbreviates levels (`DEBU`, `ERRO`)
+  and uses a custom layout that logfmt parsers cannot read. Logfmt from `slog.TextHandler` gives full
+  level names in a standard format, with no dependency.
 - **Keep `Shell.SetVerbosity`/`IsVerbose` as the sole verbosity mechanism, no context-injected
   logger.** Rejected: doesn't give `pkg/` packages outside `pkg/runtime/shell` any way to read the
   level, and doesn't solve the `tui.Active`-global-reach problem at all.

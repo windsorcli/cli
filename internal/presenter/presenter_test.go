@@ -137,6 +137,18 @@ func plainLines(out string) []string {
 	return strings.Split(strings.TrimRight(out, "\n"), "\n")
 }
 
+// logfmtLines returns the lines of out with the leading time field removed.
+func logfmtLines(out string) []string {
+	var lines []string
+	for _, line := range plainLines(out) {
+		if _, rest, ok := strings.Cut(line, " "); ok && strings.HasPrefix(line, "time=") {
+			line = rest
+		}
+		lines = append(lines, line)
+	}
+	return lines
+}
+
 func decodeLines(t *testing.T, out string) []map[string]any {
 	t.Helper()
 	var lines []map[string]any
@@ -347,7 +359,7 @@ func TestMessageWarnProgress(t *testing.T) {
 }
 
 func TestConsole_Plain(t *testing.T) {
-	t.Run("PrintsATreeOfOperations", func(t *testing.T) {
+	t.Run("WritesOneLogfmtLinePerEvent", func(t *testing.T) {
 		// Given a plain console
 		var buf bytes.Buffer
 		c := presenter.NewConsole(&buf, presenter.ConsoleOptions{Level: slog.LevelInfo})
@@ -361,63 +373,75 @@ func TestConsole_Plain(t *testing.T) {
 			return presenter.Track(ctx, "tf:cluster", "cluster", func(context.Context) error { return errBoom })
 		})
 
-		// Then each event prints one line, indented under its parent
+		// Then each event writes one line that names its full step path and status
 		want := []string{
-			"● Applying terraform",
-			"  ● network",
-			"  ✔ network",
-			"  found 2 modules",
-			"  ⚠ module is slow",
-			"  ● cluster",
-			"  ✗ cluster",
-			"✗ Applying terraform",
+			`level=INFO msg="Applying terraform" status=started`,
+			`level=INFO msg="Applying terraform › network" status=started`,
+			`level=INFO msg="Applying terraform › network" status=done`,
+			`level=INFO msg="found 2 modules" step="Applying terraform"`,
+			`level=WARN msg="module is slow" step="Applying terraform"`,
+			`level=INFO msg="Applying terraform › cluster" status=started`,
+			`level=ERROR msg="Applying terraform › cluster" status=failed error=boom`,
+			`level=ERROR msg="Applying terraform" status=failed error=boom`,
 		}
-		if got := plainLines(buf.String()); !reflect.DeepEqual(got, want) {
+		if got := logfmtLines(buf.String()); !reflect.DeepEqual(got, want) {
 			t.Errorf("expected\n%s\ngot\n%s", strings.Join(want, "\n"), strings.Join(got, "\n"))
 		}
 	})
 
-	t.Run("IndentsEveryLineOfAMultiLineWarning", func(t *testing.T) {
-		// Given a plain console
+	t.Run("StampsStepLinesWithTheConsoleClock", func(t *testing.T) {
+		// Given a plain console on a fake clock
+		clock := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
 		var buf bytes.Buffer
-		c := presenter.NewConsole(&buf, presenter.ConsoleOptions{Level: slog.LevelInfo})
+		c := presenter.NewConsole(&buf, presenter.ConsoleOptions{Level: slog.LevelInfo, Now: func() time.Time { return clock }})
 
-		// When a multi-line warning is emitted inside an operation
-		_ = presenter.Track(presenter.NewContext(context.Background(), c), "s", "Destroying", func(ctx context.Context) error {
-			presenter.Warn(ctx, "destroy output:\nError: bucket not empty")
+		// When an operation starts
+		c.Emit(context.Background(), presenter.Event{Kind: presenter.KindApplying, ID: "a", Message: "Applying"})
+
+		// Then the line opens with the time field
+		if !strings.HasPrefix(buf.String(), "time=2026-01-01T00:00:00.000Z level=INFO") {
+			t.Errorf("unexpected output %q", buf.String())
+		}
+	})
+
+	t.Run("WritesStepLinesBelowTheLogLevel", func(t *testing.T) {
+		// Given a plain console at warn level
+		var buf bytes.Buffer
+		c := presenter.NewConsole(&buf, presenter.ConsoleOptions{Level: slog.LevelWarn})
+
+		// When an operation runs with an info message
+		_ = presenter.Track(presenter.NewContext(context.Background(), c), "s", "Applying", func(ctx context.Context) error {
+			presenter.Message(ctx, "found 2 modules")
 			return nil
 		})
 
-		// Then the second line aligns under the first line's text
-		want := []string{"● Destroying", "  ⚠ destroy output:", "    Error: bucket not empty", "✔ Destroying"}
-		if got := plainLines(buf.String()); !reflect.DeepEqual(got, want) {
+		// Then the step and message lines are written
+		want := []string{
+			`level=INFO msg=Applying status=started`,
+			`level=INFO msg="found 2 modules" step=Applying`,
+			`level=INFO msg=Applying status=done`,
+		}
+		if got := logfmtLines(buf.String()); !reflect.DeepEqual(got, want) {
 			t.Errorf("expected %q, got %q", want, got)
 		}
 	})
 
-	t.Run("EndsASuccessfulParentWithoutARepeatedLine", func(t *testing.T) {
+	t.Run("KeepsAMultiLineMessageOnOneLine", func(t *testing.T) {
 		// Given a plain console
 		var buf bytes.Buffer
 		c := presenter.NewConsole(&buf, presenter.ConsoleOptions{Level: slog.LevelInfo})
 
-		// When a parent with one child succeeds, then a leaf with a message succeeds
-		ctx := presenter.NewContext(context.Background(), c)
-		_ = presenter.Track(ctx, "tf", "Applying terraform", func(ctx context.Context) error {
-			return presenter.Track(ctx, "tf:network", "network", func(context.Context) error { return nil })
-		})
-		_ = presenter.Track(ctx, "flux", "gitops", func(ctx context.Context) error {
-			presenter.Message(ctx, "found 2 kustomizations")
-			return nil
-		})
+		// When a multi-line warning is emitted
+		presenter.Warn(presenter.NewContext(context.Background(), c), "destroy output:\nError: bucket not empty")
 
-		// Then the parent has no end line, and the leaves keep theirs
-		want := []string{"● Applying terraform", "  ● network", "  ✔ network", "● gitops", "  found 2 kustomizations", "✔ gitops"}
-		if got := plainLines(buf.String()); !reflect.DeepEqual(got, want) {
-			t.Errorf("expected\n%s\ngot\n%s", strings.Join(want, "\n"), strings.Join(got, "\n"))
+		// Then the line break is escaped inside one quoted value
+		want := []string{`level=WARN msg="destroy output:\nError: bucket not empty"`}
+		if got := logfmtLines(buf.String()); !reflect.DeepEqual(got, want) {
+			t.Errorf("expected %q, got %q", want, got)
 		}
 	})
 
-	t.Run("PrintsProgressOncePerChangeWithAHeartbeat", func(t *testing.T) {
+	t.Run("WritesProgressOncePerChangeWithAHeartbeat", func(t *testing.T) {
 		// Given a plain console on a fake clock
 		clock := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
 		var buf bytes.Buffer
@@ -436,10 +460,16 @@ func TestConsole_Plain(t *testing.T) {
 			return nil
 		})
 
-		// Then each change prints once, an unchanged line reprints after 30 seconds, and lines show elapsed time
-		want := []string{"● Waiting", "  2 pending", "  1 pending  10s", "  1 pending  45s", "✔ Waiting"}
-		if got := plainLines(buf.String()); !reflect.DeepEqual(got, want) {
-			t.Errorf("expected %q, got %q", want, got)
+		// Then each change writes once, unchanged text repeats after 30 seconds, and lines show elapsed time
+		want := []string{
+			`level=INFO msg=Waiting status=started`,
+			`level=INFO msg=Waiting status=running progress="2 pending"`,
+			`level=INFO msg=Waiting status=running progress="1 pending" elapsed=10s`,
+			`level=INFO msg=Waiting status=running progress="1 pending" elapsed=45s`,
+			`level=INFO msg=Waiting status=done`,
+		}
+		if got := logfmtLines(buf.String()); !reflect.DeepEqual(got, want) {
+			t.Errorf("expected\n%s\ngot\n%s", strings.Join(want, "\n"), strings.Join(got, "\n"))
 		}
 	})
 
@@ -457,7 +487,7 @@ func TestConsole_Plain(t *testing.T) {
 
 		// Then the end lines show seconds, minutes, and hours, and omit times below one second
 		out := buf.String()
-		for _, want := range []string{"✔ a\n", "✔ b  14s\n", "✔ c  2m05s\n", "✔ d  1h02m\n"} {
+		for _, want := range []string{"msg=a status=done\n", "msg=b status=done elapsed=14s\n", "msg=c status=done elapsed=2m05s\n", "msg=d status=done elapsed=1h02m\n"} {
 			if !strings.Contains(out, want) {
 				t.Errorf("expected %q in %q", want, out)
 			}
@@ -515,6 +545,24 @@ func TestConsole_Interactive(t *testing.T) {
 		want := []string{"● Applying terraform", "  ✔ network", "  ✔ cluster"}
 		if got := screen(buf.String()); !reflect.DeepEqual(got, want) {
 			t.Errorf("expected\n%s\ngot\n%s", strings.Join(want, "\n"), strings.Join(got, "\n"))
+		}
+	})
+
+	t.Run("IndentsEveryLineOfAMultiLineWarning", func(t *testing.T) {
+		// Given an interactive console
+		var buf syncBuffer
+		c := presenter.NewConsole(&buf, presenter.ConsoleOptions{Level: slog.LevelInfo, Interactive: true})
+
+		// When a multi-line warning is emitted inside an operation
+		_ = presenter.Track(presenter.NewContext(context.Background(), c), "s", "Destroying", func(ctx context.Context) error {
+			presenter.Warn(ctx, "destroy output:\nError: bucket not empty")
+			return nil
+		})
+
+		// Then the second line aligns under the first line's text
+		want := []string{"● Destroying", "  ⚠ destroy output:", "    Error: bucket not empty", "✔ Destroying"}
+		if got := screen(buf.String()); !reflect.DeepEqual(got, want) {
+			t.Errorf("expected %q, got %q", want, got)
 		}
 	})
 
