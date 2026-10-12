@@ -1,7 +1,6 @@
 package config
 
 import (
-	"errors"
 	"os"
 	"path/filepath"
 	"testing"
@@ -65,34 +64,6 @@ properties:
 
 		if value := handler.Get("nested.key"); value != "nested_default" {
 			t.Errorf("Expected schema default value, got %v", value)
-		}
-	})
-
-	t.Run("ProviderLookupUsesPrefixAndConfigPrecedence", func(t *testing.T) {
-		mocks := setupConfigMocks(t)
-		handler := NewConfigHandler(mocks.Shell)
-		provider := &mockValueProvider{value: "provider-value"}
-		handler.RegisterProvider("test", provider)
-
-		if value := handler.Get("test.key"); value != "provider-value" {
-			t.Errorf("Expected provider value, got %v", value)
-		}
-
-		if err := handler.Set("test.key", "config-value"); err != nil {
-			t.Fatalf("Expected no error setting config value, got %v", err)
-		}
-		if value := handler.Get("test.key"); value != "config-value" {
-			t.Errorf("Expected config value precedence, got %v", value)
-		}
-	})
-
-	t.Run("ProviderErrorReturnsNil", func(t *testing.T) {
-		mocks := setupConfigMocks(t)
-		handler := NewConfigHandler(mocks.Shell)
-		handler.RegisterProvider("test", &mockValueProvider{err: errors.New("provider error")})
-
-		if value := handler.Get("test.key"); value != nil {
-			t.Errorf("Expected nil on provider error, got %v", value)
 		}
 	})
 

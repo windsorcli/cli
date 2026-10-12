@@ -41,7 +41,6 @@ type MockConfigHandler struct {
 	SetApplySchemaDefaultsFunc  func(enabled bool)
 	GetSensitivePathsFunc       func() []string
 	IsSensitivePathFunc         func(path string) bool
-	RegisterProviderFunc        func(prefix string, provider ValueProvider)
 	ValidateContextValuesFunc   func() error
 }
 
@@ -331,13 +330,6 @@ func (m *MockConfigHandler) IsSensitivePath(path string) bool {
 		return m.IsSensitivePathFunc(path)
 	}
 	return false
-}
-
-// RegisterProvider calls the mock RegisterProviderFunc if set, otherwise does nothing
-func (m *MockConfigHandler) RegisterProvider(prefix string, provider ValueProvider) {
-	if m.RegisterProviderFunc != nil {
-		m.RegisterProviderFunc(prefix, provider)
-	}
 }
 
 // ValidateContextValues calls the mock ValidateContextValuesFunc if set, otherwise returns nil

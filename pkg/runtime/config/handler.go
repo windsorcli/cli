@@ -62,14 +62,7 @@ type ConfigHandler interface {
 	SetApplySchemaDefaults(enabled bool)
 	GetSensitivePaths() []string
 	IsSensitivePath(path string) bool
-	RegisterProvider(prefix string, provider ValueProvider)
 	ValidateContextValues() error
-}
-
-// ValueProvider defines the interface for dynamic value providers that can resolve
-// configuration keys with special prefixes (e.g., terraform.*, cluster.*).
-type ValueProvider interface {
-	GetValue(key string) (any, error)
 }
 
 const (
@@ -92,7 +85,6 @@ type configHandler struct {
 	workstation     *workstationSource
 	data            map[string]any
 	defaultConfig   *v1alpha1.Context
-	providers       map[string]ValueProvider
 
 	// pendingOverrides and pendingDeletes feed SaveConfig's patch write.
 	pendingOverrides map[string]any
@@ -130,7 +122,6 @@ func NewConfigHandler(shell shell.Shell) ConfigHandler {
 		shell:           shell,
 		shims:           NewShims(),
 		data:            make(map[string]any),
-		providers:       make(map[string]ValueProvider),
 		resolvedContext: &contextCache{},
 	}
 
@@ -451,7 +442,7 @@ func (c *configHandler) GetContext() string {
 // WithContext returns a new ConfigHandler that is a shallow copy of the receiver with an
 // in-memory context override applied. The override takes highest priority in GetContext,
 // bypassing the .windsor/context file and the WINDSOR_CONTEXT env var. The original handler
-// is not modified. Maps (data, providers) are copied shallowly to prevent aliasing. Pending
+// is not modified. The data map is copied shallowly to prevent aliasing. Pending
 // Set paths are not carried over: they target the receiver's own values.yaml, not the copy's.
 // The copy gets its own resolvedContext cache.
 // Use this for ephemeral overrides (e.g. windsor test) that must not touch the filesystem.
@@ -459,7 +450,6 @@ func (c *configHandler) WithContext(name string) ConfigHandler {
 	cp := *c
 	cp.context = name
 	cp.data = maps.Clone(c.data)
-	cp.providers = maps.Clone(c.providers)
 	cp.pendingOverrides = nil
 	cp.pendingDeletes = nil
 	cp.resolvedContext = &contextCache{}

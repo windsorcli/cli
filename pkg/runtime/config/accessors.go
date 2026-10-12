@@ -7,7 +7,7 @@ import (
 )
 
 // The ConfigAccessors are focused methods for path-based config retrieval and assignment.
-// They provide typed getters, provider fallback, schema-default fallback, and validated writes,
+// They provide typed getters, schema-default fallback, and validated writes,
 // The ConfigAccessors isolate key-path access logic from source loading and persistence orchestration,
 // and keep type coercion behavior centralized for consistent command/runtime interactions.
 
@@ -16,9 +16,8 @@ import (
 // =============================================================================
 
 // Get retrieves the value at the specified configuration path from the internal data map.
-// If the value is not found in the current data, it checks registered providers for the prefix,
-// and if the schema validator is available, it falls back to returning a default value from the schema
-// for the top-level key or deeper nested keys as appropriate. Returns nil if the path is empty or no value is found.
+// If the value is not found and a schema is loaded, it falls back to the schema default for the
+// top-level key or a deeper nested key. Returns nil if the path is empty or no value is found.
 func (c *configHandler) Get(path string) any {
 	if path == "" {
 		return nil
@@ -29,19 +28,9 @@ func (c *configHandler) Get(path string) any {
 		return nil
 	}
 
-	firstKey := pathKeys[0]
-	provider, hasProvider := c.providers[firstKey]
-
 	value := getValueByPathFromMap(c.data, pathKeys)
 	if value != nil {
 		return value
-	}
-
-	if hasProvider {
-		providerValue, err := provider.GetValue(path)
-		if err == nil {
-			return providerValue
-		}
 	}
 
 	if len(pathKeys) > 0 && c.schemaValidator != nil && c.schemaValidator.Schema != nil {
@@ -63,16 +52,6 @@ func (c *configHandler) Get(path string) any {
 	}
 
 	return nil
-}
-
-// RegisterProvider registers a value provider for the specified prefix.
-// When Get encounters a key starting with the prefix and the value is not found in the data map,
-// it delegates to the provider. If the provider returns an error, Get falls back to schema defaults.
-func (c *configHandler) RegisterProvider(prefix string, provider ValueProvider) {
-	if c.providers == nil {
-		c.providers = make(map[string]ValueProvider)
-	}
-	c.providers[prefix] = provider
 }
 
 // GetString retrieves a string value for the specified key from the configuration, with an optional default value.
