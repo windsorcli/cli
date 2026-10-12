@@ -2270,21 +2270,6 @@ func TestConfigHandler_HelperConversions(t *testing.T) {
 // Test Helpers
 // =============================================================================
 
-type mockValueProvider struct {
-	value any
-	err   error
-}
-
-func (m *mockValueProvider) GetValue(key string) (any, error) {
-	if m.err != nil {
-		return nil, m.err
-	}
-	if m.value != nil {
-		return m.value, nil
-	}
-	return "mock-value", nil
-}
-
 func contains(s, substr string) bool {
 	return len(s) >= len(substr) && findSubstring(s, substr)
 }
