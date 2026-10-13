@@ -618,6 +618,33 @@ func TestInit_PlatformHetznerDefaultsBackendTypeToKubernetes(t *testing.T) {
 	}
 }
 
+// TestInit_PlatformProxmoxDefaultsBackendTypeToKubernetes confirms --platform proxmox
+// passes the built-in platform enum and defaults terraform.backend.type to "kubernetes".
+// The default fixture loads a blueprint schema, so the CLI applies its platform enum.
+// Proxmox runs Talos like hyperv and vsphere, so the cluster stores its own state.
+func TestInit_PlatformProxmoxDefaultsBackendTypeToKubernetes(t *testing.T) {
+	t.Parallel()
+	dir, env := helpers.CopyFixtureOnly(t, "default")
+	helpers.MarkAsGitRepo(t, dir)
+	stdout, stderr, err := helpers.RunCLI(dir, []string{"init", "proxmox-test", "--platform", "proxmox", "--set", "dns.enabled=false"}, env)
+	if err != nil {
+		t.Fatalf("expected init --platform proxmox to succeed, got %v\nstdout: %s\nstderr: %s", err, stdout, stderr)
+	}
+
+	valuesPath := filepath.Join(dir, "contexts", "proxmox-test", "values.yaml")
+	data, readErr := os.ReadFile(valuesPath)
+	if readErr != nil {
+		t.Fatalf("expected values.yaml at %s, got %v\nstdout: %s\nstderr: %s", valuesPath, readErr, stdout, stderr)
+	}
+	body := string(data)
+	if !strings.Contains(body, "platform: proxmox") {
+		t.Errorf("expected platform=proxmox persisted for --platform proxmox, got values.yaml:\n%s", body)
+	}
+	if !strings.Contains(body, "terraform:") || !strings.Contains(body, "type: kubernetes") {
+		t.Errorf("expected terraform.backend.type=kubernetes persisted for --platform proxmox, got values.yaml:\n%s", body)
+	}
+}
+
 // TestInit_PlatformGcpDefaultsBackendTypeToGcs confirms --platform gcp defaults
 // terraform.backend.type to "gcs", the canonical Cloud Storage state store on GCP.
 func TestInit_PlatformGcpDefaultsBackendTypeToGcs(t *testing.T) {

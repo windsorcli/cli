@@ -66,7 +66,7 @@ func (c *configHandler) applyPlatformDerivedDefaults(values map[string]any) {
 	}
 
 	switch platform {
-	case "docker", "incus", "metal", "hetzner", "omni", "hyperv", "vsphere":
+	case "docker", "incus", "metal", "hetzner", "omni", "hyperv", "vsphere", "proxmox":
 		c.setDerivedValueIfMissing(values, "cluster.driver", "talos")
 	case "aws":
 		c.setDerivedValueIfMissing(values, "cluster.driver", "eks")
