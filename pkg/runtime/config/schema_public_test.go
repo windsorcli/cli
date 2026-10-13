@@ -521,6 +521,25 @@ func TestGetContextValues(t *testing.T) {
 }
 
 func TestGetSetValues(t *testing.T) {
+	t.Run("ReturnsAnIndependentDeepCopy", func(t *testing.T) {
+		// Given nested map and list values
+		f := newFixture(t)
+		_ = f.handler.LoadConfigString("dns:\n  domain: test\nnames: [a]\n")
+
+		// When the copy's nested values change
+		values := f.handler.GetSetValues()
+		values["dns"].(map[string]any)["domain"] = "changed"
+		values["names"].([]any)[0] = "changed"
+
+		// Then the handler keeps its own values
+		if got := f.handler.GetString("dns.domain"); got != "test" {
+			t.Errorf("expected dns.domain test, got %q", got)
+		}
+		if got := f.handler.GetStringSlice("names"); got[0] != "a" {
+			t.Errorf("expected names [a], got %v", got)
+		}
+	})
+
 	t.Run("ReturnsSetValuesWithoutDefaults", func(t *testing.T) {
 		// Given a schema default and one nested set value
 		f := newFixture(t)

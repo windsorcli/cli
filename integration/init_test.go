@@ -117,6 +117,22 @@ func TestInit_PersistsSetValues(t *testing.T) {
 	}
 }
 
+func TestInit_KeepsANumericLookingStringForAStringField(t *testing.T) {
+	t.Parallel()
+	dir, env := helpers.CopyFixtureOnly(t, "default")
+	helpers.MarkAsGitRepo(t, dir)
+
+	_, stderr, err := helpers.RunCLI(dir, []string{"init", "local", "--set", "vm.driver=1.30"}, env)
+	if err != nil {
+		t.Fatalf("init local with a numeric-looking string: %v\nstderr: %s", err, stderr)
+	}
+
+	values := readYAMLFile(t, filepath.Join(dir, "contexts", "local", "values.yaml"))
+	if driver, ok := getPathValue(values, "vm", "driver"); !ok || driver != "1.30" {
+		t.Errorf("expected vm.driver to stay the string \"1.30\", got %#v", driver)
+	}
+}
+
 func TestInit_DevPlatformGoesToWorkstationState(t *testing.T) {
 	t.Parallel()
 	dir, env := helpers.CopyFixtureOnly(t, "default")

@@ -139,6 +139,23 @@ func TestSaveConfig(t *testing.T) {
 		}
 	})
 
+	t.Run("SavesAValueConvertedAgainAfterASchemaLoads", func(t *testing.T) {
+		// Given a string value saved before a schema typed its path
+		f := newFixture(t)
+		f.write(t, "contexts/local/values.yaml", "id: abc\n")
+		_ = f.handler.Set("version", "1.30")
+		_ = f.handler.SaveConfig(true)
+
+		// When a schema loads and config is saved again with overwrite
+		f.loadSchema(t, "  version:\n    type: string\n")
+		_ = f.handler.SaveConfig(true)
+
+		// Then values.yaml holds the original string
+		if got := f.readYAML(t, "contexts/local/values.yaml")["version"]; got != "1.30" {
+			t.Errorf("expected \"1.30\", got %#v", got)
+		}
+	})
+
 	t.Run("ClearsPendingSetsAfterAWrite", func(t *testing.T) {
 		// Given a saved Set followed by a manual edit
 		f := newFixture(t)

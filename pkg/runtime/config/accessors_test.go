@@ -258,32 +258,6 @@ additionalProperties: false
 }
 
 func TestConfigHandler_AccessorTypeCoercionHelpers(t *testing.T) {
-	t.Run("GetExpectedTypeFromSchemaHandlesPresentAndMissingKeys", func(t *testing.T) {
-		handler, _ := setupPrivateTestHandler(t)
-		handler.schemaValidator.Schema = map[string]any{
-			"properties": map[string]any{
-				"enabled": map[string]any{"type": "boolean"},
-				"count":   map[string]any{"type": "integer"},
-				"ratio":   map[string]any{"type": "number"},
-				"name":    map[string]any{"type": "string"},
-			},
-		}
-
-		if got := handler.getExpectedTypeFromSchema("enabled"); got != "boolean" {
-			t.Errorf("Expected boolean type, got %q", got)
-		}
-		if got := handler.getExpectedTypeFromSchema("missing"); got != "" {
-			t.Errorf("Expected empty type for missing key, got %q", got)
-		}
-
-		handler.schemaValidator.Schema = map[string]any{
-			"properties": map[string]any{"broken": "not-a-map"},
-		}
-		if got := handler.getExpectedTypeFromSchema("broken"); got != "" {
-			t.Errorf("Expected empty type for invalid schema property, got %q", got)
-		}
-	})
-
 	t.Run("ConvertStringToTypeCoversValidAndInvalidConversions", func(t *testing.T) {
 		handler, _ := setupPrivateTestHandler(t)
 

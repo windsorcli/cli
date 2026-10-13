@@ -1,6 +1,9 @@
 package config
 
-import "strings"
+import (
+	"slices"
+	"strings"
+)
 
 // The ConfigHelpers are shared low-level map and path utilities for config operations.
 // They provide nested map traversal, existence checks, and path parsing/mutation primitives,
@@ -85,6 +88,31 @@ func setValueInMap(data map[string]any, pathKeys []string, value any) {
 	}
 
 	current[pathKeys[len(pathKeys)-1]] = value
+}
+
+// hasPathPrefix reports whether keys equals prefix or lies below it.
+func hasPathPrefix(keys, prefix []string) bool {
+	return len(keys) >= len(prefix) && slices.Equal(keys[:len(prefix)], prefix)
+}
+
+// deepCopyValue returns a copy of v in which every nested map and slice is new.
+func deepCopyValue(v any) any {
+	switch typed := v.(type) {
+	case map[string]any:
+		out := make(map[string]any, len(typed))
+		for key, value := range typed {
+			out[key] = deepCopyValue(value)
+		}
+		return out
+	case []any:
+		out := make([]any, len(typed))
+		for i, value := range typed {
+			out[i] = deepCopyValue(value)
+		}
+		return out
+	default:
+		return v
+	}
 }
 
 // parsePath splits a hierarchical path string into its individual key segments.
