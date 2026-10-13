@@ -97,6 +97,16 @@ type configHandler struct {
 
 	// resolvedContext memoizes GetContext's file/env/default lookup; see GetContext.
 	resolvedContext *contextCache
+
+	// stringSets keeps the original string of each value Set converted; see reconvertStringSets.
+	stringSets map[string]stringSet
+}
+
+// stringSet is the original string that Set received at keys, and the value Set stored for it.
+type stringSet struct {
+	keys    []string
+	raw     string
+	applied any
 }
 
 // contextCache memoizes GetContext's resolved value and guards concurrent access to it and to
@@ -452,6 +462,7 @@ func (c *configHandler) WithContext(name string) ConfigHandler {
 	cp.data = maps.Clone(c.data)
 	cp.pendingOverrides = nil
 	cp.pendingDeletes = nil
+	cp.stringSets = nil
 	cp.resolvedContext = &contextCache{}
 	return &cp
 }
@@ -613,6 +624,7 @@ func (c *configHandler) LoadSchema(schemaPath string) error {
 		return err
 	}
 	c.applySystemSchemaPlugins()
+	c.reconvertStringSets()
 	return nil
 }
 
@@ -629,6 +641,7 @@ func (c *configHandler) LoadSchemaFromBytes(schemaContent []byte) error {
 		return err
 	}
 	c.applySystemSchemaPlugins()
+	c.reconvertStringSets()
 	return nil
 }
 
