@@ -38,6 +38,47 @@ func TestSaveConfig(t *testing.T) {
 		}
 	})
 
+	t.Run("WritesHeaderKeysFirstInFieldOrder", func(t *testing.T) {
+		// Given header and blueprint keys set in a non-dev context, at two levels
+		f := newFixture(t)
+		_ = f.handler.SetContext("prod")
+		_ = f.handler.Set("addons.enabled", true)
+		_ = f.handler.Set("aws.zone", "a")
+		_ = f.handler.Set("aws.region", "us-east-1")
+		_ = f.handler.Set("aws.profile", "dev")
+		_ = f.handler.Set("platform", "aws")
+		_ = f.handler.Set("id", "abc")
+
+		// When config is saved
+		if err := f.handler.SaveConfig(); err != nil {
+			t.Fatalf("SaveConfig: %v", err)
+		}
+
+		// Then header keys come in field order, and the other keys follow in alphabetical order
+		want := "id: abc\nplatform: aws\naws:\n  profile: dev\n  region: us-east-1\n  zone: a\naddons:\n  enabled: true\n"
+		if got := f.read(t, "contexts/prod/values.yaml"); got != want {
+			t.Errorf("expected\n%s\ngot\n%s", want, got)
+		}
+	})
+
+	t.Run("OrdersTheFieldsOfEachNamedEntry", func(t *testing.T) {
+		// Given a 1Password vault whose fields are set out of order
+		f := newFixture(t)
+		_ = f.handler.SetContext("prod")
+		_ = f.handler.Set("secrets.onepassword.vaults.main.url", "my.1password.com")
+		_ = f.handler.Set("secrets.onepassword.vaults.main.name", "Main")
+		_ = f.handler.Set("secrets.onepassword.vaults.main.id", "v1")
+
+		// When config is saved
+		_ = f.handler.SaveConfig()
+
+		// Then the vault fields come in field order
+		want := "secrets:\n  onepassword:\n    vaults:\n      main:\n        id: v1\n        name: Main\n        url: my.1password.com\n"
+		if got := f.read(t, "contexts/prod/values.yaml"); got != want {
+			t.Errorf("expected\n%s\ngot\n%s", want, got)
+		}
+	})
+
 	t.Run("KeepsAnExistingRootFile", func(t *testing.T) {
 		// Given an existing root windsor.yaml
 		f := newFixture(t)
@@ -120,6 +161,22 @@ func TestSaveConfig(t *testing.T) {
 			if !strings.Contains(got, want) {
 				t.Errorf("expected %q in %q", want, got)
 			}
+		}
+	})
+
+	t.Run("KeepsTheOrderOfAnExistingFile", func(t *testing.T) {
+		// Given an existing values.yaml with blueprint keys before the header keys
+		f := newFixture(t)
+		f.write(t, "contexts/local/values.yaml", "extra: kept\nplatform: docker\nid: old\n")
+		f.load(t)
+		_ = f.handler.Set("id", "new")
+
+		// When config is saved with overwrite
+		_ = f.handler.SaveConfig(true)
+
+		// Then the keys keep their existing order
+		if got := f.read(t, "contexts/local/values.yaml"); got != "extra: kept\nplatform: docker\nid: new\n" {
+			t.Errorf("expected the existing order, got %q", got)
 		}
 	})
 

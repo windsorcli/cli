@@ -81,7 +81,7 @@ func TestLoadConfig(t *testing.T) {
 		}
 	})
 
-	t.Run("RootFileKeepsOnlyTypedContextFields", func(t *testing.T) {
+	t.Run("RootFileKeepsUntypedContextFields", func(t *testing.T) {
 		// Given a root windsor.yaml context with a typed and an untyped key
 		f := newFixture(t)
 		f.write(t, "windsor.yaml", "version: v1alpha1\ncontexts:\n  local:\n    platform: docker\n    custom: kept\n")
@@ -89,9 +89,44 @@ func TestLoadConfig(t *testing.T) {
 		// When config is loaded
 		f.load(t)
 
-		// Then the untyped key is dropped
-		if got := f.handler.Get("custom"); got != nil {
-			t.Errorf("expected untyped key dropped, got %v", got)
+		// Then both keys are read
+		if f.handler.GetString("platform") != "docker" || f.handler.GetString("custom") != "kept" {
+			t.Errorf("expected both keys, got platform=%v custom=%v", f.handler.Get("platform"), f.handler.Get("custom"))
+		}
+	})
+
+	t.Run("ConvertsProviderToPlatform", func(t *testing.T) {
+		// Given a v1alpha1 context file that sets provider and no platform
+		f := newFixture(t)
+		f.write(t, "contexts/local/windsor.yaml", "provider: aws\n")
+
+		// When config is loaded
+		f.load(t)
+
+		// Then platform holds the provider value, and provider is gone
+		if got := f.handler.GetString("platform"); got != "aws" {
+			t.Errorf("expected platform aws, got %q", got)
+		}
+		if got := f.handler.Get("provider"); got != nil {
+			t.Errorf("expected no provider, got %v", got)
+		}
+	})
+
+	t.Run("KeepsPlatformOverProvider", func(t *testing.T) {
+		// Given a root context that sets provider, and values.yaml that sets platform
+		f := newFixture(t)
+		f.write(t, "windsor.yaml", "version: v1alpha1\ncontexts:\n  local:\n    provider: aws\n")
+		f.write(t, "contexts/local/values.yaml", "platform: docker\n")
+
+		// When config is loaded
+		f.load(t)
+
+		// Then platform keeps its value, and provider is gone
+		if got := f.handler.GetString("platform"); got != "docker" {
+			t.Errorf("expected platform docker, got %q", got)
+		}
+		if got := f.handler.Get("provider"); got != nil {
+			t.Errorf("expected no provider, got %v", got)
 		}
 	})
 
@@ -155,16 +190,16 @@ func TestLoadConfig(t *testing.T) {
 	t.Run("LayersSourcesWithValuesWinning", func(t *testing.T) {
 		// Given every source sets the same keys at increasing precedence
 		f := newFixture(t)
-		f.write(t, "windsor.yaml", "version: v1alpha1\ncontexts:\n  local:\n    platform: root\n    provider: root\n    id: root\n")
-		f.write(t, "contexts/local/windsor.yaml", "platform: context\nprovider: context\nid: context\n")
-		f.write(t, ".windsor/contexts/local/workstation.yaml", "platform: workstation\nprovider: workstation\n")
+		f.write(t, "windsor.yaml", "version: v1alpha1\ncontexts:\n  local:\n    platform: root\n    custom: root\n    id: root\n")
+		f.write(t, "contexts/local/windsor.yaml", "platform: context\ncustom: context\nid: context\n")
+		f.write(t, ".windsor/contexts/local/workstation.yaml", "platform: workstation\ncustom: workstation\n")
 		f.write(t, "contexts/local/values.yaml", "platform: values\n")
 
 		// When config is loaded
 		f.load(t)
 
 		// Then each key comes from the highest source that sets it
-		want := map[string]string{"platform": "values", "provider": "workstation", "id": "context"}
+		want := map[string]string{"platform": "values", "custom": "workstation", "id": "context"}
 		for key, value := range want {
 			if got := f.handler.GetString(key); got != value {
 				t.Errorf("%s: expected %q, got %q", key, value, got)
