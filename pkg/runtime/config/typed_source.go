@@ -3,14 +3,12 @@ package config
 import (
 	"fmt"
 	"path/filepath"
-
-	"github.com/windsorcli/cli/api/v1alpha1"
 )
 
-// The TypedSource is a configuration source for typed Windsor configuration files.
-// It provides loading for root and context typed YAML files and root file initialization,
-// The TypedSource isolates typed windsor.yaml concerns from dynamic/context values behavior,
-// and decodes the root file's contexts map through the v1alpha1 types.
+// The TypedSource is a configuration source for the v1alpha1 windsor.yaml files.
+// It provides loading for the root contexts map and context windsor.yaml files, root file
+// initialization, and the conversion of v1alpha1 values into the v1alpha2 header.
+// The CLI reads these files only to convert a v1alpha1 project, and never writes them.
 
 // =============================================================================
 // Types
@@ -40,7 +38,8 @@ func newTypedSource(shims *Shims) *typedSource {
 // Public Methods
 // =============================================================================
 
-// LoadRoot loads root windsor.yaml and returns the selected context map when present.
+// LoadRoot loads root windsor.yaml and returns the selected context map when present. It keeps
+// every key of the context map.
 func (s *typedSource) LoadRoot(projectRoot string, contextName string) (map[string]any, bool, error) {
 	rootConfigPath := filepath.Join(projectRoot, "windsor.yaml")
 	if _, err := s.shims.Stat(rootConfigPath); err != nil {
@@ -52,26 +51,14 @@ func (s *typedSource) LoadRoot(projectRoot string, contextName string) (map[stri
 		return nil, false, fmt.Errorf("error reading root config file: %w", err)
 	}
 
-	var rootConfig v1alpha1.Config
+	var rootConfig struct {
+		Contexts map[string]map[string]any `yaml:"contexts"`
+	}
 	if err := s.shims.YamlUnmarshal(fileData, &rootConfig); err != nil {
 		return nil, false, fmt.Errorf("error unmarshalling root config: %w", err)
 	}
 
-	if rootConfig.Contexts != nil && rootConfig.Contexts[contextName] != nil {
-		contextData, err := s.shims.YamlMarshal(rootConfig.Contexts[contextName])
-		if err != nil {
-			return nil, true, fmt.Errorf("error marshalling context config: %w", err)
-		}
-
-		var contextMap map[string]any
-		if err := s.shims.YamlUnmarshal(contextData, &contextMap); err != nil {
-			return nil, true, fmt.Errorf("error decoding context config: %w", err)
-		}
-
-		return contextMap, true, nil
-	}
-
-	return nil, true, nil
+	return rootConfig.Contexts[contextName], true, nil
 }
 
 // LoadContext loads legacy context-level windsor.yaml or windsor.yml for a context.
@@ -123,4 +110,21 @@ func (s *typedSource) EnsureRoot(projectRoot string) error {
 	}
 
 	return nil
+}
+
+// =============================================================================
+// Helpers
+// =============================================================================
+
+// convertV1alpha1 converts merged v1alpha1 values into the v1alpha2 header in place. It moves
+// provider to platform when platform is empty, and removes provider.
+func convertV1alpha1(values map[string]any) {
+	provider, ok := values["provider"]
+	if !ok {
+		return
+	}
+	delete(values, "provider")
+	if platform, _ := values["platform"].(string); platform == "" {
+		values["platform"] = provider
+	}
 }

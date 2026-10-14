@@ -159,8 +159,8 @@ custom_field: user_data
 		if handler.GetString("schema_default") != "from_schema" {
 			t.Errorf("Expected schema default to be applied, got %v", handler.GetString("schema_default"))
 		}
-		if handler.GetString("provider") != "from_root" {
-			t.Errorf("Expected provider from root config, got %v", handler.GetString("provider"))
+		if handler.GetString("platform") != "from_root" {
+			t.Errorf("Expected platform from root config, got %v", handler.GetString("platform"))
 		}
 		if handler.GetString("override_test") != "values_final" {
 			t.Errorf("Expected values.yaml precedence, got %v", handler.GetString("override_test"))
@@ -180,8 +180,8 @@ custom_field: user_data
 		if err := handler.LoadConfig(); err != nil {
 			t.Fatalf("Expected no error, got %v", err)
 		}
-		if handler.GetString("provider") != "from_yml" {
-			t.Errorf("Expected provider from .yml file, got %v", handler.GetString("provider"))
+		if handler.GetString("platform") != "from_yml" {
+			t.Errorf("Expected platform from .yml file, got %v", handler.GetString("platform"))
 		}
 	})
 
@@ -296,9 +296,9 @@ contexts:
 			t.Fatalf("Expected no error, got %v", err)
 		}
 
-		provider := handler.GetString("provider")
-		if provider != "local" {
-			t.Errorf("Expected provider='local', got '%s'", provider)
+		platform := handler.GetString("platform")
+		if platform != "local" {
+			t.Errorf("Expected platform='local', got '%s'", platform)
 		}
 
 		domain := handler.GetString("dns.domain")
@@ -351,9 +351,9 @@ cluster:
 			t.Fatalf("Expected no error, got %v", err)
 		}
 
-		provider := handler.GetString("provider")
-		if provider != "docker" {
-			t.Errorf("Expected provider='docker', got '%s'", provider)
+		platform := handler.GetString("platform")
+		if platform != "docker" {
+			t.Errorf("Expected platform='docker', got '%s'", platform)
 		}
 
 		driver := handler.GetString("cluster.driver")

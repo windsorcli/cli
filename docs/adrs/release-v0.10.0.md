@@ -127,7 +127,7 @@ Only one ADR survived both audit passes:
 
 | ADR | Wave fit | Why |
 |---|---|---|
-| [0001 — apiv2 common header schema & v1alpha1 retirement](0001-apiv2-common-header-schema.md) | Wave 0/1 | 0% started; every config-touching cleanup pass in Wave 2 should land after this, not before. Now also folds in the sensitive-value-enforcement chokepoint fix (below), since both rework the same `GetContextValues` read path. |
+| [0001 — apiv2 common header schema & v1alpha1 retirement](0001-apiv2-common-header-schema.md) | Wave 0/1 | In progress: steps 1 to 4 of its implementation order have shipped. Every config-touching cleanup pass in Wave 2 should land after this, not before. Now also folds in the sensitive-value-enforcement chokepoint fix (below), since both rework the same `GetContextValues` read path. |
 
 ## Backlog (deferred past v0.10.0 — not carried forward as ADRs)
 

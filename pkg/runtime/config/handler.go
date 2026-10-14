@@ -201,8 +201,8 @@ func (c *configHandler) LoadConfigString(content string) error {
 // It performs the following actions, in order: loads schema defaults (if available); merges root windsor.yaml
 // context section (if it exists); merges any context-specific windsor.yaml/yml file; then merges values.yaml for
 // dynamic fields, validating values.yaml against the loaded schema (if one is present). All configuration is
-// accumulated into one map structure. If any file is loaded, config state is marked as loaded. Returns an error
-// for any I/O or validation failure. Must call Initialize() first.
+// accumulated into one map structure, and v1alpha1 values convert into the v1alpha2 header. If any file is loaded,
+// config state is marked as loaded. Returns an error for any I/O or validation failure. Must call Initialize() first.
 func (c *configHandler) LoadConfig() error {
 	if c.shell == nil {
 		return fmt.Errorf("shell not initialized")
@@ -275,6 +275,7 @@ func (c *configHandler) LoadConfigForContext(contextName string) error {
 	if valuesData != nil {
 		c.data = c.deepMerge(c.data, valuesData)
 	}
+	convertV1alpha1(c.data)
 
 	if hasLoadedFiles {
 		c.loaded = true

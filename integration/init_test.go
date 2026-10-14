@@ -754,3 +754,30 @@ func TestInit_DevConfigOnNonLocalContextDefaultsWorkstation(t *testing.T) {
 		t.Errorf("expected workstation.runtime to be defaulted for dev:true non-local context, got %v", wsRuntime)
 	}
 }
+
+func TestInit_WritesHeaderKeysFirstInValues(t *testing.T) {
+	t.Parallel()
+	dir, env := helpers.CopyFixtureOnly(t, "default")
+	helpers.MarkAsGitRepo(t, dir)
+
+	_, stderr, err := helpers.RunCLI(dir, []string{"init", "prod", "--platform", "aws", "--set", "addons.enabled=true"}, env)
+	if err != nil {
+		t.Fatalf("init prod --platform aws: %v\nstderr: %s", err, stderr)
+	}
+
+	content, err := os.ReadFile(filepath.Join(dir, "contexts", "prod", "values.yaml"))
+	if err != nil {
+		t.Fatalf("expected values.yaml for prod context: %v", err)
+	}
+	var values yaml.MapSlice
+	if err := yaml.Unmarshal(content, &values); err != nil {
+		t.Fatalf("expected values.yaml to parse as YAML: %v", err)
+	}
+	var keys []string
+	for _, item := range values {
+		keys = append(keys, item.Key.(string))
+	}
+	if len(keys) < 3 || keys[0] != "id" || keys[1] != "platform" || keys[len(keys)-1] != "addons" {
+		t.Errorf("expected id, platform, then the header keys, with addons last; got %v", keys)
+	}
+}

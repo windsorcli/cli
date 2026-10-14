@@ -2,7 +2,6 @@ package config
 
 import (
 	"fmt"
-	"sort"
 	"strings"
 
 	"github.com/goccy/go-yaml"
@@ -26,9 +25,10 @@ const SensitiveRedactionMarker = "<sensitive>"
 // It walks the union of schema properties and effective values so that every configurable field
 // appears in the output. Set keys render as normal YAML with description comments; unset
 // schema-defined keys render as commented-out reference lines. Top-level keys are separated
-// by blank lines. When schema is nil, values are rendered as plain YAML without comments.
+// by blank lines. Keys come in header order. When schema is nil, values are rendered as plain
+// YAML without comments.
 func RenderValuesWithDescriptions(values map[string]any, schema map[string]any) string {
-	return renderValuesBlock(values, schema, "")
+	return renderValuesBlock(values, schema, headerOrder(), "")
 }
 
 // RedactSensitiveValues replaces, in place, every existing value at a sensitive path with
@@ -81,8 +81,9 @@ func redactValueAtPath(node any, segments []string) {
 
 // renderValuesBlock is the recursive implementation for RenderValuesWithDescriptions.
 // It accumulates output into a strings.Builder, delegating scalar and array formatting
-// to marshalKeyValue. The indent parameter tracks the current nesting depth.
-func renderValuesBlock(values map[string]any, schema map[string]any, indent string) string {
+// to marshalKeyValue. The order parameter sets the key order at this level, and the indent
+// parameter tracks the current nesting depth.
+func renderValuesBlock(values map[string]any, schema map[string]any, order *keyOrder, indent string) string {
 	var sb strings.Builder
 
 	var schemaProps map[string]any
@@ -92,7 +93,7 @@ func renderValuesBlock(values map[string]any, schema map[string]any, indent stri
 		}
 	}
 
-	keys := sortedUnionKeys(values, schemaProps)
+	keys := order.sort(unionKeys(values, schemaProps))
 	for i, key := range keys {
 		var val any
 		var inValues bool
@@ -123,7 +124,7 @@ func renderValuesBlock(values map[string]any, schema map[string]any, indent stri
 					sb.WriteString(indent + key + ": {}\n")
 				} else {
 					sb.WriteString(indent + key + ":\n")
-					sb.WriteString(renderValuesBlock(v, propSchema, indent+"  "))
+					sb.WriteString(renderValuesBlock(v, propSchema, order.child(key), indent+"  "))
 				}
 			case []any:
 				b, err := yaml.Marshal(val)
@@ -144,7 +145,7 @@ func renderValuesBlock(values map[string]any, schema map[string]any, indent stri
 			// commented-out reference so users can discover it without reading the schema file.
 			propType, _ := propSchema["type"].(string)
 			if propType == "object" {
-				subContent := renderValuesBlock(nil, propSchema, indent+"  ")
+				subContent := renderValuesBlock(nil, propSchema, order.child(key), indent+"  ")
 				if subContent != "" {
 					if desc != "" {
 						sb.WriteString(indent + "# " + desc + "\n")
@@ -194,9 +195,9 @@ func marshalKeyValue(key string, val any, indent string) string {
 	return sb.String()
 }
 
-// sortedUnionKeys returns the sorted union of keys from values and schemaProps.
+// unionKeys returns the union of keys from values and schemaProps, in no fixed order.
 // Either argument may be nil; duplicates are deduplicated.
-func sortedUnionKeys(values, schemaProps map[string]any) []string {
+func unionKeys(values, schemaProps map[string]any) []string {
 	seen := make(map[string]bool)
 	for k := range values {
 		seen[k] = true
@@ -208,6 +209,5 @@ func sortedUnionKeys(values, schemaProps map[string]any) []string {
 	for k := range seen {
 		keys = append(keys, k)
 	}
-	sort.Strings(keys)
 	return keys
 }

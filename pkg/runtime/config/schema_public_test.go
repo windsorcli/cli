@@ -665,8 +665,27 @@ func TestRenderValuesWithDescriptionsOutput(t *testing.T) {
 		// When the values are rendered
 		got := config.RenderValuesWithDescriptions(values, schema)
 
-		// Then set keys carry descriptions and the unset key is commented out
-		want := "# DNS settings\ndns:\n  # Base domain\n  domain: test\n\nid: abc\n\n# Cloud region\n# region:\n"
+		// Then set keys carry descriptions, the unset key is commented out, and id comes first
+		want := "id: abc\n\n# DNS settings\ndns:\n  # Base domain\n  domain: test\n\n# Cloud region\n# region:\n"
+		if got != want {
+			t.Errorf("expected\n%s\ngot\n%s", want, got)
+		}
+	})
+
+	t.Run("PutsHeaderKeysFirstAtEveryLevel", func(t *testing.T) {
+		// Given values with header and blueprint keys at two levels
+		values := map[string]any{
+			"addons":   map[string]any{"enabled": true},
+			"aws":      map[string]any{"zone": "a", "region": "us-east-1", "profile": "dev"},
+			"platform": "aws",
+			"id":       "abc",
+		}
+
+		// When the values are rendered
+		got := config.RenderValuesWithDescriptions(values, nil)
+
+		// Then header keys come in field order, and the other keys follow in alphabetical order
+		want := "id: abc\n\nplatform: aws\n\naws:\n  profile: dev\n  region: us-east-1\n  zone: a\n\naddons:\n  enabled: true\n"
 		if got != want {
 			t.Errorf("expected\n%s\ngot\n%s", want, got)
 		}

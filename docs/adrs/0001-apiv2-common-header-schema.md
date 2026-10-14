@@ -1,7 +1,8 @@
 # ADR 0001 — v1alpha2 config header and v1alpha1 retirement
 
-- Status: Accepted. Steps 1 and 2 of the implementation order have shipped: the
-  `api/config/v1alpha2` package and its fragment, merged last with conflict detection. Revised
+- Status: Accepted. Steps 1 to 4 of the implementation order have shipped: the
+  `api/config/v1alpha2` package and its fragment, the merge of that fragment last with conflict
+  detection, the v1alpha1 conversion, and ordered writes. Revised
   2026-10-12 after a source audit showed that several premises of the first draft were wrong.
 - Date: 2026-08-04, revised 2026-10-12
 - Deciders: Ryan VanGundy
@@ -225,11 +226,12 @@ v1alpha2 header in its own change.
 
 1. Build `api/config/v1alpha2` with the header type, the fragment, and the drift test.
 2. Load the fragment last for every context, with conflict detection (points 4 and 5).
-3. Add the v1alpha1 conversion, and decode the header from the merged map (points 2 and 9).
+3. Add the v1alpha1 conversion (point 9).
 4. Add ordered writes (point 7).
 5. Add sensitive scrubbing in `GetContextValues` (point 8).
-6. Move each package that imports `api/v1alpha1` config types to the header, one package per
-   change.
+6. Decode the header from the merged map (point 2). Move each package that imports
+   `api/v1alpha1` config types to the header, one package per change. The header accessor ships
+   with the first package that reads it.
 7. Delete the old v1alpha2 package and the v1alpha1 types that the conversion no longer needs.
 
 ## Alternatives considered
