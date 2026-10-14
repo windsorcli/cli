@@ -4,8 +4,6 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
-
-	"github.com/windsorcli/cli/pkg/runtime/shell"
 )
 
 // =============================================================================
@@ -14,7 +12,7 @@ import (
 
 func TestTypedSource_EnsureRoot(t *testing.T) {
 	t.Run("CreatesRootWindsorYamlWhenMissing", func(t *testing.T) {
-		source := newTypedSource(NewShims(), nil)
+		source := newTypedSource(NewShims())
 		projectRoot := t.TempDir()
 
 		if err := source.EnsureRoot(projectRoot); err != nil {
@@ -34,7 +32,7 @@ func TestTypedSource_EnsureRoot(t *testing.T) {
 
 func TestTypedSource_LoadRoot(t *testing.T) {
 	t.Run("ReturnsContextMapFromRootContextsBlock", func(t *testing.T) {
-		source := newTypedSource(NewShims(), nil)
+		source := newTypedSource(NewShims())
 		projectRoot := t.TempDir()
 		rootConfig := `version: v1alpha1
 contexts:
@@ -48,7 +46,7 @@ contexts:
 			t.Fatalf("Expected no error writing root config, got %v", err)
 		}
 
-		contextMap, found, err := source.LoadRoot(projectRoot, "local", func([]byte) error { return nil })
+		contextMap, found, err := source.LoadRoot(projectRoot, "local")
 		if err != nil {
 			t.Fatalf("Expected no error, got %v", err)
 		}
@@ -59,29 +57,11 @@ contexts:
 			t.Errorf("Expected provider=docker, got %v", contextMap["provider"])
 		}
 	})
-
-	t.Run("ReturnsErrorWhenV1Alpha2SchemaLoadingFails", func(t *testing.T) {
-		source := newTypedSource(NewShims(), NewSchemaValidator(shell.NewMockShell()))
-		projectRoot := t.TempDir()
-		rootConfig := `version: v1alpha2
-contexts:
-  local:
-    provider: docker
-`
-		if err := os.WriteFile(filepath.Join(projectRoot, "windsor.yaml"), []byte(rootConfig), 0644); err != nil {
-			t.Fatalf("Expected no error writing root config, got %v", err)
-		}
-
-		_, _, err := source.LoadRoot(projectRoot, "local", func([]byte) error { return os.ErrInvalid })
-		if err == nil {
-			t.Fatal("Expected error when v1alpha2 schema loading fails")
-		}
-	})
 }
 
 func TestTypedSource_LoadContext(t *testing.T) {
 	t.Run("LoadsLegacyContextWindsorYaml", func(t *testing.T) {
-		source := newTypedSource(NewShims(), nil)
+		source := newTypedSource(NewShims())
 		projectRoot := t.TempDir()
 		contextName := "local"
 		contextDir := filepath.Join(projectRoot, "contexts", contextName)
@@ -105,7 +85,7 @@ func TestTypedSource_LoadContext(t *testing.T) {
 	})
 
 	t.Run("LoadsLegacyContextWindsorYmlFallback", func(t *testing.T) {
-		source := newTypedSource(NewShims(), nil)
+		source := newTypedSource(NewShims())
 		projectRoot := t.TempDir()
 		contextName := "local"
 		contextDir := filepath.Join(projectRoot, "contexts", contextName)

@@ -54,19 +54,93 @@ func TestLoadSchemaFromBytes(t *testing.T) {
 		}
 	})
 
-	t.Run("AddsTheSystemSchema", func(t *testing.T) {
-		// Given a schema that defines only region
+	t.Run("MergesTheCLISchemaOverEveryFragment", func(t *testing.T) {
+		// Given a fragment that defines only region
 		f := newFixture(t)
 		f.loadSchema(t, "  region:\n    type: string\n")
 
 		// When the schema is read
 		properties, _ := f.handler.GetSchema()["properties"].(map[string]any)
 
-		// Then the system platform and workstation properties are present
-		for _, key := range []string{"region", "platform", "workstation"} {
+		// Then the CLI's settings are present beside the fragment's
+		for _, key := range []string{"region", "id", "platform", "workstation", "terraform", "vsphere"} {
 			if _, ok := properties[key]; !ok {
 				t.Errorf("expected property %q", key)
 			}
+		}
+	})
+
+	t.Run("AcceptsCLISettingsThatAClosedFragmentOmits", func(t *testing.T) {
+		// Given a fragment that closes vsphere without the fields the CLI reads
+		f := newFixture(t)
+		f.loadSchema(t, "  vsphere:\n    type: object\n    additionalProperties: false\n    properties:\n      datacenter:\n        type: string\n")
+		_ = f.handler.Set("vsphere.server", "vc.example.com")
+		_ = f.handler.Set("vsphere.datacenter", "dc")
+
+		// When the values are validated
+		err := f.handler.ValidateContextValues()
+
+		// Then the CLI's field is allowed
+		if err != nil {
+			t.Errorf("expected valid values, got %v", err)
+		}
+	})
+
+	t.Run("RejectsAFragmentThatRetypesACLISetting", func(t *testing.T) {
+		// Given fragments that retype top-level, nested, and map-value CLI settings
+		cases := map[string]string{
+			"platform":               "  platform:\n    type: object\n",
+			"terraform.lock.timeout": "  terraform:\n    type: object\n    properties:\n      lock:\n        type: object\n        properties:\n          timeout:\n            type: integer\n",
+			"environment.*":          "  environment:\n    type: object\n    additionalProperties:\n      type: integer\n",
+		}
+		for path, properties := range cases {
+			f := newFixture(t)
+
+			// When the fragment is loaded
+			err := f.handler.LoadSchemaFromBytes([]byte(testSchemaHeader + "type: object\nproperties:\n" + properties))
+
+			// Then the error names the path and no schema is kept
+			if err == nil || !strings.Contains(err.Error(), "  - "+path+": type ") {
+				t.Errorf("%s: expected a conflict naming the path, got %v", path, err)
+			}
+			if f.handler.GetSchema() != nil {
+				t.Errorf("%s: expected no schema after the conflict", path)
+			}
+		}
+	})
+
+	t.Run("AcceptsCompatibleRedefinitions", func(t *testing.T) {
+		// Given a fragment that narrows, references, and nulls CLI settings without retyping them
+		f := newFixture(t)
+		err := f.handler.LoadSchemaFromBytes([]byte(testSchemaHeader + "type: object\n$defs:\n  label:\n    type: string\nproperties:\n  platform:\n    type: string\n    enum: [docker, aws]\n  id:\n    $ref: \"#/$defs/label\"\n  dns:\n    type: object\n    properties:\n      domain:\n        type: [string, \"null\"]\n"))
+
+		// When a platform outside the narrowed enum is validated
+		_ = f.handler.Set("platform", "incus")
+		validation := f.handler.ValidateContextValues()
+
+		// Then the fragment loads and its narrower enum applies
+		if err != nil {
+			t.Fatalf("expected the fragment to load, got %v", err)
+		}
+		if validation == nil {
+			t.Error("expected the narrowed enum to reject incus")
+		}
+	})
+
+	t.Run("KeepsTheEarlierSchemaWhenAFragmentConflicts", func(t *testing.T) {
+		// Given a loaded schema with a region default
+		f := newFixture(t)
+		f.loadSchema(t, "  region:\n    type: string\n    default: us-east-1\n")
+
+		// When a conflicting fragment is loaded
+		err := f.handler.LoadSchemaFromBytes([]byte(testSchemaHeader + "type: object\nproperties:\n  region:\n    type: string\n    default: eu-west-1\n  id:\n    type: integer\n"))
+
+		// Then the load fails and the earlier default stays
+		if err == nil {
+			t.Fatal("expected a conflict")
+		}
+		if got := f.handler.GetString("region"); got != "us-east-1" {
+			t.Errorf("expected the earlier default, got %q", got)
 		}
 	})
 }
@@ -163,6 +237,20 @@ func TestLoadSchema(t *testing.T) {
 		// Then its defaults apply
 		if err != nil || f.handler.GetString("region") != "us-east-1" {
 			t.Errorf("expected the default, got err=%v region=%q", err, f.handler.GetString("region"))
+		}
+	})
+
+	t.Run("RejectsAFileThatRetypesACLISetting", func(t *testing.T) {
+		// Given a schema file that retypes platform
+		f := newFixture(t)
+		f.write(t, "schema.yaml", testSchemaHeader+"type: object\nproperties:\n  platform:\n    type: integer\n")
+
+		// When it is loaded
+		err := f.handler.LoadSchema(filepath.Join(f.root, "schema.yaml"))
+
+		// Then the conflict is reported
+		if err == nil || !strings.Contains(err.Error(), "platform: type integer, but the CLI requires string") {
+			t.Errorf("expected a platform conflict, got %v", err)
 		}
 	})
 

@@ -221,31 +221,19 @@ func TestLoadConfig(t *testing.T) {
 		}
 	})
 
-	t.Run("LoadsTheAPISchemasForAVersionAfterV1alpha1", func(t *testing.T) {
-		// Given a root windsor.yaml at v1alpha2
-		f := newFixture(t)
-		f.write(t, "windsor.yaml", "version: v1alpha2\n")
+	t.Run("LoadsNoSchemaFromTheRootVersionAlone", func(t *testing.T) {
+		// Given root files at each version and no template schema
+		for _, version := range []string{"v1alpha1", "v1alpha2"} {
+			f := newFixture(t)
+			f.write(t, "windsor.yaml", "version: "+version+"\n")
 
-		// When config is loaded
-		f.load(t)
+			// When config is loaded
+			f.load(t)
 
-		// Then the embedded API schemas are loaded
-		if f.handler.GetSchema() == nil {
-			t.Error("expected API schemas to load")
-		}
-	})
-
-	t.Run("SkipsTheAPISchemasForV1alpha1", func(t *testing.T) {
-		// Given a root windsor.yaml at v1alpha1
-		f := newFixture(t)
-		f.write(t, "windsor.yaml", "version: v1alpha1\n")
-
-		// When config is loaded
-		f.load(t)
-
-		// Then no schema is loaded
-		if f.handler.GetSchema() != nil {
-			t.Error("expected no schema")
+			// Then no schema is loaded
+			if f.handler.GetSchema() != nil {
+				t.Errorf("%s: expected no schema", version)
+			}
 		}
 	})
 

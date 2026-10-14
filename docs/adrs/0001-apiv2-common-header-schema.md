@@ -1,9 +1,8 @@
 # ADR 0001 — v1alpha2 config header and v1alpha1 retirement
 
-- Status: Proposed. Revised 2026-10-12 after a source audit showed that several premises of the
-  first draft were wrong. The v1alpha2 types are nested where config files are flat, the CLI's
-  v1alpha2 schema fragments never load in practice, and the CLI schema already loads last, not
-  first.
+- Status: Accepted. Steps 1 and 2 of the implementation order have shipped: the
+  `api/config/v1alpha2` package and its fragment, merged last with conflict detection. Revised
+  2026-10-12 after a source audit showed that several premises of the first draft were wrong.
 - Date: 2026-08-04, revised 2026-10-12
 - Deciders: Ryan VanGundy
 - The black-box tests in `pkg/runtime/config/*_public_test.go` pin current behavior. This ADR's
@@ -75,7 +74,6 @@ The current code gives none of these. Verified from source:
   | `dns` | `domain`, `enabled` |
   | `network` | `cidr_block`, `loadbalancer_ips.start`, `loadbalancer_ips.end` |
   | `cluster` | `driver`; `controlplanes` and `workers` `count`/`cpu`/`memory`, for colima sizing only; `workers.volumes` |
-  | `vm` | `arch`, `cpu`, `disk`, `memory`, `runtime` |
   | `docker` | `enabled`, `registry_url` |
   | `gitops` | `mode`, `namespace` |
 
@@ -122,7 +120,6 @@ type Context struct {
     DNS         *DNS              `yaml:"dns,omitempty"`
     Network     *Network          `yaml:"network,omitempty"`
     Cluster     *Cluster          `yaml:"cluster,omitempty"`
-    VM          *VM               `yaml:"vm,omitempty"`
     Docker      *Docker           `yaml:"docker,omitempty"`
     GitOps      *GitOps           `yaml:"gitops,omitempty"`
 }
@@ -137,16 +134,24 @@ A path is in the header only when code in `pkg/` or `cmd/` reads it to make a de
 under Context is the starting list. A shared object such as `dns`, `network`, or `cluster` carries
 only the CLI's subfields. Core defines the rest, and the merge unions them.
 
-`cluster` node counts and sizes are read only for colima VM sizing. The implementation SHOULD
-decide whether colima reads them as untyped values instead, so the header keeps `cluster.driver`
-alone.
+`cluster` node counts and sizes are read only for colima VM sizing. They are not in the header.
+Colima reads them as untyped values that the blueprint defines, and the header keeps
+`cluster.driver` alone.
+
+Settings that only the blueprint reads stay out of the CLI fragment, even when the CLI fragment
+defined them before. `workstation.services` and `workstation.dns.forward` are examples: core
+defines both, with the same defaults.
 
 ### 4. One CLI schema fragment, always loaded last
 
 The CLI ships one schema fragment that matches the header type field for field. It replaces
-`common.yaml` and the four v1alpha2 fragments. The CLI loads it for every context, whatever the
-root `version`, and merges it after every blueprint fragment, as `common.yaml` merges today. Every
-merged schema therefore contains every CLI-owned path.
+`common.yaml` and the four v1alpha2 fragments. The CLI merges it after every schema fragment it
+loads, whatever the root `version`, as `common.yaml` merged before. Every merged schema therefore
+contains every CLI-owned path. A context that loads no fragment has no schema, and validation does
+not run for it.
+
+The fragment adds properties and types only. It MUST NOT close an object, so a blueprint can
+extend every object that the CLI and the blueprint share.
 
 A test MUST fail when the header type and the fragment disagree on a path or a type.
 
@@ -197,6 +202,12 @@ v1alpha2 header in its own change.
 
 - **The CLI schema guarantee becomes real.** Every context's schema contains the CLI-owned paths,
   and an incompatible blueprint fails with a clear error instead of a silent replacement.
+- **Values that a closed blueprint object rejected now validate.** Core closes `vsphere` and
+  `terraform` without some fields the CLI reads, such as `vsphere.server` and
+  `terraform.lock.timeout`. The CLI fragment adds those fields to the merged schema.
+- **`vm` is not in v1alpha2.** `workstation` replaces it. The CLI still reads `vm.runtime` and the
+  `vm` sizing fields as untyped values until those reads move to `workstation`.
+- **`workstation` is no longer closed by the CLI.** A blueprint that closes it still can.
 - **One schema file replaces five.** `common.yaml` and the four v1alpha2 fragments merge into one
   fragment that a test keeps in line with the Go type.
 - **Root `contexts:` values stop being written, and untyped keys in them stop being dropped.**

@@ -130,7 +130,7 @@ boundaries differently:
 
 | Domain | Covers | ADR 0002 layer(s) it spans |
 |---|---|---|
-| `CONFIG` | Config load/validate/schema/resolve | Runtime (`pkg/runtime/config`), `api/v1alpha2/config` |
+| `CONFIG` | Config load/validate/schema/resolve | Runtime (`pkg/runtime/config`), `api/config/v1alpha2` |
 | `SECRETS` | Secret provider/resolution failures | Runtime (`pkg/runtime/secrets`) |
 | `BLUEPRINT` | Composition/facet/template/tier errors | Composer (`pkg/composer/blueprint`) |
 | `ARTIFACT` | OCI pull/push/artifact errors | Composer (`pkg/composer/artifact`) |
