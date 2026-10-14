@@ -127,7 +127,7 @@ Only one ADR survived both audit passes:
 
 | ADR | Wave fit | Why |
 |---|---|---|
-| [0001 — apiv2 common header schema & v1alpha1 retirement](0001-apiv2-common-header-schema.md) | Wave 0/1 | In progress: steps 1 to 4 of its implementation order have shipped. Every config-touching cleanup pass in Wave 2 should land after this, not before. Now also folds in the sensitive-value-enforcement chokepoint fix (below), since both rework the same `GetContextValues` read path. |
+| [0001 — apiv2 common header schema & v1alpha1 retirement](0001-apiv2-common-header-schema.md) | Wave 0/1 | Implemented. The sensitive-value chokepoint it once folded in was withdrawn: the evaluator needs raw `GetContextValues`, so sinks keep their own guards (#3570). Wave 2 config-touching passes can now land. |
 
 ## Backlog (deferred past v0.10.0 — not carried forward as ADRs)
 
@@ -332,8 +332,8 @@ avoid — just one level up, across ADRs instead of within one.
 Runs after Phase A (or, if parallelizing, after Phase A steps 1–3 specifically — `pkg/runtime/
 config` needs `werror` and probably wants `logging`, not `presenter`). Internally sequenced per
 ADR 0001/0003's own text: black-box characterize `pkg/runtime/config`'s current behavior first,
-then the v1alpha1→v1alpha2 header rewrite, then the sensitive-value chokepoint fold-in (ADR 0001
-§5), then the package-by-package `api/v1alpha1` import retirement.
+then the v1alpha1→v1alpha2 header rewrite, then the `api/v1alpha1` config type retirement. Done;
+the sensitive-value chokepoint step was dropped (ADR 0001 point 8).
 
 ### Phase C — Wave 2 per-package sweep, one pass per package, six contracts bundled into each
 

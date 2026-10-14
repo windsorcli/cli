@@ -531,17 +531,14 @@ func (t *BaseToolsManager) CheckAuth() error {
 	return nil
 }
 
-// awsEnabled reports whether the current context exercises AWS — platform/provider is "aws"
+// awsEnabled reports whether the current context exercises AWS — platform is "aws"
 // or an aws config block is present.
 func (t *BaseToolsManager) awsEnabled() bool {
 	platform := t.configHandler.GetString("platform")
-	if platform == "" {
-		platform = t.configHandler.GetString("provider")
-	}
 	if platform == "aws" {
 		return true
 	}
-	cfg := t.configHandler.GetConfig()
+	cfg := t.configHandler.GetHeader()
 	return cfg != nil && cfg.AWS != nil
 }
 
@@ -600,10 +597,10 @@ func (t *BaseToolsManager) awsContextEnv() (map[string]string, error) {
 		env["AWS_SHARED_CREDENTIALS_FILE"] = filepath.ToSlash(filepath.Join(awsConfigDir, "credentials"))
 	}
 
-	cfg := t.configHandler.GetConfig()
+	cfg := t.configHandler.GetHeader()
 	profileName := ""
-	if cfg != nil && cfg.AWS != nil && cfg.AWS.AWSProfile != nil {
-		profileName = *cfg.AWS.AWSProfile
+	if cfg != nil && cfg.AWS != nil && cfg.AWS.Profile != nil {
+		profileName = *cfg.AWS.Profile
 	}
 	if profileName == "" {
 		profileName = t.configHandler.GetContext()
@@ -678,9 +675,9 @@ func (t *BaseToolsManager) checkAWSBinary() error {
 func (t *BaseToolsManager) awsAuthHint() string {
 	ctx := t.configHandler.GetContext()
 	profile := ctx
-	cfg := t.configHandler.GetConfig()
-	if cfg != nil && cfg.AWS != nil && cfg.AWS.AWSProfile != nil && *cfg.AWS.AWSProfile != "" {
-		profile = *cfg.AWS.AWSProfile
+	cfg := t.configHandler.GetHeader()
+	if cfg != nil && cfg.AWS != nil && cfg.AWS.Profile != nil && *cfg.AWS.Profile != "" {
+		profile = *cfg.AWS.Profile
 	}
 	if t.shell.IsGlobal() {
 		state := detectAWSProfileState(ambientAWSConfigPath(), profile)
@@ -757,13 +754,10 @@ func awsEnvPrefix(configRoot string) string {
 // azureEnabled reports whether the current context exercises Azure.
 func (t *BaseToolsManager) azureEnabled() bool {
 	platform := t.configHandler.GetString("platform")
-	if platform == "" {
-		platform = t.configHandler.GetString("provider")
-	}
 	if platform == "azure" {
 		return true
 	}
-	cfg := t.configHandler.GetConfig()
+	cfg := t.configHandler.GetHeader()
 	return cfg != nil && cfg.Azure != nil
 }
 
@@ -784,7 +778,7 @@ func (t *BaseToolsManager) checkAzureAuth() error {
 	if err != nil {
 		return fmt.Errorf("cannot resolve context-scoped Azure env for credential check: %w", err)
 	}
-	cfg := t.configHandler.GetConfig()
+	cfg := t.configHandler.GetHeader()
 	azureEnv := ""
 	if cfg != nil && cfg.Azure != nil && cfg.Azure.Environment != nil {
 		azureEnv = *cfg.Azure.Environment
@@ -876,7 +870,7 @@ func (t *BaseToolsManager) checkAzureBinary() error {
 // when the current env doesn't already point at the context dir.
 func (t *BaseToolsManager) azureAuthHint() string {
 	tenantID := ""
-	cfg := t.configHandler.GetConfig()
+	cfg := t.configHandler.GetHeader()
 	if cfg != nil && cfg.Azure != nil && cfg.Azure.TenantID != nil {
 		tenantID = *cfg.Azure.TenantID
 	}
@@ -915,13 +909,10 @@ func azureEnvPointsAtContext(configDir string) bool {
 // gcpEnabled reports whether the current context exercises GCP.
 func (t *BaseToolsManager) gcpEnabled() bool {
 	platform := t.configHandler.GetString("platform")
-	if platform == "" {
-		platform = t.configHandler.GetString("provider")
-	}
 	if platform == "gcp" {
 		return true
 	}
-	cfg := t.configHandler.GetConfig()
+	cfg := t.configHandler.GetHeader()
 	return cfg != nil && cfg.GCP != nil
 }
 

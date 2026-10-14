@@ -82,17 +82,17 @@ func (e *AwsEnvPrinter) GetEnvVars() (map[string]string, error) {
 		envVars["AWS_SHARED_CREDENTIALS_FILE"] = filepath.ToSlash(filepath.Join(awsConfigDir, "credentials"))
 	}
 
-	contextConfigData := e.configHandler.GetConfig()
+	contextConfigData := e.configHandler.GetHeader()
 	awsProfileOverride := ""
 	if contextConfigData != nil && contextConfigData.AWS != nil {
-		if contextConfigData.AWS.AWSProfile != nil {
-			awsProfileOverride = *contextConfigData.AWS.AWSProfile
+		if contextConfigData.AWS.Profile != nil {
+			awsProfileOverride = *contextConfigData.AWS.Profile
 		}
-		if contextConfigData.AWS.AWSRegion != nil {
-			envVars["AWS_REGION"] = *contextConfigData.AWS.AWSRegion
+		if contextConfigData.AWS.Region != nil {
+			envVars["AWS_REGION"] = *contextConfigData.AWS.Region
 		}
-		if contextConfigData.AWS.AWSEndpointURL != nil {
-			envVars["AWS_ENDPOINT_URL"] = *contextConfigData.AWS.AWSEndpointURL
+		if contextConfigData.AWS.EndpointURL != nil {
+			envVars["AWS_ENDPOINT_URL"] = *contextConfigData.AWS.EndpointURL
 		}
 		if contextConfigData.AWS.S3Hostname != nil {
 			envVars["S3_HOSTNAME"] = *contextConfigData.AWS.S3Hostname

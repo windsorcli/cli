@@ -7,7 +7,6 @@ import (
 	"testing"
 
 	"github.com/1password/onepassword-sdk-go"
-	secretsConfigType "github.com/windsorcli/cli/api/v1alpha1/secrets"
 )
 
 // resetGlobalClient resets the SDK singleton for test isolation.
@@ -24,7 +23,7 @@ func resetGlobalClient() {
 // =============================================================================
 
 func TestNewOnePasswordSDKProvider(t *testing.T) {
-	vault := secretsConfigType.OnePasswordVault{ID: "sdk-vault", Name: "SDK Vault"}
+	vault := OnePasswordVault{ID: "sdk-vault", Name: "SDK Vault"}
 	p := NewOnePasswordSDKProvider(vault)
 	if p == nil {
 		t.Fatal("expected provider, got nil")
@@ -42,7 +41,7 @@ func TestNewOnePasswordSDKProvider(t *testing.T) {
 // =============================================================================
 
 func TestOnePasswordSDKProvider_LoadSecrets(t *testing.T) {
-	p := NewOnePasswordSDKProvider(secretsConfigType.OnePasswordVault{ID: "v"})
+	p := NewOnePasswordSDKProvider(OnePasswordVault{ID: "v"})
 	if err := p.LoadSecrets(); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -56,7 +55,7 @@ func TestOnePasswordSDKProvider_LoadSecrets(t *testing.T) {
 // =============================================================================
 
 func TestOnePasswordSDKProvider_Resolve(t *testing.T) {
-	vault := secretsConfigType.OnePasswordVault{ID: "sdk-vault", Name: "SDK Vault"}
+	vault := OnePasswordVault{ID: "sdk-vault", Name: "SDK Vault"}
 
 	t.Run("ReturnsUnhandledForDifferentVault", func(t *testing.T) {
 		p := NewOnePasswordSDKProvider(vault)

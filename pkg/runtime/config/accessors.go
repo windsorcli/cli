@@ -70,17 +70,13 @@ func (c *configHandler) GetString(key string, defaultValue ...string) string {
 }
 
 // GetTerraformBackendType returns the explicit terraform.backend.type when set, else the cloud
-// default for platform (aws/azure/gcp), else "local". Platform falls back to "provider" when
-// unset. It skips the kubernetes default, since that needs a live cluster that only
+// default for platform (aws/azure/gcp), else "local". It skips the kubernetes default, since that needs a live cluster that only
 // init/up/bootstrap sets up explicitly.
 func (c *configHandler) GetTerraformBackendType() string {
 	if explicit := c.GetString("terraform.backend.type"); explicit != "" {
 		return explicit
 	}
 	platform := c.GetString("platform")
-	if platform == "" {
-		platform = c.GetString("provider")
-	}
 	if def := DefaultTerraformBackendTypeForPlatform(platform); def != "" && def != "kubernetes" {
 		return def
 	}

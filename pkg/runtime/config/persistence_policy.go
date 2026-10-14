@@ -46,9 +46,6 @@ func (p *persistencePolicy) Partition(data map[string]any, input persistencePoli
 	persistPlatform := p.shouldPersistPlatform(input)
 	persistNetwork := p.shouldPersistNetwork(input)
 	for key, value := range data {
-		if key == "provider" {
-			continue
-		}
 		if p.isWorkstationManagedKey(key) {
 			workstation[key] = value
 			continue

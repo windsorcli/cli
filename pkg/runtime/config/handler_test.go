@@ -8,7 +8,7 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/windsorcli/cli/api/v1alpha1"
+	cliconfig "github.com/windsorcli/cli/api/config/v1alpha2"
 	"github.com/windsorcli/cli/pkg/runtime/shell"
 )
 
@@ -414,11 +414,11 @@ func TestConfigHandler_LoadConfigString(t *testing.T) {
 		yaml := `version: v1alpha1
 contexts:
   test-context:
-    provider: local
+    platform: local
     dns:
       domain: test
   other-context:
-    provider: remote
+    platform: remote
 `
 
 		err := handler.LoadConfigString(yaml)
@@ -427,9 +427,9 @@ contexts:
 			t.Fatalf("Expected no error, got %v", err)
 		}
 
-		provider := handler.GetString("provider")
-		if provider != "local" {
-			t.Errorf("Expected provider='local' from test-context, got '%s'", provider)
+		platform := handler.GetString("platform")
+		if platform != "local" {
+			t.Errorf("Expected platform='local' from test-context, got '%s'", platform)
 		}
 
 		domain := handler.GetString("dns.domain")
@@ -445,17 +445,17 @@ contexts:
 		mocks := setupConfigMocks(t)
 		handler := NewConfigHandler(mocks.Shell)
 
-		content := `provider: top_level
+		content := `platform: top_level
 contexts:
   test-context:
-    provider: from_context
+    platform: from_context
 `
 
 		if err := handler.LoadConfigString(content); err != nil {
 			t.Fatalf("Expected no error, got %v", err)
 		}
-		if provider := handler.GetString("provider"); provider != "from_context" {
-			t.Errorf("Expected context provider to win, got '%s'", provider)
+		if platform := handler.GetString("platform"); platform != "from_context" {
+			t.Errorf("Expected context platform to win, got '%s'", platform)
 		}
 	})
 
@@ -463,7 +463,7 @@ contexts:
 		mocks := setupConfigMocks(t)
 		handler := NewConfigHandler(mocks.Shell)
 
-		yaml := `provider: docker
+		yaml := `platform: docker
 custom_key: custom_value
 `
 
@@ -473,9 +473,9 @@ custom_key: custom_value
 			t.Fatalf("Expected no error, got %v", err)
 		}
 
-		provider := handler.GetString("provider")
-		if provider != "docker" {
-			t.Errorf("Expected provider='docker', got '%s'", provider)
+		platform := handler.GetString("platform")
+		if platform != "docker" {
+			t.Errorf("Expected platform='docker', got '%s'", platform)
 		}
 
 		customKey := handler.GetString("custom_key")
@@ -488,7 +488,7 @@ custom_key: custom_value
 		mocks := setupConfigMocks(t)
 		handler := NewConfigHandler(mocks.Shell)
 
-		err := handler.LoadConfigString("provider: test\n")
+		err := handler.LoadConfigString("platform: test\n")
 
 		if err != nil {
 			t.Fatalf("Expected no error, got %v", err)
@@ -535,7 +535,7 @@ custom_key: custom_value
 		yaml := `version: v1alpha1
 contexts:
   test-context:
-    provider: local
+    platform: local
     custom: value
 `
 
@@ -545,9 +545,9 @@ contexts:
 			t.Fatalf("Expected no error, got %v", err)
 		}
 
-		provider := handler.GetString("provider")
-		if provider != "local" {
-			t.Errorf("Expected provider='local', got '%s'", provider)
+		platform := handler.GetString("platform")
+		if platform != "local" {
+			t.Errorf("Expected platform='local', got '%s'", platform)
 		}
 
 		custom := handler.GetString("custom")
@@ -566,7 +566,7 @@ contexts:
 		yaml := `version: v1alpha1
 contexts:
   test-context:
-    provider: local
+    platform: local
     nested:
       key: value
 `
@@ -577,9 +577,9 @@ contexts:
 			t.Fatalf("Expected no error, got %v", err)
 		}
 
-		provider := handler.GetString("provider")
-		if provider != "local" {
-			t.Errorf("Expected provider='local', got '%s'", provider)
+		platform := handler.GetString("platform")
+		if platform != "local" {
+			t.Errorf("Expected platform='local', got '%s'", platform)
 		}
 	})
 
@@ -593,7 +593,7 @@ contexts:
 		yaml := `version: v1alpha1
 contexts:
   other-context:
-    provider: local
+    platform: local
 flat_key: flat_value
 `
 
@@ -663,7 +663,6 @@ func TestConfigHandler_SaveConfig(t *testing.T) {
 	t.Run("EnsuresRootConfigExistsAndWritesValues", func(t *testing.T) {
 		handler, tmpDir := setupPrivateTestHandler(t)
 		handler.SetContext("test-context")
-		handler.Set("provider", "generic")
 		handler.Set("cluster.driver", "talos")
 		handler.Set("custom_dynamic_field", "dynamic_value")
 
@@ -681,7 +680,7 @@ func TestConfigHandler_SaveConfig(t *testing.T) {
 		if err != nil {
 			t.Fatalf("Expected values.yaml to exist, got %v", err)
 		}
-		if contains(string(valuesContent), "provider:") || !contains(string(valuesContent), "custom_dynamic_field: dynamic_value") {
+		if !contains(string(valuesContent), "custom_dynamic_field: dynamic_value") {
 			t.Errorf("Expected explicit values in values.yaml, got:\n%s", string(valuesContent))
 		}
 	})
@@ -898,9 +897,6 @@ func TestConfigHandler_WorkstationStatePersistence(t *testing.T) {
 		if err := handler.SetContext("local-dev"); err != nil {
 			t.Fatalf("Expected no error setting context, got %v", err)
 		}
-		if err := handler.Set("provider", "docker"); err != nil {
-			t.Fatalf("Expected no error setting provider, got %v", err)
-		}
 		if err := handler.Set("platform", "docker"); err != nil {
 			t.Fatalf("Expected no error setting platform, got %v", err)
 		}
@@ -921,9 +917,6 @@ func TestConfigHandler_WorkstationStatePersistence(t *testing.T) {
 			t.Fatalf("Expected values.yaml to exist, got %v", err)
 		}
 		valuesData := string(valuesContent)
-		if contains(valuesData, "provider:") {
-			t.Errorf("Expected provider excluded from values.yaml, got:\n%s", valuesData)
-		}
 		if contains(valuesData, "platform:") {
 			t.Errorf("Expected platform excluded from values.yaml for dev context, got:\n%s", valuesData)
 		}
@@ -951,19 +944,14 @@ func TestConfigHandler_SetDefault(t *testing.T) {
 		mocks := setupConfigMocks(t)
 		handler := NewConfigHandler(mocks.Shell)
 
-		defaultContext := v1alpha1.Context{
-			Provider: ptrString("default_provider"),
-		}
-
-		err := handler.SetDefault(defaultContext)
+		err := handler.SetDefault(cliconfig.Context{Platform: "default_platform"})
 
 		if err != nil {
 			t.Fatalf("Expected no error, got %v", err)
 		}
 
-		provider := handler.GetString("provider")
-		if provider != "default_provider" {
-			t.Errorf("Expected provider='default_provider', got '%s'", provider)
+		if platform := handler.GetString("platform"); platform != "default_platform" {
+			t.Errorf("Expected platform='default_platform', got '%s'", platform)
 		}
 	})
 
@@ -971,17 +959,11 @@ func TestConfigHandler_SetDefault(t *testing.T) {
 		mocks := setupConfigMocks(t)
 		handler := NewConfigHandler(mocks.Shell)
 
-		defaultContext := v1alpha1.Context{
-			Provider: ptrString("default_provider"),
-		}
-		handler.SetDefault(defaultContext)
+		handler.SetDefault(cliconfig.Context{Platform: "default_platform"})
+		handler.Set("platform", "override_platform")
 
-		handler.Set("provider", "override_provider")
-
-		provider := handler.GetString("provider")
-
-		if provider != "override_provider" {
-			t.Errorf("Expected override to work, got '%s'", provider)
+		if platform := handler.GetString("platform"); platform != "override_platform" {
+			t.Errorf("Expected override to work, got '%s'", platform)
 		}
 	})
 
@@ -989,20 +971,16 @@ func TestConfigHandler_SetDefault(t *testing.T) {
 		mocks := setupConfigMocks(t)
 		handler := NewConfigHandler(mocks.Shell)
 
-		handler.Set("provider", "already_set_provider")
+		handler.Set("platform", "already_set_platform")
 
-		defaultContext := v1alpha1.Context{
-			Provider: ptrString("default_provider"),
-		}
-		err := handler.SetDefault(defaultContext)
+		err := handler.SetDefault(cliconfig.Context{Platform: "default_platform"})
 
 		if err != nil {
 			t.Fatalf("Expected no error, got %v", err)
 		}
 
-		provider := handler.GetString("provider")
-		if provider != "already_set_provider" {
-			t.Errorf("Expected SetDefault called after Set to not clobber the existing value, got '%s'", provider)
+		if platform := handler.GetString("platform"); platform != "already_set_platform" {
+			t.Errorf("Expected SetDefault called after Set to not clobber the existing value, got '%s'", platform)
 		}
 	})
 
@@ -1015,7 +993,7 @@ func TestConfigHandler_SetDefault(t *testing.T) {
 		}
 
 		// When setting default with marshal error
-		err := handler.SetDefault(v1alpha1.Context{})
+		err := handler.SetDefault(cliconfig.Context{})
 
 		// Then setting should fail
 		if err == nil {
@@ -1032,7 +1010,7 @@ func TestConfigHandler_SetDefault(t *testing.T) {
 		}
 
 		// When setting default with unmarshal error
-		err := handler.SetDefault(v1alpha1.Context{Provider: ptrString("test")})
+		err := handler.SetDefault(cliconfig.Context{Platform: "test"})
 
 		// Then setting should fail
 		if err == nil {
@@ -1041,85 +1019,40 @@ func TestConfigHandler_SetDefault(t *testing.T) {
 	})
 }
 
-func TestConfigHandler_GetConfig(t *testing.T) {
-	t.Run("ConvertsDataMapToContextStruct", func(t *testing.T) {
-		mocks := setupConfigMocks(t)
-		handler := NewConfigHandler(mocks.Shell)
-
-		handler.Set("provider", "test_provider")
-		handler.Set("dns.domain", "test.local")
-
-		config := handler.GetConfig()
-
-		if config == nil {
-			t.Fatal("Expected non-nil config")
-		}
-		if config.Provider == nil || *config.Provider != "test_provider" {
-			t.Errorf("Expected provider='test_provider', got %v", config.Provider)
-		}
-		if config.DNS == nil || config.DNS.Domain == nil || *config.DNS.Domain != "test.local" {
-			t.Errorf("Expected dns.domain='test.local', got %v", config.DNS)
-		}
-	})
-
-	t.Run("ExcludesNodesFieldDueToYamlTag", func(t *testing.T) {
-		mocks := setupConfigMocks(t)
-		handler := NewConfigHandler(mocks.Shell)
-
-		handler.Set("cluster.workers.count", 2)
-		handler.Set("cluster.workers.nodes.worker-1.endpoint", "127.0.0.1:50001")
-
-		config := handler.GetConfig()
-
-		if config == nil || config.Cluster == nil {
-			t.Fatal("Expected cluster.workers to exist")
-		}
-		if config.Cluster.Workers.Count == nil || *config.Cluster.Workers.Count != 2 {
-			t.Error("Expected count=2")
-		}
-		if len(config.Cluster.Workers.Nodes) > 0 {
-			t.Error("Expected nodes to be excluded (yaml:\"-\" tag)")
-		}
-	})
-
+func TestConfigHandler_GetHeader(t *testing.T) {
 	t.Run("HandlesMarshalError", func(t *testing.T) {
 		// Given a config handler with failing marshal
 		handler, _ := setupPrivateTestHandler(t)
-		handler.Set("test", "value")
+		handler.Set("platform", "aws")
 
 		handler.shims.YamlMarshal = func(v any) ([]byte, error) {
 			return nil, os.ErrInvalid
 		}
 
-		// When getting config with marshal error
-		config := handler.GetConfig()
+		// When the header is read with a marshal error
+		header := handler.GetHeader()
 
-		// Then empty config should be returned
-		if config == nil {
-			t.Error("Expected empty config on marshal error, got nil")
+		// Then an empty header is returned
+		if header == nil || header.Platform != "" {
+			t.Errorf("Expected an empty header on marshal error, got %+v", header)
 		}
 	})
 
 	t.Run("HandlesUnmarshalError", func(t *testing.T) {
 		// Given a config handler with failing unmarshal
 		handler, _ := setupPrivateTestHandler(t)
-		handler.Set("test", "value")
+		handler.Set("platform", "aws")
 
-		callCount := 0
 		handler.shims.YamlUnmarshal = func(data []byte, v any) error {
-			callCount++
-			if callCount > 1 {
-				return os.ErrInvalid
-			}
-			return handler.shims.YamlUnmarshal(data, v)
+			return os.ErrInvalid
 		}
 
-		// When getting config with unmarshal error
-		config := handler.GetConfig()
+		// When the header is read with an unmarshal error
+		header := handler.GetHeader()
 
-		// Then empty config should be returned
-		if config == nil {
-			t.Error("Expected empty config on unmarshal error, got nil")
+		// Then an empty header is returned
+		if header == nil || header.Platform != "" {
+			t.Errorf("Expected an empty header on unmarshal error, got %+v", header)
 		}
 	})
 }
@@ -2243,25 +2176,6 @@ func TestConfigHandler_HelperConversions(t *testing.T) {
 		}
 		if _, exists := converted["10"]; exists {
 			t.Errorf("Expected non-string keys to be dropped, got %v", converted)
-		}
-	})
-
-	t.Run("MapToContextReturnsEmptyContextOnMarshalOrUnmarshalError", func(t *testing.T) {
-		handler, _ := setupPrivateTestHandler(t)
-
-		handler.shims.YamlMarshal = func(v any) ([]byte, error) {
-			return nil, os.ErrInvalid
-		}
-		if ctx := handler.mapToContext(map[string]any{"provider": "docker"}); ctx.Provider != nil {
-			t.Errorf("Expected empty context on marshal error, got %+v", ctx)
-		}
-
-		handler.shims = NewShims()
-		handler.shims.YamlUnmarshal = func(data []byte, v any) error {
-			return os.ErrInvalid
-		}
-		if ctx := handler.mapToContext(map[string]any{"provider": "docker"}); ctx.Provider != nil {
-			t.Errorf("Expected empty context on unmarshal error, got %+v", ctx)
 		}
 	})
 }

@@ -87,6 +87,8 @@ properties:
         type: string
       project_id:
         type: string
+      quota_project:
+        type: string
   vsphere:
     type: object
     properties:
@@ -189,6 +191,18 @@ properties:
         type: boolean
       registry_url:
         type: string
+      registries:
+        type: object
+        additionalProperties:
+          type: object
+          properties:
+            remote:
+              type: string
+              description: Upstream registry URL. A registry without one is a local registry.
+            hostport:
+              type: integer
+              description: Host port of a local registry.
+        description: Registries, keyed by registry host.
   gitops:
     type: object
     properties:

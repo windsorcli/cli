@@ -175,23 +175,23 @@ func (e *VirtEnvPrinter) getRegistryURL() (string, error) {
 		if _, _, err := net.SplitHostPort(registryURL); err == nil {
 			return registryURL, nil
 		}
-		config := e.configHandler.GetConfig()
+		config := e.configHandler.GetHeader()
 		if config.Docker != nil && config.Docker.Registries != nil {
 			if registryConfig, exists := config.Docker.Registries[registryURL]; exists {
-				if registryConfig.HostPort != 0 {
-					return fmt.Sprintf("%s:%d", registryURL, registryConfig.HostPort), nil
+				if registryConfig.HostPort != nil && *registryConfig.HostPort != 0 {
+					return fmt.Sprintf("%s:%d", registryURL, *registryConfig.HostPort), nil
 				}
 			}
 		}
 		return registryURL, nil
 	}
 
-	config := e.configHandler.GetConfig()
+	config := e.configHandler.GetHeader()
 	if config.Docker != nil && config.Docker.Registries != nil {
 		for url, registryConfig := range config.Docker.Registries {
-			if registryConfig.Remote == "" {
-				if registryConfig.HostPort != 0 {
-					return fmt.Sprintf("%s:%d", url, registryConfig.HostPort), nil
+			if registryConfig.Remote == nil || *registryConfig.Remote == "" {
+				if registryConfig.HostPort != nil && *registryConfig.HostPort != 0 {
+					return fmt.Sprintf("%s:%d", url, *registryConfig.HostPort), nil
 				}
 				return fmt.Sprintf("%s:5000", url), nil
 			}

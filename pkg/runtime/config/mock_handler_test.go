@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/windsorcli/cli/api/v1alpha1"
+	cliconfig "github.com/windsorcli/cli/api/config/v1alpha2"
 )
 
 // The MockConfigHandlerTest is a test suite for the MockConfigHandler implementation.
@@ -698,12 +698,12 @@ func TestMockConfigHandler_SetDefault(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
 		// Given a mock config handler with SetDefaultFunc set
 		mockConfigHandler := setupMockConfigHandlerMocks(t)
-		mockConfigHandler.SetDefaultFunc = func(context v1alpha1.Context) error {
+		mockConfigHandler.SetDefaultFunc = func(context cliconfig.Context) error {
 			return nil
 		}
 
 		// When calling SetDefault
-		err := mockConfigHandler.SetDefault(v1alpha1.Context{})
+		err := mockConfigHandler.SetDefault(cliconfig.Context{})
 
 		// Then no error should be returned
 		if err != nil {
@@ -715,12 +715,12 @@ func TestMockConfigHandler_SetDefault(t *testing.T) {
 		// Given a mock config handler with SetDefaultFunc set to return an error
 		mockConfigHandler := setupMockConfigHandlerMocks(t)
 		expectedError := fmt.Errorf("mock set default error")
-		mockConfigHandler.SetDefaultFunc = func(context v1alpha1.Context) error {
+		mockConfigHandler.SetDefaultFunc = func(context cliconfig.Context) error {
 			return expectedError
 		}
 
 		// When calling SetDefault
-		err := mockConfigHandler.SetDefault(v1alpha1.Context{})
+		err := mockConfigHandler.SetDefault(cliconfig.Context{})
 
 		// Then the expected error should be returned
 		if err == nil {
@@ -736,7 +736,7 @@ func TestMockConfigHandler_SetDefault(t *testing.T) {
 		mockConfigHandler := setupMockConfigHandlerMocks(t)
 
 		// When calling SetDefault
-		err := mockConfigHandler.SetDefault(v1alpha1.Context{})
+		err := mockConfigHandler.SetDefault(cliconfig.Context{})
 
 		// Then no error should be returned (default implementation)
 		if err != nil {
@@ -745,18 +745,18 @@ func TestMockConfigHandler_SetDefault(t *testing.T) {
 	})
 }
 
-// TestMockConfigHandler_GetConfig tests the GetConfig method of MockConfigHandler
-func TestMockConfigHandler_GetConfig(t *testing.T) {
+// TestMockConfigHandler_GetHeader tests the GetHeader method of MockConfigHandler
+func TestMockConfigHandler_GetHeader(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
-		// Given a mock config handler with GetConfigFunc set
+		// Given a mock config handler with GetHeaderFunc set
 		mockConfigHandler := setupMockConfigHandlerMocks(t)
-		expectedResult := &v1alpha1.Context{ID: stringPtr("test-context")}
-		mockConfigHandler.GetConfigFunc = func() *v1alpha1.Context {
+		expectedResult := &cliconfig.Context{ID: "test-context"}
+		mockConfigHandler.GetHeaderFunc = func() *cliconfig.Context {
 			return expectedResult
 		}
 
-		// When calling GetConfig
-		result := mockConfigHandler.GetConfig()
+		// When calling GetHeader
+		result := mockConfigHandler.GetHeader()
 
 		// Then the expected result should be returned
 		if result != expectedResult {
@@ -765,17 +765,17 @@ func TestMockConfigHandler_GetConfig(t *testing.T) {
 	})
 
 	t.Run("NotImplemented", func(t *testing.T) {
-		// Given a mock config handler with GetConfigFunc not set
+		// Given a mock config handler with GetHeaderFunc not set
 		mockConfigHandler := setupMockConfigHandlerMocks(t)
 
-		// When calling GetConfig
-		result := mockConfigHandler.GetConfig()
+		// When calling GetHeader
+		result := mockConfigHandler.GetHeader()
 
-		// Then an empty context should be returned (default implementation)
+		// Then an empty header should be returned (default implementation)
 		if result == nil {
-			t.Error("Expected non-nil result, got nil")
+			t.Fatal("Expected non-nil result, got nil")
 		}
-		if result.ID != nil {
+		if result.ID != "" {
 			t.Errorf("Expected empty context, got %v", result)
 		}
 	})

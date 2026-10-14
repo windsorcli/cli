@@ -7,7 +7,7 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/windsorcli/cli/api/v1alpha1"
+	cliconfig "github.com/windsorcli/cli/api/config/v1alpha2"
 	"github.com/windsorcli/cli/pkg/runtime/shell"
 )
 
@@ -39,8 +39,8 @@ type ConfigHandler interface {
 	Get(key string) any
 	SaveConfig(overwrite ...bool) error
 	SaveWorkstationState() error
-	SetDefault(context v1alpha1.Context) error
-	GetConfig() *v1alpha1.Context
+	SetDefault(context cliconfig.Context) error
+	GetHeader() *cliconfig.Context
 	GetContext() string
 	WithContext(name string) ConfigHandler
 	IsDevMode(contextName string) bool
@@ -80,7 +80,6 @@ type configHandler struct {
 	values          *valuesSource
 	workstation     *workstationSource
 	data            map[string]any
-	defaultConfig   *v1alpha1.Context
 
 	// pendingOverrides and pendingDeletes feed SaveConfig's patch write.
 	pendingOverrides map[string]any
@@ -144,8 +143,9 @@ func NewConfigHandler(shell shell.Shell) ConfigHandler {
 // LoadConfigString loads YAML configuration directly into the internal data map for testing purposes.
 // It unmarshals the provided YAML string and, if a "contexts" key exists, extracts and merges only
 // the configuration for the current context. If no "contexts" structure is present, it merges the entire
-// map. This method is primarily intended for test helpers and not for production use; load configuration
-// in production with LoadConfig instead. Returns an error if YAML unmarshalling fails.
+// map. It then converts v1alpha1 values into the v1alpha2 header. This method is primarily intended for
+// test helpers and not for production use; load configuration in production with LoadConfig instead.
+// Returns an error if YAML unmarshalling fails.
 func (c *configHandler) LoadConfigString(content string) error {
 	if content == "" {
 		return nil
@@ -184,6 +184,7 @@ func (c *configHandler) LoadConfigString(content string) error {
 
 				if contextMap != nil {
 					c.data = c.deepMerge(c.data, contextMap)
+					convertV1alpha1(c.data)
 					c.loaded = true
 					return nil
 				}
@@ -192,6 +193,7 @@ func (c *configHandler) LoadConfigString(content string) error {
 	}
 
 	c.data = c.deepMerge(c.data, dataMap)
+	convertV1alpha1(c.data)
 	c.loaded = true
 
 	return nil
@@ -353,14 +355,10 @@ func (c *configHandler) SaveWorkstationState() error {
 	)
 }
 
-// SetDefault sets the default context configuration in the config handler's internal data.
-// It marshals the given v1alpha1.Context struct to a map and merges it into the handler's data.
-// Values already present in data take precedence over the default, so this is safe to call
-// regardless of load order or how many times it runs.
-// This method is typically used during initialization when context files do not yet exist.
-// The original default config is stored so it can be used when saving a new config file to ensure
-// all default values are preserved even if they were empty/nil (which would be omitted by omitempty tags).
-func (c *configHandler) SetDefault(context v1alpha1.Context) error {
+// SetDefault merges the default context into the handler's data. Values already present in data
+// take precedence over the default, so this is safe to call regardless of load order or how many
+// times it runs.
+func (c *configHandler) SetDefault(context cliconfig.Context) error {
 	contextData, err := c.shims.YamlMarshal(context)
 	if err != nil {
 		return fmt.Errorf("error marshalling context: %w", err)
@@ -373,28 +371,23 @@ func (c *configHandler) SetDefault(context v1alpha1.Context) error {
 
 	c.data = c.deepMerge(contextMap, c.data)
 
-	contextCopy := context
-	c.defaultConfig = &contextCopy
-
 	return nil
 }
 
-// GetConfig returns the context configuration as a v1alpha1.Context struct by marshalling
-// the configHandler's internal data map to YAML and then unmarshalling it into the struct.
-// This provides backward compatibility for code that relies on the statically typed Context.
-// Returns a pointer to an empty Context if marshaling or unmarshaling fails.
-func (c *configHandler) GetConfig() *v1alpha1.Context {
+// GetHeader decodes the handler's data into the v1alpha2 header. Keys the header does not define
+// are left out. It returns an empty header when the data does not decode.
+func (c *configHandler) GetHeader() *cliconfig.Context {
 	contextData, err := c.shims.YamlMarshal(c.data)
 	if err != nil {
-		return &v1alpha1.Context{}
+		return &cliconfig.Context{}
 	}
 
-	var context v1alpha1.Context
-	if err := c.shims.YamlUnmarshal(contextData, &context); err != nil {
-		return &v1alpha1.Context{}
+	var header cliconfig.Context
+	if err := c.shims.YamlUnmarshal(contextData, &header); err != nil {
+		return &cliconfig.Context{}
 	}
 
-	return &context
+	return &header
 }
 
 // GetContext retrieves the current context, checking (in priority order):
@@ -645,7 +638,7 @@ func (c *configHandler) LoadSchemaFromBytes(schemaContent []byte) error {
 }
 
 // ValidateContextValues runs schema validation on the full context configuration map. Cross-field
-// rules spanning static (v1alpha1.Context) and dynamic fields are evaluated against the unified map,
+// rules spanning header and dynamic fields are evaluated against the unified map,
 // matching the file-load validation path. Use before impactful operations (e.g. windsor up) and after
 // compositional Set sequences. Returns nil if no schema is loaded or if validation passes; returns an
 // error if validation fails. When the same invalid data was already warned about by valuesSource.Load
@@ -745,22 +738,6 @@ func (c *configHandler) convertInterfaceMap(m map[any]any) map[string]any {
 		}
 	}
 	return result
-}
-
-// mapToContext converts a map to a v1alpha1.Context struct by marshaling and unmarshaling.
-// This ensures that yaml tags (like yaml:"-") are respected when saving to files.
-func (c *configHandler) mapToContext(data map[string]any) *v1alpha1.Context {
-	contextData, err := c.shims.YamlMarshal(data)
-	if err != nil {
-		return &v1alpha1.Context{}
-	}
-
-	var context v1alpha1.Context
-	if err := c.shims.YamlUnmarshal(contextData, &context); err != nil {
-		return &v1alpha1.Context{}
-	}
-
-	return &context
 }
 
 // deepMerge recursively merges two maps with overlay values taking precedence.
