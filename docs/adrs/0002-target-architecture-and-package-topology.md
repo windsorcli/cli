@@ -79,7 +79,7 @@ against this table unchanged.
 
 Considered and rejected: moving all of `pkg/` under a top-level `internal/` to make the whole
 application non-importable by other Go modules. This module (`github.com/windsorcli/cli`) does have
-one genuinely external consumer surface — `api/v1alpha1`/`api/v1alpha2`, imported by tooling outside
+one genuinely external consumer surface — `api/`, imported by tooling outside
 this repo — but `pkg/`, `cmd/`, and `internal/` are already correctly non-`api` and nothing indicates
 anything outside this repo imports them today. Moving ~150 files' import paths for an enforcement
 benefit with no evidence of an actual external-import problem is exactly the kind of one-time,

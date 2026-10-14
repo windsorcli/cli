@@ -1,7 +1,6 @@
 package config
 
 import (
-	"embed"
 	"fmt"
 	"maps"
 	"path/filepath"
@@ -11,9 +10,6 @@ import (
 	"github.com/windsorcli/cli/api/v1alpha1"
 	"github.com/windsorcli/cli/pkg/runtime/shell"
 )
-
-//go:embed schemas/*.yaml
-var systemSchemasFS embed.FS
 
 // =============================================================================
 // Constants
@@ -140,7 +136,7 @@ func NewConfigHandler(shell shell.Shell) ConfigHandler {
 	handler.policy = newPersistencePolicy()
 	handler.workstation = newWorkstationSource(handler.shims, handler.policy)
 	handler.values = newValuesSource(handler.shims, handler.schemaValidator, handler.policy)
-	handler.typed = newTypedSource(handler.shims, handler.schemaValidator)
+	handler.typed = newTypedSource(handler.shims)
 
 	return handler
 }
@@ -239,7 +235,7 @@ func (c *configHandler) LoadConfigForContext(contextName string) error {
 		}
 	}
 
-	rootValues, rootLoaded, err := c.typed.LoadRoot(projectRoot, contextName, c.LoadSchemaFromBytes)
+	rootValues, rootLoaded, err := c.typed.LoadRoot(projectRoot, contextName)
 	if err != nil {
 		return err
 	}
@@ -613,34 +609,36 @@ func (c *configHandler) IsSensitivePath(path string) bool {
 	return false
 }
 
-// LoadSchema loads the schema.yaml file from the specified directory.
-// System-level schema plugins (like substitutions) are applied after loading.
-// Returns error if schema file doesn't exist or is invalid.
+// LoadSchema reads the schema file at schemaPath and loads it as LoadSchemaFromBytes does.
+// Returns an error if the file cannot be read or the schema is invalid.
 func (c *configHandler) LoadSchema(schemaPath string) error {
 	if c.schemaValidator == nil {
 		return fmt.Errorf("runtime not fully initialized: schema validator missing")
 	}
-	if err := c.schemaValidator.LoadSchema(schemaPath); err != nil {
-		return err
+	schemaContent, err := c.shims.ReadFile(schemaPath)
+	if err != nil {
+		return fmt.Errorf("failed to read schema file %s: %w", schemaPath, err)
 	}
-	c.applySystemSchemaPlugins()
-	c.reconvertStringSets()
-	return nil
+	return c.LoadSchemaFromBytes(schemaContent)
 }
 
-// LoadSchemaFromBytes loads schema directly from byte content.
-// If a schema already exists, the new schema is merged into it with the new schema's properties
-// overriding existing properties with the same name. If no schema exists, it loads the new schema.
-// System-level schema plugins (like substitutions) are applied after loading.
-// Returns error if schema content is invalid.
+// LoadSchemaFromBytes merges a schema fragment into the loaded schema, then merges the CLI
+// fragment over the result. It first rejects a fragment that gives a CLI-owned path a different
+// type, and leaves the loaded schema unchanged in that case. After the merge, values that Set
+// converted from strings convert again against the new schema.
 func (c *configHandler) LoadSchemaFromBytes(schemaContent []byte) error {
 	if c.schemaValidator == nil {
 		return fmt.Errorf("runtime not fully initialized: schema validator missing")
 	}
+	if err := checkCLIOwnedTypes(schemaContent); err != nil {
+		return err
+	}
 	if err := c.schemaValidator.LoadSchemaFromBytes(schemaContent); err != nil {
 		return err
 	}
-	c.applySystemSchemaPlugins()
+	if err := c.applyCLISchema(); err != nil {
+		return err
+	}
 	c.reconvertStringSets()
 	return nil
 }
@@ -780,38 +778,6 @@ func (c *configHandler) deepMerge(base, overlay map[string]any) map[string]any {
 		result[k] = overlayValue
 	}
 	return result
-}
-
-// applySystemSchemaPlugins applies system-level schema plugins to the loaded schema.
-// These plugins load schema definitions from embedded YAML files in schemas/ directory
-// and merge them into the loaded schema. System schemas define features like substitutions
-// that are always available regardless of the blueprint schema definition.
-// This method is extensible - add new schema.yaml files to schemas/ to include additional system schemas.
-func (c *configHandler) applySystemSchemaPlugins() {
-	if c.schemaValidator == nil || c.schemaValidator.Schema == nil {
-		return
-	}
-
-	entries, err := systemSchemasFS.ReadDir("schemas")
-	if err != nil {
-		return
-	}
-
-	for _, entry := range entries {
-		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".yaml") {
-			continue
-		}
-
-		schemaPath := "schemas/" + entry.Name()
-		schemaContent, err := systemSchemasFS.ReadFile(schemaPath)
-		if err != nil {
-			continue
-		}
-
-		if err := c.schemaValidator.LoadSchemaFromBytes(schemaContent); err != nil {
-			continue
-		}
-	}
 }
 
 // =============================================================================
