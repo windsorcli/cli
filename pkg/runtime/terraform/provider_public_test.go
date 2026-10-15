@@ -10,8 +10,8 @@ import (
 	"testing"
 	"time"
 
+	cliconfig "github.com/windsorcli/cli/api/config/v1alpha2"
 	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
-	terraformcfg "github.com/windsorcli/cli/api/v1alpha1/terraform"
 	"github.com/windsorcli/cli/pkg/runtime/config"
 	"github.com/windsorcli/cli/pkg/runtime/evaluator"
 	"github.com/windsorcli/cli/pkg/runtime/shell"
@@ -1945,6 +1945,37 @@ terraform:
 		}
 	})
 
+	t.Run("PassesEveryFieldOfTheBackendBlock", func(t *testing.T) {
+		// Given an s3 backend block with a field the header does not define
+		blueprintYAML := `apiVersion: blueprints.windsorcli.dev/v1alpha1
+kind: Blueprint
+metadata:
+  name: test
+terraform:
+  - path: test/path`
+		mocks := setupMocks(t, &SetupOptions{BlueprintYAML: blueprintYAML, BackendType: "s3"})
+		mocks.ConfigHandler.GetFunc = func(key string) any {
+			if key == "terraform.backend.s3" {
+				return map[string]any{"bucket": "state", "role_arn": "arn:aws:iam::123456789012:role/state"}
+			}
+			return nil
+		}
+
+		// When generating terraform args
+		args, err := mocks.Provider.GenerateTerraformArgs("test/path", true)
+
+		// Then the init args carry both fields of the block
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		initArgs := strings.Join(args.InitArgs, " ")
+		for _, want := range []string{"bucket=state", "role_arn=arn:aws:iam::123456789012:role/state"} {
+			if !strings.Contains(initArgs, want) {
+				t.Errorf("Expected init args to contain %q, got %v", want, args.InitArgs)
+			}
+		}
+	})
+
 	t.Run("IncludesVarFileArgs", func(t *testing.T) {
 		// Given a provider with tfvars file
 		mocks := setupMocks(t)
@@ -2850,8 +2881,8 @@ func TestTerraformProvider_BackendConfigComplete(t *testing.T) {
 		// the kubernetes case was reached. Kubernetes uses ambient kubeconfig
 		// so a missing nested block is the normal case.
 		mocks := setupMocks(t, &SetupOptions{BackendType: "kubernetes"})
-		mocks.ConfigHandler.GetConfigFunc = func() *blueprintv1alpha1.Context {
-			return &blueprintv1alpha1.Context{} // Terraform == nil
+		mocks.ConfigHandler.GetHeaderFunc = func() *cliconfig.Context {
+			return &cliconfig.Context{} // Terraform == nil
 		}
 		if !mocks.Provider.BackendConfigComplete() {
 			t.Error("Expected kubernetes backend to be complete without a nested config block")
@@ -2864,8 +2895,8 @@ func TestTerraformProvider_BackendConfigComplete(t *testing.T) {
 		// special-case (http, consul, remote, cos, ...). Default-allow lets
 		// the probe run; real init failures surface via the warning path.
 		mocks := setupMocks(t, &SetupOptions{BackendType: "http"})
-		mocks.ConfigHandler.GetConfigFunc = func() *blueprintv1alpha1.Context {
-			return &blueprintv1alpha1.Context{}
+		mocks.ConfigHandler.GetHeaderFunc = func() *cliconfig.Context {
+			return &cliconfig.Context{}
 		}
 		if !mocks.Provider.BackendConfigComplete() {
 			t.Error("Expected unrecognized backend type 'http' to default to complete")
@@ -2876,9 +2907,9 @@ func TestTerraformProvider_BackendConfigComplete(t *testing.T) {
 		mocks := setupMocks(t, &SetupOptions{BackendType: "azurerm"})
 
 		// Missing both
-		mocks.ConfigHandler.GetConfigFunc = func() *blueprintv1alpha1.Context {
-			return &blueprintv1alpha1.Context{
-				Terraform: &terraformcfg.TerraformConfig{Backend: &terraformcfg.BackendConfig{}},
+		mocks.ConfigHandler.GetHeaderFunc = func() *cliconfig.Context {
+			return &cliconfig.Context{
+				Terraform: &cliconfig.Terraform{Backend: &cliconfig.TerraformBackend{}},
 			}
 		}
 		if mocks.Provider.BackendConfigComplete() {
@@ -2886,10 +2917,10 @@ func TestTerraformProvider_BackendConfigComplete(t *testing.T) {
 		}
 
 		// Only storage_account_name
-		mocks.ConfigHandler.GetConfigFunc = func() *blueprintv1alpha1.Context {
-			return &blueprintv1alpha1.Context{
-				Terraform: &terraformcfg.TerraformConfig{Backend: &terraformcfg.BackendConfig{
-					AzureRM: &terraformcfg.AzureRMBackend{StorageAccountName: stringPtr("sa")},
+		mocks.ConfigHandler.GetHeaderFunc = func() *cliconfig.Context {
+			return &cliconfig.Context{
+				Terraform: &cliconfig.Terraform{Backend: &cliconfig.TerraformBackend{
+					AzureRM: &cliconfig.AzureRMBackend{StorageAccountName: stringPtr("sa")},
 				}},
 			}
 		}
@@ -2898,10 +2929,10 @@ func TestTerraformProvider_BackendConfigComplete(t *testing.T) {
 		}
 
 		// Both fields present
-		mocks.ConfigHandler.GetConfigFunc = func() *blueprintv1alpha1.Context {
-			return &blueprintv1alpha1.Context{
-				Terraform: &terraformcfg.TerraformConfig{Backend: &terraformcfg.BackendConfig{
-					AzureRM: &terraformcfg.AzureRMBackend{
+		mocks.ConfigHandler.GetHeaderFunc = func() *cliconfig.Context {
+			return &cliconfig.Context{
+				Terraform: &cliconfig.Terraform{Backend: &cliconfig.TerraformBackend{
+					AzureRM: &cliconfig.AzureRMBackend{
 						StorageAccountName: stringPtr("sa"),
 						ContainerName:      stringPtr("c"),
 					},
@@ -2916,19 +2947,19 @@ func TestTerraformProvider_BackendConfigComplete(t *testing.T) {
 	t.Run("S3RequiresBucket", func(t *testing.T) {
 		mocks := setupMocks(t, &SetupOptions{BackendType: "s3"})
 
-		mocks.ConfigHandler.GetConfigFunc = func() *blueprintv1alpha1.Context {
-			return &blueprintv1alpha1.Context{
-				Terraform: &terraformcfg.TerraformConfig{Backend: &terraformcfg.BackendConfig{}},
+		mocks.ConfigHandler.GetHeaderFunc = func() *cliconfig.Context {
+			return &cliconfig.Context{
+				Terraform: &cliconfig.Terraform{Backend: &cliconfig.TerraformBackend{}},
 			}
 		}
 		if mocks.Provider.BackendConfigComplete() {
 			t.Error("Expected s3 with no nested config to be incomplete")
 		}
 
-		mocks.ConfigHandler.GetConfigFunc = func() *blueprintv1alpha1.Context {
-			return &blueprintv1alpha1.Context{
-				Terraform: &terraformcfg.TerraformConfig{Backend: &terraformcfg.BackendConfig{
-					S3: &terraformcfg.S3Backend{Bucket: stringPtr("b")},
+		mocks.ConfigHandler.GetHeaderFunc = func() *cliconfig.Context {
+			return &cliconfig.Context{
+				Terraform: &cliconfig.Terraform{Backend: &cliconfig.TerraformBackend{
+					S3: &cliconfig.S3Backend{Bucket: stringPtr("b")},
 				}},
 			}
 		}
@@ -2940,19 +2971,19 @@ func TestTerraformProvider_BackendConfigComplete(t *testing.T) {
 	t.Run("GCSRequiresBucket", func(t *testing.T) {
 		mocks := setupMocks(t, &SetupOptions{BackendType: "gcs"})
 
-		mocks.ConfigHandler.GetConfigFunc = func() *blueprintv1alpha1.Context {
-			return &blueprintv1alpha1.Context{
-				Terraform: &terraformcfg.TerraformConfig{Backend: &terraformcfg.BackendConfig{}},
+		mocks.ConfigHandler.GetHeaderFunc = func() *cliconfig.Context {
+			return &cliconfig.Context{
+				Terraform: &cliconfig.Terraform{Backend: &cliconfig.TerraformBackend{}},
 			}
 		}
 		if mocks.Provider.BackendConfigComplete() {
 			t.Error("Expected gcs with no nested config to be incomplete")
 		}
 
-		mocks.ConfigHandler.GetConfigFunc = func() *blueprintv1alpha1.Context {
-			return &blueprintv1alpha1.Context{
-				Terraform: &terraformcfg.TerraformConfig{Backend: &terraformcfg.BackendConfig{
-					GCS: &terraformcfg.GCSBackend{Bucket: stringPtr("b")},
+		mocks.ConfigHandler.GetHeaderFunc = func() *cliconfig.Context {
+			return &cliconfig.Context{
+				Terraform: &cliconfig.Terraform{Backend: &cliconfig.TerraformBackend{
+					GCS: &cliconfig.GCSBackend{Bucket: stringPtr("b")},
 				}},
 			}
 		}

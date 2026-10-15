@@ -10,7 +10,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/windsorcli/cli/api/v1alpha1"
+	cliconfig "github.com/windsorcli/cli/api/config/v1alpha2"
 	"github.com/windsorcli/cli/pkg/debug"
 	"github.com/windsorcli/cli/pkg/runtime/config"
 	"github.com/windsorcli/cli/pkg/runtime/shell"
@@ -73,7 +73,7 @@ func (e *AzureEnvPrinter) GetEnvVars() (map[string]string, error) {
 		envVars["AZURE_CORE_LOGIN_EXPERIENCE_V2"] = "false"
 	}
 
-	config := e.configHandler.GetConfig()
+	config := e.configHandler.GetHeader()
 	if config != nil && config.Azure != nil {
 		if config.Azure.SubscriptionID != nil {
 			envVars["ARM_SUBSCRIPTION_ID"] = *config.Azure.SubscriptionID
@@ -105,7 +105,7 @@ func (e *AzureEnvPrinter) GetEnvVars() (map[string]string, error) {
 // AZURE_FEDERATED_TOKEN_FILE / GitHub Actions OIDC → workloadidentity →
 // AZURE_CLIENT_SECRET / AZURE_CLIENT_CERTIFICATE_PATH → spn → otherwise →
 // azurecli.
-func (e *AzureEnvPrinter) resolveKubeloginMode(config *v1alpha1.Context) string {
+func (e *AzureEnvPrinter) resolveKubeloginMode(config *cliconfig.Context) string {
 	if config != nil && config.Azure != nil && config.Azure.KubeloginMode != nil {
 		if v := *config.Azure.KubeloginMode; v != "" {
 			return v

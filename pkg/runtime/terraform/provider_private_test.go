@@ -7,8 +7,6 @@ import (
 	"strings"
 	"testing"
 
-	v1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
-	"github.com/windsorcli/cli/api/v1alpha1/terraform"
 	"github.com/windsorcli/cli/pkg/runtime/config"
 	"github.com/windsorcli/cli/pkg/runtime/evaluator"
 )
@@ -161,14 +159,11 @@ func TestTerraformProvider_generateBackendConfigArgs(t *testing.T) {
 			return "default"
 		}
 
-		mockConfig.GetConfigFunc = func() *v1alpha1.Context {
-			return &v1alpha1.Context{
-				Terraform: &terraform.TerraformConfig{
-					Backend: &terraform.BackendConfig{
-						S3: &terraform.S3Backend{},
-					},
-				},
+		mockConfig.GetFunc = func(key string) any {
+			if key == "terraform.backend.s3" {
+				return map[string]any{}
 			}
+			return nil
 		}
 
 		provider.Shims.YamlMarshal = func(v any) ([]byte, error) { return []byte("{}"), nil }
@@ -245,12 +240,11 @@ func TestTerraformProvider_generateBackendConfigArgs(t *testing.T) {
 			return "default"
 		}
 
-		mockConfig.GetConfigFunc = func() *v1alpha1.Context {
-			return &v1alpha1.Context{
-				Terraform: &terraform.TerraformConfig{
-					Backend: &terraform.BackendConfig{S3: &terraform.S3Backend{}},
-				},
+		mockConfig.GetFunc = func(key string) any {
+			if key == "terraform.backend.s3" {
+				return map[string]any{}
 			}
+			return nil
 		}
 		provider.Shims.YamlMarshal = func(v any) ([]byte, error) { return []byte("{}"), nil }
 		provider.Shims.YamlUnmarshal = func(data []byte, v any) error {
@@ -328,12 +322,11 @@ func TestTerraformProvider_generateBackendConfigArgs(t *testing.T) {
 			return "default"
 		}
 
-		mockConfig.GetConfigFunc = func() *v1alpha1.Context {
-			return &v1alpha1.Context{
-				Terraform: &terraform.TerraformConfig{
-					Backend: &terraform.BackendConfig{S3: &terraform.S3Backend{}},
-				},
+		mockConfig.GetFunc = func(key string) any {
+			if key == "terraform.backend.s3" {
+				return map[string]any{}
 			}
+			return nil
 		}
 		provider.Shims.YamlMarshal = func(v any) ([]byte, error) { return []byte("{}"), nil }
 		provider.Shims.YamlUnmarshal = func(data []byte, v any) error {
@@ -455,19 +448,11 @@ func TestTerraformProvider_generateBackendConfigArgs(t *testing.T) {
 			return "default"
 		}
 
-		mockConfig.GetConfigFunc = func() *v1alpha1.Context {
-			bucket := "my-bucket"
-			region := "us-east-1"
-			return &v1alpha1.Context{
-				Terraform: &terraform.TerraformConfig{
-					Backend: &terraform.BackendConfig{
-						S3: &terraform.S3Backend{
-							Bucket: &bucket,
-							Region: &region,
-						},
-					},
-				},
+		mockConfig.GetFunc = func(key string) any {
+			if key == "terraform.backend.s3" {
+				return map[string]any{"bucket": "my-bucket", "region": "us-east-1"}
 			}
+			return nil
 		}
 
 		provider.Shims.Stat = func(path string) (os.FileInfo, error) {
@@ -532,17 +517,11 @@ func TestTerraformProvider_generateBackendConfigArgs(t *testing.T) {
 			return "default"
 		}
 
-		mockConfig.GetConfigFunc = func() *v1alpha1.Context {
-			secretSuffix := "terraform-state"
-			return &v1alpha1.Context{
-				Terraform: &terraform.TerraformConfig{
-					Backend: &terraform.BackendConfig{
-						Kubernetes: &terraform.KubernetesBackend{
-							SecretSuffix: &secretSuffix,
-						},
-					},
-				},
+		mockConfig.GetFunc = func(key string) any {
+			if key == "terraform.backend.kubernetes" {
+				return map[string]any{"secret_suffix": "terraform-state"}
 			}
+			return nil
 		}
 
 		provider.Shims.Stat = func(path string) (os.FileInfo, error) {
@@ -609,14 +588,11 @@ func TestTerraformProvider_generateBackendConfigArgs(t *testing.T) {
 			return "default"
 		}
 
-		mockConfig.GetConfigFunc = func() *v1alpha1.Context {
-			return &v1alpha1.Context{
-				Terraform: &terraform.TerraformConfig{
-					Backend: &terraform.BackendConfig{
-						Kubernetes: &terraform.KubernetesBackend{},
-					},
-				},
+		mockConfig.GetFunc = func(key string) any {
+			if key == "terraform.backend.kubernetes" {
+				return map[string]any{}
 			}
+			return nil
 		}
 
 		provider.Shims.Stat = func(path string) (os.FileInfo, error) {
@@ -668,21 +644,11 @@ func TestTerraformProvider_generateBackendConfigArgs(t *testing.T) {
 			return "default"
 		}
 
-		mockConfig.GetConfigFunc = func() *v1alpha1.Context {
-			rg := "rg"
-			sa := "sa"
-			container := "container"
-			return &v1alpha1.Context{
-				Terraform: &terraform.TerraformConfig{
-					Backend: &terraform.BackendConfig{
-						AzureRM: &terraform.AzureRMBackend{
-							ResourceGroupName:  &rg,
-							StorageAccountName: &sa,
-							ContainerName:      &container,
-						},
-					},
-				},
+		mockConfig.GetFunc = func(key string) any {
+			if key == "terraform.backend.azurerm" {
+				return map[string]any{"resource_group_name": "rg", "storage_account_name": "sa", "container_name": "container"}
 			}
+			return nil
 		}
 
 		provider.Shims.Stat = func(path string) (os.FileInfo, error) {
@@ -748,17 +714,11 @@ func TestTerraformProvider_generateBackendConfigArgs(t *testing.T) {
 			return "default"
 		}
 
-		mockConfig.GetConfigFunc = func() *v1alpha1.Context {
-			bucket := "bucket"
-			return &v1alpha1.Context{
-				Terraform: &terraform.TerraformConfig{
-					Backend: &terraform.BackendConfig{
-						GCS: &terraform.GCSBackend{
-							Bucket: &bucket,
-						},
-					},
-				},
+		mockConfig.GetFunc = func(key string) any {
+			if key == "terraform.backend.gcs" {
+				return map[string]any{"bucket": "bucket"}
 			}
+			return nil
 		}
 
 		provider.Shims.Stat = func(path string) (os.FileInfo, error) {
@@ -894,14 +854,11 @@ func TestTerraformProvider_generateBackendConfigArgs(t *testing.T) {
 			return "default"
 		}
 
-		mockConfig.GetConfigFunc = func() *v1alpha1.Context {
-			return &v1alpha1.Context{
-				Terraform: &terraform.TerraformConfig{
-					Backend: &terraform.BackendConfig{
-						S3: &terraform.S3Backend{},
-					},
-				},
+		mockConfig.GetFunc = func(key string) any {
+			if key == "terraform.backend.s3" {
+				return map[string]any{}
 			}
+			return nil
 		}
 
 		provider.Shims.Stat = func(path string) (os.FileInfo, error) {

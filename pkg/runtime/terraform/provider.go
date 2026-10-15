@@ -792,7 +792,7 @@ func (p *terraformProvider) BackendConfigComplete() bool {
 		return true
 	}
 
-	cfg := p.configHandler.GetConfig().Terraform
+	cfg := p.configHandler.GetHeader().Terraform
 	switch backendType {
 	case "azurerm":
 		return cfg != nil && cfg.Backend != nil && cfg.Backend.AzureRM != nil &&
@@ -1255,6 +1255,7 @@ func (p *terraformProvider) restoreEnvVars(originalEnvVars map[string]string) {
 // This method determines the backend type from the configuration and assembles key-value argument pairs for supported
 // backend types (local, s3, kubernetes, azurerm). It also detects the presence of backend.tfvars in the context root
 // or a terraform/ fallback subdirectory, and includes a -backend-config pointing to that file if found.
+// It passes every field of the backend's config block, read untyped, as one argument each.
 // Returns raw CLI arguments without shell quoting; formatting for environment variables is handled by the calling context.
 // Returns a slice of backend configuration arguments or an error if required configuration or paths are unavailable.
 func (p *terraformProvider) generateBackendConfigArgs(projectPath, configRoot string) ([]string, error) {
@@ -1300,11 +1301,9 @@ func (p *terraformProvider) generateBackendConfigArgs(projectPath, configRoot st
 		appendBackendTfvars()
 		keyPath := fmt.Sprintf("%s%s", prefix, filepath.ToSlash(filepath.Join(projectPath, "terraform.tfstate")))
 		addBackendConfigArg("key", keyPath)
-		if tfConfig := p.configHandler.GetConfig().Terraform; tfConfig != nil && tfConfig.Backend != nil {
-			if backend := tfConfig.Backend.S3; backend != nil {
-				if err := p.processBackendConfig(backend, addBackendConfigArg); err != nil {
-					return nil, fmt.Errorf("error processing S3 backend config: %w", err)
-				}
+		if backend, ok := p.configHandler.Get("terraform.backend.s3").(map[string]any); ok {
+			if err := p.processBackendConfig(backend, addBackendConfigArg); err != nil {
+				return nil, fmt.Errorf("error processing S3 backend config: %w", err)
 			}
 		}
 	case "kubernetes":
@@ -1315,33 +1314,27 @@ func (p *terraformProvider) generateBackendConfigArgs(projectPath, configRoot st
 		}
 		secretSuffix = sanitizeForK8s(secretSuffix)
 		addBackendConfigArg("secret_suffix", secretSuffix)
-		if tfConfig := p.configHandler.GetConfig().Terraform; tfConfig != nil && tfConfig.Backend != nil {
-			if backend := tfConfig.Backend.Kubernetes; backend != nil {
-				if err := p.processBackendConfig(backend, addBackendConfigArg); err != nil {
-					return nil, fmt.Errorf("error processing Kubernetes backend config: %w", err)
-				}
+		if backend, ok := p.configHandler.Get("terraform.backend.kubernetes").(map[string]any); ok {
+			if err := p.processBackendConfig(backend, addBackendConfigArg); err != nil {
+				return nil, fmt.Errorf("error processing Kubernetes backend config: %w", err)
 			}
 		}
 	case "azurerm":
 		appendBackendTfvars()
 		keyPath := fmt.Sprintf("%s%s", prefix, filepath.ToSlash(filepath.Join(projectPath, "terraform.tfstate")))
 		addBackendConfigArg("key", keyPath)
-		if tfConfig := p.configHandler.GetConfig().Terraform; tfConfig != nil && tfConfig.Backend != nil {
-			if backend := tfConfig.Backend.AzureRM; backend != nil {
-				if err := p.processBackendConfig(backend, addBackendConfigArg); err != nil {
-					return nil, fmt.Errorf("error processing AzureRM backend config: %w", err)
-				}
+		if backend, ok := p.configHandler.Get("terraform.backend.azurerm").(map[string]any); ok {
+			if err := p.processBackendConfig(backend, addBackendConfigArg); err != nil {
+				return nil, fmt.Errorf("error processing AzureRM backend config: %w", err)
 			}
 		}
 	case "gcs":
 		appendBackendTfvars()
 		prefixPath := fmt.Sprintf("%s%s", prefix, filepath.ToSlash(projectPath))
 		addBackendConfigArg("prefix", prefixPath)
-		if tfConfig := p.configHandler.GetConfig().Terraform; tfConfig != nil && tfConfig.Backend != nil {
-			if backend := tfConfig.Backend.GCS; backend != nil {
-				if err := p.processBackendConfig(backend, addBackendConfigArg); err != nil {
-					return nil, fmt.Errorf("error processing GCS backend config: %w", err)
-				}
+		if backend, ok := p.configHandler.Get("terraform.backend.gcs").(map[string]any); ok {
+			if err := p.processBackendConfig(backend, addBackendConfigArg); err != nil {
+				return nil, fmt.Errorf("error processing GCS backend config: %w", err)
 			}
 		}
 	default:

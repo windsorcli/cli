@@ -59,11 +59,6 @@ func (c *configHandler) applyPlatformDerivedDefaults(values map[string]any) {
 	if p, ok := getValueByPathFromMap(values, parsePath("platform")).(string); ok {
 		platform = p
 	}
-	if platform == "" {
-		if p, ok := getValueByPathFromMap(values, parsePath("provider")).(string); ok {
-			platform = p
-		}
-	}
 
 	switch platform {
 	case "docker", "incus", "metal", "hetzner", "omni", "hyperv", "vsphere":

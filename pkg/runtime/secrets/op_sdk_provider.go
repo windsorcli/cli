@@ -7,7 +7,6 @@ import (
 	"sync"
 
 	"github.com/1password/onepassword-sdk-go"
-	secretsConfigType "github.com/windsorcli/cli/api/v1alpha1/secrets"
 )
 
 // =============================================================================
@@ -30,7 +29,7 @@ var (
 
 // OnePasswordSDKProvider implements the Provider interface using the 1Password SDK.
 type OnePasswordSDKProvider struct {
-	vault    secretsConfigType.OnePasswordVault
+	vault    OnePasswordVault
 	unlocked bool
 	shims    *Shims
 }
@@ -40,7 +39,7 @@ type OnePasswordSDKProvider struct {
 // =============================================================================
 
 // NewOnePasswordSDKProvider creates a new OnePasswordSDKProvider instance.
-func NewOnePasswordSDKProvider(vault secretsConfigType.OnePasswordVault) *OnePasswordSDKProvider {
+func NewOnePasswordSDKProvider(vault OnePasswordVault) *OnePasswordSDKProvider {
 	return &OnePasswordSDKProvider{
 		vault: vault,
 		shims: NewShims(),

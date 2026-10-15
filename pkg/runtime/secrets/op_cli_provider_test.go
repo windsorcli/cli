@@ -5,8 +5,6 @@ import (
 	"os/exec"
 	"strings"
 	"testing"
-
-	secretsConfigType "github.com/windsorcli/cli/api/v1alpha1/secrets"
 )
 
 // =============================================================================
@@ -14,7 +12,7 @@ import (
 // =============================================================================
 
 func TestNewOnePasswordCLIProvider(t *testing.T) {
-	vault := secretsConfigType.OnePasswordVault{ID: "vault-id", Name: "My Vault", URL: "my.1p.com"}
+	vault := OnePasswordVault{ID: "vault-id", Name: "My Vault", URL: "my.1p.com"}
 	p := NewOnePasswordCLIProvider(vault)
 	if p == nil {
 		t.Fatal("expected provider, got nil")
@@ -32,7 +30,7 @@ func TestNewOnePasswordCLIProvider(t *testing.T) {
 // =============================================================================
 
 func TestOnePasswordCLIProvider_LoadSecrets(t *testing.T) {
-	p := NewOnePasswordCLIProvider(secretsConfigType.OnePasswordVault{ID: "v"})
+	p := NewOnePasswordCLIProvider(OnePasswordVault{ID: "v"})
 	if err := p.LoadSecrets(); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -46,7 +44,7 @@ func TestOnePasswordCLIProvider_LoadSecrets(t *testing.T) {
 // =============================================================================
 
 func TestOnePasswordCLIProvider_Resolve(t *testing.T) {
-	vault := secretsConfigType.OnePasswordVault{ID: "my-vault", Name: "My Vault", URL: "my.1p.com"}
+	vault := OnePasswordVault{ID: "my-vault", Name: "My Vault", URL: "my.1p.com"}
 
 	t.Run("ReturnsUnhandledForDifferentVault", func(t *testing.T) {
 		p := NewOnePasswordCLIProvider(vault)

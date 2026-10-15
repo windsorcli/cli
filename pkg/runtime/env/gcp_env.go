@@ -57,7 +57,7 @@ func (e *GcpEnvPrinter) GetEnvVars() (map[string]string, error) {
 	envVars := make(map[string]string)
 	global := e.shell.IsGlobal()
 
-	config := e.configHandler.GetConfig()
+	config := e.configHandler.GetHeader()
 	var credentialsPath *string
 	if config != nil && config.GCP != nil {
 		credentialsPath = config.GCP.CredentialsPath

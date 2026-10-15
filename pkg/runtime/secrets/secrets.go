@@ -33,6 +33,14 @@ type SecretRef struct {
 	Field string // field name (empty for SOPS)
 }
 
+// OnePasswordVault identifies the 1Password vault that a 1Password provider reads. ID is the alias
+// that secret() references, Name is the vault name, and URL is the account.
+type OnePasswordVault struct {
+	ID   string
+	Name string
+	URL  string
+}
+
 // DeferredError signals that a secret expression should be preserved for later
 // evaluation. This is not an error condition but a control-flow signal.
 type DeferredError struct {

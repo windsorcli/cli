@@ -1,10 +1,9 @@
 # ADR 0001 — v1alpha2 config header and v1alpha1 retirement
 
-- Status: Accepted. Steps 1 to 4 of the implementation order have shipped: the
-  `api/config/v1alpha2` package and its fragment, the merge of that fragment last with conflict
-  detection, the v1alpha1 conversion, and ordered writes. Revised
-  2026-10-12 after a source audit showed that several premises of the first draft were wrong.
-- Date: 2026-08-04, revised 2026-10-12
+- Status: Accepted and implemented. Revised 2026-10-12 after a source audit showed that several
+  premises of the first draft were wrong. Revised 2026-10-14 to withdraw the scrubbing in point 8,
+  after a caller audit showed that the evaluator needs raw values.
+- Date: 2026-08-04, revised 2026-10-12 and 2026-10-14
 - Deciders: Ryan VanGundy
 - The black-box tests in `pkg/runtime/config/*_public_test.go` pin current behavior. This ADR's
   implementation MUST keep them passing, except the tests named under Consequences, which change
@@ -67,7 +66,7 @@ The current code gives none of these. Verified from source:
   | `provider` | legacy alias for `platform` |
   | `aws` | `profile`, `region`, `endpoint_url`, `mwaa_endpoint`, `s3_hostname` |
   | `azure` | `environment`, `kubelogin_mode`, `region`, `subscription_id`, `tenant_id` |
-  | `gcp` | `credentials_path`, `project_id` |
+  | `gcp` | `credentials_path`, `project_id`, `quota_project` |
   | `vsphere` | `server`, `user`, `insecure` |
   | `terraform` | `enabled`, `backend.*`, `lock.timeout` |
   | `secrets` | `sops.enabled`, `onepassword.vaults` |
@@ -75,7 +74,7 @@ The current code gives none of these. Verified from source:
   | `dns` | `domain`, `enabled` |
   | `network` | `cidr_block`, `loadbalancer_ips.start`, `loadbalancer_ips.end` |
   | `cluster` | `driver`; `controlplanes` and `workers` `count`/`cpu`/`memory`, for colima sizing only; `workers.volumes` |
-  | `docker` | `enabled`, `registry_url` |
+  | `docker` | `enabled`, `registry_url`, `registries.*.remote`, `registries.*.hostport` |
   | `gitops` | `mode`, `namespace` |
 
 - **Writes are alphabetical.** `SaveConfig` marshals a map, and `RenderValuesWithDescriptions`
@@ -181,12 +180,21 @@ A patch write keeps the existing file's order.
 The order comes from the struct by reflection over its `yaml` tags, so the type is the only place
 that defines it.
 
-### 8. `GetContextValues` scrubs sensitive values
+### 8. `GetContextValues` returns raw values
 
-`GetContextValues` removes sensitive paths from the map it returns. `RedactSensitiveValues` and
-`sensitivePathsInValue` then work on a map that is already clean. `windsor show` still gets the
-sensitive path set, so it can show a placeholder. `ResolveSecrets` and `PlaceSecrets` keep reading
-raw values, because they back facet `secrets:` entries.
+`GetContextValues` does not remove sensitive values. The expression evaluator reads it as the
+scope for every `${...}` expression. Core uses sensitive values through that scope, in terraform
+inputs, facet `when:` and `requires:` checks, and Flux `secrets:` entries. A scrubbed map would
+break those uses and protect only callers that read non-sensitive keys.
+
+Sensitive values are guarded at each sink:
+
+- `windsor show values` replaces them with a placeholder (`RedactSensitiveValues`).
+- The substitution guard (`sensitivePathsInValue`) rejects a bare `${path}` that names one.
+- Terraform marks a variable `sensitive` to keep it out of plan output.
+
+Issue #3570 tracks two further guards: registering sensitive values with the output scrubber,
+and a substitution check that parses the expression.
 
 ### 9. v1alpha1 converts into v1alpha2
 
@@ -194,7 +202,8 @@ v1alpha2 is the only version the rest of the code uses. A project at `version: v
 through a conversion function into the v1alpha2 header. The conversion reads the root `contexts:`
 map and `contexts/<name>/windsor.yaml`, and it maps `provider` to `platform`. The `api/v1alpha1`
 config types then hold only what the conversion needs. Each of the importing packages moves to the
-v1alpha2 header in its own change.
+v1alpha2 header in its own change. The conversion reads the files as untyped maps, so the
+`api/v1alpha1` config types are not needed once every package reads the header.
 
 `api/config/v1alpha2` holds types, tags, doc comments, and the embedded fragment. It has no
 `Merge` methods, because the config handler merges maps before it decodes the header.
@@ -219,6 +228,11 @@ v1alpha2 header in its own change.
   `provider` has no platform. This is an accepted breaking change for v0.10.0.
 - **Core keeps its full definitions.** Core does not need to remove the fields it shares with the
   CLI. Its definitions must only stay compatible with the CLI's types.
+- **`GetConfig` becomes `GetHeader`.** The config handler decodes its data into the v1alpha2
+  header. Terraform backend blocks pass to `terraform init` whole, read as untyped maps, because
+  the header types only the backend fields that the CLI checks.
+- **The `provider` fallbacks go away.** Load converts `provider` to `platform`, so code reads
+  `platform` alone.
 - **Every config-reading package moves once.** The Wave 2 passes for those packages land after
   this ADR, so they do not touch the same reads twice.
 
@@ -228,11 +242,11 @@ v1alpha2 header in its own change.
 2. Load the fragment last for every context, with conflict detection (points 4 and 5).
 3. Add the v1alpha1 conversion (point 9).
 4. Add ordered writes (point 7).
-5. Add sensitive scrubbing in `GetContextValues` (point 8).
-6. Decode the header from the merged map (point 2). Move each package that imports
-   `api/v1alpha1` config types to the header, one package per change. The header accessor ships
-   with the first package that reads it.
-7. Delete the old v1alpha2 package and the v1alpha1 types that the conversion no longer needs.
+5. Decode the header from the merged map (point 2), and move the packages that import
+   `api/v1alpha1` config types to it. All of them were in `pkg/runtime`, so one change moved them.
+6. Delete the old v1alpha2 package and the `api/v1alpha1` config types.
+
+Every step has shipped. Point 8 needs no implementation step.
 
 ## Alternatives considered
 
@@ -252,7 +266,7 @@ v1alpha2 header in its own change.
 ## References
 
 - `pkg/runtime/config`: `typed_source.go`, `handler.go`, `schema_merge.go`, `values_source.go`,
-  `values_renderer.go`, `resolve.go`, `schemas/common.yaml`.
-- `api/v1alpha2/config`: `config.go`, `schemas.go`, and the `schema.yaml` fragments.
+  `values_renderer.go`, `resolve.go`, `cli_schema.go`, `key_order.go`.
+- `api/config/v1alpha2`: `context.go` and `schema.yaml`.
 - `pkg/composer/blueprint`: `loader.go`, `processor.go`.
 - `windsorcli/core`: `contexts/_template/schema.yaml`.

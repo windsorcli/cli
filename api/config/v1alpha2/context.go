@@ -89,6 +89,7 @@ type Azure struct {
 type GCP struct {
 	CredentialsPath *string `yaml:"credentials_path,omitempty"`
 	ProjectID       *string `yaml:"project_id,omitempty"`
+	QuotaProject    *string `yaml:"quota_project,omitempty"`
 }
 
 // VSphere holds the vCenter connection settings that the CLI exports.
@@ -175,8 +176,15 @@ type Cluster struct {
 
 // Docker holds the docker settings the CLI reads.
 type Docker struct {
-	Enabled     *bool   `yaml:"enabled,omitempty"`
-	RegistryURL *string `yaml:"registry_url,omitempty"`
+	Enabled     *bool               `yaml:"enabled,omitempty"`
+	RegistryURL *string             `yaml:"registry_url,omitempty"`
+	Registries  map[string]Registry `yaml:"registries,omitempty"`
+}
+
+// Registry holds the registry fields the CLI reads, keyed by registry host.
+type Registry struct {
+	Remote   *string `yaml:"remote,omitempty"`
+	HostPort *int    `yaml:"hostport,omitempty"`
 }
 
 // GitOps holds the GitOps settings the CLI reads.

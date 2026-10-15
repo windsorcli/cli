@@ -4,16 +4,16 @@
 package config
 
 import (
-	"github.com/windsorcli/cli/api/v1alpha1"
+	cliconfig "github.com/windsorcli/cli/api/config/v1alpha2"
 )
 
 // DefaultConfig is the base configuration for non-dev contexts (platform "none").
-var DefaultConfig = v1alpha1.Context{
-	Platform: ptrString("none"),
+var DefaultConfig = cliconfig.Context{
+	Platform: "none",
 }
 
 // DefaultConfig_Dev provides defaults for all dev contexts (docker-desktop, colima, incus).
-var DefaultConfig_Dev = v1alpha1.Context{}
+var DefaultConfig_Dev = cliconfig.Context{}
 
 // DefaultTerraformBackendTypeForPlatform returns the canonical terraform state backend for a
 // platform, or "" when the platform has no default backend (the caller falls back to "local").

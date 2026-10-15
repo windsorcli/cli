@@ -11,7 +11,6 @@ import (
 	"testing"
 
 	"github.com/windsorcli/cli/api/v1alpha1"
-	"github.com/windsorcli/cli/api/v1alpha1/docker"
 	ctxpkg "github.com/windsorcli/cli/pkg/runtime"
 	"github.com/windsorcli/cli/pkg/runtime/config"
 	"github.com/windsorcli/cli/pkg/runtime/evaluator"
@@ -124,19 +123,6 @@ func setupWorkstationMocks(t *testing.T, opts ...func(*WorkstationTestMocks)) *W
 			return defaultValue[0]
 		}
 		return []string{}
-	}
-
-	mockConfigHandler.GetConfigFunc = func() *v1alpha1.Context {
-		return &v1alpha1.Context{
-			Docker: &docker.DockerConfig{
-				Registries: map[string]docker.RegistryConfig{
-					"test-registry": {
-						HostPort: 5000,
-						Remote:   "https://registry.example.com",
-					},
-				},
-			},
-		}
 	}
 
 	mockShell.GetProjectRootFunc = func() (string, error) {

@@ -345,16 +345,6 @@ func TestConfigHandler_GetTerraformBackendType(t *testing.T) {
 		}
 	})
 
-	t.Run("FallsBackToProviderWhenPlatformUnset", func(t *testing.T) {
-		mocks := setupConfigMocks(t)
-		handler := NewConfigHandler(mocks.Shell)
-		handler.Set("provider", "gcp")
-
-		if got := handler.GetTerraformBackendType(); got != "gcs" {
-			t.Errorf("Expected the deprecated provider key to drive the default, got %q", got)
-		}
-	})
-
 	t.Run("FallsBackToLocalForAnUnrecognizedPlatform", func(t *testing.T) {
 		mocks := setupConfigMocks(t)
 		handler := NewConfigHandler(mocks.Shell)
