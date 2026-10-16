@@ -321,4 +321,51 @@ func TestLoadBlueprint(t *testing.T) {
 			t.Errorf("expected a source load error, got %v", err)
 		}
 	})
+
+	t.Run("FailsWhenTheTemplateBlueprintIsMalformed", func(t *testing.T) {
+		// Given a template blueprint that does not parse and no user blueprint
+		f := newFixture(t)
+		f.project(t)
+		f.write(t, "contexts/_template/blueprint.yaml", "kind: [\n")
+
+		// When the blueprint is loaded
+		_, err := f.load(t)
+
+		// Then the load fails with the parse error
+		if err == nil || !strings.Contains(err.Error(), "failed to parse blueprint.yaml") {
+			t.Errorf("expected a template parse error, got %v", err)
+		}
+	})
+
+	t.Run("FailsWhenATemplateFacetIsMalformed", func(t *testing.T) {
+		// Given a user blueprint with no sources and a template facet that does not parse
+		f := newFixture(t)
+		f.project(t)
+		f.write(t, "contexts/local/blueprint.yaml", blueprintHeader+"metadata:\n  name: local\n")
+		f.write(t, "contexts/_template/facets/bad.yaml", "kind: [\n")
+
+		// When the blueprint is loaded
+		_, err := f.load(t)
+
+		// Then the load fails while loading sources
+		if err == nil || !strings.Contains(err.Error(), "failed to load sources") {
+			t.Errorf("expected a source load error, got %v", err)
+		}
+	})
+
+	t.Run("ComposesATemplateWithoutABlueprintFile", func(t *testing.T) {
+		// Given a template that holds only a facet
+		f := newFixture(t)
+		f.write(t, "windsor.yaml", "version: v1alpha1\n")
+		f.write(t, "contexts/local/values.yaml", "platform: docker\n")
+		f.facet(t, "k", "kustomize:\n- name: k\n  path: k\n")
+
+		// When the blueprint is loaded
+		bp := f.mustLoad(t).Generate()
+
+		// Then the facet's kustomization is composed
+		if kustomization(bp, "k") == nil {
+			t.Errorf("expected kustomization k, got %+v", bp.Kustomizations)
+		}
+	})
 }
