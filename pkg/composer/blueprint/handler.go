@@ -480,90 +480,14 @@ func (h *BaseBlueprintHandler) processAndCompose() error {
 		}
 	}
 
-	var loadersToProcess []BlueprintLoader
-	loaderNames := make(map[BlueprintLoader]string)
+	loadersToProcess, loaderNames := h.loadersWithBlueprints()
 
-	for name, loader := range h.sourceBlueprintLoaders {
-		if loader.GetBlueprint() != nil {
-			loadersToProcess = append(loadersToProcess, loader)
-			loaderNames[loader] = name
-		}
-	}
-	if h.userBlueprintLoader != nil && h.userBlueprintLoader.GetBlueprint() != nil {
-		loadersToProcess = append(loadersToProcess, h.userBlueprintLoader)
-		loaderNames[h.userBlueprintLoader] = h.userBlueprintLoader.GetSourceName()
-	}
-
-	collectedScopes := make(map[string]map[string]any)
-
-	if concrete, ok := h.processor.(*BaseBlueprintProcessor); ok {
-		concrete.ResetExcludedFacets()
-	}
-
-	userLoaderName := ""
-	if h.userBlueprintLoader != nil {
-		userLoaderName = loaderNames[h.userBlueprintLoader]
-	}
-	if concrete, ok := h.processor.(*BaseBlueprintProcessor); ok {
-		concrete.SetExtraScope(repositoryScope)
-	}
-	var sourceSets []SourceFacetSet
-	for depth, loader := range orderLoadersByDependency(loadersToProcess, loaderNames, userLoaderName) {
-		facets := loader.GetFacets()
-		if len(facets) == 0 {
-			continue
-		}
-		sourceSets = append(sourceSets, SourceFacetSet{
-			Name:   loaderNames[loader],
-			Depth:  depth,
-			Target: loader.GetBlueprint(),
-			Facets: facets,
-		})
-	}
-	globalScope, err := h.processor.ProcessGlobally(sourceSets)
+	collectedScopes, err := h.processSourceFacets(loadersToProcess, loaderNames, repositoryScope)
 	if err != nil {
-		var reqErr *RequirementsError
-		if errors.As(err, &reqErr) {
-			return err
-		}
-		return fmt.Errorf("failed to process facets: %w", err)
-	}
-	if concrete, ok := h.processor.(*BaseBlueprintProcessor); ok {
-		h.deferredPathsMu.Lock()
-		for path := range concrete.GetDeferredPaths() {
-			h.deferredPaths[path] = true
-		}
-		h.deferredPathsMu.Unlock()
-	}
-	for _, src := range sourceSets {
-		collectedScopes[src.Name] = globalScope
+		return err
 	}
 
-	initLoaderNames := make([]string, 0, len(h.initBlueprintURLs))
-	for _, url := range h.initBlueprintURLs {
-		if url != "" && strings.HasPrefix(url, "oci://") {
-			initLoaderNames = append(initLoaderNames, h.getTempSourceName(url))
-		}
-	}
-	initNamesSet := make(map[string]bool)
-	for _, n := range initLoaderNames {
-		initNamesSet[n] = true
-	}
-
-	var loaders []BlueprintLoader
-	for _, loader := range loadersToProcess {
-		if initNamesSet[loader.GetSourceName()] {
-			loaders = append(loaders, loader)
-		}
-	}
-	for _, loader := range loadersToProcess {
-		if !initNamesSet[loader.GetSourceName()] {
-			loaders = append(loaders, loader)
-		}
-	}
-	if h.userBlueprintLoader != nil && h.userBlueprintLoader.GetBlueprint() != nil {
-		loaders = append(loaders, h.userBlueprintLoader)
-	}
+	loaders, initLoaderNames := h.compositionOrder(loadersToProcess)
 
 	var mergedScope map[string]any
 	if contextValues := h.getConfigValues(); contextValues != nil {
@@ -605,24 +529,8 @@ func (h *BaseBlueprintHandler) processAndCompose() error {
 
 	h.deriveConfigMapDeferredPaths()
 
-	if h.runtime.Evaluator != nil {
-		for i := range h.composedBlueprint.TerraformComponents {
-			comp := h.composedBlueprint.TerraformComponents[i]
-			if comp.Inputs == nil {
-				continue
-			}
-			evaluated := make(map[string]any, len(comp.Inputs))
-			for key, value := range comp.Inputs {
-				result, err := EvaluateWithOrigins(
-					h.runtime.Evaluator, key, value, comp.InputOrigins, mergedScope, false,
-				)
-				if err != nil {
-					return fmt.Errorf("evaluate terraform inputs for component %q: %w", comp.GetID(), err)
-				}
-				evaluated[key] = normalizeDeferredValue(result)
-			}
-			h.composedBlueprint.TerraformComponents[i].Inputs = evaluated
-		}
+	if err := h.evaluateTerraformInputs(mergedScope); err != nil {
+		return err
 	}
 
 	h.clearLocalTemplateSource(h.composedBlueprint)
@@ -637,6 +545,135 @@ func (h *BaseBlueprintHandler) processAndCompose() error {
 		h.runtime.Evaluator.SetConfigScope(mergedScope)
 	}
 
+	return nil
+}
+
+// loadersWithBlueprints returns the source loaders that hold a blueprint, then the user loader when it
+// holds one, along with each loader's source name.
+func (h *BaseBlueprintHandler) loadersWithBlueprints() ([]BlueprintLoader, map[BlueprintLoader]string) {
+	var loadersToProcess []BlueprintLoader
+	loaderNames := make(map[BlueprintLoader]string)
+
+	for name, loader := range h.sourceBlueprintLoaders {
+		if loader.GetBlueprint() != nil {
+			loadersToProcess = append(loadersToProcess, loader)
+			loaderNames[loader] = name
+		}
+	}
+	if h.userBlueprintLoader != nil && h.userBlueprintLoader.GetBlueprint() != nil {
+		loadersToProcess = append(loadersToProcess, h.userBlueprintLoader)
+		loaderNames[h.userBlueprintLoader] = h.userBlueprintLoader.GetSourceName()
+	}
+	return loadersToProcess, loaderNames
+}
+
+// processSourceFacets runs global facet processing over the loaders in dependency order, with
+// repositoryScope as extra scope. It copies the processor's deferred paths onto the handler and returns
+// the resolved scope keyed by each source that contributed facets. A RequirementsError is returned
+// unwrapped.
+func (h *BaseBlueprintHandler) processSourceFacets(loadersToProcess []BlueprintLoader, loaderNames map[BlueprintLoader]string, repositoryScope map[string]any) (map[string]map[string]any, error) {
+	collectedScopes := make(map[string]map[string]any)
+
+	if concrete, ok := h.processor.(*BaseBlueprintProcessor); ok {
+		concrete.ResetExcludedFacets()
+	}
+
+	userLoaderName := ""
+	if h.userBlueprintLoader != nil {
+		userLoaderName = loaderNames[h.userBlueprintLoader]
+	}
+	if concrete, ok := h.processor.(*BaseBlueprintProcessor); ok {
+		concrete.SetExtraScope(repositoryScope)
+	}
+	var sourceSets []SourceFacetSet
+	for depth, loader := range orderLoadersByDependency(loadersToProcess, loaderNames, userLoaderName) {
+		facets := loader.GetFacets()
+		if len(facets) == 0 {
+			continue
+		}
+		sourceSets = append(sourceSets, SourceFacetSet{
+			Name:   loaderNames[loader],
+			Depth:  depth,
+			Target: loader.GetBlueprint(),
+			Facets: facets,
+		})
+	}
+	globalScope, err := h.processor.ProcessGlobally(sourceSets)
+	if err != nil {
+		var reqErr *RequirementsError
+		if errors.As(err, &reqErr) {
+			return nil, err
+		}
+		return nil, fmt.Errorf("failed to process facets: %w", err)
+	}
+	if concrete, ok := h.processor.(*BaseBlueprintProcessor); ok {
+		h.deferredPathsMu.Lock()
+		for path := range concrete.GetDeferredPaths() {
+			h.deferredPaths[path] = true
+		}
+		h.deferredPathsMu.Unlock()
+	}
+	for _, src := range sourceSets {
+		collectedScopes[src.Name] = globalScope
+	}
+	return collectedScopes, nil
+}
+
+// compositionOrder returns the loaders in composition order: initializer blueprints, the other sources,
+// then the user blueprint. It also returns the source names of the OCI initializer blueprints.
+func (h *BaseBlueprintHandler) compositionOrder(loadersToProcess []BlueprintLoader) ([]BlueprintLoader, []string) {
+	initLoaderNames := make([]string, 0, len(h.initBlueprintURLs))
+	for _, url := range h.initBlueprintURLs {
+		if url != "" && strings.HasPrefix(url, "oci://") {
+			initLoaderNames = append(initLoaderNames, h.getTempSourceName(url))
+		}
+	}
+	initNamesSet := make(map[string]bool)
+	for _, n := range initLoaderNames {
+		initNamesSet[n] = true
+	}
+
+	var loaders []BlueprintLoader
+	for _, loader := range loadersToProcess {
+		if initNamesSet[loader.GetSourceName()] {
+			loaders = append(loaders, loader)
+		}
+	}
+	for _, loader := range loadersToProcess {
+		if !initNamesSet[loader.GetSourceName()] {
+			loaders = append(loaders, loader)
+		}
+	}
+	if h.userBlueprintLoader != nil && h.userBlueprintLoader.GetBlueprint() != nil {
+		loaders = append(loaders, h.userBlueprintLoader)
+	}
+	return loaders, initLoaderNames
+}
+
+// evaluateTerraformInputs evaluates each composed terraform component's inputs against scope and
+// replaces them with the results. Deferred values keep their expressions. It does nothing when the
+// runtime has no evaluator.
+func (h *BaseBlueprintHandler) evaluateTerraformInputs(scope map[string]any) error {
+	if h.runtime.Evaluator == nil {
+		return nil
+	}
+	for i := range h.composedBlueprint.TerraformComponents {
+		comp := h.composedBlueprint.TerraformComponents[i]
+		if comp.Inputs == nil {
+			continue
+		}
+		evaluated := make(map[string]any, len(comp.Inputs))
+		for key, value := range comp.Inputs {
+			result, err := EvaluateWithOrigins(
+				h.runtime.Evaluator, key, value, comp.InputOrigins, scope, false,
+			)
+			if err != nil {
+				return fmt.Errorf("evaluate terraform inputs for component %q: %w", comp.GetID(), err)
+			}
+			evaluated[key] = normalizeDeferredValue(result)
+		}
+		h.composedBlueprint.TerraformComponents[i].Inputs = evaluated
+	}
 	return nil
 }
 

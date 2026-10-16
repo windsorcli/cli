@@ -430,84 +430,23 @@ func (p *BaseBlueprintProcessor) applyKustomizationEntryByStrategy(name string, 
 // operations last. This ensures that remove operations are applied after all merge/replace
 // operations, as documented. Returns an error if any application operation fails.
 func (p *BaseBlueprintProcessor) applyCollectedComponents(target *blueprintv1alpha1.Blueprint, collected collectedComponents, scope map[string]any) error {
-	terraformByID := collected.terraformByID
-	kustomizationByName := collected.kustomizationByName
-	fluxSystemByName := collected.fluxSystemByName
-	for componentID, entry := range terraformByID {
-		if entry.When != "" {
-			shouldInclude, err := p.shouldIncludeComponent(entry.When, "", scope)
-			if err != nil {
-				return fmt.Errorf("error re-evaluating terraform component '%s' condition: %w", componentID, err)
-			}
-			if !shouldInclude {
-				delete(terraformByID, componentID)
-			}
-		}
+	if err := p.dropExcludedEntries(collected, scope); err != nil {
+		return err
 	}
 
-	for name, entry := range kustomizationByName {
-		if entry.When != "" {
-			shouldInclude, err := p.shouldIncludeComponent(entry.When, "", scope)
-			if err != nil {
-				return fmt.Errorf("error re-evaluating kustomization '%s' condition: %w", name, err)
-			}
-			if !shouldInclude {
-				delete(kustomizationByName, name)
-			}
-		}
+	terraformRemovals, terraformReplaces, terraformMerges, err := partitionByStrategy(collected.terraformByID, "terraform component",
+		func(e *blueprintv1alpha1.ConditionalTerraformComponent) (string, blueprintv1alpha1.TerraformComponent) {
+			return e.Strategy, e.TerraformComponent
+		})
+	if err != nil {
+		return err
 	}
-
-	var terraformRemovals, terraformReplaces, terraformMerges []blueprintv1alpha1.TerraformComponent
-	var kustomizationRemovals, kustomizationReplaces, kustomizationMerges []blueprintv1alpha1.Kustomization
-
-	terraformKeys := make([]string, 0, len(terraformByID))
-	for key := range terraformByID {
-		terraformKeys = append(terraformKeys, key)
-	}
-	sort.Strings(terraformKeys)
-
-	for _, key := range terraformKeys {
-		entry := terraformByID[key]
-		strategy := entry.Strategy
-		if strategy == "" {
-			strategy = "merge"
-		}
-
-		switch strategy {
-		case "remove":
-			terraformRemovals = append(terraformRemovals, entry.TerraformComponent)
-		case "replace":
-			terraformReplaces = append(terraformReplaces, entry.TerraformComponent)
-		case "merge":
-			terraformMerges = append(terraformMerges, entry.TerraformComponent)
-		default:
-			return fmt.Errorf("invalid strategy '%s' for terraform component '%s': must be 'remove', 'replace', or 'merge'", strategy, key)
-		}
-	}
-
-	kustomizationKeys := make([]string, 0, len(kustomizationByName))
-	for key := range kustomizationByName {
-		kustomizationKeys = append(kustomizationKeys, key)
-	}
-	sort.Strings(kustomizationKeys)
-
-	for _, key := range kustomizationKeys {
-		entry := kustomizationByName[key]
-		strategy := entry.Strategy
-		if strategy == "" {
-			strategy = "merge"
-		}
-
-		switch strategy {
-		case "remove":
-			kustomizationRemovals = append(kustomizationRemovals, entry.Kustomization)
-		case "replace":
-			kustomizationReplaces = append(kustomizationReplaces, entry.Kustomization)
-		case "merge":
-			kustomizationMerges = append(kustomizationMerges, entry.Kustomization)
-		default:
-			return fmt.Errorf("invalid strategy '%s' for kustomization '%s': must be 'remove', 'replace', or 'merge'", strategy, key)
-		}
+	kustomizationRemovals, kustomizationReplaces, kustomizationMerges, err := partitionByStrategy(collected.kustomizationByName, "kustomization",
+		func(e *blueprintv1alpha1.ConditionalKustomization) (string, blueprintv1alpha1.Kustomization) {
+			return e.Strategy, e.Kustomization
+		})
+	if err != nil {
+		return err
 	}
 
 	for _, replacement := range terraformReplaces {
@@ -552,37 +491,35 @@ func (p *BaseBlueprintProcessor) applyCollectedComponents(target *blueprintv1alp
 		}
 	}
 
-	var fluxRemovals []blueprintv1alpha1.FluxSystem
+	return applyFluxSystems(target, collected.fluxSystemByName)
+}
 
-	fluxKeys := make([]string, 0, len(fluxSystemByName))
-	for key := range fluxSystemByName {
-		fluxKeys = append(fluxKeys, key)
-	}
-	sort.Strings(fluxKeys)
-	for _, key := range fluxKeys {
-		sys := *fluxSystemByName[key]
-		strategy := sys.Strategy
-		if strategy == "" {
-			strategy = "merge"
-		}
-		sys.Strategy = ""
-		sys.Ordinal = nil
-
-		if strategy == "remove" {
-			fluxRemovals = append(fluxRemovals, sys)
-			continue
-		}
-		if err := target.UpsertFluxSystem(sys); err != nil {
-			return fmt.Errorf("error writing flux system '%s': %w", key, err)
+// dropExcludedEntries re-evaluates the when: condition of each collected terraform component and
+// kustomization against scope, and deletes the entries whose condition is false.
+func (p *BaseBlueprintProcessor) dropExcludedEntries(collected collectedComponents, scope map[string]any) error {
+	for componentID, entry := range collected.terraformByID {
+		if entry.When != "" {
+			shouldInclude, err := p.shouldIncludeComponent(entry.When, "", scope)
+			if err != nil {
+				return fmt.Errorf("error re-evaluating terraform component '%s' condition: %w", componentID, err)
+			}
+			if !shouldInclude {
+				delete(collected.terraformByID, componentID)
+			}
 		}
 	}
 
-	for _, removal := range fluxRemovals {
-		if err := target.RemoveFluxSystem(removal); err != nil {
-			return fmt.Errorf("error removing flux system '%s': %w", removal.Name, err)
+	for name, entry := range collected.kustomizationByName {
+		if entry.When != "" {
+			shouldInclude, err := p.shouldIncludeComponent(entry.When, "", scope)
+			if err != nil {
+				return fmt.Errorf("error re-evaluating kustomization '%s' condition: %w", name, err)
+			}
+			if !shouldInclude {
+				delete(collected.kustomizationByName, name)
+			}
 		}
 	}
-
 	return nil
 }
 
@@ -702,4 +639,70 @@ func accumulateMapKeys[K comparable, V any](m1, m2 map[K]V) map[K]V {
 		result[k] = zero
 	}
 	return result
+}
+
+// partitionByStrategy sorts the entries by key and splits them into removals, replaces, and merges by
+// strategy. An empty strategy means merge. kind names the entry type in the error for an unknown
+// strategy.
+func partitionByStrategy[E any, T any](entries map[string]*E, kind string, split func(*E) (string, T)) (removals, replaces, merges []T, err error) {
+	keys := make([]string, 0, len(entries))
+	for key := range entries {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+
+	for _, key := range keys {
+		strategy, item := split(entries[key])
+		if strategy == "" {
+			strategy = "merge"
+		}
+
+		switch strategy {
+		case "remove":
+			removals = append(removals, item)
+		case "replace":
+			replaces = append(replaces, item)
+		case "merge":
+			merges = append(merges, item)
+		default:
+			return nil, nil, nil, fmt.Errorf("invalid strategy '%s' for %s '%s': must be 'remove', 'replace', or 'merge'", strategy, kind, key)
+		}
+	}
+	return removals, replaces, merges, nil
+}
+
+// applyFluxSystems writes the collected flux systems to target in name order, clearing each one's
+// strategy and ordinal. Systems with the remove strategy are removed after all others are written.
+func applyFluxSystems(target *blueprintv1alpha1.Blueprint, fluxSystemByName map[string]*blueprintv1alpha1.FluxSystem) error {
+	var fluxRemovals []blueprintv1alpha1.FluxSystem
+
+	fluxKeys := make([]string, 0, len(fluxSystemByName))
+	for key := range fluxSystemByName {
+		fluxKeys = append(fluxKeys, key)
+	}
+	sort.Strings(fluxKeys)
+	for _, key := range fluxKeys {
+		sys := *fluxSystemByName[key]
+		strategy := sys.Strategy
+		if strategy == "" {
+			strategy = "merge"
+		}
+		sys.Strategy = ""
+		sys.Ordinal = nil
+
+		if strategy == "remove" {
+			fluxRemovals = append(fluxRemovals, sys)
+			continue
+		}
+		if err := target.UpsertFluxSystem(sys); err != nil {
+			return fmt.Errorf("error writing flux system '%s': %w", key, err)
+		}
+	}
+
+	for _, removal := range fluxRemovals {
+		if err := target.RemoveFluxSystem(removal); err != nil {
+			return fmt.Errorf("error removing flux system '%s': %w", removal.Name, err)
+		}
+	}
+	return nil
 }
