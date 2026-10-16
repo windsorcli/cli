@@ -73,7 +73,7 @@ func (h *BaseBlueprintHandler) resolveRepositoryDefaults(repo blueprintv1alpha1.
 	devMode := h.runtime != nil && h.runtime.ConfigHandler != nil && h.runtime.ConfigHandler.GetBool("dev")
 	if repo.Url == "" && devMode && h.runtime != nil && h.runtime.ConfigHandler != nil {
 		domain := h.runtime.ConfigHandler.GetString("dns.domain", "test")
-		folder := h.shims.FilepathBase(h.runtime.ProjectRoot)
+		folder := filepath.Base(h.runtime.ProjectRoot)
 		if domain != "" && folder != "" && folder != "." {
 			repo.Url = fmt.Sprintf("http://git.%s/git/%s", domain, folder)
 		}

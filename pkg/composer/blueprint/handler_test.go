@@ -2082,9 +2082,6 @@ func TestHandler_setRepositoryDefaults(t *testing.T) {
 		mocks.Runtime.ProjectRoot = "/path/to/myproject"
 
 		handler := NewBlueprintHandler(mocks.Runtime, mocks.ArtifactBuilder)
-		handler.shims = &Shims{
-			FilepathBase: func(s string) string { return "myproject" },
-		}
 		handler.composedBlueprint = &blueprintv1alpha1.Blueprint{}
 		handler.userBlueprintLoader = nil
 
@@ -2271,9 +2268,6 @@ func TestHandler_setRepositoryDefaults(t *testing.T) {
 		mocks.Runtime.ProjectRoot = "/path/to/myproject"
 
 		handler := NewBlueprintHandler(mocks.Runtime, mocks.ArtifactBuilder)
-		handler.shims = &Shims{
-			FilepathBase: func(s string) string { return "myproject" },
-		}
 		handler.composedBlueprint = &blueprintv1alpha1.Blueprint{}
 		handler.userBlueprintLoader = &mockLoaderImpl{
 			getBlueprintFunc: func() *blueprintv1alpha1.Blueprint { return &blueprintv1alpha1.Blueprint{} },
