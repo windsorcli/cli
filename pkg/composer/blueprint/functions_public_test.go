@@ -2,6 +2,7 @@ package blueprint_test
 
 import (
 	"errors"
+	"path/filepath"
 	"reflect"
 	"testing"
 
@@ -55,7 +56,7 @@ func TestExplain(t *testing.T) {
 			t.Fatalf("unexpected trace %+v", trace)
 		}
 		c := trace.Contributions[0]
-		if c.SourceName != "template" || c.FacetPath != "facets/k.yaml" || c.Expression != "${platform}" || !c.Effective {
+		if c.SourceName != "template" || c.FacetPath != filepath.Join("facets", "k.yaml") || c.Expression != "${platform}" || !c.Effective {
 			t.Errorf("unexpected contribution %+v", c)
 		}
 		if len(c.ScopeRefs) != 1 || c.ScopeRefs[0].Name != "platform" {

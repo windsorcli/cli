@@ -1,6 +1,7 @@
 package blueprint_test
 
 import (
+	"path/filepath"
 	"reflect"
 	"sort"
 	"testing"
@@ -209,7 +210,7 @@ func TestGetLocalTemplateData(t *testing.T) {
 			keys = append(keys, key)
 		}
 		sort.Strings(keys)
-		if !reflect.DeepEqual(keys, []string{"blueprint.yaml", "facets/stack.yaml"}) {
+		if !reflect.DeepEqual(keys, []string{"blueprint.yaml", filepath.Join("facets", "stack.yaml")}) {
 			t.Errorf("unexpected template files %v", keys)
 		}
 	})
