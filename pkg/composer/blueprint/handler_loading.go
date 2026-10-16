@@ -145,40 +145,21 @@ func (h *BaseBlueprintHandler) loadUser() error {
 	return h.userBlueprintLoader.Load("user", "")
 }
 
-// loadSources iterates through the user blueprint's sources array and loads each source.
-// A blueprint's own facets under contexts/_template/ are the thing being authored, not a source, so the
-// local _template is loaded whenever it exists and the load is not an init-with-URLs flow — independent
-// of whether the sources list is empty. Listing sources (e.g. a downstream blueprint layering on core)
-// therefore no longer silently drops the blueprint's own facets. Sources with name "template" are loaded
-// from the local _template directory; sources with OCI URLs are loaded from the registry. The explicit
-// load is a no-op when the local template is already loaded, so listing "template" alongside other
-// sources still works. Sources are loaded in parallel. After loading direct sources, it recursively loads
-// any sources referenced by those blueprints. When the user blueprint is nil (e.g. no blueprint.yaml
-// yet), the local template is loaded if present so initial composition produces kustomizations to apply.
-// During an init-with-URLs flow the local template is left to loadInitBlueprints, which owns the template
-// name in that path.
+// loadSources loads the local template and each source in the user blueprint. The local template
+// loads whenever it exists, so a blueprint that lists other sources keeps its own facets. In an
+// init-with-URLs flow, loadInitBlueprints owns the template name and this load skips it. Sources
+// named "template" load from the local _template directory, and sources with OCI URLs load from the
+// registry, in parallel. A source that fails to load, the local template included, returns an error.
+// After the direct sources load, it loads the sources that those blueprints reference.
 func (h *BaseBlueprintHandler) loadSources() error {
 	userBp := h.userBlueprintLoader.GetBlueprint()
 	if userBp == nil {
-		if h.runtime != nil && h.runtime.TemplateRoot != "" {
-			if _, err := h.shims.Stat(h.runtime.TemplateRoot); err == nil {
-				loader := NewBlueprintLoader(h.runtime, h.artifactBuilder)
-				if loadErr := loader.Load("template", ""); loadErr == nil && loader.GetBlueprint() != nil {
-					h.sourceBlueprintLoaders["template"] = loader
-				}
-			}
-		}
-		return nil
+		return h.loadLocalTemplate()
 	}
 
-	if len(h.initBlueprintURLs) == 0 && h.runtime != nil && h.runtime.TemplateRoot != "" {
-		if _, err := h.shims.Stat(h.runtime.TemplateRoot); err == nil {
-			if _, exists := h.sourceBlueprintLoaders["template"]; !exists {
-				loader := NewBlueprintLoader(h.runtime, h.artifactBuilder)
-				if loadErr := loader.Load("template", ""); loadErr == nil && loader.GetBlueprint() != nil {
-					h.sourceBlueprintLoaders["template"] = loader
-				}
-			}
+	if len(h.initBlueprintURLs) == 0 {
+		if err := h.loadLocalTemplate(); err != nil {
+			return err
 		}
 	}
 
@@ -236,6 +217,29 @@ func (h *BaseBlueprintHandler) loadSources() error {
 	}
 
 	return h.loadNestedSources()
+}
+
+// loadLocalTemplate loads the local _template directory as the "template" source when the directory
+// exists and no template loader is registered. A template directory without blueprint.yaml loads
+// without error. A read or parse error in the template returns an error.
+func (h *BaseBlueprintHandler) loadLocalTemplate() error {
+	if h.runtime == nil || h.runtime.TemplateRoot == "" {
+		return nil
+	}
+	if _, exists := h.sourceBlueprintLoaders["template"]; exists {
+		return nil
+	}
+	if _, err := h.shims.Stat(h.runtime.TemplateRoot); err != nil {
+		return nil
+	}
+	loader := NewBlueprintLoader(h.runtime, h.artifactBuilder)
+	if err := loader.Load("template", ""); err != nil {
+		return fmt.Errorf("failed to load source 'template': %w", err)
+	}
+	if loader.GetBlueprint() != nil {
+		h.sourceBlueprintLoaders["template"] = loader
+	}
+	return nil
 }
 
 // loadNestedSources recursively loads sources from already-loaded source blueprints until no new
