@@ -353,6 +353,21 @@ func TestLoadBlueprint(t *testing.T) {
 		}
 	})
 
+	t.Run("FailsWhenATemplateFeatureIsMalformed", func(t *testing.T) {
+		// Given a template feature file that does not parse
+		f := newFixture(t)
+		f.project(t)
+		f.write(t, "contexts/_template/features/bad.yaml", "kind: [\n")
+
+		// When the blueprint is loaded
+		_, err := f.load(t)
+
+		// Then the load fails, names the feature file, and hints at the YAML syntax
+		if !strings.Contains(hintOf(err), "YAML syntax") || !strings.Contains(err.Error(), "bad.yaml is not valid YAML") {
+			t.Errorf("expected a feature parse error, got %v", err)
+		}
+	})
+
 	t.Run("ComposesATemplateWithoutABlueprintFile", func(t *testing.T) {
 		// Given a template that holds only a facet
 		f := newFixture(t)

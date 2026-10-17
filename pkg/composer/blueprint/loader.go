@@ -477,7 +477,7 @@ func (l *BaseBlueprintLoader) loadFeaturesFromDirectory(baseDir string) error {
 
 		var facet blueprintv1alpha1.Facet
 		if err := l.shims.YamlUnmarshal(data, &facet); err != nil {
-			return werror.Wrap(err, "failed to parse feature %s", entry.Name())
+			return l.invalidYAMLError("Feature", featurePath, err)
 		}
 
 		if facet.Kind == "Feature" {
