@@ -1,3 +1,8 @@
+// The ValidateComposedBlueprint function checks the structure of a composed blueprint.
+// It provides the check that the backend field names a declared terraform component.
+// A failure wraps ErrBlueprintInvalid, which callers detect with errors.Is.
+// A nil blueprint and a blueprint with no backend pass the check.
+
 package blueprint
 
 import (
@@ -11,15 +16,11 @@ import (
 // Errors
 // =============================================================================
 
-// ErrBlueprintInvalid is the sentinel returned by blueprint validation when the composed
-// blueprint violates a structural invariant. Callers use errors.Is to detect this class
-// of failure and present the wrapped message to the operator without scary "Error:"
-// framing — the run is rejected, but the cause is a blueprint authoring mistake the
-// operator can fix, not an internal exception.
+// ErrBlueprintInvalid is the sentinel that wraps a structural error in a composed blueprint.
 var ErrBlueprintInvalid = errors.New("invalid blueprint")
 
 // =============================================================================
-// Public Helpers
+// Helpers
 // =============================================================================
 
 // ValidateComposedBlueprint rejects composed blueprints whose Backend field names a

@@ -108,7 +108,7 @@ type ConfigBlockRecord struct {
 }
 
 // DefaultTraceCollector is the standard TraceCollector implementation backed by in-memory maps.
-// Contributions and config blocks are recorded during composition (Phase 1). After composition,
+// It records contributions and config blocks during composition. After composition,
 // Finalize stores the composed blueprint, scope, and template root. GetTrace performs lazy
 // resolution on demand.
 type DefaultTraceCollector struct {

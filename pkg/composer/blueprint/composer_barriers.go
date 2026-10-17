@@ -1,3 +1,8 @@
+// The composer_barriers file holds the dependency barriers of the BlueprintComposer.
+// It provides the CRD layer barrier and the global dependency barrier for kustomizations.
+// It rewrites a dependsOn reference to a FluxSystem name into that system's compiled tier names.
+// It checks that every dependency names an entry in the composed blueprint.
+
 package blueprint
 
 import (
@@ -23,15 +28,11 @@ func sourceInstalls(source blueprintv1alpha1.Source) bool {
 	return source.Install.IsInstalled()
 }
 
-// finalizeCrdLayers assigns each CRD reference to exactly one owner before the barrier wires the stack
-// to them, so two kustomizations never apply the same CRD object. The default/project list (bp.Crds)
-// owns first, then install sources alphabetically by name; a reference claimed by an earlier owner is
-// pruned from later ones. Only install-eligible sources (the same sourceInstalls predicate CrdLayers
-// materializes on) may claim ownership: a non-install source claiming a ref would strip it from a real
-// owner while never installing it itself, silently orphaning the CRD. A local template source collapses
-// into the default/project list (the same condition ToFluxKustomization uses), so a purely local
-// blueprint installs its CRDs as "crds" rather than a "crds-template" layer. Ownership by name keeps a
-// CRD stable across source reordering.
+// finalizeCrdLayers gives each CRD reference one owner, so two kustomizations never apply the same
+// CRD. The project list (bp.Crds) claims first, then the install sources in name order, and a later
+// owner loses a reference that an earlier owner claimed. Only install sources can claim, because a
+// source that does not install would orphan the CRD. A local template source joins the project list,
+// so a local blueprint installs its CRDs as "crds".
 func (c *BaseBlueprintComposer) finalizeCrdLayers(bp *blueprintv1alpha1.Blueprint) {
 	if !blueprintv1alpha1.HasRemoteTemplateSource(bp.Sources) {
 		for i := range bp.Sources {
@@ -76,13 +77,11 @@ func claimCrdRefs(refs []string, claimed map[string]struct{}) []string {
 	return out
 }
 
-// applyCrdLayerBarrier orders the vendored CRD layers ahead of the whole stack: when the blueprint
-// implies CRD layers, every root — a plain kustomize: entry or flux: system with no dependsOn of its
-// own — is made to depend on every synthesized CRD kustomization. Dependents of those roots reach the
-// layers transitively, so the stack reconciles after the CRDs are Established — without any facet
-// author naming a CRD in dependsOn, and without the provisioner waiting: Flux honors the edges on
-// every reconcile. The CRD kustomizations themselves are materialized by the provisioner from the
-// same CrdLayers derivation.
+// applyCrdLayerBarrier makes the stack depend on the CRD layers. When the blueprint has CRD layers,
+// each root (a kustomization or flux system with no dependsOn) depends on every CRD kustomization.
+// Other entries reach the CRD layers through their roots. Flux then applies the stack after the CRDs
+// exist, and no facet names a CRD in dependsOn. The provisioner creates the CRD kustomizations from
+// the same CrdLayers result.
 func (c *BaseBlueprintComposer) applyCrdLayerBarrier(bp *blueprintv1alpha1.Blueprint) {
 	layers := CrdLayers(bp)
 	if len(layers) == 0 {
@@ -105,14 +104,10 @@ func (c *BaseBlueprintComposer) applyCrdLayerBarrier(bp *blueprintv1alpha1.Bluep
 	}
 }
 
-// applyGlobalDependencyBarrier wires every kustomization and flux system outside a global-dependency
-// system's own dependency closure to depend on that system's terminal tier — its resources tier if it
-// has one, else its install tier. It is the inverse of dependsOn: a system declares itself required by
-// the whole cluster once (globalDependency: true) instead of every consumer naming it. The closure
-// exclusion keeps the system, and anything it transitively depends on, from ordering after itself — the
-// same way the crds layer sits ahead of the stack without depending on it. It runs after
-// applyCrdLayerBarrier so a global system rooted at the crds layer already carries that edge when its
-// closure is computed.
+// applyGlobalDependencyBarrier makes each entry depend on the terminal tier of every system with
+// globalDependency: true. The terminal tier is the resources tier, or the install tier when there is no
+// resources tier. Entries in the dependency closure of the system are skipped, so the system never
+// depends on itself. It runs after applyCrdLayerBarrier, so the closure includes the CRD layer edges.
 func (c *BaseBlueprintComposer) applyGlobalDependencyBarrier(bp *blueprintv1alpha1.Blueprint) {
 	type barrier struct {
 		terminals []string

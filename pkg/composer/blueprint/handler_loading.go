@@ -1,13 +1,18 @@
+// The handler_loading file holds the source loading steps of the BlueprintHandler.
+// It provides loading of init blueprints, the user blueprint, the local template, and sources.
+// It loads nested sources until no new source appears, and orders loaders by dependency.
+// A source that fails to load, the local template included, returns an error.
+
 package blueprint
 
 import (
 	"errors"
-	"fmt"
 	"sort"
 	"strings"
 	"sync"
 
 	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
+	"github.com/windsorcli/cli/internal/werror"
 	"github.com/windsorcli/cli/pkg/composer/artifact"
 )
 
@@ -69,7 +74,7 @@ func (h *BaseBlueprintHandler) loadInitBlueprints() error {
 			loader := NewBlueprintLoader(h.runtime, h.artifactBuilder)
 			if err := loader.Load(tempName, blueprintURL); err != nil {
 				mu.Lock()
-				errs = append(errs, fmt.Errorf("failed to load init blueprint '%s': %w", blueprintURL, err))
+				errs = append(errs, werror.Wrap(err, "failed to load init blueprint '%s'", blueprintURL))
 				mu.Unlock()
 				return
 			}
@@ -197,7 +202,7 @@ func (h *BaseBlueprintHandler) loadSources() error {
 
 			if err := loader.Load(src.Name, sourceURL); err != nil {
 				mu.Lock()
-				errs = append(errs, fmt.Errorf("failed to load source '%s': %w", src.Name, err))
+				errs = append(errs, werror.Wrap(err, "failed to load source '%s'", src.Name))
 				mu.Unlock()
 				return
 			}
@@ -234,7 +239,7 @@ func (h *BaseBlueprintHandler) loadLocalTemplate() error {
 	}
 	loader := NewBlueprintLoader(h.runtime, h.artifactBuilder)
 	if err := loader.Load("template", ""); err != nil {
-		return fmt.Errorf("failed to load source 'template': %w", err)
+		return werror.Wrap(err, "failed to load source 'template'")
 	}
 	if loader.GetBlueprint() != nil {
 		h.sourceBlueprintLoaders["template"] = loader
@@ -294,7 +299,7 @@ func (h *BaseBlueprintHandler) loadNestedSources() error {
 				loader := NewBlueprintLoader(h.runtime, h.artifactBuilder)
 				if err := loader.Load(src.Name, src.Url); err != nil {
 					mu.Lock()
-					errs = append(errs, fmt.Errorf("failed to load source '%s': %w", src.Name, err))
+					errs = append(errs, werror.Wrap(err, "failed to load source '%s'", src.Name))
 					mu.Unlock()
 					return
 				}

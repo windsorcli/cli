@@ -1,3 +1,8 @@
+// The processor_config file holds the config block steps of the BlueprintProcessor.
+// It provides the merge of facet config blocks into the global scope, by ordinal and strategy.
+// It evaluates the config blocks against the context scope until the values converge.
+// A block value that does not converge is an error that names the block.
+
 package blueprint
 
 import (
@@ -8,6 +13,7 @@ import (
 	"sort"
 
 	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
+	"github.com/windsorcli/cli/internal/werror"
 	"github.com/windsorcli/cli/pkg/runtime/evaluator"
 )
 
@@ -15,14 +21,11 @@ import (
 // Private Methods
 // =============================================================================
 
-// scopeForConfigBlock builds the evaluation scope for evaluating a single config block so that
-// facet-derived config (globalScope) wins over context for all keys; the current block is set to
-// currentBlockValue when non-nil (e.g. in-place evaluation or resolve pass), otherwise to
-// contextScope[blockName] or omitted to avoid self-reference. This prevents context from
-// overwriting other blocks' facet values when one block has a scalar value. currentBlockValue is
-// overlaid on the context value rather than replacing it, so keys the block does not define itself —
-// schema defaults and operator-set values under the same name — stay readable from inside the block
-// on every stabilization pass, not just the first.
+// scopeForConfigBlock builds the scope for the evaluation of one config block. Facet config in
+// globalScope wins over context for every key. The block itself is currentBlockValue overlaid on its
+// context value when currentBlockValue is not nil, so schema defaults and operator values under the
+// same name stay readable on every pass. Otherwise the block is its context value, or absent, so it
+// does not reference itself.
 func (p *BaseBlueprintProcessor) scopeForConfigBlock(contextScope, globalScope map[string]any, blockName string, currentBlockValue any) map[string]any {
 	if globalScope == nil {
 		globalScope = make(map[string]any)
@@ -41,16 +44,11 @@ func (p *BaseBlueprintProcessor) scopeForConfigBlock(contextScope, globalScope m
 	return scope
 }
 
-// mergeFacetScopeIntoGlobal merges the facet's config blocks into globalScope (accumulated from
-// prior facets), without evaluating body expressions. Returns the updated global scope and
-// per-block meta (ordinal, strategy). evaluateGlobalScopeConfig evaluates bodies later, in the
-// dependency order topoSortConfigBlocks computes from inter-block references. A block contributes
-// only when its `when:` is true; blocks sharing a name deep-merge in list order (later overlays
-// earlier). Higher ordinal wins; equal ordinals fall back to strategy precedence (remove > replace
-// > merge). A block's `when:` evaluates against evalScope made blind to the keys that same block
-// writes, falling those keys back to contextScope (the round-0 operator/schema values), so a
-// "default only when unset" guard tests operator intent, not the block's own prior-round output,
-// and cannot cancel itself across rounds.
+// mergeFacetScopeIntoGlobal merges the config blocks of a facet into globalScope without evaluating
+// their bodies, and returns the scope and the ordinal and strategy of each block. A block adds its
+// value only when its when is true. Blocks with the same name deep-merge in list order. A higher
+// ordinal wins, then remove > replace > merge. A block's when ignores the keys that the block writes
+// (scopeBlindToBlockKeys), so a guard such as "default only when unset" tests the operator value.
 func (p *BaseBlueprintProcessor) mergeFacetScopeIntoGlobal(facet blueprintv1alpha1.Facet, globalScope map[string]any, existing map[string]*blueprintv1alpha1.ConfigBlock, evalScope, contextScope map[string]any) (map[string]any, map[string]*blueprintv1alpha1.ConfigBlock, error) {
 	facetOrdinal := resolvedFacetOrdinal(facet)
 	incoming := make(map[string]*blueprintv1alpha1.ConfigBlock)
@@ -65,7 +63,7 @@ func (p *BaseBlueprintProcessor) mergeFacetScopeIntoGlobal(facet blueprintv1alph
 			guardScope := scopeBlindToBlockKeys(evalScope, contextScope, block.Name, block.Body)
 			shouldInclude, err := p.shouldIncludeComponent(block.When, facet.Path, guardScope)
 			if err != nil {
-				return nil, nil, fmt.Errorf("config block %q when: %w", block.Name, err)
+				return nil, nil, werror.Wrap(err, "config block %q when", block.Name)
 			}
 			if !shouldInclude {
 				continue
@@ -260,15 +258,11 @@ func unstableConfigBlockNames(a, b map[string]any) []string {
 	return out
 }
 
-// evaluateGlobalScopeConfig evaluates every config block body in globalScope against contextScope
-// (ConfigHandler values) merged with globalScope (facet config blocks), so expressions can
-// reference both. Same-block sibling references converge by re-evaluating a block repeatedly, up
-// to its own key count. A chain of N dependent keys can take up to N passes, since each pass
-// propagates values only one dependency level further. Cross-block order comes from
-// topoSortConfigBlocks (alphabetical tiebreak for independents). A key derived from its own block
-// (e.g. a call like cidrhost(network.cidr_block, 1) inside the network block) skips this same-block
-// pass and resolves once, later, against the settled block, keeping its raw expression when the
-// result is still deferred. Mutates globalScope in place.
+// evaluateGlobalScopeConfig evaluates every config block body in globalScope, in place, against
+// contextScope merged with globalScope. Blocks evaluate in topoSortConfigBlocks order, each up to once
+// per key, so references between its own keys converge. A key derived from its own block, such as
+// cidrhost(network.cidr_block, 1), resolves once after the block settles. After convergence, a key that
+// still fails with an error that is not deferred fails composition, so no raw ${...} reaches config.
 func (p *BaseBlueprintProcessor) evaluateGlobalScopeConfig(globalScope map[string]any, contextScope map[string]any) error {
 	if globalScope == nil {
 		return nil
@@ -296,7 +290,7 @@ func (p *BaseBlueprintProcessor) evaluateGlobalScopeConfig(globalScope map[strin
 				scopeWithBlock := p.scopeForConfigBlock(contextScope, globalScope, name, nil)
 				evaluated, err := p.evaluateConfigBlockValue(body, "", scopeWithBlock)
 				if err != nil {
-					return fmt.Errorf("config block %q: %w", name, err)
+					return werror.Wrap(err, "config block %q", name)
 				}
 				globalScope[name] = evaluated
 				anyBlockChanged = true
@@ -386,13 +380,6 @@ func (p *BaseBlueprintProcessor) evaluateGlobalScopeConfig(globalScope map[strin
 		}
 	}
 
-	// After the block scopes have converged, surface a genuine (non-deferred) evaluation error that the
-	// tolerant per-key pass kept raw so transient same-block sibling references could resolve across
-	// passes. A value still failing here against the final scope is a real mistake (a typo or bad
-	// reference), not a sibling awaiting resolution — without this it would reach rendered config as an
-	// unexpanded ${...} rather than failing composition. EvaluateMap tolerates a DeferredError at every
-	// nesting level (a helper like terraform_output resolves later), so only genuine errors are returned;
-	// top-level derived keys (${string(block.key)}) are kept raw for JIT and so are excluded.
 	for name, val := range globalScope {
 		blockMap, ok := val.(map[string]any)
 		if !ok {
@@ -407,24 +394,17 @@ func (p *BaseBlueprintProcessor) evaluateGlobalScopeConfig(globalScope map[strin
 		}
 		finalScope := p.scopeForConfigBlock(contextScope, globalScope, name, blockMap)
 		if _, err := p.evaluator.EvaluateMap(validationBody, "", finalScope, false); err != nil {
-			return fmt.Errorf("config block %q: %w", name, err)
+			return werror.Wrap(err, "config block %q", name)
 		}
 	}
 	return nil
 }
 
-// evaluateBlockBodyTolerant evaluates each top-level key of a config block body independently against
-// scope, keeping a key that fails to evaluate at its raw value rather than aborting the whole body.
-// EvaluateMap fails the entire map atomically on the first key error and returns nothing, which would
-// discard siblings that did resolve; a key referencing a sibling not yet present in scope (e.g.
-// `${identity_effective.issuer + '/auth'}` before issuer has resolved) would then abort the block on
-// the first stabilization pass, before the multi-pass loop and resolve pass can feed the resolved
-// sibling back in. Keeping the raw value lets a later pass resolve it once its dependency is available.
-// This tolerance is deliberately scoped to the stabilization passes: a key that is still failing after
-// the scopes converge is NOT silently dropped — evaluateGlobalScopeConfig's post-convergence validation
-// re-evaluates it against the final scope and surfaces any genuine (non-deferred) error as a composition
-// failure. A DeferredError is already handled inside EvaluateMap (the value is kept raw), so it is not an
-// error here.
+// evaluateBlockBodyTolerant evaluates each top-level key of a config block body on its own, and keeps
+// the raw value of a key that fails. EvaluateMap would discard the whole body on the first failure,
+// such as a key that reads a sibling that has not resolved yet. A later pass resolves the kept key.
+// After the scopes converge, evaluateGlobalScopeConfig evaluates each key again and returns any error
+// that is not a deferred error.
 func (p *BaseBlueprintProcessor) evaluateBlockBodyTolerant(body map[string]any, scope map[string]any) map[string]any {
 	evaluated := make(map[string]any, len(body))
 	for k, v := range body {
@@ -463,7 +443,7 @@ func (p *BaseBlueprintProcessor) evaluateConfigBlockValue(v any, path string, sc
 		for i, item := range x {
 			evaluated, err := p.evaluateConfigBlockValue(item, path, scope)
 			if err != nil {
-				return nil, fmt.Errorf("config block list[%d]: %w", i, err)
+				return nil, werror.Wrap(err, "config block list[%d]", i)
 			}
 			out = append(out, evaluated)
 		}
@@ -477,15 +457,10 @@ func (p *BaseBlueprintProcessor) evaluateConfigBlockValue(v any, path string, sc
 // Helpers
 // =============================================================================
 
-// scopeBlindToBlockKeys returns evalScope with the keys a config block writes under its own name
-// replaced by their round-0 context value, instead of what composition has since accumulated, so
-// the block's `when:` guard is blind to the block's own contribution from a prior round. A guard
-// like `(network.cidr_block ?? '') == ''` therefore tests whether the operator or schema set
-// cidr_block, not whether this block already defaulted it, and cannot flip false after the block
-// writes it. Keys the block does not write — other blocks' keys, sibling facets' keys — stay
-// untouched; a block whose value is not a map writes its whole name, so the whole name falls back
-// to context. Returns evalScope unchanged when the block writes nothing, so the common path
-// allocates nothing.
+// scopeBlindToBlockKeys returns evalScope with each key that the block writes set back to its
+// context value. The block's when then tests the operator and schema values, not the block's own
+// output from a prior round, and cannot turn false after the block writes a default. A block whose
+// value is not a map writes its whole name. When the block writes nothing, evalScope returns as is.
 func scopeBlindToBlockKeys(evalScope, contextScope map[string]any, blockName string, body map[string]any) map[string]any {
 	keys, wholeName := blockWrittenKeys(body)
 	if !wholeName && len(keys) == 0 {
@@ -542,14 +517,10 @@ func blockWrittenKeys(body map[string]any) (keys []string, wholeName bool) {
 	return keys, false
 }
 
-// operatorOverlayConfigBlocks builds synthetic config-block entries from operatorOverlay.
-// operatorOverlay holds the operator's own explicit values (ConfigHandler.GetSetValues), never
-// schema defaults. One entry is built per name globalScope already has. Each entry carries the
-// highest possible ordinal. mergeConfigBlocks' own precedence rule then makes it win. That is the
-// same rule that settles every facet-vs-facet conflict. Each entry uses "merge" strategy. An
-// untouched key still surfaces from the facet's own value. A name absent from globalScope is
-// skipped. No facet claims it this round, so it is context, not config. An operator value alone
-// must never manufacture a new config: scope entry.
+// operatorOverlayConfigBlocks builds a config-block entry from operatorOverlay, the explicit operator
+// values without schema defaults, for each name that globalScope has. Each entry has the highest
+// ordinal and the merge strategy, so the operator value wins and keys it does not set keep the facet
+// value. A name that globalScope does not have is skipped, so an operator value never creates config.
 func operatorOverlayConfigBlocks(globalScope map[string]any, operatorOverlay map[string]any) map[string]*blueprintv1alpha1.ConfigBlock {
 	if len(globalScope) == 0 || len(operatorOverlay) == 0 {
 		return nil

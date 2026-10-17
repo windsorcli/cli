@@ -1,3 +1,8 @@
+// The processor_eval file holds the expression evaluation steps of the BlueprintProcessor.
+// It provides the evaluation of when conditions, substitutions, and typed expressions.
+// It checks the requires blocks of each facet and of its config blocks.
+// It builds the RequirementsError for the required values that are not set.
+
 package blueprint
 
 import (
@@ -8,6 +13,7 @@ import (
 	"strings"
 
 	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
+	"github.com/windsorcli/cli/internal/werror"
 	"github.com/windsorcli/cli/pkg/runtime/evaluator"
 )
 
@@ -44,7 +50,7 @@ func (p *BaseBlueprintProcessor) shouldIncludeFacet(facet blueprintv1alpha1.Face
 	}
 	matches, err := p.evaluateCondition(facet.When, facet.Path, scope)
 	if err != nil {
-		return false, fmt.Errorf("error evaluating facet '%s' condition: %w", facet.Metadata.Name, err)
+		return false, werror.Wrap(err, "error evaluating facet '%s' condition", facet.Metadata.Name)
 	}
 	return matches, nil
 }
@@ -109,11 +115,12 @@ func (p *BaseBlueprintProcessor) evaluateSubstitutions(subs map[string]string, f
 	deferredKeys := make(map[string]bool)
 	for key, value := range subs {
 		if paths := p.sensitivePathsInValue(value); len(paths) > 0 {
-			return nil, nil, fmt.Errorf("substitution %q references sensitive property %q; move it to the flux system's secrets: key instead of a plaintext substitution, which would be written to a ConfigMap", key, paths[0])
+			return nil, nil, werror.New(fmt.Sprintf("Substitution %q references sensitive property %q.", key, paths[0]),
+				"Move the value to the secrets: key of the flux system. Windsor writes a plaintext substitution to a ConfigMap.", nil)
 		}
 		evaluated, err := p.evaluator.Evaluate(value, facetPath, scope, false)
 		if err != nil {
-			return nil, nil, fmt.Errorf("failed to evaluate '%s': %w", key, err)
+			return nil, nil, werror.Wrap(err, "failed to evaluate '%s'", key)
 		}
 		if evaluator.IsDeferredValue(evaluated) {
 			if deferredExpr, ok := evaluator.DeferredExpression(evaluated); ok {
@@ -144,13 +151,10 @@ func (p *BaseBlueprintProcessor) evaluateSubstitutions(subs map[string]string, f
 	return result, deferredKeys, nil
 }
 
-// evaluateStringSlice evaluates a slice of strings, allowing expressions in each string.
-// When scope is non-nil, it is merged into the evaluation environment (e.g. facet config).
-// Uses evaluateDeferred=true to disallow deferred expressions (they will error). If an expression
-// evaluates to an array, the array is flattened into the result. Empty strings are preserved so
-// that facet-defined placeholder slots (e.g. conditional component that evaluates to "") remain in
-// the result for consistent ordering and test expectations. Nil values are skipped. Returns the
-// evaluated string slice, or an error if evaluation fails.
+// evaluateStringSlice evaluates each string of slice as an expression, with scope merged into the
+// environment when it is not nil. A deferred expression is an error. An array result is flattened
+// into the slice. Empty strings stay, so placeholder entries keep their position. Nil results are
+// dropped.
 func (p *BaseBlueprintProcessor) evaluateStringSlice(slice []string, facetPath string, scope map[string]any) ([]string, error) {
 	if len(slice) == 0 {
 		return nil, nil
@@ -252,18 +256,11 @@ func (p *BaseBlueprintProcessor) evaluateIntegerExpression(expr string, facetPat
 	return &result, nil
 }
 
-// evaluateRequirements walks the facet's Requires blocks and the Requires blocks of every config
-// block, terraform component, and kustomization whose When holds, returning the unsatisfied entries.
-// A requirement block is skipped when its own When evaluates to false; otherwise every path must
-// resolve to a present, non-empty value (nil/""/empty slice/empty map count as missing; false and 0
-// are present). Component-level Requires are skipped entirely when the component's When is false,
-// so the component's needs only bind when it would actually be included. The miss's Condition is
-// the AND of facet.When, component.When (when applicable), and block.When; the formatter buckets
-// misses by Condition so each effective scope renders as its own "Because" section. An error is
-// returned only when a When expression fails to evaluate. contextScope blinds a config block's own
-// When the same way mergeFacetScopeIntoGlobal does. Without it, a block whose value replaces its
-// whole name (e.g. a scalar) would see its own prior-round contribution by a later round. A
-// `.field` access on that scalar would then fail.
+// evaluateRequirements returns the unmet requirements of a facet: its own requires blocks, and those
+// of each config block, component, and kustomization whose when is true. A block whose own when is
+// false is skipped. Each path must be present and not empty (false and 0 are present). The Condition
+// of a miss joins the facet, entry, and block conditions, for grouping. contextScope hides a config
+// block's own prior-round value from its when. Only a when that fails to evaluate is an error.
 func (p *BaseBlueprintProcessor) evaluateRequirements(facet blueprintv1alpha1.Facet, scope, contextScope map[string]any) ([]requirementBlockMiss, error) {
 	var misses []requirementBlockMiss
 
@@ -280,7 +277,7 @@ func (p *BaseBlueprintProcessor) evaluateRequirements(facet blueprintv1alpha1.Fa
 		guardScope := scopeBlindToBlockKeys(scope, contextScope, cb.Name, cb.Body)
 		include, err := p.shouldIncludeComponent(cb.When, facet.Path, guardScope)
 		if err != nil {
-			return nil, fmt.Errorf("error evaluating config block when '%s' in facet '%s': %w", cb.When, facet.Metadata.Name, err)
+			return nil, werror.Wrap(err, "error evaluating config block when '%s' in facet '%s'", cb.When, facet.Metadata.Name)
 		}
 		if !include {
 			continue
@@ -298,7 +295,7 @@ func (p *BaseBlueprintProcessor) evaluateRequirements(facet blueprintv1alpha1.Fa
 		}
 		include, err := p.shouldIncludeComponent(tc.When, facet.Path, scope)
 		if err != nil {
-			return nil, fmt.Errorf("error evaluating terraform component when '%s' in facet '%s': %w", tc.When, facet.Metadata.Name, err)
+			return nil, werror.Wrap(err, "error evaluating terraform component when '%s' in facet '%s'", tc.When, facet.Metadata.Name)
 		}
 		if !include {
 			continue
@@ -316,7 +313,7 @@ func (p *BaseBlueprintProcessor) evaluateRequirements(facet blueprintv1alpha1.Fa
 		}
 		include, err := p.shouldIncludeComponent(k.When, facet.Path, scope)
 		if err != nil {
-			return nil, fmt.Errorf("error evaluating kustomization when '%s' in facet '%s': %w", k.When, facet.Metadata.Name, err)
+			return nil, werror.Wrap(err, "error evaluating kustomization when '%s' in facet '%s'", k.When, facet.Metadata.Name)
 		}
 		if !include {
 			continue
@@ -350,7 +347,7 @@ func (p *BaseBlueprintProcessor) evaluateRequirementBlocks(blocks []blueprintv1a
 		if block.When != "" {
 			ok, err := p.evaluateCondition(block.When, facetPath, scope)
 			if err != nil {
-				return nil, fmt.Errorf("error evaluating requirement when '%s' in facet '%s': %w", block.When, facetName, err)
+				return nil, werror.Wrap(err, "error evaluating requirement when '%s' in facet '%s'", block.When, facetName)
 			}
 			applies = ok
 		}

@@ -175,8 +175,8 @@ func TestRetargetSource(t *testing.T) {
 		// When a source the blueprint does not declare is retargeted
 		_, err := h.RetargetSource("other", "oci://ghcr.io/acme/other:v1.0.0")
 
-		// Then an error names the source
-		if err == nil || !strings.Contains(err.Error(), `source "other" is not declared`) {
+		// Then an error names the source and hints at blueprint.yaml
+		if !strings.Contains(hintOf(err), "blueprint.yaml") || !strings.Contains(err.Error(), `source "other" is not declared`) {
 			t.Errorf("expected an undeclared-source error, got %v", err)
 		}
 	})

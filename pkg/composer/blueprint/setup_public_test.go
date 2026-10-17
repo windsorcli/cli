@@ -1,6 +1,7 @@
 package blueprint_test
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -8,6 +9,7 @@ import (
 	"testing"
 
 	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
+	"github.com/windsorcli/cli/internal/werror"
 	"github.com/windsorcli/cli/pkg/composer/artifact"
 	"github.com/windsorcli/cli/pkg/composer/blueprint"
 	"github.com/windsorcli/cli/pkg/runtime"
@@ -133,6 +135,15 @@ func (f *fixture) publish(t *testing.T, url string, files map[string]string) {
 // =============================================================================
 // Test Helpers
 // =============================================================================
+
+// hintOf returns the remediation of the first WindsorError in the chain of err, or "" when none.
+func hintOf(err error) string {
+	var we *werror.WindsorError
+	if errors.As(err, &we) {
+		return we.Remediation
+	}
+	return ""
+}
 
 // parseRef splits an oci:// reference into registry, repository, and tag.
 func parseRef(ref string) (string, string, string, error) {

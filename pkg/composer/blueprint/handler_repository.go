@@ -1,3 +1,8 @@
+// The handler_repository file holds the repository and source-path steps of the BlueprintHandler.
+// It provides default repository values for the composed blueprint and for expression scope.
+// It resolves the source of each component into a URL and a reference.
+// It sets the full filesystem path of each terraform component.
+
 package blueprint
 
 import (

@@ -1,3 +1,8 @@
+// The composer_substitutions file holds the substitution and patch steps of the BlueprintComposer.
+// It provides the common substitutions ConfigMap and the per-kustomization substitutions.
+// It applies context patches from contexts/<context>/patches/<name>/ to the matching entry.
+// A patch directory name matches a kustomization name or a FluxSystem tier name.
+
 package blueprint
 
 import (
@@ -10,6 +15,8 @@ import (
 
 	"github.com/fluxcd/pkg/apis/kustomize"
 	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
+	"github.com/windsorcli/cli/internal/presenter"
+	"github.com/windsorcli/cli/internal/werror"
 )
 
 // =============================================================================
@@ -117,13 +124,11 @@ func (c *BaseBlueprintComposer) mergeLegacySpecialVariables(mergedCommonValues m
 	}
 }
 
-// discoverContextPatches applies patches from contexts/<context>/patches/<name>/ onto the
-// matching kustomize: entry or FluxSystem tier. <name> is a plain kustomization name, a
-// compiled tier name, or a bare FluxSystem name; see buildFluxTierMap for tier resolution.
-// An unmatched directory only warns, since patches are opt-in. An unreadable patch directory
-// or file, or a YAML parse failure, fails composition — each case is likely operator error.
-// Hidden entries (a leading dot) are skipped, so a stray file such as a macOS AppleDouble
-// sidecar is never mistaken for a malformed patch.
+// discoverContextPatches applies the patches in contexts/<context>/patches/<name>/ to the matching
+// kustomization or FluxSystem tier. The name is a kustomization name, a compiled tier name, or a
+// FluxSystem name (see buildFluxTierMap). An unmatched directory causes a warning only. A patch
+// directory or file that cannot be read or parsed is an error. It skips entries whose name starts
+// with a dot, such as macOS AppleDouble files.
 func (c *BaseBlueprintComposer) discoverContextPatches(blueprint *blueprintv1alpha1.Blueprint) error {
 	if c.runtime == nil || c.runtime.ConfigRoot == "" {
 		return nil
@@ -136,7 +141,7 @@ func (c *BaseBlueprintComposer) discoverContextPatches(blueprint *blueprintv1alp
 
 	entries, err := c.shims.ReadDir(patchesDir)
 	if err != nil {
-		return fmt.Errorf("failed to read patches directory: %w", err)
+		return werror.Wrap(err, "failed to read patches directory")
 	}
 
 	kustomizationMap := make(map[string]*blueprintv1alpha1.Kustomization)
@@ -160,15 +165,15 @@ func (c *BaseBlueprintComposer) discoverContextPatches(blueprint *blueprintv1alp
 			kustomization, exists = fluxTierMap[kustomizationName]
 		}
 		if !exists {
-			fmt.Fprintf(os.Stderr, "Warning: %s does not match any kustomization or FluxSystem tier; patches ignored. Valid names: %s\n",
-				filepath.Join(patchesDir, kustomizationName), validNames)
+			presenter.Warn(presenter.Background(), fmt.Sprintf("Windsor ignores the patches in %s, because no kustomization or FluxSystem tier has that name. Valid names: %s",
+				projectRelativePath(c.runtime, filepath.Join(patchesDir, kustomizationName)), validNames))
 			continue
 		}
 
 		kustomizationPatchesDir := filepath.Join(patchesDir, kustomizationName)
 		patchFiles, err := c.shims.ReadDir(kustomizationPatchesDir)
 		if err != nil {
-			return fmt.Errorf("failed to read patches directory %s: %w", kustomizationPatchesDir, err)
+			return werror.Wrap(err, "failed to read patches directory %s", kustomizationPatchesDir)
 		}
 
 		for _, patchFile := range patchFiles {
@@ -187,7 +192,7 @@ func (c *BaseBlueprintComposer) discoverContextPatches(blueprint *blueprintv1alp
 			patchPath := filepath.Join(kustomizationPatchesDir, fileName)
 			patchData, err := c.shims.ReadFile(patchPath)
 			if err != nil {
-				return fmt.Errorf("failed to read patch file %s: %w", patchPath, err)
+				return werror.Wrap(err, "failed to read patch file %s", patchPath)
 			}
 
 			patch, err := c.parsePatch(patchData, patchPath)
@@ -221,13 +226,11 @@ func validPatchTargetNames(kustomizationMap, fluxTierMap map[string]*blueprintv1
 	return strings.Join(names, ", ")
 }
 
-// buildFluxTierMap indexes a blueprint's FluxSystems by every name a context-patch directory may
-// use to target them: each compiled tier name ("<system>-install", "<system>-resources[-<variant>]")
-// always maps to that tier's Kustomization, and the bare system name additionally maps to the
-// install tier when present, or to the lone resources variant when there is no install tier and
-// exactly one resources variant. A bare name that could mean more than one tier (no install tier
-// with multiple resources variants) is left out of the map — the tier-qualified name must be used
-// instead. Returned pointers alias the blueprint's FluxSystems so callers can mutate tiers in place.
+// buildFluxTierMap maps each name that a patch directory can use to a FluxSystem tier. Each compiled
+// tier name ("<system>-install", "<system>-resources[-<variant>]") maps to its tier. The system name
+// maps to the install tier, or to the only resources variant when there is no install tier. A system
+// name that could mean more than one tier is not in the map. The pointers refer to the blueprint's
+// tiers, so callers can change them in place.
 func buildFluxTierMap(blueprint *blueprintv1alpha1.Blueprint) map[string]*blueprintv1alpha1.Kustomization {
 	tierMap := make(map[string]*blueprintv1alpha1.Kustomization)
 	for i := range blueprint.FluxSystems {
@@ -272,7 +275,7 @@ func (c *BaseBlueprintComposer) parsePatch(data []byte, path string) (*blueprint
 
 	var patchContent map[string]any
 	if err := c.shims.YamlUnmarshal(data, &patchContent); err != nil {
-		return nil, fmt.Errorf("failed to parse patch file %s: %w", path, err)
+		return nil, werror.Wrap(err, "failed to parse patch file %s", path)
 	}
 
 	if len(patchContent) == 0 {
@@ -289,7 +292,7 @@ func (c *BaseBlueprintComposer) parsePatch(data []byte, path string) (*blueprint
 
 		jsonPatchOps, err := c.shims.YamlMarshal(patches)
 		if err != nil {
-			return nil, fmt.Errorf("failed to marshal JSON patch operations: %w", err)
+			return nil, werror.Wrap(err, "failed to marshal JSON patch operations")
 		}
 
 		target := &kustomize.Selector{

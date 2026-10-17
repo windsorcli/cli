@@ -229,8 +229,8 @@ func TestLoadBlueprint(t *testing.T) {
 		// When the blueprint is loaded
 		_, err := f.load(t)
 
-		// Then the load fails and names the sensitive property
-		if err == nil || !strings.Contains(err.Error(), `references sensitive property "token"`) {
+		// Then the load fails, names the sensitive property, and hints at the secrets: key
+		if !strings.Contains(hintOf(err), "secrets: key") || !strings.Contains(err.Error(), `references sensitive property "token"`) {
 			t.Errorf("expected a sensitive-property error, got %v", err)
 		}
 	})
@@ -331,8 +331,8 @@ func TestLoadBlueprint(t *testing.T) {
 		// When the blueprint is loaded
 		_, err := f.load(t)
 
-		// Then the load fails with the parse error
-		if err == nil || !strings.Contains(err.Error(), "failed to parse blueprint.yaml") {
+		// Then the load fails, names the file, and hints at the YAML syntax
+		if !strings.Contains(hintOf(err), "YAML syntax") || !strings.Contains(err.Error(), "blueprint.yaml is not valid YAML") {
 			t.Errorf("expected a template parse error, got %v", err)
 		}
 	})
@@ -347,9 +347,24 @@ func TestLoadBlueprint(t *testing.T) {
 		// When the blueprint is loaded
 		_, err := f.load(t)
 
-		// Then the load fails while loading sources
-		if err == nil || !strings.Contains(err.Error(), "failed to load sources") {
-			t.Errorf("expected a source load error, got %v", err)
+		// Then the load fails, names the facet file, and hints at the YAML syntax
+		if !strings.Contains(hintOf(err), "YAML syntax") || !strings.Contains(err.Error(), "bad.yaml is not valid YAML") {
+			t.Errorf("expected a facet parse error, got %v", err)
+		}
+	})
+
+	t.Run("FailsWhenATemplateFeatureIsMalformed", func(t *testing.T) {
+		// Given a template feature file that does not parse
+		f := newFixture(t)
+		f.project(t)
+		f.write(t, "contexts/_template/features/bad.yaml", "kind: [\n")
+
+		// When the blueprint is loaded
+		_, err := f.load(t)
+
+		// Then the load fails, names the feature file, and hints at the YAML syntax
+		if !strings.Contains(hintOf(err), "YAML syntax") || !strings.Contains(err.Error(), "bad.yaml is not valid YAML") {
+			t.Errorf("expected a feature parse error, got %v", err)
 		}
 	})
 

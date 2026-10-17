@@ -1,6 +1,8 @@
-// The expr_helpers file provides shared expression AST utilities for the blueprint package.
-// It provides parsing and walking of expr-lang expressions (${...}), dotted path extraction,
-// and detection of derived-from-block references used for config merge semantics.
+// The expr_helpers file holds the expression AST utilities of the blueprint package.
+// It provides parsing and walking of expr-lang expressions (${...}) and dotted path extraction.
+// It detects references that derive a value from a config block, for config merge semantics.
+// EvaluateWithOrigins evaluates an expression and records the origin of each referenced value.
+
 package blueprint
 
 import (
@@ -255,13 +257,10 @@ func expressionIsDerivedFromBlock(s, blockName string) bool {
 	}
 }
 
-// hasDerivedBlockRefInCall recursively walks an expr AST and reports whether blockName
-// (or a member path starting with blockName.) appears in a "derived" context: as an
-// argument to a function or builtin call. inCall is true when the current node is
-// inside the arguments of an ast.CallNode or ast.BuiltinNode; only when inCall is
-// true does a matching IdentifierNode or MemberNode cause a true return. This
-// distinguishes expressions that transform a block value (e.g. string(block_a.x))
-// from simple reads (e.g. block_a.runtime) for derived-config handling.
+// hasDerivedBlockRefInCall reports whether blockName, or a member path under it, is an argument of a
+// function or builtin call in the expression. inCall is true inside the arguments of a call node.
+// A call argument such as string(block_a.x) derives a value from the block. A plain read such as
+// block_a.runtime does not.
 func hasDerivedBlockRefInCall(node ast.Node, blockName string, inCall bool) bool {
 	if node == nil {
 		return false

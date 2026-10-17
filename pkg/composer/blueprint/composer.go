@@ -1,3 +1,8 @@
+// The BlueprintComposer is the stage that merges loaded blueprints into one composed blueprint.
+// It provides Compose, which merges the sources in dependency order and applies the user blueprint last.
+// It orders sources and components by source depth, and validates sources and reserved names.
+// The barrier and substitution steps of Compose are in the composer_* companion files.
+
 // Package blueprint provides blueprint loading, facet processing, composition, and writing for the Windsor CLI.
 package blueprint
 
@@ -9,6 +14,7 @@ import (
 	"strings"
 
 	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
+	"github.com/windsorcli/cli/internal/werror"
 	"github.com/windsorcli/cli/pkg/runtime"
 )
 
@@ -64,16 +70,11 @@ func NewBlueprintComposer(rt *runtime.Runtime) *BaseBlueprintComposer {
 // Public Methods
 // =============================================================================
 
-// Compose merges blueprints from multiple loaders into a single unified blueprint. Blueprints are
-// merged in order: sources (in the order they appear in the user's Sources array, filtered by
-// install:true) → user blueprint as final overlay. The actual merging of individual components
-// and kustomizations is delegated to Blueprint.StrategicMerge. After merging, Compose ensures all
-// source loaders' source names are present in the result's Sources array so components can resolve
-// references (e.g. source: "core"). The "template" source is only included when the local template
-// directory exists. Missing sources are added from the loader's blueprint or as minimal entries;
-// for OCI loaders without a matching source entry, URL and Ref are taken from any OCI source in
-// the loader's blueprint. When configScope is non-nil, it is used when evaluating user blueprint
-// terraform inputs so config-block refs resolve.
+// Compose merges the blueprints of the loaders into one blueprint. It merges the install sources in
+// the order of the user Sources list, then applies the user blueprint last, through StrategicMerge.
+// It adds each loader's source to Sources, so a component can name its source. It adds the
+// "template" source only when the local template directory exists. When configScope is not nil,
+// config-block references in user blueprint terraform inputs resolve against it.
 func (c *BaseBlueprintComposer) Compose(loaders []BlueprintLoader, initLoaderNames []string, userBlueprintPath string, configScope map[string]any) (*blueprintv1alpha1.Blueprint, error) {
 	result := DefaultBlueprint.DeepCopy()
 
@@ -168,10 +169,10 @@ func (c *BaseBlueprintComposer) Compose(loaders []BlueprintLoader, initLoaderNam
 	c.setContextMetadata(result)
 	c.applyCommonSubstitutions(result)
 	if err := c.discoverContextPatches(result); err != nil {
-		return nil, fmt.Errorf("failed to discover context patches: %w", err)
+		return nil, werror.Wrap(err, "failed to discover context patches")
 	}
 	if err := c.applyPerKustomizationSubstitutions(result); err != nil {
-		return nil, fmt.Errorf("failed to apply per-kustomization substitutions: %w", err)
+		return nil, werror.Wrap(err, "failed to apply per-kustomization substitutions")
 	}
 	c.dropEmptyCompositionFragments(result)
 	c.resolveTierDependencies(result)
@@ -243,7 +244,7 @@ func (c *BaseBlueprintComposer) applyUserBlueprint(result *blueprintv1alpha1.Blu
 			if userCopy.TerraformComponents[i].Inputs != nil {
 				evaluated, err := c.runtime.Evaluator.EvaluateMap(userCopy.TerraformComponents[i].Inputs, sourceFilePath, configScope, false)
 				if err != nil {
-					return fmt.Errorf("evaluate user blueprint terraform inputs: %w", err)
+					return werror.Wrap(err, "evaluate user blueprint terraform inputs")
 				}
 				if normalized, ok := normalizeDeferredValue(evaluated).(map[string]any); ok {
 					userCopy.TerraformComponents[i].Inputs = normalized
@@ -433,14 +434,11 @@ func (c *BaseBlueprintComposer) sourceShouldBeMerged(source blueprintv1alpha1.So
 	return sourceInstalls(source)
 }
 
-// orderComponentsBySourceDepth stably reorders the composed blueprint's components so a component from a
-// source composes before a component from the blueprint that references it, recursively. Depth comes from
-// the source-reference graph; the primary/user blueprint (component Source "") is deepest. The sort is
-// stable, so each source keeps its own prefix/ordinal order, and because dependencies flow from a
-// referencing blueprint down into its sources (higher depth to lower), ascending-depth order keeps every
-// dependency ahead of its dependents. Explicit ordinals stay within a source and never cross a boundary.
-// A component whose Source is absent from the graph is treated as base level, since nothing establishes
-// it as layered on top of another source; this is decided here rather than left to a map's zero value.
+// orderComponentsBySourceDepth sorts the composed components by source depth, so a component
+// from a source comes before a component from a blueprint that references that source. The
+// user blueprint (Source "") is deepest. The sort is stable, so each source keeps its own order,
+// and ordinals never cross a source boundary. A component whose source is not in the graph is
+// at base depth.
 func (c *BaseBlueprintComposer) orderComponentsBySourceDepth(result *blueprintv1alpha1.Blueprint, userBlueprint *blueprintv1alpha1.Blueprint, sourceLoaders []BlueprintLoader) {
 	depth := c.sourceDepths(userBlueprint, sourceLoaders)
 	if len(depth) == 0 {
@@ -463,13 +461,11 @@ func (c *BaseBlueprintComposer) orderComponentsBySourceDepth(result *blueprintv1
 	})
 }
 
-// sourceDepths computes each source's depth in the reference graph: a source that references no other
-// in-set source is depth 0, and any source is one deeper than the deepest source it references. The
-// primary/user blueprint is keyed by "" (the Source stamped on its own components) and references the
-// sources it lists. Returns an empty map when there is no referencing blueprint, so single-source
-// compositions skip reordering entirely. Sources are walked in sorted order and a source caught in a
-// reference cycle is pinned to base depth, so a cyclic graph still resolves to the same depths on every
-// run rather than varying with map iteration order.
+// sourceDepths returns the depth of each source in the reference graph. A source that references
+// no other source is at depth 0, and a source is one deeper than the deepest source it references.
+// The user blueprint has the key "". It returns an empty map when no blueprint references a source.
+// It walks the sources in sorted order and puts a source in a reference cycle at depth 0, so the
+// result is the same on every run.
 func (c *BaseBlueprintComposer) sourceDepths(userBlueprint *blueprintv1alpha1.Blueprint, sourceLoaders []BlueprintLoader) map[string]int {
 	refs := make(map[string][]string)
 	inSet := make(map[string]bool)

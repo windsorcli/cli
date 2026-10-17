@@ -1,3 +1,8 @@
+// The processor_collect file holds the component collection steps of the BlueprintProcessor.
+// It provides collection of terraform components, kustomizations, and flux systems from a facet.
+// It evaluates the conditions and values of each entry against the facet scope.
+// It validates CRD references and flux system secrets, and rejects sensitive substitutions.
+
 package blueprint
 
 import (
@@ -7,6 +12,7 @@ import (
 	"strings"
 
 	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
+	"github.com/windsorcli/cli/internal/werror"
 	"github.com/windsorcli/cli/pkg/runtime/evaluator"
 )
 
@@ -14,13 +20,10 @@ import (
 // Private Methods
 // =============================================================================
 
-// collectTerraformComponents processes and collects all Terraform components from the provided facet.
-// It evaluates conditions, inputs, and source assignments for each component, collects them into the
-// terraformByID map, and handles merging or replacement based on strategy priorities. When facetScope
-// is non-nil (evaluated facet config), it is merged into the expression environment so inputs can
-// reference config block values (e.g. talos.controlplanes). If a component has an empty 'when'
-// condition, it inherits the facet-level condition. Returns an error if condition evaluation or
-// input processing fails.
+// collectTerraformComponents collects the terraform components of a facet into terraformByID. It
+// evaluates the when condition, inputs, and source of each component, and merges entries by strategy.
+// A component with no when takes the facet condition. When facetScope is not nil, expressions can read
+// config block values. Evaluation errors return.
 func (p *BaseBlueprintProcessor) collectTerraformComponents(
 	facet blueprintv1alpha1.Facet,
 	sourceName []string,
@@ -35,7 +38,7 @@ func (p *BaseBlueprintProcessor) collectTerraformComponents(
 
 		shouldInclude, err := p.shouldIncludeComponent(componentWhen, facet.Path, facetScope)
 		if err != nil {
-			return fmt.Errorf("error evaluating terraform component condition: %w", err)
+			return werror.Wrap(err, "error evaluating terraform component condition")
 		}
 		if !shouldInclude {
 			continue
@@ -46,7 +49,7 @@ func (p *BaseBlueprintProcessor) collectTerraformComponents(
 		if processed.Inputs != nil {
 			evaluated, err := p.evaluator.EvaluateMap(processed.Inputs, facet.Path, facetScope, false)
 			if err != nil {
-				return fmt.Errorf("error evaluating inputs for component '%s': %w", processed.GetID(), err)
+				return werror.Wrap(err, "error evaluating inputs for component '%s'", processed.GetID())
 			}
 			normalized := make(map[string]any, len(evaluated))
 			origins := make(map[string]string, len(evaluated))
@@ -80,21 +83,21 @@ func (p *BaseBlueprintProcessor) collectTerraformComponents(
 		if len(processed.DependsOn) > 0 {
 			evaluated, err := p.evaluateStringSlice(processed.DependsOn, facet.Path, facetScope)
 			if err != nil {
-				return fmt.Errorf("error evaluating dependsOn for component '%s': %w", processed.GetID(), err)
+				return werror.Wrap(err, "error evaluating dependsOn for component '%s'", processed.GetID())
 			}
 			processed.DependsOn = slices.DeleteFunc(evaluated, func(s string) bool { return s == "" })
 		}
 		if processed.Destroy != nil && processed.Destroy.IsExpr {
 			evaluated, err := p.evaluateBooleanExpression(processed.Destroy.Expr, facet.Path, facetScope)
 			if err != nil {
-				return fmt.Errorf("error evaluating destroy for component '%s': %w", processed.GetID(), err)
+				return werror.Wrap(err, "error evaluating destroy for component '%s'", processed.GetID())
 			}
 			processed.Destroy = &blueprintv1alpha1.BoolExpression{Value: evaluated, IsExpr: false}
 		}
 		if processed.Parallelism != nil && processed.Parallelism.IsExpr {
 			evaluated, err := p.evaluateIntegerExpression(processed.Parallelism.Expr, facet.Path, facetScope)
 			if err != nil {
-				return fmt.Errorf("error evaluating parallelism for component '%s': %w", processed.GetID(), err)
+				return werror.Wrap(err, "error evaluating parallelism for component '%s'", processed.GetID())
 			}
 			processed.Parallelism = &blueprintv1alpha1.IntExpression{Value: evaluated, IsExpr: false}
 		}
@@ -139,15 +142,8 @@ func (p *BaseBlueprintProcessor) collectTerraformComponents(
 	return nil
 }
 
-// collectKustomizations processes all kustomizations from a facet, evaluating their conditions,
-// substitutions, and source assignments. When facetScope is non-nil (evaluated facet config), it is
-// merged into the expression environment so substitutions and other expressions can reference config
-// block values. Kustomizations are collected into the kustomizationByName map; merge precedence
-// is ordinal (higher wins), then strategy precedence (remove > replace > merge) when ordinals are equal.
-// If a kustomization has an empty 'when' condition, it inherits the facet-level condition.
-// Returns an error if condition evaluation or substitution processing fails.
-// recordKustomizationTraces records substitution and component provenance for a composed
-// kustomization so `windsor explain` can attribute each value to its facet, source, and line.
+// recordKustomizationTraces records the source of each substitution and component of a kustomization,
+// so `windsor explain` can name the facet, source, and line of each value.
 func (p *BaseBlueprintProcessor) recordKustomizationTraces(name string, rawComponents []string, rawSubstitutions map[string]string, facetPath, sourceName string, ordinal int, strategy string) {
 	for sk, sv := range rawSubstitutions {
 		p.recordTrace("kustomize."+name+".substitutions."+sk, TraceContribution{
@@ -171,6 +167,10 @@ func (p *BaseBlueprintProcessor) recordKustomizationTraces(name string, rawCompo
 	}
 }
 
+// collectKustomizations collects the kustomizations of a facet into kustomizationByName. It evaluates
+// the when condition, substitutions, and source of each kustomization. Entries merge by ordinal, then
+// remove > replace > merge. A kustomization with no when takes the facet condition. When facetScope is
+// not nil, expressions can read config block values. Evaluation errors return.
 func (p *BaseBlueprintProcessor) collectKustomizations(facet blueprintv1alpha1.Facet, sourceName []string, kustomizationByName map[string]*blueprintv1alpha1.ConditionalKustomization, facetScope map[string]any) error {
 	for _, k := range facet.Kustomizations {
 		componentWhen := k.When
@@ -180,7 +180,7 @@ func (p *BaseBlueprintProcessor) collectKustomizations(facet blueprintv1alpha1.F
 
 		shouldInclude, err := p.shouldIncludeComponent(componentWhen, facet.Path, facetScope)
 		if err != nil {
-			return fmt.Errorf("error evaluating kustomization condition: %w", err)
+			return werror.Wrap(err, "error evaluating kustomization condition")
 		}
 		if !shouldInclude {
 			continue
@@ -189,12 +189,12 @@ func (p *BaseBlueprintProcessor) collectKustomizations(facet blueprintv1alpha1.F
 		processed := k
 		processed.When = componentWhen
 		if err := p.evalKustomizationSubstitutions(&processed.Kustomization, facet.Path, "kustomize."+processed.Name+".substitutions.", facetScope); err != nil {
-			return fmt.Errorf("error evaluating substitutions for kustomization '%s': %w", processed.Name, err)
+			return werror.Wrap(err, "error evaluating substitutions for kustomization '%s'", processed.Name)
 		}
 		if evaluator.ContainsExpression(processed.Path) {
 			evaluatedPath, err := p.evaluator.Evaluate(processed.Path, facet.Path, facetScope, false)
 			if err != nil {
-				return fmt.Errorf("error evaluating path for kustomization '%s': %w", processed.Name, err)
+				return werror.Wrap(err, "error evaluating path for kustomization '%s'", processed.Name)
 			}
 			if containsDeferredInValue(evaluatedPath) {
 				expr, _ := evaluator.DeferredExpression(evaluatedPath)
@@ -208,20 +208,20 @@ func (p *BaseBlueprintProcessor) collectKustomizations(facet blueprintv1alpha1.F
 		}
 		dependsOn, err := p.evalDropEmpty(processed.DependsOn, facet.Path, facetScope)
 		if err != nil {
-			return fmt.Errorf("error evaluating dependsOn for kustomization '%s': %w", processed.Name, err)
+			return werror.Wrap(err, "error evaluating dependsOn for kustomization '%s'", processed.Name)
 		}
 		processed.DependsOn = dependsOn
 		if len(processed.Components) > 0 {
 			evaluated, err := p.evaluateStringSlice(processed.Components, facet.Path, facetScope)
 			if err != nil {
-				return fmt.Errorf("error evaluating components for kustomization '%s': %w", processed.Name, err)
+				return werror.Wrap(err, "error evaluating components for kustomization '%s'", processed.Name)
 			}
 			processed.Components = evaluated
 		}
 		if processed.Destroy != nil && processed.Destroy.IsExpr {
 			evaluated, err := p.evaluateBooleanExpression(processed.Destroy.Expr, facet.Path, facetScope)
 			if err != nil {
-				return fmt.Errorf("error evaluating destroy for kustomization '%s': %w", processed.Name, err)
+				return werror.Wrap(err, "error evaluating destroy for kustomization '%s'", processed.Name)
 			}
 			processed.Destroy = &blueprintv1alpha1.BoolExpression{Value: evaluated, IsExpr: false}
 		}
@@ -295,17 +295,10 @@ func mergeSubstitute(k blueprintv1alpha1.Kustomization) map[string]string {
 	return out
 }
 
-// validateSystemSecrets fails composition when a flux system's secrets: entry is malformed. An entry
-// with no data keys is rejected: a secret entry is `data: {<key>: <ref>}` plus an optional
-// `namespaces:` selector, so an empty Data means either a genuinely empty entry or the retired flat
-// form (`<name>: {<key>: <ref>}`), whose keys the decoder silently discards — failing here turns that
-// into a loud composition error instead of a secret that silently never places. Each data value must be
-// a complete ${...} expression: any reference or secret() call is allowed — the value is resolved at
-// placement and materialized into a Kubernetes Secret (the protected sink), so it need not point at a
-// sensitive schema property; wiring a non-sensitive value into a Secret is safe. A plaintext literal is
-// rejected because the authored value is serialized with the blueprint, so a hardcoded secret would be
-// committed to git. Keeping sensitive values out of ConfigMaps and output is enforced separately — see
-// the substitution guard (sensitivePathsInValue) and display redaction.
+// validateSystemSecrets rejects a malformed secrets: entry of a flux system. An entry must have data
+// keys, in the form `data: {<key>: <ref>}` with an optional `namespaces:` selector; an empty entry would
+// never create a secret. Each value must be a complete ${...} expression, a reference or a secret()
+// call. A plaintext literal is rejected, because the blueprint file holds it and git would store it.
 func (p *BaseBlueprintProcessor) validateSystemSecrets(systemName string, secrets map[string]blueprintv1alpha1.SecretEntry) error {
 	for secretName, entry := range secrets {
 		if len(entry.Data) == 0 {
@@ -435,7 +428,7 @@ func (p *BaseBlueprintProcessor) collectFluxSystems(facet blueprintv1alpha1.Face
 		}
 		shouldInclude, err := p.shouldIncludeComponent(when, facet.Path, facetScope)
 		if err != nil {
-			return fmt.Errorf("error evaluating flux system condition: %w", err)
+			return werror.Wrap(err, "error evaluating flux system condition")
 		}
 		if !shouldInclude {
 			continue
@@ -457,19 +450,19 @@ func (p *BaseBlueprintProcessor) collectFluxSystems(facet blueprintv1alpha1.Face
 
 		deps, err := p.evalDropEmpty(system.DependsOn, facet.Path, facetScope)
 		if err != nil {
-			return fmt.Errorf("error evaluating dependsOn for system '%s': %w", system.Name, err)
+			return werror.Wrap(err, "error evaluating dependsOn for system '%s'", system.Name)
 		}
 		system.DependsOn = deps
 
 		if system.Install != nil {
 			comps, err := p.evalDropEmpty(system.Install.Components, facet.Path, facetScope)
 			if err != nil {
-				return fmt.Errorf("error evaluating install components for system '%s': %w", system.Name, err)
+				return werror.Wrap(err, "error evaluating install components for system '%s'", system.Name)
 			}
 			installCopy := *system.Install.DeepCopy()
 			installCopy.Components = comps
 			if err := p.evalKustomizationSubstitutions(&installCopy, facet.Path, "flux."+system.Name+".install.substitutions.", facetScope); err != nil {
-				return fmt.Errorf("error evaluating install substitutions for system '%s': %w", system.Name, err)
+				return werror.Wrap(err, "error evaluating install substitutions for system '%s'", system.Name)
 			}
 			system.Install = &installCopy
 		}
@@ -480,14 +473,14 @@ func (p *BaseBlueprintProcessor) collectFluxSystems(facet blueprintv1alpha1.Face
 			combined := combineWhen(system.When, v.When)
 			include, err := p.shouldIncludeComponent(combined, facet.Path, facetScope)
 			if err != nil {
-				return fmt.Errorf("error evaluating resources condition for system '%s': %w", system.Name, err)
+				return werror.Wrap(err, "error evaluating resources condition for system '%s'", system.Name)
 			}
 			if !include {
 				continue
 			}
 			comps, err := p.evalDropEmpty(v.Components, facet.Path, facetScope)
 			if err != nil {
-				return fmt.Errorf("error evaluating resources components for system '%s': %w", system.Name, err)
+				return werror.Wrap(err, "error evaluating resources components for system '%s'", system.Name)
 			}
 			variantKey := system.Name + "-resources"
 			if v.Name != "" {
@@ -512,13 +505,13 @@ func (p *BaseBlueprintProcessor) collectFluxSystems(facet blueprintv1alpha1.Face
 
 			extraDeps, err := p.evalDropEmpty(v.DependsOn, facet.Path, facetScope)
 			if err != nil {
-				return fmt.Errorf("error evaluating resources dependsOn for system '%s': %w", system.Name, err)
+				return werror.Wrap(err, "error evaluating resources dependsOn for system '%s'", system.Name)
 			}
 			evalV.DependsOn = extraDeps
 
 			resourcesDeferredPrefix := fluxResourcesSubstitutionPrefix(system.Name, v.Name)
 			if err := p.evalKustomizationSubstitutions(&evalV.Kustomization, facet.Path, resourcesDeferredPrefix, facetScope); err != nil {
-				return fmt.Errorf("error evaluating resources substitutions for system '%s': %w", system.Name, err)
+				return werror.Wrap(err, "error evaluating resources substitutions for system '%s'", system.Name)
 			}
 			evaluatedResources = append(evaluatedResources, evalV)
 		}

@@ -1,3 +1,8 @@
+// The BlueprintHandler is the entry point for blueprint loading, composition, and writing.
+// It provides LoadBlueprint, which runs the load, process, and compose stages in order.
+// It provides source retargeting and upgrades, and access to the composed and resolved blueprint.
+// The loading, deferred-value, and repository steps are in the handler_* companion files.
+
 package blueprint
 
 import (
@@ -8,6 +13,7 @@ import (
 
 	"github.com/Masterminds/semver/v3"
 	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
+	"github.com/windsorcli/cli/internal/werror"
 	"github.com/windsorcli/cli/pkg/composer/artifact"
 	"github.com/windsorcli/cli/pkg/runtime"
 )
@@ -122,15 +128,10 @@ func (h *BaseBlueprintHandler) SetTraceCollector(tc TraceCollector) {
 	h.traceCollector = tc
 }
 
-// LoadBlueprint orchestrates the complete blueprint loading pipeline. It loads the user blueprint
-// first, then loads all sources from the user's sources array (including "name: template" for local
-// _template). Sources are loaded recursively to discover nested sources. Finally, it processes facets
-// for all source blueprints and composes them into a single unified blueprint, applying the user
-// blueprint as the final override layer. The blueprintURL parameter stores URLs that should be added
-// to sources during initialization. These URLs are loaded first so their metadata names can be used.
-// Each call starts a fresh pipeline: sourceBlueprintLoaders is reset first, so a second call on the
-// same handler (e.g. after RetargetSource changes a source's URL) re-pulls every source instead of
-// reusing loaders cached from the previous call.
+// LoadBlueprint runs the full pipeline: it loads the init blueprints from blueprintURL, the user
+// blueprint, and all sources, nested sources included. It then processes the facets of each source
+// and composes one blueprint, with the user blueprint applied last. Each call clears the loaded
+// sources first, so a call after RetargetSource pulls every source again.
 func (h *BaseBlueprintHandler) LoadBlueprint(blueprintURL ...string) error {
 	h.initBlueprintURLs = blueprintURL
 	h.deferredPathsMu.Lock()
@@ -139,15 +140,15 @@ func (h *BaseBlueprintHandler) LoadBlueprint(blueprintURL ...string) error {
 	h.sourceBlueprintLoaders = make(map[string]BlueprintLoader)
 
 	if err := h.loadInitBlueprints(); err != nil {
-		return fmt.Errorf("failed to load init blueprints: %w", err)
+		return werror.Wrap(err, "failed to load init blueprints")
 	}
 
 	if err := h.loadUser(); err != nil {
-		return fmt.Errorf("failed to load user blueprint: %w", err)
+		return werror.Wrap(err, "failed to load user blueprint")
 	}
 
 	if err := h.loadSources(); err != nil {
-		return fmt.Errorf("failed to load sources: %w", err)
+		return werror.Wrap(err, "failed to load sources")
 	}
 
 	if h.runtime != nil && h.runtime.Evaluator != nil {
@@ -161,7 +162,7 @@ func (h *BaseBlueprintHandler) LoadBlueprint(blueprintURL ...string) error {
 		if errors.As(err, &reqErr) {
 			return err
 		}
-		return fmt.Errorf("failed to compose blueprint: %w", err)
+		return werror.Wrap(err, "failed to compose blueprint")
 	}
 
 	if !h.skipValidation {
@@ -173,16 +174,11 @@ func (h *BaseBlueprintHandler) LoadBlueprint(blueprintURL ...string) error {
 	return nil
 }
 
-// SetSkipValidation toggles structural-invariant validation in LoadBlueprint. Default is
-// false (validate). Teardown commands (destroy, down, env) call this with true so an
-// operator with a deployed-but-misordered blueprint can still tear down or inspect —
-// without this escape hatch, the validator would block the only commands that could
-// resolve the situation. Write/deploy commands (init, bootstrap, up, apply, plan) leave it
-// false so structural mistakes surface at the moment they are introduced. (show tolerates
-// validation failure via a separate mechanism in getBlueprint that captures the error and
-// continues, rather than skipping validation outright.) Provisioner's destroy paths
-// iterate components independent of blueprint position (Blueprint.BackendComponentID +
-// symmetric-destroy), so skipping validation does not produce a wrong destroy order.
+// SetSkipValidation turns off structural validation in LoadBlueprint when skip is true. The default
+// is false. Teardown commands (destroy, down, env) set it, so an operator can still tear down or
+// inspect a blueprint that fails validation. Deploy commands keep validation, so a structural mistake
+// shows when it is made. Destroy order does not depend on validation, because the destroy paths do
+// not use blueprint position.
 func (h *BaseBlueprintHandler) SetSkipValidation(skip bool) {
 	h.skipValidation = skip
 }
@@ -213,7 +209,7 @@ func (h *BaseBlueprintHandler) RetargetSource(name, url string) (string, error) 
 		return "", fmt.Errorf("blueprint not loaded")
 	}
 	if _, err := artifact.ParseOCIReference(url); err != nil {
-		return "", fmt.Errorf("invalid source url %q: %w", url, err)
+		return "", werror.Wrap(err, "invalid source url %q", url)
 	}
 	for i := range h.composedBlueprint.Sources {
 		if h.composedBlueprint.Sources[i].Name == name {
@@ -223,7 +219,8 @@ func (h *BaseBlueprintHandler) RetargetSource(name, url string) (string, error) 
 			return previous, nil
 		}
 	}
-	return "", fmt.Errorf("source %q is not declared in the blueprint; add it to blueprint.yaml before retargeting", name)
+	return "", werror.New(fmt.Sprintf("Blueprint source %q is not declared.", name),
+		"Add the source to blueprint.yaml, then run the command again.", nil)
 }
 
 // UpgradeSourcesToLatest moves each remote OCI source pinned to a semver to the highest stable tag
@@ -260,12 +257,12 @@ func (h *BaseBlueprintHandler) UpgradeSourcesToLatest() ([]SourceUpgrade, error)
 
 		tags, err := h.artifactBuilder.ListTags(src.Url)
 		if err != nil {
-			return nil, fmt.Errorf("failed to list tags for source %q: %w", src.Name, err)
+			return nil, werror.Wrap(err, "failed to list tags for source %q", src.Name)
 		}
 		urlPrefix := strings.TrimSuffix(src.Url, ":"+info.Tag)
 		latestTag, latest, ok, err := artifact.ResolveCompatibleTag(h.artifactBuilder, urlPrefix, tags)
 		if err != nil {
-			return nil, fmt.Errorf("failed to check CLI compatibility for source %q: %w", src.Name, err)
+			return nil, werror.Wrap(err, "failed to check CLI compatibility for source %q", src.Name)
 		}
 		if !ok || !latest.GreaterThan(current) {
 			continue
@@ -376,19 +373,11 @@ func (h *BaseBlueprintHandler) Generate() *blueprintv1alpha1.Blueprint {
 	return h.composedBlueprint
 }
 
-// GenerateResolved returns a deep copy of the composed blueprint with deferred substitutions
-// resolved. This is the JIT entry point for consumers that need fully evaluated values (e.g.
-// the provisioner writing ConfigMaps to the cluster). The copy ensures the base composedBlueprint
-// is never mutated, so subsequent Generate() or GenerateResolved() calls start from the original
-// deferred expressions. Callers that only display the blueprint (e.g. windsor show) should use
-// Generate() instead to preserve deferred placeholders.
-//
-// Returns an error when a deferred substitution cannot be resolved (e.g. terraform_output()
-// references a missing key, or terraform itself errors during the lookup), named by the
-// offending substitution path (e.g. "kustomize.dns.substitutions.external_dns_tenant_id") so
-// operators see the failure at blueprint-resolution time rather than via a downstream pod
-// crashloop. An unresolved expression must never reach a ConfigMap: raw `${...}` source text
-// left in place would be treated as a literal config value by downstream Helm renders.
+// GenerateResolved returns a deep copy of the composed blueprint with deferred substitutions resolved,
+// for consumers that need final values, such as the ConfigMaps the provisioner writes. The composed
+// blueprint does not change, so later calls start from the deferred expressions. Display callers use
+// Generate. A substitution that does not resolve is an error that names its path, such as
+// "kustomize.dns.substitutions.external_dns_tenant_id", so no raw ${...} text reaches a ConfigMap.
 func (h *BaseBlueprintHandler) GenerateResolved() (*blueprintv1alpha1.Blueprint, error) {
 	bp := h.Generate()
 	if bp == nil {
@@ -460,17 +449,11 @@ func (h *BaseBlueprintHandler) GetConfigScope() map[string]any {
 // Private Methods
 // =============================================================================
 
-// processAndCompose merges facets from all loaded source blueprints into a composed blueprint.
-// Loaders are processed in dependency order (see orderLoadersByDependency) with each source's facets
-// evaluated against the scope accumulated from the sources before it, so a downstream source can read
-// config an upstream source derived. After facet processing, sources are merged in the order:
-// initializer blueprints, other sources, then the user blueprint as a final override.
-// The final scope layers raw context values (config.yaml/schema defaults) as the base and the
-// ordinal-resolved facet scope as the overlay, so a facet's derived value always wins over an
-// unset or default context value instead of being silently clobbered by it.
-// The composed blueprint is updated on the handler. Terraform input expressions are fully evaluated
-// against the merged scope if possible. If a Terraform provider is configured, the composed components
-// are registered with the provider. Any errors during facet processing or composition are returned.
+// processAndCompose processes the facets of every loaded source and composes the result. It processes
+// the loaders in dependency order, and each source sees the scope of the sources before it. It merges
+// the init blueprints, then the other sources, then the user blueprint. In the final scope, the facet
+// scope overlays the raw context values, so a derived facet value wins over a default. It evaluates
+// the terraform inputs against that scope and stores the composed blueprint on the handler.
 func (h *BaseBlueprintHandler) processAndCompose() error {
 	repositoryScope := h.getRepositoryScopeValues()
 
@@ -604,7 +587,7 @@ func (h *BaseBlueprintHandler) processSourceFacets(loadersToProcess []BlueprintL
 		if errors.As(err, &reqErr) {
 			return nil, err
 		}
-		return nil, fmt.Errorf("failed to process facets: %w", err)
+		return nil, werror.Wrap(err, "failed to process facets")
 	}
 	if concrete, ok := h.processor.(*BaseBlueprintProcessor); ok {
 		h.deferredPathsMu.Lock()
@@ -668,7 +651,7 @@ func (h *BaseBlueprintHandler) evaluateTerraformInputs(scope map[string]any) err
 				h.runtime.Evaluator, key, value, comp.InputOrigins, scope, false,
 			)
 			if err != nil {
-				return fmt.Errorf("evaluate terraform inputs for component %q: %w", comp.GetID(), err)
+				return werror.Wrap(err, "evaluate terraform inputs for component %q", comp.GetID())
 			}
 			evaluated[key] = normalizeDeferredValue(result)
 		}
