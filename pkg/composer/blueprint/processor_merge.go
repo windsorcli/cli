@@ -1,3 +1,8 @@
+// The processor_merge file holds the merge steps of the BlueprintProcessor.
+// It provides the merge of collected entries by ordinal and by remove, replace, or merge strategy.
+// It applies the collected components, kustomizations, and flux systems to the target blueprint.
+// It drops entries whose when condition is false after the merge.
+
 package blueprint
 
 import (
@@ -23,24 +28,11 @@ var strategyPrecedence = map[string]int{
 // Private Methods
 // =============================================================================
 
-// updateFluxSystemEntry merges a new FluxSystem into an existing entry in fluxSystemByName using
-// the same ordinal/strategy precedence rules as updateKustomizationEntry: a higher ordinal still
-// runs applyFluxSystemEntryByStrategy (so a "merge" strategy keeps merging across ordinal bands
-// instead of wholesale-replacing) unless either side's strategy is "remove", in which case new
-// wins outright (entries[name] = new, tagged with strategy); equal ordinal falls back to strategy
-// precedence (remove > replace > merge) before merging at equal precedence. A winning "remove"
-// is never deleted from entries here — like Kustomization/Terraform entries, it is carried as a
-// Strategy == "remove" descriptor into applyCollectedComponents's deferred removal pass, which
-// accumulates it there and applies Blueprint.RemoveFluxSystem after all merges/replaces write.
-// Note this map-level "new wins outright" replacement is itself wholesale, same as
-// updateKustomizationEntry: if a lower-ordinal (or lower-precedence) facet had already merged
-// real Install/Resources content into this map slot, a winning "remove" discards it from the map
-// before RemoveFluxSystem ever runs — RemoveFluxSystem's field-level subtraction only has
-// something to act on when the target blueprint already has a matching entry (e.g. declared
-// directly in blueprint.yaml) independent of this collection pass.
-// A lower ordinal isn't always discarded outright: "merge" still combines additively via
-// applyFluxSystemEntryByStrategy, passing the higher-ordinal entry as that function's
-// scalar-conflict-winning "new" argument; "replace"/"remove" still require ordinal precedence.
+// updateFluxSystemEntry merges a new FluxSystem into entries by the rules of updateKustomizationEntry.
+// A higher ordinal wins through applyFluxSystemEntryByStrategy, so merge keeps merging; when either
+// side is remove, new replaces the entry. Equal ordinals use remove > replace > merge. A winning remove
+// stays in entries as a descriptor, and applyCollectedComponents applies it after the merges. A lower
+// ordinal still merges, with the higher-ordinal entry winning scalar conflicts.
 func (p *BaseBlueprintProcessor) updateFluxSystemEntry(name string, new *blueprintv1alpha1.FluxSystem, strategy string, entries map[string]*blueprintv1alpha1.FluxSystem) error {
 	existing := entries[name]
 	existingStrategy := existing.Strategy
@@ -84,14 +76,10 @@ func (p *BaseBlueprintProcessor) updateFluxSystemEntry(name string, new *bluepri
 	return p.applyFluxSystemEntryByStrategy(name, new, strategy, existing, entries)
 }
 
-// applyFluxSystemEntryByStrategy applies new to existing's slot in entries per strategy, mirroring
-// applyKustomizationEntryByStrategy: "replace" swaps the whole entry, "remove" accumulates a
-// combined removal descriptor via accumulateFluxSystemRemovals (field-level, matching
-// RemoveKustomization's semantics for plain kustomize: entries — never a whole-system deletion),
-// and "merge" unions DependsOn and deep-merges both Install (blueprintv1alpha1.MergeFluxInstall)
-// and Resources variants (blueprintv1alpha1.MergeFluxVariants) — the same semantics same-name
-// Kustomizations get elsewhere, and the same helpers Blueprint.UpsertFluxSystem uses to merge
-// FluxSystems across sources — instead of replacing either wholesale.
+// applyFluxSystemEntryByStrategy applies new to the slot of existing in entries by strategy. Replace
+// swaps the whole entry. Remove builds a combined field-level removal descriptor with
+// accumulateFluxSystemRemovals, and never deletes the whole system. Merge unions DependsOn and
+// deep-merges Install and the Resources variants, with the helpers that Blueprint.UpsertFluxSystem uses.
 func (p *BaseBlueprintProcessor) applyFluxSystemEntryByStrategy(name string, new *blueprintv1alpha1.FluxSystem, strategy string, existing *blueprintv1alpha1.FluxSystem, entries map[string]*blueprintv1alpha1.FluxSystem) error {
 	switch strategy {
 	case "replace":
@@ -162,13 +150,10 @@ func unionCrdRefs(existing []string, refs map[string]struct{}) []string {
 	return out
 }
 
-// updateTerraformComponentEntry merges a new component into an existing entry based on ordinal,
-// strategy, and 'when' conditions: higher ordinal wins outright for 'replace'/'remove', equal
-// ordinal falls back to strategy precedence ('remove' > 'replace' > 'merge'), and 'when' conditions
-// that now resolve false drop the entry. A lower ordinal isn't always discarded outright: 'merge'
-// still combines additively via applyTerraformComponentEntryByStrategy, passing the higher-ordinal
-// entry as that function's scalar-conflict-winning "new" argument (see updateFluxSystemEntry,
-// which shares this shape); 'replace'/'remove' still require ordinal precedence to take effect.
+// updateTerraformComponentEntry merges a new component into an existing entry by ordinal, strategy,
+// and when. A higher ordinal wins for replace and remove. Equal ordinals use remove > replace > merge.
+// A lower ordinal still merges, with the higher-ordinal entry winning scalar conflicts. An entry whose
+// when is now false is dropped.
 func (p *BaseBlueprintProcessor) updateTerraformComponentEntry(
 	componentID string,
 	new *blueprintv1alpha1.ConditionalTerraformComponent,
@@ -301,15 +286,10 @@ func (p *BaseBlueprintProcessor) applyTerraformComponentEntryByStrategy(
 	}
 }
 
-// updateKustomizationEntry updates an existing kustomization entry in the collection map based
-// on ordinal and strategy. Ordinal is compared first: higher ordinal wins. If ordinals are
-// equal, strategy precedence is used (remove > replace > merge). If both ordinal and strategy are
-// equal, kustomizations are pre-merged (merge), removals are accumulated (remove), or new replaces
-// existing (replace). Returns an error if the merge operation fails.
-// A lower ordinal isn't always discarded outright: "merge" still combines additively via
-// applyKustomizationEntryByStrategy, passing the higher-ordinal entry as that function's
-// scalar-conflict-winning "new" argument (see updateFluxSystemEntry, which shares this shape);
-// "replace"/"remove" still require ordinal precedence.
+// updateKustomizationEntry merges a new kustomization into an existing entry by ordinal, then by
+// remove > replace > merge. At equal ordinal and strategy, merge pre-merges the two, remove combines
+// the removals, and replace swaps the entry. A lower ordinal still merges, with the higher-ordinal
+// entry winning scalar conflicts. A merge failure returns an error.
 func (p *BaseBlueprintProcessor) updateKustomizationEntry(name string, new *blueprintv1alpha1.ConditionalKustomization, strategy string, entries map[string]*blueprintv1alpha1.ConditionalKustomization, scope map[string]any) error {
 	existing := entries[name]
 	existingStrategy := existing.Strategy
@@ -524,13 +504,10 @@ func (p *BaseBlueprintProcessor) dropExcludedEntries(collected collectedComponen
 	return nil
 }
 
-// accumulateTerraformRemovals combines removal specifications from two terraform components when
-// both have "remove" strategy. It preserves ID fields (Path, Name, Source) which are used to match
-// the component but are never removed. It accumulates removal specifications only for fields that
-// RemoveTerraformComponent actually removes: Inputs (map keys) and DependsOn (slice items). The
-// result contains a union of all fields that should be removed from either component. If the
-// component doesn't exist in the target blueprint when removals are applied, RemoveTerraformComponent
-// will perform a no-op, which is the expected behavior.
+// accumulateTerraformRemovals combines the removals of two remove-strategy terraform components. It
+// keeps the ID fields (Path, Name, Source), which match the component and are never removed. It unions
+// the fields that RemoveTerraformComponent removes: Inputs keys and DependsOn items. A component that
+// is not in the target blueprint is not changed.
 func (p *BaseBlueprintProcessor) accumulateTerraformRemovals(existing, new blueprintv1alpha1.TerraformComponent) blueprintv1alpha1.TerraformComponent {
 	accumulated := blueprintv1alpha1.TerraformComponent{
 		Path:   existing.Path,
@@ -544,14 +521,10 @@ func (p *BaseBlueprintProcessor) accumulateTerraformRemovals(existing, new bluep
 	return accumulated
 }
 
-// accumulateKustomizationRemovals combines removal specifications from two kustomizations when
-// both have "remove" strategy. It preserves ID fields (Name) which are used to match the
-// kustomization but are never removed. It accumulates removal specifications only for fields that
-// RemoveKustomization actually removes: DependsOn, Components (string slices), Patches
-// (BlueprintPatch slice), and Substitutions (map keys). The result contains a union of all fields
-// that should be removed from either kustomization. If the kustomization doesn't exist in the target
-// blueprint when removals are applied, RemoveKustomization will perform a no-op, which is the
-// expected behavior.
+// accumulateKustomizationRemovals combines the removals of two remove-strategy kustomizations. It keeps
+// Name, which matches the kustomization and is never removed. It unions the fields that
+// RemoveKustomization removes: DependsOn, Components, Patches, and Substitutions keys. A kustomization
+// that is not in the target blueprint is not changed.
 func (p *BaseBlueprintProcessor) accumulateKustomizationRemovals(existing, new blueprintv1alpha1.Kustomization) blueprintv1alpha1.Kustomization {
 	accumulated := blueprintv1alpha1.Kustomization{
 		Name: existing.Name,
@@ -566,14 +539,10 @@ func (p *BaseBlueprintProcessor) accumulateKustomizationRemovals(existing, new b
 	return accumulated
 }
 
-// accumulateFluxSystemRemovals unions two removal-strategy FluxSystem descriptors from different
-// facets into one combined descriptor, mirroring accumulateKustomizationRemovals: DependsOn
-// accumulates via accumulateStringSlice, and Resources concatenates removal-descriptor variants
-// (each identified by Name; Blueprint.RemoveFluxSystem drops the named variant outright, so
-// duplicates surviving accumulation are harmless). Install's removable fields accumulate via
-// accumulateKustomizationRemovals itself, treating a nil Install on either side as a zero-value
-// Kustomization{} — Install carries no Name until tier compilation, so the same field-level union
-// accumulateKustomizationRemovals gives two facets' top-level removal descriptors applies here.
+// accumulateFluxSystemRemovals combines two remove-strategy FluxSystem descriptors. DependsOn unions
+// through accumulateStringSlice, and the Resources variants concatenate; RemoveFluxSystem drops each
+// named variant, so duplicates do no harm. Install removals combine through
+// accumulateKustomizationRemovals, with a nil Install treated as an empty Kustomization.
 func (p *BaseBlueprintProcessor) accumulateFluxSystemRemovals(existing, new blueprintv1alpha1.FluxSystem) blueprintv1alpha1.FluxSystem {
 	accumulated := blueprintv1alpha1.FluxSystem{
 		Name: existing.Name,

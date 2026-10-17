@@ -1,8 +1,17 @@
+// The DefaultBlueprint is the blueprint that Windsor composes when no blueprint exists.
+// It provides the kind, API version, and metadata of an empty blueprint.
+// It declares no sources, terraform components, or kustomizations.
+// Callers deep-copy it before they change it.
+
 package blueprint
 
 import blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
 
-// DefaultBlueprint provides the base blueprint structure used when no blueprint exists.
+// =============================================================================
+// Constants
+// =============================================================================
+
+// DefaultBlueprint is the blueprint that Windsor composes when no blueprint exists.
 var DefaultBlueprint = blueprintv1alpha1.Blueprint{
 	Kind:       "Blueprint",
 	ApiVersion: "blueprints.windsorcli.dev/v1alpha1",

@@ -1,3 +1,8 @@
+// The BlueprintHandler is the entry point for blueprint loading, composition, and writing.
+// It provides LoadBlueprint, which runs the load, process, and compose stages in order.
+// It provides source retargeting and upgrades, and access to the composed and resolved blueprint.
+// The loading, deferred-value, and repository steps are in the handler_* companion files.
+
 package blueprint
 
 import (
@@ -123,15 +128,10 @@ func (h *BaseBlueprintHandler) SetTraceCollector(tc TraceCollector) {
 	h.traceCollector = tc
 }
 
-// LoadBlueprint orchestrates the complete blueprint loading pipeline. It loads the user blueprint
-// first, then loads all sources from the user's sources array (including "name: template" for local
-// _template). Sources are loaded recursively to discover nested sources. Finally, it processes facets
-// for all source blueprints and composes them into a single unified blueprint, applying the user
-// blueprint as the final override layer. The blueprintURL parameter stores URLs that should be added
-// to sources during initialization. These URLs are loaded first so their metadata names can be used.
-// Each call starts a fresh pipeline: sourceBlueprintLoaders is reset first, so a second call on the
-// same handler (e.g. after RetargetSource changes a source's URL) re-pulls every source instead of
-// reusing loaders cached from the previous call.
+// LoadBlueprint runs the full pipeline: it loads the init blueprints from blueprintURL, the user
+// blueprint, and all sources, nested sources included. It then processes the facets of each source
+// and composes one blueprint, with the user blueprint applied last. Each call clears the loaded
+// sources first, so a call after RetargetSource pulls every source again.
 func (h *BaseBlueprintHandler) LoadBlueprint(blueprintURL ...string) error {
 	h.initBlueprintURLs = blueprintURL
 	h.deferredPathsMu.Lock()
@@ -174,16 +174,11 @@ func (h *BaseBlueprintHandler) LoadBlueprint(blueprintURL ...string) error {
 	return nil
 }
 
-// SetSkipValidation toggles structural-invariant validation in LoadBlueprint. Default is
-// false (validate). Teardown commands (destroy, down, env) call this with true so an
-// operator with a deployed-but-misordered blueprint can still tear down or inspect —
-// without this escape hatch, the validator would block the only commands that could
-// resolve the situation. Write/deploy commands (init, bootstrap, up, apply, plan) leave it
-// false so structural mistakes surface at the moment they are introduced. (show tolerates
-// validation failure via a separate mechanism in getBlueprint that captures the error and
-// continues, rather than skipping validation outright.) Provisioner's destroy paths
-// iterate components independent of blueprint position (Blueprint.BackendComponentID +
-// symmetric-destroy), so skipping validation does not produce a wrong destroy order.
+// SetSkipValidation turns off structural validation in LoadBlueprint when skip is true. The default
+// is false. Teardown commands (destroy, down, env) set it, so an operator can still tear down or
+// inspect a blueprint that fails validation. Deploy commands keep validation, so a structural mistake
+// shows when it is made. Destroy order does not depend on validation, because the destroy paths do
+// not use blueprint position.
 func (h *BaseBlueprintHandler) SetSkipValidation(skip bool) {
 	h.skipValidation = skip
 }
@@ -378,19 +373,11 @@ func (h *BaseBlueprintHandler) Generate() *blueprintv1alpha1.Blueprint {
 	return h.composedBlueprint
 }
 
-// GenerateResolved returns a deep copy of the composed blueprint with deferred substitutions
-// resolved. This is the JIT entry point for consumers that need fully evaluated values (e.g.
-// the provisioner writing ConfigMaps to the cluster). The copy ensures the base composedBlueprint
-// is never mutated, so subsequent Generate() or GenerateResolved() calls start from the original
-// deferred expressions. Callers that only display the blueprint (e.g. windsor show) should use
-// Generate() instead to preserve deferred placeholders.
-//
-// Returns an error when a deferred substitution cannot be resolved (e.g. terraform_output()
-// references a missing key, or terraform itself errors during the lookup), named by the
-// offending substitution path (e.g. "kustomize.dns.substitutions.external_dns_tenant_id") so
-// operators see the failure at blueprint-resolution time rather than via a downstream pod
-// crashloop. An unresolved expression must never reach a ConfigMap: raw `${...}` source text
-// left in place would be treated as a literal config value by downstream Helm renders.
+// GenerateResolved returns a deep copy of the composed blueprint with deferred substitutions resolved,
+// for consumers that need final values, such as the ConfigMaps the provisioner writes. The composed
+// blueprint does not change, so later calls start from the deferred expressions. Display callers use
+// Generate. A substitution that does not resolve is an error that names its path, such as
+// "kustomize.dns.substitutions.external_dns_tenant_id", so no raw ${...} text reaches a ConfigMap.
 func (h *BaseBlueprintHandler) GenerateResolved() (*blueprintv1alpha1.Blueprint, error) {
 	bp := h.Generate()
 	if bp == nil {
@@ -462,17 +449,11 @@ func (h *BaseBlueprintHandler) GetConfigScope() map[string]any {
 // Private Methods
 // =============================================================================
 
-// processAndCompose merges facets from all loaded source blueprints into a composed blueprint.
-// Loaders are processed in dependency order (see orderLoadersByDependency) with each source's facets
-// evaluated against the scope accumulated from the sources before it, so a downstream source can read
-// config an upstream source derived. After facet processing, sources are merged in the order:
-// initializer blueprints, other sources, then the user blueprint as a final override.
-// The final scope layers raw context values (config.yaml/schema defaults) as the base and the
-// ordinal-resolved facet scope as the overlay, so a facet's derived value always wins over an
-// unset or default context value instead of being silently clobbered by it.
-// The composed blueprint is updated on the handler. Terraform input expressions are fully evaluated
-// against the merged scope if possible. If a Terraform provider is configured, the composed components
-// are registered with the provider. Any errors during facet processing or composition are returned.
+// processAndCompose processes the facets of every loaded source and composes the result. It processes
+// the loaders in dependency order, and each source sees the scope of the sources before it. It merges
+// the init blueprints, then the other sources, then the user blueprint. In the final scope, the facet
+// scope overlays the raw context values, so a derived facet value wins over a default. It evaluates
+// the terraform inputs against that scope and stores the composed blueprint on the handler.
 func (h *BaseBlueprintHandler) processAndCompose() error {
 	repositoryScope := h.getRepositoryScopeValues()
 

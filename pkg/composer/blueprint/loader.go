@@ -1,3 +1,8 @@
+// The BlueprintLoader is the loader for one blueprint source.
+// It provides loading from the local _template directory, the context directory, or an OCI artifact.
+// It reads blueprint.yaml, schema.yaml, and facet files, and collects the template data.
+// Windsor creates one loader per source: the template, each OCI source, and the user blueprint.
+
 package blueprint
 
 import (
@@ -12,16 +17,6 @@ import (
 	"github.com/windsorcli/cli/pkg/constants"
 	"github.com/windsorcli/cli/pkg/runtime"
 )
-
-// BlueprintLoader holds individual blueprint state in-memory through the processing lifecycle.
-// One BlueprintLoader is created per blueprint source (primary, each OCI source, user).
-type BlueprintLoader interface {
-	Load(sourceName, sourceURL string) error
-	GetBlueprint() *blueprintv1alpha1.Blueprint
-	GetFacets() []blueprintv1alpha1.Facet
-	GetTemplateData() map[string][]byte
-	GetSourceName() string
-}
 
 // =============================================================================
 // Types
@@ -39,6 +34,20 @@ type BaseBlueprintLoader struct {
 	blueprintPath string
 	facets        []blueprintv1alpha1.Facet
 	templateData  map[string][]byte
+}
+
+// =============================================================================
+// Interfaces
+// =============================================================================
+
+// BlueprintLoader holds individual blueprint state in-memory through the processing lifecycle.
+// One BlueprintLoader is created per blueprint source (primary, each OCI source, user).
+type BlueprintLoader interface {
+	Load(sourceName, sourceURL string) error
+	GetBlueprint() *blueprintv1alpha1.Blueprint
+	GetFacets() []blueprintv1alpha1.Facet
+	GetTemplateData() map[string][]byte
+	GetSourceName() string
 }
 
 // =============================================================================

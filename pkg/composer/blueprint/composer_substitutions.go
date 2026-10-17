@@ -1,3 +1,8 @@
+// The composer_substitutions file holds the substitution and patch steps of the BlueprintComposer.
+// It provides the common substitutions ConfigMap and the per-kustomization substitutions.
+// It applies context patches from contexts/<context>/patches/<name>/ to the matching entry.
+// A patch directory name matches a kustomization name or a FluxSystem tier name.
+
 package blueprint
 
 import (
@@ -119,13 +124,11 @@ func (c *BaseBlueprintComposer) mergeLegacySpecialVariables(mergedCommonValues m
 	}
 }
 
-// discoverContextPatches applies patches from contexts/<context>/patches/<name>/ onto the
-// matching kustomize: entry or FluxSystem tier. <name> is a plain kustomization name, a
-// compiled tier name, or a bare FluxSystem name; see buildFluxTierMap for tier resolution.
-// An unmatched directory only warns, since patches are opt-in. An unreadable patch directory
-// or file, or a YAML parse failure, fails composition — each case is likely operator error.
-// Hidden entries (a leading dot) are skipped, so a stray file such as a macOS AppleDouble
-// sidecar is never mistaken for a malformed patch.
+// discoverContextPatches applies the patches in contexts/<context>/patches/<name>/ to the matching
+// kustomization or FluxSystem tier. The name is a kustomization name, a compiled tier name, or a
+// FluxSystem name (see buildFluxTierMap). An unmatched directory causes a warning only. A patch
+// directory or file that cannot be read or parsed is an error. It skips entries whose name starts
+// with a dot, such as macOS AppleDouble files.
 func (c *BaseBlueprintComposer) discoverContextPatches(blueprint *blueprintv1alpha1.Blueprint) error {
 	if c.runtime == nil || c.runtime.ConfigRoot == "" {
 		return nil
@@ -223,13 +226,11 @@ func validPatchTargetNames(kustomizationMap, fluxTierMap map[string]*blueprintv1
 	return strings.Join(names, ", ")
 }
 
-// buildFluxTierMap indexes a blueprint's FluxSystems by every name a context-patch directory may
-// use to target them: each compiled tier name ("<system>-install", "<system>-resources[-<variant>]")
-// always maps to that tier's Kustomization, and the bare system name additionally maps to the
-// install tier when present, or to the lone resources variant when there is no install tier and
-// exactly one resources variant. A bare name that could mean more than one tier (no install tier
-// with multiple resources variants) is left out of the map — the tier-qualified name must be used
-// instead. Returned pointers alias the blueprint's FluxSystems so callers can mutate tiers in place.
+// buildFluxTierMap maps each name that a patch directory can use to a FluxSystem tier. Each compiled
+// tier name ("<system>-install", "<system>-resources[-<variant>]") maps to its tier. The system name
+// maps to the install tier, or to the only resources variant when there is no install tier. A system
+// name that could mean more than one tier is not in the map. The pointers refer to the blueprint's
+// tiers, so callers can change them in place.
 func buildFluxTierMap(blueprint *blueprintv1alpha1.Blueprint) map[string]*blueprintv1alpha1.Kustomization {
 	tierMap := make(map[string]*blueprintv1alpha1.Kustomization)
 	for i := range blueprint.FluxSystems {

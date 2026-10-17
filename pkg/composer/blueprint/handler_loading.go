@@ -1,3 +1,8 @@
+// The handler_loading file holds the source loading steps of the BlueprintHandler.
+// It provides loading of init blueprints, the user blueprint, the local template, and sources.
+// It loads nested sources until no new source appears, and orders loaders by dependency.
+// A source that fails to load, the local template included, returns an error.
+
 package blueprint
 
 import (

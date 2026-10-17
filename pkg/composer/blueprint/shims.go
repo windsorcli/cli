@@ -1,3 +1,8 @@
+// The Shims are the system call abstractions of the blueprint package.
+// It provides the shared shims of internal/shims and the Walk function.
+// Tests replace the shims to simulate file system and process results.
+// NewShims returns the shims with the real implementations.
+
 package blueprint
 
 import (

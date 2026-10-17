@@ -1,3 +1,8 @@
+// The processor_eval file holds the expression evaluation steps of the BlueprintProcessor.
+// It provides the evaluation of when conditions, substitutions, and typed expressions.
+// It checks the requires blocks of each facet and of its config blocks.
+// It builds the RequirementsError for the required values that are not set.
+
 package blueprint
 
 import (
@@ -146,13 +151,10 @@ func (p *BaseBlueprintProcessor) evaluateSubstitutions(subs map[string]string, f
 	return result, deferredKeys, nil
 }
 
-// evaluateStringSlice evaluates a slice of strings, allowing expressions in each string.
-// When scope is non-nil, it is merged into the evaluation environment (e.g. facet config).
-// Uses evaluateDeferred=true to disallow deferred expressions (they will error). If an expression
-// evaluates to an array, the array is flattened into the result. Empty strings are preserved so
-// that facet-defined placeholder slots (e.g. conditional component that evaluates to "") remain in
-// the result for consistent ordering and test expectations. Nil values are skipped. Returns the
-// evaluated string slice, or an error if evaluation fails.
+// evaluateStringSlice evaluates each string of slice as an expression, with scope merged into the
+// environment when it is not nil. A deferred expression is an error. An array result is flattened
+// into the slice. Empty strings stay, so placeholder entries keep their position. Nil results are
+// dropped.
 func (p *BaseBlueprintProcessor) evaluateStringSlice(slice []string, facetPath string, scope map[string]any) ([]string, error) {
 	if len(slice) == 0 {
 		return nil, nil
@@ -254,18 +256,11 @@ func (p *BaseBlueprintProcessor) evaluateIntegerExpression(expr string, facetPat
 	return &result, nil
 }
 
-// evaluateRequirements walks the facet's Requires blocks and the Requires blocks of every config
-// block, terraform component, and kustomization whose When holds, returning the unsatisfied entries.
-// A requirement block is skipped when its own When evaluates to false; otherwise every path must
-// resolve to a present, non-empty value (nil/""/empty slice/empty map count as missing; false and 0
-// are present). Component-level Requires are skipped entirely when the component's When is false,
-// so the component's needs only bind when it would actually be included. The miss's Condition is
-// the AND of facet.When, component.When (when applicable), and block.When; the formatter buckets
-// misses by Condition so each effective scope renders as its own "Because" section. An error is
-// returned only when a When expression fails to evaluate. contextScope blinds a config block's own
-// When the same way mergeFacetScopeIntoGlobal does. Without it, a block whose value replaces its
-// whole name (e.g. a scalar) would see its own prior-round contribution by a later round. A
-// `.field` access on that scalar would then fail.
+// evaluateRequirements returns the unmet requirements of a facet: its own requires blocks, and those
+// of each config block, component, and kustomization whose when is true. A block whose own when is
+// false is skipped. Each path must be present and not empty (false and 0 are present). The Condition
+// of a miss joins the facet, entry, and block conditions, for grouping. contextScope hides a config
+// block's own prior-round value from its when. Only a when that fails to evaluate is an error.
 func (p *BaseBlueprintProcessor) evaluateRequirements(facet blueprintv1alpha1.Facet, scope, contextScope map[string]any) ([]requirementBlockMiss, error) {
 	var misses []requirementBlockMiss
 

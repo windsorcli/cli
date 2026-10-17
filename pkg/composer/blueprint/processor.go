@@ -1,3 +1,8 @@
+// The BlueprintProcessor is the stage that evaluates facets into blueprint components.
+// It provides ProcessFacets, which resolves config, checks requirements, and collects components.
+// It records traces and deferred paths for the components that it collects.
+// The config, collection, evaluation, and merge steps are in the processor_* companion files.
+
 package blueprint
 
 import (
@@ -162,21 +167,12 @@ func (p *BaseBlueprintProcessor) GetExcludedFacets() []ExcludedFacet {
 	return out
 }
 
-// ProcessFacets iterates facets, evaluating each facet's 'when' against config data. Facets with
-// true (or unset) conditions contribute their terraform components, kustomizations, and config blocks to target.
-// Components in facets may have 'when' for granular control. Facets are sorted by ordinal (asc),
-// then by metadata.name (tiebreak). Higher ordinal means higher precedence when merging. Config blocks,
-// terraform components, and kustomizations are merged by ordinal (higher wins), then by strategy precedence
-// (remove > replace > merge) when ordinals match. Config block expressions are evaluated once per round
-// after all same-name blocks are merged, so expressions see the final merged value for each block.
-// If sourceName is set, it updates Source on components lacking it. The target blueprint is modified in place.
-// Returns: evaluated config scope and block order for the loader. Runtime ConfigHandler context values are
-// merged over facet-derived scope so 'when' or component expressions use the actual config.
-// An active facet contributes its config blocks (not its components) even while its requires are unmet, so
-// facets with mutually dependent config and requires resolve across rounds; a facet still unsatisfied when the
-// loop settles fails composition, so a permanently-blocked facet never leaks config into a successful blueprint.
-// An operator's own explicit value wins over a facet's computed value for the same key. This
-// matches the guarantee ProcessGlobally provides.
+// ProcessFacets evaluates the facets of one source into target and returns the config scope. Facets
+// sort by ordinal, then name. A facet with a true or unset when adds its config blocks and components;
+// a component when gives finer control. Entries merge by ordinal, then remove > replace > merge. Config
+// expressions see the merged block values. An operator value wins over a computed facet value. A facet
+// whose requires stay unmet fails composition. If sourceName is set, it is the Source of components
+// that have none.
 func (p *BaseBlueprintProcessor) ProcessFacets(target *blueprintv1alpha1.Blueprint, facets []blueprintv1alpha1.Facet, sourceName ...string) (map[string]any, error) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -296,21 +292,11 @@ func (p *BaseBlueprintProcessor) buildContextScope() map[string]any {
 	return contextScope
 }
 
-// resolveConfigAndInclusion runs the config-merge and facet-inclusion fixpoint over sortedFacets
-// against contextScope. It returns the resolved config scope (globalScope), the full evaluation scope
-// (contextScope deep-merged with globalScope), and the included facets. Excluded facets are recorded,
-// and a requirements error is returned if any included facet's requires stay unmet. It emits no
-// components — split from ProcessFacets so cross-source composition can resolve config and inclusion
-// once, globally, before emitting each source's components. A round stops the loop only when the
-// included-facet set and the resolved config scope both match the prior round, since a config block's
-// `when:` can depend on a block only just included this round. It errors if the scope never settles
-// within maxFacetRounds, instead of silently returning whichever round ran last.
-//
-// A config: block always computes its own value. It cannot defer to an operator's raw
-// override on its own. Each round, after facets merge their blocks, operatorOverlay joins as one
-// more contributor. It carries the highest ordinal. mergeConfigBlocks' existing precedence rule
-// then makes it win. This runs before block bodies evaluate. So a block referencing another
-// block's key sees the operator's corrected value too.
+// resolveConfigAndInclusion repeats config merge and facet inclusion until both stop changing. It
+// returns the config scope, the full evaluation scope, and the included facets, and emits no
+// components. Each round adds operatorOverlay as the highest-ordinal contributor, so operator values
+// win and other blocks see them. It records excluded facets. It returns an error when a facet's
+// requires stay unmet, or when the scope does not settle within maxFacetRounds.
 func (p *BaseBlueprintProcessor) resolveConfigAndInclusion(sortedFacets []blueprintv1alpha1.Facet, contextScope map[string]any, operatorOverlay map[string]any) (map[string]any, map[string]any, []blueprintv1alpha1.Facet, error) {
 	scope := contextScope
 	var globalScope map[string]any
@@ -432,11 +418,11 @@ func (p *BaseBlueprintProcessor) resolveConfigAndInclusion(sortedFacets []bluepr
 	return globalScope, scope, includedFacets, nil
 }
 
-// emitFacetComponents materializes the included facets' components — terraform components,
-// kustomizations, flux systems, CRDs, blueprint-level substitutions, and messages — into target,
-// resolving expressions against the already-resolved scope. sourceName stamps Source on components
-// that lack one. This is the emission half of ProcessFacets, split out so cross-source composition can
-// resolve config and inclusion globally first and then emit each source's components separately.
+// emitFacetComponents adds the components, kustomizations, flux systems, CRDs, substitutions, and
+// messages of the included facets to target, with expressions evaluated against the resolved scope.
+// sourceName is the Source of components that have none. Messages stay unevaluated, in facet order;
+// GenerateResolved renders them later, when terraform outputs exist. ProcessFacets calls it after
+// config and inclusion resolve, so cross-source composition can emit each source on its own.
 func (p *BaseBlueprintProcessor) emitFacetComponents(target *blueprintv1alpha1.Blueprint, includedFacets []blueprintv1alpha1.Facet, scope map[string]any, sourceName ...string) error {
 	collected := collectedComponents{
 		terraformByID:       make(map[string]*blueprintv1alpha1.ConditionalTerraformComponent),
@@ -505,9 +491,6 @@ func (p *BaseBlueprintProcessor) emitFacetComponents(target *blueprintv1alpha1.B
 			}
 		}
 
-		// Carry raw message templates through in included-facet order (ordinal then name). They are not
-		// evaluated here: GenerateResolved renders when/text against the resolved scope, where run values
-		// like terraform_output are available, and dedups the rendered results.
 		for _, msg := range facet.Messages {
 			if msg.Text != "" {
 				target.Messages = append(target.Messages, msg)
@@ -684,6 +667,8 @@ func asMapStringAny(v any) (map[string]any, bool) {
 	return out, true
 }
 
+// containsExpressionInValue reports whether v, or any value nested in a map or slice of v, is a
+// deferred value or a string that holds a ${...} expression.
 func containsExpressionInValue(v any) bool {
 	switch x := v.(type) {
 	case evaluator.DeferredValue:

@@ -1,3 +1,8 @@
+// The processor_collect file holds the component collection steps of the BlueprintProcessor.
+// It provides collection of terraform components, kustomizations, and flux systems from a facet.
+// It evaluates the conditions and values of each entry against the facet scope.
+// It validates CRD references and flux system secrets, and rejects sensitive substitutions.
+
 package blueprint
 
 import (
@@ -15,13 +20,10 @@ import (
 // Private Methods
 // =============================================================================
 
-// collectTerraformComponents processes and collects all Terraform components from the provided facet.
-// It evaluates conditions, inputs, and source assignments for each component, collects them into the
-// terraformByID map, and handles merging or replacement based on strategy priorities. When facetScope
-// is non-nil (evaluated facet config), it is merged into the expression environment so inputs can
-// reference config block values (e.g. talos.controlplanes). If a component has an empty 'when'
-// condition, it inherits the facet-level condition. Returns an error if condition evaluation or
-// input processing fails.
+// collectTerraformComponents collects the terraform components of a facet into terraformByID. It
+// evaluates the when condition, inputs, and source of each component, and merges entries by strategy.
+// A component with no when takes the facet condition. When facetScope is not nil, expressions can read
+// config block values. Evaluation errors return.
 func (p *BaseBlueprintProcessor) collectTerraformComponents(
 	facet blueprintv1alpha1.Facet,
 	sourceName []string,
@@ -140,15 +142,8 @@ func (p *BaseBlueprintProcessor) collectTerraformComponents(
 	return nil
 }
 
-// collectKustomizations processes all kustomizations from a facet, evaluating their conditions,
-// substitutions, and source assignments. When facetScope is non-nil (evaluated facet config), it is
-// merged into the expression environment so substitutions and other expressions can reference config
-// block values. Kustomizations are collected into the kustomizationByName map; merge precedence
-// is ordinal (higher wins), then strategy precedence (remove > replace > merge) when ordinals are equal.
-// If a kustomization has an empty 'when' condition, it inherits the facet-level condition.
-// Returns an error if condition evaluation or substitution processing fails.
-// recordKustomizationTraces records substitution and component provenance for a composed
-// kustomization so `windsor explain` can attribute each value to its facet, source, and line.
+// recordKustomizationTraces records the source of each substitution and component of a kustomization,
+// so `windsor explain` can name the facet, source, and line of each value.
 func (p *BaseBlueprintProcessor) recordKustomizationTraces(name string, rawComponents []string, rawSubstitutions map[string]string, facetPath, sourceName string, ordinal int, strategy string) {
 	for sk, sv := range rawSubstitutions {
 		p.recordTrace("kustomize."+name+".substitutions."+sk, TraceContribution{
@@ -172,6 +167,10 @@ func (p *BaseBlueprintProcessor) recordKustomizationTraces(name string, rawCompo
 	}
 }
 
+// collectKustomizations collects the kustomizations of a facet into kustomizationByName. It evaluates
+// the when condition, substitutions, and source of each kustomization. Entries merge by ordinal, then
+// remove > replace > merge. A kustomization with no when takes the facet condition. When facetScope is
+// not nil, expressions can read config block values. Evaluation errors return.
 func (p *BaseBlueprintProcessor) collectKustomizations(facet blueprintv1alpha1.Facet, sourceName []string, kustomizationByName map[string]*blueprintv1alpha1.ConditionalKustomization, facetScope map[string]any) error {
 	for _, k := range facet.Kustomizations {
 		componentWhen := k.When
@@ -296,17 +295,10 @@ func mergeSubstitute(k blueprintv1alpha1.Kustomization) map[string]string {
 	return out
 }
 
-// validateSystemSecrets fails composition when a flux system's secrets: entry is malformed. An entry
-// with no data keys is rejected: a secret entry is `data: {<key>: <ref>}` plus an optional
-// `namespaces:` selector, so an empty Data means either a genuinely empty entry or the retired flat
-// form (`<name>: {<key>: <ref>}`), whose keys the decoder silently discards — failing here turns that
-// into a loud composition error instead of a secret that silently never places. Each data value must be
-// a complete ${...} expression: any reference or secret() call is allowed — the value is resolved at
-// placement and materialized into a Kubernetes Secret (the protected sink), so it need not point at a
-// sensitive schema property; wiring a non-sensitive value into a Secret is safe. A plaintext literal is
-// rejected because the authored value is serialized with the blueprint, so a hardcoded secret would be
-// committed to git. Keeping sensitive values out of ConfigMaps and output is enforced separately — see
-// the substitution guard (sensitivePathsInValue) and display redaction.
+// validateSystemSecrets rejects a malformed secrets: entry of a flux system. An entry must have data
+// keys, in the form `data: {<key>: <ref>}` with an optional `namespaces:` selector; an empty entry would
+// never create a secret. Each value must be a complete ${...} expression, a reference or a secret()
+// call. A plaintext literal is rejected, because the blueprint file holds it and git would store it.
 func (p *BaseBlueprintProcessor) validateSystemSecrets(systemName string, secrets map[string]blueprintv1alpha1.SecretEntry) error {
 	for secretName, entry := range secrets {
 		if len(entry.Data) == 0 {

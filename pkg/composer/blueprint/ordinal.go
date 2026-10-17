@@ -1,3 +1,8 @@
+// The ordinal file holds the default facet ordinals.
+// It provides OrdinalFromFacetPath and OrdinalFromBasename.
+// The default ordinal comes from the prefix of the facet file name.
+// The loader uses it when a facet does not set ordinal, so the facet order is deterministic.
+
 package blueprint
 
 import (
@@ -5,20 +10,13 @@ import (
 	"strings"
 )
 
-// The ordinal helpers are utilities that provide default facet ordering from file paths and basenames.
-// They are used when a facet does not set ordinal explicitly so that processing order is deterministic.
-
 // =============================================================================
 // Helpers
 // =============================================================================
 
-// OrdinalFromFacetPath returns the default ordinal for a facet based on its file path.
-// The basename of the path is used to match prefix rules. When the facet does not set
-// ordinal explicitly, the loader uses this to assign a default so that facet processing
-// order is deterministic (config first, then provider/platform base, then provider/platform,
-// then options, then addons). Higher ordinal means higher precedence when merging.
-// Rules: config-* 100; provider-* or platform-* with "-base" in name 199; provider-* or platform-* 200;
-// option-* or options-* 300; addon-* or addons-* 400; no match 0.
+// OrdinalFromFacetPath returns the default ordinal for a facet from the basename of its path. A higher
+// ordinal wins in a merge. Rules: config-* 100; provider-* or platform-* with "-base" 199; provider-*
+// or platform-* 200; option-* or options-* 300; addon-* or addons-* 400; no match 0.
 func OrdinalFromFacetPath(path string) int {
 	return OrdinalFromBasename(filepath.Base(path))
 }

@@ -1,3 +1,8 @@
+// The handler_deferred file holds deferred-value resolution for the BlueprintHandler.
+// It provides the resolution of deferred substitutions after terraform outputs exist.
+// It renders post-run messages against the resolved scope.
+// It marks ConfigMap entries as deferred when they take a value from a deferred substitution.
+
 package blueprint
 
 import (
@@ -12,16 +17,10 @@ import (
 // Private Methods
 // =============================================================================
 
-// resolveDeferredSubstitutions re-evaluates deferred substitutions with evaluateDeferred=true
-// so that helpers like terraform_output() resolve using outputs available at generate time
-// (after terraform apply). Only substitutions marked as deferred during composition are
-// re-evaluated; already-resolved substitutions are left untouched. Covers global substitutions,
-// blueprint-level ConfigMaps, per-kustomization substitutions, and flux: systems' install/
-// resources tier substitutions.
-//
-// Returns the first evaluation error encountered, with the substitution path named (e.g.
-// "kustomize.dns.substitutions.external_dns_tenant_id"), surfacing the problem at
-// blueprint-resolution time, before anything is written to the cluster.
+// resolveDeferredSubstitutions evaluates the deferred substitutions again with evaluateDeferred=true,
+// so terraform_output() and similar helpers read the applied outputs. It covers global substitutions,
+// ConfigMaps, kustomization substitutions, and flux system tier substitutions. It skips substitutions
+// that resolved during composition. The first error names its substitution path.
 func (h *BaseBlueprintHandler) resolveDeferredSubstitutions() error {
 	if h.runtime == nil || h.runtime.Evaluator == nil || h.composedBlueprint == nil {
 		return nil
@@ -125,13 +124,10 @@ func (h *BaseBlueprintHandler) resolveDeferred(expr string) (string, error) {
 	return fmt.Sprintf("%v", resolved), nil
 }
 
-// resolveMessages renders the composed blueprint's post-run messages against the resolved scope,
-// where run values (e.g. terraform_output) are available. Each message's optional When is evaluated
-// as a boolean gate — a message whose When is false or non-boolean is dropped — and its Text is
-// interpolated. Only kept messages carry through, with When cleared (it has served its purpose) and
-// Text replaced by the rendered result. Rendered text is deduplicated so multiple active facets
-// emitting the same note surface it once, preserving included-facet order. Evaluation errors are
-// surfaced at generate time, before anything reaches the operator or the cluster.
+// resolveMessages renders the post-run messages of the composed blueprint against the resolved scope.
+// It drops a message whose When is false or not a boolean, and interpolates the Text of the rest.
+// Kept messages have When cleared and Text replaced. It removes duplicate text and keeps the facet
+// order. An evaluation error returns before anything reaches the operator or the cluster.
 func (h *BaseBlueprintHandler) resolveMessages() error {
 	if h.runtime == nil || h.runtime.Evaluator == nil || h.composedBlueprint == nil {
 		return nil
