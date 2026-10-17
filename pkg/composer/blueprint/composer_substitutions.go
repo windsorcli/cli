@@ -10,6 +10,7 @@ import (
 
 	"github.com/fluxcd/pkg/apis/kustomize"
 	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
+	"github.com/windsorcli/cli/internal/presenter"
 	"github.com/windsorcli/cli/internal/werror"
 )
 
@@ -161,8 +162,8 @@ func (c *BaseBlueprintComposer) discoverContextPatches(blueprint *blueprintv1alp
 			kustomization, exists = fluxTierMap[kustomizationName]
 		}
 		if !exists {
-			fmt.Fprintf(os.Stderr, "Warning: %s does not match any kustomization or FluxSystem tier; patches ignored. Valid names: %s\n",
-				filepath.Join(patchesDir, kustomizationName), validNames)
+			presenter.Warn(presenter.Background(), fmt.Sprintf("Windsor ignores the patches in %s, because no kustomization or FluxSystem tier has that name. Valid names: %s",
+				projectRelativePath(c.runtime, filepath.Join(patchesDir, kustomizationName)), validNames))
 			continue
 		}
 

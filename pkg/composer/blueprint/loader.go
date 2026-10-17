@@ -539,14 +539,24 @@ func (l *BaseBlueprintLoader) collectTemplateData(dir string) error {
 // invalidYAMLError returns a WindsorError for a file that does not parse as YAML. The message names
 // the file relative to the project root when the file is inside it, and holds the parser detail.
 func (l *BaseBlueprintLoader) invalidYAMLError(kind, path string, err error) error {
-	display := path
-	if l.runtime != nil && l.runtime.ProjectRoot != "" {
-		if rel, relErr := filepath.Rel(l.runtime.ProjectRoot, path); relErr == nil && !strings.HasPrefix(rel, "..") {
-			display = rel
-		}
-	}
-	message := fmt.Sprintf("%s file %s is not valid YAML: %s", kind, display, strings.TrimSpace(err.Error()))
+	message := fmt.Sprintf("%s file %s is not valid YAML: %s", kind, projectRelativePath(l.runtime, path), strings.TrimSpace(err.Error()))
 	return werror.New(message, "Correct the YAML syntax in the file. If the file comes from an OCI source, pin a different version of that source.", err)
+}
+
+// =============================================================================
+// Helpers
+// =============================================================================
+
+// projectRelativePath returns path relative to the project root when path is inside it, and path
+// unchanged otherwise. User-facing messages use it to name files the way the user sees them.
+func projectRelativePath(rt *runtime.Runtime, path string) string {
+	if rt == nil || rt.ProjectRoot == "" {
+		return path
+	}
+	if rel, err := filepath.Rel(rt.ProjectRoot, path); err == nil && !strings.HasPrefix(rel, "..") {
+		return rel
+	}
+	return path
 }
 
 // =============================================================================
