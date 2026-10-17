@@ -189,6 +189,21 @@ func TestBreadcrumbs(t *testing.T) {
 		}
 	})
 
+	t.Run("SkipsAMessageThePreviousEntryContains", func(t *testing.T) {
+		// Given a frame around a WindsorError whose message quotes its cause
+		we := werror.New("file is not valid YAML: exit status 1", "", errors.New("exit status 1\n"))
+		err := werror.Wrap(we, "loading blueprint")
+
+		// When the breadcrumbs are read
+		crumbs := werror.Breadcrumbs(err)
+
+		// Then the cause text is not repeated
+		want := []string{"loading blueprint", "file is not valid YAML: exit status 1"}
+		if !reflect.DeepEqual(crumbs, want) {
+			t.Errorf("expected %v, got %v", want, crumbs)
+		}
+	})
+
 	t.Run("ReturnsNothingForNil", func(t *testing.T) {
 		// Given no error
 		var err error

@@ -7,6 +7,7 @@ import (
 	"io"
 	"log/slog"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -211,8 +212,8 @@ func requireCloudAuth(cmd *cobra.Command, proj *project.Project) error {
 
 // renderError writes err to w once, in the format that --format selects. Text output prints the
 // message after "error:". A WindsorError prints its message and, on the last line, its remediation
-// after "hint:". Under --verbose, the breadcrumb trail prints before the hint when it has more than
-// one entry. JSON output is one failed event line without a trace.
+// after "hint:". Under --verbose, the breadcrumbs that the message does not contain print before
+// the hint, with each continuation line indented. JSON output is one failed event line without a trace.
 func renderError(w io.Writer, err error) {
 	if formatFlag == string(logging.FormatJSON) {
 		presenter.NewJSON(w).Emit(context.Background(), presenter.Event{Kind: presenter.KindFailed, Err: err})
@@ -224,10 +225,18 @@ func renderError(w io.Writer, err error) {
 		message, remediation = we.Message, we.Remediation
 	}
 	fmt.Fprintf(w, "error: %s\n", message)
-	if crumbs := werror.Breadcrumbs(err); verbose && len(crumbs) > 1 {
-		fmt.Fprintln(w, "trace:")
-		for _, crumb := range crumbs {
-			fmt.Fprintf(w, "  %s\n", crumb)
+	if verbose {
+		var trace []string
+		for _, crumb := range werror.Breadcrumbs(err) {
+			if !strings.Contains(message, crumb) {
+				trace = append(trace, crumb)
+			}
+		}
+		if len(trace) > 0 {
+			fmt.Fprintln(w, "trace:")
+			for _, crumb := range trace {
+				fmt.Fprintf(w, "  %s\n", strings.ReplaceAll(crumb, "\n", "\n  "))
+			}
 		}
 	}
 	if remediation != "" {
