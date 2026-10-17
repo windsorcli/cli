@@ -5,6 +5,7 @@ import (
 	"sort"
 
 	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
+	"github.com/windsorcli/cli/internal/werror"
 )
 
 // =============================================================================
@@ -277,7 +278,7 @@ func (p *BaseBlueprintProcessor) applyTerraformComponentEntryByStrategy(
 			TerraformComponents: []blueprintv1alpha1.TerraformComponent{new.TerraformComponent},
 		}
 		if err := tempBp.StrategicMerge(mergedBp); err != nil {
-			return fmt.Errorf("error pre-merging terraform component '%s': %w", componentID, err)
+			return werror.Wrap(err, "error pre-merging terraform component '%s'", componentID)
 		}
 		entries[componentID] = &blueprintv1alpha1.ConditionalTerraformComponent{
 			TerraformComponent: tempBp.TerraformComponents[0],
@@ -402,7 +403,7 @@ func (p *BaseBlueprintProcessor) applyKustomizationEntryByStrategy(name string, 
 			Kustomizations: []blueprintv1alpha1.Kustomization{new.Kustomization},
 		}
 		if err := tempBp.StrategicMerge(mergedBp); err != nil {
-			return fmt.Errorf("error pre-merging kustomization '%s': %w", name, err)
+			return werror.Wrap(err, "error pre-merging kustomization '%s'", name)
 		}
 		entries[name] = &blueprintv1alpha1.ConditionalKustomization{
 			Kustomization: tempBp.Kustomizations[0],
@@ -451,7 +452,7 @@ func (p *BaseBlueprintProcessor) applyCollectedComponents(target *blueprintv1alp
 
 	for _, replacement := range terraformReplaces {
 		if err := target.ReplaceTerraformComponent(replacement); err != nil {
-			return fmt.Errorf("error replacing terraform component '%s': %w", replacement.GetID(), err)
+			return werror.Wrap(err, "error replacing terraform component '%s'", replacement.GetID())
 		}
 	}
 
@@ -460,19 +461,19 @@ func (p *BaseBlueprintProcessor) applyCollectedComponents(target *blueprintv1alp
 			TerraformComponents: []blueprintv1alpha1.TerraformComponent{merge},
 		}
 		if err := target.StrategicMerge(tempBp); err != nil {
-			return fmt.Errorf("error merging terraform component '%s': %w", merge.GetID(), err)
+			return werror.Wrap(err, "error merging terraform component '%s'", merge.GetID())
 		}
 	}
 
 	for _, removal := range terraformRemovals {
 		if err := target.RemoveTerraformComponent(removal); err != nil {
-			return fmt.Errorf("error removing terraform component '%s': %w", removal.GetID(), err)
+			return werror.Wrap(err, "error removing terraform component '%s'", removal.GetID())
 		}
 	}
 
 	for _, replacement := range kustomizationReplaces {
 		if err := target.ReplaceKustomization(replacement); err != nil {
-			return fmt.Errorf("error replacing kustomization '%s': %w", replacement.Name, err)
+			return werror.Wrap(err, "error replacing kustomization '%s'", replacement.Name)
 		}
 	}
 
@@ -481,13 +482,13 @@ func (p *BaseBlueprintProcessor) applyCollectedComponents(target *blueprintv1alp
 			Kustomizations: []blueprintv1alpha1.Kustomization{merge},
 		}
 		if err := target.StrategicMerge(tempBp); err != nil {
-			return fmt.Errorf("error merging kustomization '%s': %w", merge.Name, err)
+			return werror.Wrap(err, "error merging kustomization '%s'", merge.Name)
 		}
 	}
 
 	for _, removal := range kustomizationRemovals {
 		if err := target.RemoveKustomization(removal); err != nil {
-			return fmt.Errorf("error removing kustomization '%s': %w", removal.Name, err)
+			return werror.Wrap(err, "error removing kustomization '%s'", removal.Name)
 		}
 	}
 
@@ -501,7 +502,7 @@ func (p *BaseBlueprintProcessor) dropExcludedEntries(collected collectedComponen
 		if entry.When != "" {
 			shouldInclude, err := p.shouldIncludeComponent(entry.When, "", scope)
 			if err != nil {
-				return fmt.Errorf("error re-evaluating terraform component '%s' condition: %w", componentID, err)
+				return werror.Wrap(err, "error re-evaluating terraform component '%s' condition", componentID)
 			}
 			if !shouldInclude {
 				delete(collected.terraformByID, componentID)
@@ -513,7 +514,7 @@ func (p *BaseBlueprintProcessor) dropExcludedEntries(collected collectedComponen
 		if entry.When != "" {
 			shouldInclude, err := p.shouldIncludeComponent(entry.When, "", scope)
 			if err != nil {
-				return fmt.Errorf("error re-evaluating kustomization '%s' condition: %w", name, err)
+				return werror.Wrap(err, "error re-evaluating kustomization '%s' condition", name)
 			}
 			if !shouldInclude {
 				delete(collected.kustomizationByName, name)
@@ -695,13 +696,13 @@ func applyFluxSystems(target *blueprintv1alpha1.Blueprint, fluxSystemByName map[
 			continue
 		}
 		if err := target.UpsertFluxSystem(sys); err != nil {
-			return fmt.Errorf("error writing flux system '%s': %w", key, err)
+			return werror.Wrap(err, "error writing flux system '%s'", key)
 		}
 	}
 
 	for _, removal := range fluxRemovals {
 		if err := target.RemoveFluxSystem(removal); err != nil {
-			return fmt.Errorf("error removing flux system '%s': %w", removal.Name, err)
+			return werror.Wrap(err, "error removing flux system '%s'", removal.Name)
 		}
 	}
 	return nil

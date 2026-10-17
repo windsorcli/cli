@@ -10,6 +10,7 @@ import (
 	"sync"
 
 	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
+	"github.com/windsorcli/cli/internal/werror"
 	"github.com/windsorcli/cli/pkg/runtime"
 	"github.com/windsorcli/cli/pkg/runtime/evaluator"
 )
@@ -349,7 +350,7 @@ func (p *BaseBlueprintProcessor) resolveConfigAndInclusion(sortedFacets []bluepr
 			var errMerge error
 			globalScope, cfgEntries, errMerge = p.mergeFacetScopeIntoGlobal(facet, globalScope, cfgEntries, passScope, contextScope)
 			if errMerge != nil {
-				return nil, nil, nil, fmt.Errorf("facet %s: %w", facet.Metadata.Name, errMerge)
+				return nil, nil, nil, werror.Wrap(errMerge, "facet %s", facet.Metadata.Name)
 			}
 			if len(misses) > 0 {
 				pendingRequirements[facet.Metadata.Name] = facetRequirementMisses{Misses: misses}
@@ -448,12 +449,12 @@ func (p *BaseBlueprintProcessor) emitFacetComponents(target *blueprintv1alpha1.B
 		if len(facet.Crds) > 0 {
 			evaluated, err := p.evaluateStringSlice(facet.Crds, facet.Path, scope)
 			if err != nil {
-				return fmt.Errorf("error evaluating crds for facet '%s': %w", facet.Metadata.Name, err)
+				return werror.Wrap(err, "error evaluating crds for facet '%s'", facet.Metadata.Name)
 			}
 			facet.Crds = slices.DeleteFunc(evaluated, func(s string) bool { return s == "" })
 			for _, ref := range facet.Crds {
 				if err := validateCrdRef(ref); err != nil {
-					return fmt.Errorf("facet %q: %w", facet.Metadata.Name, err)
+					return werror.Wrap(err, "facet %q", facet.Metadata.Name)
 				}
 			}
 		}
@@ -476,7 +477,7 @@ func (p *BaseBlueprintProcessor) emitFacetComponents(target *blueprintv1alpha1.B
 		if len(facet.Substitutions) > 0 {
 			evaluated, deferredKeys, err := p.evaluateSubstitutions(facet.Substitutions, facet.Path, scope)
 			if err != nil {
-				return fmt.Errorf("error evaluating substitutions for facet '%s': %w", facet.Metadata.Name, err)
+				return werror.Wrap(err, "error evaluating substitutions for facet '%s'", facet.Metadata.Name)
 			}
 			if target.Substitutions == nil {
 				target.Substitutions = make(map[string]string)

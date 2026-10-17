@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
+	"github.com/windsorcli/cli/internal/werror"
 	"github.com/windsorcli/cli/pkg/composer/artifact"
 	"github.com/windsorcli/cli/pkg/constants"
 	"github.com/windsorcli/cli/pkg/runtime"
@@ -72,7 +73,7 @@ func (w *BaseBlueprintWriter) Write(blueprint *blueprintv1alpha1.Blueprint, over
 	if _, err := w.shims.Stat(yamlPath); os.IsNotExist(err) {
 		fileExists = false
 	} else if err != nil {
-		return fmt.Errorf("error checking file existence: %w", err)
+		return werror.Wrap(err, "error checking file existence")
 	}
 
 	if !overwrite && fileExists {
@@ -80,13 +81,13 @@ func (w *BaseBlueprintWriter) Write(blueprint *blueprintv1alpha1.Blueprint, over
 	}
 
 	if err := w.shims.MkdirAll(filepath.Dir(yamlPath), 0755); err != nil {
-		return fmt.Errorf("error creating directory: %w", err)
+		return werror.Wrap(err, "error creating directory")
 	}
 
 	referential := w.createMinimalBlueprint(blueprint, initBlueprintURLs...)
 	data, err := w.shims.YamlMarshal(referential)
 	if err != nil {
-		return fmt.Errorf("error marshalling blueprint: %w", err)
+		return werror.Wrap(err, "error marshalling blueprint")
 	}
 
 	header := []byte(`# This file selects and overrides components from underlying blueprint sources.
@@ -95,7 +96,7 @@ func (w *BaseBlueprintWriter) Write(blueprint *blueprintv1alpha1.Blueprint, over
 	data = append(header, data...)
 
 	if err := w.shims.WriteFile(yamlPath, data, 0644); err != nil {
-		return fmt.Errorf("error writing blueprint.yaml: %w", err)
+		return werror.Wrap(err, "error writing blueprint.yaml")
 	}
 
 	return nil

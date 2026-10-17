@@ -8,6 +8,7 @@ import (
 
 	"github.com/Masterminds/semver/v3"
 	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
+	"github.com/windsorcli/cli/internal/werror"
 	"github.com/windsorcli/cli/pkg/composer/artifact"
 	"github.com/windsorcli/cli/pkg/runtime"
 )
@@ -139,15 +140,15 @@ func (h *BaseBlueprintHandler) LoadBlueprint(blueprintURL ...string) error {
 	h.sourceBlueprintLoaders = make(map[string]BlueprintLoader)
 
 	if err := h.loadInitBlueprints(); err != nil {
-		return fmt.Errorf("failed to load init blueprints: %w", err)
+		return werror.Wrap(err, "failed to load init blueprints")
 	}
 
 	if err := h.loadUser(); err != nil {
-		return fmt.Errorf("failed to load user blueprint: %w", err)
+		return werror.Wrap(err, "failed to load user blueprint")
 	}
 
 	if err := h.loadSources(); err != nil {
-		return fmt.Errorf("failed to load sources: %w", err)
+		return werror.Wrap(err, "failed to load sources")
 	}
 
 	if h.runtime != nil && h.runtime.Evaluator != nil {
@@ -161,7 +162,7 @@ func (h *BaseBlueprintHandler) LoadBlueprint(blueprintURL ...string) error {
 		if errors.As(err, &reqErr) {
 			return err
 		}
-		return fmt.Errorf("failed to compose blueprint: %w", err)
+		return werror.Wrap(err, "failed to compose blueprint")
 	}
 
 	if !h.skipValidation {
@@ -213,7 +214,7 @@ func (h *BaseBlueprintHandler) RetargetSource(name, url string) (string, error) 
 		return "", fmt.Errorf("blueprint not loaded")
 	}
 	if _, err := artifact.ParseOCIReference(url); err != nil {
-		return "", fmt.Errorf("invalid source url %q: %w", url, err)
+		return "", werror.Wrap(err, "invalid source url %q", url)
 	}
 	for i := range h.composedBlueprint.Sources {
 		if h.composedBlueprint.Sources[i].Name == name {
@@ -223,7 +224,8 @@ func (h *BaseBlueprintHandler) RetargetSource(name, url string) (string, error) 
 			return previous, nil
 		}
 	}
-	return "", fmt.Errorf("source %q is not declared in the blueprint; add it to blueprint.yaml before retargeting", name)
+	return "", werror.New(fmt.Sprintf("Blueprint source %q is not declared.", name),
+		"Add the source to blueprint.yaml, then run the command again.", nil)
 }
 
 // UpgradeSourcesToLatest moves each remote OCI source pinned to a semver to the highest stable tag
@@ -260,12 +262,12 @@ func (h *BaseBlueprintHandler) UpgradeSourcesToLatest() ([]SourceUpgrade, error)
 
 		tags, err := h.artifactBuilder.ListTags(src.Url)
 		if err != nil {
-			return nil, fmt.Errorf("failed to list tags for source %q: %w", src.Name, err)
+			return nil, werror.Wrap(err, "failed to list tags for source %q", src.Name)
 		}
 		urlPrefix := strings.TrimSuffix(src.Url, ":"+info.Tag)
 		latestTag, latest, ok, err := artifact.ResolveCompatibleTag(h.artifactBuilder, urlPrefix, tags)
 		if err != nil {
-			return nil, fmt.Errorf("failed to check CLI compatibility for source %q: %w", src.Name, err)
+			return nil, werror.Wrap(err, "failed to check CLI compatibility for source %q", src.Name)
 		}
 		if !ok || !latest.GreaterThan(current) {
 			continue
@@ -604,7 +606,7 @@ func (h *BaseBlueprintHandler) processSourceFacets(loadersToProcess []BlueprintL
 		if errors.As(err, &reqErr) {
 			return nil, err
 		}
-		return nil, fmt.Errorf("failed to process facets: %w", err)
+		return nil, werror.Wrap(err, "failed to process facets")
 	}
 	if concrete, ok := h.processor.(*BaseBlueprintProcessor); ok {
 		h.deferredPathsMu.Lock()
@@ -668,7 +670,7 @@ func (h *BaseBlueprintHandler) evaluateTerraformInputs(scope map[string]any) err
 				h.runtime.Evaluator, key, value, comp.InputOrigins, scope, false,
 			)
 			if err != nil {
-				return fmt.Errorf("evaluate terraform inputs for component %q: %w", comp.GetID(), err)
+				return werror.Wrap(err, "evaluate terraform inputs for component %q", comp.GetID())
 			}
 			evaluated[key] = normalizeDeferredValue(result)
 		}

@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
+	"github.com/windsorcli/cli/internal/werror"
 )
 
 // =============================================================================
@@ -39,7 +40,7 @@ func (h *BaseBlueprintHandler) resolveDeferredSubstitutions() error {
 		}
 		str, err := h.resolveDeferred(value)
 		if err != nil {
-			return fmt.Errorf("substitutions.%s: %w", key, err)
+			return werror.Wrap(err, "substitutions.%s", key)
 		}
 		bp.Substitutions[key] = str
 	}
@@ -51,7 +52,7 @@ func (h *BaseBlueprintHandler) resolveDeferredSubstitutions() error {
 			}
 			str, err := h.resolveDeferred(value)
 			if err != nil {
-				return fmt.Errorf("configmaps.%s.%s: %w", name, key, err)
+				return werror.Wrap(err, "configmaps.%s.%s", name, key)
 			}
 			bp.ConfigMaps[name][key] = str
 		}
@@ -65,7 +66,7 @@ func (h *BaseBlueprintHandler) resolveDeferredSubstitutions() error {
 			}
 			str, err := h.resolveDeferred(value)
 			if err != nil {
-				return fmt.Errorf("kustomize.%s.substitutions.%s: %w", k.Name, key, err)
+				return werror.Wrap(err, "kustomize.%s.substitutions.%s", k.Name, key)
 			}
 			k.Substitutions[key] = str
 		}
@@ -80,7 +81,7 @@ func (h *BaseBlueprintHandler) resolveDeferredSubstitutions() error {
 				}
 				str, err := h.resolveDeferred(value)
 				if err != nil {
-					return fmt.Errorf("flux.%s.install.substitutions.%s: %w", sys.Name, key, err)
+					return werror.Wrap(err, "flux.%s.install.substitutions.%s", sys.Name, key)
 				}
 				sys.Install.Substitutions[key] = str
 			}
@@ -94,7 +95,7 @@ func (h *BaseBlueprintHandler) resolveDeferredSubstitutions() error {
 				}
 				str, err := h.resolveDeferred(value)
 				if err != nil {
-					return fmt.Errorf("%s%s: %w", resourcesPrefix, key, err)
+					return werror.Wrap(err, "%s%s", resourcesPrefix, key)
 				}
 				v.Substitutions[key] = str
 			}
@@ -146,7 +147,7 @@ func (h *BaseBlueprintHandler) resolveMessages() error {
 		if msg.When != "" {
 			cond, err := h.runtime.Evaluator.Evaluate("${"+msg.When+"}", "", h.composedScope, true)
 			if err != nil {
-				return fmt.Errorf("message when %q: %w", msg.When, err)
+				return werror.Wrap(err, "message when %q", msg.When)
 			}
 			if b, ok := cond.(bool); !ok || !b {
 				continue
@@ -154,7 +155,7 @@ func (h *BaseBlueprintHandler) resolveMessages() error {
 		}
 		text, err := h.resolveDeferred(msg.Text)
 		if err != nil {
-			return fmt.Errorf("message text %q: %w", msg.Text, err)
+			return werror.Wrap(err, "message text %q", msg.Text)
 		}
 		if text == "" || seen[text] {
 			continue

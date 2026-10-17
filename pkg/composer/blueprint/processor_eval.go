@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
+	"github.com/windsorcli/cli/internal/werror"
 	"github.com/windsorcli/cli/pkg/runtime/evaluator"
 )
 
@@ -44,7 +45,7 @@ func (p *BaseBlueprintProcessor) shouldIncludeFacet(facet blueprintv1alpha1.Face
 	}
 	matches, err := p.evaluateCondition(facet.When, facet.Path, scope)
 	if err != nil {
-		return false, fmt.Errorf("error evaluating facet '%s' condition: %w", facet.Metadata.Name, err)
+		return false, werror.Wrap(err, "error evaluating facet '%s' condition", facet.Metadata.Name)
 	}
 	return matches, nil
 }
@@ -109,11 +110,12 @@ func (p *BaseBlueprintProcessor) evaluateSubstitutions(subs map[string]string, f
 	deferredKeys := make(map[string]bool)
 	for key, value := range subs {
 		if paths := p.sensitivePathsInValue(value); len(paths) > 0 {
-			return nil, nil, fmt.Errorf("substitution %q references sensitive property %q; move it to the flux system's secrets: key instead of a plaintext substitution, which would be written to a ConfigMap", key, paths[0])
+			return nil, nil, werror.New(fmt.Sprintf("Substitution %q references sensitive property %q.", key, paths[0]),
+				"Move the value to the secrets: key of the flux system. Windsor writes a plaintext substitution to a ConfigMap.", nil)
 		}
 		evaluated, err := p.evaluator.Evaluate(value, facetPath, scope, false)
 		if err != nil {
-			return nil, nil, fmt.Errorf("failed to evaluate '%s': %w", key, err)
+			return nil, nil, werror.Wrap(err, "failed to evaluate '%s'", key)
 		}
 		if evaluator.IsDeferredValue(evaluated) {
 			if deferredExpr, ok := evaluator.DeferredExpression(evaluated); ok {
@@ -280,7 +282,7 @@ func (p *BaseBlueprintProcessor) evaluateRequirements(facet blueprintv1alpha1.Fa
 		guardScope := scopeBlindToBlockKeys(scope, contextScope, cb.Name, cb.Body)
 		include, err := p.shouldIncludeComponent(cb.When, facet.Path, guardScope)
 		if err != nil {
-			return nil, fmt.Errorf("error evaluating config block when '%s' in facet '%s': %w", cb.When, facet.Metadata.Name, err)
+			return nil, werror.Wrap(err, "error evaluating config block when '%s' in facet '%s'", cb.When, facet.Metadata.Name)
 		}
 		if !include {
 			continue
@@ -298,7 +300,7 @@ func (p *BaseBlueprintProcessor) evaluateRequirements(facet blueprintv1alpha1.Fa
 		}
 		include, err := p.shouldIncludeComponent(tc.When, facet.Path, scope)
 		if err != nil {
-			return nil, fmt.Errorf("error evaluating terraform component when '%s' in facet '%s': %w", tc.When, facet.Metadata.Name, err)
+			return nil, werror.Wrap(err, "error evaluating terraform component when '%s' in facet '%s'", tc.When, facet.Metadata.Name)
 		}
 		if !include {
 			continue
@@ -316,7 +318,7 @@ func (p *BaseBlueprintProcessor) evaluateRequirements(facet blueprintv1alpha1.Fa
 		}
 		include, err := p.shouldIncludeComponent(k.When, facet.Path, scope)
 		if err != nil {
-			return nil, fmt.Errorf("error evaluating kustomization when '%s' in facet '%s': %w", k.When, facet.Metadata.Name, err)
+			return nil, werror.Wrap(err, "error evaluating kustomization when '%s' in facet '%s'", k.When, facet.Metadata.Name)
 		}
 		if !include {
 			continue
@@ -350,7 +352,7 @@ func (p *BaseBlueprintProcessor) evaluateRequirementBlocks(blocks []blueprintv1a
 		if block.When != "" {
 			ok, err := p.evaluateCondition(block.When, facetPath, scope)
 			if err != nil {
-				return nil, fmt.Errorf("error evaluating requirement when '%s' in facet '%s': %w", block.When, facetName, err)
+				return nil, werror.Wrap(err, "error evaluating requirement when '%s' in facet '%s'", block.When, facetName)
 			}
 			applies = ok
 		}

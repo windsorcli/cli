@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
+	"github.com/windsorcli/cli/internal/werror"
 	"github.com/windsorcli/cli/pkg/runtime"
 )
 
@@ -168,10 +169,10 @@ func (c *BaseBlueprintComposer) Compose(loaders []BlueprintLoader, initLoaderNam
 	c.setContextMetadata(result)
 	c.applyCommonSubstitutions(result)
 	if err := c.discoverContextPatches(result); err != nil {
-		return nil, fmt.Errorf("failed to discover context patches: %w", err)
+		return nil, werror.Wrap(err, "failed to discover context patches")
 	}
 	if err := c.applyPerKustomizationSubstitutions(result); err != nil {
-		return nil, fmt.Errorf("failed to apply per-kustomization substitutions: %w", err)
+		return nil, werror.Wrap(err, "failed to apply per-kustomization substitutions")
 	}
 	c.dropEmptyCompositionFragments(result)
 	c.resolveTierDependencies(result)
@@ -243,7 +244,7 @@ func (c *BaseBlueprintComposer) applyUserBlueprint(result *blueprintv1alpha1.Blu
 			if userCopy.TerraformComponents[i].Inputs != nil {
 				evaluated, err := c.runtime.Evaluator.EvaluateMap(userCopy.TerraformComponents[i].Inputs, sourceFilePath, configScope, false)
 				if err != nil {
-					return fmt.Errorf("evaluate user blueprint terraform inputs: %w", err)
+					return werror.Wrap(err, "evaluate user blueprint terraform inputs")
 				}
 				if normalized, ok := normalizeDeferredValue(evaluated).(map[string]any); ok {
 					userCopy.TerraformComponents[i].Inputs = normalized

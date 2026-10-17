@@ -10,6 +10,7 @@ import (
 
 	"github.com/fluxcd/pkg/apis/kustomize"
 	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
+	"github.com/windsorcli/cli/internal/werror"
 )
 
 // =============================================================================
@@ -136,7 +137,7 @@ func (c *BaseBlueprintComposer) discoverContextPatches(blueprint *blueprintv1alp
 
 	entries, err := c.shims.ReadDir(patchesDir)
 	if err != nil {
-		return fmt.Errorf("failed to read patches directory: %w", err)
+		return werror.Wrap(err, "failed to read patches directory")
 	}
 
 	kustomizationMap := make(map[string]*blueprintv1alpha1.Kustomization)
@@ -168,7 +169,7 @@ func (c *BaseBlueprintComposer) discoverContextPatches(blueprint *blueprintv1alp
 		kustomizationPatchesDir := filepath.Join(patchesDir, kustomizationName)
 		patchFiles, err := c.shims.ReadDir(kustomizationPatchesDir)
 		if err != nil {
-			return fmt.Errorf("failed to read patches directory %s: %w", kustomizationPatchesDir, err)
+			return werror.Wrap(err, "failed to read patches directory %s", kustomizationPatchesDir)
 		}
 
 		for _, patchFile := range patchFiles {
@@ -187,7 +188,7 @@ func (c *BaseBlueprintComposer) discoverContextPatches(blueprint *blueprintv1alp
 			patchPath := filepath.Join(kustomizationPatchesDir, fileName)
 			patchData, err := c.shims.ReadFile(patchPath)
 			if err != nil {
-				return fmt.Errorf("failed to read patch file %s: %w", patchPath, err)
+				return werror.Wrap(err, "failed to read patch file %s", patchPath)
 			}
 
 			patch, err := c.parsePatch(patchData, patchPath)
@@ -272,7 +273,7 @@ func (c *BaseBlueprintComposer) parsePatch(data []byte, path string) (*blueprint
 
 	var patchContent map[string]any
 	if err := c.shims.YamlUnmarshal(data, &patchContent); err != nil {
-		return nil, fmt.Errorf("failed to parse patch file %s: %w", path, err)
+		return nil, werror.Wrap(err, "failed to parse patch file %s", path)
 	}
 
 	if len(patchContent) == 0 {
@@ -289,7 +290,7 @@ func (c *BaseBlueprintComposer) parsePatch(data []byte, path string) (*blueprint
 
 		jsonPatchOps, err := c.shims.YamlMarshal(patches)
 		if err != nil {
-			return nil, fmt.Errorf("failed to marshal JSON patch operations: %w", err)
+			return nil, werror.Wrap(err, "failed to marshal JSON patch operations")
 		}
 
 		target := &kustomize.Selector{

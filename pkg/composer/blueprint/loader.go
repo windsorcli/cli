@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
+	"github.com/windsorcli/cli/internal/werror"
 	"github.com/windsorcli/cli/pkg/composer/artifact"
 	"github.com/windsorcli/cli/pkg/constants"
 	"github.com/windsorcli/cli/pkg/runtime"
@@ -139,7 +140,7 @@ func (l *BaseBlueprintLoader) loadFromLocalTemplate() error {
 	}
 
 	if err := l.collectTemplateData(templateRoot); err != nil {
-		return fmt.Errorf("failed to collect template data: %w", err)
+		return werror.Wrap(err, "failed to collect template data")
 	}
 
 	if err := l.loadSchema(); err != nil {
@@ -200,12 +201,12 @@ func (l *BaseBlueprintLoader) loadFromOCI() error {
 
 	artifacts, err := l.artifactBuilder.Pull([]string{l.sourceURL})
 	if err != nil {
-		return fmt.Errorf("failed to pull OCI artifact: %w", err)
+		return werror.Wrap(err, "failed to pull OCI artifact")
 	}
 
 	registry, repository, tag, err := l.artifactBuilder.ParseOCIRef(l.sourceURL)
 	if err != nil {
-		return fmt.Errorf("failed to parse OCI reference: %w", err)
+		return werror.Wrap(err, "failed to parse OCI reference")
 	}
 
 	cacheKey := artifact.FormatOCIRef(registry, repository, tag)
@@ -224,7 +225,7 @@ func (l *BaseBlueprintLoader) loadFromOCI() error {
 	}
 
 	if err := l.collectTemplateData(templateDir); err != nil {
-		return fmt.Errorf("failed to collect template data from OCI: %w", err)
+		return werror.Wrap(err, "failed to collect template data from OCI")
 	}
 
 	if err := l.loadSchema(); err != nil {
@@ -334,14 +335,15 @@ func (l *BaseBlueprintLoader) enforceCliVersionCompatibility(cacheDir, tag strin
 	}
 	data, err := l.shims.ReadFile(metadataPath)
 	if err != nil {
-		return fmt.Errorf("failed to read %s: %w", metadataPath, err)
+		return werror.Wrap(err, "failed to read %s", metadataPath)
 	}
 	var meta artifact.BlueprintMetadataInput
 	if err := l.shims.YamlUnmarshal(data, &meta); err != nil {
-		return fmt.Errorf("failed to parse %s: %w", metadataPath, err)
+		return werror.Wrap(err, "failed to parse %s", metadataPath)
 	}
 	if err := artifact.ValidateCliVersion(constants.Version, meta.CliVersion); err != nil {
-		return fmt.Errorf("%s:%s is incompatible with this CLI (%w) — upgrade windsor or pin an older tag for this source in blueprint.yaml", l.sourceName, tag, err)
+		return werror.New(fmt.Sprintf("Source %s:%s is not compatible with this version of windsor: %v", l.sourceName, tag, err),
+			"Upgrade windsor, or pin an older tag for this source in blueprint.yaml.", err)
 	}
 	return nil
 }
@@ -382,12 +384,12 @@ func (l *BaseBlueprintLoader) loadBlueprintFromFile(path string) error {
 
 	data, err := l.shims.ReadFile(path)
 	if err != nil {
-		return fmt.Errorf("failed to read blueprint.yaml: %w", err)
+		return werror.Wrap(err, "failed to read blueprint.yaml")
 	}
 
 	var bp blueprintv1alpha1.Blueprint
 	if err := l.shims.YamlUnmarshal(data, &bp); err != nil {
-		return fmt.Errorf("failed to parse blueprint.yaml: %w", err)
+		return l.invalidYAMLError("Blueprint", path, err)
 	}
 
 	l.normalizeOCISourceRefs(&bp)
@@ -407,7 +409,7 @@ func (l *BaseBlueprintLoader) loadFacetsFromDirectory(baseDir string) error {
 
 	entries, err := l.shims.ReadDir(facetsDir)
 	if err != nil {
-		return fmt.Errorf("failed to read facets directory: %w", err)
+		return werror.Wrap(err, "failed to read facets directory")
 	}
 
 	for _, entry := range entries {
@@ -418,12 +420,12 @@ func (l *BaseBlueprintLoader) loadFacetsFromDirectory(baseDir string) error {
 		facetPath := filepath.Join(facetsDir, entry.Name())
 		data, err := l.shims.ReadFile(facetPath)
 		if err != nil {
-			return fmt.Errorf("failed to read facet %s: %w", entry.Name(), err)
+			return werror.Wrap(err, "failed to read facet %s", entry.Name())
 		}
 
 		var facet blueprintv1alpha1.Facet
 		if err := l.shims.YamlUnmarshal(data, &facet); err != nil {
-			return fmt.Errorf("failed to parse facet %s: %w", entry.Name(), err)
+			return l.invalidYAMLError("Facet", facetPath, err)
 		}
 
 		facet.Path = facetPath
@@ -450,7 +452,7 @@ func (l *BaseBlueprintLoader) loadFeaturesFromDirectory(baseDir string) error {
 
 	entries, err := l.shims.ReadDir(featuresDir)
 	if err != nil {
-		return fmt.Errorf("failed to read features directory: %w", err)
+		return werror.Wrap(err, "failed to read features directory")
 	}
 
 	for _, entry := range entries {
@@ -461,12 +463,12 @@ func (l *BaseBlueprintLoader) loadFeaturesFromDirectory(baseDir string) error {
 		featurePath := filepath.Join(featuresDir, entry.Name())
 		data, err := l.shims.ReadFile(featurePath)
 		if err != nil {
-			return fmt.Errorf("failed to read feature %s: %w", entry.Name(), err)
+			return werror.Wrap(err, "failed to read feature %s", entry.Name())
 		}
 
 		var facet blueprintv1alpha1.Facet
 		if err := l.shims.YamlUnmarshal(data, &facet); err != nil {
-			return fmt.Errorf("failed to parse feature %s: %w", entry.Name(), err)
+			return werror.Wrap(err, "failed to parse feature %s", entry.Name())
 		}
 
 		if facet.Kind == "Feature" {
@@ -499,7 +501,7 @@ func (l *BaseBlueprintLoader) loadSchema() error {
 	}
 
 	if err := l.runtime.ConfigHandler.LoadSchemaFromBytes(schemaData); err != nil {
-		return fmt.Errorf("failed to load schema for source '%s': %w", l.sourceName, err)
+		return werror.Wrap(err, "failed to load schema for source '%s'", l.sourceName)
 	}
 
 	return nil
@@ -532,6 +534,19 @@ func (l *BaseBlueprintLoader) collectTemplateData(dir string) error {
 		l.templateData[relPath] = data
 		return nil
 	})
+}
+
+// invalidYAMLError returns a WindsorError for a file that does not parse as YAML. The message names
+// the file relative to the project root when the file is inside it, and holds the parser detail.
+func (l *BaseBlueprintLoader) invalidYAMLError(kind, path string, err error) error {
+	display := path
+	if l.runtime != nil && l.runtime.ProjectRoot != "" {
+		if rel, relErr := filepath.Rel(l.runtime.ProjectRoot, path); relErr == nil && !strings.HasPrefix(rel, "..") {
+			display = rel
+		}
+	}
+	message := fmt.Sprintf("%s file %s is not valid YAML: %s", kind, display, strings.TrimSpace(err.Error()))
+	return werror.New(message, "Correct the YAML syntax in the file. If the file comes from an OCI source, pin a different version of that source.", err)
 }
 
 // =============================================================================

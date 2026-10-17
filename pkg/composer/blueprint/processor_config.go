@@ -8,6 +8,7 @@ import (
 	"sort"
 
 	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
+	"github.com/windsorcli/cli/internal/werror"
 	"github.com/windsorcli/cli/pkg/runtime/evaluator"
 )
 
@@ -65,7 +66,7 @@ func (p *BaseBlueprintProcessor) mergeFacetScopeIntoGlobal(facet blueprintv1alph
 			guardScope := scopeBlindToBlockKeys(evalScope, contextScope, block.Name, block.Body)
 			shouldInclude, err := p.shouldIncludeComponent(block.When, facet.Path, guardScope)
 			if err != nil {
-				return nil, nil, fmt.Errorf("config block %q when: %w", block.Name, err)
+				return nil, nil, werror.Wrap(err, "config block %q when", block.Name)
 			}
 			if !shouldInclude {
 				continue
@@ -296,7 +297,7 @@ func (p *BaseBlueprintProcessor) evaluateGlobalScopeConfig(globalScope map[strin
 				scopeWithBlock := p.scopeForConfigBlock(contextScope, globalScope, name, nil)
 				evaluated, err := p.evaluateConfigBlockValue(body, "", scopeWithBlock)
 				if err != nil {
-					return fmt.Errorf("config block %q: %w", name, err)
+					return werror.Wrap(err, "config block %q", name)
 				}
 				globalScope[name] = evaluated
 				anyBlockChanged = true
@@ -407,7 +408,7 @@ func (p *BaseBlueprintProcessor) evaluateGlobalScopeConfig(globalScope map[strin
 		}
 		finalScope := p.scopeForConfigBlock(contextScope, globalScope, name, blockMap)
 		if _, err := p.evaluator.EvaluateMap(validationBody, "", finalScope, false); err != nil {
-			return fmt.Errorf("config block %q: %w", name, err)
+			return werror.Wrap(err, "config block %q", name)
 		}
 	}
 	return nil
@@ -463,7 +464,7 @@ func (p *BaseBlueprintProcessor) evaluateConfigBlockValue(v any, path string, sc
 		for i, item := range x {
 			evaluated, err := p.evaluateConfigBlockValue(item, path, scope)
 			if err != nil {
-				return nil, fmt.Errorf("config block list[%d]: %w", i, err)
+				return nil, werror.Wrap(err, "config block list[%d]", i)
 			}
 			out = append(out, evaluated)
 		}
