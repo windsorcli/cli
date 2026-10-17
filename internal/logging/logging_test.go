@@ -83,8 +83,8 @@ func TestNewHandler(t *testing.T) {
 	})
 
 	t.Run("ExpandsWindsorErrorFields", func(t *testing.T) {
-		// Given handlers for each format and a coded error
-		we := werror.New("CONFIG-002", "context value is malformed", "", nil)
+		// Given handlers for each format and a WindsorError with a remediation
+		we := werror.New("context value is malformed", "Run windsor set to fix it.", nil)
 		for _, format := range []logging.Format{logging.FormatText, logging.FormatJSON} {
 			var buf bytes.Buffer
 			logger := slog.New(logging.NewHandler(&buf, format, slog.LevelInfo))
@@ -92,9 +92,9 @@ func TestNewHandler(t *testing.T) {
 			// When the error is logged as an attribute
 			logger.Error("load failed", "error", we)
 
-			// Then the code appears as a structured field
-			if !strings.Contains(buf.String(), "CONFIG-002") || !strings.Contains(buf.String(), "code") {
-				t.Errorf("%s: expected code field, got %q", format, buf.String())
+			// Then the remediation appears as a structured field
+			if !strings.Contains(buf.String(), "remediation") || !strings.Contains(buf.String(), "Run windsor set to fix it.") {
+				t.Errorf("%s: expected remediation field, got %q", format, buf.String())
 			}
 		}
 	})
@@ -102,17 +102,17 @@ func TestNewHandler(t *testing.T) {
 
 func TestNewHandler_Derived(t *testing.T) {
 	t.Run("TextResolvesWindsorErrorFieldsAddedWithWith", func(t *testing.T) {
-		// Given a text logger that carries a coded error from With
+		// Given a text logger that carries a WindsorError from With
 		var buf bytes.Buffer
-		we := werror.New("SECRETS-002", "token expired", "", nil)
+		we := werror.New("token expired", "", nil)
 		logger := slog.New(logging.NewHandler(&buf, logging.FormatText, slog.LevelInfo)).With("error", we)
 
 		// When a record is logged
 		logger.Info("resolving")
 
-		// Then the code appears as a structured field
-		if !strings.Contains(buf.String(), "code=SECRETS-002") {
-			t.Errorf("expected code field, got %q", buf.String())
+		// Then the message appears as a structured field
+		if !strings.Contains(buf.String(), `error.message="token expired"`) {
+			t.Errorf("expected message field, got %q", buf.String())
 		}
 	})
 

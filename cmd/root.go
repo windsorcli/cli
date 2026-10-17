@@ -209,28 +209,29 @@ func requireCloudAuth(cmd *cobra.Command, proj *project.Project) error {
 	return nil
 }
 
-// renderError writes err to w once, in the format that --format selects. A coded error shows its
-// code and remediation. Under --verbose, the breadcrumb trail follows when it has more than one
-// entry. JSON output is one failed event line without a trace.
+// renderError writes err to w once, in the format that --format selects. Text output prints the
+// message after "error:". A WindsorError prints its message and, on the last line, its remediation
+// after "hint:". Under --verbose, the breadcrumb trail prints before the hint when it has more than
+// one entry. JSON output is one failed event line without a trace.
 func renderError(w io.Writer, err error) {
 	if formatFlag == string(logging.FormatJSON) {
 		presenter.NewJSON(w).Emit(context.Background(), presenter.Event{Kind: presenter.KindFailed, Err: err})
 		return
 	}
+	message, remediation := err.Error(), ""
 	var we *werror.WindsorError
 	if errors.As(err, &we) {
-		fmt.Fprintf(w, "Error [%s]: %s\n", we.Code, we.Message)
-		if we.Remediation != "" {
-			fmt.Fprintf(w, "\n%s\n", we.Remediation)
-		}
-	} else {
-		fmt.Fprintf(w, "Error: %s\n", err.Error())
+		message, remediation = we.Message, we.Remediation
 	}
+	fmt.Fprintf(w, "error: %s\n", message)
 	if crumbs := werror.Breadcrumbs(err); verbose && len(crumbs) > 1 {
-		fmt.Fprintln(w, "\nTrace:")
+		fmt.Fprintln(w, "trace:")
 		for _, crumb := range crumbs {
 			fmt.Fprintf(w, "  %s\n", crumb)
 		}
+	}
+	if remediation != "" {
+		fmt.Fprintf(w, "hint: %s\n", remediation)
 	}
 }
 
@@ -263,7 +264,7 @@ func setupGlobalContext(cmd *cobra.Command) error {
 	}
 	format, err := logging.ParseFormat(formatFlag)
 	if err != nil {
-		return werror.New("CLI-001", fmt.Sprintf("Unknown output format %q.", formatFlag), "Run the command again with --format text or --format json.", err)
+		return werror.New(fmt.Sprintf("Unknown output format %q.", formatFlag), "Run the command again with --format text or --format json.", err)
 	}
 	ctx = withOutput(ctx, cmd.ErrOrStderr(), format)
 	if noCache {

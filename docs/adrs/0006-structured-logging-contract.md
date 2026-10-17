@@ -103,9 +103,9 @@ logger via `logging.FromContext(ctx)`, never constructs its own.
 When a caller logs an error that `errors.As`-unwraps to a `*WindsorError`
 ([ADR 0005](0005-typed-error-model.md)), the log call passes it as a structured attribute
 (`slog.Any("error", err)`) and a custom `LogValue()` method on `*WindsorError` expands it to
-`code`, `category`, and `message` fields — never string-interpolated into the log message itself.
-This is the same principle as `go-style`'s `errors.As` rule applied to logging: the code and
-category stay machine-readable fields in JSON output, not buried in free text.
+`message` and `remediation` fields — never string-interpolated into the log message itself.
+This is the same principle as `go-style`'s `errors.As` rule applied to logging: the remediation
+stays a machine-readable field in JSON output, not buried in free text.
 
 ### 7. Migration: per-package, selective — not a mechanical 46-site sweep
 
