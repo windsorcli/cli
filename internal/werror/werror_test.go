@@ -23,28 +23,22 @@ var errLeaf = errors.New("exit status 1")
 // =============================================================================
 
 func TestNew(t *testing.T) {
-	t.Run("DerivesCategoryAndDocsURLFromCode", func(t *testing.T) {
-		// Given a code with a domain prefix
-		code := "CONFIG-002"
+	t.Run("KeepsTheMessageRemediationAndCause", func(t *testing.T) {
+		// Given a message, a remediation, and a cause
+		message, remediation := "context value is malformed", "Run windsor set to fix it."
 
 		// When a WindsorError is created
-		we := werror.New(code, "context value is malformed", "Run windsor set to fix it.", errLeaf)
+		we := werror.New(message, remediation, errLeaf)
 
-		// Then the category and docs URL come from the code
-		if we.Category != "CONFIG" {
-			t.Errorf("expected category CONFIG, got %q", we.Category)
-		}
-		if we.DocsURL != "https://www.windsorcli.dev/errors/config-002" {
-			t.Errorf("expected lowercased docs URL, got %q", we.DocsURL)
-		}
-		if we.Remediation != "Run windsor set to fix it." {
-			t.Errorf("expected remediation to be kept, got %q", we.Remediation)
+		// Then each field holds its input
+		if we.Message != message || we.Remediation != remediation || we.Cause != errLeaf {
+			t.Errorf("unexpected fields %+v", we)
 		}
 	})
 
 	t.Run("ErrorReturnsMessageWithoutCause", func(t *testing.T) {
 		// Given a WindsorError with a cause
-		we := werror.New("SHELL-001", "terraform is not installed", "", errLeaf)
+		we := werror.New("terraform is not installed", "", errLeaf)
 
 		// When its text is read
 		text := we.Error()
@@ -57,7 +51,7 @@ func TestNew(t *testing.T) {
 
 	t.Run("AllowsNilCause", func(t *testing.T) {
 		// Given a WindsorError with no cause
-		we := werror.New("CLI-001", "unknown flag", "", nil)
+		we := werror.New("unknown flag", "", nil)
 
 		// When it is unwrapped
 		cause := errors.Unwrap(we)
@@ -98,7 +92,7 @@ func TestWrap(t *testing.T) {
 
 	t.Run("KeepsTheChainWalkable", func(t *testing.T) {
 		// Given a sentinel inside a WindsorError inside a frame
-		we := werror.New("TERRAFORM-001", "apply failed", "", errLeaf)
+		we := werror.New("apply failed", "", errLeaf)
 		wrapped := werror.Wrap(we, "applying component %s", "cluster")
 
 		// When the chain is inspected
@@ -124,94 +118,57 @@ func TestWindsorError_LogValue(t *testing.T) {
 		// Given a JSON logger and a WindsorError
 		var buf bytes.Buffer
 		logger := slog.New(slog.NewJSONHandler(&buf, nil))
-		we := werror.New("BLUEPRINT-014", "facet not found", "", nil)
+		we := werror.New("facet not found", "", nil)
 
 		// When the error is logged as an attribute
 		logger.Error("compose failed", "error", we)
 
-		// Then the record holds code, category, and message fields
+		// Then the record holds the message field
 		var record struct {
 			Error map[string]string `json:"error"`
 		}
 		if err := json.Unmarshal(buf.Bytes(), &record); err != nil {
 			t.Fatalf("expected JSON record, got %q: %v", buf.String(), err)
 		}
-		want := map[string]string{"code": "BLUEPRINT-014", "category": "BLUEPRINT", "message": "facet not found"}
+		want := map[string]string{"message": "facet not found"}
+		if !reflect.DeepEqual(record.Error, want) {
+			t.Errorf("expected %v, got %v", want, record.Error)
+		}
+	})
+
+	t.Run("AddsTheRemediationWhenSet", func(t *testing.T) {
+		// Given a JSON logger and a WindsorError with a remediation
+		var buf bytes.Buffer
+		logger := slog.New(slog.NewJSONHandler(&buf, nil))
+		we := werror.New("facet not found", "Add the facet.", nil)
+
+		// When the error is logged as an attribute
+		logger.Error("compose failed", "error", we)
+
+		// Then the record holds the message and remediation fields
+		var record struct {
+			Error map[string]string `json:"error"`
+		}
+		if err := json.Unmarshal(buf.Bytes(), &record); err != nil {
+			t.Fatalf("expected JSON record, got %q: %v", buf.String(), err)
+		}
+		want := map[string]string{"message": "facet not found", "remediation": "Add the facet."}
 		if !reflect.DeepEqual(record.Error, want) {
 			t.Errorf("expected %v, got %v", want, record.Error)
 		}
 	})
 }
 
-func TestIsCode(t *testing.T) {
-	t.Run("MatchesThroughFramesAndErrorf", func(t *testing.T) {
-		// Given a coded error under a frame and an fmt.Errorf wrap
-		err := fmt.Errorf("up: %w", werror.Wrap(werror.New("CLUSTER-003", "node not ready", "", nil), "waiting"))
-
-		// When the code is checked
-		matched := werror.IsCode(err, "CLUSTER-003")
-
-		// Then it matches
-		if !matched {
-			t.Error("expected code to match")
-		}
-	})
-
-	t.Run("MatchesAnInnerWindsorError", func(t *testing.T) {
-		// Given one coded error wrapping another
-		inner := werror.New("SECRETS-002", "token expired", "", nil)
-		outer := werror.New("CONFIG-005", "cannot resolve value", "", inner)
-
-		// When the inner code is checked
-		matched := werror.IsCode(outer, "SECRETS-002")
-
-		// Then it matches
-		if !matched {
-			t.Error("expected inner code to match")
-		}
-	})
-
-	t.Run("ReturnsFalseForUntypedOrNilErrors", func(t *testing.T) {
-		// Given an untyped error and a nil error
-		untyped := fmt.Errorf("wrap: %w", errLeaf)
-
-		// When the code is checked on each
-		matchedUntyped := werror.IsCode(untyped, "CONFIG-001")
-		matchedNil := werror.IsCode(nil, "CONFIG-001")
-
-		// Then neither matches
-		if matchedUntyped || matchedNil {
-			t.Errorf("expected no match, got untyped=%v nil=%v", matchedUntyped, matchedNil)
-		}
-	})
-}
-
-func TestIsCategory(t *testing.T) {
-	t.Run("MatchesTheDomainPrefix", func(t *testing.T) {
-		// Given a wrapped coded error
-		err := werror.Wrap(werror.New("ARTIFACT-007", "pull denied", "", nil), "pulling blueprint")
-
-		// When categories are checked
-		matched := werror.IsCategory(err, "ARTIFACT")
-		other := werror.IsCategory(err, "CONFIG")
-
-		// Then only the code's domain matches
-		if !matched || other {
-			t.Errorf("expected ARTIFACT only, got ARTIFACT=%v CONFIG=%v", matched, other)
-		}
-	})
-}
-
 func TestBreadcrumbs(t *testing.T) {
 	t.Run("ListsFramesOutermostFirst", func(t *testing.T) {
-		// Given frames around a coded error with a leaf cause
-		we := werror.New("TERRAFORM-002", "terraform apply failed", "", errLeaf)
+		// Given frames around a WindsorError with a leaf cause
+		we := werror.New("terraform apply failed", "", errLeaf)
 		err := werror.Wrap(werror.Wrap(we, "running terraform apply"), "applying component cluster")
 
 		// When the breadcrumbs are read
 		crumbs := werror.Breadcrumbs(err)
 
-		// Then each frame, the coded message, and the leaf appear in order
+		// Then each frame, the WindsorError message, and the leaf appear in order
 		want := []string{"applying component cluster", "running terraform apply", "terraform apply failed", "exit status 1"}
 		if !reflect.DeepEqual(crumbs, want) {
 			t.Errorf("expected %v, got %v", want, crumbs)
