@@ -140,8 +140,11 @@ func TestSopsProvider_LoadSecrets(t *testing.T) {
 		}
 
 		err := p.LoadSecrets()
-		if err == nil || !containsStr(err.Error(), "decryption failed") {
-			t.Errorf("expected decryption error, got %v", err)
+		if err == nil || !containsStr(err.Error(), "Windsor cannot decrypt the secrets file") || !containsStr(err.Error(), "decryption failed") {
+			t.Errorf("expected a decrypt error that keeps the sops text, got %v", err)
+		}
+		if we := werror.Find(err); we == nil || !containsStr(we.Remediation, "sops --decrypt") {
+			t.Errorf("expected a remediation naming sops --decrypt, got %v", we)
 		}
 	})
 

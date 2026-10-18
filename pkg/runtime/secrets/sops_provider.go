@@ -108,7 +108,8 @@ func (s *SopsProvider) LoadSecrets() error {
 					err = werror.New(fmt.Sprintf("Windsor does not load the unencrypted secrets file %s.", filePath),
 						"Encrypt the file with sops and save it as secrets.enc.yaml.", err)
 				} else {
-					err = werror.Wrap(err, "failed to decrypt file %s", filePath)
+					err = werror.New(fmt.Sprintf("Windsor cannot decrypt the secrets file %s: %v", filePath, err),
+						fmt.Sprintf("Make sure that your sops key can decrypt the file. Run 'sops --decrypt %s' to see the full error.", filePath), err)
 				}
 				results[idx] = fileResult{index: idx, err: err}
 				return
