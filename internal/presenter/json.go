@@ -8,7 +8,6 @@ package presenter
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"io"
 	"log/slog"
 	"sync"
@@ -100,8 +99,7 @@ func toJSONError(err error) *jsonError {
 	if err == nil {
 		return nil
 	}
-	var we *werror.WindsorError
-	if errors.As(err, &we) {
+	if we := werror.Find(err); we != nil {
 		return &jsonError{Message: we.Message, Remediation: we.Remediation}
 	}
 	return &jsonError{Message: err.Error()}

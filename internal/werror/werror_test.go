@@ -231,3 +231,59 @@ func TestBreadcrumbs(t *testing.T) {
 		}
 	})
 }
+
+func TestFind(t *testing.T) {
+	t.Run("ReturnsTheWindsorErrorUnderFramesAndErrorfWraps", func(t *testing.T) {
+		// Given a WindsorError under a frame and an fmt.Errorf wrap
+		we := werror.New("Apply failed.", "Run windsor plan.", errLeaf)
+		err := werror.Wrap(fmt.Errorf("running: %w", we), "applying cluster")
+
+		// When the WindsorError is found
+		got := werror.Find(err)
+
+		// Then it is the one in the chain
+		if got != we {
+			t.Errorf("expected %v, got %v", we, got)
+		}
+	})
+
+	t.Run("ReturnsTheOutermostWindsorError", func(t *testing.T) {
+		// Given a WindsorError whose cause is another WindsorError
+		inner := werror.New("Inner failed.", "", errLeaf)
+		outer := werror.New("Outer failed.", "", inner)
+
+		// When the WindsorError is found
+		got := werror.Find(outer)
+
+		// Then the outer one is returned
+		if got != outer {
+			t.Errorf("expected the outer error, got %v", got)
+		}
+	})
+
+	t.Run("DoesNotLookInsideAJoinedError", func(t *testing.T) {
+		// Given two WindsorErrors joined under a frame
+		err := werror.Wrap(errors.Join(werror.New("First failed.", "", nil), werror.New("Second failed.", "", nil)), "2 deletes failed")
+
+		// When a WindsorError is looked up
+		got := werror.Find(err)
+
+		// Then none is returned, so the full text of the join stays visible
+		if got != nil {
+			t.Errorf("expected nil, got %v", got)
+		}
+	})
+
+	t.Run("ReturnsNilWithoutAWindsorError", func(t *testing.T) {
+		// Given a frame around a plain error, and no error
+		err := werror.Wrap(errLeaf, "applying cluster")
+
+		// When a WindsorError is looked up in each
+		found, foundNil := werror.Find(err), werror.Find(nil)
+
+		// Then none is returned
+		if found != nil || foundNil != nil {
+			t.Errorf("expected nil, got %v and %v", found, foundNil)
+		}
+	})
+}

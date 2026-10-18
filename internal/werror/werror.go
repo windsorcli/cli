@@ -1,6 +1,6 @@
 // The WindsorError is a user-facing error with a remediation and a wrapped cause.
 // It provides New for user-facing errors and Wrap for named breadcrumb frames.
-// Breadcrumbs reads frame messages from the chain structure and never parses error text.
+// Breadcrumbs reads frame messages from the chain structure, and Find gets the WindsorError to render.
 
 package werror
 
@@ -99,6 +99,19 @@ func Breadcrumbs(err error) []string {
 		err = errors.Unwrap(err)
 	}
 	return crumbs
+}
+
+// Find returns the outermost WindsorError in the single-cause chain of err, or nil when there is none.
+// It does not look inside an error that joins several causes, such as one from errors.Join, because
+// the message of one cause would then hide the others.
+func Find(err error) *WindsorError {
+	for err != nil {
+		if we, ok := err.(*WindsorError); ok {
+			return we
+		}
+		err = errors.Unwrap(err)
+	}
+	return nil
 }
 
 // =============================================================================
