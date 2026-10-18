@@ -790,8 +790,56 @@ func TestRenderError(t *testing.T) {
 		// When the error is rendered
 		renderError(&buf, err)
 
-		// Then each breadcrumb prints under a trace heading, and the hint prints last
-		want := "error: Apply failed.\ntrace:\n  applying cluster\n  Apply failed.\n  exit status 1\nhint: Run windsor plan.\n"
+		// Then the breadcrumbs that the message does not show print under a trace heading, and the hint prints last
+		want := "error: Apply failed.\ntrace:\n  applying cluster\n  exit status 1\nhint: Run windsor plan.\n"
+		if buf.String() != want {
+			t.Errorf("expected %q, got %q", want, buf.String())
+		}
+	})
+
+	t.Run("IndentsEachLineOfAMultiLineBreadcrumb", func(t *testing.T) {
+		// Given verbose text output and a frame around a cause with two lines
+		formatFlag, verbose = string(logging.FormatText), true
+		var buf bytes.Buffer
+		err := werror.Wrap(werror.New("Load failed.", "", errors.New("bad token\n> 5 | key: [")), "loading blueprint")
+
+		// When the error is rendered
+		renderError(&buf, err)
+
+		// Then the second line of the cause is indented under the trace
+		want := "error: Load failed.\ntrace:\n  loading blueprint\n  bad token\n  > 5 | key: [\n"
+		if buf.String() != want {
+			t.Errorf("expected %q, got %q", want, buf.String())
+		}
+	})
+
+	t.Run("KeepsAFrameThatStartsTheMessage", func(t *testing.T) {
+		// Given verbose text output and a frame whose text starts the WindsorError message
+		formatFlag, verbose = string(logging.FormatText), true
+		var buf bytes.Buffer
+		err := werror.Wrap(werror.New("validating input took too long", "", nil), "validating input")
+
+		// When the error is rendered
+		renderError(&buf, err)
+
+		// Then the frame prints under the trace
+		want := "error: validating input took too long\ntrace:\n  validating input\n"
+		if buf.String() != want {
+			t.Errorf("expected %q, got %q", want, buf.String())
+		}
+	})
+
+	t.Run("OmitsTheTraceWhenTheMessageShowsEveryBreadcrumb", func(t *testing.T) {
+		// Given verbose text output and a WindsorError whose message contains its cause
+		formatFlag, verbose = string(logging.FormatText), true
+		var buf bytes.Buffer
+		err := werror.New("File is not valid YAML: [5:8] token not found", "Correct the YAML.", errors.New("[5:8] token not found"))
+
+		// When the error is rendered
+		renderError(&buf, err)
+
+		// Then no trace heading prints
+		want := "error: File is not valid YAML: [5:8] token not found\nhint: Correct the YAML.\n"
 		if buf.String() != want {
 			t.Errorf("expected %q, got %q", want, buf.String())
 		}
