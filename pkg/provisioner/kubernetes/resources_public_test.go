@@ -151,9 +151,10 @@ func TestKubernetesManager_ApplyConfigMap(t *testing.T) {
 		// When the ConfigMap is applied
 		err := f.manager.ApplyConfigMap("values-common", "flux-system", map[string]string{"ENDPOINT": "${terraform_output('cluster', 'endpoint')}"})
 
-		// Then the error names the ConfigMap and the key, and nothing is written
-		if err == nil || !strings.Contains(err.Error(), "configmap values-common") || !strings.Contains(err.Error(), `"ENDPOINT"`) {
-			t.Errorf("expected an unresolved-expression error, got %v", err)
+		// Then the error names the ConfigMap and the key, a hint says to resolve it, and nothing is written
+		we := windsorError(t, err)
+		if we.Message != `ConfigMap values-common has an unresolved expression in key "ENDPOINT".` || !strings.Contains(we.Remediation, "windsor apply") {
+			t.Errorf("unexpected error %q with hint %q", we.Message, we.Remediation)
 		}
 		if f.cluster.get(configMapsGVR, "flux-system", "values-common") != nil {
 			t.Error("expected no ConfigMap to be written")
@@ -299,9 +300,9 @@ func TestKubernetesManager_PruneSecrets(t *testing.T) {
 		// When secrets are pruned
 		err := f.manager.PruneSecrets(nil)
 
-		// Then the prune fails closed
-		if err == nil || !strings.Contains(err.Error(), "context id not set") {
-			t.Errorf("expected a missing-id error, got %v", err)
+		// Then the prune fails closed with a hint to set the id
+		if we := windsorError(t, err); we.Remediation != "Run windsor init to set the context id." {
+			t.Errorf("unexpected hint %q", we.Remediation)
 		}
 	})
 
@@ -314,8 +315,8 @@ func TestKubernetesManager_PruneSecrets(t *testing.T) {
 		err := f.manager.PruneSecrets(nil)
 
 		// Then the error names the bad id
-		if err == nil || !strings.Contains(err.Error(), `context id "bad id" is not a valid label value`) {
-			t.Errorf("expected an invalid-id error, got %v", err)
+		if we := windsorError(t, err); !strings.HasPrefix(we.Message, `Context id "bad id" is not a valid Kubernetes label value:`) || we.Remediation == "" {
+			t.Errorf("unexpected error %q with hint %q", we.Message, we.Remediation)
 		}
 	})
 

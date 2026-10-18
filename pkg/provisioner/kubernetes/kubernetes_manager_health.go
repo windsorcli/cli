@@ -10,6 +10,8 @@ import (
 	"fmt"
 	"strings"
 	"time"
+
+	"github.com/windsorcli/cli/internal/werror"
 )
 
 // =============================================================================
@@ -63,7 +65,7 @@ func (k *BaseKubernetesManager) WaitForKubernetesHealthy(ctx context.Context, en
 			return healthyTimeoutError(lastErr)
 		default:
 			if err := k.client.CheckHealth(ctx, endpoint); err != nil {
-				lastErr = fmt.Errorf("health check for API endpoint %s failed: %w", endpoint, err)
+				lastErr = werror.Wrap(err, "health check for API endpoint %s failed", endpoint)
 				settleSince = time.Time{}
 				select {
 				case <-ctx.Done():
@@ -192,7 +194,7 @@ func (k *BaseKubernetesManager) waitForNodesReady(ctx context.Context, nodeNames
 
 	readyStatus, err := k.client.GetNodeReadyStatus(ctx, nodeNames)
 	if err != nil {
-		return fmt.Errorf("timeout waiting for nodes to be ready: failed to get final status: %w", err)
+		return werror.Wrap(err, "timeout waiting for nodes to be ready: failed to get final status")
 	}
 
 	var missingNodes []string
@@ -230,5 +232,5 @@ func healthyTimeoutError(lastErr error) error {
 	if lastErr == nil {
 		return fmt.Errorf("timeout waiting for Kubernetes API to be healthy")
 	}
-	return fmt.Errorf("timeout waiting for Kubernetes API to be healthy: %w", lastErr)
+	return werror.Wrap(lastErr, "timeout waiting for Kubernetes API to be healthy")
 }

@@ -9,7 +9,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"os"
 	"slices"
 	"strings"
 	"time"
@@ -19,6 +18,7 @@ import (
 	sourcev1 "github.com/fluxcd/source-controller/api/v1"
 	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
 	"github.com/windsorcli/cli/internal/presenter"
+	"github.com/windsorcli/cli/internal/werror"
 	"github.com/windsorcli/cli/pkg/constants"
 	runtimegit "github.com/windsorcli/cli/pkg/runtime/git"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -41,7 +41,7 @@ import (
 // Returns an error if any step fails.
 func (k *BaseKubernetesManager) ApplyBlueprint(blueprint *blueprintv1alpha1.Blueprint, namespace string) error {
 	if err := k.CreateNamespace(namespace); err != nil {
-		return fmt.Errorf("failed to create namespace: %w", err)
+		return werror.Wrap(err, "failed to create namespace")
 	}
 
 	mode := k.gitopsMode()
@@ -58,7 +58,7 @@ func (k *BaseKubernetesManager) ApplyBlueprint(blueprint *blueprintv1alpha1.Blue
 			SecretName: secretName,
 		}
 		if err := k.applyBlueprintSource(source, namespace, true); err != nil {
-			return fmt.Errorf("failed to apply blueprint repository: %w", err)
+			return werror.Wrap(err, "failed to apply blueprint repository")
 		}
 	}
 
@@ -67,7 +67,7 @@ func (k *BaseKubernetesManager) ApplyBlueprint(blueprint *blueprintv1alpha1.Blue
 			continue
 		}
 		if err := k.applyBlueprintSource(source, namespace, false); err != nil {
-			return fmt.Errorf("failed to apply source %s: %w", source.Name, err)
+			return werror.Wrap(err, "failed to apply source %s", source.Name)
 		}
 	}
 
@@ -76,7 +76,7 @@ func (k *BaseKubernetesManager) ApplyBlueprint(blueprint *blueprintv1alpha1.Blue
 	if blueprint.ConfigMaps != nil {
 		for configMapName, data := range blueprint.ConfigMaps {
 			if err := k.ApplyConfigMap(configMapName, namespace, data); err != nil {
-				return fmt.Errorf("failed to create ConfigMap %s: %w", configMapName, err)
+				return werror.Wrap(err, "failed to create ConfigMap %s", configMapName)
 			}
 		}
 	}
@@ -88,7 +88,7 @@ func (k *BaseKubernetesManager) ApplyBlueprint(blueprint *blueprintv1alpha1.Blue
 		if len(kustomization.Substitutions) > 0 {
 			configMapName := fmt.Sprintf("values-%s", kustomization.Name)
 			if err := k.ApplyConfigMap(configMapName, namespace, kustomization.Substitutions); err != nil {
-				return fmt.Errorf("failed to create ConfigMap for kustomization %s: %w", kustomization.Name, err)
+				return werror.Wrap(err, "failed to create ConfigMap for kustomization %s", kustomization.Name)
 			}
 		}
 		fluxKustomization := kustomization.ToFluxKustomization(namespace, defaultSourceName, blueprint.Sources, mode, blueprint.ConfigMaps)
@@ -99,7 +99,7 @@ func (k *BaseKubernetesManager) ApplyBlueprint(blueprint *blueprintv1alpha1.Blue
 		}
 
 		if err := k.ApplyKustomization(fluxKustomization); err != nil {
-			return fmt.Errorf("failed to apply kustomization %s: %w", kustomization.Name, err)
+			return werror.Wrap(err, "failed to apply kustomization %s", kustomization.Name)
 		}
 	}
 
@@ -130,7 +130,7 @@ func (k *BaseKubernetesManager) DeleteBlueprint(ctx context.Context, blueprint *
 	}
 	if len(destroyOnly) > 0 {
 		if errs := k.processDestroyOnlyKustomizations(ctx, destroyOnly, blueprint, namespace, defaultSourceName); len(errs) > 0 {
-			return fmt.Errorf("destroy-only hooks failed: %w", errors.Join(errs...))
+			return werror.Wrap(errors.Join(errs...), "destroy-only hooks failed")
 		}
 	}
 
@@ -147,43 +147,43 @@ func (k *BaseKubernetesManager) DeleteBlueprint(ctx context.Context, blueprint *
 	}
 	for _, kustomization := range eligible {
 		if err := k.setKustomizationSuspend(kustomization.Name, namespace, true); err != nil {
-			return k.abortDestroy(eligible, namespace, fmt.Errorf("destroy aborted: failed to suspend kustomization %q: %w", kustomization.Name, err))
+			return k.abortDestroy(eligible, namespace, werror.Wrap(err, "destroy aborted: failed to suspend kustomization %q", kustomization.Name))
 		}
 	}
 
 	if err := k.remediateLoadBalancerOwners(eligible, namespace); err != nil {
-		return k.abortDestroy(eligible, namespace, fmt.Errorf("destroy aborted: %w", err))
+		return k.abortDestroy(eligible, namespace, werror.Wrap(err, "destroy aborted"))
 	}
 
 	blocked := map[string]bool{}
 	var failures []error
-	for _, kustomization := range orderForDestroy(eligible, "destroy") {
+	for _, kustomization := range orderForDestroy(ctx, eligible, "destroy") {
 		if blocked[kustomization.Name] {
 			continue
 		}
 		opCtx, end := presenter.Begin(ctx, "kustomize:"+kustomization.Name, fmt.Sprintf("Destroying kustomization %s", kustomization.Name))
 		if err := k.setKustomizationSuspend(kustomization.Name, namespace, false); err != nil {
-			failure := fmt.Errorf("failed to resume kustomization %q before delete: %w", kustomization.Name, err)
+			failure := werror.Wrap(err, "failed to resume kustomization %q before delete", kustomization.Name)
 			end(failure)
 			failures = append(failures, failure)
-			k.blockDependencyClosure(eligible, kustomization.Name, blocked)
+			k.blockDependencyClosure(ctx, eligible, kustomization.Name, blocked)
 			continue
 		}
 		k.waitForResumeReconcile(kustomization.Name, namespace)
 		destroy := kustomization.Destroy.ToBool()
 		expectWaitForTermination := destroy == nil || *destroy
 		if err := k.deleteKustomization(opCtx, kustomization.Name, namespace, &expectWaitForTermination, kustomizationDeleteTimeout(kustomization), true); err != nil {
-			failure := fmt.Errorf("failed to delete kustomization %q: %w", kustomization.Name, err)
+			failure := werror.Wrap(err, "failed to delete kustomization %q", kustomization.Name)
 			end(failure)
 			failures = append(failures, failure)
-			k.blockDependencyClosure(eligible, kustomization.Name, blocked)
+			k.blockDependencyClosure(ctx, eligible, kustomization.Name, blocked)
 			continue
 		}
 		end(nil)
 	}
 
 	if len(failures) > 0 {
-		return fmt.Errorf("%d kustomization(s) failed to delete. Each one's dependency closure was left alone, to avoid orphaning what it may still need: %w", len(failures), errors.Join(failures...))
+		return werror.Wrap(errors.Join(failures...), "%d kustomization(s) failed to delete. Each one's dependency closure was left alone, to avoid orphaning what it may still need", len(failures))
 	}
 	return nil
 }
@@ -212,10 +212,10 @@ func (k *BaseKubernetesManager) PruneBlueprint(ctx context.Context, blueprint *b
 	}
 
 	var errs []error
-	for _, orphan := range orderForDestroy(orphans, "prune") {
+	for _, orphan := range orderForDestroy(ctx, orphans, "prune") {
 		opCtx, end := presenter.Begin(ctx, "kustomize:"+orphan.Name, fmt.Sprintf("Pruning orphaned kustomization %s", orphan.Name))
 		if err := k.DeleteKustomization(opCtx, orphan.Name, namespace); err != nil {
-			failure := fmt.Errorf("failed to prune kustomization %q: %w", orphan.Name, err)
+			failure := werror.Wrap(err, "failed to prune kustomization %q", orphan.Name)
 			end(failure)
 			errs = append(errs, failure)
 			continue
@@ -239,7 +239,7 @@ func (k *BaseKubernetesManager) ListPrunableKustomizations(blueprint *blueprintv
 	}
 
 	names := make([]string, 0, len(orphans))
-	for _, orphan := range orderForDestroy(orphans, "prune") {
+	for _, orphan := range orderForDestroy(context.Background(), orphans, "prune") {
 		names = append(names, orphan.Name)
 	}
 	return names, nil
@@ -249,10 +249,10 @@ func (k *BaseKubernetesManager) ListPrunableKustomizations(blueprint *blueprintv
 // Private Methods
 // =============================================================================
 
-// blockDependencyClosure adds failedName's dependencyClosure to blocked and warns about the rest
-// of it, so the walk skips them rather than tearing down a controller the stall may still need.
-// failedName itself is not warned about again; its own failure already produced an error.
-func (k *BaseKubernetesManager) blockDependencyClosure(eligible []blueprintv1alpha1.Kustomization, failedName string, blocked map[string]bool) {
+// blockDependencyClosure adds the dependency closure of failedName to blocked, so the walk skips it.
+// A controller in that closure can still be necessary to finish the failed delete.
+// It warns through the presenter in ctx about each skipped name other than failedName.
+func (k *BaseKubernetesManager) blockDependencyClosure(ctx context.Context, eligible []blueprintv1alpha1.Kustomization, failedName string, blocked map[string]bool) {
 	closure := dependencyClosure(eligible, failedName)
 	skipped := make([]string, 0, len(closure))
 	for name := range closure {
@@ -269,7 +269,7 @@ func (k *BaseKubernetesManager) blockDependencyClosure(eligible []blueprintv1alp
 	if len(skipped) != 1 {
 		word = "dependencies"
 	}
-	fmt.Fprintf(os.Stderr, "warning: kustomization %s failed to delete; skipping %d %s it may still need: %s\n", failedName, len(skipped), word, strings.Join(skipped, ", "))
+	presenter.Warn(ctx, fmt.Sprintf("kustomization %s failed to delete; skipping %d %s it may still need: %s", failedName, len(skipped), word, strings.Join(skipped, ", ")))
 }
 
 // abortDestroy un-suspends every eligible Kustomization before propagating cause, so a
@@ -283,7 +283,7 @@ func (k *BaseKubernetesManager) abortDestroy(eligible []blueprintv1alpha1.Kustom
 		if err == nil {
 			continue
 		}
-		errs = append(errs, fmt.Errorf("failed to un-suspend kustomization %q during abort cleanup: %w", kustomization.Name, err))
+		errs = append(errs, werror.Wrap(err, "failed to un-suspend kustomization %q during abort cleanup", kustomization.Name))
 		if errors.Is(err, context.DeadlineExceeded) {
 			if remaining := len(eligible) - idx - 1; remaining > 0 {
 				errs = append(errs, fmt.Errorf("stopping abort cleanup after a request timeout: %d more kustomization(s) left un-suspended, since the cluster is not answering", remaining))
@@ -302,7 +302,8 @@ func (k *BaseKubernetesManager) abortDestroy(eligible []blueprintv1alpha1.Kustom
 func (k *BaseKubernetesManager) contextOrphanKustomizations(blueprint *blueprintv1alpha1.Blueprint, namespace string) ([]blueprintv1alpha1.Kustomization, error) {
 	contextID := k.configHandler.GetString("id")
 	if contextID == "" {
-		return nil, fmt.Errorf("context id not set; cannot scope pruning to this context")
+		return nil, werror.New("The context has no id, so windsor cannot find the kustomizations that it owns.",
+			"Run windsor init to set the context id.", nil)
 	}
 
 	desired := make(map[string]bool, len(blueprint.Kustomizations))
@@ -320,7 +321,7 @@ func (k *BaseKubernetesManager) contextOrphanKustomizations(blueprint *blueprint
 	}
 	list, err := k.client.ListResources(gvr, namespace)
 	if err != nil {
-		return nil, fmt.Errorf("failed to list kustomizations: %w", err)
+		return nil, werror.Wrap(err, "failed to list kustomizations")
 	}
 
 	orphans := make([]blueprintv1alpha1.Kustomization, 0)
@@ -359,11 +360,11 @@ func (k *BaseKubernetesManager) processDestroyOnlyKustomizations(ctx context.Con
 		if len(kustomization.Substitutions) > 0 {
 			configMapName := fmt.Sprintf("values-%s", kustomization.Name)
 			if err := k.ApplyConfigMap(configMapName, namespace, kustomization.Substitutions); err != nil {
-				errors = append(errors, fmt.Errorf("failed to create ConfigMap for destroy-only kustomization %s: %w", kustomization.Name, err))
+				errors = append(errors, werror.Wrap(err, "failed to create ConfigMap for destroy-only kustomization %s", kustomization.Name))
 				for i := len(appliedKustomizations) - 1; i >= 0; i-- {
 					appliedKust := appliedKustomizations[i]
 					if deleteErr := k.deleteKustomization(ctx, appliedKust.Name, namespace, nil, kustomizationDeleteTimeout(appliedKust), true); deleteErr != nil {
-						errors = append(errors, fmt.Errorf("failed to delete failed destroy-only kustomization %s: %w", appliedKust.Name, deleteErr))
+						errors = append(errors, werror.Wrap(deleteErr, "failed to delete failed destroy-only kustomization %s", appliedKust.Name))
 					}
 				}
 				return errors
@@ -388,13 +389,13 @@ func (k *BaseKubernetesManager) processDestroyOnlyKustomizations(ctx context.Con
 		_, end := presenter.Begin(ctx, "kustomize:"+kustomization.Name, fmt.Sprintf("Applying destroy-only kustomization %s", kustomization.Name))
 
 		if err := k.ApplyKustomization(fluxKustomization); err != nil {
-			failure := fmt.Errorf("failed to apply destroy-only kustomization %s: %w", kustomization.Name, err)
+			failure := werror.Wrap(err, "failed to apply destroy-only kustomization %s", kustomization.Name)
 			end(failure)
 			errors = append(errors, failure)
 			for i := len(appliedKustomizations) - 1; i >= 0; i-- {
 				appliedKust := appliedKustomizations[i]
 				if deleteErr := k.deleteKustomization(ctx, appliedKust.Name, namespace, nil, kustomizationDeleteTimeout(appliedKust), true); deleteErr != nil {
-					errors = append(errors, fmt.Errorf("failed to delete failed destroy-only kustomization %s: %w", appliedKust.Name, deleteErr))
+					errors = append(errors, werror.Wrap(deleteErr, "failed to delete failed destroy-only kustomization %s", appliedKust.Name))
 				}
 			}
 			return errors
@@ -423,7 +424,7 @@ waitLoop:
 		case <-ticker.C:
 			status, err := k.GetKustomizationStatus(kustomizationNames)
 			if err != nil {
-				errors = append(errors, fmt.Errorf("destroy-only kustomizations failed: %w", err))
+				errors = append(errors, werror.Wrap(err, "destroy-only kustomizations failed"))
 				statusCheckFailed = true
 				break waitLoop
 			}
@@ -446,18 +447,18 @@ waitLoop:
 		for i := len(kustomizations) - 1; i >= 0; i-- {
 			kustomization := kustomizations[i]
 			if deleteErr := k.deleteKustomization(ctx, kustomization.Name, namespace, nil, kustomizationDeleteTimeout(kustomization), true); deleteErr != nil {
-				errors = append(errors, fmt.Errorf("failed to delete failed destroy-only kustomization %s: %w", kustomization.Name, deleteErr))
+				errors = append(errors, werror.Wrap(deleteErr, "failed to delete failed destroy-only kustomization %s", kustomization.Name))
 			}
 		}
 		return errors
 	}
 	endWait(nil)
 
-	for _, kustomization := range orderForDestroy(kustomizations, "destroy-only") {
+	for _, kustomization := range orderForDestroy(ctx, kustomizations, "destroy-only") {
 		opCtx, end := presenter.Begin(ctx, "kustomize:"+kustomization.Name, fmt.Sprintf("Destroying destroy-only kustomization %s", kustomization.Name))
 
 		if err := k.deleteKustomization(opCtx, kustomization.Name, namespace, nil, kustomizationDeleteTimeout(kustomization), true); err != nil {
-			failure := fmt.Errorf("failed to delete destroy-only kustomization %s: %w", kustomization.Name, err)
+			failure := werror.Wrap(err, "failed to delete destroy-only kustomization %s", kustomization.Name)
 			end(failure)
 			errors = append(errors, failure)
 		} else {
@@ -674,16 +675,14 @@ func dependsOnFromObject(obj unstructured.Unstructured) []string {
 	return deps
 }
 
-// orderForDestroy returns the input slice ordered for destroy: reverse-topological
-// when reverseTopologicalKustomizations succeeds, falling back to reverse-array
-// order on cycle-detection error (with a stderr warning). Cycles are normally
-// rejected by blueprint validation; the fallback is defensive so a malformed
-// blueprint can still be torn down. The label is interpolated into the warning
-// message to distinguish destroy contexts (e.g. "destroy" vs "destroy-only").
-func orderForDestroy(ks []blueprintv1alpha1.Kustomization, label string) []blueprintv1alpha1.Kustomization {
+// orderForDestroy returns ks in reverse-topological order, so dependents come before their dependencies.
+// On a dependency cycle, it warns through the presenter in ctx and returns ks in reverse order.
+// Blueprint validation rejects cycles, so this fallback only lets a malformed blueprint tear down.
+// The label, such as "destroy" or "destroy-only", identifies the caller in the warning.
+func orderForDestroy(ctx context.Context, ks []blueprintv1alpha1.Kustomization, label string) []blueprintv1alpha1.Kustomization {
 	ordered, err := reverseTopologicalKustomizations(ks)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "warning: could not compute reverse-topological %s order (%v); falling back to reverse-array order\n", label, err)
+		presenter.Warn(ctx, fmt.Sprintf("could not compute reverse-topological %s order (%v); falling back to reverse-array order", label, err))
 		ordered = make([]blueprintv1alpha1.Kustomization, len(ks))
 		for i, kustomization := range ks {
 			ordered[len(ks)-1-i] = kustomization

@@ -3,12 +3,14 @@ package kubernetes_test
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"sort"
 	"strings"
 	"sync"
 	"testing"
 
+	"github.com/windsorcli/cli/internal/werror"
 	"github.com/windsorcli/cli/pkg/provisioner/kubernetes"
 	"github.com/windsorcli/cli/pkg/provisioner/kubernetes/client"
 	"github.com/windsorcli/cli/pkg/runtime/config"
@@ -365,4 +367,14 @@ func withInventory(obj map[string]any, ids ...string) map[string]any {
 // contextLabels returns the ownership labels that the manager stamps for the fixture context.
 func contextLabels() map[string]string {
 	return map[string]string{"windsorcli.dev/context": "local", "windsorcli.dev/context-id": "ctx-1"}
+}
+
+// windsorError returns the WindsorError in err's chain, and fails the test when there is none.
+func windsorError(t *testing.T, err error) *werror.WindsorError {
+	t.Helper()
+	var we *werror.WindsorError
+	if !errors.As(err, &we) {
+		t.Fatalf("expected a WindsorError, got %v", err)
+	}
+	return we
 }

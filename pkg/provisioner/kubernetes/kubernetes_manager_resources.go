@@ -15,6 +15,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/windsorcli/cli/internal/werror"
 	"github.com/windsorcli/cli/pkg/runtime/evaluator"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
@@ -50,12 +51,13 @@ const defaultDockerConfigServer = "ghcr.io"
 // Public Methods
 // =============================================================================
 
-// ApplyConfigMap creates or updates a ConfigMap using SSA. It refuses to write a value that still
-// contains an unresolved expression, such as an unresolved terraform_output().
+// ApplyConfigMap creates or updates a ConfigMap using SSA. It returns a WindsorError, and writes
+// nothing, when a value still holds an unresolved expression such as terraform_output().
 func (k *BaseKubernetesManager) ApplyConfigMap(name, namespace string, data map[string]string) error {
 	for key, value := range data {
 		if evaluator.ContainsExpression(value) {
-			return fmt.Errorf("configmap %s: value for %q still contains an unresolved expression; run `windsor apply` (or `windsor upgrade`) first to resolve it", name, key)
+			return werror.New(fmt.Sprintf("ConfigMap %s has an unresolved expression in key %q.", name, key),
+				"Run windsor apply or windsor upgrade to resolve the expression first.", nil)
 		}
 	}
 
@@ -72,7 +74,7 @@ func (k *BaseKubernetesManager) ApplyConfigMap(name, namespace string, data map[
 	}
 
 	if err := validateFields(obj); err != nil {
-		return fmt.Errorf("invalid configmap fields: %w", err)
+		return werror.Wrap(err, "invalid configmap fields")
 	}
 
 	gvr := schema.GroupVersionResource{
@@ -84,7 +86,7 @@ func (k *BaseKubernetesManager) ApplyConfigMap(name, namespace string, data map[
 	existing, err := k.client.GetResource(gvr, namespace, name)
 	if err == nil && isImmutableConfigMap(existing) {
 		if err := k.client.DeleteResource(gvr, namespace, name, metav1.DeleteOptions{}); err != nil {
-			return fmt.Errorf("failed to delete immutable configmap: %w", err)
+			return werror.Wrap(err, "failed to delete immutable configmap")
 		}
 		time.Sleep(time.Second)
 	}
@@ -111,7 +113,7 @@ func (k *BaseKubernetesManager) ApplyConfigMap(name, namespace string, data map[
 func (k *BaseKubernetesManager) ApplySecret(name, namespace string, stringData map[string]string, owner string) error {
 	secretType, resolvedData, err := secretTypeAndData(stringData)
 	if err != nil {
-		return fmt.Errorf("failed to resolve secret type for %q: %w", name, err)
+		return werror.Wrap(err, "failed to resolve secret type for %q", name)
 	}
 
 	labels := k.ownershipLabels()
@@ -131,7 +133,7 @@ func (k *BaseKubernetesManager) ApplySecret(name, namespace string, stringData m
 	obj.SetLabels(labels)
 
 	if err := validateFields(obj); err != nil {
-		return fmt.Errorf("invalid secret fields: %w", err)
+		return werror.Wrap(err, "invalid secret fields")
 	}
 
 	gvr := schema.GroupVersionResource{
@@ -143,7 +145,7 @@ func (k *BaseKubernetesManager) ApplySecret(name, namespace string, stringData m
 	existing, err := k.client.GetResource(gvr, namespace, name)
 	if err == nil && secretTypeChanged(existing, secretType) {
 		if err := k.client.DeleteResource(gvr, namespace, name, metav1.DeleteOptions{}); err != nil {
-			return fmt.Errorf("failed to delete secret with changed type: %w", err)
+			return werror.Wrap(err, "failed to delete secret with changed type")
 		}
 		time.Sleep(time.Second)
 	}
@@ -156,23 +158,20 @@ func (k *BaseKubernetesManager) ApplySecret(name, namespace string, stringData m
 	return k.applyWithRetry(gvr, obj, opts)
 }
 
-// PruneSecrets deletes the CLI-placed secrets for this context that the latest placement no longer
-// wants, reconciling the cluster to the desired set. desired maps a namespace to the set of secret
-// names just placed there; a secret whose (namespace, name) is absent is deleted. It lists only secrets
-// bearing this context's id and the secret-owner marker — a label set solely by ApplySecret, never by
-// Flux — so it reclaims exactly what the CLI placed (a secret dropped from a fan-out list, a secret
-// removed from a system, or every CLI secret when desired is empty) and never a Flux-managed secret
-// that merely inherited the context labels via CommonMetadata. It fails closed when the context id is
-// unset or is not a valid label value, since without a well-formed id pruning cannot be scoped to this
-// context — a malformed id would otherwise build a selector the API server rejects, failing every
-// placement with an opaque error rather than a message that names the bad id.
+// PruneSecrets deletes each secret that the CLI placed for this context and that desired does not hold.
+// desired maps a namespace to the set of secret names just placed there.
+// It selects on the context id and the secret-owner label, which only ApplySecret sets.
+// Thus it never deletes a Flux secret that has the context labels from CommonMetadata.
+// It returns a WindsorError when the context id is empty or is not a valid label value.
 func (k *BaseKubernetesManager) PruneSecrets(desired map[string]map[string]bool) error {
 	contextID := k.configHandler.GetString("id")
 	if contextID == "" {
-		return fmt.Errorf("context id not set; cannot scope secret pruning to this context")
+		return werror.New("The context has no id, so windsor cannot find the secrets that it placed.",
+			"Run windsor init to set the context id.", nil)
 	}
 	if errs := validation.IsValidLabelValue(contextID); len(errs) > 0 {
-		return fmt.Errorf("context id %q is not a valid label value, cannot scope secret pruning: %s", contextID, strings.Join(errs, "; "))
+		return werror.New(fmt.Sprintf("Context id %q is not a valid Kubernetes label value: %s.", contextID, strings.Join(errs, "; ")),
+			"Set the context id to 63 characters or fewer: letters, digits, '-', '_', or '.', with a letter or digit at each end.", nil)
 	}
 
 	gvr := schema.GroupVersionResource{
@@ -184,7 +183,7 @@ func (k *BaseKubernetesManager) PruneSecrets(desired map[string]map[string]bool)
 	selector := fmt.Sprintf("windsorcli.dev/context-id=%s,%s", contextID, secretOwnerLabel)
 	list, err := k.client.ListResourcesByLabel(gvr, "", selector)
 	if err != nil {
-		return fmt.Errorf("failed to list CLI-placed secrets: %w", err)
+		return werror.Wrap(err, "failed to list CLI-placed secrets")
 	}
 
 	for i := range list.Items {
@@ -194,7 +193,7 @@ func (k *BaseKubernetesManager) PruneSecrets(desired map[string]map[string]bool)
 			continue
 		}
 		if err := k.client.DeleteResource(gvr, namespace, item.GetName(), metav1.DeleteOptions{}); err != nil {
-			return fmt.Errorf("failed to delete orphaned secret %q in namespace %q: %w", item.GetName(), namespace, err)
+			return werror.Wrap(err, "failed to delete orphaned secret %q in namespace %q", item.GetName(), namespace)
 		}
 	}
 	return nil
@@ -217,7 +216,7 @@ func (k *BaseKubernetesManager) RollWorkloadsForSecret(ctx context.Context, name
 		gvr := schema.GroupVersionResource{Group: "apps", Version: "v1", Resource: resource}
 		list, err := k.client.ListResources(gvr, namespace)
 		if err != nil {
-			return fmt.Errorf("listing %s in namespace %q: %w", resource, namespace, err)
+			return werror.Wrap(err, "listing %s in namespace %q", resource, namespace)
 		}
 		if list == nil {
 			continue
@@ -242,11 +241,11 @@ func (k *BaseKubernetesManager) RollWorkloadsForSecret(ctx context.Context, name
 				},
 			})
 			if err != nil {
-				return fmt.Errorf("building rollout patch for %s %q: %w", resource, obj.GetName(), err)
+				return werror.Wrap(err, "building rollout patch for %s %q", resource, obj.GetName())
 			}
 			opts := metav1.PatchOptions{FieldManager: "windsor-cli"}
 			if _, err := k.client.PatchResource(ctx, gvr, namespace, obj.GetName(), types.MergePatchType, patch, opts); err != nil {
-				return fmt.Errorf("patching %s %q in namespace %q: %w", resource, obj.GetName(), namespace, err)
+				return werror.Wrap(err, "patching %s %q in namespace %q", resource, obj.GetName(), namespace)
 			}
 		}
 	}
@@ -259,7 +258,7 @@ func (k *BaseKubernetesManager) RollWorkloadsForSecret(ctx context.Context, name
 func (k *BaseKubernetesManager) ApplyVersionMarker(namespace string, marker VersionMarker) error {
 	data, err := marker.ToConfigMapData()
 	if err != nil {
-		return fmt.Errorf("failed to encode version marker: %w", err)
+		return werror.Wrap(err, "failed to encode version marker")
 	}
 	return k.ApplyConfigMap(VersionMarkerConfigMapName, namespace, data)
 }
@@ -279,11 +278,11 @@ func (k *BaseKubernetesManager) GetVersionMarker(namespace string) (VersionMarke
 		if isNotFoundError(err) {
 			return VersionMarker{}, false, nil
 		}
-		return VersionMarker{}, false, fmt.Errorf("failed to read version marker: %w", err)
+		return VersionMarker{}, false, werror.Wrap(err, "failed to read version marker")
 	}
 	data, found, err := unstructured.NestedStringMap(obj.Object, "data")
 	if err != nil {
-		return VersionMarker{}, false, fmt.Errorf("failed to read version marker data: %w", err)
+		return VersionMarker{}, false, werror.Wrap(err, "failed to read version marker data")
 	}
 	if !found {
 		return VersionMarker{}, false, nil
@@ -394,7 +393,7 @@ func secretTypeAndData(stringData map[string]string) (string, map[string]string,
 	}
 	encoded, err := json.Marshal(dockerConfig)
 	if err != nil {
-		return "", nil, fmt.Errorf("failed to encode docker config json: %w", err)
+		return "", nil, werror.Wrap(err, "failed to encode docker config json")
 	}
 
 	resolved := make(map[string]string, len(stringData))

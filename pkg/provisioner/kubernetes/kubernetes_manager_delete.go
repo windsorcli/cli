@@ -14,6 +14,7 @@ import (
 
 	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
 	"github.com/windsorcli/cli/internal/presenter"
+	"github.com/windsorcli/cli/internal/werror"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
@@ -106,7 +107,7 @@ func (k *BaseKubernetesManager) deleteKustomization(ctx context.Context, name, n
 		return nil
 	}
 	if err != nil {
-		return fmt.Errorf("error deleting kustomization %s/%s: %w", namespace, name, err)
+		return werror.Wrap(err, "error deleting kustomization %s/%s", namespace, name)
 	}
 
 	start := k.shims.TimeNow()
@@ -124,7 +125,7 @@ func (k *BaseKubernetesManager) deleteKustomization(ctx context.Context, name, n
 			readFailures++
 			lastReadErr = err
 			if readFailures > k.kustomizationWaitMaxReadFailures {
-				return fmt.Errorf("error checking kustomization %s/%s deletion status: %w", namespace, name, err)
+				return werror.Wrap(err, "error checking kustomization %s/%s deletion status", namespace, name)
 			}
 			presenter.Progress(ctx, fmt.Sprintf("retrying after a read error (%d/%d)", readFailures, k.kustomizationWaitMaxReadFailures))
 			k.shims.TimeSleep(k.kustomizationWaitPollInterval)
@@ -396,10 +397,10 @@ func (k *BaseKubernetesManager) firstLiveInventoryEntry(entries []InventoryEntry
 func (k *BaseKubernetesManager) firstLiveChartResource(entry InventoryEntry, helmInventory helmReleaseInventory, destroying bool) (*liveInventoryEntry, []InventoryEntry, error) {
 	known := helmInventory[helmReleaseKey(entry.Namespace, entry.Name)]
 	if known == nil {
-		return nil, nil, fmt.Errorf("windsor never read what helmrelease %s/%s managed: %w", entry.Namespace, entry.Name, errUnverifiableInventory)
+		return nil, nil, werror.Wrap(errUnverifiableInventory, "windsor never read what helmrelease %s/%s managed", entry.Namespace, entry.Name)
 	}
 	if known.partial {
-		return nil, nil, fmt.Errorf("helmrelease %s/%s reported an inventory windsor could not fully decode: %w", entry.Namespace, entry.Name, errUnverifiableInventory)
+		return nil, nil, werror.Wrap(errUnverifiableInventory, "helmrelease %s/%s reported an inventory windsor could not fully decode", entry.Namespace, entry.Name)
 	}
 
 	var surviving []InventoryEntry
@@ -444,7 +445,7 @@ func (k *BaseKubernetesManager) describeAbandonedInventory(lastObj *unstructured
 		return nil, nil, nil
 	}
 	if dropped > 0 {
-		return nil, nil, fmt.Errorf("%d of %d inventory entries could not be decoded: %w", dropped, dropped+len(entries), errUnverifiableInventory)
+		return nil, nil, werror.Wrap(errUnverifiableInventory, "%d of %d inventory entries could not be decoded", dropped, dropped+len(entries))
 	}
 	return k.firstLiveInventoryEntry(entries, helmInventory, destroying)
 }

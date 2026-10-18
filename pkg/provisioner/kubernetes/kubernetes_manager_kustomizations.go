@@ -18,6 +18,7 @@ import (
 	sourcev1 "github.com/fluxcd/source-controller/api/v1"
 	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
 	"github.com/windsorcli/cli/internal/presenter"
+	"github.com/windsorcli/cli/internal/werror"
 	"github.com/windsorcli/cli/pkg/constants"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
@@ -90,12 +91,12 @@ func (k *BaseKubernetesManager) ApplyKustomization(kustomization kustomizev1.Kus
 	obj := &unstructured.Unstructured{}
 	unstructuredMap, err := k.shims.ToUnstructured(&kustomization)
 	if err != nil {
-		return fmt.Errorf("failed to convert kustomization to unstructured: %w", err)
+		return werror.Wrap(err, "failed to convert kustomization to unstructured")
 	}
 	obj.Object = unstructuredMap
 
 	if err := validateFields(obj); err != nil {
-		return fmt.Errorf("invalid kustomization fields: %w", err)
+		return werror.Wrap(err, "invalid kustomization fields")
 	}
 
 	gvr := schema.GroupVersionResource{
@@ -193,7 +194,7 @@ func (k *BaseKubernetesManager) WaitForKustomizations(ctx context.Context, messa
 					errorStreakStart = time.Now()
 				}
 				if time.Since(errorStreakStart) >= maxErrorDuration {
-					return fmt.Errorf("kustomization readiness checks failing for over %s: %w", maxErrorDuration, err)
+					return werror.Wrap(err, "kustomization readiness checks failing for over %s", maxErrorDuration)
 				}
 				continue
 			}
@@ -216,7 +217,7 @@ func (k *BaseKubernetesManager) WaitForKustomizations(ctx context.Context, messa
 				}
 				ready, pending, failed := kustomizationConditionStatus(obj)
 				if failed != nil {
-					return fmt.Errorf("kustomization will not become ready: %w", failed)
+					return werror.Wrap(failed, "kustomization will not become ready")
 				}
 				if pending != nil {
 					budget := failureBudget(name)
@@ -229,7 +230,7 @@ func (k *BaseKubernetesManager) WaitForKustomizations(ctx context.Context, messa
 					failureStreaks[name] = streak
 					layers.Progress(name, kustomizationFailureText(pending))
 					if now.Sub(streak.start) >= budget {
-						return fmt.Errorf("kustomization failing for over %s: %w", budget, pending)
+						return werror.Wrap(pending, "kustomization failing for over %s", budget)
 					}
 					continue
 				}
@@ -266,12 +267,12 @@ func (k *BaseKubernetesManager) GetHelmReleasesForKustomization(name, namespace 
 		if isNotFoundError(err) {
 			return []helmv2.HelmRelease{}, nil
 		}
-		return nil, fmt.Errorf("failed to get kustomization: %w", err)
+		return nil, werror.Wrap(err, "failed to get kustomization")
 	}
 
 	var kustomization kustomizev1.Kustomization
 	if err := k.shims.FromUnstructured(obj.UnstructuredContent(), &kustomization); err != nil {
-		return nil, fmt.Errorf("failed to convert kustomization: %w", err)
+		return nil, werror.Wrap(err, "failed to convert kustomization")
 	}
 
 	var helmReleases []helmv2.HelmRelease
@@ -299,12 +300,12 @@ func (k *BaseKubernetesManager) ApplyGitRepository(repo *sourcev1.GitRepository)
 	obj := &unstructured.Unstructured{}
 	unstructuredMap, err := k.shims.ToUnstructured(repo)
 	if err != nil {
-		return fmt.Errorf("failed to convert gitrepository to unstructured: %w", err)
+		return werror.Wrap(err, "failed to convert gitrepository to unstructured")
 	}
 	obj.Object = unstructuredMap
 
 	if err := validateFields(obj); err != nil {
-		return fmt.Errorf("invalid gitrepository fields: %w", err)
+		return werror.Wrap(err, "invalid gitrepository fields")
 	}
 
 	gvr := schema.GroupVersionResource{
@@ -326,12 +327,12 @@ func (k *BaseKubernetesManager) ApplyOCIRepository(repo *sourcev1.OCIRepository)
 	obj := &unstructured.Unstructured{}
 	unstructuredMap, err := k.shims.ToUnstructured(repo)
 	if err != nil {
-		return fmt.Errorf("failed to convert ocirepository to unstructured: %w", err)
+		return werror.Wrap(err, "failed to convert ocirepository to unstructured")
 	}
 	obj.Object = unstructuredMap
 
 	if err := validateFields(obj); err != nil {
-		return fmt.Errorf("invalid ocirepository fields: %w", err)
+		return werror.Wrap(err, "invalid ocirepository fields")
 	}
 
 	gvr := schema.GroupVersionResource{
@@ -358,13 +359,13 @@ func (k *BaseKubernetesManager) CheckGitRepositoryStatus() error {
 
 	gitObjList, err := k.client.ListResources(gitGvr, k.gitopsNamespace())
 	if err != nil {
-		return fmt.Errorf("failed to list git repositories: %w", err)
+		return werror.Wrap(err, "failed to list git repositories")
 	}
 
 	for _, obj := range gitObjList.Items {
 		var gitRepo sourcev1.GitRepository
 		if err := k.shims.FromUnstructured(obj.UnstructuredContent(), &gitRepo); err != nil {
-			return fmt.Errorf("failed to convert git repository %s: %w", gitRepo.Name, err)
+			return werror.Wrap(err, "failed to convert git repository %s", gitRepo.Name)
 		}
 
 		for _, condition := range gitRepo.Status.Conditions {
@@ -382,13 +383,13 @@ func (k *BaseKubernetesManager) CheckGitRepositoryStatus() error {
 
 	ociObjList, err := k.client.ListResources(ociGvr, k.gitopsNamespace())
 	if err != nil {
-		return fmt.Errorf("failed to list oci repositories: %w", err)
+		return werror.Wrap(err, "failed to list oci repositories")
 	}
 
 	for _, obj := range ociObjList.Items {
 		var ociRepo sourcev1.OCIRepository
 		if err := k.shims.FromUnstructured(obj.UnstructuredContent(), &ociRepo); err != nil {
-			return fmt.Errorf("failed to convert oci repository %s: %w", ociRepo.Name, err)
+			return werror.Wrap(err, "failed to convert oci repository %s", ociRepo.Name)
 		}
 
 		for _, condition := range ociRepo.Status.Conditions {
@@ -408,7 +409,7 @@ func (k *BaseKubernetesManager) CheckGitRepositoryStatus() error {
 func (k *BaseKubernetesManager) GetKustomizationStatus(names []string) (map[string]bool, error) {
 	objList, err := k.client.ListResources(kustomizationsGVR, k.gitopsNamespace())
 	if err != nil {
-		return nil, fmt.Errorf("failed to list kustomizations: %w", err)
+		return nil, werror.Wrap(err, "failed to list kustomizations")
 	}
 
 	status := make(map[string]bool)
@@ -417,7 +418,7 @@ func (k *BaseKubernetesManager) GetKustomizationStatus(names []string) (map[stri
 	for _, obj := range objList.Items {
 		var kustomizeObj kustomizev1.Kustomization
 		if err := k.shims.FromUnstructured(obj.UnstructuredContent(), &kustomizeObj); err != nil {
-			return nil, fmt.Errorf("failed to convert kustomization %s: %w", kustomizeObj.Name, err)
+			return nil, werror.Wrap(err, "failed to convert kustomization %s", kustomizeObj.Name)
 		}
 
 		found[kustomizeObj.Name] = true
@@ -454,7 +455,7 @@ func (k *BaseKubernetesManager) GetKustomizationStatus(names []string) (map[stri
 func (k *BaseKubernetesManager) GetKustomizationReadiness(names []string) (map[string]bool, error) {
 	objList, err := k.client.ListResources(kustomizationsGVR, k.gitopsNamespace())
 	if err != nil {
-		return nil, fmt.Errorf("failed to list kustomizations: %w", err)
+		return nil, werror.Wrap(err, "failed to list kustomizations")
 	}
 
 	ready := make(map[string]bool, len(names))
@@ -540,12 +541,12 @@ func (k *BaseKubernetesManager) getHelmRelease(name, namespace string) (*helmv2.
 
 	obj, err := k.client.GetResource(gvr, namespace, name)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get helm release: %w", err)
+		return nil, werror.Wrap(err, "failed to get helm release")
 	}
 
 	var helmRelease helmv2.HelmRelease
 	if err := runtime.DefaultUnstructuredConverter.FromUnstructured(obj.UnstructuredContent(), &helmRelease); err != nil {
-		return nil, fmt.Errorf("failed to convert helm release: %w", err)
+		return nil, werror.Wrap(err, "failed to convert helm release")
 	}
 
 	return &helmRelease, nil

@@ -15,6 +15,7 @@ import (
 	kustomizev1 "github.com/fluxcd/kustomize-controller/api/v1"
 	sourcev1 "github.com/fluxcd/source-controller/api/v1"
 	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
+	"github.com/windsorcli/cli/internal/werror"
 	"github.com/windsorcli/cli/pkg/constants"
 	"github.com/windsorcli/cli/pkg/provisioner/kubernetes/client"
 	"github.com/windsorcli/cli/pkg/runtime/config"
@@ -221,7 +222,7 @@ func (k *BaseKubernetesManager) applyWithRetry(gvr schema.GroupVersionResource, 
 	if err == nil {
 		applyConfig, err := k.shims.ToUnstructured(existing)
 		if err != nil {
-			return fmt.Errorf("failed to convert existing object to unstructured: %w", err)
+			return werror.Wrap(err, "failed to convert existing object to unstructured")
 		}
 
 		maps.Copy(applyConfig, obj.Object)

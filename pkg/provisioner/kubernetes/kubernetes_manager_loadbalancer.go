@@ -11,6 +11,7 @@ import (
 	"time"
 
 	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
+	"github.com/windsorcli/cli/internal/werror"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
@@ -74,7 +75,7 @@ func (k *BaseKubernetesManager) remediateLoadBalancerOwners(eligible []blueprint
 
 	services, err := k.client.ListResources(servicesGVR, "")
 	if err != nil {
-		return fmt.Errorf("error listing services for load balancer remediation: %w", err)
+		return werror.Wrap(err, "error listing services for load balancer remediation")
 	}
 	if services == nil {
 		return nil
@@ -159,7 +160,7 @@ func (k *BaseKubernetesManager) ownedRootForService(svc *unstructured.Unstructur
 		gvk := gv.WithKind(owner.Kind)
 		gvr, ownerNamespace, ok, err := k.resolveScopedGVR(gvk, namespace)
 		if err != nil {
-			return ownedTarget{}, false, fmt.Errorf("error resolving load balancer owner %s %q: %w", owner.Kind, owner.Name, err)
+			return ownedTarget{}, false, werror.Wrap(err, "error resolving load balancer owner %s %q", owner.Kind, owner.Name)
 		}
 		if !ok {
 			return ownedTarget{}, false, nil
@@ -195,7 +196,7 @@ func (k *BaseKubernetesManager) deleteBlockingGateways(classGVR schema.GroupVers
 		if apimeta.IsNoMatchError(err) {
 			return nil
 		}
-		return fmt.Errorf("error resolving gateway resource while clearing gatewayclass %s: %w", className, err)
+		return werror.Wrap(err, "error resolving gateway resource while clearing gatewayclass %s", className)
 	}
 	for _, entry := range entries {
 		if entry.Kind != "Gateway" || entry.Group != gatewayAPIGroup {
@@ -206,14 +207,14 @@ func (k *BaseKubernetesManager) deleteBlockingGateways(classGVR schema.GroupVers
 			if isNotFoundError(err) {
 				continue
 			}
-			return fmt.Errorf("error reading gateway %s/%s while clearing gatewayclass %s: %w", entry.Namespace, entry.Name, className, err)
+			return werror.Wrap(err, "error reading gateway %s/%s while clearing gatewayclass %s", entry.Namespace, entry.Name, className)
 		}
 		gatewayClassName, _, _ := unstructured.NestedString(gw.Object, "spec", "gatewayClassName")
 		if gatewayClassName != className {
 			continue
 		}
 		if err := k.client.DeleteResource(gatewayGVR, entry.Namespace, entry.Name, metav1.DeleteOptions{}); err != nil && !isNotFoundError(err) {
-			return fmt.Errorf("error deleting gateway %s/%s to release gatewayclass %s: %w", entry.Namespace, entry.Name, className, err)
+			return werror.Wrap(err, "error deleting gateway %s/%s to release gatewayclass %s", entry.Namespace, entry.Name, className)
 		}
 	}
 	return nil
@@ -232,7 +233,7 @@ func (k *BaseKubernetesManager) foregroundDeleteAndWaitService(target ownedTarge
 	policy := metav1.DeletePropagationForeground
 	err := k.client.DeleteResource(target.gvr, target.namespace, target.name, metav1.DeleteOptions{PropagationPolicy: &policy})
 	if err != nil && !isNotFoundError(err) {
-		return fmt.Errorf("error foreground-deleting load balancer owner %s/%s: %w", target.namespace, target.name, err)
+		return werror.Wrap(err, "error foreground-deleting load balancer owner %s/%s", target.namespace, target.name)
 	}
 
 	svcNamespace, svcName := svc.GetNamespace(), svc.GetName()
@@ -245,14 +246,14 @@ func (k *BaseKubernetesManager) foregroundDeleteAndWaitService(target ownedTarge
 		if !serviceGone {
 			gone, err := k.resourceGone(servicesGVR, svcNamespace, svcName)
 			if err != nil {
-				return fmt.Errorf("error waiting for load balancer service %s/%s deletion: %w", svcNamespace, svcName, err)
+				return werror.Wrap(err, "error waiting for load balancer service %s/%s deletion", svcNamespace, svcName)
 			}
 			serviceGone = gone
 		}
 		if !rootGone {
 			gone, err := k.resourceGone(target.gvr, target.namespace, target.name)
 			if err != nil {
-				return fmt.Errorf("error waiting for load balancer owner %s/%s deletion: %w", target.namespace, target.name, err)
+				return werror.Wrap(err, "error waiting for load balancer owner %s/%s deletion", target.namespace, target.name)
 			}
 			rootGone = gone
 		}

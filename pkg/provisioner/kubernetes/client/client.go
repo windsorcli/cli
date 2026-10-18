@@ -8,7 +8,6 @@ import (
 	"context"
 	"crypto/sha256"
 	"errors"
-	"fmt"
 	"os"
 	"sync"
 	"time"
@@ -25,6 +24,7 @@ import (
 	"k8s.io/client-go/restmapper"
 	"k8s.io/client-go/tools/clientcmd"
 
+	"github.com/windsorcli/cli/internal/werror"
 	"github.com/windsorcli/cli/pkg/runtime/shell"
 )
 
@@ -210,7 +210,7 @@ func (c *DynamicKubernetesClient) CheckHealth(ctx context.Context, endpoint stri
 
 	cli, _, err := c.ensureClient()
 	if err != nil {
-		return fmt.Errorf("failed to initialize Kubernetes client: %w", err)
+		return werror.Wrap(err, "failed to initialize Kubernetes client")
 	}
 
 	nodeGVR := schema.GroupVersionResource{
@@ -220,7 +220,7 @@ func (c *DynamicKubernetesClient) CheckHealth(ctx context.Context, endpoint stri
 	}
 
 	if _, err := cli.Resource(nodeGVR).List(ctx, metav1.ListOptions{Limit: 1}); err != nil {
-		return fmt.Errorf("failed to connect to Kubernetes API: %w", err)
+		return werror.Wrap(err, "failed to connect to Kubernetes API")
 	}
 
 	return nil
@@ -233,7 +233,7 @@ func (c *DynamicKubernetesClient) CheckHealth(ctx context.Context, endpoint stri
 func (c *DynamicKubernetesClient) GetNodeReadyStatus(ctx context.Context, nodeNames []string) (map[string]bool, error) {
 	cli, _, err := c.ensureClient()
 	if err != nil {
-		return nil, fmt.Errorf("failed to initialize Kubernetes client: %w", err)
+		return nil, werror.Wrap(err, "failed to initialize Kubernetes client")
 	}
 
 	nodeGVR := schema.GroupVersionResource{
@@ -244,7 +244,7 @@ func (c *DynamicKubernetesClient) GetNodeReadyStatus(ctx context.Context, nodeNa
 
 	nodes, err := cli.Resource(nodeGVR).List(ctx, metav1.ListOptions{})
 	if err != nil {
-		return nil, fmt.Errorf("failed to list nodes: %w", err)
+		return nil, werror.Wrap(err, "failed to list nodes")
 	}
 
 	if len(nodeNames) > 0 {

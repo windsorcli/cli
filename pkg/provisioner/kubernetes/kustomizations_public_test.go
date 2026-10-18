@@ -406,10 +406,10 @@ func TestKubernetesManager_PruneBlueprint(t *testing.T) {
 		pruneErr := f.manager.PruneBlueprint(context.Background(), blueprint, "system-gitops")
 		_, listErr := f.manager.ListPrunableKustomizations(blueprint, "system-gitops")
 
-		// Then both fail closed
+		// Then both fail closed with a hint to set the id
 		for _, err := range []error{pruneErr, listErr} {
-			if err == nil || !strings.Contains(err.Error(), "context id not set") {
-				t.Errorf("expected a missing-id error, got %v", err)
+			if we := windsorError(t, err); we.Remediation != "Run windsor init to set the context id." {
+				t.Errorf("unexpected hint %q", we.Remediation)
 			}
 		}
 	})

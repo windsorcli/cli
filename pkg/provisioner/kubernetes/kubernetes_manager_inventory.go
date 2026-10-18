@@ -6,10 +6,10 @@
 package kubernetes
 
 import (
-	"fmt"
 	"strings"
 
 	helmv2 "github.com/fluxcd/helm-controller/api/v2"
+	"github.com/windsorcli/cli/internal/werror"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 )
@@ -64,7 +64,7 @@ func (k *BaseKubernetesManager) GetKustomizationInventory(name, namespace string
 	}
 	rawEntries, found, err := unstructured.NestedSlice(obj.Object, "status", "inventory", "entries")
 	if err != nil {
-		return nil, fmt.Errorf("error reading inventory for kustomization %q in namespace %q: %w", name, namespace, err)
+		return nil, werror.Wrap(err, "error reading inventory for kustomization %q in namespace %q", name, namespace)
 	}
 	if !found {
 		return []InventoryEntry{}, nil
