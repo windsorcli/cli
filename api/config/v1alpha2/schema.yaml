@@ -21,6 +21,7 @@ properties:
       - gcp
       - hyperv
       - vsphere
+      - proxmox
     description: Platform the context deploys to.
   dev:
     type: boolean

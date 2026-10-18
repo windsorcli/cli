@@ -15,7 +15,7 @@ import (
 // =============================================================================
 
 // Platforms lists the platforms the CLI supports, in the order the schema enum lists them.
-var Platforms = []string{"none", "docker", "incus", "metal", "hetzner", "aws", "azure", "gcp", "hyperv", "vsphere"}
+var Platforms = []string{"none", "docker", "incus", "metal", "hetzner", "aws", "azure", "gcp", "hyperv", "vsphere", "proxmox"}
 
 //go:embed schema.yaml
 var schema []byte
