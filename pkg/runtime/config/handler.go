@@ -1,3 +1,8 @@
+// The ConfigHandler is the entry point for context configuration in the CLI.
+// It provides loading, saving, and access to the values of the current context.
+// It resolves the current context from an override, the context file, or the environment.
+// It delegates file reads and writes to the typed, values, and workstation sources.
+
 package config
 
 import (
@@ -18,13 +23,17 @@ import (
 // contextIDCharset is the character set GenerateContextID draws its random suffix from.
 const contextIDCharset = "abcdefghijklmnopqrstuvwxyz0123456789"
 
-// The ConfigHandler is a core component that manages configuration state and context across the application.
-// It provides a unified interface for loading, saving, and accessing configuration data, with support for
-// multiple contexts and secret management. The handler facilitates environment-specific configurations,
-// manages context switching, and integrates with various secret providers for secure credential handling.
-// It maintains configuration persistence through YAML files and supports hierarchical configuration
-// structures with default values and context-specific overrides.
+const (
+	windsorDirName  = ".windsor"
+	contextDirName  = "contexts"
+	contextFileName = "context"
+)
 
+// =============================================================================
+// Types
+// =============================================================================
+
+// ConfigHandler loads, saves, and reads the configuration of the current context.
 type ConfigHandler interface {
 	LoadConfig() error
 	LoadConfigForContext(contextName string) error
@@ -60,12 +69,6 @@ type ConfigHandler interface {
 	IsSensitivePath(path string) bool
 	ValidateContextValues() error
 }
-
-const (
-	windsorDirName  = ".windsor"
-	contextDirName  = "contexts"
-	contextFileName = "context"
-)
 
 // configHandler is the concrete implementation of the ConfigHandler interface that provides
 // YAML-based configuration management with support for contexts, schemas, and values files.
@@ -140,220 +143,9 @@ func NewConfigHandler(shell shell.Shell) ConfigHandler {
 	return handler
 }
 
-// LoadConfigString loads YAML configuration directly into the internal data map for testing purposes.
-// It unmarshals the provided YAML string and, if a "contexts" key exists, extracts and merges only
-// the configuration for the current context. If no "contexts" structure is present, it merges the entire
-// map. It then converts v1alpha1 values into the v1alpha2 header. This method is primarily intended for
-// test helpers and not for production use; load configuration in production with LoadConfig instead.
-// Returns an error if YAML unmarshalling fails.
-func (c *configHandler) LoadConfigString(content string) error {
-	if content == "" {
-		return nil
-	}
-
-	var dataMap map[string]any
-	if err := c.shims.YamlUnmarshal([]byte(content), &dataMap); err != nil {
-		return fmt.Errorf("error unmarshalling yaml: %w", err)
-	}
-
-	contextName := c.GetContext()
-
-	if contexts, ok := dataMap["contexts"]; ok {
-		var contextsMap map[string]any
-		switch v := contexts.(type) {
-		case map[string]any:
-			contextsMap = v
-		case map[any]any:
-			contextsMap = make(map[string]any)
-			for k, val := range v {
-				if strKey, ok := k.(string); ok {
-					contextsMap[strKey] = val
-				}
-			}
-		}
-
-		if contextsMap != nil {
-			if contextData, ok := contextsMap[contextName]; ok {
-				var contextMap map[string]any
-				switch v := contextData.(type) {
-				case map[string]any:
-					contextMap = v
-				case map[any]any:
-					contextMap = c.convertInterfaceMap(v)
-				}
-
-				if contextMap != nil {
-					c.data = c.deepMerge(c.data, contextMap)
-					convertV1alpha1(c.data)
-					c.loaded = true
-					return nil
-				}
-			}
-		}
-	}
-
-	c.data = c.deepMerge(c.data, dataMap)
-	convertV1alpha1(c.data)
-	c.loaded = true
-
-	return nil
-}
-
-// LoadConfig loads and merges all configuration sources for the current context into the internal data map.
-// It performs the following actions, in order: loads schema defaults (if available); merges root windsor.yaml
-// context section (if it exists); merges any context-specific windsor.yaml/yml file; then merges values.yaml for
-// dynamic fields, validating values.yaml against the loaded schema (if one is present). All configuration is
-// accumulated into one map structure, and v1alpha1 values convert into the v1alpha2 header. If any file is loaded,
-// config state is marked as loaded. Returns an error for any I/O or validation failure. Must call Initialize() first.
-func (c *configHandler) LoadConfig() error {
-	if c.shell == nil {
-		return fmt.Errorf("shell not initialized")
-	}
-	return c.LoadConfigForContext(c.GetContext())
-}
-
-// LoadConfigForContext loads and merges all configuration sources for the specified context into the internal data map
-// without modifying the current context state. This method performs the same actions as LoadConfig but uses the
-// provided contextName parameter directly instead of reading from the current context. It does not write to the
-// .windsor/context file or set the WINDSOR_CONTEXT environment variable, making it safe for read-only operations
-// like listing contexts. Returns an error for any I/O or validation failure.
-func (c *configHandler) LoadConfigForContext(contextName string) error {
-	if c.shell == nil {
-		return fmt.Errorf("shell not initialized")
-	}
-	projectRoot, err := c.shell.GetProjectRoot()
-	if err != nil {
-		return fmt.Errorf("error retrieving project root: %w", err)
-	}
-
-	hasLoadedFiles := false
-
-	if c.schemaValidator != nil && c.schemaValidator.Schema == nil {
-		schemaPath := filepath.Join(projectRoot, "contexts", "_template", "schema.yaml")
-		if _, err := c.shims.Stat(schemaPath); err == nil {
-			if err := c.LoadSchema(schemaPath); err != nil {
-				return fmt.Errorf("error loading schema: %w", err)
-			}
-		}
-	}
-
-	rootValues, rootLoaded, err := c.typed.LoadRoot(projectRoot, contextName)
-	if err != nil {
-		return err
-	}
-	if rootLoaded {
-		hasLoadedFiles = true
-	}
-	if rootValues != nil {
-		c.data = c.deepMerge(c.data, rootValues)
-	}
-
-	contextValues, contextLoaded, err := c.typed.LoadContext(projectRoot, contextName)
-	if err != nil {
-		return err
-	}
-	if contextLoaded {
-		hasLoadedFiles = true
-	}
-	if contextValues != nil {
-		c.data = c.deepMerge(c.data, contextValues)
-	}
-
-	workstationValues, _, err := c.workstation.Load(projectRoot, contextName)
-	if err != nil {
-		return err
-	}
-	if workstationValues != nil {
-		c.data = c.deepMerge(c.data, workstationValues)
-	}
-
-	valuesData, valuesLoaded, err := c.values.Load(projectRoot, contextName)
-	if err != nil {
-		return err
-	}
-	if valuesLoaded {
-		hasLoadedFiles = true
-	}
-	if valuesData != nil {
-		c.data = c.deepMerge(c.data, valuesData)
-	}
-	convertV1alpha1(c.data)
-
-	if hasLoadedFiles {
-		c.loaded = true
-	}
-
-	return nil
-}
-
-// SaveConfig writes the current configuration to values.yaml for the context, creating the root
-// windsor.yaml first if missing. A missing values.yaml gets the full config; an existing one is
-// patched at Set-touched paths when overwrite is true, and left alone otherwise. A successful
-// write clears the pending Set paths, so a later SaveConfig only patches what changed since.
-func (c *configHandler) SaveConfig(overwrite ...bool) error {
-	if c.shell == nil {
-		return fmt.Errorf("shell not initialized")
-	}
-
-	shouldOverwrite := false
-	if len(overwrite) > 0 {
-		shouldOverwrite = overwrite[0]
-	}
-
-	projectRoot, err := c.shell.GetProjectRoot()
-	if err != nil {
-		return fmt.Errorf("error retrieving project root: %w", err)
-	}
-
-	if !c.shell.IsGlobal() {
-		if err := c.typed.EnsureRoot(projectRoot); err != nil {
-			return err
-		}
-	}
-
-	deletes := make([]string, 0, len(c.pendingDeletes))
-	for key := range c.pendingDeletes {
-		deletes = append(deletes, key)
-	}
-
-	wrote, err := c.values.Save(
-		projectRoot,
-		c.GetContext(),
-		c.data,
-		c.pendingOverrides,
-		deletes,
-		shouldOverwrite,
-		c.getPersistencePolicyInput(),
-	)
-	if err != nil {
-		return err
-	}
-	if wrote {
-		c.pendingOverrides = nil
-		c.pendingDeletes = nil
-	}
-
-	return nil
-}
-
-// SaveWorkstationState extracts workstation-managed keys from config data and writes them
-// to .windsor/contexts/<context>/workstation.yaml. This is the canonical persistence point for system-derived
-// workstation configuration (runtime, address, platform, DNS settings, network CIDR block).
-func (c *configHandler) SaveWorkstationState() error {
-	if c.shell == nil {
-		return fmt.Errorf("shell not initialized")
-	}
-	projectRoot, err := c.shell.GetProjectRoot()
-	if err != nil {
-		return fmt.Errorf("error retrieving project root: %w", err)
-	}
-	return c.workstation.Save(
-		projectRoot,
-		c.GetContext(),
-		c.data,
-		c.getPersistencePolicyInput(),
-	)
-}
+// =============================================================================
+// Public Methods
+// =============================================================================
 
 // SetDefault merges the default context into the handler's data. Values already present in data
 // take precedence over the default, so this is safe to call regardless of load order or how many
@@ -564,106 +356,6 @@ func (c *configHandler) IsLoaded() bool {
 	return c.loaded
 }
 
-// GetSchema returns a shallow copy of the loaded schema map, or nil if no schema is loaded.
-// A copy is returned so callers cannot mutate the validator's internal schema state.
-func (c *configHandler) GetSchema() map[string]any {
-	if c.schemaValidator == nil {
-		return nil
-	}
-	src := c.schemaValidator.Schema
-	if src == nil {
-		return nil
-	}
-	out := make(map[string]any, len(src))
-	for k, v := range src {
-		out[k] = v
-	}
-	return out
-}
-
-// GetSensitivePaths returns the dotted config paths marked `sensitive: true` in the loaded
-// schema, or nil if no schema is loaded. Consumers scrub these values from plaintext output
-// and gate which properties may back a cluster Secret.
-func (c *configHandler) GetSensitivePaths() []string {
-	if c.schemaValidator == nil {
-		return nil
-	}
-	return c.schemaValidator.GetSensitivePaths()
-}
-
-// IsSensitivePath reports whether the given dotted config path is marked sensitive in the loaded
-// schema. A "*" segment in a schema path (from a free-form map region) matches any single
-// segment of the queried path.
-func (c *configHandler) IsSensitivePath(path string) bool {
-	for _, sensitive := range c.GetSensitivePaths() {
-		if sensitivePathMatches(sensitive, path) {
-			return true
-		}
-	}
-	return false
-}
-
-// LoadSchema reads the schema file at schemaPath and loads it as LoadSchemaFromBytes does.
-// Returns an error if the file cannot be read or the schema is invalid.
-func (c *configHandler) LoadSchema(schemaPath string) error {
-	if c.schemaValidator == nil {
-		return fmt.Errorf("runtime not fully initialized: schema validator missing")
-	}
-	schemaContent, err := c.shims.ReadFile(schemaPath)
-	if err != nil {
-		return fmt.Errorf("failed to read schema file %s: %w", schemaPath, err)
-	}
-	return c.LoadSchemaFromBytes(schemaContent)
-}
-
-// LoadSchemaFromBytes merges a schema fragment into the loaded schema, then merges the CLI
-// fragment over the result. It first rejects a fragment that gives a CLI-owned path a different
-// type, and leaves the loaded schema unchanged in that case. After the merge, values that Set
-// converted from strings convert again against the new schema.
-func (c *configHandler) LoadSchemaFromBytes(schemaContent []byte) error {
-	if c.schemaValidator == nil {
-		return fmt.Errorf("runtime not fully initialized: schema validator missing")
-	}
-	if err := checkCLIOwnedTypes(schemaContent); err != nil {
-		return err
-	}
-	if err := c.schemaValidator.LoadSchemaFromBytes(schemaContent); err != nil {
-		return err
-	}
-	if err := c.applyCLISchema(); err != nil {
-		return err
-	}
-	c.reconvertStringSets()
-	return nil
-}
-
-// ValidateContextValues runs schema validation on the full context configuration map. Cross-field
-// rules spanning header and dynamic fields are evaluated against the unified map,
-// matching the file-load validation path. Use before impactful operations (e.g. windsor up) and after
-// compositional Set sequences. Returns nil if no schema is loaded or if validation passes; returns an
-// error if validation fails. When the same invalid data was already warned about by valuesSource.Load
-// earlier in this invocation, the error refers back to that warning instead of re-printing the
-// identical error list a second time. It also checks the id field. This check runs even with no
-// schema loaded, so an explicit --set id=... or a checked-in values.yaml fails immediately.
-func (c *configHandler) ValidateContextValues() error {
-	if err := validateContextID(c.GetString("id")); err != nil {
-		return fmt.Errorf("context value validation failed: %w", err)
-	}
-
-	if c.schemaValidator == nil || c.schemaValidator.Schema == nil {
-		return nil
-	}
-	if result, err := c.schemaValidator.Validate(c.data); err != nil {
-		return fmt.Errorf("error validating context values: %w", err)
-	} else if !result.Valid {
-		if c.schemaValidator.ErrorsAlreadyReported(result.Errors) {
-			return fmt.Errorf("context value validation failed (see the values.yaml warning above)")
-		}
-		return fmt.Errorf("context value validation failed:%s", FormatValidationErrors(result.Errors))
-	}
-	return nil
-}
-
 // GenerateContextID generates a random context ID if one doesn't exist
 func (c *configHandler) GenerateContextID() error {
 	if c.GetString("id") != "" {
@@ -710,15 +402,6 @@ func (c *configHandler) resolveContextFromFileOrEnv() string {
 	return "local"
 }
 
-// getPersistencePolicyInput builds policy input for persistence ownership decisions.
-func (c *configHandler) getPersistencePolicyInput() persistencePolicyInput {
-	contextName := c.GetContext()
-	return persistencePolicyInput{
-		IsDevMode:          c.IsDevMode(contextName),
-		WorkstationRuntime: c.GetString("workstation.runtime"),
-	}
-}
-
 // convertInterfaceMap recursively converts map[any]any to map[string]any
 func (c *configHandler) convertInterfaceMap(m map[any]any) map[string]any {
 	result := make(map[string]any)
@@ -756,38 +439,6 @@ func (c *configHandler) deepMerge(base, overlay map[string]any) map[string]any {
 		result[k] = overlayValue
 	}
 	return result
-}
-
-// =============================================================================
-// Helpers
-// =============================================================================
-
-// validateContextID checks id against DNS label rules (RFC 1123): a lowercase letter, then any
-// mix of lowercase letters, digits, and hyphens, with no leading, trailing, or repeated hyphen.
-// This keeps a user-supplied id safe to embed in a domain name (e.g. id.local). An empty id is
-// valid; GenerateContextID fills it in later.
-func validateContextID(id string) error {
-	if id == "" {
-		return nil
-	}
-	if id[0] < 'a' || id[0] > 'z' {
-		return fmt.Errorf("id %q must start with a lowercase letter (a-z)", id)
-	}
-	if id[len(id)-1] == '-' {
-		return fmt.Errorf("id %q must not end with a hyphen", id)
-	}
-	for i := 1; i < len(id); i++ {
-		c := id[i]
-		isLower := c >= 'a' && c <= 'z'
-		isDigit := c >= '0' && c <= '9'
-		if !isLower && !isDigit && c != '-' {
-			return fmt.Errorf("id %q must contain only lowercase letters, digits, and hyphens", id)
-		}
-		if c == '-' && id[i-1] == '-' {
-			return fmt.Errorf("id %q must not repeat a hyphen", id)
-		}
-	}
-	return nil
 }
 
 // Ensure configHandler implements ConfigHandler
