@@ -3,8 +3,6 @@ package secrets
 import (
 	"fmt"
 	"strings"
-
-	secretsConfigType "github.com/windsorcli/cli/api/v1alpha1/secrets"
 )
 
 // =============================================================================
@@ -13,7 +11,7 @@ import (
 
 // OnePasswordCLIProvider implements the Provider interface using the 1Password CLI.
 type OnePasswordCLIProvider struct {
-	vault    secretsConfigType.OnePasswordVault
+	vault    OnePasswordVault
 	unlocked bool
 	shims    *Shims
 }
@@ -23,7 +21,7 @@ type OnePasswordCLIProvider struct {
 // =============================================================================
 
 // NewOnePasswordCLIProvider creates a new OnePasswordCLIProvider instance.
-func NewOnePasswordCLIProvider(vault secretsConfigType.OnePasswordVault) *OnePasswordCLIProvider {
+func NewOnePasswordCLIProvider(vault OnePasswordVault) *OnePasswordCLIProvider {
 	return &OnePasswordCLIProvider{
 		vault: vault,
 		shims: NewShims(),

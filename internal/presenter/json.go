@@ -1,6 +1,6 @@
 // The JSON is the Presenter for machine-readable output.
 // It provides one JSON object per event, written as one line to the writer.
-// A coded error adds its code, category, and remediation; an untyped error adds only its message.
+// A WindsorError adds its remediation; an untyped error adds only its message.
 // Log records add their level and attributes, with groups as nested objects.
 
 package presenter
@@ -8,7 +8,6 @@ package presenter
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"io"
 	"log/slog"
 	"sync"
@@ -43,8 +42,6 @@ type jsonEvent struct {
 
 // jsonError is the wire format of an event error.
 type jsonError struct {
-	Code        string `json:"code,omitempty"`
-	Category    string `json:"category,omitempty"`
 	Message     string `json:"message"`
 	Remediation string `json:"remediation,omitempty"`
 }
@@ -102,9 +99,8 @@ func toJSONError(err error) *jsonError {
 	if err == nil {
 		return nil
 	}
-	var we *werror.WindsorError
-	if errors.As(err, &we) {
-		return &jsonError{Code: we.Code, Category: we.Category, Message: we.Message, Remediation: we.Remediation}
+	if we := werror.Find(err); we != nil {
+		return &jsonError{Message: we.Message, Remediation: we.Remediation}
 	}
 	return &jsonError{Message: err.Error()}
 }

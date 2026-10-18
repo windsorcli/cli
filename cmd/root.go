@@ -2,11 +2,11 @@ package cmd
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"io"
 	"log/slog"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -209,28 +209,36 @@ func requireCloudAuth(cmd *cobra.Command, proj *project.Project) error {
 	return nil
 }
 
-// renderError writes err to w once, in the format that --format selects. A coded error shows its
-// code and remediation. Under --verbose, the breadcrumb trail follows when it has more than one
-// entry. JSON output is one failed event line without a trace.
+// renderError writes err to w once, in the format that --format selects. Text output prints the
+// message after "error:". A WindsorError that werror.Find returns prints its message and, on the
+// last line, its remediation after "hint:". A joined error prints its full text, so no cause is hidden. Under --verbose, the breadcrumbs that do not end the message print before
+// the hint, with each continuation line indented. JSON output is one failed event line without a trace.
 func renderError(w io.Writer, err error) {
 	if formatFlag == string(logging.FormatJSON) {
 		presenter.NewJSON(w).Emit(context.Background(), presenter.Event{Kind: presenter.KindFailed, Err: err})
 		return
 	}
-	var we *werror.WindsorError
-	if errors.As(err, &we) {
-		fmt.Fprintf(w, "Error [%s]: %s\n", we.Code, we.Message)
-		if we.Remediation != "" {
-			fmt.Fprintf(w, "\n%s\n", we.Remediation)
-		}
-	} else {
-		fmt.Fprintf(w, "Error: %s\n", err.Error())
+	message, remediation := err.Error(), ""
+	if we := werror.Find(err); we != nil {
+		message, remediation = we.Message, we.Remediation
 	}
-	if crumbs := werror.Breadcrumbs(err); verbose && len(crumbs) > 1 {
-		fmt.Fprintln(w, "\nTrace:")
-		for _, crumb := range crumbs {
-			fmt.Fprintf(w, "  %s\n", crumb)
+	fmt.Fprintf(w, "error: %s\n", message)
+	if verbose {
+		var trace []string
+		for _, crumb := range werror.Breadcrumbs(err) {
+			if !strings.HasSuffix(message, crumb) {
+				trace = append(trace, crumb)
+			}
 		}
+		if len(trace) > 0 {
+			fmt.Fprintln(w, "trace:")
+			for _, crumb := range trace {
+				fmt.Fprintf(w, "  %s\n", strings.ReplaceAll(crumb, "\n", "\n  "))
+			}
+		}
+	}
+	if remediation != "" {
+		fmt.Fprintf(w, "hint: %s\n", remediation)
 	}
 }
 
@@ -263,7 +271,7 @@ func setupGlobalContext(cmd *cobra.Command) error {
 	}
 	format, err := logging.ParseFormat(formatFlag)
 	if err != nil {
-		return werror.New("CLI-001", fmt.Sprintf("Unknown output format %q.", formatFlag), "Run the command again with --format text or --format json.", err)
+		return werror.New(fmt.Sprintf("Unknown output format %q.", formatFlag), "Run the command again with --format text or --format json.", err)
 	}
 	ctx = withOutput(ctx, cmd.ErrOrStderr(), format)
 	if noCache {

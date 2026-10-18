@@ -150,18 +150,11 @@ func TestPersistencePolicy_Partition(t *testing.T) {
 	t.Run("RoutesNonManagedKeysToValuesPartition", func(t *testing.T) {
 		policy := newPersistencePolicy()
 		data := map[string]any{
-			"provider": "docker",
-			"cluster":  map[string]any{"workers": map[string]any{"count": 2}},
+			"cluster": map[string]any{"workers": map[string]any{"count": 2}},
 		}
 
 		partition := policy.Partition(data, persistencePolicyInput{})
 
-		if _, ok := partition.Values["provider"]; ok {
-			t.Errorf("Did not expect provider in values partition")
-		}
-		if _, ok := partition.Workstation["provider"]; ok {
-			t.Errorf("Did not expect provider in workstation partition")
-		}
 		if _, ok := partition.Values["cluster"]; !ok {
 			t.Errorf("Expected cluster in values partition")
 		}

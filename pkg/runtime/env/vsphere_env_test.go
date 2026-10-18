@@ -6,7 +6,7 @@ import (
 	"testing"
 
 	"github.com/goccy/go-yaml"
-	"github.com/windsorcli/cli/api/v1alpha1"
+	cliconfig "github.com/windsorcli/cli/api/config/v1alpha2"
 	"github.com/windsorcli/cli/pkg/runtime/config"
 )
 
@@ -25,7 +25,7 @@ func setupVsphereEnvMocks(t *testing.T, overrides ...*EnvTestMocks) *EnvTestMock
 
 	mockConfigHandler := mocks.ConfigHandler.(*config.MockConfigHandler)
 
-	loadedConfigs := make(map[string]*v1alpha1.Context)
+	loadedConfigs := make(map[string]*cliconfig.Context)
 	currentContext := "test-context"
 
 	mockConfigHandler.GetContextFunc = func() string {
@@ -38,7 +38,9 @@ func setupVsphereEnvMocks(t *testing.T, overrides ...*EnvTestMocks) *EnvTestMock
 	}
 
 	mockConfigHandler.LoadConfigStringFunc = func(content string) error {
-		var cfg v1alpha1.Config
+		var cfg struct {
+			Contexts map[string]*cliconfig.Context `yaml:"contexts"`
+		}
 		if err := yaml.Unmarshal([]byte(content), &cfg); err != nil {
 			return err
 		}
@@ -47,17 +49,17 @@ func setupVsphereEnvMocks(t *testing.T, overrides ...*EnvTestMocks) *EnvTestMock
 				ctxCopy := *ctx
 				loadedConfigs[name] = &ctxCopy
 			} else {
-				loadedConfigs[name] = &v1alpha1.Context{}
+				loadedConfigs[name] = &cliconfig.Context{}
 			}
 		}
 		return nil
 	}
 
-	mockConfigHandler.GetConfigFunc = func() *v1alpha1.Context {
+	mockConfigHandler.GetHeaderFunc = func() *cliconfig.Context {
 		if ctx, ok := loadedConfigs[currentContext]; ok {
 			return ctx
 		}
-		return &v1alpha1.Context{}
+		return &cliconfig.Context{}
 	}
 
 	if len(overrides) == 0 || overrides[0] == nil || overrides[0].ConfigHandler == nil {

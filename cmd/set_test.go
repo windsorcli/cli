@@ -343,4 +343,3 @@ func TestSetContextCmd(t *testing.T) {
 		}
 	})
 }
-

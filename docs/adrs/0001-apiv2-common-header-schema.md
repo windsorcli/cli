@@ -1,10 +1,9 @@
 # ADR 0001 — v1alpha2 config header and v1alpha1 retirement
 
-- Status: Proposed. Revised 2026-10-12 after a source audit showed that several premises of the
-  first draft were wrong. The v1alpha2 types are nested where config files are flat, the CLI's
-  v1alpha2 schema fragments never load in practice, and the CLI schema already loads last, not
-  first.
-- Date: 2026-08-04, revised 2026-10-12
+- Status: Accepted and implemented. Revised 2026-10-12 after a source audit showed that several
+  premises of the first draft were wrong. Revised 2026-10-14 to withdraw the scrubbing in point 8,
+  after a caller audit showed that the evaluator needs raw values.
+- Date: 2026-08-04, revised 2026-10-12 and 2026-10-14
 - Deciders: Ryan VanGundy
 - The black-box tests in `pkg/runtime/config/*_public_test.go` pin current behavior. This ADR's
   implementation MUST keep them passing, except the tests named under Consequences, which change
@@ -67,7 +66,7 @@ The current code gives none of these. Verified from source:
   | `provider` | legacy alias for `platform` |
   | `aws` | `profile`, `region`, `endpoint_url`, `mwaa_endpoint`, `s3_hostname` |
   | `azure` | `environment`, `kubelogin_mode`, `region`, `subscription_id`, `tenant_id` |
-  | `gcp` | `credentials_path`, `project_id` |
+  | `gcp` | `credentials_path`, `project_id`, `quota_project` |
   | `vsphere` | `server`, `user`, `insecure` |
   | `terraform` | `enabled`, `backend.*`, `lock.timeout` |
   | `secrets` | `sops.enabled`, `onepassword.vaults` |
@@ -75,8 +74,7 @@ The current code gives none of these. Verified from source:
   | `dns` | `domain`, `enabled` |
   | `network` | `cidr_block`, `loadbalancer_ips.start`, `loadbalancer_ips.end` |
   | `cluster` | `driver`; `controlplanes` and `workers` `count`/`cpu`/`memory`, for colima sizing only; `workers.volumes` |
-  | `vm` | `arch`, `cpu`, `disk`, `memory`, `runtime` |
-  | `docker` | `enabled`, `registry_url` |
+  | `docker` | `enabled`, `registry_url`, `registries.*.remote`, `registries.*.hostport` |
   | `gitops` | `mode`, `namespace` |
 
 - **Writes are alphabetical.** `SaveConfig` marshals a map, and `RenderValuesWithDescriptions`
@@ -122,7 +120,6 @@ type Context struct {
     DNS         *DNS              `yaml:"dns,omitempty"`
     Network     *Network          `yaml:"network,omitempty"`
     Cluster     *Cluster          `yaml:"cluster,omitempty"`
-    VM          *VM               `yaml:"vm,omitempty"`
     Docker      *Docker           `yaml:"docker,omitempty"`
     GitOps      *GitOps           `yaml:"gitops,omitempty"`
 }
@@ -137,16 +134,24 @@ A path is in the header only when code in `pkg/` or `cmd/` reads it to make a de
 under Context is the starting list. A shared object such as `dns`, `network`, or `cluster` carries
 only the CLI's subfields. Core defines the rest, and the merge unions them.
 
-`cluster` node counts and sizes are read only for colima VM sizing. The implementation SHOULD
-decide whether colima reads them as untyped values instead, so the header keeps `cluster.driver`
-alone.
+`cluster` node counts and sizes are read only for colima VM sizing. They are not in the header.
+Colima reads them as untyped values that the blueprint defines, and the header keeps
+`cluster.driver` alone.
+
+Settings that only the blueprint reads stay out of the CLI fragment, even when the CLI fragment
+defined them before. `workstation.services` and `workstation.dns.forward` are examples: core
+defines both, with the same defaults.
 
 ### 4. One CLI schema fragment, always loaded last
 
 The CLI ships one schema fragment that matches the header type field for field. It replaces
-`common.yaml` and the four v1alpha2 fragments. The CLI loads it for every context, whatever the
-root `version`, and merges it after every blueprint fragment, as `common.yaml` merges today. Every
-merged schema therefore contains every CLI-owned path.
+`common.yaml` and the four v1alpha2 fragments. The CLI merges it after every schema fragment it
+loads, whatever the root `version`, as `common.yaml` merged before. Every merged schema therefore
+contains every CLI-owned path. A context that loads no fragment has no schema, and validation does
+not run for it.
+
+The fragment adds properties and types only. It MUST NOT close an object, so a blueprint can
+extend every object that the CLI and the blueprint share.
 
 A test MUST fail when the header type and the fragment disagree on a path or a type.
 
@@ -175,12 +180,21 @@ A patch write keeps the existing file's order.
 The order comes from the struct by reflection over its `yaml` tags, so the type is the only place
 that defines it.
 
-### 8. `GetContextValues` scrubs sensitive values
+### 8. `GetContextValues` returns raw values
 
-`GetContextValues` removes sensitive paths from the map it returns. `RedactSensitiveValues` and
-`sensitivePathsInValue` then work on a map that is already clean. `windsor show` still gets the
-sensitive path set, so it can show a placeholder. `ResolveSecrets` and `PlaceSecrets` keep reading
-raw values, because they back facet `secrets:` entries.
+`GetContextValues` does not remove sensitive values. The expression evaluator reads it as the
+scope for every `${...}` expression. Core uses sensitive values through that scope, in terraform
+inputs, facet `when:` and `requires:` checks, and Flux `secrets:` entries. A scrubbed map would
+break those uses and protect only callers that read non-sensitive keys.
+
+Sensitive values are guarded at each sink:
+
+- `windsor show values` replaces them with a placeholder (`RedactSensitiveValues`).
+- The substitution guard (`sensitivePathsInValue`) rejects a bare `${path}` that names one.
+- Terraform marks a variable `sensitive` to keep it out of plan output.
+
+Issue #3570 tracks two further guards: registering sensitive values with the output scrubber,
+and a substitution check that parses the expression.
 
 ### 9. v1alpha1 converts into v1alpha2
 
@@ -188,7 +202,8 @@ v1alpha2 is the only version the rest of the code uses. A project at `version: v
 through a conversion function into the v1alpha2 header. The conversion reads the root `contexts:`
 map and `contexts/<name>/windsor.yaml`, and it maps `provider` to `platform`. The `api/v1alpha1`
 config types then hold only what the conversion needs. Each of the importing packages moves to the
-v1alpha2 header in its own change.
+v1alpha2 header in its own change. The conversion reads the files as untyped maps, so the
+`api/v1alpha1` config types are not needed once every package reads the header.
 
 `api/config/v1alpha2` holds types, tags, doc comments, and the embedded fragment. It has no
 `Merge` methods, because the config handler merges maps before it decodes the header.
@@ -197,6 +212,12 @@ v1alpha2 header in its own change.
 
 - **The CLI schema guarantee becomes real.** Every context's schema contains the CLI-owned paths,
   and an incompatible blueprint fails with a clear error instead of a silent replacement.
+- **Values that a closed blueprint object rejected now validate.** Core closes `vsphere` and
+  `terraform` without some fields the CLI reads, such as `vsphere.server` and
+  `terraform.lock.timeout`. The CLI fragment adds those fields to the merged schema.
+- **`vm` is not in v1alpha2.** `workstation` replaces it. The CLI still reads `vm.runtime` and the
+  `vm` sizing fields as untyped values until those reads move to `workstation`.
+- **`workstation` is no longer closed by the CLI.** A blueprint that closes it still can.
 - **One schema file replaces five.** `common.yaml` and the four v1alpha2 fragments merge into one
   fragment that a test keeps in line with the Go type.
 - **Root `contexts:` values stop being written, and untyped keys in them stop being dropped.**
@@ -207,6 +228,11 @@ v1alpha2 header in its own change.
   `provider` has no platform. This is an accepted breaking change for v0.10.0.
 - **Core keeps its full definitions.** Core does not need to remove the fields it shares with the
   CLI. Its definitions must only stay compatible with the CLI's types.
+- **`GetConfig` becomes `GetHeader`.** The config handler decodes its data into the v1alpha2
+  header. Terraform backend blocks pass to `terraform init` whole, read as untyped maps, because
+  the header types only the backend fields that the CLI checks.
+- **The `provider` fallbacks go away.** Load converts `provider` to `platform`, so code reads
+  `platform` alone.
 - **Every config-reading package moves once.** The Wave 2 passes for those packages land after
   this ADR, so they do not touch the same reads twice.
 
@@ -214,12 +240,13 @@ v1alpha2 header in its own change.
 
 1. Build `api/config/v1alpha2` with the header type, the fragment, and the drift test.
 2. Load the fragment last for every context, with conflict detection (points 4 and 5).
-3. Add the v1alpha1 conversion, and decode the header from the merged map (points 2 and 9).
+3. Add the v1alpha1 conversion (point 9).
 4. Add ordered writes (point 7).
-5. Add sensitive scrubbing in `GetContextValues` (point 8).
-6. Move each package that imports `api/v1alpha1` config types to the header, one package per
-   change.
-7. Delete the old v1alpha2 package and the v1alpha1 types that the conversion no longer needs.
+5. Decode the header from the merged map (point 2), and move the packages that import
+   `api/v1alpha1` config types to it. All of them were in `pkg/runtime`, so one change moved them.
+6. Delete the old v1alpha2 package and the `api/v1alpha1` config types.
+
+Every step has shipped. Point 8 needs no implementation step.
 
 ## Alternatives considered
 
@@ -239,7 +266,7 @@ v1alpha2 header in its own change.
 ## References
 
 - `pkg/runtime/config`: `typed_source.go`, `handler.go`, `schema_merge.go`, `values_source.go`,
-  `values_renderer.go`, `resolve.go`, `schemas/common.yaml`.
-- `api/v1alpha2/config`: `config.go`, `schemas.go`, and the `schema.yaml` fragments.
+  `values_renderer.go`, `resolve.go`, `cli_schema.go`, `key_order.go`.
+- `api/config/v1alpha2`: `context.go` and `schema.yaml`.
 - `pkg/composer/blueprint`: `loader.go`, `processor.go`.
 - `windsorcli/core`: `contexts/_template/schema.yaml`.

@@ -192,6 +192,59 @@ func TestSet(t *testing.T) {
 		}
 	})
 
+	t.Run("ConvertsStringsByTheSchemaTypeAtThePath", func(t *testing.T) {
+		// Given a schema with typed top-level, nested, and free-form map fields
+		f := newFixture(t)
+		f.loadSchema(t, "  version:\n    type: string\n  count:\n    type: integer\n  cluster:\n    type: object\n    properties:\n      version:\n        type: string\n      enabled:\n        type: boolean\n  labels:\n    type: object\n    additionalProperties:\n      type: string\n")
+
+		// When string values are set at each path
+		_ = f.handler.Set("version", "1.30")
+		_ = f.handler.Set("count", "3")
+		_ = f.handler.Set("cluster.version", "1.30")
+		_ = f.handler.Set("cluster.enabled", "true")
+		_ = f.handler.Set("labels.tier", "2")
+
+		// Then each value takes the type the schema gives its path
+		want := map[string]any{"version": "1.30", "count": 3, "cluster.version": "1.30", "cluster.enabled": true, "labels.tier": "2"}
+		for path, value := range want {
+			if got := f.handler.Get(path); got != value {
+				t.Errorf("%s: expected %#v, got %#v", path, value, got)
+			}
+		}
+		if err := f.handler.ValidateContextValues(); err != nil {
+			t.Errorf("expected valid values, got %v", err)
+		}
+	})
+
+	t.Run("ConvertsAgainWhenASchemaLoadsLater", func(t *testing.T) {
+		// Given a string value set before any schema types its path
+		f := newFixture(t)
+		_ = f.handler.Set("version", "1.30")
+
+		// When a schema that types the path as a string loads
+		f.loadSchema(t, "  version:\n    type: string\n")
+
+		// Then the value is the original string
+		if got := f.handler.Get("version"); got != "1.30" {
+			t.Errorf("expected \"1.30\", got %#v", got)
+		}
+	})
+
+	t.Run("KeepsALaterNonStringValueWhenASchemaLoads", func(t *testing.T) {
+		// Given a string value that a later Set replaced with a number
+		f := newFixture(t)
+		_ = f.handler.Set("version", "1.30")
+		_ = f.handler.Set("version", 5)
+
+		// When a schema that types the path as a string loads
+		f.loadSchema(t, "  version:\n    type: string\n")
+
+		// Then the later value is kept
+		if got := f.handler.Get("version"); got != 5 {
+			t.Errorf("expected 5, got %#v", got)
+		}
+	})
+
 	t.Run("KeepsNonStringValues", func(t *testing.T) {
 		// Given a handler
 		f := newFixture(t)

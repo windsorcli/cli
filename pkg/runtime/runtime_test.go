@@ -5,14 +5,12 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
 	"runtime"
 	"strings"
 	"testing"
 
-	v1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
-	awsv1alpha1 "github.com/windsorcli/cli/api/v1alpha1/aws"
-	azurev1alpha1 "github.com/windsorcli/cli/api/v1alpha1/azure"
-	gcpv1alpha1 "github.com/windsorcli/cli/api/v1alpha1/gcp"
+	cliconfig "github.com/windsorcli/cli/api/config/v1alpha2"
 	"github.com/windsorcli/cli/pkg/runtime/config"
 	"github.com/windsorcli/cli/pkg/runtime/env"
 	"github.com/windsorcli/cli/pkg/runtime/secrets"
@@ -1135,7 +1133,7 @@ func TestRuntime_ApplyConfigDefaults(t *testing.T) {
 		}
 
 		setDefaultCalled := false
-		mockConfigHandler.SetDefaultFunc = func(cfg v1alpha1.Context) error {
+		mockConfigHandler.SetDefaultFunc = func(cfg cliconfig.Context) error {
 			setDefaultCalled = true
 			return nil
 		}
@@ -1172,7 +1170,7 @@ func TestRuntime_ApplyConfigDefaults(t *testing.T) {
 		}
 
 		setDefaultCalled := false
-		mockConfigHandler.SetDefaultFunc = func(cfg v1alpha1.Context) error {
+		mockConfigHandler.SetDefaultFunc = func(cfg cliconfig.Context) error {
 			setDefaultCalled = true
 			return nil
 		}
@@ -1211,7 +1209,7 @@ func TestRuntime_ApplyConfigDefaults(t *testing.T) {
 		}
 
 		setDefaultCalled := false
-		mockConfigHandler.SetDefaultFunc = func(cfg v1alpha1.Context) error {
+		mockConfigHandler.SetDefaultFunc = func(cfg cliconfig.Context) error {
 			setDefaultCalled = true
 			return nil
 		}
@@ -1247,7 +1245,7 @@ func TestRuntime_ApplyConfigDefaults(t *testing.T) {
 		}
 
 		setDefaultCalled := false
-		mockConfigHandler.SetDefaultFunc = func(cfg v1alpha1.Context) error {
+		mockConfigHandler.SetDefaultFunc = func(cfg cliconfig.Context) error {
 			setDefaultCalled = true
 			return nil
 		}
@@ -1307,7 +1305,7 @@ func TestRuntime_ApplyConfigDefaults(t *testing.T) {
 			setCalls[key] = value
 			return nil
 		}
-		mockConfigHandler.SetDefaultFunc = func(cfg v1alpha1.Context) error {
+		mockConfigHandler.SetDefaultFunc = func(cfg cliconfig.Context) error {
 			return nil
 		}
 
@@ -1356,7 +1354,7 @@ func TestRuntime_ApplyConfigDefaults(t *testing.T) {
 		}
 
 		setDefaultCalled := false
-		mockConfigHandler.SetDefaultFunc = func(cfg v1alpha1.Context) error {
+		mockConfigHandler.SetDefaultFunc = func(cfg cliconfig.Context) error {
 			setDefaultCalled = true
 			return nil
 		}
@@ -1396,7 +1394,7 @@ func TestRuntime_ApplyConfigDefaults(t *testing.T) {
 			return ""
 		}
 
-		mockConfigHandler.SetDefaultFunc = func(cfg v1alpha1.Context) error {
+		mockConfigHandler.SetDefaultFunc = func(cfg cliconfig.Context) error {
 			return nil
 		}
 
@@ -1441,7 +1439,7 @@ func TestRuntime_ApplyConfigDefaults(t *testing.T) {
 		}
 
 		setDefaultCalled := false
-		mockConfigHandler.SetDefaultFunc = func(cfg v1alpha1.Context) error {
+		mockConfigHandler.SetDefaultFunc = func(cfg cliconfig.Context) error {
 			setDefaultCalled = true
 			return nil
 		}
@@ -1482,7 +1480,7 @@ func TestRuntime_ApplyConfigDefaults(t *testing.T) {
 		}
 
 		setDefaultCalled := false
-		mockConfigHandler.SetDefaultFunc = func(cfg v1alpha1.Context) error {
+		mockConfigHandler.SetDefaultFunc = func(cfg cliconfig.Context) error {
 			setDefaultCalled = true
 			return nil
 		}
@@ -1521,7 +1519,7 @@ func TestRuntime_ApplyConfigDefaults(t *testing.T) {
 			return ""
 		}
 
-		mockConfigHandler.SetDefaultFunc = func(cfg v1alpha1.Context) error {
+		mockConfigHandler.SetDefaultFunc = func(cfg cliconfig.Context) error {
 			return fmt.Errorf("set default failed")
 		}
 
@@ -1559,7 +1557,7 @@ func TestRuntime_ApplyConfigDefaults(t *testing.T) {
 			return ""
 		}
 
-		mockConfigHandler.SetDefaultFunc = func(cfg v1alpha1.Context) error {
+		mockConfigHandler.SetDefaultFunc = func(cfg cliconfig.Context) error {
 			return nil
 		}
 
@@ -1599,7 +1597,7 @@ func TestRuntime_ApplyConfigDefaults(t *testing.T) {
 			return ""
 		}
 
-		mockConfigHandler.SetDefaultFunc = func(cfg v1alpha1.Context) error {
+		mockConfigHandler.SetDefaultFunc = func(cfg cliconfig.Context) error {
 			return nil
 		}
 
@@ -1640,9 +1638,9 @@ func TestRuntime_ApplyConfigDefaults(t *testing.T) {
 		}
 
 		var setDefaultCalled bool
-		mockConfigHandler.SetDefaultFunc = func(cfg v1alpha1.Context) error {
+		mockConfigHandler.SetDefaultFunc = func(cfg cliconfig.Context) error {
 			setDefaultCalled = true
-			if cfg.Platform != nil {
+			if cfg.Platform != "" {
 				t.Error("Expected DefaultConfig_Dev with no platform set")
 			}
 			return nil
@@ -1685,8 +1683,8 @@ func TestRuntime_ApplyConfigDefaults(t *testing.T) {
 			return ""
 		}
 
-		var setDefaultConfig v1alpha1.Context
-		mockConfigHandler.SetDefaultFunc = func(cfg v1alpha1.Context) error {
+		var setDefaultConfig cliconfig.Context
+		mockConfigHandler.SetDefaultFunc = func(cfg cliconfig.Context) error {
 			setDefaultConfig = cfg
 			return nil
 		}
@@ -1701,7 +1699,7 @@ func TestRuntime_ApplyConfigDefaults(t *testing.T) {
 			t.Errorf("Expected no error, got: %v", err)
 		}
 
-		if setDefaultConfig.Platform == nil || *setDefaultConfig.Platform != "none" {
+		if setDefaultConfig.Platform != "none" {
 			t.Error("Expected DefaultConfig to be set with platform 'none'")
 		}
 		if setDefaultConfig.DNS != nil {
@@ -1729,7 +1727,7 @@ func TestRuntime_ApplyConfigDefaults(t *testing.T) {
 		}
 
 		setDefaultCalled := false
-		mockConfigHandler.SetDefaultFunc = func(cfg v1alpha1.Context) error {
+		mockConfigHandler.SetDefaultFunc = func(cfg cliconfig.Context) error {
 			setDefaultCalled = true
 			return nil
 		}
@@ -1777,7 +1775,7 @@ func TestRuntime_ApplyConfigDefaults(t *testing.T) {
 			return nil
 		}
 
-		mockConfigHandler.SetDefaultFunc = func(cfg v1alpha1.Context) error {
+		mockConfigHandler.SetDefaultFunc = func(cfg cliconfig.Context) error {
 			return nil
 		}
 
@@ -1813,7 +1811,7 @@ func TestRuntime_ApplyConfigDefaults(t *testing.T) {
 					}
 					return ""
 				}
-				mockConfigHandler.SetDefaultFunc = func(_ v1alpha1.Context) error { return nil }
+				mockConfigHandler.SetDefaultFunc = func(_ cliconfig.Context) error { return nil }
 
 				setCalls := make(map[string]any)
 				mockConfigHandler.SetFunc = func(key string, value any) error {
@@ -1851,7 +1849,7 @@ func TestRuntime_ApplyConfigDefaults(t *testing.T) {
 					}
 					return ""
 				}
-				mockConfigHandler.SetDefaultFunc = func(_ v1alpha1.Context) error { return nil }
+				mockConfigHandler.SetDefaultFunc = func(_ cliconfig.Context) error { return nil }
 
 				setCalls := make(map[string]any)
 				mockConfigHandler.SetFunc = func(key string, value any) error {
@@ -1885,7 +1883,7 @@ func TestRuntime_ApplyConfigDefaults(t *testing.T) {
 					}
 					return ""
 				}
-				mockConfigHandler.SetDefaultFunc = func(_ v1alpha1.Context) error { return nil }
+				mockConfigHandler.SetDefaultFunc = func(_ cliconfig.Context) error { return nil }
 
 				setCalls := make(map[string]any)
 				mockConfigHandler.SetFunc = func(key string, value any) error {
@@ -1922,7 +1920,7 @@ func TestRuntime_ApplyConfigDefaults(t *testing.T) {
 					}
 					return ""
 				}
-				mockConfigHandler.SetDefaultFunc = func(_ v1alpha1.Context) error { return nil }
+				mockConfigHandler.SetDefaultFunc = func(_ cliconfig.Context) error { return nil }
 
 				setCalls := make(map[string]any)
 				mockConfigHandler.SetFunc = func(key string, value any) error {
@@ -1958,7 +1956,7 @@ func TestRuntime_ApplyConfigDefaults(t *testing.T) {
 					}
 					return ""
 				}
-				mockConfigHandler.SetDefaultFunc = func(_ v1alpha1.Context) error { return nil }
+				mockConfigHandler.SetDefaultFunc = func(_ cliconfig.Context) error { return nil }
 
 				setCalls := make(map[string]any)
 				mockConfigHandler.SetFunc = func(key string, value any) error {
@@ -1990,7 +1988,7 @@ func TestRuntime_ApplyConfigDefaults(t *testing.T) {
 			}
 			return ""
 		}
-		mockConfigHandler.SetDefaultFunc = func(_ v1alpha1.Context) error { return nil }
+		mockConfigHandler.SetDefaultFunc = func(_ cliconfig.Context) error { return nil }
 
 		setCalls := make(map[string]any)
 		mockConfigHandler.SetFunc = func(key string, value any) error {
@@ -2025,7 +2023,7 @@ func TestRuntime_ApplyConfigDefaults(t *testing.T) {
 					}
 					return ""
 				}
-				mockConfigHandler.SetDefaultFunc = func(_ v1alpha1.Context) error { return nil }
+				mockConfigHandler.SetDefaultFunc = func(_ cliconfig.Context) error { return nil }
 
 				setCalls := make(map[string]any)
 				mockConfigHandler.SetFunc = func(key string, value any) error {
@@ -2058,7 +2056,7 @@ func TestRuntime_ApplyConfigDefaults(t *testing.T) {
 			}
 			return ""
 		}
-		mockConfigHandler.SetDefaultFunc = func(_ v1alpha1.Context) error { return nil }
+		mockConfigHandler.SetDefaultFunc = func(_ cliconfig.Context) error { return nil }
 
 		setCalls := make(map[string]any)
 		mockConfigHandler.SetFunc = func(key string, value any) error {
@@ -2076,54 +2074,47 @@ func TestRuntime_ApplyConfigDefaults(t *testing.T) {
 }
 
 func TestRuntime_SaveConfig(t *testing.T) {
-	t.Run("MigratesProviderToPlatformAndClearsProvider", func(t *testing.T) {
+	t.Run("SavesWorkstationStateThenValues", func(t *testing.T) {
+		// Given a runtime whose config handler records save calls
 		mocks := setupRuntimeMocks(t)
-		rt := mocks.Runtime
-
-		saveCount := 0
-		platformValue := ""
-		providerCleared := false
-		mockConfig := mocks.ConfigHandler.(*config.MockConfigHandler)
-		mockConfig.GetStringFunc = func(key string, _ ...string) string {
-			switch key {
-			case "provider":
-				if saveCount == 0 {
-					return "docker"
-				}
-				return "none"
-			case "platform":
-				return platformValue
-			case "workstation.runtime":
-				return ""
-			default:
-				return ""
-			}
-		}
-		mockConfig.SetFunc = func(key string, value any) error {
-			if key == "platform" && value != nil {
-				platformValue = fmt.Sprint(value)
-			}
-			if key == "provider" && value == nil {
-				providerCleared = true
-			}
+		mockConfigHandler := mocks.ConfigHandler.(*config.MockConfigHandler)
+		var calls []string
+		mockConfigHandler.SaveWorkstationStateFunc = func() error {
+			calls = append(calls, "workstation")
 			return nil
 		}
-		mockConfig.SaveConfigFunc = func(_ ...bool) error {
-			saveCount++
+		mockConfigHandler.SaveConfigFunc = func(overwrite ...bool) error {
+			calls = append(calls, fmt.Sprintf("values overwrite=%v", overwrite))
 			return nil
 		}
 
-		if err := rt.SaveConfig(); err != nil {
-			t.Fatalf("first SaveConfig: %v", err)
+		// When SaveConfig is called with overwrite
+		err := mocks.Runtime.SaveConfig(true)
+
+		// Then workstation state is saved before values, and overwrite is passed through
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
 		}
-		if err := rt.SaveConfig(); err != nil {
-			t.Fatalf("second SaveConfig: %v", err)
+		want := []string{"workstation", "values overwrite=[true]"}
+		if !reflect.DeepEqual(calls, want) {
+			t.Errorf("Expected calls %v, got %v", want, calls)
 		}
-		if platformValue != "docker" {
-			t.Errorf("platform must remain docker after second SaveConfig (schema default would overwrite), got %q", platformValue)
+	})
+
+	t.Run("ReturnsTheWorkstationStateError", func(t *testing.T) {
+		// Given a config handler that fails to save workstation state
+		mocks := setupRuntimeMocks(t)
+		mockConfigHandler := mocks.ConfigHandler.(*config.MockConfigHandler)
+		mockConfigHandler.SaveWorkstationStateFunc = func() error {
+			return fmt.Errorf("disk full")
 		}
-		if !providerCleared {
-			t.Error("expected provider to be cleared before persistence")
+
+		// When SaveConfig is called
+		err := mocks.Runtime.SaveConfig()
+
+		// Then the error is returned
+		if err == nil || !strings.Contains(err.Error(), "disk full") {
+			t.Errorf("Expected the workstation state error, got %v", err)
 		}
 	})
 }
@@ -2887,9 +2878,9 @@ func TestRuntime_initializeEnvPrinters(t *testing.T) {
 		rt := mocks.Runtime
 
 		mockConfigHandler := mocks.ConfigHandler.(*config.MockConfigHandler)
-		mockConfigHandler.GetConfigFunc = func() *v1alpha1.Context {
-			return &v1alpha1.Context{
-				AWS: &awsv1alpha1.AWSConfig{},
+		mockConfigHandler.GetHeaderFunc = func() *cliconfig.Context {
+			return &cliconfig.Context{
+				AWS: &cliconfig.AWS{},
 			}
 		}
 
@@ -2937,9 +2928,9 @@ func TestRuntime_initializeEnvPrinters(t *testing.T) {
 			}
 			return false
 		}
-		mockConfigHandler.GetConfigFunc = func() *v1alpha1.Context {
-			return &v1alpha1.Context{
-				Azure: &azurev1alpha1.AzureConfig{},
+		mockConfigHandler.GetHeaderFunc = func() *cliconfig.Context {
+			return &cliconfig.Context{
+				Azure: &cliconfig.Azure{},
 			}
 		}
 
@@ -2959,9 +2950,9 @@ func TestRuntime_initializeEnvPrinters(t *testing.T) {
 		rt := mocks.Runtime
 
 		mockConfigHandler := mocks.ConfigHandler.(*config.MockConfigHandler)
-		mockConfigHandler.GetConfigFunc = func() *v1alpha1.Context {
-			return &v1alpha1.Context{
-				GCP: &gcpv1alpha1.GCPConfig{},
+		mockConfigHandler.GetHeaderFunc = func() *cliconfig.Context {
+			return &cliconfig.Context{
+				GCP: &cliconfig.GCP{},
 			}
 		}
 
@@ -2997,12 +2988,12 @@ func TestRuntime_initializeEnvPrinters(t *testing.T) {
 		}
 	})
 
-	t.Run("InitializesDockerEnvWhenProviderDockerAndWorkstationRuntimeDockerDesktop", func(t *testing.T) {
+	t.Run("InitializesDockerEnvWhenPlatformDockerAndWorkstationRuntimeDockerDesktop", func(t *testing.T) {
 		mocks := setupRuntimeMocks(t)
 		rt := mocks.Runtime
 		mockConfigHandler := mocks.ConfigHandler.(*config.MockConfigHandler)
 		mockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
-			if key == "provider" {
+			if key == "platform" {
 				return "docker"
 			}
 			if key == "workstation.runtime" {
@@ -3017,11 +3008,11 @@ func TestRuntime_initializeEnvPrinters(t *testing.T) {
 		rt.initializeEnvPrinters()
 
 		if rt.EnvPrinters.DockerEnv == nil {
-			t.Error("Expected DockerEnv to be initialized when provider=docker and workstation.runtime=docker-desktop")
+			t.Error("Expected DockerEnv to be initialized when platform=docker and workstation.runtime=docker-desktop")
 		}
 	})
 
-	t.Run("InitializesDockerEnvWhenProviderDockerAndWorkstationRuntimeColima", func(t *testing.T) {
+	t.Run("InitializesDockerEnvWhenPlatformDockerAndWorkstationRuntimeColima", func(t *testing.T) {
 		mocks := setupRuntimeMocks(t)
 		rt := mocks.Runtime
 		mockConfigHandler := mocks.ConfigHandler.(*config.MockConfigHandler)
@@ -3038,7 +3029,7 @@ func TestRuntime_initializeEnvPrinters(t *testing.T) {
 			if key == "workstation.runtime" {
 				return "colima"
 			}
-			if key == "provider" {
+			if key == "platform" {
 				return "docker"
 			}
 			if len(defaultValue) > 0 {
@@ -3050,7 +3041,7 @@ func TestRuntime_initializeEnvPrinters(t *testing.T) {
 		rt.initializeEnvPrinters()
 
 		if rt.EnvPrinters.DockerEnv == nil {
-			t.Error("Expected DockerEnv to be initialized when provider=docker and workstation.runtime=colima even if docker.enabled=false")
+			t.Error("Expected DockerEnv to be initialized when platform=docker and workstation.runtime=colima even if docker.enabled=false")
 		}
 	})
 
@@ -3223,9 +3214,9 @@ func TestRuntime_initializeEnvPrinters(t *testing.T) {
 		rt.EnvPrinters.AwsEnv = existingAwsEnv
 
 		mockConfigHandler := mocks.ConfigHandler.(*config.MockConfigHandler)
-		mockConfigHandler.GetConfigFunc = func() *v1alpha1.Context {
-			return &v1alpha1.Context{
-				AWS: &awsv1alpha1.AWSConfig{},
+		mockConfigHandler.GetHeaderFunc = func() *cliconfig.Context {
+			return &cliconfig.Context{
+				AWS: &cliconfig.AWS{},
 			}
 		}
 

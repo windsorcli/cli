@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/windsorcli/cli/api/v1alpha1"
+	cliconfig "github.com/windsorcli/cli/api/config/v1alpha2"
 	"github.com/windsorcli/cli/pkg/runtime/config"
 	"github.com/windsorcli/cli/pkg/runtime/shell"
 )
@@ -35,6 +35,47 @@ func TestSaveConfig(t *testing.T) {
 		}
 		if got := f.read(t, "windsor.yaml"); got != "version: v1alpha1\n" {
 			t.Errorf("unexpected root file %q", got)
+		}
+	})
+
+	t.Run("WritesHeaderKeysFirstInFieldOrder", func(t *testing.T) {
+		// Given header and blueprint keys set in a non-dev context, at two levels
+		f := newFixture(t)
+		_ = f.handler.SetContext("prod")
+		_ = f.handler.Set("addons.enabled", true)
+		_ = f.handler.Set("aws.zone", "a")
+		_ = f.handler.Set("aws.region", "us-east-1")
+		_ = f.handler.Set("aws.profile", "dev")
+		_ = f.handler.Set("platform", "aws")
+		_ = f.handler.Set("id", "abc")
+
+		// When config is saved
+		if err := f.handler.SaveConfig(); err != nil {
+			t.Fatalf("SaveConfig: %v", err)
+		}
+
+		// Then header keys come in field order, and the other keys follow in alphabetical order
+		want := "id: abc\nplatform: aws\naws:\n  profile: dev\n  region: us-east-1\n  zone: a\naddons:\n  enabled: true\n"
+		if got := f.read(t, "contexts/prod/values.yaml"); got != want {
+			t.Errorf("expected\n%s\ngot\n%s", want, got)
+		}
+	})
+
+	t.Run("OrdersTheFieldsOfEachNamedEntry", func(t *testing.T) {
+		// Given a 1Password vault whose fields are set out of order
+		f := newFixture(t)
+		_ = f.handler.SetContext("prod")
+		_ = f.handler.Set("secrets.onepassword.vaults.main.url", "my.1password.com")
+		_ = f.handler.Set("secrets.onepassword.vaults.main.name", "Main")
+		_ = f.handler.Set("secrets.onepassword.vaults.main.id", "v1")
+
+		// When config is saved
+		_ = f.handler.SaveConfig()
+
+		// Then the vault fields come in field order
+		want := "secrets:\n  onepassword:\n    vaults:\n      main:\n        id: v1\n        name: Main\n        url: my.1password.com\n"
+		if got := f.read(t, "contexts/prod/values.yaml"); got != want {
+			t.Errorf("expected\n%s\ngot\n%s", want, got)
 		}
 	})
 
@@ -69,11 +110,10 @@ func TestSaveConfig(t *testing.T) {
 	})
 
 	t.Run("RoutesManagedKeysAwayFromValuesInDevMode", func(t *testing.T) {
-		// Given workstation, platform, provider, and network values in the local context
+		// Given workstation, platform, and network values in the local context
 		f := newFixture(t)
 		_ = f.handler.Set("workstation.runtime", "colima")
 		_ = f.handler.Set("platform", "docker")
-		_ = f.handler.Set("provider", "docker")
 		_ = f.handler.Set("network.cidr_block", "10.5.0.0/16")
 		_ = f.handler.Set("id", "abc")
 
@@ -123,6 +163,22 @@ func TestSaveConfig(t *testing.T) {
 		}
 	})
 
+	t.Run("KeepsTheOrderOfAnExistingFile", func(t *testing.T) {
+		// Given an existing values.yaml with blueprint keys before the header keys
+		f := newFixture(t)
+		f.write(t, "contexts/local/values.yaml", "extra: kept\nplatform: docker\nid: old\n")
+		f.load(t)
+		_ = f.handler.Set("id", "new")
+
+		// When config is saved with overwrite
+		_ = f.handler.SaveConfig(true)
+
+		// Then the keys keep their existing order
+		if got := f.read(t, "contexts/local/values.yaml"); got != "extra: kept\nplatform: docker\nid: new\n" {
+			t.Errorf("expected the existing order, got %q", got)
+		}
+	})
+
 	t.Run("DeletesATopLevelKeySetToNil", func(t *testing.T) {
 		// Given an existing values.yaml with two keys
 		f := newFixture(t)
@@ -136,6 +192,23 @@ func TestSaveConfig(t *testing.T) {
 		// Then the key is removed
 		if got := f.readYAML(t, "contexts/local/values.yaml"); !reflect.DeepEqual(got, map[string]any{"id": "abc"}) {
 			t.Errorf("unexpected values %v", got)
+		}
+	})
+
+	t.Run("SavesAValueConvertedAgainAfterASchemaLoads", func(t *testing.T) {
+		// Given a string value saved before a schema typed its path
+		f := newFixture(t)
+		f.write(t, "contexts/local/values.yaml", "id: abc\n")
+		_ = f.handler.Set("version", "1.30")
+		_ = f.handler.SaveConfig(true)
+
+		// When a schema loads and config is saved again with overwrite
+		f.loadSchema(t, "  version:\n    type: string\n")
+		_ = f.handler.SaveConfig(true)
+
+		// Then values.yaml holds the original string
+		if got := f.readYAML(t, "contexts/local/values.yaml")["version"]; got != "1.30" {
+			t.Errorf("expected \"1.30\", got %#v", got)
 		}
 	})
 
@@ -282,11 +355,9 @@ func TestSetDefault(t *testing.T) {
 		// Given a handler with a platform already set
 		f := newFixture(t)
 		_ = f.handler.Set("platform", "docker")
-		id := "abc"
-		platform := "none"
 
 		// When a default with platform and id is applied
-		if err := f.handler.SetDefault(v1alpha1.Context{ID: &id, Platform: &platform}); err != nil {
+		if err := f.handler.SetDefault(cliconfig.Context{ID: "abc", Platform: "none"}); err != nil {
 			t.Fatalf("SetDefault: %v", err)
 		}
 
@@ -310,32 +381,47 @@ func TestSetDefault(t *testing.T) {
 	})
 }
 
-func TestGetConfig(t *testing.T) {
-	t.Run("ReturnsTypedFieldsAndDropsTheRest", func(t *testing.T) {
-		// Given typed and untyped values
+func TestGetHeader(t *testing.T) {
+	t.Run("ReturnsHeaderFieldsAndDropsTheRest", func(t *testing.T) {
+		// Given header and blueprint values
 		f := newFixture(t)
 		_ = f.handler.LoadConfigString("platform: docker\ndns:\n  domain: test\ncustom: dropped\n")
 
-		// When the typed config is read
-		got := f.handler.GetConfig()
+		// When the header is read
+		got := f.handler.GetHeader()
 
-		// Then typed fields are set
-		if got.Platform == nil || *got.Platform != "docker" || got.DNS == nil || got.DNS.Domain == nil || *got.DNS.Domain != "test" {
-			t.Errorf("unexpected typed config %+v", got)
+		// Then header fields are set
+		if got.Platform != "docker" || got.DNS == nil || got.DNS.Domain == nil || *got.DNS.Domain != "test" {
+			t.Errorf("unexpected header %+v", got)
 		}
 	})
 
-	t.Run("ReturnsAnEmptyContextForATypeMismatch", func(t *testing.T) {
-		// Given a value that cannot decode into its typed field
+	t.Run("ReadsNamedEntries", func(t *testing.T) {
+		// Given a docker registry with a host port
+		f := newFixture(t)
+		_ = f.handler.LoadConfigString("docker:\n  registries:\n    registry.test:\n      hostport: 5001\n")
+
+		// When the header is read
+		got := f.handler.GetHeader()
+
+		// Then the registry entry carries its host port
+		registry := got.Docker.Registries["registry.test"]
+		if registry.HostPort == nil || *registry.HostPort != 5001 {
+			t.Errorf("expected hostport 5001, got %+v", registry)
+		}
+	})
+
+	t.Run("ReturnsAnEmptyHeaderForATypeMismatch", func(t *testing.T) {
+		// Given a value that cannot decode into its header field
 		f := newFixture(t)
 		_ = f.handler.LoadConfigString("dns: not-a-map\n")
 
-		// When the typed config is read
-		got := f.handler.GetConfig()
+		// When the header is read
+		got := f.handler.GetHeader()
 
-		// Then an empty context is returned
-		if !reflect.DeepEqual(got, &v1alpha1.Context{}) {
-			t.Errorf("expected empty context, got %+v", got)
+		// Then an empty header is returned
+		if !reflect.DeepEqual(got, &cliconfig.Context{}) {
+			t.Errorf("expected empty header, got %+v", got)
 		}
 	})
 }

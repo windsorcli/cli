@@ -1,8 +1,8 @@
 package blueprint
 
 import (
+	"bytes"
 	"errors"
-	"io"
 	"os"
 	"path/filepath"
 	"slices"
@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
+	"github.com/windsorcli/cli/internal/presenter"
 	"github.com/windsorcli/cli/pkg/runtime"
 	"github.com/windsorcli/cli/pkg/runtime/config"
 	"github.com/windsorcli/cli/pkg/runtime/evaluator"
@@ -60,6 +61,17 @@ func setupComposerMocks(t *testing.T) *ComposerTestMocks {
 	})
 
 	return mocks
+}
+
+// captureWarnings makes a JSON presenter that writes to the returned buffer the process default
+// for the test, and restores the previous default on cleanup.
+func captureWarnings(t *testing.T) *bytes.Buffer {
+	t.Helper()
+	var buf bytes.Buffer
+	previous := presenter.Default()
+	presenter.SetDefault(presenter.NewJSON(&buf))
+	t.Cleanup(func() { presenter.SetDefault(previous) })
+	return &buf
 }
 
 func createMockBlueprintLoader(sourceName string, blueprint *blueprintv1alpha1.Blueprint) BlueprintLoader {
@@ -2704,14 +2716,8 @@ spec:
 		}
 
 		// When discovering patches
-		oldStderr := os.Stderr
-		r, w, _ := os.Pipe()
-		os.Stderr = w
+		buf := captureWarnings(t)
 		err := composer.discoverContextPatches(blueprint)
-		w.Close()
-		var buf strings.Builder
-		_, _ = io.Copy(&buf, r)
-		os.Stderr = oldStderr
 
 		// Then the hidden directory is skipped with no warning, and the real patch applies
 		if err != nil {
@@ -2739,14 +2745,8 @@ spec:
 		}
 
 		// When discovering patches
-		oldStderr := os.Stderr
-		r, w, _ := os.Pipe()
-		os.Stderr = w
+		buf := captureWarnings(t)
 		err := composer.discoverContextPatches(blueprint)
-		w.Close()
-		var buf strings.Builder
-		_, _ = io.Copy(&buf, r)
-		os.Stderr = oldStderr
 
 		// Then patches should be ignored, but a warning is printed naming the unmatched
 		// directory and the valid names it could have used instead
@@ -2756,7 +2756,7 @@ spec:
 		if len(blueprint.Kustomizations[0].Patches) != 0 {
 			t.Errorf("Expected 0 patches, got %d", len(blueprint.Kustomizations[0].Patches))
 		}
-		if !strings.Contains(buf.String(), "non-existent") || !strings.Contains(buf.String(), "does not match") {
+		if !strings.Contains(buf.String(), "non-existent") || !strings.Contains(buf.String(), "ignores the patches") {
 			t.Errorf("Expected warning naming the unmatched 'non-existent' directory, got: %q", buf.String())
 		}
 		if !strings.Contains(buf.String(), "Valid names: my-app") {

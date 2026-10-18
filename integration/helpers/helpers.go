@@ -92,7 +92,9 @@ func CopyFixture(src, dst string) error {
 }
 
 // RunCLI runs the built binary in dir with args and optional env (e.g. WINDSOR_CONTEXT=default).
-// When CoverDir is set, GOCOVERDIR is added to the subprocess env so the instrumented binary writes coverage.
+// When CoverDir is set, GOCOVERDIR is added to the subprocess env so the instrumented binary writes coverage,
+// and the error lines of the Go coverage runtime are removed from stderr. Parallel subprocesses can race
+// on one coverage file, and the runtime then prints an "error: coverage" line that windsor did not write.
 // Returns stdout, stderr, and any run error.
 func RunCLI(dir string, args []string, env []string) (stdout, stderr []byte, err error) {
 	cmd := exec.Command(BinaryPath, args...)
@@ -111,6 +113,9 @@ func RunCLI(dir string, args []string, env []string) (stdout, stderr []byte, err
 	runErr := cmd.Run()
 	stdout = outBuf.Bytes()
 	stderr = errBuf.Bytes()
+	if CoverDir != "" {
+		stderr = stripCoverageErrors(stderr)
+	}
 	if runErr != nil {
 		return stdout, stderr, runErr
 	}
@@ -221,4 +226,26 @@ func PrepareFixture(t *testing.T, name string) (workDir string, env []string) {
 		t.Fatalf("windsor init: %v\nstdout: %s\nstderr: %s", err, stdout, stderr)
 	}
 	return workDir, env
+}
+
+// coverageErrorPrefixes are the starts of the stderr lines that the Go coverage runtime writes on failure.
+var coverageErrorPrefixes = []string{"error: coverage meta-data ", "error: coverage counter data "}
+
+// stripCoverageErrors returns stderr without the lines that start with a coverageErrorPrefixes entry.
+func stripCoverageErrors(stderr []byte) []byte {
+	lines := bytes.SplitAfter(stderr, []byte("\n"))
+	kept := make([][]byte, 0, len(lines))
+	for _, line := range lines {
+		coverage := false
+		for _, prefix := range coverageErrorPrefixes {
+			if bytes.HasPrefix(line, []byte(prefix)) {
+				coverage = true
+				break
+			}
+		}
+		if !coverage {
+			kept = append(kept, line)
+		}
+	}
+	return bytes.Join(kept, nil)
 }

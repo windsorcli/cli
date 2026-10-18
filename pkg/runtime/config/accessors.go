@@ -2,6 +2,8 @@ package config
 
 import (
 	"fmt"
+	"reflect"
+	"slices"
 	"strconv"
 	"strings"
 )
@@ -68,17 +70,13 @@ func (c *configHandler) GetString(key string, defaultValue ...string) string {
 }
 
 // GetTerraformBackendType returns the explicit terraform.backend.type when set, else the cloud
-// default for platform (aws/azure/gcp), else "local". Platform falls back to "provider" when
-// unset. It skips the kubernetes default, since that needs a live cluster that only
+// default for platform (aws/azure/gcp), else "local". It skips the kubernetes default, since that needs a live cluster that only
 // init/up/bootstrap sets up explicitly.
 func (c *configHandler) GetTerraformBackendType() string {
 	if explicit := c.GetString("terraform.backend.type"); explicit != "" {
 		return explicit
 	}
 	platform := c.GetString("platform")
-	if platform == "" {
-		platform = c.GetString("provider")
-	}
 	if def := DefaultTerraformBackendTypeForPlatform(platform); def != "" && def != "kubernetes" {
 		return def
 	}
@@ -227,7 +225,8 @@ func (c *configHandler) GetStringMap(key string, defaultValue ...map[string]stri
 }
 
 // Set assigns a configuration value at the specified hierarchical path in the configHandler's internal data map.
-// The input value is automatically converted to the appropriate type according to the schema, if available.
+// A string value converts to the type the loaded schema gives that path, or by pattern when no type is known.
+// Set keeps the original string, so a schema that loads later can convert the value again.
 // Set does not validate against the schema; callers that compose configuration via multiple Set calls leave
 // the map in transient states that only satisfy cross-field rules once composition completes. Run
 // ValidateContextValues after composition to surface schema violations. Returns an error if the path is
@@ -241,9 +240,10 @@ func (c *configHandler) Set(path string, value any) error {
 		return fmt.Errorf("invalid path format: %s", path)
 	}
 
-	convertedValue := c.convertStringValue(value)
 	pathKeys := parsePath(path)
+	convertedValue := c.convertForPath(pathKeys, value)
 	setValueInMap(c.data, pathKeys, convertedValue)
+	c.recordStringSet(pathKeys, value, convertedValue)
 
 	if convertedValue == nil && len(pathKeys) == 1 {
 		delete(c.pendingOverrides, pathKeys[0])
@@ -266,63 +266,102 @@ func (c *configHandler) Set(path string, value any) error {
 // Private Methods
 // =============================================================================
 
-// convertStringValue infers and converts a string value to the appropriate type based on schema type information.
-// It is used to correctly coerce command-line --set flags (which arrive as strings) to their target types.
-// The function uses the configured schema validator, if present, to determine the expected type for the value.
-// If type information cannot be found in the schema, it applies pattern-based type conversion heuristics.
-// The returned value is properly typed if conversion is possible; otherwise, the original value is returned.
-func (c *configHandler) convertStringValue(value any) any {
+// convertForPath converts a string value to the type the loaded schema gives pathKeys. It
+// converts by pattern when the schema has no type for the path, or when the string does not parse
+// as that type. Non-string values are returned unchanged.
+func (c *configHandler) convertForPath(pathKeys []string, value any) any {
 	str, ok := value.(string)
 	if !ok {
 		return value
 	}
-	if c.schemaValidator != nil && c.schemaValidator.Schema != nil {
-		if expectedType := c.getExpectedTypeFromSchema(str); expectedType != "" {
-			if convertedValue := c.convertStringToType(str, expectedType); convertedValue != nil {
-				return convertedValue
-			}
+	if expectedType := c.schemaTypeAt(pathKeys); expectedType != "" {
+		if convertedValue := c.convertStringToType(str, expectedType); convertedValue != nil {
+			return convertedValue
 		}
 	}
 	return c.convertStringByPattern(str)
 }
 
-// getExpectedTypeFromSchema attempts to find the expected type for a key in the schema.
-func (c *configHandler) getExpectedTypeFromSchema(key string) string {
-	if c.schemaValidator == nil || c.schemaValidator.Schema == nil {
+// schemaTypeAt returns the schema type declared for pathKeys, or "" when none is known. It walks
+// nested properties, and uses additionalProperties for a key the properties do not name. A type
+// list counts only when it names exactly one type besides "null".
+func (c *configHandler) schemaTypeAt(pathKeys []string) string {
+	if c.schemaValidator == nil || c.schemaValidator.Schema == nil || len(pathKeys) == 0 {
 		return ""
 	}
+	node := c.schemaValidator.Schema
+	for _, key := range pathKeys {
+		properties, _ := node["properties"].(map[string]any)
+		if child, ok := properties[key].(map[string]any); ok {
+			node = child
+			continue
+		}
+		if child, ok := node["additionalProperties"].(map[string]any); ok {
+			node = child
+			continue
+		}
+		return ""
+	}
+	switch declared := node["type"].(type) {
+	case string:
+		return declared
+	case []any:
+		found := ""
+		for _, t := range declared {
+			name, ok := t.(string)
+			if !ok || name == "null" {
+				continue
+			}
+			if found != "" {
+				return ""
+			}
+			found = name
+		}
+		return found
+	}
+	return ""
+}
 
-	properties, ok := c.schemaValidator.Schema["properties"]
+// recordStringSet keeps the original string that Set converted at pathKeys, and drops any record
+// at or below pathKeys that this Set replaces. reconvertStringSets uses the records.
+func (c *configHandler) recordStringSet(pathKeys []string, raw any, applied any) {
+	for key, record := range c.stringSets {
+		if hasPathPrefix(record.keys, pathKeys) {
+			delete(c.stringSets, key)
+		}
+	}
+	str, ok := raw.(string)
 	if !ok {
-		return ""
+		return
 	}
-
-	propertiesMap, ok := properties.(map[string]any)
-	if !ok {
-		return ""
+	if c.stringSets == nil {
+		c.stringSets = map[string]stringSet{}
 	}
+	c.stringSets[strings.Join(pathKeys, "\x00")] = stringSet{keys: slices.Clone(pathKeys), raw: str, applied: applied}
+}
 
-	propSchema, exists := propertiesMap[key]
-	if !exists {
-		return ""
+// reconvertStringSets converts each recorded string again after a schema load. A value whose type
+// changes is written back and marked for the next SaveConfig. A record is dropped when something
+// other than Set has replaced its value since.
+func (c *configHandler) reconvertStringSets() {
+	for key, record := range c.stringSets {
+		if !reflect.DeepEqual(getValueByPathFromMap(c.data, record.keys), record.applied) {
+			delete(c.stringSets, key)
+			continue
+		}
+		converted := c.convertForPath(record.keys, record.raw)
+		if reflect.DeepEqual(converted, record.applied) {
+			continue
+		}
+		setValueInMap(c.data, record.keys, converted)
+		delete(c.pendingDeletes, record.keys[0])
+		if c.pendingOverrides == nil {
+			c.pendingOverrides = map[string]any{}
+		}
+		setValueInMap(c.pendingOverrides, record.keys, converted)
+		record.applied = converted
+		c.stringSets[key] = record
 	}
-
-	propSchemaMap, ok := propSchema.(map[string]any)
-	if !ok {
-		return ""
-	}
-
-	expectedType, ok := propSchemaMap["type"]
-	if !ok {
-		return ""
-	}
-
-	expectedTypeStr, ok := expectedType.(string)
-	if !ok {
-		return ""
-	}
-
-	return expectedTypeStr
 }
 
 // convertStringToType converts a string value to the corresponding Go type based on the provided JSON schema type.

@@ -12,7 +12,6 @@ import (
 	"strings"
 	"time"
 
-	secretsConfigType "github.com/windsorcli/cli/api/v1alpha1/secrets"
 	"github.com/windsorcli/cli/pkg/runtime/config"
 	"github.com/windsorcli/cli/pkg/runtime/env"
 	"github.com/windsorcli/cli/pkg/runtime/evaluator"
@@ -484,7 +483,6 @@ func (rt *Runtime) ResolveConfig(flagOverrides map[string]any) error {
 			return fmt.Errorf("failed to set platform: %w", err)
 		}
 	}
-	rt.migrateLoadedConfig()
 	dnsEnabled := rt.ConfigHandler.Get("dns.enabled")
 	if (dnsEnabled == nil || dnsEnabled == true) && rt.ConfigHandler.GetString("workstation.runtime") != "" {
 		if rt.ConfigHandler.GetString("dns.domain") == "" {
@@ -508,18 +506,11 @@ func (rt *Runtime) ResolveConfig(flagOverrides map[string]any) error {
 	return nil
 }
 
-// SaveConfig migrates provider→platform and clears the deprecated provider key before persistence.
-// Delegates persistence to the config handler. Workstation-managed keys are written to
+// SaveConfig delegates persistence to the config handler. Workstation-managed keys are written to
 // .windsor/contexts/<context>/workstation.yaml and excluded from values.yaml.
 func (rt *Runtime) SaveConfig(overwrite ...bool) error {
 	if rt.ConfigHandler == nil {
 		return fmt.Errorf("runtime not fully initialized: config handler missing")
-	}
-	if v := rt.ConfigHandler.GetString("provider"); v != "" {
-		if rt.ConfigHandler.GetString("platform") == "" {
-			_ = rt.ConfigHandler.Set("platform", v)
-		}
-		_ = rt.ConfigHandler.Set("provider", nil)
 	}
 	if err := rt.ConfigHandler.SaveWorkstationState(); err != nil {
 		return fmt.Errorf("failed to save workstation state: %w", err)
@@ -639,21 +630,12 @@ func (rt *Runtime) setConfigDefaults(flagOverrides ...map[string]any) error {
 	}
 
 	platform := rt.canonicalPlatform()
-	if platform == "none" {
-		defaultConfig := config.DefaultConfig
-		nonePlatform := "none"
-		defaultConfig.Platform = &nonePlatform
-		if err := rt.ConfigHandler.SetDefault(defaultConfig); err != nil {
-			return fmt.Errorf("failed to set default config: %w", err)
-		}
-	} else if isDevMode {
-		if err := rt.ConfigHandler.SetDefault(config.DefaultConfig_Dev); err != nil {
-			return fmt.Errorf("failed to set default config: %w", err)
-		}
-	} else {
-		if err := rt.ConfigHandler.SetDefault(config.DefaultConfig); err != nil {
-			return fmt.Errorf("failed to set default config: %w", err)
-		}
+	defaultConfig := config.DefaultConfig
+	if isDevMode && platform != "none" {
+		defaultConfig = config.DefaultConfig_Dev
+	}
+	if err := rt.ConfigHandler.SetDefault(defaultConfig); err != nil {
+		return fmt.Errorf("failed to set default config: %w", err)
 	}
 
 	return nil
@@ -685,14 +667,9 @@ func explicitPlatformFromOverrides(flagOverrides map[string]any) (string, bool) 
 	return "", false
 }
 
-// canonicalPlatform returns the effective platform from config, preferring "platform" and
-// falling back to legacy "provider" for backward compatibility.
+// canonicalPlatform returns the platform from config.
 func (rt *Runtime) canonicalPlatform() string {
-	platform := rt.ConfigHandler.GetString("platform")
-	if platform == "" {
-		platform = rt.ConfigHandler.GetString("provider")
-	}
-	return platform
+	return rt.ConfigHandler.GetString("platform")
 }
 
 // inferDevPlatformOverride infers a dev-mode platform only when no explicit or configured platform exists.
@@ -744,11 +721,8 @@ func (rt *Runtime) initializeEnvPrinters() {
 	}
 	clusterEnabled := clusterDriver != ""
 	needsDocker := rt.needsDockerEnv()
-	configData := rt.ConfigHandler.GetConfig()
+	configData := rt.ConfigHandler.GetHeader()
 	platform := rt.ConfigHandler.GetString("platform", "")
-	if platform == "" {
-		platform = rt.ConfigHandler.GetString("provider", "")
-	}
 	hasAWSConfig := configData != nil && configData.AWS != nil
 	hasAzureConfig := configData != nil && configData.Azure != nil
 	hasGCPConfig := configData != nil && configData.GCP != nil
@@ -791,23 +765,10 @@ func (rt *Runtime) initializeEnvPrinters() {
 	}
 }
 
-// migrateLoadedConfig normalizes in-memory config after load by copying provider→platform when platform is empty.
-// Call after LoadConfig only.
-func (rt *Runtime) migrateLoadedConfig() {
-	if rt.ConfigHandler.GetString("platform") == "" {
-		if p := rt.ConfigHandler.GetString("provider"); p != "" {
-			_ = rt.ConfigHandler.Set("platform", p)
-		}
-	}
-}
-
 // needsDockerEnv returns true when VirtEnvPrinter (DOCKER_HOST, DOCKER_CONFIG, etc.) should be used:
-// platform must be "docker" (falls back to provider for legacy configs) and workstation.runtime must be colima, docker-desktop, or docker.
+// platform must be "docker" and workstation.runtime must be colima, docker-desktop, or docker.
 func (rt *Runtime) needsDockerEnv() bool {
 	platform := rt.ConfigHandler.GetString("platform")
-	if platform == "" {
-		platform = rt.ConfigHandler.GetString("provider")
-	}
 	if platform != "docker" {
 		return false
 	}
@@ -866,7 +827,7 @@ func (rt *Runtime) initializeSecretsProviders() {
 		if vaultsMap, ok := vaultsValue.(map[string]any); ok {
 			for vaultID, vaultData := range vaultsMap {
 				if vaultMap, ok := vaultData.(map[string]any); ok {
-					vault := secretsConfigType.OnePasswordVault{
+					vault := secretsRuntime.OnePasswordVault{
 						ID: vaultID,
 					}
 					if url, ok := vaultMap["url"].(string); ok {

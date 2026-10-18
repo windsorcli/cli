@@ -12,7 +12,7 @@ import (
 
 // The ValuesSource is a configuration source for context values.yaml files.
 // It loads and saves dynamic context configuration values.
-// Save patches an existing file at changed paths only; other writes are full.
+// Save patches an existing file at changed paths only; other writes are full, in header order.
 
 // =============================================================================
 // Types
@@ -77,6 +77,7 @@ func (s *valuesSource) Load(projectRoot, contextName string) (map[string]any, bo
 }
 
 // Save writes values.yaml for a context, patching an existing file at overrides/deletes only.
+// A full write puts keys in header order. A patch keeps the order of the existing file.
 // wrote reports whether a write actually happened, so a caller tracking pending writes knows
 // whether they were consumed or are still outstanding.
 func (s *valuesSource) Save(
@@ -113,7 +114,7 @@ func (s *valuesSource) Save(
 		return s.patchValues(valuesPath, overrides, deletes, partition.Values, input)
 	}
 
-	marshaled, err := s.shims.YamlMarshal(partition.Values)
+	marshaled, err := s.shims.YamlMarshal(orderedValues(partition.Values, headerOrder()))
 	if err != nil {
 		return false, fmt.Errorf("error marshalling values.yaml: %w", err)
 	}
@@ -143,7 +144,7 @@ func (s *valuesSource) patchValues(valuesPath string, overrides map[string]any, 
 			return false, nil
 		}
 		var err error
-		merged, err = s.shims.YamlMarshal(fullValues)
+		merged, err = s.shims.YamlMarshal(orderedValues(fullValues, headerOrder()))
 		if err != nil {
 			return false, fmt.Errorf("error marshalling values.yaml: %w", err)
 		}

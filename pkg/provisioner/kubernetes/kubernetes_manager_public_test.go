@@ -3023,10 +3023,8 @@ func TestBaseKubernetesManager_ApplyConfigMap(t *testing.T) {
 		kubernetesClient.GetResourceFunc = func(gvr schema.GroupVersionResource, ns, name string) (*unstructured.Unstructured, error) {
 			return &unstructured.Unstructured{
 				Object: map[string]any{
-					"kind": "ConfigMap",
-					"spec": map[string]any{
-						"immutable": true,
-					},
+					"kind":      "ConfigMap",
+					"immutable": true,
 				},
 			}, nil
 		}
@@ -3134,8 +3132,8 @@ func TestBaseKubernetesManager_ApplyConfigMap(t *testing.T) {
 		kubernetesClient.GetResourceFunc = func(gvr schema.GroupVersionResource, ns, name string) (*unstructured.Unstructured, error) {
 			return &unstructured.Unstructured{
 				Object: map[string]any{
-					"kind": "ConfigMap",
-					"spec": map[string]any{"immutable": true},
+					"kind":      "ConfigMap",
+					"immutable": true,
 				},
 			}, nil
 		}
@@ -3456,8 +3454,8 @@ func TestBaseKubernetesManager_ApplyConfigMap(t *testing.T) {
 	t.Run("IsImmutableConfigMap_WrongKind", func(t *testing.T) {
 		obj := &unstructured.Unstructured{
 			Object: map[string]any{
-				"kind": "Deployment",
-				"spec": map[string]any{"immutable": true},
+				"kind":      "Deployment",
+				"immutable": true,
 			},
 		}
 		if isImmutableConfigMap(obj) {
@@ -3465,22 +3463,22 @@ func TestBaseKubernetesManager_ApplyConfigMap(t *testing.T) {
 		}
 	})
 
-	t.Run("IsImmutableConfigMap_MissingSpec", func(t *testing.T) {
+	t.Run("IsImmutableConfigMap_MissingField", func(t *testing.T) {
 		obj := &unstructured.Unstructured{
 			Object: map[string]any{
 				"kind": "ConfigMap",
 			},
 		}
 		if isImmutableConfigMap(obj) {
-			t.Error("Expected false for missing spec")
+			t.Error("Expected false for a missing immutable field")
 		}
 	})
 
 	t.Run("IsImmutableConfigMap_ImmutableFalse", func(t *testing.T) {
 		obj := &unstructured.Unstructured{
 			Object: map[string]any{
-				"kind": "ConfigMap",
-				"spec": map[string]any{"immutable": false},
+				"kind":      "ConfigMap",
+				"immutable": false,
 			},
 		}
 		if isImmutableConfigMap(obj) {
@@ -3491,8 +3489,8 @@ func TestBaseKubernetesManager_ApplyConfigMap(t *testing.T) {
 	t.Run("IsImmutableConfigMap_ImmutableTrue", func(t *testing.T) {
 		obj := &unstructured.Unstructured{
 			Object: map[string]any{
-				"kind": "ConfigMap",
-				"spec": map[string]any{"immutable": true},
+				"kind":      "ConfigMap",
+				"immutable": true,
 			},
 		}
 		if !isImmutableConfigMap(obj) {

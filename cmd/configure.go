@@ -28,7 +28,7 @@ var configureCmd = &cobra.Command{
 	Long:  `Configure workstation host/guest resources. Currently supports networking and DNS via the 'network' subcommand.`,
 	Annotations: map[string]string{
 		"docs.seealso": "[`up`](up.md)",
-		"docs.source": "cmd/configure.go",
+		"docs.source":  "cmd/configure.go",
 	},
 }
 
@@ -53,7 +53,7 @@ windsor configure network --dns-address=10.5.0.2
 windsor configure network --revert`,
 	Annotations: map[string]string{
 		"docs.seealso": "[`up`](up.md)",
-		"docs.source": "cmd/configure.go",
+		"docs.source":  "cmd/configure.go",
 	},
 	SilenceUsage: true,
 	RunE: func(cmd *cobra.Command, args []string) error {

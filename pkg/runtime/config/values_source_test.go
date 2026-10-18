@@ -121,7 +121,6 @@ func TestValuesSource_Save(t *testing.T) {
 		projectRoot := t.TempDir()
 		contextName := "local"
 		data := map[string]any{
-			"provider":    "docker",
 			"platform":    "docker",
 			"workstation": map[string]any{"runtime": "colima"},
 		}
@@ -136,9 +135,6 @@ func TestValuesSource_Save(t *testing.T) {
 			t.Fatalf("Expected values.yaml to be written, got %v", err)
 		}
 		valuesStr := string(content)
-		if contains(valuesStr, "provider:") {
-			t.Errorf("Expected provider to be excluded from values.yaml, got %s", valuesStr)
-		}
 		if contains(valuesStr, "platform:") {
 			t.Errorf("Expected platform to be excluded from values.yaml in dev input, got %s", valuesStr)
 		}

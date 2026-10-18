@@ -9,6 +9,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -723,7 +724,7 @@ func TestExecute_RendersErrors(t *testing.T) {
 		rootCmd.SetErr(os.Stderr)
 	})
 
-	t.Run("RendersAnUnknownFormatAsACodedError", func(t *testing.T) {
+	t.Run("RendersAnUnknownFormatWithAHint", func(t *testing.T) {
 		// Given an unknown --format value
 		var stderr bytes.Buffer
 		rootCmd.SetErr(&stderr)
@@ -732,12 +733,13 @@ func TestExecute_RendersErrors(t *testing.T) {
 		// When executing
 		err := Execute()
 
-		// Then a CLI-001 error is returned and rendered once with its remediation
-		if !werror.IsCode(err, "CLI-001") {
-			t.Fatalf("expected CLI-001, got %v", err)
+		// Then a WindsorError is returned and rendered once with its hint
+		var we *werror.WindsorError
+		if !errors.As(err, &we) {
+			t.Fatalf("expected a WindsorError, got %v", err)
 		}
 		out := stderr.String()
-		if strings.Count(out, "Error [CLI-001]") != 1 || !strings.Contains(out, "--format text or --format json") {
+		if strings.Count(out, "error: Unknown output format") != 1 || !strings.Contains(out, "hint: Run the command again with --format text or --format json.") {
 			t.Errorf("unexpected stderr %q", out)
 		}
 	})
@@ -749,7 +751,7 @@ func TestRenderError(t *testing.T) {
 		verbose = false
 	})
 
-	t.Run("PrintsAnUntypedErrorWithThePlainPrefix", func(t *testing.T) {
+	t.Run("PrintsAnUntypedErrorAfterTheErrorPrefix", func(t *testing.T) {
 		// Given text format and an untyped error
 		formatFlag, verbose = string(logging.FormatText), false
 		var buf bytes.Buffer
@@ -758,49 +760,114 @@ func TestRenderError(t *testing.T) {
 		renderError(&buf, fmt.Errorf("context %q not found", "x"))
 
 		// Then the output matches the plain error line
-		if buf.String() != "Error: context \"x\" not found\n" {
+		if buf.String() != "error: context \"x\" not found\n" {
 			t.Errorf("unexpected output %q", buf.String())
 		}
 	})
 
-	t.Run("PrintsACodedErrorWithItsRemediation", func(t *testing.T) {
-		// Given text format and a coded error under a frame
+	t.Run("PrintsAWindsorErrorWithItsHint", func(t *testing.T) {
+		// Given text format and a WindsorError under a frame
 		formatFlag, verbose = string(logging.FormatText), false
 		var buf bytes.Buffer
-		err := werror.Wrap(werror.New("CONFIG-002", "Context value is malformed.", "Run windsor set to fix it.", nil), "loading")
+		err := werror.Wrap(werror.New("Context value is malformed.", "Run windsor set to fix it.", nil), "loading")
 
 		// When the error is rendered
 		renderError(&buf, err)
 
-		// Then the code, message, and remediation print without a trace
-		want := "Error [CONFIG-002]: Context value is malformed.\n\nRun windsor set to fix it.\n"
+		// Then the message and hint print without a trace
+		want := "error: Context value is malformed.\nhint: Run windsor set to fix it.\n"
+		if buf.String() != want {
+			t.Errorf("expected %q, got %q", want, buf.String())
+		}
+	})
+
+	t.Run("PrintsEveryCauseOfAJoinedError", func(t *testing.T) {
+		// Given text format and two joined WindsorErrors under a frame
+		formatFlag, verbose = string(logging.FormatText), false
+		var buf bytes.Buffer
+		err := werror.Wrap(errors.Join(werror.New("First failed.", "Fix the first.", nil), werror.New("Second failed.", "Fix the second.", nil)), "2 deletes failed")
+
+		// When the error is rendered
+		renderError(&buf, err)
+
+		// Then the full text prints, with each cause and without a single hint
+		want := "error: 2 deletes failed: First failed.\nSecond failed.\n"
 		if buf.String() != want {
 			t.Errorf("expected %q, got %q", want, buf.String())
 		}
 	})
 
 	t.Run("AddsTheTraceUnderVerbose", func(t *testing.T) {
-		// Given verbose text output and a coded error with a cause under a frame
+		// Given verbose text output and a WindsorError with a cause and a hint under a frame
 		formatFlag, verbose = string(logging.FormatText), true
 		var buf bytes.Buffer
-		err := werror.Wrap(werror.New("TERRAFORM-002", "Apply failed.", "", fmt.Errorf("exit status 1")), "applying cluster")
+		err := werror.Wrap(werror.New("Apply failed.", "Run windsor plan.", fmt.Errorf("exit status 1")), "applying cluster")
 
 		// When the error is rendered
 		renderError(&buf, err)
 
-		// Then each breadcrumb prints under a trace heading
-		if !strings.Contains(buf.String(), "\nTrace:\n  applying cluster\n  Apply failed.\n  exit status 1\n") {
-			t.Errorf("expected trace, got %q", buf.String())
+		// Then the breadcrumbs that the message does not show print under a trace heading, and the hint prints last
+		want := "error: Apply failed.\ntrace:\n  applying cluster\n  exit status 1\nhint: Run windsor plan.\n"
+		if buf.String() != want {
+			t.Errorf("expected %q, got %q", want, buf.String())
+		}
+	})
+
+	t.Run("IndentsEachLineOfAMultiLineBreadcrumb", func(t *testing.T) {
+		// Given verbose text output and a frame around a cause with two lines
+		formatFlag, verbose = string(logging.FormatText), true
+		var buf bytes.Buffer
+		err := werror.Wrap(werror.New("Load failed.", "", errors.New("bad token\n> 5 | key: [")), "loading blueprint")
+
+		// When the error is rendered
+		renderError(&buf, err)
+
+		// Then the second line of the cause is indented under the trace
+		want := "error: Load failed.\ntrace:\n  loading blueprint\n  bad token\n  > 5 | key: [\n"
+		if buf.String() != want {
+			t.Errorf("expected %q, got %q", want, buf.String())
+		}
+	})
+
+	t.Run("KeepsAFrameThatStartsTheMessage", func(t *testing.T) {
+		// Given verbose text output and a frame whose text starts the WindsorError message
+		formatFlag, verbose = string(logging.FormatText), true
+		var buf bytes.Buffer
+		err := werror.Wrap(werror.New("validating input took too long", "", nil), "validating input")
+
+		// When the error is rendered
+		renderError(&buf, err)
+
+		// Then the frame prints under the trace
+		want := "error: validating input took too long\ntrace:\n  validating input\n"
+		if buf.String() != want {
+			t.Errorf("expected %q, got %q", want, buf.String())
+		}
+	})
+
+	t.Run("OmitsTheTraceWhenTheMessageShowsEveryBreadcrumb", func(t *testing.T) {
+		// Given verbose text output and a WindsorError whose message contains its cause
+		formatFlag, verbose = string(logging.FormatText), true
+		var buf bytes.Buffer
+		err := werror.New("File is not valid YAML: [5:8] token not found", "Correct the YAML.", errors.New("[5:8] token not found"))
+
+		// When the error is rendered
+		renderError(&buf, err)
+
+		// Then no trace heading prints
+		want := "error: File is not valid YAML: [5:8] token not found\nhint: Correct the YAML.\n"
+		if buf.String() != want {
+			t.Errorf("expected %q, got %q", want, buf.String())
 		}
 	})
 
 	t.Run("WritesOneJSONLineInJSONFormat", func(t *testing.T) {
-		// Given JSON format and a coded error
+		// Given JSON format and a WindsorError
 		formatFlag, verbose = string(logging.FormatJSON), false
 		var buf bytes.Buffer
 
 		// When the error is rendered
-		renderError(&buf, werror.New("CLI-001", "Unknown output format.", "Use text or json.", nil))
+		renderError(&buf, werror.New("Unknown output format.", "Use text or json.", nil))
 
 		// Then one failed event line holds the error fields
 		var line struct {
@@ -810,7 +877,7 @@ func TestRenderError(t *testing.T) {
 		if err := json.Unmarshal(buf.Bytes(), &line); err != nil {
 			t.Fatalf("expected one JSON line, got %q: %v", buf.String(), err)
 		}
-		if line.Kind != "failed" || line.Error["code"] != "CLI-001" || line.Error["remediation"] != "Use text or json." {
+		if line.Kind != "failed" || line.Error["message"] != "Unknown output format." || line.Error["remediation"] != "Use text or json." {
 			t.Errorf("unexpected line %+v", line)
 		}
 	})

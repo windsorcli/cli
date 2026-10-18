@@ -47,7 +47,7 @@ deliberate counter-cycle. It has two goals:
 | Sequencing | Cleanup first, then UX | Foundations (logging/error/output contracts) are pulled *into* the cleanup wave so packages are touched once, not twice. |
 | Scope stance | Broad but phased | Everything discussed is in scope, gated by wave with hard checkpoints. |
 | Breaking changes | Allowed | Last big pre-GA reshaping. Log format, error rendering, flags, and config fields may change. GA discipline starts at v1.0. |
-| Error model | Typed `WindsorError` | Structured type: code/category + user message + remediation + wrapped cause; rendered by one central formatter. |
+| Error model | Typed `WindsorError` | Structured type: user message + remediation + wrapped cause; rendered by one central formatter. |
 | UX ambition | Framework + async everywhere | BubbleTea + concurrent multi-project Terraform via graph + live Kubernetes sub-resource updates + interactive menus + chat-style prompting. |
 | Cleanup breadth | Every package gets a pass | Systematic sweep of all `pkg/` packages. Highest schedule risk; first cut line. |
 | Logging | `slog` API + swappable handlers | Call sites target `log/slog`. Backends: `slog.JSONHandler` (JSON), `slog.TextHandler` (logfmt console), a TUI-routing handler (while BubbleTea owns the screen). Logger injected via context, never global. |
@@ -127,7 +127,7 @@ Only one ADR survived both audit passes:
 
 | ADR | Wave fit | Why |
 |---|---|---|
-| [0001 — apiv2 common header schema & v1alpha1 retirement](0001-apiv2-common-header-schema.md) | Wave 0/1 | 0% started; every config-touching cleanup pass in Wave 2 should land after this, not before. Now also folds in the sensitive-value-enforcement chokepoint fix (below), since both rework the same `GetContextValues` read path. |
+| [0001 — apiv2 common header schema & v1alpha1 retirement](0001-apiv2-common-header-schema.md) | Wave 0/1 | Implemented. The sensitive-value chokepoint it once folded in was withdrawn: the evaluator needs raw `GetContextValues`, so sinks keep their own guards (#3570). Wave 2 config-touching passes can now land. |
 
 ## Backlog (deferred past v0.10.0 — not carried forward as ADRs)
 
@@ -225,10 +225,8 @@ ordered; ADRs within a wave may proceed in parallel unless a dependency is noted
   Three tiers in `internal/werror`: plain `fmt.Errorf` for uninformative wraps (rare); `werror.Wrap`
   — a cheap, code-free breadcrumb frame, the default for a touched site, structurally capturing each
   frame's message (never parsed from `err.Error()` strings) so `--verbose`/JSON can render a real
-  trace list; `werror.New` — a full `WindsorError` (doc-linkable domain-prefixed code, e.g.
-  `COMPOSER-014`, mechanically-derived `DocsURL`, remediation) reserved for boundaries with a real
-  actionable remediation. Domains are purpose-built for support triage, deliberately not a 1:1
-  mirror of ADR 0002's architecture layer table. Minimal central renderer at the `cmd/` boundary
+  trace list; `werror.New` — a full `WindsorError` (message and remediation, no error code)
+  reserved for boundaries with a real actionable remediation. Minimal central renderer at the `cmd/` boundary
   (console + JSON, no TUI awareness yet — the Presenter ADR below subsumes it). Migration rides the
   same per-package Wave 2 cadence, not a mechanical 882-site sweep.
 - [x] **[0007 — Presenter / event stream](0007-presenter-event-stream.md).** The keystone seam —
@@ -310,7 +308,7 @@ Five small, low-risk packages, in this order because each depends on the previou
    lowest-risk, and every later step benefits from it existing.
 2. **`internal/werror`** (ADR 0005) — depends on nothing but stdlib.
 3. **`internal/logging`** (ADR 0006) — depends on `werror` for the `LogValue()` bridge
-   (`*WindsorError` → structured `code`/`category`/`message` log fields); otherwise independent.
+   (`*WindsorError` → structured `message`/`remediation` log fields); otherwise independent.
 4. **`internal/presenter`** (ADR 0007) — depends on **both** `werror` (`Event.Err`) and `logging`
    (the slog-handler-to-`Emit` bridge is defined in terms of the handler type `logging` provides).
    Must come after both.
@@ -319,11 +317,11 @@ Five small, low-risk packages, in this order because each depends on the previou
    `SetVerbosity`+string-keyed-`context.WithValue` mechanism ADR 0006 found) and wires the presenter
    into the central error renderer (replacing the per-command `SilenceErrors`+manual-print pattern
    ADR 0005 found). This step is what makes Phase A "done" — a command run today would already show
-   coded errors and leveled logs, before any business-layer migration happens.
+   errors with remediations and leveled logs, before any business-layer migration happens.
 
 **Phase A gates both Phase B and Phase C below** — not just a nice-to-have ordering. `pkg/runtime/
-config` (Phase B) will want `CONFIG-*` `WindsorError`s for its own new validation-failure paths;
-building the header rewrite before `internal/werror` exists means coming back to add error codes
+config` (Phase B) will want `WindsorError`s for its own new validation-failure paths;
+building the header rewrite before `internal/werror` exists means coming back to add remediations
 later, which is the exact "touch the file twice" problem this whole planning exercise exists to
 avoid — just one level up, across ADRs instead of within one.
 
@@ -332,8 +330,8 @@ avoid — just one level up, across ADRs instead of within one.
 Runs after Phase A (or, if parallelizing, after Phase A steps 1–3 specifically — `pkg/runtime/
 config` needs `werror` and probably wants `logging`, not `presenter`). Internally sequenced per
 ADR 0001/0003's own text: black-box characterize `pkg/runtime/config`'s current behavior first,
-then the v1alpha1→v1alpha2 header rewrite, then the sensitive-value chokepoint fold-in (ADR 0001
-§5), then the package-by-package `api/v1alpha1` import retirement.
+then the v1alpha1→v1alpha2 header rewrite, then the `api/v1alpha1` config type retirement. Done;
+the sensitive-value chokepoint step was dropped (ADR 0001 point 8).
 
 ### Phase C — Wave 2 per-package sweep, one pass per package, six contracts bundled into each
 
@@ -392,8 +390,8 @@ this phase just confirms none of them are blocked on Phase C finishing in full.
 2. ~~**JSON output surface**~~ — resolved: [ADR 0007](0007-presenter-event-stream.md) makes
    `--format json` one global flag for logs, errors, and progress. The name is `--format` because
    `bundle` and `plan terraform` already define a local `--output`.
-3. ~~**`WindsorError` code taxonomy**~~ — resolved: [ADR 0005](0005-typed-error-model.md) uses
-   `DOMAIN-NNN` string codes, shown in user-facing output.
+3. ~~**`WindsorError` code taxonomy**~~ — resolved: [ADR 0005](0005-typed-error-model.md) defers
+   error codes until a consumer needs them.
 4. **Async blast radius** — is concurrent Terraform gated behind a flag initially (opt-in), or the
    default once the graph executor lands?
 5. **Per-package cleanup as PRs** — one PR per package (many small), or grouped by wave? Interacts

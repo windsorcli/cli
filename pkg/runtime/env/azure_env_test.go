@@ -7,8 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/windsorcli/cli/api/v1alpha1"
-	"github.com/windsorcli/cli/api/v1alpha1/azure"
+	cliconfig "github.com/windsorcli/cli/api/config/v1alpha2"
 	"github.com/windsorcli/cli/pkg/runtime/config"
 )
 
@@ -115,8 +114,8 @@ func TestAzureEnv_GetEnvVars(t *testing.T) {
 		mockConfigHandler.GetConfigRootFunc = func() (string, error) {
 			return "", fmt.Errorf("error retrieving configuration root directory")
 		}
-		mockConfigHandler.GetConfigFunc = func() *v1alpha1.Context {
-			return &v1alpha1.Context{Azure: &azure.AzureConfig{SubscriptionID: &subID}}
+		mockConfigHandler.GetHeaderFunc = func() *cliconfig.Context {
+			return &cliconfig.Context{Azure: &cliconfig.Azure{SubscriptionID: &subID}}
 		}
 		mocks := setupAzureEnvMocks(t, &EnvTestMocks{
 			ConfigHandler: mockConfigHandler,

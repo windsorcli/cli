@@ -1,38 +1,22 @@
+// The BlueprintHandler is the entry point for blueprint loading, composition, and writing.
+// It provides LoadBlueprint, which runs the load, process, and compose stages in order.
+// It provides source retargeting and upgrades, and access to the composed and resolved blueprint.
+// The loading, deferred-value, and repository steps are in the handler_* companion files.
+
 package blueprint
 
 import (
 	"errors"
 	"fmt"
-	"path/filepath"
-	"sort"
 	"strings"
 	"sync"
 
 	"github.com/Masterminds/semver/v3"
 	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
+	"github.com/windsorcli/cli/internal/werror"
 	"github.com/windsorcli/cli/pkg/composer/artifact"
 	"github.com/windsorcli/cli/pkg/runtime"
-	runtimegit "github.com/windsorcli/cli/pkg/runtime/git"
 )
-
-// BlueprintHandler manages the lifecycle of infrastructure blueprints.
-// It orchestrates loading, processing, composing, and writing blueprints.
-type BlueprintHandler interface {
-	LoadBlueprint(blueprintURL ...string) error
-	SetSkipValidation(skip bool)
-	Write(overwrite ...bool) error
-	RetargetSource(name, url string) (string, error)
-	UpgradeSourcesToLatest() ([]SourceUpgrade, error)
-	GetDeclaredSources() ([]blueprintv1alpha1.Source, error)
-	GetTerraformComponents() []blueprintv1alpha1.TerraformComponent
-	GetLocalTemplateData() (map[string][]byte, error)
-	Generate() *blueprintv1alpha1.Blueprint
-	GenerateResolved() (*blueprintv1alpha1.Blueprint, error)
-	Explain(path string) (*ExplainTrace, error)
-	GetDeferredPaths() map[string]bool
-	DeferredSubstitutionsInScope(scope map[string]bool) bool
-	GetConfigScope() map[string]any
-}
 
 // =============================================================================
 // Types
@@ -57,6 +41,36 @@ type BaseBlueprintHandler struct {
 	traceCollector         TraceCollector
 	initBlueprintURLs      []string
 	skipValidation         bool
+}
+
+// SourceUpgrade records one source moved to a newer version by UpgradeSourcesToLatest.
+type SourceUpgrade struct {
+	Name string
+	From string
+	To   string
+}
+
+// =============================================================================
+// Interfaces
+// =============================================================================
+
+// BlueprintHandler manages the lifecycle of infrastructure blueprints.
+// It orchestrates loading, processing, composing, and writing blueprints.
+type BlueprintHandler interface {
+	LoadBlueprint(blueprintURL ...string) error
+	SetSkipValidation(skip bool)
+	Write(overwrite ...bool) error
+	RetargetSource(name, url string) (string, error)
+	UpgradeSourcesToLatest() ([]SourceUpgrade, error)
+	GetDeclaredSources() ([]blueprintv1alpha1.Source, error)
+	GetTerraformComponents() []blueprintv1alpha1.TerraformComponent
+	GetLocalTemplateData() (map[string][]byte, error)
+	Generate() *blueprintv1alpha1.Blueprint
+	GenerateResolved() (*blueprintv1alpha1.Blueprint, error)
+	Explain(path string) (*ExplainTrace, error)
+	GetDeferredPaths() map[string]bool
+	DeferredSubstitutionsInScope(scope map[string]bool) bool
+	GetConfigScope() map[string]any
 }
 
 // =============================================================================
@@ -114,15 +128,10 @@ func (h *BaseBlueprintHandler) SetTraceCollector(tc TraceCollector) {
 	h.traceCollector = tc
 }
 
-// LoadBlueprint orchestrates the complete blueprint loading pipeline. It loads the user blueprint
-// first, then loads all sources from the user's sources array (including "name: template" for local
-// _template). Sources are loaded recursively to discover nested sources. Finally, it processes facets
-// for all source blueprints and composes them into a single unified blueprint, applying the user
-// blueprint as the final override layer. The blueprintURL parameter stores URLs that should be added
-// to sources during initialization. These URLs are loaded first so their metadata names can be used.
-// Each call starts a fresh pipeline: sourceBlueprintLoaders is reset first, so a second call on the
-// same handler (e.g. after RetargetSource changes a source's URL) re-pulls every source instead of
-// reusing loaders cached from the previous call.
+// LoadBlueprint runs the full pipeline: it loads the init blueprints from blueprintURL, the user
+// blueprint, and all sources, nested sources included. It then processes the facets of each source
+// and composes one blueprint, with the user blueprint applied last. Each call clears the loaded
+// sources first, so a call after RetargetSource pulls every source again.
 func (h *BaseBlueprintHandler) LoadBlueprint(blueprintURL ...string) error {
 	h.initBlueprintURLs = blueprintURL
 	h.deferredPathsMu.Lock()
@@ -131,15 +140,15 @@ func (h *BaseBlueprintHandler) LoadBlueprint(blueprintURL ...string) error {
 	h.sourceBlueprintLoaders = make(map[string]BlueprintLoader)
 
 	if err := h.loadInitBlueprints(); err != nil {
-		return fmt.Errorf("failed to load init blueprints: %w", err)
+		return werror.Wrap(err, "failed to load init blueprints")
 	}
 
 	if err := h.loadUser(); err != nil {
-		return fmt.Errorf("failed to load user blueprint: %w", err)
+		return werror.Wrap(err, "failed to load user blueprint")
 	}
 
 	if err := h.loadSources(); err != nil {
-		return fmt.Errorf("failed to load sources: %w", err)
+		return werror.Wrap(err, "failed to load sources")
 	}
 
 	if h.runtime != nil && h.runtime.Evaluator != nil {
@@ -153,7 +162,7 @@ func (h *BaseBlueprintHandler) LoadBlueprint(blueprintURL ...string) error {
 		if errors.As(err, &reqErr) {
 			return err
 		}
-		return fmt.Errorf("failed to compose blueprint: %w", err)
+		return werror.Wrap(err, "failed to compose blueprint")
 	}
 
 	if !h.skipValidation {
@@ -165,16 +174,11 @@ func (h *BaseBlueprintHandler) LoadBlueprint(blueprintURL ...string) error {
 	return nil
 }
 
-// SetSkipValidation toggles structural-invariant validation in LoadBlueprint. Default is
-// false (validate). Teardown commands (destroy, down, env) call this with true so an
-// operator with a deployed-but-misordered blueprint can still tear down or inspect —
-// without this escape hatch, the validator would block the only commands that could
-// resolve the situation. Write/deploy commands (init, bootstrap, up, apply, plan) leave it
-// false so structural mistakes surface at the moment they are introduced. (show tolerates
-// validation failure via a separate mechanism in getBlueprint that captures the error and
-// continues, rather than skipping validation outright.) Provisioner's destroy paths
-// iterate components independent of blueprint position (Blueprint.BackendComponentID +
-// symmetric-destroy), so skipping validation does not produce a wrong destroy order.
+// SetSkipValidation turns off structural validation in LoadBlueprint when skip is true. The default
+// is false. Teardown commands (destroy, down, env) set it, so an operator can still tear down or
+// inspect a blueprint that fails validation. Deploy commands keep validation, so a structural mistake
+// shows when it is made. Destroy order does not depend on validation, because the destroy paths do
+// not use blueprint position.
 func (h *BaseBlueprintHandler) SetSkipValidation(skip bool) {
 	h.skipValidation = skip
 }
@@ -205,7 +209,7 @@ func (h *BaseBlueprintHandler) RetargetSource(name, url string) (string, error) 
 		return "", fmt.Errorf("blueprint not loaded")
 	}
 	if _, err := artifact.ParseOCIReference(url); err != nil {
-		return "", fmt.Errorf("invalid source url %q: %w", url, err)
+		return "", werror.Wrap(err, "invalid source url %q", url)
 	}
 	for i := range h.composedBlueprint.Sources {
 		if h.composedBlueprint.Sources[i].Name == name {
@@ -215,14 +219,8 @@ func (h *BaseBlueprintHandler) RetargetSource(name, url string) (string, error) 
 			return previous, nil
 		}
 	}
-	return "", fmt.Errorf("source %q is not declared in the blueprint; add it to blueprint.yaml before retargeting", name)
-}
-
-// SourceUpgrade records one source moved to a newer version by UpgradeSourcesToLatest.
-type SourceUpgrade struct {
-	Name string
-	From string
-	To   string
+	return "", werror.New(fmt.Sprintf("Blueprint source %q is not declared.", name),
+		"Add the source to blueprint.yaml, then run the command again.", nil)
 }
 
 // UpgradeSourcesToLatest moves each remote OCI source pinned to a semver to the highest stable tag
@@ -259,12 +257,12 @@ func (h *BaseBlueprintHandler) UpgradeSourcesToLatest() ([]SourceUpgrade, error)
 
 		tags, err := h.artifactBuilder.ListTags(src.Url)
 		if err != nil {
-			return nil, fmt.Errorf("failed to list tags for source %q: %w", src.Name, err)
+			return nil, werror.Wrap(err, "failed to list tags for source %q", src.Name)
 		}
 		urlPrefix := strings.TrimSuffix(src.Url, ":"+info.Tag)
 		latestTag, latest, ok, err := artifact.ResolveCompatibleTag(h.artifactBuilder, urlPrefix, tags)
 		if err != nil {
-			return nil, fmt.Errorf("failed to check CLI compatibility for source %q: %w", src.Name, err)
+			return nil, werror.Wrap(err, "failed to check CLI compatibility for source %q", src.Name)
 		}
 		if !ok || !latest.GreaterThan(current) {
 			continue
@@ -285,25 +283,6 @@ func (h *BaseBlueprintHandler) UpgradeSourcesToLatest() ([]SourceUpgrade, error)
 		upgrades = append(upgrades, p.change)
 	}
 	return upgrades, nil
-}
-
-// latestStableSemver returns the highest non-prerelease semver among tags, alongside its original tag
-// string (preserving any "v" prefix) for rebuilding the URL. Non-semver and prerelease tags are
-// ignored. Reports false when no stable semver tag is present.
-func latestStableSemver(tags []string) (string, *semver.Version, bool) {
-	var best *semver.Version
-	var bestTag string
-	for _, t := range tags {
-		v, err := semver.NewVersion(t)
-		if err != nil || v.Prerelease() != "" {
-			continue
-		}
-		if best == nil || v.GreaterThan(best) {
-			best = v
-			bestTag = t
-		}
-	}
-	return bestTag, best, best != nil
 }
 
 // IsDowngrade reports whether targetURL pins an older stable semver than previousURL for the same
@@ -394,19 +373,11 @@ func (h *BaseBlueprintHandler) Generate() *blueprintv1alpha1.Blueprint {
 	return h.composedBlueprint
 }
 
-// GenerateResolved returns a deep copy of the composed blueprint with deferred substitutions
-// resolved. This is the JIT entry point for consumers that need fully evaluated values (e.g.
-// the provisioner writing ConfigMaps to the cluster). The copy ensures the base composedBlueprint
-// is never mutated, so subsequent Generate() or GenerateResolved() calls start from the original
-// deferred expressions. Callers that only display the blueprint (e.g. windsor show) should use
-// Generate() instead to preserve deferred placeholders.
-//
-// Returns an error when a deferred substitution cannot be resolved (e.g. terraform_output()
-// references a missing key, or terraform itself errors during the lookup), named by the
-// offending substitution path (e.g. "kustomize.dns.substitutions.external_dns_tenant_id") so
-// operators see the failure at blueprint-resolution time rather than via a downstream pod
-// crashloop. An unresolved expression must never reach a ConfigMap: raw `${...}` source text
-// left in place would be treated as a literal config value by downstream Helm renders.
+// GenerateResolved returns a deep copy of the composed blueprint with deferred substitutions resolved,
+// for consumers that need final values, such as the ConfigMaps the provisioner writes. The composed
+// blueprint does not change, so later calls start from the deferred expressions. Display callers use
+// Generate. A substitution that does not resolve is an error that names its path, such as
+// "kustomize.dns.substitutions.external_dns_tenant_id", so no raw ${...} text reaches a ConfigMap.
 func (h *BaseBlueprintHandler) GenerateResolved() (*blueprintv1alpha1.Blueprint, error) {
 	bp := h.Generate()
 	if bp == nil {
@@ -467,23 +438,6 @@ func (h *BaseBlueprintHandler) DeferredSubstitutionsInScope(scope map[string]boo
 	return false
 }
 
-// fluxTierScopeName converts a "flux."-prefixed deferred path's remainder (for example
-// "database.install.substitutions.cert" or "database.resources-primary.substitutions.cert") to
-// the compiled Kustomization name compileFluxSystemTiers produces for that tier ("database-install"
-// or "database-resources-primary"). Returns false when rest is not a recognized tier-substitution
-// path.
-func fluxTierScopeName(rest string) (string, bool) {
-	withoutSubs, _, ok := strings.Cut(rest, ".substitutions.")
-	if !ok {
-		return "", false
-	}
-	system, tier, ok := strings.Cut(withoutSubs, ".")
-	if !ok {
-		return "", false
-	}
-	return system + "-" + tier, true
-}
-
 // GetConfigScope returns the composed config scope: facet config: block names mapped to their
 // fully evaluated values, merged with context values. Populated by LoadBlueprint(); nil before
 // the first successful load.
@@ -495,497 +449,11 @@ func (h *BaseBlueprintHandler) GetConfigScope() map[string]any {
 // Private Methods
 // =============================================================================
 
-// resolveDeferredSubstitutions re-evaluates deferred substitutions with evaluateDeferred=true
-// so that helpers like terraform_output() resolve using outputs available at generate time
-// (after terraform apply). Only substitutions marked as deferred during composition are
-// re-evaluated; already-resolved substitutions are left untouched. Covers global substitutions,
-// blueprint-level ConfigMaps, per-kustomization substitutions, and flux: systems' install/
-// resources tier substitutions.
-//
-// Returns the first evaluation error encountered, with the substitution path named (e.g.
-// "kustomize.dns.substitutions.external_dns_tenant_id"), surfacing the problem at
-// blueprint-resolution time, before anything is written to the cluster.
-func (h *BaseBlueprintHandler) resolveDeferredSubstitutions() error {
-	if h.runtime == nil || h.runtime.Evaluator == nil || h.composedBlueprint == nil {
-		return nil
-	}
-
-	deferred := h.GetDeferredPaths()
-	if len(deferred) == 0 {
-		return nil
-	}
-
-	bp := h.composedBlueprint
-
-	for key, value := range bp.Substitutions {
-		if !deferred["substitutions."+key] {
-			continue
-		}
-		str, err := h.resolveDeferred(value)
-		if err != nil {
-			return fmt.Errorf("substitutions.%s: %w", key, err)
-		}
-		bp.Substitutions[key] = str
-	}
-
-	for name, configMap := range bp.ConfigMaps {
-		for key, value := range configMap {
-			if !deferred["configmaps."+name+"."+key] {
-				continue
-			}
-			str, err := h.resolveDeferred(value)
-			if err != nil {
-				return fmt.Errorf("configmaps.%s.%s: %w", name, key, err)
-			}
-			bp.ConfigMaps[name][key] = str
-		}
-	}
-
-	for i := range bp.Kustomizations {
-		k := &bp.Kustomizations[i]
-		for key, value := range k.Substitutions {
-			if !deferred["kustomize."+k.Name+".substitutions."+key] {
-				continue
-			}
-			str, err := h.resolveDeferred(value)
-			if err != nil {
-				return fmt.Errorf("kustomize.%s.substitutions.%s: %w", k.Name, key, err)
-			}
-			k.Substitutions[key] = str
-		}
-	}
-
-	for i := range bp.FluxSystems {
-		sys := &bp.FluxSystems[i]
-		if sys.Install != nil {
-			for key, value := range sys.Install.Substitutions {
-				if !deferred["flux."+sys.Name+".install.substitutions."+key] {
-					continue
-				}
-				str, err := h.resolveDeferred(value)
-				if err != nil {
-					return fmt.Errorf("flux.%s.install.substitutions.%s: %w", sys.Name, key, err)
-				}
-				sys.Install.Substitutions[key] = str
-			}
-		}
-		for j := range sys.Resources {
-			v := &sys.Resources[j]
-			resourcesPrefix := fluxResourcesSubstitutionPrefix(sys.Name, v.Name)
-			for key, value := range v.Substitutions {
-				if !deferred[resourcesPrefix+key] {
-					continue
-				}
-				str, err := h.resolveDeferred(value)
-				if err != nil {
-					return fmt.Errorf("%s%s: %w", resourcesPrefix, key, err)
-				}
-				v.Substitutions[key] = str
-			}
-		}
-	}
-
-	return nil
-}
-
-// resolveDeferred evaluates a single expression with evaluateDeferred=true using the composed
-// scope. Returns the resolved string on success, or an error when the expression cannot be
-// evaluated (e.g. terraform_output() references a missing module output, or terraform itself
-// errors). Operators with a legitimately-optional reference should write `?? <fallback>` in the
-// expression itself; nil from the evaluator (with no coalesce) renders as the empty string here,
-// which is the operator's explicit choice rather than a silent failure.
-func (h *BaseBlueprintHandler) resolveDeferred(expr string) (string, error) {
-	resolved, err := h.runtime.Evaluator.Evaluate(expr, "", h.composedScope, true)
-	if err != nil {
-		return "", err
-	}
-	if resolved == nil {
-		return "", nil
-	}
-	if str, ok := resolved.(string); ok {
-		return str, nil
-	}
-	return fmt.Sprintf("%v", resolved), nil
-}
-
-// resolveMessages renders the composed blueprint's post-run messages against the resolved scope,
-// where run values (e.g. terraform_output) are available. Each message's optional When is evaluated
-// as a boolean gate — a message whose When is false or non-boolean is dropped — and its Text is
-// interpolated. Only kept messages carry through, with When cleared (it has served its purpose) and
-// Text replaced by the rendered result. Rendered text is deduplicated so multiple active facets
-// emitting the same note surface it once, preserving included-facet order. Evaluation errors are
-// surfaced at generate time, before anything reaches the operator or the cluster.
-func (h *BaseBlueprintHandler) resolveMessages() error {
-	if h.runtime == nil || h.runtime.Evaluator == nil || h.composedBlueprint == nil {
-		return nil
-	}
-	bp := h.composedBlueprint
-	if len(bp.Messages) == 0 {
-		return nil
-	}
-
-	rendered := make([]blueprintv1alpha1.Message, 0, len(bp.Messages))
-	seen := make(map[string]bool)
-	for _, msg := range bp.Messages {
-		if msg.When != "" {
-			cond, err := h.runtime.Evaluator.Evaluate("${"+msg.When+"}", "", h.composedScope, true)
-			if err != nil {
-				return fmt.Errorf("message when %q: %w", msg.When, err)
-			}
-			if b, ok := cond.(bool); !ok || !b {
-				continue
-			}
-		}
-		text, err := h.resolveDeferred(msg.Text)
-		if err != nil {
-			return fmt.Errorf("message text %q: %w", msg.Text, err)
-		}
-		if text == "" || seen[text] {
-			continue
-		}
-		seen[text] = true
-		rendered = append(rendered, blueprintv1alpha1.Message{Text: text})
-	}
-	bp.Messages = rendered
-	return nil
-}
-
-// deriveConfigMapDeferredPaths propagates deferred status to ConfigMap entries that inherited
-// values from deferred substitutions. The composer copies blueprint.Substitutions into
-// values-common and kustomization substitutions into per-kustomization ConfigMaps; this
-// method marks the corresponding "configmaps.<name>.<key>" paths as deferred so that
-// resolveDeferredSubstitutions and applyDeferredPathsToBlueprint handle them correctly.
-func (h *BaseBlueprintHandler) deriveConfigMapDeferredPaths() {
-	bp := h.composedBlueprint
-	if bp == nil || len(bp.ConfigMaps) == 0 {
-		return
-	}
-
-	h.deferredPathsMu.Lock()
-	defer h.deferredPathsMu.Unlock()
-
-	for name, configMap := range bp.ConfigMaps {
-		for key, value := range configMap {
-			if value != deferredPlaceholder {
-				continue
-			}
-			if h.deferredPaths == nil {
-				h.deferredPaths = make(map[string]bool)
-			}
-			h.deferredPaths["configmaps."+name+"."+key] = true
-		}
-	}
-}
-
-// getMergedTemplateData returns template file contents from all loaded blueprint sources merged
-// into a single map. Used by the evaluator when resolving yaml() and similar file-based
-// expressions so OCI-loaded blueprints resolve from in-memory template data. When no loaders
-// have template data, falls back to loading from the runtime template root.
-func (h *BaseBlueprintHandler) getMergedTemplateData() map[string][]byte {
-	merged := make(map[string][]byte)
-	for _, loader := range h.sourceBlueprintLoaders {
-		data := loader.GetTemplateData()
-		for k, v := range data {
-			merged[k] = v
-		}
-	}
-	if len(merged) == 0 && h.runtime != nil && h.runtime.TemplateRoot != "" {
-		if _, err := h.shims.Stat(h.runtime.TemplateRoot); err == nil {
-			loader := NewBlueprintLoader(h.runtime, h.artifactBuilder)
-			if loadErr := loader.Load("template", ""); loadErr == nil {
-				for k, v := range loader.GetTemplateData() {
-					merged[k] = v
-				}
-			}
-		}
-	}
-	return merged
-}
-
-// loadInitBlueprints loads blueprints specified via --blueprint flag before the user blueprint
-// is loaded. This ensures the blueprint metadata names are available when creating the minimal
-// blueprint. Each blueprint is loaded and stored with a temporary name derived from the URL,
-// which will be replaced with the actual metadata name during composition.
-func (h *BaseBlueprintHandler) loadInitBlueprints() error {
-	if len(h.initBlueprintURLs) == 0 {
-		return nil
-	}
-
-	var wg sync.WaitGroup
-	var mu sync.Mutex
-	var errs []error
-
-	for _, url := range h.initBlueprintURLs {
-		if url == "" {
-			continue
-		}
-		if !strings.HasPrefix(url, "oci://") {
-			continue
-		}
-
-		wg.Add(1)
-		go func(blueprintURL string) {
-			defer wg.Done()
-
-			tempName := h.getTempSourceName(blueprintURL)
-			loader := NewBlueprintLoader(h.runtime, h.artifactBuilder)
-			if err := loader.Load(tempName, blueprintURL); err != nil {
-				mu.Lock()
-				errs = append(errs, fmt.Errorf("failed to load init blueprint '%s': %w", blueprintURL, err))
-				mu.Unlock()
-				return
-			}
-
-			bp := loader.GetBlueprint()
-			if bp != nil && bp.Metadata.Name != "" {
-				useMetadataName := bp.Metadata.Name != "template" || h.hasLocalTemplate()
-				storageKey := tempName
-				if useMetadataName {
-					storageKey = bp.Metadata.Name
-					for i := range bp.Sources {
-						if bp.Sources[i].Name == tempName {
-							bp.Sources[i].Name = bp.Metadata.Name
-							break
-						}
-					}
-					for i := range bp.TerraformComponents {
-						if bp.TerraformComponents[i].Source == tempName {
-							bp.TerraformComponents[i].Source = bp.Metadata.Name
-						}
-					}
-					for i := range bp.Kustomizations {
-						if bp.Kustomizations[i].Source == tempName {
-							bp.Kustomizations[i].Source = bp.Metadata.Name
-						}
-					}
-				}
-				mu.Lock()
-				if _, exists := h.sourceBlueprintLoaders[storageKey]; !exists {
-					h.sourceBlueprintLoaders[storageKey] = loader
-				}
-				mu.Unlock()
-			}
-		}(url)
-	}
-
-	wg.Wait()
-
-	if len(errs) > 0 {
-		return errors.Join(errs...)
-	}
-
-	return nil
-}
-
-// getTempSourceName generates a temporary source name from a URL for loading purposes.
-// This is only used during initial loading; the actual metadata name will be used after loading.
-// Uses artifact.ParseOCIReference for OCI URLs; returns "init-blueprint" when parsing fails or URL is not OCI.
-func (h *BaseBlueprintHandler) getTempSourceName(url string) string {
-	info, _ := artifact.ParseOCIReference(url)
-	if info != nil {
-		return info.Name
-	}
-	return "init-blueprint"
-}
-
-// hasLocalTemplate returns true when the runtime has a TemplateRoot and that directory exists.
-// When false, init OCI blueprints with metadata.name "template" are stored under URL-derived name
-// so the name "template" is not introduced without a local _template.
-func (h *BaseBlueprintHandler) hasLocalTemplate() bool {
-	if h.runtime == nil || h.runtime.TemplateRoot == "" {
-		return false
-	}
-	_, err := h.shims.Stat(h.runtime.TemplateRoot)
-	return err == nil
-}
-
-// loadUser initializes and loads the user blueprint from the config root directory. The user
-// blueprint (blueprint.yaml in the context folder) acts as the final override layer in composition,
-// allowing users to select specific components, override values, and add custom configurations.
-func (h *BaseBlueprintHandler) loadUser() error {
-	h.userBlueprintLoader = NewBlueprintLoader(h.runtime, h.artifactBuilder)
-	return h.userBlueprintLoader.Load("user", "")
-}
-
-// loadSources iterates through the user blueprint's sources array and loads each source.
-// A blueprint's own facets under contexts/_template/ are the thing being authored, not a source, so the
-// local _template is loaded whenever it exists and the load is not an init-with-URLs flow — independent
-// of whether the sources list is empty. Listing sources (e.g. a downstream blueprint layering on core)
-// therefore no longer silently drops the blueprint's own facets. Sources with name "template" are loaded
-// from the local _template directory; sources with OCI URLs are loaded from the registry. The explicit
-// load is a no-op when the local template is already loaded, so listing "template" alongside other
-// sources still works. Sources are loaded in parallel. After loading direct sources, it recursively loads
-// any sources referenced by those blueprints. When the user blueprint is nil (e.g. no blueprint.yaml
-// yet), the local template is loaded if present so initial composition produces kustomizations to apply.
-// During an init-with-URLs flow the local template is left to loadInitBlueprints, which owns the template
-// name in that path.
-func (h *BaseBlueprintHandler) loadSources() error {
-	userBp := h.userBlueprintLoader.GetBlueprint()
-	if userBp == nil {
-		if h.runtime != nil && h.runtime.TemplateRoot != "" {
-			if _, err := h.shims.Stat(h.runtime.TemplateRoot); err == nil {
-				loader := NewBlueprintLoader(h.runtime, h.artifactBuilder)
-				if loadErr := loader.Load("template", ""); loadErr == nil && loader.GetBlueprint() != nil {
-					h.sourceBlueprintLoaders["template"] = loader
-				}
-			}
-		}
-		return nil
-	}
-
-	if len(h.initBlueprintURLs) == 0 && h.runtime != nil && h.runtime.TemplateRoot != "" {
-		if _, err := h.shims.Stat(h.runtime.TemplateRoot); err == nil {
-			if _, exists := h.sourceBlueprintLoaders["template"]; !exists {
-				loader := NewBlueprintLoader(h.runtime, h.artifactBuilder)
-				if loadErr := loader.Load("template", ""); loadErr == nil && loader.GetBlueprint() != nil {
-					h.sourceBlueprintLoaders["template"] = loader
-				}
-			}
-		}
-	}
-
-	var wg sync.WaitGroup
-	var mu sync.Mutex
-	var errs []error
-	claimed := make(map[string]bool)
-
-	for _, source := range userBp.Sources {
-		if source.Name == "" {
-			continue
-		}
-		mu.Lock()
-		_, exists := h.sourceBlueprintLoaders[source.Name]
-		if exists || claimed[source.Name] {
-			mu.Unlock()
-			continue
-		}
-		claimed[source.Name] = true
-		mu.Unlock()
-
-		wg.Add(1)
-		go func(src blueprintv1alpha1.Source) {
-			defer wg.Done()
-
-			loader := NewBlueprintLoader(h.runtime, h.artifactBuilder)
-			var sourceURL string
-			if src.Name == "template" {
-				sourceURL = ""
-			} else if strings.HasPrefix(src.Url, "oci://") {
-				sourceURL = src.Url
-			} else {
-				return
-			}
-
-			if err := loader.Load(src.Name, sourceURL); err != nil {
-				mu.Lock()
-				errs = append(errs, fmt.Errorf("failed to load source '%s': %w", src.Name, err))
-				mu.Unlock()
-				return
-			}
-
-			mu.Lock()
-			if _, exists := h.sourceBlueprintLoaders[src.Name]; !exists {
-				h.sourceBlueprintLoaders[src.Name] = loader
-			}
-			mu.Unlock()
-		}(source)
-	}
-
-	wg.Wait()
-
-	if len(errs) > 0 {
-		return errors.Join(errs...)
-	}
-
-	return h.loadNestedSources()
-}
-
-// loadNestedSources recursively loads sources from already-loaded source blueprints until no new
-// sources are discovered. This ensures sources referenced within OCI blueprints are also loaded.
-func (h *BaseBlueprintHandler) loadNestedSources() error {
-	processed := make(map[string]bool)
-
-	for {
-		var newSources []blueprintv1alpha1.Source
-
-		for name, loader := range h.sourceBlueprintLoaders {
-			if processed[name] {
-				continue
-			}
-			processed[name] = true
-
-			bp := loader.GetBlueprint()
-			if bp == nil {
-				continue
-			}
-
-			for _, source := range bp.Sources {
-				if source.Name == "" {
-					continue
-				}
-				if source.Name == "template" && !strings.HasPrefix(source.Url, "oci://") {
-					continue
-				}
-				if _, exists := h.sourceBlueprintLoaders[source.Name]; exists {
-					continue
-				}
-				if !strings.HasPrefix(source.Url, "oci://") {
-					continue
-				}
-				newSources = append(newSources, source)
-			}
-		}
-
-		if len(newSources) == 0 {
-			break
-		}
-
-		var wg sync.WaitGroup
-		var mu sync.Mutex
-		var errs []error
-
-		for _, source := range newSources {
-			wg.Add(1)
-			go func(src blueprintv1alpha1.Source) {
-				defer wg.Done()
-
-				loader := NewBlueprintLoader(h.runtime, h.artifactBuilder)
-				if err := loader.Load(src.Name, src.Url); err != nil {
-					mu.Lock()
-					errs = append(errs, fmt.Errorf("failed to load source '%s': %w", src.Name, err))
-					mu.Unlock()
-					return
-				}
-
-				mu.Lock()
-				if _, exists := h.sourceBlueprintLoaders[src.Name]; !exists {
-					h.sourceBlueprintLoaders[src.Name] = loader
-				}
-				mu.Unlock()
-			}(source)
-		}
-
-		wg.Wait()
-
-		if len(errs) > 0 {
-			return errors.Join(errs...)
-		}
-	}
-
-	return nil
-}
-
-// processAndCompose merges facets from all loaded source blueprints into a composed blueprint.
-// Loaders are processed in dependency order (see orderLoadersByDependency) with each source's facets
-// evaluated against the scope accumulated from the sources before it, so a downstream source can read
-// config an upstream source derived. After facet processing, sources are merged in the order:
-// initializer blueprints, other sources, then the user blueprint as a final override.
-// The final scope layers raw context values (config.yaml/schema defaults) as the base and the
-// ordinal-resolved facet scope as the overlay, so a facet's derived value always wins over an
-// unset or default context value instead of being silently clobbered by it.
-// The composed blueprint is updated on the handler. Terraform input expressions are fully evaluated
-// against the merged scope if possible. If a Terraform provider is configured, the composed components
-// are registered with the provider. Any errors during facet processing or composition are returned.
+// processAndCompose processes the facets of every loaded source and composes the result. It processes
+// the loaders in dependency order, and each source sees the scope of the sources before it. It merges
+// the init blueprints, then the other sources, then the user blueprint. In the final scope, the facet
+// scope overlays the raw context values, so a derived facet value wins over a default. It evaluates
+// the terraform inputs against that scope and stores the composed blueprint on the handler.
 func (h *BaseBlueprintHandler) processAndCompose() error {
 	repositoryScope := h.getRepositoryScopeValues()
 
@@ -995,90 +463,14 @@ func (h *BaseBlueprintHandler) processAndCompose() error {
 		}
 	}
 
-	var loadersToProcess []BlueprintLoader
-	loaderNames := make(map[BlueprintLoader]string)
+	loadersToProcess, loaderNames := h.loadersWithBlueprints()
 
-	for name, loader := range h.sourceBlueprintLoaders {
-		if loader.GetBlueprint() != nil {
-			loadersToProcess = append(loadersToProcess, loader)
-			loaderNames[loader] = name
-		}
-	}
-	if h.userBlueprintLoader != nil && h.userBlueprintLoader.GetBlueprint() != nil {
-		loadersToProcess = append(loadersToProcess, h.userBlueprintLoader)
-		loaderNames[h.userBlueprintLoader] = h.userBlueprintLoader.GetSourceName()
-	}
-
-	collectedScopes := make(map[string]map[string]any)
-
-	if concrete, ok := h.processor.(*BaseBlueprintProcessor); ok {
-		concrete.ResetExcludedFacets()
-	}
-
-	userLoaderName := ""
-	if h.userBlueprintLoader != nil {
-		userLoaderName = loaderNames[h.userBlueprintLoader]
-	}
-	if concrete, ok := h.processor.(*BaseBlueprintProcessor); ok {
-		concrete.SetExtraScope(repositoryScope)
-	}
-	var sourceSets []SourceFacetSet
-	for depth, loader := range orderLoadersByDependency(loadersToProcess, loaderNames, userLoaderName) {
-		facets := loader.GetFacets()
-		if len(facets) == 0 {
-			continue
-		}
-		sourceSets = append(sourceSets, SourceFacetSet{
-			Name:   loaderNames[loader],
-			Depth:  depth,
-			Target: loader.GetBlueprint(),
-			Facets: facets,
-		})
-	}
-	globalScope, err := h.processor.ProcessGlobally(sourceSets)
+	collectedScopes, err := h.processSourceFacets(loadersToProcess, loaderNames, repositoryScope)
 	if err != nil {
-		var reqErr *RequirementsError
-		if errors.As(err, &reqErr) {
-			return err
-		}
-		return fmt.Errorf("failed to process facets: %w", err)
-	}
-	if concrete, ok := h.processor.(*BaseBlueprintProcessor); ok {
-		h.deferredPathsMu.Lock()
-		for path := range concrete.GetDeferredPaths() {
-			h.deferredPaths[path] = true
-		}
-		h.deferredPathsMu.Unlock()
-	}
-	for _, src := range sourceSets {
-		collectedScopes[src.Name] = globalScope
+		return err
 	}
 
-	initLoaderNames := make([]string, 0, len(h.initBlueprintURLs))
-	for _, url := range h.initBlueprintURLs {
-		if url != "" && strings.HasPrefix(url, "oci://") {
-			initLoaderNames = append(initLoaderNames, h.getTempSourceName(url))
-		}
-	}
-	initNamesSet := make(map[string]bool)
-	for _, n := range initLoaderNames {
-		initNamesSet[n] = true
-	}
-
-	var loaders []BlueprintLoader
-	for _, loader := range loadersToProcess {
-		if initNamesSet[loader.GetSourceName()] {
-			loaders = append(loaders, loader)
-		}
-	}
-	for _, loader := range loadersToProcess {
-		if !initNamesSet[loader.GetSourceName()] {
-			loaders = append(loaders, loader)
-		}
-	}
-	if h.userBlueprintLoader != nil && h.userBlueprintLoader.GetBlueprint() != nil {
-		loaders = append(loaders, h.userBlueprintLoader)
-	}
+	loaders, initLoaderNames := h.compositionOrder(loadersToProcess)
 
 	var mergedScope map[string]any
 	if contextValues := h.getConfigValues(); contextValues != nil {
@@ -1120,24 +512,8 @@ func (h *BaseBlueprintHandler) processAndCompose() error {
 
 	h.deriveConfigMapDeferredPaths()
 
-	if h.runtime.Evaluator != nil {
-		for i := range h.composedBlueprint.TerraformComponents {
-			comp := h.composedBlueprint.TerraformComponents[i]
-			if comp.Inputs == nil {
-				continue
-			}
-			evaluated := make(map[string]any, len(comp.Inputs))
-			for key, value := range comp.Inputs {
-				result, err := EvaluateWithOrigins(
-					h.runtime.Evaluator, key, value, comp.InputOrigins, mergedScope, false,
-				)
-				if err != nil {
-					return fmt.Errorf("evaluate terraform inputs for component %q: %w", comp.GetID(), err)
-				}
-				evaluated[key] = normalizeDeferredValue(result)
-			}
-			h.composedBlueprint.TerraformComponents[i].Inputs = evaluated
-		}
+	if err := h.evaluateTerraformInputs(mergedScope); err != nil {
+		return err
 	}
 
 	h.clearLocalTemplateSource(h.composedBlueprint)
@@ -1155,95 +531,133 @@ func (h *BaseBlueprintHandler) processAndCompose() error {
 	return nil
 }
 
-// orderLoadersByDependency returns loaders sorted so that a source is processed before any source
-// that lists it in its blueprint's Sources, letting a downstream source's facets read config an
-// upstream source derived. It is a Kahn topological sort keyed by loader name; ready nodes are
-// drained alphabetically, with userLoaderName forced last (the final override layer), for a
-// deterministic order. Edges to names not present among the loaders are ignored, and a dependency
-// cycle falls back to appending the unresolved loaders in stable name order rather than dropping them.
-func orderLoadersByDependency(loaders []BlueprintLoader, names map[BlueprintLoader]string, userLoaderName string) []BlueprintLoader {
-	byName := make(map[string]BlueprintLoader, len(loaders))
-	for _, l := range loaders {
-		byName[names[l]] = l
+// loadersWithBlueprints returns the source loaders that hold a blueprint, then the user loader when it
+// holds one, along with each loader's source name.
+func (h *BaseBlueprintHandler) loadersWithBlueprints() ([]BlueprintLoader, map[BlueprintLoader]string) {
+	var loadersToProcess []BlueprintLoader
+	loaderNames := make(map[BlueprintLoader]string)
+
+	for name, loader := range h.sourceBlueprintLoaders {
+		if loader.GetBlueprint() != nil {
+			loadersToProcess = append(loadersToProcess, loader)
+			loaderNames[loader] = name
+		}
+	}
+	if h.userBlueprintLoader != nil && h.userBlueprintLoader.GetBlueprint() != nil {
+		loadersToProcess = append(loadersToProcess, h.userBlueprintLoader)
+		loaderNames[h.userBlueprintLoader] = h.userBlueprintLoader.GetSourceName()
+	}
+	return loadersToProcess, loaderNames
+}
+
+// processSourceFacets runs global facet processing over the loaders in dependency order, with
+// repositoryScope as extra scope. It copies the processor's deferred paths onto the handler and returns
+// the resolved scope keyed by each source that contributed facets. A RequirementsError is returned
+// unwrapped.
+func (h *BaseBlueprintHandler) processSourceFacets(loadersToProcess []BlueprintLoader, loaderNames map[BlueprintLoader]string, repositoryScope map[string]any) (map[string]map[string]any, error) {
+	collectedScopes := make(map[string]map[string]any)
+
+	if concrete, ok := h.processor.(*BaseBlueprintProcessor); ok {
+		concrete.ResetExcludedFacets()
 	}
 
-	indegree := make(map[string]int, len(loaders))
-	for _, l := range loaders {
-		indegree[names[l]] = 0
+	userLoaderName := ""
+	if h.userBlueprintLoader != nil {
+		userLoaderName = loaderNames[h.userBlueprintLoader]
 	}
-	dependents := make(map[string][]string)
-	for _, l := range loaders {
-		name := names[l]
-		bp := l.GetBlueprint()
-		if bp == nil {
+	if concrete, ok := h.processor.(*BaseBlueprintProcessor); ok {
+		concrete.SetExtraScope(repositoryScope)
+	}
+	var sourceSets []SourceFacetSet
+	for depth, loader := range orderLoadersByDependency(loadersToProcess, loaderNames, userLoaderName) {
+		facets := loader.GetFacets()
+		if len(facets) == 0 {
 			continue
 		}
-		seen := make(map[string]bool)
-		for _, s := range bp.Sources {
-			dep := s.Name
-			if dep == "" || dep == name || seen[dep] {
-				continue
-			}
-			if _, ok := byName[dep]; !ok {
-				continue
-			}
-			seen[dep] = true
-			dependents[dep] = append(dependents[dep], name)
-			indegree[name]++
-		}
-	}
-
-	sortReady := func(s []string) {
-		sort.Slice(s, func(i, j int) bool {
-			if (s[i] == userLoaderName) != (s[j] == userLoaderName) {
-				return s[j] == userLoaderName
-			}
-			return s[i] < s[j]
+		sourceSets = append(sourceSets, SourceFacetSet{
+			Name:   loaderNames[loader],
+			Depth:  depth,
+			Target: loader.GetBlueprint(),
+			Facets: facets,
 		})
 	}
+	globalScope, err := h.processor.ProcessGlobally(sourceSets)
+	if err != nil {
+		var reqErr *RequirementsError
+		if errors.As(err, &reqErr) {
+			return nil, err
+		}
+		return nil, werror.Wrap(err, "failed to process facets")
+	}
+	if concrete, ok := h.processor.(*BaseBlueprintProcessor); ok {
+		h.deferredPathsMu.Lock()
+		for path := range concrete.GetDeferredPaths() {
+			h.deferredPaths[path] = true
+		}
+		h.deferredPathsMu.Unlock()
+	}
+	for _, src := range sourceSets {
+		collectedScopes[src.Name] = globalScope
+	}
+	return collectedScopes, nil
+}
 
-	var ready []string
-	for name, d := range indegree {
-		if d == 0 {
-			ready = append(ready, name)
+// compositionOrder returns the loaders in composition order: initializer blueprints, the other sources,
+// then the user blueprint. It also returns the source names of the OCI initializer blueprints.
+func (h *BaseBlueprintHandler) compositionOrder(loadersToProcess []BlueprintLoader) ([]BlueprintLoader, []string) {
+	initLoaderNames := make([]string, 0, len(h.initBlueprintURLs))
+	for _, url := range h.initBlueprintURLs {
+		if url != "" && strings.HasPrefix(url, "oci://") {
+			initLoaderNames = append(initLoaderNames, h.getTempSourceName(url))
 		}
 	}
-	sortReady(ready)
+	initNamesSet := make(map[string]bool)
+	for _, n := range initLoaderNames {
+		initNamesSet[n] = true
+	}
 
-	order := make([]BlueprintLoader, 0, len(loaders))
-	processed := make(map[string]bool, len(loaders))
-	for len(ready) > 0 {
-		name := ready[0]
-		ready = ready[1:]
-		if processed[name] {
+	var loaders []BlueprintLoader
+	for _, loader := range loadersToProcess {
+		if initNamesSet[loader.GetSourceName()] {
+			loaders = append(loaders, loader)
+		}
+	}
+	for _, loader := range loadersToProcess {
+		if !initNamesSet[loader.GetSourceName()] {
+			loaders = append(loaders, loader)
+		}
+	}
+	if h.userBlueprintLoader != nil && h.userBlueprintLoader.GetBlueprint() != nil {
+		loaders = append(loaders, h.userBlueprintLoader)
+	}
+	return loaders, initLoaderNames
+}
+
+// evaluateTerraformInputs evaluates each composed terraform component's inputs against scope and
+// replaces them with the results. Deferred values keep their expressions. It does nothing when the
+// runtime has no evaluator.
+func (h *BaseBlueprintHandler) evaluateTerraformInputs(scope map[string]any) error {
+	if h.runtime.Evaluator == nil {
+		return nil
+	}
+	for i := range h.composedBlueprint.TerraformComponents {
+		comp := h.composedBlueprint.TerraformComponents[i]
+		if comp.Inputs == nil {
 			continue
 		}
-		processed[name] = true
-		order = append(order, byName[name])
-		for _, dependent := range dependents[name] {
-			indegree[dependent]--
-			if indegree[dependent] == 0 {
-				ready = append(ready, dependent)
+		evaluated := make(map[string]any, len(comp.Inputs))
+		for key, value := range comp.Inputs {
+			result, err := EvaluateWithOrigins(
+				h.runtime.Evaluator, key, value, comp.InputOrigins, scope, false,
+			)
+			if err != nil {
+				return werror.Wrap(err, "evaluate terraform inputs for component %q", comp.GetID())
 			}
+			evaluated[key] = normalizeDeferredValue(result)
 		}
-		sortReady(ready)
+		h.composedBlueprint.TerraformComponents[i].Inputs = evaluated
 	}
-
-	if len(order) < len(loaders) {
-		remaining := make([]string, 0, len(loaders)-len(order))
-		for _, l := range loaders {
-			if name := names[l]; !processed[name] {
-				remaining = append(remaining, name)
-			}
-		}
-		sortReady(remaining)
-		for _, name := range remaining {
-			order = append(order, byName[name])
-			processed[name] = true
-		}
-	}
-
-	return order
+	return nil
 }
 
 // getConfigValues retrieves the current context's configuration values from the ConfigHandler.
@@ -1264,210 +678,27 @@ func (h *BaseBlueprintHandler) getConfigValues() map[string]any {
 	return values
 }
 
-// getRepositoryScopeValues returns repository values for expression/config scopes, excluding secrets.
-// The "name" field is the blueprint metadata name, which is also the name Windsor uses when creating
-// the Flux GitRepository resource for this blueprint's repository.
-func (h *BaseBlueprintHandler) getRepositoryScopeValues() map[string]any {
-	repo := h.getEffectiveRepository()
-	if repo.Url == "" {
-		return nil
-	}
+// =============================================================================
+// Helpers
+// =============================================================================
 
-	var blueprintName string
-	if h.runtime != nil {
-		blueprintName = h.runtime.ContextName
-	}
-
-	repositoryValue := map[string]any{
-		"name": blueprintName,
-		"url":  repo.Url,
-	}
-	refValue := make(map[string]any)
-	if repo.Ref.Branch != "" {
-		refValue["branch"] = repo.Ref.Branch
-	}
-	if repo.Ref.Tag != "" {
-		refValue["tag"] = repo.Ref.Tag
-	}
-	if repo.Ref.SemVer != "" {
-		refValue["semver"] = repo.Ref.SemVer
-	}
-	if repo.Ref.Name != "" {
-		refValue["name"] = repo.Ref.Name
-	}
-	if repo.Ref.Commit != "" {
-		refValue["commit"] = repo.Ref.Commit
-	}
-	if len(refValue) > 0 {
-		repositoryValue["ref"] = refValue
-	}
-
-	return map[string]any{
-		"repository": repositoryValue,
-	}
-}
-
-// getEffectiveRepository resolves repository values from blueprint/runtime defaults for scope injection.
-func (h *BaseBlueprintHandler) getEffectiveRepository() blueprintv1alpha1.Repository {
-	var repo blueprintv1alpha1.Repository
-	if h.composedBlueprint != nil && h.composedBlueprint.Repository.Url != "" {
-		repo = h.composedBlueprint.Repository
-	} else if h.userBlueprintLoader != nil && h.userBlueprintLoader.GetBlueprint() != nil {
-		repo = h.userBlueprintLoader.GetBlueprint().Repository
-	}
-	return h.resolveRepositoryDefaults(repo, false)
-}
-
-// resolveRepositoryDefaults applies URL/ref/secret defaults to repository metadata.
-// When includeSecret is false, SecretName is always removed from the returned value.
-func (h *BaseBlueprintHandler) resolveRepositoryDefaults(repo blueprintv1alpha1.Repository, includeSecret bool) blueprintv1alpha1.Repository {
-	devMode := h.runtime != nil && h.runtime.ConfigHandler != nil && h.runtime.ConfigHandler.GetBool("dev")
-	if repo.Url == "" && devMode && h.runtime != nil && h.runtime.ConfigHandler != nil {
-		domain := h.runtime.ConfigHandler.GetString("dns.domain", "test")
-		folder := h.shims.FilepathBase(h.runtime.ProjectRoot)
-		if domain != "" && folder != "" && folder != "." {
-			repo.Url = fmt.Sprintf("http://git.%s/git/%s", domain, folder)
-		}
-	}
-	if repo.Url == "" && h.runtime != nil && h.runtime.Shell != nil {
-		if gitURL, err := h.runtime.Shell.ExecSilent("git", "config", "--get", "remote.origin.url"); err == nil && gitURL != "" {
-			repo.Url = runtimegit.NormalizeRepositoryURL(gitURL)
-		}
-	}
-	if repo.Url != "" && repo.Ref == (blueprintv1alpha1.Reference{}) {
-		repo.Ref = blueprintv1alpha1.Reference{Branch: "main"}
-	}
-	if repo.Url != "" && includeSecret && devMode && repo.SecretName == nil {
-		secretName := "flux-system"
-		repo.SecretName = &secretName
-	}
-	if !includeSecret {
-		repo.SecretName = nil
-	}
-	return repo
-}
-
-// setRepositoryDefaults sets default repository values on the composed blueprint when
-// Repository.Url is empty. In dev mode uses http://git.<dns.domain>/git/<project>;
-// otherwise uses git remote origin URL. Also sets Ref.Branch to main and, in dev mode,
-// SecretName to flux-system when not already set.
-func (h *BaseBlueprintHandler) setRepositoryDefaults() {
-	if h.composedBlueprint == nil || h.runtime == nil {
-		return
-	}
-	h.composedBlueprint.Repository = h.resolveRepositoryDefaults(h.composedBlueprint.Repository, true)
-}
-
-// clearLocalTemplateSource clears Source on terraform components and kustomizations when Source
-// is "template" and the template source has no URL (local template), or when Source is "user".
-// The composed blueprint does not define a "user" source, so components tagged by user facet
-// processing must be treated as local (project path) rather than sourced modules (scratch path).
-func (h *BaseBlueprintHandler) clearLocalTemplateSource(blueprint *blueprintv1alpha1.Blueprint) {
-	if blueprint == nil {
-		return
-	}
-	var templateIsLocal bool
-	for _, s := range blueprint.Sources {
-		if blueprintv1alpha1.IsLocalTemplateSource(s) {
-			templateIsLocal = true
-			break
-		}
-	}
-	for i := range blueprint.TerraformComponents {
-		if templateIsLocal && blueprint.TerraformComponents[i].Source == "template" {
-			blueprint.TerraformComponents[i].Source = ""
-		}
-		if blueprint.TerraformComponents[i].Source == "user" {
-			blueprint.TerraformComponents[i].Source = ""
-		}
-	}
-	for i := range blueprint.Kustomizations {
-		if templateIsLocal && blueprint.Kustomizations[i].Source == "template" {
-			blueprint.Kustomizations[i].Source = ""
-		}
-		if blueprint.Kustomizations[i].Source == "user" {
-			blueprint.Kustomizations[i].Source = ""
-		}
-	}
-}
-
-// resolveComponentSource transforms a component's Source field from a source name (e.g., "local")
-// into a fully qualified URL based on the matching entry in the blueprint's Sources array. For OCI
-// sources, the URL is formatted as oci://registry/repo:tag//path/prefix/component.path. For Git
-// sources, the URL is formatted as url//path/prefix/component.path?ref=reference. Components
-// without a matching source or with an already-resolved URL are left unchanged.
-func (h *BaseBlueprintHandler) resolveComponentSource(component *blueprintv1alpha1.TerraformComponent) {
-	if h.composedBlueprint == nil || component.Source == "" {
-		return
-	}
-
-	for _, source := range h.composedBlueprint.Sources {
-		if component.Source != source.Name {
+// latestStableSemver returns the highest non-prerelease semver among tags, alongside its original tag
+// string (preserving any "v" prefix) for rebuilding the URL. Non-semver and prerelease tags are
+// ignored. Reports false when no stable semver tag is present.
+func latestStableSemver(tags []string) (string, *semver.Version, bool) {
+	var best *semver.Version
+	var bestTag string
+	for _, t := range tags {
+		v, err := semver.NewVersion(t)
+		if err != nil || v.Prerelease() != "" {
 			continue
 		}
-
-		pathPrefix := source.PathPrefix
-		if pathPrefix == "" {
-			pathPrefix = "terraform"
+		if best == nil || v.GreaterThan(best) {
+			best = v
+			bestTag = t
 		}
-
-		if source.Name == "template" && source.Url == "" {
-			component.Source = ""
-			return
-		}
-
-		ref := h.getSourceRef(source)
-
-		if strings.HasPrefix(source.Url, "oci://") {
-			baseURL := source.Url
-			if ref != "" {
-				ociPrefix := "oci://"
-				urlWithoutProtocol := baseURL[len(ociPrefix):]
-				if !strings.Contains(urlWithoutProtocol, ":") {
-					baseURL = baseURL + ":" + ref
-				}
-			}
-			component.Source = baseURL + "//" + pathPrefix + "/" + component.Path
-		} else {
-			component.Source = source.Url + "//" + pathPrefix + "/" + component.Path + "?ref=" + ref
-		}
-		return
 	}
-}
-
-// getSourceRef returns the reference (commit, semver, tag, or branch) for a source. It checks
-// fields in priority order: Commit → SemVer → Tag → Branch, returning an empty string if none
-// are specified. This matches the priority used by the terraform provisioner for consistency.
-func (h *BaseBlueprintHandler) getSourceRef(source blueprintv1alpha1.Source) string {
-	if source.Ref.Commit != "" {
-		return source.Ref.Commit
-	}
-	if source.Ref.SemVer != "" {
-		return source.Ref.SemVer
-	}
-	if source.Ref.Tag != "" {
-		return source.Ref.Tag
-	}
-	if source.Ref.Branch != "" {
-		return source.Ref.Branch
-	}
-	return ""
-}
-
-// resolveComponentFullPath computes and sets the absolute filesystem path where a terraform
-// component's module will be located. Named components or those with a Source are placed in
-// the Windsor scratch directory under contexts/<context>/terraform/<name|path>. Local components
-// without a source are resolved to the project's terraform/<path> directory. This path is used
-// by module resolvers and the terraform provisioner to locate module files.
-func (h *BaseBlueprintHandler) resolveComponentFullPath(component *blueprintv1alpha1.TerraformComponent) {
-	componentID := component.GetID()
-
-	useScratchPath := component.Name != "" || component.Source != ""
-	if useScratchPath {
-		component.FullPath = filepath.Join(h.runtime.WindsorScratchPath, "terraform", componentID)
-	} else {
-		component.FullPath = filepath.Join(h.runtime.ProjectRoot, "terraform", componentID)
-	}
+	return bestTag, best, best != nil
 }
 
 // =============================================================================

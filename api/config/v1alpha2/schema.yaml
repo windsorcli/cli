@@ -1,0 +1,212 @@
+$schema: https://json-schema.org/draft/2020-12/schema
+type: object
+description: >-
+  Settings the Windsor CLI reads from a context. The CLI merges this fragment after every
+  blueprint schema. A blueprint can define the same settings, but each one must keep the type
+  given here. The Context type in this package matches this fragment field for field.
+properties:
+  id:
+    type: string
+    description: Context ID. The CLI generates one when it is empty.
+  platform:
+    type: string
+    enum:
+      - none
+      - docker
+      - incus
+      - metal
+      - hetzner
+      - aws
+      - azure
+      - gcp
+      - hyperv
+      - vsphere
+    description: Platform the context deploys to.
+  dev:
+    type: boolean
+    description: Treat the context as a local development context.
+  environment:
+    type: object
+    additionalProperties:
+      type: string
+    description: Environment variables that the CLI exports for the context.
+  secrets:
+    type: object
+    properties:
+      sops:
+        type: object
+        properties:
+          enabled:
+            type: boolean
+            description: Decrypt SOPS-encrypted secrets for the context.
+      onepassword:
+        type: object
+        properties:
+          vaults:
+            type: object
+            additionalProperties:
+              type: object
+              properties:
+                id:
+                  type: string
+                name:
+                  type: string
+                url:
+                  type: string
+            description: 1Password vaults, keyed by the alias that secret() references.
+  aws:
+    type: object
+    properties:
+      profile:
+        type: string
+      region:
+        type: string
+      endpoint_url:
+        type: string
+      mwaa_endpoint:
+        type: string
+      s3_hostname:
+        type: string
+  azure:
+    type: object
+    properties:
+      environment:
+        type: string
+      kubelogin_mode:
+        type: string
+      region:
+        type: string
+      subscription_id:
+        type: string
+      tenant_id:
+        type: string
+  gcp:
+    type: object
+    properties:
+      credentials_path:
+        type: string
+      project_id:
+        type: string
+      quota_project:
+        type: string
+  vsphere:
+    type: object
+    properties:
+      server:
+        type: string
+      user:
+        type: string
+      insecure:
+        type: boolean
+  terraform:
+    type: object
+    properties:
+      enabled:
+        type: boolean
+      backend:
+        type: object
+        properties:
+          type:
+            type: string
+          prefix:
+            type: string
+          s3:
+            type: object
+            properties:
+              bucket:
+                type: string
+          azurerm:
+            type: object
+            properties:
+              container_name:
+                type: string
+              storage_account_name:
+                type: string
+          gcs:
+            type: object
+            properties:
+              bucket:
+                type: string
+          kubernetes:
+            type: object
+      lock:
+        type: object
+        properties:
+          timeout:
+            type: string
+            description: How long a command waits for the stack lock, as a Go duration.
+  workstation:
+    type: object
+    properties:
+      runtime:
+        type: string
+        enum:
+          - colima
+          - docker-desktop
+          - docker
+        description: Host runtime for local clusters. VM-backed (colima, docker-desktop) or plain engine (docker).
+      address:
+        type: string
+        description: Workstation address, used for SSH to configure workstation networking.
+      arch:
+        type: string
+        enum:
+          - amd64
+          - arm64
+        description: CPU architecture. The host architecture when a workstation is enabled.
+      dns:
+        type: object
+        properties:
+          address:
+            type: string
+            description: DNS server address resolved from workstation infrastructure.
+  dns:
+    type: object
+    properties:
+      domain:
+        type: string
+      enabled:
+        type: boolean
+  network:
+    type: object
+    properties:
+      cidr_block:
+        type: string
+      loadbalancer_ips:
+        type: object
+        properties:
+          start:
+            type: string
+          end:
+            type: string
+  cluster:
+    type: object
+    properties:
+      driver:
+        type: string
+  docker:
+    type: object
+    properties:
+      enabled:
+        type: boolean
+      registry_url:
+        type: string
+      registries:
+        type: object
+        additionalProperties:
+          type: object
+          properties:
+            remote:
+              type: string
+              description: Upstream registry URL. A registry without one is a local registry.
+            hostport:
+              type: integer
+              description: Host port of a local registry.
+        description: Registries, keyed by registry host.
+  gitops:
+    type: object
+    properties:
+      mode:
+        type: string
+      namespace:
+        type: string

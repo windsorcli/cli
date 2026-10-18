@@ -348,4 +348,3 @@ func TestPlan_FooterHintAppearsForNewComponents(t *testing.T) {
 		t.Errorf("expected 'for full diffs' phrase in footer, got:\n%s", out)
 	}
 }
-

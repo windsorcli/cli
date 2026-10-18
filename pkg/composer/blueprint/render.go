@@ -1,3 +1,8 @@
+// The RenderForDisplay function prepares a composed resource for CLI output.
+// It provides a copy of the resource without the fields that are not for display.
+// It replaces deferred values with a placeholder unless the caller asks for raw output.
+// A resource type that it does not support passes through unchanged.
+
 package blueprint
 
 import (
@@ -5,7 +10,16 @@ import (
 	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
 )
 
+// =============================================================================
+// Constants
+// =============================================================================
+
+// deferredPlaceholder replaces a deferred value in display output.
 const deferredPlaceholder = "<deferred>"
+
+// =============================================================================
+// Helpers
+// =============================================================================
 
 // RenderForDisplay returns a copy of resource ready for CLI output: composed-blueprint fields not
 // meant for display (Messages, resolved separately by GenerateResolved for bootstrap/up to print)

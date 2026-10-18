@@ -20,7 +20,7 @@ var getCmd = &cobra.Command{
 	Long:  `Display Windsor resources. Currently supports listing contexts and printing the current context.`,
 	Annotations: map[string]string{
 		"docs.seealso": "[`list`](list.md), [`set`](set.md)",
-		"docs.source": "cmd/get.go",
+		"docs.source":  "cmd/get.go",
 	},
 }
 
@@ -37,7 +37,7 @@ var getContextsCmd = &cobra.Command{
 #   prod    aws       s3`,
 	Annotations: map[string]string{
 		"docs.seealso": "[`list`](list.md), [`set`](set.md)",
-		"docs.source": "cmd/get.go",
+		"docs.source":  "cmd/get.go",
 	},
 	SilenceUsage: true,
 	RunE: func(cmd *cobra.Command, args []string) error {
@@ -134,7 +134,7 @@ var getContextCmd = &cobra.Command{
 # → local`,
 	Annotations: map[string]string{
 		"docs.seealso": "[`set context`](set-context.md)",
-		"docs.source": "cmd/get.go",
+		"docs.source":  "cmd/get.go",
 	},
 	SilenceUsage: true,
 	RunE: func(cmd *cobra.Command, args []string) error {

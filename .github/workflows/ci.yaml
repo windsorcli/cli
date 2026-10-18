@@ -166,6 +166,26 @@ jobs:
           GOTOOLCHAIN: 'auto'
           GOFLAGS: '-buildvcs=false'
 
+  format-check:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7 renovate: depName=actions/setup-go
+        with:
+          go-version-file: go.mod
+
+      - name: Fail if gofmt would change a file
+        run: |
+          unformatted="$(git ls-files -z '*.go' | xargs -0 gofmt -l)"
+          if [ -n "$unformatted" ]; then
+            echo "::error::Go files are not gofmt-formatted. Run 'task fmt' locally and commit the result."
+            echo "$unformatted"
+            exit 1
+          fi
+
   docs-check:
     runs-on: ubuntu-latest
     steps:
@@ -254,7 +274,7 @@ jobs:
         shell: bash
 
       - name: Build artifacts (GoReleaser snapshot)
-        uses: goreleaser/goreleaser-action@f06c13b6b1a9625abc9e6e439d9c05a8f2190e94 # v7.2.3
+        uses: goreleaser/goreleaser-action@a4f02ab5355a589de60d917a659ce617ed19b3de # v7.3.0
         with:
           version: "~> v2"
           # chocolatey packaging rejects the snapshot version string
@@ -368,7 +388,7 @@ jobs:
         uses: anchore/sbom-action/download-syft@66cbf4bc1f1c0d2edc94016e65bc221b6bb0ad6c # v0.24.3
 
       - name: Run GoReleaser
-        uses: goreleaser/goreleaser-action@f06c13b6b1a9625abc9e6e439d9c05a8f2190e94 # v7.2.3
+        uses: goreleaser/goreleaser-action@a4f02ab5355a589de60d917a659ce617ed19b3de # v7.3.0
         with:
           version: "~> v2"
           args: release --clean ${{ steps.prerelease.outputs.prerelease == 'true' && '--skip=chocolatey,homebrew' || '' }}

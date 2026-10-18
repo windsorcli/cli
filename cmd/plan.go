@@ -48,7 +48,7 @@ windsor plan --summary --json
 windsor plan terraform cluster`,
 	Annotations: map[string]string{
 		"docs.seealso": "[`apply`](apply.md), [`show`](show.md), [`explain`](explain.md)",
-		"docs.source": "cmd/plan.go",
+		"docs.source":  "cmd/plan.go",
 	},
 	Args:         cobra.MaximumNArgs(1),
 	SilenceUsage: true,
@@ -156,7 +156,7 @@ var planTerraformCmd = &cobra.Command{
 	Use:     "terraform [component]",
 	Aliases: []string{"tf"},
 	Short:   "Plan Terraform changes.",
-	Long: `Stream 'terraform init' and 'terraform plan' for a specific component, or all components when no argument is given. Inherits --summary, --json, and --no-color from the parent 'plan' command.`,
+	Long:    `Stream 'terraform init' and 'terraform plan' for a specific component, or all components when no argument is given. Inherits --summary, --json, and --no-color from the parent 'plan' command.`,
 	Example: `# Stream the plan for one component
 windsor plan terraform cluster
 
@@ -173,7 +173,7 @@ windsor plan terraform cluster --output=json-plan | checkov -f -
 windsor plan terraform --output=json-plan`,
 	Annotations: map[string]string{
 		"docs.seealso": "[`plan`](plan.md), [`apply terraform`](apply-terraform.md), [`destroy terraform`](destroy-terraform.md)",
-		"docs.source": "cmd/plan.go",
+		"docs.source":  "cmd/plan.go",
 	},
 	Args:         cobra.MaximumNArgs(1),
 	SilenceUsage: true,
@@ -268,7 +268,7 @@ var planKustomizeCmd = &cobra.Command{
 	Use:     "kustomize [component]",
 	Aliases: []string{"k8s"},
 	Short:   "Plan Flux kustomization changes.",
-	Long: `Stream 'flux diff' for a specific kustomization, or all kustomizations when no argument is given. Inherits --summary, --json, and --no-color from the parent 'plan' command.`,
+	Long:    `Stream 'flux diff' for a specific kustomization, or all kustomizations when no argument is given. Inherits --summary, --json, and --no-color from the parent 'plan' command.`,
 	Example: `# Stream the diff for one kustomization
 windsor plan kustomize dns
 
@@ -276,7 +276,7 @@ windsor plan kustomize dns
 windsor plan kustomize --summary`,
 	Annotations: map[string]string{
 		"docs.seealso": "[`plan`](plan.md), [`apply kustomize`](apply-kustomize.md), [`destroy kustomize`](destroy-kustomize.md)",
-		"docs.source": "cmd/plan.go",
+		"docs.source":  "cmd/plan.go",
 	},
 	Args:         cobra.MaximumNArgs(1),
 	SilenceUsage: true,

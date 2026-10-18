@@ -1,15 +1,26 @@
+// The RequirementsError is the error for facet inputs that are required but not set.
+// It provides the operator-facing message that formatRequirementsError builds.
+// Callers detect it with errors.As and return it without more wrap frames.
+// The operator then sees only the message.
+
 package blueprint
 
-// RequirementsError signals that one or more required facet inputs are not set. It carries the
-// formatted operator-facing message produced by formatRequirementsError. Pipeline callers that
-// would otherwise wrap blueprint errors with internal context (project's "failed to load
-// blueprint data", handler's "failed to compose blueprint" and "failed to process facets for
-// 'X'") detect this type via errors.As and pass it through unwrapped, so the operator sees the
-// prose alone instead of a chain of internal frame names.
+// =============================================================================
+// Types
+// =============================================================================
+
+// RequirementsError is the error for required facet inputs that are not set. Callers that wrap
+// blueprint errors detect it with errors.As and return it unwrapped, so the operator sees only
+// the message that formatRequirementsError builds.
 type RequirementsError struct {
 	Message string
 }
 
+// =============================================================================
+// Public Methods
+// =============================================================================
+
+// Error returns the operator-facing message.
 func (e *RequirementsError) Error() string {
 	return e.Message
 }

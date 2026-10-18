@@ -75,7 +75,7 @@ func (e *VsphereEnvPrinter) GetEnvVars() (map[string]string, error) {
 		envVars["VSPHERE_REST_SESSION_PATH"] = filepath.ToSlash(filepath.Join(vsphereDir, "rest_sessions"))
 	}
 
-	cfg := e.configHandler.GetConfig()
+	cfg := e.configHandler.GetHeader()
 	if cfg == nil || cfg.VSphere == nil {
 		for key := range envVars {
 			e.SetManagedEnv(key)

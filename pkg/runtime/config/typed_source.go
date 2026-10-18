@@ -3,15 +3,12 @@ package config
 import (
 	"fmt"
 	"path/filepath"
-
-	"github.com/windsorcli/cli/api/v1alpha1"
-	v1alpha2config "github.com/windsorcli/cli/api/v1alpha2/config"
 )
 
-// The TypedSource is a configuration source for typed Windsor configuration files.
-// It provides loading for root and context typed YAML files and root file initialization,
-// The TypedSource isolates typed windsor.yaml concerns from dynamic/context values behavior,
-// and centralizes version-aware typed config parsing for context-level map extraction.
+// The TypedSource is a configuration source for the v1alpha1 windsor.yaml files.
+// It provides loading for the root contexts map and context windsor.yaml files, root file
+// initialization, and the conversion of v1alpha1 values into the v1alpha2 header.
+// The CLI reads these files only to convert a v1alpha1 project, and never writes them.
 
 // =============================================================================
 // Types
@@ -19,23 +16,21 @@ import (
 
 // typedSource handles typed root/context windsor.yaml loading and root file creation.
 type typedSource struct {
-	shims           *Shims
-	schemaValidator *SchemaValidator
+	shims *Shims
 }
 
 // =============================================================================
 // Constructor
 // =============================================================================
 
-// newTypedSource creates a typedSource with shims and schema validator dependencies.
-func newTypedSource(shims *Shims, schemaValidator *SchemaValidator) *typedSource {
+// newTypedSource creates a typedSource that reads files through shims.
+func newTypedSource(shims *Shims) *typedSource {
 	if shims == nil {
 		shims = NewShims()
 	}
 
 	return &typedSource{
-		shims:           shims,
-		schemaValidator: schemaValidator,
+		shims: shims,
 	}
 }
 
@@ -43,12 +38,9 @@ func newTypedSource(shims *Shims, schemaValidator *SchemaValidator) *typedSource
 // Public Methods
 // =============================================================================
 
-// LoadRoot loads root windsor.yaml and returns the selected context map when present.
-func (s *typedSource) LoadRoot(
-	projectRoot string,
-	contextName string,
-	loadSchemaFromBytes func([]byte) error,
-) (map[string]any, bool, error) {
+// LoadRoot loads root windsor.yaml and returns the selected context map when present. It keeps
+// every key of the context map.
+func (s *typedSource) LoadRoot(projectRoot string, contextName string) (map[string]any, bool, error) {
 	rootConfigPath := filepath.Join(projectRoot, "windsor.yaml")
 	if _, err := s.shims.Stat(rootConfigPath); err != nil {
 		return nil, false, nil
@@ -59,40 +51,14 @@ func (s *typedSource) LoadRoot(
 		return nil, false, fmt.Errorf("error reading root config file: %w", err)
 	}
 
-	var rootConfigMap map[string]any
-	if err := s.shims.YamlUnmarshal(fileData, &rootConfigMap); err != nil {
-		return nil, false, fmt.Errorf("error unmarshalling root config: %w", err)
+	var rootConfig struct {
+		Contexts map[string]map[string]any `yaml:"contexts"`
 	}
-
-	configVersion, _ := rootConfigMap["version"].(string)
-	if configVersion != "" && configVersion != "v1alpha1" {
-		if s.schemaValidator != nil {
-			if err := v1alpha2config.LoadSchemas(loadSchemaFromBytes); err != nil {
-				return nil, false, fmt.Errorf("error loading API schemas: %w", err)
-			}
-		}
-	}
-
-	var rootConfig v1alpha1.Config
 	if err := s.shims.YamlUnmarshal(fileData, &rootConfig); err != nil {
 		return nil, false, fmt.Errorf("error unmarshalling root config: %w", err)
 	}
 
-	if rootConfig.Contexts != nil && rootConfig.Contexts[contextName] != nil {
-		contextData, err := s.shims.YamlMarshal(rootConfig.Contexts[contextName])
-		if err != nil {
-			return nil, true, fmt.Errorf("error marshalling context config: %w", err)
-		}
-
-		var contextMap map[string]any
-		if err := s.shims.YamlUnmarshal(contextData, &contextMap); err != nil {
-			return nil, true, fmt.Errorf("error decoding context config: %w", err)
-		}
-
-		return contextMap, true, nil
-	}
-
-	return nil, true, nil
+	return rootConfig.Contexts[contextName], true, nil
 }
 
 // LoadContext loads legacy context-level windsor.yaml or windsor.yml for a context.
@@ -144,4 +110,21 @@ func (s *typedSource) EnsureRoot(projectRoot string) error {
 	}
 
 	return nil
+}
+
+// =============================================================================
+// Helpers
+// =============================================================================
+
+// convertV1alpha1 converts merged v1alpha1 values into the v1alpha2 header in place. It moves
+// provider to platform when platform is empty, and removes provider.
+func convertV1alpha1(values map[string]any) {
+	provider, ok := values["provider"]
+	if !ok {
+		return
+	}
+	delete(values, "provider")
+	if platform, _ := values["platform"].(string); platform == "" {
+		values["platform"] = provider
+	}
 }

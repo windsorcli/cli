@@ -102,7 +102,7 @@ type Event struct {
     Message  string
     Level    slog.Level    // info or warn, for KindMessage
     Duration time.Duration // elapsed time, for KindApplied and KindFailed
-    Err      error         // set only when Kind == KindFailed; renderers errors.As for a code
+    Err      error         // set only when Kind == KindFailed; renderers errors.As for a remediation
     Record   *slog.Record  // set only when Kind == KindLog
 }
 ```
@@ -242,7 +242,7 @@ Methods that emit events MUST take `ctx context.Context` as their first paramete
   bridge lives in `presenter`, not `logging`, because the console renderer imports `logging`.
 - **`WindsorError` rendering is unchanged in shape, relocated in mechanism.** ADR 0005's central
   `cmd/`-boundary renderer stops formatting directly and instead builds `Event{Kind: KindFailed, Err:
-  we}` and calls `presenter.Emit` — the format string, the `DocsURL` line, the `--verbose` breadcrumb
+  we}` and calls `presenter.Emit` — the format string, the hint line, the `--verbose` breadcrumb
   trail (`werror.Breadcrumbs`) all move into the console/JSON renderers' `KindFailed` handling
   unchanged from how ADR 0005 specified them. ADR 0005 itself called this out as expected: "this ADR
   defines the type and an interim renderer the presenter work subsumes."

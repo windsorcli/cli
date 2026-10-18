@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/windsorcli/cli/api/v1alpha1"
+	cliconfig "github.com/windsorcli/cli/api/config/v1alpha2"
 )
 
 // MockConfigHandler is a mock implementation of the ConfigHandler interface
@@ -24,8 +24,8 @@ type MockConfigHandler struct {
 	SaveConfigFunc              func(overwrite ...bool) error
 	SaveWorkstationStateFunc    func() error
 	GetFunc                     func(key string) any
-	SetDefaultFunc              func(context v1alpha1.Context) error
-	GetConfigFunc               func() *v1alpha1.Context
+	SetDefaultFunc              func(context cliconfig.Context) error
+	GetHeaderFunc               func() *cliconfig.Context
 	GetContextFunc              func() string
 	IsDevModeFunc               func(contextName string) bool
 	SetContextFunc              func(context string) error
@@ -187,19 +187,19 @@ func (m *MockConfigHandler) SaveWorkstationState() error {
 }
 
 // SetDefault calls the mock SetDefaultFunc if set, otherwise does nothing
-func (m *MockConfigHandler) SetDefault(context v1alpha1.Context) error {
+func (m *MockConfigHandler) SetDefault(context cliconfig.Context) error {
 	if m.SetDefaultFunc != nil {
 		return m.SetDefaultFunc(context)
 	}
 	return nil
 }
 
-// GetConfig calls the mock GetConfigFunc if set, otherwise returns a reasonable default Context
-func (m *MockConfigHandler) GetConfig() *v1alpha1.Context {
-	if m.GetConfigFunc != nil {
-		return m.GetConfigFunc()
+// GetHeader calls the mock GetHeaderFunc if set, otherwise returns an empty header
+func (m *MockConfigHandler) GetHeader() *cliconfig.Context {
+	if m.GetHeaderFunc != nil {
+		return m.GetHeaderFunc()
 	}
-	return &v1alpha1.Context{}
+	return &cliconfig.Context{}
 }
 
 // GetContext calls the mock GetContextFunc if set; WithContext override takes priority over both

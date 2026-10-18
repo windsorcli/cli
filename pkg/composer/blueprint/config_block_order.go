@@ -1,9 +1,8 @@
-// The config_block_order file orders config blocks for evaluation by their inter-block
-// reference dependencies. The order built up by mergeFacetScopeIntoGlobal reflects facet
-// processing order, which does not necessarily match evaluation order: a block that
-// references another block must be evaluated after the block it references, regardless
-// of which facet wrote which first. Topological sort of the block dependency graph
-// produces an order where every block evaluates after the blocks it depends on.
+// The config_block_order file orders config blocks for evaluation.
+// It provides a topological sort of the blocks by their references to other blocks.
+// A block that references another block evaluates after it, whatever the facet order is.
+// The sort is deterministic, and a reference cycle is an error.
+
 package blueprint
 
 import (
@@ -76,7 +75,6 @@ func topoSortConfigBlocks(globalScope map[string]any) ([]string, error) {
 	}
 	sort.Strings(blocks)
 
-	// edges[prereq] = list of dependents; inDeg[name] = number of unmet prereqs.
 	edges := make(map[string][]string, len(blocks))
 	inDeg := make(map[string]int, len(blocks))
 	for _, b := range blocks {
@@ -89,8 +87,6 @@ func topoSortConfigBlocks(globalScope map[string]any) ([]string, error) {
 		}
 	}
 
-	// Kahn's algorithm. A sorted ready queue keeps the output deterministic when two
-	// blocks are independent (alphabetical tiebreak).
 	ready := make([]string, 0, len(blocks))
 	for _, b := range blocks {
 		if inDeg[b] == 0 {
@@ -109,7 +105,6 @@ func topoSortConfigBlocks(globalScope map[string]any) ([]string, error) {
 		for _, d := range dependents {
 			inDeg[d]--
 			if inDeg[d] == 0 {
-				// Insert into ready in sorted position.
 				pos := sort.SearchStrings(ready, d)
 				ready = append(ready, "")
 				copy(ready[pos+1:], ready[pos:])

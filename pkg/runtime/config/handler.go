@@ -1,19 +1,15 @@
 package config
 
 import (
-	"embed"
 	"fmt"
 	"maps"
 	"path/filepath"
 	"strings"
 	"sync"
 
-	"github.com/windsorcli/cli/api/v1alpha1"
+	cliconfig "github.com/windsorcli/cli/api/config/v1alpha2"
 	"github.com/windsorcli/cli/pkg/runtime/shell"
 )
-
-//go:embed schemas/*.yaml
-var systemSchemasFS embed.FS
 
 // =============================================================================
 // Constants
@@ -43,8 +39,8 @@ type ConfigHandler interface {
 	Get(key string) any
 	SaveConfig(overwrite ...bool) error
 	SaveWorkstationState() error
-	SetDefault(context v1alpha1.Context) error
-	GetConfig() *v1alpha1.Context
+	SetDefault(context cliconfig.Context) error
+	GetHeader() *cliconfig.Context
 	GetContext() string
 	WithContext(name string) ConfigHandler
 	IsDevMode(contextName string) bool
@@ -84,7 +80,6 @@ type configHandler struct {
 	values          *valuesSource
 	workstation     *workstationSource
 	data            map[string]any
-	defaultConfig   *v1alpha1.Context
 
 	// pendingOverrides and pendingDeletes feed SaveConfig's patch write.
 	pendingOverrides map[string]any
@@ -97,6 +92,16 @@ type configHandler struct {
 
 	// resolvedContext memoizes GetContext's file/env/default lookup; see GetContext.
 	resolvedContext *contextCache
+
+	// stringSets keeps the original string of each value Set converted; see reconvertStringSets.
+	stringSets map[string]stringSet
+}
+
+// stringSet is the original string that Set received at keys, and the value Set stored for it.
+type stringSet struct {
+	keys    []string
+	raw     string
+	applied any
 }
 
 // contextCache memoizes GetContext's resolved value and guards concurrent access to it and to
@@ -130,7 +135,7 @@ func NewConfigHandler(shell shell.Shell) ConfigHandler {
 	handler.policy = newPersistencePolicy()
 	handler.workstation = newWorkstationSource(handler.shims, handler.policy)
 	handler.values = newValuesSource(handler.shims, handler.schemaValidator, handler.policy)
-	handler.typed = newTypedSource(handler.shims, handler.schemaValidator)
+	handler.typed = newTypedSource(handler.shims)
 
 	return handler
 }
@@ -138,8 +143,9 @@ func NewConfigHandler(shell shell.Shell) ConfigHandler {
 // LoadConfigString loads YAML configuration directly into the internal data map for testing purposes.
 // It unmarshals the provided YAML string and, if a "contexts" key exists, extracts and merges only
 // the configuration for the current context. If no "contexts" structure is present, it merges the entire
-// map. This method is primarily intended for test helpers and not for production use; load configuration
-// in production with LoadConfig instead. Returns an error if YAML unmarshalling fails.
+// map. It then converts v1alpha1 values into the v1alpha2 header. This method is primarily intended for
+// test helpers and not for production use; load configuration in production with LoadConfig instead.
+// Returns an error if YAML unmarshalling fails.
 func (c *configHandler) LoadConfigString(content string) error {
 	if content == "" {
 		return nil
@@ -178,6 +184,7 @@ func (c *configHandler) LoadConfigString(content string) error {
 
 				if contextMap != nil {
 					c.data = c.deepMerge(c.data, contextMap)
+					convertV1alpha1(c.data)
 					c.loaded = true
 					return nil
 				}
@@ -186,6 +193,7 @@ func (c *configHandler) LoadConfigString(content string) error {
 	}
 
 	c.data = c.deepMerge(c.data, dataMap)
+	convertV1alpha1(c.data)
 	c.loaded = true
 
 	return nil
@@ -195,8 +203,8 @@ func (c *configHandler) LoadConfigString(content string) error {
 // It performs the following actions, in order: loads schema defaults (if available); merges root windsor.yaml
 // context section (if it exists); merges any context-specific windsor.yaml/yml file; then merges values.yaml for
 // dynamic fields, validating values.yaml against the loaded schema (if one is present). All configuration is
-// accumulated into one map structure. If any file is loaded, config state is marked as loaded. Returns an error
-// for any I/O or validation failure. Must call Initialize() first.
+// accumulated into one map structure, and v1alpha1 values convert into the v1alpha2 header. If any file is loaded,
+// config state is marked as loaded. Returns an error for any I/O or validation failure. Must call Initialize() first.
 func (c *configHandler) LoadConfig() error {
 	if c.shell == nil {
 		return fmt.Errorf("shell not initialized")
@@ -229,7 +237,7 @@ func (c *configHandler) LoadConfigForContext(contextName string) error {
 		}
 	}
 
-	rootValues, rootLoaded, err := c.typed.LoadRoot(projectRoot, contextName, c.LoadSchemaFromBytes)
+	rootValues, rootLoaded, err := c.typed.LoadRoot(projectRoot, contextName)
 	if err != nil {
 		return err
 	}
@@ -269,6 +277,7 @@ func (c *configHandler) LoadConfigForContext(contextName string) error {
 	if valuesData != nil {
 		c.data = c.deepMerge(c.data, valuesData)
 	}
+	convertV1alpha1(c.data)
 
 	if hasLoadedFiles {
 		c.loaded = true
@@ -346,14 +355,10 @@ func (c *configHandler) SaveWorkstationState() error {
 	)
 }
 
-// SetDefault sets the default context configuration in the config handler's internal data.
-// It marshals the given v1alpha1.Context struct to a map and merges it into the handler's data.
-// Values already present in data take precedence over the default, so this is safe to call
-// regardless of load order or how many times it runs.
-// This method is typically used during initialization when context files do not yet exist.
-// The original default config is stored so it can be used when saving a new config file to ensure
-// all default values are preserved even if they were empty/nil (which would be omitted by omitempty tags).
-func (c *configHandler) SetDefault(context v1alpha1.Context) error {
+// SetDefault merges the default context into the handler's data. Values already present in data
+// take precedence over the default, so this is safe to call regardless of load order or how many
+// times it runs.
+func (c *configHandler) SetDefault(context cliconfig.Context) error {
 	contextData, err := c.shims.YamlMarshal(context)
 	if err != nil {
 		return fmt.Errorf("error marshalling context: %w", err)
@@ -366,28 +371,23 @@ func (c *configHandler) SetDefault(context v1alpha1.Context) error {
 
 	c.data = c.deepMerge(contextMap, c.data)
 
-	contextCopy := context
-	c.defaultConfig = &contextCopy
-
 	return nil
 }
 
-// GetConfig returns the context configuration as a v1alpha1.Context struct by marshalling
-// the configHandler's internal data map to YAML and then unmarshalling it into the struct.
-// This provides backward compatibility for code that relies on the statically typed Context.
-// Returns a pointer to an empty Context if marshaling or unmarshaling fails.
-func (c *configHandler) GetConfig() *v1alpha1.Context {
+// GetHeader decodes the handler's data into the v1alpha2 header. Keys the header does not define
+// are left out. It returns an empty header when the data does not decode.
+func (c *configHandler) GetHeader() *cliconfig.Context {
 	contextData, err := c.shims.YamlMarshal(c.data)
 	if err != nil {
-		return &v1alpha1.Context{}
+		return &cliconfig.Context{}
 	}
 
-	var context v1alpha1.Context
-	if err := c.shims.YamlUnmarshal(contextData, &context); err != nil {
-		return &v1alpha1.Context{}
+	var header cliconfig.Context
+	if err := c.shims.YamlUnmarshal(contextData, &header); err != nil {
+		return &cliconfig.Context{}
 	}
 
-	return &context
+	return &header
 }
 
 // GetContext retrieves the current context, checking (in priority order):
@@ -452,6 +452,7 @@ func (c *configHandler) WithContext(name string) ConfigHandler {
 	cp.data = maps.Clone(c.data)
 	cp.pendingOverrides = nil
 	cp.pendingDeletes = nil
+	cp.stringSets = nil
 	cp.resolvedContext = &contextCache{}
 	return &cp
 }
@@ -602,38 +603,42 @@ func (c *configHandler) IsSensitivePath(path string) bool {
 	return false
 }
 
-// LoadSchema loads the schema.yaml file from the specified directory.
-// System-level schema plugins (like substitutions) are applied after loading.
-// Returns error if schema file doesn't exist or is invalid.
+// LoadSchema reads the schema file at schemaPath and loads it as LoadSchemaFromBytes does.
+// Returns an error if the file cannot be read or the schema is invalid.
 func (c *configHandler) LoadSchema(schemaPath string) error {
 	if c.schemaValidator == nil {
 		return fmt.Errorf("runtime not fully initialized: schema validator missing")
 	}
-	if err := c.schemaValidator.LoadSchema(schemaPath); err != nil {
-		return err
+	schemaContent, err := c.shims.ReadFile(schemaPath)
+	if err != nil {
+		return fmt.Errorf("failed to read schema file %s: %w", schemaPath, err)
 	}
-	c.applySystemSchemaPlugins()
-	return nil
+	return c.LoadSchemaFromBytes(schemaContent)
 }
 
-// LoadSchemaFromBytes loads schema directly from byte content.
-// If a schema already exists, the new schema is merged into it with the new schema's properties
-// overriding existing properties with the same name. If no schema exists, it loads the new schema.
-// System-level schema plugins (like substitutions) are applied after loading.
-// Returns error if schema content is invalid.
+// LoadSchemaFromBytes merges a schema fragment into the loaded schema, then merges the CLI
+// fragment over the result. It first rejects a fragment that gives a CLI-owned path a different
+// type, and leaves the loaded schema unchanged in that case. After the merge, values that Set
+// converted from strings convert again against the new schema.
 func (c *configHandler) LoadSchemaFromBytes(schemaContent []byte) error {
 	if c.schemaValidator == nil {
 		return fmt.Errorf("runtime not fully initialized: schema validator missing")
 	}
+	if err := checkCLIOwnedTypes(schemaContent); err != nil {
+		return err
+	}
 	if err := c.schemaValidator.LoadSchemaFromBytes(schemaContent); err != nil {
 		return err
 	}
-	c.applySystemSchemaPlugins()
+	if err := c.applyCLISchema(); err != nil {
+		return err
+	}
+	c.reconvertStringSets()
 	return nil
 }
 
 // ValidateContextValues runs schema validation on the full context configuration map. Cross-field
-// rules spanning static (v1alpha1.Context) and dynamic fields are evaluated against the unified map,
+// rules spanning header and dynamic fields are evaluated against the unified map,
 // matching the file-load validation path. Use before impactful operations (e.g. windsor up) and after
 // compositional Set sequences. Returns nil if no schema is loaded or if validation passes; returns an
 // error if validation fails. When the same invalid data was already warned about by valuesSource.Load
@@ -735,22 +740,6 @@ func (c *configHandler) convertInterfaceMap(m map[any]any) map[string]any {
 	return result
 }
 
-// mapToContext converts a map to a v1alpha1.Context struct by marshaling and unmarshaling.
-// This ensures that yaml tags (like yaml:"-") are respected when saving to files.
-func (c *configHandler) mapToContext(data map[string]any) *v1alpha1.Context {
-	contextData, err := c.shims.YamlMarshal(data)
-	if err != nil {
-		return &v1alpha1.Context{}
-	}
-
-	var context v1alpha1.Context
-	if err := c.shims.YamlUnmarshal(contextData, &context); err != nil {
-		return &v1alpha1.Context{}
-	}
-
-	return &context
-}
-
 // deepMerge recursively merges two maps with overlay values taking precedence.
 // Nested maps are merged rather than replaced. Non-map values in overlay replace base values.
 func (c *configHandler) deepMerge(base, overlay map[string]any) map[string]any {
@@ -767,38 +756,6 @@ func (c *configHandler) deepMerge(base, overlay map[string]any) map[string]any {
 		result[k] = overlayValue
 	}
 	return result
-}
-
-// applySystemSchemaPlugins applies system-level schema plugins to the loaded schema.
-// These plugins load schema definitions from embedded YAML files in schemas/ directory
-// and merge them into the loaded schema. System schemas define features like substitutions
-// that are always available regardless of the blueprint schema definition.
-// This method is extensible - add new schema.yaml files to schemas/ to include additional system schemas.
-func (c *configHandler) applySystemSchemaPlugins() {
-	if c.schemaValidator == nil || c.schemaValidator.Schema == nil {
-		return
-	}
-
-	entries, err := systemSchemasFS.ReadDir("schemas")
-	if err != nil {
-		return
-	}
-
-	for _, entry := range entries {
-		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".yaml") {
-			continue
-		}
-
-		schemaPath := "schemas/" + entry.Name()
-		schemaContent, err := systemSchemasFS.ReadFile(schemaPath)
-		if err != nil {
-			continue
-		}
-
-		if err := c.schemaValidator.LoadSchemaFromBytes(schemaContent); err != nil {
-			continue
-		}
-	}
 }
 
 // =============================================================================

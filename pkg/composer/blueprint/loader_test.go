@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
+	"github.com/windsorcli/cli/internal/werror"
 	"github.com/windsorcli/cli/pkg/composer/artifact"
 	"github.com/windsorcli/cli/pkg/runtime"
 	"github.com/windsorcli/cli/pkg/runtime/config"
@@ -796,8 +797,9 @@ metadata:
 		err := loader.Load("core", "oci://ghcr.io/windsorcli/core:v0.9.2")
 
 		// Then it fails with a named, actionable error before any other loading work
-		if err == nil {
-			t.Fatal("Expected an error for an incompatible cliVersion constraint")
+		var we *werror.WindsorError
+		if !errors.As(err, &we) || !strings.Contains(we.Remediation, "Upgrade windsor") {
+			t.Fatalf("Expected a WindsorError with an upgrade hint for an incompatible cliVersion constraint, got: %v", err)
 		}
 		if !strings.Contains(err.Error(), "core:v0.9.2") {
 			t.Errorf("Expected error to name the source and tag, got: %v", err)

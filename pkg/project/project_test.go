@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	cliconfig "github.com/windsorcli/cli/api/config/v1alpha2"
 	v1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
 	"github.com/windsorcli/cli/pkg/composer"
 	"github.com/windsorcli/cli/pkg/composer/blueprint"
@@ -653,8 +654,8 @@ func TestProject_Configure(t *testing.T) {
 			return ""
 		}
 
-		var setDefaultConfig v1alpha1.Context
-		mockConfig.SetDefaultFunc = func(cfg v1alpha1.Context) error {
+		var setDefaultConfig cliconfig.Context
+		mockConfig.SetDefaultFunc = func(cfg cliconfig.Context) error {
 			setDefaultConfig = cfg
 			return nil
 		}
@@ -673,7 +674,7 @@ func TestProject_Configure(t *testing.T) {
 		_ = proj.Configure(flagOverrides)
 
 		_ = setDefaultConfig
-		if setDefaultConfig.Platform != nil {
+		if setDefaultConfig.Platform != "" {
 			t.Error("Expected DefaultConfig_Dev with no platform set")
 		}
 	})
@@ -692,7 +693,7 @@ func TestProject_Configure(t *testing.T) {
 			return ""
 		}
 
-		mockConfig.SetDefaultFunc = func(cfg v1alpha1.Context) error {
+		mockConfig.SetDefaultFunc = func(cfg cliconfig.Context) error {
 			return fmt.Errorf("set default failed")
 		}
 

@@ -1,3 +1,8 @@
+// The BlueprintWriter is the writer of the user blueprint file.
+// It provides Write, which writes contexts/<context>/blueprint.yaml.
+// The file holds metadata and sources, and selects components from the sources.
+// Write keeps an existing file unless the caller asks to overwrite it.
+
 package blueprint
 
 import (
@@ -7,15 +12,11 @@ import (
 	"strings"
 
 	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
+	"github.com/windsorcli/cli/internal/werror"
 	"github.com/windsorcli/cli/pkg/composer/artifact"
 	"github.com/windsorcli/cli/pkg/constants"
 	"github.com/windsorcli/cli/pkg/runtime"
 )
-
-// BlueprintWriter writes the final composed blueprint to contexts/<context>/blueprint.yaml.
-type BlueprintWriter interface {
-	Write(blueprint *blueprintv1alpha1.Blueprint, overwrite bool, initBlueprintURLs ...string) error
-}
 
 // =============================================================================
 // Types
@@ -25,6 +26,15 @@ type BlueprintWriter interface {
 type BaseBlueprintWriter struct {
 	runtime *runtime.Runtime
 	shims   *Shims
+}
+
+// =============================================================================
+// Interfaces
+// =============================================================================
+
+// BlueprintWriter writes the final composed blueprint to contexts/<context>/blueprint.yaml.
+type BlueprintWriter interface {
+	Write(blueprint *blueprintv1alpha1.Blueprint, overwrite bool, initBlueprintURLs ...string) error
 }
 
 // =============================================================================
@@ -49,13 +59,10 @@ func NewBlueprintWriter(rt *runtime.Runtime) *BaseBlueprintWriter {
 // Public Methods
 // =============================================================================
 
-// Write serializes the blueprint to YAML and saves it to blueprint.yaml in the config root.
-// It always writes the referential form: metadata, repository, and sources only (no
-// terraform/kustomize expansion). Components come from referenced blueprint sources;
-// run "windsor show blueprint" to see the fully rendered blueprint. If overwrite is false
-// and the file exists, the write is skipped to preserve user modifications. The
-// initBlueprintURLs parameter contains blueprint URLs to add as sources when initializing.
-// Only oci:// sources get install: true, because composition rejects install on other sources.
+// Write saves the blueprint to blueprint.yaml in the config root, in its referential form: metadata,
+// repository, and sources, with no components. Components come from the sources; "windsor show
+// blueprint" shows the full blueprint. When overwrite is false and the file exists, Write does
+// nothing. initBlueprintURLs become sources, and only oci:// sources get install: true.
 func (w *BaseBlueprintWriter) Write(blueprint *blueprintv1alpha1.Blueprint, overwrite bool, initBlueprintURLs ...string) error {
 	if blueprint == nil {
 		return fmt.Errorf("cannot write nil blueprint")
@@ -72,7 +79,7 @@ func (w *BaseBlueprintWriter) Write(blueprint *blueprintv1alpha1.Blueprint, over
 	if _, err := w.shims.Stat(yamlPath); os.IsNotExist(err) {
 		fileExists = false
 	} else if err != nil {
-		return fmt.Errorf("error checking file existence: %w", err)
+		return werror.Wrap(err, "error checking file existence")
 	}
 
 	if !overwrite && fileExists {
@@ -80,13 +87,13 @@ func (w *BaseBlueprintWriter) Write(blueprint *blueprintv1alpha1.Blueprint, over
 	}
 
 	if err := w.shims.MkdirAll(filepath.Dir(yamlPath), 0755); err != nil {
-		return fmt.Errorf("error creating directory: %w", err)
+		return werror.Wrap(err, "error creating directory")
 	}
 
 	referential := w.createMinimalBlueprint(blueprint, initBlueprintURLs...)
 	data, err := w.shims.YamlMarshal(referential)
 	if err != nil {
-		return fmt.Errorf("error marshalling blueprint: %w", err)
+		return werror.Wrap(err, "error marshalling blueprint")
 	}
 
 	header := []byte(`# This file selects and overrides components from underlying blueprint sources.
@@ -95,7 +102,7 @@ func (w *BaseBlueprintWriter) Write(blueprint *blueprintv1alpha1.Blueprint, over
 	data = append(header, data...)
 
 	if err := w.shims.WriteFile(yamlPath, data, 0644); err != nil {
-		return fmt.Errorf("error writing blueprint.yaml: %w", err)
+		return werror.Wrap(err, "error writing blueprint.yaml")
 	}
 
 	return nil
@@ -105,16 +112,11 @@ func (w *BaseBlueprintWriter) Write(blueprint *blueprintv1alpha1.Blueprint, over
 // Private Methods
 // =============================================================================
 
-// createMinimalBlueprint creates the referential blueprint form: metadata, repository, sources,
-// and any user-authored top-level overrides (currently Backend). Components come from referenced
-// blueprints rather than being explicitly listed in the user blueprint. The initBlueprintURLs
-// parameter contains blueprint URLs that should be added as sources with install: true, using
-// their metadata names from the loaded blueprints. When contexts/_template exists, a "template"
-// source (install: true, no URL) is included so the blueprint declares local template; no
-// GitRepository/OCIRepository is created for it—components from template reference repository:
-// or another source by name. A source's CRDs are dropped: they are derived by the composer from
-// that source's facets, so persisting them in the referential override would go stale against the
-// source and re-enter composition as if user-authored.
+// createMinimalBlueprint builds the referential form: metadata, repository, sources, and top-level
+// user overrides such as Backend. initBlueprintURLs become install sources, named by the metadata of
+// their loaded blueprints. When contexts/_template exists, it adds a "template" source with install:
+// true and no URL. It drops the CRDs of each source, because the composer derives them from the
+// source's facets.
 func (w *BaseBlueprintWriter) createMinimalBlueprint(blueprint *blueprintv1alpha1.Blueprint, initBlueprintURLs ...string) *blueprintv1alpha1.Blueprint {
 	metadata := blueprint.Metadata
 	if w.runtime != nil && w.runtime.ContextName != "" {

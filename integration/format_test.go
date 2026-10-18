@@ -53,9 +53,9 @@ func TestFormat_JSONRendersErrorsAsJSONLines(t *testing.T) {
 	}
 }
 
-// TestFormat_TextRendersErrorsWithThePlainPrefix verifies that the default text format keeps
-// the "Error:" prefix on stderr.
-func TestFormat_TextRendersErrorsWithThePlainPrefix(t *testing.T) {
+// TestFormat_TextRendersErrorsWithTheErrorPrefix verifies that the default text format prints
+// one "error:" line on stderr.
+func TestFormat_TextRendersErrorsWithTheErrorPrefix(t *testing.T) {
 	t.Parallel()
 	dir, env := helpers.PrepareFixture(t, "default")
 
@@ -63,13 +63,12 @@ func TestFormat_TextRendersErrorsWithThePlainPrefix(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected failure but command succeeded")
 	}
-	if strings.Count(string(stderr), "Error: ") != 1 {
-		t.Errorf("expected exactly one Error: line, got:\n%s", stderr)
+	if strings.Count(string(stderr), "error: ") != 1 {
+		t.Errorf("expected exactly one error: line, got:\n%s", stderr)
 	}
 }
 
-// TestFormat_RejectsAnUnknownFormat verifies that an unknown --format value fails with the
-// CLI-001 code and a remediation.
+// TestFormat_RejectsAnUnknownFormat verifies that an unknown --format value fails with a hint.
 func TestFormat_RejectsAnUnknownFormat(t *testing.T) {
 	t.Parallel()
 	dir, env := helpers.PrepareFixture(t, "default")
@@ -78,8 +77,8 @@ func TestFormat_RejectsAnUnknownFormat(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected failure but command succeeded")
 	}
-	if !strings.Contains(string(stderr), "Error [CLI-001]") || !strings.Contains(string(stderr), "--format text or --format json") {
-		t.Errorf("expected CLI-001 with remediation, got:\n%s", stderr)
+	if !strings.Contains(string(stderr), "error: Unknown output format") || !strings.Contains(string(stderr), "hint: Run the command again with --format text or --format json.") {
+		t.Errorf("expected the error and its hint, got:\n%s", stderr)
 	}
 }
 

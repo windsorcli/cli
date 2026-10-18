@@ -46,7 +46,7 @@ func (c *configHandler) GetContextValues() (map[string]any, error) {
 // context, workstation), without schema defaults or derived values. Composition pins these above
 // facet config so an operator's explicit value wins over a facet's — including a downstream facet's.
 func (c *configHandler) GetSetValues() map[string]any {
-	return c.deepMerge(map[string]any{}, c.data)
+	return deepCopyValue(c.data).(map[string]any)
 }
 
 // =============================================================================
@@ -58,11 +58,6 @@ func (c *configHandler) applyPlatformDerivedDefaults(values map[string]any) {
 	platform := ""
 	if p, ok := getValueByPathFromMap(values, parsePath("platform")).(string); ok {
 		platform = p
-	}
-	if platform == "" {
-		if p, ok := getValueByPathFromMap(values, parsePath("provider")).(string); ok {
-			platform = p
-		}
 	}
 
 	switch platform {
@@ -140,4 +135,3 @@ func (c *configHandler) ensureClusterStructure(values map[string]any) {
 		workersMap["nodes"] = make(map[string]any)
 	}
 }
-

@@ -849,18 +849,35 @@ func TestJSON_Emit(t *testing.T) {
 		}
 	})
 
-	t.Run("WritesCodedErrorFields", func(t *testing.T) {
-		// Given a JSON presenter and a coded error
+	t.Run("WritesWindsorErrorFields", func(t *testing.T) {
+		// Given a JSON presenter and a WindsorError
 		var buf bytes.Buffer
 		j := presenter.NewJSON(&buf)
-		we := werror.New("TERRAFORM-002", "apply failed", "Run windsor plan to see the change.", errBoom)
+		we := werror.New("apply failed", "Run windsor plan to see the change.", errBoom)
 
 		// When a failed event carries the error under a frame
 		j.Emit(context.Background(), presenter.Event{Kind: presenter.KindFailed, Err: werror.Wrap(we, "applying")})
 
-		// Then the error object holds the code, category, message, and remediation
+		// Then the error object holds the message and remediation
 		got := decodeLines(t, buf.String())[0]["error"]
-		want := map[string]any{"code": "TERRAFORM-002", "category": "TERRAFORM", "message": "apply failed", "remediation": "Run windsor plan to see the change."}
+		want := map[string]any{"message": "apply failed", "remediation": "Run windsor plan to see the change."}
+		if !reflect.DeepEqual(got, want) {
+			t.Errorf("expected %v, got %v", want, got)
+		}
+	})
+
+	t.Run("WritesTheFullTextOfAJoinedError", func(t *testing.T) {
+		// Given a JSON presenter and two joined WindsorErrors
+		var buf bytes.Buffer
+		j := presenter.NewJSON(&buf)
+		err := errors.Join(werror.New("First failed.", "Fix the first.", nil), werror.New("Second failed.", "Fix the second.", nil))
+
+		// When a failed event carries the joined error
+		j.Emit(context.Background(), presenter.Event{Kind: presenter.KindFailed, Err: err})
+
+		// Then the message holds both causes and there is no remediation
+		got := decodeLines(t, buf.String())[0]["error"]
+		want := map[string]any{"message": "First failed.\nSecond failed."}
 		if !reflect.DeepEqual(got, want) {
 			t.Errorf("expected %v, got %v", want, got)
 		}
@@ -887,8 +904,8 @@ func TestJSON_Emit(t *testing.T) {
 		logger := slog.New(presenter.NewLogHandler(presenter.NewJSON(&buf), slog.LevelDebug)).
 			With("run", "r1").WithGroup("terraform").With("component", "cluster")
 
-		// When a record with a duration and a coded error attribute is logged
-		logger.Warn("slow apply", "seconds", 3, "elapsed", 3*time.Second, "error", werror.New("TERRAFORM-001", "slow", "", nil))
+		// When a record with a duration and a WindsorError attribute is logged
+		logger.Warn("slow apply", "seconds", 3, "elapsed", 3*time.Second, "error", werror.New("slow", "", nil))
 
 		// Then the line holds the level, message, and nested attrs
 		line := decodeLines(t, buf.String())[0]
@@ -901,7 +918,7 @@ func TestJSON_Emit(t *testing.T) {
 				"component": "cluster",
 				"seconds":   float64(3),
 				"elapsed":   "3s",
-				"error":     map[string]any{"code": "TERRAFORM-001", "category": "TERRAFORM", "message": "slow"},
+				"error":     map[string]any{"message": "slow"},
 			},
 		}
 		if !reflect.DeepEqual(line["attrs"], want) {

@@ -17,7 +17,7 @@ var listCmd = &cobra.Command{
 #   prod    aws       s3`,
 	Annotations: map[string]string{
 		"docs.seealso": "[`get contexts`](get-contexts.md), [`set context`](set-context.md)",
-		"docs.source": "cmd/list.go",
+		"docs.source":  "cmd/list.go",
 	},
 	SilenceUsage: true,
 	RunE:         getContextsCmd.RunE,

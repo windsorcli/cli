@@ -351,8 +351,6 @@ $defs:
     additionalProperties: false
     description: |
       Per-context Terraform settings (state backend, lock policy, timeout).
-      The runtime-validator sub-types (BackendConfig, LockConfig) are
-      authored in api/v1alpha1/terraform/terraform_config.go.
     properties:
       enabled:
         type: boolean
@@ -361,9 +359,8 @@ $defs:
         type: object
         additionalProperties: true
         description: |
-          State backend configuration (type plus per-type fields).
-          See api/v1alpha1/terraform/terraform_config.go for the full
-          BackendConfig field set (s3, azurerm, kubernetes, local, oss).
+          State backend configuration (type plus per-type fields). Windsor
+          passes every field of the selected backend block to terraform init.
       lock:
         type: object
         additionalProperties: false
@@ -416,9 +413,7 @@ $defs:
     type: object
     additionalProperties: false
     description: |
-      Kubernetes cluster configuration. Node-group sub-types
-      (NodeGroupConfig) are authored in
-      api/v1alpha1/cluster/cluster_config.go.
+      Kubernetes cluster configuration.
     properties:
       enabled:
         type: boolean
@@ -437,14 +432,12 @@ $defs:
         additionalProperties: true
         description: |
           Controlplane node group settings (count, cpu, memory, image, per-
-          node overrides). See api/v1alpha1/cluster/cluster_config.go for
-          full NodeGroupConfig fields.
+          node overrides).
       workers:
         type: object
         additionalProperties: true
         description: |
-          Worker node group settings. Same fields as controlplanes; see
-          api/v1alpha1/cluster/cluster_config.go.
+          Worker node group settings, with the same fields as controlplanes.
   network:
     type: object
     additionalProperties: false

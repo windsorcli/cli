@@ -6,7 +6,7 @@ import (
 
 func TestDefaultConfigurations(t *testing.T) {
 	t.Run("DefaultConfig_HasPlatformNone", func(t *testing.T) {
-		if DefaultConfig.Platform == nil || *DefaultConfig.Platform != "none" {
+		if DefaultConfig.Platform != "none" {
 			t.Error("Expected DefaultConfig platform to be 'none'")
 		}
 	})
@@ -23,9 +23,6 @@ func TestDefaultConfigurations(t *testing.T) {
 		}
 		if DefaultConfig_Dev.Docker != nil {
 			t.Error("docker config should not be set (facet default)")
-		}
-		if DefaultConfig_Dev.Git != nil {
-			t.Error("git config should not be set (facet default)")
 		}
 		if DefaultConfig_Dev.DNS != nil {
 			t.Error("dns config should not be set (schema/facet default)")
