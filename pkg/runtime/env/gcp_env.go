@@ -6,9 +6,9 @@
 package env
 
 import (
-	"fmt"
 	"path/filepath"
 
+	"github.com/windsorcli/cli/internal/werror"
 	"github.com/windsorcli/cli/pkg/runtime/config"
 	"github.com/windsorcli/cli/pkg/runtime/shell"
 )
@@ -68,12 +68,12 @@ func (e *GcpEnvPrinter) GetEnvVars() (map[string]string, error) {
 	if !global {
 		configRoot, err := e.configHandler.GetConfigRoot()
 		if err != nil {
-			return nil, fmt.Errorf("error retrieving configuration root directory: %w", err)
+			return nil, werror.Wrap(err, "error retrieving configuration root directory")
 		}
 		gcpConfigDir := filepath.Join(configRoot, ".gcp")
 		gcloudConfigDir := filepath.Join(gcpConfigDir, "gcloud")
 		if err := e.shims.MkdirAll(gcloudConfigDir, 0755); err != nil {
-			return nil, fmt.Errorf("error creating GCP config directory: %w", err)
+			return nil, werror.Wrap(err, "error creating GCP config directory")
 		}
 		envVars["CLOUDSDK_CONFIG"] = filepath.ToSlash(gcloudConfigDir)
 

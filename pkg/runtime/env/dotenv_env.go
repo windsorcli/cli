@@ -6,12 +6,12 @@
 package env
 
 import (
-	"fmt"
 	"io"
 	"os"
 	"path/filepath"
 	"strings"
 
+	"github.com/windsorcli/cli/internal/werror"
 	"github.com/windsorcli/cli/pkg/runtime/config"
 	"github.com/windsorcli/cli/pkg/runtime/dotenv"
 	"github.com/windsorcli/cli/pkg/runtime/evaluator"
@@ -70,7 +70,7 @@ func (e *DotEnvEnvPrinter) GetEnvVars() (map[string]string, error) {
 
 	configRoot, err := e.configHandler.GetConfigRoot()
 	if err != nil {
-		return nil, fmt.Errorf("error retrieving config root: %w", err)
+		return nil, werror.Wrap(err, "error retrieving config root")
 	}
 
 	dotEnvPath := filepath.Join(configRoot, dotEnvFileName)
@@ -80,14 +80,14 @@ func (e *DotEnvEnvPrinter) GetEnvVars() (map[string]string, error) {
 		if os.IsNotExist(err) {
 			return envVars, nil
 		}
-		return nil, fmt.Errorf("error checking %s: %w", dotEnvPath, err)
+		return nil, werror.Wrap(err, "error checking %s", dotEnvPath)
 	}
 
 	e.warnOnLoosePermissions(dotEnvPath, info.Mode())
 
 	data, err := e.shims.ReadFile(dotEnvPath)
 	if err != nil {
-		return nil, fmt.Errorf("error reading %s: %w", dotEnvPath, err)
+		return nil, werror.Wrap(err, "error reading %s", dotEnvPath)
 	}
 
 	for k, v := range dotenv.Parse(string(data)) {
