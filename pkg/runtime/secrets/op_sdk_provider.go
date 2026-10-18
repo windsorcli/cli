@@ -1,3 +1,8 @@
+// The OnePasswordSDKProvider is the secrets provider for a 1Password vault through the 1Password SDK.
+// It provides one field of one item for each secret() call.
+// It authenticates with OP_SERVICE_ACCOUNT_TOKEN and shares one client across providers.
+// The runtime selects it when OP_SERVICE_ACCOUNT_TOKEN is set.
+
 package secrets
 
 import (
@@ -7,6 +12,7 @@ import (
 	"sync"
 
 	"github.com/1password/onepassword-sdk-go"
+	"github.com/windsorcli/cli/internal/werror"
 )
 
 // =============================================================================
@@ -63,7 +69,7 @@ func (s *OnePasswordSDKProvider) Resolve(ref SecretRef) (string, bool, error) {
 		return "", false, nil
 	}
 	if ref.Field == "" {
-		return "", true, fmt.Errorf("secret() field is required for 1Password provider")
+		return "", true, missingOnePasswordFieldError(ref)
 	}
 	if !s.unlocked {
 		return "********", true, nil
@@ -71,7 +77,8 @@ func (s *OnePasswordSDKProvider) Resolve(ref SecretRef) (string, bool, error) {
 
 	token := os.Getenv("OP_SERVICE_ACCOUNT_TOKEN")
 	if token == "" {
-		return "", true, fmt.Errorf("OP_SERVICE_ACCOUNT_TOKEN environment variable is required for 1Password SDK")
+		return "", true, werror.New("The 1Password SDK needs the OP_SERVICE_ACCOUNT_TOKEN environment variable.",
+			"Set OP_SERVICE_ACCOUNT_TOKEN to a 1Password service account token.", nil)
 	}
 
 	clientLock.Lock()
@@ -85,7 +92,7 @@ func (s *OnePasswordSDKProvider) Resolve(ref SecretRef) (string, bool, error) {
 			onepassword.WithIntegrationInfo("windsor-cli", version),
 		)
 		if err != nil {
-			return "", true, fmt.Errorf("failed to create 1Password client: %w", err)
+			return "", true, werror.Wrap(err, "failed to create 1Password client")
 		}
 		if client == nil {
 			return "", true, fmt.Errorf("failed to create 1Password client: client is nil")
@@ -98,7 +105,7 @@ func (s *OnePasswordSDKProvider) Resolve(ref SecretRef) (string, bool, error) {
 
 	value, err := s.shims.ResolveSecret(globalClient, globalCtx, secretRefURI)
 	if err != nil {
-		return "", true, fmt.Errorf("failed to resolve secret %q: %w", secretRefURI, err)
+		return "", true, werror.Wrap(err, "failed to resolve secret %q", secretRefURI)
 	}
 
 	return value, true, nil

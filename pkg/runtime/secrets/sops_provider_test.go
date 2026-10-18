@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"sync"
 	"testing"
+
+	"github.com/windsorcli/cli/internal/werror"
 )
 
 // =============================================================================
@@ -156,8 +158,11 @@ func TestSopsProvider_LoadSecrets(t *testing.T) {
 		}
 
 		err := p.LoadSecrets()
-		if err == nil || !containsStr(err.Error(), "refusing to load unencrypted secrets file") || !containsStr(err.Error(), "secrets.yaml") {
+		if err == nil || !containsStr(err.Error(), "does not load the unencrypted secrets file") || !containsStr(err.Error(), "secrets.yaml") {
 			t.Errorf("expected refusal naming secrets.yaml, got %v", err)
+		}
+		if we := werror.Find(err); we == nil || !containsStr(we.Remediation, "secrets.enc.yaml") {
+			t.Errorf("expected a remediation naming secrets.enc.yaml, got %v", we)
 		}
 		if p.unlocked {
 			t.Error("expected locked after refusing plaintext secrets file")
@@ -177,8 +182,11 @@ func TestSopsProvider_LoadSecrets(t *testing.T) {
 		}
 
 		err := p.LoadSecrets()
-		if err == nil || !containsStr(err.Error(), "refusing to load unencrypted secrets file") || !containsStr(err.Error(), "secrets.yml") {
+		if err == nil || !containsStr(err.Error(), "does not load the unencrypted secrets file") || !containsStr(err.Error(), "secrets.yml") {
 			t.Errorf("expected refusal naming secrets.yml, got %v", err)
+		}
+		if we := werror.Find(err); we == nil || !containsStr(we.Remediation, "secrets.enc.yaml") {
+			t.Errorf("expected a remediation naming secrets.enc.yaml, got %v", we)
 		}
 		if p.unlocked {
 			t.Error("expected locked after refusing plaintext secrets file")
@@ -212,8 +220,8 @@ func TestSopsProvider_LoadSecrets(t *testing.T) {
 
 	t.Run("ReturnsYAMLParseError", func(t *testing.T) {
 		p := setupSopsMocks(t)
-		// Override YAMLUnmarshal to simulate a parse error
-		p.shims.YAMLUnmarshal = func(data []byte, v any) error {
+		// Override YamlUnmarshal to simulate a parse error
+		p.shims.YamlUnmarshal = func(data []byte, v any) error {
 			return fmt.Errorf("yaml parse error")
 		}
 

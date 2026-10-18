@@ -15,9 +15,9 @@ func TestNewShims(t *testing.T) {
 			t.Error("Expected Stat shim to be initialized")
 		}
 
-		// Test YAMLUnmarshal shim
-		if shims.YAMLUnmarshal == nil {
-			t.Error("Expected YAMLUnmarshal shim to be initialized")
+		// Test YamlUnmarshal shim
+		if shims.YamlUnmarshal == nil {
+			t.Error("Expected YamlUnmarshal shim to be initialized")
 		}
 
 		// Test DecryptFile shim

@@ -1,3 +1,8 @@
+// The Resolver is the entry point of the secrets package.
+// It provides the secret() helper, which resolves a reference through the first provider that handles its vault.
+// It normalizes every supported secret notation to one SecretRef before resolution.
+// It registers each resolved value with the shell so that output scrubbing hides it.
+
 package secrets
 
 import (
@@ -5,8 +10,16 @@ import (
 	"regexp"
 	"strings"
 
+	"github.com/windsorcli/cli/internal/werror"
 	"github.com/windsorcli/cli/pkg/runtime/shell"
 )
+
+// =============================================================================
+// Constants
+// =============================================================================
+
+// secretArgsRemediation is the hint for a secret() call with arguments of the wrong number or type.
+const secretArgsRemediation = `Call secret() with string arguments in the order vault, item, field. The field is optional.`
 
 // =============================================================================
 // Vars
@@ -105,7 +118,8 @@ func (r *Resolver) Resolve(ref SecretRef) (string, error) {
 		}
 		return value, nil
 	}
-	return "", fmt.Errorf("no provider found for vault %q", ref.Vault)
+	return "", werror.New(fmt.Sprintf("No secrets provider handles the vault %q.", ref.Vault),
+		`Set secrets.sops.enabled to true to use the "sops" vault, or add the vault under secrets.onepassword.vaults.`, nil)
 }
 
 // EvaluateHelper is the expr helper callback for secret(vault, item[, field]).
@@ -225,25 +239,31 @@ func IsCacheable(expr string) bool {
 // Private Helpers
 // =============================================================================
 
+// missingOnePasswordFieldError reports a secret() call to a 1Password vault that names no field.
+func missingOnePasswordFieldError(ref SecretRef) error {
+	return werror.New(fmt.Sprintf("The secret(%q, %q) call names no field, which a 1Password vault needs.", ref.Vault, ref.Item),
+		"Add the field name as the third argument of secret().", nil)
+}
+
 // parseHelperParams validates the secret(...) helper has 2 or 3 string arguments. A missing
 // field argument is returned as an empty string.
 func parseHelperParams(params []any) (string, string, string, error) {
 	if len(params) != 2 && len(params) != 3 {
-		return "", "", "", fmt.Errorf("secret() requires 2 or 3 arguments (vault, item, field), got %d", len(params))
+		return "", "", "", werror.New(fmt.Sprintf("The secret() helper takes 2 or 3 arguments, but the call has %d.", len(params)), secretArgsRemediation, nil)
 	}
 	vault, ok := params[0].(string)
 	if !ok {
-		return "", "", "", fmt.Errorf("secret() vault must be a string, got %T", params[0])
+		return "", "", "", werror.New(fmt.Sprintf("The secret() vault argument must be a string, not %T.", params[0]), secretArgsRemediation, nil)
 	}
 	item, ok := params[1].(string)
 	if !ok {
-		return "", "", "", fmt.Errorf("secret() item must be a string, got %T", params[1])
+		return "", "", "", werror.New(fmt.Sprintf("The secret() item argument must be a string, not %T.", params[1]), secretArgsRemediation, nil)
 	}
 	field := ""
 	if len(params) == 3 {
 		field, ok = params[2].(string)
 		if !ok {
-			return "", "", "", fmt.Errorf("secret() field must be a string, got %T", params[2])
+			return "", "", "", werror.New(fmt.Sprintf("The secret() field argument must be a string, not %T.", params[2]), secretArgsRemediation, nil)
 		}
 	}
 	return vault, item, field, nil

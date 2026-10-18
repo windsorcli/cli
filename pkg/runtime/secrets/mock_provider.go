@@ -1,3 +1,8 @@
+// The MockProvider is a test implementation of the Provider interface.
+// It provides replaceable functions for LoadSecrets and Resolve.
+// Tests set the functions to simulate provider results and errors.
+// With no functions set, LoadSecrets succeeds and Resolve handles no vault.
+
 package secrets
 
 // =============================================================================
