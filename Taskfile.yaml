@@ -120,6 +120,22 @@ tasks:
         platforms: [windows]
       - go tool cover -html=coverage_merged.out -o coverage.html
 
+  fmt:
+    desc: Format every tracked Go file with gofmt
+    cmds:
+      - gofmt -w $(git ls-files '*.go')
+
+  fmt:check:
+    desc: List the tracked Go files that gofmt would change. CI fails when the list is not empty.
+    cmds:
+      - |
+        unformatted="$(gofmt -l $(git ls-files '*.go'))"
+        if [ -n "$unformatted" ]; then
+          echo "These files are not gofmt-formatted. Run 'task fmt' and commit the result:"
+          echo "$unformatted"
+          exit 1
+        fi
+
   scan:
     desc: Scan for security vulnerabilities
     vars:

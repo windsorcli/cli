@@ -166,6 +166,26 @@ jobs:
           GOTOOLCHAIN: 'auto'
           GOFLAGS: '-buildvcs=false'
 
+  format-check:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7 renovate: depName=actions/setup-go
+        with:
+          go-version-file: go.mod
+
+      - name: Fail if gofmt would change a file
+        run: |
+          unformatted="$(gofmt -l $(git ls-files '*.go'))"
+          if [ -n "$unformatted" ]; then
+            echo "::error::Go files are not gofmt-formatted. Run 'task fmt' locally and commit the result."
+            echo "$unformatted"
+            exit 1
+          fi
+
   docs-check:
     runs-on: ubuntu-latest
     steps:
