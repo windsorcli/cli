@@ -2433,7 +2433,6 @@ func TestBaseKubernetesManager_blockDependencyClosure(t *testing.T) {
 	})
 }
 
-
 func TestKustomizationFailureText(t *testing.T) {
 	t.Run("JoinsAMultiLineMessageOntoOneLine", func(t *testing.T) {
 		// Given a failure with a multi-line message
