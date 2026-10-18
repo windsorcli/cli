@@ -1,45 +1,34 @@
+// The Shims are the system call abstractions of the config package.
+// It provides the shared shims of internal/shims and the random byte source.
+// Tests replace the shims to simulate file system, environment, and random results.
+// NewShims returns the shims with the real implementations.
+
 package config
 
 import (
 	"crypto/rand"
-	"os"
-	"regexp"
 
-	"github.com/goccy/go-yaml"
+	"github.com/windsorcli/cli/internal/shims"
 )
 
 // =============================================================================
-// New Shims
+// Types
 // =============================================================================
 
-// Shims provides mockable wrappers around system and runtime functions
+// Shims holds the shared system call primitives and the config-specific random byte source.
 type Shims struct {
-	ReadFile          func(string) ([]byte, error)
-	WriteFile         func(string, []byte, os.FileMode) error
-	RemoveAll         func(string) error
-	Getenv            func(string) string
-	Setenv            func(string, string) error
-	Stat              func(string) (os.FileInfo, error)
-	MkdirAll          func(string, os.FileMode) error
-	YamlMarshal       func(any) ([]byte, error)
-	YamlUnmarshal     func([]byte, any) error
-	CryptoRandRead    func([]byte) (int, error)
-	RegexpMatchString func(pattern, s string) (bool, error)
+	shims.Shims
+	CryptoRandRead func([]byte) (int, error)
 }
 
-// NewShims creates a new Shims instance with default implementations
+// =============================================================================
+// Constructor
+// =============================================================================
+
+// NewShims returns a Shims with every field set to its standard library implementation.
 func NewShims() *Shims {
 	return &Shims{
-		ReadFile:          os.ReadFile,
-		WriteFile:         os.WriteFile,
-		RemoveAll:         os.RemoveAll,
-		Getenv:            os.Getenv,
-		Setenv:            os.Setenv,
-		Stat:              os.Stat,
-		MkdirAll:          os.MkdirAll,
-		YamlMarshal:       yaml.Marshal,
-		YamlUnmarshal:     yaml.Unmarshal,
-		CryptoRandRead:    func(b []byte) (int, error) { return rand.Read(b) },
-		RegexpMatchString: regexp.MatchString,
+		Shims:          *shims.NewShims(),
+		CryptoRandRead: rand.Read,
 	}
 }
