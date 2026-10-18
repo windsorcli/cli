@@ -6,11 +6,11 @@
 package env
 
 import (
-	"fmt"
 	"io"
 	"os"
 	"path/filepath"
 
+	"github.com/windsorcli/cli/internal/werror"
 	"github.com/windsorcli/cli/pkg/runtime/config"
 	"github.com/windsorcli/cli/pkg/runtime/internal/awsprofile"
 	"github.com/windsorcli/cli/pkg/runtime/shell"
@@ -74,7 +74,7 @@ func (e *AwsEnvPrinter) GetEnvVars() (map[string]string, error) {
 	if !global {
 		root, err := e.configHandler.GetConfigRoot()
 		if err != nil {
-			return nil, fmt.Errorf("error retrieving configuration root directory: %w", err)
+			return nil, werror.Wrap(err, "error retrieving configuration root directory")
 		}
 		configRoot = root
 		awsConfigDir := filepath.Join(configRoot, ".aws")

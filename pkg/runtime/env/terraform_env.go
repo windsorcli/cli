@@ -6,12 +6,12 @@
 package env
 
 import (
-	"fmt"
 	"os"
 	"path/filepath"
 	"sort"
 	"strings"
 
+	"github.com/windsorcli/cli/internal/werror"
 	"github.com/windsorcli/cli/pkg/runtime/config"
 	"github.com/windsorcli/cli/pkg/runtime/shell"
 	"github.com/windsorcli/cli/pkg/runtime/terraform"
@@ -80,7 +80,7 @@ const terraformScopedEnvKeysVar = "WINDSOR_MANAGED_TERRAFORM_ENV"
 func (e *TerraformEnvPrinter) GetEnvVars() (map[string]string, error) {
 	projectPath, err := e.terraformProvider.FindRelativeProjectPath()
 	if err != nil {
-		return nil, fmt.Errorf("error finding project path: %w", err)
+		return nil, werror.Wrap(err, "error finding project path")
 	}
 
 	if projectPath == "" {
@@ -117,12 +117,12 @@ func (e *TerraformEnvPrinter) PostEnvHook(directory ...string) error {
 		var err error
 		currentPath, err = e.shims.Getwd()
 		if err != nil {
-			return fmt.Errorf("error getting current directory: %w", err)
+			return werror.Wrap(err, "error getting current directory")
 		}
 	}
 	projectPath, err := e.terraformProvider.FindRelativeProjectPath(directory...)
 	if err != nil {
-		return fmt.Errorf("error finding project path: %w", err)
+		return werror.Wrap(err, "error finding project path")
 	}
 	if projectPath == "" {
 		return nil

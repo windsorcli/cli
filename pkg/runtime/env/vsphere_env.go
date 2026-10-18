@@ -5,10 +5,10 @@
 package env
 
 import (
-	"fmt"
 	"path/filepath"
 	"strconv"
 
+	"github.com/windsorcli/cli/internal/werror"
 	"github.com/windsorcli/cli/pkg/runtime/config"
 	"github.com/windsorcli/cli/pkg/runtime/shell"
 )
@@ -67,7 +67,7 @@ func (e *VsphereEnvPrinter) GetEnvVars() (map[string]string, error) {
 	if !global {
 		configRoot, err := e.configHandler.GetConfigRoot()
 		if err != nil {
-			return nil, fmt.Errorf("error retrieving configuration root directory: %w", err)
+			return nil, werror.Wrap(err, "error retrieving configuration root directory")
 		}
 		vsphereDir := filepath.Join(configRoot, ".vsphere")
 		envVars["VSPHERE_PERSIST_SESSION"] = "true"

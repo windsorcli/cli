@@ -1,9 +1,14 @@
+// The TalosEnvPrinter is the env printer for Talos and Omni clusters.
+// It provides TALOSCONFIG and OMNICONFIG, which point into the context config root.
+// It sets TALOSCONFIG only when cluster.driver is "talos".
+// It sets OMNICONFIG only when the platform is "omni".
+
 package env
 
 import (
-	"fmt"
 	"path/filepath"
 
+	"github.com/windsorcli/cli/internal/werror"
 	"github.com/windsorcli/cli/pkg/runtime/config"
 	"github.com/windsorcli/cli/pkg/runtime/shell"
 )
@@ -47,7 +52,7 @@ func (e *TalosEnvPrinter) GetEnvVars() (map[string]string, error) {
 	envVars := make(map[string]string)
 	configRoot, err := e.configHandler.GetConfigRoot()
 	if err != nil {
-		return nil, fmt.Errorf("error retrieving configuration root directory: %w", err)
+		return nil, werror.Wrap(err, "error retrieving configuration root directory")
 	}
 	clusterDriver := e.configHandler.GetString("cluster.driver", "")
 	platform := e.configHandler.GetString("platform", "")

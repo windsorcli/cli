@@ -6,11 +6,11 @@
 package env
 
 import (
-	"fmt"
 	"os"
 	"path/filepath"
 
 	cliconfig "github.com/windsorcli/cli/api/config/v1alpha2"
+	"github.com/windsorcli/cli/internal/werror"
 	"github.com/windsorcli/cli/pkg/debug"
 	"github.com/windsorcli/cli/pkg/runtime/config"
 	"github.com/windsorcli/cli/pkg/runtime/shell"
@@ -66,7 +66,7 @@ func (e *AzureEnvPrinter) GetEnvVars() (map[string]string, error) {
 	if !global {
 		configRoot, err := e.configHandler.GetConfigRoot()
 		if err != nil {
-			return nil, fmt.Errorf("error retrieving configuration root directory: %w", err)
+			return nil, werror.Wrap(err, "error retrieving configuration root directory")
 		}
 		azureConfigDir := filepath.Join(configRoot, ".azure")
 		envVars["AZURE_CONFIG_DIR"] = filepath.ToSlash(azureConfigDir)

@@ -13,6 +13,7 @@ import (
 	"regexp"
 	"strings"
 
+	"github.com/windsorcli/cli/internal/werror"
 	"github.com/windsorcli/cli/pkg/constants"
 	"github.com/windsorcli/cli/pkg/runtime/config"
 	"github.com/windsorcli/cli/pkg/runtime/shell"
@@ -65,7 +66,7 @@ func (e *KubeEnvPrinter) GetEnvVars() (map[string]string, error) {
 	envVars := make(map[string]string)
 	configRoot, err := e.configHandler.GetConfigRoot()
 	if err != nil {
-		return nil, fmt.Errorf("error retrieving configuration root directory: %w", err)
+		return nil, werror.Wrap(err, "error retrieving configuration root directory")
 	}
 	kubeConfigPath := filepath.Join(configRoot, ".kube", "config")
 	envVars["KUBECONFIG"] = kubeConfigPath
@@ -83,7 +84,7 @@ func (e *KubeEnvPrinter) GetEnvVars() (map[string]string, error) {
 	}
 	absProjectRoot, err := filepath.Abs(projectRoot)
 	if err != nil {
-		return nil, fmt.Errorf("error converting WINDSOR_PROJECT_ROOT to absolute path: %w", err)
+		return nil, werror.Wrap(err, "error converting WINDSOR_PROJECT_ROOT to absolute path")
 	}
 	volumeDir := filepath.Join(absProjectRoot, ".volumes")
 
@@ -92,12 +93,12 @@ func (e *KubeEnvPrinter) GetEnvVars() (map[string]string, error) {
 		if os.IsNotExist(err) {
 			return envVars, nil
 		}
-		return nil, fmt.Errorf("error checking volume directory: %w", err)
+		return nil, werror.Wrap(err, "error checking volume directory")
 	}
 
 	volumeDirs, err := e.shims.ReadDir(volumeDir)
 	if err != nil {
-		return nil, fmt.Errorf("error reading volume directories: %w", err)
+		return nil, werror.Wrap(err, "error reading volume directories")
 	}
 
 	existingEnvVars := make(map[string]string)
@@ -148,7 +149,7 @@ func (e *KubeEnvPrinter) GetEnvVars() (map[string]string, error) {
 							volumePath := filepath.Join(volumeDir, dir.Name())
 							absPath, err := filepath.Abs(volumePath)
 							if err != nil {
-								return nil, fmt.Errorf("error converting volume path to absolute: %w", err)
+								return nil, werror.Wrap(err, "error converting volume path to absolute")
 							}
 							envVars[envVarName] = absPath
 							e.SetManagedEnv(envVarName)
@@ -194,7 +195,7 @@ var queryPersistentVolumeClaims = func(kubeConfigPath string) (*corev1.Persisten
 	pvcs, err := clientset.CoreV1().PersistentVolumeClaims("").List(ctx, metav1.ListOptions{})
 	if err != nil {
 		if ctx.Err() == context.DeadlineExceeded {
-			return nil, fmt.Errorf("timeout querying PVCs: %w", err)
+			return nil, werror.Wrap(err, "timeout querying PVCs")
 		}
 		return nil, err
 	}

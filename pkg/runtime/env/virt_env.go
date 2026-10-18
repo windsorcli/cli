@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/windsorcli/cli/internal/werror"
 	"github.com/windsorcli/cli/pkg/runtime/config"
 	"github.com/windsorcli/cli/pkg/runtime/shell"
 )
@@ -63,7 +64,7 @@ func (e *VirtEnvPrinter) GetEnvVars() (map[string]string, error) {
 	if platform != "incus" && workstationRuntime != "" {
 		homeDir, err := e.shims.UserHomeDir()
 		if err != nil {
-			return nil, fmt.Errorf("error retrieving user home directory: %w", err)
+			return nil, werror.Wrap(err, "error retrieving user home directory")
 		}
 
 		windsorConfigDir := os.Getenv("WINDSORCONFIG")
@@ -116,13 +117,13 @@ func (e *VirtEnvPrinter) GetEnvVars() (map[string]string, error) {
 		}`, contextName)
 
 		if err := e.shims.MkdirAll(dockerConfigDir, 0755); err != nil {
-			return nil, fmt.Errorf("error creating docker config directory: %w", err)
+			return nil, werror.Wrap(err, "error creating docker config directory")
 		}
 
 		existingContent, err := e.shims.ReadFile(dockerConfigPath)
 		if err != nil || string(existingContent) != dockerConfigContent {
 			if err := e.shims.WriteFile(dockerConfigPath, []byte(dockerConfigContent), 0644); err != nil {
-				return nil, fmt.Errorf("error writing docker config file: %w", err)
+				return nil, werror.Wrap(err, "error writing docker config file")
 			}
 		}
 		envVars["DOCKER_CONFIG"] = filepath.ToSlash(dockerConfigDir)
@@ -138,7 +139,7 @@ func (e *VirtEnvPrinter) GetEnvVars() (map[string]string, error) {
 	if workstationRuntime == "colima" && platform == "incus" {
 		homeDir, err := e.shims.UserHomeDir()
 		if err != nil {
-			return nil, fmt.Errorf("error retrieving user home directory: %w", err)
+			return nil, werror.Wrap(err, "error retrieving user home directory")
 		}
 		configContext := e.configHandler.GetContext()
 		incusSocketPath := filepath.Join(homeDir, ".colima", fmt.Sprintf("windsor-%s", configContext), "incus.sock")

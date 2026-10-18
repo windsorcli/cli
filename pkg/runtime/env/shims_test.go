@@ -38,9 +38,6 @@ func TestNewShims(t *testing.T) {
 		if shims.RemoveAll == nil {
 			t.Error("RemoveAll shim not initialized")
 		}
-		if shims.CryptoRandRead == nil {
-			t.Error("CryptoRandRead shim not initialized")
-		}
 		if shims.Goos == nil {
 			t.Error("Goos shim not initialized")
 		}
