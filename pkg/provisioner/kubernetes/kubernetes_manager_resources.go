@@ -28,23 +28,16 @@ import (
 // Constants
 // =============================================================================
 
-// secretChecksumAnnotationPrefix prefixes the pod-template annotation whose value is a content digest
-// of a secret the workload consumes. The suffix is the secret name, so each consumed secret gets its
-// own annotation and a change to one rolls only its consumers.
+// secretChecksumAnnotationPrefix starts the pod-template annotation that holds the digest of one consumed Secret.
 const secretChecksumAnnotationPrefix = "checksum.windsorcli.dev/"
 
-// secretOwnerLabel names the kustomization a CLI-placed Secret belongs to. It is set only by
-// ApplySecret, never by Flux, so it is the reliable marker for finding secrets the CLI itself placed —
-// PruneSecrets selects on it (scoped to the context) to reclaim orphans without touching Flux-managed
-// secrets that happen to carry the context labels via CommonMetadata.
+// secretOwnerLabel names the Kustomization of a Secret that the CLI placed. Only ApplySecret sets it.
 const secretOwnerLabel = "windsorcli.dev/secret-owner" // #nosec G101 -- label key, not a credential
 
-// dockerConfigSecretKey is the well-known stringData key a kubernetes.io/dockerconfigjson Secret
-// carries its registry auth under.
+// dockerConfigSecretKey is the stringData key of the registry auth in a dockerconfigjson Secret.
 const dockerConfigSecretKey = ".dockerconfigjson" // #nosec G101 -- well-known stringData key, not a credential
 
-// defaultDockerConfigServer is the registry secretTypeAndData assumes when docker-username and
-// docker-password are set but docker-server is not.
+// defaultDockerConfigServer is the registry that secretTypeAndData uses when docker-server is not set.
 const defaultDockerConfigServer = "ghcr.io"
 
 // =============================================================================
@@ -99,17 +92,10 @@ func (k *BaseKubernetesManager) ApplyConfigMap(name, namespace string, data map[
 	return k.applyWithRetry(gvr, obj, opts)
 }
 
-// ApplySecret creates or updates a Secret using SSA. Values are supplied as plaintext in
-// stringData (write-only; the API server folds them into data) and are never logged. Mirrors
-// ApplyConfigMap's server-side-apply handling, including its immutable-field guard: Kubernetes
-// rejects an update that changes Secret.type, so if an existing Secret's type differs from the
-// newly resolved one, ApplySecret deletes it first rather than SSA-merging a rejected change. It
-// stamps the context ownership labels plus a secret-owner label naming the kustomization the
-// secret belongs to; that label is set only by CLI placement (never by Flux), so PruneSecrets can
-// find and reclaim CLI-placed secrets without ever touching a Flux-managed one. The Secret's type
-// and stringData are resolved by secretTypeAndData: stringData already carrying
-// ".dockerconfigjson", or carrying docker-username/docker-password (docker-server optional),
-// produces a kubernetes.io/dockerconfigjson Secret for imagePullSecrets; anything else stays Opaque.
+// ApplySecret creates or updates a Secret using SSA, with plaintext values in stringData that it never logs.
+// docker-username and docker-password, or a .dockerconfigjson key, give a dockerconfigjson Secret; other
+// data gives an Opaque one. Kubernetes rejects a change of Secret.type, so it deletes a Secret of another
+// type first. It sets the context labels and a secret-owner label that names owner, for PruneSecrets.
 func (k *BaseKubernetesManager) ApplySecret(name, namespace string, stringData map[string]string, owner string) error {
 	secretType, resolvedData, err := secretTypeAndData(stringData)
 	if err != nil {
@@ -199,17 +185,10 @@ func (k *BaseKubernetesManager) PruneSecrets(desired map[string]map[string]bool)
 	return nil
 }
 
-// RollWorkloadsForSecret rolls the workloads in a namespace that consume the named Secret so they pick
-// up new content, the way Kubernetes only ever rolls on a pod-template change. Because the CLI holds the
-// resolved plaintext, it passes a precomputed content digest and stamps it as a pod-template annotation
-// (checksum.windsorcli.dev/<secret>) on every Deployment, StatefulSet, and DaemonSet whose pod spec
-// references the Secret via envFrom, a secretKeyRef, or a secret volume — including init containers. The
-// digest is one-way and never surfaced beyond the namespace, so a reader of the annotation learns
-// nothing the Secret's own RBAC did not already grant. A workload already carrying the digest is left
-// untouched (idempotent, so unchanged content does not churn pods); a workload that does not reference
-// the Secret is never patched. Finding no consumers is not an error — on a first apply the workload is
-// created later by Flux and reads the Secret fresh — so this returns an error only on an API failure. The
-// caller's context bounds the patch calls so a slow API server cannot outlast its deadline.
+// RollWorkloadsForSecret sets digest as a pod-template annotation on each Deployment, StatefulSet, and
+// DaemonSet in namespace that consumes secretName, so Kubernetes rolls it. A workload consumes the Secret
+// through envFrom, a secretKeyRef, or a secret volume, in any container or init container. It skips a
+// workload that already has digest. It returns an error only on an API failure, and ctx bounds the patches.
 func (k *BaseKubernetesManager) RollWorkloadsForSecret(ctx context.Context, namespace, secretName, digest string) error {
 	annotationKey := secretChecksumAnnotationKey(secretName)
 	for _, resource := range []string{"deployments", "statefulsets", "daemonsets"} {
@@ -263,10 +242,9 @@ func (k *BaseKubernetesManager) ApplyVersionMarker(namespace string, marker Vers
 	return k.ApplyConfigMap(VersionMarkerConfigMapName, namespace, data)
 }
 
-// GetVersionMarker reads the applied-version marker ConfigMap from the namespace, reporting false
-// when no marker is present — a missing ConfigMap (pre-bootstrap context) or one without marker data
-// (legacy cluster). It returns an error only on a real read or decode failure, so callers can tell
-// "no marker yet" (proceed as legacy) apart from "could not read the marker" (cluster unreachable).
+// GetVersionMarker reads the version marker ConfigMap from namespace. It returns false when the
+// ConfigMap is missing, before bootstrap, or has no data, on a legacy cluster. It returns an error only
+// when a read or decode fails, so a caller can tell "no marker" from "cluster unreachable".
 func (k *BaseKubernetesManager) GetVersionMarker(namespace string) (VersionMarker, bool, error) {
 	gvr := schema.GroupVersionResource{
 		Group:    "",

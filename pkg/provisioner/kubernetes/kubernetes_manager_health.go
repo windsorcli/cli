@@ -18,19 +18,11 @@ import (
 // Public Methods
 // =============================================================================
 
-// WaitForKubernetesHealthy waits for the Kubernetes API to become healthy within the context deadline.
-// If nodeNames are provided, verifies all specified nodes reach Ready state before returning.
-// A machine config apply (e.g. Talos resource reservations touching the apiServer/controllerManager/
-// scheduler static pods) is accepted synchronously but reconciled asynchronously, so the very next
-// health check can still observe the pre-change apiserver and return healthy moments before it's
-// recreated. To catch that race, a success only counts once the API (and, if requested, node
-// readiness) has held continuously for healthCheckSettleDuration; any failure during that window
-// resets the clock. healthCheckSettleDuration is bounded by the context's own remaining deadline
-// (minus one poll interval of margin) so a caller with a short overall timeout — e.g. the 30s
-// reachability check windsor destroy runs before invoking terraform — still has a reachable window
-// in which to succeed, rather than the settle requirement alone guaranteeing a timeout regardless of
-// cluster health. Returns an error if the API is unreachable or any specified nodes are not Ready
-// within the deadline.
+// WaitForKubernetesHealthy waits until the API, and each named node, stays healthy for healthCheckSettleDuration.
+// A machine config apply can restart the apiserver after a first healthy check, so one success is not enough.
+// A failure during the settle period starts it again. The settle period is cut to fit the context deadline,
+// less one poll interval, so a caller with a short timeout can still succeed. On timeout, the error
+// carries the last failure.
 func (k *BaseKubernetesManager) WaitForKubernetesHealthy(ctx context.Context, endpoint string, outputFunc func(string), nodeNames ...string) error {
 	if k.client == nil {
 		return fmt.Errorf("kubernetes client not initialized")

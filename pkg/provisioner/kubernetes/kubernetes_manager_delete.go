@@ -25,19 +25,13 @@ import (
 // Constants
 // =============================================================================
 
-// abandonedInventoryGraceChecks is the minimum number of extra polls DeleteKustomization
-// spends re-checking a still-live inventory entry after the Kustomization disappears,
-// regardless of inventory size. It gives a resource still finishing its own normal
-// termination a chance to clear before the delete is reported as abandoned rather than
-// clean; see abandonedInventoryGraceWindow for the size-scaled window built on top of it.
+// abandonedInventoryGraceChecks is the minimum number of polls for a live entry after its Kustomization disappears.
 const abandonedInventoryGraceChecks = 3
 
 // errUnverifiableInventory reports an entry neither confirmed live nor confirmed gone.
 var errUnverifiableInventory = errors.New("inventory entry cannot be verified")
 
-// fluxReconcileAnnotationGroups are the groups whose controllers watch
-// fluxReconcileAnnotation by contract. Any other group falls back to
-// windsorReconcileAnnotation, which reaches a controller only if it filters nothing.
+// fluxReconcileAnnotationGroups are the groups whose controllers watch fluxReconcileAnnotation.
 var fluxReconcileAnnotationGroups = map[string]bool{
 	"kustomize.toolkit.fluxcd.io": true,
 	"helm.toolkit.fluxcd.io":      true,
@@ -64,13 +58,10 @@ type liveInventoryEntry struct {
 // Public Methods
 // =============================================================================
 
-// DeleteKustomization deletes a Kustomization and waits for it to disappear. The wait
-// floor rises to spec.timeout when set, and scales with inventory size (see
-// kustomizationSpecTimeoutCeiling). On timeout or a clean disappearance, it checks the
-// last-known inventory (see firstLiveInventoryEntry) before trusting the result. A
-// still-live entry gets a few retries first, to rule out normal in-flight termination.
-// This runs outside a destroy. The cluster stays up, so a finalizer-free leftover still
-// blocks, the same as any other live one.
+// DeleteKustomization deletes a Kustomization and waits until it disappears. The wait grows to
+// spec.timeout and with the inventory size. After the wait, it checks the last known inventory,
+// and gives a live entry a few more polls before it reports that entry. The cluster stays up, so
+// an object without a finalizer that is still live also counts as a leftover.
 func (k *BaseKubernetesManager) DeleteKustomization(ctx context.Context, name, namespace string) error {
 	return k.deleteKustomization(ctx, name, namespace, nil, nil, false)
 }
@@ -324,11 +315,9 @@ func (k *BaseKubernetesManager) describeStuckHelmReleases(name, namespace string
 	return "; " + strings.Join(parts, ", ")
 }
 
-// triggerReconcile asks entry's own controller to look again. It asserts nothing
-// about the object's state and never touches metadata.finalizers. Every controller
-// MUST already tolerate an unsolicited reconcile, so this is always safe. A patch
-// failure is not reported; the caller's own wait handles an entry that never
-// clears regardless. See ADR 0009 Decision 6.
+// triggerReconcile asks the controller of entry to reconcile it again, through a reconcile annotation.
+// It never changes metadata.finalizers, and every controller MUST accept an extra reconcile.
+// It ignores a patch failure, because the wait of the caller handles an entry that does not clear.
 func (k *BaseKubernetesManager) triggerReconcile(entry *liveInventoryEntry) {
 	key := windsorReconcileAnnotation
 	if fluxReconcileAnnotationGroups[entry.Group] {
@@ -340,16 +329,11 @@ func (k *BaseKubernetesManager) triggerReconcile(entry *liveInventoryEntry) {
 	_, _ = k.client.PatchResource(context.Background(), entry.gvr, entry.Namespace, entry.Name, types.MergePatchType, patch, opts)
 }
 
-// firstLiveInventoryEntry returns the first inventory entry whose own live object is
-// still present, or nil if every entry is confirmed absent. An entry whose API type no
-// longer exists counts as gone. It returns an error, not a false negative, on an
-// inconclusive lookup. A wrong "gone" reading could clear a finalizer or report a
-// false clean delete.
-//
-// destroying MUST be true only right before terraform destroy. A finalizer-free object then
-// counts as residue, since the cluster removes it anyway. Outside a destroy, such as
-// PruneBlueprint's cleanup, the cluster keeps running. There a finalizer-free object still
-// blocks, or it would never get cleaned up.
+// firstLiveInventoryEntry returns the first entry whose object is still live, or nil when all are gone.
+// An entry whose API type does not exist counts as gone. An inconclusive lookup returns an error,
+// because a false "gone" could clear a finalizer or report a false clean delete. destroying MUST
+// be true only just before terraform destroy: then an object without a finalizer is residue that
+// the cluster removes, and it goes in the surviving list instead.
 func (k *BaseKubernetesManager) firstLiveInventoryEntry(entries []InventoryEntry, helmInventory helmReleaseInventory, destroying bool) (*liveInventoryEntry, []InventoryEntry, error) {
 	var surviving []InventoryEntry
 	for _, entry := range entries {

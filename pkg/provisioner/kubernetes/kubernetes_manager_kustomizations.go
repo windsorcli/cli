@@ -30,18 +30,13 @@ import (
 // Constants
 // =============================================================================
 
-// kustomizationWaitErrorBudgetFraction bounds how much of the total wait timeout a streak of
-// transient ListResources errors may consume before WaitForKustomizations gives up. A sustained
-// apiserver slowdown gets patience proportional to how patient the overall wait already is,
-// rather than a fixed tick count that's either too tight for a big blueprint or too loose for
-// a small one.
+// kustomizationWaitErrorBudgetFraction is the part of the total wait that a streak of list errors can use.
 const kustomizationWaitErrorBudgetFraction = 0.25
 
 // kustomizationWaitMessageLimit caps the length of a failure message in a progress line.
 const kustomizationWaitMessageLimit = 200
 
-// kustomizationsGVR is the Flux Kustomization resource. WaitForKustomizations lists it once per
-// tick rather than issuing one GetResource per pending name.
+// kustomizationsGVR is the Flux Kustomization resource.
 var kustomizationsGVR = schema.GroupVersionResource{
 	Group:    "kustomize.toolkit.fluxcd.io",
 	Version:  "v1",
@@ -53,8 +48,7 @@ const (
 	kustomizationFailurePending
 )
 
-// kustomizationFailureReasons maps each Ready=False Reason that counts as a failure to its kind.
-// A Reason absent here, such as Progressing or DependencyNotReady, resolves with time instead.
+// kustomizationFailureReasons maps each Ready=False reason that counts as a failure to its kind.
 var kustomizationFailureReasons = map[string]kustomizationFailureKind{
 	meta.BuildFailedReason:          kustomizationFailureHard,
 	meta.ArtifactFailedReason:       kustomizationFailureHard,
@@ -113,14 +107,11 @@ func (k *BaseKubernetesManager) ApplyKustomization(kustomization kustomizev1.Kus
 	return k.applyWithRetry(gvr, obj, opts)
 }
 
-// WaitForKustomizations waits for kustomizations to be ready, using a timeout derived from the
-// blueprint's longest dependency chain. It honors ctx cancellation and returns ctx.Err().
-// A list-call error or a ReconciliationFailed condition fails the wait after an error budget. For a
-// failing kustomization the budget is its own timeout, at most a quarter of the total and at least the minimum.
-// The streak survives Ready flipping to Unknown between retries. BuildFailed and ArtifactFailed fail at once.
-// The wait is one presenter operation with one child step per kustomization. A child appears once
-// its dependencies in the wait are Ready, ends when its kustomization is Ready, shows the latest
-// failure as its progress, and fails with the wait.
+// WaitForKustomizations waits until each Kustomization is Ready, within the timeout of the longest
+// dependency chain. It returns ctx.Err() on cancellation. BuildFailed and ArtifactFailed fail at once.
+// List errors and ReconciliationFailed fail after an error budget: a quarter of the total, or the own
+// timeout of the Kustomization when that is shorter, and never less than the minimum. The presenter
+// shows one step per Kustomization, which starts when its dependencies are Ready.
 func (k *BaseKubernetesManager) WaitForKustomizations(ctx context.Context, message string, blueprint *blueprintv1alpha1.Blueprint) (err error) {
 	if blueprint == nil {
 		return fmt.Errorf("blueprint not provided")
@@ -488,21 +479,10 @@ func (k *BaseKubernetesManager) KustomizationExists(name, namespace string) (boo
 // Private Methods
 // =============================================================================
 
-// describeNotReadyKustomizations fetches the current state of each named
-// kustomization and returns a ": name (condition), ..." suffix naming those not
-// yet Ready, each annotated with its most diagnostic status condition. It is the
-// wait-timeout counterpart to the destroy-timeout enrichment: rather than a bare
-// "timeout waiting for kustomizations", the operator sees which ones are stuck
-// and why (e.g. a failed reconciliation or unmet dependency) without a manual
-// kubectl round-trip. A kustomization that cannot be read is listed by name
-// alone. Returns an empty string when every kustomization reads back Ready, so
-// the caller's sentence stays clean.
-//
-// Because this runs only after a wait already timed out, the API may be slow or
-// unreachable. Each GetResource is individually bounded by the client's request
-// timeout, but probing every kustomization serially could still compound into
-// minutes; total probing is therefore capped at notReadyDescribeBudget. Once the
-// budget is spent the remaining kustomizations are named without condition detail.
+// describeNotReadyKustomizations returns a ": name (condition), ..." suffix for each named Kustomization
+// that is not Ready, with its most useful status condition. It returns "" when all are Ready.
+// A Kustomization that it cannot read, or that it reaches after notReadyDescribeBudget, shows its name only.
+// The budget exists because the API can be slow after a wait times out.
 func (k *BaseKubernetesManager) describeNotReadyKustomizations(names []string, namespace string) string {
 	start := time.Now()
 	var stuck []string
@@ -527,6 +507,7 @@ func (k *BaseKubernetesManager) describeNotReadyKustomizations(names []string, n
 	return ": " + strings.Join(stuck, ", ")
 }
 
+// Error returns the name, reason, and message of the failed Kustomization.
 func (e *kustomizationFailedError) Error() string {
 	return fmt.Sprintf("kustomization %s failed (%s): %s", e.name, e.reason, e.message)
 }
@@ -638,15 +619,10 @@ func kustomizationFailureText(failure *kustomizationFailedError) string {
 	return failure.reason + ": " + message
 }
 
-// describeStuckKustomization extracts the most diagnostic status condition from a
-// Kustomization that failed to delete in time, formatted as " (Type=Status Reason: message)"
-// for inline inclusion in the timeout error. Flux records the real failure cause
-// (prune failure, healthcheck failure, dependency-not-ready) in status.conditions,
-// so surfacing it here saves the operator a manual kubectl round-trip. Preference
-// order is Stalled, then non-True Ready, then any other non-True condition — these
-// carry the actionable reason; a bare Ready=True (rare during a stuck delete) is not
-// reported. Returns an empty string when no object was captured or no condition
-// carries a usable message, so the caller's sentence reads cleanly without it.
+// describeStuckKustomization returns the most useful status condition of obj as
+// " (Type=Status Reason: message)", for a timeout error. It prefers Stalled, then a Ready that is
+// not True, then any other condition that is not True. It returns "" for a nil object or when no
+// condition has a message.
 func describeStuckKustomization(obj *unstructured.Unstructured) string {
 	if obj == nil {
 		return ""

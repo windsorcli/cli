@@ -1,6 +1,7 @@
-// Package kubernetes provides Kubernetes resource management functionality
-// It implements server-side apply patterns for managing Kubernetes resources
-// and provides a clean interface for kustomization and resource management
+// The Shims is the set of replaceable time and conversion functions of the kubernetes package.
+// It provides the clock, the sleep, and the unstructured converter that the manager uses.
+// Tests replace a field to control time or to make a conversion fail.
+// NewShims returns the standard library and apimachinery implementations.
 
 package kubernetes
 

@@ -1,6 +1,7 @@
-// Package kubernetes provides Kubernetes resource management functionality
-// It implements server-side apply patterns for managing Kubernetes resources
-// and provides a clean interface for kustomization and resource management
+// The KubernetesManager is the Windsor interface to Flux and Kubernetes resources in a cluster.
+// It provides apply, wait, delete, and prune of blueprints, Kustomizations, and their sources.
+// It applies resources with server-side apply and labels them with the context that owns them.
+// The other kubernetes_manager files hold its methods, grouped by concern.
 
 package kubernetes
 
@@ -102,8 +103,8 @@ type BaseKubernetesManager struct {
 	nodeReadyPollInterval     time.Duration
 }
 
-// NewKubernetesManager creates a new instance of BaseKubernetesManager.
-// The configHandler is used to retrieve context name and context ID for CommonMetadata labels.
+// NewKubernetesManager returns a BaseKubernetesManager with the default timeouts. It panics on a nil argument.
+// The configHandler supplies the context name and id for the ownership labels.
 func NewKubernetesManager(kubernetesClient client.KubernetesClient, configHandler config.ConfigHandler) *BaseKubernetesManager {
 	if kubernetesClient == nil {
 		panic("kubernetes client is required")

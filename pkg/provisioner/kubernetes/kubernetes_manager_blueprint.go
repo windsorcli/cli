@@ -31,14 +31,10 @@ import (
 // Public Methods
 // =============================================================================
 
-// ApplyBlueprint applies the entire blueprint to the cluster in the proper sequence.
-// It creates the target namespace, applies all blueprint source repositories (Git and OCI),
-// applies all individual sources, applies any standalone ConfigMaps, and finally applies
-// all kustomizations and their associated ConfigMaps. This orchestrates a complete
-// blueprint installation following the intended order. Context ownership labels are stamped on
-// each Kustomization's ObjectMeta (so the objects are selectable by context) and propagated to
-// managed resources via CommonMetadata, using context info from the config handler.
-// Returns an error if any step fails.
+// ApplyBlueprint applies a blueprint in this order: the namespace, the repository and the remote sources,
+// the blueprint ConfigMaps, then each Kustomization with its values ConfigMap. It skips destroy-only
+// Kustomizations and the local template source. Each Kustomization and, through CommonMetadata, each
+// resource it manages gets the context ownership labels. It stops at the first step that fails.
 func (k *BaseKubernetesManager) ApplyBlueprint(blueprint *blueprintv1alpha1.Blueprint, namespace string) error {
 	if err := k.CreateNamespace(namespace); err != nil {
 		return werror.Wrap(err, "failed to create namespace")
@@ -106,14 +102,10 @@ func (k *BaseKubernetesManager) ApplyBlueprint(blueprint *blueprintv1alpha1.Blue
 	return nil
 }
 
-// DeleteBlueprint tears the blueprint down in two phases: destroy-only kustomizations first,
-// then regular ones in reverse-topological order. Each delete blocks on
-// spec.deletionPolicy=WaitForTermination, so cloud resources release before the object
-// disappears.
-//
-// A Phase 2 failure skips only that Kustomization's own dependency closure (see
-// dependencyClosure), not the rest of the run. A retry re-walks the whole blueprint; anything
-// already gone returns immediately.
+// DeleteBlueprint runs the destroy-only Kustomizations, then deletes the regular ones, dependents first.
+// Each delete waits under spec.deletionPolicy=WaitForTermination, so cloud resources release first.
+// When a regular delete fails, it skips only the dependency closure of that Kustomization.
+// A retry walks the full blueprint again, and a Kustomization that is already gone returns at once.
 func (k *BaseKubernetesManager) DeleteBlueprint(ctx context.Context, blueprint *blueprintv1alpha1.Blueprint, namespace string) error {
 	defaultSourceName := blueprint.Metadata.Name
 
@@ -188,15 +180,10 @@ func (k *BaseKubernetesManager) DeleteBlueprint(ctx context.Context, blueprint *
 	return nil
 }
 
-// PruneBlueprint deletes Kustomizations belonging to the current context that are no longer part of
-// the blueprint. It scopes strictly to this context — only objects carrying the
-// windsorcli.dev/context-id label for this context are considered, so kustomizations owned by other
-// contexts (or by no Windsor context) are never touched. Every non-DestroyOnly kustomization in the
-// blueprint is treated as desired; the live remainder is deleted in reverse-dependency order (read
-// from each object's live spec.dependsOn) so dependents tear down before their dependencies, each
-// honoring its own deletionPolicy. The caller passes the same prepared blueprint Install applied
-// (CRD layers included) so the synthesized crds/crds-<source> layers are recognized as desired and
-// not pruned. Deletion errors are collected and joined rather than aborting on the first.
+// PruneBlueprint deletes the Kustomizations of this context that the blueprint does not declare.
+// It selects on the windsorcli.dev/context-id label, so it never touches another context's objects.
+// It deletes dependents first, from the live spec.dependsOn, and joins the delete errors.
+// The caller MUST pass the blueprint with its CRD layers, or prune deletes those layers.
 func (k *BaseKubernetesManager) PruneBlueprint(ctx context.Context, blueprint *blueprintv1alpha1.Blueprint, namespace string) error {
 	if blueprint == nil {
 		return fmt.Errorf("blueprint not provided")
@@ -504,14 +491,9 @@ func (k *BaseKubernetesManager) setKustomizationSuspend(name, namespace string, 
 	return nil
 }
 
-// waitForResumeReconcile polls up to kustomizationReconcileSleep for a Kustomization's
-// status.observedGeneration to catch up to metadata.generation after a resume. A resume
-// triggers a reconcile. Deleting before that reconcile settles can race
-// kustomize-controller and strand the object mid-delete. This check is best effort. It
-// returns on any read error or on timeout. Each sleep between polls is capped to the
-// time left in the budget, so it never adds a full kustomizationWaitPollInterval on top
-// of an already-expired deadline. deleteKustomization's own wait loop is the real safety
-// net.
+// waitForResumeReconcile waits up to kustomizationReconcileSleep until status.observedGeneration of a
+// resumed Kustomization reaches metadata.generation. A delete during that reconcile can strand the object.
+// The wait is best effort: it returns on a read error or at the deadline, and never sleeps past the deadline.
 func (k *BaseKubernetesManager) waitForResumeReconcile(name, namespace string) {
 	deadline := k.shims.TimeNow().Add(k.kustomizationReconcileSleep)
 	for {
@@ -691,14 +673,10 @@ func orderForDestroy(ctx context.Context, ks []blueprintv1alpha1.Kustomization, 
 	return ordered
 }
 
-// reverseTopologicalKustomizations returns ks in destroy order — each kustomization
-// before its DependsOn entries. Independent nodes tie-break by reverse input order,
-// so a topo-sorted input produces the same walk as a naive slice-reverse. Missing
-// dependencies (a DependsOn name not in ks) are treated as no-edge, matching the
-// apply-side walk. Returns an error on cycles across two or more nodes; a single-
-// node input short-circuits before cycle detection, so a self-loop on a lone
-// kustomization is not flagged — do not rely on this function to validate a
-// single-entry slice.
+// reverseTopologicalKustomizations returns ks with each Kustomization before its DependsOn entries.
+// Independent entries keep reverse input order, and a DependsOn name not in ks adds no edge.
+// It returns an error on a cycle of two or more entries. It does not check a one-entry slice,
+// so a self-loop on a single Kustomization is not detected.
 func reverseTopologicalKustomizations(ks []blueprintv1alpha1.Kustomization) ([]blueprintv1alpha1.Kustomization, error) {
 	if len(ks) == 0 {
 		return []blueprintv1alpha1.Kustomization{}, nil
