@@ -401,7 +401,6 @@ func TestOCIModuleResolver_extractOCIModule(t *testing.T) {
 	})
 }
 
-
 func TestOCIModuleResolver_processComponent(t *testing.T) {
 	setup := func(t *testing.T) *OCIModuleResolver {
 		t.Helper()

@@ -879,7 +879,7 @@ func TestLinuxNetworkManager_NetworkManagerShadowsResolverWarning(t *testing.T) 
 		// Given main says dns=default but conf.d overrides to systemd-resolved
 		manager, mocks := setup(t)
 		nmActiveAndConfig(mocks, map[string]string{
-			"/etc/NetworkManager/NetworkManager.conf":     "[main]\ndns=default\n",
+			"/etc/NetworkManager/NetworkManager.conf":      "[main]\ndns=default\n",
 			"/etc/NetworkManager/conf.d/dns-override.conf": "[main]\ndns=systemd-resolved\n",
 		})
 

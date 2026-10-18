@@ -23,7 +23,7 @@ eval "$(windsor hook bash)"
 windsor hook powershell | Out-String | Invoke-Expression`,
 	Annotations: map[string]string{
 		"docs.seealso": "[`env`](env.md), [`exec`](exec.md)",
-		"docs.source": "cmd/hook.go",
+		"docs.source":  "cmd/hook.go",
 	},
 	SilenceUsage: true,
 	Args:         cobra.ExactArgs(1),

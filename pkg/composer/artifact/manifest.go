@@ -69,8 +69,8 @@ const (
 
 // ArtifactManifest is the top-level document written as artifact-manifest.yaml.
 type ArtifactManifest struct {
-	Version   string         `yaml:"version"`
-	Blueprint Provenance     `yaml:"blueprint,omitempty"`
+	Version   string          `yaml:"version"`
+	Blueprint Provenance      `yaml:"blueprint,omitempty"`
 	Artifacts []ManifestEntry `yaml:"artifacts"`
 }
 

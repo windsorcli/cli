@@ -28,7 +28,7 @@ eval "$(windsor env --decrypt)"
 windsor env`,
 	Annotations: map[string]string{
 		"docs.seealso": "[`hook`](hook.md), [`exec`](exec.md)",
-		"docs.source": "cmd/env.go",
+		"docs.source":  "cmd/env.go",
 	},
 	SilenceUsage: true,
 	RunE: func(cmd *cobra.Command, args []string) error {

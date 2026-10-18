@@ -24,7 +24,7 @@ windsor test
 windsor test cluster-defaults`,
 	Annotations: map[string]string{
 		"docs.seealso": "[Testing reference](../testing.md)",
-		"docs.source": "cmd/test.go",
+		"docs.source":  "cmd/test.go",
 	},
 	SilenceUsage: true,
 	RunE: func(cmd *cobra.Command, args []string) error {
