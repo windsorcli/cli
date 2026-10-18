@@ -27,7 +27,7 @@ windsor exec -- helm install my-app ./chart --namespace=apps
 windsor exec ./scripts/deploy.sh`,
 	Annotations: map[string]string{
 		"docs.seealso": "[`env`](env.md), [`hook`](hook.md)",
-		"docs.source": "cmd/exec.go",
+		"docs.source":  "cmd/exec.go",
 	},
 	Args:         cobra.MinimumNArgs(1),
 	SilenceUsage: true,

@@ -53,7 +53,7 @@ windsor init local --reset
 windsor init staging --platform=aws --aws-profile=staging`,
 	Annotations: map[string]string{
 		"docs.seealso": "[`up`](up.md), [`apply`](apply.md), [`bootstrap`](bootstrap.md)",
-		"docs.source": "cmd/init.go",
+		"docs.source":  "cmd/init.go",
 	},
 	Args:         cobra.MaximumNArgs(1),
 	SilenceUsage: true,

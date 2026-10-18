@@ -26,7 +26,7 @@ BUILD_ID=$(windsor build-id --new)
 docker build -t myapp:$BUILD_ID .`,
 	Annotations: map[string]string{
 		"docs.seealso": "[`env`](env.md)",
-		"docs.source": "cmd/build_id.go",
+		"docs.source":  "cmd/build_id.go",
 	},
 	SilenceUsage: true,
 	RunE: func(cmd *cobra.Command, args []string) error {

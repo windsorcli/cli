@@ -16,7 +16,7 @@ var setCmd = &cobra.Command{
 	Long:  `Set a Windsor resource. Currently supports 'context'.`,
 	Annotations: map[string]string{
 		"docs.seealso": "[`init`](init.md), [`get`](get.md)",
-		"docs.source": "cmd/set.go",
+		"docs.source":  "cmd/set.go",
 	},
 }
 
@@ -30,7 +30,7 @@ windsor get context
 # → staging`,
 	Annotations: map[string]string{
 		"docs.seealso": "[`init`](init.md), [`get context`](get-context.md)",
-		"docs.source": "cmd/set.go",
+		"docs.source":  "cmd/set.go",
 	},
 	Args:         cobra.ExactArgs(1),
 	SilenceUsage: true,
