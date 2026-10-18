@@ -144,6 +144,27 @@ func TestKubernetesManager_ApplyConfigMap(t *testing.T) {
 		}
 	})
 
+	t.Run("RecreatesAnImmutableConfigMap", func(t *testing.T) {
+		// Given an immutable ConfigMap
+		f := newFixture(t)
+		f.cluster.seed(configMapsGVR, map[string]any{"apiVersion": "v1", "kind": "ConfigMap", "immutable": true, "metadata": map[string]any{"name": "values-common", "namespace": "flux-system"}, "data": map[string]any{"OLD": "1"}})
+
+		// When the ConfigMap is applied
+		err := f.manager.ApplyConfigMap("values-common", "flux-system", map[string]string{"NEW": "2"})
+
+		// Then the old ConfigMap is deleted and the new data is written
+		if err != nil {
+			t.Fatalf("expected no error, got %v", err)
+		}
+		if len(f.cluster.deletes) != 1 || f.cluster.deletes[0] != "configmaps/values-common" {
+			t.Errorf("expected one ConfigMap delete, got %v", f.cluster.deletes)
+		}
+		data, _, _ := unstructured.NestedStringMap(f.cluster.get(configMapsGVR, "flux-system", "values-common").Object, "data")
+		if len(data) != 1 || data["NEW"] != "2" {
+			t.Errorf("expected only NEW=2, got %v", data)
+		}
+	})
+
 	t.Run("RejectsAnUnresolvedExpression", func(t *testing.T) {
 		// Given data that still holds an expression
 		f := newFixture(t)

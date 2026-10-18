@@ -395,17 +395,11 @@ func secretTypeChanged(obj *unstructured.Unstructured, newType string) bool {
 	return existingType != "" && existingType != newType
 }
 
-// isImmutableConfigMap checks if a ConfigMap is immutable
+// isImmutableConfigMap reports whether obj is a ConfigMap with the top-level immutable field set to true.
 func isImmutableConfigMap(obj *unstructured.Unstructured) bool {
 	if obj.GetKind() != "ConfigMap" {
 		return false
 	}
-
-	spec, ok := obj.Object["spec"].(map[string]any)
-	if !ok {
-		return false
-	}
-
-	immutable, ok := spec["immutable"].(bool)
+	immutable, ok := obj.Object["immutable"].(bool)
 	return ok && immutable
 }
