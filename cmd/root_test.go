@@ -781,6 +781,22 @@ func TestRenderError(t *testing.T) {
 		}
 	})
 
+	t.Run("PrintsEveryCauseOfAJoinedError", func(t *testing.T) {
+		// Given text format and two joined WindsorErrors under a frame
+		formatFlag, verbose = string(logging.FormatText), false
+		var buf bytes.Buffer
+		err := werror.Wrap(errors.Join(werror.New("First failed.", "Fix the first.", nil), werror.New("Second failed.", "Fix the second.", nil)), "2 deletes failed")
+
+		// When the error is rendered
+		renderError(&buf, err)
+
+		// Then the full text prints, with each cause and without a single hint
+		want := "error: 2 deletes failed: First failed.\nSecond failed.\n"
+		if buf.String() != want {
+			t.Errorf("expected %q, got %q", want, buf.String())
+		}
+	})
+
 	t.Run("AddsTheTraceUnderVerbose", func(t *testing.T) {
 		// Given verbose text output and a WindsorError with a cause and a hint under a frame
 		formatFlag, verbose = string(logging.FormatText), true

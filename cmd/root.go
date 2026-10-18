@@ -2,7 +2,6 @@ package cmd
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -211,8 +210,8 @@ func requireCloudAuth(cmd *cobra.Command, proj *project.Project) error {
 }
 
 // renderError writes err to w once, in the format that --format selects. Text output prints the
-// message after "error:". A WindsorError prints its message and, on the last line, its remediation
-// after "hint:". Under --verbose, the breadcrumbs that do not end the message print before
+// message after "error:". A WindsorError that werror.Find returns prints its message and, on the
+// last line, its remediation after "hint:". A joined error prints its full text, so no cause is hidden. Under --verbose, the breadcrumbs that do not end the message print before
 // the hint, with each continuation line indented. JSON output is one failed event line without a trace.
 func renderError(w io.Writer, err error) {
 	if formatFlag == string(logging.FormatJSON) {
@@ -220,8 +219,7 @@ func renderError(w io.Writer, err error) {
 		return
 	}
 	message, remediation := err.Error(), ""
-	var we *werror.WindsorError
-	if errors.As(err, &we) {
+	if we := werror.Find(err); we != nil {
 		message, remediation = we.Message, we.Remediation
 	}
 	fmt.Fprintf(w, "error: %s\n", message)

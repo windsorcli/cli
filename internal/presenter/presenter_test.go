@@ -866,6 +866,23 @@ func TestJSON_Emit(t *testing.T) {
 		}
 	})
 
+	t.Run("WritesTheFullTextOfAJoinedError", func(t *testing.T) {
+		// Given a JSON presenter and two joined WindsorErrors
+		var buf bytes.Buffer
+		j := presenter.NewJSON(&buf)
+		err := errors.Join(werror.New("First failed.", "Fix the first.", nil), werror.New("Second failed.", "Fix the second.", nil))
+
+		// When a failed event carries the joined error
+		j.Emit(context.Background(), presenter.Event{Kind: presenter.KindFailed, Err: err})
+
+		// Then the message holds both causes and there is no remediation
+		got := decodeLines(t, buf.String())[0]["error"]
+		want := map[string]any{"message": "First failed.\nSecond failed."}
+		if !reflect.DeepEqual(got, want) {
+			t.Errorf("expected %v, got %v", want, got)
+		}
+	})
+
 	t.Run("WritesUntypedErrorMessage", func(t *testing.T) {
 		// Given a JSON presenter
 		var buf bytes.Buffer
