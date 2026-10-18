@@ -1,8 +1,9 @@
 package config
 
 import (
-	"fmt"
 	"path/filepath"
+
+	"github.com/windsorcli/cli/internal/werror"
 )
 
 // The TypedSource is a configuration source for the v1alpha1 windsor.yaml files.
@@ -48,14 +49,14 @@ func (s *typedSource) LoadRoot(projectRoot string, contextName string) (map[stri
 
 	fileData, err := s.shims.ReadFile(rootConfigPath)
 	if err != nil {
-		return nil, false, fmt.Errorf("error reading root config file: %w", err)
+		return nil, false, werror.Wrap(err, "error reading root config file")
 	}
 
 	var rootConfig struct {
 		Contexts map[string]map[string]any `yaml:"contexts"`
 	}
 	if err := s.shims.YamlUnmarshal(fileData, &rootConfig); err != nil {
-		return nil, false, fmt.Errorf("error unmarshalling root config: %w", err)
+		return nil, false, werror.Wrap(err, "error unmarshalling root config")
 	}
 
 	return rootConfig.Contexts[contextName], true, nil
@@ -80,12 +81,12 @@ func (s *typedSource) LoadContext(projectRoot, contextName string) (map[string]a
 
 	fileData, err := s.shims.ReadFile(contextConfigPath)
 	if err != nil {
-		return nil, true, fmt.Errorf("error reading context config file: %w", err)
+		return nil, true, werror.Wrap(err, "error reading context config file")
 	}
 
 	var contextMap map[string]any
 	if err := s.shims.YamlUnmarshal(fileData, &contextMap); err != nil {
-		return nil, true, fmt.Errorf("error unmarshalling context yaml: %w", err)
+		return nil, true, werror.Wrap(err, "error unmarshalling context yaml")
 	}
 
 	return contextMap, true, nil
@@ -103,10 +104,10 @@ func (s *typedSource) EnsureRoot(projectRoot string) error {
 	}
 	rootData, err := s.shims.YamlMarshal(rootConfig)
 	if err != nil {
-		return fmt.Errorf("error marshalling root config: %w", err)
+		return werror.Wrap(err, "error marshalling root config")
 	}
 	if err := s.shims.WriteFile(rootConfigPath, rootData, 0644); err != nil {
-		return fmt.Errorf("error writing root config: %w", err)
+		return werror.Wrap(err, "error writing root config")
 	}
 
 	return nil

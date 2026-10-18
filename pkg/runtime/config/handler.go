@@ -6,13 +6,13 @@
 package config
 
 import (
-	"fmt"
 	"maps"
 	"path/filepath"
 	"strings"
 	"sync"
 
 	cliconfig "github.com/windsorcli/cli/api/config/v1alpha2"
+	"github.com/windsorcli/cli/internal/werror"
 	"github.com/windsorcli/cli/pkg/runtime/shell"
 )
 
@@ -153,12 +153,12 @@ func NewConfigHandler(shell shell.Shell) ConfigHandler {
 func (c *configHandler) SetDefault(context cliconfig.Context) error {
 	contextData, err := c.shims.YamlMarshal(context)
 	if err != nil {
-		return fmt.Errorf("error marshalling context: %w", err)
+		return werror.Wrap(err, "error marshalling context")
 	}
 
 	var contextMap map[string]any
 	if err := c.shims.YamlUnmarshal(contextData, &contextMap); err != nil {
-		return fmt.Errorf("error decoding context: %w", err)
+		return werror.Wrap(err, "error decoding context")
 	}
 
 	c.data = c.deepMerge(contextMap, c.data)
@@ -268,22 +268,22 @@ func (c *configHandler) IsDevMode(contextName string) bool {
 func (c *configHandler) SetContext(context string) error {
 	projectRoot, err := c.shell.GetProjectRoot()
 	if err != nil {
-		return fmt.Errorf("error getting project root: %w", err)
+		return werror.Wrap(err, "error getting project root")
 	}
 
 	contextDirPath := filepath.Join(projectRoot, windsorDirName)
 	if err := c.shims.MkdirAll(contextDirPath, 0755); err != nil {
-		return fmt.Errorf("error ensuring context directory exists: %w", err)
+		return werror.Wrap(err, "error ensuring context directory exists")
 	}
 
 	contextFilePath := filepath.Join(contextDirPath, contextFileName)
 	err = c.shims.WriteFile(contextFilePath, []byte(context), 0644)
 	if err != nil {
-		return fmt.Errorf("error writing context to file: %w", err)
+		return werror.Wrap(err, "error writing context to file")
 	}
 
 	if err := c.shims.Setenv("WINDSOR_CONTEXT", context); err != nil {
-		return fmt.Errorf("error setting WINDSOR_CONTEXT environment variable: %w", err)
+		return werror.Wrap(err, "error setting WINDSOR_CONTEXT environment variable")
 	}
 
 	if c.resolvedContext == nil {
@@ -334,7 +334,7 @@ func (c *configHandler) GetWindsorScratchPath() (string, error) {
 func (c *configHandler) Clean() error {
 	windsorScratchPath, err := c.GetWindsorScratchPath()
 	if err != nil {
-		return fmt.Errorf("error getting windsor scratch path: %w", err)
+		return werror.Wrap(err, "error getting windsor scratch path")
 	}
 
 	dirsToDelete := []string{".terraform", ".tfstate"}
@@ -343,7 +343,7 @@ func (c *configHandler) Clean() error {
 		path := filepath.Join(windsorScratchPath, dir)
 		if _, err := c.shims.Stat(path); err == nil {
 			if err := c.shims.RemoveAll(path); err != nil {
-				return fmt.Errorf("error deleting %s: %w", path, err)
+				return werror.Wrap(err, "error deleting %s", path)
 			}
 		}
 	}
@@ -364,7 +364,7 @@ func (c *configHandler) GenerateContextID() error {
 
 	b := make([]byte, 7)
 	if _, err := c.shims.CryptoRandRead(b); err != nil {
-		return fmt.Errorf("failed to generate random context ID: %w", err)
+		return werror.Wrap(err, "failed to generate random context ID")
 	}
 
 	for i := range b {

@@ -84,17 +84,26 @@ func flattenErrorList(list *jsonschema.List) []string {
 		deduped = append(deduped, e)
 	}
 
-	deduped = focusOnSpecificViolations(deduped)
+	deduped, hidden := focusOnSpecificViolations(deduped)
 	deduped = mergeRequiredDuplicates(deduped)
-	deduped = dropRedundantRequiredCompanions(deduped)
+	deduped, dropped := dropRedundantRequiredCompanions(deduped)
+	hidden += dropped
+	if dropped > 0 {
+		var restated int
+		deduped, restated = hideStructuralRestatements(deduped)
+		hidden += restated
+	}
 
 	sort.SliceStable(deduped, func(i, j int) bool {
 		return !structuralValidationKeywords[deduped[i].keyword] && structuralValidationKeywords[deduped[j].keyword]
 	})
 
-	errs := make([]string, len(deduped))
-	for i, e := range deduped {
-		errs[i] = e.line
+	errs := make([]string, 0, len(deduped)+1)
+	for _, e := range deduped {
+		errs = append(errs, e.line)
+	}
+	if hidden > 0 {
+		errs = append(errs, fmt.Sprintf("%d other error(s) are hidden. Run with --debug to see them. Fix the error(s) above and run the command again.", hidden))
 	}
 	return errs
 }
@@ -191,9 +200,9 @@ func isCascadeProne(e validationError, paired map[string]bool) bool {
 }
 
 // focusOnSpecificViolations hides cascade-prone and structural errors when a specific
-// violation is also present. It returns errs unchanged when either side is empty. It logs
-// every hidden line via debug.Log, so an operator can rerun with --debug to see them.
-func focusOnSpecificViolations(errs []validationError) []validationError {
+// violation is also present, and returns the visible errors and the hidden count. It returns
+// errs unchanged when either side is empty. It logs every hidden line via debug.Log.
+func focusOnSpecificViolations(errs []validationError) ([]validationError, int) {
 	paired := cascadePairedNames(errs)
 	var specific, noise []validationError
 	cascadeCount := 0
@@ -209,15 +218,34 @@ func focusOnSpecificViolations(errs []validationError) []validationError {
 		}
 	}
 	if len(specific) == 0 || cascadeCount == 0 {
-		return errs
+		return errs, 0
 	}
 
 	for _, e := range noise {
 		debug.Log("hidden validation error: %s", e.line)
 	}
+	return specific, len(noise)
+}
 
-	note := fmt.Sprintf("%d other error(s) are hidden. Run with --debug to see them. Fix the error(s) above and run the command again.", len(noise))
-	return append(specific, validationError{line: note})
+// hideStructuralRestatements hides structural errors when a specific violation is present, and
+// returns the visible errors and the hidden count. A structural error only says that a property
+// does not match its schema, which the specific violation already states.
+func hideStructuralRestatements(errs []validationError) ([]validationError, int) {
+	var specific, structural []validationError
+	for _, e := range errs {
+		if structuralValidationKeywords[e.keyword] {
+			structural = append(structural, e)
+		} else {
+			specific = append(specific, e)
+		}
+	}
+	if len(specific) == 0 || len(structural) == 0 {
+		return errs, 0
+	}
+	for _, e := range structural {
+		debug.Log("hidden validation error: %s", e.line)
+	}
+	return specific, len(structural)
 }
 
 // mergeRequiredDuplicates unions multiple "required" errors at the same location into one.
@@ -286,8 +314,9 @@ func formatRequiredMessage(names []string) string {
 // Value does not match the constant value" add nothing: a null value trivially fails any
 // type or const check. Unlike focusOnSpecificViolations, this always drops the companion —
 // it does not wait for some other violation to exist elsewhere — because the required error
-// alone is already the complete, actionable statement.
-func dropRedundantRequiredCompanions(errs []validationError) []validationError {
+// alone is already the complete, actionable statement. It returns the visible errors and the
+// dropped count.
+func dropRedundantRequiredCompanions(errs []validationError) ([]validationError, int) {
 	requiredNames := make(map[string]map[string]bool)
 	for _, e := range errs {
 		if e.keyword != "required" {
@@ -318,9 +347,9 @@ func dropRedundantRequiredCompanions(errs []validationError) []validationError {
 		out = append(out, e)
 	}
 	if dropped == 0 {
-		return errs
+		return errs, 0
 	}
-	return addHiddenCount(out, dropped)
+	return out, dropped
 }
 
 // splitInstanceLocation splits a JSON Pointer into its parent and final segment, e.g.
@@ -333,25 +362,6 @@ func splitInstanceLocation(loc string) (parent, name string) {
 		return "/", trimmed
 	}
 	return "/" + trimmed[:idx], trimmed[idx+1:]
-}
-
-// addHiddenCount folds extra into an existing "N other error(s) are hidden" note, or appends
-// a new one when focusOnSpecificViolations did not already add one — e.g. every surviving
-// violation was cascade-free until dropRedundantRequiredCompanions ran.
-func addHiddenCount(errs []validationError, extra int) []validationError {
-	for i, e := range errs {
-		if e.keyword == "" && e.location == "" && strings.Contains(e.line, "other error(s) are hidden") {
-			var n int
-			if parsed, err := fmt.Sscanf(e.line, "%d", &n); err != nil || parsed != 1 {
-				n = 0
-			}
-			errs[i] = validationError{line: fmt.Sprintf(
-				"%d other error(s) are hidden. Run with --debug to see them. Fix the error(s) above and run the command again.", n+extra)}
-			return errs
-		}
-	}
-	return append(errs, validationError{line: fmt.Sprintf(
-		"%d other error(s) are hidden. Run with --debug to see them. Fix the error(s) above and run the command again.", extra)})
 }
 
 // joinInstanceLocation concatenates two JSON Pointer fragments, treating "" and "/" as the

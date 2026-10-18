@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/kaptinlin/jsonschema"
+	"github.com/windsorcli/cli/internal/werror"
 	"github.com/windsorcli/cli/pkg/debug"
 	"github.com/windsorcli/cli/pkg/runtime/shell"
 )
@@ -105,8 +106,11 @@ type: object
 			t.Fatal("Expected error for invalid schema version")
 		}
 
-		if err.Error() != "invalid schema structure: unsupported schema version: https://json-schema.org/draft-07/schema" {
+		if err.Error() != "invalid schema structure: The schema version https://json-schema.org/draft-07/schema is not supported." {
 			t.Errorf("Expected specific error message, got: %v", err)
+		}
+		if we := werror.Find(err); we == nil || we.Remediation != "Set '$schema' to 'https://json-schema.org/draft/2020-12/schema'." {
+			t.Errorf("Expected a remediation naming the canonical URI, got: %+v", we)
 		}
 	})
 
@@ -134,9 +138,12 @@ type: object
 			t.Fatal("Expected error for legacy windsorcli schema URI")
 		}
 
-		expected := "invalid schema structure: the 'https://windsorcli.dev/draft/2026-02/schema' dialect was removed in v0.9.0; replace '$schema' with 'https://json-schema.org/draft/2020-12/schema'"
+		expected := "invalid schema structure: The schema uses the 'https://windsorcli.dev/draft/2026-02/schema' dialect, which windsor v0.9.0 removed."
 		if err.Error() != expected {
 			t.Errorf("Expected migration-hint error, got: %v", err)
+		}
+		if we := werror.Find(err); we == nil || we.Remediation != "Replace '$schema' with 'https://json-schema.org/draft/2020-12/schema'." {
+			t.Errorf("Expected a remediation naming the canonical URI, got: %+v", we)
 		}
 	})
 
@@ -163,7 +170,7 @@ type: object
 			t.Fatal("Expected error for missing $schema field")
 		}
 
-		if err.Error() != "invalid schema structure: missing required '$schema' field" {
+		if err.Error() != "invalid schema structure: The schema has no '$schema' field." {
 			t.Errorf("Expected specific error message, got: %v", err)
 		}
 	})
@@ -1266,6 +1273,58 @@ func TestFlattenErrorList(t *testing.T) {
 		}
 		if !strings.Contains(errs[1], "2 other error(s) are hidden") {
 			t.Errorf("Expected both companions folded into one hidden-count note, got %v", errs)
+		}
+	})
+
+	t.Run("HidesStructuralRestatementsOfANestedRequiredError", func(t *testing.T) {
+		// Given a nested required error, its null type companion, and the two structural
+		// errors that restate it at the root and at cluster
+		list := &jsonschema.List{
+			Details: []jsonschema.List{
+				{InstanceLocation: "/cluster", Errors: map[string]string{"required": "Required property 'driver' is missing"}},
+				{InstanceLocation: "/cluster/driver", Errors: map[string]string{"type": "Value is null but should be string"}},
+				{InstanceLocation: "/", Errors: map[string]string{"properties": "Property 'cluster' does not match the schema"}},
+				{InstanceLocation: "/cluster", Errors: map[string]string{"properties": "Property 'driver' does not match the schema"}},
+			},
+		}
+
+		// When flattening
+		errs := flattenErrorList(list)
+
+		// Then only the required error and the hidden-count note remain, with the note last
+		if len(errs) != 2 {
+			t.Fatalf("Expected 2 errors, got %d: %v", len(errs), errs)
+		}
+		if errs[0] != "/cluster: required: Required property 'driver' is missing" {
+			t.Errorf("Expected the required error first, got %v", errs)
+		}
+		if !strings.HasPrefix(errs[1], "3 other error(s) are hidden") {
+			t.Errorf("Expected the hidden-count note last with 3 hidden, got %v", errs)
+		}
+	})
+
+	t.Run("CountsCascadeAndCompanionErrorsInOneNote", func(t *testing.T) {
+		// Given a required/type cascade at the root that focusOnSpecificViolations hides, a
+		// specific const violation, and a required companion that a later step drops
+		list := &jsonschema.List{
+			Details: []jsonschema.List{
+				{InstanceLocation: "/", Errors: map[string]string{"required": "Required property 'identity' is missing"}},
+				{InstanceLocation: "/identity", Errors: map[string]string{"type": "Value is null but should be object"}},
+				{InstanceLocation: "/cluster", Errors: map[string]string{"required": "Required property 'driver' is missing"}},
+				{InstanceLocation: "/cluster/driver", Errors: map[string]string{"const": "Value does not match the constant value"}},
+				{InstanceLocation: "/", Errors: map[string]string{"allOf": "Value does not match the allOf schema"}},
+			},
+		}
+
+		// When flattening
+		errs := flattenErrorList(list)
+
+		// Then the note is the last line and counts every hidden error once
+		if len(errs) != 2 {
+			t.Fatalf("Expected 2 errors, got %d: %v", len(errs), errs)
+		}
+		if !strings.HasPrefix(errs[1], "4 other error(s) are hidden") {
+			t.Errorf("Expected the hidden-count note last with 4 hidden, got %v", errs)
 		}
 	})
 

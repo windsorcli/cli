@@ -13,6 +13,7 @@ import (
 
 	"github.com/goccy/go-yaml"
 	"github.com/kaptinlin/jsonschema"
+	"github.com/windsorcli/cli/internal/werror"
 	"github.com/windsorcli/cli/pkg/runtime/shell"
 )
 
@@ -75,7 +76,7 @@ func NewSchemaValidator(shell shell.Shell) *SchemaValidator {
 func (sv *SchemaValidator) LoadSchema(schemaPath string) error {
 	schemaContent, err := sv.Shims.ReadFile(schemaPath)
 	if err != nil {
-		return fmt.Errorf("failed to read schema file %s: %w", schemaPath, err)
+		return werror.Wrap(err, "failed to read schema file %s", schemaPath)
 	}
 
 	return sv.LoadSchemaFromBytes(schemaContent)
@@ -89,11 +90,11 @@ func (sv *SchemaValidator) LoadSchema(schemaPath string) error {
 func (sv *SchemaValidator) LoadSchemaFromBytes(schemaContent []byte) error {
 	var newSchema map[string]any
 	if err := yaml.Unmarshal(schemaContent, &newSchema); err != nil {
-		return fmt.Errorf("failed to parse schema YAML: %w", err)
+		return werror.Wrap(err, "failed to parse schema YAML")
 	}
 
 	if err := sv.validateSchemaStructure(newSchema); err != nil {
-		return fmt.Errorf("invalid schema structure: %w", err)
+		return werror.Wrap(err, "invalid schema structure")
 	}
 
 	if sv.Schema == nil {
@@ -225,12 +226,12 @@ func (sv *SchemaValidator) ensureCompiled() (*jsonschema.Schema, error) {
 
 	schemaJSON, err := json.Marshal(sv.Schema)
 	if err != nil {
-		return nil, fmt.Errorf("failed to marshal merged schema to JSON: %w", err)
+		return nil, werror.Wrap(err, "failed to marshal merged schema to JSON")
 	}
 
 	compiled, err := jsonschema.NewCompiler().Compile(schemaJSON)
 	if err != nil {
-		return nil, fmt.Errorf("failed to compile schema: %w", err)
+		return nil, werror.Wrap(err, "failed to compile schema")
 	}
 	sv.compiled = compiled
 	return compiled, nil
@@ -248,15 +249,17 @@ func (sv *SchemaValidator) validateSchemaStructure(schema map[string]any) error 
 
 	schemaVersion, ok := schema["$schema"]
 	if !ok {
-		return fmt.Errorf("missing required '$schema' field")
+		return werror.New("The schema has no '$schema' field.", fmt.Sprintf("Add '$schema: %s' to the schema.", canonicalSchemaURI), nil)
 	}
 
 	if schemaStr, ok := schemaVersion.(string); ok {
 		if schemaStr == legacyWindsorURI {
-			return fmt.Errorf("the '%s' dialect was removed in v0.9.0; replace '$schema' with '%s'", legacyWindsorURI, canonicalSchemaURI)
+			return werror.New(fmt.Sprintf("The schema uses the '%s' dialect, which windsor v0.9.0 removed.", legacyWindsorURI),
+				fmt.Sprintf("Replace '$schema' with '%s'.", canonicalSchemaURI), nil)
 		}
 		if schemaStr != canonicalSchemaURI {
-			return fmt.Errorf("unsupported schema version: %s", schemaStr)
+			return werror.New(fmt.Sprintf("The schema version %s is not supported.", schemaStr),
+				fmt.Sprintf("Set '$schema' to '%s'.", canonicalSchemaURI), nil)
 		}
 	}
 

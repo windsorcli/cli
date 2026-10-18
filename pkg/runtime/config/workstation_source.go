@@ -1,8 +1,9 @@
 package config
 
 import (
-	"fmt"
 	"path/filepath"
+
+	"github.com/windsorcli/cli/internal/werror"
 )
 
 // The WorkstationSource is a configuration source for system-managed workstation state.
@@ -61,12 +62,12 @@ func (s *workstationSource) Load(projectRoot, contextName string) (map[string]an
 
 	fileData, err := s.shims.ReadFile(statePath)
 	if err != nil {
-		return nil, false, fmt.Errorf("error reading workstation state: %w", err)
+		return nil, false, werror.Wrap(err, "error reading workstation state")
 	}
 
 	var wsState map[string]any
 	if err := s.shims.YamlUnmarshal(fileData, &wsState); err != nil {
-		return nil, false, fmt.Errorf("error unmarshalling workstation state: %w", err)
+		return nil, false, werror.Wrap(err, "error unmarshalling workstation state")
 	}
 
 	return wsState, true, nil
@@ -77,7 +78,7 @@ func (s *workstationSource) Save(projectRoot, contextName string, data map[strin
 	statePath := s.StatePath(projectRoot, contextName)
 	stateDir := filepath.Dir(statePath)
 	if err := s.shims.MkdirAll(stateDir, 0755); err != nil {
-		return fmt.Errorf("error creating workstation state directory: %w", err)
+		return werror.Wrap(err, "error creating workstation state directory")
 	}
 
 	partition := s.policy.Partition(data, input)
@@ -87,10 +88,10 @@ func (s *workstationSource) Save(projectRoot, contextName string, data map[strin
 
 	marshaled, err := s.shims.YamlMarshal(partition.Workstation)
 	if err != nil {
-		return fmt.Errorf("error marshalling workstation state: %w", err)
+		return werror.Wrap(err, "error marshalling workstation state")
 	}
 	if err := s.shims.WriteFile(statePath, marshaled, 0644); err != nil {
-		return fmt.Errorf("error writing workstation state: %w", err)
+		return werror.Wrap(err, "error writing workstation state")
 	}
 
 	return nil
@@ -101,7 +102,7 @@ func (s *workstationSource) Delete(projectRoot, contextName string) error {
 	statePath := s.StatePath(projectRoot, contextName)
 	if _, err := s.shims.Stat(statePath); err == nil {
 		if err := s.shims.RemoveAll(statePath); err != nil {
-			return fmt.Errorf("error removing workstation state: %w", err)
+			return werror.Wrap(err, "error removing workstation state")
 		}
 	}
 

@@ -8,6 +8,7 @@ import (
 
 	"github.com/goccy/go-yaml/ast"
 	"github.com/goccy/go-yaml/parser"
+	"github.com/windsorcli/cli/internal/werror"
 )
 
 // The ValuesSource is a configuration source for context values.yaml files.
@@ -58,12 +59,12 @@ func (s *valuesSource) Load(projectRoot, contextName string) (map[string]any, bo
 
 	fileData, err := s.shims.ReadFile(valuesPath)
 	if err != nil {
-		return nil, false, fmt.Errorf("error reading values.yaml: %w", err)
+		return nil, false, werror.Wrap(err, "error reading values.yaml")
 	}
 
 	var values map[string]any
 	if err := s.shims.YamlUnmarshal(fileData, &values); err != nil {
-		return nil, false, fmt.Errorf("error unmarshalling values.yaml: %w", err)
+		return nil, false, werror.Wrap(err, "error unmarshalling values.yaml")
 	}
 
 	if s.schemaValidator != nil && s.schemaValidator.Schema != nil {
@@ -91,7 +92,7 @@ func (s *valuesSource) Save(
 ) (wrote bool, err error) {
 	contextDir := filepath.Join(projectRoot, "contexts", contextName)
 	if err := s.shims.MkdirAll(contextDir, 0755); err != nil {
-		return false, fmt.Errorf("error creating context directory: %w", err)
+		return false, werror.Wrap(err, "error creating context directory")
 	}
 
 	if len(data) == 0 {
@@ -116,11 +117,11 @@ func (s *valuesSource) Save(
 
 	marshaled, err := s.shims.YamlMarshal(orderedValues(partition.Values, headerOrder()))
 	if err != nil {
-		return false, fmt.Errorf("error marshalling values.yaml: %w", err)
+		return false, werror.Wrap(err, "error marshalling values.yaml")
 	}
 
 	if err := s.shims.WriteFile(valuesPath, marshaled, 0644); err != nil {
-		return false, fmt.Errorf("error writing values.yaml: %w", err)
+		return false, werror.Wrap(err, "error writing values.yaml")
 	}
 
 	return true, nil
@@ -146,12 +147,12 @@ func (s *valuesSource) patchValues(valuesPath string, overrides map[string]any, 
 		var err error
 		merged, err = s.shims.YamlMarshal(orderedValues(fullValues, headerOrder()))
 		if err != nil {
-			return false, fmt.Errorf("error marshalling values.yaml: %w", err)
+			return false, werror.Wrap(err, "error marshalling values.yaml")
 		}
 	}
 
 	if err := s.shims.WriteFile(valuesPath, merged, 0644); err != nil {
-		return false, fmt.Errorf("error writing values.yaml: %w", err)
+		return false, werror.Wrap(err, "error writing values.yaml")
 	}
 
 	return true, nil
