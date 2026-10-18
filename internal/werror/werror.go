@@ -82,7 +82,7 @@ func (f *frame) Unwrap() error {
 // Breadcrumbs returns one message per Wrap frame and WindsorError in the chain, outermost first.
 // It ends with the text of the innermost error when that error is neither a frame nor a
 // WindsorError. Intermediate fmt.Errorf wraps add no entry, because their text repeats the chain.
-// Each entry has no surrounding whitespace. A message that the previous entry contains adds no entry.
+// Each entry has no surrounding whitespace. A message that ends the previous entry adds no entry.
 func Breadcrumbs(err error) []string {
 	var crumbs []string
 	for err != nil {
@@ -105,10 +105,10 @@ func Breadcrumbs(err error) []string {
 // Helpers
 // =============================================================================
 
-// appendCrumb adds msg to crumbs without surrounding whitespace, unless the last entry already contains it.
+// appendCrumb adds msg to crumbs without surrounding whitespace, unless the last entry ends with it.
 func appendCrumb(crumbs []string, msg string) []string {
 	msg = strings.TrimSpace(msg)
-	if n := len(crumbs); n > 0 && strings.Contains(crumbs[n-1], msg) {
+	if n := len(crumbs); n > 0 && strings.HasSuffix(crumbs[n-1], msg) {
 		return crumbs
 	}
 	return append(crumbs, msg)

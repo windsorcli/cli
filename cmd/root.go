@@ -212,7 +212,7 @@ func requireCloudAuth(cmd *cobra.Command, proj *project.Project) error {
 
 // renderError writes err to w once, in the format that --format selects. Text output prints the
 // message after "error:". A WindsorError prints its message and, on the last line, its remediation
-// after "hint:". Under --verbose, the breadcrumbs that the message does not contain print before
+// after "hint:". Under --verbose, the breadcrumbs that do not end the message print before
 // the hint, with each continuation line indented. JSON output is one failed event line without a trace.
 func renderError(w io.Writer, err error) {
 	if formatFlag == string(logging.FormatJSON) {
@@ -228,7 +228,7 @@ func renderError(w io.Writer, err error) {
 	if verbose {
 		var trace []string
 		for _, crumb := range werror.Breadcrumbs(err) {
-			if !strings.Contains(message, crumb) {
+			if !strings.HasSuffix(message, crumb) {
 				trace = append(trace, crumb)
 			}
 		}

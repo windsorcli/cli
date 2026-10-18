@@ -813,6 +813,22 @@ func TestRenderError(t *testing.T) {
 		}
 	})
 
+	t.Run("KeepsAFrameThatStartsTheMessage", func(t *testing.T) {
+		// Given verbose text output and a frame whose text starts the WindsorError message
+		formatFlag, verbose = string(logging.FormatText), true
+		var buf bytes.Buffer
+		err := werror.Wrap(werror.New("validating input took too long", "", nil), "validating input")
+
+		// When the error is rendered
+		renderError(&buf, err)
+
+		// Then the frame prints under the trace
+		want := "error: validating input took too long\ntrace:\n  validating input\n"
+		if buf.String() != want {
+			t.Errorf("expected %q, got %q", want, buf.String())
+		}
+	})
+
 	t.Run("OmitsTheTraceWhenTheMessageShowsEveryBreadcrumb", func(t *testing.T) {
 		// Given verbose text output and a WindsorError whose message contains its cause
 		formatFlag, verbose = string(logging.FormatText), true
