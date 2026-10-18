@@ -9,6 +9,7 @@ import (
 	"github.com/goccy/go-yaml"
 
 	cliconfig "github.com/windsorcli/cli/api/config/v1alpha2"
+	"github.com/windsorcli/cli/internal/werror"
 )
 
 // The CLISchema is the schema fragment the CLI owns, applied to every merged context schema.
@@ -20,7 +21,7 @@ import (
 var cliSchemaTree = sync.OnceValues(func() (map[string]any, error) {
 	var tree map[string]any
 	if err := yaml.Unmarshal(cliconfig.Schema(), &tree); err != nil {
-		return nil, fmt.Errorf("error decoding the CLI schema: %w", err)
+		return nil, werror.Wrap(err, "error decoding the CLI schema")
 	}
 	return tree, nil
 })
@@ -36,7 +37,7 @@ func (c *configHandler) applyCLISchema() error {
 		return nil
 	}
 	if err := c.schemaValidator.LoadSchemaFromBytes(cliconfig.Schema()); err != nil {
-		return fmt.Errorf("error applying the CLI schema: %w", err)
+		return werror.Wrap(err, "error applying the CLI schema")
 	}
 	return nil
 }
@@ -64,7 +65,8 @@ func checkCLIOwnedTypes(schemaContent []byte) error {
 		return nil
 	}
 	sort.Strings(conflicts)
-	return fmt.Errorf("schema redefines settings the Windsor CLI owns:%s", FormatValidationErrors(conflicts))
+	return werror.New(fmt.Sprintf("The schema redefines settings that the Windsor CLI owns:%s", FormatValidationErrors(conflicts)),
+		"Give each listed setting the type that the Windsor CLI defines, or remove it from the schema.", nil)
 }
 
 // collectTypeConflicts walks the CLI node and the incoming node together and appends one line per

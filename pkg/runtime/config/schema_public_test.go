@@ -362,7 +362,7 @@ func TestValidateContextValues(t *testing.T) {
 		err := f.handler.ValidateContextValues()
 
 		// Then the error lists the violation
-		if err == nil || !strings.Contains(err.Error(), "context value validation failed:\n  - ") || !strings.Contains(err.Error(), "platform") {
+		if err == nil || !strings.Contains(err.Error(), "Context values do not match the schema:\n  - ") || !strings.Contains(err.Error(), "platform") {
 			t.Errorf("expected a listed platform violation, got %v", err)
 		}
 	})
@@ -414,7 +414,7 @@ func TestValidateContextValues(t *testing.T) {
 		err := f.handler.ValidateContextValues()
 
 		// Then the error points at the warning
-		if err == nil || !strings.Contains(err.Error(), "see the values.yaml warning above") {
+		if err == nil || !strings.Contains(err.Error(), "The values.yaml warning above lists the errors.") {
 			t.Errorf("expected a reference to the warning, got %v", err)
 		}
 	})

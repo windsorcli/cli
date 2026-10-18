@@ -8,6 +8,8 @@ package config
 import (
 	"fmt"
 	"path/filepath"
+
+	"github.com/windsorcli/cli/internal/werror"
 )
 
 // =============================================================================
@@ -27,7 +29,7 @@ func (c *configHandler) LoadConfigString(content string) error {
 
 	var dataMap map[string]any
 	if err := c.shims.YamlUnmarshal([]byte(content), &dataMap); err != nil {
-		return fmt.Errorf("error unmarshalling yaml: %w", err)
+		return werror.Wrap(err, "error unmarshalling yaml")
 	}
 
 	contextName := c.GetContext()
@@ -97,7 +99,7 @@ func (c *configHandler) LoadConfigForContext(contextName string) error {
 	}
 	projectRoot, err := c.shell.GetProjectRoot()
 	if err != nil {
-		return fmt.Errorf("error retrieving project root: %w", err)
+		return werror.Wrap(err, "error retrieving project root")
 	}
 
 	hasLoadedFiles := false
@@ -106,7 +108,7 @@ func (c *configHandler) LoadConfigForContext(contextName string) error {
 		schemaPath := filepath.Join(projectRoot, "contexts", "_template", "schema.yaml")
 		if _, err := c.shims.Stat(schemaPath); err == nil {
 			if err := c.LoadSchema(schemaPath); err != nil {
-				return fmt.Errorf("error loading schema: %w", err)
+				return werror.Wrap(err, "error loading schema")
 			}
 		}
 	}
@@ -176,7 +178,7 @@ func (c *configHandler) SaveConfig(overwrite ...bool) error {
 
 	projectRoot, err := c.shell.GetProjectRoot()
 	if err != nil {
-		return fmt.Errorf("error retrieving project root: %w", err)
+		return werror.Wrap(err, "error retrieving project root")
 	}
 
 	if !c.shell.IsGlobal() {
@@ -219,7 +221,7 @@ func (c *configHandler) SaveWorkstationState() error {
 	}
 	projectRoot, err := c.shell.GetProjectRoot()
 	if err != nil {
-		return fmt.Errorf("error retrieving project root: %w", err)
+		return werror.Wrap(err, "error retrieving project root")
 	}
 	return c.workstation.Save(
 		projectRoot,

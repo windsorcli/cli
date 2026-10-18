@@ -1476,7 +1476,7 @@ additionalProperties: false
 		if err == nil {
 			t.Fatal("Expected validation error for disallowed key")
 		}
-		if !strings.Contains(err.Error(), "context value validation failed") {
+		if !strings.Contains(err.Error(), "Context values do not match the schema:") {
 			t.Errorf("Expected validation failure error, got %v", err)
 		}
 	})
@@ -1512,7 +1512,7 @@ additionalProperties: false
 		if err == nil {
 			t.Fatal("Expected validation error")
 		}
-		if err.Error() != "context value validation failed (see the values.yaml warning above)" {
+		if err.Error() != "Context values do not match the schema. The values.yaml warning above lists the errors." {
 			t.Errorf("Expected a reference to the earlier warning, got %v", err)
 		}
 	})
@@ -1537,7 +1537,7 @@ properties:
 		if err == nil {
 			t.Fatal("Expected validation error for static field violating schema")
 		}
-		if !strings.Contains(err.Error(), "context value validation failed") {
+		if !strings.Contains(err.Error(), "Context values do not match the schema:") {
 			t.Errorf("Expected validation failure error, got %v", err)
 		}
 	})
@@ -1555,7 +1555,7 @@ properties:
 		if err == nil {
 			t.Fatal("Expected validation error for id not matching the required shape")
 		}
-		if !strings.Contains(err.Error(), "context value validation failed") {
+		if !strings.Contains(err.Error(), "Context id ") {
 			t.Errorf("Expected validation failure error, got %v", err)
 		}
 	})
@@ -1600,7 +1600,7 @@ properties:
 		if err == nil {
 			t.Fatal("Expected validation error for an id ending in a hyphen")
 		}
-		if !strings.Contains(err.Error(), "context value validation failed") {
+		if !strings.Contains(err.Error(), "Context id ") {
 			t.Errorf("Expected validation failure error, got %v", err)
 		}
 	})
@@ -1617,7 +1617,7 @@ properties:
 		if err == nil {
 			t.Fatal("Expected validation error for an id with a repeated hyphen")
 		}
-		if !strings.Contains(err.Error(), "context value validation failed") {
+		if !strings.Contains(err.Error(), "Context id ") {
 			t.Errorf("Expected validation failure error, got %v", err)
 		}
 	})

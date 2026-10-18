@@ -7,7 +7,16 @@ package config
 
 import (
 	"fmt"
+
+	"github.com/windsorcli/cli/internal/werror"
 )
+
+// =============================================================================
+// Constants
+// =============================================================================
+
+// contextIDRemediation is the hint for a context id that is not a valid DNS label.
+const contextIDRemediation = "Change id in values.yaml or in the --set flag, or remove it so that windsor generates one."
 
 // =============================================================================
 // Public Methods
@@ -60,7 +69,7 @@ func (c *configHandler) LoadSchema(schemaPath string) error {
 	}
 	schemaContent, err := c.shims.ReadFile(schemaPath)
 	if err != nil {
-		return fmt.Errorf("failed to read schema file %s: %w", schemaPath, err)
+		return werror.Wrap(err, "failed to read schema file %s", schemaPath)
 	}
 	return c.LoadSchemaFromBytes(schemaContent)
 }
@@ -96,19 +105,21 @@ func (c *configHandler) LoadSchemaFromBytes(schemaContent []byte) error {
 // schema loaded, so an explicit --set id=... or a checked-in values.yaml fails immediately.
 func (c *configHandler) ValidateContextValues() error {
 	if err := validateContextID(c.GetString("id")); err != nil {
-		return fmt.Errorf("context value validation failed: %w", err)
+		return err
 	}
 
 	if c.schemaValidator == nil || c.schemaValidator.Schema == nil {
 		return nil
 	}
 	if result, err := c.schemaValidator.Validate(c.data); err != nil {
-		return fmt.Errorf("error validating context values: %w", err)
+		return werror.Wrap(err, "error validating context values")
 	} else if !result.Valid {
 		if c.schemaValidator.ErrorsAlreadyReported(result.Errors) {
-			return fmt.Errorf("context value validation failed (see the values.yaml warning above)")
+			return werror.New("Context values do not match the schema. The values.yaml warning above lists the errors.",
+				"Correct the values in values.yaml.", nil)
 		}
-		return fmt.Errorf("context value validation failed:%s", FormatValidationErrors(result.Errors))
+		return werror.New(fmt.Sprintf("Context values do not match the schema:%s", FormatValidationErrors(result.Errors)),
+			"Correct the values listed above in values.yaml or in the --set flags.", nil)
 	}
 	return nil
 }
@@ -126,20 +137,20 @@ func validateContextID(id string) error {
 		return nil
 	}
 	if id[0] < 'a' || id[0] > 'z' {
-		return fmt.Errorf("id %q must start with a lowercase letter (a-z)", id)
+		return werror.New(fmt.Sprintf("Context id %q must start with a lowercase letter (a-z).", id), contextIDRemediation, nil)
 	}
 	if id[len(id)-1] == '-' {
-		return fmt.Errorf("id %q must not end with a hyphen", id)
+		return werror.New(fmt.Sprintf("Context id %q must not end with a hyphen.", id), contextIDRemediation, nil)
 	}
 	for i := 1; i < len(id); i++ {
 		c := id[i]
 		isLower := c >= 'a' && c <= 'z'
 		isDigit := c >= '0' && c <= '9'
 		if !isLower && !isDigit && c != '-' {
-			return fmt.Errorf("id %q must contain only lowercase letters, digits, and hyphens", id)
+			return werror.New(fmt.Sprintf("Context id %q must contain only lowercase letters, digits, and hyphens.", id), contextIDRemediation, nil)
 		}
 		if c == '-' && id[i-1] == '-' {
-			return fmt.Errorf("id %q must not repeat a hyphen", id)
+			return werror.New(fmt.Sprintf("Context id %q must not repeat a hyphen.", id), contextIDRemediation, nil)
 		}
 	}
 	return nil
