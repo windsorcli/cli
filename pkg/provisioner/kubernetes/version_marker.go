@@ -29,8 +29,7 @@ const (
 	// VersionMarkerPhaseIdle marks a context with no upgrade in flight.
 	VersionMarkerPhaseIdle = "idle"
 
-	// VersionMarkerPhaseUpgrading is the phase of a context with an upgrade in flight. apply's
-	// version gate refuses any non-idle phase, so an interrupted upgrade is resumed, not reconciled.
+	// VersionMarkerPhaseUpgrading marks a context with an upgrade in flight, which apply refuses.
 	VersionMarkerPhaseUpgrading = "upgrading"
 )
 

@@ -1,6 +1,7 @@
-// Package client provides Kubernetes client functionality for resource operations.
-// It implements server-side apply patterns for managing Kubernetes resources
-// and provides a clean interface for Kubernetes resource management.
+// The DynamicKubernetesClient is a Kubernetes API client built on the dynamic client and a REST mapper.
+// It provides get, list, server-side apply, delete, and patch for unstructured resources.
+// It builds the client on first use and rebuilds it when the endpoint or kubeconfig file changes.
+// It also checks API health and node readiness.
 
 package client
 
@@ -8,7 +9,6 @@ import (
 	"context"
 	"crypto/sha256"
 	"errors"
-	"fmt"
 	"os"
 	"sync"
 	"time"
@@ -25,6 +25,7 @@ import (
 	"k8s.io/client-go/restmapper"
 	"k8s.io/client-go/tools/clientcmd"
 
+	"github.com/windsorcli/cli/internal/werror"
 	"github.com/windsorcli/cli/pkg/runtime/shell"
 )
 
@@ -35,8 +36,7 @@ import (
 // requestTimeout is the per-request timeout for read and simple mutation API calls.
 const requestTimeout = 30 * time.Second
 
-// applyTimeout is the per-request timeout for server-side apply operations, which
-// run admission webhooks synchronously and can take significantly longer than reads.
+// applyTimeout is the per-request timeout for server-side apply, which runs admission webhooks.
 const applyTimeout = 5 * time.Minute
 
 // =============================================================================
@@ -210,7 +210,7 @@ func (c *DynamicKubernetesClient) CheckHealth(ctx context.Context, endpoint stri
 
 	cli, _, err := c.ensureClient()
 	if err != nil {
-		return fmt.Errorf("failed to initialize Kubernetes client: %w", err)
+		return werror.Wrap(err, "failed to initialize Kubernetes client")
 	}
 
 	nodeGVR := schema.GroupVersionResource{
@@ -220,7 +220,7 @@ func (c *DynamicKubernetesClient) CheckHealth(ctx context.Context, endpoint stri
 	}
 
 	if _, err := cli.Resource(nodeGVR).List(ctx, metav1.ListOptions{Limit: 1}); err != nil {
-		return fmt.Errorf("failed to connect to Kubernetes API: %w", err)
+		return werror.Wrap(err, "failed to connect to Kubernetes API")
 	}
 
 	return nil
@@ -233,7 +233,7 @@ func (c *DynamicKubernetesClient) CheckHealth(ctx context.Context, endpoint stri
 func (c *DynamicKubernetesClient) GetNodeReadyStatus(ctx context.Context, nodeNames []string) (map[string]bool, error) {
 	cli, _, err := c.ensureClient()
 	if err != nil {
-		return nil, fmt.Errorf("failed to initialize Kubernetes client: %w", err)
+		return nil, werror.Wrap(err, "failed to initialize Kubernetes client")
 	}
 
 	nodeGVR := schema.GroupVersionResource{
@@ -244,7 +244,7 @@ func (c *DynamicKubernetesClient) GetNodeReadyStatus(ctx context.Context, nodeNa
 
 	nodes, err := cli.Resource(nodeGVR).List(ctx, metav1.ListOptions{})
 	if err != nil {
-		return nil, fmt.Errorf("failed to list nodes: %w", err)
+		return nil, werror.Wrap(err, "failed to list nodes")
 	}
 
 	if len(nodeNames) > 0 {
@@ -283,14 +283,11 @@ func (c *DynamicKubernetesClient) IsVerbose() bool {
 // Private Methods
 // =============================================================================
 
-// ensureClient builds the client and mapper on first use. It rebuilds them when the endpoint or
-// kubeconfig file changes, so a client built before a Terraform apply does not keep serving a
-// cluster the apply has since replaced. A rebuild triggered by a kubeconfig file change falls
-// back to the last known-good client on a transient failure (e.g. the file caught mid-write), but
-// not when the file is confirmed missing. A rebuild triggered by a new explicit endpoint never
-// falls back: the caller asked for that endpoint specifically, so silently serving the old one
-// would misreport it. Returns the client and mapper as of this call. Another goroutine's call can
-// reassign c.client/c.mapper at any time, so callers MUST use only the returned pair.
+// ensureClient builds the client and mapper on first use, and again when the endpoint or kubeconfig changes.
+// A Terraform apply can replace the cluster, so a client from before the apply must not stay in use.
+// After a kubeconfig change, a failed rebuild keeps the last good client, unless the file is missing.
+// After an endpoint change, a failed rebuild returns the error, because the caller asked for that endpoint.
+// Another goroutine can replace c.client and c.mapper, so callers MUST use only the returned pair.
 func (c *DynamicKubernetesClient) ensureClient() (dynamic.Interface, meta.RESTMapper, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -335,11 +332,11 @@ func (c *DynamicKubernetesClient) connectionChangedLocked() bool {
 	return hash != c.kubeconfigHash
 }
 
-// buildClient builds a dynamic client, REST mapper, and (for a kubeconfig file) its content hash.
-// It does not mutate c, so a failed attempt leaves any existing client untouched. It hashes the
-// kubeconfig file again here, separately from restConfig, since restConfig must use clientcmd's
-// full loading rules so relative certificate/key/exec paths resolve correctly, and those rules
-// have no way to hand back the raw bytes they read.
+// buildClient builds a dynamic client, a REST mapper, and the content hash of the kubeconfig file.
+// It does not change c, so a failed attempt keeps the existing client. It reads the file again for
+// the hash, because the clientcmd loading rules in restConfig do not return the bytes they read.
+// When that second read fails for the same path, it keeps the last hash, so a later change is still
+// detected.
 func (c *DynamicKubernetesClient) buildClient() (builtClient, error) {
 	config, kubeconfigPath, err := c.restConfig()
 	if err != nil {
@@ -366,10 +363,6 @@ func (c *DynamicKubernetesClient) buildClient() (builtClient, error) {
 		if hash, hashErr := kubeconfigHash(kubeconfigPath); hashErr == nil {
 			built.kubeconfigHash = hash
 		} else if kubeconfigPath == c.kubeconfigPath {
-			// Same path as last time; this read failed transiently right after restConfig's own
-			// read succeeded. Keep the last known hash rather than dropping tracking entirely,
-			// so a real change still gets caught (at worst one extra rebuild attempt later)
-			// instead of silently going unwatched until the process restarts.
 			built.kubeconfigHash = c.kubeconfigHash
 		}
 	}

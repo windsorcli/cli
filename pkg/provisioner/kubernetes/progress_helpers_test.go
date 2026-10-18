@@ -2,6 +2,7 @@ package kubernetes
 
 import (
 	"context"
+	"log/slog"
 	"sync"
 	"testing"
 
@@ -32,6 +33,19 @@ func (r *progressRecorder) started() []string {
 // progress returns the progress messages.
 func (r *progressRecorder) progress() []string {
 	return r.messages(presenter.KindProgress)
+}
+
+// warnings returns the warn-level narrative lines.
+func (r *progressRecorder) warnings() []string {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	var out []string
+	for _, e := range r.events {
+		if e.Kind == presenter.KindMessage && e.Level == slog.LevelWarn {
+			out = append(out, e.Message)
+		}
+	}
+	return out
 }
 
 func (r *progressRecorder) messages(kind presenter.Kind) []string {

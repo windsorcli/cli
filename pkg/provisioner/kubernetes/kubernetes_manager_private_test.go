@@ -1,10 +1,8 @@
 package kubernetes
 
 import (
-	"bytes"
 	"context"
 	"fmt"
-	"os"
 	"slices"
 	"strings"
 	"testing"
@@ -2369,25 +2367,6 @@ func TestDependencyClosure(t *testing.T) {
 	})
 }
 
-// captureStderr redirects os.Stderr for the duration of fn and returns what it wrote.
-func captureStderr(t *testing.T, fn func()) string {
-	t.Helper()
-	r, w, err := os.Pipe()
-	if err != nil {
-		t.Fatalf("failed to create pipe: %v", err)
-	}
-	original := os.Stderr
-	os.Stderr = w
-	defer func() { os.Stderr = original }()
-
-	fn()
-
-	w.Close()
-	var buf bytes.Buffer
-	_, _ = buf.ReadFrom(r)
-	return buf.String()
-}
-
 func TestBaseKubernetesManager_blockDependencyClosure(t *testing.T) {
 	mocks := setupKubernetesMocks(t)
 	manager := NewKubernetesManager(mocks.KubernetesClient, mocks.ConfigHandler)
@@ -2401,9 +2380,9 @@ func TestBaseKubernetesManager_blockDependencyClosure(t *testing.T) {
 
 		// Given a failed kustomization whose closure skips two others
 		// When blockDependencyClosure runs
-		output := captureStderr(t, func() {
-			manager.blockDependencyClosure(ks, "app", map[string]bool{})
-		})
+		ctx, rec := recordProgress(t)
+		manager.blockDependencyClosure(ctx, ks, "app", map[string]bool{})
+		output := strings.Join(rec.warnings(), "\n")
 
 		// Then the warning uses the plural
 		if !strings.Contains(output, "skipping 2 dependencies") {
@@ -2419,9 +2398,9 @@ func TestBaseKubernetesManager_blockDependencyClosure(t *testing.T) {
 
 		// Given a failed kustomization whose closure skips exactly one other
 		// When blockDependencyClosure runs
-		output := captureStderr(t, func() {
-			manager.blockDependencyClosure(ks, "app", map[string]bool{})
-		})
+		ctx, rec := recordProgress(t)
+		manager.blockDependencyClosure(ctx, ks, "app", map[string]bool{})
+		output := strings.Join(rec.warnings(), "\n")
 
 		// Then the warning stays singular
 		if !strings.Contains(output, "skipping 1 dependency ") {
