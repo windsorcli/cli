@@ -26,7 +26,7 @@ func DefaultTerraformBackendTypeForPlatform(platform string) string {
 		return "azurerm"
 	case "gcp":
 		return "gcs"
-	case "metal", "docker", "incus", "hetzner", "hyperv", "vsphere":
+	case "metal", "docker", "incus", "hetzner", "hyperv", "vsphere", "proxmox":
 		return "kubernetes"
 	default:
 		return ""

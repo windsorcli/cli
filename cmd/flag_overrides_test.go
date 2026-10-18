@@ -251,6 +251,20 @@ func TestDefaultTerraformBackendType(t *testing.T) {
 		}
 	})
 
+	t.Run("ProxmoxPlatformDefaultsBackendToKubernetes", func(t *testing.T) {
+		// Given platform=proxmox, cluster.driver defaults to talos (resolve.go)
+		// alongside hyperv and vsphere — same kubernetes-backend group, same rationale.
+		overrides := map[string]any{"platform": "proxmox"}
+
+		// When the default is applied
+		defaultTerraformBackendType(overrides)
+
+		// Then terraform.backend.type defaults to "kubernetes"
+		if overrides["terraform.backend.type"] != "kubernetes" {
+			t.Errorf("Expected terraform.backend.type=kubernetes, got %v", overrides["terraform.backend.type"])
+		}
+	})
+
 	t.Run("GcpPlatformDefaultsBackendToGcs", func(t *testing.T) {
 		// Given platform=gcp and no explicit terraform.backend.type override
 		overrides := map[string]any{"platform": "gcp"}

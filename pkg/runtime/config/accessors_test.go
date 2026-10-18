@@ -332,7 +332,7 @@ func TestConfigHandler_GetTerraformBackendType(t *testing.T) {
 
 	t.Run("FallsBackToLocalForAWorkstationPlatformWithNoExplicitBackend", func(t *testing.T) {
 		// The kubernetes default needs a live cluster, so it stays out of this fallback.
-		for _, platform := range []string{"metal", "docker", "incus", "hetzner", "hyperv", "vsphere"} {
+		for _, platform := range []string{"metal", "docker", "incus", "hetzner", "hyperv", "vsphere", "proxmox"} {
 			t.Run(platform, func(t *testing.T) {
 				mocks := setupConfigMocks(t)
 				handler := NewConfigHandler(mocks.Shell)

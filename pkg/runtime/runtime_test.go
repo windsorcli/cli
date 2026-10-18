@@ -1796,7 +1796,7 @@ func TestRuntime_ApplyConfigDefaults(t *testing.T) {
 	})
 
 	t.Run("SkipsWorkstationRuntimeDefaultWhenPlatformIsNonWorkstationViaFlagOverride", func(t *testing.T) {
-		for _, platform := range []string{"aws", "azure", "gcp", "metal", "hetzner", "none", "hyperv"} {
+		for _, platform := range []string{"aws", "azure", "gcp", "metal", "hetzner", "none", "hyperv", "proxmox"} {
 			t.Run(platform, func(t *testing.T) {
 				mocks := setupRuntimeMocks(t)
 				rt := mocks.Runtime
@@ -1831,7 +1831,7 @@ func TestRuntime_ApplyConfigDefaults(t *testing.T) {
 	})
 
 	t.Run("SkipsWorkstationRuntimeDefaultWhenPlatformIsNonWorkstationViaSavedConfig", func(t *testing.T) {
-		for _, platform := range []string{"aws", "azure", "gcp", "metal", "hetzner", "none", "hyperv"} {
+		for _, platform := range []string{"aws", "azure", "gcp", "metal", "hetzner", "none", "hyperv", "proxmox"} {
 			t.Run(platform, func(t *testing.T) {
 				mocks := setupRuntimeMocks(t)
 				rt := mocks.Runtime
