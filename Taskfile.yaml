@@ -123,13 +123,13 @@ tasks:
   fmt:
     desc: Format every tracked Go file with gofmt
     cmds:
-      - gofmt -w $(git ls-files '*.go')
+      - git ls-files -z '*.go' | xargs -0 gofmt -w
 
   fmt:check:
     desc: List the tracked Go files that gofmt would change. CI fails when the list is not empty.
     cmds:
       - |
-        unformatted="$(gofmt -l $(git ls-files '*.go'))"
+        unformatted="$(git ls-files -z '*.go' | xargs -0 gofmt -l)"
         if [ -n "$unformatted" ]; then
           echo "These files are not gofmt-formatted. Run 'task fmt' and commit the result:"
           echo "$unformatted"

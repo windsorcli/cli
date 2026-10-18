@@ -179,7 +179,7 @@ jobs:
 
       - name: Fail if gofmt would change a file
         run: |
-          unformatted="$(gofmt -l $(git ls-files '*.go'))"
+          unformatted="$(git ls-files -z '*.go' | xargs -0 gofmt -l)"
           if [ -n "$unformatted" ]; then
             echo "::error::Go files are not gofmt-formatted. Run 'task fmt' locally and commit the result."
             echo "$unformatted"
