@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -16,6 +17,8 @@ import (
 	"testing"
 	"text/template"
 	"time"
+
+	"github.com/windsorcli/cli/internal/werror"
 
 	"github.com/windsorcli/cli/internal/presenter"
 )
@@ -1733,8 +1736,11 @@ func TestShell_InstallHook(t *testing.T) {
 		if err == nil {
 			t.Error("Expected error, got nil")
 		}
-		if !strings.Contains(err.Error(), "Unsupported shell: unsupported") {
+		if !strings.Contains(err.Error(), `Windsor has no hook for the shell "unsupported".`) {
 			t.Errorf("Expected error about unsupported shell, got: %v", err)
+		}
+		if we := werror.Find(err); we == nil || !strings.Contains(we.Remediation, "bash, zsh") {
+			t.Errorf("Expected a remediation that lists the supported shells, got: %v", we)
 		}
 	})
 
@@ -3367,7 +3373,7 @@ func TestShell_ExecSilentWithEnvAndIdleTimeout(t *testing.T) {
 		// interrupted first; the eventual hard kill also targets the whole group, not just
 		// the terraform process itself, so a still-running provider-plugin subprocess does
 		// not survive orphaned
-		if err == nil || !strings.Contains(err.Error(), "no output for") {
+		if err == nil || !errors.Is(err, ErrCommandTimedOut) || !strings.Contains(err.Error(), "no output for") {
 			t.Errorf("Expected an idle-timeout error, got %v", err)
 		}
 		if out != "" {
@@ -3454,7 +3460,7 @@ func TestShell_ExecSilentWithEnvAndIdleTimeout(t *testing.T) {
 
 		// Then the absolute backstop fires anyway, and still interrupts before it kills,
 		// surfacing whatever output was captured before the cutoff
-		if err == nil || !strings.Contains(err.Error(), "timed out after") {
+		if err == nil || !errors.Is(err, ErrCommandTimedOut) || !strings.Contains(err.Error(), "ran for longer than 100ms") {
 			t.Errorf("Expected an absolute-timeout error, got %v", err)
 		}
 		if !strings.Contains(out, "still going") {
@@ -3493,7 +3499,7 @@ func TestShell_ExecSilentWithEnvAndIdleTimeout(t *testing.T) {
 		elapsed := time.Since(start)
 
 		// Then the call returns once the process exits, not after the full (very long) grace period
-		if err == nil || !strings.Contains(err.Error(), "no output for") {
+		if err == nil || !errors.Is(err, ErrCommandTimedOut) || !strings.Contains(err.Error(), "no output for") {
 			t.Errorf("Expected an idle-timeout error, got %v", err)
 		}
 		if elapsed > 500*time.Millisecond {
@@ -5139,6 +5145,39 @@ func TestDefaultShell_quoteValueForShell(t *testing.T) {
 		expected := `'value'"'"'with'"'"'quotes'`
 		if result != expected {
 			t.Errorf("Expected %q, got %q", expected, result)
+		}
+	})
+}
+
+func Test_execError(t *testing.T) {
+	cause := errors.New("exit status 1")
+
+	t.Run("KeepsStderrAfterTheCause", func(t *testing.T) {
+		// Given a failed command that wrote to stderr
+		// When execError wraps the failure
+		err := execError(cause, "permission denied")
+
+		// Then the text and the trace keep the stderr, and the cause stays in the chain
+		if err.Error() != "command execution failed: exit status 1\npermission denied" {
+			t.Errorf("Expected the cause then the stderr, got %q", err.Error())
+		}
+		if !errors.Is(err, cause) {
+			t.Error("Expected the cause to stay in the error chain")
+		}
+		crumbs := werror.Breadcrumbs(err)
+		if len(crumbs) == 0 || !strings.Contains(crumbs[len(crumbs)-1], "permission denied") {
+			t.Errorf("Expected the trace to show the stderr, got %v", crumbs)
+		}
+	})
+
+	t.Run("OmitsEmptyStderr", func(t *testing.T) {
+		// Given a failed command that wrote nothing to stderr
+		// When execError wraps the failure
+		err := execError(cause, "")
+
+		// Then the text ends with the cause
+		if err.Error() != "command execution failed: exit status 1" {
+			t.Errorf("Expected no trailing stderr, got %q", err.Error())
 		}
 	})
 }

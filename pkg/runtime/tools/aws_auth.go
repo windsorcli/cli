@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/windsorcli/cli/internal/werror"
 	"github.com/windsorcli/cli/pkg/constants"
 	"github.com/windsorcli/cli/pkg/runtime/internal/awsprofile"
 )
@@ -55,7 +56,7 @@ func (t *BaseToolsManager) awsEnabled() bool {
 // credentials are present and the aws CLI is absent (lean CI images), defers to terraform's
 // own SDK rather than failing preflight.
 //
-// The underlying STS error is intentionally discarded in favour of awsAuthHint(): the
+// The underlying STS error is intentionally discarded in favour of awsAuthError(): the
 // raw output stacks "command execution failed" + the aws CLI's own stderr + our hint,
 // which buries the one piece of information the operator needs (the next command to run).
 // Trade-off: a network outage or IAM denial gets reported as a generic "run aws sso login"
@@ -72,10 +73,10 @@ func (t *BaseToolsManager) checkAWSAuth() error {
 	}
 	env, err := t.awsContextEnv()
 	if err != nil {
-		return fmt.Errorf("cannot resolve context-scoped AWS env for credential check: %w", err)
+		return werror.Wrap(err, "cannot resolve context-scoped AWS env for credential check")
 	}
 	if _, err := t.shell.ExecSilentWithEnvAndTimeout("aws", env, []string{"sts", "get-caller-identity"}, 10*time.Second); err != nil {
-		return fmt.Errorf("%s", t.awsAuthHint())
+		return t.awsAuthError()
 	}
 	return nil
 }
@@ -137,7 +138,7 @@ func (t *BaseToolsManager) checkAWSBinary() error {
 
 	out, err := t.shell.ExecSilentWithTimeout("aws", []string{"--version"}, 10*time.Second)
 	if err != nil {
-		return fmt.Errorf("aws --version failed: %v", err)
+		return werror.Wrap(err, "aws --version failed")
 	}
 	version := extractVersion(out)
 	if version == "" {
@@ -150,15 +151,11 @@ func (t *BaseToolsManager) checkAWSBinary() error {
 	return nil
 }
 
-// awsAuthHint returns an actionable next-step message tailored to the context's AWS config
-// state (expired SSO, rejected keys, or no profile yet). In project mode windsor scopes
-// AWS config to the context's .aws/, so when the process env doesn't already point there
-// the suggested command is prefixed with that env so credentials land in the right place.
-// In global mode windsor defers to the operator's ambient ~/.aws/ (or AWS_CONFIG_FILE
-// override), so no env prefix is suggested and profile-state detection reads from the
-// ambient config. The first-time-setup branch surfaces both SSO and access-key paths
-// because we can't tell which kind of operator reached it.
-func (t *BaseToolsManager) awsAuthHint() string {
+// awsAuthError returns the error for an AWS credential failure, with the next command as the hint.
+// The hint matches the profile state: an expired SSO session, rejected keys, or no profile yet.
+// In project mode, the command gets an env prefix that points the aws CLI at the context .aws/.
+// In global mode, Windsor uses the ambient ~/.aws/ config, so the command has no prefix.
+func (t *BaseToolsManager) awsAuthError() error {
 	ctx := t.configHandler.GetContext()
 	profile := ctx
 	cfg := t.configHandler.GetHeader()
@@ -169,16 +166,16 @@ func (t *BaseToolsManager) awsAuthHint() string {
 		state := t.detectAWSProfileState(ambientAWSConfigPath(), profile)
 		switch state {
 		case awsProfileSSO:
-			return fmt.Sprintf("AWS SSO session for %q has likely expired. Run:\n  aws sso login --profile %s", profile, profile)
+			return awsSSOExpiredError(profile, "")
 		case awsProfileKeys:
-			return fmt.Sprintf("AWS access keys for %q were rejected by STS. Verify or rotate with:\n  aws configure --profile %s", profile, profile)
+			return awsKeysRejectedError(profile, "")
 		default:
-			return fmt.Sprintf("No AWS credentials configured for profile %q yet. Run one of:\n  aws configure sso --profile %s   (SSO)\n  aws configure --profile %s       (access keys)", profile, profile, profile)
+			return awsNoCredentialsError(fmt.Sprintf("profile %q", profile), profile, "")
 		}
 	}
 	configRoot, err := t.configHandler.GetConfigRoot()
 	if err != nil || configRoot == "" {
-		return fmt.Sprintf("No AWS credentials configured for context %q yet. Run one of:\n  aws configure sso --profile %s   (SSO)\n  aws configure --profile %s       (access keys)", ctx, profile, profile)
+		return awsNoCredentialsError(fmt.Sprintf("context %q", ctx), profile, "")
 	}
 	awsConfigPath := filepath.Join(configRoot, ".aws", "config")
 	awsCredentialsPath := filepath.Join(configRoot, ".aws", "credentials")
@@ -189,11 +186,11 @@ func (t *BaseToolsManager) awsAuthHint() string {
 	state := t.detectAWSProfileState(awsConfigPath, profile)
 	switch state {
 	case awsProfileSSO:
-		return fmt.Sprintf("AWS SSO session for %q has likely expired. Run:\n  %saws sso login --profile %s", profile, prefix, profile)
+		return awsSSOExpiredError(profile, prefix)
 	case awsProfileKeys:
-		return fmt.Sprintf("AWS access keys for %q were rejected by STS. Verify or rotate with:\n  %saws configure --profile %s", profile, prefix, profile)
+		return awsKeysRejectedError(profile, prefix)
 	default:
-		return fmt.Sprintf("No AWS credentials configured for context %q yet. Run one of:\n  %saws configure sso --profile %s   (SSO)\n  %saws configure --profile %s       (access keys)", ctx, prefix, profile, prefix, profile)
+		return awsNoCredentialsError(fmt.Sprintf("context %q", ctx), profile, prefix)
 	}
 }
 
@@ -237,6 +234,27 @@ func (t *BaseToolsManager) detectAWSProfileState(path, profileName string) awsPr
 // =============================================================================
 // Helpers
 // =============================================================================
+
+// awsSSOExpiredError reports an AWS SSO session that has likely expired. prefix is the env
+// assignment that points the aws CLI at the context config, or empty.
+func awsSSOExpiredError(profile, prefix string) error {
+	return werror.New(fmt.Sprintf("The AWS SSO session for profile %q has likely expired.", profile),
+		fmt.Sprintf("Run '%saws sso login --profile %s'.", prefix, profile), nil)
+}
+
+// awsKeysRejectedError reports AWS access keys that STS rejected. prefix is the env assignment
+// that points the aws CLI at the context config, or empty.
+func awsKeysRejectedError(profile, prefix string) error {
+	return werror.New(fmt.Sprintf("STS rejected the AWS access keys for profile %q.", profile),
+		fmt.Sprintf("Verify or rotate the keys with '%saws configure --profile %s'.", prefix, profile), nil)
+}
+
+// awsNoCredentialsError reports a profile or context with no AWS credentials. subject names the
+// profile or the context. The hint gives the SSO setup and the access key setup.
+func awsNoCredentialsError(subject, profile, prefix string) error {
+	return werror.New(fmt.Sprintf("No AWS credentials are configured for %s.", subject),
+		fmt.Sprintf("Run '%saws configure sso --profile %s' for SSO, or '%saws configure --profile %s' for access keys.", prefix, profile, prefix, profile), nil)
+}
 
 // hasAmbientAWSCredentials reports whether the parent env carries AWS credentials via
 // IRSA (token file plus role ARN), ECS container creds, or a complete static keypair.

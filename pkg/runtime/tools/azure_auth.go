@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"time"
 
+	"github.com/windsorcli/cli/internal/werror"
 	"github.com/windsorcli/cli/pkg/constants"
 )
 
@@ -43,7 +44,7 @@ func (t *BaseToolsManager) checkAzureAuth() error {
 	}
 	env, err := t.azureContextEnv()
 	if err != nil {
-		return fmt.Errorf("cannot resolve context-scoped Azure env for credential check: %w", err)
+		return werror.Wrap(err, "cannot resolve context-scoped Azure env for credential check")
 	}
 	cfg := t.configHandler.GetHeader()
 	azureEnv := ""
@@ -53,7 +54,7 @@ func (t *BaseToolsManager) checkAzureAuth() error {
 	uri := fmt.Sprintf("https://%s/tenants?api-version=2020-01-01", armTenantEndpoint(azureEnv))
 	args := []string{"rest", "--method", "get", "--uri", uri, "--output", "none"}
 	if _, err := t.shell.ExecSilentWithEnvAndTimeout("az", env, args, 30*time.Second); err != nil {
-		return fmt.Errorf("%s", t.azureAuthHint())
+		return t.azureAuthError()
 	}
 	return nil
 }
@@ -87,7 +88,7 @@ func (t *BaseToolsManager) checkAzureBinary() error {
 
 	out, err := t.shell.ExecSilentWithTimeout("az", []string{"--version"}, 10*time.Second)
 	if err != nil {
-		return fmt.Errorf("az --version failed: %v", err)
+		return werror.Wrap(err, "az --version failed")
 	}
 	version := extractVersion(out)
 	if version == "" {
@@ -100,10 +101,10 @@ func (t *BaseToolsManager) checkAzureBinary() error {
 	return nil
 }
 
-// azureAuthHint returns the recovery command for an Azure auth failure: `az login`
-// (pinned to azure.tenant_id when set), prefixed with AZURE_CONFIG_DIR in project mode
-// when the current env doesn't already point at the context dir.
-func (t *BaseToolsManager) azureAuthHint() string {
+// azureAuthError returns the error for an Azure credential failure, with `az login` as the hint.
+// The command pins azure.tenant_id when it is set. In project mode, it gets an AZURE_CONFIG_DIR
+// prefix when the env does not already point at the context directory.
+func (t *BaseToolsManager) azureAuthError() error {
 	tenantID := ""
 	cfg := t.configHandler.GetHeader()
 	if cfg != nil && cfg.Azure != nil && cfg.Azure.TenantID != nil {
@@ -116,20 +117,20 @@ func (t *BaseToolsManager) azureAuthHint() string {
 	}
 
 	if t.shell.IsGlobal() {
-		return fmt.Sprintf("Azure CLI session has likely expired or is not initialized. Run:\n  az login%s", tenantArg)
+		return werror.New("The Azure CLI session has likely expired or is not set up.", fmt.Sprintf("Run 'az login%s'.", tenantArg), nil)
 	}
 
 	configRoot, err := t.configHandler.GetConfigRoot()
 	if err != nil || configRoot == "" {
-		return fmt.Sprintf("Azure CLI session has likely expired or is not initialized. Run:\n  az login%s", tenantArg)
+		return werror.New("The Azure CLI session has likely expired or is not set up.", fmt.Sprintf("Run 'az login%s'.", tenantArg), nil)
 	}
 	azureConfigDir := filepath.Join(configRoot, ".azure")
 	prefix := ""
 	if !azureEnvPointsAtContext(azureConfigDir) {
 		prefix = fmt.Sprintf("AZURE_CONFIG_DIR=%q ", filepath.ToSlash(azureConfigDir))
 	}
-	return fmt.Sprintf("Azure CLI session for context %q has likely expired or is not initialized. Run:\n  %saz login%s",
-		t.configHandler.GetContext(), prefix, tenantArg)
+	return werror.New(fmt.Sprintf("The Azure CLI session for context %q has likely expired or is not set up.", t.configHandler.GetContext()),
+		fmt.Sprintf("Run '%saz login%s'.", prefix, tenantArg), nil)
 }
 
 // =============================================================================

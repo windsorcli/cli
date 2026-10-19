@@ -17,6 +17,7 @@ import (
 	"strings"
 	"syscall"
 
+	"github.com/windsorcli/cli/internal/werror"
 	"golang.org/x/sys/windows"
 )
 
@@ -74,10 +75,11 @@ func (s *DefaultShell) ExecSudo(message string, command string, args ...string) 
 	out, err := s.ExecSilent("powershell", "-NoProfile", "-NonInteractive", "-Command",
 		"([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)")
 	if err != nil {
-		return "", fmt.Errorf("could not check administrator privileges: %w", err)
+		return "", werror.Wrap(err, "could not check administrator privileges")
 	}
 	if !strings.Contains(strings.TrimSpace(strings.ToLower(out)), "true") {
-		return "", fmt.Errorf("network configuration requires administrator privileges: open a new PowerShell as Administrator, then run the command again")
+		return "", werror.New("The network configuration needs administrator privileges.",
+			"Open a new PowerShell as Administrator, then run the command again.", nil)
 	}
 	if s.verbose && message != "" {
 		fmt.Fprintln(os.Stderr, message)

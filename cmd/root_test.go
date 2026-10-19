@@ -694,6 +694,32 @@ func TestRequireCloudAuth(t *testing.T) {
 		}
 	})
 
+	t.Run("PrintsTheRemediationOfAWindsorError", func(t *testing.T) {
+		// Given CheckAuth returns a WindsorError whose remediation holds the login command
+		mocks := setupMocks(t)
+		mocks.ToolsManager.CheckAuthFunc = func() error {
+			return werror.New(`The AWS SSO session for profile "test-context" has likely expired.`,
+				"Run 'aws sso login --profile test-context'.", nil)
+		}
+		proj := project.NewProject("", &project.Project{Runtime: mocks.Runtime})
+
+		leaf := &cobra.Command{Use: "destroy"}
+		var stderr strings.Builder
+		leaf.SetErr(&stderr)
+
+		// When requireCloudAuth runs
+		err := requireCloudAuth(leaf, proj)
+
+		// Then stderr shows the message and then the login command, without an error label
+		if err == nil {
+			t.Fatal("Expected requireCloudAuth to return CheckAuth's error, got nil")
+		}
+		want := "The AWS SSO session for profile \"test-context\" has likely expired.\nRun 'aws sso login --profile test-context'.\n"
+		if stderr.String() != want {
+			t.Errorf("Expected the message and the remediation, got: %q", stderr.String())
+		}
+	})
+
 	t.Run("SuccessIsSilent", func(t *testing.T) {
 		// Given CheckAuth passes, requireCloudAuth must not touch stderr or fiddle with
 		// SilenceErrors — those side effects belong only on the failure path.

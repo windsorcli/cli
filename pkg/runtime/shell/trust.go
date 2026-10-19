@@ -11,6 +11,8 @@ import (
 	"path"
 	"path/filepath"
 	"strings"
+
+	"github.com/windsorcli/cli/internal/werror"
 )
 
 // =============================================================================
@@ -24,7 +26,7 @@ import (
 func (s *DefaultShell) AddCurrentDirToTrustedFile() error {
 	projectRoot, err := s.GetProjectRoot()
 	if err != nil {
-		return fmt.Errorf("Error getting project root directory: %w", err)
+		return werror.Wrap(err, "Error getting project root directory")
 	}
 
 	if s.global {
@@ -33,20 +35,20 @@ func (s *DefaultShell) AddCurrentDirToTrustedFile() error {
 
 	homeDir, err := s.shims.UserHomeDir()
 	if err != nil {
-		return fmt.Errorf("Error getting user home directory: %w", err)
+		return werror.Wrap(err, "Error getting user home directory")
 	}
 
 	trustedDirPath := path.Join(homeDir, ".config", "windsor")
 	err = s.shims.MkdirAll(trustedDirPath, 0750)
 	if err != nil {
-		return fmt.Errorf("Error creating directories for trusted file: %w", err)
+		return werror.Wrap(err, "Error creating directories for trusted file")
 	}
 
 	trustedFilePath := path.Join(trustedDirPath, ".trusted")
 
 	data, err := s.shims.ReadFile(trustedFilePath)
 	if err != nil && !os.IsNotExist(err) {
-		return fmt.Errorf("Error reading trusted file: %w", err)
+		return werror.Wrap(err, "Error reading trusted file")
 	}
 
 	trustedDirs := strings.Split(strings.TrimSpace(string(data)), "\n")
@@ -58,7 +60,7 @@ func (s *DefaultShell) AddCurrentDirToTrustedFile() error {
 
 	data = append(data, []byte(projectRoot+"\n")...)
 	if err := s.shims.WriteFile(trustedFilePath, data, 0600); err != nil {
-		return fmt.Errorf("Error writing to trusted file: %w", err)
+		return werror.Wrap(err, "Error writing to trusted file")
 	}
 
 	return nil
@@ -70,7 +72,7 @@ func (s *DefaultShell) AddCurrentDirToTrustedFile() error {
 func (s *DefaultShell) CheckTrustedDirectory() error {
 	projectRoot, err := s.GetProjectRoot()
 	if err != nil {
-		return fmt.Errorf("Error getting project root directory: %w", err)
+		return werror.Wrap(err, "Error getting project root directory")
 	}
 
 	if s.global {
@@ -79,7 +81,7 @@ func (s *DefaultShell) CheckTrustedDirectory() error {
 
 	homeDir, err := s.shims.UserHomeDir()
 	if err != nil {
-		return fmt.Errorf("Error getting user home directory: %w", err)
+		return werror.Wrap(err, "Error getting user home directory")
 	}
 
 	trustedDirPath := path.Join(homeDir, ".config", "windsor")
@@ -90,7 +92,7 @@ func (s *DefaultShell) CheckTrustedDirectory() error {
 		if os.IsNotExist(err) {
 			return fmt.Errorf("Trusted file does not exist")
 		}
-		return fmt.Errorf("Error reading trusted file: %w", err)
+		return werror.Wrap(err, "Error reading trusted file")
 	}
 
 	isTrusted := false

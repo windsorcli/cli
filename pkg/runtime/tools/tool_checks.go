@@ -14,6 +14,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/windsorcli/cli/internal/werror"
 	"github.com/windsorcli/cli/pkg/constants"
 	"golang.org/x/sys/cpu"
 )
@@ -77,7 +78,7 @@ func (t *BaseToolsManager) checkDocker() error {
 	if !isColimaMode {
 		output, err := t.shell.ExecSilentWithTimeout("docker", []string{"--version"}, 5*time.Second)
 		if err != nil {
-			return fmt.Errorf("docker --version failed: %v", err)
+			return werror.Wrap(err, "docker --version failed")
 		}
 		dockerVersion := extractVersion(output)
 		if dockerVersion != "" && compareVersion(dockerVersion, constants.MinimumVersionDocker) < 0 {
@@ -97,7 +98,7 @@ func (t *BaseToolsManager) checkColima() error {
 	}
 	output, err := t.shell.ExecSilentWithTimeout("colima", []string{"version"}, 5*time.Second)
 	if err != nil {
-		return fmt.Errorf("colima version check failed: %v", err)
+		return werror.Wrap(err, "colima version check failed")
 	}
 	colimaVersion := extractVersion(output)
 	if colimaVersion == "" {
@@ -112,7 +113,7 @@ func (t *BaseToolsManager) checkColima() error {
 	}
 	output, err = t.shell.ExecSilentWithTimeout("limactl", []string{"--version"}, 5*time.Second)
 	if err != nil {
-		return fmt.Errorf("limactl version check failed: %v", err)
+		return werror.Wrap(err, "limactl version check failed")
 	}
 	limactlVersion := extractVersion(output)
 	if limactlVersion == "" {
@@ -139,7 +140,7 @@ func (t *BaseToolsManager) checkOnePassword() error {
 
 	out, err := t.shell.ExecSilentWithTimeout("op", []string{"--version"}, 5*time.Second)
 	if err != nil {
-		return fmt.Errorf("1Password CLI --version failed: %w", err)
+		return werror.Wrap(err, "1Password CLI --version failed")
 	}
 
 	version := extractVersion(out)
@@ -164,7 +165,7 @@ func (t *BaseToolsManager) checkSops() error {
 
 	out, err := t.shell.ExecSilentWithTimeout("sops", []string{"--version"}, 5*time.Second)
 	if err != nil {
-		return fmt.Errorf("sops --version failed: %v", err)
+		return werror.Wrap(err, "sops --version failed")
 	}
 
 	version := extractVersion(out)
@@ -190,7 +191,7 @@ func (t *BaseToolsManager) checkKubelogin() error {
 
 	out, err := t.shell.ExecSilentWithTimeout("kubelogin", []string{"--version"}, 5*time.Second)
 	if err != nil {
-		return fmt.Errorf("kubelogin --version failed: %v", err)
+		return werror.Wrap(err, "kubelogin --version failed")
 	}
 
 	version := extractVersion(out)
@@ -216,10 +217,12 @@ func (t *BaseToolsManager) checkKubelogin() error {
 			azureTenantID := os.Getenv("AZURE_TENANT_ID")
 
 			if azureClientID == "" {
-				return fmt.Errorf("%s is set but AZURE_CLIENT_ID is missing - both are required for %s authentication", rule.triggerVar, rule.authMethod)
+				return werror.New(fmt.Sprintf("%s is set but AZURE_CLIENT_ID is missing. %s authentication needs both.", rule.triggerVar, rule.authMethod),
+					fmt.Sprintf("Set AZURE_CLIENT_ID to the client ID of the Azure identity, or unset %s.", rule.triggerVar), nil)
 			}
 			if azureTenantID == "" {
-				return fmt.Errorf("%s is set but AZURE_TENANT_ID is missing - both are required for %s authentication", rule.triggerVar, rule.authMethod)
+				return werror.New(fmt.Sprintf("%s is set but AZURE_TENANT_ID is missing. %s authentication needs both.", rule.triggerVar, rule.authMethod),
+					fmt.Sprintf("Set AZURE_TENANT_ID to the tenant ID of the Azure identity, or unset %s.", rule.triggerVar), nil)
 			}
 		}
 	}
@@ -254,7 +257,8 @@ func checkX86V2Baseline(f x86V2Features) error {
 		missing = append(missing, "SSE4.2")
 	}
 	if len(missing) > 0 {
-		return fmt.Errorf("CPU lacks x86-64-v2 microarchitecture support (missing: %s); Talos requires a v2-capable host CPU and will fail to start in Docker", strings.Join(missing, ", "))
+		return werror.New(fmt.Sprintf("The CPU lacks x86-64-v2 microarchitecture support (missing: %s). Talos in Docker needs a v2-capable host CPU.", strings.Join(missing, ", ")),
+			"Run the Talos cluster in Docker on a host with an x86-64-v2 CPU.", nil)
 	}
 	return nil
 }

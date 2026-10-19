@@ -194,16 +194,20 @@ func prepareProjectSkipValidation(cmd *cobra.Command, reqs tools.Requirements) (
 // subcommands) must not call this — there is no obligation to be authed for those paths.
 // Bootstrap routes through this helper too so the calm-output pattern is uniform.
 //
-// On failure: prints CheckAuth's hint to stderr verbatim (the per-platform hint already
-// names the action and ends in a copy-pasteable remediation command), silences cobra's
-// "Error:" prefix on the parent command tree, and returns the error so the process exits
-// non-zero. This is a flow-guidance moment ("run aws sso login"), not an exception, so the
-// output should read calmly without scary "Error:" framing or stacked "credentials are
-// bad" prefixes — the operator just needs the next step.
+// On failure: prints CheckAuth's message to stderr, then the remediation command of its
+// WindsorError on the next line when it has one, silences cobra's "Error:" prefix on the
+// parent command tree, and returns the error so the process exits non-zero. This is a
+// flow-guidance moment ("run aws sso login"), not an exception, so the output should read
+// calmly without scary "Error:" framing or stacked "credentials are bad" prefixes — the
+// operator just needs the next step.
 func requireCloudAuth(cmd *cobra.Command, proj *project.Project) error {
 	if err := proj.Runtime.ToolsManager.CheckAuth(); err != nil {
 		silenceErrorsOnAncestors(cmd)
-		fmt.Fprintln(cmd.ErrOrStderr(), err.Error())
+		if we := werror.Find(err); we != nil && we.Remediation != "" {
+			fmt.Fprintf(cmd.ErrOrStderr(), "%s\n%s\n", we.Message, we.Remediation)
+		} else {
+			fmt.Fprintln(cmd.ErrOrStderr(), err.Error())
+		}
 		return err
 	}
 	return nil
