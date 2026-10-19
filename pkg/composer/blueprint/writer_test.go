@@ -50,6 +50,7 @@ func setupWriterMocks(t *testing.T) *WriterTestMocks {
 	}
 
 	rt := &runtime.Runtime{
+		Shims:         runtime.NewShims(),
 		ProjectRoot:   tmpDir,
 		ConfigRoot:    tmpDir,
 		ConfigHandler: mockConfigHandler,
@@ -420,6 +421,7 @@ func TestWriter_Write(t *testing.T) {
 		// Given a writer with empty config root
 		mocks := setupWriterMocks(t)
 		rt := &runtime.Runtime{
+			Shims:         runtime.NewShims(),
 			ProjectRoot:   mocks.Runtime.ProjectRoot,
 			ConfigRoot:    "",
 			ConfigHandler: mocks.ConfigHandler,

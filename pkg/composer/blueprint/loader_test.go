@@ -50,6 +50,7 @@ func setupLoaderMocks(t *testing.T) *LoaderTestMocks {
 	mockArtifact := artifact.NewMockArtifact()
 
 	rt := &runtime.Runtime{
+		Shims:         runtime.NewShims(),
 		ProjectRoot:   tmpDir,
 		ConfigRoot:    tmpDir,
 		TemplateRoot:  filepath.Join(tmpDir, "_template"),

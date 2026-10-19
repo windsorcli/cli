@@ -1,16 +1,13 @@
+// The Runtime is the shared execution state of a Windsor command.
+// It provides the context paths, the config handler, the shell, and the expression evaluator.
+// It creates the tools manager, the secrets resolver, and the Terraform provider when a command needs them.
+// NewRuntime sets each value that the caller does not supply.
+
 package runtime
 
 import (
-	"crypto/rand"
 	"fmt"
-	"maps"
-	"math/big"
-	"os"
 	"path/filepath"
-	"runtime"
-	"strconv"
-	"strings"
-	"time"
 
 	"github.com/windsorcli/cli/pkg/runtime/config"
 	"github.com/windsorcli/cli/pkg/runtime/env"
@@ -20,6 +17,10 @@ import (
 	"github.com/windsorcli/cli/pkg/runtime/terraform"
 	"github.com/windsorcli/cli/pkg/runtime/tools"
 )
+
+// =============================================================================
+// Types
+// =============================================================================
 
 // Runtime holds common execution values and core dependencies used across the Windsor CLI.
 // These fields are set during various initialization steps rather than computed on-demand.
@@ -72,6 +73,9 @@ type Runtime struct {
 
 	// TerraformProvider provides Terraform-specific operations
 	TerraformProvider terraform.TerraformProvider
+
+	// Shims holds the system calls that tests replace
+	Shims *Shims
 
 	// envVars stores collected environment variables
 	envVars map[string]string
@@ -133,6 +137,9 @@ func NewRuntime(opts ...*Runtime) *Runtime {
 		if overrides.Resolver != nil {
 			rt.Resolver = overrides.Resolver
 		}
+		if overrides.Shims != nil {
+			rt.Shims = overrides.Shims
+		}
 		if overrides.EnvPrinters.DotEnvEnv != nil {
 			rt.EnvPrinters.DotEnvEnv = overrides.EnvPrinters.DotEnvEnv
 		}
@@ -163,6 +170,10 @@ func NewRuntime(opts ...*Runtime) *Runtime {
 		if overrides.EnvPrinters.WindsorEnv != nil {
 			rt.EnvPrinters.WindsorEnv = overrides.EnvPrinters.WindsorEnv
 		}
+	}
+
+	if rt.Shims == nil {
+		rt.Shims = NewShims()
 	}
 
 	if rt.Shell == nil {
@@ -227,112 +238,18 @@ func NewRuntime(opts ...*Runtime) *Runtime {
 // Public Methods
 // =============================================================================
 
-// HandleSessionReset checks for reset flags and session tokens, then resets managed environment
-// variables if needed. It checks for WINDSOR_SESSION_TOKEN and uses the shell's CheckResetFlags
-// method to determine if a reset should occur. A command like `windsor exec` that never
-// establishes its own session token always has hasSessionToken false, so every invocation would
-// otherwise be treated as a fresh reset; NO_CACHE only defaults to "true" when the caller hasn't
-// already set it explicitly (to "true" or "false"), so an explicit `NO_CACHE=false windsor exec
-// -- ...` — or a value already present in the calling shell — is honored instead of being
-// force-overwritten on every reset. Returns an error if reset flag checking fails.
-func (rt *Runtime) HandleSessionReset() error {
-	hasSessionToken := os.Getenv("WINDSOR_SESSION_TOKEN") != ""
-	shouldReset, err := rt.Shell.CheckResetFlags()
-	if err != nil {
-		return fmt.Errorf("failed to check reset flags: %w", err)
-	}
-	if !hasSessionToken {
-		shouldReset = true
-	}
-	if shouldReset {
-		rt.Shell.Reset()
-		if _, noCacheSet := os.LookupEnv("NO_CACHE"); !noCacheSet {
-			if err := os.Setenv("NO_CACHE", "true"); err != nil {
-				return fmt.Errorf("failed to set NO_CACHE: %w", err)
-			}
-		}
-		if rt.TerraformProvider != nil {
-			rt.TerraformProvider.ClearCache()
-		}
-	}
+// InitializeComponents initializes all environment-related components required after setup.
+// Initializes TerraformProvider if terraform is enabled. Returns an error if initialization fails.
+func (rt *Runtime) InitializeComponents() error {
+	rt.initializeSecretsProviders()
 
+	if rt.ConfigHandler != nil && rt.ConfigHandler.GetBool("terraform.enabled", true) {
+		if rt.TerraformProvider == nil {
+			rt.initializeToolsManager()
+			rt.TerraformProvider = terraform.NewTerraformProvider(rt.ConfigHandler, rt.Shell, rt.ToolsManager, rt.Evaluator)
+		}
+	}
 	return nil
-}
-
-// LoadEnvironment loads environment variables and aliases from all configured environment printers,
-// then executes post-environment hooks. It initializes all necessary components, optionally loads
-// secrets if requested, and aggregates all environment variables and aliases into the Runtime
-// instance. Returns an error if any step fails.
-func (rt *Runtime) LoadEnvironment(decrypt bool) error {
-	rt.initializeEnvPrinters()
-	rt.initializeToolsManager()
-
-	if err := rt.InitializeComponents(); err != nil {
-		return fmt.Errorf("failed to initialize environment components: %w", err)
-	}
-
-	if decrypt {
-		if err := rt.loadSecrets(); err != nil {
-			return fmt.Errorf("failed to load secrets: %w", err)
-		}
-	}
-
-	allEnvVars := make(map[string]string)
-	allAliases := make(map[string]string)
-
-	for _, printer := range rt.getAllEnvPrinters() {
-		if printer != nil {
-			envVars, err := printer.GetEnvVars()
-			if err != nil {
-				return fmt.Errorf("error getting environment variables: %w", err)
-			}
-			maps.Copy(allEnvVars, envVars)
-
-			aliases, err := printer.GetAlias()
-			if err != nil {
-				return fmt.Errorf("error getting aliases: %w", err)
-			}
-			maps.Copy(allAliases, aliases)
-		}
-	}
-
-	rt.envVars = allEnvVars
-	rt.aliases = allAliases
-
-	for key, value := range allEnvVars {
-		if err := os.Setenv(key, value); err != nil {
-			return fmt.Errorf("error setting environment variable %s: %w", key, err)
-		}
-	}
-
-	var firstError error
-	for _, printer := range rt.getAllEnvPrinters() {
-		if printer != nil {
-			if err := printer.PostEnvHook(); err != nil && firstError == nil {
-				firstError = err
-			}
-		}
-	}
-
-	if firstError != nil {
-		return fmt.Errorf("failed to execute post env hooks: %w", firstError)
-	}
-
-	return nil
-}
-
-// GetEnvVars returns a copy of the collected environment variables.
-func (rt *Runtime) GetEnvVars() map[string]string {
-	result := make(map[string]string)
-	maps.Copy(result, rt.envVars)
-	return result
-}
-
-// GetAliases returns a copy of the collected aliases.
-func (rt *Runtime) GetAliases() map[string]string {
-	result := make(map[string]string)
-	maps.Copy(result, rt.aliases)
-	return result
 }
 
 // CheckTools performs tool version checking using the tools manager against the full
@@ -360,162 +277,6 @@ func (rt *Runtime) CheckToolsFor(reqs tools.Requirements) error {
 	}
 
 	return nil
-}
-
-// GetBuildID retrieves the current build ID from the .windsor/.build-id file.
-// This is a read-only operation - it never creates a build ID.
-// Returns the build ID string if it exists, or empty string if it doesn't exist.
-// Returns an error only if file read fails (not if file doesn't exist).
-func (rt *Runtime) GetBuildID() (string, error) {
-	projectRoot := rt.ProjectRoot
-
-	if err := os.MkdirAll(projectRoot, 0750); err != nil {
-		return "", fmt.Errorf("failed to create project root directory: %w", err)
-	}
-
-	root, err := os.OpenRoot(projectRoot)
-	if err != nil {
-		return "", fmt.Errorf("failed to open project root: %w", err)
-	}
-	if root == nil {
-		return "", fmt.Errorf("failed to open project root: root is nil")
-	}
-	defer root.Close()
-
-	buildIDPath := ".windsor/.build-id"
-
-	if _, err := root.Stat(buildIDPath); os.IsNotExist(err) {
-		return "", nil
-	}
-
-	data, err := root.ReadFile(buildIDPath)
-	if err != nil {
-		return "", fmt.Errorf("failed to read build ID file: %w", err)
-	}
-
-	return strings.TrimSpace(string(data)), nil
-}
-
-// GenerateBuildID generates a new build ID and persists it to the .windsor/.build-id file,
-// overwriting any existing value. Returns the new build ID or an error if generation or persistence fails.
-func (rt *Runtime) GenerateBuildID() (string, error) {
-	newBuildID, err := rt.generateBuildID()
-	if err != nil {
-		return "", fmt.Errorf("failed to generate build ID: %w", err)
-	}
-
-	if err := rt.writeBuildIDToFile(newBuildID); err != nil {
-		return "", fmt.Errorf("failed to set build ID: %w", err)
-	}
-
-	return newBuildID, nil
-}
-
-// InitializeComponents initializes all environment-related components required after setup.
-// Initializes TerraformProvider if terraform is enabled. Returns an error if initialization fails.
-func (rt *Runtime) InitializeComponents() error {
-	rt.initializeSecretsProviders()
-
-	if rt.ConfigHandler != nil && rt.ConfigHandler.GetBool("terraform.enabled", true) {
-		if rt.TerraformProvider == nil {
-			rt.initializeToolsManager()
-			rt.TerraformProvider = terraform.NewTerraformProvider(rt.ConfigHandler, rt.Shell, rt.ToolsManager, rt.Evaluator)
-		}
-	}
-	return nil
-}
-
-// ApplyConfigDefaults sets pre-load defaults: dev mode, workstation runtime, platform, and a
-// baseline config set. Defers entirely when dev mode isn't knowable yet (no explicit platform,
-// no confirmed dev mode, nothing loaded), so it doesn't commit platform: "none" before
-// ResolveConfig's post-load call (setConfigDefaults) sees the real value.
-func (rt *Runtime) ApplyConfigDefaults(flagOverrides ...map[string]any) error {
-	if rt.canonicalPlatform() == "" && !rt.ConfigHandler.IsDevMode(rt.ContextName) && !rt.ConfigHandler.IsLoaded() {
-		return nil
-	}
-	return rt.setConfigDefaults(flagOverrides...)
-}
-
-// ResolveConfig runs the full config pipeline: pre-load defaults, load from disk, post-load
-// defaults, flag overrides, then dev-mode platform normalization. Call once per command.
-// Mutates flagOverrides when inferring platform. Returns error on config load or set failure.
-func (rt *Runtime) ResolveConfig(flagOverrides map[string]any) error {
-	if flagOverrides == nil {
-		flagOverrides = make(map[string]any)
-	}
-	explicitPlatform, hasExplicitPlatform := explicitPlatformFromOverrides(flagOverrides)
-	preLoadOverrides := maps.Clone(flagOverrides)
-	if preLoadOverrides == nil {
-		preLoadOverrides = make(map[string]any)
-	}
-	delete(preLoadOverrides, "provider")
-	if hasExplicitPlatform {
-		preLoadOverrides["platform"] = explicitPlatform
-	} else {
-		delete(preLoadOverrides, "platform")
-	}
-	inferredPlatform := rt.inferDevPlatformOverride(preLoadOverrides)
-	if !hasExplicitPlatform && inferredPlatform != "" {
-		preLoadOverrides["platform"] = inferredPlatform
-	}
-	if err := rt.ApplyConfigDefaults(preLoadOverrides); err != nil {
-		return fmt.Errorf("failed to apply config defaults: %w", err)
-	}
-	if err := rt.ConfigHandler.LoadConfig(); err != nil {
-		return fmt.Errorf("failed to load config: %w", err)
-	}
-	if err := rt.setConfigDefaults(preLoadOverrides); err != nil {
-		return fmt.Errorf("failed to apply post-load config defaults: %w", err)
-	}
-	for key, value := range flagOverrides {
-		if key == "provider" {
-			continue
-		}
-		if key == "platform" && !hasExplicitPlatform {
-			continue
-		}
-		if err := rt.ConfigHandler.Set(key, value); err != nil {
-			return fmt.Errorf("failed to set %s: %w", key, err)
-		}
-	}
-	if hasExplicitPlatform && explicitPlatform != "" {
-		if err := rt.ConfigHandler.Set("platform", explicitPlatform); err != nil {
-			return fmt.Errorf("failed to set platform: %w", err)
-		}
-	}
-	dnsEnabled := rt.ConfigHandler.Get("dns.enabled")
-	if (dnsEnabled == nil || dnsEnabled == true) && rt.ConfigHandler.GetString("workstation.runtime") != "" {
-		if rt.ConfigHandler.GetString("dns.domain") == "" {
-			_ = rt.ConfigHandler.Set("dns.domain", "test")
-		}
-		if rt.ConfigHandler.GetString("workstation.runtime") == "docker-desktop" && rt.ConfigHandler.GetString("workstation.dns.address") == "" {
-			_ = rt.ConfigHandler.Set("workstation.dns.address", "127.0.0.1")
-		}
-	}
-	if rt.ConfigHandler.IsDevMode(rt.ContextName) {
-		platform := rt.ConfigHandler.GetString("platform")
-		workstationRuntime := rt.ConfigHandler.GetString("workstation.runtime")
-		vmRuntime := rt.ConfigHandler.GetString("vm.runtime", "docker")
-		if (platform == "" || platform == "docker") && workstationRuntime == "colima" && vmRuntime == "incus" {
-			fmt.Fprintln(os.Stderr, "\033[33mWarning: vm.runtime is deprecated; use platform: incus in your context configuration instead. Support for vm.runtime will be removed in a future version.\033[0m")
-			if err := rt.ConfigHandler.Set("platform", "incus"); err != nil {
-				return fmt.Errorf("failed to set platform to incus: %w", err)
-			}
-		}
-	}
-	return nil
-}
-
-// SaveConfig delegates persistence to the config handler. Workstation-managed keys are written to
-// .windsor/contexts/<context>/workstation.yaml and excluded from values.yaml.
-func (rt *Runtime) SaveConfig(overwrite ...bool) error {
-	if rt.ConfigHandler == nil {
-		return fmt.Errorf("runtime not fully initialized: config handler missing")
-	}
-	if err := rt.ConfigHandler.SaveWorkstationState(); err != nil {
-		return fmt.Errorf("failed to save workstation state: %w", err)
-	}
-	return rt.ConfigHandler.SaveConfig(overwrite...)
 }
 
 // PrepareTools checks and installs every tool family. Equivalent to PrepareToolsFor with
@@ -551,236 +312,6 @@ func (rt *Runtime) PrepareToolsFor(reqs tools.Requirements) error {
 // Private Methods
 // =============================================================================
 
-// setConfigDefaults applies the shared config defaults.
-// ApplyConfigDefaults calls this once, before ResolveConfig loads the config file.
-// ResolveConfig calls this again right after the load. The second call never defers.
-//
-// It sets workstation.runtime in dev mode. It also sets workstation.runtime when
-// this run passes an explicit docker or incus platform. A platform saved from an
-// earlier run does not trigger this default.
-func (rt *Runtime) setConfigDefaults(flagOverrides ...map[string]any) error {
-	existingPlatform := rt.canonicalPlatform()
-	isDevMode := rt.ConfigHandler.IsDevMode(rt.ContextName)
-
-	if isDevMode {
-		if err := rt.ConfigHandler.Set("dev", true); err != nil {
-			return fmt.Errorf("failed to set dev mode: %w", err)
-		}
-	}
-
-	workstationRuntime := rt.ConfigHandler.GetString("workstation.runtime")
-	hadRuntime := workstationRuntime != ""
-	if workstationRuntime == "" && len(flagOverrides) > 0 && flagOverrides[0] != nil {
-		if driver, ok := flagOverrides[0]["workstation.runtime"].(string); ok && driver != "" {
-			workstationRuntime = driver
-		}
-	}
-	overridePlatform := ""
-	if len(flagOverrides) > 0 && flagOverrides[0] != nil {
-		if p, ok := flagOverrides[0]["platform"].(string); ok && p != "" {
-			overridePlatform = p
-		}
-	}
-	effectivePlatform := overridePlatform
-	if effectivePlatform == "" {
-		effectivePlatform = existingPlatform
-	}
-	needsWorkstationRuntime := effectivePlatform == "" || isWorkstationPlatform(effectivePlatform)
-	explicitWorkstationPlatform := isWorkstationPlatform(overridePlatform)
-	shouldDefaultWorkstationRuntime := isDevMode || explicitWorkstationPlatform
-	if shouldDefaultWorkstationRuntime && workstationRuntime == "" && needsWorkstationRuntime {
-		switch runtime.GOOS {
-		case "darwin", "windows":
-			workstationRuntime = "docker-desktop"
-		default:
-			workstationRuntime = "docker"
-		}
-	}
-
-	if shouldDefaultWorkstationRuntime && !hadRuntime && workstationRuntime != "" {
-		if err := rt.ConfigHandler.Set("workstation.runtime", workstationRuntime); err != nil {
-			return fmt.Errorf("failed to set workstation.runtime: %w", err)
-		}
-	}
-	vmRuntime := ""
-	if len(flagOverrides) > 0 && flagOverrides[0] != nil {
-		if r, ok := flagOverrides[0]["vm.runtime"].(string); ok && r != "" {
-			vmRuntime = r
-		}
-	}
-	if vmRuntime == "" {
-		vmRuntime = rt.ConfigHandler.GetString("vm.runtime", "docker")
-	}
-
-	if existingPlatform == "" && isDevMode {
-		if overridePlatform != "" {
-			if err := rt.ConfigHandler.Set("platform", overridePlatform); err != nil {
-				return fmt.Errorf("failed to set platform from overrides: %w", err)
-			}
-		} else if workstationRuntime == "colima" && vmRuntime == "incus" {
-			fmt.Fprintln(os.Stderr, "\033[33mWarning: vm.runtime is deprecated; use platform: incus in your context configuration instead. Support for vm.runtime will be removed in a future version.\033[0m")
-			if err := rt.ConfigHandler.Set("platform", "incus"); err != nil {
-				return fmt.Errorf("failed to set platform to incus: %w", err)
-			}
-		} else {
-			if err := rt.ConfigHandler.Set("platform", "docker"); err != nil {
-				return fmt.Errorf("failed to set platform: %w", err)
-			}
-		}
-	}
-
-	platform := rt.canonicalPlatform()
-	defaultConfig := config.DefaultConfig
-	if isDevMode && platform != "none" {
-		defaultConfig = config.DefaultConfig_Dev
-	}
-	if err := rt.ConfigHandler.SetDefault(defaultConfig); err != nil {
-		return fmt.Errorf("failed to set default config: %w", err)
-	}
-
-	return nil
-}
-
-// isWorkstationPlatform reports whether platform requires a workstation runtime.
-func isWorkstationPlatform(platform string) bool {
-	return platform == "docker" || platform == "incus"
-}
-
-// explicitPlatformFromOverrides extracts an explicitly provided platform selection from CLI overrides.
-// It treats both "platform" and legacy "provider" override keys as explicit platform intent.
-func explicitPlatformFromOverrides(flagOverrides map[string]any) (string, bool) {
-	if flagOverrides == nil {
-		return "", false
-	}
-	if p, ok := flagOverrides["platform"]; ok {
-		if s, ok := p.(string); ok && s != "" {
-			return s, true
-		}
-		return "", true
-	}
-	if p, ok := flagOverrides["provider"]; ok {
-		if s, ok := p.(string); ok && s != "" {
-			return s, true
-		}
-		return "", true
-	}
-	return "", false
-}
-
-// canonicalPlatform returns the platform from config.
-func (rt *Runtime) canonicalPlatform() string {
-	return rt.ConfigHandler.GetString("platform")
-}
-
-// inferDevPlatformOverride infers a dev-mode platform only when no explicit or configured platform exists.
-// It preserves legacy colima+incus inference behavior and returns empty string when no inference is needed.
-func (rt *Runtime) inferDevPlatformOverride(flagOverrides map[string]any) string {
-	if !rt.ConfigHandler.IsDevMode(rt.ContextName) {
-		return ""
-	}
-	if p, ok := explicitPlatformFromOverrides(flagOverrides); ok && p != "" {
-		return ""
-	}
-	existingPlatform := rt.canonicalPlatform()
-	if existingPlatform != "" {
-		return ""
-	}
-	workstationRuntime := ""
-	if driver, ok := flagOverrides["workstation.runtime"].(string); ok && driver != "" {
-		workstationRuntime = driver
-	}
-	if workstationRuntime == "" {
-		workstationRuntime = rt.ConfigHandler.GetString("workstation.runtime")
-	}
-	vmRuntime := ""
-	if r, ok := flagOverrides["vm.runtime"].(string); ok {
-		vmRuntime = r
-	}
-	if vmRuntime == "" {
-		vmRuntime = rt.ConfigHandler.GetString("vm.runtime", "docker")
-	}
-	if workstationRuntime == "colima" && vmRuntime == "incus" {
-		fmt.Fprintln(os.Stderr, "\033[33mWarning: vm.runtime is deprecated; use platform: incus in your context configuration instead. Support for vm.runtime will be removed in a future version.\033[0m")
-		return "incus"
-	}
-	return "docker"
-}
-
-// initializeEnvPrinters initializes environment printers based on configuration settings.
-// It creates and registers the appropriate environment printers with the dependency injector
-// based on the current configuration state.
-func (rt *Runtime) initializeEnvPrinters() {
-	contextValues := map[string]any{}
-	if values, err := rt.ConfigHandler.GetContextValues(); err == nil && values != nil {
-		contextValues = values
-	}
-
-	clusterDriver := getNestedString(contextValues, "cluster", "driver")
-	if clusterDriver == "" {
-		clusterDriver = rt.ConfigHandler.GetString("cluster.driver", "")
-	}
-	clusterEnabled := clusterDriver != ""
-	needsDocker := rt.needsDockerEnv()
-	configData := rt.ConfigHandler.GetHeader()
-	platform := rt.ConfigHandler.GetString("platform", "")
-	hasAWSConfig := configData != nil && configData.AWS != nil
-	hasAzureConfig := configData != nil && configData.Azure != nil
-	hasGCPConfig := configData != nil && configData.GCP != nil
-	hasVSphereConfig := configData != nil && configData.VSphere != nil
-
-	if rt.EnvPrinters.DotEnvEnv == nil {
-		rt.EnvPrinters.DotEnvEnv = env.NewDotEnvEnvPrinter(rt.Shell, rt.ConfigHandler, rt.Evaluator)
-	}
-	if rt.EnvPrinters.AwsEnv == nil && (hasAWSConfig || platform == "aws") {
-		rt.EnvPrinters.AwsEnv = env.NewAwsEnvPrinter(rt.Shell, rt.ConfigHandler)
-	}
-	if rt.EnvPrinters.AzureEnv == nil && (hasAzureConfig || platform == "azure") {
-		rt.EnvPrinters.AzureEnv = env.NewAzureEnvPrinter(rt.Shell, rt.ConfigHandler)
-	}
-	if rt.EnvPrinters.GcpEnv == nil && (hasGCPConfig || platform == "gcp") {
-		rt.EnvPrinters.GcpEnv = env.NewGcpEnvPrinter(rt.Shell, rt.ConfigHandler)
-	}
-	if rt.EnvPrinters.VsphereEnv == nil && (hasVSphereConfig || platform == "vsphere") {
-		rt.EnvPrinters.VsphereEnv = env.NewVsphereEnvPrinter(rt.Shell, rt.ConfigHandler)
-	}
-	if rt.EnvPrinters.DockerEnv == nil && needsDocker {
-		rt.EnvPrinters.DockerEnv = env.NewVirtEnvPrinter(rt.Shell, rt.ConfigHandler)
-	}
-	if rt.EnvPrinters.KubeEnv == nil && clusterEnabled {
-		rt.EnvPrinters.KubeEnv = env.NewKubeEnvPrinter(rt.Shell, rt.ConfigHandler)
-	}
-	if rt.EnvPrinters.TalosEnv == nil && clusterDriver == "talos" {
-		rt.EnvPrinters.TalosEnv = env.NewTalosEnvPrinter(rt.Shell, rt.ConfigHandler)
-	}
-	if rt.EnvPrinters.TerraformEnv == nil && rt.ConfigHandler.GetBool("terraform.enabled", true) {
-		rt.initializeToolsManager()
-		if rt.TerraformProvider == nil {
-			rt.TerraformProvider = terraform.NewTerraformProvider(rt.ConfigHandler, rt.Shell, rt.ToolsManager, rt.Evaluator)
-		}
-		rt.EnvPrinters.TerraformEnv = env.NewTerraformEnvPrinter(rt.Shell, rt.ConfigHandler, rt.ToolsManager, rt.TerraformProvider)
-	}
-	if rt.EnvPrinters.WindsorEnv == nil {
-		allEnvPrinters := rt.getAllEnvPrinters()
-		rt.EnvPrinters.WindsorEnv = env.NewWindsorEnvPrinter(rt.Shell, rt.ConfigHandler, rt.Evaluator, allEnvPrinters)
-	}
-}
-
-// needsDockerEnv returns true when VirtEnvPrinter (DOCKER_HOST, DOCKER_CONFIG, etc.) should be used:
-// platform must be "docker" and workstation.runtime must be colima, docker-desktop, or docker.
-func (rt *Runtime) needsDockerEnv() bool {
-	platform := rt.ConfigHandler.GetString("platform")
-	if platform != "docker" {
-		return false
-	}
-	wsRuntime := rt.ConfigHandler.GetString("workstation.runtime")
-	switch wsRuntime {
-	case "colima", "docker-desktop", "docker":
-		return true
-	default:
-		return false
-	}
-}
-
 // initializeToolsManager initializes the tools manager if not already set.
 // It creates a new ToolsManager instance if ConfigHandler and Shell are available.
 func (rt *Runtime) initializeToolsManager() {
@@ -789,23 +320,6 @@ func (rt *Runtime) initializeToolsManager() {
 			rt.ToolsManager = tools.NewToolsManager(rt.ConfigHandler, rt.Shell)
 		}
 	}
-}
-
-func getNestedString(values map[string]any, path ...string) string {
-	current := any(values)
-	for _, key := range path {
-		next, ok := current.(map[string]any)
-		if !ok {
-			return ""
-		}
-		val, exists := next[key]
-		if !exists {
-			return ""
-		}
-		current = val
-	}
-	str, _ := current.(string)
-	return str
 }
 
 // initializeSecretsProviders initializes secrets providers based on current configuration settings.
@@ -841,7 +355,7 @@ func (rt *Runtime) initializeSecretsProviders() {
 					}
 
 					var provider secretsRuntime.Provider
-					if os.Getenv("OP_SERVICE_ACCOUNT_TOKEN") != "" {
+					if rt.Shims.Getenv("OP_SERVICE_ACCOUNT_TOKEN") != "" {
 						provider = secretsRuntime.NewOnePasswordSDKProvider(vault)
 					} else {
 						provider = secretsRuntime.NewOnePasswordCLIProvider(vault)
@@ -869,141 +383,10 @@ func (rt *Runtime) registerSecretHelper() {
 	rt.secretHelperRegistered = true
 }
 
-// getAllEnvPrinters returns all environment printers in a consistent order.
-// This ensures that environment variables are processed in a predictable sequence,
-// with DotEnvEnv processed first (lowest precedence, an operator-supplied base layer)
-// and WindsorEnv processed last to take precedence.
-func (rt *Runtime) getAllEnvPrinters() []env.EnvPrinter {
-	return []env.EnvPrinter{
-		rt.EnvPrinters.DotEnvEnv,
-		rt.EnvPrinters.AwsEnv,
-		rt.EnvPrinters.AzureEnv,
-		rt.EnvPrinters.GcpEnv,
-		rt.EnvPrinters.VsphereEnv,
-		rt.EnvPrinters.DockerEnv,
-		rt.EnvPrinters.KubeEnv,
-		rt.EnvPrinters.TalosEnv,
-		rt.EnvPrinters.TerraformEnv,
-		rt.EnvPrinters.WindsorEnv,
-	}
-}
-
 // loadSecrets loads secrets from configured secrets providers via the Resolver.
 func (rt *Runtime) loadSecrets() error {
 	if rt.Resolver == nil {
 		return nil
 	}
 	return rt.Resolver.LoadAll()
-}
-
-// writeBuildIDToFile writes the provided build ID string to the .windsor/.build-id file in the project root.
-// Ensures the .windsor directory exists before writing. Returns an error if directory creation or file write fails.
-func (rt *Runtime) writeBuildIDToFile(buildID string) error {
-	projectRoot := rt.ProjectRoot
-
-	if err := os.MkdirAll(projectRoot, 0750); err != nil {
-		return fmt.Errorf("failed to create project root directory: %w", err)
-	}
-
-	root, err := os.OpenRoot(projectRoot)
-	if err != nil {
-		return fmt.Errorf("failed to open project root: %w", err)
-	}
-	if root == nil {
-		return fmt.Errorf("failed to open project root: root is nil")
-	}
-	defer root.Close()
-
-	buildIDPath := ".windsor/.build-id"
-	buildIDDir := ".windsor"
-
-	if err := root.MkdirAll(buildIDDir, 0750); err != nil {
-		return fmt.Errorf("failed to create build ID directory: %w", err)
-	}
-
-	return root.WriteFile(buildIDPath, []byte(buildID), 0600)
-}
-
-// generateBuildID generates and returns a build ID string in the format YYMMDD.RANDOM.#.
-// YYMMDD is the current date (year, month, day), RANDOM is a random three-digit number for collision prevention,
-// and # is a sequential counter incremented for each build on the same day. If a build ID already exists for the current day,
-// the counter is incremented; otherwise, a new build ID is generated with counter set to 1. Ensures global ordering and uniqueness.
-// Returns the build ID string or an error if generation or retrieval fails.
-func (rt *Runtime) generateBuildID() (string, error) {
-	now := time.Now()
-	yy := now.Year() % 100
-	mm := int(now.Month())
-	dd := now.Day()
-	datePart := fmt.Sprintf("%02d%02d%02d", yy, mm, dd)
-
-	projectRoot := rt.ProjectRoot
-
-	if err := os.MkdirAll(projectRoot, 0750); err != nil {
-		return "", fmt.Errorf("failed to create project root directory: %w", err)
-	}
-
-	root, err := os.OpenRoot(projectRoot)
-	if err != nil {
-		return "", fmt.Errorf("failed to open project root: %w", err)
-	}
-	if root == nil {
-		return "", fmt.Errorf("failed to open project root: root is nil")
-	}
-	defer root.Close()
-
-	buildIDPath := ".windsor/.build-id"
-
-	var existingBuildID string
-
-	if _, err := root.Stat(buildIDPath); os.IsNotExist(err) {
-		existingBuildID = ""
-	} else {
-		data, err := root.ReadFile(buildIDPath)
-		if err != nil {
-			return "", fmt.Errorf("failed to read build ID file: %w", err)
-		}
-		existingBuildID = strings.TrimSpace(string(data))
-	}
-
-	if existingBuildID != "" {
-		return rt.incrementBuildID(existingBuildID, datePart)
-	}
-
-	random, err := rand.Int(rand.Reader, big.NewInt(1000))
-	if err != nil {
-		return "", fmt.Errorf("failed to generate random number: %w", err)
-	}
-	counter := 1
-	randomPart := fmt.Sprintf("%03d", random.Int64())
-	counterPart := fmt.Sprintf("%d", counter)
-
-	return fmt.Sprintf("%s.%s.%s", datePart, randomPart, counterPart), nil
-}
-
-// incrementBuildID parses an existing build ID and increments its counter component.
-// If the date component differs from the current date, generates a new random number and resets the counter to 1.
-// Returns the incremented or reset build ID string, or an error if the input format is invalid.
-func (rt *Runtime) incrementBuildID(existingBuildID, currentDate string) (string, error) {
-	parts := strings.Split(existingBuildID, ".")
-	if len(parts) != 3 {
-		return "", fmt.Errorf("invalid build ID format: %s", existingBuildID)
-	}
-
-	existingDate := parts[0]
-	existingRandom := parts[1]
-	existingCounter, err := strconv.Atoi(parts[2])
-	if err != nil {
-		return "", fmt.Errorf("invalid counter component: %s", parts[2])
-	}
-
-	if existingDate != currentDate {
-		random, err := rand.Int(rand.Reader, big.NewInt(1000))
-		if err != nil {
-			return "", fmt.Errorf("failed to generate random number: %w", err)
-		}
-		return fmt.Sprintf("%s.%03d.1", currentDate, random.Int64()), nil
-	}
-
-	existingCounter++
-	return fmt.Sprintf("%s.%s.%d", existingDate, existingRandom, existingCounter), nil
 }

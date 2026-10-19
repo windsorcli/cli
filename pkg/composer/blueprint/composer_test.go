@@ -44,6 +44,7 @@ func setupComposerMocks(t *testing.T) *ComposerTestMocks {
 	}
 
 	rt := &runtime.Runtime{
+		Shims:         runtime.NewShims(),
 		ProjectRoot:   tmpDir,
 		ConfigRoot:    tmpDir,
 		ConfigHandler: mockConfigHandler,

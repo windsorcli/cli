@@ -35,7 +35,7 @@ func setupTraceCollector(t *testing.T, bp *blueprintv1alpha1.Blueprint, scope ma
 // setupExplainHandler creates a BaseBlueprintHandler with a pre-loaded trace collector.
 func setupExplainHandler(t *testing.T, bp *blueprintv1alpha1.Blueprint, scope map[string]any, contributions map[string][]TraceContribution, configBlocks map[string][]ConfigBlockRecord) *BaseBlueprintHandler {
 	t.Helper()
-	rt := &runtime.Runtime{}
+	rt := &runtime.Runtime{Shims: runtime.NewShims()}
 	tc := setupTraceCollector(t, bp, scope, contributions, configBlocks)
 	return &BaseBlueprintHandler{
 		runtime:           rt,
@@ -1253,7 +1253,7 @@ func TestExplain(t *testing.T) {
 			},
 		}
 		h := &BaseBlueprintHandler{
-			runtime:           &runtime.Runtime{},
+			runtime:           &runtime.Runtime{Shims: runtime.NewShims()},
 			processor:         explainTestProcessor{},
 			composedBlueprint: bp,
 		}

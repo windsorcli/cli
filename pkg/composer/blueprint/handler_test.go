@@ -59,6 +59,7 @@ func setupHandlerMocks(t *testing.T) *HandlerTestMocks {
 	mockEvaluator.RegisterFunc = realEvaluator.Register
 
 	rt := &runtime.Runtime{
+		Shims:         runtime.NewShims(),
 		ProjectRoot:   tmpDir,
 		ConfigRoot:    tmpDir,
 		ConfigHandler: mockConfigHandler,
