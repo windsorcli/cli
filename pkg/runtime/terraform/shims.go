@@ -1,72 +1,34 @@
-// The shims package is a system call abstraction layer
-// It provides mockable wrappers around system and runtime functions
-// It serves as a testing aid by allowing system calls to be intercepted
-// It enables dependency injection and test isolation for system-level operations
+// The Shims are the system call abstractions of the terraform package.
+// It provides the shared shims of internal/shims and the Unsetenv shim.
+// Tests replace the shims to simulate file access and environment state.
+// NewShims returns the shims with the real implementations.
 
 package terraform
 
 import (
-	"encoding/json"
 	"os"
-	"path/filepath"
-	"runtime"
-	"time"
 
-	"github.com/goccy/go-yaml"
-	"github.com/hashicorp/hcl/v2"
-	"github.com/hashicorp/hcl/v2/hclwrite"
+	"github.com/windsorcli/cli/internal/shims"
 )
 
 // =============================================================================
 // Types
 // =============================================================================
 
-// Shims provides mockable wrappers around system and runtime functions
+// Shims holds the shared system call primitives and the terraform-specific shims.
 type Shims struct {
-	ReadFile       func(string) ([]byte, error)
-	JsonUnmarshal  func([]byte, any) error
-	JsonMarshal    func(any) ([]byte, error)
-	Getenv         func(string) string
-	Setenv         func(string, string) error
-	Unsetenv       func(string) error
-	Stat           func(string) (os.FileInfo, error)
-	Remove         func(string) error
-	WriteFile      func(string, []byte, os.FileMode) error
-	ReadDir        func(string) ([]os.DirEntry, error)
-	Getwd          func() (string, error)
-	YamlUnmarshal  func([]byte, any) error
-	YamlMarshal    func(any) ([]byte, error)
-	Glob           func(string) ([]string, error)
-	HclParseConfig func([]byte, string, hcl.Pos) (*hclwrite.File, hcl.Diagnostics)
-	Goos           func() string
-	Sleep          func(time.Duration)
-	LookupEnv      func(string) (string, bool)
+	shims.Shims
+	Unsetenv func(key string) error
 }
 
 // =============================================================================
-// Helpers
+// Constructor
 // =============================================================================
 
-// NewShims creates a new Shims instance with default implementations
+// NewShims returns a Shims with every field set to its real implementation.
 func NewShims() *Shims {
 	return &Shims{
-		ReadFile:       os.ReadFile,
-		JsonUnmarshal:  json.Unmarshal,
-		JsonMarshal:    json.Marshal,
-		Getenv:         os.Getenv,
-		Setenv:         os.Setenv,
-		Unsetenv:       os.Unsetenv,
-		Stat:           os.Stat,
-		Remove:         os.Remove,
-		WriteFile:      os.WriteFile,
-		ReadDir:        os.ReadDir,
-		Getwd:          os.Getwd,
-		YamlUnmarshal:  yaml.Unmarshal,
-		YamlMarshal:    yaml.Marshal,
-		Glob:           filepath.Glob,
-		HclParseConfig: hclwrite.ParseConfig,
-		Goos:           func() string { return runtime.GOOS },
-		Sleep:          time.Sleep,
-		LookupEnv:      os.LookupEnv,
+		Shims:    *shims.NewShims(),
+		Unsetenv: os.Unsetenv,
 	}
 }
