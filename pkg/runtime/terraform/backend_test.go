@@ -1,15 +1,478 @@
 package terraform
 
 import (
+	"bytes"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
+	cliconfig "github.com/windsorcli/cli/api/config/v1alpha2"
 	"github.com/windsorcli/cli/pkg/runtime/config"
-	"github.com/windsorcli/cli/pkg/runtime/evaluator"
 )
+
+// =============================================================================
+// Test Public Methods
+// =============================================================================
+
+func TestTerraformProvider_GenerateBackendOverride(t *testing.T) {
+	t.Run("CreatesTerraformGitignoreForProjectModule", func(t *testing.T) {
+		// Given a local backend and a module directory under the project terraform folder
+		mocks := setupMocks(t, &SetupOptions{BackendType: "local"})
+		written := map[string]string{}
+		mocks.Provider.Shims.ReadFile = func(path string) ([]byte, error) { return nil, os.ErrNotExist }
+		mocks.Provider.Shims.WriteFile = func(path string, data []byte, perm os.FileMode) error {
+			written[path] = string(data)
+			return nil
+		}
+
+		// When generating the backend override
+		err := mocks.Provider.GenerateBackendOverride(filepath.Join("/test/project", "terraform", "demo"))
+
+		// Then terraform/.gitignore ignores backend_override.tf
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		got := written[filepath.Join("/test/project", "terraform", ".gitignore")]
+		if got != "backend_override.tf\n" {
+			t.Errorf("Expected gitignore entry, got %q", got)
+		}
+	})
+
+	t.Run("WarnsAndSucceedsWhenGitignoreWriteFails", func(t *testing.T) {
+		// Given a gitignore write that fails after the override file is written
+		mocks := setupMocks(t, &SetupOptions{BackendType: "local"})
+		var stderr bytes.Buffer
+		mocks.Provider.warningWriter = &stderr
+		mocks.Provider.Shims.ReadFile = func(path string) ([]byte, error) { return nil, os.ErrNotExist }
+		mocks.Provider.Shims.WriteFile = func(path string, data []byte, perm os.FileMode) error {
+			if strings.HasSuffix(path, ".gitignore") {
+				return errors.New("read-only file system")
+			}
+			return nil
+		}
+
+		// When generating the backend override
+		err := mocks.Provider.GenerateBackendOverride(filepath.Join("/test/project", "terraform", "demo"))
+
+		// Then the call succeeds and the failure is reported as a warning
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		if !strings.Contains(stderr.String(), "terraform/.gitignore") {
+			t.Errorf("Expected gitignore warning, got %q", stderr.String())
+		}
+	})
+
+	t.Run("AppendsToExistingTerraformGitignore", func(t *testing.T) {
+		// Given an existing terraform/.gitignore without a trailing newline
+		mocks := setupMocks(t, &SetupOptions{BackendType: "local"})
+		written := map[string]string{}
+		mocks.Provider.Shims.ReadFile = func(path string) ([]byte, error) { return []byte("*.tfstate"), nil }
+		mocks.Provider.Shims.WriteFile = func(path string, data []byte, perm os.FileMode) error {
+			written[path] = string(data)
+			return nil
+		}
+
+		// When generating the backend override
+		err := mocks.Provider.GenerateBackendOverride(filepath.Join("/test/project", "terraform", "demo"))
+
+		// Then the entry is appended and existing content is kept
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		got := written[filepath.Join("/test/project", "terraform", ".gitignore")]
+		if got != "*.tfstate\nbackend_override.tf\n" {
+			t.Errorf("Expected appended entry, got %q", got)
+		}
+	})
+
+	t.Run("LeavesTerraformGitignoreWhenEntryPresent", func(t *testing.T) {
+		// Given a terraform/.gitignore that already ignores the file
+		mocks := setupMocks(t, &SetupOptions{BackendType: "local"})
+		var ignoreWrites int
+		mocks.Provider.Shims.ReadFile = func(path string) ([]byte, error) { return []byte("backend_override.tf\n"), nil }
+		mocks.Provider.Shims.WriteFile = func(path string, data []byte, perm os.FileMode) error {
+			if strings.HasSuffix(path, ".gitignore") {
+				ignoreWrites++
+			}
+			return nil
+		}
+
+		// When generating the backend override
+		err := mocks.Provider.GenerateBackendOverride(filepath.Join("/test/project", "terraform", "demo"))
+
+		// Then the gitignore is not rewritten
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		if ignoreWrites != 0 {
+			t.Errorf("Expected no gitignore write, got %d", ignoreWrites)
+		}
+	})
+
+	t.Run("SkipsGitignoreOutsideProjectTerraformFolder", func(t *testing.T) {
+		// Given a directory under the Windsor scratch path
+		mocks := setupMocks(t, &SetupOptions{BackendType: "local"})
+		var ignoreWrites int
+		mocks.Provider.Shims.WriteFile = func(path string, data []byte, perm os.FileMode) error {
+			if strings.HasSuffix(path, ".gitignore") {
+				ignoreWrites++
+			}
+			return nil
+		}
+
+		// When generating the backend override
+		err := mocks.Provider.GenerateBackendOverride(filepath.Join("/test/project", ".windsor", "contexts", "local", "demo"))
+
+		// Then no gitignore is written
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		if ignoreWrites != 0 {
+			t.Errorf("Expected no gitignore write, got %d", ignoreWrites)
+		}
+	})
+
+	t.Run("CreatesLocalBackendOverride", func(t *testing.T) {
+		// Given a provider with local backend type
+		mocks := setupMocks(t, &SetupOptions{BackendType: "local"})
+
+		var writtenPath string
+		var writtenData []byte
+		mocks.Provider.Shims.WriteFile = func(path string, data []byte, perm os.FileMode) error {
+			writtenPath = path
+			writtenData = data
+			return nil
+		}
+
+		// When generating backend override
+		err := mocks.Provider.GenerateBackendOverride("/test/dir")
+
+		// Then it should write local backend config
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+
+		expectedPath := filepath.Join("/test/dir", "backend_override.tf")
+		if writtenPath != expectedPath {
+			t.Errorf("Expected to write to %s, got %s", expectedPath, writtenPath)
+		}
+
+		expectedConfig := "terraform {\n  backend \"local\" {}\n}"
+		if string(writtenData) != expectedConfig {
+			t.Errorf("Expected backend config to be %q, got %q", expectedConfig, string(writtenData))
+		}
+	})
+
+	t.Run("CreatesS3BackendOverride", func(t *testing.T) {
+		// Given a provider with s3 backend type
+		mocks := setupMocks(t, &SetupOptions{BackendType: "s3"})
+
+		mocks.Provider.Shims.WriteFile = func(path string, data []byte, perm os.FileMode) error {
+			return nil
+		}
+
+		// When generating backend override
+		err := mocks.Provider.GenerateBackendOverride("/test/dir")
+
+		// Then it should succeed
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+	})
+
+	t.Run("CreatesKubernetesBackendOverride", func(t *testing.T) {
+		// Given a provider with kubernetes backend type
+		mocks := setupMocks(t, &SetupOptions{BackendType: "kubernetes"})
+
+		mocks.Provider.Shims.WriteFile = func(path string, data []byte, perm os.FileMode) error {
+			return nil
+		}
+
+		// When generating backend override
+		err := mocks.Provider.GenerateBackendOverride("/test/dir")
+
+		// Then it should succeed
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+	})
+
+	t.Run("CreatesAzurermBackendOverride", func(t *testing.T) {
+		// Given a provider with azurerm backend type
+		mocks := setupMocks(t, &SetupOptions{BackendType: "azurerm"})
+
+		mocks.Provider.Shims.WriteFile = func(path string, data []byte, perm os.FileMode) error {
+			return nil
+		}
+
+		// When generating backend override
+		err := mocks.Provider.GenerateBackendOverride("/test/dir")
+
+		// Then it should succeed
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+	})
+
+	t.Run("CreatesGcsBackendOverride", func(t *testing.T) {
+		// Given a provider with gcs backend type
+		mocks := setupMocks(t, &SetupOptions{BackendType: "gcs"})
+
+		mocks.Provider.Shims.WriteFile = func(path string, data []byte, perm os.FileMode) error {
+			return nil
+		}
+
+		// When generating backend override
+		err := mocks.Provider.GenerateBackendOverride("/test/dir")
+
+		// Then it should succeed
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+	})
+
+	t.Run("RemovesBackendOverrideForNone", func(t *testing.T) {
+		// Given a provider with none backend type
+		mocks := setupMocks(t, &SetupOptions{BackendType: "none"})
+
+		var removedPath string
+		mocks.Provider.Shims.Stat = func(path string) (os.FileInfo, error) {
+			return nil, nil
+		}
+		mocks.Provider.Shims.Remove = func(path string) error {
+			removedPath = path
+			return nil
+		}
+
+		// When generating backend override
+		err := mocks.Provider.GenerateBackendOverride("/test/dir")
+
+		// Then backend override file should be removed
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+
+		expectedPath := filepath.Join("/test/dir", "backend_override.tf")
+		if removedPath != expectedPath {
+			t.Errorf("Expected to remove %s, got %s", expectedPath, removedPath)
+		}
+	})
+
+	t.Run("HandlesUnsupportedBackend", func(t *testing.T) {
+		// Given a provider with unsupported backend type
+		mocks := setupMocks(t)
+
+		mocks.ConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
+			if key == "terraform.backend.type" {
+				return "unsupported"
+			}
+			if len(defaultValue) > 0 {
+				return defaultValue[0]
+			}
+			return ""
+		}
+
+		// When generating backend override
+		err := mocks.Provider.GenerateBackendOverride("/test/dir")
+
+		// Then it should return an error
+		if err == nil {
+			t.Fatal("Expected error for unsupported backend")
+		}
+
+		if err.Error() != "unsupported backend: unsupported" {
+			t.Errorf("Expected unsupported backend error, got %v", err)
+		}
+	})
+
+	t.Run("HandlesWriteFileError", func(t *testing.T) {
+		// Given a provider with WriteFile that fails
+		mocks := setupMocks(t, &SetupOptions{BackendType: "local"})
+
+		mocks.Provider.Shims.WriteFile = func(path string, data []byte, perm os.FileMode) error {
+			return errors.New("write failed")
+		}
+
+		// When generating backend override
+		err := mocks.Provider.GenerateBackendOverride("/test/dir")
+
+		// Then it should return an error
+		if err == nil {
+			t.Fatal("Expected error on write failure")
+		}
+	})
+
+	t.Run("HandlesRemoveError", func(t *testing.T) {
+		// Given a provider with Remove that fails
+		mocks := setupMocks(t, &SetupOptions{BackendType: "none"})
+
+		mocks.Provider.Shims.Stat = func(path string) (os.FileInfo, error) {
+			return nil, nil
+		}
+		mocks.Provider.Shims.Remove = func(path string) error {
+			return errors.New("remove failed")
+		}
+
+		// When generating backend override
+		err := mocks.Provider.GenerateBackendOverride("/test/dir")
+
+		// Then it should return an error
+		if err == nil {
+			t.Fatal("Expected error on remove failure")
+		}
+	})
+}
+
+func TestTerraformProvider_BackendConfigComplete(t *testing.T) {
+	stringPtr := func(s string) *string { return &s }
+
+	t.Run("LocalBackendIsAlwaysComplete", func(t *testing.T) {
+		mocks := setupMocks(t, &SetupOptions{BackendType: "local"})
+		if !mocks.Provider.BackendConfigComplete() {
+			t.Error("Expected local backend to be complete")
+		}
+	})
+
+	t.Run("EmptyBackendIsAlwaysComplete", func(t *testing.T) {
+		mocks := setupMocks(t, &SetupOptions{BackendType: ""})
+		if !mocks.Provider.BackendConfigComplete() {
+			t.Error("Expected empty backend type to be complete")
+		}
+	})
+
+	t.Run("BackendTfvarsAtConfigRootMakesItComplete", func(t *testing.T) {
+		mocks := setupMocks(t, &SetupOptions{BackendType: "azurerm"})
+		mocks.Provider.Shims.Stat = func(path string) (os.FileInfo, error) {
+			if path == filepath.Join("/test/config", "backend.tfvars") {
+				return nil, nil
+			}
+			return nil, os.ErrNotExist
+		}
+		if !mocks.Provider.BackendConfigComplete() {
+			t.Error("Expected presence of backend.tfvars to mark backend as complete")
+		}
+	})
+
+	t.Run("KubernetesIsCompleteEvenWithoutNestedBlock", func(t *testing.T) {
+		// Regression: cfg.Backend nil guard previously returned false before
+		// the kubernetes case was reached. Kubernetes uses ambient kubeconfig
+		// so a missing nested block is the normal case.
+		mocks := setupMocks(t, &SetupOptions{BackendType: "kubernetes"})
+		mocks.ConfigHandler.GetHeaderFunc = func() *cliconfig.Context {
+			return &cliconfig.Context{} // Terraform == nil
+		}
+		if !mocks.Provider.BackendConfigComplete() {
+			t.Error("Expected kubernetes backend to be complete without a nested config block")
+		}
+	})
+
+	t.Run("UnrecognizedBackendDefaultsToComplete", func(t *testing.T) {
+		// Regression: the trailing default previously returned false, which
+		// permanently disabled the probe for any backend Windsor doesn't
+		// special-case (http, consul, remote, cos, ...). Default-allow lets
+		// the probe run; real init failures surface via the warning path.
+		mocks := setupMocks(t, &SetupOptions{BackendType: "http"})
+		mocks.ConfigHandler.GetHeaderFunc = func() *cliconfig.Context {
+			return &cliconfig.Context{}
+		}
+		if !mocks.Provider.BackendConfigComplete() {
+			t.Error("Expected unrecognized backend type 'http' to default to complete")
+		}
+	})
+
+	t.Run("AzureRMRequiresStorageAccountAndContainer", func(t *testing.T) {
+		mocks := setupMocks(t, &SetupOptions{BackendType: "azurerm"})
+
+		// Missing both
+		mocks.ConfigHandler.GetHeaderFunc = func() *cliconfig.Context {
+			return &cliconfig.Context{
+				Terraform: &cliconfig.Terraform{Backend: &cliconfig.TerraformBackend{}},
+			}
+		}
+		if mocks.Provider.BackendConfigComplete() {
+			t.Error("Expected azurerm with no nested config to be incomplete")
+		}
+
+		// Only storage_account_name
+		mocks.ConfigHandler.GetHeaderFunc = func() *cliconfig.Context {
+			return &cliconfig.Context{
+				Terraform: &cliconfig.Terraform{Backend: &cliconfig.TerraformBackend{
+					AzureRM: &cliconfig.AzureRMBackend{StorageAccountName: stringPtr("sa")},
+				}},
+			}
+		}
+		if mocks.Provider.BackendConfigComplete() {
+			t.Error("Expected azurerm with only storage_account_name to be incomplete")
+		}
+
+		// Both fields present
+		mocks.ConfigHandler.GetHeaderFunc = func() *cliconfig.Context {
+			return &cliconfig.Context{
+				Terraform: &cliconfig.Terraform{Backend: &cliconfig.TerraformBackend{
+					AzureRM: &cliconfig.AzureRMBackend{
+						StorageAccountName: stringPtr("sa"),
+						ContainerName:      stringPtr("c"),
+					},
+				}},
+			}
+		}
+		if !mocks.Provider.BackendConfigComplete() {
+			t.Error("Expected azurerm with storage_account_name and container_name to be complete")
+		}
+	})
+
+	t.Run("S3RequiresBucket", func(t *testing.T) {
+		mocks := setupMocks(t, &SetupOptions{BackendType: "s3"})
+
+		mocks.ConfigHandler.GetHeaderFunc = func() *cliconfig.Context {
+			return &cliconfig.Context{
+				Terraform: &cliconfig.Terraform{Backend: &cliconfig.TerraformBackend{}},
+			}
+		}
+		if mocks.Provider.BackendConfigComplete() {
+			t.Error("Expected s3 with no nested config to be incomplete")
+		}
+
+		mocks.ConfigHandler.GetHeaderFunc = func() *cliconfig.Context {
+			return &cliconfig.Context{
+				Terraform: &cliconfig.Terraform{Backend: &cliconfig.TerraformBackend{
+					S3: &cliconfig.S3Backend{Bucket: stringPtr("b")},
+				}},
+			}
+		}
+		if !mocks.Provider.BackendConfigComplete() {
+			t.Error("Expected s3 with bucket to be complete")
+		}
+	})
+
+	t.Run("GCSRequiresBucket", func(t *testing.T) {
+		mocks := setupMocks(t, &SetupOptions{BackendType: "gcs"})
+
+		mocks.ConfigHandler.GetHeaderFunc = func() *cliconfig.Context {
+			return &cliconfig.Context{
+				Terraform: &cliconfig.Terraform{Backend: &cliconfig.TerraformBackend{}},
+			}
+		}
+		if mocks.Provider.BackendConfigComplete() {
+			t.Error("Expected gcs with no nested config to be incomplete")
+		}
+
+		mocks.ConfigHandler.GetHeaderFunc = func() *cliconfig.Context {
+			return &cliconfig.Context{
+				Terraform: &cliconfig.Terraform{Backend: &cliconfig.TerraformBackend{
+					GCS: &cliconfig.GCSBackend{Bucket: stringPtr("b")},
+				}},
+			}
+		}
+		if !mocks.Provider.BackendConfigComplete() {
+			t.Error("Expected gcs with bucket to be complete")
+		}
+	})
+}
 
 // =============================================================================
 // Test Private Methods
@@ -883,54 +1346,9 @@ func TestTerraformProvider_generateBackendConfigArgs(t *testing.T) {
 
 }
 
-func Test_sanitizeForK8s(t *testing.T) {
-	t.Run("SanitizesBasicString", func(t *testing.T) {
-		// Given a string with mixed case and underscores
-		// When sanitizing for K8s
-		result := sanitizeForK8s("Test-String_123")
-
-		// Then it should convert to lowercase and replace underscores
-		expected := "test-string-123"
-		if result != expected {
-			t.Errorf("Expected %s, got %s", expected, result)
-		}
-	})
-
-	t.Run("TrimsTo63Characters", func(t *testing.T) {
-		// Given a long string
-		longString := strings.Repeat("a", 100)
-
-		// When sanitizing for K8s
-		result := sanitizeForK8s(longString)
-
-		// Then it should be trimmed to 63 characters
-		if len(result) > 63 {
-			t.Errorf("Expected max 63 characters, got %d: %s", len(result), result)
-		}
-	})
-
-	t.Run("HandlesMultipleDashes", func(t *testing.T) {
-		// Given a string with multiple dashes
-		// When sanitizing for K8s
-		result := sanitizeForK8s("test---string")
-
-		// Then multiple dashes should be collapsed
-		if strings.Contains(result, "---") {
-			t.Errorf("Expected multiple dashes to be collapsed, got %s", result)
-		}
-	})
-
-	t.Run("TrimsLeadingTrailingDashes", func(t *testing.T) {
-		// Given a string with leading and trailing dashes
-		// When sanitizing for K8s
-		result := sanitizeForK8s("-test-string-")
-
-		// Then leading and trailing dashes should be trimmed
-		if strings.HasPrefix(result, "-") || strings.HasSuffix(result, "-") {
-			t.Errorf("Expected no leading/trailing dashes, got %s", result)
-		}
-	})
-}
+// =============================================================================
+// Test Helpers
+// =============================================================================
 
 func Test_processMap(t *testing.T) {
 	t.Run("ProcessesStringValues", func(t *testing.T) {
@@ -1145,268 +1563,6 @@ func Test_processMap(t *testing.T) {
 		}
 		if foundNonString {
 			t.Errorf("Expected non-string items to be ignored, got %v", args)
-		}
-	})
-}
-
-func TestTerraformProvider_registerTerraformOutputHelper(t *testing.T) {
-	t.Run("RegistersHelperWithEvaluator", func(t *testing.T) {
-		// Given a provider and mock evaluator
-		mocks := setupMocks(t)
-		mockEvaluator := evaluator.NewMockExpressionEvaluator()
-		var registeredName string
-		mockEvaluator.RegisterFunc = func(name string, helper func(params []any, deferred bool) (any, error), signatures ...any) {
-			registeredName = name
-		}
-
-		// When registering terraform output helper
-		mocks.Provider.registerTerraformOutputHelper(mockEvaluator)
-
-		// Then helper should be registered with correct name
-		if registeredName != "terraform_output" {
-			t.Errorf("Expected helper to be registered as 'terraform_output', got '%s'", registeredName)
-		}
-	})
-
-	t.Run("HelperReturnsErrorForWrongParamCount", func(t *testing.T) {
-		// Given a registered helper
-		mocks := setupMocks(t)
-		mockEvaluator := evaluator.NewMockExpressionEvaluator()
-		var helperFunc func(params []any, deferred bool) (any, error)
-		mockEvaluator.RegisterFunc = func(name string, helper func(params []any, deferred bool) (any, error), signatures ...any) {
-			helperFunc = helper
-		}
-
-		mocks.Provider.registerTerraformOutputHelper(mockEvaluator)
-
-		// When calling helper with wrong parameter count
-		_, err := helperFunc([]any{"component"}, false)
-
-		// Then it should return an error
-		if err == nil {
-			t.Fatal("Expected error for wrong parameter count")
-		}
-	})
-}
-
-func TestTerraformProvider_RestoreEnvVar(t *testing.T) {
-	t.Run("RestoresEnvVarWithValue", func(t *testing.T) {
-		// Given a provider and an env var with value
-		mocks := setupMocks(t)
-		provider := mocks.Provider
-
-		var setKey, setValue string
-		provider.Shims.Setenv = func(key, value string) error {
-			setKey = key
-			setValue = value
-			return nil
-		}
-
-		// When restoring env var
-		provider.restoreEnvVar("TEST_VAR", "original-value")
-
-		// Then it should set the env var
-		if setKey != "TEST_VAR" {
-			t.Errorf("Expected to set TEST_VAR, got %s", setKey)
-		}
-
-		if setValue != "original-value" {
-			t.Errorf("Expected to set original-value, got %s", setValue)
-		}
-	})
-
-	t.Run("UnsetsEnvVarWhenEmpty", func(t *testing.T) {
-		// Given a provider and an empty env var value
-		mocks := setupMocks(t)
-		provider := mocks.Provider
-
-		var unsetKey string
-		provider.Shims.Unsetenv = func(key string) error {
-			unsetKey = key
-			return nil
-		}
-
-		// When restoring env var with empty value
-		provider.restoreEnvVar("TEST_VAR", "")
-
-		// Then it should unset the env var
-		if unsetKey != "TEST_VAR" {
-			t.Errorf("Expected to unset TEST_VAR, got %s", unsetKey)
-		}
-	})
-}
-
-func TestTerraformProvider_applyEnvVars(t *testing.T) {
-	t.Run("AppliesEnvVarsSuccessfully", func(t *testing.T) {
-		// Given a provider and env vars to apply
-		mocks := setupMocks(t)
-		provider := mocks.Provider
-
-		envVars := map[string]string{
-			"VAR1": "value1",
-			"VAR2": "value2",
-		}
-
-		var setVars map[string]string
-		setVars = make(map[string]string)
-		provider.Shims.Getenv = func(key string) string {
-			return "original-" + key
-		}
-		provider.Shims.Setenv = func(key, value string) error {
-			setVars[key] = value
-			return nil
-		}
-
-		// When applying env vars
-		originalEnvVars, err := provider.applyEnvVars(envVars)
-		if err != nil {
-			t.Fatalf("Expected no error, got: %v", err)
-		}
-
-		// Then env vars should be set and originals preserved
-		if originalEnvVars["VAR1"] != "original-VAR1" {
-			t.Errorf("Expected original VAR1 to be original-VAR1, got: %s", originalEnvVars["VAR1"])
-		}
-
-		if setVars["VAR1"] != "value1" {
-			t.Errorf("Expected VAR1 to be set to value1, got: %s", setVars["VAR1"])
-		}
-
-		if setVars["VAR2"] != "value2" {
-			t.Errorf("Expected VAR2 to be set to value2, got: %s", setVars["VAR2"])
-		}
-	})
-
-	t.Run("RestoresEnvVarsOnError", func(t *testing.T) {
-		// Given a provider with Setenv that fails
-		mocks := setupMocks(t)
-		provider := mocks.Provider
-
-		envVars := map[string]string{
-			"VAR1": "value1",
-			"VAR2": "value2",
-		}
-
-		var restoredKeys []string
-		restoredKeys = make([]string, 0)
-		callCount := 0
-		provider.Shims.Getenv = func(key string) string {
-			return "original-" + key
-		}
-		provider.Shims.Setenv = func(key, value string) error {
-			callCount++
-			if callCount == 2 {
-				return fmt.Errorf("setenv error")
-			}
-			return nil
-		}
-		provider.Shims.Unsetenv = func(key string) error {
-			restoredKeys = append(restoredKeys, key)
-			return nil
-		}
-
-		// When applying env vars
-		_, err := provider.applyEnvVars(envVars)
-		// Then it should restore env vars on error
-		if err == nil {
-			t.Error("Expected error when Setenv fails")
-		}
-
-		if len(restoredKeys) == 0 && callCount < 2 {
-			t.Error("Expected restoreEnvVars to be called on error")
-		}
-	})
-}
-
-func TestTerraformProvider_restoreEnvVars(t *testing.T) {
-	t.Run("RestoresMultipleEnvVars", func(t *testing.T) {
-		mocks := setupMocks(t)
-		provider := mocks.Provider
-
-		originalEnvVars := map[string]string{
-			"VAR1": "original1",
-			"VAR2": "",
-			"VAR3": "original3",
-		}
-
-		var setVars map[string]string
-		var unsetVars []string
-		setVars = make(map[string]string)
-		unsetVars = make([]string, 0)
-
-		provider.Shims.Setenv = func(key, value string) error {
-			setVars[key] = value
-			return nil
-		}
-		provider.Shims.Unsetenv = func(key string) error {
-			unsetVars = append(unsetVars, key)
-			return nil
-		}
-
-		provider.restoreEnvVars(originalEnvVars)
-
-		if setVars["VAR1"] != "original1" {
-			t.Errorf("Expected VAR1 to be restored to original1, got: %s", setVars["VAR1"])
-		}
-
-		if setVars["VAR3"] != "original3" {
-			t.Errorf("Expected VAR3 to be restored to original3, got: %s", setVars["VAR3"])
-		}
-
-		if len(unsetVars) != 1 || unsetVars[0] != "VAR2" {
-			t.Errorf("Expected VAR2 to be unset, got: %v", unsetVars)
-		}
-	})
-
-}
-
-func TestTerraformProvider_providerScope(t *testing.T) {
-	t.Run("DelegatesDirectlyToConfigHandlerEachCall", func(t *testing.T) {
-		// Given a config handler backing this provider — isolation from a concurrent windsor
-		// process changing context mid-run now lives in ConfigHandler.GetContext's own cache,
-		// not in providerScope, so this only needs to verify correct delegation
-		mocks := setupMocks(t)
-		provider := mocks.Provider
-		mockConfig := provider.configHandler.(*config.MockConfigHandler)
-
-		mockConfig.GetContextFunc = func() string { return "ctxA" }
-		mockConfig.GetConfigRootFunc = func() (string, error) { return "/contexts/ctxA", nil }
-		mockConfig.GetWindsorScratchPathFunc = func() (string, error) { return "/.windsor/contexts/ctxA", nil }
-
-		// When resolving scope
-		contextName, configRoot, scratch, err := provider.providerScope()
-
-		// Then it returns exactly what the config handler reports
-		if err != nil {
-			t.Fatalf("Expected no error, got %v", err)
-		}
-		if contextName != "ctxA" || configRoot != "/contexts/ctxA" || scratch != "/.windsor/contexts/ctxA" {
-			t.Errorf("Expected 'ctxA' / '/contexts/ctxA' / '/.windsor/contexts/ctxA', got %q / %q / %q", contextName, configRoot, scratch)
-		}
-	})
-
-	t.Run("PropagatesConfigRootErrorWithoutCallingWindsorScratchPath", func(t *testing.T) {
-		// Given GetConfigRoot fails
-		mocks := setupMocks(t)
-		provider := mocks.Provider
-		mockConfig := provider.configHandler.(*config.MockConfigHandler)
-
-		mockConfig.GetConfigRootFunc = func() (string, error) { return "", fmt.Errorf("config root error") }
-		scratchCalled := false
-		mockConfig.GetWindsorScratchPathFunc = func() (string, error) {
-			scratchCalled = true
-			return "", nil
-		}
-
-		// When resolving scope
-		_, _, _, err := provider.providerScope()
-
-		// Then the error is returned, and GetWindsorScratchPath is never attempted
-		if err == nil {
-			t.Fatal("Expected an error")
-		}
-		if scratchCalled {
-			t.Error("Expected GetWindsorScratchPath not to be called once GetConfigRoot fails")
 		}
 	})
 }
