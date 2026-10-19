@@ -4,6 +4,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/windsorcli/cli/internal/werror"
+
 	"github.com/windsorcli/cli/pkg/constants"
 )
 
@@ -23,12 +25,15 @@ func TestMissingToolError(t *testing.T) {
 		// Then the error includes the display name, minimum version, and vendor download URL
 		// — the exact pieces operators need to resolve the failure via the vendor's own
 		// install instructions (which encode platform-specific nuance we don't replicate).
-		msg := err.Error()
+		msg := errorText(err)
 		expected := []string{"Terraform", constants.MinimumVersionTerraform, "https://developer.hashicorp.com/terraform/install", "not found on PATH"}
 		for _, want := range expected {
 			if !strings.Contains(msg, want) {
 				t.Errorf("expected error to contain %q, got: %s", want, msg)
 			}
+		}
+		if we := werror.Find(err); we == nil || we.Remediation != "Install Terraform from https://developer.hashicorp.com/terraform/install." {
+			t.Errorf("expected the install page as the remediation, got: %v", we)
 		}
 	})
 
@@ -74,12 +79,15 @@ func TestOutdatedToolError(t *testing.T) {
 		err := outdatedToolError("docker", "20.10.0")
 
 		// Then both the found version and the minimum show up alongside the vendor install URL
-		msg := err.Error()
+		msg := errorText(err)
 		expected := []string{"Docker", "20.10.0", "23.0.0", "below the minimum required version", "https://docs.docker.com/engine/install/"}
 		for _, want := range expected {
 			if !strings.Contains(msg, want) {
 				t.Errorf("expected error to contain %q, got: %s", want, msg)
 			}
+		}
+		if we := werror.Find(err); we == nil || !strings.HasPrefix(we.Remediation, "Upgrade Docker to 23.0.0 or later.") {
+			t.Errorf("expected an upgrade remediation, got: %v", we)
 		}
 		for _, banned := range []string{"aqua g -i", "Or via aqua"} {
 			if strings.Contains(msg, banned) {

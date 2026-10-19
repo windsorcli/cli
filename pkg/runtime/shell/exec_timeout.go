@@ -13,6 +13,8 @@ import (
 	"os/exec"
 	"sync"
 	"time"
+
+	"github.com/windsorcli/cli/internal/werror"
 )
 
 // =============================================================================
@@ -103,7 +105,7 @@ func (s *DefaultShell) ExecSilentWithEnvAndIdleTimeout(command string, env map[s
 	}
 
 	if err := s.shims.CmdStart(cmd); err != nil {
-		return "", fmt.Errorf("command start failed: %w", err)
+		return "", werror.Wrap(err, "command start failed")
 	}
 
 	var stdoutBuf, stderrBuf bytes.Buffer
@@ -132,7 +134,7 @@ func (s *DefaultShell) ExecSilentWithEnvAndIdleTimeout(command string, env map[s
 			notifyActivity()
 		}
 		if err := s.shims.ScannerErr(scanner); err != nil && err != io.EOF && !isClosedPipe(err) {
-			scanErrs <- fmt.Errorf("error reading output: %w", err)
+			scanErrs <- werror.Wrap(err, "error reading output")
 			return
 		}
 		scanErrs <- nil
@@ -155,7 +157,7 @@ func (s *DefaultShell) ExecSilentWithEnvAndIdleTimeout(command string, env map[s
 		cmdErr := s.shims.CmdWait(cmd)
 		if scanErr != nil {
 			if cmdErr != nil {
-				waitDone <- fmt.Errorf("%w (also: command execution failed: %v)", scanErr, cmdErr)
+				waitDone <- errors.Join(scanErr, werror.Wrap(cmdErr, "command execution failed"))
 				return
 			}
 			waitDone <- scanErr
@@ -193,15 +195,15 @@ func (s *DefaultShell) ExecSilentWithEnvAndIdleTimeout(command string, env map[s
 				bufMu.Lock()
 				errOut := s.scrubString(stderrBuf.String())
 				bufMu.Unlock()
-				return output(), fmt.Errorf("command execution failed: %w\n%s", waitErr, errOut)
+				return output(), execError(waitErr, errOut)
 			}
 			return output(), nil
 		case <-idleTimer.C:
 			interrupt()
-			return output(), fmt.Errorf("%w: no output for %v", ErrCommandTimedOut, idleTimeout)
+			return output(), werror.Wrap(ErrCommandTimedOut, "the command printed no output for %v", idleTimeout)
 		case <-absoluteTimer.C:
 			interrupt()
-			return output(), fmt.Errorf("%w after %v", ErrCommandTimedOut, absoluteTimeout)
+			return output(), werror.Wrap(ErrCommandTimedOut, "the command ran for longer than %v", absoluteTimeout)
 		case <-activity:
 			if !idleTimer.Stop() {
 				select {
@@ -222,7 +224,7 @@ func (s *DefaultShell) ExecSilentWithEnvAndIdleTimeout(command string, env map[s
 // timeout passes. It returns the scrubbed stdout, and on failure it adds the scrubbed stderr.
 func (s *DefaultShell) runWithTimeout(cmd *exec.Cmd, stdoutBuf, stderrBuf *bytes.Buffer, timeout time.Duration) (string, error) {
 	if err := s.shims.CmdStart(cmd); err != nil {
-		return "", fmt.Errorf("command start failed: %w", err)
+		return "", werror.Wrap(err, "command start failed")
 	}
 
 	var waitOnce sync.Once
@@ -232,7 +234,7 @@ func (s *DefaultShell) runWithTimeout(cmd *exec.Cmd, stdoutBuf, stderrBuf *bytes
 			waitErr = s.shims.CmdWait(cmd)
 		})
 		if waitErr != nil {
-			return s.scrubString(stdoutBuf.String()), fmt.Errorf("command execution failed: %w\n%s", waitErr, s.scrubString(stderrBuf.String()))
+			return s.scrubString(stdoutBuf.String()), execError(waitErr, s.scrubString(stderrBuf.String()))
 		}
 		return s.scrubString(stdoutBuf.String()), nil
 	}
@@ -274,6 +276,6 @@ func executeWithTimeout(execFn func() (string, error), cleanupFn func(), timeout
 		return res.out, res.err
 	case <-time.After(timeout):
 		cleanupOnce.Do(cleanupFn)
-		return "", fmt.Errorf("%w after %v", ErrCommandTimedOut, timeout)
+		return "", werror.Wrap(ErrCommandTimedOut, "the command ran for longer than %v", timeout)
 	}
 }

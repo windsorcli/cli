@@ -10,6 +10,8 @@ import (
 	"fmt"
 	"os"
 	"strings"
+
+	"github.com/windsorcli/cli/internal/werror"
 )
 
 // =============================================================================
@@ -100,7 +102,8 @@ type HookContext struct {
 func (s *DefaultShell) InstallHook(shellName string) error {
 	hookCommand, ok := shellHooks[shellName]
 	if !ok {
-		return fmt.Errorf("Unsupported shell: %s", shellName)
+		return werror.New(fmt.Sprintf("Windsor has no hook for the shell %q.", shellName),
+			"Use one of these shells: bash, zsh, fish, tcsh, elvish, or powershell.", nil)
 	}
 
 	selfPath, err := s.shims.Executable()
@@ -117,12 +120,12 @@ func (s *DefaultShell) InstallHook(shellName string) error {
 
 	hookTemplate, err = s.shims.TemplateParse(hookTemplate, hookCommand)
 	if err != nil {
-		return fmt.Errorf("failed to parse hook template: %w", err)
+		return werror.Wrap(err, "failed to parse hook template")
 	}
 
 	var buf bytes.Buffer
 	if err := s.shims.TemplateExecute(hookTemplate, &buf, ctx); err != nil {
-		return fmt.Errorf("failed to execute hook template: %w", err)
+		return werror.Wrap(err, "failed to execute hook template")
 	}
 
 	hookScript := buf.String()

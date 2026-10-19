@@ -18,6 +18,7 @@ import (
 	"syscall"
 
 	"github.com/windsorcli/cli/internal/presenter"
+	"github.com/windsorcli/cli/internal/werror"
 )
 
 // =============================================================================
@@ -97,7 +98,7 @@ func (s *DefaultShell) ExecSudo(message string, command string, args ...string) 
 
 	tty, err := s.shims.OpenFile("/dev/tty", os.O_RDWR, 0)
 	if err != nil {
-		return "", fmt.Errorf("failed to open /dev/tty: %w", err)
+		return "", werror.Wrap(err, "failed to open /dev/tty")
 	}
 	defer tty.Close()
 
@@ -114,7 +115,7 @@ func (s *DefaultShell) ExecSudo(message string, command string, args ...string) 
 	}
 
 	if err := s.shims.CmdWait(cmd); err != nil {
-		return stdoutBuf.String(), fmt.Errorf("command execution failed: %w", err)
+		return stdoutBuf.String(), werror.Wrap(err, "command execution failed")
 	}
 
 	return s.scrubString(stdoutBuf.String()), nil

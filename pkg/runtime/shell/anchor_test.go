@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/windsorcli/cli/internal/werror"
 )
 
 func TestEnsureProjectAnchor(t *testing.T) {
@@ -188,8 +190,8 @@ func TestEnsureGitRepository(t *testing.T) {
 		if !strings.Contains(err.Error(), "must run inside a git repository") {
 			t.Errorf("Expected hint about git repository, got: %v", err)
 		}
-		if !strings.Contains(err.Error(), "git init") {
-			t.Errorf("Expected suggestion to run 'git init', got: %v", err)
+		if we := werror.Find(err); we == nil || !strings.Contains(we.Remediation, "git init") {
+			t.Errorf("Expected a remediation to run 'git init', got: %v", we)
 		}
 	})
 }

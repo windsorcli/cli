@@ -150,8 +150,8 @@ func TestApplyTerraform_MissingBinary_ShowsActionableError(t *testing.T) {
 	if !strings.Contains(out, "not found on PATH") {
 		t.Errorf("expected stderr to mention 'not found on PATH', got: %s", out)
 	}
-	if !strings.Contains(out, "Install:") {
-		t.Errorf("expected stderr to include an 'Install:' vendor URL hint, got: %s", out)
+	if !strings.Contains(out, "hint: Install Terraform from") {
+		t.Errorf("expected stderr to include a hint with the vendor install page, got: %s", out)
 	}
 	if !strings.Contains(out, "developer.hashicorp.com") {
 		t.Errorf("expected stderr to include the vendor install URL, got: %s", out)

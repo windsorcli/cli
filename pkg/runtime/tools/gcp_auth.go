@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"time"
 
+	"github.com/windsorcli/cli/internal/werror"
 	"github.com/windsorcli/cli/pkg/constants"
 )
 
@@ -40,10 +41,10 @@ func (t *BaseToolsManager) checkGCPAuth() error {
 	}
 	env, err := t.gcpContextEnv()
 	if err != nil {
-		return fmt.Errorf("cannot resolve context-scoped GCP env for credential check: %w", err)
+		return werror.Wrap(err, "cannot resolve context-scoped GCP env for credential check")
 	}
 	if _, err := t.shell.ExecSilentWithEnvAndTimeout("gcloud", env, []string{"auth", "application-default", "print-access-token"}, 10*time.Second); err != nil {
-		return fmt.Errorf("%s", t.gcpAuthHint())
+		return t.gcpAuthError()
 	}
 	return nil
 }
@@ -77,7 +78,7 @@ func (t *BaseToolsManager) checkGCPBinary() error {
 
 	out, err := t.shell.ExecSilentWithTimeout("gcloud", []string{"--version"}, 10*time.Second)
 	if err != nil {
-		return fmt.Errorf("gcloud --version failed: %v", err)
+		return werror.Wrap(err, "gcloud --version failed")
 	}
 	version := extractVersion(out)
 	if version == "" {
@@ -90,24 +91,24 @@ func (t *BaseToolsManager) checkGCPBinary() error {
 	return nil
 }
 
-// gcpAuthHint returns the recovery command for a GCP auth failure: `gcloud auth
-// application-default login`, prefixed with CLOUDSDK_CONFIG in project mode when the
-// current env doesn't already point at the context dir.
-func (t *BaseToolsManager) gcpAuthHint() string {
+// gcpAuthError returns the error for a GCP credential failure, with the gcloud login as the hint.
+// In project mode, the command gets a CLOUDSDK_CONFIG prefix when the env does not already point
+// at the context directory.
+func (t *BaseToolsManager) gcpAuthError() error {
 	if t.shell.IsGlobal() {
-		return "GCP application-default credentials have likely expired or are not initialized. Run:\n  gcloud auth application-default login"
+		return werror.New("The GCP application-default credentials have likely expired or are not set up.", "Run 'gcloud auth application-default login'.", nil)
 	}
 	configRoot, err := t.configHandler.GetConfigRoot()
 	if err != nil || configRoot == "" {
-		return "GCP application-default credentials have likely expired or are not initialized. Run:\n  gcloud auth application-default login"
+		return werror.New("The GCP application-default credentials have likely expired or are not set up.", "Run 'gcloud auth application-default login'.", nil)
 	}
 	gcloudConfigDir := filepath.Join(configRoot, ".gcp", "gcloud")
 	prefix := ""
 	if !gcpEnvPointsAtContext(gcloudConfigDir) {
 		prefix = fmt.Sprintf("CLOUDSDK_CONFIG=%q ", filepath.ToSlash(gcloudConfigDir))
 	}
-	return fmt.Sprintf("GCP application-default credentials for context %q have likely expired or are not initialized. Run:\n  %sgcloud auth application-default login",
-		t.configHandler.GetContext(), prefix)
+	return werror.New(fmt.Sprintf("The GCP application-default credentials for context %q have likely expired or are not set up.", t.configHandler.GetContext()),
+		fmt.Sprintf("Run '%sgcloud auth application-default login'.", prefix), nil)
 }
 
 // =============================================================================

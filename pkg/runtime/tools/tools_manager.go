@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/goccy/go-yaml"
+	"github.com/windsorcli/cli/internal/werror"
 	"github.com/windsorcli/cli/pkg/constants"
 	"github.com/windsorcli/cli/pkg/runtime/config"
 	"github.com/windsorcli/cli/pkg/runtime/shell"
@@ -208,7 +209,7 @@ func (t *BaseToolsManager) CheckTerraform() error {
 	}
 	output, err := t.shell.ExecSilentWithTimeout(command, []string{"version"}, 5*time.Second)
 	if err != nil {
-		return fmt.Errorf("%s version check failed: %v", command, err)
+		return werror.Wrap(err, "%s version check failed", command)
 	}
 	terraformVersion := extractVersion(output)
 	if terraformVersion == "" {

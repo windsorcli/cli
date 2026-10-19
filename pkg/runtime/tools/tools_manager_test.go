@@ -10,6 +10,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/windsorcli/cli/internal/werror"
+
 	"github.com/windsorcli/cli/pkg/constants"
 	"github.com/windsorcli/cli/pkg/runtime/config"
 	sh "github.com/windsorcli/cli/pkg/runtime/shell"
@@ -1705,7 +1707,7 @@ func TestToolsManager_checkAWSBinary(t *testing.T) {
 		if !strings.Contains(err.Error(), "AWS CLI") || !strings.Contains(err.Error(), "not found on PATH") {
 			t.Errorf("Expected 'AWS CLI ... not found on PATH' in error, got: %v", err)
 		}
-		if !strings.Contains(err.Error(), "https://docs.aws.amazon.com/cli/latest/userguide/getting-started-install.html") {
+		if !strings.Contains(errorText(err), "https://docs.aws.amazon.com/cli/latest/userguide/getting-started-install.html") {
 			t.Errorf("Expected vendor install URL in error, got: %v", err)
 		}
 	})
@@ -1913,7 +1915,7 @@ contexts:
 		if err == nil {
 			t.Fatal("Expected error when sts get-caller-identity fails")
 		}
-		if !strings.Contains(err.Error(), "aws configure") && !strings.Contains(err.Error(), "aws sso login") {
+		if !strings.Contains(errorText(err), "aws configure") && !strings.Contains(errorText(err), "aws sso login") {
 			t.Errorf("Expected an aws sso/configure remediation hint in error, got: %v", err)
 		}
 		// Guard against the noise regression: the raw shell-exec wrapper text and aws-CLI
@@ -2087,10 +2089,10 @@ sso_account_id = 123456789012
 		if err == nil {
 			t.Fatal("Expected CheckAuth to fail when sts errors")
 		}
-		if !strings.Contains(err.Error(), "AWS_CONFIG_FILE=") {
+		if !strings.Contains(errorText(err), "AWS_CONFIG_FILE=") {
 			t.Errorf("Expected AWS_CONFIG_FILE= prefix when shell env is not sourced, got: %v", err)
 		}
-		if !strings.Contains(err.Error(), "aws sso login --profile test") {
+		if !strings.Contains(errorText(err), "aws sso login --profile test") {
 			t.Errorf("Expected sso-login hint with profile, got: %v", err)
 		}
 	})
@@ -2133,7 +2135,7 @@ sso_account_id = 123456789012
 		if err == nil {
 			t.Fatal("Expected CheckAuth to fail when sts errors")
 		}
-		if !strings.Contains(err.Error(), "aws sso login --profile test") {
+		if !strings.Contains(errorText(err), "aws sso login --profile test") {
 			t.Errorf("Expected sso-login hint with profile, got: %v", err)
 		}
 		if strings.Contains(err.Error(), "AWS_CONFIG_FILE=") {
@@ -2171,10 +2173,10 @@ contexts:
 		if err == nil {
 			t.Fatal("Expected CheckAuth to fail when sts errors")
 		}
-		if !strings.Contains(err.Error(), "aws configure sso --profile test") {
+		if !strings.Contains(errorText(err), "aws configure sso --profile test") {
 			t.Errorf("Expected SSO setup hint, got: %v", err)
 		}
-		if !strings.Contains(err.Error(), "aws configure --profile test") {
+		if !strings.Contains(errorText(err), "aws configure --profile test") {
 			t.Errorf("Expected access-key setup hint, got: %v", err)
 		}
 	})
@@ -2211,7 +2213,7 @@ sso_account_id = 123456789012
 		if err == nil {
 			t.Fatal("Expected CheckAuth to fail when sts errors")
 		}
-		if !strings.Contains(err.Error(), "aws sso login --profile company-prod") {
+		if !strings.Contains(errorText(err), "aws sso login --profile company-prod") {
 			t.Errorf("Expected sso-login hint to use aws.profile override, got: %v", err)
 		}
 		if strings.Contains(err.Error(), "--profile test") {
@@ -2254,7 +2256,7 @@ sso_session = company
 		if err == nil {
 			t.Fatal("Expected CheckAuth to fail when sts errors")
 		}
-		if !strings.Contains(err.Error(), `AWS_CONFIG_FILE="/Users/foo/my projects/contexts/test/.aws/config"`) {
+		if !strings.Contains(errorText(err), `AWS_CONFIG_FILE="/Users/foo/my projects/contexts/test/.aws/config"`) {
 			t.Errorf("Expected AWS_CONFIG_FILE to be double-quoted in hint, got: %v", err)
 		}
 	})
@@ -2674,8 +2676,8 @@ sso_account_id = 123456789012
 		}
 		toolsManager := NewToolsManager(mocks.ConfigHandler, mocks.Shell)
 		toolsManager.shims = mocks.Shims
-		// When awsAuthHint runs
-		hint := toolsManager.awsAuthHint()
+		// When awsAuthError runs
+		hint := errorText(toolsManager.awsAuthError())
 		// Then the hint suggests `aws sso login` against the operator's existing config
 		// (no AWS_CONFIG_FILE prefix), because in global mode windsor is deferring to
 		// the ambient ~/.aws/ rather than scoping config to a context directory.
@@ -2698,8 +2700,8 @@ sso_account_id = 123456789012
 		}
 		toolsManager := NewToolsManager(mocks.ConfigHandler, mocks.Shell)
 		toolsManager.shims = mocks.Shims
-		// When awsAuthHint runs
-		hint := toolsManager.awsAuthHint()
+		// When awsAuthError runs
+		hint := errorText(toolsManager.awsAuthError())
 		// Then the fallback surfaces BOTH setup paths — dropping access-key guidance would
 		// send CI service accounts and non-SSO operators to a command they cannot complete,
 		// contradicting the function header's contract that first-time setup always offers
@@ -2771,7 +2773,7 @@ func TestToolsManager_checkAzureBinary(t *testing.T) {
 		if !strings.Contains(err.Error(), "Azure CLI") || !strings.Contains(err.Error(), "not found on PATH") {
 			t.Errorf("Expected 'Azure CLI ... not found on PATH' in error, got: %v", err)
 		}
-		if !strings.Contains(err.Error(), "https://learn.microsoft.com/en-us/cli/azure/install-azure-cli") {
+		if !strings.Contains(errorText(err), "https://learn.microsoft.com/en-us/cli/azure/install-azure-cli") {
 			t.Errorf("Expected vendor install URL in error, got: %v", err)
 		}
 	})
@@ -3002,7 +3004,7 @@ contexts:
 		if err == nil {
 			t.Fatal("Expected CheckAuth to fail when get-access-token errors")
 		}
-		if !strings.Contains(err.Error(), "az login") {
+		if !strings.Contains(errorText(err), "az login") {
 			t.Errorf("Expected `az login` remediation in error, got: %v", err)
 		}
 		if strings.Contains(err.Error(), "command execution failed") {
@@ -3075,7 +3077,7 @@ contexts:
 		if err == nil {
 			t.Fatal("Expected CheckAuth to fail")
 		}
-		if !strings.Contains(err.Error(), "az login --tenant 3d8e9161-441c-44e9-b50a-1d9a78c67ab0") {
+		if !strings.Contains(errorText(err), "az login --tenant 3d8e9161-441c-44e9-b50a-1d9a78c67ab0") {
 			t.Errorf("Expected tenant-pinned az login command, got: %v", err)
 		}
 	})
@@ -3258,8 +3260,8 @@ contexts:
 `})
 		toolsManager := NewToolsManager(mocks.ConfigHandler, mocks.Shell)
 		toolsManager.shims = mocks.Shims
-		// When azureAuthHint runs
-		hint := toolsManager.azureAuthHint()
+		// When azureAuthError runs
+		hint := errorText(toolsManager.azureAuthError())
 		// Then the suggested `az login` is prefixed with AZURE_CONFIG_DIR pointing at the
 		// context's .azure/ so credentials land in the right place — operators in a plain
 		// shell get a copy-pasteable command that doesn't contaminate ~/.azure with this
@@ -3290,8 +3292,8 @@ contexts:
 		t.Setenv("AZURE_CONFIG_DIR", filepath.ToSlash(filepath.Join(configRoot, ".azure")))
 		toolsManager := NewToolsManager(mocks.ConfigHandler, mocks.Shell)
 		toolsManager.shims = mocks.Shims
-		// When azureAuthHint runs
-		hint := toolsManager.azureAuthHint()
+		// When azureAuthError runs
+		hint := errorText(toolsManager.azureAuthError())
 		// Then the hint emits a bare `az login` with no env prefix — the operator's shell
 		// will resolve AZURE_CONFIG_DIR from its own env, so prefixing would just be noise
 		// in the common case.
@@ -3306,8 +3308,8 @@ contexts:
 		mocks.Shell.IsGlobalFunc = func() bool { return true }
 		toolsManager := NewToolsManager(mocks.ConfigHandler, mocks.Shell)
 		toolsManager.shims = mocks.Shims
-		// When azureAuthHint runs
-		hint := toolsManager.azureAuthHint()
+		// When azureAuthError runs
+		hint := errorText(toolsManager.azureAuthError())
 		// Then no AZURE_CONFIG_DIR prefix is emitted — in global mode windsor defers to the
 		// operator's ambient ~/.azure/, so prefixing would point them at a context dir we
 		// have no business writing to.
@@ -3331,8 +3333,8 @@ contexts:
 		mocks.Shell.IsGlobalFunc = func() bool { return true }
 		toolsManager := NewToolsManager(mocks.ConfigHandler, mocks.Shell)
 		toolsManager.shims = mocks.Shims
-		// When azureAuthHint runs
-		hint := toolsManager.azureAuthHint()
+		// When azureAuthError runs
+		hint := errorText(toolsManager.azureAuthError())
 		// Then the suggested `az login` is pinned to the configured tenant — operators with
 		// multiple tenants get a one-shot command that lands in the right tenant without
 		// having to think about it.
@@ -3494,7 +3496,7 @@ func TestToolsManager_checkGCPBinary(t *testing.T) {
 		if !strings.Contains(err.Error(), "Google Cloud CLI") || !strings.Contains(err.Error(), "not found on PATH") {
 			t.Errorf("Expected 'Google Cloud CLI ... not found on PATH' in error, got: %v", err)
 		}
-		if !strings.Contains(err.Error(), "https://cloud.google.com/sdk/docs/install") {
+		if !strings.Contains(errorText(err), "https://cloud.google.com/sdk/docs/install") {
 			t.Errorf("Expected vendor install URL in error, got: %v", err)
 		}
 	})
@@ -3657,7 +3659,7 @@ contexts:
 		if err == nil {
 			t.Fatal("Expected CheckAuth to fail when print-access-token errors")
 		}
-		if !strings.Contains(err.Error(), "gcloud auth application-default login") {
+		if !strings.Contains(errorText(err), "gcloud auth application-default login") {
 			t.Errorf("Expected `gcloud auth application-default login` remediation in error, got: %v", err)
 		}
 		if strings.Contains(err.Error(), "command execution failed") {
@@ -3715,8 +3717,8 @@ contexts:
 `})
 		toolsManager := NewToolsManager(mocks.ConfigHandler, mocks.Shell)
 		toolsManager.shims = mocks.Shims
-		// When gcpAuthHint runs
-		hint := toolsManager.gcpAuthHint()
+		// When gcpAuthError runs
+		hint := errorText(toolsManager.gcpAuthError())
 		// Then the suggested login is prefixed with CLOUDSDK_CONFIG pointing at the
 		// context's .gcp/gcloud/ so credentials land in the right place.
 		if !strings.Contains(hint, "CLOUDSDK_CONFIG=") {
@@ -3742,8 +3744,8 @@ contexts:
 		t.Setenv("CLOUDSDK_CONFIG", filepath.ToSlash(filepath.Join(configRoot, ".gcp", "gcloud")))
 		toolsManager := NewToolsManager(mocks.ConfigHandler, mocks.Shell)
 		toolsManager.shims = mocks.Shims
-		// When gcpAuthHint runs
-		hint := toolsManager.gcpAuthHint()
+		// When gcpAuthError runs
+		hint := errorText(toolsManager.gcpAuthError())
 		// Then the hint emits a bare login command with no env prefix.
 		if strings.Contains(hint, "CLOUDSDK_CONFIG=") {
 			t.Errorf("Hint should omit CLOUDSDK_CONFIG= prefix when shell env already points at context, got: %q", hint)
@@ -3756,8 +3758,8 @@ contexts:
 		mocks.Shell.IsGlobalFunc = func() bool { return true }
 		toolsManager := NewToolsManager(mocks.ConfigHandler, mocks.Shell)
 		toolsManager.shims = mocks.Shims
-		// When gcpAuthHint runs
-		hint := toolsManager.gcpAuthHint()
+		// When gcpAuthError runs
+		hint := errorText(toolsManager.gcpAuthError())
 		// Then no CLOUDSDK_CONFIG prefix is emitted — in global mode windsor defers to the
 		// operator's ambient ~/.config/gcloud.
 		if strings.Contains(hint, "CLOUDSDK_CONFIG=") {
@@ -3935,6 +3937,18 @@ sso_session = company
 // =============================================================================
 // Test Helpers
 // =============================================================================
+
+// errorText returns the message and the remediation of the WindsorError in err, or err.Error()
+// when err has no WindsorError.
+func errorText(err error) string {
+	if err == nil {
+		return ""
+	}
+	if we := werror.Find(err); we != nil {
+		return we.Message + "\n" + we.Remediation
+	}
+	return err.Error()
+}
 
 // Tests for version comparison logic
 func Test_compareVersion(t *testing.T) {

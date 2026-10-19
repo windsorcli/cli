@@ -6,10 +6,11 @@
 package shell
 
 import (
-	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/windsorcli/cli/internal/werror"
 )
 
 // =============================================================================
@@ -34,18 +35,18 @@ func (s *DefaultShell) WriteResetToken() (string, error) {
 
 	projectRoot, err := s.GetProjectRoot()
 	if err != nil {
-		return "", fmt.Errorf("error getting project root: %w", err)
+		return "", werror.Wrap(err, "error getting project root")
 	}
 
 	windsorDir := filepath.Join(projectRoot, ".windsor")
 	if err := s.shims.MkdirAll(windsorDir, 0750); err != nil {
-		return "", fmt.Errorf("error creating .windsor directory: %w", err)
+		return "", werror.Wrap(err, "error creating .windsor directory")
 	}
 
 	sessionFilePath := filepath.Join(windsorDir, SessionTokenPrefix+sessionToken)
 
 	if err := s.shims.WriteFile(sessionFilePath, []byte{}, 0600); err != nil {
-		return "", fmt.Errorf("error writing reset token file: %w", err)
+		return "", werror.Wrap(err, "error writing reset token file")
 	}
 
 	return sessionFilePath, nil
@@ -66,7 +67,7 @@ func (s *DefaultShell) GetSessionToken() (string, error) {
 
 	token, err := s.generateRandomString(7)
 	if err != nil {
-		return "", fmt.Errorf("error generating session token: %w", err)
+		return "", werror.Wrap(err, "error generating session token")
 	}
 
 	s.sessionToken = token
@@ -83,7 +84,7 @@ func (s *DefaultShell) CheckResetFlags() (bool, error) {
 
 	projectRoot, err := s.GetProjectRoot()
 	if err != nil {
-		return false, fmt.Errorf("error getting project root: %w", err)
+		return false, werror.Wrap(err, "error getting project root")
 	}
 
 	windsorDir := filepath.Join(projectRoot, ".windsor")
@@ -96,12 +97,12 @@ func (s *DefaultShell) CheckResetFlags() (bool, error) {
 
 	sessionFiles, err := s.shims.Glob(filepath.Join(windsorDir, SessionTokenPrefix+"*"))
 	if err != nil {
-		return false, fmt.Errorf("error finding session files: %w", err)
+		return false, werror.Wrap(err, "error finding session files")
 	}
 
 	for _, file := range sessionFiles {
 		if err := s.shims.RemoveAll(file); err != nil {
-			return false, fmt.Errorf("error removing session file %s: %w", file, err)
+			return false, werror.Wrap(err, "error removing session file %s", file)
 		}
 	}
 

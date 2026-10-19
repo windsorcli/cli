@@ -8,6 +8,7 @@ package tools
 import (
 	"fmt"
 
+	"github.com/windsorcli/cli/internal/werror"
 	"github.com/windsorcli/cli/pkg/constants"
 )
 
@@ -97,24 +98,19 @@ type toolInfo struct {
 // Helpers
 // =============================================================================
 
-// missingToolError formats the standard "<tool> is required but was not found on PATH" error
-// with install guidance: the vendor's first-party download URL. Returned as a fmt.Errorf so
-// callers can wrap it. Falls back to a bare message if key is unknown, which is the
-// conservative thing to do — a typo in a check* function should still produce a readable
-// error rather than a panic.
+// missingToolError returns the error for a tool that is not on PATH. The hint names the vendor
+// install page. An unknown key gets a plain error with no hint, so a typo in a check stays readable.
 func missingToolError(key string) error {
 	info, ok := toolRegistry[key]
 	if !ok {
 		return fmt.Errorf("%s is required but was not found on PATH", key)
 	}
-	return fmt.Errorf("%s >= %s is required but was not found on PATH.\n  Install: %s",
-		info.name, info.minVersion, info.download)
+	return werror.New(fmt.Sprintf("%s >= %s is required but was not found on PATH.", info.name, info.minVersion),
+		fmt.Sprintf("Install %s from %s.", info.name, info.download), nil)
 }
 
-// outdatedToolError formats the standard "<tool> <found> is below the minimum required version
-// <min>" error with the same install guidance as missingToolError. found is the version string
-// extracted from the tool's --version output; an empty found is rendered as "(unknown)" so the
-// message stays readable when extractVersion returns nothing.
+// outdatedToolError returns the error for a tool below its minimum version. found is the version
+// that the tool printed, and an empty found shows as "(unknown)". The hint names the install page.
 func outdatedToolError(key, found string) error {
 	if found == "" {
 		found = "(unknown)"
@@ -123,6 +119,6 @@ func outdatedToolError(key, found string) error {
 	if !ok {
 		return fmt.Errorf("%s version %s is below the required minimum", key, found)
 	}
-	return fmt.Errorf("%s %s is below the minimum required version %s.\n  Install: %s",
-		info.name, found, info.minVersion, info.download)
+	return werror.New(fmt.Sprintf("%s %s is below the minimum required version %s.", info.name, found, info.minVersion),
+		fmt.Sprintf("Upgrade %s to %s or later. See %s.", info.name, info.minVersion, info.download), nil)
 }

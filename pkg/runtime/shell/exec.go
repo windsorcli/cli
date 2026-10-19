@@ -7,6 +7,7 @@ package shell
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"io"
 	"maps"
@@ -17,6 +18,7 @@ import (
 	"sync"
 
 	"github.com/windsorcli/cli/internal/presenter"
+	"github.com/windsorcli/cli/internal/werror"
 )
 
 // =============================================================================
@@ -58,10 +60,10 @@ func (s *DefaultShell) Exec(command string, args ...string) (string, error) {
 		cmd.Env = s.shims.Environ()
 	}
 	if err := s.shims.CmdStart(cmd); err != nil {
-		return stdoutBuf.String(), fmt.Errorf("command start failed: %w", err)
+		return stdoutBuf.String(), werror.Wrap(err, "command start failed")
 	}
 	if err := s.shims.CmdWait(cmd); err != nil {
-		return s.scrubString(stdoutBuf.String()), fmt.Errorf("command execution failed: %w", err)
+		return s.scrubString(stdoutBuf.String()), werror.Wrap(err, "command execution failed")
 	}
 	return s.scrubString(stdoutBuf.String()), nil
 }
@@ -86,7 +88,7 @@ func (s *DefaultShell) ExecSilent(command string, args ...string) (string, error
 	}
 
 	if err := s.shims.CmdRun(cmd); err != nil {
-		return s.scrubString(stdoutBuf.String()), fmt.Errorf("command execution failed: %w\n%s", err, s.scrubString(stderrBuf.String()))
+		return s.scrubString(stdoutBuf.String()), execError(err, s.scrubString(stderrBuf.String()))
 	}
 
 	return s.scrubString(stdoutBuf.String()), nil
@@ -113,7 +115,7 @@ func (s *DefaultShell) ExecSilentWithEnv(command string, env map[string]string, 
 		cmd.Stderr = &stderrBuf
 	}
 	if err := s.shims.CmdRun(cmd); err != nil {
-		return s.scrubString(stdoutBuf.String()), fmt.Errorf("command execution failed: %w\n%s", err, s.scrubString(stderrBuf.String()))
+		return s.scrubString(stdoutBuf.String()), execError(err, s.scrubString(stderrBuf.String()))
 	}
 	return s.scrubString(stdoutBuf.String()), nil
 }
@@ -133,7 +135,7 @@ func (s *DefaultShell) ExecCaptureWithEnv(command string, env map[string]string,
 	cmd.Stdout = &stdoutBuf
 	cmd.Stderr = &stderrBuf
 	if err := s.shims.CmdRun(cmd); err != nil {
-		return s.scrubString(stdoutBuf.String()), fmt.Errorf("command execution failed: %w\n%s", err, s.scrubString(stderrBuf.String()))
+		return s.scrubString(stdoutBuf.String()), execError(err, s.scrubString(stderrBuf.String()))
 	}
 	return s.scrubString(stdoutBuf.String()), nil
 }
@@ -207,7 +209,7 @@ func (s *DefaultShell) ExecProgressWithEnv(message string, command string, env m
 	if firstErr != nil || cmdErr != nil {
 		fmt.Fprintf(os.Stderr, "\n[ExecProgress ERROR]\nCommand: %s %v\nStdout:\n%s\nStderr:\n%s\nError: %v\n", command, s.scrubString(fmt.Sprintf("%v", args)), s.scrubString(stdoutBuf.String()), s.scrubString(stderrBuf.String()), firstErr)
 		if cmdErr != nil {
-			return s.scrubString(stdoutBuf.String()), fmt.Errorf("command execution failed: %w", cmdErr)
+			return s.scrubString(stdoutBuf.String()), werror.Wrap(cmdErr, "command execution failed")
 		}
 		return s.scrubString(stdoutBuf.String()), firstErr
 	}
@@ -240,10 +242,10 @@ func (s *DefaultShell) execProgressVerbose(message string, command string, env m
 	}
 	defer s.startInterruptGuard(cmd, command, message)()
 	if err := s.shims.CmdStart(cmd); err != nil {
-		return stdoutBuf.String(), fmt.Errorf("command start failed: %w", err)
+		return stdoutBuf.String(), werror.Wrap(err, "command start failed")
 	}
 	if err := s.shims.CmdWait(cmd); err != nil {
-		return s.scrubString(stdoutBuf.String()), fmt.Errorf("command execution failed: %w", err)
+		return s.scrubString(stdoutBuf.String()), werror.Wrap(err, "command execution failed")
 	}
 	return s.scrubString(stdoutBuf.String()), nil
 }
@@ -262,7 +264,7 @@ func (s *DefaultShell) scanProgressStream(pipe io.Reader, buf *bytes.Buffer, str
 		}
 	}
 	if err := s.shims.ScannerErr(scanner); err != nil && err != io.EOF && !isClosedPipe(err) {
-		return fmt.Errorf("error reading %s: %w", stream, err)
+		return werror.Wrap(err, "error reading %s", stream)
 	}
 	return nil
 }
@@ -325,6 +327,15 @@ func (g *interruptGuard) watch(sigCh <-chan os.Signal, done <-chan struct{}) {
 // =============================================================================
 // Helpers
 // =============================================================================
+
+// execError wraps the error of a failed command. It adds the scrubbed stderr of the command
+// after the cause, so that the error text and the verbose trace both show it.
+func execError(err error, stderr string) error {
+	if stderr == "" {
+		return werror.Wrap(err, "command execution failed")
+	}
+	return werror.Wrap(errors.Join(err, errors.New(stderr)), "command execution failed")
+}
 
 // mergeEnvVars merges env overrides onto a base env slice in KEY=VALUE form.
 func mergeEnvVars(base []string, overrides map[string]string) []string {

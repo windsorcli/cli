@@ -6,9 +6,10 @@
 package shell
 
 import (
-	"fmt"
 	"os"
 	"path/filepath"
+
+	"github.com/windsorcli/cli/internal/werror"
 )
 
 // =============================================================================
@@ -24,7 +25,7 @@ import (
 func EnsureGitRepository() error {
 	cwd, err := os.Getwd()
 	if err != nil {
-		return fmt.Errorf("failed to get working directory: %w", err)
+		return werror.Wrap(err, "failed to get working directory")
 	}
 	dir := cwd
 	for i := 0; i <= MaxFolderSearchDepth; i++ {
@@ -37,7 +38,7 @@ func EnsureGitRepository() error {
 		}
 		dir = parent
 	}
-	return fmt.Errorf("windsor init must run inside a git repository. Run 'git init' first")
+	return werror.New("windsor init must run inside a git repository.", "Run 'git init' in the project directory, then run 'windsor init' again.", nil)
 }
 
 // EnsureProjectAnchor writes a minimal windsor.yaml in the current working
@@ -50,7 +51,7 @@ func EnsureGitRepository() error {
 func EnsureProjectAnchor() (string, error) {
 	cwd, err := os.Getwd()
 	if err != nil {
-		return "", fmt.Errorf("failed to get working directory: %w", err)
+		return "", werror.Wrap(err, "failed to get working directory")
 	}
 	dir := cwd
 	for i := 0; i <= MaxFolderSearchDepth; i++ {
