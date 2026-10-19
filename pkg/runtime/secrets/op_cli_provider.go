@@ -1,8 +1,15 @@
+// The OnePasswordCLIProvider is the secrets provider for a 1Password vault through the op CLI.
+// It provides one field of one item for each secret() call.
+// It runs op item get with the vault, account, and field of the reference.
+// The runtime selects it when OP_SERVICE_ACCOUNT_TOKEN is not set.
+
 package secrets
 
 import (
 	"fmt"
 	"strings"
+
+	"github.com/windsorcli/cli/internal/werror"
 )
 
 // =============================================================================
@@ -47,7 +54,7 @@ func (s *OnePasswordCLIProvider) Resolve(ref SecretRef) (string, bool, error) {
 		return "", false, nil
 	}
 	if ref.Field == "" {
-		return "", true, fmt.Errorf("secret() field is required for 1Password provider")
+		return "", true, missingOnePasswordFieldError(ref)
 	}
 	if !s.unlocked {
 		return "********", true, nil
@@ -58,7 +65,7 @@ func (s *OnePasswordCLIProvider) Resolve(ref SecretRef) (string, bool, error) {
 	output, err := s.shims.CmdOutput(cmd)
 	if err != nil {
 		secretRef := fmt.Sprintf("op://%s/%s/%s", s.vault.Name, ref.Item, ref.Field)
-		return "", true, fmt.Errorf("failed to retrieve secret %q from 1Password: %w", secretRef, err)
+		return "", true, werror.Wrap(err, "failed to retrieve secret %q from 1Password", secretRef)
 	}
 
 	value := strings.TrimSpace(string(output))

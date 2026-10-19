@@ -1,28 +1,28 @@
+// The Shims are the system call abstractions of the secrets package.
+// It provides the shared shims of internal/shims and the sops, 1Password, and command shims.
+// Tests replace the shims to simulate decryption, 1Password lookups, and command output.
+// NewShims returns the shims with the real implementations.
+
 package secrets
 
 import (
 	"context"
 	"fmt"
-	"os"
 	"os/exec"
 
 	"github.com/1password/onepassword-sdk-go"
-	"github.com/goccy/go-yaml"
-)
 
-// The shims package is a system call abstraction layer
-// It provides mockable wrappers around system and runtime functions
-// It serves as a testing aid by allowing system calls to be intercepted
-// It enables dependency injection and test isolation for system-level operations
+	"github.com/windsorcli/cli/internal/shims"
+	"github.com/windsorcli/cli/internal/werror"
+)
 
 // =============================================================================
 // Types
 // =============================================================================
 
-// Shims provides mockable wrappers around system and runtime functions
+// Shims holds the shared system call primitives and the secrets-specific provider shims.
 type Shims struct {
-	Stat                 func(string) (os.FileInfo, error)
-	YAMLUnmarshal        func([]byte, any) error
+	shims.Shims
 	DecryptFile          func(string, string) ([]byte, error)
 	NewOnePasswordClient func(context.Context, ...onepassword.ClientOption) (*onepassword.Client, error)
 	ResolveSecret        func(*onepassword.Client, context.Context, string) (string, error)
@@ -31,14 +31,14 @@ type Shims struct {
 }
 
 // =============================================================================
-// Shims
+// Constructor
 // =============================================================================
 
-// NewShims creates a new Shims instance with default implementations
+// NewShims returns a Shims with every field set to its real implementation. DecryptFile runs
+// sops and returns its stderr as the error text when sops exits with a failure.
 func NewShims() *Shims {
 	return &Shims{
-		Stat:          os.Stat,
-		YAMLUnmarshal: yaml.Unmarshal,
+		Shims: *shims.NewShims(),
 		DecryptFile: func(filePath string, format string) ([]byte, error) {
 			cmd := exec.Command("sops", "--decrypt", "--input-type", format, filePath) // #nosec G204 -- sops is a known, trusted CLI tool
 			output, err := cmd.Output()
@@ -49,7 +49,7 @@ func NewShims() *Shims {
 					}
 					return nil, fmt.Errorf("sops decryption failed with exit code %d", exitError.ExitCode())
 				}
-				return nil, fmt.Errorf("failed to execute sops: %w", err)
+				return nil, werror.Wrap(err, "failed to execute sops")
 			}
 			return output, nil
 		},

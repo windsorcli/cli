@@ -1,3 +1,8 @@
+// The SopsProvider is the secrets provider for the "sops" vault.
+// It provides values from the secrets files in the context directory, decrypted with sops.
+// It decrypts the files in parallel and merges them in a fixed order.
+// It refuses a conventionally plaintext file that fails to decrypt.
+
 package secrets
 
 import (
@@ -7,6 +12,8 @@ import (
 	"sort"
 	"strings"
 	"sync"
+
+	"github.com/windsorcli/cli/internal/werror"
 )
 
 // =============================================================================
@@ -98,19 +105,21 @@ func (s *SopsProvider) LoadSecrets() error {
 			plaintextBytes, err := s.shims.DecryptFile(filePath, "yaml")
 			if err != nil {
 				if isConventionallyPlaintextName(filePath) {
-					err = fmt.Errorf("refusing to load unencrypted secrets file %s: encrypt it with sops before use (see secrets.enc.yaml): %w", filePath, err)
+					err = werror.New(fmt.Sprintf("Windsor does not load the unencrypted secrets file %s.", filePath),
+						"Encrypt the file with sops and save it as secrets.enc.yaml.", err)
 				} else {
-					err = fmt.Errorf("failed to decrypt file %s: %w", filePath, err)
+					err = werror.New(fmt.Sprintf("Windsor cannot decrypt the secrets file %s: %v", filePath, err),
+						fmt.Sprintf("Make sure that your sops key can decrypt the file. Run 'sops --decrypt %s' to see the full error.", filePath), err)
 				}
 				results[idx] = fileResult{index: idx, err: err}
 				return
 			}
 
 			var sopsSecrets map[string]any
-			if err := s.shims.YAMLUnmarshal(plaintextBytes, &sopsSecrets); err != nil {
+			if err := s.shims.YamlUnmarshal(plaintextBytes, &sopsSecrets); err != nil {
 				results[idx] = fileResult{
 					index: idx,
-					err:   fmt.Errorf("error converting YAML to secrets map from %s: %w", filePath, err),
+					err:   werror.Wrap(err, "error converting YAML to secrets map from %s", filePath),
 				}
 				return
 			}
@@ -164,7 +173,8 @@ func (s *SopsProvider) Resolve(ref SecretRef) (string, bool, error) {
 
 	value, ok := s.secrets[keyPath]
 	if !ok {
-		return "", true, fmt.Errorf("secret not found: %s", keyPath)
+		return "", true, werror.New(fmt.Sprintf("The SOPS secrets files have no value at %s.", keyPath),
+			"Add the value to secrets.enc.yaml, or correct the item and field in the secret() call.", nil)
 	}
 	return value, true, nil
 }

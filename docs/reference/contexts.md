@@ -150,13 +150,12 @@ either the `secrets.yaml` or `secrets.enc.yaml` name. Windsor tries to decrypt e
 
 Windsor registers the SOPS provider only when `secrets.sops.enabled` is `true`. Set it in
 `contexts/<context-name>/windsor.yaml`. The root `windsor.yaml` does not read this setting. Without it,
-`sops.<key>` references fail with `no provider found for vault "sops"`.
+`sops.<key>` references fail with `No secrets provider handles the vault "sops".`
 
-A `secrets.yaml`/`secrets.yml` that fails to decrypt is refused with a clear error — "refusing to
-load unencrypted secrets file ...: encrypt it with sops before use (see secrets.enc.yaml)" —
-rather than a raw SOPS failure, because the far more likely cause is a genuinely plaintext file
-that was never encrypted. Encrypt it with `sops -e`. You can also rename it `secrets.enc.yaml` (or
-`secrets.enc.yml`) so git tracks it.
+When a `secrets.yaml` or `secrets.yml` file fails to decrypt, Windsor refuses it with
+`Windsor does not load the unencrypted secrets file <path>.` instead of the raw SOPS failure.
+The likely cause is a plaintext file that was never encrypted. Encrypt it with `sops -e`. You can
+also rename it `secrets.enc.yaml` (or `secrets.enc.yml`) so git tracks it.
 
 - `secrets.yaml`/`secrets.yml` — must be SOPS-encrypted to load. Windsor refuses a plaintext file.
   Auto-git-ignored, same as `.env`.

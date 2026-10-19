@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/windsorcli/cli/internal/werror"
 	"github.com/windsorcli/cli/pkg/runtime/shell"
 )
 
@@ -90,8 +91,11 @@ func TestResolver_Resolve(t *testing.T) {
 		if err == nil {
 			t.Fatal("expected error, got nil")
 		}
-		if !strings.Contains(err.Error(), "no provider found") {
+		if !strings.Contains(err.Error(), `No secrets provider handles the vault "unknown"`) {
 			t.Errorf("unexpected error: %v", err)
+		}
+		if we := werror.Find(err); we == nil || !strings.Contains(we.Remediation, "secrets.onepassword.vaults") {
+			t.Errorf("expected a remediation naming secrets.onepassword.vaults, got %v", we)
 		}
 	})
 
