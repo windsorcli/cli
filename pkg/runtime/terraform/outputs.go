@@ -11,8 +11,16 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/windsorcli/cli/internal/werror"
 	"github.com/windsorcli/cli/pkg/runtime/evaluator"
 )
+
+// =============================================================================
+// Constants
+// =============================================================================
+
+// terraformOutputUsage tells the operator how to call the terraform_output helper.
+const terraformOutputUsage = `Call terraform_output with a component ID and an output key, such as terraform_output("network", "vpc_id").`
 
 // =============================================================================
 // Types
@@ -67,7 +75,7 @@ func (p *terraformProvider) GetTerraformOutputs(componentID string) (map[string]
 
 		var outputs map[string]any
 		if err := ctx.provider.Shims.JsonUnmarshal([]byte(output), &outputs); err != nil {
-			return make(map[string]any), fmt.Errorf("failed to parse terraform output JSON for component '%s': %w", componentID, err)
+			return make(map[string]any), werror.Wrap(err, "failed to parse terraform output JSON for component '%s'", componentID)
 		}
 
 		result := make(map[string]any)
@@ -119,22 +127,21 @@ func (p *terraformProvider) ClearCache() {
 // Private Methods
 // =============================================================================
 
-// registerTerraformOutputHelper registers the terraform_output helper function with the evaluator.
-// This allows blueprint expressions to reference Terraform outputs from other components using
-// the terraform_output(component, key) syntax. The helper validates that exactly two string arguments
-// are provided (component ID and output key), then delegates to getOutput to retrieve the value.
+// registerTerraformOutputHelper adds the terraform_output(component, key) helper to the evaluator.
+// Blueprint expressions use the helper to read the outputs of other components through getOutput.
+// Arguments other than two strings return an error with the usage as the hint.
 func (p *terraformProvider) registerTerraformOutputHelper(evaluator evaluator.ExpressionEvaluator) {
 	evaluator.Register("terraform_output", func(params []any, deferred bool) (any, error) {
 		if len(params) != 2 {
-			return nil, fmt.Errorf("terraform_output() requires exactly 2 arguments (component, key), got %d", len(params))
+			return nil, werror.New(fmt.Sprintf("terraform_output() requires exactly 2 arguments (component, key), got %d", len(params)), terraformOutputUsage, nil)
 		}
 		component, ok := params[0].(string)
 		if !ok {
-			return nil, fmt.Errorf("terraform_output() component must be a string, got %T", params[0])
+			return nil, werror.New(fmt.Sprintf("terraform_output() component must be a string, got %T", params[0]), terraformOutputUsage, nil)
 		}
 		key, ok := params[1].(string)
 		if !ok {
-			return nil, fmt.Errorf("terraform_output() key must be a string, got %T", params[1])
+			return nil, werror.New(fmt.Sprintf("terraform_output() key must be a string, got %T", params[1]), terraformOutputUsage, nil)
 		}
 		expr := fmt.Sprintf(`terraform_output("%s", "%s")`, component, key)
 		value, err := p.getOutput(component, key, expr, deferred)
@@ -175,7 +182,7 @@ func (p *terraformProvider) getOutput(componentID, key string, expression string
 
 	outputs, err := p.GetTerraformOutputs(componentID)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get terraform outputs for component '%s': %w", componentID, err)
+		return nil, werror.Wrap(err, "failed to get terraform outputs for component '%s'", componentID)
 	}
 	if len(outputs) == 0 {
 		return nil, nil
@@ -203,40 +210,40 @@ func (p *terraformProvider) getOutput(componentID, key string, expression string
 	return nil, nil
 }
 
-// prepareTerraformContext prepares a terraformContext for a component with all necessary setup.
-// It resolves the component's module path, generates Terraform arguments, sets up environment variables,
-// and creates the backend override file. This context is used to ensure consistent Terraform execution
-// environment across different operations. Returns the context and original env vars for cleanup,
-// allowing the caller to restore the environment after operations complete.
+// prepareTerraformContext sets up the Terraform environment of a component for one run.
+// It resolves the module path, generates the arguments, sets the env vars, and writes the backend override file.
+// It returns the context and the original env vars, so the caller can restore them after the run.
+// An unknown component ID returns an error with a hint.
 func (p *terraformProvider) prepareTerraformContext(componentID string) (*terraformContext, map[string]string, error) {
 	component := p.GetTerraformComponent(componentID)
 	if component == nil {
-		return nil, nil, fmt.Errorf("component not found: %s", componentID)
+		return nil, nil, werror.New(fmt.Sprintf("component not found: %s", componentID),
+			"Check that the blueprint has a terraform component with this ID.", nil)
 	}
 
 	absModulePath, err := p.resolveModulePath(component)
 	if err != nil {
-		return nil, nil, fmt.Errorf("failed to resolve module path: %w", err)
+		return nil, nil, werror.Wrap(err, "failed to resolve module path")
 	}
 
 	terraformArgs, err := p.GenerateTerraformArgs(componentID, false)
 	if err != nil {
-		return nil, nil, fmt.Errorf("failed to generate terraform args: %w", err)
+		return nil, nil, werror.Wrap(err, "failed to generate terraform args")
 	}
 
 	envVars, err := p.getBaseEnvVarsForComponent(terraformArgs)
 	if err != nil {
-		return nil, nil, fmt.Errorf("failed to get base env vars: %w", err)
+		return nil, nil, werror.Wrap(err, "failed to get base env vars")
 	}
 
 	originalEnvVars, err := p.applyEnvVars(envVars)
 	if err != nil {
-		return nil, nil, fmt.Errorf("failed to apply env vars: %w", err)
+		return nil, nil, werror.Wrap(err, "failed to apply env vars")
 	}
 
 	if err := p.GenerateBackendOverride(absModulePath); err != nil {
 		p.restoreEnvVars(originalEnvVars)
-		return nil, nil, fmt.Errorf("failed to generate backend override: %w", err)
+		return nil, nil, werror.Wrap(err, "failed to generate backend override")
 	}
 
 	backendOverridePath := filepath.Join(absModulePath, "backend_override.tf")
@@ -262,7 +269,7 @@ func (p *terraformProvider) prepareTerraformContext(componentID string) (*terraf
 func (p *terraformProvider) withTerraformContext(componentID string, fn func(*terraformContext) (map[string]any, error)) (map[string]any, error) {
 	ctx, originalEnvVars, err := p.prepareTerraformContext(componentID)
 	if err != nil {
-		return nil, fmt.Errorf("failed to prepare terraform context for component '%s': %w", componentID, err)
+		return nil, werror.Wrap(err, "failed to prepare terraform context for component '%s'", componentID)
 	}
 
 	cleanup := func() {

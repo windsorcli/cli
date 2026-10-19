@@ -6,7 +6,6 @@
 package terraform
 
 import (
-	"fmt"
 	"io"
 	"os"
 	"path/filepath"
@@ -14,6 +13,7 @@ import (
 	"sync"
 
 	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
+	"github.com/windsorcli/cli/internal/werror"
 	"github.com/windsorcli/cli/pkg/runtime/config"
 	"github.com/windsorcli/cli/pkg/runtime/evaluator"
 	"github.com/windsorcli/cli/pkg/runtime/shell"
@@ -135,14 +135,14 @@ func (p *terraformProvider) FindRelativeProjectPath(directory ...string) (string
 		var err error
 		currentPath, err = p.Shims.Getwd()
 		if err != nil {
-			return "", fmt.Errorf("error getting current directory: %w", err)
+			return "", werror.Wrap(err, "error getting current directory")
 		}
 	}
 
 	globPattern := filepath.Join(currentPath, "*.tf")
 	matches, err := p.Shims.Glob(globPattern)
 	if err != nil {
-		return "", fmt.Errorf("error finding project path: %w", err)
+		return "", werror.Wrap(err, "error finding project path")
 	}
 	if len(matches) == 0 {
 		return "", nil

@@ -13,6 +13,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/windsorcli/cli/internal/werror"
 	"github.com/windsorcli/cli/pkg/runtime/dotenv"
 	"github.com/windsorcli/cli/pkg/runtime/evaluator"
 	secretsRuntime "github.com/windsorcli/cli/pkg/runtime/secrets"
@@ -22,14 +23,14 @@ import (
 // Public Methods
 // =============================================================================
 
-// GenerateTerraformArgs constructs Terraform CLI arguments for the specified component using the
-// configured backend type. It discovers applicable var files, assembles backend-config arguments,
-// and builds the init, plan, apply, refresh, import, destroy, and plan-destroy arg sets.
-// Returns a fully populated TerraformArgs structure or an error if processing or lookup fails.
+// GenerateTerraformArgs returns the Terraform arguments of a component for the configured backend.
+// It finds the var files, adds the -backend-config arguments, and builds the arguments of each subcommand.
+// It adds -lock-timeout to init and to each subcommand that changes state. The default is 5m.
+// It checks terraform.lock.timeout first, so a typo gets a Windsor error, not a Terraform parse failure.
 func (p *terraformProvider) GenerateTerraformArgs(componentID string, interactive bool) (*TerraformArgs, error) {
 	_, configRoot, windsorScratchPath, err := p.providerScope()
 	if err != nil {
-		return nil, fmt.Errorf("error resolving provider scope: %w", err)
+		return nil, werror.Wrap(err, "error resolving provider scope")
 	}
 
 	component := p.GetTerraformComponent(componentID)
@@ -54,7 +55,7 @@ func (p *terraformProvider) GenerateTerraformArgs(componentID string, interactiv
 	for _, pattern := range patterns {
 		if _, err := p.Shims.Stat(filepath.FromSlash(pattern)); err != nil {
 			if !os.IsNotExist(err) {
-				return nil, fmt.Errorf("error checking file: %w", err)
+				return nil, werror.Wrap(err, "error checking file")
 			}
 		} else {
 			slashPath := filepath.ToSlash(pattern)
@@ -63,13 +64,13 @@ func (p *terraformProvider) GenerateTerraformArgs(componentID string, interactiv
 	}
 	tfDataDir, err := p.GetTFDataDir(actualComponentID)
 	if err != nil {
-		return nil, fmt.Errorf("error getting TF_DATA_DIR: %w", err)
+		return nil, werror.Wrap(err, "error getting TF_DATA_DIR")
 	}
 	tfPlanPath := filepath.ToSlash(filepath.Join(tfDataDir, "terraform.tfplan"))
 
 	backendConfigArgs, err := p.generateBackendConfigArgs(actualComponentID, configRoot)
 	if err != nil {
-		return nil, fmt.Errorf("error generating backend config args: %w", err)
+		return nil, werror.Wrap(err, "error generating backend config args")
 	}
 
 	// InitArgs carries only configuration (backend selection + backend-config) — execution
@@ -103,16 +104,10 @@ func (p *terraformProvider) GenerateTerraformArgs(componentID string, interactiv
 		}
 	}
 
-	// -lock-timeout applies to every state-mutating subcommand and to init (which
-	// locks the backend during -migrate-state). Surfaces as a stack-level windsor
-	// config so a single value drives the whole project; defaults to 5m per §4.1
-	// of the terraform-lifecycle-hardening spike. Per-call override is intentionally
-	// not exposed — operators tune it once. Validate up front so a typo like
-	// `timeout: "oops"` produces a windsor error here instead of an opaque
-	// terraform parse failure mid-run.
 	lockTimeout := p.configHandler.GetString("terraform.lock.timeout", "5m")
 	if _, err := time.ParseDuration(lockTimeout); err != nil {
-		return nil, fmt.Errorf("invalid terraform.lock.timeout %q: %w", lockTimeout, err)
+		return nil, werror.New(fmt.Sprintf("invalid terraform.lock.timeout %q", lockTimeout),
+			"Set terraform.lock.timeout to a duration, such as 5m or 30s.", err)
 	}
 	lockArg := fmt.Sprintf("-lock-timeout=%s", lockTimeout)
 	initArgs = append(initArgs, lockArg)
@@ -147,7 +142,7 @@ func (p *terraformProvider) GenerateTerraformArgs(componentID string, interactiv
 func (p *terraformProvider) GetTFDataDir(componentID string) (string, error) {
 	_, _, windsorScratchPath, err := p.providerScope()
 	if err != nil {
-		return "", fmt.Errorf("error resolving provider scope: %w", err)
+		return "", werror.Wrap(err, "error resolving provider scope")
 	}
 
 	component := p.GetTerraformComponent(componentID)
@@ -169,7 +164,7 @@ func (p *terraformProvider) GetTFDataDir(componentID string) (string, error) {
 func (p *terraformProvider) GetEnvVars(componentID string, interactive bool) (map[string]string, []string, *TerraformArgs, error) {
 	terraformArgs, err := p.GenerateTerraformArgs(componentID, interactive)
 	if err != nil {
-		return nil, nil, nil, fmt.Errorf("error generating terraform args: %w", err)
+		return nil, nil, nil, werror.Wrap(err, "error generating terraform args")
 	}
 
 	envVars, err := p.getBaseEnvVarsForComponent(terraformArgs)
@@ -203,7 +198,7 @@ func (p *terraformProvider) GetEnvVars(componentID string, interactive bool) (ma
 					p.mu.RUnlock()
 					nonDeferred, err := p.evaluator.EvaluateMap(map[string]any{key: value}, "", evalScope, false)
 					if err != nil {
-						return nil, nil, nil, fmt.Errorf("error evaluating input '%s' for component %s: %w", key, componentID, err)
+						return nil, nil, nil, werror.Wrap(err, "error evaluating input '%s' for component %s", key, componentID)
 					}
 					nonDeferredValue, exists := nonDeferred[key]
 					if !exists {
@@ -224,7 +219,7 @@ func (p *terraformProvider) GetEnvVars(componentID string, interactive bool) (ma
 					}
 					evaluated, err := p.evaluator.EvaluateMap(map[string]any{key: value}, "", evalScope, true)
 					if err != nil {
-						return nil, nil, nil, fmt.Errorf("error evaluating input '%s' for component %s: %w", key, componentID, err)
+						return nil, nil, nil, werror.Wrap(err, "error evaluating input '%s' for component %s", key, componentID)
 					}
 					evaluatedValue, exists := evaluated[key]
 					if !exists {
@@ -261,7 +256,7 @@ func (p *terraformProvider) GetEnvVars(componentID string, interactive bool) (ma
 func (p *terraformProvider) TerraformScopedEnvKeys() ([]string, error) {
 	_, configRoot, _, err := p.providerScope()
 	if err != nil {
-		return nil, fmt.Errorf("error resolving provider scope: %w", err)
+		return nil, werror.Wrap(err, "error resolving provider scope")
 	}
 
 	dotEnvPath := filepath.Join(configRoot, "terraform", ".env")
@@ -271,7 +266,7 @@ func (p *terraformProvider) TerraformScopedEnvKeys() ([]string, error) {
 		if os.IsNotExist(err) {
 			return nil, nil
 		}
-		return nil, fmt.Errorf("error reading %s: %w", dotEnvPath, err)
+		return nil, werror.Wrap(err, "error reading %s", dotEnvPath)
 	}
 
 	parsed := dotenv.Parse(string(data))
@@ -328,11 +323,11 @@ func (p *terraformProvider) FormatArgsForEnv(args []string) string {
 func (p *terraformProvider) getBaseEnvVarsForComponent(terraformArgs *TerraformArgs) (map[string]string, error) {
 	contextName, configRoot, _, err := p.providerScope()
 	if err != nil {
-		return nil, fmt.Errorf("error resolving provider scope: %w", err)
+		return nil, werror.Wrap(err, "error resolving provider scope")
 	}
 	projectRoot, err := p.shell.GetProjectRoot()
 	if err != nil {
-		return nil, fmt.Errorf("error getting project root: %w", err)
+		return nil, werror.Wrap(err, "error getting project root")
 	}
 
 	envVars := make(map[string]string)
@@ -368,7 +363,7 @@ func (p *terraformProvider) loadTerraformScopedEnv() (map[string]string, error) 
 
 	_, configRoot, _, err := p.providerScope()
 	if err != nil {
-		return nil, fmt.Errorf("error resolving provider scope: %w", err)
+		return nil, werror.Wrap(err, "error resolving provider scope")
 	}
 
 	dotEnvPath := filepath.Join(configRoot, "terraform", ".env")
@@ -378,14 +373,14 @@ func (p *terraformProvider) loadTerraformScopedEnv() (map[string]string, error) 
 		if os.IsNotExist(err) {
 			return envVars, nil
 		}
-		return nil, fmt.Errorf("error checking %s: %w", dotEnvPath, err)
+		return nil, werror.Wrap(err, "error checking %s", dotEnvPath)
 	}
 
 	dotenv.WarnOnLoosePermissions(p.warningWriter, p.Shims.Goos(), dotEnvPath, info.Mode())
 
 	data, err := p.Shims.ReadFile(dotEnvPath)
 	if err != nil {
-		return nil, fmt.Errorf("error reading %s: %w", dotEnvPath, err)
+		return nil, werror.Wrap(err, "error reading %s", dotEnvPath)
 	}
 
 	for k, v := range dotenv.Parse(string(data)) {

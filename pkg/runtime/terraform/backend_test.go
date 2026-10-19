@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	cliconfig "github.com/windsorcli/cli/api/config/v1alpha2"
+	"github.com/windsorcli/cli/internal/werror"
 	"github.com/windsorcli/cli/pkg/runtime/config"
 )
 
@@ -286,6 +287,9 @@ func TestTerraformProvider_GenerateBackendOverride(t *testing.T) {
 
 		if err.Error() != "unsupported backend: unsupported" {
 			t.Errorf("Expected unsupported backend error, got %v", err)
+		}
+		if we := werror.Find(err); we == nil || we.Remediation != unsupportedBackendRemediation {
+			t.Errorf("Expected the valid backend types as the remediation, got: %v", we)
 		}
 	})
 
