@@ -30,6 +30,38 @@ if [ ! -s "$SUMMARY" ]; then
     echo ">"
     echo "> The automated review produced no summary. See the [run](${RUN_URL})."
   } > "$SUMMARY"
+  # The action writes every model message to the execution file. Add the
+  # denied tool calls and the last message of the model to the stub, so the
+  # PR shows why the review stopped. The action sets this path in
+  # base-action/src/execution-file.ts.
+  EXECUTION="${RUNNER_TEMP:-/tmp}/claude-execution-output.json"
+  if [ -s "$EXECUTION" ]; then
+    python3 - "$EXECUTION" >> "$SUMMARY" <<'PY' || true
+import json, sys
+messages = json.load(open(sys.argv[1]))
+result = next((m for m in reversed(messages) if m.get("type") == "result"), {})
+denials = result.get("permission_denials") or []
+text = (result.get("result") or "").strip()
+print()
+print("<details><summary>Run details</summary>")
+print()
+print(f"Turns: {result.get('num_turns')}. Stop reason: {result.get('subtype')}.")
+print()
+print(f"Denied tool calls ({len(denials)}):")
+print()
+for d in denials:
+    call = json.dumps(d.get("tool_input", {}))
+    print(f"- `{d.get('tool_name')}`: `{call[:300].replace('`', chr(39))}`")
+print()
+print("Last message of the model:")
+print()
+print("```text")
+print(text[-3000:].replace("```", "'''") or "(empty)")
+print("```")
+print()
+print("</details>")
+PY
+  fi
   STATUS=1
 fi
 
