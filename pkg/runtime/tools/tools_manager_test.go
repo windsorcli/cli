@@ -22,6 +22,7 @@ import (
 type Mocks struct {
 	ConfigHandler config.ConfigHandler
 	Shell         *sh.MockShell
+	Shims         *Shims
 }
 
 type SetupOptions struct {
@@ -145,10 +146,8 @@ func setupMocks(t *testing.T, opts ...*SetupOptions) *Mocks {
 		}
 	}
 
-	originalExecLookPath := execLookPath
-	originalOsStat := osStat
-
-	execLookPath = func(name string) (string, error) {
+	shims := NewShims()
+	shims.LookPath = func(name string) (string, error) {
 		switch name {
 		case "docker", "terraform", "op", "colima", "limactl", "sops":
 			return "/usr/bin/" + name, nil
@@ -157,14 +156,7 @@ func setupMocks(t *testing.T, opts ...*SetupOptions) *Mocks {
 		}
 	}
 
-	osStat = func(name string) (os.FileInfo, error) {
-		return nil, os.ErrNotExist
-	}
-
 	t.Cleanup(func() {
-		execLookPath = originalExecLookPath
-		osStat = originalOsStat
-
 		os.Unsetenv("WINDSOR_PROJECT_ROOT")
 
 		if err := os.Chdir(origDir); err != nil {
@@ -175,6 +167,7 @@ func setupMocks(t *testing.T, opts ...*SetupOptions) *Mocks {
 	return &Mocks{
 		Shell:         shell,
 		ConfigHandler: configHandler,
+		Shims:         shims,
 	}
 }
 
@@ -194,6 +187,7 @@ func TestToolsManager_NewToolsManager(t *testing.T) {
 		mocks := setup(t)
 		// When creating a new tools manager
 		toolsManager := NewToolsManager(mocks.ConfigHandler, mocks.Shell)
+		toolsManager.shims = mocks.Shims
 		// Then the tools manager should be created successfully
 		if toolsManager == nil {
 			t.Errorf("Expected tools manager to be non-nil")
@@ -207,6 +201,7 @@ func TestToolsManager_Initialize(t *testing.T) {
 		t.Helper()
 		mocks := setupMocks(t)
 		toolsManager := NewToolsManager(mocks.ConfigHandler, mocks.Shell)
+		toolsManager.shims = mocks.Shims
 		return mocks, toolsManager
 	}
 
@@ -225,6 +220,7 @@ func TestToolsManager_WriteManifest(t *testing.T) {
 	setup := func(t *testing.T) (*Mocks, *BaseToolsManager) {
 		mocks := setupMocks(t, &SetupOptions{ConfigStr: ""})
 		toolsManager := NewToolsManager(mocks.ConfigHandler, mocks.Shell)
+		toolsManager.shims = mocks.Shims
 		return mocks, toolsManager
 	}
 
@@ -246,6 +242,7 @@ func TestToolsManager_Install(t *testing.T) {
 		t.Helper()
 		mocks := setupMocks(t)
 		toolsManager := NewToolsManager(mocks.ConfigHandler, mocks.Shell)
+		toolsManager.shims = mocks.Shims
 		return mocks, toolsManager
 	}
 
@@ -267,6 +264,7 @@ func TestToolsManager_Check(t *testing.T) {
 		t.Helper()
 		mocks := setupMocks(t, &SetupOptions{ConfigStr: configStr})
 		toolsManager := NewToolsManager(mocks.ConfigHandler, mocks.Shell)
+		toolsManager.shims = mocks.Shims
 		return mocks, toolsManager
 	}
 
@@ -303,8 +301,8 @@ func TestToolsManager_Check(t *testing.T) {
 		// When docker is disabled in config
 		mocks, toolsManager := setup(t, defaultConfig)
 		mocks.ConfigHandler.Set("docker.enabled", false)
-		originalExecLookPath := execLookPath
-		execLookPath = func(name string) (string, error) {
+		originalExecLookPath := mocks.Shims.LookPath
+		mocks.Shims.LookPath = func(name string) (string, error) {
 			if name == "docker" {
 				return "", exec.ErrNotFound
 			}
@@ -321,8 +319,8 @@ func TestToolsManager_Check(t *testing.T) {
 		// When all tools are disabled in config
 		mocks, toolsManager := setup(t, defaultConfig)
 		mocks.ConfigHandler.Set("docker.enabled", false)
-		originalExecLookPath := execLookPath
-		execLookPath = func(name string) (string, error) {
+		originalExecLookPath := mocks.Shims.LookPath
+		mocks.Shims.LookPath = func(name string) (string, error) {
 			if name == "docker" {
 				return "", exec.ErrNotFound
 			}
@@ -339,8 +337,8 @@ func TestToolsManager_Check(t *testing.T) {
 		// When docker is enabled but not available in PATH
 		mocks, toolsManager := setup(t, defaultConfig)
 		mocks.ConfigHandler.Set("docker.enabled", true)
-		originalExecLookPath := execLookPath
-		execLookPath = func(name string) (string, error) {
+		originalExecLookPath := mocks.Shims.LookPath
+		mocks.Shims.LookPath = func(name string) (string, error) {
 			if name == "docker" {
 				return "", exec.ErrNotFound
 			}
@@ -357,8 +355,8 @@ func TestToolsManager_Check(t *testing.T) {
 		// When terraform is enabled but not available in PATH
 		mocks, toolsManager := setup(t, defaultConfig)
 		mocks.ConfigHandler.Set("terraform.enabled", true)
-		originalExecLookPath := execLookPath
-		execLookPath = func(name string) (string, error) {
+		originalExecLookPath := mocks.Shims.LookPath
+		mocks.Shims.LookPath = func(name string) (string, error) {
 			if name == "terraform" {
 				return "", exec.ErrNotFound
 			}
@@ -375,8 +373,8 @@ func TestToolsManager_Check(t *testing.T) {
 		// When colima is enabled but not available in PATH
 		mocks, toolsManager := setup(t, defaultConfig)
 		mocks.ConfigHandler.Set("workstation.runtime", "colima")
-		originalExecLookPath := execLookPath
-		execLookPath = func(name string) (string, error) {
+		originalExecLookPath := mocks.Shims.LookPath
+		mocks.Shims.LookPath = func(name string) (string, error) {
 			if name == "colima" {
 				return "", exec.ErrNotFound
 			}
@@ -405,8 +403,8 @@ contexts:
             url: test.1password.com
 `
 		mocks, toolsManager := setup(t, configStr)
-		originalExecLookPath := execLookPath
-		execLookPath = func(name string) (string, error) {
+		originalExecLookPath := mocks.Shims.LookPath
+		mocks.Shims.LookPath = func(name string) (string, error) {
 			if name == "op" {
 				return "", exec.ErrNotFound
 			}
@@ -438,8 +436,8 @@ contexts:
         enabled: true
 `
 		mocks, toolsManager := setup(t, configStr)
-		originalExecLookPath := execLookPath
-		execLookPath = func(name string) (string, error) {
+		originalExecLookPath := mocks.Shims.LookPath
+		mocks.Shims.LookPath = func(name string) (string, error) {
 			if name == "sops" {
 				return "", exec.ErrNotFound
 			}
@@ -489,9 +487,9 @@ contexts:
   test:
     platform: aws
 `
-		_, toolsManager := setup(t, configStr)
-		originalExecLookPath := execLookPath
-		execLookPath = func(name string) (string, error) {
+		mocks, toolsManager := setup(t, configStr)
+		originalExecLookPath := mocks.Shims.LookPath
+		mocks.Shims.LookPath = func(name string) (string, error) {
 			if name == "aws" {
 				return "", exec.ErrNotFound
 			}
@@ -508,8 +506,8 @@ contexts:
 		mocks.ConfigHandler.Set("docker.enabled", true)
 
 		// Mock failures for multiple tools
-		originalExecLookPath := execLookPath
-		execLookPath = func(name string) (string, error) {
+		originalExecLookPath := mocks.Shims.LookPath
+		mocks.Shims.LookPath = func(name string) (string, error) {
 			if name == "docker" {
 				return "", fmt.Errorf("%s is not available in the PATH", name)
 			}
@@ -539,6 +537,7 @@ func TestToolsManager_CheckRequirements(t *testing.T) {
 		t.Helper()
 		mocks := setupMocks(t, &SetupOptions{ConfigStr: configStr})
 		toolsManager := NewToolsManager(mocks.ConfigHandler, mocks.Shell)
+		toolsManager.shims = mocks.Shims
 		return mocks, toolsManager
 	}
 
@@ -567,12 +566,10 @@ contexts:
 	t.Run("EmptyRequirementsSkipsAllChecks", func(t *testing.T) {
 		// Given a config where every tool family is enabled and execLookPath fails for
 		// EVERY tool we'd otherwise check
-		_, toolsManager := setup(t, configWithEverythingEnabled)
-		originalExecLookPath := execLookPath
-		execLookPath = func(name string) (string, error) {
+		mocks, toolsManager := setup(t, configWithEverythingEnabled)
+		mocks.Shims.LookPath = func(name string) (string, error) {
 			return "", exec.ErrNotFound
 		}
-		t.Cleanup(func() { execLookPath = originalExecLookPath })
 
 		// When CheckRequirements runs with an empty Requirements set
 		err := toolsManager.CheckRequirements(Requirements{})
@@ -586,10 +583,9 @@ contexts:
 
 	t.Run("TerraformOnlyDoesNotCheckDocker", func(t *testing.T) {
 		// Given docker is enabled in config but terraform alone is requested
-		_, toolsManager := setup(t, configWithEverythingEnabled)
+		mocks, toolsManager := setup(t, configWithEverythingEnabled)
 		dockerLookedUp := false
-		originalExecLookPath := execLookPath
-		execLookPath = func(name string) (string, error) {
+		mocks.Shims.LookPath = func(name string) (string, error) {
 			if name == "docker" {
 				dockerLookedUp = true
 			}
@@ -598,7 +594,6 @@ contexts:
 			}
 			return "", exec.ErrNotFound
 		}
-		t.Cleanup(func() { execLookPath = originalExecLookPath })
 
 		// When CheckRequirements runs with only Terraform requested
 		_ = toolsManager.CheckRequirements(Requirements{Terraform: true})
@@ -612,10 +607,9 @@ contexts:
 
 	t.Run("DockerOnlyDoesNotCheckTerraform", func(t *testing.T) {
 		// Given terraform is enabled in config but docker alone is requested
-		_, toolsManager := setup(t, configWithEverythingEnabled)
+		mocks, toolsManager := setup(t, configWithEverythingEnabled)
 		terraformLookedUp := false
-		originalExecLookPath := execLookPath
-		execLookPath = func(name string) (string, error) {
+		mocks.Shims.LookPath = func(name string) (string, error) {
 			if name == "terraform" || name == "tofu" {
 				terraformLookedUp = true
 			}
@@ -624,7 +618,6 @@ contexts:
 			}
 			return "", exec.ErrNotFound
 		}
-		t.Cleanup(func() { execLookPath = originalExecLookPath })
 
 		// When CheckRequirements runs with only Docker requested
 		_ = toolsManager.CheckRequirements(Requirements{Docker: true})
@@ -641,7 +634,7 @@ contexts:
 		// combination that must actually wire through to the CPU check. Stubs
 		// checkCPUMicroarchitecture itself so the assertion doesn't depend on
 		// this test runner's real CPU features.
-		_, toolsManager := setup(t, `
+		mocks, toolsManager := setup(t, `
 contexts:
   test:
     docker:
@@ -649,11 +642,9 @@ contexts:
     cluster:
       driver: talos
 `)
-		originalExecLookPath := execLookPath
-		execLookPath = func(name string) (string, error) {
+		mocks.Shims.LookPath = func(name string) (string, error) {
 			return "/usr/bin/" + name, nil
 		}
-		t.Cleanup(func() { execLookPath = originalExecLookPath })
 
 		originalCheckCPUMicroarchitecture := checkCPUMicroarchitecture
 		var called bool
@@ -714,7 +705,7 @@ contexts:
 	t.Run("NonTalosClusterDriverNeverChecksCPU", func(t *testing.T) {
 		// Given a docker-family workstation runtime with a non-talos cluster driver
 		// (e.g. an EKS/AKS/GKE cluster where docker is only used for local tooling)
-		_, toolsManager := setup(t, `
+		mocks, toolsManager := setup(t, `
 contexts:
   test:
     docker:
@@ -722,11 +713,9 @@ contexts:
     cluster:
       driver: eks
 `)
-		originalExecLookPath := execLookPath
-		execLookPath = func(name string) (string, error) {
+		mocks.Shims.LookPath = func(name string) (string, error) {
 			return "/usr/bin/" + name, nil
 		}
-		t.Cleanup(func() { execLookPath = originalExecLookPath })
 
 		originalCheckCPUMicroarchitecture := checkCPUMicroarchitecture
 		var called bool
@@ -751,11 +740,10 @@ contexts:
 
 	t.Run("SecretsRequestedChecksBothSopsAndOnePassword", func(t *testing.T) {
 		// Given both sops and 1password are enabled in config and Secrets is requested
-		_, toolsManager := setup(t, configWithEverythingEnabled)
+		mocks, toolsManager := setup(t, configWithEverythingEnabled)
 		sawSops := false
 		sawOp := false
-		originalExecLookPath := execLookPath
-		execLookPath = func(name string) (string, error) {
+		mocks.Shims.LookPath = func(name string) (string, error) {
 			switch name {
 			case "sops":
 				sawSops = true
@@ -764,7 +752,6 @@ contexts:
 			}
 			return "/usr/bin/" + name, nil
 		}
-		t.Cleanup(func() { execLookPath = originalExecLookPath })
 
 		// When CheckRequirements runs with Secrets requested
 		_ = toolsManager.CheckRequirements(Requirements{Secrets: true})
@@ -790,11 +777,9 @@ contexts:
 		// a separate `azure.enabled` flag (we removed that to match AWS). Setting
 		// azure.enabled=false here would actually OPT IN to the kubelogin check by
 		// causing the config handler to materialize the azure block as a side effect.
-		originalExecLookPath := execLookPath
-		execLookPath = func(name string) (string, error) {
+		mocks.Shims.LookPath = func(name string) (string, error) {
 			return "", exec.ErrNotFound
 		}
-		t.Cleanup(func() { execLookPath = originalExecLookPath })
 
 		// When CheckRequirements runs with EVERY family requested
 		err := toolsManager.CheckRequirements(AllRequirements())
@@ -811,14 +796,13 @@ contexts:
 		// Given the docker-enabled config + a docker-missing PATH
 		mocks, toolsManager := setup(t, defaultConfig)
 		mocks.ConfigHandler.Set("docker.enabled", true)
-		originalExecLookPath := execLookPath
-		execLookPath = func(name string) (string, error) {
+		originalExecLookPath := mocks.Shims.LookPath
+		mocks.Shims.LookPath = func(name string) (string, error) {
 			if name == "docker" {
 				return "", exec.ErrNotFound
 			}
 			return originalExecLookPath(name)
 		}
-		t.Cleanup(func() { execLookPath = originalExecLookPath })
 
 		// When Check() is called and CheckRequirements(AllRequirements()) is called
 		errCheck := toolsManager.Check()
@@ -841,6 +825,7 @@ func TestToolsManager_CheckTerraform(t *testing.T) {
 		t.Helper()
 		mocks := setupMocks(t)
 		toolsManager := NewToolsManager(mocks.ConfigHandler, mocks.Shell)
+		toolsManager.shims = mocks.Shims
 		return mocks, toolsManager
 	}
 
@@ -857,12 +842,8 @@ func TestToolsManager_CheckTerraform(t *testing.T) {
 
 	t.Run("TerraformNotAvailable", func(t *testing.T) {
 		// Given neither terraform nor tofu is found in PATH
-		_, toolsManager := setup(t)
-		originalExecLookPath := execLookPath
-		defer func() {
-			execLookPath = originalExecLookPath
-		}()
-		execLookPath = func(name string) (string, error) {
+		mocks, toolsManager := setup(t)
+		mocks.Shims.LookPath = func(name string) (string, error) {
 			if name == "terraform" || name == "tofu" {
 				return "", fmt.Errorf("%s is not available in the PATH", name)
 			}
@@ -921,6 +902,7 @@ func TestToolsManager_checkDocker(t *testing.T) {
 		t.Helper()
 		mocks := setupMocks(t)
 		toolsManager := NewToolsManager(mocks.ConfigHandler, mocks.Shell)
+		toolsManager.shims = mocks.Shims
 		return mocks, toolsManager
 	}
 
@@ -936,8 +918,8 @@ func TestToolsManager_checkDocker(t *testing.T) {
 
 	t.Run("DockerNotAvailable", func(t *testing.T) {
 		// When docker is not found in PATH
-		_, toolsManager := setup(t)
-		execLookPath = func(name string) (string, error) {
+		mocks, toolsManager := setup(t)
+		mocks.Shims.LookPath = func(name string) (string, error) {
 			return "", fmt.Errorf("docker is not available in the PATH")
 		}
 		err := toolsManager.checkDocker()
@@ -971,7 +953,7 @@ func TestToolsManager_checkDocker(t *testing.T) {
 			}
 			return "", fmt.Errorf("command not found")
 		}
-		execLookPath = func(name string) (string, error) {
+		mocks.Shims.LookPath = func(name string) (string, error) {
 			if name == "docker" {
 				return "/usr/bin/docker", nil
 			}
@@ -994,7 +976,7 @@ func TestToolsManager_checkDocker(t *testing.T) {
 			}
 			return "", fmt.Errorf("command not found")
 		}
-		execLookPath = func(name string) (string, error) {
+		mocks.Shims.LookPath = func(name string) (string, error) {
 			if name == "docker" {
 				return "/usr/bin/docker", nil
 			}
@@ -1016,6 +998,7 @@ func TestToolsManager_checkColima(t *testing.T) {
 		t.Helper()
 		mocks := setupMocks(t)
 		toolsManager := NewToolsManager(mocks.ConfigHandler, mocks.Shell)
+		toolsManager.shims = mocks.Shims
 		return mocks, toolsManager
 	}
 
@@ -1032,8 +1015,8 @@ func TestToolsManager_checkColima(t *testing.T) {
 	t.Run("ColimaNotAvailable", func(t *testing.T) {
 		// When colima is not found in PATH
 		mocks, toolsManager := setup(t)
-		originalExecLookPath := execLookPath
-		execLookPath = func(name string) (string, error) {
+		originalExecLookPath := mocks.Shims.LookPath
+		mocks.Shims.LookPath = func(name string) (string, error) {
 			if name == "colima" {
 				return "", exec.ErrNotFound
 			}
@@ -1093,8 +1076,8 @@ func TestToolsManager_checkColima(t *testing.T) {
 	t.Run("LimactlNotAvailable", func(t *testing.T) {
 		// When limactl is not found in PATH
 		mocks, toolsManager := setup(t)
-		originalExecLookPath := execLookPath
-		execLookPath = func(name string) (string, error) {
+		originalExecLookPath := mocks.Shims.LookPath
+		mocks.Shims.LookPath = func(name string) (string, error) {
 			if name == "limactl" {
 				return "", exec.ErrNotFound
 			}
@@ -1219,6 +1202,7 @@ func TestToolsManager_checkOnePassword(t *testing.T) {
 		t.Helper()
 		mocks := setupMocks(t)
 		toolsManager := NewToolsManager(mocks.ConfigHandler, mocks.Shell)
+		toolsManager.shims = mocks.Shims
 		return mocks, toolsManager
 	}
 
@@ -1235,8 +1219,8 @@ func TestToolsManager_checkOnePassword(t *testing.T) {
 
 	t.Run("OnePasswordNotAvailable", func(t *testing.T) {
 		// Given 1Password CLI is not found in PATH
-		_, toolsManager := setup(t)
-		execLookPath = func(name string) (string, error) {
+		mocks, toolsManager := setup(t)
+		mocks.Shims.LookPath = func(name string) (string, error) {
 			if name == "op" {
 				return "", fmt.Errorf("1Password CLI is not available in the PATH")
 			}
@@ -1307,6 +1291,7 @@ func TestToolsManager_checkSops(t *testing.T) {
 		t.Helper()
 		mocks := setupMocks(t)
 		toolsManager := NewToolsManager(mocks.ConfigHandler, mocks.Shell)
+		toolsManager.shims = mocks.Shims
 		return mocks, toolsManager
 	}
 
@@ -1323,12 +1308,9 @@ func TestToolsManager_checkSops(t *testing.T) {
 
 	t.Run("SopsNotAvailable", func(t *testing.T) {
 		// Given SOPS CLI is not found in PATH
-		_, toolsManager := setup(t)
-		originalExecLookPath := execLookPath
-		defer func() {
-			execLookPath = originalExecLookPath
-		}()
-		execLookPath = func(name string) (string, error) {
+		mocks, toolsManager := setup(t)
+		originalExecLookPath := mocks.Shims.LookPath
+		mocks.Shims.LookPath = func(name string) (string, error) {
 			if name == "sops" {
 				return "", exec.ErrNotFound
 			}
@@ -1400,14 +1382,15 @@ func TestToolsManager_checkKubelogin(t *testing.T) {
 		t.Helper()
 		mocks := setupMocks(t)
 		toolsManager := NewToolsManager(mocks.ConfigHandler, mocks.Shell)
+		toolsManager.shims = mocks.Shims
 		return mocks, toolsManager
 	}
 
 	t.Run("Success", func(t *testing.T) {
 		// Given kubelogin is available with correct version
 		mocks, toolsManager := setup(t)
-		originalExecLookPath := execLookPath
-		execLookPath = func(name string) (string, error) {
+		originalExecLookPath := mocks.Shims.LookPath
+		mocks.Shims.LookPath = func(name string) (string, error) {
 			if name == "kubelogin" {
 				return "/usr/bin/kubelogin", nil
 			}
@@ -1429,9 +1412,9 @@ func TestToolsManager_checkKubelogin(t *testing.T) {
 
 	t.Run("KubeloginNotAvailable", func(t *testing.T) {
 		// Given kubelogin is not found in PATH
-		_, toolsManager := setup(t)
-		originalExecLookPath := execLookPath
-		execLookPath = func(name string) (string, error) {
+		mocks, toolsManager := setup(t)
+		originalExecLookPath := mocks.Shims.LookPath
+		mocks.Shims.LookPath = func(name string) (string, error) {
 			if name == "kubelogin" {
 				return "", exec.ErrNotFound
 			}
@@ -1448,8 +1431,8 @@ func TestToolsManager_checkKubelogin(t *testing.T) {
 	t.Run("KubeloginVersionInvalidResponse", func(t *testing.T) {
 		// Given kubelogin version response is invalid
 		mocks, toolsManager := setup(t)
-		originalExecLookPath := execLookPath
-		execLookPath = func(name string) (string, error) {
+		originalExecLookPath := mocks.Shims.LookPath
+		mocks.Shims.LookPath = func(name string) (string, error) {
 			if name == "kubelogin" {
 				return "/usr/bin/kubelogin", nil
 			}
@@ -1472,8 +1455,8 @@ func TestToolsManager_checkKubelogin(t *testing.T) {
 	t.Run("KubeloginVersionTooLow", func(t *testing.T) {
 		// Given kubelogin version is below minimum required version
 		mocks, toolsManager := setup(t)
-		originalExecLookPath := execLookPath
-		execLookPath = func(name string) (string, error) {
+		originalExecLookPath := mocks.Shims.LookPath
+		mocks.Shims.LookPath = func(name string) (string, error) {
 			if name == "kubelogin" {
 				return "/usr/bin/kubelogin", nil
 			}
@@ -1496,8 +1479,8 @@ func TestToolsManager_checkKubelogin(t *testing.T) {
 	t.Run("KubeloginCommandError", func(t *testing.T) {
 		// Given kubelogin command execution fails
 		mocks, toolsManager := setup(t)
-		originalExecLookPath := execLookPath
-		execLookPath = func(name string) (string, error) {
+		originalExecLookPath := mocks.Shims.LookPath
+		mocks.Shims.LookPath = func(name string) (string, error) {
 			if name == "kubelogin" {
 				return "/usr/bin/kubelogin", nil
 			}
@@ -1520,8 +1503,8 @@ func TestToolsManager_checkKubelogin(t *testing.T) {
 	t.Run("AZURE_FEDERATED_TOKEN_FILESetButAZURE_CLIENT_IDMissing", func(t *testing.T) {
 		// Given AZURE_FEDERATED_TOKEN_FILE is set but AZURE_CLIENT_ID is missing
 		mocks, toolsManager := setup(t)
-		originalExecLookPath := execLookPath
-		execLookPath = func(name string) (string, error) {
+		originalExecLookPath := mocks.Shims.LookPath
+		mocks.Shims.LookPath = func(name string) (string, error) {
 			if name == "kubelogin" {
 				return "/usr/bin/kubelogin", nil
 			}
@@ -1548,8 +1531,8 @@ func TestToolsManager_checkKubelogin(t *testing.T) {
 	t.Run("AZURE_FEDERATED_TOKEN_FILESetButAZURE_TENANT_IDMissing", func(t *testing.T) {
 		// Given AZURE_FEDERATED_TOKEN_FILE is set but AZURE_TENANT_ID is missing
 		mocks, toolsManager := setup(t)
-		originalExecLookPath := execLookPath
-		execLookPath = func(name string) (string, error) {
+		originalExecLookPath := mocks.Shims.LookPath
+		mocks.Shims.LookPath = func(name string) (string, error) {
 			if name == "kubelogin" {
 				return "/usr/bin/kubelogin", nil
 			}
@@ -1579,8 +1562,8 @@ func TestToolsManager_checkKubelogin(t *testing.T) {
 	t.Run("AZURE_CLIENT_SECRETSetButAZURE_CLIENT_IDMissing", func(t *testing.T) {
 		// Given AZURE_CLIENT_SECRET is set but AZURE_CLIENT_ID is missing
 		mocks, toolsManager := setup(t)
-		originalExecLookPath := execLookPath
-		execLookPath = func(name string) (string, error) {
+		originalExecLookPath := mocks.Shims.LookPath
+		mocks.Shims.LookPath = func(name string) (string, error) {
 			if name == "kubelogin" {
 				return "/usr/bin/kubelogin", nil
 			}
@@ -1607,8 +1590,8 @@ func TestToolsManager_checkKubelogin(t *testing.T) {
 	t.Run("AZURE_CLIENT_SECRETSetButAZURE_TENANT_IDMissing", func(t *testing.T) {
 		// Given AZURE_CLIENT_SECRET is set but AZURE_TENANT_ID is missing
 		mocks, toolsManager := setup(t)
-		originalExecLookPath := execLookPath
-		execLookPath = func(name string) (string, error) {
+		originalExecLookPath := mocks.Shims.LookPath
+		mocks.Shims.LookPath = func(name string) (string, error) {
 			if name == "kubelogin" {
 				return "/usr/bin/kubelogin", nil
 			}
@@ -1638,8 +1621,8 @@ func TestToolsManager_checkKubelogin(t *testing.T) {
 	t.Run("AZURE_CLIENT_SECRETSetWithAllRequiredVars", func(t *testing.T) {
 		// Given AZURE_CLIENT_SECRET is set with all required environment variables
 		mocks, toolsManager := setup(t)
-		originalExecLookPath := execLookPath
-		execLookPath = func(name string) (string, error) {
+		originalExecLookPath := mocks.Shims.LookPath
+		mocks.Shims.LookPath = func(name string) (string, error) {
 			if name == "kubelogin" {
 				return "/usr/bin/kubelogin", nil
 			}
@@ -1673,14 +1656,15 @@ func TestToolsManager_checkAWSBinary(t *testing.T) {
 		t.Helper()
 		mocks := setupMocks(t)
 		toolsManager := NewToolsManager(mocks.ConfigHandler, mocks.Shell)
+		toolsManager.shims = mocks.Shims
 		return mocks, toolsManager
 	}
 
 	t.Run("Success", func(t *testing.T) {
 		// Given aws is available and meets the minimum version
 		mocks, toolsManager := setup(t)
-		originalExecLookPath := execLookPath
-		execLookPath = func(name string) (string, error) {
+		originalExecLookPath := mocks.Shims.LookPath
+		mocks.Shims.LookPath = func(name string) (string, error) {
 			if name == "aws" {
 				return "/usr/bin/aws", nil
 			}
@@ -1704,9 +1688,9 @@ func TestToolsManager_checkAWSBinary(t *testing.T) {
 
 	t.Run("AwsNotAvailable", func(t *testing.T) {
 		// Given aws is not in PATH
-		_, toolsManager := setup(t)
-		originalExecLookPath := execLookPath
-		execLookPath = func(name string) (string, error) {
+		mocks, toolsManager := setup(t)
+		originalExecLookPath := mocks.Shims.LookPath
+		mocks.Shims.LookPath = func(name string) (string, error) {
 			if name == "aws" {
 				return "", exec.ErrNotFound
 			}
@@ -1729,8 +1713,8 @@ func TestToolsManager_checkAWSBinary(t *testing.T) {
 	t.Run("VersionCommandFails", func(t *testing.T) {
 		// Given aws is in PATH but `aws --version` errors
 		mocks, toolsManager := setup(t)
-		originalExecLookPath := execLookPath
-		execLookPath = func(name string) (string, error) {
+		originalExecLookPath := mocks.Shims.LookPath
+		mocks.Shims.LookPath = func(name string) (string, error) {
 			if name == "aws" {
 				return "/usr/bin/aws", nil
 			}
@@ -1753,8 +1737,8 @@ func TestToolsManager_checkAWSBinary(t *testing.T) {
 	t.Run("VersionUnparseable", func(t *testing.T) {
 		// Given aws returns output without a parseable semver
 		mocks, toolsManager := setup(t)
-		originalExecLookPath := execLookPath
-		execLookPath = func(name string) (string, error) {
+		originalExecLookPath := mocks.Shims.LookPath
+		mocks.Shims.LookPath = func(name string) (string, error) {
 			if name == "aws" {
 				return "/usr/bin/aws", nil
 			}
@@ -1777,8 +1761,8 @@ func TestToolsManager_checkAWSBinary(t *testing.T) {
 	t.Run("VersionTooLow", func(t *testing.T) {
 		// Given aws reports a version below the minimum
 		mocks, toolsManager := setup(t)
-		originalExecLookPath := execLookPath
-		execLookPath = func(name string) (string, error) {
+		originalExecLookPath := mocks.Shims.LookPath
+		mocks.Shims.LookPath = func(name string) (string, error) {
 			if name == "aws" {
 				return "/usr/bin/aws", nil
 			}
@@ -1821,6 +1805,7 @@ func TestToolsManager_CheckAuth(t *testing.T) {
 		t.Setenv("AWS_SHARED_CREDENTIALS_FILE", filepath.Join(t.TempDir(), "no-ambient-credentials"))
 		mocks := setupMocks(t, &SetupOptions{ConfigStr: configStr})
 		toolsManager := NewToolsManager(mocks.ConfigHandler, mocks.Shell)
+		toolsManager.shims = mocks.Shims
 		return mocks, toolsManager
 	}
 
@@ -1835,36 +1820,34 @@ func TestToolsManager_CheckAuth(t *testing.T) {
 		}
 	})
 
-	// awsBinaryMock wires execLookPath and the version shell call so CheckAuth can reach the
+	// awsBinaryMock wires LookPath and the version shell call so CheckAuth can reach the
 	// sts-get-caller-identity step. Every sub-test that exercises CheckAuth beyond the binary
 	// check uses this to get past the preliminaries.
-	awsBinaryMock := func(t *testing.T) {
+	awsBinaryMock := func(t *testing.T, mocks *Mocks) {
 		t.Helper()
-		originalExecLookPath := execLookPath
-		execLookPath = func(name string) (string, error) {
+		originalExecLookPath := mocks.Shims.LookPath
+		mocks.Shims.LookPath = func(name string) (string, error) {
 			if name == "aws" {
 				return "/usr/bin/aws", nil
 			}
 			return originalExecLookPath(name)
 		}
-		t.Cleanup(func() { execLookPath = originalExecLookPath })
 	}
 
 	t.Run("AWSPlatformWithAwsCliMissing", func(t *testing.T) {
 		// Given platform: aws and the aws CLI is not in PATH
-		_, toolsManager := setup(t, `
+		mocks, toolsManager := setup(t, `
 contexts:
   test:
     platform: aws
 `)
-		originalExecLookPath := execLookPath
-		execLookPath = func(name string) (string, error) {
+		originalExecLookPath := mocks.Shims.LookPath
+		mocks.Shims.LookPath = func(name string) (string, error) {
 			if name == "aws" {
 				return "", exec.ErrNotFound
 			}
 			return originalExecLookPath(name)
 		}
-		t.Cleanup(func() { execLookPath = originalExecLookPath })
 
 		// When CheckAuth runs
 		err := toolsManager.CheckAuth()
@@ -1887,7 +1870,7 @@ contexts:
   test:
     platform: aws
 `)
-		awsBinaryMock(t)
+		awsBinaryMock(t, mocks)
 		mocks.Shell.ExecSilentWithTimeoutFunc = func(command string, args []string, timeout time.Duration) (string, error) {
 			if command == "aws" && len(args) == 1 && args[0] == "--version" {
 				return fmt.Sprintf("aws-cli/%s Python/3.11.8 Linux", constants.MinimumVersionAWS), nil
@@ -1912,7 +1895,7 @@ contexts:
   test:
     platform: aws
 `)
-		awsBinaryMock(t)
+		awsBinaryMock(t, mocks)
 		mocks.Shell.ExecSilentWithTimeoutFunc = func(command string, args []string, timeout time.Duration) (string, error) {
 			if command == "aws" && len(args) == 1 && args[0] == "--version" {
 				return fmt.Sprintf("aws-cli/%s Python/3.11.8 Linux", constants.MinimumVersionAWS), nil
@@ -1998,7 +1981,7 @@ contexts:
   test:
     platform: aws
 `)
-		awsBinaryMock(t)
+		awsBinaryMock(t, mocks)
 		root := writeContextProfile(t, mocks, "test")
 		var capturedEnv map[string]string
 		mocks.Shell.ExecSilentWithTimeoutFunc = func(command string, args []string, timeout time.Duration) (string, error) {
@@ -2045,7 +2028,7 @@ contexts:
     aws:
       profile: company-prod
 `)
-		awsBinaryMock(t)
+		awsBinaryMock(t, mocks)
 		writeContextProfile(t, mocks, "company-prod")
 		var capturedEnv map[string]string
 		mocks.Shell.ExecSilentWithTimeoutFunc = func(command string, args []string, timeout time.Duration) (string, error) {
@@ -2079,18 +2062,16 @@ contexts:
   test:
     platform: aws
 `)
-		awsBinaryMock(t)
+		awsBinaryMock(t, mocks)
 		t.Setenv("AWS_CONFIG_FILE", "")
 		t.Setenv("AWS_SHARED_CREDENTIALS_FILE", "")
-		originalReadFile := osReadFile
-		osReadFile = func(name string) ([]byte, error) {
+		mocks.Shims.ReadFile = func(name string) ([]byte, error) {
 			return []byte(`
 [profile test]
 sso_session = company
 sso_account_id = 123456789012
 `), nil
 		}
-		t.Cleanup(func() { osReadFile = originalReadFile })
 		mocks.Shell.ExecSilentWithTimeoutFunc = func(command string, args []string, timeout time.Duration) (string, error) {
 			return fmt.Sprintf("aws-cli/%s Python/3.11.8 Linux", constants.MinimumVersionAWS), nil
 		}
@@ -2124,22 +2105,20 @@ contexts:
   test:
     platform: aws
 `)
-		awsBinaryMock(t)
+		awsBinaryMock(t, mocks)
 		configRoot, err := mocks.ConfigHandler.GetConfigRoot()
 		if err != nil {
 			t.Fatalf("GetConfigRoot failed: %v", err)
 		}
 		t.Setenv("AWS_CONFIG_FILE", filepath.ToSlash(filepath.Join(configRoot, ".aws", "config")))
 		t.Setenv("AWS_SHARED_CREDENTIALS_FILE", filepath.ToSlash(filepath.Join(configRoot, ".aws", "credentials")))
-		originalReadFile := osReadFile
-		osReadFile = func(name string) ([]byte, error) {
+		mocks.Shims.ReadFile = func(name string) ([]byte, error) {
 			return []byte(`
 [profile test]
 sso_session = company
 sso_account_id = 123456789012
 `), nil
 		}
-		t.Cleanup(func() { osReadFile = originalReadFile })
 		mocks.Shell.ExecSilentWithTimeoutFunc = func(command string, args []string, timeout time.Duration) (string, error) {
 			return fmt.Sprintf("aws-cli/%s Python/3.11.8 Linux", constants.MinimumVersionAWS), nil
 		}
@@ -2170,14 +2149,12 @@ contexts:
   test:
     platform: aws
 `)
-		awsBinaryMock(t)
+		awsBinaryMock(t, mocks)
 		t.Setenv("AWS_CONFIG_FILE", "")
 		t.Setenv("AWS_SHARED_CREDENTIALS_FILE", "")
-		originalReadFile := osReadFile
-		osReadFile = func(name string) ([]byte, error) {
+		mocks.Shims.ReadFile = func(name string) ([]byte, error) {
 			return nil, fmt.Errorf("file not found")
 		}
-		t.Cleanup(func() { osReadFile = originalReadFile })
 		mocks.Shell.ExecSilentWithTimeoutFunc = func(command string, args []string, timeout time.Duration) (string, error) {
 			return fmt.Sprintf("aws-cli/%s Python/3.11.8 Linux", constants.MinimumVersionAWS), nil
 		}
@@ -2212,16 +2189,14 @@ contexts:
     aws:
       profile: company-prod
 `)
-		awsBinaryMock(t)
-		originalReadFile := osReadFile
-		osReadFile = func(name string) ([]byte, error) {
+		awsBinaryMock(t, mocks)
+		mocks.Shims.ReadFile = func(name string) ([]byte, error) {
 			return []byte(`
 [profile company-prod]
 sso_session = company
 sso_account_id = 123456789012
 `), nil
 		}
-		t.Cleanup(func() { osReadFile = originalReadFile })
 		mocks.Shell.ExecSilentWithTimeoutFunc = func(command string, args []string, timeout time.Duration) (string, error) {
 			return fmt.Sprintf("aws-cli/%s Python/3.11.8 Linux", constants.MinimumVersionAWS), nil
 		}
@@ -2252,20 +2227,18 @@ contexts:
   test:
     platform: aws
 `)
-		awsBinaryMock(t)
+		awsBinaryMock(t, mocks)
 		t.Setenv("AWS_CONFIG_FILE", "")
 		t.Setenv("AWS_SHARED_CREDENTIALS_FILE", "")
 		mocks.Shell.GetProjectRootFunc = func() (string, error) {
 			return "/Users/foo/my projects", nil
 		}
-		originalReadFile := osReadFile
-		osReadFile = func(name string) ([]byte, error) {
+		mocks.Shims.ReadFile = func(name string) ([]byte, error) {
 			return []byte(`
 [profile test]
 sso_session = company
 `), nil
 		}
-		t.Cleanup(func() { osReadFile = originalReadFile })
 		mocks.Shell.ExecSilentWithTimeoutFunc = func(command string, args []string, timeout time.Duration) (string, error) {
 			return fmt.Sprintf("aws-cli/%s Python/3.11.8 Linux", constants.MinimumVersionAWS), nil
 		}
@@ -2294,7 +2267,7 @@ contexts:
   test:
     platform: aws
 `)
-		awsBinaryMock(t)
+		awsBinaryMock(t, mocks)
 		mocks.Shell.ExecSilentWithTimeoutFunc = func(command string, args []string, timeout time.Duration) (string, error) {
 			return fmt.Sprintf("aws-cli/%s Python/3.11.8 Linux", constants.MinimumVersionAWS), nil
 		}
@@ -2334,7 +2307,7 @@ contexts:
   test:
     platform: aws
 `)
-		awsBinaryMock(t)
+		awsBinaryMock(t, mocks)
 		t.Setenv("AWS_ACCESS_KEY_ID", "AKIATEST")
 		t.Setenv("AWS_SECRET_ACCESS_KEY", "secret")
 		mocks.Shell.ExecSilentWithTimeoutFunc = func(command string, args []string, timeout time.Duration) (string, error) {
@@ -2380,11 +2353,9 @@ contexts:
 `)
 		t.Setenv("AWS_WEB_IDENTITY_TOKEN_FILE", "/var/run/secrets/eks.amazonaws.com/serviceaccount/token")
 		t.Setenv("AWS_ROLE_ARN", "arn:aws:iam::123456789012:role/my-role")
-		originalExecLookPath := execLookPath
-		execLookPath = func(name string) (string, error) {
+		mocks.Shims.LookPath = func(name string) (string, error) {
 			return "", exec.ErrNotFound
 		}
-		t.Cleanup(func() { execLookPath = originalExecLookPath })
 		stsCalled := false
 		mocks.Shell.ExecSilentWithEnvAndTimeoutFunc = func(command string, env map[string]string, args []string, timeout time.Duration) (string, error) {
 			stsCalled = true
@@ -2415,7 +2386,7 @@ contexts:
     platform: aws
 `)
 		mocks.Shell.IsGlobalFunc = func() bool { return true }
-		awsBinaryMock(t)
+		awsBinaryMock(t, mocks)
 		withAmbientProfile(t, "[profile test]\nregion = us-west-2\n")
 		var capturedEnv map[string]string
 		mocks.Shell.ExecSilentWithTimeoutFunc = func(command string, args []string, timeout time.Duration) (string, error) {
@@ -2456,7 +2427,7 @@ contexts:
       profile: company-prod
 `)
 		mocks.Shell.IsGlobalFunc = func() bool { return true }
-		awsBinaryMock(t)
+		awsBinaryMock(t, mocks)
 		withAmbientProfile(t, "[profile company-prod]\nregion = us-east-1\n")
 		var capturedEnv map[string]string
 		mocks.Shell.ExecSilentWithTimeoutFunc = func(command string, args []string, timeout time.Duration) (string, error) {
@@ -2492,7 +2463,7 @@ contexts:
     aws:
       region: us-east-1
 `)
-		awsBinaryMock(t)
+		awsBinaryMock(t, mocks)
 		stsCalled := false
 		mocks.Shell.ExecSilentWithTimeoutFunc = func(command string, args []string, timeout time.Duration) (string, error) {
 			if command == "aws" && len(args) == 1 && args[0] == "--version" {
@@ -2691,19 +2662,18 @@ func Test_awsContextEnv(t *testing.T) {
 func Test_awsAuthHint(t *testing.T) {
 	t.Run("GlobalModeOmitsEnvPrefixAndReadsAmbientConfig", func(t *testing.T) {
 		// Given a toolsManager in global mode with an SSO profile in the ambient
-		// ~/.aws/config (which detectAWSProfileState reads via osReadFile)
+		// ~/.aws/config (which detectAWSProfileState reads via ReadFile)
 		mocks := setupMocks(t)
 		mocks.Shell.IsGlobalFunc = func() bool { return true }
-		originalReadFile := osReadFile
-		osReadFile = func(name string) ([]byte, error) {
+		mocks.Shims.ReadFile = func(name string) ([]byte, error) {
 			return []byte(`
 [profile test]
 sso_session = company
 sso_account_id = 123456789012
 `), nil
 		}
-		t.Cleanup(func() { osReadFile = originalReadFile })
 		toolsManager := NewToolsManager(mocks.ConfigHandler, mocks.Shell)
+		toolsManager.shims = mocks.Shims
 		// When awsAuthHint runs
 		hint := toolsManager.awsAuthHint()
 		// Then the hint suggests `aws sso login` against the operator's existing config
@@ -2727,6 +2697,7 @@ sso_account_id = 123456789012
 			return "", fmt.Errorf("project root not found")
 		}
 		toolsManager := NewToolsManager(mocks.ConfigHandler, mocks.Shell)
+		toolsManager.shims = mocks.Shims
 		// When awsAuthHint runs
 		hint := toolsManager.awsAuthHint()
 		// Then the fallback surfaces BOTH setup paths — dropping access-key guidance would
@@ -2751,20 +2722,20 @@ func TestToolsManager_checkAzureBinary(t *testing.T) {
 		t.Helper()
 		mocks := setupMocks(t)
 		toolsManager := NewToolsManager(mocks.ConfigHandler, mocks.Shell)
+		toolsManager.shims = mocks.Shims
 		return mocks, toolsManager
 	}
 
 	t.Run("Success", func(t *testing.T) {
 		// Given az is available and meets the minimum version
 		mocks, toolsManager := setup(t)
-		originalExecLookPath := execLookPath
-		execLookPath = func(name string) (string, error) {
+		originalExecLookPath := mocks.Shims.LookPath
+		mocks.Shims.LookPath = func(name string) (string, error) {
 			if name == "az" {
 				return "/usr/bin/az", nil
 			}
 			return originalExecLookPath(name)
 		}
-		t.Cleanup(func() { execLookPath = originalExecLookPath })
 		mocks.Shell.ExecSilentWithTimeoutFunc = func(command string, args []string, timeout time.Duration) (string, error) {
 			if command == "az" && len(args) == 1 && args[0] == "--version" {
 				return fmt.Sprintf("azure-cli                         %s\n", constants.MinimumVersionAzure), nil
@@ -2783,15 +2754,14 @@ func TestToolsManager_checkAzureBinary(t *testing.T) {
 
 	t.Run("AzNotAvailable", func(t *testing.T) {
 		// Given az is not in PATH
-		_, toolsManager := setup(t)
-		originalExecLookPath := execLookPath
-		execLookPath = func(name string) (string, error) {
+		mocks, toolsManager := setup(t)
+		originalExecLookPath := mocks.Shims.LookPath
+		mocks.Shims.LookPath = func(name string) (string, error) {
 			if name == "az" {
 				return "", exec.ErrNotFound
 			}
 			return originalExecLookPath(name)
 		}
-		t.Cleanup(func() { execLookPath = originalExecLookPath })
 		// When checking az
 		err := toolsManager.checkAzureBinary()
 		// Then error mentions not on PATH and points to the vendor install URL
@@ -2809,14 +2779,13 @@ func TestToolsManager_checkAzureBinary(t *testing.T) {
 	t.Run("VersionTooLow", func(t *testing.T) {
 		// Given az reports a version below the minimum
 		mocks, toolsManager := setup(t)
-		originalExecLookPath := execLookPath
-		execLookPath = func(name string) (string, error) {
+		originalExecLookPath := mocks.Shims.LookPath
+		mocks.Shims.LookPath = func(name string) (string, error) {
 			if name == "az" {
 				return "/usr/bin/az", nil
 			}
 			return originalExecLookPath(name)
 		}
-		t.Cleanup(func() { execLookPath = originalExecLookPath })
 		mocks.Shell.ExecSilentWithTimeoutFunc = func(command string, args []string, timeout time.Duration) (string, error) {
 			if command == "az" && len(args) == 1 && args[0] == "--version" {
 				return "azure-cli                         1.2.3\n", nil
@@ -2851,33 +2820,30 @@ func TestToolsManager_CheckAuthAzure(t *testing.T) {
 		t.Setenv("AZURE_CONFIG_DIR", "")
 		mocks := setupMocks(t, &SetupOptions{ConfigStr: configStr})
 		toolsManager := NewToolsManager(mocks.ConfigHandler, mocks.Shell)
+		toolsManager.shims = mocks.Shims
 		return mocks, toolsManager
 	}
 
-	azBinaryMock := func(t *testing.T) {
+	azBinaryMock := func(t *testing.T, mocks *Mocks) {
 		t.Helper()
-		originalExecLookPath := execLookPath
-		execLookPath = func(name string) (string, error) {
+		mocks.Shims.LookPath = func(name string) (string, error) {
 			if name == "az" {
 				return "/usr/bin/az", nil
 			}
 			return "", exec.ErrNotFound
 		}
-		t.Cleanup(func() { execLookPath = originalExecLookPath })
 	}
 
 	t.Run("AzurePlatformWithAzCliMissing", func(t *testing.T) {
 		// Given platform: azure and the az CLI is not in PATH
-		_, toolsManager := setup(t, `
+		mocks, toolsManager := setup(t, `
 contexts:
   test:
     platform: azure
 `)
-		originalExecLookPath := execLookPath
-		execLookPath = func(name string) (string, error) {
+		mocks.Shims.LookPath = func(name string) (string, error) {
 			return "", exec.ErrNotFound
 		}
-		t.Cleanup(func() { execLookPath = originalExecLookPath })
 
 		// When CheckAuth runs
 		err := toolsManager.CheckAuth()
@@ -2904,7 +2870,7 @@ contexts:
     azure:
       tenant_id: 11111111-2222-3333-4444-555555555555
 `)
-		azBinaryMock(t)
+		azBinaryMock(t, mocks)
 		var restArgs []string
 		mocks.Shell.ExecSilentWithTimeoutFunc = func(command string, args []string, timeout time.Duration) (string, error) {
 			if command == "az" && len(args) == 1 && args[0] == "--version" {
@@ -2943,7 +2909,7 @@ contexts:
   test:
     platform: azure
 `)
-		azBinaryMock(t)
+		azBinaryMock(t, mocks)
 		var restArgs []string
 		mocks.Shell.ExecSilentWithTimeoutFunc = func(command string, args []string, timeout time.Duration) (string, error) {
 			return fmt.Sprintf("azure-cli                         %s\n", constants.MinimumVersionAzure), nil
@@ -2981,7 +2947,7 @@ contexts:
   test:
     platform: azure
 `)
-		azBinaryMock(t)
+		azBinaryMock(t, mocks)
 		var restArgs []string
 		mocks.Shell.ExecSilentWithTimeoutFunc = func(command string, args []string, timeout time.Duration) (string, error) {
 			return fmt.Sprintf("azure-cli                         %s\n", constants.MinimumVersionAzure), nil
@@ -3018,7 +2984,7 @@ contexts:
     azure:
       tenant_id: 11111111-2222-3333-4444-555555555555
 `)
-		azBinaryMock(t)
+		azBinaryMock(t, mocks)
 		mocks.Shell.ExecSilentWithTimeoutFunc = func(command string, args []string, timeout time.Duration) (string, error) {
 			if command == "az" && len(args) == 1 && args[0] == "--version" {
 				return fmt.Sprintf("azure-cli                         %s\n", constants.MinimumVersionAzure), nil
@@ -3056,7 +3022,7 @@ contexts:
     azure:
       tenant_id: 11111111-2222-3333-4444-555555555555
 `)
-		azBinaryMock(t)
+		azBinaryMock(t, mocks)
 		var capturedEnv map[string]string
 		mocks.Shell.ExecSilentWithTimeoutFunc = func(command string, args []string, timeout time.Duration) (string, error) {
 			return fmt.Sprintf("azure-cli                         %s\n", constants.MinimumVersionAzure), nil
@@ -3094,7 +3060,7 @@ contexts:
     azure:
       tenant_id: 3d8e9161-441c-44e9-b50a-1d9a78c67ab0
 `)
-		azBinaryMock(t)
+		azBinaryMock(t, mocks)
 		mocks.Shell.ExecSilentWithTimeoutFunc = func(command string, args []string, timeout time.Duration) (string, error) {
 			return fmt.Sprintf("azure-cli                         %s\n", constants.MinimumVersionAzure), nil
 		}
@@ -3124,7 +3090,7 @@ contexts:
       subscription_id: 00000000-0000-0000-0000-000000000000
       tenant_id: 11111111-2222-3333-4444-555555555555
 `)
-		azBinaryMock(t)
+		azBinaryMock(t, mocks)
 		restCalled := false
 		mocks.Shell.ExecSilentWithTimeoutFunc = func(command string, args []string, timeout time.Duration) (string, error) {
 			return fmt.Sprintf("azure-cli                         %s\n", constants.MinimumVersionAzure), nil
@@ -3160,11 +3126,9 @@ contexts:
 		t.Setenv("AZURE_FEDERATED_TOKEN_FILE", "/var/run/secrets/azure/tokens/azure-identity-token")
 		t.Setenv("AZURE_CLIENT_ID", "00000000-0000-0000-0000-000000000000")
 		t.Setenv("AZURE_TENANT_ID", "00000000-0000-0000-0000-000000000000")
-		originalExecLookPath := execLookPath
-		execLookPath = func(name string) (string, error) {
+		mocks.Shims.LookPath = func(name string) (string, error) {
 			return "", exec.ErrNotFound
 		}
-		t.Cleanup(func() { execLookPath = originalExecLookPath })
 		azCalled := false
 		mocks.Shell.ExecSilentWithEnvAndTimeoutFunc = func(command string, env map[string]string, args []string, timeout time.Duration) (string, error) {
 			azCalled = true
@@ -3194,7 +3158,7 @@ contexts:
       tenant_id: 11111111-2222-3333-4444-555555555555
 `)
 		mocks.Shell.IsGlobalFunc = func() bool { return true }
-		azBinaryMock(t)
+		azBinaryMock(t, mocks)
 		var capturedEnv map[string]string
 		mocks.Shell.ExecSilentWithTimeoutFunc = func(command string, args []string, timeout time.Duration) (string, error) {
 			return fmt.Sprintf("azure-cli                         %s\n", constants.MinimumVersionAzure), nil
@@ -3238,7 +3202,7 @@ contexts:
       tenant_id: 11111111-2222-3333-4444-555555555555
       environment: %s
 `, tc.env))
-				azBinaryMock(t)
+				azBinaryMock(t, mocks)
 				var restArgs []string
 				mocks.Shell.ExecSilentWithTimeoutFunc = func(command string, args []string, timeout time.Duration) (string, error) {
 					return fmt.Sprintf("azure-cli                         %s\n", constants.MinimumVersionAzure), nil
@@ -3293,6 +3257,7 @@ contexts:
     platform: azure
 `})
 		toolsManager := NewToolsManager(mocks.ConfigHandler, mocks.Shell)
+		toolsManager.shims = mocks.Shims
 		// When azureAuthHint runs
 		hint := toolsManager.azureAuthHint()
 		// Then the suggested `az login` is prefixed with AZURE_CONFIG_DIR pointing at the
@@ -3324,6 +3289,7 @@ contexts:
 		}
 		t.Setenv("AZURE_CONFIG_DIR", filepath.ToSlash(filepath.Join(configRoot, ".azure")))
 		toolsManager := NewToolsManager(mocks.ConfigHandler, mocks.Shell)
+		toolsManager.shims = mocks.Shims
 		// When azureAuthHint runs
 		hint := toolsManager.azureAuthHint()
 		// Then the hint emits a bare `az login` with no env prefix — the operator's shell
@@ -3339,6 +3305,7 @@ contexts:
 		mocks := setupMocks(t)
 		mocks.Shell.IsGlobalFunc = func() bool { return true }
 		toolsManager := NewToolsManager(mocks.ConfigHandler, mocks.Shell)
+		toolsManager.shims = mocks.Shims
 		// When azureAuthHint runs
 		hint := toolsManager.azureAuthHint()
 		// Then no AZURE_CONFIG_DIR prefix is emitted — in global mode windsor defers to the
@@ -3363,6 +3330,7 @@ contexts:
 `})
 		mocks.Shell.IsGlobalFunc = func() bool { return true }
 		toolsManager := NewToolsManager(mocks.ConfigHandler, mocks.Shell)
+		toolsManager.shims = mocks.Shims
 		// When azureAuthHint runs
 		hint := toolsManager.azureAuthHint()
 		// Then the suggested `az login` is pinned to the configured tenant — operators with
@@ -3387,6 +3355,7 @@ func Test_azureContextEnv(t *testing.T) {
 		clearAmbientAzure(t)
 		mocks := setupMocks(t)
 		toolsManager := NewToolsManager(mocks.ConfigHandler, mocks.Shell)
+		toolsManager.shims = mocks.Shims
 
 		// When azureContextEnv is invoked
 		env, err := toolsManager.azureContextEnv()
@@ -3416,6 +3385,7 @@ func Test_azureContextEnv(t *testing.T) {
 		mocks := setupMocks(t)
 		mocks.Shell.IsGlobalFunc = func() bool { return true }
 		toolsManager := NewToolsManager(mocks.ConfigHandler, mocks.Shell)
+		toolsManager.shims = mocks.Shims
 
 		// When azureContextEnv is invoked
 		env, err := toolsManager.azureContextEnv()
@@ -3435,6 +3405,7 @@ func Test_azureContextEnv(t *testing.T) {
 		t.Setenv("AZURE_FEDERATED_TOKEN_FILE", "/var/run/secrets/azure/tokens/azure-identity-token")
 		mocks := setupMocks(t)
 		toolsManager := NewToolsManager(mocks.ConfigHandler, mocks.Shell)
+		toolsManager.shims = mocks.Shims
 
 		// When azureContextEnv is invoked
 		env, err := toolsManager.azureContextEnv()
@@ -3455,6 +3426,7 @@ func Test_azureContextEnv(t *testing.T) {
 		t.Setenv("AZURE_CLIENT_SECRET", "secret")
 		mocks := setupMocks(t)
 		toolsManager := NewToolsManager(mocks.ConfigHandler, mocks.Shell)
+		toolsManager.shims = mocks.Shims
 
 		// When azureContextEnv is invoked
 		env, err := toolsManager.azureContextEnv()
@@ -3474,20 +3446,20 @@ func TestToolsManager_checkGCPBinary(t *testing.T) {
 		t.Helper()
 		mocks := setupMocks(t)
 		toolsManager := NewToolsManager(mocks.ConfigHandler, mocks.Shell)
+		toolsManager.shims = mocks.Shims
 		return mocks, toolsManager
 	}
 
 	t.Run("Success", func(t *testing.T) {
 		// Given gcloud is available and meets the minimum version
 		mocks, toolsManager := setup(t)
-		originalExecLookPath := execLookPath
-		execLookPath = func(name string) (string, error) {
+		originalExecLookPath := mocks.Shims.LookPath
+		mocks.Shims.LookPath = func(name string) (string, error) {
 			if name == "gcloud" {
 				return "/usr/bin/gcloud", nil
 			}
 			return originalExecLookPath(name)
 		}
-		t.Cleanup(func() { execLookPath = originalExecLookPath })
 		mocks.Shell.ExecSilentWithTimeoutFunc = func(command string, args []string, timeout time.Duration) (string, error) {
 			if command == "gcloud" && len(args) == 1 && args[0] == "--version" {
 				return fmt.Sprintf("Google Cloud SDK %s\n", constants.MinimumVersionGCP), nil
@@ -3505,15 +3477,14 @@ func TestToolsManager_checkGCPBinary(t *testing.T) {
 
 	t.Run("GcloudNotAvailable", func(t *testing.T) {
 		// Given gcloud is not in PATH
-		_, toolsManager := setup(t)
-		originalExecLookPath := execLookPath
-		execLookPath = func(name string) (string, error) {
+		mocks, toolsManager := setup(t)
+		originalExecLookPath := mocks.Shims.LookPath
+		mocks.Shims.LookPath = func(name string) (string, error) {
 			if name == "gcloud" {
 				return "", exec.ErrNotFound
 			}
 			return originalExecLookPath(name)
 		}
-		t.Cleanup(func() { execLookPath = originalExecLookPath })
 		// When checking gcloud
 		err := toolsManager.checkGCPBinary()
 		// Then error mentions not on PATH and points to the vendor install URL
@@ -3531,14 +3502,13 @@ func TestToolsManager_checkGCPBinary(t *testing.T) {
 	t.Run("VersionTooLow", func(t *testing.T) {
 		// Given gcloud reports a version below the minimum
 		mocks, toolsManager := setup(t)
-		originalExecLookPath := execLookPath
-		execLookPath = func(name string) (string, error) {
+		originalExecLookPath := mocks.Shims.LookPath
+		mocks.Shims.LookPath = func(name string) (string, error) {
 			if name == "gcloud" {
 				return "/usr/bin/gcloud", nil
 			}
 			return originalExecLookPath(name)
 		}
-		t.Cleanup(func() { execLookPath = originalExecLookPath })
 		mocks.Shell.ExecSilentWithTimeoutFunc = func(command string, args []string, timeout time.Duration) (string, error) {
 			if command == "gcloud" && len(args) == 1 && args[0] == "--version" {
 				return "Google Cloud SDK 1.2.3\n", nil
@@ -3566,33 +3536,30 @@ func TestToolsManager_CheckAuthGCP(t *testing.T) {
 		t.Setenv("CLOUDSDK_CONFIG", "")
 		mocks := setupMocks(t, &SetupOptions{ConfigStr: configStr})
 		toolsManager := NewToolsManager(mocks.ConfigHandler, mocks.Shell)
+		toolsManager.shims = mocks.Shims
 		return mocks, toolsManager
 	}
 
-	gcloudBinaryMock := func(t *testing.T) {
+	gcloudBinaryMock := func(t *testing.T, mocks *Mocks) {
 		t.Helper()
-		originalExecLookPath := execLookPath
-		execLookPath = func(name string) (string, error) {
+		mocks.Shims.LookPath = func(name string) (string, error) {
 			if name == "gcloud" {
 				return "/usr/bin/gcloud", nil
 			}
 			return "", exec.ErrNotFound
 		}
-		t.Cleanup(func() { execLookPath = originalExecLookPath })
 	}
 
 	t.Run("GCPPlatformWithGcloudCliMissing", func(t *testing.T) {
 		// Given platform: gcp and the gcloud CLI is not in PATH
-		_, toolsManager := setup(t, `
+		mocks, toolsManager := setup(t, `
 contexts:
   test:
     platform: gcp
 `)
-		originalExecLookPath := execLookPath
-		execLookPath = func(name string) (string, error) {
+		mocks.Shims.LookPath = func(name string) (string, error) {
 			return "", exec.ErrNotFound
 		}
-		t.Cleanup(func() { execLookPath = originalExecLookPath })
 
 		// When CheckAuth runs
 		err := toolsManager.CheckAuth()
@@ -3609,17 +3576,15 @@ contexts:
 		// Given platform: gcp, ambient Application Default Credentials are present
 		// (GOOGLE_APPLICATION_CREDENTIALS set, as google-github-actions/auth does in CI),
 		// and the gcloud CLI is not in PATH
-		_, toolsManager := setup(t, `
+		mocks, toolsManager := setup(t, `
 contexts:
   test:
     platform: gcp
 `)
 		t.Setenv("GOOGLE_APPLICATION_CREDENTIALS", "/var/run/secrets/gcp/key.json")
-		originalExecLookPath := execLookPath
-		execLookPath = func(name string) (string, error) {
+		mocks.Shims.LookPath = func(name string) (string, error) {
 			return "", exec.ErrNotFound
 		}
-		t.Cleanup(func() { execLookPath = originalExecLookPath })
 
 		// When CheckAuth runs
 		err := toolsManager.CheckAuth()
@@ -3642,7 +3607,7 @@ contexts:
   test:
     platform: gcp
 `)
-		gcloudBinaryMock(t)
+		gcloudBinaryMock(t, mocks)
 		var tokenArgs []string
 		mocks.Shell.ExecSilentWithTimeoutFunc = func(command string, args []string, timeout time.Duration) (string, error) {
 			if command == "gcloud" && len(args) == 1 && args[0] == "--version" {
@@ -3678,7 +3643,7 @@ contexts:
   test:
     platform: gcp
 `)
-		gcloudBinaryMock(t)
+		gcloudBinaryMock(t, mocks)
 		mocks.Shell.ExecSilentWithTimeoutFunc = func(command string, args []string, timeout time.Duration) (string, error) {
 			return fmt.Sprintf("Google Cloud SDK %s\n", constants.MinimumVersionGCP), nil
 		}
@@ -3710,7 +3675,7 @@ contexts:
   test:
     platform: gcp
 `)
-		gcloudBinaryMock(t)
+		gcloudBinaryMock(t, mocks)
 		var capturedEnv map[string]string
 		mocks.Shell.ExecSilentWithTimeoutFunc = func(command string, args []string, timeout time.Duration) (string, error) {
 			return fmt.Sprintf("Google Cloud SDK %s\n", constants.MinimumVersionGCP), nil
@@ -3749,6 +3714,7 @@ contexts:
     platform: gcp
 `})
 		toolsManager := NewToolsManager(mocks.ConfigHandler, mocks.Shell)
+		toolsManager.shims = mocks.Shims
 		// When gcpAuthHint runs
 		hint := toolsManager.gcpAuthHint()
 		// Then the suggested login is prefixed with CLOUDSDK_CONFIG pointing at the
@@ -3775,6 +3741,7 @@ contexts:
 		}
 		t.Setenv("CLOUDSDK_CONFIG", filepath.ToSlash(filepath.Join(configRoot, ".gcp", "gcloud")))
 		toolsManager := NewToolsManager(mocks.ConfigHandler, mocks.Shell)
+		toolsManager.shims = mocks.Shims
 		// When gcpAuthHint runs
 		hint := toolsManager.gcpAuthHint()
 		// Then the hint emits a bare login command with no env prefix.
@@ -3788,6 +3755,7 @@ contexts:
 		mocks := setupMocks(t)
 		mocks.Shell.IsGlobalFunc = func() bool { return true }
 		toolsManager := NewToolsManager(mocks.ConfigHandler, mocks.Shell)
+		toolsManager.shims = mocks.Shims
 		// When gcpAuthHint runs
 		hint := toolsManager.gcpAuthHint()
 		// Then no CLOUDSDK_CONFIG prefix is emitted — in global mode windsor defers to the
@@ -3807,6 +3775,7 @@ func Test_gcpContextEnv(t *testing.T) {
 		t.Setenv("GOOGLE_APPLICATION_CREDENTIALS", "")
 		mocks := setupMocks(t)
 		toolsManager := NewToolsManager(mocks.ConfigHandler, mocks.Shell)
+		toolsManager.shims = mocks.Shims
 
 		// When gcpContextEnv is invoked
 		env, err := toolsManager.gcpContextEnv()
@@ -3831,6 +3800,7 @@ func Test_gcpContextEnv(t *testing.T) {
 		mocks := setupMocks(t)
 		mocks.Shell.IsGlobalFunc = func() bool { return true }
 		toolsManager := NewToolsManager(mocks.ConfigHandler, mocks.Shell)
+		toolsManager.shims = mocks.Shims
 
 		// When gcpContextEnv is invoked
 		env, err := toolsManager.gcpContextEnv()
@@ -3850,6 +3820,7 @@ func Test_gcpContextEnv(t *testing.T) {
 		t.Setenv("GOOGLE_APPLICATION_CREDENTIALS", "/var/run/secrets/gcp/key.json")
 		mocks := setupMocks(t)
 		toolsManager := NewToolsManager(mocks.ConfigHandler, mocks.Shell)
+		toolsManager.shims = mocks.Shims
 
 		// When gcpContextEnv is invoked
 		env, err := toolsManager.gcpContextEnv()
@@ -3865,34 +3836,34 @@ func Test_gcpContextEnv(t *testing.T) {
 }
 
 func Test_detectAWSProfileState(t *testing.T) {
-	withReadFile := func(t *testing.T, contents string, readErr error) {
+	withReadFile := func(t *testing.T, contents string, readErr error) *BaseToolsManager {
 		t.Helper()
-		original := osReadFile
-		osReadFile = func(name string) ([]byte, error) {
+		shims := NewShims()
+		shims.ReadFile = func(name string) ([]byte, error) {
 			if readErr != nil {
 				return nil, readErr
 			}
 			return []byte(contents), nil
 		}
-		t.Cleanup(func() { osReadFile = original })
+		return &BaseToolsManager{shims: shims}
 	}
 
 	t.Run("NoFileReturnsNone", func(t *testing.T) {
-		withReadFile(t, "", os.ErrNotExist)
-		if got := detectAWSProfileState("/irrelevant", "prod"); got != awsProfileNone {
+		toolsManager := withReadFile(t, "", os.ErrNotExist)
+		if got := toolsManager.detectAWSProfileState("/irrelevant", "prod"); got != awsProfileNone {
 			t.Errorf("expected awsProfileNone for missing file, got %v", got)
 		}
 	})
 
 	t.Run("ProfileWithSsoSessionReturnsSSO", func(t *testing.T) {
-		withReadFile(t, `
+		toolsManager := withReadFile(t, `
 [profile prod]
 sso_session = company
 sso_account_id = 123456789012
 sso_role_name = Admin
 region = us-east-1
 `, nil)
-		if got := detectAWSProfileState("/irrelevant", "prod"); got != awsProfileSSO {
+		if got := toolsManager.detectAWSProfileState("/irrelevant", "prod"); got != awsProfileSSO {
 			t.Errorf("expected awsProfileSSO, got %v", got)
 		}
 	})
@@ -3901,36 +3872,36 @@ region = us-east-1
 		// Legacy SSO profile form (pre-IAM-Identity-Center-sessions) uses sso_start_url
 		// directly on the profile. detectAWSProfileState treats that as SSO too so expired
 		// tokens route to the sso-login hint.
-		withReadFile(t, `
+		toolsManager := withReadFile(t, `
 [profile prod]
 sso_start_url = https://example.awsapps.com/start
 sso_region = us-east-1
 sso_account_id = 123456789012
 `, nil)
-		if got := detectAWSProfileState("/irrelevant", "prod"); got != awsProfileSSO {
+		if got := toolsManager.detectAWSProfileState("/irrelevant", "prod"); got != awsProfileSSO {
 			t.Errorf("expected awsProfileSSO for legacy sso_start_url profile, got %v", got)
 		}
 	})
 
 	t.Run("ProfileWithAccessKeysReturnsKeys", func(t *testing.T) {
-		withReadFile(t, `
+		toolsManager := withReadFile(t, `
 [profile prod]
 aws_access_key_id = AKIATEST
 aws_secret_access_key = secret
 region = us-west-2
 `, nil)
-		if got := detectAWSProfileState("/irrelevant", "prod"); got != awsProfileKeys {
+		if got := toolsManager.detectAWSProfileState("/irrelevant", "prod"); got != awsProfileKeys {
 			t.Errorf("expected awsProfileKeys, got %v", got)
 		}
 	})
 
 	t.Run("MissingProfileReturnsNone", func(t *testing.T) {
 		// Config file has sections for other profiles but nothing for `prod`.
-		withReadFile(t, `
+		toolsManager := withReadFile(t, `
 [profile dev]
 aws_access_key_id = AKIADEV
 `, nil)
-		if got := detectAWSProfileState("/irrelevant", "prod"); got != awsProfileNone {
+		if got := toolsManager.detectAWSProfileState("/irrelevant", "prod"); got != awsProfileNone {
 			t.Errorf("expected awsProfileNone when profile not present, got %v", got)
 		}
 	})
@@ -3938,24 +3909,24 @@ aws_access_key_id = AKIADEV
 	t.Run("DefaultProfileUsesDefaultHeader", func(t *testing.T) {
 		// [default] uses a different header form than [profile <name>]; detection must
 		// route to the bare header when the profile name is literally "default".
-		withReadFile(t, `
+		toolsManager := withReadFile(t, `
 [default]
 aws_access_key_id = AKIADEFAULT
 `, nil)
-		if got := detectAWSProfileState("/irrelevant", "default"); got != awsProfileKeys {
+		if got := toolsManager.detectAWSProfileState("/irrelevant", "default"); got != awsProfileKeys {
 			t.Errorf("expected awsProfileKeys for [default], got %v", got)
 		}
 	})
 
 	t.Run("CommentsAndBlankLinesIgnored", func(t *testing.T) {
-		withReadFile(t, `
+		toolsManager := withReadFile(t, `
 # header comment
 [profile prod]
 
 # inline comment
 sso_session = company
 `, nil)
-		if got := detectAWSProfileState("/irrelevant", "prod"); got != awsProfileSSO {
+		if got := toolsManager.detectAWSProfileState("/irrelevant", "prod"); got != awsProfileSSO {
 			t.Errorf("expected awsProfileSSO with comments/blanks, got %v", got)
 		}
 	})
@@ -4037,6 +4008,7 @@ func TestToolsManager_GetTerraformCommand(t *testing.T) {
 		t.Helper()
 		mocks := setupMocks(t)
 		toolsManager := NewToolsManager(mocks.ConfigHandler, mocks.Shell)
+		toolsManager.shims = mocks.Shims
 		return mocks, toolsManager
 	}
 
@@ -4192,11 +4164,7 @@ func TestToolsManager_GetTerraformCommand(t *testing.T) {
 `), 0644); err != nil {
 			t.Fatalf("Failed to write windsor.yaml: %v", err)
 		}
-		originalExecLookPath := execLookPath
-		defer func() {
-			execLookPath = originalExecLookPath
-		}()
-		execLookPath = func(name string) (string, error) {
+		mocks.Shims.LookPath = func(name string) (string, error) {
 			if name == "terraform" {
 				return "/usr/bin/terraform", nil
 			}
@@ -4217,6 +4185,7 @@ func TestToolsManager_getTerraformDriver(t *testing.T) {
 		t.Helper()
 		mocks := setupMocks(t)
 		toolsManager := NewToolsManager(mocks.ConfigHandler, mocks.Shell)
+		toolsManager.shims = mocks.Shims
 		return mocks, toolsManager
 	}
 
@@ -4237,11 +4206,7 @@ func TestToolsManager_getTerraformDriver(t *testing.T) {
 		mocks.Shell.GetProjectRootFunc = func() (string, error) {
 			return "", fmt.Errorf("failed to get project root")
 		}
-		originalExecLookPath := execLookPath
-		defer func() {
-			execLookPath = originalExecLookPath
-		}()
-		execLookPath = func(name string) (string, error) {
+		mocks.Shims.LookPath = func(name string) (string, error) {
 			if name == "terraform" {
 				return "/usr/bin/terraform", nil
 			}
@@ -4262,11 +4227,7 @@ func TestToolsManager_getTerraformDriver(t *testing.T) {
 		mocks.Shell.GetProjectRootFunc = func() (string, error) {
 			return tmpDir, nil
 		}
-		originalExecLookPath := execLookPath
-		defer func() {
-			execLookPath = originalExecLookPath
-		}()
-		execLookPath = func(name string) (string, error) {
+		mocks.Shims.LookPath = func(name string) (string, error) {
 			if name == "terraform" {
 				return "/usr/bin/terraform", nil
 			}
@@ -4297,11 +4258,7 @@ func TestToolsManager_getTerraformDriver(t *testing.T) {
 			}
 			defer os.Chmod(windsorYaml, 0644)
 		}
-		originalExecLookPath := execLookPath
-		defer func() {
-			execLookPath = originalExecLookPath
-		}()
-		execLookPath = func(name string) (string, error) {
+		mocks.Shims.LookPath = func(name string) (string, error) {
 			if name == "terraform" {
 				return "/usr/bin/terraform", nil
 			}
@@ -4326,11 +4283,7 @@ func TestToolsManager_getTerraformDriver(t *testing.T) {
 		if err := os.WriteFile(windsorYaml, []byte(`invalid: yaml: [content`), 0644); err != nil {
 			t.Fatalf("Failed to write windsor.yaml: %v", err)
 		}
-		originalExecLookPath := execLookPath
-		defer func() {
-			execLookPath = originalExecLookPath
-		}()
-		execLookPath = func(name string) (string, error) {
+		mocks.Shims.LookPath = func(name string) (string, error) {
 			if name == "terraform" {
 				return "/usr/bin/terraform", nil
 			}
@@ -4451,11 +4404,7 @@ func TestToolsManager_getTerraformDriver(t *testing.T) {
 `), 0644); err != nil {
 			t.Fatalf("Failed to write windsor.yaml: %v", err)
 		}
-		originalExecLookPath := execLookPath
-		defer func() {
-			execLookPath = originalExecLookPath
-		}()
-		execLookPath = func(name string) (string, error) {
+		mocks.Shims.LookPath = func(name string) (string, error) {
 			if name == "terraform" {
 				return "/usr/bin/terraform", nil
 			}
@@ -4482,11 +4431,7 @@ func TestToolsManager_getTerraformDriver(t *testing.T) {
 `), 0644); err != nil {
 			t.Fatalf("Failed to write windsor.yaml: %v", err)
 		}
-		originalExecLookPath := execLookPath
-		defer func() {
-			execLookPath = originalExecLookPath
-		}()
-		execLookPath = func(name string) (string, error) {
+		mocks.Shims.LookPath = func(name string) (string, error) {
 			if name == "terraform" {
 				return "/usr/bin/terraform", nil
 			}
@@ -4506,17 +4451,15 @@ func TestToolsManager_detectTerraformDriver(t *testing.T) {
 	setup := func(t *testing.T) *BaseToolsManager {
 		t.Helper()
 		mocks := setupMocks(t)
-		return NewToolsManager(mocks.ConfigHandler, mocks.Shell)
+		toolsManager := NewToolsManager(mocks.ConfigHandler, mocks.Shell)
+		toolsManager.shims = mocks.Shims
+		return toolsManager
 	}
 
 	t.Run("ReturnsTerraformWhenTerraformAvailable", func(t *testing.T) {
 		// Given terraform is available in PATH
 		toolsManager := setup(t)
-		originalExecLookPath := execLookPath
-		defer func() {
-			execLookPath = originalExecLookPath
-		}()
-		execLookPath = func(name string) (string, error) {
+		toolsManager.shims.LookPath = func(name string) (string, error) {
 			if name == "terraform" {
 				return "/usr/bin/terraform", nil
 			}
@@ -4533,11 +4476,7 @@ func TestToolsManager_detectTerraformDriver(t *testing.T) {
 	t.Run("ReturnsOpentofuWhenOnlyTofuAvailable", func(t *testing.T) {
 		// Given only tofu is available in PATH
 		toolsManager := setup(t)
-		originalExecLookPath := execLookPath
-		defer func() {
-			execLookPath = originalExecLookPath
-		}()
-		execLookPath = func(name string) (string, error) {
+		toolsManager.shims.LookPath = func(name string) (string, error) {
 			if name == "tofu" {
 				return "/usr/bin/tofu", nil
 			}
@@ -4554,11 +4493,7 @@ func TestToolsManager_detectTerraformDriver(t *testing.T) {
 	t.Run("ReturnsTerraformWhenNeitherAvailable", func(t *testing.T) {
 		// Given neither terraform nor tofu is available
 		toolsManager := setup(t)
-		originalExecLookPath := execLookPath
-		defer func() {
-			execLookPath = originalExecLookPath
-		}()
-		execLookPath = func(name string) (string, error) {
+		toolsManager.shims.LookPath = func(name string) (string, error) {
 			return "", exec.ErrNotFound
 		}
 		// When detectTerraformDriver is called
@@ -4572,11 +4507,7 @@ func TestToolsManager_detectTerraformDriver(t *testing.T) {
 	t.Run("PrefersTerraformOverTofu", func(t *testing.T) {
 		// Given both terraform and tofu are available
 		toolsManager := setup(t)
-		originalExecLookPath := execLookPath
-		defer func() {
-			execLookPath = originalExecLookPath
-		}()
-		execLookPath = func(name string) (string, error) {
+		toolsManager.shims.LookPath = func(name string) (string, error) {
 			if name == "terraform" || name == "tofu" {
 				return "/usr/bin/" + name, nil
 			}

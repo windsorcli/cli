@@ -1,14 +1,14 @@
+// The MockShell is the test double of the Shell interface.
+// It provides one function field for each Shell method, which a test sets to control the result.
+// A method with no function field set returns zero values, or calls a related mock method.
+// Tests use it to simulate command output without running system commands.
+
 package shell
 
 import (
 	"fmt"
 	"time"
 )
-
-// The MockShell is a mock implementation of the Shell interface for testing purposes.
-// It provides a way to simulate shell operations without executing actual system commands.
-// It allows for controlled testing of shell-dependent functionality by providing mock implementations of all Shell interface methods.
-// Key features include customizable function implementations for each Shell interface method.
 
 // =============================================================================
 // Types

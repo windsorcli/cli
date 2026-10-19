@@ -1,4 +1,20 @@
+// The shell hooks are the scripts that run windsor env on each prompt or directory change.
+// It provides a hook script for zsh, bash, fish, tcsh, elvish, and PowerShell.
+// InstallHook renders the hook for one shell with the path of the Windsor binary.
+// The user evaluates the output in the shell profile to install the hook.
+
 package shell
+
+import (
+	"bytes"
+	"fmt"
+	"os"
+	"strings"
+)
+
+// =============================================================================
+// Constants
+// =============================================================================
 
 var shellHooks = map[string]string{
 	"zsh": `
@@ -63,4 +79,66 @@ var shellHooks = map[string]string{
 				}
 		}
 		`,
+}
+
+// =============================================================================
+// Types
+// =============================================================================
+
+// HookContext are the variables available during hook template evaluation
+type HookContext struct {
+	// SelfPath is the unescaped absolute path to the Windsor binary
+	SelfPath string
+}
+
+// =============================================================================
+// Public Methods
+// =============================================================================
+
+// InstallHook sets up a shell hook for a specified shell using a template with the Windsor path.
+// It returns an error if the shell is unsupported. For PowerShell, it formats the script into a single line.
+func (s *DefaultShell) InstallHook(shellName string) error {
+	hookCommand, ok := shellHooks[shellName]
+	if !ok {
+		return fmt.Errorf("Unsupported shell: %s", shellName)
+	}
+
+	selfPath, err := s.shims.Executable()
+	if err != nil {
+		return err
+	}
+
+	ctx := HookContext{SelfPath: selfPath}
+
+	hookTemplate := s.shims.NewTemplate("hook")
+	if hookTemplate == nil {
+		return fmt.Errorf("failed to create new template")
+	}
+
+	hookTemplate, err = s.shims.TemplateParse(hookTemplate, hookCommand)
+	if err != nil {
+		return fmt.Errorf("failed to parse hook template: %w", err)
+	}
+
+	var buf bytes.Buffer
+	if err := s.shims.TemplateExecute(hookTemplate, &buf, ctx); err != nil {
+		return fmt.Errorf("failed to execute hook template: %w", err)
+	}
+
+	hookScript := buf.String()
+
+	if shellName == "powershell" {
+		lines := strings.Split(hookScript, "\n")
+		var cleaned []string
+		for _, line := range lines {
+			line = strings.TrimSpace(line)
+			if line != "" {
+				cleaned = append(cleaned, line)
+			}
+		}
+		hookScript = strings.Join(cleaned, "; ")
+	}
+
+	_, err = os.Stdout.WriteString(hookScript)
+	return err
 }

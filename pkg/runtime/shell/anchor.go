@@ -1,3 +1,8 @@
+// The project anchor checks are the filesystem checks that windsor init runs before the runtime exists.
+// It provides EnsureGitRepository, which requires a git repository at or above the current directory.
+// It provides EnsureProjectAnchor, which writes a windsor.yaml when no project file is found.
+// Without the anchor, init falls back to the global config in $HOME and changes it.
+
 package shell
 
 import (
@@ -5,15 +10,6 @@ import (
 	"os"
 	"path/filepath"
 )
-
-// The anchor.go file provides pure filesystem-walk helpers used by `windsor
-// init` to verify project identity before any runtime is constructed:
-//   - EnsureGitRepository asserts the cwd is inside a git repository, since
-//     Windsor relies on git for trusted-directory ownership and blueprint refs.
-//   - EnsureProjectAnchor writes a minimal windsor.yaml in the cwd when no
-//     project file exists anywhere up the walk, preventing init from falling
-//     back to the global $HOME config and silently operating against it.
-// Both functions are stateless and exported so cmd/ stays a thin cobra layer.
 
 // =============================================================================
 // Public Functions

@@ -115,11 +115,11 @@ func TestOutdatedToolError(t *testing.T) {
 }
 
 // TestToolRegistry_KeysMatchCheckFunctions guards against drift between the toolRegistry
-// keys and the strings each check* function passes to execLookPath. If a check* function
+// keys and the strings each check* function passes to LookPath. If a check* function
 // is added that uses an unregistered key, errors silently degrade to the bare-fallback
 // format with no install hints — that's the failure mode this test catches at CI time.
 func TestToolRegistry_KeysMatchCheckFunctions(t *testing.T) {
-	// Each entry is a binary name passed to execLookPath inside a check* function.
+	// Each entry is a binary name passed to LookPath inside a check* function.
 	// "tofu" is included alongside "terraform" because GetTerraformCommand can return
 	// either depending on the configured driver; both must format errors identically.
 	expectedKeys := []string{"docker", "colima", "limactl", "terraform", "tofu", "op", "sops", "kubelogin", "aws", "az"}

@@ -1,3 +1,8 @@
+// The MockToolsManager is the test double of the ToolsManager interface.
+// It provides one function field for each ToolsManager method, which a test sets to control the result.
+// A method with no function field set returns a zero value, or uses a related function field.
+// Tests use it to simulate a passed or failed tool check without the tools installed.
+
 package tools
 
 // MockToolsManager is a mock implementation of the ToolsManager interface for testing purposes.

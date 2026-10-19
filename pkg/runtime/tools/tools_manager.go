@@ -1,41 +1,25 @@
+// The ToolsManager is the preflight check for the external tools that Windsor commands run.
+// It provides the tool checks that a command requests, the cloud credential checks, and the terraform driver.
+// Each check runs only when the context config uses the tool, so a broad request is safe.
+// A failed check returns an error that names the tool, its minimum version, and its install page.
+
 package tools
 
 import (
 	"fmt"
 	"os"
-	"path/filepath"
-	"regexp"
-	"runtime"
-	"strconv"
 	"strings"
 	"time"
 
 	"github.com/goccy/go-yaml"
 	"github.com/windsorcli/cli/pkg/constants"
 	"github.com/windsorcli/cli/pkg/runtime/config"
-	"github.com/windsorcli/cli/pkg/runtime/internal/awsprofile"
 	"github.com/windsorcli/cli/pkg/runtime/shell"
-	"golang.org/x/sys/cpu"
 )
 
-// The ToolsManager is a core component that manages development tools and dependencies
-// required for infrastructure and application development. It handles the lifecycle of
-// development tools through a manifest-based approach, ensuring consistent tooling
-// across development environments. The manager facilitates tool version management,
-// installation verification, and dependency resolution. It integrates with the project's
-// configuration system to determine required tools and their versions, enabling
-// reproducible development environments. The manager supports both local and remote
-// tool installations, with built-in version checking and compatibility validation.
-
-type ToolsManager interface {
-	WriteManifest() error
-	Install() error
-	Check() error
-	CheckRequirements(reqs Requirements) error
-	CheckAuth() error
-	CheckTerraform() error
-	GetTerraformCommand() string
-}
+// =============================================================================
+// Types
+// =============================================================================
 
 // Requirements is the set of tool families a single command's codepath will actually exercise.
 // Each field is opt-in: a command requests only what it will run, and the corresponding check
@@ -51,43 +35,27 @@ type Requirements struct {
 	Kubelogin bool
 }
 
-// AllRequirements returns a Requirements with every field true. Used by `windsor check` (the
-// explicit "verify my whole setup" command) and as the default for code paths that must
-// preserve historical Check() behavior.
-func AllRequirements() Requirements {
-	return Requirements{
-		Docker:    true,
-		Colima:    true,
-		Terraform: true,
-		Secrets:   true,
-		Kubelogin: true,
-	}
-}
-
 // BaseToolsManager is the base implementation of the ToolsManager interface.
 type BaseToolsManager struct {
 	configHandler config.ConfigHandler
 	shell         shell.Shell
+	shims         *Shims
 }
 
 // =============================================================================
-// Constants
+// Interfaces
 // =============================================================================
 
-// awsProfile* values classify what the context-scoped .aws/config has for a profile.
-// awsProfileNone covers missing file, unreadable file, or profile not present.
-const (
-	awsProfileNone awsProfileState = iota
-	awsProfileSSO
-	awsProfileKeys
-)
-
-// =============================================================================
-// Types
-// =============================================================================
-
-// awsProfileState classifies an .aws/config profile entry so CheckAuth can tailor its hint.
-type awsProfileState int
+// ToolsManager checks that the tools and the cloud credentials of a Windsor command are ready.
+type ToolsManager interface {
+	WriteManifest() error
+	Install() error
+	Check() error
+	CheckRequirements(reqs Requirements) error
+	CheckAuth() error
+	CheckTerraform() error
+	GetTerraformCommand() string
+}
 
 // =============================================================================
 // Constructor
@@ -104,20 +72,34 @@ func NewToolsManager(configHandler config.ConfigHandler, shell shell.Shell) *Bas
 	return &BaseToolsManager{
 		configHandler: configHandler,
 		shell:         shell,
+		shims:         NewShims(),
 	}
 }
 
-// WriteManifest writes the tools manifest to the project root.
-// It should not overwrite existing manifest files, but
-// update them appropriately.
+// AllRequirements returns a Requirements with every field true. Used by `windsor check` (the
+// explicit "verify my whole setup" command) and as the default for code paths that must
+// preserve historical Check() behavior.
+func AllRequirements() Requirements {
+	return Requirements{
+		Docker:    true,
+		Colima:    true,
+		Terraform: true,
+		Secrets:   true,
+		Kubelogin: true,
+	}
+}
+
+// =============================================================================
+// Public Methods
+// =============================================================================
+
+// WriteManifest is a placeholder for the tools manifest. It does nothing and returns nil.
 func (t *BaseToolsManager) WriteManifest() error {
-	// Placeholder
 	return nil
 }
 
-// Install installs the tools required by the project.
+// Install is a placeholder for the tool installation. It does nothing and returns nil.
 func (t *BaseToolsManager) Install() error {
-	// Placeholder
 	return nil
 }
 
@@ -189,134 +171,53 @@ func (t *BaseToolsManager) CheckRequirements(reqs Requirements) error {
 	return nil
 }
 
-// =============================================================================
-// Private Methods
-// =============================================================================
-
-// checkDocker ensures Docker is available in the system's PATH. When not in Colima mode it also
-// verifies the docker CLI version meets the minimum. Docker Compose is not required.
-func (t *BaseToolsManager) checkDocker() error {
-	if _, err := execLookPath("docker"); err != nil {
-		return missingToolError("docker")
-	}
-
-	workstationRuntime := t.configHandler.GetString("workstation.runtime")
-	isColimaMode := workstationRuntime == "colima"
-
-	if !isColimaMode {
-		output, err := t.shell.ExecSilentWithTimeout("docker", []string{"--version"}, 5*time.Second)
-		if err != nil {
-			return fmt.Errorf("docker --version failed: %v", err)
-		}
-		dockerVersion := extractVersion(output)
-		if dockerVersion != "" && compareVersion(dockerVersion, constants.MinimumVersionDocker) < 0 {
-			return outdatedToolError("docker", dockerVersion)
+// CheckAuth verifies the operator has the cloud CLIs for in-use platforms and that their
+// credentials resolve. Called from terraform-touching command paths (bootstrap/up/apply/
+// plan/destroy) and `windsor check` — never from `init` or `env`.
+func (t *BaseToolsManager) CheckAuth() error {
+	if t.awsEnabled() {
+		if err := t.checkAWSAuth(); err != nil {
+			return err
 		}
 	}
-
+	if t.azureEnabled() {
+		if err := t.checkAzureAuth(); err != nil {
+			return err
+		}
+	}
+	if t.gcpEnabled() {
+		if err := t.checkGCPAuth(); err != nil {
+			return err
+		}
+	}
 	return nil
 }
 
-// checkColima ensures Colima and Limactl are available in the system's PATH using execLookPath.
-// It checks for 'colima' and 'limactl' in the system's PATH and verifies their versions.
-// Returns nil if both are found and meet the minimum version requirements, else an error indicating either is not available or outdated.
-func (t *BaseToolsManager) checkColima() error {
-	if _, err := execLookPath("colima"); err != nil {
-		return missingToolError("colima")
+// CheckTerraform ensures Terraform or OpenTofu is available in the system's PATH using LookPath.
+// It checks for the configured driver command in the system's PATH and verifies its version.
+// Returns nil if found and meets the minimum version requirement, else an error indicating it is not available or outdated.
+// Exported (unlike the other check* methods) so callers that need Terraform unconditionally —
+// e.g. the composer's standard module resolver, which shells out to `terraform init` to resolve
+// git/registry-sourced modules regardless of terraform.enabled — can get the same
+// missingToolError/outdatedToolError messages as CheckRequirements without going through its
+// config-gated Terraform field.
+func (t *BaseToolsManager) CheckTerraform() error {
+	command := t.GetTerraformCommand()
+	if _, err := t.shims.LookPath(command); err != nil {
+		return missingToolError(command)
 	}
-	output, err := t.shell.ExecSilentWithTimeout("colima", []string{"version"}, 5*time.Second)
+	output, err := t.shell.ExecSilentWithTimeout(command, []string{"version"}, 5*time.Second)
 	if err != nil {
-		return fmt.Errorf("colima version check failed: %v", err)
+		return fmt.Errorf("%s version check failed: %v", command, err)
 	}
-	colimaVersion := extractVersion(output)
-	if colimaVersion == "" {
-		return fmt.Errorf("failed to extract colima version")
+	terraformVersion := extractVersion(output)
+	if terraformVersion == "" {
+		return fmt.Errorf("failed to extract %s version", command)
 	}
-	if compareVersion(colimaVersion, constants.MinimumVersionColima) < 0 {
-		return outdatedToolError("colima", colimaVersion)
-	}
-
-	if _, err := execLookPath("limactl"); err != nil {
-		return missingToolError("limactl")
-	}
-	output, err = t.shell.ExecSilentWithTimeout("limactl", []string{"--version"}, 5*time.Second)
-	if err != nil {
-		return fmt.Errorf("limactl version check failed: %v", err)
-	}
-	limactlVersion := extractVersion(output)
-	if limactlVersion == "" {
-		return fmt.Errorf("failed to extract limactl version")
-	}
-	minLima := constants.MinimumVersionLima
-	if t.configHandler.GetString("platform") == "incus" {
-		minLima = constants.MinimumVersionLimaIncus
-	}
-	if compareVersion(limactlVersion, minLima) < 0 {
-		return outdatedToolError("limactl", limactlVersion)
+	if compareVersion(terraformVersion, constants.MinimumVersionTerraform) < 0 {
+		return outdatedToolError(command, terraformVersion)
 	}
 
-	return nil
-}
-
-// checkCPUMicroarchitecture reports an error when the host CPU lacks the x86-64-v2 instruction
-// baseline that Talos requires. Talos's own container image already refuses to start with "This
-// program can only be run on AMD64 processors with v2 microarchitecture support," but that
-// failure surfaces deep inside the docker driver's startup path; catching it here (via
-// golang.org/x/sys/cpu — no shelling out) fails fast during `windsor check` instead. A no-op on
-// non-amd64 hosts: Apple Silicon's Docker Desktop runs an ARM Linux VM, where this constraint
-// doesn't apply. See cli#1268.
-//
-// Declared as a variable, not a func, so CheckRequirements' wiring to it — that it fires when
-// docker.enabled/workstation.runtime needs Docker AND cluster.driver is "talos" — is verifiable
-// in tests without depending on the test runner's actual CPU features; golang.org/x/sys/cpu.X86
-// has no injection point of its own.
-var checkCPUMicroarchitecture = func() error {
-	if runtime.GOARCH != "amd64" {
-		return nil
-	}
-	return checkX86V2Baseline(x86V2Features{
-		HasCX16:   cpu.X86.HasCX16,
-		HasPOPCNT: cpu.X86.HasPOPCNT,
-		HasSSE3:   cpu.X86.HasSSE3,
-		HasSSSE3:  cpu.X86.HasSSSE3,
-		HasSSE41:  cpu.X86.HasSSE41,
-		HasSSE42:  cpu.X86.HasSSE42,
-	})
-}
-
-// x86V2Features is the subset of golang.org/x/sys/cpu.X86Info that defines the x86-64-v2
-// microarchitecture baseline (CMPXCHG16B, POPCNT, SSE3, SSSE3, SSE4.1, SSE4.2), taken as a
-// parameter so checkX86V2Baseline is testable without needing to run on hardware that actually
-// lacks these features.
-type x86V2Features struct {
-	HasCX16, HasPOPCNT, HasSSE3, HasSSSE3, HasSSE41, HasSSE42 bool
-}
-
-// checkX86V2Baseline returns an error naming every x86-64-v2 feature f is missing, or nil if f
-// satisfies the full baseline.
-func checkX86V2Baseline(f x86V2Features) error {
-	var missing []string
-	if !f.HasCX16 {
-		missing = append(missing, "CMPXCHG16B")
-	}
-	if !f.HasPOPCNT {
-		missing = append(missing, "POPCNT")
-	}
-	if !f.HasSSE3 {
-		missing = append(missing, "SSE3")
-	}
-	if !f.HasSSSE3 {
-		missing = append(missing, "SSSE3")
-	}
-	if !f.HasSSE41 {
-		missing = append(missing, "SSE4.1")
-	}
-	if !f.HasSSE42 {
-		missing = append(missing, "SSE4.2")
-	}
-	if len(missing) > 0 {
-		return fmt.Errorf("CPU lacks x86-64-v2 microarchitecture support (missing: %s); Talos requires a v2-capable host CPU and will fail to start in Docker", strings.Join(missing, ", "))
-	}
 	return nil
 }
 
@@ -334,6 +235,10 @@ func (t *BaseToolsManager) GetTerraformCommand() string {
 	}
 	return "terraform"
 }
+
+// =============================================================================
+// Private Methods
+// =============================================================================
 
 // getTerraformDriver returns the terraform driver from root config, or detects which CLI is available.
 // If not specified in config, it checks for "terraform" first, then "tofu", defaulting to "terraform" if neither is found.
@@ -374,747 +279,11 @@ func (t *BaseToolsManager) getTerraformDriver() string {
 // detectTerraformDriver detects which terraform CLI is available in the system PATH.
 // Checks for "terraform" first, then "tofu", defaulting to "terraform" if neither is found.
 func (t *BaseToolsManager) detectTerraformDriver() string {
-	if _, err := execLookPath("terraform"); err == nil {
+	if _, err := t.shims.LookPath("terraform"); err == nil {
 		return "terraform"
 	}
-	if _, err := execLookPath("tofu"); err == nil {
+	if _, err := t.shims.LookPath("tofu"); err == nil {
 		return "opentofu"
 	}
 	return "terraform"
-}
-
-// CheckTerraform ensures Terraform or OpenTofu is available in the system's PATH using execLookPath.
-// It checks for the configured driver command in the system's PATH and verifies its version.
-// Returns nil if found and meets the minimum version requirement, else an error indicating it is not available or outdated.
-// Exported (unlike the other check* methods) so callers that need Terraform unconditionally —
-// e.g. the composer's standard module resolver, which shells out to `terraform init` to resolve
-// git/registry-sourced modules regardless of terraform.enabled — can get the same
-// missingToolError/outdatedToolError messages as CheckRequirements without going through its
-// config-gated Terraform field.
-func (t *BaseToolsManager) CheckTerraform() error {
-	command := t.GetTerraformCommand()
-	if _, err := execLookPath(command); err != nil {
-		return missingToolError(command)
-	}
-	output, err := t.shell.ExecSilentWithTimeout(command, []string{"version"}, 5*time.Second)
-	if err != nil {
-		return fmt.Errorf("%s version check failed: %v", command, err)
-	}
-	terraformVersion := extractVersion(output)
-	if terraformVersion == "" {
-		return fmt.Errorf("failed to extract %s version", command)
-	}
-	if compareVersion(terraformVersion, constants.MinimumVersionTerraform) < 0 {
-		return outdatedToolError(command, terraformVersion)
-	}
-
-	return nil
-}
-
-// checkOnePassword ensures 1Password CLI is available in the system's PATH using execLookPath.
-// It checks for 'op' in the system's PATH and verifies its version.
-// Returns nil if found and meets the minimum version requirement, else an error indicating it is not available or outdated.
-func (t *BaseToolsManager) checkOnePassword() error {
-	if _, err := execLookPath("op"); err != nil {
-		return missingToolError("op")
-	}
-
-	out, err := t.shell.ExecSilentWithTimeout("op", []string{"--version"}, 5*time.Second)
-	if err != nil {
-		return fmt.Errorf("1Password CLI --version failed: %w", err)
-	}
-
-	version := extractVersion(out)
-	if version == "" {
-		return fmt.Errorf("failed to extract 1Password CLI version")
-	}
-
-	if compareVersion(version, constants.MinimumVersion1Password) < 0 {
-		return outdatedToolError("op", version)
-	}
-
-	return nil
-}
-
-// checkSops ensures SOPS CLI is available in the system's PATH using execLookPath.
-// It checks for 'sops' in the system's PATH and verifies its version.
-// Returns nil if found and meets the minimum version requirement, else an error indicating it is not available or outdated.
-func (t *BaseToolsManager) checkSops() error {
-	if _, err := execLookPath("sops"); err != nil {
-		return missingToolError("sops")
-	}
-
-	out, err := t.shell.ExecSilentWithTimeout("sops", []string{"--version"}, 5*time.Second)
-	if err != nil {
-		return fmt.Errorf("sops --version failed: %v", err)
-	}
-
-	version := extractVersion(out)
-	if version == "" {
-		return fmt.Errorf("failed to extract SOPS CLI version")
-	}
-
-	if compareVersion(version, constants.MinimumVersionSOPS) < 0 {
-		return outdatedToolError("sops", version)
-	}
-
-	return nil
-}
-
-// checkKubelogin ensures kubelogin is available in the system's PATH using execLookPath.
-// It checks for 'kubelogin' in the system's PATH, verifies its version, and validates
-// required environment variables for SPN authentication if AZURE_CLIENT_SECRET is set.
-// Returns nil if found and meets the minimum version requirement, else an error indicating it is not available or outdated.
-func (t *BaseToolsManager) checkKubelogin() error {
-	if _, err := execLookPath("kubelogin"); err != nil {
-		return missingToolError("kubelogin")
-	}
-
-	out, err := t.shell.ExecSilentWithTimeout("kubelogin", []string{"--version"}, 5*time.Second)
-	if err != nil {
-		return fmt.Errorf("kubelogin --version failed: %v", err)
-	}
-
-	version := extractVersion(out)
-	if version == "" {
-		return fmt.Errorf("failed to extract kubelogin version")
-	}
-
-	if compareVersion(version, constants.MinimumVersionKubelogin) < 0 {
-		return outdatedToolError("kubelogin", version)
-	}
-
-	validationRules := []struct {
-		triggerVar string
-		authMethod string
-	}{
-		{"AZURE_FEDERATED_TOKEN_FILE", "Workload Identity"},
-		{"AZURE_CLIENT_SECRET", "SPN"},
-	}
-
-	for _, rule := range validationRules {
-		if os.Getenv(rule.triggerVar) != "" {
-			azureClientID := os.Getenv("AZURE_CLIENT_ID")
-			azureTenantID := os.Getenv("AZURE_TENANT_ID")
-
-			if azureClientID == "" {
-				return fmt.Errorf("%s is set but AZURE_CLIENT_ID is missing - both are required for %s authentication", rule.triggerVar, rule.authMethod)
-			}
-			if azureTenantID == "" {
-				return fmt.Errorf("%s is set but AZURE_TENANT_ID is missing - both are required for %s authentication", rule.triggerVar, rule.authMethod)
-			}
-		}
-	}
-
-	return nil
-}
-
-// CheckAuth verifies the operator has the cloud CLIs for in-use platforms and that their
-// credentials resolve. Called from terraform-touching command paths (bootstrap/up/apply/
-// plan/destroy) and `windsor check` — never from `init` or `env`.
-func (t *BaseToolsManager) CheckAuth() error {
-	if t.awsEnabled() {
-		if err := t.checkAWSAuth(); err != nil {
-			return err
-		}
-	}
-	if t.azureEnabled() {
-		if err := t.checkAzureAuth(); err != nil {
-			return err
-		}
-	}
-	if t.gcpEnabled() {
-		if err := t.checkGCPAuth(); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-// awsEnabled reports whether the current context exercises AWS — platform is "aws"
-// or an aws config block is present.
-func (t *BaseToolsManager) awsEnabled() bool {
-	platform := t.configHandler.GetString("platform")
-	if platform == "aws" {
-		return true
-	}
-	cfg := t.configHandler.GetHeader()
-	return cfg != nil && cfg.AWS != nil
-}
-
-// checkAWSAuth verifies the AWS CLI is present at the minimum version and that
-// `aws sts get-caller-identity` resolves credentials end-to-end. When ambient SDK
-// credentials are present and the aws CLI is absent (lean CI images), defers to terraform's
-// own SDK rather than failing preflight.
-//
-// The underlying STS error is intentionally discarded in favour of awsAuthHint(): the
-// raw output stacks "command execution failed" + the aws CLI's own stderr + our hint,
-// which buries the one piece of information the operator needs (the next command to run).
-// Trade-off: a network outage or IAM denial gets reported as a generic "run aws sso login"
-// hint rather than the true cause. If a debug path is needed later, route the err to a
-// verbose-only log rather than re-introducing it into the user-facing message.
-func (t *BaseToolsManager) checkAWSAuth() error {
-	if hasAmbientAWSCredentials() {
-		if _, err := execLookPath("aws"); err != nil {
-			return nil
-		}
-	}
-	if err := t.checkAWSBinary(); err != nil {
-		return err
-	}
-	env, err := t.awsContextEnv()
-	if err != nil {
-		return fmt.Errorf("cannot resolve context-scoped AWS env for credential check: %w", err)
-	}
-	if _, err := t.shell.ExecSilentWithEnvAndTimeout("aws", env, []string{"sts", "get-caller-identity"}, 10*time.Second); err != nil {
-		return fmt.Errorf("%s", t.awsAuthHint())
-	}
-	return nil
-}
-
-// awsContextEnv returns env vars pointing the AWS CLI/SDK at the context's profile.
-// In project mode AWS_CONFIG_FILE / AWS_SHARED_CREDENTIALS_FILE always point at the
-// context's .aws/ — they keep `aws configure` scoped to the context and are safe to emit
-// even when the files are empty (the SDK simply doesn't find a profile and falls through).
-// AWS_PROFILE is emitted only when the named profile is actually defined in the AWS config
-// the SDK will read: the context's .aws/ in project mode, or the operator's ambient
-// ~/.aws/ (or AWS_CONFIG_FILE override) in global mode. When the profile is absent the
-// var is omitted so the SDK's credential chain runs naturally (env keys, IMDS, IRSA, ECS,
-// SSO) rather than failing with "profile not found" against a file the named profile
-// was never in.
-func (t *BaseToolsManager) awsContextEnv() (map[string]string, error) {
-	env := map[string]string{}
-	global := t.shell.IsGlobal()
-	var configRoot string
-	if !global {
-		root, err := t.configHandler.GetConfigRoot()
-		if err != nil {
-			return nil, err
-		}
-		configRoot = root
-		awsConfigDir := filepath.Join(configRoot, ".aws")
-		env["AWS_CONFIG_FILE"] = filepath.ToSlash(filepath.Join(awsConfigDir, "config"))
-		env["AWS_SHARED_CREDENTIALS_FILE"] = filepath.ToSlash(filepath.Join(awsConfigDir, "credentials"))
-	}
-
-	cfg := t.configHandler.GetHeader()
-	profileName := ""
-	if cfg != nil && cfg.AWS != nil && cfg.AWS.Profile != nil {
-		profileName = *cfg.AWS.Profile
-	}
-	if profileName == "" {
-		profileName = t.configHandler.GetContext()
-	}
-	if profileName != "" {
-		resolver := awsprofile.ForContext(configRoot)
-		if global {
-			resolver = awsprofile.Ambient()
-		}
-		if resolver.HasProfile(profileName) {
-			env["AWS_PROFILE"] = profileName
-		}
-	}
-
-	if len(env) == 0 {
-		return nil, nil
-	}
-	return env, nil
-}
-
-// hasAmbientAWSCredentials reports whether the parent env carries AWS credentials via
-// IRSA (token file plus role ARN), ECS container creds, or a complete static keypair.
-// checkAWSAuth uses it to decide whether a missing aws CLI should be treated as a no-op
-// rather than a hard error — terraform's SDK will exercise the native chain at apply
-// time. The IRSA check requires both AWS_WEB_IDENTITY_TOKEN_FILE and AWS_ROLE_ARN because
-// the SDK's web identity provider needs both halves to assume the role.
-func hasAmbientAWSCredentials() bool {
-	if os.Getenv("AWS_WEB_IDENTITY_TOKEN_FILE") != "" && os.Getenv("AWS_ROLE_ARN") != "" {
-		return true
-	}
-	if os.Getenv("AWS_CONTAINER_CREDENTIALS_RELATIVE_URI") != "" {
-		return true
-	}
-	if os.Getenv("AWS_CONTAINER_CREDENTIALS_FULL_URI") != "" {
-		return true
-	}
-	if os.Getenv("AWS_ACCESS_KEY_ID") != "" && os.Getenv("AWS_SECRET_ACCESS_KEY") != "" {
-		return true
-	}
-	return false
-}
-
-// checkAWSBinary verifies the AWS CLI is available in PATH and meets the minimum version.
-func (t *BaseToolsManager) checkAWSBinary() error {
-	if _, err := execLookPath("aws"); err != nil {
-		return missingToolError("aws")
-	}
-
-	out, err := t.shell.ExecSilentWithTimeout("aws", []string{"--version"}, 10*time.Second)
-	if err != nil {
-		return fmt.Errorf("aws --version failed: %v", err)
-	}
-	version := extractVersion(out)
-	if version == "" {
-		return fmt.Errorf("failed to extract aws CLI version")
-	}
-	if compareVersion(version, constants.MinimumVersionAWS) < 0 {
-		return outdatedToolError("aws", version)
-	}
-
-	return nil
-}
-
-// awsAuthHint returns an actionable next-step message tailored to the context's AWS config
-// state (expired SSO, rejected keys, or no profile yet). In project mode windsor scopes
-// AWS config to the context's .aws/, so when the process env doesn't already point there
-// the suggested command is prefixed with that env so credentials land in the right place.
-// In global mode windsor defers to the operator's ambient ~/.aws/ (or AWS_CONFIG_FILE
-// override), so no env prefix is suggested and profile-state detection reads from the
-// ambient config. The first-time-setup branch surfaces both SSO and access-key paths
-// because we can't tell which kind of operator reached it.
-func (t *BaseToolsManager) awsAuthHint() string {
-	ctx := t.configHandler.GetContext()
-	profile := ctx
-	cfg := t.configHandler.GetHeader()
-	if cfg != nil && cfg.AWS != nil && cfg.AWS.Profile != nil && *cfg.AWS.Profile != "" {
-		profile = *cfg.AWS.Profile
-	}
-	if t.shell.IsGlobal() {
-		state := detectAWSProfileState(ambientAWSConfigPath(), profile)
-		switch state {
-		case awsProfileSSO:
-			return fmt.Sprintf("AWS SSO session for %q has likely expired. Run:\n  aws sso login --profile %s", profile, profile)
-		case awsProfileKeys:
-			return fmt.Sprintf("AWS access keys for %q were rejected by STS. Verify or rotate with:\n  aws configure --profile %s", profile, profile)
-		default:
-			return fmt.Sprintf("No AWS credentials configured for profile %q yet. Run one of:\n  aws configure sso --profile %s   (SSO)\n  aws configure --profile %s       (access keys)", profile, profile, profile)
-		}
-	}
-	configRoot, err := t.configHandler.GetConfigRoot()
-	if err != nil || configRoot == "" {
-		return fmt.Sprintf("No AWS credentials configured for context %q yet. Run one of:\n  aws configure sso --profile %s   (SSO)\n  aws configure --profile %s       (access keys)", ctx, profile, profile)
-	}
-	awsConfigPath := filepath.Join(configRoot, ".aws", "config")
-	awsCredentialsPath := filepath.Join(configRoot, ".aws", "credentials")
-	prefix := ""
-	if !awsEnvPointsAtContext(awsConfigPath, awsCredentialsPath) {
-		prefix = awsEnvPrefix(configRoot)
-	}
-	state := detectAWSProfileState(awsConfigPath, profile)
-	switch state {
-	case awsProfileSSO:
-		return fmt.Sprintf("AWS SSO session for %q has likely expired. Run:\n  %saws sso login --profile %s", profile, prefix, profile)
-	case awsProfileKeys:
-		return fmt.Sprintf("AWS access keys for %q were rejected by STS. Verify or rotate with:\n  %saws configure --profile %s", profile, prefix, profile)
-	default:
-		return fmt.Sprintf("No AWS credentials configured for context %q yet. Run one of:\n  %saws configure sso --profile %s   (SSO)\n  %saws configure --profile %s       (access keys)", ctx, prefix, profile, prefix, profile)
-	}
-}
-
-// ambientAWSConfigPath returns the path the AWS CLI would read for profile config when
-// no windsor-scoped overrides are in play: AWS_CONFIG_FILE if set, otherwise
-// $HOME/.aws/config. Used by the global-mode auth hint to inspect the user's existing
-// profile state. Returns "" if the home directory cannot be resolved and AWS_CONFIG_FILE
-// is unset, in which case profile-state detection falls through to the first-time-setup
-// branch — the right outcome when we genuinely can't tell what's there.
-func ambientAWSConfigPath() string {
-	if cf := os.Getenv("AWS_CONFIG_FILE"); cf != "" {
-		return cf
-	}
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return ""
-	}
-	return filepath.Join(home, ".aws", "config")
-}
-
-// awsEnvPointsAtContext reports whether AWS_CONFIG_FILE and AWS_SHARED_CREDENTIALS_FILE both
-// resolve to the given context paths. A partial or mismatched set returns false so callers
-// don't suggest bare `aws ...` commands that would write credentials to the wrong place.
-func awsEnvPointsAtContext(configPath, credentialsPath string) bool {
-	cf := os.Getenv("AWS_CONFIG_FILE")
-	sf := os.Getenv("AWS_SHARED_CREDENTIALS_FILE")
-	if cf == "" || sf == "" {
-		return false
-	}
-	return filepath.ToSlash(cf) == filepath.ToSlash(configPath) &&
-		filepath.ToSlash(sf) == filepath.ToSlash(credentialsPath)
-}
-
-// awsEnvPrefix returns the `KEY="VALUE" KEY="VALUE" ` prefix that points an aws CLI
-// invocation at the context-scoped .aws/ directory. Paths are quoted to survive spaces.
-func awsEnvPrefix(configRoot string) string {
-	awsConfigDir := filepath.Join(configRoot, ".aws")
-	return fmt.Sprintf("AWS_CONFIG_FILE=%q AWS_SHARED_CREDENTIALS_FILE=%q ",
-		filepath.ToSlash(filepath.Join(awsConfigDir, "config")),
-		filepath.ToSlash(filepath.Join(awsConfigDir, "credentials")),
-	)
-}
-
-// azureEnabled reports whether the current context exercises Azure.
-func (t *BaseToolsManager) azureEnabled() bool {
-	platform := t.configHandler.GetString("platform")
-	if platform == "azure" {
-		return true
-	}
-	cfg := t.configHandler.GetHeader()
-	return cfg != nil && cfg.Azure != nil
-}
-
-// checkAzureAuth verifies the az CLI is present and its cached credentials can reach ARM.
-// Probes `az rest .../tenants` (a real ARM call) rather than `az account get-access-token`
-// (a cache-only read that passes on revoked/expired refresh tokens). When ambient SDK
-// credentials are set and az is absent, skips — terraform's own SDK will handle auth.
-func (t *BaseToolsManager) checkAzureAuth() error {
-	if hasAmbientAzureCredentials() {
-		if _, err := execLookPath("az"); err != nil {
-			return nil
-		}
-	}
-	if err := t.checkAzureBinary(); err != nil {
-		return err
-	}
-	env, err := t.azureContextEnv()
-	if err != nil {
-		return fmt.Errorf("cannot resolve context-scoped Azure env for credential check: %w", err)
-	}
-	cfg := t.configHandler.GetHeader()
-	azureEnv := ""
-	if cfg != nil && cfg.Azure != nil && cfg.Azure.Environment != nil {
-		azureEnv = *cfg.Azure.Environment
-	}
-	uri := fmt.Sprintf("https://%s/tenants?api-version=2020-01-01", armTenantEndpoint(azureEnv))
-	args := []string{"rest", "--method", "get", "--uri", uri, "--output", "none"}
-	if _, err := t.shell.ExecSilentWithEnvAndTimeout("az", env, args, 30*time.Second); err != nil {
-		return fmt.Errorf("%s", t.azureAuthHint())
-	}
-	return nil
-}
-
-// armTenantEndpoint maps an azure.environment value to its ARM host. Sovereign clouds
-// (usgovernment, china, german) have separate endpoints; az CLI does not rewrite explicit
-// --uri values, so the host must be selected up-front. Unknown/empty values default to public.
-func armTenantEndpoint(env string) string {
-	switch env {
-	case "usgovernment":
-		return "management.usgovcloudapi.net"
-	case "china":
-		return "management.chinacloudapi.cn"
-	case "german":
-		return "management.microsoftazure.de"
-	default:
-		return "management.azure.com"
-	}
-}
-
-// azureContextEnv returns env vars scoping the az CLI to the context's .azure/ dir.
-// Returns nil when ambient SDK credentials are present (don't mask the native chain) or
-// in global mode (defer to ~/.azure/).
-func (t *BaseToolsManager) azureContextEnv() (map[string]string, error) {
-	if hasAmbientAzureCredentials() {
-		return nil, nil
-	}
-	if t.shell.IsGlobal() {
-		return nil, nil
-	}
-	configRoot, err := t.configHandler.GetConfigRoot()
-	if err != nil {
-		return nil, err
-	}
-	azureConfigDir := filepath.Join(configRoot, ".azure")
-	return map[string]string{
-		"AZURE_CONFIG_DIR":               filepath.ToSlash(azureConfigDir),
-		"AZURE_CORE_LOGIN_EXPERIENCE_V2": "false",
-	}, nil
-}
-
-// hasAmbientAzureCredentials reports whether the parent env already carries Azure
-// credentials (Workload Identity / SPN secret / SPN cert). MI has no env signal and
-// is intentionally not detected here — those runners fall through to the az CLI check.
-func hasAmbientAzureCredentials() bool {
-	if os.Getenv("AZURE_FEDERATED_TOKEN_FILE") != "" {
-		return true
-	}
-	if os.Getenv("AZURE_CLIENT_SECRET") != "" {
-		return true
-	}
-	if os.Getenv("AZURE_CLIENT_CERTIFICATE_PATH") != "" {
-		return true
-	}
-	return false
-}
-
-// checkAzureBinary verifies the Azure CLI is available in PATH and meets the minimum version.
-func (t *BaseToolsManager) checkAzureBinary() error {
-	if _, err := execLookPath("az"); err != nil {
-		return missingToolError("az")
-	}
-
-	out, err := t.shell.ExecSilentWithTimeout("az", []string{"--version"}, 10*time.Second)
-	if err != nil {
-		return fmt.Errorf("az --version failed: %v", err)
-	}
-	version := extractVersion(out)
-	if version == "" {
-		return fmt.Errorf("failed to extract az CLI version")
-	}
-	if compareVersion(version, constants.MinimumVersionAzure) < 0 {
-		return outdatedToolError("az", version)
-	}
-
-	return nil
-}
-
-// azureAuthHint returns the recovery command for an Azure auth failure: `az login`
-// (pinned to azure.tenant_id when set), prefixed with AZURE_CONFIG_DIR in project mode
-// when the current env doesn't already point at the context dir.
-func (t *BaseToolsManager) azureAuthHint() string {
-	tenantID := ""
-	cfg := t.configHandler.GetHeader()
-	if cfg != nil && cfg.Azure != nil && cfg.Azure.TenantID != nil {
-		tenantID = *cfg.Azure.TenantID
-	}
-
-	tenantArg := ""
-	if tenantID != "" {
-		tenantArg = fmt.Sprintf(" --tenant %s", tenantID)
-	}
-
-	if t.shell.IsGlobal() {
-		return fmt.Sprintf("Azure CLI session has likely expired or is not initialized. Run:\n  az login%s", tenantArg)
-	}
-
-	configRoot, err := t.configHandler.GetConfigRoot()
-	if err != nil || configRoot == "" {
-		return fmt.Sprintf("Azure CLI session has likely expired or is not initialized. Run:\n  az login%s", tenantArg)
-	}
-	azureConfigDir := filepath.Join(configRoot, ".azure")
-	prefix := ""
-	if !azureEnvPointsAtContext(azureConfigDir) {
-		prefix = fmt.Sprintf("AZURE_CONFIG_DIR=%q ", filepath.ToSlash(azureConfigDir))
-	}
-	return fmt.Sprintf("Azure CLI session for context %q has likely expired or is not initialized. Run:\n  %saz login%s",
-		t.configHandler.GetContext(), prefix, tenantArg)
-}
-
-// azureEnvPointsAtContext reports whether AZURE_CONFIG_DIR already resolves to configDir.
-func azureEnvPointsAtContext(configDir string) bool {
-	cd := os.Getenv("AZURE_CONFIG_DIR")
-	if cd == "" {
-		return false
-	}
-	return filepath.ToSlash(cd) == filepath.ToSlash(configDir)
-}
-
-// gcpEnabled reports whether the current context exercises GCP.
-func (t *BaseToolsManager) gcpEnabled() bool {
-	platform := t.configHandler.GetString("platform")
-	if platform == "gcp" {
-		return true
-	}
-	cfg := t.configHandler.GetHeader()
-	return cfg != nil && cfg.GCP != nil
-}
-
-// checkGCPAuth verifies the gcloud CLI is present at the minimum version and that
-// Application Default Credentials resolve. Probes `gcloud auth application-default
-// print-access-token` — a live token mint, not a cached-account listing — so a revoked
-// or expired credential is caught here rather than at terraform apply time. gcloud is
-// required regardless of ambient credentials: GKE auth (via gke-gcloud-auth-plugin) and
-// terraform teardown cleanup both shell out to it directly.
-func (t *BaseToolsManager) checkGCPAuth() error {
-	if err := t.checkGCPBinary(); err != nil {
-		return err
-	}
-	env, err := t.gcpContextEnv()
-	if err != nil {
-		return fmt.Errorf("cannot resolve context-scoped GCP env for credential check: %w", err)
-	}
-	if _, err := t.shell.ExecSilentWithEnvAndTimeout("gcloud", env, []string{"auth", "application-default", "print-access-token"}, 10*time.Second); err != nil {
-		return fmt.Errorf("%s", t.gcpAuthHint())
-	}
-	return nil
-}
-
-// gcpContextEnv returns env vars pointing the gcloud CLI at the context's config dir.
-// In project mode CLOUDSDK_CONFIG points at the context's .gcp/gcloud/ so credentials stay
-// scoped to the context; returns nil in global mode (defer to ~/.config/gcloud) or when
-// ambient credentials are present (don't mask the native chain).
-func (t *BaseToolsManager) gcpContextEnv() (map[string]string, error) {
-	if hasAmbientGCPCredentials() {
-		return nil, nil
-	}
-	if t.shell.IsGlobal() {
-		return nil, nil
-	}
-	configRoot, err := t.configHandler.GetConfigRoot()
-	if err != nil {
-		return nil, err
-	}
-	gcloudConfigDir := filepath.Join(configRoot, ".gcp", "gcloud")
-	return map[string]string{
-		"CLOUDSDK_CONFIG": filepath.ToSlash(gcloudConfigDir),
-	}, nil
-}
-
-// hasAmbientGCPCredentials reports whether the parent env already carries GCP Application
-// Default Credentials (a service account key or Workload Identity Federation config file).
-// Workload Identity via the metadata server has no env signal and is intentionally not
-// detected here — those runners fall through to the gcloud CLI check.
-func hasAmbientGCPCredentials() bool {
-	return os.Getenv("GOOGLE_APPLICATION_CREDENTIALS") != ""
-}
-
-// checkGCPBinary verifies the gcloud CLI is available in PATH and meets the minimum version.
-func (t *BaseToolsManager) checkGCPBinary() error {
-	if _, err := execLookPath("gcloud"); err != nil {
-		return missingToolError("gcloud")
-	}
-
-	out, err := t.shell.ExecSilentWithTimeout("gcloud", []string{"--version"}, 10*time.Second)
-	if err != nil {
-		return fmt.Errorf("gcloud --version failed: %v", err)
-	}
-	version := extractVersion(out)
-	if version == "" {
-		return fmt.Errorf("failed to extract gcloud CLI version")
-	}
-	if compareVersion(version, constants.MinimumVersionGCP) < 0 {
-		return outdatedToolError("gcloud", version)
-	}
-
-	return nil
-}
-
-// gcpAuthHint returns the recovery command for a GCP auth failure: `gcloud auth
-// application-default login`, prefixed with CLOUDSDK_CONFIG in project mode when the
-// current env doesn't already point at the context dir.
-func (t *BaseToolsManager) gcpAuthHint() string {
-	if t.shell.IsGlobal() {
-		return "GCP application-default credentials have likely expired or are not initialized. Run:\n  gcloud auth application-default login"
-	}
-	configRoot, err := t.configHandler.GetConfigRoot()
-	if err != nil || configRoot == "" {
-		return "GCP application-default credentials have likely expired or are not initialized. Run:\n  gcloud auth application-default login"
-	}
-	gcloudConfigDir := filepath.Join(configRoot, ".gcp", "gcloud")
-	prefix := ""
-	if !gcpEnvPointsAtContext(gcloudConfigDir) {
-		prefix = fmt.Sprintf("CLOUDSDK_CONFIG=%q ", filepath.ToSlash(gcloudConfigDir))
-	}
-	return fmt.Sprintf("GCP application-default credentials for context %q have likely expired or are not initialized. Run:\n  %sgcloud auth application-default login",
-		t.configHandler.GetContext(), prefix)
-}
-
-// gcpEnvPointsAtContext reports whether CLOUDSDK_CONFIG already resolves to configDir.
-func gcpEnvPointsAtContext(configDir string) bool {
-	cd := os.Getenv("CLOUDSDK_CONFIG")
-	if cd == "" {
-		return false
-	}
-	return filepath.ToSlash(cd) == filepath.ToSlash(configDir)
-}
-
-// detectAWSProfileState classifies the named profile in the AWS config INI at path. Missing
-// file, parse errors, or an empty matching section resolve to awsProfileNone.
-func detectAWSProfileState(path, profileName string) awsProfileState {
-	data, err := osReadFile(path)
-	if err != nil {
-		return awsProfileNone
-	}
-	var wantedHeader string
-	if profileName == "default" {
-		wantedHeader = "[default]"
-	} else {
-		wantedHeader = "[profile " + profileName + "]"
-	}
-	inSection := false
-	for rawLine := range strings.SplitSeq(string(data), "\n") {
-		line := strings.TrimSpace(rawLine)
-		if line == "" || strings.HasPrefix(line, "#") {
-			continue
-		}
-		if strings.HasPrefix(line, "[") && strings.HasSuffix(line, "]") {
-			inSection = line == wantedHeader
-			continue
-		}
-		if !inSection {
-			continue
-		}
-		key := strings.TrimSpace(strings.SplitN(line, "=", 2)[0])
-		switch key {
-		case "sso_session", "sso_start_url", "sso_account_id":
-			return awsProfileSSO
-		case "aws_access_key_id":
-			return awsProfileKeys
-		}
-	}
-	return awsProfileNone
-}
-
-// compareVersion is a helper function to compare two version strings.
-// It returns -1 if version1 < version2, 0 if version1 == version2, and 1 if version1 > version2.
-func compareVersion(version1, version2 string) int {
-	// Split version into main and pre-release parts
-	splitVersion := func(version string) (main, preRelease string) {
-		parts := strings.SplitN(version, "-", 2)
-		main = parts[0]
-		if len(parts) > 1 {
-			preRelease = parts[1]
-		}
-		return
-	}
-
-	main1, pre1 := splitVersion(version1)
-	main2, pre2 := splitVersion(version2)
-
-	v1 := strings.Split(main1, ".")
-	v2 := strings.Split(main2, ".")
-	length := len(v1)
-	length = max(length, len(v2))
-
-	for i := range make([]int, length) {
-		var comp1, comp2 int
-
-		if i < len(v1) {
-			comp1, _ = strconv.Atoi(v1[i])
-		}
-		if i < len(v2) {
-			comp2, _ = strconv.Atoi(v2[i])
-		}
-
-		if comp1 < comp2 {
-			return -1
-		}
-		if comp1 > comp2 {
-			return 1
-		}
-	}
-
-	// Handle trailing zeros by comparing the length of the version components
-	if len(v1) < len(v2) {
-		return -1
-	}
-	if len(v1) > len(v2) {
-		return 1
-	}
-
-	// Compare pre-release parts
-	if pre1 == "" && pre2 == "" {
-		return 0
-	}
-	if pre1 == "" {
-		return 1
-	}
-	if pre2 == "" {
-		return -1
-	}
-	return strings.Compare(pre1, pre2)
-}
-
-// extractVersion uses a regex to extract the first version component from a string.
-func extractVersion(output string) string {
-	re := regexp.MustCompile(`\d+\.\d+\.\d+`)
-	match := re.FindString(output)
-	return match
 }
