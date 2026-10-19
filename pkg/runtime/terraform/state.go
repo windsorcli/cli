@@ -6,10 +6,11 @@
 package terraform
 
 import (
-	"fmt"
 	"os"
 	"path/filepath"
 	"sort"
+
+	"github.com/windsorcli/cli/internal/werror"
 )
 
 // =============================================================================
@@ -23,7 +24,7 @@ import (
 func (p *terraformProvider) GetStatePath(componentID string) (string, error) {
 	_, _, windsorScratchPath, err := p.providerScope()
 	if err != nil {
-		return "", fmt.Errorf("error resolving provider scope: %w", err)
+		return "", werror.Wrap(err, "error resolving provider scope")
 	}
 
 	component := p.GetTerraformComponent(componentID)
@@ -51,7 +52,7 @@ func (p *terraformProvider) GetStatePath(componentID string) (string, error) {
 func (p *terraformProvider) ListLocalStateComponentIDs() ([]string, error) {
 	_, _, windsorScratchPath, err := p.providerScope()
 	if err != nil {
-		return nil, fmt.Errorf("error resolving provider scope: %w", err)
+		return nil, werror.Wrap(err, "error resolving provider scope")
 	}
 
 	root := filepath.Join(windsorScratchPath, ".tfstate")
@@ -81,7 +82,7 @@ func (p *terraformProvider) walkLocalStateDir(dir, rel string, ids *[]string) er
 		if os.IsNotExist(err) {
 			return nil
 		}
-		return fmt.Errorf("error reading local state directory %s: %w", dir, err)
+		return werror.Wrap(err, "error reading local state directory %s", dir)
 	}
 
 	hasState := false

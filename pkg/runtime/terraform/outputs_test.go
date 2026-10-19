@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
+	"github.com/windsorcli/cli/internal/werror"
 	"github.com/windsorcli/cli/pkg/runtime/evaluator"
 )
 
@@ -64,6 +65,9 @@ terraform:
 		}
 		if !strings.Contains(err.Error(), "failed to prepare terraform context") {
 			t.Errorf("Expected terraform context preparation error, got: %v", err)
+		}
+		if we := werror.Find(err); we == nil || !strings.Contains(we.Remediation, "terraform component") {
+			t.Errorf("Expected a remediation that names the terraform component, got: %v", we)
 		}
 		if outputs != nil {
 			t.Errorf("Expected nil outputs when context preparation fails, got: %v", outputs)
@@ -772,9 +776,37 @@ func TestTerraformProvider_registerTerraformOutputHelper(t *testing.T) {
 		// When calling helper with wrong parameter count
 		_, err := helperFunc([]any{"component"}, false)
 
-		// Then it should return an error
+		// Then it should return an error with the usage as the remediation
 		if err == nil {
 			t.Fatal("Expected error for wrong parameter count")
+		}
+		if we := werror.Find(err); we == nil || we.Remediation != terraformOutputUsage {
+			t.Errorf("Expected the terraform_output usage as the remediation, got: %v", we)
+		}
+	})
+
+	t.Run("HelperReturnsErrorForNonStringParams", func(t *testing.T) {
+		// Given a registered helper
+		mocks := setupMocks(t)
+		mockEvaluator := evaluator.NewMockExpressionEvaluator()
+		var helperFunc func(params []any, deferred bool) (any, error)
+		mockEvaluator.RegisterFunc = func(name string, helper func(params []any, deferred bool) (any, error), signatures ...any) {
+			helperFunc = helper
+		}
+
+		mocks.Provider.registerTerraformOutputHelper(mockEvaluator)
+
+		for _, params := range [][]any{{1, "key"}, {"component", 1}} {
+			// When calling helper with a non-string parameter
+			_, err := helperFunc(params, false)
+
+			// Then it should return an error with the usage as the remediation
+			if err == nil {
+				t.Fatalf("Expected error for params %v", params)
+			}
+			if we := werror.Find(err); we == nil || we.Remediation != terraformOutputUsage {
+				t.Errorf("Expected the terraform_output usage as the remediation, got: %v", we)
+			}
 		}
 	})
 }

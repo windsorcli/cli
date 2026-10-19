@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
+	"github.com/windsorcli/cli/internal/werror"
 	"github.com/windsorcli/cli/pkg/runtime/config"
 	"github.com/windsorcli/cli/pkg/runtime/evaluator"
 )
@@ -756,6 +757,9 @@ func TestTerraformProvider_GenerateTerraformArgs_LockTimeout(t *testing.T) {
 		}
 		if !strings.Contains(err.Error(), "terraform.lock.timeout") || !strings.Contains(err.Error(), "oops") {
 			t.Errorf("expected error to name the config key and the bad value, got %v", err)
+		}
+		if we := werror.Find(err); we == nil || !strings.Contains(we.Remediation, "terraform.lock.timeout") {
+			t.Errorf("expected a remediation that names terraform.lock.timeout, got: %v", we)
 		}
 	})
 

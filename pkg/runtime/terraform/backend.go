@@ -11,6 +11,8 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+
+	"github.com/windsorcli/cli/internal/werror"
 )
 
 // =============================================================================
@@ -19,6 +21,9 @@ import (
 
 // backendOverrideFileName is the generated Terraform backend override file.
 const backendOverrideFileName = "backend_override.tf"
+
+// unsupportedBackendRemediation tells the operator which backend types are valid.
+const unsupportedBackendRemediation = "Set terraform.backend.type to none, local, s3, kubernetes, azurerm, or gcs."
 
 // =============================================================================
 // Public Methods
@@ -39,7 +44,7 @@ func (p *terraformProvider) GenerateBackendOverride(directory string) error {
 		backendOverridePath := filepath.Join(directory, "backend_override.tf")
 		if _, err := p.Shims.Stat(backendOverridePath); err == nil {
 			if err := p.Shims.Remove(backendOverridePath); err != nil {
-				return fmt.Errorf("error removing backend_override.tf: %w", err)
+				return werror.Wrap(err, "error removing backend_override.tf")
 			}
 		}
 		return nil
@@ -64,13 +69,13 @@ func (p *terraformProvider) GenerateBackendOverride(directory string) error {
   backend "gcs" {}
 }`
 	default:
-		return fmt.Errorf("unsupported backend: %s", backend)
+		return werror.New(fmt.Sprintf("unsupported backend: %s", backend), unsupportedBackendRemediation, nil)
 	}
 
 	backendOverridePath := filepath.Join(directory, "backend_override.tf")
 	err := p.Shims.WriteFile(backendOverridePath, []byte(backendConfig), os.ModePerm)
 	if err != nil {
-		return fmt.Errorf("error writing backend_override.tf: %w", err)
+		return werror.Wrap(err, "error writing backend_override.tf")
 	}
 
 	if err := p.ensureBackendOverrideIgnored(directory); err != nil {
@@ -152,7 +157,7 @@ func (p *terraformProvider) ensureBackendOverrideIgnored(directory string) error
 	ignorePath := filepath.Join(terraformRoot, ".gitignore")
 	existing, err := p.Shims.ReadFile(ignorePath)
 	if err != nil && !os.IsNotExist(err) {
-		return fmt.Errorf("error reading terraform/.gitignore: %w", err)
+		return werror.Wrap(err, "error reading terraform/.gitignore")
 	}
 	for _, line := range strings.Split(string(existing), "\n") {
 		if strings.TrimSpace(line) == backendOverrideFileName {
@@ -166,7 +171,7 @@ func (p *terraformProvider) ensureBackendOverrideIgnored(directory string) error
 	}
 	content += backendOverrideFileName + "\n"
 	if err := p.Shims.WriteFile(ignorePath, []byte(content), 0644); err != nil {
-		return fmt.Errorf("error writing terraform/.gitignore: %w", err)
+		return werror.Wrap(err, "error writing terraform/.gitignore")
 	}
 	return nil
 }
@@ -214,7 +219,7 @@ func (p *terraformProvider) generateBackendConfigArgs(projectPath, configRoot st
 	case "local":
 		statePath, err := p.GetStatePath(projectPath)
 		if err != nil {
-			return nil, fmt.Errorf("error getting state path: %w", err)
+			return nil, werror.Wrap(err, "error getting state path")
 		}
 		addBackendConfigArg("path", filepath.ToSlash(statePath))
 	case "s3":
@@ -223,7 +228,7 @@ func (p *terraformProvider) generateBackendConfigArgs(projectPath, configRoot st
 		addBackendConfigArg("key", keyPath)
 		if backend, ok := p.configHandler.Get("terraform.backend.s3").(map[string]any); ok {
 			if err := p.processBackendConfig(backend, addBackendConfigArg); err != nil {
-				return nil, fmt.Errorf("error processing S3 backend config: %w", err)
+				return nil, werror.Wrap(err, "error processing S3 backend config")
 			}
 		}
 	case "kubernetes":
@@ -236,7 +241,7 @@ func (p *terraformProvider) generateBackendConfigArgs(projectPath, configRoot st
 		addBackendConfigArg("secret_suffix", secretSuffix)
 		if backend, ok := p.configHandler.Get("terraform.backend.kubernetes").(map[string]any); ok {
 			if err := p.processBackendConfig(backend, addBackendConfigArg); err != nil {
-				return nil, fmt.Errorf("error processing Kubernetes backend config: %w", err)
+				return nil, werror.Wrap(err, "error processing Kubernetes backend config")
 			}
 		}
 	case "azurerm":
@@ -245,7 +250,7 @@ func (p *terraformProvider) generateBackendConfigArgs(projectPath, configRoot st
 		addBackendConfigArg("key", keyPath)
 		if backend, ok := p.configHandler.Get("terraform.backend.azurerm").(map[string]any); ok {
 			if err := p.processBackendConfig(backend, addBackendConfigArg); err != nil {
-				return nil, fmt.Errorf("error processing AzureRM backend config: %w", err)
+				return nil, werror.Wrap(err, "error processing AzureRM backend config")
 			}
 		}
 	case "gcs":
@@ -254,11 +259,11 @@ func (p *terraformProvider) generateBackendConfigArgs(projectPath, configRoot st
 		addBackendConfigArg("prefix", prefixPath)
 		if backend, ok := p.configHandler.Get("terraform.backend.gcs").(map[string]any); ok {
 			if err := p.processBackendConfig(backend, addBackendConfigArg); err != nil {
-				return nil, fmt.Errorf("error processing GCS backend config: %w", err)
+				return nil, werror.Wrap(err, "error processing GCS backend config")
 			}
 		}
 	default:
-		return nil, fmt.Errorf("unsupported backend: %s", backend)
+		return nil, werror.New(fmt.Sprintf("unsupported backend: %s", backend), unsupportedBackendRemediation, nil)
 	}
 
 	return backendConfigArgs, nil
@@ -272,12 +277,12 @@ func (p *terraformProvider) generateBackendConfigArgs(projectPath, configRoot st
 func (p *terraformProvider) processBackendConfig(backendConfig any, addArg func(key, value string)) error {
 	yamlData, err := p.Shims.YamlMarshal(backendConfig)
 	if err != nil {
-		return fmt.Errorf("error marshalling backend to YAML: %w", err)
+		return werror.Wrap(err, "error marshalling backend to YAML")
 	}
 
 	var configMap map[string]any
 	if err := p.Shims.YamlUnmarshal(yamlData, &configMap); err != nil {
-		return fmt.Errorf("error unmarshalling backend YAML: %w", err)
+		return werror.Wrap(err, "error unmarshalling backend YAML")
 	}
 
 	processMap("", configMap, addArg)
