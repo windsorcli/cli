@@ -127,10 +127,9 @@ func (p *terraformProvider) ClearCache() {
 // Private Methods
 // =============================================================================
 
-// registerTerraformOutputHelper registers the terraform_output helper function with the evaluator.
-// This allows blueprint expressions to reference Terraform outputs from other components using
-// the terraform_output(component, key) syntax. The helper validates that exactly two string arguments
-// are provided (component ID and output key), then delegates to getOutput to retrieve the value.
+// registerTerraformOutputHelper adds the terraform_output(component, key) helper to the evaluator.
+// Blueprint expressions use the helper to read the outputs of other components through getOutput.
+// Arguments other than two strings return an error with the usage as the hint.
 func (p *terraformProvider) registerTerraformOutputHelper(evaluator evaluator.ExpressionEvaluator) {
 	evaluator.Register("terraform_output", func(params []any, deferred bool) (any, error) {
 		if len(params) != 2 {
@@ -211,11 +210,10 @@ func (p *terraformProvider) getOutput(componentID, key string, expression string
 	return nil, nil
 }
 
-// prepareTerraformContext prepares a terraformContext for a component with all necessary setup.
-// It resolves the component's module path, generates Terraform arguments, sets up environment variables,
-// and creates the backend override file. This context is used to ensure consistent Terraform execution
-// environment across different operations. Returns the context and original env vars for cleanup,
-// allowing the caller to restore the environment after operations complete.
+// prepareTerraformContext sets up the Terraform environment of a component for one run.
+// It resolves the module path, generates the arguments, sets the env vars, and writes the backend override file.
+// It returns the context and the original env vars, so the caller can restore them after the run.
+// An unknown component ID returns an error with a hint.
 func (p *terraformProvider) prepareTerraformContext(componentID string) (*terraformContext, map[string]string, error) {
 	component := p.GetTerraformComponent(componentID)
 	if component == nil {

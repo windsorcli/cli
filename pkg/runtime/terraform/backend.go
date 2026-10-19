@@ -29,12 +29,10 @@ const unsupportedBackendRemediation = "Set terraform.backend.type to none, local
 // Public Methods
 // =============================================================================
 
-// GenerateBackendOverride creates or removes the backend_override.tf file for the specified directory
-// based on the configured backend type. When it writes the file under <project>/terraform/, it also
-// tries to ensure <project>/terraform/.gitignore ignores backend_override.tf; a failure there is a warning, not an error. This file is used to override Terraform backend configuration
-// at runtime without modifying the original Terraform files. If the backend type is 'none', it removes
-// the override file if it exists. Otherwise, it writes a backend_override.tf file with the appropriate
-// backend stanza for local, s3, kubernetes, azurerm, or gcs backends. Returns an error for unsupported backend types.
+// GenerateBackendOverride writes or removes the backend_override.tf file in directory for the configured backend.
+// For the none backend, it removes the file. For local, s3, kubernetes, azurerm, and gcs, it writes the backend block.
+// Under <project>/terraform/, it also adds the file to terraform/.gitignore. A failure there is only a warning.
+// An unsupported backend type returns an error with the valid types as the hint.
 func (p *terraformProvider) GenerateBackendOverride(directory string) error {
 	backend := p.configHandler.GetTerraformBackendType()
 
@@ -176,13 +174,10 @@ func (p *terraformProvider) ensureBackendOverrideIgnored(directory string) error
 	return nil
 }
 
-// generateBackendConfigArgs constructs the -backend-config CLI arguments for Terraform based on project configuration.
-// This method determines the backend type from the configuration and assembles key-value argument pairs for supported
-// backend types (local, s3, kubernetes, azurerm). It also detects the presence of backend.tfvars in the context root
-// or a terraform/ fallback subdirectory, and includes a -backend-config pointing to that file if found.
-// It passes every field of the backend's config block, read untyped, as one argument each.
-// Returns raw CLI arguments without shell quoting; formatting for environment variables is handled by the calling context.
-// Returns a slice of backend configuration arguments or an error if required configuration or paths are unavailable.
+// generateBackendConfigArgs returns the -backend-config arguments for the configured backend.
+// For a remote backend, it adds backend.tfvars from the context root or its terraform/ subdirectory, if the file exists.
+// It adds one argument for each field of the backend config block. The arguments have no shell quoting.
+// An unsupported backend type returns an error with the valid types as the hint.
 func (p *terraformProvider) generateBackendConfigArgs(projectPath, configRoot string) ([]string, error) {
 	var backendConfigArgs []string
 	backend := p.configHandler.GetTerraformBackendType()

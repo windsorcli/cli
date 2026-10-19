@@ -23,10 +23,10 @@ import (
 // Public Methods
 // =============================================================================
 
-// GenerateTerraformArgs constructs Terraform CLI arguments for the specified component using the
-// configured backend type. It discovers applicable var files, assembles backend-config arguments,
-// and builds the init, plan, apply, refresh, import, destroy, and plan-destroy arg sets.
-// Returns a fully populated TerraformArgs structure or an error if processing or lookup fails.
+// GenerateTerraformArgs returns the Terraform arguments of a component for the configured backend.
+// It finds the var files, adds the -backend-config arguments, and builds the arguments of each subcommand.
+// It adds -lock-timeout to init and to each subcommand that changes state. The default is 5m.
+// It checks terraform.lock.timeout first, so a typo gets a Windsor error, not a Terraform parse failure.
 func (p *terraformProvider) GenerateTerraformArgs(componentID string, interactive bool) (*TerraformArgs, error) {
 	_, configRoot, windsorScratchPath, err := p.providerScope()
 	if err != nil {
@@ -104,13 +104,6 @@ func (p *terraformProvider) GenerateTerraformArgs(componentID string, interactiv
 		}
 	}
 
-	// -lock-timeout applies to every state-mutating subcommand and to init (which
-	// locks the backend during -migrate-state). Surfaces as a stack-level windsor
-	// config so a single value drives the whole project; defaults to 5m per §4.1
-	// of the terraform-lifecycle-hardening spike. Per-call override is intentionally
-	// not exposed — operators tune it once. Validate up front so a typo like
-	// `timeout: "oops"` produces a windsor error here instead of an opaque
-	// terraform parse failure mid-run.
 	lockTimeout := p.configHandler.GetString("terraform.lock.timeout", "5m")
 	if _, err := time.ParseDuration(lockTimeout); err != nil {
 		return nil, werror.New(fmt.Sprintf("invalid terraform.lock.timeout %q", lockTimeout),
