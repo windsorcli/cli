@@ -1,17 +1,13 @@
-// The shims package is a system call abstraction layer
-// It provides mockable wrappers around system and runtime functions
-// It serves as a testing aid by allowing system calls to be intercepted
-// It enables dependency injection and test isolation for system-level operations
+// The Shims are the system call abstractions of the evaluator package.
+// It provides the shared shims of internal/shims and a factory for the Jsonnet VM.
+// Tests replace the shims to simulate file reads, marshal failures, and Jsonnet output.
+// NewShims returns the shims with the real implementations.
 
 package evaluator
 
 import (
-	"encoding/json"
-	"os"
-	"path/filepath"
-
-	"github.com/goccy/go-yaml"
 	"github.com/google/go-jsonnet"
+	"github.com/windsorcli/cli/internal/shims"
 )
 
 // =============================================================================
@@ -56,32 +52,20 @@ func (j *realJsonnetVM) EvaluateAnonymousSnippet(filename, snippet string) (stri
 	return j.vm.EvaluateAnonymousSnippet(filename, snippet)
 }
 
-// Shims provides mockable wrappers around system and runtime functions
+// Shims holds the shared system call primitives and the Jsonnet VM factory.
 type Shims struct {
-	ReadFile      func(string) ([]byte, error)
-	JsonMarshal   func(any) ([]byte, error)
-	JsonUnmarshal func([]byte, any) error
-	YamlMarshal   func(any) ([]byte, error)
-	YamlUnmarshal func([]byte, any) error
-	FilepathBase  func(string) string
-	LookupEnv     func(string) (string, bool)
-	NewJsonnetVM  func() JsonnetVM
+	shims.Shims
+	NewJsonnetVM func() JsonnetVM
 }
 
 // =============================================================================
-// Helpers
+// Constructor
 // =============================================================================
 
-// NewShims creates a new Shims instance with default implementations
+// NewShims returns a Shims with every field set to its real implementation.
 func NewShims() *Shims {
 	return &Shims{
-		ReadFile:      os.ReadFile,
-		JsonMarshal:   json.Marshal,
-		JsonUnmarshal: json.Unmarshal,
-		YamlMarshal:   yaml.Marshal,
-		YamlUnmarshal: yaml.Unmarshal,
-		FilepathBase:  filepath.Base,
-		LookupEnv:     os.LookupEnv,
+		Shims: *shims.NewShims(),
 		NewJsonnetVM: func() JsonnetVM {
 			return &realJsonnetVM{vm: jsonnet.MakeVM()}
 		},
