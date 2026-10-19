@@ -76,6 +76,7 @@ func setupProcessorMocks(t *testing.T) *ProcessorTestMocks {
 	mockEvaluator.RegisterFunc = realEvaluator.Register
 
 	rt := &runtime.Runtime{
+		Shims:         runtime.NewShims(),
 		ProjectRoot:   tmpDir,
 		ConfigRoot:    tmpDir,
 		ConfigHandler: mockConfigHandler,

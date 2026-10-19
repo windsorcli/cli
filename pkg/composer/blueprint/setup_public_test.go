@@ -73,6 +73,7 @@ func newFixture(t *testing.T) *fixture {
 		return f.outputs[component][key], nil
 	}, new(func(string, string) any))
 	f.runtime = &runtime.Runtime{
+		Shims:              runtime.NewShims(),
 		ContextName:        "local",
 		ProjectRoot:        root,
 		ConfigRoot:         filepath.Join(root, "contexts", "local"),
