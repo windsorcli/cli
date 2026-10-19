@@ -1,16 +1,11 @@
 package evaluator
 
 import (
-	"encoding/json"
 	"errors"
 	"fmt"
-	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 
-	"github.com/goccy/go-yaml"
-	"github.com/google/go-jsonnet"
 	"github.com/windsorcli/cli/pkg/runtime/config"
 )
 
@@ -53,18 +48,8 @@ func setupEvaluatorWithMockShims(t *testing.T) (ExpressionEvaluator, *Shims, con
 	t.Helper()
 
 	mockConfigHandler := config.NewMockConfigHandler()
-	mockShims := &Shims{
-		ReadFile:      func(string) ([]byte, error) { return nil, errors.New("file not found") },
-		JsonMarshal:   json.Marshal,
-		JsonUnmarshal: json.Unmarshal,
-		YamlMarshal:   yaml.Marshal,
-		YamlUnmarshal: yaml.Unmarshal,
-		FilepathBase:  filepath.Base,
-		LookupEnv:     os.LookupEnv,
-		NewJsonnetVM: func() JsonnetVM {
-			return &realJsonnetVM{vm: jsonnet.MakeVM()}
-		},
-	}
+	mockShims := NewShims()
+	mockShims.ReadFile = func(string) ([]byte, error) { return nil, errors.New("file not found") }
 
 	evaluator := NewExpressionEvaluator(mockConfigHandler, "/test/project", "/test/template")
 	concreteEvaluator := evaluator.(*expressionEvaluator)
