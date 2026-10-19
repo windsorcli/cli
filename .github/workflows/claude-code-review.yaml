@@ -127,7 +127,7 @@ jobs:
           claude_args: |
             --model claude-sonnet-5
             --max-turns 80
-            --allowedTools Read,Grep,Glob,Bash(git diff:*),Bash(git log:*),Write
+            --allowedTools "Read,Grep,Glob,Bash(git diff:*),Bash(git log:*),Write"
             --disallowedTools WebSearch,WebFetch
       - name: Publish review
         if: always()
@@ -229,7 +229,7 @@ jobs:
           claude_args: |
             --model claude-sonnet-5
             --max-turns 80
-            --allowedTools Read,Grep,Glob,Bash(git diff:*),Bash(git log:*),Write
+            --allowedTools "Read,Grep,Glob,Bash(git diff:*),Bash(git log:*),Write"
             --disallowedTools WebSearch,WebFetch
       - name: Publish review
         if: always()
