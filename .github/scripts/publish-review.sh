@@ -32,7 +32,8 @@ if [ ! -s "$SUMMARY" ]; then
   } > "$SUMMARY"
   # The action writes every model message to the execution file. Add the
   # denied tool calls and the last message of the model to the stub, so the
-  # PR shows why the review stopped.
+  # PR shows why the review stopped. The action sets this path in
+  # base-action/src/execution-file.ts.
   EXECUTION="${RUNNER_TEMP:-/tmp}/claude-execution-output.json"
   if [ -s "$EXECUTION" ]; then
     python3 - "$EXECUTION" >> "$SUMMARY" <<'PY' || true
