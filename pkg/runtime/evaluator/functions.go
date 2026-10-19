@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	"github.com/expr-lang/expr"
+	"github.com/windsorcli/cli/internal/werror"
 )
 
 // =============================================================================
@@ -35,7 +36,7 @@ func (e *expressionEvaluator) stringFunction() expr.Option {
 			case reflect.Map, reflect.Slice:
 				yamlData, err := e.Shims.YamlMarshal(v)
 				if err != nil {
-					return nil, fmt.Errorf("string() failed to marshal map/slice to YAML: %w", err)
+					return nil, werror.Wrap(err, "string() failed to marshal map/slice to YAML")
 				}
 				return strings.TrimSpace(string(yamlData)), nil
 			default:
@@ -143,7 +144,7 @@ func (e *expressionEvaluator) yamlStringFunction(facetPath string) expr.Option {
 			}
 			yamlBytes, err := e.Shims.YamlMarshal(params[0])
 			if err != nil {
-				return nil, fmt.Errorf("yamlString() failed to marshal: %w", err)
+				return nil, werror.Wrap(err, "yamlString() failed to marshal")
 			}
 			return string(yamlBytes), nil
 		},
@@ -162,7 +163,7 @@ func (e *expressionEvaluator) jsonStringFunction() expr.Option {
 			}
 			jsonBytes, err := e.Shims.JsonMarshal(normalizeYamlResult(params[0]))
 			if err != nil {
-				return nil, fmt.Errorf("jsonString() failed to marshal: %w", err)
+				return nil, werror.Wrap(err, "jsonString() failed to marshal")
 			}
 			return string(jsonBytes), nil
 		},

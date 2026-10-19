@@ -13,7 +13,15 @@ import (
 	"strings"
 
 	"github.com/google/go-jsonnet"
+	"github.com/windsorcli/cli/internal/werror"
 )
+
+// =============================================================================
+// Constants
+// =============================================================================
+
+// filePathRemediation is the hint for a file helper that cannot find or read its file.
+const filePathRemediation = "Make sure that the file exists. A relative path resolves from the directory of the file that has the expression."
 
 // =============================================================================
 // Private Methods
@@ -38,7 +46,7 @@ func (e *expressionEvaluator) evaluateJsonnetFunction(pathArg string, config map
 		path = e.resolvePath(pathArg, facetPath)
 		content, err = e.Shims.ReadFile(path)
 		if err != nil {
-			return nil, fmt.Errorf("failed to read file %s: %w", path, err)
+			return nil, werror.New(fmt.Sprintf("The jsonnet() helper cannot read the file %s.", path), filePathRemediation, err)
 		}
 	} else {
 		if e.templateRoot != "" && facetPath != "" {
@@ -60,7 +68,7 @@ func (e *expressionEvaluator) evaluateJsonnetFunction(pathArg string, config map
 
 	configJSON, err := e.Shims.JsonMarshal(config)
 	if err != nil {
-		return nil, fmt.Errorf("failed to marshal config to JSON: %w", err)
+		return nil, werror.Wrap(err, "failed to marshal config to JSON")
 	}
 
 	vm := e.Shims.NewJsonnetVM()
@@ -77,12 +85,14 @@ func (e *expressionEvaluator) evaluateJsonnetFunction(pathArg string, config map
 
 	result, err := vm.EvaluateAnonymousSnippet(filepath.Base(path), string(content))
 	if err != nil {
-		return nil, fmt.Errorf("failed to evaluate jsonnet file %s: %w", path, err)
+		return nil, werror.New(fmt.Sprintf("The jsonnet() helper cannot evaluate the file %s: %v", path, err),
+			"Correct the Jsonnet error at the location that the message shows.", err)
 	}
 
 	var value any
 	if err := e.Shims.JsonUnmarshal([]byte(result), &value); err != nil {
-		return nil, fmt.Errorf("jsonnet file %s must output valid JSON: %w", path, err)
+		return nil, werror.New(fmt.Sprintf("The Jsonnet file %s does not output valid JSON: %v", path, err),
+			"Make sure that the Jsonnet file evaluates to an object, an array, or a scalar value.", err)
 	}
 
 	return value, nil
@@ -226,7 +236,7 @@ func (e *expressionEvaluator) evaluateFileFunction(pathArg string, facetPath str
 		path := e.resolvePath(pathArg, facetPath)
 		content, err = e.Shims.ReadFile(path)
 		if err != nil {
-			return nil, fmt.Errorf("failed to read file %s: %w", path, err)
+			return nil, werror.New(fmt.Sprintf("The file() helper cannot read the file %s.", path), filePathRemediation, err)
 		}
 	}
 
@@ -261,7 +271,7 @@ func (e *expressionEvaluator) evaluateYamlStringFromFile(pathArg string, facetPa
 		scope["input"] = input
 		interpolated, err := e.evaluate(content, facetPath, scope, true)
 		if err != nil {
-			return "", fmt.Errorf("yamlString() failed to template: %w", err)
+			return "", werror.Wrap(err, "yamlString() failed to template")
 		}
 		str, ok := interpolated.(string)
 		if !ok {
@@ -309,10 +319,10 @@ func (e *expressionEvaluator) evaluateYamlFunction(arg string, facetPath string,
 			if input == nil {
 				var fallback any
 				if err := e.Shims.YamlUnmarshal([]byte(arg), &fallback); err != nil {
-					return nil, fmt.Errorf("yaml() file not found: %s", arg)
+					return nil, yamlFileNotFoundError(arg)
 				}
 				if _, ok := fallback.(string); ok {
-					return nil, fmt.Errorf("yaml() file not found: %s", arg)
+					return nil, yamlFileNotFoundError(arg)
 				}
 				normalized := normalizeYamlResult(fallback)
 				unwrapped := unwrapSingleElementList(normalized)
@@ -321,7 +331,7 @@ func (e *expressionEvaluator) evaluateYamlFunction(arg string, facetPath string,
 				}
 				return normalized, nil
 			}
-			return nil, fmt.Errorf("yaml() file not found: %s", arg)
+			return nil, yamlFileNotFoundError(arg)
 		}
 	}
 	content := string(raw)
@@ -333,7 +343,7 @@ func (e *expressionEvaluator) evaluateYamlFunction(arg string, facetPath string,
 		scope["input"] = input
 		interpolated, err := e.evaluate(content, facetPath, scope, true)
 		if err != nil {
-			return nil, fmt.Errorf("yaml() failed to template: %w", err)
+			return nil, werror.Wrap(err, "yaml() failed to template")
 		}
 		str, ok := interpolated.(string)
 		if !ok {
@@ -343,7 +353,12 @@ func (e *expressionEvaluator) evaluateYamlFunction(arg string, facetPath string,
 	}
 	var value any
 	if err := e.Shims.YamlUnmarshal([]byte(content), &value); err != nil {
-		return nil, fmt.Errorf("yaml() failed to parse: %w", err)
+		source := "its inline input"
+		if !strings.Contains(arg, "\n") {
+			source = arg
+		}
+		return nil, werror.New(fmt.Sprintf("The yaml() helper cannot parse the YAML in %s: %v", source, err),
+			"Correct the YAML syntax at the line that the message shows.", err)
 	}
 	normalized := normalizeYamlResult(value)
 	unwrapped := unwrapSingleElementList(normalized)
@@ -455,6 +470,11 @@ func (e *expressionEvaluator) resolvePath(path string, sourceFilePath string) st
 // =============================================================================
 // Helpers
 // =============================================================================
+
+// yamlFileNotFoundError reports a yaml() argument that names no file and is not YAML content.
+func yamlFileNotFoundError(arg string) error {
+	return werror.New(fmt.Sprintf("The yaml() helper cannot find the file %s.", arg), filePathRemediation, nil)
+}
 
 // normalizeYamlResult converts YAML-unmarshaled values to map[string]any and []any so expr's
 // Fetch uses map lookup for string keys instead of ToInt (slice index). Handles

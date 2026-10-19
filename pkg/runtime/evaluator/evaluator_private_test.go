@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/windsorcli/cli/internal/werror"
 	"github.com/windsorcli/cli/pkg/runtime/config"
 )
 
@@ -588,9 +589,16 @@ func TestExpressionEvaluator_evaluateJsonnetFunction(t *testing.T) {
 		// When evaluating jsonnet function with non-existent file
 		_, err := evaluator.Evaluate(`${jsonnet("nonexistent.jsonnet")}`, "", nil, false)
 
-		// Then an error should be returned
+		// Then an error that names the file should be returned
 		if err == nil {
 			t.Fatal("Expected error for non-existent file, got nil")
+		}
+		we := werror.Find(err)
+		if we == nil || !strings.Contains(we.Message, "The jsonnet() helper cannot read the file") || !strings.Contains(we.Message, "nonexistent.jsonnet") {
+			t.Errorf("Expected a read error naming the file, got %v", err)
+		}
+		if we != nil && we.Remediation != filePathRemediation {
+			t.Errorf("Expected the file path remediation, got %q", we.Remediation)
 		}
 	})
 
@@ -606,9 +614,16 @@ func TestExpressionEvaluator_evaluateJsonnetFunction(t *testing.T) {
 		// When evaluating jsonnet function
 		_, err := evaluator.Evaluate(`${jsonnet("test.jsonnet")}`, facetPath, nil, false)
 
-		// Then an error should be returned
+		// Then an error that names the file and keeps the Jsonnet error should be returned
 		if err == nil {
 			t.Fatal("Expected error for invalid jsonnet, got nil")
+		}
+		we := werror.Find(err)
+		if we == nil || !strings.Contains(we.Message, "cannot evaluate the file "+jsonnetFile) {
+			t.Errorf("Expected an evaluation error naming the file, got %v", err)
+		}
+		if we != nil && (we.Cause == nil || !strings.Contains(we.Message, we.Cause.Error())) {
+			t.Errorf("Expected the message to keep the Jsonnet error, got %q", we.Message)
 		}
 	})
 
@@ -867,9 +882,16 @@ func TestExpressionEvaluator_evaluateFileFunction(t *testing.T) {
 		// When evaluating file function with non-existent file
 		_, err := evaluator.Evaluate(`${file("nonexistent.txt")}`, "", nil, false)
 
-		// Then an error should be returned
+		// Then an error that names the file should be returned
 		if err == nil {
 			t.Fatal("Expected error for non-existent file, got nil")
+		}
+		we := werror.Find(err)
+		if we == nil || !strings.Contains(we.Message, "The file() helper cannot read the file") || !strings.Contains(we.Message, "nonexistent.txt") {
+			t.Errorf("Expected a read error naming the file, got %v", err)
+		}
+		if we != nil && we.Remediation != filePathRemediation {
+			t.Errorf("Expected the file path remediation, got %q", we.Remediation)
 		}
 	})
 

@@ -15,6 +15,7 @@ import (
 
 	"github.com/expr-lang/expr"
 	"github.com/expr-lang/expr/ast"
+	"github.com/windsorcli/cli/internal/werror"
 	"github.com/windsorcli/cli/pkg/runtime/config"
 	secretsRuntime "github.com/windsorcli/cli/pkg/runtime/secrets"
 )
@@ -227,7 +228,7 @@ func (e *expressionEvaluator) EvaluateMap(values map[string]any, facetPath strin
 					continue
 				}
 			}
-			return nil, fmt.Errorf("failed to evaluate '%s': %w", key, err)
+			return nil, werror.Wrap(err, "failed to evaluate '%s'", key)
 		}
 		result[key] = evaluated
 	}
@@ -264,11 +265,13 @@ func (e *expressionEvaluator) evaluate(s string, facetPath string, scope map[str
 			if nestedResultRescan {
 				return "", fmt.Errorf("a nested expression's result still contains an unresolved expression that could not be re-parsed for further evaluation (likely an embedded reference that is not yet resolved): %.300s", result)
 			}
-			return "", fmt.Errorf("unclosed expression in string: %s", s)
+			return "", werror.New(fmt.Sprintf("The string %.300q has an unclosed expression.", s),
+				"Add the closing } to each ${ in the string.", nil)
 		}
 		expr := result[start+2 : end]
 		if expr == "" {
-			return nil, fmt.Errorf("expression cannot be empty")
+			return nil, werror.New(fmt.Sprintf("The string %.300q has an empty expression.", s),
+				"Put an expression between ${ and }, or remove the ${}.", nil)
 		}
 		value, err := e.evaluateExpression(expr, facetPath, scope, evaluateDeferred)
 		if err != nil {
@@ -280,7 +283,7 @@ func (e *expressionEvaluator) evaluate(s string, facetPath string, scope map[str
 					continue
 				}
 			}
-			return "", fmt.Errorf("failed to evaluate expression '${%s}': %w", expr, err)
+			return "", werror.Wrap(err, "failed to evaluate expression '${%s}'", expr)
 		}
 		before := result[:start]
 		after := result[end+1:]
@@ -313,7 +316,7 @@ func (e *expressionEvaluator) evaluate(s string, facetPath string, scope map[str
 			var err error
 			replacement, err = valueToInterpolationString(value, e.Shims.YamlMarshal)
 			if err != nil {
-				return "", fmt.Errorf("failed to marshal expression result to YAML: %w", err)
+				return "", werror.Wrap(err, "failed to marshal expression result to YAML")
 			}
 			if ContainsExpression(replacement) && isStructuredValue(value) {
 				if !evaluateDeferred {
@@ -361,7 +364,8 @@ func (e *expressionEvaluator) evaluateExpression(expression string, facetPath st
 	env := e.buildExprEnvironment(merged, facetPath, evaluateDeferred)
 	program, err := expr.Compile(expression, env...)
 	if err != nil {
-		return nil, fmt.Errorf("failed to compile expression '%s': %w", expression, err)
+		return nil, werror.New(fmt.Sprintf("Windsor cannot parse the expression ${%s}: %v", expression, err),
+			"Correct the syntax of the expression.", err)
 	}
 	result, err := expr.Run(program, merged)
 	if err != nil {
@@ -369,7 +373,7 @@ func (e *expressionEvaluator) evaluateExpression(expression string, facetPath st
 		if errors.As(err, &deferredErr) {
 			return nil, deferredErr
 		}
-		return nil, fmt.Errorf("failed to evaluate expression '%s': %w", expression, err)
+		return nil, werror.Wrap(err, "failed to evaluate expression '%s'", expression)
 	}
 	return result, nil
 }
