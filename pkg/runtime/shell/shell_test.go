@@ -130,10 +130,6 @@ func setupDefaultShims(tmpDir string) *Shims {
 		return nil
 	}
 
-	shims.Chdir = func(dir string) error {
-		return nil
-	}
-
 	shims.Setenv = func(key, value string) error {
 		return nil
 	}
@@ -167,26 +163,14 @@ func setupDefaultShims(tmpDir string) *Shims {
 		return nil
 	}
 
-	shims.ExecuteTemplate = func(tmpl *template.Template, data any) error {
-		return nil
-	}
-
 	// Mock bufio operations with proper cleanup
 	shims.ScannerErr = func(scanner *bufio.Scanner) error {
 		return nil
 	}
 
-	shims.NewWriter = func(w io.Writer) *bufio.Writer {
-		return bufio.NewWriter(w)
-	}
-
 	// Mock filepath operations
 	shims.Glob = func(pattern string) ([]string, error) {
 		return []string{filepath.Join(tmpDir, "test")}, nil
-	}
-
-	shims.Join = func(elem ...string) string {
-		return filepath.Join(elem...)
 	}
 
 	shims.ScannerText = func(scanner *bufio.Scanner) string {
@@ -1942,6 +1926,29 @@ func (m *mockReadCloser) Close() error {
 // =============================================================================
 // Test Helpers
 // =============================================================================
+
+// captureStderr returns what f writes to os.Stderr.
+func captureStderr(t *testing.T, f func()) string {
+	var output bytes.Buffer
+	originalStderr := os.Stderr
+	r, w, _ := os.Pipe()
+	os.Stderr = w
+
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		f()
+		w.Close()
+	}()
+
+	_, err := output.ReadFrom(r)
+	if err != nil {
+		t.Fatalf("Failed to read from pipe: %v", err)
+	}
+	<-done
+	os.Stderr = originalStderr
+	return output.String()
+}
 
 // Helper function to capture stdout
 func captureStdout(t *testing.T, f func()) string {
@@ -3712,9 +3719,16 @@ func TestShell_ExecProgress(t *testing.T) {
 		}
 
 		// When executing command with progress
-		output, err := shell.ExecProgress(message, "test")
+		var output string
+		var err error
+		stderr := captureStderr(t, func() {
+			output, err = shell.ExecProgress(message, "test")
+		})
 
-		// Then it should succeed and return expected output
+		// Then it should print the message, succeed, and return expected output
+		if !strings.Contains(stderr, message) {
+			t.Errorf("Expected stderr to contain %q, got %q", message, stderr)
+		}
 		if err != nil {
 			t.Errorf("Expected no error, got %v", err)
 		}

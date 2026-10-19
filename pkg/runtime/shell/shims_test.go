@@ -8,248 +8,105 @@ import (
 	"testing"
 )
 
-func TestShell_NewShims(t *testing.T) {
-	t.Run("InitializesAllShims", func(t *testing.T) {
-		// When we create new shims
+func TestNewShims(t *testing.T) {
+	t.Run("CreatesShimsWithAllFunctions", func(t *testing.T) {
+		// Given a new Shims instance
+		// When NewShims is called
 		shims := NewShims()
 
-		// Then all shims should be non-nil
-		if shims == nil {
-			t.Fatal("Expected non-nil shims")
-		}
-
-		// We don't test the actual implementations since they are real system calls
-		// Instead we just verify that all fields are initialized
+		// Then all shim functions should be initialized
 		if shims.Getwd == nil {
-			t.Error("Expected Getwd to be initialized")
+			t.Error("Getwd shim not initialized")
 		}
 		if shims.Stat == nil {
-			t.Error("Expected Stat to be initialized")
-		}
-		if shims.Executable == nil {
-			t.Error("Expected Executable to be initialized")
-		}
-		if shims.Stderr == nil {
-			t.Error("Expected Stderr to be initialized")
-		}
-		if shims.SetStderr == nil {
-			t.Error("Expected SetStderr to be initialized")
-		}
-		if shims.Stdout == nil {
-			t.Error("Expected Stdout to be initialized")
-		}
-		if shims.SetStdout == nil {
-			t.Error("Expected SetStdout to be initialized")
-		}
-		if shims.Pipe == nil {
-			t.Error("Expected Pipe to be initialized")
-		}
-		if shims.Command == nil {
-			t.Error("Expected Command to be initialized")
-		}
-		if shims.LookPath == nil {
-			t.Error("Expected LookPath to be initialized")
-		}
-		if shims.OpenFile == nil {
-			t.Error("Expected OpenFile to be initialized")
-		}
-		if shims.WriteFile == nil {
-			t.Error("Expected WriteFile to be initialized")
+			t.Error("Stat shim not initialized")
 		}
 		if shims.ReadFile == nil {
-			t.Error("Expected ReadFile to be initialized")
+			t.Error("ReadFile shim not initialized")
+		}
+		if shims.WriteFile == nil {
+			t.Error("WriteFile shim not initialized")
 		}
 		if shims.MkdirAll == nil {
-			t.Error("Expected MkdirAll to be initialized")
-		}
-		if shims.Remove == nil {
-			t.Error("Expected Remove to be initialized")
+			t.Error("MkdirAll shim not initialized")
 		}
 		if shims.RemoveAll == nil {
-			t.Error("Expected RemoveAll to be initialized")
-		}
-		if shims.Chdir == nil {
-			t.Error("Expected Chdir to be initialized")
-		}
-		if shims.Setenv == nil {
-			t.Error("Expected Setenv to be initialized")
+			t.Error("RemoveAll shim not initialized")
 		}
 		if shims.Getenv == nil {
-			t.Error("Expected Getenv to be initialized")
+			t.Error("Getenv shim not initialized")
 		}
 		if shims.UserHomeDir == nil {
-			t.Error("Expected UserHomeDir to be initialized")
-		}
-		if shims.CmdRun == nil {
-			t.Error("Expected CmdRun to be initialized")
-		}
-		if shims.CmdStart == nil {
-			t.Error("Expected CmdStart to be initialized")
-		}
-		if shims.CmdWait == nil {
-			t.Error("Expected CmdWait to be initialized")
-		}
-		if shims.StdoutPipe == nil {
-			t.Error("Expected StdoutPipe to be initialized")
-		}
-		if shims.StderrPipe == nil {
-			t.Error("Expected StderrPipe to be initialized")
-		}
-		if shims.StdinPipe == nil {
-			t.Error("Expected StdinPipe to be initialized")
-		}
-		if shims.NewTemplate == nil {
-			t.Error("Expected NewTemplate to be initialized")
-		}
-		if shims.TemplateParse == nil {
-			t.Error("Expected TemplateParse to be initialized")
-		}
-		if shims.TemplateExecute == nil {
-			t.Error("Expected TemplateExecute to be initialized")
-		}
-		if shims.ExecuteTemplate == nil {
-			t.Error("Expected ExecuteTemplate to be initialized")
-		}
-		if shims.ScannerScan == nil {
-			t.Error("Expected ScannerScan to be initialized")
-		}
-		if shims.ScannerErr == nil {
-			t.Error("Expected ScannerErr to be initialized")
-		}
-		if shims.ScannerText == nil {
-			t.Error("Expected ScannerText to be initialized")
-		}
-		if shims.NewWriter == nil {
-			t.Error("Expected NewWriter to be initialized")
+			t.Error("UserHomeDir shim not initialized")
 		}
 		if shims.Glob == nil {
-			t.Error("Expected Glob to be initialized")
-		}
-		if shims.Join == nil {
-			t.Error("Expected Join to be initialized")
-		}
-		if shims.RandRead == nil {
-			t.Error("Expected RandRead to be initialized")
-		}
-		// Int63n is allowed to be nil as it's not initialized in NewShims
-	})
-}
-
-func TestNewShims(t *testing.T) {
-	t.Run("InitializesAllShims", func(t *testing.T) {
-		// When we create new shims
-		shims := NewShims()
-
-		// Then all shims should be initialized
-		if shims.Getwd == nil {
-			t.Error("Expected Getwd to be initialized")
-		}
-		if shims.Stat == nil {
-			t.Error("Expected Stat to be initialized")
+			t.Error("Glob shim not initialized")
 		}
 		if shims.Executable == nil {
-			t.Error("Expected Executable to be initialized")
-		}
-		if shims.Stderr == nil {
-			t.Error("Expected Stderr to be initialized")
-		}
-		if shims.Stdout == nil {
-			t.Error("Expected Stdout to be initialized")
+			t.Error("Executable shim not initialized")
 		}
 		if shims.Command == nil {
-			t.Error("Expected Command to be initialized")
+			t.Error("Command shim not initialized")
 		}
-		if shims.UserHomeDir == nil {
-			t.Error("Expected UserHomeDir to be initialized")
+		if shims.Environ == nil {
+			t.Error("Environ shim not initialized")
 		}
-
-		// Verify a shim actually works
-		stderr := shims.Stderr()
-		if stderr != os.Stderr {
-			t.Error("Expected Stderr to return os.Stderr")
+		if shims.OpenFile == nil {
+			t.Error("OpenFile shim not initialized")
 		}
-	})
-
-	t.Run("SetStderr", func(t *testing.T) {
-		// Given
-		shims := NewShims()
-		origStderr := os.Stderr
-		defer func() { os.Stderr = origStderr }()
-
-		// When setting a non-file writer
-		shims.SetStderr(&mockWriter{})
-		// Then stderr should not change
-		if os.Stderr != origStderr {
-			t.Error("Expected Stderr to remain unchanged for non-file writer")
+		if shims.CmdRun == nil {
+			t.Error("CmdRun shim not initialized")
 		}
-
-		// When setting a file writer
-		tmpFile, err := os.CreateTemp("", "stderr")
-		if err != nil {
-			t.Fatal(err)
+		if shims.CmdStart == nil {
+			t.Error("CmdStart shim not initialized")
 		}
-		defer os.Remove(tmpFile.Name())
-		shims.SetStderr(tmpFile)
-		// Then stderr should change
-		if os.Stderr == origStderr {
-			t.Error("Expected Stderr to change for file writer")
+		if shims.CmdWait == nil {
+			t.Error("CmdWait shim not initialized")
 		}
-	})
-
-	t.Run("SetStdout", func(t *testing.T) {
-		// Given
-		shims := NewShims()
-		origStdout := os.Stdout
-		defer func() { os.Stdout = origStdout }()
-
-		// When setting a non-file writer
-		shims.SetStdout(&mockWriter{})
-		// Then stdout should not change
-		if os.Stdout != origStdout {
-			t.Error("Expected Stdout to remain unchanged for non-file writer")
+		if shims.StdoutPipe == nil {
+			t.Error("StdoutPipe shim not initialized")
 		}
-
-		// When setting a file writer
-		tmpFile, err := os.CreateTemp("", "stdout")
-		if err != nil {
-			t.Fatal(err)
+		if shims.StderrPipe == nil {
+			t.Error("StderrPipe shim not initialized")
 		}
-		defer os.Remove(tmpFile.Name())
-		shims.SetStdout(tmpFile)
-		// Then stdout should change
-		if os.Stdout == origStdout {
-			t.Error("Expected Stdout to change for file writer")
+		if shims.NewTemplate == nil {
+			t.Error("NewTemplate shim not initialized")
 		}
-	})
-
-	t.Run("Pipe", func(t *testing.T) {
-		// Given
-		shims := NewShims()
-
-		// When creating a pipe
-		r, w, err := shims.Pipe()
-		if err != nil {
-			t.Fatal(err)
+		if shims.TemplateParse == nil {
+			t.Error("TemplateParse shim not initialized")
 		}
-		defer r.Close()
-		defer w.Close()
-
-		// Then we should be able to write and read
-		testData := []byte("test data")
-		if _, err := w.Write(testData); err != nil {
-			t.Errorf("Failed to write test data: %v", err)
+		if shims.TemplateExecute == nil {
+			t.Error("TemplateExecute shim not initialized")
 		}
-
-		buf := make([]byte, len(testData))
-		n, err := r.Read(buf)
-		if err != nil {
-			t.Fatal(err)
+		if shims.NewScanner == nil {
+			t.Error("NewScanner shim not initialized")
 		}
-		if n != len(testData) {
-			t.Errorf("Expected to read %d bytes, got %d", len(testData), n)
+		if shims.ScannerScan == nil {
+			t.Error("ScannerScan shim not initialized")
 		}
-		if string(buf) != string(testData) {
-			t.Errorf("Expected %q, got %q", testData, buf)
+		if shims.ScannerErr == nil {
+			t.Error("ScannerErr shim not initialized")
+		}
+		if shims.ScannerText == nil {
+			t.Error("ScannerText shim not initialized")
+		}
+		if shims.RandRead == nil {
+			t.Error("RandRead shim not initialized")
+		}
+		if shims.IsTerminal == nil {
+			t.Error("IsTerminal shim not initialized")
+		}
+		if shims.SignalNotify == nil {
+			t.Error("SignalNotify shim not initialized")
+		}
+		if shims.SignalStop == nil {
+			t.Error("SignalStop shim not initialized")
+		}
+		if shims.InterruptProcessGroup == nil {
+			t.Error("InterruptProcessGroup shim not initialized")
+		}
+		if shims.KillProcessGroup == nil {
+			t.Error("KillProcessGroup shim not initialized")
 		}
 	})
 
@@ -320,13 +177,6 @@ func TestShims_ExecOperations(t *testing.T) {
 		shims := NewShims()
 		cmd := shims.Command(os.Args[0], "-test.run=TestShims_ExecOperations/ThisTestDoesNotExist")
 
-		// Test StdinPipe
-		stdin, err := shims.StdinPipe(cmd)
-		if err != nil {
-			t.Errorf("Expected StdinPipe to succeed, got error: %v", err)
-		}
-		defer stdin.Close()
-
 		// Test StdoutPipe
 		stdout, err := shims.StdoutPipe(cmd)
 		if err != nil {
@@ -359,11 +209,6 @@ func TestShims_TemplateOperations(t *testing.T) {
 		var buf mockWriter
 		if err := shims.TemplateExecute(parsed, &buf, "World"); err != nil {
 			t.Errorf("Expected TemplateExecute to succeed, got error: %v", err)
-		}
-
-		// Test ExecuteTemplate
-		if err := shims.ExecuteTemplate(parsed, "World"); err != nil {
-			t.Errorf("Expected ExecuteTemplate to succeed, got error: %v", err)
 		}
 	})
 

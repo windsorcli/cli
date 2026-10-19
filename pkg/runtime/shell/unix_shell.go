@@ -1,6 +1,11 @@
 //go:build !windows
 // +build !windows
 
+// The Unix shell methods are the DefaultShell methods for bash, zsh, fish, and other Unix shells.
+// It provides the unset and unalias commands, the export rendering, and sudo through /dev/tty.
+// It puts a progress command in its own process group, so that Windsor can interrupt or kill the group.
+// The methods in windows_shell.go provide the same methods for PowerShell.
+
 package shell
 
 import (
@@ -14,11 +19,6 @@ import (
 
 	"github.com/windsorcli/cli/internal/presenter"
 )
-
-// The UnixShell is a platform-specific implementation of shell operations for Unix-like systems.
-// It provides Unix-specific implementations of environment variable and alias management.
-// It handles the differences between Unix shells and Windows PowerShell.
-// Key features include Unix-specific command generation for environment variables and aliases.
 
 // =============================================================================
 // Public Methods
@@ -120,31 +120,6 @@ func (s *DefaultShell) ExecSudo(message string, command string, args ...string) 
 	return s.scrubString(stdoutBuf.String()), nil
 }
 
-// setProcessGroup places cmd in its own process group. A second terminal interrupt
-// then reaches cmd only through interruptGuard's call to interruptProcessGroup.
-func setProcessGroup(cmd *exec.Cmd) {
-	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
-}
-
-// interruptProcessGroup sends SIGINT to cmd's process group. The negative pid
-// targets the whole group, the same as a terminal-delivered interrupt would.
-func interruptProcessGroup(cmd *exec.Cmd) error {
-	if cmd.Process == nil {
-		return nil
-	}
-	return syscall.Kill(-cmd.Process.Pid, syscall.SIGINT)
-}
-
-// killProcessGroup sends SIGKILL to cmd's process group. The negative pid targets the
-// whole group, so a subprocess cmd spawned (e.g. terraform's own provider plugins) dies
-// too, not just cmd itself.
-func killProcessGroup(cmd *exec.Cmd) error {
-	if cmd.Process == nil {
-		return nil
-	}
-	return syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
-}
-
 // =============================================================================
 // Private Methods
 // =============================================================================
@@ -169,4 +144,33 @@ func (s *DefaultShell) renderEnvVarsWithExport(envVars map[string]string) string
 		}
 	}
 	return result.String()
+}
+
+// =============================================================================
+// Helpers
+// =============================================================================
+
+// setProcessGroup places cmd in its own process group. A second terminal interrupt
+// then reaches cmd only through interruptGuard's call to interruptProcessGroup.
+func setProcessGroup(cmd *exec.Cmd) {
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+}
+
+// interruptProcessGroup sends SIGINT to cmd's process group. The negative pid
+// targets the whole group, the same as a terminal-delivered interrupt would.
+func interruptProcessGroup(cmd *exec.Cmd) error {
+	if cmd.Process == nil {
+		return nil
+	}
+	return syscall.Kill(-cmd.Process.Pid, syscall.SIGINT)
+}
+
+// killProcessGroup sends SIGKILL to cmd's process group. The negative pid targets the
+// whole group, so a subprocess cmd spawned (e.g. terraform's own provider plugins) dies
+// too, not just cmd itself.
+func killProcessGroup(cmd *exec.Cmd) error {
+	if cmd.Process == nil {
+		return nil
+	}
+	return syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
 }

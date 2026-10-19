@@ -1,3 +1,8 @@
+// The scrubbingWriter is the io.Writer that hides registered secrets in streamed command output.
+// It provides a scrub of the full pending buffer on each Write, so a secret split across writes still matches.
+// It holds back the tail of the scrubbed output, up to the length of the longest registered secret.
+// The caller must call Flush when the command completes to write the bytes that it held back.
+
 package shell
 
 import (
@@ -25,7 +30,7 @@ type scrubbingWriter struct {
 }
 
 // =============================================================================
-// Methods
+// Public Methods
 // =============================================================================
 
 // Write appends incoming bytes to the pending buffer, scrubs the buffer as a whole, and emits

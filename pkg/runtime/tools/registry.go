@@ -1,3 +1,8 @@
+// The tool registry is the catalog of the external CLIs that Windsor checks for.
+// It provides the display name, the minimum version, and the install page of each tool.
+// The missing and outdated tool errors use it to tell the user how to install or upgrade a tool.
+// Each key is the binary name that the matching check passes to LookPath.
+
 package tools
 
 import (
@@ -6,34 +11,12 @@ import (
 	"github.com/windsorcli/cli/pkg/constants"
 )
 
-// The toolRegistry is a static catalog of every external CLI Windsor checks for. It exists so
-// "tool not on PATH" / "tool below minimum version" errors carry a copy-pasteable next step
-// (the vendor's first-party install page) instead of just naming the missing binary. Entries
-// are keyed by the actual lookup name passed to exec.LookPath so check* code paths and error
-// formatting agree on a single source of truth.
-
-// =============================================================================
-// Types
-// =============================================================================
-
-// toolInfo describes the user-facing identity of a checked tool: the display name used in
-// error messages, the minimum version Windsor will accept, and the first-party
-// install/download page (vendor docs, never a third-party mirror or distribution-manager
-// package). We point operators at the vendor's own instructions so platform-specific
-// nuances (brew vs apt vs winget vs direct binary, signing, GPG keys) are handled by the
-// authoritative source rather than a half-correct copy here.
-type toolInfo struct {
-	name       string
-	minVersion string
-	download   string
-}
-
 // =============================================================================
 // Constants
 // =============================================================================
 
 // toolRegistry maps the on-PATH binary name to its toolInfo. Keys MUST match the argument
-// passed to execLookPath in the corresponding check* function — missingToolError and
+// passed to LookPath in the corresponding check* function — missingToolError and
 // outdatedToolError look up by that key, and a mismatch silently degrades the error to a
 // generic message without install hints.
 var toolRegistry = map[string]toolInfo{
@@ -92,6 +75,22 @@ var toolRegistry = map[string]toolInfo{
 		minVersion: constants.MinimumVersionGCP,
 		download:   "https://cloud.google.com/sdk/docs/install",
 	},
+}
+
+// =============================================================================
+// Types
+// =============================================================================
+
+// toolInfo describes the user-facing identity of a checked tool: the display name used in
+// error messages, the minimum version Windsor will accept, and the first-party
+// install/download page (vendor docs, never a third-party mirror or distribution-manager
+// package). We point operators at the vendor's own instructions so platform-specific
+// nuances (brew vs apt vs winget vs direct binary, signing, GPG keys) are handled by the
+// authoritative source rather than a half-correct copy here.
+type toolInfo struct {
+	name       string
+	minVersion string
+	download   string
 }
 
 // =============================================================================

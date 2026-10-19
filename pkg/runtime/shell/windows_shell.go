@@ -1,6 +1,11 @@
 //go:build windows
 // +build windows
 
+// The Windows shell methods are the DefaultShell methods for PowerShell.
+// It provides the Remove-Item commands, the alias commands, and the env rendering with PowerShell quotes.
+// ExecSudo runs the command without sudo, because Windows has no sudo command.
+// It puts a progress command in its own console process group, so that Windsor can interrupt the group.
+
 package shell
 
 import (
@@ -15,11 +20,6 @@ import (
 	"golang.org/x/sys/windows"
 )
 
-// The WindowsShell is a platform-specific implementation of shell operations for Windows systems.
-// It provides Windows PowerShell-specific implementations of environment variable and alias management.
-// It handles the differences between Windows PowerShell and Unix shells.
-// Key features include PowerShell-specific command generation for environment variables and aliases.
-
 // =============================================================================
 // Public Methods
 // =============================================================================
@@ -31,7 +31,6 @@ func (s *DefaultShell) UnsetEnvs(envVars []string) {
 		return
 	}
 
-	// Print Remove-Item commands for each environment variable
 	for _, env := range envVars {
 		fmt.Printf("Remove-Item Env:%s\n", env)
 	}
@@ -44,7 +43,6 @@ func (s *DefaultShell) UnsetAlias(aliases []string) {
 		return
 	}
 
-	// Print Remove-Item commands for each alias
 	for _, alias := range aliases {
 		fmt.Printf("Remove-Item Alias:%s\n", alias)
 	}
@@ -93,32 +91,6 @@ func (s *DefaultShell) ExecSudo(message string, command string, args ...string) 
 	return s.Exec(command, args...)
 }
 
-// setProcessGroup places cmd in its own console process group. A second terminal
-// interrupt then reaches cmd only through interruptGuard's call to interruptProcessGroup.
-func setProcessGroup(cmd *exec.Cmd) {
-	cmd.SysProcAttr = &syscall.SysProcAttr{CreationFlags: windows.CREATE_NEW_PROCESS_GROUP}
-}
-
-// interruptProcessGroup sends CTRL_BREAK_EVENT to cmd's console process group.
-// Windows has no SIGINT. A process in its own group (set by setProcessGroup)
-// receives CTRL_BREAK_EVENT the way a foreground process receives Ctrl+C.
-func interruptProcessGroup(cmd *exec.Cmd) error {
-	if cmd.Process == nil {
-		return nil
-	}
-	return windows.GenerateConsoleCtrlEvent(windows.CTRL_BREAK_EVENT, uint32(cmd.Process.Pid)) // #nosec G115 -- process IDs are small, safe to cast to uint32
-}
-
-// killProcessGroup force-kills cmd's whole process tree via `taskkill /T /F`. Windows has
-// no direct equivalent of a negative-pid group kill; taskkill's /T flag walks the tree, so
-// a subprocess cmd spawned (e.g. terraform's own provider plugins) dies too, not just cmd.
-func killProcessGroup(cmd *exec.Cmd) error {
-	if cmd.Process == nil {
-		return nil
-	}
-	return exec.Command("taskkill", "/T", "/F", "/PID", strconv.Itoa(cmd.Process.Pid)).Run()
-}
-
 // =============================================================================
 // Private Methods
 // =============================================================================
@@ -151,4 +123,34 @@ func (s *DefaultShell) quoteValueForPowerShell(value string) string {
 		return "'" + value + "'"
 	}
 	return "'" + strings.ReplaceAll(value, "'", "''") + "'"
+}
+
+// =============================================================================
+// Helpers
+// =============================================================================
+
+// setProcessGroup places cmd in its own console process group. A second terminal
+// interrupt then reaches cmd only through interruptGuard's call to interruptProcessGroup.
+func setProcessGroup(cmd *exec.Cmd) {
+	cmd.SysProcAttr = &syscall.SysProcAttr{CreationFlags: windows.CREATE_NEW_PROCESS_GROUP}
+}
+
+// interruptProcessGroup sends CTRL_BREAK_EVENT to cmd's console process group.
+// Windows has no SIGINT. A process in its own group (set by setProcessGroup)
+// receives CTRL_BREAK_EVENT the way a foreground process receives Ctrl+C.
+func interruptProcessGroup(cmd *exec.Cmd) error {
+	if cmd.Process == nil {
+		return nil
+	}
+	return windows.GenerateConsoleCtrlEvent(windows.CTRL_BREAK_EVENT, uint32(cmd.Process.Pid)) // #nosec G115 -- process IDs are small, safe to cast to uint32
+}
+
+// killProcessGroup force-kills cmd's whole process tree via `taskkill /T /F`. Windows has
+// no direct equivalent of a negative-pid group kill; taskkill's /T flag walks the tree, so
+// a subprocess cmd spawned (e.g. terraform's own provider plugins) dies too, not just cmd.
+func killProcessGroup(cmd *exec.Cmd) error {
+	if cmd.Process == nil {
+		return nil
+	}
+	return exec.Command("taskkill", "/T", "/F", "/PID", strconv.Itoa(cmd.Process.Pid)).Run()
 }

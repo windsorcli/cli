@@ -1,7 +1,7 @@
-// The shims package is a system call abstraction layer
-// It provides mockable wrappers around system and runtime functions
-// It serves as a testing aid by allowing system calls to be intercepted
-// It enables dependency injection and test isolation for system-level operations
+// The Shims are the system call abstractions of the shell package.
+// It provides the shared shims of internal/shims and the exec, template, scanner, and signal shims.
+// Tests replace the shims to simulate command output, file access, and terminal state.
+// NewShims returns the shims with the real implementations.
 
 package shell
 
@@ -12,85 +12,40 @@ import (
 	"os"
 	"os/exec"
 	"os/signal"
-	"path/filepath"
 	"text/template"
 
 	"golang.org/x/term"
+
+	"github.com/windsorcli/cli/internal/shims"
 )
 
 // =============================================================================
 // Types
 // =============================================================================
 
-// Shims provides mockable wrappers around system and runtime functions
+// Shims holds the shared system call primitives and the shell-specific shims.
 type Shims struct {
-	// OS operations
-	Getwd      func() (string, error)
-	Stat       func(name string) (os.FileInfo, error)
-	Executable func() (string, error)
-
-	// Standard I/O operations
-	Stderr    func() io.Writer
-	SetStderr func(w io.Writer)
-	Stdout    func() io.Writer
-	SetStdout func(w io.Writer)
-	Pipe      func() (*os.File, *os.File, error)
-
-	// Shell operations
-	UnsetEnvs  func(envVars []string)
-	UnsetAlias func(aliases []string)
-
-	// Exec operations
-	Command     func(name string, arg ...string) *exec.Cmd
-	Environ     func() []string
-	LookPath    func(file string) (string, error)
-	OpenFile    func(name string, flag int, perm os.FileMode) (*os.File, error)
-	WriteFile   func(name string, data []byte, perm os.FileMode) error
-	ReadFile    func(name string) ([]byte, error)
-	MkdirAll    func(path string, perm os.FileMode) error
-	Remove      func(name string) error
-	RemoveAll   func(path string) error
-	Chdir       func(dir string) error
-	Setenv      func(key, value string) error
-	Getenv      func(key string) string
-	UserHomeDir func() (string, error)
-
-	// Exec operations
-	CmdRun     func(cmd *exec.Cmd) error
-	CmdStart   func(cmd *exec.Cmd) error
-	CmdWait    func(cmd *exec.Cmd) error
-	StdoutPipe func(cmd *exec.Cmd) (io.ReadCloser, error)
-	StderrPipe func(cmd *exec.Cmd) (io.ReadCloser, error)
-	StdinPipe  func(cmd *exec.Cmd) (io.WriteCloser, error)
-
-	// Template operations
-	NewTemplate     func(name string) *template.Template
-	TemplateParse   func(tmpl *template.Template, text string) (*template.Template, error)
-	TemplateExecute func(tmpl *template.Template, wr io.Writer, data any) error
-	ExecuteTemplate func(tmpl *template.Template, data any) error
-
-	// Bufio operations
-	NewScanner  func(r io.Reader) *bufio.Scanner
-	ScannerScan func(scanner *bufio.Scanner) bool
-	ScannerErr  func(scanner *bufio.Scanner) error
-	ScannerText func(scanner *bufio.Scanner) string
-	NewWriter   func(w io.Writer) *bufio.Writer
-
-	// Filepath operations
-	Glob func(pattern string) ([]string, error)
-	Join func(elem ...string) string
-
-	// Random operations
-	RandRead func(b []byte) (n int, err error)
-
-	// Terminal operations
-	IsTerminal func(fd int) bool
-
-	// Signal operations
-	SignalNotify func(c chan<- os.Signal, sig ...os.Signal)
-	SignalStop   func(c chan<- os.Signal)
-
-	// Process group operations
+	shims.Shims
+	Executable            func() (string, error)
+	Command               func(name string, arg ...string) *exec.Cmd
+	Environ               func() []string
+	OpenFile              func(name string, flag int, perm os.FileMode) (*os.File, error)
+	CmdRun                func(cmd *exec.Cmd) error
+	CmdStart              func(cmd *exec.Cmd) error
+	CmdWait               func(cmd *exec.Cmd) error
+	StdoutPipe            func(cmd *exec.Cmd) (io.ReadCloser, error)
+	StderrPipe            func(cmd *exec.Cmd) (io.ReadCloser, error)
+	NewTemplate           func(name string) *template.Template
+	TemplateParse         func(tmpl *template.Template, text string) (*template.Template, error)
+	TemplateExecute       func(tmpl *template.Template, wr io.Writer, data any) error
+	NewScanner            func(r io.Reader) *bufio.Scanner
+	ScannerScan           func(scanner *bufio.Scanner) bool
+	ScannerErr            func(scanner *bufio.Scanner) error
+	ScannerText           func(scanner *bufio.Scanner) string
+	RandRead              func(b []byte) (n int, err error)
+	IsTerminal            func(fd int) bool
+	SignalNotify          func(c chan<- os.Signal, sig ...os.Signal)
+	SignalStop            func(c chan<- os.Signal)
 	InterruptProcessGroup func(cmd *exec.Cmd) error
 	KillProcessGroup      func(cmd *exec.Cmd) error
 }
@@ -99,100 +54,31 @@ type Shims struct {
 // Constructor
 // =============================================================================
 
-// NewShims creates a new Shims instance with default implementations
+// NewShims returns a Shims with every field set to its real implementation.
 func NewShims() *Shims {
-	s := &Shims{
-		// OS operations
-		Getwd:      os.Getwd,
-		Stat:       os.Stat,
-		Executable: os.Executable,
-
-		// Standard I/O operations
-		Stderr: func() io.Writer {
-			return os.Stderr
-		},
-		SetStderr: func(w io.Writer) {
-			if f, ok := w.(*os.File); ok {
-				os.Stderr = f
-			}
-		},
-		Stdout: func() io.Writer {
-			return os.Stdout
-		},
-		SetStdout: func(w io.Writer) {
-			if f, ok := w.(*os.File); ok {
-				os.Stdout = f
-			}
-		},
-		Pipe: os.Pipe,
-
-		// Shell operations
-		UnsetEnvs:  func(envVars []string) {},
-		UnsetAlias: func(aliases []string) {},
-
-		// Exec operations
-		Command:     exec.Command,
-		Environ:     os.Environ,
-		LookPath:    exec.LookPath,
-		OpenFile:    os.OpenFile,
-		WriteFile:   os.WriteFile,
-		ReadFile:    os.ReadFile,
-		MkdirAll:    os.MkdirAll,
-		Remove:      os.Remove,
-		RemoveAll:   os.RemoveAll,
-		Chdir:       os.Chdir,
-		Setenv:      os.Setenv,
-		Getenv:      os.Getenv,
-		UserHomeDir: os.UserHomeDir,
-
-		// Exec operations
-		CmdRun:     (*exec.Cmd).Run,
-		CmdStart:   (*exec.Cmd).Start,
-		CmdWait:    (*exec.Cmd).Wait,
-		StdoutPipe: (*exec.Cmd).StdoutPipe,
-		StderrPipe: (*exec.Cmd).StderrPipe,
-		StdinPipe:  (*exec.Cmd).StdinPipe,
-
-		// Template operations
-		NewTemplate:     template.New,
-		TemplateParse:   (*template.Template).Parse,
-		TemplateExecute: (*template.Template).Execute,
-		ExecuteTemplate: func(tmpl *template.Template, data any) error {
-			return tmpl.Execute(os.Stdout, data)
-		},
-
-		// Bufio operations
-		NewScanner: bufio.NewScanner,
-		ScannerScan: func(scanner *bufio.Scanner) bool {
-			return scanner.Scan()
-		},
-		ScannerErr: func(scanner *bufio.Scanner) error {
-			return scanner.Err()
-		},
-		ScannerText: func(scanner *bufio.Scanner) string {
-			return scanner.Text()
-		},
-		NewWriter: bufio.NewWriter,
-
-		// Filepath operations
-		Glob: filepath.Glob,
-		Join: filepath.Join,
-
-		// Random operations
-		RandRead: func(b []byte) (n int, err error) {
-			return rand.Read(b)
-		},
-
-		// Terminal operations
-		IsTerminal: term.IsTerminal,
-
-		// Signal operations
-		SignalNotify: signal.Notify,
-		SignalStop:   signal.Stop,
-
-		// Process group operations
+	return &Shims{
+		Shims:                 *shims.NewShims(),
+		Executable:            os.Executable,
+		Command:               exec.Command,
+		Environ:               os.Environ,
+		OpenFile:              os.OpenFile,
+		CmdRun:                (*exec.Cmd).Run,
+		CmdStart:              (*exec.Cmd).Start,
+		CmdWait:               (*exec.Cmd).Wait,
+		StdoutPipe:            (*exec.Cmd).StdoutPipe,
+		StderrPipe:            (*exec.Cmd).StderrPipe,
+		NewTemplate:           template.New,
+		TemplateParse:         (*template.Template).Parse,
+		TemplateExecute:       (*template.Template).Execute,
+		NewScanner:            bufio.NewScanner,
+		ScannerScan:           (*bufio.Scanner).Scan,
+		ScannerErr:            (*bufio.Scanner).Err,
+		ScannerText:           (*bufio.Scanner).Text,
+		RandRead:              rand.Read,
+		IsTerminal:            term.IsTerminal,
+		SignalNotify:          signal.Notify,
+		SignalStop:            signal.Stop,
 		InterruptProcessGroup: interruptProcessGroup,
 		KillProcessGroup:      killProcessGroup,
 	}
-	return s
 }
