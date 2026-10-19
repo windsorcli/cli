@@ -11,6 +11,7 @@ import (
 	"net"
 
 	"github.com/expr-lang/expr"
+	"github.com/windsorcli/cli/internal/werror"
 )
 
 // =============================================================================
@@ -116,7 +117,7 @@ func (e *expressionEvaluator) cidrNetmaskFunction() expr.Option {
 func (e *expressionEvaluator) evaluateCidrHostFunction(prefix string, hostnum int) (string, error) {
 	_, ipnet, err := net.ParseCIDR(prefix)
 	if err != nil {
-		return "", fmt.Errorf("invalid CIDR prefix: %w", err)
+		return "", werror.Wrap(err, "invalid CIDR prefix")
 	}
 
 	ones, bits := ipnet.Mask.Size()
@@ -183,7 +184,7 @@ func (e *expressionEvaluator) evaluateCidrHostFunction(prefix string, hostnum in
 func (e *expressionEvaluator) evaluateCidrSubnetFunction(prefix string, newbits int, netnum int) (string, error) {
 	_, ipnet, err := net.ParseCIDR(prefix)
 	if err != nil {
-		return "", fmt.Errorf("invalid CIDR prefix: %w", err)
+		return "", werror.Wrap(err, "invalid CIDR prefix")
 	}
 
 	ones, bits := ipnet.Mask.Size()
@@ -255,7 +256,7 @@ func (e *expressionEvaluator) evaluateCidrSubnetFunction(prefix string, newbits 
 func (e *expressionEvaluator) evaluateCidrSubnetsFunction(prefix string, newbits []int) ([]any, error) {
 	_, ipnet, err := net.ParseCIDR(prefix)
 	if err != nil {
-		return nil, fmt.Errorf("invalid CIDR prefix: %w", err)
+		return nil, werror.Wrap(err, "invalid CIDR prefix")
 	}
 
 	ones, bits := ipnet.Mask.Size()
@@ -326,7 +327,7 @@ func (e *expressionEvaluator) evaluateCidrSubnetsFunction(prefix string, newbits
 func (e *expressionEvaluator) evaluateCidrNetmaskFunction(prefix string) (string, error) {
 	_, ipnet, err := net.ParseCIDR(prefix)
 	if err != nil {
-		return "", fmt.Errorf("invalid CIDR prefix: %w", err)
+		return "", werror.Wrap(err, "invalid CIDR prefix")
 	}
 
 	mask := ipnet.Mask

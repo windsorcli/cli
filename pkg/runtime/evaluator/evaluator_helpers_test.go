@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/windsorcli/cli/internal/werror"
 	"github.com/windsorcli/cli/pkg/runtime/config"
 )
 
@@ -188,6 +189,26 @@ func TestYamlHelper(t *testing.T) {
 		}
 		if !strings.Contains(err.Error(), "yaml()") {
 			t.Errorf("Expected error to mention yaml(), got: %v", err)
+		}
+		if we := werror.Find(err); we == nil || !strings.Contains(we.Message, "cannot find the file") || we.Remediation != filePathRemediation {
+			t.Errorf("Expected a file-not-found error with the file path remediation, got %v", we)
+		}
+	})
+
+	t.Run("YamlFunctionWithInvalidInlineYamlNamesTheParseError", func(t *testing.T) {
+		evaluator, _, _, _ := setupEvaluatorTest(t)
+
+		_, err := evaluator.Evaluate(`${yaml("a:\n  b: [")}`, "", nil, false)
+
+		if err == nil {
+			t.Fatal("Expected error for invalid YAML, got nil")
+		}
+		we := werror.Find(err)
+		if we == nil || !strings.Contains(we.Message, "The yaml() helper cannot parse the YAML in its inline input") {
+			t.Errorf("Expected a parse error for the inline input, got %v", err)
+		}
+		if we != nil && we.Remediation == "" {
+			t.Error("Expected a remediation for the parse error")
 		}
 	})
 

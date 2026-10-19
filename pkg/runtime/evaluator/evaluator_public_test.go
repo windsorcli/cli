@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/windsorcli/cli/internal/werror"
 	"github.com/windsorcli/cli/pkg/runtime/config"
 )
 
@@ -267,8 +268,11 @@ func TestExpressionEvaluator_Evaluate(t *testing.T) {
 			t.Fatal("Expected error for empty expression, got nil")
 		}
 
-		if !strings.Contains(err.Error(), "expression cannot be empty") {
-			t.Errorf("Expected error message to contain 'expression cannot be empty', got: %v", err)
+		if !strings.Contains(err.Error(), `The string "${}" has an empty expression.`) {
+			t.Errorf("Expected an empty-expression error naming the string, got: %v", err)
+		}
+		if we := werror.Find(err); we == nil || !strings.Contains(we.Remediation, "remove the ${}") {
+			t.Errorf("Expected a remediation to remove the empty expression, got %v", we)
 		}
 	})
 
@@ -279,9 +283,16 @@ func TestExpressionEvaluator_Evaluate(t *testing.T) {
 		// When evaluating an invalid expression
 		_, err := evaluator.Evaluate("${invalid +}", "", nil, false)
 
-		// Then an error should be returned
+		// Then a parse error that names the expression should be returned
 		if err == nil {
 			t.Fatal("Expected error for invalid expression, got nil")
+		}
+		we := werror.Find(err)
+		if we == nil || !strings.Contains(we.Message, "Windsor cannot parse the expression ${invalid +}") {
+			t.Errorf("Expected a parse error naming the expression, got %v", err)
+		}
+		if we != nil && we.Remediation == "" {
+			t.Error("Expected a remediation for the parse error")
 		}
 	})
 
@@ -802,6 +813,9 @@ func TestExpressionEvaluator_Evaluate(t *testing.T) {
 		if !strings.Contains(err.Error(), "unclosed expression") {
 			t.Errorf("Expected error to mention unclosed expression, got: %v", err)
 		}
+		if we := werror.Find(err); we == nil || !strings.Contains(we.Remediation, "closing }") {
+			t.Errorf("Expected a remediation to add the closing brace, got %v", we)
+		}
 	})
 
 	t.Run("ReturnsOriginalUnclosedErrorForAPlainLaterTypoNotProducedByNesting", func(t *testing.T) {
@@ -821,7 +835,7 @@ func TestExpressionEvaluator_Evaluate(t *testing.T) {
 		if err == nil {
 			t.Fatal("Expected an error")
 		}
-		if !strings.Contains(err.Error(), "unclosed expression in string: ${b} rest ${bad") {
+		if !strings.Contains(err.Error(), `The string "${b} rest ${bad" has an unclosed expression.`) {
 			t.Errorf("Expected the original-input message, got: %v", err)
 		}
 		if strings.Contains(err.Error(), "nested expression") {
@@ -846,7 +860,7 @@ func TestExpressionEvaluator_Evaluate(t *testing.T) {
 		if err == nil {
 			t.Fatal("Expected an error")
 		}
-		if strings.Contains(err.Error(), "unclosed expression in string: ${string(raw)}") {
+		if strings.Contains(err.Error(), `The string "${string(raw)}" has an unclosed expression.`) {
 			t.Errorf("Expected the nested-rescan message, not the original-input message, got: %v", err)
 		}
 		if !strings.Contains(err.Error(), "still contains an unresolved expression") {
