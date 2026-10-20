@@ -17,7 +17,6 @@ import (
 	meta "github.com/fluxcd/pkg/apis/meta"
 	sourcev1 "github.com/fluxcd/source-controller/api/v1"
 	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
-	"github.com/windsorcli/cli/internal/presenter"
 	"github.com/windsorcli/cli/internal/werror"
 	"github.com/windsorcli/cli/pkg/constants"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -110,9 +109,10 @@ func (k *BaseKubernetesManager) ApplyKustomization(kustomization kustomizev1.Kus
 // WaitForKustomizations waits until each Kustomization is Ready, within the timeout of the longest
 // dependency chain. It returns ctx.Err() on cancellation. BuildFailed and ArtifactFailed fail at once.
 // List errors and ReconciliationFailed fail after an error budget: a quarter of the total, or the own
-// timeout of the Kustomization when that is shorter, and never less than the minimum. The presenter
-// shows one step per Kustomization, which starts when its dependencies are Ready.
-func (k *BaseKubernetesManager) WaitForKustomizations(ctx context.Context, message string, blueprint *blueprintv1alpha1.Blueprint) (err error) {
+// timeout of the Kustomization when that is shorter, and never less than the minimum. It reports one
+// step per Kustomization to layers, starting each when its dependencies are Ready and failing the one
+// that fails the wait.
+func (k *BaseKubernetesManager) WaitForKustomizations(ctx context.Context, blueprint *blueprintv1alpha1.Blueprint, layers KustomizationReporter) error {
 	if blueprint == nil {
 		return fmt.Errorf("blueprint not provided")
 	}
@@ -151,10 +151,6 @@ func (k *BaseKubernetesManager) WaitForKustomizations(ctx context.Context, messa
 		return budget
 	}
 
-	ctx, end := presenter.Begin(ctx, "kustomize:wait", message)
-	defer func() { end(err) }()
-	layers := presenter.NewGroup(ctx, "kustomization:")
-	defer func() { layers.Close(err) }()
 	dependsOn := make(map[string][]string, len(blueprint.Kustomizations))
 	for _, kustomization := range blueprint.Kustomizations {
 		dependsOn[kustomization.Name] = kustomization.DependsOn
@@ -208,6 +204,7 @@ func (k *BaseKubernetesManager) WaitForKustomizations(ctx context.Context, messa
 				}
 				ready, pending, failed := kustomizationConditionStatus(obj)
 				if failed != nil {
+					layers.Fail(name, failed)
 					return werror.Wrap(failed, "kustomization will not become ready")
 				}
 				if pending != nil {
@@ -221,6 +218,7 @@ func (k *BaseKubernetesManager) WaitForKustomizations(ctx context.Context, messa
 					failureStreaks[name] = streak
 					layers.Progress(name, kustomizationFailureText(pending))
 					if now.Sub(streak.start) >= budget {
+						layers.Fail(name, pending)
 						return werror.Wrap(pending, "kustomization failing for over %s", budget)
 					}
 					continue

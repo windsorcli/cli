@@ -11,14 +11,13 @@ Run Terraform components, then install the Flux blueprint. Use the 'terraform' o
 
 For workstation contexts, prefer 'windsor up' — it does the same work plus VM management.
 
-Pass --wait to block until kustomizations report ready. Pass --prune to also remove kustomizations the blueprint no longer declares, once the new set is Ready.
+Waits until every kustomization is Ready, and fails when one does not become Ready. Pass --prune to also remove kustomizations the blueprint no longer declares, once the new set is Ready.
 
 ## Flags
 
 | Flag | Default | Description |
 |------|---------|-------------|
 | `--prune` | `false` | Remove kustomizations the blueprint no longer declares. |
-| `--wait` | `false` | Wait for kustomization resources to be ready. |
 
 ## Subcommands
 
@@ -28,8 +27,8 @@ Pass --wait to block until kustomizations report ready. Pass --prune to also rem
 ## Examples
 
 ```sh
-# Apply everything and block until ready
-windsor apply --wait
+# Apply everything
+windsor apply
 
 # Apply and remove kustomizations no longer declared
 windsor apply --prune

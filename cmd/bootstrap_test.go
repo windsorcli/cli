@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -100,7 +101,9 @@ func setupBootstrapTest(t *testing.T, opts ...*SetupOptions) *BootstrapMocks {
 
 	mockKubernetesManager := kubernetes.NewMockKubernetesManager()
 	mockKubernetesManager.ApplyBlueprintFunc = func(blueprint *blueprintv1alpha1.Blueprint, namespace string) error { return nil }
-	mockKubernetesManager.WaitForKustomizationsFunc = func(ctx context.Context, message string, blueprint *blueprintv1alpha1.Blueprint) error { return nil }
+	mockKubernetesManager.WaitForKustomizationsFunc = func(ctx context.Context, blueprint *blueprintv1alpha1.Blueprint, layers kubernetes.KustomizationReporter) error {
+		return nil
+	}
 
 	rt := runtime.NewRuntime(&runtime.Runtime{
 		Shell:         baseMocks.Shell,
@@ -176,7 +179,7 @@ func TestBootstrapCmd(t *testing.T) {
 			return nil
 		}
 		waitCalled := false
-		mocks.KubernetesManager.WaitForKustomizationsFunc = func(ctx context.Context, message string, blueprint *blueprintv1alpha1.Blueprint) error {
+		mocks.KubernetesManager.WaitForKustomizationsFunc = func(ctx context.Context, blueprint *blueprintv1alpha1.Blueprint, layers kubernetes.KustomizationReporter) error {
 			waitCalled = true
 			return nil
 		}
@@ -246,7 +249,7 @@ func TestBootstrapCmd(t *testing.T) {
 		}
 		mocks.BlueprintHandler.GenerateResolvedFunc = func() (*blueprintv1alpha1.Blueprint, error) { return pending, nil }
 		markerWritten := false
-		mocks.KubernetesManager.WaitForKustomizationsFunc = func(ctx context.Context, message string, blueprint *blueprintv1alpha1.Blueprint) error {
+		mocks.KubernetesManager.WaitForKustomizationsFunc = func(ctx context.Context, blueprint *blueprintv1alpha1.Blueprint, layers kubernetes.KustomizationReporter) error {
 			return fmt.Errorf("timeout waiting for kustomization dns/external-dns to be ready")
 		}
 		mocks.KubernetesManager.ApplyVersionMarkerFunc = func(namespace string, marker kubernetes.VersionMarker) error {
@@ -278,7 +281,7 @@ func TestBootstrapCmd(t *testing.T) {
 		proj := newBootstrapTestProject(mocks)
 
 		markerWritten := false
-		mocks.KubernetesManager.WaitForKustomizationsFunc = func(ctx context.Context, message string, blueprint *blueprintv1alpha1.Blueprint) error {
+		mocks.KubernetesManager.WaitForKustomizationsFunc = func(ctx context.Context, blueprint *blueprintv1alpha1.Blueprint, layers kubernetes.KustomizationReporter) error {
 			return fmt.Errorf("kustomization app/web not ready: ImagePullBackOff")
 		}
 		mocks.KubernetesManager.ApplyVersionMarkerFunc = func(namespace string, marker kubernetes.VersionMarker) error {
@@ -1150,6 +1153,44 @@ func TestBootstrapCmd(t *testing.T) {
 		}
 		if upCalled {
 			t.Error("Up must not be called when EOF declines summary-confirm in local mode")
+		}
+	})
+}
+
+func TestWarnNotReady(t *testing.T) {
+	notReady := fmt.Errorf("%w: dns not ready", provisioner.ErrKustomizationsNotReady)
+	messages := []blueprintv1alpha1.Message{{Text: "Delegate ns1.example at your registrar."}}
+
+	t.Run("WarnsForNotReadyWithMessages", func(t *testing.T) {
+		var buf strings.Builder
+		if err := warnNotReady(&buf, notReady, messages); err != nil {
+			t.Errorf("Expected nil, got %v", err)
+		}
+		if !strings.Contains(buf.String(), "dns not ready") {
+			t.Errorf("Expected a warning naming the cause, got %q", buf.String())
+		}
+	})
+
+	t.Run("ReturnsNotReadyWithoutMessages", func(t *testing.T) {
+		var buf strings.Builder
+		if err := warnNotReady(&buf, notReady, nil); !errors.Is(err, provisioner.ErrKustomizationsNotReady) {
+			t.Errorf("Expected the not-ready error, got %v", err)
+		}
+		if buf.Len() != 0 {
+			t.Errorf("Expected no warning, got %q", buf.String())
+		}
+	})
+
+	t.Run("ReturnsOtherErrors", func(t *testing.T) {
+		other := fmt.Errorf("apply failed")
+		if err := warnNotReady(io.Discard, other, messages); err != other {
+			t.Errorf("Expected the other error unchanged, got %v", err)
+		}
+	})
+
+	t.Run("ReturnsNilForNil", func(t *testing.T) {
+		if err := warnNotReady(io.Discard, nil, messages); err != nil {
+			t.Errorf("Expected nil, got %v", err)
 		}
 	})
 }

@@ -30,11 +30,19 @@ import (
 // Interfaces
 // =============================================================================
 
+// KustomizationReporter receives the per-Kustomization steps of a readiness wait.
+type KustomizationReporter interface {
+	Start(name string)
+	Progress(name, text string)
+	Done(name string)
+	Fail(name string, err error)
+}
+
 // KubernetesManager defines methods for Kubernetes resource management
 type KubernetesManager interface {
 	ApplyKustomization(kustomization kustomizev1.Kustomization) error
 	DeleteKustomization(ctx context.Context, name, namespace string) error
-	WaitForKustomizations(ctx context.Context, message string, blueprint *blueprintv1alpha1.Blueprint) error
+	WaitForKustomizations(ctx context.Context, blueprint *blueprintv1alpha1.Blueprint, layers KustomizationReporter) error
 	CreateNamespace(name string) error
 	DeleteNamespace(name string) error
 	ApplyConfigMap(name, namespace string, data map[string]string) error

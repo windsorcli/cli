@@ -4,18 +4,12 @@ description: "Apply Flux kustomization(s) to the cluster."
 ---
 
 ```sh
-windsor apply kustomize [name] [flags]
+windsor apply kustomize [name]
 ```
 
 Apply a single Flux kustomization to the cluster by name, or all kustomizations when no argument is given.
 
-When a name is supplied with --wait, the wait scope is narrowed to only that kustomization.
-
-## Flags
-
-| Flag | Default | Description |
-|------|---------|-------------|
-| `--wait` | `false` | Wait for kustomization resources to be ready. |
+Waits until the applied kustomizations are Ready, and fails when one does not become Ready.
 
 ## Examples
 
@@ -28,9 +22,6 @@ windsor apply kustomize dns
 
 # Same, using the 'k8s' alias
 windsor apply k8s dns
-
-# Apply and wait for one kustomization to be ready
-windsor apply kustomize dns --wait
 ```
 
 ## See also

@@ -18,7 +18,6 @@ import (
 )
 
 var (
-	waitFlag    bool
 	upVmDriver  string
 	upPlatform  string
 	upBlueprint string
@@ -30,11 +29,11 @@ var upCmd = &cobra.Command{
 	Short: "Bring up the local workstation environment.",
 	Long: `Start the workstation VM, run Terraform components, then install the Flux blueprint. Workstation contexts only — for non-workstation contexts, use 'windsor apply'. If the current context has no workstation, up exits with a hint and does no work.
 
-Returns once the install request has been issued. Pass --wait to block until kustomizations report ready.
+Waits until every kustomization is Ready, and fails when one does not become Ready.
 
 If any host-side network or DNS configuration was deferred (because it requires sudo / elevation), up prints a follow-up command as the last section of its output.`,
-	Example: `# Bring up the workstation and wait for everything to be ready
-windsor up --wait
+	Example: `# Bring up the workstation
+windsor up
 
 # Override an inline config value at startup
 windsor up --set cluster.workers.count=3
@@ -134,17 +133,11 @@ windsor up --blueprint=ghcr.io/myorg/blueprint:v1.0.0`,
 				return fmt.Errorf("error resolving blueprint substitutions: %w", err)
 			}
 
-			if err := proj.Provisioner.Install(cmd.Context(), blueprint, false); err != nil {
-				return fmt.Errorf("error installing blueprint: %w", err)
-			}
-
 			// Capture post-run messages to print as an end-of-run summary, mirroring bootstrap.
 			postRunMessages = blueprint.Messages
 
-			if waitFlag {
-				if err := proj.Provisioner.Wait(cmd.Context(), blueprint); err != nil {
-					return fmt.Errorf("error waiting for kustomizations: %w", err)
-				}
+			if err := warnNotReady(os.Stderr, proj.Provisioner.Install(cmd.Context(), blueprint, false), postRunMessages); err != nil {
+				return fmt.Errorf("error installing blueprint: %w", err)
 			}
 			return nil
 		}); err != nil {
@@ -226,7 +219,7 @@ func buildUpFlagOverrides() (map[string]any, error) {
 }
 
 func init() {
-	upCmd.Flags().BoolVar(&waitFlag, "wait", false, "Wait for kustomization resources to be ready.")
+	addDeprecatedWaitFlag(upCmd)
 	upCmd.Flags().StringVar(&upVmDriver, "vm-driver", "", "VM driver: colima, colima-incus, docker-desktop, docker.")
 	upCmd.Flags().StringVar(&upPlatform, "platform", "", "Target platform: none, docker, incus, metal, hetzner, aws, azure, gcp, hyperv, vsphere, proxmox.")
 	upCmd.Flags().StringVar(&upBlueprint, "blueprint", "", "Blueprint OCI reference or local path.")
