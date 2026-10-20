@@ -11,7 +11,24 @@ import (
 	"github.com/google/go-containerregistry/pkg/v1/remote"
 )
 
+// =============================================================================
+// Test Constructor
+// =============================================================================
+
 func TestNewShims(t *testing.T) {
+	t.Run("SetsSharedAndArtifactShims", func(t *testing.T) {
+		// Given the default shims
+		s := NewShims()
+
+		// Then the shared shims and the artifact shims are set
+		if s.ReadFile == nil || s.Stat == nil || s.MkdirAll == nil || s.YamlMarshal == nil || s.YamlUnmarshal == nil {
+			t.Error("Expected the shared shims to be set")
+		}
+		if s.Create == nil || s.NewTarWriter == nil || s.RemoteImage == nil || s.Chmod == nil {
+			t.Error("Expected the artifact shims to be set")
+		}
+	})
+
 	t.Run("ParseReferenceForwardsOptions", func(t *testing.T) {
 		// Given the default shims
 		shims := NewShims()

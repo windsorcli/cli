@@ -1,3 +1,8 @@
+// The Shims are the system call abstractions of the artifact package.
+// It provides the shared shims of internal/shims and the archive, OCI image, and registry shims.
+// Tests replace the shims to simulate file system state, tar archives, and registry responses.
+// NewShims returns the shims with the real implementations.
+
 package artifact
 
 import (
@@ -8,48 +13,40 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/goccy/go-yaml"
 	"github.com/google/go-containerregistry/pkg/name"
 	v1 "github.com/google/go-containerregistry/pkg/v1"
 	"github.com/google/go-containerregistry/pkg/v1/empty"
 	"github.com/google/go-containerregistry/pkg/v1/mutate"
 	"github.com/google/go-containerregistry/pkg/v1/remote"
 	"github.com/google/go-containerregistry/pkg/v1/types"
+	"github.com/windsorcli/cli/internal/shims"
 )
-
-// The Shims provides mockable wrappers around system and file operations for testing.
-// It provides a unified interface for all external dependencies including file system,
-// compression, and data marshaling operations. The Shims serves as a dependency injection
-// layer that enables comprehensive unit testing by allowing all system calls to be mocked.
 
 // =============================================================================
 // Types
 // =============================================================================
 
-// TarWriter provides an interface for tar writing operations
+// TarWriter is the subset of tar.Writer that the artifact package uses.
 type TarWriter interface {
 	WriteHeader(hdr *tar.Header) error
 	Write(b []byte) (int, error)
 	Close() error
 }
 
-// TarReader provides an interface for tar archive reading operations
+// TarReader is the subset of tar.Reader that the artifact package uses.
 type TarReader interface {
 	Next() (*tar.Header, error)
 	Read([]byte) (int, error)
 }
 
-// Shims provides mockable wrappers around system and file operations
+// Shims holds the shared system call primitives and the artifact-specific shims.
 type Shims struct {
-	Stat              func(name string) (os.FileInfo, error)
+	shims.Shims
 	Create            func(name string) (io.WriteCloser, error)
-	ReadFile          func(name string) ([]byte, error)
 	Walk              func(root string, walkFn filepath.WalkFunc) error
 	NewGzipWriter     func(w io.Writer) *gzip.Writer
 	NewTarWriter      func(w io.Writer) TarWriter
-	YamlUnmarshal     func(data []byte, v any) error
 	FilepathRel       func(basepath, targpath string) (string, error)
-	YamlMarshal       func(data any) ([]byte, error)
 	ReadAll           func(reader io.Reader) ([]byte, error)
 	ParseReference    func(ref string, opts ...name.Option) (name.Reference, error)
 	RemoteImage       func(ref name.Reference, options ...remote.Option) (v1.Image, error)
@@ -66,32 +63,26 @@ type Shims struct {
 	RemoteWrite       func(ref name.Reference, img v1.Image, options ...remote.Option) error
 	RemoteList        func(repo name.Repository, options ...remote.Option) ([]string, error)
 	NewRepository     func(repo string, opts ...name.Option) (name.Repository, error)
-	MkdirAll          func(path string, perm os.FileMode) error
 	NewBytesReader    func(b []byte) *bytes.Reader
 	NewTarReader      func(r io.Reader) TarReader
 	Copy              func(dst io.Writer, src io.Reader) (int64, error)
 	Chmod             func(name string, mode os.FileMode) error
-	Rename            func(oldpath, newpath string) error
-	RemoveAll         func(path string) error
 }
 
 // =============================================================================
-// Helpers
+// Constructor
 // =============================================================================
 
-// NewShims creates a new Shims instance with default implementations
+// NewShims returns a Shims with every field set to its real implementation.
 func NewShims() *Shims {
 	return &Shims{
-		Stat: os.Stat,
+		Shims: *shims.NewShims(),
 		// #nosec G304 - User-controlled output path is intentional for build artifact creation
 		Create:        func(name string) (io.WriteCloser, error) { return os.Create(name) },
-		ReadFile:      os.ReadFile,
 		Walk:          filepath.Walk,
 		NewGzipWriter: gzip.NewWriter,
 		NewTarWriter:  func(w io.Writer) TarWriter { return tar.NewWriter(w) },
-		YamlUnmarshal: yaml.Unmarshal,
 		FilepathRel:   filepath.Rel,
-		YamlMarshal:   yaml.Marshal,
 		ReadAll:       io.ReadAll,
 		ParseReference: func(ref string, opts ...name.Option) (name.Reference, error) {
 			return name.ParseReference(ref, opts...)
@@ -116,12 +107,9 @@ func NewShims() *Shims {
 		NewRepository: func(repo string, opts ...name.Option) (name.Repository, error) {
 			return name.NewRepository(repo, opts...)
 		},
-		MkdirAll:       os.MkdirAll,
 		NewBytesReader: func(b []byte) *bytes.Reader { return bytes.NewReader(b) },
 		NewTarReader:   func(r io.Reader) TarReader { return tar.NewReader(r) },
 		Copy:           io.Copy,
 		Chmod:          os.Chmod,
-		Rename:         os.Rename,
-		RemoveAll:      os.RemoveAll,
 	}
 }
