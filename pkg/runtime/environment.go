@@ -6,9 +6,9 @@
 package runtime
 
 import (
-	"fmt"
 	"maps"
 
+	"github.com/windsorcli/cli/internal/werror"
 	"github.com/windsorcli/cli/pkg/runtime/env"
 	"github.com/windsorcli/cli/pkg/runtime/terraform"
 )
@@ -17,19 +17,15 @@ import (
 // Public Methods
 // =============================================================================
 
-// HandleSessionReset checks for reset flags and session tokens, then resets managed environment
-// variables if needed. It checks for WINDSOR_SESSION_TOKEN and uses the shell's CheckResetFlags
-// method to determine if a reset should occur. A command like `windsor exec` that never
-// establishes its own session token always has hasSessionToken false, so every invocation would
-// otherwise be treated as a fresh reset; NO_CACHE only defaults to "true" when the caller hasn't
-// already set it explicitly (to "true" or "false"), so an explicit `NO_CACHE=false windsor exec
-// -- ...` — or a value already present in the calling shell — is honored instead of being
-// force-overwritten on every reset. Returns an error if reset flag checking fails.
+// HandleSessionReset resets the managed env vars when the shell sets a reset flag or WINDSOR_SESSION_TOKEN is not set.
+// A reset sets NO_CACHE to "true" only if NO_CACHE is not set, so an explicit NO_CACHE=false stays.
+// This is necessary because commands such as `windsor exec` have no session token, so each run resets.
+// A reset also clears the Terraform output cache.
 func (rt *Runtime) HandleSessionReset() error {
 	hasSessionToken := rt.Shims.Getenv("WINDSOR_SESSION_TOKEN") != ""
 	shouldReset, err := rt.Shell.CheckResetFlags()
 	if err != nil {
-		return fmt.Errorf("failed to check reset flags: %w", err)
+		return werror.Wrap(err, "failed to check reset flags")
 	}
 	if !hasSessionToken {
 		shouldReset = true
@@ -38,7 +34,7 @@ func (rt *Runtime) HandleSessionReset() error {
 		rt.Shell.Reset()
 		if _, noCacheSet := rt.Shims.LookupEnv("NO_CACHE"); !noCacheSet {
 			if err := rt.Shims.Setenv("NO_CACHE", "true"); err != nil {
-				return fmt.Errorf("failed to set NO_CACHE: %w", err)
+				return werror.Wrap(err, "failed to set NO_CACHE")
 			}
 		}
 		if rt.TerraformProvider != nil {
@@ -49,21 +45,20 @@ func (rt *Runtime) HandleSessionReset() error {
 	return nil
 }
 
-// LoadEnvironment loads environment variables and aliases from all configured environment printers,
-// then executes post-environment hooks. It initializes all necessary components, optionally loads
-// secrets if requested, and aggregates all environment variables and aliases into the Runtime
-// instance. Returns an error if any step fails.
+// LoadEnvironment collects the env vars and aliases of each configured env printer and sets the env vars in the process.
+// If decrypt is true, it loads the secrets before the printers run.
+// After it sets the env vars, it runs the post-env hook of each printer and returns the first hook error.
 func (rt *Runtime) LoadEnvironment(decrypt bool) error {
 	rt.initializeEnvPrinters()
 	rt.initializeToolsManager()
 
 	if err := rt.InitializeComponents(); err != nil {
-		return fmt.Errorf("failed to initialize environment components: %w", err)
+		return werror.Wrap(err, "failed to initialize environment components")
 	}
 
 	if decrypt {
 		if err := rt.loadSecrets(); err != nil {
-			return fmt.Errorf("failed to load secrets: %w", err)
+			return werror.Wrap(err, "failed to load secrets")
 		}
 	}
 
@@ -74,13 +69,13 @@ func (rt *Runtime) LoadEnvironment(decrypt bool) error {
 		if printer != nil {
 			envVars, err := printer.GetEnvVars()
 			if err != nil {
-				return fmt.Errorf("error getting environment variables: %w", err)
+				return werror.Wrap(err, "error getting environment variables")
 			}
 			maps.Copy(allEnvVars, envVars)
 
 			aliases, err := printer.GetAlias()
 			if err != nil {
-				return fmt.Errorf("error getting aliases: %w", err)
+				return werror.Wrap(err, "error getting aliases")
 			}
 			maps.Copy(allAliases, aliases)
 		}
@@ -91,7 +86,7 @@ func (rt *Runtime) LoadEnvironment(decrypt bool) error {
 
 	for key, value := range allEnvVars {
 		if err := rt.Shims.Setenv(key, value); err != nil {
-			return fmt.Errorf("error setting environment variable %s: %w", key, err)
+			return werror.Wrap(err, "error setting environment variable %s", key)
 		}
 	}
 
@@ -105,7 +100,7 @@ func (rt *Runtime) LoadEnvironment(decrypt bool) error {
 	}
 
 	if firstError != nil {
-		return fmt.Errorf("failed to execute post env hooks: %w", firstError)
+		return werror.Wrap(firstError, "failed to execute post env hooks")
 	}
 
 	return nil
