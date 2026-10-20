@@ -427,8 +427,24 @@ func TestArtifactBuilder_Pull(t *testing.T) {
 			return io.NopCloser(bytes.NewReader(testTarData)), nil
 		}
 
-		os.Setenv("NO_CACHE", "true")
-		defer os.Unsetenv("NO_CACHE")
+		cacheDir, err := builder.GetCacheDir("registry.example.com", "my-repo", "v1.0.0")
+		if err != nil {
+			t.Fatalf("Failed to get cache dir: %v", err)
+		}
+		if err := os.MkdirAll(cacheDir, 0755); err != nil {
+			t.Fatalf("Failed to create cache dir: %v", err)
+		}
+		if err := os.WriteFile(filepath.Join(cacheDir, artifactTarFilename), testTarData, 0644); err != nil {
+			t.Fatalf("Failed to write artifact.tar: %v", err)
+		}
+		mocks.Shims.Stat = os.Stat
+
+		mocks.Shims.LookupEnv = func(key string) (string, bool) {
+			if key == "NO_CACHE" {
+				return "true", true
+			}
+			return "", false
+		}
 
 		artifacts, err := builder.Pull([]string{"oci://registry.example.com/my-repo:v1.0.0"})
 
