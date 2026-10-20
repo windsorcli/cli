@@ -18,6 +18,7 @@ import (
 	v1 "github.com/google/go-containerregistry/pkg/v1"
 	"github.com/google/go-containerregistry/pkg/v1/remote"
 	"github.com/google/go-containerregistry/pkg/v1/types"
+	"github.com/windsorcli/cli/internal/werror"
 	"github.com/windsorcli/cli/pkg/runtime"
 	"github.com/windsorcli/cli/pkg/runtime/shell"
 )
@@ -631,8 +632,11 @@ description: A test project
 		if err == nil {
 			t.Error("Expected error when name is missing")
 		}
-		if !strings.Contains(err.Error(), "name is required: provide via tag parameter or metadata.yaml") {
+		if !strings.Contains(err.Error(), "name is required") {
 			t.Errorf("Expected name required error, got: %v", err)
+		}
+		if we := werror.Find(err); we == nil || !strings.Contains(we.Remediation, "set name in metadata.yaml") {
+			t.Errorf("Expected a remediation that names metadata.yaml, got %v", we)
 		}
 	})
 
@@ -656,8 +660,11 @@ description: A test project
 		if err == nil {
 			t.Error("Expected error when version is missing")
 		}
-		if !strings.Contains(err.Error(), "version is required: provide via tag parameter or metadata.yaml") {
+		if !strings.Contains(err.Error(), "version is required") {
 			t.Errorf("Expected version required error, got: %v", err)
+		}
+		if we := werror.Find(err); we == nil || !strings.Contains(we.Remediation, "set version in metadata.yaml") {
+			t.Errorf("Expected a remediation that names metadata.yaml, got %v", we)
 		}
 	})
 

@@ -17,6 +17,7 @@ import (
 	"strings"
 
 	"github.com/windsorcli/cli/internal/presenter"
+	"github.com/windsorcli/cli/internal/werror"
 )
 
 // =============================================================================
@@ -45,12 +46,10 @@ func (a *ArtifactBuilder) GetCacheDir(registry, repository, tag string) (string,
 	return cacheDir, nil
 }
 
-// Pull downloads and extracts OCI artifacts to disk cache for use by other components.
-// It takes a slice of OCI references and downloads unique artifacts, returning a map
-// of cache directory paths keyed by their registry/repository:tag identifier.
-// The method provides efficient caching to avoid duplicate downloads of the same artifact.
-// It checks disk cache first, then downloads if needed, and extracts artifacts to disk cache.
-// Returns cache directory paths instead of binary data.
+// Pull puts each oci:// reference in the disk cache and returns the cache directories by registry/repository:tag.
+// It uses a valid cache entry, and removes a cache directory that is not complete.
+// It downloads and extracts each reference that has no valid cache entry.
+// If NO_CACHE is "true" or "1", it downloads each reference again.
 func (a *ArtifactBuilder) Pull(ociRefs []string) (map[string]string, error) {
 	ociArtifacts := make(map[string]string)
 
@@ -72,14 +71,14 @@ func (a *ArtifactBuilder) Pull(ociRefs []string) (map[string]string, error) {
 	for ref := range uniqueOCIRefs {
 		registry, repository, tag, err := a.ParseOCIRef(ref)
 		if err != nil {
-			return nil, fmt.Errorf("failed to parse OCI reference %s: %w", ref, err)
+			return nil, werror.Wrap(err, "failed to parse OCI reference %s", ref)
 		}
 
 		cacheKey := FormatOCIRef(registry, repository, tag)
 
 		cacheDir, err := a.GetCacheDir(registry, repository, tag)
 		if err != nil {
-			return nil, fmt.Errorf("failed to get cache directory: %w", err)
+			return nil, werror.Wrap(err, "failed to get cache directory")
 		}
 
 		if noCache {
@@ -92,7 +91,7 @@ func (a *ArtifactBuilder) Pull(ociRefs []string) (map[string]string, error) {
 			continue
 		} else if !errors.Is(validateErr, os.ErrNotExist) {
 			if removeErr := a.shims.RemoveAll(cacheDir); removeErr != nil {
-				return nil, fmt.Errorf("failed to remove corrupted OCI cache directory %s: %w", cacheDir, removeErr)
+				return nil, werror.Wrap(removeErr, "failed to remove corrupted OCI cache directory %s", cacheDir)
 			}
 		}
 
@@ -104,23 +103,23 @@ func (a *ArtifactBuilder) Pull(ociRefs []string) (map[string]string, error) {
 			for _, ref := range artifactsToDownload {
 				registry, repository, tag, err := a.ParseOCIRef(ref)
 				if err != nil {
-					return fmt.Errorf("failed to parse OCI reference %s: %w", ref, err)
+					return werror.Wrap(err, "failed to parse OCI reference %s", ref)
 				}
 
 				cacheKey := FormatOCIRef(registry, repository, tag)
 
 				artifactData, err := a.downloadOCIArtifact(registry, repository, tag)
 				if err != nil {
-					return fmt.Errorf("failed to download OCI artifact %s: %w", ref, err)
+					return werror.Wrap(err, "failed to download OCI artifact %s", ref)
 				}
 
 				cacheDir, err := a.GetCacheDir(registry, repository, tag)
 				if err != nil {
-					return fmt.Errorf("failed to get cache directory: %w", err)
+					return werror.Wrap(err, "failed to get cache directory")
 				}
 
 				if err := a.extractArtifactToCache(artifactData, cacheDir); err != nil {
-					return fmt.Errorf("failed to extract artifact: %w", err)
+					return werror.Wrap(err, "failed to extract artifact")
 				}
 
 				ociArtifacts[cacheKey] = cacheDir
@@ -134,14 +133,13 @@ func (a *ArtifactBuilder) Pull(ociRefs []string) (map[string]string, error) {
 	return ociArtifacts, nil
 }
 
-// ExtractModulePath extracts a specific module path from a cached OCI artifact.
-// It checks if the module path already exists in the cache directory, and if not,
-// extracts it from the cached artifact.tar file. Returns the full path to the extracted module
-// or an error if extraction fails.
+// ExtractModulePath returns the path of modulePath in the cache directory of a pulled OCI artifact.
+// If the path does not exist, it extracts the cached artifact.tar again.
+// It returns an error if the artifact does not contain modulePath.
 func (a *ArtifactBuilder) ExtractModulePath(registry, repository, tag, modulePath string) (string, error) {
 	cacheDir, err := a.GetCacheDir(registry, repository, tag)
 	if err != nil {
-		return "", fmt.Errorf("failed to get cache directory: %w", err)
+		return "", werror.Wrap(err, "failed to get cache directory")
 	}
 
 	fullModulePath := filepath.Join(cacheDir, modulePath)
@@ -152,14 +150,14 @@ func (a *ArtifactBuilder) ExtractModulePath(registry, repository, tag, modulePat
 	artifactTarPath := filepath.Join(cacheDir, artifactTarFilename)
 	artifactData, err := a.shims.ReadFile(artifactTarPath)
 	if err != nil {
-		return "", fmt.Errorf("failed to read cached artifact.tar: %w", err)
+		return "", werror.Wrap(err, "failed to read cached artifact.tar")
 	}
 
 	reader := a.shims.NewBytesReader(artifactData)
 	tarReader := a.shims.NewTarReader(reader)
 
 	if err := a.extractTarEntries(tarReader, cacheDir); err != nil {
-		return "", fmt.Errorf("failed to extract module path from artifact: %w", err)
+		return "", werror.Wrap(err, "failed to extract module path from artifact")
 	}
 
 	if _, err := a.shims.Stat(fullModulePath); err != nil {
@@ -214,11 +212,9 @@ func (a *ArtifactBuilder) validateAndSanitizePath(path string) (string, error) {
 	return filepath.ToSlash(cleanPath), nil
 }
 
-// extractTarEntries extracts specific entries from a tar archive into the given destination directory for caching and reuse.
-// Only entries within the "_template/", "kustomize/", and "terraform/" directories, as well as the "metadata.yaml" file, are extracted.
-// Directories and files are handled appropriately, and file permissions are set as specified in the tar headers.
-// The extraction process performs path validation to prevent directory traversal attacks, and the destination directory must preexist.
-// Returns an error if any part of the extraction or validation fails.
+// extractTarEntries extracts the tar entries into destDir. destDir must exist.
+// It extracts only metadata.yaml and the entries under _template/, kustomize/, and terraform/.
+// It rejects an absolute path or a path outside destDir. Each file gets the mode from its tar header.
 func (a *ArtifactBuilder) extractTarEntries(tarReader TarReader, destDir string) error {
 	for {
 		header, err := tarReader.Next()
@@ -226,12 +222,12 @@ func (a *ArtifactBuilder) extractTarEntries(tarReader TarReader, destDir string)
 			break
 		}
 		if err != nil {
-			return fmt.Errorf("failed to read tar header: %w", err)
+			return werror.Wrap(err, "failed to read tar header")
 		}
 
 		sanitizedPath, err := a.validateAndSanitizePath(header.Name)
 		if err != nil {
-			return fmt.Errorf("invalid path in tar archive: %w", err)
+			return werror.Wrap(err, "invalid path in tar archive")
 		}
 
 		if !strings.HasPrefix(sanitizedPath, "_template/") &&
@@ -240,7 +236,7 @@ func (a *ArtifactBuilder) extractTarEntries(tarReader TarReader, destDir string)
 			sanitizedPath != "metadata.yaml" {
 			if header.Typeflag != tar.TypeDir {
 				if _, err := io.Copy(io.Discard, tarReader); err != nil {
-					return fmt.Errorf("failed to skip entry %s: %w", header.Name, err)
+					return werror.Wrap(err, "failed to skip entry %s", header.Name)
 				}
 			}
 			continue
@@ -258,27 +254,27 @@ func (a *ArtifactBuilder) extractTarEntries(tarReader TarReader, destDir string)
 
 		if header.Typeflag == tar.TypeDir {
 			if err := a.shims.MkdirAll(destPath, 0755); err != nil {
-				return fmt.Errorf("failed to create directory %s: %w", destPath, err)
+				return werror.Wrap(err, "failed to create directory %s", destPath)
 			}
 			continue
 		}
 
 		if err := a.shims.MkdirAll(filepath.Dir(destPath), 0755); err != nil {
-			return fmt.Errorf("failed to create parent directory for %s: %w", destPath, err)
+			return werror.Wrap(err, "failed to create parent directory for %s", destPath)
 		}
 
 		fileWriter, err := a.shims.Create(destPath)
 		if err != nil {
-			return fmt.Errorf("failed to create file %s: %w", destPath, err)
+			return werror.Wrap(err, "failed to create file %s", destPath)
 		}
 
 		_, err = a.shims.Copy(fileWriter, tarReader)
 		closeErr := fileWriter.Close()
 		if err != nil {
-			return fmt.Errorf("failed to write file %s: %w", destPath, err)
+			return werror.Wrap(err, "failed to write file %s", destPath)
 		}
 		if closeErr != nil {
-			return fmt.Errorf("failed to close file %s: %w", destPath, closeErr)
+			return werror.Wrap(closeErr, "failed to close file %s", destPath)
 		}
 
 		modeValue := header.Mode & 0777
@@ -288,19 +284,16 @@ func (a *ArtifactBuilder) extractTarEntries(tarReader TarReader, destDir string)
 		fileMode := os.FileMode(uint32(modeValue))
 
 		if err := a.shims.Chmod(destPath, fileMode); err != nil {
-			return fmt.Errorf("failed to set file permissions for %s: %w", destPath, err)
+			return werror.Wrap(err, "failed to set file permissions for %s", destPath)
 		}
 	}
 
 	return nil
 }
 
-// extractArtifactToCache extracts the entire OCI artifact tar archive into the specified extraction directory.
-// The extraction preserves file permissions and is performed atomically: all files are unpacked to a temporary
-// directory (extractionDir.tmp) and then renamed to extractionDir upon success, preventing partial or inconsistent state.
-// This mechanism ensures all artifact files are present for subsequent resolution steps and enables cache reuse.
-// The extractionDir parameter specifies the target directory for extraction. If any extraction phase fails or path
-// validations do not pass, an error is returned. On error, temporary directories are cleaned up automatically.
+// extractArtifactToCache extracts the artifact into extractionDir and keeps a copy of the archive as artifact.tar.
+// It extracts into extractionDir.tmp first, then renames that directory to extractionDir.
+// The rename prevents a cache entry that is not complete. On an error, it removes the temporary directory.
 func (a *ArtifactBuilder) extractArtifactToCache(artifactData []byte, extractionDir string) (err error) {
 	reader := a.shims.NewBytesReader(artifactData)
 	tarReader := a.shims.NewTarReader(reader)
@@ -319,13 +312,13 @@ func (a *ArtifactBuilder) extractArtifactToCache(artifactData []byte, extraction
 
 	if _, statErr := a.shims.Stat(tmpExtractionDir); statErr == nil {
 		if removeErr := a.shims.RemoveAll(tmpExtractionDir); removeErr != nil {
-			err = fmt.Errorf("failed to clean up existing temporary extraction directory: %w", removeErr)
+			err = werror.Wrap(removeErr, "failed to clean up existing temporary extraction directory")
 			return
 		}
 	}
 
 	if mkdirErr := a.shims.MkdirAll(tmpExtractionDir, 0755); mkdirErr != nil {
-		err = fmt.Errorf("failed to create temporary extraction directory: %w", mkdirErr)
+		err = werror.Wrap(mkdirErr, "failed to create temporary extraction directory")
 		return
 	}
 
@@ -336,34 +329,34 @@ func (a *ArtifactBuilder) extractArtifactToCache(artifactData []byte, extraction
 	artifactTarPath := filepath.Join(tmpExtractionDir, artifactTarFilename)
 	artifactTarFile, tarErr := a.shims.Create(artifactTarPath)
 	if tarErr != nil {
-		err = fmt.Errorf("failed to create artifact.tar file: %w", tarErr)
+		err = werror.Wrap(tarErr, "failed to create artifact.tar file")
 		return
 	}
 	if _, writeErr := artifactTarFile.Write(artifactData); writeErr != nil {
 		_ = artifactTarFile.Close()
-		err = fmt.Errorf("failed to write artifact.tar file: %w", writeErr)
+		err = werror.Wrap(writeErr, "failed to write artifact.tar file")
 		return
 	}
 	if closeErr := artifactTarFile.Close(); closeErr != nil {
-		err = fmt.Errorf("failed to close artifact.tar file: %w", closeErr)
+		err = werror.Wrap(closeErr, "failed to close artifact.tar file")
 		return
 	}
 
 	parentDir := filepath.Dir(extractionDir)
 	if mkdirErr := a.shims.MkdirAll(parentDir, 0755); mkdirErr != nil {
-		err = fmt.Errorf("failed to create parent directory: %w", mkdirErr)
+		err = werror.Wrap(mkdirErr, "failed to create parent directory")
 		return
 	}
 
 	if _, statErr := a.shims.Stat(extractionDir); statErr == nil {
 		if removeErr := a.shims.RemoveAll(extractionDir); removeErr != nil {
-			err = fmt.Errorf("failed to remove existing extraction directory before rename: %w", removeErr)
+			err = werror.Wrap(removeErr, "failed to remove existing extraction directory before rename")
 			return
 		}
 	}
 
 	if renameErr := a.shims.Rename(tmpExtractionDir, extractionDir); renameErr != nil {
-		err = fmt.Errorf("failed to rename temporary extraction directory to final location: %w", renameErr)
+		err = werror.Wrap(renameErr, "failed to rename temporary extraction directory to final location")
 		return
 	}
 
