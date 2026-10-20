@@ -96,50 +96,6 @@ func setTestCliVersion(t *testing.T, v string) {
 	t.Cleanup(func() { constants.Version = original })
 }
 
-func TestEvaluateWithOrigins(t *testing.T) {
-	t.Run("UsesSubKeyOriginsForDeepMergedInputMaps", func(t *testing.T) {
-		facetPathByKey := make(map[string]string)
-		mockEvaluator := evaluator.NewMockExpressionEvaluator()
-		mockEvaluator.EvaluateMapFunc = func(values map[string]any, facetPath string, scope map[string]any, evaluateDeferred bool) (map[string]any, error) {
-			for k := range values {
-				facetPathByKey[k] = facetPath
-			}
-			return values, nil
-		}
-
-		value := map[string]any{
-			"from_base":    "${file(\"./base.yaml\")}",
-			"from_overlay": "${file(\"./overlay.yaml\")}",
-		}
-		origins := map[string]string{
-			"config.from_base":    "facets/base/facet.yaml",
-			"config.from_overlay": "facets/overlay/facet.yaml",
-		}
-
-		evaluated, err := EvaluateWithOrigins(mockEvaluator, "config", value, origins, nil, false)
-		if err != nil {
-			t.Fatalf("Expected no error, got %v", err)
-		}
-
-		result, ok := evaluated.(map[string]any)
-		if !ok {
-			t.Fatalf("Expected evaluated value to be map[string]any, got %T", evaluated)
-		}
-		if got := result["from_base"]; got != "${file(\"./base.yaml\")}" {
-			t.Fatalf("Expected from_base to be preserved, got %v", got)
-		}
-		if got := result["from_overlay"]; got != "${file(\"./overlay.yaml\")}" {
-			t.Fatalf("Expected from_overlay to be preserved, got %v", got)
-		}
-		if got := facetPathByKey["from_base"]; got != "facets/base/facet.yaml" {
-			t.Fatalf("Expected from_base to evaluate with base facet path, got %q", got)
-		}
-		if got := facetPathByKey["from_overlay"]; got != "facets/overlay/facet.yaml" {
-			t.Fatalf("Expected from_overlay to evaluate with overlay facet path, got %q", got)
-		}
-	})
-}
-
 // =============================================================================
 // Test Constructor
 // =============================================================================
@@ -1081,6 +1037,289 @@ func TestHandler_Write(t *testing.T) {
 	})
 }
 
+func TestHandler_RetargetSource(t *testing.T) {
+	setup := func(t *testing.T) *BaseBlueprintHandler {
+		t.Helper()
+		mocks := setupHandlerMocks(t)
+		handler := NewBlueprintHandler(mocks.Runtime, mocks.ArtifactBuilder)
+		handler.composedBlueprint = &blueprintv1alpha1.Blueprint{
+			Sources: []blueprintv1alpha1.Source{
+				{Name: "core", Url: "oci://ghcr.io/windsorcli/core:v0.3.0", Ref: blueprintv1alpha1.Reference{SemVer: "v0.3.0"}},
+			},
+		}
+		return handler
+	}
+
+	t.Run("RepointsDeclaredSourceAndReturnsPrevious", func(t *testing.T) {
+		// Given a handler with a declared core source
+		handler := setup(t)
+
+		// When retargeting it to a newer tagged URL
+		previous, err := handler.RetargetSource("core", "oci://ghcr.io/windsorcli/core:v0.6.0")
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+
+		// Then the previous URL is returned and the source carries the new URL with its ref cleared
+		if previous != "oci://ghcr.io/windsorcli/core:v0.3.0" {
+			t.Errorf("Expected previous URL, got %q", previous)
+		}
+		if handler.composedBlueprint.Sources[0].Url != "oci://ghcr.io/windsorcli/core:v0.6.0" {
+			t.Errorf("Expected URL repointed, got %q", handler.composedBlueprint.Sources[0].Url)
+		}
+		if handler.composedBlueprint.Sources[0].Ref != (blueprintv1alpha1.Reference{}) {
+			t.Errorf("Expected ref cleared (tag lives in URL), got %+v", handler.composedBlueprint.Sources[0].Ref)
+		}
+	})
+
+	t.Run("ErrorsOnUndeclaredSource", func(t *testing.T) {
+		// Given a handler without an 'addons' source
+		handler := setup(t)
+
+		// When retargeting an undeclared source, it errors rather than adding one
+		if _, err := handler.RetargetSource("addons", "oci://ghcr.io/acme/addons:v0.5.0"); err == nil {
+			t.Error("Expected an error for an undeclared source")
+		}
+	})
+
+	t.Run("ErrorsOnURLWithoutVersion", func(t *testing.T) {
+		// Given a handler with a declared source
+		handler := setup(t)
+
+		// When the new URL omits a version tag, it is rejected
+		if _, err := handler.RetargetSource("core", "oci://ghcr.io/windsorcli/core"); err == nil {
+			t.Error("Expected an error for a URL missing a version")
+		}
+	})
+
+	t.Run("ErrorsWhenBlueprintNotLoaded", func(t *testing.T) {
+		mocks := setupHandlerMocks(t)
+		handler := NewBlueprintHandler(mocks.Runtime, mocks.ArtifactBuilder)
+		handler.composedBlueprint = nil
+		if _, err := handler.RetargetSource("core", "oci://ghcr.io/windsorcli/core:v0.6.0"); err == nil {
+			t.Error("Expected an error when no blueprint is loaded")
+		}
+	})
+}
+
+func TestHandler_UpgradeSourcesToLatest(t *testing.T) {
+	setup := func(t *testing.T, sources []blueprintv1alpha1.Source, tags map[string][]string) (*BaseBlueprintHandler, *artifact.MockArtifact) {
+		t.Helper()
+		mocks := setupHandlerMocks(t)
+		mocks.ArtifactBuilder.ListTagsFunc = func(ociRef string) ([]string, error) {
+			return tags[ociRef], nil
+		}
+		handler := NewBlueprintHandler(mocks.Runtime, mocks.ArtifactBuilder)
+		handler.composedBlueprint = &blueprintv1alpha1.Blueprint{Sources: sources}
+		return handler, mocks.ArtifactBuilder
+	}
+
+	t.Run("BumpsOCISemverSourceToLatestStable", func(t *testing.T) {
+		// Given a core source at v0.5.0 with newer stable and prerelease tags available
+		handler, _ := setup(t,
+			[]blueprintv1alpha1.Source{{Name: "core", Url: "oci://ghcr.io/windsorcli/core:v0.5.0", Ref: blueprintv1alpha1.Reference{SemVer: "v0.5.0"}}},
+			map[string][]string{"oci://ghcr.io/windsorcli/core:v0.5.0": {"v0.5.0", "v0.6.0", "v0.7.0-rc.1"}},
+		)
+
+		// When upgrading sources to latest
+		upgrades, err := handler.UpgradeSourcesToLatest()
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+
+		// Then it moves to the latest stable (v0.6.0), skipping the rc, and clears the ref
+		if len(upgrades) != 1 || upgrades[0].Name != "core" {
+			t.Fatalf("Expected one core upgrade, got %v", upgrades)
+		}
+		if upgrades[0].To != "oci://ghcr.io/windsorcli/core:v0.6.0" {
+			t.Errorf("Expected target v0.6.0, got %q", upgrades[0].To)
+		}
+		if handler.composedBlueprint.Sources[0].Url != "oci://ghcr.io/windsorcli/core:v0.6.0" {
+			t.Errorf("Expected source URL bumped, got %q", handler.composedBlueprint.Sources[0].Url)
+		}
+		if handler.composedBlueprint.Sources[0].Ref != (blueprintv1alpha1.Reference{}) {
+			t.Errorf("Expected ref cleared, got %+v", handler.composedBlueprint.Sources[0].Ref)
+		}
+	})
+
+	t.Run("SkipsNonOCIAndNonSemverAndAlreadyLatest", func(t *testing.T) {
+		// Given a git source, a mutable-tag OCI source, and an already-latest OCI source
+		handler, _ := setup(t,
+			[]blueprintv1alpha1.Source{
+				{Name: "modules", Url: "github.com/org/modules", Ref: blueprintv1alpha1.Reference{Branch: "main"}},
+				{Name: "dev", Url: "oci://ghcr.io/acme/dev:latest"},
+				{Name: "core", Url: "oci://ghcr.io/windsorcli/core:v0.6.0", Ref: blueprintv1alpha1.Reference{SemVer: "v0.6.0"}},
+			},
+			map[string][]string{
+				"oci://ghcr.io/acme/dev:latest":        {"v9.9.9"},
+				"oci://ghcr.io/windsorcli/core:v0.6.0": {"v0.5.0", "v0.6.0"},
+			},
+		)
+
+		// When upgrading
+		upgrades, err := handler.UpgradeSourcesToLatest()
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+
+		// Then nothing is upgraded (git skipped, :latest not semver, core already latest)
+		if len(upgrades) != 0 {
+			t.Errorf("Expected no upgrades, got %v", upgrades)
+		}
+	})
+
+	t.Run("PropagatesListTagsError", func(t *testing.T) {
+		mocks := setupHandlerMocks(t)
+		mocks.ArtifactBuilder.ListTagsFunc = func(ociRef string) ([]string, error) {
+			return nil, fmt.Errorf("registry unreachable")
+		}
+		handler := NewBlueprintHandler(mocks.Runtime, mocks.ArtifactBuilder)
+		handler.composedBlueprint = &blueprintv1alpha1.Blueprint{
+			Sources: []blueprintv1alpha1.Source{{Name: "core", Url: "oci://ghcr.io/windsorcli/core:v0.5.0"}},
+		}
+		if _, err := handler.UpgradeSourcesToLatest(); err == nil {
+			t.Error("Expected an error when tag listing fails")
+		}
+	})
+
+	t.Run("ErrorsWhenBlueprintNotLoaded", func(t *testing.T) {
+		mocks := setupHandlerMocks(t)
+		handler := NewBlueprintHandler(mocks.Runtime, mocks.ArtifactBuilder)
+		handler.composedBlueprint = nil
+		if _, err := handler.UpgradeSourcesToLatest(); err == nil {
+			t.Error("Expected an error when no blueprint is loaded")
+		}
+	})
+
+	t.Run("LeavesBlueprintUntouchedWhenAListFailsMidway", func(t *testing.T) {
+		// Given a resolvable first source and a second source whose tag listing fails
+		handler, mock := setup(t,
+			[]blueprintv1alpha1.Source{
+				{Name: "core", Url: "oci://ghcr.io/windsorcli/core:v0.5.0"},
+				{Name: "addons", Url: "oci://ghcr.io/acme/addons:v0.5.0"},
+			},
+			nil,
+		)
+		mock.ListTagsFunc = func(ociRef string) ([]string, error) {
+			if ociRef == "oci://ghcr.io/acme/addons:v0.5.0" {
+				return nil, fmt.Errorf("registry unreachable")
+			}
+			return []string{"v0.6.0"}, nil
+		}
+
+		// When upgrading, the second source's failure aborts the whole operation
+		if _, err := handler.UpgradeSourcesToLatest(); err == nil {
+			t.Fatal("Expected an error when a source's tag listing fails")
+		}
+
+		// Then the first source is left untouched — no partial in-memory mutation
+		if handler.composedBlueprint.Sources[0].Url != "oci://ghcr.io/windsorcli/core:v0.5.0" {
+			t.Errorf("Expected the first source unmutated, got %q", handler.composedBlueprint.Sources[0].Url)
+		}
+	})
+
+	t.Run("SkipsIncompatibleNewestTagAndSelectsNextCompatible", func(t *testing.T) {
+		// Given a running CLI that the newest tag's declared cliVersion excludes, but an
+		// older-than-newest (still newer than current) tag admits
+		setTestCliVersion(t, "0.8.1")
+
+		handler, mock := setup(t,
+			[]blueprintv1alpha1.Source{{Name: "core", Url: "oci://ghcr.io/windsorcli/core:v0.5.0"}},
+			map[string][]string{"oci://ghcr.io/windsorcli/core:v0.5.0": {"v0.5.0", "v0.6.0", "v0.7.0"}},
+		)
+		mock.GetCliVersionConstraintFunc = func(ociRef string) (string, error) {
+			if ociRef == "oci://ghcr.io/windsorcli/core:v0.7.0" {
+				return ">=99.0.0", nil
+			}
+			return "", nil
+		}
+
+		// When upgrading sources to latest
+		upgrades, err := handler.UpgradeSourcesToLatest()
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+
+		// Then it skips v0.7.0 and moves to v0.6.0, the highest tag this CLI is compatible with
+		if len(upgrades) != 1 || upgrades[0].To != "oci://ghcr.io/windsorcli/core:v0.6.0" {
+			t.Fatalf("Expected upgrade to v0.6.0 (skipping incompatible v0.7.0), got %v", upgrades)
+		}
+	})
+
+	t.Run("SkipsSourceWhenNoNewerTagIsCompatible", func(t *testing.T) {
+		// Given every tag newer than current declares a cliVersion constraint this CLI fails
+		setTestCliVersion(t, "0.8.1")
+
+		handler, mock := setup(t,
+			[]blueprintv1alpha1.Source{{Name: "core", Url: "oci://ghcr.io/windsorcli/core:v0.5.0"}},
+			map[string][]string{"oci://ghcr.io/windsorcli/core:v0.5.0": {"v0.5.0", "v0.6.0"}},
+		)
+		mock.GetCliVersionConstraintFunc = func(ociRef string) (string, error) {
+			if ociRef == "oci://ghcr.io/windsorcli/core:v0.6.0" {
+				return ">=99.0.0", nil
+			}
+			return "", nil
+		}
+
+		// When upgrading sources to latest
+		upgrades, err := handler.UpgradeSourcesToLatest()
+
+		// Then no upgrade happens — no compatible tag newer than current exists — and this is not
+		// treated as an error
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		if len(upgrades) != 0 {
+			t.Errorf("Expected no upgrades, got %v", upgrades)
+		}
+	})
+
+	t.Run("FallsBackToVerifyWhenNewestTagHasNoAnnotation", func(t *testing.T) {
+		// Given the newest tag carries no cliVersion manifest annotation (an artifact published
+		// before that annotation existed) but its in-tarball metadata.yaml, checked via the
+		// fallback, is compatible
+		handler, mock := setup(t,
+			[]blueprintv1alpha1.Source{{Name: "core", Url: "oci://ghcr.io/windsorcli/core:v0.5.0"}},
+			map[string][]string{"oci://ghcr.io/windsorcli/core:v0.5.0": {"v0.5.0", "v0.6.0"}},
+		)
+		var verifiedRef string
+		mock.VerifyCliVersionCompatibilityFunc = func(ociRef string) error {
+			verifiedRef = ociRef
+			return nil
+		}
+
+		// When upgrading sources to latest
+		upgrades, err := handler.UpgradeSourcesToLatest()
+
+		// Then it upgrades to the fallback-verified tag
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		if len(upgrades) != 1 || upgrades[0].To != "oci://ghcr.io/windsorcli/core:v0.6.0" {
+			t.Fatalf("Expected upgrade to v0.6.0 via the verify fallback, got %v", upgrades)
+		}
+		if verifiedRef != "oci://ghcr.io/windsorcli/core:v0.6.0" {
+			t.Errorf("Expected the fallback to verify the resolved candidate, got %q", verifiedRef)
+		}
+	})
+
+	t.Run("PropagatesGetCliVersionConstraintError", func(t *testing.T) {
+		// Given a candidate tag whose compatibility cannot be checked (e.g. a registry hiccup)
+		handler, mock := setup(t,
+			[]blueprintv1alpha1.Source{{Name: "core", Url: "oci://ghcr.io/windsorcli/core:v0.5.0"}},
+			map[string][]string{"oci://ghcr.io/windsorcli/core:v0.5.0": {"v0.5.0", "v0.6.0"}},
+		)
+		mock.GetCliVersionConstraintFunc = func(ociRef string) (string, error) {
+			return "", fmt.Errorf("registry unreachable")
+		}
+
+		// When upgrading sources to latest
+		if _, err := handler.UpgradeSourcesToLatest(); err == nil {
+			t.Error("Expected an error when a candidate's compatibility cannot be checked")
+		}
+	})
+}
+
 func TestHandler_GetTerraformComponents(t *testing.T) {
 	t.Run("ReturnsNilWhenNoBlueprint", func(t *testing.T) {
 		// Given a handler with no composed blueprint
@@ -1113,267 +1352,6 @@ func TestHandler_GetTerraformComponents(t *testing.T) {
 		// Then should return components
 		if len(components) != 2 {
 			t.Errorf("Expected 2 components, got %d", len(components))
-		}
-	})
-}
-
-func TestHandler_resolveComponentFullPath(t *testing.T) {
-	t.Run("UsesNameForNamedComponents", func(t *testing.T) {
-		// Given a handler with a named component
-		mocks := setupHandlerMocks(t)
-		mocks.Runtime.WindsorScratchPath = "/scratch"
-		handler := NewBlueprintHandler(mocks.Runtime, mocks.ArtifactBuilder)
-		component := &blueprintv1alpha1.TerraformComponent{
-			Name: "my-component",
-			Path: "some/path",
-		}
-
-		// When resolving full path
-		handler.resolveComponentFullPath(component)
-
-		// Then should use Name in WindsorScratchPath
-		expected := "/scratch/terraform/my-component"
-		actual := filepath.ToSlash(component.FullPath)
-		if actual != expected {
-			t.Errorf("Expected '%s', got '%s'", expected, actual)
-		}
-	})
-
-	t.Run("UsesSourcePathForSourceComponents", func(t *testing.T) {
-		// Given a handler with a component having a source
-		mocks := setupHandlerMocks(t)
-		mocks.Runtime.WindsorScratchPath = "/scratch"
-		handler := NewBlueprintHandler(mocks.Runtime, mocks.ArtifactBuilder)
-		component := &blueprintv1alpha1.TerraformComponent{
-			Source: "shared-modules",
-			Path:   "vpc",
-		}
-
-		// When resolving full path
-		handler.resolveComponentFullPath(component)
-
-		// Then should use WindsorScratchPath with Path
-		expected := "/scratch/terraform/vpc"
-		actual := filepath.ToSlash(component.FullPath)
-		if actual != expected {
-			t.Errorf("Expected '%s', got '%s'", expected, actual)
-		}
-	})
-
-	t.Run("UsesProjectRootForLocalComponents", func(t *testing.T) {
-		// Given a handler with a local component (no name, no source)
-		mocks := setupHandlerMocks(t)
-		mocks.Runtime.ProjectRoot = "/project"
-		handler := NewBlueprintHandler(mocks.Runtime, mocks.ArtifactBuilder)
-		component := &blueprintv1alpha1.TerraformComponent{
-			Path: "network/vpc",
-		}
-
-		// When resolving full path
-		handler.resolveComponentFullPath(component)
-
-		// Then should use ProjectRoot
-		expected := "/project/terraform/network/vpc"
-		actual := filepath.ToSlash(component.FullPath)
-		if actual != expected {
-			t.Errorf("Expected '%s', got '%s'", expected, actual)
-		}
-	})
-}
-
-func TestHandler_resolveComponentSource(t *testing.T) {
-	t.Run("ResolvesOCISourceWithTag", func(t *testing.T) {
-		// Given a handler with a composed blueprint containing an OCI source
-		mocks := setupHandlerMocks(t)
-		handler := NewBlueprintHandler(mocks.Runtime, mocks.ArtifactBuilder)
-		handler.composedBlueprint = &blueprintv1alpha1.Blueprint{
-			Sources: []blueprintv1alpha1.Source{
-				{Name: "core", Url: "oci://ghcr.io/windsorcli/core", Ref: blueprintv1alpha1.Reference{Tag: "v1.0.0"}},
-			},
-		}
-		component := &blueprintv1alpha1.TerraformComponent{Source: "core", Path: "cluster/talos"}
-
-		// When resolving component source
-		handler.resolveComponentSource(component)
-
-		// Then source should be expanded to full OCI URL
-		expected := "oci://ghcr.io/windsorcli/core:v1.0.0//terraform/cluster/talos"
-		if component.Source != expected {
-			t.Errorf("Expected '%s', got '%s'", expected, component.Source)
-		}
-	})
-
-	t.Run("ResolvesGitSourceWithBranch", func(t *testing.T) {
-		// Given a handler with a composed blueprint containing a Git source
-		mocks := setupHandlerMocks(t)
-		handler := NewBlueprintHandler(mocks.Runtime, mocks.ArtifactBuilder)
-		handler.composedBlueprint = &blueprintv1alpha1.Blueprint{
-			Sources: []blueprintv1alpha1.Source{
-				{Name: "infra", Url: "https://github.com/org/infra", Ref: blueprintv1alpha1.Reference{Branch: "develop"}},
-			},
-		}
-		component := &blueprintv1alpha1.TerraformComponent{Source: "infra", Path: "vpc"}
-
-		// When resolving component source
-		handler.resolveComponentSource(component)
-
-		// Then source should be expanded to Git URL format
-		expected := "https://github.com/org/infra//terraform/vpc?ref=develop"
-		if component.Source != expected {
-			t.Errorf("Expected '%s', got '%s'", expected, component.Source)
-		}
-	})
-
-	t.Run("UsesPathPrefixFromSource", func(t *testing.T) {
-		// Given a source with a custom path prefix
-		mocks := setupHandlerMocks(t)
-		handler := NewBlueprintHandler(mocks.Runtime, mocks.ArtifactBuilder)
-		handler.composedBlueprint = &blueprintv1alpha1.Blueprint{
-			Sources: []blueprintv1alpha1.Source{
-				{Name: "modules", Url: "oci://ghcr.io/org/modules", PathPrefix: "modules/tf", Ref: blueprintv1alpha1.Reference{Tag: "latest"}},
-			},
-		}
-		component := &blueprintv1alpha1.TerraformComponent{Source: "modules", Path: "network"}
-
-		// When resolving component source
-		handler.resolveComponentSource(component)
-
-		// Then source should use the custom path prefix
-		expected := "oci://ghcr.io/org/modules:latest//modules/tf/network"
-		if component.Source != expected {
-			t.Errorf("Expected '%s', got '%s'", expected, component.Source)
-		}
-	})
-
-	t.Run("UsesEmptyRefWhenNoRefSpecified", func(t *testing.T) {
-		// Given a source with no ref specified
-		mocks := setupHandlerMocks(t)
-		handler := NewBlueprintHandler(mocks.Runtime, mocks.ArtifactBuilder)
-		handler.composedBlueprint = &blueprintv1alpha1.Blueprint{
-			Sources: []blueprintv1alpha1.Source{
-				{Name: "lib", Url: "https://github.com/org/lib"},
-			},
-		}
-		component := &blueprintv1alpha1.TerraformComponent{Source: "lib", Path: "utils"}
-
-		// When resolving component source
-		handler.resolveComponentSource(component)
-
-		// Then source should use empty ref
-		expected := "https://github.com/org/lib//terraform/utils?ref="
-		if component.Source != expected {
-			t.Errorf("Expected '%s', got '%s'", expected, component.Source)
-		}
-	})
-
-	t.Run("LeavesUnmatchedSourceUnchanged", func(t *testing.T) {
-		// Given a component referencing a non-existent source
-		mocks := setupHandlerMocks(t)
-		handler := NewBlueprintHandler(mocks.Runtime, mocks.ArtifactBuilder)
-		handler.composedBlueprint = &blueprintv1alpha1.Blueprint{
-			Sources: []blueprintv1alpha1.Source{},
-		}
-		component := &blueprintv1alpha1.TerraformComponent{Source: "missing", Path: "vpc"}
-
-		// When resolving component source
-		handler.resolveComponentSource(component)
-
-		// Then source should remain unchanged
-		if component.Source != "missing" {
-			t.Errorf("Expected 'missing', got '%s'", component.Source)
-		}
-	})
-
-	t.Run("SkipsEmptySource", func(t *testing.T) {
-		// Given a component with no source
-		mocks := setupHandlerMocks(t)
-		handler := NewBlueprintHandler(mocks.Runtime, mocks.ArtifactBuilder)
-		handler.composedBlueprint = &blueprintv1alpha1.Blueprint{}
-		component := &blueprintv1alpha1.TerraformComponent{Path: "local"}
-
-		// When resolving component source
-		handler.resolveComponentSource(component)
-
-		// Then source should remain empty
-		if component.Source != "" {
-			t.Errorf("Expected empty source, got '%s'", component.Source)
-		}
-	})
-
-	t.Run("SkipsWhenNoBlueprintComposed", func(t *testing.T) {
-		// Given a handler with no composed blueprint
-		mocks := setupHandlerMocks(t)
-		handler := NewBlueprintHandler(mocks.Runtime, mocks.ArtifactBuilder)
-		component := &blueprintv1alpha1.TerraformComponent{Source: "core", Path: "vpc"}
-
-		// When resolving component source
-		handler.resolveComponentSource(component)
-
-		// Then source should remain unchanged
-		if component.Source != "core" {
-			t.Errorf("Expected 'core', got '%s'", component.Source)
-		}
-	})
-}
-
-func TestHandler_getSourceRef(t *testing.T) {
-	t.Run("ReturnsCommitWhenPresent", func(t *testing.T) {
-		mocks := setupHandlerMocks(t)
-		handler := NewBlueprintHandler(mocks.Runtime, mocks.ArtifactBuilder)
-		source := blueprintv1alpha1.Source{Ref: blueprintv1alpha1.Reference{Commit: "abc123", SemVer: "1.0.0", Tag: "v1.0.0", Branch: "main"}}
-
-		ref := handler.getSourceRef(source)
-
-		if ref != "abc123" {
-			t.Errorf("Expected 'abc123', got '%s'", ref)
-		}
-	})
-
-	t.Run("ReturnsSemVerWhenCommitNotPresent", func(t *testing.T) {
-		mocks := setupHandlerMocks(t)
-		handler := NewBlueprintHandler(mocks.Runtime, mocks.ArtifactBuilder)
-		source := blueprintv1alpha1.Source{Ref: blueprintv1alpha1.Reference{SemVer: "1.0.0", Tag: "v1.0.0", Branch: "main"}}
-
-		ref := handler.getSourceRef(source)
-
-		if ref != "1.0.0" {
-			t.Errorf("Expected '1.0.0', got '%s'", ref)
-		}
-	})
-
-	t.Run("ReturnsTagWhenCommitAndSemVerNotPresent", func(t *testing.T) {
-		mocks := setupHandlerMocks(t)
-		handler := NewBlueprintHandler(mocks.Runtime, mocks.ArtifactBuilder)
-		source := blueprintv1alpha1.Source{Ref: blueprintv1alpha1.Reference{Tag: "v1.0.0", Branch: "main"}}
-
-		ref := handler.getSourceRef(source)
-
-		if ref != "v1.0.0" {
-			t.Errorf("Expected 'v1.0.0', got '%s'", ref)
-		}
-	})
-
-	t.Run("ReturnsBranchWhenOnlyBranchPresent", func(t *testing.T) {
-		mocks := setupHandlerMocks(t)
-		handler := NewBlueprintHandler(mocks.Runtime, mocks.ArtifactBuilder)
-		source := blueprintv1alpha1.Source{Ref: blueprintv1alpha1.Reference{Branch: "develop"}}
-
-		ref := handler.getSourceRef(source)
-
-		if ref != "develop" {
-			t.Errorf("Expected 'develop', got '%s'", ref)
-		}
-	})
-
-	t.Run("ReturnsEmptyStringWhenNoRefFieldsPresent", func(t *testing.T) {
-		mocks := setupHandlerMocks(t)
-		handler := NewBlueprintHandler(mocks.Runtime, mocks.ArtifactBuilder)
-		source := blueprintv1alpha1.Source{}
-
-		ref := handler.getSourceRef(source)
-
-		if ref != "" {
-			t.Errorf("Expected empty string, got '%s'", ref)
 		}
 	})
 }
@@ -1739,645 +1717,90 @@ func TestHandler_GenerateResolved(t *testing.T) {
 	})
 }
 
-func TestHandler_getConfigValues(t *testing.T) {
-	t.Run("ReturnsNilWhenConfigHandlerNil", func(t *testing.T) {
-		// Given a handler with nil ConfigHandler
-		mocks := setupHandlerMocks(t)
-		mocks.Runtime.ConfigHandler = nil
-		handler := NewBlueprintHandler(mocks.Runtime, mocks.ArtifactBuilder)
-
-		// When getting config values
-		values := handler.getConfigValues()
-
-		// Then should return nil
-		if values != nil {
-			t.Error("Expected nil when ConfigHandler is nil")
+func TestHandler_DeferredSubstitutionsInScope(t *testing.T) {
+	t.Run("NoDeferredPaths", func(t *testing.T) {
+		handler := &BaseBlueprintHandler{}
+		if handler.DeferredSubstitutionsInScope(map[string]bool{"my-app": true}) {
+			t.Error("Expected false for no deferred paths")
 		}
 	})
 
-	t.Run("ReturnsNilWhenGetContextValuesErrors", func(t *testing.T) {
-		// Given a handler where GetContextValues returns error
-		mocks := setupHandlerMocks(t)
-		mocks.ConfigHandler.GetContextValuesFunc = func() (map[string]any, error) {
-			return nil, errors.New("config error")
-		}
-		handler := NewBlueprintHandler(mocks.Runtime, mocks.ArtifactBuilder)
-
-		// When getting config values
-		values := handler.getConfigValues()
-
-		// Then should return nil
-		if values != nil {
-			t.Error("Expected nil when GetContextValues errors")
+	t.Run("KustomizationInScope", func(t *testing.T) {
+		handler := &BaseBlueprintHandler{deferredPaths: map[string]bool{"kustomize.my-app.substitutions.cert": true}}
+		if !handler.DeferredSubstitutionsInScope(map[string]bool{"my-app": true}) {
+			t.Error("Expected true when the deferred kustomization is in scope")
 		}
 	})
 
-	t.Run("ReturnsValuesFromConfigHandler", func(t *testing.T) {
-		// Given a handler with working ConfigHandler
-		mocks := setupHandlerMocks(t)
-		mocks.ConfigHandler.GetContextValuesFunc = func() (map[string]any, error) {
-			return map[string]any{"key": "value"}, nil
-		}
-		handler := NewBlueprintHandler(mocks.Runtime, mocks.ArtifactBuilder)
-
-		// When getting config values
-		values := handler.getConfigValues()
-
-		// Then should return values
-		if values == nil {
-			t.Fatal("Expected non-nil values")
-		}
-		if values["key"] != "value" {
-			t.Errorf("Expected key='value', got '%v'", values["key"])
+	t.Run("KustomizationOutOfScope", func(t *testing.T) {
+		handler := &BaseBlueprintHandler{deferredPaths: map[string]bool{"kustomize.other-app.substitutions.cert": true}}
+		if handler.DeferredSubstitutionsInScope(map[string]bool{"my-app": true}) {
+			t.Error("Expected false when the deferred kustomization is not in scope")
 		}
 	})
 
-	t.Run("MergesRepositoryScopeWithoutSecret", func(t *testing.T) {
-		mocks := setupHandlerMocks(t)
-		mocks.ConfigHandler.GetContextValuesFunc = func() (map[string]any, error) {
-			return map[string]any{"key": "value"}, nil
-		}
-		secret := "flux-system"
-		handler := NewBlueprintHandler(mocks.Runtime, mocks.ArtifactBuilder)
-		handler.userBlueprintLoader = &mockLoaderImpl{
-			getSourceNameFunc: func() string { return "user" },
-			getBlueprintFunc: func() *blueprintv1alpha1.Blueprint {
-				return &blueprintv1alpha1.Blueprint{
-					Repository: blueprintv1alpha1.Repository{
-						Url:        "https://github.com/acme/repo.git",
-						SecretName: &secret,
-					},
-				}
-			},
-		}
-
-		values := handler.getConfigValues()
-
-		if values == nil {
-			t.Fatal("Expected non-nil values")
-		}
-		repository, ok := values["repository"].(map[string]any)
-		if !ok {
-			t.Fatal("Expected repository map in config values")
-		}
-		if repository["url"] != "https://github.com/acme/repo.git" {
-			t.Errorf("Expected repository.url to be merged, got %v", repository["url"])
-		}
-		if _, hasSecret := repository["secretName"]; hasSecret {
-			t.Error("Expected repository.secretName to be excluded from scope")
-		}
-		ref, ok := repository["ref"].(map[string]any)
-		if !ok {
-			t.Fatal("Expected repository.ref map in config values")
-		}
-		if ref["branch"] != "main" {
-			t.Errorf("Expected repository.ref.branch to default to main, got %v", ref["branch"])
-		}
-	})
-}
-
-func TestHandler_getRepositoryScopeValues(t *testing.T) {
-	t.Run("ReturnsNilWhenRepositoryIsEmpty", func(t *testing.T) {
-		mocks := setupHandlerMocks(t)
-		handler := NewBlueprintHandler(mocks.Runtime, mocks.ArtifactBuilder)
-		handler.runtime.ConfigHandler = nil
-		handler.runtime.Shell = nil
-		handler.userBlueprintLoader = &mockLoaderImpl{
-			getSourceNameFunc: func() string { return "user" },
-			getBlueprintFunc: func() *blueprintv1alpha1.Blueprint {
-				return &blueprintv1alpha1.Blueprint{}
-			},
-		}
-
-		values := handler.getRepositoryScopeValues()
-		if values != nil {
-			t.Errorf("Expected nil repository scope, got %v", values)
+	t.Run("NamePrefixCollisionDoesNotFalsePositive", func(t *testing.T) {
+		// A kustomization named "my-app-2" must not match scope {"my-app"} via a bare
+		// string-prefix check on the raw path.
+		handler := &BaseBlueprintHandler{deferredPaths: map[string]bool{"kustomize.my-app-2.substitutions.cert": true}}
+		if handler.DeferredSubstitutionsInScope(map[string]bool{"my-app": true}) {
+			t.Error("Expected false: 'my-app-2' is a different kustomization than 'my-app'")
 		}
 	})
 
-	t.Run("ReturnsRepositoryWithoutSecretName", func(t *testing.T) {
-		mocks := setupHandlerMocks(t)
-		secret := "flux-system"
-		handler := NewBlueprintHandler(mocks.Runtime, mocks.ArtifactBuilder)
-		handler.userBlueprintLoader = &mockLoaderImpl{
-			getSourceNameFunc: func() string { return "user" },
-			getBlueprintFunc: func() *blueprintv1alpha1.Blueprint {
-				return &blueprintv1alpha1.Blueprint{
-					Repository: blueprintv1alpha1.Repository{
-						Url: "https://github.com/acme/repo.git",
-						Ref: blueprintv1alpha1.Reference{
-							Branch: "develop",
-							Tag:    "v1.2.3",
-							Commit: "abc123",
-						},
-						SecretName: &secret,
-					},
-				}
-			},
+	t.Run("GlobalConfigMapAlwaysInScope", func(t *testing.T) {
+		handler := &BaseBlueprintHandler{deferredPaths: map[string]bool{"configmaps.shared.cert": true}}
+		if !handler.DeferredSubstitutionsInScope(map[string]bool{}) {
+			t.Error("Expected true: blueprint-level ConfigMaps are always in scope")
 		}
+	})
 
-		values := handler.getRepositoryScopeValues()
+	t.Run("GlobalSubstitutionAlwaysInScope", func(t *testing.T) {
+		handler := &BaseBlueprintHandler{deferredPaths: map[string]bool{"substitutions.tenant_id": true}}
+		if !handler.DeferredSubstitutionsInScope(map[string]bool{}) {
+			t.Error("Expected true: global substitutions are always in scope")
+		}
+	})
 
-		repository, ok := values["repository"].(map[string]any)
-		if !ok {
-			t.Fatal("Expected repository map")
+	t.Run("UnrecognizedPrefixIgnored", func(t *testing.T) {
+		handler := &BaseBlueprintHandler{deferredPaths: map[string]bool{"messages.0": true}}
+		if handler.DeferredSubstitutionsInScope(map[string]bool{"my-app": true}) {
+			t.Error("Expected false for a path outside the recognized prefixes")
 		}
-		if repository["url"] != "https://github.com/acme/repo.git" {
-			t.Errorf("Expected repository.url to be set, got %v", repository["url"])
+	})
+
+	t.Run("FluxInstallTierInScope", func(t *testing.T) {
+		handler := &BaseBlueprintHandler{deferredPaths: map[string]bool{"flux.database.install.substitutions.cert": true}}
+		if !handler.DeferredSubstitutionsInScope(map[string]bool{"database-install": true}) {
+			t.Error("Expected true: the deferred flux install tier's compiled name is in scope")
 		}
-		if _, hasSecret := repository["secretName"]; hasSecret {
-			t.Error("Expected repository.secretName to be excluded")
+	})
+
+	t.Run("FluxResourcesTierInScope", func(t *testing.T) {
+		handler := &BaseBlueprintHandler{deferredPaths: map[string]bool{"flux.database.resources.substitutions.crossplane_gcp_service_account_email": true}}
+		if !handler.DeferredSubstitutionsInScope(map[string]bool{"database-resources": true}) {
+			t.Error("Expected true: the deferred flux resources tier's compiled name is in scope")
 		}
-		ref, ok := repository["ref"].(map[string]any)
-		if !ok {
-			t.Fatal("Expected repository.ref map")
+	})
+
+	t.Run("FluxResourcesVariantTierInScope", func(t *testing.T) {
+		handler := &BaseBlueprintHandler{deferredPaths: map[string]bool{"flux.database.resources-primary.substitutions.cert": true}}
+		if !handler.DeferredSubstitutionsInScope(map[string]bool{"database-resources-primary": true}) {
+			t.Error("Expected true: the deferred flux resources variant's compiled name is in scope")
 		}
-		if ref["branch"] != "develop" {
-			t.Errorf("Expected branch develop, got %v", ref["branch"])
-		}
-		if ref["tag"] != "v1.2.3" {
-			t.Errorf("Expected tag v1.2.3, got %v", ref["tag"])
-		}
-		if ref["commit"] != "abc123" {
-			t.Errorf("Expected commit abc123, got %v", ref["commit"])
+	})
+
+	t.Run("FluxTierOutOfScope", func(t *testing.T) {
+		handler := &BaseBlueprintHandler{deferredPaths: map[string]bool{"flux.database.install.substitutions.cert": true}}
+		if handler.DeferredSubstitutionsInScope(map[string]bool{"other-install": true}) {
+			t.Error("Expected false when the deferred flux tier is not in scope")
 		}
 	})
 }
 
 // =============================================================================
-// Test Helpers
+// Test Private Methods
 // =============================================================================
-
-type mockWriterImpl struct {
-	writeFunc func(bp *blueprintv1alpha1.Blueprint, overwrite bool, initBlueprintURLs ...string) error
-}
-
-func (m *mockWriterImpl) Write(bp *blueprintv1alpha1.Blueprint, overwrite bool, initBlueprintURLs ...string) error {
-	if m.writeFunc != nil {
-		return m.writeFunc(bp, overwrite, initBlueprintURLs...)
-	}
-	return nil
-}
-
-type mockLoaderImpl struct {
-	loadFunc            func(sourceName, sourceURL string) error
-	getBlueprintFunc    func() *blueprintv1alpha1.Blueprint
-	getFacetsFunc       func() []blueprintv1alpha1.Facet
-	getTemplateDataFunc func() map[string][]byte
-	getSourceNameFunc   func() string
-}
-
-func (m *mockLoaderImpl) Load(sourceName, sourceURL string) error {
-	if m.loadFunc != nil {
-		return m.loadFunc(sourceName, sourceURL)
-	}
-	return nil
-}
-
-func (m *mockLoaderImpl) GetBlueprint() *blueprintv1alpha1.Blueprint {
-	if m.getBlueprintFunc != nil {
-		return m.getBlueprintFunc()
-	}
-	return nil
-}
-
-func (m *mockLoaderImpl) GetFacets() []blueprintv1alpha1.Facet {
-	if m.getFacetsFunc != nil {
-		return m.getFacetsFunc()
-	}
-	return nil
-}
-
-func (m *mockLoaderImpl) GetTemplateData() map[string][]byte {
-	if m.getTemplateDataFunc != nil {
-		return m.getTemplateDataFunc()
-	}
-	return nil
-}
-
-func (m *mockLoaderImpl) GetSourceName() string {
-	if m.getSourceNameFunc != nil {
-		return m.getSourceNameFunc()
-	}
-	return ""
-}
-
-func TestOrderLoadersByDependency(t *testing.T) {
-	// newLoader builds a mock loader named `name` whose blueprint lists `deps` as sources.
-	newLoader := func(name string, deps ...string) BlueprintLoader {
-		sources := make([]blueprintv1alpha1.Source, 0, len(deps))
-		for _, d := range deps {
-			sources = append(sources, blueprintv1alpha1.Source{Name: d})
-		}
-		return &mockLoaderImpl{
-			getSourceNameFunc: func() string { return name },
-			getBlueprintFunc: func() *blueprintv1alpha1.Blueprint {
-				return &blueprintv1alpha1.Blueprint{Sources: sources}
-			},
-		}
-	}
-	order := func(loaders []BlueprintLoader) []string {
-		names := make(map[BlueprintLoader]string, len(loaders))
-		for _, l := range loaders {
-			names[l] = l.GetSourceName()
-		}
-		result := orderLoadersByDependency(loaders, names, "user")
-		out := make([]string, len(result))
-		for i, l := range result {
-			out[i] = l.GetSourceName()
-		}
-		return out
-	}
-
-	t.Run("DependencyBeforeDependent", func(t *testing.T) {
-		// Given a chain where user lists core+consumer and consumer lists core
-		core := newLoader("core")
-		consumer := newLoader("consumer", "core")
-		user := newLoader("user", "core", "consumer")
-
-		// When ordering (input deliberately reversed to prove sorting, not input order)
-		got := order([]BlueprintLoader{user, consumer, core})
-
-		// Then dependencies come before dependents and user is last
-		want := []string{"core", "consumer", "user"}
-		if strings.Join(got, ",") != strings.Join(want, ",") {
-			t.Errorf("Expected %v, got %v", want, got)
-		}
-	})
-
-	t.Run("IndependentSourcesAreDeterministicWithUserLast", func(t *testing.T) {
-		// Given independent sources and a user loader with no sources
-		got := order([]BlueprintLoader{newLoader("zeta"), newLoader("user"), newLoader("alpha")})
-
-		// Then independents sort alphabetically and user is forced last
-		want := []string{"alpha", "zeta", "user"}
-		if strings.Join(got, ",") != strings.Join(want, ",") {
-			t.Errorf("Expected %v, got %v", want, got)
-		}
-	})
-
-	t.Run("ForcesUserLoaderLastByGivenName", func(t *testing.T) {
-		// Given a user loader whose name is not the literal "user"
-		loaders := []BlueprintLoader{newLoader("zeta"), newLoader("overlay"), newLoader("alpha")}
-		names := make(map[BlueprintLoader]string, len(loaders))
-		for _, l := range loaders {
-			names[l] = l.GetSourceName()
-		}
-
-		// When ordering with "overlay" declared as the user loader name
-		result := orderLoadersByDependency(loaders, names, "overlay")
-		got := make([]string, len(result))
-		for i, l := range result {
-			got[i] = l.GetSourceName()
-		}
-
-		// Then the named loader is forced last regardless of alphabetical order
-		want := []string{"alpha", "zeta", "overlay"}
-		if strings.Join(got, ",") != strings.Join(want, ",") {
-			t.Errorf("Expected %v, got %v", want, got)
-		}
-	})
-
-	t.Run("CycleFallsBackToStableOrderWithoutDroppingLoaders", func(t *testing.T) {
-		// Given a dependency cycle a->b->a
-		a := newLoader("a", "b")
-		b := newLoader("b", "a")
-
-		// When ordering
-		got := order([]BlueprintLoader{b, a})
-
-		// Then no loader is dropped and the fallback order is stable
-		want := []string{"a", "b"}
-		if strings.Join(got, ",") != strings.Join(want, ",") {
-			t.Errorf("Expected %v (no loaders dropped), got %v", want, got)
-		}
-	})
-
-	t.Run("IgnoresEdgesToUnknownSources", func(t *testing.T) {
-		// Given a source that lists a dependency not present among the loaders
-		got := order([]BlueprintLoader{newLoader("only", "missing")})
-
-		// Then the unknown edge is ignored and the loader still appears
-		if strings.Join(got, ",") != "only" {
-			t.Errorf("Expected [only], got %v", got)
-		}
-	})
-}
-
-func TestHandler_setRepositoryDefaults(t *testing.T) {
-	t.Run("SetsDevRepositoryURLInDevMode", func(t *testing.T) {
-		// Given a handler in dev mode with domain and project configured, no user blueprint
-		mocks := setupHandlerMocks(t)
-		mocks.ConfigHandler.GetBoolFunc = func(key string, defaultValue ...bool) bool {
-			return key == "dev"
-		}
-		mocks.ConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
-			if key == "dns.domain" {
-				return "test"
-			}
-			if len(defaultValue) > 0 {
-				return defaultValue[0]
-			}
-			return ""
-		}
-		mocks.Runtime.ProjectRoot = "/path/to/myproject"
-
-		handler := NewBlueprintHandler(mocks.Runtime, mocks.ArtifactBuilder)
-		handler.composedBlueprint = &blueprintv1alpha1.Blueprint{}
-		handler.userBlueprintLoader = nil
-
-		// When setting repository defaults
-		handler.setRepositoryDefaults()
-
-		// Then repository should be set with local git URL
-		if handler.composedBlueprint.Repository.Url != "http://git.test/git/myproject" {
-			t.Errorf("Expected URL 'http://git.test/git/myproject', got '%s'", handler.composedBlueprint.Repository.Url)
-		}
-		if handler.composedBlueprint.Repository.Ref.Branch != "main" {
-			t.Errorf("Expected branch 'main', got '%s'", handler.composedBlueprint.Repository.Ref.Branch)
-		}
-		if handler.composedBlueprint.Repository.SecretName == nil || *handler.composedBlueprint.Repository.SecretName != "flux-system" {
-			t.Errorf("Expected secretName 'flux-system'")
-		}
-	})
-
-	t.Run("FallsBackToGitRemoteWhenNotDevMode", func(t *testing.T) {
-		// Given a handler not in dev mode with no user blueprint
-		mocks := setupHandlerMocks(t)
-		mocks.ConfigHandler.GetBoolFunc = func(key string, defaultValue ...bool) bool {
-			return false
-		}
-		mocks.Shell.ExecSilentFunc = func(command string, args ...string) (string, error) {
-			if len(args) > 0 && args[len(args)-1] == "remote.origin.url" {
-				return "https://github.com/test/repo.git", nil
-			}
-			return "", nil
-		}
-
-		handler := NewBlueprintHandler(mocks.Runtime, mocks.ArtifactBuilder)
-		handler.shims = &Shims{}
-		handler.composedBlueprint = &blueprintv1alpha1.Blueprint{}
-		handler.userBlueprintLoader = nil
-
-		// When setting repository defaults
-		handler.setRepositoryDefaults()
-
-		// Then repository should be set with normalized host/path URL
-		if handler.composedBlueprint.Repository.Url != "github.com/test/repo" {
-			t.Errorf("Expected URL 'github.com/test/repo', got '%s'", handler.composedBlueprint.Repository.Url)
-		}
-	})
-
-	t.Run("NormalizesSSHGitURL", func(t *testing.T) {
-		// Given a handler with SSH-style git URL and no user blueprint
-		mocks := setupHandlerMocks(t)
-		mocks.ConfigHandler.GetBoolFunc = func(key string, defaultValue ...bool) bool {
-			return false
-		}
-		mocks.Shell.ExecSilentFunc = func(command string, args ...string) (string, error) {
-			if len(args) > 0 && args[len(args)-1] == "remote.origin.url" {
-				return "git@github.com:test/repo.git", nil
-			}
-			return "", nil
-		}
-
-		handler := NewBlueprintHandler(mocks.Runtime, mocks.ArtifactBuilder)
-		handler.shims = NewShims()
-		handler.composedBlueprint = &blueprintv1alpha1.Blueprint{}
-		handler.userBlueprintLoader = nil
-
-		// When setting repository defaults
-		handler.setRepositoryDefaults()
-
-		// Then repository should be normalized to host/path URL
-		if handler.composedBlueprint.Repository.Url != "github.com/test/repo" {
-			t.Errorf("Expected URL 'github.com/test/repo', got '%s'", handler.composedBlueprint.Repository.Url)
-		}
-	})
-
-	t.Run("PreservesGitSchemeURL", func(t *testing.T) {
-		mocks := setupHandlerMocks(t)
-		mocks.ConfigHandler.GetBoolFunc = func(key string, defaultValue ...bool) bool {
-			return false
-		}
-		mocks.Shell.ExecSilentFunc = func(command string, args ...string) (string, error) {
-			if len(args) > 0 && args[len(args)-1] == "remote.origin.url" {
-				return "git://github.com/test/repo.git", nil
-			}
-			return "", nil
-		}
-
-		handler := NewBlueprintHandler(mocks.Runtime, mocks.ArtifactBuilder)
-		handler.shims = NewShims()
-		handler.composedBlueprint = &blueprintv1alpha1.Blueprint{}
-		handler.userBlueprintLoader = nil
-
-		handler.setRepositoryDefaults()
-
-		if handler.composedBlueprint.Repository.Url != "github.com/test/repo" {
-			t.Errorf("Expected URL 'github.com/test/repo', got '%s'", handler.composedBlueprint.Repository.Url)
-		}
-	})
-
-	t.Run("PreservesFileSchemeURL", func(t *testing.T) {
-		mocks := setupHandlerMocks(t)
-		mocks.ConfigHandler.GetBoolFunc = func(key string, defaultValue ...bool) bool {
-			return false
-		}
-		mocks.Shell.ExecSilentFunc = func(command string, args ...string) (string, error) {
-			if len(args) > 0 && args[len(args)-1] == "remote.origin.url" {
-				return "file:///tmp/repo", nil
-			}
-			return "", nil
-		}
-
-		handler := NewBlueprintHandler(mocks.Runtime, mocks.ArtifactBuilder)
-		handler.shims = NewShims()
-		handler.composedBlueprint = &blueprintv1alpha1.Blueprint{}
-		handler.userBlueprintLoader = nil
-
-		handler.setRepositoryDefaults()
-
-		if handler.composedBlueprint.Repository.Url != "file:///tmp/repo" {
-			t.Errorf("Expected URL 'file:///tmp/repo', got '%s'", handler.composedBlueprint.Repository.Url)
-		}
-	})
-
-	t.Run("AddsHTTPSForInvalidSchemePrefix", func(t *testing.T) {
-		mocks := setupHandlerMocks(t)
-		mocks.ConfigHandler.GetBoolFunc = func(key string, defaultValue ...bool) bool {
-			return false
-		}
-		mocks.Shell.ExecSilentFunc = func(command string, args ...string) (string, error) {
-			if len(args) > 0 && args[len(args)-1] == "remote.origin.url" {
-				return "1invalid://github.com/test/repo.git", nil
-			}
-			return "", nil
-		}
-
-		handler := NewBlueprintHandler(mocks.Runtime, mocks.ArtifactBuilder)
-		handler.shims = NewShims()
-		handler.composedBlueprint = &blueprintv1alpha1.Blueprint{}
-		handler.userBlueprintLoader = nil
-
-		handler.setRepositoryDefaults()
-
-		if handler.composedBlueprint.Repository.Url != "github.com/test/repo" {
-			t.Errorf("Expected URL 'github.com/test/repo', got '%s'", handler.composedBlueprint.Repository.Url)
-		}
-	})
-
-	t.Run("PreservesExtendedValidSchemeURL", func(t *testing.T) {
-		mocks := setupHandlerMocks(t)
-		mocks.ConfigHandler.GetBoolFunc = func(key string, defaultValue ...bool) bool {
-			return false
-		}
-		mocks.Shell.ExecSilentFunc = func(command string, args ...string) (string, error) {
-			if len(args) > 0 && args[len(args)-1] == "remote.origin.url" {
-				return "git+ssh://github.com/test/repo.git", nil
-			}
-			return "", nil
-		}
-
-		handler := NewBlueprintHandler(mocks.Runtime, mocks.ArtifactBuilder)
-		handler.shims = NewShims()
-		handler.composedBlueprint = &blueprintv1alpha1.Blueprint{}
-		handler.userBlueprintLoader = nil
-
-		handler.setRepositoryDefaults()
-
-		if handler.composedBlueprint.Repository.Url != "github.com/test/repo" {
-			t.Errorf("Expected URL 'github.com/test/repo', got '%s'", handler.composedBlueprint.Repository.Url)
-		}
-	})
-
-	t.Run("SetsDefaultsWhenRepositoryEmptyEvenWithUserBlueprint", func(t *testing.T) {
-		// Given a handler with user blueprint but composed Repository.Url empty (e.g. user file has no repository)
-		mocks := setupHandlerMocks(t)
-		mocks.ConfigHandler.GetBoolFunc = func(key string, defaultValue ...bool) bool {
-			return key == "dev"
-		}
-		mocks.ConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
-			if key == "dns.domain" {
-				return "test"
-			}
-			if len(defaultValue) > 0 {
-				return defaultValue[0]
-			}
-			return ""
-		}
-		mocks.Runtime.ProjectRoot = "/path/to/myproject"
-
-		handler := NewBlueprintHandler(mocks.Runtime, mocks.ArtifactBuilder)
-		handler.composedBlueprint = &blueprintv1alpha1.Blueprint{}
-		handler.userBlueprintLoader = &mockLoaderImpl{
-			getBlueprintFunc: func() *blueprintv1alpha1.Blueprint { return &blueprintv1alpha1.Blueprint{} },
-		}
-
-		// When setting repository defaults
-		handler.setRepositoryDefaults()
-
-		// Then repository should still be set from dev defaults so rendered blueprint has repository section
-		if handler.composedBlueprint.Repository.Url != "http://git.test/git/myproject" {
-			t.Errorf("Expected URL 'http://git.test/git/myproject' when Repository empty, got '%s'", handler.composedBlueprint.Repository.Url)
-		}
-	})
-
-	t.Run("HandlesNilBlueprint", func(t *testing.T) {
-		// Given a handler with nil composed blueprint
-		mocks := setupHandlerMocks(t)
-		handler := NewBlueprintHandler(mocks.Runtime, mocks.ArtifactBuilder)
-		handler.composedBlueprint = nil
-
-		// When setting repository defaults
-		handler.setRepositoryDefaults()
-
-		// Then no panic should occur
-	})
-}
-
-func TestHandler_clearLocalTemplateSource(t *testing.T) {
-	t.Run("ClearsTemplateSourceOnComponentsAndKustomizationsWhenTemplateIsLocal", func(t *testing.T) {
-		// Given a blueprint with local template source and components/kustomizations referencing template
-		mocks := setupHandlerMocks(t)
-		handler := NewBlueprintHandler(mocks.Runtime, mocks.ArtifactBuilder)
-		blueprint := &blueprintv1alpha1.Blueprint{
-			Sources: []blueprintv1alpha1.Source{{Name: "template", Url: ""}},
-			TerraformComponents: []blueprintv1alpha1.TerraformComponent{
-				{Source: "template", Path: "vpc"},
-				{Source: "other", Path: "rds"},
-			},
-			Kustomizations: []blueprintv1alpha1.Kustomization{
-				{Name: "k1", Source: "template", Path: "app"},
-				{Name: "k2", Source: "other", Path: "base"},
-			},
-		}
-
-		// When clearing local template source
-		handler.clearLocalTemplateSource(blueprint)
-
-		// Then template-referencing components and kustomizations have Source cleared
-		if blueprint.TerraformComponents[0].Source != "" {
-			t.Errorf("Expected TerraformComponent Source cleared, got '%s'", blueprint.TerraformComponents[0].Source)
-		}
-		if blueprint.TerraformComponents[1].Source != "other" {
-			t.Errorf("Expected non-template Source unchanged, got '%s'", blueprint.TerraformComponents[1].Source)
-		}
-		if blueprint.Kustomizations[0].Source != "" {
-			t.Errorf("Expected Kustomization Source cleared, got '%s'", blueprint.Kustomizations[0].Source)
-		}
-		if blueprint.Kustomizations[1].Source != "other" {
-			t.Errorf("Expected non-template Kustomization Source unchanged, got '%s'", blueprint.Kustomizations[1].Source)
-		}
-	})
-
-	t.Run("NoOpWhenTemplateIsRemote", func(t *testing.T) {
-		// Given a blueprint with remote template source
-		mocks := setupHandlerMocks(t)
-		handler := NewBlueprintHandler(mocks.Runtime, mocks.ArtifactBuilder)
-		blueprint := &blueprintv1alpha1.Blueprint{
-			Sources:             []blueprintv1alpha1.Source{{Name: "template", Url: "https://github.com/example/repo.git"}},
-			TerraformComponents: []blueprintv1alpha1.TerraformComponent{{Source: "template", Path: "vpc"}},
-			Kustomizations:      []blueprintv1alpha1.Kustomization{{Name: "k1", Source: "template", Path: "app"}},
-		}
-
-		// When clearing local template source
-		handler.clearLocalTemplateSource(blueprint)
-
-		if blueprint.TerraformComponents[0].Source != "template" {
-			t.Errorf("Expected Source unchanged when template is remote, got '%s'", blueprint.TerraformComponents[0].Source)
-		}
-		// Then Source remains unchanged
-		if blueprint.Kustomizations[0].Source != "template" {
-			t.Errorf("Expected Kustomization Source unchanged when template is remote, got '%s'", blueprint.Kustomizations[0].Source)
-		}
-	})
-
-	t.Run("ClearsUserSourceSoComponentsResolveToProjectPath", func(t *testing.T) {
-		mocks := setupHandlerMocks(t)
-		handler := NewBlueprintHandler(mocks.Runtime, mocks.ArtifactBuilder)
-		blueprint := &blueprintv1alpha1.Blueprint{
-			Sources:             []blueprintv1alpha1.Source{{Name: "template", Url: "https://example.com/oci"}},
-			TerraformComponents: []blueprintv1alpha1.TerraformComponent{{Source: "user", Path: "cluster"}},
-			Kustomizations:      []blueprintv1alpha1.Kustomization{{Name: "app", Source: "user", Path: "app"}},
-		}
-
-		handler.clearLocalTemplateSource(blueprint)
-
-		if blueprint.TerraformComponents[0].Source != "" {
-			t.Errorf("Expected user Source cleared so FullPath uses project path, got '%s'", blueprint.TerraformComponents[0].Source)
-		}
-		if blueprint.Kustomizations[0].Source != "" {
-			t.Errorf("Expected user Kustomization Source cleared, got '%s'", blueprint.Kustomizations[0].Source)
-		}
-	})
-
-	t.Run("NoOpWhenBlueprintNil", func(t *testing.T) {
-		mocks := setupHandlerMocks(t)
-		handler := NewBlueprintHandler(mocks.Runtime, mocks.ArtifactBuilder)
-		handler.clearLocalTemplateSource(nil)
-	})
-}
 
 func TestHandler_processAndCompose(t *testing.T) {
 	t.Run("CallsSetTerraformComponentsWhenProviderExists", func(t *testing.T) {
@@ -2779,79 +2202,6 @@ func TestHandler_processAndCompose(t *testing.T) {
 	})
 }
 
-// composeCrossSource wires a core source, a consumer source that lists core (so it composes deeper),
-// and a user blueprint selecting both, runs processAndCompose, and returns the composed blueprint.
-// contextValues seeds the operator's values (nil means empty).
-func composeCrossSource(t *testing.T, coreFacets, consumerFacets []blueprintv1alpha1.Facet, contextValues map[string]any) *blueprintv1alpha1.Blueprint {
-	t.Helper()
-	mocks := setupHandlerMocks(t)
-	mocks.ConfigHandler.GetContextValuesFunc = func() (map[string]any, error) {
-		if contextValues == nil {
-			return map[string]any{}, nil
-		}
-		return contextValues, nil
-	}
-	mocks.ConfigHandler.GetSetValuesFunc = func() map[string]any { return contextValues }
-	handler := NewBlueprintHandler(mocks.Runtime, mocks.ArtifactBuilder)
-
-	coreBp := &blueprintv1alpha1.Blueprint{}
-	handler.sourceBlueprintLoaders["core"] = &mockLoaderImpl{
-		getBlueprintFunc:  func() *blueprintv1alpha1.Blueprint { return coreBp },
-		getSourceNameFunc: func() string { return "core" },
-		getFacetsFunc:     func() []blueprintv1alpha1.Facet { return coreFacets },
-	}
-
-	consumerBp := &blueprintv1alpha1.Blueprint{Sources: []blueprintv1alpha1.Source{{Name: "core"}}}
-	handler.sourceBlueprintLoaders["consumer"] = &mockLoaderImpl{
-		getBlueprintFunc:  func() *blueprintv1alpha1.Blueprint { return consumerBp },
-		getSourceNameFunc: func() string { return "consumer" },
-		getFacetsFunc:     func() []blueprintv1alpha1.Facet { return consumerFacets },
-	}
-
-	trueVal := true
-	handler.userBlueprintLoader = &mockLoaderImpl{
-		getBlueprintFunc: func() *blueprintv1alpha1.Blueprint {
-			return &blueprintv1alpha1.Blueprint{
-				Sources: []blueprintv1alpha1.Source{
-					{Name: "core", Install: &blueprintv1alpha1.BoolExpression{Value: &trueVal, IsExpr: false}},
-					{Name: "consumer", Install: &blueprintv1alpha1.BoolExpression{Value: &trueVal, IsExpr: false}},
-				},
-			}
-		},
-		getSourceNameFunc: func() string { return "user" },
-	}
-
-	if err := handler.processAndCompose(); err != nil {
-		t.Fatalf("processAndCompose failed: %v", err)
-	}
-	return handler.composedBlueprint
-}
-
-// configBlock builds a ConfigBlock named block whose value map is content (exposed at scope as block.<k>).
-func configBlock(block string, content map[string]any) blueprintv1alpha1.ConfigBlock {
-	return blueprintv1alpha1.ConfigBlock{Name: block, Body: map[string]any{"value": content}}
-}
-
-// kustSub returns the named composed kustomization's substitution value and whether it was found.
-func kustSub(bp *blueprintv1alpha1.Blueprint, name, key string) (string, bool) {
-	for _, k := range bp.Kustomizations {
-		if k.Name == name {
-			return k.Substitutions[key], true
-		}
-	}
-	return "", false
-}
-
-// hasKustomization reports whether the composed blueprint includes a kustomization by name.
-func hasKustomization(bp *blueprintv1alpha1.Blueprint, name string) bool {
-	for _, k := range bp.Kustomizations {
-		if k.Name == name {
-			return true
-		}
-	}
-	return false
-}
-
 // TestHandler_CrossSourceConfig pins the cross-source config behaviors: a referencing (consumer)
 // source can override a value an upstream (core) source consumes, activate an upstream capability,
 // disable one, and have upstream derivations recompute — while an explicit operator value still wins.
@@ -3017,239 +2367,106 @@ func TestHandler_CrossSourceConfig(t *testing.T) {
 	})
 }
 
-func TestHandler_deriveConfigMapDeferredPaths(t *testing.T) {
-	t.Run("MarksConfigMapEntriesContainingDeferredPlaceholder", func(t *testing.T) {
-		// Given a handler with a composed blueprint containing deferred ConfigMap values
-		handler := &BaseBlueprintHandler{
-			deferredPaths: map[string]bool{
-				"substitutions.MY_KEY": true,
-			},
-			composedBlueprint: &blueprintv1alpha1.Blueprint{
-				ConfigMaps: map[string]map[string]string{
-					"values-common": {
-						"MY_KEY":       "<deferred>",
-						"RESOLVED_KEY": "resolved-value",
-					},
-					"values-my-app": {
-						"APP_KEY": "<deferred>",
-					},
-				},
-			},
-		}
-
-		// When deriving ConfigMap deferred paths
-		handler.deriveConfigMapDeferredPaths()
-
-		// Then deferred entries are marked with the configmaps prefix
-		paths := handler.GetDeferredPaths()
-		if !paths["configmaps.values-common.MY_KEY"] {
-			t.Error("Expected configmaps.values-common.MY_KEY to be marked deferred")
-		}
-		if paths["configmaps.values-common.RESOLVED_KEY"] {
-			t.Error("Expected configmaps.values-common.RESOLVED_KEY not to be marked deferred")
-		}
-		if !paths["configmaps.values-my-app.APP_KEY"] {
-			t.Error("Expected configmaps.values-my-app.APP_KEY to be marked deferred")
-		}
-	})
-
-	t.Run("NoOpWhenNilBlueprint", func(t *testing.T) {
-		// Given a handler with no composed blueprint
-		handler := &BaseBlueprintHandler{}
-
-		// When deriving ConfigMap deferred paths
-		handler.deriveConfigMapDeferredPaths()
-
-		// Then no paths are added
-		paths := handler.GetDeferredPaths()
-		if len(paths) != 0 {
-			t.Errorf("Expected empty deferred paths, got %v", paths)
-		}
-	})
-
-	t.Run("NoOpWhenNoConfigMaps", func(t *testing.T) {
-		// Given a handler with a composed blueprint but no ConfigMaps
-		handler := &BaseBlueprintHandler{
-			composedBlueprint: &blueprintv1alpha1.Blueprint{},
-		}
-
-		// When deriving ConfigMap deferred paths
-		handler.deriveConfigMapDeferredPaths()
-
-		// Then no paths are added
-		paths := handler.GetDeferredPaths()
-		if len(paths) != 0 {
-			t.Errorf("Expected empty deferred paths, got %v", paths)
-		}
-	})
-}
-
-func TestHandler_DeferredSubstitutionsInScope(t *testing.T) {
-	t.Run("NoDeferredPaths", func(t *testing.T) {
-		handler := &BaseBlueprintHandler{}
-		if handler.DeferredSubstitutionsInScope(map[string]bool{"my-app": true}) {
-			t.Error("Expected false for no deferred paths")
-		}
-	})
-
-	t.Run("KustomizationInScope", func(t *testing.T) {
-		handler := &BaseBlueprintHandler{deferredPaths: map[string]bool{"kustomize.my-app.substitutions.cert": true}}
-		if !handler.DeferredSubstitutionsInScope(map[string]bool{"my-app": true}) {
-			t.Error("Expected true when the deferred kustomization is in scope")
-		}
-	})
-
-	t.Run("KustomizationOutOfScope", func(t *testing.T) {
-		handler := &BaseBlueprintHandler{deferredPaths: map[string]bool{"kustomize.other-app.substitutions.cert": true}}
-		if handler.DeferredSubstitutionsInScope(map[string]bool{"my-app": true}) {
-			t.Error("Expected false when the deferred kustomization is not in scope")
-		}
-	})
-
-	t.Run("NamePrefixCollisionDoesNotFalsePositive", func(t *testing.T) {
-		// A kustomization named "my-app-2" must not match scope {"my-app"} via a bare
-		// string-prefix check on the raw path.
-		handler := &BaseBlueprintHandler{deferredPaths: map[string]bool{"kustomize.my-app-2.substitutions.cert": true}}
-		if handler.DeferredSubstitutionsInScope(map[string]bool{"my-app": true}) {
-			t.Error("Expected false: 'my-app-2' is a different kustomization than 'my-app'")
-		}
-	})
-
-	t.Run("GlobalConfigMapAlwaysInScope", func(t *testing.T) {
-		handler := &BaseBlueprintHandler{deferredPaths: map[string]bool{"configmaps.shared.cert": true}}
-		if !handler.DeferredSubstitutionsInScope(map[string]bool{}) {
-			t.Error("Expected true: blueprint-level ConfigMaps are always in scope")
-		}
-	})
-
-	t.Run("GlobalSubstitutionAlwaysInScope", func(t *testing.T) {
-		handler := &BaseBlueprintHandler{deferredPaths: map[string]bool{"substitutions.tenant_id": true}}
-		if !handler.DeferredSubstitutionsInScope(map[string]bool{}) {
-			t.Error("Expected true: global substitutions are always in scope")
-		}
-	})
-
-	t.Run("UnrecognizedPrefixIgnored", func(t *testing.T) {
-		handler := &BaseBlueprintHandler{deferredPaths: map[string]bool{"messages.0": true}}
-		if handler.DeferredSubstitutionsInScope(map[string]bool{"my-app": true}) {
-			t.Error("Expected false for a path outside the recognized prefixes")
-		}
-	})
-
-	t.Run("FluxInstallTierInScope", func(t *testing.T) {
-		handler := &BaseBlueprintHandler{deferredPaths: map[string]bool{"flux.database.install.substitutions.cert": true}}
-		if !handler.DeferredSubstitutionsInScope(map[string]bool{"database-install": true}) {
-			t.Error("Expected true: the deferred flux install tier's compiled name is in scope")
-		}
-	})
-
-	t.Run("FluxResourcesTierInScope", func(t *testing.T) {
-		handler := &BaseBlueprintHandler{deferredPaths: map[string]bool{"flux.database.resources.substitutions.crossplane_gcp_service_account_email": true}}
-		if !handler.DeferredSubstitutionsInScope(map[string]bool{"database-resources": true}) {
-			t.Error("Expected true: the deferred flux resources tier's compiled name is in scope")
-		}
-	})
-
-	t.Run("FluxResourcesVariantTierInScope", func(t *testing.T) {
-		handler := &BaseBlueprintHandler{deferredPaths: map[string]bool{"flux.database.resources-primary.substitutions.cert": true}}
-		if !handler.DeferredSubstitutionsInScope(map[string]bool{"database-resources-primary": true}) {
-			t.Error("Expected true: the deferred flux resources variant's compiled name is in scope")
-		}
-	})
-
-	t.Run("FluxTierOutOfScope", func(t *testing.T) {
-		handler := &BaseBlueprintHandler{deferredPaths: map[string]bool{"flux.database.install.substitutions.cert": true}}
-		if handler.DeferredSubstitutionsInScope(map[string]bool{"other-install": true}) {
-			t.Error("Expected false when the deferred flux tier is not in scope")
-		}
-	})
-}
-
-func TestHandler_RetargetSource(t *testing.T) {
-	setup := func(t *testing.T) *BaseBlueprintHandler {
-		t.Helper()
+func TestHandler_getConfigValues(t *testing.T) {
+	t.Run("ReturnsNilWhenConfigHandlerNil", func(t *testing.T) {
+		// Given a handler with nil ConfigHandler
 		mocks := setupHandlerMocks(t)
+		mocks.Runtime.ConfigHandler = nil
 		handler := NewBlueprintHandler(mocks.Runtime, mocks.ArtifactBuilder)
-		handler.composedBlueprint = &blueprintv1alpha1.Blueprint{
-			Sources: []blueprintv1alpha1.Source{
-				{Name: "core", Url: "oci://ghcr.io/windsorcli/core:v0.3.0", Ref: blueprintv1alpha1.Reference{SemVer: "v0.3.0"}},
+
+		// When getting config values
+		values := handler.getConfigValues()
+
+		// Then should return nil
+		if values != nil {
+			t.Error("Expected nil when ConfigHandler is nil")
+		}
+	})
+
+	t.Run("ReturnsNilWhenGetContextValuesErrors", func(t *testing.T) {
+		// Given a handler where GetContextValues returns error
+		mocks := setupHandlerMocks(t)
+		mocks.ConfigHandler.GetContextValuesFunc = func() (map[string]any, error) {
+			return nil, errors.New("config error")
+		}
+		handler := NewBlueprintHandler(mocks.Runtime, mocks.ArtifactBuilder)
+
+		// When getting config values
+		values := handler.getConfigValues()
+
+		// Then should return nil
+		if values != nil {
+			t.Error("Expected nil when GetContextValues errors")
+		}
+	})
+
+	t.Run("ReturnsValuesFromConfigHandler", func(t *testing.T) {
+		// Given a handler with working ConfigHandler
+		mocks := setupHandlerMocks(t)
+		mocks.ConfigHandler.GetContextValuesFunc = func() (map[string]any, error) {
+			return map[string]any{"key": "value"}, nil
+		}
+		handler := NewBlueprintHandler(mocks.Runtime, mocks.ArtifactBuilder)
+
+		// When getting config values
+		values := handler.getConfigValues()
+
+		// Then should return values
+		if values == nil {
+			t.Fatal("Expected non-nil values")
+		}
+		if values["key"] != "value" {
+			t.Errorf("Expected key='value', got '%v'", values["key"])
+		}
+	})
+
+	t.Run("MergesRepositoryScopeWithoutSecret", func(t *testing.T) {
+		mocks := setupHandlerMocks(t)
+		mocks.ConfigHandler.GetContextValuesFunc = func() (map[string]any, error) {
+			return map[string]any{"key": "value"}, nil
+		}
+		secret := "flux-system"
+		handler := NewBlueprintHandler(mocks.Runtime, mocks.ArtifactBuilder)
+		handler.userBlueprintLoader = &mockLoaderImpl{
+			getSourceNameFunc: func() string { return "user" },
+			getBlueprintFunc: func() *blueprintv1alpha1.Blueprint {
+				return &blueprintv1alpha1.Blueprint{
+					Repository: blueprintv1alpha1.Repository{
+						Url:        "https://github.com/acme/repo.git",
+						SecretName: &secret,
+					},
+				}
 			},
 		}
-		return handler
-	}
 
-	t.Run("RepointsDeclaredSourceAndReturnsPrevious", func(t *testing.T) {
-		// Given a handler with a declared core source
-		handler := setup(t)
+		values := handler.getConfigValues()
 
-		// When retargeting it to a newer tagged URL
-		previous, err := handler.RetargetSource("core", "oci://ghcr.io/windsorcli/core:v0.6.0")
-		if err != nil {
-			t.Fatalf("Expected no error, got %v", err)
+		if values == nil {
+			t.Fatal("Expected non-nil values")
 		}
-
-		// Then the previous URL is returned and the source carries the new URL with its ref cleared
-		if previous != "oci://ghcr.io/windsorcli/core:v0.3.0" {
-			t.Errorf("Expected previous URL, got %q", previous)
-		}
-		if handler.composedBlueprint.Sources[0].Url != "oci://ghcr.io/windsorcli/core:v0.6.0" {
-			t.Errorf("Expected URL repointed, got %q", handler.composedBlueprint.Sources[0].Url)
-		}
-		if handler.composedBlueprint.Sources[0].Ref != (blueprintv1alpha1.Reference{}) {
-			t.Errorf("Expected ref cleared (tag lives in URL), got %+v", handler.composedBlueprint.Sources[0].Ref)
-		}
-	})
-
-	t.Run("ErrorsOnUndeclaredSource", func(t *testing.T) {
-		// Given a handler without an 'addons' source
-		handler := setup(t)
-
-		// When retargeting an undeclared source, it errors rather than adding one
-		if _, err := handler.RetargetSource("addons", "oci://ghcr.io/acme/addons:v0.5.0"); err == nil {
-			t.Error("Expected an error for an undeclared source")
-		}
-	})
-
-	t.Run("ErrorsOnURLWithoutVersion", func(t *testing.T) {
-		// Given a handler with a declared source
-		handler := setup(t)
-
-		// When the new URL omits a version tag, it is rejected
-		if _, err := handler.RetargetSource("core", "oci://ghcr.io/windsorcli/core"); err == nil {
-			t.Error("Expected an error for a URL missing a version")
-		}
-	})
-
-	t.Run("ErrorsWhenBlueprintNotLoaded", func(t *testing.T) {
-		mocks := setupHandlerMocks(t)
-		handler := NewBlueprintHandler(mocks.Runtime, mocks.ArtifactBuilder)
-		handler.composedBlueprint = nil
-		if _, err := handler.RetargetSource("core", "oci://ghcr.io/windsorcli/core:v0.6.0"); err == nil {
-			t.Error("Expected an error when no blueprint is loaded")
-		}
-	})
-}
-
-func TestLatestStableSemver(t *testing.T) {
-	t.Run("PicksHighestStableSkippingPrereleases", func(t *testing.T) {
-		tag, v, ok := latestStableSemver([]string{"v0.5.0", "v0.6.0", "v0.7.0-rc.1", "not-a-version"})
+		repository, ok := values["repository"].(map[string]any)
 		if !ok {
-			t.Fatal("Expected a stable version to be found")
+			t.Fatal("Expected repository map in config values")
 		}
-		if tag != "v0.6.0" {
-			t.Errorf("Expected v0.6.0 (highest stable), got %q", tag)
+		if repository["url"] != "https://github.com/acme/repo.git" {
+			t.Errorf("Expected repository.url to be merged, got %v", repository["url"])
 		}
-		if v == nil || v.String() != "0.6.0" {
-			t.Errorf("Expected parsed 0.6.0, got %v", v)
+		if _, hasSecret := repository["secretName"]; hasSecret {
+			t.Error("Expected repository.secretName to be excluded from scope")
 		}
-	})
-
-	t.Run("FalseWhenOnlyPrereleasesOrJunk", func(t *testing.T) {
-		if _, _, ok := latestStableSemver([]string{"v1.0.0-rc.1", "garbage"}); ok {
-			t.Error("Expected no stable version among prereleases/junk")
+		ref, ok := repository["ref"].(map[string]any)
+		if !ok {
+			t.Fatal("Expected repository.ref map in config values")
+		}
+		if ref["branch"] != "main" {
+			t.Errorf("Expected repository.ref.branch to default to main, got %v", ref["branch"])
 		}
 	})
 }
+
+// =============================================================================
+// Test Helpers
+// =============================================================================
 
 func TestIsDowngrade(t *testing.T) {
 	t.Run("TrueWhenTargetTagIsOlderInSameRepo", func(t *testing.T) {
@@ -3310,220 +2527,150 @@ func TestIsDowngrade(t *testing.T) {
 	})
 }
 
-func TestHandler_UpgradeSourcesToLatest(t *testing.T) {
-	setup := func(t *testing.T, sources []blueprintv1alpha1.Source, tags map[string][]string) (*BaseBlueprintHandler, *artifact.MockArtifact) {
-		t.Helper()
-		mocks := setupHandlerMocks(t)
-		mocks.ArtifactBuilder.ListTagsFunc = func(ociRef string) ([]string, error) {
-			return tags[ociRef], nil
+func TestLatestStableSemver(t *testing.T) {
+	t.Run("PicksHighestStableSkippingPrereleases", func(t *testing.T) {
+		tag, v, ok := latestStableSemver([]string{"v0.5.0", "v0.6.0", "v0.7.0-rc.1", "not-a-version"})
+		if !ok {
+			t.Fatal("Expected a stable version to be found")
 		}
-		handler := NewBlueprintHandler(mocks.Runtime, mocks.ArtifactBuilder)
-		handler.composedBlueprint = &blueprintv1alpha1.Blueprint{Sources: sources}
-		return handler, mocks.ArtifactBuilder
+		if tag != "v0.6.0" {
+			t.Errorf("Expected v0.6.0 (highest stable), got %q", tag)
+		}
+		if v == nil || v.String() != "0.6.0" {
+			t.Errorf("Expected parsed 0.6.0, got %v", v)
+		}
+	})
+
+	t.Run("FalseWhenOnlyPrereleasesOrJunk", func(t *testing.T) {
+		if _, _, ok := latestStableSemver([]string{"v1.0.0-rc.1", "garbage"}); ok {
+			t.Error("Expected no stable version among prereleases/junk")
+		}
+	})
+}
+
+type mockWriterImpl struct {
+	writeFunc func(bp *blueprintv1alpha1.Blueprint, overwrite bool, initBlueprintURLs ...string) error
+}
+
+func (m *mockWriterImpl) Write(bp *blueprintv1alpha1.Blueprint, overwrite bool, initBlueprintURLs ...string) error {
+	if m.writeFunc != nil {
+		return m.writeFunc(bp, overwrite, initBlueprintURLs...)
+	}
+	return nil
+}
+
+type mockLoaderImpl struct {
+	loadFunc            func(sourceName, sourceURL string) error
+	getBlueprintFunc    func() *blueprintv1alpha1.Blueprint
+	getFacetsFunc       func() []blueprintv1alpha1.Facet
+	getTemplateDataFunc func() map[string][]byte
+	getSourceNameFunc   func() string
+}
+
+func (m *mockLoaderImpl) Load(sourceName, sourceURL string) error {
+	if m.loadFunc != nil {
+		return m.loadFunc(sourceName, sourceURL)
+	}
+	return nil
+}
+
+func (m *mockLoaderImpl) GetBlueprint() *blueprintv1alpha1.Blueprint {
+	if m.getBlueprintFunc != nil {
+		return m.getBlueprintFunc()
+	}
+	return nil
+}
+
+func (m *mockLoaderImpl) GetFacets() []blueprintv1alpha1.Facet {
+	if m.getFacetsFunc != nil {
+		return m.getFacetsFunc()
+	}
+	return nil
+}
+
+func (m *mockLoaderImpl) GetTemplateData() map[string][]byte {
+	if m.getTemplateDataFunc != nil {
+		return m.getTemplateDataFunc()
+	}
+	return nil
+}
+
+func (m *mockLoaderImpl) GetSourceName() string {
+	if m.getSourceNameFunc != nil {
+		return m.getSourceNameFunc()
+	}
+	return ""
+}
+
+// composeCrossSource wires a core source, a consumer source that lists core (so it composes deeper),
+// and a user blueprint selecting both, runs processAndCompose, and returns the composed blueprint.
+// contextValues seeds the operator's values (nil means empty).
+func composeCrossSource(t *testing.T, coreFacets, consumerFacets []blueprintv1alpha1.Facet, contextValues map[string]any) *blueprintv1alpha1.Blueprint {
+	t.Helper()
+	mocks := setupHandlerMocks(t)
+	mocks.ConfigHandler.GetContextValuesFunc = func() (map[string]any, error) {
+		if contextValues == nil {
+			return map[string]any{}, nil
+		}
+		return contextValues, nil
+	}
+	mocks.ConfigHandler.GetSetValuesFunc = func() map[string]any { return contextValues }
+	handler := NewBlueprintHandler(mocks.Runtime, mocks.ArtifactBuilder)
+
+	coreBp := &blueprintv1alpha1.Blueprint{}
+	handler.sourceBlueprintLoaders["core"] = &mockLoaderImpl{
+		getBlueprintFunc:  func() *blueprintv1alpha1.Blueprint { return coreBp },
+		getSourceNameFunc: func() string { return "core" },
+		getFacetsFunc:     func() []blueprintv1alpha1.Facet { return coreFacets },
 	}
 
-	t.Run("BumpsOCISemverSourceToLatestStable", func(t *testing.T) {
-		// Given a core source at v0.5.0 with newer stable and prerelease tags available
-		handler, _ := setup(t,
-			[]blueprintv1alpha1.Source{{Name: "core", Url: "oci://ghcr.io/windsorcli/core:v0.5.0", Ref: blueprintv1alpha1.Reference{SemVer: "v0.5.0"}}},
-			map[string][]string{"oci://ghcr.io/windsorcli/core:v0.5.0": {"v0.5.0", "v0.6.0", "v0.7.0-rc.1"}},
-		)
+	consumerBp := &blueprintv1alpha1.Blueprint{Sources: []blueprintv1alpha1.Source{{Name: "core"}}}
+	handler.sourceBlueprintLoaders["consumer"] = &mockLoaderImpl{
+		getBlueprintFunc:  func() *blueprintv1alpha1.Blueprint { return consumerBp },
+		getSourceNameFunc: func() string { return "consumer" },
+		getFacetsFunc:     func() []blueprintv1alpha1.Facet { return consumerFacets },
+	}
 
-		// When upgrading sources to latest
-		upgrades, err := handler.UpgradeSourcesToLatest()
-		if err != nil {
-			t.Fatalf("Expected no error, got %v", err)
-		}
-
-		// Then it moves to the latest stable (v0.6.0), skipping the rc, and clears the ref
-		if len(upgrades) != 1 || upgrades[0].Name != "core" {
-			t.Fatalf("Expected one core upgrade, got %v", upgrades)
-		}
-		if upgrades[0].To != "oci://ghcr.io/windsorcli/core:v0.6.0" {
-			t.Errorf("Expected target v0.6.0, got %q", upgrades[0].To)
-		}
-		if handler.composedBlueprint.Sources[0].Url != "oci://ghcr.io/windsorcli/core:v0.6.0" {
-			t.Errorf("Expected source URL bumped, got %q", handler.composedBlueprint.Sources[0].Url)
-		}
-		if handler.composedBlueprint.Sources[0].Ref != (blueprintv1alpha1.Reference{}) {
-			t.Errorf("Expected ref cleared, got %+v", handler.composedBlueprint.Sources[0].Ref)
-		}
-	})
-
-	t.Run("SkipsNonOCIAndNonSemverAndAlreadyLatest", func(t *testing.T) {
-		// Given a git source, a mutable-tag OCI source, and an already-latest OCI source
-		handler, _ := setup(t,
-			[]blueprintv1alpha1.Source{
-				{Name: "modules", Url: "github.com/org/modules", Ref: blueprintv1alpha1.Reference{Branch: "main"}},
-				{Name: "dev", Url: "oci://ghcr.io/acme/dev:latest"},
-				{Name: "core", Url: "oci://ghcr.io/windsorcli/core:v0.6.0", Ref: blueprintv1alpha1.Reference{SemVer: "v0.6.0"}},
-			},
-			map[string][]string{
-				"oci://ghcr.io/acme/dev:latest":        {"v9.9.9"},
-				"oci://ghcr.io/windsorcli/core:v0.6.0": {"v0.5.0", "v0.6.0"},
-			},
-		)
-
-		// When upgrading
-		upgrades, err := handler.UpgradeSourcesToLatest()
-		if err != nil {
-			t.Fatalf("Expected no error, got %v", err)
-		}
-
-		// Then nothing is upgraded (git skipped, :latest not semver, core already latest)
-		if len(upgrades) != 0 {
-			t.Errorf("Expected no upgrades, got %v", upgrades)
-		}
-	})
-
-	t.Run("PropagatesListTagsError", func(t *testing.T) {
-		mocks := setupHandlerMocks(t)
-		mocks.ArtifactBuilder.ListTagsFunc = func(ociRef string) ([]string, error) {
-			return nil, fmt.Errorf("registry unreachable")
-		}
-		handler := NewBlueprintHandler(mocks.Runtime, mocks.ArtifactBuilder)
-		handler.composedBlueprint = &blueprintv1alpha1.Blueprint{
-			Sources: []blueprintv1alpha1.Source{{Name: "core", Url: "oci://ghcr.io/windsorcli/core:v0.5.0"}},
-		}
-		if _, err := handler.UpgradeSourcesToLatest(); err == nil {
-			t.Error("Expected an error when tag listing fails")
-		}
-	})
-
-	t.Run("ErrorsWhenBlueprintNotLoaded", func(t *testing.T) {
-		mocks := setupHandlerMocks(t)
-		handler := NewBlueprintHandler(mocks.Runtime, mocks.ArtifactBuilder)
-		handler.composedBlueprint = nil
-		if _, err := handler.UpgradeSourcesToLatest(); err == nil {
-			t.Error("Expected an error when no blueprint is loaded")
-		}
-	})
-
-	t.Run("LeavesBlueprintUntouchedWhenAListFailsMidway", func(t *testing.T) {
-		// Given a resolvable first source and a second source whose tag listing fails
-		handler, mock := setup(t,
-			[]blueprintv1alpha1.Source{
-				{Name: "core", Url: "oci://ghcr.io/windsorcli/core:v0.5.0"},
-				{Name: "addons", Url: "oci://ghcr.io/acme/addons:v0.5.0"},
-			},
-			nil,
-		)
-		mock.ListTagsFunc = func(ociRef string) ([]string, error) {
-			if ociRef == "oci://ghcr.io/acme/addons:v0.5.0" {
-				return nil, fmt.Errorf("registry unreachable")
+	trueVal := true
+	handler.userBlueprintLoader = &mockLoaderImpl{
+		getBlueprintFunc: func() *blueprintv1alpha1.Blueprint {
+			return &blueprintv1alpha1.Blueprint{
+				Sources: []blueprintv1alpha1.Source{
+					{Name: "core", Install: &blueprintv1alpha1.BoolExpression{Value: &trueVal, IsExpr: false}},
+					{Name: "consumer", Install: &blueprintv1alpha1.BoolExpression{Value: &trueVal, IsExpr: false}},
+				},
 			}
-			return []string{"v0.6.0"}, nil
-		}
+		},
+		getSourceNameFunc: func() string { return "user" },
+	}
 
-		// When upgrading, the second source's failure aborts the whole operation
-		if _, err := handler.UpgradeSourcesToLatest(); err == nil {
-			t.Fatal("Expected an error when a source's tag listing fails")
-		}
+	if err := handler.processAndCompose(); err != nil {
+		t.Fatalf("processAndCompose failed: %v", err)
+	}
+	return handler.composedBlueprint
+}
 
-		// Then the first source is left untouched — no partial in-memory mutation
-		if handler.composedBlueprint.Sources[0].Url != "oci://ghcr.io/windsorcli/core:v0.5.0" {
-			t.Errorf("Expected the first source unmutated, got %q", handler.composedBlueprint.Sources[0].Url)
-		}
-	})
+// configBlock builds a ConfigBlock named block whose value map is content (exposed at scope as block.<k>).
+func configBlock(block string, content map[string]any) blueprintv1alpha1.ConfigBlock {
+	return blueprintv1alpha1.ConfigBlock{Name: block, Body: map[string]any{"value": content}}
+}
 
-	t.Run("SkipsIncompatibleNewestTagAndSelectsNextCompatible", func(t *testing.T) {
-		// Given a running CLI that the newest tag's declared cliVersion excludes, but an
-		// older-than-newest (still newer than current) tag admits
-		setTestCliVersion(t, "0.8.1")
-
-		handler, mock := setup(t,
-			[]blueprintv1alpha1.Source{{Name: "core", Url: "oci://ghcr.io/windsorcli/core:v0.5.0"}},
-			map[string][]string{"oci://ghcr.io/windsorcli/core:v0.5.0": {"v0.5.0", "v0.6.0", "v0.7.0"}},
-		)
-		mock.GetCliVersionConstraintFunc = func(ociRef string) (string, error) {
-			if ociRef == "oci://ghcr.io/windsorcli/core:v0.7.0" {
-				return ">=99.0.0", nil
-			}
-			return "", nil
+// kustSub returns the named composed kustomization's substitution value and whether it was found.
+func kustSub(bp *blueprintv1alpha1.Blueprint, name, key string) (string, bool) {
+	for _, k := range bp.Kustomizations {
+		if k.Name == name {
+			return k.Substitutions[key], true
 		}
+	}
+	return "", false
+}
 
-		// When upgrading sources to latest
-		upgrades, err := handler.UpgradeSourcesToLatest()
-		if err != nil {
-			t.Fatalf("Expected no error, got %v", err)
+// hasKustomization reports whether the composed blueprint includes a kustomization by name.
+func hasKustomization(bp *blueprintv1alpha1.Blueprint, name string) bool {
+	for _, k := range bp.Kustomizations {
+		if k.Name == name {
+			return true
 		}
-
-		// Then it skips v0.7.0 and moves to v0.6.0, the highest tag this CLI is compatible with
-		if len(upgrades) != 1 || upgrades[0].To != "oci://ghcr.io/windsorcli/core:v0.6.0" {
-			t.Fatalf("Expected upgrade to v0.6.0 (skipping incompatible v0.7.0), got %v", upgrades)
-		}
-	})
-
-	t.Run("SkipsSourceWhenNoNewerTagIsCompatible", func(t *testing.T) {
-		// Given every tag newer than current declares a cliVersion constraint this CLI fails
-		setTestCliVersion(t, "0.8.1")
-
-		handler, mock := setup(t,
-			[]blueprintv1alpha1.Source{{Name: "core", Url: "oci://ghcr.io/windsorcli/core:v0.5.0"}},
-			map[string][]string{"oci://ghcr.io/windsorcli/core:v0.5.0": {"v0.5.0", "v0.6.0"}},
-		)
-		mock.GetCliVersionConstraintFunc = func(ociRef string) (string, error) {
-			if ociRef == "oci://ghcr.io/windsorcli/core:v0.6.0" {
-				return ">=99.0.0", nil
-			}
-			return "", nil
-		}
-
-		// When upgrading sources to latest
-		upgrades, err := handler.UpgradeSourcesToLatest()
-
-		// Then no upgrade happens — no compatible tag newer than current exists — and this is not
-		// treated as an error
-		if err != nil {
-			t.Fatalf("Expected no error, got %v", err)
-		}
-		if len(upgrades) != 0 {
-			t.Errorf("Expected no upgrades, got %v", upgrades)
-		}
-	})
-
-	t.Run("FallsBackToVerifyWhenNewestTagHasNoAnnotation", func(t *testing.T) {
-		// Given the newest tag carries no cliVersion manifest annotation (an artifact published
-		// before that annotation existed) but its in-tarball metadata.yaml, checked via the
-		// fallback, is compatible
-		handler, mock := setup(t,
-			[]blueprintv1alpha1.Source{{Name: "core", Url: "oci://ghcr.io/windsorcli/core:v0.5.0"}},
-			map[string][]string{"oci://ghcr.io/windsorcli/core:v0.5.0": {"v0.5.0", "v0.6.0"}},
-		)
-		var verifiedRef string
-		mock.VerifyCliVersionCompatibilityFunc = func(ociRef string) error {
-			verifiedRef = ociRef
-			return nil
-		}
-
-		// When upgrading sources to latest
-		upgrades, err := handler.UpgradeSourcesToLatest()
-
-		// Then it upgrades to the fallback-verified tag
-		if err != nil {
-			t.Fatalf("Expected no error, got %v", err)
-		}
-		if len(upgrades) != 1 || upgrades[0].To != "oci://ghcr.io/windsorcli/core:v0.6.0" {
-			t.Fatalf("Expected upgrade to v0.6.0 via the verify fallback, got %v", upgrades)
-		}
-		if verifiedRef != "oci://ghcr.io/windsorcli/core:v0.6.0" {
-			t.Errorf("Expected the fallback to verify the resolved candidate, got %q", verifiedRef)
-		}
-	})
-
-	t.Run("PropagatesGetCliVersionConstraintError", func(t *testing.T) {
-		// Given a candidate tag whose compatibility cannot be checked (e.g. a registry hiccup)
-		handler, mock := setup(t,
-			[]blueprintv1alpha1.Source{{Name: "core", Url: "oci://ghcr.io/windsorcli/core:v0.5.0"}},
-			map[string][]string{"oci://ghcr.io/windsorcli/core:v0.5.0": {"v0.5.0", "v0.6.0"}},
-		)
-		mock.GetCliVersionConstraintFunc = func(ociRef string) (string, error) {
-			return "", fmt.Errorf("registry unreachable")
-		}
-
-		// When upgrading sources to latest
-		if _, err := handler.UpgradeSourcesToLatest(); err == nil {
-			t.Error("Expected an error when a candidate's compatibility cannot be checked")
-		}
-	})
+	}
+	return false
 }
