@@ -15,6 +15,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/windsorcli/cli/internal/werror"
 	"github.com/windsorcli/cli/pkg/constants"
 	"github.com/windsorcli/cli/pkg/runtime"
 	"github.com/windsorcli/cli/pkg/runtime/shell"
@@ -133,15 +134,13 @@ func NewArtifactBuilder(rt *runtime.Runtime) *ArtifactBuilder {
 // Public Methods
 // =============================================================================
 
-// Write bundles all files and creates a compressed tar.gz artifact file with optional tag override.
-// Accepts optional tag in "name:version" format to override metadata.yaml values.
-// Tag takes precedence over existing metadata. If no metadata.yaml exists, tag is required.
-// OutputPath can be file or directory - generates filename from metadata if directory.
-// Creates compressed tar.gz with all files including enriched metadata.yaml.
-// Returns the final output path of the created artifact file.
+// Write bundles the project files and writes them to a tar.gz artifact. It returns the path of the artifact.
+// The tag is optional. A "name:version" tag overrides the name and version in metadata.yaml.
+// A tag without a colon overrides only the version. If metadata.yaml does not set a name, the tag must set it.
+// If outputPath is a directory, Write adds the file name <name>-<version>.tar.gz.
 func (a *ArtifactBuilder) Write(outputPath string, tag string) (string, error) {
 	if err := a.Bundle(); err != nil {
-		return "", fmt.Errorf("failed to bundle files: %w", err)
+		return "", werror.Wrap(err, "failed to bundle files")
 	}
 
 	finalName, finalVersion, _, metadata, err := a.parseTagAndResolveMetadata("", tag)
@@ -167,12 +166,9 @@ func (a *ArtifactBuilder) Write(outputPath string, tag string) (string, error) {
 	return finalOutputPath, nil
 }
 
-// Bundle traverses the project directories and collects all relevant files to be
-// included in the artifact. It applies configurable path-based processors that determine
-// how files from each directory (such as "_template", "kustomize", or "terraform") are
-// incorporated into the artifact. The method supports extensibility by allowing custom
-// handling of different directory structures and types, and skips files in the "terraform"
-// directory based on predefined logic.
+// Bundle collects the project files for the artifact and adds the artifact manifest.
+// It copies contexts/_template to _template, and copies the kustomize and terraform directories.
+// It does not copy the terraform files that shouldSkipTerraformFile excludes.
 func (a *ArtifactBuilder) Bundle() error {
 	processors := []PathProcessor{
 		{
@@ -207,7 +203,7 @@ func (a *ArtifactBuilder) Bundle() error {
 
 	manifestYAML, err := a.generateArtifactManifest()
 	if err != nil {
-		return fmt.Errorf("failed to generate artifact manifest: %w", err)
+		return werror.Wrap(err, "failed to generate artifact manifest")
 	}
 	return a.addFile(ManifestFileName, manifestYAML, 0644)
 }
@@ -216,14 +212,13 @@ func (a *ArtifactBuilder) Bundle() error {
 // Private Methods
 // =============================================================================
 
-// refreshArtifactManifest regenerates the artifact manifest using current metadata
-// and replaces the manifest entry in the bundled files. Called after metadata name
-// and version are resolved so Blueprint provenance reflects the final values rather
-// than the zero values present when Bundle() first wrote the manifest.
+// refreshArtifactManifest generates the artifact manifest again and replaces the bundled copy.
+// Write and Push call it after they resolve the name and version.
+// The first manifest from Bundle has an empty name and version.
 func (a *ArtifactBuilder) refreshArtifactManifest() error {
 	manifestYAML, err := a.generateArtifactManifest()
 	if err != nil {
-		return fmt.Errorf("failed to generate artifact manifest: %w", err)
+		return werror.Wrap(err, "failed to generate artifact manifest")
 	}
 	return a.addFile(ManifestFileName, manifestYAML, 0644)
 }
@@ -251,12 +246,10 @@ func (a *ArtifactBuilder) generateArtifactManifest() ([]byte, error) {
 	return a.shims.YamlMarshal(&manifest)
 }
 
-// walkAndProcessFiles traverses the "contexts", "kustomize", and "terraform" directories and processes
-// all files found using the provided list of PathProcessors. For each file, the method identifies the
-// corresponding processor (if any) by matching patterns and invokes its Handler with the file's relative
-// path, data, and permissions. Non-existent directories are skipped. Any ".terraform" directories are
-// skipped during traversal. If any error occurs while reading files, obtaining relative paths, or while
-// invoking a processor, the error is returned and processing halts.
+// walkAndProcessFiles walks the top directory of each processor pattern and sends each file to its processor.
+// It skips a directory that does not exist, and skips each .terraform directory.
+// It sends the path relative to the pattern, the file data, and the file mode to the processor handler.
+// It stops at the first error from a file read, a relative path, or a handler.
 func (a *ArtifactBuilder) walkAndProcessFiles(processors []PathProcessor) error {
 	dirSet := make(map[string]bool)
 	for _, processor := range processors {
@@ -288,17 +281,17 @@ func (a *ArtifactBuilder) walkAndProcessFiles(processors []PathProcessor) error 
 
 			data, err := a.shims.ReadFile(path)
 			if err != nil {
-				return fmt.Errorf("failed to read file %s: %w", path, err)
+				return werror.Wrap(err, "failed to read file %s", path)
 			}
 
 			relPath, err := a.shims.FilepathRel(processor.Pattern, path)
 			if err != nil {
-				return fmt.Errorf("failed to get relative path: %w", err)
+				return werror.Wrap(err, "failed to get relative path")
 			}
 
 			return processor.Handler(relPath, data, info.Mode())
 		}); err != nil {
-			return fmt.Errorf("failed to walk directory %s: %w", dir, err)
+			return werror.Wrap(err, "failed to walk directory %s", dir)
 		}
 	}
 
@@ -349,13 +342,11 @@ func (a *ArtifactBuilder) shouldSkipTerraformFile(filename string) bool {
 	return false
 }
 
-// parseTagAndResolveMetadata extracts name and version from tag parameter or metadata file and generates final metadata.
-// For Create method (repoName is empty): tag can be "name:version" format or empty to use metadata.yaml
-// For Push method (repoName provided): tag is version only, repoName is used as fallback name
-// Loads existing metadata.yaml from files if present and parses it as BlueprintMetadataInput.
-// Tag parameter takes precedence over metadata file values for version and/or name.
-// Returns final name, version, the cliVersion constraint (empty if none declared), and complete
-// marshaled metadata ready for embedding in artifacts.
+// parseTagAndResolveMetadata resolves the artifact name and version and generates metadata.yaml.
+// When repoName is empty (Write), the tag is "name:version" or a version. When repoName is set (Push), the tag is a version.
+// A tag value overrides the metadata.yaml value. If no name is set, repoName is the name.
+// It returns an error if the metadata cliVersion constraint excludes the running CLI.
+// It returns the name, the version, the cliVersion constraint, and the metadata.
 func (a *ArtifactBuilder) parseTagAndResolveMetadata(repoName, tag string) (string, string, string, []byte, error) {
 	var tagName, tagVersion string
 
@@ -364,7 +355,7 @@ func (a *ArtifactBuilder) parseTagAndResolveMetadata(repoName, tag string) (stri
 			if strings.Contains(tag, ":") {
 				parts := strings.Split(tag, ":")
 				if len(parts) != 2 || parts[0] == "" || parts[1] == "" {
-					return "", "", "", nil, fmt.Errorf("tag must be in format 'name:version', got: %s", tag)
+					return "", "", "", nil, werror.New(fmt.Sprintf("tag must be in format 'name:version', got: %s", tag), "Pass the tag in the format name:version, for example core:v1.0.0.", nil)
 				}
 				tagName = parts[0]
 				tagVersion = parts[1]
@@ -383,7 +374,7 @@ func (a *ArtifactBuilder) parseTagAndResolveMetadata(repoName, tag string) (stri
 
 	if hasMetadata {
 		if err := a.shims.YamlUnmarshal(metadataFileInfo.Content, &input); err != nil {
-			return "", "", "", nil, fmt.Errorf("failed to parse metadata.yaml: %w", err)
+			return "", "", "", nil, werror.Wrap(err, "failed to parse metadata.yaml")
 		}
 		if err := ValidateCliVersion(constants.Version, input.CliVersion); err != nil {
 			return "", "", "", nil, err
@@ -406,18 +397,18 @@ func (a *ArtifactBuilder) parseTagAndResolveMetadata(repoName, tag string) (stri
 
 	if finalName == "" {
 		if repoName == "" {
-			return "", "", "", nil, fmt.Errorf("name is required: provide via tag parameter or metadata.yaml")
+			return "", "", "", nil, werror.New("name is required", "Pass a tag in the format name:version, or set name in metadata.yaml.", nil)
 		} else {
-			return "", "", "", nil, fmt.Errorf("name is required: provide via metadata.yaml")
+			return "", "", "", nil, werror.New("name is required", "Set name in metadata.yaml.", nil)
 		}
 	}
 	if finalVersion == "" {
-		return "", "", "", nil, fmt.Errorf("version is required: provide via tag parameter or metadata.yaml")
+		return "", "", "", nil, werror.New("version is required", "Pass a tag in the format name:version, or set version in metadata.yaml.", nil)
 	}
 
 	metadata, err := a.generateMetadata(input, finalName, finalVersion)
 	if err != nil {
-		return "", "", "", nil, fmt.Errorf("failed to generate metadata: %w", err)
+		return "", "", "", nil, werror.Wrap(err, "failed to generate metadata")
 	}
 
 	return finalName, finalVersion, input.CliVersion, metadata, nil
@@ -458,12 +449,9 @@ func (a *ArtifactBuilder) generateMetadata(input BlueprintMetadataInput, name, v
 	return a.shims.YamlMarshal(metadata)
 }
 
-// createTarball writes a compressed tar.gz archive to the provided writer.
-// Creates a gzip-compressed tar archive containing all stored files from a.files.
-// Writes metadata.yaml at the root of the archive (generated from _template/metadata.yaml if present).
-// Skips any existing "_template/metadata.yaml" file from the input files to avoid duplication.
-// All files are written with their stored permissions in the archive.
-// Properly closes writers to ensure all data is flushed before returning.
+// createTarball writes the bundled files to w as a gzip-compressed tar archive.
+// It writes the generated metadata.yaml at the archive root first, and does not write _template/metadata.yaml.
+// Each file keeps the mode that the bundle stored. It closes the tar and gzip writers before it returns.
 func (a *ArtifactBuilder) createTarball(w io.Writer, metadata []byte) error {
 	gzipWriter := a.shims.NewGzipWriter(w)
 	defer gzipWriter.Close()
@@ -481,11 +469,11 @@ func (a *ArtifactBuilder) createTarball(w io.Writer, metadata []byte) error {
 	}
 
 	if err := tarWriter.WriteHeader(metadataHeader); err != nil {
-		return fmt.Errorf("failed to write metadata header: %w", err)
+		return werror.Wrap(err, "failed to write metadata header")
 	}
 
 	if _, err := tarWriter.Write(metadata); err != nil {
-		return fmt.Errorf("failed to write metadata: %w", err)
+		return werror.Wrap(err, "failed to write metadata")
 	}
 
 	for path, fileInfo := range a.files {
@@ -501,19 +489,19 @@ func (a *ArtifactBuilder) createTarball(w io.Writer, metadata []byte) error {
 		}
 
 		if err := tarWriter.WriteHeader(header); err != nil {
-			return fmt.Errorf("failed to write header for %s: %w", path, err)
+			return werror.Wrap(err, "failed to write header for %s", path)
 		}
 
 		if _, err := tarWriter.Write(fileInfo.Content); err != nil {
-			return fmt.Errorf("failed to write content for %s: %w", path, err)
+			return werror.Wrap(err, "failed to write content for %s", path)
 		}
 	}
 
 	if err := tarWriter.Close(); err != nil {
-		return fmt.Errorf("failed to close tar writer: %w", err)
+		return werror.Wrap(err, "failed to close tar writer")
 	}
 	if err := gzipWriter.Close(); err != nil {
-		return fmt.Errorf("failed to close gzip writer: %w", err)
+		return werror.Wrap(err, "failed to close gzip writer")
 	}
 
 	return nil
@@ -534,16 +522,11 @@ func (a *ArtifactBuilder) createTarballInMemory(metadata []byte) ([]byte, error)
 	return buf.Bytes(), nil
 }
 
-// createTarballToDisk builds a compressed tar.gz archive and writes it directly to the specified file path.
-// Creates the output file at the specified path and writes a gzip-compressed tar archive.
-// Writes metadata.yaml at the root of the archive (generated from _template/metadata.yaml if present).
-// Skips any existing "_template/metadata.yaml" file from the input files to avoid duplication.
-// All files are written with their stored permissions in the archive.
-// Properly closes writers to ensure all data is flushed to disk before returning.
+// createTarballToDisk creates the file at outputPath and writes the tar.gz archive to it with createTarball.
 func (a *ArtifactBuilder) createTarballToDisk(outputPath string, metadata []byte) error {
 	outputFile, err := a.shims.Create(outputPath)
 	if err != nil {
-		return fmt.Errorf("failed to create output file: %w", err)
+		return werror.Wrap(err, "failed to create output file")
 	}
 	defer outputFile.Close()
 
@@ -573,16 +556,13 @@ func (a *ArtifactBuilder) resolveOutputPath(outputPath, name, version string) st
 	return outputPath
 }
 
-// getGitProvenance retrieves git repository information including commit SHA, tag, and remote URL.
-// Extracts git repository information for provenance tracking using shell commands.
-// Requires shell dependency to be available for git command execution.
-// Gets current commit SHA, attempts to find exact tag match for HEAD, and retrieves origin URL.
-// Tag lookup uses exact match only - returns empty string if HEAD is not tagged.
-// All git operations return errors if commands fail, unlike the best-effort approach in some functions.
+// getGitProvenance returns the commit SHA, the tag, and the origin URL of the git repository.
+// It returns an error only if git cannot get the commit SHA.
+// The tag is empty if HEAD has no exact tag. The origin URL is empty if git cannot read it.
 func (a *ArtifactBuilder) getGitProvenance() (GitProvenance, error) {
 	commitSHA, err := a.shell.ExecSilent("git", "rev-parse", "HEAD")
 	if err != nil {
-		return GitProvenance{}, fmt.Errorf("failed to get commit SHA: %w", err)
+		return GitProvenance{}, werror.Wrap(err, "failed to get commit SHA")
 	}
 
 	tag, _ := a.shell.ExecSilent("git", "describe", "--tags", "--exact-match", "HEAD")

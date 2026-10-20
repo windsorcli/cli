@@ -19,6 +19,7 @@ import (
 	"github.com/google/go-containerregistry/pkg/v1/remote/transport"
 	"github.com/google/go-containerregistry/pkg/v1/static"
 	"github.com/google/go-containerregistry/pkg/v1/types"
+	"github.com/windsorcli/cli/internal/werror"
 	"github.com/windsorcli/cli/pkg/constants"
 )
 
@@ -91,6 +92,11 @@ func TestArtifactBuilder_ParseOCIRef(t *testing.T) {
 		expectedError := "invalid OCI reference format: https://registry.example.com/my-repo:v1.0.0"
 		if err.Error() != expectedError {
 			t.Errorf("expected error %q, got %q", expectedError, err.Error())
+		}
+
+		// And the error should carry the OCI reference format hint
+		if we := werror.Find(err); we == nil || we.Remediation != ociRefFormatHint {
+			t.Errorf("expected the OCI reference format hint, got %v", we)
 		}
 	})
 
@@ -2115,6 +2121,9 @@ func TestParseOCIReference(t *testing.T) {
 				if err == nil {
 					t.Errorf("Expected error but got none")
 				}
+				if we := werror.Find(err); we == nil || we.Remediation != blueprintVersionHint {
+					t.Errorf("Expected the blueprint version hint, got %v", we)
+				}
 				return
 			}
 
@@ -2259,9 +2268,12 @@ func TestParseRegistryURL(t *testing.T) {
 			t.Error("Expected error for invalid format, got nil")
 		}
 
-		// And error should indicate invalid format
+		// And error should indicate invalid format with a repository path hint
 		if !strings.Contains(err.Error(), "invalid registry format") {
 			t.Errorf("Expected error about invalid format, got: %v", err)
+		}
+		if we := werror.Find(err); we == nil || !strings.Contains(we.Remediation, "repository path") {
+			t.Errorf("Expected a repository path hint, got %v", we)
 		}
 
 		// And components should be empty
@@ -2513,12 +2525,15 @@ func TestValidateCliVersion(t *testing.T) {
 		// When validating
 		err := ValidateCliVersion("1.0.0", ">=2.0.0")
 
-		// Then should return error
+		// Then should return error with an install hint
 		if err == nil {
 			t.Error("Expected error when version doesn't satisfy constraint")
 		}
 		if !strings.Contains(err.Error(), "does not satisfy required constraint") {
 			t.Errorf("Expected error to contain 'does not satisfy required constraint', got: %v", err)
+		}
+		if we := werror.Find(err); we == nil || !strings.Contains(we.Remediation, "Install a Windsor CLI version") {
+			t.Errorf("Expected an install hint, got %v", we)
 		}
 	})
 

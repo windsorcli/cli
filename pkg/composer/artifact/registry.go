@@ -23,6 +23,7 @@ import (
 	"github.com/google/go-containerregistry/pkg/v1/remote/transport"
 	"github.com/google/go-containerregistry/pkg/v1/static"
 	"github.com/google/go-containerregistry/pkg/v1/types"
+	"github.com/windsorcli/cli/internal/werror"
 	"github.com/windsorcli/cli/pkg/constants"
 )
 
@@ -33,6 +34,10 @@ import (
 // CliVersionAnnotationKey mirrors BlueprintMetadataInput.CliVersion into the OCI manifest, so
 // GetCliVersionConstraint can check it without a full Pull.
 const CliVersionAnnotationKey = "windsorcli.dev/cli-version"
+
+const ociRefFormatHint = "Use an OCI reference in the format oci://registry/repository:tag or oci://registry/repository@sha256:digest."
+
+const blueprintVersionHint = "Add a version to the blueprint reference, for example core:v1.0.0."
 
 // =============================================================================
 // Types
@@ -50,21 +55,20 @@ type OCIArtifactInfo struct {
 // =============================================================================
 
 // ParseOCIRef parses an OCI reference into registry, repository, and tag.
-// Accepts "oci://registry/repository:tag" or "oci://registry/repository@sha256:digest".
-// The registry may contain a port, so repository and tag split on the last colon.
-// A repository containing a colon is rejected to avoid a wrong split.
-// A digest reference returns tag as the bare "sha256:<hex>" string.
-// Pass tag to FormatOCIRef to rebuild the correct separator.
+// It accepts "oci://registry/repository:tag" or "oci://registry/repository@sha256:digest".
+// The registry can have a port, so the repository and tag split on the last colon.
+// It rejects a repository with a colon, because the split would be wrong.
+// For a digest reference, tag is the bare "sha256:<hex>" string. FormatOCIRef adds the correct separator again.
 func (a *ArtifactBuilder) ParseOCIRef(ociRef string) (registry, repository, tag string, err error) {
 	if !strings.HasPrefix(ociRef, "oci://") {
-		return "", "", "", fmt.Errorf("invalid OCI reference format: %s", ociRef)
+		return "", "", "", werror.New(fmt.Sprintf("invalid OCI reference format: %s", ociRef), ociRefFormatHint, nil)
 	}
 
 	ref := strings.TrimPrefix(ociRef, "oci://")
 
 	firstSlash := strings.Index(ref, "/")
 	if firstSlash <= 0 {
-		return "", "", "", fmt.Errorf("invalid OCI reference format, expected registry/repository:tag: %s", ociRef)
+		return "", "", "", werror.New(fmt.Sprintf("invalid OCI reference format, expected registry/repository:tag: %s", ociRef), ociRefFormatHint, nil)
 	}
 	registry = ref[:firstSlash]
 	repoAndVersion := ref[firstSlash+1:]
@@ -73,27 +77,27 @@ func (a *ArtifactBuilder) ParseOCIRef(ociRef string) (registry, repository, tag 
 		repository = repoAndVersion[:atIdx]
 		tag = repoAndVersion[atIdx+1:]
 		if repository == "" || strings.Contains(repository, ":") {
-			return "", "", "", fmt.Errorf("invalid OCI reference format, expected registry/repository@sha256:digest: %s", ociRef)
+			return "", "", "", werror.New(fmt.Sprintf("invalid OCI reference format, expected registry/repository@sha256:digest: %s", ociRef), ociRefFormatHint, nil)
 		}
 		return registry, repository, tag, nil
 	}
 
 	lastColon := strings.LastIndex(repoAndVersion, ":")
 	if lastColon <= 0 || lastColon == len(repoAndVersion)-1 {
-		return "", "", "", fmt.Errorf("invalid OCI reference format, expected registry/repository:tag: %s", ociRef)
+		return "", "", "", werror.New(fmt.Sprintf("invalid OCI reference format, expected registry/repository:tag: %s", ociRef), ociRefFormatHint, nil)
 	}
 	repository = repoAndVersion[:lastColon]
 	tag = repoAndVersion[lastColon+1:]
 	if strings.Contains(repository, ":") {
-		return "", "", "", fmt.Errorf("invalid OCI reference format, expected registry/repository:tag: %s", ociRef)
+		return "", "", "", werror.New(fmt.Sprintf("invalid OCI reference format, expected registry/repository:tag: %s", ociRef), ociRefFormatHint, nil)
 	}
 
 	return registry, repository, tag, nil
 }
 
-// ListTags returns the tags published for the repository of an OCI reference (the tag in ociRef is
-// ignored). It is used to resolve the latest available version when upgrading a source. Returns an
-// error if the reference is malformed or the registry cannot be reached.
+// ListTags returns the tags of the repository of an OCI reference. It ignores the tag in ociRef.
+// The upgrade of a source uses it to find the latest version.
+// It returns an error if the reference is not valid or the registry is not available.
 func (a *ArtifactBuilder) ListTags(ociRef string) ([]string, error) {
 	registry, repository, _, err := a.ParseOCIRef(ociRef)
 	if err != nil {
@@ -101,17 +105,18 @@ func (a *ArtifactBuilder) ListTags(ociRef string) ([]string, error) {
 	}
 	repo, err := a.shims.NewRepository(registry + "/" + repository)
 	if err != nil {
-		return nil, fmt.Errorf("invalid repository %q/%q: %w", registry, repository, err)
+		return nil, werror.Wrap(err, "invalid repository %q/%q", registry, repository)
 	}
 	tags, err := a.shims.RemoteList(repo, remote.WithAuthFromKeychain(authn.DefaultKeychain))
 	if err != nil {
-		return nil, fmt.Errorf("failed to list tags for %s/%s: %w", registry, repository, err)
+		return nil, werror.Wrap(err, "failed to list tags for %s/%s", registry, repository)
 	}
 	return tags, nil
 }
 
-// GetCliVersionConstraint returns ociRef's declared cliVersion constraint, via a manifest-only
-// fetch (no layer pull). Empty string, not an error, means no constraint declared.
+// GetCliVersionConstraint returns the cliVersion constraint of ociRef from the manifest annotation.
+// It reads only the manifest and does not pull the layer. An empty string means the artifact sets no constraint.
+// If the registry rejects the keychain credentials, it tries again without credentials.
 func (a *ArtifactBuilder) GetCliVersionConstraint(ociRef string) (string, error) {
 	registry, repository, tag, err := a.ParseOCIRef(ociRef)
 	if err != nil {
@@ -121,7 +126,7 @@ func (a *ArtifactBuilder) GetCliVersionConstraint(ociRef string) (string, error)
 	ref := FormatOCIRef(registry, repository, tag)
 	parsedRef, err := a.shims.ParseReference(ref)
 	if err != nil {
-		return "", fmt.Errorf("failed to parse reference %s: %w", ref, err)
+		return "", werror.Wrap(err, "failed to parse reference %s", ref)
 	}
 
 	img, err := a.shims.RemoteImage(parsedRef, remote.WithAuthFromKeychain(authn.DefaultKeychain))
@@ -131,25 +136,25 @@ func (a *ArtifactBuilder) GetCliVersionConstraint(ociRef string) (string, error)
 		}
 	}
 	if err != nil {
-		return "", fmt.Errorf("failed to get image manifest for %s: %w", ref, err)
+		return "", werror.Wrap(err, "failed to get image manifest for %s", ref)
 	}
 
 	manifest, err := img.Manifest()
 	if err != nil {
-		return "", fmt.Errorf("failed to read manifest for %s: %w", ref, err)
+		return "", werror.Wrap(err, "failed to read manifest for %s", ref)
 	}
 
 	return manifest.Annotations[CliVersionAnnotationKey], nil
 }
 
-// VerifyCliVersionCompatibility pulls ociRef and validates its metadata.yaml cliVersion constraint
-// against the running CLI. Used as ResolveCompatibleTag's fallback when a candidate's manifest
-// annotation is absent. Returns nil if compatible or undeclared; any other error means "don't
-// trust this candidate."
+// VerifyCliVersionCompatibility pulls ociRef and checks the cliVersion constraint in its metadata.yaml.
+// ResolveCompatibleTag uses it when the manifest of a tag has no constraint annotation.
+// It returns nil if the running CLI satisfies the constraint or the artifact has no metadata.yaml.
+// Any other error means that the tag is not safe to use.
 func (a *ArtifactBuilder) VerifyCliVersionCompatibility(ociRef string) error {
 	artifacts, err := a.Pull([]string{ociRef})
 	if err != nil {
-		return fmt.Errorf("failed to pull %s: %w", ociRef, err)
+		return werror.Wrap(err, "failed to pull %s", ociRef)
 	}
 	registry, repository, tag, err := a.ParseOCIRef(ociRef)
 	if err != nil {
@@ -167,23 +172,22 @@ func (a *ArtifactBuilder) VerifyCliVersionCompatibility(ociRef string) error {
 	}
 	data, err := a.shims.ReadFile(metadataPath)
 	if err != nil {
-		return fmt.Errorf("failed to read %s: %w", metadataPath, err)
+		return werror.Wrap(err, "failed to read %s", metadataPath)
 	}
 	var meta BlueprintMetadataInput
 	if err := a.shims.YamlUnmarshal(data, &meta); err != nil {
-		return fmt.Errorf("failed to parse %s: %w", metadataPath, err)
+		return werror.Wrap(err, "failed to parse %s", metadataPath)
 	}
 	return ValidateCliVersion(constants.Version, meta.CliVersion)
 }
 
-// Push uploads the artifact to an OCI registry with explicit blob handling to prevent MANIFEST_BLOB_UNKNOWN errors.
-// Implements robust blob upload strategy recommended by Red Hat for resolving registry upload issues.
-// Bundles files from the project, creates tarball in memory, constructs OCI image, uploads blobs explicitly, then uploads manifest.
-// Uses authenticated keychain for registry access and retry backoff for resilience.
-// Registry base should be the base URL (e.g., "ghcr.io/namespace"), repoName the repository name, tag the version.
+// Push bundles the project files and pushes the artifact to registryBase/repoName:tag.
+// It uploads each layer and the config blob that the registry does not have, then writes the manifest.
+// This order prevents MANIFEST_BLOB_UNKNOWN errors from the registry.
+// It uses the Docker keychain for credentials, and writes the manifest with a retry backoff.
 func (a *ArtifactBuilder) Push(registryBase string, repoName string, tag string) error {
 	if err := a.Bundle(); err != nil {
-		return fmt.Errorf("failed to bundle files: %w", err)
+		return werror.Wrap(err, "failed to bundle files")
 	}
 
 	finalName, tagName, cliVersionConstraint, metadata, err := a.parseTagAndResolveMetadata(repoName, tag)
@@ -200,14 +204,14 @@ func (a *ArtifactBuilder) Push(registryBase string, repoName string, tag string)
 
 	tarballContent, err := a.createTarballInMemory(metadata)
 	if err != nil {
-		return fmt.Errorf("failed to create tarball in memory: %w", err)
+		return werror.Wrap(err, "failed to create tarball in memory")
 	}
 
 	layer := static.NewLayer(tarballContent, types.DockerLayer)
 
 	img, err := a.createOCIArtifactImage(layer, finalName, tagName, cliVersionConstraint)
 	if err != nil {
-		return fmt.Errorf("failed to create OCI image: %w", err)
+		return werror.Wrap(err, "failed to create OCI image")
 	}
 
 	repoURL := fmt.Sprintf("%s/%s", registryBase, repoName)
@@ -217,18 +221,18 @@ func (a *ArtifactBuilder) Push(registryBase string, repoName string, tag string)
 
 	ref, err := name.ParseReference(repoURL)
 	if err != nil {
-		return fmt.Errorf("failed to parse repository reference: %w", err)
+		return werror.Wrap(err, "failed to parse repository reference")
 	}
 
 	manifest, err := img.Manifest()
 	if err != nil {
-		return fmt.Errorf("failed to get image manifest: %w", err)
+		return werror.Wrap(err, "failed to get image manifest")
 	}
 
 	for _, layerDesc := range manifest.Layers {
 		layer, err := img.LayerByDigest(layerDesc.Digest)
 		if err != nil {
-			return fmt.Errorf("failed to get layer %s: %w", layerDesc.Digest, err)
+			return werror.Wrap(err, "failed to get layer %s", layerDesc.Digest)
 		}
 
 		blobRef := ref.Context().Digest(layerDesc.Digest.String())
@@ -236,14 +240,14 @@ func (a *ArtifactBuilder) Push(registryBase string, repoName string, tag string)
 		if err != nil {
 			err = a.shims.RemoteWriteLayer(ref.Context(), layer, remote.WithAuthFromKeychain(authn.DefaultKeychain))
 			if err != nil {
-				return fmt.Errorf("failed to upload layer %s: %w", layerDesc.Digest, err)
+				return werror.Wrap(err, "failed to upload layer %s", layerDesc.Digest)
 			}
 		}
 	}
 
 	configDigest, err := img.ConfigName()
 	if err != nil {
-		return fmt.Errorf("failed to get config digest: %w", err)
+		return werror.Wrap(err, "failed to get config digest")
 	}
 
 	configRef := ref.Context().Digest(configDigest.String())
@@ -251,13 +255,13 @@ func (a *ArtifactBuilder) Push(registryBase string, repoName string, tag string)
 	if err != nil {
 		configBlob, err := img.RawConfigFile()
 		if err != nil {
-			return fmt.Errorf("failed to get config file: %w", err)
+			return werror.Wrap(err, "failed to get config file")
 		}
 
 		configLayer := static.NewLayer(configBlob, types.DockerConfigJSON)
 		err = a.shims.RemoteWriteLayer(ref.Context(), configLayer, remote.WithAuthFromKeychain(authn.DefaultKeychain))
 		if err != nil {
-			return fmt.Errorf("failed to upload config: %w", err)
+			return werror.Wrap(err, "failed to upload config")
 		}
 	}
 
@@ -268,7 +272,7 @@ func (a *ArtifactBuilder) Push(registryBase string, repoName string, tag string)
 		Steps:    5,
 	}))
 	if err != nil {
-		return fmt.Errorf("failed to push artifact to registry: %w", err)
+		return werror.Wrap(err, "failed to push artifact to registry")
 	}
 
 	return nil
@@ -278,14 +282,11 @@ func (a *ArtifactBuilder) Push(registryBase string, repoName string, tag string)
 // Private Methods
 // =============================================================================
 
-// createOCIArtifactImage constructs an OCI image from a layer with generic OCI artifact media types and annotations.
-// Creates a generic OCI artifact config file compatible with both FluxCD and blueprint consumers.
-// Sets architecture to amd64 and OS to linux for compatibility with container runtimes.
-// Uses standard OCI media types with optional artifactType for tool-specific identification.
-// Adds comprehensive OCI annotations including creation time, source, revision, title, and version.
-// When cliVersionConstraint is non-empty, also sets CliVersionAnnotationKey so a consumer can check
-// CLI compatibility for this tag via GetCliVersionConstraint's manifest-only fetch, without a full Pull.
-// Returns a complete OCI image ready for pushing to any OCI 1.1 compatible registry.
+// createOCIArtifactImage makes an OCI image from the layer, with an OCI manifest and a Windsor blueprint config media type.
+// The config sets linux/amd64, and the manifest annotations set the time, source, revision, title, and version.
+// The source and revision come from git, and are "unknown" if git cannot supply them.
+// If cliVersionConstraint is set, it also adds CliVersionAnnotationKey to the manifest.
+// GetCliVersionConstraint reads that annotation without a pull.
 func (a *ArtifactBuilder) createOCIArtifactImage(layer v1.Layer, repoName, tagName, cliVersionConstraint string) (v1.Image, error) {
 	gitProvenance, err := a.getGitProvenance()
 	if err != nil {
@@ -324,12 +325,12 @@ func (a *ArtifactBuilder) createOCIArtifactImage(layer v1.Layer, repoName, tagNa
 
 	img, err := a.shims.AppendLayers(a.shims.EmptyImage(), layer)
 	if err != nil {
-		return nil, fmt.Errorf("failed to append layer to image: %w", err)
+		return nil, werror.Wrap(err, "failed to append layer to image")
 	}
 
 	img, err = a.shims.ConfigFile(img, configFile)
 	if err != nil {
-		return nil, fmt.Errorf("failed to set config file: %w", err)
+		return nil, werror.Wrap(err, "failed to set config file")
 	}
 
 	img = a.shims.MediaType(img, "application/vnd.oci.image.manifest.v1+json")
@@ -351,24 +352,17 @@ func (a *ArtifactBuilder) createOCIArtifactImage(layer v1.Layer, repoName, tagNa
 	return img, nil
 }
 
-// downloadOCIArtifact downloads an OCI artifact and returns the tar.gz data.
-// Constructs an OCI reference from registry, repository, and tag components.
-// Downloads the first layer of the OCI image which contains the artifact data.
-// Returns the uncompressed layer data as bytes for further processing.
-// Authenticates via the Docker keychain so private registries work; if the registry rejects
-// those credentials (per IsAuthenticationError), retries anonymously so public artifacts still
-// pull when the local Docker config holds stale or scope-limited tokens. In verbose mode, on
-// a successful anonymous retry, emits a stderr note naming the registry so an operator who
-// opts into the detail can see that their configured credentials were bypassed; silent in
-// normal mode because the case is common for any user who has ever run `docker login`.
-// If the anonymous retry also fails, the original keychain error is returned so the
-// underlying auth failure remains visible.
+// downloadOCIArtifact downloads the OCI artifact at registry/repository:tag and returns the data of its first layer.
+// It uses the Docker keychain for private registries. If the registry rejects those credentials, it tries again without credentials.
+// The retry lets a public artifact pull when the Docker config has old or limited tokens.
+// In verbose mode, a successful retry writes a note to stderr that names the registry.
+// If the retry also fails, it returns the keychain error.
 func (a *ArtifactBuilder) downloadOCIArtifact(registry, repository, tag string) ([]byte, error) {
 	ref := FormatOCIRef(registry, repository, tag)
 
 	parsedRef, err := a.shims.ParseReference(ref)
 	if err != nil {
-		return nil, fmt.Errorf("failed to parse reference %s: %w", ref, err)
+		return nil, werror.Wrap(err, "failed to parse reference %s", ref)
 	}
 
 	img, err := a.shims.RemoteImage(parsedRef, remote.WithAuthFromKeychain(authn.DefaultKeychain))
@@ -381,12 +375,12 @@ func (a *ArtifactBuilder) downloadOCIArtifact(registry, repository, tag string) 
 		}
 	}
 	if err != nil {
-		return nil, fmt.Errorf("failed to get image: %w", err)
+		return nil, werror.Wrap(err, "failed to get image")
 	}
 
 	layers, err := a.shims.ImageLayers(img)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get image layers: %w", err)
+		return nil, werror.Wrap(err, "failed to get image layers")
 	}
 
 	if len(layers) == 0 {
@@ -396,13 +390,13 @@ func (a *ArtifactBuilder) downloadOCIArtifact(registry, repository, tag string) 
 	layer := layers[0]
 	reader, err := a.shims.LayerUncompressed(layer)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get layer reader: %w", err)
+		return nil, werror.Wrap(err, "failed to get layer reader")
 	}
 	defer reader.Close()
 
 	data, err := a.shims.ReadAll(reader)
 	if err != nil {
-		return nil, fmt.Errorf("failed to read layer data: %w", err)
+		return nil, werror.Wrap(err, "failed to read layer data")
 	}
 
 	return data, nil
@@ -422,11 +416,10 @@ func FormatOCIRef(registry, repository, tag string) string {
 	return fmt.Sprintf("%s/%s:%s", registry, repository, tag)
 }
 
-// ResolveCompatibleTag walks tags newest-first (stable semver only) and returns the highest one
-// this CLI is compatible with. Checks the cheap manifest annotation first; falls back to
-// VerifyCliVersionCompatibility (a real pull) when the annotation is absent, since older tags
-// predate that annotation and can't be assumed compatible. A manifest-fetch error skips that
-// candidate instead of aborting the walk; it's only returned if no candidate ends up qualifying.
+// ResolveCompatibleTag returns the highest stable semver tag that the running CLI is compatible with.
+// For each tag, it reads the manifest constraint annotation first. If there is no annotation, it pulls the tag to check.
+// Older tags do not have the annotation, so it cannot think that they are compatible.
+// A manifest read error skips that tag. It returns the last error only if no tag is compatible.
 func ResolveCompatibleTag(artifactBuilder Artifact, urlPrefix string, tags []string) (tag string, version *semver.Version, ok bool, err error) {
 	type candidate struct {
 		tag string
@@ -449,7 +442,7 @@ func ResolveCompatibleTag(artifactBuilder Artifact, urlPrefix string, tags []str
 		candidateRef := urlPrefix + ":" + c.tag
 		constraint, err := artifactBuilder.GetCliVersionConstraint(candidateRef)
 		if err != nil {
-			constraintCheckErr = fmt.Errorf("failed to check compatibility for %s: %w", candidateRef, err)
+			constraintCheckErr = werror.Wrap(err, "failed to check compatibility for %s", candidateRef)
 			continue
 		}
 		if constraint != "" {
@@ -465,11 +458,10 @@ func ResolveCompatibleTag(artifactBuilder Artifact, urlPrefix string, tags []str
 	return "", nil, false, constraintCheckErr
 }
 
-// ParseOCIReference parses a blueprint reference string in OCI URL or org/repo:tag format and returns an OCIArtifactInfo struct.
-// Accepts full OCI URLs (e.g., oci://ghcr.io/org/repo:v1.0.0) and org/repo:v1.0.0 formats.
-// Both formats also accept a "@sha256:<hex>" digest in place of the tag, checked before the
-// version colon since the digest itself contains one. Tag holds the bare digest string, without "@".
-// Returns nil if the reference is empty, missing a version, or not in a supported format.
+// ParseOCIReference parses a blueprint reference into an OCIArtifactInfo.
+// It accepts "oci://registry/org/repo:v1.0.0" and "org/repo:v1.0.0". It adds ghcr.io to an org/repo reference.
+// Both formats accept "@sha256:<hex>" in place of the tag. Tag is then the digest without "@".
+// It returns nil and no error for an empty reference. It returns an error if the reference has no version.
 func ParseOCIReference(ociRef string) (*OCIArtifactInfo, error) {
 	if ociRef == "" {
 		return nil, nil
@@ -488,12 +480,12 @@ func ParseOCIReference(ociRef string) (*OCIArtifactInfo, error) {
 			version = remaining[lastColon+1:]
 			pathPart = remaining[:lastColon]
 		} else {
-			return nil, fmt.Errorf("blueprint reference '%s' is missing a version (e.g., core:v1.0.0)", ociRef)
+			return nil, werror.New(fmt.Sprintf("blueprint reference '%s' is missing a version", ociRef), blueprintVersionHint, nil)
 		}
 		if lastSlash := strings.LastIndex(pathPart, "/"); lastSlash >= 0 {
 			name = pathPart[lastSlash+1:]
 		} else {
-			return nil, fmt.Errorf("blueprint reference '%s' is missing a version (e.g., core:v1.0.0)", ociRef)
+			return nil, werror.New(fmt.Sprintf("blueprint reference '%s' is missing a version", ociRef), blueprintVersionHint, nil)
 		}
 	} else {
 		var pathPart string
@@ -504,22 +496,22 @@ func ParseOCIReference(ociRef string) (*OCIArtifactInfo, error) {
 			version = ociRef[colonIdx+1:]
 			pathPart = ociRef[:colonIdx]
 		} else {
-			return nil, fmt.Errorf("blueprint reference '%s' is missing a version (e.g., core:v1.0.0)", ociRef)
+			return nil, werror.New(fmt.Sprintf("blueprint reference '%s' is missing a version", ociRef), blueprintVersionHint, nil)
 		}
 		if strings.Count(pathPart, "/") >= 1 {
 			if lastSlash := strings.LastIndex(pathPart, "/"); lastSlash >= 0 {
 				name = pathPart[lastSlash+1:]
 			} else {
-				return nil, fmt.Errorf("blueprint reference '%s' is missing a version (e.g., core:v1.0.0)", ociRef)
+				return nil, werror.New(fmt.Sprintf("blueprint reference '%s' is missing a version", ociRef), blueprintVersionHint, nil)
 			}
 			fullURL = "oci://ghcr.io/" + ociRef
 		} else {
-			return nil, fmt.Errorf("blueprint reference '%s' is missing a version (e.g., core:v1.0.0)", ociRef)
+			return nil, werror.New(fmt.Sprintf("blueprint reference '%s' is missing a version", ociRef), blueprintVersionHint, nil)
 		}
 	}
 
 	if version == "" || name == "" {
-		return nil, fmt.Errorf("blueprint reference '%s' is missing a version (e.g., core:v1.0.0)", ociRef)
+		return nil, werror.New(fmt.Sprintf("blueprint reference '%s' is missing a version", ociRef), blueprintVersionHint, nil)
 	}
 
 	return &OCIArtifactInfo{
@@ -529,9 +521,9 @@ func ParseOCIReference(ociRef string) (*OCIArtifactInfo, error) {
 	}, nil
 }
 
-// ParseRegistryURL parses a registry URL string into its components.
-// It handles formats like "registry.com/repo:tag", "registry.com/repo", or "oci://registry.com/repo:tag".
-// Returns registryBase, repoName, tag, and an error if parsing fails.
+// ParseRegistryURL parses a registry URL into the registry base, the repository name, and the tag.
+// It accepts "registry.com/repo:tag", "registry.com/repo", and "oci://registry.com/repo:tag".
+// It returns an error if the URL has no repository path.
 func ParseRegistryURL(registryURL string) (registryBase, repoName, tag string, err error) {
 	arg := strings.TrimPrefix(registryURL, "oci://")
 
@@ -544,17 +536,16 @@ func ParseRegistryURL(registryURL string) (registryBase, repoName, tag string, e
 		registryBase = arg[:firstSlash]
 		repoName = arg[firstSlash+1:]
 	} else {
-		return "", "", "", fmt.Errorf("invalid registry format: must include repository path (e.g., registry.com/namespace/repo)")
+		return "", "", "", werror.New("invalid registry format: must include repository path", "Use a registry URL with a repository path, for example ghcr.io/namespace/repo.", nil)
 	}
 
 	return registryBase, repoName, tag, nil
 }
 
-// IsAuthenticationError reports whether err originates from a registry authentication or
-// authorization failure, detected via the *transport.Error type from go-containerregistry
-// (HTTP 401/403 or UNAUTHORIZED/DENIED diagnostic codes). Walks the wrap chain via errors.As,
-// so wrapping with fmt.Errorf("...: %w", err) is transparent. Used by the push command to
-// decide whether to hint the user to run `docker login`.
+// IsAuthenticationError reports whether err comes from a registry authentication or authorization failure.
+// It looks for a go-containerregistry *transport.Error with HTTP 401 or 403, or an UNAUTHORIZED or DENIED code.
+// It uses errors.As, so a werror.Wrap frame or a fmt.Errorf %w wrap does not hide the error.
+// The push command uses it to tell the user to run `docker login`.
 func IsAuthenticationError(err error) bool {
 	if err == nil {
 		return false
@@ -574,17 +565,11 @@ func IsAuthenticationError(err error) bool {
 	return false
 }
 
-// ValidateCliVersion validates that the provided CLI version satisfies the cliVersion constraint
-// specified in the template metadata. If constraint is empty, validation is skipped.
-// If cliVersion is empty, validation is skipped (caller cannot determine version).
-// If the CLI version is "dev", "main", or "latest", validation is skipped as these are development builds.
-// If the CLI version starts with "nightly", validation is skipped: the nightly release builds a
-// non-SemVer snapshot string ("nightly-SNAPSHOT-<sha>") that has no real version to check.
-// A pre-release CLI version (e.g. "0.9.0-rc.1") is checked against its release version
-// (Masterminds/semver excludes pre-releases from a range unless the constraint itself
-// declares one, which would otherwise fail every release-candidate build against an
-// ordinary ">=" constraint).
-// Returns an error if the constraint is specified and the version does not satisfy it.
+// ValidateCliVersion checks that cliVersion satisfies the cliVersion constraint of the blueprint metadata.
+// It does not check when the constraint or cliVersion is empty, for the "dev", "main", or "latest" builds, or for a "nightly" build.
+// A nightly build has a snapshot string that is not a semver version.
+// It checks a pre-release version, such as "0.9.0-rc.1", as its release version.
+// Masterminds/semver excludes pre-releases from a range that does not include one, so an rc build would always fail.
 func ValidateCliVersion(cliVersion, constraint string) error {
 	if constraint == "" {
 		return nil
@@ -605,21 +590,22 @@ func ValidateCliVersion(cliVersion, constraint string) error {
 	versionStr := strings.TrimPrefix(cliVersion, "v")
 	version, err := semver.NewVersion(versionStr)
 	if err != nil {
-		return fmt.Errorf("invalid CLI version format '%s': %w", cliVersion, err)
+		return werror.Wrap(err, "invalid CLI version format '%s'", cliVersion)
 	}
 
 	c, err := semver.NewConstraint(constraint)
 	if err != nil {
-		return fmt.Errorf("invalid cliVersion constraint '%s': %w", constraint, err)
+		return werror.Wrap(err, "invalid cliVersion constraint '%s'", constraint)
 	}
 
 	releaseVersion, err := version.SetPrerelease("")
 	if err != nil {
-		return fmt.Errorf("invalid CLI version format '%s': %w", cliVersion, err)
+		return werror.Wrap(err, "invalid CLI version format '%s'", cliVersion)
 	}
 
 	if !c.Check(&releaseVersion) {
-		return fmt.Errorf("CLI version %s does not satisfy required constraint '%s'", cliVersion, constraint)
+		return werror.New(fmt.Sprintf("CLI version %s does not satisfy required constraint '%s'", cliVersion, constraint),
+			"Install a Windsor CLI version that satisfies the constraint, or use a blueprint version that supports this CLI version.", nil)
 	}
 
 	return nil
