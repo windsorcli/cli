@@ -12,7 +12,15 @@ import (
 	"strings"
 
 	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
+	"github.com/windsorcli/cli/internal/werror"
 )
+
+// =============================================================================
+// Constants
+// =============================================================================
+
+// missingDependencyHint is the remediation for a dependsOn entry that names no entry in the composed blueprint.
+const missingDependencyHint = "Add the dependency to the blueprint, include the facet that provides it, or remove it from dependsOn."
 
 // =============================================================================
 // Private Methods
@@ -244,8 +252,10 @@ func (c *BaseBlueprintComposer) resolveTierDependencies(bp *blueprintv1alpha1.Bl
 	}
 }
 
-// validateDependencies checks that all component dependencies reference components that exist in the final blueprint.
-// This validation happens after all composition is complete to ensure dependencies are valid in the final state.
+// validateDependencies checks each dependsOn entry of the composed blueprint after composition.
+// A terraform dependency must name a terraform component. A kustomization dependency must name a
+// kustomization or a CRD layer. A missing dependency returns an error with a remediation hint.
+// The error names the excluded facet that provides the dependency, if there is one.
 func (c *BaseBlueprintComposer) validateDependencies(bp *blueprintv1alpha1.Blueprint) error {
 	tfIDs := make(map[string]struct{})
 	for _, tf := range bp.TerraformComponents {
@@ -264,7 +274,7 @@ func (c *BaseBlueprintComposer) validateDependencies(bp *blueprintv1alpha1.Bluep
 	for _, tf := range bp.TerraformComponents {
 		for _, dep := range tf.DependsOn {
 			if _, exists := tfIDs[dep]; !exists {
-				return fmt.Errorf("terraform component %q depends on %s", tf.GetID(), c.describeMissingDependency(dep, "component"))
+				return werror.New(fmt.Sprintf("terraform component %q depends on %s", tf.GetID(), c.describeMissingDependency(dep, "component")), missingDependencyHint, nil)
 			}
 		}
 	}
@@ -272,7 +282,7 @@ func (c *BaseBlueprintComposer) validateDependencies(bp *blueprintv1alpha1.Bluep
 	for _, k := range allK {
 		for _, dep := range k.DependsOn {
 			if _, exists := kNames[dep]; !exists {
-				return fmt.Errorf("kustomization %q depends on %s", k.Name, c.describeMissingDependency(dep, "kustomization"))
+				return werror.New(fmt.Sprintf("kustomization %q depends on %s", k.Name, c.describeMissingDependency(dep, "kustomization")), missingDependencyHint, nil)
 			}
 		}
 	}

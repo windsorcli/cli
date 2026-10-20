@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
+	"github.com/windsorcli/cli/internal/werror"
 )
 
 // =============================================================================
@@ -24,6 +25,9 @@ const (
 	ExplainPathKindConfigMap
 	ExplainPathKindSubstitution
 )
+
+// explainPathHint is the remediation for an explain path with an unknown root or too few segments.
+const explainPathHint = "Use a path that starts with terraform., kustomize., configMaps., or substitutions., for example terraform.<componentID>.inputs.<key>."
 
 // =============================================================================
 // Types
@@ -115,12 +119,10 @@ func (h *BaseBlueprintHandler) Explain(pathStr string) (*ExplainTrace, error) {
 	return nil, fmt.Errorf("trace collector not set")
 }
 
-// ParseExplainPath parses a path string into an ExplainPath. Supported forms:
-//   - terraform.<componentID>.inputs.<key>
-//   - kustomize.<name>.substitutions.<key>
-//   - configMaps.<name>.<key>
-//
-// Returns an error if the path is malformed or empty.
+// ParseExplainPath parses a path into an ExplainPath. The forms are terraform.<componentID>.inputs.<key>,
+// kustomize.<name>.substitutions.<key>, kustomize.<name>.components, configMaps.<name>.<key>, and substitutions.<key>.
+// It returns an error if the path is empty. A path with an unknown root or a wrong form
+// returns an error with a remediation hint that shows the correct form.
 func ParseExplainPath(path string) (ExplainPath, error) {
 	path = strings.TrimSpace(path)
 	if path == "" {
@@ -128,12 +130,12 @@ func ParseExplainPath(path string) (ExplainPath, error) {
 	}
 	parts := strings.Split(path, ".")
 	if len(parts) < 2 {
-		return ExplainPath{}, fmt.Errorf("invalid path %q: expected form terraform.<id>.inputs.<key>, kustomize.<name>.substitutions.<key>, or configMaps.<name>.<key>", path)
+		return ExplainPath{}, werror.New(fmt.Sprintf("invalid path %q", path), explainPathHint, nil)
 	}
 	switch parts[0] {
 	case "terraform":
 		if len(parts) < 4 || parts[2] != "inputs" {
-			return ExplainPath{}, fmt.Errorf("invalid terraform path %q: expected terraform.<componentID>.inputs.<key>", path)
+			return ExplainPath{}, werror.New(fmt.Sprintf("invalid terraform path %q", path), "Use the form terraform.<componentID>.inputs.<key>.", nil)
 		}
 		return ExplainPath{
 			Kind:    ExplainPathKindTerraformInput,
@@ -148,7 +150,7 @@ func ParseExplainPath(path string) (ExplainPath, error) {
 			}, nil
 		}
 		if len(parts) < 4 || parts[2] != "substitutions" {
-			return ExplainPath{}, fmt.Errorf("invalid kustomize path %q: expected kustomize.<name>.substitutions.<key> or kustomize.<name>.components", path)
+			return ExplainPath{}, werror.New(fmt.Sprintf("invalid kustomize path %q", path), "Use the form kustomize.<name>.substitutions.<key> or kustomize.<name>.components.", nil)
 		}
 		return ExplainPath{
 			Kind:    ExplainPathKindKustomizeSubstitution,
@@ -157,7 +159,7 @@ func ParseExplainPath(path string) (ExplainPath, error) {
 		}, nil
 	case "configMaps":
 		if len(parts) < 3 {
-			return ExplainPath{}, fmt.Errorf("invalid configMaps path %q: expected configMaps.<name>.<key>", path)
+			return ExplainPath{}, werror.New(fmt.Sprintf("invalid configMaps path %q", path), "Use the form configMaps.<name>.<key>.", nil)
 		}
 		return ExplainPath{
 			Kind:    ExplainPathKindConfigMap,
@@ -166,14 +168,14 @@ func ParseExplainPath(path string) (ExplainPath, error) {
 		}, nil
 	case "substitutions":
 		if len(parts) < 2 {
-			return ExplainPath{}, fmt.Errorf("invalid substitutions path %q: expected substitutions.<key>", path)
+			return ExplainPath{}, werror.New(fmt.Sprintf("invalid substitutions path %q", path), "Use the form substitutions.<key>.", nil)
 		}
 		return ExplainPath{
 			Kind: ExplainPathKindSubstitution,
 			Key:  strings.Join(parts[1:], "."),
 		}, nil
 	default:
-		return ExplainPath{}, fmt.Errorf("invalid path %q: must start with terraform., kustomize., configMaps., or substitutions.", path)
+		return ExplainPath{}, werror.New(fmt.Sprintf("invalid path %q", path), explainPathHint, nil)
 	}
 }
 

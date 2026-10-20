@@ -9,6 +9,8 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+
+	"github.com/windsorcli/cli/internal/werror"
 )
 
 // =============================================================================
@@ -58,11 +60,9 @@ func collectBlockRefs(value any, blockNames map[string]bool, selfName string) []
 	return result
 }
 
-// topoSortConfigBlocks returns block names sorted so that every block appears after the
-// blocks it references. globalScope is the merged config scope (block name -> body). The
-// fallback order is consulted only as a stability hint when two blocks have no relative
-// dependency: alphabetical tiebreak by block name. Returns an error naming the cycle when
-// the dependency graph is not acyclic.
+// topoSortConfigBlocks returns the config block names in an order where each block comes after the blocks it references.
+// globalScope maps each block name to its body. Blocks without a relative order are in alphabetical order.
+// If the references make a cycle, it returns an error that names the blocks in the cycle, with a remediation hint.
 func topoSortConfigBlocks(globalScope map[string]any) ([]string, error) {
 	if len(globalScope) == 0 {
 		return nil, nil
@@ -120,7 +120,7 @@ func topoSortConfigBlocks(globalScope map[string]any) ([]string, error) {
 				remaining = append(remaining, b)
 			}
 		}
-		return nil, fmt.Errorf("circular reference among config blocks: %s", strings.Join(remaining, ", "))
+		return nil, werror.New(fmt.Sprintf("circular reference among config blocks: %s", strings.Join(remaining, ", ")), "Remove the reference cycle among these config blocks.", nil)
 	}
 
 	return result, nil

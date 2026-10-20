@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
+	"github.com/windsorcli/cli/internal/werror"
 	"github.com/windsorcli/cli/pkg/runtime"
 	"github.com/windsorcli/cli/pkg/runtime/config"
 	"github.com/windsorcli/cli/pkg/runtime/evaluator"
@@ -1714,6 +1715,9 @@ func TestComposer_validateSources(t *testing.T) {
 		if err == nil {
 			t.Error("Expected error when git source has install: true")
 		}
+		if werr := werror.Find(err); werr == nil || !strings.Contains(werr.Remediation, "oci:// URL") {
+			t.Errorf("Expected remediation containing %q, got %v", "oci:// URL", werr)
+		}
 		if !strings.Contains(err.Error(), "install: true") {
 			t.Errorf("Expected error to mention install, got: %v", err)
 		}
@@ -1741,6 +1745,9 @@ func TestComposer_validateReservedNames(t *testing.T) {
 		// Then it is rejected as reserved
 		if err == nil || !strings.Contains(err.Error(), "reserved for the CRD layer") {
 			t.Errorf("expected reserved-name error, got %v", err)
+		}
+		if werr := werror.Find(err); werr == nil || !strings.Contains(werr.Remediation, "crds: section") {
+			t.Errorf("Expected remediation containing %q, got %v", "crds: section", werr)
 		}
 	})
 

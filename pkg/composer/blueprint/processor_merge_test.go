@@ -7,6 +7,7 @@ import (
 	"time"
 
 	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
+	"github.com/windsorcli/cli/internal/werror"
 )
 
 // =============================================================================
@@ -382,6 +383,9 @@ func TestProcessor_updateTerraformComponentEntry(t *testing.T) {
 		}
 		if err != nil && !strings.Contains(err.Error(), "invalid strategy") {
 			t.Errorf("Expected error about invalid strategy, got: %v", err)
+		}
+		if werr := werror.Find(err); werr == nil || !strings.Contains(werr.Remediation, "merge, replace, or remove") {
+			t.Errorf("Expected remediation containing %q, got %v", "merge, replace, or remove", werr)
 		}
 	})
 

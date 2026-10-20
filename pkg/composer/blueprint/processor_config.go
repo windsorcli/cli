@@ -155,10 +155,10 @@ func (p *BaseBlueprintProcessor) mergeFacetScopeIntoGlobal(facet blueprintv1alph
 	return mergedScope, mergedEntries, nil
 }
 
-// mergeConfigBlocks merges incoming config blocks into the global scope using ordinal and strategy.
-// Higher ordinal wins; equal ordinals use strategy precedence (remove > replace > merge);
-// equal ordinal and equal strategy merges new over existing (matching terraform/kustomize behavior).
-// Returns the updated scope, updated entries, or an error on invalid strategy.
+// mergeConfigBlocks merges the incoming config blocks into the scope by ordinal and strategy.
+// A higher ordinal wins. Equal ordinals use remove > replace > merge. At equal ordinal and strategy,
+// merge deep-merges the new value over the old value. It returns the scope and the block entries.
+// A strategy that is not merge, replace, or remove returns an error with a remediation hint.
 func (p *BaseBlueprintProcessor) mergeConfigBlocks(scope map[string]any, existing, incoming map[string]*blueprintv1alpha1.ConfigBlock) (map[string]any, map[string]*blueprintv1alpha1.ConfigBlock, error) {
 	out := make(map[string]any)
 	maps.Copy(out, scope)
@@ -175,7 +175,7 @@ func (p *BaseBlueprintProcessor) mergeConfigBlocks(scope map[string]any, existin
 			strategy = "merge"
 		}
 		if strategy != "merge" && strategy != "replace" && strategy != "remove" {
-			return nil, nil, fmt.Errorf("invalid strategy %q for config block %q: must be 'merge', 'replace', or 'remove'", strategy, name)
+			return nil, nil, werror.New(fmt.Sprintf("invalid strategy %q for config block %q", strategy, name), strategyHint, nil)
 		}
 		incOrdinal := ordinalOrZero(inc.Ordinal)
 		if prev, hasPrev := merged[name]; hasPrev {

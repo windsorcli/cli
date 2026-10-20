@@ -528,8 +528,8 @@ func (c *BaseBlueprintComposer) sourceDepths(userBlueprint *blueprintv1alpha1.Bl
 	return depth
 }
 
-// validateSources checks that install is only used on OCI sources. Git and other non-OCI sources
-// cannot be installed (merged); install is supported only for oci:// URLs.
+// validateSources returns an error if a source with install: true has a URL that is not oci://.
+// Windsor installs only OCI sources. The error has a remediation hint.
 func (c *BaseBlueprintComposer) validateSources(bp *blueprintv1alpha1.Blueprint) error {
 	for _, s := range bp.Sources {
 		if s.Name == "" {
@@ -542,21 +542,19 @@ func (c *BaseBlueprintComposer) validateSources(bp *blueprintv1alpha1.Blueprint)
 			continue
 		}
 		if !strings.HasPrefix(s.Url, "oci://") {
-			return fmt.Errorf("source %q has install: true but URL %q is not an OCI source (oci://); install is only supported for OCI sources", s.Name, s.Url)
+			return werror.New(fmt.Sprintf("source %q has install: true but URL %q is not an OCI source (oci://)", s.Name, s.Url), "Use an oci:// URL for the source, or remove install: true. Windsor installs only OCI sources.", nil)
 		}
 	}
 	return nil
 }
 
-// validateReservedNames rejects a user-authored kustomization that takes a name in the synthesized
-// CRD layer namespace ("crds" or "crds-<source>"). Those names are owned by the crds: layers the
-// provisioner materializes; allowing a kustomize: entry to claim one would collide with the
-// synthesized entry and silently change how its PostBuild is built, so it is an error rather than a
-// silent override.
+// validateReservedNames returns an error if a user kustomization has a CRD layer name, "crds" or "crds-<source>".
+// The crds: layers own these names. A kustomize: entry with one of them would collide with the layer entry.
+// The error has a remediation hint.
 func (c *BaseBlueprintComposer) validateReservedNames(bp *blueprintv1alpha1.Blueprint) error {
 	for _, k := range bp.Kustomizations {
 		if blueprintv1alpha1.IsCrdLayerName(k.Name) {
-			return fmt.Errorf("kustomization name %q is reserved for the CRD layer; use the crds: section instead", k.Name)
+			return werror.New(fmt.Sprintf("kustomization name %q is reserved for the CRD layer", k.Name), "Rename the kustomization, and declare the CRDs in the crds: section.", nil)
 		}
 	}
 	return nil

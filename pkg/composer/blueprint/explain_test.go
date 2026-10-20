@@ -3,9 +3,11 @@ package blueprint
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
+	"github.com/windsorcli/cli/internal/werror"
 	"github.com/windsorcli/cli/pkg/runtime"
 )
 
@@ -154,6 +156,9 @@ func TestParseExplainPath(t *testing.T) {
 		if err == nil {
 			t.Fatal("expected error for malformed path")
 		}
+		if werr := werror.Find(err); werr == nil || !strings.Contains(werr.Remediation, "terraform.<componentID>.inputs.<key>") {
+			t.Errorf("Expected remediation containing %q, got %v", "terraform.<componentID>.inputs.<key>", werr)
+		}
 	})
 
 	t.Run("ReturnsErrorForUnknownPrefix", func(t *testing.T) {
@@ -163,6 +168,9 @@ func TestParseExplainPath(t *testing.T) {
 
 		if err == nil {
 			t.Fatal("expected error for unknown prefix")
+		}
+		if werr := werror.Find(err); werr == nil || !strings.Contains(werr.Remediation, "starts with terraform.") {
+			t.Errorf("Expected remediation containing %q, got %v", "starts with terraform.", werr)
 		}
 	})
 
@@ -187,6 +195,9 @@ func TestParseExplainPath(t *testing.T) {
 		if err == nil {
 			t.Fatal("expected error for terraform path without inputs segment")
 		}
+		if werr := werror.Find(err); werr == nil || !strings.Contains(werr.Remediation, "terraform.<componentID>.inputs.<key>") {
+			t.Errorf("Expected remediation containing %q, got %v", "terraform.<componentID>.inputs.<key>", werr)
+		}
 	})
 
 	t.Run("ReturnsErrorForInvalidKustomizePath", func(t *testing.T) {
@@ -196,6 +207,9 @@ func TestParseExplainPath(t *testing.T) {
 
 		if err == nil {
 			t.Fatal("expected error for kustomize path without substitutions or components")
+		}
+		if werr := werror.Find(err); werr == nil || !strings.Contains(werr.Remediation, "kustomize.<name>.components") {
+			t.Errorf("Expected remediation containing %q, got %v", "kustomize.<name>.components", werr)
 		}
 	})
 }

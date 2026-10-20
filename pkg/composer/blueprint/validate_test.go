@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
+	"github.com/windsorcli/cli/internal/werror"
 )
 
 // =============================================================================
@@ -72,6 +73,9 @@ func TestValidateComposedBlueprint(t *testing.T) {
 		}
 		if !strings.Contains(err.Error(), `"ghost"`) {
 			t.Errorf("Expected error to name the unresolved ID %q, got %v", "ghost", err)
+		}
+		if werr := werror.Find(err); werr == nil || !strings.Contains(werr.Remediation, "Set backend") {
+			t.Errorf("Expected remediation containing %q, got %v", "Set backend", werr)
 		}
 	})
 
