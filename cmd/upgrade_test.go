@@ -124,7 +124,7 @@ func TestUpgradeCmd(t *testing.T) {
 	t.Run("LeavesInFlightMarkerWhenWaitFails", func(t *testing.T) {
 		// Given a wait that fails after the transition has been recorded
 		mocks := setupApplyTest(t)
-		mocks.KubernetesManager.WaitForKustomizationsFunc = func(ctx stdcontext.Context, message string, bp *blueprintv1alpha1.Blueprint) error {
+		mocks.KubernetesManager.WaitForKustomizationsFunc = func(ctx stdcontext.Context, bp *blueprintv1alpha1.Blueprint, layers kubernetes.KustomizationReporter) error {
 			return fmt.Errorf("wait failed")
 		}
 		var phases []string
@@ -212,7 +212,7 @@ func TestUpgradeCmd(t *testing.T) {
 	t.Run("WaitFailureSkipsPrune", func(t *testing.T) {
 		// Given a wait that fails before the desired set has reconciled
 		mocks := setupApplyTest(t)
-		mocks.KubernetesManager.WaitForKustomizationsFunc = func(ctx stdcontext.Context, message string, bp *blueprintv1alpha1.Blueprint) error {
+		mocks.KubernetesManager.WaitForKustomizationsFunc = func(ctx stdcontext.Context, bp *blueprintv1alpha1.Blueprint, layers kubernetes.KustomizationReporter) error {
 			return fmt.Errorf("wait failed")
 		}
 		pruned := false
@@ -232,7 +232,7 @@ func TestUpgradeCmd(t *testing.T) {
 		if err == nil {
 			t.Fatal("Expected error, got nil")
 		}
-		if !strings.Contains(err.Error(), "error waiting for kustomizations") {
+		if !strings.Contains(err.Error(), "kustomizations not ready") {
 			t.Errorf("Expected wait error, got: %v", err)
 		}
 		if pruned {

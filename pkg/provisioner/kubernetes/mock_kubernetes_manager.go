@@ -21,7 +21,7 @@ import (
 type MockKubernetesManager struct {
 	ApplyKustomizationFunc              func(kustomization kustomizev1.Kustomization) error
 	DeleteKustomizationFunc             func(name, namespace string) error
-	WaitForKustomizationsFunc           func(ctx context.Context, message string, blueprint *blueprintv1alpha1.Blueprint) error
+	WaitForKustomizationsFunc           func(ctx context.Context, blueprint *blueprintv1alpha1.Blueprint, layers KustomizationReporter) error
 	GetKustomizationStatusFunc          func(names []string) (map[string]bool, error)
 	GetKustomizationReadinessFunc       func(names []string) (map[string]bool, error)
 	CreateNamespaceFunc                 func(name string) error
@@ -77,9 +77,9 @@ func (m *MockKubernetesManager) DeleteKustomization(_ context.Context, name, nam
 }
 
 // WaitForKustomizations implements KubernetesManager interface
-func (m *MockKubernetesManager) WaitForKustomizations(ctx context.Context, message string, blueprint *blueprintv1alpha1.Blueprint) error {
+func (m *MockKubernetesManager) WaitForKustomizations(ctx context.Context, blueprint *blueprintv1alpha1.Blueprint, layers KustomizationReporter) error {
 	if m.WaitForKustomizationsFunc != nil {
-		return m.WaitForKustomizationsFunc(ctx, message, blueprint)
+		return m.WaitForKustomizationsFunc(ctx, blueprint, layers)
 	}
 	return nil
 }

@@ -181,12 +181,8 @@ windsor upgrade cluster --nodes=10.0.0.5 --image=ghcr.io/siderolabs/installer:v1
 				return fmt.Errorf("error recording version transition: %w", err)
 			}
 
-			if err := proj.Provisioner.Install(cmd.Context(), blueprint, true); err != nil {
+			if err := proj.Provisioner.Install(cmd.Context(), blueprint, true, true); err != nil {
 				return fmt.Errorf("error installing blueprint: %w", err)
-			}
-
-			if err := proj.Provisioner.Wait(cmd.Context(), blueprint); err != nil {
-				return fmt.Errorf("error waiting for kustomizations: %w", err)
 			}
 
 			prunable, err := proj.Provisioner.PrunableKustomizations(blueprint)

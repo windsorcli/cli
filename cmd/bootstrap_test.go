@@ -100,7 +100,9 @@ func setupBootstrapTest(t *testing.T, opts ...*SetupOptions) *BootstrapMocks {
 
 	mockKubernetesManager := kubernetes.NewMockKubernetesManager()
 	mockKubernetesManager.ApplyBlueprintFunc = func(blueprint *blueprintv1alpha1.Blueprint, namespace string) error { return nil }
-	mockKubernetesManager.WaitForKustomizationsFunc = func(ctx context.Context, message string, blueprint *blueprintv1alpha1.Blueprint) error { return nil }
+	mockKubernetesManager.WaitForKustomizationsFunc = func(ctx context.Context, blueprint *blueprintv1alpha1.Blueprint, layers kubernetes.KustomizationReporter) error {
+		return nil
+	}
 
 	rt := runtime.NewRuntime(&runtime.Runtime{
 		Shell:         baseMocks.Shell,
@@ -176,7 +178,7 @@ func TestBootstrapCmd(t *testing.T) {
 			return nil
 		}
 		waitCalled := false
-		mocks.KubernetesManager.WaitForKustomizationsFunc = func(ctx context.Context, message string, blueprint *blueprintv1alpha1.Blueprint) error {
+		mocks.KubernetesManager.WaitForKustomizationsFunc = func(ctx context.Context, blueprint *blueprintv1alpha1.Blueprint, layers kubernetes.KustomizationReporter) error {
 			waitCalled = true
 			return nil
 		}
@@ -246,7 +248,7 @@ func TestBootstrapCmd(t *testing.T) {
 		}
 		mocks.BlueprintHandler.GenerateResolvedFunc = func() (*blueprintv1alpha1.Blueprint, error) { return pending, nil }
 		markerWritten := false
-		mocks.KubernetesManager.WaitForKustomizationsFunc = func(ctx context.Context, message string, blueprint *blueprintv1alpha1.Blueprint) error {
+		mocks.KubernetesManager.WaitForKustomizationsFunc = func(ctx context.Context, blueprint *blueprintv1alpha1.Blueprint, layers kubernetes.KustomizationReporter) error {
 			return fmt.Errorf("timeout waiting for kustomization dns/external-dns to be ready")
 		}
 		mocks.KubernetesManager.ApplyVersionMarkerFunc = func(namespace string, marker kubernetes.VersionMarker) error {
@@ -278,7 +280,7 @@ func TestBootstrapCmd(t *testing.T) {
 		proj := newBootstrapTestProject(mocks)
 
 		markerWritten := false
-		mocks.KubernetesManager.WaitForKustomizationsFunc = func(ctx context.Context, message string, blueprint *blueprintv1alpha1.Blueprint) error {
+		mocks.KubernetesManager.WaitForKustomizationsFunc = func(ctx context.Context, blueprint *blueprintv1alpha1.Blueprint, layers kubernetes.KustomizationReporter) error {
 			return fmt.Errorf("kustomization app/web not ready: ImagePullBackOff")
 		}
 		mocks.KubernetesManager.ApplyVersionMarkerFunc = func(namespace string, marker kubernetes.VersionMarker) error {

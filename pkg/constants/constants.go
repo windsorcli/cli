@@ -89,7 +89,7 @@ const DefaultFluxKustomizationInstallTimeout = 10 * time.Minute
 // DefaultConvergeTimeout bounds the best-effort convergence pass an apply/up/bootstrap runs after placing
 // secrets: it actively nudges not-ready kustomizations and forces stalled HelmReleases, returning early
 // once everything is Ready. It is bounded (not the full install timeout) so an unwaited apply pushes the
-// cluster along without blocking indefinitely; --wait paths still gate on the full Wait afterward.
+// cluster along without blocking indefinitely; --wait paths gate on a readiness wait running alongside it.
 const DefaultConvergeTimeout = 5 * time.Minute
 
 // DefaultFluxSourceInterval is the reconciliation interval for flux Sources. Same rationale

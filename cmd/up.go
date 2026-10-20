@@ -134,18 +134,12 @@ windsor up --blueprint=ghcr.io/myorg/blueprint:v1.0.0`,
 				return fmt.Errorf("error resolving blueprint substitutions: %w", err)
 			}
 
-			if err := proj.Provisioner.Install(cmd.Context(), blueprint, false); err != nil {
+			if err := proj.Provisioner.Install(cmd.Context(), blueprint, false, waitFlag); err != nil {
 				return fmt.Errorf("error installing blueprint: %w", err)
 			}
 
 			// Capture post-run messages to print as an end-of-run summary, mirroring bootstrap.
 			postRunMessages = blueprint.Messages
-
-			if waitFlag {
-				if err := proj.Provisioner.Wait(cmd.Context(), blueprint); err != nil {
-					return fmt.Errorf("error waiting for kustomizations: %w", err)
-				}
-			}
 			return nil
 		}); err != nil {
 			return err

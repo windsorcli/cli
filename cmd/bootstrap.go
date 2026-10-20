@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"bufio"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -241,12 +242,8 @@ windsor bootstrap prod --yes`,
 				return fmt.Errorf("error resolving blueprint substitutions: %w", err)
 			}
 
-			if err := proj.Provisioner.Install(cmd.Context(), blueprint, false); err != nil {
-				return fmt.Errorf("error installing blueprint: %w", err)
-			}
-
 			// Capture post-run messages to print as an end-of-run summary rather than inline among the
-			// install/wait progress. Because the wait below is best-effort, the run always reaches that
+			// install progress. Because the wait below is best-effort, the run always reaches that
 			// summary, so a kustomization intentionally pending on a manual step the message describes
 			// still surfaces its instructions.
 			postRunMessages = blueprint.Messages
@@ -257,9 +254,9 @@ windsor bootstrap prod --yes`,
 			// such message there is no declared manual step, so a wait failure is genuine (ImagePullBackOff,
 			// a bad manifest path, ...) and stays fatal — the operator gets a non-zero exit, not a silent
 			// success with a single stderr line.
-			if err := proj.Provisioner.Wait(cmd.Context(), blueprint); err != nil {
-				if len(postRunMessages) == 0 {
-					return fmt.Errorf("error waiting for kustomizations: %w", err)
+			if err := proj.Provisioner.Install(cmd.Context(), blueprint, false, true); err != nil {
+				if !errors.Is(err, provisioner.ErrKustomizationsNotReady) || len(postRunMessages) == 0 {
+					return fmt.Errorf("error installing blueprint: %w", err)
 				}
 				fmt.Fprintf(os.Stderr, "⚠ Bootstrap applied; some kustomizations are not yet ready: %v\n", err)
 			}

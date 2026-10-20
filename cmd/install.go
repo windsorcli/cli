@@ -37,14 +37,8 @@ windsor install --wait`,
 			return fmt.Errorf("error resolving blueprint substitutions: %w", err)
 		}
 
-		if err := proj.Provisioner.Install(cmd.Context(), blueprint, false); err != nil {
+		if err := proj.Provisioner.Install(cmd.Context(), blueprint, false, installWaitFlag); err != nil {
 			return fmt.Errorf("error installing blueprint: %w", err)
-		}
-
-		if installWaitFlag {
-			if err := proj.Provisioner.Wait(cmd.Context(), blueprint); err != nil {
-				return fmt.Errorf("error waiting for kustomizations: %w", err)
-			}
 		}
 
 		return nil

@@ -5,7 +5,6 @@ import (
 	"strings"
 
 	"github.com/spf13/cobra"
-	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
 	"github.com/windsorcli/cli/pkg/provisioner/stacklock"
 	"github.com/windsorcli/cli/pkg/runtime/tools"
 )
@@ -84,10 +83,6 @@ windsor apply kustomize dns`,
 				return fmt.Errorf("resolved blueprint is not available")
 			}
 
-			if err := proj.Provisioner.Install(cmd.Context(), blueprint, applyPruneFlag); err != nil {
-				return fmt.Errorf("error applying kustomize: %w", err)
-			}
-
 			// --prune removes kustomizations the blueprint no longer declares; wait for the
 			// desired set to be Ready first so migrated resources are adopted before a deletion.
 			// Without --prune, orphans are left in place and only reported.
@@ -95,13 +90,12 @@ windsor apply kustomize dns`,
 			if err != nil {
 				return fmt.Errorf("error listing kustomizations to prune: %w", err)
 			}
+			wait := (len(prunable) > 0 && applyPruneFlag) || applyWaitFlag
+			if err := proj.Provisioner.Install(cmd.Context(), blueprint, applyPruneFlag, wait); err != nil {
+				return fmt.Errorf("error applying kustomize: %w", err)
+			}
 			if len(prunable) > 0 && !applyPruneFlag {
 				fmt.Fprintf(cmd.OutOrStdout(), "The following kustomizations are no longer declared; re-run with --prune to remove them:\n  %s\n", strings.Join(prunable, "\n  "))
-			}
-			if (len(prunable) > 0 && applyPruneFlag) || applyWaitFlag {
-				if err := proj.Provisioner.Wait(cmd.Context(), blueprint); err != nil {
-					return fmt.Errorf("error waiting for kustomizations: %w", err)
-				}
 			}
 			if len(prunable) == 0 || !applyPruneFlag {
 				return nil
@@ -204,33 +198,15 @@ windsor apply kustomize dns --wait`,
 			return fmt.Errorf("unresolved terraform_output() substitutions in scope; run `windsor apply` (or `windsor upgrade`) first so this apply doesn't overwrite a resolved ConfigMap value with raw expression text")
 		}
 
-		waitBlueprint := blueprint
-
 		return stacklock.With(cmd.Context(), proj.Runtime, "apply", lockTimeout, func() error {
 			if len(args) == 0 {
-				if err := proj.Provisioner.ApplyKustomizeAll(cmd.Context(), blueprint); err != nil {
+				if err := proj.Provisioner.ApplyKustomizeAll(cmd.Context(), blueprint, applyWaitFlag); err != nil {
 					return fmt.Errorf("error applying kustomize: %w", err)
 				}
 			} else {
 				componentID := args[0]
-				if err := proj.Provisioner.ApplyKustomize(cmd.Context(), blueprint, componentID); err != nil {
+				if err := proj.Provisioner.ApplyKustomize(cmd.Context(), blueprint, componentID, applyWaitFlag); err != nil {
 					return fmt.Errorf("error applying kustomize for %s: %w", componentID, err)
-				}
-				// Narrow the wait scope to only the kustomization that was applied.
-				for _, k := range blueprint.Kustomizations {
-					if k.Name == componentID {
-						kCopy := k
-						filtered := *blueprint
-						filtered.Kustomizations = []blueprintv1alpha1.Kustomization{kCopy}
-						waitBlueprint = &filtered
-						break
-					}
-				}
-			}
-
-			if applyWaitFlag {
-				if err := proj.Provisioner.Wait(cmd.Context(), waitBlueprint); err != nil {
-					return fmt.Errorf("error waiting for kustomizations: %w", err)
 				}
 			}
 

@@ -93,7 +93,9 @@ func setupApplyTest(t *testing.T, opts ...*SetupOptions) *ApplyMocks {
 
 	mockKubernetesManager := kubernetes.NewMockKubernetesManager()
 	mockKubernetesManager.ApplyBlueprintFunc = func(bp *blueprintv1alpha1.Blueprint, namespace string) error { return nil }
-	mockKubernetesManager.WaitForKustomizationsFunc = func(ctx context.Context, message string, blueprint *blueprintv1alpha1.Blueprint) error { return nil }
+	mockKubernetesManager.WaitForKustomizationsFunc = func(ctx context.Context, blueprint *blueprintv1alpha1.Blueprint, layers kubernetes.KustomizationReporter) error {
+		return nil
+	}
 
 	rt := runtime.NewRuntime(&runtime.Runtime{
 		Shell:         baseMocks.Shell,
@@ -301,7 +303,7 @@ func TestApplyCmd_Prune(t *testing.T) {
 			return nil, nil
 		}
 		waited := false
-		mocks.KubernetesManager.WaitForKustomizationsFunc = func(ctx context.Context, message string, bp *blueprintv1alpha1.Blueprint) error {
+		mocks.KubernetesManager.WaitForKustomizationsFunc = func(ctx context.Context, bp *blueprintv1alpha1.Blueprint, layers kubernetes.KustomizationReporter) error {
 			waited = true
 			return nil
 		}
@@ -459,7 +461,7 @@ func TestApplyCmd(t *testing.T) {
 		t.Cleanup(func() { applyWaitFlag = false })
 		// Given a kubernetes manager whose WaitForKustomizations fails
 		mocks := setupApplyTest(t)
-		mocks.KubernetesManager.WaitForKustomizationsFunc = func(ctx context.Context, message string, bp *blueprintv1alpha1.Blueprint) error {
+		mocks.KubernetesManager.WaitForKustomizationsFunc = func(ctx context.Context, bp *blueprintv1alpha1.Blueprint, layers kubernetes.KustomizationReporter) error {
 			return fmt.Errorf("wait failed")
 		}
 		proj := newApplyAllProject(mocks)
@@ -476,7 +478,7 @@ func TestApplyCmd(t *testing.T) {
 			t.Error("Expected error, got nil")
 			return
 		}
-		if !strings.Contains(err.Error(), "error waiting for kustomizations") {
+		if !strings.Contains(err.Error(), "kustomizations not ready") {
 			t.Errorf("Expected wait error, got: %v", err)
 		}
 	})
@@ -877,7 +879,7 @@ func TestApplyKustomizeCmd(t *testing.T) {
 		}
 		mocks.BlueprintHandler.GenerateFunc = func() *blueprintv1alpha1.Blueprint { return testBlueprint }
 		var waitedBlueprint *blueprintv1alpha1.Blueprint
-		mocks.KubernetesManager.WaitForKustomizationsFunc = func(ctx context.Context, message string, bp *blueprintv1alpha1.Blueprint) error {
+		mocks.KubernetesManager.WaitForKustomizationsFunc = func(ctx context.Context, bp *blueprintv1alpha1.Blueprint, layers kubernetes.KustomizationReporter) error {
 			waitedBlueprint = bp
 			return nil
 		}
@@ -912,7 +914,7 @@ func TestApplyKustomizeCmd(t *testing.T) {
 		}
 		mocks.BlueprintHandler.GenerateFunc = func() *blueprintv1alpha1.Blueprint { return testBlueprint }
 		var waitedBlueprint *blueprintv1alpha1.Blueprint
-		mocks.KubernetesManager.WaitForKustomizationsFunc = func(ctx context.Context, message string, bp *blueprintv1alpha1.Blueprint) error {
+		mocks.KubernetesManager.WaitForKustomizationsFunc = func(ctx context.Context, bp *blueprintv1alpha1.Blueprint, layers kubernetes.KustomizationReporter) error {
 			waitedBlueprint = bp
 			return nil
 		}
@@ -941,7 +943,7 @@ func TestApplyKustomizeCmd(t *testing.T) {
 		t.Cleanup(func() { applyWaitFlag = false })
 		// Given a kubernetes manager whose WaitForKustomizations fails
 		mocks := setupApplyTest(t)
-		mocks.KubernetesManager.WaitForKustomizationsFunc = func(ctx context.Context, message string, blueprint *blueprintv1alpha1.Blueprint) error {
+		mocks.KubernetesManager.WaitForKustomizationsFunc = func(ctx context.Context, blueprint *blueprintv1alpha1.Blueprint, layers kubernetes.KustomizationReporter) error {
 			return fmt.Errorf("wait for kustomizations failed")
 		}
 		testBlueprint := &blueprintv1alpha1.Blueprint{
@@ -963,7 +965,7 @@ func TestApplyKustomizeCmd(t *testing.T) {
 			t.Error("Expected error, got nil")
 			return
 		}
-		if !strings.Contains(err.Error(), "error waiting for kustomizations") {
+		if !strings.Contains(err.Error(), "kustomizations not ready") {
 			t.Errorf("Expected wait error, got: %v", err)
 		}
 	})
@@ -972,7 +974,7 @@ func TestApplyKustomizeCmd(t *testing.T) {
 		t.Cleanup(func() { applyWaitFlag = false })
 		// Given a kubernetes manager whose WaitForKustomizations fails on a named kustomization
 		mocks := setupApplyTest(t)
-		mocks.KubernetesManager.WaitForKustomizationsFunc = func(ctx context.Context, message string, blueprint *blueprintv1alpha1.Blueprint) error {
+		mocks.KubernetesManager.WaitForKustomizationsFunc = func(ctx context.Context, blueprint *blueprintv1alpha1.Blueprint, layers kubernetes.KustomizationReporter) error {
 			return fmt.Errorf("wait for kustomizations failed")
 		}
 		testBlueprint := &blueprintv1alpha1.Blueprint{
@@ -994,7 +996,7 @@ func TestApplyKustomizeCmd(t *testing.T) {
 			t.Error("Expected error, got nil")
 			return
 		}
-		if !strings.Contains(err.Error(), "error waiting for kustomizations") {
+		if !strings.Contains(err.Error(), "kustomizations not ready") {
 			t.Errorf("Expected wait error, got: %v", err)
 		}
 	})

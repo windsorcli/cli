@@ -9,6 +9,7 @@ import (
 
 	kustomizev1 "github.com/fluxcd/kustomize-controller/api/v1"
 	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
+	"github.com/windsorcli/cli/internal/presenter"
 	"github.com/windsorcli/cli/pkg/provisioner/kubernetes"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
@@ -303,7 +304,7 @@ func TestKubernetesManager_WaitForKustomizations(t *testing.T) {
 		f := newFixture(t)
 
 		// When it waits without a blueprint
-		err := f.manager.WaitForKustomizations(context.Background(), "Waiting", nil)
+		err := f.manager.WaitForKustomizations(context.Background(), nil, presenter.NewGroup(context.Background(), "kustomization:"))
 
 		// Then an error is returned
 		if err == nil || err.Error() != "blueprint not provided" {
@@ -319,7 +320,7 @@ func TestKubernetesManager_WaitForKustomizations(t *testing.T) {
 		blueprint := &blueprintv1alpha1.Blueprint{Kustomizations: []blueprintv1alpha1.Kustomization{{Name: "cluster"}}}
 
 		// When it waits
-		err := f.manager.WaitForKustomizations(ctx, "Waiting", blueprint)
+		err := f.manager.WaitForKustomizations(ctx, blueprint, presenter.NewGroup(ctx, "kustomization:"))
 
 		// Then the context error is returned
 		if !errors.Is(err, context.Canceled) {
