@@ -14,6 +14,7 @@ import (
 	"github.com/spf13/cobra"
 	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
 	"github.com/windsorcli/cli/pkg/composer/blueprint"
+	"github.com/windsorcli/cli/pkg/composer/terraform"
 	"github.com/windsorcli/cli/pkg/constants"
 	"github.com/windsorcli/cli/pkg/provisioner/kubernetes"
 	"github.com/windsorcli/cli/pkg/runtime/config"
@@ -434,7 +435,9 @@ func TestUpgradeCmd_Latest(t *testing.T) {
 		}
 		var order []string
 		mocks.BlueprintHandler.WriteFunc = func(overwrite ...bool) error {
-			order = append(order, "write")
+			if len(overwrite) > 0 && overwrite[0] {
+				order = append(order, "write")
+			}
 			return nil
 		}
 		mocks.BlueprintHandler.LoadBlueprintFunc = func(...string) error {
@@ -551,7 +554,9 @@ func TestUpgradeCmd_Source(t *testing.T) {
 			return "oci://ghcr.io/windsorcli/core:v0.3.0", nil
 		}
 		mocks.BlueprintHandler.WriteFunc = func(overwrite ...bool) error {
-			order = append(order, "write")
+			if len(overwrite) > 0 && overwrite[0] {
+				order = append(order, "write")
+			}
 			return nil
 		}
 		mocks.BlueprintHandler.LoadBlueprintFunc = func(...string) error {
@@ -593,6 +598,127 @@ func TestUpgradeCmd_Source(t *testing.T) {
 		}
 		if lastGenerateIdx == -1 || lastGenerateIdx < recomposeIdx {
 			t.Errorf("Expected the final Generate() to follow recompose, got order: %v", order)
+		}
+	})
+
+	t.Run("RegeneratesTerraformModulesAfterRetargetBeforeApplying", func(t *testing.T) {
+		t.Cleanup(func() { upgradeSources = nil })
+		// Given a retarget to a source version whose modules differ from the pinned version
+		mocks := setupApplyTest(t)
+		var order []string
+		mocks.BlueprintHandler.RetargetSourceFunc = func(name, url string) (string, error) {
+			order = append(order, "retarget")
+			return "oci://ghcr.io/windsorcli/core:v0.3.0", nil
+		}
+		loadCalls := 0
+		mocks.BlueprintHandler.LoadBlueprintFunc = func(...string) error {
+			loadCalls++
+			if loadCalls > 1 {
+				order = append(order, "recompose")
+			}
+			return nil
+		}
+		mocks.KubernetesManager.ApplyBlueprintFunc = func(bp *blueprintv1alpha1.Blueprint, namespace string) error {
+			order = append(order, "install")
+			return nil
+		}
+		proj := newApplyAllProject(mocks)
+		resolver := terraform.NewMockModuleResolver()
+		resolver.ProcessModulesFunc = func() error {
+			order = append(order, "process-modules")
+			return nil
+		}
+		resolver.GenerateTfvarsFunc = func(overwrite bool) error {
+			order = append(order, "tfvars")
+			return nil
+		}
+		proj.Composer.TerraformResolver = resolver
+
+		// When upgrading with --source
+		cmd := createTestUpgradeCmd()
+		cmd.SetArgs([]string{"--source", "core=oci://ghcr.io/windsorcli/core:v0.6.0"})
+		ctx := stdcontext.WithValue(stdcontext.Background(), projectOverridesKey, proj)
+		cmd.SetContext(ctx)
+		if err := cmd.Execute(); err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+
+		// Then the module shims and tfvars are rewritten after the recompose and before the install
+		want := []string{"process-modules", "tfvars", "retarget", "recompose", "process-modules", "tfvars", "install"}
+		if strings.Join(order, ",") != strings.Join(want, ",") {
+			t.Errorf("Expected order %v, got %v", want, order)
+		}
+	})
+
+	t.Run("SkipsTerraformRegenerationWhenNoSourceMoves", func(t *testing.T) {
+		// Given every source is already at its latest version
+		mocks := setupApplyTest(t)
+		mocks.BlueprintHandler.UpgradeSourcesToLatestFunc = func() ([]blueprint.SourceUpgrade, error) {
+			return nil, nil
+		}
+		proj := newApplyAllProject(mocks)
+		processed := 0
+		resolver := terraform.NewMockModuleResolver()
+		resolver.ProcessModulesFunc = func() error {
+			processed++
+			return nil
+		}
+		proj.Composer.TerraformResolver = resolver
+
+		// When upgrading
+		cmd := createTestUpgradeCmd()
+		ctx := stdcontext.WithValue(stdcontext.Background(), projectOverridesKey, proj)
+		cmd.SetContext(ctx)
+		if err := cmd.Execute(); err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+
+		// Then only Initialize processes the modules
+		if processed != 1 {
+			t.Errorf("Expected modules processed once, got %d", processed)
+		}
+	})
+
+	t.Run("TerraformRegenerationFailureAbortsBeforeApplying", func(t *testing.T) {
+		t.Cleanup(func() { upgradeSources = nil })
+		// Given a retarget whose module regeneration fails
+		mocks := setupApplyTest(t)
+		mocks.BlueprintHandler.RetargetSourceFunc = func(name, url string) (string, error) {
+			return "oci://ghcr.io/windsorcli/core:v0.3.0", nil
+		}
+		applied := false
+		mocks.KubernetesManager.ApplyBlueprintFunc = func(bp *blueprintv1alpha1.Blueprint, namespace string) error {
+			applied = true
+			return nil
+		}
+		proj := newApplyAllProject(mocks)
+		processed := 0
+		resolver := terraform.NewMockModuleResolver()
+		resolver.ProcessModulesFunc = func() error {
+			processed++
+			if processed > 1 {
+				return fmt.Errorf("module source not found")
+			}
+			return nil
+		}
+		proj.Composer.TerraformResolver = resolver
+
+		// When upgrading with --source
+		cmd := createTestUpgradeCmd()
+		cmd.SetArgs([]string{"--source", "core=oci://ghcr.io/windsorcli/core:v0.6.0"})
+		ctx := stdcontext.WithValue(stdcontext.Background(), projectOverridesKey, proj)
+		cmd.SetContext(ctx)
+		err := cmd.Execute()
+
+		// Then it returns the regeneration error and applies nothing
+		if err == nil {
+			t.Fatal("Expected an error when regeneration fails, got nil")
+		}
+		if !strings.Contains(err.Error(), "regenerating terraform modules") {
+			t.Errorf("Expected a regeneration error, got: %v", err)
+		}
+		if applied {
+			t.Error("Expected no blueprint apply when regeneration fails")
 		}
 	})
 

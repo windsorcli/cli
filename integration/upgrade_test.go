@@ -4,6 +4,9 @@
 package integration
 
 import (
+	"archive/tar"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -129,6 +132,38 @@ func TestUpgrade_AllowsDowngradeWithFlag(t *testing.T) {
 	}
 	if !strings.Contains(out, "does NOT reverse application data") {
 		t.Errorf("expected a data-loss warning under --allow-downgrade, got: %s", out)
+	}
+}
+
+func TestUpgrade_RetargetRegeneratesTerraformModules(t *testing.T) {
+	t.Parallel()
+	dir, env := helpers.CopyFixtureOnly(t, "upgrade-retarget")
+	helpers.MarkAsGitRepo(t, dir)
+	seedCoreArtifact(t, dir, "v0.1.0", "cluster_endpoint")
+	seedCoreArtifact(t, dir, "v0.2.0", "k8s_service_host")
+	if _, stderr, err := helpers.RunCLI(dir, []string{"init", "local"}, env); err != nil {
+		t.Fatalf("init local: %v\nstderr: %s", err, stderr)
+	}
+	env = append(env, "WINDSOR_CONTEXT=local")
+
+	// The retarget moves core to a version that renames the module input. The shim must load the
+	// new version's module before terraform runs; a missing cluster fails the command later.
+	_, stderr, _ := helpers.RunCLI(dir, []string{"upgrade", "--source", "core=oci://ghcr.io/windsorcli/core:v0.2.0", "--yes"}, env)
+
+	shimDir := filepath.Join(dir, ".windsor", "contexts", "local", "terraform", "cni", "demo")
+	mainTf, err := os.ReadFile(filepath.Join(shimDir, "main.tf"))
+	if err != nil {
+		t.Fatalf("read shim main.tf: %v\nstderr: %s", err, stderr)
+	}
+	if !strings.Contains(string(mainTf), "core_v0.2.0") {
+		t.Errorf("expected the shim source to load core v0.2.0, got:\n%s\nstderr: %s", mainTf, stderr)
+	}
+	variablesTf, err := os.ReadFile(filepath.Join(shimDir, "variables.tf"))
+	if err != nil {
+		t.Fatalf("read shim variables.tf: %v", err)
+	}
+	if !strings.Contains(string(variablesTf), "k8s_service_host") || strings.Contains(string(variablesTf), "cluster_endpoint") {
+		t.Errorf("expected the shim variables to follow core v0.2.0, got:\n%s", variablesTf)
 	}
 }
 
@@ -310,5 +345,38 @@ func TestUpgradeNode_RejectsInvalidRebootMode(t *testing.T) {
 	}
 	if !strings.Contains(string(stderr), "invalid --reboot-mode") {
 		t.Errorf("expected stderr to mention 'invalid --reboot-mode', got: %s", stderr)
+	}
+}
+
+// seedCoreArtifact writes a cached ghcr.io/windsorcli/core artifact at tag into the project's OCI
+// cache. The artifact holds one module, terraform/cni/demo, that declares the variable named by
+// variable. A cache hit lets the test retarget between versions without a registry.
+func seedCoreArtifact(t *testing.T, dir, tag, variable string) {
+	t.Helper()
+	cacheDir := filepath.Join(dir, ".windsor", "cache", "oci", "ghcr.io_windsorcli_core_"+tag)
+	if err := os.MkdirAll(cacheDir, 0755); err != nil {
+		t.Fatalf("create cache dir: %v", err)
+	}
+	f, err := os.Create(filepath.Join(cacheDir, "artifact.tar"))
+	if err != nil {
+		t.Fatalf("create artifact.tar: %v", err)
+	}
+	defer f.Close()
+	tw := tar.NewWriter(f)
+	files := map[string]string{
+		"metadata.yaml":                   "name: core\nversion: " + tag + "\n",
+		"terraform/cni/demo/variables.tf": "variable \"" + variable + "\" {\n  type    = string\n  default = \"\"\n}\n",
+		"terraform/cni/demo/main.tf":      "output \"value\" {\n  value = var." + variable + "\n}\n",
+	}
+	for name, content := range files {
+		if err := tw.WriteHeader(&tar.Header{Name: name, Mode: 0644, Size: int64(len(content))}); err != nil {
+			t.Fatalf("write tar header %s: %v", name, err)
+		}
+		if _, err := tw.Write([]byte(content)); err != nil {
+			t.Fatalf("write tar entry %s: %v", name, err)
+		}
+	}
+	if err := tw.Close(); err != nil {
+		t.Fatalf("close artifact.tar: %v", err)
 	}
 }

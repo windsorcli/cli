@@ -162,6 +162,12 @@ windsor upgrade cluster --nodes=10.0.0.5 --image=ghcr.io/siderolabs/installer:v1
 		}
 
 		return stacklock.With(cmd.Context(), proj.Runtime, "upgrade", lockTimeout, func() error {
+			if len(changes) > 0 {
+				if err := regenerateTerraform(proj); err != nil {
+					return err
+				}
+			}
+
 			if _, err := proj.Provisioner.Up(cmd.Context(), blueprint); err != nil {
 				return fmt.Errorf("error applying terraform: %w", err)
 			}
@@ -390,6 +396,16 @@ func upgradeToLatest(proj *project.Project) (sourceChanges, error) {
 func recomposeBlueprint(proj *project.Project) error {
 	if err := proj.Composer.BlueprintHandler.LoadBlueprint(); err != nil {
 		return fmt.Errorf("error recomposing blueprint against updated sources: %w", err)
+	}
+	return nil
+}
+
+// regenerateTerraform rewrites the terraform module shims and tfvars from the recomposed blueprint.
+// Initialize writes them before the source change, so they still load the old version's modules.
+// Without this call, Up applies the old modules with the new version's inputs.
+func regenerateTerraform(proj *project.Project) error {
+	if err := proj.Composer.Generate(); err != nil {
+		return fmt.Errorf("error regenerating terraform modules for updated sources: %w", err)
 	}
 	return nil
 }
