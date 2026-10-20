@@ -14,6 +14,7 @@ import (
 
 	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
 	"github.com/windsorcli/cli/internal/presenter"
+	"github.com/windsorcli/cli/internal/werror"
 	envvars "github.com/windsorcli/cli/pkg/runtime/env"
 )
 
@@ -46,20 +47,20 @@ type tfState struct {
 func (s *TerraformStack) HasLocalStateWithResources(componentID string) (bool, error) {
 	statePath, err := s.runtime.TerraformProvider.GetStatePath(componentID)
 	if err != nil {
-		return false, fmt.Errorf("error resolving local state path for %s: %w", componentID, err)
+		return false, werror.Wrap(err, "error resolving local state path for %s", componentID)
 	}
 	data, err := s.shims.ReadFile(statePath)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return false, nil
 		}
-		return false, fmt.Errorf("error reading local state file %s: %w", statePath, err)
+		return false, werror.Wrap(err, "error reading local state file %s", statePath)
 	}
 	var state struct {
 		Resources []json.RawMessage `json:"resources"`
 	}
 	if err := json.Unmarshal(data, &state); err != nil {
-		return false, fmt.Errorf("error parsing local state file %s: %w", statePath, err)
+		return false, werror.Wrap(err, "error parsing local state file %s", statePath)
 	}
 	return len(state.Resources) > 0, nil
 }
@@ -70,13 +71,13 @@ func (s *TerraformStack) HasLocalStateWithResources(componentID string) (bool, e
 func (s *TerraformStack) RemoveLocalState(componentID string) error {
 	statePath, err := s.runtime.TerraformProvider.GetStatePath(componentID)
 	if err != nil {
-		return fmt.Errorf("error resolving local state path for %s: %w", componentID, err)
+		return werror.Wrap(err, "error resolving local state path for %s", componentID)
 	}
 	if err := s.shims.Remove(statePath); err != nil && !os.IsNotExist(err) {
-		return fmt.Errorf("error removing local state file %s: %w", statePath, err)
+		return werror.Wrap(err, "error removing local state file %s", statePath)
 	}
 	if err := s.shims.Remove(statePath + ".backup"); err != nil && !os.IsNotExist(err) {
-		return fmt.Errorf("error removing local state backup %s: %w", statePath, err)
+		return werror.Wrap(err, "error removing local state backup %s", statePath)
 	}
 	return nil
 }
@@ -99,7 +100,7 @@ func (s *TerraformStack) MigrateState(ctx context.Context, blueprint *blueprintv
 
 	currentDir, err := s.shims.Getwd()
 	if err != nil {
-		return nil, fmt.Errorf("error getting current directory: %v", err)
+		return nil, werror.Wrap(err, "error getting current directory")
 	}
 	defer func() {
 		_ = s.shims.Chdir(currentDir)
@@ -134,13 +135,11 @@ func (s *TerraformStack) MigrateState(ctx context.Context, blueprint *blueprintv
 	return skipped, err
 }
 
-// MigrateComponentState runs `terraform init -migrate-state -force-copy` for a single
-// component identified by componentID, moving its state to the currently configured
-// backend. Used by `windsor bootstrap` after applying just the backend component with a
-// local backend, so only that component's state is moved to remote (the rest haven't
-// been applied yet and will init directly against the configured backend on the next
-// Up). Returns an error if the blueprint is nil, the component is not found, the
-// component's directory does not exist, or any terraform operation fails.
+// MigrateComponentState runs terraform init -migrate-state -force-copy for one component.
+// It moves the state of the component to the configured backend. windsor bootstrap calls it
+// after it applies the backend component with a local backend. It returns an error if the
+// blueprint is nil or a terraform command fails. A component that is not in the blueprint, or a
+// component directory that does not exist, returns an error with a remediation hint.
 func (s *TerraformStack) MigrateComponentState(blueprint *blueprintv1alpha1.Blueprint, componentID string) error {
 	if blueprint == nil {
 		return fmt.Errorf("blueprint not provided")
@@ -151,7 +150,7 @@ func (s *TerraformStack) MigrateComponentState(blueprint *blueprintv1alpha1.Blue
 
 	currentDir, err := s.shims.Getwd()
 	if err != nil {
-		return fmt.Errorf("error getting current directory: %v", err)
+		return werror.Wrap(err, "error getting current directory")
 	}
 	defer func() {
 		_ = s.shims.Chdir(currentDir)
@@ -171,7 +170,7 @@ func (s *TerraformStack) MigrateComponentState(blueprint *blueprintv1alpha1.Blue
 		}
 	}
 	if component == nil {
-		return fmt.Errorf("terraform component %q not found", componentID)
+		return werror.New(fmt.Sprintf("terraform component %q not found", componentID), componentNotFoundHint, nil)
 	}
 
 	var backendOverridePaths []string
@@ -193,7 +192,7 @@ func (s *TerraformStack) MigrateComponentState(blueprint *blueprintv1alpha1.Blue
 		return err
 	}
 	if !migrated {
-		return fmt.Errorf("component %q directory %s does not exist", componentID, component.FullPath)
+		return missingComponentDirError(component)
 	}
 	return nil
 }
@@ -216,7 +215,7 @@ func (s *TerraformStack) migrateOneComponent(component *blueprintv1alpha1.Terraf
 		if os.IsNotExist(statErr) {
 			return false, nil
 		}
-		return false, fmt.Errorf("error checking component directory %s: %w", component.FullPath, statErr)
+		return false, werror.Wrap(statErr, "error checking component directory %s", component.FullPath)
 	}
 
 	terraformVars, scopedKeys, terraformArgs, err := s.setupTerraformEnvironment(*component)
@@ -263,11 +262,11 @@ func (s *TerraformStack) hasStateResources(component *blueprintv1alpha1.Terrafor
 	stateShowArgs := []string{fmt.Sprintf("-chdir=%s", component.FullPath), "show", "-json"}
 	stateJSON, err := s.runtime.Shell.ExecCaptureWithEnv(terraformCommand, selectTerraformCommandEnv(terraformVars, true, scopedKeys), stateShowArgs...)
 	if err != nil {
-		return false, fmt.Errorf("error reading terraform state JSON for %s: %w", component.Path, err)
+		return false, werror.Wrap(err, "error reading terraform state JSON for %s", component.Path)
 	}
 	var state tfState
 	if err := json.Unmarshal([]byte(stateJSON), &state); err != nil {
-		return false, fmt.Errorf("error parsing terraform state JSON for %s: %w", component.Path, err)
+		return false, werror.Wrap(err, "error parsing terraform state JSON for %s", component.Path)
 	}
 	if state.Values == nil {
 		return false, nil
@@ -313,7 +312,7 @@ func (s *TerraformStack) refreshComponentState(component *blueprintv1alpha1.Terr
 		_, err = s.runtime.Shell.ExecSilentWithEnv(terraformCommand, refreshEnv, refreshArgs...)
 	}
 	if err != nil {
-		return fmt.Errorf("error refreshing terraform state for %s: %w", component.Path, err)
+		return werror.Wrap(err, "error refreshing terraform state for %s", component.Path)
 	}
 	return nil
 }
