@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
+	"github.com/windsorcli/cli/internal/werror"
 	"github.com/windsorcli/cli/pkg/runtime/evaluator"
 )
 
@@ -866,6 +867,9 @@ func TestProcessor_ProcessFacets_ConfigBlockWhenChainAcrossRounds(t *testing.T) 
 		if !strings.Contains(err.Error(), "did not converge") {
 			t.Errorf("Expected a convergence error, got: %v", err)
 		}
+		if werr := werror.Find(err); werr == nil || !strings.Contains(werr.Remediation, "when: or value: cycle") {
+			t.Errorf("Expected remediation containing %q, got %v", "when: or value: cycle", werr)
+		}
 	})
 }
 
@@ -1006,6 +1010,9 @@ func TestProcessor_ProcessFacets_ConfigBlockEvaluationOrder(t *testing.T) {
 		}
 		if !strings.Contains(err.Error(), "circular reference") {
 			t.Errorf("Expected error to mention 'circular reference', got: %v", err)
+		}
+		if werr := werror.Find(err); werr == nil || !strings.Contains(werr.Remediation, "reference cycle") {
+			t.Errorf("Expected remediation containing %q, got %v", "reference cycle", werr)
 		}
 		if !strings.Contains(err.Error(), "alpha") || !strings.Contains(err.Error(), "beta") {
 			t.Errorf("Expected error to name both blocks in cycle, got: %v", err)

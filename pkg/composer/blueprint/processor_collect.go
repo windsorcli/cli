@@ -198,7 +198,7 @@ func (p *BaseBlueprintProcessor) collectKustomizations(facet blueprintv1alpha1.F
 			}
 			if containsDeferredInValue(evaluatedPath) {
 				expr, _ := evaluator.DeferredExpression(evaluatedPath)
-				return fmt.Errorf("kustomization '%s' path references a value that is not yet available: %s; a path must resolve at compose time", processed.Name, expr)
+				return werror.New(fmt.Sprintf("kustomization '%s' path references a value that is not yet available: %s", processed.Name, expr), "Use a kustomization path that Windsor can resolve at compose time.", nil)
 			}
 			if pathStr, ok := evaluatedPath.(string); ok {
 				processed.Path = pathStr
@@ -271,12 +271,11 @@ func resolveSourceName(sourceName []string) string {
 	return ""
 }
 
-// validateCrdRef rejects a CRD reference that would escape the kustomize/crds/ catalog when
-// concatenated into a path. A reference is a single directory segment, so any path separator or
-// parent-directory token is a malformed (or malicious) value.
+// validateCrdRef returns an error if a CRD reference is not a single path segment.
+// A reference with '/', '\', or '..' could point outside the kustomize/crds/ catalog. The error has a remediation hint.
 func validateCrdRef(ref string) error {
 	if strings.ContainsAny(ref, "/\\") || strings.Contains(ref, "..") {
-		return fmt.Errorf("invalid crd reference %q: must be a single path segment without '/', '\\', or '..'", ref)
+		return werror.New(fmt.Sprintf("invalid crd reference %q", ref), "Use a single path segment without '/', '\\', or '..' for the CRD reference.", nil)
 	}
 	return nil
 }
@@ -295,19 +294,18 @@ func mergeSubstitute(k blueprintv1alpha1.Kustomization) map[string]string {
 	return out
 }
 
-// validateSystemSecrets rejects a malformed secrets: entry of a flux system. An entry must have data
-// keys, in the form `data: {<key>: <ref>}` with an optional `namespaces:` selector; an empty entry would
-// never create a secret. Each value must be a complete ${...} expression, a reference or a secret()
-// call. A plaintext literal is rejected, because the blueprint file holds it and git would store it.
+// validateSystemSecrets checks the secrets: entries of a flux system. Each entry must have data keys
+// in the form data: {<key>: <ref>}. Each value must contain a complete ${...} expression, a reference or a secret() call.
+// It does not accept a plaintext literal, because git stores the blueprint file. Each error has a remediation hint.
 func (p *BaseBlueprintProcessor) validateSystemSecrets(systemName string, secrets map[string]blueprintv1alpha1.SecretEntry) error {
 	for secretName, entry := range secrets {
 		if len(entry.Data) == 0 {
-			return fmt.Errorf("secret %q in flux system %q declares no data keys; nest them under `data:` (an entry is `data: {<key>: <ref>}` plus an optional `namespaces:` selector)", secretName, systemName)
+			return werror.New(fmt.Sprintf("secret %q in flux system %q declares no data keys", secretName, systemName), "Put the keys under data: in the form data: {<key>: <ref>}. A namespaces: selector is optional.", nil)
 		}
 		for key, ref := range entry.Data {
 			open := strings.Index(ref, "${")
 			if open < 0 || !strings.Contains(ref[open+2:], "}") {
-				return fmt.Errorf("secret %q key %q in flux system %q must contain a complete ${...} expression (a reference or a secret() call), not a plaintext literal or unterminated expression, got %q", secretName, key, systemName, ref)
+				return werror.New(fmt.Sprintf("secret %q key %q in flux system %q must contain a complete ${...} expression, got %q", secretName, key, systemName, ref), "Set the value to a ${...} reference or a secret() call. Do not use a plaintext literal.", nil)
 			}
 		}
 	}
@@ -487,7 +485,7 @@ func (p *BaseBlueprintProcessor) collectFluxSystems(facet blueprintv1alpha1.Face
 				variantKey += "-" + v.Name
 			}
 			if seenVariants[variantKey] {
-				return fmt.Errorf("duplicate resources variant %q in system %q; add a unique name: field to each variant", variantKey, system.Name)
+				return werror.New(fmt.Sprintf("duplicate resources variant %q in system %q", variantKey, system.Name), "Add a unique name: field to each resources variant.", nil)
 			}
 			seenVariants[variantKey] = true
 

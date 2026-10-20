@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/windsorcli/cli/internal/werror"
 	"github.com/windsorcli/cli/pkg/composer/artifact"
 	"github.com/windsorcli/cli/pkg/composer/blueprint"
 	"github.com/windsorcli/cli/pkg/composer/terraform"
@@ -125,34 +126,32 @@ func LoadBlueprintIfTerraformProject(rt *runtime.Runtime, skipValidation bool, o
 // Public Methods
 // =============================================================================
 
-// Bundle creates a complete artifact bundle from the project's templates, kustomize, and terraform files.
-// It creates a distributable artifact.
-// The outputPath specifies where to save the bundle file. Returns the actual output path or an error.
+// Bundle writes an artifact of the project templates, kustomize files, and terraform files to outputPath.
+// The tag sets the artifact name and version. It returns the path of the artifact.
 func (r *Composer) Bundle(outputPath, tag string) (string, error) {
 	actualOutputPath, err := r.ArtifactBuilder.Write(outputPath, tag)
 	if err != nil {
-		return "", fmt.Errorf("failed to create artifact bundle: %w", err)
+		return "", werror.Wrap(err, "failed to create artifact bundle")
 	}
 
 	return actualOutputPath, nil
 }
 
-// Push creates and pushes an artifact to a container registry.
-// It bundles all project files and pushes them to the specified registry with the given tag.
-// The registryURL can be in formats like "registry.com/repo:tag", "registry.com/repo", or "oci://registry.com/repo:tag".
-// Returns the registry URL or an error.
+// Push bundles the project files and pushes the artifact to registryURL.
+// registryURL can be registry.com/repo:tag, registry.com/repo, or oci://registry.com/repo:tag.
+// It returns the registry URL with the repository and the tag.
 func (r *Composer) Push(registryURL string) (string, error) {
 	registryBase, repoName, tag, err := artifact.ParseRegistryURL(registryURL)
 	if err != nil {
-		return "", fmt.Errorf("failed to parse registry URL: %w", err)
+		return "", werror.Wrap(err, "failed to parse registry URL")
 	}
 
 	if err := r.ArtifactBuilder.Bundle(); err != nil {
-		return "", fmt.Errorf("failed to bundle artifacts: %w", err)
+		return "", werror.Wrap(err, "failed to bundle artifacts")
 	}
 
 	if err := r.ArtifactBuilder.Push(registryBase, repoName, tag); err != nil {
-		return "", fmt.Errorf("failed to push artifact: %w", err)
+		return "", werror.Wrap(err, "failed to push artifact")
 	}
 
 	resultURL := fmt.Sprintf("%s/%s", registryBase, repoName)
@@ -163,13 +162,9 @@ func (r *Composer) Push(registryURL string) (string, error) {
 	return resultURL, nil
 }
 
-// Generate processes and deploys the complete project infrastructure.
-// It initializes all core resources, processes blueprints, and handles terraform modules
-// for the project. The optional overwrite parameter determines whether existing files
-// should be overwritten during blueprint processing. The optional blueprintURL parameter
-// specifies the blueprint artifact to load (OCI URL or local .tar.gz path). If not provided,
-// LoadBlueprint will use the default blueprint URL. This is the main deployment method.
-// Returns an error if any initialization or processing step fails.
+// Generate writes the blueprint files, processes the terraform modules, and writes the local .gitignore files.
+// When terraform is enabled, it also generates the tfvars files. If overwrite is true, it replaces the existing blueprint files.
+// It stops at the first error.
 func (r *Composer) Generate(overwrite ...bool) error {
 	shouldOverwrite := false
 	if len(overwrite) > 0 {
@@ -177,20 +172,20 @@ func (r *Composer) Generate(overwrite ...bool) error {
 	}
 
 	if err := r.BlueprintHandler.Write(shouldOverwrite); err != nil {
-		return fmt.Errorf("failed to write blueprint files: %w", err)
+		return werror.Wrap(err, "failed to write blueprint files")
 	}
 
 	if err := r.TerraformResolver.ProcessModules(); err != nil {
-		return fmt.Errorf("failed to process terraform modules: %w", err)
+		return werror.Wrap(err, "failed to process terraform modules")
 	}
 
 	if err := r.writeLocalGitignores(); err != nil {
-		return fmt.Errorf("failed to write local gitignores: %w", err)
+		return werror.Wrap(err, "failed to write local gitignores")
 	}
 
 	if r.configHandler.GetBool("terraform.enabled", true) {
 		if err := r.TerraformResolver.GenerateTfvars(shouldOverwrite); err != nil {
-			return fmt.Errorf("failed to generate terraform files: %w", err)
+			return werror.Wrap(err, "failed to generate terraform files")
 		}
 	}
 
@@ -213,27 +208,25 @@ const windsorMarkerContent = "*\n"
 // secrets.enc.yaml/secrets.enc.yml variants are safe to commit and stay tracked.
 const contextIgnoreContent = ".kube/\n.talos/\n.omni/\n.aws/\n.azure/\n.gcp/\n.vsphere/\n.env\nsecrets.yaml\nsecrets.yml\n"
 
-// writeLocalGitignores writes self-contained .gitignore files into Windsor-owned
-// folders so re-running Windsor never touches the project-root .gitignore.
-// Each file is written once: if a target .gitignore already exists, it is left
-// alone. .volumes/ and contexts/ are skipped silently when the directory itself
-// is absent; .windsor/ is created if missing.
+// writeLocalGitignores writes a .gitignore file in each Windsor folder, so Windsor does not change the project .gitignore.
+// It creates .windsor/ if necessary. It skips .volumes/ and contexts/ if they do not exist.
+// It does not change an existing .windsor/ or .volumes/ .gitignore, and it merges the entries into each context .gitignore.
 func (r *Composer) writeLocalGitignores() error {
 	windsorDir := filepath.Join(r.projectRoot, ".windsor")
 	if err := os.MkdirAll(windsorDir, 0750); err != nil {
-		return fmt.Errorf("failed to ensure .windsor directory: %w", err)
+		return werror.Wrap(err, "failed to ensure .windsor directory")
 	}
 	if err := writeIfMissing(filepath.Join(windsorDir, ".gitignore"), windsorMarkerContent); err != nil {
-		return fmt.Errorf("failed to write .windsor/.gitignore: %w", err)
+		return werror.Wrap(err, "failed to write .windsor/.gitignore")
 	}
 
 	volumesDir := filepath.Join(r.projectRoot, ".volumes")
 	if _, err := os.Stat(volumesDir); err == nil {
 		if err := writeIfMissing(filepath.Join(volumesDir, ".gitignore"), windsorMarkerContent); err != nil {
-			return fmt.Errorf("failed to write .volumes/.gitignore: %w", err)
+			return werror.Wrap(err, "failed to write .volumes/.gitignore")
 		}
 	} else if !os.IsNotExist(err) {
-		return fmt.Errorf("failed to stat .volumes: %w", err)
+		return werror.Wrap(err, "failed to stat .volumes")
 	}
 
 	contextsDir := filepath.Join(r.projectRoot, "contexts")
@@ -242,7 +235,7 @@ func (r *Composer) writeLocalGitignores() error {
 		if os.IsNotExist(err) {
 			return nil
 		}
-		return fmt.Errorf("failed to read contexts directory: %w", err)
+		return werror.Wrap(err, "failed to read contexts directory")
 	}
 	for _, entry := range entries {
 		if !entry.IsDir() || entry.Name() == "_template" {
@@ -250,7 +243,7 @@ func (r *Composer) writeLocalGitignores() error {
 		}
 		target := filepath.Join(contextsDir, entry.Name(), ".gitignore")
 		if err := writeOrMergeContextIgnore(target, contextIgnoreContent); err != nil {
-			return fmt.Errorf("failed to write contexts/%s/.gitignore: %w", entry.Name(), err)
+			return werror.Wrap(err, "failed to write contexts/%s/.gitignore", entry.Name())
 		}
 	}
 	return nil

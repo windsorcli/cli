@@ -10,6 +10,7 @@ import (
 	"fmt"
 
 	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
+	"github.com/windsorcli/cli/internal/werror"
 )
 
 // =============================================================================
@@ -23,9 +24,8 @@ var ErrBlueprintInvalid = errors.New("invalid blueprint")
 // Helpers
 // =============================================================================
 
-// ValidateComposedBlueprint rejects composed blueprints whose Backend field names a
-// component that does not exist. Nil and empty-Backend blueprints are accepted.
-// Failures wrap ErrBlueprintInvalid.
+// ValidateComposedBlueprint returns an error if the backend field names a terraform component that does not exist.
+// It accepts a nil blueprint and an empty backend field. The error has a remediation hint and wraps ErrBlueprintInvalid.
 func ValidateComposedBlueprint(blueprint *blueprintv1alpha1.Blueprint) error {
 	if blueprint == nil || blueprint.Backend == "" {
 		return nil
@@ -37,8 +37,9 @@ func ValidateComposedBlueprint(blueprint *blueprintv1alpha1.Blueprint) error {
 		}
 	}
 
-	return fmt.Errorf(
-		"%w\n\nBlueprint configuration: backend names terraform component %q but no component with that ID is declared. Set backend to the ID of an existing terraform component, or remove the backend field to opt out of the in-blueprint backend.",
-		ErrBlueprintInvalid, blueprint.Backend,
+	return werror.New(
+		fmt.Sprintf("invalid blueprint: backend names terraform component %q but no component with that ID is declared", blueprint.Backend),
+		"Set backend to the ID of an existing terraform component, or remove the backend field to use no in-blueprint backend.",
+		ErrBlueprintInvalid,
 	)
 }

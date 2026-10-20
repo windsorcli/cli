@@ -390,9 +390,9 @@ func (p *BaseBlueprintProcessor) resolveConfigAndInclusion(sortedFacets []bluepr
 		if len(named) == 0 {
 			named = unstableConfigBlockNames(globalScope, prevGlobalScope)
 		}
-		return nil, nil, nil, fmt.Errorf(
-			"config did not converge after %d rounds. Check for a 'when:' or 'value:' cycle involving: %s",
-			maxFacetRounds, strings.Join(named, ", "),
+		return nil, nil, nil, werror.New(
+			fmt.Sprintf("config did not converge after %d rounds: %s", maxFacetRounds, strings.Join(named, ", ")),
+			"Remove the when: or value: cycle among these config blocks.", nil,
 		)
 	}
 

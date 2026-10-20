@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
+	"github.com/windsorcli/cli/internal/werror"
 )
 
 // =============================================================================
@@ -477,6 +478,9 @@ func TestComposer_validateDependencies(t *testing.T) {
 		}
 		if !strings.Contains(err.Error(), "depends on non-existent component") {
 			t.Errorf("Expected error message about non-existent component, got: %v", err)
+		}
+		if werr := werror.Find(err); werr == nil || !strings.Contains(werr.Remediation, "dependsOn") {
+			t.Errorf("Expected remediation containing %q, got %v", "dependsOn", werr)
 		}
 		if !strings.Contains(err.Error(), "cluster") {
 			t.Errorf("Expected error to mention component name, got: %v", err)

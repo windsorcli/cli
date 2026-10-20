@@ -7,6 +7,7 @@ import (
 	"time"
 
 	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
+	"github.com/windsorcli/cli/internal/werror"
 	"github.com/windsorcli/cli/pkg/runtime/evaluator"
 )
 
@@ -1037,6 +1038,9 @@ func TestProcessor_ProcessFacets_Tiers(t *testing.T) {
 		if err == nil {
 			t.Fatal("expected error for duplicate unnamed resources variant, got nil")
 		}
+		if werr := werror.Find(err); werr == nil || !strings.Contains(werr.Remediation, "unique name:") {
+			t.Errorf("Expected remediation containing %q, got %v", "unique name:", werr)
+		}
 	})
 
 	t.Run("CrossFacetSameNamedVariantDeepMerges", func(t *testing.T) {
@@ -1447,15 +1451,18 @@ func TestValidateSystemSecrets(t *testing.T) {
 	t.Run("RejectsPlaintextLiteral", func(t *testing.T) {
 		// A hardcoded literal would be serialized with the blueprint (git-committed), so it fails closed
 		err := processor(t).validateSystemSecrets("cdn", map[string]blueprintv1alpha1.SecretEntry{"creds": {Data: map[string]string{"token": "actual-secret-value"}}})
-		if err == nil || !strings.Contains(err.Error(), "not a plaintext literal") {
+		if err == nil || !strings.Contains(err.Error(), `must contain a complete ${...} expression, got "actual-secret-value"`) {
 			t.Errorf("Expected plaintext-literal error, got %v", err)
+		}
+		if werr := werror.Find(err); werr == nil || !strings.Contains(werr.Remediation, "plaintext literal") {
+			t.Errorf("Expected remediation containing %q, got %v", "plaintext literal", werr)
 		}
 	})
 
 	t.Run("RejectsUnterminatedExpression", func(t *testing.T) {
 		// A malformed, unterminated interpolation is caught at composition rather than at apply time
 		err := processor(t).validateSystemSecrets("cdn", map[string]blueprintv1alpha1.SecretEntry{"creds": {Data: map[string]string{"token": "${cdn.token"}}})
-		if err == nil || !strings.Contains(err.Error(), "unterminated expression") {
+		if err == nil || !strings.Contains(err.Error(), `must contain a complete ${...} expression, got "${cdn.token"`) {
 			t.Errorf("Expected unterminated-expression error, got %v", err)
 		}
 	})
@@ -1466,6 +1473,9 @@ func TestValidateSystemSecrets(t *testing.T) {
 		err := processor(t).validateSystemSecrets("cdn", map[string]blueprintv1alpha1.SecretEntry{"creds": {Namespaces: []string{"system-dns"}}})
 		if err == nil || !strings.Contains(err.Error(), "no data keys") {
 			t.Errorf("Expected no-data-keys error, got %v", err)
+		}
+		if werr := werror.Find(err); werr == nil || !strings.Contains(werr.Remediation, "data: {<key>: <ref>}") {
+			t.Errorf("Expected remediation containing %q, got %v", "data: {<key>: <ref>}", werr)
 		}
 	})
 }

@@ -17,6 +17,9 @@ import (
 // Constants
 // =============================================================================
 
+// strategyHint is the remediation for a strategy value that is not merge, replace, or remove.
+const strategyHint = "Set strategy to merge, replace, or remove."
+
 // strategyPrecedence is the tiebreaker when component ordinals are equal: remove > replace > merge.
 var strategyPrecedence = map[string]int{
 	"remove":  3,
@@ -42,7 +45,7 @@ func (p *BaseBlueprintProcessor) updateFluxSystemEntry(name string, new *bluepri
 
 	newStrategyPrec, ok := strategyPrecedence[strategy]
 	if !ok {
-		return fmt.Errorf("invalid strategy '%s' for flux system '%s': must be 'remove', 'replace', or 'merge'", strategy, name)
+		return werror.New(fmt.Sprintf("invalid strategy '%s' for flux system '%s'", strategy, name), strategyHint, nil)
 	}
 
 	newOrdinal := ordinalOrZero(new.Ordinal)
@@ -190,7 +193,7 @@ func (p *BaseBlueprintProcessor) updateTerraformComponentEntry(
 
 	newStrategyPrec, exists := strategyPrecedence[strategy]
 	if !exists {
-		return fmt.Errorf("invalid strategy '%s' for terraform component '%s': must be 'remove', 'replace', or 'merge'", strategy, componentID)
+		return werror.New(fmt.Sprintf("invalid strategy '%s' for terraform component '%s'", strategy, componentID), strategyHint, nil)
 	}
 
 	newOrdinal := ordinalOrZero(new.Ordinal)
@@ -230,8 +233,10 @@ func (p *BaseBlueprintProcessor) updateTerraformComponentEntry(
 	return p.applyTerraformComponentEntryByStrategy(componentID, new, existing, strategy, entries)
 }
 
-// applyTerraformComponentEntryByStrategy updates the terraform component entry by applying new over existing
-// according to strategy: replace overwrites; merge strategic-merges (existing base, new overlay); remove accumulates removals.
+// applyTerraformComponentEntryByStrategy applies new over existing in entries by strategy. An empty strategy means merge.
+// replace stores new. merge does a strategic merge of new over existing. remove accumulates the removals.
+// merge and remove combine the when expressions of both entries with &&.
+// An unknown strategy returns an error with a remediation hint.
 func (p *BaseBlueprintProcessor) applyTerraformComponentEntryByStrategy(
 	componentID string,
 	new *blueprintv1alpha1.ConditionalTerraformComponent,
@@ -282,7 +287,7 @@ func (p *BaseBlueprintProcessor) applyTerraformComponentEntryByStrategy(
 		}
 		return nil
 	default:
-		return fmt.Errorf("invalid strategy '%s' for terraform component '%s': must be 'remove', 'replace', or 'merge'", strategy, componentID)
+		return werror.New(fmt.Sprintf("invalid strategy '%s' for terraform component '%s'", strategy, componentID), strategyHint, nil)
 	}
 }
 
@@ -320,7 +325,7 @@ func (p *BaseBlueprintProcessor) updateKustomizationEntry(name string, new *blue
 
 	newStrategyPrec, exists := strategyPrecedence[strategy]
 	if !exists {
-		return fmt.Errorf("invalid strategy '%s' for kustomization '%s': must be 'remove', 'replace', or 'merge'", strategy, name)
+		return werror.New(fmt.Sprintf("invalid strategy '%s' for kustomization '%s'", strategy, name), strategyHint, nil)
 	}
 
 	newOrdinal := ordinalOrZero(new.Ordinal)
@@ -355,9 +360,10 @@ func (p *BaseBlueprintProcessor) updateKustomizationEntry(name string, new *blue
 	return p.applyKustomizationEntryByStrategy(name, new, strategy, existing, entries)
 }
 
-// applyKustomizationEntryByStrategy updates the kustomization entry by applying new over existing
-// according to strategy: replace overwrites; merge combines list fields (components, dependsOn, etc.);
-// remove accumulates removals. combinedWhen is built from existing and new When expressions.
+// applyKustomizationEntryByStrategy applies new over existing in entries by strategy. An empty strategy means merge.
+// replace stores new. merge does a strategic merge of new over existing. remove accumulates the removals.
+// merge and remove combine the when expressions of both entries with &&.
+// An unknown strategy returns an error with a remediation hint.
 func (p *BaseBlueprintProcessor) applyKustomizationEntryByStrategy(name string, new *blueprintv1alpha1.ConditionalKustomization, strategy string, existing *blueprintv1alpha1.ConditionalKustomization, entries map[string]*blueprintv1alpha1.ConditionalKustomization) error {
 	if strategy == "" {
 		strategy = "merge"
@@ -402,7 +408,7 @@ func (p *BaseBlueprintProcessor) applyKustomizationEntryByStrategy(name string, 
 		}
 		return nil
 	default:
-		return fmt.Errorf("invalid strategy '%s' for kustomization '%s': must be 'remove', 'replace', or 'merge'", strategy, name)
+		return werror.New(fmt.Sprintf("invalid strategy '%s' for kustomization '%s'", strategy, name), strategyHint, nil)
 	}
 }
 
@@ -635,7 +641,7 @@ func partitionByStrategy[E any, T any](entries map[string]*E, kind string, split
 		case "merge":
 			merges = append(merges, item)
 		default:
-			return nil, nil, nil, fmt.Errorf("invalid strategy '%s' for %s '%s': must be 'remove', 'replace', or 'merge'", strategy, kind, key)
+			return nil, nil, nil, werror.New(fmt.Sprintf("invalid strategy '%s' for %s '%s'", strategy, kind, key), strategyHint, nil)
 		}
 	}
 	return removals, replaces, merges, nil
