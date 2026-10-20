@@ -6,7 +6,6 @@
 package terraform
 
 import (
-	"fmt"
 	"os"
 	"path/filepath"
 	"sort"
@@ -14,6 +13,7 @@ import (
 
 	"github.com/hashicorp/hcl/v2"
 	"github.com/hashicorp/hcl/v2/hclwrite"
+	"github.com/windsorcli/cli/internal/werror"
 	"github.com/zclconf/go-cty/cty"
 )
 
@@ -54,10 +54,7 @@ func (h *BaseModuleResolver) clearShimDirTfFiles(moduleDir string) error {
 	return nil
 }
 
-// writeShimMainTf creates the main.tf file for the shim module by generating a module block
-// that references the specified source. It creates an HCL configuration with a single module
-// block named "main" that points to the provided source location, then writes the generated
-// configuration to main.tf in the specified module directory.
+// writeShimMainTf writes main.tf in moduleDir. The file has one module block named "main" that points to source.
 func (h *BaseModuleResolver) writeShimMainTf(moduleDir, source string) error {
 	mainContent := hclwrite.NewEmptyFile()
 	block := mainContent.Body().AppendNewBlock("module", []string{"main"})
@@ -65,17 +62,15 @@ func (h *BaseModuleResolver) writeShimMainTf(moduleDir, source string) error {
 	body.SetAttributeValue("source", cty.StringVal(source))
 
 	if err := h.shims.WriteFile(filepath.Join(moduleDir, "main.tf"), mainContent.Bytes(), 0644); err != nil {
-		return fmt.Errorf("failed to write main.tf: %w", err)
+		return werror.Wrap(err, "failed to write main.tf")
 	}
 	return nil
 }
 
-// writeShimVariablesTf creates the variables.tf file for the shim module by parsing all .tf files
-// in the original module and generating corresponding variable blocks and module arguments.
-// It parses variable definitions from any .tf file in the source module, creates shim variable blocks
-// that preserve all attributes (description, type, default, sensitive), and configures the main
-// module block to pass through all variables using var.variable_name references. Variables are
-// generated in alphabetical order in both the variables.tf file and the module arguments.
+// writeShimVariablesTf writes the shim variables.tf and main.tf from the variable blocks in the .tf files at modulePath.
+// Each shim variable keeps the description, type, default, and sensitive attributes of the source variable.
+// The "main" module block passes each variable as var.<name>. Variables are in alphabetical order.
+// It skips a .tf file that it cannot read or parse. If no variables are found, it writes only main.tf.
 func (h *BaseModuleResolver) writeShimVariablesTf(moduleDir, modulePath, source string) error {
 	shimMainContent := hclwrite.NewEmptyFile()
 	shimBlock := shimMainContent.Body().AppendNewBlock("module", []string{"main"})
@@ -85,12 +80,12 @@ func (h *BaseModuleResolver) writeShimVariablesTf(moduleDir, modulePath, source 
 	pattern := filepath.Join(modulePath, "*.tf")
 	matches, err := h.shims.Glob(pattern)
 	if err != nil {
-		return fmt.Errorf("failed to find .tf files in module: %w", err)
+		return werror.Wrap(err, "failed to find .tf files in module")
 	}
 
 	if len(matches) == 0 {
 		if err := h.shims.WriteFile(filepath.Join(moduleDir, "main.tf"), shimMainContent.Bytes(), 0644); err != nil {
-			return fmt.Errorf("failed to write shim main.tf: %w", err)
+			return werror.Wrap(err, "failed to write shim main.tf")
 		}
 		return nil
 	}
@@ -123,7 +118,7 @@ func (h *BaseModuleResolver) writeShimVariablesTf(moduleDir, modulePath, source 
 
 	if len(variableMap) == 0 {
 		if err := h.shims.WriteFile(filepath.Join(moduleDir, "main.tf"), shimMainContent.Bytes(), 0644); err != nil {
-			return fmt.Errorf("failed to write shim main.tf: %w", err)
+			return werror.Wrap(err, "failed to write shim main.tf")
 		}
 		return nil
 	}
@@ -165,21 +160,20 @@ func (h *BaseModuleResolver) writeShimVariablesTf(moduleDir, modulePath, source 
 	}
 
 	if err := h.shims.WriteFile(filepath.Join(moduleDir, "variables.tf"), shimVariablesContent.Bytes(), 0644); err != nil {
-		return fmt.Errorf("failed to write shim variables.tf: %w", err)
+		return werror.Wrap(err, "failed to write shim variables.tf")
 	}
 
 	if err := h.shims.WriteFile(filepath.Join(moduleDir, "main.tf"), shimMainContent.Bytes(), 0644); err != nil {
-		return fmt.Errorf("failed to write shim main.tf: %w", err)
+		return werror.Wrap(err, "failed to write shim main.tf")
 	}
 
 	return nil
 }
 
-// writeShimOutputsTf creates the outputs.tf file for the shim module by reading the original
-// module's outputs.tf file and generating corresponding output blocks that reference the
-// main module. It preserves output descriptions and creates value references using the
-// module.main.output_name traversal pattern. When the source module has no outputs.tf,
-// it writes an empty outputs.tf so that any previous shim outputs.tf is overwritten.
+// writeShimOutputsTf writes the shim outputs.tf from the output blocks in the outputs.tf at modulePath.
+// Each shim output keeps the description and sensitive attributes and has the value module.main.<name>.
+// If the source module has no outputs.tf, it writes an empty outputs.tf to replace an old shim file.
+// It returns an error if it cannot read or parse the source outputs.tf.
 func (h *BaseModuleResolver) writeShimOutputsTf(moduleDir, modulePath string) error {
 	shimOutputsPath := filepath.Join(moduleDir, "outputs.tf")
 	outputsPath := filepath.Join(modulePath, "outputs.tf")
@@ -187,12 +181,12 @@ func (h *BaseModuleResolver) writeShimOutputsTf(moduleDir, modulePath string) er
 	if err == nil {
 		outputsContent, err := h.shims.ReadFile(outputsPath)
 		if err != nil {
-			return fmt.Errorf("failed to read outputs.tf: %w", err)
+			return werror.Wrap(err, "failed to read outputs.tf")
 		}
 
 		outputsFile, diags := hclwrite.ParseConfig(outputsContent, outputsPath, hcl.Pos{Line: 1, Column: 1})
 		if diags.HasErrors() {
-			return fmt.Errorf("failed to parse outputs.tf: %w", diags)
+			return werror.Wrap(diags, "failed to parse outputs.tf")
 		}
 
 		shimOutputsContent := hclwrite.NewEmptyFile()
@@ -224,14 +218,14 @@ func (h *BaseModuleResolver) writeShimOutputsTf(moduleDir, modulePath string) er
 		}
 
 		if err := h.shims.WriteFile(shimOutputsPath, shimOutputsContent.Bytes(), 0644); err != nil {
-			return fmt.Errorf("failed to write shim outputs.tf: %w", err)
+			return werror.Wrap(err, "failed to write shim outputs.tf")
 		}
 	} else if os.IsNotExist(err) {
 		if err := h.shims.WriteFile(shimOutputsPath, nil, 0644); err != nil {
-			return fmt.Errorf("failed to write shim outputs.tf: %w", err)
+			return werror.Wrap(err, "failed to write shim outputs.tf")
 		}
 	} else {
-		return fmt.Errorf("failed to stat source outputs.tf: %w", err)
+		return werror.Wrap(err, "failed to stat source outputs.tf")
 	}
 	return nil
 }

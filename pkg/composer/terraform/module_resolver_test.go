@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
+	"github.com/windsorcli/cli/internal/werror"
 	"github.com/windsorcli/cli/pkg/composer/blueprint"
 	"github.com/windsorcli/cli/pkg/runtime"
 	"github.com/windsorcli/cli/pkg/runtime/config"
@@ -1498,6 +1499,35 @@ variable "cluster_name" { type = string }`
 		// Then it should return an error
 		if err == nil {
 			t.Error("Expected error when module directory is not found")
+		}
+	})
+
+	t.Run("MissingLocalModuleHasRemediation", func(t *testing.T) {
+		// Given a local component without a name whose module directory does not exist
+		resolver, mocks := setup(t)
+
+		mocks.BlueprintHandler.GetTerraformComponentsFunc = func() []blueprintv1alpha1.TerraformComponent {
+			return []blueprintv1alpha1.TerraformComponent{
+				{Path: "missing-local", Inputs: map[string]any{"name": "test"}},
+			}
+		}
+
+		// When generating tfvars
+		err := resolver.GenerateTfvars(false)
+
+		// Then the error should carry a remediation hint about the component path
+		if err == nil {
+			t.Fatal("Expected error when local module directory is not found")
+		}
+		werr := werror.Find(err)
+		if werr == nil {
+			t.Fatalf("Expected a WindsorError, got: %v", err)
+		}
+		if !strings.Contains(werr.Message, "module directory not found for component missing-local") {
+			t.Errorf("Expected message about missing module directory, got: %q", werr.Message)
+		}
+		if !strings.Contains(werr.Remediation, "component path") {
+			t.Errorf("Expected remediation about the component path, got: %q", werr.Remediation)
 		}
 	})
 

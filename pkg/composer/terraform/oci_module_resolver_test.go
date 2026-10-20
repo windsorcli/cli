@@ -12,6 +12,7 @@ import (
 	"testing"
 
 	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
+	"github.com/windsorcli/cli/internal/werror"
 	"github.com/windsorcli/cli/pkg/composer/artifact"
 )
 
@@ -559,6 +560,23 @@ func TestOCIModuleResolver_extractOCIModule(t *testing.T) {
 			if !strings.Contains(err.Error(), tc.expectedError) {
 				t.Errorf("Expected error containing '%s' for %s, got: %v", tc.expectedError, tc.name, err)
 			}
+		}
+	})
+
+	t.Run("MissingPathSeparatorHasRemediation", func(t *testing.T) {
+		// Given a resolved OCI source without a module path
+		resolver := setup(t)
+
+		// When extracting the OCI module
+		_, err := resolver.extractOCIModule("oci://registry.example.com/module:latest", map[string]string{})
+
+		// Then the error should carry a remediation hint with the source format
+		werr := werror.Find(err)
+		if werr == nil {
+			t.Fatalf("Expected a WindsorError, got: %v", err)
+		}
+		if !strings.Contains(werr.Remediation, "oci://registry/repository:tag//terraform/module") {
+			t.Errorf("Expected remediation with the OCI source format, got: %q", werr.Remediation)
 		}
 	})
 

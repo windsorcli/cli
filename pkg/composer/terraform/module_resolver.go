@@ -12,6 +12,7 @@ import (
 	"strings"
 
 	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
+	"github.com/windsorcli/cli/internal/werror"
 	"github.com/windsorcli/cli/pkg/composer/blueprint"
 	"github.com/windsorcli/cli/pkg/runtime"
 	"github.com/windsorcli/cli/pkg/runtime/evaluator"
@@ -70,14 +71,10 @@ func NewBaseModuleResolver(rt *runtime.Runtime, blueprintHandler blueprint.Bluep
 // Public Methods
 // =============================================================================
 
-// GenerateTfvars creates Terraform configuration files, including tfvars files, for all blueprint components.
-// It processes template data keyed by "terraform/<module_path>", generating tfvars files at
-// contexts/<context>/terraform/<module_path>.tfvars. For each entry in the input data, it skips keys
-// not prefixed with "terraform/" and skips components not present in the blueprint. For all components
-// in the blueprint, it ensures a tfvars file is generated if not already handled by the input data.
-// The method uses the blueprint handler to retrieve TerraformComponents and parses variables from all
-// .tf files in the module directory based on component source (remote or local). Module resolution is handled by pkg/terraform.
-// Input expressions are evaluated against the current configuration before being written to tfvars.
+// GenerateTfvars writes a terraform.tfvars file for each terraform component in the blueprint.
+// It evaluates the component inputs against the current configuration.
+// It does not write an input whose value still contains a deferred expression.
+// It stops at the first evaluation or file error.
 func (h *BaseModuleResolver) GenerateTfvars(overwrite bool) error {
 	h.reset = overwrite
 
@@ -97,7 +94,7 @@ func (h *BaseModuleResolver) GenerateTfvars(overwrite bool) error {
 				h.evaluator, key, value, component.InputOrigins, nil, false,
 			)
 			if err != nil {
-				return fmt.Errorf("failed to evaluate inputs for component %s: %w", component.GetID(), err)
+				return werror.Wrap(err, "failed to evaluate inputs for component %s", component.GetID())
 			}
 			if evaluator.ContainsExpression(evaluated) {
 				continue
@@ -109,7 +106,7 @@ func (h *BaseModuleResolver) GenerateTfvars(overwrite bool) error {
 		}
 
 		if err := h.generateComponentTfvars(projectRoot, component, nonDeferredValues); err != nil {
-			return fmt.Errorf("failed to generate tfvars for component %s: %w", component.Path, err)
+			return werror.Wrap(err, "failed to generate tfvars for component %s", component.Path)
 		}
 	}
 
@@ -133,35 +130,32 @@ func (h *BaseModuleResolver) validateAndSanitizePath(path string) (string, error
 	return cleanPath, nil
 }
 
-// generateComponentTfvars generates tfvars files for a single Terraform component.
-// All components write tfvars files to .windsor/contexts/<context>/terraform/<componentID>/terraform.tfvars,
-// regardless of whether they have a Source (remote) or not (local). This unifies the behavior
-// between local templates and OCI artifacts, preventing writes to the contexts folder.
-// Returns an error if tfvars file generation fails.
+// generateComponentTfvars writes the tfvars file for one component at
+// .windsor/contexts/<context>/terraform/<componentID>/terraform.tfvars, for local and remote components.
+// It removes the old .tfvars files in that directory first, and reads the variables from the module directory.
 func (h *BaseModuleResolver) generateComponentTfvars(projectRoot string, component blueprintv1alpha1.TerraformComponent, componentValues map[string]any) error {
 	modulePath, err := h.findModulePathForComponent(projectRoot, component)
 	if err != nil {
-		return fmt.Errorf("failed to find module path for component %s: %w", component.GetID(), err)
+		return werror.Wrap(err, "failed to find module path for component %s", component.GetID())
 	}
 
 	componentID := component.GetID()
 	moduleTfvarsPath := filepath.Join(projectRoot, ".windsor", "contexts", h.runtime.ContextName, "terraform", componentID, "terraform.tfvars")
 	if err := h.removeTfvarsFiles(filepath.Dir(moduleTfvarsPath)); err != nil {
-		return fmt.Errorf("failed cleaning existing .tfvars in module dir %s: %w", filepath.Dir(moduleTfvarsPath), err)
+		return werror.Wrap(err, "failed cleaning existing .tfvars in module dir %s", filepath.Dir(moduleTfvarsPath))
 	}
 	if err := h.generateTfvarsFile(moduleTfvarsPath, modulePath, componentValues, component.Source); err != nil {
-		return fmt.Errorf("failed to generate module tfvars file: %w", err)
+		return werror.Wrap(err, "failed to generate module tfvars file")
 	}
 
 	return nil
 }
 
-// findModulePathForComponent returns the path to the module directory for the specified Terraform component.
-// For components with a name, the path is .windsor/contexts/<context>/terraform/<name> (where the shim is located).
-// For components without a name but with a Source, the path is .windsor/contexts/<context>/terraform/<component.Path>.
-// For local components without a name, the path is terraform/<component.Path> (the actual module location).
-// For template sources (absolute paths containing contexts/_template), returns the actual template module path.
-// Returns the module directory path if it exists, or an error if not found.
+// findModulePathForComponent returns the module directory for a terraform component.
+// For a template source (an absolute path under contexts/_template or terraform/), it returns the source.
+// For a component with a name or a source, it returns the shim at .windsor/contexts/<context>/terraform/<componentID>.
+// For a local component without a name, it returns terraform/<path>.
+// It returns an error if the directory does not exist. A missing local module error has a remediation hint.
 func (h *BaseModuleResolver) findModulePathForComponent(projectRoot string, component blueprintv1alpha1.TerraformComponent) (string, error) {
 	componentID := component.GetID()
 
@@ -186,6 +180,9 @@ func (h *BaseModuleResolver) findModulePathForComponent(projectRoot string, comp
 	}
 
 	if _, err := h.shims.Stat(modulePath); err != nil {
+		if !useScratchPath {
+			return "", werror.New(fmt.Sprintf("module directory not found for component %s at %s", component.GetID(), modulePath), "Make sure the component path in the blueprint matches a directory under terraform/.", nil)
+		}
 		return "", fmt.Errorf("module directory not found for component %s at %s", component.GetID(), modulePath)
 	}
 
