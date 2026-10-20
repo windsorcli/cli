@@ -326,3 +326,9 @@ func withOutput(ctx context.Context, w io.Writer, format logging.Format) context
 	ctx = presenter.NewContext(ctx, p)
 	return logging.NewContext(ctx, slog.New(presenter.NewLogHandler(p, level)))
 }
+
+// addDeprecatedWaitFlag registers --wait on c as a hidden no-op, since installs always wait.
+func addDeprecatedWaitFlag(c *cobra.Command) {
+	c.Flags().Bool("wait", true, "Wait for kustomization resources to be ready.")
+	_ = c.Flags().MarkDeprecated("wait", "kustomizations are always waited on; drop the flag")
+}

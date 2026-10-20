@@ -243,22 +243,11 @@ windsor bootstrap prod --yes`,
 			}
 
 			// Capture post-run messages to print as an end-of-run summary rather than inline among the
-			// install progress. Because the wait below is best-effort, the run always reaches that
-			// summary, so a kustomization intentionally pending on a manual step the message describes
-			// still surfaces its instructions.
+			// install progress.
 			postRunMessages = blueprint.Messages
 
-			// A wait failure is demoted to a warning only when the blueprint carries post-run messages:
-			// those signal a facet-declared manual step (e.g. delegate these nameservers) a kustomization
-			// may be legitimately pending on, which is a correct state rather than a failure. Without any
-			// such message there is no declared manual step, so a wait failure is genuine (ImagePullBackOff,
-			// a bad manifest path, ...) and stays fatal — the operator gets a non-zero exit, not a silent
-			// success with a single stderr line.
-			if err := proj.Provisioner.Install(cmd.Context(), blueprint, false, true); err != nil {
-				if !errors.Is(err, provisioner.ErrKustomizationsNotReady) || len(postRunMessages) == 0 {
-					return fmt.Errorf("error installing blueprint: %w", err)
-				}
-				fmt.Fprintf(os.Stderr, "⚠ Bootstrap applied; some kustomizations are not yet ready: %v\n", err)
+			if err := warnNotReady(os.Stderr, proj.Provisioner.Install(cmd.Context(), blueprint, false), postRunMessages); err != nil {
+				return fmt.Errorf("error installing blueprint: %w", err)
 			}
 
 			if err := proj.Provisioner.WriteVersionMarker(blueprint); err != nil {
@@ -286,6 +275,17 @@ windsor bootstrap prod --yes`,
 
 		return nil
 	},
+}
+
+// warnNotReady writes a warning to w and returns nil when err reports kustomizations that are not
+// Ready and the blueprint declares post-run messages, which describe a manual step a kustomization
+// may legitimately wait on (e.g. delegating nameservers). It returns err unchanged otherwise.
+func warnNotReady(w io.Writer, err error, messages []blueprintv1alpha1.Message) error {
+	if err == nil || !errors.Is(err, provisioner.ErrKustomizationsNotReady) || len(messages) == 0 {
+		return err
+	}
+	fmt.Fprintf(w, "⚠ Applied; some kustomizations are not yet ready: %v\n", err)
+	return nil
 }
 
 // printPostRunMessages writes the rendered post-run messages to w under a "Notes" header with a

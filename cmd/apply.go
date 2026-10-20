@@ -9,7 +9,6 @@ import (
 	"github.com/windsorcli/cli/pkg/runtime/tools"
 )
 
-var applyWaitFlag bool  // Wait for kustomization resources to be ready after applying
 var applyPruneFlag bool // Remove kustomizations the blueprint no longer declares
 
 var applyCmd = &cobra.Command{
@@ -19,9 +18,9 @@ var applyCmd = &cobra.Command{
 
 For workstation contexts, prefer 'windsor up' — it does the same work plus VM management.
 
-Pass --wait to block until kustomizations report ready. Pass --prune to also remove kustomizations the blueprint no longer declares, once the new set is Ready.`,
-	Example: `# Apply everything and block until ready
-windsor apply --wait
+Waits until every kustomization is Ready, and fails when one does not become Ready. Pass --prune to also remove kustomizations the blueprint no longer declares, once the new set is Ready.`,
+	Example: `# Apply everything
+windsor apply
 
 # Apply and remove kustomizations no longer declared
 windsor apply --prune
@@ -83,16 +82,19 @@ windsor apply kustomize dns`,
 				return fmt.Errorf("resolved blueprint is not available")
 			}
 
-			// --prune removes kustomizations the blueprint no longer declares; wait for the
-			// desired set to be Ready first so migrated resources are adopted before a deletion.
-			// Without --prune, orphans are left in place and only reported.
+			// --prune deletes orphans only after the desired set is Ready, so a not-ready result stays fatal.
+			if err := proj.Provisioner.Install(cmd.Context(), blueprint, applyPruneFlag); err != nil {
+				if applyPruneFlag || warnNotReady(cmd.ErrOrStderr(), err, blueprint.Messages) != nil {
+					return fmt.Errorf("error applying kustomize: %w", err)
+				}
+				printPostRunMessages(cmd.ErrOrStderr(), blueprint.Messages)
+			}
+
+			// --prune removes kustomizations the blueprint no longer declares. Without --prune,
+			// orphans are left in place and only reported.
 			prunable, err := proj.Provisioner.PrunableKustomizations(blueprint)
 			if err != nil {
 				return fmt.Errorf("error listing kustomizations to prune: %w", err)
-			}
-			wait := (len(prunable) > 0 && applyPruneFlag) || applyWaitFlag
-			if err := proj.Provisioner.Install(cmd.Context(), blueprint, applyPruneFlag, wait); err != nil {
-				return fmt.Errorf("error applying kustomize: %w", err)
 			}
 			if len(prunable) > 0 && !applyPruneFlag {
 				fmt.Fprintf(cmd.OutOrStdout(), "The following kustomizations are no longer declared; re-run with --prune to remove them:\n  %s\n", strings.Join(prunable, "\n  "))
@@ -152,7 +154,7 @@ var applyKustomizeCmd = &cobra.Command{
 	Short:   "Apply Flux kustomization(s) to the cluster.",
 	Long: `Apply a single Flux kustomization to the cluster by name, or all kustomizations when no argument is given.
 
-When a name is supplied with --wait, the wait scope is narrowed to only that kustomization.`,
+Waits until the applied kustomizations are Ready, and fails when one does not become Ready.`,
 	Example: `# Apply all kustomizations
 windsor apply kustomize
 
@@ -160,10 +162,7 @@ windsor apply kustomize
 windsor apply kustomize dns
 
 # Same, using the 'k8s' alias
-windsor apply k8s dns
-
-# Apply and wait for one kustomization to be ready
-windsor apply kustomize dns --wait`,
+windsor apply k8s dns`,
 	Annotations: map[string]string{
 		"docs.seealso": "[`apply`](apply.md), [`plan kustomize`](plan-kustomize.md), [`destroy kustomize`](destroy-kustomize.md)",
 		"docs.source":  "cmd/apply.go",
@@ -200,12 +199,12 @@ windsor apply kustomize dns --wait`,
 
 		return stacklock.With(cmd.Context(), proj.Runtime, "apply", lockTimeout, func() error {
 			if len(args) == 0 {
-				if err := proj.Provisioner.ApplyKustomizeAll(cmd.Context(), blueprint, applyWaitFlag); err != nil {
+				if err := proj.Provisioner.ApplyKustomizeAll(cmd.Context(), blueprint); err != nil {
 					return fmt.Errorf("error applying kustomize: %w", err)
 				}
 			} else {
 				componentID := args[0]
-				if err := proj.Provisioner.ApplyKustomize(cmd.Context(), blueprint, componentID, applyWaitFlag); err != nil {
+				if err := proj.Provisioner.ApplyKustomize(cmd.Context(), blueprint, componentID); err != nil {
 					return fmt.Errorf("error applying kustomize for %s: %w", componentID, err)
 				}
 			}
@@ -216,9 +215,9 @@ windsor apply kustomize dns --wait`,
 }
 
 func init() {
-	applyCmd.Flags().BoolVar(&applyWaitFlag, "wait", false, "Wait for kustomization resources to be ready.")
+	addDeprecatedWaitFlag(applyCmd)
 	applyCmd.Flags().BoolVar(&applyPruneFlag, "prune", false, "Remove kustomizations the blueprint no longer declares.")
-	applyKustomizeCmd.Flags().BoolVar(&applyWaitFlag, "wait", false, "Wait for kustomization resources to be ready.")
+	addDeprecatedWaitFlag(applyKustomizeCmd)
 	applyCmd.AddCommand(applyTerraformCmd)
 	applyCmd.AddCommand(applyKustomizeCmd)
 	rootCmd.AddCommand(applyCmd)

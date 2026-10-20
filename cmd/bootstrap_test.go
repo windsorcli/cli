@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -1152,6 +1153,44 @@ func TestBootstrapCmd(t *testing.T) {
 		}
 		if upCalled {
 			t.Error("Up must not be called when EOF declines summary-confirm in local mode")
+		}
+	})
+}
+
+func TestWarnNotReady(t *testing.T) {
+	notReady := fmt.Errorf("%w: dns not ready", provisioner.ErrKustomizationsNotReady)
+	messages := []blueprintv1alpha1.Message{{Text: "Delegate ns1.example at your registrar."}}
+
+	t.Run("WarnsForNotReadyWithMessages", func(t *testing.T) {
+		var buf strings.Builder
+		if err := warnNotReady(&buf, notReady, messages); err != nil {
+			t.Errorf("Expected nil, got %v", err)
+		}
+		if !strings.Contains(buf.String(), "dns not ready") {
+			t.Errorf("Expected a warning naming the cause, got %q", buf.String())
+		}
+	})
+
+	t.Run("ReturnsNotReadyWithoutMessages", func(t *testing.T) {
+		var buf strings.Builder
+		if err := warnNotReady(&buf, notReady, nil); !errors.Is(err, provisioner.ErrKustomizationsNotReady) {
+			t.Errorf("Expected the not-ready error, got %v", err)
+		}
+		if buf.Len() != 0 {
+			t.Errorf("Expected no warning, got %q", buf.String())
+		}
+	})
+
+	t.Run("ReturnsOtherErrors", func(t *testing.T) {
+		other := fmt.Errorf("apply failed")
+		if err := warnNotReady(io.Discard, other, messages); err != other {
+			t.Errorf("Expected the other error unchanged, got %v", err)
+		}
+	})
+
+	t.Run("ReturnsNilForNil", func(t *testing.T) {
+		if err := warnNotReady(io.Discard, nil, messages); err != nil {
+			t.Errorf("Expected nil, got %v", err)
 		}
 	})
 }

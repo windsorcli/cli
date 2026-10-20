@@ -4,26 +4,20 @@ description: "Install the blueprint's Flux kustomizations."
 ---
 
 ```sh
-windsor install [flags]
+windsor install
 ```
 
 Apply only the Flux kustomizations to the cluster, skipping Terraform. Use this when Terraform has already been applied separately (e.g. by another tool or pipeline) and you only want to hand the cluster off to Flux.
 
 For most workflows, prefer 'windsor apply', which runs Terraform and Flux in the right order.
 
-Pass --wait to block until kustomizations report ready.
-
-## Flags
-
-| Flag | Default | Description |
-|------|---------|-------------|
-| `--wait` | `false` | Wait for kustomization resources to be ready. |
+Waits until every kustomization is Ready, and fails when one does not become Ready.
 
 ## Examples
 
 ```sh
-# Install kustomizations and wait for them to settle
-windsor install --wait
+# Install kustomizations
+windsor install
 ```
 
 ## See also

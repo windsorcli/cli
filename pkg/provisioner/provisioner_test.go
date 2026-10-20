@@ -1112,7 +1112,7 @@ func TestProvisioner_ApplyKustomize(t *testing.T) {
 		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
 
 		// When ApplyKustomize is called with a valid kustomization name
-		err := provisioner.ApplyKustomize(context.Background(), createTestBlueprint(), "test-kustomization", false)
+		err := provisioner.ApplyKustomize(context.Background(), createTestBlueprint(), "test-kustomization")
 
 		// Then no error is returned
 		if err != nil {
@@ -1132,8 +1132,8 @@ func TestProvisioner_ApplyKustomize(t *testing.T) {
 		}
 		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{KubernetesManager: mocks.KubernetesManager})
 
-		// When ApplyKustomize is called with wait
-		err := provisioner.ApplyKustomize(context.Background(), createTestBlueprint(), "test-kustomization", true)
+		// When ApplyKustomize is called
+		err := provisioner.ApplyKustomize(context.Background(), createTestBlueprint(), "test-kustomization")
 
 		// Then the wait covers only that kustomization and its failure wraps ErrKustomizationsNotReady
 		if strings.Join(waitedFor, ",") != "test-kustomization" {
@@ -1156,7 +1156,7 @@ func TestProvisioner_ApplyKustomize(t *testing.T) {
 		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
 
 		// When applying the crds layer by name
-		if err := provisioner.ApplyKustomize(context.Background(), &blueprintv1alpha1.Blueprint{Crds: []string{"cert-manager-1.16.2"}}, "crds", false); err != nil {
+		if err := provisioner.ApplyKustomize(context.Background(), &blueprintv1alpha1.Blueprint{Crds: []string{"cert-manager-1.16.2"}}, "crds"); err != nil {
 			t.Fatalf("Expected no error, got: %v", err)
 		}
 
@@ -1172,7 +1172,7 @@ func TestProvisioner_ApplyKustomize(t *testing.T) {
 		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler)
 
 		// When ApplyKustomize is called with a nil blueprint
-		err := provisioner.ApplyKustomize(context.Background(), nil, "test-kustomization", false)
+		err := provisioner.ApplyKustomize(context.Background(), nil, "test-kustomization")
 
 		// Then an error is returned
 		if err == nil {
@@ -1190,7 +1190,7 @@ func TestProvisioner_ApplyKustomize(t *testing.T) {
 		provisioner.KubernetesManager = nil
 
 		// When ApplyKustomize is called
-		err := provisioner.ApplyKustomize(context.Background(), createTestBlueprint(), "test-kustomization", false)
+		err := provisioner.ApplyKustomize(context.Background(), createTestBlueprint(), "test-kustomization")
 
 		// Then an error is returned
 		if err == nil {
@@ -1208,7 +1208,7 @@ func TestProvisioner_ApplyKustomize(t *testing.T) {
 		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
 
 		// When ApplyKustomize is called with a name not in the blueprint
-		err := provisioner.ApplyKustomize(context.Background(), createTestBlueprint(), "nonexistent", false)
+		err := provisioner.ApplyKustomize(context.Background(), createTestBlueprint(), "nonexistent")
 
 		// Then an error is returned
 		if err == nil {
@@ -1230,7 +1230,7 @@ func TestProvisioner_ApplyKustomize(t *testing.T) {
 		bp.Kustomizations[0].DestroyOnly = &destroyOnly
 
 		// When ApplyKustomize is called with that kustomization name
-		err := provisioner.ApplyKustomize(context.Background(), bp, "test-kustomization", false)
+		err := provisioner.ApplyKustomize(context.Background(), bp, "test-kustomization")
 
 		// Then an error is returned indicating it cannot be applied
 		if err == nil {
@@ -1251,7 +1251,7 @@ func TestProvisioner_ApplyKustomize(t *testing.T) {
 		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
 
 		// When ApplyKustomize is called
-		err := provisioner.ApplyKustomize(context.Background(), createTestBlueprint(), "test-kustomization", false)
+		err := provisioner.ApplyKustomize(context.Background(), createTestBlueprint(), "test-kustomization")
 
 		// Then an error is returned
 		if err == nil {
@@ -1274,7 +1274,7 @@ func TestProvisioner_ApplyKustomize(t *testing.T) {
 		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
 
 		// When ApplyKustomize is called with a specific kustomization name
-		err := provisioner.ApplyKustomize(context.Background(), createTestBlueprint(), "test-kustomization", false)
+		err := provisioner.ApplyKustomize(context.Background(), createTestBlueprint(), "test-kustomization")
 
 		// Then only the named kustomization is passed to ApplyBlueprint
 		if err != nil {
@@ -1311,7 +1311,7 @@ func TestProvisioner_ApplyKustomize(t *testing.T) {
 		}}
 
 		// When applying just that kustomization, its secret is placed into the namespace it created
-		if err := provisioner.ApplyKustomize(context.Background(), blueprint, "lb-install", false); err != nil {
+		if err := provisioner.ApplyKustomize(context.Background(), blueprint, "lb-install"); err != nil {
 			t.Fatalf("Expected no error, got: %v", err)
 		}
 		if placedName != "hcloud" || placedNs != "system-lb" {
@@ -1331,7 +1331,7 @@ func TestProvisioner_ApplyKustomizeAll(t *testing.T) {
 		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
 
 		// When ApplyKustomizeAll is called
-		err := provisioner.ApplyKustomizeAll(context.Background(), createTestBlueprint(), false)
+		err := provisioner.ApplyKustomizeAll(context.Background(), createTestBlueprint())
 
 		// Then no error is returned
 		if err != nil {
@@ -1345,7 +1345,7 @@ func TestProvisioner_ApplyKustomizeAll(t *testing.T) {
 		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler)
 
 		// When ApplyKustomizeAll is called with a nil blueprint
-		err := provisioner.ApplyKustomizeAll(context.Background(), nil, false)
+		err := provisioner.ApplyKustomizeAll(context.Background(), nil)
 
 		// Then an error is returned
 		if err == nil {
@@ -1363,7 +1363,7 @@ func TestProvisioner_ApplyKustomizeAll(t *testing.T) {
 		provisioner.KubernetesManager = nil
 
 		// When ApplyKustomizeAll is called
-		err := provisioner.ApplyKustomizeAll(context.Background(), createTestBlueprint(), false)
+		err := provisioner.ApplyKustomizeAll(context.Background(), createTestBlueprint())
 
 		// Then an error is returned
 		if err == nil {
@@ -1384,7 +1384,7 @@ func TestProvisioner_ApplyKustomizeAll(t *testing.T) {
 		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
 
 		// When ApplyKustomizeAll is called
-		err := provisioner.ApplyKustomizeAll(context.Background(), createTestBlueprint(), false)
+		err := provisioner.ApplyKustomizeAll(context.Background(), createTestBlueprint())
 
 		// Then an error is returned
 		if err == nil {
@@ -1851,7 +1851,7 @@ func TestProvisioner_Install(t *testing.T) {
 		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
 
 		blueprint := createTestBlueprint()
-		err := provisioner.Install(context.Background(), blueprint, false, false)
+		err := provisioner.Install(context.Background(), blueprint, false)
 
 		if err != nil {
 			t.Errorf("Expected no error, got: %v", err)
@@ -1868,7 +1868,7 @@ func TestProvisioner_Install(t *testing.T) {
 		rec := &eventRecorder{}
 
 		// When the blueprint resources are installed
-		err := provisioner.Install(presenter.NewContext(context.Background(), rec), createTestBlueprint(), false, false)
+		err := provisioner.Install(presenter.NewContext(context.Background(), rec), createTestBlueprint(), false)
 
 		// Then one "Applying kustomizations" section holds a step per kustomization, and both end as applied
 		if err != nil {
@@ -1907,7 +1907,7 @@ func TestProvisioner_Install(t *testing.T) {
 		}
 
 		// When installing
-		if err := provisioner.Install(context.Background(), blueprint, false, false); err != nil {
+		if err := provisioner.Install(context.Background(), blueprint, false); err != nil {
 			t.Fatalf("Expected no error, got: %v", err)
 		}
 
@@ -1953,7 +1953,7 @@ func TestProvisioner_Install(t *testing.T) {
 		}
 
 		// When installing
-		if err := provisioner.Install(context.Background(), blueprint, false, false); err != nil {
+		if err := provisioner.Install(context.Background(), blueprint, false); err != nil {
 			t.Fatalf("Expected no error, got: %v", err)
 		}
 
@@ -1974,7 +1974,7 @@ func TestProvisioner_Install(t *testing.T) {
 		mocks := setupProvisionerMocks(t)
 		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler)
 
-		err := provisioner.Install(context.Background(), nil, false, false)
+		err := provisioner.Install(context.Background(), nil, false)
 
 		if err == nil {
 			t.Error("Expected error for nil blueprint")
@@ -1991,7 +1991,7 @@ func TestProvisioner_Install(t *testing.T) {
 		provisioner.KubernetesManager = nil
 
 		blueprint := createTestBlueprint()
-		err := provisioner.Install(context.Background(), blueprint, false, false)
+		err := provisioner.Install(context.Background(), blueprint, false)
 
 		if err == nil {
 			t.Error("Expected error for nil kubernetes manager")
@@ -2013,7 +2013,7 @@ func TestProvisioner_Install(t *testing.T) {
 		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
 
 		blueprint := createTestBlueprint()
-		err := provisioner.Install(context.Background(), blueprint, false, false)
+		err := provisioner.Install(context.Background(), blueprint, false)
 
 		if err == nil {
 			t.Error("Expected error for apply blueprint failure")
@@ -2048,7 +2048,7 @@ func TestProvisioner_Install(t *testing.T) {
 		}}
 
 		// When installing, the declared secret is placed into the namespace its kustomization created
-		if err := provisioner.Install(context.Background(), blueprint, false, false); err != nil {
+		if err := provisioner.Install(context.Background(), blueprint, false); err != nil {
 			t.Fatalf("Expected no error, got: %v", err)
 		}
 		if placedName != "hcloud" || placedNs != "system-lb" || placedData["token"] != "resolved-token" {
@@ -2075,7 +2075,7 @@ func TestProvisioner_Install(t *testing.T) {
 		}}
 
 		// When installing, resolution fails closed before anything is applied to the cluster
-		err := provisioner.Install(context.Background(), blueprint, false, false)
+		err := provisioner.Install(context.Background(), blueprint, false)
 		if err == nil || !strings.Contains(err.Error(), "error resolving secrets") {
 			t.Errorf("Expected resolve error, got: %v", err)
 		}
@@ -2105,7 +2105,7 @@ func TestProvisioner_Install(t *testing.T) {
 		}}
 
 		// When installing, it fails closed rather than placing an hcloud Secret missing its token key
-		if err := provisioner.Install(context.Background(), blueprint, false, false); err == nil {
+		if err := provisioner.Install(context.Background(), blueprint, false); err == nil {
 			t.Fatal("Expected error for a nil-resolving required secret, got nil")
 		}
 		if placed {
@@ -2133,7 +2133,7 @@ func TestProvisioner_Install(t *testing.T) {
 		}}
 
 		// When installing, the optional secret is skipped and install still succeeds
-		if err := provisioner.Install(context.Background(), blueprint, false, false); err != nil {
+		if err := provisioner.Install(context.Background(), blueprint, false); err != nil {
 			t.Fatalf("Expected no error, got: %v", err)
 		}
 		if placed {
@@ -2142,28 +2142,7 @@ func TestProvisioner_Install(t *testing.T) {
 	})
 }
 
-func TestProvisioner_InstallWait(t *testing.T) {
-	t.Run("SkipsTheReadinessWaitWithoutWait", func(t *testing.T) {
-		// Given a kubernetes manager that records whether the readiness wait runs
-		mocks := setupProvisionerMocks(t)
-		waited := false
-		mocks.KubernetesManager.WaitForKustomizationsFunc = func(ctx context.Context, blueprint *blueprintv1alpha1.Blueprint, layers kubernetes.KustomizationReporter) error {
-			waited = true
-			return nil
-		}
-		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{KubernetesManager: mocks.KubernetesManager})
-
-		// When installing without wait
-		if err := provisioner.Install(context.Background(), createTestBlueprint(), false, false); err != nil {
-			t.Fatalf("Expected no error, got %v", err)
-		}
-
-		// Then the readiness wait does not run
-		if waited {
-			t.Error("Expected no readiness wait")
-		}
-	})
-
+func TestProvisioner_InstallReadinessWait(t *testing.T) {
 	t.Run("WaitsInsideTheApplyStep", func(t *testing.T) {
 		// Given a kubernetes manager whose readiness wait marks each kustomization done
 		mocks := setupProvisionerMocks(t)
@@ -2178,8 +2157,8 @@ func TestProvisioner_InstallWait(t *testing.T) {
 		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{KubernetesManager: mocks.KubernetesManager})
 		rec := &eventRecorder{}
 
-		// When installing with wait
-		err := provisioner.Install(presenter.NewContext(context.Background(), rec), createTestBlueprint(), false, true)
+		// When installing
+		err := provisioner.Install(presenter.NewContext(context.Background(), rec), createTestBlueprint(), false)
 
 		// Then the wait covers the kustomization and adds no operation beyond the apply step and its one layer
 		if err != nil {
@@ -2201,8 +2180,8 @@ func TestProvisioner_InstallWait(t *testing.T) {
 		}
 		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{KubernetesManager: mocks.KubernetesManager})
 
-		// When installing with wait
-		err := provisioner.Install(context.Background(), createTestBlueprint(), false, true)
+		// When installing
+		err := provisioner.Install(context.Background(), createTestBlueprint(), false)
 
 		// Then the error wraps ErrKustomizationsNotReady and the cause
 		if !errors.Is(err, ErrKustomizationsNotReady) || !strings.Contains(err.Error(), "wait failed") {
@@ -5037,7 +5016,7 @@ func TestConvergeNames(t *testing.T) {
 			{Name: "lb-install"},
 		}}
 
-		// When collecting the names Converge drives toward Ready
+		// When collecting the names converge drives toward Ready
 		names := convergeNames(bp)
 
 		// Then the duplicate collapses to one entry, so a nudgeFrontier readiness comparison
@@ -5139,11 +5118,17 @@ func TestProvisioner_nudgeFrontier(t *testing.T) {
 	})
 }
 
-func TestProvisioner_Converge(t *testing.T) {
+func TestProvisioner_converge(t *testing.T) {
 	newProv := func(mocks *ProvisionerTestMocks, notifier *fluxinfra.MockNotifier) *Provisioner {
 		p := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{KubernetesManager: mocks.KubernetesManager, Notifier: notifier})
 		p.secretPollInterval = time.Millisecond
 		return p
+	}
+	converge := func(p *Provisioner, ctx context.Context, bp *blueprintv1alpha1.Blueprint, timeout time.Duration) {
+		layers := presenter.NewGroup(ctx, "kustomization:")
+		convergeCtx, cancel := context.WithTimeout(ctx, timeout)
+		defer cancel()
+		p.converge(convergeCtx, layers, bp, convergeNames(bp), p.pollInterval())
 	}
 
 	t.Run("ReportsEachKustomizationAsAChildStep", func(t *testing.T) {
@@ -5158,19 +5143,16 @@ func TestProvisioner_Converge(t *testing.T) {
 		rec := &eventRecorder{}
 
 		// When converging with a short timeout
-		err := newProv(mocks, fluxinfra.NewMockNotifier()).Converge(presenter.NewContext(context.Background(), rec), bp, 50*time.Millisecond)
+		converge(newProv(mocks, fluxinfra.NewMockNotifier()), presenter.NewContext(context.Background(), rec), bp, 50*time.Millisecond)
 
-		// Then each kustomization is a child step: the ready one ends applied and the unready one failed
-		if err != nil {
-			t.Fatalf("expected no error, got %v", err)
-		}
+		// Then the ready kustomization's step ends applied and the unready one's stays open
 		ends := map[string]presenter.Kind{}
 		for _, e := range rec.events {
 			if e.Kind == presenter.KindApplied || e.Kind == presenter.KindFailed {
 				ends[e.Message] = e.Kind
 			}
 		}
-		if ends["pki-base"] != presenter.KindApplied || ends["dns"] != presenter.KindFailed || ends["Reconciling resources"] != presenter.KindApplied {
+		if !reflect.DeepEqual(ends, map[string]presenter.Kind{"pki-base": presenter.KindApplied}) {
 			t.Errorf("unexpected step ends %v", ends)
 		}
 	})
@@ -5188,10 +5170,10 @@ func TestProvisioner_Converge(t *testing.T) {
 		rec := &eventRecorder{}
 
 		// When converging with a short timeout
-		_ = newProv(mocks, fluxinfra.NewMockNotifier()).Converge(presenter.NewContext(context.Background(), rec), bp, 30*time.Millisecond)
+		converge(newProv(mocks, fluxinfra.NewMockNotifier()), presenter.NewContext(context.Background(), rec), bp, 30*time.Millisecond)
 
 		// Then only the reconciling kustomization appears, and the blocked one never does
-		if ops := rec.operations(); !reflect.DeepEqual(ops, []string{"Reconciling resources", "pki-base"}) {
+		if ops := rec.operations(); !reflect.DeepEqual(ops, []string{"pki-base"}) {
 			t.Errorf("expected only pki-base to appear, got %v", ops)
 		}
 	})
@@ -5231,9 +5213,7 @@ func TestProvisioner_Converge(t *testing.T) {
 
 		// When converging, it nudges the not-ready kustomization and force-reconciles its stalled HR, then
 		// returns once everything reports Ready
-		if err := newProv(mocks, notifier).Converge(context.Background(), bp, time.Second); err != nil {
-			t.Fatalf("expected no error, got %v", err)
-		}
+		converge(newProv(mocks, notifier), context.Background(), bp, time.Second)
 		if len(reconciledK) == 0 || !slices.Contains(reconciledK[0], "lb-install") {
 			t.Errorf("expected lb-install reconciled, got %v", reconciledK)
 		}
@@ -5261,9 +5241,7 @@ func TestProvisioner_Converge(t *testing.T) {
 		bp := &blueprintv1alpha1.Blueprint{Kustomizations: []blueprintv1alpha1.Kustomization{{Name: "lb-install"}}}
 
 		// When converging, it returns without nudging anything
-		if err := newProv(mocks, notifier).Converge(context.Background(), bp, time.Second); err != nil {
-			t.Fatalf("expected no error, got %v", err)
-		}
+		converge(newProv(mocks, notifier), context.Background(), bp, time.Second)
 		if nudged {
 			t.Error("expected no reconcile when everything is already Ready")
 		}
@@ -5296,9 +5274,7 @@ func TestProvisioner_Converge(t *testing.T) {
 		bp := &blueprintv1alpha1.Blueprint{Kustomizations: []blueprintv1alpha1.Kustomization{{Name: "lb-install"}}}
 
 		// When converging, a healthy HelmRelease is not force-reconciled
-		if err := newProv(mocks, notifier).Converge(context.Background(), bp, time.Second); err != nil {
-			t.Fatalf("expected no error, got %v", err)
-		}
+		converge(newProv(mocks, notifier), context.Background(), bp, time.Second)
 		if forcedAny {
 			t.Error("expected healthy HelmRelease left untouched")
 		}

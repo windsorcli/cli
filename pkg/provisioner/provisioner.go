@@ -894,10 +894,10 @@ func (i *Provisioner) PlanKustomization(blueprint *blueprintv1alpha1.Blueprint, 
 // kustomization's secrets, applies it via the kubernetes manager, then places the resolved secrets into
 // the namespace it creates — scoped to the one kustomization so placement never blocks on a namespace
 // another kustomization would create. Secret pruning is off, since a single-kustomization apply is
-// additive. With wait, the step lasts until the kustomization is Ready. Returns an error if the blueprint
-// is nil, the kubernetes manager is not configured, the kustomization is not found, the kustomization is
-// marked destroyOnly, or resolution, apply, placement, or the wait fails.
-func (i *Provisioner) ApplyKustomize(ctx context.Context, blueprint *blueprintv1alpha1.Blueprint, componentID string, wait bool) error {
+// additive. The step lasts until the kustomization is Ready. Returns an error if the blueprint is nil, the
+// kubernetes manager is not configured, the kustomization is not found, the kustomization is marked
+// destroyOnly, or resolution, apply, placement, or the wait fails.
+func (i *Provisioner) ApplyKustomize(ctx context.Context, blueprint *blueprintv1alpha1.Blueprint, componentID string) error {
 	if blueprint == nil {
 		return fmt.Errorf("blueprint not provided")
 	}
@@ -939,9 +939,7 @@ func (i *Provisioner) ApplyKustomize(ctx context.Context, blueprint *blueprintv1
 		if placeErr = i.PlaceSecrets(ctx, resolvedSecrets, &filtered, false); placeErr != nil {
 			return placeErr
 		}
-		if wait {
-			waitErr = i.KubernetesManager.WaitForKustomizations(ctx, &filtered, stepProgress{ctx})
-		}
+		waitErr = i.KubernetesManager.WaitForKustomizations(ctx, &filtered, stepProgress{ctx})
 		return waitErr
 	}); err != nil {
 		if placeErr != nil {
@@ -960,8 +958,8 @@ func (i *Provisioner) ApplyKustomize(ctx context.Context, blueprint *blueprintv1
 // their declared secrets. Delegates to Install with pruning off, since applying the full set is additive
 // here — kustomization and secret pruning are separate, explicitly-flagged steps. Returns an error if the
 // blueprint is nil, the kubernetes manager is not configured, or the apply, placement, or wait fails.
-func (i *Provisioner) ApplyKustomizeAll(ctx context.Context, blueprint *blueprintv1alpha1.Blueprint, wait bool) error {
-	return i.Install(ctx, blueprint, false, wait)
+func (i *Provisioner) ApplyKustomizeAll(ctx context.Context, blueprint *blueprintv1alpha1.Blueprint) error {
+	return i.Install(ctx, blueprint, false)
 }
 
 // Install applies the blueprint's kustomization layer and places its declared secrets as one unit, so
@@ -976,12 +974,11 @@ func (i *Provisioner) ApplyKustomizeAll(ctx context.Context, blueprint *blueprin
 // secrets this context no longer declares, mirroring kustomization prune (on for upgrade and apply
 // --prune, off otherwise). ctx is threaded into Notify and placement so a cancelled parent context
 // (e.g. Ctrl+C) tears down promptly. The install is one "Applying kustomizations" operation with one
-// child step per kustomization; secret placement shows as progress on the owning kustomization. Without
-// wait, a kustomization still unready when the converge window closes ends as failed. With wait, a
-// readiness wait runs alongside the converge pass on the same steps, and its failure returns an error
-// wrapping ErrKustomizationsNotReady. The blueprint must be provided. Returns an error if resolution, apply,
-// placement, or the wait fails.
-func (i *Provisioner) Install(ctx context.Context, blueprint *blueprintv1alpha1.Blueprint, prune, wait bool) error {
+// child step per kustomization; secret placement shows as progress on the owning kustomization. A
+// readiness wait then runs alongside a converge pass on the same steps, and its failure returns an
+// error wrapping ErrKustomizationsNotReady. The blueprint must be provided. Returns an error if
+// resolution, apply, placement, or the wait fails.
+func (i *Provisioner) Install(ctx context.Context, blueprint *blueprintv1alpha1.Blueprint, prune bool) error {
 	if blueprint == nil {
 		return fmt.Errorf("blueprint not provided")
 	}
@@ -1013,13 +1010,6 @@ func (i *Provisioner) Install(ctx context.Context, blueprint *blueprintv1alpha1.
 
 		convergeCtx, cancel := context.WithTimeout(ctx, constants.DefaultConvergeTimeout)
 		defer cancel()
-		if !wait {
-			if !i.converge(convergeCtx, layers, applied, names, i.pollInterval()) {
-				layers.Close(fmt.Errorf("not ready within %s", constants.DefaultConvergeTimeout))
-			}
-			return nil
-		}
-
 		converged := make(chan struct{})
 		go func() {
 			defer close(converged)
@@ -1159,35 +1149,6 @@ func (i *Provisioner) PlaceSecrets(ctx context.Context, resolved ResolvedSecrets
 	}
 
 	return i.placeSecrets(ctx, stepProgress{ctx}, resolved, blueprint, prune)
-}
-
-// Converge drives the blueprint's kustomizations toward Ready within timeout, best-effort. Each
-// round it reads readiness, then reconciles and force-nudges any stalled HelmRelease for every
-// kustomization not yet Ready, so a stalled chain recovers in seconds instead of waiting for the
-// next Flux interval. It returns once everything is Ready or the timeout elapses; a still-unready
-// cluster is not an error here (use Install with wait for that). Each kustomization is a child step that ends
-// when it becomes Ready; one still unready at the timeout ends as failed while Converge itself
-// succeeds. A nil blueprint or missing kubernetes manager is a no-op.
-func (i *Provisioner) Converge(ctx context.Context, blueprint *blueprintv1alpha1.Blueprint, timeout time.Duration) error {
-	if blueprint == nil || i.KubernetesManager == nil {
-		return nil
-	}
-	bp := withCrdLayer(blueprint)
-	names := convergeNames(bp)
-	if len(names) == 0 {
-		return nil
-	}
-
-	waitCtx, cancel := context.WithTimeout(ctx, timeout)
-	defer cancel()
-
-	return presenter.Track(ctx, "kustomize:converge", "Reconciling resources", func(ctx context.Context) error {
-		layers := presenter.NewGroup(ctx, "kustomization:")
-		if !i.converge(waitCtx, layers, bp, names, i.pollInterval()) {
-			layers.Close(fmt.Errorf("not ready within %s", timeout))
-		}
-		return nil
-	})
 }
 
 // WriteVersionMarker records the blueprint version applied to this context as a marker ConfigMap
@@ -1602,18 +1563,18 @@ func (i *Provisioner) pollInterval() time.Duration {
 }
 
 // converge polls readiness until every name is Ready or ctx ends, nudging the frontier each round.
-// It ends each name's step in layers as it becomes Ready, and reports whether every name is Ready.
-func (i *Provisioner) converge(ctx context.Context, layers *presenter.Group, bp *blueprintv1alpha1.Blueprint, names []string, pollInterval time.Duration) bool {
+// It ends each name's step in layers as it becomes Ready.
+func (i *Provisioner) converge(ctx context.Context, layers *presenter.Group, bp *blueprintv1alpha1.Blueprint, names []string, pollInterval time.Duration) {
 	nudged := make(map[string]struct{})
 	for {
 		notReady, reconciling := i.nudgeFrontier(ctx, bp, nudged)
 		trackLayers(layers, names, notReady, reconciling)
 		if len(notReady) == 0 {
-			return true
+			return
 		}
 		select {
 		case <-ctx.Done():
-			return false
+			return
 		case <-time.After(pollInterval):
 		}
 	}
@@ -1726,7 +1687,7 @@ func (i *Provisioner) up(ctx context.Context, blueprint *blueprintv1alpha1.Bluep
 }
 
 // convergeNames returns the deduplicated names of the blueprint's non-destroyOnly kustomizations.
-// This is the set Converge drives toward Ready. withCrdLayer prepends CRD kustomizations
+// This is the set converge drives toward Ready. withCrdLayer prepends CRD kustomizations
 // without checking for name collisions. Dedup keeps a collision from double-printing in
 // progress output. A nil blueprint has no names.
 func convergeNames(bp *blueprintv1alpha1.Blueprint) []string {

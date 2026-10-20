@@ -7,8 +7,6 @@ import (
 	"github.com/windsorcli/cli/pkg/runtime/tools"
 )
 
-var installWaitFlag bool
-
 var installCmd = &cobra.Command{
 	Use:   "install",
 	Short: "Install the blueprint's Flux kustomizations.",
@@ -16,9 +14,9 @@ var installCmd = &cobra.Command{
 
 For most workflows, prefer 'windsor apply', which runs Terraform and Flux in the right order.
 
-Pass --wait to block until kustomizations report ready.`,
-	Example: `# Install kustomizations and wait for them to settle
-windsor install --wait`,
+Waits until every kustomization is Ready, and fails when one does not become Ready.`,
+	Example: `# Install kustomizations
+windsor install`,
 	Annotations: map[string]string{
 		"docs.seealso": "[`apply`](apply.md), [`apply kustomize`](apply-kustomize.md)",
 		"docs.source":  "cmd/install.go",
@@ -37,7 +35,7 @@ windsor install --wait`,
 			return fmt.Errorf("error resolving blueprint substitutions: %w", err)
 		}
 
-		if err := proj.Provisioner.Install(cmd.Context(), blueprint, false, installWaitFlag); err != nil {
+		if err := proj.Provisioner.Install(cmd.Context(), blueprint, false); err != nil {
 			return fmt.Errorf("error installing blueprint: %w", err)
 		}
 
@@ -46,6 +44,6 @@ windsor install --wait`,
 }
 
 func init() {
-	installCmd.Flags().BoolVar(&installWaitFlag, "wait", false, "Wait for kustomization resources to be ready.")
+	addDeprecatedWaitFlag(installCmd)
 	rootCmd.AddCommand(installCmd)
 }
