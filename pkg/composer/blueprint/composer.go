@@ -119,7 +119,7 @@ func (c *BaseBlueprintComposer) Compose(loaders []BlueprintLoader, initLoaderNam
 			if c.runtime == nil || c.runtime.TemplateRoot == "" {
 				continue
 			}
-			if _, err := os.Stat(c.runtime.TemplateRoot); os.IsNotExist(err) {
+			if _, err := c.shims.Stat(c.runtime.TemplateRoot); os.IsNotExist(err) {
 				continue
 			}
 		}
