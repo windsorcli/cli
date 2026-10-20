@@ -1,38 +1,35 @@
+// The Shims are the system call abstractions of the terraform package.
+// It provides the shared shims of internal/shims and the tar, path, and file shims of the module resolvers.
+// Tests replace the shims to simulate file system state, tar archives, and terraform init output.
+// NewShims returns the shims with the real implementations.
+
 package terraform
 
 import (
 	"archive/tar"
 	"bytes"
-	"encoding/json"
 	"io"
 	"os"
 	"path/filepath"
-)
 
-// The shims package is a system call abstraction layer for the terraform package
-// It provides mockable wrappers around system and runtime functions
-// It serves as a testing aid by allowing system calls to be intercepted
-// It enables dependency injection and test isolation for system-level operations
+	"github.com/windsorcli/cli/internal/shims"
+)
 
 // =============================================================================
 // Types
 // =============================================================================
 
-// TarReader provides an interface for tar archive reading operations
+// TarReader is the subset of tar.Reader that the terraform package uses.
 type TarReader interface {
 	Next() (*tar.Header, error)
 	Read([]byte) (int, error)
 }
 
-// Shims provides mockable wrappers around system and runtime functions
+// Shims holds the shared system call primitives and the terraform-specific shims.
 type Shims struct {
-	MkdirAll       func(path string, perm os.FileMode) error
-	WriteFile      func(filename string, data []byte, perm os.FileMode) error
-	ReadFile       func(filename string) ([]byte, error)
-	Stat           func(name string) (os.FileInfo, error)
+	shims.Shims
 	Chdir          func(dir string) error
 	FilepathRel    func(basepath, targpath string) (string, error)
-	JsonUnmarshal  func(data []byte, v any) error
 	NewBytesReader func(b []byte) *bytes.Reader
 	NewTarReader   func(r io.Reader) TarReader
 	EOFError       func() error
@@ -40,29 +37,20 @@ type Shims struct {
 	Create         func(name string) (*os.File, error)
 	Copy           func(dst io.Writer, src io.Reader) (int64, error)
 	Chmod          func(name string, mode os.FileMode) error
-	Rename         func(oldpath, newpath string) error
-	Setenv         func(key, value string) error
-	ReadDir        func(name string) ([]os.DirEntry, error)
-	RemoveAll      func(path string) error
 	FilepathAbs    func(path string) (string, error)
 	FilepathBase   func(path string) string
-	Glob           func(pattern string) ([]string, error)
 }
 
 // =============================================================================
 // Constructor
 // =============================================================================
 
-// NewShims creates a new Shims instance with default implementations
+// NewShims returns a Shims with every field set to its real implementation.
 func NewShims() *Shims {
 	return &Shims{
-		MkdirAll:      os.MkdirAll,
-		WriteFile:     os.WriteFile,
-		ReadFile:      os.ReadFile,
-		Stat:          os.Stat,
-		Chdir:         os.Chdir,
-		FilepathRel:   filepath.Rel,
-		JsonUnmarshal: json.Unmarshal,
+		Shims:       *shims.NewShims(),
+		Chdir:       os.Chdir,
+		FilepathRel: filepath.Rel,
 		NewBytesReader: func(b []byte) *bytes.Reader {
 			return bytes.NewReader(b)
 		},
@@ -78,12 +66,7 @@ func NewShims() *Shims {
 		Create:       os.Create,
 		Copy:         io.Copy,
 		Chmod:        os.Chmod,
-		Rename:       os.Rename,
-		Setenv:       os.Setenv,
-		ReadDir:      os.ReadDir,
-		RemoveAll:    os.RemoveAll,
 		FilepathAbs:  filepath.Abs,
 		FilepathBase: filepath.Base,
-		Glob:         filepath.Glob,
 	}
 }

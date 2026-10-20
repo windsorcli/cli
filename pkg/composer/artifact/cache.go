@@ -53,7 +53,7 @@ func (a *ArtifactBuilder) GetCacheDir(registry, repository, tag string) (string,
 func (a *ArtifactBuilder) Pull(ociRefs []string) (map[string]string, error) {
 	ociArtifacts := make(map[string]string)
 
-	noCacheValue, _ := os.LookupEnv("NO_CACHE")
+	noCacheValue, _ := a.shims.LookupEnv("NO_CACHE")
 	noCache := strings.EqualFold(noCacheValue, "true") || noCacheValue == "1"
 
 	uniqueOCIRefs := make(map[string]bool)
