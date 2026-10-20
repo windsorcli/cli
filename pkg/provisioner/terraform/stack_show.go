@@ -1,10 +1,10 @@
-package terraform
-
 // The stack_show file is a terraform plan document retriever for the Stack.
 // It provides PlanResourceChangesJSON and PlanAllResourceChangesJSON, which run
 // terraform plan and show -json and print the resulting resource-changes document.
 // Both plan and show steps use capture-only exec, since the document can contain
 // sensitive values and must never echo to the terminal, even under --verbose.
+
+package terraform
 
 import (
 	"bytes"

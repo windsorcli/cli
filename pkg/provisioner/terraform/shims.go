@@ -1,51 +1,37 @@
-// The shims package is a system call abstraction layer
-// It provides mockable wrappers around system and runtime functions
-// It serves as a testing aid by allowing system calls to be intercepted
-// It enables dependency injection and test isolation for system-level operations
+// The Shims are the system call abstractions of the terraform stack.
+// It provides the shared shims of internal/shims and the directory and sleep shims of the stack.
+// Tests replace the shims to simulate file system state and to skip the destroy retry delay.
+// NewShims returns the shims with the real implementations.
 
 package terraform
 
 import (
 	"os"
 	"time"
+
+	"github.com/windsorcli/cli/internal/shims"
 )
 
 // =============================================================================
 // Types
 // =============================================================================
 
-// Shims provides mockable wrappers around system and runtime functions
+// Shims holds the shared system call primitives and the terraform stack shims.
 type Shims struct {
-	Stat      func(string) (os.FileInfo, error)
-	Chdir     func(string) error
-	Getwd     func() (string, error)
-	Setenv    func(string, string) error
-	Unsetenv  func(string) error
-	Remove    func(string) error
-	MkdirTemp func(string, string) (string, error)
-	RemoveAll func(string) error
-	WriteFile func(string, []byte, os.FileMode) error
-	ReadFile  func(string) ([]byte, error)
-	TimeSleep func(time.Duration)
+	shims.Shims
+	Chdir     func(dir string) error
+	TimeSleep func(d time.Duration)
 }
 
 // =============================================================================
-// Helpers
+// Constructor
 // =============================================================================
 
-// NewShims creates a new Shims instance with default implementations
+// NewShims returns a Shims with every field set to its real implementation.
 func NewShims() *Shims {
 	return &Shims{
-		Stat:      os.Stat,
+		Shims:     *shims.NewShims(),
 		Chdir:     os.Chdir,
-		Getwd:     os.Getwd,
-		Setenv:    os.Setenv,
-		Unsetenv:  os.Unsetenv,
-		Remove:    os.Remove,
-		MkdirTemp: os.MkdirTemp,
-		RemoveAll: os.RemoveAll,
-		WriteFile: os.WriteFile,
-		ReadFile:  os.ReadFile,
 		TimeSleep: time.Sleep,
 	}
 }
