@@ -16,6 +16,7 @@ import (
 	"github.com/hashicorp/hcl/v2"
 	"github.com/hashicorp/hcl/v2/hclsyntax"
 	"github.com/hashicorp/hcl/v2/hclwrite"
+	"github.com/windsorcli/cli/internal/werror"
 	"github.com/zclconf/go-cty/cty"
 )
 
@@ -35,15 +36,15 @@ type VariableInfo struct {
 // Private Methods
 // =============================================================================
 
-// parseVariablesFromModule parses all .tf files in a module directory and returns metadata about the variables.
-// It extracts variable names, descriptions, default values, and sensitivity flags from any .tf file in the module.
-// Protected values are excluded from the returned metadata. Returns an empty slice if no variables are found,
-// but returns an error if Glob fails (indicating a filesystem issue).
+// parseVariablesFromModule returns the variables in the .tf files of a module directory.
+// Each variable has its name, description, default value, and sensitive flag. It does not return protected values.
+// It skips a .tf file that it cannot read or parse, and returns an empty slice if it finds no variables.
+// It returns an error only if the .tf file search fails.
 func (h *BaseModuleResolver) parseVariablesFromModule(modulePath string, protectedValues map[string]bool) ([]VariableInfo, error) {
 	pattern := filepath.Join(modulePath, "*.tf")
 	matches, err := h.shims.Glob(pattern)
 	if err != nil {
-		return nil, fmt.Errorf("failed to find .tf files in module: %w", err)
+		return nil, werror.Wrap(err, "failed to find .tf files in module")
 	}
 
 	if len(matches) == 0 {
@@ -125,10 +126,9 @@ func (h *BaseModuleResolver) parseVariablesFromModule(modulePath string, protect
 	return variables, nil
 }
 
-// generateTfvarsFile generates a tfvars file at the specified path using the provided module directory and component values.
-// It parses all .tf files in the module directory to extract variable definitions, merges them with the given component values
-// (excluding protected values), and writes a formatted tfvars file. Tfvars are always overwritten so scratch state reflects the current rendered output.
-// The function ensures the parent directory exists and returns an error if any file or directory operation fails.
+// generateTfvarsFile writes a tfvars file at tfvarsFilePath from the module variables and the component values.
+// It does not write protected values that a component sets. It always replaces the file so that it shows the current values.
+// It creates the parent directory if necessary.
 func (h *BaseModuleResolver) generateTfvarsFile(tfvarsFilePath, modulePath string, componentValues map[string]any, source string) error {
 	protectedValues := map[string]bool{
 		"context_path": true,
@@ -138,7 +138,7 @@ func (h *BaseModuleResolver) generateTfvarsFile(tfvarsFilePath, modulePath strin
 
 	variables, err := h.parseVariablesFromModule(modulePath, protectedValues)
 	if err != nil {
-		return fmt.Errorf("failed to parse variables from module: %w", err)
+		return werror.Wrap(err, "failed to parse variables from module")
 	}
 
 	mergedFile := hclwrite.NewEmptyFile()
@@ -154,11 +154,11 @@ func (h *BaseModuleResolver) generateTfvarsFile(tfvarsFilePath, modulePath strin
 
 	parentDir := filepath.Dir(tfvarsFilePath)
 	if err := h.shims.MkdirAll(parentDir, 0755); err != nil {
-		return fmt.Errorf("failed to create directory: %w", err)
+		return werror.Wrap(err, "failed to create directory")
 	}
 
 	if err := h.shims.WriteFile(tfvarsFilePath, mergedFile.Bytes(), 0644); err != nil {
-		return fmt.Errorf("failed to write tfvars file: %w", err)
+		return werror.Wrap(err, "failed to write tfvars file")
 	}
 
 	return nil

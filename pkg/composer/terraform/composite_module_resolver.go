@@ -1,8 +1,7 @@
 package terraform
 
 import (
-	"fmt"
-
+	"github.com/windsorcli/cli/internal/werror"
 	"github.com/windsorcli/cli/pkg/composer/artifact"
 	"github.com/windsorcli/cli/pkg/composer/blueprint"
 	"github.com/windsorcli/cli/pkg/runtime"
@@ -48,16 +47,15 @@ func NewCompositeModuleResolver(rt *runtime.Runtime, blueprintHandler blueprint.
 // Public Methods
 // =============================================================================
 
-// ProcessModules processes all terraform modules by delegating to the appropriate specialized resolvers.
-// It calls ProcessModules on each resolver in order: OCI, then Standard.
-// Returns an error if any resolver fails.
+// ProcessModules runs ProcessModules on the OCI resolver, then on the standard resolver.
+// It stops at the first error.
 func (h *CompositeModuleResolver) ProcessModules() error {
 	if err := h.ociResolver.ProcessModules(); err != nil {
-		return fmt.Errorf("failed to process OCI modules: %w", err)
+		return werror.Wrap(err, "failed to process OCI modules")
 	}
 
 	if err := h.standardResolver.ProcessModules(); err != nil {
-		return fmt.Errorf("failed to process standard modules: %w", err)
+		return werror.Wrap(err, "failed to process standard modules")
 	}
 
 	return nil

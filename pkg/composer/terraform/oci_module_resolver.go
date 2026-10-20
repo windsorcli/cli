@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
+	"github.com/windsorcli/cli/internal/werror"
 	"github.com/windsorcli/cli/pkg/composer/artifact"
 	"github.com/windsorcli/cli/pkg/composer/blueprint"
 	"github.com/windsorcli/cli/pkg/runtime"
@@ -52,10 +53,8 @@ func NewOCIModuleResolver(rt *runtime.Runtime, blueprintHandler blueprint.Bluepr
 // Public Methods
 // =============================================================================
 
-// ProcessModules processes all terraform components that use OCI sources by extracting
-// modules from OCI artifacts and generating appropriate module shims. It identifies
-// components with resolved OCI source URLs, extracts the required modules, and creates
-// the necessary terraform configuration files.
+// ProcessModules pulls the OCI artifacts that the terraform components use and writes a shim for each OCI component.
+// It pulls each artifact once, and stops at the first pull or component error.
 func (h *OCIModuleResolver) ProcessModules() error {
 	components := h.blueprintHandler.GetTerraformComponents()
 
@@ -81,7 +80,7 @@ func (h *OCIModuleResolver) ProcessModules() error {
 
 	ociArtifacts, err := h.artifactBuilder.Pull(ociURLList)
 	if err != nil {
-		return fmt.Errorf("failed to preload OCI artifacts: %w", err)
+		return werror.Wrap(err, "failed to preload OCI artifacts")
 	}
 
 	for _, component := range components {
@@ -90,7 +89,7 @@ func (h *OCIModuleResolver) ProcessModules() error {
 		}
 
 		if err := h.processComponent(component, ociArtifacts); err != nil {
-			return fmt.Errorf("failed to process component %s: %w", component.Path, err)
+			return werror.Wrap(err, "failed to process component %s", component.Path)
 		}
 	}
 
@@ -101,48 +100,47 @@ func (h *OCIModuleResolver) ProcessModules() error {
 // Private Methods
 // =============================================================================
 
-// processComponent processes a single terraform component with an OCI source.
-// It creates the module directory, extracts the OCI module, computes the relative path,
-// and writes the required shim files (main.tf, variables.tf, outputs.tf) for the component.
-// Returns an error if any step fails.
+// processComponent writes the shim for one OCI component at its FullPath.
+// It creates the directory, removes the old .tf files, and extracts the module from the cached artifact.
+// It then writes main.tf, variables.tf, and outputs.tf that point to the extracted module.
 func (h *OCIModuleResolver) processComponent(component blueprintv1alpha1.TerraformComponent, ociArtifacts map[string]string) error {
 	moduleDir := component.FullPath
 	if err := h.shims.MkdirAll(moduleDir, 0755); err != nil {
-		return fmt.Errorf("failed to create module directory: %w", err)
+		return werror.Wrap(err, "failed to create module directory")
 	}
 	if err := h.clearShimDirTfFiles(moduleDir); err != nil {
-		return fmt.Errorf("failed to clear shim directory: %w", err)
+		return werror.Wrap(err, "failed to clear shim directory")
 	}
 
 	extractedPath, err := h.extractOCIModule(component.Source, ociArtifacts)
 	if err != nil {
-		return fmt.Errorf("failed to extract OCI module: %w", err)
+		return werror.Wrap(err, "failed to extract OCI module")
 	}
 
 	relPath, err := h.shims.FilepathRel(moduleDir, extractedPath)
 	if err != nil {
-		return fmt.Errorf("failed to calculate relative path: %w", err)
+		return werror.Wrap(err, "failed to calculate relative path")
 	}
 
 	if err := h.writeShimMainTf(moduleDir, relPath); err != nil {
-		return fmt.Errorf("failed to write main.tf: %w", err)
+		return werror.Wrap(err, "failed to write main.tf")
 	}
 
 	if err := h.writeShimVariablesTf(moduleDir, extractedPath, relPath); err != nil {
-		return fmt.Errorf("failed to write variables.tf: %w", err)
+		return werror.Wrap(err, "failed to write variables.tf")
 	}
 
 	if err := h.writeShimOutputsTf(moduleDir, extractedPath); err != nil {
-		return fmt.Errorf("failed to write outputs.tf: %w", err)
+		return werror.Wrap(err, "failed to write outputs.tf")
 	}
 
 	return nil
 }
 
-// extractOCIModule extracts a specific terraform module from an OCI artifact.
-// It parses the resolved OCI source, determines the cache key, and uses the artifact package
-// to extract the module path from the cached artifact. Returns the full path to the extracted module
-// or an error if extraction fails.
+// extractOCIModule extracts the module of a resolved OCI source and returns its path.
+// The source format is oci://registry/repository:tag//path/to/module.
+// It returns an error if the source format is not valid or the artifact is not in ociArtifacts.
+// A source without a module path returns an error with a remediation hint.
 func (h *OCIModuleResolver) extractOCIModule(resolvedSource string, ociArtifacts map[string]string) (string, error) {
 	if !strings.HasPrefix(resolvedSource, "oci://") {
 		return "", fmt.Errorf("invalid resolved OCI source format: %s", resolvedSource)
@@ -150,7 +148,7 @@ func (h *OCIModuleResolver) extractOCIModule(resolvedSource string, ociArtifacts
 
 	pathSeparatorIdx := strings.Index(resolvedSource[6:], "//")
 	if pathSeparatorIdx == -1 {
-		return "", fmt.Errorf("invalid resolved OCI source format, missing path separator: %s", resolvedSource)
+		return "", werror.New(fmt.Sprintf("invalid resolved OCI source format, missing path separator: %s", resolvedSource), "Add a module path to the OCI source, for example oci://registry/repository:tag//terraform/module.", nil)
 	}
 
 	baseURL := resolvedSource[:6+pathSeparatorIdx]      // oci://registry/repo:tag
@@ -158,7 +156,7 @@ func (h *OCIModuleResolver) extractOCIModule(resolvedSource string, ociArtifacts
 
 	registry, repository, tag, err := h.artifactBuilder.ParseOCIRef(baseURL)
 	if err != nil {
-		return "", fmt.Errorf("failed to parse OCI reference: %w", err)
+		return "", werror.Wrap(err, "failed to parse OCI reference")
 	}
 
 	cacheKey := artifact.FormatOCIRef(registry, repository, tag)
@@ -168,7 +166,7 @@ func (h *OCIModuleResolver) extractOCIModule(resolvedSource string, ociArtifacts
 
 	extractedPath, err := h.artifactBuilder.ExtractModulePath(registry, repository, tag, modulePath)
 	if err != nil {
-		return "", fmt.Errorf("failed to extract module path: %w", err)
+		return "", werror.Wrap(err, "failed to extract module path")
 	}
 	return extractedPath, nil
 }

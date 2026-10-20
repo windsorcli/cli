@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
+	"github.com/windsorcli/cli/internal/werror"
 	"github.com/windsorcli/cli/pkg/composer/blueprint"
 	"github.com/windsorcli/cli/pkg/runtime"
 )
@@ -58,11 +59,11 @@ func NewStandardModuleResolver(rt *runtime.Runtime, blueprintHandler blueprint.B
 // Public Methods
 // =============================================================================
 
-// ProcessModules processes all standard terraform modules from the blueprint.
-// It iterates over each terraform component, determines if the resolver should handle the source,
-// creates the module directory, writes shim files (main.tf, variables.tf, outputs.tf), initializes
-// the module with terraform, and determines the correct module path for shimming. Errors are returned
-// if any step fails, ensuring that only valid and initialized modules are processed.
+// ProcessModules writes a shim for each terraform component that this resolver handles.
+// A local component with a name gets a shim through processLocalComponent. A template source gets a shim that points to it.
+// For a remote source, it writes main.tf and runs terraform init in the shim directory with TF_DATA_DIR in the scratch path.
+// It reads the module path from the init output, then writes variables.tf and outputs.tf from that module.
+// It stops at the first error.
 func (h *StandardModuleResolver) ProcessModules() error {
 	components := h.blueprintHandler.GetTerraformComponents()
 
@@ -72,7 +73,7 @@ func (h *StandardModuleResolver) ProcessModules() error {
 		if component.Source == "" {
 			if component.Name != "" {
 				if err := h.processLocalComponent(component); err != nil {
-					return fmt.Errorf("failed to process local component %s: %w", component.GetID(), err)
+					return werror.Wrap(err, "failed to process local component %s", component.GetID())
 				}
 			}
 			continue
@@ -84,27 +85,27 @@ func (h *StandardModuleResolver) ProcessModules() error {
 			moduleDir := component.FullPath
 			componentID := component.GetID()
 			if err := h.shims.MkdirAll(moduleDir, 0755); err != nil {
-				return fmt.Errorf("failed to create module directory for %s: %w", componentID, err)
+				return werror.Wrap(err, "failed to create module directory for %s", componentID)
 			}
 			if err := h.clearShimDirTfFiles(moduleDir); err != nil {
-				return fmt.Errorf("failed to clear shim directory for %s: %w", componentID, err)
+				return werror.Wrap(err, "failed to clear shim directory for %s", componentID)
 			}
 
 			relPath, err := h.shims.FilepathRel(moduleDir, sourcePath)
 			if err != nil {
-				return fmt.Errorf("failed to calculate relative path from %s to %s: %w", moduleDir, sourcePath, err)
+				return werror.Wrap(err, "failed to calculate relative path from %s to %s", moduleDir, sourcePath)
 			}
 
 			if err := h.writeShimMainTf(moduleDir, relPath); err != nil {
-				return fmt.Errorf("failed to write main.tf for %s: %w", componentID, err)
+				return werror.Wrap(err, "failed to write main.tf for %s", componentID)
 			}
 
 			if err := h.writeShimVariablesTf(moduleDir, sourcePath, relPath); err != nil {
-				return fmt.Errorf("failed to write variables.tf for %s: %w", componentID, err)
+				return werror.Wrap(err, "failed to write variables.tf for %s", componentID)
 			}
 
 			if err := h.writeShimOutputsTf(moduleDir, sourcePath); err != nil {
-				return fmt.Errorf("failed to write outputs.tf for %s: %w", componentID, err)
+				return werror.Wrap(err, "failed to write outputs.tf for %s", componentID)
 			}
 
 			continue
@@ -118,26 +119,26 @@ func (h *StandardModuleResolver) ProcessModules() error {
 		moduleDir := component.FullPath
 		componentID := component.GetID()
 		if err := h.shims.MkdirAll(moduleDir, 0755); err != nil {
-			return fmt.Errorf("failed to create module directory for %s: %w", componentID, err)
+			return werror.Wrap(err, "failed to create module directory for %s", componentID)
 		}
 		if err := h.clearShimDirTfFiles(moduleDir); err != nil {
-			return fmt.Errorf("failed to clear shim directory for %s: %w", componentID, err)
+			return werror.Wrap(err, "failed to clear shim directory for %s", componentID)
 		}
 
 		if filepath.IsAbs(sourcePath) {
 			relPath, err := h.shims.FilepathRel(moduleDir, sourcePath)
 			if err != nil {
-				return fmt.Errorf("failed to calculate relative path from %s to %s: %w", moduleDir, sourcePath, err)
+				return werror.Wrap(err, "failed to calculate relative path from %s to %s", moduleDir, sourcePath)
 			}
 			sourcePath = relPath
 		}
 
 		if err := h.writeShimMainTf(moduleDir, sourcePath); err != nil {
-			return fmt.Errorf("failed to write main.tf for %s: %w", componentID, err)
+			return werror.Wrap(err, "failed to write main.tf for %s", componentID)
 		}
 
 		if err := h.shims.Chdir(moduleDir); err != nil {
-			return fmt.Errorf("failed to change to module directory for %s: %w", componentID, err)
+			return werror.Wrap(err, "failed to change to module directory for %s", componentID)
 		}
 
 		if h.runtime.WindsorScratchPath == "" {
@@ -146,12 +147,12 @@ func (h *StandardModuleResolver) ProcessModules() error {
 
 		tfDataDir := filepath.Join(h.runtime.WindsorScratchPath, ".terraform", componentID)
 		if err := h.shims.Setenv("TF_DATA_DIR", tfDataDir); err != nil {
-			return fmt.Errorf("failed to set TF_DATA_DIR for %s: %w", componentID, err)
+			return werror.Wrap(err, "failed to set TF_DATA_DIR for %s", componentID)
 		}
 
 		if !terraformChecked {
 			if err := h.runtime.ToolsManager.CheckTerraform(); err != nil {
-				return fmt.Errorf("failed to initialize terraform for %s: %w", componentID, err)
+				return werror.Wrap(err, "failed to initialize terraform for %s", componentID)
 			}
 			terraformChecked = true
 		}
@@ -166,7 +167,7 @@ func (h *StandardModuleResolver) ProcessModules() error {
 			"-json",
 		)
 		if err != nil {
-			return fmt.Errorf("failed to initialize terraform for %s: %w", componentID, err)
+			return werror.Wrap(err, "failed to initialize terraform for %s", componentID)
 		}
 
 		detectedPath := ""
@@ -211,11 +212,11 @@ func (h *StandardModuleResolver) ProcessModules() error {
 		}
 
 		if err := h.writeShimVariablesTf(moduleDir, modulePath, component.Source); err != nil {
-			return fmt.Errorf("failed to write variables.tf for %s: %w", componentID, err)
+			return werror.Wrap(err, "failed to write variables.tf for %s", componentID)
 		}
 
 		if err := h.writeShimOutputsTf(moduleDir, modulePath); err != nil {
-			return fmt.Errorf("failed to write outputs.tf for %s: %w", componentID, err)
+			return werror.Wrap(err, "failed to write outputs.tf for %s", componentID)
 		}
 	}
 
@@ -226,10 +227,9 @@ func (h *StandardModuleResolver) ProcessModules() error {
 // Private Methods
 // =============================================================================
 
-// processLocalComponent creates module shims for local terraform components that have a name.
-// The shim is created at the FullPath location and references the relative path to the actual
-// local terraform module. This allows components with names to be referenced by name while
-// the actual module remains at its original path.
+// processLocalComponent writes a shim at FullPath for a local terraform component that has a name.
+// The shim points to the module at terraform/<path> with a relative path. The module stays at its path.
+// It does nothing for a component without a name.
 func (h *StandardModuleResolver) processLocalComponent(component blueprintv1alpha1.TerraformComponent) error {
 	if component.Name == "" {
 		return nil
@@ -240,26 +240,26 @@ func (h *StandardModuleResolver) processLocalComponent(component blueprintv1alph
 
 	relPath, err := h.shims.FilepathRel(moduleDir, actualModulePath)
 	if err != nil {
-		return fmt.Errorf("failed to calculate relative path from %s to %s: %w", moduleDir, actualModulePath, err)
+		return werror.Wrap(err, "failed to calculate relative path from %s to %s", moduleDir, actualModulePath)
 	}
 
 	if err := h.shims.MkdirAll(moduleDir, 0755); err != nil {
-		return fmt.Errorf("failed to create module directory for %s: %w", component.GetID(), err)
+		return werror.Wrap(err, "failed to create module directory for %s", component.GetID())
 	}
 	if err := h.clearShimDirTfFiles(moduleDir); err != nil {
-		return fmt.Errorf("failed to clear shim directory for %s: %w", component.GetID(), err)
+		return werror.Wrap(err, "failed to clear shim directory for %s", component.GetID())
 	}
 
 	if err := h.writeShimMainTf(moduleDir, relPath); err != nil {
-		return fmt.Errorf("failed to write main.tf for %s: %w", component.GetID(), err)
+		return werror.Wrap(err, "failed to write main.tf for %s", component.GetID())
 	}
 
 	if err := h.writeShimVariablesTf(moduleDir, actualModulePath, relPath); err != nil {
-		return fmt.Errorf("failed to write variables.tf for %s: %w", component.GetID(), err)
+		return werror.Wrap(err, "failed to write variables.tf for %s", component.GetID())
 	}
 
 	if err := h.writeShimOutputsTf(moduleDir, actualModulePath); err != nil {
-		return fmt.Errorf("failed to write outputs.tf for %s: %w", component.GetID(), err)
+		return werror.Wrap(err, "failed to write outputs.tf for %s", component.GetID())
 	}
 
 	return nil
