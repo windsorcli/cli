@@ -7,6 +7,8 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+
+	"github.com/windsorcli/cli/internal/werror"
 )
 
 // =============================================================================
@@ -135,6 +137,9 @@ func TestRuntime_GetBuildID(t *testing.T) {
 
 		if !strings.Contains(err.Error(), "failed to read build ID file") {
 			t.Errorf("Expected error about reading build ID file, got: %v", err)
+		}
+		if we := werror.Find(err); we == nil || !strings.Contains(we.Remediation, "read permission") {
+			t.Errorf("Expected a remediation about read permission, got: %v", we)
 		}
 	})
 
@@ -342,6 +347,60 @@ func TestRuntime_GenerateBuildID(t *testing.T) {
 
 		if !strings.Contains(buildID, ".123.6") {
 			t.Errorf("Expected build ID to contain incremented counter .123.6, got: %s", buildID)
+		}
+	})
+
+	t.Run("ErrorWhenBuildIDFileIsCorrupt", func(t *testing.T) {
+		// Given a build ID file that does not parse
+		mocks := setupRuntimeMocks(t)
+		rt := mocks.Runtime
+		rt.ProjectRoot = t.TempDir()
+		if err := os.MkdirAll(filepath.Join(rt.ProjectRoot, ".windsor"), 0750); err != nil {
+			t.Fatalf("Failed to create build ID directory: %v", err)
+		}
+		if err := os.WriteFile(filepath.Join(rt.ProjectRoot, ".windsor", ".build-id"), []byte("garbage"), 0600); err != nil {
+			t.Fatalf("Failed to write build ID file: %v", err)
+		}
+
+		// When GenerateBuildID is called
+		_, err := rt.GenerateBuildID()
+
+		// Then an error with the corrupt build ID hint is returned
+		if err == nil || !strings.Contains(err.Error(), "invalid build ID format") {
+			t.Fatalf("Expected invalid build ID format error, got: %v", err)
+		}
+		if we := werror.Find(err); we == nil || we.Remediation != corruptBuildIDHint {
+			t.Errorf("Expected the corrupt build ID hint, got: %v", we)
+		}
+	})
+
+	t.Run("ErrorWhenBuildIDFileCannotBeWritten", func(t *testing.T) {
+		if runtime.GOOS == "windows" {
+			t.Skip("Skipping on Windows: os.Chmod does not prevent file writes")
+		}
+
+		// Given a read-only build ID directory with no build ID file
+		mocks := setupRuntimeMocks(t)
+		rt := mocks.Runtime
+		rt.ProjectRoot = t.TempDir()
+		buildIDDir := filepath.Join(rt.ProjectRoot, ".windsor")
+		if err := os.MkdirAll(buildIDDir, 0750); err != nil {
+			t.Fatalf("Failed to create build ID directory: %v", err)
+		}
+		if err := os.Chmod(buildIDDir, 0500); err != nil {
+			t.Fatalf("Failed to set directory permissions: %v", err)
+		}
+		defer os.Chmod(buildIDDir, 0750)
+
+		// When GenerateBuildID is called
+		_, err := rt.GenerateBuildID()
+
+		// Then an error with a write permission hint is returned
+		if err == nil || !strings.Contains(err.Error(), "failed to write build ID file") {
+			t.Fatalf("Expected write build ID file error, got: %v", err)
+		}
+		if we := werror.Find(err); we == nil || !strings.Contains(we.Remediation, "write permission") {
+			t.Errorf("Expected a remediation about write permission, got: %v", we)
 		}
 	})
 

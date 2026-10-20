@@ -10,6 +10,7 @@ import (
 	"maps"
 	"os"
 
+	"github.com/windsorcli/cli/internal/werror"
 	"github.com/windsorcli/cli/pkg/runtime/config"
 )
 
@@ -28,9 +29,10 @@ func (rt *Runtime) ApplyConfigDefaults(flagOverrides ...map[string]any) error {
 	return rt.setConfigDefaults(flagOverrides...)
 }
 
-// ResolveConfig runs the full config pipeline: pre-load defaults, load from disk, post-load
-// defaults, flag overrides, then dev-mode platform normalization. Call once per command.
-// Mutates flagOverrides when inferring platform. Returns error on config load or set failure.
+// ResolveConfig runs the config pipeline one time for a command. The steps are:
+//   - Set the pre-load defaults, load the config from disk, and set the post-load defaults.
+//   - Set the flag overrides. A legacy "provider" override sets the platform.
+//   - Set the DNS defaults of a workstation, and in dev mode change a colima and incus vm.runtime to platform incus.
 func (rt *Runtime) ResolveConfig(flagOverrides map[string]any) error {
 	if flagOverrides == nil {
 		flagOverrides = make(map[string]any)
@@ -51,13 +53,13 @@ func (rt *Runtime) ResolveConfig(flagOverrides map[string]any) error {
 		preLoadOverrides["platform"] = inferredPlatform
 	}
 	if err := rt.ApplyConfigDefaults(preLoadOverrides); err != nil {
-		return fmt.Errorf("failed to apply config defaults: %w", err)
+		return werror.Wrap(err, "failed to apply config defaults")
 	}
 	if err := rt.ConfigHandler.LoadConfig(); err != nil {
-		return fmt.Errorf("failed to load config: %w", err)
+		return werror.Wrap(err, "failed to load config")
 	}
 	if err := rt.setConfigDefaults(preLoadOverrides); err != nil {
-		return fmt.Errorf("failed to apply post-load config defaults: %w", err)
+		return werror.Wrap(err, "failed to apply post-load config defaults")
 	}
 	for key, value := range flagOverrides {
 		if key == "provider" {
@@ -67,12 +69,12 @@ func (rt *Runtime) ResolveConfig(flagOverrides map[string]any) error {
 			continue
 		}
 		if err := rt.ConfigHandler.Set(key, value); err != nil {
-			return fmt.Errorf("failed to set %s: %w", key, err)
+			return werror.Wrap(err, "failed to set %s", key)
 		}
 	}
 	if hasExplicitPlatform && explicitPlatform != "" {
 		if err := rt.ConfigHandler.Set("platform", explicitPlatform); err != nil {
-			return fmt.Errorf("failed to set platform: %w", err)
+			return werror.Wrap(err, "failed to set platform")
 		}
 	}
 	dnsEnabled := rt.ConfigHandler.Get("dns.enabled")
@@ -91,21 +93,21 @@ func (rt *Runtime) ResolveConfig(flagOverrides map[string]any) error {
 		if (platform == "" || platform == "docker") && workstationRuntime == "colima" && vmRuntime == "incus" {
 			fmt.Fprintln(os.Stderr, "\033[33mWarning: vm.runtime is deprecated; use platform: incus in your context configuration instead. Support for vm.runtime will be removed in a future version.\033[0m")
 			if err := rt.ConfigHandler.Set("platform", "incus"); err != nil {
-				return fmt.Errorf("failed to set platform to incus: %w", err)
+				return werror.Wrap(err, "failed to set platform to incus")
 			}
 		}
 	}
 	return nil
 }
 
-// SaveConfig delegates persistence to the config handler. Workstation-managed keys are written to
-// .windsor/contexts/<context>/workstation.yaml and excluded from values.yaml.
+// SaveConfig saves the config through the config handler.
+// The handler writes the workstation keys to .windsor/contexts/<context>/workstation.yaml and not to values.yaml.
 func (rt *Runtime) SaveConfig(overwrite ...bool) error {
 	if rt.ConfigHandler == nil {
 		return fmt.Errorf("runtime not fully initialized: config handler missing")
 	}
 	if err := rt.ConfigHandler.SaveWorkstationState(); err != nil {
-		return fmt.Errorf("failed to save workstation state: %w", err)
+		return werror.Wrap(err, "failed to save workstation state")
 	}
 	return rt.ConfigHandler.SaveConfig(overwrite...)
 }
@@ -114,20 +116,17 @@ func (rt *Runtime) SaveConfig(overwrite ...bool) error {
 // Private Methods
 // =============================================================================
 
-// setConfigDefaults applies the shared config defaults.
-// ApplyConfigDefaults calls this once, before ResolveConfig loads the config file.
-// ResolveConfig calls this again right after the load. The second call never defers.
-//
-// It sets workstation.runtime in dev mode. It also sets workstation.runtime when
-// this run passes an explicit docker or incus platform. A platform saved from an
-// earlier run does not trigger this default.
+// setConfigDefaults sets the shared config defaults. ResolveConfig calls it before and after the config load.
+// It sets workstation.runtime from the host OS in dev mode, or when this run sets a docker or incus platform.
+// A platform saved from an earlier run does not set workstation.runtime.
+// In dev mode, it also sets the platform if the config does not set it.
 func (rt *Runtime) setConfigDefaults(flagOverrides ...map[string]any) error {
 	existingPlatform := rt.canonicalPlatform()
 	isDevMode := rt.ConfigHandler.IsDevMode(rt.ContextName)
 
 	if isDevMode {
 		if err := rt.ConfigHandler.Set("dev", true); err != nil {
-			return fmt.Errorf("failed to set dev mode: %w", err)
+			return werror.Wrap(err, "failed to set dev mode")
 		}
 	}
 
@@ -162,7 +161,7 @@ func (rt *Runtime) setConfigDefaults(flagOverrides ...map[string]any) error {
 
 	if shouldDefaultWorkstationRuntime && !hadRuntime && workstationRuntime != "" {
 		if err := rt.ConfigHandler.Set("workstation.runtime", workstationRuntime); err != nil {
-			return fmt.Errorf("failed to set workstation.runtime: %w", err)
+			return werror.Wrap(err, "failed to set workstation.runtime")
 		}
 	}
 	vmRuntime := ""
@@ -178,16 +177,16 @@ func (rt *Runtime) setConfigDefaults(flagOverrides ...map[string]any) error {
 	if existingPlatform == "" && isDevMode {
 		if overridePlatform != "" {
 			if err := rt.ConfigHandler.Set("platform", overridePlatform); err != nil {
-				return fmt.Errorf("failed to set platform from overrides: %w", err)
+				return werror.Wrap(err, "failed to set platform from overrides")
 			}
 		} else if workstationRuntime == "colima" && vmRuntime == "incus" {
 			fmt.Fprintln(os.Stderr, "\033[33mWarning: vm.runtime is deprecated; use platform: incus in your context configuration instead. Support for vm.runtime will be removed in a future version.\033[0m")
 			if err := rt.ConfigHandler.Set("platform", "incus"); err != nil {
-				return fmt.Errorf("failed to set platform to incus: %w", err)
+				return werror.Wrap(err, "failed to set platform to incus")
 			}
 		} else {
 			if err := rt.ConfigHandler.Set("platform", "docker"); err != nil {
-				return fmt.Errorf("failed to set platform: %w", err)
+				return werror.Wrap(err, "failed to set platform")
 			}
 		}
 	}
@@ -198,7 +197,7 @@ func (rt *Runtime) setConfigDefaults(flagOverrides ...map[string]any) error {
 		defaultConfig = config.DefaultConfig_Dev
 	}
 	if err := rt.ConfigHandler.SetDefault(defaultConfig); err != nil {
-		return fmt.Errorf("failed to set default config: %w", err)
+		return werror.Wrap(err, "failed to set default config")
 	}
 
 	return nil

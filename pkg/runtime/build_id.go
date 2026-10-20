@@ -13,33 +13,42 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/windsorcli/cli/internal/werror"
 )
+
+// =============================================================================
+// Constants
+// =============================================================================
+
+// buildIDPath is the path of the build ID file, relative to the project root.
+const buildIDPath = ".windsor/.build-id"
+
+// corruptBuildIDHint tells the operator how to replace a build ID file that does not parse.
+const corruptBuildIDHint = "Delete .windsor/.build-id, then run 'windsor build-id --new'."
 
 // =============================================================================
 // Public Methods
 // =============================================================================
 
-// GetBuildID retrieves the current build ID from the .windsor/.build-id file.
-// This is a read-only operation - it never creates a build ID.
-// Returns the build ID string if it exists, or empty string if it doesn't exist.
-// Returns an error only if file read fails (not if file doesn't exist).
+// GetBuildID returns the build ID in .windsor/.build-id, or an empty string if the file does not exist.
+// It does not create a build ID. It creates the project root if the project root does not exist.
+// A file that it cannot read returns an error with a hint.
 func (rt *Runtime) GetBuildID() (string, error) {
 	projectRoot := rt.ProjectRoot
 
 	if err := rt.Shims.MkdirAll(projectRoot, 0750); err != nil {
-		return "", fmt.Errorf("failed to create project root directory: %w", err)
+		return "", werror.Wrap(err, "failed to create project root directory")
 	}
 
 	root, err := rt.Shims.OpenRoot(projectRoot)
 	if err != nil {
-		return "", fmt.Errorf("failed to open project root: %w", err)
+		return "", werror.Wrap(err, "failed to open project root")
 	}
 	if root == nil {
 		return "", fmt.Errorf("failed to open project root: root is nil")
 	}
 	defer root.Close()
-
-	buildIDPath := ".windsor/.build-id"
 
 	if _, err := root.Stat(buildIDPath); os.IsNotExist(err) {
 		return "", nil
@@ -47,22 +56,23 @@ func (rt *Runtime) GetBuildID() (string, error) {
 
 	data, err := root.ReadFile(buildIDPath)
 	if err != nil {
-		return "", fmt.Errorf("failed to read build ID file: %w", err)
+		return "", werror.New("failed to read build ID file",
+			"Check that you have read permission on .windsor/.build-id in the project root.", err)
 	}
 
 	return strings.TrimSpace(string(data)), nil
 }
 
-// GenerateBuildID generates a new build ID and persists it to the .windsor/.build-id file,
-// overwriting any existing value. Returns the new build ID or an error if generation or persistence fails.
+// GenerateBuildID makes a new build ID and writes it to .windsor/.build-id, over any existing value.
+// It returns the new build ID.
 func (rt *Runtime) GenerateBuildID() (string, error) {
 	newBuildID, err := rt.generateBuildID()
 	if err != nil {
-		return "", fmt.Errorf("failed to generate build ID: %w", err)
+		return "", werror.Wrap(err, "failed to generate build ID")
 	}
 
 	if err := rt.writeBuildIDToFile(newBuildID); err != nil {
-		return "", fmt.Errorf("failed to set build ID: %w", err)
+		return "", werror.Wrap(err, "failed to set build ID")
 	}
 
 	return newBuildID, nil
@@ -72,82 +82,49 @@ func (rt *Runtime) GenerateBuildID() (string, error) {
 // Private Methods
 // =============================================================================
 
-// generateBuildID generates and returns a build ID string in the format YYMMDD.RANDOM.#.
-// YYMMDD is the current date (year, month, day), RANDOM is a random three-digit number for collision prevention,
-// and # is a sequential counter incremented for each build on the same day. If a build ID already exists for the current day,
-// the counter is incremented; otherwise, a new build ID is generated with counter set to 1. Ensures global ordering and uniqueness.
-// Returns the build ID string or an error if generation or retrieval fails.
+// generateBuildID returns the next build ID in the YYMMDD.RANDOM.COUNTER format.
+// RANDOM is a random three-digit number, and COUNTER counts the builds of one day.
+// If a build ID exists, incrementBuildID makes the next one. If not, the counter starts at 1.
 func (rt *Runtime) generateBuildID() (string, error) {
 	now := time.Now()
-	yy := now.Year() % 100
-	mm := int(now.Month())
-	dd := now.Day()
-	datePart := fmt.Sprintf("%02d%02d%02d", yy, mm, dd)
+	datePart := fmt.Sprintf("%02d%02d%02d", now.Year()%100, int(now.Month()), now.Day())
 
-	projectRoot := rt.ProjectRoot
-
-	if err := rt.Shims.MkdirAll(projectRoot, 0750); err != nil {
-		return "", fmt.Errorf("failed to create project root directory: %w", err)
-	}
-
-	root, err := rt.Shims.OpenRoot(projectRoot)
+	existingBuildID, err := rt.GetBuildID()
 	if err != nil {
-		return "", fmt.Errorf("failed to open project root: %w", err)
+		return "", werror.Wrap(err, "failed to get existing build ID")
 	}
-	if root == nil {
-		return "", fmt.Errorf("failed to open project root: root is nil")
-	}
-	defer root.Close()
-
-	buildIDPath := ".windsor/.build-id"
-
-	var existingBuildID string
-
-	if _, err := root.Stat(buildIDPath); os.IsNotExist(err) {
-		existingBuildID = ""
-	} else {
-		data, err := root.ReadFile(buildIDPath)
-		if err != nil {
-			return "", fmt.Errorf("failed to read build ID file: %w", err)
-		}
-		existingBuildID = strings.TrimSpace(string(data))
-	}
-
 	if existingBuildID != "" {
 		return rt.incrementBuildID(existingBuildID, datePart)
 	}
 
 	random, err := rand.Int(rand.Reader, big.NewInt(1000))
 	if err != nil {
-		return "", fmt.Errorf("failed to generate random number: %w", err)
+		return "", werror.Wrap(err, "failed to generate random number")
 	}
-	counter := 1
-	randomPart := fmt.Sprintf("%03d", random.Int64())
-	counterPart := fmt.Sprintf("%d", counter)
 
-	return fmt.Sprintf("%s.%s.%s", datePart, randomPart, counterPart), nil
+	return fmt.Sprintf("%s.%03d.1", datePart, random.Int64()), nil
 }
 
-// incrementBuildID parses an existing build ID and increments its counter component.
-// If the date component differs from the current date, generates a new random number and resets the counter to 1.
-// Returns the incremented or reset build ID string, or an error if the input format is invalid.
+// incrementBuildID returns the build ID that follows existingBuildID.
+// On the same date, it adds 1 to the counter. On a new date, it uses a new random part and a counter of 1.
+// A build ID that does not parse returns an error with a hint.
 func (rt *Runtime) incrementBuildID(existingBuildID, currentDate string) (string, error) {
 	parts := strings.Split(existingBuildID, ".")
 	if len(parts) != 3 {
-		return "", fmt.Errorf("invalid build ID format: %s", existingBuildID)
+		return "", werror.New(fmt.Sprintf("invalid build ID format: %s", existingBuildID), corruptBuildIDHint, nil)
 	}
 
 	existingDate := parts[0]
 	existingRandom := parts[1]
 	existingCounter, err := strconv.Atoi(parts[2])
 	if err != nil {
-		return "", fmt.Errorf("invalid counter component: %s", parts[2])
+		return "", werror.New(fmt.Sprintf("invalid counter component: %s", parts[2]), corruptBuildIDHint, nil)
 	}
 
 	if existingDate != currentDate {
 		random, err := rand.Int(rand.Reader, big.NewInt(1000))
 		if err != nil {
-			return "", fmt.Errorf("failed to generate random number: %w", err)
+			return "", werror.Wrap(err, "failed to generate random number")
 		}
 		return fmt.Sprintf("%s.%03d.1", currentDate, random.Int64()), nil
 	}
@@ -156,30 +133,32 @@ func (rt *Runtime) incrementBuildID(existingBuildID, currentDate string) (string
 	return fmt.Sprintf("%s.%s.%d", existingDate, existingRandom, existingCounter), nil
 }
 
-// writeBuildIDToFile writes the provided build ID string to the .windsor/.build-id file in the project root.
-// Ensures the .windsor directory exists before writing. Returns an error if directory creation or file write fails.
+// writeBuildIDToFile writes buildID to .windsor/.build-id in the project root.
+// It creates the project root and the .windsor directory if they do not exist.
+// A file that it cannot write returns an error with a hint.
 func (rt *Runtime) writeBuildIDToFile(buildID string) error {
 	projectRoot := rt.ProjectRoot
 
 	if err := rt.Shims.MkdirAll(projectRoot, 0750); err != nil {
-		return fmt.Errorf("failed to create project root directory: %w", err)
+		return werror.Wrap(err, "failed to create project root directory")
 	}
 
 	root, err := rt.Shims.OpenRoot(projectRoot)
 	if err != nil {
-		return fmt.Errorf("failed to open project root: %w", err)
+		return werror.Wrap(err, "failed to open project root")
 	}
 	if root == nil {
 		return fmt.Errorf("failed to open project root: root is nil")
 	}
 	defer root.Close()
 
-	buildIDPath := ".windsor/.build-id"
-	buildIDDir := ".windsor"
-
-	if err := root.MkdirAll(buildIDDir, 0750); err != nil {
-		return fmt.Errorf("failed to create build ID directory: %w", err)
+	if err := root.MkdirAll(".windsor", 0750); err != nil {
+		return werror.Wrap(err, "failed to create build ID directory")
 	}
 
-	return root.WriteFile(buildIDPath, []byte(buildID), 0600)
+	if err := root.WriteFile(buildIDPath, []byte(buildID), 0600); err != nil {
+		return werror.New("failed to write build ID file",
+			"Check that you have write permission on .windsor in the project root.", err)
+	}
+	return nil
 }

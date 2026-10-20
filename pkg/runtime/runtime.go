@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"path/filepath"
 
+	"github.com/windsorcli/cli/internal/werror"
 	"github.com/windsorcli/cli/pkg/runtime/config"
 	"github.com/windsorcli/cli/pkg/runtime/env"
 	"github.com/windsorcli/cli/pkg/runtime/evaluator"
@@ -260,10 +261,9 @@ func (rt *Runtime) CheckTools() error {
 	return rt.CheckToolsFor(tools.AllRequirements())
 }
 
-// CheckToolsFor verifies only the tool families the caller has opted into via reqs. Each
-// check still respects the project's config gates (e.g. requesting Docker on a non-docker
-// context is a no-op), so over-requesting is safe — it simply runs more no-op checks. The
-// tools manager must be initialized before calling this method.
+// CheckToolsFor checks the versions of the tool families in reqs.
+// Each check skips a tool that the config does not use, such as Docker in a context without docker.
+// It creates the tools manager if necessary, and returns an error if it cannot.
 func (rt *Runtime) CheckToolsFor(reqs tools.Requirements) error {
 	if rt.ToolsManager == nil {
 		rt.initializeToolsManager()
@@ -273,7 +273,7 @@ func (rt *Runtime) CheckToolsFor(reqs tools.Requirements) error {
 	}
 
 	if err := rt.ToolsManager.CheckRequirements(reqs); err != nil {
-		return fmt.Errorf("error checking tools: %w", err)
+		return werror.Wrap(err, "error checking tools")
 	}
 
 	return nil
@@ -287,9 +287,9 @@ func (rt *Runtime) PrepareTools() error {
 	return rt.PrepareToolsFor(tools.AllRequirements())
 }
 
-// PrepareToolsFor checks the tool families requested via reqs and then installs any that
-// are missing or outdated. Each check still respects the project's config gates so
-// requesting more than a command actually needs is safe. The tools manager must be available.
+// PrepareToolsFor checks the tool families in reqs, then installs the tools that are missing or out of date.
+// Each check skips a tool that the config does not use.
+// It creates the tools manager if necessary, and returns an error if it cannot.
 func (rt *Runtime) PrepareToolsFor(reqs tools.Requirements) error {
 	if rt.ToolsManager == nil {
 		rt.initializeToolsManager()
@@ -299,10 +299,10 @@ func (rt *Runtime) PrepareToolsFor(reqs tools.Requirements) error {
 	}
 
 	if err := rt.ToolsManager.CheckRequirements(reqs); err != nil {
-		return fmt.Errorf("error checking tools: %w", err)
+		return werror.Wrap(err, "error checking tools")
 	}
 	if err := rt.ToolsManager.Install(); err != nil {
-		return fmt.Errorf("error installing tools: %w", err)
+		return werror.Wrap(err, "error installing tools")
 	}
 
 	return nil
