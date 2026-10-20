@@ -1,0 +1,11 @@
+kind: Blueprint
+apiVersion: blueprints.windsorcli.dev/v1alpha1
+metadata:
+  name: upgrade-retarget
+  description: Upgrade fixture whose terraform module comes from a declared OCI source
+sources:
+  - name: core
+    url: oci://ghcr.io/windsorcli/core:v0.1.0
+terraform:
+  - path: cni/demo
+    source: core
