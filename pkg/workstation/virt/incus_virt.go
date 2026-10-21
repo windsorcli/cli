@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/windsorcli/cli/internal/presenter"
+	"github.com/windsorcli/cli/internal/werror"
 	"github.com/windsorcli/cli/pkg/runtime"
 )
 
@@ -33,6 +34,9 @@ const (
 	recentOperationThreshold  = 3 * time.Second
 	IncusNetworkName          = "incusbr0"
 )
+
+// instanceBusyHint is the remediation for an Incus instance that stays busy after the wait time.
+const instanceBusyHint = "Run incus operation list in the VM to see the busy operation. Wait for it to finish, then try again."
 
 // =============================================================================
 // Types
@@ -179,16 +183,16 @@ func (v *IncusVirt) startIncusContainers() error {
 
 	for _, remote := range remotes {
 		if err := v.ensureRemote(remote.name, remote.url); err != nil {
-			return fmt.Errorf("failed to ensure %s remote: %w", remote.name, err)
+			return werror.Wrap(err, "failed to ensure %s remote", remote.name)
 		}
 	}
 
 	return nil
 }
 
-// validateVMForIncus validates that the VM is ready for Incus operations.
-// It checks that the VM has a valid IP address when running in incus mode.
-// Returns an error with helpful troubleshooting information if the VM is in an invalid state.
+// validateVMForIncus checks that the VM has an IP address when the platform is incus.
+// For other platforms, it returns the VM info without a check.
+// When the VM has no IP address, it returns an error with a remediation hint.
 func (v *IncusVirt) validateVMForIncus(info VMInfo) (VMInfo, error) {
 	if v.configHandler.GetString("platform") != "incus" {
 		return info, nil
@@ -196,11 +200,10 @@ func (v *IncusVirt) validateVMForIncus(info VMInfo) (VMInfo, error) {
 	if info.Address == "" {
 		contextName := v.configHandler.GetContext()
 		profileName := fmt.Sprintf("windsor-%s", contextName)
-		return VMInfo{}, fmt.Errorf(
-			"VM is running but has no IP address. This may indicate a stale process or network issue.\n"+
-				"To fix this, run: windsor down --clean\n"+
-				"Or manually: colima daemon stop %s",
-			profileName)
+		return VMInfo{}, werror.New(
+			"VM is running but has no IP address, possibly because of a stale process or a network problem",
+			fmt.Sprintf("Run windsor down --clean. If the problem continues, run colima daemon stop %s.", profileName),
+			nil)
 	}
 	return info, nil
 }
@@ -224,28 +227,27 @@ func (v *IncusVirt) cleanupVMForIncus() error {
 // Removes PID files and socket files to prepare for clean restarts. All operations use
 // timeouts to prevent hanging, and failures are silently ignored to allow cleanup to proceed.
 func (v *IncusVirt) killStuckProcessesForIncus(profileName, limaInstanceName string) {
-	homeDir, err := os.UserHomeDir()
+	homeDir, err := v.shims.UserHomeDir()
 	if err != nil {
 		return
 	}
 	daemonPidPath := filepath.Join(homeDir, ".colima", profileName, "daemon", "daemon.pid")
-	_, err = os.Stat(daemonPidPath)
+	_, err = v.shims.Stat(daemonPidPath)
 	if !os.IsNotExist(err) {
 		_, _ = v.shell.ExecSilentWithTimeout("colima", []string{"daemon", "stop", profileName}, 5*time.Second)
-		_ = os.Remove(daemonPidPath)
+		_ = v.shims.Remove(daemonPidPath)
 	}
 	vmnetSocketPath := filepath.Join(homeDir, ".colima", profileName, "daemon", "vmnet.sock")
-	_, err = os.Stat(vmnetSocketPath)
+	_, err = v.shims.Stat(vmnetSocketPath)
 	if !os.IsNotExist(err) {
 		_, _ = v.shell.ExecSilentWithTimeout("limactl", []string{"stop", "--force", limaInstanceName}, 2*time.Second)
-		_ = os.Remove(vmnetSocketPath)
+		_ = v.shims.Remove(vmnetSocketPath)
 	}
 }
 
-// pollUntilNotBusy polls until an instance is not busy, using either iteration count or deadline.
-// It checks the instance busy status at regular intervals and returns when the instance is
-// no longer busy or when the maximum iterations or deadline is reached. Supports both
-// iteration-based and time-based polling strategies for flexible timeout handling.
+// pollUntilNotBusy checks at each poll interval whether the instance is busy, and returns when it is not.
+// A maxIterations value above zero sets a limit, and a deadline that is not zero sets a limit.
+// When the instance is still busy at the limit, it returns an error with a remediation hint.
 func (v *IncusVirt) pollUntilNotBusy(instanceName string, maxIterations int, deadline time.Time) error {
 	pollInterval := v.pollInterval
 	if pollInterval == 0 {
@@ -259,20 +261,20 @@ func (v *IncusVirt) pollUntilNotBusy(instanceName string, maxIterations int, dea
 	for {
 		busy, err := v.instanceIsBusy(instanceName)
 		if err != nil {
-			return fmt.Errorf("failed to check if instance is busy: %w", err)
+			return werror.Wrap(err, "failed to check if instance is busy")
 		}
 		if !busy {
 			return nil
 		}
 
 		if useDeadline && time.Now().After(deadline) {
-			return fmt.Errorf("instance %s is still busy after deadline", instanceName)
+			return werror.New(fmt.Sprintf("instance %s is still busy after deadline", instanceName), instanceBusyHint, nil)
 		}
 
 		if useIterations {
 			maxIterations--
 			if maxIterations <= 0 {
-				return fmt.Errorf("instance %s is still busy after %d iterations", instanceName, originalMaxIterations)
+				return werror.New(fmt.Sprintf("instance %s is still busy after %d iterations", instanceName, originalMaxIterations), instanceBusyHint, nil)
 			}
 		}
 
@@ -287,7 +289,7 @@ func (v *IncusVirt) pollUntilNotBusy(instanceName string, maxIterations int, dea
 func (v *IncusVirt) ensureRemote(name, url string) error {
 	exists, err := v.remoteExists(name)
 	if err != nil {
-		return fmt.Errorf("failed to check %s remote: %w", name, err)
+		return werror.Wrap(err, "failed to check %s remote", name)
 	}
 	if exists {
 		return nil
@@ -302,7 +304,7 @@ func (v *IncusVirt) ensureRemote(name, url string) error {
 		if checkErr == nil && exists {
 			return nil
 		}
-		return fmt.Errorf("failed to add %s remote: %w", name, err)
+		return werror.Wrap(err, "failed to add %s remote", name)
 	}
 
 	return nil
@@ -335,7 +337,7 @@ func (v *IncusVirt) getRemotes() ([]IncusRemote, error) {
 	}
 	var remotes map[string]IncusRemote
 	if err := json.Unmarshal([]byte(output), &remotes); err != nil {
-		return nil, fmt.Errorf("failed to parse remotes JSON: %w", err)
+		return nil, werror.Wrap(err, "failed to parse remotes JSON")
 	}
 	result := make([]IncusRemote, 0, len(remotes))
 	for name, remote := range remotes {
@@ -378,7 +380,7 @@ func (v *IncusVirt) waitForInstanceReady(name string, maxWait time.Duration) err
 	maxWaitTimeout := v.getMaxWaitTimeout(maxWait)
 	deadline := time.Now().Add(maxWaitTimeout)
 	if err := v.pollUntilNotBusy(name, 0, deadline); err != nil {
-		return fmt.Errorf("timeout waiting for instance %s to be ready: %w", name, err)
+		return werror.Wrap(err, "timeout waiting for instance %s to be ready", name)
 	}
 	return nil
 }
