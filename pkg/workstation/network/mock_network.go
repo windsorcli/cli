@@ -1,14 +1,12 @@
+// The MockNetworkManager is a test implementation of the NetworkManager interface.
+// Each method calls its function field when the test sets it. Otherwise the method returns a zero value.
+
 package network
 
 import (
 	"context"
 	"net"
 )
-
-// The MockNetworkManager is a test implementation of the NetworkManager interface.
-// It provides mock implementations of network management functions for testing,
-// The MockNetworkManager enables controlled testing of network-dependent code,
-// allowing verification of network operations without actual system modifications.
 
 // =============================================================================
 // Types

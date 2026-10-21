@@ -1,3 +1,8 @@
+// The ColimaNetworkManager is the network manager for a Colima VM.
+// It extends the base network manager with the network setup of the guest VM.
+// It runs commands in the VM with colima ssh to find the Docker bridge interface.
+// It sets iptables rules that forward traffic from the host network to that interface.
+
 package network
 
 import (
@@ -8,15 +13,11 @@ import (
 	"strings"
 	"time"
 
+	"github.com/windsorcli/cli/internal/werror"
 	"github.com/windsorcli/cli/pkg/constants"
 	"github.com/windsorcli/cli/pkg/runtime"
 	"github.com/windsorcli/cli/pkg/workstation/virt"
 )
-
-// The ColimaNetworkManager is a specialized network manager for Colima-based environments.
-// It provides Colima-specific network configuration including SSH setup, iptables rules,
-// The ColimaNetworkManager extends the base network manager with Colima-specific functionality,
-// handling guest VM networking, host-guest communication, and Docker bridge integration.
 
 // =============================================================================
 // Types
@@ -60,7 +61,7 @@ func (n *ColimaNetworkManager) ConfigureGuest() error {
 	networkCIDR := n.configHandler.GetString("network.cidr_block", constants.DefaultNetworkCIDR)
 	if platform == "incus" {
 		if err := n.configureIncusNetwork(networkCIDR); err != nil {
-			return fmt.Errorf("error configuring incus network: %w", err)
+			return werror.Wrap(err, "error configuring incus network")
 		}
 		return n.setupForwardingRule(networkCIDR, virt.IncusNetworkName)
 	}
@@ -126,7 +127,7 @@ func (n *ColimaNetworkManager) configureDockerForwarding(networkCIDR string) err
 		5*time.Second,
 	)
 	if err != nil {
-		return fmt.Errorf("error executing command to list network interfaces: %w", err)
+		return werror.Wrap(err, "error executing command to list network interfaces")
 	}
 
 	var dockerBridgeInterface string
@@ -151,7 +152,7 @@ func (n *ColimaNetworkManager) configureDockerForwarding(networkCIDR string) err
 func (n *ColimaNetworkManager) configureIncusNetwork(networkCIDR string) error {
 	_, ipNet, err := net.ParseCIDR(networkCIDR)
 	if err != nil {
-		return fmt.Errorf("error parsing network CIDR: %w", err)
+		return werror.Wrap(err, "error parsing network CIDR")
 	}
 
 	contextName := n.configHandler.GetContext()
@@ -165,7 +166,7 @@ func (n *ColimaNetworkManager) configureIncusNetwork(networkCIDR string) error {
 		15*time.Second,
 	)
 	if err != nil {
-		return fmt.Errorf("error setting incus network address: %w", err)
+		return werror.Wrap(err, "error setting incus network address")
 	}
 
 	return nil
@@ -196,7 +197,7 @@ func (n *ColimaNetworkManager) removeForwardingRule(networkCIDR, outputInterface
 	)
 	if err != nil && !isExitCode(err, 1) {
 		// iptables -D exits 1 when the rule doesn't exist. Any other exit code is a real failure.
-		return fmt.Errorf("error removing iptables rule: %w", err)
+		return werror.Wrap(err, "error removing iptables rule")
 	}
 	return nil
 }
@@ -210,7 +211,7 @@ func (n *ColimaNetworkManager) setupForwardingRule(networkCIDR, outputInterface 
 	}
 	hostIP, err := n.getHostIP()
 	if err != nil {
-		return fmt.Errorf("error getting host IP: %w", err)
+		return werror.Wrap(err, "error getting host IP")
 	}
 	contextName := n.configHandler.GetContext()
 	profileName := fmt.Sprintf("windsor-%s", contextName)
@@ -220,7 +221,7 @@ func (n *ColimaNetworkManager) setupForwardingRule(networkCIDR, outputInterface 
 		10*time.Second,
 	)
 	if err != nil {
-		return fmt.Errorf("error enabling IP forwarding in VM: %w", err)
+		return werror.Wrap(err, "error enabling IP forwarding in VM")
 	}
 
 	checkCommand := fmt.Sprintf("sudo iptables -t filter -C FORWARD -i col0 -o %s -s %s -d %s -j ACCEPT 2>/dev/null </dev/null", outputInterface, hostIP, cidr)
@@ -237,7 +238,7 @@ func (n *ColimaNetworkManager) setupForwardingRule(networkCIDR, outputInterface 
 			10*time.Second,
 		)
 		if addErr != nil {
-			return fmt.Errorf("error setting iptables rule: %w", addErr)
+			return werror.Wrap(addErr, "error setting iptables rule")
 		}
 	}
 
@@ -258,13 +259,13 @@ func (n *ColimaNetworkManager) getHostIP() (string, error) {
 
 	interfaces, err := n.networkInterfaceProvider.Interfaces()
 	if err != nil {
-		return "", fmt.Errorf("failed to get network interfaces: %w", err)
+		return "", werror.Wrap(err, "failed to get network interfaces")
 	}
 
 	for _, iface := range interfaces {
 		addrs, err := n.networkInterfaceProvider.InterfaceAddrs(iface)
 		if err != nil {
-			return "", fmt.Errorf("failed to get addresses for interface %s: %w", iface.Name, err)
+			return "", werror.Wrap(err, "failed to get addresses for interface %s", iface.Name)
 		}
 
 		for _, addr := range addrs {

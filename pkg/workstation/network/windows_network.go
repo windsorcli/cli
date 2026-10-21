@@ -1,6 +1,10 @@
 //go:build windows
 // +build windows
 
+// The WindowsNetworkManager is the network manager for Windows.
+// It adds the host route to the guest VM network.
+// It configures DNS for the context domain with a Name Resolution Policy Table rule.
+
 package network
 
 import (
@@ -9,13 +13,9 @@ import (
 	"strings"
 
 	"github.com/windsorcli/cli/internal/presenter"
+	"github.com/windsorcli/cli/internal/werror"
 	"github.com/windsorcli/cli/pkg/constants"
 )
-
-// The WindowsNetworkManager is a platform-specific network manager for Windows systems.
-// It provides network configuration capabilities specific to Windows-based systems,
-// The WindowsNetworkManager handles host route configuration and DNS setup for Windows,
-// ensuring proper network connectivity between the host and guest VM environments.
 
 // =============================================================================
 // Constants
@@ -88,7 +88,7 @@ func (n *BaseNetworkManager) ConfigureHostRoute(ctx context.Context) error {
 	}
 	guest, err := validateIPAddress(guestIP)
 	if err != nil {
-		return fmt.Errorf("invalid workstation.address: %w", err)
+		return werror.Wrap(err, "invalid workstation.address")
 	}
 
 	output, err := n.shell.ExecSilent(
@@ -97,7 +97,7 @@ func (n *BaseNetworkManager) ConfigureHostRoute(ctx context.Context) error {
 		fmt.Sprintf("Get-NetRoute -DestinationPrefix %s -ErrorAction SilentlyContinue | Where-Object { $_.NextHop -eq '%s' }", cidr, guest),
 	)
 	if err != nil {
-		return fmt.Errorf("failed to check if route exists: %w", err)
+		return werror.Wrap(err, "failed to check if route exists")
 	}
 
 	if strings.TrimSpace(output) != "" {
@@ -118,16 +118,15 @@ func (n *BaseNetworkManager) ConfigureHostRoute(ctx context.Context) error {
 	})
 }
 
-// ConfigureDNS installs a per-domain NRPT rule for dns.domain. The existence check returns the rule's
-// NameServers comma-joined; Go parses the first entry and compares against the desired IP, matching
-// needsPrivilegeForResolver so rules carrying extra operator-added entries are not rewritten on every
-// run. Privileged add/update fires only on first-IP mismatch. After a successful add/update (or when
-// the rule was already correct), probes Get-DnsClientNrptPolicy -Effective and warns non-fatally if
-// a GPO is overriding our rule. PowerShell args pass via $env:WINDSOR_NRPT_* (no string interpolation).
+// ConfigureDNS installs an NRPT rule that sends queries for dns.domain to the resolver IP.
+// When the domain or the resolver IP is not set, it returns an error with a remediation hint.
+// It adds or updates the rule only when the first name server of the rule is not the resolver IP.
+// It then reads the effective NRPT policy and shows a warning when a GPO overrides the rule.
+// The arguments go to PowerShell in $env:WINDSOR_NRPT_* variables, not in the script text.
 func (n *BaseNetworkManager) ConfigureDNS(ctx context.Context) error {
 	domain := n.configHandler.GetString("dns.domain")
 	if domain == "" {
-		return fmt.Errorf("DNS domain is not configured")
+		return werror.New("DNS domain is not configured", dnsDomainHint, nil)
 	}
 	if err := validateDomain(domain); err != nil {
 		return err
@@ -135,11 +134,11 @@ func (n *BaseNetworkManager) ConfigureDNS(ctx context.Context) error {
 
 	dnsIP := n.effectiveResolverIP()
 	if dnsIP == "" {
-		return fmt.Errorf("DNS address is not configured")
+		return werror.New("DNS address is not configured", dnsAddressHint, nil)
 	}
 	dns, err := validateIPAddress(dnsIP)
 	if err != nil {
-		return fmt.Errorf("invalid DNS resolver address: %w", err)
+		return werror.Wrap(err, "invalid DNS resolver address")
 	}
 
 	namespace := "." + domain
@@ -156,7 +155,7 @@ func (n *BaseNetworkManager) ConfigureDNS(ctx context.Context) error {
 		nrptCheckScript,
 	)
 	if err != nil {
-		return fmt.Errorf("failed to check existing DNS rules for %s: %w", domain, err)
+		return werror.Wrap(err, "failed to check existing DNS rules for %s", domain)
 	}
 
 	currentIP := strings.TrimSpace(output)
@@ -169,7 +168,7 @@ func (n *BaseNetworkManager) ConfigureDNS(ctx context.Context) error {
 		if err := presenter.Track(ctx, "network:dns", fmt.Sprintf("Configuring DNS for '*.%s'", domain), func(ctx context.Context) error {
 			presenter.Warn(ctx, "This step requires elevated privileges.")
 			if _, err := n.shell.ExecProgressWithEnv(fmt.Sprintf("Configuring DNS for '*.%s'", domain), "powershell", nrptEnv, "-Command", nrptAddOrUpdateScript); err != nil {
-				return fmt.Errorf("failed to add or update DNS rule for %s: %w", domain, err)
+				return werror.Wrap(err, "failed to add or update DNS rule for %s", domain)
 			}
 			return nil
 		}); err != nil {
@@ -203,7 +202,7 @@ func (n *BaseNetworkManager) RevertHostRoute() error {
 	}
 	script := fmt.Sprintf("Remove-NetRoute -DestinationPrefix %s -Confirm:$false -ErrorAction SilentlyContinue", cidr)
 	if _, err := n.shell.ExecSilent("powershell", "-Command", script); err != nil {
-		return fmt.Errorf("failed to remove host route: %w", err)
+		return werror.Wrap(err, "failed to remove host route")
 	}
 	return nil
 }
@@ -220,7 +219,7 @@ func (n *BaseNetworkManager) RevertDNS() error {
 	}
 	env := map[string]string{"WINDSOR_NRPT_NAMESPACE": "." + domain}
 	if _, err := n.shell.ExecSilentWithEnv("powershell", env, "-Command", nrptRevertScript); err != nil {
-		return fmt.Errorf("failed to remove DNS rule: %w", err)
+		return werror.Wrap(err, "failed to remove DNS rule")
 	}
 	return nil
 }
@@ -228,7 +227,7 @@ func (n *BaseNetworkManager) RevertDNS() error {
 // FlushDNS clears the Windows DNS client cache via PowerShell.
 func (n *BaseNetworkManager) FlushDNS(ctx context.Context) error {
 	if _, err := n.shell.ExecSilent("powershell", "-Command", "Clear-DnsClientCache"); err != nil {
-		return fmt.Errorf("Error flushing DNS cache: %w", err)
+		return werror.Wrap(err, "Error flushing DNS cache")
 	}
 	return nil
 }

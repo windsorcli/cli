@@ -12,6 +12,7 @@ import (
 	"testing"
 
 	"github.com/windsorcli/cli/internal/presenter"
+	"github.com/windsorcli/cli/internal/werror"
 )
 
 // =============================================================================
@@ -440,23 +441,29 @@ func TestLinuxNetworkManager_ConfigureDNS(t *testing.T) {
 		// When configuring DNS
 		err := manager.ConfigureDNS(context.Background())
 
-		// Then the symlink-specific hint surfaces — names the actual condition
-		// and points at the symlink recovery, not 'systemctl enable --now'
+		// Then the error names the symlink condition
 		if err == nil {
 			t.Fatalf("expected error, got nil")
 		}
+		if !strings.Contains(err.Error(), "/etc/resolv.conf does not point at its stub resolver") {
+			t.Errorf("expected symlink error, got: %s", err.Error())
+		}
+
+		// And the remediation points at the symlink recovery, not 'systemctl enable --now'
+		we := werror.Find(err)
+		if we == nil {
+			t.Fatalf("expected a WindsorError, got %v", err)
+		}
 		for _, want := range []string{
-			"systemd-resolved is active but /etc/resolv.conf is not pointing at its stub",
 			"sudo ln -sf /run/systemd/resolve/stub-resolv.conf /etc/resolv.conf",
 			"NetworkManager",
 		} {
-			if !strings.Contains(err.Error(), want) {
-				t.Errorf("expected hint to include %q, got: %s", want, err.Error())
+			if !strings.Contains(we.Remediation, want) {
+				t.Errorf("expected remediation to include %q, got: %s", want, we.Remediation)
 			}
 		}
-		// And the not-running hint's signature phrase MUST NOT appear here
-		if strings.Contains(err.Error(), "which is not running") {
-			t.Errorf("expected symlink hint, got not-running hint: %s", err.Error())
+		if strings.Contains(we.Remediation, "systemctl enable --now") {
+			t.Errorf("expected symlink remediation, got not-running remediation: %s", we.Remediation)
 		}
 	})
 
@@ -479,8 +486,11 @@ func TestLinuxNetworkManager_ConfigureDNS(t *testing.T) {
 		if err == nil {
 			t.Fatalf("expected error, got nil")
 		}
-		if !strings.Contains(err.Error(), "systemd-resolved, which is not running") {
-			t.Errorf("expected hint mentioning systemd-resolved not running, got: %s", err.Error())
+		if !strings.Contains(err.Error(), "systemd-resolved is not running") {
+			t.Errorf("expected systemd-resolved not running error, got: %s", err.Error())
+		}
+		if we := werror.Find(err); we == nil || !strings.Contains(we.Remediation, "systemctl enable --now systemd-resolved") {
+			t.Errorf("expected remediation to enable systemd-resolved, got: %v", we)
 		}
 	})
 
