@@ -1,3 +1,7 @@
+// The NetworkManager configures the local network of a development context.
+// It manages the host routes, the guest VM network, and the DNS for the context domain.
+// Terraform in the stack assigns the IP addresses of the services.
+
 package network
 
 import (
@@ -8,13 +12,21 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/windsorcli/cli/internal/werror"
 	"github.com/windsorcli/cli/pkg/runtime"
 	"github.com/windsorcli/cli/pkg/runtime/config"
 	"github.com/windsorcli/cli/pkg/runtime/shell"
 )
 
-// The NetworkManager manages local development network configuration: host routes,
-// guest VM networking, and DNS. IP assignment for services is handled by Terraform in the stack.
+// =============================================================================
+// Constants
+// =============================================================================
+
+// dnsDomainHint is the remediation for a context that has no DNS domain.
+const dnsDomainHint = "Set dns.domain in the context configuration."
+
+// dnsAddressHint is the remediation for a context that has no DNS address.
+const dnsAddressHint = "Set workstation.dns.address in the context configuration."
 
 // =============================================================================
 // Types
@@ -198,7 +210,7 @@ func validateDomain(domain string) error {
 func validateCIDR(cidr string) (string, error) {
 	_, network, err := net.ParseCIDR(cidr)
 	if err != nil {
-		return "", fmt.Errorf("invalid CIDR %q: %w", cidr, err)
+		return "", werror.Wrap(err, "invalid CIDR %q", cidr)
 	}
 	return network.String(), nil
 }
@@ -245,21 +257,21 @@ func validateBridgeInterface(iface string) (string, error) {
 func (n *BaseNetworkManager) writeFileWithSudo(destPath string, content []byte) error {
 	tempDir, err := n.shims.MkdirTemp("", "windsor-net-")
 	if err != nil {
-		return fmt.Errorf("failed to create temp directory: %w", err)
+		return werror.Wrap(err, "failed to create temp directory")
 	}
 	defer n.shims.RemoveAll(tempDir)
 
 	tempPath := filepath.Join(tempDir, "drop-in")
 	if err := n.shims.WriteFile(tempPath, content, 0644); err != nil {
-		return fmt.Errorf("failed to stage file: %w", err)
+		return werror.Wrap(err, "failed to stage file")
 	}
 
 	if _, err := n.shell.ExecSudo("", "mv", tempPath, destPath); err != nil {
-		return fmt.Errorf("failed to install file: %w", err)
+		return werror.Wrap(err, "failed to install file")
 	}
 
 	if _, err := n.shell.ExecSudo("", "chmod", "0644", destPath); err != nil {
-		return fmt.Errorf("failed to set file mode: %w", err)
+		return werror.Wrap(err, "failed to set file mode")
 	}
 
 	return nil

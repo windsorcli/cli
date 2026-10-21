@@ -7,6 +7,7 @@ import (
 	"context"
 	"fmt"
 	"github.com/windsorcli/cli/internal/presenter"
+	"github.com/windsorcli/cli/internal/werror"
 	"os"
 	"strings"
 	"testing"
@@ -376,6 +377,9 @@ func TestDarwinNetworkManager_ConfigureDNS(t *testing.T) {
 		if err.Error() != expectedError {
 			t.Fatalf("expected error %q, got %q", expectedError, err.Error())
 		}
+		if we := werror.Find(err); we == nil || !strings.Contains(we.Remediation, "dns.domain") {
+			t.Errorf("expected remediation to mention dns.domain, got %v", we)
+		}
 	})
 
 	t.Run("NoDNSAddressConfigured", func(t *testing.T) {
@@ -395,6 +399,9 @@ func TestDarwinNetworkManager_ConfigureDNS(t *testing.T) {
 		expectedError := "DNS address is not configured"
 		if err.Error() != expectedError {
 			t.Fatalf("expected error %q, got %q", expectedError, err.Error())
+		}
+		if we := werror.Find(err); we == nil || !strings.Contains(we.Remediation, "workstation.dns.address") {
+			t.Errorf("expected remediation to mention workstation.dns.address, got %v", we)
 		}
 	})
 

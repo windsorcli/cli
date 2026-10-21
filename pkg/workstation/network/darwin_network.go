@@ -1,6 +1,10 @@
 //go:build darwin
 // +build darwin
 
+// The DarwinNetworkManager is the network manager for macOS.
+// It adds the host route to the guest VM network and makes the route persistent with networksetup.
+// It configures DNS for the context domain with a file in /etc/resolver.
+
 package network
 
 import (
@@ -11,13 +15,9 @@ import (
 	"strings"
 
 	"github.com/windsorcli/cli/internal/presenter"
+	"github.com/windsorcli/cli/internal/werror"
 	"github.com/windsorcli/cli/pkg/constants"
 )
-
-// The DarwinNetworkManager is a platform-specific network manager for macOS.
-// It provides network configuration capabilities specific to Darwin-based systems,
-// The DarwinNetworkManager handles host route configuration and DNS setup for macOS,
-// ensuring proper network connectivity between the host and guest VM environments.
 
 // =============================================================================
 // Public Methods
@@ -88,12 +88,13 @@ func (n *BaseNetworkManager) ConfigureHostRoute(ctx context.Context) error {
 	})
 }
 
-// ConfigureDNS sets up DNS by modifying system files to route DNS queries.
-// Resolver IP is read from config via effectiveResolverIP (dns.address, or 127.0.0.1 in localhost mode when unset).
+// ConfigureDNS writes a resolver file in /etc/resolver that sends queries for dns.domain to the resolver IP.
+// effectiveResolverIP gives the resolver IP: workstation.dns.address, or 127.0.0.1 in localhost mode.
+// When the domain or the resolver IP is not set, it returns an error with a remediation hint.
 func (n *BaseNetworkManager) ConfigureDNS(ctx context.Context) error {
 	tld := n.configHandler.GetString("dns.domain")
 	if tld == "" {
-		return fmt.Errorf("DNS domain is not configured")
+		return werror.New("DNS domain is not configured", dnsDomainHint, nil)
 	}
 	if err := validateDomain(tld); err != nil {
 		return err
@@ -101,7 +102,7 @@ func (n *BaseNetworkManager) ConfigureDNS(ctx context.Context) error {
 
 	dnsIP := n.effectiveResolverIP()
 	if dnsIP == "" {
-		return fmt.Errorf("DNS address is not configured")
+		return werror.New("DNS address is not configured", dnsAddressHint, nil)
 	}
 
 	resolverDir := "/etc/resolver"
@@ -118,11 +119,11 @@ func (n *BaseNetworkManager) ConfigureDNS(ctx context.Context) error {
 		n.warnIfPrivilegeNeeded(ctx)
 		if _, err := n.shims.Stat(resolverDir); os.IsNotExist(err) {
 			if _, err := n.shell.ExecSudo("", "mkdir", "-p", resolverDir); err != nil {
-				return fmt.Errorf("Error creating resolver directory: %w", err)
+				return werror.Wrap(err, "Error creating resolver directory")
 			}
 		}
 		if err := n.writeFileWithSudo(resolverFile, []byte(content)); err != nil {
-			return fmt.Errorf("Error installing resolver file: %w", err)
+			return werror.Wrap(err, "Error installing resolver file")
 		}
 		return nil
 	})
@@ -147,7 +148,7 @@ func (n *BaseNetworkManager) RevertHostRoute() error {
 		args, removed := macOSRemoveAdditionalRouteArgs(service, getRoutesOutput, networkCIDR, guestIP)
 		if removed {
 			if _, err := n.shell.ExecSudo("", "networksetup", args...); err != nil {
-				return fmt.Errorf("Error removing persistent host route: %w", err)
+				return werror.Wrap(err, "Error removing persistent host route")
 			}
 		}
 	}
@@ -166,7 +167,7 @@ func (n *BaseNetworkManager) RevertDNS() error {
 	}
 	resolverFile := fmt.Sprintf("/etc/resolver/%s", tld)
 	if _, err := n.shell.ExecSudo("", "rm", "-f", resolverFile); err != nil {
-		return fmt.Errorf("Error removing resolver file: %w", err)
+		return werror.Wrap(err, "Error removing resolver file")
 	}
 	return nil
 }
@@ -176,10 +177,10 @@ func (n *BaseNetworkManager) FlushDNS(ctx context.Context) error {
 	return presenter.Track(ctx, "network:dns-flush", "Flushing DNS cache", func(ctx context.Context) error {
 		n.warnIfPrivilegeNeeded(ctx)
 		if _, err := n.shell.ExecSudo("", "dscacheutil", "-flushcache"); err != nil {
-			return fmt.Errorf("Error flushing DNS cache: %w", err)
+			return werror.Wrap(err, "Error flushing DNS cache")
 		}
 		if _, err := n.shell.ExecSudo("", "killall", "-HUP", "mDNSResponder"); err != nil {
-			return fmt.Errorf("Error restarting mDNSResponder: %w", err)
+			return werror.Wrap(err, "Error restarting mDNSResponder")
 		}
 		return nil
 	})
@@ -209,7 +210,7 @@ func (n *BaseNetworkManager) macOSRouteInKernel(networkCIDR, guestIP string) (bo
 	networkPrefix := strings.Split(networkCIDR, "/")[0]
 	output, err := n.shell.ExecSilent("route", "-n", "get", networkPrefix)
 	if err != nil {
-		return false, fmt.Errorf("failed to check if route exists: %w", err)
+		return false, werror.Wrap(err, "failed to check if route exists")
 	}
 	found := map[string]string{}
 	for _, line := range strings.Split(output, "\n") {
@@ -230,7 +231,7 @@ func (n *BaseNetworkManager) macOSRouteInKernel(networkCIDR, guestIP string) (bo
 func (n *BaseNetworkManager) macOSPrimaryServiceAndRoutes() (service string, routesOutput string, err error) {
 	listOutput, err := n.shell.ExecSilent("networksetup", "-listallnetworkservices")
 	if err != nil {
-		return "", "", fmt.Errorf("failed to list network services: %w", err)
+		return "", "", werror.Wrap(err, "failed to list network services")
 	}
 	service = pickPrimaryNetworkService(listOutput)
 	if service == "" {
@@ -238,7 +239,7 @@ func (n *BaseNetworkManager) macOSPrimaryServiceAndRoutes() (service string, rou
 	}
 	routesOutput, err = n.shell.ExecSilent("networksetup", "-getadditionalroutes", service)
 	if err != nil {
-		return "", "", fmt.Errorf("failed to read additional routes for %q: %w", service, err)
+		return "", "", werror.Wrap(err, "failed to read additional routes for %q", service)
 	}
 	return service, routesOutput, nil
 }
@@ -336,7 +337,7 @@ func macOSRemoveAdditionalRouteArgs(service, getRoutesOutput, networkCIDR, guest
 func cidrToDestMask(networkCIDR string) (dest, mask string, err error) {
 	_, ipnet, err := net.ParseCIDR(networkCIDR)
 	if err != nil {
-		return "", "", fmt.Errorf("invalid CIDR %q: %w", networkCIDR, err)
+		return "", "", werror.Wrap(err, "invalid CIDR %q", networkCIDR)
 	}
 	if len(ipnet.Mask) != 4 {
 		return "", "", fmt.Errorf("only IPv4 CIDRs are supported, got %q", networkCIDR)

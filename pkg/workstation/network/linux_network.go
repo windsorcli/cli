@@ -1,6 +1,10 @@
 //go:build linux
 // +build linux
 
+// The LinuxNetworkManager is the network manager for Linux.
+// It adds the host route to the guest VM network and makes the route persistent with systemd-networkd or NetworkManager.
+// It configures DNS for the context domain with a systemd-resolved drop-in file.
+
 package network
 
 import (
@@ -10,28 +14,19 @@ import (
 	"strings"
 
 	"github.com/windsorcli/cli/internal/presenter"
+	"github.com/windsorcli/cli/internal/werror"
 	"github.com/windsorcli/cli/pkg/constants"
 )
-
-// The LinuxNetworkManager is a platform-specific network manager for Linux systems.
-// It provides network configuration capabilities specific to Linux-based systems,
-// The LinuxNetworkManager handles host route configuration and DNS setup for Linux,
-// ensuring proper network connectivity between the host and guest VM environments.
 
 // =============================================================================
 // Constants
 // =============================================================================
 
-// systemdResolvedNotRunningHint surfaces when `systemctl is-active systemd-resolved` reports
-// inactive. Names the supported distros + the manual-config escape hatch for distros that
-// don't ship systemd-resolved at all (Alpine, Void, NixOS, etc.).
-const systemdResolvedNotRunningHint = "DNS configuration on this distro requires systemd-resolved, which is not running. Windsor's supported Linux DNS setup uses a systemd-resolved drop-in at /etc/systemd/resolved.conf.d/. To enable: 'sudo systemctl enable --now systemd-resolved' (Ubuntu/Debian/Fedora/openSUSE), then re-run 'windsor configure network'. If your distro doesn't ship systemd-resolved (Alpine, Void, Devuan, NixOS, Slackware), you'll need to wire DNS manually — add 'nameserver <address>' for *.<domain> via your distro's resolver (resolvconf, dnsmasq, unbound)."
+// systemdResolvedNotRunningHint is the remediation for a host where systemd-resolved is not running.
+const systemdResolvedNotRunningHint = "Run 'sudo systemctl enable --now systemd-resolved', then run 'windsor configure network' again. If your distribution does not include systemd-resolved, configure your resolver to send *.<domain> queries to the DNS address."
 
-// systemdResolvedSymlinkHint surfaces when the resolved service is active but /etc/resolv.conf
-// does not symlink to its stub. The drop-in we'd write would be ignored in that state because
-// resolv.conf bypasses resolved entirely. Common causes: NetworkManager with `dns=default`,
-// manual edits, or distro defaults that haven't switched over.
-const systemdResolvedSymlinkHint = "systemd-resolved is active but /etc/resolv.conf is not pointing at its stub resolver, so any drop-in we write would be ignored. Restore the symlink with 'sudo ln -sf /run/systemd/resolve/stub-resolv.conf /etc/resolv.conf', then re-run 'windsor configure network'. If NetworkManager keeps rewriting /etc/resolv.conf, set 'dns=systemd-resolved' in /etc/NetworkManager/conf.d/dns.conf and reload NetworkManager."
+// systemdResolvedSymlinkHint is the remediation for a host where /etc/resolv.conf does not point at the systemd-resolved stub.
+const systemdResolvedSymlinkHint = "Run 'sudo ln -sf /run/systemd/resolve/stub-resolv.conf /etc/resolv.conf', then run 'windsor configure network' again. If NetworkManager writes /etc/resolv.conf again, set 'dns=systemd-resolved' in /etc/NetworkManager/conf.d/dns.conf and reload NetworkManager."
 
 // =============================================================================
 // Public Methods
@@ -77,14 +72,14 @@ func (n *BaseNetworkManager) ConfigureHostRoute(ctx context.Context) error {
 	return nil
 }
 
-// ConfigureDNS installs a systemd-resolved drop-in scoping dns.domain to our resolver; global DNS is
-// unchanged. Probes `systemctl is-active systemd-resolved` first so distros that don't ship resolved
-// fail with an actionable hint, and warns non-fatally when NetworkManager's `dns=default` mode would
-// rewrite /etc/resolv.conf and shadow the drop-in.
+// ConfigureDNS writes a systemd-resolved drop-in file that sends queries for dns.domain to the resolver IP.
+// It does not change the global DNS. It returns an error with a remediation hint when the domain or the
+// resolver IP is not set, when systemd-resolved is not running, or when /etc/resolv.conf does not point at
+// the systemd-resolved stub. It shows a warning when the NetworkManager dns=default mode can replace the drop-in.
 func (n *BaseNetworkManager) ConfigureDNS(ctx context.Context) error {
 	domain := n.configHandler.GetString("dns.domain")
 	if domain == "" {
-		return fmt.Errorf("DNS domain is not configured")
+		return werror.New("DNS domain is not configured", dnsDomainHint, nil)
 	}
 	if err := validateDomain(domain); err != nil {
 		return err
@@ -92,16 +87,16 @@ func (n *BaseNetworkManager) ConfigureDNS(ctx context.Context) error {
 
 	dnsIP := n.effectiveResolverIP()
 	if dnsIP == "" {
-		return fmt.Errorf("DNS address is not configured")
+		return werror.New("DNS address is not configured", dnsAddressHint, nil)
 	}
 
 	if status, err := n.shell.ExecSilent("systemctl", "is-active", "systemd-resolved"); err != nil || strings.TrimSpace(status) != "active" {
-		return fmt.Errorf("%s", systemdResolvedNotRunningHint)
+		return werror.New("systemd-resolved is not running", systemdResolvedNotRunningHint, nil)
 	}
 
 	resolvConf, err := n.shims.ReadLink("/etc/resolv.conf")
 	if err != nil || !isSystemdResolvedStubLink(resolvConf) {
-		return fmt.Errorf("%s", systemdResolvedSymlinkHint)
+		return werror.New("systemd-resolved is active, but /etc/resolv.conf does not point at its stub resolver", systemdResolvedSymlinkHint, nil)
 	}
 
 	dropInDir := "/etc/systemd/resolved.conf.d"
@@ -117,13 +112,13 @@ func (n *BaseNetworkManager) ConfigureDNS(ctx context.Context) error {
 	return presenter.Track(ctx, "network:dns", "Configuring DNS", func(ctx context.Context) error {
 		n.warnIfPrivilegeNeeded(ctx)
 		if _, err := n.shell.ExecSudo("", "mkdir", "-p", dropInDir); err != nil {
-			return fmt.Errorf("failed to create drop-in directory: %w", err)
+			return werror.Wrap(err, "failed to create drop-in directory")
 		}
 		if err := n.writeFileWithSudo(dropInFile, []byte(expectedContent)); err != nil {
-			return fmt.Errorf("failed to write DNS configuration: %w", err)
+			return werror.Wrap(err, "failed to write DNS configuration")
 		}
 		if _, err := n.shell.ExecSudo("", "systemctl", "restart", "systemd-resolved"); err != nil {
-			return fmt.Errorf("failed to restart systemd-resolved: %w", err)
+			return werror.Wrap(err, "failed to restart systemd-resolved")
 		}
 		if msg := n.networkManagerShadowsResolverWarning(domain); msg != "" {
 			presenter.Warn(ctx, msg)
@@ -157,7 +152,7 @@ func (n *BaseNetworkManager) RevertHostRoute() error {
 		return fmt.Errorf("failed to delete host route: %w, output: %s", err, output)
 	}
 	if err := n.unpersistLinuxHostRoute(networkCIDR); err != nil {
-		return fmt.Errorf("failed to remove persistent host route: %w", err)
+		return werror.Wrap(err, "failed to remove persistent host route")
 	}
 	return nil
 }
@@ -176,10 +171,10 @@ func (n *BaseNetworkManager) RevertDNS() error {
 	}
 	dropInFile := fmt.Sprintf("/etc/systemd/resolved.conf.d/dns-override-%s.conf", domain)
 	if _, err := n.shell.ExecSudo("", "rm", "-f", dropInFile); err != nil {
-		return fmt.Errorf("failed to remove DNS drop-in: %w", err)
+		return werror.Wrap(err, "failed to remove DNS drop-in")
 	}
 	if _, err := n.shell.ExecSudo("", "systemctl", "restart", "systemd-resolved"); err != nil {
-		return fmt.Errorf("failed to restart systemd-resolved: %w", err)
+		return werror.Wrap(err, "failed to restart systemd-resolved")
 	}
 	return nil
 }
@@ -281,7 +276,7 @@ func readNetworkManagerMainDNS(readFile func(string) ([]byte, error), path strin
 func (n *BaseNetworkManager) linuxRouteInKernel(networkCIDR, guestIP string) (bool, error) {
 	output, err := n.shell.ExecSilent("ip", "route", "show", networkCIDR)
 	if err != nil {
-		return false, fmt.Errorf("failed to check if route exists: %w", err)
+		return false, werror.Wrap(err, "failed to check if route exists")
 	}
 	for _, line := range strings.Split(output, "\n") {
 		if strings.Contains(line, guestIP) {
@@ -322,10 +317,10 @@ func (n *BaseNetworkManager) writeNetworkdHostRouteDropIn(networkCIDR, guestIP s
 		return nil
 	}
 	if err := n.writeFileWithSudo(path, []byte(content)); err != nil {
-		return fmt.Errorf("failed to write systemd-networkd drop-in: %w", err)
+		return werror.Wrap(err, "failed to write systemd-networkd drop-in")
 	}
 	if _, err := n.shell.ExecSudo("", "networkctl", "reload"); err != nil {
-		return fmt.Errorf("failed to reload systemd-networkd: %w", err)
+		return werror.Wrap(err, "failed to reload systemd-networkd")
 	}
 	return nil
 }
@@ -346,7 +341,7 @@ func (n *BaseNetworkManager) addNetworkManagerPersistentRoute(networkCIDR, guest
 		return nil
 	}
 	if _, err := n.shell.ExecSudo("", "nmcli", "connection", "modify", conn, "+ipv4.routes", networkCIDR+" "+guestIP); err != nil {
-		return fmt.Errorf("nmcli connection modify failed: %w", err)
+		return werror.Wrap(err, "nmcli connection modify failed")
 	}
 	return nil
 }
@@ -357,7 +352,7 @@ func (n *BaseNetworkManager) addNetworkManagerPersistentRoute(networkCIDR, guest
 func (n *BaseNetworkManager) firstActiveNetworkManagerConnection() (string, error) {
 	output, err := n.shell.ExecSilent("nmcli", "-t", "-f", "NAME", "connection", "show", "--active")
 	if err != nil {
-		return "", fmt.Errorf("nmcli connection show failed: %w", err)
+		return "", werror.Wrap(err, "nmcli connection show failed")
 	}
 	for _, line := range strings.Split(output, "\n") {
 		if name := strings.TrimSpace(line); name != "" {
@@ -383,7 +378,7 @@ func (n *BaseNetworkManager) unpersistLinuxHostRoute(networkCIDR string) error {
 	path := fmt.Sprintf("/etc/systemd/network/windsor-%s.network", contextName)
 	if _, err := n.shims.Stat(path); err == nil {
 		if _, err := n.shell.ExecSudo("", "rm", "-f", path); err != nil {
-			return fmt.Errorf("failed to remove systemd-networkd drop-in: %w", err)
+			return werror.Wrap(err, "failed to remove systemd-networkd drop-in")
 		}
 		_, _ = n.shell.ExecSudo("", "networkctl", "reload")
 	}
