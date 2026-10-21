@@ -1,13 +1,12 @@
+// The MockStack is a test implementation of the Stack interface.
+// It provides function fields that tests set to control each method.
+// Tests use it to control the Plan behavior without the flux CLI.
+
 package flux
 
 import (
 	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
 )
-
-// The MockStack is a test implementation of the Stack interface.
-// It provides function fields that can be set to customize behavior in tests.
-// The MockStack acts as a controllable test double for the Stack interface,
-// enabling precise control over Plan behavior in unit tests.
 
 // =============================================================================
 // Types
