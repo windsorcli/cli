@@ -11,6 +11,7 @@ import (
 
 	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
 	"github.com/windsorcli/cli/internal/presenter"
+	"github.com/windsorcli/cli/internal/werror"
 	fluxinfra "github.com/windsorcli/cli/pkg/provisioner/flux"
 	"github.com/windsorcli/cli/pkg/provisioner/kubernetes"
 	"github.com/windsorcli/cli/pkg/runtime/config"
@@ -148,6 +149,9 @@ func TestProvisioner_ResolveSecrets(t *testing.T) {
 		_, err := newProvisioner(mocks).ResolveSecrets(bp(map[string]blueprintv1alpha1.SecretEntry{"creds": entry(map[string]string{"token": "${hetzner.token}"})}))
 		if err == nil || !strings.Contains(err.Error(), "resolved to empty") {
 			t.Errorf("Expected nil-required error, got %v", err)
+		}
+		if we := werror.Find(err); we == nil || !strings.Contains(we.Remediation, "?? default") {
+			t.Errorf("Expected a remediation that names ?? default, got: %v", err)
 		}
 	})
 
@@ -404,6 +408,9 @@ func TestProvisioner_PlaceSecrets(t *testing.T) {
 		err := newProvisioner(mocks).PlaceSecrets(context.Background(), resolved(), nil, true)
 		if err == nil || !strings.Contains(err.Error(), "creates no namespace and deploys no namespaced resources") {
 			t.Errorf("Expected fail-fast no-namespace error, got %v", err)
+		}
+		if we := werror.Find(err); we == nil || !strings.Contains(we.Remediation, "namespaces:") {
+			t.Errorf("Expected a remediation that names namespaces:, got: %v", err)
 		}
 	})
 

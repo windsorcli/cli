@@ -11,6 +11,7 @@ import (
 	"os"
 
 	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
+	"github.com/windsorcli/cli/internal/werror"
 )
 
 // =============================================================================
@@ -132,7 +133,7 @@ func (i *Provisioner) applyWithBackendPivot(ctx context.Context, blueprint *blue
 func (i *Provisioner) withBackendOverride(opLabel string, fn func() error) error {
 	original := i.configHandler.GetTerraformBackendType()
 	if err := i.configHandler.Set("terraform.backend.type", "local"); err != nil {
-		return fmt.Errorf("failed to override backend for %s: %w", opLabel, err)
+		return werror.Wrap(err, "failed to override backend for %s", opLabel)
 	}
 	defer func() {
 		if err := i.configHandler.Set("terraform.backend.type", original); err != nil {

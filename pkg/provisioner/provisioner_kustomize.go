@@ -14,9 +14,17 @@ import (
 	helmv2 "github.com/fluxcd/helm-controller/api/v2"
 	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
 	"github.com/windsorcli/cli/internal/presenter"
+	"github.com/windsorcli/cli/internal/werror"
 	"github.com/windsorcli/cli/pkg/constants"
 	fluxinfra "github.com/windsorcli/cli/pkg/provisioner/flux"
 )
+
+// =============================================================================
+// Constants
+// =============================================================================
+
+// kustomizationNotFoundHint is the remediation for a kustomization name that is not in the blueprint.
+const kustomizationNotFoundHint = "Use the name of a kustomization in the blueprint. Run windsor show kustomization to see the kustomizations."
 
 // =============================================================================
 // Types
@@ -38,15 +46,11 @@ type stepProgress struct {
 // Public Methods
 // =============================================================================
 
-// ApplyKustomize applies a single kustomization identified by componentID to the cluster and places its
-// declared secrets. It finds the named kustomization in the blueprint, filters the blueprint to that one
-// kustomization (preserving sources and repository for correct source creation), resolves that
-// kustomization's secrets, applies it via the kubernetes manager, then places the resolved secrets into
-// the namespace it creates — scoped to the one kustomization so placement never blocks on a namespace
-// another kustomization would create. Secret pruning is off, since a single-kustomization apply is
-// additive. The step lasts until the kustomization is Ready. Returns an error if the blueprint is nil, the
-// kubernetes manager is not configured, the kustomization is not found, the kustomization is marked
-// destroyOnly, or resolution, apply, placement, or the wait fails.
+// ApplyKustomize applies one kustomization to the cluster and places its secrets.
+// It filters the blueprint to that kustomization and keeps the sources, so Flux creates the correct source.
+// It resolves the secrets, applies the kustomization, places the secrets, and waits until it is Ready.
+// It does not prune secrets. It returns an error if the blueprint is nil, the kustomization is destroyOnly,
+// or a step fails. A kustomization that is not in the blueprint returns an error with a remediation hint.
 func (i *Provisioner) ApplyKustomize(ctx context.Context, blueprint *blueprintv1alpha1.Blueprint, componentID string) error {
 	if blueprint == nil {
 		return fmt.Errorf("blueprint not provided")
@@ -66,7 +70,7 @@ func (i *Provisioner) ApplyKustomize(ctx context.Context, blueprint *blueprintv1
 		}
 	}
 	if found == nil {
-		return fmt.Errorf("kustomization %q not found in blueprint", componentID)
+		return werror.New(fmt.Sprintf("kustomization %q not found in blueprint", componentID), kustomizationNotFoundHint, nil)
 	}
 	if found.DestroyOnly != nil && *found.DestroyOnly {
 		return fmt.Errorf("kustomization %q is destroy-only and cannot be applied", componentID)
@@ -77,7 +81,7 @@ func (i *Provisioner) ApplyKustomize(ctx context.Context, blueprint *blueprintv1
 
 	resolvedSecrets, err := i.ResolveSecrets(&filtered)
 	if err != nil {
-		return fmt.Errorf("error resolving secrets: %w", err)
+		return werror.Wrap(err, "error resolving secrets")
 	}
 
 	var placeErr, waitErr error
@@ -93,12 +97,12 @@ func (i *Provisioner) ApplyKustomize(ctx context.Context, blueprint *blueprintv1
 		return waitErr
 	}); err != nil {
 		if placeErr != nil {
-			return fmt.Errorf("error placing secrets: %w", placeErr)
+			return werror.Wrap(placeErr, "error placing secrets")
 		}
 		if waitErr != nil {
 			return fmt.Errorf("%w: %w", ErrKustomizationsNotReady, waitErr)
 		}
-		return fmt.Errorf("failed to apply kustomization %s: %w", componentID, err)
+		return werror.Wrap(err, "failed to apply kustomization %s", componentID)
 	}
 
 	return nil
@@ -139,7 +143,7 @@ func (i *Provisioner) Install(ctx context.Context, blueprint *blueprintv1alpha1.
 
 	resolvedSecrets, err := i.ResolveSecrets(blueprint)
 	if err != nil {
-		return fmt.Errorf("error resolving secrets: %w", err)
+		return werror.Wrap(err, "error resolving secrets")
 	}
 
 	applied := withCrdLayer(blueprint)
@@ -150,12 +154,12 @@ func (i *Provisioner) Install(ctx context.Context, blueprint *blueprintv1alpha1.
 		defer func() { layers.Close(err) }()
 
 		if err := i.KubernetesManager.ApplyBlueprint(applied, i.fluxNamespace()); err != nil {
-			return fmt.Errorf("failed to apply blueprint: %w", err)
+			return werror.Wrap(err, "failed to apply blueprint")
 		}
 		_ = i.Notify(ctx, applied)
 
 		if err := i.placeSecrets(ctx, layers, resolvedSecrets, applied, prune); err != nil {
-			return fmt.Errorf("error placing secrets: %w", err)
+			return werror.Wrap(err, "error placing secrets")
 		}
 
 		convergeCtx, cancel := context.WithTimeout(ctx, constants.DefaultConvergeTimeout)
@@ -191,7 +195,7 @@ func (i *Provisioner) Prune(ctx context.Context, blueprint *blueprintv1alpha1.Bl
 	blueprint = withCrdLayer(blueprint)
 
 	if err := i.KubernetesManager.PruneBlueprint(ctx, blueprint, i.fluxNamespace()); err != nil {
-		return fmt.Errorf("failed to prune blueprint: %w", err)
+		return werror.Wrap(err, "failed to prune blueprint")
 	}
 
 	return nil
@@ -213,7 +217,7 @@ func (i *Provisioner) PrunableKustomizations(blueprint *blueprintv1alpha1.Bluepr
 
 	names, err := i.KubernetesManager.ListPrunableKustomizations(blueprint, i.fluxNamespace())
 	if err != nil {
-		return nil, fmt.Errorf("failed to list prunable kustomizations: %w", err)
+		return nil, werror.Wrap(err, "failed to list prunable kustomizations")
 	}
 	return names, nil
 }
@@ -247,7 +251,7 @@ func (i *Provisioner) Uninstall(ctx context.Context, blueprint *blueprintv1alpha
 	blueprint = withCrdLayer(blueprint)
 
 	if err := i.KubernetesManager.DeleteBlueprint(ctx, blueprint, i.fluxNamespace()); err != nil {
-		return fmt.Errorf("failed to delete blueprint: %w", err)
+		return werror.Wrap(err, "failed to delete blueprint")
 	}
 
 	return nil

@@ -12,6 +12,7 @@ import (
 
 	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
 	"github.com/windsorcli/cli/internal/presenter"
+	"github.com/windsorcli/cli/internal/werror"
 	"github.com/windsorcli/cli/pkg/composer/blueprint"
 	"github.com/windsorcli/cli/pkg/provisioner/cluster"
 	fluxinfra "github.com/windsorcli/cli/pkg/provisioner/flux"
@@ -1273,8 +1274,8 @@ func TestProvisioner_recoverHalfMigratedComponents(t *testing.T) {
 		if !strings.Contains(err.Error(), `"network"`) {
 			t.Errorf("Expected error to name the affected component, got: %v", err)
 		}
-		if !strings.Contains(err.Error(), "force-copy") {
-			t.Errorf("Expected error to explain the data-loss hazard, got: %v", err)
+		if we := werror.Find(err); we == nil || !strings.Contains(we.Remediation, "overwrite valid remote state") {
+			t.Errorf("Expected remediation to explain the data-loss hazard, got: %v", err)
 		}
 		if initCalled {
 			t.Error("InitComponent must not run when probe fails")

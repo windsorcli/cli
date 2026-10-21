@@ -8,7 +8,16 @@ import (
 	"fmt"
 	"strings"
 	"time"
+
+	"github.com/windsorcli/cli/internal/werror"
 )
+
+// =============================================================================
+// Constants
+// =============================================================================
+
+// noHealthChecksHint is the remediation for a node health check with no checks to run.
+const noHealthChecksHint = "Use --nodes, --k8s-endpoint, or both to choose the health checks."
 
 // =============================================================================
 // Types
@@ -51,21 +60,21 @@ func (i *Provisioner) UpgradeNode(ctx context.Context, node string, image string
 		outputFunc(fmt.Sprintf("Sending upgrade request to node %s...", node))
 	}
 	if err := i.ClusterClient.UpgradeNodes(ctx, nodes, image, powercycle); err != nil {
-		return fmt.Errorf("upgrade request failed: %w", err)
+		return werror.Wrap(err, "upgrade request failed")
 	}
 
 	if outputFunc != nil {
 		outputFunc(fmt.Sprintf("Upgrade request sent to %s. Waiting for reboot...", node))
 	}
 	if err := i.ClusterClient.WaitForNodesReboot(ctx, nodes, preActionBootIDs, versionFromImage(image), nil, offlineTimeout); err != nil {
-		return fmt.Errorf("node reboot wait failed: %w", err)
+		return werror.Wrap(err, "node reboot wait failed")
 	}
 
 	if outputFunc != nil {
 		outputFunc(fmt.Sprintf("Verifying kube-apiserver readiness on %s (skipped for workers)...", node))
 	}
 	if err := i.ClusterClient.WaitForControlPlaneAPIReady(ctx, node, outputFunc); err != nil {
-		return fmt.Errorf("kube-apiserver readiness check failed: %w", err)
+		return werror.Wrap(err, "kube-apiserver readiness check failed")
 	}
 
 	if outputFunc != nil {
@@ -88,16 +97,16 @@ func (i *Provisioner) UpgradeNodes(ctx context.Context, nodes []string, image st
 	return i.ClusterClient.UpgradeNodes(ctx, nodes, image, powercycle)
 }
 
-// CheckNodeHealth performs health checks for cluster nodes and Kubernetes endpoints.
-// It supports checking node health via cluster client (for Talos/Omni clusters) and/or
-// Kubernetes API health checks. The method handles timeout configuration, version checking,
-// and node readiness verification. Returns an error if any health check fails.
+// CheckNodeHealth checks the health of cluster nodes and of the Kubernetes API endpoint.
+// It checks nodes through the cluster client for Talos and Omni clusters. It also checks the version
+// and the readiness of each node. It returns an error if a health check fails. Options with no
+// health checks, or --ready without --nodes, return an error with a remediation hint.
 func (i *Provisioner) CheckNodeHealth(ctx context.Context, options NodeHealthCheckOptions, outputFunc func(string)) error {
 	hasNodeCheck := len(options.Nodes) > 0
 	hasK8sCheck := options.K8SEndpointProvided
 
 	if !hasNodeCheck && !hasK8sCheck {
-		return fmt.Errorf("no health checks specified. Use --nodes and/or --k8s-endpoint flags to specify health checks to perform")
+		return werror.New("no health checks specified", noHealthChecksHint, nil)
 	}
 
 	if hasNodeCheck {
@@ -105,7 +114,7 @@ func (i *Provisioner) CheckNodeHealth(ctx context.Context, options NodeHealthChe
 
 		if i.ClusterClient == nil {
 			if !hasK8sCheck {
-				return fmt.Errorf("no health checks specified. Use --nodes and/or --k8s-endpoint flags to specify health checks to perform")
+				return werror.New("no health checks specified", noHealthChecksHint, nil)
 			}
 			// If we have k8s check, we can continue without cluster client
 		}
@@ -135,7 +144,7 @@ func (i *Provisioner) CheckNodeHealth(ctx context.Context, options NodeHealthChe
 						outputFunc(fmt.Sprintf("Warning: Cluster client failed (%v), continuing with Kubernetes checks\n", err))
 					}
 				} else {
-					return fmt.Errorf("nodes failed health check: %w", err)
+					return werror.Wrap(err, "nodes failed health check")
 				}
 			} else {
 				if outputFunc != nil {
@@ -164,7 +173,7 @@ func (i *Provisioner) CheckNodeHealth(ctx context.Context, options NodeHealthChe
 			if hasNodeCheck {
 				nodeNames = options.Nodes
 			} else {
-				return fmt.Errorf("--ready flag requires --nodes to be specified")
+				return werror.New("--ready flag requires --nodes to be specified", "Add --nodes with the nodes to check.", nil)
 			}
 		}
 
@@ -173,7 +182,7 @@ func (i *Provisioner) CheckNodeHealth(ctx context.Context, options NodeHealthChe
 		}
 
 		if err := i.KubernetesManager.WaitForKubernetesHealthy(ctx, k8sEndpointStr, outputFunc, nodeNames...); err != nil {
-			return fmt.Errorf("kubernetes health check failed: %w", err)
+			return werror.Wrap(err, "kubernetes health check failed")
 		}
 
 		if outputFunc != nil {
