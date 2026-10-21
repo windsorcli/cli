@@ -1,33 +1,20 @@
+// The Shims are the system call abstractions of the network package.
+// It provides the shared shims of internal/shims, the ReadLink and MkdirTemp shims, and the
+// NetworkInterfaceProvider that reads the network interfaces of the host.
+// Tests replace the shims and the provider to simulate the host.
+
 package network
 
 import (
 	"net"
 	"os"
-	"path/filepath"
-	"runtime"
+
+	"github.com/windsorcli/cli/internal/shims"
 )
 
-// The shims package is a system call abstraction layer
-// It provides mockable wrappers around system and runtime functions
-// It serves as a testing aid by allowing system calls to be intercepted
-// It enables dependency injection and test isolation for system-level operations
-
 // =============================================================================
-// Types
+// Interfaces
 // =============================================================================
-
-// Shims provides mockable wrappers around system and runtime functions
-type Shims struct {
-	Goos      func() string
-	Stat      func(string) (os.FileInfo, error)
-	WriteFile func(string, []byte, os.FileMode) error
-	ReadFile  func(string) ([]byte, error)
-	ReadLink  func(string) (string, error)
-	MkdirAll  func(string, os.FileMode) error
-	MkdirTemp func(dir, pattern string) (string, error)
-	RemoveAll func(string) error
-	Glob      func(pattern string) ([]string, error)
-}
 
 // NetworkInterfaceProvider abstracts the system's network interface operations
 type NetworkInterfaceProvider interface {
@@ -35,12 +22,32 @@ type NetworkInterfaceProvider interface {
 	InterfaceAddrs(iface net.Interface) ([]net.Addr, error)
 }
 
+// =============================================================================
+// Types
+// =============================================================================
+
+// Shims holds the shared system call primitives and the network package shims.
+type Shims struct {
+	shims.Shims
+	ReadLink  func(string) (string, error)
+	MkdirTemp func(dir, pattern string) (string, error)
+}
+
 // RealNetworkInterfaceProvider is the real implementation of NetworkInterfaceProvider
 type RealNetworkInterfaceProvider struct{}
 
 // =============================================================================
-// Constructors
+// Constructor
 // =============================================================================
+
+// NewShims returns a Shims with every field set to its real implementation.
+func NewShims() *Shims {
+	return &Shims{
+		Shims:     *shims.NewShims(),
+		ReadLink:  os.Readlink,
+		MkdirTemp: os.MkdirTemp,
+	}
+}
 
 // NewNetworkInterfaceProvider creates a new real implementation of NetworkInterfaceProvider
 func NewNetworkInterfaceProvider() NetworkInterfaceProvider {
@@ -48,23 +55,8 @@ func NewNetworkInterfaceProvider() NetworkInterfaceProvider {
 }
 
 // =============================================================================
-// Shims
+// Public Methods
 // =============================================================================
-
-// NewShims creates a new Shims instance with default implementations
-func NewShims() *Shims {
-	return &Shims{
-		Goos:      func() string { return runtime.GOOS },
-		Stat:      os.Stat,
-		WriteFile: os.WriteFile,
-		ReadFile:  os.ReadFile,
-		ReadLink:  os.Readlink,
-		MkdirAll:  os.MkdirAll,
-		MkdirTemp: os.MkdirTemp,
-		RemoveAll: os.RemoveAll,
-		Glob:      filepath.Glob,
-	}
-}
 
 // Interfaces returns the system's network interfaces
 func (p *RealNetworkInterfaceProvider) Interfaces() ([]net.Interface, error) {

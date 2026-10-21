@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	sharedshims "github.com/windsorcli/cli/internal/shims"
 	"github.com/windsorcli/cli/pkg/runtime"
 	"github.com/windsorcli/cli/pkg/runtime/config"
 	"github.com/windsorcli/cli/pkg/runtime/shell"
@@ -29,14 +30,16 @@ type NetworkTestMocks struct {
 
 func setupDefaultShims() *Shims {
 	return &Shims{
-		Stat:      func(path string) (os.FileInfo, error) { return nil, nil },
-		WriteFile: func(path string, data []byte, perm os.FileMode) error { return nil },
-		ReadFile:  func(path string) ([]byte, error) { return nil, nil },
+		Shims: sharedshims.Shims{
+			Stat:      func(path string) (os.FileInfo, error) { return nil, nil },
+			WriteFile: func(path string, data []byte, perm os.FileMode) error { return nil },
+			ReadFile:  func(path string) ([]byte, error) { return nil, nil },
+			MkdirAll:  func(path string, perm os.FileMode) error { return nil },
+			RemoveAll: func(path string) error { return nil },
+			Glob:      func(pattern string) ([]string, error) { return nil, nil },
+		},
 		ReadLink:  func(path string) (string, error) { return "", nil },
-		MkdirAll:  func(path string, perm os.FileMode) error { return nil },
 		MkdirTemp: func(dir, pattern string) (string, error) { return "/tmp/windsor-test", nil },
-		RemoveAll: func(path string) error { return nil },
-		Glob:      func(pattern string) ([]string, error) { return nil, nil },
 	}
 }
 
