@@ -144,9 +144,6 @@ func TestProvisioner_UpgradeNode(t *testing.T) {
 		if !strings.Contains(err.Error(), "no cluster client found") {
 			t.Errorf("Expected no cluster client error, got: %v", err)
 		}
-		if we := werror.Find(err); we == nil || !strings.Contains(we.Remediation, "cluster.driver") {
-			t.Errorf("Expected a remediation that names cluster.driver, got: %v", err)
-		}
 	})
 }
 

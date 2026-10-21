@@ -540,8 +540,9 @@ func (i *Provisioner) pollInterval() time.Duration {
 	return constants.DefaultKustomizationWaitPollInterval
 }
 
-// ensureClusterClient creates the ClusterClient from cluster.driver when it is not set.
-// A configuration with no supported driver returns an error with a remediation hint.
+// ensureClusterClient initializes ClusterClient from config if it is not already set.
+// It reads cluster.driver from the config handler and creates the appropriate client.
+// Returns an error if no supported driver is configured.
 func (i *Provisioner) ensureClusterClient() error {
 	if i.ClusterClient != nil {
 		return nil
@@ -558,7 +559,7 @@ func (i *Provisioner) ensureClusterClient() error {
 		i.ClusterClient = cluster.NewTalosClusterClient()
 	}
 	if i.ClusterClient == nil {
-		return werror.New("no cluster client found", "Set cluster.driver in the context configuration.", nil)
+		return fmt.Errorf("no cluster client found; ensure cluster.driver is configured")
 	}
 	return nil
 }
