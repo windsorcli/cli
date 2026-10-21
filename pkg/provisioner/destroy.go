@@ -1,3 +1,7 @@
+// The destroy methods of the Provisioner remove the terraform components and kustomizations of a blueprint.
+// It provides Down, Destroy, DestroyAll, and Teardown, and the checks that run before a destroy.
+// It pivots terraform to a local backend when the cluster is gone.
+
 package provisioner
 
 import (
@@ -5,7 +9,10 @@ import (
 	"fmt"
 
 	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
+	"github.com/windsorcli/cli/internal/presenter"
 	composerblueprint "github.com/windsorcli/cli/pkg/composer/blueprint"
+	"github.com/windsorcli/cli/pkg/constants"
+	fluxinfra "github.com/windsorcli/cli/pkg/provisioner/flux"
 	terraforminfra "github.com/windsorcli/cli/pkg/provisioner/terraform"
 )
 
@@ -50,6 +57,164 @@ type DestroyResult struct {
 // =============================================================================
 // Public Methods
 // =============================================================================
+
+// Down destroys the "workstation" terraform component if it is present in the blueprint, then returns.
+// All other terraform components are left untouched; use Destroy / DestroyAll for those.
+// If terraform is disabled or the blueprint has no "workstation" component, Down is a no-op.
+// Returns an error if the blueprint is nil or the destroy operation fails.
+func (i *Provisioner) Down(ctx context.Context, blueprint *blueprintv1alpha1.Blueprint) error {
+	if blueprint == nil {
+		return fmt.Errorf("blueprint not provided")
+	}
+
+	hasWorkstation := false
+	for _, c := range blueprint.TerraformComponents {
+		if c.GetID() == "workstation" && c.Enabled.IsEnabled() {
+			hasWorkstation = true
+			break
+		}
+	}
+	if !hasWorkstation {
+		return nil
+	}
+
+	if err := i.ensureTerraformStack(); err != nil {
+		return err
+	}
+	if i.TerraformStack == nil {
+		return nil
+	}
+	if _, err := i.TerraformStack.Destroy(ctx, blueprint, "workstation"); err != nil {
+		return fmt.Errorf("failed to destroy workstation terraform component: %w", err)
+	}
+	return nil
+}
+
+// DestroyAllTerraform destroys all terraform components in reverse dependency order.
+// Components with Destroy set to false, or listed in excludeIDs, are skipped. The
+// cmd-layer symmetric-destroy flow excludes the backend component here, to migrate
+// and destroy it last.
+// Returns the IDs of components skipped for empty state, alongside any error, so
+// callers see partial progress even when a later component fails.
+func (i *Provisioner) DestroyAllTerraform(ctx context.Context, blueprint *blueprintv1alpha1.Blueprint, continueOnError bool, excludeIDs ...string) (DestroyResult, error) {
+	return i.destroyAllTerraform(ctx, blueprint, continueOnError, excludeIDs...)
+}
+
+// Destroy runs terraform init and destroy for a single component identified by componentID.
+// Returns (skipped, nil) when the component's state is empty (nothing to destroy), (false, nil)
+// when destroy ran successfully, or (false, err) on any failure. Returns an error if the
+// blueprint is nil, terraform is disabled, the stack cannot be initialized, the component is
+// not found, or any terraform operation fails. TerraformStack bounds refresh and destroy
+// with a timeout, so an unreachable provider fails within that time instead of hanging.
+func (i *Provisioner) Destroy(ctx context.Context, blueprint *blueprintv1alpha1.Blueprint, componentID string) (bool, error) {
+	if blueprint == nil {
+		return false, fmt.Errorf("blueprint not provided")
+	}
+	if err := i.ensureTerraformStack(); err != nil {
+		return false, err
+	}
+	if i.TerraformStack == nil {
+		return false, fmt.Errorf("terraform is disabled")
+	}
+	skipped, err := i.TerraformStack.Destroy(ctx, blueprint, componentID)
+	if err != nil {
+		return false, fmt.Errorf("failed to run terraform destroy for %s: %w", componentID, err)
+	}
+	return skipped, nil
+}
+
+// DestroyKustomize deletes a single kustomization by name from the cluster. It is a no-op
+// when no local kubeconfig exists (see kubeconfigPresent): the cluster is already gone, so
+// the kustomization is already gone with it.
+// Returns an error if the blueprint is nil, the kubernetes manager is not configured,
+// the kustomization is not found in the blueprint, or the delete operation fails.
+func (i *Provisioner) DestroyKustomize(ctx context.Context, blueprint *blueprintv1alpha1.Blueprint, componentID string) error {
+	if blueprint == nil {
+		return fmt.Errorf("blueprint not provided")
+	}
+	if i.KubernetesManager == nil {
+		return fmt.Errorf("kubernetes manager not configured")
+	}
+
+	var found *blueprintv1alpha1.Kustomization
+	for _, k := range blueprint.AllKustomizations() {
+		if k.Name == componentID {
+			kCopy := k
+			found = &kCopy
+			break
+		}
+	}
+	if found == nil {
+		return fmt.Errorf("kustomization %q not found in blueprint", componentID)
+	}
+
+	if !i.kubeconfigPresent() {
+		return nil
+	}
+
+	if err := presenter.Track(ctx, "kustomize:"+componentID, fmt.Sprintf("Destroying kustomization %s", componentID), func(ctx context.Context) error {
+		return i.KubernetesManager.DeleteKustomization(ctx, componentID, i.fluxNamespace())
+	}); err != nil {
+		return fmt.Errorf("failed to delete kustomization %s: %w", componentID, err)
+	}
+
+	return nil
+}
+
+// DestroyAll destroys every infrastructure component: kustomizations first, then terraform.
+// Uninstall is a no-op when no local kubeconfig exists. See kubeconfigPresent. DestroyAll then
+// counts eligible kustomizations as SkippedClusterGone, not Destroyed. This keeps `windsor
+// destroy` idempotent after a prior run already tore the cluster down.
+//
+// Under continueOnError, any kustomize failure defers terraform. See blocksNextStage. Windsor
+// cannot tell whether a live controller is still mid-delete of a resource terraform never
+// tracked, so it never guesses.
+//
+// excludeIDs skips components in the terraform pass. Callers use this to destroy the backend
+// component last.
+func (i *Provisioner) DestroyAll(ctx context.Context, blueprint *blueprintv1alpha1.Blueprint, continueOnError bool, excludeIDs ...string) (DestroyResult, error) {
+	var result DestroyResult
+	if blueprint == nil {
+		return result, fmt.Errorf("blueprint not provided")
+	}
+
+	if i.KubernetesManager != nil {
+		clusterGone := !i.kubeconfigPresent()
+		if err := i.Uninstall(ctx, blueprint); err != nil {
+			if !continueOnError {
+				return result, err
+			}
+			result.Failed = append(result.Failed, ComponentFailure{ID: KustomizeFailureID, Err: err})
+			result.TerraformDeferred = true
+			return result, nil
+		}
+		for _, k := range blueprint.AllKustomizations() {
+			if !fluxinfra.KustomizationDestroyEligible(k) {
+				continue
+			}
+			if clusterGone {
+				result.SkippedClusterGone = append(result.SkippedClusterGone, k.Name)
+			} else {
+				result.Destroyed = append(result.Destroyed, k.Name)
+			}
+		}
+	}
+
+	if err := i.ensureTerraformStack(); err != nil {
+		return result, err
+	}
+	if i.TerraformStack != nil {
+		outcome, err := i.TerraformStack.DestroyAll(ctx, blueprint, continueOnError, excludeIDs...)
+		result.Destroyed = append(result.Destroyed, outcome.Destroyed...)
+		result.Skipped = append(result.Skipped, outcome.Skipped...)
+		result.Failed = append(result.Failed, outcome.Failed...)
+		if err != nil {
+			return result, fmt.Errorf("failed to run terraform destroy: %w", err)
+		}
+	}
+
+	return result, nil
+}
 
 // Teardown reverses Bootstrap.
 //
@@ -236,6 +401,46 @@ func (i *Provisioner) PivotToLocalIfClusterGone() (bool, error) {
 	return true, nil
 }
 
+// =============================================================================
+// Private Methods
+// =============================================================================
+
+// destroyAllTerraform is the shared implementation behind DestroyAllTerraform.
+func (i *Provisioner) destroyAllTerraform(ctx context.Context, blueprint *blueprintv1alpha1.Blueprint, continueOnError bool, excludeIDs ...string) (DestroyResult, error) {
+	var result DestroyResult
+	if blueprint == nil {
+		return result, fmt.Errorf("blueprint not provided")
+	}
+	if err := i.ensureTerraformStack(); err != nil {
+		return result, err
+	}
+	if i.TerraformStack == nil {
+		return result, fmt.Errorf("terraform is disabled")
+	}
+	outcome, err := i.TerraformStack.DestroyAll(ctx, blueprint, continueOnError, excludeIDs...)
+	result.Destroyed = outcome.Destroyed
+	result.Skipped = outcome.Skipped
+	result.Failed = outcome.Failed
+	if err != nil {
+		return result, fmt.Errorf("failed to run terraform destroy: %w", err)
+	}
+	return result, nil
+}
+
+// checkKubernetesReachableForDestroy fails fast if the cluster is unreachable, so terraform's
+// kubernetes/helm provider doesn't hang against broken auth. No-op when there's no kubeconfig.
+func (i *Provisioner) checkKubernetesReachableForDestroy() error {
+	if i.KubernetesManager == nil || !i.kubeconfigPresent() {
+		return nil
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), constants.DefaultKubernetesReachabilityCheckTimeout)
+	defer cancel()
+	if err := i.KubernetesManager.WaitForKubernetesHealthy(ctx, "", nil); err != nil {
+		return fmt.Errorf("kubernetes API is unreachable, refusing to run terraform destroy (its kubernetes/helm provider would hang against a broken cluster): %w", err)
+	}
+	return nil
+}
+
 // clusterReachableForTeardown reports whether the kubernetes-backend cluster is present and reachable.
 func (i *Provisioner) clusterReachableForTeardown() bool {
 	if !i.kubeconfigPresent() {
@@ -245,7 +450,7 @@ func (i *Provisioner) clusterReachableForTeardown() bool {
 }
 
 // =============================================================================
-// Private Helpers
+// Helpers
 // =============================================================================
 
 // resolveBackendComponents resolves the components named by Blueprint.Backend.
