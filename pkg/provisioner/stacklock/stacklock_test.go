@@ -73,6 +73,23 @@ func TestNewLocalFlockLock(t *testing.T) {
 // =============================================================================
 
 func TestLocalFlockLock_Acquire(t *testing.T) {
+	t.Run("returns an error when the lock directory cannot be created", func(t *testing.T) {
+		// Given a lock whose MkdirAll shim fails
+		lock := NewLocalFlockLock(filepath.Join(t.TempDir(), "sub", ".stacklock")).(*localFlockLock)
+		lock.shims.MkdirAll = func(string, os.FileMode) error { return errors.New("mkdir failed") }
+
+		// When acquiring the lock
+		release, err := lock.Acquire(context.Background(), newTestLockInfo(), 0)
+
+		// Then the error names the lock directory and no release is returned
+		if err == nil || !strings.Contains(err.Error(), "create lock directory") {
+			t.Errorf("Expected a lock directory error, got %v", err)
+		}
+		if release != nil {
+			t.Error("Expected no release when Acquire fails")
+		}
+	})
+
 	t.Run("succeeds when the lock file does not exist", func(t *testing.T) {
 		// Given a fresh lock path with no prior file
 		path := filepath.Join(t.TempDir(), ".stacklock")
@@ -737,7 +754,7 @@ func TestLocalFlockLock_Inspect(t *testing.T) {
 		holder.Who = "ci@runner-9"
 		holder.Operation = "bootstrap"
 		holder.PID = 4242
-		writeHolderInfo(path+stackLockInfoSuffix, holder)
+		NewLocalFlockLock(path).(*localFlockLock).writeHolderInfo(path+stackLockInfoSuffix, holder)
 
 		// When inspecting
 		info, err := NewLocalFlockLock(path).Inspect(context.Background())
@@ -848,7 +865,7 @@ func TestLocalFlockLock_ClearStale(t *testing.T) {
 		if err := os.WriteFile(path, nil, lockInfoPerm); err != nil {
 			t.Fatalf("write lock file: %v", err)
 		}
-		writeHolderInfo(path+stackLockInfoSuffix, newTestLockInfo())
+		NewLocalFlockLock(path).(*localFlockLock).writeHolderInfo(path+stackLockInfoSuffix, newTestLockInfo())
 		return path
 	}
 
@@ -885,7 +902,7 @@ func TestLocalFlockLock_ClearStale(t *testing.T) {
 	t.Run("removes a sidecar that has no lock file", func(t *testing.T) {
 		dir := t.TempDir()
 		path := filepath.Join(dir, ".stacklock")
-		writeHolderInfo(path+stackLockInfoSuffix, newTestLockInfo())
+		NewLocalFlockLock(path).(*localFlockLock).writeHolderInfo(path+stackLockInfoSuffix, newTestLockInfo())
 
 		if err := NewLocalFlockLock(path).ClearStale(context.Background(), "test"); err != nil {
 			t.Fatalf("clear stale: %v", err)

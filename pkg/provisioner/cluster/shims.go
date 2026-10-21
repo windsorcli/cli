@@ -1,7 +1,7 @@
-// Package cluster provides shims for gRPC operations and other provider-specific abstractions.
-// It provides mockable interfaces for external dependencies and system calls,
-// The shims package acts as a testing aid by allowing system calls to be intercepted,
-// It enables dependency injection and test isolation for system-level operations.
+// The Shims are the system call and Talos client abstractions of the cluster clients.
+// It provides the shared shims of internal/shims, the Talos client operations, and the network dial.
+// Tests replace the shims to simulate Talos nodes and the environment.
+// NewShims returns the shims with the real implementations.
 
 package cluster
 
@@ -15,14 +15,17 @@ import (
 	"github.com/siderolabs/talos/pkg/machinery/api/machine"
 	"github.com/siderolabs/talos/pkg/machinery/client"
 	clientconfig "github.com/siderolabs/talos/pkg/machinery/client/config"
+	"github.com/windsorcli/cli/internal/shims"
 )
 
 // =============================================================================
 // Types
 // =============================================================================
 
-// Shims provides testable interfaces for external dependencies
+// Shims holds the shared system call primitives and the Talos client operations.
 type Shims struct {
+	shims.Shims
+
 	// Talos client operations
 	TalosConfigOpen  func(configPath string) (*clientconfig.Config, error)
 	TalosNewClient   func(ctx context.Context, opts ...client.OptionFunc) (*client.Client, error)
@@ -41,10 +44,11 @@ type Shims struct {
 // Constructor
 // =============================================================================
 
-// NewShims creates a new Shims instance with default implementations
+// NewShims returns a Shims with every field set to its real implementation.
 func NewShims() *Shims {
 	return &Shims{
-		// Talos client defaults
+		Shims: *shims.NewShims(),
+
 		TalosConfigOpen: clientconfig.Open,
 		TalosNewClient: func(ctx context.Context, opts ...client.OptionFunc) (*client.Client, error) {
 			return client.New(ctx, opts...)

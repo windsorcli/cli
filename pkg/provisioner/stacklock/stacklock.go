@@ -128,7 +128,7 @@ type StackLock interface {
 // The lock file's parent directory is created on first Acquire. Single-host coverage only;
 // network filesystems where flock semantics are unreliable (NFS) will degrade silently.
 func NewLocalFlockLock(lockPath string) StackLock {
-	return &localFlockLock{path: lockPath}
+	return &localFlockLock{path: lockPath, shims: NewShims()}
 }
 
 // =============================================================================
@@ -197,7 +197,8 @@ func NewInfo(rt *runtime.Runtime, operation string) LockInfo {
 // Release closure so that a future caller reusing one instance across multiple
 // Acquires gets independent release semantics for each lock held.
 type localFlockLock struct {
-	path string
+	path  string
+	shims *Shims
 }
 
 // Acquire makes one immediate attempt and, on contention, either fails right away
@@ -217,7 +218,7 @@ type localFlockLock struct {
 // removed by Release; it is diagnostic only and a missing or partial file is not
 // load-bearing for correctness.
 func (s *localFlockLock) Acquire(ctx context.Context, info LockInfo, timeout time.Duration) (Release, error) {
-	if err := os.MkdirAll(filepath.Dir(s.path), lockDirPerm); err != nil {
+	if err := s.shims.MkdirAll(filepath.Dir(s.path), lockDirPerm); err != nil {
 		return nil, fmt.Errorf("create lock directory: %w", err)
 	}
 	flk := flock.New(s.path)
@@ -229,10 +230,10 @@ func (s *localFlockLock) Acquire(ctx context.Context, info LockInfo, timeout tim
 	}
 	if !locked {
 		if timeout <= 0 {
-			return nil, &LockBusyError{Path: s.path, Holder: readHolderInfo(infoPath)}
+			return nil, &LockBusyError{Path: s.path, Holder: s.readHolderInfo(infoPath)}
 		}
 		deadline := time.Now().Add(timeout)
-		announceWaiting(s.path, readHolderInfo(infoPath))
+		announceWaiting(s.path, s.readHolderInfo(infoPath))
 		for {
 			select {
 			case <-ctx.Done():
@@ -247,7 +248,7 @@ func (s *localFlockLock) Acquire(ctx context.Context, info LockInfo, timeout tim
 				break
 			}
 			if time.Now().After(deadline) {
-				return nil, &LockBusyError{Path: s.path, Holder: readHolderInfo(infoPath)}
+				return nil, &LockBusyError{Path: s.path, Holder: s.readHolderInfo(infoPath)}
 			}
 		}
 	}
@@ -255,8 +256,8 @@ func (s *localFlockLock) Acquire(ctx context.Context, info LockInfo, timeout tim
 	if info.PID == 0 {
 		info.PID = os.Getpid()
 	}
-	writeHolderInfo(infoPath, info)
-	return makeRelease(flk, infoPath), nil
+	s.writeHolderInfo(infoPath, info)
+	return s.makeRelease(flk, infoPath), nil
 }
 
 // Inspect returns the current holder recorded in the sidecar. A missing sidecar
@@ -267,7 +268,7 @@ func (s *localFlockLock) Acquire(ctx context.Context, info LockInfo, timeout tim
 func (s *localFlockLock) Inspect(ctx context.Context) (*LockInfo, error) {
 	infoPath := s.path + stackLockInfoSuffix
 	// #nosec G304 - infoPath is the lock's sidecar location configured by the runtime, not user-supplied
-	data, err := os.ReadFile(infoPath)
+	data, err := s.shims.ReadFile(infoPath)
 	if errors.Is(err, os.ErrNotExist) {
 		return nil, nil
 	}
@@ -286,7 +287,7 @@ func (s *localFlockLock) Inspect(ctx context.Context) (*LockInfo, error) {
 // lock file means nothing holds the lock, and the probe does not create one. The kernel drops
 // a flock when its holder exits, so a crashed holder never reads as held.
 func (s *localFlockLock) IsHeld(ctx context.Context) (bool, error) {
-	if _, err := os.Stat(s.path); errors.Is(err, os.ErrNotExist) {
+	if _, err := s.shims.Stat(s.path); errors.Is(err, os.ErrNotExist) {
 		return false, nil
 	}
 	flk := flock.New(s.path)
@@ -311,7 +312,7 @@ func (s *localFlockLock) IsHeld(ctx context.Context) (bool, error) {
 // the same path. reason is included in any failure message. A missing sidecar is not an error.
 func (s *localFlockLock) ClearStale(ctx context.Context, reason string) error {
 	infoPath := s.path + stackLockInfoSuffix
-	if _, err := os.Stat(filepath.Dir(s.path)); errors.Is(err, os.ErrNotExist) {
+	if _, err := s.shims.Stat(filepath.Dir(s.path)); errors.Is(err, os.ErrNotExist) {
 		return nil
 	}
 	flk := flock.New(s.path)
@@ -320,10 +321,10 @@ func (s *localFlockLock) ClearStale(ctx context.Context, reason string) error {
 		return fmt.Errorf("stacklock: clear stale (%s): flock acquire: %w", reason, err)
 	}
 	if !locked {
-		return &LockBusyError{Path: s.path, Holder: readHolderInfo(infoPath)}
+		return &LockBusyError{Path: s.path, Holder: s.readHolderInfo(infoPath)}
 	}
 	defer func() { _ = flk.Unlock() }()
-	if err := os.Remove(infoPath); err != nil && !os.IsNotExist(err) {
+	if err := s.shims.Remove(infoPath); err != nil && !os.IsNotExist(err) {
 		return fmt.Errorf("stacklock: clear stale (%s): %w", reason, err)
 	}
 	return nil
@@ -336,18 +337,53 @@ func (s *localFlockLock) ClearStale(ctx context.Context, reason string) error {
 // call removes the holder-info sidecar (best-effort) and returns the
 // underlying Unlock result; subsequent calls return nil so callers may safely
 // defer release alongside an explicit earlier release without double-unlocking.
-func makeRelease(flk *flock.Flock, infoPath string) Release {
+func (s *localFlockLock) makeRelease(flk *flock.Flock, infoPath string) Release {
 	var once sync.Once
 	return func() error {
 		var err error
 		once.Do(func() {
 			if infoPath != "" {
-				_ = os.Remove(infoPath)
+				_ = s.shims.Remove(infoPath)
 			}
 			err = flk.Unlock()
 		})
 		return err
 	}
+}
+
+// writeHolderInfo persists the holder LockInfo to the sidecar path via an
+// atomic temp+rename so a concurrent reader never observes a partial file.
+// Failures are swallowed because the sidecar is diagnostic only — losing it
+// degrades busy-error detail but does not affect lock correctness.
+func (s *localFlockLock) writeHolderInfo(path string, info LockInfo) {
+	data, err := json.Marshal(info)
+	if err != nil {
+		return
+	}
+	tmp := path + ".tmp"
+	if err := s.shims.WriteFile(tmp, data, lockInfoPerm); err != nil {
+		_ = s.shims.Remove(tmp)
+		return
+	}
+	if err := s.shims.Rename(tmp, path); err != nil {
+		_ = s.shims.Remove(tmp)
+	}
+}
+
+// readHolderInfo returns the LockInfo recorded by the current holder, or nil
+// when the sidecar is absent or unparseable. Used by Acquire to populate
+// LockBusyError.Holder on contention; callers must not depend on a non-nil
+// result for correctness.
+func (s *localFlockLock) readHolderInfo(path string) *LockInfo {
+	data, err := s.shims.ReadFile(path)
+	if err != nil {
+		return nil
+	}
+	var info LockInfo
+	if err := json.Unmarshal(data, &info); err != nil {
+		return nil
+	}
+	return &info
 }
 
 // =============================================================================
@@ -365,42 +401,6 @@ func announceWaiting(path string, holder *LockInfo) {
 	}
 	fmt.Fprintf(os.Stderr, "Waiting for the stack lock at %s, held by %s (PID=%d, operation=%s)...\n",
 		path, holder.Who, holder.PID, holder.Operation)
-}
-
-// writeHolderInfo persists the holder LockInfo to the sidecar path via an
-// atomic temp+rename so a concurrent reader never observes a partial file.
-// Failures are swallowed because the sidecar is diagnostic only — losing it
-// degrades busy-error detail but does not affect lock correctness.
-func writeHolderInfo(path string, info LockInfo) {
-	data, err := json.Marshal(info)
-	if err != nil {
-		return
-	}
-	tmp := path + ".tmp"
-	if err := os.WriteFile(tmp, data, lockInfoPerm); err != nil {
-		_ = os.Remove(tmp)
-		return
-	}
-	if err := os.Rename(tmp, path); err != nil {
-		_ = os.Remove(tmp)
-	}
-}
-
-// readHolderInfo returns the LockInfo recorded by the current holder, or nil
-// when the sidecar is absent or unparseable. Used by Acquire to populate
-// LockBusyError.Holder on contention; callers must not depend on a non-nil
-// result for correctness.
-func readHolderInfo(path string) *LockInfo {
-	// #nosec G304 - path is the lock's sidecar location configured by the runtime, not user-supplied at call time
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return nil
-	}
-	var info LockInfo
-	if err := json.Unmarshal(data, &info); err != nil {
-		return nil
-	}
-	return &info
 }
 
 // newLockID generates a 128-bit random ID rendered as 32 hex characters.

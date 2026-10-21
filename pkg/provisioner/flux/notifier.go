@@ -1,16 +1,9 @@
-// Package flux provides Flux kustomization stack management functionality.
-// The Notifier piece implements best-effort flux reconcile requests. After a
-// successful apply/bootstrap it annotates each of the blueprint's flux sources
-// (GitRepository / OCIRepository) with reconcile.fluxcd.io/requestedAt so
-// source-controller re-fetches them immediately instead of waiting for the
-// next scheduled interval. When the artifact revision changes, kustomize-
-// controller reconciles the dependent Kustomizations automatically via its
-// watch on source status, so a revision change needs only sources annotated.
-// ReconcileKustomizations covers the other case: advancing already-applied
-// Kustomizations whose dependencies are satisfied mid-flight (e.g. by a secret
-// the CLI just placed) without a source revision change, by annotating those
-// Kustomizations directly. Both approaches are receiver-type-agnostic, require
-// no cluster-side secret or webhook receiver, and work against any flux install.
+// The Notifier asks Flux to reconcile after a successful apply or bootstrap.
+// It annotates each flux source of the blueprint with reconcile.fluxcd.io/requestedAt, so
+// source-controller fetches it again at once. kustomize-controller then reconciles the
+// dependent Kustomizations when the revision changes. ReconcileKustomizations annotates
+// Kustomizations directly when their dependencies become ready without a revision change.
+// It needs no webhook receiver or cluster secret, and works with any flux install.
 
 package flux
 
