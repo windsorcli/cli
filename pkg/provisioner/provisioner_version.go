@@ -8,6 +8,7 @@ import (
 	"fmt"
 
 	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
+	"github.com/windsorcli/cli/internal/werror"
 	"github.com/windsorcli/cli/pkg/provisioner/kubernetes"
 )
 
@@ -45,10 +46,10 @@ func (i *Provisioner) WriteVersionMarker(blueprint *blueprintv1alpha1.Blueprint)
 
 	marker, err := kubernetes.BuildVersionMarker(blueprint)
 	if err != nil {
-		return fmt.Errorf("failed to build version marker: %w", err)
+		return werror.Wrap(err, "failed to build version marker")
 	}
 	if err := i.KubernetesManager.ApplyVersionMarker(i.fluxNamespace(), marker); err != nil {
-		return fmt.Errorf("failed to write version marker: %w", err)
+		return werror.Wrap(err, "failed to write version marker")
 	}
 
 	return nil
@@ -68,7 +69,7 @@ func (i *Provisioner) BeginVersionTransition(blueprint *blueprintv1alpha1.Bluepr
 
 	current, found, err := i.GetVersionMarker()
 	if err != nil {
-		return fmt.Errorf("failed to read current version marker: %w", err)
+		return werror.Wrap(err, "failed to read current version marker")
 	}
 	var applied map[string]kubernetes.SourceRef
 	if found {
@@ -77,10 +78,10 @@ func (i *Provisioner) BeginVersionTransition(blueprint *blueprintv1alpha1.Bluepr
 
 	marker, err := kubernetes.BuildTransitionMarker(applied, blueprint)
 	if err != nil {
-		return fmt.Errorf("failed to build transition marker: %w", err)
+		return werror.Wrap(err, "failed to build transition marker")
 	}
 	if err := i.KubernetesManager.ApplyVersionMarker(i.fluxNamespace(), marker); err != nil {
-		return fmt.Errorf("failed to write transition marker: %w", err)
+		return werror.Wrap(err, "failed to write transition marker")
 	}
 	return nil
 }
@@ -122,7 +123,7 @@ func (i *Provisioner) CheckVersionGate(blueprint *blueprintv1alpha1.Blueprint) (
 
 	target, err := kubernetes.BuildVersionMarker(blueprint)
 	if err != nil {
-		return VersionGate{}, fmt.Errorf("failed to derive blueprint version: %w", err)
+		return VersionGate{}, werror.Wrap(err, "failed to derive blueprint version")
 	}
 
 	return VersionGate{

@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
+	"github.com/windsorcli/cli/internal/werror"
 	terraforminfra "github.com/windsorcli/cli/pkg/provisioner/terraform"
 	"github.com/windsorcli/cli/pkg/runtime/config"
 )
@@ -103,7 +104,7 @@ func TestProvisioner_Bootstrap(t *testing.T) {
 
 		if _, err := provisioner.Bootstrap(context.Background(), bp); err == nil {
 			t.Fatal("Expected error, got nil")
-		} else if !strings.Contains(err.Error(), "no kubeconfig") || !strings.Contains(err.Error(), "backend:") {
+		} else if we := werror.Find(err); !strings.Contains(err.Error(), "no kubeconfig") || we == nil || !strings.Contains(we.Remediation, "backend:") {
 			t.Errorf("Expected error to explain the missing backend declaration, got: %v", err)
 		}
 		if upCalled {

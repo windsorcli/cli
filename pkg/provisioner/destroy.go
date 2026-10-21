@@ -10,6 +10,7 @@ import (
 
 	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
 	"github.com/windsorcli/cli/internal/presenter"
+	"github.com/windsorcli/cli/internal/werror"
 	composerblueprint "github.com/windsorcli/cli/pkg/composer/blueprint"
 	"github.com/windsorcli/cli/pkg/constants"
 	fluxinfra "github.com/windsorcli/cli/pkg/provisioner/flux"
@@ -85,7 +86,7 @@ func (i *Provisioner) Down(ctx context.Context, blueprint *blueprintv1alpha1.Blu
 		return nil
 	}
 	if _, err := i.TerraformStack.Destroy(ctx, blueprint, "workstation"); err != nil {
-		return fmt.Errorf("failed to destroy workstation terraform component: %w", err)
+		return werror.Wrap(err, "failed to destroy workstation terraform component")
 	}
 	return nil
 }
@@ -118,16 +119,15 @@ func (i *Provisioner) Destroy(ctx context.Context, blueprint *blueprintv1alpha1.
 	}
 	skipped, err := i.TerraformStack.Destroy(ctx, blueprint, componentID)
 	if err != nil {
-		return false, fmt.Errorf("failed to run terraform destroy for %s: %w", componentID, err)
+		return false, werror.Wrap(err, "failed to run terraform destroy for %s", componentID)
 	}
 	return skipped, nil
 }
 
-// DestroyKustomize deletes a single kustomization by name from the cluster. It is a no-op
-// when no local kubeconfig exists (see kubeconfigPresent): the cluster is already gone, so
-// the kustomization is already gone with it.
-// Returns an error if the blueprint is nil, the kubernetes manager is not configured,
-// the kustomization is not found in the blueprint, or the delete operation fails.
+// DestroyKustomize deletes one kustomization by name from the cluster. It does nothing when there
+// is no local kubeconfig, because the cluster and its kustomizations are already gone.
+// It returns an error if the blueprint is nil, the kubernetes manager is not configured, or the
+// delete fails. A kustomization that is not in the blueprint returns an error with a remediation hint.
 func (i *Provisioner) DestroyKustomize(ctx context.Context, blueprint *blueprintv1alpha1.Blueprint, componentID string) error {
 	if blueprint == nil {
 		return fmt.Errorf("blueprint not provided")
@@ -145,7 +145,7 @@ func (i *Provisioner) DestroyKustomize(ctx context.Context, blueprint *blueprint
 		}
 	}
 	if found == nil {
-		return fmt.Errorf("kustomization %q not found in blueprint", componentID)
+		return werror.New(fmt.Sprintf("kustomization %q not found in blueprint", componentID), kustomizationNotFoundHint, nil)
 	}
 
 	if !i.kubeconfigPresent() {
@@ -155,7 +155,7 @@ func (i *Provisioner) DestroyKustomize(ctx context.Context, blueprint *blueprint
 	if err := presenter.Track(ctx, "kustomize:"+componentID, fmt.Sprintf("Destroying kustomization %s", componentID), func(ctx context.Context) error {
 		return i.KubernetesManager.DeleteKustomization(ctx, componentID, i.fluxNamespace())
 	}); err != nil {
-		return fmt.Errorf("failed to delete kustomization %s: %w", componentID, err)
+		return werror.Wrap(err, "failed to delete kustomization %s", componentID)
 	}
 
 	return nil
@@ -209,33 +209,23 @@ func (i *Provisioner) DestroyAll(ctx context.Context, blueprint *blueprintv1alph
 		result.Skipped = append(result.Skipped, outcome.Skipped...)
 		result.Failed = append(result.Failed, outcome.Failed...)
 		if err != nil {
-			return result, fmt.Errorf("failed to run terraform destroy: %w", err)
+			return result, werror.Wrap(err, "failed to run terraform destroy")
 		}
 	}
 
 	return result, nil
 }
 
-// Teardown reverses Bootstrap.
-//
-// Without a declared backend, Teardown forwards to DestroyAll (or
-// DestroyAllTerraform when terraformOnly is true).
-//
-// With a backend declared via Blueprint.Backend, Teardown destroys in stages:
-//  1. Destroy every non-backend component.
-//  2. Destroy the backend's other components, if Stage 1 had no failures.
-//  3. Destroy the backend component itself, if Stage 2 had no failures.
-//
-// This order keeps the state store alive until its dependents are gone. See
-// blocksNextStage for the failure check between stages. TerraformDeferred
-// marks a skipped stage.
-//
-// A Backend that names no real component is refused; see resolveBackendComponents.
+// Teardown reverses Bootstrap. With no declared backend, it calls DestroyAll, or DestroyAllTerraform
+// when terraformOnly is true. With a backend, it destroys the non-backend components, then the other
+// components of the backend, then the backend component. A stage runs only if the stage before it had
+// no failure that blocksNextStage reports. TerraformDeferred marks a skipped stage. A kubernetes backend
+// type with no declared backend returns an error with a remediation hint.
 func (i *Provisioner) Teardown(ctx context.Context, blueprint *blueprintv1alpha1.Blueprint, terraformOnly bool, continueOnError bool) (DestroyResult, error) {
 	var result DestroyResult
 	backendType := i.configHandler.GetTerraformBackendType()
 	if backendType == "kubernetes" && blueprint.Backend == "" {
-		return result, fmt.Errorf("blueprint configures terraform.backend.type=kubernetes but does not declare Blueprint.Backend; set `backend: <cluster-component-id>` at the blueprint top level to name the terraform component that provisions the cluster")
+		return result, werror.New("blueprint configures terraform.backend.type=kubernetes but does not declare Blueprint.Backend", "Set backend: <cluster-component-id> at the top level of the blueprint to name the terraform component that creates the cluster.", nil)
 	}
 	if err := i.checkOrphanedLocalState(blueprint); err != nil {
 		return result, err
@@ -330,12 +320,11 @@ func (i *Provisioner) TeardownComponent(ctx context.Context, blueprint *blueprin
 	return i.Destroy(ctx, blueprint, componentID)
 }
 
-// CheckComponentDestroyable reports whether a single terraform component may be destroyed in isolation.
-// On a non-local backend a backend component is refused: its state provides the backend every other
-// component uses, so destroying it directly would orphan their state. Callers run this before generating a
-// destroy plan so the refusal is surfaced up front, rather than as a raw terraform init error when the
-// component tries to reach a kubernetes backend whose cluster may already be gone. A Backend that names
-// no real component also refuses outright — see resolveBackendComponents.
+// CheckComponentDestroyable reports whether one terraform component can be destroyed on its own.
+// On a remote backend, it refuses a backend component, because the other components keep their state
+// in that backend. The refusal returns an error with a remediation hint. Callers run it before a destroy
+// plan, so the refusal shows before terraform init fails against a cluster that can be gone.
+// It also refuses a Backend that names no component, as resolveBackendComponents does.
 func (i *Provisioner) CheckComponentDestroyable(blueprint *blueprintv1alpha1.Blueprint, componentID string) error {
 	backendType := i.configHandler.GetTerraformBackendType()
 	if backendType == "" || backendType == "local" {
@@ -347,7 +336,7 @@ func (i *Provisioner) CheckComponentDestroyable(blueprint *blueprintv1alpha1.Blu
 	}
 	for _, c := range backendComponents {
 		if c.GetID() == componentID {
-			return fmt.Errorf("cannot destroy backend component %q in isolation: its state provides the %s backend that every other component uses, so destroying it directly would orphan their state. Run `windsor destroy` (no arguments) for the full-cycle teardown that migrates state to local first", componentID, backendType)
+			return werror.New(fmt.Sprintf("cannot destroy backend component %q in isolation: its state provides the %s backend that every other component uses, so destroying it directly would orphan their state", componentID, backendType), "Run windsor destroy with no arguments. It migrates the state to local before it destroys the backend component.", nil)
 		}
 	}
 	return nil
@@ -371,13 +360,13 @@ func (i *Provisioner) PrepareLocalTeardown(ctx context.Context, blueprint *bluep
 	}
 
 	if err := i.configHandler.Set("terraform.backend.type", "local"); err != nil {
-		return false, fmt.Errorf("failed to pivot terraform backend to local for teardown: %w", err)
+		return false, werror.Wrap(err, "failed to pivot terraform backend to local for teardown")
 	}
 
 	if _, err := i.MigrateState(ctx, blueprint); err != nil {
 		if i.clusterReachableForTeardown() {
 			_ = i.configHandler.Set("terraform.backend.type", backendType)
-			return false, fmt.Errorf("failed to migrate terraform state to local before teardown: %w", err)
+			return false, werror.Wrap(err, "failed to migrate terraform state to local before teardown")
 		}
 	}
 	return true, nil
@@ -396,7 +385,7 @@ func (i *Provisioner) PivotToLocalIfClusterGone() (bool, error) {
 		return false, nil
 	}
 	if err := i.configHandler.Set("terraform.backend.type", "local"); err != nil {
-		return false, fmt.Errorf("failed to pivot terraform backend to local for teardown: %w", err)
+		return false, werror.Wrap(err, "failed to pivot terraform backend to local for teardown")
 	}
 	return true, nil
 }
@@ -422,7 +411,7 @@ func (i *Provisioner) destroyAllTerraform(ctx context.Context, blueprint *bluepr
 	result.Skipped = outcome.Skipped
 	result.Failed = outcome.Failed
 	if err != nil {
-		return result, fmt.Errorf("failed to run terraform destroy: %w", err)
+		return result, werror.Wrap(err, "failed to run terraform destroy")
 	}
 	return result, nil
 }
@@ -436,7 +425,7 @@ func (i *Provisioner) checkKubernetesReachableForDestroy() error {
 	ctx, cancel := context.WithTimeout(context.Background(), constants.DefaultKubernetesReachabilityCheckTimeout)
 	defer cancel()
 	if err := i.KubernetesManager.WaitForKubernetesHealthy(ctx, "", nil); err != nil {
-		return fmt.Errorf("kubernetes API is unreachable, refusing to run terraform destroy (its kubernetes/helm provider would hang against a broken cluster): %w", err)
+		return werror.Wrap(err, "kubernetes API is unreachable, refusing to run terraform destroy (its kubernetes/helm provider would hang against a broken cluster)")
 	}
 	return nil
 }

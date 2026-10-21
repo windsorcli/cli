@@ -14,9 +14,17 @@ import (
 	"time"
 
 	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
+	"github.com/windsorcli/cli/internal/werror"
 	"github.com/windsorcli/cli/pkg/constants"
 	"github.com/windsorcli/cli/pkg/provisioner/kubernetes"
 )
+
+// =============================================================================
+// Constants
+// =============================================================================
+
+// namespaceInferenceHint is the remediation for a secret whose target namespace Windsor cannot infer.
+const namespaceInferenceHint = "Set namespaces: on the secret to choose where to place it."
 
 // =============================================================================
 // Types
@@ -47,16 +55,11 @@ type pendingPlacement struct {
 // Public Methods
 // =============================================================================
 
-// ResolveSecrets resolves every flux system's declared Secrets to plaintext ahead of Install, so a
-// misconfigured secret fails the command before anything is applied to the cluster. For each compiled
-// kustomization carrying Secrets it evaluates each data reference (the evaluator registers resolved
-// values with the shell scrubber). A reference that resolves to nothing — nil (absent from configuration
-// or a secret() lookup that failed to resolve) or an empty string — fails closed unless it carries a "??"
-// default, since a required key that resolves away is misconfiguration and silently dropping it strands a
-// downstream consumer with a missing key. Adding a ?? default marks the key optional and omits it. A
-// secret whose keys all resolve away is not created at all, so an optional secret leaves no empty Secret
-// behind. The result is keyed by owning kustomization
-// for PlaceSecrets to materialize post-Install; it is empty when no kustomization declares Secrets.
+// ResolveSecrets resolves the secrets of every flux system to plaintext before Install.
+// A misconfigured secret then fails the command before Windsor applies anything to the cluster.
+// A reference that resolves to nil or to an empty string returns an error with a remediation hint,
+// unless it has a ?? default. A ?? default makes the key optional. Windsor does not create a secret
+// whose keys all resolve away. The result maps each owning kustomization to its secrets for PlaceSecrets.
 func (i *Provisioner) ResolveSecrets(blueprint *blueprintv1alpha1.Blueprint) (ResolvedSecrets, error) {
 	if blueprint == nil {
 		return nil, fmt.Errorf("blueprint not provided")
@@ -73,7 +76,7 @@ func (i *Provisioner) ResolveSecrets(blueprint *blueprintv1alpha1.Blueprint) (Re
 			for key, ref := range entry.Data {
 				value, err := i.evaluator.Evaluate(ref, "", nil, true)
 				if err != nil {
-					return nil, fmt.Errorf("resolving secret %q key %q: %w", secretName, key, err)
+					return nil, werror.Wrap(err, "resolving secret %q key %q", secretName, key)
 				}
 				s := ""
 				if value != nil {
@@ -83,7 +86,7 @@ func (i *Provisioner) ResolveSecrets(blueprint *blueprintv1alpha1.Blueprint) (Re
 					if strings.Contains(ref, "??") {
 						continue
 					}
-					return nil, fmt.Errorf("resolving secret %q key %q: reference %q resolved to empty; add a ?? default (e.g. %q) to make the key optional", secretName, key, ref, "${... ?? ''}")
+					return nil, werror.New(fmt.Sprintf("resolving secret %q key %q: reference %q resolved to empty", secretName, key, ref), "Add a ?? default, for example ${... ?? ''}, to make the key optional.", nil)
 				}
 				// Mask the materialized value in command output regardless of how it was sourced —
 				// env(), a config reference, or secret() — matching the redaction secret() already
@@ -144,9 +147,10 @@ func (i *Provisioner) PlaceSecrets(ctx context.Context, resolved ResolvedSecrets
 // Private Methods
 // =============================================================================
 
-// placeSecrets places resolved secrets as PlaceSecrets describes. It reports each secret that waits
-// on its namespace or is placed as progress on the owning kustomization in layers, and ends the step
-// of each kustomization the readiness poll finds Ready.
+// placeSecrets places the resolved secrets as PlaceSecrets describes. It reports each secret that
+// waits for its namespace, or that it places, as progress of the owning kustomization in layers.
+// It ends the step of each kustomization that the readiness poll finds Ready. A timeout while it
+// waits for the namespaces returns an error with a remediation hint.
 func (i *Provisioner) placeSecrets(ctx context.Context, layers layerReporter, resolved ResolvedSecrets, blueprint *blueprintv1alpha1.Blueprint, prune bool) error {
 	pending := make([]pendingPlacement, 0)
 	for kustomizationName, secrets := range resolved {
@@ -176,10 +180,10 @@ func (i *Provisioner) placeSecrets(ctx context.Context, layers layerReporter, re
 			}
 			for _, namespace := range namespaces {
 				if err := i.KubernetesManager.ApplySecret(p.secretName, namespace, p.secret.Data, p.kustomization); err != nil {
-					return fmt.Errorf("applying secret %q to namespace %q: %w", p.secretName, namespace, err)
+					return werror.Wrap(err, "applying secret %q to namespace %q", p.secretName, namespace)
 				}
 				if err := i.KubernetesManager.RollWorkloadsForSecret(ctx, namespace, p.secretName, secretDigest(p.secret.Data)); err != nil {
-					return fmt.Errorf("rolling workloads for secret %q in namespace %q: %w", p.secretName, namespace, err)
+					return werror.Wrap(err, "rolling workloads for secret %q in namespace %q", p.secretName, namespace)
 				}
 				if placed[namespace] == nil {
 					placed[namespace] = make(map[string]bool)
@@ -210,7 +214,7 @@ func (i *Provisioner) placeSecrets(ctx context.Context, layers layerReporter, re
 		trackLayers(layers, convergeNames(blueprint), notReady, reconciling)
 		select {
 		case <-waitCtx.Done():
-			return fmt.Errorf("timed out waiting on namespaces before placing secrets: %s", pendingSummary(pending))
+			return werror.New(fmt.Sprintf("timed out waiting on namespaces before placing secrets: %s", pendingSummary(pending)), "Make sure that the kustomizations that create these namespaces become ready, then run the command again.", nil)
 		case <-time.After(pollInterval):
 		}
 	}
@@ -219,16 +223,15 @@ func (i *Provisioner) placeSecrets(ctx context.Context, layers layerReporter, re
 		return nil
 	}
 	if err := i.KubernetesManager.PruneSecrets(placed); err != nil {
-		return fmt.Errorf("pruning orphaned secrets: %w", err)
+		return werror.Wrap(err, "pruning orphaned secrets")
 	}
 	return nil
 }
 
-// trySecretNamespaces resolves where to place a secret and reports whether every target namespace
-// exists yet. Explicit namespaces are gated on existing in the cluster. With no explicit
-// namespaces, the target is auto-resolved from the owning kustomization's Flux inventory, and
-// fails if that resolves to more than one namespace. A (nil, false, nil) return means not
-// resolvable yet: keep polling.
+// trySecretNamespaces finds the target namespaces of a secret and reports whether they all exist.
+// It waits for each explicit namespace to exist in the cluster. With no explicit namespaces, it uses
+// the namespace in the Flux inventory of the owning kustomization. An inventory with more than one
+// namespace, or with none, returns an error with a remediation hint. (nil, false, nil) means: poll again.
 func (i *Provisioner) trySecretNamespaces(kustomizationName string, explicit []string) ([]string, bool, error) {
 	if len(explicit) > 0 {
 		missing, err := i.missingClusterNamespaces(explicit)
@@ -242,16 +245,16 @@ func (i *Provisioner) trySecretNamespaces(kustomizationName string, explicit []s
 	}
 	entries, err := i.KubernetesManager.GetKustomizationInventory(kustomizationName, i.fluxNamespace())
 	if err != nil {
-		return nil, false, fmt.Errorf("reading inventory for kustomization %q: %w", kustomizationName, err)
+		return nil, false, werror.Wrap(err, "reading inventory for kustomization %q", kustomizationName)
 	}
 	candidates := autoResolveNamespaces(entries)
 	switch {
 	case len(candidates) == 1:
 		return candidates, true, nil
 	case len(candidates) > 1:
-		return nil, false, fmt.Errorf("kustomization %q spans multiple namespaces (%s); set `namespaces:` on the secret to choose where to place it", kustomizationName, strings.Join(candidates, ", "))
+		return nil, false, werror.New(fmt.Sprintf("kustomization %q spans multiple namespaces (%s)", kustomizationName, strings.Join(candidates, ", ")), namespaceInferenceHint, nil)
 	case len(entries) > 0:
-		return nil, false, fmt.Errorf("kustomization %q creates no namespace and deploys no namespaced resources to infer one from; set `namespaces:` on the secret to choose where to place it", kustomizationName)
+		return nil, false, werror.New(fmt.Sprintf("kustomization %q creates no namespace and deploys no namespaced resources to infer one from", kustomizationName), namespaceInferenceHint, nil)
 	}
 	return nil, false, nil
 }
@@ -263,7 +266,7 @@ func (i *Provisioner) missingClusterNamespaces(want []string) ([]string, error) 
 	for _, ns := range want {
 		exists, err := i.KubernetesManager.NamespaceExists(ns)
 		if err != nil {
-			return nil, fmt.Errorf("checking namespace %q: %w", ns, err)
+			return nil, werror.Wrap(err, "checking namespace %q", ns)
 		}
 		if !exists {
 			missing = append(missing, ns)

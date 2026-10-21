@@ -17,6 +17,7 @@ import (
 
 	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
 	"github.com/windsorcli/cli/internal/presenter"
+	"github.com/windsorcli/cli/internal/werror"
 	"github.com/windsorcli/cli/pkg/composer/blueprint"
 	"github.com/windsorcli/cli/pkg/constants"
 	"github.com/windsorcli/cli/pkg/provisioner/cluster"
@@ -204,7 +205,7 @@ func (i *Provisioner) Apply(ctx context.Context, blueprint *blueprintv1alpha1.Bl
 		return err
 	}
 	if err := i.TerraformStack.Apply(ctx, blueprint, componentID); err != nil {
-		return fmt.Errorf("failed to run terraform apply for %s: %w", componentID, err)
+		return werror.Wrap(err, "failed to run terraform apply for %s", componentID)
 	}
 	return nil
 }
@@ -236,7 +237,7 @@ func (i *Provisioner) MigrateState(ctx context.Context, blueprint *blueprintv1al
 	}
 	skipped, err := i.TerraformStack.MigrateState(ctx, blueprint)
 	if err != nil {
-		return skipped, fmt.Errorf("failed to migrate terraform state: %w", err)
+		return skipped, werror.Wrap(err, "failed to migrate terraform state")
 	}
 	return skipped, nil
 }
@@ -259,7 +260,7 @@ func (i *Provisioner) MigrateComponentState(blueprint *blueprintv1alpha1.Bluepri
 		return fmt.Errorf("terraform is disabled")
 	}
 	if err := i.TerraformStack.MigrateComponentState(blueprint, componentID); err != nil {
-		return fmt.Errorf("failed to migrate terraform state for %s: %w", componentID, err)
+		return werror.Wrap(err, "failed to migrate terraform state for %s", componentID)
 	}
 	return nil
 }
@@ -357,15 +358,15 @@ func (i *Provisioner) Close() {
 // Private Methods
 // =============================================================================
 
-// up applies the blueprint directly, or through the backend pivot when the blueprint declares
-// a backend on a remote backend type. A kubernetes backend with no declared backend and no
-// kubeconfig is refused with an actionable error.
+// up applies the blueprint directly, or through the backend pivot when the blueprint declares a
+// backend on a remote backend type. A kubernetes backend type with no declared backend and no
+// kubeconfig returns an error with a remediation hint.
 func (i *Provisioner) up(ctx context.Context, blueprint *blueprintv1alpha1.Blueprint, onApply ...func(ctx context.Context, id string) (bool, error)) (bool, error) {
 
 	backendType := i.configHandler.GetTerraformBackendType()
 	applyFlat := func() (bool, error) {
 		if backendType == "kubernetes" && hasEnabledTerraformComponent(blueprint) && !i.kubeconfigPresent() {
-			return false, fmt.Errorf("context has no kubeconfig (cluster not yet created) and the blueprint declares no backend for the kubernetes backend type; add `backend: <component-id>` to the blueprint naming the component that creates the cluster, or set terraform.backend.type to \"local\" until it exists")
+			return false, werror.New("context has no kubeconfig (cluster not yet created) and the blueprint declares no backend for the kubernetes backend type", "Add backend: <component-id> to the blueprint to name the component that creates the cluster, or set terraform.backend.type to local until the cluster exists.", nil)
 		}
 		return i.applyDirect(ctx, blueprint, onApply...)
 	}
@@ -403,27 +404,16 @@ func (i *Provisioner) applyDirect(ctx context.Context, blueprint *blueprintv1alp
 	}
 	halted, err := i.TerraformStack.Up(ctx, blueprint, hooks...)
 	if err != nil {
-		return false, fmt.Errorf("failed to run terraform up: %w", err)
+		return false, werror.Wrap(err, "failed to run terraform up")
 	}
 	return halted, nil
 }
 
-// recoverHalfMigratedComponents migrates leftover local state to the configured remote
-// backend. It targets components with local state but no remote state — typical residue from
-// an interrupted bootstrap.
-//
-//   - Local backend: skip the sweep entirely.
-//   - Per component: init under a local backend override, exit the override, migrate the
-//     local state to remote, then remove the local file.
-//   - Probe failure: abort with the underlying error. Otherwise -force-copy could overwrite
-//     good remote state with a stale local file.
-//   - Disabled component: still counts as declared. The sweep above skips it, but it must
-//     not be mistaken for an orphan by checkOrphanedLocalState.
-//
-// checkOrphanedLocalState covers the orphan case separately, outside this function. A caller
-// applying a declared backend runs this sweep under a terraform.backend.type override pinned
-// to "local". The early return above would skip orphan detection for exactly the components
-// most exposed to it.
+// recoverHalfMigratedComponents migrates leftover local state to the configured remote backend.
+// It targets each component with local state and no remote state, such as after an interrupted bootstrap.
+// It does nothing on a local backend. A disabled component still counts as declared for checkOrphanedLocalState.
+// A failed probe of the remote state returns an error with a remediation hint, because the migration
+// uses -force-copy and can overwrite valid remote state with a stale local file.
 func (i *Provisioner) recoverHalfMigratedComponents(ctx context.Context, blueprint *blueprintv1alpha1.Blueprint) error {
 	backendType := i.configHandler.GetTerraformBackendType()
 	if backendType == "" || backendType == "local" {
@@ -438,7 +428,7 @@ func (i *Provisioner) recoverHalfMigratedComponents(ctx context.Context, bluepri
 
 		hasLocal, err := i.HasLocalStateWithResources(componentID)
 		if err != nil {
-			return fmt.Errorf("error inspecting local state for %s during recovery sweep: %w", componentID, err)
+			return werror.Wrap(err, "error inspecting local state for %s during recovery sweep", componentID)
 		}
 		if !hasLocal {
 			continue
@@ -446,7 +436,7 @@ func (i *Provisioner) recoverHalfMigratedComponents(ctx context.Context, bluepri
 
 		hasRemote, err := i.HasRemoteState(blueprint, componentID)
 		if err != nil {
-			return fmt.Errorf("recovery sweep aborted: could not probe configured backend for %q: %w. The reset-and-migrate path uses terraform init -migrate-state -force-copy which would unconditionally overwrite the destination, so a transient probe failure (auth, network, missing backend storage) must not be assumed-equivalent to \"no remote state\" — that assumption could silently replace valid remote state with the local file. Resolve the underlying probe failure (check credentials, connectivity, and backend storage availability) and retry", componentID, err)
+			return werror.New(fmt.Sprintf("recovery sweep aborted: could not probe configured backend for %q: %v", componentID, err), "Check the credentials, the network connection, and the backend storage, then run the command again. Windsor stops because a state migration can overwrite valid remote state.", err)
 		}
 		if hasRemote {
 			continue
@@ -457,11 +447,11 @@ func (i *Provisioner) recoverHalfMigratedComponents(ctx context.Context, bluepri
 			if err := i.withBackendOverride("local-recovery-init", func() error {
 				return i.InitComponent(blueprint, componentID)
 			}); err != nil {
-				return fmt.Errorf("error resetting backend pointer: %w", err)
+				return werror.Wrap(err, "error resetting backend pointer")
 			}
 
 			if err := i.MigrateComponentState(blueprint, componentID); err != nil {
-				return fmt.Errorf("error migrating local state: %w", err)
+				return werror.Wrap(err, "error migrating local state")
 			}
 
 			if err := i.RemoveLocalState(componentID); err != nil {
@@ -469,7 +459,7 @@ func (i *Provisioner) recoverHalfMigratedComponents(ctx context.Context, bluepri
 			}
 			return nil
 		}); err != nil {
-			return fmt.Errorf("recovery sweep failed for %s: %w", componentID, err)
+			return werror.Wrap(err, "recovery sweep failed for %s", componentID)
 		}
 	}
 
@@ -550,9 +540,8 @@ func (i *Provisioner) pollInterval() time.Duration {
 	return constants.DefaultKustomizationWaitPollInterval
 }
 
-// ensureClusterClient initializes ClusterClient from config if it is not already set.
-// It reads cluster.driver from the config handler and creates the appropriate client.
-// Returns an error if no supported driver is configured.
+// ensureClusterClient creates the ClusterClient from cluster.driver when it is not set.
+// A configuration with no supported driver returns an error with a remediation hint.
 func (i *Provisioner) ensureClusterClient() error {
 	if i.ClusterClient != nil {
 		return nil
@@ -569,7 +558,7 @@ func (i *Provisioner) ensureClusterClient() error {
 		i.ClusterClient = cluster.NewTalosClusterClient()
 	}
 	if i.ClusterClient == nil {
-		return fmt.Errorf("no cluster client found; ensure cluster.driver is configured")
+		return werror.New("no cluster client found", "Set cluster.driver in the context configuration.", nil)
 	}
 	return nil
 }

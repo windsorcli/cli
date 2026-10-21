@@ -13,6 +13,7 @@ import (
 	helmv2 "github.com/fluxcd/helm-controller/api/v2"
 	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
 	"github.com/windsorcli/cli/internal/presenter"
+	"github.com/windsorcli/cli/internal/werror"
 	fluxinfra "github.com/windsorcli/cli/pkg/provisioner/flux"
 	"github.com/windsorcli/cli/pkg/provisioner/kubernetes"
 	"github.com/windsorcli/cli/pkg/runtime/config"
@@ -138,6 +139,9 @@ func TestProvisioner_ApplyKustomize(t *testing.T) {
 		}
 		if !strings.Contains(err.Error(), "not found in blueprint") {
 			t.Errorf("Expected specific error message, got: %v", err)
+		}
+		if we := werror.Find(err); we == nil || !strings.Contains(we.Remediation, "windsor show kustomization") {
+			t.Errorf("Expected a remediation that names windsor show kustomization, got: %v", err)
 		}
 	})
 

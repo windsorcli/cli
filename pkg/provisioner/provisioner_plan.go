@@ -8,6 +8,7 @@ import (
 	"fmt"
 
 	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
+	"github.com/windsorcli/cli/internal/werror"
 	fluxinfra "github.com/windsorcli/cli/pkg/provisioner/flux"
 	terraforminfra "github.com/windsorcli/cli/pkg/provisioner/terraform"
 )
@@ -58,7 +59,7 @@ func (i *Provisioner) Plan(blueprint *blueprintv1alpha1.Blueprint, componentID s
 		return fmt.Errorf("terraform is disabled")
 	}
 	if err := i.TerraformStack.Plan(blueprint, componentID); err != nil {
-		return fmt.Errorf("failed to run terraform plan for %s: %w", componentID, err)
+		return werror.Wrap(err, "failed to run terraform plan for %s", componentID)
 	}
 	return nil
 }
@@ -360,7 +361,7 @@ func (i *Provisioner) PlanKustomizeAll(blueprint *blueprintv1alpha1.Blueprint) e
 		return err
 	}
 	if err := i.FluxStack.PlanAll(withCrdLayer(blueprint)); err != nil {
-		return fmt.Errorf("error planning kustomize: %w", err)
+		return werror.Wrap(err, "error planning kustomize")
 	}
 	return nil
 }
@@ -387,7 +388,7 @@ func (i *Provisioner) PlanKustomization(blueprint *blueprintv1alpha1.Blueprint, 
 		return err
 	}
 	if err := i.FluxStack.Plan(withCrdLayer(blueprint), componentID); err != nil {
-		return fmt.Errorf("error planning kustomize for %s: %w", componentID, err)
+		return werror.Wrap(err, "error planning kustomize for %s", componentID)
 	}
 	return nil
 }

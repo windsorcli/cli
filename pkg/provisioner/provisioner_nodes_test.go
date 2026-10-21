@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/windsorcli/cli/internal/werror"
 	"github.com/windsorcli/cli/pkg/runtime/config"
 )
 
@@ -142,6 +143,9 @@ func TestProvisioner_UpgradeNode(t *testing.T) {
 		}
 		if !strings.Contains(err.Error(), "no cluster client found") {
 			t.Errorf("Expected no cluster client error, got: %v", err)
+		}
+		if we := werror.Find(err); we == nil || !strings.Contains(we.Remediation, "cluster.driver") {
+			t.Errorf("Expected a remediation that names cluster.driver, got: %v", err)
 		}
 	})
 }
@@ -340,6 +344,9 @@ func TestProvisioner_CheckNodeHealth(t *testing.T) {
 		if !strings.Contains(err.Error(), "no health checks specified") {
 			t.Errorf("Expected error about no health checks, got: %v", err)
 		}
+		if we := werror.Find(err); we == nil || !strings.Contains(we.Remediation, "--k8s-endpoint") {
+			t.Errorf("Expected a remediation that names --k8s-endpoint, got: %v", err)
+		}
 	})
 
 	t.Run("ErrorClusterClientWaitForNodesHealthy", func(t *testing.T) {
@@ -459,6 +466,9 @@ func TestProvisioner_CheckNodeHealth(t *testing.T) {
 
 		if !strings.Contains(err.Error(), "--ready flag requires --nodes") {
 			t.Errorf("Expected error about --ready requiring --nodes, got: %v", err)
+		}
+		if we := werror.Find(err); we == nil || !strings.Contains(we.Remediation, "Add --nodes") {
+			t.Errorf("Expected a remediation that names Add --nodes, got: %v", err)
 		}
 	})
 

@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
+	"github.com/windsorcli/cli/internal/werror"
 	terraforminfra "github.com/windsorcli/cli/pkg/provisioner/terraform"
 	"github.com/windsorcli/cli/pkg/runtime/config"
 )
@@ -416,6 +417,9 @@ func TestProvisioner_DestroyKustomize(t *testing.T) {
 		}
 		if !strings.Contains(err.Error(), "not found in blueprint") {
 			t.Errorf("Expected specific error message, got: %v", err)
+		}
+		if we := werror.Find(err); we == nil || !strings.Contains(we.Remediation, "windsor show kustomization") {
+			t.Errorf("Expected a remediation that names windsor show kustomization, got: %v", err)
 		}
 	})
 
@@ -1148,6 +1152,9 @@ func TestProvisioner_Teardown(t *testing.T) {
 		}
 		if !strings.Contains(err.Error(), "Blueprint.Backend") {
 			t.Errorf("Expected error to name the missing field, got: %v", err)
+		}
+		if we := werror.Find(err); we == nil || !strings.Contains(we.Remediation, "backend: <cluster-component-id>") {
+			t.Errorf("Expected a remediation that names backend: <cluster-component-id>, got: %v", err)
 		}
 		if !strings.Contains(err.Error(), "kubernetes") {
 			t.Errorf("Expected error to name the backend type, got: %v", err)
@@ -2257,8 +2264,8 @@ func TestProvisioner_TeardownComponent(t *testing.T) {
 				if !strings.Contains(err.Error(), backendType) {
 					t.Errorf("Expected refusal message naming %s backend, got: %v", backendType, err)
 				}
-				if !strings.Contains(err.Error(), "windsor destroy") {
-					t.Errorf("Expected error to point at full-cycle teardown, got: %v", err)
+				if we := werror.Find(err); we == nil || !strings.Contains(we.Remediation, "windsor destroy") {
+					t.Errorf("Expected remediation to point at full-cycle teardown, got: %v", err)
 				}
 				if destroyCalled {
 					t.Error("Expected Destroy NOT to be called when refusing")
