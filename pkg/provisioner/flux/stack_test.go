@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
+	"github.com/windsorcli/cli/internal/werror"
 	"github.com/windsorcli/cli/pkg/provisioner/kubernetes"
 	"github.com/windsorcli/cli/pkg/runtime"
 	"github.com/windsorcli/cli/pkg/runtime/config"
@@ -204,6 +205,9 @@ func TestFluxStack_Plan(t *testing.T) {
 		if !strings.Contains(err.Error(), "flux CLI is required") {
 			t.Errorf("expected install hint in error, got %v", err)
 		}
+		if we := werror.Find(err); we == nil || !strings.Contains(we.Remediation, "fluxcd.io/flux/installation") {
+			t.Errorf("Expected a remediation that names fluxcd.io/flux/installation, got: %v", err)
+		}
 	})
 
 	t.Run("ErrorFluxVersionTooOld", func(t *testing.T) {
@@ -223,6 +227,9 @@ func TestFluxStack_Plan(t *testing.T) {
 		}
 		if !strings.Contains(err.Error(), "v2.3 or later is required") {
 			t.Errorf("expected version requirement in error, got %v", err)
+		}
+		if we := werror.Find(err); we == nil || !strings.Contains(we.Remediation, "Upgrade the flux CLI") {
+			t.Errorf("Expected a remediation that names Upgrade the flux CLI, got: %v", err)
 		}
 	})
 

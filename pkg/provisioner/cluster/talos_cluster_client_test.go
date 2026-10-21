@@ -13,6 +13,8 @@ import (
 	"github.com/siderolabs/talos/pkg/machinery/api/machine"
 	talosclient "github.com/siderolabs/talos/pkg/machinery/client"
 	clientconfig "github.com/siderolabs/talos/pkg/machinery/client/config"
+
+	"github.com/windsorcli/cli/internal/werror"
 )
 
 // =============================================================================
@@ -152,6 +154,9 @@ func TestTalosClusterClient_WaitForNodesHealthy(t *testing.T) {
 		}
 		if !strings.Contains(err.Error(), "TALOSCONFIG environment variable not set") {
 			t.Errorf("Expected TALOSCONFIG error, got %v", err)
+		}
+		if we := werror.Find(err); we == nil || !strings.Contains(we.Remediation, "Set TALOSCONFIG") {
+			t.Errorf("Expected a remediation that names Set TALOSCONFIG, got: %v", err)
 		}
 	})
 

@@ -15,6 +15,7 @@ import (
 
 	"github.com/siderolabs/talos/pkg/machinery/client"
 	clientconfig "github.com/siderolabs/talos/pkg/machinery/client/config"
+	"github.com/windsorcli/cli/internal/werror"
 	"github.com/windsorcli/cli/pkg/constants"
 )
 
@@ -56,7 +57,7 @@ func NewTalosClusterClient() *TalosClusterClient {
 // failed health checks or version validation if timeout is reached.
 func (c *TalosClusterClient) WaitForNodesHealthy(ctx context.Context, nodeAddresses []string, expectedVersion string, skipServices []string) error {
 	if err := c.ensureClient(); err != nil {
-		return fmt.Errorf("failed to initialize Talos client: %w", err)
+		return werror.Wrap(err, "failed to initialize Talos client")
 	}
 
 	deadline, ok := ctx.Deadline()
@@ -161,7 +162,7 @@ func (c *TalosClusterClient) WaitForNodesHealthy(ctx context.Context, nodeAddres
 // Returns an error if any node upgrade fails or if the Talos client cannot be initialized.
 func (c *TalosClusterClient) UpgradeNodes(ctx context.Context, nodeAddresses []string, image string, powercycle bool) error {
 	if err := c.ensureClient(); err != nil {
-		return fmt.Errorf("failed to initialize Talos client: %w", err)
+		return werror.Wrap(err, "failed to initialize Talos client")
 	}
 
 	for _, nodeAddress := range nodeAddresses {
@@ -171,7 +172,7 @@ func (c *TalosClusterClient) UpgradeNodes(ctx context.Context, nodeAddresses []s
 		err := c.shims.TalosUpgrade(nodeCtx, c.client, image, powercycle)
 
 		if err != nil {
-			return fmt.Errorf("failed to upgrade node %s: %w", nodeAddress, err)
+			return werror.Wrap(err, "failed to upgrade node %s", nodeAddress)
 		}
 	}
 
@@ -239,7 +240,7 @@ func (c *TalosClusterClient) getNodeBootID(ctx context.Context, nodeAddress stri
 // if either phase times out or if the client cannot be initialized.
 func (c *TalosClusterClient) WaitForNodesReboot(ctx context.Context, nodeAddresses []string, preActionBootIDs map[string]string, expectedVersion string, skipServices []string, offlineTimeout time.Duration) error {
 	if err := c.ensureClient(); err != nil {
-		return fmt.Errorf("failed to initialize Talos client: %w", err)
+		return werror.Wrap(err, "failed to initialize Talos client")
 	}
 
 	overallDeadline, ok := ctx.Deadline()
@@ -316,12 +317,12 @@ func (c *TalosClusterClient) WaitForNodesReboot(ctx context.Context, nodeAddress
 // the apiserver does not become reachable in time.
 func (c *TalosClusterClient) WaitForControlPlaneAPIReady(ctx context.Context, nodeAddress string, outputFunc func(string)) error {
 	if err := c.ensureClient(); err != nil {
-		return fmt.Errorf("failed to initialize Talos client: %w", err)
+		return werror.Wrap(err, "failed to initialize Talos client")
 	}
 
 	isControlPlane, err := c.isControlPlaneNode(ctx, nodeAddress)
 	if err != nil {
-		return fmt.Errorf("failed to determine node role for %s: %w", nodeAddress, err)
+		return werror.Wrap(err, "failed to determine node role for %s", nodeAddress)
 	}
 	if !isControlPlane {
 		return nil
@@ -365,7 +366,7 @@ func (c *TalosClusterClient) WaitForControlPlaneAPIReady(ctx context.Context, no
 	}
 
 	if lastErr != nil {
-		return fmt.Errorf("timeout waiting for kube-apiserver on %s: %w", address, lastErr)
+		return werror.Wrap(lastErr, "timeout waiting for kube-apiserver on %s", address)
 	}
 	return fmt.Errorf("timeout waiting for kube-apiserver on %s", address)
 }
@@ -385,12 +386,10 @@ func (c *TalosClusterClient) Close() {
 // Private Methods
 // =============================================================================
 
-// ensureClient lazily initializes the Talos client if not already set.
-// It checks if a client already exists and returns early if so. Otherwise, it reads the
-// TALOSCONFIG environment variable to locate the configuration file, loads and parses
-// the Talos configuration using the shim layer, then creates a new Talos gRPC client
-// with the loaded configuration. Returns an error if the environment variable is not
-// set, the configuration file cannot be loaded, or the client creation fails.
+// ensureClient creates the Talos client when it is not set.
+// It loads the Talos configuration from the path in TALOSCONFIG, then creates the gRPC client.
+// It returns an error if the configuration does not load or the client creation fails.
+// A TALOSCONFIG that is not set returns an error with a remediation hint.
 func (c *TalosClusterClient) ensureClient() error {
 	if c.client != nil {
 		return nil
@@ -398,20 +397,20 @@ func (c *TalosClusterClient) ensureClient() error {
 
 	configPath := c.shims.Getenv("TALOSCONFIG")
 	if configPath == "" {
-		return fmt.Errorf("TALOSCONFIG environment variable not set")
+		return werror.New("TALOSCONFIG environment variable not set", "Set TALOSCONFIG to the path of the Talos configuration file.", nil)
 	}
 
 	var err error
 	c.config, err = c.shims.TalosConfigOpen(configPath)
 	if err != nil {
-		return fmt.Errorf("error loading Talos config: %w", err)
+		return werror.Wrap(err, "error loading Talos config")
 	}
 
 	c.client, err = c.shims.TalosNewClient(context.Background(),
 		client.WithConfig(c.config),
 	)
 	if err != nil {
-		return fmt.Errorf("error creating Talos client: %w", err)
+		return werror.Wrap(err, "error creating Talos client")
 	}
 
 	return nil

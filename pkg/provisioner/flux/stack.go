@@ -16,6 +16,7 @@ import (
 	"strings"
 
 	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
+	"github.com/windsorcli/cli/internal/werror"
 	"github.com/windsorcli/cli/pkg/constants"
 	"github.com/windsorcli/cli/pkg/provisioner/kubernetes"
 	"github.com/windsorcli/cli/pkg/runtime"
@@ -99,9 +100,9 @@ func NewStack(rt *runtime.Runtime, kubernetesManager kubernetes.KubernetesManage
 // Public Methods
 // =============================================================================
 
-// PlanAll runs flux diff for every non-destroyOnly kustomization in the blueprint.
-// The flux CLI is only required when there are kustomizations to plan; blueprints
-// with no non-destroyOnly kustomizations succeed without it.
+// PlanAll runs flux diff for every kustomization in the blueprint that is not destroyOnly.
+// It needs the flux CLI only when there are kustomizations to plan. A missing flux CLI
+// returns an error with a remediation hint.
 func (s *FluxStack) PlanAll(blueprint *blueprintv1alpha1.Blueprint) error {
 	if blueprint == nil {
 		return fmt.Errorf("blueprint not provided")
@@ -122,7 +123,7 @@ func (s *FluxStack) PlanAll(blueprint *blueprintv1alpha1.Blueprint) error {
 	}
 
 	if _, err := s.shims.LookPath("flux"); err != nil {
-		return fmt.Errorf("flux CLI is required for 'plan kustomize'\nInstall: https://fluxcd.io/flux/installation/")
+		return werror.New("flux CLI is required for 'plan kustomize'", "Install the flux CLI from https://fluxcd.io/flux/installation/.", nil)
 	}
 	if err := s.checkFluxVersion(); err != nil {
 		return err
@@ -136,18 +137,17 @@ func (s *FluxStack) PlanAll(blueprint *blueprintv1alpha1.Blueprint) error {
 	return nil
 }
 
-// Plan runs flux diff for a single kustomization identified by componentID.
-// Requires the flux CLI to be installed. Returns an error if the flux CLI is not found,
-// the kustomization name is not in the blueprint, or the diff fails.
-// If the kustomization does not yet exist in the cluster, the plan is generated from
-// the blueprint definition via --kustomization-file.
+// Plan runs flux diff for the kustomization with the given name. It returns an error if the
+// diff fails. When the kustomization is not in the cluster yet, it plans from the blueprint
+// definition with --kustomization-file. A missing flux CLI, or a name that is not in the
+// blueprint, returns an error with a remediation hint.
 func (s *FluxStack) Plan(blueprint *blueprintv1alpha1.Blueprint, componentID string) error {
 	if blueprint == nil {
 		return fmt.Errorf("blueprint not provided")
 	}
 
 	if _, err := s.shims.LookPath("flux"); err != nil {
-		return fmt.Errorf("flux CLI is required for 'plan kustomize'\nInstall: https://fluxcd.io/flux/installation/")
+		return werror.New("flux CLI is required for 'plan kustomize'", "Install the flux CLI from https://fluxcd.io/flux/installation/.", nil)
 	}
 	if err := s.checkFluxVersion(); err != nil {
 		return err
@@ -157,21 +157,21 @@ func (s *FluxStack) Plan(blueprint *blueprintv1alpha1.Blueprint, componentID str
 
 	k, found := findKustomization(blueprint, componentID)
 	if !found {
-		return fmt.Errorf("kustomization %q not found in blueprint", componentID)
+		return werror.New(fmt.Sprintf("kustomization %q not found in blueprint", componentID), "Use the name of a kustomization in the blueprint. Run windsor show kustomization to see the kustomizations.", nil)
 	}
 	return s.planOne(blueprint, k, namespace)
 }
 
-// PlanAllJSON runs kustomize build for every non-destroyOnly kustomization in the blueprint,
-// converts the rendered YAML manifests to JSON, and writes a JSON array of
-// {"kustomization": name, "resources": [...]} objects to stdout. Requires the kustomize CLI.
+// PlanAllJSON runs kustomize build for every kustomization in the blueprint that is not destroyOnly.
+// It converts the YAML manifests to JSON and writes a JSON array of {"kustomization": name,
+// "resources": [...]} objects to stdout. A missing kustomize CLI returns an error with a remediation hint.
 func (s *FluxStack) PlanAllJSON(blueprint *blueprintv1alpha1.Blueprint) error {
 	if blueprint == nil {
 		return fmt.Errorf("blueprint not provided")
 	}
 
 	if _, err := s.shims.LookPath("kustomize"); err != nil {
-		return fmt.Errorf("kustomize CLI is required for 'plan kustomize --json'\nInstall: https://kubectl.docs.kubernetes.io/installation/kustomize/")
+		return werror.New("kustomize CLI is required for 'plan kustomize --json'", "Install the kustomize CLI from https://kubectl.docs.kubernetes.io/installation/kustomize/.", nil)
 	}
 
 	namespace := s.gitopsNamespace()
@@ -187,23 +187,22 @@ func (s *FluxStack) PlanAllJSON(blueprint *blueprintv1alpha1.Blueprint) error {
 	return s.encodeKustomizationsJSON(os.Stdout, blueprint, namespace, targets)
 }
 
-// PlanJSON runs kustomize build for a single kustomization identified by componentID,
-// converts the rendered YAML manifests to JSON, and writes a JSON array of
-// {"kustomization": name, "resources": [...]} objects to stdout.
-// Unlike Plan, this always uses kustomize build regardless of cluster state, producing
-// the full desired state as JSON for machine consumption. Requires the kustomize CLI.
+// PlanJSON runs kustomize build for the kustomization with the given name and writes the result as JSON.
+// It writes a JSON array of {"kustomization": name, "resources": [...]} objects to stdout.
+// It always uses kustomize build, so the output is the full desired state for machine use.
+// A missing kustomize CLI, or a name that is not in the blueprint, returns an error with a remediation hint.
 func (s *FluxStack) PlanJSON(blueprint *blueprintv1alpha1.Blueprint, componentID string) error {
 	if blueprint == nil {
 		return fmt.Errorf("blueprint not provided")
 	}
 
 	if _, err := s.shims.LookPath("kustomize"); err != nil {
-		return fmt.Errorf("kustomize CLI is required for 'plan kustomize --json'\nInstall: https://kubectl.docs.kubernetes.io/installation/kustomize/")
+		return werror.New("kustomize CLI is required for 'plan kustomize --json'", "Install the kustomize CLI from https://kubectl.docs.kubernetes.io/installation/kustomize/.", nil)
 	}
 
 	k, found := findKustomization(blueprint, componentID)
 	if !found {
-		return fmt.Errorf("kustomization %q not found in blueprint", componentID)
+		return werror.New(fmt.Sprintf("kustomization %q not found in blueprint", componentID), "Use the name of a kustomization in the blueprint. Run windsor show kustomization to see the kustomizations.", nil)
 	}
 
 	namespace := s.gitopsNamespace()
@@ -301,7 +300,7 @@ func (s *FluxStack) runFromScratch(k blueprintv1alpha1.Kustomization, components
 
 	planDir := filepath.Join(sourceRoot, ".windsor", "plan", k.Name)
 	if err := s.shims.MkdirAll(planDir, 0700); err != nil {
-		return fmt.Errorf("failed to create plan dir for kustomization %q: %w", k.Name, err)
+		return werror.Wrap(err, "failed to create plan dir for kustomization %q", k.Name)
 	}
 	defer s.shims.RemoveAll(planDir)
 
@@ -320,7 +319,7 @@ func (s *FluxStack) runFromScratch(k blueprintv1alpha1.Kustomization, components
 func (s *FluxStack) writeSyntheticKustomization(name, planDir, localPath string, baseIsComponent bool, components []string) error {
 	relBase, err := filepath.Rel(planDir, localPath)
 	if err != nil {
-		return fmt.Errorf("failed to compute relative path for kustomization %q: %w", name, err)
+		return werror.Wrap(err, "failed to compute relative path for kustomization %q", name)
 	}
 
 	var sb strings.Builder
@@ -336,25 +335,21 @@ func (s *FluxStack) writeSyntheticKustomization(name, planDir, localPath string,
 	for _, comp := range components {
 		relComp, err := filepath.Rel(planDir, filepath.Join(localPath, comp))
 		if err != nil {
-			return fmt.Errorf("failed to compute relative path for component %q: %w", comp, err)
+			return werror.Wrap(err, "failed to compute relative path for component %q", comp)
 		}
 		sb.WriteString(fmt.Sprintf("- %s\n", relComp))
 	}
 
 	if err := s.shims.WriteFile(filepath.Join(planDir, "kustomization.yaml"), []byte(sb.String()), 0600); err != nil {
-		return fmt.Errorf("failed to write plan kustomization for %q: %w", name, err)
+		return werror.Wrap(err, "failed to write plan kustomization for %q", name)
 	}
 	return nil
 }
 
-// requireKustomizationFile returns the contents of path's kustomization.yaml or .yml, trying
-// each name in turn. name identifies the kustomization in an error.
-//
-// A missing file returns an actionable error. windsor's local kustomize build always needs
-// one, even for a directory Flux's kustomize-controller could render on its own.
-//
-// A real read failure, such as a permission error, returns that error instead. A file that
-// exists but cannot be read is never reported as missing.
+// requireKustomizationFile returns the contents of the kustomization.yaml or kustomization.yml in path.
+// name identifies the kustomization in an error. The local kustomize build always needs the file,
+// also for a directory that kustomize-controller can render without it. A missing file returns an
+// error with a remediation hint. A read failure, such as a permission error, returns that error.
 func (s *FluxStack) requireKustomizationFile(name, path string) ([]byte, error) {
 	var readErr error
 	for _, fileName := range []string{"kustomization.yaml", "kustomization.yml"} {
@@ -367,9 +362,9 @@ func (s *FluxStack) requireKustomizationFile(name, path string) ([]byte, error) 
 		}
 	}
 	if readErr != nil {
-		return nil, fmt.Errorf("failed to read a kustomization.yaml for %q in %q: %w", name, path, readErr)
+		return nil, werror.Wrap(readErr, "failed to read a kustomization.yaml for %q in %q", name, path)
 	}
-	return nil, fmt.Errorf("kustomization %q has no kustomization.yaml or kustomization.yml in %q. Add one. An empty \"resources: []\" is enough for kustomize to build from.", name, path)
+	return nil, werror.New(fmt.Sprintf("kustomization %q has no kustomization.yaml or kustomization.yml in %q", name, path), "Add a kustomization.yaml to the directory. An empty \"resources: []\" is enough for kustomize to build from.", nil)
 }
 
 // runKustomizeBuild executes "kustomize build <path>" to render all kubernetes manifests
@@ -414,12 +409,13 @@ func (s *FluxStack) runFluxDiff(name string, args ...string) error {
 	return nil
 }
 
-// checkFluxVersion verifies that the installed flux CLI is at least minFluxMajor.minFluxMinor.
-// It runs "flux version --client" and parses the "flux: vX.Y.Z" line.
+// checkFluxVersion checks that the installed flux CLI is at least minFluxMajor.minFluxMinor.
+// It runs "flux version --client" and parses the "flux: vX.Y.Z" line. An older flux CLI
+// returns an error with a remediation hint.
 func (s *FluxStack) checkFluxVersion() error {
 	out, err := s.runtime.Shell.ExecSilent("flux", "version", "--client")
 	if err != nil {
-		return fmt.Errorf("failed to get flux version: %w", err)
+		return werror.Wrap(err, "failed to get flux version")
 	}
 	for _, line := range strings.Split(out, "\n") {
 		line = strings.TrimSpace(line)
@@ -443,7 +439,7 @@ func (s *FluxStack) checkFluxVersion() error {
 		if major > minFluxMajor || (major == minFluxMajor && minor >= minFluxMinor) {
 			return nil
 		}
-		return fmt.Errorf("flux CLI v%d.%d or later is required (found v%s)\nUpgrade: https://fluxcd.io/flux/installation/", minFluxMajor, minFluxMinor, ver)
+		return werror.New(fmt.Sprintf("flux CLI v%d.%d or later is required (found v%s)", minFluxMajor, minFluxMinor, ver), "Upgrade the flux CLI from https://fluxcd.io/flux/installation/.", nil)
 	}
 	return fmt.Errorf("could not determine flux CLI version from output: %q", out)
 }
@@ -466,7 +462,7 @@ func (s *FluxStack) captureKustomizeBuild(k blueprintv1alpha1.Kustomization, com
 
 	planDir := filepath.Join(sourceRoot, ".windsor", "plan", k.Name)
 	if err := s.shims.MkdirAll(planDir, 0700); err != nil {
-		return "", fmt.Errorf("failed to create plan dir for kustomization %q: %w", k.Name, err)
+		return "", werror.Wrap(err, "failed to create plan dir for kustomization %q", k.Name)
 	}
 	defer s.shims.RemoveAll(planDir)
 
@@ -494,7 +490,7 @@ func (s *FluxStack) encodeKustomizationsJSON(w io.Writer, blueprint *blueprintv1
 
 		yamlStr, err := s.captureKustomizeBuild(k, fluxK.Spec.Components, localPath, sourceRoot)
 		if err != nil {
-			return fmt.Errorf("error building kustomization %q: %w", k.Name, err)
+			return werror.Wrap(err, "error building kustomization %q", k.Name)
 		}
 
 		results = append(results, entry{Kustomization: k.Name, Resources: yamlDocumentsToJSON(yamlStr)})
