@@ -18,9 +18,17 @@ import (
 
 	colimaConfig "github.com/abiosoft/colima/config"
 	"github.com/windsorcli/cli/internal/presenter"
+	"github.com/windsorcli/cli/internal/werror"
 	"github.com/windsorcli/cli/pkg/constants"
 	"github.com/windsorcli/cli/pkg/runtime"
 )
+
+// =============================================================================
+// Constants
+// =============================================================================
+
+// colimaNoAddressHint is the remediation for a Colima VM that gets no IP address after it starts.
+const colimaNoAddressHint = "Run colima list to see the VM state. Then run windsor down --clean and windsor up again."
 
 // Test hook to force memory overflow
 var testForceMemoryOverflow = false
@@ -66,7 +74,7 @@ func (v *ColimaVirt) Up(ctx context.Context) error {
 	info, err := v.getVMInfo()
 	if err == nil && info.Address != "" {
 		if err := v.configHandler.Set("workstation.address", info.Address); err != nil {
-			return fmt.Errorf("failed to set VM address in config handler: %w", err)
+			return werror.Wrap(err, "failed to set VM address in config handler")
 		}
 		return nil
 	}
@@ -74,11 +82,11 @@ func (v *ColimaVirt) Up(ctx context.Context) error {
 	return presenter.Track(ctx, "vm:colima", "Creating Colima VM", func(ctx context.Context) error {
 		info, err = v.startColima()
 		if err != nil {
-			return fmt.Errorf("failed to start Colima VM: %w", err)
+			return werror.Wrap(err, "failed to start Colima VM")
 		}
 		if info.Address != "" {
 			if err := v.configHandler.Set("workstation.address", info.Address); err != nil {
-				return fmt.Errorf("failed to set VM address in config handler: %w", err)
+				return werror.Wrap(err, "failed to set VM address in config handler")
 			}
 		}
 		return nil
@@ -170,31 +178,31 @@ func (v *ColimaVirt) WriteConfig() error {
 
 	homeDir, err := v.BaseVirt.shims.UserHomeDir()
 	if err != nil {
-		return fmt.Errorf("error retrieving user home directory: %w", err)
+		return werror.Wrap(err, "error retrieving user home directory")
 	}
 	colimaDir := filepath.Join(homeDir, fmt.Sprintf(".colima/windsor-%s", context))
 	if err := v.BaseVirt.shims.MkdirAll(colimaDir, 0755); err != nil {
-		return fmt.Errorf("error creating colima directory: %w", err)
+		return werror.Wrap(err, "error creating colima directory")
 	}
 	tempFilePath := filepath.Join(colimaDir, "colima.yaml.tmp")
 
 	var buf bytes.Buffer
 	encoder := v.BaseVirt.shims.NewYAMLEncoder(&buf)
 	if err := encoder.Encode(colimaConfig); err != nil {
-		return fmt.Errorf("error encoding yaml: %w", err)
+		return werror.Wrap(err, "error encoding yaml")
 	}
 	if err := encoder.Close(); err != nil {
-		return fmt.Errorf("error closing encoder: %w", err)
+		return werror.Wrap(err, "error closing encoder")
 	}
 
 	if err := v.BaseVirt.shims.WriteFile(tempFilePath, buf.Bytes(), 0644); err != nil {
-		return fmt.Errorf("error writing to temporary file: %w", err)
+		return werror.Wrap(err, "error writing to temporary file")
 	}
-	defer os.Remove(tempFilePath)
+	defer func() { _ = v.BaseVirt.shims.Remove(tempFilePath) }()
 
 	finalFilePath := filepath.Join(colimaDir, "colima.yaml")
 	if err := v.BaseVirt.shims.Rename(tempFilePath, finalFilePath); err != nil {
-		return fmt.Errorf("error renaming temporary file to colima config file: %w", err)
+		return werror.Wrap(err, "error renaming temporary file to colima config file")
 	}
 	return nil
 }
@@ -440,10 +448,10 @@ func (v *ColimaVirt) executeColimaCommand(action string, additionalArgs ...strin
 	return nil
 }
 
-// startColima starts the Colima VM, waits for it to obtain an assigned IP address, and returns the VM information.
-// It executes the Colima start command with a timeout to prevent hanging, then retries a configurable number of times
-// to fetch the VM information. If the VM fails to start or acquire a valid IP address within the allowed attempts,
-// an error is returned describing the issue, including any Colima command output received.
+// startColima starts the Colima VM and returns the VM info after the VM gets an IP address.
+// It runs colima start, then gets the VM info again until the VM has an address or the attempts end.
+// If colima start fails, the error includes the command output.
+// If the VM gets no address, it returns an error with a remediation hint.
 func (v *ColimaVirt) startColima() (VMInfo, error) {
 	contextName := v.configHandler.GetContext()
 
@@ -460,7 +468,7 @@ func (v *ColimaVirt) startColima() (VMInfo, error) {
 	for i := range make([]int, testRetryAttempts) {
 		info, err = v.getVMInfo()
 		if err != nil {
-			lastErr = fmt.Errorf("Error retrieving Colima info: %w", err)
+			lastErr = werror.Wrap(err, "failed to retrieve Colima info")
 			time.Sleep(time.Duration(RETRY_WAIT*(i+1)) * time.Second)
 			continue
 		}
@@ -474,7 +482,7 @@ func (v *ColimaVirt) startColima() (VMInfo, error) {
 		return VMInfo{}, lastErr
 	}
 
-	return VMInfo{}, fmt.Errorf("Timed out waiting for Colima VM to get an IP address")
+	return VMInfo{}, werror.New("timed out waiting for Colima VM to get an IP address", colimaNoAddressHint, nil)
 }
 
 // getProvisionScripts returns the provision scripts to run in the Colima VM

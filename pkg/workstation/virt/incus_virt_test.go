@@ -6,6 +6,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/windsorcli/cli/internal/werror"
 )
 
 // =============================================================================
@@ -473,6 +475,50 @@ func TestIncusVirt_WriteConfig(t *testing.T) {
 // =============================================================================
 // Test Private Methods
 // =============================================================================
+
+func TestIncusVirt_validateVMForIncus(t *testing.T) {
+	setup := func(t *testing.T) (*IncusVirt, *IncusTestMocks) {
+		t.Helper()
+		mocks := setupIncusMocks(t)
+		if err := mocks.ConfigHandler.Set("platform", "incus"); err != nil {
+			t.Fatalf("Failed to set platform: %v", err)
+		}
+		incusVirt := NewIncusVirt(mocks.Runtime)
+		return incusVirt, mocks
+	}
+
+	t.Run("ReturnsInfoWhenAddressIsSet", func(t *testing.T) {
+		// Given an IncusVirt and a VM with an address
+		incusVirt, _ := setup(t)
+
+		// When validating the VM
+		info, err := incusVirt.validateVMForIncus(VMInfo{Address: "192.168.1.100"})
+
+		// Then the VM info should be returned
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		if info.Address != "192.168.1.100" {
+			t.Errorf("Expected address 192.168.1.100, got %q", info.Address)
+		}
+	})
+
+	t.Run("ErrorWithRemediationWhenAddressIsEmpty", func(t *testing.T) {
+		// Given an IncusVirt and a VM without an address
+		incusVirt, _ := setup(t)
+
+		// When validating the VM
+		_, err := incusVirt.validateVMForIncus(VMInfo{})
+
+		// Then an error with a remediation hint should be returned
+		if err == nil || !strings.Contains(err.Error(), "has no IP address") {
+			t.Fatalf("Expected no IP address error, got %v", err)
+		}
+		if we := werror.Find(err); we == nil || !strings.Contains(we.Remediation, "windsor down --clean") {
+			t.Errorf("Expected remediation to mention windsor down --clean, got %v", we)
+		}
+	})
+}
 
 func TestIncusVirt_ensureRemote(t *testing.T) {
 	setup := func(t *testing.T) (*IncusVirt, *IncusTestMocks) {
@@ -1012,6 +1058,9 @@ func TestIncusVirt_pollUntilNotBusy(t *testing.T) {
 		}
 		if !strings.Contains(err.Error(), "still busy after deadline") {
 			t.Errorf("Expected deadline error, got %v", err)
+		}
+		if we := werror.Find(err); we == nil || !strings.Contains(we.Remediation, "incus operation list") {
+			t.Errorf("Expected remediation to mention incus operation list, got %v", we)
 		}
 		if callCount < 1 {
 			t.Errorf("Expected at least 1 call before timeout, got %d", callCount)

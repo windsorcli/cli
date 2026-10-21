@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/windsorcli/cli/internal/presenter"
+	"github.com/windsorcli/cli/internal/werror"
 
 	colimaConfig "github.com/abiosoft/colima/config"
 	"github.com/goccy/go-yaml"
@@ -1537,9 +1538,14 @@ func TestColimaVirt_startColima(t *testing.T) {
 		}
 
 		// And the error should contain the expected message
-		expectedErrorSubstring := "Timed out waiting for Colima VM to get an IP address"
+		expectedErrorSubstring := "timed out waiting for Colima VM to get an IP address"
 		if !strings.Contains(err.Error(), expectedErrorSubstring) {
 			t.Errorf("expected error message to contain %q, got %q", expectedErrorSubstring, err.Error())
+		}
+
+		// And the error should carry the remediation hint
+		if we := werror.Find(err); we == nil || !strings.Contains(we.Remediation, "colima list") {
+			t.Errorf("expected remediation to mention colima list, got %v", we)
 		}
 	})
 

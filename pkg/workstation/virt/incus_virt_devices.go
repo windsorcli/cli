@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"strings"
 	"time"
+
+	"github.com/windsorcli/cli/internal/werror"
 )
 
 // =============================================================================
@@ -41,7 +43,7 @@ func (v *IncusVirt) deviceExists(instanceName, deviceName string) (bool, error) 
 func (v *IncusVirt) configureNetworkDevice(config *IncusInstanceConfig) error {
 	exists, err := v.deviceExists(config.Name, "eth0")
 	if err != nil {
-		return fmt.Errorf("failed to check if network device exists: %w", err)
+		return werror.Wrap(err, "failed to check if network device exists")
 	}
 
 	if !exists {
@@ -57,7 +59,7 @@ func (v *IncusVirt) configureNetworkDevice(config *IncusInstanceConfig) error {
 // Handles busy state errors with retry logic and proper error reporting.
 func (v *IncusVirt) addNetworkDevice(config *IncusInstanceConfig) error {
 	if err := v.pollUntilNotBusy(config.Name, maxIterationsForDevice, time.Time{}); err != nil {
-		return fmt.Errorf("instance is busy, cannot add network device: %w", err)
+		return werror.Wrap(err, "instance is busy, cannot add network device")
 	}
 
 	wasRunning, err := v.stopInstanceIfRunning(config.Name, "failed to stop instance to add network device")
@@ -73,26 +75,26 @@ func (v *IncusVirt) addNetworkDevice(config *IncusInstanceConfig) error {
 
 		if isBusyError(err) {
 			if err := v.pollUntilNotBusy(config.Name, maxIterationsForLaunch, time.Time{}); err != nil {
-				return fmt.Errorf("instance is still busy after waiting, cannot add device: %w", originalErr)
+				return werror.Wrap(originalErr, "instance is still busy after waiting, cannot add device")
 			}
 
 			_, retryErr := v.execInVM("incus", v.addQuietFlag(deviceArgs)...)
 			if retryErr != nil {
 				exists, checkErr := v.deviceExists(config.Name, "eth0")
 				if checkErr != nil {
-					return fmt.Errorf("failed to check if device exists after retry: %w", checkErr)
+					return werror.Wrap(checkErr, "failed to check if device exists after retry")
 				}
 				if !exists {
-					return fmt.Errorf("failed to add network device after retry: %w", retryErr)
+					return werror.Wrap(retryErr, "failed to add network device after retry")
 				}
 			}
 		} else {
 			exists, checkErr := v.deviceExists(config.Name, "eth0")
 			if checkErr != nil {
-				return fmt.Errorf("failed to check if device exists: %w", checkErr)
+				return werror.Wrap(checkErr, "failed to check if device exists")
 			}
 			if !exists {
-				return fmt.Errorf("failed to add network device: %w", originalErr)
+				return werror.Wrap(originalErr, "failed to add network device")
 			}
 		}
 	}
@@ -118,7 +120,7 @@ func (v *IncusVirt) updateNetworkDevice(config *IncusInstanceConfig) error {
 	}
 
 	if err := v.pollUntilNotBusy(config.Name, maxIterationsForDevice, time.Time{}); err != nil {
-		return fmt.Errorf("instance is busy, cannot update network device: %w", err)
+		return werror.Wrap(err, "instance is busy, cannot update network device")
 	}
 
 	wasRunning, err := v.stopInstanceIfRunning(config.Name, "failed to stop instance to configure network")
@@ -134,7 +136,7 @@ func (v *IncusVirt) updateNetworkDevice(config *IncusInstanceConfig) error {
 
 		if isBusyError(err) {
 			if err := v.pollUntilNotBusy(config.Name, maxIterationsForLaunch, time.Time{}); err != nil {
-				return fmt.Errorf("instance is still busy after waiting, cannot set network device: %w", originalErr)
+				return werror.Wrap(originalErr, "instance is still busy after waiting, cannot set network device")
 			}
 
 			_, retryErr := v.execInVM("incus", v.addQuietFlag(setArgs)...)
@@ -147,18 +149,18 @@ func (v *IncusVirt) updateNetworkDevice(config *IncusInstanceConfig) error {
 
 		if err != nil {
 			if err := v.pollUntilNotBusy(config.Name, maxIterationsForLaunch, time.Time{}); err != nil {
-				return fmt.Errorf("instance is still busy, cannot override network device: %w", err)
+				return werror.Wrap(err, "instance is still busy, cannot override network device")
 			}
 			overrideArgs := []string{"config", "device", "override", config.Name, "eth0", fmt.Sprintf("ipv4.address=%s", config.IPv4)}
 			overrideArgs = v.addQuietFlag(overrideArgs)
 			_, err = v.execInVM("incus", overrideArgs...)
 			if err != nil {
 				if err := v.pollUntilNotBusy(config.Name, maxIterationsForLaunch, time.Time{}); err != nil {
-					return fmt.Errorf("instance is still busy, cannot retry override: %w", err)
+					return werror.Wrap(err, "instance is still busy, cannot retry override")
 				}
 				_, retryErr := v.execInVM("incus", v.addQuietFlag(overrideArgs)...)
 				if retryErr != nil {
-					return fmt.Errorf("failed to override network device with static IP: %w", retryErr)
+					return werror.Wrap(retryErr, "failed to override network device with static IP")
 				}
 			}
 		}
@@ -198,7 +200,7 @@ func (v *IncusVirt) addNonNetworkDevices(config *IncusInstanceConfig) error {
 func (v *IncusVirt) addDevice(instanceName, deviceName string, deviceConfig map[string]string) error {
 	exists, err := v.deviceExists(instanceName, deviceName)
 	if err != nil {
-		return fmt.Errorf("failed to check if device %s exists: %w", deviceName, err)
+		return werror.Wrap(err, "failed to check if device %s exists", deviceName)
 	}
 	if exists {
 		return nil
@@ -208,7 +210,7 @@ func (v *IncusVirt) addDevice(instanceName, deviceName string, deviceConfig map[
 	if deviceType == "disk" {
 		if source, ok := deviceConfig["source"]; ok {
 			if err := v.ensureFileExists(source); err != nil {
-				return fmt.Errorf("failed to ensure source file exists for device %s: %w", deviceName, err)
+				return werror.Wrap(err, "failed to ensure source file exists for device %s", deviceName)
 			}
 		}
 	}
@@ -224,7 +226,7 @@ func (v *IncusVirt) addDevice(instanceName, deviceName string, deviceConfig map[
 	if err != nil {
 		exists, checkErr := v.deviceExists(instanceName, deviceName)
 		if checkErr != nil || !exists {
-			return fmt.Errorf("failed to add device %s: %w", deviceName, err)
+			return werror.Wrap(err, "failed to add device %s", deviceName)
 		}
 	}
 	return nil

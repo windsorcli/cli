@@ -9,6 +9,8 @@ import (
 	"fmt"
 	"strings"
 	"time"
+
+	"github.com/windsorcli/cli/internal/werror"
 )
 
 // =============================================================================
@@ -106,7 +108,7 @@ func (v *IncusVirt) getInstances() ([]IncusInstance, error) {
 	}
 	var instances []IncusInstance
 	if err := json.Unmarshal([]byte(output), &instances); err != nil {
-		return nil, fmt.Errorf("failed to parse instances JSON: %w", err)
+		return nil, werror.Wrap(err, "failed to parse instances JSON")
 	}
 	return instances, nil
 }
@@ -122,7 +124,7 @@ func (v *IncusVirt) getOperations() ([]IncusOperation, error) {
 	}
 	var operations []IncusOperation
 	if err := json.Unmarshal([]byte(output), &operations); err != nil {
-		return nil, fmt.Errorf("failed to parse operations JSON: %w", err)
+		return nil, werror.Wrap(err, "failed to parse operations JSON")
 	}
 	return operations, nil
 }
@@ -134,13 +136,13 @@ func (v *IncusVirt) getOperations() ([]IncusOperation, error) {
 func (v *IncusVirt) launchInstance(config *IncusInstanceConfig) error {
 	exists, err := v.instanceExists(config.Name)
 	if err != nil {
-		return fmt.Errorf("failed to check if instance exists: %w", err)
+		return werror.Wrap(err, "failed to check if instance exists")
 	}
 
 	if exists {
 		deadline := time.Now().Add(instanceExistsWaitTimeout)
 		if err := v.pollUntilNotBusy(config.Name, 0, deadline); err != nil {
-			return fmt.Errorf("instance exists but is still busy after waiting: %w", err)
+			return werror.Wrap(err, "instance exists but is still busy after waiting")
 		}
 		return nil
 	}
@@ -154,7 +156,7 @@ func (v *IncusVirt) launchInstance(config *IncusInstanceConfig) error {
 	}
 
 	if err := v.pollUntilNotBusy(config.Name, maxIterationsForLaunch, time.Time{}); err != nil {
-		return fmt.Errorf("instance is still busy after launch, cannot proceed: %w", err)
+		return werror.Wrap(err, "instance is still busy after launch, cannot proceed")
 	}
 
 	return nil
@@ -214,7 +216,7 @@ func (v *IncusVirt) handleInstanceLaunchError(instanceName, message string, args
 	busy, checkErr := v.instanceIsBusy(instanceName)
 	if checkErr == nil && busy {
 		if err := v.waitForInstanceReady(instanceName, 0); err != nil {
-			return fmt.Errorf("instance is busy: %w", err)
+			return werror.Wrap(err, "instance is busy")
 		}
 		updateArgs := v.addQuietFlag(args)
 		_, err := v.execInVMProgress(message, "incus", updateArgs...)
@@ -223,12 +225,12 @@ func (v *IncusVirt) handleInstanceLaunchError(instanceName, message string, args
 			if checkErr == nil && exists {
 				return v.ensureInstanceNotBusy(instanceName, "instance exists but is busy")
 			}
-			return fmt.Errorf("failed to launch Incus instance after wait: %w", err)
+			return werror.Wrap(err, "failed to launch Incus instance after wait")
 		}
 		return nil
 	}
 
-	return fmt.Errorf("failed to launch Incus instance: %w", launchErr)
+	return werror.Wrap(launchErr, "failed to launch Incus instance")
 }
 
 // ensureInstanceNotBusy ensures an instance is not busy, waiting if necessary.
@@ -239,7 +241,7 @@ func (v *IncusVirt) ensureInstanceNotBusy(instanceName, errorPrefix string) erro
 	maxWait := v.getMaxWaitTimeout(0)
 	deadline := time.Now().Add(maxWait)
 	if err := v.pollUntilNotBusy(instanceName, 0, deadline); err != nil {
-		return fmt.Errorf("%s: %w", errorPrefix, err)
+		return werror.Wrap(err, "%s", errorPrefix)
 	}
 	return nil
 }
@@ -252,7 +254,7 @@ func (v *IncusVirt) ensureInstanceNotBusy(instanceName, errorPrefix string) erro
 func (v *IncusVirt) stopInstanceIfRunning(instanceName, errorPrefix string) (bool, error) {
 	instances, err := v.getInstances()
 	if err != nil {
-		return false, fmt.Errorf("failed to check if instance is running: %w", err)
+		return false, werror.Wrap(err, "failed to check if instance is running")
 	}
 
 	running := v.isRunning(instances, instanceName)
@@ -264,20 +266,20 @@ func (v *IncusVirt) stopInstanceIfRunning(instanceName, errorPrefix string) (boo
 	if err != nil {
 		instances, checkErr := v.getInstances()
 		if checkErr != nil {
-			return false, fmt.Errorf("failed to verify instance state after stop attempt: %w", checkErr)
+			return false, werror.Wrap(checkErr, "failed to verify instance state after stop attempt")
 		}
 		if v.isRunning(instances, instanceName) {
-			return false, fmt.Errorf("%s: %w", errorPrefix, err)
+			return false, werror.Wrap(err, "%s", errorPrefix)
 		}
 	}
 
 	if err := v.pollUntilNotBusy(instanceName, maxIterationsForStop, time.Time{}); err != nil {
-		return false, fmt.Errorf("instance is still busy after stop: %w", err)
+		return false, werror.Wrap(err, "instance is still busy after stop")
 	}
 
 	instances, err = v.getInstances()
 	if err != nil {
-		return false, fmt.Errorf("failed to verify instance stopped: %w", err)
+		return false, werror.Wrap(err, "failed to verify instance stopped")
 	}
 	if v.isRunning(instances, instanceName) {
 		return false, fmt.Errorf("instance is still running after stop")
@@ -293,7 +295,7 @@ func (v *IncusVirt) stopInstanceIfRunning(instanceName, errorPrefix string) (boo
 func (v *IncusVirt) startInstance(instanceName, errorPrefix string) error {
 	_, err := v.execInVM("incus", v.addQuietFlag([]string{"start", instanceName})...)
 	if err != nil {
-		return fmt.Errorf("%s: %w", errorPrefix, err)
+		return werror.Wrap(err, "%s", errorPrefix)
 	}
 	return nil
 }
@@ -305,7 +307,7 @@ func (v *IncusVirt) startInstance(instanceName, errorPrefix string) error {
 func (v *IncusVirt) ensureInstanceRunning(instanceName string) error {
 	instances, err := v.getInstances()
 	if err != nil {
-		return fmt.Errorf("failed to check if instance is running: %w", err)
+		return werror.Wrap(err, "failed to check if instance is running")
 	}
 	if !v.isRunning(instances, instanceName) {
 		_, err := v.execInVM("incus", v.addQuietFlag([]string{"start", instanceName})...)
@@ -314,7 +316,7 @@ func (v *IncusVirt) ensureInstanceRunning(instanceName string) error {
 			if checkErr == nil && v.isRunning(instances, instanceName) {
 				return nil
 			}
-			return fmt.Errorf("failed to start instance: %w", err)
+			return werror.Wrap(err, "failed to start instance")
 		}
 	}
 	return nil
@@ -331,7 +333,7 @@ func (v *IncusVirt) deleteInstance(name string) error {
 		if isSSHError(err) {
 			return nil
 		}
-		return fmt.Errorf("failed to check if instance exists: %w", err)
+		return werror.Wrap(err, "failed to check if instance exists")
 	}
 	if !exists {
 		return nil
@@ -339,7 +341,7 @@ func (v *IncusVirt) deleteInstance(name string) error {
 
 	deadline := time.Now().Add(deleteInstanceWaitTimeout)
 	if err := v.pollUntilNotBusy(name, 0, deadline); err != nil {
-		return fmt.Errorf("failed to wait for instance to be ready: %w", err)
+		return werror.Wrap(err, "failed to wait for instance to be ready")
 	}
 
 	args := []string{"delete", name, "--force"}
@@ -354,7 +356,7 @@ func (v *IncusVirt) deleteInstance(name string) error {
 		if checkErr == nil && !exists {
 			return nil
 		}
-		return fmt.Errorf("failed to delete Incus instance: %w", err)
+		return werror.Wrap(err, "failed to delete Incus instance")
 	}
 
 	return nil

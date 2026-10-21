@@ -55,6 +55,9 @@ func setupDefaultShims() *Shims {
 		Rename: func(oldpath, newpath string) error {
 			return nil
 		},
+		Remove: func(name string) error {
+			return nil
+		},
 		Stat: func(name string) (os.FileInfo, error) {
 			return nil, nil
 		},
