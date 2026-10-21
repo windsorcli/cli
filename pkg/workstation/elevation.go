@@ -1,3 +1,6 @@
+// The elevation functions of the workstation package report whether the process can run privileged commands.
+// The OS-specific files give the implementation. Tests replace it through SetCanElevateNonInteractivelyForTest.
+
 package workstation
 
 import "github.com/windsorcli/cli/pkg/runtime/shell"
