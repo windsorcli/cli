@@ -15,6 +15,7 @@ import (
 	"strings"
 
 	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
+	"github.com/windsorcli/cli/internal/werror"
 	"github.com/windsorcli/cli/pkg/provisioner/kubernetes"
 )
 
@@ -290,7 +291,7 @@ func (s *FluxStack) planOneKustomizeDestroySummary(k blueprintv1alpha1.Kustomiza
 			result.IsNew = true
 			return result, nil
 		}
-		return result, fmt.Errorf("error querying kustomization %q inventory: %w", k.Name, err)
+		return result, werror.Wrap(err, "error querying kustomization %q inventory", k.Name)
 	}
 	if entries == nil {
 		// Kustomization not present in the cluster: nothing to destroy.

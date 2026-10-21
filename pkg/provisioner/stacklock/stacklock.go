@@ -22,6 +22,7 @@ import (
 
 	"github.com/gofrs/flock"
 
+	"github.com/windsorcli/cli/internal/werror"
 	"github.com/windsorcli/cli/pkg/constants"
 	"github.com/windsorcli/cli/pkg/runtime"
 )
@@ -219,14 +220,14 @@ type localFlockLock struct {
 // load-bearing for correctness.
 func (s *localFlockLock) Acquire(ctx context.Context, info LockInfo, timeout time.Duration) (Release, error) {
 	if err := s.shims.MkdirAll(filepath.Dir(s.path), lockDirPerm); err != nil {
-		return nil, fmt.Errorf("create lock directory: %w", err)
+		return nil, werror.Wrap(err, "create lock directory")
 	}
 	flk := flock.New(s.path)
 	infoPath := s.path + stackLockInfoSuffix
 
 	locked, err := flk.TryLock()
 	if err != nil {
-		return nil, fmt.Errorf("flock acquire: %w", err)
+		return nil, werror.Wrap(err, "flock acquire")
 	}
 	if !locked {
 		if timeout <= 0 {
@@ -242,7 +243,7 @@ func (s *localFlockLock) Acquire(ctx context.Context, info LockInfo, timeout tim
 			}
 			locked, err = flk.TryLock()
 			if err != nil {
-				return nil, fmt.Errorf("flock acquire: %w", err)
+				return nil, werror.Wrap(err, "flock acquire")
 			}
 			if locked {
 				break
@@ -273,11 +274,11 @@ func (s *localFlockLock) Inspect(ctx context.Context) (*LockInfo, error) {
 		return nil, nil
 	}
 	if err != nil {
-		return nil, fmt.Errorf("stacklock: reading holder info at %s: %w", infoPath, err)
+		return nil, werror.Wrap(err, "stacklock: reading holder info at %s", infoPath)
 	}
 	var info LockInfo
 	if err := json.Unmarshal(data, &info); err != nil {
-		return nil, fmt.Errorf("stacklock: holder info at %s is corrupt: %w", infoPath, err)
+		return nil, werror.Wrap(err, "stacklock: holder info at %s is corrupt", infoPath)
 	}
 	return &info, nil
 }
@@ -293,13 +294,13 @@ func (s *localFlockLock) IsHeld(ctx context.Context) (bool, error) {
 	flk := flock.New(s.path)
 	locked, err := flk.TryLock()
 	if err != nil {
-		return false, fmt.Errorf("flock probe: %w", err)
+		return false, werror.Wrap(err, "flock probe")
 	}
 	if !locked {
 		return true, nil
 	}
 	if err := flk.Unlock(); err != nil {
-		return false, fmt.Errorf("flock probe release: %w", err)
+		return false, werror.Wrap(err, "flock probe release")
 	}
 	return false, nil
 }
@@ -318,14 +319,14 @@ func (s *localFlockLock) ClearStale(ctx context.Context, reason string) error {
 	flk := flock.New(s.path)
 	locked, err := flk.TryLock()
 	if err != nil {
-		return fmt.Errorf("stacklock: clear stale (%s): flock acquire: %w", reason, err)
+		return werror.Wrap(err, "stacklock: clear stale (%s): flock acquire", reason)
 	}
 	if !locked {
 		return &LockBusyError{Path: s.path, Holder: s.readHolderInfo(infoPath)}
 	}
 	defer func() { _ = flk.Unlock() }()
 	if err := s.shims.Remove(infoPath); err != nil && !os.IsNotExist(err) {
-		return fmt.Errorf("stacklock: clear stale (%s): %w", reason, err)
+		return werror.Wrap(err, "stacklock: clear stale (%s)", reason)
 	}
 	return nil
 }
