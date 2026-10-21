@@ -1,11 +1,13 @@
 //go:build windows
 // +build windows
 
+// The Windows elevation functions check whether the process runs as Administrator.
+// The network preflight check fails when the process does not run as Administrator.
+
 package workstation
 
 import (
-	"fmt"
-
+	"github.com/windsorcli/cli/internal/werror"
 	"github.com/windsorcli/cli/pkg/runtime/shell"
 	"golang.org/x/sys/windows"
 )
@@ -18,13 +20,13 @@ func canElevateNonInteractivelyImpl(_ shell.Shell) bool {
 	return windows.GetCurrentProcessToken().IsElevated()
 }
 
-// PreflightConfigureNetwork errors when the current process is not running as Administrator.
-// The privileged Windows cmdlets used to install the host route + DNS resolver require an
-// elevated process; running them from a standard PowerShell surfaces access-denied errors that
-// are confusing to operators. Failing fast here surfaces the actionable remediation up front.
+// PreflightConfigureNetwork returns an error when the process does not run as Administrator.
+// The Windows cmdlets that install the host route and the DNS rule need an elevated process.
+// Without this check, they fail with access-denied errors that do not tell the operator what to do.
+// The error has a remediation hint that tells the operator to start an Administrator PowerShell.
 func PreflightConfigureNetwork() error {
 	if windows.GetCurrentProcessToken().IsElevated() {
 		return nil
 	}
-	return fmt.Errorf("'windsor configure network' must be run from an Administrator PowerShell. Right-click PowerShell → Run as Administrator, then re-run")
+	return werror.New("'windsor configure network' must run in an Administrator PowerShell", "Right-click PowerShell, select Run as Administrator, then run the command again.", nil)
 }

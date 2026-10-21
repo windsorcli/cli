@@ -573,6 +573,27 @@ func TestWorkstation_Up(t *testing.T) {
 		}
 	})
 
+	t.Run("ErrorSettingNoCache", func(t *testing.T) {
+		// Given a workstation whose Setenv shim fails
+		mocks := setupWorkstationMocks(t)
+		workstation := NewWorkstation(mocks.Runtime, &Workstation{
+			VirtualMachine:   mocks.VirtualMachine,
+			ContainerRuntime: mocks.ContainerRuntime,
+			NetworkManager:   mocks.NetworkManager,
+		})
+		workstation.shims.Setenv = func(key, value string) error {
+			return fmt.Errorf("setenv failed")
+		}
+
+		// When calling Up() to start the workstation
+		err := workstation.Up(context.Background())
+
+		// Then the Setenv error should be returned with context
+		if err == nil || !strings.Contains(err.Error(), "setenv failed") {
+			t.Fatalf("Expected wrapped setenv error, got: %v", err)
+		}
+	})
+
 	t.Run("VirtualMachineUpError", func(t *testing.T) {
 		// Given a workstation with a virtual machine that will fail when starting
 		mocks := setupWorkstationMocks(t)
@@ -874,6 +895,26 @@ func TestWorkstation_IsProvisioned(t *testing.T) {
 		// Then the IO error surfaces with context
 		if err == nil || !strings.Contains(err.Error(), "not in a project") {
 			t.Errorf("expected wrapped project-root error, got %v", err)
+		}
+	})
+
+	t.Run("ReturnsErrorWhenStateFileCannotBeChecked", func(t *testing.T) {
+		// Given a Stat shim that fails with an error other than not-exist
+		mocks := setupWorkstationMocks(t)
+		w := NewWorkstation(mocks.Runtime)
+		w.shims.Stat = func(name string) (os.FileInfo, error) {
+			return nil, os.ErrPermission
+		}
+
+		// When checking the precondition
+		provisioned, err := w.IsProvisioned()
+
+		// Then the error surfaces with context and the workstation is not provisioned
+		if err == nil || !strings.Contains(err.Error(), "error checking workstation state") {
+			t.Errorf("expected wrapped state check error, got %v", err)
+		}
+		if provisioned {
+			t.Error("expected provisioned to be false")
 		}
 	})
 }

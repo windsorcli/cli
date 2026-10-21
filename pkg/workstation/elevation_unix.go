@@ -1,6 +1,9 @@
 //go:build !windows
 // +build !windows
 
+// The unix elevation functions check for root or for cached passwordless sudo.
+// On unix, each privileged step runs its own sudo command, so the network preflight check always passes.
+
 package workstation
 
 import (

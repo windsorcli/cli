@@ -1,3 +1,8 @@
+// The Workstation manages the VM, the container runtime, and the host network of a context.
+// It starts and stops the VM and the container runtime, and it configures the guest, the host route, and the DNS.
+// Terraform in the stack runs the services of the workstation, for example DNS, registries, and Talos.
+// When the blueprint has a workstation component, the host network setup runs after that component applies.
+
 package workstation
 
 import (
@@ -7,6 +12,8 @@ import (
 	"path/filepath"
 
 	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
+	"github.com/windsorcli/cli/internal/shims"
+	"github.com/windsorcli/cli/internal/werror"
 	"github.com/windsorcli/cli/pkg/constants"
 	"github.com/windsorcli/cli/pkg/runtime"
 	"github.com/windsorcli/cli/pkg/runtime/config"
@@ -15,10 +22,6 @@ import (
 	"github.com/windsorcli/cli/pkg/workstation/network"
 	"github.com/windsorcli/cli/pkg/workstation/virt"
 )
-
-// The Workstation is a core component that manages workstation virtualization, networking, and SSH operations.
-// It provides a unified interface for starting, stopping, and managing the VM and container runtime layer.
-// Service orchestration (DNS, registries, localstack, Talos, etc.) is handled by Terraform in the stack.
 
 // =============================================================================
 // Types
@@ -30,6 +33,7 @@ type Workstation struct {
 	shell         shell.Shell
 	evaluator     evaluator.ExpressionEvaluator
 	runtime       *runtime.Runtime
+	shims         *shims.Shims
 
 	// Workstation-specific dependencies (created as needed)
 	NetworkManager   network.NetworkManager
@@ -53,6 +57,15 @@ type DeferredWorkItem struct {
 	Required bool
 	Outcome  string
 	Command  string
+}
+
+// NetworkChange is one row of structured output for PendingNetworkChanges. Kind is a stable
+// kebab-case identifier ("host-route", "vm-forward", "dns-resolver") and Detail is the value
+// being installed ("192.168.5.0/24 via 192.168.5.10"). Callers are expected to render these
+// as aligned columns rather than baking the kind into a prose sentence.
+type NetworkChange struct {
+	Kind   string
+	Detail string
 }
 
 // =============================================================================
@@ -81,6 +94,7 @@ func NewWorkstation(rt *runtime.Runtime, opts ...*Workstation) *Workstation {
 		shell:         rt.Shell,
 		evaluator:     rt.Evaluator,
 		runtime:       rt,
+		shims:         shims.NewShims(),
 	}
 
 	if len(opts) > 0 && opts[0] != nil {
@@ -141,34 +155,34 @@ func (w *Workstation) Prepare() error {
 // and configures networking. All components must be created via Prepare() before calling Up().
 func (w *Workstation) Up(ctx context.Context) error {
 	w.deferredWork = nil
-	if err := os.Setenv("NO_CACHE", "true"); err != nil {
-		return fmt.Errorf("Error setting NO_CACHE environment variable: %w", err)
+	if err := w.shims.Setenv("NO_CACHE", "true"); err != nil {
+		return werror.Wrap(err, "Error setting NO_CACHE environment variable")
 	}
 
 	workstationRuntime := w.configHandler.GetString("workstation.runtime")
 	if workstationRuntime == "colima" && w.VirtualMachine != nil {
 		if err := w.VirtualMachine.WriteConfig(); err != nil {
-			return fmt.Errorf("error writing virtual machine config: %w", err)
+			return werror.Wrap(err, "error writing virtual machine config")
 		}
 		if err := w.VirtualMachine.Up(ctx); err != nil {
-			return fmt.Errorf("error running virtual machine Up command: %w", err)
+			return werror.Wrap(err, "error running virtual machine Up command")
 		}
 		if err := w.WriteState(); err != nil {
-			return fmt.Errorf("error writing workstation state: %w", err)
+			return werror.Wrap(err, "error writing workstation state")
 		}
 		if w.NetworkManager != nil && w.configHandler.GetString("platform") == "incus" {
 			if err := w.NetworkManager.ConfigureGuest(); err != nil {
-				return fmt.Errorf("error configuring guest SSH: %w", err)
+				return werror.Wrap(err, "error configuring guest SSH")
 			}
 		}
 	}
 
 	if w.ContainerRuntime != nil {
 		if err := w.ContainerRuntime.WriteConfig(); err != nil {
-			return fmt.Errorf("failed to write container runtime config: %w", err)
+			return werror.Wrap(err, "failed to write container runtime config")
 		}
 		if err := w.ContainerRuntime.Up(ctx); err != nil {
-			return fmt.Errorf("error running container runtime Up command: %w", err)
+			return werror.Wrap(err, "error running container runtime Up command")
 		}
 	}
 
@@ -177,20 +191,20 @@ func (w *Workstation) Up(ctx context.Context) error {
 	if w.NetworkManager != nil && !w.DeferHostGuestSetup {
 		if workstationRuntime == "colima" {
 			if err := w.NetworkManager.ConfigureGuest(); err != nil {
-				return fmt.Errorf("error configuring guest: %w", err)
+				return werror.Wrap(err, "error configuring guest")
 			}
 			if err := w.NetworkManager.ConfigureHostRoute(ctx); err != nil {
-				return fmt.Errorf("error configuring host route: %w", err)
+				return werror.Wrap(err, "error configuring host route")
 			}
 		}
 		dnsDomain := w.configHandler.GetString("dns.domain")
 		if dnsDomain != "" && w.configHandler.GetString("workstation.dns.address") != "" {
 			if err := w.NetworkManager.ConfigureDNS(ctx); err != nil {
-				return fmt.Errorf("error configuring DNS: %w", err)
+				return werror.Wrap(err, "error configuring DNS")
 			}
 			if w.NetworkManager.DNSChanged() {
 				if err := w.FlushDNS(ctx); err != nil {
-					return fmt.Errorf("error flushing DNS cache: %w", err)
+					return werror.Wrap(err, "error flushing DNS cache")
 				}
 			}
 		}
@@ -231,10 +245,10 @@ func (w *Workstation) ConfigureNetwork(ctx context.Context, dnsAddressOverride s
 	workstationRuntime := w.configHandler.GetString("workstation.runtime")
 	if workstationRuntime == "colima" {
 		if err := w.NetworkManager.ConfigureGuest(); err != nil {
-			return fmt.Errorf("error configuring guest: %w", err)
+			return werror.Wrap(err, "error configuring guest")
 		}
 		if err := w.NetworkManager.ConfigureHostRoute(ctx); err != nil {
-			return fmt.Errorf("error configuring host route: %w", err)
+			return werror.Wrap(err, "error configuring host route")
 		}
 		if showStatus {
 			fmt.Fprintln(os.Stderr, "network: ready")
@@ -245,7 +259,7 @@ func (w *Workstation) ConfigureNetwork(ctx context.Context, dnsAddressOverride s
 	dnsDomain := w.configHandler.GetString("dns.domain")
 	if dnsDomain != "" && w.configHandler.GetString("workstation.dns.address") != "" {
 		if err := w.NetworkManager.ConfigureDNS(ctx); err != nil {
-			return fmt.Errorf("error configuring DNS: %w", err)
+			return werror.Wrap(err, "error configuring DNS")
 		}
 		if showStatus {
 			fmt.Fprintf(os.Stderr, "dns: %s @ %s\n", w.configHandler.GetString("dns.domain"), w.configHandler.GetString("workstation.dns.address"))
@@ -269,10 +283,10 @@ func (w *Workstation) RevertNetwork(showStatus bool) error {
 	workstationRuntime := w.configHandler.GetString("workstation.runtime")
 	if workstationRuntime == "colima" {
 		if err := w.NetworkManager.RevertGuest(); err != nil {
-			return fmt.Errorf("error reverting guest: %w", err)
+			return werror.Wrap(err, "error reverting guest")
 		}
 		if err := w.NetworkManager.RevertHostRoute(); err != nil {
-			return fmt.Errorf("error reverting host route: %w", err)
+			return werror.Wrap(err, "error reverting host route")
 		}
 		if showStatus {
 			fmt.Fprintln(os.Stderr, "network: reverted")
@@ -281,7 +295,7 @@ func (w *Workstation) RevertNetwork(showStatus bool) error {
 		fmt.Fprintln(os.Stderr, "network: skipped (not colima)")
 	}
 	if err := w.NetworkManager.RevertDNS(); err != nil {
-		return fmt.Errorf("error reverting DNS: %w", err)
+		return werror.Wrap(err, "error reverting DNS")
 	}
 	if showStatus {
 		fmt.Fprintln(os.Stderr, "dns: reverted")
@@ -311,7 +325,7 @@ func (w *Workstation) MakeApplyHook() func(ctx context.Context, componentID stri
 		if w.runtime.TerraformProvider != nil {
 			outputs, err := w.runtime.TerraformProvider.GetTerraformOutputs("workstation")
 			if err != nil {
-				return false, fmt.Errorf("error reading workstation terraform outputs: %w", err)
+				return false, werror.Wrap(err, "error reading workstation terraform outputs")
 			}
 			for _, key := range []string{"dns_ip", "dns_address"} {
 				if v, ok := outputs[key]; ok && v != nil {
@@ -325,11 +339,11 @@ func (w *Workstation) MakeApplyHook() func(ctx context.Context, componentID stri
 		}
 		if dnsAddr != "" {
 			if err := w.configHandler.Set("workstation.dns.address", dnsAddr); err != nil {
-				return false, fmt.Errorf("error persisting workstation.dns.address from terraform output: %w", err)
+				return false, werror.Wrap(err, "error persisting workstation.dns.address from terraform output")
 			}
 		}
 		if err := w.WriteState(); err != nil {
-			return false, fmt.Errorf("error writing workstation state: %w", err)
+			return false, werror.Wrap(err, "error writing workstation state")
 		}
 		if w.NetworkManager == nil {
 			return false, nil
@@ -414,13 +428,13 @@ func (w *Workstation) Down(ctx context.Context) error {
 
 	if w.ContainerRuntime != nil {
 		if err := w.ContainerRuntime.Down(ctx); err != nil {
-			return fmt.Errorf("Error running container runtime Down command: %w", err)
+			return werror.Wrap(err, "Error running container runtime Down command")
 		}
 	}
 
 	if w.VirtualMachine != nil && platform != "incus" {
 		if err := w.VirtualMachine.Down(ctx); err != nil {
-			return fmt.Errorf("Error running virtual machine Down command: %w", err)
+			return werror.Wrap(err, "Error running virtual machine Down command")
 		}
 	}
 
@@ -433,24 +447,22 @@ func (w *Workstation) WriteState() error {
 	return w.configHandler.SaveWorkstationState()
 }
 
-// IsProvisioned reports whether 'windsor up' has applied the workstation Terraform component
-// for the current context. Detection is by file presence: WriteState only writes
-// <projectRoot>/.windsor/contexts/<context>/workstation.yaml after MakeApplyHook persists the
-// component's TF outputs, so the file is the canonical "workstation provisioned" signal.
-// Callers like 'windsor configure network' use this as a precondition gate. Returns
-// (false, nil) when the state file is absent; (false, err) when a real IO error prevents
-// the check.
+// IsProvisioned reports whether 'windsor up' applied the workstation Terraform component of the context.
+// It checks for <projectRoot>/.windsor/contexts/<context>/workstation.yaml. WriteState writes this file
+// only after MakeApplyHook saves the Terraform outputs of the component.
+// 'windsor configure network' uses it as a precondition. It returns false and no error when the file
+// does not exist. It returns an error when it cannot get the project root or check the file.
 func (w *Workstation) IsProvisioned() (bool, error) {
 	projectRoot, err := w.shell.GetProjectRoot()
 	if err != nil {
-		return false, fmt.Errorf("error resolving project root: %w", err)
+		return false, werror.Wrap(err, "error resolving project root")
 	}
 	statePath := filepath.Join(projectRoot, ".windsor", "contexts", w.configHandler.GetContext(), "workstation.yaml")
-	if _, err := os.Stat(statePath); err != nil {
+	if _, err := w.shims.Stat(statePath); err != nil {
 		if os.IsNotExist(err) {
 			return false, nil
 		}
-		return false, fmt.Errorf("error checking workstation state: %w", err)
+		return false, werror.Wrap(err, "error checking workstation state")
 	}
 	return true, nil
 }
@@ -460,15 +472,6 @@ func (w *Workstation) IsProvisioned() (bool, error) {
 // Returns nil when nothing was deferred.
 func (w *Workstation) DeferredWork() []DeferredWorkItem {
 	return w.deferredWork
-}
-
-// NetworkChange is one row of structured output for PendingNetworkChanges. Kind is a stable
-// kebab-case identifier ("host-route", "vm-forward", "dns-resolver") and Detail is the value
-// being installed ("192.168.5.0/24 via 192.168.5.10"). Callers are expected to render these
-// as aligned columns rather than baking the kind into a prose sentence.
-type NetworkChange struct {
-	Kind   string
-	Detail string
 }
 
 // PendingNetworkChanges returns the host configuration changes that 'windsor configure network'
