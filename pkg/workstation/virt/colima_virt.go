@@ -242,7 +242,7 @@ func (v *ColimaVirt) getVMInfo() (VMInfo, error) {
 		Runtime string `json:"runtime"`
 		Status  string `json:"status"`
 	}
-	if err := v.BaseVirt.shims.UnmarshalJSON([]byte(out), &colimaData); err != nil {
+	if err := v.BaseVirt.shims.JsonUnmarshal([]byte(out), &colimaData); err != nil {
 		return VMInfo{}, err
 	}
 
@@ -526,6 +526,15 @@ func (v *ColimaVirt) execInVMProgress(message string, command string, args ...st
 		fullCommand += " " + strings.Join(args, " ")
 	}
 	return v.shell.ExecProgress(message, "colima", "ssh", "--profile", profileName, "--", "sh", "-c", fullCommand)
+}
+
+// =============================================================================
+// Helpers
+// =============================================================================
+
+// ptrBool returns a pointer to b.
+func ptrBool(b bool) *bool {
+	return &b
 }
 
 // =============================================================================
