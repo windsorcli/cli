@@ -8,13 +8,14 @@ package virt
 import (
 	"context"
 	"fmt"
-	"github.com/windsorcli/cli/internal/presenter"
 	"io"
 	"math"
 	"os"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/windsorcli/cli/internal/presenter"
 
 	colimaConfig "github.com/abiosoft/colima/config"
 	"github.com/goccy/go-yaml"
@@ -1953,6 +1954,30 @@ func TestColimaVirt_WriteConfig_NestedVirtualization(t *testing.T) {
 		}
 		if capturedConfig.Runtime != "docker" {
 			t.Errorf("Expected Runtime to be 'docker' (default), got %q", capturedConfig.Runtime)
+		}
+	})
+}
+
+// =============================================================================
+// Test Helpers
+// =============================================================================
+
+func TestPtrBool(t *testing.T) {
+	t.Run("Success", func(t *testing.T) {
+		// Given a bool value
+		b := true
+
+		// When creating a pointer
+		p := ptrBool(b)
+
+		// Then the pointer should not be nil
+		if p == nil {
+			t.Error("Pointer should not be nil")
+		}
+
+		// And the value should match
+		if *p != b {
+			t.Errorf("Expected %v, got %v", b, *p)
 		}
 	})
 }

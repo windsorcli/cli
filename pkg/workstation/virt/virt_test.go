@@ -13,6 +13,7 @@ import (
 
 	"github.com/goccy/go-yaml"
 	"github.com/shirou/gopsutil/mem"
+	sharedshims "github.com/windsorcli/cli/internal/shims"
 	"github.com/windsorcli/cli/pkg/runtime"
 	"github.com/windsorcli/cli/pkg/runtime/config"
 	"github.com/windsorcli/cli/pkg/runtime/shell"
@@ -31,11 +32,12 @@ type VirtTestMocks struct {
 
 // setupDefaultShims creates a new Shims instance with default implementations
 func setupDefaultShims() *Shims {
-	shims := &Shims{
+	shims := NewShims()
+	shims.Shims = sharedshims.Shims{
 		Setenv: func(key, value string) error {
 			return os.Setenv(key, value)
 		},
-		UnmarshalJSON: func(data []byte, v any) error {
+		JsonUnmarshal: func(data []byte, v any) error {
 			return json.Unmarshal(data, v)
 		},
 		Getenv: func(key string) string {
@@ -56,30 +58,30 @@ func setupDefaultShims() *Shims {
 		Stat: func(name string) (os.FileInfo, error) {
 			return nil, nil
 		},
-		GOARCH: func() string {
-			return "x86_64"
-		},
-		NumCPU: func() int {
-			return 4
-		},
-		VirtualMemory: func() (*mem.VirtualMemoryStat, error) {
-			return &mem.VirtualMemoryStat{
-				Total: 8 * 1024 * 1024 * 1024, // 8GB
-			}, nil
-		},
-		MarshalYAML: func(v any) ([]byte, error) {
+		YamlMarshal: func(v any) ([]byte, error) {
 			return yaml.Marshal(v)
 		},
-		NewYAMLEncoder: func(w io.Writer, opts ...yaml.EncodeOption) YAMLEncoder {
-			return &mockYAMLEncoder{
-				encodeFunc: func(v any) error {
-					return nil
-				},
-				closeFunc: func() error {
-					return nil
-				},
-			}
-		},
+	}
+	shims.GOARCH = func() string {
+		return "x86_64"
+	}
+	shims.NumCPU = func() int {
+		return 4
+	}
+	shims.VirtualMemory = func() (*mem.VirtualMemoryStat, error) {
+		return &mem.VirtualMemoryStat{
+			Total: 8 * 1024 * 1024 * 1024, // 8GB
+		}, nil
+	}
+	shims.NewYAMLEncoder = func(w io.Writer, opts ...yaml.EncodeOption) YAMLEncoder {
+		return &mockYAMLEncoder{
+			encodeFunc: func(v any) error {
+				return nil
+			},
+			closeFunc: func() error {
+				return nil
+			},
+		}
 	}
 
 	return shims

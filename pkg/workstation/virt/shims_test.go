@@ -1,8 +1,3 @@
-// The shims_test package is a test suite for the shims package
-// It provides test coverage for system call abstraction functionality
-// It serves as a verification framework for shim implementations
-// It enables testing of system-level operation mocks
-
 package virt
 
 import (
@@ -12,7 +7,7 @@ import (
 )
 
 // =============================================================================
-// Test Public Methods
+// Test Constructor
 // =============================================================================
 
 func TestNewShims(t *testing.T) {
@@ -23,8 +18,8 @@ func TestNewShims(t *testing.T) {
 	if shims.Setenv == nil {
 		t.Error("Setenv should be set")
 	}
-	if shims.UnmarshalJSON == nil {
-		t.Error("UnmarshalJSON should be set")
+	if shims.JsonUnmarshal == nil {
+		t.Error("JsonUnmarshal should be set")
 	}
 	if shims.UserHomeDir == nil {
 		t.Error("UserHomeDir should be set")
@@ -50,8 +45,8 @@ func TestNewShims(t *testing.T) {
 	if shims.VirtualMemory == nil {
 		t.Error("VirtualMemory should be set")
 	}
-	if shims.MarshalYAML == nil {
-		t.Error("MarshalYAML should be set")
+	if shims.YamlMarshal == nil {
+		t.Error("YamlMarshal should be set")
 	}
 	if shims.NewYAMLEncoder == nil {
 		t.Error("NewYAMLEncoder should be set")
@@ -94,44 +89,4 @@ func TestNewShims(t *testing.T) {
 	if buf.Len() == 0 {
 		t.Error("Encoder should write data to the buffer")
 	}
-}
-
-func TestPtrString(t *testing.T) {
-	t.Run("Success", func(t *testing.T) {
-		// Given a string value
-		s := "test"
-
-		// When creating a pointer
-		p := ptrString(s)
-
-		// Then the pointer should not be nil
-		if p == nil {
-			t.Error("Pointer should not be nil")
-		}
-
-		// And the value should match
-		if *p != s {
-			t.Errorf("Expected %q, got %q", s, *p)
-		}
-	})
-}
-
-func TestPtrBool(t *testing.T) {
-	t.Run("Success", func(t *testing.T) {
-		// Given a bool value
-		b := true
-
-		// When creating a pointer
-		p := ptrBool(b)
-
-		// Then the pointer should not be nil
-		if p == nil {
-			t.Error("Pointer should not be nil")
-		}
-
-		// And the value should match
-		if *p != b {
-			t.Errorf("Expected %v, got %v", b, *p)
-		}
-	})
 }
