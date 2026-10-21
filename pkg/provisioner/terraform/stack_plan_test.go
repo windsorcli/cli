@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
+	"github.com/windsorcli/cli/internal/werror"
 )
 
 // =============================================================================
@@ -1095,6 +1096,9 @@ func TestStack_PlanDestroyComponentSummary(t *testing.T) {
 		got := stack.PlanDestroyComponentSummary(bp, "pinned")
 		if got.Err == nil || !strings.Contains(got.Err.Error(), "destroy=false") {
 			t.Errorf("expected destroy=false error, got %v", got.Err)
+		}
+		if we := werror.Find(got.Err); we == nil || !strings.Contains(we.Remediation, "Set destroy to true") {
+			t.Errorf("expected a destroy remediation, got %v", got.Err)
 		}
 	})
 

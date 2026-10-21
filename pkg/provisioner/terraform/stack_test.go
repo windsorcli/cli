@@ -15,6 +15,7 @@ import (
 
 	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
 	"github.com/windsorcli/cli/internal/presenter"
+	"github.com/windsorcli/cli/internal/werror"
 	"github.com/windsorcli/cli/pkg/composer/blueprint"
 	"github.com/windsorcli/cli/pkg/runtime"
 	"github.com/windsorcli/cli/pkg/runtime/config"
@@ -181,6 +182,9 @@ contexts:
 		return nil, os.ErrNotExist
 	}
 	shims.TimeSleep = func(time.Duration) {}
+	shims.Getenv = func(_ string) string {
+		return ""
+	}
 
 	t.Cleanup(func() {
 		os.Unsetenv("WINDSOR_PROJECT_ROOT")
@@ -881,6 +885,9 @@ func TestStack_Apply(t *testing.T) {
 		if !strings.Contains(err.Error(), `"does/not/exist" not found`) {
 			t.Errorf("Expected not found error, got: %v", err)
 		}
+		if we := werror.Find(err); we == nil || we.Remediation != componentNotFoundHint {
+			t.Errorf("Expected the component-not-found remediation, got %v", err)
+		}
 	})
 
 	t.Run("EmptyProjectRoot", func(t *testing.T) {
@@ -1020,13 +1027,13 @@ func TestStack_Apply(t *testing.T) {
 		// When applying the scratch component
 		err := stack.Apply(context.Background(), blueprint, "remote/path")
 
-		// Then the error is a windsor-native hint naming the scratch cache directory to
-		// clear, wrapping (not replacing) Terraform's own error text
+		// Then the remediation names the scratch cache directory to clear, and the
+		// message keeps Terraform's own error text
 		if err == nil {
 			t.Fatal("Expected an error, got nil")
 		}
-		if !strings.Contains(err.Error(), "local terraform cache for this component is stale") {
-			t.Errorf("Expected a scratch-cache hint, got %v", err)
+		if we := werror.Find(err); we == nil || !strings.Contains(we.Remediation, "local terraform cache for this component is stale") {
+			t.Errorf("Expected a scratch-cache remediation, got %v", err)
 		}
 		if !strings.Contains(err.Error(), staleLockErr) {
 			t.Errorf("Expected the underlying terraform error preserved, got %v", err)
@@ -1670,11 +1677,12 @@ func TestTerraformStack_setupTerraformEnvironment(t *testing.T) {
 
 	t.Run("EffectiveEnvValuePrefersCommandEnvOverProcessEnv", func(t *testing.T) {
 		// Given a command env that overrides a key also set in the process env
-		t.Setenv("TF_VAR_kubelogin_mode", "azurecli")
+		stack, mocks := setup(t)
+		mocks.Shims.Getenv = func(key string) string { return "azurecli" }
 		commandEnv := map[string]string{"TF_VAR_kubelogin_mode": "workloadidentity"}
 
 		// When resolving the effective value
-		value := effectiveTerraformEnvValue(commandEnv, "TF_VAR_kubelogin_mode")
+		value := stack.effectiveTerraformEnvValue(commandEnv, "TF_VAR_kubelogin_mode")
 
 		// Then the command env's value wins
 		if value != "workloadidentity" {
@@ -1684,11 +1692,17 @@ func TestTerraformStack_setupTerraformEnvironment(t *testing.T) {
 
 	t.Run("EffectiveEnvValueFallsBackToProcessEnv", func(t *testing.T) {
 		// Given a command env that does not carry the key
-		t.Setenv("TF_VAR_kubelogin_mode", "azurecli")
+		stack, mocks := setup(t)
+		mocks.Shims.Getenv = func(key string) string {
+			if key == "TF_VAR_kubelogin_mode" {
+				return "azurecli"
+			}
+			return ""
+		}
 		commandEnv := map[string]string{}
 
 		// When resolving the effective value
-		value := effectiveTerraformEnvValue(commandEnv, "TF_VAR_kubelogin_mode")
+		value := stack.effectiveTerraformEnvValue(commandEnv, "TF_VAR_kubelogin_mode")
 
 		// Then the inherited process env value is returned
 		if value != "azurecli" {
@@ -1900,6 +1914,37 @@ func TestIsScratchComponent(t *testing.T) {
 		c := &blueprintv1alpha1.TerraformComponent{Path: "local/path"}
 		if isScratchComponent(c) {
 			t.Error("Expected false when neither Name nor Source is set")
+		}
+	})
+}
+
+func TestMissingComponentDirError(t *testing.T) {
+	t.Run("ScratchComponentHintsAtWindsorInit", func(t *testing.T) {
+		// Given a component with a name
+		c := &blueprintv1alpha1.TerraformComponent{Name: "cluster", Path: "cluster", FullPath: "/scratch/cluster"}
+
+		// When the error is built
+		err := missingComponentDirError(c)
+
+		// Then the message names the directory and the remediation names windsor init
+		if !strings.Contains(err.Error(), "/scratch/cluster") {
+			t.Errorf("Expected the directory in the message, got %v", err)
+		}
+		if we := werror.Find(err); we == nil || !strings.Contains(we.Remediation, "windsor init") {
+			t.Errorf("Expected a windsor init remediation, got %v", err)
+		}
+	})
+
+	t.Run("LocalComponentHintsAtComponentPath", func(t *testing.T) {
+		// Given a local component with no name or source
+		c := &blueprintv1alpha1.TerraformComponent{Path: "network", FullPath: "/project/terraform/network"}
+
+		// When the error is built
+		err := missingComponentDirError(c)
+
+		// Then the remediation names the terraform directory
+		if we := werror.Find(err); we == nil || !strings.Contains(we.Remediation, "under terraform/") {
+			t.Errorf("Expected a component path remediation, got %v", err)
 		}
 	})
 }

@@ -17,6 +17,7 @@ import (
 
 	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
 	"github.com/windsorcli/cli/internal/presenter"
+	"github.com/windsorcli/cli/internal/werror"
 	"github.com/windsorcli/cli/pkg/constants"
 	envvars "github.com/windsorcli/cli/pkg/runtime/env"
 	"github.com/windsorcli/cli/pkg/runtime/shell"
@@ -89,7 +90,7 @@ func (s *TerraformStack) DestroyAll(ctx context.Context, blueprint *blueprintv1a
 
 	currentDir, err := s.shims.Getwd()
 	if err != nil {
-		return result, fmt.Errorf("error getting current directory: %v", err)
+		return result, werror.Wrap(err, "error getting current directory")
 	}
 
 	defer func() {
@@ -205,7 +206,7 @@ func (s *TerraformStack) DestroyAll(ctx context.Context, blueprint *blueprintv1a
 				if trimmed := strings.TrimSpace(output); trimmed != "" {
 					presenter.Warn(ctx, fmt.Sprintf("terraform destroy output for %s:\n%s", component.Path, trimmed))
 				}
-				return fmt.Errorf("error running terraform destroy for %s: %w", component.Path, err)
+				return werror.Wrap(err, "error running terraform destroy for %s", component.Path)
 			}
 			return nil
 		}); err != nil {
@@ -303,7 +304,7 @@ func (s *TerraformStack) Destroy(ctx context.Context, blueprint *blueprintv1alph
 			if trimmed := strings.TrimSpace(output); trimmed != "" {
 				presenter.Warn(ctx, fmt.Sprintf("terraform destroy output for %s:\n%s", component.Path, trimmed))
 			}
-			return fmt.Errorf("error running terraform destroy for %s: %w", component.Path, err)
+			return werror.Wrap(err, "error running terraform destroy for %s", component.Path)
 		}
 		return nil
 	}); err != nil {
@@ -351,19 +352,17 @@ func (s *TerraformStack) execTerraformDestroyWithRetry(ctx context.Context, comp
 	return output, err
 }
 
-// refreshBeforeDestroy runs refreshComponentState bounded by constants.DefaultTerraformRefreshTimeout
-// and classifies the result for a destroy caller. Returns (refreshFailed, err):
-//   - A timeout means the provider is unreachable. err is non-nil. The caller aborts this
-//     component now, instead of retrying refresh inside a full-length destroy.
-//   - Any other failure is plausibly transient. refreshFailed is true, err is nil. The caller
-//     falls through to `terraform destroy -refresh=true` for a second chance.
+// refreshBeforeDestroy runs refreshComponentState with the constants.DefaultTerraformRefreshTimeout limit.
+// A timeout means that the provider is unreachable. It returns an error with a remediation hint,
+// and the caller stops the destroy of this component. Another failure can be temporary. It returns
+// refreshFailed=true with no error, and the caller runs terraform destroy -refresh=true.
 func (s *TerraformStack) refreshBeforeDestroy(ctx context.Context, component *blueprintv1alpha1.TerraformComponent, terraformVars map[string]string, scopedKeys []string, terraformArgs *envvars.TerraformArgs) (bool, error) {
 	err := s.refreshComponentState(component, terraformVars, scopedKeys, terraformArgs, constants.DefaultTerraformRefreshTimeout)
 	if err == nil {
 		return false, nil
 	}
 	if errors.Is(err, shell.ErrCommandTimedOut) {
-		return false, fmt.Errorf("terraform refresh for %s timed out after %s; its provider looks unreachable: %w", component.Path, constants.DefaultTerraformRefreshTimeout, err)
+		return false, werror.New(fmt.Sprintf("terraform refresh for %s timed out after %s; its provider looks unreachable", component.Path, constants.DefaultTerraformRefreshTimeout), "Make sure that the provider endpoint of the component is reachable, then run the command again.", err)
 	}
 	presenter.Warn(ctx, fmt.Sprintf("terraform refresh failed for %s; falling through to destroy -refresh=true (terraform will retry refresh during destroy): %v", component.Path, err))
 	return true, nil

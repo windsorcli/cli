@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
+	"github.com/windsorcli/cli/internal/werror"
 )
 
 // =============================================================================
@@ -142,7 +143,7 @@ func (s *TerraformStack) Plan(blueprint *blueprintv1alpha1.Blueprint, componentI
 	planEnv := selectTerraformCommandEnv(terraformVars, true, scopedKeys)
 	planOutput, err := s.runtime.Shell.ExecSilentWithEnv(terraformCommand, planEnv, planArgs...)
 	if err != nil {
-		return fmt.Errorf("error running terraform plan for %s: %w", component.Path, err)
+		return werror.Wrap(err, "error running terraform plan for %s", component.Path)
 	}
 	if planOutput != "" {
 		fmt.Fprint(os.Stdout, planOutput)
@@ -186,7 +187,7 @@ func (s *TerraformStack) PlanJSON(blueprint *blueprintv1alpha1.Blueprint, compon
 	planEnv := selectTerraformCommandEnv(terraformVars, true, scopedKeys)
 	planOutput, err := s.runtime.Shell.ExecSilentWithEnv(terraformCommand, planEnv, planArgs...)
 	if err != nil {
-		wrapped := fmt.Errorf("error running terraform plan for %s: %w", component.Path, err)
+		wrapped := werror.Wrap(err, "error running terraform plan for %s", component.Path)
 		return wrapPlanError(wrapped, extractPlanErrorDiagnostics(planOutput))
 	}
 	if planOutput != "" {
@@ -254,12 +255,10 @@ func (s *TerraformStack) PlanDestroySummary(blueprint *blueprintv1alpha1.Bluepri
 	return results
 }
 
-// PlanDestroyComponentSummary runs terraform init and `plan -destroy` for a
-// single component and returns its structured plan result. If the component is
-// not found, a result with a non-nil Err is returned rather than an error, to
-// match PlanComponentSummary. A component pinned with Destroy=false also
-// returns Err — Teardown would skip it, so producing a destroy plan for it
-// would mislead the operator.
+// PlanDestroyComponentSummary runs terraform init and plan -destroy for one component.
+// It returns the plan result of the component, and puts a failure in the Err field of the result.
+// A component that is not in the blueprint sets Err with a remediation hint. A component with
+// destroy set to false also sets Err with a hint, because Teardown skips that component.
 func (s *TerraformStack) PlanDestroyComponentSummary(blueprint *blueprintv1alpha1.Blueprint, componentID string) TerraformComponentPlan {
 	result := TerraformComponentPlan{ComponentID: componentID}
 
@@ -283,21 +282,21 @@ func (s *TerraformStack) PlanDestroyComponentSummary(blueprint *blueprintv1alpha
 		}
 	}
 	if component == nil {
-		result.Err = fmt.Errorf("terraform component %q not found in blueprint", componentID)
+		result.Err = werror.New(fmt.Sprintf("terraform component %q not found in blueprint", componentID), componentNotFoundHint, nil)
 		return result
 	}
 	if !componentDestroyEnabled(component) {
-		result.Err = fmt.Errorf("terraform component %q is pinned with destroy=false", componentID)
+		result.Err = werror.New(fmt.Sprintf("terraform component %q is pinned with destroy=false", componentID), "Set destroy to true on the component in the blueprint to allow its destroy.", nil)
 		return result
 	}
 
 	return s.planOneTerraformDestroySummary(component)
 }
 
-// PlanComponentSummary runs terraform init and plan for a single component and returns its
-// structured plan result. It resolves only the requested component from the blueprint,
-// so no other components are initialised or planned. If the component is not found, a
-// result with a non-nil Err is returned rather than an error, consistent with PlanSummary.
+// PlanComponentSummary runs terraform init and plan for one component and returns its plan result.
+// It resolves only that component from the blueprint, so it plans no other component.
+// It puts a failure in the Err field of the result, as PlanSummary does. A component that
+// is not in the blueprint sets Err with a remediation hint.
 func (s *TerraformStack) PlanComponentSummary(blueprint *blueprintv1alpha1.Blueprint, componentID string) TerraformComponentPlan {
 	result := TerraformComponentPlan{ComponentID: componentID}
 
@@ -321,7 +320,7 @@ func (s *TerraformStack) PlanComponentSummary(blueprint *blueprintv1alpha1.Bluep
 		}
 	}
 	if component == nil {
-		result.Err = fmt.Errorf("terraform component %q not found in blueprint", componentID)
+		result.Err = werror.New(fmt.Sprintf("terraform component %q not found in blueprint", componentID), componentNotFoundHint, nil)
 		return result
 	}
 
@@ -374,7 +373,7 @@ func (s *TerraformStack) planComponents(blueprint *blueprintv1alpha1.Blueprint, 
 		planOutput, err := s.runtime.Shell.ExecSilentWithEnv(terraformCommand, planEnv, planArgs...)
 		cleanup()
 		if err != nil {
-			wrapped := fmt.Errorf("error running terraform plan for %s: %w", component.Path, err)
+			wrapped := werror.Wrap(err, "error running terraform plan for %s", component.Path)
 			return wrapPlanError(wrapped, extractPlanErrorDiagnostics(planOutput))
 		}
 		if planOutput != "" {
@@ -429,7 +428,7 @@ func (s *TerraformStack) planOneTerraformSummary(component *blueprintv1alpha1.Te
 	planEnv := selectTerraformCommandEnv(terraformVars, true, scopedKeys)
 	planOutput, err := s.runtime.Shell.ExecCaptureWithEnv(terraformCommand, planEnv, planArgs...)
 	if err != nil {
-		wrapped := fmt.Errorf("error running terraform plan for %s: %w", component.Path, err)
+		wrapped := werror.Wrap(err, "error running terraform plan for %s", component.Path)
 		result.Err = wrapPlanError(wrapped, extractPlanErrorDiagnostics(planOutput))
 		return result
 	}
@@ -506,7 +505,7 @@ func (s *TerraformStack) planOneTerraformDestroySummary(component *blueprintv1al
 		return result
 	}
 
-	wrapped := fmt.Errorf("error running terraform plan -destroy for %s: %w", component.Path, err)
+	wrapped := werror.Wrap(err, "error running terraform plan -destroy for %s", component.Path)
 	result.Err = wrapPlanError(wrapped, otherErrors)
 	return result
 }

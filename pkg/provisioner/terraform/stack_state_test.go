@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/windsorcli/cli/internal/werror"
 	terraformRuntime "github.com/windsorcli/cli/pkg/runtime/terraform"
 )
 
@@ -280,8 +281,9 @@ func TestStack_MigrateState(t *testing.T) {
 		if err == nil {
 			t.Fatal("Expected MigrateState to return an error")
 		}
-		if !strings.Contains(err.Error(), "provider version outside the current constraint") && !strings.Contains(err.Error(), "local terraform cache for this component is stale") {
-			t.Errorf("Expected a stale-provider-lock hint, got: %v", err)
+		we := werror.Find(err)
+		if we == nil || (!strings.Contains(we.Remediation, "provider version outside the current constraint") && !strings.Contains(we.Remediation, "local terraform cache for this component is stale")) {
+			t.Errorf("Expected a stale-provider-lock remediation, got: %v", err)
 		}
 		if upgradeOnMigrateState {
 			t.Error("Expected the -migrate-state init call never to pass -upgrade, even when hinting at a stale lock")
@@ -419,6 +421,9 @@ func TestStack_MigrateComponentState(t *testing.T) {
 		}
 		if !strings.Contains(err.Error(), "does not exist") {
 			t.Errorf("Expected error to mention missing directory, got %v", err)
+		}
+		if we := werror.Find(err); we == nil || we.Remediation == "" {
+			t.Errorf("Expected a remediation for the missing directory, got %v", err)
 		}
 	})
 

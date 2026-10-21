@@ -18,6 +18,7 @@ import (
 
 	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
 	"github.com/windsorcli/cli/internal/presenter"
+	"github.com/windsorcli/cli/internal/werror"
 	"github.com/windsorcli/cli/pkg/constants"
 	"github.com/windsorcli/cli/pkg/debug"
 	"github.com/windsorcli/cli/pkg/runtime"
@@ -44,6 +45,9 @@ import (
 // asking for confirmation: EOF". -input=false makes that surface as a clear, fail-fast error
 // instead of a stdin read against nothing.
 var defaultInitFlags = []string{"-upgrade", "-input=false"}
+
+// componentNotFoundHint is the remediation for a component ID that names no enabled terraform component.
+const componentNotFoundHint = "Use the ID of an enabled terraform component. Run windsor show blueprint to see the components."
 
 // =============================================================================
 // Types
@@ -166,17 +170,11 @@ func (s *TerraformStack) PostApply(fns ...func(ctx context.Context, id string) e
 	s.postApply = append(s.postApply, fns...)
 }
 
-// Up runs init/plan/apply for each component in order. Backend override files are cleaned up
-// after all components complete so terraform_output() calls between components keep working.
-// onApply hooks run inside each spinner; PostApply hooks run after each Done line and are
-// consumed (not retained across calls).
-//
-// Returns (halted bool, err error). halted=true means a hook signaled that the component
-// apply succeeded but subsequent components should not be applied (e.g. cluster reachability
-// needs a host-side configuration step the operator hasn't done yet). halted is reported as
-// a clean stop — the TUI marks the component Done, no error is returned, and the caller can
-// surface a "deferred work" summary at the cmd layer. A non-nil err is a real failure as
-// before.
+// Up runs terraform init, plan, and apply for each component in order. It removes the backend
+// override files after all components finish, so terraform_output() works between components.
+// The onApply hooks run inside each spinner. The PostApply hooks run after each Done line, and Up
+// clears them. A hook can return halted=true to stop the apply after its component with no error.
+// A missing component directory returns an error with a remediation hint.
 func (s *TerraformStack) Up(ctx context.Context, blueprint *blueprintv1alpha1.Blueprint, onApply ...func(ctx context.Context, id string) (bool, error)) (bool, error) {
 	if blueprint == nil {
 		return false, fmt.Errorf("blueprint not provided")
@@ -187,7 +185,7 @@ func (s *TerraformStack) Up(ctx context.Context, blueprint *blueprintv1alpha1.Bl
 
 	currentDir, err := s.shims.Getwd()
 	if err != nil {
-		return false, fmt.Errorf("error getting current directory: %v", err)
+		return false, werror.Wrap(err, "error getting current directory")
 	}
 
 	defer func() {
@@ -211,7 +209,7 @@ func (s *TerraformStack) Up(ctx context.Context, blueprint *blueprintv1alpha1.Bl
 		var componentHalted bool
 		if err := presenter.Track(ctx, "terraform:"+component.GetID(), fmt.Sprintf("Applying %s", component.Path), func(ctx context.Context) error {
 			if _, err := s.shims.Stat(component.FullPath); os.IsNotExist(err) {
-				return fmt.Errorf("directory %s does not exist", component.FullPath)
+				return missingComponentDirError(&component)
 			}
 
 			terraformVars, scopedKeys, terraformArgs, err := s.setupTerraformEnvironment(component)
@@ -236,18 +234,18 @@ func (s *TerraformStack) Up(ctx context.Context, blueprint *blueprintv1alpha1.Bl
 			planArgs := []string{fmt.Sprintf("-chdir=%s", component.FullPath), "plan", "-refresh=false"}
 			planArgs = append(planArgs, terraformArgs.PlanArgs...)
 			planEnv := selectTerraformCommandEnv(terraformVars, true, scopedKeys)
-			debug.Log("terraform plan for %s: TF_VAR_kubelogin_mode=%q (effective)", component.Path, effectiveTerraformEnvValue(planEnv, "TF_VAR_kubelogin_mode"))
+			debug.Log("terraform plan for %s: TF_VAR_kubelogin_mode=%q (effective)", component.Path, s.effectiveTerraformEnvValue(planEnv, "TF_VAR_kubelogin_mode"))
 			if _, err = s.runtime.Shell.ExecSilentWithEnv(terraformCommand, planEnv, planArgs...); err != nil {
-				return fmt.Errorf("error running terraform plan for %s: %w", component.Path, err)
+				return werror.Wrap(err, "error running terraform plan for %s", component.Path)
 			}
 
 			applyArgs := []string{fmt.Sprintf("-chdir=%s", component.FullPath), "apply"}
 			applyArgs = append(applyArgs, noColorArgs()...)
 			applyArgs = append(applyArgs, terraformArgs.ApplyArgs...)
 			applyEnv := selectTerraformCommandEnv(terraformVars, false, scopedKeys)
-			debug.Log("terraform apply for %s: TF_VAR_kubelogin_mode=%q (effective)", component.Path, effectiveTerraformEnvValue(applyEnv, "TF_VAR_kubelogin_mode"))
+			debug.Log("terraform apply for %s: TF_VAR_kubelogin_mode=%q (effective)", component.Path, s.effectiveTerraformEnvValue(applyEnv, "TF_VAR_kubelogin_mode"))
 			if _, err = s.runtime.Shell.ExecProgressWithEnv(fmt.Sprintf("Applying Terraform changes in %s", component.Path), terraformCommand, applyEnv, applyArgs...); err != nil {
-				return fmt.Errorf("error running terraform apply for %s: %w", component.Path, err)
+				return werror.Wrap(err, "error running terraform apply for %s", component.Path)
 			}
 			_ = s.runtime.TerraformProvider.CacheOutputs(component.GetID())
 			componentID := component.GetID()
@@ -257,7 +255,7 @@ func (s *TerraformStack) Up(ctx context.Context, blueprint *blueprintv1alpha1.Bl
 				}
 				haltAfter, err := fn(ctx, componentID)
 				if err != nil {
-					return fmt.Errorf("post-apply hook %s: %w", componentID, err)
+					return werror.Wrap(err, "post-apply hook %s", componentID)
 				}
 				if haltAfter {
 					componentHalted = true
@@ -272,7 +270,7 @@ func (s *TerraformStack) Up(ctx context.Context, blueprint *blueprintv1alpha1.Bl
 		for _, fn := range postApply {
 			if fn != nil {
 				if err := fn(ctx, componentID); err != nil {
-					return false, fmt.Errorf("post-apply hook %s: %w", componentID, err)
+					return false, werror.Wrap(err, "post-apply hook %s", componentID)
 				}
 			}
 		}
@@ -288,10 +286,9 @@ func (s *TerraformStack) Up(ctx context.Context, blueprint *blueprintv1alpha1.Bl
 	return false, nil
 }
 
-// Apply runs terraform init, plan, and apply for a single component identified by componentID.
-// It resolves the component from the blueprint, sets up the environment, and executes
-// init, plan, then apply in sequence. Returns an error if the component is not found,
-// the directory does not exist, or any terraform operation fails.
+// Apply runs terraform init, plan, and apply for the component with the given ID.
+// It returns an error if a terraform command fails. A component that is not in the blueprint,
+// or a component directory that does not exist, returns an error with a remediation hint.
 func (s *TerraformStack) Apply(ctx context.Context, blueprint *blueprintv1alpha1.Blueprint, componentID string) error {
 	if blueprint == nil {
 		return fmt.Errorf("blueprint not provided")
@@ -321,7 +318,7 @@ func (s *TerraformStack) Apply(ctx context.Context, blueprint *blueprintv1alpha1
 		planArgs = append(planArgs, terraformArgs.PlanArgs...)
 		planEnv := selectTerraformCommandEnv(terraformVars, true, scopedKeys)
 		if _, err := s.runtime.Shell.ExecSilentWithEnv(terraformCommand, planEnv, planArgs...); err != nil {
-			return fmt.Errorf("error running terraform plan for %s: %w", component.Path, err)
+			return werror.Wrap(err, "error running terraform plan for %s", component.Path)
 		}
 
 		applyArgs := []string{fmt.Sprintf("-chdir=%s", component.FullPath), "apply"}
@@ -329,7 +326,7 @@ func (s *TerraformStack) Apply(ctx context.Context, blueprint *blueprintv1alpha1
 		applyArgs = append(applyArgs, terraformArgs.ApplyArgs...)
 		applyEnv := selectTerraformCommandEnv(terraformVars, false, scopedKeys)
 		if _, err := s.runtime.Shell.ExecProgressWithEnv(fmt.Sprintf("Applying Terraform changes in %s", component.Path), terraformCommand, applyEnv, applyArgs...); err != nil {
-			return fmt.Errorf("error running terraform apply for %s: %w", component.Path, err)
+			return werror.Wrap(err, "error running terraform apply for %s", component.Path)
 		}
 		_ = s.runtime.TerraformProvider.CacheOutputs(component.GetID())
 
@@ -385,7 +382,7 @@ func (s *TerraformStack) refreshProviderLock(component *blueprintv1alpha1.Terraf
 	initArgs = append(initArgs, noColorArgs()...)
 	initEnv := selectTerraformCommandEnv(terraformVars, false, scopedKeys)
 	if _, err := s.runtime.Shell.ExecSilentWithEnv(terraformCommand, initEnv, initArgs...); err != nil {
-		return fmt.Errorf("error refreshing provider lock for %s: %w", component.Path, err)
+		return werror.Wrap(err, "error refreshing provider lock for %s", component.Path)
 	}
 	return nil
 }
@@ -502,19 +499,19 @@ func (s *TerraformStack) resolveComponentPaths(blueprint *blueprintv1alpha1.Blue
 	blueprint.TerraformComponents = resolvedComponents
 }
 
-// prepareComponentEnv saves the current directory, validates the component's directory exists,
-// sets up the terraform environment, and returns a cleanup func that restores the working directory
-// and removes any backend_override.tf. It is the shared setup used by planComponents,
-// planOneTerraformSummary, and prepareComponentOp. scopedKeys names the
-// contexts/<context>/terraform/.env keys selectTerraformCommandEnv must pass through.
+// prepareComponentEnv saves the current directory and sets up the terraform environment of a component.
+// It returns a cleanup func that restores the directory and removes backend_override.tf.
+// scopedKeys names the contexts/<context>/terraform/.env keys that selectTerraformCommandEnv passes.
+// planComponents, planOneTerraformSummary, and prepareComponentOp use it. A component directory
+// that does not exist returns an error with a remediation hint.
 func (s *TerraformStack) prepareComponentEnv(component *blueprintv1alpha1.TerraformComponent) (map[string]string, []string, *envvars.TerraformArgs, func(), error) {
 	currentDir, err := s.shims.Getwd()
 	if err != nil {
-		return nil, nil, nil, func() {}, fmt.Errorf("error getting current directory: %w", err)
+		return nil, nil, nil, func() {}, werror.Wrap(err, "error getting current directory")
 	}
 
 	if _, err := s.shims.Stat(component.FullPath); os.IsNotExist(err) {
-		return nil, nil, nil, func() {}, fmt.Errorf("directory %s does not exist", component.FullPath)
+		return nil, nil, nil, func() {}, missingComponentDirError(component)
 	}
 
 	removeBackendOverride := func() {
@@ -538,9 +535,9 @@ func (s *TerraformStack) prepareComponentEnv(component *blueprintv1alpha1.Terraf
 	return terraformVars, scopedKeys, terraformArgs, cleanup, nil
 }
 
-// prepareComponentOp validates inputs, resolves the named component from the blueprint, saves/restores
-// the working directory, sets up the terraform environment, and registers backend override cleanup.
-// The returned cleanup func must be called via defer by the caller.
+// prepareComponentOp finds the component with the given ID and prepares its terraform environment.
+// It returns a cleanup func that the caller must defer. A component that is not in the blueprint
+// returns an error with a remediation hint.
 func (s *TerraformStack) prepareComponentOp(blueprint *blueprintv1alpha1.Blueprint, componentID string) (
 	*blueprintv1alpha1.TerraformComponent,
 	map[string]string,
@@ -563,7 +560,7 @@ func (s *TerraformStack) prepareComponentOp(blueprint *blueprintv1alpha1.Bluepri
 		}
 	}
 	if component == nil {
-		return nil, nil, nil, nil, func() {}, fmt.Errorf("terraform component %q not found", componentID)
+		return nil, nil, nil, nil, func() {}, werror.New(fmt.Sprintf("terraform component %q not found", componentID), componentNotFoundHint, nil)
 	}
 
 	terraformVars, scopedKeys, terraformArgs, cleanup, err := s.prepareComponentEnv(component)
@@ -574,15 +571,11 @@ func (s *TerraformStack) prepareComponentOp(blueprint *blueprintv1alpha1.Bluepri
 	return component, terraformVars, scopedKeys, terraformArgs, cleanup, nil
 }
 
-// runTerraformInit executes terraform init for the given component, inserting
-// extraFlags after "init". Successful invocations are memoized per
-// (component, backend, migrate-state) for the process so repeated callers in
-// a single CLI run share one terraform invocation; failed inits aren't
-// cached. On cache miss without -migrate-state, clearStaleBackendPointer
-// drops a stale pointer file before init runs. Dedup assumes sequential
-// callers; parallel iteration would need per-key sync.Once. A failure
-// matching isStaleProviderLockError gets staleProviderLockHint appended
-// rather than passing Terraform's raw error through unexplained.
+// runTerraformInit runs terraform init for a component, with extraFlags after "init".
+// It caches a successful init per component, backend, and migrate-state value for the process.
+// It does not cache a failed init. The cache expects callers to run one at a time. Before an init
+// without -migrate-state, it removes a stale backend pointer. A stale provider lock error returns
+// an error with the remediation from staleProviderLockHint.
 func (s *TerraformStack) runTerraformInit(component *blueprintv1alpha1.TerraformComponent, terraformVars map[string]string, scopedKeys []string, terraformArgs *envvars.TerraformArgs, extraFlags ...string) error {
 	migrateState := slices.Contains(extraFlags, "-migrate-state")
 	key := initCacheKey{
@@ -609,9 +602,9 @@ func (s *TerraformStack) runTerraformInit(component *blueprintv1alpha1.Terraform
 	_, err := s.runtime.Shell.ExecSilentWithEnv(terraformCommand, initEnv, initArgs...)
 	if err != nil {
 		if isStaleProviderLockError(err) {
-			return fmt.Errorf("error running terraform init for %s: %s: %w", component.Path, staleProviderLockHint(component), err)
+			return werror.New(fmt.Sprintf("error running terraform init for %s: %v", component.Path, err), staleProviderLockHint(component), err)
 		}
-		return fmt.Errorf("error running terraform init for %s: %w", component.Path, err)
+		return werror.Wrap(err, "error running terraform init for %s", component.Path)
 	}
 
 	s.initCacheMu.Lock()
@@ -681,11 +674,11 @@ func (s *TerraformStack) setupTerraformEnvironment(component blueprintv1alpha1.T
 
 	terraformVars, scopedKeys, terraformArgs, err := s.runtime.TerraformProvider.GetEnvVars(component.GetID(), false)
 	if err != nil {
-		return nil, nil, nil, fmt.Errorf("error getting terraform env vars: %w", err)
+		return nil, nil, nil, werror.Wrap(err, "error getting terraform env vars")
 	}
 
 	if err := terraformEnv.PostEnvHook(component.FullPath); err != nil {
-		return nil, nil, nil, fmt.Errorf("error creating backend override file for %s: %w", component.Path, err)
+		return nil, nil, nil, werror.Wrap(err, "error creating backend override file for %s", component.Path)
 	}
 
 	return terraformVars, scopedKeys, terraformArgs, nil
@@ -705,6 +698,17 @@ func (s *TerraformStack) getTerraformEnv() *envvars.TerraformEnvPrinter {
 	return nil
 }
 
+// effectiveTerraformEnvValue returns the value of key that the terraform subprocess sees.
+// It returns the value in commandEnv when the key is present. Otherwise it returns the value
+// in the process environment, because mergeEnvVars uses that value for a key that commandEnv
+// does not set.
+func (s *TerraformStack) effectiveTerraformEnvValue(commandEnv map[string]string, key string) string {
+	if value, exists := commandEnv[key]; exists {
+		return value
+	}
+	return s.shims.Getenv(key)
+}
+
 // =============================================================================
 // Helpers
 // =============================================================================
@@ -715,6 +719,17 @@ func (s *TerraformStack) getTerraformEnv() *envvars.TerraformEnvPrinter {
 // condition in resolveComponentPaths, which is where this same distinction determines FullPath.
 func isScratchComponent(component *blueprintv1alpha1.TerraformComponent) bool {
 	return component.Name != "" || component.Source != ""
+}
+
+// missingComponentDirError returns the error for a component whose directory does not exist.
+// The hint for a scratch component asks to regenerate the modules with windsor init. The hint
+// for a local component asks to match the component path to a directory under terraform/.
+func missingComponentDirError(component *blueprintv1alpha1.TerraformComponent) error {
+	message := fmt.Sprintf("component %q directory %s does not exist", component.GetID(), component.FullPath)
+	if isScratchComponent(component) {
+		return werror.New(message, "Run windsor init to regenerate the terraform modules, then run the command again.", nil)
+	}
+	return werror.New(message, "Make sure the component path in the blueprint matches a directory under terraform/.", nil)
 }
 
 // staleProviderLockMarkers are substrings that together identify Terraform's "locked provider ...
@@ -745,16 +760,15 @@ func isStaleProviderLockError(err error) bool {
 	return true
 }
 
-// staleProviderLockHint names the likely cause and remedy for isStaleProviderLockError; never
-// auto-retried with -upgrade since the MigrateState caller must not touch providers during a
-// state move. A windsor-managed scratch component's cache directory is safe to point at directly;
-// a plain local component's .terraform.lock.hcl may be an intentional, git-tracked pin, so the
-// hint asks the operator to re-init it themselves instead.
+// staleProviderLockHint returns the remediation for a stale provider lock error. Windsor does not
+// retry with -upgrade, because MigrateState must not change providers during a state move.
+// For a scratch component, the hint names the cache directory to remove. For a local component,
+// the hint asks to run terraform init -upgrade, because the lock file can be under version control.
 func staleProviderLockHint(component *blueprintv1alpha1.TerraformComponent) string {
 	if isScratchComponent(component) {
-		return fmt.Sprintf("the local terraform cache for this component is stale (its module source changed since the last local init); remove %s and re-run to pick up the new provider constraint", component.FullPath)
+		return fmt.Sprintf("The local terraform cache for this component is stale because its module source changed. Remove %s and run the command again.", component.FullPath)
 	}
-	return fmt.Sprintf("the .terraform.lock.hcl in %s may be pinned to a provider version outside the current constraint; run `terraform init -upgrade` there (or remove the lock file if it isn't intentionally version-controlled) and retry", component.FullPath)
+	return fmt.Sprintf("The .terraform.lock.hcl in %s pins a provider version outside the current constraint. Run terraform init -upgrade in that directory, then run the command again.", component.FullPath)
 }
 
 // noColorArgs returns []string{"-no-color"} unconditionally. Windsor's own TUI
@@ -800,17 +814,6 @@ func selectTerraformCommandEnv(terraformVars map[string]string, includeTFVars bo
 		}
 	}
 	return selected
-}
-
-// effectiveTerraformEnvValue reports the value of key as the terraform subprocess would
-// actually see it: commandEnv's value when present (selectTerraformCommandEnv's output),
-// otherwise the CLI process's own inherited environment, since mergeEnvVars falls back to
-// that for any key commandEnv does not override.
-func effectiveTerraformEnvValue(commandEnv map[string]string, key string) string {
-	if value, exists := commandEnv[key]; exists {
-		return value
-	}
-	return os.Getenv(key)
 }
 
 // =============================================================================

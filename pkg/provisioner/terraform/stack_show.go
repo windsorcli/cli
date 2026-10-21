@@ -14,6 +14,7 @@ import (
 	"path/filepath"
 
 	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
+	"github.com/windsorcli/cli/internal/werror"
 	envvars "github.com/windsorcli/cli/pkg/runtime/env"
 )
 
@@ -103,19 +104,19 @@ func (s *TerraformStack) planResourceChangesJSON(component *blueprintv1alpha1.Te
 	planArgs := []string{fmt.Sprintf("-chdir=%s", component.FullPath), "plan", "-no-color"}
 	planArgs = append(planArgs, terraformArgs.PlanArgs...)
 	if _, err := s.runtime.Shell.ExecCaptureWithEnv(terraformCommand, planEnv, planArgs...); err != nil {
-		return fmt.Errorf("error running terraform plan for %s: %w", component.Path, err)
+		return werror.Wrap(err, "error running terraform plan for %s", component.Path)
 	}
 
 	tfPlanPath := filepath.ToSlash(filepath.Join(terraformArgs.TFDataDir, "terraform.tfplan"))
 	showArgs := []string{fmt.Sprintf("-chdir=%s", component.FullPath), "show", "-json", tfPlanPath}
 	showOutput, err := s.runtime.Shell.ExecCaptureWithEnv(terraformCommand, planEnv, showArgs...)
 	if err != nil {
-		return fmt.Errorf("error reading terraform plan JSON for %s: %w", component.Path, err)
+		return werror.Wrap(err, "error reading terraform plan JSON for %s", component.Path)
 	}
 
 	compacted, err := compactPlanJSON(showOutput)
 	if err != nil {
-		return fmt.Errorf("error parsing terraform plan JSON for %s: %w", component.Path, err)
+		return werror.Wrap(err, "error parsing terraform plan JSON for %s", component.Path)
 	}
 	fmt.Fprintln(os.Stdout, compacted)
 

@@ -12,6 +12,7 @@ import (
 	"time"
 
 	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
+	"github.com/windsorcli/cli/internal/werror"
 	"github.com/windsorcli/cli/pkg/constants"
 	envvars "github.com/windsorcli/cli/pkg/runtime/env"
 	"github.com/windsorcli/cli/pkg/runtime/shell"
@@ -932,6 +933,9 @@ func TestStack_DestroyAll(t *testing.T) {
 		}
 		if !strings.Contains(err.Error(), "timed out") || !strings.Contains(err.Error(), "provider looks unreachable") {
 			t.Errorf("Expected an actionable unreachable-provider error, got %v", err)
+		}
+		if we := werror.Find(err); we == nil || !strings.Contains(we.Remediation, "is reachable") {
+			t.Errorf("Expected a reachability remediation, got %v", err)
 		}
 		if sawDestroy {
 			t.Error("Expected terraform destroy not to run after a refresh timeout")
@@ -1912,6 +1916,9 @@ func TestStack_Destroy(t *testing.T) {
 		}
 		if !strings.Contains(err.Error(), "timed out") || !strings.Contains(err.Error(), "provider looks unreachable") {
 			t.Errorf("Expected an actionable unreachable-provider error, got %v", err)
+		}
+		if we := werror.Find(err); we == nil || !strings.Contains(we.Remediation, "is reachable") {
+			t.Errorf("Expected a reachability remediation, got %v", err)
 		}
 		if sawDestroy {
 			t.Error("Expected terraform destroy not to run after a refresh timeout")
