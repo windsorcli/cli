@@ -13,13 +13,21 @@ jobs:
       contains(github.event.comment.body, '/review') &&
       contains(fromJSON('["OWNER", "MEMBER", "COLLABORATOR"]'), github.event.comment.author_association)
     steps:
+      # Dispatches only a head commit pushed before the /review comment.
       - name: Dispatch review workflow with pinned SHA
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          COMMENTED_AT: ${{ github.event.comment.created_at }}
         run: |
           PR_JSON=$(gh api repos/${{ github.repository }}/pulls/${{ github.event.issue.number }})
           HEAD_SHA=$(echo "$PR_JSON" | jq -r .head.sha)
           BASE_REF=$(echo "$PR_JSON" | jq -r .base.ref)
+          PUSHED_AT=$(gh api "repos/${{ github.repository }}/actions/runs?head_sha=$HEAD_SHA&event=pull_request" \
+            --jq '[.workflow_runs[].created_at] | min // empty')
+          if [ -z "$PUSHED_AT" ] || [[ "$PUSHED_AT" > "$COMMENTED_AT" ]]; then
+            echo "::error::Head $HEAD_SHA has no push recorded before the /review comment. Comment /review again to review it."
+            exit 1
+          fi
           gh workflow run claude-code-review.yaml \
             --repo ${{ github.repository }} \
             -f pr_number=${{ github.event.issue.number }} \
