@@ -19,7 +19,7 @@ packages:
 - name: golang/go@go1.27.3
 - name: getsops/sops@v3.11.0
 - name: docker/cli@v27.4.1
-- name: docker/compose@v5.6.0
+- name: docker/compose@v5.6.1
 - name: google/go-jsonnet@v0.22.0
 - name: mikefarah/yq@v4.54.1
 - name: goreleaser/goreleaser@v2.18.3
