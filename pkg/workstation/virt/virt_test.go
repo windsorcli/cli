@@ -30,9 +30,9 @@ type VirtTestMocks struct {
 	Shims         *Shims
 }
 
-// setupDefaultShims creates a new Shims instance with default implementations
+// setupDefaultShims returns stub shims. A shared shim that it does not set stays nil, so a call to it fails the test.
 func setupDefaultShims() *Shims {
-	shims := NewShims()
+	shims := &Shims{}
 	shims.Shims = sharedshims.Shims{
 		Setenv: func(key, value string) error {
 			return os.Setenv(key, value)
