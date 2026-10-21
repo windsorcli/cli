@@ -1,3 +1,8 @@
+// The bootstrap methods of the Provisioner apply a blueprint for the first time.
+// It provides Bootstrap, an alias for Up, and BuildBootstrapSummary.
+// It applies the backend components with a local backend and migrates their state to the configured backend.
+// Then it applies the other components against the configured backend.
+
 package provisioner
 
 import (
@@ -71,7 +76,7 @@ func BuildBootstrapSummary(blueprint *blueprintv1alpha1.Blueprint, contextName, 
 }
 
 // =============================================================================
-// Private Helpers
+// Private Methods
 // =============================================================================
 
 // applyWithBackendPivot pins local, migrates any existing backend-component state to local,
@@ -122,6 +127,25 @@ func (i *Provisioner) applyWithBackendPivot(ctx context.Context, blueprint *blue
 	return i.applyDirect(ctx, nonBackendBP, onApply...)
 }
 
+// withBackendOverride pins terraform.backend.type to "local" for the duration of fn,
+// restoring the previously-configured value via defer.
+func (i *Provisioner) withBackendOverride(opLabel string, fn func() error) error {
+	original := i.configHandler.GetTerraformBackendType()
+	if err := i.configHandler.Set("terraform.backend.type", "local"); err != nil {
+		return fmt.Errorf("failed to override backend for %s: %w", opLabel, err)
+	}
+	defer func() {
+		if err := i.configHandler.Set("terraform.backend.type", original); err != nil {
+			fmt.Fprintf(os.Stderr, "warning: failed to restore terraform.backend.type to %q after %s: %v\n", original, opLabel, err)
+		}
+	}()
+	return fn()
+}
+
+// =============================================================================
+// Helpers
+// =============================================================================
+
 // blueprintWithComponents returns a shallow copy of bp containing only the given
 // terraform components, in their order in the slice. Non-terraform fields are shared.
 func blueprintWithComponents(bp *blueprintv1alpha1.Blueprint, components []*blueprintv1alpha1.TerraformComponent) *blueprintv1alpha1.Blueprint {
@@ -148,19 +172,4 @@ func blueprintWithoutComponents(bp *blueprintv1alpha1.Blueprint, components []*b
 		}
 	}
 	return &cp
-}
-
-// withBackendOverride pins terraform.backend.type to "local" for the duration of fn,
-// restoring the previously-configured value via defer.
-func (i *Provisioner) withBackendOverride(opLabel string, fn func() error) error {
-	original := i.configHandler.GetTerraformBackendType()
-	if err := i.configHandler.Set("terraform.backend.type", "local"); err != nil {
-		return fmt.Errorf("failed to override backend for %s: %w", opLabel, err)
-	}
-	defer func() {
-		if err := i.configHandler.Set("terraform.backend.type", original); err != nil {
-			fmt.Fprintf(os.Stderr, "warning: failed to restore terraform.backend.type to %q after %s: %v\n", original, opLabel, err)
-		}
-	}()
-	return fn()
 }

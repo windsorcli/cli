@@ -2,18 +2,14 @@ package provisioner
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"path/filepath"
-	"reflect"
-	"slices"
 	"strings"
 	"testing"
-	"time"
 
-	helmv2 "github.com/fluxcd/helm-controller/api/v2"
 	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
 	"github.com/windsorcli/cli/internal/presenter"
 	"github.com/windsorcli/cli/pkg/composer/blueprint"
@@ -27,7 +23,6 @@ import (
 	"github.com/windsorcli/cli/pkg/runtime/evaluator"
 	"github.com/windsorcli/cli/pkg/runtime/shell"
 	terraformruntime "github.com/windsorcli/cli/pkg/runtime/terraform"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
 // =============================================================================
@@ -185,6 +180,43 @@ func setupProvisionerMocks(t *testing.T, opts ...func(*ProvisionerTestMocks)) *P
 	}
 
 	return mocks
+}
+
+// eventRecorder records every presenter event it receives.
+type eventRecorder struct {
+	events []presenter.Event
+}
+
+func (r *eventRecorder) Emit(_ context.Context, e presenter.Event) {
+	r.events = append(r.events, e)
+}
+
+// operations returns the messages of the operations that started, in order.
+func (r *eventRecorder) operations() []string {
+	var ops []string
+	for _, e := range r.events {
+		if e.Kind == presenter.KindApplying {
+			ops = append(ops, e.Message)
+		}
+	}
+	return ops
+}
+
+// layerRecorder records the per-kustomization calls a layerReporter receives.
+type layerRecorder struct {
+	calls []string
+}
+
+func (r *layerRecorder) Progress(name, text string) {
+	r.calls = append(r.calls, "progress "+name+": "+text)
+}
+
+func (r *layerRecorder) Start(name string) {
+	r.calls = append(r.calls, "start "+name)
+}
+
+func (r *layerRecorder) Done(name string) {
+	r.calls = append(r.calls, "done "+name)
 }
 
 // =============================================================================
@@ -486,6 +518,176 @@ func TestProvisioner_Up(t *testing.T) {
 	})
 }
 
+func TestProvisioner_UpProgress(t *testing.T) {
+	t.Run("RunsTheApplyAsOneTerraformOperation", func(t *testing.T) {
+		// Given a provisioner with a mock stack and a recording presenter
+		mocks := setupProvisionerMocks(t)
+		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{TerraformStack: mocks.TerraformStack})
+		rec := &eventRecorder{}
+
+		// When the blueprint is applied
+		_, err := provisioner.Up(presenter.NewContext(context.Background(), rec), createTestBlueprint())
+
+		// Then one "Applying terraform" operation starts and ends
+		if err != nil {
+			t.Fatalf("expected no error, got %v", err)
+		}
+		if len(rec.events) != 2 || rec.events[0].Message != "Applying terraform" || rec.events[1].Kind != presenter.KindApplied {
+			t.Errorf("unexpected events %+v", rec.events)
+		}
+	})
+
+	t.Run("EndsTheOperationAsFailedWhenTheStackFails", func(t *testing.T) {
+		// Given a provisioner whose stack apply fails
+		mocks := setupProvisionerMocks(t)
+		stack := terraforminfra.NewMockStack()
+		stack.UpFunc = func(blueprint *blueprintv1alpha1.Blueprint, onApply ...func(ctx context.Context, id string) (bool, error)) (bool, error) {
+			return false, fmt.Errorf("apply failed")
+		}
+		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{TerraformStack: stack})
+		rec := &eventRecorder{}
+
+		// When the blueprint is applied
+		_, err := provisioner.Up(presenter.NewContext(context.Background(), rec), createTestBlueprint())
+
+		// Then the operation ends as failed with the error
+		if err == nil || len(rec.events) != 2 || rec.events[1].Kind != presenter.KindFailed {
+			t.Errorf("expected a failed operation, got err=%v events=%+v", err, rec.events)
+		}
+	})
+}
+
+func TestProvisioner_Apply(t *testing.T) {
+	t.Run("Success", func(t *testing.T) {
+		mocks := setupProvisionerMocks(t)
+		mockStack := terraforminfra.NewMockStack()
+		mockStack.ApplyFunc = func(bp *blueprintv1alpha1.Blueprint, componentID string) error { return nil }
+		opts := &Provisioner{TerraformStack: mockStack}
+		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
+
+		err := provisioner.Apply(context.Background(), createTestBlueprint(), "remote/path")
+
+		if err != nil {
+			t.Errorf("Expected no error, got: %v", err)
+		}
+	})
+
+	t.Run("ErrorNilBlueprint", func(t *testing.T) {
+		mocks := setupProvisionerMocks(t)
+		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler)
+
+		err := provisioner.Apply(context.Background(), nil, "remote/path")
+
+		if err == nil {
+			t.Error("Expected error for nil blueprint")
+		}
+		if !strings.Contains(err.Error(), "blueprint not provided") {
+			t.Errorf("Expected specific error message, got: %v", err)
+		}
+	})
+
+	t.Run("ErrorWhenTerraformDisabled", func(t *testing.T) {
+		mocks := setupProvisionerMocks(t)
+		mockConfigHandler := mocks.ConfigHandler.(*config.MockConfigHandler)
+		mockConfigHandler.GetBoolFunc = func(key string, defaultValue ...bool) bool {
+			if key == "terraform.enabled" {
+				return false
+			}
+			if len(defaultValue) > 0 {
+				return defaultValue[0]
+			}
+			return false
+		}
+		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler)
+
+		err := provisioner.Apply(context.Background(), createTestBlueprint(), "remote/path")
+
+		if err == nil {
+			t.Error("Expected error when terraform is disabled")
+		}
+		if !strings.Contains(err.Error(), "terraform is disabled") {
+			t.Errorf("Expected 'terraform is disabled' error, got: %v", err)
+		}
+		if provisioner.TerraformStack != nil {
+			t.Error("Expected TerraformStack to remain nil when terraform is disabled")
+		}
+	})
+
+	t.Run("InitializesTerraformStackLazily", func(t *testing.T) {
+		mocks := setupProvisionerMocks(t)
+		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler)
+
+		if provisioner.TerraformStack != nil {
+			t.Error("Expected TerraformStack to be nil before Apply() is called")
+		}
+
+		_ = provisioner.Apply(context.Background(), createTestBlueprint(), "remote/path")
+
+		if provisioner.TerraformStack == nil {
+			t.Error("Expected TerraformStack to be initialized after Apply() when terraform is enabled")
+		}
+	})
+
+	t.Run("ErrorTerraformStackApply", func(t *testing.T) {
+		mocks := setupProvisionerMocks(t)
+		mockStack := terraforminfra.NewMockStack()
+		mockStack.ApplyFunc = func(bp *blueprintv1alpha1.Blueprint, componentID string) error {
+			return fmt.Errorf("terraform stack apply failed")
+		}
+		opts := &Provisioner{TerraformStack: mockStack}
+		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
+
+		err := provisioner.Apply(context.Background(), createTestBlueprint(), "remote/path")
+
+		if err == nil {
+			t.Error("Expected error for terraform stack apply failure")
+		}
+		if !strings.Contains(err.Error(), "failed to run terraform apply for") {
+			t.Errorf("Expected specific error message, got: %v", err)
+		}
+	})
+
+	t.Run("WarnsAboutOrphanedLocalStateBeforeApplying", func(t *testing.T) {
+		// windsorcli/cli#3367: `windsor apply terraform <component>` never ran the
+		// orphaned-local-state check at all — only Up did, and only outside a
+		// backend pivot. A single-component apply must surface the same warning,
+		// including under a plain local backend, which is the common case here.
+		mocks := setupProvisionerMocks(t)
+		mockCH := mocks.ConfigHandler.(*config.MockConfigHandler)
+		mockCH.GetStringFunc = func(key string, defaultValue ...string) string {
+			if key == "terraform.backend.type" {
+				return "local"
+			}
+			if len(defaultValue) > 0 {
+				return defaultValue[0]
+			}
+			return ""
+		}
+		mockStack := terraforminfra.NewMockStack()
+		mockStack.ApplyFunc = func(bp *blueprintv1alpha1.Blueprint, componentID string) error { return nil }
+		mockStack.ListLocalStateComponentIDsFunc = func() ([]string, error) {
+			return []string{"remote/old-path"}, nil
+		}
+		mockStack.HasLocalStateWithResourcesFunc = func(componentID string) (bool, error) {
+			return componentID == "remote/old-path", nil
+		}
+		opts := &Provisioner{TerraformStack: mockStack}
+		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
+
+		var err error
+		stderrOutput := captureStderr(t, func() {
+			err = provisioner.Apply(context.Background(), createTestBlueprint(), "remote/path")
+		})
+
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		if !strings.Contains(stderrOutput, "remote/old-path") {
+			t.Errorf("Expected a warning naming the orphaned componentID, got: %q", stderrOutput)
+		}
+	})
+}
+
 func TestProvisioner_MigrateState(t *testing.T) {
 	t.Run("ErrorNilBlueprint", func(t *testing.T) {
 		mocks := setupProvisionerMocks(t)
@@ -649,1547 +851,6 @@ func TestProvisioner_OnTerraformApply(t *testing.T) {
 	})
 }
 
-func TestProvisioner_Down(t *testing.T) {
-	// createWorkstationBlueprint returns a blueprint with a "workstation" terraform component.
-	createWorkstationBlueprint := func() *blueprintv1alpha1.Blueprint {
-		bp := createTestBlueprint()
-		bp.TerraformComponents = append(bp.TerraformComponents, blueprintv1alpha1.TerraformComponent{
-			Path: "workstation",
-		})
-		return bp
-	}
-
-	t.Run("SuccessNoopWhenNoWorkstationComponent", func(t *testing.T) {
-		mocks := setupProvisionerMocks(t)
-		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler)
-
-		// Blueprint without a "workstation" component — Down should be a no-op
-		err := provisioner.Down(context.Background(), createTestBlueprint())
-
-		if err != nil {
-			t.Errorf("Expected no error, got: %v", err)
-		}
-	})
-
-	t.Run("SuccessDestroysWorkstationComponent", func(t *testing.T) {
-		mocks := setupProvisionerMocks(t)
-		destroyed := ""
-		mockStack := terraforminfra.NewMockStack()
-		mockStack.DestroyFunc = func(bp *blueprintv1alpha1.Blueprint, componentID string) (bool, error) {
-			destroyed = componentID
-			return false, nil
-		}
-		opts := &Provisioner{TerraformStack: mockStack}
-		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
-
-		err := provisioner.Down(context.Background(), createWorkstationBlueprint())
-
-		if err != nil {
-			t.Errorf("Expected no error, got: %v", err)
-		}
-		if destroyed != "workstation" {
-			t.Errorf("Expected workstation component to be destroyed, got: %q", destroyed)
-		}
-	})
-
-	t.Run("ErrorNilBlueprint", func(t *testing.T) {
-		mocks := setupProvisionerMocks(t)
-		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler)
-
-		err := provisioner.Down(context.Background(), nil)
-
-		if err == nil {
-			t.Error("Expected error for nil blueprint")
-		}
-		if !strings.Contains(err.Error(), "blueprint not provided") {
-			t.Errorf("Expected specific error message, got: %v", err)
-		}
-	})
-
-	t.Run("SuccessNoopWhenTerraformDisabled", func(t *testing.T) {
-		mocks := setupProvisionerMocks(t)
-		mockConfigHandler := mocks.ConfigHandler.(*config.MockConfigHandler)
-		mockConfigHandler.GetBoolFunc = func(key string, defaultValue ...bool) bool {
-			if key == "terraform.enabled" {
-				return false
-			}
-			if len(defaultValue) > 0 {
-				return defaultValue[0]
-			}
-			return false
-		}
-		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler)
-
-		err := provisioner.Down(context.Background(), createWorkstationBlueprint())
-
-		if err != nil {
-			t.Errorf("Expected no error when terraform is disabled, got: %v", err)
-		}
-		if provisioner.TerraformStack != nil {
-			t.Error("Expected TerraformStack to remain nil when terraform is disabled")
-		}
-	})
-
-	t.Run("SuccessNoopWhenWorkstationDisabled", func(t *testing.T) {
-		mocks := setupProvisionerMocks(t)
-		destroyed := ""
-		mockStack := terraforminfra.NewMockStack()
-		mockStack.DestroyFunc = func(bp *blueprintv1alpha1.Blueprint, componentID string) (bool, error) {
-			destroyed = componentID
-			return false, nil
-		}
-		opts := &Provisioner{TerraformStack: mockStack}
-		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
-
-		// Blueprint with "workstation" component that is explicitly disabled
-		bp := createWorkstationBlueprint()
-		disabled := false
-		bp.TerraformComponents[len(bp.TerraformComponents)-1].Enabled = &blueprintv1alpha1.BoolExpression{Value: &disabled}
-
-		err := provisioner.Down(context.Background(), bp)
-
-		if err != nil {
-			t.Errorf("Expected no error for disabled workstation, got: %v", err)
-		}
-		if destroyed != "" {
-			t.Errorf("Expected Destroy not to be called for disabled workstation, got: %q", destroyed)
-		}
-	})
-
-	t.Run("ErrorWorkstationDestroyFails", func(t *testing.T) {
-		mocks := setupProvisionerMocks(t)
-		mockStack := terraforminfra.NewMockStack()
-		mockStack.DestroyFunc = func(bp *blueprintv1alpha1.Blueprint, componentID string) (bool, error) {
-			return false, fmt.Errorf("workstation destroy failed")
-		}
-		opts := &Provisioner{TerraformStack: mockStack}
-		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
-
-		err := provisioner.Down(context.Background(), createWorkstationBlueprint())
-
-		if err == nil {
-			t.Error("Expected error for workstation destroy failure")
-		}
-		if !strings.Contains(err.Error(), "failed to destroy workstation terraform component") {
-			t.Errorf("Expected specific error message, got: %v", err)
-		}
-	})
-}
-
-func TestProvisioner_DestroyAllTerraform(t *testing.T) {
-	t.Run("Success", func(t *testing.T) {
-		mocks := setupProvisionerMocks(t)
-		mockStack := terraforminfra.NewMockStack()
-		mockStack.DestroyAllFunc = func(bp *blueprintv1alpha1.Blueprint, _ bool, excludeIDs ...string) (terraforminfra.DestroyOutcome, error) {
-			return terraforminfra.DestroyOutcome{}, nil
-		}
-		opts := &Provisioner{KubernetesManager: mocks.KubernetesManager, TerraformStack: mockStack}
-		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
-
-		_, err := provisioner.DestroyAllTerraform(context.Background(), createTestBlueprint(), false)
-
-		if err != nil {
-			t.Errorf("Expected no error, got: %v", err)
-		}
-	})
-
-	t.Run("ErrorNilBlueprint", func(t *testing.T) {
-		mocks := setupProvisionerMocks(t)
-		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler)
-
-		_, err := provisioner.DestroyAllTerraform(context.Background(), nil, false)
-
-		if err == nil {
-			t.Error("Expected error for nil blueprint")
-		}
-		if !strings.Contains(err.Error(), "blueprint not provided") {
-			t.Errorf("Expected specific error message, got: %v", err)
-		}
-	})
-
-	t.Run("ErrorWhenTerraformDisabled", func(t *testing.T) {
-		mocks := setupProvisionerMocks(t)
-		mockConfigHandler := mocks.ConfigHandler.(*config.MockConfigHandler)
-		mockConfigHandler.GetBoolFunc = func(key string, defaultValue ...bool) bool {
-			if key == "terraform.enabled" {
-				return false
-			}
-			if len(defaultValue) > 0 {
-				return defaultValue[0]
-			}
-			return false
-		}
-		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler)
-
-		_, err := provisioner.DestroyAllTerraform(context.Background(), createTestBlueprint(), false)
-
-		if err == nil {
-			t.Error("Expected error when terraform is disabled")
-		}
-		if !strings.Contains(err.Error(), "terraform is disabled") {
-			t.Errorf("Expected 'terraform is disabled' error, got: %v", err)
-		}
-	})
-
-	t.Run("ErrorDestroyAllFails", func(t *testing.T) {
-		mocks := setupProvisionerMocks(t)
-		mockStack := terraforminfra.NewMockStack()
-		mockStack.DestroyAllFunc = func(bp *blueprintv1alpha1.Blueprint, _ bool, excludeIDs ...string) (terraforminfra.DestroyOutcome, error) {
-			return terraforminfra.DestroyOutcome{}, fmt.Errorf("terraform destroy all failed")
-		}
-		opts := &Provisioner{KubernetesManager: mocks.KubernetesManager, TerraformStack: mockStack}
-		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
-
-		_, err := provisioner.DestroyAllTerraform(context.Background(), createTestBlueprint(), false)
-
-		if err == nil {
-			t.Error("Expected error for terraform destroy all failure")
-		}
-		if !strings.Contains(err.Error(), "failed to run terraform destroy") {
-			t.Errorf("Expected specific error message, got: %v", err)
-		}
-	})
-
-	t.Run("DoesNotGateOnKubernetesReachability", func(t *testing.T) {
-		// Provisioner runs no reachability preflight at all; an unreachable cluster only
-		// ever surfaces from the terraform refresh/destroy timeout, not an upfront block.
-		mocks := setupProvisionerMocks(t)
-		mocks.KubernetesManager.WaitForKubernetesHealthyFunc = func(ctx context.Context, endpoint string, outputFunc func(string), nodeNames ...string) error {
-			return fmt.Errorf("connection refused")
-		}
-		mockStack := terraforminfra.NewMockStack()
-		destroyAllCalled := false
-		mockStack.DestroyAllFunc = func(bp *blueprintv1alpha1.Blueprint, _ bool, excludeIDs ...string) (terraforminfra.DestroyOutcome, error) {
-			destroyAllCalled = true
-			return terraforminfra.DestroyOutcome{}, nil
-		}
-		opts := &Provisioner{KubernetesManager: mocks.KubernetesManager, TerraformStack: mockStack}
-		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
-
-		if _, err := provisioner.DestroyAllTerraform(context.Background(), createTestBlueprint(), false); err != nil {
-			t.Fatalf("Expected no error: Provisioner must not gate on Kubernetes reachability, got: %v", err)
-		}
-		if !destroyAllCalled {
-			t.Error("Expected terraform DestroyAll to run: Provisioner must not gate on Kubernetes reachability itself")
-		}
-	})
-}
-
-func TestProvisioner_Plan(t *testing.T) {
-	t.Run("Success", func(t *testing.T) {
-		mocks := setupProvisionerMocks(t)
-		mockStack := terraforminfra.NewMockStack()
-		mockStack.PlanFunc = func(bp *blueprintv1alpha1.Blueprint, componentID string) error { return nil }
-		opts := &Provisioner{TerraformStack: mockStack}
-		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
-
-		err := provisioner.Plan(createTestBlueprint(), "remote/path")
-
-		if err != nil {
-			t.Errorf("Expected no error, got: %v", err)
-		}
-	})
-
-	t.Run("ErrorNilBlueprint", func(t *testing.T) {
-		mocks := setupProvisionerMocks(t)
-		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler)
-
-		err := provisioner.Plan(nil, "remote/path")
-
-		if err == nil {
-			t.Error("Expected error for nil blueprint")
-		}
-		if !strings.Contains(err.Error(), "blueprint not provided") {
-			t.Errorf("Expected specific error message, got: %v", err)
-		}
-	})
-
-	t.Run("ErrorWhenTerraformDisabled", func(t *testing.T) {
-		mocks := setupProvisionerMocks(t)
-		mockConfigHandler := mocks.ConfigHandler.(*config.MockConfigHandler)
-		mockConfigHandler.GetBoolFunc = func(key string, defaultValue ...bool) bool {
-			if key == "terraform.enabled" {
-				return false
-			}
-			if len(defaultValue) > 0 {
-				return defaultValue[0]
-			}
-			return false
-		}
-		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler)
-
-		err := provisioner.Plan(createTestBlueprint(), "remote/path")
-
-		if err == nil {
-			t.Error("Expected error when terraform is disabled")
-		}
-		if !strings.Contains(err.Error(), "terraform is disabled") {
-			t.Errorf("Expected 'terraform is disabled' error, got: %v", err)
-		}
-		if provisioner.TerraformStack != nil {
-			t.Error("Expected TerraformStack to remain nil when terraform is disabled")
-		}
-	})
-
-	t.Run("InitializesTerraformStackLazily", func(t *testing.T) {
-		// Given a provisioner with no pre-injected TerraformStack and terraform enabled
-		mocks := setupProvisionerMocks(t)
-		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler)
-
-		if provisioner.TerraformStack != nil {
-			t.Error("Expected TerraformStack to be nil before Plan() is called")
-		}
-
-		// When Plan() is called (it will fail because the directory doesn't exist, but
-		// the stack should still be lazily initialized before the plan runs)
-		_ = provisioner.Plan(createTestBlueprint(), "remote/path")
-
-		// Then TerraformStack should be initialized regardless of the plan outcome
-		if provisioner.TerraformStack == nil {
-			t.Error("Expected TerraformStack to be initialized after Plan() when terraform is enabled")
-		}
-	})
-
-	t.Run("ErrorTerraformStackPlan", func(t *testing.T) {
-		mocks := setupProvisionerMocks(t)
-		mockStack := terraforminfra.NewMockStack()
-		mockStack.PlanFunc = func(bp *blueprintv1alpha1.Blueprint, componentID string) error {
-			return fmt.Errorf("terraform stack plan failed")
-		}
-		opts := &Provisioner{TerraformStack: mockStack}
-		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
-
-		err := provisioner.Plan(createTestBlueprint(), "remote/path")
-
-		if err == nil {
-			t.Error("Expected error for terraform stack plan failure")
-		}
-		if !strings.Contains(err.Error(), "failed to run terraform plan for") {
-			t.Errorf("Expected specific error message, got: %v", err)
-		}
-	})
-}
-
-func TestProvisioner_Apply(t *testing.T) {
-	t.Run("Success", func(t *testing.T) {
-		mocks := setupProvisionerMocks(t)
-		mockStack := terraforminfra.NewMockStack()
-		mockStack.ApplyFunc = func(bp *blueprintv1alpha1.Blueprint, componentID string) error { return nil }
-		opts := &Provisioner{TerraformStack: mockStack}
-		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
-
-		err := provisioner.Apply(context.Background(), createTestBlueprint(), "remote/path")
-
-		if err != nil {
-			t.Errorf("Expected no error, got: %v", err)
-		}
-	})
-
-	t.Run("ErrorNilBlueprint", func(t *testing.T) {
-		mocks := setupProvisionerMocks(t)
-		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler)
-
-		err := provisioner.Apply(context.Background(), nil, "remote/path")
-
-		if err == nil {
-			t.Error("Expected error for nil blueprint")
-		}
-		if !strings.Contains(err.Error(), "blueprint not provided") {
-			t.Errorf("Expected specific error message, got: %v", err)
-		}
-	})
-
-	t.Run("ErrorWhenTerraformDisabled", func(t *testing.T) {
-		mocks := setupProvisionerMocks(t)
-		mockConfigHandler := mocks.ConfigHandler.(*config.MockConfigHandler)
-		mockConfigHandler.GetBoolFunc = func(key string, defaultValue ...bool) bool {
-			if key == "terraform.enabled" {
-				return false
-			}
-			if len(defaultValue) > 0 {
-				return defaultValue[0]
-			}
-			return false
-		}
-		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler)
-
-		err := provisioner.Apply(context.Background(), createTestBlueprint(), "remote/path")
-
-		if err == nil {
-			t.Error("Expected error when terraform is disabled")
-		}
-		if !strings.Contains(err.Error(), "terraform is disabled") {
-			t.Errorf("Expected 'terraform is disabled' error, got: %v", err)
-		}
-		if provisioner.TerraformStack != nil {
-			t.Error("Expected TerraformStack to remain nil when terraform is disabled")
-		}
-	})
-
-	t.Run("InitializesTerraformStackLazily", func(t *testing.T) {
-		mocks := setupProvisionerMocks(t)
-		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler)
-
-		if provisioner.TerraformStack != nil {
-			t.Error("Expected TerraformStack to be nil before Apply() is called")
-		}
-
-		_ = provisioner.Apply(context.Background(), createTestBlueprint(), "remote/path")
-
-		if provisioner.TerraformStack == nil {
-			t.Error("Expected TerraformStack to be initialized after Apply() when terraform is enabled")
-		}
-	})
-
-	t.Run("ErrorTerraformStackApply", func(t *testing.T) {
-		mocks := setupProvisionerMocks(t)
-		mockStack := terraforminfra.NewMockStack()
-		mockStack.ApplyFunc = func(bp *blueprintv1alpha1.Blueprint, componentID string) error {
-			return fmt.Errorf("terraform stack apply failed")
-		}
-		opts := &Provisioner{TerraformStack: mockStack}
-		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
-
-		err := provisioner.Apply(context.Background(), createTestBlueprint(), "remote/path")
-
-		if err == nil {
-			t.Error("Expected error for terraform stack apply failure")
-		}
-		if !strings.Contains(err.Error(), "failed to run terraform apply for") {
-			t.Errorf("Expected specific error message, got: %v", err)
-		}
-	})
-
-	t.Run("WarnsAboutOrphanedLocalStateBeforeApplying", func(t *testing.T) {
-		// windsorcli/cli#3367: `windsor apply terraform <component>` never ran the
-		// orphaned-local-state check at all — only Up did, and only outside a
-		// backend pivot. A single-component apply must surface the same warning,
-		// including under a plain local backend, which is the common case here.
-		mocks := setupProvisionerMocks(t)
-		mockCH := mocks.ConfigHandler.(*config.MockConfigHandler)
-		mockCH.GetStringFunc = func(key string, defaultValue ...string) string {
-			if key == "terraform.backend.type" {
-				return "local"
-			}
-			if len(defaultValue) > 0 {
-				return defaultValue[0]
-			}
-			return ""
-		}
-		mockStack := terraforminfra.NewMockStack()
-		mockStack.ApplyFunc = func(bp *blueprintv1alpha1.Blueprint, componentID string) error { return nil }
-		mockStack.ListLocalStateComponentIDsFunc = func() ([]string, error) {
-			return []string{"remote/old-path"}, nil
-		}
-		mockStack.HasLocalStateWithResourcesFunc = func(componentID string) (bool, error) {
-			return componentID == "remote/old-path", nil
-		}
-		opts := &Provisioner{TerraformStack: mockStack}
-		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
-
-		var err error
-		stderrOutput := captureStderr(t, func() {
-			err = provisioner.Apply(context.Background(), createTestBlueprint(), "remote/path")
-		})
-
-		if err != nil {
-			t.Fatalf("Expected no error, got %v", err)
-		}
-		if !strings.Contains(stderrOutput, "remote/old-path") {
-			t.Errorf("Expected a warning naming the orphaned componentID, got: %q", stderrOutput)
-		}
-	})
-}
-
-func TestProvisioner_ApplyKustomize(t *testing.T) {
-	t.Run("Success", func(t *testing.T) {
-		// Given a provisioner with a kubernetes manager that applies successfully
-		mocks := setupProvisionerMocks(t)
-		mocks.KubernetesManager.ApplyBlueprintFunc = func(bp *blueprintv1alpha1.Blueprint, namespace string) error {
-			return nil
-		}
-		opts := &Provisioner{KubernetesManager: mocks.KubernetesManager}
-		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
-
-		// When ApplyKustomize is called with a valid kustomization name
-		err := provisioner.ApplyKustomize(context.Background(), createTestBlueprint(), "test-kustomization")
-
-		// Then no error is returned
-		if err != nil {
-			t.Errorf("Expected no error, got: %v", err)
-		}
-	})
-
-	t.Run("WaitsForOnlyTheAppliedKustomization", func(t *testing.T) {
-		// Given a kubernetes manager whose readiness wait fails
-		mocks := setupProvisionerMocks(t)
-		var waitedFor []string
-		mocks.KubernetesManager.WaitForKustomizationsFunc = func(ctx context.Context, blueprint *blueprintv1alpha1.Blueprint, layers kubernetes.KustomizationReporter) error {
-			for _, k := range blueprint.Kustomizations {
-				waitedFor = append(waitedFor, k.Name)
-			}
-			return fmt.Errorf("wait failed")
-		}
-		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{KubernetesManager: mocks.KubernetesManager})
-
-		// When ApplyKustomize is called
-		err := provisioner.ApplyKustomize(context.Background(), createTestBlueprint(), "test-kustomization")
-
-		// Then the wait covers only that kustomization and its failure wraps ErrKustomizationsNotReady
-		if strings.Join(waitedFor, ",") != "test-kustomization" {
-			t.Errorf("Expected a wait on test-kustomization only, got %v", waitedFor)
-		}
-		if !errors.Is(err, ErrKustomizationsNotReady) {
-			t.Errorf("Expected a not-ready error, got %v", err)
-		}
-	})
-
-	t.Run("AppliesCrdLayerByName", func(t *testing.T) {
-		// Given a blueprint whose only kustomize layer is the crds: list
-		mocks := setupProvisionerMocks(t)
-		var applied *blueprintv1alpha1.Blueprint
-		mocks.KubernetesManager.ApplyBlueprintFunc = func(bp *blueprintv1alpha1.Blueprint, namespace string) error {
-			applied = bp
-			return nil
-		}
-		opts := &Provisioner{KubernetesManager: mocks.KubernetesManager}
-		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
-
-		// When applying the crds layer by name
-		if err := provisioner.ApplyKustomize(context.Background(), &blueprintv1alpha1.Blueprint{Crds: []string{"cert-manager-1.16.2"}}, "crds"); err != nil {
-			t.Fatalf("Expected no error, got: %v", err)
-		}
-
-		// Then the synthesized crds kustomization is the one applied
-		if applied == nil || len(applied.Kustomizations) != 1 || applied.Kustomizations[0].Name != "crds" {
-			t.Errorf("expected crds kustomization applied, got %+v", applied)
-		}
-	})
-
-	t.Run("ErrorNilBlueprint", func(t *testing.T) {
-		// Given a provisioner with no blueprint
-		mocks := setupProvisionerMocks(t)
-		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler)
-
-		// When ApplyKustomize is called with a nil blueprint
-		err := provisioner.ApplyKustomize(context.Background(), nil, "test-kustomization")
-
-		// Then an error is returned
-		if err == nil {
-			t.Error("Expected error for nil blueprint")
-		}
-		if !strings.Contains(err.Error(), "blueprint not provided") {
-			t.Errorf("Expected specific error message, got: %v", err)
-		}
-	})
-
-	t.Run("ErrorNilKubernetesManager", func(t *testing.T) {
-		// Given a provisioner with no kubernetes manager
-		mocks := setupProvisionerMocks(t)
-		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler)
-		provisioner.KubernetesManager = nil
-
-		// When ApplyKustomize is called
-		err := provisioner.ApplyKustomize(context.Background(), createTestBlueprint(), "test-kustomization")
-
-		// Then an error is returned
-		if err == nil {
-			t.Error("Expected error for nil kubernetes manager")
-		}
-		if !strings.Contains(err.Error(), "kubernetes manager not configured") {
-			t.Errorf("Expected specific error message, got: %v", err)
-		}
-	})
-
-	t.Run("ErrorKustomizationNotFound", func(t *testing.T) {
-		// Given a provisioner and a blueprint that does not contain the requested kustomization
-		mocks := setupProvisionerMocks(t)
-		opts := &Provisioner{KubernetesManager: mocks.KubernetesManager}
-		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
-
-		// When ApplyKustomize is called with a name not in the blueprint
-		err := provisioner.ApplyKustomize(context.Background(), createTestBlueprint(), "nonexistent")
-
-		// Then an error is returned
-		if err == nil {
-			t.Error("Expected error for missing kustomization")
-		}
-		if !strings.Contains(err.Error(), "not found in blueprint") {
-			t.Errorf("Expected specific error message, got: %v", err)
-		}
-	})
-
-	t.Run("ErrorDestroyOnly", func(t *testing.T) {
-		// Given a blueprint whose kustomization is marked destroyOnly
-		mocks := setupProvisionerMocks(t)
-		opts := &Provisioner{KubernetesManager: mocks.KubernetesManager}
-		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
-
-		destroyOnly := true
-		bp := createTestBlueprint()
-		bp.Kustomizations[0].DestroyOnly = &destroyOnly
-
-		// When ApplyKustomize is called with that kustomization name
-		err := provisioner.ApplyKustomize(context.Background(), bp, "test-kustomization")
-
-		// Then an error is returned indicating it cannot be applied
-		if err == nil {
-			t.Error("Expected error for destroyOnly kustomization")
-		}
-		if !strings.Contains(err.Error(), "destroy-only") {
-			t.Errorf("Expected destroy-only error message, got: %v", err)
-		}
-	})
-
-	t.Run("ErrorApplyBlueprintFails", func(t *testing.T) {
-		// Given a provisioner whose kubernetes manager returns an error
-		mocks := setupProvisionerMocks(t)
-		mocks.KubernetesManager.ApplyBlueprintFunc = func(bp *blueprintv1alpha1.Blueprint, namespace string) error {
-			return fmt.Errorf("apply blueprint failed")
-		}
-		opts := &Provisioner{KubernetesManager: mocks.KubernetesManager}
-		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
-
-		// When ApplyKustomize is called
-		err := provisioner.ApplyKustomize(context.Background(), createTestBlueprint(), "test-kustomization")
-
-		// Then an error is returned
-		if err == nil {
-			t.Error("Expected error for apply blueprint failure")
-		}
-		if !strings.Contains(err.Error(), "failed to apply kustomization") {
-			t.Errorf("Expected specific error message, got: %v", err)
-		}
-	})
-
-	t.Run("FiltersToSingleKustomization", func(t *testing.T) {
-		// Given a provisioner and a blueprint with multiple kustomizations
-		mocks := setupProvisionerMocks(t)
-		var appliedBlueprint *blueprintv1alpha1.Blueprint
-		mocks.KubernetesManager.ApplyBlueprintFunc = func(bp *blueprintv1alpha1.Blueprint, namespace string) error {
-			appliedBlueprint = bp
-			return nil
-		}
-		opts := &Provisioner{KubernetesManager: mocks.KubernetesManager}
-		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
-
-		// When ApplyKustomize is called with a specific kustomization name
-		err := provisioner.ApplyKustomize(context.Background(), createTestBlueprint(), "test-kustomization")
-
-		// Then only the named kustomization is passed to ApplyBlueprint
-		if err != nil {
-			t.Errorf("Expected no error, got: %v", err)
-		}
-		if len(appliedBlueprint.Kustomizations) != 1 {
-			t.Errorf("Expected 1 kustomization in filtered blueprint, got %d", len(appliedBlueprint.Kustomizations))
-		}
-		if appliedBlueprint.Kustomizations[0].Name != "test-kustomization" {
-			t.Errorf("Expected kustomization name 'test-kustomization', got %q", appliedBlueprint.Kustomizations[0].Name)
-		}
-	})
-
-	t.Run("PlacesNamedKustomizationSecret", func(t *testing.T) {
-		// Given a blueprint whose named kustomization declares a secret referencing a configured value
-		mocks := setupProvisionerMocks(t)
-		mocks.ConfigHandler.(*config.MockConfigHandler).GetContextValuesFunc = func() (map[string]any, error) {
-			return map[string]any{"hetzner": map[string]any{"token": "resolved-token"}}, nil
-		}
-		mocks.KubernetesManager.ApplyBlueprintFunc = func(*blueprintv1alpha1.Blueprint, string) error { return nil }
-		mocks.KubernetesManager.GetKustomizationInventoryFunc = func(name, namespace string) ([]kubernetes.InventoryEntry, error) {
-			return []kubernetes.InventoryEntry{{Kind: "Namespace", Name: "system-lb"}}, nil
-		}
-		var placedName, placedNs string
-		mocks.KubernetesManager.ApplySecretFunc = func(name, namespace string, stringData map[string]string, owner string) error {
-			placedName, placedNs = name, namespace
-			return nil
-		}
-		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{KubernetesManager: mocks.KubernetesManager})
-		blueprint := &blueprintv1alpha1.Blueprint{Kustomizations: []blueprintv1alpha1.Kustomization{
-			{Name: "lb-install", Secrets: map[string]blueprintv1alpha1.SecretEntry{
-				"hcloud": {Data: map[string]string{"token": "${hetzner.token}"}},
-			}},
-		}}
-
-		// When applying just that kustomization, its secret is placed into the namespace it created
-		if err := provisioner.ApplyKustomize(context.Background(), blueprint, "lb-install"); err != nil {
-			t.Fatalf("Expected no error, got: %v", err)
-		}
-		if placedName != "hcloud" || placedNs != "system-lb" {
-			t.Errorf("Expected hcloud placed into system-lb, got name=%q ns=%q", placedName, placedNs)
-		}
-	})
-}
-
-func TestProvisioner_ApplyKustomizeAll(t *testing.T) {
-	t.Run("Success", func(t *testing.T) {
-		// Given a provisioner with a kubernetes manager that applies successfully
-		mocks := setupProvisionerMocks(t)
-		mocks.KubernetesManager.ApplyBlueprintFunc = func(bp *blueprintv1alpha1.Blueprint, namespace string) error {
-			return nil
-		}
-		opts := &Provisioner{KubernetesManager: mocks.KubernetesManager}
-		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
-
-		// When ApplyKustomizeAll is called
-		err := provisioner.ApplyKustomizeAll(context.Background(), createTestBlueprint())
-
-		// Then no error is returned
-		if err != nil {
-			t.Errorf("Expected no error, got: %v", err)
-		}
-	})
-
-	t.Run("ErrorNilBlueprint", func(t *testing.T) {
-		// Given a provisioner with no blueprint
-		mocks := setupProvisionerMocks(t)
-		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler)
-
-		// When ApplyKustomizeAll is called with a nil blueprint
-		err := provisioner.ApplyKustomizeAll(context.Background(), nil)
-
-		// Then an error is returned
-		if err == nil {
-			t.Error("Expected error for nil blueprint")
-		}
-		if !strings.Contains(err.Error(), "blueprint not provided") {
-			t.Errorf("Expected specific error message, got: %v", err)
-		}
-	})
-
-	t.Run("ErrorNilKubernetesManager", func(t *testing.T) {
-		// Given a provisioner with no kubernetes manager
-		mocks := setupProvisionerMocks(t)
-		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler)
-		provisioner.KubernetesManager = nil
-
-		// When ApplyKustomizeAll is called
-		err := provisioner.ApplyKustomizeAll(context.Background(), createTestBlueprint())
-
-		// Then an error is returned
-		if err == nil {
-			t.Error("Expected error for nil kubernetes manager")
-		}
-		if !strings.Contains(err.Error(), "kubernetes manager not configured") {
-			t.Errorf("Expected specific error message, got: %v", err)
-		}
-	})
-
-	t.Run("ErrorApplyBlueprintFails", func(t *testing.T) {
-		// Given a provisioner whose kubernetes manager returns an error
-		mocks := setupProvisionerMocks(t)
-		mocks.KubernetesManager.ApplyBlueprintFunc = func(bp *blueprintv1alpha1.Blueprint, namespace string) error {
-			return fmt.Errorf("apply blueprint failed")
-		}
-		opts := &Provisioner{KubernetesManager: mocks.KubernetesManager}
-		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
-
-		// When ApplyKustomizeAll is called
-		err := provisioner.ApplyKustomizeAll(context.Background(), createTestBlueprint())
-
-		// Then an error is returned
-		if err == nil {
-			t.Error("Expected error for apply blueprint failure")
-		}
-		if !strings.Contains(err.Error(), "failed to apply blueprint") {
-			t.Errorf("Expected specific error message, got: %v", err)
-		}
-	})
-}
-
-func TestProvisioner_WriteVersionMarker(t *testing.T) {
-	t.Run("WritesMarkerToGitopsNamespaceFromBlueprintSources", func(t *testing.T) {
-		// Given a provisioner capturing the version marker write
-		mocks := setupProvisionerMocks(t)
-		var capturedNamespace string
-		var capturedMarker kubernetes.VersionMarker
-		mocks.KubernetesManager.ApplyVersionMarkerFunc = func(namespace string, marker kubernetes.VersionMarker) error {
-			capturedNamespace = namespace
-			capturedMarker = marker
-			return nil
-		}
-		opts := &Provisioner{KubernetesManager: mocks.KubernetesManager}
-		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
-
-		// When writing the marker for a blueprint with one remote source
-		if err := provisioner.WriteVersionMarker(createTestBlueprint()); err != nil {
-			t.Fatalf("Expected no error, got %v", err)
-		}
-
-		// Then it is written to the gitops namespace recording the source's resolved ref
-		if capturedNamespace != provisioner.fluxNamespace() {
-			t.Errorf("Expected namespace %q, got %q", provisioner.fluxNamespace(), capturedNamespace)
-		}
-		if capturedMarker.AppliedSources["source1"].Ref != "main" {
-			t.Errorf("Expected source1 ref 'main', got %q", capturedMarker.AppliedSources["source1"].Ref)
-		}
-	})
-
-	t.Run("NilBlueprintReturnsError", func(t *testing.T) {
-		mocks := setupProvisionerMocks(t)
-		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{KubernetesManager: mocks.KubernetesManager})
-		if err := provisioner.WriteVersionMarker(nil); err == nil {
-			t.Error("Expected error for nil blueprint")
-		}
-	})
-
-	t.Run("NilManagerReturnsError", func(t *testing.T) {
-		mocks := setupProvisionerMocks(t)
-		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{KubernetesManager: mocks.KubernetesManager})
-		provisioner.KubernetesManager = nil
-		if err := provisioner.WriteVersionMarker(createTestBlueprint()); err == nil {
-			t.Error("Expected error for nil kubernetes manager")
-		}
-	})
-}
-
-func TestProvisioner_Prune(t *testing.T) {
-	t.Run("DelegatesToManagerWithGitopsNamespace", func(t *testing.T) {
-		// Given a provisioner capturing the prune call
-		mocks := setupProvisionerMocks(t)
-		var capturedNamespace string
-		var capturedBlueprint *blueprintv1alpha1.Blueprint
-		mocks.KubernetesManager.PruneBlueprintFunc = func(blueprint *blueprintv1alpha1.Blueprint, namespace string) error {
-			capturedNamespace = namespace
-			capturedBlueprint = blueprint
-			return nil
-		}
-		opts := &Provisioner{KubernetesManager: mocks.KubernetesManager}
-		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
-
-		// And a blueprint that vendors CRDs, so Prune must synthesize the CRD layer
-		blueprint := createTestBlueprint()
-		blueprint.Crds = []string{"example.com_widgets"}
-
-		// When pruning
-		if err := provisioner.Prune(context.Background(), blueprint); err != nil {
-			t.Fatalf("Expected no error, got %v", err)
-		}
-
-		// Then it delegates to the manager against the gitops namespace
-		if capturedNamespace != provisioner.fluxNamespace() {
-			t.Errorf("Expected namespace %q, got %q", provisioner.fluxNamespace(), capturedNamespace)
-		}
-
-		// And the captured blueprint carries the synthesized CRD layer, proving withCrdLayer
-		// was applied so the CRD kustomizations stay in the desired set and are never pruned
-		if capturedBlueprint == nil {
-			t.Fatal("Expected a blueprint to be passed to the manager")
-		}
-		crdName := blueprintv1alpha1.CrdKustomizationName("")
-		found := false
-		names := make([]string, 0, len(capturedBlueprint.Kustomizations))
-		for _, k := range capturedBlueprint.Kustomizations {
-			names = append(names, k.Name)
-			if k.Name == crdName {
-				found = true
-			}
-		}
-		if !found {
-			t.Errorf("Expected synthesized CRD kustomization %q in pruned blueprint, got %v", crdName, names)
-		}
-	})
-
-	t.Run("NilBlueprintReturnsError", func(t *testing.T) {
-		mocks := setupProvisionerMocks(t)
-		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{KubernetesManager: mocks.KubernetesManager})
-		if err := provisioner.Prune(context.Background(), nil); err == nil {
-			t.Error("Expected error for nil blueprint")
-		}
-	})
-
-	t.Run("NilManagerReturnsError", func(t *testing.T) {
-		mocks := setupProvisionerMocks(t)
-		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{KubernetesManager: mocks.KubernetesManager})
-		provisioner.KubernetesManager = nil
-		if err := provisioner.Prune(context.Background(), createTestBlueprint()); err == nil {
-			t.Error("Expected error for nil kubernetes manager")
-		}
-	})
-}
-
-func TestProvisioner_PrunableKustomizations(t *testing.T) {
-	t.Run("DelegatesAndReturnsNames", func(t *testing.T) {
-		// Given a manager that reports an orphan kustomization
-		mocks := setupProvisionerMocks(t)
-		var capturedNamespace string
-		mocks.KubernetesManager.ListPrunableKustomizationsFunc = func(bp *blueprintv1alpha1.Blueprint, namespace string) ([]string, error) {
-			capturedNamespace = namespace
-			return []string{"old-thing"}, nil
-		}
-		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{KubernetesManager: mocks.KubernetesManager})
-
-		// When listing prunable kustomizations
-		got, err := provisioner.PrunableKustomizations(createTestBlueprint())
-		if err != nil {
-			t.Fatalf("Expected no error, got %v", err)
-		}
-
-		// Then it delegates against the gitops namespace and returns the names
-		if capturedNamespace != provisioner.fluxNamespace() {
-			t.Errorf("Expected namespace %q, got %q", provisioner.fluxNamespace(), capturedNamespace)
-		}
-		if len(got) != 1 || got[0] != "old-thing" {
-			t.Errorf("Expected [old-thing], got %v", got)
-		}
-	})
-
-	t.Run("NilBlueprintReturnsError", func(t *testing.T) {
-		mocks := setupProvisionerMocks(t)
-		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{KubernetesManager: mocks.KubernetesManager})
-		if _, err := provisioner.PrunableKustomizations(nil); err == nil {
-			t.Error("Expected error for nil blueprint")
-		}
-	})
-
-	t.Run("NilManagerReturnsError", func(t *testing.T) {
-		mocks := setupProvisionerMocks(t)
-		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{KubernetesManager: mocks.KubernetesManager})
-		provisioner.KubernetesManager = nil
-		if _, err := provisioner.PrunableKustomizations(createTestBlueprint()); err == nil {
-			t.Error("Expected error for nil kubernetes manager")
-		}
-	})
-}
-
-func TestProvisioner_GetVersionMarker(t *testing.T) {
-	t.Run("DelegatesToManagerWhenKubeconfigPresent", func(t *testing.T) {
-		// Given a manager that returns a marker and a context with a kubeconfig
-		mocks := setupProvisionerMocks(t)
-		mocks.KubernetesManager.GetVersionMarkerFunc = func(namespace string) (kubernetes.VersionMarker, bool, error) {
-			return kubernetes.VersionMarker{Phase: kubernetes.VersionMarkerPhaseIdle}, true, nil
-		}
-		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{KubernetesManager: mocks.KubernetesManager})
-
-		// When the marker is read
-		_, found, err := provisioner.GetVersionMarker()
-		if err != nil {
-			t.Fatalf("Expected no error, got %v", err)
-		}
-		if !found {
-			t.Error("Expected the marker to be found")
-		}
-	})
-
-	t.Run("ReturnsAbsentWithoutClusterWhenNoKubeconfig", func(t *testing.T) {
-		// Given a context whose config root has no kubeconfig (no cluster)
-		mocks := setupProvisionerMocks(t)
-		mocks.Runtime.ConfigRoot = t.TempDir()
-		called := false
-		mocks.KubernetesManager.GetVersionMarkerFunc = func(namespace string) (kubernetes.VersionMarker, bool, error) {
-			called = true
-			return kubernetes.VersionMarker{}, false, fmt.Errorf("should not be called")
-		}
-		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{KubernetesManager: mocks.KubernetesManager})
-
-		// When the marker is read
-		_, found, err := provisioner.GetVersionMarker()
-
-		// Then it reports absent without consulting the cluster
-		if err != nil {
-			t.Fatalf("Expected no error, got %v", err)
-		}
-		if found {
-			t.Error("Expected found=false when no kubeconfig is present")
-		}
-		if called {
-			t.Error("Expected the cluster not to be consulted when no kubeconfig is present")
-		}
-	})
-
-	t.Run("NilManagerReturnsError", func(t *testing.T) {
-		mocks := setupProvisionerMocks(t)
-		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{KubernetesManager: mocks.KubernetesManager})
-		provisioner.KubernetesManager = nil
-		if _, _, err := provisioner.GetVersionMarker(); err == nil {
-			t.Error("Expected error for nil kubernetes manager")
-		}
-	})
-}
-
-func TestProvisioner_BeginVersionTransition(t *testing.T) {
-	t.Run("PreservesAppliedAndRecordsTargetUnderUpgradingPhase", func(t *testing.T) {
-		// Given a context already running an older version
-		mocks := setupProvisionerMocks(t)
-		mocks.KubernetesManager.GetVersionMarkerFunc = func(namespace string) (kubernetes.VersionMarker, bool, error) {
-			return kubernetes.VersionMarker{
-				Phase:          kubernetes.VersionMarkerPhaseIdle,
-				AppliedSources: map[string]kubernetes.SourceRef{"source1": {URL: "old", Ref: "v0"}},
-			}, true, nil
-		}
-		var captured kubernetes.VersionMarker
-		mocks.KubernetesManager.ApplyVersionMarkerFunc = func(namespace string, marker kubernetes.VersionMarker) error {
-			captured = marker
-			return nil
-		}
-		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{KubernetesManager: mocks.KubernetesManager})
-
-		// When beginning a transition toward the blueprint
-		if err := provisioner.BeginVersionTransition(createTestBlueprint()); err != nil {
-			t.Fatalf("Expected no error, got %v", err)
-		}
-
-		// Then the written marker is in-flight, preserves the old applied set, and records the new target
-		if captured.Phase != kubernetes.VersionMarkerPhaseUpgrading {
-			t.Errorf("Expected phase %q, got %q", kubernetes.VersionMarkerPhaseUpgrading, captured.Phase)
-		}
-		if captured.AppliedSources["source1"].Ref != "v0" {
-			t.Errorf("Expected applied ref preserved as 'v0', got %q", captured.AppliedSources["source1"].Ref)
-		}
-		target, _ := kubernetes.BuildVersionMarker(createTestBlueprint())
-		if !kubernetes.SourcesEqual(captured.TargetSources, target.AppliedSources) {
-			t.Errorf("Expected target to equal the blueprint source set, got %+v", captured.TargetSources)
-		}
-	})
-
-	t.Run("EmptyAppliedForLegacyContext", func(t *testing.T) {
-		// Given a legacy/first-upgrade context with no recorded marker
-		mocks := setupProvisionerMocks(t)
-		mocks.KubernetesManager.GetVersionMarkerFunc = func(namespace string) (kubernetes.VersionMarker, bool, error) {
-			return kubernetes.VersionMarker{}, false, nil
-		}
-		var captured kubernetes.VersionMarker
-		mocks.KubernetesManager.ApplyVersionMarkerFunc = func(namespace string, marker kubernetes.VersionMarker) error {
-			captured = marker
-			return nil
-		}
-		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{KubernetesManager: mocks.KubernetesManager})
-
-		// When beginning a transition
-		if err := provisioner.BeginVersionTransition(createTestBlueprint()); err != nil {
-			t.Fatalf("Expected no error, got %v", err)
-		}
-
-		// Then there is no applied set to preserve, but the target is still recorded
-		if len(captured.AppliedSources) != 0 {
-			t.Errorf("Expected empty applied set for a legacy context, got %+v", captured.AppliedSources)
-		}
-		if len(captured.TargetSources) == 0 {
-			t.Error("Expected the target set to be recorded")
-		}
-	})
-
-	t.Run("ReadFailurePropagates", func(t *testing.T) {
-		// Given a marker read that fails
-		mocks := setupProvisionerMocks(t)
-		mocks.KubernetesManager.GetVersionMarkerFunc = func(namespace string) (kubernetes.VersionMarker, bool, error) {
-			return kubernetes.VersionMarker{}, false, fmt.Errorf("connection refused")
-		}
-		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{KubernetesManager: mocks.KubernetesManager})
-
-		// When beginning a transition, the read error surfaces rather than writing a wrong marker
-		if err := provisioner.BeginVersionTransition(createTestBlueprint()); err == nil {
-			t.Error("Expected an error when the current marker cannot be read")
-		}
-	})
-
-	t.Run("NilBlueprintReturnsError", func(t *testing.T) {
-		mocks := setupProvisionerMocks(t)
-		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{KubernetesManager: mocks.KubernetesManager})
-		if err := provisioner.BeginVersionTransition(nil); err == nil {
-			t.Error("Expected error for nil blueprint")
-		}
-	})
-
-	t.Run("NilManagerReturnsError", func(t *testing.T) {
-		mocks := setupProvisionerMocks(t)
-		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{KubernetesManager: mocks.KubernetesManager})
-		provisioner.KubernetesManager = nil
-		if err := provisioner.BeginVersionTransition(createTestBlueprint()); err == nil {
-			t.Error("Expected error for nil kubernetes manager")
-		}
-	})
-}
-
-func TestProvisioner_CheckVersionGate(t *testing.T) {
-	// matchingMarker returns a settled marker whose source set equals the test blueprint's.
-	matchingMarker := func() kubernetes.VersionMarker {
-		target, err := kubernetes.BuildVersionMarker(createTestBlueprint())
-		if err != nil {
-			t.Fatalf("build target marker: %v", err)
-		}
-		return target
-	}
-
-	t.Run("MarkerNotFoundIsTreatedAsLegacy", func(t *testing.T) {
-		// Given no marker recorded for the context
-		mocks := setupProvisionerMocks(t)
-		mocks.KubernetesManager.GetVersionMarkerFunc = func(namespace string) (kubernetes.VersionMarker, bool, error) {
-			return kubernetes.VersionMarker{}, false, nil
-		}
-		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{KubernetesManager: mocks.KubernetesManager})
-
-		// When the gate is checked
-		gate, err := provisioner.CheckVersionGate(createTestBlueprint())
-		if err != nil {
-			t.Fatalf("Expected no error, got %v", err)
-		}
-
-		// Then it reports no marker — the caller proceeds as a legacy/pre-bootstrap context
-		if gate.MarkerFound {
-			t.Error("Expected MarkerFound=false when no marker is recorded")
-		}
-	})
-
-	t.Run("VersionMatchesWhenSourceSetEqualsApplied", func(t *testing.T) {
-		// Given a settled marker whose source set matches the blueprint
-		mocks := setupProvisionerMocks(t)
-		mocks.KubernetesManager.GetVersionMarkerFunc = func(namespace string) (kubernetes.VersionMarker, bool, error) {
-			return matchingMarker(), true, nil
-		}
-		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{KubernetesManager: mocks.KubernetesManager})
-
-		// When the gate is checked
-		gate, err := provisioner.CheckVersionGate(createTestBlueprint())
-		if err != nil {
-			t.Fatalf("Expected no error, got %v", err)
-		}
-
-		// Then it reports a settled, matching version
-		if !gate.MarkerFound || gate.InFlight || !gate.VersionMatch {
-			t.Errorf("Expected found+match+settled, got %+v", gate)
-		}
-	})
-
-	t.Run("VersionDiffersWhenSourceRefChanged", func(t *testing.T) {
-		// Given a marker whose source ref differs from the blueprint
-		mocks := setupProvisionerMocks(t)
-		mocks.KubernetesManager.GetVersionMarkerFunc = func(namespace string) (kubernetes.VersionMarker, bool, error) {
-			marker := matchingMarker()
-			for name, ref := range marker.AppliedSources {
-				ref.Ref = "different"
-				marker.AppliedSources[name] = ref
-			}
-			return marker, true, nil
-		}
-		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{KubernetesManager: mocks.KubernetesManager})
-
-		// When the gate is checked
-		gate, err := provisioner.CheckVersionGate(createTestBlueprint())
-		if err != nil {
-			t.Fatalf("Expected no error, got %v", err)
-		}
-
-		// Then the version does not match — apply must redirect to upgrade
-		if !gate.MarkerFound || gate.VersionMatch {
-			t.Errorf("Expected found with VersionMatch=false, got %+v", gate)
-		}
-	})
-
-	t.Run("InFlightWhenMarkerPhaseNotIdle", func(t *testing.T) {
-		// Given a marker mid-transition
-		mocks := setupProvisionerMocks(t)
-		mocks.KubernetesManager.GetVersionMarkerFunc = func(namespace string) (kubernetes.VersionMarker, bool, error) {
-			marker := matchingMarker()
-			marker.Phase = "migrating"
-			return marker, true, nil
-		}
-		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{KubernetesManager: mocks.KubernetesManager})
-
-		// When the gate is checked
-		gate, err := provisioner.CheckVersionGate(createTestBlueprint())
-		if err != nil {
-			t.Fatalf("Expected no error, got %v", err)
-		}
-
-		// Then it reports an in-flight transition
-		if !gate.InFlight {
-			t.Errorf("Expected InFlight=true for a non-idle phase, got %+v", gate)
-		}
-	})
-
-	t.Run("NoKubeconfigShortCircuitsToLegacy", func(t *testing.T) {
-		// Given a context with no kubeconfig (no cluster)
-		mocks := setupProvisionerMocks(t)
-		mocks.Runtime.ConfigRoot = t.TempDir()
-		mocks.KubernetesManager.GetVersionMarkerFunc = func(namespace string) (kubernetes.VersionMarker, bool, error) {
-			return kubernetes.VersionMarker{}, false, fmt.Errorf("should not be called")
-		}
-		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{KubernetesManager: mocks.KubernetesManager})
-
-		// When the gate is checked, it short-circuits to "nothing applied"
-		gate, err := provisioner.CheckVersionGate(createTestBlueprint())
-		if err != nil {
-			t.Fatalf("Expected no error, got %v", err)
-		}
-		if gate.MarkerFound {
-			t.Error("Expected MarkerFound=false with no kubeconfig")
-		}
-	})
-
-	t.Run("ReadFailurePropagates", func(t *testing.T) {
-		// Given a marker read that fails (cluster unreachable)
-		mocks := setupProvisionerMocks(t)
-		mocks.KubernetesManager.GetVersionMarkerFunc = func(namespace string) (kubernetes.VersionMarker, bool, error) {
-			return kubernetes.VersionMarker{}, false, fmt.Errorf("connection refused")
-		}
-		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{KubernetesManager: mocks.KubernetesManager})
-
-		// When the gate is checked, the error surfaces for the caller to treat as best-effort
-		if _, err := provisioner.CheckVersionGate(createTestBlueprint()); err == nil {
-			t.Error("Expected an error when the marker read fails")
-		}
-	})
-
-	t.Run("NilBlueprintReturnsError", func(t *testing.T) {
-		mocks := setupProvisionerMocks(t)
-		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{KubernetesManager: mocks.KubernetesManager})
-		if _, err := provisioner.CheckVersionGate(nil); err == nil {
-			t.Error("Expected error for nil blueprint")
-		}
-	})
-}
-
-func TestProvisioner_Install(t *testing.T) {
-	t.Run("Success", func(t *testing.T) {
-		mocks := setupProvisionerMocks(t)
-		mocks.KubernetesManager.ApplyBlueprintFunc = func(blueprint *blueprintv1alpha1.Blueprint, namespace string) error {
-			return nil
-		}
-		opts := &Provisioner{
-			KubernetesManager: mocks.KubernetesManager,
-		}
-		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
-
-		blueprint := createTestBlueprint()
-		err := provisioner.Install(context.Background(), blueprint, false)
-
-		if err != nil {
-			t.Errorf("Expected no error, got: %v", err)
-		}
-	})
-
-	t.Run("AppliesKustomizationsAsOneSectionWithAStepPerLayer", func(t *testing.T) {
-		// Given a provisioner with a recording presenter
-		mocks := setupProvisionerMocks(t)
-		mocks.KubernetesManager.ApplyBlueprintFunc = func(blueprint *blueprintv1alpha1.Blueprint, namespace string) error {
-			return nil
-		}
-		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{KubernetesManager: mocks.KubernetesManager})
-		rec := &eventRecorder{}
-
-		// When the blueprint resources are installed
-		err := provisioner.Install(presenter.NewContext(context.Background(), rec), createTestBlueprint(), false)
-
-		// Then one "Applying kustomizations" section holds a step per kustomization, and both end as applied
-		if err != nil {
-			t.Fatalf("expected no error, got %v", err)
-		}
-		if ops := rec.operations(); len(ops) != 2 || ops[0] != "Applying kustomizations" || ops[1] != "test-kustomization" {
-			t.Fatalf("unexpected operations %v", ops)
-		}
-		if rec.events[1].ParentID != rec.events[0].ID {
-			t.Errorf("expected the layer step under the section, got %+v", rec.events[1])
-		}
-		var applied []string
-		for _, e := range rec.events {
-			if e.Kind == presenter.KindApplied {
-				applied = append(applied, e.Message)
-			}
-		}
-		if strings.Join(applied, ",") != "test-kustomization,Applying kustomizations" {
-			t.Errorf("expected the layer then the section to end as applied, got %v", applied)
-		}
-	})
-
-	t.Run("MaterializesCrdLayerFromLocalCrdsList", func(t *testing.T) {
-		// Given a blueprint whose crds: is a flat list of local references
-		mocks := setupProvisionerMocks(t)
-		var applied *blueprintv1alpha1.Blueprint
-		mocks.KubernetesManager.ApplyBlueprintFunc = func(blueprint *blueprintv1alpha1.Blueprint, namespace string) error {
-			applied = blueprint
-			return nil
-		}
-		opts := &Provisioner{KubernetesManager: mocks.KubernetesManager}
-		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
-		blueprint := &blueprintv1alpha1.Blueprint{
-			Crds:           []string{"gateway-api-experimental-1.5.1", "envoy-gateway-1.7.1"},
-			Kustomizations: []blueprintv1alpha1.Kustomization{{Name: "cert-manager", DependsOn: []string{"crds"}}},
-		}
-
-		// When installing
-		if err := provisioner.Install(context.Background(), blueprint, false); err != nil {
-			t.Fatalf("Expected no error, got: %v", err)
-		}
-
-		// Then a "crds" kustomization is materialized ahead of the stack, bound to the default/project
-		// source, with the references as its components, pruning disabled and wait enabled
-		if applied == nil || len(applied.Kustomizations) != 2 {
-			t.Fatalf("expected crds kustomization prepended, got %+v", applied)
-		}
-		crd := applied.Kustomizations[0]
-		if crd.Name != "crds" || crd.Path != "crds" || crd.Source != "" {
-			t.Errorf("expected name 'crds' path 'crds' source '', got name=%q path=%q source=%q", crd.Name, crd.Path, crd.Source)
-		}
-		if !slices.Equal(crd.Components, []string{"gateway-api-experimental-1.5.1", "envoy-gateway-1.7.1"}) {
-			t.Errorf("expected components from the local crds list, got %v", crd.Components)
-		}
-		if crd.Prune == nil || *crd.Prune != false || crd.Wait == nil || *crd.Wait != true {
-			t.Errorf("expected prune=false wait=true, got prune=%v wait=%v", crd.Prune, crd.Wait)
-		}
-		// And the caller's blueprint is not mutated
-		if len(blueprint.Kustomizations) != 1 {
-			t.Errorf("expected caller blueprint untouched, got %+v", blueprint.Kustomizations)
-		}
-	})
-
-	t.Run("MaterializesBackgroundLayerPerInstallSource", func(t *testing.T) {
-		// Given CRDs carried by two different install sources
-		mocks := setupProvisionerMocks(t)
-		var applied *blueprintv1alpha1.Blueprint
-		mocks.KubernetesManager.ApplyBlueprintFunc = func(blueprint *blueprintv1alpha1.Blueprint, namespace string) error {
-			applied = blueprint
-			return nil
-		}
-		opts := &Provisioner{KubernetesManager: mocks.KubernetesManager}
-		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
-		installed := true
-		install := &blueprintv1alpha1.BoolExpression{Value: &installed}
-		blueprint := &blueprintv1alpha1.Blueprint{
-			Sources: []blueprintv1alpha1.Source{
-				{Name: "core", Install: install, Crds: []string{"cert-manager-1.16.2"}},
-				{Name: "acme-oci", Install: install, Crds: []string{"acme-crd-2.0.0"}},
-			},
-			Kustomizations: []blueprintv1alpha1.Kustomization{{Name: "app", DependsOn: []string{"crds-core", "crds-acme-oci"}}},
-		}
-
-		// When installing
-		if err := provisioner.Install(context.Background(), blueprint, false); err != nil {
-			t.Fatalf("Expected no error, got: %v", err)
-		}
-
-		// Then each install source gets its own background layer (alphabetical), bound to its source
-		if applied == nil || len(applied.Kustomizations) != 3 {
-			t.Fatalf("expected two crds layers prepended, got %+v", applied)
-		}
-		acme, core := applied.Kustomizations[0], applied.Kustomizations[1]
-		if acme.Name != "crds-acme-oci" || acme.Source != "acme-oci" {
-			t.Errorf("expected crds-acme-oci bound to acme-oci, got name=%q source=%q", acme.Name, acme.Source)
-		}
-		if core.Name != "crds-core" || core.Source != "core" {
-			t.Errorf("expected crds-core bound to core, got name=%q source=%q", core.Name, core.Source)
-		}
-	})
-
-	t.Run("ErrorNilBlueprint", func(t *testing.T) {
-		mocks := setupProvisionerMocks(t)
-		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler)
-
-		err := provisioner.Install(context.Background(), nil, false)
-
-		if err == nil {
-			t.Error("Expected error for nil blueprint")
-		}
-
-		if !strings.Contains(err.Error(), "blueprint not provided") {
-			t.Errorf("Expected specific error message, got: %v", err)
-		}
-	})
-
-	t.Run("ErrorNilKubernetesManager", func(t *testing.T) {
-		mocks := setupProvisionerMocks(t)
-		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler)
-		provisioner.KubernetesManager = nil
-
-		blueprint := createTestBlueprint()
-		err := provisioner.Install(context.Background(), blueprint, false)
-
-		if err == nil {
-			t.Error("Expected error for nil kubernetes manager")
-		}
-
-		if !strings.Contains(err.Error(), "kubernetes manager not configured") {
-			t.Errorf("Expected specific error message, got: %v", err)
-		}
-	})
-
-	t.Run("ErrorApplyBlueprint", func(t *testing.T) {
-		mocks := setupProvisionerMocks(t)
-		mocks.KubernetesManager.ApplyBlueprintFunc = func(blueprint *blueprintv1alpha1.Blueprint, namespace string) error {
-			return fmt.Errorf("apply blueprint failed")
-		}
-		opts := &Provisioner{
-			KubernetesManager: mocks.KubernetesManager,
-		}
-		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
-
-		blueprint := createTestBlueprint()
-		err := provisioner.Install(context.Background(), blueprint, false)
-
-		if err == nil {
-			t.Error("Expected error for apply blueprint failure")
-		}
-
-		if !strings.Contains(err.Error(), "failed to apply blueprint") {
-			t.Errorf("Expected specific error message, got: %v", err)
-		}
-	})
-
-	t.Run("ResolvesAndPlacesDeclaredSecrets", func(t *testing.T) {
-		// Given a blueprint whose kustomization declares a secret referencing a configured value
-		mocks := setupProvisionerMocks(t)
-		mocks.ConfigHandler.(*config.MockConfigHandler).GetContextValuesFunc = func() (map[string]any, error) {
-			return map[string]any{"hetzner": map[string]any{"token": "resolved-token"}}, nil
-		}
-		mocks.KubernetesManager.ApplyBlueprintFunc = func(*blueprintv1alpha1.Blueprint, string) error { return nil }
-		mocks.KubernetesManager.GetKustomizationInventoryFunc = func(name, namespace string) ([]kubernetes.InventoryEntry, error) {
-			return []kubernetes.InventoryEntry{{Kind: "Namespace", Name: "system-lb"}}, nil
-		}
-		var placedName, placedNs string
-		var placedData map[string]string
-		mocks.KubernetesManager.ApplySecretFunc = func(name, namespace string, stringData map[string]string, owner string) error {
-			placedName, placedNs, placedData = name, namespace, stringData
-			return nil
-		}
-		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{KubernetesManager: mocks.KubernetesManager})
-		blueprint := &blueprintv1alpha1.Blueprint{Kustomizations: []blueprintv1alpha1.Kustomization{
-			{Name: "lb-install", Secrets: map[string]blueprintv1alpha1.SecretEntry{
-				"hcloud": {Data: map[string]string{"token": "${hetzner.token}"}},
-			}},
-		}}
-
-		// When installing, the declared secret is placed into the namespace its kustomization created
-		if err := provisioner.Install(context.Background(), blueprint, false); err != nil {
-			t.Fatalf("Expected no error, got: %v", err)
-		}
-		if placedName != "hcloud" || placedNs != "system-lb" || placedData["token"] != "resolved-token" {
-			t.Errorf("Expected hcloud/token placed into system-lb, got name=%q ns=%q data=%v", placedName, placedNs, placedData)
-		}
-	})
-
-	t.Run("FailsBeforeApplyWhenSecretResolvesEmpty", func(t *testing.T) {
-		// Given a required secret reference whose configured value is empty
-		mocks := setupProvisionerMocks(t)
-		mocks.ConfigHandler.(*config.MockConfigHandler).GetContextValuesFunc = func() (map[string]any, error) {
-			return map[string]any{"hetzner": map[string]any{"token": ""}}, nil
-		}
-		applied := false
-		mocks.KubernetesManager.ApplyBlueprintFunc = func(*blueprintv1alpha1.Blueprint, string) error {
-			applied = true
-			return nil
-		}
-		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{KubernetesManager: mocks.KubernetesManager})
-		blueprint := &blueprintv1alpha1.Blueprint{Kustomizations: []blueprintv1alpha1.Kustomization{
-			{Name: "lb-install", Secrets: map[string]blueprintv1alpha1.SecretEntry{
-				"hcloud": {Data: map[string]string{"token": "${hetzner.token}"}},
-			}},
-		}}
-
-		// When installing, resolution fails closed before anything is applied to the cluster
-		err := provisioner.Install(context.Background(), blueprint, false)
-		if err == nil || !strings.Contains(err.Error(), "error resolving secrets") {
-			t.Errorf("Expected resolve error, got: %v", err)
-		}
-		if applied {
-			t.Error("Expected no apply when secret resolution fails")
-		}
-	})
-
-	t.Run("FailsWhenRequiredSecretResolvesToNil", func(t *testing.T) {
-		// Given a required secret reference to a value absent from configuration (resolves to nil), as
-		// when a secret() lookup fails to resolve non-interactively
-		mocks := setupProvisionerMocks(t)
-		mocks.ConfigHandler.(*config.MockConfigHandler).GetContextValuesFunc = func() (map[string]any, error) {
-			return map[string]any{}, nil
-		}
-		mocks.KubernetesManager.ApplyBlueprintFunc = func(*blueprintv1alpha1.Blueprint, string) error { return nil }
-		placed := false
-		mocks.KubernetesManager.ApplySecretFunc = func(name, namespace string, stringData map[string]string, owner string) error {
-			placed = true
-			return nil
-		}
-		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{KubernetesManager: mocks.KubernetesManager})
-		blueprint := &blueprintv1alpha1.Blueprint{Kustomizations: []blueprintv1alpha1.Kustomization{
-			{Name: "lb-install", Secrets: map[string]blueprintv1alpha1.SecretEntry{
-				"hcloud": {Data: map[string]string{"token": "${hetzner.token}"}},
-			}},
-		}}
-
-		// When installing, it fails closed rather than placing an hcloud Secret missing its token key
-		if err := provisioner.Install(context.Background(), blueprint, false); err == nil {
-			t.Fatal("Expected error for a nil-resolving required secret, got nil")
-		}
-		if placed {
-			t.Error("Expected no secret placed for a nil-resolving reference")
-		}
-	})
-
-	t.Run("OmitsUnconfiguredOptionalSecretWithoutFailing", func(t *testing.T) {
-		// Given an optional secret reference (?? default) to a value absent from configuration
-		mocks := setupProvisionerMocks(t)
-		mocks.ConfigHandler.(*config.MockConfigHandler).GetContextValuesFunc = func() (map[string]any, error) {
-			return map[string]any{}, nil
-		}
-		mocks.KubernetesManager.ApplyBlueprintFunc = func(*blueprintv1alpha1.Blueprint, string) error { return nil }
-		placed := false
-		mocks.KubernetesManager.ApplySecretFunc = func(name, namespace string, stringData map[string]string, owner string) error {
-			placed = true
-			return nil
-		}
-		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{KubernetesManager: mocks.KubernetesManager})
-		blueprint := &blueprintv1alpha1.Blueprint{Kustomizations: []blueprintv1alpha1.Kustomization{
-			{Name: "lb-install", Secrets: map[string]blueprintv1alpha1.SecretEntry{
-				"hcloud": {Data: map[string]string{"token": "${hetzner.token ?? ''}"}},
-			}},
-		}}
-
-		// When installing, the optional secret is skipped and install still succeeds
-		if err := provisioner.Install(context.Background(), blueprint, false); err != nil {
-			t.Fatalf("Expected no error, got: %v", err)
-		}
-		if placed {
-			t.Error("Expected no secret placed for a nil-resolving optional reference")
-		}
-	})
-}
-
-func TestProvisioner_InstallReadinessWait(t *testing.T) {
-	t.Run("WaitsInsideTheApplyStep", func(t *testing.T) {
-		// Given a kubernetes manager whose readiness wait marks each kustomization done
-		mocks := setupProvisionerMocks(t)
-		var waitedFor []string
-		mocks.KubernetesManager.WaitForKustomizationsFunc = func(ctx context.Context, blueprint *blueprintv1alpha1.Blueprint, layers kubernetes.KustomizationReporter) error {
-			for _, k := range blueprint.Kustomizations {
-				waitedFor = append(waitedFor, k.Name)
-				layers.Done(k.Name)
-			}
-			return nil
-		}
-		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{KubernetesManager: mocks.KubernetesManager})
-		rec := &eventRecorder{}
-
-		// When installing
-		err := provisioner.Install(presenter.NewContext(context.Background(), rec), createTestBlueprint(), false)
-
-		// Then the wait covers the kustomization and adds no operation beyond the apply step and its one layer
-		if err != nil {
-			t.Fatalf("Expected no error, got %v", err)
-		}
-		if strings.Join(waitedFor, ",") != "test-kustomization" {
-			t.Errorf("Expected a wait on test-kustomization, got %v", waitedFor)
-		}
-		if ops := rec.operations(); len(ops) != 2 || ops[0] != "Applying kustomizations" || ops[1] != "test-kustomization" {
-			t.Errorf("Unexpected operations %v", ops)
-		}
-	})
-
-	t.Run("WrapsAWaitFailureAsNotReady", func(t *testing.T) {
-		// Given a kubernetes manager whose readiness wait fails
-		mocks := setupProvisionerMocks(t)
-		mocks.KubernetesManager.WaitForKustomizationsFunc = func(ctx context.Context, blueprint *blueprintv1alpha1.Blueprint, layers kubernetes.KustomizationReporter) error {
-			return fmt.Errorf("wait failed")
-		}
-		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{KubernetesManager: mocks.KubernetesManager})
-
-		// When installing
-		err := provisioner.Install(context.Background(), createTestBlueprint(), false)
-
-		// Then the error wraps ErrKustomizationsNotReady and the cause
-		if !errors.Is(err, ErrKustomizationsNotReady) || !strings.Contains(err.Error(), "wait failed") {
-			t.Errorf("Expected a not-ready error wrapping the cause, got %v", err)
-		}
-	})
-}
-
 func TestProvisioner_Notify(t *testing.T) {
 	t.Run("DelegatesToInjectedNotifier", func(t *testing.T) {
 		// Given a provisioner with a stub Notifier recording the call
@@ -2272,808 +933,6 @@ func TestProvisioner_Notify(t *testing.T) {
 	})
 }
 
-func TestProvisioner_Uninstall(t *testing.T) {
-	t.Run("Success", func(t *testing.T) {
-		mocks := setupProvisionerMocks(t)
-		mocks.KubernetesManager.DeleteBlueprintFunc = func(blueprint *blueprintv1alpha1.Blueprint, namespace string) error {
-			return nil
-		}
-		opts := &Provisioner{
-			KubernetesManager: mocks.KubernetesManager,
-		}
-		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
-
-		blueprint := createTestBlueprint()
-		err := provisioner.Uninstall(context.Background(), blueprint)
-
-		if err != nil {
-			t.Errorf("Expected no error, got: %v", err)
-		}
-	})
-
-	t.Run("SuccessWithCleanupKustomizations", func(t *testing.T) {
-		mocks := setupProvisionerMocks(t)
-		mocks.KubernetesManager.DeleteBlueprintFunc = func(blueprint *blueprintv1alpha1.Blueprint, namespace string) error {
-			return nil
-		}
-		opts := &Provisioner{
-			KubernetesManager: mocks.KubernetesManager,
-		}
-		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
-
-		blueprint := createTestBlueprint()
-		blueprint.Kustomizations = []blueprintv1alpha1.Kustomization{
-			{
-				Name: "test-kustomization",
-			},
-		}
-
-		err := provisioner.Uninstall(context.Background(), blueprint)
-
-		if err != nil {
-			t.Errorf("Expected no error, got: %v", err)
-		}
-	})
-
-	t.Run("SuccessSkipsDestroyFalse", func(t *testing.T) {
-		mocks := setupProvisionerMocks(t)
-		mocks.KubernetesManager.DeleteBlueprintFunc = func(blueprint *blueprintv1alpha1.Blueprint, namespace string) error {
-			return nil
-		}
-		opts := &Provisioner{
-			KubernetesManager: mocks.KubernetesManager,
-		}
-		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
-
-		blueprint := createTestBlueprint()
-		destroyFalse := false
-		blueprint.Kustomizations = []blueprintv1alpha1.Kustomization{
-			{
-				Name:    "test-kustomization-1",
-				Destroy: &blueprintv1alpha1.BoolExpression{Value: &destroyFalse, IsExpr: false},
-			},
-			{
-				Name:    "test-kustomization-2",
-				Destroy: nil,
-			},
-		}
-
-		err := provisioner.Uninstall(context.Background(), blueprint)
-
-		if err != nil {
-			t.Errorf("Expected no error, got: %v", err)
-		}
-	})
-
-	t.Run("MaterializesCrdLayerForDestroy", func(t *testing.T) {
-		// Given a blueprint whose crds: layer must be torn down with the stack
-		mocks := setupProvisionerMocks(t)
-		var deleted *blueprintv1alpha1.Blueprint
-		mocks.KubernetesManager.DeleteBlueprintFunc = func(blueprint *blueprintv1alpha1.Blueprint, namespace string) error {
-			deleted = blueprint
-			return nil
-		}
-		opts := &Provisioner{KubernetesManager: mocks.KubernetesManager}
-		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
-		installed := true
-		blueprint := &blueprintv1alpha1.Blueprint{
-			Sources: []blueprintv1alpha1.Source{
-				{Name: "core", Install: &blueprintv1alpha1.BoolExpression{Value: &installed}, Crds: []string{"cert-manager-1.16.2"}},
-			},
-			Kustomizations: []blueprintv1alpha1.Kustomization{{Name: "cert-manager", DependsOn: []string{"crds-core"}}},
-		}
-
-		// When uninstalling
-		if err := provisioner.Uninstall(context.Background(), blueprint); err != nil {
-			t.Fatalf("Expected no error, got: %v", err)
-		}
-
-		// Then the synthesized crds layer is part of the destroy walk so the Flux
-		// Kustomization object is removed, with pruning left disabled so the CRDs survive
-		if deleted == nil || len(deleted.Kustomizations) != 2 {
-			t.Fatalf("expected crds kustomization included in destroy, got %+v", deleted)
-		}
-		crd := deleted.Kustomizations[0]
-		if crd.Name != "crds-core" || crd.Source != "core" {
-			t.Errorf("expected crds-core bound to core, got name=%q source=%q", crd.Name, crd.Source)
-		}
-		if crd.Prune == nil || *crd.Prune != false || crd.Wait == nil || *crd.Wait != true {
-			t.Errorf("expected prune=false wait=true, got prune=%v wait=%v", crd.Prune, crd.Wait)
-		}
-	})
-
-	t.Run("SkipsWhenKubeconfigMissing", func(t *testing.T) {
-		// A missing kubeconfig means the cluster is already gone. Uninstall must not attempt
-		// to build a client against it. See #3397.
-		mocks := setupProvisionerMocks(t)
-		mocks.Runtime.ConfigRoot = t.TempDir()
-
-		var deleteBlueprintCalled bool
-		mocks.KubernetesManager.DeleteBlueprintFunc = func(blueprint *blueprintv1alpha1.Blueprint, namespace string) error {
-			deleteBlueprintCalled = true
-			return nil
-		}
-		opts := &Provisioner{KubernetesManager: mocks.KubernetesManager}
-		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
-
-		err := provisioner.Uninstall(context.Background(), createTestBlueprint())
-
-		if err != nil {
-			t.Errorf("Expected no error, got: %v", err)
-		}
-		if deleteBlueprintCalled {
-			t.Error("expected DeleteBlueprint not to run when kubeconfig is missing")
-		}
-	})
-
-	t.Run("ErrorNilBlueprint", func(t *testing.T) {
-		mocks := setupProvisionerMocks(t)
-		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler)
-
-		err := provisioner.Uninstall(context.Background(), nil)
-
-		if err == nil {
-			t.Error("Expected error for nil blueprint")
-		}
-
-		if !strings.Contains(err.Error(), "blueprint not provided") {
-			t.Errorf("Expected specific error message, got: %v", err)
-		}
-	})
-
-	t.Run("ErrorNilKubernetesManager", func(t *testing.T) {
-		mocks := setupProvisionerMocks(t)
-		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler)
-		provisioner.KubernetesManager = nil
-
-		blueprint := createTestBlueprint()
-		err := provisioner.Uninstall(context.Background(), blueprint)
-
-		if err == nil {
-			t.Error("Expected error for nil kubernetes manager")
-		}
-
-		if !strings.Contains(err.Error(), "kubernetes manager not configured") {
-			t.Errorf("Expected specific error message, got: %v", err)
-		}
-	})
-
-	t.Run("ErrorDeleteBlueprint", func(t *testing.T) {
-		mocks := setupProvisionerMocks(t)
-		mocks.KubernetesManager.DeleteBlueprintFunc = func(blueprint *blueprintv1alpha1.Blueprint, namespace string) error {
-			return fmt.Errorf("delete blueprint failed")
-		}
-		opts := &Provisioner{
-			KubernetesManager: mocks.KubernetesManager,
-		}
-		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
-
-		blueprint := createTestBlueprint()
-		err := provisioner.Uninstall(context.Background(), blueprint)
-
-		if err == nil {
-			t.Error("Expected error for delete blueprint failure")
-		}
-
-		if !strings.Contains(err.Error(), "failed to delete blueprint") {
-			t.Errorf("Expected specific error message, got: %v", err)
-		}
-	})
-}
-
-func TestProvisioner_Destroy(t *testing.T) {
-	t.Run("Success", func(t *testing.T) {
-		mocks := setupProvisionerMocks(t)
-		mockStack := terraforminfra.NewMockStack()
-		mockStack.DestroyFunc = func(bp *blueprintv1alpha1.Blueprint, componentID string) (bool, error) { return false, nil }
-		opts := &Provisioner{KubernetesManager: mocks.KubernetesManager, TerraformStack: mockStack}
-		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
-
-		_, err := provisioner.Destroy(context.Background(), createTestBlueprint(), "remote/path")
-
-		if err != nil {
-			t.Errorf("Expected no error, got: %v", err)
-		}
-	})
-
-	t.Run("ErrorNilBlueprint", func(t *testing.T) {
-		mocks := setupProvisionerMocks(t)
-		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler)
-
-		_, err := provisioner.Destroy(context.Background(), nil, "remote/path")
-
-		if err == nil {
-			t.Error("Expected error for nil blueprint")
-		}
-		if !strings.Contains(err.Error(), "blueprint not provided") {
-			t.Errorf("Expected specific error message, got: %v", err)
-		}
-	})
-
-	t.Run("ErrorWhenTerraformDisabled", func(t *testing.T) {
-		mocks := setupProvisionerMocks(t)
-		mockConfigHandler := mocks.ConfigHandler.(*config.MockConfigHandler)
-		mockConfigHandler.GetBoolFunc = func(key string, defaultValue ...bool) bool {
-			if key == "terraform.enabled" {
-				return false
-			}
-			if len(defaultValue) > 0 {
-				return defaultValue[0]
-			}
-			return false
-		}
-		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler)
-
-		_, err := provisioner.Destroy(context.Background(), createTestBlueprint(), "remote/path")
-
-		if err == nil {
-			t.Error("Expected error when terraform is disabled")
-		}
-		if !strings.Contains(err.Error(), "terraform is disabled") {
-			t.Errorf("Expected 'terraform is disabled' error, got: %v", err)
-		}
-	})
-
-	t.Run("ErrorTerraformStackDestroy", func(t *testing.T) {
-		mocks := setupProvisionerMocks(t)
-		mockStack := terraforminfra.NewMockStack()
-		mockStack.DestroyFunc = func(bp *blueprintv1alpha1.Blueprint, componentID string) (bool, error) {
-			return false, fmt.Errorf("terraform stack destroy failed")
-		}
-		opts := &Provisioner{KubernetesManager: mocks.KubernetesManager, TerraformStack: mockStack}
-		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
-
-		_, err := provisioner.Destroy(context.Background(), createTestBlueprint(), "remote/path")
-
-		if err == nil {
-			t.Error("Expected error for terraform stack destroy failure")
-		}
-		if !strings.Contains(err.Error(), "failed to run terraform destroy for") {
-			t.Errorf("Expected specific error message, got: %v", err)
-		}
-	})
-
-	t.Run("ReturnsSkippedWhenStateIsEmpty", func(t *testing.T) {
-		// Given the underlying stack reports the component had nothing to destroy,
-		// the provisioner must surface that signal so cmd-layer callers can tell the
-		// operator "empty state, skipped" rather than pretending a destroy ran.
-		mocks := setupProvisionerMocks(t)
-		mockStack := terraforminfra.NewMockStack()
-		mockStack.DestroyFunc = func(bp *blueprintv1alpha1.Blueprint, componentID string) (bool, error) {
-			return true, nil
-		}
-		opts := &Provisioner{KubernetesManager: mocks.KubernetesManager, TerraformStack: mockStack}
-		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
-
-		skipped, err := provisioner.Destroy(context.Background(), createTestBlueprint(), "remote/path")
-		if err != nil {
-			t.Fatalf("Expected no error, got: %v", err)
-		}
-		if !skipped {
-			t.Error("Expected skipped=true when stack reports empty state")
-		}
-	})
-
-	t.Run("DoesNotGateOnKubernetesReachability", func(t *testing.T) {
-		// Provisioner runs no reachability preflight at all; an unreachable cluster only
-		// ever surfaces from the terraform refresh/destroy timeout, not an upfront block.
-		mocks := setupProvisionerMocks(t)
-		mocks.KubernetesManager.WaitForKubernetesHealthyFunc = func(ctx context.Context, endpoint string, outputFunc func(string), nodeNames ...string) error {
-			return fmt.Errorf("connection refused")
-		}
-		mockStack := terraforminfra.NewMockStack()
-		destroyCalled := false
-		mockStack.DestroyFunc = func(bp *blueprintv1alpha1.Blueprint, componentID string) (bool, error) {
-			destroyCalled = true
-			return false, nil
-		}
-		opts := &Provisioner{KubernetesManager: mocks.KubernetesManager, TerraformStack: mockStack}
-		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
-
-		if _, err := provisioner.Destroy(context.Background(), createTestBlueprint(), "remote/path"); err != nil {
-			t.Fatalf("Expected no error: Provisioner must not gate on Kubernetes reachability, got: %v", err)
-		}
-		if !destroyCalled {
-			t.Error("Expected terraform Destroy to run: Provisioner must not gate on Kubernetes reachability itself")
-		}
-	})
-}
-
-func TestProvisioner_DestroyKustomize(t *testing.T) {
-	t.Run("Success", func(t *testing.T) {
-		mocks := setupProvisionerMocks(t)
-		mocks.KubernetesManager.DeleteKustomizationFunc = func(name, namespace string) error { return nil }
-		opts := &Provisioner{KubernetesManager: mocks.KubernetesManager}
-		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
-
-		err := provisioner.DestroyKustomize(context.Background(), createTestBlueprint(), "test-kustomization")
-
-		if err != nil {
-			t.Errorf("Expected no error, got: %v", err)
-		}
-	})
-
-	t.Run("ErrorNilBlueprint", func(t *testing.T) {
-		mocks := setupProvisionerMocks(t)
-		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler)
-
-		err := provisioner.DestroyKustomize(context.Background(), nil, "test-kustomization")
-
-		if err == nil {
-			t.Error("Expected error for nil blueprint")
-		}
-		if !strings.Contains(err.Error(), "blueprint not provided") {
-			t.Errorf("Expected specific error message, got: %v", err)
-		}
-	})
-
-	t.Run("ErrorNilKubernetesManager", func(t *testing.T) {
-		mocks := setupProvisionerMocks(t)
-		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler)
-		provisioner.KubernetesManager = nil
-
-		err := provisioner.DestroyKustomize(context.Background(), createTestBlueprint(), "test-kustomization")
-
-		if err == nil {
-			t.Error("Expected error for nil kubernetes manager")
-		}
-		if !strings.Contains(err.Error(), "kubernetes manager not configured") {
-			t.Errorf("Expected specific error message, got: %v", err)
-		}
-	})
-
-	t.Run("ErrorNotFound", func(t *testing.T) {
-		mocks := setupProvisionerMocks(t)
-		opts := &Provisioner{KubernetesManager: mocks.KubernetesManager}
-		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
-
-		err := provisioner.DestroyKustomize(context.Background(), createTestBlueprint(), "nonexistent")
-
-		if err == nil {
-			t.Error("Expected error for kustomization not found")
-		}
-		if !strings.Contains(err.Error(), "not found in blueprint") {
-			t.Errorf("Expected specific error message, got: %v", err)
-		}
-	})
-
-	t.Run("ErrorDeleteKustomization", func(t *testing.T) {
-		mocks := setupProvisionerMocks(t)
-		mocks.KubernetesManager.DeleteKustomizationFunc = func(name, namespace string) error {
-			return fmt.Errorf("delete kustomization failed")
-		}
-		opts := &Provisioner{KubernetesManager: mocks.KubernetesManager}
-		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
-
-		err := provisioner.DestroyKustomize(context.Background(), createTestBlueprint(), "test-kustomization")
-
-		if err == nil {
-			t.Error("Expected error for delete kustomization failure")
-		}
-		if !strings.Contains(err.Error(), "failed to delete kustomization") {
-			t.Errorf("Expected specific error message, got: %v", err)
-		}
-	})
-
-	t.Run("SkipsWhenKubeconfigMissing", func(t *testing.T) {
-		// A missing kubeconfig means the cluster is already gone. DestroyKustomize must not
-		// attempt to build a client against it. See #3397.
-		mocks := setupProvisionerMocks(t)
-		mocks.Runtime.ConfigRoot = t.TempDir()
-
-		var deleteKustomizationCalled bool
-		mocks.KubernetesManager.DeleteKustomizationFunc = func(name, namespace string) error {
-			deleteKustomizationCalled = true
-			return nil
-		}
-		opts := &Provisioner{KubernetesManager: mocks.KubernetesManager}
-		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
-
-		err := provisioner.DestroyKustomize(context.Background(), createTestBlueprint(), "test-kustomization")
-
-		if err != nil {
-			t.Errorf("Expected no error, got: %v", err)
-		}
-		if deleteKustomizationCalled {
-			t.Error("expected DeleteKustomization not to run when kubeconfig is missing")
-		}
-	})
-}
-
-func TestProvisioner_DestroyAll(t *testing.T) {
-	t.Run("Success", func(t *testing.T) {
-		mocks := setupProvisionerMocks(t)
-		mocks.KubernetesManager.DeleteBlueprintFunc = func(bp *blueprintv1alpha1.Blueprint, namespace string) error { return nil }
-		mockStack := terraforminfra.NewMockStack()
-		mockStack.DestroyAllFunc = func(bp *blueprintv1alpha1.Blueprint, _ bool, excludeIDs ...string) (terraforminfra.DestroyOutcome, error) {
-			return terraforminfra.DestroyOutcome{}, nil
-		}
-		opts := &Provisioner{KubernetesManager: mocks.KubernetesManager, TerraformStack: mockStack}
-		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
-
-		_, err := provisioner.DestroyAll(context.Background(), createTestBlueprint(), false)
-
-		if err != nil {
-			t.Errorf("Expected no error, got: %v", err)
-		}
-	})
-
-	t.Run("SuccessNoKubernetesManager", func(t *testing.T) {
-		mocks := setupProvisionerMocks(t)
-		mockStack := terraforminfra.NewMockStack()
-		mockStack.DestroyAllFunc = func(bp *blueprintv1alpha1.Blueprint, _ bool, excludeIDs ...string) (terraforminfra.DestroyOutcome, error) {
-			return terraforminfra.DestroyOutcome{}, nil
-		}
-		opts := &Provisioner{TerraformStack: mockStack}
-		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
-		provisioner.KubernetesManager = nil
-
-		_, err := provisioner.DestroyAll(context.Background(), createTestBlueprint(), false)
-
-		if err != nil {
-			t.Errorf("Expected no error when kubernetes manager is nil, got: %v", err)
-		}
-	})
-
-	t.Run("ErrorNilBlueprint", func(t *testing.T) {
-		mocks := setupProvisionerMocks(t)
-		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler)
-
-		_, err := provisioner.DestroyAll(context.Background(), nil, false)
-
-		if err == nil {
-			t.Error("Expected error for nil blueprint")
-		}
-		if !strings.Contains(err.Error(), "blueprint not provided") {
-			t.Errorf("Expected specific error message, got: %v", err)
-		}
-	})
-
-	t.Run("ErrorUninstall", func(t *testing.T) {
-		mocks := setupProvisionerMocks(t)
-		mocks.KubernetesManager.DeleteBlueprintFunc = func(bp *blueprintv1alpha1.Blueprint, namespace string) error {
-			return fmt.Errorf("delete blueprint failed")
-		}
-		opts := &Provisioner{KubernetesManager: mocks.KubernetesManager}
-		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
-
-		_, err := provisioner.DestroyAll(context.Background(), createTestBlueprint(), false)
-
-		if err == nil {
-			t.Error("Expected error when uninstall fails")
-		}
-		if !strings.Contains(err.Error(), "failed to delete blueprint") {
-			t.Errorf("Expected specific error message, got: %v", err)
-		}
-	})
-
-	t.Run("ErrorDown", func(t *testing.T) {
-		mocks := setupProvisionerMocks(t)
-		mocks.KubernetesManager.DeleteBlueprintFunc = func(bp *blueprintv1alpha1.Blueprint, namespace string) error { return nil }
-		mockStack := terraforminfra.NewMockStack()
-		mockStack.DestroyAllFunc = func(bp *blueprintv1alpha1.Blueprint, _ bool, excludeIDs ...string) (terraforminfra.DestroyOutcome, error) {
-			return terraforminfra.DestroyOutcome{}, fmt.Errorf("terraform down failed")
-		}
-		opts := &Provisioner{KubernetesManager: mocks.KubernetesManager, TerraformStack: mockStack}
-		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
-
-		_, err := provisioner.DestroyAll(context.Background(), createTestBlueprint(), false)
-
-		if err == nil {
-			t.Error("Expected error when terraform down fails")
-		}
-		if !strings.Contains(err.Error(), "terraform down failed") {
-			t.Errorf("Expected specific error message, got: %v", err)
-		}
-	})
-
-	t.Run("RunsUninstallWhenKubeconfigPresentEvenIfStale", func(t *testing.T) {
-		// A kubeconfig that is present but stale (points at an unreachable cluster) is not
-		// proof the cluster is gone. DestroyAll must still attempt kustomize destroy and let
-		// a genuine connection failure surface as a recorded failure, never silently skip it.
-		mocks := setupProvisionerMocks(t)
-
-		var uninstallCalled bool
-		mocks.KubernetesManager.DeleteBlueprintFunc = func(bp *blueprintv1alpha1.Blueprint, namespace string) error {
-			uninstallCalled = true
-			return nil
-		}
-		mockStack := terraforminfra.NewMockStack()
-		mockStack.DestroyAllFunc = func(bp *blueprintv1alpha1.Blueprint, _ bool, excludeIDs ...string) (terraforminfra.DestroyOutcome, error) {
-			return terraforminfra.DestroyOutcome{}, nil
-		}
-		opts := &Provisioner{KubernetesManager: mocks.KubernetesManager, TerraformStack: mockStack}
-		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
-
-		if _, err := provisioner.DestroyAll(context.Background(), createTestBlueprint(), false); err != nil {
-			t.Fatalf("expected no error, got: %v", err)
-		}
-		if !uninstallCalled {
-			t.Error("expected DeleteBlueprint to run")
-		}
-	})
-
-	t.Run("SkipsUninstallWhenKubeconfigMissing", func(t *testing.T) {
-		// A missing kubeconfig means the cluster is already gone — typically a prior destroy
-		// run already tore it down. DestroyAll must not attempt to suspend or delete
-		// kustomizations against a client that can never be built, and must still proceed
-		// to the terraform layer. See #3397.
-		mocks := setupProvisionerMocks(t)
-		mocks.Runtime.ConfigRoot = t.TempDir()
-
-		var uninstallCalled bool
-		mocks.KubernetesManager.DeleteBlueprintFunc = func(bp *blueprintv1alpha1.Blueprint, namespace string) error {
-			uninstallCalled = true
-			return nil
-		}
-		var terraformDestroyCalled bool
-		mockStack := terraforminfra.NewMockStack()
-		mockStack.DestroyAllFunc = func(bp *blueprintv1alpha1.Blueprint, _ bool, excludeIDs ...string) (terraforminfra.DestroyOutcome, error) {
-			terraformDestroyCalled = true
-			return terraforminfra.DestroyOutcome{}, nil
-		}
-		opts := &Provisioner{KubernetesManager: mocks.KubernetesManager, TerraformStack: mockStack}
-		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
-
-		result, err := provisioner.DestroyAll(context.Background(), createTestBlueprint(), false)
-
-		if err != nil {
-			t.Fatalf("expected no error, got: %v", err)
-		}
-		if uninstallCalled {
-			t.Error("expected DeleteBlueprint not to run when kubeconfig is missing")
-		}
-		if !terraformDestroyCalled {
-			t.Error("expected terraform destroy to still run when kubeconfig is missing")
-		}
-		if result.TerraformDeferred {
-			t.Error("expected TerraformDeferred=false when kustomize destroy was skipped, not failed")
-		}
-		if len(result.Destroyed) != 0 {
-			t.Errorf("expected no kustomizations in Destroyed, got %v", result.Destroyed)
-		}
-		if len(result.Skipped) != 0 {
-			t.Errorf("expected no terraform-style empty-state skips, got %v", result.Skipped)
-		}
-		if len(result.SkippedClusterGone) != 1 || result.SkippedClusterGone[0] != "test-kustomization" {
-			t.Errorf("expected kustomization counted in SkippedClusterGone, got %v", result.SkippedClusterGone)
-		}
-	})
-
-	t.Run("ContinueDefersTerraformWhenKustomizeFailsAndClusterReachable", func(t *testing.T) {
-		// Given kustomize Uninstall fails under continueOnError while the cluster is
-		// still reachable (default mock: WaitForKubernetesHealthyFunc unset ⇒ reachable).
-		// A live controller may still be mid-teardown of a cloud-backed resource
-		// terraform never tracked, so the terraform pass MUST NOT run. See #3385.
-		mocks := setupProvisionerMocks(t)
-		mocks.KubernetesManager.DeleteBlueprintFunc = func(bp *blueprintv1alpha1.Blueprint, namespace string) error {
-			return fmt.Errorf("destroy aborted: timeout waiting for load balancer teardown")
-		}
-		var terraformDestroyCalled bool
-		mockStack := terraforminfra.NewMockStack()
-		mockStack.DestroyAllFunc = func(bp *blueprintv1alpha1.Blueprint, _ bool, excludeIDs ...string) (terraforminfra.DestroyOutcome, error) {
-			terraformDestroyCalled = true
-			return terraforminfra.DestroyOutcome{}, nil
-		}
-		opts := &Provisioner{KubernetesManager: mocks.KubernetesManager, TerraformStack: mockStack}
-		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
-
-		result, err := provisioner.DestroyAll(context.Background(), createTestBlueprint(), true)
-
-		if err != nil {
-			t.Fatalf("expected continueOnError to absorb the kustomize failure, got: %v", err)
-		}
-		if terraformDestroyCalled {
-			t.Error("expected terraform DestroyAll not to run when kustomize failed while the cluster is reachable")
-		}
-		if !result.TerraformDeferred {
-			t.Error("expected TerraformDeferred=true")
-		}
-		var foundKustomize bool
-		for _, f := range result.Failed {
-			if f.ID == KustomizeFailureID {
-				foundKustomize = true
-			}
-		}
-		if !foundKustomize {
-			t.Errorf("expected kustomize failure in result.Failed, got %v", result.Failed)
-		}
-	})
-
-	t.Run("ContinueDefersTerraformWhenKustomizeFailsAndClusterUnreachable", func(t *testing.T) {
-		// Given kustomize Uninstall fails under continueOnError and the cluster is also
-		// unreachable. There is no reachability exception: unreachable is not proof the
-		// cluster is gone (a network blip, an expired credential, a control-plane restart
-		// all look identical), so terraform is deferred here too.
-		mocks := setupProvisionerMocks(t)
-		mocks.KubernetesManager.DeleteBlueprintFunc = func(bp *blueprintv1alpha1.Blueprint, namespace string) error {
-			return fmt.Errorf("delete blueprint failed")
-		}
-		mocks.KubernetesManager.WaitForKubernetesHealthyFunc = func(_ context.Context, _ string, _ func(string), _ ...string) error {
-			return fmt.Errorf("cluster API unreachable")
-		}
-		var terraformDestroyCalled bool
-		mockStack := terraforminfra.NewMockStack()
-		mockStack.DestroyAllFunc = func(bp *blueprintv1alpha1.Blueprint, _ bool, excludeIDs ...string) (terraforminfra.DestroyOutcome, error) {
-			terraformDestroyCalled = true
-			return terraforminfra.DestroyOutcome{}, nil
-		}
-		opts := &Provisioner{KubernetesManager: mocks.KubernetesManager, TerraformStack: mockStack}
-		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
-
-		result, err := provisioner.DestroyAll(context.Background(), createTestBlueprint(), true)
-
-		if err != nil {
-			t.Fatalf("expected continueOnError to absorb the kustomize failure, got: %v", err)
-		}
-		if terraformDestroyCalled {
-			t.Error("expected terraform DestroyAll not to run even when the cluster is unreachable")
-		}
-		if !result.TerraformDeferred {
-			t.Error("expected TerraformDeferred=true even when the cluster is unreachable")
-		}
-	})
-
-	t.Run("CountsEligibleKustomizationsInDestroyedOnSuccess", func(t *testing.T) {
-		// Given a blueprint with multiple eligible kustomizations and a successful Uninstall
-		mocks := setupProvisionerMocks(t)
-		bp := &blueprintv1alpha1.Blueprint{
-			Metadata: blueprintv1alpha1.Metadata{Name: "test"},
-			Kustomizations: []blueprintv1alpha1.Kustomization{
-				{Name: "dns"},
-				{Name: "ingress"},
-				{Name: "cert-manager"},
-			},
-		}
-		mocks.KubernetesManager.DeleteBlueprintFunc = func(_ *blueprintv1alpha1.Blueprint, _ string) error { return nil }
-		mockStack := terraforminfra.NewMockStack()
-		mockStack.DestroyAllFunc = func(_ *blueprintv1alpha1.Blueprint, _ bool, _ ...string) (terraforminfra.DestroyOutcome, error) {
-			return terraforminfra.DestroyOutcome{}, nil
-		}
-		opts := &Provisioner{KubernetesManager: mocks.KubernetesManager, TerraformStack: mockStack}
-		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
-
-		// When DestroyAll runs and Uninstall succeeds
-		result, err := provisioner.DestroyAll(context.Background(), bp, false)
-		if err != nil {
-			t.Fatalf("Expected no error, got %v", err)
-		}
-
-		// Then each eligible kustomization name appears in result.Destroyed so the
-		// summary count reflects the work that actually happened (not zero, as it did
-		// before — undercounting on mixed kustomize+terraform contexts).
-		want := map[string]bool{"dns": false, "ingress": false, "cert-manager": false}
-		for _, name := range result.Destroyed {
-			if _, ok := want[name]; ok {
-				want[name] = true
-			}
-		}
-		for name, seen := range want {
-			if !seen {
-				t.Errorf("Expected kustomization %q in result.Destroyed, got %v", name, result.Destroyed)
-			}
-		}
-	})
-
-	t.Run("SkipsIneligibleKustomizationsFromDestroyedCount", func(t *testing.T) {
-		// Given a blueprint with three kustomizations: one eligible, one pinned
-		// Destroy=false, and one DestroyOnly=true — DeleteBlueprint would only
-		// process the eligible one, so the count must match.
-		mocks := setupProvisionerMocks(t)
-		destroyFalse := false
-		destroyOnly := true
-		bp := &blueprintv1alpha1.Blueprint{
-			Metadata: blueprintv1alpha1.Metadata{Name: "test"},
-			Kustomizations: []blueprintv1alpha1.Kustomization{
-				{Name: "dns"},
-				{Name: "keep-me", Destroy: &blueprintv1alpha1.BoolExpression{Value: &destroyFalse, IsExpr: false}},
-				{Name: "hook-only", DestroyOnly: &destroyOnly},
-			},
-		}
-		mocks.KubernetesManager.DeleteBlueprintFunc = func(_ *blueprintv1alpha1.Blueprint, _ string) error { return nil }
-		mockStack := terraforminfra.NewMockStack()
-		mockStack.DestroyAllFunc = func(_ *blueprintv1alpha1.Blueprint, _ bool, _ ...string) (terraforminfra.DestroyOutcome, error) {
-			return terraforminfra.DestroyOutcome{}, nil
-		}
-		opts := &Provisioner{KubernetesManager: mocks.KubernetesManager, TerraformStack: mockStack}
-		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
-
-		// When DestroyAll runs
-		result, err := provisioner.DestroyAll(context.Background(), bp, false)
-		if err != nil {
-			t.Fatalf("Expected no error, got %v", err)
-		}
-
-		// Then only the eligible kustomization name appears in result.Destroyed;
-		// the pinned-skip and destroy-only entries are excluded to mirror what
-		// DeleteBlueprint actually processes.
-		if len(result.Destroyed) != 1 || result.Destroyed[0] != "dns" {
-			t.Errorf("Expected result.Destroyed=[dns], got %v", result.Destroyed)
-		}
-	})
-
-	t.Run("DoesNotGateOnKubernetesReachability", func(t *testing.T) {
-		// Provisioner runs no reachability preflight at all; an unreachable cluster only
-		// ever surfaces from the terraform refresh/destroy timeout, not an upfront block.
-		mocks := setupProvisionerMocks(t)
-		mocks.KubernetesManager.DeleteBlueprintFunc = func(bp *blueprintv1alpha1.Blueprint, namespace string) error { return nil }
-		mocks.KubernetesManager.WaitForKubernetesHealthyFunc = func(ctx context.Context, endpoint string, outputFunc func(string), nodeNames ...string) error {
-			return fmt.Errorf("connection refused")
-		}
-		mockStack := terraforminfra.NewMockStack()
-		destroyAllCalled := false
-		mockStack.DestroyAllFunc = func(bp *blueprintv1alpha1.Blueprint, _ bool, excludeIDs ...string) (terraforminfra.DestroyOutcome, error) {
-			destroyAllCalled = true
-			return terraforminfra.DestroyOutcome{}, nil
-		}
-		opts := &Provisioner{KubernetesManager: mocks.KubernetesManager, TerraformStack: mockStack}
-		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
-
-		if _, err := provisioner.DestroyAll(context.Background(), createTestBlueprint(), false); err != nil {
-			t.Fatalf("Expected no error: Provisioner must not gate on Kubernetes reachability, got: %v", err)
-		}
-		if !destroyAllCalled {
-			t.Error("Expected terraform DestroyAll to run: Provisioner must not gate on Kubernetes reachability itself")
-		}
-	})
-}
-
-func TestProvisioner_checkKubernetesReachableForDestroy(t *testing.T) {
-	t.Run("NoOpWhenKubernetesManagerNil", func(t *testing.T) {
-		mocks := setupProvisionerMocks(t)
-		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler)
-		provisioner.KubernetesManager = nil
-
-		if err := provisioner.checkKubernetesReachableForDestroy(); err != nil {
-			t.Errorf("Expected no error, got %v", err)
-		}
-	})
-
-	t.Run("NoOpWhenKubeconfigMissing", func(t *testing.T) {
-		mocks := setupProvisionerMocks(t)
-		mocks.Runtime.ConfigRoot = t.TempDir()
-		opts := &Provisioner{KubernetesManager: mocks.KubernetesManager}
-		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
-
-		if err := provisioner.checkKubernetesReachableForDestroy(); err != nil {
-			t.Errorf("Expected no error, got %v", err)
-		}
-	})
-
-	t.Run("PassesWhenClusterReachable", func(t *testing.T) {
-		mocks := setupProvisionerMocks(t)
-		mocks.KubernetesManager.WaitForKubernetesHealthyFunc = func(ctx context.Context, endpoint string, outputFunc func(string), nodeNames ...string) error {
-			return nil
-		}
-		opts := &Provisioner{KubernetesManager: mocks.KubernetesManager}
-		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
-
-		if err := provisioner.checkKubernetesReachableForDestroy(); err != nil {
-			t.Errorf("Expected no error, got %v", err)
-		}
-	})
-
-	t.Run("ErrorWhenClusterUnreachable", func(t *testing.T) {
-		mocks := setupProvisionerMocks(t)
-		mocks.KubernetesManager.WaitForKubernetesHealthyFunc = func(ctx context.Context, endpoint string, outputFunc func(string), nodeNames ...string) error {
-			return fmt.Errorf("connection refused")
-		}
-		opts := &Provisioner{KubernetesManager: mocks.KubernetesManager}
-		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
-
-		err := provisioner.checkKubernetesReachableForDestroy()
-		if err == nil {
-			t.Fatal("Expected error, got nil")
-		}
-		if !strings.Contains(err.Error(), "kubernetes API is unreachable") {
-			t.Errorf("Expected error to name the unreachable cluster, got: %v", err)
-		}
-		if !strings.Contains(err.Error(), "connection refused") {
-			t.Errorf("Expected error to wrap the underlying cause, got: %v", err)
-		}
-	})
-}
-
 func TestProvisioner_Close(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
 		mocks := setupProvisionerMocks(t)
@@ -3106,2755 +965,460 @@ func TestProvisioner_Close(t *testing.T) {
 	})
 }
 
-func TestProvisioner_CheckNodeHealth(t *testing.T) {
-	t.Run("SuccessWithNodeCheckOnly", func(t *testing.T) {
-		mocks := setupProvisionerMocks(t)
-		mocks.ClusterClient.WaitForNodesHealthyFunc = func(ctx context.Context, nodeAddresses []string, expectedVersion string, skipServices []string) error {
-			return nil
-		}
-		opts := &Provisioner{
-			ClusterClient: mocks.ClusterClient,
-		}
-		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
+// =============================================================================
+// Test Private Methods
+// =============================================================================
 
-		var outputMessages []string
-		outputFunc := func(msg string) {
-			outputMessages = append(outputMessages, msg)
-		}
-
-		options := NodeHealthCheckOptions{
-			Nodes:               []string{"10.0.0.1", "10.0.0.2"},
-			K8SEndpointProvided: false,
-		}
-
-		err := provisioner.CheckNodeHealth(context.Background(), options, outputFunc)
-
-		if err != nil {
-			t.Errorf("Expected no error, got: %v", err)
-		}
-
-		if len(outputMessages) != 1 {
-			t.Errorf("Expected 1 output message, got: %d", len(outputMessages))
-		}
-
-		if !strings.Contains(outputMessages[0], "All 2 nodes are healthy") {
-			t.Errorf("Expected output about healthy nodes, got: %q", outputMessages[0])
-		}
-	})
-
-	t.Run("SuccessWithNodeCheckAndVersion", func(t *testing.T) {
-		mocks := setupProvisionerMocks(t)
-		mocks.ClusterClient.WaitForNodesHealthyFunc = func(ctx context.Context, nodeAddresses []string, expectedVersion string, skipServices []string) error {
-			if expectedVersion != "v1.5.0" {
-				t.Errorf("Expected version 'v1.5.0', got: %q", expectedVersion)
-			}
-			return nil
-		}
-		opts := &Provisioner{
-			ClusterClient: mocks.ClusterClient,
-		}
-		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
-
-		var outputMessages []string
-		outputFunc := func(msg string) {
-			outputMessages = append(outputMessages, msg)
-		}
-
-		options := NodeHealthCheckOptions{
-			Nodes:               []string{"10.0.0.1"},
-			Version:             "v1.5.0",
-			K8SEndpointProvided: false,
-		}
-
-		err := provisioner.CheckNodeHealth(context.Background(), options, outputFunc)
-
-		if err != nil {
-			t.Errorf("Expected no error, got: %v", err)
-		}
-
-		if len(outputMessages) != 1 {
-			t.Errorf("Expected 1 output message, got: %d", len(outputMessages))
-		}
-
-		if !strings.Contains(outputMessages[0], "v1.5.0") {
-			t.Errorf("Expected output about version, got: %q", outputMessages[0])
-		}
-	})
-
-	t.Run("SuccessWithKubernetesCheckOnly", func(t *testing.T) {
-		mocks := setupProvisionerMocks(t)
-		mocks.KubernetesManager.WaitForKubernetesHealthyFunc = func(ctx context.Context, endpoint string, outputFunc func(string), nodeNames ...string) error {
-			return nil
-		}
-		opts := &Provisioner{
-			KubernetesManager: mocks.KubernetesManager,
-		}
-		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
-
-		var outputMessages []string
-		outputFunc := func(msg string) {
-			outputMessages = append(outputMessages, msg)
-		}
-
-		options := NodeHealthCheckOptions{
-			K8SEndpoint:         "https://test:6443",
-			K8SEndpointProvided: true,
-		}
-
-		err := provisioner.CheckNodeHealth(context.Background(), options, outputFunc)
-
-		if err != nil {
-			t.Errorf("Expected no error, got: %v", err)
-		}
-
-		if len(outputMessages) != 1 {
-			t.Errorf("Expected 1 output message, got: %d", len(outputMessages))
-		}
-
-		if !strings.Contains(outputMessages[0], "healthy") {
-			t.Errorf("Expected output about healthy endpoint, got: %q", outputMessages[0])
-		}
-	})
-
-	t.Run("SuccessWithBothChecks", func(t *testing.T) {
-		mocks := setupProvisionerMocks(t)
-		mocks.ClusterClient.WaitForNodesHealthyFunc = func(ctx context.Context, nodeAddresses []string, expectedVersion string, skipServices []string) error {
-			return nil
-		}
-		mocks.KubernetesManager.WaitForKubernetesHealthyFunc = func(ctx context.Context, endpoint string, outputFunc func(string), nodeNames ...string) error {
-			return nil
-		}
-		opts := &Provisioner{
-			KubernetesManager: mocks.KubernetesManager,
-			ClusterClient:     mocks.ClusterClient,
-		}
-		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
-
-		var outputMessages []string
-		outputFunc := func(msg string) {
-			outputMessages = append(outputMessages, msg)
-		}
-
-		options := NodeHealthCheckOptions{
-			Nodes:               []string{"10.0.0.1"},
-			K8SEndpoint:         "https://test:6443",
-			K8SEndpointProvided: true,
-		}
-
-		err := provisioner.CheckNodeHealth(context.Background(), options, outputFunc)
-
-		if err != nil {
-			t.Errorf("Expected no error, got: %v", err)
-		}
-	})
-
-	t.Run("SuccessWithNodeReadinessCheck", func(t *testing.T) {
-		mocks := setupProvisionerMocks(t)
-		mocks.KubernetesManager.WaitForKubernetesHealthyFunc = func(ctx context.Context, endpoint string, outputFunc func(string), nodeNames ...string) error {
-			if len(nodeNames) != 1 || nodeNames[0] != "10.0.0.1" {
-				t.Errorf("Expected node name '10.0.0.1', got: %v", nodeNames)
-			}
-			return nil
-		}
-		mocks.KubernetesManager.GetNodeReadyStatusFunc = func(ctx context.Context, nodeNames []string) (map[string]bool, error) {
-			return map[string]bool{"10.0.0.1": true}, nil
-		}
-		opts := &Provisioner{
-			KubernetesManager: mocks.KubernetesManager,
-		}
-		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
-
-		var outputMessages []string
-		outputFunc := func(msg string) {
-			outputMessages = append(outputMessages, msg)
-		}
-
-		options := NodeHealthCheckOptions{
-			Nodes:               []string{"10.0.0.1"},
-			K8SEndpoint:         "https://test:6443",
-			K8SEndpointProvided: true,
-			CheckNodeReady:      true,
-		}
-
-		err := provisioner.CheckNodeHealth(context.Background(), options, outputFunc)
-
-		if err != nil {
-			t.Errorf("Expected no error, got: %v", err)
-		}
-	})
-
-	t.Run("ErrorNoHealthChecksSpecified", func(t *testing.T) {
+func TestProvisioner_kubeconfigPresent(t *testing.T) {
+	t.Run("FalseWhenKubeconfigIsMissing", func(t *testing.T) {
+		// Given a Stat shim that reports no kubeconfig
 		mocks := setupProvisionerMocks(t)
 		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler)
+		provisioner.configRoot = "/config"
+		provisioner.shims.Stat = func(string) (os.FileInfo, error) { return nil, fs.ErrNotExist }
 
-		options := NodeHealthCheckOptions{
-			K8SEndpointProvided: false,
-		}
+		// When the kubeconfig is probed
+		present := provisioner.kubeconfigPresent()
 
-		err := provisioner.CheckNodeHealth(context.Background(), options, nil)
-
-		if err == nil {
-			t.Error("Expected error when no health checks specified")
-		}
-
-		if !strings.Contains(err.Error(), "no health checks specified") {
-			t.Errorf("Expected error about no health checks, got: %v", err)
+		// Then it reports no kubeconfig
+		if present {
+			t.Error("Expected false when the kubeconfig does not exist")
 		}
 	})
 
-	t.Run("ErrorClusterClientWaitForNodesHealthy", func(t *testing.T) {
-		mocks := setupProvisionerMocks(t)
-		mocks.ClusterClient.WaitForNodesHealthyFunc = func(ctx context.Context, nodeAddresses []string, expectedVersion string, skipServices []string) error {
-			return fmt.Errorf("cluster health check failed")
-		}
-		opts := &Provisioner{
-			ClusterClient: mocks.ClusterClient,
-		}
-		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
-
-		options := NodeHealthCheckOptions{
-			Nodes:               []string{"10.0.0.1"},
-			K8SEndpointProvided: false,
-		}
-
-		err := provisioner.CheckNodeHealth(context.Background(), options, nil)
-
-		if err == nil {
-			t.Error("Expected error when cluster health check fails")
-		}
-
-		if !strings.Contains(err.Error(), "nodes failed health check") {
-			t.Errorf("Expected error about nodes failed health check, got: %v", err)
-		}
-	})
-
-	t.Run("WarningClusterClientFailureWithK8sCheck", func(t *testing.T) {
-		mocks := setupProvisionerMocks(t)
-		mocks.ClusterClient.WaitForNodesHealthyFunc = func(ctx context.Context, nodeAddresses []string, expectedVersion string, skipServices []string) error {
-			return fmt.Errorf("cluster health check failed")
-		}
-		mocks.KubernetesManager.WaitForKubernetesHealthyFunc = func(ctx context.Context, endpoint string, outputFunc func(string), nodeNames ...string) error {
-			return nil
-		}
-		opts := &Provisioner{
-			KubernetesManager: mocks.KubernetesManager,
-			ClusterClient:     mocks.ClusterClient,
-		}
-		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
-
-		var outputMessages []string
-		outputFunc := func(msg string) {
-			outputMessages = append(outputMessages, msg)
-		}
-
-		options := NodeHealthCheckOptions{
-			Nodes:               []string{"10.0.0.1"},
-			K8SEndpoint:         "https://test:6443",
-			K8SEndpointProvided: true,
-		}
-
-		err := provisioner.CheckNodeHealth(context.Background(), options, outputFunc)
-
-		if err != nil {
-			t.Errorf("Expected no error (cluster failure should be warning), got: %v", err)
-		}
-
-		warningFound := false
-		for _, msg := range outputMessages {
-			if strings.Contains(msg, "Warning") && strings.Contains(msg, "Cluster client failed") {
-				warningFound = true
-				break
-			}
-		}
-
-		if !warningFound {
-			t.Error("Expected warning message about cluster client failure")
-		}
-	})
-
-	t.Run("ErrorKubernetesManagerWaitForKubernetesHealthy", func(t *testing.T) {
-		mocks := setupProvisionerMocks(t)
-		mocks.KubernetesManager.WaitForKubernetesHealthyFunc = func(ctx context.Context, endpoint string, outputFunc func(string), nodeNames ...string) error {
-			return fmt.Errorf("kubernetes health check failed")
-		}
-		opts := &Provisioner{
-			KubernetesManager: mocks.KubernetesManager,
-		}
-		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
-
-		options := NodeHealthCheckOptions{
-			K8SEndpoint:         "https://test:6443",
-			K8SEndpointProvided: true,
-		}
-
-		err := provisioner.CheckNodeHealth(context.Background(), options, nil)
-
-		if err == nil {
-			t.Error("Expected error when Kubernetes health check fails")
-		}
-
-		if !strings.Contains(err.Error(), "kubernetes health check failed") {
-			t.Errorf("Expected error about kubernetes health check, got: %v", err)
-		}
-	})
-
-	t.Run("ErrorCheckNodeReadyRequiresNodes", func(t *testing.T) {
-		mocks := setupProvisionerMocks(t)
-		opts := &Provisioner{
-			KubernetesManager: mocks.KubernetesManager,
-		}
-		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
-
-		options := NodeHealthCheckOptions{
-			K8SEndpoint:         "https://test:6443",
-			K8SEndpointProvided: true,
-			CheckNodeReady:      true,
-		}
-
-		err := provisioner.CheckNodeHealth(context.Background(), options, nil)
-
-		if err == nil {
-			t.Error("Expected error when --ready flag used without --nodes")
-		}
-
-		if !strings.Contains(err.Error(), "--ready flag requires --nodes") {
-			t.Errorf("Expected error about --ready requiring --nodes, got: %v", err)
-		}
-	})
-
-	t.Run("ErrorNoKubernetesManager", func(t *testing.T) {
+	t.Run("TrueWhenStatFailsForAnotherReason", func(t *testing.T) {
+		// Given a Stat shim that returns a permission error
 		mocks := setupProvisionerMocks(t)
 		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler)
-		provisioner.KubernetesManager = nil
+		provisioner.configRoot = "/config"
+		provisioner.shims.Stat = func(string) (os.FileInfo, error) { return nil, fs.ErrPermission }
 
-		options := NodeHealthCheckOptions{
-			K8SEndpoint:         "https://test:6443",
-			K8SEndpointProvided: true,
-		}
+		// When the kubeconfig is probed
+		present := provisioner.kubeconfigPresent()
 
-		err := provisioner.CheckNodeHealth(context.Background(), options, nil)
-
-		if err == nil {
-			t.Error("Expected error when Kubernetes manager is nil")
-		}
-
-		if !strings.Contains(err.Error(), "no kubernetes manager found") {
-			t.Errorf("Expected error about no kubernetes manager, got: %v", err)
+		// Then it reports the kubeconfig as present
+		if !present {
+			t.Error("Expected true when Stat fails with an error other than not exist")
 		}
 	})
 
-	t.Run("SuccessWithDefaultTimeout", func(t *testing.T) {
+	t.Run("FalseWhenConfigRootIsEmpty", func(t *testing.T) {
+		// Given a provisioner with no config root
 		mocks := setupProvisionerMocks(t)
-		mocks.ClusterClient.WaitForNodesHealthyFunc = func(ctx context.Context, nodeAddresses []string, expectedVersion string, skipServices []string) error {
-			deadline, ok := ctx.Deadline()
-			if !ok {
-				t.Error("Expected context to have deadline")
-			}
-			if deadline.IsZero() {
-				t.Error("Expected non-zero deadline")
-			}
-			return nil
-		}
-		opts := &Provisioner{
-			ClusterClient: mocks.ClusterClient,
-		}
-		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
+		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler)
+		provisioner.configRoot = ""
 
-		options := NodeHealthCheckOptions{
-			Nodes:               []string{"10.0.0.1"},
-			Timeout:             5 * time.Minute,
-			K8SEndpointProvided: false,
-		}
+		// When the kubeconfig is probed
+		present := provisioner.kubeconfigPresent()
 
-		err := provisioner.CheckNodeHealth(context.Background(), options, nil)
-
-		if err != nil {
-			t.Errorf("Expected no error, got: %v", err)
+		// Then it reports no kubeconfig
+		if present {
+			t.Error("Expected false when the config root is empty")
 		}
 	})
+}
 
-	t.Run("SuccessWithZeroTimeout", func(t *testing.T) {
+func TestProvisioner_recoverHalfMigratedComponents(t *testing.T) {
+	t.Run("UpRecoversLeftoverLocalState", func(t *testing.T) {
+		// Provisioner.Up runs the recovery sweep before delegating to
+		// TerraformStack.Up. For each component with local state but no remote
+		// state, the sweep does the two-step reset-and-migrate: under
+		// withBackendOverride("local") run InitComponent (writes local pointer
+		// file), exit override, then MigrateComponentState (copies local →
+		// configured remote). This protects the scenario where the pointer
+		// records the configured backend even though state lives in the local
+		// file — without the two-step reset, init -migrate-state would migrate
+		// empty remote → local and destroy the local state.
 		mocks := setupProvisionerMocks(t)
-		mocks.ClusterClient.WaitForNodesHealthyFunc = func(ctx context.Context, nodeAddresses []string, expectedVersion string, skipServices []string) error {
-			return nil
-		}
-		opts := &Provisioner{
-			ClusterClient: mocks.ClusterClient,
-		}
-		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
-
-		options := NodeHealthCheckOptions{
-			Nodes:               []string{"10.0.0.1"},
-			Timeout:             0,
-			K8SEndpointProvided: false,
+		bp := &blueprintv1alpha1.Blueprint{
+			TerraformComponents: []blueprintv1alpha1.TerraformComponent{
+				{Path: "network"},
+				{Path: "cluster"},
+			},
 		}
 
-		err := provisioner.CheckNodeHealth(context.Background(), options, nil)
-
-		if err != nil {
-			t.Errorf("Expected no error, got: %v", err)
-		}
-	})
-
-	t.Run("SuccessWithK8SEndpointTrue", func(t *testing.T) {
-		mocks := setupProvisionerMocks(t)
-		mocks.KubernetesManager.WaitForKubernetesHealthyFunc = func(ctx context.Context, endpoint string, outputFunc func(string), nodeNames ...string) error {
-			if endpoint != "" {
-				t.Errorf("Expected empty endpoint when K8SEndpoint is 'true', got: %q", endpoint)
-			}
-			return nil
-		}
-		opts := &Provisioner{
-			KubernetesManager: mocks.KubernetesManager,
-		}
-		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
-
-		var outputMessages []string
-		outputFunc := func(msg string) {
-			outputMessages = append(outputMessages, msg)
-		}
-
-		options := NodeHealthCheckOptions{
-			K8SEndpoint:         "true",
-			K8SEndpointProvided: true,
-		}
-
-		err := provisioner.CheckNodeHealth(context.Background(), options, outputFunc)
-
-		if err != nil {
-			t.Errorf("Expected no error, got: %v", err)
-		}
-
-		if len(outputMessages) != 1 {
-			t.Errorf("Expected 1 output message, got: %d", len(outputMessages))
-		}
-
-		if !strings.Contains(outputMessages[0], "kubeconfig default") {
-			t.Errorf("Expected output about kubeconfig default, got: %q", outputMessages[0])
-		}
-	})
-
-	t.Run("SuccessWithNodeReadinessCheckAllReady", func(t *testing.T) {
-		mocks := setupProvisionerMocks(t)
-		mocks.KubernetesManager.WaitForKubernetesHealthyFunc = func(ctx context.Context, endpoint string, outputFunc func(string), nodeNames ...string) error {
-			return nil
-		}
-		mocks.KubernetesManager.GetNodeReadyStatusFunc = func(ctx context.Context, nodeNames []string) (map[string]bool, error) {
-			return map[string]bool{"10.0.0.1": true, "10.0.0.2": true}, nil
-		}
-		opts := &Provisioner{
-			KubernetesManager: mocks.KubernetesManager,
-		}
-		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
-
-		var outputMessages []string
-		outputFunc := func(msg string) {
-			outputMessages = append(outputMessages, msg)
-		}
-
-		options := NodeHealthCheckOptions{
-			Nodes:               []string{"10.0.0.1", "10.0.0.2"},
-			K8SEndpoint:         "https://test:6443",
-			K8SEndpointProvided: true,
-			CheckNodeReady:      true,
-		}
-
-		err := provisioner.CheckNodeHealth(context.Background(), options, outputFunc)
-
-		if err != nil {
-			t.Errorf("Expected no error, got: %v", err)
-		}
-
-		foundReadyMessage := false
-		for _, msg := range outputMessages {
-			if strings.Contains(msg, "all nodes are Ready") {
-				foundReadyMessage = true
-				break
-			}
-		}
-
-		if !foundReadyMessage {
-			t.Error("Expected output message about all nodes being Ready")
-		}
-	})
-
-	t.Run("SuccessWithNodeReadinessCheckNotAllReady", func(t *testing.T) {
-		mocks := setupProvisionerMocks(t)
-		mocks.KubernetesManager.WaitForKubernetesHealthyFunc = func(ctx context.Context, endpoint string, outputFunc func(string), nodeNames ...string) error {
-			return nil
-		}
-		mocks.KubernetesManager.GetNodeReadyStatusFunc = func(ctx context.Context, nodeNames []string) (map[string]bool, error) {
-			return map[string]bool{"10.0.0.1": false}, nil
-		}
-		opts := &Provisioner{
-			KubernetesManager: mocks.KubernetesManager,
-		}
-		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
-
-		var outputMessages []string
-		outputFunc := func(msg string) {
-			outputMessages = append(outputMessages, msg)
-		}
-
-		options := NodeHealthCheckOptions{
-			Nodes:               []string{"10.0.0.1"},
-			K8SEndpoint:         "https://test:6443",
-			K8SEndpointProvided: true,
-			CheckNodeReady:      true,
-		}
-
-		err := provisioner.CheckNodeHealth(context.Background(), options, outputFunc)
-
-		if err != nil {
-			t.Errorf("Expected no error, got: %v", err)
-		}
-
-		foundHealthyMessage := false
-		for _, msg := range outputMessages {
-			if strings.Contains(msg, "is healthy") && !strings.Contains(msg, "all nodes are Ready") {
-				foundHealthyMessage = true
-				break
-			}
-		}
-
-		if !foundHealthyMessage {
-			t.Error("Expected output message about endpoint being healthy without all nodes Ready")
-		}
-	})
-
-	t.Run("SuccessWithNodeReadinessCheckGetNodeReadyStatusError", func(t *testing.T) {
-		mocks := setupProvisionerMocks(t)
-		mocks.KubernetesManager.WaitForKubernetesHealthyFunc = func(ctx context.Context, endpoint string, outputFunc func(string), nodeNames ...string) error {
-			return nil
-		}
-		mocks.KubernetesManager.GetNodeReadyStatusFunc = func(ctx context.Context, nodeNames []string) (map[string]bool, error) {
-			return nil, fmt.Errorf("get node ready status failed")
-		}
-		opts := &Provisioner{
-			KubernetesManager: mocks.KubernetesManager,
-		}
-		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
-
-		var outputMessages []string
-		outputFunc := func(msg string) {
-			outputMessages = append(outputMessages, msg)
-		}
-
-		options := NodeHealthCheckOptions{
-			Nodes:               []string{"10.0.0.1"},
-			K8SEndpoint:         "https://test:6443",
-			K8SEndpointProvided: true,
-			CheckNodeReady:      true,
-		}
-
-		err := provisioner.CheckNodeHealth(context.Background(), options, outputFunc)
-
-		if err != nil {
-			t.Errorf("Expected no error, got: %v", err)
-		}
-
-		foundHealthyMessage := false
-		for _, msg := range outputMessages {
-			if strings.Contains(msg, "is healthy") && !strings.Contains(msg, "all nodes are Ready") {
-				foundHealthyMessage = true
-				break
-			}
-		}
-
-		if !foundHealthyMessage {
-			t.Error("Expected output message about endpoint being healthy when GetNodeReadyStatus fails")
-		}
-	})
-
-	t.Run("SuccessWithNodeReadinessCheckPartialReadyStatus", func(t *testing.T) {
-		mocks := setupProvisionerMocks(t)
-		mocks.KubernetesManager.WaitForKubernetesHealthyFunc = func(ctx context.Context, endpoint string, outputFunc func(string), nodeNames ...string) error {
-			return nil
-		}
-		mocks.KubernetesManager.GetNodeReadyStatusFunc = func(ctx context.Context, nodeNames []string) (map[string]bool, error) {
-			return map[string]bool{"10.0.0.1": true}, nil
-		}
-		opts := &Provisioner{
-			KubernetesManager: mocks.KubernetesManager,
-		}
-		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
-
-		var outputMessages []string
-		outputFunc := func(msg string) {
-			outputMessages = append(outputMessages, msg)
-		}
-
-		options := NodeHealthCheckOptions{
-			Nodes:               []string{"10.0.0.1", "10.0.0.2"},
-			K8SEndpoint:         "https://test:6443",
-			K8SEndpointProvided: true,
-			CheckNodeReady:      true,
-		}
-
-		err := provisioner.CheckNodeHealth(context.Background(), options, outputFunc)
-
-		if err != nil {
-			t.Errorf("Expected no error, got: %v", err)
-		}
-
-		foundHealthyMessage := false
-		for _, msg := range outputMessages {
-			if strings.Contains(msg, "is healthy") && !strings.Contains(msg, "all nodes are Ready") {
-				foundHealthyMessage = true
-				break
-			}
-		}
-
-		if !foundHealthyMessage {
-			t.Error("Expected output message about endpoint being healthy when not all nodes are ready")
-		}
-	})
-
-	t.Run("ErrorNoHealthChecksWhenNodesProvidedButNoClusterClient", func(t *testing.T) {
-		mocks := setupProvisionerMocks(t)
-		mockConfigHandler := mocks.ConfigHandler.(*config.MockConfigHandler)
-		mockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
-			if key == "cluster.driver" {
-				return "" // No cluster driver set, so ClusterClient won't be created
+		mockCH := mocks.ConfigHandler.(*config.MockConfigHandler)
+		mockCH.GetStringFunc = func(key string, defaultValue ...string) string {
+			if key == "terraform.backend.type" {
+				return "azurerm"
 			}
 			if len(defaultValue) > 0 {
 				return defaultValue[0]
 			}
 			return ""
 		}
-		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler)
-		provisioner.ClusterClient = nil
-
-		options := NodeHealthCheckOptions{
-			Nodes:               []string{"10.0.0.1"},
-			K8SEndpointProvided: false,
-		}
-
-		err := provisioner.CheckNodeHealth(context.Background(), options, nil)
-
-		if err == nil {
-			t.Error("Expected error when nodes provided but no cluster client")
-		}
-
-		if !strings.Contains(err.Error(), "no health checks specified") {
-			t.Errorf("Expected error about no health checks, got: %v", err)
-		}
-	})
-
-	t.Run("SuccessWithK8SEndpointEmptyString", func(t *testing.T) {
-		mocks := setupProvisionerMocks(t)
-		mocks.KubernetesManager.WaitForKubernetesHealthyFunc = func(ctx context.Context, endpoint string, outputFunc func(string), nodeNames ...string) error {
-			if endpoint != "" {
-				t.Errorf("Expected empty endpoint, got: %q", endpoint)
+		var ops []string
+		mockCH.SetFunc = func(key string, value any) error {
+			if key == "terraform.backend.type" {
+				ops = append(ops, fmt.Sprintf("set:%v", value))
 			}
 			return nil
 		}
-		opts := &Provisioner{
-			KubernetesManager: mocks.KubernetesManager,
+		mockStack := terraforminfra.NewMockStack()
+		mockStack.HasLocalStateWithResourcesFunc = func(componentID string) (bool, error) {
+			ops = append(ops, fmt.Sprintf("probe-local:%s", componentID))
+			return true, nil
 		}
-		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
-
-		var outputMessages []string
-		outputFunc := func(msg string) {
-			outputMessages = append(outputMessages, msg)
+		mockStack.HasRemoteStateFunc = func(_ *blueprintv1alpha1.Blueprint, componentID string) (bool, error) {
+			ops = append(ops, fmt.Sprintf("probe-remote:%s", componentID))
+			return false, nil
 		}
-
-		options := NodeHealthCheckOptions{
-			K8SEndpoint:         "",
-			K8SEndpointProvided: true,
-		}
-
-		err := provisioner.CheckNodeHealth(context.Background(), options, outputFunc)
-
-		if err != nil {
-			t.Errorf("Expected no error, got: %v", err)
-		}
-
-		if len(outputMessages) != 1 {
-			t.Errorf("Expected 1 output message, got: %d", len(outputMessages))
-		}
-
-		if !strings.Contains(outputMessages[0], "kubeconfig default") {
-			t.Errorf("Expected output about kubeconfig default, got: %q", outputMessages[0])
-		}
-	})
-
-	t.Run("SuccessWithK8SEndpointAndNodeReadinessCheckDefaultEndpoint", func(t *testing.T) {
-		mocks := setupProvisionerMocks(t)
-		mocks.KubernetesManager.WaitForKubernetesHealthyFunc = func(ctx context.Context, endpoint string, outputFunc func(string), nodeNames ...string) error {
+		mockStack.InitComponentFunc = func(_ *blueprintv1alpha1.Blueprint, componentID string) error {
+			ops = append(ops, fmt.Sprintf("init-component:%s", componentID))
 			return nil
 		}
-		mocks.KubernetesManager.GetNodeReadyStatusFunc = func(ctx context.Context, nodeNames []string) (map[string]bool, error) {
-			return map[string]bool{"10.0.0.1": true}, nil
+		mockStack.MigrateComponentStateFunc = func(_ *blueprintv1alpha1.Blueprint, componentID string) error {
+			ops = append(ops, fmt.Sprintf("migrate-component:%s", componentID))
+			return nil
 		}
-		opts := &Provisioner{
-			KubernetesManager: mocks.KubernetesManager,
+		mockStack.RemoveLocalStateFunc = func(componentID string) error {
+			ops = append(ops, fmt.Sprintf("remove-local:%s", componentID))
+			return nil
 		}
-		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
+		mockStack.UpFunc = func(_ *blueprintv1alpha1.Blueprint, _ ...func(ctx context.Context, id string) (bool, error)) (bool, error) {
+			ops = append(ops, "up")
+			return false, nil
+		}
+		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{TerraformStack: mockStack})
 
-		var outputMessages []string
-		outputFunc := func(msg string) {
-			outputMessages = append(outputMessages, msg)
-		}
-
-		options := NodeHealthCheckOptions{
-			Nodes:               []string{"10.0.0.1"},
-			K8SEndpoint:         "",
-			K8SEndpointProvided: true,
-			CheckNodeReady:      true,
+		if _, err := provisioner.Up(context.Background(), bp); err != nil {
+			t.Fatalf("Expected no error, got %v", err)
 		}
 
-		err := provisioner.CheckNodeHealth(context.Background(), options, outputFunc)
-
-		if err != nil {
-			t.Errorf("Expected no error, got: %v", err)
+		expected := []string{
+			"probe-local:network",
+			"probe-remote:network",
+			"set:local",
+			"init-component:network",
+			"set:azurerm",
+			"migrate-component:network",
+			"remove-local:network",
+			"probe-local:cluster",
+			"probe-remote:cluster",
+			"set:local",
+			"init-component:cluster",
+			"set:azurerm",
+			"migrate-component:cluster",
+			"remove-local:cluster",
+			"up",
 		}
-
-		foundReadyMessage := false
-		for _, msg := range outputMessages {
-			if strings.Contains(msg, "kubeconfig default") && strings.Contains(msg, "all nodes are Ready") {
-				foundReadyMessage = true
-				break
+		if len(ops) != len(expected) {
+			t.Fatalf("Expected ops %v, got %v", expected, ops)
+		}
+		for i, want := range expected {
+			if ops[i] != want {
+				t.Errorf("op %d: got %q, want %q (full: %v)", i, ops[i], want, ops)
 			}
 		}
-
-		if !foundReadyMessage {
-			t.Error("Expected output message about kubeconfig default and all nodes Ready")
-		}
 	})
 
-	t.Run("SuccessWithWaitForReboot", func(t *testing.T) {
+	t.Run("ShortCircuitsForLocalBackend", func(t *testing.T) {
+		// When the configured backend is "local", local IS the configured backend
+		// — there is nothing to migrate to. The sweep must short-circuit before
+		// iterating components so a local-backend windsor up does not spend a
+		// per-component terraform init + show pair on every invocation.
 		mocks := setupProvisionerMocks(t)
-		rebootCalled := false
-		mocks.ClusterClient.WaitForNodesRebootFunc = func(ctx context.Context, nodeAddresses []string, preActionBootIDs map[string]string, expectedVersion string, skipServices []string, offlineTimeout time.Duration) error {
-			rebootCalled = true
-			return nil
+		bp := &blueprintv1alpha1.Blueprint{
+			TerraformComponents: []blueprintv1alpha1.TerraformComponent{
+				{Path: "vpc"},
+				{Path: "cluster"},
+			},
 		}
-		healthyCalled := false
-		mocks.ClusterClient.WaitForNodesHealthyFunc = func(ctx context.Context, nodeAddresses []string, expectedVersion string, skipServices []string) error {
-			healthyCalled = true
-			return nil
-		}
-		opts := &Provisioner{
-			ClusterClient: mocks.ClusterClient,
-		}
-		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
-
-		var outputMessages []string
-		outputFunc := func(msg string) {
-			outputMessages = append(outputMessages, msg)
-		}
-
-		options := NodeHealthCheckOptions{
-			Nodes:         []string{"10.0.0.1"},
-			WaitForReboot: true,
-		}
-
-		err := provisioner.CheckNodeHealth(context.Background(), options, outputFunc)
-
-		if err != nil {
-			t.Errorf("Expected no error, got: %v", err)
-		}
-		if !rebootCalled {
-			t.Error("Expected WaitForNodesReboot to be called")
-		}
-		if healthyCalled {
-			t.Error("Expected WaitForNodesHealthy NOT to be called")
-		}
-	})
-
-	t.Run("WaitForRebootError", func(t *testing.T) {
-		mocks := setupProvisionerMocks(t)
-		mocks.ClusterClient.WaitForNodesRebootFunc = func(ctx context.Context, nodeAddresses []string, preActionBootIDs map[string]string, expectedVersion string, skipServices []string, offlineTimeout time.Duration) error {
-			return fmt.Errorf("reboot timed out")
-		}
-		opts := &Provisioner{
-			ClusterClient: mocks.ClusterClient,
-		}
-		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
-
-		options := NodeHealthCheckOptions{
-			Nodes:         []string{"10.0.0.1"},
-			WaitForReboot: true,
-		}
-
-		err := provisioner.CheckNodeHealth(context.Background(), options, nil)
-
-		if err == nil {
-			t.Error("Expected error, got nil")
-		}
-		if !strings.Contains(err.Error(), "reboot timed out") {
-			t.Errorf("Expected reboot error, got: %v", err)
-		}
-	})
-}
-
-func TestProvisioner_PlanKustomization(t *testing.T) {
-	t.Run("Success", func(t *testing.T) {
-		// Given a provisioner with a mock flux stack
-		mocks := setupProvisionerMocks(t)
-		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{
-			TerraformStack:    mocks.TerraformStack,
-			FluxStack:         mocks.FluxStack,
-			KubernetesManager: mocks.KubernetesManager,
-			KubernetesClient:  mocks.KubernetesClient,
-		})
-
-		// When PlanKustomization is called with a valid blueprint
-		err := provisioner.PlanKustomization(createTestBlueprint(), "test-kustomization")
-
-		// Then no error is returned
-		if err != nil {
-			t.Fatalf("expected no error, got %v", err)
-		}
-	})
-
-	t.Run("MaterializesCrdLayerForTheStack", func(t *testing.T) {
-		// Given a blueprint whose only kustomize layer is the crds: list
-		mocks := setupProvisionerMocks(t)
-		var planned *blueprintv1alpha1.Blueprint
-		mocks.FluxStack.PlanFunc = func(blueprint *blueprintv1alpha1.Blueprint, componentID string) error {
-			planned = blueprint
-			return nil
-		}
-		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{
-			FluxStack:         mocks.FluxStack,
-			KubernetesManager: mocks.KubernetesManager,
-			KubernetesClient:  mocks.KubernetesClient,
-		})
-
-		// When planning the crds component directly
-		if err := provisioner.PlanKustomization(&blueprintv1alpha1.Blueprint{Crds: []string{"cert-manager-1.16.2"}}, "crds"); err != nil {
-			t.Fatalf("expected no error, got %v", err)
-		}
-
-		// Then the synthesized crds kustomization is present so the stack can resolve "crds"
-		if planned == nil || len(planned.Kustomizations) != 1 || planned.Kustomizations[0].Name != "crds" {
-			t.Errorf("expected crds kustomization materialized for plan, got %+v", planned)
-		}
-	})
-
-	t.Run("ErrorNilBlueprint", func(t *testing.T) {
-		// Given a provisioner with a mock flux stack
-		mocks := setupProvisionerMocks(t)
-		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{
-			FluxStack:         mocks.FluxStack,
-			KubernetesManager: mocks.KubernetesManager,
-			KubernetesClient:  mocks.KubernetesClient,
-		})
-
-		// When PlanKustomization is called with a nil blueprint
-		err := provisioner.PlanKustomization(nil, "test-kustomization")
-
-		// Then an error is returned
-		if err == nil {
-			t.Fatal("expected error for nil blueprint, got nil")
-		}
-	})
-
-	t.Run("ErrorFluxStackFails", func(t *testing.T) {
-		// Given a provisioner whose flux stack returns an error
-		mocks := setupProvisionerMocks(t)
-		mocks.FluxStack.PlanFunc = func(blueprint *blueprintv1alpha1.Blueprint, componentID string) error {
-			return fmt.Errorf("flux diff failed")
-		}
-		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{
-			FluxStack:         mocks.FluxStack,
-			KubernetesManager: mocks.KubernetesManager,
-			KubernetesClient:  mocks.KubernetesClient,
-		})
-
-		// When PlanKustomization is called
-		err := provisioner.PlanKustomization(createTestBlueprint(), "test-kustomization")
-
-		// Then the error from the flux stack is returned
-		if err == nil {
-			t.Fatal("expected error, got nil")
-		}
-		if !strings.Contains(err.Error(), "flux diff failed") {
-			t.Errorf("expected flux error in message, got %v", err)
-		}
-	})
-}
-
-func TestProvisioner_PlanTerraformAll(t *testing.T) {
-	t.Run("ReturnsErrorForNilBlueprint", func(t *testing.T) {
-		mocks := setupProvisionerMocks(t)
-		p := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{
-			TerraformStack:    mocks.TerraformStack,
-			KubernetesManager: mocks.KubernetesManager,
-			KubernetesClient:  mocks.KubernetesClient,
-		})
-
-		err := p.PlanTerraformAll(nil)
-
-		if err == nil {
-			t.Fatal("expected error for nil blueprint, got nil")
-		}
-	})
-
-	t.Run("DelegatestoStackPlanAll", func(t *testing.T) {
-		mocks := setupProvisionerMocks(t)
-		called := false
-		mocks.TerraformStack.(*terraforminfra.MockStack).PlanAllFunc = func(bp *blueprintv1alpha1.Blueprint) error {
-			called = true
-			return nil
-		}
-		p := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{
-			TerraformStack:    mocks.TerraformStack,
-			KubernetesManager: mocks.KubernetesManager,
-			KubernetesClient:  mocks.KubernetesClient,
-		})
-
-		err := p.PlanTerraformAll(createTestBlueprint())
-
-		if err != nil {
-			t.Fatalf("expected no error, got %v", err)
-		}
-		if !called {
-			t.Error("expected TerraformStack.PlanAll to be called")
-		}
-	})
-}
-
-func TestProvisioner_PlanTerraformComponentSummary(t *testing.T) {
-	t.Run("ReturnsErrorForNilBlueprint", func(t *testing.T) {
-		mocks := setupProvisionerMocks(t)
-		p := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{
-			TerraformStack:    mocks.TerraformStack,
-			FluxStack:         mocks.FluxStack,
-			KubernetesManager: mocks.KubernetesManager,
-			KubernetesClient:  mocks.KubernetesClient,
-		})
-
-		_, err := p.PlanTerraformComponentSummary(nil, "cluster")
-
-		if err == nil {
-			t.Fatal("expected error for nil blueprint, got nil")
-		}
-	})
-
-	t.Run("PlansOnlyRequestedComponent", func(t *testing.T) {
-		mocks := setupProvisionerMocks(t)
-		called := []string{}
-		mocks.TerraformStack.(*terraforminfra.MockStack).PlanComponentSummaryFunc = func(bp *blueprintv1alpha1.Blueprint, componentID string) terraforminfra.TerraformComponentPlan {
-			called = append(called, componentID)
-			return terraforminfra.TerraformComponentPlan{ComponentID: componentID, Add: 2}
-		}
-		p := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{
-			TerraformStack:    mocks.TerraformStack,
-			FluxStack:         mocks.FluxStack,
-			KubernetesManager: mocks.KubernetesManager,
-			KubernetesClient:  mocks.KubernetesClient,
-		})
-
-		result, err := p.PlanTerraformComponentSummary(createTestBlueprint(), "cluster")
-
-		if err != nil {
-			t.Fatalf("expected no error, got %v", err)
-		}
-		if result.ComponentID != "cluster" || result.Add != 2 {
-			t.Errorf("unexpected result: %+v", result)
-		}
-		if len(called) != 1 || called[0] != "cluster" {
-			t.Errorf("expected exactly one call for cluster, got %v", called)
-		}
-	})
-}
-
-func TestProvisioner_PlanKustomizeComponentSummary(t *testing.T) {
-	t.Run("ReturnsErrorForNilBlueprint", func(t *testing.T) {
-		mocks := setupProvisionerMocks(t)
-		p := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{
-			TerraformStack:    mocks.TerraformStack,
-			FluxStack:         mocks.FluxStack,
-			KubernetesManager: mocks.KubernetesManager,
-			KubernetesClient:  mocks.KubernetesClient,
-		})
-
-		_, err := p.PlanKustomizeComponentSummary(nil, "flux-system")
-
-		if err == nil {
-			t.Fatal("expected error for nil blueprint, got nil")
-		}
-	})
-
-	t.Run("PlansOnlyRequestedKustomization", func(t *testing.T) {
-		mocks := setupProvisionerMocks(t)
-		called := []string{}
-		mocks.FluxStack.PlanComponentSummaryFunc = func(bp *blueprintv1alpha1.Blueprint, name string) fluxinfra.KustomizePlan {
-			called = append(called, name)
-			return fluxinfra.KustomizePlan{Name: name, Added: 5, IsNew: true}
-		}
-		p := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{
-			TerraformStack:    mocks.TerraformStack,
-			FluxStack:         mocks.FluxStack,
-			KubernetesManager: mocks.KubernetesManager,
-			KubernetesClient:  mocks.KubernetesClient,
-		})
-
-		result, err := p.PlanKustomizeComponentSummary(createTestBlueprint(), "flux-system")
-
-		if err != nil {
-			t.Fatalf("expected no error, got %v", err)
-		}
-		if result.Name != "flux-system" || result.Added != 5 {
-			t.Errorf("unexpected result: %+v", result)
-		}
-		if len(called) != 1 || called[0] != "flux-system" {
-			t.Errorf("expected exactly one call for flux-system, got %v", called)
-		}
-	})
-}
-
-func TestProvisioner_PlanTerraformSummary(t *testing.T) {
-	t.Run("ReturnsErrorForNilBlueprint", func(t *testing.T) {
-		mocks := setupProvisionerMocks(t)
-		p := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{
-			TerraformStack:    mocks.TerraformStack,
-			FluxStack:         mocks.FluxStack,
-			KubernetesManager: mocks.KubernetesManager,
-			KubernetesClient:  mocks.KubernetesClient,
-		})
-
-		summary, err := p.PlanTerraformSummary(nil)
-
-		if err == nil {
-			t.Fatal("expected error for nil blueprint, got nil")
-		}
-		if summary != nil {
-			t.Errorf("expected nil summary, got %v", summary)
-		}
-	})
-
-	t.Run("ReturnsTerraformResultsOnly", func(t *testing.T) {
-		mocks := setupProvisionerMocks(t)
-		mocks.TerraformStack.(*terraforminfra.MockStack).PlanSummaryFunc = func(bp *blueprintv1alpha1.Blueprint) []terraforminfra.TerraformComponentPlan {
-			return []terraforminfra.TerraformComponentPlan{{ComponentID: "cluster", Add: 3}}
-		}
-		mocks.FluxStack.PlanSummaryFunc = func(bp *blueprintv1alpha1.Blueprint) ([]fluxinfra.KustomizePlan, []string) {
-			t.Fatal("FluxStack.PlanSummary should not be called by PlanTerraformSummary")
-			return nil, nil
-		}
-		p := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{
-			TerraformStack:    mocks.TerraformStack,
-			FluxStack:         mocks.FluxStack,
-			KubernetesManager: mocks.KubernetesManager,
-			KubernetesClient:  mocks.KubernetesClient,
-		})
-
-		summary, err := p.PlanTerraformSummary(createTestBlueprint())
-
-		if err != nil {
-			t.Fatalf("expected no error, got %v", err)
-		}
-		if len(summary.Terraform) != 1 || summary.Terraform[0].ComponentID != "cluster" {
-			t.Errorf("expected terraform result for cluster, got %v", summary.Terraform)
-		}
-		if summary.Kustomize != nil {
-			t.Errorf("expected nil kustomize slice, got %v", summary.Kustomize)
-		}
-	})
-}
-
-func TestProvisioner_PlanKustomizeSummary(t *testing.T) {
-	t.Run("ReturnsErrorForNilBlueprint", func(t *testing.T) {
-		mocks := setupProvisionerMocks(t)
-		p := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{
-			TerraformStack:    mocks.TerraformStack,
-			FluxStack:         mocks.FluxStack,
-			KubernetesManager: mocks.KubernetesManager,
-			KubernetesClient:  mocks.KubernetesClient,
-		})
-
-		summary, err := p.PlanKustomizeSummary(nil)
-
-		if err == nil {
-			t.Fatal("expected error for nil blueprint, got nil")
-		}
-		if summary != nil {
-			t.Errorf("expected nil summary, got %v", summary)
-		}
-	})
-
-	t.Run("ReturnsKustomizeResultsOnly", func(t *testing.T) {
-		mocks := setupProvisionerMocks(t)
-		mocks.TerraformStack.(*terraforminfra.MockStack).PlanSummaryFunc = func(bp *blueprintv1alpha1.Blueprint) []terraforminfra.TerraformComponentPlan {
-			t.Fatal("TerraformStack.PlanSummary should not be called by PlanKustomizeSummary")
-			return nil
-		}
-		mocks.FluxStack.PlanSummaryFunc = func(bp *blueprintv1alpha1.Blueprint) ([]fluxinfra.KustomizePlan, []string) {
-			return []fluxinfra.KustomizePlan{{Name: "flux-system", Added: 10, IsNew: true}}, []string{"hint1"}
-		}
-		p := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{
-			TerraformStack:    mocks.TerraformStack,
-			FluxStack:         mocks.FluxStack,
-			KubernetesManager: mocks.KubernetesManager,
-			KubernetesClient:  mocks.KubernetesClient,
-		})
-
-		summary, err := p.PlanKustomizeSummary(createTestBlueprint())
-
-		if err != nil {
-			t.Fatalf("expected no error, got %v", err)
-		}
-		if len(summary.Kustomize) != 1 || summary.Kustomize[0].Name != "flux-system" {
-			t.Errorf("expected kustomize result for flux-system, got %v", summary.Kustomize)
-		}
-		if summary.Terraform != nil {
-			t.Errorf("expected nil terraform slice, got %v", summary.Terraform)
-		}
-		if len(summary.Hints) != 1 || summary.Hints[0] != "hint1" {
-			t.Errorf("expected hints, got %v", summary.Hints)
-		}
-	})
-}
-
-func TestProvisioner_PlanAll(t *testing.T) {
-	t.Run("ReturnsErrorForNilBlueprint", func(t *testing.T) {
-		// Given a properly configured provisioner
-		mocks := setupProvisionerMocks(t)
-		p := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{
-			TerraformStack:    mocks.TerraformStack,
-			FluxStack:         mocks.FluxStack,
-			KubernetesManager: mocks.KubernetesManager,
-			KubernetesClient:  mocks.KubernetesClient,
-		})
-
-		// When PlanAll is called with nil blueprint
-		summary, err := p.PlanAll(nil)
-
-		// Then an error is returned and summary is nil
-		if err == nil {
-			t.Fatal("expected error for nil blueprint, got nil")
-		}
-		if summary != nil {
-			t.Errorf("expected nil summary, got %v", summary)
-		}
-	})
-
-	t.Run("ReturnsTerraformAndKustomizeResults", func(t *testing.T) {
-		// Given stacks that return non-empty summaries
-		mocks := setupProvisionerMocks(t)
-		mocks.TerraformStack.(*terraforminfra.MockStack).PlanSummaryFunc = func(bp *blueprintv1alpha1.Blueprint) []terraforminfra.TerraformComponentPlan {
-			return []terraforminfra.TerraformComponentPlan{{ComponentID: "cluster", Add: 3}}
-		}
-		mocks.FluxStack.PlanSummaryFunc = func(bp *blueprintv1alpha1.Blueprint) ([]fluxinfra.KustomizePlan, []string) {
-			return []fluxinfra.KustomizePlan{{Name: "flux-system", Added: 10, IsNew: true}}, nil
-		}
-		p := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{
-			TerraformStack:    mocks.TerraformStack,
-			FluxStack:         mocks.FluxStack,
-			KubernetesManager: mocks.KubernetesManager,
-			KubernetesClient:  mocks.KubernetesClient,
-		})
-
-		// When PlanAll is called
-		summary, err := p.PlanAll(createTestBlueprint())
-
-		// Then both layers are present in the summary
-		if err != nil {
-			t.Fatalf("expected no error, got %v", err)
-		}
-		if len(summary.Terraform) != 1 || summary.Terraform[0].ComponentID != "cluster" {
-			t.Errorf("expected terraform result for cluster, got %v", summary.Terraform)
-		}
-		if len(summary.Kustomize) != 1 || summary.Kustomize[0].Name != "flux-system" {
-			t.Errorf("expected kustomize result for flux-system, got %v", summary.Kustomize)
-		}
-	})
-
-	t.Run("OmitsTerraformWhenDisabled", func(t *testing.T) {
-		// Given terraform.enabled=false in config
-		mocks := setupProvisionerMocks(t)
-		mocks.ConfigHandler.(*config.MockConfigHandler).GetBoolFunc = func(key string, defaultValue ...bool) bool {
-			if key == "terraform.enabled" {
-				return false
+		mockCH := mocks.ConfigHandler.(*config.MockConfigHandler)
+		mockCH.GetStringFunc = func(key string, defaultValue ...string) string {
+			if key == "terraform.backend.type" {
+				return "local"
 			}
 			if len(defaultValue) > 0 {
 				return defaultValue[0]
 			}
-			return false
-		}
-		mocks.FluxStack.PlanSummaryFunc = func(bp *blueprintv1alpha1.Blueprint) ([]fluxinfra.KustomizePlan, []string) {
-			return []fluxinfra.KustomizePlan{{Name: "flux-system"}}, nil
-		}
-		p := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{
-			FluxStack:         mocks.FluxStack,
-			KubernetesManager: mocks.KubernetesManager,
-			KubernetesClient:  mocks.KubernetesClient,
-		})
-
-		// When PlanAll is called
-		summary, err := p.PlanAll(createTestBlueprint())
-
-		// Then Terraform slice is nil and Kustomize is populated
-		if err != nil {
-			t.Fatalf("expected no error, got %v", err)
-		}
-		if summary.Terraform != nil {
-			t.Errorf("expected nil terraform slice when disabled, got %v", summary.Terraform)
-		}
-		if len(summary.Kustomize) == 0 {
-			t.Errorf("expected kustomize results, got none")
-		}
-	})
-}
-
-func TestProvisioner_PlanDestroyTerraformSummary(t *testing.T) {
-	t.Run("ReturnsErrorForNilBlueprint", func(t *testing.T) {
-		mocks := setupProvisionerMocks(t)
-		p := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{
-			TerraformStack:    mocks.TerraformStack,
-			FluxStack:         mocks.FluxStack,
-			KubernetesManager: mocks.KubernetesManager,
-			KubernetesClient:  mocks.KubernetesClient,
-		})
-
-		summary, err := p.PlanDestroyTerraformSummary(nil)
-		if err == nil {
-			t.Fatal("expected error for nil blueprint, got nil")
-		}
-		if summary != nil {
-			t.Errorf("expected nil summary, got %v", summary)
-		}
-	})
-
-	t.Run("InvokesTerraformDestroyOnly", func(t *testing.T) {
-		// PlanDestroyTerraformSummary must not touch the flux side — its
-		// counterpart on the apply path is the same gate. Verify by failing the
-		// test if FluxStack.PlanDestroySummary is called.
-		mocks := setupProvisionerMocks(t)
-		mocks.TerraformStack.(*terraforminfra.MockStack).PlanDestroySummaryFunc = func(bp *blueprintv1alpha1.Blueprint) []terraforminfra.TerraformComponentPlan {
-			return []terraforminfra.TerraformComponentPlan{{ComponentID: "cluster", Destroy: 5}}
-		}
-		mocks.FluxStack.PlanDestroySummaryFunc = func(bp *blueprintv1alpha1.Blueprint) ([]fluxinfra.KustomizePlan, error) {
-			t.Fatal("FluxStack.PlanDestroySummary should not be called by PlanDestroyTerraformSummary")
-			return nil, nil
-		}
-		p := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{
-			TerraformStack:    mocks.TerraformStack,
-			FluxStack:         mocks.FluxStack,
-			KubernetesManager: mocks.KubernetesManager,
-			KubernetesClient:  mocks.KubernetesClient,
-		})
-
-		summary, err := p.PlanDestroyTerraformSummary(createTestBlueprint())
-		if err != nil {
-			t.Fatalf("expected no error, got %v", err)
-		}
-		if len(summary.Terraform) != 1 || summary.Terraform[0].ComponentID != "cluster" {
-			t.Errorf("expected terraform destroy result for cluster, got %v", summary.Terraform)
-		}
-		if summary.Kustomize != nil {
-			t.Errorf("expected nil kustomize slice, got %v", summary.Kustomize)
-		}
-	})
-}
-
-func TestProvisioner_PlanDestroyKustomizeSummary(t *testing.T) {
-	t.Run("ReturnsErrorForNilBlueprint", func(t *testing.T) {
-		mocks := setupProvisionerMocks(t)
-		p := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{
-			TerraformStack:    mocks.TerraformStack,
-			FluxStack:         mocks.FluxStack,
-			KubernetesManager: mocks.KubernetesManager,
-			KubernetesClient:  mocks.KubernetesClient,
-		})
-
-		summary, err := p.PlanDestroyKustomizeSummary(nil)
-		if err == nil {
-			t.Fatal("expected error for nil blueprint, got nil")
-		}
-		if summary != nil {
-			t.Errorf("expected nil summary, got %v", summary)
-		}
-	})
-
-	t.Run("ReturnsKustomizeResultsOnly", func(t *testing.T) {
-		mocks := setupProvisionerMocks(t)
-		mocks.TerraformStack.(*terraforminfra.MockStack).PlanDestroySummaryFunc = func(bp *blueprintv1alpha1.Blueprint) []terraforminfra.TerraformComponentPlan {
-			t.Fatal("TerraformStack.PlanDestroySummary should not be called by PlanDestroyKustomizeSummary")
-			return nil
-		}
-		mocks.FluxStack.PlanDestroySummaryFunc = func(bp *blueprintv1alpha1.Blueprint) ([]fluxinfra.KustomizePlan, error) {
-			return []fluxinfra.KustomizePlan{{Name: "monitoring", Removed: 12}}, nil
-		}
-		p := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{
-			TerraformStack:    mocks.TerraformStack,
-			FluxStack:         mocks.FluxStack,
-			KubernetesManager: mocks.KubernetesManager,
-			KubernetesClient:  mocks.KubernetesClient,
-		})
-
-		summary, err := p.PlanDestroyKustomizeSummary(createTestBlueprint())
-		if err != nil {
-			t.Fatalf("expected no error, got %v", err)
-		}
-		if len(summary.Kustomize) != 1 || summary.Kustomize[0].Name != "monitoring" {
-			t.Errorf("expected kustomize destroy result for monitoring, got %v", summary.Kustomize)
-		}
-	})
-
-	t.Run("PropagatesClusterErrorFromFluxStack", func(t *testing.T) {
-		// The flux destroy plan errors on cluster failure (truthful — fall-back
-		// would lie). The aggregator must propagate so the cmd layer can fail
-		// before prompting for destroy.
-		mocks := setupProvisionerMocks(t)
-		mocks.FluxStack.PlanDestroySummaryFunc = func(bp *blueprintv1alpha1.Blueprint) ([]fluxinfra.KustomizePlan, error) {
-			return nil, fmt.Errorf("connection refused")
-		}
-		p := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{
-			TerraformStack:    mocks.TerraformStack,
-			FluxStack:         mocks.FluxStack,
-			KubernetesManager: mocks.KubernetesManager,
-			KubernetesClient:  mocks.KubernetesClient,
-		})
-
-		summary, err := p.PlanDestroyKustomizeSummary(createTestBlueprint())
-		if err == nil || !strings.Contains(err.Error(), "connection refused") {
-			t.Errorf("expected cluster error to propagate, got err=%v summary=%v", err, summary)
-		}
-	})
-
-	t.Run("FlattensFluxSystemTiersBeforePlanning", func(t *testing.T) {
-		// Regression: a blueprint that declares its kustomizations via FluxSystems
-		// (not top-level kustomize:) must still preview every compiled install/
-		// resources tier. The plan iterates blueprint.Kustomizations, so the
-		// provisioner must pass the blueprint through withCrdLayer first — the
-		// same flattening Uninstall applies before DeleteBlueprint. Without it the
-		// plan saw an empty Kustomizations slice and rendered no Kustomize section
-		// while the teardown still destroyed every tier.
-		mocks := setupProvisionerMocks(t)
-		var seen *blueprintv1alpha1.Blueprint
-		mocks.FluxStack.PlanDestroySummaryFunc = func(bp *blueprintv1alpha1.Blueprint) ([]fluxinfra.KustomizePlan, error) {
-			seen = bp
-			return nil, nil
-		}
-		p := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{
-			TerraformStack:    mocks.TerraformStack,
-			FluxStack:         mocks.FluxStack,
-			KubernetesManager: mocks.KubernetesManager,
-			KubernetesClient:  mocks.KubernetesClient,
-		})
-
-		bp := &blueprintv1alpha1.Blueprint{
-			Metadata: blueprintv1alpha1.Metadata{Name: "test-blueprint"},
-			Crds:     []string{"cert-manager-crds"},
-			FluxSystems: []blueprintv1alpha1.FluxSystem{
-				{
-					Name:   "pki",
-					Source: "source1",
-					Install: &blueprintv1alpha1.Kustomization{
-						Components: []string{"controller"},
-					},
-				},
-			},
-		}
-		if _, err := p.PlanDestroyKustomizeSummary(bp); err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-		if seen == nil {
-			t.Fatal("FluxStack.PlanDestroySummary was not called")
-		}
-		if seen.FluxSystems != nil {
-			t.Errorf("expected FluxSystems flattened away, got %v", seen.FluxSystems)
-		}
-		names := make([]string, 0, len(seen.Kustomizations))
-		for _, k := range seen.Kustomizations {
-			names = append(names, k.Name)
-		}
-		if !slices.Contains(names, "pki-install") {
-			t.Errorf("expected pki-install tier flattened into Kustomizations, got %v", names)
-		}
-	})
-}
-
-func TestProvisioner_PlanDestroyAll(t *testing.T) {
-	t.Run("ReturnsErrorForNilBlueprint", func(t *testing.T) {
-		mocks := setupProvisionerMocks(t)
-		p := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{
-			TerraformStack:    mocks.TerraformStack,
-			FluxStack:         mocks.FluxStack,
-			KubernetesManager: mocks.KubernetesManager,
-			KubernetesClient:  mocks.KubernetesClient,
-		})
-
-		summary, err := p.PlanDestroyAll(nil)
-		if err == nil {
-			t.Fatal("expected error for nil blueprint, got nil")
-		}
-		if summary != nil {
-			t.Errorf("expected nil summary, got %v", summary)
-		}
-	})
-
-	t.Run("AggregatesBothLayers", func(t *testing.T) {
-		mocks := setupProvisionerMocks(t)
-		mocks.TerraformStack.(*terraforminfra.MockStack).PlanDestroySummaryFunc = func(bp *blueprintv1alpha1.Blueprint) []terraforminfra.TerraformComponentPlan {
-			return []terraforminfra.TerraformComponentPlan{{ComponentID: "cluster", Destroy: 7}}
-		}
-		mocks.FluxStack.PlanDestroySummaryFunc = func(bp *blueprintv1alpha1.Blueprint) ([]fluxinfra.KustomizePlan, error) {
-			return []fluxinfra.KustomizePlan{{Name: "monitoring", Removed: 12}}, nil
-		}
-		p := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{
-			TerraformStack:    mocks.TerraformStack,
-			FluxStack:         mocks.FluxStack,
-			KubernetesManager: mocks.KubernetesManager,
-			KubernetesClient:  mocks.KubernetesClient,
-		})
-
-		summary, err := p.PlanDestroyAll(createTestBlueprint())
-		if err != nil {
-			t.Fatalf("expected no error, got %v", err)
-		}
-		if len(summary.Terraform) != 1 || summary.Terraform[0].ComponentID != "cluster" {
-			t.Errorf("expected terraform destroy result for cluster, got %v", summary.Terraform)
-		}
-		if len(summary.Kustomize) != 1 || summary.Kustomize[0].Name != "monitoring" {
-			t.Errorf("expected kustomize destroy result for monitoring, got %v", summary.Kustomize)
-		}
-	})
-
-	t.Run("AbortsOnClusterFailure", func(t *testing.T) {
-		// Flux returns error -> PlanDestroyAll must abort and return that error
-		// so the cmd layer doesn't prompt for destroy.
-		mocks := setupProvisionerMocks(t)
-		mocks.FluxStack.PlanDestroySummaryFunc = func(bp *blueprintv1alpha1.Blueprint) ([]fluxinfra.KustomizePlan, error) {
-			return nil, fmt.Errorf("connection refused")
-		}
-		p := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{
-			TerraformStack:    mocks.TerraformStack,
-			FluxStack:         mocks.FluxStack,
-			KubernetesManager: mocks.KubernetesManager,
-			KubernetesClient:  mocks.KubernetesClient,
-		})
-
-		summary, err := p.PlanDestroyAll(createTestBlueprint())
-		if err == nil || !strings.Contains(err.Error(), "connection refused") {
-			t.Errorf("expected cluster error to propagate, got err=%v summary=%v", err, summary)
-		}
-	})
-}
-
-func TestProvisioner_PlanDestroyTerraformComponentSummary(t *testing.T) {
-	t.Run("ReturnsErrorForNilBlueprint", func(t *testing.T) {
-		mocks := setupProvisionerMocks(t)
-		p := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{
-			TerraformStack: mocks.TerraformStack,
-		})
-
-		_, err := p.PlanDestroyTerraformComponentSummary(nil, "x")
-		if err == nil {
-			t.Fatal("expected error for nil blueprint, got nil")
-		}
-	})
-
-	t.Run("DelegatesToTerraformStack", func(t *testing.T) {
-		mocks := setupProvisionerMocks(t)
-		mocks.TerraformStack.(*terraforminfra.MockStack).PlanDestroyComponentSummaryFunc = func(bp *blueprintv1alpha1.Blueprint, id string) terraforminfra.TerraformComponentPlan {
-			return terraforminfra.TerraformComponentPlan{ComponentID: id, Destroy: 4}
-		}
-		p := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{
-			TerraformStack: mocks.TerraformStack,
-		})
-
-		got, err := p.PlanDestroyTerraformComponentSummary(createTestBlueprint(), "cluster")
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-		if got.ComponentID != "cluster" || got.Destroy != 4 {
-			t.Errorf("expected delegated result, got %#v", got)
-		}
-	})
-}
-
-func TestProvisioner_PlanDestroyKustomizeComponentSummary(t *testing.T) {
-	t.Run("ReturnsErrorForNilBlueprint", func(t *testing.T) {
-		mocks := setupProvisionerMocks(t)
-		p := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{
-			FluxStack: mocks.FluxStack,
-		})
-
-		_, err := p.PlanDestroyKustomizeComponentSummary(nil, "x")
-		if err == nil {
-			t.Fatal("expected error for nil blueprint, got nil")
-		}
-	})
-
-	t.Run("DelegatesToFluxStack", func(t *testing.T) {
-		mocks := setupProvisionerMocks(t)
-		mocks.FluxStack.PlanDestroyComponentSummaryFunc = func(bp *blueprintv1alpha1.Blueprint, name string) fluxinfra.KustomizePlan {
-			return fluxinfra.KustomizePlan{Name: name, Removed: 8}
-		}
-		p := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{
-			FluxStack: mocks.FluxStack,
-		})
-
-		got, err := p.PlanDestroyKustomizeComponentSummary(createTestBlueprint(), "monitoring")
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-		if got.Name != "monitoring" || got.Removed != 8 {
-			t.Errorf("expected delegated result, got %#v", got)
-		}
-	})
-
-	t.Run("FlattensFluxSystemTiersBeforePlanning", func(t *testing.T) {
-		// Regression: a blueprint that declares its kustomizations via FluxSystems
-		// (not top-level kustomize:) must still preview the compiled install/
-		// resources tier. The plan iterates blueprint.Kustomizations, so the
-		// provisioner must pass the blueprint through withCrdLayer first — the
-		// same flattening Uninstall applies before DeleteBlueprint. Without it the
-		// component plan saw an empty Kustomizations slice while the teardown
-		// still destroyed the tier.
-		mocks := setupProvisionerMocks(t)
-		var seen *blueprintv1alpha1.Blueprint
-		mocks.FluxStack.PlanDestroyComponentSummaryFunc = func(bp *blueprintv1alpha1.Blueprint, name string) fluxinfra.KustomizePlan {
-			seen = bp
-			return fluxinfra.KustomizePlan{}
-		}
-		p := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{
-			TerraformStack:    mocks.TerraformStack,
-			FluxStack:         mocks.FluxStack,
-			KubernetesManager: mocks.KubernetesManager,
-			KubernetesClient:  mocks.KubernetesClient,
-		})
-
-		bp := &blueprintv1alpha1.Blueprint{
-			Metadata: blueprintv1alpha1.Metadata{Name: "test-blueprint"},
-			Crds:     []string{"cert-manager-crds"},
-			FluxSystems: []blueprintv1alpha1.FluxSystem{
-				{
-					Name:   "pki",
-					Source: "source1",
-					Install: &blueprintv1alpha1.Kustomization{
-						Components: []string{"controller"},
-					},
-				},
-			},
-		}
-		if _, err := p.PlanDestroyKustomizeComponentSummary(bp, "pki-install"); err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-		if seen == nil {
-			t.Fatal("FluxStack.PlanDestroyComponentSummary was not called")
-		}
-		if seen.FluxSystems != nil {
-			t.Errorf("expected FluxSystems flattened away, got %v", seen.FluxSystems)
-		}
-		names := make([]string, 0, len(seen.Kustomizations))
-		for _, k := range seen.Kustomizations {
-			names = append(names, k.Name)
-		}
-		if !slices.Contains(names, "pki-install") {
-			t.Errorf("expected pki-install tier flattened into Kustomizations, got %v", names)
-		}
-	})
-}
-
-func TestVersionFromImage(t *testing.T) {
-	cases := []struct {
-		image    string
-		expected string
-	}{
-		{"ghcr.io/siderolabs/talos:v1.9.0", "1.9.0"},
-		{"factory.talos.dev/installer/abc123:v1.9.0", "1.9.0"},
-		{"registry:5000/image:v1.9.0", "1.9.0"},
-		{"ghcr.io/siderolabs/talos:v1.9.0-beta.0", "1.9.0-beta.0"},
-		{"image@sha256:abc123", ""},
-		{"ghcr.io/siderolabs/talos", ""},
-		{"registry:5000/image", ""},
-	}
-	for _, c := range cases {
-		got := versionFromImage(c.image)
-		if got != c.expected {
-			t.Errorf("versionFromImage(%q) = %q, want %q", c.image, got, c.expected)
-		}
-	}
-}
-
-func TestProvisioner_UpgradeNode(t *testing.T) {
-	t.Run("Success", func(t *testing.T) {
-		mocks := setupProvisionerMocks(t)
-
-		upgradeCalled := false
-		mocks.ClusterClient.UpgradeNodesFunc = func(ctx context.Context, nodeAddresses []string, image string, powercycle bool) error {
-			upgradeCalled = true
-			if len(nodeAddresses) != 1 || nodeAddresses[0] != "10.0.0.1" {
-				t.Errorf("Expected node 10.0.0.1, got %v", nodeAddresses)
-			}
-			return nil
-		}
-		rebootCalled := false
-		var capturedVersion string
-		mocks.ClusterClient.WaitForNodesRebootFunc = func(ctx context.Context, nodeAddresses []string, preActionBootIDs map[string]string, expectedVersion string, skipServices []string, offlineTimeout time.Duration) error {
-			rebootCalled = true
-			capturedVersion = expectedVersion
-			return nil
-		}
-		apiReadyCalled := false
-		var capturedAPIReadyNode string
-		mocks.ClusterClient.WaitForControlPlaneAPIReadyFunc = func(ctx context.Context, nodeAddress string, outputFunc func(string)) error {
-			apiReadyCalled = true
-			capturedAPIReadyNode = nodeAddress
-			return nil
-		}
-		opts := &Provisioner{ClusterClient: mocks.ClusterClient}
-		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
-
-		var output []string
-		err := provisioner.UpgradeNode(context.Background(), "10.0.0.1", "ghcr.io/siderolabs/installer:v1.7.0", 0, false, func(msg string) {
-			output = append(output, msg)
-		})
-
-		if err != nil {
-			t.Errorf("Expected no error, got: %v", err)
-		}
-		if !upgradeCalled {
-			t.Error("Expected UpgradeNodes to be called")
-		}
-		if !rebootCalled {
-			t.Error("Expected WaitForNodesReboot to be called")
-		}
-		if !apiReadyCalled {
-			t.Error("Expected WaitForControlPlaneAPIReady to be called")
-		}
-		if capturedAPIReadyNode != "10.0.0.1" {
-			t.Errorf("Expected api-ready node 10.0.0.1, got %q", capturedAPIReadyNode)
-		}
-		if len(output) == 0 {
-			t.Error("Expected output messages, got none")
-		}
-		if capturedVersion != "1.7.0" {
-			t.Errorf("Expected version 1.7.0 passed to WaitForNodesReboot, got: %q", capturedVersion)
-		}
-	})
-
-	t.Run("APIReadyFails", func(t *testing.T) {
-		mocks := setupProvisionerMocks(t)
-		mocks.ClusterClient.WaitForControlPlaneAPIReadyFunc = func(ctx context.Context, nodeAddress string, outputFunc func(string)) error {
-			return fmt.Errorf("connection refused")
-		}
-
-		opts := &Provisioner{ClusterClient: mocks.ClusterClient}
-		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
-
-		err := provisioner.UpgradeNode(context.Background(), "10.0.0.1", "img", 0, false, nil)
-
-		if err == nil {
-			t.Fatal("Expected error, got nil")
-		}
-		if !strings.Contains(err.Error(), "kube-apiserver readiness check failed") {
-			t.Errorf("Expected apiserver error, got: %v", err)
-		}
-	})
-
-	t.Run("UpgradeRequestFails", func(t *testing.T) {
-		mocks := setupProvisionerMocks(t)
-		mocks.ClusterClient.UpgradeNodesFunc = func(ctx context.Context, nodeAddresses []string, image string, powercycle bool) error {
-			return fmt.Errorf("upgrade request rejected")
-		}
-
-		opts := &Provisioner{ClusterClient: mocks.ClusterClient}
-		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
-
-		err := provisioner.UpgradeNode(context.Background(), "10.0.0.1", "img", 0, false, nil)
-
-		if err == nil {
-			t.Error("Expected error, got nil")
-		}
-		if !strings.Contains(err.Error(), "upgrade request rejected") {
-			t.Errorf("Expected upgrade request error, got: %v", err)
-		}
-	})
-
-	t.Run("RebootWaitFails", func(t *testing.T) {
-		mocks := setupProvisionerMocks(t)
-		mocks.ClusterClient.WaitForNodesRebootFunc = func(ctx context.Context, nodeAddresses []string, preActionBootIDs map[string]string, expectedVersion string, skipServices []string, offlineTimeout time.Duration) error {
-			return fmt.Errorf("timeout waiting for nodes to go offline")
-		}
-
-		opts := &Provisioner{ClusterClient: mocks.ClusterClient}
-		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
-
-		err := provisioner.UpgradeNode(context.Background(), "10.0.0.1", "img", 0, false, nil)
-
-		if err == nil {
-			t.Error("Expected error, got nil")
-		}
-		if !strings.Contains(err.Error(), "node reboot wait failed") {
-			t.Errorf("Expected reboot wait error, got: %v", err)
-		}
-	})
-
-	t.Run("NoClusterClient", func(t *testing.T) {
-		mocks := setupProvisionerMocks(t)
-		mockCfg := mocks.ConfigHandler.(*config.MockConfigHandler)
-		mockCfg.GetStringFunc = func(key string, defaultValue ...string) string { return "" }
-		mockCfg.GetContextValuesFunc = func() (map[string]any, error) { return nil, nil }
-		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{})
-
-		err := provisioner.UpgradeNode(context.Background(), "10.0.0.1", "img", 0, false, nil)
-
-		if err == nil {
-			t.Error("Expected error, got nil")
-		}
-		if !strings.Contains(err.Error(), "no cluster client found") {
-			t.Errorf("Expected no cluster client error, got: %v", err)
-		}
-	})
-}
-
-func TestProvisioner_ResolveSecrets(t *testing.T) {
-	newProvisioner := func(mocks *ProvisionerTestMocks) *Provisioner {
-		return NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{
-			TerraformStack:    mocks.TerraformStack,
-			KubernetesManager: mocks.KubernetesManager,
-			KubernetesClient:  mocks.KubernetesClient,
-			ClusterClient:     mocks.ClusterClient,
-			FluxStack:         mocks.FluxStack,
-		})
-	}
-	withValues := func(mocks *ProvisionerTestMocks, values map[string]any) {
-		mocks.ConfigHandler.(*config.MockConfigHandler).GetContextValuesFunc = func() (map[string]any, error) { return values, nil }
-	}
-	bp := func(secrets map[string]blueprintv1alpha1.SecretEntry) *blueprintv1alpha1.Blueprint {
-		return &blueprintv1alpha1.Blueprint{Kustomizations: []blueprintv1alpha1.Kustomization{{Name: "cdn-install", Secrets: secrets}}}
-	}
-	entry := func(data map[string]string) blueprintv1alpha1.SecretEntry {
-		return blueprintv1alpha1.SecretEntry{Data: data}
-	}
-
-	t.Run("ResolvesValueKeyedByKustomization", func(t *testing.T) {
-		// Given a resolvable reference
-		mocks := setupProvisionerMocks(t)
-		withValues(mocks, map[string]any{"cdn": map[string]any{"cloudflare_api_key": "resolved-token"}})
-
-		// When resolving secrets
-		resolved, err := newProvisioner(mocks).ResolveSecrets(bp(map[string]blueprintv1alpha1.SecretEntry{"cloudflare-creds": entry(map[string]string{"api_token": "${cdn.cloudflare_api_key}"})}))
-		if err != nil {
-			t.Fatalf("Expected no error, got %v", err)
-		}
-
-		// Then the value is keyed by owning kustomization -> secret -> data key
-		if resolved["cdn-install"]["cloudflare-creds"].Data["api_token"] != "resolved-token" {
-			t.Errorf("Expected resolved token keyed by kustomization, got %v", resolved)
-		}
-	})
-
-	t.Run("DereferencesComputedConfigBlockFromComposedScope", func(t *testing.T) {
-		// Given a computed config block value present only in the composed scope the composer publishes
-		// (not in context config), exactly as a substitutions: value would see it
-		mocks := setupProvisionerMocks(t)
-		withValues(mocks, map[string]any{})
-		mocks.Runtime.Evaluator.SetConfigScope(map[string]any{
-			"grafana_effective": map[string]any{"client_secret": "grafana-oidc-dev"},
-		})
-
-		// When resolving a secret whose value dereferences the computed block
-		resolved, err := newProvisioner(mocks).ResolveSecrets(bp(map[string]blueprintv1alpha1.SecretEntry{
-			"sso": entry(map[string]string{"clientSecret": "${grafana_effective.client_secret}"}),
-		}))
-		if err != nil {
-			t.Fatalf("Expected no error, got %v", err)
-		}
-
-		// Then the secret resolves against the composed scope, consistent with substitutions
-		if resolved["cdn-install"]["sso"].Data["clientSecret"] != "grafana-oidc-dev" {
-			t.Errorf("Expected secret to dereference the computed config block, got %v", resolved)
-		}
-	})
-
-	t.Run("RegistersResolvedValueWithScrubber", func(t *testing.T) {
-		// Given a resolvable secret reference and a shell that records scrubber registrations
-		mocks := setupProvisionerMocks(t)
-		withValues(mocks, map[string]any{"cdn": map[string]any{"cloudflare_api_key": "resolved-token"}})
-		var registered []string
-		mocks.Shell.RegisterSecretFunc = func(v string) { registered = append(registered, v) }
-
-		// When resolving secrets
-		_, err := newProvisioner(mocks).ResolveSecrets(bp(map[string]blueprintv1alpha1.SecretEntry{"cloudflare-creds": entry(map[string]string{"api_token": "${cdn.cloudflare_api_key}"})}))
-		if err != nil {
-			t.Fatalf("Expected no error, got %v", err)
-		}
-
-		// Then the materialized value is registered with the shell scrubber so it is masked in output,
-		// regardless of whether it was sourced via secret(), a config reference, or env()
-		found := false
-		for _, v := range registered {
-			if v == "resolved-token" {
-				found = true
-			}
-		}
-		if !found {
-			t.Errorf("Expected resolved secret value registered with scrubber, got %v", registered)
-		}
-	})
-
-	t.Run("ResolvesSecretFromEnvWhenConfigUnsetAndScrubsIt", func(t *testing.T) {
-		// Given a secret whose config source is unset, falling back to env() — the Hetzner case where
-		// HETZNER_TOKEN is supplied only as an environment variable
-		mocks := setupProvisionerMocks(t)
-		withValues(mocks, map[string]any{})
-		t.Setenv("HETZNER_TOKEN", "env-token")
-		var registered []string
-		mocks.Shell.RegisterSecretFunc = func(v string) { registered = append(registered, v) }
-
-		// When resolving secrets
-		resolved, err := newProvisioner(mocks).ResolveSecrets(bp(map[string]blueprintv1alpha1.SecretEntry{
-			"hcloud": entry(map[string]string{"token": `${hetzner.token ?? env("HETZNER_TOKEN")}`}),
-		}))
-		if err != nil {
-			t.Fatalf("Expected no error, got %v", err)
-		}
-
-		// Then the token is sourced from the environment and masked in output
-		if got := resolved["cdn-install"]["hcloud"].Data["token"]; got != "env-token" {
-			t.Errorf("Expected token sourced from env, got %q", got)
-		}
-		found := false
-		for _, v := range registered {
-			if v == "env-token" {
-				found = true
-			}
-		}
-		if !found {
-			t.Errorf("Expected env-sourced secret registered with scrubber, got %v", registered)
-		}
-	})
-
-	t.Run("FailsWhenRequiredReferenceResolvesToNil", func(t *testing.T) {
-		// Given a required reference to a value absent from configuration (resolves to nil), as when a
-		// secret() lookup fails to resolve and coalesces to nil
-		mocks := setupProvisionerMocks(t)
-		withValues(mocks, map[string]any{})
-
-		// When resolving, it fails closed rather than silently dropping the key
-		_, err := newProvisioner(mocks).ResolveSecrets(bp(map[string]blueprintv1alpha1.SecretEntry{"creds": entry(map[string]string{"token": "${hetzner.token}"})}))
-		if err == nil || !strings.Contains(err.Error(), "resolved to empty") {
-			t.Errorf("Expected nil-required error, got %v", err)
-		}
-	})
-
-	t.Run("OmitsNilOptionalKeyAndDropsWhollyEmptySecret", func(t *testing.T) {
-		// Given an optional reference (?? default) to a value absent from configuration
-		mocks := setupProvisionerMocks(t)
-		withValues(mocks, map[string]any{})
-
-		// When resolving, the optional key is omitted and the wholly-empty secret is dropped
-		resolved, err := newProvisioner(mocks).ResolveSecrets(bp(map[string]blueprintv1alpha1.SecretEntry{"creds": entry(map[string]string{"token": "${hetzner.token ?? ''}"})}))
-		if err != nil {
-			t.Fatalf("Expected no error, got %v", err)
-		}
-		if len(resolved) != 0 {
-			t.Errorf("Expected no secret from nil-resolving optional reference, got %v", resolved)
-		}
-	})
-
-	t.Run("FailsWhenRequiredReferenceResolvesEmpty", func(t *testing.T) {
-		// Given a required reference whose value is empty
-		mocks := setupProvisionerMocks(t)
-		withValues(mocks, map[string]any{"cdn": map[string]any{"token": ""}})
-
-		// When resolving, it fails closed
-		_, err := newProvisioner(mocks).ResolveSecrets(bp(map[string]blueprintv1alpha1.SecretEntry{"creds": entry(map[string]string{"token": "${cdn.token}"})}))
-		if err == nil || !strings.Contains(err.Error(), "resolved to empty") {
-			t.Errorf("Expected empty-required error, got %v", err)
-		}
-	})
-
-	t.Run("OmitsEmptyOptionalKeyAndDropsWhollyEmptySecret", func(t *testing.T) {
-		// Given an optional empty key alongside a required one, and a wholly-empty optional secret
-		mocks := setupProvisionerMocks(t)
-		withValues(mocks, map[string]any{
-			"cdn":       map[string]any{"token": "real", "extra": ""},
-			"telemetry": map[string]any{"alerts": map[string]any{"slack": map[string]any{"webhook_url": nil}}},
-		})
-
-		// When resolving
-		resolved, err := newProvisioner(mocks).ResolveSecrets(bp(map[string]blueprintv1alpha1.SecretEntry{
-			"creds":            entry(map[string]string{"token": "${cdn.token}", "extra": "${cdn.extra ?? ''}"}),
-			"optional-webhook": entry(map[string]string{"url": "${telemetry.alerts.slack.webhook_url ?? ''}"}),
-		}))
-		if err != nil {
-			t.Fatalf("Expected no error, got %v", err)
-		}
-
-		// Then the optional empty key is omitted and the wholly-empty optional secret is dropped
-		creds := resolved["cdn-install"]["creds"].Data
-		if creds["token"] != "real" {
-			t.Errorf("Expected token resolved, got %v", creds)
-		}
-		if _, exists := creds["extra"]; exists {
-			t.Errorf("Expected empty optional key omitted, got %v", creds)
-		}
-		if _, exists := resolved["cdn-install"]["optional-webhook"]; exists {
-			t.Errorf("Expected wholly-empty secret dropped, got %v", resolved["cdn-install"])
-		}
-	})
-
-	t.Run("NoSecretsReturnsEmpty", func(t *testing.T) {
-		mocks := setupProvisionerMocks(t)
-		resolved, err := newProvisioner(mocks).ResolveSecrets(&blueprintv1alpha1.Blueprint{Kustomizations: []blueprintv1alpha1.Kustomization{{Name: "plain"}}})
-		if err != nil {
-			t.Fatalf("Expected no error, got %v", err)
-		}
-		if len(resolved) != 0 {
-			t.Errorf("Expected empty resolved secrets, got %v", resolved)
-		}
-	})
-}
-
-func TestConvergeNames(t *testing.T) {
-	t.Run("DeduplicatesACollidingName", func(t *testing.T) {
-		// Given a blueprint where a kustomization name appears twice — e.g. withCrdLayer's
-		// synthesized CRD kustomization colliding with a name already declared elsewhere
-		bp := &blueprintv1alpha1.Blueprint{Kustomizations: []blueprintv1alpha1.Kustomization{
-			{Name: "crds-core"},
-			{Name: "crds-core"},
-			{Name: "lb-install"},
-		}}
-
-		// When collecting the names converge drives toward Ready
-		names := convergeNames(bp)
-
-		// Then the duplicate collapses to one entry, so a nudgeFrontier readiness comparison
-		// against this set can't be inflated past what is actually reachable
-		if !slices.Equal(names, []string{"crds-core", "lb-install"}) {
-			t.Errorf("expected deduplicated [crds-core lb-install], got %v", names)
-		}
-	})
-
-	t.Run("SkipsDestroyOnlyRegardlessOfADuplicateNonDestroyOnlyEntry", func(t *testing.T) {
-		destroyOnly := true
-		bp := &blueprintv1alpha1.Blueprint{Kustomizations: []blueprintv1alpha1.Kustomization{
-			{Name: "a"},
-			{Name: "a", DestroyOnly: &destroyOnly},
-		}}
-
-		names := convergeNames(bp)
-
-		if !slices.Equal(names, []string{"a"}) {
-			t.Errorf("expected [a], got %v", names)
-		}
-	})
-}
-
-func TestProvisioner_nudgeFrontier(t *testing.T) {
-	// crds Ready; lb depends on crds (frontier); gateway depends on the not-ready lb (blocked, not frontier).
-	bp := &blueprintv1alpha1.Blueprint{Kustomizations: []blueprintv1alpha1.Kustomization{
-		{Name: "crds"},
-		{Name: "lb-install", DependsOn: []string{"crds"}},
-		{Name: "gateway-install", DependsOn: []string{"lb-install"}},
-	}}
-	newProv := func(mocks *ProvisionerTestMocks, notifier *fluxinfra.MockNotifier) *Provisioner {
-		return NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{KubernetesManager: mocks.KubernetesManager, Notifier: notifier})
-	}
-
-	t.Run("NudgesOnlyNotReadyFrontierAndNeverReadyOrBlocked", func(t *testing.T) {
-		mocks := setupProvisionerMocks(t)
-		mocks.KubernetesManager.GetKustomizationReadinessFunc = func(names []string) (map[string]bool, error) {
-			return map[string]bool{"crds": true, "lb-install": false, "gateway-install": false}, nil
-		}
-		notifier := fluxinfra.NewMockNotifier()
-		var nudgedNames [][]string
-		notifier.ReconcileKustomizationsFunc = func(ctx context.Context, names []string) error {
-			nudgedNames = append(nudgedNames, names)
-			return nil
-		}
-
-		// When nudging, only lb-install (not-ready, deps ready) is reconciled — not crds (Ready) nor
-		// gateway-install (blocked on not-ready lb-install)
-		newProv(mocks, notifier).nudgeFrontier(context.Background(), bp, map[string]struct{}{})
-		if len(nudgedNames) != 1 || !slices.Equal(nudgedNames[0], []string{"lb-install"}) {
-			t.Errorf("expected only lb-install nudged, got %v", nudgedNames)
-		}
-	})
-
-	t.Run("DuplicateNameIsQueriedOnce", func(t *testing.T) {
-		// Given a blueprint whose crds kustomization name is declared twice (e.g. a collision
-		// with withCrdLayer's synthesized entry), all Ready
-		dup := &blueprintv1alpha1.Blueprint{Kustomizations: []blueprintv1alpha1.Kustomization{
-			{Name: "crds"},
-			{Name: "crds"},
-			{Name: "lb-install", DependsOn: []string{"crds"}},
-		}}
-		mocks := setupProvisionerMocks(t)
-		var queried []string
-		mocks.KubernetesManager.GetKustomizationReadinessFunc = func(names []string) (map[string]bool, error) {
-			queried = names
-			return map[string]bool{"crds": true, "lb-install": false}, nil
-		}
-		notifier := fluxinfra.NewMockNotifier()
-
-		// When nudging, the duplicate is queried once rather than twice
-		newProv(mocks, notifier).nudgeFrontier(context.Background(), dup, map[string]struct{}{})
-		if len(queried) != 2 || !slices.Contains(queried, "crds") || !slices.Contains(queried, "lb-install") {
-			t.Errorf("expected [crds lb-install] queried once each, got %v", queried)
-		}
-	})
-
-	t.Run("NudgesEachFrontierMemberOnlyOnce", func(t *testing.T) {
-		mocks := setupProvisionerMocks(t)
-		mocks.KubernetesManager.GetKustomizationReadinessFunc = func(names []string) (map[string]bool, error) {
-			return map[string]bool{"crds": true, "lb-install": false, "gateway-install": false}, nil
-		}
-		notifier := fluxinfra.NewMockNotifier()
-		calls := 0
-		notifier.ReconcileKustomizationsFunc = func(ctx context.Context, names []string) error {
-			calls++
-			return nil
-		}
-		prov := newProv(mocks, notifier)
-		nudged := map[string]struct{}{}
-
-		// When nudging twice with lb-install still not-Ready, it is reconciled only on the first pass
-		prov.nudgeFrontier(context.Background(), bp, nudged)
-		prov.nudgeFrontier(context.Background(), bp, nudged)
-		if calls != 1 {
-			t.Errorf("expected the frontier member nudged once, got %d nudges", calls)
-		}
-	})
-}
-
-func TestProvisioner_converge(t *testing.T) {
-	newProv := func(mocks *ProvisionerTestMocks, notifier *fluxinfra.MockNotifier) *Provisioner {
-		p := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{KubernetesManager: mocks.KubernetesManager, Notifier: notifier})
-		p.secretPollInterval = time.Millisecond
-		return p
-	}
-	converge := func(p *Provisioner, ctx context.Context, bp *blueprintv1alpha1.Blueprint, timeout time.Duration) {
-		layers := presenter.NewGroup(ctx, "kustomization:")
-		convergeCtx, cancel := context.WithTimeout(ctx, timeout)
-		defer cancel()
-		p.converge(convergeCtx, layers, bp, convergeNames(bp), p.pollInterval())
-	}
-
-	t.Run("ReportsEachKustomizationAsAChildStep", func(t *testing.T) {
-		// Given one kustomization that becomes Ready on the second read and one that never does
-		mocks := setupProvisionerMocks(t)
-		var reads int
-		mocks.KubernetesManager.GetKustomizationReadinessFunc = func(names []string) (map[string]bool, error) {
-			reads++
-			return map[string]bool{"pki-base": reads >= 2, "dns": false}, nil
-		}
-		bp := &blueprintv1alpha1.Blueprint{Kustomizations: []blueprintv1alpha1.Kustomization{{Name: "pki-base"}, {Name: "dns"}}}
-		rec := &eventRecorder{}
-
-		// When converging with a short timeout
-		converge(newProv(mocks, fluxinfra.NewMockNotifier()), presenter.NewContext(context.Background(), rec), bp, 50*time.Millisecond)
-
-		// Then the ready kustomization's step ends applied and the unready one's stays open
-		ends := map[string]presenter.Kind{}
-		for _, e := range rec.events {
-			if e.Kind == presenter.KindApplied || e.Kind == presenter.KindFailed {
-				ends[e.Message] = e.Kind
-			}
-		}
-		if !reflect.DeepEqual(ends, map[string]presenter.Kind{"pki-base": presenter.KindApplied}) {
-			t.Errorf("unexpected step ends %v", ends)
-		}
-	})
-
-	t.Run("HidesKustomizationsBlockedOnADependency", func(t *testing.T) {
-		// Given a kustomization that never becomes Ready and one that depends on it
-		mocks := setupProvisionerMocks(t)
-		mocks.KubernetesManager.GetKustomizationReadinessFunc = func(names []string) (map[string]bool, error) {
-			return map[string]bool{"pki-base": false, "dns": false}, nil
-		}
-		bp := &blueprintv1alpha1.Blueprint{Kustomizations: []blueprintv1alpha1.Kustomization{
-			{Name: "pki-base"},
-			{Name: "dns", DependsOn: []string{"pki-base"}},
-		}}
-		rec := &eventRecorder{}
-
-		// When converging with a short timeout
-		converge(newProv(mocks, fluxinfra.NewMockNotifier()), presenter.NewContext(context.Background(), rec), bp, 30*time.Millisecond)
-
-		// Then only the reconciling kustomization appears, and the blocked one never does
-		if ops := rec.operations(); !reflect.DeepEqual(ops, []string{"pki-base"}) {
-			t.Errorf("expected only pki-base to appear, got %v", ops)
-		}
-	})
-
-	t.Run("DrivesNotReadyKustomizationsAndForcesStalledHelmReleases", func(t *testing.T) {
-		// Given a kustomization not Ready on the first read then Ready, owning a stalled HelmRelease
-		mocks := setupProvisionerMocks(t)
-		var reads int
-		mocks.KubernetesManager.GetKustomizationReadinessFunc = func(names []string) (map[string]bool, error) {
-			reads++
-			out := make(map[string]bool)
-			for _, n := range names {
-				out[n] = reads >= 2
-			}
-			return out, nil
-		}
-		mocks.KubernetesManager.GetHelmReleasesForKustomizationFunc = func(name, namespace string) ([]helmv2.HelmRelease, error) {
-			return []helmv2.HelmRelease{{
-				ObjectMeta: metav1.ObjectMeta{Namespace: "system-lb", Name: "hcloud-ccm"},
-				Status:     helmv2.HelmReleaseStatus{Conditions: []metav1.Condition{{Type: "Ready", Status: metav1.ConditionFalse}}},
-			}}, nil
-		}
-		notifier := fluxinfra.NewMockNotifier()
-		var reconciledK [][]string
-		var forcedRefs [][]fluxinfra.HelmReleaseRef
-		var forcedFlags []bool
-		notifier.ReconcileKustomizationsFunc = func(ctx context.Context, names []string) error {
-			reconciledK = append(reconciledK, names)
-			return nil
-		}
-		notifier.ReconcileHelmReleasesFunc = func(ctx context.Context, refs []fluxinfra.HelmReleaseRef, force bool) error {
-			forcedRefs = append(forcedRefs, refs)
-			forcedFlags = append(forcedFlags, force)
-			return nil
-		}
-		bp := &blueprintv1alpha1.Blueprint{Kustomizations: []blueprintv1alpha1.Kustomization{{Name: "lb-install"}}}
-
-		// When converging, it nudges the not-ready kustomization and force-reconciles its stalled HR, then
-		// returns once everything reports Ready
-		converge(newProv(mocks, notifier), context.Background(), bp, time.Second)
-		if len(reconciledK) == 0 || !slices.Contains(reconciledK[0], "lb-install") {
-			t.Errorf("expected lb-install reconciled, got %v", reconciledK)
-		}
-		if len(forcedRefs) == 0 || forcedRefs[0][0].Name != "hcloud-ccm" || !forcedFlags[0] {
-			t.Errorf("expected stalled HR force-reconciled, got refs=%v force=%v", forcedRefs, forcedFlags)
-		}
-	})
-
-	t.Run("ReturnsImmediatelyWhenAllReady", func(t *testing.T) {
-		// Given everything already Ready
-		mocks := setupProvisionerMocks(t)
-		mocks.KubernetesManager.GetKustomizationReadinessFunc = func(names []string) (map[string]bool, error) {
-			out := make(map[string]bool)
-			for _, n := range names {
-				out[n] = true
-			}
-			return out, nil
-		}
-		notifier := fluxinfra.NewMockNotifier()
-		nudged := false
-		notifier.ReconcileKustomizationsFunc = func(ctx context.Context, names []string) error {
-			nudged = true
-			return nil
-		}
-		bp := &blueprintv1alpha1.Blueprint{Kustomizations: []blueprintv1alpha1.Kustomization{{Name: "lb-install"}}}
-
-		// When converging, it returns without nudging anything
-		converge(newProv(mocks, notifier), context.Background(), bp, time.Second)
-		if nudged {
-			t.Error("expected no reconcile when everything is already Ready")
-		}
-	})
-
-	t.Run("LeavesHealthyHelmReleasesUntouched", func(t *testing.T) {
-		// Given a not-ready kustomization whose HelmRelease is nonetheless Ready
-		mocks := setupProvisionerMocks(t)
-		var reads int
-		mocks.KubernetesManager.GetKustomizationReadinessFunc = func(names []string) (map[string]bool, error) {
-			reads++
-			out := make(map[string]bool)
-			for _, n := range names {
-				out[n] = reads >= 2
-			}
-			return out, nil
-		}
-		mocks.KubernetesManager.GetHelmReleasesForKustomizationFunc = func(name, namespace string) ([]helmv2.HelmRelease, error) {
-			return []helmv2.HelmRelease{{
-				ObjectMeta: metav1.ObjectMeta{Namespace: "system-lb", Name: "healthy"},
-				Status:     helmv2.HelmReleaseStatus{Conditions: []metav1.Condition{{Type: "Ready", Status: metav1.ConditionTrue}}},
-			}}, nil
-		}
-		notifier := fluxinfra.NewMockNotifier()
-		forcedAny := false
-		notifier.ReconcileHelmReleasesFunc = func(ctx context.Context, refs []fluxinfra.HelmReleaseRef, force bool) error {
-			forcedAny = true
-			return nil
-		}
-		bp := &blueprintv1alpha1.Blueprint{Kustomizations: []blueprintv1alpha1.Kustomization{{Name: "lb-install"}}}
-
-		// When converging, a healthy HelmRelease is not force-reconciled
-		converge(newProv(mocks, notifier), context.Background(), bp, time.Second)
-		if forcedAny {
-			t.Error("expected healthy HelmRelease left untouched")
-		}
-	})
-}
-
-func TestProvisioner_PlaceSecrets(t *testing.T) {
-	newProvisioner := func(mocks *ProvisionerTestMocks) *Provisioner {
-		return NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{
-			TerraformStack:    mocks.TerraformStack,
-			KubernetesManager: mocks.KubernetesManager,
-			KubernetesClient:  mocks.KubernetesClient,
-			ClusterClient:     mocks.ClusterClient,
-			FluxStack:         mocks.FluxStack,
-		})
-	}
-	resolved := func() ResolvedSecrets {
-		return ResolvedSecrets{"cdn-install": {"cloudflare-creds": {Data: map[string]string{"api_token": "resolved-token"}}}}
-	}
-
-	t.Run("PlacesIntoInventoryNamespace", func(t *testing.T) {
-		// Given a kustomization whose inventory holds exactly one applied namespace
-		mocks := setupProvisionerMocks(t)
-		mocks.KubernetesManager.GetKustomizationInventoryFunc = func(name, namespace string) ([]kubernetes.InventoryEntry, error) {
-			return []kubernetes.InventoryEntry{{Kind: "Namespace", Name: "system-dns"}}, nil
-		}
-		var gotName, gotNs, gotOwner string
-		var gotData map[string]string
-		mocks.KubernetesManager.ApplySecretFunc = func(name, namespace string, stringData map[string]string, owner string) error {
-			gotName, gotNs, gotData, gotOwner = name, namespace, stringData, owner
-			return nil
-		}
-
-		// When placing the resolved secrets
-		if err := newProvisioner(mocks).PlaceSecrets(context.Background(), resolved(), nil, true); err != nil {
-			t.Fatalf("Expected no error, got %v", err)
-		}
-
-		// Then the secret lands in the inventory namespace with the resolved value, owned by its kustomization
-		if gotName != "cloudflare-creds" || gotNs != "system-dns" || gotData["api_token"] != "resolved-token" || gotOwner != "cdn-install" {
-			t.Errorf("Unexpected ApplySecret args: name=%q ns=%q data=%v owner=%q", gotName, gotNs, gotData, gotOwner)
-		}
-	})
-
-	t.Run("EndsReadyLayersWhileASecretStillWaits", func(t *testing.T) {
-		// Given a ready kustomization and a secret whose namespace appears only on the second check
-		mocks := setupProvisionerMocks(t)
-		var inventoryReads int
-		mocks.KubernetesManager.GetKustomizationInventoryFunc = func(name, namespace string) ([]kubernetes.InventoryEntry, error) {
-			inventoryReads++
-			if inventoryReads < 2 {
-				return nil, nil
-			}
-			return []kubernetes.InventoryEntry{{Kind: "Namespace", Name: "system-dns"}}, nil
-		}
-		mocks.KubernetesManager.GetKustomizationReadinessFunc = func(names []string) (map[string]bool, error) {
-			return map[string]bool{"app": true, "cdn-install": false}, nil
-		}
-		prov := newProvisioner(mocks)
-		prov.secretPollInterval = time.Millisecond
-		layers := &layerRecorder{}
-		bp := &blueprintv1alpha1.Blueprint{Kustomizations: []blueprintv1alpha1.Kustomization{{Name: "app"}, {Name: "cdn-install"}}}
-
-		// When placing the secret
-		if err := prov.placeSecrets(context.Background(), layers, resolved(), bp, false); err != nil {
-			t.Fatalf("Expected no error, got %v", err)
-		}
-
-		// Then the ready layer ends and the reconciling layer starts before the secret is placed
-		want := []string{
-			"progress cdn-install: waiting on a namespace for secret cloudflare-creds",
-			"done app",
-			"start cdn-install",
-			"progress cdn-install: placed secret cloudflare-creds",
-		}
-		if !reflect.DeepEqual(layers.calls, want) {
-			t.Errorf("Expected %q, got %q", want, layers.calls)
-		}
-	})
-
-	t.Run("ReportsPlacementAsProgressOnTheCurrentStep", func(t *testing.T) {
-		// Given a kustomization whose inventory holds one applied namespace, inside a recorded step
-		mocks := setupProvisionerMocks(t)
-		mocks.KubernetesManager.GetKustomizationInventoryFunc = func(name, namespace string) ([]kubernetes.InventoryEntry, error) {
-			return []kubernetes.InventoryEntry{{Kind: "Namespace", Name: "system-dns"}}, nil
-		}
-		rec := &eventRecorder{}
-		ctx, end := presenter.Begin(presenter.NewContext(context.Background(), rec), "kustomize:cdn-install", "Applying kustomization cdn-install")
-		defer end(nil)
-
-		// When placing the resolved secrets
-		if err := newProvisioner(mocks).PlaceSecrets(ctx, resolved(), nil, false); err != nil {
-			t.Fatalf("Expected no error, got %v", err)
-		}
-
-		// Then placement is progress on that step, not a step of its own
-		if ops := rec.operations(); len(ops) != 1 {
-			t.Fatalf("Expected no extra steps, got %v", ops)
-		}
-		if e := rec.events[1]; e.Kind != presenter.KindProgress || e.ID != rec.events[0].ID || e.Message != "placed secret cloudflare-creds" {
-			t.Errorf("Expected a placement progress update on the step, got %+v", e)
-		}
-	})
-
-	t.Run("RollsConsumersWithContentDigest", func(t *testing.T) {
-		// Given a kustomization whose inventory holds exactly one applied namespace
-		mocks := setupProvisionerMocks(t)
-		mocks.KubernetesManager.GetKustomizationInventoryFunc = func(name, namespace string) ([]kubernetes.InventoryEntry, error) {
-			return []kubernetes.InventoryEntry{{Kind: "Namespace", Name: "system-dns"}}, nil
-		}
-		var rolledNs, rolledSecret, rolledDigest string
-		mocks.KubernetesManager.RollWorkloadsForSecretFunc = func(ctx context.Context, namespace, secretName, digest string) error {
-			rolledNs, rolledSecret, rolledDigest = namespace, secretName, digest
-			return nil
-		}
-
-		// When placing the resolved secrets
-		if err := newProvisioner(mocks).PlaceSecrets(context.Background(), resolved(), nil, true); err != nil {
-			t.Fatalf("Expected no error, got %v", err)
-		}
-
-		// Then consumers are rolled in the inventory namespace, keyed by the resolved content's digest
-		wantDigest := secretDigest(map[string]string{"api_token": "resolved-token"})
-		if rolledNs != "system-dns" || rolledSecret != "cloudflare-creds" || rolledDigest != wantDigest {
-			t.Errorf("Unexpected roll args: ns=%q secret=%q digest=%q (want digest %q)", rolledNs, rolledSecret, rolledDigest, wantDigest)
-		}
-	})
-
-	t.Run("RollFailureSurfaces", func(t *testing.T) {
-		// Given placement succeeds but rolling consumers fails
-		mocks := setupProvisionerMocks(t)
-		mocks.KubernetesManager.GetKustomizationInventoryFunc = func(name, namespace string) ([]kubernetes.InventoryEntry, error) {
-			return []kubernetes.InventoryEntry{{Kind: "Namespace", Name: "system-dns"}}, nil
-		}
-		mocks.KubernetesManager.RollWorkloadsForSecretFunc = func(ctx context.Context, namespace, secretName, digest string) error {
-			return fmt.Errorf("api down")
-		}
-
-		// When placing the resolved secrets, the roll failure surfaces
-		err := newProvisioner(mocks).PlaceSecrets(context.Background(), resolved(), nil, true)
-		if err == nil || !strings.Contains(err.Error(), "rolling workloads for secret") {
-			t.Errorf("Expected roll-failure error, got %v", err)
-		}
-	})
-
-	t.Run("FailsClosedWhenMultipleNamespaces", func(t *testing.T) {
-		mocks := setupProvisionerMocks(t)
-		mocks.KubernetesManager.GetKustomizationInventoryFunc = func(name, namespace string) ([]kubernetes.InventoryEntry, error) {
-			return []kubernetes.InventoryEntry{{Kind: "Namespace", Name: "ns-a"}, {Kind: "Namespace", Name: "ns-b"}}, nil
-		}
-		err := newProvisioner(mocks).PlaceSecrets(context.Background(), resolved(), nil, true)
-		if err == nil || !strings.Contains(err.Error(), "multiple namespaces") {
-			t.Errorf("Expected multiple-namespaces error, got %v", err)
-		}
-	})
-
-	t.Run("AutoResolvesFromResourceNamespaceWhenNoNamespaceCreated", func(t *testing.T) {
-		// Given a kustomization that deploys into a namespace it does not itself create (no Namespace entry
-		// in its inventory, only a namespaced resource living in system-csi)
-		mocks := setupProvisionerMocks(t)
-		mocks.KubernetesManager.GetKustomizationInventoryFunc = func(name, namespace string) ([]kubernetes.InventoryEntry, error) {
-			return []kubernetes.InventoryEntry{{Kind: "DaemonSet", Name: "hcloud-csi-node", Namespace: "system-csi"}}, nil
-		}
-		var gotNs string
-		mocks.KubernetesManager.ApplySecretFunc = func(name, namespace string, stringData map[string]string, owner string) error {
-			gotNs = namespace
-			return nil
-		}
-
-		// When placing, the target is inferred from where its resources live
-		if err := newProvisioner(mocks).PlaceSecrets(context.Background(), resolved(), nil, true); err != nil {
-			t.Fatalf("Expected no error, got %v", err)
-		}
-		if gotNs != "system-csi" {
-			t.Errorf("Expected placement into system-csi, got %q", gotNs)
-		}
-	})
-
-	t.Run("FailsFastWhenNothingToInferNamespaceFrom", func(t *testing.T) {
-		// Given a reconciled kustomization whose inventory holds only a cluster-scoped resource, so there is
-		// neither a created namespace nor a namespaced resource to infer a target from
-		mocks := setupProvisionerMocks(t)
-		mocks.KubernetesManager.GetKustomizationInventoryFunc = func(name, namespace string) ([]kubernetes.InventoryEntry, error) {
-			return []kubernetes.InventoryEntry{{Kind: "ClusterRole", Name: "csi-role"}}, nil
-		}
-
-		// When placing, it fails immediately (not at the timeout) with the fix, even under a live context
-		err := newProvisioner(mocks).PlaceSecrets(context.Background(), resolved(), nil, true)
-		if err == nil || !strings.Contains(err.Error(), "creates no namespace and deploys no namespaced resources") {
-			t.Errorf("Expected fail-fast no-namespace error, got %v", err)
-		}
-	})
-
-	t.Run("TimesOutWhileInventoryStillEmpty", func(t *testing.T) {
-		// Given a kustomization that has not reconciled yet (empty inventory)
-		mocks := setupProvisionerMocks(t)
-		mocks.KubernetesManager.GetKustomizationInventoryFunc = func(name, namespace string) ([]kubernetes.InventoryEntry, error) {
-			return nil, nil
-		}
-		ctx, cancel := context.WithCancel(context.Background())
-		cancel()
-
-		// When placing, it keeps waiting for the namespace and surfaces the timeout when the context ends
-		err := newProvisioner(mocks).PlaceSecrets(ctx, resolved(), nil, true)
-		if err == nil || !strings.Contains(err.Error(), "before placing secrets") || !strings.Contains(err.Error(), "cdn-install") {
-			t.Errorf("Expected namespace-timeout error naming the pending secret, got %v", err)
-		}
-	})
-
-	t.Run("PlacesIntoExplicitNamespaceThatExists", func(t *testing.T) {
-		// Given a secret naming its namespace explicitly, and that namespace exists in the cluster
-		mocks := setupProvisionerMocks(t)
-		mocks.KubernetesManager.NamespaceExistsFunc = func(name string) (bool, error) {
-			return name == "system-pki", nil
-		}
-		var gotNs string
-		mocks.KubernetesManager.ApplySecretFunc = func(name, namespace string, stringData map[string]string, owner string) error {
-			gotNs = namespace
-			return nil
-		}
-		explicit := ResolvedSecrets{"pki-install": {"hetzner-dns": {Namespaces: []string{"system-pki"}, Data: map[string]string{"token": "resolved"}}}}
-
-		// When placing, the named namespace is used as soon as it exists, without consulting inventory
-		if err := newProvisioner(mocks).PlaceSecrets(context.Background(), explicit, nil, true); err != nil {
-			t.Fatalf("Expected no error, got %v", err)
-		}
-		if gotNs != "system-pki" {
-			t.Errorf("Expected placement into system-pki, got %q", gotNs)
-		}
-	})
-
-	t.Run("PlacesIntoExplicitNamespaceCreatedByAnotherKustomization", func(t *testing.T) {
-		// Given a secret owned by lb-install but naming system-lb, which a different kustomization created
-		// (lb-install's own inventory holds no namespace)
-		mocks := setupProvisionerMocks(t)
-		mocks.KubernetesManager.GetKustomizationInventoryFunc = func(name, namespace string) ([]kubernetes.InventoryEntry, error) {
-			return []kubernetes.InventoryEntry{}, nil
-		}
-		mocks.KubernetesManager.NamespaceExistsFunc = func(name string) (bool, error) {
-			return name == "system-lb", nil
-		}
-		var gotNs string
-		mocks.KubernetesManager.ApplySecretFunc = func(name, namespace string, stringData map[string]string, owner string) error {
-			gotNs = namespace
-			return nil
-		}
-		explicit := ResolvedSecrets{"lb-install": {"hcloud": {Namespaces: []string{"system-lb"}, Data: map[string]string{"token": "resolved"}}}}
-
-		// When placing, existence — not the owning kustomization's inventory — gates it, so it is not blocked
-		if err := newProvisioner(mocks).PlaceSecrets(context.Background(), explicit, nil, false); err != nil {
-			t.Fatalf("Expected no error, got %v", err)
-		}
-		if gotNs != "system-lb" {
-			t.Errorf("Expected placement into system-lb, got %q", gotNs)
-		}
-	})
-
-	t.Run("PlacesReadySecretWithoutBlockingOnAPendingOne", func(t *testing.T) {
-		// Given two secrets: one whose namespace exists, one whose namespace does not — the deadlock case
-		// where a serial placer would block on the pending one and never place the ready one.
-		mocks := setupProvisionerMocks(t)
-		mocks.KubernetesManager.NamespaceExistsFunc = func(name string) (bool, error) {
-			return name == "system-lb", nil // system-dns never appears
-		}
-		placed := map[string]bool{}
-		mocks.KubernetesManager.ApplySecretFunc = func(name, namespace string, stringData map[string]string, owner string) error {
-			placed[namespace] = true
-			return nil
-		}
-		secrets := ResolvedSecrets{
-			"lb-install":  {"hcloud": {Namespaces: []string{"system-lb"}, Data: map[string]string{"token": "t"}}},
-			"dns-install": {"hetzner-dns": {Namespaces: []string{"system-dns"}, Data: map[string]string{"token": "t"}}},
-		}
-		ctx, cancel := context.WithCancel(context.Background())
-		cancel()
-
-		// When placing, the ready secret lands even though the other never resolves, and the timeout names
-		// only the one still pending
-		err := newProvisioner(mocks).PlaceSecrets(ctx, secrets, nil, false)
-		if !placed["system-lb"] {
-			t.Error("Expected the ready secret to be placed into system-lb despite a pending peer")
-		}
-		if err == nil || !strings.Contains(err.Error(), "system-dns") || strings.Contains(err.Error(), "system-lb") {
-			t.Errorf("Expected timeout naming only the pending system-dns, got %v", err)
-		}
-	})
-
-	t.Run("PlacesSecretOnceItsNamespaceAppears", func(t *testing.T) {
-		// Given a secret whose namespace does not exist on the first poll but appears on a later one
-		mocks := setupProvisionerMocks(t)
-		var checks int
-		mocks.KubernetesManager.NamespaceExistsFunc = func(name string) (bool, error) {
-			checks++
-			return checks >= 3, nil // absent, absent, then created
-		}
-		var gotNs string
-		mocks.KubernetesManager.ApplySecretFunc = func(name, namespace string, stringData map[string]string, owner string) error {
-			gotNs = namespace
-			return nil
-		}
-		secrets := ResolvedSecrets{"dns-install": {"hetzner-dns": {Namespaces: []string{"system-dns"}, Data: map[string]string{"token": "t"}}}}
-
-		prov := newProvisioner(mocks)
-		prov.secretPollInterval = time.Millisecond
-
-		// When placing, it keeps polling and places the secret the moment its namespace appears
-		if err := prov.PlaceSecrets(context.Background(), secrets, nil, false); err != nil {
-			t.Fatalf("Expected no error, got %v", err)
-		}
-		if gotNs != "system-dns" {
-			t.Errorf("Expected placement into system-dns once it appeared, got %q", gotNs)
-		}
-	})
-
-	t.Run("ReconcilesOwnerAfterPlacingItsSecret", func(t *testing.T) {
-		// Given a secret whose namespace exists, so it is placed on the first round
-		mocks := setupProvisionerMocks(t)
-		mocks.KubernetesManager.NamespaceExistsFunc = func(name string) (bool, error) { return name == "system-lb", nil }
-		mocks.KubernetesManager.ApplySecretFunc = func(name, namespace string, stringData map[string]string, owner string) error { return nil }
-		notifier := fluxinfra.NewMockNotifier()
-		var reconciled [][]string
-		notifier.ReconcileKustomizationsFunc = func(ctx context.Context, names []string) error {
-			reconciled = append(reconciled, names)
-			return nil
-		}
-		prov := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{KubernetesManager: mocks.KubernetesManager, Notifier: notifier})
-		secrets := ResolvedSecrets{"lb-install": {"hcloud": {Namespaces: []string{"system-lb"}, Data: map[string]string{"token": "t"}}}}
-		bp := &blueprintv1alpha1.Blueprint{Kustomizations: []blueprintv1alpha1.Kustomization{{Name: "lb-install"}}}
-
-		// When placing, the owning kustomization is reconciled immediately so it picks up its secret
-		if err := prov.PlaceSecrets(context.Background(), secrets, bp, false); err != nil {
-			t.Fatalf("Expected no error, got %v", err)
-		}
-		if len(reconciled) == 0 || !slices.Contains(reconciled[0], "lb-install") {
-			t.Errorf("Expected lb-install to be reconciled after placement, got %v", reconciled)
-		}
-	})
-
-	t.Run("NudgesOnlyTheFrontierWhilePending", func(t *testing.T) {
-		// Given a pending secret whose namespace never appears, and a dependency chain that is entirely
-		// not-Ready — only the base (lb-install, no unmet deps) is on the frontier
-		mocks := setupProvisionerMocks(t)
-		mocks.KubernetesManager.NamespaceExistsFunc = func(name string) (bool, error) { return false, nil }
-		mocks.KubernetesManager.GetKustomizationReadinessFunc = func(names []string) (map[string]bool, error) {
-			return map[string]bool{"dns-install": false, "gateway-install": false, "lb-install": false}, nil
-		}
-		notifier := fluxinfra.NewMockNotifier()
-		var reconciled [][]string
-		notifier.ReconcileKustomizationsFunc = func(ctx context.Context, names []string) error {
-			reconciled = append(reconciled, names)
-			return nil
-		}
-		prov := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{KubernetesManager: mocks.KubernetesManager, Notifier: notifier})
-		secrets := ResolvedSecrets{"dns-install": {"hetzner-dns": {Namespaces: []string{"system-dns"}, Data: map[string]string{"token": "t"}}}}
-		bp := &blueprintv1alpha1.Blueprint{Kustomizations: []blueprintv1alpha1.Kustomization{
-			{Name: "dns-install", DependsOn: []string{"gateway-install"}},
-			{Name: "gateway-install", DependsOn: []string{"lb-install"}},
-			{Name: "lb-install"},
-		}}
-		ctx, cancel := context.WithCancel(context.Background())
-		cancel()
-
-		// When placing, only the frontier (lb-install) is nudged — not the blocked gateway/dns upstream
-		_ = prov.PlaceSecrets(ctx, secrets, bp, false)
-		if len(reconciled) == 0 {
-			t.Fatalf("expected a frontier reconcile, got none")
-		}
-		if got := reconciled[0]; !slices.Equal(got, []string{"lb-install"}) {
-			t.Errorf("expected only frontier lb-install nudged, got %v", got)
-		}
-	})
-
-	t.Run("FansOutToEveryNamedNamespace", func(t *testing.T) {
-		// Given a secret naming two namespaces that both exist in the cluster
-		mocks := setupProvisionerMocks(t)
-		mocks.KubernetesManager.NamespaceExistsFunc = func(name string) (bool, error) {
-			return name == "system-pki" || name == "system-dns", nil
-		}
-		placed := map[string]bool{}
-		mocks.KubernetesManager.ApplySecretFunc = func(name, namespace string, stringData map[string]string, owner string) error {
-			placed[namespace] = true
-			return nil
-		}
-		explicit := ResolvedSecrets{"pki-install": {"acme-dns": {Namespaces: []string{"system-pki", "system-dns"}, Data: map[string]string{"token": "resolved"}}}}
-
-		// When placing, the same secret lands in each named namespace
-		if err := newProvisioner(mocks).PlaceSecrets(context.Background(), explicit, nil, true); err != nil {
-			t.Fatalf("Expected no error, got %v", err)
-		}
-		if !placed["system-pki"] || !placed["system-dns"] || len(placed) != 2 {
-			t.Errorf("Expected fan-out into system-pki and system-dns, got %v", placed)
-		}
-	})
-
-	t.Run("TimesOutNamingANonexistentExplicitNamespace", func(t *testing.T) {
-		// Given a named namespace that does not exist in the cluster
-		mocks := setupProvisionerMocks(t)
-		mocks.KubernetesManager.NamespaceExistsFunc = func(name string) (bool, error) {
+			return ""
+		}
+		probeLocalCalled := false
+		probeRemoteCalled := false
+		mockStack := terraforminfra.NewMockStack()
+		mockStack.HasLocalStateWithResourcesFunc = func(_ string) (bool, error) {
+			probeLocalCalled = true
+			return true, nil
+		}
+		mockStack.HasRemoteStateFunc = func(_ *blueprintv1alpha1.Blueprint, _ string) (bool, error) {
+			probeRemoteCalled = true
+			return true, nil
+		}
+		mockStack.UpFunc = func(_ *blueprintv1alpha1.Blueprint, _ ...func(ctx context.Context, id string) (bool, error)) (bool, error) {
 			return false, nil
 		}
-		explicit := ResolvedSecrets{"pki-install": {"hetzner-dns": {Namespaces: []string{"system-pki"}, Data: map[string]string{"token": "resolved"}}}}
-		ctx, cancel := context.WithCancel(context.Background())
-		cancel()
+		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{TerraformStack: mockStack})
 
-		// When placing, it fails naming the missing namespace rather than placing by guessing
-		err := newProvisioner(mocks).PlaceSecrets(ctx, explicit, nil, true)
-		if err == nil || !strings.Contains(err.Error(), "system-pki") || !strings.Contains(err.Error(), "before placing secrets") {
-			t.Errorf("Expected missing-namespace timeout error naming system-pki, got %v", err)
-		}
-	})
-
-	t.Run("EmptyResolvedPlacesNothingButStillReconciles", func(t *testing.T) {
-		// Given a blueprint that declares no secrets
-		mocks := setupProvisionerMocks(t)
-		queried := false
-		mocks.KubernetesManager.GetKustomizationInventoryFunc = func(name, namespace string) ([]kubernetes.InventoryEntry, error) {
-			queried = true
-			return nil, nil
-		}
-		var pruned bool
-		var prunedDesired map[string]map[string]bool
-		mocks.KubernetesManager.PruneSecretsFunc = func(desired map[string]map[string]bool) error {
-			pruned, prunedDesired = true, desired
-			return nil
-		}
-
-		// When placing an empty set, nothing is placed (no inventory lookups) but reconcile still runs
-		// with an empty desired set, so any previously CLI-placed secret is reclaimed
-		if err := newProvisioner(mocks).PlaceSecrets(context.Background(), ResolvedSecrets{}, nil, true); err != nil {
+		if _, err := provisioner.Up(context.Background(), bp); err != nil {
 			t.Fatalf("Expected no error, got %v", err)
 		}
-		if queried {
-			t.Error("Expected no inventory query when nothing is placed")
-		}
-		if !pruned || len(prunedDesired) != 0 {
-			t.Errorf("Expected reconcile with empty desired set, pruned=%v desired=%v", pruned, prunedDesired)
-		}
-	})
 
-	t.Run("ReconcilesFanOutPlacementIntoDesiredSet", func(t *testing.T) {
-		// Given a secret that fans out into two namespaces that exist in the cluster
-		mocks := setupProvisionerMocks(t)
-		mocks.KubernetesManager.NamespaceExistsFunc = func(name string) (bool, error) {
-			return name == "system-pki" || name == "system-dns", nil
+		if probeLocalCalled {
+			t.Error("HasLocalStateWithResources must not be called when backend is local — sweep should short-circuit")
 		}
-		var gotDesired map[string]map[string]bool
-		mocks.KubernetesManager.PruneSecretsFunc = func(desired map[string]map[string]bool) error {
-			gotDesired = desired
-			return nil
-		}
-		fanned := ResolvedSecrets{"pki-install": {"acme-dns": {Namespaces: []string{"system-pki", "system-dns"}, Data: map[string]string{"token": "resolved"}}}}
-
-		// When placing, the desired set handed to PruneSecrets names every (namespace, secret) placed
-		if err := newProvisioner(mocks).PlaceSecrets(context.Background(), fanned, nil, true); err != nil {
-			t.Fatalf("Expected no error, got %v", err)
-		}
-		if !gotDesired["system-pki"]["acme-dns"] || !gotDesired["system-dns"]["acme-dns"] {
-			t.Errorf("Expected desired set to include both placements, got %v", gotDesired)
+		if probeRemoteCalled {
+			t.Error("HasRemoteState must not be called when backend is local")
 		}
 	})
 
-	t.Run("PruneFailureSurfaces", func(t *testing.T) {
-		// Given placement succeeds but the reconcile delete fails
+	t.Run("StillDetectsOrphansUnderALocalBackend", func(t *testing.T) {
+		// checkOrphanedLocalState is independent of backend type: a componentID can
+		// drift under a pure local backend too, and local IS the real backend there —
+		// not a staging area recoverHalfMigratedComponents can skip past.
 		mocks := setupProvisionerMocks(t)
-		mocks.KubernetesManager.GetKustomizationInventoryFunc = func(name, namespace string) ([]kubernetes.InventoryEntry, error) {
-			return []kubernetes.InventoryEntry{{Kind: "Namespace", Name: "system-dns"}}, nil
+		bp := &blueprintv1alpha1.Blueprint{
+			TerraformComponents: []blueprintv1alpha1.TerraformComponent{
+				{Path: "vpc"},
+			},
 		}
-		mocks.KubernetesManager.PruneSecretsFunc = func(desired map[string]map[string]bool) error {
-			return fmt.Errorf("api down")
+		mockCH := mocks.ConfigHandler.(*config.MockConfigHandler)
+		mockCH.GetStringFunc = func(key string, defaultValue ...string) string {
+			if key == "terraform.backend.type" {
+				return "local"
+			}
+			if len(defaultValue) > 0 {
+				return defaultValue[0]
+			}
+			return ""
 		}
-
-		// When placing, the prune failure surfaces
-		err := newProvisioner(mocks).PlaceSecrets(context.Background(), resolved(), nil, true)
-		if err == nil || !strings.Contains(err.Error(), "pruning orphaned secrets") {
-			t.Errorf("Expected prune-failure error, got %v", err)
+		mockStack := terraforminfra.NewMockStack()
+		mockStack.ListLocalStateComponentIDsFunc = func() ([]string, error) {
+			return []string{"vpc-old"}, nil
 		}
-	})
-
-	t.Run("PruneDisabledPlacesWithoutReconciling", func(t *testing.T) {
-		// Given a place-only flow (prune not requested)
-		mocks := setupProvisionerMocks(t)
-		mocks.KubernetesManager.GetKustomizationInventoryFunc = func(name, namespace string) ([]kubernetes.InventoryEntry, error) {
-			return []kubernetes.InventoryEntry{{Kind: "Namespace", Name: "system-dns"}}, nil
+		mockStack.HasLocalStateWithResourcesFunc = func(componentID string) (bool, error) {
+			return componentID == "vpc-old", nil
 		}
-		placedName := ""
-		mocks.KubernetesManager.ApplySecretFunc = func(name, namespace string, stringData map[string]string, owner string) error {
-			placedName = name
-			return nil
+		mockStack.UpFunc = func(_ *blueprintv1alpha1.Blueprint, _ ...func(ctx context.Context, id string) (bool, error)) (bool, error) {
+			return false, nil
 		}
-		reconciled := false
-		mocks.KubernetesManager.PruneSecretsFunc = func(desired map[string]map[string]bool) error {
-			reconciled = true
-			return nil
-		}
+		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{TerraformStack: mockStack})
 
-		// When placing with prune=false, the secret is placed but reclaim never runs
-		if err := newProvisioner(mocks).PlaceSecrets(context.Background(), resolved(), nil, false); err != nil {
-			t.Fatalf("Expected no error, got %v", err)
-		}
-		if placedName != "cloudflare-creds" {
-			t.Errorf("Expected the secret to still be placed, got %q", placedName)
-		}
-		if reconciled {
-			t.Error("Expected no reconcile when prune is disabled")
-		}
-	})
-}
+		var err error
+		stderrOutput := captureStderr(t, func() {
+			_, err = provisioner.Up(context.Background(), bp)
+		})
 
-// eventRecorder records every presenter event it receives.
-type eventRecorder struct {
-	events []presenter.Event
-}
-
-func (r *eventRecorder) Emit(_ context.Context, e presenter.Event) {
-	r.events = append(r.events, e)
-}
-
-// layerRecorder records the per-kustomization calls a layerReporter receives.
-type layerRecorder struct {
-	calls []string
-}
-
-func (r *layerRecorder) Progress(name, text string) {
-	r.calls = append(r.calls, "progress "+name+": "+text)
-}
-
-func (r *layerRecorder) Start(name string) {
-	r.calls = append(r.calls, "start "+name)
-}
-
-func (r *layerRecorder) Done(name string) {
-	r.calls = append(r.calls, "done "+name)
-}
-
-// operations returns the messages of the operations that started, in order.
-func (r *eventRecorder) operations() []string {
-	var ops []string
-	for _, e := range r.events {
-		if e.Kind == presenter.KindApplying {
-			ops = append(ops, e.Message)
-		}
-	}
-	return ops
-}
-
-func TestProvisioner_UpProgress(t *testing.T) {
-	t.Run("RunsTheApplyAsOneTerraformOperation", func(t *testing.T) {
-		// Given a provisioner with a mock stack and a recording presenter
-		mocks := setupProvisionerMocks(t)
-		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{TerraformStack: mocks.TerraformStack})
-		rec := &eventRecorder{}
-
-		// When the blueprint is applied
-		_, err := provisioner.Up(presenter.NewContext(context.Background(), rec), createTestBlueprint())
-
-		// Then one "Applying terraform" operation starts and ends
 		if err != nil {
-			t.Fatalf("expected no error, got %v", err)
+			t.Fatalf("Expected no error, got %v", err)
 		}
-		if len(rec.events) != 2 || rec.events[0].Message != "Applying terraform" || rec.events[1].Kind != presenter.KindApplied {
-			t.Errorf("unexpected events %+v", rec.events)
+		if !strings.Contains(stderrOutput, "vpc-old") {
+			t.Errorf("Expected a warning naming the orphaned componentID under a local backend, got: %q", stderrOutput)
 		}
 	})
 
-	t.Run("EndsTheOperationAsFailedWhenTheStackFails", func(t *testing.T) {
-		// Given a provisioner whose stack apply fails
+	t.Run("AbortsOnProbeFailureToAvoidSilentStateOverwrite", func(t *testing.T) {
+		// The reset-and-migrate uses terraform init -migrate-state -force-copy,
+		// which unconditionally overwrites the destination. If HasRemoteState
+		// fails transiently (auth, network, missing storage) and recovery
+		// proceeds, the migrate would silently replace valid remote state with
+		// the local file. Fail-fast: probe error is a hard abort with the
+		// underlying error wrapped, no migrate runs, no state is touched.
 		mocks := setupProvisionerMocks(t)
-		stack := terraforminfra.NewMockStack()
-		stack.UpFunc = func(blueprint *blueprintv1alpha1.Blueprint, onApply ...func(ctx context.Context, id string) (bool, error)) (bool, error) {
-			return false, fmt.Errorf("apply failed")
+		bp := &blueprintv1alpha1.Blueprint{
+			TerraformComponents: []blueprintv1alpha1.TerraformComponent{
+				{Path: "network"},
+			},
 		}
-		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{TerraformStack: stack})
-		rec := &eventRecorder{}
 
-		// When the blueprint is applied
-		_, err := provisioner.Up(presenter.NewContext(context.Background(), rec), createTestBlueprint())
+		mockCH := mocks.ConfigHandler.(*config.MockConfigHandler)
+		mockCH.GetStringFunc = func(key string, defaultValue ...string) string {
+			if key == "terraform.backend.type" {
+				return "azurerm"
+			}
+			if len(defaultValue) > 0 {
+				return defaultValue[0]
+			}
+			return ""
+		}
+		mockStack := terraforminfra.NewMockStack()
+		mockStack.HasLocalStateWithResourcesFunc = func(_ string) (bool, error) {
+			return true, nil
+		}
+		mockStack.HasRemoteStateFunc = func(_ *blueprintv1alpha1.Blueprint, _ string) (bool, error) {
+			return false, fmt.Errorf("auth timeout")
+		}
+		migrateCalled := false
+		mockStack.MigrateComponentStateFunc = func(_ *blueprintv1alpha1.Blueprint, _ string) error {
+			migrateCalled = true
+			return nil
+		}
+		initCalled := false
+		mockStack.InitComponentFunc = func(_ *blueprintv1alpha1.Blueprint, _ string) error {
+			initCalled = true
+			return nil
+		}
+		removeCalled := false
+		mockStack.RemoveLocalStateFunc = func(_ string) error {
+			removeCalled = true
+			return nil
+		}
+		upCalled := false
+		mockStack.UpFunc = func(_ *blueprintv1alpha1.Blueprint, _ ...func(ctx context.Context, id string) (bool, error)) (bool, error) {
+			upCalled = true
+			return false, nil
+		}
+		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{TerraformStack: mockStack})
 
-		// Then the operation ends as failed with the error
-		if err == nil || len(rec.events) != 2 || rec.events[1].Kind != presenter.KindFailed {
-			t.Errorf("expected a failed operation, got err=%v events=%+v", err, rec.events)
+		_, err := provisioner.Up(context.Background(), bp)
+		if err == nil {
+			t.Fatal("Expected Up to fail on recovery probe error, got nil")
+		}
+		if !strings.Contains(err.Error(), "auth timeout") {
+			t.Errorf("Expected error to wrap underlying probe error, got: %v", err)
+		}
+		if !strings.Contains(err.Error(), "recovery sweep aborted") {
+			t.Errorf("Expected error to name the recovery sweep, got: %v", err)
+		}
+		if !strings.Contains(err.Error(), `"network"`) {
+			t.Errorf("Expected error to name the affected component, got: %v", err)
+		}
+		if !strings.Contains(err.Error(), "force-copy") {
+			t.Errorf("Expected error to explain the data-loss hazard, got: %v", err)
+		}
+		if initCalled {
+			t.Error("InitComponent must not run when probe fails")
+		}
+		if migrateCalled {
+			t.Error("MigrateComponentState must not run when probe fails")
+		}
+		if removeCalled {
+			t.Error("RemoveLocalState must not run when probe fails")
+		}
+		if upCalled {
+			t.Error("TerraformStack.Up must not run when recovery aborts")
+		}
+	})
+
+	t.Run("DetectsAndWarnsAboutStateStrandedUnderAComponentsPreviousID", func(t *testing.T) {
+		// Reproduces windsorcli/cli#3324: a component renamed since its last partial
+		// apply leaves local state behind under its old ID. Before this fix,
+		// recoverHalfMigratedComponents only iterated the current blueprint's
+		// componentIDs, so "crossplane-identity-gcp" (the old ID; the blueprint now
+		// only declares "crossplane-identity") was invisible to the sweep. The fix
+		// only detects and warns — it deliberately does not migrate or remove
+		// anything, since an orphaned ID is just as consistent with a proper
+		// destroy-then-remove as with a rename, and the two can't be told apart from
+		// an on-disk ID alone.
+		//
+		// checkOrphanedLocalState (windsorcli/cli#3367) now runs this detection once
+		// up front, before recoverHalfMigratedComponents' own sweep — so the orphaned
+		// ID is probed first, ahead of the current ID.
+		mocks := setupProvisionerMocks(t)
+		bp := &blueprintv1alpha1.Blueprint{
+			TerraformComponents: []blueprintv1alpha1.TerraformComponent{
+				{Path: "crossplane-identity"},
+			},
+		}
+
+		mockCH := mocks.ConfigHandler.(*config.MockConfigHandler)
+		mockCH.GetStringFunc = func(key string, defaultValue ...string) string {
+			if key == "terraform.backend.type" {
+				return "gcs"
+			}
+			if len(defaultValue) > 0 {
+				return defaultValue[0]
+			}
+			return ""
+		}
+		var probed []string
+		mockStack := terraforminfra.NewMockStack()
+		mockStack.ListLocalStateComponentIDsFunc = func() ([]string, error) {
+			return []string{"crossplane-identity-gcp"}, nil
+		}
+		mockStack.HasLocalStateWithResourcesFunc = func(componentID string) (bool, error) {
+			probed = append(probed, componentID)
+			// Only the old ID has local state — "crossplane-identity" (the current,
+			// renamed-to ID) has never run, so it has none.
+			return componentID == "crossplane-identity-gcp", nil
+		}
+		mockStack.UpFunc = func(_ *blueprintv1alpha1.Blueprint, _ ...func(ctx context.Context, id string) (bool, error)) (bool, error) {
+			return false, nil
+		}
+
+		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{TerraformStack: mockStack})
+		var err error
+		stderrOutput := captureStderr(t, func() {
+			_, err = provisioner.Up(context.Background(), bp)
+		})
+
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+
+		// Both IDs get probed for local state — the orphaned one by checkOrphanedLocalState
+		// up front, the current one by the migration sweep that runs after it.
+		expectedProbed := []string{"crossplane-identity-gcp", "crossplane-identity"}
+		if len(probed) != len(expectedProbed) {
+			t.Fatalf("Expected probes %v, got %v", expectedProbed, probed)
+		}
+		for i, want := range expectedProbed {
+			if probed[i] != want {
+				t.Errorf("probe %d: got %q, want %q (full: %v)", i, probed[i], want, probed)
+			}
+		}
+		if !strings.Contains(stderrOutput, "crossplane-identity-gcp") {
+			t.Errorf("Expected a warning naming the orphaned componentID, got: %q", stderrOutput)
+		}
+		if !strings.Contains(stderrOutput, "not migrated automatically") {
+			t.Errorf("Expected the warning to say state was not migrated automatically, got: %q", stderrOutput)
+		}
+	})
+
+	t.Run("DoesNotTreatADisabledComponentAsOrphaned", func(t *testing.T) {
+		// A component the operator has merely toggled off (Enabled: false) is still
+		// declared in the blueprint — not renamed, not removed. The orphan-detection
+		// pass must not mistake it for one just because the enabled-only sweep above
+		// skips it before recording its ID.
+		mocks := setupProvisionerMocks(t)
+		disabled := false
+		bp := &blueprintv1alpha1.Blueprint{
+			TerraformComponents: []blueprintv1alpha1.TerraformComponent{
+				{Path: "network", Enabled: &blueprintv1alpha1.BoolExpression{Value: &disabled, IsExpr: false}},
+			},
+		}
+
+		mockCH := mocks.ConfigHandler.(*config.MockConfigHandler)
+		mockCH.GetStringFunc = func(key string, defaultValue ...string) string {
+			if key == "terraform.backend.type" {
+				return "gcs"
+			}
+			if len(defaultValue) > 0 {
+				return defaultValue[0]
+			}
+			return ""
+		}
+		mockStack := terraforminfra.NewMockStack()
+		mockStack.ListLocalStateComponentIDsFunc = func() ([]string, error) {
+			return []string{"network"}, nil
+		}
+		probeLocalCalled := false
+		mockStack.HasLocalStateWithResourcesFunc = func(componentID string) (bool, error) {
+			probeLocalCalled = true
+			return true, nil
+		}
+		mockStack.UpFunc = func(_ *blueprintv1alpha1.Blueprint, _ ...func(ctx context.Context, id string) (bool, error)) (bool, error) {
+			return false, nil
+		}
+
+		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{TerraformStack: mockStack})
+		var err error
+		stderrOutput := captureStderr(t, func() {
+			_, err = provisioner.Up(context.Background(), bp)
+		})
+
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+
+		// The enabled-only sweep skips "network" entirely (disabled), so its local
+		// state is never even probed there. The orphan-detection pass must also leave
+		// it alone — no probe, no warning — since "network" is still declared.
+		if probeLocalCalled {
+			t.Error("HasLocalStateWithResources must not be called for a disabled component")
+		}
+		if strings.Contains(stderrOutput, "network") {
+			t.Errorf("Expected no warning about a still-declared component, got: %q", stderrOutput)
 		}
 	})
 }

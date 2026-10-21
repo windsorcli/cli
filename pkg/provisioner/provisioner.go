@@ -1,19 +1,20 @@
+// The Provisioner runs the infrastructure lifecycle of a blueprint for the Windsor CLI.
+// It provides Up and Apply for terraform, the terraform state methods, and Notify.
+// It creates the terraform stack, the flux stack, the kubernetes manager, and the cluster client.
+// It recovers half-migrated components and warns about orphaned local terraform state.
+
 package provisioner
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"errors"
 	"fmt"
 	"io/fs"
 	"os"
 	"path/filepath"
 	"slices"
-	"strings"
 	"time"
 
-	helmv2 "github.com/fluxcd/helm-controller/api/v2"
 	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
 	"github.com/windsorcli/cli/internal/presenter"
 	"github.com/windsorcli/cli/pkg/composer/blueprint"
@@ -28,12 +29,6 @@ import (
 	"github.com/windsorcli/cli/pkg/runtime/evaluator"
 	"github.com/windsorcli/cli/pkg/runtime/shell"
 )
-
-// The Provisioner package provides high-level infrastructure provisioning functionality
-// for terraform operations, kubernetes cluster interactions, and cluster API operations.
-// It consolidates the creation and management of terraform stacks, kubernetes managers,
-// and cluster clients, providing a unified interface for infrastructure lifecycle operations
-// across the Windsor CLI.
 
 // =============================================================================
 // Errors
@@ -57,6 +52,7 @@ type Provisioner struct {
 	projectRoot   string
 	configRoot    string
 	runtime       *runtime.Runtime
+	shims         *Shims
 
 	// secretPollInterval overrides how often PlaceSecrets re-checks for a pending secret's namespace;
 	// zero uses constants.DefaultKustomizationWaitPollInterval. Set small in tests to avoid real waits.
@@ -71,54 +67,6 @@ type Provisioner struct {
 	KubernetesClient     k8sclient.KubernetesClient
 	ClusterClient        cluster.ClusterClient
 	blueprintHandler     blueprint.BlueprintHandler
-}
-
-// PlanSummary holds aggregated plan results across all infrastructure layers.
-// Terraform contains one entry per enabled component; Kustomize contains one
-// entry per non-destroyOnly kustomization. Either slice may be nil when the
-// corresponding layer is absent from the blueprint or its tooling is unavailable.
-// Hints contains upgrade suggestions collected when required CLI tools are absent.
-type PlanSummary struct {
-	Terraform []terraforminfra.TerraformComponentPlan
-	Kustomize []fluxinfra.KustomizePlan
-	Hints     []string
-}
-
-// DestroyPlanSummary holds aggregated destroy-plan results across all
-// infrastructure layers. The shape mirrors PlanSummary but without the Hints
-// field: destroy is gated on a working cluster (the kustomize layer queries
-// flux's live inventory), so a tooling-missing fallback is not part of the
-// destroy contract — fail fast instead. The TerraformComponentPlan and
-// KustomizePlan entries here come from the destroy-side producers; renderers
-// must use a destroy-aware formatter to translate IsNew correctly (apply-side
-// "(new)" becomes destroy-side "(no state)" / "(not deployed)").
-type DestroyPlanSummary struct {
-	Terraform []terraforminfra.TerraformComponentPlan
-	Kustomize []fluxinfra.KustomizePlan
-}
-
-// VersionGate describes how the blueprint a command is about to apply relates to the version marker
-// recorded in the cluster. It is the input to apply's version-equality seam: apply may reconcile in
-// place only when a settled marker matches the blueprint it would apply. Any other state — a version
-// mismatch or an in-flight transition — belongs to upgrade. The caller decides policy (proceed,
-// refuse, or honor --force); this struct only reports the relation.
-type VersionGate struct {
-	MarkerFound  bool // a marker exists for this context (false = pre-bootstrap, no cluster, or legacy)
-	InFlight     bool // the marker phase is not idle (an upgrade is in flight)
-	VersionMatch bool // the blueprint's resolved source-ref set equals the applied set
-}
-
-// NodeHealthCheckOptions contains options for node health checking.
-type NodeHealthCheckOptions struct {
-	Nodes               []string
-	Timeout             time.Duration
-	Version             string
-	K8SEndpoint         string
-	K8SEndpointProvided bool
-	CheckNodeReady      bool
-	SkipServices        []string
-	WaitForReboot       bool
-	OfflineTimeout      time.Duration
 }
 
 // =============================================================================
@@ -154,6 +102,7 @@ func NewProvisioner(rt *runtime.Runtime, blueprintHandler blueprint.BlueprintHan
 		projectRoot:      rt.ProjectRoot,
 		configRoot:       rt.ConfigRoot,
 		runtime:          rt,
+		shims:            NewShims(),
 		blueprintHandler: blueprintHandler,
 	}
 
@@ -236,6 +185,28 @@ func (i *Provisioner) Up(ctx context.Context, blueprint *blueprintv1alpha1.Bluep
 		return err
 	})
 	return halted, err
+}
+
+// Apply runs terraform init, plan, and apply for a single component identified by componentID.
+// Returns an error if terraform is disabled, the stack cannot be initialized, the component is
+// not found, or any terraform operation fails.
+func (i *Provisioner) Apply(ctx context.Context, blueprint *blueprintv1alpha1.Blueprint, componentID string) error {
+	if blueprint == nil {
+		return fmt.Errorf("blueprint not provided")
+	}
+	if err := i.ensureTerraformStack(); err != nil {
+		return err
+	}
+	if i.TerraformStack == nil {
+		return fmt.Errorf("terraform is disabled")
+	}
+	if err := i.checkOrphanedLocalState(blueprint); err != nil {
+		return err
+	}
+	if err := i.TerraformStack.Apply(ctx, blueprint, componentID); err != nil {
+		return fmt.Errorf("failed to run terraform apply for %s: %w", componentID, err)
+	}
+	return nil
 }
 
 // MigrateState reinitializes every Terraform component's backend against the currently configured
@@ -360,1159 +331,6 @@ func (i *Provisioner) ListLocalStateComponentIDs() ([]string, error) {
 	return i.TerraformStack.ListLocalStateComponentIDs()
 }
 
-// Down destroys the "workstation" terraform component if it is present in the blueprint, then returns.
-// All other terraform components are left untouched; use Destroy / DestroyAll for those.
-// If terraform is disabled or the blueprint has no "workstation" component, Down is a no-op.
-// Returns an error if the blueprint is nil or the destroy operation fails.
-func (i *Provisioner) Down(ctx context.Context, blueprint *blueprintv1alpha1.Blueprint) error {
-	if blueprint == nil {
-		return fmt.Errorf("blueprint not provided")
-	}
-
-	hasWorkstation := false
-	for _, c := range blueprint.TerraformComponents {
-		if c.GetID() == "workstation" && c.Enabled.IsEnabled() {
-			hasWorkstation = true
-			break
-		}
-	}
-	if !hasWorkstation {
-		return nil
-	}
-
-	if err := i.ensureTerraformStack(); err != nil {
-		return err
-	}
-	if i.TerraformStack == nil {
-		return nil
-	}
-	if _, err := i.TerraformStack.Destroy(ctx, blueprint, "workstation"); err != nil {
-		return fmt.Errorf("failed to destroy workstation terraform component: %w", err)
-	}
-	return nil
-}
-
-// DestroyAllTerraform destroys all terraform components in reverse dependency order.
-// Components with Destroy set to false, or listed in excludeIDs, are skipped. The
-// cmd-layer symmetric-destroy flow excludes the backend component here, to migrate
-// and destroy it last.
-// Returns the IDs of components skipped for empty state, alongside any error, so
-// callers see partial progress even when a later component fails.
-func (i *Provisioner) DestroyAllTerraform(ctx context.Context, blueprint *blueprintv1alpha1.Blueprint, continueOnError bool, excludeIDs ...string) (DestroyResult, error) {
-	return i.destroyAllTerraform(ctx, blueprint, continueOnError, excludeIDs...)
-}
-
-// Apply runs terraform init, plan, and apply for a single component identified by componentID.
-// Returns an error if terraform is disabled, the stack cannot be initialized, the component is
-// not found, or any terraform operation fails.
-func (i *Provisioner) Apply(ctx context.Context, blueprint *blueprintv1alpha1.Blueprint, componentID string) error {
-	if blueprint == nil {
-		return fmt.Errorf("blueprint not provided")
-	}
-	if err := i.ensureTerraformStack(); err != nil {
-		return err
-	}
-	if i.TerraformStack == nil {
-		return fmt.Errorf("terraform is disabled")
-	}
-	if err := i.checkOrphanedLocalState(blueprint); err != nil {
-		return err
-	}
-	if err := i.TerraformStack.Apply(ctx, blueprint, componentID); err != nil {
-		return fmt.Errorf("failed to run terraform apply for %s: %w", componentID, err)
-	}
-	return nil
-}
-
-// Destroy runs terraform init and destroy for a single component identified by componentID.
-// Returns (skipped, nil) when the component's state is empty (nothing to destroy), (false, nil)
-// when destroy ran successfully, or (false, err) on any failure. Returns an error if the
-// blueprint is nil, terraform is disabled, the stack cannot be initialized, the component is
-// not found, or any terraform operation fails. TerraformStack bounds refresh and destroy
-// with a timeout, so an unreachable provider fails within that time instead of hanging.
-func (i *Provisioner) Destroy(ctx context.Context, blueprint *blueprintv1alpha1.Blueprint, componentID string) (bool, error) {
-	if blueprint == nil {
-		return false, fmt.Errorf("blueprint not provided")
-	}
-	if err := i.ensureTerraformStack(); err != nil {
-		return false, err
-	}
-	if i.TerraformStack == nil {
-		return false, fmt.Errorf("terraform is disabled")
-	}
-	skipped, err := i.TerraformStack.Destroy(ctx, blueprint, componentID)
-	if err != nil {
-		return false, fmt.Errorf("failed to run terraform destroy for %s: %w", componentID, err)
-	}
-	return skipped, nil
-}
-
-// DestroyKustomize deletes a single kustomization by name from the cluster. It is a no-op
-// when no local kubeconfig exists (see kubeconfigPresent): the cluster is already gone, so
-// the kustomization is already gone with it.
-// Returns an error if the blueprint is nil, the kubernetes manager is not configured,
-// the kustomization is not found in the blueprint, or the delete operation fails.
-func (i *Provisioner) DestroyKustomize(ctx context.Context, blueprint *blueprintv1alpha1.Blueprint, componentID string) error {
-	if blueprint == nil {
-		return fmt.Errorf("blueprint not provided")
-	}
-	if i.KubernetesManager == nil {
-		return fmt.Errorf("kubernetes manager not configured")
-	}
-
-	var found *blueprintv1alpha1.Kustomization
-	for _, k := range blueprint.AllKustomizations() {
-		if k.Name == componentID {
-			kCopy := k
-			found = &kCopy
-			break
-		}
-	}
-	if found == nil {
-		return fmt.Errorf("kustomization %q not found in blueprint", componentID)
-	}
-
-	if !i.kubeconfigPresent() {
-		return nil
-	}
-
-	if err := presenter.Track(ctx, "kustomize:"+componentID, fmt.Sprintf("Destroying kustomization %s", componentID), func(ctx context.Context) error {
-		return i.KubernetesManager.DeleteKustomization(ctx, componentID, i.fluxNamespace())
-	}); err != nil {
-		return fmt.Errorf("failed to delete kustomization %s: %w", componentID, err)
-	}
-
-	return nil
-}
-
-// DestroyAll destroys every infrastructure component: kustomizations first, then terraform.
-// Uninstall is a no-op when no local kubeconfig exists. See kubeconfigPresent. DestroyAll then
-// counts eligible kustomizations as SkippedClusterGone, not Destroyed. This keeps `windsor
-// destroy` idempotent after a prior run already tore the cluster down.
-//
-// Under continueOnError, any kustomize failure defers terraform. See blocksNextStage. Windsor
-// cannot tell whether a live controller is still mid-delete of a resource terraform never
-// tracked, so it never guesses.
-//
-// excludeIDs skips components in the terraform pass. Callers use this to destroy the backend
-// component last.
-func (i *Provisioner) DestroyAll(ctx context.Context, blueprint *blueprintv1alpha1.Blueprint, continueOnError bool, excludeIDs ...string) (DestroyResult, error) {
-	var result DestroyResult
-	if blueprint == nil {
-		return result, fmt.Errorf("blueprint not provided")
-	}
-
-	if i.KubernetesManager != nil {
-		clusterGone := !i.kubeconfigPresent()
-		if err := i.Uninstall(ctx, blueprint); err != nil {
-			if !continueOnError {
-				return result, err
-			}
-			result.Failed = append(result.Failed, ComponentFailure{ID: KustomizeFailureID, Err: err})
-			result.TerraformDeferred = true
-			return result, nil
-		}
-		for _, k := range blueprint.AllKustomizations() {
-			if !fluxinfra.KustomizationDestroyEligible(k) {
-				continue
-			}
-			if clusterGone {
-				result.SkippedClusterGone = append(result.SkippedClusterGone, k.Name)
-			} else {
-				result.Destroyed = append(result.Destroyed, k.Name)
-			}
-		}
-	}
-
-	if err := i.ensureTerraformStack(); err != nil {
-		return result, err
-	}
-	if i.TerraformStack != nil {
-		outcome, err := i.TerraformStack.DestroyAll(ctx, blueprint, continueOnError, excludeIDs...)
-		result.Destroyed = append(result.Destroyed, outcome.Destroyed...)
-		result.Skipped = append(result.Skipped, outcome.Skipped...)
-		result.Failed = append(result.Failed, outcome.Failed...)
-		if err != nil {
-			return result, fmt.Errorf("failed to run terraform destroy: %w", err)
-		}
-	}
-
-	return result, nil
-}
-
-// Plan runs terraform init and plan for a single component identified by componentID.
-// It does not apply any changes. Returns an error if the terraform stack cannot be initialized,
-// the component is not found, or any terraform operation fails.
-func (i *Provisioner) Plan(blueprint *blueprintv1alpha1.Blueprint, componentID string) error {
-	if blueprint == nil {
-		return fmt.Errorf("blueprint not provided")
-	}
-	if err := i.ensureTerraformStack(); err != nil {
-		return err
-	}
-	if i.TerraformStack == nil {
-		return fmt.Errorf("terraform is disabled")
-	}
-	if err := i.TerraformStack.Plan(blueprint, componentID); err != nil {
-		return fmt.Errorf("failed to run terraform plan for %s: %w", componentID, err)
-	}
-	return nil
-}
-
-// PlanTerraformAll runs terraform init and plan for every enabled component, streaming
-// output directly. Returns an error if blueprint is nil, the stack cannot be initialised,
-// or any component's plan fails.
-func (i *Provisioner) PlanTerraformAll(blueprint *blueprintv1alpha1.Blueprint) error {
-	if blueprint == nil {
-		return fmt.Errorf("blueprint not provided")
-	}
-	if err := i.ensureTerraformStack(); err != nil {
-		return err
-	}
-	if i.TerraformStack == nil {
-		return fmt.Errorf("terraform is disabled")
-	}
-	return i.TerraformStack.PlanAll(blueprint)
-}
-
-// PlanTerraformAllJSON runs terraform plan -json for every enabled component, streaming
-// machine-readable JSON lines output directly to stdout. Returns an error if blueprint
-// is nil, the stack cannot be initialised, or any component's plan fails.
-func (i *Provisioner) PlanTerraformAllJSON(blueprint *blueprintv1alpha1.Blueprint) error {
-	if blueprint == nil {
-		return fmt.Errorf("blueprint not provided")
-	}
-	if err := i.ensureTerraformStack(); err != nil {
-		return err
-	}
-	if i.TerraformStack == nil {
-		return fmt.Errorf("terraform is disabled")
-	}
-	return i.TerraformStack.PlanAllJSON(blueprint)
-}
-
-// PlanTerraformJSON runs terraform plan -json for a single component, streaming
-// machine-readable JSON lines output directly to stdout. Returns an error if blueprint
-// is nil, the stack cannot be initialised, or the plan fails.
-func (i *Provisioner) PlanTerraformJSON(blueprint *blueprintv1alpha1.Blueprint, componentID string) error {
-	if blueprint == nil {
-		return fmt.Errorf("blueprint not provided")
-	}
-	if err := i.ensureTerraformStack(); err != nil {
-		return err
-	}
-	if i.TerraformStack == nil {
-		return fmt.Errorf("terraform is disabled")
-	}
-	return i.TerraformStack.PlanJSON(blueprint, componentID)
-}
-
-// PlanTerraformResourceChangesJSON runs terraform plan and show -json for a single component,
-// printing the resulting plan document directly to stdout. Returns an error if blueprint
-// is nil, the stack cannot be initialised, or the plan fails.
-func (i *Provisioner) PlanTerraformResourceChangesJSON(blueprint *blueprintv1alpha1.Blueprint, componentID string) error {
-	if blueprint == nil {
-		return fmt.Errorf("blueprint not provided")
-	}
-	if err := i.ensureTerraformStack(); err != nil {
-		return err
-	}
-	if i.TerraformStack == nil {
-		return fmt.Errorf("terraform is disabled")
-	}
-	return i.TerraformStack.PlanResourceChangesJSON(blueprint, componentID)
-}
-
-// PlanTerraformAllResourceChangesJSON runs terraform plan and show -json for every enabled
-// component, printing each component's plan document directly to stdout. Returns an error
-// if blueprint is nil, the stack cannot be initialised, or any component's plan fails.
-func (i *Provisioner) PlanTerraformAllResourceChangesJSON(blueprint *blueprintv1alpha1.Blueprint) error {
-	if blueprint == nil {
-		return fmt.Errorf("blueprint not provided")
-	}
-	if err := i.ensureTerraformStack(); err != nil {
-		return err
-	}
-	if i.TerraformStack == nil {
-		return fmt.Errorf("terraform is disabled")
-	}
-	return i.TerraformStack.PlanAllResourceChangesJSON(blueprint)
-}
-
-// PlanKustomizeJSON runs kustomize build for the named kustomization (or all when componentID
-// is "all") and writes the rendered manifests as JSON to stdout. Returns an error if blueprint
-// is nil, the stack cannot be initialised, or the build fails.
-func (i *Provisioner) PlanKustomizeJSON(blueprint *blueprintv1alpha1.Blueprint, componentID string) error {
-	if blueprint == nil {
-		return fmt.Errorf("blueprint not provided")
-	}
-	if err := i.ensureFluxStack(); err != nil {
-		return err
-	}
-	return i.FluxStack.PlanJSON(withCrdLayer(blueprint), componentID)
-}
-
-// PlanTerraformComponentSummary plans a single Terraform component and returns its
-// structured result. Returns an error only when blueprint is nil or stack initialisation fails.
-func (i *Provisioner) PlanTerraformComponentSummary(blueprint *blueprintv1alpha1.Blueprint, componentID string) (terraforminfra.TerraformComponentPlan, error) {
-	if blueprint == nil {
-		return terraforminfra.TerraformComponentPlan{}, fmt.Errorf("blueprint not provided")
-	}
-	if err := i.ensureTerraformStack(); err != nil {
-		return terraforminfra.TerraformComponentPlan{}, err
-	}
-	if i.TerraformStack == nil {
-		return terraforminfra.TerraformComponentPlan{}, fmt.Errorf("terraform is disabled")
-	}
-	return i.TerraformStack.PlanComponentSummary(blueprint, componentID), nil
-}
-
-// PlanKustomizeComponentSummary plans a single Flux kustomization and returns its
-// structured result. Returns an error only when blueprint is nil or stack initialisation fails.
-func (i *Provisioner) PlanKustomizeComponentSummary(blueprint *blueprintv1alpha1.Blueprint, name string) (fluxinfra.KustomizePlan, error) {
-	if blueprint == nil {
-		return fluxinfra.KustomizePlan{}, fmt.Errorf("blueprint not provided")
-	}
-	if err := i.ensureFluxStack(); err != nil {
-		return fluxinfra.KustomizePlan{}, err
-	}
-	return i.FluxStack.PlanComponentSummary(withCrdLayer(blueprint), name), nil
-}
-
-// PlanDestroyTerraformComponentSummary previews the destroy plan for a single
-// Terraform component. Returns an error if blueprint is nil, stack init fails,
-// or the component is pinned destroy=false (which Teardown would skip).
-func (i *Provisioner) PlanDestroyTerraformComponentSummary(blueprint *blueprintv1alpha1.Blueprint, componentID string) (terraforminfra.TerraformComponentPlan, error) {
-	if blueprint == nil {
-		return terraforminfra.TerraformComponentPlan{}, fmt.Errorf("blueprint not provided")
-	}
-	if err := i.ensureTerraformStack(); err != nil {
-		return terraforminfra.TerraformComponentPlan{}, err
-	}
-	if i.TerraformStack == nil {
-		return terraforminfra.TerraformComponentPlan{}, fmt.Errorf("terraform is disabled")
-	}
-	return i.TerraformStack.PlanDestroyComponentSummary(blueprint, componentID), nil
-}
-
-// PlanDestroyKustomizeComponentSummary previews the destroy plan for a single
-// Flux kustomization by querying its live inventory. Returns an error if
-// blueprint is nil, stack init fails, or the kustomization is destroyOnly /
-// pinned destroy=false (which DeleteBlueprint would skip).
-func (i *Provisioner) PlanDestroyKustomizeComponentSummary(blueprint *blueprintv1alpha1.Blueprint, name string) (fluxinfra.KustomizePlan, error) {
-	if blueprint == nil {
-		return fluxinfra.KustomizePlan{}, fmt.Errorf("blueprint not provided")
-	}
-	if err := i.ensureFluxStack(); err != nil {
-		return fluxinfra.KustomizePlan{}, err
-	}
-	return i.FluxStack.PlanDestroyComponentSummary(withCrdLayer(blueprint), name), nil
-}
-
-// PlanTerraformSummary runs a best-effort summary plan across every Terraform
-// component in the blueprint without touching the Flux/Kustomize layer.
-// Returns an error only when blueprint is nil or stack initialisation fails.
-func (i *Provisioner) PlanTerraformSummary(blueprint *blueprintv1alpha1.Blueprint) (*PlanSummary, error) {
-	if blueprint == nil {
-		return nil, fmt.Errorf("blueprint not provided")
-	}
-
-	summary := &PlanSummary{}
-
-	if err := i.ensureTerraformStack(); err != nil {
-		return nil, err
-	}
-	if i.TerraformStack != nil {
-		summary.Terraform = i.TerraformStack.PlanSummary(blueprint)
-	}
-
-	return summary, nil
-}
-
-// PlanKustomizeSummary runs a best-effort summary plan across every Flux
-// kustomization in the blueprint without touching the Terraform layer.
-// Returns an error only when blueprint is nil or stack initialisation fails.
-func (i *Provisioner) PlanKustomizeSummary(blueprint *blueprintv1alpha1.Blueprint) (*PlanSummary, error) {
-	if blueprint == nil {
-		return nil, fmt.Errorf("blueprint not provided")
-	}
-
-	summary := &PlanSummary{}
-
-	if err := i.ensureFluxStack(); err != nil {
-		return nil, err
-	}
-	summary.Kustomize, summary.Hints = i.FluxStack.PlanSummary(withCrdLayer(blueprint))
-
-	return summary, nil
-}
-
-// PlanAll runs a best-effort summary plan across every Terraform component and
-// Flux kustomization in the blueprint. It initialises both stacks as needed and
-// collects per-component results without aborting on individual failures, so
-// callers always receive as complete a picture as possible. Returns an error only
-// when blueprint is nil or stack initialisation itself fails.
-func (i *Provisioner) PlanAll(blueprint *blueprintv1alpha1.Blueprint) (*PlanSummary, error) {
-	if blueprint == nil {
-		return nil, fmt.Errorf("blueprint not provided")
-	}
-
-	tfSummary, err := i.PlanTerraformSummary(blueprint)
-	if err != nil {
-		return nil, err
-	}
-
-	k8sSummary, err := i.PlanKustomizeSummary(blueprint)
-	if err != nil {
-		return nil, err
-	}
-
-	return &PlanSummary{
-		Terraform: tfSummary.Terraform,
-		Kustomize: k8sSummary.Kustomize,
-		Hints:     k8sSummary.Hints,
-	}, nil
-}
-
-// PlanDestroyTerraformSummary previews the destroy plan for every Terraform
-// component the blueprint would actually tear down (filtering destroy=false
-// pins). Mirrors PlanTerraformSummary but uses `terraform plan -destroy -json`
-// per component. Returns an error only when blueprint is nil or stack init
-// fails.
-func (i *Provisioner) PlanDestroyTerraformSummary(blueprint *blueprintv1alpha1.Blueprint) (*DestroyPlanSummary, error) {
-	if blueprint == nil {
-		return nil, fmt.Errorf("blueprint not provided")
-	}
-
-	summary := &DestroyPlanSummary{}
-
-	if err := i.ensureTerraformStack(); err != nil {
-		return nil, err
-	}
-	if i.TerraformStack != nil {
-		summary.Terraform = i.TerraformStack.PlanDestroySummary(blueprint)
-	}
-
-	return summary, nil
-}
-
-// PlanDestroyKustomizeSummary previews the destroy plan for every eligible
-// Flux kustomization from live cluster inventory. A stale kubeconfig reports
-// every kustomization as not-deployed; see FluxStack.PlanDestroySummary.
-// DestroyOnly hooks and destroy=false pinned kustomizations are filtered to
-// match DeleteBlueprint. withCrdLayer flattens FluxSystem tiers and CRD
-// layers first, so the plan matches Uninstall's teardown set.
-func (i *Provisioner) PlanDestroyKustomizeSummary(blueprint *blueprintv1alpha1.Blueprint) (*DestroyPlanSummary, error) {
-	if blueprint == nil {
-		return nil, fmt.Errorf("blueprint not provided")
-	}
-
-	summary := &DestroyPlanSummary{}
-
-	if err := i.ensureFluxStack(); err != nil {
-		return nil, err
-	}
-	results, err := i.FluxStack.PlanDestroySummary(withCrdLayer(blueprint))
-	if err != nil {
-		return nil, err
-	}
-	summary.Kustomize = results
-
-	return summary, nil
-}
-
-// PlanDestroyAll previews the destroy plan across both Terraform and Flux
-// layers, aggregating both into one DestroyPlanSummary. See
-// PlanDestroyKustomizeSummary for the flux-side unreachable-cluster
-// classification.
-func (i *Provisioner) PlanDestroyAll(blueprint *blueprintv1alpha1.Blueprint) (*DestroyPlanSummary, error) {
-	if blueprint == nil {
-		return nil, fmt.Errorf("blueprint not provided")
-	}
-
-	tfSummary, err := i.PlanDestroyTerraformSummary(blueprint)
-	if err != nil {
-		return nil, err
-	}
-
-	k8sSummary, err := i.PlanDestroyKustomizeSummary(blueprint)
-	if err != nil {
-		return nil, err
-	}
-
-	return &DestroyPlanSummary{
-		Terraform: tfSummary.Terraform,
-		Kustomize: k8sSummary.Kustomize,
-	}, nil
-}
-
-// PlanKustomizeAll runs flux diff for every non-destroyOnly kustomization in the blueprint.
-// Returns an error if the flux CLI is not found or any diff fails.
-func (i *Provisioner) PlanKustomizeAll(blueprint *blueprintv1alpha1.Blueprint) error {
-	if blueprint == nil {
-		return fmt.Errorf("blueprint not provided")
-	}
-	if err := i.ensureFluxStack(); err != nil {
-		return err
-	}
-	if err := i.FluxStack.PlanAll(withCrdLayer(blueprint)); err != nil {
-		return fmt.Errorf("error planning kustomize: %w", err)
-	}
-	return nil
-}
-
-// PlanKustomizeAllJSON runs kustomize build for every non-destroyOnly kustomization and
-// writes JSON to stdout. Returns an error if the kustomize CLI is not found or any build fails.
-func (i *Provisioner) PlanKustomizeAllJSON(blueprint *blueprintv1alpha1.Blueprint) error {
-	if blueprint == nil {
-		return fmt.Errorf("blueprint not provided")
-	}
-	if err := i.ensureFluxStack(); err != nil {
-		return err
-	}
-	return i.FluxStack.PlanAllJSON(withCrdLayer(blueprint))
-}
-
-// PlanKustomization runs flux diff for a single kustomization identified by componentID.
-// Returns an error if the flux CLI is not found, the component is not in the blueprint, or the diff fails.
-func (i *Provisioner) PlanKustomization(blueprint *blueprintv1alpha1.Blueprint, componentID string) error {
-	if blueprint == nil {
-		return fmt.Errorf("blueprint not provided")
-	}
-	if err := i.ensureFluxStack(); err != nil {
-		return err
-	}
-	if err := i.FluxStack.Plan(withCrdLayer(blueprint), componentID); err != nil {
-		return fmt.Errorf("error planning kustomize for %s: %w", componentID, err)
-	}
-	return nil
-}
-
-// ApplyKustomize applies a single kustomization identified by componentID to the cluster and places its
-// declared secrets. It finds the named kustomization in the blueprint, filters the blueprint to that one
-// kustomization (preserving sources and repository for correct source creation), resolves that
-// kustomization's secrets, applies it via the kubernetes manager, then places the resolved secrets into
-// the namespace it creates — scoped to the one kustomization so placement never blocks on a namespace
-// another kustomization would create. Secret pruning is off, since a single-kustomization apply is
-// additive. The step lasts until the kustomization is Ready. Returns an error if the blueprint is nil, the
-// kubernetes manager is not configured, the kustomization is not found, the kustomization is marked
-// destroyOnly, or resolution, apply, placement, or the wait fails.
-func (i *Provisioner) ApplyKustomize(ctx context.Context, blueprint *blueprintv1alpha1.Blueprint, componentID string) error {
-	if blueprint == nil {
-		return fmt.Errorf("blueprint not provided")
-	}
-	if i.KubernetesManager == nil {
-		return fmt.Errorf("kubernetes manager not configured")
-	}
-
-	blueprint = withCrdLayer(blueprint)
-
-	var found *blueprintv1alpha1.Kustomization
-	for _, k := range blueprint.Kustomizations {
-		if k.Name == componentID {
-			kCopy := k
-			found = &kCopy
-			break
-		}
-	}
-	if found == nil {
-		return fmt.Errorf("kustomization %q not found in blueprint", componentID)
-	}
-	if found.DestroyOnly != nil && *found.DestroyOnly {
-		return fmt.Errorf("kustomization %q is destroy-only and cannot be applied", componentID)
-	}
-
-	filtered := *blueprint
-	filtered.Kustomizations = []blueprintv1alpha1.Kustomization{*found}
-
-	resolvedSecrets, err := i.ResolveSecrets(&filtered)
-	if err != nil {
-		return fmt.Errorf("error resolving secrets: %w", err)
-	}
-
-	var placeErr, waitErr error
-	if err := presenter.Track(ctx, "kustomize:"+componentID, fmt.Sprintf("Applying kustomization %s", componentID), func(ctx context.Context) error {
-		if err := i.KubernetesManager.ApplyBlueprint(&filtered, i.fluxNamespace()); err != nil {
-			return err
-		}
-		_ = i.Notify(ctx, &filtered)
-		if placeErr = i.PlaceSecrets(ctx, resolvedSecrets, &filtered, false); placeErr != nil {
-			return placeErr
-		}
-		waitErr = i.KubernetesManager.WaitForKustomizations(ctx, &filtered, stepProgress{ctx})
-		return waitErr
-	}); err != nil {
-		if placeErr != nil {
-			return fmt.Errorf("error placing secrets: %w", placeErr)
-		}
-		if waitErr != nil {
-			return fmt.Errorf("%w: %w", ErrKustomizationsNotReady, waitErr)
-		}
-		return fmt.Errorf("failed to apply kustomization %s: %w", componentID, err)
-	}
-
-	return nil
-}
-
-// ApplyKustomizeAll applies all non-destroyOnly kustomizations in the blueprint to the cluster and places
-// their declared secrets. Delegates to Install with pruning off, since applying the full set is additive
-// here — kustomization and secret pruning are separate, explicitly-flagged steps. Returns an error if the
-// blueprint is nil, the kubernetes manager is not configured, or the apply, placement, or wait fails.
-func (i *Provisioner) ApplyKustomizeAll(ctx context.Context, blueprint *blueprintv1alpha1.Blueprint) error {
-	return i.Install(ctx, blueprint, false)
-}
-
-// Install applies the blueprint's kustomization layer and places its declared secrets as one unit, so
-// every command that installs kustomizations also materializes their secrets rather than re-wiring that
-// sequence itself. It first resolves the blueprint's declared Secrets to plaintext, failing before any
-// cluster mutation on a misconfigured secret; then applies all blueprint resources in order — namespace,
-// source repositories, and each kustomization — firing a best-effort flux webhook notification inside the
-// same progress scope so flux reconciles immediately instead of at the next interval (notification
-// failures never abort the install); then places the resolved secrets into the namespaces their owning
-// kustomizations create, gating each on namespace creation rather than kustomization readiness so a
-// consumer whose readiness depends on its secret cannot deadlock placement. prune reclaims CLI-placed
-// secrets this context no longer declares, mirroring kustomization prune (on for upgrade and apply
-// --prune, off otherwise). ctx is threaded into Notify and placement so a cancelled parent context
-// (e.g. Ctrl+C) tears down promptly. The install is one "Applying kustomizations" operation with one
-// child step per kustomization; secret placement shows as progress on the owning kustomization. A
-// readiness wait then runs alongside a converge pass on the same steps, and its failure returns an
-// error wrapping ErrKustomizationsNotReady. The blueprint must be provided. Returns an error if
-// resolution, apply, placement, or the wait fails.
-func (i *Provisioner) Install(ctx context.Context, blueprint *blueprintv1alpha1.Blueprint, prune bool) error {
-	if blueprint == nil {
-		return fmt.Errorf("blueprint not provided")
-	}
-
-	if i.KubernetesManager == nil {
-		return fmt.Errorf("kubernetes manager not configured")
-	}
-
-	resolvedSecrets, err := i.ResolveSecrets(blueprint)
-	if err != nil {
-		return fmt.Errorf("error resolving secrets: %w", err)
-	}
-
-	applied := withCrdLayer(blueprint)
-	names := convergeNames(applied)
-
-	return presenter.Track(ctx, "kustomize", "Applying kustomizations", func(ctx context.Context) (err error) {
-		layers := presenter.NewGroup(ctx, "kustomization:")
-		defer func() { layers.Close(err) }()
-
-		if err := i.KubernetesManager.ApplyBlueprint(applied, i.fluxNamespace()); err != nil {
-			return fmt.Errorf("failed to apply blueprint: %w", err)
-		}
-		_ = i.Notify(ctx, applied)
-
-		if err := i.placeSecrets(ctx, layers, resolvedSecrets, applied, prune); err != nil {
-			return fmt.Errorf("error placing secrets: %w", err)
-		}
-
-		convergeCtx, cancel := context.WithTimeout(ctx, constants.DefaultConvergeTimeout)
-		defer cancel()
-		converged := make(chan struct{})
-		go func() {
-			defer close(converged)
-			i.converge(convergeCtx, layers, applied, names, i.pollInterval())
-		}()
-		waitErr := i.KubernetesManager.WaitForKustomizations(ctx, applied, layers)
-		cancel()
-		<-converged
-		if waitErr != nil {
-			return fmt.Errorf("%w: %w", ErrKustomizationsNotReady, waitErr)
-		}
-		return nil
-	})
-}
-
-// ResolvedSecrets maps an owning kustomization name to the Secrets ready to place in the namespace(s)
-// it creates: Secret name -> ResolvedSecret (target namespaces plus resolved plaintext data). It holds
-// resolved secret material in memory only (never serialized), produced by ResolveSecrets before Install
-// and consumed by PlaceSecrets after.
-type ResolvedSecrets map[string]map[string]ResolvedSecret
-
-// ResolvedSecret is one Secret ready to place: its resolved plaintext data and the namespaces it targets.
-// Namespaces is empty when the authored entry named none, in which case placement auto-resolves the single
-// namespace the owning kustomization creates.
-type ResolvedSecret struct {
-	Namespaces []string
-	Data       map[string]string
-}
-
-// ResolveSecrets resolves every flux system's declared Secrets to plaintext ahead of Install, so a
-// misconfigured secret fails the command before anything is applied to the cluster. For each compiled
-// kustomization carrying Secrets it evaluates each data reference (the evaluator registers resolved
-// values with the shell scrubber). A reference that resolves to nothing — nil (absent from configuration
-// or a secret() lookup that failed to resolve) or an empty string — fails closed unless it carries a "??"
-// default, since a required key that resolves away is misconfiguration and silently dropping it strands a
-// downstream consumer with a missing key. Adding a ?? default marks the key optional and omits it. A
-// secret whose keys all resolve away is not created at all, so an optional secret leaves no empty Secret
-// behind. The result is keyed by owning kustomization
-// for PlaceSecrets to materialize post-Install; it is empty when no kustomization declares Secrets.
-func (i *Provisioner) ResolveSecrets(blueprint *blueprintv1alpha1.Blueprint) (ResolvedSecrets, error) {
-	if blueprint == nil {
-		return nil, fmt.Errorf("blueprint not provided")
-	}
-
-	resolved := make(ResolvedSecrets)
-	bp := withCrdLayer(blueprint)
-	for _, k := range bp.Kustomizations {
-		if len(k.Secrets) == 0 {
-			continue
-		}
-		for secretName, entry := range k.Secrets {
-			stringData := make(map[string]string, len(entry.Data))
-			for key, ref := range entry.Data {
-				value, err := i.evaluator.Evaluate(ref, "", nil, true)
-				if err != nil {
-					return nil, fmt.Errorf("resolving secret %q key %q: %w", secretName, key, err)
-				}
-				s := ""
-				if value != nil {
-					s = fmt.Sprint(value)
-				}
-				if s == "" {
-					if strings.Contains(ref, "??") {
-						continue
-					}
-					return nil, fmt.Errorf("resolving secret %q key %q: reference %q resolved to empty; add a ?? default (e.g. %q) to make the key optional", secretName, key, ref, "${... ?? ''}")
-				}
-				// Mask the materialized value in command output regardless of how it was sourced —
-				// env(), a config reference, or secret() — matching the redaction secret() already
-				// gets at resolution time.
-				i.shell.RegisterSecret(s)
-				stringData[key] = s
-			}
-			if len(stringData) > 0 {
-				if resolved[k.Name] == nil {
-					resolved[k.Name] = make(map[string]ResolvedSecret)
-				}
-				resolved[k.Name][secretName] = ResolvedSecret{
-					Namespaces: slices.Clone(entry.Namespaces),
-					Data:       stringData,
-				}
-			}
-		}
-	}
-	return resolved, nil
-}
-
-// pendingPlacement is one secret awaiting its target namespace during PlaceSecrets.
-// layerReporter receives per-kustomization start, progress, and completion while kustomizations install.
-type layerReporter interface {
-	Start(name string)
-	Progress(name, text string)
-	Done(name string)
-}
-
-// stepProgress is a layerReporter that reports progress on the operation in ctx and ignores Done.
-type stepProgress struct {
-	ctx context.Context
-}
-
-type pendingPlacement struct {
-	kustomization string
-	secretName    string
-	secret        ResolvedSecret
-}
-
-// PlaceSecrets materializes secrets that ResolveSecrets produced into their target namespace(s), and —
-// when prune is set — reconciles by deleting the CLI-placed secrets this context no longer wants. It runs
-// after Install. Placement is not serialized: on each round it places every secret whose target namespace
-// already exists and defers the rest, then polls, so a secret whose namespace is ready is never blocked
-// behind one whose namespace is not. This matters because kustomizations commonly depend on a secret the
-// CLI places (e.g. a cloud-controller-manager needs its token before nodes initialize and downstream
-// namespaces appear); placing the ready ones first breaks that cycle rather than deadlocking on a namespace
-// that only appears once an earlier secret is placed. For each secret it resolves the target namespace(s) —
-// the ones the entry named (gated on those existing in the cluster) or, when it named none, the namespace
-// its owning kustomization creates or deploys into (failing closed on more than one so a secret is never
-// placed by guessing) — applies an Opaque Secret into each, and rolls the workloads there that consume it,
-// keyed by a content digest, so a changed value reaches running pods rather than sitting stale. It surfaces
-// progress on the current operation naming what it is placing or waiting on, and times out naming the secrets whose
-// namespaces never appeared. As it places a secret it requests an immediate flux reconcile of the owning
-// kustomization (the secret is what that kustomization was waiting on), and while waiting it nudges the
-// dependency closure of the still-pending owners on a throttle, so a chain unblocked by a placement
-// advances in seconds rather than one flux interval per hop. When prune is set it records every
-// (namespace, secret) it placed and hands
-// that desired set to PruneSecrets, which reclaims any CLI-placed secret not in it. Pruning is gated so
-// secret reclaim mirrors Kustomization prune: on under apply's --prune and upgrade, off for the place-only
-// flows. When no kubernetes manager is configured it is a no-op only if there is also nothing to place.
-func (i *Provisioner) PlaceSecrets(ctx context.Context, resolved ResolvedSecrets, blueprint *blueprintv1alpha1.Blueprint, prune bool) error {
-	if i.KubernetesManager == nil {
-		if len(resolved) == 0 {
-			return nil
-		}
-		return fmt.Errorf("kubernetes manager not configured")
-	}
-	if len(resolved) == 0 && !prune {
-		return nil
-	}
-
-	return i.placeSecrets(ctx, stepProgress{ctx}, resolved, blueprint, prune)
-}
-
-// WriteVersionMarker records the blueprint version applied to this context as a marker ConfigMap
-// in the gitops namespace, capturing the resolved reference of each applied source. Only bootstrap
-// and upgrade write the marker; apply and plan only read it, so the marker stays an authoritative
-// record of what was deliberately rolled out rather than drifting with every reconcile.
-func (i *Provisioner) WriteVersionMarker(blueprint *blueprintv1alpha1.Blueprint) error {
-	if blueprint == nil {
-		return fmt.Errorf("blueprint not provided")
-	}
-
-	if i.KubernetesManager == nil {
-		return fmt.Errorf("kubernetes manager not configured")
-	}
-
-	marker, err := kubernetes.BuildVersionMarker(blueprint)
-	if err != nil {
-		return fmt.Errorf("failed to build version marker: %w", err)
-	}
-	if err := i.KubernetesManager.ApplyVersionMarker(i.fluxNamespace(), marker); err != nil {
-		return fmt.Errorf("failed to write version marker: %w", err)
-	}
-
-	return nil
-}
-
-// BeginVersionTransition writes the in-flight marker for an upgrade toward blueprint: it preserves
-// the applied source set from the existing marker (empty for a legacy context) and records the
-// blueprint's set as the target under the upgrading phase. apply's version gate refuses while the
-// marker is non-idle; WriteVersionMarker settles it to idle on success.
-func (i *Provisioner) BeginVersionTransition(blueprint *blueprintv1alpha1.Blueprint) error {
-	if blueprint == nil {
-		return fmt.Errorf("blueprint not provided")
-	}
-	if i.KubernetesManager == nil {
-		return fmt.Errorf("kubernetes manager not configured")
-	}
-
-	current, found, err := i.GetVersionMarker()
-	if err != nil {
-		return fmt.Errorf("failed to read current version marker: %w", err)
-	}
-	var applied map[string]kubernetes.SourceRef
-	if found {
-		applied = current.AppliedSources
-	}
-
-	marker, err := kubernetes.BuildTransitionMarker(applied, blueprint)
-	if err != nil {
-		return fmt.Errorf("failed to build transition marker: %w", err)
-	}
-	if err := i.KubernetesManager.ApplyVersionMarker(i.fluxNamespace(), marker); err != nil {
-		return fmt.Errorf("failed to write transition marker: %w", err)
-	}
-	return nil
-}
-
-// Prune removes Kustomizations belonging to this context that are no longer present in the
-// blueprint, leaving every still-declared kustomization (platform and user) and any other
-// context's kustomizations untouched. It prepares the blueprint with the synthesized CRD layers —
-// matching what Install applied — so those layers are recognized as desired and not pruned.
-func (i *Provisioner) Prune(ctx context.Context, blueprint *blueprintv1alpha1.Blueprint) error {
-	if blueprint == nil {
-		return fmt.Errorf("blueprint not provided")
-	}
-
-	if i.KubernetesManager == nil {
-		return fmt.Errorf("kubernetes manager not configured")
-	}
-
-	blueprint = withCrdLayer(blueprint)
-
-	if err := i.KubernetesManager.PruneBlueprint(ctx, blueprint, i.fluxNamespace()); err != nil {
-		return fmt.Errorf("failed to prune blueprint: %w", err)
-	}
-
-	return nil
-}
-
-// PrunableKustomizations returns the names of this context's Kustomizations that the blueprint no
-// longer declares — exactly what Prune would delete. It is the read-only input to plan's prune
-// preview and upgrade's confirmation gate; it deletes nothing. It prepares the blueprint with the
-// synthesized CRD layers so the desired set matches what Prune deletes against.
-func (i *Provisioner) PrunableKustomizations(blueprint *blueprintv1alpha1.Blueprint) ([]string, error) {
-	if blueprint == nil {
-		return nil, fmt.Errorf("blueprint not provided")
-	}
-	if i.KubernetesManager == nil {
-		return nil, fmt.Errorf("kubernetes manager not configured")
-	}
-
-	blueprint = withCrdLayer(blueprint)
-
-	names, err := i.KubernetesManager.ListPrunableKustomizations(blueprint, i.fluxNamespace())
-	if err != nil {
-		return nil, fmt.Errorf("failed to list prunable kustomizations: %w", err)
-	}
-	return names, nil
-}
-
-// GetVersionMarker reads the applied-version marker for this context's gitops namespace, reporting
-// false when no marker exists (a pre-bootstrap, no-cluster, or legacy context). apply and plan read
-// the marker to gate on the blueprint version; only bootstrap and upgrade write it. Returns false
-// without consulting the cluster when no context-scoped kubeconfig is present — there is no cluster,
-// so nothing is applied and there is no version to read.
-func (i *Provisioner) GetVersionMarker() (kubernetes.VersionMarker, bool, error) {
-	if i.KubernetesManager == nil {
-		return kubernetes.VersionMarker{}, false, fmt.Errorf("kubernetes manager not configured")
-	}
-	if !i.kubeconfigPresent() {
-		return kubernetes.VersionMarker{}, false, nil
-	}
-	return i.KubernetesManager.GetVersionMarker(i.fluxNamespace())
-}
-
-// CheckVersionGate reads the version marker and reports how the given blueprint relates to it,
-// without deciding policy. A missing marker (pre-bootstrap, no cluster, or legacy) yields
-// MarkerFound=false so callers treat it as "nothing applied yet — proceed". When a marker exists,
-// InFlight reflects a non-idle phase and VersionMatch compares the blueprint's resolved source-ref
-// set against the applied set. Returns an error only on a real read/decode failure or when the
-// blueprint's sources cannot be reduced to an unambiguous set; callers may treat a read failure as
-// best-effort (cluster unreachable) rather than a hard stop.
-func (i *Provisioner) CheckVersionGate(blueprint *blueprintv1alpha1.Blueprint) (VersionGate, error) {
-	if blueprint == nil {
-		return VersionGate{}, fmt.Errorf("blueprint not provided")
-	}
-
-	marker, found, err := i.GetVersionMarker()
-	if err != nil {
-		return VersionGate{}, err
-	}
-	if !found {
-		return VersionGate{MarkerFound: false}, nil
-	}
-
-	target, err := kubernetes.BuildVersionMarker(blueprint)
-	if err != nil {
-		return VersionGate{}, fmt.Errorf("failed to derive blueprint version: %w", err)
-	}
-
-	return VersionGate{
-		MarkerFound:  true,
-		InFlight:     marker.Phase != "" && marker.Phase != kubernetes.VersionMarkerPhaseIdle,
-		VersionMatch: kubernetes.SourcesEqual(marker.AppliedSources, target.AppliedSources),
-	}, nil
-}
-
-// Uninstall orchestrates the high-level kustomization teardown process from the blueprint.
-// It initializes the kubernetes manager and deletes all blueprint kustomizations, including the
-// synthesized CRD layer (withCrdLayer) so its Flux Kustomization objects are removed symmetrically
-// with apply; the layer keeps Prune disabled, so the vendored CRDs themselves are retained.
-// DeleteBlueprint emits its own per-Kustomization progress (Start/Done/Fail spinners),
-// so this method does not wrap the call in WithProgress — doing so would suppress the
-// inner per-Kustomization output and produce a single opaque "Removing blueprint
-// resources" line that hides the long per-Kustomization waits inherent to
-// WaitForTermination-driven teardown.
-//
-// Uninstall is a no-op when no local kubeconfig exists. See kubeconfigPresent for the reasoning:
-// a missing kubeconfig means the cluster is already gone, so there is nothing to suspend or
-// delete, and building a client would only fail with a stat error.
-func (i *Provisioner) Uninstall(ctx context.Context, blueprint *blueprintv1alpha1.Blueprint) error {
-	if blueprint == nil {
-		return fmt.Errorf("blueprint not provided")
-	}
-
-	if i.KubernetesManager == nil {
-		return fmt.Errorf("kubernetes manager not configured")
-	}
-
-	if !i.kubeconfigPresent() {
-		return nil
-	}
-
-	blueprint = withCrdLayer(blueprint)
-
-	if err := i.KubernetesManager.DeleteBlueprint(ctx, blueprint, i.fluxNamespace()); err != nil {
-		return fmt.Errorf("failed to delete blueprint: %w", err)
-	}
-
-	return nil
-}
-
-// UpgradeNode performs a complete per-node upgrade: captures the node's current boot ID,
-// sends the upgrade gRPC request (wait=false), waits for the node to reboot (confirmed by
-// its boot ID changing, offlineTimeout caps this phase), waits for the node to come back
-// healthy, then performs a final service health check. powercycle requests a full ACPI
-// reboot instead of the default kexec, needed on platforms (e.g. nested virtualization)
-// where kexec doesn't reliably register as an offline transition. outputFunc receives
-// status messages during the wait phases. Returns an error if any step fails or times out.
-func (i *Provisioner) UpgradeNode(ctx context.Context, node string, image string, offlineTimeout time.Duration, powercycle bool, outputFunc func(string)) error {
-	if err := i.ensureClusterClient(); err != nil {
-		return err
-	}
-	defer i.ClusterClient.Close()
-
-	nodes := []string{node}
-	preActionBootIDs := i.ClusterClient.CaptureNodeBootIDs(ctx, nodes)
-
-	if outputFunc != nil {
-		outputFunc(fmt.Sprintf("Sending upgrade request to node %s...", node))
-	}
-	if err := i.ClusterClient.UpgradeNodes(ctx, nodes, image, powercycle); err != nil {
-		return fmt.Errorf("upgrade request failed: %w", err)
-	}
-
-	if outputFunc != nil {
-		outputFunc(fmt.Sprintf("Upgrade request sent to %s. Waiting for reboot...", node))
-	}
-	if err := i.ClusterClient.WaitForNodesReboot(ctx, nodes, preActionBootIDs, versionFromImage(image), nil, offlineTimeout); err != nil {
-		return fmt.Errorf("node reboot wait failed: %w", err)
-	}
-
-	if outputFunc != nil {
-		outputFunc(fmt.Sprintf("Verifying kube-apiserver readiness on %s (skipped for workers)...", node))
-	}
-	if err := i.ClusterClient.WaitForControlPlaneAPIReady(ctx, node, outputFunc); err != nil {
-		return fmt.Errorf("kube-apiserver readiness check failed: %w", err)
-	}
-
-	if outputFunc != nil {
-		outputFunc(fmt.Sprintf("Node %s upgraded successfully.", node))
-	}
-	return nil
-}
-
-// UpgradeNodes sends an upgrade request to specified cluster nodes. powercycle requests
-// a full ACPI reboot instead of the default kexec.
-// It initializes the cluster client based on config, then calls UpgradeNodes on it.
-// The caller is responsible for subsequently monitoring reboot status. Returns an error
-// if the cluster client cannot be initialized or if any node upgrade request fails.
-func (i *Provisioner) UpgradeNodes(ctx context.Context, nodes []string, image string, powercycle bool) error {
-	if err := i.ensureClusterClient(); err != nil {
-		return err
-	}
-	defer i.ClusterClient.Close()
-
-	return i.ClusterClient.UpgradeNodes(ctx, nodes, image, powercycle)
-}
-
-// CheckNodeHealth performs health checks for cluster nodes and Kubernetes endpoints.
-// It supports checking node health via cluster client (for Talos/Omni clusters) and/or
-// Kubernetes API health checks. The method handles timeout configuration, version checking,
-// and node readiness verification. Returns an error if any health check fails.
-func (i *Provisioner) CheckNodeHealth(ctx context.Context, options NodeHealthCheckOptions, outputFunc func(string)) error {
-	hasNodeCheck := len(options.Nodes) > 0
-	hasK8sCheck := options.K8SEndpointProvided
-
-	if !hasNodeCheck && !hasK8sCheck {
-		return fmt.Errorf("no health checks specified. Use --nodes and/or --k8s-endpoint flags to specify health checks to perform")
-	}
-
-	if hasNodeCheck {
-		_ = i.ensureClusterClient() // best-effort; nil client is tolerated when hasK8sCheck
-
-		if i.ClusterClient == nil {
-			if !hasK8sCheck {
-				return fmt.Errorf("no health checks specified. Use --nodes and/or --k8s-endpoint flags to specify health checks to perform")
-			}
-			// If we have k8s check, we can continue without cluster client
-		}
-
-		if i.ClusterClient != nil {
-			defer i.ClusterClient.Close()
-
-			var checkCtx context.Context
-			var cancel context.CancelFunc
-			if options.Timeout > 0 {
-				checkCtx, cancel = context.WithTimeout(ctx, options.Timeout)
-			} else {
-				checkCtx, cancel = context.WithCancel(ctx)
-			}
-			defer cancel()
-
-			var clusterErr error
-			if options.WaitForReboot {
-				preActionBootIDs := i.ClusterClient.CaptureNodeBootIDs(checkCtx, options.Nodes)
-				clusterErr = i.ClusterClient.WaitForNodesReboot(checkCtx, options.Nodes, preActionBootIDs, options.Version, options.SkipServices, options.OfflineTimeout)
-			} else {
-				clusterErr = i.ClusterClient.WaitForNodesHealthy(checkCtx, options.Nodes, options.Version, options.SkipServices)
-			}
-			if err := clusterErr; err != nil {
-				if hasK8sCheck {
-					if outputFunc != nil {
-						outputFunc(fmt.Sprintf("Warning: Cluster client failed (%v), continuing with Kubernetes checks\n", err))
-					}
-				} else {
-					return fmt.Errorf("nodes failed health check: %w", err)
-				}
-			} else {
-				if outputFunc != nil {
-					message := fmt.Sprintf("All %d nodes are healthy", len(options.Nodes))
-					if options.Version != "" {
-						message += fmt.Sprintf(" and running version %s", options.Version)
-					}
-					outputFunc(message)
-				}
-			}
-		}
-	}
-
-	if hasK8sCheck {
-		if i.KubernetesManager == nil {
-			return fmt.Errorf("no kubernetes manager found")
-		}
-
-		k8sEndpointStr := options.K8SEndpoint
-		if k8sEndpointStr == "true" {
-			k8sEndpointStr = ""
-		}
-
-		var nodeNames []string
-		if options.CheckNodeReady {
-			if hasNodeCheck {
-				nodeNames = options.Nodes
-			} else {
-				return fmt.Errorf("--ready flag requires --nodes to be specified")
-			}
-		}
-
-		if len(nodeNames) > 0 && outputFunc != nil {
-			outputFunc(fmt.Sprintf("Waiting for %d nodes to be Ready...", len(nodeNames)))
-		}
-
-		if err := i.KubernetesManager.WaitForKubernetesHealthy(ctx, k8sEndpointStr, outputFunc, nodeNames...); err != nil {
-			return fmt.Errorf("kubernetes health check failed: %w", err)
-		}
-
-		if outputFunc != nil {
-			if len(nodeNames) > 0 {
-				readyStatus, err := i.KubernetesManager.GetNodeReadyStatus(ctx, nodeNames)
-				allFoundAndReady := err == nil && len(readyStatus) == len(nodeNames)
-				for _, ready := range readyStatus {
-					if !ready {
-						allFoundAndReady = false
-						break
-					}
-				}
-
-				if allFoundAndReady {
-					if k8sEndpointStr != "" {
-						outputFunc(fmt.Sprintf("Kubernetes API endpoint %s is healthy and all nodes are Ready", k8sEndpointStr))
-					} else {
-						outputFunc("Kubernetes API endpoint (kubeconfig default) is healthy and all nodes are Ready")
-					}
-				} else {
-					if k8sEndpointStr != "" {
-						outputFunc(fmt.Sprintf("Kubernetes API endpoint %s is healthy", k8sEndpointStr))
-					} else {
-						outputFunc("Kubernetes API endpoint (kubeconfig default) is healthy")
-					}
-				}
-			} else {
-				if k8sEndpointStr != "" {
-					outputFunc(fmt.Sprintf("Kubernetes API endpoint %s is healthy", k8sEndpointStr))
-				} else {
-					outputFunc("Kubernetes API endpoint (kubeconfig default) is healthy")
-				}
-			}
-		}
-	}
-
-	return nil
-}
-
 // Notify forwards to the flux webhook Notifier and is intended as the final
 // step of bootstrap/up/apply so flux reconciles the blueprint's sources
 // immediately instead of waiting for its next scheduled interval. The call
@@ -1535,130 +353,9 @@ func (i *Provisioner) Close() {
 	}
 }
 
-// Progress reports text on the operation in the context.
-func (s stepProgress) Progress(_, text string) {
-	presenter.Progress(s.ctx, text)
-}
-
-// Start does nothing, because a single step has no per-kustomization children.
-func (s stepProgress) Start(string) {}
-
-// Done does nothing, because a single step has no per-kustomization children.
-func (s stepProgress) Done(string) {}
-
-// Fail does nothing, because the single step fails with the error its caller returns.
-func (s stepProgress) Fail(string, error) {}
-
 // =============================================================================
 // Private Methods
 // =============================================================================
-
-// pollInterval returns the readiness poll interval: the configured secretPollInterval, or the
-// default kustomization wait poll interval when none is set.
-func (i *Provisioner) pollInterval() time.Duration {
-	if i.secretPollInterval > 0 {
-		return i.secretPollInterval
-	}
-	return constants.DefaultKustomizationWaitPollInterval
-}
-
-// converge polls readiness until every name is Ready or ctx ends, nudging the frontier each round.
-// It ends each name's step in layers as it becomes Ready.
-func (i *Provisioner) converge(ctx context.Context, layers *presenter.Group, bp *blueprintv1alpha1.Blueprint, names []string, pollInterval time.Duration) {
-	nudged := make(map[string]struct{})
-	for {
-		notReady, reconciling := i.nudgeFrontier(ctx, bp, nudged)
-		trackLayers(layers, names, notReady, reconciling)
-		if len(notReady) == 0 {
-			return
-		}
-		select {
-		case <-ctx.Done():
-			return
-		case <-time.After(pollInterval):
-		}
-	}
-}
-
-// placeSecrets places resolved secrets as PlaceSecrets describes. It reports each secret that waits
-// on its namespace or is placed as progress on the owning kustomization in layers, and ends the step
-// of each kustomization the readiness poll finds Ready.
-func (i *Provisioner) placeSecrets(ctx context.Context, layers layerReporter, resolved ResolvedSecrets, blueprint *blueprintv1alpha1.Blueprint, prune bool) error {
-	pending := make([]pendingPlacement, 0)
-	for kustomizationName, secrets := range resolved {
-		for secretName, secret := range secrets {
-			pending = append(pending, pendingPlacement{kustomizationName, secretName, secret})
-		}
-	}
-
-	placed := make(map[string]map[string]bool)
-	pollInterval := i.pollInterval()
-	waitCtx, cancel := context.WithTimeout(ctx, constants.DefaultFluxKustomizationInstallTimeout)
-	defer cancel()
-
-	nudged := make(map[string]struct{})
-	for len(pending) > 0 {
-		var stillPending []pendingPlacement
-		placedOwners := make(map[string]struct{})
-		for _, p := range pending {
-			namespaces, ready, err := i.trySecretNamespaces(p.kustomization, p.secret.Namespaces)
-			if err != nil {
-				return err
-			}
-			if !ready {
-				stillPending = append(stillPending, p)
-				layers.Progress(p.kustomization, fmt.Sprintf("waiting on a namespace for secret %s", p.secretName))
-				continue
-			}
-			for _, namespace := range namespaces {
-				if err := i.KubernetesManager.ApplySecret(p.secretName, namespace, p.secret.Data, p.kustomization); err != nil {
-					return fmt.Errorf("applying secret %q to namespace %q: %w", p.secretName, namespace, err)
-				}
-				if err := i.KubernetesManager.RollWorkloadsForSecret(ctx, namespace, p.secretName, secretDigest(p.secret.Data)); err != nil {
-					return fmt.Errorf("rolling workloads for secret %q in namespace %q: %w", p.secretName, namespace, err)
-				}
-				if placed[namespace] == nil {
-					placed[namespace] = make(map[string]bool)
-				}
-				placed[namespace][p.secretName] = true
-			}
-			placedOwners[p.kustomization] = struct{}{}
-			layers.Progress(p.kustomization, fmt.Sprintf("placed secret %s", p.secretName))
-		}
-		pending = stillPending
-
-		// A secret we just placed is what its owner was waiting on — reconcile that owner now so it
-		// applies and re-checks readiness immediately, and force any HelmRelease it owns that had
-		// stalled for lack of the secret, rather than waiting on its scheduled interval.
-		if len(placedOwners) > 0 {
-			owners := sortedStringKeys(placedOwners)
-			i.reconcileKustomizations(ctx, owners)
-			i.forceStalledHelmReleases(ctx, owners)
-		}
-		if len(pending) == 0 {
-			break
-		}
-		// Drive the DAG toward creating the still-pending namespaces by nudging only the frontier —
-		// not-Ready kustomizations whose dependencies are all Ready — once each. Already-Ready
-		// kustomizations (e.g. crds) are never touched, and a member blocked upstream is left alone
-		// until its dependency clears, so this advances the chain without churning healthy resources.
-		notReady, reconciling := i.nudgeFrontier(ctx, blueprint, nudged)
-		trackLayers(layers, convergeNames(blueprint), notReady, reconciling)
-		select {
-		case <-waitCtx.Done():
-			return fmt.Errorf("timed out waiting on namespaces before placing secrets: %s", pendingSummary(pending))
-		case <-time.After(pollInterval):
-		}
-	}
-
-	if !prune {
-		return nil
-	}
-	if err := i.KubernetesManager.PruneSecrets(placed); err != nil {
-		return fmt.Errorf("pruning orphaned secrets: %w", err)
-	}
-	return nil
-}
 
 // up applies the blueprint directly, or through the backend pivot when the blueprint declares
 // a backend on a remote backend type. A kubernetes backend with no declared backend and no
@@ -1686,309 +383,6 @@ func (i *Provisioner) up(ctx context.Context, blueprint *blueprintv1alpha1.Bluep
 	return i.applyWithBackendPivot(ctx, blueprint, backendComponents, onApply...)
 }
 
-// convergeNames returns the deduplicated names of the blueprint's non-destroyOnly kustomizations.
-// This is the set converge drives toward Ready. withCrdLayer prepends CRD kustomizations
-// without checking for name collisions. Dedup keeps a collision from double-printing in
-// progress output. A nil blueprint has no names.
-func convergeNames(bp *blueprintv1alpha1.Blueprint) []string {
-	if bp == nil {
-		return nil
-	}
-	names := make([]string, 0, len(bp.Kustomizations))
-	seen := make(map[string]bool, len(bp.Kustomizations))
-	for _, k := range bp.Kustomizations {
-		if k.DestroyOnly != nil && *k.DestroyOnly {
-			continue
-		}
-		if seen[k.Name] {
-			continue
-		}
-		seen[k.Name] = true
-		names = append(names, k.Name)
-	}
-	return names
-}
-
-// nudgeFrontier reconciles the blueprint's "frontier" kustomizations: those not yet Ready whose
-// dependencies are all Ready. It also force-reconciles any stalled HelmRelease they own. Each
-// frontier member is nudged once per not-Ready streak, tracked in nudged, so repeat calls do not
-// re-poke it. It returns the not-Ready names, and the subset whose dependencies are all Ready,
-// which are the ones Flux is reconciling. On a readiness read error, every kustomization is
-// reported not-ready, none as reconciling, and nothing is nudged.
-func (i *Provisioner) nudgeFrontier(ctx context.Context, blueprint *blueprintv1alpha1.Blueprint, nudged map[string]struct{}) (notReady, reconciling []string) {
-	if blueprint == nil {
-		return nil, nil
-	}
-	names := convergeNames(blueprint)
-	if len(names) == 0 {
-		return nil, nil
-	}
-	readiness, err := i.KubernetesManager.GetKustomizationReadiness(names)
-	if err != nil {
-		return names, nil
-	}
-	deps := make(map[string][]string, len(blueprint.Kustomizations))
-	for _, k := range blueprint.Kustomizations {
-		deps[k.Name] = k.DependsOn
-	}
-
-	var frontier []string
-	for _, name := range names {
-		if readiness[name] {
-			delete(nudged, name)
-			continue
-		}
-		notReady = append(notReady, name)
-		depsReady := true
-		for _, d := range deps[name] {
-			if r, known := readiness[d]; known && !r {
-				depsReady = false
-				break
-			}
-		}
-		if !depsReady {
-			continue
-		}
-		reconciling = append(reconciling, name)
-		if _, done := nudged[name]; !done {
-			frontier = append(frontier, name)
-		}
-	}
-	if len(frontier) > 0 {
-		slices.Sort(frontier)
-		for _, n := range frontier {
-			nudged[n] = struct{}{}
-		}
-		i.reconcileKustomizations(ctx, frontier)
-		i.forceStalledHelmReleases(ctx, frontier)
-	}
-	slices.Sort(notReady)
-	return notReady, reconciling
-}
-
-// sortedStringKeys returns the keys of a set as a sorted slice.
-func sortedStringKeys(m map[string]struct{}) []string {
-	out := make([]string, 0, len(m))
-	for k := range m {
-		out = append(out, k)
-	}
-	slices.Sort(out)
-	return out
-}
-
-// destroyAllTerraform is the shared implementation behind DestroyAllTerraform.
-func (i *Provisioner) destroyAllTerraform(ctx context.Context, blueprint *blueprintv1alpha1.Blueprint, continueOnError bool, excludeIDs ...string) (DestroyResult, error) {
-	var result DestroyResult
-	if blueprint == nil {
-		return result, fmt.Errorf("blueprint not provided")
-	}
-	if err := i.ensureTerraformStack(); err != nil {
-		return result, err
-	}
-	if i.TerraformStack == nil {
-		return result, fmt.Errorf("terraform is disabled")
-	}
-	outcome, err := i.TerraformStack.DestroyAll(ctx, blueprint, continueOnError, excludeIDs...)
-	result.Destroyed = outcome.Destroyed
-	result.Skipped = outcome.Skipped
-	result.Failed = outcome.Failed
-	if err != nil {
-		return result, fmt.Errorf("failed to run terraform destroy: %w", err)
-	}
-	return result, nil
-}
-
-// secretDigest returns a stable content digest for a secret's resolved data. Consumers use it to
-// roll workloads only when the content changes. Keys are sorted, and each key and value is
-// NUL-delimited so distinct maps cannot collide, then hashed with SHA-256. The digest is one-way:
-// it detects change without revealing the plaintext.
-func secretDigest(stringData map[string]string) string {
-	keys := make([]string, 0, len(stringData))
-	for k := range stringData {
-		keys = append(keys, k)
-	}
-	slices.Sort(keys)
-	h := sha256.New()
-	for _, k := range keys {
-		h.Write([]byte(k))
-		h.Write([]byte{0})
-		h.Write([]byte(stringData[k]))
-		h.Write([]byte{0})
-	}
-	return hex.EncodeToString(h.Sum(nil))
-}
-
-// trySecretNamespaces resolves where to place a secret and reports whether every target namespace
-// exists yet. Explicit namespaces are gated on existing in the cluster. With no explicit
-// namespaces, the target is auto-resolved from the owning kustomization's Flux inventory, and
-// fails if that resolves to more than one namespace. A (nil, false, nil) return means not
-// resolvable yet: keep polling.
-func (i *Provisioner) trySecretNamespaces(kustomizationName string, explicit []string) ([]string, bool, error) {
-	if len(explicit) > 0 {
-		missing, err := i.missingClusterNamespaces(explicit)
-		if err != nil {
-			return nil, false, err
-		}
-		if len(missing) == 0 {
-			return slices.Clone(explicit), true, nil
-		}
-		return nil, false, nil
-	}
-	entries, err := i.KubernetesManager.GetKustomizationInventory(kustomizationName, i.fluxNamespace())
-	if err != nil {
-		return nil, false, fmt.Errorf("reading inventory for kustomization %q: %w", kustomizationName, err)
-	}
-	candidates := autoResolveNamespaces(entries)
-	switch {
-	case len(candidates) == 1:
-		return candidates, true, nil
-	case len(candidates) > 1:
-		return nil, false, fmt.Errorf("kustomization %q spans multiple namespaces (%s); set `namespaces:` on the secret to choose where to place it", kustomizationName, strings.Join(candidates, ", "))
-	case len(entries) > 0:
-		return nil, false, fmt.Errorf("kustomization %q creates no namespace and deploys no namespaced resources to infer one from; set `namespaces:` on the secret to choose where to place it", kustomizationName)
-	}
-	return nil, false, nil
-}
-
-// trackLayers walks names in order. It ends the step of each name not in notReady, and starts the
-// step of each name in reconciling, so a kustomization shows only once Flux is working on it.
-func trackLayers(layers layerReporter, names, notReady, reconciling []string) {
-	pending := make(map[string]bool, len(notReady))
-	for _, name := range notReady {
-		pending[name] = true
-	}
-	active := make(map[string]bool, len(reconciling))
-	for _, name := range reconciling {
-		active[name] = true
-	}
-	for _, name := range names {
-		switch {
-		case !pending[name]:
-			layers.Done(name)
-		case active[name]:
-			layers.Start(name)
-		}
-	}
-}
-
-// pendingSummary renders secrets still awaiting a namespace as sorted placementLabel entries.
-func pendingSummary(pending []pendingPlacement) string {
-	parts := make([]string, 0, len(pending))
-	for _, p := range pending {
-		parts = append(parts, placementLabel(p))
-	}
-	slices.Sort(parts)
-	return strings.Join(parts, ", ")
-}
-
-// placementLabel names a pending secret as "secret (kustomization)", followed by "→" and its
-// target namespaces when the entry declared them.
-func placementLabel(p pendingPlacement) string {
-	if len(p.secret.Namespaces) > 0 {
-		return fmt.Sprintf("%s (%s)→%s", p.secretName, p.kustomization, strings.Join(p.secret.Namespaces, ","))
-	}
-	return fmt.Sprintf("%s (%s)", p.secretName, p.kustomization)
-}
-
-// autoResolveNamespaces infers where a secret should land when its entry names no namespace, using
-// the owning kustomization's Flux inventory. It prefers namespaces the kustomization creates, and
-// falls back to the namespaces its resources deploy into. The result is sorted.
-func autoResolveNamespaces(entries []kubernetes.InventoryEntry) []string {
-	created := make(map[string]struct{})
-	deployed := make(map[string]struct{})
-	for _, entry := range entries {
-		if entry.Kind == "Namespace" {
-			created[entry.Name] = struct{}{}
-		}
-		if entry.Namespace != "" {
-			deployed[entry.Namespace] = struct{}{}
-		}
-	}
-	chosen := created
-	if len(chosen) == 0 {
-		chosen = deployed
-	}
-	out := make([]string, 0, len(chosen))
-	for ns := range chosen {
-		out = append(out, ns)
-	}
-	slices.Sort(out)
-	return out
-}
-
-// missingClusterNamespaces returns the members of want that do not yet exist in the cluster,
-// preserving want's order.
-func (i *Provisioner) missingClusterNamespaces(want []string) ([]string, error) {
-	var missing []string
-	for _, ns := range want {
-		exists, err := i.KubernetesManager.NamespaceExists(ns)
-		if err != nil {
-			return nil, fmt.Errorf("checking namespace %q: %w", ns, err)
-		}
-		if !exists {
-			missing = append(missing, ns)
-		}
-	}
-	return missing, nil
-}
-
-// reconcileKustomizations requests an immediate Flux reconcile of the named Kustomizations. It is
-// best-effort: errors are swallowed, so a placement round never fails on a reconcile nudge. A nil
-// or empty names slice is a no-op.
-func (i *Provisioner) reconcileKustomizations(ctx context.Context, names []string) {
-	if len(names) == 0 {
-		return
-	}
-	if err := i.ensureNotifier(); err != nil {
-		return
-	}
-	_ = i.Notifier.ReconcileKustomizations(ctx, names)
-}
-
-// helmReleaseReady reports whether a HelmRelease currently carries a Ready=True condition.
-func helmReleaseReady(hr helmv2.HelmRelease) bool {
-	for _, c := range hr.Status.Conditions {
-		if c.Type == "Ready" {
-			return c.Status == "True"
-		}
-	}
-	return false
-}
-
-// forceStalledHelmReleases force-reconciles any HelmRelease owned by the given kustomizations that
-// is not Ready. A release that failed to install or upgrade (for example, a missing secret) stalls
-// and does not retry on a plain Kustomization reconcile, since its spec is unchanged. Forcing it
-// makes helm-controller retry. Best-effort: failures are swallowed, and healthy releases are left
-// untouched.
-func (i *Provisioner) forceStalledHelmReleases(ctx context.Context, kustomizations []string) {
-	var refs []fluxinfra.HelmReleaseRef
-	seen := make(map[string]struct{})
-	for _, name := range kustomizations {
-		hrs, err := i.KubernetesManager.GetHelmReleasesForKustomization(name, i.fluxNamespace())
-		if err != nil {
-			continue
-		}
-		for _, hr := range hrs {
-			if helmReleaseReady(hr) {
-				continue
-			}
-			key := hr.Namespace + "/" + hr.Name
-			if _, dup := seen[key]; dup {
-				continue
-			}
-			seen[key] = struct{}{}
-			refs = append(refs, fluxinfra.HelmReleaseRef{Namespace: hr.Namespace, Name: hr.Name})
-		}
-	}
-	if len(refs) == 0 {
-		return
-	}
-	if err := i.ensureNotifier(); err != nil {
-		return
-	}
-	_ = i.Notifier.ReconcileHelmReleases(ctx, refs, true)
-}
-
 // applyDirect runs terraform apply directly against the configured backend, with no backend
 // detection or pivot. Used by Up when no backend applies, and by applyWithBackendPivot's Stage
 // 1/3 sub-applies, which must not re-derive a backend from an already-sliced blueprint.
@@ -2012,18 +406,6 @@ func (i *Provisioner) applyDirect(ctx context.Context, blueprint *blueprintv1alp
 		return false, fmt.Errorf("failed to run terraform up: %w", err)
 	}
 	return halted, nil
-}
-
-// hasEnabledTerraformComponent reports whether the blueprint has at least one terraform
-// component that isn't explicitly disabled. Guards against refusing an apply for a
-// kubernetes backend when there is nothing to apply in the first place.
-func hasEnabledTerraformComponent(blueprint *blueprintv1alpha1.Blueprint) bool {
-	for _, c := range blueprint.TerraformComponents {
-		if c.Enabled == nil || c.Enabled.IsEnabled() {
-			return true
-		}
-	}
-	return false
 }
 
 // recoverHalfMigratedComponents migrates leftover local state to the configured remote
@@ -2159,6 +541,15 @@ func (i *Provisioner) warnAboutOrphanedLocalState(currentIDs map[string]bool) er
 	return nil
 }
 
+// pollInterval returns the readiness poll interval: the configured secretPollInterval, or the
+// default kustomization wait poll interval when none is set.
+func (i *Provisioner) pollInterval() time.Duration {
+	if i.secretPollInterval > 0 {
+		return i.secretPollInterval
+	}
+	return constants.DefaultKustomizationWaitPollInterval
+}
+
 // ensureClusterClient initializes ClusterClient from config if it is not already set.
 // It reads cluster.driver from the config handler and creates the appropriate client.
 // Returns an error if no supported driver is configured.
@@ -2181,56 +572,6 @@ func (i *Provisioner) ensureClusterClient() error {
 		return fmt.Errorf("no cluster client found; ensure cluster.driver is configured")
 	}
 	return nil
-}
-
-// withCrdLayer returns a copy of the blueprint with synthesized CRD kustomizations prepended ahead of
-// the stack. Pruning is disabled (pruning a CRD deletes every custom resource of that kind cluster-wide)
-// and wait is enabled so dependents block until the CRDs are Established. Returns the blueprint unchanged
-// when it implies no CRD layers.
-func withCrdLayer(bp *blueprintv1alpha1.Blueprint) *blueprintv1alpha1.Blueprint {
-	if bp == nil {
-		return bp
-	}
-	layers := blueprint.CrdLayers(bp)
-	if len(layers) == 0 {
-		return bp
-	}
-	prune := false
-	wait := true
-	crds := make([]blueprintv1alpha1.Kustomization, 0, len(layers))
-	for _, layer := range layers {
-		crds = append(crds, blueprintv1alpha1.Kustomization{
-			Name:       blueprintv1alpha1.CrdKustomizationName(layer.Source),
-			Path:       blueprintv1alpha1.CrdLayerName,
-			Source:     layer.Source,
-			Components: slices.Clone(layer.Refs),
-			Prune:      &prune,
-			Wait:       &wait,
-		})
-	}
-	out := *bp
-	out.Kustomizations = append(crds, bp.AllKustomizations()...)
-	out.FluxSystems = nil
-	return &out
-}
-
-// versionFromImage extracts the Talos version from an image URI tag.
-// It returns the tag with the leading "v" stripped to match the format returned
-// by the Talos Version API. Returns an empty string if no tag is present or if
-// the reference uses a digest instead of a tag.
-func versionFromImage(image string) string {
-	if strings.Contains(image, "@") {
-		return ""
-	}
-	idx := strings.LastIndex(image, ":")
-	if idx < 0 {
-		return ""
-	}
-	tag := image[idx+1:]
-	if strings.Contains(tag, "/") {
-		return ""
-	}
-	return strings.TrimPrefix(tag, "v")
 }
 
 // ensureTerraformStack initializes the TerraformStack if terraform is enabled and the stack is not already initialized.
@@ -2298,23 +639,56 @@ func (i *Provisioner) kubeconfigPresent() bool {
 	if i.configRoot == "" {
 		return false
 	}
-	_, err := os.Stat(filepath.Join(i.configRoot, ".kube", "config"))
+	_, err := i.shims.Stat(filepath.Join(i.configRoot, ".kube", "config"))
 	if err != nil && errors.Is(err, fs.ErrNotExist) {
 		return false
 	}
 	return true
 }
 
-// checkKubernetesReachableForDestroy fails fast if the cluster is unreachable, so terraform's
-// kubernetes/helm provider doesn't hang against broken auth. No-op when there's no kubeconfig.
-func (i *Provisioner) checkKubernetesReachableForDestroy() error {
-	if i.KubernetesManager == nil || !i.kubeconfigPresent() {
-		return nil
+// =============================================================================
+// Helpers
+// =============================================================================
+
+// hasEnabledTerraformComponent reports whether the blueprint has at least one terraform
+// component that isn't explicitly disabled. Guards against refusing an apply for a
+// kubernetes backend when there is nothing to apply in the first place.
+func hasEnabledTerraformComponent(blueprint *blueprintv1alpha1.Blueprint) bool {
+	for _, c := range blueprint.TerraformComponents {
+		if c.Enabled == nil || c.Enabled.IsEnabled() {
+			return true
+		}
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), constants.DefaultKubernetesReachabilityCheckTimeout)
-	defer cancel()
-	if err := i.KubernetesManager.WaitForKubernetesHealthy(ctx, "", nil); err != nil {
-		return fmt.Errorf("kubernetes API is unreachable, refusing to run terraform destroy (its kubernetes/helm provider would hang against a broken cluster): %w", err)
+	return false
+}
+
+// withCrdLayer returns a copy of the blueprint with synthesized CRD kustomizations prepended ahead of
+// the stack. Pruning is disabled (pruning a CRD deletes every custom resource of that kind cluster-wide)
+// and wait is enabled so dependents block until the CRDs are Established. Returns the blueprint unchanged
+// when it implies no CRD layers.
+func withCrdLayer(bp *blueprintv1alpha1.Blueprint) *blueprintv1alpha1.Blueprint {
+	if bp == nil {
+		return bp
 	}
-	return nil
+	layers := blueprint.CrdLayers(bp)
+	if len(layers) == 0 {
+		return bp
+	}
+	prune := false
+	wait := true
+	crds := make([]blueprintv1alpha1.Kustomization, 0, len(layers))
+	for _, layer := range layers {
+		crds = append(crds, blueprintv1alpha1.Kustomization{
+			Name:       blueprintv1alpha1.CrdKustomizationName(layer.Source),
+			Path:       blueprintv1alpha1.CrdLayerName,
+			Source:     layer.Source,
+			Components: slices.Clone(layer.Refs),
+			Prune:      &prune,
+			Wait:       &wait,
+		})
+	}
+	out := *bp
+	out.Kustomizations = append(crds, bp.AllKustomizations()...)
+	out.FluxSystems = nil
+	return &out
 }
