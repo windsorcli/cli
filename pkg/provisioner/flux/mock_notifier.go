@@ -1,6 +1,6 @@
-// Package flux provides Flux kustomization stack management functionality.
-// This file provides a mock Notifier for use in tests of packages that depend
-// on the webhook notifier interface without touching a real cluster.
+// The MockNotifier is a test implementation of the Notifier interface.
+// It provides function fields that tests set to control each method.
+// Tests of packages that use the Notifier use it instead of a real cluster.
 
 package flux
 

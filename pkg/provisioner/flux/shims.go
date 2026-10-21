@@ -1,39 +1,34 @@
-// The shims package is a system call abstraction layer
-// It provides mockable wrappers around system and runtime functions
-// It serves as a testing aid by allowing system calls to be intercepted
-// It enables dependency injection and test isolation for system-level operations
+// The Shims are the system call abstractions of the flux stack.
+// It provides the shared shims of internal/shims and the LookPath shim of the stack.
+// Tests replace the shims to simulate file system state and the installed CLI tools.
+// NewShims returns the shims with the real implementations.
 
 package flux
 
 import (
-	"os"
 	"os/exec"
+
+	"github.com/windsorcli/cli/internal/shims"
 )
 
 // =============================================================================
 // Types
 // =============================================================================
 
-// Shims provides mockable wrappers around system and runtime functions
+// Shims holds the shared system call primitives and the flux stack shims.
 type Shims struct {
-	LookPath  func(file string) (string, error)
-	MkdirAll  func(path string, perm os.FileMode) error
-	RemoveAll func(path string) error
-	ReadFile  func(name string) ([]byte, error)
-	WriteFile func(name string, data []byte, perm os.FileMode) error
+	shims.Shims
+	LookPath func(file string) (string, error)
 }
 
 // =============================================================================
-// Helpers
+// Constructor
 // =============================================================================
 
-// NewShims creates a new Shims instance with default implementations
+// NewShims returns a Shims with every field set to its real implementation.
 func NewShims() *Shims {
 	return &Shims{
-		LookPath:  exec.LookPath,
-		MkdirAll:  os.MkdirAll,
-		RemoveAll: os.RemoveAll,
-		ReadFile:  os.ReadFile,
-		WriteFile: os.WriteFile,
+		Shims:    *shims.NewShims(),
+		LookPath: exec.LookPath,
 	}
 }

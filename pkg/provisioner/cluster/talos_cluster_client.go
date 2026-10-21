@@ -10,7 +10,6 @@ import (
 	"fmt"
 	"io"
 	"net"
-	"os"
 	"strings"
 	"time"
 
@@ -397,7 +396,7 @@ func (c *TalosClusterClient) ensureClient() error {
 		return nil
 	}
 
-	configPath := os.Getenv("TALOSCONFIG")
+	configPath := c.shims.Getenv("TALOSCONFIG")
 	if configPath == "" {
 		return fmt.Errorf("TALOSCONFIG environment variable not set")
 	}
