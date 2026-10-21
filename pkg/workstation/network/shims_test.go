@@ -44,3 +44,18 @@ func TestUtils(t *testing.T) {
 		}
 	})
 }
+
+func TestNewShims(t *testing.T) {
+	t.Run("InitializesNetworkShims", func(t *testing.T) {
+		// Given a new shims instance
+		shims := NewShims()
+
+		// Then the shared and network shims should be set
+		if shims.Stat == nil || shims.ReadFile == nil || shims.Goos == nil {
+			t.Error("Expected the shared shims to be initialized")
+		}
+		if shims.ReadLink == nil || shims.MkdirTemp == nil {
+			t.Error("Expected the network shims to be initialized")
+		}
+	})
+}
