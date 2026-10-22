@@ -165,19 +165,27 @@ func TestLocalFlockLock_Acquire(t *testing.T) {
 		}
 		t.Cleanup(func() { _ = release1() })
 
-		// When a second instance attempts to acquire with a zero timeout
+		// When a second instance attempts to acquire with a zero timeout, capturing stderr
+		origStderr := os.Stderr
+		r, w, err := os.Pipe()
+		if err != nil {
+			t.Fatalf("pipe: %v", err)
+		}
+		os.Stderr = w
 		second := NewLocalFlockLock(path)
-		start := time.Now()
 		_, err = second.Acquire(context.Background(), newTestLockInfo(), 0)
-		elapsed := time.Since(start)
+		os.Stderr = origStderr
+		_ = w.Close()
+		var buf strings.Builder
+		_, _ = io.Copy(&buf, r)
 
-		// Then a LockBusyError is returned without retrying — no acquireRetryInterval wait
+		// Then a LockBusyError is returned without entering the retry loop, which prints the waiting notice
 		var busy *LockBusyError
 		if !errors.As(err, &busy) {
 			t.Fatalf("expected *LockBusyError, got %T: %v", err, err)
 		}
-		if elapsed >= acquireRetryInterval {
-			t.Fatalf("expected an immediate failure with no retry wait, took %v", elapsed)
+		if buf.Len() != 0 {
+			t.Fatalf("expected no waiting notice for a zero timeout, got %q", buf.String())
 		}
 	})
 
