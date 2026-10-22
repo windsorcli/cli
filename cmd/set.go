@@ -1,3 +1,6 @@
+// The set command sets a Windsor resource.
+// It provides the set context subcommand, which changes the current context.
+
 package cmd
 
 import (
@@ -75,6 +78,7 @@ windsor get context
 	},
 }
 
+// init registers the set command and its subcommands with the root command.
 func init() {
 	setCmd.AddCommand(setContextCmd)
 	rootCmd.AddCommand(setCmd)

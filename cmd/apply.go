@@ -1,3 +1,6 @@
+// The apply command applies terraform and installs the blueprint.
+// It provides the apply terraform and apply kustomize subcommands for one component or kustomization.
+
 package cmd
 
 import (
@@ -215,6 +218,7 @@ windsor apply k8s dns`,
 	},
 }
 
+// init registers the apply command, its subcommands and its flags with the root command.
 func init() {
 	addDeprecatedWaitFlag(applyCmd)
 	applyCmd.Flags().BoolVar(&applyPruneFlag, "prune", false, "Remove kustomizations the blueprint no longer declares.")

@@ -1,3 +1,5 @@
+// The bundle command packs the blueprint into a .tar.gz archive.
+
 package cmd
 
 import (
@@ -64,6 +66,7 @@ windsor bundle -t myapp:v1.0.0 -o ./dist/`,
 	},
 }
 
+// init registers the bundle command and its flags with the root command.
 func init() {
 	rootCmd.AddCommand(bundleCmd)
 	bundleCmd.Flags().StringP("output", "o", ".", "Output path for the archive. May be a file or a directory.")

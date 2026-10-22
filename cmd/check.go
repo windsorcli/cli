@@ -1,3 +1,6 @@
+// The check command verifies that the required tools are installed.
+// It provides the check node-health subcommand for the nodes of the cluster.
+
 package cmd
 
 import (
@@ -151,6 +154,7 @@ windsor check node-health --nodes=10.0.0.5,10.0.0.6 --version=v1.13.3`,
 	},
 }
 
+// init registers the check command, its subcommands and its flags with the root command.
 func init() {
 	rootCmd.AddCommand(checkCmd)
 	checkCmd.AddCommand(checkNodeHealthCmd)

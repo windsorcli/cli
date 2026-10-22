@@ -1,3 +1,6 @@
+// The bootstrap command brings up a new environment from the start to the end.
+// It provides the confirmation prompts and the summary that the bootstrap shows to the user.
+
 package cmd
 
 import (
@@ -423,6 +426,7 @@ func confirmBootstrapIfContextExists(in io.Reader, configRoot, contextName strin
 	return nil
 }
 
+// init registers the bootstrap command and its flags with the root command.
 func init() {
 	bootstrapCmd.Flags().StringVar(&bootstrapPlatform, "platform", "", "Target platform: none, docker, incus, metal, hetzner, aws, azure, gcp, hyperv, vsphere, proxmox.")
 	bootstrapCmd.Flags().StringVar(&bootstrapBlueprint, "blueprint", "", "Blueprint OCI reference. Accepts oci://host/org/repo:tag, host/org/repo:tag, or org/repo:tag (host defaults to ghcr.io). Tag is required.")

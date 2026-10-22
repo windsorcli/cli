@@ -1,3 +1,6 @@
+// The context file holds the context commands that the CLI no longer supports, and the aliases that replace them.
+// The removed commands return an error that names the replacement command.
+
 package cmd
 
 import (
@@ -49,6 +52,7 @@ var setContextAliasCmd = &cobra.Command{
 	},
 }
 
+// init registers the removed context command and its two aliases with the root command.
 func init() {
 	rootCmd.AddCommand(removedContextCmd)
 	rootCmd.AddCommand(getContextAliasCmd)

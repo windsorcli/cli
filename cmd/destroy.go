@@ -1,3 +1,6 @@
+// The destroy command destroys live infrastructure after the user confirms.
+// It provides the destroy terraform and destroy kustomize subcommands, and the plan checks that run first.
+
 package cmd
 
 import (

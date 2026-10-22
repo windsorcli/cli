@@ -1,3 +1,5 @@
+// The env command prints the shell commands that export the project environment variables.
+
 package cmd
 
 import (
@@ -126,6 +128,7 @@ windsor env`,
 	},
 }
 
+// init registers the env command and its flags with the root command.
 func init() {
 	envCmd.Flags().Bool("decrypt", false, "Decrypt secrets before exporting env vars.")
 	envCmd.Flags().Bool("hook", false, "Non-fatal mode: suppress warnings and exit 0 on errors so a misconfigured project never breaks the prompt. The shell hook installed by 'windsor hook' invokes 'windsor env --decrypt --hook' automatically.")

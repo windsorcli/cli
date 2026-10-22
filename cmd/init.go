@@ -1,3 +1,6 @@
+// The init command creates a Windsor context or initializes it again.
+// It changes its flags into config overrides and resolves the blueprint source.
+
 package cmd
 
 import (
@@ -211,6 +214,7 @@ windsor init staging --platform=aws --aws-profile=staging`,
 	},
 }
 
+// init registers the init command and its flags with the root command.
 func init() {
 	initCmd.Flags().BoolVar(&initReset, "reset", false, "Overwrite existing files and clean .terraform.")
 	initCmd.Flags().StringVar(&initBackend, "backend", "", "Terraform backend type.")

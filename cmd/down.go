@@ -1,3 +1,5 @@
+// The down command stops the local workstation environment.
+
 package cmd
 
 import (
@@ -68,6 +70,7 @@ windsor down`,
 	},
 }
 
+// init registers the down command with the root command.
 func init() {
 	rootCmd.AddCommand(downCmd)
 }

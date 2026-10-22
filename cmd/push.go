@@ -1,3 +1,5 @@
+// The push command pushes the blueprint to an OCI registry.
+
 package cmd
 
 import (
@@ -73,6 +75,7 @@ windsor push registry.example.com/myorg/myblueprint`,
 	},
 }
 
+// init registers the push command with the root command.
 func init() {
 	rootCmd.AddCommand(pushCmd)
 }

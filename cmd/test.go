@@ -1,3 +1,5 @@
+// The test command runs the composition tests of the blueprint.
+
 package cmd
 
 import (
@@ -62,6 +64,7 @@ windsor test cluster-defaults`,
 	},
 }
 
+// init registers the test command with the root command.
 func init() {
 	rootCmd.AddCommand(testCmd)
 }

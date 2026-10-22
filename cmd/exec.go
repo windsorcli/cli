@@ -1,3 +1,5 @@
+// The exec command runs a command with the project environment variables.
+
 package cmd
 
 import (
@@ -94,6 +96,7 @@ windsor exec ./scripts/deploy.sh`,
 	},
 }
 
+// init registers the exec command with the root command.
 func init() {
 	rootCmd.AddCommand(execCmd)
 }

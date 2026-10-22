@@ -1,3 +1,6 @@
+// The unlock command clears stale stack lock information.
+// It refuses when a live process holds the lock.
+
 package cmd
 
 import (

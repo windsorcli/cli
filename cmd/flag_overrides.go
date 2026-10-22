@@ -1,3 +1,6 @@
+// The flag overrides change the init, bootstrap and up flags into config overrides.
+// They give the three commands the same flag behavior.
+
 package cmd
 
 import (
