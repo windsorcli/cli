@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/spf13/cobra"
+	"github.com/windsorcli/cli/internal/werror"
 	"github.com/windsorcli/cli/pkg/composer"
 	"github.com/windsorcli/cli/pkg/project"
 	"github.com/windsorcli/cli/pkg/runtime"
@@ -72,7 +73,7 @@ windsor init staging --platform=aws --aws-profile=staging`,
 			}
 			anchorDir, err := shell.EnsureProjectAnchor()
 			if err != nil {
-				return fmt.Errorf("failed to initialize project: %w", err)
+				return werror.Wrap(err, "failed to initialize project")
 			}
 			if cwd, err := os.Getwd(); err == nil && anchorDir != cwd {
 				fmt.Fprintf(os.Stderr, "Windsor uses the existing project at %s.\n", anchorDir)
@@ -83,20 +84,20 @@ windsor init staging --platform=aws --aws-profile=staging`,
 		changingContext := len(args) > 0
 		tempRt := runtime.NewRuntime(rtOpts...)
 		if _, err := tempRt.Shell.WriteResetToken(); err != nil {
-			return fmt.Errorf("failed to write reset token: %w", err)
+			return werror.Wrap(err, "failed to write reset token")
 		}
 		if changingContext {
 			contextName = args[0]
 
 			if err := tempRt.ConfigHandler.SetContext(contextName); err != nil {
-				return fmt.Errorf("failed to set context: %w", err)
+				return werror.Wrap(err, "failed to set context")
 			}
 		}
 
 		rt := runtime.NewRuntime(rtOpts...)
 
 		if err := rt.Shell.AddCurrentDirToTrustedFile(); err != nil {
-			return fmt.Errorf("failed to add current directory to trusted file: %w", err)
+			return werror.Wrap(err, "failed to add current directory to trusted file")
 		}
 
 		if !changingContext {
@@ -164,7 +165,7 @@ windsor init staging --platform=aws --aws-profile=staging`,
 		}
 
 		if err := proj.Runtime.ConfigHandler.ValidateContextValues(); err != nil {
-			return fmt.Errorf("invalid configuration: %w", err)
+			return werror.Wrap(err, "invalid configuration")
 		}
 
 		// Persist the operator's config — platform, --set values, and the generated context id —
@@ -175,10 +176,10 @@ windsor init staging --platform=aws --aws-profile=staging`,
 		// front-run schema validation.)
 		hasSetFlags := len(initSetFlags) > 0
 		if err := proj.Runtime.ConfigHandler.GenerateContextID(); err != nil {
-			return fmt.Errorf("failed to generate context ID: %w", err)
+			return werror.Wrap(err, "failed to generate context ID")
 		}
 		if err := proj.Runtime.SaveConfig(hasSetFlags); err != nil {
-			return fmt.Errorf("failed to save configuration: %w", err)
+			return werror.Wrap(err, "failed to save configuration")
 		}
 
 		blueprintURL, err := resolveBlueprintURL(initBlueprint, initPlatform, contextName, rt.TemplateRoot, true, proj.Composer.ArtifactBuilder)
@@ -201,7 +202,7 @@ windsor init staging --platform=aws --aws-profile=staging`,
 		}
 
 		if err := proj.Runtime.SaveConfig(hasSetFlags); err != nil {
-			return fmt.Errorf("failed to save configuration: %w", err)
+			return werror.Wrap(err, "failed to save configuration")
 		}
 
 		fmt.Fprintln(os.Stderr, "Initialization successful")

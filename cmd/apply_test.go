@@ -14,6 +14,7 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
 	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
+	"github.com/windsorcli/cli/internal/werror"
 	"github.com/windsorcli/cli/pkg/composer"
 	"github.com/windsorcli/cli/pkg/composer/blueprint"
 	"github.com/windsorcli/cli/pkg/project"
@@ -866,6 +867,9 @@ func TestApplyKustomizeCmd(t *testing.T) {
 		}
 		if !strings.Contains(err.Error(), "unresolved terraform_output() substitutions") {
 			t.Errorf("Expected unresolved-substitutions error, got: %v", err)
+		}
+		if werr := werror.Find(err); werr == nil || !strings.Contains(werr.Remediation, "windsor apply or windsor upgrade") {
+			t.Errorf("Expected a hint to run windsor apply or windsor upgrade, got %+v", werr)
 		}
 		if applied {
 			t.Error("Expected ApplyBlueprint not to be called when substitutions are unresolved")

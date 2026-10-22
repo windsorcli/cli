@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/spf13/cobra"
+	"github.com/windsorcli/cli/internal/werror"
 	"github.com/windsorcli/cli/pkg/provisioner/stacklock"
 	"github.com/windsorcli/cli/pkg/runtime/tools"
 )
@@ -68,7 +69,7 @@ windsor apply kustomize dns`,
 			// 'apply' doesn't run the workstation prep that registers MakeApplyHook, so no
 			// onApply hooks fire and the halted return is always false. Ignore it.
 			if _, err := proj.Provisioner.Up(cmd.Context(), blueprint); err != nil {
-				return fmt.Errorf("error applying terraform: %w", err)
+				return werror.Wrap(err, "error applying terraform")
 			}
 
 			// Re-generate with deferred substitutions resolved now that terraform
@@ -76,7 +77,7 @@ windsor apply kustomize dns`,
 			var resolveErr error
 			blueprint, resolveErr = proj.Composer.BlueprintHandler.GenerateResolved()
 			if resolveErr != nil {
-				return fmt.Errorf("error resolving blueprint substitutions: %w", resolveErr)
+				return werror.Wrap(resolveErr, "error resolving blueprint substitutions")
 			}
 			if blueprint == nil {
 				return fmt.Errorf("resolved blueprint is not available")
@@ -85,7 +86,7 @@ windsor apply kustomize dns`,
 			// --prune deletes orphans only after the desired set is Ready, so a not-ready result stays fatal.
 			if err := proj.Provisioner.Install(cmd.Context(), blueprint, applyPruneFlag); err != nil {
 				if applyPruneFlag || warnNotReady(cmd.ErrOrStderr(), err, blueprint.Messages) != nil {
-					return fmt.Errorf("error applying kustomize: %w", err)
+					return werror.Wrap(err, "error applying kustomize")
 				}
 				printPostRunMessages(cmd.ErrOrStderr(), blueprint.Messages)
 			}
@@ -94,7 +95,7 @@ windsor apply kustomize dns`,
 			// orphans are left in place and only reported.
 			prunable, err := proj.Provisioner.PrunableKustomizations(blueprint)
 			if err != nil {
-				return fmt.Errorf("error listing kustomizations to prune: %w", err)
+				return werror.Wrap(err, "error listing kustomizations to prune")
 			}
 			if len(prunable) > 0 && !applyPruneFlag {
 				fmt.Fprintf(cmd.OutOrStdout(), "The following kustomizations are no longer declared; re-run with --prune to remove them:\n  %s\n", strings.Join(prunable, "\n  "))
@@ -141,7 +142,7 @@ windsor apply tf cluster`,
 		blueprint := proj.Composer.BlueprintHandler.Generate()
 		return stacklock.With(cmd.Context(), proj.Runtime, "apply", lockTimeout, func() error {
 			if err := proj.Provisioner.Apply(cmd.Context(), blueprint, componentID); err != nil {
-				return fmt.Errorf("error applying terraform for %s: %w", componentID, err)
+				return werror.Wrap(err, "error applying terraform for %s", componentID)
 			}
 			return nil
 		})
@@ -194,18 +195,18 @@ windsor apply k8s dns`,
 			scope[args[0]] = true
 		}
 		if proj.Composer.BlueprintHandler.DeferredSubstitutionsInScope(scope) {
-			return fmt.Errorf("unresolved terraform_output() substitutions in scope; run `windsor apply` (or `windsor upgrade`) first so this apply doesn't overwrite a resolved ConfigMap value with raw expression text")
+			return werror.New("unresolved terraform_output() substitutions in scope", "Run windsor apply or windsor upgrade first. If you do not, this command writes raw expression text over resolved ConfigMap values.", nil)
 		}
 
 		return stacklock.With(cmd.Context(), proj.Runtime, "apply", lockTimeout, func() error {
 			if len(args) == 0 {
 				if err := proj.Provisioner.ApplyKustomizeAll(cmd.Context(), blueprint); err != nil {
-					return fmt.Errorf("error applying kustomize: %w", err)
+					return werror.Wrap(err, "error applying kustomize")
 				}
 			} else {
 				componentID := args[0]
 				if err := proj.Provisioner.ApplyKustomize(cmd.Context(), blueprint, componentID); err != nil {
-					return fmt.Errorf("error applying kustomize for %s: %w", componentID, err)
+					return werror.Wrap(err, "error applying kustomize for %s", componentID)
 				}
 			}
 
