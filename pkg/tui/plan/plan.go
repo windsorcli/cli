@@ -1,13 +1,8 @@
-// Package plan renders Terraform and Kustomize plan summaries for the CLI.
-// It lives under pkg/tui because plan output is a terminal-display concern,
-// alongside the existing tui primitives (section headers, spinners, color
-// codes). The cmd layer calls Summary or SummaryJSON; the layout, color
-// vocabulary, and resource enumeration live here so command files stay focused
-// on flag handling. Counts displayed under each component are derived from
-// the per-resource change list rather than terraform's raw `change_summary`
-// whenever the resource list is available — this keeps the header line and
-// the indented resource list internally consistent (a terraform "replace"
-// appears once, not once as +1 and once as -1).
+// The plan package renders the Terraform and Kustomize plan summaries for the CLI.
+// It provides Summary for terminal output and SummaryJSON for machine output.
+// It counts the list of changed resources when it is available, so a replace counts once.
+// The cmd layer calls these functions and keeps only the flag handling.
+
 package plan
 
 import (
@@ -21,25 +16,44 @@ import (
 	terraforminfra "github.com/windsorcli/cli/pkg/provisioner/terraform"
 )
 
-// resourceListCap bounds the number of per-resource lines rendered under any
-// single component. Kustomizations with hundreds of resources would otherwise
-// dominate the summary; operators who need the full set can drill in with
-// `windsor plan kustomize <name>`.
+// =============================================================================
+// Constants
+// =============================================================================
+
+// resourceListCap is the maximum number of resource lines that the summary shows under one component.
 const resourceListCap = 20
 
-// Summary writes the combined Terraform and Kustomize plan summary
-// to w. Component names are left-aligned in a column wide enough to fit the
-// longest name. Each row shows action-bucketed counts (+a ~c -d, with ±r
-// appended when replaces are present), with "(no changes)" when all buckets
-// are zero and "(error: ...)" when the plan failed. Components with non-empty
-// Resources slices have each changed resource listed below the row, prefixed
-// with the action symbol (+ ~ - ±). The list is capped at resourceListCap
-// entries per component to keep large kustomizations from drowning the
-// summary; the cap is followed by a "… and N more" line. When at least one
-// component has actual changes, a footer hint points the user at the streaming
-// `windsor plan terraform/kustomize <name>` form for full diffs. Any upgrade
-// hints from missing CLI tools are printed in a footnote block at the bottom
-// when present.
+// =============================================================================
+// Types
+// =============================================================================
+
+// planResource is one changed resource, with its address and action, from either layer.
+// It lets writeResourceList render terraform changes and flux changes with the same code.
+type planResource struct {
+	address string
+	action  planAction
+}
+
+// planAction is the action of a planResource.
+// The values sort deletes and replaces before updates and creates, so the riskiest changes show first.
+type planAction int
+
+const (
+	planActionDelete planAction = iota
+	planActionReplace
+	planActionUpdate
+	planActionCreate
+)
+
+// =============================================================================
+// Public Methods
+// =============================================================================
+
+// Summary writes the combined Terraform and Kustomize plan summary to w.
+// Each component row shows a count for each action, "(no changes)", or "(error: ...)".
+// Below each row, it lists the changed resources, up to resourceListCap entries.
+// When a component has changes, a footer tells the user how to see the full diffs.
+// It writes the upgrade hints for missing CLI tools at the bottom.
 func Summary(w io.Writer, tfPlans []terraforminfra.TerraformComponentPlan, k8sPlans []fluxinfra.KustomizePlan, hints []string, noColor bool) {
 	nameWidth := 20
 	for _, p := range tfPlans {
@@ -107,13 +121,9 @@ func Summary(w io.Writer, tfPlans []terraforminfra.TerraformComponentPlan, k8sPl
 	fmt.Fprintln(w)
 }
 
-// SummaryJSON encodes the plan results as JSON to w.
-//
-// is_new supersedes the count fields: when is_new is true the component has no
-// state in the configured backend, terraform plan is not executed, and add/
-// change/destroy/no_changes are zero/false. Consumers detecting "pending work"
-// from this output must check is_new alongside the counts — using add+change+
-// destroy>0 alone will silently miss never-applied components.
+// SummaryJSON writes the plan results to w as JSON.
+// When is_new is true, terraform did not run a plan, so all counts are zero.
+// A consumer that looks for pending work MUST check is_new and the counts together.
 func SummaryJSON(w io.Writer, tfPlans []terraforminfra.TerraformComponentPlan, k8sPlans []fluxinfra.KustomizePlan) error {
 	type resourceRow struct {
 		Address string `json:"address"`
@@ -180,40 +190,11 @@ func SummaryJSON(w io.Writer, tfPlans []terraforminfra.TerraformComponentPlan, k
 }
 
 // =============================================================================
-// Internal types
+// Helpers
 // =============================================================================
 
-// planResource is the renderer's adapter for the per-layer ResourceChange
-// types. Both terraform and flux carry equivalent (address, action) pairs in
-// their own packages; this struct collapses them into a single shape so
-// writeResourceList can be reused without templating over the layer types.
-type planResource struct {
-	address string
-	action  planAction
-}
-
-// planAction is the renderer's local action enum, decoupled from the per-layer
-// Action types. The value order matches the rendering sort: destructive
-// actions (delete, replace) precede modifications and creations so the
-// operator's eye lands on the riskiest changes first.
-type planAction int
-
-const (
-	planActionDelete planAction = iota
-	planActionReplace
-	planActionUpdate
-	planActionCreate
-)
-
-// =============================================================================
-// Internal helpers
-// =============================================================================
-
-// terraformDisplayName returns the identifier shown to the operator for a
-// Terraform component row. The blueprint Path (e.g., "cluster/aws-eks")
-// locates the underlying module and is more informative than the short
-// ComponentID alias (e.g., "cluster"), so it's preferred when set; ComponentID
-// is the fallback.
+// terraformDisplayName returns the name of a Terraform component row.
+// It uses the blueprint Path when it is set, and the ComponentID when it is not.
 func terraformDisplayName(p terraforminfra.TerraformComponentPlan) string {
 	if p.Path != "" {
 		return p.Path
@@ -221,12 +202,9 @@ func terraformDisplayName(p terraforminfra.TerraformComponentPlan) string {
 	return p.ComponentID
 }
 
-// formatTerraformPlan returns the right-hand-side status string for one
-// Terraform component. Counts are derived from the Resources slice when
-// populated so the header line matches what the operator sees expanded below
-// it; otherwise the raw Add/Change/Destroy fields are used (terraform's
-// change_summary, which double-counts replaces). IsNew renders as "(new)"
-// without counts because plan was not run.
+// formatTerraformPlan returns the status text for one Terraform component.
+// It counts the Resources list when it has entries, because the raw change summary counts a replace twice.
+// It returns "(new)" without counts for a new component, because terraform did not run a plan.
 func formatTerraformPlan(p terraforminfra.TerraformComponentPlan, noColor bool) string {
 	if p.Err != nil {
 		msg := truncateFirstLine(p.Err.Error())
@@ -250,11 +228,10 @@ func formatTerraformPlan(p terraforminfra.TerraformComponentPlan, noColor bool) 
 	return formatRawCounts(p.Add, p.Change, p.Destroy, 0, noColor)
 }
 
-// formatKustomizePlan returns the right-hand-side status string for one
-// Kustomize component. Counts are derived from the Resources slice when
-// populated, giving per-resource accounting consistent with the indented list
-// below the row. Without Resources, the diff-line counts (Added/Removed) are
-// used as a fallback for the Degraded path.
+// formatKustomizePlan returns the status text for one Kustomize component.
+// It counts the Resources list when it has entries. If not, it counts the added and removed diff lines.
+// It returns "(new)" without counts for a new kustomization, the same as for terraform.
+// The kustomize build count for a new kustomization is often not the count that Flux applies.
 func formatKustomizePlan(p fluxinfra.KustomizePlan, noColor bool) string {
 	if p.Err != nil {
 		msg := truncateFirstLine(p.Err.Error())
@@ -270,11 +247,6 @@ func formatKustomizePlan(p fluxinfra.KustomizePlan, noColor bool) string {
 		return "(existing)"
 	}
 	if p.IsNew {
-		// The kustomize-build resource count for a brand-new kustomization is
-		// rarely the count actually applied (Flux may dedupe, skip, or
-		// reconcile asynchronously), and showing "+N resources" alongside
-		// terraform's bare "(new)" is visually inconsistent. Both layers
-		// report "(new)" for the same condition: nothing exists yet.
 		if noColor {
 			return "(new)"
 		}
@@ -292,11 +264,8 @@ func formatKustomizePlan(p fluxinfra.KustomizePlan, noColor bool) string {
 	return fmt.Sprintf("\033[32m+%d\033[0m  \033[31m-%d\033[0m  lines", p.Added, p.Removed)
 }
 
-// formatResourceCounts buckets a resource list into the four action categories
-// and renders them as "+a  ~c  -d" with " ±r" appended when r > 0. The ±
-// bucket is omitted when zero so rows without replaces look identical to the
-// pre-replace-tracking format. All-zero produces "(no changes)" — only
-// reachable if every entry mapped to ActionUnknown and was filtered out.
+// formatResourceCounts counts a resource list by action and returns the text "+a  ~c  -d".
+// It adds " ±r" only when there are replaces. It returns "(no changes)" when all counts are zero.
 func formatResourceCounts(rs []planResource, noColor bool) string {
 	var a, c, d, r int
 	for _, x := range rs {
@@ -317,8 +286,8 @@ func formatResourceCounts(rs []planResource, noColor bool) string {
 	return formatRawCounts(a, c, d, r, noColor)
 }
 
-// formatRawCounts renders the four-bucket count line, omitting the replace
-// bucket entirely when zero so the common no-replace case stays compact.
+// formatRawCounts returns the count text for the four actions.
+// It leaves out the replace count when it is zero.
 func formatRawCounts(a, c, d, r int, noColor bool) string {
 	if noColor {
 		base := fmt.Sprintf("+%d  ~%d  -%d", a, c, d)
@@ -334,8 +303,8 @@ func formatRawCounts(a, c, d, r int, noColor bool) string {
 	return base
 }
 
-// terraformResourceChanges adapts terraform.ResourceChange entries to the
-// renderer's planResource shape, dropping any with action ActionUnknown.
+// terraformResourceChanges converts terraform resource changes to planResource values.
+// It drops the changes that have ActionUnknown.
 func terraformResourceChanges(rs []terraforminfra.ResourceChange) []planResource {
 	out := make([]planResource, 0, len(rs))
 	for _, r := range rs {
@@ -357,8 +326,8 @@ func terraformResourceChanges(rs []terraforminfra.ResourceChange) []planResource
 	return out
 }
 
-// kustomizeResourceChanges adapts flux.ResourceChange entries to the
-// renderer's planResource shape, dropping any with action ActionUnknown.
+// kustomizeResourceChanges converts flux resource changes to planResource values.
+// It drops the changes that have ActionUnknown.
 func kustomizeResourceChanges(rs []fluxinfra.ResourceChange) []planResource {
 	out := make([]planResource, 0, len(rs))
 	for _, r := range rs {
@@ -378,11 +347,9 @@ func kustomizeResourceChanges(rs []fluxinfra.ResourceChange) []planResource {
 	return out
 }
 
-// writeResourceList renders an indented per-resource changeset under a
-// component row. Resources are sorted destructive-first then alphabetically so
-// the operator's eye lands on deletes and replaces before creates. Lists
-// longer than resourceListCap are truncated with a trailing "… and N more"
-// line.
+// writeResourceList writes the changed resources below a component row.
+// It sorts deletes and replaces first, then sorts by address.
+// When the list is longer than resourceListCap, it ends with an "… and N more" line.
 func writeResourceList(w io.Writer, resources []planResource, noColor bool) {
 	if len(resources) == 0 {
 		return
@@ -407,9 +374,8 @@ func writeResourceList(w io.Writer, resources []planResource, noColor bool) {
 	}
 }
 
-// actionSymbol returns the colored single-character notation for a planAction.
-// Symbols mirror terraform's own +/~/- vocabulary, plus ± for replace, so the
-// notation is familiar to anyone who has read a terraform plan.
+// actionSymbol returns the symbol for a planAction.
+// It returns +, ~ or - as terraform does, and ± for a replace. It adds color unless noColor is true.
 func actionSymbol(a planAction, noColor bool) string {
 	switch a {
 	case planActionCreate:
@@ -437,11 +403,8 @@ func actionSymbol(a planAction, noColor bool) string {
 	}
 }
 
-// planHasChanges reports whether at least one component has a non-trivial plan
-// result that warrants the "drill in for full diffs" footer hint. New
-// components count as changes (they're pending work even though plan wasn't
-// run), as do non-zero counts on either layer. Errored or degraded components
-// don't trigger the hint on their own — the failure is already visible inline.
+// planHasChanges reports whether a component has changes, so that Summary shows the footer hint.
+// A new component counts as a change. A failed or degraded component does not, because its row shows the failure.
 func planHasChanges(tfPlans []terraforminfra.TerraformComponentPlan, k8sPlans []fluxinfra.KustomizePlan) bool {
 	for _, p := range tfPlans {
 		if p.IsNew {
@@ -462,10 +425,8 @@ func planHasChanges(tfPlans []terraforminfra.TerraformComponentPlan, k8sPlans []
 	return false
 }
 
-// terraformActionString renders a terraform Action as a stable JSON string.
-// The vocabulary matches terraform's own plan -json verbs ("create", "update",
-// "delete", "replace") rather than the renderer's symbols, since machine
-// consumers expect English keywords.
+// terraformActionString returns the JSON string for a terraform Action.
+// It uses the terraform plan verbs: create, update, delete and replace.
 func terraformActionString(a terraforminfra.Action) string {
 	switch a {
 	case terraforminfra.ActionCreate:
@@ -481,10 +442,8 @@ func terraformActionString(a terraforminfra.Action) string {
 	}
 }
 
-// kustomizeActionString renders a flux Action as a stable JSON string,
-// matching terraform's vocabulary so machine consumers can treat both layers
-// uniformly. Flux has no replace verb (its SSA layer expresses replacements
-// as a delete + create pair), so "replace" is not part of this mapping.
+// kustomizeActionString returns the JSON string for a flux Action, with the same verbs as terraform.
+// It has no replace verb, because flux shows a replace as a delete and a create.
 func kustomizeActionString(a fluxinfra.Action) string {
 	switch a {
 	case fluxinfra.ActionCreate:
@@ -498,211 +457,10 @@ func kustomizeActionString(a fluxinfra.Action) string {
 	}
 }
 
-// truncateFirstLine returns the first line of s, stripping any trailing
-// content after \n or \r\n.
+// truncateFirstLine returns the first line of s, without a trailing carriage return.
 func truncateFirstLine(s string) string {
 	if idx := strings.IndexByte(s, '\n'); idx != -1 {
 		return strings.TrimRight(s[:idx], "\r")
 	}
 	return s
-}
-
-// =============================================================================
-// Destroy renderer
-// =============================================================================
-
-// DestroySummary writes a destroy-plan preview to w. The shape mirrors Summary
-// but with destroy-aware semantics: the header reads "Windsor Destroy Plan",
-// counts collapse to "-N" since every resource is a delete, and IsNew renders
-// as "(no state)" / "(not deployed)" instead of "(new)" — honoring the IsNew
-// dual-meaning contract documented on TerraformComponentPlan. The footer is
-// removed (no streaming-plan equivalent for destroy) and there is no hints
-// block (destroy is gated on a working cluster, so a tooling-missing fallback
-// is not part of the destroy contract). Callers prepend the "this will
-// permanently destroy..." confirmation language; this function only renders
-// the plan body.
-func DestroySummary(w io.Writer, tfPlans []terraforminfra.TerraformComponentPlan, k8sPlans []fluxinfra.KustomizePlan, noColor bool) {
-	nameWidth := 20
-	for _, p := range tfPlans {
-		if n := len(terraformDisplayName(p)); n > nameWidth {
-			nameWidth = n
-		}
-	}
-	for _, p := range k8sPlans {
-		if len(p.Name) > nameWidth {
-			nameWidth = len(p.Name)
-		}
-	}
-	nameWidth += 2
-
-	sep := strings.Repeat("═", nameWidth+26)
-	fmt.Fprintf(w, "\nWindsor Destroy Plan\n%s\n", sep)
-
-	if len(tfPlans) > 0 {
-		fmt.Fprintln(w, "\nTerraform")
-		for _, p := range tfPlans {
-			fmt.Fprintf(w, "  %-*s  %s\n", nameWidth, terraformDisplayName(p), formatTerraformDestroyPlan(p, noColor))
-			if p.Err != nil {
-				lines := strings.Split(strings.TrimSpace(p.Err.Error()), "\n")
-				for _, line := range lines[1:] {
-					fmt.Fprintf(w, "  %s  %s\n", strings.Repeat(" ", nameWidth), line)
-				}
-			}
-			writeResourceList(w, terraformResourceChanges(p.Resources), noColor)
-		}
-	}
-
-	if len(k8sPlans) > 0 {
-		fmt.Fprintln(w, "\nKustomize")
-		for _, p := range k8sPlans {
-			fmt.Fprintf(w, "  %-*s  %s\n", nameWidth, p.Name, formatKustomizeDestroyPlan(p, noColor))
-			if p.Err != nil {
-				lines := strings.Split(strings.TrimSpace(p.Err.Error()), "\n")
-				for _, line := range lines[1:] {
-					fmt.Fprintf(w, "  %s  %s\n", strings.Repeat(" ", nameWidth), line)
-				}
-			}
-			writeResourceList(w, kustomizeResourceChanges(p.Resources), noColor)
-		}
-	}
-
-	if len(tfPlans) == 0 && len(k8sPlans) == 0 {
-		fmt.Fprintln(w, "\n  (no components in blueprint)")
-	}
-
-	fmt.Fprintln(w)
-}
-
-// DestroySummaryJSON encodes destroy-plan results as JSON to w. The schema
-// mirrors SummaryJSON but is_new is documented as carrying its destroy-side
-// meaning ("no state to destroy") so machine consumers can interpret correctly.
-// Action strings on resources are still create/update/delete/replace, but the
-// only value destroy plans actually emit is "delete".
-func DestroySummaryJSON(w io.Writer, tfPlans []terraforminfra.TerraformComponentPlan, k8sPlans []fluxinfra.KustomizePlan) error {
-	type resourceRow struct {
-		Address string `json:"address"`
-		Action  string `json:"action"`
-	}
-	type tfRow struct {
-		Component string        `json:"component"`
-		Path      string        `json:"path,omitempty"`
-		Destroy   int           `json:"destroy"`
-		NoChanges bool          `json:"no_changes"`
-		IsNew     bool          `json:"is_new"`
-		Resources []resourceRow `json:"resources,omitempty"`
-		Error     string        `json:"error,omitempty"`
-	}
-	type k8sRow struct {
-		Name      string        `json:"name"`
-		Removed   int           `json:"removed"`
-		IsNew     bool          `json:"is_new"`
-		Degraded  bool          `json:"degraded"`
-		Resources []resourceRow `json:"resources,omitempty"`
-		Error     string        `json:"error,omitempty"`
-	}
-	type output struct {
-		Terraform []tfRow  `json:"terraform,omitempty"`
-		Kustomize []k8sRow `json:"kustomize,omitempty"`
-	}
-
-	out := output{}
-	for _, p := range tfPlans {
-		row := tfRow{
-			Component: p.ComponentID,
-			Path:      p.Path,
-			Destroy:   p.Destroy,
-			NoChanges: p.NoChanges,
-			IsNew:     p.IsNew,
-		}
-		for _, r := range p.Resources {
-			row.Resources = append(row.Resources, resourceRow{Address: r.Address, Action: terraformActionString(r.Action)})
-		}
-		if p.Err != nil {
-			row.Error = p.Err.Error()
-		}
-		out.Terraform = append(out.Terraform, row)
-	}
-	for _, p := range k8sPlans {
-		row := k8sRow{Name: p.Name, Removed: p.Removed, IsNew: p.IsNew, Degraded: p.Degraded}
-		for _, r := range p.Resources {
-			row.Resources = append(row.Resources, resourceRow{Address: r.Address, Action: kustomizeActionString(r.Action)})
-		}
-		if p.Err != nil {
-			row.Error = p.Err.Error()
-		}
-		out.Kustomize = append(out.Kustomize, row)
-	}
-
-	enc := json.NewEncoder(w)
-	enc.SetIndent("", "  ")
-	return enc.Encode(out)
-}
-
-// formatTerraformDestroyPlan returns the right-hand-side status string for one
-// Terraform component on the destroy path. IsNew here means "no state to
-// destroy" — distinct from the apply-side meaning of "never applied" — so it
-// renders as "(no state)" rather than "(new)". When Resources is populated,
-// the count is rendered as "-N" (every entry is a delete in destroy mode).
-// When Resources is empty but Destroy>0 (older code path without resource
-// enumeration), fall back to the raw count for honesty.
-func formatTerraformDestroyPlan(p terraforminfra.TerraformComponentPlan, noColor bool) string {
-	if p.Err != nil {
-		msg := truncateFirstLine(p.Err.Error())
-		if noColor {
-			return fmt.Sprintf("(error: %s)", msg)
-		}
-		return fmt.Sprintf("\033[31m(error: %s)\033[0m", msg)
-	}
-	if p.IsNew {
-		if noColor {
-			return "(no state)"
-		}
-		return "\033[36m(no state)\033[0m"
-	}
-	if len(p.Resources) > 0 {
-		return formatDestroyCount(len(terraformResourceChanges(p.Resources)), noColor)
-	}
-	if p.NoChanges || p.Destroy == 0 {
-		return "(nothing to destroy)"
-	}
-	return formatDestroyCount(p.Destroy, noColor)
-}
-
-// formatKustomizeDestroyPlan returns the right-hand-side status string for one
-// Flux kustomization on the destroy path. IsNew means "kustomization is not
-// present in the cluster" — the cluster-query equivalent of terraform's
-// "(no state)" — and renders as "(not deployed)". Resources populated implies
-// a "-N" count; absent resources with non-zero Removed falls back to the
-// inventory count.
-func formatKustomizeDestroyPlan(p fluxinfra.KustomizePlan, noColor bool) string {
-	if p.Err != nil {
-		msg := truncateFirstLine(p.Err.Error())
-		if noColor {
-			return fmt.Sprintf("(error: %s)", msg)
-		}
-		return fmt.Sprintf("\033[31m(error: %s)\033[0m", msg)
-	}
-	if p.IsNew {
-		if noColor {
-			return "(not deployed)"
-		}
-		return "\033[36m(not deployed)\033[0m"
-	}
-	if len(p.Resources) > 0 {
-		return formatDestroyCount(len(kustomizeResourceChanges(p.Resources)), noColor)
-	}
-	if p.Removed == 0 {
-		return "(nothing to destroy)"
-	}
-	return formatDestroyCount(p.Removed, noColor)
-}
-
-// formatDestroyCount renders the per-component "-N" count in red, matching the
-// resource-list symbol vocabulary. Distinct from formatRawCounts (apply path)
-// because destroy plans only ever have one bucket.
-func formatDestroyCount(n int, noColor bool) string {
-	if noColor {
-		return fmt.Sprintf("-%d", n)
-	}
-	return fmt.Sprintf("\033[31m-%d\033[0m", n)
 }
