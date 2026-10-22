@@ -1,7 +1,7 @@
-// The debug package provides centralized debug-output control for the Windsor CLI.
-// It gates internal diagnostic logging behind a single process-wide switch.
-// Init sets the switch once at startup; Log is a no-op until debug output is enabled.
-// Callers must not pass secret values to Log, since output is not scrubbed.
+// The debug package controls the debug output of the Windsor CLI.
+// It provides one switch for the process that turns the diagnostic log on or off.
+// Init sets the switch at startup. Log writes nothing until the switch is on.
+// Callers MUST NOT pass secret values to Log, because it does not remove them.
 
 package debug
 
@@ -31,8 +31,8 @@ func Enabled() bool {
 	return enabled
 }
 
-// Log writes one line to stderr, prefixed "[debug]", when debug output is
-// enabled. It is a no-op otherwise. Args follow fmt.Sprintf conventions.
+// Log writes one line to stderr, with the prefix "[debug]", when debug output is on.
+// It formats format and args as fmt.Sprintf does.
 func Log(format string, args ...any) {
 	if !enabled {
 		return
