@@ -20,6 +20,8 @@ import (
 	"github.com/windsorcli/cli/pkg/runtime"
 	"github.com/windsorcli/cli/pkg/runtime/shell"
 	"github.com/windsorcli/cli/pkg/runtime/tools"
+	"github.com/windsorcli/cli/pkg/workstation"
+	"github.com/windsorcli/cli/pkg/workstation/network"
 )
 
 const windsorYAMLNoWorkstation = `version: v1alpha1
@@ -60,6 +62,7 @@ func runInitWithMocks(t *testing.T, projectRoot string) {
 
 // setupConfigureTest creates a project by running init with mocks, then returns an env with a
 // context, the project, and a capturing mock shell so tests can assert on shell calls and config.
+// The project uses a mock network manager, so the tests do not read the DNS setup of the host.
 // No real Terraform, Docker, or auth are required.
 func setupConfigureTest(t *testing.T) *configureTestEnv {
 	t.Helper()
@@ -71,7 +74,8 @@ func setupConfigureTest(t *testing.T) *configureTestEnv {
 	m.GetSessionTokenFunc = func() (string, error) { return "test-session-token", nil }
 	m.WriteResetTokenFunc = func() (string, error) { return "", nil }
 	rt := runtime.NewRuntime(&runtime.Runtime{Shell: m, ProjectRoot: projectRoot})
-	proj := project.NewProject("local", &project.Project{Runtime: rt})
+	ws := workstation.NewWorkstation(rt, &workstation.Workstation{NetworkManager: network.NewMockNetworkManager()})
+	proj := project.NewProject("local", &project.Project{Runtime: rt, Workstation: ws})
 	return &configureTestEnv{
 		Ctx:     context.WithValue(context.Background(), projectOverridesKey, proj),
 		Proj:    proj,
