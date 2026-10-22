@@ -13,6 +13,7 @@ import (
 
 	"github.com/spf13/cobra"
 	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
+	"github.com/windsorcli/cli/internal/werror"
 	"github.com/windsorcli/cli/pkg/composer/blueprint"
 	"github.com/windsorcli/cli/pkg/composer/terraform"
 	"github.com/windsorcli/cli/pkg/constants"
@@ -815,8 +816,11 @@ func TestUpgradeCmd_Source(t *testing.T) {
 		if err == nil {
 			t.Fatal("Expected error for a malformed --source, got nil")
 		}
-		if !strings.Contains(err.Error(), "name=url") {
-			t.Errorf("Expected a name=url format error, got: %v", err)
+		if !strings.Contains(err.Error(), "invalid --source") {
+			t.Errorf("Expected an invalid --source error, got: %v", err)
+		}
+		if we := werror.Find(err); we == nil || !strings.Contains(we.Remediation, "name=url") {
+			t.Errorf("Expected a remediation that names name=url, got: %v", we)
 		}
 	})
 
@@ -1373,6 +1377,9 @@ func TestUpgradeNodeCmd(t *testing.T) {
 		if !strings.Contains(err.Error(), "not in a trusted directory") {
 			t.Errorf("Expected trusted directory error, got: %v", err)
 		}
+		if we := werror.Find(err); we == nil || !strings.Contains(we.Remediation, "windsor init") {
+			t.Errorf("Expected a remediation that names windsor init, got: %v", we)
+		}
 	})
 
 	t.Run("ConfigNotLoaded", func(t *testing.T) {
@@ -1391,8 +1398,11 @@ func TestUpgradeNodeCmd(t *testing.T) {
 		if err == nil {
 			t.Error("Expected error, got nil")
 		}
-		if !strings.Contains(err.Error(), "Nothing to upgrade") {
+		if !strings.Contains(err.Error(), "nothing to upgrade") {
 			t.Errorf("Expected not-loaded error, got: %v", err)
+		}
+		if we := werror.Find(err); we == nil || !strings.Contains(we.Remediation, "windsor init") {
+			t.Errorf("Expected a remediation that names windsor init, got: %v", we)
 		}
 	})
 
@@ -1481,6 +1491,9 @@ func TestUpgradeNodeCmd(t *testing.T) {
 		}
 		if !strings.Contains(err.Error(), "--offline-timeout") || !strings.Contains(err.Error(), "cannot exceed") {
 			t.Errorf("Expected guard error naming both flags, got: %v", err)
+		}
+		if we := werror.Find(err); we == nil || !strings.Contains(we.Remediation, "--offline-timeout") {
+			t.Errorf("Expected a remediation that names --offline-timeout, got: %v", we)
 		}
 		if loadConfigCalled {
 			t.Error("Expected guard to fail before LoadConfig is reachable")
@@ -1583,6 +1596,9 @@ func TestUpgradeNodeCmd(t *testing.T) {
 		}
 		if !strings.Contains(err.Error(), "invalid --reboot-mode") {
 			t.Errorf("Expected invalid reboot-mode error, got: %v", err)
+		}
+		if we := werror.Find(err); we == nil || !strings.Contains(we.Remediation, "powercycle") {
+			t.Errorf("Expected a remediation that names powercycle, got: %v", we)
 		}
 		if loadConfigCalled {
 			t.Error("Expected guard to fail before LoadConfig is reachable")

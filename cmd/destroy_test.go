@@ -14,6 +14,7 @@ import (
 	"github.com/spf13/pflag"
 	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
 	"github.com/windsorcli/cli/internal/presenter"
+	"github.com/windsorcli/cli/internal/werror"
 	"github.com/windsorcli/cli/pkg/composer"
 	"github.com/windsorcli/cli/pkg/composer/blueprint"
 	"github.com/windsorcli/cli/pkg/project"
@@ -549,6 +550,9 @@ func TestDestroyCmd(t *testing.T) {
 		if !strings.Contains(err.Error(), "destroy-plan generation failed") {
 			t.Errorf("Expected plan-generation error, got: %v", err)
 		}
+		if we := werror.Find(err); we == nil || !strings.Contains(we.Remediation, "run the command again") {
+			t.Errorf("Expected a remediation that names run the command again, got: %v", we)
+		}
 		if destroyed {
 			t.Error("Expected no destroy to run when plan generation failed")
 		}
@@ -657,6 +661,9 @@ func TestDestroyCmd(t *testing.T) {
 		// Then it refuses before the confirmation gate and destroys nothing.
 		if err == nil || !strings.Contains(err.Error(), "destroy-plan generation failed") {
 			t.Fatalf("Expected plan-generation error, got: %v", err)
+		}
+		if we := werror.Find(err); we == nil || !strings.Contains(we.Remediation, "run the command again") {
+			t.Errorf("Expected a remediation that names run the command again, got: %v", we)
 		}
 		if destroyed {
 			t.Error("Expected no destroy to run when plan generation failed")
@@ -1053,6 +1060,9 @@ func TestDestroyCmd(t *testing.T) {
 		if !strings.Contains(err.Error(), "destroy completed with 1 failure") {
 			t.Errorf("Expected error to report failure count, got: %v", err)
 		}
+		if we := werror.Find(err); we == nil || !strings.Contains(we.Remediation, "windsor destroy --continue") {
+			t.Errorf("Expected a remediation that names windsor destroy --continue, got: %v", we)
+		}
 		out := stderr.String()
 		if !strings.Contains(out, "1 failed (iam)") {
 			t.Errorf("Expected summary to name failed component, got: %q", out)
@@ -1107,6 +1117,9 @@ func TestDestroyCmd(t *testing.T) {
 		}
 		if !strings.Contains(err.Error(), "--continue applies to layer-wide destroy only") {
 			t.Errorf("Expected scope-mismatch error, got: %v", err)
+		}
+		if we := werror.Find(err); we == nil || !strings.Contains(we.Remediation, "--continue") {
+			t.Errorf("Expected a remediation that names --continue, got: %v", we)
 		}
 	})
 

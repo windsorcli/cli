@@ -10,6 +10,7 @@ import (
 
 	"github.com/spf13/cobra"
 	"github.com/windsorcli/cli/internal/presenter"
+	"github.com/windsorcli/cli/internal/werror"
 	"github.com/windsorcli/cli/pkg/provisioner"
 	fluxinfra "github.com/windsorcli/cli/pkg/provisioner/flux"
 	"github.com/windsorcli/cli/pkg/provisioner/stacklock"
@@ -17,6 +18,13 @@ import (
 	"github.com/windsorcli/cli/pkg/runtime/tools"
 	tuiplan "github.com/windsorcli/cli/pkg/tui/plan"
 )
+
+// =============================================================================
+// Constants
+// =============================================================================
+
+// destroyPlanFailedHint tells the operator how to continue when Windsor cannot plan the destroy of a component.
+const destroyPlanFailedHint = "Resolve the errors above, then run the command again. Windsor does not ask to confirm a destroy that it cannot complete."
 
 // =============================================================================
 // Destroy Commands
@@ -107,7 +115,7 @@ windsor destroy --confirm=local --continue`,
 				summary, planErr = proj.Provisioner.PlanDestroyAll(blueprint)
 				return planErr
 			}); err != nil {
-				return fmt.Errorf("error generating destroy plan: %w", err)
+				return werror.Wrap(err, "error generating destroy plan")
 			}
 			tuiplan.DestroySummary(os.Stdout, summary.Terraform, summary.Kustomize, os.Getenv("NO_COLOR") != "")
 
@@ -128,7 +136,7 @@ windsor destroy --confirm=local --continue`,
 				reportSkippedDestroyComponents(cmd.ErrOrStderr(), result.Skipped)
 				reportSkippedClusterGoneKustomizations(cmd.ErrOrStderr(), result.SkippedClusterGone)
 				if err != nil {
-					return fmt.Errorf("error destroying all components: %w", err)
+					return werror.Wrap(err, "error destroying all components")
 				}
 				return finishContinueDestroy(cmd.ErrOrStderr(), result)
 			})
@@ -179,7 +187,7 @@ windsor destroy --confirm=local --continue`,
 			}
 			return nil
 		}); err != nil {
-			return fmt.Errorf("error generating destroy plan: %w", err)
+			return werror.Wrap(err, "error generating destroy plan")
 		}
 		tuiplan.DestroySummary(os.Stdout, tfResults, k8sResults, os.Getenv("NO_COLOR") != "")
 
@@ -201,13 +209,13 @@ windsor destroy --confirm=local --continue`,
 		return stacklock.With(cmd.Context(), proj.Runtime, "destroy", lockTimeout, func() error {
 			if inKustomize {
 				if err := proj.Provisioner.DestroyKustomize(cmd.Context(), blueprint, componentID); err != nil {
-					return fmt.Errorf("error destroying kustomization %s: %w", componentID, err)
+					return werror.Wrap(err, "error destroying kustomization %s", componentID)
 				}
 			}
 			if inTerraform {
 				skipped, err := proj.Provisioner.TeardownComponent(cmd.Context(), blueprint, componentID)
 				if err != nil {
-					return fmt.Errorf("error destroying terraform for %s: %w", componentID, err)
+					return werror.Wrap(err, "error destroying terraform for %s", componentID)
 				}
 				if skipped {
 					reportSkippedDestroyComponents(cmd.ErrOrStderr(), []string{componentID})
@@ -269,7 +277,7 @@ windsor destroy terraform --confirm=local`,
 				summary, planErr = proj.Provisioner.PlanDestroyTerraformSummary(blueprint)
 				return planErr
 			}); err != nil {
-				return fmt.Errorf("error generating destroy plan: %w", err)
+				return werror.Wrap(err, "error generating destroy plan")
 			}
 			tuiplan.DestroySummary(os.Stdout, summary.Terraform, nil, os.Getenv("NO_COLOR") != "")
 
@@ -289,7 +297,7 @@ windsor destroy terraform --confirm=local`,
 				result, err := proj.Provisioner.Teardown(cmd.Context(), blueprint, true, destroyContinue)
 				reportSkippedDestroyComponents(cmd.ErrOrStderr(), result.Skipped)
 				if err != nil {
-					return fmt.Errorf("error destroying all terraform: %w", err)
+					return werror.Wrap(err, "error destroying all terraform")
 				}
 				return finishContinueDestroy(cmd.ErrOrStderr(), result)
 			})
@@ -314,7 +322,7 @@ windsor destroy terraform --confirm=local`,
 			tfResult, planErr = proj.Provisioner.PlanDestroyTerraformComponentSummary(blueprint, componentID)
 			return planErr
 		}); err != nil {
-			return fmt.Errorf("error generating destroy plan: %w", err)
+			return werror.Wrap(err, "error generating destroy plan")
 		}
 		tuiplan.DestroySummary(os.Stdout, []terraforminfra.TerraformComponentPlan{tfResult}, nil, os.Getenv("NO_COLOR") != "")
 
@@ -332,7 +340,7 @@ windsor destroy terraform --confirm=local`,
 		return stacklock.With(cmd.Context(), proj.Runtime, "destroy", lockTimeout, func() error {
 			skipped, err := proj.Provisioner.TeardownComponent(cmd.Context(), blueprint, componentID)
 			if err != nil {
-				return fmt.Errorf("error destroying terraform for %s: %w", componentID, err)
+				return werror.Wrap(err, "error destroying terraform for %s", componentID)
 			}
 			if skipped {
 				reportSkippedDestroyComponents(cmd.ErrOrStderr(), []string{componentID})
@@ -378,7 +386,7 @@ windsor destroy kustomize --confirm=local`,
 				summary, planErr = proj.Provisioner.PlanDestroyKustomizeSummary(blueprint)
 				return planErr
 			}); err != nil {
-				return fmt.Errorf("error generating destroy plan: %w", err)
+				return werror.Wrap(err, "error generating destroy plan")
 			}
 			tuiplan.DestroySummary(os.Stdout, nil, summary.Kustomize, os.Getenv("NO_COLOR") != "")
 
@@ -389,7 +397,7 @@ windsor destroy kustomize --confirm=local`,
 			}
 			return stacklock.With(cmd.Context(), proj.Runtime, "destroy", lockTimeout, func() error {
 				if err := proj.Provisioner.Uninstall(cmd.Context(), blueprint); err != nil {
-					return fmt.Errorf("error destroying all kustomizations: %w", err)
+					return werror.Wrap(err, "error destroying all kustomizations")
 				}
 				return nil
 			})
@@ -402,7 +410,7 @@ windsor destroy kustomize --confirm=local`,
 			k8sResult, planErr = proj.Provisioner.PlanDestroyKustomizeComponentSummary(blueprint, componentID)
 			return planErr
 		}); err != nil {
-			return fmt.Errorf("error generating destroy plan: %w", err)
+			return werror.Wrap(err, "error generating destroy plan")
 		}
 		tuiplan.DestroySummary(os.Stdout, nil, []fluxinfra.KustomizePlan{k8sResult}, os.Getenv("NO_COLOR") != "")
 
@@ -416,7 +424,7 @@ windsor destroy kustomize --confirm=local`,
 		}
 		return stacklock.With(cmd.Context(), proj.Runtime, "destroy", lockTimeout, func() error {
 			if err := proj.Provisioner.DestroyKustomize(cmd.Context(), blueprint, componentID); err != nil {
-				return fmt.Errorf("error destroying kustomization %s: %w", componentID, err)
+				return werror.Wrap(err, "error destroying kustomization %s", componentID)
 			}
 			return nil
 		})
@@ -526,17 +534,12 @@ func warnDestroyAttributeDrift(w io.Writer, plans []terraforminfra.TerraformComp
 	fmt.Fprintln(w, "   run `terraform apply` first to reconcile state, or expect the destroy to repeat this failure.")
 }
 
-// failOnDestroyPlanErrors halts the destroy before the confirmation prompt when
-// any component failed destroy-plan generation. Per-component plan errors are
-// carried on the plan's Err field and rendered inline in the summary, but the
-// summary methods return no error, so without this gate the flow proceeds to the
-// prompt and offers to "permanently destroy all infrastructure" while silently
-// skipping the components that could not be planned — often the ones owning the
-// underlying cloud infrastructure (servers, networks, zones), orphaning billed
-// resources and leaving state half-torn. The rendered plan already shows each
-// error; this refuses to let the operator confirm past them. No-op when every
-// component planned cleanly. This is distinct from --continue, which governs
-// failures during per-component destroy execution, after confirmation.
+// failOnDestroyPlanErrors stops the destroy before the confirmation prompt when a component failed destroy-plan generation.
+// Each plan keeps its error in the Err field, and the summary shows it, but the summary methods return no error.
+// Without this check, the operator can confirm a destroy that skips the components that Windsor could not plan.
+// These are often the components that own the cloud infrastructure, so a skip leaves billed resources and partial state.
+// It does nothing when every component planned without error.
+// It is different from --continue, which controls failures during the destroy, after the confirmation.
 func failOnDestroyPlanErrors(plans []terraforminfra.TerraformComponentPlan) error {
 	var failed []string
 	for _, p := range plans {
@@ -547,15 +550,14 @@ func failOnDestroyPlanErrors(plans []terraforminfra.TerraformComponentPlan) erro
 	if len(failed) == 0 {
 		return nil
 	}
-	return fmt.Errorf("destroy-plan generation failed for %d component(s): %s; resolve the errors above and rerun — refusing to confirm a destroy that cannot tear these down", len(failed), strings.Join(failed, ", "))
+	return werror.New(fmt.Sprintf("destroy-plan generation failed for %d component(s): %s", len(failed), strings.Join(failed, ", ")), destroyPlanFailedHint, nil)
 }
 
-// failOnDestroyKustomizePlanErrors is failOnDestroyPlanErrors for the Flux layer.
-// PlanDestroyComponentSummary carries a query failure on the plan's Err field rather
-// than returning it, so without this gate the flow proceeds to the prompt and offers
-// to destroy a kustomization the CLI could not fully plan — for example a stale
-// kubeconfig left by an earlier partial destroy. No-op when every kustomization
-// planned cleanly.
+// failOnDestroyKustomizePlanErrors does the check of failOnDestroyPlanErrors for the Flux layer.
+// PlanDestroyComponentSummary keeps a query failure in the Err field of the plan and does not return it.
+// Without this check, the operator can confirm the destroy of a kustomization that Windsor could not plan.
+// A stale kubeconfig from an earlier partial destroy is one cause of such a failure.
+// It does nothing when every kustomization planned without error.
 func failOnDestroyKustomizePlanErrors(plans []fluxinfra.KustomizePlan) error {
 	var failed []string
 	for _, p := range plans {
@@ -566,7 +568,7 @@ func failOnDestroyKustomizePlanErrors(plans []fluxinfra.KustomizePlan) error {
 	if len(failed) == 0 {
 		return nil
 	}
-	return fmt.Errorf("destroy-plan generation failed for %d kustomization(s): %s; resolve the errors above and rerun — refusing to confirm a destroy that cannot tear these down", len(failed), strings.Join(failed, ", "))
+	return werror.New(fmt.Sprintf("destroy-plan generation failed for %d kustomization(s): %s", len(failed), strings.Join(failed, ", ")), destroyPlanFailedHint, nil)
 }
 
 // resolveDestroyConfirmation gates a destructive operation. If --confirm was supplied it must
@@ -582,27 +584,20 @@ func resolveDestroyConfirmation(r io.Reader, w io.Writer, description, expected 
 	return confirmDestroy(r, w, description, expected)
 }
 
-// requireContinueScope refuses --continue when a component argument is also
-// present. The flag's contract (best-effort across multiple components plus a
-// summary line) only makes sense for a layer-wide destroy; on a single
-// component there is nothing to continue past. Without this guard the flag
-// is silently ignored, which gives the operator the default abort-on-error
-// behaviour while believing they opted into best-effort.
+// requireContinueScope refuses --continue when the operator also gives a component argument.
+// --continue collects failures across many components and prints a summary, so it applies only to a layer-wide destroy.
+// Without this check, Windsor ignores the flag and stops at the first error, which the operator does not expect.
 func requireContinueScope(args []string) error {
 	if destroyContinue && len(args) > 0 {
-		return fmt.Errorf("--continue applies to layer-wide destroy only; omit the component argument or drop --continue")
+		return werror.New("--continue applies to layer-wide destroy only", "Remove the component argument or remove --continue.", nil)
 	}
 	return nil
 }
 
-// finishContinueDestroy emits the one-line --continue summary on stderr and
-// returns a non-zero exit error when any component failed. Without --continue
-// the existing per-error abort already surfaces failures, so no extra output
-// is needed; this only fires when the operator opted into best-effort mode.
-// After the summary, each failure's underlying error is printed so the operator
-// can diagnose the cause (e.g. a stuck kustomization finalizer) without re-running
-// under a debugger. Returns nil when destroyContinue is false or when no failures
-// were recorded.
+// finishContinueDestroy prints the --continue summary line to stderr, then the error of each failure.
+// The errors let the operator find the cause, for example a stuck kustomization finalizer, without a second run.
+// It returns an error when a component failed, so the command exits with a non-zero code.
+// It returns nil when --continue is not set or when no component failed.
 func finishContinueDestroy(w io.Writer, result provisioner.DestroyResult) error {
 	if !destroyContinue {
 		return nil
@@ -631,7 +626,7 @@ func finishContinueDestroy(w io.Writer, result provisioner.DestroyResult) error 
 				fmt.Fprintf(w, "  %s: %v\n", f.ID, f.Err)
 			}
 		}
-		return fmt.Errorf("destroy completed with %d failure(s); rerun `windsor destroy --continue` after resolving them", len(result.Failed))
+		return werror.New(fmt.Sprintf("destroy completed with %d failure(s)", len(result.Failed)), "Resolve the failures, then run windsor destroy --continue.", nil)
 	}
 	return nil
 }
