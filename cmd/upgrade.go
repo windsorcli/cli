@@ -12,6 +12,7 @@ import (
 
 	"github.com/spf13/cobra"
 	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
+	"github.com/windsorcli/cli/internal/werror"
 	"github.com/windsorcli/cli/pkg/composer"
 	"github.com/windsorcli/cli/pkg/composer/blueprint"
 	"github.com/windsorcli/cli/pkg/constants"
@@ -22,6 +23,12 @@ import (
 	"github.com/windsorcli/cli/pkg/runtime/tools"
 	"golang.org/x/term"
 )
+
+// trustDirectoryHint tells the operator how to trust the current directory.
+const trustDirectoryHint = "Run windsor init to trust this directory, if it is a Windsor project."
+
+// initProjectHint tells the operator how to create the configuration of a project.
+const initProjectHint = "Run windsor init, then run the command again."
 
 var (
 	upgradeNodes          []string
@@ -169,7 +176,7 @@ windsor upgrade cluster --nodes=10.0.0.5 --image=ghcr.io/siderolabs/installer:v1
 			}
 
 			if _, err := proj.Provisioner.Up(cmd.Context(), blueprint); err != nil {
-				return fmt.Errorf("error applying terraform: %w", err)
+				return werror.Wrap(err, "error applying terraform")
 			}
 
 			// Re-generate with deferred substitutions resolved now that terraform
@@ -177,23 +184,23 @@ windsor upgrade cluster --nodes=10.0.0.5 --image=ghcr.io/siderolabs/installer:v1
 			var resolveErr error
 			blueprint, resolveErr = proj.Composer.BlueprintHandler.GenerateResolved()
 			if resolveErr != nil {
-				return fmt.Errorf("error resolving blueprint substitutions: %w", resolveErr)
+				return werror.Wrap(resolveErr, "error resolving blueprint substitutions")
 			}
 			if blueprint == nil {
 				return fmt.Errorf("resolved blueprint is not available")
 			}
 
 			if err := proj.Provisioner.BeginVersionTransition(blueprint); err != nil {
-				return fmt.Errorf("error recording version transition: %w", err)
+				return werror.Wrap(err, "error recording version transition")
 			}
 
 			if err := proj.Provisioner.Install(cmd.Context(), blueprint, true); err != nil {
-				return fmt.Errorf("error installing blueprint: %w", err)
+				return werror.Wrap(err, "error installing blueprint")
 			}
 
 			prunable, err := proj.Provisioner.PrunableKustomizations(blueprint)
 			if err != nil {
-				return fmt.Errorf("error listing kustomizations to prune: %w", err)
+				return werror.Wrap(err, "error listing kustomizations to prune")
 			}
 			if extras := unconfirmedPrunes(prunable, confirmedPrune); len(extras) > 0 {
 				fmt.Fprintf(cmd.ErrOrStderr(), "Skipping the prune: these kustomizations are no longer declared but were not in the plan you confirmed:\n  %s\nRun `windsor apply --prune` to remove them.\n", strings.Join(extras, "\n  "))
@@ -204,7 +211,7 @@ windsor upgrade cluster --nodes=10.0.0.5 --image=ghcr.io/siderolabs/installer:v1
 			}
 
 			if err := proj.Provisioner.WriteVersionMarker(blueprint); err != nil {
-				return fmt.Errorf("error recording applied version: %w", err)
+				return werror.Wrap(err, "error recording applied version")
 			}
 
 			return nil
@@ -242,7 +249,7 @@ windsor upgrade cluster \
 		rt := runtime.NewRuntime(rtOpts...)
 
 		if err := rt.Shell.CheckTrustedDirectory(); err != nil {
-			return fmt.Errorf("not in a trusted directory. If you are in a Windsor project, run 'windsor init' to approve")
+			return werror.New("not in a trusted directory", trustDirectoryHint, err)
 		}
 
 		if err := rt.ConfigHandler.LoadConfig(); err != nil {
@@ -250,14 +257,14 @@ windsor upgrade cluster \
 		}
 
 		if !rt.ConfigHandler.IsLoaded() {
-			return fmt.Errorf("Nothing to upgrade. Have you run \033[1mwindsor init\033[0m?")
+			return werror.New("nothing to upgrade", initProjectHint, nil)
 		}
 
 		comp := composer.NewComposer(rt)
 		prov := provisioner.NewProvisioner(rt, comp.BlueprintHandler)
 
 		if err := prov.UpgradeNodes(cmd.Context(), upgradeNodes, upgradeImage, powercycle); err != nil {
-			return fmt.Errorf("node upgrade failed: %w", err)
+			return werror.Wrap(err, "node upgrade failed")
 		}
 
 		fmt.Fprintf(cmd.OutOrStdout(), "Successfully initiated upgrade for %d nodes to image %s\n", len(upgradeNodes), upgradeImage)
@@ -295,7 +302,7 @@ windsor upgrade node --node=10.0.0.5 --image=ghcr.io/siderolabs/installer:v1.13.
 			upgradeNodeOfflineTimeout = constants.DefaultNodeOfflineTimeout
 		}
 		if upgradeNodeTimeout > 0 && upgradeNodeOfflineTimeout > upgradeNodeTimeout {
-			return fmt.Errorf("--offline-timeout (%s) cannot exceed --timeout (%s)", upgradeNodeOfflineTimeout, upgradeNodeTimeout)
+			return werror.New(fmt.Sprintf("--offline-timeout (%s) cannot exceed --timeout (%s)", upgradeNodeOfflineTimeout, upgradeNodeTimeout), "Set --offline-timeout to a value that is not more than --timeout.", nil)
 		}
 
 		powercycle, err := parseRebootMode(upgradeNodeRebootMode)
@@ -311,7 +318,7 @@ windsor upgrade node --node=10.0.0.5 --image=ghcr.io/siderolabs/installer:v1.13.
 		rt := runtime.NewRuntime(rtOpts...)
 
 		if err := rt.Shell.CheckTrustedDirectory(); err != nil {
-			return fmt.Errorf("not in a trusted directory. If you are in a Windsor project, run 'windsor init' to approve")
+			return werror.New("not in a trusted directory", trustDirectoryHint, err)
 		}
 
 		if err := rt.ConfigHandler.LoadConfig(); err != nil {
@@ -319,7 +326,7 @@ windsor upgrade node --node=10.0.0.5 --image=ghcr.io/siderolabs/installer:v1.13.
 		}
 
 		if !rt.ConfigHandler.IsLoaded() {
-			return fmt.Errorf("Nothing to upgrade. Have you run \033[1mwindsor init\033[0m?")
+			return werror.New("nothing to upgrade", initProjectHint, nil)
 		}
 
 		comp := composer.NewComposer(rt)
@@ -337,15 +344,16 @@ windsor upgrade node --node=10.0.0.5 --image=ghcr.io/siderolabs/installer:v1.13.
 		}
 
 		if err := prov.UpgradeNode(ctx, upgradeNodeAddr, upgradeNodeImage, upgradeNodeOfflineTimeout, powercycle, outputFunc); err != nil {
-			return fmt.Errorf("node upgrade failed: %w", err)
+			return werror.Wrap(err, "node upgrade failed")
 		}
 
 		return nil
 	},
 }
 
-// parseRebootMode validates a --reboot-mode value and reports whether it requests powercycle.
-// "default" (kexec, fast) and "powercycle" (full ACPI reset) are the only accepted values.
+// parseRebootMode validates a --reboot-mode value and reports whether it selects powercycle.
+// The accepted values are "default", which uses kexec, and "powercycle", which does a full ACPI reset.
+// It returns a WindsorError with a hint for any other value.
 func parseRebootMode(mode string) (bool, error) {
 	switch mode {
 	case "", "default":
@@ -353,78 +361,78 @@ func parseRebootMode(mode string) (bool, error) {
 	case "powercycle":
 		return true, nil
 	default:
-		return false, fmt.Errorf("invalid --reboot-mode %q: must be \"default\" or \"powercycle\"", mode)
+		return false, werror.New(fmt.Sprintf("invalid --reboot-mode %q", mode), "Set --reboot-mode to default or powercycle.", nil)
 	}
 }
 
-// pruneOrphaned deletes the kustomizations the blueprint no longer declares, after printing them.
-// prunable is the already-computed prune set (empty → no-op). The caller must have waited for the
-// desired set to be Ready first, so any migrated resources are adopted before a deletion. Shared by
-// apply (behind --prune) and upgrade (unconditional, since upgrade is confirmed or passed --yes before it starts).
+// pruneOrphaned prints the kustomizations that the blueprint no longer declares, then deletes them.
+// The prunable argument is the prune set that the caller computed. An empty set does nothing.
+// The caller must wait until the desired set is Ready, so that migrated resources are adopted before a deletion.
+// Apply calls it when --prune is set. Upgrade always calls it, because the operator confirms the upgrade or sets --yes.
 func pruneOrphaned(cmd *cobra.Command, proj *project.Project, blueprint *blueprintv1alpha1.Blueprint, prunable []string) error {
 	if len(prunable) == 0 {
 		return nil
 	}
 	fmt.Fprintf(cmd.OutOrStdout(), "Pruning kustomizations no longer declared:\n  %s\n", strings.Join(prunable, "\n  "))
 	if err := proj.Provisioner.Prune(cmd.Context(), blueprint); err != nil {
-		return fmt.Errorf("error pruning orphaned kustomizations: %w", err)
+		return werror.Wrap(err, "error pruning orphaned kustomizations")
 	}
 	return nil
 }
 
-// upgradeToLatest moves every remote OCI source pinned to a semver to its latest stable tag and
-// persists the bumps to blueprint.yaml. It returns what moved. Sources that are not OCI, not
-// semver-pinned, or already current are left untouched, and nothing is written when none moved.
+// upgradeToLatest moves each remote OCI source that is pinned to a semver tag to its latest stable tag.
+// It writes the changes to blueprint.yaml and returns the sources that moved.
+// It does not change a source that is not OCI, not pinned to a semver tag, or already current.
+// It writes nothing when no source moved.
 func upgradeToLatest(proj *project.Project) (sourceChanges, error) {
 	upgrades, err := proj.Composer.BlueprintHandler.UpgradeSourcesToLatest()
 	if err != nil {
-		return nil, fmt.Errorf("error resolving latest source versions: %w", err)
+		return nil, werror.Wrap(err, "error resolving latest source versions")
 	}
 	if len(upgrades) == 0 {
 		return nil, nil
 	}
 	if err := proj.Composer.BlueprintHandler.Write(true); err != nil {
-		return nil, fmt.Errorf("failed to persist source upgrades to blueprint.yaml: %w", err)
+		return nil, werror.Wrap(err, "failed to persist source upgrades to blueprint.yaml")
 	}
 	return upgrades, nil
 }
 
-// recomposeBlueprint reloads the blueprint from disk and recomposes it against the sources'
-// current content. RetargetSource and UpgradeSourcesToLatest only change source URLs in memory.
-// Write persists those URLs to blueprint.yaml but does not recompose. Without this call, Up,
-// Install, and Wait would build manifests from the blueprint composed before the source change.
+// recomposeBlueprint loads the blueprint from disk again and composes it against the current content of the sources.
+// RetargetSource and UpgradeSourcesToLatest change only the source URLs in memory, and Write does not compose again.
+// Without this call, Up, Install, and Wait build manifests from the blueprint that was composed before the source change.
 func recomposeBlueprint(proj *project.Project) error {
 	if err := proj.Composer.BlueprintHandler.LoadBlueprint(); err != nil {
-		return fmt.Errorf("error recomposing blueprint against updated sources: %w", err)
+		return werror.Wrap(err, "error recomposing blueprint against updated sources")
 	}
 	return nil
 }
 
-// regenerateTerraform rewrites the terraform module shims and tfvars from the recomposed blueprint.
-// Initialize writes them before the source change, so they still load the old version's modules.
-// Without this call, Up applies the old modules with the new version's inputs.
+// regenerateTerraform writes the terraform module shims and tfvars again from the recomposed blueprint.
+// Initialize writes them before the source change, so they still load the modules of the old version.
+// Without this call, Up applies the old modules with the inputs of the new version.
 func regenerateTerraform(proj *project.Project) error {
 	if err := proj.Composer.Generate(); err != nil {
-		return fmt.Errorf("error regenerating terraform modules for updated sources: %w", err)
+		return werror.Wrap(err, "error regenerating terraform modules for updated sources")
 	}
 	return nil
 }
 
-// parseSourceSpec splits a `--source` value into its name and URL, rejecting any spec missing the
-// separator or either half. Both the downgrade gate and the retarget writer parse the same specs,
-// so they share this one parser to stay in lockstep on what a valid spec is.
+// parseSourceSpec splits a --source value into its name and its URL.
+// It returns a WindsorError with a hint when the separator, the name, or the URL is missing.
+// The downgrade check and the retarget writer both use this parser, so they accept the same specs.
 func parseSourceSpec(spec string) (name, url string, err error) {
 	name, url, ok := strings.Cut(spec, "=")
 	if !ok || name == "" || url == "" {
-		return "", "", fmt.Errorf("invalid --source %q; expected name=url", spec)
+		return "", "", werror.New(fmt.Sprintf("invalid --source %q", spec), "Set --source in the format name=url.", nil)
 	}
 	return name, url, nil
 }
 
-// retargetSources applies each `name=url` spec to the context's declared sources, persists the bumps
-// to blueprint.yaml via the same writer init uses, and returns what changed. An unknown source name
-// or malformed spec aborts before anything is written, so a failed retarget never leaves
-// blueprint.yaml half-edited. Downgrades are refused earlier by checkSourceDowngrades.
+// retargetSources applies each name=url spec to the declared sources of the context and returns the changes.
+// It writes the changes to blueprint.yaml with the writer that init uses.
+// An unknown source name or a malformed spec stops the operation before the write, so blueprint.yaml never changes partly.
+// checkSourceDowngrades refuses downgrades before this function runs.
 func retargetSources(proj *project.Project, specs []string) (sourceChanges, error) {
 	changes := make(sourceChanges, 0, len(specs))
 	for _, spec := range specs {
@@ -440,7 +448,7 @@ func retargetSources(proj *project.Project, specs []string) (sourceChanges, erro
 	}
 
 	if err := proj.Composer.BlueprintHandler.Write(true); err != nil {
-		return nil, fmt.Errorf("failed to persist source changes to blueprint.yaml: %w", err)
+		return nil, werror.Wrap(err, "failed to persist source changes to blueprint.yaml")
 	}
 	return changes, nil
 }
@@ -512,7 +520,7 @@ func snapshotFile(path string) ([]byte, error) {
 		if os.IsNotExist(err) {
 			return nil, nil
 		}
-		return nil, fmt.Errorf("failed to read %s: %w", path, err)
+		return nil, werror.Wrap(err, "failed to read %s", path)
 	}
 	return data, nil
 }
@@ -521,28 +529,24 @@ func snapshotFile(path string) ([]byte, error) {
 func restoreFile(path string, snapshot []byte) error {
 	if snapshot == nil {
 		if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
-			return fmt.Errorf("failed to remove %s: %w", path, err)
+			return werror.Wrap(err, "failed to remove %s", path)
 		}
 		return nil
 	}
 	if err := os.WriteFile(path, snapshot, 0644); err != nil { // #nosec G306 -- blueprint.yaml is a project file, readable like the writer's own output
-		return fmt.Errorf("failed to restore %s: %w", path, err)
+		return werror.Wrap(err, "failed to restore %s", path)
 	}
 	return nil
 }
 
-// checkSourceDowngrades evaluates each `name=url` spec against the context's declared sources before
-// anything is composed or pulled, so a refused downgrade never triggers a registry round-trip. A
-// spec that moves a declared source to an older semver of the same repository is a downgrade: it is
-// refused unless allowDowngrade is set, since Windsor reverts infrastructure declaratively but does
-// not reverse application data. Specs naming an undeclared source are left for retargetSources to
-// reject; malformed specs are rejected here.
+// checkSourceDowngrades compares each name=url spec with the declared sources of the context.
+// It runs before composition and pulls, so a refused downgrade makes no registry request.
+// A spec that moves a declared source to an older semver of the same repository is a downgrade.
+// It refuses a downgrade unless allowDowngrade is set, because Windsor does not reverse application data.
+// It rejects a malformed spec. retargetSources rejects a spec that names an undeclared source.
 //
-// The comparison baseline is the ref declared in blueprint.yaml, not the running version recorded in
-// the cluster marker — a deliberate trade-off that keeps this a cheap, offline pre-flight (the marker
-// would require a cluster read). The normal flow keeps declared and applied in lockstep; the gap is a
-// blueprint.yaml hand-edited below the running version, where a move that is forward relative to the
-// declared ref but still behind what is applied would not be flagged.
+// It compares with the ref in blueprint.yaml, not with the running version in the cluster marker, so it needs no cluster read.
+// Thus it does not flag a move to a version below the running version when blueprint.yaml was edited by hand to a lower ref.
 func checkSourceDowngrades(cmd *cobra.Command, proj *project.Project, specs []string, allowDowngrade bool) error {
 	type change struct{ name, previous, target string }
 	targets := make([]change, 0, len(specs))
@@ -556,7 +560,7 @@ func checkSourceDowngrades(cmd *cobra.Command, proj *project.Project, specs []st
 
 	declared, err := proj.Composer.BlueprintHandler.GetDeclaredSources()
 	if err != nil {
-		return fmt.Errorf("failed to read declared sources: %w", err)
+		return werror.Wrap(err, "failed to read declared sources")
 	}
 	declaredURL := make(map[string]string, len(declared))
 	for _, s := range declared {
