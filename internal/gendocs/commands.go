@@ -1,8 +1,6 @@
-// commands.go is the cobra entry point for the `gendocs commands` subcommand.
-// It walks cmd.RootCmd() and emits one markdown file per command via the
-// renderer in render.go. The destination directory is wiped before each run so
-// renamed or removed commands do not leave stale pages behind — a future CI
-// gate that regenerates and asserts `git diff --exit-code` relies on this.
+// The commands generator writes one markdown reference page for each windsor command.
+// It provides the `gendocs commands` subcommand, which reads the command tree from cmd.RootCmd().
+// It deletes the output directory before each run, so a renamed or removed command leaves no old page.
 
 package main
 
@@ -15,6 +13,11 @@ import (
 	"github.com/windsorcli/cli/internal/werror"
 )
 
+// =============================================================================
+// Constructor
+// =============================================================================
+
+// commandsCmd returns the `gendocs commands` subcommand. The --out flag sets the output directory.
 func commandsCmd() *cobra.Command {
 	var outDir string
 	cmd := &cobra.Command{
@@ -28,6 +31,11 @@ func commandsCmd() *cobra.Command {
 	return cmd
 }
 
+// =============================================================================
+// Private Methods
+// =============================================================================
+
+// generateCommands deletes and creates outDir, then writes a page for each visible command.
 func generateCommands(outDir string) error {
 	if err := os.RemoveAll(outDir); err != nil {
 		return werror.Wrap(err, "clear output dir")
@@ -39,9 +47,9 @@ func generateCommands(outDir string) error {
 	return emitTree(cliCmd.RootCmd(), outDir)
 }
 
-// emitTree walks the command tree, writing one file per visible command. The
-// root cobra command (`windsor` itself) is skipped — the site renders its own
-// index from the file listing rather than relying on a generated index page.
+// emitTree writes one file for each visible command in the tree of cmd.
+// It skips the root command, because the docs site makes its own index from the file list.
+// It also skips the hidden commands and the help command.
 func emitTree(cmd *cobra.Command, outDir string) error {
 	if !cmd.Hidden && cmd.HasParent() {
 		if err := writeCommandFile(cmd, outDir); err != nil {
@@ -59,6 +67,7 @@ func emitTree(cmd *cobra.Command, outDir string) error {
 	return nil
 }
 
+// writeCommandFile renders the page for cmd into a file in outDir.
 func writeCommandFile(cmd *cobra.Command, outDir string) error {
 	path := filepath.Join(outDir, commandFilename(cmd))
 	// #nosec G304 - outDir is operator-supplied via --out; filename derives from package-controlled cobra command names

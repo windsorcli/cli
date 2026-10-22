@@ -1,18 +1,10 @@
-// schema.go emits docs/reference/<name>.md from JSON Schema files under
-// pkg/runtime/config/schemas/. The schema is the single source of truth for
-// the artifact's shape (windsor.yaml, metadata.yaml, blueprint.yaml, etc.);
-// the walker renders frontmatter, an intro from the top-level description, a
-// field table per object schema, nested-object subsections, an optional
-// Example block from the schema's examples array, and a See also section
-// sourced from an optional '<name>.seealso.md' sidecar file alongside the
-// schema. The page title lives in frontmatter only; no body H1 repeats it.
-// The sidecar pattern keeps schemas pure JSON Schema (no vendor extensions)
-// while still letting authors curate cross-links per page.
+// The schema generator writes a markdown reference page for each JSON Schema file in a directory.
+// It provides the `gendocs schema` subcommand, which writes docs/reference/<name>.md for each <name>.yaml.
+// A page has frontmatter, the schema description, the field tables, the examples and a See also section.
+// An optional <name>.seealso.md file next to the schema holds the See also links, so the schema needs no vendor extensions.
 //
-// Supported schema features: object (with properties + required), array (with
-// items.type), string/integer/boolean/number primitives, enum, default,
-// description. Anything fancier (oneOf, allOf, refs) is rendered as a best-
-// effort "object" row; extend the walker when a real schema needs it.
+// The renderer supports objects, arrays, maps, the primitive types, enum, default, description and local $ref values.
+// It does not support oneOf or allOf. A property without a type shows as "any".
 
 package main
 
@@ -30,8 +22,30 @@ import (
 	"github.com/windsorcli/cli/internal/werror"
 )
 
+// =============================================================================
+// Constants
+// =============================================================================
+
+// schemaSourceURLPrefix is the GitHub URL prefix for the source schema link.
 const schemaSourceURLPrefix = "https://github.com/windsorcli/cli/blob/main/"
 
+// =============================================================================
+// Types
+// =============================================================================
+
+// nestedSection is a nested schema that writeSchemaFields renders as a subsection, with its heading label.
+type nestedSection struct {
+	label  string
+	schema map[string]any
+}
+
+// =============================================================================
+// Constructor
+// =============================================================================
+
+// schemaCmd returns the `gendocs schema` subcommand. The --in flag sets the schema directory and --out sets the output directory.
+// The default input is schemas/artifacts/, not schemas/, because the runtime validator embeds schemas/*.yaml.
+// An artifact schema in schemas/ would add its fields to the windsor.yaml validation and reject valid configs.
 func schemaCmd() *cobra.Command {
 	var outDir, schemaDir string
 	cmd := &cobra.Command{
@@ -41,22 +55,18 @@ func schemaCmd() *cobra.Command {
 			return generateSchemaDocs(schemaDir, outDir)
 		},
 	}
-	// Default reads from schemas/artifacts/ — the public-artifact schemas
-	// (metadata.yaml, blueprint.yaml, etc.) live there so they don't collide
-	// with schemas/*.yaml, which is //go:embedded into the windsor.yaml
-	// runtime validator. Embedding an artifact schema there would silently
-	// merge its 'required' / 'properties' into windsor.yaml validation and
-	// reject otherwise-valid configs.
 	cmd.Flags().StringVar(&schemaDir, "in", "pkg/runtime/config/schemas/artifacts", "directory of *.yaml schemas to read")
 	cmd.Flags().StringVar(&outDir, "out", "docs/reference", "directory to write *.md output into")
 	return cmd
 }
 
-// generateSchemaDocs walks schemaDir for *.yaml files and emits one .md file
-// per schema into outDir (filename derived by stripping the .yaml extension).
-// Unlike the commands generator this does NOT wipe outDir — schema pages
-// coexist with other reference content (commands/, contexts.md, etc.) that
-// the commands generator and human authors maintain.
+// =============================================================================
+// Private Methods
+// =============================================================================
+
+// generateSchemaDocs writes one page into outDir for each *.yaml file in schemaDir.
+// It reads the See also text from <name>.seealso.md next to each schema, when that file exists.
+// It does not delete outDir, because other reference pages, such as commands/ and contexts.md, are also in it.
 func generateSchemaDocs(schemaDir, outDir string) error {
 	entries, err := os.ReadDir(schemaDir)
 	if err != nil {
@@ -78,8 +88,6 @@ func generateSchemaDocs(schemaDir, outDir string) error {
 		schemaPath := filepath.Join(schemaDir, name)
 		base := strings.TrimSuffix(name, ".yaml")
 		outPath := filepath.Join(outDir, base+".md")
-		// Sidecar prose lives alongside the schema as '<name>.seealso.md'.
-		// Empty string when absent — renderSchema treats that as "no See also".
 		seealsoPath := filepath.Join(schemaDir, base+".seealso.md")
 		if err := writeSchemaFile(schemaPath, outPath, seealsoPath); err != nil {
 			return werror.Wrap(err, "emit %s", schemaPath)
@@ -88,6 +96,9 @@ func generateSchemaDocs(schemaDir, outDir string) error {
 	return nil
 }
 
+// writeSchemaFile reads the schema at schemaPath and writes its page to outPath.
+// It parses the examples a second time as yaml.MapSlice, because a map loses the field order of the author.
+// It reads the sidecar at seealsoPath when the file exists.
 func writeSchemaFile(schemaPath, outPath, seealsoPath string) error {
 	raw, err := os.ReadFile(schemaPath) // #nosec G304 - schemaPath is operator-supplied via --in; filename derives from the directory listing
 	if err != nil {
@@ -97,11 +108,6 @@ func writeSchemaFile(schemaPath, outPath, seealsoPath string) error {
 	if err := yaml.Unmarshal(raw, &schema); err != nil {
 		return werror.Wrap(err, "parse %s", schemaPath)
 	}
-	// Re-parse the examples block as yaml.MapSlice so each example renders in
-	// author-defined field order. The plain map[string]any unmarshal above
-	// loses insertion order, which would alphabetize fields in the rendered
-	// YAML block — confusing for readers comparing the example to a real
-	// metadata.yaml they've authored.
 	var ordered struct {
 		Examples []yaml.MapSlice `yaml:"examples"`
 	}
@@ -134,13 +140,9 @@ func writeSchemaFile(schemaPath, outPath, seealsoPath string) error {
 	return nil
 }
 
-// renderSchema produces the per-page markdown. Mirrors the structure used by
-// the cobra renderer (frontmatter → prose → tables → example → see also) so
-// the docs site presents schema and command pages consistently. The page
-// title lives in frontmatter only; no body H1 repeats it. examples is the
-// ordered (MapSlice) re-parse of the schema's examples array so each example
-// renders in author-defined field order; seealso is the raw markdown body of
-// the per-schema sidecar file (empty when absent).
+// renderSchema writes the page for schema to w, in the same section order as a command page.
+// examples keeps the field order of the author, and seealso is the text of the sidecar file or empty.
+// It passes the root schema to each recursion, so local $ref values resolve without a second read of the file.
 func renderSchema(w io.Writer, schema map[string]any, examples []yaml.MapSlice, sourcePath, seealso string) error {
 	ew := &errWriter{w: w}
 
@@ -157,15 +159,13 @@ func renderSchema(w io.Writer, schema map[string]any, examples []yaml.MapSlice, 
 		fmt.Fprintln(ew)
 	}
 
-	// The root schema is passed through every recursion so writeSchemaFields
-	// can resolve local '$ref: #/$defs/<name>' lookups without re-reading the
-	// source file.
 	writeSchemaFields(ew, schema, "", schema)
 	writeSchemaExamples(ew, examples)
 	writeSchemaSeeAlso(ew, seealso, sourcePath)
 	return ew.err
 }
 
+// writeSchemaFrontmatter writes the frontmatter of a schema page with title and description.
 func writeSchemaFrontmatter(w io.Writer, title, description string) {
 	fmt.Fprintln(w, "---")
 	fmt.Fprintf(w, "title: %q\n", title)
@@ -175,13 +175,10 @@ func writeSchemaFrontmatter(w io.Writer, title, description string) {
 	fmt.Fprintln(w, "---")
 }
 
-// writeSchemaFields renders the top-level field table for an object schema,
-// then recurses into nested object properties and array<object> items as
-// subsections. headingPath tracks the breadcrumb so nested headings read like
-// "## repository" rather than just "## (object)"; array<object> subsections
-// get a trailing "[]" so it's clear the fields describe each item rather than
-// the array itself. root is the document root, passed through so local
-// '$ref: #/$defs/<name>' references resolve at any depth.
+// writeSchemaFields writes the field table of an object schema, then a subsection for each nested object.
+// headingPath is the path of the subsection, such as "repository". An array of objects adds "[]" and a map of objects adds "{}".
+// The top-level table and the first nested level use ##. Each "." in headingPath adds one #, up to ####.
+// root is the document root, so local $ref values resolve at each depth.
 func writeSchemaFields(w io.Writer, schema map[string]any, headingPath string, root map[string]any) {
 	schema = resolveRef(schema, root)
 	if typeOf(schema) != "object" {
@@ -197,10 +194,6 @@ func writeSchemaFields(w io.Writer, schema map[string]any, headingPath string, r
 	if headingPath != "" {
 		heading = headingPath
 	}
-	// Heading depth tracks nesting: top-level Fields and first-tier objects
-	// both render as ## (consistent with the cobra renderer's section style);
-	// every additional '.' in headingPath adds one #, capped at #### so a
-	// pathologically nested schema does not blow past readable hierarchy.
 	depth := strings.Count(headingPath, ".") + 2
 	if depth > 4 {
 		depth = 4
@@ -230,15 +223,10 @@ func writeSchemaFields(w io.Writer, schema map[string]any, headingPath string, r
 	}
 }
 
-// nestedSchemaFor returns the schema to recurse into (and its heading label)
-// when a property warrants a subsection. Object schemas with properties
-// recurse directly; array<object> schemas recurse into items with a "[]"
-// suffix on the label so the reader can tell the field table describes each
-// item rather than the array itself; map<object> schemas
-// (additionalProperties pointing at an object schema) recurse into the value
-// schema with a "{}" suffix on the label, parallel to the array convention.
-// Returns nil when no subsection should be emitted (primitive, array of
-// primitives, empty object).
+// nestedSchemaFor returns the schema and heading label of the subsection for a property.
+// An object with properties gives its own schema. An array of objects gives its items, with "[]" after the label.
+// A map of objects gives its value schema, with "{}" after the label.
+// It returns nil for a primitive, an array of primitives or an empty object.
 func nestedSchemaFor(propSchema map[string]any, name, headingPath string, root map[string]any) (map[string]any, string) {
 	base := name
 	if headingPath != "" {
@@ -248,8 +236,6 @@ func nestedSchemaFor(propSchema map[string]any, name, headingPath string, root m
 		if hasProperties(propSchema) {
 			return propSchema, base
 		}
-		// Map-of-object: surface the value schema as a "{}"-suffixed
-		// subsection so readers see the per-value field table.
 		if addProps, ok := propSchema["additionalProperties"].(map[string]any); ok {
 			addProps = resolveRef(addProps, root)
 			if typeOf(addProps) == "object" && hasProperties(addProps) {
@@ -270,12 +256,9 @@ func nestedSchemaFor(propSchema map[string]any, name, headingPath string, root m
 	return nil, ""
 }
 
-// resolveRef looks up '$ref: #/$defs/<name>' against root and returns the
-// referenced schema merged with any sibling fields on the original (description,
-// etc. — JSON Schema 2020-12 allows siblings to $ref). Returns the input
-// schema unchanged when no local $ref is present or the lookup fails. Only
-// handles the local '#/$defs/<name>' form; external/remote refs aren't
-// supported because our schemas don't use them.
+// resolveRef returns the schema that a local '$ref: #/$defs/<name>' points to, merged with the other fields of schema.
+// JSON Schema 2020-12 allows fields such as description next to $ref.
+// It returns schema unchanged when there is no local $ref or the lookup fails. It does not support remote refs.
 func resolveRef(schema, root map[string]any) map[string]any {
 	if schema == nil {
 		return nil
@@ -305,25 +288,15 @@ func resolveRef(schema, root map[string]any) map[string]any {
 	return merged
 }
 
-type nestedSection struct {
-	label  string
-	schema map[string]any
-}
-
-// schemaFieldRow renders one row of the field table. The Type column uses
-// 'array<string>' for typed arrays, the bare type name otherwise. Required
-// fields get a bold "**(required)**" suffix in Description; defaults get
-// "Default: `<value>`"; enums get "One of: `a`, `b`, `c`". root is the
-// document root, used to resolve '$ref' on array items so the Type column
-// reads 'array<object>' rather than 'array<>' when items use a local ref.
+// schemaFieldRow returns one row of the field table.
+// The Type column shows "array<type>" for an array and "map<type>" for an object with an additionalProperties schema.
+// It shows "any" when the schema has no type, because JSON Schema then accepts any value.
+// The Description column adds the enum values, the default and "**(required)**".
+// It leaves out an enum with one value, because the description already names that value.
+// root is the document root, so a local $ref on the items or the values resolves.
 func schemaFieldRow(name string, propSchema map[string]any, required bool, root map[string]any) string {
 	typeName := typeOf(propSchema)
 	if typeName == "" {
-		// JSON Schema permits omitting 'type' to mean "any value" (scalar,
-		// list, map, etc. — used for fields like ConfigBlock.value where
-		// the body is intentionally polymorphic). Rendering this as 'any'
-		// keeps the type column readable rather than emitting an empty
-		// backtick cell.
 		typeName = "any"
 	}
 	if typeName == "array" {
@@ -335,12 +308,6 @@ func schemaFieldRow(name string, propSchema map[string]any, required bool, root 
 		}
 	}
 	if typeName == "object" {
-		// 'object' with a schema-shaped 'additionalProperties' is JSON
-		// Schema's idiomatic 'map<K, V>': any string key, value matches the
-		// nested schema. Surface this in the type column as 'map<valueType>'
-		// (parallel to 'array<itemType>') so readers can distinguish a fixed-
-		// shape object from a map. Plain bool 'additionalProperties' (open or
-		// closed) keeps the bare 'object' label.
 		if addProps, ok := propSchema["additionalProperties"].(map[string]any); ok {
 			addProps = resolveRef(addProps, root)
 			if valType := typeOf(addProps); valType != "" {
@@ -350,11 +317,6 @@ func schemaFieldRow(name string, propSchema map[string]any, required bool, root 
 	}
 	desc := collapseWhitespace(stringField(propSchema, "description"))
 	if enum, ok := propSchema["enum"].([]any); ok && len(enum) > 1 {
-		// Single-value enums are effectively constants — the field's description
-		// already names the required value (e.g. "Must be 'Blueprint'"), so the
-		// extra "One of: `Blueprint`." reads as redundant noise. Two-or-more
-		// values still get the listing since the description usually can't
-		// enumerate them all inline.
 		desc = appendSentence(desc, "One of: "+formatEnum(enum)+".")
 	}
 	if def, ok := propSchema["default"]; ok {
@@ -366,15 +328,8 @@ func schemaFieldRow(name string, propSchema map[string]any, required bool, root 
 	return fmt.Sprintf("| `%s` | `%s` | %s |", name, typeName, escapePipes(desc))
 }
 
-// writeSchemaExamples renders the schema's top-level 'examples' array as a
-// fenced yaml code block. Each example is a yaml.MapSlice so author-defined
-// field order survives the round-trip and the rendered YAML matches the
-// source-of-truth format operators write.
-//
-// MarshalWithOptions(IndentSequence(true)) makes sequence items indent two
-// spaces beneath their parent key — without it, '- item' lands at the same
-// column as sibling mapping keys, which strict YAML 1.2 parsers may reject
-// (or read as a sibling key rather than a list value).
+// writeSchemaExamples writes each example of the schema in a yaml code block, in the field order of the author.
+// It indents sequence items under their parent key, because a strict YAML 1.2 parser can reject them without the indent.
 func writeSchemaExamples(w io.Writer, examples []yaml.MapSlice) {
 	if len(examples) == 0 {
 		return
@@ -393,10 +348,8 @@ func writeSchemaExamples(w io.Writer, examples []yaml.MapSlice) {
 	}
 }
 
-// writeSchemaSeeAlso emits the See also section. seealso is the raw markdown
-// body of the sidecar (already formatted as bullets); we append the Source
-// schema link as an additional bullet so every schema page links back to its
-// authoritative source file. Skipped entirely when both inputs are empty.
+// writeSchemaSeeAlso writes the See also section from the sidecar text and a link to the source schema.
+// It writes nothing when both are empty.
 func writeSchemaSeeAlso(w io.Writer, seealso, sourcePath string) {
 	seealso = strings.TrimRight(seealso, "\n")
 	if seealso == "" && sourcePath == "" {
@@ -412,11 +365,12 @@ func writeSchemaSeeAlso(w io.Writer, seealso, sourcePath string) {
 	}
 }
 
-// summarize returns a single-line description for frontmatter use. It collapses
-// internal whitespace (block-scalar newlines and runs of spaces) into single
-// spaces, then truncates at the first sentence boundary (period followed by
-// space or end-of-string) so the SEO summary stays compact without losing
-// mid-sentence content the way firstLine() would.
+// =============================================================================
+// Helpers
+// =============================================================================
+
+// summarize returns the first sentence of s on one line, for the frontmatter description.
+// It changes each run of whitespace to one space before it finds the end of the sentence.
 func summarize(s string) string {
 	s = collapseWhitespace(s)
 	if s == "" {
@@ -428,24 +382,15 @@ func summarize(s string) string {
 	return s
 }
 
-// collapseWhitespace turns every run of whitespace (including newlines from
-// YAML block scalars) into a single space. Used so multi-line description
-// strings can render in a single-cell markdown table row without breaking the
-// table layout, and so frontmatter strings stay on one line.
+// collapseWhitespace changes each run of whitespace in s, including newlines, to one space.
+// A multi-line description can then go in one table cell or on one frontmatter line.
 func collapseWhitespace(s string) string {
 	return strings.Join(strings.Fields(s), " ")
 }
 
-// =============================================================================
-// helpers
-// =============================================================================
-
-// typeOf returns the JSON Schema 'type' as a display string. Supports both the
-// single-type form ('type: string') and the JSON Schema 2020-12 array-of-types
-// form ('type: [boolean, string]'), which authors use when a field legitimately
-// accepts more than one shape (e.g. a literal or an expression). The array
-// form is joined with ' / ' rather than the conventional pipe so the result
-// doesn't break markdown table rendering downstream.
+// typeOf returns the JSON Schema type as display text.
+// It accepts one type, or a list of types such as [boolean, string], which it joins with " / ".
+// It does not use a pipe, because a pipe breaks the markdown table.
 func typeOf(schema map[string]any) string {
 	switch t := schema["type"].(type) {
 	case string:
@@ -462,11 +407,13 @@ func typeOf(schema map[string]any) string {
 	return ""
 }
 
+// hasProperties reports whether schema has at least one property.
 func hasProperties(schema map[string]any) bool {
 	props, ok := schema["properties"].(map[string]any)
 	return ok && len(props) > 0
 }
 
+// requiredSet returns the names in the required field of schema as a set.
 func requiredSet(schema map[string]any) map[string]bool {
 	out := map[string]bool{}
 	req, ok := schema["required"].([]any)
@@ -481,12 +428,8 @@ func requiredSet(schema map[string]any) map[string]bool {
 	return out
 }
 
-// propertyNames returns property keys in the order operators expect: required
-// fields first (in the order they appear in the schema's 'required' array),
-// then the rest alphabetically. JSON Schema does not preserve property
-// insertion order after yaml.Unmarshal, so sorting is the only stable choice
-// for optional fields; required-first matches the convention from the hand-
-// written reference set and puts the must-set fields at the top of every table.
+// propertyNames returns the property names with the required names first, in the order of the required field.
+// It sorts the other names, because yaml.Unmarshal does not keep the order of the properties.
 func propertyNames(props map[string]any, requiredOrder []string) []string {
 	seen := map[string]bool{}
 	out := make([]string, 0, len(props))
@@ -506,9 +449,7 @@ func propertyNames(props map[string]any, requiredOrder []string) []string {
 	return append(out, rest...)
 }
 
-// requiredList returns the 'required' field as a string slice in the order it
-// appears in the schema. Used to seed propertyNames so required-first ordering
-// matches author intent.
+// requiredList returns the names in the required field of schema, in their order.
 func requiredList(schema map[string]any) []string {
 	req, ok := schema["required"].([]any)
 	if !ok {
@@ -523,11 +464,13 @@ func requiredList(schema map[string]any) []string {
 	return out
 }
 
+// stringField returns the string value of key in m, or an empty string.
 func stringField(m map[string]any, key string) string {
 	s, _ := m[key].(string)
 	return s
 }
 
+// formatEnum returns the enum values as a list of code spans, separated by commas.
 func formatEnum(values []any) string {
 	parts := make([]string, 0, len(values))
 	for _, v := range values {
@@ -536,6 +479,7 @@ func formatEnum(values []any) string {
 	return strings.Join(parts, ", ")
 }
 
+// appendSentence adds extra to desc as a new sentence, and adds a period to desc when it has none.
 func appendSentence(desc, extra string) string {
 	desc = strings.TrimSpace(desc)
 	if desc == "" {

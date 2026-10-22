@@ -1,14 +1,8 @@
-// gendocs generates the published reference documentation for the windsor CLI
-// by introspecting source-of-truth artifacts (cobra command tree, schemas,
-// env-var registry) and emitting markdown under docs/reference/.
-//
-// Subcommands map 1:1 to reference-page categories:
-//
-//	commands  cobra → docs/reference/commands/
-//	schema    pkg/runtime/config/schemas/*.yaml → docs/reference/<name>.md
-//
-// Future subcommands (env, contexts) follow the same pattern: one file
-// per generator, one entry under main(), one Taskfile target.
+// The gendocs command generates the reference documentation of the Windsor CLI.
+// It provides one subcommand for each type of reference page, and writes markdown under docs/reference/.
+// The commands subcommand reads the cobra command tree and writes docs/reference/commands/.
+// The schema subcommand reads the schemas in pkg/runtime/config/schemas/artifacts/ and writes docs/reference/<name>.md.
+// To add a generator, add one file, one AddCommand call in main and one Taskfile target.
 
 package main
 
@@ -19,6 +13,7 @@ import (
 	"github.com/spf13/cobra"
 )
 
+// main runs the gendocs root command, and exits with status 1 when the command fails.
 func main() {
 	root := &cobra.Command{
 		Use:   "gendocs",
