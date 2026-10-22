@@ -1,7 +1,6 @@
-// The GitRemoteURLNormalizer is a URL normalization utility for git remotes.
-// It provides shared normalization behavior for scp-style SSH remotes and schemed URLs,
-// The normalizer ensures consistent remote URL handling across runtime consumers,
-// preserving valid explicit schemes while defaulting bare remotes to HTTPS.
+// The git package normalizes the URLs of git remotes.
+// It provides functions for scp-style SSH remotes and for URLs that have a scheme.
+// It keeps a valid scheme, and it adds https:// to a remote that has no scheme.
 
 package git
 
@@ -14,10 +13,9 @@ import (
 // Public Methods
 // =============================================================================
 
-// NormalizeRemoteURL normalizes a git remote URL into an explicit transport URL.
-// It converts scp-style SSH remotes (git@host:path) to ssh://git@host/path. If no valid
-// URI scheme is present, it prefixes the URL with https://. URLs with explicit valid schemes
-// are preserved unchanged.
+// NormalizeRemoteURL returns a git remote URL with an explicit scheme.
+// It changes an scp-style remote, git@host:path, to ssh://git@host/path.
+// It adds https:// to a URL that has no valid scheme, and it keeps a URL that has one.
 func NormalizeRemoteURL(value string) string {
 	normalized := strings.TrimSpace(value)
 	if strings.HasPrefix(normalized, "git@") && strings.Contains(normalized, ":") {
@@ -29,11 +27,9 @@ func NormalizeRemoteURL(value string) string {
 	return "https://" + normalized
 }
 
-// NormalizeRepositoryURL normalizes a git remote URL for blueprint repository metadata.
-// It returns host/path form (for example github.com/org/repo) when host and path can
-// be derived from the input. It strips protocol, user info, leading/trailing slashes,
-// and a trailing .git suffix from the path. If host/path cannot be derived, it falls
-// back to NormalizeRemoteURL.
+// NormalizeRepositoryURL returns a git remote URL in host/path form, such as github.com/org/repo.
+// It removes the scheme, the user, the slashes at each end and a .git suffix.
+// When it cannot find a host and a path, it returns the result of NormalizeRemoteURL.
 func NormalizeRepositoryURL(value string) string {
 	normalized := strings.TrimSpace(value)
 	if normalized == "" {

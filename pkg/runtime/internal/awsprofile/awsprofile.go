@@ -1,8 +1,8 @@
-// Package awsprofile checks whether a named AWS profile is defined in either a
-// context-scoped .aws/ directory or the operator's ambient AWS config. Callers
-// use the result to decide whether emitting AWS_PROFILE is safe — pinning a
-// profile that doesn't exist in the file the SDK will read causes a hard
-// "profile not found" error that masks ambient env-var or IMDS credentials.
+// The awsprofile package finds the AWS profiles in the .aws directory of a context or in the ambient AWS config.
+// It provides a Resolver that checks for a profile and lists the profiles that are defined.
+// Callers use it to decide whether to set AWS_PROFILE.
+// If AWS_PROFILE names a profile that the SDK cannot find, the SDK fails and ignores the other credentials.
+
 package awsprofile
 
 import (
@@ -16,14 +16,14 @@ import (
 	"golang.org/x/term"
 )
 
-// Resolver carries the AWS config and credentials file paths a single profile
-// lookup should read against. Construct via ForContext or Ambient.
+// Resolver holds the paths of the AWS config file and credentials file that a lookup reads.
+// Use ForContext or Ambient to make one.
 type Resolver struct {
 	configPath, credentialsPath string
 }
 
-// ForContext scopes lookups to <configRoot>/.aws/config and .aws/credentials.
-// Used in project mode where windsor owns the context's .aws/ directory.
+// ForContext returns a Resolver that reads <configRoot>/.aws/config and <configRoot>/.aws/credentials.
+// Project mode uses it, because windsor owns the .aws directory of the context.
 func ForContext(configRoot string) Resolver {
 	awsDir := filepath.Join(configRoot, ".aws")
 	return Resolver{
@@ -32,11 +32,9 @@ func ForContext(configRoot string) Resolver {
 	}
 }
 
-// Ambient resolves to the file paths the AWS SDK reads when windsor does not
-// redirect them — AWS_CONFIG_FILE / AWS_SHARED_CREDENTIALS_FILE if the operator
-// set them, else ~/.aws/config and ~/.aws/credentials. Any path that cannot be
-// resolved (no env override and no home dir) stays empty — HasProfile treats
-// empty paths as "no match".
+// Ambient returns a Resolver for the files that the AWS SDK reads when windsor does not set them.
+// It uses AWS_CONFIG_FILE and AWS_SHARED_CREDENTIALS_FILE when they are set, and the files in ~/.aws when they are not.
+// A path stays empty when it has no variable and there is no home directory. An empty path matches no profile.
 func Ambient() Resolver {
 	configPath := os.Getenv("AWS_CONFIG_FILE")
 	credentialsPath := os.Getenv("AWS_SHARED_CREDENTIALS_FILE")
@@ -53,11 +51,10 @@ func Ambient() Resolver {
 	return Resolver{configPath: configPath, credentialsPath: credentialsPath}
 }
 
-// HasProfile reports whether the named profile is defined in either of the
-// resolver's files. The AWS SDK treats a profile found in either file as
-// satisfying the lookup, so a single match is enough. Section headers are
-// expected as "[profile <name>]" in the config file (or "[default]" for the
-// default profile) and "[<name>]" in the credentials file.
+// HasProfile reports whether the named profile is in the config file or the credentials file.
+// The AWS SDK accepts a profile from either file, so one match is sufficient.
+// The config file uses "[profile <name>]", or "[default]" for the default profile.
+// The credentials file uses "[<name>]".
 func (r Resolver) HasProfile(name string) bool {
 	configHeader := "[profile " + name + "]"
 	if name == "default" {
@@ -69,12 +66,10 @@ func (r Resolver) HasProfile(name string) bool {
 	return iniContainsSection(r.credentialsPath, "["+name+"]")
 }
 
-// ListProfileNames returns every profile name defined across the resolver's config and
-// credentials files, deduplicated, in the order first encountered (config file scanned before
-// credentials). Used for diagnostics when an expected profile isn't found, so the caller can
-// name what's actually configured instead of just "not found" — e.g. a bare `aws configure sso`
-// (without --profile) names the profile after the SSO role/account rather than the windsor
-// context, which HasProfile alone can't distinguish from "nothing configured at all."
+// ListProfileNames returns each profile name in the config file and the credentials file, without duplicates.
+// It reads the config file first and keeps the order in which it finds the names.
+// When a profile is missing, the caller uses this list to tell the user which profiles exist.
+// For example, `aws configure sso` without --profile names the profile after the SSO role, not the context.
 func (r Resolver) ListProfileNames() []string {
 	seen := make(map[string]bool)
 	var names []string
@@ -93,10 +88,9 @@ func (r Resolver) ListProfileNames() []string {
 	return names
 }
 
-// WarnOnProfileMismatch writes a non-fatal warning to w when expected is not defined in r's
-// files but at least one other profile is — the "configured under the wrong name" case HasProfile
-// alone can't distinguish from "nothing configured yet." Silent when expected is present (nothing
-// to warn about) or when no profile is defined at all (unconfigured, not mismatched).
+// WarnOnProfileMismatch writes a warning to w when expected is missing but a different profile is defined.
+// This tells the user that the profile probably has the wrong name.
+// It writes nothing when expected is defined, or when no profile is defined.
 func WarnOnProfileMismatch(w io.Writer, r Resolver, expected string) {
 	if r.HasProfile(expected) {
 		return
@@ -113,11 +107,9 @@ func WarnOnProfileMismatch(w io.Writer, r Resolver, expected string) {
 	fmt.Fprintln(w, msg)
 }
 
-// shouldColorize reports whether w is safe to color: NO_COLOR is unset (its mere presence, any
-// value, opts out per the spec) and w is a terminal file descriptor. A non-terminal writer —
-// a pipe, a redirected log file, or any io.Writer that isn't *os.File at all (e.g. a test's
-// bytes.Buffer) — never gets raw ANSI escapes, so captured/piped `windsor env` output stays
-// clean instead of showing literal \033[33m garbage.
+// shouldColorize reports whether to add color to the output of w.
+// It returns true only when NO_COLOR is not set, with any value, and w is a terminal.
+// A pipe, a log file or a buffer gets no ANSI escapes, so the captured output of `windsor env` stays clean.
 func shouldColorize(w io.Writer) bool {
 	if _, present := os.LookupEnv("NO_COLOR"); present {
 		return false
@@ -129,10 +121,10 @@ func shouldColorize(w io.Writer) bool {
 	return term.IsTerminal(int(f.Fd())) // #nosec G115 -- file descriptors are small, safe to cast to int
 }
 
-// profileNamesInFile scans path for INI section headers and returns the profile name each one
-// names. isConfigFile selects the config file's "[profile <name>]" / "[default]" header shape;
-// the credentials file uses a bare "[<name>]" for every profile including default. Returns nil
-// for a missing or unreadable file, matching iniContainsSection's tolerance.
+// profileNamesInFile returns the profile name of each INI section header in the file at path.
+// When isConfigFile is true, it reads "[profile <name>]" and "[default]" headers.
+// When it is false, it reads "[<name>]" headers, which the credentials file uses for all profiles.
+// It returns nil when it cannot read the file.
 func profileNamesInFile(path string, isConfigFile bool) []string {
 	if path == "" {
 		return nil
@@ -171,10 +163,9 @@ func profileNamesInFile(path string, isConfigFile bool) []string {
 	return names
 }
 
-// iniContainsSection scans the file at path for a line whose trimmed contents
-// match section exactly, stripping any trailing "#" or ";" inline comment
-// before the comparison. Returns false on any read error so a missing or
-// unreadable file is treated as "no section present" rather than fatal.
+// iniContainsSection reports whether the file at path has a line that is equal to section.
+// Before it compares, it removes a "#" or ";" comment and the surrounding spaces from each line.
+// It returns false when it cannot read the file.
 func iniContainsSection(path, section string) bool {
 	if path == "" {
 		return false

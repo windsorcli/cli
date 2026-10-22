@@ -1,21 +1,20 @@
+// The constants package holds the default values of the Windsor CLI.
+// It provides the default settings, timeouts, image versions and resource values.
+// It also holds the build values that the release build sets with ldflags.
+
 package constants
 
 import "time"
 
-// Version is the CLI version, set at build time via ldflags
+// Version is the CLI version. The build sets it with ldflags.
 var Version = "dev"
 
-// CommitSHA is the git commit SHA, set at build time via ldflags
+// CommitSHA is the git commit SHA. The build sets it with ldflags.
 var CommitSHA = "none"
 
-// BuildDate is the RFC 3339 build timestamp, set at build time via ldflags
-// (goreleaser's `{{ .Date }}` template). Unset in `go build` / `go install`.
+// BuildDate is the build time in RFC 3339 format. goreleaser sets it with ldflags.
+// It keeps its default value after `go build` or `go install`.
 var BuildDate = "unknown"
-
-// The Constants package provides centralized default values and configuration constants
-// It provides shared constants for default settings, timeouts, versions, and resource configurations
-// The Constants package serves as a single source of truth for default values across the application
-// enabling consistent behavior and easy maintenance of configuration defaults
 
 // =============================================================================
 // Constants
@@ -117,10 +116,9 @@ const DefaultFluxPrimaryRepositoryInterval = 1 * time.Minute
 // depends on it, directly or transitively.
 const DefaultFluxPrimaryKustomizationInterval = 5 * time.Minute
 
-// GitopsMode is accepted by ToFluxKustomization and friends for call-site stability but no
-// longer changes reconciliation cadence: the notifier re-fetches sources on every
-// apply/up/bootstrap regardless of mode, so pull and push need the same backstop cadence.
-// Unknown and empty values resolve to "pull" via ParseGitopsMode.
+// GitopsMode is the gitops mode of a context. ToFluxKustomization accepts it, but it does not change the interval.
+// The notifier fetches the sources again on each apply, up and bootstrap, so pull and push use the same interval.
+// ParseGitopsMode changes an unknown or empty value to "pull".
 type GitopsMode string
 
 const (
@@ -128,9 +126,8 @@ const (
 	GitopsModePush GitopsMode = "push"
 )
 
-// ParseGitopsMode resolves a config string to a GitopsMode, defaulting to
-// "pull" for empty or unrecognised values. Keeps the config surface forgiving
-// so typos fall back to safe behaviour rather than refusing to apply.
+// ParseGitopsMode returns the GitopsMode for a config value.
+// It returns "pull" for an empty or unknown value, so a typo gives the safe mode and not an error.
 func ParseGitopsMode(s string) GitopsMode {
 	if GitopsMode(s) == GitopsModePush {
 		return GitopsModePush
@@ -139,10 +136,8 @@ func ParseGitopsMode(s string) GitopsMode {
 }
 
 // FluxKustomizationInterval returns the default reconciliation interval for a Kustomization.
-// isPrimarySource is true when the Kustomization resolves, explicitly or by falling back to
-// the blueprint's default source, to the blueprint's own repository rather than a named vendor
-// source (see DefaultFluxPrimaryKustomizationInterval). Blueprint-level Interval overrides take
-// precedence over either default.
+// isPrimarySource is true when the Kustomization uses the repository of the blueprint, not a named vendor source.
+// An Interval in the blueprint overrides both defaults.
 func FluxKustomizationInterval(isPrimarySource bool) time.Duration {
 	if isPrimarySource {
 		return DefaultFluxPrimaryKustomizationInterval
@@ -150,9 +145,8 @@ func FluxKustomizationInterval(isPrimarySource bool) time.Duration {
 	return DefaultFluxKustomizationInterval
 }
 
-// FluxSourceInterval returns the default reconciliation interval for a flux Source
-// (GitRepository / OCIRepository). isPrimary is true for the blueprint's own repository (the
-// top-level "repository:" field); see DefaultFluxPrimaryRepositoryInterval.
+// FluxSourceInterval returns the default reconciliation interval for a GitRepository or OCIRepository.
+// isPrimary is true for the repository in the top-level "repository:" field of the blueprint.
 func FluxSourceInterval(isPrimary bool) time.Duration {
 	if isPrimary {
 		return DefaultFluxPrimaryRepositoryInterval
