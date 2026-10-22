@@ -11,6 +11,8 @@ import (
 
 	"github.com/fluxcd/pkg/apis/kustomize"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+
+	"github.com/windsorcli/cli/internal/werror"
 )
 
 // =============================================================================
@@ -60,7 +62,7 @@ func (d *DurationString) UnmarshalYAML(unmarshal func(any) error) error {
 		}
 		dur, err := time.ParseDuration(s)
 		if err != nil {
-			return fmt.Errorf("invalid duration %q: %w", s, err)
+			return werror.Wrap(err, "invalid duration %q", s)
 		}
 		d.Duration = dur
 		return nil
@@ -77,7 +79,7 @@ func (d *DurationString) UnmarshalYAML(unmarshal func(any) error) error {
 		}
 		dur, err := time.ParseDuration(durationStr)
 		if err != nil {
-			return fmt.Errorf("invalid duration %q: %w", durationStr, err)
+			return werror.Wrap(err, "invalid duration %q", durationStr)
 		}
 		d.Duration = dur
 		return nil

@@ -1171,6 +1171,40 @@ timeout:
 			t.Errorf("Expected Timeout duration 10m, got %v", k.Timeout.Duration)
 		}
 	})
+
+	t.Run("RejectsInvalidDurationString", func(t *testing.T) {
+		// Given a kustomization with an interval that is not a duration
+		yamlData := []byte("name: test\ninterval: soon\n")
+
+		// When the kustomization is unmarshalled
+		var k Kustomization
+		err := yaml.Unmarshal(yamlData, &k)
+
+		// Then the error names the invalid duration
+		if err == nil {
+			t.Fatal("Expected an error, got nil")
+		}
+		if !strings.Contains(err.Error(), `invalid duration "soon"`) {
+			t.Errorf("Expected error to name the invalid duration, got %q", err.Error())
+		}
+	})
+
+	t.Run("RejectsInvalidDurationObject", func(t *testing.T) {
+		// Given a kustomization with an interval object that is not a duration
+		yamlData := []byte("name: test\ninterval:\n  duration: soon\n")
+
+		// When the kustomization is unmarshalled
+		var k Kustomization
+		err := yaml.Unmarshal(yamlData, &k)
+
+		// Then the error names the invalid duration
+		if err == nil {
+			t.Fatal("Expected an error, got nil")
+		}
+		if !strings.Contains(err.Error(), `invalid duration "soon"`) {
+			t.Errorf("Expected error to name the invalid duration, got %q", err.Error())
+		}
+	})
 }
 
 func TestKustomization_MarshalYAML_OmitsEmptyName(t *testing.T) {
