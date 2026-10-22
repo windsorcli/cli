@@ -35,6 +35,17 @@ var (
 	destroyContinue bool
 )
 
+// destroyCmd destroys every component of the context, or one component in both layers.
+// It requests all tool requirements, because the blueprint decides which layers run.
+// It skips validation, so that a broken setup can still be destroyed.
+// For a full destroy, it does these steps before the confirmation prompt:
+//   - It validates the backend component names.
+//   - It checks the cloud credentials, because the destroy plan needs them.
+//   - For a kubernetes backend, it moves all state to a local backend, so no step uses the backend that the destroy removes.
+//   - It plans the destroy, and stops when it cannot plan a component.
+//
+// For one terraform component, it checks the credentials before the plan.
+// It uses the local state when the cluster of the kubernetes backend is gone. If not, it refuses a backend component before terraform init runs.
 var destroyCmd = &cobra.Command{
 	Use:   "destroy [component]",
 	Short: "Destroy live infrastructure.",
@@ -77,11 +88,6 @@ windsor destroy --confirm=local --continue`,
 		if err := requireContinueScope(args); err != nil {
 			return err
 		}
-		// `destroy` (no args, or with a component name that may live in either layer) can
-		// dispatch to terraform or kustomize destroy paths depending on blueprint contents.
-		// Layer choice is data-driven so requirements can't be statically narrowed; request
-		// AllRequirements() and lean on the per-tool config gates. Skip-validation tolerates a
-		// deployed-but-misordered blueprint so the operator can still tear down a broken setup.
 		proj, err := prepareProjectSkipValidation(cmd, tools.AllRequirements())
 		if err != nil {
 			return err
@@ -90,22 +96,12 @@ windsor destroy --confirm=local --continue`,
 		blueprint := proj.Composer.BlueprintHandler.Generate()
 
 		if len(args) == 0 {
-			// A stale Backend name must surface before the plan and confirmation
-			// prompt, the same way CheckComponentDestroyable does for a targeted
-			// destroy, so the operator never confirms a run that would fail on it.
 			if err := proj.Provisioner.ValidateBackendComponents(blueprint); err != nil {
 				return err
 			}
-			// Auth must precede the plan: terraform plan -destroy and the live
-			// inventory query both need credentials, and a credential failure
-			// should surface before the operator is asked to confirm.
 			if err := requireCloudAuth(cmd, proj); err != nil {
 				return err
 			}
-			// For a kubernetes backend, pull all terraform state to local and pivot the whole teardown to a
-			// local backend up front — before planning — so no step (plan or destroy) dials the kubernetes
-			// backend that this teardown is about to destroy. The "Migrating terraform state" progress line
-			// already signals the migration, so no extra note is printed here.
 			if _, err := proj.Provisioner.PrepareLocalTeardown(cmd.Context(), blueprint); err != nil {
 				return err
 			}
@@ -150,16 +146,10 @@ windsor destroy --confirm=local --continue`,
 			return fmt.Errorf("component %q not found in blueprint", componentID)
 		}
 
-		// Gate auth before plan (for any terraform leg) so credential failures
-		// surface before the prompt rather than between plan and confirm.
 		if inTerraform {
 			if err := requireCloudAuth(cmd, proj); err != nil {
 				return err
 			}
-			// If the kubernetes backend's cluster is gone, operate on the local state a prior teardown
-			// migrated; otherwise refuse a backend component up front, before the plan runs terraform
-			// init against the kubernetes backend — the operator gets the clean "run windsor destroy"
-			// guidance instead of a raw init connection error.
 			if _, err := proj.Provisioner.PivotToLocalIfClusterGone(); err != nil {
 				return err
 			}
@@ -226,6 +216,11 @@ windsor destroy --confirm=local --continue`,
 	},
 }
 
+// destroyTerraformCmd destroys one terraform component, or all of them.
+// It requests only terraform and the secrets tools. It skips validation, so that a broken setup can still be destroyed.
+// For all components, it validates the backend names and moves the state to a local backend before the plan.
+// For one component, it uses the local state when the cluster of the kubernetes backend is gone.
+// If not, it refuses a backend component, because that destroy would orphan the state of the other components.
 var destroyTerraformCmd = &cobra.Command{
 	Use:     "terraform [component]",
 	Aliases: []string{"tf"},
@@ -246,9 +241,6 @@ windsor destroy terraform --confirm=local`,
 		if err := requireContinueScope(args); err != nil {
 			return err
 		}
-		// `destroy terraform` only invokes terraform; kustomize/k8s/docker tools are not used.
-		// Skip-validation tolerates a deployed-but-misordered blueprint so teardown can run
-		// against a setup the validator would otherwise reject.
 		proj, err := prepareProjectSkipValidation(cmd, tools.Requirements{Terraform: true, Secrets: true})
 		if err != nil {
 			return err
@@ -257,17 +249,12 @@ windsor destroy terraform --confirm=local`,
 		blueprint := proj.Composer.BlueprintHandler.Generate()
 
 		if len(args) == 0 {
-			// A stale Backend name must surface before the plan and confirmation
-			// prompt; see the matching check in the top-level destroy command.
 			if err := proj.Provisioner.ValidateBackendComponents(blueprint); err != nil {
 				return err
 			}
 			if err := requireCloudAuth(cmd, proj); err != nil {
 				return err
 			}
-			// Destroying every terraform component: pull state to local and pivot up front, like the full
-			// teardown, so the plan and destroy never dial the kubernetes backend being torn down. The
-			// "Migrating terraform state" progress line already signals the migration.
 			if _, err := proj.Provisioner.PrepareLocalTeardown(cmd.Context(), blueprint); err != nil {
 				return err
 			}
@@ -307,9 +294,6 @@ windsor destroy terraform --confirm=local`,
 		if err := requireCloudAuth(cmd, proj); err != nil {
 			return err
 		}
-		// Targeted destroy: if the kubernetes backend's cluster is gone, operate on the local state a prior
-		// teardown migrated; otherwise refuse a backend component (destroying it while its backend is live
-		// would orphan every other component's state) before the plan surfaces a raw init error.
 		if _, err := proj.Provisioner.PivotToLocalIfClusterGone(); err != nil {
 			return err
 		}
@@ -350,6 +334,9 @@ windsor destroy terraform --confirm=local`,
 	},
 }
 
+// destroyKustomizeCmd deletes one Flux kustomization, or all of them.
+// It requests only the secrets tools and kubelogin, because it uses only the cluster API.
+// It skips validation, so that a broken setup can still be destroyed.
 var destroyKustomizeCmd = &cobra.Command{
 	Use:     "kustomize [name]",
 	Aliases: []string{"k8s"},
@@ -370,8 +357,6 @@ windsor destroy kustomize --confirm=local`,
 		if err := requireContinueScope(args); err != nil {
 			return err
 		}
-		// `destroy kustomize` only talks to the cluster API; terraform/docker tools are not used.
-		// Skip-validation tolerates a deployed-but-misordered blueprint.
 		proj, err := prepareProjectSkipValidation(cmd, tools.Requirements{Secrets: true, Kubelogin: true})
 		if err != nil {
 			return err

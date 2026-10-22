@@ -25,6 +25,13 @@ var (
 	upSetFlags  []string
 )
 
+// upCmd brings up the local workstation environment.
+// It builds the flag overrides with the same rules as init.
+// It requests all tool requirements, because up starts the container runtime, applies terraform, resolves secrets and can log in to AKS.
+// When --set is given, it saves the config again before the workstation check, so that a context without a workstation also gets the values.
+// After the Up step, it generates the blueprint again with the terraform outputs.
+// An unresolved expression then fails by name, and raw ${...} text does not reach Flux.
+// It prints the post-run messages as a summary at the end.
 var upCmd = &cobra.Command{
 	Use:   "up",
 	Short: "Bring up the local workstation environment.",
@@ -61,10 +68,6 @@ windsor up --blueprint=ghcr.io/myorg/blueprint:v1.0.0`,
 			return werror.New("not in a trusted directory", trustDirectoryHint, err)
 		}
 
-		// Build flag overrides using init's rules so that `windsor up` and
-		// `windsor init` share identical bootstrap semantics. Runtime.ResolveConfig
-		// applies OS-appropriate workstation.runtime defaults for dev contexts when
-		// no flag is given, so we don't re-implement that here.
 		flagOverrides, err := buildUpFlagOverrides()
 		if err != nil {
 			return err
@@ -83,19 +86,11 @@ windsor up --blueprint=ghcr.io/myorg/blueprint:v1.0.0`,
 			return err
 		}
 
-		// `windsor up` brings up the workstation: it starts the container runtime, applies
-		// terraform-driven workstation infrastructure, dereferences any 1Password / SOPS-backed
-		// values, and (for azure contexts) authenticates to AKS. Request the full set so any
-		// of those tools are validated up front.
 		proj.SetToolRequirements(tools.AllRequirements())
 		if err := proj.Initialize(false, blueprintURL...); err != nil {
 			return err
 		}
 
-		// Initialize already persisted config with overwrite=false; re-save with
-		// overwrite=true only when --set was provided so user values land in
-		// values.yaml. Runs before the workstation guard so non-workstation
-		// contexts can still receive --set overrides.
 		if len(upSetFlags) > 0 {
 			if err := proj.Runtime.SaveConfig(true); err != nil {
 				return werror.Wrap(err, "failed to save configuration")
@@ -123,18 +118,11 @@ windsor up --blueprint=ghcr.io/myorg/blueprint:v1.0.0`,
 				return nil
 			}
 
-			// Re-generate with deferred substitutions resolved now that terraform
-			// outputs are available from the Up step above. A failure here surfaces
-			// an unresolved expression by name (e.g. "kustomize.dns.substitutions.
-			// external_dns_tenant_id: terraform output 'tenant_id' for component
-			// cluster not found"), preventing the raw `${...}` source text from
-			// reaching Flux ConfigMaps and downstream Helm renders.
 			blueprint, err := proj.Composer.BlueprintHandler.GenerateResolved()
 			if err != nil {
 				return werror.Wrap(err, "error resolving blueprint substitutions")
 			}
 
-			// Capture post-run messages to print as an end-of-run summary, mirroring bootstrap.
 			postRunMessages = blueprint.Messages
 
 			if err := warnNotReady(os.Stderr, proj.Provisioner.Install(cmd.Context(), blueprint, false), postRunMessages); err != nil {

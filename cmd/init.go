@@ -36,6 +36,13 @@ var (
 	initSetFlags       []string
 )
 
+// initCmd creates a context or initializes it again.
+// It makes the current directory a project first, so that init does not fall back to global mode and change $HOME.
+// It saves the config, with the platform, the --set values and the context ID, after validation and before blueprint composition.
+// A failed facet requires check then leaves a values.yaml that the user can complete before the next run.
+// The save comes after validation, because it removes the deprecated provider key.
+// It requests only the secrets tools, so that init works on a new machine before docker, terraform or kubelogin are installed.
+// The secrets tools are necessary, because Initialize loads the environment, which can run sops or op.
 var initCmd = &cobra.Command{
 	Use:   "init [context]",
 	Short: "Scaffold or re-initialize a Windsor context.",
@@ -64,9 +71,6 @@ windsor init staging --platform=aws --aws-profile=staging`,
 			rtOpts = []*runtime.Runtime{overridesVal.(*runtime.Runtime)}
 		}
 
-		// Ensure the current directory is a project before resolving the runtime.
-		// Without this, an `init` run in an empty directory would fall back to
-		// global mode (via GetProjectRoot) and silently operate against $HOME.
 		if len(rtOpts) == 0 {
 			if err := shell.EnsureGitRepository(); err != nil {
 				return err
@@ -107,7 +111,6 @@ windsor init staging --platform=aws --aws-profile=staging`,
 			}
 		}
 
-		// Build flag overrides map
 		flagOverrides := make(map[string]any)
 		applyWorkstationFlagOverrides(flagOverrides, initVmDriver, initPlatform)
 		if initBackend != "" {
@@ -168,12 +171,6 @@ windsor init staging --platform=aws --aws-profile=staging`,
 			return werror.Wrap(err, "invalid configuration")
 		}
 
-		// Persist the operator's config — platform, --set values, and the generated context id —
-		// before blueprint composition, which can fail on an unmet facet `requires`. That failure
-		// then leaves a contexts/<name>/values.yaml to complete and re-run, rather than discarding
-		// everything the operator typed on the command line. (Kept after validation: SaveConfig runs
-		// the provider→platform migration that clears the deprecated provider key, which must not
-		// front-run schema validation.)
 		hasSetFlags := len(initSetFlags) > 0
 		if err := proj.Runtime.ConfigHandler.GenerateContextID(); err != nil {
 			return werror.Wrap(err, "failed to generate context ID")
@@ -186,16 +183,6 @@ windsor init staging --platform=aws --aws-profile=staging`,
 		if err != nil {
 			return err
 		}
-		// `windsor init` writes config files and generates infrastructure stubs locally; it
-		// does not run terraform, start a workstation, or talk to a cluster — so docker /
-		// colima / terraform / kubelogin are deliberately NOT requested here, letting a
-		// fresh-machine init succeed before those tools are installed. Secrets is requested
-		// because Project.Initialize always calls LoadEnvironment, which shells out to
-		// sops / op when the context has those backends enabled (e.g. `init --reset` against
-		// an existing sops-enabled context); without this, the operator would get a raw
-		// "sops: command not found" instead of the registry-formatted hint. The config gates
-		// inside CheckRequirements ensure contexts that haven't enabled either backend still
-		// skip the actual binary check.
 		proj.SetToolRequirements(tools.Requirements{Secrets: true})
 		if err := proj.Initialize(initReset, blueprintURL...); err != nil {
 			return err

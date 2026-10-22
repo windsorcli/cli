@@ -34,21 +34,22 @@ var (
 	bootstrapYes       bool
 )
 
-// bootstrapCmd stands up a fresh Windsor environment end-to-end. It combines init-style
-// project configuration with up-style infrastructure deployment, then waits for kustomizations.
-// When the blueprint declares post-run messages (a facet-signalled manual step, e.g. delegate these
-// nameservers), a wait that does not converge is reported as a warning rather than failing bootstrap,
-// since a kustomization may be legitimately pending on that step; with no such message a wait failure
-// stays fatal. Unlike `windsor up`, bootstrap continues through terraform + install even when
-// the context does not define a workstation, so it is suitable for both local workstation contexts and
-// non-workstation contexts (staging, production). Unlike `windsor init`, bootstrap does not anchor the current directory as
-// a project root — it is allowed to run in global mode, where directory trust is implicit.
+// bootstrapCmd brings up a new environment from the start to the end.
+// It configures the project as init does, deploys the infrastructure as up does, then waits for the kustomizations.
+// When the blueprint has post-run messages, a wait that does not converge is a warning, because a kustomization can wait for that manual step.
+// Without post-run messages, a wait failure is an error.
+// It runs terraform and the install when the context has no workstation, and it can run in global mode.
+// When the blueprint declares a backend, it moves the backend components through local state on each run. If not, it runs one Up pass.
 //
-// When the blueprint declares a backend via Blueprint.Backend, bootstrap pivots its
-// components through local state on every run (always-on, idempotent) so the
-// chicken-and-egg of a backend living inside the infrastructure it provisions is
-// resolved without any first-run / subsequent-run branching. Without a declared
-// backend, bootstrap forwards to a single Up pass against the configured backend.
+// It requests all tool requirements, because each tool can run.
+// When the project override has no runtime or no composer, it builds the project with NewProject, so all steps use the same runtime.
+// It reads the config root from the ConfigHandler, so the guard against a second bootstrap does not depend on NewProject.
+// No step writes config before the cloud credentials are valid:
+//   - With --yes, it checks the credentials and saves the config before it starts.
+//   - Without --yes, it does both in the confirmation callback after the user accepts, so a decline changes nothing.
+//
+// The confirmation prompt runs while bootstrap holds the stack lock.
+// It prints the post-run messages as a summary at the end.
 var bootstrapCmd = &cobra.Command{
 	Use:   "bootstrap [context]",
 	Short: "Bootstrap a fresh environment end-to-end.",
@@ -104,10 +105,6 @@ windsor bootstrap prod --yes`,
 		rt := runtime.NewRuntime(rtOpts...)
 		rt.Shell.SetVerbosity(verbose)
 
-		// Wire the freshly constructed runtime into the project override if the caller did not
-		// supply one, so that later stages (Configure, Initialize, Up) run against the same
-		// runtime that AddCurrentDirToTrustedFile is about to use. Without this a projectOverride
-		// without a Runtime would hit a nil field in Configure.
 		if proj != nil && proj.Runtime == nil {
 			proj.Runtime = rt
 		}
@@ -132,11 +129,6 @@ windsor bootstrap prod --yes`,
 			flagOverrides[parts[0]] = parts[1]
 		}
 
-		// A --context override injects a project carrying only Runtime (setupGlobalContext,
-		// root.go), leaving Composer nil even though proj isn't. Route through NewProject
-		// whenever Composer is missing, not just when proj is nil, so it gets defaulted like
-		// every other command gets from configureProject. Reusing proj as the overrides
-		// preserves whatever it already set.
 		if proj == nil || proj.Composer == nil {
 			projectOpts := proj
 			if projectOpts == nil {
@@ -149,10 +141,6 @@ windsor bootstrap prod --yes`,
 		}
 
 		if !bootstrapYes {
-			// Use the canonical ConfigHandler.GetConfigRoot() rather than proj.Runtime.ConfigRoot
-			// so the guard doesn't silently depend on NewProject having mutated rt as a side effect
-			// — if that ordering ever changes or ConfigRoot is empty for any reason, the guard
-			// would pass silently and lose its protection against accidental re-bootstrap.
 			configRoot, err := proj.Runtime.ConfigHandler.GetConfigRoot()
 			if err != nil {
 				return werror.Wrap(err, "failed to resolve config root for bootstrap confirmation")
@@ -175,22 +163,11 @@ windsor bootstrap prod --yes`,
 			return err
 		}
 
-		// Bootstrap stands up everything end-to-end: terraform apply, MigrateState, install,
-		// and wait. Every tool family may be exercised, so request the full set up front and
-		// let CheckAuth (called below) validate cloud credentials separately.
 		proj.SetToolRequirements(tools.AllRequirements())
 		if err := proj.Initialize(false, blueprintURL...); err != nil {
 			return err
 		}
 
-		// Cloud auth and SaveConfig are paired by the "auth gates state mutation" invariant:
-		// nothing writes config until cloud credentials have been validated. In --yes mode
-		// (no prompt to defer behind) both fire upfront — operator wanted automation, fail
-		// fast on bad auth before any disk write. In interactive mode both fire inside the
-		// wrapped confirm callback after the operator accepts — so declining is a true no-op
-		// (no auth burden, no state mutation, no surprise side effects). The wrapped callback
-		// stashes any error for surfacing after Bootstrap returns because confirmFn returns
-		// bool.
 		var confirmFn provisioner.BootstrapConfirmFn
 		finishPlan := func(error) {}
 		var deferredErr error
@@ -221,9 +198,6 @@ windsor bootstrap prod --yes`,
 			}
 		}
 
-		// The bootstrap confirm prompt fires from inside proj.Bootstrap, so the operator
-		// briefly holds the stack lock while answering. Acceptable today since bootstrap
-		// is rare; revisit if the prompt grows into a longer flow.
 		var applied, halted bool
 		var postRunMessages []blueprintv1alpha1.Message
 		if err := stacklock.With(cmd.Context(), proj.Runtime, "bootstrap", lockTimeout, func() error {
@@ -243,8 +217,6 @@ windsor bootstrap prod --yes`,
 				return werror.Wrap(err, "error resolving blueprint substitutions")
 			}
 
-			// Capture post-run messages to print as an end-of-run summary rather than inline among the
-			// install progress.
 			postRunMessages = blueprint.Messages
 
 			if err := warnNotReady(os.Stderr, proj.Provisioner.Install(cmd.Context(), blueprint, false), postRunMessages); err != nil {

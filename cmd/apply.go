@@ -12,6 +12,13 @@ import (
 
 var applyPruneFlag bool // Remove kustomizations the blueprint no longer declares
 
+// applyCmd applies all terraform components and installs all Flux kustomizations of the blueprint.
+// It requests all tool requirements, and the config gates in CheckRequirements decide which tools to check.
+// It reconciles at each blueprint version. When an upgrade did not finish, or a gate check fails, it warns and continues.
+// It ignores the halted result of Up, because apply does not register the apply hook.
+// After the Up step, it generates the blueprint again with the terraform outputs.
+// With --prune, it deletes the kustomizations that the blueprint no longer declares, after the declared set is Ready.
+// Without --prune, it only reports them.
 var applyCmd = &cobra.Command{
 	Use:   "apply",
 	Short: "Apply terraform and install the blueprint.",
@@ -38,10 +45,6 @@ windsor apply kustomize dns`,
 	Args:         cobra.NoArgs,
 	SilenceUsage: true,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		// `windsor apply` runs whatever is in the blueprint — terraform components and Flux
-		// kustomizations both — so the tool surface is not statically narrowable. Request
-		// AllRequirements() and let the per-tool config gates inside CheckRequirements decide
-		// what actually runs (e.g. platform=="azure" or an azure: block triggers kubelogin).
 		proj, err := prepareProject(cmd, tools.AllRequirements())
 		if err != nil {
 			return err
@@ -56,9 +59,6 @@ windsor apply kustomize dns`,
 			return fmt.Errorf("blueprint is not available")
 		}
 
-		// apply always reconciles regardless of version. An interrupted upgrade leaves the
-		// marker mid-transition; warn (best-effort) so the operator can finish it with `upgrade`.
-		// A gate check failure (e.g. an unreachable cluster) is warned the same way, not swallowed.
 		if gate, gateErr := proj.Provisioner.CheckVersionGate(blueprint); gateErr != nil {
 			fmt.Fprintf(cmd.ErrOrStderr(), "Warning: pre-apply version check: %v\n", gateErr)
 		} else if gate.InFlight {
@@ -66,14 +66,10 @@ windsor apply kustomize dns`,
 		}
 
 		return stacklock.With(cmd.Context(), proj.Runtime, "apply", lockTimeout, func() error {
-			// 'apply' doesn't run the workstation prep that registers MakeApplyHook, so no
-			// onApply hooks fire and the halted return is always false. Ignore it.
 			if _, err := proj.Provisioner.Up(cmd.Context(), blueprint); err != nil {
 				return werror.Wrap(err, "error applying terraform")
 			}
 
-			// Re-generate with deferred substitutions resolved now that terraform
-			// outputs are available from the Up step above.
 			var resolveErr error
 			blueprint, resolveErr = proj.Composer.BlueprintHandler.GenerateResolved()
 			if resolveErr != nil {
@@ -83,7 +79,6 @@ windsor apply kustomize dns`,
 				return fmt.Errorf("resolved blueprint is not available")
 			}
 
-			// --prune deletes orphans only after the desired set is Ready, so a not-ready result stays fatal.
 			if err := proj.Provisioner.Install(cmd.Context(), blueprint, applyPruneFlag); err != nil {
 				if applyPruneFlag || warnNotReady(cmd.ErrOrStderr(), err, blueprint.Messages) != nil {
 					return werror.Wrap(err, "error applying kustomize")
@@ -91,8 +86,6 @@ windsor apply kustomize dns`,
 				printPostRunMessages(cmd.ErrOrStderr(), blueprint.Messages)
 			}
 
-			// --prune removes kustomizations the blueprint no longer declares. Without --prune,
-			// orphans are left in place and only reported.
 			prunable, err := proj.Provisioner.PrunableKustomizations(blueprint)
 			if err != nil {
 				return werror.Wrap(err, "error listing kustomizations to prune")
@@ -108,6 +101,8 @@ windsor apply kustomize dns`,
 	},
 }
 
+// applyTerraformCmd applies one terraform component.
+// It requests terraform and the secrets tools, because terraform can resolve 1Password and SOPS values.
 var applyTerraformCmd = &cobra.Command{
 	Use:     "terraform <component>",
 	Aliases: []string{"tf"},
@@ -127,9 +122,6 @@ windsor apply tf cluster`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		componentID := args[0]
 
-		// `apply terraform <project>` only invokes terraform. Secrets backends are required
-		// because terraform can dereference 1Password / SOPS-encrypted values during plan/apply;
-		// docker, colima, and kubelogin are not exercised by this codepath.
 		proj, err := prepareProject(cmd, tools.Requirements{Terraform: true, Secrets: true})
 		if err != nil {
 			return err
@@ -149,6 +141,8 @@ windsor apply tf cluster`,
 	},
 }
 
+// applyKustomizeCmd applies one Flux kustomization, or all of them.
+// It requests only the secrets tools and kubelogin, because it does not run terraform or the container runtime.
 var applyKustomizeCmd = &cobra.Command{
 	Use:     "kustomize [name]",
 	Aliases: []string{"k8s"},
@@ -171,8 +165,6 @@ windsor apply k8s dns`,
 	Args:         cobra.MaximumNArgs(1),
 	SilenceUsage: true,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		// `apply kustomize` only talks to the cluster API and dereferences secrets; it does not
-		// invoke terraform or the local container runtime.
 		proj, err := prepareProject(cmd, tools.Requirements{Secrets: true, Kubelogin: true})
 		if err != nil {
 			return err
