@@ -7,12 +7,12 @@
 package main
 
 import (
-	"fmt"
 	"os"
 	"path/filepath"
 
 	"github.com/spf13/cobra"
 	cliCmd "github.com/windsorcli/cli/cmd"
+	"github.com/windsorcli/cli/internal/werror"
 )
 
 func commandsCmd() *cobra.Command {
@@ -30,10 +30,10 @@ func commandsCmd() *cobra.Command {
 
 func generateCommands(outDir string) error {
 	if err := os.RemoveAll(outDir); err != nil {
-		return fmt.Errorf("clear output dir: %w", err)
+		return werror.Wrap(err, "clear output dir")
 	}
 	if err := os.MkdirAll(outDir, 0o750); err != nil {
-		return fmt.Errorf("create output dir: %w", err)
+		return werror.Wrap(err, "create output dir")
 	}
 
 	return emitTree(cliCmd.RootCmd(), outDir)
@@ -64,11 +64,11 @@ func writeCommandFile(cmd *cobra.Command, outDir string) error {
 	// #nosec G304 - outDir is operator-supplied via --out; filename derives from package-controlled cobra command names
 	f, err := os.Create(path)
 	if err != nil {
-		return fmt.Errorf("create %s: %w", path, err)
+		return werror.Wrap(err, "create %s", path)
 	}
 	defer f.Close()
 	if err := renderCommand(f, cmd); err != nil {
-		return fmt.Errorf("render %s: %w", path, err)
+		return werror.Wrap(err, "render %s", path)
 	}
 	return nil
 }
