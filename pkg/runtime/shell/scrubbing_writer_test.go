@@ -6,6 +6,10 @@ import (
 	"testing"
 )
 
+// =============================================================================
+// Test Public Methods
+// =============================================================================
+
 func TestScrubbingWriter_Write(t *testing.T) {
 	// setup builds a scrubbingWriter over a buffer with the given registered secrets, holding
 	// back a window sized to the longest secret — mirroring how DefaultShell.newScrubbingWriter
@@ -135,6 +139,73 @@ func TestScrubbingWriter_Write(t *testing.T) {
 		}
 		if n != len(input) {
 			t.Errorf("Expected %d bytes consumed, got %d", len(input), n)
+		}
+	})
+}
+
+func TestScrubbingWriter(t *testing.T) {
+	setup := func(t *testing.T) (*DefaultShell, *bytes.Buffer) {
+		t.Helper()
+		mocks := setupShellMocks(t)
+		shell := NewDefaultShell()
+		shell.shims = mocks.Shims
+
+		// Register a test secret
+		shell.RegisterSecret("secret123")
+
+		// Create a buffer to capture output
+		var buf bytes.Buffer
+		return shell, &buf
+	}
+
+	t.Run("ScrubsSecretsFromOutput", func(t *testing.T) {
+		// Given a shell with registered secrets and a scrubbing writer configured
+		shell, buf := setup(t)
+		writer := shell.newScrubbingWriter(buf)
+
+		// When writing a complete line that contains registered secrets to the scrubbing writer
+		testContent := "This contains secret123 and other text\n"
+		n, err := writer.Write([]byte(testContent))
+
+		// Then the secret should be scrubbed from the emitted line
+		if err != nil {
+			t.Errorf("Expected no error, got: %v", err)
+		}
+
+		output := buf.String()
+		if strings.Contains(output, "secret123") {
+			t.Errorf("Expected secret to be scrubbed, but found in output: %s", output)
+		}
+		if !strings.Contains(output, "********") {
+			t.Errorf("Expected scrubbed output to contain ********, got: %s", output)
+		}
+		// The writer reports the full input consumed even though the emitted line is shorter
+		if n != len(testContent) {
+			t.Errorf("Expected bytes written to match content length %d, got %d", len(testContent), n)
+		}
+	})
+
+	t.Run("HandlesMultipleSecrets", func(t *testing.T) {
+		// Given a shell with multiple registered secrets and a scrubbing writer
+		shell, buf := setup(t)
+		shell.RegisterSecret("password456")
+		writer := shell.newScrubbingWriter(buf)
+
+		// When writing a complete line that contains multiple different secrets
+		testContent := "User secret123 has password456 for access\n"
+		_, err := writer.Write([]byte(testContent))
+
+		// Then all secrets should be scrubbed from the emitted line
+		if err != nil {
+			t.Errorf("Expected no error, got: %v", err)
+		}
+
+		output := buf.String()
+		if strings.Contains(output, "secret123") || strings.Contains(output, "password456") {
+			t.Errorf("Expected all secrets to be scrubbed, got: %s", output)
+		}
+		if !strings.Contains(output, "********") {
+			t.Errorf("Expected scrubbed output to contain ********, got: %s", output)
 		}
 	})
 }
