@@ -208,10 +208,10 @@ func (p *terraformProvider) GetEnvVars(componentID string, interactive bool) (ma
 						continue
 					}
 					if shouldUseTFVarCache(nonDeferredValue) {
-						noCache := os.Getenv("NO_CACHE")
+						noCache := p.Shims.Getenv("NO_CACHE")
 						useCache := noCache == "" || noCache == "0" || noCache == "false" || noCache == "False"
 						if useCache {
-							if cachedValue, exists := os.LookupEnv(envKey); exists && cachedValue != "" && !strings.Contains(cachedValue, "<ERROR") {
+							if cachedValue, exists := p.Shims.LookupEnv(envKey); exists && cachedValue != "" && !strings.Contains(cachedValue, "<ERROR") {
 								envVars[envKey] = cachedValue
 								continue
 							}

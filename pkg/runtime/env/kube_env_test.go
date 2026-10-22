@@ -51,6 +51,12 @@ func setupKubeEnvMocks(t *testing.T, overrides ...*EnvTestMocks) *EnvTestMocks {
 	}
 
 	t.Setenv("WINDSOR_PROJECT_ROOT", projectRoot)
+	mocks.Shims.Getenv = func(key string) string {
+		if key == "WINDSOR_PROJECT_ROOT" {
+			return os.Getenv(key)
+		}
+		return ""
+	}
 
 	// Mock readDir to return some valid persistent volume folders
 	mocks.Shims.ReadDir = func(dirname string) ([]os.DirEntry, error) {

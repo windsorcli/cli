@@ -8,7 +8,6 @@ package secrets
 import (
 	"context"
 	"fmt"
-	"os"
 	"sync"
 
 	"github.com/1password/onepassword-sdk-go"
@@ -75,7 +74,7 @@ func (s *OnePasswordSDKProvider) Resolve(ref SecretRef) (string, bool, error) {
 		return "********", true, nil
 	}
 
-	token := os.Getenv("OP_SERVICE_ACCOUNT_TOKEN")
+	token := s.shims.Getenv("OP_SERVICE_ACCOUNT_TOKEN")
 	if token == "" {
 		return "", true, werror.New("The 1Password SDK needs the OP_SERVICE_ACCOUNT_TOKEN environment variable.",
 			"Set OP_SERVICE_ACCOUNT_TOKEN to a 1Password service account token.", nil)

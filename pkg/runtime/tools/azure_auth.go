@@ -7,7 +7,6 @@ package tools
 
 import (
 	"fmt"
-	"os"
 	"path/filepath"
 	"time"
 
@@ -34,7 +33,7 @@ func (t *BaseToolsManager) azureEnabled() bool {
 // (a cache-only read that passes on revoked/expired refresh tokens). When ambient SDK
 // credentials are set and az is absent, skips — terraform's own SDK will handle auth.
 func (t *BaseToolsManager) checkAzureAuth() error {
-	if hasAmbientAzureCredentials() {
+	if t.hasAmbientAzureCredentials() {
 		if _, err := t.shims.LookPath("az"); err != nil {
 			return nil
 		}
@@ -63,7 +62,7 @@ func (t *BaseToolsManager) checkAzureAuth() error {
 // Returns nil when ambient SDK credentials are present (don't mask the native chain) or
 // in global mode (defer to ~/.azure/).
 func (t *BaseToolsManager) azureContextEnv() (map[string]string, error) {
-	if hasAmbientAzureCredentials() {
+	if t.hasAmbientAzureCredentials() {
 		return nil, nil
 	}
 	if t.shell.IsGlobal() {
@@ -126,11 +125,36 @@ func (t *BaseToolsManager) azureAuthError() error {
 	}
 	azureConfigDir := filepath.Join(configRoot, ".azure")
 	prefix := ""
-	if !azureEnvPointsAtContext(azureConfigDir) {
+	if !t.azureEnvPointsAtContext(azureConfigDir) {
 		prefix = fmt.Sprintf("AZURE_CONFIG_DIR=%q ", filepath.ToSlash(azureConfigDir))
 	}
 	return werror.New(fmt.Sprintf("The Azure CLI session for context %q has likely expired or is not set up.", t.configHandler.GetContext()),
 		fmt.Sprintf("Run '%saz login%s'.", prefix, tenantArg), nil)
+}
+
+// hasAmbientAzureCredentials reports whether the parent env already carries Azure
+// credentials (Workload Identity / SPN secret / SPN cert). MI has no env signal and
+// is intentionally not detected here — those runners fall through to the az CLI check.
+func (t *BaseToolsManager) hasAmbientAzureCredentials() bool {
+	if t.shims.Getenv("AZURE_FEDERATED_TOKEN_FILE") != "" {
+		return true
+	}
+	if t.shims.Getenv("AZURE_CLIENT_SECRET") != "" {
+		return true
+	}
+	if t.shims.Getenv("AZURE_CLIENT_CERTIFICATE_PATH") != "" {
+		return true
+	}
+	return false
+}
+
+// azureEnvPointsAtContext reports whether AZURE_CONFIG_DIR already resolves to configDir.
+func (t *BaseToolsManager) azureEnvPointsAtContext(configDir string) bool {
+	cd := t.shims.Getenv("AZURE_CONFIG_DIR")
+	if cd == "" {
+		return false
+	}
+	return filepath.ToSlash(cd) == filepath.ToSlash(configDir)
 }
 
 // =============================================================================
@@ -151,29 +175,4 @@ func armTenantEndpoint(env string) string {
 	default:
 		return "management.azure.com"
 	}
-}
-
-// hasAmbientAzureCredentials reports whether the parent env already carries Azure
-// credentials (Workload Identity / SPN secret / SPN cert). MI has no env signal and
-// is intentionally not detected here — those runners fall through to the az CLI check.
-func hasAmbientAzureCredentials() bool {
-	if os.Getenv("AZURE_FEDERATED_TOKEN_FILE") != "" {
-		return true
-	}
-	if os.Getenv("AZURE_CLIENT_SECRET") != "" {
-		return true
-	}
-	if os.Getenv("AZURE_CLIENT_CERTIFICATE_PATH") != "" {
-		return true
-	}
-	return false
-}
-
-// azureEnvPointsAtContext reports whether AZURE_CONFIG_DIR already resolves to configDir.
-func azureEnvPointsAtContext(configDir string) bool {
-	cd := os.Getenv("AZURE_CONFIG_DIR")
-	if cd == "" {
-		return false
-	}
-	return filepath.ToSlash(cd) == filepath.ToSlash(configDir)
 }

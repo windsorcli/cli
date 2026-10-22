@@ -7,7 +7,6 @@ package tools
 
 import (
 	"fmt"
-	"os"
 	"regexp"
 	"runtime"
 	"strconv"
@@ -212,9 +211,9 @@ func (t *BaseToolsManager) checkKubelogin() error {
 	}
 
 	for _, rule := range validationRules {
-		if os.Getenv(rule.triggerVar) != "" {
-			azureClientID := os.Getenv("AZURE_CLIENT_ID")
-			azureTenantID := os.Getenv("AZURE_TENANT_ID")
+		if t.shims.Getenv(rule.triggerVar) != "" {
+			azureClientID := t.shims.Getenv("AZURE_CLIENT_ID")
+			azureTenantID := t.shims.Getenv("AZURE_TENANT_ID")
 
 			if azureClientID == "" {
 				return werror.New(fmt.Sprintf("%s is set but AZURE_CLIENT_ID is missing. %s authentication needs both.", rule.triggerVar, rule.authMethod),
