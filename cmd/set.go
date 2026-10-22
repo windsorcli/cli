@@ -21,7 +21,8 @@ var setCmd = &cobra.Command{
 	},
 }
 
-// setContextCmd sets the current context
+// setContextCmd switches the current context.
+// It loads the config of the new context only, because problems in the old context do not matter here.
 var setContextCmd = &cobra.Command{
 	Use:   "context [context-name]",
 	Short: "Switch the current context.",
@@ -57,8 +58,6 @@ windsor get context
 			return werror.Wrap(err, "failed to check context directory")
 		}
 
-		// Load the context being switched to. The current context is the one
-		// being left, and its problems are not the user's concern here.
 		if err := rt.ConfigHandler.LoadConfigForContext(contextName); err != nil {
 			return werror.Wrap(err, "failed to load config")
 		}

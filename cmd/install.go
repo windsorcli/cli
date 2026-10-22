@@ -6,6 +6,8 @@ import (
 	"github.com/windsorcli/cli/pkg/runtime/tools"
 )
 
+// installCmd installs the Flux kustomizations of the blueprint on the cluster.
+// It requests only the secrets tools and kubelogin, because it does not run terraform or the container runtime.
 var installCmd = &cobra.Command{
 	Use:   "install",
 	Short: "Install the blueprint's Flux kustomizations.",
@@ -22,8 +24,6 @@ windsor install`,
 	},
 	SilenceUsage: true,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		// `install` applies the blueprint to the cluster (Flux + kustomizations); it does not
-		// invoke terraform or the local container runtime.
 		proj, err := prepareProject(cmd, tools.Requirements{Secrets: true, Kubelogin: true})
 		if err != nil {
 			return err
