@@ -57,7 +57,7 @@ func (n *BaseNetworkManager) ConfigureHostRoute(ctx context.Context) error {
 		if err := presenter.Track(ctx, "network:route", "Configuring host route", func(ctx context.Context) error {
 			n.warnIfPrivilegeNeeded(ctx)
 			if out, err := n.shell.ExecSudo("Adding host route", "ip", "route", "add", networkCIDR, "via", guestIP); err != nil {
-				return fmt.Errorf("failed to add route: %w, output: %s", err, out)
+				return werror.Wrap(err, "failed to add route, output: %s", out)
 			}
 			return nil
 		}); err != nil {
@@ -149,7 +149,7 @@ func (n *BaseNetworkManager) RevertHostRoute() error {
 	}
 	output, err := n.shell.ExecSudo("", "ip", "route", "del", networkCIDR)
 	if err != nil && !strings.Contains(output, "No such process") {
-		return fmt.Errorf("failed to delete host route: %w, output: %s", err, output)
+		return werror.Wrap(err, "failed to delete host route, output: %s", output)
 	}
 	if err := n.unpersistLinuxHostRoute(networkCIDR); err != nil {
 		return werror.Wrap(err, "failed to remove persistent host route")

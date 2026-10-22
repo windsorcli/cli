@@ -53,7 +53,7 @@ func (n *BaseNetworkManager) ConfigureHostRoute(ctx context.Context) error {
 		return presenter.Track(ctx, "network:route", "Configuring host route", func(ctx context.Context) error {
 			n.warnIfPrivilegeNeeded(ctx)
 			if out, addErr := n.shell.ExecSudo("Adding host route", "route", "-nv", "add", "-net", networkCIDR, guestIP); addErr != nil {
-				return fmt.Errorf("failed to add route: %w, output: %s", addErr, out)
+				return werror.Wrap(addErr, "failed to add route, output: %s", out)
 			}
 			presenter.Warn(ctx, fmt.Sprintf("host route to %s installed but will not survive reboot on this system: %v", guestIP, err))
 			return nil
@@ -70,7 +70,7 @@ func (n *BaseNetworkManager) ConfigureHostRoute(ctx context.Context) error {
 		n.warnIfPrivilegeNeeded(ctx)
 		if !routeInKernel {
 			if out, err := n.shell.ExecSudo("Adding host route", "route", "-nv", "add", "-net", networkCIDR, guestIP); err != nil {
-				return fmt.Errorf("failed to add route: %w, output: %s", err, out)
+				return werror.Wrap(err, "failed to add route, output: %s", out)
 			}
 		}
 		if routePersistent {
@@ -140,7 +140,7 @@ func (n *BaseNetworkManager) RevertHostRoute() error {
 	output, err := n.shell.ExecSudo("", "route", "-nv", "delete", "-net", networkCIDR)
 	if err != nil {
 		if !strings.Contains(output, "not in table") {
-			return fmt.Errorf("Error deleting host route: %w, output: %s", err, output)
+			return werror.Wrap(err, "failed to delete host route, output: %s", output)
 		}
 	}
 	if service, getRoutesOutput, err := n.macOSPrimaryServiceAndRoutes(); err == nil {

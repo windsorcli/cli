@@ -161,7 +161,7 @@ func TestLinuxNetworkManager_ConfigureHostRoute(t *testing.T) {
 		if err == nil {
 			t.Fatalf("expected error, got nil")
 		}
-		expectedError := "failed to add route: mock error, output: mock output"
+		expectedError := "failed to add route, output: mock output: mock error"
 		if !strings.Contains(err.Error(), expectedError) {
 			t.Fatalf("expected error %q, got %q", expectedError, err.Error())
 		}

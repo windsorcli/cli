@@ -122,7 +122,7 @@ func TestWindowsNetworkManager_ConfigureHostRoute(t *testing.T) {
 		if err == nil {
 			t.Fatalf("expected error, got nil")
 		}
-		expectedError := "failed to add route: mocked shell execution error, output: "
+		expectedError := "failed to add route, output: : mocked shell execution error"
 		if !strings.Contains(err.Error(), expectedError) {
 			t.Fatalf("expected error %q, got %q", expectedError, err.Error())
 		}
