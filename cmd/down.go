@@ -12,6 +12,11 @@ import (
 	"github.com/windsorcli/cli/pkg/runtime/tools"
 )
 
+// downCmd stops the local workstation environment and removes the local artifacts.
+// It requests docker, colima and the secrets tools. The secrets tools are necessary, because Initialize can run sops or op.
+// It skips validation, so that a broken setup can still stop.
+// It prints the remaining host changes in a deferred call, so the user sees them when the teardown fails.
+// The deferred call reads the list when it runs, after Down fills it.
 var downCmd = &cobra.Command{
 	Use:   "down",
 	Short: "Stop the local workstation environment.",
@@ -30,14 +35,6 @@ windsor down`,
 	},
 	SilenceUsage: true,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		// `windsor down` stops the local workstation (container runtime + colima VM if
-		// applicable) and cleans up local artifacts. Terraform and kubelogin are not
-		// exercised here. Secrets is requested because prepareProject → Initialize calls
-		// LoadEnvironment, which shells out to sops / op when those backends are configured;
-		// without this, a sops-enabled context with sops missing on PATH would surface a raw
-		// exec error instead of the registry-formatted install hint. Config gates skip the
-		// actual binary check for contexts that haven't enabled either backend. Skip-validation
-		// tolerates a deployed-but-misordered blueprint so teardown stays runnable.
 		proj, err := prepareProjectSkipValidation(cmd, tools.Requirements{Docker: true, Colima: true, Secrets: true})
 		if err != nil {
 			return err
@@ -48,12 +45,6 @@ windsor down`,
 			return nil
 		}
 
-		// Down records leftover-host-config items on the workstation register BEFORE attempting
-		// teardown, so render the summary via defer to survive a teardown or cleanup failure —
-		// otherwise an operator who hits a container-runtime or VM stop error never learns the
-		// host route / DNS resolver entries still need 'windsor configure network --revert'.
-		// Wrapped in a closure so DeferredWork() is read at defer-execution time, after Down
-		// has populated the register, rather than at defer-registration time.
 		defer func() {
 			printDeferredWork(os.Stderr, proj.Workstation.DeferredWork(), runtime.GOOS)
 		}()
