@@ -26,6 +26,8 @@ import (
 
 	"github.com/goccy/go-yaml"
 	"github.com/spf13/cobra"
+
+	"github.com/windsorcli/cli/internal/werror"
 )
 
 const schemaSourceURLPrefix = "https://github.com/windsorcli/cli/blob/main/"
@@ -58,10 +60,10 @@ func schemaCmd() *cobra.Command {
 func generateSchemaDocs(schemaDir, outDir string) error {
 	entries, err := os.ReadDir(schemaDir)
 	if err != nil {
-		return fmt.Errorf("read schema dir: %w", err)
+		return werror.Wrap(err, "read schema dir")
 	}
 	if err := os.MkdirAll(outDir, 0o750); err != nil {
-		return fmt.Errorf("create out dir: %w", err)
+		return werror.Wrap(err, "create out dir")
 	}
 
 	for _, entry := range entries {
@@ -80,7 +82,7 @@ func generateSchemaDocs(schemaDir, outDir string) error {
 		// Empty string when absent — renderSchema treats that as "no See also".
 		seealsoPath := filepath.Join(schemaDir, base+".seealso.md")
 		if err := writeSchemaFile(schemaPath, outPath, seealsoPath); err != nil {
-			return fmt.Errorf("emit %s: %w", schemaPath, err)
+			return werror.Wrap(err, "emit %s", schemaPath)
 		}
 	}
 	return nil
@@ -89,11 +91,11 @@ func generateSchemaDocs(schemaDir, outDir string) error {
 func writeSchemaFile(schemaPath, outPath, seealsoPath string) error {
 	raw, err := os.ReadFile(schemaPath) // #nosec G304 - schemaPath is operator-supplied via --in; filename derives from the directory listing
 	if err != nil {
-		return fmt.Errorf("read %s: %w", schemaPath, err)
+		return werror.Wrap(err, "read %s", schemaPath)
 	}
 	var schema map[string]any
 	if err := yaml.Unmarshal(raw, &schema); err != nil {
-		return fmt.Errorf("parse %s: %w", schemaPath, err)
+		return werror.Wrap(err, "parse %s", schemaPath)
 	}
 	// Re-parse the examples block as yaml.MapSlice so each example renders in
 	// author-defined field order. The plain map[string]any unmarshal above
@@ -104,7 +106,7 @@ func writeSchemaFile(schemaPath, outPath, seealsoPath string) error {
 		Examples []yaml.MapSlice `yaml:"examples"`
 	}
 	if err := yaml.Unmarshal(raw, &ordered); err != nil {
-		return fmt.Errorf("parse %s examples: %w", schemaPath, err)
+		return werror.Wrap(err, "parse %s examples", schemaPath)
 	}
 
 	var seealso string
@@ -112,13 +114,13 @@ func writeSchemaFile(schemaPath, outPath, seealsoPath string) error {
 		if body, err := os.ReadFile(seealsoPath); err == nil { // #nosec G304 - seealsoPath is derived from --in plus the schema basename
 			seealso = string(body)
 		} else if !os.IsNotExist(err) {
-			return fmt.Errorf("read sidecar %s: %w", seealsoPath, err)
+			return werror.Wrap(err, "read sidecar %s", seealsoPath)
 		}
 	}
 
 	f, err := os.Create(outPath) // #nosec G304 - outPath is constructed from --out plus the schema basename
 	if err != nil {
-		return fmt.Errorf("create %s: %w", outPath, err)
+		return werror.Wrap(err, "create %s", outPath)
 	}
 	defer f.Close()
 
@@ -127,7 +129,7 @@ func writeSchemaFile(schemaPath, outPath, seealsoPath string) error {
 		relSource = schemaPath
 	}
 	if err := renderSchema(f, schema, ordered.Examples, relSource, seealso); err != nil {
-		return fmt.Errorf("render %s: %w", outPath, err)
+		return werror.Wrap(err, "render %s", outPath)
 	}
 	return nil
 }
