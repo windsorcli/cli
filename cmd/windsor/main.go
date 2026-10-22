@@ -1,3 +1,6 @@
+// The windsor program is the entry point of the Windsor CLI.
+// It runs the root command of the cmd package.
+
 package main
 
 import (
@@ -6,9 +9,8 @@ import (
 	"github.com/windsorcli/cli/cmd"
 )
 
+// main runs the root command, and exits with status 1 when the command fails.
 func main() {
-	// Execute the root command and handle the error,
-	// exiting with a non-zero exit code if there's an error
 	if err := cmd.Execute(); err != nil {
 		os.Exit(1)
 	}

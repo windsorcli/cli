@@ -1,3 +1,6 @@
+// The upgrade command moves the sources to their latest version and reconciles the blueprint.
+// It provides the upgrade cluster and upgrade node subcommands for the nodes of the cluster.
+
 package cmd
 
 import (
@@ -581,6 +584,7 @@ func checkSourceDowngrades(cmd *cobra.Command, proj *project.Project, specs []st
 	return nil
 }
 
+// init registers the upgrade command, its subcommands and its flags with the root command.
 func init() {
 	rootCmd.AddCommand(upgradeCmd)
 	upgradeCmd.AddCommand(upgradeClusterCmd)

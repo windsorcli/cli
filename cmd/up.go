@@ -1,3 +1,6 @@
+// The up command brings up the local workstation environment.
+// It prints the deferred work that needs elevation when it cannot do that work itself.
+
 package cmd
 
 import (
@@ -218,6 +221,7 @@ func buildUpFlagOverrides() (map[string]any, error) {
 	return overrides, nil
 }
 
+// init registers the up command and its flags with the root command.
 func init() {
 	addDeprecatedWaitFlag(upCmd)
 	upCmd.Flags().StringVar(&upVmDriver, "vm-driver", "", "VM driver: colima, colima-incus, docker-desktop, docker.")

@@ -1,3 +1,5 @@
+// The build-id command prints the current build ID or generates a new one.
+
 package cmd
 
 import (
@@ -56,6 +58,7 @@ docker build -t myapp:$BUILD_ID .`,
 	},
 }
 
+// init registers the build-id command and its flags with the root command.
 func init() {
 	buildIdCmd.Flags().BoolVar(&buildIdNewFlag, "new", false, "Generate and print a new build ID.")
 	rootCmd.AddCommand(buildIdCmd)

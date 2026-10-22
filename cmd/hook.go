@@ -1,3 +1,5 @@
+// The hook command prints the shell init code for a shell.
+
 package cmd
 
 import (
@@ -44,6 +46,7 @@ windsor hook powershell | Out-String | Invoke-Expression`,
 	},
 }
 
+// init registers the hook command with the root command.
 func init() {
 	rootCmd.AddCommand(hookCmd)
 }

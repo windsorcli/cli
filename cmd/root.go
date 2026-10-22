@@ -1,3 +1,6 @@
+// The root command is the windsor command and holds the persistent flags.
+// It provides the project setup, the preflight checks and the error output that all commands use.
+
 package cmd
 
 import (
@@ -105,6 +108,7 @@ var rootCmd = &cobra.Command{
 	SilenceErrors:     true,
 }
 
+// init registers the persistent flags of the root command.
 func init() {
 	// Define the --verbose flag
 	rootCmd.PersistentFlags().BoolVarP(&verbose, "verbose", "v", false, "Enable verbose output")

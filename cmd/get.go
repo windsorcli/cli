@@ -1,3 +1,6 @@
+// The get command displays Windsor resources.
+// It provides the get contexts and get context subcommands.
+
 package cmd
 
 import (
@@ -157,6 +160,7 @@ var getContextCmd = &cobra.Command{
 	},
 }
 
+// init registers the get command and its subcommands with the root command.
 func init() {
 	getCmd.AddCommand(getContextsCmd)
 	getCmd.AddCommand(getContextCmd)

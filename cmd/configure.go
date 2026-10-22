@@ -1,3 +1,6 @@
+// The configure command configures the workstation resources.
+// It provides the configure network subcommand for the host and guest network and DNS.
+
 package cmd
 
 import (
@@ -136,6 +139,7 @@ windsor configure network --revert`,
 	},
 }
 
+// init registers the configure command, its subcommands and its flags with the root command.
 func init() {
 	configureNetworkCmd.Flags().StringVar(&configureNetworkDnsAddress, "dns-address", "", "DNS service address (e.g. from Terraform workstation output)")
 	configureNetworkCmd.Flags().BoolVar(&configureNetworkDryRun, "dry-run", false, "Describe what 'configure network' would do without invoking sudo or modifying host state")

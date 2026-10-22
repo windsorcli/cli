@@ -1,3 +1,6 @@
+// The explain command traces a blueprint value back to its sources.
+// It prints each source that sets the value, with its file and line when they are known.
+
 package cmd
 
 import (
@@ -48,10 +51,13 @@ windsor explain terraform.cluster.inputs.common_config_patches.components`,
 	RunE: runExplain,
 }
 
+// init registers the explain command with the root command.
 func init() {
 	rootCmd.AddCommand(explainCmd)
 }
 
+// runExplain composes the blueprint with a trace collector and prints the trace for the path in args.
+// It still prints the trace when the blueprint fails validation, and then it prints the validation error as a warning.
 func runExplain(cmd *cobra.Command, args []string) error {
 	pathStr := args[0]
 	if _, err := blueprint.ParseExplainPath(pathStr); err != nil {
@@ -97,6 +103,9 @@ func runExplain(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
+// printTrace prints the path and value of t, then each source that sets the value.
+// For a components list, it prints each effective component with its index.
+// It marks a value as deferred when deferredPaths has the path or the value has an expression.
 func printTrace(t *blueprint.ExplainTrace, deferredPaths map[string]bool) {
 	isList := strings.HasSuffix(t.Path, ".components")
 	if isList {
@@ -135,6 +144,7 @@ func printTrace(t *blueprint.ExplainTrace, deferredPaths map[string]bool) {
 	}
 }
 
+// printContribution prints the facet file and line of c, or its source name, then its scope references.
 func printContribution(c blueprint.ExplainContribution) {
 	indent := "  "
 	if c.AbsFacetPath != "" && c.Line > 0 {
@@ -152,6 +162,7 @@ func printContribution(c blueprint.ExplainContribution) {
 	}
 }
 
+// printScopeRef prints a scope reference with its status and source location, then its nested references.
 func printScopeRef(ref blueprint.ExplainScopeRef, indent string) {
 	switch ref.Status {
 	case "not set":

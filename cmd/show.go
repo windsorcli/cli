@@ -1,3 +1,6 @@
+// The show command displays the rendered resources of a context.
+// It provides the show blueprint, show kustomization and show values subcommands.
+
 package cmd
 
 import (
@@ -169,6 +172,7 @@ windsor show values --json`,
 	},
 }
 
+// init registers the show command, its subcommands and its flags with the root command.
 func init() {
 	showBlueprintCmd.Flags().BoolVar(&showBlueprintJSON, "json", false, "Output as JSON instead of YAML.")
 	showBlueprintCmd.Flags().BoolVar(&showBlueprintRaw, "raw", false, "Keep deferred expressions as text instead of <deferred>.")

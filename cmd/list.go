@@ -1,3 +1,5 @@
+// The list command lists the available contexts.
+
 package cmd
 
 import (
@@ -23,6 +25,7 @@ var listCmd = &cobra.Command{
 	RunE:         getContextsCmd.RunE,
 }
 
+// init registers the list command with the root command.
 func init() {
 	rootCmd.AddCommand(listCmd)
 }

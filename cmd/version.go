@@ -1,3 +1,5 @@
+// The version command prints the CLI version, commit, build date, Go toolchain and platform.
+
 package cmd
 
 import (
@@ -53,6 +55,7 @@ func annotatedVersion(v string) string {
 	return v
 }
 
+// init registers the version command with the root command.
 func init() {
 	rootCmd.AddCommand(versionCmd)
 }

@@ -1,3 +1,5 @@
+// The install command installs the Flux kustomizations of the blueprint.
+
 package cmd
 
 import (
@@ -42,6 +44,7 @@ windsor install`,
 	},
 }
 
+// init registers the install command with the root command.
 func init() {
 	addDeprecatedWaitFlag(installCmd)
 	rootCmd.AddCommand(installCmd)

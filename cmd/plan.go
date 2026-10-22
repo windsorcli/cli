@@ -1,3 +1,6 @@
+// The plan command shows the terraform and Flux changes before an apply.
+// It provides the plan terraform and plan kustomize subcommands for one component or kustomization.
+
 package cmd
 
 import (
