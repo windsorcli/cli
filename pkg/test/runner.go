@@ -17,6 +17,7 @@ import (
 	"github.com/goccy/go-yaml"
 	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
 	"github.com/windsorcli/cli/internal/shims"
+	"github.com/windsorcli/cli/internal/werror"
 	"github.com/windsorcli/cli/pkg/composer/artifact"
 	"github.com/windsorcli/cli/pkg/composer/blueprint"
 	"github.com/windsorcli/cli/pkg/constants"
@@ -33,6 +34,15 @@ import (
 
 // SkipDefaultBlueprintURL is a sentinel for DefaultBlueprintURL that disables loading the default OCI blueprint (used in unit tests).
 const SkipDefaultBlueprintURL = " "
+
+// noTestFilesHint is the remediation for a project that has no test files.
+const noTestFilesHint = "Add a test file with the .test.yaml extension to contexts/_template/tests."
+
+// noMatchingTestCasesHint is the remediation for a filter that matches no test case.
+const noMatchingTestCasesHint = "Make sure that the filter matches the name of a test case, or run windsor test without a filter."
+
+// componentNotFoundHint is the remediation for a terraform_output() call that names a component the blueprint does not contain.
+const componentNotFoundHint = "Add the component to the blueprint, or remove the terraform_output() call that names it."
 
 // =============================================================================
 // Types
@@ -118,7 +128,7 @@ func (r *TestRunner) runTestCases(testCasesWithFiles []testCaseWithFile) ([]Test
 	for _, tcf := range testCasesWithFiles {
 		result, err := r.runTestCase(tcf.testCase)
 		if err != nil {
-			return nil, fmt.Errorf("failed to run test case %s: %w", tcf.testCase.Name, err)
+			return nil, werror.Wrap(err, "failed to run test case %s", tcf.testCase.Name)
 		}
 		result.SourceFile = tcf.fileName
 		results = append(results, result)
@@ -126,23 +136,23 @@ func (r *TestRunner) runTestCases(testCasesWithFiles []testCaseWithFile) ([]Test
 	return results, nil
 }
 
-// discoverTestCases finds all .test.yaml files under contexts/_template/tests, parses them,
-// and returns test cases that match the filter (or all if filter is empty). Returns an error
-// for discovery failure, missing test directory, parse failure, or when filter is set and no case matches.
+// discoverTestCases parses the .test.yaml files under contexts/_template/tests and returns the test cases
+// that match the filter. An empty filter matches all test cases. It returns an error when discovery or
+// parsing fails. When it finds no test file, or no test case matches the filter, the error has a remediation hint.
 func (r *TestRunner) discoverTestCases(filter string) ([]testCaseWithFile, error) {
 	testsDir := filepath.Join(r.projectRoot, "contexts", "_template", "tests")
 	testFiles, err := r.discoverTestFiles(testsDir)
 	if err != nil {
-		return nil, fmt.Errorf("failed to discover test files: %w", err)
+		return nil, werror.Wrap(err, "failed to discover test files")
 	}
 	if len(testFiles) == 0 {
-		return nil, fmt.Errorf("no test files found in %s", testsDir)
+		return nil, werror.New(fmt.Sprintf("no test files found in %s", testsDir), noTestFilesHint, nil)
 	}
 	var out []testCaseWithFile
 	for _, testFilePath := range testFiles {
 		testFile, err := r.parseTestFile(testFilePath)
 		if err != nil {
-			return nil, fmt.Errorf("failed to parse test file %s: %w", testFilePath, err)
+			return nil, werror.Wrap(err, "failed to parse test file %s", testFilePath)
 		}
 		fileName := filepath.Base(testFilePath)
 		for _, tc := range testFile.Cases {
@@ -153,7 +163,7 @@ func (r *TestRunner) discoverTestCases(filter string) ([]testCaseWithFile, error
 		}
 	}
 	if len(out) == 0 && filter != "" {
-		return nil, fmt.Errorf("no test cases found matching filter: %s", filter)
+		return nil, werror.New(fmt.Sprintf("no test cases found matching filter: %s", filter), noMatchingTestCasesHint, nil)
 	}
 	return out, nil
 }
@@ -189,7 +199,7 @@ func (r *TestRunner) createGenerator(terraformOutputs map[string]map[string]any,
 			schemaPath := filepath.Join(r.baseProjectRoot, "contexts", "_template", "schema.yaml")
 			if err := rt.ConfigHandler.LoadSchema(schemaPath); err != nil {
 				if !errors.Is(err, os.ErrNotExist) {
-					return nil, fmt.Errorf("failed to load schema: %w", err)
+					return nil, werror.Wrap(err, "failed to load schema")
 				}
 			}
 		}
@@ -200,7 +210,7 @@ func (r *TestRunner) createGenerator(terraformOutputs map[string]map[string]any,
 			}
 			normalized := normalizeTestValue(value)
 			if err := rt.ConfigHandler.Set(key, normalized); err != nil {
-				return nil, fmt.Errorf("failed to set value %s: %w", key, err)
+				return nil, werror.Wrap(err, "failed to set value %s", key)
 			}
 		}
 
@@ -209,7 +219,7 @@ func (r *TestRunner) createGenerator(terraformOutputs map[string]map[string]any,
 		}
 
 		if err := rt.InitializeComponents(); err != nil {
-			return nil, fmt.Errorf("failed to initialize components: %w", err)
+			return nil, werror.Wrap(err, "failed to initialize components")
 		}
 
 		effectiveEnv := map[string]string{"WINDSOR_CONTEXT": "test"}
@@ -265,7 +275,7 @@ func (r *TestRunner) createGenerator(terraformOutputs map[string]map[string]any,
 			}
 		}
 		if err := testBlueprintHandler.LoadBlueprint(initURLs...); err != nil {
-			return nil, fmt.Errorf("failed to load blueprint: %w", err)
+			return nil, werror.Wrap(err, "failed to load blueprint")
 		}
 
 		bp := testBlueprintHandler.Generate()
@@ -434,11 +444,10 @@ func (r *TestRunner) runTestCase(tc blueprintv1alpha1.TestCase) (TestResult, err
 // Helpers
 // =============================================================================
 
-// validateTerraformOutputReferences fails composition when a terraform_output() expression named a
-// component that the composed blueprint does not contain. This mirrors the live runtime error raised
-// at env-var build time ("component not found: <name>") so the failure surfaces in windsor test rather
-// than leaking into windsor bootstrap. Missing names are sorted and joined into a single error so the
-// operator sees every offending reference in one pass rather than fixing one and re-running.
+// validateTerraformOutputReferences returns an error when a terraform_output() call names a component
+// that the composed blueprint does not contain. The runtime gives the same "component not found" error,
+// so windsor test finds the problem before windsor bootstrap. The error names all missing components
+// in sorted order, and it has a remediation hint.
 func validateTerraformOutputReferences(bp *blueprintv1alpha1.Blueprint, referenced map[string]struct{}, mu *sync.Mutex) error {
 	if bp == nil || len(referenced) == 0 {
 		return nil
@@ -468,10 +477,7 @@ func validateTerraformOutputReferences(bp *blueprintv1alpha1.Blueprint, referenc
 	}
 
 	sort.Strings(missing)
-	if len(missing) == 1 {
-		return fmt.Errorf("component not found: %s", missing[0])
-	}
-	return fmt.Errorf("component not found: %s", strings.Join(missing, ", "))
+	return werror.New(fmt.Sprintf("component not found: %s", strings.Join(missing, ", ")), componentNotFoundHint, nil)
 }
 
 // normalizeTestValue converts YAML-unmarshaled values (e.g. map[interface{}]interface{}) to
@@ -524,7 +530,7 @@ func registerTerraformOutputHelperForMock(mockProvider *terraform.MockTerraformP
 
 		outputs, err := mockProvider.GetTerraformOutputs(component)
 		if err != nil {
-			return nil, fmt.Errorf("failed to get terraform outputs for component '%s': %w", component, err)
+			return nil, werror.Wrap(err, "failed to get terraform outputs for component '%s'", component)
 		}
 
 		if value, exists := outputs[key]; exists {
