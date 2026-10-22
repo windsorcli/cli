@@ -33,6 +33,11 @@ var configureCmd = &cobra.Command{
 	},
 }
 
+// configureNetworkCmd configures the host and guest network and the DNS of the workstation.
+// It refuses to run before the workstation terraform component is applied.
+// IsProvisioned checks the state file that the apply hook writes, so the DNS address and the runtime are known.
+// It runs the elevation check after --dry-run, so a user without admin rights on Windows can still preview the changes.
+// On Unix, sudo runs each privileged step.
 var configureNetworkCmd = &cobra.Command{
 	Use:   "network",
 	Short: "Configure workstation host/guest networking and DNS.",
@@ -86,10 +91,6 @@ windsor configure network --revert`,
 			return nil
 		}
 
-		// Precondition: refuse to run before the workstation Terraform component has applied.
-		// IsProvisioned reads the canonical state file written by MakeApplyHook after the TF
-		// outputs are persisted — its presence means 'windsor up' has reached the cluster-
-		// reachability handoff and we have real values (DNS address, runtime, etc.) on hand.
 		provisioned, err := proj.Workstation.IsProvisioned()
 		if err != nil {
 			return err
@@ -119,9 +120,6 @@ windsor configure network --revert`,
 			return tw.Flush()
 		}
 
-		// Privileged work follows: on Windows the process itself must be elevated; on Unix
-		// per-op sudo handles each step. The pre-flight runs after --dry-run (which never
-		// modifies host state) so operators on non-Admin Windows can still preview changes.
 		if err := configureNetworkPreflight(); err != nil {
 			return err
 		}

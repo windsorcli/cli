@@ -22,6 +22,8 @@ var (
 	nodeHealthWaitForReboot bool
 )
 
+// checkCmd verifies the local tools, their versions and the cloud credentials.
+// It runs CheckAuth, which runs the cloud CLI. init and env do not run CheckAuth, because they must not use the cloud CLI.
 var checkCmd = &cobra.Command{
 	Use:   "check",
 	Short: "Verify required tools are installed.",
@@ -59,11 +61,6 @@ windsor check`,
 			return err
 		}
 
-		// CheckTools covers local CLIs and their versions; CheckAuth exercises cloud-CLI
-		// presence + credential resolution (e.g. `aws --version` + `aws sts get-caller-identity`).
-		// That pair is kept out of CheckTools so `windsor init` / `windsor env` don't touch
-		// the cloud CLI — but `windsor check` is the explicit "verify my setup" command, so
-		// running it here is the right surface.
 		if err := rt.ToolsManager.CheckAuth(); err != nil {
 			return err
 		}

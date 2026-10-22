@@ -47,6 +47,12 @@ var upgradeStdinIsTerminal = func() bool {
 	return term.IsTerminal(int(os.Stdin.Fd())) // #nosec G115 -- file descriptors are small, safe to cast to int
 }
 
+// upgradeCmd moves the sources to their latest version and reconciles the blueprint.
+// It configures the project, but it composes the blueprint only after the --yes check and the downgrade check.
+// A missing --yes or a refused downgrade then pulls and composes no source.
+// The prompt comes after composition, because its plan needs the new blueprint.
+// It requests all tool requirements, as apply does.
+// After the Up step, it generates the blueprint again with the terraform outputs.
 var upgradeCmd = &cobra.Command{
 	Use:   "upgrade",
 	Short: "Move sources to their latest version and reconcile the blueprint.",
@@ -71,12 +77,6 @@ windsor upgrade cluster --nodes=10.0.0.5 --image=ghcr.io/siderolabs/installer:v1
 	Args:         cobra.NoArgs,
 	SilenceUsage: true,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		// Configure the project but defer Initialize (compose) until after the --yes and
-		// downgrade gates, so neither a missing --yes nor a refused downgrade pulls or composes
-		// any source. The interactive prompt follows composition, because its plan needs the
-		// recomposed blueprint. `windsor upgrade` runs the full blueprint — terraform components and Flux
-		// kustomizations both — so the tool surface is not statically narrowable; mirror `apply`
-		// and request AllRequirements(), letting the per-tool config gates decide.
 		proj, err := configureProject(cmd)
 		if err != nil {
 			return err
@@ -173,8 +173,6 @@ windsor upgrade cluster --nodes=10.0.0.5 --image=ghcr.io/siderolabs/installer:v1
 				return werror.Wrap(err, "error applying terraform")
 			}
 
-			// Re-generate with deferred substitutions resolved now that terraform
-			// outputs are available from the Up step above.
 			var resolveErr error
 			blueprint, resolveErr = proj.Composer.BlueprintHandler.GenerateResolved()
 			if resolveErr != nil {

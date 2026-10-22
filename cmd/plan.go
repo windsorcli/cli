@@ -26,6 +26,10 @@ var planSummary bool
 var planJSON bool
 var planOutput string
 
+// planCmd shows the terraform and Flux changes for the blueprint, or for one component.
+// It requests terraform, the secrets tools and kubelogin, because the plan reads terraform state and the cluster.
+// It takes the stack lock only when terraform runs.
+// A kustomize-only plan is a read-only flux diff, so it does not block other windsor operations.
 var planCmd = &cobra.Command{
 	Use:   "plan [component]",
 	Short: "Preview terraform and Flux changes.",
@@ -54,9 +58,6 @@ windsor plan terraform cluster`,
 	Args:         cobra.MaximumNArgs(1),
 	SilenceUsage: true,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		// `plan` (no args, or with a component name) can dispatch to terraform plan and/or
-		// flux diff depending on what the blueprint contains. Both are read-only but exercise
-		// terraform + cluster API + secrets, so request the full read-side surface.
 		proj, err := prepareProject(cmd, tools.Requirements{Terraform: true, Secrets: true, Kubelogin: true})
 		if err != nil {
 			return err
@@ -101,8 +102,6 @@ windsor plan terraform cluster`,
 			}
 		}
 
-		// Lock only when terraform is involved; pure kustomize plans are read-only flux diffs
-		// against the cluster and must not block infra-mutating windsor operations.
 		runPlan := func(fn func() error) error {
 			if inTerraform {
 				return stacklock.With(cmd.Context(), proj.Runtime, "plan", lockTimeout, fn)
@@ -153,6 +152,8 @@ windsor plan terraform cluster`,
 	},
 }
 
+// planTerraformCmd plans one terraform component, or all of them.
+// It requests only terraform and the secrets tools.
 var planTerraformCmd = &cobra.Command{
 	Use:     "terraform [component]",
 	Aliases: []string{"tf"},
@@ -179,7 +180,6 @@ windsor plan terraform --output=json-plan`,
 	Args:         cobra.MaximumNArgs(1),
 	SilenceUsage: true,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		// `plan terraform` only invokes terraform; cluster/k8s tools are not used.
 		proj, err := prepareProject(cmd, tools.Requirements{Terraform: true, Secrets: true})
 		if err != nil {
 			return err
@@ -265,6 +265,8 @@ windsor plan terraform --output=json-plan`,
 	},
 }
 
+// planKustomizeCmd runs flux diff for one kustomization, or all of them.
+// It requests only the secrets tools and kubelogin, because it does not run terraform or docker.
 var planKustomizeCmd = &cobra.Command{
 	Use:     "kustomize [component]",
 	Aliases: []string{"k8s"},
@@ -282,7 +284,6 @@ windsor plan kustomize --summary`,
 	Args:         cobra.MaximumNArgs(1),
 	SilenceUsage: true,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		// `plan kustomize` runs flux diff against the cluster; terraform/docker are not used.
 		proj, err := prepareProject(cmd, tools.Requirements{Secrets: true, Kubelogin: true})
 		if err != nil {
 			return err

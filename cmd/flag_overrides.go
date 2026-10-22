@@ -76,15 +76,13 @@ func defaultTerraformBackendType(overrides map[string]any) {
 // from the network on a bare invocation. Returns a nil slice when the
 // caller should use whatever blueprint state is already on disk. artifactBuilder is passed to
 // resolveEffectiveBlueprintURL; nil (or a registry failure) falls back to the build-time pin.
+// When allowLocalBootstrap is false, as for up, it does not read the template root,
+// so a stat error from a bad template root cannot change the result.
 func resolveBlueprintURL(blueprintFlag, platformFlag, contextName, templateRoot string, allowLocalBootstrap bool, artifactBuilder artifact.Artifact) ([]string, error) {
 	if blueprintFlag != "" {
 		return []string{blueprintFlag}, nil
 	}
 	if platformFlag != "" {
-		// Only consult the template root when the caller permits local bootstrap (init
-		// and bootstrap flows). `up` passes allowLocalBootstrap=false and must retain
-		// the pre-existing "always inject on --platform" behavior so it doesn't
-		// accidentally observe stat errors on a badly-shaped templateRoot.
 		if allowLocalBootstrap {
 			if _, err := os.Stat(templateRoot); err == nil {
 				return nil, nil
