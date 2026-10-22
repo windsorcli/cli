@@ -1,15 +1,12 @@
-// render.go produces the markdown for one cobra command. The output shape
-// matches the windsorcli.github.io house style for CLI reference: frontmatter
-// for the Astro content collection, a synopsis fence, the cmd.Long body as
-// prose, a flag table (own flags only — inherited globals are excluded as
-// noise), an optional examples block, an optional subcommands list, and a
-// "See also" section sourced from cmd.Annotations. The page title lives in
-// frontmatter only; no body H1 repeats it.
+// The command renderer writes the markdown reference page for one cobra command.
+// It provides the page sections in the house style of windsorcli.github.io.
+// A page has frontmatter, a synopsis, the Long text, a flag table, the subcommands, the examples and a See also section.
+// The title is only in the frontmatter, so no H1 in the body repeats it.
 //
-// Annotations consumed:
+// The renderer reads these annotations from the command:
 //
-//	docs.seealso  newline-separated markdown bullets (each line becomes one "- " entry)
-//	docs.source   path to the source file (rendered as "Source: [path](github-link)")
+//	docs.seealso  markdown bullets, one on each line, for the See also section
+//	docs.source   the path of the source file, which the See also section links to
 
 package main
 
@@ -22,24 +19,33 @@ import (
 	"github.com/spf13/pflag"
 )
 
+// =============================================================================
+// Constants
+// =============================================================================
+
+// sourceURLPrefix is the GitHub URL prefix for the source link on a command page.
 const sourceURLPrefix = "https://github.com/windsorcli/cli/blob/main/"
 
-// errWriter wraps an io.Writer and captures the first write error encountered,
-// turning subsequent writes into no-ops that report success. This lets the
-// per-section helpers continue using the bare fmt.Fprintf style instead of
-// branching on errors after every call; renderCommand surfaces the captured
-// error at the end so a full disk or broken pipe during doc generation
-// produces a non-nil error rather than a silently truncated .md file.
+// =============================================================================
+// Types
+// =============================================================================
+
+// errWriter is an io.Writer that keeps the first write error and ignores all writes after it.
+// The section functions can then call fmt.Fprintf without an error check after each call.
+// renderCommand returns the kept error, so a full disk gives an error and not a short file.
 type errWriter struct {
 	w   io.Writer
 	err error
 }
 
+// =============================================================================
+// Public Methods
+// =============================================================================
+
+// Write writes p to the wrapped writer and keeps the first error.
+// After an error, it reports success and writes nothing, so fmt.Fprintf does not retry the rest of its output.
 func (e *errWriter) Write(p []byte) (int, error) {
 	if e.err != nil {
-		// Report success after the first error so fmt.Fprintf doesn't loop
-		// retrying the rest of the format string. renderCommand checks e.err
-		// at the end of the section sequence.
 		return len(p), nil
 	}
 	n, err := e.w.Write(p)
@@ -49,6 +55,11 @@ func (e *errWriter) Write(p []byte) (int, error) {
 	return n, err
 }
 
+// =============================================================================
+// Private Methods
+// =============================================================================
+
+// renderCommand writes the full page for cmd to w and returns the first write error.
 func renderCommand(w io.Writer, cmd *cobra.Command) error {
 	ew := &errWriter{w: w}
 	writeFrontmatter(ew, cmd)
@@ -62,6 +73,7 @@ func renderCommand(w io.Writer, cmd *cobra.Command) error {
 	return ew.err
 }
 
+// writeFrontmatter writes the frontmatter, with the command path as the title and Short as the description.
 func writeFrontmatter(w io.Writer, cmd *cobra.Command) {
 	fmt.Fprintln(w, "---")
 	fmt.Fprintf(w, "title: %q\n", cmd.CommandPath())
@@ -71,6 +83,7 @@ func writeFrontmatter(w io.Writer, cmd *cobra.Command) {
 	fmt.Fprintln(w, "---")
 }
 
+// writeSynopsis writes the usage line of cmd in a sh code block.
 func writeSynopsis(w io.Writer, cmd *cobra.Command) {
 	fmt.Fprintln(w, "```sh")
 	fmt.Fprintln(w, cmd.UseLine())
@@ -78,6 +91,7 @@ func writeSynopsis(w io.Writer, cmd *cobra.Command) {
 	fmt.Fprintln(w)
 }
 
+// writeLong writes the Long text of cmd. It writes nothing when Long is empty.
 func writeLong(w io.Writer, cmd *cobra.Command) {
 	body := strings.TrimSpace(cmd.Long)
 	if body == "" {
@@ -87,16 +101,10 @@ func writeLong(w io.Writer, cmd *cobra.Command) {
 	fmt.Fprintln(w)
 }
 
-// writeFlagsTable renders only the command's own flags via cmd.LocalFlags() —
-// the local non-persistent flagset plus any persistent flags declared on this
-// command. Inherited persistent flags from ancestors are excluded so globals
-// like --verbose / --no-cache aren't duplicated on every page; a parent
-// command's persistent flags are documented on the parent page and noted as
-// inherited in the subcommand's Long. Cobra's auto-added --help is also
-// skipped as boilerplate.
-//
-// We use LocalFlags() rather than Flags() because Flags() relies on cobra's
-// Execute() to merge persistent flags, which never runs during doc generation.
+// writeFlagsTable writes a table of the flags in cmd.LocalFlags(), without the hidden flags and --help.
+// LocalFlags has the flags that cmd declares, and not the persistent flags of its parents.
+// The parent page documents those flags, so each page does not repeat --verbose and the other global flags.
+// It does not use Flags(), because only the cobra Execute function merges the persistent flags into it.
 func writeFlagsTable(w io.Writer, cmd *cobra.Command) {
 	rows := flagRows(cmd.LocalFlags())
 	if len(rows) == 0 {
@@ -112,6 +120,7 @@ func writeFlagsTable(w io.Writer, cmd *cobra.Command) {
 	fmt.Fprintln(w)
 }
 
+// flagRows returns one table row for each flag in set that is not hidden and is not --help.
 func flagRows(set *pflag.FlagSet) []string {
 	var rows []string
 	set.VisitAll(func(f *pflag.Flag) {
@@ -131,6 +140,7 @@ func flagRows(set *pflag.FlagSet) []string {
 	return rows
 }
 
+// writeSubcommands writes a list of links to the visible subcommands of cmd, with the Short text of each one.
 func writeSubcommands(w io.Writer, cmd *cobra.Command) {
 	subs := visibleSubcommands(cmd)
 	if len(subs) == 0 {
@@ -144,6 +154,7 @@ func writeSubcommands(w io.Writer, cmd *cobra.Command) {
 	fmt.Fprintln(w)
 }
 
+// writeExamples writes the Example text of cmd in a sh code block. It writes nothing when Example is empty.
 func writeExamples(w io.Writer, cmd *cobra.Command) {
 	ex := strings.TrimSpace(cmd.Example)
 	if ex == "" {
@@ -157,6 +168,8 @@ func writeExamples(w io.Writer, cmd *cobra.Command) {
 	fmt.Fprintln(w)
 }
 
+// writeSeeAlso writes the See also section from the docs.seealso and docs.source annotations.
+// It writes nothing when both annotations are empty.
 func writeSeeAlso(w io.Writer, cmd *cobra.Command) {
 	seealso := strings.TrimSpace(cmd.Annotations["docs.seealso"])
 	source := strings.TrimSpace(cmd.Annotations["docs.source"])
@@ -179,8 +192,11 @@ func writeSeeAlso(w io.Writer, cmd *cobra.Command) {
 	}
 }
 
-// visibleSubcommands returns subcommands that should appear in documentation —
-// cobra's auto-added "help" command and any Hidden commands are excluded.
+// =============================================================================
+// Helpers
+// =============================================================================
+
+// visibleSubcommands returns the subcommands of cmd without the hidden commands and the cobra help command.
 func visibleSubcommands(cmd *cobra.Command) []*cobra.Command {
 	var out []*cobra.Command
 	for _, c := range cmd.Commands() {
@@ -192,9 +208,9 @@ func visibleSubcommands(cmd *cobra.Command) []*cobra.Command {
 	return out
 }
 
-// commandFilename returns the on-disk filename for a command's reference page.
-// Root command ("windsor") becomes windsor.md; subcommands drop the root and
-// join the remaining ancestors with dashes (e.g. "apply terraform" → "apply-terraform.md").
+// commandFilename returns the file name of the page for cmd.
+// The root command gives windsor.md. A subcommand drops the root and joins the other names with dashes.
+// For example, "windsor apply terraform" gives apply-terraform.md.
 func commandFilename(cmd *cobra.Command) string {
 	parts := strings.Fields(cmd.CommandPath())
 	if len(parts) == 0 {
@@ -206,9 +222,7 @@ func commandFilename(cmd *cobra.Command) string {
 	return strings.Join(parts[1:], "-") + ".md"
 }
 
-// escapePipes escapes the pipe character so it doesn't break the markdown
-// table layout when it appears in flag descriptions (e.g. enum lists like
-// [foo|bar|baz]).
+// escapePipes escapes each pipe character in s, so that a flag description such as [a|b] does not break the table.
 func escapePipes(s string) string {
 	return strings.ReplaceAll(s, "|", `\|`)
 }
