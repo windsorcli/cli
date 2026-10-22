@@ -155,7 +155,7 @@ func TestDarwinNetworkManager_ConfigureHostRoute(t *testing.T) {
 		if err == nil {
 			t.Fatalf("expected error, got nil")
 		}
-		expectedError := "failed to add route: mock error, output: mock output"
+		expectedError := "failed to add route, output: mock output: mock error"
 		if err.Error() != expectedError {
 			t.Fatalf("expected error %q, got %q", expectedError, err.Error())
 		}
@@ -676,7 +676,7 @@ func TestDarwinNetworkManager_RevertHostRoute(t *testing.T) {
 		if err == nil {
 			t.Fatalf("expected error, got nil")
 		}
-		if !strings.Contains(err.Error(), "Error deleting host route") {
+		if !strings.Contains(err.Error(), "failed to delete host route") {
 			t.Errorf("expected wrapped error, got %v", err)
 		}
 	})

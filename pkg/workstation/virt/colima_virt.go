@@ -437,13 +437,13 @@ func (v *ColimaVirt) executeColimaCommand(action string, additionalArgs ...strin
 		args = append(args, "--force")
 		output, err := v.shell.ExecProgress("Deleting Colima VM", command, args...)
 		if err != nil {
-			return fmt.Errorf("Error executing command %s %v: %w\n%s", command, args, err, output)
+			return werror.Wrap(err, "failed to run %s %v, output: %s", command, args, output)
 		}
 		return nil
 	}
 	output, err := v.shell.ExecProgress(fmt.Sprintf("Running %s", command), command, args...)
 	if err != nil {
-		return fmt.Errorf("Error executing command %s %v: %w\n%s", command, args, err, output)
+		return werror.Wrap(err, "failed to run %s %v, output: %s", command, args, output)
 	}
 	return nil
 }
@@ -460,7 +460,7 @@ func (v *ColimaVirt) startColima() (VMInfo, error) {
 
 	output, err := v.shell.ExecProgress(fmt.Sprintf("Running %s", command), command, args...)
 	if err != nil {
-		return VMInfo{}, fmt.Errorf("Error executing command %s %v: %w\n%s", command, args, err, output)
+		return VMInfo{}, werror.Wrap(err, "failed to run %s %v, output: %s", command, args, output)
 	}
 
 	var info VMInfo

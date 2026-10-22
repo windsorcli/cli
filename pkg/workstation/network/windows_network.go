@@ -112,7 +112,7 @@ func (n *BaseNetworkManager) ConfigureHostRoute(ctx context.Context) error {
 			fmt.Sprintf("New-NetRoute -DestinationPrefix %s -NextHop %s -RouteMetric 1", cidr, guest),
 		)
 		if err != nil {
-			return fmt.Errorf("failed to add route: %w, output: %s", err, output)
+			return werror.Wrap(err, "failed to add route, output: %s", output)
 		}
 		return nil
 	})
