@@ -10,6 +10,7 @@ import (
 
 	cliconfig "github.com/windsorcli/cli/api/config/v1alpha2"
 	v1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
+	"github.com/windsorcli/cli/internal/werror"
 	"github.com/windsorcli/cli/pkg/composer"
 	"github.com/windsorcli/cli/pkg/composer/blueprint"
 	"github.com/windsorcli/cli/pkg/provisioner"
@@ -1215,6 +1216,66 @@ func TestProject_PerformCleanup(t *testing.T) {
 		}
 		if !strings.Contains(err.Error(), "error reading .windsor/contexts/test-context") {
 			t.Errorf("Expected context-dir read error, got: %v", err)
+		}
+
+		// And the error tells the operator to remove the file
+		if we := werror.Find(err); we == nil || !strings.Contains(we.Remediation, "Remove the file .windsor/contexts/test-context") {
+			t.Errorf("Expected remediation to remove the file, got: %v", we)
+		}
+	})
+
+	t.Run("ErrorRemovingCredentials", func(t *testing.T) {
+		// Given a RemoveAll shim that fails
+		mocks := setupProjectMocks(t)
+		proj := NewProject("test-context", &Project{Runtime: mocks.Runtime})
+		proj.shims.RemoveAll = func(path string) error {
+			return fmt.Errorf("remove failed")
+		}
+
+		// When
+		err := proj.PerformCleanup()
+
+		// Then the error names the credentials directory
+		if err == nil || !strings.Contains(err.Error(), "error deleting .kube") || !strings.Contains(err.Error(), "remove failed") {
+			t.Errorf("Expected wrapped .kube delete error, got: %v", err)
+		}
+	})
+
+	t.Run("ErrorStattingContextDir", func(t *testing.T) {
+		// Given a Stat shim that fails with an error other than not-exist
+		mocks := setupProjectMocks(t)
+		proj := NewProject("test-context", &Project{Runtime: mocks.Runtime})
+		proj.shims.Stat = func(name string) (os.FileInfo, error) {
+			return nil, os.ErrPermission
+		}
+
+		// When
+		err := proj.PerformCleanup()
+
+		// Then the error mentions the context directory
+		if err == nil || !strings.Contains(err.Error(), "error reading .windsor/contexts/test-context") {
+			t.Errorf("Expected context-dir read error, got: %v", err)
+		}
+	})
+
+	t.Run("ErrorListingContextDir", func(t *testing.T) {
+		// Given a context directory that exists and a ReadDir shim that fails
+		mocks := setupProjectMocks(t)
+		proj := NewProject("test-context", &Project{Runtime: mocks.Runtime})
+		contextDir := filepath.Join(mocks.Runtime.ProjectRoot, ".windsor", "contexts", "test-context")
+		if err := os.MkdirAll(contextDir, 0755); err != nil {
+			t.Fatalf("Failed to create context dir: %v", err)
+		}
+		proj.shims.ReadDir = func(name string) ([]os.DirEntry, error) {
+			return nil, fmt.Errorf("readdir failed")
+		}
+
+		// When
+		err := proj.PerformCleanup()
+
+		// Then the error mentions the context directory
+		if err == nil || !strings.Contains(err.Error(), "readdir failed") {
+			t.Errorf("Expected wrapped readdir error, got: %v", err)
 		}
 	})
 

@@ -1,3 +1,7 @@
+// The Project is the top level object of a Windsor command.
+// It creates the runtime, the composer, the provisioner, and the workstation for a context.
+// It runs the configure, initialize, up, bootstrap, and cleanup sequences with these objects.
+
 package project
 
 import (
@@ -8,6 +12,8 @@ import (
 	"path/filepath"
 
 	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
+	"github.com/windsorcli/cli/internal/shims"
+	"github.com/windsorcli/cli/internal/werror"
 	"github.com/windsorcli/cli/pkg/composer"
 	"github.com/windsorcli/cli/pkg/composer/blueprint"
 	"github.com/windsorcli/cli/pkg/provisioner"
@@ -33,6 +39,7 @@ type Project struct {
 	Composer         *composer.Composer
 	Workstation      *workstation.Workstation
 	toolRequirements *tools.Requirements
+	shims            *shims.Shims
 }
 
 // =============================================================================
@@ -115,6 +122,7 @@ func NewProject(contextName string, opts ...*Project) *Project {
 		Provisioner:   prov,
 		Composer:      comp,
 		Workstation:   ws,
+		shims:         shims.NewShims(),
 	}
 }
 
@@ -138,7 +146,7 @@ func (p *Project) Configure(flagOverrides map[string]any) error {
 		return err
 	}
 	if err := p.Runtime.LoadEnvironment(false); err != nil {
-		return fmt.Errorf("failed to load environment: %w", err)
+		return werror.Wrap(err, "failed to load environment")
 	}
 	return nil
 }
@@ -157,7 +165,7 @@ func (p *Project) EnsureWorkstation() {
 // and thus does not write blueprint files, process terraform modules, or generate tfvars.
 func (p *Project) ComposeBlueprint(blueprintURL ...string) error {
 	if err := p.configHandler.GenerateContextID(); err != nil {
-		return fmt.Errorf("failed to generate context ID: %w", err)
+		return werror.Wrap(err, "failed to generate context ID")
 	}
 	if err := p.Composer.BlueprintHandler.LoadBlueprint(blueprintURL...); err != nil {
 		return err
@@ -175,17 +183,17 @@ func (p *Project) Initialize(overwrite bool, blueprintURL ...string) error {
 	p.EnsureWorkstation()
 	if p.Workstation != nil {
 		if err := p.Workstation.Prepare(); err != nil {
-			return fmt.Errorf("failed to prepare workstation: %w", err)
+			return werror.Wrap(err, "failed to prepare workstation")
 		}
 		if p.Workstation.ContainerRuntime != nil {
 			if err := p.Workstation.ContainerRuntime.WriteConfig(); err != nil {
-				return fmt.Errorf("failed to write container runtime config: %w", err)
+				return werror.Wrap(err, "failed to write container runtime config")
 			}
 		}
 	}
 
 	if err := p.configHandler.GenerateContextID(); err != nil {
-		return fmt.Errorf("failed to generate context ID: %w", err)
+		return werror.Wrap(err, "failed to generate context ID")
 	}
 
 	if err := p.Composer.BlueprintHandler.LoadBlueprint(blueprintURL...); err != nil {
@@ -193,15 +201,15 @@ func (p *Project) Initialize(overwrite bool, blueprintURL ...string) error {
 		if errors.As(err, &reqErr) {
 			return err
 		}
-		return fmt.Errorf("failed to load blueprint data: %w", err)
+		return werror.Wrap(err, "failed to load blueprint data")
 	}
 
 	if err := p.Runtime.SaveConfig(overwrite); err != nil {
-		return fmt.Errorf("failed to save config: %w", err)
+		return werror.Wrap(err, "failed to save config")
 	}
 
 	if err := p.Composer.Generate(overwrite); err != nil {
-		return fmt.Errorf("failed to generate infrastructure: %w", err)
+		return werror.Wrap(err, "failed to generate infrastructure")
 	}
 
 	reqs := tools.AllRequirements()
@@ -213,7 +221,7 @@ func (p *Project) Initialize(overwrite bool, blueprintURL ...string) error {
 	}
 
 	if err := p.Runtime.LoadEnvironment(true); err != nil {
-		return fmt.Errorf("failed to load environment: %w", err)
+		return werror.Wrap(err, "failed to load environment")
 	}
 
 	return nil
@@ -264,50 +272,51 @@ func (p *Project) Bootstrap(ctx context.Context, confirm provisioner.BootstrapCo
 	}
 	halted, err := p.Provisioner.Bootstrap(ctx, blueprint, hooks...)
 	if err != nil {
-		return nil, false, false, fmt.Errorf("error starting infrastructure: %w", err)
+		return nil, false, false, werror.Wrap(err, "error starting infrastructure")
 	}
 	return blueprint, true, halted, nil
 }
 
-// PerformCleanup removes context-specific artifacts: config state, the local-cluster credentials
-// (.kube, .talos) under contexts/<context>, and the contents of .windsor/contexts/<context>
-// (preserving workstation.yaml). Returns an error if any step fails.
+// PerformCleanup removes the artifacts of the context. It cleans the config state and removes
+// the .kube and .talos directories under contexts/<context>. It removes the contents of
+// .windsor/contexts/<context>, but keeps workstation.yaml. It returns an error if a step fails.
+// When .windsor/contexts/<context> is a file, the error has a remediation hint.
 func (p *Project) PerformCleanup() error {
 	if err := p.configHandler.Clean(); err != nil {
-		return fmt.Errorf("error cleaning up context specific artifacts: %w", err)
+		return werror.Wrap(err, "error cleaning up context specific artifacts")
 	}
 
 	configRoot, err := p.configHandler.GetConfigRoot()
 	if err != nil {
-		return fmt.Errorf("error getting config root: %w", err)
+		return werror.Wrap(err, "error getting config root")
 	}
 	for _, dir := range []string{".kube", ".talos"} {
-		if err := os.RemoveAll(filepath.Join(configRoot, dir)); err != nil {
-			return fmt.Errorf("error deleting %s: %w", dir, err)
+		if err := p.shims.RemoveAll(filepath.Join(configRoot, dir)); err != nil {
+			return werror.Wrap(err, "error deleting %s", dir)
 		}
 	}
 
 	contextDir := filepath.Join(p.projectRoot, ".windsor", "contexts", p.contextName)
-	info, err := os.Stat(contextDir)
+	info, err := p.shims.Stat(contextDir)
 	if os.IsNotExist(err) {
 		return nil
 	}
 	if err != nil {
-		return fmt.Errorf("error reading .windsor/contexts/%s: %w", p.contextName, err)
+		return werror.Wrap(err, "error reading .windsor/contexts/%s", p.contextName)
 	}
 	if !info.IsDir() {
-		return fmt.Errorf("error reading .windsor/contexts/%s: not a directory", p.contextName)
+		return werror.New(fmt.Sprintf("error reading .windsor/contexts/%s: not a directory", p.contextName), fmt.Sprintf("Remove the file .windsor/contexts/%s, then run the command again.", p.contextName), nil)
 	}
-	entries, err := os.ReadDir(contextDir)
+	entries, err := p.shims.ReadDir(contextDir)
 	if err != nil {
-		return fmt.Errorf("error reading .windsor/contexts/%s: %w", p.contextName, err)
+		return werror.Wrap(err, "error reading .windsor/contexts/%s", p.contextName)
 	}
 	for _, entry := range entries {
 		if entry.Name() == "workstation.yaml" {
 			continue
 		}
-		if err := os.RemoveAll(filepath.Join(contextDir, entry.Name())); err != nil {
-			return fmt.Errorf("error deleting %s: %w", entry.Name(), err)
+		if err := p.shims.RemoveAll(filepath.Join(contextDir, entry.Name())); err != nil {
+			return werror.Wrap(err, "error deleting %s", entry.Name())
 		}
 	}
 
@@ -332,7 +341,7 @@ func (p *Project) runApply(ctx context.Context, fn func(context.Context, *bluepr
 	}
 	halted, err := fn(ctx, blueprint, hooks...)
 	if err != nil {
-		return nil, false, fmt.Errorf("error starting infrastructure: %w", err)
+		return nil, false, werror.Wrap(err, "error starting infrastructure")
 	}
 	return blueprint, halted, nil
 }
@@ -360,7 +369,7 @@ func (p *Project) prepareWorkstationForApply(ctx context.Context, blueprint *blu
 	}
 	p.Workstation.PrepareForUp(blueprint)
 	if err := p.Workstation.Up(ctx); err != nil {
-		return nil, fmt.Errorf("error starting workstation: %w", err)
+		return nil, werror.Wrap(err, "error starting workstation")
 	}
 	onApply := p.Workstation.MakeApplyHook()
 	if postApply := p.Workstation.MakePostApplyHook(); postApply != nil {
