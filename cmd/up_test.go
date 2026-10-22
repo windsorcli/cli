@@ -11,6 +11,7 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
 	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
+	"github.com/windsorcli/cli/internal/werror"
 	"github.com/windsorcli/cli/pkg/composer"
 	"github.com/windsorcli/cli/pkg/composer/blueprint"
 	"github.com/windsorcli/cli/pkg/project"
@@ -668,6 +669,9 @@ func TestBuildUpFlagOverrides(t *testing.T) {
 		}
 		if !strings.Contains(err.Error(), "invalid --set format") {
 			t.Errorf("Expected 'invalid --set format' error, got: %v", err)
+		}
+		if werr := werror.Find(err); werr == nil || werr.Remediation != setFormatHint {
+			t.Errorf("Expected the --set format hint, got %+v", werr)
 		}
 	})
 }

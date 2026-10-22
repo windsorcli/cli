@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/windsorcli/cli/internal/werror"
 	"github.com/windsorcli/cli/pkg/provisioner/cluster"
 	"github.com/windsorcli/cli/pkg/runtime"
 	"github.com/windsorcli/cli/pkg/runtime/config"
@@ -105,8 +106,11 @@ func TestCheckCmd(t *testing.T) {
 		}
 
 		// And error should contain init message
-		if !strings.Contains(err.Error(), "Nothing to check") {
+		if !strings.Contains(err.Error(), "nothing to check") {
 			t.Errorf("Expected error about init, got: %v", err)
+		}
+		if werr := werror.Find(err); werr == nil || werr.Remediation != initProjectHint {
+			t.Errorf("Expected the init hint, got %+v", werr)
 		}
 	})
 }
@@ -357,9 +361,11 @@ func TestCheckNodeHealthCmd(t *testing.T) {
 		}
 
 		// And error should contain health checks message
-		expectedError := "No health checks specified. Use --nodes and/or --k8s-endpoint flags to specify health checks to perform"
-		if err.Error() != expectedError {
+		if err.Error() != "no health checks specified" {
 			t.Errorf("Expected error about health checks, got: %v", err)
+		}
+		if werr := werror.Find(err); werr == nil || !strings.Contains(werr.Remediation, "--k8s-endpoint") {
+			t.Errorf("Expected a hint that names the health check flags, got %+v", werr)
 		}
 	})
 
@@ -379,9 +385,11 @@ func TestCheckNodeHealthCmd(t *testing.T) {
 		}
 
 		// And error should contain health checks message
-		expectedError := "No health checks specified. Use --nodes and/or --k8s-endpoint flags to specify health checks to perform"
-		if err.Error() != expectedError {
+		if err.Error() != "no health checks specified" {
 			t.Errorf("Expected error about health checks, got: %v", err)
+		}
+		if werr := werror.Find(err); werr == nil || !strings.Contains(werr.Remediation, "--k8s-endpoint") {
+			t.Errorf("Expected a hint that names the health check flags, got %+v", werr)
 		}
 	})
 }

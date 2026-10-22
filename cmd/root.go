@@ -55,6 +55,15 @@ const composerOverridesKey = contextKey("composerOverrides")
 const runtimeOverridesKey = contextKey("runtimeOverrides")
 const testRunnerOverridesKey = contextKey("testRunnerOverrides")
 
+// trustDirectoryHint tells the operator how to trust the current directory.
+const trustDirectoryHint = "Run windsor init to trust this directory, if it is a Windsor project."
+
+// initProjectHint tells the operator how to create the configuration of a project.
+const initProjectHint = "Run windsor init, then run the command again."
+
+// setFormatHint tells the operator the format of a --set entry.
+const setFormatHint = "Set --set in the format key=value."
+
 // Execute is the main entry point for the Windsor CLI application.
 // It executes the root command with the provided context or a new background context.
 // Sets the root command's context before execution so cmd.Root().Context() is correct
@@ -124,10 +133,9 @@ func commandPreflight(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
-// configureProject creates a project for the given command and runs setup through Configure.
-// It reads any test overrides from the command context, sets shell verbosity, checks for a
-// trusted directory, and configures the project. Commands that need additional steps after
-// Configure (e.g. ComposeBlueprint, GetContextValues) call this directly.
+// configureProject creates the project for the command and configures it.
+// It reads test overrides from the command context, sets the shell verbosity and checks that the directory is trusted.
+// Commands that need more steps after Configure, such as ComposeBlueprint, call this function directly.
 func configureProject(cmd *cobra.Command) (*project.Project, error) {
 	var opts []*project.Project
 	if overridesVal := cmd.Context().Value(projectOverridesKey); overridesVal != nil {
@@ -136,7 +144,7 @@ func configureProject(cmd *cobra.Command) (*project.Project, error) {
 	proj := project.NewProject("", opts...)
 	proj.Runtime.Shell.SetVerbosity(verbose)
 	if err := proj.Runtime.Shell.CheckTrustedDirectory(); err != nil {
-		return nil, fmt.Errorf("not in a trusted directory. If you are in a Windsor project, run 'windsor init' to approve")
+		return nil, werror.New("not in a trusted directory", trustDirectoryHint, err)
 	}
 	if err := proj.Configure(nil); err != nil {
 		return nil, err
@@ -280,7 +288,7 @@ func setupGlobalContext(cmd *cobra.Command) error {
 	ctx = withOutput(ctx, cmd.ErrOrStderr(), format)
 	if noCache {
 		if err := os.Setenv("NO_CACHE", "true"); err != nil {
-			return fmt.Errorf("failed to set NO_CACHE environment variable: %w", err)
+			return werror.Wrap(err, "failed to set NO_CACHE environment variable")
 		}
 	}
 	if contextFlag != "" {

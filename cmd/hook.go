@@ -1,9 +1,8 @@
 package cmd
 
 import (
-	"fmt"
-
 	"github.com/spf13/cobra"
+	"github.com/windsorcli/cli/internal/werror"
 	"github.com/windsorcli/cli/pkg/runtime"
 )
 
@@ -38,7 +37,7 @@ windsor hook powershell | Out-String | Invoke-Expression`,
 		rt := runtime.NewRuntime(rtOpts...)
 
 		if err := rt.Shell.InstallHook(args[0]); err != nil {
-			return fmt.Errorf("error installing hook: %w", err)
+			return werror.Wrap(err, "error installing hook")
 		}
 
 		return nil

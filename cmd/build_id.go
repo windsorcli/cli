@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	"github.com/spf13/cobra"
+	"github.com/windsorcli/cli/internal/werror"
 	"github.com/windsorcli/cli/pkg/runtime"
 )
 
@@ -47,7 +48,7 @@ docker build -t myapp:$BUILD_ID .`,
 			buildID, err = rt.GetBuildID()
 		}
 		if err != nil {
-			return fmt.Errorf("failed to manage build ID: %w", err)
+			return werror.Wrap(err, "failed to manage build ID")
 		}
 
 		fmt.Printf("%s\n", buildID)

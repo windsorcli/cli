@@ -10,6 +10,7 @@ import (
 	"github.com/goccy/go-yaml"
 	"github.com/spf13/cobra"
 	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
+	"github.com/windsorcli/cli/internal/werror"
 	blueprintcomposer "github.com/windsorcli/cli/pkg/composer/blueprint"
 	"github.com/windsorcli/cli/pkg/constants"
 	"github.com/windsorcli/cli/pkg/project"
@@ -220,12 +221,12 @@ func outputResource(resource any, useJSON bool, resourceType string) error {
 	if useJSON {
 		output, err = json.MarshalIndent(resource, "", "  ")
 		if err != nil {
-			return fmt.Errorf("failed to marshal %s to JSON: %w", resourceType, err)
+			return werror.Wrap(err, "failed to marshal %s to JSON", resourceType)
 		}
 	} else {
 		output, err = yaml.MarshalWithOptions(resource, yaml.UseLiteralStyleIfMultiline(true))
 		if err != nil {
-			return fmt.Errorf("failed to marshal %s to YAML: %w", resourceType, err)
+			return werror.Wrap(err, "failed to marshal %s to YAML", resourceType)
 		}
 	}
 
@@ -245,10 +246,8 @@ func findKustomization(blueprint *blueprintv1alpha1.Blueprint, name string) (blu
 	return blueprintv1alpha1.Kustomization{}, false
 }
 
-// kustomizationNotFoundError returns a formatted error for when a kustomization is not found. If the
-// name instead matches a flux: system descriptor rather than one of its compiled tiers, the error
-// lists that system's tier names, since a system name (e.g. "cert-manager") is never itself a valid
-// argument.
+// kustomizationNotFoundError returns the error for a kustomization name that the blueprint does not have.
+// If the name is a flux system, the hint lists the tiers of that system. A system name is not a valid argument.
 func kustomizationNotFoundError(blueprint *blueprintv1alpha1.Blueprint, name string) error {
 	for _, sys := range blueprint.FluxSystems {
 		if sys.Name != name {
@@ -258,8 +257,7 @@ func kustomizationNotFoundError(blueprint *blueprintv1alpha1.Blueprint, name str
 		if len(tiers) == 0 {
 			return fmt.Errorf("%q is a flux system with no compiled install or resources tiers", name)
 		}
-		return fmt.Errorf("%q is a flux system, not a kustomization; use one of its tiers instead: %s",
-			name, strings.Join(tiers, ", "))
+		return werror.New(fmt.Sprintf("%q is a flux system, not a kustomization", name), fmt.Sprintf("Use one of its tiers: %s.", strings.Join(tiers, ", ")), nil)
 	}
 	return fmt.Errorf("kustomization %q not found in blueprint", name)
 }
@@ -297,7 +295,7 @@ func getValues(cmd *cobra.Command) (map[string]any, map[string]any, error) {
 
 	values, err := proj.Runtime.ConfigHandler.GetContextValues()
 	if err != nil {
-		return nil, nil, fmt.Errorf("failed to get context values: %w", err)
+		return nil, nil, werror.Wrap(err, "failed to get context values")
 	}
 	config.RedactSensitiveValues(values, proj.Runtime.ConfigHandler.GetSensitivePaths())
 

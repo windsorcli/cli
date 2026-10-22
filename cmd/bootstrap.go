@@ -127,7 +127,7 @@ windsor bootstrap prod --yes`,
 		for _, setFlag := range bootstrapSetFlags {
 			parts := strings.SplitN(setFlag, "=", 2)
 			if len(parts) != 2 {
-				return werror.New(fmt.Sprintf("invalid --set format: %s", setFlag), "Set --set in the format key=value.", nil)
+				return werror.New(fmt.Sprintf("invalid --set format: %s", setFlag), setFormatHint, nil)
 			}
 			flagOverrides[parts[0]] = parts[1]
 		}

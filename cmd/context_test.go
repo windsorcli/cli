@@ -148,7 +148,7 @@ func TestContextCmd(t *testing.T) {
 			t.Fatal("Expected error, got nil")
 		}
 
-		expected := "error: context \"missing-context\" not found. Run 'windsor init missing-context' to create it"
+		expected := "error: context \"missing-context\" not found\nhint: Run windsor init missing-context to create it."
 		if occurrences := strings.Count(stderr.String(), expected); occurrences != 1 {
 			t.Errorf("Expected one error occurrence, got %d. stderr: %q", occurrences, stderr.String())
 		}

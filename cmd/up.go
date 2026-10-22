@@ -11,6 +11,7 @@ import (
 	"github.com/spf13/cobra"
 	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
 	"github.com/windsorcli/cli/internal/presenter"
+	"github.com/windsorcli/cli/internal/werror"
 	"github.com/windsorcli/cli/pkg/project"
 	"github.com/windsorcli/cli/pkg/provisioner/stacklock"
 	"github.com/windsorcli/cli/pkg/runtime/tools"
@@ -57,7 +58,7 @@ windsor up --blueprint=ghcr.io/myorg/blueprint:v1.0.0`,
 		proj.Runtime.Shell.SetVerbosity(verbose)
 
 		if err := proj.Runtime.Shell.CheckTrustedDirectory(); err != nil {
-			return fmt.Errorf("not in a trusted directory. If you are in a Windsor project, run 'windsor init' to approve")
+			return werror.New("not in a trusted directory", trustDirectoryHint, err)
 		}
 
 		// Build flag overrides using init's rules so that `windsor up` and
@@ -74,7 +75,7 @@ windsor up --blueprint=ghcr.io/myorg/blueprint:v1.0.0`,
 		}
 
 		if err := proj.Runtime.ConfigHandler.ValidateContextValues(); err != nil {
-			return fmt.Errorf("invalid configuration: %w", err)
+			return werror.Wrap(err, "invalid configuration")
 		}
 
 		blueprintURL, err := resolveBlueprintURL(upBlueprint, upPlatform, proj.Runtime.ContextName, proj.Runtime.TemplateRoot, false, proj.Composer.ArtifactBuilder)
@@ -97,7 +98,7 @@ windsor up --blueprint=ghcr.io/myorg/blueprint:v1.0.0`,
 		// contexts can still receive --set overrides.
 		if len(upSetFlags) > 0 {
 			if err := proj.Runtime.SaveConfig(true); err != nil {
-				return fmt.Errorf("failed to save configuration: %w", err)
+				return werror.Wrap(err, "failed to save configuration")
 			}
 		}
 
@@ -130,14 +131,14 @@ windsor up --blueprint=ghcr.io/myorg/blueprint:v1.0.0`,
 			// reaching Flux ConfigMaps and downstream Helm renders.
 			blueprint, err := proj.Composer.BlueprintHandler.GenerateResolved()
 			if err != nil {
-				return fmt.Errorf("error resolving blueprint substitutions: %w", err)
+				return werror.Wrap(err, "error resolving blueprint substitutions")
 			}
 
 			// Capture post-run messages to print as an end-of-run summary, mirroring bootstrap.
 			postRunMessages = blueprint.Messages
 
 			if err := warnNotReady(os.Stderr, proj.Provisioner.Install(cmd.Context(), blueprint, false), postRunMessages); err != nil {
-				return fmt.Errorf("error installing blueprint: %w", err)
+				return werror.Wrap(err, "error installing blueprint")
 			}
 			return nil
 		}); err != nil {
@@ -201,17 +202,16 @@ func printDeferredWork(w io.Writer, items []workstation.DeferredWorkItem, goos s
 	}
 }
 
-// buildUpFlagOverrides builds a config override map from up's command-line
-// flags. The workstation-related mapping is shared with `windsor init` via
-// applyWorkstationFlagOverrides; --set is parsed strictly (returning an error
-// on malformed entries) to give users clear feedback on typos.
+// buildUpFlagOverrides builds the config override map from the flags of up.
+// It shares the workstation flag mapping with windsor init through applyWorkstationFlagOverrides.
+// It returns an error for a malformed --set entry.
 func buildUpFlagOverrides() (map[string]any, error) {
 	overrides := make(map[string]any)
 	applyWorkstationFlagOverrides(overrides, upVmDriver, upPlatform)
 	for _, setFlag := range upSetFlags {
 		parts := strings.SplitN(setFlag, "=", 2)
 		if len(parts) != 2 {
-			return nil, fmt.Errorf("invalid --set format, expected key=value: %s", setFlag)
+			return nil, werror.New(fmt.Sprintf("invalid --set format: %s", setFlag), setFormatHint, nil)
 		}
 		overrides[parts[0]] = parts[1]
 	}

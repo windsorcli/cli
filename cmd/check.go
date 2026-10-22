@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/spf13/cobra"
+	"github.com/windsorcli/cli/internal/werror"
 	"github.com/windsorcli/cli/pkg/composer"
 	"github.com/windsorcli/cli/pkg/constants"
 	"github.com/windsorcli/cli/pkg/provisioner"
@@ -43,7 +44,7 @@ windsor check`,
 		rt := runtime.NewRuntime(rtOpts...)
 
 		if err := rt.Shell.CheckTrustedDirectory(); err != nil {
-			return fmt.Errorf("not in a trusted directory. If you are in a Windsor project, run 'windsor init' to approve")
+			return werror.New("not in a trusted directory", trustDirectoryHint, err)
 		}
 
 		if err := rt.ConfigHandler.LoadConfig(); err != nil {
@@ -51,7 +52,7 @@ windsor check`,
 		}
 
 		if !rt.ConfigHandler.IsLoaded() {
-			return fmt.Errorf("Nothing to check. Have you run \033[1mwindsor init\033[0m?")
+			return werror.New("nothing to check", initProjectHint, nil)
 		}
 
 		if err := rt.CheckTools(); err != nil {
@@ -93,7 +94,7 @@ windsor check node-health --nodes=10.0.0.5,10.0.0.6 --version=v1.13.3`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 
 		if len(nodeHealthNodes) == 0 && k8sEndpoint == "" {
-			return fmt.Errorf("No health checks specified. Use --nodes and/or --k8s-endpoint flags to specify health checks to perform")
+			return werror.New("no health checks specified", "Set --nodes, --k8s-endpoint, or both.", nil)
 		}
 
 		if !cmd.Flags().Changed("timeout") {
@@ -108,7 +109,7 @@ windsor check node-health --nodes=10.0.0.5,10.0.0.6 --version=v1.13.3`,
 		rt := runtime.NewRuntime(rtOpts...)
 
 		if err := rt.Shell.CheckTrustedDirectory(); err != nil {
-			return fmt.Errorf("not in a trusted directory. If you are in a Windsor project, run 'windsor init' to approve")
+			return werror.New("not in a trusted directory", trustDirectoryHint, err)
 		}
 
 		if err := rt.ConfigHandler.LoadConfig(); err != nil {
@@ -116,7 +117,7 @@ windsor check node-health --nodes=10.0.0.5,10.0.0.6 --version=v1.13.3`,
 		}
 
 		if !rt.ConfigHandler.IsLoaded() {
-			return fmt.Errorf("Nothing to check. Have you run \033[1mwindsor init\033[0m?")
+			return werror.New("nothing to check", initProjectHint, nil)
 		}
 
 		comp := composer.NewComposer(rt)
@@ -143,7 +144,7 @@ windsor check node-health --nodes=10.0.0.5,10.0.0.6 --version=v1.13.3`,
 		}
 
 		if err := prov.CheckNodeHealth(cmd.Context(), options, outputFunc); err != nil {
-			return fmt.Errorf("error checking node health: %w", err)
+			return werror.Wrap(err, "error checking node health")
 		}
 
 		return nil

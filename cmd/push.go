@@ -2,9 +2,9 @@ package cmd
 
 import (
 	"fmt"
-	"os"
 
 	"github.com/spf13/cobra"
+	"github.com/windsorcli/cli/internal/werror"
 	"github.com/windsorcli/cli/pkg/composer"
 	"github.com/windsorcli/cli/pkg/composer/artifact"
 	"github.com/windsorcli/cli/pkg/runtime"
@@ -35,7 +35,7 @@ windsor push registry.example.com/myorg/myblueprint`,
 	SilenceUsage: true,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		if len(args) == 0 {
-			return fmt.Errorf("registry is required: windsor push registry/repo[:tag]")
+			return werror.New("registry is required", "Specify the registry in the format registry/repo[:tag].", nil)
 		}
 		var rtOpts []*runtime.Runtime
 		if overridesVal := cmd.Context().Value(runtimeOverridesKey); overridesVal != nil {
@@ -58,13 +58,13 @@ windsor push registry.example.com/myorg/myblueprint`,
 		registryURL, err := comp.Push(args[0])
 		if err != nil {
 			if artifact.IsAuthenticationError(err) {
-				registryBase, _, _, parseErr := artifact.ParseRegistryURL(args[0])
-				if parseErr == nil {
-					fmt.Fprintf(os.Stderr, "Have you run 'docker login %s'?\nSee https://docs.docker.com/engine/reference/commandline/login/ for details.\n", registryBase)
+				hint := "Run docker login for the registry, then run the command again."
+				if registryBase, _, _, parseErr := artifact.ParseRegistryURL(args[0]); parseErr == nil {
+					hint = fmt.Sprintf("Run docker login %s, then run the command again.", registryBase)
 				}
-				return fmt.Errorf("Authentication failed")
+				return werror.New("Authentication failed", hint, err)
 			}
-			return fmt.Errorf("failed to push artifacts: %w", err)
+			return werror.Wrap(err, "failed to push artifacts")
 		}
 
 		fmt.Printf("Blueprint pushed successfully: %s\n", registryURL)

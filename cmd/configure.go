@@ -6,6 +6,7 @@ import (
 	"text/tabwriter"
 
 	"github.com/spf13/cobra"
+	"github.com/windsorcli/cli/internal/werror"
 	"github.com/windsorcli/cli/pkg/project"
 	"github.com/windsorcli/cli/pkg/workstation"
 )
@@ -68,7 +69,7 @@ windsor configure network --revert`,
 		proj.Runtime.Shell.SetVerbosity(verbose)
 
 		if err := proj.Runtime.Shell.CheckTrustedDirectory(); err != nil {
-			return fmt.Errorf("not in a trusted directory. If you are in a Windsor project, run 'windsor init' to approve")
+			return werror.New("not in a trusted directory", trustDirectoryHint, err)
 		}
 
 		if err := proj.Configure(nil); err != nil {
@@ -76,7 +77,7 @@ windsor configure network --revert`,
 		}
 
 		if err := proj.Runtime.ConfigHandler.ValidateContextValues(); err != nil {
-			return fmt.Errorf("invalid configuration: %w", err)
+			return werror.Wrap(err, "invalid configuration")
 		}
 
 		proj.EnsureWorkstation()
@@ -94,7 +95,7 @@ windsor configure network --revert`,
 			return err
 		}
 		if !provisioned {
-			return fmt.Errorf("workstation has not been provisioned yet for context %q. Run 'windsor up' first, then re-run 'windsor configure network'", proj.Runtime.ConfigHandler.GetContext())
+			return werror.New(fmt.Sprintf("workstation has not been provisioned yet for context %q", proj.Runtime.ConfigHandler.GetContext()), "Run windsor up, then run windsor configure network again.", nil)
 		}
 
 		if err := proj.Workstation.Prepare(); err != nil {
