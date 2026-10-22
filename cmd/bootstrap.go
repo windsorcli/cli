@@ -42,7 +42,8 @@ var (
 // When the blueprint declares a backend, it moves the backend components through local state on each run. If not, it runs one Up pass.
 //
 // It requests all tool requirements, because each tool can run.
-// When the project override has no runtime or no composer, it builds the project with NewProject, so all steps use the same runtime.
+// When the project override has no runtime, it assigns the new runtime to the override, so Configure does not use a nil runtime.
+// When there is no project override or the override has no composer, it builds the project with NewProject, so the composer gets its default.
 // It reads the config root from the ConfigHandler, so the guard against a second bootstrap does not depend on NewProject.
 // No step writes config before the cloud credentials are valid:
 //   - With --yes, it checks the credentials and saves the config before it starts.
