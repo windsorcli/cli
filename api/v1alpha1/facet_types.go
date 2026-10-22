@@ -8,6 +8,8 @@ import (
 	"slices"
 
 	"github.com/goccy/go-yaml"
+
+	"github.com/windsorcli/cli/internal/werror"
 )
 
 // =============================================================================
@@ -225,10 +227,10 @@ func (c *ConfigBlock) UnmarshalYAML(unmarshal func(any) error) error {
 	if r, ok := raw["requires"]; ok && r != nil {
 		b, err := yaml.Marshal(r)
 		if err != nil {
-			return fmt.Errorf("config block %q: marshal requires: %w", c.Name, err)
+			return werror.Wrap(err, "config block %q: marshal requires", c.Name)
 		}
 		if err := yaml.Unmarshal(b, &c.Requires); err != nil {
-			return fmt.Errorf("config block %q: parse requires: %w", c.Name, err)
+			return werror.Wrap(err, "config block %q: parse requires", c.Name)
 		}
 	}
 	if _, hasValue := raw["value"]; !hasValue {
