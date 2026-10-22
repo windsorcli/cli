@@ -5,6 +5,7 @@ import (
 	"os"
 
 	"github.com/spf13/cobra"
+	"github.com/windsorcli/cli/internal/werror"
 	"github.com/windsorcli/cli/pkg/composer"
 	"github.com/windsorcli/cli/pkg/runtime"
 )
@@ -37,7 +38,7 @@ windsor env`,
 
 		if !hook && os.Getenv("NO_CACHE") == "" {
 			if err := os.Setenv("NO_CACHE", "true"); err != nil {
-				return fmt.Errorf("failed to set NO_CACHE environment variable: %w", err)
+				return werror.Wrap(err, "failed to set NO_CACHE environment variable")
 			}
 		}
 		var rtOpts []*runtime.Runtime
@@ -64,7 +65,7 @@ windsor env`,
 			if hook {
 				return nil
 			}
-			return fmt.Errorf("not in a trusted directory. If you are in a Windsor project, run 'windsor init' to approve")
+			return werror.New("not in a trusted directory", trustDirectoryHint, err)
 		}
 
 		if err := rt.HandleSessionReset(); err != nil {
@@ -85,21 +86,21 @@ windsor env`,
 			if hook {
 				return nil
 			}
-			return fmt.Errorf("failed to initialize components: %w", err)
+			return werror.Wrap(err, "failed to initialize components")
 		}
 
 		if err := composer.LoadBlueprintIfTerraformProject(rt, true); err != nil {
 			if hook {
 				return nil
 			}
-			return fmt.Errorf("failed to load blueprint: %w", err)
+			return werror.Wrap(err, "failed to load blueprint")
 		}
 
 		if err := rt.LoadEnvironment(decrypt); err != nil {
 			if hook {
 				return nil
 			}
-			return fmt.Errorf("failed to load environment: %w", err)
+			return werror.Wrap(err, "failed to load environment")
 		}
 
 		outputFunc := func(output string) {

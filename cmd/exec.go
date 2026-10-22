@@ -5,6 +5,7 @@ import (
 	"os"
 
 	"github.com/spf13/cobra"
+	"github.com/windsorcli/cli/internal/werror"
 	"github.com/windsorcli/cli/pkg/composer"
 	"github.com/windsorcli/cli/pkg/runtime"
 )
@@ -50,7 +51,7 @@ windsor exec ./scripts/deploy.sh`,
 		rt.Shell.SetVerbosity(verbose)
 
 		if err := rt.Shell.CheckTrustedDirectory(); err != nil {
-			return fmt.Errorf("not in a trusted directory. If you are in a Windsor project, run 'windsor init' to approve")
+			return werror.New("not in a trusted directory", trustDirectoryHint, err)
 		}
 
 		if err := rt.HandleSessionReset(); err != nil {
@@ -62,20 +63,20 @@ windsor exec ./scripts/deploy.sh`,
 		}
 
 		if err := rt.InitializeComponents(); err != nil {
-			return fmt.Errorf("failed to initialize components: %w", err)
+			return werror.Wrap(err, "failed to initialize components")
 		}
 
 		if err := composer.LoadBlueprintIfTerraformProject(rt, true); err != nil {
-			return fmt.Errorf("failed to load blueprint: %w", err)
+			return werror.Wrap(err, "failed to load blueprint")
 		}
 
 		if err := rt.LoadEnvironment(true); err != nil {
-			return fmt.Errorf("failed to load environment: %w", err)
+			return werror.Wrap(err, "failed to load environment")
 		}
 
 		for key, value := range rt.GetEnvVars() {
 			if err := os.Setenv(key, value); err != nil {
-				return fmt.Errorf("failed to set environment variable %s: %w", key, err)
+				return werror.Wrap(err, "failed to set environment variable %s", key)
 			}
 		}
 
@@ -86,7 +87,7 @@ windsor exec ./scripts/deploy.sh`,
 		}
 
 		if _, err := rt.Shell.Exec(command, commandArgs...); err != nil {
-			return fmt.Errorf("failed to execute command: %w", err)
+			return werror.Wrap(err, "failed to execute command")
 		}
 
 		return nil

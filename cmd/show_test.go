@@ -16,6 +16,7 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
 	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
+	"github.com/windsorcli/cli/internal/werror"
 	"github.com/windsorcli/cli/pkg/composer"
 	"github.com/windsorcli/cli/pkg/composer/blueprint"
 	"github.com/windsorcli/cli/pkg/project"
@@ -1149,8 +1150,9 @@ func TestShowKustomizationCmd(t *testing.T) {
 		if err == nil {
 			t.Fatal("Expected error, got nil")
 		}
-		if !strings.Contains(err.Error(), "cert-manager-install") || !strings.Contains(err.Error(), "cert-manager-resources") {
-			t.Errorf("Expected error to list tier names, got: %v", err)
+		werr := werror.Find(err)
+		if werr == nil || !strings.Contains(werr.Remediation, "cert-manager-install") || !strings.Contains(werr.Remediation, "cert-manager-resources") {
+			t.Errorf("Expected the hint to list tier names, got %+v", werr)
 		}
 	})
 

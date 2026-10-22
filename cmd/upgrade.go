@@ -24,12 +24,6 @@ import (
 	"golang.org/x/term"
 )
 
-// trustDirectoryHint tells the operator how to trust the current directory.
-const trustDirectoryHint = "Run windsor init to trust this directory, if it is a Windsor project."
-
-// initProjectHint tells the operator how to create the configuration of a project.
-const initProjectHint = "Run windsor init, then run the command again."
-
 var (
 	upgradeNodes          []string
 	upgradeImage          string

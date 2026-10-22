@@ -9,6 +9,7 @@ import (
 	"text/tabwriter"
 
 	"github.com/spf13/cobra"
+	"github.com/windsorcli/cli/internal/werror"
 	"github.com/windsorcli/cli/pkg/runtime"
 	"github.com/windsorcli/cli/pkg/runtime/config"
 )
@@ -50,7 +51,7 @@ var getContextsCmd = &cobra.Command{
 
 		projectRoot, err := rt.Shell.GetProjectRoot()
 		if err != nil {
-			return fmt.Errorf("failed to get project root: %w", err)
+			return werror.Wrap(err, "failed to get project root")
 		}
 
 		contextsDir := filepath.Join(projectRoot, "contexts")
@@ -60,7 +61,7 @@ var getContextsCmd = &cobra.Command{
 				fmt.Fprintln(cmd.OutOrStdout(), "No contexts found")
 				return nil
 			}
-			return fmt.Errorf("failed to read contexts directory: %w", err)
+			return werror.Wrap(err, "failed to read contexts directory")
 		}
 
 		var contexts []string
@@ -118,7 +119,7 @@ var getContextsCmd = &cobra.Command{
 			fmt.Fprintf(w, "%s\t%s\t%s\t%s\n", info.name, info.provider, info.backend, current)
 		}
 		if err := w.Flush(); err != nil {
-			return fmt.Errorf("failed to flush output: %w", err)
+			return werror.Wrap(err, "failed to flush output")
 		}
 
 		return nil
@@ -146,7 +147,7 @@ var getContextCmd = &cobra.Command{
 		rt := runtime.NewRuntime(rtOpts...)
 
 		if err := rt.ConfigHandler.LoadConfig(); err != nil {
-			return fmt.Errorf("failed to load config: %w", err)
+			return werror.Wrap(err, "failed to load config")
 		}
 
 		contextName := rt.ConfigHandler.GetContext()

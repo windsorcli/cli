@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 
 	"github.com/spf13/cobra"
+	"github.com/windsorcli/cli/internal/werror"
 	"github.com/windsorcli/cli/pkg/runtime"
 )
 
@@ -46,28 +47,28 @@ windsor get context
 
 		projectRoot, err := rt.Shell.GetProjectRoot()
 		if err != nil {
-			return fmt.Errorf("failed to get project root: %w", err)
+			return werror.Wrap(err, "failed to get project root")
 		}
 
 		contextDir := filepath.Join(projectRoot, "contexts", contextName)
 		if _, err := os.Stat(contextDir); os.IsNotExist(err) {
-			return fmt.Errorf("context %q not found. Run 'windsor init %s' to create it", contextName, contextName)
+			return werror.New(fmt.Sprintf("context %q not found", contextName), fmt.Sprintf("Run windsor init %s to create it.", contextName), nil)
 		} else if err != nil {
-			return fmt.Errorf("failed to check context directory: %w", err)
+			return werror.Wrap(err, "failed to check context directory")
 		}
 
 		// Load the context being switched to. The current context is the one
 		// being left, and its problems are not the user's concern here.
 		if err := rt.ConfigHandler.LoadConfigForContext(contextName); err != nil {
-			return fmt.Errorf("failed to load config: %w", err)
+			return werror.Wrap(err, "failed to load config")
 		}
 
 		if _, err := rt.Shell.WriteResetToken(); err != nil {
-			return fmt.Errorf("failed to write reset token: %w", err)
+			return werror.Wrap(err, "failed to write reset token")
 		}
 
 		if err := rt.ConfigHandler.SetContext(contextName); err != nil {
-			return fmt.Errorf("failed to set context: %w", err)
+			return werror.Wrap(err, "failed to set context")
 		}
 
 		return nil

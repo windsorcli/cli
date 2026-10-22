@@ -5,6 +5,7 @@ import (
 	"os"
 
 	"github.com/Masterminds/semver/v3"
+	"github.com/windsorcli/cli/internal/werror"
 	"github.com/windsorcli/cli/pkg/composer/artifact"
 	"github.com/windsorcli/cli/pkg/constants"
 	"github.com/windsorcli/cli/pkg/runtime/config"
@@ -88,7 +89,7 @@ func resolveBlueprintURL(blueprintFlag, platformFlag, contextName, templateRoot 
 			if _, err := os.Stat(templateRoot); err == nil {
 				return nil, nil
 			} else if !os.IsNotExist(err) {
-				return nil, fmt.Errorf("error checking template root: %w", err)
+				return nil, werror.Wrap(err, "error checking template root")
 			}
 		}
 		return []string{resolveEffectiveBlueprintURL(artifactBuilder)}, nil
@@ -100,7 +101,7 @@ func resolveBlueprintURL(blueprintFlag, platformFlag, contextName, templateRoot 
 		if os.IsNotExist(err) {
 			return []string{resolveEffectiveBlueprintURL(artifactBuilder)}, nil
 		}
-		return nil, fmt.Errorf("error checking template root: %w", err)
+		return nil, werror.Wrap(err, "error checking template root")
 	}
 	return nil, nil
 }

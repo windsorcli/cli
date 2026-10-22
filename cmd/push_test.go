@@ -12,6 +12,7 @@ import (
 
 	"github.com/google/go-containerregistry/pkg/v1/remote/transport"
 	"github.com/spf13/cobra"
+	"github.com/windsorcli/cli/internal/werror"
 	"github.com/windsorcli/cli/pkg/composer"
 	"github.com/windsorcli/cli/pkg/composer/artifact"
 	"github.com/windsorcli/cli/pkg/composer/blueprint"
@@ -123,6 +124,9 @@ func TestPushCmdWithRuntime(t *testing.T) {
 		if !strings.Contains(err.Error(), "Authentication failed") {
 			t.Errorf("Expected 'Authentication failed' (auth-classified), got %v", err)
 		}
+		if werr := werror.Find(err); werr == nil || !strings.Contains(werr.Remediation, "docker login registry.example.com") {
+			t.Errorf("Expected a hint to run docker login for the registry, got %+v", werr)
+		}
 	})
 
 	t.Run("ClassifiesAuthFailureWithoutTag", func(t *testing.T) {
@@ -208,6 +212,9 @@ func TestPushCmdWithRuntime(t *testing.T) {
 		// Then an error should occur
 		if err == nil || !strings.Contains(err.Error(), "registry is required") {
 			t.Errorf("Expected registry required error, got %v", err)
+		}
+		if werr := werror.Find(err); werr == nil || !strings.Contains(werr.Remediation, "registry/repo[:tag]") {
+			t.Errorf("Expected a hint that gives the registry format, got %+v", werr)
 		}
 	})
 

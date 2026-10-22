@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/windsorcli/cli/internal/werror"
 	"github.com/windsorcli/cli/pkg/runtime"
 	"github.com/windsorcli/cli/pkg/runtime/config"
 	"github.com/windsorcli/cli/pkg/runtime/shell"
@@ -153,8 +154,8 @@ func TestSetContextCmd(t *testing.T) {
 			t.Errorf("Expected error about context not found, got: %v", err)
 		}
 
-		if !strings.Contains(err.Error(), "windsor init nonexistent") {
-			t.Errorf("Expected error to suggest 'windsor init nonexistent', got: %v", err)
+		if werr := werror.Find(err); werr == nil || !strings.Contains(werr.Remediation, "windsor init nonexistent") {
+			t.Errorf("Expected a hint to run 'windsor init nonexistent', got %+v", werr)
 		}
 	})
 

@@ -6,6 +6,7 @@ import (
 	"runtime"
 
 	"github.com/spf13/cobra"
+	"github.com/windsorcli/cli/internal/werror"
 	"github.com/windsorcli/cli/pkg/runtime/tools"
 )
 
@@ -56,11 +57,11 @@ windsor down`,
 		}()
 
 		if err := proj.Workstation.Down(cmd.Context()); err != nil {
-			return fmt.Errorf("error tearing down workstation: %w", err)
+			return werror.Wrap(err, "error tearing down workstation")
 		}
 
 		if err := proj.PerformCleanup(); err != nil {
-			return fmt.Errorf("error performing cleanup: %w", err)
+			return werror.Wrap(err, "error performing cleanup")
 		}
 
 		return nil

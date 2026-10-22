@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/spf13/cobra"
+	"github.com/windsorcli/cli/internal/werror"
 	"github.com/windsorcli/cli/pkg/provisioner/stacklock"
 	"github.com/windsorcli/cli/pkg/runtime/tools"
 )
@@ -51,7 +52,7 @@ windsor unlock --force`,
 
 		held, err := lock.IsHeld(cmd.Context())
 		if err != nil {
-			return fmt.Errorf("error checking stack lock: %w", err)
+			return werror.Wrap(err, "error checking stack lock")
 		}
 		holder, inspectErr := lock.Inspect(cmd.Context())
 		if held {
@@ -80,21 +81,22 @@ windsor unlock --force`,
 			if errors.As(err, &busy) {
 				return heldLockError(contextName, busy.Holder)
 			}
-			return fmt.Errorf("error clearing stack lock: %w", err)
+			return werror.Wrap(err, "error clearing stack lock")
 		}
 		fmt.Fprintf(w, "Cleared stale stack lock information for context %q.\n", contextName)
 		return nil
 	},
 }
 
-// heldLockError builds the error unlock returns when a live process holds the lock. It names
-// the holder when its details are known and tells the operator to stop that process.
+// heldLockError returns the error for a lock that a running process holds.
+// The message names the holder when its details are known. The hint tells the operator to stop that process.
 func heldLockError(contextName string, holder *stacklock.LockInfo) error {
+	const hint = "Stop that process to release the lock."
 	if holder == nil {
-		return fmt.Errorf("a running windsor process holds the stack lock for context %q; stop it to free the lock", contextName)
+		return werror.New(fmt.Sprintf("a running windsor process holds the stack lock for context %q", contextName), hint, nil)
 	}
-	return fmt.Errorf("a running windsor process holds the stack lock for context %q (%s, PID=%d, operation=%s, started=%s); stop it to free the lock",
-		contextName, holder.Who, holder.PID, holder.Operation, holder.Created.Format(time.RFC3339))
+	return werror.New(fmt.Sprintf("a running windsor process holds the stack lock for context %q (%s, PID=%d, operation=%s, started=%s)",
+		contextName, holder.Who, holder.PID, holder.Operation, holder.Created.Format(time.RFC3339)), hint, nil)
 }
 
 // init registers the unlock command and its --force flag, which skips the

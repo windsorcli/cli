@@ -1,9 +1,8 @@
 package cmd
 
 import (
-	"fmt"
-
 	"github.com/spf13/cobra"
+	"github.com/windsorcli/cli/internal/werror"
 	"github.com/windsorcli/cli/pkg/runtime/tools"
 )
 
@@ -32,11 +31,11 @@ windsor install`,
 
 		blueprint, err := proj.Composer.BlueprintHandler.GenerateResolved()
 		if err != nil {
-			return fmt.Errorf("error resolving blueprint substitutions: %w", err)
+			return werror.Wrap(err, "error resolving blueprint substitutions")
 		}
 
 		if err := proj.Provisioner.Install(cmd.Context(), blueprint, false); err != nil {
-			return fmt.Errorf("error installing blueprint: %w", err)
+			return werror.Wrap(err, "error installing blueprint")
 		}
 
 		return nil

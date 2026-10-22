@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/spf13/cobra"
+	"github.com/windsorcli/cli/internal/werror"
 	"github.com/windsorcli/cli/pkg/composer/blueprint"
 	"github.com/windsorcli/cli/pkg/project"
 )
@@ -64,7 +65,7 @@ func runExplain(cmd *cobra.Command, args []string) error {
 	proj := project.NewProject("", opts...)
 	proj.Runtime.Shell.SetVerbosity(verbose)
 	if err := proj.Runtime.Shell.CheckTrustedDirectory(); err != nil {
-		return fmt.Errorf("not in a trusted directory. If you are in a Windsor project, run 'windsor init' to approve")
+		return werror.New("not in a trusted directory", trustDirectoryHint, err)
 	}
 	if err := proj.Configure(nil); err != nil {
 		return err

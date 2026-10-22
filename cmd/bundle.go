@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	"github.com/spf13/cobra"
+	"github.com/windsorcli/cli/internal/werror"
 	"github.com/windsorcli/cli/pkg/composer"
 	"github.com/windsorcli/cli/pkg/runtime"
 )
@@ -54,7 +55,7 @@ windsor bundle -t myapp:v1.0.0 -o ./dist/`,
 
 		actualOutputPath, err := comp.Bundle(outputPath, tag)
 		if err != nil {
-			return fmt.Errorf("failed to bundle artifacts: %w", err)
+			return werror.Wrap(err, "failed to bundle artifacts")
 		}
 
 		fmt.Printf("Blueprint bundled successfully: %s\n", actualOutputPath)
