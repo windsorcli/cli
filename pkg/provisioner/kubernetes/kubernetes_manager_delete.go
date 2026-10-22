@@ -191,13 +191,13 @@ func (k *BaseKubernetesManager) deleteKustomization(ctx context.Context, name, n
 	return fmt.Errorf("windsor timed out after %s waiting for kustomization %s/%s to delete%s. An inventory item is likely stuck on a cloud-controller finalizer. Inspect with %s (status.conditions, status.inventory) and %s to find the stuck object", waitFor, namespace, name, reason, inspectCmd, terminatingCmd)
 }
 
-// handleKustomizationDisappeared runs once name/namespace itself is confirmed gone (NotFound),
-// from deleteKustomization's main wait loop or its post-timeout recheck. It checks lastObj's
-// last-known inventory for anything still live, triggering a reconcile on a blocking entry
-// through its own grace-window retry.
+// handleKustomizationDisappeared checks the last-known inventory of a kustomization that is gone.
+// deleteKustomization calls it from its wait loop and from its recheck after a timeout.
+// It triggers a reconcile on a live entry that blocks, and retries until the grace window ends.
+// It returns a WindsorError with a hint when it cannot confirm that the resources are gone.
 func (k *BaseKubernetesManager) handleKustomizationDisappeared(ctx context.Context, name, namespace string, lastObj *unstructured.Unstructured, readFailures int, lastReadErr error, expectWaitForTermination *bool, helmInventory helmReleaseInventory, destroying bool) error {
 	if lastObj == nil && readFailures > 0 {
-		return fmt.Errorf("kustomization %s/%s disappeared before windsor could read its inventory: %w. Windsor cannot confirm the resources it managed are gone. Check for leftovers with `kubectl get pvc,svc,ingress,certificate -A | grep Terminating` before retrying", namespace, name, lastReadErr)
+		return werror.New(fmt.Sprintf("kustomization %s/%s disappeared before windsor could read its inventory, so windsor cannot confirm that its resources are gone: %v", namespace, name, lastReadErr), "Find leftovers with `kubectl get pvc,svc,ingress,certificate -A | grep Terminating`, then retry.", lastReadErr)
 	}
 	entry, _, checkErr := k.describeAbandonedInventory(lastObj, expectWaitForTermination, helmInventory, destroying)
 	graceDeadline := k.shims.TimeNow().Add(k.abandonedInventoryGraceWindow(inventorySize(lastObj)))
@@ -213,12 +213,12 @@ func (k *BaseKubernetesManager) handleKustomizationDisappeared(ctx context.Conte
 		entry, _, checkErr = k.describeAbandonedInventory(lastObj, expectWaitForTermination, helmInventory, destroying)
 	}
 	if checkErr != nil {
-		return fmt.Errorf("kustomization %s/%s disappeared and windsor could not confirm its resources are gone: %w. Inspect the namespace before retrying", namespace, name, checkErr)
+		return werror.New(fmt.Sprintf("kustomization %s/%s disappeared and windsor could not confirm its resources are gone: %v", namespace, name, checkErr), "Inspect the namespace, then retry.", checkErr)
 	}
 	if entry == nil {
 		return nil
 	}
-	return fmt.Errorf("kustomization %s/%s disappeared. %s/%s from its inventory is still live. Flux likely gave up waiting and removed the finalizer early. Inspect it with %s before retrying", namespace, name, entry.Kind, entry.Name, liveEntryInspectCmd(entry))
+	return werror.New(fmt.Sprintf("kustomization %s/%s disappeared, but %s/%s from its inventory is still live", namespace, name, entry.Kind, entry.Name), fmt.Sprintf("Flux probably removed the finalizer early. Inspect the object with %s, then retry.", liveEntryInspectCmd(entry)), nil)
 }
 
 // kustomizationDeletionTimeout scales DeleteKustomization's wait window by inventory
