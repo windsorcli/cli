@@ -592,7 +592,7 @@ func (a *ArtifactBuilder) getBuilderInfo() (BuilderInfo, error) {
 
 	getEnvVar := func(vars ...string) string {
 		for _, v := range vars {
-			if val := os.Getenv(v); val != "" {
+			if val := a.shims.Getenv(v); val != "" {
 				return strings.TrimSpace(val)
 			}
 		}

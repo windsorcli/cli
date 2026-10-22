@@ -72,6 +72,7 @@ type DynamicKubernetesClient struct {
 	kubeconfigPath string
 	kubeconfigHash [sha256.Size]byte
 	shell          shell.Shell
+	shims          *Shims
 }
 
 // builtClient holds a freshly built client and the connection info that produced it. ensureClient
@@ -90,7 +91,7 @@ type builtClient struct {
 // NewDynamicKubernetesClient creates a new DynamicKubernetesClient. The shell's verbosity
 // controls whether server-side API deprecation warnings are printed.
 func NewDynamicKubernetesClient(shell shell.Shell) *DynamicKubernetesClient {
-	return &DynamicKubernetesClient{shell: shell}
+	return &DynamicKubernetesClient{shell: shell, shims: NewShims()}
 }
 
 // =============================================================================
@@ -325,7 +326,7 @@ func (c *DynamicKubernetesClient) connectionChangedLocked() bool {
 	if c.kubeconfigPath == "" {
 		return false
 	}
-	hash, err := kubeconfigHash(c.kubeconfigPath)
+	hash, err := c.hashKubeconfig(c.kubeconfigPath)
 	if err != nil {
 		return errors.Is(err, os.ErrNotExist)
 	}
@@ -360,7 +361,7 @@ func (c *DynamicKubernetesClient) buildClient() (builtClient, error) {
 	}
 	if kubeconfigPath != "" {
 		built.kubeconfigPath = kubeconfigPath
-		if hash, hashErr := kubeconfigHash(kubeconfigPath); hashErr == nil {
+		if hash, hashErr := c.hashKubeconfig(kubeconfigPath); hashErr == nil {
 			built.kubeconfigHash = hash
 		} else if kubeconfigPath == c.kubeconfigPath {
 			built.kubeconfigHash = c.kubeconfigHash
@@ -369,9 +370,9 @@ func (c *DynamicKubernetesClient) buildClient() (builtClient, error) {
 	return built, nil
 }
 
-// kubeconfigHash reads path and returns a hash of its content, for change detection.
-func kubeconfigHash(path string) ([sha256.Size]byte, error) {
-	data, err := os.ReadFile(path) // #nosec G304 - path is the operator's own KUBECONFIG env var, or the default ~/.kube/config
+// hashKubeconfig reads path and returns a hash of its content, for change detection.
+func (c *DynamicKubernetesClient) hashKubeconfig(path string) ([sha256.Size]byte, error) {
+	data, err := c.shims.ReadFile(path) // #nosec G304 - path is the operator's own KUBECONFIG env var, or the default ~/.kube/config
 	if err != nil {
 		return [sha256.Size]byte{}, err
 	}
@@ -392,9 +393,9 @@ func (c *DynamicKubernetesClient) restConfig() (*rest.Config, string, error) {
 		return config, "", nil
 	}
 
-	kubeconfig := os.Getenv("KUBECONFIG")
+	kubeconfig := c.shims.Getenv("KUBECONFIG")
 	if kubeconfig == "" {
-		home, err := os.UserHomeDir()
+		home, err := c.shims.UserHomeDir()
 		if err != nil {
 			return nil, "", err
 		}

@@ -1,3 +1,7 @@
+// The Composer is the top-level coordinator of the blueprint, artifact and terraform resources.
+// It provides the bundle, push and generate operations for a project.
+// It also writes the local .gitignore files that keep the Windsor folders out of version control.
+
 package composer
 
 import (
@@ -34,6 +38,7 @@ type Composer struct {
 	projectRoot   string
 	configRoot    string
 	templateRoot  string
+	shims         *Shims
 
 	// Resource-specific dependencies
 	ArtifactBuilder   artifact.Artifact
@@ -70,6 +75,7 @@ func NewComposer(rt *runtime.Runtime, opts ...*Composer) *Composer {
 		projectRoot:   rt.ProjectRoot,
 		configRoot:    rt.ConfigRoot,
 		templateRoot:  rt.TemplateRoot,
+		shims:         NewShims(),
 	}
 
 	if len(opts) > 0 && opts[0] != nil {
@@ -213,16 +219,16 @@ const contextIgnoreContent = ".kube/\n.talos/\n.omni/\n.aws/\n.azure/\n.gcp/\n.v
 // It does not change an existing .windsor/ or .volumes/ .gitignore, and it merges the entries into each context .gitignore.
 func (r *Composer) writeLocalGitignores() error {
 	windsorDir := filepath.Join(r.projectRoot, ".windsor")
-	if err := os.MkdirAll(windsorDir, 0750); err != nil {
+	if err := r.shims.MkdirAll(windsorDir, 0750); err != nil {
 		return werror.Wrap(err, "failed to ensure .windsor directory")
 	}
-	if err := writeIfMissing(filepath.Join(windsorDir, ".gitignore"), windsorMarkerContent); err != nil {
+	if err := r.writeIfMissing(filepath.Join(windsorDir, ".gitignore"), windsorMarkerContent); err != nil {
 		return werror.Wrap(err, "failed to write .windsor/.gitignore")
 	}
 
 	volumesDir := filepath.Join(r.projectRoot, ".volumes")
-	if _, err := os.Stat(volumesDir); err == nil {
-		if err := writeIfMissing(filepath.Join(volumesDir, ".gitignore"), windsorMarkerContent); err != nil {
+	if _, err := r.shims.Stat(volumesDir); err == nil {
+		if err := r.writeIfMissing(filepath.Join(volumesDir, ".gitignore"), windsorMarkerContent); err != nil {
 			return werror.Wrap(err, "failed to write .volumes/.gitignore")
 		}
 	} else if !os.IsNotExist(err) {
@@ -230,7 +236,7 @@ func (r *Composer) writeLocalGitignores() error {
 	}
 
 	contextsDir := filepath.Join(r.projectRoot, "contexts")
-	entries, err := os.ReadDir(contextsDir)
+	entries, err := r.shims.ReadDir(contextsDir)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return nil
@@ -242,7 +248,7 @@ func (r *Composer) writeLocalGitignores() error {
 			continue
 		}
 		target := filepath.Join(contextsDir, entry.Name(), ".gitignore")
-		if err := writeOrMergeContextIgnore(target, contextIgnoreContent); err != nil {
+		if err := r.writeOrMergeContextIgnore(target, contextIgnoreContent); err != nil {
 			return werror.Wrap(err, "failed to write contexts/%s/.gitignore", entry.Name())
 		}
 	}
@@ -253,13 +259,13 @@ func (r *Composer) writeLocalGitignores() error {
 // missing, or appends any of desired's lines that a pre-existing target lacks
 // (preserving the file's other content) so a contextIgnoreContent addition
 // still reaches contexts created by an earlier CLI version.
-func writeOrMergeContextIgnore(target, desired string) error {
-	if err := writeIfMissing(target, desired); err != nil {
+func (r *Composer) writeOrMergeContextIgnore(target, desired string) error {
+	if err := r.writeIfMissing(target, desired); err != nil {
 		return err
 	}
 
 	// #nosec G304 - target is composed from the project's own contexts/ directory listing, not user-supplied
-	existing, err := os.ReadFile(target)
+	existing, err := r.shims.ReadFile(target)
 	if err != nil {
 		return err
 	}
@@ -288,17 +294,17 @@ func writeOrMergeContextIgnore(target, desired string) error {
 
 	// #nosec G306 G703 - .gitignore files use standard 0644 permissions; target is
 	// composed from the project's own contexts/ directory listing, not user-supplied
-	return os.WriteFile(target, []byte(content), 0644)
+	return r.shims.WriteFile(target, []byte(content), 0644)
 }
 
 // writeIfMissing writes content to path with 0644 perms only when the file
 // does not yet exist. Existing files are left untouched.
-func writeIfMissing(path, content string) error {
-	if _, err := os.Stat(path); err == nil {
+func (r *Composer) writeIfMissing(path, content string) error {
+	if _, err := r.shims.Stat(path); err == nil {
 		return nil
 	} else if !os.IsNotExist(err) {
 		return err
 	}
 	// #nosec G306 - .gitignore files use standard 0644 permissions
-	return os.WriteFile(path, []byte(content), 0644)
+	return r.shims.WriteFile(path, []byte(content), 0644)
 }
