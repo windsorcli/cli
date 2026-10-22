@@ -344,7 +344,7 @@ func (c *TalosClusterClient) WaitForControlPlaneAPIReady(ctx context.Context, no
 	for time.Now().Before(deadline) {
 		select {
 		case <-ctx.Done():
-			return fmt.Errorf("timeout waiting for kube-apiserver on %s: %w", address, ctx.Err())
+			return werror.Wrap(ctx.Err(), "timeout waiting for kube-apiserver on %s", address)
 		default:
 		}
 
@@ -360,7 +360,7 @@ func (c *TalosClusterClient) WaitForControlPlaneAPIReady(ctx context.Context, no
 
 		select {
 		case <-ctx.Done():
-			return fmt.Errorf("timeout waiting for kube-apiserver on %s: %w", address, ctx.Err())
+			return werror.Wrap(ctx.Err(), "timeout waiting for kube-apiserver on %s", address)
 		case <-time.After(c.healthCheckPollInterval):
 		}
 	}

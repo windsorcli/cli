@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/windsorcli/cli/internal/werror"
 	"github.com/windsorcli/cli/pkg/provisioner/kubernetes/client"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -1080,6 +1081,9 @@ func TestBaseKubernetesManager_DeleteKustomization(t *testing.T) {
 		if !strings.Contains(err.Error(), "entry-one") {
 			t.Errorf("Expected error to name the still-live entry, got: %v", err)
 		}
+		if we := werror.Find(err); we == nil || !strings.Contains(we.Remediation, "kubectl get") {
+			t.Errorf("Expected a hint with the inspect command, got: %v", we)
+		}
 	})
 
 	t.Run("DisappearedTriggersReconcileOnTheBlockingEntry", func(t *testing.T) {
@@ -1340,6 +1344,9 @@ func TestBaseKubernetesManager_DeleteKustomization(t *testing.T) {
 		}
 		if !strings.Contains(err.Error(), "could not confirm its resources are gone") {
 			t.Errorf("Expected an unconfirmed-delete error, got: %v", err)
+		}
+		if we := werror.Find(err); we == nil || we.Remediation != "Inspect the namespace, then retry." {
+			t.Errorf("Expected the inspect-namespace hint, got: %v", we)
 		}
 	})
 
@@ -1698,6 +1705,9 @@ func TestBaseKubernetesManager_DeleteKustomizationReadFailures(t *testing.T) {
 		}
 		if !strings.Contains(err.Error(), "before windsor could read its inventory") {
 			t.Errorf("Expected an unread-inventory error, got: %v", err)
+		}
+		if we := werror.Find(err); we == nil || !strings.Contains(we.Remediation, "grep Terminating") {
+			t.Errorf("Expected a hint that finds leftovers, got: %v", we)
 		}
 	})
 
