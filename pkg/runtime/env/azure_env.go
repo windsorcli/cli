@@ -6,7 +6,6 @@
 package env
 
 import (
-	"os"
 	"path/filepath"
 
 	cliconfig "github.com/windsorcli/cli/api/config/v1alpha2"
@@ -111,14 +110,14 @@ func (e *AzureEnvPrinter) resolveKubeloginMode(config *cliconfig.Context) string
 			return v
 		}
 	}
-	if os.Getenv("AZURE_FEDERATED_TOKEN_FILE") != "" {
+	if e.shims.Getenv("AZURE_FEDERATED_TOKEN_FILE") != "" {
 		return "workloadidentity"
 	}
-	if os.Getenv("ACTIONS_ID_TOKEN_REQUEST_TOKEN") != "" &&
-		os.Getenv("ACTIONS_ID_TOKEN_REQUEST_URL") != "" {
+	if e.shims.Getenv("ACTIONS_ID_TOKEN_REQUEST_TOKEN") != "" &&
+		e.shims.Getenv("ACTIONS_ID_TOKEN_REQUEST_URL") != "" {
 		return "workloadidentity"
 	}
-	if os.Getenv("AZURE_CLIENT_SECRET") != "" || os.Getenv("AZURE_CLIENT_CERTIFICATE_PATH") != "" {
+	if e.shims.Getenv("AZURE_CLIENT_SECRET") != "" || e.shims.Getenv("AZURE_CLIENT_CERTIFICATE_PATH") != "" {
 		return "spn"
 	}
 	return "azurecli"

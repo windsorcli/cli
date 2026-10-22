@@ -234,6 +234,7 @@ func TestAzureEnv_KubeloginMode(t *testing.T) {
 			t.Fatalf("Failed to load config: %v", err)
 		}
 		printer := NewAzureEnvPrinter(mocks.Shell, mocks.ConfigHandler)
+		mocks.Shims.Getenv = os.Getenv
 		printer.shims = mocks.Shims
 		return printer, mocks.ConfigHandler
 	}

@@ -8,7 +8,6 @@ package env
 import (
 	"fmt"
 	"net"
-	"os"
 	"path/filepath"
 
 	"github.com/windsorcli/cli/internal/werror"
@@ -67,7 +66,7 @@ func (e *VirtEnvPrinter) GetEnvVars() (map[string]string, error) {
 			return nil, werror.Wrap(err, "error retrieving user home directory")
 		}
 
-		windsorConfigDir := os.Getenv("WINDSORCONFIG")
+		windsorConfigDir := e.shims.Getenv("WINDSORCONFIG")
 		if windsorConfigDir == "" {
 			windsorConfigDir = filepath.Join(homeDir, ".config", "windsor")
 		}

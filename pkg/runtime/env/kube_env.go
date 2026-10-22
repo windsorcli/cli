@@ -78,7 +78,7 @@ func (e *KubeEnvPrinter) GetEnvVars() (map[string]string, error) {
 	envVars["FLUX_SYSTEM_NAMESPACE"] = e.configHandler.GetString("gitops.namespace", constants.DefaultGitopsNamespace)
 	e.SetManagedEnv("FLUX_SYSTEM_NAMESPACE")
 
-	projectRoot := os.Getenv("WINDSOR_PROJECT_ROOT")
+	projectRoot := e.shims.Getenv("WINDSOR_PROJECT_ROOT")
 	if projectRoot == "" {
 		return envVars, nil
 	}

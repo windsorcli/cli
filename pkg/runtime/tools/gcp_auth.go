@@ -7,7 +7,6 @@ package tools
 
 import (
 	"fmt"
-	"os"
 	"path/filepath"
 	"time"
 
@@ -54,7 +53,7 @@ func (t *BaseToolsManager) checkGCPAuth() error {
 // scoped to the context; returns nil in global mode (defer to ~/.config/gcloud) or when
 // ambient credentials are present (don't mask the native chain).
 func (t *BaseToolsManager) gcpContextEnv() (map[string]string, error) {
-	if hasAmbientGCPCredentials() {
+	if t.hasAmbientGCPCredentials() {
 		return nil, nil
 	}
 	if t.shell.IsGlobal() {
@@ -104,28 +103,24 @@ func (t *BaseToolsManager) gcpAuthError() error {
 	}
 	gcloudConfigDir := filepath.Join(configRoot, ".gcp", "gcloud")
 	prefix := ""
-	if !gcpEnvPointsAtContext(gcloudConfigDir) {
+	if !t.gcpEnvPointsAtContext(gcloudConfigDir) {
 		prefix = fmt.Sprintf("CLOUDSDK_CONFIG=%q ", filepath.ToSlash(gcloudConfigDir))
 	}
 	return werror.New(fmt.Sprintf("The GCP application-default credentials for context %q have likely expired or are not set up.", t.configHandler.GetContext()),
 		fmt.Sprintf("Run '%sgcloud auth application-default login'.", prefix), nil)
 }
 
-// =============================================================================
-// Helpers
-// =============================================================================
-
 // hasAmbientGCPCredentials reports whether the parent env already carries GCP Application
 // Default Credentials (a service account key or Workload Identity Federation config file).
 // Workload Identity via the metadata server has no env signal and is intentionally not
 // detected here — those runners fall through to the gcloud CLI check.
-func hasAmbientGCPCredentials() bool {
-	return os.Getenv("GOOGLE_APPLICATION_CREDENTIALS") != ""
+func (t *BaseToolsManager) hasAmbientGCPCredentials() bool {
+	return t.shims.Getenv("GOOGLE_APPLICATION_CREDENTIALS") != ""
 }
 
 // gcpEnvPointsAtContext reports whether CLOUDSDK_CONFIG already resolves to configDir.
-func gcpEnvPointsAtContext(configDir string) bool {
-	cd := os.Getenv("CLOUDSDK_CONFIG")
+func (t *BaseToolsManager) gcpEnvPointsAtContext(configDir string) bool {
+	cd := t.shims.Getenv("CLOUDSDK_CONFIG")
 	if cd == "" {
 		return false
 	}

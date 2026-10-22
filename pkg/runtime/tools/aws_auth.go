@@ -7,7 +7,6 @@ package tools
 
 import (
 	"fmt"
-	"os"
 	"path/filepath"
 	"strings"
 	"time"
@@ -63,7 +62,7 @@ func (t *BaseToolsManager) awsEnabled() bool {
 // hint rather than the true cause. If a debug path is needed later, route the err to a
 // verbose-only log rather than re-introducing it into the user-facing message.
 func (t *BaseToolsManager) checkAWSAuth() error {
-	if hasAmbientAWSCredentials() {
+	if t.hasAmbientAWSCredentials() {
 		if _, err := t.shims.LookPath("aws"); err != nil {
 			return nil
 		}
@@ -163,7 +162,7 @@ func (t *BaseToolsManager) awsAuthError() error {
 		profile = *cfg.AWS.Profile
 	}
 	if t.shell.IsGlobal() {
-		state := t.detectAWSProfileState(ambientAWSConfigPath(), profile)
+		state := t.detectAWSProfileState(t.ambientAWSConfigPath(), profile)
 		switch state {
 		case awsProfileSSO:
 			return awsSSOExpiredError(profile, "")
@@ -180,7 +179,7 @@ func (t *BaseToolsManager) awsAuthError() error {
 	awsConfigPath := filepath.Join(configRoot, ".aws", "config")
 	awsCredentialsPath := filepath.Join(configRoot, ".aws", "credentials")
 	prefix := ""
-	if !awsEnvPointsAtContext(awsConfigPath, awsCredentialsPath) {
+	if !t.awsEnvPointsAtContext(awsConfigPath, awsCredentialsPath) {
 		prefix = awsEnvPrefix(configRoot)
 	}
 	state := t.detectAWSProfileState(awsConfigPath, profile)
@@ -231,6 +230,58 @@ func (t *BaseToolsManager) detectAWSProfileState(path, profileName string) awsPr
 	return awsProfileNone
 }
 
+// hasAmbientAWSCredentials reports whether the parent env carries AWS credentials via
+// IRSA (token file plus role ARN), ECS container creds, or a complete static keypair.
+// checkAWSAuth uses it to decide whether a missing aws CLI should be treated as a no-op
+// rather than a hard error — terraform's SDK will exercise the native chain at apply
+// time. The IRSA check requires both AWS_WEB_IDENTITY_TOKEN_FILE and AWS_ROLE_ARN because
+// the SDK's web identity provider needs both halves to assume the role.
+func (t *BaseToolsManager) hasAmbientAWSCredentials() bool {
+	if t.shims.Getenv("AWS_WEB_IDENTITY_TOKEN_FILE") != "" && t.shims.Getenv("AWS_ROLE_ARN") != "" {
+		return true
+	}
+	if t.shims.Getenv("AWS_CONTAINER_CREDENTIALS_RELATIVE_URI") != "" {
+		return true
+	}
+	if t.shims.Getenv("AWS_CONTAINER_CREDENTIALS_FULL_URI") != "" {
+		return true
+	}
+	if t.shims.Getenv("AWS_ACCESS_KEY_ID") != "" && t.shims.Getenv("AWS_SECRET_ACCESS_KEY") != "" {
+		return true
+	}
+	return false
+}
+
+// ambientAWSConfigPath returns the path the AWS CLI would read for profile config when
+// no windsor-scoped overrides are in play: AWS_CONFIG_FILE if set, otherwise
+// $HOME/.aws/config. Used by the global-mode auth hint to inspect the user's existing
+// profile state. Returns "" if the home directory cannot be resolved and AWS_CONFIG_FILE
+// is unset, in which case profile-state detection falls through to the first-time-setup
+// branch — the right outcome when we genuinely can't tell what's there.
+func (t *BaseToolsManager) ambientAWSConfigPath() string {
+	if cf := t.shims.Getenv("AWS_CONFIG_FILE"); cf != "" {
+		return cf
+	}
+	home, err := t.shims.UserHomeDir()
+	if err != nil {
+		return ""
+	}
+	return filepath.Join(home, ".aws", "config")
+}
+
+// awsEnvPointsAtContext reports whether AWS_CONFIG_FILE and AWS_SHARED_CREDENTIALS_FILE both
+// resolve to the given context paths. A partial or mismatched set returns false so callers
+// don't suggest bare `aws ...` commands that would write credentials to the wrong place.
+func (t *BaseToolsManager) awsEnvPointsAtContext(configPath, credentialsPath string) bool {
+	cf := t.shims.Getenv("AWS_CONFIG_FILE")
+	sf := t.shims.Getenv("AWS_SHARED_CREDENTIALS_FILE")
+	if cf == "" || sf == "" {
+		return false
+	}
+	return filepath.ToSlash(cf) == filepath.ToSlash(configPath) &&
+		filepath.ToSlash(sf) == filepath.ToSlash(credentialsPath)
+}
+
 // =============================================================================
 // Helpers
 // =============================================================================
@@ -254,58 +305,6 @@ func awsKeysRejectedError(profile, prefix string) error {
 func awsNoCredentialsError(subject, profile, prefix string) error {
 	return werror.New(fmt.Sprintf("No AWS credentials are configured for %s.", subject),
 		fmt.Sprintf("Run '%saws configure sso --profile %s' for SSO, or '%saws configure --profile %s' for access keys.", prefix, profile, prefix, profile), nil)
-}
-
-// hasAmbientAWSCredentials reports whether the parent env carries AWS credentials via
-// IRSA (token file plus role ARN), ECS container creds, or a complete static keypair.
-// checkAWSAuth uses it to decide whether a missing aws CLI should be treated as a no-op
-// rather than a hard error — terraform's SDK will exercise the native chain at apply
-// time. The IRSA check requires both AWS_WEB_IDENTITY_TOKEN_FILE and AWS_ROLE_ARN because
-// the SDK's web identity provider needs both halves to assume the role.
-func hasAmbientAWSCredentials() bool {
-	if os.Getenv("AWS_WEB_IDENTITY_TOKEN_FILE") != "" && os.Getenv("AWS_ROLE_ARN") != "" {
-		return true
-	}
-	if os.Getenv("AWS_CONTAINER_CREDENTIALS_RELATIVE_URI") != "" {
-		return true
-	}
-	if os.Getenv("AWS_CONTAINER_CREDENTIALS_FULL_URI") != "" {
-		return true
-	}
-	if os.Getenv("AWS_ACCESS_KEY_ID") != "" && os.Getenv("AWS_SECRET_ACCESS_KEY") != "" {
-		return true
-	}
-	return false
-}
-
-// ambientAWSConfigPath returns the path the AWS CLI would read for profile config when
-// no windsor-scoped overrides are in play: AWS_CONFIG_FILE if set, otherwise
-// $HOME/.aws/config. Used by the global-mode auth hint to inspect the user's existing
-// profile state. Returns "" if the home directory cannot be resolved and AWS_CONFIG_FILE
-// is unset, in which case profile-state detection falls through to the first-time-setup
-// branch — the right outcome when we genuinely can't tell what's there.
-func ambientAWSConfigPath() string {
-	if cf := os.Getenv("AWS_CONFIG_FILE"); cf != "" {
-		return cf
-	}
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return ""
-	}
-	return filepath.Join(home, ".aws", "config")
-}
-
-// awsEnvPointsAtContext reports whether AWS_CONFIG_FILE and AWS_SHARED_CREDENTIALS_FILE both
-// resolve to the given context paths. A partial or mismatched set returns false so callers
-// don't suggest bare `aws ...` commands that would write credentials to the wrong place.
-func awsEnvPointsAtContext(configPath, credentialsPath string) bool {
-	cf := os.Getenv("AWS_CONFIG_FILE")
-	sf := os.Getenv("AWS_SHARED_CREDENTIALS_FILE")
-	if cf == "" || sf == "" {
-		return false
-	}
-	return filepath.ToSlash(cf) == filepath.ToSlash(configPath) &&
-		filepath.ToSlash(sf) == filepath.ToSlash(credentialsPath)
 }
 
 // awsEnvPrefix returns the `KEY="VALUE" KEY="VALUE" ` prefix that points an aws CLI
