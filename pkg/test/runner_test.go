@@ -11,6 +11,7 @@ import (
 
 	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
 	"github.com/windsorcli/cli/internal/shims"
+	"github.com/windsorcli/cli/internal/werror"
 	"github.com/windsorcli/cli/pkg/composer/artifact"
 	"github.com/windsorcli/cli/pkg/runtime"
 	"github.com/windsorcli/cli/pkg/runtime/config"
@@ -480,6 +481,9 @@ func TestTestRunner_RunAndPrint(t *testing.T) {
 		if !strings.Contains(err.Error(), "no test files found") {
 			t.Errorf("Expected 'no test files found' error, got: %v", err)
 		}
+		if we := werror.Find(err); we == nil || !strings.Contains(we.Remediation, ".test.yaml") {
+			t.Errorf("Expected remediation to name the .test.yaml extension, got: %v", we)
+		}
 	})
 
 	t.Run("ReturnsErrorWhenFilterMatchesNoTests", func(t *testing.T) {
@@ -501,6 +505,9 @@ cases:
 		}
 		if !strings.Contains(err.Error(), "no test cases found matching filter") {
 			t.Errorf("Expected filter error, got: %v", err)
+		}
+		if we := werror.Find(err); we == nil || !strings.Contains(we.Remediation, "without a filter") {
+			t.Errorf("Expected remediation about the filter, got: %v", we)
 		}
 	})
 
@@ -1359,6 +1366,9 @@ terraform:
 		}
 		if !strings.Contains(err.Error(), "component not found: dns-zone") {
 			t.Errorf("Expected error to contain 'component not found: dns-zone', got: %v", err)
+		}
+		if we := werror.Find(err); we == nil || !strings.Contains(we.Remediation, "terraform_output()") {
+			t.Errorf("Expected remediation about the terraform_output() call, got: %v", we)
 		}
 	})
 
