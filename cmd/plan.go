@@ -9,6 +9,7 @@ import (
 	"github.com/spf13/cobra"
 	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
 	"github.com/windsorcli/cli/internal/presenter"
+	"github.com/windsorcli/cli/internal/werror"
 	composerblueprint "github.com/windsorcli/cli/pkg/composer/blueprint"
 	"github.com/windsorcli/cli/pkg/project"
 	"github.com/windsorcli/cli/pkg/provisioner"
@@ -74,7 +75,7 @@ windsor plan terraform cluster`,
 					summary, planErr = proj.Provisioner.PlanAll(blueprint)
 					return planErr
 				}); err != nil {
-					return fmt.Errorf("error running plan: %w", err)
+					return werror.Wrap(err, "error running plan")
 				}
 				if planJSON {
 					return tuiplan.SummaryJSON(os.Stdout, summary.Terraform, summary.Kustomize)
@@ -116,14 +117,14 @@ windsor plan terraform cluster`,
 				if inTerraform {
 					result, err := proj.Provisioner.PlanTerraformComponentSummary(blueprint, componentID)
 					if err != nil {
-						return fmt.Errorf("error running plan: %w", err)
+						return werror.Wrap(err, "error running plan")
 					}
 					tfResults = []terraforminfra.TerraformComponentPlan{result}
 				}
 				if inKustomize {
 					result, err := proj.Provisioner.PlanKustomizeComponentSummary(blueprint, componentID)
 					if err != nil {
-						return fmt.Errorf("error running plan: %w", err)
+						return werror.Wrap(err, "error running plan")
 					}
 					k8sResults = []fluxinfra.KustomizePlan{result}
 				}
@@ -139,7 +140,7 @@ windsor plan terraform cluster`,
 			if inTerraform {
 				fmt.Fprintf(os.Stderr, "\n%s\n", tui.SectionHeader("Terraform: "+componentID))
 				if err := proj.Provisioner.Plan(blueprint, componentID); err != nil {
-					return fmt.Errorf("error planning terraform for %s: %w", componentID, err)
+					return werror.Wrap(err, "error planning terraform for %s", componentID)
 				}
 			}
 			if inKustomize {
@@ -190,13 +191,13 @@ windsor plan terraform --output=json-plan`,
 
 		if planOutput != "" {
 			if planOutput != "json-plan" {
-				return fmt.Errorf("invalid --output value %q: supported values: json-plan", planOutput)
+				return werror.New(fmt.Sprintf("invalid --output value %q", planOutput), "Set --output to json-plan.", nil)
 			}
 			if planSummary {
-				return fmt.Errorf("--output=json-plan cannot be combined with --summary")
+				return werror.New("--output=json-plan cannot be combined with --summary", "Remove --output or remove --summary.", nil)
 			}
 			if planJSON {
-				return fmt.Errorf("--output=json-plan cannot be combined with --json")
+				return werror.New("--output=json-plan cannot be combined with --json", "Remove --output or remove --json.", nil)
 			}
 		}
 
@@ -207,12 +208,12 @@ windsor plan terraform --output=json-plan`,
 				fmt.Fprintln(cmd.ErrOrStderr(), "This output can include sensitive values in plaintext. Handle it as sensitive data.")
 				if len(args) == 0 {
 					if err := proj.Provisioner.PlanTerraformAllResourceChangesJSON(blueprint); err != nil {
-						return fmt.Errorf("error running plan: %w", err)
+						return werror.Wrap(err, "error running plan")
 					}
 					return nil
 				}
 				if err := proj.Provisioner.PlanTerraformResourceChangesJSON(blueprint, args[0]); err != nil {
-					return fmt.Errorf("error planning terraform for %s: %w", args[0], err)
+					return werror.Wrap(err, "error planning terraform for %s", args[0])
 				}
 				return nil
 			}
@@ -224,7 +225,7 @@ windsor plan terraform --output=json-plan`,
 				if planSummary {
 					summary, err := proj.Provisioner.PlanTerraformSummary(blueprint)
 					if err != nil {
-						return fmt.Errorf("error running plan: %w", err)
+						return werror.Wrap(err, "error running plan")
 					}
 					if planJSON {
 						return tuiplan.SummaryJSON(os.Stdout, summary.Terraform, nil)
@@ -239,14 +240,14 @@ windsor plan terraform --output=json-plan`,
 
 			if planJSON && !planSummary {
 				if err := proj.Provisioner.PlanTerraformJSON(blueprint, componentID); err != nil {
-					return fmt.Errorf("error planning terraform for %s: %w", componentID, err)
+					return werror.Wrap(err, "error planning terraform for %s", componentID)
 				}
 				return nil
 			}
 			if planSummary {
 				result, err := proj.Provisioner.PlanTerraformComponentSummary(blueprint, componentID)
 				if err != nil {
-					return fmt.Errorf("error running plan: %w", err)
+					return werror.Wrap(err, "error running plan")
 				}
 				if planJSON {
 					return tuiplan.SummaryJSON(os.Stdout, []terraforminfra.TerraformComponentPlan{result}, nil)
@@ -257,7 +258,7 @@ windsor plan terraform --output=json-plan`,
 
 			fmt.Fprintf(os.Stderr, "\n%s\n", tui.SectionHeader("Terraform: "+componentID))
 			if err := proj.Provisioner.Plan(blueprint, componentID); err != nil {
-				return fmt.Errorf("error planning terraform for %s: %w", componentID, err)
+				return werror.Wrap(err, "error planning terraform for %s", componentID)
 			}
 			return nil
 		})
@@ -296,7 +297,7 @@ windsor plan kustomize --summary`,
 			if planSummary {
 				summary, err := proj.Provisioner.PlanKustomizeSummary(blueprint)
 				if err != nil {
-					return fmt.Errorf("error running plan: %w", err)
+					return werror.Wrap(err, "error running plan")
 				}
 				if planJSON {
 					return tuiplan.SummaryJSON(os.Stdout, nil, summary.Kustomize)
@@ -315,7 +316,7 @@ windsor plan kustomize --summary`,
 		if planSummary {
 			result, err := proj.Provisioner.PlanKustomizeComponentSummary(blueprint, componentID)
 			if err != nil {
-				return fmt.Errorf("error running plan: %w", err)
+				return werror.Wrap(err, "error running plan")
 			}
 			if planJSON {
 				return tuiplan.SummaryJSON(os.Stdout, nil, []fluxinfra.KustomizePlan{result})

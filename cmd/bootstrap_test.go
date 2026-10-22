@@ -13,6 +13,7 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
 	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
+	"github.com/windsorcli/cli/internal/werror"
 	"github.com/windsorcli/cli/pkg/composer"
 	"github.com/windsorcli/cli/pkg/composer/blueprint"
 	"github.com/windsorcli/cli/pkg/project"
@@ -727,8 +728,11 @@ func TestBootstrapCmd(t *testing.T) {
 		if err == nil {
 			t.Fatal("Expected error for malformed --set value")
 		}
-		if !strings.Contains(err.Error(), "key=value") || !strings.Contains(err.Error(), "badformat") {
-			t.Errorf("Expected error to mention key=value format and bad value, got %v", err)
+		if !strings.Contains(err.Error(), "badformat") {
+			t.Errorf("Expected error to name the bad value, got %v", err)
+		}
+		if we := werror.Find(err); we == nil || !strings.Contains(we.Remediation, "key=value") {
+			t.Errorf("Expected a remediation that names key=value, got: %v", we)
 		}
 	})
 
@@ -908,6 +912,9 @@ func TestBootstrapCmd(t *testing.T) {
 		}
 		if !strings.Contains(err.Error(), "cancelled") {
 			t.Errorf("Expected cancellation error, got %v", err)
+		}
+		if we := werror.Find(err); we == nil || !strings.Contains(we.Remediation, "--yes") {
+			t.Errorf("Expected a remediation that names --yes, got: %v", we)
 		}
 	})
 

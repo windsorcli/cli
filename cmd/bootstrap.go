@@ -14,6 +14,7 @@ import (
 	"github.com/spf13/cobra"
 	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
 	"github.com/windsorcli/cli/internal/presenter"
+	"github.com/windsorcli/cli/internal/werror"
 	"github.com/windsorcli/cli/pkg/composer"
 	"github.com/windsorcli/cli/pkg/project"
 	"github.com/windsorcli/cli/pkg/provisioner"
@@ -91,12 +92,12 @@ windsor bootstrap prod --yes`,
 		changingContext := len(args) > 0
 		tempRt := runtime.NewRuntime(rtOpts...)
 		if _, err := tempRt.Shell.WriteResetToken(); err != nil {
-			return fmt.Errorf("failed to write reset token: %w", err)
+			return werror.Wrap(err, "failed to write reset token")
 		}
 		if changingContext {
 			contextName = args[0]
 			if err := tempRt.ConfigHandler.SetContext(contextName); err != nil {
-				return fmt.Errorf("failed to set context: %w", err)
+				return werror.Wrap(err, "failed to set context")
 			}
 		}
 
@@ -112,7 +113,7 @@ windsor bootstrap prod --yes`,
 		}
 
 		if err := rt.Shell.AddCurrentDirToTrustedFile(); err != nil {
-			return fmt.Errorf("failed to add current directory to trusted file: %w", err)
+			return werror.Wrap(err, "failed to add current directory to trusted file")
 		}
 
 		if !changingContext {
@@ -126,7 +127,7 @@ windsor bootstrap prod --yes`,
 		for _, setFlag := range bootstrapSetFlags {
 			parts := strings.SplitN(setFlag, "=", 2)
 			if len(parts) != 2 {
-				return fmt.Errorf("invalid --set format, expected key=value: %s", setFlag)
+				return werror.New(fmt.Sprintf("invalid --set format: %s", setFlag), "Set --set in the format key=value.", nil)
 			}
 			flagOverrides[parts[0]] = parts[1]
 		}
@@ -154,7 +155,7 @@ windsor bootstrap prod --yes`,
 			// would pass silently and lose its protection against accidental re-bootstrap.
 			configRoot, err := proj.Runtime.ConfigHandler.GetConfigRoot()
 			if err != nil {
-				return fmt.Errorf("failed to resolve config root for bootstrap confirmation: %w", err)
+				return werror.Wrap(err, "failed to resolve config root for bootstrap confirmation")
 			}
 			if err := confirmBootstrapIfContextExists(cmd.InOrStdin(), configRoot, contextName); err != nil {
 				return err
@@ -166,7 +167,7 @@ windsor bootstrap prod --yes`,
 		}
 
 		if err := proj.Runtime.ConfigHandler.ValidateContextValues(); err != nil {
-			return fmt.Errorf("invalid configuration: %w", err)
+			return werror.Wrap(err, "invalid configuration")
 		}
 
 		blueprintURL, err := resolveBlueprintURL(bootstrapBlueprint, bootstrapPlatform, proj.Runtime.ContextName, proj.Runtime.TemplateRoot, true, proj.Composer.ArtifactBuilder)
@@ -206,7 +207,7 @@ windsor bootstrap prod --yes`,
 					return false
 				}
 				if err := proj.Runtime.SaveConfig(saveSet); err != nil {
-					deferredErr = fmt.Errorf("failed to save configuration: %w", err)
+					deferredErr = werror.Wrap(err, "failed to save configuration")
 					return false
 				}
 				return true
@@ -216,7 +217,7 @@ windsor bootstrap prod --yes`,
 				return err
 			}
 			if err := proj.Runtime.SaveConfig(saveSet); err != nil {
-				return fmt.Errorf("failed to save configuration: %w", err)
+				return werror.Wrap(err, "failed to save configuration")
 			}
 		}
 
@@ -239,7 +240,7 @@ windsor bootstrap prod --yes`,
 
 			blueprint, err := proj.Composer.BlueprintHandler.GenerateResolved()
 			if err != nil {
-				return fmt.Errorf("error resolving blueprint substitutions: %w", err)
+				return werror.Wrap(err, "error resolving blueprint substitutions")
 			}
 
 			// Capture post-run messages to print as an end-of-run summary rather than inline among the
@@ -247,11 +248,11 @@ windsor bootstrap prod --yes`,
 			postRunMessages = blueprint.Messages
 
 			if err := warnNotReady(os.Stderr, proj.Provisioner.Install(cmd.Context(), blueprint, false), postRunMessages); err != nil {
-				return fmt.Errorf("error installing blueprint: %w", err)
+				return werror.Wrap(err, "error installing blueprint")
 			}
 
 			if err := proj.Provisioner.WriteVersionMarker(blueprint); err != nil {
-				return fmt.Errorf("error writing version marker: %w", err)
+				return werror.Wrap(err, "error writing version marker")
 			}
 			return nil
 		}); err != nil {
@@ -395,20 +396,18 @@ func bootstrapTerraformDisplay(e provisioner.BootstrapTerraformEntry) string {
 	return e.ComponentID
 }
 
-// confirmBootstrapIfContextExists prompts the user to confirm when the context's values.yaml
-// already exists (i.e. the context has been configured by a prior init or bootstrap). Returns
-// nil to proceed, an error to abort. Reads a single line from in; anything other than "y" or
-// "yes" (case-insensitive) cancels — including empty input and EOF, which means non-interactive
-// callers must pass --yes explicitly rather than silently re-bootstrapping. The prompt is
-// especially important in global mode where users have no directory-level cue that they're
-// about to touch a context they may not have intended to run against.
+// confirmBootstrapIfContextExists asks the operator to confirm when values.yaml of the context already exists.
+// The file exists when an earlier init or bootstrap configured the context.
+// It reads one line from in. Only "y" or "yes", in any case, continues.
+// Other input, an empty line, or EOF cancels with a WindsorError that names --yes, so a non-interactive caller must set --yes.
+// The prompt is important in global mode, where no directory tells the operator which context the command changes.
 func confirmBootstrapIfContextExists(in io.Reader, configRoot, contextName string) error {
 	valuesPath := filepath.Join(configRoot, "values.yaml")
 	if _, err := os.Stat(valuesPath); err != nil {
 		if os.IsNotExist(err) {
 			return nil
 		}
-		return fmt.Errorf("failed to check existing context configuration: %w", err)
+		return werror.Wrap(err, "failed to check existing context configuration")
 	}
 
 	fmt.Fprintf(os.Stderr, "Context %q is already configured at %s.\n", contextName, configRoot)
@@ -419,7 +418,7 @@ func confirmBootstrapIfContextExists(in io.Reader, configRoot, contextName strin
 	answer, _ := reader.ReadString('\n')
 	answer = strings.TrimSpace(strings.ToLower(answer))
 	if answer != "y" && answer != "yes" {
-		return fmt.Errorf("bootstrap cancelled (pass --yes to skip this prompt on re-runs)")
+		return werror.New("bootstrap cancelled", "Run windsor bootstrap --yes to skip this prompt.", nil)
 	}
 	return nil
 }

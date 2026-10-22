@@ -14,6 +14,7 @@ import (
 	"github.com/spf13/pflag"
 	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
 	"github.com/windsorcli/cli/internal/presenter"
+	"github.com/windsorcli/cli/internal/werror"
 	"github.com/windsorcli/cli/pkg/composer"
 	"github.com/windsorcli/cli/pkg/composer/blueprint"
 	"github.com/windsorcli/cli/pkg/project"
@@ -655,6 +656,9 @@ func TestPlanTerraformCmd(t *testing.T) {
 		if !strings.Contains(err.Error(), `invalid --output value "bogus"`) {
 			t.Errorf("expected invalid --output error, got: %v", err)
 		}
+		if we := werror.Find(err); we == nil || !strings.Contains(we.Remediation, "json-plan") {
+			t.Errorf("Expected a remediation that names json-plan, got: %v", we)
+		}
 	})
 
 	t.Run("OutputFlagRejectsCombinationWithSummary", func(t *testing.T) {
@@ -682,6 +686,9 @@ func TestPlanTerraformCmd(t *testing.T) {
 		if !strings.Contains(err.Error(), "cannot be combined with --summary") {
 			t.Errorf("expected combination error, got: %v", err)
 		}
+		if we := werror.Find(err); we == nil || !strings.Contains(we.Remediation, "--summary") {
+			t.Errorf("Expected a remediation that names --summary, got: %v", we)
+		}
 	})
 
 	t.Run("OutputFlagRejectsCombinationWithJSON", func(t *testing.T) {
@@ -708,6 +715,9 @@ func TestPlanTerraformCmd(t *testing.T) {
 		}
 		if !strings.Contains(err.Error(), "cannot be combined with --json") {
 			t.Errorf("expected combination error, got: %v", err)
+		}
+		if we := werror.Find(err); we == nil || !strings.Contains(we.Remediation, "--json") {
+			t.Errorf("Expected a remediation that names --json, got: %v", we)
 		}
 	})
 }
