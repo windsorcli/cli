@@ -25,7 +25,6 @@
       "matchManagers": [
         "github-actions"
       ],
-      "versioning": "github-tags",
       "pinDigests": true,
       "automerge": true,
       "automergeType": "pr",
