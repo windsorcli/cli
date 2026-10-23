@@ -548,6 +548,25 @@ func TestConsole_Interactive(t *testing.T) {
 		}
 	})
 
+	t.Run("NestsAMessageUnderAParentWithChildSteps", func(t *testing.T) {
+		// Given an interactive console
+		var buf syncBuffer
+		c := presenter.NewConsole(&buf, presenter.ConsoleOptions{Level: slog.LevelInfo, Interactive: true})
+
+		// When an operation runs a child step and then emits a warning
+		_ = presenter.Track(presenter.NewContext(context.Background(), c), "s", "Applying terraform", func(ctx context.Context) error {
+			_ = presenter.Track(ctx, "s:network", "network", func(context.Context) error { return nil })
+			presenter.Warn(ctx, "state drift")
+			return nil
+		})
+
+		// Then the warning prints under the parent header, one level deep
+		want := []string{"● Applying terraform", "  ✔ network", "  ⚠ state drift"}
+		if got := screen(buf.String()); !reflect.DeepEqual(got, want) {
+			t.Errorf("expected %q, got %q", want, got)
+		}
+	})
+
 	t.Run("IndentsEveryLineOfAMultiLineWarning", func(t *testing.T) {
 		// Given an interactive console
 		var buf syncBuffer
@@ -559,8 +578,8 @@ func TestConsole_Interactive(t *testing.T) {
 			return nil
 		})
 
-		// Then the second line aligns under the first line's text
-		want := []string{"● Destroying", "  ⚠ destroy output:", "    Error: bucket not empty", "✔ Destroying"}
+		// Then the warning prints without a step header and the second line aligns under the first line's text
+		want := []string{"⚠ destroy output:", "  Error: bucket not empty", "✔ Destroying"}
 		if got := screen(buf.String()); !reflect.DeepEqual(got, want) {
 			t.Errorf("expected %q, got %q", want, got)
 		}
@@ -577,13 +596,13 @@ func TestConsole_Interactive(t *testing.T) {
 		presenter.Progress(ctx, "waiting on 2 kustomizations")
 		presenter.Message(ctx, "found 2 kustomizations")
 
-		// Then the message prints above a live line that shows the progress
+		// Then the message prints above a live line that shows the progress, with no step header
 		got := screen(buf.String())
-		if len(got) != 3 || got[0] != "● gitops" || got[1] != "  found 2 kustomizations" {
+		if len(got) != 2 || got[0] != "found 2 kustomizations" {
 			t.Fatalf("unexpected screen %q", got)
 		}
-		if !strings.HasSuffix(got[2], " gitops  waiting on 2 kustomizations") {
-			t.Errorf("expected live line with progress, got %q", got[2])
+		if !strings.HasSuffix(got[1], " gitops  waiting on 2 kustomizations") {
+			t.Errorf("expected live line with progress, got %q", got[1])
 		}
 	})
 
@@ -699,7 +718,7 @@ func TestConsole_Interactive(t *testing.T) {
 }
 
 func TestConsole_Lifecycle(t *testing.T) {
-	t.Run("PausesUnderTheStepHeaderForAnotherWriter", func(t *testing.T) {
+	t.Run("PausesTheLiveRegionForAnotherWriter", func(t *testing.T) {
 		// Given an interactive console with a running operation
 		var buf syncBuffer
 		c := presenter.NewConsole(&buf, presenter.ConsoleOptions{Interactive: true})
@@ -715,16 +734,16 @@ func TestConsole_Lifecycle(t *testing.T) {
 		resumed := screen(buf.String())
 		end(nil)
 
-		// Then the prompt sits under the step header, the live line stays hidden until the last
-		// resume, and the prompt is never erased
-		if !reflect.DeepEqual(paused, []string{"● configuring DNS", "Password:"}) {
-			t.Errorf("expected the header and the prompt while paused, got %q", paused)
+		// Then no step header prints, the live line stays hidden until the last resume, and the
+		// prompt is never erased
+		if !reflect.DeepEqual(paused, []string{"Password:"}) {
+			t.Errorf("expected only the prompt while paused, got %q", paused)
 		}
-		if len(resumed) != 3 || resumed[1] != "Password:" || !strings.HasSuffix(resumed[2], " configuring DNS") {
-			t.Errorf("expected the header, the prompt, and the live line, got %q", resumed)
+		if len(resumed) != 2 || resumed[0] != "Password:" || !strings.HasSuffix(resumed[1], " configuring DNS") {
+			t.Errorf("expected the prompt and the live line, got %q", resumed)
 		}
-		if got := screen(buf.String()); !reflect.DeepEqual(got, []string{"● configuring DNS", "Password:", "✔ configuring DNS"}) {
-			t.Errorf("expected the header, the prompt, and the end line, got %q", got)
+		if got := screen(buf.String()); !reflect.DeepEqual(got, []string{"Password:", "✔ configuring DNS"}) {
+			t.Errorf("expected the prompt and the end line, got %q", got)
 		}
 	})
 
