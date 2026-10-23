@@ -37,6 +37,20 @@ func TestStripCoverageErrors(t *testing.T) {
 		}
 	})
 
+	t.Run("RemovesOnlyOneBlankLineAfterACoverageError", func(t *testing.T) {
+		// Given a rename failure followed by its blank line and a second blank line from windsor
+		stderr := []byte("error: coverage counter data emit failed: rename failed: file exists\n\n\nhint: Run windsor plan.\n")
+
+		// When the coverage errors are stripped
+		got := string(stripCoverageErrors(stderr))
+
+		// Then the second blank line remains
+		want := "\nhint: Run windsor plan.\n"
+		if got != want {
+			t.Errorf("expected %q, got %q", want, got)
+		}
+	})
+
 	t.Run("KeepsABlankLineThatIsNotAfterACoverageError", func(t *testing.T) {
 		// Given windsor output with a blank line between two lines
 		stderr := []byte("error: plan failed\n\nhint: Run windsor plan.\n")
