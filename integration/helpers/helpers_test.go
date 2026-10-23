@@ -24,6 +24,32 @@ func TestStripCoverageErrors(t *testing.T) {
 		}
 	})
 
+	t.Run("RemovesTheBlankLineAfterARenameFailure", func(t *testing.T) {
+		// Given stderr with only a rename failure, whose error text ends in a newline
+		stderr := []byte("error: coverage meta-data emit failed: writing /c/covmeta.x: rename from /c/tmp failed: file exists\n\n")
+
+		// When the coverage errors are stripped
+		got := string(stripCoverageErrors(stderr))
+
+		// Then stderr is empty
+		if got != "" {
+			t.Errorf("expected empty stderr, got %q", got)
+		}
+	})
+
+	t.Run("KeepsABlankLineThatIsNotAfterACoverageError", func(t *testing.T) {
+		// Given windsor output with a blank line between two lines
+		stderr := []byte("error: plan failed\n\nhint: Run windsor plan.\n")
+
+		// When the coverage errors are stripped
+		got := string(stripCoverageErrors(stderr))
+
+		// Then the output is unchanged
+		if got != string(stderr) {
+			t.Errorf("expected %q, got %q", stderr, got)
+		}
+	})
+
 	t.Run("KeepsAWindsorErrorThatMentionsCoverage", func(t *testing.T) {
 		// Given a windsor error whose text contains the word coverage
 		stderr := []byte("error: coverage report is missing\n")

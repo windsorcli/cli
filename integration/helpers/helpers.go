@@ -232,18 +232,24 @@ func PrepareFixture(t *testing.T, name string) (workDir string, env []string) {
 var coverageErrorPrefixes = []string{"error: coverage meta-data ", "error: coverage counter data "}
 
 // stripCoverageErrors returns stderr without the lines that start with a coverageErrorPrefixes entry.
+// It also removes the blank lines directly after such a line. Some coverage runtime errors end in a
+// newline, and the runtime adds a second newline, so the message ends with a blank line.
 func stripCoverageErrors(stderr []byte) []byte {
 	lines := bytes.SplitAfter(stderr, []byte("\n"))
 	kept := make([][]byte, 0, len(lines))
+	afterCoverage := false
 	for _, line := range lines {
-		coverage := false
+		if afterCoverage && bytes.Equal(line, []byte("\n")) {
+			continue
+		}
+		afterCoverage = false
 		for _, prefix := range coverageErrorPrefixes {
 			if bytes.HasPrefix(line, []byte(prefix)) {
-				coverage = true
+				afterCoverage = true
 				break
 			}
 		}
-		if !coverage {
+		if !afterCoverage {
 			kept = append(kept, line)
 		}
 	}
