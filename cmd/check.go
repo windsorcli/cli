@@ -156,7 +156,6 @@ func init() {
 	rootCmd.AddCommand(checkCmd)
 	checkCmd.AddCommand(checkNodeHealthCmd)
 
-	// Add flags for node health check
 	checkNodeHealthCmd.Flags().DurationVar(&nodeHealthTimeout, "timeout", 0, "Maximum time to wait for nodes to be ready. Default 5m.")
 	checkNodeHealthCmd.Flags().StringSliceVar(&nodeHealthNodes, "nodes", []string{}, "Node addresses to check.")
 	checkNodeHealthCmd.Flags().StringVar(&nodeHealthVersion, "version", "", "Expected Talos version. Reports a mismatch if set.")

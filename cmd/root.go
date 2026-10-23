@@ -109,21 +109,15 @@ var rootCmd = &cobra.Command{
 }
 
 // init registers the persistent flags of the root command.
+// All subcommands inherit these flags.
+// The --no-cache flag sets NO_CACHE, and ArtifactBuilder.Pull reads that variable.
+// The --lock-timeout flag applies to each command that acquires the stack lock.
 func init() {
-	// Define the --verbose flag
 	rootCmd.PersistentFlags().BoolVarP(&verbose, "verbose", "v", false, "Enable verbose output")
-	// Define the --no-cache flag. Persistent so every command (up, apply, plan, init,
-	// bootstrap, bundle, ...) inherits it; the effect is plumbed via the NO_CACHE env
-	// var that ArtifactBuilder.Pull already honors.
 	rootCmd.PersistentFlags().BoolVar(&noCache, "no-cache", false, "Bypass the OCI artifact cache and force re-download of remote sources")
-	// Define the --lock-timeout flag. Persistent so every command that acquires the stack
-	// lock (apply, up, destroy, plan, bootstrap, upgrade) inherits it.
 	rootCmd.PersistentFlags().DurationVar(&lockTimeout, "lock-timeout", 0, "Duration to wait for the stack lock before failing (e.g. 30s, 5m). Defaults to 0 (fail immediately).")
-	// Define the --debug flag. Persistent so every command inherits it.
 	rootCmd.PersistentFlags().BoolVar(&debugFlag, "debug", false, "Enable internal debug logging to stderr")
-	// Define the --context flag. Persistent so every command inherits it.
 	rootCmd.PersistentFlags().StringVarP(&contextFlag, "context", "c", "", "Override the windsor context for this command")
-	// Define the --format flag. Persistent so every command inherits it.
 	rootCmd.PersistentFlags().StringVar(&formatFlag, "format", string(logging.FormatText), "Output format for progress, logs, and errors: text or json")
 }
 
