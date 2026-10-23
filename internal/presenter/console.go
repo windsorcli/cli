@@ -159,24 +159,14 @@ func (c *Console) Emit(ctx context.Context, event Event) {
 	c.syncTicker()
 }
 
-// Pause erases the live region and stops the animation until a matching Resume. Calls nest. On the
-// first Pause it prints the header of each active step, so the other writer's output, such as a
-// password prompt, appears under the step that asked for it.
+// Pause erases the live region and stops the animation until a matching Resume. Calls nest.
 func (c *Console) Pause() {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if c.paused == 0 {
 		c.clear()
-		c.paused++
-		for _, op := range c.order {
-			if op.children == 0 && !op.printed {
-				op.printed = true
-				fmt.Fprintln(c.w, indent(op.depth)+"● "+op.message)
-			}
-		}
-	} else {
-		c.paused++
 	}
+	c.paused++
 	c.syncTicker()
 }
 
@@ -349,13 +339,18 @@ func (c *Console) progress(event Event) {
 	c.redraw()
 }
 
-// message prints a narrative line under its parent operation, with a marker for warnings.
+// message prints a narrative line with a marker for warnings. Under a parent that has had child
+// operations, it prints the parent header and indents one level below it. Under a parent without
+// children, it prints at the parent's depth above the spinner line, with no header.
 // Each further line of a multi-line message is indented to align under the first line's text.
 func (c *Console) message(event Event) {
 	depth := 0
 	if parent := c.ops[event.ParentID]; parent != nil {
-		depth = parent.depth + 1
-		c.printHeader(parent)
+		depth = parent.depth
+		if parent.hadChild {
+			depth++
+			c.printHeader(parent)
+		}
 	}
 	prefix, cont := "", indent(depth)
 	if event.Level >= slog.LevelWarn {
