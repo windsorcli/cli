@@ -299,6 +299,9 @@ func TestWarnOnProfileMismatch(t *testing.T) {
 		if !strings.Contains(msg, "AdministratorAccess-105746947080") {
 			t.Errorf("expected warning to name the actual profile found, got %q", msg)
 		}
+		if !strings.Contains(msg, "Set aws.profile to match") {
+			t.Errorf("expected warning to name the aws.profile key, got %q", msg)
+		}
 	})
 
 	t.Run("NeverColorizesWhenWriterIsNotAFile", func(t *testing.T) {

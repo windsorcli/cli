@@ -99,7 +99,7 @@ func WarnOnProfileMismatch(w io.Writer, r Resolver, expected string) {
 	if len(found) == 0 {
 		return
 	}
-	msg := fmt.Sprintf("Warning: AWS profile %q not found; found %s instead. Set aws.awsProfile to match, or rename the profile to %q.",
+	msg := fmt.Sprintf("Warning: AWS profile %q not found; found %s instead. Set aws.profile to match, or rename the profile to %q.",
 		expected, strings.Join(found, ", "), expected)
 	if shouldColorize(w) {
 		msg = "\033[33m" + msg + "\033[0m"
