@@ -7,6 +7,13 @@
   ],
   "packageRules": [
     {
+      "description": "Keep Terraform on the 1.12 line for OpenTofu compatibility; allow 1.12.x patches, block 1.13+",
+      "matchPackageNames": [
+        "hashicorp/terraform"
+      ],
+      "allowedVersions": "<1.13"
+    },
+    {
       "description": "Pin SOPS to v3.9.0",
       "matchPackageNames": [
         "getsops/sops"
