@@ -142,7 +142,7 @@ tasks:
       GOSEC:
         sh: gobin="$(go env GOBIN)"; echo "${gobin:-$(go env GOPATH)/bin}/gosec"
     cmds:
-      - go install github.com/securego/gosec/v2/cmd/gosec@v2.29.1-0.20261009120814-7b1b5cebe007
+      - go install github.com/securego/gosec/v2/cmd/gosec@v2.30.0
       - '"{{.GOSEC}}" ./...'
 
   docs:gen:commands:
