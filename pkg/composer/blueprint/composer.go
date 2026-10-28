@@ -14,6 +14,7 @@ import (
 	"strings"
 
 	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
+	"github.com/windsorcli/cli/internal/presenter"
 	"github.com/windsorcli/cli/internal/werror"
 	"github.com/windsorcli/cli/pkg/runtime"
 )
@@ -229,6 +230,10 @@ func CrdLayers(bp *blueprintv1alpha1.Blueprint) []CrdInstallLayer {
 // via enabled:false. Non-deferred expressions in the user's terraform inputs (e.g. yaml(), file(),
 // config-block refs like talos_common_docker.patches) are evaluated before merging using sourceFilePath
 // and configScope when non-nil so relative paths and config-block references resolve.
+// The user backend applies only when the sources and facets declare no backend. A context
+// blueprint.yaml can hold a saved copy of an earlier facet backend, and that copy must not
+// override the backend that the facets declare. When the two values differ, a warning tells
+// the operator to remove the user backend.
 func (c *BaseBlueprintComposer) applyUserBlueprint(result *blueprintv1alpha1.Blueprint, user *blueprintv1alpha1.Blueprint, sourceFilePath string, configScope map[string]any) error {
 	if user == nil {
 		return nil
@@ -239,6 +244,13 @@ func (c *BaseBlueprintComposer) applyUserBlueprint(result *blueprintv1alpha1.Blu
 	}
 
 	userCopy := user.DeepCopy()
+	if result.Backend != "" && userCopy.Backend != "" {
+		if userCopy.Backend != result.Backend {
+			presenter.Warn(presenter.Background(), fmt.Sprintf("Windsor ignores backend: %s, because a source or facet declares it. Remove backend: %s from %s.",
+				userCopy.Backend, userCopy.Backend, projectRelativePath(c.runtime, sourceFilePath)))
+		}
+		userCopy.Backend = ""
+	}
 	if c.runtime != nil && c.runtime.Evaluator != nil {
 		for i := range userCopy.TerraformComponents {
 			if userCopy.TerraformComponents[i].Inputs != nil {

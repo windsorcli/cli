@@ -4,6 +4,8 @@
 package integration
 
 import (
+	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
@@ -77,6 +79,48 @@ func TestShowBlueprint_DefaultFixture(t *testing.T) {
 	metadata, _ := bp["metadata"].(map[string]any)
 	if metadata == nil {
 		t.Error("expected metadata in blueprint")
+	}
+}
+
+// TestShowBlueprint_SourceBackendOverridesSavedContextBackend confirms that init does not save
+// the source backend into the context blueprint.yaml. It also confirms that a backend saved there
+// by an older CLI does not override the backend the source declares, and that Windsor warns
+// the operator to remove it.
+func TestShowBlueprint_SourceBackendOverridesSavedContextBackend(t *testing.T) {
+	t.Parallel()
+	dir, env := helpers.CopyFixtureOnly(t, "backend-first")
+	helpers.MarkAsGitRepo(t, dir)
+	if _, stderr, err := helpers.RunCLI(dir, []string{"init", "local"}, env); err != nil {
+		t.Fatalf("init local: %v\nstderr: %s", err, stderr)
+	}
+	env = append(env, "WINDSOR_CONTEXT=local")
+
+	contextPath := filepath.Join(dir, "contexts", "local", "blueprint.yaml")
+	saved, err := os.ReadFile(contextPath)
+	if err != nil {
+		t.Fatalf("read context blueprint: %v", err)
+	}
+	if strings.Contains(string(saved), "backend:") {
+		t.Fatalf("expected init not to save the backend, got:\n%s", saved)
+	}
+	legacy := append(saved, []byte("backend: \"null\"\n")...)
+	if err := os.WriteFile(contextPath, legacy, 0o644); err != nil {
+		t.Fatalf("write context blueprint: %v", err)
+	}
+
+	stdout, stderr, err := helpers.RunCLI(dir, []string{"show", "blueprint"}, env)
+	if err != nil {
+		t.Fatalf("show blueprint: %v\nstderr: %s", err, stderr)
+	}
+	var bp map[string]any
+	if err := yaml.Unmarshal(stdout, &bp); err != nil {
+		t.Fatalf("parse blueprint YAML: %v", err)
+	}
+	if bp["backend"] != "backend" {
+		t.Errorf("expected backend %q from the source, got %v", "backend", bp["backend"])
+	}
+	if !strings.Contains(string(stderr), "Remove backend: null from") {
+		t.Errorf("expected a warning to remove the saved backend, got stderr:\n%s", stderr)
 	}
 }
 

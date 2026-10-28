@@ -156,10 +156,8 @@ func TestWriter_Write(t *testing.T) {
 		}
 	})
 
-	t.Run("PreservesUserBackendInReferentialForm", func(t *testing.T) {
-		// Given a blueprint carrying a user-authored top-level backend field.
-		// `windsor init --reset` rewrites blueprint.yaml from the loaded blueprint,
-		// so a regression here would silently drop the user's backend selection.
+	t.Run("OmitsComposedBackendFromReferentialForm", func(t *testing.T) {
+		// Given a composed blueprint whose backend comes from the facets
 		mocks := setupWriterMocks(t)
 		writer := NewBlueprintWriter(mocks.Runtime)
 
@@ -179,7 +177,7 @@ func TestWriter_Write(t *testing.T) {
 			Kind:       "Blueprint",
 			ApiVersion: "v1alpha1",
 			Metadata:   blueprintv1alpha1.Metadata{Name: "test"},
-			Backend:    "my-component",
+			Backend:    "backend",
 		}
 
 		// When writing with overwrite=true
@@ -187,9 +185,9 @@ func TestWriter_Write(t *testing.T) {
 			t.Fatalf("Expected no error, got %v", err)
 		}
 
-		// Then blueprint.yaml should contain the backend field
-		if !strings.Contains(string(writtenData), "backend: my-component") {
-			t.Errorf("Expected blueprint.yaml to preserve backend, got:\n%s", writtenData)
+		// Then blueprint.yaml does not save the backend, so the facets keep ownership of it
+		if strings.Contains(string(writtenData), "backend:") {
+			t.Errorf("Expected no backend key, got:\n%s", writtenData)
 		}
 	})
 
