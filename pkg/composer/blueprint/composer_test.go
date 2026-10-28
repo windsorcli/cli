@@ -1,6 +1,7 @@
 package blueprint
 
 import (
+	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
@@ -1202,6 +1203,103 @@ func TestComposer_applyUserBlueprint(t *testing.T) {
 		// Then repository should be merged (user overrides)
 		if result.Repository.Url != "http://user.test/repo" {
 			t.Errorf("Expected user repository URL, got '%s'", result.Repository.Url)
+		}
+	})
+
+	t.Run("KeepsComposedBackendOverASavedUserBackend", func(t *testing.T) {
+		// Given facets that declare backend "backend", and a context blueprint.yaml that an
+		// older CLI saved with backend "cluster"
+		mocks := setupComposerMocks(t)
+		composer := NewBlueprintComposer(mocks.Runtime)
+
+		result := &blueprintv1alpha1.Blueprint{Backend: "backend"}
+		user := &blueprintv1alpha1.Blueprint{Backend: "cluster"}
+		userPath := filepath.Join(mocks.Runtime.ProjectRoot, "contexts", "local", "blueprint.yaml")
+
+		// When applying the user blueprint
+		buf := captureWarnings(t)
+		if err := composer.applyUserBlueprint(result, user, userPath, nil); err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+
+		// Then the facet backend wins
+		if result.Backend != "backend" {
+			t.Errorf("Expected backend %q, got %q", "backend", result.Backend)
+		}
+
+		// And a warning names the ignored value and tells the operator to remove the line
+		var event struct {
+			Message string `json:"message"`
+		}
+		if err := json.Unmarshal(buf.Bytes(), &event); err != nil {
+			t.Fatalf("Expected one JSON warning event, got %q: %v", buf.String(), err)
+		}
+		warning := event.Message
+		for _, want := range []string{"ignores backend: cluster, because a source or facet declares it.", "Remove backend: cluster from " + filepath.Join("contexts", "local", "blueprint.yaml") + "."} {
+			if !strings.Contains(warning, want) {
+				t.Errorf("Expected warning to contain %q, got: %q", want, warning)
+			}
+		}
+	})
+
+	t.Run("DoesNotWarnWhenUserBackendMatchesComposedBackend", func(t *testing.T) {
+		// Given a user blueprint whose backend matches the facet backend
+		mocks := setupComposerMocks(t)
+		composer := NewBlueprintComposer(mocks.Runtime)
+
+		result := &blueprintv1alpha1.Blueprint{Backend: "backend"}
+		user := &blueprintv1alpha1.Blueprint{Backend: "backend"}
+
+		// When applying the user blueprint
+		buf := captureWarnings(t)
+		if err := composer.applyUserBlueprint(result, user, "", nil); err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+
+		// Then the backend is unchanged and no warning is printed
+		if result.Backend != "backend" {
+			t.Errorf("Expected backend %q, got %q", "backend", result.Backend)
+		}
+		if strings.Contains(buf.String(), "backend") {
+			t.Errorf("Expected no warning, got: %q", buf.String())
+		}
+	})
+
+	t.Run("AppliesUserBackendWhenFacetsDeclareNone", func(t *testing.T) {
+		// Given facets that declare no backend, and a user blueprint that names one
+		mocks := setupComposerMocks(t)
+		composer := NewBlueprintComposer(mocks.Runtime)
+
+		result := &blueprintv1alpha1.Blueprint{}
+		user := &blueprintv1alpha1.Blueprint{Backend: "state"}
+
+		// When applying the user blueprint
+		if err := composer.applyUserBlueprint(result, user, "", nil); err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+
+		// Then the user backend applies
+		if result.Backend != "state" {
+			t.Errorf("Expected backend %q, got %q", "state", result.Backend)
+		}
+	})
+
+	t.Run("DoesNotModifyTheUserBlueprintBackend", func(t *testing.T) {
+		// Given facets that declare a backend, and a user blueprint that names another
+		mocks := setupComposerMocks(t)
+		composer := NewBlueprintComposer(mocks.Runtime)
+
+		result := &blueprintv1alpha1.Blueprint{Backend: "backend"}
+		user := &blueprintv1alpha1.Blueprint{Backend: "cluster"}
+
+		// When applying the user blueprint
+		if err := composer.applyUserBlueprint(result, user, "", nil); err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+
+		// Then the loaded user blueprint keeps its own value
+		if user.Backend != "cluster" {
+			t.Errorf("Expected user backend %q, got %q", "cluster", user.Backend)
 		}
 	})
 

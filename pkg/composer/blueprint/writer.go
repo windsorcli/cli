@@ -112,11 +112,11 @@ func (w *BaseBlueprintWriter) Write(blueprint *blueprintv1alpha1.Blueprint, over
 // Private Methods
 // =============================================================================
 
-// createMinimalBlueprint builds the referential form: metadata, repository, sources, and top-level
-// user overrides such as Backend. initBlueprintURLs become install sources, named by the metadata of
-// their loaded blueprints. When contexts/_template exists, it adds a "template" source with install:
-// true and no URL. It drops the CRDs of each source, because the composer derives them from the
-// source's facets.
+// createMinimalBlueprint builds the referential form: metadata, repository, and sources. It leaves
+// out Backend, because the composer takes the backend from the facets on every run.
+// initBlueprintURLs become install sources, named by the metadata of their loaded blueprints.
+// When contexts/_template exists, it adds a "template" source with install: true and no URL.
+// It drops the CRDs of each source, because the composer derives them from the source's facets.
 func (w *BaseBlueprintWriter) createMinimalBlueprint(blueprint *blueprintv1alpha1.Blueprint, initBlueprintURLs ...string) *blueprintv1alpha1.Blueprint {
 	metadata := blueprint.Metadata
 	if w.runtime != nil && w.runtime.ContextName != "" {
@@ -132,9 +132,6 @@ func (w *BaseBlueprintWriter) createMinimalBlueprint(blueprint *blueprintv1alpha
 	}
 	if blueprint.Repository.Url != "" {
 		minimal.Repository = blueprint.Repository
-	}
-	if blueprint.Backend != "" {
-		minimal.Backend = blueprint.Backend
 	}
 
 	trueVal := true

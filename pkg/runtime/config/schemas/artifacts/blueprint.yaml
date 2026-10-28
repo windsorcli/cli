@@ -44,7 +44,8 @@ properties:
       chain. When set, 'windsor bootstrap' applies the backend component (and
       every component declared before it) against local state first, then
       migrates state to the configured remote backend before applying the
-      rest of the graph.
+      rest of the graph. In a context's `blueprint.yaml`, this value applies
+      only when no source or facet declares a backend.
   repository:
     description: |
       Repository that 'windsor bootstrap' used to create this blueprint.
