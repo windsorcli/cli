@@ -18,8 +18,9 @@ import (
 // =============================================================================
 
 // Get retrieves the value at the specified configuration path from the internal data map.
-// If the value is not found and a schema is loaded, it falls back to the schema default for the
-// top-level key or a deeper nested key. Returns nil if the path is empty or no value is found.
+// A missing value falls back to the schema default at that path.
+// A map value has the schema defaults at that path merged under it, so a partial block keeps its defaults.
+// Returns nil if the path is empty or no value is found.
 func (c *configHandler) Get(path string) any {
 	if path == "" {
 		return nil
@@ -31,29 +32,15 @@ func (c *configHandler) Get(path string) any {
 	}
 
 	value := getValueByPathFromMap(c.data, pathKeys)
-	if value != nil {
-		return value
+	if value == nil {
+		return c.schemaDefaultAt(pathKeys)
 	}
-
-	if len(pathKeys) > 0 && c.schemaValidator != nil && c.schemaValidator.Schema != nil {
-		defaults, err := c.schemaValidator.GetSchemaDefaults()
-		if err == nil && defaults != nil {
-			if topLevelDefault, exists := defaults[pathKeys[0]]; exists {
-				if len(pathKeys) == 1 {
-					return topLevelDefault
-				}
-				if defaultMap, ok := topLevelDefault.(map[string]any); ok {
-					return getValueByPathFromMap(defaultMap, pathKeys[1:])
-				}
-				if interfaceMap, ok := topLevelDefault.(map[any]any); ok {
-					convertedMap := c.convertInterfaceMap(interfaceMap)
-					return getValueByPathFromMap(convertedMap, pathKeys[1:])
-				}
-			}
+	if valueMap, ok := value.(map[string]any); ok {
+		if defaultMap, ok := c.schemaDefaultAt(pathKeys).(map[string]any); ok {
+			return c.deepMerge(deepCopyValue(defaultMap).(map[string]any), valueMap)
 		}
 	}
-
-	return nil
+	return value
 }
 
 // GetString retrieves a string value for the specified key from the configuration, with an optional default value.
@@ -265,6 +252,31 @@ func (c *configHandler) Set(path string, value any) error {
 // =============================================================================
 // Private Methods
 // =============================================================================
+
+// schemaDefaultAt returns the schema default at pathKeys, or nil when no schema is loaded or no default exists.
+func (c *configHandler) schemaDefaultAt(pathKeys []string) any {
+	if c.schemaValidator == nil || c.schemaValidator.Schema == nil {
+		return nil
+	}
+	defaults, err := c.schemaValidator.GetSchemaDefaults()
+	if err != nil || defaults == nil {
+		return nil
+	}
+	topLevelDefault, exists := defaults[pathKeys[0]]
+	if !exists {
+		return nil
+	}
+	if len(pathKeys) == 1 {
+		return topLevelDefault
+	}
+	if defaultMap, ok := topLevelDefault.(map[string]any); ok {
+		return getValueByPathFromMap(defaultMap, pathKeys[1:])
+	}
+	if interfaceMap, ok := topLevelDefault.(map[any]any); ok {
+		return getValueByPathFromMap(c.convertInterfaceMap(interfaceMap), pathKeys[1:])
+	}
+	return nil
+}
 
 // convertForPath converts a string value to the type the loaded schema gives pathKeys. It
 // converts by pattern when the schema has no type for the path, or when the string does not parse

@@ -126,6 +126,66 @@ terraform:
 				t.Errorf("Expected init args to contain %q, got %v", want, args.InitArgs)
 			}
 		}
+		if args.KubernetesNamespace != "" {
+			t.Errorf("Expected no kubernetes namespace for s3, got %q", args.KubernetesNamespace)
+		}
+	})
+
+	t.Run("ReportsTheKubernetesBackendNamespace", func(t *testing.T) {
+		// Given a kubernetes backend block with a namespace
+		blueprintYAML := `apiVersion: blueprints.windsorcli.dev/v1alpha1
+kind: Blueprint
+metadata:
+  name: test
+terraform:
+  - path: test/path`
+		mocks := setupMocks(t, &SetupOptions{BlueprintYAML: blueprintYAML, BackendType: "kubernetes"})
+		mocks.ConfigHandler.GetFunc = func(key string) any {
+			if key == "terraform.backend.kubernetes" {
+				return map[string]any{"namespace": "system-terraform", "config_path": "/kube/config"}
+			}
+			return nil
+		}
+
+		// When generating terraform args
+		args, err := mocks.Provider.GenerateTerraformArgs("test/path", true)
+
+		// Then the namespace matches the backend-config argument terraform receives
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		if args.KubernetesNamespace != "system-terraform" {
+			t.Errorf("Expected namespace system-terraform, got %q", args.KubernetesNamespace)
+		}
+		initArgs := strings.Join(args.InitArgs, " ")
+		for _, arg := range []string{"namespace=system-terraform", "secret_suffix=test-path"} {
+			if !strings.Contains(initArgs, arg) {
+				t.Errorf("Expected init args to contain %q, got %v", arg, args.InitArgs)
+			}
+		}
+	})
+
+	t.Run("LeavesTheKubernetesNamespaceEmptyWhenUnset", func(t *testing.T) {
+		// Given a kubernetes backend with no namespace in the config
+		blueprintYAML := `apiVersion: blueprints.windsorcli.dev/v1alpha1
+kind: Blueprint
+metadata:
+  name: test
+terraform:
+  - path: test/path`
+		mocks := setupMocks(t, &SetupOptions{BlueprintYAML: blueprintYAML, BackendType: "kubernetes"})
+		mocks.ConfigHandler.GetFunc = func(key string) any { return nil }
+
+		// When generating terraform args
+		args, err := mocks.Provider.GenerateTerraformArgs("test/path", true)
+
+		// Then the namespace is empty, so backend.tfvars or terraform decides it
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		if args.KubernetesNamespace != "" {
+			t.Errorf("Expected an empty namespace, got %q", args.KubernetesNamespace)
+		}
 	})
 
 	t.Run("IncludesVarFileArgs", func(t *testing.T) {
