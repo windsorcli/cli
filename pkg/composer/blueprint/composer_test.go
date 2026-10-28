@@ -1,6 +1,7 @@
 package blueprint
 
 import (
+	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
@@ -1226,8 +1227,14 @@ func TestComposer_applyUserBlueprint(t *testing.T) {
 			t.Errorf("Expected backend %q, got %q", "backend", result.Backend)
 		}
 
-		// And a warning names both values and tells the operator to remove the line
-		warning := buf.String()
+		// And a warning names the ignored value and tells the operator to remove the line
+		var event struct {
+			Message string `json:"message"`
+		}
+		if err := json.Unmarshal(buf.Bytes(), &event); err != nil {
+			t.Fatalf("Expected one JSON warning event, got %q: %v", buf.String(), err)
+		}
+		warning := event.Message
 		for _, want := range []string{"ignores backend: cluster, because a source or facet declares it.", "Remove backend: cluster from " + filepath.Join("contexts", "local", "blueprint.yaml") + "."} {
 			if !strings.Contains(warning, want) {
 				t.Errorf("Expected warning to contain %q, got: %q", want, warning)
