@@ -467,6 +467,23 @@ func TestFlattenErrorList(t *testing.T) {
 		}
 	})
 
+	t.Run("ReportsErrorsUnderAPropertyNamedIf", func(t *testing.T) {
+		// Given a violation under a property named "if", which is not the "if" keyword
+		list := &jsonschema.List{
+			Details: []jsonschema.List{
+				{EvaluationPath: "/properties/if", InstanceLocation: "/if", Errors: map[string]string{"type": "Value is integer but should be string"}},
+			},
+		}
+
+		// When flattening
+		errs := flattenErrorList(list)
+
+		// Then the violation is reported
+		if len(errs) != 1 || !strings.HasPrefix(errs[0], "/if: type:") {
+			t.Errorf("Expected the /if type violation, got %v", errs)
+		}
+	})
+
 	t.Run("ReturnsPlaceholderWhenListHasNoErrors", func(t *testing.T) {
 		// Given a list with no error entries anywhere
 		list := &jsonschema.List{}

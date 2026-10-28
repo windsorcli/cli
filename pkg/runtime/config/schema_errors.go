@@ -106,7 +106,7 @@ func flattenErrorList(list *jsonschema.List) []string {
 // the message. The walker skips a valid subtree and an "if" condition subtree. Their errors
 // come from conditions that evaluated as designed, such as a false "if" or a passing "not".
 func walkList(list *jsonschema.List, parent string, errs *[]validationError) {
-	if list.Valid || strings.HasSuffix(list.EvaluationPath, "/if") {
+	if list.Valid || list.EvaluationPath == "/if" {
 		return
 	}
 	loc := joinInstanceLocation(parent, list.InstanceLocation)
