@@ -40,16 +40,18 @@ type terraformProvider struct {
 
 // TerraformArgs contains all the CLI arguments needed for terraform operations.
 // It does not include environment variable formatting - that is handled by the env printer.
+// KubernetesNamespace is the namespace the config sets for the kubernetes backend, and empty when none is set.
 type TerraformArgs struct {
-	TFDataDir       string
-	InitArgs        []string
-	PlanArgs        []string
-	ApplyArgs       []string
-	RefreshArgs     []string
-	ImportArgs      []string
-	DestroyArgs     []string
-	PlanDestroyArgs []string
-	BackendConfig   string
+	TFDataDir           string
+	InitArgs            []string
+	PlanArgs            []string
+	ApplyArgs           []string
+	RefreshArgs         []string
+	ImportArgs          []string
+	DestroyArgs         []string
+	PlanDestroyArgs     []string
+	BackendConfig       string
+	KubernetesNamespace string
 }
 
 // =============================================================================

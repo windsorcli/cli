@@ -133,7 +133,7 @@ func (s *TerraformStack) Plan(blueprint *blueprintv1alpha1.Blueprint, componentI
 	defer cleanup()
 	terraformVars["TF_VAR_operation"] = "apply"
 
-	if err := s.runTerraformInit(component, terraformVars, scopedKeys, terraformArgs, defaultInitFlags...); err != nil {
+	if err := s.runTerraformInitReadOnly(component, terraformVars, scopedKeys, terraformArgs, defaultInitFlags...); err != nil {
 		return err
 	}
 
@@ -177,7 +177,7 @@ func (s *TerraformStack) PlanJSON(blueprint *blueprintv1alpha1.Blueprint, compon
 	defer cleanup()
 	terraformVars["TF_VAR_operation"] = "apply"
 
-	if err := s.runTerraformInit(component, terraformVars, scopedKeys, terraformArgs, defaultInitFlags...); err != nil {
+	if err := s.runTerraformInitReadOnly(component, terraformVars, scopedKeys, terraformArgs, defaultInitFlags...); err != nil {
 		return err
 	}
 
@@ -358,7 +358,7 @@ func (s *TerraformStack) planComponents(blueprint *blueprintv1alpha1.Blueprint, 
 		}
 		terraformVars["TF_VAR_operation"] = "apply"
 
-		if err := s.runTerraformInit(component, terraformVars, scopedKeys, terraformArgs, defaultInitFlags...); err != nil {
+		if err := s.runTerraformInitReadOnly(component, terraformVars, scopedKeys, terraformArgs, defaultInitFlags...); err != nil {
 			cleanup()
 			return err
 		}
@@ -404,7 +404,7 @@ func (s *TerraformStack) planOneTerraformSummary(component *blueprintv1alpha1.Te
 	defer cleanup()
 	terraformVars["TF_VAR_operation"] = "apply"
 
-	if err := s.runTerraformInit(component, terraformVars, scopedKeys, terraformArgs, defaultInitFlags...); err != nil {
+	if err := s.runTerraformInitReadOnly(component, terraformVars, scopedKeys, terraformArgs, defaultInitFlags...); err != nil {
 		result.Err = err
 		return result
 	}
@@ -462,7 +462,7 @@ func (s *TerraformStack) planOneTerraformDestroySummary(component *blueprintv1al
 	defer cleanup()
 	terraformVars["TF_VAR_operation"] = "destroy"
 
-	if err := s.runTerraformInit(component, terraformVars, scopedKeys, terraformArgs, defaultInitFlags...); err != nil {
+	if err := s.runTerraformInitReadOnly(component, terraformVars, scopedKeys, terraformArgs, defaultInitFlags...); err != nil {
 		result.Err = err
 		return result
 	}

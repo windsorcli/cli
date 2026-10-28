@@ -122,15 +122,16 @@ func (p *terraformProvider) GenerateTerraformArgs(componentID string, interactiv
 	applyArgs = append(applyArgs, tfPlanPath)
 
 	return &TerraformArgs{
-		TFDataDir:       strings.TrimSpace(tfDataDir),
-		InitArgs:        initArgs,
-		PlanArgs:        planArgs,
-		ApplyArgs:       applyArgs,
-		RefreshArgs:     refreshArgs,
-		ImportArgs:      importArgs,
-		DestroyArgs:     destroyArgs,
-		PlanDestroyArgs: planDestroyArgs,
-		BackendConfig:   strings.Join(backendConfigArgs, " "),
+		TFDataDir:           strings.TrimSpace(tfDataDir),
+		InitArgs:            initArgs,
+		PlanArgs:            planArgs,
+		ApplyArgs:           applyArgs,
+		RefreshArgs:         refreshArgs,
+		ImportArgs:          importArgs,
+		DestroyArgs:         destroyArgs,
+		PlanDestroyArgs:     planDestroyArgs,
+		BackendConfig:       strings.Join(backendConfigArgs, " "),
+		KubernetesNamespace: p.kubernetesBackendNamespace(),
 	}, nil
 }
 

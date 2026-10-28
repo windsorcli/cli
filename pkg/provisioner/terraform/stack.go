@@ -70,12 +70,13 @@ type TerraformStack struct {
 	destroyGracePeriod     time.Duration
 }
 
-// initCacheKey identifies a previously-completed `terraform init`. Three
+// initCacheKey identifies a previously-completed `terraform init`. Four
 // dimensions distinguish whether re-init is a no-op: component, configured
-// backend, migrate-state flag.
+// backend, kubernetes backend namespace, migrate-state flag.
 type initCacheKey struct {
 	componentID  string
 	backendType  string
+	namespace    string
 	migrateState bool
 }
 
@@ -222,7 +223,7 @@ func (s *TerraformStack) Up(ctx context.Context, blueprint *blueprintv1alpha1.Bl
 			}
 			terraformVars["TF_VAR_operation"] = "apply"
 
-			if err := s.runTerraformInit(&component, terraformVars, scopedKeys, terraformArgs, defaultInitFlags...); err != nil {
+			if err := s.runTerraformInit(ctx, &component, terraformVars, scopedKeys, terraformArgs, defaultInitFlags...); err != nil {
 				return err
 			}
 
@@ -305,7 +306,7 @@ func (s *TerraformStack) Apply(ctx context.Context, blueprint *blueprintv1alpha1
 	terraformVars["TF_VAR_operation"] = "apply"
 
 	return presenter.Track(ctx, "terraform:"+component.GetID(), fmt.Sprintf("Applying %s", component.Path), func(ctx context.Context) error {
-		if err := s.runTerraformInit(component, terraformVars, scopedKeys, terraformArgs, defaultInitFlags...); err != nil {
+		if err := s.runTerraformInit(ctx, component, terraformVars, scopedKeys, terraformArgs, defaultInitFlags...); err != nil {
 			return err
 		}
 
@@ -342,7 +343,7 @@ func (s *TerraformStack) InitComponent(blueprint *blueprintv1alpha1.Blueprint, c
 		return err
 	}
 	defer cleanup()
-	return s.runTerraformInit(component, terraformVars, scopedKeys, terraformArgs, defaultInitFlags...)
+	return s.runTerraformInit(presenter.Background(), component, terraformVars, scopedKeys, terraformArgs, defaultInitFlags...)
 }
 
 // HasRemoteState reports whether the named component has non-empty terraform
@@ -355,7 +356,7 @@ func (s *TerraformStack) HasRemoteState(blueprint *blueprintv1alpha1.Blueprint, 
 	}
 	defer cleanup()
 
-	if err := s.runTerraformInit(component, terraformVars, scopedKeys, terraformArgs, defaultInitFlags...); err != nil {
+	if err := s.runTerraformInit(presenter.Background(), component, terraformVars, scopedKeys, terraformArgs, defaultInitFlags...); err != nil {
 		return false, err
 	}
 	return s.hasStateResources(component, terraformVars, scopedKeys)
@@ -571,16 +572,45 @@ func (s *TerraformStack) prepareComponentOp(blueprint *blueprintv1alpha1.Bluepri
 	return component, terraformVars, scopedKeys, terraformArgs, cleanup, nil
 }
 
-// runTerraformInit runs terraform init for a component, with extraFlags after "init".
-// It caches a successful init per component, backend, and migrate-state value for the process.
+// runTerraformInit runs terraform init for a component before an operation that can write state.
+// When the kubernetes backend namespace changed, it adds -migrate-state -force-copy, so terraform
+// copies the state into the configured namespace. It prints one line for each move under ctx.
+func (s *TerraformStack) runTerraformInit(ctx context.Context, component *blueprintv1alpha1.TerraformComponent, terraformVars map[string]string, scopedKeys []string, terraformArgs *envvars.TerraformArgs, extraFlags ...string) error {
+	return s.initComponent(ctx, component, terraformVars, scopedKeys, terraformArgs, false, extraFlags...)
+}
+
+// runTerraformInitReadOnly runs terraform init for a component before a plan.
+// When the kubernetes backend namespace changed, it adds -reconfigure and keeps the namespace in the
+// backend pointer, so the plan reads the current state and nothing moves.
+func (s *TerraformStack) runTerraformInitReadOnly(component *blueprintv1alpha1.TerraformComponent, terraformVars map[string]string, scopedKeys []string, terraformArgs *envvars.TerraformArgs, extraFlags ...string) error {
+	return s.initComponent(presenter.Background(), component, terraformVars, scopedKeys, terraformArgs, true, extraFlags...)
+}
+
+// initComponent runs terraform init for a component, with extraFlags after "init".
+// It caches a successful init per component, backend, namespace, and migrate-state value for the process.
 // It does not cache a failed init. The cache expects callers to run one at a time. Before an init
 // without -migrate-state, it removes a stale backend pointer. A stale provider lock error returns
 // an error with the remediation from staleProviderLockHint.
-func (s *TerraformStack) runTerraformInit(component *blueprintv1alpha1.TerraformComponent, terraformVars map[string]string, scopedKeys []string, terraformArgs *envvars.TerraformArgs, extraFlags ...string) error {
+func (s *TerraformStack) initComponent(ctx context.Context, component *blueprintv1alpha1.TerraformComponent, terraformVars map[string]string, scopedKeys []string, terraformArgs *envvars.TerraformArgs, readOnly bool, extraFlags ...string) error {
+	backendArgs := terraformArgs.InitArgs
+	namespace := terraformArgs.KubernetesNamespace
 	migrateState := slices.Contains(extraFlags, "-migrate-state")
+	previous, namespaceChanged := s.kubernetesNamespaceChange(terraformVars, terraformArgs)
+	movingState := false
+	if namespaceChanged && readOnly {
+		extraFlags = append(slices.Clone(extraFlags), "-reconfigure")
+		backendArgs = withBackendNamespace(backendArgs, previous)
+		namespace = previous
+	} else if namespaceChanged && !migrateState {
+		extraFlags = append(slices.Clone(extraFlags), "-migrate-state", "-force-copy")
+		migrateState = true
+		movingState = true
+	}
+
 	key := initCacheKey{
 		componentID:  component.GetID(),
 		backendType:  s.runtime.ConfigHandler.GetTerraformBackendType(),
+		namespace:    namespace,
 		migrateState: migrateState,
 	}
 	s.initCacheMu.Lock()
@@ -597,7 +627,7 @@ func (s *TerraformStack) runTerraformInit(component *blueprintv1alpha1.Terraform
 	initArgs := []string{fmt.Sprintf("-chdir=%s", component.FullPath), "init"}
 	initArgs = append(initArgs, extraFlags...)
 	initArgs = append(initArgs, noColorArgs()...)
-	initArgs = append(initArgs, terraformArgs.InitArgs...)
+	initArgs = append(initArgs, backendArgs...)
 	initEnv := selectTerraformCommandEnv(terraformVars, false, scopedKeys)
 	_, err := s.runtime.Shell.ExecSilentWithEnv(terraformCommand, initEnv, initArgs...)
 	if err != nil {
@@ -605,6 +635,9 @@ func (s *TerraformStack) runTerraformInit(component *blueprintv1alpha1.Terraform
 			return werror.New(fmt.Sprintf("error running terraform init for %s: %v", component.Path, err), staleProviderLockHint(component), err)
 		}
 		return werror.Wrap(err, "error running terraform init for %s", component.Path)
+	}
+	if movingState {
+		presenter.Message(ctx, fmt.Sprintf("Moved terraform state of %s from namespace %s to %s", component.Path, previous, namespace))
 	}
 
 	s.initCacheMu.Lock()

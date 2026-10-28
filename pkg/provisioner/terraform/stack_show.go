@@ -94,7 +94,7 @@ func (s *TerraformStack) PlanAllResourceChangesJSON(blueprint *blueprintv1alpha1
 func (s *TerraformStack) planResourceChangesJSON(component *blueprintv1alpha1.TerraformComponent, terraformVars map[string]string, scopedKeys []string, terraformArgs *envvars.TerraformArgs) error {
 	terraformVars["TF_VAR_operation"] = "apply"
 
-	if err := s.runTerraformInit(component, terraformVars, scopedKeys, terraformArgs, defaultInitFlags...); err != nil {
+	if err := s.runTerraformInitReadOnly(component, terraformVars, scopedKeys, terraformArgs, defaultInitFlags...); err != nil {
 		return err
 	}
 

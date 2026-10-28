@@ -67,6 +67,66 @@ properties:
 		}
 	})
 
+	t.Run("GetMergesSchemaDefaultsUnderAPartialBlock", func(t *testing.T) {
+		// Given a schema default for terraform.backend.kubernetes.namespace and a user block without it
+		mocks := setupConfigMocks(t)
+		tmpDir, _ := mocks.Shell.GetProjectRoot()
+		handler := NewConfigHandler(mocks.Shell)
+
+		schemaDir := filepath.Join(tmpDir, "contexts", "_template")
+		if err := os.MkdirAll(schemaDir, 0755); err != nil {
+			t.Fatalf("Expected no error creating schema dir, got %v", err)
+		}
+		schemaContent := `$schema: https://json-schema.org/draft/2020-12/schema
+type: object
+properties:
+  terraform:
+    type: object
+    properties:
+      backend:
+        type: object
+        properties:
+          kubernetes:
+            type: object
+            properties:
+              namespace:
+                type: string
+                default: system-terraform
+`
+		if err := os.WriteFile(filepath.Join(schemaDir, "schema.yaml"), []byte(schemaContent), 0644); err != nil {
+			t.Fatalf("Expected no error writing schema, got %v", err)
+		}
+		if err := handler.LoadConfig(); err != nil {
+			t.Fatalf("Expected no error loading config, got %v", err)
+		}
+		if err := handler.Set("terraform.backend.kubernetes.config_path", "/tmp/kubeconfig"); err != nil {
+			t.Fatalf("Expected no error setting config_path, got %v", err)
+		}
+
+		// When the block is read as a whole
+		block, ok := handler.Get("terraform.backend.kubernetes").(map[string]any)
+
+		// Then the user's key and the schema default are both present
+		if !ok {
+			t.Fatalf("Expected a map, got %T", handler.Get("terraform.backend.kubernetes"))
+		}
+		if block["config_path"] != "/tmp/kubeconfig" {
+			t.Errorf("Expected config_path to be kept, got %v", block["config_path"])
+		}
+		if block["namespace"] != "system-terraform" {
+			t.Errorf("Expected namespace default to be merged, got %v", block["namespace"])
+		}
+
+		// And a user's own namespace wins over the default
+		if err := handler.Set("terraform.backend.kubernetes.namespace", "custom"); err != nil {
+			t.Fatalf("Expected no error setting namespace, got %v", err)
+		}
+		block, _ = handler.Get("terraform.backend.kubernetes").(map[string]any)
+		if block["namespace"] != "custom" {
+			t.Errorf("Expected user namespace to win, got %v", block["namespace"])
+		}
+	})
+
 	t.Run("GetStringCoversValueAndDefault", func(t *testing.T) {
 		mocks := setupConfigMocks(t)
 		handler := NewConfigHandler(mocks.Shell)

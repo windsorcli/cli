@@ -264,6 +264,21 @@ func (p *terraformProvider) generateBackendConfigArgs(projectPath, configRoot st
 	return backendConfigArgs, nil
 }
 
+// kubernetesBackendNamespace returns the configured namespace of the kubernetes backend.
+// It returns "" when the backend type is not kubernetes or the config sets no namespace.
+// Without a configured namespace, backend.tfvars or terraform's own default decides it.
+func (p *terraformProvider) kubernetesBackendNamespace() string {
+	if p.configHandler.GetTerraformBackendType() != "kubernetes" {
+		return ""
+	}
+	if block, ok := p.configHandler.Get("terraform.backend.kubernetes").(map[string]any); ok {
+		if namespace, ok := block["namespace"].(string); ok {
+			return namespace
+		}
+	}
+	return ""
+}
+
 // processBackendConfig processes backend configuration and applies each key-value pair to the provided addArg function.
 // It marshals the provided backendConfig to YAML, then unmarshals it into a map structure to normalize the format.
 // It traverses the resulting map, applying each key-value pair to the addArg function. Nested configuration
