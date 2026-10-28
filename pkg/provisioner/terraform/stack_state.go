@@ -227,12 +227,12 @@ func (s *TerraformStack) migrateOneComponent(component *blueprintv1alpha1.Terraf
 		return false, err
 	}
 
-	migrateErr := s.runTerraformInit(component, terraformVars, scopedKeys, terraformArgs, "-migrate-state", "-force-copy")
+	migrateErr := s.runTerraformInit(presenter.Background(), component, terraformVars, scopedKeys, terraformArgs, "-migrate-state", "-force-copy")
 	if migrateErr != nil && isStaleProviderLockError(migrateErr) {
 		if refreshErr := s.refreshProviderLock(component, terraformVars, scopedKeys); refreshErr != nil {
 			return false, refreshErr
 		}
-		migrateErr = s.runTerraformInit(component, terraformVars, scopedKeys, terraformArgs, "-migrate-state", "-force-copy")
+		migrateErr = s.runTerraformInit(presenter.Background(), component, terraformVars, scopedKeys, terraformArgs, "-migrate-state", "-force-copy")
 	}
 	if migrateErr != nil {
 		return false, migrateErr

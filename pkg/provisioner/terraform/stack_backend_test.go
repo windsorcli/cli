@@ -1,12 +1,14 @@
 package terraform
 
 import (
+	"context"
 	"os"
 	"slices"
 	"strings"
 	"testing"
 
 	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
+	"github.com/windsorcli/cli/internal/presenter"
 	envvars "github.com/windsorcli/cli/pkg/runtime/env"
 )
 
@@ -55,7 +57,7 @@ contexts:
 		stack, inits := setup(t, legacyPointer)
 
 		// When an apply path inits the component
-		if err := stack.runTerraformInit(component, vars, nil, args, defaultInitFlags...); err != nil {
+		if err := stack.runTerraformInit(context.Background(), component, vars, nil, args, defaultInitFlags...); err != nil {
 			t.Fatalf("Expected no error, got %v", err)
 		}
 
@@ -68,6 +70,33 @@ contexts:
 			if !slices.Contains(got[0], flag) {
 				t.Errorf("Expected init args to contain %q, got %v", flag, got[0])
 			}
+		}
+	})
+
+	t.Run("ReportsTheMoveUnderTheCallersOperation", func(t *testing.T) {
+		// Given a pointer that keeps the state in default and an operation in progress
+		stack, _ := setup(t, legacyPointer)
+		rec := &eventRecorder{}
+		ctx, done := presenter.Begin(presenter.NewContext(context.Background(), rec), "terraform:dns", "Applying dns")
+		defer done(nil)
+
+		// When an apply path inits the component
+		if err := stack.runTerraformInit(ctx, component, vars, nil, args, defaultInitFlags...); err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+
+		// Then the move message nests under that operation
+		var opID, parentID string
+		for _, e := range rec.events {
+			if e.Kind == presenter.KindApplying {
+				opID = e.ID
+			}
+			if e.Kind == presenter.KindMessage && strings.Contains(e.Message, "Moved terraform state of dns from namespace default to system-terraform") {
+				parentID = e.ParentID
+			}
+		}
+		if parentID == "" || parentID != opID {
+			t.Errorf("Expected the move message under operation %q, got parent %q in %+v", opID, parentID, rec.events)
 		}
 	})
 
@@ -98,7 +127,7 @@ contexts:
 		}
 
 		// When an apply path inits the same component
-		if err := stack.runTerraformInit(component, vars, nil, args, defaultInitFlags...); err != nil {
+		if err := stack.runTerraformInit(context.Background(), component, vars, nil, args, defaultInitFlags...); err != nil {
 			t.Fatalf("Expected no error, got %v", err)
 		}
 
@@ -114,7 +143,7 @@ contexts:
 		stack, inits := setup(t, `{"backend":{"type":"kubernetes","config":{"namespace":"system-terraform"}}}`)
 
 		// When an apply path inits the component
-		if err := stack.runTerraformInit(component, vars, nil, args, defaultInitFlags...); err != nil {
+		if err := stack.runTerraformInit(context.Background(), component, vars, nil, args, defaultInitFlags...); err != nil {
 			t.Fatalf("Expected no error, got %v", err)
 		}
 
@@ -130,7 +159,7 @@ contexts:
 		stack, inits := setup(t, "")
 
 		// When an apply path inits the component
-		if err := stack.runTerraformInit(component, vars, nil, args, defaultInitFlags...); err != nil {
+		if err := stack.runTerraformInit(context.Background(), component, vars, nil, args, defaultInitFlags...); err != nil {
 			t.Fatalf("Expected no error, got %v", err)
 		}
 
@@ -146,7 +175,7 @@ contexts:
 		unset := &envvars.TerraformArgs{InitArgs: []string{"-backend=true", "-backend-config=secret_suffix=dns"}}
 
 		// When an apply path and a plan init the component
-		if err := stack.runTerraformInit(component, vars, nil, unset, defaultInitFlags...); err != nil {
+		if err := stack.runTerraformInit(context.Background(), component, vars, nil, unset, defaultInitFlags...); err != nil {
 			t.Fatalf("Expected no error, got %v", err)
 		}
 		if err := stack.runTerraformInitReadOnly(component, vars, nil, unset, defaultInitFlags...); err != nil {
@@ -166,7 +195,7 @@ contexts:
 		stack, inits := setup(t, `{"backend":{"type":"local","config":{"path":"/tmp/state"}}}`)
 
 		// When a state migration inits the component
-		if err := stack.runTerraformInit(component, vars, nil, args, "-migrate-state", "-force-copy"); err != nil {
+		if err := stack.runTerraformInit(context.Background(), component, vars, nil, args, "-migrate-state", "-force-copy"); err != nil {
 			t.Fatalf("Expected no error, got %v", err)
 		}
 

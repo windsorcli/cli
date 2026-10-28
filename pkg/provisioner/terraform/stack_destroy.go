@@ -154,7 +154,7 @@ func (s *TerraformStack) DestroyAll(ctx context.Context, blueprint *blueprintv1a
 		if err := presenter.Track(ctx, "terraform:"+component.GetID(), fmt.Sprintf("Destroying %s", component.Path), func(ctx context.Context) error {
 			terraformVars["TF_VAR_operation"] = "destroy"
 
-			if err := s.runTerraformInit(&component, terraformVars, scopedKeys, terraformArgs, defaultInitFlags...); err != nil {
+			if err := s.runTerraformInit(ctx, &component, terraformVars, scopedKeys, terraformArgs, defaultInitFlags...); err != nil {
 				return err
 			}
 
@@ -260,7 +260,7 @@ func (s *TerraformStack) Destroy(ctx context.Context, blueprint *blueprintv1alph
 
 	skipped := false
 	if err := presenter.Track(ctx, "terraform:"+component.GetID(), fmt.Sprintf("Destroying %s", component.Path), func(ctx context.Context) error {
-		if err := s.runTerraformInit(component, terraformVars, scopedKeys, terraformArgs, defaultInitFlags...); err != nil {
+		if err := s.runTerraformInit(ctx, component, terraformVars, scopedKeys, terraformArgs, defaultInitFlags...); err != nil {
 			return err
 		}
 
