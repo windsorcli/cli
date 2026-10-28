@@ -17,32 +17,23 @@ import (
 
 func TestFlattenErrorList(t *testing.T) {
 	t.Run("DropsExactDuplicateLines", func(t *testing.T) {
-		// Given two branches that both fail with the identical (path, keyword, message) triple
-		// at the root — the shape a schema with several allOf branches referencing the same
-		// property produces — plus one leaf-specific failure
+		// Given two branches that both fail with the identical (path, keyword, message) triple,
+		// plus one other specific failure
 		list := &jsonschema.List{
 			Details: []jsonschema.List{
-				{
-					InstanceLocation: "/",
-					Errors:           map[string]string{"properties": "Property 'cluster' does not match the schema"},
-					Details: []jsonschema.List{
-						{InstanceLocation: "/cluster", Errors: map[string]string{"additionalProperties": "Additional property 'oidc' does not match the schema"}},
-					},
-				},
-				{
-					InstanceLocation: "/",
-					Errors:           map[string]string{"properties": "Property 'cluster' does not match the schema"},
-				},
+				{InstanceLocation: "/cluster", Errors: map[string]string{"additionalProperties": "Additional property 'oidc' does not match the schema"}},
+				{InstanceLocation: "/cluster", Errors: map[string]string{"additionalProperties": "Additional property 'oidc' does not match the schema"}},
+				{InstanceLocation: "/network", Errors: map[string]string{"type": "Value is integer but should be object"}},
 			},
 		}
 
 		// When flattening
 		errs := flattenErrorList(list)
 
-		// Then the duplicate "/: properties: ..." line appears exactly once
+		// Then the duplicate line appears exactly once
 		count := 0
 		for _, e := range errs {
-			if e == "/: properties: Property 'cluster' does not match the schema" {
+			if e == "/cluster: additionalProperties: Additional property 'oidc' does not match the schema" {
 				count++
 			}
 		}
@@ -54,9 +45,9 @@ func TestFlattenErrorList(t *testing.T) {
 		}
 	})
 
-	t.Run("SortsStructuralKeywordsAfterSpecificOnes", func(t *testing.T) {
+	t.Run("HidesStructuralRestatementsOfASpecificViolation", func(t *testing.T) {
 		// Given a "properties" (structural) failure at the root and an "additionalProperties"
-		// (specific/actionable) failure nested under it
+		// (specific) failure nested under it
 		list := &jsonschema.List{
 			InstanceLocation: "/",
 			Errors:           map[string]string{"properties": "Property 'cluster' does not match the schema"},
@@ -68,16 +59,9 @@ func TestFlattenErrorList(t *testing.T) {
 		// When flattening
 		errs := flattenErrorList(list)
 
-		// Then the specific error sorts before the structural one, even though it was nested
-		// (and so walked) after it
-		if len(errs) != 2 {
-			t.Fatalf("Expected 2 errors, got %d: %v", len(errs), errs)
-		}
-		if !strings.Contains(errs[0], "additionalProperties") {
-			t.Errorf("Expected the additionalProperties error first, got %v", errs)
-		}
-		if !strings.Contains(errs[1], "properties") {
-			t.Errorf("Expected the properties error last, got %v", errs)
+		// Then only the specific error is reported, with no hidden-count note
+		if len(errs) != 1 || !strings.HasPrefix(errs[0], "/cluster: additionalProperties:") {
+			t.Errorf("Expected only the additionalProperties error, got %v", errs)
 		}
 	})
 
@@ -96,15 +80,15 @@ func TestFlattenErrorList(t *testing.T) {
 		// When flattening
 		errs := flattenErrorList(list)
 
-		// Then only the const violation and a summary note survive; "then" does not leak
-		// through as if it were an actionable violation
+		// Then only the const violation and a summary note survive, and the note does not
+		// count the "then" restatement
 		if len(errs) != 2 {
 			t.Fatalf("Expected 2 errors, got %d: %v", len(errs), errs)
 		}
 		if !strings.Contains(errs[0], "/database/postgres/driver: const:") {
 			t.Errorf("Expected the const error first, got %v", errs)
 		}
-		if !strings.Contains(errs[1], "3 other error(s) are hidden") {
+		if !strings.Contains(errs[1], "2 other error(s) are hidden") {
 			t.Errorf("Expected a summary note about hidden errors, got %v", errs)
 		}
 		if !strings.Contains(errs[1], "--debug") {
@@ -153,13 +137,11 @@ func TestFlattenErrorList(t *testing.T) {
 		}
 	})
 
-	t.Run("PreservesRelativeOrderWithinEachPriorityGroup", func(t *testing.T) {
-		// Given two specific (non-structural) failures and two structural failures, interleaved
+	t.Run("ShowsStructuralErrorsWhenNoneAreSpecific", func(t *testing.T) {
+		// Given only structural failures, with no specific violation to point to instead
 		list := &jsonschema.List{
 			Details: []jsonschema.List{
-				{InstanceLocation: "/a", Errors: map[string]string{"required": "Required property 'a' is missing"}},
 				{InstanceLocation: "/", Errors: map[string]string{"properties": "Property 'x' does not match the schema"}},
-				{InstanceLocation: "/b", Errors: map[string]string{"const": "Value does not match the constant value"}},
 				{InstanceLocation: "/", Errors: map[string]string{"allOf": "Value does not match the allOf schema at index 0"}},
 			},
 		}
@@ -167,16 +149,12 @@ func TestFlattenErrorList(t *testing.T) {
 		// When flattening
 		errs := flattenErrorList(list)
 
-		// Then the two specific errors keep their original relative order, ahead of the two
-		// structural errors, which also keep their original relative order
-		if len(errs) != 4 {
-			t.Fatalf("Expected 4 errors, got %d: %v", len(errs), errs)
+		// Then both structural errors are reported in their original order
+		if len(errs) != 2 {
+			t.Fatalf("Expected 2 errors, got %d: %v", len(errs), errs)
 		}
-		if !strings.Contains(errs[0], "required") || !strings.Contains(errs[1], "const") {
-			t.Errorf("Expected required then const first, got %v", errs)
-		}
-		if !strings.Contains(errs[2], "properties") || !strings.Contains(errs[3], "allOf") {
-			t.Errorf("Expected properties then allOf last, got %v", errs)
+		if !strings.Contains(errs[0], "properties") || !strings.Contains(errs[1], "allOf") {
+			t.Errorf("Expected properties then allOf, got %v", errs)
 		}
 	})
 
@@ -204,7 +182,7 @@ func TestFlattenErrorList(t *testing.T) {
 		if !strings.Contains(errs[0], "/platform: enum:") {
 			t.Errorf("Expected the platform enum error first, got %v", errs)
 		}
-		if !strings.Contains(errs[1], "5 other error(s) are hidden") {
+		if !strings.Contains(errs[1], "4 other error(s) are hidden") {
 			t.Errorf("Expected a summary note about hidden errors, got %v", errs)
 		}
 	})
@@ -232,7 +210,7 @@ func TestFlattenErrorList(t *testing.T) {
 		if !strings.Contains(joined, "/gcp: additionalProperties:") || !strings.Contains(joined, "/gcp/project: schema:") {
 			t.Errorf("Expected both /gcp violations to survive, got %v", errs)
 		}
-		if !strings.Contains(joined, "3 other error(s) are hidden") {
+		if !strings.Contains(joined, "2 other error(s) are hidden") {
 			t.Errorf("Expected a summary note about hidden errors, got %v", errs)
 		}
 	})
@@ -376,15 +354,16 @@ func TestFlattenErrorList(t *testing.T) {
 		// When flattening
 		errs := flattenErrorList(list)
 
-		// Then only the required error and the hidden-count note remain, with the note last
+		// Then only the required error and the hidden-count note remain, and the note counts
+		// only the type companion
 		if len(errs) != 2 {
 			t.Fatalf("Expected 2 errors, got %d: %v", len(errs), errs)
 		}
 		if errs[0] != "/cluster: required: Required property 'driver' is missing" {
 			t.Errorf("Expected the required error first, got %v", errs)
 		}
-		if !strings.HasPrefix(errs[1], "3 other error(s) are hidden") {
-			t.Errorf("Expected the hidden-count note last with 3 hidden, got %v", errs)
+		if !strings.HasPrefix(errs[1], "1 other error(s) are hidden") {
+			t.Errorf("Expected the hidden-count note last with 1 hidden, got %v", errs)
 		}
 	})
 
@@ -404,12 +383,13 @@ func TestFlattenErrorList(t *testing.T) {
 		// When flattening
 		errs := flattenErrorList(list)
 
-		// Then the note is the last line and counts every hidden error once
+		// Then the note is the last line and counts every hidden error once, except the
+		// structural restatement
 		if len(errs) != 2 {
 			t.Fatalf("Expected 2 errors, got %d: %v", len(errs), errs)
 		}
-		if !strings.HasPrefix(errs[1], "4 other error(s) are hidden") {
-			t.Errorf("Expected the hidden-count note last with 4 hidden, got %v", errs)
+		if !strings.HasPrefix(errs[1], "3 other error(s) are hidden") {
+			t.Errorf("Expected the hidden-count note last with 3 hidden, got %v", errs)
 		}
 	})
 
@@ -429,6 +409,61 @@ func TestFlattenErrorList(t *testing.T) {
 		// lists the same field at the same parent
 		if len(errs) != 1 || !strings.Contains(errs[0], "/cluster/driver: type:") {
 			t.Errorf("Expected the unpaired type error to survive, got %v", errs)
+		}
+	})
+
+	t.Run("SkipsValidSubtrees", func(t *testing.T) {
+		// Given an allOf item that passes because its "not" passes, which leaves the inner
+		// enum error in a valid subtree, and one real violation
+		list := &jsonschema.List{
+			Details: []jsonschema.List{
+				{
+					Valid:          true,
+					EvaluationPath: "/allOf/1",
+					Details: []jsonschema.List{
+						{Valid: false, EvaluationPath: "/not", InstanceLocation: "/platform", Errors: map[string]string{"enum": "Value docker should be one of the allowed values: aws, azure, gcp"}},
+					},
+				},
+				{InstanceLocation: "/secrets", Errors: map[string]string{"additionalProperties": "Additional property 'copia' does not match the schema"}},
+			},
+		}
+
+		// When flattening
+		errs := flattenErrorList(list)
+
+		// Then only the real violation is reported and nothing is counted as hidden
+		if len(errs) != 1 || !strings.HasPrefix(errs[0], "/secrets: additionalProperties:") {
+			t.Errorf("Expected only the /secrets violation, got %v", errs)
+		}
+	})
+
+	t.Run("SkipsIfConditionSubtreeUnderAFailingItem", func(t *testing.T) {
+		// Given an allOf item that fails in its "else" branch, so its failed "if" condition
+		// sits inside an invalid parent
+		list := &jsonschema.List{
+			Details: []jsonschema.List{
+				{
+					EvaluationPath: "/allOf/0",
+					Details: []jsonschema.List{
+						{
+							EvaluationPath: "/if",
+							Errors:         map[string]string{"required": "Required property 'platform' is missing"},
+							Details: []jsonschema.List{
+								{EvaluationPath: "/properties/platform", InstanceLocation: "/platform", Errors: map[string]string{"const": "Value does not match the constant value"}},
+							},
+						},
+						{EvaluationPath: "/else", InstanceLocation: "/region", Errors: map[string]string{"type": "Value is integer but should be string"}},
+					},
+				},
+			},
+		}
+
+		// When flattening
+		errs := flattenErrorList(list)
+
+		// Then only the "else" violation is reported
+		if len(errs) != 1 || !strings.HasPrefix(errs[0], "/region: type:") {
+			t.Errorf("Expected only the /region violation, got %v", errs)
 		}
 	})
 

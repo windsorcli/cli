@@ -18,12 +18,10 @@ import (
 // Constants
 // =============================================================================
 
-// structuralValidationKeywords are keywords whose failure is a symptom of a nested, more
-// specific failure elsewhere rather than the actionable violation itself — "properties" only
-// ever says "property X doesn't match its schema", never why; "allOf"/"anyOf"/"oneOf"/"if"/"then"
-// are the same shape one level up. collectErrors sorts these after every other keyword so an
-// operator sees the specific cause (additionalProperties, const, required, type, ...) first,
-// instead of every ancestor schema that failed as a consequence of it.
+// structuralValidationKeywords are keywords whose failure only restates a nested failure.
+// "properties" says that property X does not match its schema, but not why. "allOf", "anyOf",
+// "oneOf", "if", and "then" do the same one level up. hideStructuralRestatements drops these
+// when a specific violation is present.
 var structuralValidationKeywords = map[string]bool{
 	"properties": true,
 	"allOf":      true,
@@ -54,8 +52,7 @@ type validationError struct {
 // A schema with several allOf/if branches referencing the same property routinely reports the
 // identical (path, keyword, message) triple from each branch — e.g. a cluster-driver coherence
 // check and an identity-driver coherence check both restating "/: properties: Property
-// 'cluster' does not match the schema" — so exact-duplicate lines are dropped, and the survivors
-// are stably reordered per structuralValidationKeywords.
+// 'cluster' does not match the schema" — so exact-duplicate lines are dropped.
 func collectErrors(result *jsonschema.EvaluationResult) []string {
 	if result.IsValid() {
 		return nil
@@ -88,15 +85,7 @@ func flattenErrorList(list *jsonschema.List) []string {
 	deduped = mergeRequiredDuplicates(deduped)
 	deduped, dropped := dropRedundantRequiredCompanions(deduped)
 	hidden += dropped
-	if dropped > 0 {
-		var restated int
-		deduped, restated = hideStructuralRestatements(deduped)
-		hidden += restated
-	}
-
-	sort.SliceStable(deduped, func(i, j int) bool {
-		return !structuralValidationKeywords[deduped[i].keyword] && structuralValidationKeywords[deduped[j].keyword]
-	})
+	deduped = hideStructuralRestatements(deduped)
 
 	errs := make([]string, 0, len(deduped)+1)
 	for _, e := range deduped {
@@ -114,8 +103,12 @@ func flattenErrorList(list *jsonschema.List) []string {
 // evaluator — a nested enum failure on storage.driver surfaces as "/driver" rather than
 // "/storage/driver" — so this walker carries the parent location down the recursion and joins
 // it onto each child to reconstruct the fully-qualified pointer operators expect when reading
-// the message.
+// the message. The walker skips a valid subtree and an "if" condition subtree. Their errors
+// come from conditions that evaluated as designed, such as a false "if" or a passing "not".
 func walkList(list *jsonschema.List, parent string, errs *[]validationError) {
+	if list.Valid || strings.HasSuffix(list.EvaluationPath, "/if") {
+		return
+	}
 	loc := joinInstanceLocation(parent, list.InstanceLocation)
 	display := loc
 	if display == "" {
@@ -199,38 +192,39 @@ func isCascadeProne(e validationError, paired map[string]bool) bool {
 	return false
 }
 
-// focusOnSpecificViolations hides cascade-prone and structural errors when a specific
-// violation is also present, and returns the visible errors and the hidden count. It returns
-// errs unchanged when either side is empty. It logs every hidden line via debug.Log.
+// focusOnSpecificViolations hides cascade-prone errors when a specific violation is also
+// present, and returns the visible errors and the hidden count. A structural error is not a
+// specific violation. It returns errs unchanged when either side is empty. It logs every hidden
+// line via debug.Log.
 func focusOnSpecificViolations(errs []validationError) ([]validationError, int) {
 	paired := cascadePairedNames(errs)
-	var specific, noise []validationError
-	cascadeCount := 0
+	var visible, cascade []validationError
+	specificCount := 0
 	for _, e := range errs {
-		switch {
-		case isCascadeProne(e, paired):
-			cascadeCount++
-			noise = append(noise, e)
-		case structuralValidationKeywords[e.keyword]:
-			noise = append(noise, e)
-		default:
-			specific = append(specific, e)
+		if isCascadeProne(e, paired) {
+			cascade = append(cascade, e)
+			continue
 		}
+		if !structuralValidationKeywords[e.keyword] {
+			specificCount++
+		}
+		visible = append(visible, e)
 	}
-	if len(specific) == 0 || cascadeCount == 0 {
+	if specificCount == 0 || len(cascade) == 0 {
 		return errs, 0
 	}
 
-	for _, e := range noise {
+	for _, e := range cascade {
 		debug.Log("hidden validation error: %s", e.line)
 	}
-	return specific, len(noise)
+	return visible, len(cascade)
 }
 
-// hideStructuralRestatements hides structural errors when a specific violation is present, and
-// returns the visible errors and the hidden count. A structural error only says that a property
-// does not match its schema, which the specific violation already states.
-func hideStructuralRestatements(errs []validationError) ([]validationError, int) {
+// hideStructuralRestatements drops structural errors when a specific violation is present. A
+// structural error only says that a property does not match its schema, which the specific
+// violation already states. The hidden count excludes these errors, because --debug would show
+// nothing new. It logs every dropped line via debug.Log.
+func hideStructuralRestatements(errs []validationError) []validationError {
 	var specific, structural []validationError
 	for _, e := range errs {
 		if structuralValidationKeywords[e.keyword] {
@@ -240,12 +234,12 @@ func hideStructuralRestatements(errs []validationError) ([]validationError, int)
 		}
 	}
 	if len(specific) == 0 || len(structural) == 0 {
-		return errs, 0
+		return errs
 	}
 	for _, e := range structural {
 		debug.Log("hidden validation error: %s", e.line)
 	}
-	return specific, len(structural)
+	return specific
 }
 
 // mergeRequiredDuplicates unions multiple "required" errors at the same location into one.

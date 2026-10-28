@@ -653,6 +653,65 @@ func TestSchemaValidator_Validate(t *testing.T) {
 		}
 	})
 
+	t.Run("OmitsErrorsFromConditionsThatEvaluatedAsDesigned", func(t *testing.T) {
+		// Given a schema with a false "if" and a passing "not", and one invalid secrets key
+		mockShell := shell.NewMockShell()
+		validator := NewSchemaValidator(mockShell)
+
+		validator.Schema = map[string]any{
+			"$schema": "https://json-schema.org/draft/2020-12/schema",
+			"type":    "object",
+			"properties": map[string]any{
+				"platform": map[string]any{"type": "string"},
+				"secrets": map[string]any{
+					"type":                 "object",
+					"properties":           map[string]any{"token": map[string]any{"type": "string"}},
+					"additionalProperties": false,
+				},
+			},
+			"allOf": []any{
+				map[string]any{
+					"if": map[string]any{
+						"properties": map[string]any{"platform": map[string]any{"const": "aws"}},
+						"required":   []any{"platform"},
+					},
+					"then": map[string]any{"required": []any{"secrets"}},
+				},
+				map[string]any{
+					"if": map[string]any{
+						"properties": map[string]any{"platform": map[string]any{"not": map[string]any{"enum": []any{"aws", "azure", "gcp"}}}},
+					},
+					"then": map[string]any{"properties": map[string]any{"secrets": map[string]any{"type": "object"}}},
+				},
+			},
+		}
+
+		values := map[string]any{
+			"platform": "docker",
+			"secrets":  map[string]any{"copia": "x"},
+		}
+
+		// When validating values
+		result, err := validator.Validate(values)
+
+		// Then only the two secrets violations are reported
+		if err != nil {
+			t.Fatalf("Expected no error, got: %v", err)
+		}
+		if result.Valid {
+			t.Fatal("Expected validation to fail")
+		}
+		if len(result.Errors) != 2 {
+			t.Fatalf("Expected 2 errors, got %d: %v", len(result.Errors), result.Errors)
+		}
+		if !hasErrorMatching(result.Errors, "/secrets", "additionalProperties") {
+			t.Errorf("Expected an additionalProperties error at /secrets, got %v", result.Errors)
+		}
+		if !hasErrorMatching(result.Errors, "/secrets/copia", "schema") {
+			t.Errorf("Expected a schema error at /secrets/copia, got %v", result.Errors)
+		}
+	})
+
 	t.Run("ErrorNoSchemaLoaded", func(t *testing.T) {
 		// Given a schema validator with no schema loaded
 		mockShell := shell.NewMockShell()
