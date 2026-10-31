@@ -81,6 +81,25 @@ func TestProvisioner_ResolveSecrets(t *testing.T) {
 		}
 	})
 
+	t.Run("CarriesTheEntryType", func(t *testing.T) {
+		// Given a secret entry with an explicit type
+		mocks := setupProvisionerMocks(t)
+		withValues(mocks, map[string]any{"gw": map[string]any{"cert": "CERT", "key": "KEY"}})
+		tls := entry(map[string]string{"tls.crt": "${gw.cert}", "tls.key": "${gw.key}"})
+		tls.Type = "kubernetes.io/tls"
+
+		// When resolving secrets
+		resolved, err := newProvisioner(mocks).ResolveSecrets(bp(map[string]blueprintv1alpha1.SecretEntry{"web-tls": tls}))
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+
+		// Then the resolved secret keeps the type for placement
+		if got := resolved["cdn-install"]["web-tls"].Type; got != "kubernetes.io/tls" {
+			t.Errorf("Expected type kubernetes.io/tls, got %q", got)
+		}
+	})
+
 	t.Run("RegistersResolvedValueWithScrubber", func(t *testing.T) {
 		// Given a resolvable secret reference and a shell that records scrubber registrations
 		mocks := setupProvisionerMocks(t)
@@ -246,7 +265,7 @@ func TestProvisioner_PlaceSecrets(t *testing.T) {
 		}
 		var gotName, gotNs, gotOwner string
 		var gotData map[string]string
-		mocks.KubernetesManager.ApplySecretFunc = func(name, namespace string, stringData map[string]string, owner string) error {
+		mocks.KubernetesManager.ApplySecretFunc = func(name, namespace, secretType string, stringData map[string]string, owner string) error {
 			gotName, gotNs, gotData, gotOwner = name, namespace, stringData, owner
 			return nil
 		}
@@ -382,7 +401,7 @@ func TestProvisioner_PlaceSecrets(t *testing.T) {
 			return []kubernetes.InventoryEntry{{Kind: "DaemonSet", Name: "hcloud-csi-node", Namespace: "system-csi"}}, nil
 		}
 		var gotNs string
-		mocks.KubernetesManager.ApplySecretFunc = func(name, namespace string, stringData map[string]string, owner string) error {
+		mocks.KubernetesManager.ApplySecretFunc = func(name, namespace, secretType string, stringData map[string]string, owner string) error {
 			gotNs = namespace
 			return nil
 		}
@@ -437,7 +456,7 @@ func TestProvisioner_PlaceSecrets(t *testing.T) {
 			return name == "system-pki", nil
 		}
 		var gotNs string
-		mocks.KubernetesManager.ApplySecretFunc = func(name, namespace string, stringData map[string]string, owner string) error {
+		mocks.KubernetesManager.ApplySecretFunc = func(name, namespace, secretType string, stringData map[string]string, owner string) error {
 			gotNs = namespace
 			return nil
 		}
@@ -463,7 +482,7 @@ func TestProvisioner_PlaceSecrets(t *testing.T) {
 			return name == "system-lb", nil
 		}
 		var gotNs string
-		mocks.KubernetesManager.ApplySecretFunc = func(name, namespace string, stringData map[string]string, owner string) error {
+		mocks.KubernetesManager.ApplySecretFunc = func(name, namespace, secretType string, stringData map[string]string, owner string) error {
 			gotNs = namespace
 			return nil
 		}
@@ -486,7 +505,7 @@ func TestProvisioner_PlaceSecrets(t *testing.T) {
 			return name == "system-lb", nil // system-dns never appears
 		}
 		placed := map[string]bool{}
-		mocks.KubernetesManager.ApplySecretFunc = func(name, namespace string, stringData map[string]string, owner string) error {
+		mocks.KubernetesManager.ApplySecretFunc = func(name, namespace, secretType string, stringData map[string]string, owner string) error {
 			placed[namespace] = true
 			return nil
 		}
@@ -517,7 +536,7 @@ func TestProvisioner_PlaceSecrets(t *testing.T) {
 			return checks >= 3, nil // absent, absent, then created
 		}
 		var gotNs string
-		mocks.KubernetesManager.ApplySecretFunc = func(name, namespace string, stringData map[string]string, owner string) error {
+		mocks.KubernetesManager.ApplySecretFunc = func(name, namespace, secretType string, stringData map[string]string, owner string) error {
 			gotNs = namespace
 			return nil
 		}
@@ -539,7 +558,7 @@ func TestProvisioner_PlaceSecrets(t *testing.T) {
 		// Given a secret whose namespace exists, so it is placed on the first round
 		mocks := setupProvisionerMocks(t)
 		mocks.KubernetesManager.NamespaceExistsFunc = func(name string) (bool, error) { return name == "system-lb", nil }
-		mocks.KubernetesManager.ApplySecretFunc = func(name, namespace string, stringData map[string]string, owner string) error { return nil }
+		mocks.KubernetesManager.ApplySecretFunc = func(name, namespace, secretType string, stringData map[string]string, owner string) error { return nil }
 		notifier := fluxinfra.NewMockNotifier()
 		var reconciled [][]string
 		notifier.ReconcileKustomizationsFunc = func(ctx context.Context, names []string) error {
@@ -600,7 +619,7 @@ func TestProvisioner_PlaceSecrets(t *testing.T) {
 			return name == "system-pki" || name == "system-dns", nil
 		}
 		placed := map[string]bool{}
-		mocks.KubernetesManager.ApplySecretFunc = func(name, namespace string, stringData map[string]string, owner string) error {
+		mocks.KubernetesManager.ApplySecretFunc = func(name, namespace, secretType string, stringData map[string]string, owner string) error {
 			placed[namespace] = true
 			return nil
 		}
@@ -706,7 +725,7 @@ func TestProvisioner_PlaceSecrets(t *testing.T) {
 			return []kubernetes.InventoryEntry{{Kind: "Namespace", Name: "system-dns"}}, nil
 		}
 		placedName := ""
-		mocks.KubernetesManager.ApplySecretFunc = func(name, namespace string, stringData map[string]string, owner string) error {
+		mocks.KubernetesManager.ApplySecretFunc = func(name, namespace, secretType string, stringData map[string]string, owner string) error {
 			placedName = name
 			return nil
 		}

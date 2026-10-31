@@ -46,7 +46,7 @@ type KubernetesManager interface {
 	CreateNamespace(name string) error
 	DeleteNamespace(name string) error
 	ApplyConfigMap(name, namespace string, data map[string]string) error
-	ApplySecret(name, namespace string, stringData map[string]string, owner string) error
+	ApplySecret(name, namespace, secretType string, stringData map[string]string, owner string) error
 	PruneSecrets(desired map[string]map[string]bool) error
 	RollWorkloadsForSecret(ctx context.Context, namespace, secretName, digest string) error
 	GetHelmReleasesForKustomization(name, namespace string) ([]helmv2.HelmRelease, error)

@@ -659,7 +659,7 @@ func (b *Blueprint) deepMergeMaps(base, overlay map[string]any) map[string]any {
 // =============================================================================
 
 // mergeSecretData unions two secret maps (Secret name -> SecretEntry) with overlay winning per data key
-// and the two entries' namespaces unioned, and nil when both are empty. Neither input is mutated. Used
+// and on a non-empty type, and the two entries' namespaces unioned, and nil when both are empty. Neither input is mutated. Used
 // to combine a flux system's Secrets when the same-named system is upserted across sources.
 func mergeSecretData(base, overlay map[string]SecretEntry) map[string]SecretEntry {
 	if len(base) == 0 && len(overlay) == 0 {
@@ -681,6 +681,9 @@ func mergeSecretData(base, overlay map[string]SecretEntry) map[string]SecretEntr
 				merged.Data = make(map[string]string, len(entry.Data))
 			}
 			maps.Copy(merged.Data, entry.Data)
+		}
+		if entry.Type != "" {
+			merged.Type = entry.Type
 		}
 		out[name] = merged
 	}

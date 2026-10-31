@@ -225,7 +225,7 @@ func TestProvisioner_ApplyKustomize(t *testing.T) {
 			return []kubernetes.InventoryEntry{{Kind: "Namespace", Name: "system-lb"}}, nil
 		}
 		var placedName, placedNs string
-		mocks.KubernetesManager.ApplySecretFunc = func(name, namespace string, stringData map[string]string, owner string) error {
+		mocks.KubernetesManager.ApplySecretFunc = func(name, namespace, secretType string, stringData map[string]string, owner string) error {
 			placedName, placedNs = name, namespace
 			return nil
 		}
@@ -519,7 +519,7 @@ func TestProvisioner_Install(t *testing.T) {
 		}
 		var placedName, placedNs string
 		var placedData map[string]string
-		mocks.KubernetesManager.ApplySecretFunc = func(name, namespace string, stringData map[string]string, owner string) error {
+		mocks.KubernetesManager.ApplySecretFunc = func(name, namespace, secretType string, stringData map[string]string, owner string) error {
 			placedName, placedNs, placedData = name, namespace, stringData
 			return nil
 		}
@@ -576,7 +576,7 @@ func TestProvisioner_Install(t *testing.T) {
 		}
 		mocks.KubernetesManager.ApplyBlueprintFunc = func(*blueprintv1alpha1.Blueprint, string) error { return nil }
 		placed := false
-		mocks.KubernetesManager.ApplySecretFunc = func(name, namespace string, stringData map[string]string, owner string) error {
+		mocks.KubernetesManager.ApplySecretFunc = func(name, namespace, secretType string, stringData map[string]string, owner string) error {
 			placed = true
 			return nil
 		}
@@ -604,7 +604,7 @@ func TestProvisioner_Install(t *testing.T) {
 		}
 		mocks.KubernetesManager.ApplyBlueprintFunc = func(*blueprintv1alpha1.Blueprint, string) error { return nil }
 		placed := false
-		mocks.KubernetesManager.ApplySecretFunc = func(name, namespace string, stringData map[string]string, owner string) error {
+		mocks.KubernetesManager.ApplySecretFunc = func(name, namespace, secretType string, stringData map[string]string, owner string) error {
 			placed = true
 			return nil
 		}
