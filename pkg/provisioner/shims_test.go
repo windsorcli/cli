@@ -1,7 +1,9 @@
-package provisioner
+package provisioner_test
 
 import (
 	"testing"
+
+	"github.com/windsorcli/cli/pkg/provisioner"
 )
 
 // =============================================================================
@@ -11,7 +13,7 @@ import (
 func TestNewShims(t *testing.T) {
 	t.Run("InitializesStat", func(t *testing.T) {
 		// Given a new shims instance
-		shims := NewShims()
+		shims := provisioner.NewShims()
 
 		// Then the Stat shim should be set
 		if shims.Stat == nil {

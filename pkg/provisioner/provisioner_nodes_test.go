@@ -1,4 +1,4 @@
-package provisioner
+package provisioner_test
 
 import (
 	"context"
@@ -6,6 +6,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/windsorcli/cli/pkg/provisioner"
 
 	"github.com/windsorcli/cli/internal/werror"
 	"github.com/windsorcli/cli/pkg/runtime/config"
@@ -41,11 +43,11 @@ func TestProvisioner_UpgradeNode(t *testing.T) {
 			capturedAPIReadyNode = nodeAddress
 			return nil
 		}
-		opts := &Provisioner{ClusterClient: mocks.ClusterClient}
-		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
+		opts := &provisioner.Provisioner{ClusterClient: mocks.ClusterClient}
+		prov := provisioner.NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
 
 		var output []string
-		err := provisioner.UpgradeNode(context.Background(), "10.0.0.1", "ghcr.io/siderolabs/installer:v1.7.0", 0, false, func(msg string) {
+		err := prov.UpgradeNode(context.Background(), "10.0.0.1", "ghcr.io/siderolabs/installer:v1.7.0", 0, false, func(msg string) {
 			output = append(output, msg)
 		})
 
@@ -78,10 +80,10 @@ func TestProvisioner_UpgradeNode(t *testing.T) {
 			return fmt.Errorf("connection refused")
 		}
 
-		opts := &Provisioner{ClusterClient: mocks.ClusterClient}
-		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
+		opts := &provisioner.Provisioner{ClusterClient: mocks.ClusterClient}
+		prov := provisioner.NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
 
-		err := provisioner.UpgradeNode(context.Background(), "10.0.0.1", "img", 0, false, nil)
+		err := prov.UpgradeNode(context.Background(), "10.0.0.1", "img", 0, false, nil)
 
 		if err == nil {
 			t.Fatal("Expected error, got nil")
@@ -97,10 +99,10 @@ func TestProvisioner_UpgradeNode(t *testing.T) {
 			return fmt.Errorf("upgrade request rejected")
 		}
 
-		opts := &Provisioner{ClusterClient: mocks.ClusterClient}
-		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
+		opts := &provisioner.Provisioner{ClusterClient: mocks.ClusterClient}
+		prov := provisioner.NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
 
-		err := provisioner.UpgradeNode(context.Background(), "10.0.0.1", "img", 0, false, nil)
+		err := prov.UpgradeNode(context.Background(), "10.0.0.1", "img", 0, false, nil)
 
 		if err == nil {
 			t.Error("Expected error, got nil")
@@ -116,10 +118,10 @@ func TestProvisioner_UpgradeNode(t *testing.T) {
 			return fmt.Errorf("timeout waiting for nodes to go offline")
 		}
 
-		opts := &Provisioner{ClusterClient: mocks.ClusterClient}
-		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
+		opts := &provisioner.Provisioner{ClusterClient: mocks.ClusterClient}
+		prov := provisioner.NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
 
-		err := provisioner.UpgradeNode(context.Background(), "10.0.0.1", "img", 0, false, nil)
+		err := prov.UpgradeNode(context.Background(), "10.0.0.1", "img", 0, false, nil)
 
 		if err == nil {
 			t.Error("Expected error, got nil")
@@ -134,9 +136,9 @@ func TestProvisioner_UpgradeNode(t *testing.T) {
 		mockCfg := mocks.ConfigHandler.(*config.MockConfigHandler)
 		mockCfg.GetStringFunc = func(key string, defaultValue ...string) string { return "" }
 		mockCfg.GetContextValuesFunc = func() (map[string]any, error) { return nil, nil }
-		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{})
+		prov := provisioner.NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &provisioner.Provisioner{})
 
-		err := provisioner.UpgradeNode(context.Background(), "10.0.0.1", "img", 0, false, nil)
+		err := prov.UpgradeNode(context.Background(), "10.0.0.1", "img", 0, false, nil)
 
 		if err == nil {
 			t.Error("Expected error, got nil")
@@ -153,22 +155,22 @@ func TestProvisioner_CheckNodeHealth(t *testing.T) {
 		mocks.ClusterClient.WaitForNodesHealthyFunc = func(ctx context.Context, nodeAddresses []string, expectedVersion string, skipServices []string) error {
 			return nil
 		}
-		opts := &Provisioner{
+		opts := &provisioner.Provisioner{
 			ClusterClient: mocks.ClusterClient,
 		}
-		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
+		prov := provisioner.NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
 
 		var outputMessages []string
 		outputFunc := func(msg string) {
 			outputMessages = append(outputMessages, msg)
 		}
 
-		options := NodeHealthCheckOptions{
+		options := provisioner.NodeHealthCheckOptions{
 			Nodes:               []string{"10.0.0.1", "10.0.0.2"},
 			K8SEndpointProvided: false,
 		}
 
-		err := provisioner.CheckNodeHealth(context.Background(), options, outputFunc)
+		err := prov.CheckNodeHealth(context.Background(), options, outputFunc)
 
 		if err != nil {
 			t.Errorf("Expected no error, got: %v", err)
@@ -191,23 +193,23 @@ func TestProvisioner_CheckNodeHealth(t *testing.T) {
 			}
 			return nil
 		}
-		opts := &Provisioner{
+		opts := &provisioner.Provisioner{
 			ClusterClient: mocks.ClusterClient,
 		}
-		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
+		prov := provisioner.NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
 
 		var outputMessages []string
 		outputFunc := func(msg string) {
 			outputMessages = append(outputMessages, msg)
 		}
 
-		options := NodeHealthCheckOptions{
+		options := provisioner.NodeHealthCheckOptions{
 			Nodes:               []string{"10.0.0.1"},
 			Version:             "v1.5.0",
 			K8SEndpointProvided: false,
 		}
 
-		err := provisioner.CheckNodeHealth(context.Background(), options, outputFunc)
+		err := prov.CheckNodeHealth(context.Background(), options, outputFunc)
 
 		if err != nil {
 			t.Errorf("Expected no error, got: %v", err)
@@ -227,22 +229,22 @@ func TestProvisioner_CheckNodeHealth(t *testing.T) {
 		mocks.KubernetesManager.WaitForKubernetesHealthyFunc = func(ctx context.Context, endpoint string, outputFunc func(string), nodeNames ...string) error {
 			return nil
 		}
-		opts := &Provisioner{
+		opts := &provisioner.Provisioner{
 			KubernetesManager: mocks.KubernetesManager,
 		}
-		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
+		prov := provisioner.NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
 
 		var outputMessages []string
 		outputFunc := func(msg string) {
 			outputMessages = append(outputMessages, msg)
 		}
 
-		options := NodeHealthCheckOptions{
+		options := provisioner.NodeHealthCheckOptions{
 			K8SEndpoint:         "https://test:6443",
 			K8SEndpointProvided: true,
 		}
 
-		err := provisioner.CheckNodeHealth(context.Background(), options, outputFunc)
+		err := prov.CheckNodeHealth(context.Background(), options, outputFunc)
 
 		if err != nil {
 			t.Errorf("Expected no error, got: %v", err)
@@ -265,24 +267,24 @@ func TestProvisioner_CheckNodeHealth(t *testing.T) {
 		mocks.KubernetesManager.WaitForKubernetesHealthyFunc = func(ctx context.Context, endpoint string, outputFunc func(string), nodeNames ...string) error {
 			return nil
 		}
-		opts := &Provisioner{
+		opts := &provisioner.Provisioner{
 			KubernetesManager: mocks.KubernetesManager,
 			ClusterClient:     mocks.ClusterClient,
 		}
-		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
+		prov := provisioner.NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
 
 		var outputMessages []string
 		outputFunc := func(msg string) {
 			outputMessages = append(outputMessages, msg)
 		}
 
-		options := NodeHealthCheckOptions{
+		options := provisioner.NodeHealthCheckOptions{
 			Nodes:               []string{"10.0.0.1"},
 			K8SEndpoint:         "https://test:6443",
 			K8SEndpointProvided: true,
 		}
 
-		err := provisioner.CheckNodeHealth(context.Background(), options, outputFunc)
+		err := prov.CheckNodeHealth(context.Background(), options, outputFunc)
 
 		if err != nil {
 			t.Errorf("Expected no error, got: %v", err)
@@ -300,24 +302,24 @@ func TestProvisioner_CheckNodeHealth(t *testing.T) {
 		mocks.KubernetesManager.GetNodeReadyStatusFunc = func(ctx context.Context, nodeNames []string) (map[string]bool, error) {
 			return map[string]bool{"10.0.0.1": true}, nil
 		}
-		opts := &Provisioner{
+		opts := &provisioner.Provisioner{
 			KubernetesManager: mocks.KubernetesManager,
 		}
-		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
+		prov := provisioner.NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
 
 		var outputMessages []string
 		outputFunc := func(msg string) {
 			outputMessages = append(outputMessages, msg)
 		}
 
-		options := NodeHealthCheckOptions{
+		options := provisioner.NodeHealthCheckOptions{
 			Nodes:               []string{"10.0.0.1"},
 			K8SEndpoint:         "https://test:6443",
 			K8SEndpointProvided: true,
 			CheckNodeReady:      true,
 		}
 
-		err := provisioner.CheckNodeHealth(context.Background(), options, outputFunc)
+		err := prov.CheckNodeHealth(context.Background(), options, outputFunc)
 
 		if err != nil {
 			t.Errorf("Expected no error, got: %v", err)
@@ -326,13 +328,13 @@ func TestProvisioner_CheckNodeHealth(t *testing.T) {
 
 	t.Run("ErrorNoHealthChecksSpecified", func(t *testing.T) {
 		mocks := setupProvisionerMocks(t)
-		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler)
+		prov := provisioner.NewProvisioner(mocks.Runtime, mocks.BlueprintHandler)
 
-		options := NodeHealthCheckOptions{
+		options := provisioner.NodeHealthCheckOptions{
 			K8SEndpointProvided: false,
 		}
 
-		err := provisioner.CheckNodeHealth(context.Background(), options, nil)
+		err := prov.CheckNodeHealth(context.Background(), options, nil)
 
 		if err == nil {
 			t.Error("Expected error when no health checks specified")
@@ -351,17 +353,17 @@ func TestProvisioner_CheckNodeHealth(t *testing.T) {
 		mocks.ClusterClient.WaitForNodesHealthyFunc = func(ctx context.Context, nodeAddresses []string, expectedVersion string, skipServices []string) error {
 			return fmt.Errorf("cluster health check failed")
 		}
-		opts := &Provisioner{
+		opts := &provisioner.Provisioner{
 			ClusterClient: mocks.ClusterClient,
 		}
-		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
+		prov := provisioner.NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
 
-		options := NodeHealthCheckOptions{
+		options := provisioner.NodeHealthCheckOptions{
 			Nodes:               []string{"10.0.0.1"},
 			K8SEndpointProvided: false,
 		}
 
-		err := provisioner.CheckNodeHealth(context.Background(), options, nil)
+		err := prov.CheckNodeHealth(context.Background(), options, nil)
 
 		if err == nil {
 			t.Error("Expected error when cluster health check fails")
@@ -380,24 +382,24 @@ func TestProvisioner_CheckNodeHealth(t *testing.T) {
 		mocks.KubernetesManager.WaitForKubernetesHealthyFunc = func(ctx context.Context, endpoint string, outputFunc func(string), nodeNames ...string) error {
 			return nil
 		}
-		opts := &Provisioner{
+		opts := &provisioner.Provisioner{
 			KubernetesManager: mocks.KubernetesManager,
 			ClusterClient:     mocks.ClusterClient,
 		}
-		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
+		prov := provisioner.NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
 
 		var outputMessages []string
 		outputFunc := func(msg string) {
 			outputMessages = append(outputMessages, msg)
 		}
 
-		options := NodeHealthCheckOptions{
+		options := provisioner.NodeHealthCheckOptions{
 			Nodes:               []string{"10.0.0.1"},
 			K8SEndpoint:         "https://test:6443",
 			K8SEndpointProvided: true,
 		}
 
-		err := provisioner.CheckNodeHealth(context.Background(), options, outputFunc)
+		err := prov.CheckNodeHealth(context.Background(), options, outputFunc)
 
 		if err != nil {
 			t.Errorf("Expected no error (cluster failure should be warning), got: %v", err)
@@ -421,17 +423,17 @@ func TestProvisioner_CheckNodeHealth(t *testing.T) {
 		mocks.KubernetesManager.WaitForKubernetesHealthyFunc = func(ctx context.Context, endpoint string, outputFunc func(string), nodeNames ...string) error {
 			return fmt.Errorf("kubernetes health check failed")
 		}
-		opts := &Provisioner{
+		opts := &provisioner.Provisioner{
 			KubernetesManager: mocks.KubernetesManager,
 		}
-		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
+		prov := provisioner.NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
 
-		options := NodeHealthCheckOptions{
+		options := provisioner.NodeHealthCheckOptions{
 			K8SEndpoint:         "https://test:6443",
 			K8SEndpointProvided: true,
 		}
 
-		err := provisioner.CheckNodeHealth(context.Background(), options, nil)
+		err := prov.CheckNodeHealth(context.Background(), options, nil)
 
 		if err == nil {
 			t.Error("Expected error when Kubernetes health check fails")
@@ -444,18 +446,18 @@ func TestProvisioner_CheckNodeHealth(t *testing.T) {
 
 	t.Run("ErrorCheckNodeReadyRequiresNodes", func(t *testing.T) {
 		mocks := setupProvisionerMocks(t)
-		opts := &Provisioner{
+		opts := &provisioner.Provisioner{
 			KubernetesManager: mocks.KubernetesManager,
 		}
-		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
+		prov := provisioner.NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
 
-		options := NodeHealthCheckOptions{
+		options := provisioner.NodeHealthCheckOptions{
 			K8SEndpoint:         "https://test:6443",
 			K8SEndpointProvided: true,
 			CheckNodeReady:      true,
 		}
 
-		err := provisioner.CheckNodeHealth(context.Background(), options, nil)
+		err := prov.CheckNodeHealth(context.Background(), options, nil)
 
 		if err == nil {
 			t.Error("Expected error when --ready flag used without --nodes")
@@ -471,15 +473,15 @@ func TestProvisioner_CheckNodeHealth(t *testing.T) {
 
 	t.Run("ErrorNoKubernetesManager", func(t *testing.T) {
 		mocks := setupProvisionerMocks(t)
-		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler)
-		provisioner.KubernetesManager = nil
+		prov := provisioner.NewProvisioner(mocks.Runtime, mocks.BlueprintHandler)
+		prov.KubernetesManager = nil
 
-		options := NodeHealthCheckOptions{
+		options := provisioner.NodeHealthCheckOptions{
 			K8SEndpoint:         "https://test:6443",
 			K8SEndpointProvided: true,
 		}
 
-		err := provisioner.CheckNodeHealth(context.Background(), options, nil)
+		err := prov.CheckNodeHealth(context.Background(), options, nil)
 
 		if err == nil {
 			t.Error("Expected error when Kubernetes manager is nil")
@@ -502,18 +504,18 @@ func TestProvisioner_CheckNodeHealth(t *testing.T) {
 			}
 			return nil
 		}
-		opts := &Provisioner{
+		opts := &provisioner.Provisioner{
 			ClusterClient: mocks.ClusterClient,
 		}
-		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
+		prov := provisioner.NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
 
-		options := NodeHealthCheckOptions{
+		options := provisioner.NodeHealthCheckOptions{
 			Nodes:               []string{"10.0.0.1"},
 			Timeout:             5 * time.Minute,
 			K8SEndpointProvided: false,
 		}
 
-		err := provisioner.CheckNodeHealth(context.Background(), options, nil)
+		err := prov.CheckNodeHealth(context.Background(), options, nil)
 
 		if err != nil {
 			t.Errorf("Expected no error, got: %v", err)
@@ -525,18 +527,18 @@ func TestProvisioner_CheckNodeHealth(t *testing.T) {
 		mocks.ClusterClient.WaitForNodesHealthyFunc = func(ctx context.Context, nodeAddresses []string, expectedVersion string, skipServices []string) error {
 			return nil
 		}
-		opts := &Provisioner{
+		opts := &provisioner.Provisioner{
 			ClusterClient: mocks.ClusterClient,
 		}
-		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
+		prov := provisioner.NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
 
-		options := NodeHealthCheckOptions{
+		options := provisioner.NodeHealthCheckOptions{
 			Nodes:               []string{"10.0.0.1"},
 			Timeout:             0,
 			K8SEndpointProvided: false,
 		}
 
-		err := provisioner.CheckNodeHealth(context.Background(), options, nil)
+		err := prov.CheckNodeHealth(context.Background(), options, nil)
 
 		if err != nil {
 			t.Errorf("Expected no error, got: %v", err)
@@ -551,22 +553,22 @@ func TestProvisioner_CheckNodeHealth(t *testing.T) {
 			}
 			return nil
 		}
-		opts := &Provisioner{
+		opts := &provisioner.Provisioner{
 			KubernetesManager: mocks.KubernetesManager,
 		}
-		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
+		prov := provisioner.NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
 
 		var outputMessages []string
 		outputFunc := func(msg string) {
 			outputMessages = append(outputMessages, msg)
 		}
 
-		options := NodeHealthCheckOptions{
+		options := provisioner.NodeHealthCheckOptions{
 			K8SEndpoint:         "true",
 			K8SEndpointProvided: true,
 		}
 
-		err := provisioner.CheckNodeHealth(context.Background(), options, outputFunc)
+		err := prov.CheckNodeHealth(context.Background(), options, outputFunc)
 
 		if err != nil {
 			t.Errorf("Expected no error, got: %v", err)
@@ -589,24 +591,24 @@ func TestProvisioner_CheckNodeHealth(t *testing.T) {
 		mocks.KubernetesManager.GetNodeReadyStatusFunc = func(ctx context.Context, nodeNames []string) (map[string]bool, error) {
 			return map[string]bool{"10.0.0.1": true, "10.0.0.2": true}, nil
 		}
-		opts := &Provisioner{
+		opts := &provisioner.Provisioner{
 			KubernetesManager: mocks.KubernetesManager,
 		}
-		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
+		prov := provisioner.NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
 
 		var outputMessages []string
 		outputFunc := func(msg string) {
 			outputMessages = append(outputMessages, msg)
 		}
 
-		options := NodeHealthCheckOptions{
+		options := provisioner.NodeHealthCheckOptions{
 			Nodes:               []string{"10.0.0.1", "10.0.0.2"},
 			K8SEndpoint:         "https://test:6443",
 			K8SEndpointProvided: true,
 			CheckNodeReady:      true,
 		}
 
-		err := provisioner.CheckNodeHealth(context.Background(), options, outputFunc)
+		err := prov.CheckNodeHealth(context.Background(), options, outputFunc)
 
 		if err != nil {
 			t.Errorf("Expected no error, got: %v", err)
@@ -633,24 +635,24 @@ func TestProvisioner_CheckNodeHealth(t *testing.T) {
 		mocks.KubernetesManager.GetNodeReadyStatusFunc = func(ctx context.Context, nodeNames []string) (map[string]bool, error) {
 			return map[string]bool{"10.0.0.1": false}, nil
 		}
-		opts := &Provisioner{
+		opts := &provisioner.Provisioner{
 			KubernetesManager: mocks.KubernetesManager,
 		}
-		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
+		prov := provisioner.NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
 
 		var outputMessages []string
 		outputFunc := func(msg string) {
 			outputMessages = append(outputMessages, msg)
 		}
 
-		options := NodeHealthCheckOptions{
+		options := provisioner.NodeHealthCheckOptions{
 			Nodes:               []string{"10.0.0.1"},
 			K8SEndpoint:         "https://test:6443",
 			K8SEndpointProvided: true,
 			CheckNodeReady:      true,
 		}
 
-		err := provisioner.CheckNodeHealth(context.Background(), options, outputFunc)
+		err := prov.CheckNodeHealth(context.Background(), options, outputFunc)
 
 		if err != nil {
 			t.Errorf("Expected no error, got: %v", err)
@@ -677,24 +679,24 @@ func TestProvisioner_CheckNodeHealth(t *testing.T) {
 		mocks.KubernetesManager.GetNodeReadyStatusFunc = func(ctx context.Context, nodeNames []string) (map[string]bool, error) {
 			return nil, fmt.Errorf("get node ready status failed")
 		}
-		opts := &Provisioner{
+		opts := &provisioner.Provisioner{
 			KubernetesManager: mocks.KubernetesManager,
 		}
-		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
+		prov := provisioner.NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
 
 		var outputMessages []string
 		outputFunc := func(msg string) {
 			outputMessages = append(outputMessages, msg)
 		}
 
-		options := NodeHealthCheckOptions{
+		options := provisioner.NodeHealthCheckOptions{
 			Nodes:               []string{"10.0.0.1"},
 			K8SEndpoint:         "https://test:6443",
 			K8SEndpointProvided: true,
 			CheckNodeReady:      true,
 		}
 
-		err := provisioner.CheckNodeHealth(context.Background(), options, outputFunc)
+		err := prov.CheckNodeHealth(context.Background(), options, outputFunc)
 
 		if err != nil {
 			t.Errorf("Expected no error, got: %v", err)
@@ -721,24 +723,24 @@ func TestProvisioner_CheckNodeHealth(t *testing.T) {
 		mocks.KubernetesManager.GetNodeReadyStatusFunc = func(ctx context.Context, nodeNames []string) (map[string]bool, error) {
 			return map[string]bool{"10.0.0.1": true}, nil
 		}
-		opts := &Provisioner{
+		opts := &provisioner.Provisioner{
 			KubernetesManager: mocks.KubernetesManager,
 		}
-		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
+		prov := provisioner.NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
 
 		var outputMessages []string
 		outputFunc := func(msg string) {
 			outputMessages = append(outputMessages, msg)
 		}
 
-		options := NodeHealthCheckOptions{
+		options := provisioner.NodeHealthCheckOptions{
 			Nodes:               []string{"10.0.0.1", "10.0.0.2"},
 			K8SEndpoint:         "https://test:6443",
 			K8SEndpointProvided: true,
 			CheckNodeReady:      true,
 		}
 
-		err := provisioner.CheckNodeHealth(context.Background(), options, outputFunc)
+		err := prov.CheckNodeHealth(context.Background(), options, outputFunc)
 
 		if err != nil {
 			t.Errorf("Expected no error, got: %v", err)
@@ -769,15 +771,15 @@ func TestProvisioner_CheckNodeHealth(t *testing.T) {
 			}
 			return ""
 		}
-		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler)
-		provisioner.ClusterClient = nil
+		prov := provisioner.NewProvisioner(mocks.Runtime, mocks.BlueprintHandler)
+		prov.ClusterClient = nil
 
-		options := NodeHealthCheckOptions{
+		options := provisioner.NodeHealthCheckOptions{
 			Nodes:               []string{"10.0.0.1"},
 			K8SEndpointProvided: false,
 		}
 
-		err := provisioner.CheckNodeHealth(context.Background(), options, nil)
+		err := prov.CheckNodeHealth(context.Background(), options, nil)
 
 		if err == nil {
 			t.Error("Expected error when nodes provided but no cluster client")
@@ -796,22 +798,22 @@ func TestProvisioner_CheckNodeHealth(t *testing.T) {
 			}
 			return nil
 		}
-		opts := &Provisioner{
+		opts := &provisioner.Provisioner{
 			KubernetesManager: mocks.KubernetesManager,
 		}
-		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
+		prov := provisioner.NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
 
 		var outputMessages []string
 		outputFunc := func(msg string) {
 			outputMessages = append(outputMessages, msg)
 		}
 
-		options := NodeHealthCheckOptions{
+		options := provisioner.NodeHealthCheckOptions{
 			K8SEndpoint:         "",
 			K8SEndpointProvided: true,
 		}
 
-		err := provisioner.CheckNodeHealth(context.Background(), options, outputFunc)
+		err := prov.CheckNodeHealth(context.Background(), options, outputFunc)
 
 		if err != nil {
 			t.Errorf("Expected no error, got: %v", err)
@@ -834,24 +836,24 @@ func TestProvisioner_CheckNodeHealth(t *testing.T) {
 		mocks.KubernetesManager.GetNodeReadyStatusFunc = func(ctx context.Context, nodeNames []string) (map[string]bool, error) {
 			return map[string]bool{"10.0.0.1": true}, nil
 		}
-		opts := &Provisioner{
+		opts := &provisioner.Provisioner{
 			KubernetesManager: mocks.KubernetesManager,
 		}
-		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
+		prov := provisioner.NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
 
 		var outputMessages []string
 		outputFunc := func(msg string) {
 			outputMessages = append(outputMessages, msg)
 		}
 
-		options := NodeHealthCheckOptions{
+		options := provisioner.NodeHealthCheckOptions{
 			Nodes:               []string{"10.0.0.1"},
 			K8SEndpoint:         "",
 			K8SEndpointProvided: true,
 			CheckNodeReady:      true,
 		}
 
-		err := provisioner.CheckNodeHealth(context.Background(), options, outputFunc)
+		err := prov.CheckNodeHealth(context.Background(), options, outputFunc)
 
 		if err != nil {
 			t.Errorf("Expected no error, got: %v", err)
@@ -882,22 +884,22 @@ func TestProvisioner_CheckNodeHealth(t *testing.T) {
 			healthyCalled = true
 			return nil
 		}
-		opts := &Provisioner{
+		opts := &provisioner.Provisioner{
 			ClusterClient: mocks.ClusterClient,
 		}
-		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
+		prov := provisioner.NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
 
 		var outputMessages []string
 		outputFunc := func(msg string) {
 			outputMessages = append(outputMessages, msg)
 		}
 
-		options := NodeHealthCheckOptions{
+		options := provisioner.NodeHealthCheckOptions{
 			Nodes:         []string{"10.0.0.1"},
 			WaitForReboot: true,
 		}
 
-		err := provisioner.CheckNodeHealth(context.Background(), options, outputFunc)
+		err := prov.CheckNodeHealth(context.Background(), options, outputFunc)
 
 		if err != nil {
 			t.Errorf("Expected no error, got: %v", err)
@@ -915,17 +917,17 @@ func TestProvisioner_CheckNodeHealth(t *testing.T) {
 		mocks.ClusterClient.WaitForNodesRebootFunc = func(ctx context.Context, nodeAddresses []string, preActionBootIDs map[string]string, expectedVersion string, skipServices []string, offlineTimeout time.Duration) error {
 			return fmt.Errorf("reboot timed out")
 		}
-		opts := &Provisioner{
+		opts := &provisioner.Provisioner{
 			ClusterClient: mocks.ClusterClient,
 		}
-		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
+		prov := provisioner.NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
 
-		options := NodeHealthCheckOptions{
+		options := provisioner.NodeHealthCheckOptions{
 			Nodes:         []string{"10.0.0.1"},
 			WaitForReboot: true,
 		}
 
-		err := provisioner.CheckNodeHealth(context.Background(), options, nil)
+		err := prov.CheckNodeHealth(context.Background(), options, nil)
 
 		if err == nil {
 			t.Error("Expected error, got nil")
@@ -936,11 +938,7 @@ func TestProvisioner_CheckNodeHealth(t *testing.T) {
 	})
 }
 
-// =============================================================================
-// Test Helpers
-// =============================================================================
-
-func TestVersionFromImage(t *testing.T) {
+func TestProvisioner_UpgradeNode_ExpectedVersion(t *testing.T) {
 	cases := []struct {
 		image    string
 		expected string
@@ -954,9 +952,25 @@ func TestVersionFromImage(t *testing.T) {
 		{"registry:5000/image", ""},
 	}
 	for _, c := range cases {
-		got := versionFromImage(c.image)
-		if got != c.expected {
-			t.Errorf("versionFromImage(%q) = %q, want %q", c.image, got, c.expected)
-		}
+		t.Run(c.image, func(t *testing.T) {
+			// Given a cluster client that records the expected version of the reboot wait
+			mocks := setupProvisionerMocks(t)
+			var got string
+			mocks.ClusterClient.WaitForNodesRebootFunc = func(ctx context.Context, nodeAddresses []string, preActionBootIDs map[string]string, expectedVersion string, skipServices []string, offlineTimeout time.Duration) error {
+				got = expectedVersion
+				return nil
+			}
+			prov := provisioner.NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &provisioner.Provisioner{ClusterClient: mocks.ClusterClient})
+
+			// When UpgradeNode runs with the image
+			if err := prov.UpgradeNode(context.Background(), "10.0.0.1", c.image, 0, false, nil); err != nil {
+				t.Fatalf("UpgradeNode failed: %v", err)
+			}
+
+			// Then the reboot wait expects the version from the image tag
+			if got != c.expected {
+				t.Errorf("expected version %q, got %q", c.expected, got)
+			}
+		})
 	}
 }

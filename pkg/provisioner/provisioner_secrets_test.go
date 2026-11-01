@@ -1,13 +1,14 @@
-package provisioner
+package provisioner_test
 
 import (
 	"context"
 	"fmt"
-	"reflect"
 	"slices"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/windsorcli/cli/pkg/provisioner"
 
 	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
 	"github.com/windsorcli/cli/internal/presenter"
@@ -22,8 +23,8 @@ import (
 // =============================================================================
 
 func TestProvisioner_ResolveSecrets(t *testing.T) {
-	newProvisioner := func(mocks *ProvisionerTestMocks) *Provisioner {
-		return NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{
+	newProvisioner := func(mocks *ProvisionerTestMocks) *provisioner.Provisioner {
+		return provisioner.NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &provisioner.Provisioner{
 			TerraformStack:    mocks.TerraformStack,
 			KubernetesManager: mocks.KubernetesManager,
 			KubernetesClient:  mocks.KubernetesClient,
@@ -244,8 +245,8 @@ func TestProvisioner_ResolveSecrets(t *testing.T) {
 }
 
 func TestProvisioner_PlaceSecrets(t *testing.T) {
-	newProvisioner := func(mocks *ProvisionerTestMocks) *Provisioner {
-		return NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{
+	newProvisioner := func(mocks *ProvisionerTestMocks) *provisioner.Provisioner {
+		return provisioner.NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &provisioner.Provisioner{
 			TerraformStack:    mocks.TerraformStack,
 			KubernetesManager: mocks.KubernetesManager,
 			KubernetesClient:  mocks.KubernetesClient,
@@ -253,8 +254,8 @@ func TestProvisioner_PlaceSecrets(t *testing.T) {
 			FluxStack:         mocks.FluxStack,
 		})
 	}
-	resolved := func() ResolvedSecrets {
-		return ResolvedSecrets{"cdn-install": {"cloudflare-creds": {Data: map[string]string{"api_token": "resolved-token"}}}}
+	resolved := func() provisioner.ResolvedSecrets {
+		return provisioner.ResolvedSecrets{"cdn-install": {"cloudflare-creds": {Data: map[string]string{"api_token": "resolved-token"}}}}
 	}
 
 	t.Run("PlacesIntoInventoryNamespace", func(t *testing.T) {
@@ -284,6 +285,9 @@ func TestProvisioner_PlaceSecrets(t *testing.T) {
 	t.Run("EndsReadyLayersWhileASecretStillWaits", func(t *testing.T) {
 		// Given a ready kustomization and a secret whose namespace appears only on the second check
 		mocks := setupProvisionerMocks(t)
+		mocks.ConfigHandler.(*config.MockConfigHandler).GetContextValuesFunc = func() (map[string]any, error) {
+			return map[string]any{"cdn": map[string]any{"cloudflare_api_key": "resolved-token"}}, nil
+		}
 		var inventoryReads int
 		mocks.KubernetesManager.GetKustomizationInventoryFunc = func(name, namespace string) ([]kubernetes.InventoryEntry, error) {
 			inventoryReads++
@@ -297,23 +301,34 @@ func TestProvisioner_PlaceSecrets(t *testing.T) {
 		}
 		prov := newProvisioner(mocks)
 		prov.PollInterval = time.Millisecond
-		layers := &layerRecorder{}
-		bp := &blueprintv1alpha1.Blueprint{Kustomizations: []blueprintv1alpha1.Kustomization{{Name: "app"}, {Name: "cdn-install"}}}
+		prov.Notifier = fluxinfra.NewMockNotifier()
+		bp := &blueprintv1alpha1.Blueprint{Kustomizations: []blueprintv1alpha1.Kustomization{
+			{Name: "app"},
+			{Name: "cdn-install", Secrets: map[string]blueprintv1alpha1.SecretEntry{
+				"cloudflare-creds": {Data: map[string]string{"api_token": "${cdn.cloudflare_api_key}"}},
+			}},
+		}}
+		rec := &eventRecorder{}
 
-		// When placing the secret
-		if err := prov.placeSecrets(context.Background(), layers, resolved(), bp, false); err != nil {
+		// When Install places the secret
+		if err := prov.Install(presenter.NewContext(context.Background(), rec), bp, false); err != nil {
 			t.Fatalf("Expected no error, got %v", err)
 		}
 
-		// Then the ready layer ends and the reconciling layer starts before the secret is placed
-		want := []string{
-			"progress cdn-install: waiting on a namespace for secret cloudflare-creds",
-			"done app",
-			"start cdn-install",
-			"progress cdn-install: placed secret cloudflare-creds",
+		// Then the ready layer ends while the secret waits, before the secret is placed
+		waiting, appDone, placed := -1, -1, -1
+		for i, e := range rec.events {
+			switch {
+			case e.Kind == presenter.KindProgress && e.Message == "waiting on a namespace for secret cloudflare-creds" && waiting < 0:
+				waiting = i
+			case e.Kind == presenter.KindApplied && e.Message == "app" && appDone < 0:
+				appDone = i
+			case e.Kind == presenter.KindProgress && e.Message == "placed secret cloudflare-creds" && placed < 0:
+				placed = i
+			}
 		}
-		if !reflect.DeepEqual(layers.calls, want) {
-			t.Errorf("Expected %q, got %q", want, layers.calls)
+		if waiting < 0 || appDone < 0 || placed < 0 || !(waiting < placed && appDone < placed) {
+			t.Errorf("Expected wait, app done, then placement; got indexes %d, %d, %d in %+v", waiting, appDone, placed, rec.events)
 		}
 	})
 
@@ -359,7 +374,7 @@ func TestProvisioner_PlaceSecrets(t *testing.T) {
 		}
 
 		// Then consumers are rolled in the inventory namespace, keyed by the resolved content's digest
-		wantDigest := secretDigest(map[string]string{"api_token": "resolved-token"})
+		wantDigest := "4730801c532957c07f8434818b406568a62ce237c9c2caf7d777dd1cecfa0deb"
 		if rolledNs != "system-dns" || rolledSecret != "cloudflare-creds" || rolledDigest != wantDigest {
 			t.Errorf("Unexpected roll args: ns=%q secret=%q digest=%q (want digest %q)", rolledNs, rolledSecret, rolledDigest, wantDigest)
 		}
@@ -460,7 +475,7 @@ func TestProvisioner_PlaceSecrets(t *testing.T) {
 			gotNs = namespace
 			return nil
 		}
-		explicit := ResolvedSecrets{"pki-install": {"hetzner-dns": {Namespaces: []string{"system-pki"}, Data: map[string]string{"token": "resolved"}}}}
+		explicit := provisioner.ResolvedSecrets{"pki-install": {"hetzner-dns": {Namespaces: []string{"system-pki"}, Data: map[string]string{"token": "resolved"}}}}
 
 		// When placing, the named namespace is used as soon as it exists, without consulting inventory
 		if err := newProvisioner(mocks).PlaceSecrets(context.Background(), explicit, nil, true); err != nil {
@@ -486,7 +501,7 @@ func TestProvisioner_PlaceSecrets(t *testing.T) {
 			gotNs = namespace
 			return nil
 		}
-		explicit := ResolvedSecrets{"lb-install": {"hcloud": {Namespaces: []string{"system-lb"}, Data: map[string]string{"token": "resolved"}}}}
+		explicit := provisioner.ResolvedSecrets{"lb-install": {"hcloud": {Namespaces: []string{"system-lb"}, Data: map[string]string{"token": "resolved"}}}}
 
 		// When placing, existence — not the owning kustomization's inventory — gates it, so it is not blocked
 		if err := newProvisioner(mocks).PlaceSecrets(context.Background(), explicit, nil, false); err != nil {
@@ -509,7 +524,7 @@ func TestProvisioner_PlaceSecrets(t *testing.T) {
 			placed[namespace] = true
 			return nil
 		}
-		secrets := ResolvedSecrets{
+		secrets := provisioner.ResolvedSecrets{
 			"lb-install":  {"hcloud": {Namespaces: []string{"system-lb"}, Data: map[string]string{"token": "t"}}},
 			"dns-install": {"hetzner-dns": {Namespaces: []string{"system-dns"}, Data: map[string]string{"token": "t"}}},
 		}
@@ -540,7 +555,7 @@ func TestProvisioner_PlaceSecrets(t *testing.T) {
 			gotNs = namespace
 			return nil
 		}
-		secrets := ResolvedSecrets{"dns-install": {"hetzner-dns": {Namespaces: []string{"system-dns"}, Data: map[string]string{"token": "t"}}}}
+		secrets := provisioner.ResolvedSecrets{"dns-install": {"hetzner-dns": {Namespaces: []string{"system-dns"}, Data: map[string]string{"token": "t"}}}}
 
 		prov := newProvisioner(mocks)
 		prov.PollInterval = time.Millisecond
@@ -565,8 +580,8 @@ func TestProvisioner_PlaceSecrets(t *testing.T) {
 			reconciled = append(reconciled, names)
 			return nil
 		}
-		prov := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{KubernetesManager: mocks.KubernetesManager, Notifier: notifier})
-		secrets := ResolvedSecrets{"lb-install": {"hcloud": {Namespaces: []string{"system-lb"}, Data: map[string]string{"token": "t"}}}}
+		prov := provisioner.NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &provisioner.Provisioner{KubernetesManager: mocks.KubernetesManager, Notifier: notifier})
+		secrets := provisioner.ResolvedSecrets{"lb-install": {"hcloud": {Namespaces: []string{"system-lb"}, Data: map[string]string{"token": "t"}}}}
 		bp := &blueprintv1alpha1.Blueprint{Kustomizations: []blueprintv1alpha1.Kustomization{{Name: "lb-install"}}}
 
 		// When placing, the owning kustomization is reconciled immediately so it picks up its secret
@@ -592,8 +607,8 @@ func TestProvisioner_PlaceSecrets(t *testing.T) {
 			reconciled = append(reconciled, names)
 			return nil
 		}
-		prov := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{KubernetesManager: mocks.KubernetesManager, Notifier: notifier})
-		secrets := ResolvedSecrets{"dns-install": {"hetzner-dns": {Namespaces: []string{"system-dns"}, Data: map[string]string{"token": "t"}}}}
+		prov := provisioner.NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &provisioner.Provisioner{KubernetesManager: mocks.KubernetesManager, Notifier: notifier})
+		secrets := provisioner.ResolvedSecrets{"dns-install": {"hetzner-dns": {Namespaces: []string{"system-dns"}, Data: map[string]string{"token": "t"}}}}
 		bp := &blueprintv1alpha1.Blueprint{Kustomizations: []blueprintv1alpha1.Kustomization{
 			{Name: "dns-install", DependsOn: []string{"gateway-install"}},
 			{Name: "gateway-install", DependsOn: []string{"lb-install"}},
@@ -623,7 +638,7 @@ func TestProvisioner_PlaceSecrets(t *testing.T) {
 			placed[namespace] = true
 			return nil
 		}
-		explicit := ResolvedSecrets{"pki-install": {"acme-dns": {Namespaces: []string{"system-pki", "system-dns"}, Data: map[string]string{"token": "resolved"}}}}
+		explicit := provisioner.ResolvedSecrets{"pki-install": {"acme-dns": {Namespaces: []string{"system-pki", "system-dns"}, Data: map[string]string{"token": "resolved"}}}}
 
 		// When placing, the same secret lands in each named namespace
 		if err := newProvisioner(mocks).PlaceSecrets(context.Background(), explicit, nil, true); err != nil {
@@ -640,7 +655,7 @@ func TestProvisioner_PlaceSecrets(t *testing.T) {
 		mocks.KubernetesManager.NamespaceExistsFunc = func(name string) (bool, error) {
 			return false, nil
 		}
-		explicit := ResolvedSecrets{"pki-install": {"hetzner-dns": {Namespaces: []string{"system-pki"}, Data: map[string]string{"token": "resolved"}}}}
+		explicit := provisioner.ResolvedSecrets{"pki-install": {"hetzner-dns": {Namespaces: []string{"system-pki"}, Data: map[string]string{"token": "resolved"}}}}
 		ctx, cancel := context.WithCancel(context.Background())
 		cancel()
 
@@ -668,7 +683,7 @@ func TestProvisioner_PlaceSecrets(t *testing.T) {
 
 		// When placing an empty set, nothing is placed (no inventory lookups) but reconcile still runs
 		// with an empty desired set, so any previously CLI-placed secret is reclaimed
-		if err := newProvisioner(mocks).PlaceSecrets(context.Background(), ResolvedSecrets{}, nil, true); err != nil {
+		if err := newProvisioner(mocks).PlaceSecrets(context.Background(), provisioner.ResolvedSecrets{}, nil, true); err != nil {
 			t.Fatalf("Expected no error, got %v", err)
 		}
 		if queried {
@@ -690,7 +705,7 @@ func TestProvisioner_PlaceSecrets(t *testing.T) {
 			gotDesired = desired
 			return nil
 		}
-		fanned := ResolvedSecrets{"pki-install": {"acme-dns": {Namespaces: []string{"system-pki", "system-dns"}, Data: map[string]string{"token": "resolved"}}}}
+		fanned := provisioner.ResolvedSecrets{"pki-install": {"acme-dns": {Namespaces: []string{"system-pki", "system-dns"}, Data: map[string]string{"token": "resolved"}}}}
 
 		// When placing, the desired set handed to PruneSecrets names every (namespace, secret) placed
 		if err := newProvisioner(mocks).PlaceSecrets(context.Background(), fanned, nil, true); err != nil {

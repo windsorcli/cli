@@ -1,10 +1,12 @@
-package provisioner
+package provisioner_test
 
 import (
 	"fmt"
 	"slices"
 	"strings"
 	"testing"
+
+	"github.com/windsorcli/cli/pkg/provisioner"
 
 	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
 	fluxinfra "github.com/windsorcli/cli/pkg/provisioner/flux"
@@ -21,10 +23,10 @@ func TestProvisioner_Plan(t *testing.T) {
 		mocks := setupProvisionerMocks(t)
 		mockStack := terraforminfra.NewMockStack()
 		mockStack.PlanFunc = func(bp *blueprintv1alpha1.Blueprint, componentID string) error { return nil }
-		opts := &Provisioner{TerraformStack: mockStack}
-		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
+		opts := &provisioner.Provisioner{TerraformStack: mockStack}
+		prov := provisioner.NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
 
-		err := provisioner.Plan(createTestBlueprint(), "remote/path")
+		err := prov.Plan(createTestBlueprint(), "remote/path")
 
 		if err != nil {
 			t.Errorf("Expected no error, got: %v", err)
@@ -33,9 +35,9 @@ func TestProvisioner_Plan(t *testing.T) {
 
 	t.Run("ErrorNilBlueprint", func(t *testing.T) {
 		mocks := setupProvisionerMocks(t)
-		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler)
+		prov := provisioner.NewProvisioner(mocks.Runtime, mocks.BlueprintHandler)
 
-		err := provisioner.Plan(nil, "remote/path")
+		err := prov.Plan(nil, "remote/path")
 
 		if err == nil {
 			t.Error("Expected error for nil blueprint")
@@ -57,9 +59,9 @@ func TestProvisioner_Plan(t *testing.T) {
 			}
 			return false
 		}
-		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler)
+		prov := provisioner.NewProvisioner(mocks.Runtime, mocks.BlueprintHandler)
 
-		err := provisioner.Plan(createTestBlueprint(), "remote/path")
+		err := prov.Plan(createTestBlueprint(), "remote/path")
 
 		if err == nil {
 			t.Error("Expected error when terraform is disabled")
@@ -67,7 +69,7 @@ func TestProvisioner_Plan(t *testing.T) {
 		if !strings.Contains(err.Error(), "terraform is disabled") {
 			t.Errorf("Expected 'terraform is disabled' error, got: %v", err)
 		}
-		if provisioner.TerraformStack != nil {
+		if prov.TerraformStack != nil {
 			t.Error("Expected TerraformStack to remain nil when terraform is disabled")
 		}
 	})
@@ -75,18 +77,18 @@ func TestProvisioner_Plan(t *testing.T) {
 	t.Run("InitializesTerraformStackLazily", func(t *testing.T) {
 		// Given a provisioner with no pre-injected TerraformStack and terraform enabled
 		mocks := setupProvisionerMocks(t)
-		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler)
+		prov := provisioner.NewProvisioner(mocks.Runtime, mocks.BlueprintHandler)
 
-		if provisioner.TerraformStack != nil {
+		if prov.TerraformStack != nil {
 			t.Error("Expected TerraformStack to be nil before Plan() is called")
 		}
 
 		// When Plan() is called (it will fail because the directory doesn't exist, but
 		// the stack should still be lazily initialized before the plan runs)
-		_ = provisioner.Plan(createTestBlueprint(), "remote/path")
+		_ = prov.Plan(createTestBlueprint(), "remote/path")
 
 		// Then TerraformStack should be initialized regardless of the plan outcome
-		if provisioner.TerraformStack == nil {
+		if prov.TerraformStack == nil {
 			t.Error("Expected TerraformStack to be initialized after Plan() when terraform is enabled")
 		}
 	})
@@ -97,10 +99,10 @@ func TestProvisioner_Plan(t *testing.T) {
 		mockStack.PlanFunc = func(bp *blueprintv1alpha1.Blueprint, componentID string) error {
 			return fmt.Errorf("terraform stack plan failed")
 		}
-		opts := &Provisioner{TerraformStack: mockStack}
-		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
+		opts := &provisioner.Provisioner{TerraformStack: mockStack}
+		prov := provisioner.NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
 
-		err := provisioner.Plan(createTestBlueprint(), "remote/path")
+		err := prov.Plan(createTestBlueprint(), "remote/path")
 
 		if err == nil {
 			t.Error("Expected error for terraform stack plan failure")
@@ -115,7 +117,7 @@ func TestProvisioner_PlanKustomization(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
 		// Given a provisioner with a mock flux stack
 		mocks := setupProvisionerMocks(t)
-		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{
+		prov := provisioner.NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &provisioner.Provisioner{
 			TerraformStack:    mocks.TerraformStack,
 			FluxStack:         mocks.FluxStack,
 			KubernetesManager: mocks.KubernetesManager,
@@ -123,7 +125,7 @@ func TestProvisioner_PlanKustomization(t *testing.T) {
 		})
 
 		// When PlanKustomization is called with a valid blueprint
-		err := provisioner.PlanKustomization(createTestBlueprint(), "test-kustomization")
+		err := prov.PlanKustomization(createTestBlueprint(), "test-kustomization")
 
 		// Then no error is returned
 		if err != nil {
@@ -139,14 +141,14 @@ func TestProvisioner_PlanKustomization(t *testing.T) {
 			planned = blueprint
 			return nil
 		}
-		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{
+		prov := provisioner.NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &provisioner.Provisioner{
 			FluxStack:         mocks.FluxStack,
 			KubernetesManager: mocks.KubernetesManager,
 			KubernetesClient:  mocks.KubernetesClient,
 		})
 
 		// When planning the crds component directly
-		if err := provisioner.PlanKustomization(&blueprintv1alpha1.Blueprint{Crds: []string{"cert-manager-1.16.2"}}, "crds"); err != nil {
+		if err := prov.PlanKustomization(&blueprintv1alpha1.Blueprint{Crds: []string{"cert-manager-1.16.2"}}, "crds"); err != nil {
 			t.Fatalf("expected no error, got %v", err)
 		}
 
@@ -159,14 +161,14 @@ func TestProvisioner_PlanKustomization(t *testing.T) {
 	t.Run("ErrorNilBlueprint", func(t *testing.T) {
 		// Given a provisioner with a mock flux stack
 		mocks := setupProvisionerMocks(t)
-		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{
+		prov := provisioner.NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &provisioner.Provisioner{
 			FluxStack:         mocks.FluxStack,
 			KubernetesManager: mocks.KubernetesManager,
 			KubernetesClient:  mocks.KubernetesClient,
 		})
 
 		// When PlanKustomization is called with a nil blueprint
-		err := provisioner.PlanKustomization(nil, "test-kustomization")
+		err := prov.PlanKustomization(nil, "test-kustomization")
 
 		// Then an error is returned
 		if err == nil {
@@ -180,14 +182,14 @@ func TestProvisioner_PlanKustomization(t *testing.T) {
 		mocks.FluxStack.PlanFunc = func(blueprint *blueprintv1alpha1.Blueprint, componentID string) error {
 			return fmt.Errorf("flux diff failed")
 		}
-		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{
+		prov := provisioner.NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &provisioner.Provisioner{
 			FluxStack:         mocks.FluxStack,
 			KubernetesManager: mocks.KubernetesManager,
 			KubernetesClient:  mocks.KubernetesClient,
 		})
 
 		// When PlanKustomization is called
-		err := provisioner.PlanKustomization(createTestBlueprint(), "test-kustomization")
+		err := prov.PlanKustomization(createTestBlueprint(), "test-kustomization")
 
 		// Then the error from the flux stack is returned
 		if err == nil {
@@ -202,7 +204,7 @@ func TestProvisioner_PlanKustomization(t *testing.T) {
 func TestProvisioner_PlanTerraformAll(t *testing.T) {
 	t.Run("ReturnsErrorForNilBlueprint", func(t *testing.T) {
 		mocks := setupProvisionerMocks(t)
-		p := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{
+		p := provisioner.NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &provisioner.Provisioner{
 			TerraformStack:    mocks.TerraformStack,
 			KubernetesManager: mocks.KubernetesManager,
 			KubernetesClient:  mocks.KubernetesClient,
@@ -222,7 +224,7 @@ func TestProvisioner_PlanTerraformAll(t *testing.T) {
 			called = true
 			return nil
 		}
-		p := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{
+		p := provisioner.NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &provisioner.Provisioner{
 			TerraformStack:    mocks.TerraformStack,
 			KubernetesManager: mocks.KubernetesManager,
 			KubernetesClient:  mocks.KubernetesClient,
@@ -242,7 +244,7 @@ func TestProvisioner_PlanTerraformAll(t *testing.T) {
 func TestProvisioner_PlanTerraformComponentSummary(t *testing.T) {
 	t.Run("ReturnsErrorForNilBlueprint", func(t *testing.T) {
 		mocks := setupProvisionerMocks(t)
-		p := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{
+		p := provisioner.NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &provisioner.Provisioner{
 			TerraformStack:    mocks.TerraformStack,
 			FluxStack:         mocks.FluxStack,
 			KubernetesManager: mocks.KubernetesManager,
@@ -263,7 +265,7 @@ func TestProvisioner_PlanTerraformComponentSummary(t *testing.T) {
 			called = append(called, componentID)
 			return terraforminfra.TerraformComponentPlan{ComponentID: componentID, Add: 2}
 		}
-		p := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{
+		p := provisioner.NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &provisioner.Provisioner{
 			TerraformStack:    mocks.TerraformStack,
 			FluxStack:         mocks.FluxStack,
 			KubernetesManager: mocks.KubernetesManager,
@@ -287,7 +289,7 @@ func TestProvisioner_PlanTerraformComponentSummary(t *testing.T) {
 func TestProvisioner_PlanKustomizeComponentSummary(t *testing.T) {
 	t.Run("ReturnsErrorForNilBlueprint", func(t *testing.T) {
 		mocks := setupProvisionerMocks(t)
-		p := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{
+		p := provisioner.NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &provisioner.Provisioner{
 			TerraformStack:    mocks.TerraformStack,
 			FluxStack:         mocks.FluxStack,
 			KubernetesManager: mocks.KubernetesManager,
@@ -308,7 +310,7 @@ func TestProvisioner_PlanKustomizeComponentSummary(t *testing.T) {
 			called = append(called, name)
 			return fluxinfra.KustomizePlan{Name: name, Added: 5, IsNew: true}
 		}
-		p := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{
+		p := provisioner.NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &provisioner.Provisioner{
 			TerraformStack:    mocks.TerraformStack,
 			FluxStack:         mocks.FluxStack,
 			KubernetesManager: mocks.KubernetesManager,
@@ -332,7 +334,7 @@ func TestProvisioner_PlanKustomizeComponentSummary(t *testing.T) {
 func TestProvisioner_PlanTerraformSummary(t *testing.T) {
 	t.Run("ReturnsErrorForNilBlueprint", func(t *testing.T) {
 		mocks := setupProvisionerMocks(t)
-		p := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{
+		p := provisioner.NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &provisioner.Provisioner{
 			TerraformStack:    mocks.TerraformStack,
 			FluxStack:         mocks.FluxStack,
 			KubernetesManager: mocks.KubernetesManager,
@@ -358,7 +360,7 @@ func TestProvisioner_PlanTerraformSummary(t *testing.T) {
 			t.Fatal("FluxStack.PlanSummary should not be called by PlanTerraformSummary")
 			return nil, nil
 		}
-		p := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{
+		p := provisioner.NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &provisioner.Provisioner{
 			TerraformStack:    mocks.TerraformStack,
 			FluxStack:         mocks.FluxStack,
 			KubernetesManager: mocks.KubernetesManager,
@@ -382,7 +384,7 @@ func TestProvisioner_PlanTerraformSummary(t *testing.T) {
 func TestProvisioner_PlanKustomizeSummary(t *testing.T) {
 	t.Run("ReturnsErrorForNilBlueprint", func(t *testing.T) {
 		mocks := setupProvisionerMocks(t)
-		p := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{
+		p := provisioner.NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &provisioner.Provisioner{
 			TerraformStack:    mocks.TerraformStack,
 			FluxStack:         mocks.FluxStack,
 			KubernetesManager: mocks.KubernetesManager,
@@ -408,7 +410,7 @@ func TestProvisioner_PlanKustomizeSummary(t *testing.T) {
 		mocks.FluxStack.PlanSummaryFunc = func(bp *blueprintv1alpha1.Blueprint) ([]fluxinfra.KustomizePlan, []string) {
 			return []fluxinfra.KustomizePlan{{Name: "flux-system", Added: 10, IsNew: true}}, []string{"hint1"}
 		}
-		p := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{
+		p := provisioner.NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &provisioner.Provisioner{
 			TerraformStack:    mocks.TerraformStack,
 			FluxStack:         mocks.FluxStack,
 			KubernetesManager: mocks.KubernetesManager,
@@ -436,7 +438,7 @@ func TestProvisioner_PlanAll(t *testing.T) {
 	t.Run("ReturnsErrorForNilBlueprint", func(t *testing.T) {
 		// Given a properly configured provisioner
 		mocks := setupProvisionerMocks(t)
-		p := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{
+		p := provisioner.NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &provisioner.Provisioner{
 			TerraformStack:    mocks.TerraformStack,
 			FluxStack:         mocks.FluxStack,
 			KubernetesManager: mocks.KubernetesManager,
@@ -464,7 +466,7 @@ func TestProvisioner_PlanAll(t *testing.T) {
 		mocks.FluxStack.PlanSummaryFunc = func(bp *blueprintv1alpha1.Blueprint) ([]fluxinfra.KustomizePlan, []string) {
 			return []fluxinfra.KustomizePlan{{Name: "flux-system", Added: 10, IsNew: true}}, nil
 		}
-		p := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{
+		p := provisioner.NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &provisioner.Provisioner{
 			TerraformStack:    mocks.TerraformStack,
 			FluxStack:         mocks.FluxStack,
 			KubernetesManager: mocks.KubernetesManager,
@@ -501,7 +503,7 @@ func TestProvisioner_PlanAll(t *testing.T) {
 		mocks.FluxStack.PlanSummaryFunc = func(bp *blueprintv1alpha1.Blueprint) ([]fluxinfra.KustomizePlan, []string) {
 			return []fluxinfra.KustomizePlan{{Name: "flux-system"}}, nil
 		}
-		p := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{
+		p := provisioner.NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &provisioner.Provisioner{
 			FluxStack:         mocks.FluxStack,
 			KubernetesManager: mocks.KubernetesManager,
 			KubernetesClient:  mocks.KubernetesClient,
@@ -526,7 +528,7 @@ func TestProvisioner_PlanAll(t *testing.T) {
 func TestProvisioner_PlanDestroyTerraformSummary(t *testing.T) {
 	t.Run("ReturnsErrorForNilBlueprint", func(t *testing.T) {
 		mocks := setupProvisionerMocks(t)
-		p := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{
+		p := provisioner.NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &provisioner.Provisioner{
 			TerraformStack:    mocks.TerraformStack,
 			FluxStack:         mocks.FluxStack,
 			KubernetesManager: mocks.KubernetesManager,
@@ -554,7 +556,7 @@ func TestProvisioner_PlanDestroyTerraformSummary(t *testing.T) {
 			t.Fatal("FluxStack.PlanDestroySummary should not be called by PlanDestroyTerraformSummary")
 			return nil, nil
 		}
-		p := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{
+		p := provisioner.NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &provisioner.Provisioner{
 			TerraformStack:    mocks.TerraformStack,
 			FluxStack:         mocks.FluxStack,
 			KubernetesManager: mocks.KubernetesManager,
@@ -577,7 +579,7 @@ func TestProvisioner_PlanDestroyTerraformSummary(t *testing.T) {
 func TestProvisioner_PlanDestroyKustomizeSummary(t *testing.T) {
 	t.Run("ReturnsErrorForNilBlueprint", func(t *testing.T) {
 		mocks := setupProvisionerMocks(t)
-		p := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{
+		p := provisioner.NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &provisioner.Provisioner{
 			TerraformStack:    mocks.TerraformStack,
 			FluxStack:         mocks.FluxStack,
 			KubernetesManager: mocks.KubernetesManager,
@@ -602,7 +604,7 @@ func TestProvisioner_PlanDestroyKustomizeSummary(t *testing.T) {
 		mocks.FluxStack.PlanDestroySummaryFunc = func(bp *blueprintv1alpha1.Blueprint) ([]fluxinfra.KustomizePlan, error) {
 			return []fluxinfra.KustomizePlan{{Name: "monitoring", Removed: 12}}, nil
 		}
-		p := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{
+		p := provisioner.NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &provisioner.Provisioner{
 			TerraformStack:    mocks.TerraformStack,
 			FluxStack:         mocks.FluxStack,
 			KubernetesManager: mocks.KubernetesManager,
@@ -626,7 +628,7 @@ func TestProvisioner_PlanDestroyKustomizeSummary(t *testing.T) {
 		mocks.FluxStack.PlanDestroySummaryFunc = func(bp *blueprintv1alpha1.Blueprint) ([]fluxinfra.KustomizePlan, error) {
 			return nil, fmt.Errorf("connection refused")
 		}
-		p := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{
+		p := provisioner.NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &provisioner.Provisioner{
 			TerraformStack:    mocks.TerraformStack,
 			FluxStack:         mocks.FluxStack,
 			KubernetesManager: mocks.KubernetesManager,
@@ -653,7 +655,7 @@ func TestProvisioner_PlanDestroyKustomizeSummary(t *testing.T) {
 			seen = bp
 			return nil, nil
 		}
-		p := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{
+		p := provisioner.NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &provisioner.Provisioner{
 			TerraformStack:    mocks.TerraformStack,
 			FluxStack:         mocks.FluxStack,
 			KubernetesManager: mocks.KubernetesManager,
@@ -695,7 +697,7 @@ func TestProvisioner_PlanDestroyKustomizeSummary(t *testing.T) {
 func TestProvisioner_PlanDestroyAll(t *testing.T) {
 	t.Run("ReturnsErrorForNilBlueprint", func(t *testing.T) {
 		mocks := setupProvisionerMocks(t)
-		p := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{
+		p := provisioner.NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &provisioner.Provisioner{
 			TerraformStack:    mocks.TerraformStack,
 			FluxStack:         mocks.FluxStack,
 			KubernetesManager: mocks.KubernetesManager,
@@ -719,7 +721,7 @@ func TestProvisioner_PlanDestroyAll(t *testing.T) {
 		mocks.FluxStack.PlanDestroySummaryFunc = func(bp *blueprintv1alpha1.Blueprint) ([]fluxinfra.KustomizePlan, error) {
 			return []fluxinfra.KustomizePlan{{Name: "monitoring", Removed: 12}}, nil
 		}
-		p := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{
+		p := provisioner.NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &provisioner.Provisioner{
 			TerraformStack:    mocks.TerraformStack,
 			FluxStack:         mocks.FluxStack,
 			KubernetesManager: mocks.KubernetesManager,
@@ -745,7 +747,7 @@ func TestProvisioner_PlanDestroyAll(t *testing.T) {
 		mocks.FluxStack.PlanDestroySummaryFunc = func(bp *blueprintv1alpha1.Blueprint) ([]fluxinfra.KustomizePlan, error) {
 			return nil, fmt.Errorf("connection refused")
 		}
-		p := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{
+		p := provisioner.NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &provisioner.Provisioner{
 			TerraformStack:    mocks.TerraformStack,
 			FluxStack:         mocks.FluxStack,
 			KubernetesManager: mocks.KubernetesManager,
@@ -762,7 +764,7 @@ func TestProvisioner_PlanDestroyAll(t *testing.T) {
 func TestProvisioner_PlanDestroyTerraformComponentSummary(t *testing.T) {
 	t.Run("ReturnsErrorForNilBlueprint", func(t *testing.T) {
 		mocks := setupProvisionerMocks(t)
-		p := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{
+		p := provisioner.NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &provisioner.Provisioner{
 			TerraformStack: mocks.TerraformStack,
 		})
 
@@ -777,7 +779,7 @@ func TestProvisioner_PlanDestroyTerraformComponentSummary(t *testing.T) {
 		mocks.TerraformStack.(*terraforminfra.MockStack).PlanDestroyComponentSummaryFunc = func(bp *blueprintv1alpha1.Blueprint, id string) terraforminfra.TerraformComponentPlan {
 			return terraforminfra.TerraformComponentPlan{ComponentID: id, Destroy: 4}
 		}
-		p := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{
+		p := provisioner.NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &provisioner.Provisioner{
 			TerraformStack: mocks.TerraformStack,
 		})
 
@@ -794,7 +796,7 @@ func TestProvisioner_PlanDestroyTerraformComponentSummary(t *testing.T) {
 func TestProvisioner_PlanDestroyKustomizeComponentSummary(t *testing.T) {
 	t.Run("ReturnsErrorForNilBlueprint", func(t *testing.T) {
 		mocks := setupProvisionerMocks(t)
-		p := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{
+		p := provisioner.NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &provisioner.Provisioner{
 			FluxStack: mocks.FluxStack,
 		})
 
@@ -809,7 +811,7 @@ func TestProvisioner_PlanDestroyKustomizeComponentSummary(t *testing.T) {
 		mocks.FluxStack.PlanDestroyComponentSummaryFunc = func(bp *blueprintv1alpha1.Blueprint, name string) fluxinfra.KustomizePlan {
 			return fluxinfra.KustomizePlan{Name: name, Removed: 8}
 		}
-		p := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{
+		p := provisioner.NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &provisioner.Provisioner{
 			FluxStack: mocks.FluxStack,
 		})
 
@@ -836,7 +838,7 @@ func TestProvisioner_PlanDestroyKustomizeComponentSummary(t *testing.T) {
 			seen = bp
 			return fluxinfra.KustomizePlan{}
 		}
-		p := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{
+		p := provisioner.NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &provisioner.Provisioner{
 			TerraformStack:    mocks.TerraformStack,
 			FluxStack:         mocks.FluxStack,
 			KubernetesManager: mocks.KubernetesManager,

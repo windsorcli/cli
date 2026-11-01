@@ -1,4 +1,4 @@
-package provisioner
+package provisioner_test
 
 import (
 	"context"
@@ -6,6 +6,8 @@ import (
 	"slices"
 	"strings"
 	"testing"
+
+	"github.com/windsorcli/cli/pkg/provisioner"
 
 	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
 	"github.com/windsorcli/cli/internal/werror"
@@ -20,9 +22,9 @@ import (
 func TestProvisioner_Bootstrap(t *testing.T) {
 	t.Run("NilBlueprintReturnsError", func(t *testing.T) {
 		mocks := setupProvisionerMocks(t)
-		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler)
+		prov := provisioner.NewProvisioner(mocks.Runtime, mocks.BlueprintHandler)
 
-		if _, err := provisioner.Bootstrap(context.Background(), nil); err == nil {
+		if _, err := prov.Bootstrap(context.Background(), nil); err == nil {
 			t.Fatal("Expected error for nil blueprint, got nil")
 		}
 	})
@@ -60,9 +62,9 @@ func TestProvisioner_Bootstrap(t *testing.T) {
 			ops = append(ops, "up")
 			return false, nil
 		}
-		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{TerraformStack: mockStack})
+		prov := provisioner.NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &provisioner.Provisioner{TerraformStack: mockStack})
 
-		if _, err := provisioner.Bootstrap(context.Background(), bp); err != nil {
+		if _, err := prov.Bootstrap(context.Background(), bp); err != nil {
 			t.Fatalf("Expected no error, got %v", err)
 		}
 		// Must be a plain Up — no backend pinning, no migrate dance.
@@ -99,10 +101,10 @@ func TestProvisioner_Bootstrap(t *testing.T) {
 			upCalled = true
 			return false, nil
 		}
-		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{TerraformStack: mockStack})
-		provisioner.configRoot = t.TempDir() // no .kube/config — cluster not yet created
+		mocks.Runtime.ConfigRoot = t.TempDir() // no .kube/config — cluster not yet created
+		prov := provisioner.NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &provisioner.Provisioner{TerraformStack: mockStack})
 
-		if _, err := provisioner.Bootstrap(context.Background(), bp); err == nil {
+		if _, err := prov.Bootstrap(context.Background(), bp); err == nil {
 			t.Fatal("Expected error, got nil")
 		} else if we := werror.Find(err); !strings.Contains(err.Error(), "no kubeconfig") || we == nil || !strings.Contains(we.Remediation, "backend:") {
 			t.Errorf("Expected error to explain the missing backend declaration, got: %v", err)
@@ -129,10 +131,10 @@ func TestProvisioner_Bootstrap(t *testing.T) {
 			return ""
 		}
 		mockStack := terraforminfra.NewMockStack()
-		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{TerraformStack: mockStack})
-		provisioner.configRoot = t.TempDir() // no kubeconfig
+		mocks.Runtime.ConfigRoot = t.TempDir() // no kubeconfig
+		prov := provisioner.NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &provisioner.Provisioner{TerraformStack: mockStack})
 
-		if _, err := provisioner.Bootstrap(context.Background(), bp); err != nil {
+		if _, err := prov.Bootstrap(context.Background(), bp); err != nil {
 			t.Fatalf("Expected no error for an empty blueprint, got %v", err)
 		}
 	})
@@ -172,9 +174,9 @@ func TestProvisioner_Bootstrap(t *testing.T) {
 			ops = append(ops, "up")
 			return false, nil
 		}
-		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{TerraformStack: mockStack})
+		prov := provisioner.NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &provisioner.Provisioner{TerraformStack: mockStack})
 
-		_, err := provisioner.Bootstrap(context.Background(), bp)
+		_, err := prov.Bootstrap(context.Background(), bp)
 		if err != nil {
 			t.Fatalf("Expected no error, got %v", err)
 		}
@@ -218,9 +220,9 @@ func TestProvisioner_Bootstrap(t *testing.T) {
 			ops = append(ops, "up")
 			return false, nil
 		}
-		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{TerraformStack: mockStack})
+		prov := provisioner.NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &provisioner.Provisioner{TerraformStack: mockStack})
 
-		_, err := provisioner.Bootstrap(context.Background(), bp)
+		_, err := prov.Bootstrap(context.Background(), bp)
 		if err != nil {
 			t.Fatalf("Expected no error, got %v", err)
 		}
@@ -276,9 +278,9 @@ func TestProvisioner_Bootstrap(t *testing.T) {
 			migrateBlueprints = append(migrateBlueprints, b)
 			return nil, nil
 		}
-		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{TerraformStack: mockStack})
+		prov := provisioner.NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &provisioner.Provisioner{TerraformStack: mockStack})
 
-		_, err := provisioner.Bootstrap(context.Background(), bp)
+		_, err := prov.Bootstrap(context.Background(), bp)
 		if err != nil {
 			t.Fatalf("Expected no error, got %v", err)
 		}
@@ -361,9 +363,9 @@ func TestProvisioner_Bootstrap(t *testing.T) {
 			migrateBlueprints = append(migrateBlueprints, b)
 			return nil, nil
 		}
-		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{TerraformStack: mockStack})
+		prov := provisioner.NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &provisioner.Provisioner{TerraformStack: mockStack})
 
-		_, err := provisioner.Bootstrap(context.Background(), bp)
+		_, err := prov.Bootstrap(context.Background(), bp)
 		if err != nil {
 			t.Fatalf("Expected no error, got %v", err)
 		}
@@ -437,9 +439,9 @@ func TestProvisioner_Bootstrap(t *testing.T) {
 			ops = append(ops, "migrate")
 			return nil, nil
 		}
-		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{TerraformStack: mockStack})
+		prov := provisioner.NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &provisioner.Provisioner{TerraformStack: mockStack})
 
-		_, err := provisioner.Bootstrap(context.Background(), bp)
+		_, err := prov.Bootstrap(context.Background(), bp)
 		if err != nil {
 			t.Fatalf("Expected no error, got %v", err)
 		}
@@ -493,9 +495,9 @@ func TestProvisioner_Bootstrap(t *testing.T) {
 			ops = append(ops, "up-fail")
 			return false, fmt.Errorf("apply blew up")
 		}
-		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{TerraformStack: mockStack})
+		prov := provisioner.NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &provisioner.Provisioner{TerraformStack: mockStack})
 
-		_, err := provisioner.Bootstrap(context.Background(), bp)
+		_, err := prov.Bootstrap(context.Background(), bp)
 		if err == nil {
 			t.Fatal("Expected error, got nil")
 		}
@@ -548,9 +550,9 @@ func TestProvisioner_Bootstrap(t *testing.T) {
 			}
 			return nil, nil
 		}
-		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{TerraformStack: mockStack})
+		prov := provisioner.NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &provisioner.Provisioner{TerraformStack: mockStack})
 
-		_, err := provisioner.Bootstrap(context.Background(), bp)
+		_, err := prov.Bootstrap(context.Background(), bp)
 		if err == nil {
 			t.Fatal("Expected error from Stage 2 migrate failure, got nil")
 		}
@@ -593,9 +595,9 @@ func TestProvisioner_Bootstrap(t *testing.T) {
 			}
 			return nil, nil
 		}
-		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{TerraformStack: mockStack})
+		prov := provisioner.NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &provisioner.Provisioner{TerraformStack: mockStack})
 
-		_, err := provisioner.Bootstrap(context.Background(), bp)
+		_, err := prov.Bootstrap(context.Background(), bp)
 		if err == nil {
 			t.Fatal("Expected error for skipped-after-apply, got nil")
 		}
@@ -649,10 +651,10 @@ func TestProvisioner_Bootstrap(t *testing.T) {
 			return fmt.Errorf("permission denied")
 		}
 
-		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{TerraformStack: mockStack})
+		prov := provisioner.NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &provisioner.Provisioner{TerraformStack: mockStack})
 		var err error
 		stderrOutput := captureStderr(t, func() {
-			_, err = provisioner.Bootstrap(context.Background(), bp)
+			_, err = prov.Bootstrap(context.Background(), bp)
 		})
 
 		if err != nil {
@@ -719,10 +721,10 @@ func TestProvisioner_Up_BackendPivot(t *testing.T) {
 			ops = append(ops, "migrate")
 			return nil, nil
 		}
-		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{TerraformStack: mockStack})
-		provisioner.configRoot = t.TempDir() // no kubeconfig — genuinely from zero
+		mocks.Runtime.ConfigRoot = t.TempDir() // no kubeconfig — genuinely from zero
+		prov := provisioner.NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &provisioner.Provisioner{TerraformStack: mockStack})
 
-		if _, err := provisioner.Up(context.Background(), bp); err != nil {
+		if _, err := prov.Up(context.Background(), bp); err != nil {
 			t.Fatalf("Expected no error, got %v", err)
 		}
 
@@ -762,10 +764,10 @@ func TestProvisioner_Up_BackendPivot(t *testing.T) {
 			upCalled = true
 			return false, nil
 		}
-		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{TerraformStack: mockStack})
+		prov := provisioner.NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &provisioner.Provisioner{TerraformStack: mockStack})
 		// setupProvisionerMocks seeds a kubeconfig by default — cluster already exists.
 
-		if _, err := provisioner.Up(context.Background(), bp); err != nil {
+		if _, err := prov.Up(context.Background(), bp); err != nil {
 			t.Fatalf("Expected no error, got %v", err)
 		}
 		if !upCalled {
@@ -812,12 +814,12 @@ func TestProvisioner_Up_BackendPivot(t *testing.T) {
 		mockStack.MigrateStateFunc = func(_ *blueprintv1alpha1.Blueprint) ([]string, error) {
 			return nil, nil
 		}
-		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{TerraformStack: mockStack})
-		provisioner.configRoot = t.TempDir()
+		mocks.Runtime.ConfigRoot = t.TempDir()
+		prov := provisioner.NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &provisioner.Provisioner{TerraformStack: mockStack})
 
 		var err error
 		stderrOutput := captureStderr(t, func() {
-			_, err = provisioner.Up(context.Background(), bp)
+			_, err = prov.Up(context.Background(), bp)
 		})
 
 		if err != nil {
@@ -832,7 +834,7 @@ func TestProvisioner_Up_BackendPivot(t *testing.T) {
 func TestBuildBootstrapSummary(t *testing.T) {
 	t.Run("PopulatesContextAndBackend", func(t *testing.T) {
 		bp := &blueprintv1alpha1.Blueprint{}
-		s := BuildBootstrapSummary(bp, "staging", "s3")
+		s := provisioner.BuildBootstrapSummary(bp, "staging", "s3")
 		if s.ContextName != "staging" {
 			t.Errorf("Expected ContextName=staging, got %q", s.ContextName)
 		}
@@ -843,7 +845,7 @@ func TestBuildBootstrapSummary(t *testing.T) {
 
 	t.Run("EmptyBackendDefaultsToLocal", func(t *testing.T) {
 		bp := &blueprintv1alpha1.Blueprint{}
-		s := BuildBootstrapSummary(bp, "local", "")
+		s := provisioner.BuildBootstrapSummary(bp, "local", "")
 		if s.BackendType != "local" {
 			t.Errorf("Expected BackendType=local when input empty, got %q", s.BackendType)
 		}
@@ -860,7 +862,7 @@ func TestBuildBootstrapSummary(t *testing.T) {
 				{Name: "monitoring"},
 			},
 		}
-		s := BuildBootstrapSummary(bp, "local", "s3")
+		s := provisioner.BuildBootstrapSummary(bp, "local", "s3")
 		if len(s.Terraform) != 2 || s.Terraform[0].ComponentID != "backend" || s.Terraform[1].ComponentID != "cluster" {
 			t.Errorf("Expected terraform [backend, cluster], got %#v", s.Terraform)
 		}
@@ -881,7 +883,7 @@ func TestBuildBootstrapSummary(t *testing.T) {
 			Kustomizations: []blueprintv1alpha1.Kustomization{{Name: "argocd"}},
 		}
 
-		s := BuildBootstrapSummary(bp, "local", "s3")
+		s := provisioner.BuildBootstrapSummary(bp, "local", "s3")
 
 		// Then the bootstrap plan lists the synthesized CRD kustomizations ahead of the stack, matching
 		// what `windsor plan` shows — operators see every CRD layer before confirming
@@ -906,7 +908,7 @@ func TestBuildBootstrapSummary(t *testing.T) {
 				{Path: "cluster"},
 			},
 		}
-		s := BuildBootstrapSummary(bp, "local", "local")
+		s := provisioner.BuildBootstrapSummary(bp, "local", "local")
 		if len(s.Terraform) != 2 {
 			t.Fatalf("Expected 2 enabled components, got %d (%#v)", len(s.Terraform), s.Terraform)
 		}
