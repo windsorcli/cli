@@ -1,8 +1,9 @@
-package kubernetes
+package kubernetes_test
 
 import (
 	"context"
 	"fmt"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -12,7 +13,7 @@ import (
 	sourcev1 "github.com/fluxcd/source-controller/api/v1"
 	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
 	"github.com/windsorcli/cli/internal/presenter"
-	"github.com/windsorcli/cli/pkg/constants"
+	"github.com/windsorcli/cli/pkg/provisioner/kubernetes"
 	"github.com/windsorcli/cli/pkg/provisioner/kubernetes/client"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -26,20 +27,16 @@ import (
 // =============================================================================
 
 func TestBaseKubernetesManager_ApplyKustomization(t *testing.T) {
-	setup := func(t *testing.T) *BaseKubernetesManager {
+	setup := func(t *testing.T, kubeClient client.KubernetesClient) *kubernetes.BaseKubernetesManager {
 		t.Helper()
-		mocks := setupKubernetesMocks(t)
-		manager := NewKubernetesManager(mocks.KubernetesClient, mocks.ConfigHandler)
-		// Use shorter timeouts for tests
+		manager := kubernetes.NewKubernetesManager(kubeClient, setupKubernetesMocks(t).ConfigHandler)
 		manager.Timing.KustomizationWaitPollInterval = 50 * time.Millisecond
 		manager.Timing.KustomizationReconcileTimeout = 100 * time.Millisecond
 		manager.Timing.KustomizationReconcileSleep = 50 * time.Millisecond
 		return manager
 	}
-
-	t.Run("Success", func(t *testing.T) {
-		manager := setup(t)
-		kustomization := kustomizev1.Kustomization{
+	newKustomization := func() kustomizev1.Kustomization {
+		return kustomizev1.Kustomization{
 			ObjectMeta: metav1.ObjectMeta{
 				Name:      "test-kustomization",
 				Namespace: "test-namespace",
@@ -48,32 +45,34 @@ func TestBaseKubernetesManager_ApplyKustomization(t *testing.T) {
 				Path: "./test-path",
 			},
 		}
+	}
 
-		err := manager.ApplyKustomization(kustomization)
+	t.Run("AppliesKustomization", func(t *testing.T) {
+		// Given a manager with a client that accepts applies
+		manager := setup(t, setupKubernetesMocks(t).KubernetesClient)
+
+		// When a kustomization is applied
+		err := manager.ApplyKustomization(newKustomization())
+
+		// Then no error is returned
 		if err != nil {
 			t.Errorf("Expected no error, got %v", err)
 		}
 	})
 
 	t.Run("UnstructuredConversionError", func(t *testing.T) {
-		manager := setup(t)
+		// Given a manager whose conversion to unstructured fails
+		manager := setup(t, setupKubernetesMocks(t).KubernetesClient)
 		manager.Shims.ToUnstructured = func(obj any) (map[string]any, error) {
 			return nil, fmt.Errorf("forced conversion error")
 		}
 
-		kustomization := kustomizev1.Kustomization{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      "test-kustomization",
-				Namespace: "test-namespace",
-			},
-			Spec: kustomizev1.KustomizationSpec{
-				Path: "./test-path",
-			},
-		}
+		// When a kustomization is applied
+		err := manager.ApplyKustomization(newKustomization())
 
-		err := manager.ApplyKustomization(kustomization)
+		// Then a conversion error is returned
 		if err == nil {
-			t.Error("Expected error, got nil")
+			t.Fatal("Expected error, got nil")
 		}
 		if !strings.Contains(err.Error(), "failed to convert kustomization to unstructured") {
 			t.Errorf("Expected conversion error, got: %v", err)
@@ -81,7 +80,7 @@ func TestBaseKubernetesManager_ApplyKustomization(t *testing.T) {
 	})
 
 	t.Run("ApplyWithRetryError", func(t *testing.T) {
-		manager := setup(t)
+		// Given a client that cannot find the object and rejects the apply
 		kubernetesClient := client.NewMockKubernetesClient()
 		kubernetesClient.ApplyResourceFunc = func(gvr schema.GroupVersionResource, obj *unstructured.Unstructured, opts metav1.ApplyOptions) (*unstructured.Unstructured, error) {
 			return nil, fmt.Errorf("apply error")
@@ -89,26 +88,19 @@ func TestBaseKubernetesManager_ApplyKustomization(t *testing.T) {
 		kubernetesClient.GetResourceFunc = func(gvr schema.GroupVersionResource, ns, name string) (*unstructured.Unstructured, error) {
 			return nil, fmt.Errorf("not found")
 		}
-		manager.client = kubernetesClient
+		manager := setup(t, kubernetesClient)
 
-		kustomization := kustomizev1.Kustomization{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      "test-kustomization",
-				Namespace: "test-namespace",
-			},
-			Spec: kustomizev1.KustomizationSpec{
-				Path: "./test-path",
-			},
-		}
+		// When a kustomization is applied
+		err := manager.ApplyKustomization(newKustomization())
 
-		err := manager.ApplyKustomization(kustomization)
+		// Then an error is returned
 		if err == nil {
 			t.Error("Expected error, got nil")
 		}
 	})
 
 	t.Run("ApplyWithRetryExistingResourceConversionError", func(t *testing.T) {
-		manager := setup(t)
+		// Given an existing object whose conversion to unstructured fails
 		kubernetesClient := client.NewMockKubernetesClient()
 		existingObj := &unstructured.Unstructured{
 			Object: map[string]any{
@@ -124,6 +116,7 @@ func TestBaseKubernetesManager_ApplyKustomization(t *testing.T) {
 		kubernetesClient.GetResourceFunc = func(gvr schema.GroupVersionResource, ns, name string) (*unstructured.Unstructured, error) {
 			return existingObj, nil
 		}
+		manager := setup(t, kubernetesClient)
 		callCount := 0
 		originalToUnstructured := manager.Shims.ToUnstructured
 		manager.Shims.ToUnstructured = func(obj any) (map[string]any, error) {
@@ -133,21 +126,13 @@ func TestBaseKubernetesManager_ApplyKustomization(t *testing.T) {
 			}
 			return nil, fmt.Errorf("conversion error")
 		}
-		manager.client = kubernetesClient
 
-		kustomization := kustomizev1.Kustomization{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      "test-kustomization",
-				Namespace: "test-namespace",
-			},
-			Spec: kustomizev1.KustomizationSpec{
-				Path: "./test-path",
-			},
-		}
+		// When a kustomization is applied
+		err := manager.ApplyKustomization(newKustomization())
 
-		err := manager.ApplyKustomization(kustomization)
+		// Then a conversion error for the existing object is returned
 		if err == nil {
-			t.Error("Expected error, got nil")
+			t.Fatal("Expected error, got nil")
 		}
 		if !strings.Contains(err.Error(), "failed to convert existing object to unstructured") {
 			t.Errorf("Expected conversion error, got: %v", err)
@@ -156,40 +141,40 @@ func TestBaseKubernetesManager_ApplyKustomization(t *testing.T) {
 }
 
 func TestBaseKubernetesManager_WaitForKustomizations(t *testing.T) {
-	setup := func(t *testing.T) *BaseKubernetesManager {
+	setup := func(t *testing.T, kubeClient client.KubernetesClient) *kubernetes.BaseKubernetesManager {
 		t.Helper()
-		mocks := setupKubernetesMocks(t)
-		manager := NewKubernetesManager(mocks.KubernetesClient, mocks.ConfigHandler)
-		// Use shorter timeouts for tests
+		manager := kubernetes.NewKubernetesManager(kubeClient, setupKubernetesMocks(t).ConfigHandler)
 		manager.Timing.KustomizationWaitPollInterval = 50 * time.Millisecond
 		manager.Timing.KustomizationWaitMinErrorDuration = 150 * time.Millisecond
 		manager.Timing.KustomizationReconcileTimeout = 100 * time.Millisecond
 		manager.Timing.KustomizationReconcileSleep = 50 * time.Millisecond
 		return manager
 	}
+	listOf := func(items ...unstructured.Unstructured) *unstructured.UnstructuredList {
+		return &unstructured.UnstructuredList{Items: items}
+	}
+	withTimeout := func(name string, d time.Duration) blueprintv1alpha1.Kustomization {
+		return blueprintv1alpha1.Kustomization{Name: name, Timeout: &blueprintv1alpha1.DurationString{Duration: d}}
+	}
+	wait := func(manager *kubernetes.BaseKubernetesManager, blueprint *blueprintv1alpha1.Blueprint) error {
+		return manager.WaitForKustomizations(context.Background(), blueprint, presenter.NewGroup(context.Background(), "kustomization:"))
+	}
 
-	t.Run("Success", func(t *testing.T) {
-		manager := setup(t)
+	t.Run("SucceedsWhenKustomizationIsReady", func(t *testing.T) {
+		// Given a kustomization that is Ready
 		kubernetesClient := withGVRs(client.NewMockKubernetesClient())
 		kubernetesClient.ListResourcesFunc = func(gvr schema.GroupVersionResource, ns string) (*unstructured.UnstructuredList, error) {
-			return &unstructured.UnstructuredList{Items: []unstructured.Unstructured{
-				kustomizationListItem("test-kustomization", "True", "", ""),
-			}}, nil
+			return listOf(kustomizationListItem("test-kustomization", "True", "", "")), nil
 		}
-		manager.client = kubernetesClient
+		manager := setup(t, kubernetesClient)
+		blueprint := &blueprintv1alpha1.Blueprint{Kustomizations: []blueprintv1alpha1.Kustomization{
+			withTimeout("test-kustomization", 200*time.Millisecond),
+		}}
 
-		blueprint := &blueprintv1alpha1.Blueprint{
-			Kustomizations: []blueprintv1alpha1.Kustomization{
-				{
-					Name: "test-kustomization",
-					Timeout: &blueprintv1alpha1.DurationString{
-						Duration: 200 * time.Millisecond,
-					},
-				},
-			},
-		}
+		// When the wait runs
+		err := wait(manager, blueprint)
 
-		err := manager.WaitForKustomizations(context.Background(), blueprint, presenter.NewGroup(context.Background(), "kustomization:"))
+		// Then no error is returned
 		if err != nil {
 			t.Errorf("Expected no error, got %v", err)
 		}
@@ -197,14 +182,11 @@ func TestBaseKubernetesManager_WaitForKustomizations(t *testing.T) {
 
 	t.Run("ReportsEachKustomizationToTheCallersGroup", func(t *testing.T) {
 		// Given a ready kustomization and a recording presenter
-		manager := setup(t)
 		kubernetesClient := withGVRs(client.NewMockKubernetesClient())
 		kubernetesClient.ListResourcesFunc = func(gvr schema.GroupVersionResource, ns string) (*unstructured.UnstructuredList, error) {
-			return &unstructured.UnstructuredList{Items: []unstructured.Unstructured{
-				kustomizationListItem("test-kustomization", "True", "", ""),
-			}}, nil
+			return listOf(kustomizationListItem("test-kustomization", "True", "", "")), nil
 		}
-		manager.client = kubernetesClient
+		manager := setup(t, kubernetesClient)
 		ctx, rec := recordProgress(t)
 		blueprint := &blueprintv1alpha1.Blueprint{Kustomizations: []blueprintv1alpha1.Kustomization{{Name: "test-kustomization"}}}
 
@@ -232,7 +214,6 @@ func TestBaseKubernetesManager_WaitForKustomizations(t *testing.T) {
 
 	t.Run("ShowsADependentLayerOnlyAfterItsDependencyIsReady", func(t *testing.T) {
 		// Given "a" Ready from the second list and "b", which depends on it, Ready from the third
-		manager := setup(t)
 		kubernetesClient := withGVRs(client.NewMockKubernetesClient())
 		lists := 0
 		kubernetesClient.ListResourcesFunc = func(gvr schema.GroupVersionResource, ns string) (*unstructured.UnstructuredList, error) {
@@ -244,24 +225,24 @@ func TestBaseKubernetesManager_WaitForKustomizations(t *testing.T) {
 			if lists >= 3 {
 				bStatus = "True"
 			}
-			return &unstructured.UnstructuredList{Items: []unstructured.Unstructured{
+			return listOf(
 				kustomizationListItem("a", aStatus, "", ""),
 				kustomizationListItem("b", bStatus, "", ""),
-			}}, nil
+			), nil
 		}
-		manager.client = kubernetesClient
+		manager := setup(t, kubernetesClient)
 		ctx, rec := recordProgress(t)
-		blueprint := &blueprintv1alpha1.Blueprint{Kustomizations: []blueprintv1alpha1.Kustomization{
-			{Name: "a", Timeout: &blueprintv1alpha1.DurationString{Duration: time.Second}},
-			{Name: "b", DependsOn: []string{"a"}, Timeout: &blueprintv1alpha1.DurationString{Duration: time.Second}},
-		}}
+		b := withTimeout("b", time.Second)
+		b.DependsOn = []string{"a"}
+		blueprint := &blueprintv1alpha1.Blueprint{Kustomizations: []blueprintv1alpha1.Kustomization{withTimeout("a", time.Second), b}}
 
 		// When the wait runs
-		if err := manager.WaitForKustomizations(ctx, blueprint, presenter.NewGroup(ctx, "kustomization:")); err != nil {
-			t.Fatalf("Expected no error, got %v", err)
-		}
+		err := manager.WaitForKustomizations(ctx, blueprint, presenter.NewGroup(ctx, "kustomization:"))
 
 		// Then "b" starts only after "a" ends
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
 		var order []string
 		for _, e := range rec.events {
 			if e.Message == "a" || e.Message == "b" {
@@ -276,22 +257,18 @@ func TestBaseKubernetesManager_WaitForKustomizations(t *testing.T) {
 
 	t.Run("LeavesUnreadyLayersOpenOnTimeout", func(t *testing.T) {
 		// Given a kustomization that never becomes ready and a recording presenter
-		manager := setup(t)
 		kubernetesClient := withGVRs(client.NewMockKubernetesClient())
 		kubernetesClient.ListResourcesFunc = func(gvr schema.GroupVersionResource, ns string) (*unstructured.UnstructuredList, error) {
-			return &unstructured.UnstructuredList{Items: []unstructured.Unstructured{
-				kustomizationListItem("test-kustomization", "False", "Progressing", "still reconciling"),
-			}}, nil
+			return listOf(kustomizationListItem("test-kustomization", "False", "Progressing", "still reconciling")), nil
 		}
-		manager.client = kubernetesClient
+		manager := setup(t, kubernetesClient)
 		ctx, rec := recordProgress(t)
-		blueprint := &blueprintv1alpha1.Blueprint{Kustomizations: []blueprintv1alpha1.Kustomization{{
-			Name:    "test-kustomization",
-			Timeout: &blueprintv1alpha1.DurationString{Duration: 200 * time.Millisecond},
-		}}}
+		blueprint := &blueprintv1alpha1.Blueprint{Kustomizations: []blueprintv1alpha1.Kustomization{
+			withTimeout("test-kustomization", 200*time.Millisecond),
+		}}
 		layers := presenter.NewGroup(ctx, "kustomization:")
 
-		// When the wait runs out of time and the caller closes its group with the error
+		// When the wait times out and the caller closes its group with the error
 		err := manager.WaitForKustomizations(ctx, blueprint, layers)
 		if err == nil {
 			t.Fatal("Expected a timeout error")
@@ -311,10 +288,7 @@ func TestBaseKubernetesManager_WaitForKustomizations(t *testing.T) {
 	})
 
 	t.Run("SurvivesPeriodicReconcileFlipOnceObservedReady", func(t *testing.T) {
-		// "a" goes Ready on the first list, then flips back on every later list, while "b"
-		// only becomes Ready on the second list — forcing a second tick to prove "a"'s flip
-		// is ignored rather than un-readying it and stalling the wait.
-		manager := setup(t)
+		// Given "a" Ready on the first list and not Ready later, and "b" Ready from the second list
 		kubernetesClient := withGVRs(client.NewMockKubernetesClient())
 		listCalls := 0
 		kubernetesClient.ListResourcesFunc = func(gvr schema.GroupVersionResource, ns string) (*unstructured.UnstructuredList, error) {
@@ -323,21 +297,21 @@ func TestBaseKubernetesManager_WaitForKustomizations(t *testing.T) {
 			if listCalls > 1 {
 				aStatus, bStatus = "False", "True"
 			}
-			return &unstructured.UnstructuredList{Items: []unstructured.Unstructured{
+			return listOf(
 				kustomizationListItem("a", aStatus, "", ""),
 				kustomizationListItem("b", bStatus, "", ""),
-			}}, nil
+			), nil
 		}
-		manager.client = kubernetesClient
+		manager := setup(t, kubernetesClient)
+		blueprint := &blueprintv1alpha1.Blueprint{Kustomizations: []blueprintv1alpha1.Kustomization{
+			withTimeout("a", 500*time.Millisecond),
+			withTimeout("b", 500*time.Millisecond),
+		}}
 
-		blueprint := &blueprintv1alpha1.Blueprint{
-			Kustomizations: []blueprintv1alpha1.Kustomization{
-				{Name: "a", Timeout: &blueprintv1alpha1.DurationString{Duration: 500 * time.Millisecond}},
-				{Name: "b", Timeout: &blueprintv1alpha1.DurationString{Duration: 500 * time.Millisecond}},
-			},
-		}
+		// When the wait runs
+		err := wait(manager, blueprint)
 
-		err := manager.WaitForKustomizations(context.Background(), blueprint, presenter.NewGroup(context.Background(), "kustomization:"))
+		// Then the flip of "a" is ignored and the wait succeeds on a later tick
 		if err != nil {
 			t.Errorf("Expected no error, got %v", err)
 		}
@@ -347,8 +321,7 @@ func TestBaseKubernetesManager_WaitForKustomizations(t *testing.T) {
 	})
 
 	t.Run("NotFoundKeepsPollingUntilReady", func(t *testing.T) {
-		// Given a kustomization that isn't created yet, then becomes Ready
-		manager := setup(t)
+		// Given a kustomization that is absent from the first list and Ready later
 		kubernetesClient := client.NewMockKubernetesClient()
 		calls := 0
 		kubernetesClient.ListResourcesFunc = func(gvr schema.GroupVersionResource, ns string) (*unstructured.UnstructuredList, error) {
@@ -356,26 +329,17 @@ func TestBaseKubernetesManager_WaitForKustomizations(t *testing.T) {
 			if calls < 2 {
 				return &unstructured.UnstructuredList{}, nil
 			}
-			return &unstructured.UnstructuredList{Items: []unstructured.Unstructured{
-				kustomizationListItem("test-kustomization", "True", "", ""),
-			}}, nil
+			return listOf(kustomizationListItem("test-kustomization", "True", "", "")), nil
 		}
-		manager.client = kubernetesClient
+		manager := setup(t, kubernetesClient)
+		blueprint := &blueprintv1alpha1.Blueprint{Kustomizations: []blueprintv1alpha1.Kustomization{
+			withTimeout("test-kustomization", 500*time.Millisecond),
+		}}
 
-		blueprint := &blueprintv1alpha1.Blueprint{
-			Kustomizations: []blueprintv1alpha1.Kustomization{
-				{
-					Name:    "test-kustomization",
-					Timeout: &blueprintv1alpha1.DurationString{Duration: 500 * time.Millisecond},
-				},
-			},
-		}
+		// When the wait runs
+		err := wait(manager, blueprint)
 
-		// When waiting for kustomizations
-		err := manager.WaitForKustomizations(context.Background(), blueprint, presenter.NewGroup(context.Background(), "kustomization:"))
-
-		// Then the wait succeeds once the resource appears, rather than treating a missing
-		// list entry as fatal
+		// Then the wait succeeds once the kustomization appears
 		if err != nil {
 			t.Errorf("Expected no error, got %v", err)
 		}
@@ -385,11 +349,7 @@ func TestBaseKubernetesManager_WaitForKustomizations(t *testing.T) {
 	})
 
 	t.Run("CRDNotYetRegisteredIsToleratedForFullTimeout", func(t *testing.T) {
-		// Given the Kustomization CRD isn't registered yet (a bootstrap race between Flux's own
-		// rollout and this wait starting), so every list fails not-found, then the CRD lands and
-		// the kustomization is Ready — well past the short error-tolerance floor
-		manager := setup(t)
-		manager.Timing.KustomizationWaitMinErrorDuration = 150 * time.Millisecond
+		// Given a list that fails not-found past the error floor and then shows a Ready kustomization
 		kubernetesClient := client.NewMockKubernetesClient()
 		calls := 0
 		kubernetesClient.ListResourcesFunc = func(gvr schema.GroupVersionResource, ns string) (*unstructured.UnstructuredList, error) {
@@ -397,35 +357,25 @@ func TestBaseKubernetesManager_WaitForKustomizations(t *testing.T) {
 			if calls <= 5 {
 				return nil, fmt.Errorf("the server could not find the requested resource")
 			}
-			return &unstructured.UnstructuredList{Items: []unstructured.Unstructured{
-				kustomizationListItem("test-kustomization", "True", "", ""),
-			}}, nil
+			return listOf(kustomizationListItem("test-kustomization", "True", "", "")), nil
 		}
-		manager.client = kubernetesClient
+		manager := setup(t, kubernetesClient)
+		manager.Timing.KustomizationWaitMinErrorDuration = 150 * time.Millisecond
+		blueprint := &blueprintv1alpha1.Blueprint{Kustomizations: []blueprintv1alpha1.Kustomization{
+			withTimeout("test-kustomization", 10*time.Minute),
+		}}
 
-		blueprint := &blueprintv1alpha1.Blueprint{
-			Kustomizations: []blueprintv1alpha1.Kustomization{
-				{
-					Name:    "test-kustomization",
-					Timeout: &blueprintv1alpha1.DurationString{Duration: 10 * time.Minute},
-				},
-			},
-		}
+		// When the wait runs
+		err := wait(manager, blueprint)
 
-		// When waiting for kustomizations
-		err := manager.WaitForKustomizations(context.Background(), blueprint, presenter.NewGroup(context.Background(), "kustomization:"))
-
-		// Then a not-found list error is free — it never counts against the error budget, so the
-		// wait outlasts the short error-tolerance floor and succeeds once the CRD is registered
+		// Then the not-found errors do not use the error budget and the wait succeeds
 		if err != nil {
 			t.Errorf("Expected no error, got %v", err)
 		}
 	})
 
 	t.Run("NilListWithNoErrorIsTreatedAsEmpty", func(t *testing.T) {
-		// Given a client whose ListResources returns a nil list with no error — an edge case a
-		// real client shouldn't produce, but one a test double or future implementation could
-		manager := setup(t)
+		// Given a client that returns a nil list with no error before the kustomization is Ready
 		kubernetesClient := client.NewMockKubernetesClient()
 		calls := 0
 		kubernetesClient.ListResourcesFunc = func(gvr schema.GroupVersionResource, ns string) (*unstructured.UnstructuredList, error) {
@@ -433,61 +383,40 @@ func TestBaseKubernetesManager_WaitForKustomizations(t *testing.T) {
 			if calls < 2 {
 				return nil, nil
 			}
-			return &unstructured.UnstructuredList{Items: []unstructured.Unstructured{
-				kustomizationListItem("test-kustomization", "True", "", ""),
-			}}, nil
+			return listOf(kustomizationListItem("test-kustomization", "True", "", "")), nil
 		}
-		manager.client = kubernetesClient
+		manager := setup(t, kubernetesClient)
+		blueprint := &blueprintv1alpha1.Blueprint{Kustomizations: []blueprintv1alpha1.Kustomization{
+			withTimeout("test-kustomization", 500*time.Millisecond),
+		}}
 
-		blueprint := &blueprintv1alpha1.Blueprint{
-			Kustomizations: []blueprintv1alpha1.Kustomization{
-				{
-					Name:    "test-kustomization",
-					Timeout: &blueprintv1alpha1.DurationString{Duration: 500 * time.Millisecond},
-				},
-			},
-		}
+		// When the wait runs
+		err := wait(manager, blueprint)
 
-		// When waiting for kustomizations
-		err := manager.WaitForKustomizations(context.Background(), blueprint, presenter.NewGroup(context.Background(), "kustomization:"))
-
-		// Then the nil list is treated as empty (not-ready-yet) rather than panicking
+		// Then the nil list is treated as empty and the wait succeeds
 		if err != nil {
 			t.Errorf("Expected no error, got %v", err)
 		}
 	})
 
 	t.Run("AuthErrorGetsTheSameBudgetAsAnyOtherError", func(t *testing.T) {
-		// Given ListResources returns a typed auth error (the way the real dynamic client
-		// surfaces it) on every poll, with no recovery in sight — mirroring
-		// kustomize-controller and helm-controller, which don't special-case auth/RBAC/TLS
-		// as terminal either: their own dependency-readiness checks retry-with-backoff on
-		// any apiserver error, reserving no-retry for static errors in the object's own spec
-		manager := setup(t)
-		manager.Timing.KustomizationWaitMinErrorDuration = 150 * time.Millisecond
+		// Given a list that returns a typed auth error on every poll
 		kubernetesClient := client.NewMockKubernetesClient()
 		calls := 0
 		kubernetesClient.ListResourcesFunc = func(gvr schema.GroupVersionResource, ns string) (*unstructured.UnstructuredList, error) {
 			calls++
 			return nil, apierrors.NewUnauthorized("cluster credentials rejected")
 		}
-		manager.client = kubernetesClient
+		manager := setup(t, kubernetesClient)
+		manager.Timing.KustomizationWaitMinErrorDuration = 150 * time.Millisecond
+		blueprint := &blueprintv1alpha1.Blueprint{Kustomizations: []blueprintv1alpha1.Kustomization{
+			withTimeout("test-kustomization", 5*time.Second),
+		}}
 
-		blueprint := &blueprintv1alpha1.Blueprint{
-			Kustomizations: []blueprintv1alpha1.Kustomization{
-				{
-					Name:    "test-kustomization",
-					Timeout: &blueprintv1alpha1.DurationString{Duration: 5 * time.Second},
-				},
-			},
-		}
+		// When the wait runs
+		err := wait(manager, blueprint)
 
-		// When waiting for kustomizations
-		err := manager.WaitForKustomizations(context.Background(), blueprint, presenter.NewGroup(context.Background(), "kustomization:"))
-
-		// Then the wait retries across the same error budget as any other error — it doesn't
-		// fail on the very first occurrence — but still ends once the budget is exceeded,
-		// well before the much longer total timeout, with the underlying error surfaced
+		// Then the wait retries and fails on the error budget with the underlying error
 		if err == nil {
 			t.Fatal("Expected error, got nil")
 		}
@@ -503,36 +432,27 @@ func TestBaseKubernetesManager_WaitForKustomizations(t *testing.T) {
 	})
 
 	t.Run("BuildFailedConditionFailsImmediately", func(t *testing.T) {
-		// Given a Kustomization stuck reporting a Ready=False/BuildFailed condition on every
-		// poll (e.g. a spec.components path composed against a source that no longer has it) —
-		// a state re-polling can never resolve, unlike a raw list error
-		manager := setup(t)
-		manager.Timing.KustomizationWaitMinErrorDuration = 150 * time.Millisecond
+		// Given a kustomization with a Ready=False/BuildFailed condition on every poll
 		kubernetesClient := client.NewMockKubernetesClient()
 		calls := 0
 		kubernetesClient.ListResourcesFunc = func(gvr schema.GroupVersionResource, ns string) (*unstructured.UnstructuredList, error) {
 			calls++
-			return &unstructured.UnstructuredList{Items: []unstructured.Unstructured{
+			return listOf(
 				kustomizationListItem("crds-core", "False", meta.BuildFailedReason, "kustomize build failed: accumulating components: no such file or directory"),
-			}}, nil
+			), nil
 		}
-		manager.client = kubernetesClient
+		manager := setup(t, kubernetesClient)
+		manager.Timing.KustomizationWaitMinErrorDuration = 150 * time.Millisecond
+		blueprint := &blueprintv1alpha1.Blueprint{Kustomizations: []blueprintv1alpha1.Kustomization{
+			withTimeout("crds-core", 10*time.Minute),
+		}}
 
-		blueprint := &blueprintv1alpha1.Blueprint{
-			Kustomizations: []blueprintv1alpha1.Kustomization{
-				{
-					Name:    "crds-core",
-					Timeout: &blueprintv1alpha1.DurationString{Duration: 10 * time.Minute},
-				},
-			},
-		}
-
+		// When the wait runs
 		start := time.Now()
-		err := manager.WaitForKustomizations(context.Background(), blueprint, presenter.NewGroup(context.Background(), "kustomization:"))
+		err := wait(manager, blueprint)
 		elapsed := time.Since(start)
 
-		// Then it fails immediately — well inside the error-streak budget, let alone the
-		// 10-minute timeout — naming the kustomization, reason, and underlying message
+		// Then the wait fails on the first tick and names the kustomization and message
 		if err == nil {
 			t.Fatal("Expected error, got nil")
 		}
@@ -548,16 +468,15 @@ func TestBaseKubernetesManager_WaitForKustomizations(t *testing.T) {
 	})
 
 	t.Run("FailsTheStepOfTheFailedKustomizationOnly", func(t *testing.T) {
-		// Given "a" with a BuildFailed condition and "b" still progressing, and a recording presenter
-		manager := setup(t)
+		// Given "a" with a BuildFailed condition, "b" still progressing, and a recording presenter
 		kubernetesClient := withGVRs(client.NewMockKubernetesClient())
 		kubernetesClient.ListResourcesFunc = func(gvr schema.GroupVersionResource, ns string) (*unstructured.UnstructuredList, error) {
-			return &unstructured.UnstructuredList{Items: []unstructured.Unstructured{
+			return listOf(
 				kustomizationListItem("a", "False", meta.BuildFailedReason, "kustomize build failed"),
 				kustomizationListItem("b", "False", "Progressing", "still reconciling"),
-			}}, nil
+			), nil
 		}
-		manager.client = kubernetesClient
+		manager := setup(t, kubernetesClient)
 		ctx, rec := recordProgress(t)
 		blueprint := &blueprintv1alpha1.Blueprint{Kustomizations: []blueprintv1alpha1.Kustomization{{Name: "a"}, {Name: "b"}}}
 
@@ -580,24 +499,20 @@ func TestBaseKubernetesManager_WaitForKustomizations(t *testing.T) {
 	})
 
 	t.Run("ArtifactFailedFailsImmediately", func(t *testing.T) {
-		// Given the other hard-failure reason kustomize-controller reports on Ready=False. An
-		// artifact fetch failure never resolves on retry either.
-		manager := setup(t)
+		// Given a kustomization with a Ready=False/ArtifactFailed condition
 		kubernetesClient := client.NewMockKubernetesClient()
 		kubernetesClient.ListResourcesFunc = func(gvr schema.GroupVersionResource, ns string) (*unstructured.UnstructuredList, error) {
-			return &unstructured.UnstructuredList{Items: []unstructured.Unstructured{
-				kustomizationListItem("test-kustomization", "False", meta.ArtifactFailedReason, "boom"),
-			}}, nil
+			return listOf(kustomizationListItem("test-kustomization", "False", meta.ArtifactFailedReason, "boom")), nil
 		}
-		manager.client = kubernetesClient
+		manager := setup(t, kubernetesClient)
+		blueprint := &blueprintv1alpha1.Blueprint{Kustomizations: []blueprintv1alpha1.Kustomization{
+			withTimeout("test-kustomization", 10*time.Minute),
+		}}
 
-		blueprint := &blueprintv1alpha1.Blueprint{
-			Kustomizations: []blueprintv1alpha1.Kustomization{
-				{Name: "test-kustomization", Timeout: &blueprintv1alpha1.DurationString{Duration: 10 * time.Minute}},
-			},
-		}
+		// When the wait runs
+		err := wait(manager, blueprint)
 
-		err := manager.WaitForKustomizations(context.Background(), blueprint, presenter.NewGroup(context.Background(), "kustomization:"))
+		// Then the wait fails with the underlying message
 		if err == nil {
 			t.Fatal("Expected an immediate failure for ArtifactFailed, got nil")
 		}
@@ -607,35 +522,25 @@ func TestBaseKubernetesManager_WaitForKustomizations(t *testing.T) {
 	})
 
 	t.Run("ReconciliationFailedRecoversWithinBudgetSucceeds", func(t *testing.T) {
-		// Given a Kustomization that reports ReconciliationFailed for a couple of ticks. This is
-		// the same transient admission-webhook race kustomize-controller resolves on its own next
-		// retry. The Kustomization then recovers to Ready well inside the error-budget window.
-		manager := setup(t)
+		// Given a kustomization that reports ReconciliationFailed for two ticks and then Ready
 		kubernetesClient := client.NewMockKubernetesClient()
 		calls := 0
 		kubernetesClient.ListResourcesFunc = func(gvr schema.GroupVersionResource, ns string) (*unstructured.UnstructuredList, error) {
 			calls++
 			if calls < 3 {
-				return &unstructured.UnstructuredList{Items: []unstructured.Unstructured{
-					kustomizationListItem("test-kustomization", "False", meta.ReconciliationFailedReason, "webhook not ready"),
-				}}, nil
+				return listOf(kustomizationListItem("test-kustomization", "False", meta.ReconciliationFailedReason, "webhook not ready")), nil
 			}
-			return &unstructured.UnstructuredList{Items: []unstructured.Unstructured{
-				kustomizationListItem("test-kustomization", "True", "", ""),
-			}}, nil
+			return listOf(kustomizationListItem("test-kustomization", "True", "", "")), nil
 		}
-		manager.client = kubernetesClient
+		manager := setup(t, kubernetesClient)
+		blueprint := &blueprintv1alpha1.Blueprint{Kustomizations: []blueprintv1alpha1.Kustomization{
+			withTimeout("test-kustomization", time.Second),
+		}}
 
-		blueprint := &blueprintv1alpha1.Blueprint{
-			Kustomizations: []blueprintv1alpha1.Kustomization{
-				{Name: "test-kustomization", Timeout: &blueprintv1alpha1.DurationString{Duration: time.Second}},
-			},
-		}
+		// When the wait runs
+		err := wait(manager, blueprint)
 
-		// When waiting for kustomizations
-		err := manager.WaitForKustomizations(context.Background(), blueprint, presenter.NewGroup(context.Background(), "kustomization:"))
-
-		// Then the transient failure does not abort the wait. It recovers like a normal retry.
+		// Then the transient failure is tolerated and the wait succeeds
 		if err != nil {
 			t.Errorf("Expected ReconciliationFailed to be tolerated within the error budget, got %v", err)
 		}
@@ -645,28 +550,20 @@ func TestBaseKubernetesManager_WaitForKustomizations(t *testing.T) {
 	})
 
 	t.Run("ReconciliationFailedExceedingBudgetFails", func(t *testing.T) {
-		// Given a Kustomization that reports ReconciliationFailed on every poll, past the
-		// error-budget window. This is a genuinely stuck reconcile, not a transient race.
-		manager := setup(t)
+		// Given a kustomization that reports ReconciliationFailed on every poll
 		kubernetesClient := client.NewMockKubernetesClient()
 		kubernetesClient.ListResourcesFunc = func(gvr schema.GroupVersionResource, ns string) (*unstructured.UnstructuredList, error) {
-			return &unstructured.UnstructuredList{Items: []unstructured.Unstructured{
-				kustomizationListItem("test-kustomization", "False", meta.ReconciliationFailedReason, "boom"),
-			}}, nil
+			return listOf(kustomizationListItem("test-kustomization", "False", meta.ReconciliationFailedReason, "boom")), nil
 		}
-		manager.client = kubernetesClient
+		manager := setup(t, kubernetesClient)
+		blueprint := &blueprintv1alpha1.Blueprint{Kustomizations: []blueprintv1alpha1.Kustomization{
+			withTimeout("test-kustomization", time.Second),
+		}}
 
-		blueprint := &blueprintv1alpha1.Blueprint{
-			Kustomizations: []blueprintv1alpha1.Kustomization{
-				{Name: "test-kustomization", Timeout: &blueprintv1alpha1.DurationString{Duration: time.Second}},
-			},
-		}
+		// When the wait runs
+		err := wait(manager, blueprint)
 
-		// When waiting for kustomizations
-		err := manager.WaitForKustomizations(context.Background(), blueprint, presenter.NewGroup(context.Background(), "kustomization:"))
-
-		// Then it eventually fails once the failure streak exceeds the error budget. The error
-		// names the underlying message instead of tolerating the failure forever.
+		// Then the wait fails on the error budget with the underlying message
 		if err == nil {
 			t.Fatal("Expected an error once the error budget is exceeded, got nil")
 		}
@@ -679,33 +576,23 @@ func TestBaseKubernetesManager_WaitForKustomizations(t *testing.T) {
 	})
 
 	t.Run("ReconciliationFailedStreakSurvivesReadyFlippingToUnknown", func(t *testing.T) {
-		// Given a Kustomization whose Ready condition alternates between ReconciliationFailed and
-		// Unknown/Progressing on every poll, as kustomize-controller reports it while it keeps
-		// retrying a reconcile that can never succeed
-		manager := setup(t)
+		// Given a Ready condition that alternates between ReconciliationFailed and Unknown/Progressing
 		kubernetesClient := client.NewMockKubernetesClient()
 		calls := 0
 		kubernetesClient.ListResourcesFunc = func(gvr schema.GroupVersionResource, ns string) (*unstructured.UnstructuredList, error) {
 			calls++
 			if calls%2 == 0 {
-				return &unstructured.UnstructuredList{Items: []unstructured.Unstructured{
-					kustomizationListItem("test-kustomization", "Unknown", meta.ProgressingReason, "Reconciliation in progress"),
-				}}, nil
+				return listOf(kustomizationListItem("test-kustomization", "Unknown", meta.ProgressingReason, "Reconciliation in progress")), nil
 			}
-			return &unstructured.UnstructuredList{Items: []unstructured.Unstructured{
-				kustomizationListItem("test-kustomization", "False", meta.ReconciliationFailedReason, "dry-run failed"),
-			}}, nil
+			return listOf(kustomizationListItem("test-kustomization", "False", meta.ReconciliationFailedReason, "dry-run failed")), nil
 		}
-		manager.client = kubernetesClient
+		manager := setup(t, kubernetesClient)
+		blueprint := &blueprintv1alpha1.Blueprint{Kustomizations: []blueprintv1alpha1.Kustomization{
+			withTimeout("test-kustomization", 2*time.Second),
+		}}
 
-		blueprint := &blueprintv1alpha1.Blueprint{
-			Kustomizations: []blueprintv1alpha1.Kustomization{
-				{Name: "test-kustomization", Timeout: &blueprintv1alpha1.DurationString{Duration: 2 * time.Second}},
-			},
-		}
-
-		// When waiting for kustomizations
-		err := manager.WaitForKustomizations(context.Background(), blueprint, presenter.NewGroup(context.Background(), "kustomization:"))
+		// When the wait runs
+		err := wait(manager, blueprint)
 
 		// Then the failure budget still applies and the wait fails before the overall timeout
 		if err == nil {
@@ -720,31 +607,28 @@ func TestBaseKubernetesManager_WaitForKustomizations(t *testing.T) {
 	})
 
 	t.Run("FailureBudgetUsesTheFailingKustomizationsOwnTimeout", func(t *testing.T) {
-		// Given a blueprint whose longest dependency chain makes the total timeout large, and a
-		// dependent Kustomization with a short timeout of its own that fails on every poll
-		manager := setup(t)
+		// Given a large total timeout and a failing dependent kustomization with a short timeout
 		kubernetesClient := client.NewMockKubernetesClient()
 		kubernetesClient.ListResourcesFunc = func(gvr schema.GroupVersionResource, ns string) (*unstructured.UnstructuredList, error) {
-			return &unstructured.UnstructuredList{Items: []unstructured.Unstructured{
+			return listOf(
 				kustomizationListItem("base", "True", "", ""),
 				kustomizationListItem("slow", "False", meta.ReconciliationFailedReason, "dry-run failed"),
-			}}, nil
+			), nil
 		}
-		manager.client = kubernetesClient
+		manager := setup(t, kubernetesClient)
+		slow := withTimeout("slow", 200*time.Millisecond)
+		slow.DependsOn = []string{"base"}
+		blueprint := &blueprintv1alpha1.Blueprint{Kustomizations: []blueprintv1alpha1.Kustomization{
+			withTimeout("base", 4*time.Second),
+			slow,
+		}}
 
-		blueprint := &blueprintv1alpha1.Blueprint{
-			Kustomizations: []blueprintv1alpha1.Kustomization{
-				{Name: "base", Timeout: &blueprintv1alpha1.DurationString{Duration: 4 * time.Second}},
-				{Name: "slow", DependsOn: []string{"base"}, Timeout: &blueprintv1alpha1.DurationString{Duration: 200 * time.Millisecond}},
-			},
-		}
-
-		// When waiting for kustomizations
+		// When the wait runs
 		started := time.Now()
-		err := manager.WaitForKustomizations(context.Background(), blueprint, presenter.NewGroup(context.Background(), "kustomization:"))
+		err := wait(manager, blueprint)
 		elapsed := time.Since(started)
 
-		// Then the wait fails near the failing Kustomization's own timeout, not a quarter of the total
+		// Then the wait fails near the own timeout of the failing kustomization
 		if err == nil || !strings.Contains(err.Error(), "dry-run failed") {
 			t.Fatalf("Expected the error-budget failure, got: %v", err)
 		}
@@ -754,32 +638,28 @@ func TestBaseKubernetesManager_WaitForKustomizations(t *testing.T) {
 	})
 
 	t.Run("FailureBudgetNeverDropsBelowTheMinimum", func(t *testing.T) {
-		// Given a failing Kustomization whose own timeout is shorter than the minimum error
-		// duration, in a blueprint whose total timeout is large
-		manager := setup(t)
+		// Given a failing kustomization whose own timeout is shorter than the minimum error duration
 		kubernetesClient := client.NewMockKubernetesClient()
 		kubernetesClient.ListResourcesFunc = func(gvr schema.GroupVersionResource, ns string) (*unstructured.UnstructuredList, error) {
-			return &unstructured.UnstructuredList{Items: []unstructured.Unstructured{
+			return listOf(
 				kustomizationListItem("base", "True", "", ""),
 				kustomizationListItem("quick", "False", meta.ReconciliationFailedReason, "dry-run failed"),
-			}}, nil
+			), nil
 		}
-		manager.client = kubernetesClient
+		manager := setup(t, kubernetesClient)
+		quick := withTimeout("quick", 20*time.Millisecond)
+		quick.DependsOn = []string{"base"}
+		blueprint := &blueprintv1alpha1.Blueprint{Kustomizations: []blueprintv1alpha1.Kustomization{
+			withTimeout("base", 4*time.Second),
+			quick,
+		}}
 
-		blueprint := &blueprintv1alpha1.Blueprint{
-			Kustomizations: []blueprintv1alpha1.Kustomization{
-				{Name: "base", Timeout: &blueprintv1alpha1.DurationString{Duration: 4 * time.Second}},
-				{Name: "quick", DependsOn: []string{"base"}, Timeout: &blueprintv1alpha1.DurationString{Duration: 20 * time.Millisecond}},
-			},
-		}
-
-		// When waiting for kustomizations
+		// When the wait runs
 		started := time.Now()
-		err := manager.WaitForKustomizations(context.Background(), blueprint, presenter.NewGroup(context.Background(), "kustomization:"))
+		err := wait(manager, blueprint)
 		elapsed := time.Since(started)
 
-		// Then the wait fails only after the minimum error duration, measured from the first observed
-		// failure one poll in, not at the shorter own timeout
+		// Then the wait fails only after the minimum error duration from the first observed failure
 		if err == nil || !strings.Contains(err.Error(), "dry-run failed") {
 			t.Fatalf("Expected the error-budget failure, got: %v", err)
 		}
@@ -790,48 +670,35 @@ func TestBaseKubernetesManager_WaitForKustomizations(t *testing.T) {
 	})
 
 	t.Run("FailureStreakRestartsAfterAFullBudgetWithoutFailures", func(t *testing.T) {
-		// Given a Kustomization that fails once, reports Progressing for longer than the budget,
-		// fails once more, then becomes Ready
-		manager := setup(t)
+		// Given a kustomization that fails, progresses past the budget, fails again, and becomes Ready
 		kubernetesClient := client.NewMockKubernetesClient()
 		calls := 0
 		kubernetesClient.ListResourcesFunc = func(gvr schema.GroupVersionResource, ns string) (*unstructured.UnstructuredList, error) {
 			calls++
 			switch {
 			case calls == 1, calls == 17:
-				return &unstructured.UnstructuredList{Items: []unstructured.Unstructured{
-					kustomizationListItem("test-kustomization", "False", meta.ReconciliationFailedReason, "transient"),
-				}}, nil
+				return listOf(kustomizationListItem("test-kustomization", "False", meta.ReconciliationFailedReason, "transient")), nil
 			case calls > 17:
-				return &unstructured.UnstructuredList{Items: []unstructured.Unstructured{
-					kustomizationListItem("test-kustomization", "True", "", ""),
-				}}, nil
+				return listOf(kustomizationListItem("test-kustomization", "True", "", "")), nil
 			}
-			return &unstructured.UnstructuredList{Items: []unstructured.Unstructured{
-				kustomizationListItem("test-kustomization", "False", meta.ProgressingReason, ""),
-			}}, nil
+			return listOf(kustomizationListItem("test-kustomization", "False", meta.ProgressingReason, "")), nil
 		}
-		manager.client = kubernetesClient
+		manager := setup(t, kubernetesClient)
+		blueprint := &blueprintv1alpha1.Blueprint{Kustomizations: []blueprintv1alpha1.Kustomization{
+			withTimeout("test-kustomization", 2*time.Second),
+		}}
 
-		blueprint := &blueprintv1alpha1.Blueprint{
-			Kustomizations: []blueprintv1alpha1.Kustomization{
-				{Name: "test-kustomization", Timeout: &blueprintv1alpha1.DurationString{Duration: 2 * time.Second}},
-			},
-		}
+		// When the wait runs
+		err := wait(manager, blueprint)
 
-		// When waiting for kustomizations
-		err := manager.WaitForKustomizations(context.Background(), blueprint, presenter.NewGroup(context.Background(), "kustomization:"))
-
-		// Then the old failure no longer counts against the new one, and the wait succeeds
+		// Then the old failure does not count against the new one and the wait succeeds
 		if err != nil {
 			t.Errorf("Expected the stale failure streak to expire, got %v", err)
 		}
 	})
 
 	t.Run("ProgressingConditionKeepsPollingUntilReady", func(t *testing.T) {
-		// Given a Kustomization that reports Ready=False/Progressing — a normal in-flight
-		// state, not a terminal failure — before becoming Ready
-		manager := setup(t)
+		// Given a kustomization that reports Ready=False/Progressing before it becomes Ready
 		kubernetesClient := client.NewMockKubernetesClient()
 		calls := 0
 		kubernetesClient.ListResourcesFunc = func(gvr schema.GroupVersionResource, ns string) (*unstructured.UnstructuredList, error) {
@@ -841,19 +708,17 @@ func TestBaseKubernetesManager_WaitForKustomizations(t *testing.T) {
 			if calls >= 3 {
 				status, reason = "True", ""
 			}
-			return &unstructured.UnstructuredList{Items: []unstructured.Unstructured{
-				kustomizationListItem("test-kustomization", status, reason, ""),
-			}}, nil
+			return listOf(kustomizationListItem("test-kustomization", status, reason, "")), nil
 		}
-		manager.client = kubernetesClient
+		manager := setup(t, kubernetesClient)
+		blueprint := &blueprintv1alpha1.Blueprint{Kustomizations: []blueprintv1alpha1.Kustomization{
+			withTimeout("test-kustomization", 500*time.Millisecond),
+		}}
 
-		blueprint := &blueprintv1alpha1.Blueprint{
-			Kustomizations: []blueprintv1alpha1.Kustomization{
-				{Name: "test-kustomization", Timeout: &blueprintv1alpha1.DurationString{Duration: 500 * time.Millisecond}},
-			},
-		}
+		// When the wait runs
+		err := wait(manager, blueprint)
 
-		err := manager.WaitForKustomizations(context.Background(), blueprint, presenter.NewGroup(context.Background(), "kustomization:"))
+		// Then the wait keeps polling and succeeds
 		if err != nil {
 			t.Errorf("Expected Progressing to keep polling rather than fail, got %v", err)
 		}
@@ -862,10 +727,64 @@ func TestBaseKubernetesManager_WaitForKustomizations(t *testing.T) {
 		}
 	})
 
+	t.Run("ReportsMultiLineFailureMessageOnOneLine", func(t *testing.T) {
+		// Given a kustomization with a multi-line ReconciliationFailed message before it becomes Ready
+		kubernetesClient := client.NewMockKubernetesClient()
+		calls := 0
+		kubernetesClient.ListResourcesFunc = func(gvr schema.GroupVersionResource, ns string) (*unstructured.UnstructuredList, error) {
+			calls++
+			if calls < 3 {
+				return listOf(kustomizationListItem("b", "False", meta.ReconciliationFailedReason, "dry-run failed\n  spec.selector: Required value")), nil
+			}
+			return listOf(kustomizationListItem("b", "True", "", "")), nil
+		}
+		manager := setup(t, kubernetesClient)
+		ctx, rec := recordProgress(t)
+		blueprint := &blueprintv1alpha1.Blueprint{Kustomizations: []blueprintv1alpha1.Kustomization{withTimeout("b", time.Second)}}
+
+		// When the wait runs
+		err := manager.WaitForKustomizations(ctx, blueprint, presenter.NewGroup(ctx, "kustomization:"))
+
+		// Then the progress line joins the reason and the flattened message on one line
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		want := "ReconciliationFailed: dry-run failed spec.selector: Required value"
+		if !slices.Contains(rec.progress(), want) {
+			t.Errorf("Expected progress %q, got %v", want, rec.progress())
+		}
+	})
+
+	t.Run("TruncatesLongFailureMessageInProgress", func(t *testing.T) {
+		// Given a kustomization with a failure message longer than the limit before it becomes Ready
+		kubernetesClient := client.NewMockKubernetesClient()
+		calls := 0
+		kubernetesClient.ListResourcesFunc = func(gvr schema.GroupVersionResource, ns string) (*unstructured.UnstructuredList, error) {
+			calls++
+			if calls < 3 {
+				return listOf(kustomizationListItem("b", "False", meta.ReconciliationFailedReason, strings.Repeat("x", 250))), nil
+			}
+			return listOf(kustomizationListItem("b", "True", "", "")), nil
+		}
+		manager := setup(t, kubernetesClient)
+		ctx, rec := recordProgress(t)
+		blueprint := &blueprintv1alpha1.Blueprint{Kustomizations: []blueprintv1alpha1.Kustomization{withTimeout("b", time.Second)}}
+
+		// When the wait runs
+		err := manager.WaitForKustomizations(ctx, blueprint, presenter.NewGroup(ctx, "kustomization:"))
+
+		// Then the progress line cuts the message at 200 characters and marks the cut
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		want := "ReconciliationFailed: " + strings.Repeat("x", 200) + "..."
+		if !slices.Contains(rec.progress(), want) {
+			t.Errorf("Expected progress %q, got %v", want, rec.progress())
+		}
+	})
+
 	t.Run("TransientErrorIsToleratedThenSucceeds", func(t *testing.T) {
-		// Given ListResources fails with a non-fatal error a few times (e.g. a brief
-		// apiserver restart) but recovers well within the error-tolerance budget
-		manager := setup(t)
+		// Given a list that fails five times and then recovers within the error budget
 		kubernetesClient := client.NewMockKubernetesClient()
 		calls := 0
 		kubernetesClient.ListResourcesFunc = func(gvr schema.GroupVersionResource, ns string) (*unstructured.UnstructuredList, error) {
@@ -873,58 +792,40 @@ func TestBaseKubernetesManager_WaitForKustomizations(t *testing.T) {
 			if calls <= 5 {
 				return nil, fmt.Errorf("connection refused")
 			}
-			return &unstructured.UnstructuredList{Items: []unstructured.Unstructured{
-				kustomizationListItem("test-kustomization", "True", "", ""),
-			}}, nil
+			return listOf(kustomizationListItem("test-kustomization", "True", "", "")), nil
 		}
-		manager.client = kubernetesClient
+		manager := setup(t, kubernetesClient)
+		blueprint := &blueprintv1alpha1.Blueprint{Kustomizations: []blueprintv1alpha1.Kustomization{
+			withTimeout("test-kustomization", 10*time.Minute),
+		}}
 
-		blueprint := &blueprintv1alpha1.Blueprint{
-			Kustomizations: []blueprintv1alpha1.Kustomization{
-				{
-					Name:    "test-kustomization",
-					Timeout: &blueprintv1alpha1.DurationString{Duration: 10 * time.Minute},
-				},
-			},
-		}
+		// When the wait runs
+		err := wait(manager, blueprint)
 
-		// When waiting for kustomizations
-		err := manager.WaitForKustomizations(context.Background(), blueprint, presenter.NewGroup(context.Background(), "kustomization:"))
-
-		// Then the transient errors are tolerated — well past the old fixed 3-strike limit —
-		// and the wait succeeds once the list recovers
+		// Then the transient errors are tolerated and the wait succeeds
 		if err != nil {
 			t.Errorf("Expected no error, got %v", err)
 		}
 	})
 
 	t.Run("TransientErrorStreakExceedingBudgetEventuallyFails", func(t *testing.T) {
-		// Given ListResources fails transiently on every poll, with no recovery in sight, and
-		// an error-tolerance budget dominated by the small floor (well below the total timeout)
-		manager := setup(t)
-		manager.Timing.KustomizationWaitMinErrorDuration = 150 * time.Millisecond
+		// Given a list that fails on every poll with an error budget below the total timeout
 		kubernetesClient := client.NewMockKubernetesClient()
 		calls := 0
 		kubernetesClient.ListResourcesFunc = func(gvr schema.GroupVersionResource, ns string) (*unstructured.UnstructuredList, error) {
 			calls++
 			return nil, fmt.Errorf("connection refused")
 		}
-		manager.client = kubernetesClient
+		manager := setup(t, kubernetesClient)
+		manager.Timing.KustomizationWaitMinErrorDuration = 150 * time.Millisecond
+		blueprint := &blueprintv1alpha1.Blueprint{Kustomizations: []blueprintv1alpha1.Kustomization{
+			withTimeout("test-kustomization", 5*time.Second),
+		}}
 
-		blueprint := &blueprintv1alpha1.Blueprint{
-			Kustomizations: []blueprintv1alpha1.Kustomization{
-				{
-					Name:    "test-kustomization",
-					Timeout: &blueprintv1alpha1.DurationString{Duration: 5 * time.Second},
-				},
-			},
-		}
+		// When the wait runs
+		err := wait(manager, blueprint)
 
-		// When waiting for kustomizations
-		err := manager.WaitForKustomizations(context.Background(), blueprint, presenter.NewGroup(context.Background(), "kustomization:"))
-
-		// Then the wait ends once the error streak exceeds its time budget — well before the
-		// much longer total timeout — with a message distinct from the generic timeout error
+		// Then the wait fails with the error-budget message and the underlying error
 		if err == nil {
 			t.Fatal("Expected error, got nil")
 		}
@@ -943,41 +844,29 @@ func TestBaseKubernetesManager_WaitForKustomizations(t *testing.T) {
 	})
 
 	t.Run("ErrorStreakResetsAfterAnIntermediateSuccess", func(t *testing.T) {
-		// Given ListResources alternates between short transient-error streaks and single
-		// successful ticks, with no streak individually exceeding the error budget
-		manager := setup(t)
+		// Given short error streaks split by clean ticks, and Ready from the tenth call
 		kubernetesClient := client.NewMockKubernetesClient()
 		calls := 0
 		kubernetesClient.ListResourcesFunc = func(gvr schema.GroupVersionResource, ns string) (*unstructured.UnstructuredList, error) {
 			calls++
-			// Two failures, then one clean (not-yet-ready) tick, repeated, then Ready for good
-			// from call 10 on. The clean tick has no error, so it resets the streak.
 			if calls >= 10 || calls%3 == 0 {
 				readyStatus := "False"
 				if calls >= 10 {
 					readyStatus = "True"
 				}
-				return &unstructured.UnstructuredList{Items: []unstructured.Unstructured{
-					kustomizationListItem("test-kustomization", readyStatus, "", ""),
-				}}, nil
+				return listOf(kustomizationListItem("test-kustomization", readyStatus, "", "")), nil
 			}
 			return nil, fmt.Errorf("connection refused")
 		}
-		manager.client = kubernetesClient
+		manager := setup(t, kubernetesClient)
+		blueprint := &blueprintv1alpha1.Blueprint{Kustomizations: []blueprintv1alpha1.Kustomization{
+			withTimeout("test-kustomization", 10*time.Second),
+		}}
 
-		blueprint := &blueprintv1alpha1.Blueprint{
-			Kustomizations: []blueprintv1alpha1.Kustomization{
-				{
-					Name:    "test-kustomization",
-					Timeout: &blueprintv1alpha1.DurationString{Duration: 10 * time.Second},
-				},
-			},
-		}
+		// When the wait runs
+		err := wait(manager, blueprint)
 
-		// When waiting for kustomizations
-		err := manager.WaitForKustomizations(context.Background(), blueprint, presenter.NewGroup(context.Background(), "kustomization:"))
-
-		// Then no individual streak ever exceeds the budget, so the wait succeeds
+		// Then no streak exceeds the budget and the wait succeeds
 		if err != nil {
 			t.Errorf("Expected no error, got %v", err)
 		}
@@ -987,97 +876,69 @@ func TestBaseKubernetesManager_WaitForKustomizations(t *testing.T) {
 	})
 
 	t.Run("ContextCancelledInterruptsWait", func(t *testing.T) {
-		// Given a kustomization that never becomes Ready and a long internal timeout
-		manager := setup(t)
+		// Given a kustomization that never becomes Ready and a cancelled context
 		kubernetesClient := client.NewMockKubernetesClient()
 		kubernetesClient.ListResourcesFunc = func(gvr schema.GroupVersionResource, ns string) (*unstructured.UnstructuredList, error) {
-			return &unstructured.UnstructuredList{Items: []unstructured.Unstructured{
-				kustomizationListItem("test-kustomization", "False", "", ""),
-			}}, nil
+			return listOf(kustomizationListItem("test-kustomization", "False", "", "")), nil
 		}
-		manager.client = kubernetesClient
-
-		blueprint := &blueprintv1alpha1.Blueprint{
-			Kustomizations: []blueprintv1alpha1.Kustomization{
-				{
-					Name:    "test-kustomization",
-					Timeout: &blueprintv1alpha1.DurationString{Duration: 10 * time.Minute},
-				},
-			},
-		}
-
-		// When the parent context is cancelled
+		manager := setup(t, kubernetesClient)
+		blueprint := &blueprintv1alpha1.Blueprint{Kustomizations: []blueprintv1alpha1.Kustomization{
+			withTimeout("test-kustomization", 10*time.Minute),
+		}}
 		ctx, cancel := context.WithCancel(context.Background())
 		cancel()
 
-		// Then the wait returns promptly with the context error instead of blocking
-		// until the (long) internal timeout, so a caller's SIGTERM/deadline can end it.
+		// When the wait runs
 		err := manager.WaitForKustomizations(ctx, blueprint, presenter.NewGroup(ctx, "kustomization:"))
+
+		// Then the wait returns the context error
 		if err != context.Canceled {
 			t.Errorf("expected context.Canceled, got: %v", err)
 		}
 	})
 
-	t.Run("Timeout", func(t *testing.T) {
-		manager := setup(t)
+	t.Run("TimeoutNamesTheStuckKustomization", func(t *testing.T) {
+		// Given a kustomization that never becomes Ready
 		kubernetesClient := client.NewMockKubernetesClient()
 		kubernetesClient.ListResourcesFunc = func(gvr schema.GroupVersionResource, ns string) (*unstructured.UnstructuredList, error) {
-			return &unstructured.UnstructuredList{Items: []unstructured.Unstructured{
-				kustomizationListItem("test-kustomization", "False", "", ""),
-			}}, nil
+			return listOf(kustomizationListItem("test-kustomization", "False", "", "")), nil
 		}
-		manager.client = kubernetesClient
+		manager := setup(t, kubernetesClient)
+		blueprint := &blueprintv1alpha1.Blueprint{Kustomizations: []blueprintv1alpha1.Kustomization{
+			withTimeout("test-kustomization", 50*time.Millisecond),
+		}}
 
-		blueprint := &blueprintv1alpha1.Blueprint{
-			Kustomizations: []blueprintv1alpha1.Kustomization{
-				{
-					Name: "test-kustomization",
-					Timeout: &blueprintv1alpha1.DurationString{
-						Duration: 50 * time.Millisecond,
-					},
-				},
-			},
-		}
+		// When the wait runs
+		err := wait(manager, blueprint)
 
-		err := manager.WaitForKustomizations(context.Background(), blueprint, presenter.NewGroup(context.Background(), "kustomization:"))
+		// Then a timeout error names the stuck kustomization
 		if err == nil {
-			t.Error("Expected timeout error, got nil")
+			t.Fatal("Expected timeout error, got nil")
 		}
-		// The timeout error names which kustomization is still not Ready so the
-		// operator isn't left with a bare "timeout waiting for kustomizations".
-		if err != nil && !strings.Contains(err.Error(), "test-kustomization") {
+		if !strings.Contains(err.Error(), "test-kustomization") {
 			t.Errorf("Expected timeout error to name the stuck kustomization, got: %v", err)
 		}
 	})
 
 	t.Run("TimeoutSurfacesNotReadyCondition", func(t *testing.T) {
 		// Given a kustomization stuck not-Ready with a diagnostic Flux condition
-		manager := setup(t)
 		kubernetesClient := client.NewMockKubernetesClient()
 		kubernetesClient.ListResourcesFunc = func(gvr schema.GroupVersionResource, ns string) (*unstructured.UnstructuredList, error) {
-			return &unstructured.UnstructuredList{Items: []unstructured.Unstructured{
-				kustomizationListItem("dns", "False", "ReconciliationFailed", "dependency 'flux-system/pki-base' is not ready"),
-			}}, nil
+			return listOf(kustomizationListItem("dns", "False", "ReconciliationFailed", "dependency 'flux-system/pki-base' is not ready")), nil
 		}
 		kubernetesClient.GetResourceFunc = func(gvr schema.GroupVersionResource, ns, name string) (*unstructured.Unstructured, error) {
 			item := kustomizationListItem(name, "False", "ReconciliationFailed", "dependency 'flux-system/pki-base' is not ready")
 			return &item, nil
 		}
-		manager.client = kubernetesClient
+		manager := setup(t, kubernetesClient)
+		blueprint := &blueprintv1alpha1.Blueprint{Kustomizations: []blueprintv1alpha1.Kustomization{
+			withTimeout("dns", 50*time.Millisecond),
+		}}
 
-		blueprint := &blueprintv1alpha1.Blueprint{
-			Kustomizations: []blueprintv1alpha1.Kustomization{
-				{
-					Name:    "dns",
-					Timeout: &blueprintv1alpha1.DurationString{Duration: 50 * time.Millisecond},
-				},
-			},
-		}
+		// When the wait runs
+		err := wait(manager, blueprint)
 
-		// When the wait ends
-		err := manager.WaitForKustomizations(context.Background(), blueprint, presenter.NewGroup(context.Background(), "kustomization:"))
-
-		// Then the error names the kustomization and surfaces the condition reason+message
+		// Then the error names the kustomization and surfaces the condition reason and message
 		if err == nil {
 			t.Fatal("Expected an error, got nil")
 		}
@@ -1089,171 +950,168 @@ func TestBaseKubernetesManager_WaitForKustomizations(t *testing.T) {
 		}
 	})
 
+	t.Run("TimeoutNamesKustomizationsWithoutProbingOnceDescribeBudgetIsSpent", func(t *testing.T) {
+		// Given two kustomizations that never become Ready and a describe budget of zero
+		kubernetesClient := withGVRs(client.NewMockKubernetesClient())
+		kubernetesClient.ListResourcesFunc = func(gvr schema.GroupVersionResource, ns string) (*unstructured.UnstructuredList, error) {
+			return listOf(
+				kustomizationListItem("dns", "False", "", ""),
+				kustomizationListItem("pki-base", "False", "", ""),
+			), nil
+		}
+		called := false
+		kubernetesClient.GetResourceFunc = func(gvr schema.GroupVersionResource, ns, name string) (*unstructured.Unstructured, error) {
+			called = true
+			return &unstructured.Unstructured{}, nil
+		}
+		manager := setup(t, kubernetesClient)
+		manager.Timing.NotReadyDescribeBudget = 0
+		blueprint := &blueprintv1alpha1.Blueprint{Kustomizations: []blueprintv1alpha1.Kustomization{
+			withTimeout("dns", 50*time.Millisecond),
+			withTimeout("pki-base", 50*time.Millisecond),
+		}}
+
+		// When the wait times out
+		err := wait(manager, blueprint)
+
+		// Then the API is never probed and the error names every kustomization
+		if err == nil {
+			t.Fatal("Expected a timeout error, got nil")
+		}
+		if called {
+			t.Error("Expected no GetResource calls once the budget is exhausted")
+		}
+		if !strings.Contains(err.Error(), "dns") || !strings.Contains(err.Error(), "pki-base") {
+			t.Errorf("Expected both kustomizations named, got: %v", err)
+		}
+	})
+
 	t.Run("MissingStatus", func(t *testing.T) {
-		manager := setup(t)
+		// Given a kustomization with no status
 		kubernetesClient := client.NewMockKubernetesClient()
 		kubernetesClient.ListResourcesFunc = func(gvr schema.GroupVersionResource, ns string) (*unstructured.UnstructuredList, error) {
-			return &unstructured.UnstructuredList{Items: []unstructured.Unstructured{
-				{Object: map[string]any{"metadata": map[string]any{"name": "test-kustomization"}}},
-			}}, nil
+			return listOf(unstructured.Unstructured{Object: map[string]any{"metadata": map[string]any{"name": "test-kustomization"}}}), nil
 		}
-		manager.client = kubernetesClient
+		manager := setup(t, kubernetesClient)
+		blueprint := &blueprintv1alpha1.Blueprint{Kustomizations: []blueprintv1alpha1.Kustomization{
+			withTimeout("test-kustomization", 50*time.Millisecond),
+		}}
 
-		blueprint := &blueprintv1alpha1.Blueprint{
-			Kustomizations: []blueprintv1alpha1.Kustomization{
-				{
-					Name: "test-kustomization",
-					Timeout: &blueprintv1alpha1.DurationString{
-						Duration: 50 * time.Millisecond,
-					},
-				},
-			},
-		}
+		// When the wait runs
+		err := wait(manager, blueprint)
 
-		err := manager.WaitForKustomizations(context.Background(), blueprint, presenter.NewGroup(context.Background(), "kustomization:"))
+		// Then a timeout error is returned
 		if err == nil {
 			t.Error("Expected timeout error, got nil")
 		}
 	})
 
 	t.Run("MissingConditions", func(t *testing.T) {
-		manager := setup(t)
+		// Given a kustomization with an empty status
 		kubernetesClient := client.NewMockKubernetesClient()
 		kubernetesClient.ListResourcesFunc = func(gvr schema.GroupVersionResource, ns string) (*unstructured.UnstructuredList, error) {
-			return &unstructured.UnstructuredList{Items: []unstructured.Unstructured{
-				{Object: map[string]any{
-					"metadata": map[string]any{"name": "test-kustomization"},
-					"status":   map[string]any{},
-				}},
-			}}, nil
+			return listOf(unstructured.Unstructured{Object: map[string]any{
+				"metadata": map[string]any{"name": "test-kustomization"},
+				"status":   map[string]any{},
+			}}), nil
 		}
-		manager.client = kubernetesClient
+		manager := setup(t, kubernetesClient)
+		blueprint := &blueprintv1alpha1.Blueprint{Kustomizations: []blueprintv1alpha1.Kustomization{
+			withTimeout("test-kustomization", 50*time.Millisecond),
+		}}
 
-		blueprint := &blueprintv1alpha1.Blueprint{
-			Kustomizations: []blueprintv1alpha1.Kustomization{
-				{
-					Name: "test-kustomization",
-					Timeout: &blueprintv1alpha1.DurationString{
-						Duration: 50 * time.Millisecond,
-					},
-				},
-			},
-		}
+		// When the wait runs
+		err := wait(manager, blueprint)
 
-		err := manager.WaitForKustomizations(context.Background(), blueprint, presenter.NewGroup(context.Background(), "kustomization:"))
+		// Then a timeout error is returned
 		if err == nil {
 			t.Error("Expected timeout error, got nil")
 		}
 	})
 
 	t.Run("ConditionTypeNotReady", func(t *testing.T) {
-		manager := setup(t)
+		// Given a kustomization with only a NotReady condition
 		kubernetesClient := client.NewMockKubernetesClient()
 		kubernetesClient.ListResourcesFunc = func(gvr schema.GroupVersionResource, ns string) (*unstructured.UnstructuredList, error) {
-			return &unstructured.UnstructuredList{Items: []unstructured.Unstructured{
-				{Object: map[string]any{
-					"metadata": map[string]any{"name": "test-kustomization"},
-					"status": map[string]any{
-						"conditions": []any{
-							map[string]any{"type": "NotReady", "status": "True"},
-						},
-					},
-				}},
-			}}, nil
-		}
-		manager.client = kubernetesClient
-
-		blueprint := &blueprintv1alpha1.Blueprint{
-			Kustomizations: []blueprintv1alpha1.Kustomization{
-				{
-					Name: "test-kustomization",
-					Timeout: &blueprintv1alpha1.DurationString{
-						Duration: 50 * time.Millisecond,
+			return listOf(unstructured.Unstructured{Object: map[string]any{
+				"metadata": map[string]any{"name": "test-kustomization"},
+				"status": map[string]any{
+					"conditions": []any{
+						map[string]any{"type": "NotReady", "status": "True"},
 					},
 				},
-			},
+			}}), nil
 		}
+		manager := setup(t, kubernetesClient)
+		blueprint := &blueprintv1alpha1.Blueprint{Kustomizations: []blueprintv1alpha1.Kustomization{
+			withTimeout("test-kustomization", 50*time.Millisecond),
+		}}
 
-		err := manager.WaitForKustomizations(context.Background(), blueprint, presenter.NewGroup(context.Background(), "kustomization:"))
+		// When the wait runs
+		err := wait(manager, blueprint)
+
+		// Then a timeout error is returned
 		if err == nil {
 			t.Error("Expected timeout error, got nil")
 		}
 	})
 
 	t.Run("ConditionReadyFalse", func(t *testing.T) {
-		manager := setup(t)
+		// Given a kustomization with Ready=False and no reason
 		kubernetesClient := client.NewMockKubernetesClient()
 		kubernetesClient.ListResourcesFunc = func(gvr schema.GroupVersionResource, ns string) (*unstructured.UnstructuredList, error) {
-			return &unstructured.UnstructuredList{Items: []unstructured.Unstructured{
-				kustomizationListItem("test-kustomization", "False", "", ""),
-			}}, nil
+			return listOf(kustomizationListItem("test-kustomization", "False", "", "")), nil
 		}
-		manager.client = kubernetesClient
+		manager := setup(t, kubernetesClient)
+		blueprint := &blueprintv1alpha1.Blueprint{Kustomizations: []blueprintv1alpha1.Kustomization{
+			withTimeout("test-kustomization", 50*time.Millisecond),
+		}}
 
-		blueprint := &blueprintv1alpha1.Blueprint{
-			Kustomizations: []blueprintv1alpha1.Kustomization{
-				{
-					Name: "test-kustomization",
-					Timeout: &blueprintv1alpha1.DurationString{
-						Duration: 50 * time.Millisecond,
-					},
-				},
-			},
-		}
+		// When the wait runs
+		err := wait(manager, blueprint)
 
-		err := manager.WaitForKustomizations(context.Background(), blueprint, presenter.NewGroup(context.Background(), "kustomization:"))
+		// Then a timeout error is returned
 		if err == nil {
 			t.Error("Expected timeout error, got nil")
 		}
 	})
 
-	t.Run("WithBlueprintCalculatesTimeout", func(t *testing.T) {
-		manager := setup(t)
+	t.Run("SucceedsForADependencyChain", func(t *testing.T) {
+		// Given two Ready kustomizations where k2 depends on k1
 		kubernetesClient := client.NewMockKubernetesClient()
 		kubernetesClient.ListResourcesFunc = func(gvr schema.GroupVersionResource, ns string) (*unstructured.UnstructuredList, error) {
-			return &unstructured.UnstructuredList{Items: []unstructured.Unstructured{
+			return listOf(
 				kustomizationListItem("k1", "True", "", ""),
 				kustomizationListItem("k2", "True", "", ""),
-			}}, nil
+			), nil
 		}
-		manager.client = kubernetesClient
+		manager := setup(t, kubernetesClient)
+		k2 := withTimeout("k2", 75*time.Millisecond)
+		k2.DependsOn = []string{"k1"}
+		blueprint := &blueprintv1alpha1.Blueprint{Kustomizations: []blueprintv1alpha1.Kustomization{
+			withTimeout("k1", 50*time.Millisecond),
+			k2,
+		}}
 
-		timeout1 := 50 * time.Millisecond
-		timeout2 := 75 * time.Millisecond
-		blueprint := &blueprintv1alpha1.Blueprint{
-			Kustomizations: []blueprintv1alpha1.Kustomization{
-				{
-					Name: "k1",
-					Timeout: &blueprintv1alpha1.DurationString{
-						Duration: timeout1,
-					},
-				},
-				{
-					Name: "k2",
-					Timeout: &blueprintv1alpha1.DurationString{
-						Duration: timeout2,
-					},
-					DependsOn: []string{"k1"},
-				},
-			},
-		}
+		// When the wait runs
+		err := wait(manager, blueprint)
 
-		err := manager.WaitForKustomizations(context.Background(), blueprint, presenter.NewGroup(context.Background(), "kustomization:"))
+		// Then no error is returned
 		if err != nil {
 			t.Errorf("Expected no error, got %v", err)
-		}
-		calculatedTimeout := manager.calculateTotalWaitTime(blueprint)
-		expectedTimeout := timeout1 + timeout2
-		if calculatedTimeout != expectedTimeout {
-			t.Errorf("Expected calculated timeout %v, got %v", expectedTimeout, calculatedTimeout)
 		}
 	})
 
 	t.Run("WithBlueprintNilReturnsError", func(t *testing.T) {
-		manager := setup(t)
-		err := manager.WaitForKustomizations(context.Background(), nil, presenter.NewGroup(context.Background(), "kustomization:"))
+		// Given a manager and no blueprint
+		manager := setup(t, setupKubernetesMocks(t).KubernetesClient)
+
+		// When the wait runs
+		err := wait(manager, nil)
+
+		// Then a blueprint-not-provided error is returned
 		if err == nil {
-			t.Error("Expected error for nil blueprint, got nil")
+			t.Fatal("Expected error for nil blueprint, got nil")
 		}
 		if !strings.Contains(err.Error(), "blueprint not provided") {
 			t.Errorf("Expected 'blueprint not provided' error, got: %v", err)
@@ -1261,73 +1119,48 @@ func TestBaseKubernetesManager_WaitForKustomizations(t *testing.T) {
 	})
 
 	t.Run("SkipsDestroyOnlyKustomizations", func(t *testing.T) {
-		// Given the namespace already holds a destroy-only kustomization reporting a terminal
-		// failure, alongside the regular kustomization this wait actually targets. If the
-		// destroy-only entry were mistakenly evaluated, its terminal condition would fail the
-		// wait immediately — succeeding here proves it is genuinely excluded, not just unlucky
-		// enough to avoid a plain not-Ready timeout.
-		manager := setup(t)
+		// Given a Ready regular kustomization and a destroy-only kustomization with a terminal failure
 		kubernetesClient := client.NewMockKubernetesClient()
 		kubernetesClient.ListResourcesFunc = func(gvr schema.GroupVersionResource, ns string) (*unstructured.UnstructuredList, error) {
-			return &unstructured.UnstructuredList{Items: []unstructured.Unstructured{
+			return listOf(
 				kustomizationListItem("regular-kustomization", "True", "", ""),
 				kustomizationListItem("destroy-only-kustomization", "False", meta.BuildFailedReason, "boom"),
-			}}, nil
+			), nil
 		}
-		manager.client = kubernetesClient
-
+		manager := setup(t, kubernetesClient)
 		destroyOnlyTrue := true
-		blueprint := &blueprintv1alpha1.Blueprint{
-			Kustomizations: []blueprintv1alpha1.Kustomization{
-				{
-					Name: "regular-kustomization",
-					Timeout: &blueprintv1alpha1.DurationString{
-						Duration: 200 * time.Millisecond,
-					},
-				},
-				{
-					Name:        "destroy-only-kustomization",
-					DestroyOnly: &destroyOnlyTrue,
-					Timeout: &blueprintv1alpha1.DurationString{
-						Duration: 200 * time.Millisecond,
-					},
-				},
-			},
-		}
+		destroyOnly := withTimeout("destroy-only-kustomization", 200*time.Millisecond)
+		destroyOnly.DestroyOnly = &destroyOnlyTrue
+		blueprint := &blueprintv1alpha1.Blueprint{Kustomizations: []blueprintv1alpha1.Kustomization{
+			withTimeout("regular-kustomization", 200*time.Millisecond),
+			destroyOnly,
+		}}
 
-		// When waiting for kustomizations
-		err := manager.WaitForKustomizations(context.Background(), blueprint, presenter.NewGroup(context.Background(), "kustomization:"))
+		// When the wait runs
+		err := wait(manager, blueprint)
 
-		// Then the wait succeeds without waiting on the not-Ready destroy-only kustomization
+		// Then the destroy-only kustomization is excluded and the wait succeeds
 		if err != nil {
 			t.Errorf("Expected no error, got %v", err)
 		}
 	})
 
 	t.Run("DuplicateNameCompletesOnceBothTicksObserveReady", func(t *testing.T) {
-		// Given a blueprint whose "crds-core" name is declared twice — e.g. withCrdLayer's
-		// synthesized CRD kustomization colliding with a name declared elsewhere — with the
-		// cluster object immediately reporting Ready. A non-deduplicated name list would compare
-		// a readyKustomizations map (naturally deduplicated, so it can only ever reach 1 entry
-		// for this name) against a target count of 2, which is never satisfiable and would hang
-		// until the timeout even though nothing is actually unready.
-		manager := setup(t)
+		// Given a blueprint that declares "crds-core" twice and a Ready cluster object
 		kubernetesClient := client.NewMockKubernetesClient()
 		kubernetesClient.ListResourcesFunc = func(gvr schema.GroupVersionResource, ns string) (*unstructured.UnstructuredList, error) {
-			return &unstructured.UnstructuredList{Items: []unstructured.Unstructured{
-				kustomizationListItem("crds-core", "True", "", ""),
-			}}, nil
+			return listOf(kustomizationListItem("crds-core", "True", "", "")), nil
 		}
-		manager.client = kubernetesClient
+		manager := setup(t, kubernetesClient)
+		blueprint := &blueprintv1alpha1.Blueprint{Kustomizations: []blueprintv1alpha1.Kustomization{
+			withTimeout("crds-core", 500*time.Millisecond),
+			withTimeout("crds-core", 500*time.Millisecond),
+		}}
 
-		blueprint := &blueprintv1alpha1.Blueprint{
-			Kustomizations: []blueprintv1alpha1.Kustomization{
-				{Name: "crds-core", Timeout: &blueprintv1alpha1.DurationString{Duration: 500 * time.Millisecond}},
-				{Name: "crds-core", Timeout: &blueprintv1alpha1.DurationString{Duration: 500 * time.Millisecond}},
-			},
-		}
+		// When the wait runs
+		err := wait(manager, blueprint)
 
-		err := manager.WaitForKustomizations(context.Background(), blueprint, presenter.NewGroup(context.Background(), "kustomization:"))
+		// Then the duplicate name is collapsed and the wait succeeds
 		if err != nil {
 			t.Errorf("Expected the duplicate name to be collapsed and the wait to succeed, got %v", err)
 		}
@@ -1335,34 +1168,32 @@ func TestBaseKubernetesManager_WaitForKustomizations(t *testing.T) {
 }
 
 func TestBaseKubernetesManager_GetHelmReleasesForKustomization(t *testing.T) {
-	setup := func(t *testing.T) *BaseKubernetesManager {
+	setup := func(t *testing.T, kubeClient client.KubernetesClient) *kubernetes.BaseKubernetesManager {
 		t.Helper()
-		mocks := setupKubernetesMocks(t)
-		manager := NewKubernetesManager(mocks.KubernetesClient, mocks.ConfigHandler)
-		return manager
+		return kubernetes.NewKubernetesManager(kubeClient, setupKubernetesMocks(t).ConfigHandler)
 	}
-
-	t.Run("Success", func(t *testing.T) {
-		manager := setup(t)
-		kubernetesClient := client.NewMockKubernetesClient()
-		// Return a Kustomization with a valid HelmRelease inventory entry
-		kubernetesClient.GetResourceFunc = func(gvr schema.GroupVersionResource, ns, name string) (*unstructured.Unstructured, error) {
-			if gvr.Group == "kustomize.toolkit.fluxcd.io" && gvr.Resource == "kustomizations" {
-				return &unstructured.Unstructured{
-					Object: map[string]any{
-						"apiVersion": "kustomize.toolkit.fluxcd.io/v1",
-						"kind":       "Kustomization",
-						"status": map[string]any{
-							"inventory": map[string]any{
-								"entries": []any{
-									map[string]any{
-										"id": "test-namespace_test-release_helm.toolkit.fluxcd.io_HelmRelease",
-									},
-								},
-							},
+	kustomizationWithRelease := &unstructured.Unstructured{
+		Object: map[string]any{
+			"apiVersion": "kustomize.toolkit.fluxcd.io/v1",
+			"kind":       "Kustomization",
+			"status": map[string]any{
+				"inventory": map[string]any{
+					"entries": []any{
+						map[string]any{
+							"id": "test-namespace_test-release_helm.toolkit.fluxcd.io_HelmRelease",
 						},
 					},
-				}, nil
+				},
+			},
+		},
+	}
+
+	t.Run("ReturnsHelmReleasesFromInventory", func(t *testing.T) {
+		// Given a kustomization whose inventory holds one HelmRelease
+		kubernetesClient := client.NewMockKubernetesClient()
+		kubernetesClient.GetResourceFunc = func(gvr schema.GroupVersionResource, ns, name string) (*unstructured.Unstructured, error) {
+			if gvr.Group == "kustomize.toolkit.fluxcd.io" && gvr.Resource == "kustomizations" {
+				return kustomizationWithRelease, nil
 			}
 			if gvr.Group == "helm.toolkit.fluxcd.io" && gvr.Resource == "helmreleases" {
 				return &unstructured.Unstructured{
@@ -1373,31 +1204,47 @@ func TestBaseKubernetesManager_GetHelmReleasesForKustomization(t *testing.T) {
 							"name":      "test-release",
 							"namespace": "test-namespace",
 						},
+						"spec": map[string]any{
+							"chart": map[string]any{
+								"spec": map[string]any{
+									"chart": "test-chart",
+								},
+							},
+						},
 					},
 				}, nil
 			}
 			return nil, fmt.Errorf("unexpected resource request")
 		}
-		manager.client = kubernetesClient
+		manager := setup(t, kubernetesClient)
 
+		// When the HelmReleases are requested
 		releases, err := manager.GetHelmReleasesForKustomization("test-kustomization", "test-namespace")
+
+		// Then the HelmRelease is returned
 		if err != nil {
-			t.Errorf("Expected no error, got %v", err)
+			t.Fatalf("Expected no error, got %v", err)
 		}
 		if len(releases) != 1 {
-			t.Errorf("Expected 1 release, got %d", len(releases))
+			t.Fatalf("Expected 1 release, got %d", len(releases))
+		}
+		if releases[0].Name != "test-release" {
+			t.Errorf("Expected name 'test-release', got %s", releases[0].Name)
 		}
 	})
 
 	t.Run("GetResourceError", func(t *testing.T) {
-		manager := setup(t)
+		// Given a client that fails to get the kustomization
 		kubernetesClient := client.NewMockKubernetesClient()
 		kubernetesClient.GetResourceFunc = func(gvr schema.GroupVersionResource, ns, name string) (*unstructured.Unstructured, error) {
 			return nil, fmt.Errorf("get resource error")
 		}
-		manager.client = kubernetesClient
+		manager := setup(t, kubernetesClient)
 
+		// When the HelmReleases are requested
 		releases, err := manager.GetHelmReleasesForKustomization("test-kustomization", "test-namespace")
+
+		// Then an error is returned with no releases
 		if err == nil {
 			t.Error("Expected error, got nil")
 		}
@@ -1406,15 +1253,41 @@ func TestBaseKubernetesManager_GetHelmReleasesForKustomization(t *testing.T) {
 		}
 	})
 
+	t.Run("ReturnsErrorWhenHelmReleaseGetFails", func(t *testing.T) {
+		// Given a kustomization with a HelmRelease that the client fails to get
+		kubernetesClient := client.NewMockKubernetesClient()
+		kubernetesClient.GetResourceFunc = func(gvr schema.GroupVersionResource, ns, name string) (*unstructured.Unstructured, error) {
+			if gvr.Resource == "kustomizations" {
+				return kustomizationWithRelease, nil
+			}
+			return nil, fmt.Errorf("get resource error")
+		}
+		manager := setup(t, kubernetesClient)
+
+		// When the HelmReleases are requested
+		_, err := manager.GetHelmReleasesForKustomization("test-kustomization", "test-namespace")
+
+		// Then a get-helm-release error is returned
+		if err == nil {
+			t.Fatal("Expected error, got nil")
+		}
+		if !strings.Contains(err.Error(), "failed to get helm release") {
+			t.Errorf("Expected get resource error, got: %v", err)
+		}
+	})
+
 	t.Run("KustomizationNotFound", func(t *testing.T) {
-		manager := setup(t)
+		// Given a client that reports the kustomization as not found
 		kubernetesClient := client.NewMockKubernetesClient()
 		kubernetesClient.GetResourceFunc = func(gvr schema.GroupVersionResource, ns, name string) (*unstructured.Unstructured, error) {
 			return nil, fmt.Errorf("the server could not find the requested resource")
 		}
-		manager.client = kubernetesClient
+		manager := setup(t, kubernetesClient)
 
+		// When the HelmReleases are requested
 		releases, err := manager.GetHelmReleasesForKustomization("test-kustomization", "test-namespace")
+
+		// Then no error and no releases are returned
 		if err != nil {
 			t.Errorf("Expected no error, got %v", err)
 		}
@@ -1424,18 +1297,20 @@ func TestBaseKubernetesManager_GetHelmReleasesForKustomization(t *testing.T) {
 	})
 
 	t.Run("FromUnstructuredError", func(t *testing.T) {
-		manager := setup(t)
+		// Given a manager whose conversion from unstructured fails
 		kubernetesClient := client.NewMockKubernetesClient()
 		kubernetesClient.GetResourceFunc = func(gvr schema.GroupVersionResource, ns, name string) (*unstructured.Unstructured, error) {
-			return &unstructured.Unstructured{
-				Object: map[string]any{},
-			}, nil
+			return &unstructured.Unstructured{Object: map[string]any{}}, nil
 		}
-		manager.client = kubernetesClient
+		manager := setup(t, kubernetesClient)
 		manager.Shims.FromUnstructured = func(obj map[string]any, target any) error {
 			return fmt.Errorf("forced conversion error")
 		}
+
+		// When the HelmReleases are requested
 		_, err := manager.GetHelmReleasesForKustomization("test-kustomization", "test-namespace")
+
+		// Then an error is returned
 		if err == nil {
 			t.Error("Expected error, got nil")
 		}
@@ -1443,70 +1318,68 @@ func TestBaseKubernetesManager_GetHelmReleasesForKustomization(t *testing.T) {
 }
 
 func TestBaseKubernetesManager_ApplyGitRepository(t *testing.T) {
-	setup := func(t *testing.T) *BaseKubernetesManager {
+	setup := func(t *testing.T, kubeClient client.KubernetesClient) *kubernetes.BaseKubernetesManager {
 		t.Helper()
-		mocks := setupKubernetesMocks(t)
-		manager := NewKubernetesManager(mocks.KubernetesClient, mocks.ConfigHandler)
-		return manager
+		return kubernetes.NewKubernetesManager(kubeClient, setupKubernetesMocks(t).ConfigHandler)
 	}
-
-	t.Run("Success", func(t *testing.T) {
-		manager := setup(t)
-		kubernetesClient := client.NewMockKubernetesClient()
-		kubernetesClient.ApplyResourceFunc = func(gvr schema.GroupVersionResource, obj *unstructured.Unstructured, opts metav1.ApplyOptions) (*unstructured.Unstructured, error) {
-			return obj, nil
-		}
-		kubernetesClient.GetResourceFunc = func(gvr schema.GroupVersionResource, ns, name string) (*unstructured.Unstructured, error) {
-			return nil, fmt.Errorf("not found")
-		}
-		manager.client = kubernetesClient
-
-		repo := &sourcev1.GitRepository{
+	newRepo := func() *sourcev1.GitRepository {
+		return &sourcev1.GitRepository{
 			ObjectMeta: metav1.ObjectMeta{
 				Name:      "test-repo",
 				Namespace: "test-namespace",
 			},
 			Spec: sourcev1.GitRepositorySpec{
-				URL: "https://github.com/test/repo",
-				Interval: metav1.Duration{
-					Duration: time.Minute,
-				},
+				URL:      "https://github.com/test/repo",
+				Interval: metav1.Duration{Duration: time.Minute},
 			},
 		}
+	}
+	notFoundClient := func(applied **unstructured.Unstructured) *client.MockKubernetesClient {
+		kubernetesClient := client.NewMockKubernetesClient()
+		kubernetesClient.ApplyResourceFunc = func(gvr schema.GroupVersionResource, obj *unstructured.Unstructured, opts metav1.ApplyOptions) (*unstructured.Unstructured, error) {
+			if applied != nil {
+				*applied = obj
+			}
+			return obj, nil
+		}
+		kubernetesClient.GetResourceFunc = func(gvr schema.GroupVersionResource, ns, name string) (*unstructured.Unstructured, error) {
+			return nil, fmt.Errorf("not found")
+		}
+		return kubernetesClient
+	}
 
-		err := manager.ApplyGitRepository(repo)
+	t.Run("AppliesGitRepository", func(t *testing.T) {
+		// Given a client that accepts the apply
+		manager := setup(t, notFoundClient(nil))
+
+		// When a GitRepository is applied
+		err := manager.ApplyGitRepository(newRepo())
+
+		// Then no error is returned
 		if err != nil {
 			t.Errorf("Expected no error, got %v", err)
 		}
 	})
 
 	t.Run("ToUnstructuredError", func(t *testing.T) {
-		manager := setup(t)
+		// Given a manager whose conversion to unstructured fails
+		manager := setup(t, setupKubernetesMocks(t).KubernetesClient)
 		manager.Shims.ToUnstructured = func(obj any) (map[string]any, error) {
 			return nil, fmt.Errorf("forced conversion error")
 		}
 
-		repo := &sourcev1.GitRepository{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      "test-repo",
-				Namespace: "test-namespace",
-			},
-			Spec: sourcev1.GitRepositorySpec{
-				URL: "https://github.com/test/repo",
-				Interval: metav1.Duration{
-					Duration: time.Minute,
-				},
-			},
-		}
+		// When a GitRepository is applied
+		err := manager.ApplyGitRepository(newRepo())
 
-		err := manager.ApplyGitRepository(repo)
+		// Then an error is returned
 		if err == nil {
 			t.Error("Expected error, got nil")
 		}
 	})
 
 	t.Run("ValidateFieldsError", func(t *testing.T) {
-		manager := setup(t)
+		// Given a conversion that returns empty metadata and spec
+		manager := setup(t, setupKubernetesMocks(t).KubernetesClient)
 		manager.Shims.ToUnstructured = func(obj any) (map[string]any, error) {
 			return map[string]any{
 				"metadata": map[string]any{},
@@ -1514,60 +1387,42 @@ func TestBaseKubernetesManager_ApplyGitRepository(t *testing.T) {
 			}, nil
 		}
 
-		repo := &sourcev1.GitRepository{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      "test-repo",
-				Namespace: "test-namespace",
-			},
-			Spec: sourcev1.GitRepositorySpec{
-				URL: "https://github.com/test/repo",
-				Interval: metav1.Duration{
-					Duration: time.Minute,
-				},
-			},
-		}
+		// When a GitRepository is applied
+		err := manager.ApplyGitRepository(newRepo())
 
-		err := manager.ApplyGitRepository(repo)
+		// Then an error is returned
 		if err == nil {
 			t.Error("Expected error, got nil")
 		}
 	})
 
 	t.Run("ApplyWithRetryError", func(t *testing.T) {
-		manager := setup(t)
-		kubernetesClient := client.NewMockKubernetesClient()
+		// Given a client that cannot find the object and rejects the apply
+		kubernetesClient := notFoundClient(nil)
 		kubernetesClient.ApplyResourceFunc = func(gvr schema.GroupVersionResource, obj *unstructured.Unstructured, opts metav1.ApplyOptions) (*unstructured.Unstructured, error) {
 			return nil, fmt.Errorf("apply error")
 		}
-		kubernetesClient.GetResourceFunc = func(gvr schema.GroupVersionResource, ns, name string) (*unstructured.Unstructured, error) {
-			return nil, fmt.Errorf("not found")
-		}
-		manager.client = kubernetesClient
+		manager := setup(t, kubernetesClient)
 
-		repo := &sourcev1.GitRepository{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      "test-repo",
-				Namespace: "test-namespace",
-			},
-			Spec: sourcev1.GitRepositorySpec{
-				URL: "https://github.com/test/repo",
-				Interval: metav1.Duration{
-					Duration: time.Minute,
-				},
-			},
-		}
+		// When a GitRepository is applied
+		err := manager.ApplyGitRepository(newRepo())
 
-		err := manager.ApplyGitRepository(repo)
+		// Then an error is returned
 		if err == nil {
 			t.Error("Expected error, got nil")
 		}
 	})
 
 	t.Run("NilRepository", func(t *testing.T) {
-		manager := setup(t)
+		// Given a manager with the production conversion
+		manager := setup(t, setupKubernetesMocks(t).KubernetesClient)
+
+		// When a nil GitRepository is applied
 		err := manager.ApplyGitRepository(nil)
+
+		// Then the conversion error for a nil pointer is returned
 		if err == nil {
-			t.Error("Expected error, got nil")
+			t.Fatal("Expected error, got nil")
 		}
 		if !strings.Contains(err.Error(), "ToUnstructured requires a non-nil pointer to an object") {
 			t.Errorf("Expected error containing 'ToUnstructured requires a non-nil pointer to an object', got %v", err)
@@ -1575,39 +1430,20 @@ func TestBaseKubernetesManager_ApplyGitRepository(t *testing.T) {
 	})
 
 	t.Run("SuccessWithSecretRef", func(t *testing.T) {
-		manager := setup(t)
-		kubernetesClient := client.NewMockKubernetesClient()
+		// Given a GitRepository with a secretRef
 		var appliedObj *unstructured.Unstructured
-		kubernetesClient.ApplyResourceFunc = func(gvr schema.GroupVersionResource, obj *unstructured.Unstructured, opts metav1.ApplyOptions) (*unstructured.Unstructured, error) {
-			appliedObj = obj
-			return obj, nil
-		}
-		kubernetesClient.GetResourceFunc = func(gvr schema.GroupVersionResource, ns, name string) (*unstructured.Unstructured, error) {
-			return nil, fmt.Errorf("not found")
-		}
-		manager.client = kubernetesClient
+		manager := setup(t, notFoundClient(&appliedObj))
 		manager.Shims.ToUnstructured = func(obj any) (map[string]any, error) {
 			return runtime.DefaultUnstructuredConverter.ToUnstructured(obj)
 		}
-
 		secretName := "test-secret"
-		repo := &sourcev1.GitRepository{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      "test-repo",
-				Namespace: "test-namespace",
-			},
-			Spec: sourcev1.GitRepositorySpec{
-				URL: "https://github.com/test/repo",
-				Interval: metav1.Duration{
-					Duration: time.Minute,
-				},
-				SecretRef: &meta.LocalObjectReference{
-					Name: secretName,
-				},
-			},
-		}
+		repo := newRepo()
+		repo.Spec.SecretRef = &meta.LocalObjectReference{Name: secretName}
 
+		// When the GitRepository is applied
 		err := manager.ApplyGitRepository(repo)
+
+		// Then the applied spec holds the secretRef
 		if err != nil {
 			t.Errorf("Expected no error, got %v", err)
 		}
@@ -1620,48 +1456,31 @@ func TestBaseKubernetesManager_ApplyGitRepository(t *testing.T) {
 		}
 		secretRef, exists := spec["secretRef"]
 		if !exists {
-			t.Error("Expected secretRef to be present in spec")
-		} else {
-			secretRefMap, ok := secretRef.(map[string]any)
-			if !ok {
-				t.Errorf("Expected secretRef to be a map, got %T", secretRef)
-			} else if secretRefMap["name"] != secretName {
-				t.Errorf("Expected secretRef name to be '%s', got '%v'", secretName, secretRefMap["name"])
-			}
+			t.Fatal("Expected secretRef to be present in spec")
+		}
+		secretRefMap, ok := secretRef.(map[string]any)
+		if !ok {
+			t.Fatalf("Expected secretRef to be a map, got %T", secretRef)
+		}
+		if secretRefMap["name"] != secretName {
+			t.Errorf("Expected secretRef name to be '%s', got '%v'", secretName, secretRefMap["name"])
 		}
 	})
 
 	t.Run("SuccessWithoutSecretRef", func(t *testing.T) {
-		manager := setup(t)
-		kubernetesClient := client.NewMockKubernetesClient()
+		// Given a GitRepository with no secretRef
 		var appliedObj *unstructured.Unstructured
-		kubernetesClient.ApplyResourceFunc = func(gvr schema.GroupVersionResource, obj *unstructured.Unstructured, opts metav1.ApplyOptions) (*unstructured.Unstructured, error) {
-			appliedObj = obj
-			return obj, nil
-		}
-		kubernetesClient.GetResourceFunc = func(gvr schema.GroupVersionResource, ns, name string) (*unstructured.Unstructured, error) {
-			return nil, fmt.Errorf("not found")
-		}
-		manager.client = kubernetesClient
+		manager := setup(t, notFoundClient(&appliedObj))
 		manager.Shims.ToUnstructured = func(obj any) (map[string]any, error) {
 			return runtime.DefaultUnstructuredConverter.ToUnstructured(obj)
 		}
+		repo := newRepo()
+		repo.Spec.SecretRef = nil
 
-		repo := &sourcev1.GitRepository{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      "test-repo",
-				Namespace: "test-namespace",
-			},
-			Spec: sourcev1.GitRepositorySpec{
-				URL: "https://github.com/test/repo",
-				Interval: metav1.Duration{
-					Duration: time.Minute,
-				},
-				SecretRef: nil,
-			},
-		}
-
+		// When the GitRepository is applied
 		err := manager.ApplyGitRepository(repo)
+
+		// Then the applied spec has no secretRef
 		if err != nil {
 			t.Errorf("Expected no error, got %v", err)
 		}
@@ -1679,15 +1498,24 @@ func TestBaseKubernetesManager_ApplyGitRepository(t *testing.T) {
 }
 
 func TestBaseKubernetesManager_ApplyOCIRepository(t *testing.T) {
-	setup := func(t *testing.T) *BaseKubernetesManager {
+	setup := func(t *testing.T, kubeClient client.KubernetesClient) *kubernetes.BaseKubernetesManager {
 		t.Helper()
-		mocks := setupKubernetesMocks(t)
-		manager := NewKubernetesManager(mocks.KubernetesClient, mocks.ConfigHandler)
-		return manager
+		return kubernetes.NewKubernetesManager(kubeClient, setupKubernetesMocks(t).ConfigHandler)
+	}
+	newRepo := func(name string) *sourcev1.OCIRepository {
+		return &sourcev1.OCIRepository{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      name,
+				Namespace: "test-namespace",
+			},
+			Spec: sourcev1.OCIRepositorySpec{
+				URL: "oci://test-registry.com/test-image",
+			},
+		}
 	}
 
-	t.Run("Success", func(t *testing.T) {
-		manager := setup(t)
+	t.Run("AppliesOCIRepository", func(t *testing.T) {
+		// Given a client that cannot find the object and accepts the apply
 		kubernetesClient := client.NewMockKubernetesClient()
 		kubernetesClient.GetResourceFunc = func(gvr schema.GroupVersionResource, namespace, name string) (*unstructured.Unstructured, error) {
 			return nil, fmt.Errorf("not found")
@@ -1695,7 +1523,7 @@ func TestBaseKubernetesManager_ApplyOCIRepository(t *testing.T) {
 		kubernetesClient.ApplyResourceFunc = func(gvr schema.GroupVersionResource, obj *unstructured.Unstructured, opts metav1.ApplyOptions) (*unstructured.Unstructured, error) {
 			return obj, nil
 		}
-		manager.client = kubernetesClient
+		manager := setup(t, kubernetesClient)
 		manager.Shims.ToUnstructured = func(obj any) (map[string]any, error) {
 			return map[string]any{
 				"apiVersion": "source.toolkit.fluxcd.io/v1",
@@ -1710,41 +1538,28 @@ func TestBaseKubernetesManager_ApplyOCIRepository(t *testing.T) {
 			}, nil
 		}
 
-		repo := &sourcev1.OCIRepository{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      "test-repo",
-				Namespace: "test-namespace",
-			},
-			Spec: sourcev1.OCIRepositorySpec{
-				URL: "oci://test-registry.com/test-image",
-			},
-		}
+		// When an OCIRepository is applied
+		err := manager.ApplyOCIRepository(newRepo("test-repo"))
 
-		err := manager.ApplyOCIRepository(repo)
+		// Then no error is returned
 		if err != nil {
 			t.Errorf("Expected no error, got %v", err)
 		}
 	})
 
 	t.Run("ToUnstructuredError", func(t *testing.T) {
-		manager := setup(t)
+		// Given a manager whose conversion to unstructured fails
+		manager := setup(t, setupKubernetesMocks(t).KubernetesClient)
 		manager.Shims.ToUnstructured = func(obj any) (map[string]any, error) {
 			return nil, fmt.Errorf("conversion error")
 		}
 
-		repo := &sourcev1.OCIRepository{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      "test-repo",
-				Namespace: "test-namespace",
-			},
-			Spec: sourcev1.OCIRepositorySpec{
-				URL: "oci://test-registry.com/test-image",
-			},
-		}
+		// When an OCIRepository is applied
+		err := manager.ApplyOCIRepository(newRepo("test-repo"))
 
-		err := manager.ApplyOCIRepository(repo)
+		// Then a conversion error is returned
 		if err == nil {
-			t.Error("Expected error, got nil")
+			t.Fatal("Expected error, got nil")
 		}
 		if !strings.Contains(err.Error(), "failed to convert ocirepository to unstructured") {
 			t.Errorf("Expected conversion error, got: %v", err)
@@ -1752,7 +1567,8 @@ func TestBaseKubernetesManager_ApplyOCIRepository(t *testing.T) {
 	})
 
 	t.Run("ValidationError", func(t *testing.T) {
-		manager := setup(t)
+		// Given a conversion that returns an empty name
+		manager := setup(t, setupKubernetesMocks(t).KubernetesClient)
 		manager.Shims.ToUnstructured = func(obj any) (map[string]any, error) {
 			return map[string]any{
 				"metadata": map[string]any{
@@ -1761,52 +1577,40 @@ func TestBaseKubernetesManager_ApplyOCIRepository(t *testing.T) {
 			}, nil
 		}
 
-		repo := &sourcev1.OCIRepository{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      "",
-				Namespace: "test-namespace",
-			},
-			Spec: sourcev1.OCIRepositorySpec{
-				URL: "oci://test-registry.com/test-image",
-			},
-		}
+		// When an OCIRepository is applied
+		err := manager.ApplyOCIRepository(newRepo(""))
 
-		err := manager.ApplyOCIRepository(repo)
+		// Then a validation error is returned
 		if err == nil {
-			t.Error("Expected error, got nil")
+			t.Fatal("Expected error, got nil")
 		}
 		if !strings.Contains(err.Error(), "invalid ocirepository fields") {
 			t.Errorf("Expected validation error, got: %v", err)
 		}
 	})
 
-	t.Run("ValidateFieldsError_NilObject", func(t *testing.T) {
-		manager := setup(t)
+	t.Run("ValidationErrorForNilObject", func(t *testing.T) {
+		// Given a conversion that returns a nil object
+		manager := setup(t, setupKubernetesMocks(t).KubernetesClient)
 		manager.Shims.ToUnstructured = func(obj any) (map[string]any, error) {
 			return nil, nil
 		}
 
-		repo := &sourcev1.OCIRepository{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      "test-repo",
-				Namespace: "test-namespace",
-			},
-			Spec: sourcev1.OCIRepositorySpec{
-				URL: "oci://test-registry.com/test-image",
-			},
-		}
+		// When an OCIRepository is applied
+		err := manager.ApplyOCIRepository(newRepo("test-repo"))
 
-		err := manager.ApplyOCIRepository(repo)
+		// Then a validation error is returned
 		if err == nil {
-			t.Error("Expected error, got nil")
+			t.Fatal("Expected error, got nil")
 		}
 		if !strings.Contains(err.Error(), "invalid ocirepository fields") {
 			t.Errorf("Expected validation error, got: %v", err)
 		}
 	})
 
-	t.Run("ValidateFieldsError_MissingMetadata", func(t *testing.T) {
-		manager := setup(t)
+	t.Run("ValidationErrorForMissingMetadata", func(t *testing.T) {
+		// Given a conversion that returns no metadata
+		manager := setup(t, setupKubernetesMocks(t).KubernetesClient)
 		manager.Shims.ToUnstructured = func(obj any) (map[string]any, error) {
 			return map[string]any{
 				"spec": map[string]any{
@@ -1815,19 +1619,12 @@ func TestBaseKubernetesManager_ApplyOCIRepository(t *testing.T) {
 			}, nil
 		}
 
-		repo := &sourcev1.OCIRepository{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      "test-repo",
-				Namespace: "test-namespace",
-			},
-			Spec: sourcev1.OCIRepositorySpec{
-				URL: "oci://test-registry.com/test-image",
-			},
-		}
+		// When an OCIRepository is applied
+		err := manager.ApplyOCIRepository(newRepo("test-repo"))
 
-		err := manager.ApplyOCIRepository(repo)
+		// Then a validation error is returned
 		if err == nil {
-			t.Error("Expected error, got nil")
+			t.Fatal("Expected error, got nil")
 		}
 		if !strings.Contains(err.Error(), "invalid ocirepository fields") {
 			t.Errorf("Expected validation error, got: %v", err)
@@ -1836,60 +1633,60 @@ func TestBaseKubernetesManager_ApplyOCIRepository(t *testing.T) {
 }
 
 func TestBaseKubernetesManager_CheckGitRepositoryStatus(t *testing.T) {
-	t.Run("Success", func(t *testing.T) {
-		manager := func(t *testing.T) *BaseKubernetesManager {
-			mocks := setupKubernetesMocks(t)
-			manager := NewKubernetesManager(mocks.KubernetesClient, mocks.ConfigHandler)
-			return manager
-		}(t)
+	setup := func(t *testing.T, kubeClient client.KubernetesClient) *kubernetes.BaseKubernetesManager {
+		t.Helper()
+		return kubernetes.NewKubernetesManager(kubeClient, setupKubernetesMocks(t).ConfigHandler)
+	}
+	repository := func(kind, name string, conditions ...any) unstructured.Unstructured {
+		obj := map[string]any{
+			"apiVersion": "source.toolkit.fluxcd.io/v1",
+			"kind":       kind,
+			"metadata": map[string]any{
+				"name": name,
+			},
+		}
+		if len(conditions) > 0 {
+			obj["status"] = map[string]any{"conditions": conditions}
+		}
+		return unstructured.Unstructured{Object: obj}
+	}
+	readyCondition := func(status, message string) map[string]any {
+		return map[string]any{"type": "Ready", "status": status, "message": message}
+	}
+
+	t.Run("SucceedsWhenRepositoriesAreReady", func(t *testing.T) {
+		// Given a Ready GitRepository
 		kubernetesClient := client.NewMockKubernetesClient()
 		kubernetesClient.ListResourcesFunc = func(gvr schema.GroupVersionResource, namespace string) (*unstructured.UnstructuredList, error) {
-			return &unstructured.UnstructuredList{
-				Items: []unstructured.Unstructured{
-					{
-						Object: map[string]any{
-							"apiVersion": "source.toolkit.fluxcd.io/v1",
-							"kind":       "GitRepository",
-							"metadata": map[string]any{
-								"name": "repo1",
-							},
-							"status": map[string]any{
-								"conditions": []any{
-									map[string]any{
-										"type":    "Ready",
-										"status":  "True",
-										"message": "Ready",
-									},
-								},
-							},
-						},
-					},
-				},
-			}, nil
+			return &unstructured.UnstructuredList{Items: []unstructured.Unstructured{
+				repository("GitRepository", "repo1", readyCondition("True", "Ready")),
+			}}, nil
 		}
-		manager.client = kubernetesClient
+		manager := setup(t, kubernetesClient)
 
+		// When the repository status is checked
 		err := manager.CheckGitRepositoryStatus()
+
+		// Then no error is returned
 		if err != nil {
 			t.Errorf("Expected no error, got %v", err)
 		}
 	})
 
 	t.Run("ListResourcesError", func(t *testing.T) {
-		manager := func(t *testing.T) *BaseKubernetesManager {
-			mocks := setupKubernetesMocks(t)
-			manager := NewKubernetesManager(mocks.KubernetesClient, mocks.ConfigHandler)
-			return manager
-		}(t)
+		// Given a client that fails to list repositories
 		kubernetesClient := client.NewMockKubernetesClient()
 		kubernetesClient.ListResourcesFunc = func(gvr schema.GroupVersionResource, namespace string) (*unstructured.UnstructuredList, error) {
 			return nil, fmt.Errorf("list resources error")
 		}
-		manager.client = kubernetesClient
+		manager := setup(t, kubernetesClient)
 
+		// When the repository status is checked
 		err := manager.CheckGitRepositoryStatus()
+
+		// Then the list error is returned
 		if err == nil {
-			t.Error("Expected error, got nil")
+			t.Fatal("Expected error, got nil")
 		}
 		if !strings.Contains(err.Error(), "list resources error") {
 			t.Errorf("Expected error containing 'list resources error', got %v", err)
@@ -1897,44 +1694,24 @@ func TestBaseKubernetesManager_CheckGitRepositoryStatus(t *testing.T) {
 	})
 
 	t.Run("FromUnstructuredError", func(t *testing.T) {
-		manager := func(t *testing.T) *BaseKubernetesManager {
-			mocks := setupKubernetesMocks(t)
-			manager := NewKubernetesManager(mocks.KubernetesClient, mocks.ConfigHandler)
-			return manager
-		}(t)
+		// Given a GitRepository whose conversion from unstructured fails
 		kubernetesClient := client.NewMockKubernetesClient()
 		kubernetesClient.ListResourcesFunc = func(gvr schema.GroupVersionResource, namespace string) (*unstructured.UnstructuredList, error) {
-			return &unstructured.UnstructuredList{
-				Items: []unstructured.Unstructured{
-					{
-						Object: map[string]any{
-							"apiVersion": "source.toolkit.fluxcd.io/v1",
-							"kind":       "GitRepository",
-							"metadata": map[string]any{
-								"name": "repo1",
-							},
-							"status": map[string]any{
-								"conditions": []any{
-									map[string]any{
-										"type":    "Ready",
-										"status":  "True",
-										"message": "Ready",
-									},
-								},
-							},
-						},
-					},
-				},
-			}, nil
+			return &unstructured.UnstructuredList{Items: []unstructured.Unstructured{
+				repository("GitRepository", "repo1", readyCondition("True", "Ready")),
+			}}, nil
 		}
-		manager.client = kubernetesClient
+		manager := setup(t, kubernetesClient)
 		manager.Shims.FromUnstructured = func(obj map[string]any, target any) error {
 			return fmt.Errorf("forced conversion error")
 		}
 
+		// When the repository status is checked
 		err := manager.CheckGitRepositoryStatus()
+
+		// Then the conversion error is returned
 		if err == nil {
-			t.Error("Expected error, got nil")
+			t.Fatal("Expected error, got nil")
 		}
 		if !strings.Contains(err.Error(), "forced conversion error") {
 			t.Errorf("Expected error containing 'forced conversion error', got %v", err)
@@ -1942,41 +1719,21 @@ func TestBaseKubernetesManager_CheckGitRepositoryStatus(t *testing.T) {
 	})
 
 	t.Run("RepositoryNotReady", func(t *testing.T) {
-		manager := func(t *testing.T) *BaseKubernetesManager {
-			mocks := setupKubernetesMocks(t)
-			manager := NewKubernetesManager(mocks.KubernetesClient, mocks.ConfigHandler)
-			return manager
-		}(t)
+		// Given a GitRepository that is not Ready
 		kubernetesClient := client.NewMockKubernetesClient()
 		kubernetesClient.ListResourcesFunc = func(gvr schema.GroupVersionResource, namespace string) (*unstructured.UnstructuredList, error) {
-			return &unstructured.UnstructuredList{
-				Items: []unstructured.Unstructured{
-					{
-						Object: map[string]any{
-							"apiVersion": "source.toolkit.fluxcd.io/v1",
-							"kind":       "GitRepository",
-							"metadata": map[string]any{
-								"name": "repo1",
-							},
-							"status": map[string]any{
-								"conditions": []any{
-									map[string]any{
-										"type":    "Ready",
-										"status":  "False",
-										"message": "repo not ready",
-									},
-								},
-							},
-						},
-					},
-				},
-			}, nil
+			return &unstructured.UnstructuredList{Items: []unstructured.Unstructured{
+				repository("GitRepository", "repo1", readyCondition("False", "repo not ready")),
+			}}, nil
 		}
-		manager.client = kubernetesClient
+		manager := setup(t, kubernetesClient)
 
+		// When the repository status is checked
 		err := manager.CheckGitRepositoryStatus()
+
+		// Then the error names the repository and its message
 		if err == nil {
-			t.Error("Expected error, got nil")
+			t.Fatal("Expected error, got nil")
 		}
 		if !strings.Contains(err.Error(), "repo1") || !strings.Contains(err.Error(), "repo not ready") {
 			t.Errorf("Expected error containing repo name and message, got %v", err)
@@ -1984,46 +1741,24 @@ func TestBaseKubernetesManager_CheckGitRepositoryStatus(t *testing.T) {
 	})
 
 	t.Run("OCIRepositoryNotReady", func(t *testing.T) {
-		manager := func(t *testing.T) *BaseKubernetesManager {
-			mocks := setupKubernetesMocks(t)
-			manager := NewKubernetesManager(mocks.KubernetesClient, mocks.ConfigHandler)
-			return manager
-		}(t)
+		// Given no GitRepositories and an OCIRepository that is not Ready
 		kubernetesClient := client.NewMockKubernetesClient()
-		callCount := 0
 		kubernetesClient.ListResourcesFunc = func(gvr schema.GroupVersionResource, namespace string) (*unstructured.UnstructuredList, error) {
-			callCount++
 			if gvr.Resource == "gitrepositories" {
 				return &unstructured.UnstructuredList{Items: []unstructured.Unstructured{}}, nil
 			}
-			return &unstructured.UnstructuredList{
-				Items: []unstructured.Unstructured{
-					{
-						Object: map[string]any{
-							"apiVersion": "source.toolkit.fluxcd.io/v1",
-							"kind":       "OCIRepository",
-							"metadata": map[string]any{
-								"name": "oci-repo1",
-							},
-							"status": map[string]any{
-								"conditions": []any{
-									map[string]any{
-										"type":    "Ready",
-										"status":  "False",
-										"message": "oci repo not ready",
-									},
-								},
-							},
-						},
-					},
-				},
-			}, nil
+			return &unstructured.UnstructuredList{Items: []unstructured.Unstructured{
+				repository("OCIRepository", "oci-repo1", readyCondition("False", "oci repo not ready")),
+			}}, nil
 		}
-		manager.client = kubernetesClient
+		manager := setup(t, kubernetesClient)
 
+		// When the repository status is checked
 		err := manager.CheckGitRepositoryStatus()
+
+		// Then the error names the OCIRepository and its message
 		if err == nil {
-			t.Error("Expected error, got nil")
+			t.Fatal("Expected error, got nil")
 		}
 		if !strings.Contains(err.Error(), "oci-repo1") || !strings.Contains(err.Error(), "oci repo not ready") {
 			t.Errorf("Expected error containing oci repo name and message, got %v", err)
@@ -2031,25 +1766,22 @@ func TestBaseKubernetesManager_CheckGitRepositoryStatus(t *testing.T) {
 	})
 
 	t.Run("OCIRepositoryListError", func(t *testing.T) {
-		manager := func(t *testing.T) *BaseKubernetesManager {
-			mocks := setupKubernetesMocks(t)
-			manager := NewKubernetesManager(mocks.KubernetesClient, mocks.ConfigHandler)
-			return manager
-		}(t)
+		// Given no GitRepositories and a failing OCIRepository list
 		kubernetesClient := client.NewMockKubernetesClient()
-		callCount := 0
 		kubernetesClient.ListResourcesFunc = func(gvr schema.GroupVersionResource, namespace string) (*unstructured.UnstructuredList, error) {
-			callCount++
 			if gvr.Resource == "gitrepositories" {
 				return &unstructured.UnstructuredList{Items: []unstructured.Unstructured{}}, nil
 			}
 			return nil, fmt.Errorf("oci list error")
 		}
-		manager.client = kubernetesClient
+		manager := setup(t, kubernetesClient)
 
+		// When the repository status is checked
 		err := manager.CheckGitRepositoryStatus()
+
+		// Then an OCIRepository list error is returned
 		if err == nil {
-			t.Error("Expected error, got nil")
+			t.Fatal("Expected error, got nil")
 		}
 		if !strings.Contains(err.Error(), "failed to list oci repositories") {
 			t.Errorf("Expected oci list error, got %v", err)
@@ -2057,37 +1789,30 @@ func TestBaseKubernetesManager_CheckGitRepositoryStatus(t *testing.T) {
 	})
 
 	t.Run("OCIRepositoryFromUnstructuredError", func(t *testing.T) {
-		manager := func(t *testing.T) *BaseKubernetesManager {
-			mocks := setupKubernetesMocks(t)
-			manager := NewKubernetesManager(mocks.KubernetesClient, mocks.ConfigHandler)
-			return manager
-		}(t)
+		// Given no GitRepositories and an OCIRepository whose conversion fails
 		kubernetesClient := client.NewMockKubernetesClient()
-		callCount := 0
 		kubernetesClient.ListResourcesFunc = func(gvr schema.GroupVersionResource, namespace string) (*unstructured.UnstructuredList, error) {
-			callCount++
 			if gvr.Resource == "gitrepositories" {
 				return &unstructured.UnstructuredList{Items: []unstructured.Unstructured{}}, nil
 			}
-			return &unstructured.UnstructuredList{
-				Items: []unstructured.Unstructured{
-					{
-						Object: map[string]any{
-							"apiVersion": "source.toolkit.fluxcd.io/v1",
-							"kind":       "OCIRepository",
-						},
-					},
-				},
-			}, nil
+			return &unstructured.UnstructuredList{Items: []unstructured.Unstructured{
+				{Object: map[string]any{
+					"apiVersion": "source.toolkit.fluxcd.io/v1",
+					"kind":       "OCIRepository",
+				}},
+			}}, nil
 		}
-		manager.client = kubernetesClient
+		manager := setup(t, kubernetesClient)
 		manager.Shims.FromUnstructured = func(obj map[string]any, target any) error {
 			return fmt.Errorf("forced conversion error")
 		}
 
+		// When the repository status is checked
 		err := manager.CheckGitRepositoryStatus()
+
+		// Then an OCIRepository conversion error is returned
 		if err == nil {
-			t.Error("Expected error, got nil")
+			t.Fatal("Expected error, got nil")
 		}
 		if !strings.Contains(err.Error(), "failed to convert oci repository") {
 			t.Errorf("Expected oci conversion error, got %v", err)
@@ -2096,39 +1821,38 @@ func TestBaseKubernetesManager_CheckGitRepositoryStatus(t *testing.T) {
 }
 
 func TestBaseKubernetesManager_GetKustomizationStatus(t *testing.T) {
-	t.Run("Success", func(t *testing.T) {
-		manager := func(t *testing.T) *BaseKubernetesManager {
-			mocks := setupKubernetesMocks(t)
-			manager := NewKubernetesManager(mocks.KubernetesClient, mocks.ConfigHandler)
-			return manager
-		}(t)
+	setup := func(t *testing.T, kubeClient client.KubernetesClient) *kubernetes.BaseKubernetesManager {
+		t.Helper()
+		return kubernetes.NewKubernetesManager(kubeClient, setupKubernetesMocks(t).ConfigHandler)
+	}
+	kustomization := func(name string, condition map[string]any) unstructured.Unstructured {
+		return unstructured.Unstructured{Object: map[string]any{
+			"apiVersion": "kustomize.toolkit.fluxcd.io/v1",
+			"kind":       "Kustomization",
+			"metadata": map[string]any{
+				"name": name,
+			},
+			"status": map[string]any{
+				"conditions": []any{condition},
+			},
+		}}
+	}
+	clientWith := func(items ...unstructured.Unstructured) *client.MockKubernetesClient {
 		kubernetesClient := client.NewMockKubernetesClient()
 		kubernetesClient.ListResourcesFunc = func(gvr schema.GroupVersionResource, namespace string) (*unstructured.UnstructuredList, error) {
-			return &unstructured.UnstructuredList{
-				Items: []unstructured.Unstructured{
-					{
-						Object: map[string]any{
-							"apiVersion": "kustomize.toolkit.fluxcd.io/v1",
-							"kind":       "Kustomization",
-							"metadata": map[string]any{
-								"name": "k1",
-							},
-							"status": map[string]any{
-								"conditions": []any{
-									map[string]any{
-										"type":   "Ready",
-										"status": "True",
-									},
-								},
-							},
-						},
-					},
-				},
-			}, nil
+			return &unstructured.UnstructuredList{Items: items}, nil
 		}
-		manager.client = kubernetesClient
+		return kubernetesClient
+	}
 
+	t.Run("ReportsReadyKustomization", func(t *testing.T) {
+		// Given a Ready kustomization
+		manager := setup(t, clientWith(kustomization("k1", map[string]any{"type": "Ready", "status": "True"})))
+
+		// When the status is requested
 		status, err := manager.GetKustomizationStatus([]string{"k1"})
+
+		// Then the kustomization is reported as ready
 		if err != nil {
 			t.Errorf("Expected no error, got %v", err)
 		}
@@ -2138,20 +1862,19 @@ func TestBaseKubernetesManager_GetKustomizationStatus(t *testing.T) {
 	})
 
 	t.Run("ListResourcesError", func(t *testing.T) {
-		manager := func(t *testing.T) *BaseKubernetesManager {
-			mocks := setupKubernetesMocks(t)
-			manager := NewKubernetesManager(mocks.KubernetesClient, mocks.ConfigHandler)
-			return manager
-		}(t)
+		// Given a client that fails to list kustomizations
 		kubernetesClient := client.NewMockKubernetesClient()
 		kubernetesClient.ListResourcesFunc = func(gvr schema.GroupVersionResource, namespace string) (*unstructured.UnstructuredList, error) {
 			return nil, fmt.Errorf("list resources error")
 		}
-		manager.client = kubernetesClient
+		manager := setup(t, kubernetesClient)
 
+		// When the status is requested
 		status, err := manager.GetKustomizationStatus([]string{"k1"})
+
+		// Then the list error is returned with a nil status
 		if err == nil {
-			t.Error("Expected error, got nil")
+			t.Fatal("Expected error, got nil")
 		}
 		if !strings.Contains(err.Error(), "list resources error") {
 			t.Errorf("Expected error containing 'list resources error', got %v", err)
@@ -2162,43 +1885,18 @@ func TestBaseKubernetesManager_GetKustomizationStatus(t *testing.T) {
 	})
 
 	t.Run("FromUnstructuredError", func(t *testing.T) {
-		manager := func(t *testing.T) *BaseKubernetesManager {
-			mocks := setupKubernetesMocks(t)
-			manager := NewKubernetesManager(mocks.KubernetesClient, mocks.ConfigHandler)
-			return manager
-		}(t)
-		kubernetesClient := client.NewMockKubernetesClient()
-		kubernetesClient.ListResourcesFunc = func(gvr schema.GroupVersionResource, namespace string) (*unstructured.UnstructuredList, error) {
-			return &unstructured.UnstructuredList{
-				Items: []unstructured.Unstructured{
-					{
-						Object: map[string]any{
-							"apiVersion": "kustomize.toolkit.fluxcd.io/v1",
-							"kind":       "Kustomization",
-							"metadata": map[string]any{
-								"name": "k1",
-							},
-							"status": map[string]any{
-								"conditions": []any{
-									map[string]any{
-										"type":   "Ready",
-										"status": "True",
-									},
-								},
-							},
-						},
-					},
-				},
-			}, nil
-		}
-		manager.client = kubernetesClient
+		// Given a kustomization whose conversion from unstructured fails
+		manager := setup(t, clientWith(kustomization("k1", map[string]any{"type": "Ready", "status": "True"})))
 		manager.Shims.FromUnstructured = func(obj map[string]any, target any) error {
 			return fmt.Errorf("forced conversion error")
 		}
 
+		// When the status is requested
 		status, err := manager.GetKustomizationStatus([]string{"k1"})
+
+		// Then the conversion error is returned with a nil status
 		if err == nil {
-			t.Error("Expected error, got nil")
+			t.Fatal("Expected error, got nil")
 		}
 		if !strings.Contains(err.Error(), "forced conversion error") {
 			t.Errorf("Expected error containing 'forced conversion error', got %v", err)
@@ -2209,38 +1907,13 @@ func TestBaseKubernetesManager_GetKustomizationStatus(t *testing.T) {
 	})
 
 	t.Run("KustomizationNotReady", func(t *testing.T) {
-		manager := func(t *testing.T) *BaseKubernetesManager {
-			mocks := setupKubernetesMocks(t)
-			manager := NewKubernetesManager(mocks.KubernetesClient, mocks.ConfigHandler)
-			return manager
-		}(t)
-		kubernetesClient := client.NewMockKubernetesClient()
-		kubernetesClient.ListResourcesFunc = func(gvr schema.GroupVersionResource, namespace string) (*unstructured.UnstructuredList, error) {
-			return &unstructured.UnstructuredList{
-				Items: []unstructured.Unstructured{
-					{
-						Object: map[string]any{
-							"apiVersion": "kustomize.toolkit.fluxcd.io/v1",
-							"kind":       "Kustomization",
-							"metadata": map[string]any{
-								"name": "k1",
-							},
-							"status": map[string]any{
-								"conditions": []any{
-									map[string]any{
-										"type":   "Ready",
-										"status": "False",
-									},
-								},
-							},
-						},
-					},
-				},
-			}, nil
-		}
-		manager.client = kubernetesClient
+		// Given a kustomization with Ready=False and no reason
+		manager := setup(t, clientWith(kustomization("k1", map[string]any{"type": "Ready", "status": "False"})))
 
+		// When the status is requested
 		status, err := manager.GetKustomizationStatus([]string{"k1"})
+
+		// Then the kustomization is reported as not ready
 		if err != nil {
 			t.Errorf("Expected no error, got %v", err)
 		}
@@ -2250,42 +1923,20 @@ func TestBaseKubernetesManager_GetKustomizationStatus(t *testing.T) {
 	})
 
 	t.Run("KustomizationFailed", func(t *testing.T) {
-		manager := func(t *testing.T) *BaseKubernetesManager {
-			mocks := setupKubernetesMocks(t)
-			manager := NewKubernetesManager(mocks.KubernetesClient, mocks.ConfigHandler)
-			return manager
-		}(t)
-		kubernetesClient := client.NewMockKubernetesClient()
-		kubernetesClient.ListResourcesFunc = func(gvr schema.GroupVersionResource, namespace string) (*unstructured.UnstructuredList, error) {
-			return &unstructured.UnstructuredList{
-				Items: []unstructured.Unstructured{
-					{
-						Object: map[string]any{
-							"apiVersion": "kustomize.toolkit.fluxcd.io/v1",
-							"kind":       "Kustomization",
-							"metadata": map[string]any{
-								"name": "k1",
-							},
-							"status": map[string]any{
-								"conditions": []any{
-									map[string]any{
-										"type":    "Ready",
-										"status":  "False",
-										"reason":  "ReconciliationFailed",
-										"message": "kustomization failed",
-									},
-								},
-							},
-						},
-					},
-				},
-			}, nil
-		}
-		manager.client = kubernetesClient
+		// Given a kustomization with a ReconciliationFailed condition
+		manager := setup(t, clientWith(kustomization("k1", map[string]any{
+			"type":    "Ready",
+			"status":  "False",
+			"reason":  "ReconciliationFailed",
+			"message": "kustomization failed",
+		})))
 
+		// When the status is requested
 		status, err := manager.GetKustomizationStatus([]string{"k1"})
+
+		// Then a failure error is returned with a nil status
 		if err == nil {
-			t.Error("Expected error, got nil")
+			t.Fatal("Expected error, got nil")
 		}
 		if !strings.Contains(err.Error(), "kustomization k1 failed: kustomization failed") {
 			t.Errorf("Expected error containing 'kustomization k1 failed: kustomization failed', got %v", err)
@@ -2296,42 +1947,20 @@ func TestBaseKubernetesManager_GetKustomizationStatus(t *testing.T) {
 	})
 
 	t.Run("KustomizationArtifactFailed", func(t *testing.T) {
-		manager := func(t *testing.T) *BaseKubernetesManager {
-			mocks := setupKubernetesMocks(t)
-			manager := NewKubernetesManager(mocks.KubernetesClient, mocks.ConfigHandler)
-			return manager
-		}(t)
-		kubernetesClient := client.NewMockKubernetesClient()
-		kubernetesClient.ListResourcesFunc = func(gvr schema.GroupVersionResource, namespace string) (*unstructured.UnstructuredList, error) {
-			return &unstructured.UnstructuredList{
-				Items: []unstructured.Unstructured{
-					{
-						Object: map[string]any{
-							"apiVersion": "kustomize.toolkit.fluxcd.io/v1",
-							"kind":       "Kustomization",
-							"metadata": map[string]any{
-								"name": "k1",
-							},
-							"status": map[string]any{
-								"conditions": []any{
-									map[string]any{
-										"type":    "Ready",
-										"status":  "False",
-										"reason":  "ArtifactFailed",
-										"message": "kustomization path not found: stat /tmp/kustomization-1671333540/kustomize\\ingress\\cleanup: no such file or directory",
-									},
-								},
-							},
-						},
-					},
-				},
-			}, nil
-		}
-		manager.client = kubernetesClient
+		// Given a kustomization with an ArtifactFailed condition
+		manager := setup(t, clientWith(kustomization("k1", map[string]any{
+			"type":    "Ready",
+			"status":  "False",
+			"reason":  "ArtifactFailed",
+			"message": "kustomization path not found: stat /tmp/kustomization-1671333540/kustomize\\ingress\\cleanup: no such file or directory",
+		})))
 
+		// When the status is requested
 		status, err := manager.GetKustomizationStatus([]string{"k1"})
+
+		// Then a failure error is returned with a nil status
 		if err == nil {
-			t.Error("Expected error, got nil")
+			t.Fatal("Expected error, got nil")
 		}
 		if !strings.Contains(err.Error(), "kustomization k1 failed: kustomization path not found") {
 			t.Errorf("Expected error containing 'kustomization k1 failed: kustomization path not found', got %v", err)
@@ -2342,45 +1971,20 @@ func TestBaseKubernetesManager_GetKustomizationStatus(t *testing.T) {
 	})
 
 	t.Run("KustomizationBuildFailed", func(t *testing.T) {
-		// A BuildFailed Ready=False condition (a bad spec.components/spec.path in the composed
-		// Kustomization itself, distinct from ArtifactFailed's missing-fetched-content case) must
-		// also fail fast rather than reading back as merely not-ready.
-		manager := func(t *testing.T) *BaseKubernetesManager {
-			mocks := setupKubernetesMocks(t)
-			manager := NewKubernetesManager(mocks.KubernetesClient, mocks.ConfigHandler)
-			return manager
-		}(t)
-		kubernetesClient := client.NewMockKubernetesClient()
-		kubernetesClient.ListResourcesFunc = func(gvr schema.GroupVersionResource, namespace string) (*unstructured.UnstructuredList, error) {
-			return &unstructured.UnstructuredList{
-				Items: []unstructured.Unstructured{
-					{
-						Object: map[string]any{
-							"apiVersion": "kustomize.toolkit.fluxcd.io/v1",
-							"kind":       "Kustomization",
-							"metadata": map[string]any{
-								"name": "k1",
-							},
-							"status": map[string]any{
-								"conditions": []any{
-									map[string]any{
-										"type":    "Ready",
-										"status":  "False",
-										"reason":  "BuildFailed",
-										"message": "accumulating components: no such file or directory",
-									},
-								},
-							},
-						},
-					},
-				},
-			}, nil
-		}
-		manager.client = kubernetesClient
+		// Given a kustomization with a BuildFailed condition
+		manager := setup(t, clientWith(kustomization("k1", map[string]any{
+			"type":    "Ready",
+			"status":  "False",
+			"reason":  "BuildFailed",
+			"message": "accumulating components: no such file or directory",
+		})))
 
+		// When the status is requested
 		status, err := manager.GetKustomizationStatus([]string{"k1"})
+
+		// Then a failure error is returned with a nil status
 		if err == nil {
-			t.Error("Expected error, got nil")
+			t.Fatal("Expected error, got nil")
 		}
 		if !strings.Contains(err.Error(), "kustomization k1 failed: accumulating components") {
 			t.Errorf("Expected error containing 'kustomization k1 failed: accumulating components', got %v", err)
@@ -2391,38 +1995,13 @@ func TestBaseKubernetesManager_GetKustomizationStatus(t *testing.T) {
 	})
 
 	t.Run("KustomizationMissing", func(t *testing.T) {
-		manager := func(t *testing.T) *BaseKubernetesManager {
-			mocks := setupKubernetesMocks(t)
-			manager := NewKubernetesManager(mocks.KubernetesClient, mocks.ConfigHandler)
-			return manager
-		}(t)
-		kubernetesClient := client.NewMockKubernetesClient()
-		kubernetesClient.ListResourcesFunc = func(gvr schema.GroupVersionResource, namespace string) (*unstructured.UnstructuredList, error) {
-			return &unstructured.UnstructuredList{
-				Items: []unstructured.Unstructured{
-					{
-						Object: map[string]any{
-							"apiVersion": "kustomize.toolkit.fluxcd.io/v1",
-							"kind":       "Kustomization",
-							"metadata": map[string]any{
-								"name": "k1",
-							},
-							"status": map[string]any{
-								"conditions": []any{
-									map[string]any{
-										"type":   "Ready",
-										"status": "True",
-									},
-								},
-							},
-						},
-					},
-				},
-			}, nil
-		}
-		manager.client = kubernetesClient
+		// Given a cluster that holds k1 Ready and no k2
+		manager := setup(t, clientWith(kustomization("k1", map[string]any{"type": "Ready", "status": "True"})))
 
+		// When the status of k1 and k2 is requested
 		status, err := manager.GetKustomizationStatus([]string{"k1", "k2"})
+
+		// Then k1 is ready and k2 is not ready
 		if err != nil {
 			t.Errorf("Expected no error, got %v", err)
 		}
@@ -2442,7 +2021,7 @@ func TestBaseKubernetesManager_KustomizationExists(t *testing.T) {
 		m.KubernetesClient.(*client.MockKubernetesClient).GetResourceFunc = func(gvr schema.GroupVersionResource, ns, name string) (*unstructured.Unstructured, error) {
 			return &unstructured.Unstructured{}, nil
 		}
-		manager := NewKubernetesManager(m.KubernetesClient, m.ConfigHandler)
+		manager := kubernetes.NewKubernetesManager(m.KubernetesClient, m.ConfigHandler)
 
 		// When KustomizationExists is called
 		exists, err := manager.KustomizationExists("my-app", "flux-system")
@@ -2462,7 +2041,7 @@ func TestBaseKubernetesManager_KustomizationExists(t *testing.T) {
 		m.KubernetesClient.(*client.MockKubernetesClient).GetResourceFunc = func(gvr schema.GroupVersionResource, ns, name string) (*unstructured.Unstructured, error) {
 			return nil, fmt.Errorf("%q not found", name)
 		}
-		manager := NewKubernetesManager(m.KubernetesClient, m.ConfigHandler)
+		manager := kubernetes.NewKubernetesManager(m.KubernetesClient, m.ConfigHandler)
 
 		// When KustomizationExists is called
 		exists, err := manager.KustomizationExists("my-app", "flux-system")
@@ -2482,7 +2061,7 @@ func TestBaseKubernetesManager_KustomizationExists(t *testing.T) {
 		m.KubernetesClient.(*client.MockKubernetesClient).GetResourceFunc = func(gvr schema.GroupVersionResource, ns, name string) (*unstructured.Unstructured, error) {
 			return nil, fmt.Errorf("connection refused")
 		}
-		manager := NewKubernetesManager(m.KubernetesClient, m.ConfigHandler)
+		manager := kubernetes.NewKubernetesManager(m.KubernetesClient, m.ConfigHandler)
 
 		// When KustomizationExists is called
 		exists, err := manager.KustomizationExists("my-app", "flux-system")
@@ -2493,411 +2072,6 @@ func TestBaseKubernetesManager_KustomizationExists(t *testing.T) {
 		}
 		if exists {
 			t.Error("expected exists=false on error, got true")
-		}
-	})
-}
-
-// =============================================================================
-// Test Private Methods
-// =============================================================================
-
-func TestBaseKubernetesManager_describeNotReadyKustomizations(t *testing.T) {
-	t.Run("ExhaustedBudgetNamesWithoutProbing", func(t *testing.T) {
-		// Given a diagnostic budget that is already spent before the first probe
-		mocks := setupKubernetesMocks(t)
-		manager := NewKubernetesManager(mocks.KubernetesClient, mocks.ConfigHandler)
-		manager.Timing.NotReadyDescribeBudget = 0
-		kubernetesClient := withGVRs(client.NewMockKubernetesClient())
-		called := false
-		kubernetesClient.GetResourceFunc = func(gvr schema.GroupVersionResource, ns, name string) (*unstructured.Unstructured, error) {
-			called = true
-			return &unstructured.Unstructured{}, nil
-		}
-		manager.client = kubernetesClient
-
-		// When describing not-ready kustomizations
-		got := manager.describeNotReadyKustomizations([]string{"dns", "pki-base"}, "flux-system")
-
-		// Then the API is never probed and every kustomization is named plainly,
-		// bounding the diagnostic when the API is the thing that's unresponsive.
-		if called {
-			t.Error("Expected no GetResource calls once the budget is exhausted")
-		}
-		if !strings.Contains(got, "dns") || !strings.Contains(got, "pki-base") {
-			t.Errorf("Expected both kustomizations named, got: %q", got)
-		}
-	})
-}
-
-func TestBaseKubernetesManager_getHelmRelease(t *testing.T) {
-	setup := func(t *testing.T) *BaseKubernetesManager {
-		t.Helper()
-		mocks := setupKubernetesMocks(t)
-		manager := NewKubernetesManager(mocks.KubernetesClient, mocks.ConfigHandler)
-		return manager
-	}
-
-	t.Run("Success", func(t *testing.T) {
-		manager := setup(t)
-		kubernetesClient := client.NewMockKubernetesClient()
-		expectedObj := &unstructured.Unstructured{
-			Object: map[string]any{
-				"apiVersion": "helm.toolkit.fluxcd.io/v2",
-				"kind":       "HelmRelease",
-				"metadata": map[string]any{
-					"name":      "test-release",
-					"namespace": "test-namespace",
-				},
-				"spec": map[string]any{
-					"chart": map[string]any{
-						"spec": map[string]any{
-							"chart": "test-chart",
-						},
-					},
-				},
-			},
-		}
-		kubernetesClient.GetResourceFunc = func(gvr schema.GroupVersionResource, namespace, name string) (*unstructured.Unstructured, error) {
-			return expectedObj, nil
-		}
-		manager.client = kubernetesClient
-
-		release, err := manager.getHelmRelease("test-release", "test-namespace")
-		if err != nil {
-			t.Errorf("Expected no error, got %v", err)
-		}
-		if release == nil {
-			t.Error("Expected helm release, got nil")
-		}
-		if release.Name != "test-release" {
-			t.Errorf("Expected name 'test-release', got %s", release.Name)
-		}
-	})
-
-	t.Run("GetResourceError", func(t *testing.T) {
-		manager := setup(t)
-		kubernetesClient := client.NewMockKubernetesClient()
-		kubernetesClient.GetResourceFunc = func(gvr schema.GroupVersionResource, namespace, name string) (*unstructured.Unstructured, error) {
-			return nil, fmt.Errorf("get resource error")
-		}
-		manager.client = kubernetesClient
-
-		_, err := manager.getHelmRelease("test-release", "test-namespace")
-		if err == nil {
-			t.Error("Expected error, got nil")
-		}
-		if !strings.Contains(err.Error(), "failed to get helm release") {
-			t.Errorf("Expected get resource error, got: %v", err)
-		}
-	})
-}
-
-func TestBaseKubernetesManager_calculateTotalWaitTime(t *testing.T) {
-	setup := func(t *testing.T) *BaseKubernetesManager {
-		t.Helper()
-		mocks := setupKubernetesMocks(t)
-		manager := NewKubernetesManager(mocks.KubernetesClient, mocks.ConfigHandler)
-		return manager
-	}
-
-	t.Run("EmptyBlueprint", func(t *testing.T) {
-		manager := setup(t)
-		blueprint := &blueprintv1alpha1.Blueprint{
-			Kustomizations: []blueprintv1alpha1.Kustomization{},
-		}
-
-		timeout := manager.calculateTotalWaitTime(blueprint)
-		expected := constants.DefaultKustomizationWaitTotalTimeout
-		if timeout != expected {
-			t.Errorf("Expected default timeout %v, got %v", expected, timeout)
-		}
-	})
-
-	t.Run("SingleKustomizationNoDependencies", func(t *testing.T) {
-		manager := setup(t)
-		blueprint := &blueprintv1alpha1.Blueprint{
-			Kustomizations: []blueprintv1alpha1.Kustomization{
-				{
-					Name: "k1",
-				},
-			},
-		}
-
-		timeout := manager.calculateTotalWaitTime(blueprint)
-		expected := constants.DefaultFluxKustomizationTimeout
-		if timeout != expected {
-			t.Errorf("Expected default timeout %v, got %v", expected, timeout)
-		}
-	})
-
-	t.Run("SingleKustomizationWithCustomTimeout", func(t *testing.T) {
-		manager := setup(t)
-		customTimeout := 10 * time.Minute
-		blueprint := &blueprintv1alpha1.Blueprint{
-			Kustomizations: []blueprintv1alpha1.Kustomization{
-				{
-					Name: "k1",
-					Timeout: &blueprintv1alpha1.DurationString{
-						Duration: customTimeout,
-					},
-				},
-			},
-		}
-
-		timeout := manager.calculateTotalWaitTime(blueprint)
-		if timeout != customTimeout {
-			t.Errorf("Expected custom timeout %v, got %v", customTimeout, timeout)
-		}
-	})
-
-	t.Run("SingleKustomizationWithZeroTimeout", func(t *testing.T) {
-		manager := setup(t)
-		blueprint := &blueprintv1alpha1.Blueprint{
-			Kustomizations: []blueprintv1alpha1.Kustomization{
-				{
-					Name: "k1",
-					Timeout: &blueprintv1alpha1.DurationString{
-						Duration: 0,
-					},
-				},
-			},
-		}
-
-		timeout := manager.calculateTotalWaitTime(blueprint)
-		expected := constants.DefaultFluxKustomizationTimeout
-		if timeout != expected {
-			t.Errorf("Expected default timeout %v, got %v", expected, timeout)
-		}
-	})
-
-	t.Run("TwoKustomizationsWithDependency", func(t *testing.T) {
-		manager := setup(t)
-		timeout1 := 5 * time.Minute
-		timeout2 := 3 * time.Minute
-		blueprint := &blueprintv1alpha1.Blueprint{
-			Kustomizations: []blueprintv1alpha1.Kustomization{
-				{
-					Name: "k1",
-					Timeout: &blueprintv1alpha1.DurationString{
-						Duration: timeout1,
-					},
-				},
-				{
-					Name: "k2",
-					Timeout: &blueprintv1alpha1.DurationString{
-						Duration: timeout2,
-					},
-					DependsOn: []string{"k1"},
-				},
-			},
-		}
-
-		timeout := manager.calculateTotalWaitTime(blueprint)
-		expected := timeout1 + timeout2
-		if timeout != expected {
-			t.Errorf("Expected sum %v, got %v", expected, timeout)
-		}
-	})
-
-	t.Run("LongDependencyChain", func(t *testing.T) {
-		manager := setup(t)
-		timeout1 := 2 * time.Minute
-		timeout2 := 3 * time.Minute
-		timeout3 := 4 * time.Minute
-		timeout4 := 5 * time.Minute
-		blueprint := &blueprintv1alpha1.Blueprint{
-			Kustomizations: []blueprintv1alpha1.Kustomization{
-				{
-					Name: "k1",
-					Timeout: &blueprintv1alpha1.DurationString{
-						Duration: timeout1,
-					},
-				},
-				{
-					Name: "k2",
-					Timeout: &blueprintv1alpha1.DurationString{
-						Duration: timeout2,
-					},
-					DependsOn: []string{"k1"},
-				},
-				{
-					Name: "k3",
-					Timeout: &blueprintv1alpha1.DurationString{
-						Duration: timeout3,
-					},
-					DependsOn: []string{"k2"},
-				},
-				{
-					Name: "k4",
-					Timeout: &blueprintv1alpha1.DurationString{
-						Duration: timeout4,
-					},
-					DependsOn: []string{"k3"},
-				},
-			},
-		}
-
-		timeout := manager.calculateTotalWaitTime(blueprint)
-		expected := timeout1 + timeout2 + timeout3 + timeout4
-		if timeout != expected {
-			t.Errorf("Expected sum %v, got %v", expected, timeout)
-		}
-	})
-
-	t.Run("MultipleIndependentChains", func(t *testing.T) {
-		manager := setup(t)
-		timeout1 := 2 * time.Minute
-		timeout2 := 3 * time.Minute
-		timeout3 := 10 * time.Minute
-		timeout4 := 1 * time.Minute
-		blueprint := &blueprintv1alpha1.Blueprint{
-			Kustomizations: []blueprintv1alpha1.Kustomization{
-				{
-					Name: "k1",
-					Timeout: &blueprintv1alpha1.DurationString{
-						Duration: timeout1,
-					},
-				},
-				{
-					Name: "k2",
-					Timeout: &blueprintv1alpha1.DurationString{
-						Duration: timeout2,
-					},
-					DependsOn: []string{"k1"},
-				},
-				{
-					Name: "k3",
-					Timeout: &blueprintv1alpha1.DurationString{
-						Duration: timeout3,
-					},
-				},
-				{
-					Name: "k4",
-					Timeout: &blueprintv1alpha1.DurationString{
-						Duration: timeout4,
-					},
-					DependsOn: []string{"k3"},
-				},
-			},
-		}
-
-		timeout := manager.calculateTotalWaitTime(blueprint)
-		chain1Total := timeout1 + timeout2
-		chain2Total := timeout3 + timeout4
-		expected := chain2Total
-		if chain1Total > chain2Total {
-			expected = chain1Total
-		}
-		if timeout != expected {
-			t.Errorf("Expected max chain total %v, got %v", expected, timeout)
-		}
-	})
-
-	t.Run("ForkedDependencyChain", func(t *testing.T) {
-		manager := setup(t)
-		timeout1 := 2 * time.Minute
-		timeout2 := 3 * time.Minute
-		timeout3 := 4 * time.Minute
-		timeout4 := 5 * time.Minute
-		blueprint := &blueprintv1alpha1.Blueprint{
-			Kustomizations: []blueprintv1alpha1.Kustomization{
-				{
-					Name: "k1",
-					Timeout: &blueprintv1alpha1.DurationString{
-						Duration: timeout1,
-					},
-				},
-				{
-					Name: "k2",
-					Timeout: &blueprintv1alpha1.DurationString{
-						Duration: timeout2,
-					},
-					DependsOn: []string{"k1"},
-				},
-				{
-					Name: "k3",
-					Timeout: &blueprintv1alpha1.DurationString{
-						Duration: timeout3,
-					},
-					DependsOn: []string{"k1"},
-				},
-				{
-					Name: "k4",
-					Timeout: &blueprintv1alpha1.DurationString{
-						Duration: timeout4,
-					},
-					DependsOn: []string{"k2", "k3"},
-				},
-			},
-		}
-
-		timeout := manager.calculateTotalWaitTime(blueprint)
-		chain1Total := timeout1 + timeout2 + timeout4
-		chain2Total := timeout1 + timeout3 + timeout4
-		expected := chain2Total
-		if chain1Total > chain2Total {
-			expected = chain1Total
-		}
-		if timeout != expected {
-			t.Errorf("Expected max chain total %v, got %v", expected, timeout)
-		}
-	})
-
-	t.Run("MixedDefaultAndCustomTimeouts", func(t *testing.T) {
-		manager := setup(t)
-		customTimeout := 7 * time.Minute
-		blueprint := &blueprintv1alpha1.Blueprint{
-			Kustomizations: []blueprintv1alpha1.Kustomization{
-				{
-					Name: "k1",
-				},
-				{
-					Name: "k2",
-					Timeout: &blueprintv1alpha1.DurationString{
-						Duration: customTimeout,
-					},
-					DependsOn: []string{"k1"},
-				},
-			},
-		}
-
-		timeout := manager.calculateTotalWaitTime(blueprint)
-		expected := constants.DefaultFluxKustomizationTimeout + customTimeout
-		if timeout != expected {
-			t.Errorf("Expected sum %v, got %v", expected, timeout)
-		}
-	})
-}
-
-// =============================================================================
-// Test Helpers
-// =============================================================================
-
-func TestKustomizationFailureText(t *testing.T) {
-	t.Run("JoinsAMultiLineMessageOntoOneLine", func(t *testing.T) {
-		// Given a failure with a multi-line message
-		failure := &kustomizationFailedError{name: "b", reason: "ReconciliationFailed", message: "dry-run failed\n  spec.selector: Required value"}
-
-		// When the failure text is built
-		text := kustomizationFailureText(failure)
-
-		// Then the reason and the flattened message share one line
-		if text != "ReconciliationFailed: dry-run failed spec.selector: Required value" {
-			t.Errorf("Unexpected text %q", text)
-		}
-	})
-
-	t.Run("TruncatesLongMessages", func(t *testing.T) {
-		// Given a failure message longer than the limit
-		long := strings.Repeat("x", kustomizationWaitMessageLimit+50)
-		failure := &kustomizationFailedError{name: "b", reason: "ReconciliationFailed", message: long}
-
-		// When the failure text is built
-		text := kustomizationFailureText(failure)
-
-		// Then the message is cut and marked
-		if text != "ReconciliationFailed: "+strings.Repeat("x", kustomizationWaitMessageLimit)+"..." {
-			t.Errorf("Unexpected text %q", text)
 		}
 	})
 }
