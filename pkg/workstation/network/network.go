@@ -32,15 +32,10 @@ const dnsAddressHint = "Set workstation.dns.address in the context configuration
 // Types
 // =============================================================================
 
-// NetworkManager handles configuring the local development network.
-// Guest address is read from config (workstation.address) where needed.
-// Revert* counterparts undo Configure*, are idempotent (no-op when the
-// resource is absent), and are invoked by 'windsor configure network --revert'
-// and 'windsor down'.
-// IsHostRouteInstalled / IsResolverInstalled answer the question "is the host
-// state this manager would install currently present?" — used by 'windsor down'
-// to detect orphaned host configuration when the operator can't elevate
-// non-interactively, so a hint can point them at 'configure network --revert'.
+// NetworkManager configures the guest, the host route, and the DNS of the local network.
+// Each Revert method undoes its Configure method and does nothing when the state is absent.
+// IsHostRouteInstalled and IsResolverInstalled report whether that host state is present.
+// 'windsor down' uses them to find host state that it cannot remove without a prompt.
 type NetworkManager interface {
 	ConfigureHostRoute(ctx context.Context) error
 	ConfigureGuest() error
@@ -69,7 +64,7 @@ type BaseNetworkManager struct {
 // Constructor
 // =============================================================================
 
-// NewNetworkManager creates a new NetworkManager
+// NewBaseNetworkManager returns a BaseNetworkManager for rt. It panics when rt, its shell, or its config handler is nil.
 func NewBaseNetworkManager(rt *runtime.Runtime) *BaseNetworkManager {
 	if rt == nil {
 		panic("runtime is required")
@@ -92,14 +87,12 @@ func NewBaseNetworkManager(rt *runtime.Runtime) *BaseNetworkManager {
 // Public Methods
 // =============================================================================
 
-// ConfigureGuest sets up the guest VM network. Base implementation is a no-op; Colima overrides and reads guest address from config.
+// ConfigureGuest does nothing. ColimaNetworkManager overrides it.
 func (n *BaseNetworkManager) ConfigureGuest() error {
 	return nil
 }
 
-// RevertGuest removes guest-VM forwarding installed by ConfigureGuest. Base implementation is a
-// no-op (nothing to revert when ConfigureGuest was a no-op); Colima overrides to remove the
-// iptables FORWARD rule it installed in the VM.
+// RevertGuest does nothing. ColimaNetworkManager overrides it.
 func (n *BaseNetworkManager) RevertGuest() error {
 	return nil
 }
@@ -109,12 +102,9 @@ func (n *BaseNetworkManager) DNSChanged() bool {
 	return n.dnsChanged
 }
 
-// NeedsPrivilegeForCluster reports whether the host needs elevated configuration before the rest
-// of the blueprint can reach the cluster — host route + in-VM forwarding on VM-backed runtimes
-// whose cluster IP is not on loopback. Returns true only on colima today; docker-desktop has the
-// cluster on 127.0.0.1 and never needs a host route. Failures of underlying probes are treated as
-// false (the privileged work is also gated by the actual ConfigureHostRoute call, which will
-// surface its own error if invoked when it shouldn't have been).
+// NeedsPrivilegeForCluster reports whether the host needs a host route before it can reach the cluster.
+// Only colima can need one, because docker-desktop has the cluster on 127.0.0.1.
+// A failed probe counts as false. ConfigureHostRoute reports its own errors.
 func (n *BaseNetworkManager) NeedsPrivilegeForCluster() bool {
 	if n.configHandler.GetString("workstation.runtime") != "colima" {
 		return false
@@ -126,11 +116,9 @@ func (n *BaseNetworkManager) NeedsPrivilegeForCluster() bool {
 	return n.needsPrivilegeForHostRoute(guestAddress)
 }
 
-// NeedsPrivilegeForDNS reports whether the host's DNS resolver needs elevated configuration to
-// point *.dns.domain at the cluster resolver. Returns true when a configurable DNS service is
-// available (dns.domain set; resolver IP derivable via effectiveResolverIP) and the host's
-// current resolver entry does not already match. Failures of underlying probes are treated as
-// false.
+// NeedsPrivilegeForDNS reports whether the host resolver needs a change to send *.dns.domain to the cluster DNS.
+// It is true when dns.domain and a resolver IP are set and the host resolver entry does not match.
+// A failed probe counts as false.
 func (n *BaseNetworkManager) NeedsPrivilegeForDNS() bool {
 	if n.configHandler.GetString("dns.domain") == "" {
 		return false
@@ -142,10 +130,8 @@ func (n *BaseNetworkManager) NeedsPrivilegeForDNS() bool {
 	return n.needsPrivilegeForResolver(desiredIP)
 }
 
-// IsHostRouteInstalled reports whether the host route this NetworkManager would install (for
-// the configured CIDR via the configured guest) is currently present and matches. Always false
-// on runtimes that don't use host routes (anything other than colima). Used by 'windsor down'
-// to detect orphaned cluster-reachability state when the operator can't elevate non-interactively.
+// IsHostRouteInstalled reports whether the host route for the CIDR through the guest address is present.
+// It is always false when workstation.runtime is not colima.
 func (n *BaseNetworkManager) IsHostRouteInstalled() bool {
 	if n.configHandler.GetString("workstation.runtime") != "colima" {
 		return false
@@ -157,12 +143,8 @@ func (n *BaseNetworkManager) IsHostRouteInstalled() bool {
 	return !n.needsPrivilegeForHostRoute(guestAddress)
 }
 
-// IsResolverInstalled reports whether the per-domain DNS resolver entry this NetworkManager
-// would install is currently present and matches the configured resolver IP. False when no
-// dns.domain is configured or when no resolver address is derivable. Used by 'windsor down' to
-// detect orphaned DNS-resolver state. The "matches" semantic means a stale entry with a
-// different IP will not be detected as installed — operators with that edge case can run
-// 'configure network --revert' explicitly.
+// IsResolverInstalled reports whether the resolver entry for dns.domain is present with the resolver IP.
+// An entry with a different IP does not count. It is false when dns.domain or the resolver IP is not set.
 func (n *BaseNetworkManager) IsResolverInstalled() bool {
 	if n.configHandler.GetString("dns.domain") == "" {
 		return false
@@ -178,7 +160,7 @@ func (n *BaseNetworkManager) IsResolverInstalled() bool {
 // Private Methods
 // =============================================================================
 
-// isLocalhostMode checks if the system is in localhost mode.
+// isLocalhostMode reports whether workstation.runtime is docker-desktop.
 func (n *BaseNetworkManager) isLocalhostMode() bool {
 	return n.configHandler.GetString("workstation.runtime") == "docker-desktop"
 }
@@ -226,14 +208,9 @@ func validateIPAddress(ip string) (string, error) {
 	return parsed.String(), nil
 }
 
-// validateBridgeInterface verifies iface matches what the Linux kernel allows for a network
-// interface name and what Docker emits for a user bridge: "br-" prefix, ≤15 bytes (IFNAMSIZ
-// minus the null terminator), characters drawn from [A-Za-z0-9_.-]. Returns the canonical form
-// for interpolation into shell command strings. Used at the trust boundary where bridge names
-// cross from the colima guest (via `ls /sys/class/net`) into commands the host process builds
-// with fmt.Sprintf and runs over `sh -c` — the kernel's IFNAMSIZ and `br-` prefix already make
-// a working injection payload very hard to construct, but the explicit allowlist matches the
-// pattern validateCIDR / validateIPAddress establish for the same data path.
+// validateBridgeInterface checks that iface is a Docker bridge name: a "br-" prefix, 15 bytes
+// or fewer, and only the characters [A-Za-z0-9_.-]. It returns iface for use in shell commands.
+// The bridge names come from the guest VM, so the check stops shell injection into sh -c commands.
 func validateBridgeInterface(iface string) (string, error) {
 	if !strings.HasPrefix(iface, "br-") {
 		return "", fmt.Errorf("invalid bridge interface %q: must begin with %q", iface, "br-")
@@ -277,8 +254,7 @@ func (n *BaseNetworkManager) writeFileWithSudo(destPath string, content []byte) 
 	return nil
 }
 
-// effectiveResolverIP returns the resolver IP for DNS config: dns.address when set (by config, migration for
-// localhost, or ConfigureNetwork(override)); when unset and in localhost mode returns 127.0.0.1.
+// effectiveResolverIP returns workstation.dns.address, or 127.0.0.1 when it is not set on docker-desktop.
 func (n *BaseNetworkManager) effectiveResolverIP() string {
 	if v := n.configHandler.GetString("workstation.dns.address"); v != "" {
 		return v
@@ -289,7 +265,7 @@ func (n *BaseNetworkManager) effectiveResolverIP() string {
 	return ""
 }
 
-// incrementIP increments an IP address by one.
+// incrementIP returns the IPv4 address after ip.
 func incrementIP(ip net.IP) net.IP {
 	ip = ip.To4()
 	for j := len(ip) - 1; j >= 0; j-- {
@@ -305,5 +281,5 @@ func incrementIP(ip net.IP) net.IP {
 // Interface Compliance
 // =============================================================================
 
-// Ensure BaseNetworkManager implements NetworkManager
+// BaseNetworkManager implements NetworkManager.
 var _ NetworkManager = (*BaseNetworkManager)(nil)

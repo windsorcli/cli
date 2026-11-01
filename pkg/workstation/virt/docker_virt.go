@@ -1,6 +1,7 @@
-// The DockerVirt is a container runtime implementation for platform docker.
-// It provides Docker-native residual container/network cleanup and works with or without
-// a VM (e.g. Colima); it only talks to the Docker daemon.
+// The DockerVirt is the ContainerRuntime for platform docker.
+// It provides the cleanup of the containers, volumes, and network of the context.
+// It works with or without a VM, because it talks only to the Docker daemon.
+// Terraform or compose start the containers, so Up and WriteConfig do nothing.
 
 package virt
 
@@ -9,7 +10,6 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
-	"os"
 	"strings"
 
 	"github.com/windsorcli/cli/internal/presenter"
@@ -20,22 +20,17 @@ import (
 // Constants
 // =============================================================================
 
-// WindsorNetworkPrefix is the prefix for Windsor-managed Docker networks (e.g. windsor-local).
-// Down() targets only the current context's network, windsor-<context>.
+// WindsorNetworkPrefix is the prefix of the Docker network of a context, for example windsor-local.
 const WindsorNetworkPrefix = "windsor-"
 
-// DockerComposeProjectPrefix is the prefix for the compose-style project label value (e.g. workstation-windsor-local).
-// Containers are grouped by label com.docker.compose.project=<prefix><context> for display and cleanup.
+// DockerComposeProjectPrefix is the prefix of the com.docker.compose.project label of a context.
 const DockerComposeProjectPrefix = "workstation-windsor-"
 
 // =============================================================================
 // Types
 // =============================================================================
 
-// DockerVirt implements ContainerRuntime for platform docker.
-// It does not start or manage a VM; Up/WriteConfig are no-ops when Terraform or compose elsewhere own the stack.
-// Down() performs robust cleanup of residual containers and networks so windsor down clears local resources
-// even if Terraform destroy was skipped.
+// DockerVirt is the ContainerRuntime for platform docker.
 type DockerVirt struct {
 	*BaseVirt
 }
@@ -44,7 +39,7 @@ type DockerVirt struct {
 // Constructor
 // =============================================================================
 
-// NewDockerVirt creates a new DockerVirt with the provided runtime.
+// NewDockerVirt returns a DockerVirt for rt. It panics when rt is nil.
 func NewDockerVirt(rt *runtime.Runtime) *DockerVirt {
 	if rt == nil {
 		panic("runtime is required")
@@ -58,21 +53,20 @@ func NewDockerVirt(rt *runtime.Runtime) *DockerVirt {
 // Public Methods
 // =============================================================================
 
-// Up is a no-op for DockerVirt; containers are started by Terraform or compose elsewhere.
+// Up does nothing, because Terraform or compose start the containers.
 func (v *DockerVirt) Up(ctx context.Context) error {
 	return nil
 }
 
-// WriteConfig is a no-op for DockerVirt.
+// WriteConfig does nothing.
 func (v *DockerVirt) WriteConfig() error {
 	return nil
 }
 
-// Down stops and removes only resources for the current project/context: containers and named volumes
-// with label com.docker.compose.project=workstation-windsor-<context>, and the network windsor-<context>.
-// Anonymous volumes are removed with containers via rm -v. No global Docker cleanup is performed.
-// Returns nil with no output when DOCKER_HOST names a unix socket that no longer exists (the VM is gone).
-// Otherwise best-effort: errors are logged to stderr but do not cause Down to return an error. Shows a progress spinner.
+// Down removes the containers, the named volumes, and the network of the context, and nothing else.
+// It finds the containers and volumes by the label com.docker.compose.project=workstation-windsor-<context>.
+// It does nothing when DOCKER_HOST names a unix socket that does not exist, because the VM is gone.
+// It shows each failure as a warning and always returns nil.
 func (v *DockerVirt) Down(ctx context.Context) error {
 	if v.daemonSocketMissing() {
 		return nil
@@ -82,9 +76,9 @@ func (v *DockerVirt) Down(ctx context.Context) error {
 		projectLabelValue := DockerComposeProjectPrefix + contextName
 		netName := WindsorNetworkPrefix + contextName
 
-		v.cleanProjectContainers(projectLabelValue)
-		v.removeVolumes(projectLabelValue)
-		v.removeNetworkIfExists(netName)
+		v.cleanProjectContainers(ctx, projectLabelValue)
+		v.removeVolumes(ctx, projectLabelValue)
+		v.removeNetworkIfExists(ctx, netName)
 		return nil
 	})
 }
@@ -104,12 +98,12 @@ func (v *DockerVirt) daemonSocketMissing() bool {
 	return errors.Is(err, fs.ErrNotExist)
 }
 
-// cleanProjectContainers stops and removes only containers with the given compose project label
-// (com.docker.compose.project=<projectLabelValue>), including created-but-never-started. No other containers are touched.
-func (v *DockerVirt) cleanProjectContainers(projectLabelValue string) {
+// cleanProjectContainers stops and removes each container with the compose project label, also a container that never started.
+// It warns and returns when it cannot list the containers.
+func (v *DockerVirt) cleanProjectContainers(ctx context.Context, projectLabelValue string) {
 	out, err := v.shell.ExecSilent("docker", "ps", "-a", "-q", "--filter", "label=com.docker.compose.project="+projectLabelValue)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Warning: could not list containers for project %s: %v\n", projectLabelValue, err)
+		presenter.Warn(ctx, fmt.Sprintf("could not list containers for project %s: %v", projectLabelValue, err))
 		return
 	}
 	ids := strings.Fields(strings.TrimSpace(out))
@@ -122,12 +116,12 @@ func (v *DockerVirt) cleanProjectContainers(projectLabelValue string) {
 	}
 }
 
-// removeVolumes removes only Docker volumes with the given compose project label
-// (com.docker.compose.project=<projectLabelValue>). Best-effort; errors are logged.
-func (v *DockerVirt) removeVolumes(projectLabelValue string) {
+// removeVolumes removes each Docker volume with the compose project label.
+// It warns and returns when it cannot list the volumes.
+func (v *DockerVirt) removeVolumes(ctx context.Context, projectLabelValue string) {
 	out, err := v.shell.ExecSilent("docker", "volume", "ls", "-q", "--filter", "label=com.docker.compose.project="+projectLabelValue)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Warning: could not list volumes for project %s: %v\n", projectLabelValue, err)
+		presenter.Warn(ctx, fmt.Sprintf("could not list volumes for project %s: %v", projectLabelValue, err))
 		return
 	}
 	for _, name := range strings.Fields(strings.TrimSpace(out)) {
@@ -138,12 +132,12 @@ func (v *DockerVirt) removeVolumes(projectLabelValue string) {
 	}
 }
 
-// removeNetworkIfExists removes only the Docker network with the given name (e.g. windsor-<context>).
-// Best-effort; errors are logged. No other networks are touched.
-func (v *DockerVirt) removeNetworkIfExists(netName string) {
+// removeNetworkIfExists removes the Docker network netName when it exists.
+// It warns and returns when it cannot list the networks.
+func (v *DockerVirt) removeNetworkIfExists(ctx context.Context, netName string) {
 	out, err := v.shell.ExecSilent("docker", "network", "ls", "--format", "{{.Name}}")
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Warning: could not list Docker networks: %v\n", err)
+		presenter.Warn(ctx, fmt.Sprintf("could not list Docker networks: %v", err))
 		return
 	}
 	for _, name := range strings.Split(strings.TrimSpace(out), "\n") {
@@ -154,4 +148,9 @@ func (v *DockerVirt) removeNetworkIfExists(netName string) {
 	}
 }
 
+// =============================================================================
+// Interface Compliance
+// =============================================================================
+
+// DockerVirt implements ContainerRuntime.
 var _ ContainerRuntime = (*DockerVirt)(nil)

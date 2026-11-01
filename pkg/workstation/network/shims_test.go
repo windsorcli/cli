@@ -1,11 +1,15 @@
-package network
+package network_test
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/windsorcli/cli/pkg/workstation/network"
+)
 
 func TestUtils(t *testing.T) {
 	t.Run("TestInterfaces", func(t *testing.T) {
 		// Given a real network interface provider
-		provider := &RealNetworkInterfaceProvider{}
+		provider := &network.RealNetworkInterfaceProvider{}
 
 		// When getting network interfaces
 		interfaces, err := provider.Interfaces()
@@ -23,7 +27,7 @@ func TestUtils(t *testing.T) {
 
 	t.Run("TestInterfaceAddrs", func(t *testing.T) {
 		// Given a real network interface provider
-		provider := &RealNetworkInterfaceProvider{}
+		provider := &network.RealNetworkInterfaceProvider{}
 
 		// And getting network interfaces
 		interfaces, err := provider.Interfaces()
@@ -48,7 +52,7 @@ func TestUtils(t *testing.T) {
 func TestNewShims(t *testing.T) {
 	t.Run("InitializesNetworkShims", func(t *testing.T) {
 		// Given a new shims instance
-		shims := NewShims()
+		shims := network.NewShims()
 
 		// Then the shared and network shims should be set
 		if shims.Stat == nil || shims.ReadFile == nil || shims.Goos == nil {
