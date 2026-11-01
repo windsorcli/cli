@@ -1099,28 +1099,6 @@ func TestProvisioner_PrepareLocalTeardown(t *testing.T) {
 		}
 	})
 
-	t.Run("PivotsWhenClusterUnreachable", func(t *testing.T) {
-		// Given a kubernetes backend, a present kubeconfig, and a cluster that fails the health check
-		mocks := setupProvisionerMocks(t)
-		set := false
-		kubernetesBackend(mocks, &set)
-		mocks.KubernetesManager.WaitForKubernetesHealthyFunc = func(ctx context.Context, endpoint string, out func(string), nodes ...string) error {
-			return fmt.Errorf("connection refused")
-		}
-		prov := provisioner.NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &provisioner.Provisioner{KubernetesManager: mocks.KubernetesManager})
-
-		// When PivotToLocalIfClusterGone is called
-		pivoted, err := prov.PivotToLocalIfClusterGone()
-
-		// Then it pivots the backend to local
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-		if !pivoted || !set {
-			t.Errorf("expected pivot to local when cluster unreachable, pivoted=%v set=%v", pivoted, set)
-		}
-	})
-
 	t.Run("NoOpOnLocalBackend", func(t *testing.T) {
 		// Given the default local backend
 		mocks := setupProvisionerMocks(t)

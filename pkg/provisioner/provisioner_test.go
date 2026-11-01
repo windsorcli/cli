@@ -256,7 +256,7 @@ func TestNewProvisioner(t *testing.T) {
 		}
 	})
 
-	t.Run("CreatesClusterClientForTalos", func(t *testing.T) {
+	t.Run("KeepsClusterClientNilForTalosUntilUsed", func(t *testing.T) {
 		// Given a talos cluster driver
 		mocks := setupProvisionerMocks(t)
 
