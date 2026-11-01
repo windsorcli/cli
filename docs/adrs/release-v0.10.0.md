@@ -139,50 +139,13 @@ so none blocks it. Revisit if a future release's scope actually touches this sur
   fallback when no facet path exists — never alongside one, which is the common case. This is
   presenter/rendering work; fold it into the Wave 1 "Presenter / event stream" ADR when that's
   written rather than deciding it in isolation now.
-- **Omni support: two distinct problems, not one layer.** Sidero's Terraform provider for Omni is
-  an early skeleton (`omni_user` only, no etcd-backup/cluster-template coverage) — not a viable
-  parity path either way. Both problems below compose the same way `flux:` already does — CLI
-  resolves/renders the Omni resource manifests through kustomize, same pipeline `kustomize:`/
-  `flux:` entries go through today, not a bespoke templating path. (1) *Configuring Omni's own
-  objects* (etcd backups, machine classes) is a reconciled-resource-YAML problem, the Flux shape
-  not the terraform plan/apply/state shape; canonical answer if/when it's needed is a generic
-  COSI-envelope CRD (`OmniResource`: `type`/`metadata`/`spec` passthrough, no per-kind schema to
-  track) reconciled by a thin controller-runtime operator, with the CRs themselves delivered via
-  Flux like everything else — check with Sidero first, they may already be building this. (2) *Omni
-  as a cluster-formation backend* — an alternative or complement to terraform for standing up the
-  Talos cluster itself — is the one with no getting around it; its manifests (machine classes,
-  cluster templates, schematics) go through the same kustomize composition as any other blueprint
-  content before being applied via the Omni SDK. See the cross-domain dependency item below, which
-  this depends on. Omni's own cloud bring-up story (infra providers) only reaches bare-metal/
-  Proxmox/vSphere/libvirt/KubeVirt today, no AWS/GCP/Azure — so formation is composable with
-  terraform, not a replacement for it, on cloud platforms specifically. No dependency on this
-  release's charter (presenter/logging/errors/TUI; architecture/DRY/tests) — revisit when a
-  release actually scopes Omni work.
-- **Cross-domain dependency graph (`dependsOn`/`GlobalDependency` generalized across terraform,
-  omni, and flux).** Decided direction, not yet an ADR. Cluster provisioning has real structural
-  ordering that today has no vocabulary: substrate (terraform) → formation (terraform or Omni,
-  composable) → bootstrap (CNI/cilium, must precede Flux itself) → Flux-managed resources. Forcing
-  this through today's whole-phase-then-whole-phase provisioner execution ("all terraform, then
-  all flux") produces ad hoc alternating terraform/omni/terraform layers. Rejected: a `postInstall`
-  boolean (doesn't scale past two phases, breaks the moment a third domain — Omni — exists);
-  a nested `cluster:` container owning its own private `terraform:`/`omni:` (terraform is
-  legitimately dual-purpose — arbitrary infra and cluster-forming both — a container duplicates
-  the primitive). Decided instead: reuse the mechanism `flux:` systems already prove out, not their
-  container type — `install`/`resources` compile down into ordinary `Kustomization` objects in the
-  same flat list the plain `kustomize:` entries use; the new part is just two barrier mechanisms
-  (implicit tier edges, `GlobalDependency`'s "declare the precondition once, it wires into every
-  downstream consumer automatically"). Generalize both across domains: `dependsOn` gains
-  kind-qualified cross-domain references (`terraform:vpc`, `omni:cluster`, `flux:cilium`);
-  `GlobalDependency` widens from "within this flux system" to "across everything the provisioner
-  runs." `terraform:`/`omni:`/`flux:` stay flat, peer, general-purpose lists — no new blueprint
-  container. Provisioner execution moves from two fixed phases to resolving one cross-domain DAG
-  and walking it, though each domain still owns its own actual execution semantics (terraform
-  apply, Omni SDK, Flux controller) — the DAG only decides entry order. Explicitly out of scope for
-  this mechanism: live-endpoint/health-gated "day 2" service configuration (e.g. configuring
-  openbao once it's up and authenticated) — that's dynamic/runtime discovery, not static plan-time
-  topology, and stays a phase-gated concern (run after the graph reaches Ready), never a graph
-  edge. No dependency on this release's charter — revisit alongside the Omni work above, since
-  Omni-as-formation-backend is the concrete case that needs it.
+- **Omni support.** v0.10.0 does not scope Omni work. There are two separate problems: configuring
+  Omni's own objects (etcd backups, machine classes), and using Omni as a cluster-formation backend
+  next to terraform. Commit `58e399427` has the full design notes.
+- **Cross-domain dependency graph.** Decided direction, not yet an ADR. `dependsOn` and
+  `GlobalDependency` would accept references across terraform, omni, and flux, and the provisioner
+  would walk one DAG instead of two fixed phases. Omni as a formation backend is the case that needs
+  it, so it waits for the Omni work. Same commit has the notes.
 
 ## Stragglers (tracked here, not as standalone ADRs)
 
@@ -428,8 +391,8 @@ this phase just confirms none of them are blocked on Phase C finishing in full.
    with the `large-pr` phased-change convention.
 6. **Beta cadence** — tag `0.10.0-beta.N` at each wave boundary, or continuous pre-releases?
 7. **Feature requests to slot in** — you mentioned prioritizing a few. List them so they can be
-   mapped onto the waves above. First one recorded: Omni layer direction, see Backlog above —
-   doesn't map onto a v0.10.0 wave, tracked for a future release's scope.
+   mapped onto the waves above. The first one recorded, Omni support, is deferred to a later
+   release (see Backlog).
 
 ## ADR lifecycle policy
 
