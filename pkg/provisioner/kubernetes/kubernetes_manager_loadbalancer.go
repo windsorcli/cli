@@ -216,7 +216,7 @@ func (k *BaseKubernetesManager) foregroundDeleteAndWaitService(target ownedTarge
 	serviceGone := false
 	rootGone := rootIsService
 
-	timeout := time.Now().Add(k.loadBalancerTeardownTimeout)
+	timeout := time.Now().Add(k.Timing.LoadBalancerTeardownTimeout)
 	for time.Now().Before(timeout) {
 		if !serviceGone {
 			gone, err := k.resourceGone(servicesGVR, svcNamespace, svcName)
@@ -235,7 +235,7 @@ func (k *BaseKubernetesManager) foregroundDeleteAndWaitService(target ownedTarge
 		if serviceGone && rootGone {
 			return nil
 		}
-		time.Sleep(k.kustomizationWaitPollInterval)
+		time.Sleep(k.Timing.KustomizationWaitPollInterval)
 	}
 
 	return foregroundDeleteTimeoutError(svcNamespace, svcName, serviceGone, target, rootGone)

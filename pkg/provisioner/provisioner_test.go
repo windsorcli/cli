@@ -976,7 +976,7 @@ func TestProvisioner_kubeconfigPresent(t *testing.T) {
 		mocks := setupProvisionerMocks(t)
 		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler)
 		provisioner.configRoot = "/config"
-		provisioner.shims.Stat = func(string) (os.FileInfo, error) { return nil, fs.ErrNotExist }
+		provisioner.Shims.Stat = func(string) (os.FileInfo, error) { return nil, fs.ErrNotExist }
 
 		// When the kubeconfig is probed
 		present := provisioner.kubeconfigPresent()
@@ -992,7 +992,7 @@ func TestProvisioner_kubeconfigPresent(t *testing.T) {
 		mocks := setupProvisionerMocks(t)
 		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler)
 		provisioner.configRoot = "/config"
-		provisioner.shims.Stat = func(string) (os.FileInfo, error) { return nil, fs.ErrPermission }
+		provisioner.Shims.Stat = func(string) (os.FileInfo, error) { return nil, fs.ErrPermission }
 
 		// When the kubeconfig is probed
 		present := provisioner.kubeconfigPresent()

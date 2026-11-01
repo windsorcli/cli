@@ -20,11 +20,11 @@ func TestBaseKubernetesManager_PruneBlueprint(t *testing.T) {
 		t.Helper()
 		mocks := setupKubernetesMocks(t)
 		manager := NewKubernetesManager(mocks.KubernetesClient, mocks.ConfigHandler)
-		manager.shims = mocks.Shims
-		manager.shims.ToUnstructured = func(obj any) (map[string]any, error) {
+		manager.Shims = mocks.Shims
+		manager.Shims.ToUnstructured = func(obj any) (map[string]any, error) {
 			return runtime.DefaultUnstructuredConverter.ToUnstructured(obj)
 		}
-		manager.shims.FromUnstructured = func(obj map[string]any, target any) error {
+		manager.Shims.FromUnstructured = func(obj map[string]any, target any) error {
 			return runtime.DefaultUnstructuredConverter.FromUnstructured(obj, target)
 		}
 		return manager
@@ -213,7 +213,7 @@ func TestBaseKubernetesManager_ListPrunableKustomizations(t *testing.T) {
 		t.Helper()
 		mocks := setupKubernetesMocks(t)
 		manager := NewKubernetesManager(mocks.KubernetesClient, mocks.ConfigHandler)
-		manager.shims = mocks.Shims
+		manager.Shims = mocks.Shims
 		return manager
 	}
 

@@ -27,12 +27,12 @@ func TestBaseKubernetesManager_DeleteKustomization(t *testing.T) {
 		mocks := setupKubernetesMocks(t)
 		manager := NewKubernetesManager(mocks.KubernetesClient, mocks.ConfigHandler)
 		// Use shorter timeouts for tests
-		manager.kustomizationWaitPollInterval = 50 * time.Millisecond
-		manager.kustomizationReconcileTimeout = 100 * time.Millisecond
-		manager.kustomizationReconcileSleep = 50 * time.Millisecond
+		manager.Timing.KustomizationWaitPollInterval = 50 * time.Millisecond
+		manager.Timing.KustomizationReconcileTimeout = 100 * time.Millisecond
+		manager.Timing.KustomizationReconcileSleep = 50 * time.Millisecond
 		clock := newFakeClock()
-		manager.shims.TimeNow = clock.Now
-		manager.shims.TimeSleep = clock.Sleep
+		manager.Shims.TimeNow = clock.Now
+		manager.Shims.TimeSleep = clock.Sleep
 		return manager
 	}
 
@@ -95,8 +95,8 @@ func TestBaseKubernetesManager_DeleteKustomization(t *testing.T) {
 			return &unstructured.Unstructured{}, nil
 		}
 		manager.client = kubernetesClient
-		manager.kustomizationReconcileTimeout = 100 * time.Millisecond
-		manager.kustomizationWaitPollInterval = 50 * time.Millisecond
+		manager.Timing.KustomizationReconcileTimeout = 100 * time.Millisecond
+		manager.Timing.KustomizationWaitPollInterval = 50 * time.Millisecond
 
 		// When DeleteKustomization is called
 		err := manager.DeleteKustomization(context.Background(), "test-kustomization", "test-namespace")
@@ -139,8 +139,8 @@ func TestBaseKubernetesManager_DeleteKustomization(t *testing.T) {
 			}}, nil
 		}
 		manager.client = kubernetesClient
-		manager.kustomizationReconcileTimeout = 100 * time.Millisecond
-		manager.kustomizationWaitPollInterval = 50 * time.Millisecond
+		manager.Timing.KustomizationReconcileTimeout = 100 * time.Millisecond
+		manager.Timing.KustomizationWaitPollInterval = 50 * time.Millisecond
 
 		// When DeleteKustomization times out
 		err := manager.DeleteKustomization(context.Background(), "test-kustomization", "test-namespace")
@@ -181,8 +181,8 @@ func TestBaseKubernetesManager_DeleteKustomization(t *testing.T) {
 			}}, nil
 		}
 		manager.client = kubernetesClient
-		manager.kustomizationReconcileTimeout = 100 * time.Millisecond
-		manager.kustomizationWaitPollInterval = 50 * time.Millisecond
+		manager.Timing.KustomizationReconcileTimeout = 100 * time.Millisecond
+		manager.Timing.KustomizationWaitPollInterval = 50 * time.Millisecond
 
 		// When DeleteKustomization times out
 		err := manager.DeleteKustomization(context.Background(), "test-kustomization", "test-namespace")
@@ -253,8 +253,8 @@ func TestBaseKubernetesManager_DeleteKustomization(t *testing.T) {
 			}}, nil
 		}
 		manager.client = kubernetesClient
-		manager.kustomizationReconcileTimeout = 100 * time.Millisecond
-		manager.kustomizationWaitPollInterval = 50 * time.Millisecond
+		manager.Timing.KustomizationReconcileTimeout = 100 * time.Millisecond
+		manager.Timing.KustomizationWaitPollInterval = 50 * time.Millisecond
 
 		// When DeleteKustomization times out
 		err := manager.DeleteKustomization(context.Background(), "database-install", "system-gitops")
@@ -293,8 +293,8 @@ func TestBaseKubernetesManager_DeleteKustomization(t *testing.T) {
 		}
 		manager.client = kubernetesClient
 		// timeout < poll interval: deletion-status loop makes exactly one call
-		manager.kustomizationReconcileTimeout = 10 * time.Millisecond
-		manager.kustomizationWaitPollInterval = 50 * time.Millisecond
+		manager.Timing.KustomizationReconcileTimeout = 10 * time.Millisecond
+		manager.Timing.KustomizationWaitPollInterval = 50 * time.Millisecond
 
 		// When DeleteKustomization times out
 		err := manager.DeleteKustomization(context.Background(), "test-kustomization", "test-namespace")
@@ -318,9 +318,9 @@ func TestBaseKubernetesManager_DeleteKustomization(t *testing.T) {
 			return nil, fmt.Errorf("error checking status")
 		}
 		manager.client = kubernetesClient
-		manager.kustomizationReconcileTimeout = 100 * time.Millisecond
-		manager.kustomizationWaitPollInterval = 50 * time.Millisecond
-		manager.kustomizationWaitMaxReadFailures = 0
+		manager.Timing.KustomizationReconcileTimeout = 100 * time.Millisecond
+		manager.Timing.KustomizationWaitPollInterval = 50 * time.Millisecond
+		manager.Timing.KustomizationWaitMaxReadFailures = 0
 
 		err := manager.DeleteKustomization(context.Background(), "test-kustomization", "test-namespace")
 		if err == nil {
@@ -371,8 +371,8 @@ func TestBaseKubernetesManager_DeleteKustomization(t *testing.T) {
 			return &unstructured.Unstructured{}, nil
 		}
 		manager.client = kubernetesClient
-		manager.kustomizationReconcileTimeout = 100 * time.Millisecond
-		manager.kustomizationWaitPollInterval = 50 * time.Millisecond
+		manager.Timing.KustomizationReconcileTimeout = 100 * time.Millisecond
+		manager.Timing.KustomizationWaitPollInterval = 50 * time.Millisecond
 
 		// When DeleteKustomization times out
 		err := manager.DeleteKustomization(context.Background(), "test-kustomization", "test-namespace")
@@ -413,8 +413,8 @@ func TestBaseKubernetesManager_DeleteKustomization(t *testing.T) {
 			}}, nil
 		}
 		manager.client = kubernetesClient
-		manager.kustomizationReconcileTimeout = 100 * time.Millisecond
-		manager.kustomizationWaitPollInterval = 50 * time.Millisecond
+		manager.Timing.KustomizationReconcileTimeout = 100 * time.Millisecond
+		manager.Timing.KustomizationWaitPollInterval = 50 * time.Millisecond
 
 		// When DeleteKustomization times out
 		err := manager.DeleteKustomization(context.Background(), "test-kustomization", "test-namespace")
@@ -447,8 +447,8 @@ func TestBaseKubernetesManager_DeleteKustomization(t *testing.T) {
 			}}, nil
 		}
 		manager.client = kubernetesClient
-		manager.kustomizationReconcileTimeout = 100 * time.Millisecond
-		manager.kustomizationWaitPollInterval = 50 * time.Millisecond
+		manager.Timing.KustomizationReconcileTimeout = 100 * time.Millisecond
+		manager.Timing.KustomizationWaitPollInterval = 50 * time.Millisecond
 
 		// When DeleteKustomization times out
 		err := manager.DeleteKustomization(context.Background(), "test-kustomization", "test-namespace")
@@ -489,8 +489,8 @@ func TestBaseKubernetesManager_DeleteKustomization(t *testing.T) {
 			}}, nil
 		}
 		manager.client = kubernetesClient
-		manager.kustomizationReconcileTimeout = 100 * time.Millisecond
-		manager.kustomizationWaitPollInterval = 50 * time.Millisecond
+		manager.Timing.KustomizationReconcileTimeout = 100 * time.Millisecond
+		manager.Timing.KustomizationWaitPollInterval = 50 * time.Millisecond
 
 		// When DeleteKustomization times out
 		err := manager.DeleteKustomization(context.Background(), "test-kustomization", "test-namespace")
@@ -511,10 +511,10 @@ func TestBaseKubernetesManager_DeleteKustomization(t *testing.T) {
 		// Given a kustomization with a large inventory (a CRD-heavy layer)
 		// that never disappears within the base timeout
 		manager := setup(t)
-		manager.kustomizationReconcileTimeout = 20 * time.Millisecond
-		manager.kustomizationWaitPollInterval = 10 * time.Millisecond
-		manager.kustomizationDeletionPerEntryTimeout = 1 * time.Millisecond
-		manager.kustomizationDeletionMaxExtraTimeout = time.Second
+		manager.Timing.KustomizationReconcileTimeout = 20 * time.Millisecond
+		manager.Timing.KustomizationWaitPollInterval = 10 * time.Millisecond
+		manager.Timing.KustomizationDeletionPerEntryTimeout = 1 * time.Millisecond
+		manager.Timing.KustomizationDeletionMaxExtraTimeout = time.Second
 
 		inventoryEntries := make([]any, 100)
 		for i := range inventoryEntries {
@@ -537,9 +537,9 @@ func TestBaseKubernetesManager_DeleteKustomization(t *testing.T) {
 		manager.client = kubernetesClient
 
 		// When DeleteKustomization times out
-		start := manager.shims.TimeNow()
+		start := manager.Shims.TimeNow()
 		err := manager.DeleteKustomization(context.Background(), "test-kustomization", "test-namespace")
-		elapsed := manager.shims.TimeNow().Sub(start)
+		elapsed := manager.Shims.TimeNow().Sub(start)
 
 		// Then it waits past the base timeout, scaled by the 100-entry inventory
 		// (100 * 1ms = 100ms extra), instead of aborting at the fixed 20ms window
@@ -555,10 +555,10 @@ func TestBaseKubernetesManager_DeleteKustomization(t *testing.T) {
 		// Given a kustomization whose inventory is empty on the first poll (a status
 		// write racing the delete) but populated on every later poll
 		manager := setup(t)
-		manager.kustomizationReconcileTimeout = 20 * time.Millisecond
-		manager.kustomizationWaitPollInterval = 10 * time.Millisecond
-		manager.kustomizationDeletionPerEntryTimeout = 1 * time.Millisecond
-		manager.kustomizationDeletionMaxExtraTimeout = time.Second
+		manager.Timing.KustomizationReconcileTimeout = 20 * time.Millisecond
+		manager.Timing.KustomizationWaitPollInterval = 10 * time.Millisecond
+		manager.Timing.KustomizationDeletionPerEntryTimeout = 1 * time.Millisecond
+		manager.Timing.KustomizationDeletionMaxExtraTimeout = time.Second
 
 		inventoryEntries := make([]any, 100)
 		for i := range inventoryEntries {
@@ -586,9 +586,9 @@ func TestBaseKubernetesManager_DeleteKustomization(t *testing.T) {
 		manager.client = kubernetesClient
 
 		// When DeleteKustomization times out
-		start := manager.shims.TimeNow()
+		start := manager.Shims.TimeNow()
 		err := manager.DeleteKustomization(context.Background(), "test-kustomization", "test-namespace")
-		elapsed := manager.shims.TimeNow().Sub(start)
+		elapsed := manager.Shims.TimeNow().Sub(start)
 
 		// Then a later, populated read still scales the wait window — the empty
 		// first read does not permanently lock in the unscaled base timeout
@@ -604,8 +604,8 @@ func TestBaseKubernetesManager_DeleteKustomization(t *testing.T) {
 		// Given a kustomization whose own spec.timeout is larger than the base window
 		// (an operator-configured allowance for a slow-to-delete resource)
 		manager := setup(t)
-		manager.kustomizationReconcileTimeout = 20 * time.Millisecond
-		manager.kustomizationWaitPollInterval = 10 * time.Millisecond
+		manager.Timing.KustomizationReconcileTimeout = 20 * time.Millisecond
+		manager.Timing.KustomizationWaitPollInterval = 10 * time.Millisecond
 
 		kubernetesClient := withGVRs(client.NewMockKubernetesClient())
 		kubernetesClient.DeleteResourceFunc = func(gvr schema.GroupVersionResource, namespace, name string, opts metav1.DeleteOptions) error {
@@ -619,9 +619,9 @@ func TestBaseKubernetesManager_DeleteKustomization(t *testing.T) {
 		manager.client = kubernetesClient
 
 		// When DeleteKustomization times out
-		start := manager.shims.TimeNow()
+		start := manager.Shims.TimeNow()
 		err := manager.DeleteKustomization(context.Background(), "test-kustomization", "test-namespace")
-		elapsed := manager.shims.TimeNow().Sub(start)
+		elapsed := manager.Shims.TimeNow().Sub(start)
 
 		// Then it waits out spec.timeout instead of aborting at the base window,
 		// and does not run away past it on every poll tick
@@ -640,9 +640,9 @@ func TestBaseKubernetesManager_DeleteKustomization(t *testing.T) {
 		// Given a spec.timeout far larger than the configured ceiling (a corrupted
 		// or absurd value, e.g. from a hand-edited blueprint)
 		manager := setup(t)
-		manager.kustomizationReconcileTimeout = 20 * time.Millisecond
-		manager.kustomizationWaitPollInterval = 10 * time.Millisecond
-		manager.kustomizationSpecTimeoutCeiling = 100 * time.Millisecond
+		manager.Timing.KustomizationReconcileTimeout = 20 * time.Millisecond
+		manager.Timing.KustomizationWaitPollInterval = 10 * time.Millisecond
+		manager.Timing.KustomizationSpecTimeoutCeiling = 100 * time.Millisecond
 
 		kubernetesClient := withGVRs(client.NewMockKubernetesClient())
 		kubernetesClient.DeleteResourceFunc = func(gvr schema.GroupVersionResource, namespace, name string, opts metav1.DeleteOptions) error {
@@ -656,9 +656,9 @@ func TestBaseKubernetesManager_DeleteKustomization(t *testing.T) {
 		manager.client = kubernetesClient
 
 		// When DeleteKustomization times out
-		start := manager.shims.TimeNow()
+		start := manager.Shims.TimeNow()
 		err := manager.DeleteKustomization(context.Background(), "test-kustomization", "test-namespace")
-		elapsed := manager.shims.TimeNow().Sub(start)
+		elapsed := manager.Shims.TimeNow().Sub(start)
 
 		// Then the wait is bounded by the ceiling, not the declared spec.timeout
 		if err == nil {
@@ -672,8 +672,8 @@ func TestBaseKubernetesManager_DeleteKustomization(t *testing.T) {
 	t.Run("TimeoutIgnoresUnparseableSpecTimeout", func(t *testing.T) {
 		// Given a kustomization whose spec.timeout is present but malformed
 		manager := setup(t)
-		manager.kustomizationReconcileTimeout = 20 * time.Millisecond
-		manager.kustomizationWaitPollInterval = 10 * time.Millisecond
+		manager.Timing.KustomizationReconcileTimeout = 20 * time.Millisecond
+		manager.Timing.KustomizationWaitPollInterval = 10 * time.Millisecond
 
 		kubernetesClient := withGVRs(client.NewMockKubernetesClient())
 		kubernetesClient.DeleteResourceFunc = func(gvr schema.GroupVersionResource, namespace, name string, opts metav1.DeleteOptions) error {
@@ -687,9 +687,9 @@ func TestBaseKubernetesManager_DeleteKustomization(t *testing.T) {
 		manager.client = kubernetesClient
 
 		// When DeleteKustomization times out
-		start := manager.shims.TimeNow()
+		start := manager.Shims.TimeNow()
 		err := manager.DeleteKustomization(context.Background(), "test-kustomization", "test-namespace")
-		elapsed := manager.shims.TimeNow().Sub(start)
+		elapsed := manager.Shims.TimeNow().Sub(start)
 
 		// Then it falls back to the base window rather than erroring on the bad value
 		if err == nil {
@@ -838,8 +838,8 @@ func TestBaseKubernetesManager_DeleteKustomization(t *testing.T) {
 		// A 2-entry inventory would otherwise extend waitFor via
 		// kustomizationDeletionTimeout, changing how many reads the main loop
 		// itself makes before this test's post-timeout recheck is even reached.
-		manager.kustomizationDeletionPerEntryTimeout = 0
-		manager.kustomizationDeletionMaxExtraTimeout = 0
+		manager.Timing.KustomizationDeletionPerEntryTimeout = 0
+		manager.Timing.KustomizationDeletionMaxExtraTimeout = 0
 		kubernetesClient := withGVRs(client.NewMockKubernetesClient())
 		kubernetesClient.DeleteResourceFunc = func(gvr schema.GroupVersionResource, namespace, name string, opts metav1.DeleteOptions) error {
 			return nil
@@ -880,12 +880,12 @@ func TestBaseKubernetesManager_DeleteKustomization(t *testing.T) {
 		// Given a MirrorPrune kustomization that times out with a still-live entry —
 		// its normal, by-design outcome, since MirrorPrune never waits on inventory
 		manager := setup(t)
-		manager.kustomizationReconcileTimeout = 20 * time.Millisecond
-		manager.kustomizationWaitPollInterval = 10 * time.Millisecond
+		manager.Timing.KustomizationReconcileTimeout = 20 * time.Millisecond
+		manager.Timing.KustomizationWaitPollInterval = 10 * time.Millisecond
 		// A 2-entry inventory would otherwise extend waitFor via kustomizationDeletionTimeout,
 		// making the assertion below about elapsed time depend on inventory size.
-		manager.kustomizationDeletionPerEntryTimeout = 0
-		manager.kustomizationDeletionMaxExtraTimeout = 0
+		manager.Timing.KustomizationDeletionPerEntryTimeout = 0
+		manager.Timing.KustomizationDeletionMaxExtraTimeout = 0
 		kubernetesClient := withGVRs(client.NewMockKubernetesClient())
 		kubernetesClient.DeleteResourceFunc = func(gvr schema.GroupVersionResource, namespace, name string, opts metav1.DeleteOptions) error {
 			return nil
@@ -909,9 +909,9 @@ func TestBaseKubernetesManager_DeleteKustomization(t *testing.T) {
 		manager.client = kubernetesClient
 
 		// When DeleteKustomization times out
-		start := manager.shims.TimeNow()
+		start := manager.Shims.TimeNow()
 		err := manager.DeleteKustomization(context.Background(), "test-kustomization", "test-namespace")
-		elapsed := manager.shims.TimeNow().Sub(start)
+		elapsed := manager.Shims.TimeNow().Sub(start)
 
 		// Then it reports the timeout without triggering a reconcile or spending
 		// the post-timeout recheck window on an entry MirrorPrune expects to
@@ -1213,7 +1213,7 @@ func TestBaseKubernetesManager_DeleteKustomization(t *testing.T) {
 		// abandonedInventoryGraceChecks floor allows, but within the window the
 		// 2-entry last-known inventory extends past that floor
 		manager := setup(t)
-		manager.kustomizationDeletionPerEntryTimeout = 100 * time.Millisecond
+		manager.Timing.KustomizationDeletionPerEntryTimeout = 100 * time.Millisecond
 		kubernetesClient := withGVRs(client.NewMockKubernetesClient())
 		kubernetesClient.DeleteResourceFunc = func(gvr schema.GroupVersionResource, namespace, name string, opts metav1.DeleteOptions) error {
 			return nil
@@ -1381,14 +1381,14 @@ func TestBaseKubernetesManager_DeleteKustomizationOutsideADestroy(t *testing.T) 
 		t.Helper()
 		mocks := setupKubernetesMocks(t)
 		manager := NewKubernetesManager(mocks.KubernetesClient, mocks.ConfigHandler)
-		manager.kustomizationWaitPollInterval = 5 * time.Millisecond
-		manager.kustomizationReconcileTimeout = 40 * time.Millisecond
-		manager.kustomizationDeletionPerEntryTimeout = 0
-		manager.kustomizationDeletionMaxExtraTimeout = 0
-		manager.kustomizationAbandonedGraceMaxExtra = 0
+		manager.Timing.KustomizationWaitPollInterval = 5 * time.Millisecond
+		manager.Timing.KustomizationReconcileTimeout = 40 * time.Millisecond
+		manager.Timing.KustomizationDeletionPerEntryTimeout = 0
+		manager.Timing.KustomizationDeletionMaxExtraTimeout = 0
+		manager.Timing.KustomizationAbandonedGraceMaxExtra = 0
 		clock := newFakeClock()
-		manager.shims.TimeNow = clock.Now
-		manager.shims.TimeSleep = clock.Sleep
+		manager.Shims.TimeNow = clock.Now
+		manager.Shims.TimeSleep = clock.Sleep
 		return manager
 	}
 
@@ -1440,13 +1440,13 @@ func TestBaseKubernetesManager_DeleteKustomizationHelmUninstallTimeout(t *testin
 		t.Helper()
 		mocks := setupKubernetesMocks(t)
 		manager := NewKubernetesManager(mocks.KubernetesClient, mocks.ConfigHandler)
-		manager.kustomizationWaitPollInterval = 5 * time.Millisecond
-		manager.kustomizationReconcileTimeout = 20 * time.Millisecond
-		manager.kustomizationDeletionPerEntryTimeout = 0
-		manager.kustomizationDeletionMaxExtraTimeout = 0
+		manager.Timing.KustomizationWaitPollInterval = 5 * time.Millisecond
+		manager.Timing.KustomizationReconcileTimeout = 20 * time.Millisecond
+		manager.Timing.KustomizationDeletionPerEntryTimeout = 0
+		manager.Timing.KustomizationDeletionMaxExtraTimeout = 0
 		clock := newFakeClock()
-		manager.shims.TimeNow = clock.Now
-		manager.shims.TimeSleep = clock.Sleep
+		manager.Shims.TimeNow = clock.Now
+		manager.Shims.TimeSleep = clock.Sleep
 		return manager
 	}
 
@@ -1628,9 +1628,9 @@ func TestBaseKubernetesManager_DeleteKustomizationReadFailures(t *testing.T) {
 		t.Helper()
 		mocks := setupKubernetesMocks(t)
 		manager := NewKubernetesManager(mocks.KubernetesClient, mocks.ConfigHandler)
-		manager.kustomizationWaitPollInterval = 10 * time.Millisecond
-		manager.kustomizationReconcileTimeout = 500 * time.Millisecond
-		manager.kustomizationDeletionPerEntryTimeout = time.Millisecond
+		manager.Timing.KustomizationWaitPollInterval = 10 * time.Millisecond
+		manager.Timing.KustomizationReconcileTimeout = 500 * time.Millisecond
+		manager.Timing.KustomizationDeletionPerEntryTimeout = time.Millisecond
 		return manager
 	}
 
@@ -1714,7 +1714,7 @@ func TestBaseKubernetesManager_DeleteKustomizationReadFailures(t *testing.T) {
 	t.Run("FailsAfterMaxConsecutiveReadFailures", func(t *testing.T) {
 		// Given status reads that keep failing past the tolerance
 		manager := setup(t)
-		manager.kustomizationWaitMaxReadFailures = 2
+		manager.Timing.KustomizationWaitMaxReadFailures = 2
 		kubernetesClient := withGVRs(client.NewMockKubernetesClient())
 		kubernetesClient.DeleteResourceFunc = func(gvr schema.GroupVersionResource, namespace, name string, opts metav1.DeleteOptions) error {
 			return nil
@@ -1745,7 +1745,7 @@ func TestBaseKubernetesManager_DeleteKustomizationReadFailures(t *testing.T) {
 		// Given reads that alternate failure and success, never exceeding the
 		// tolerance consecutively, before the kustomization goes away
 		manager := setup(t)
-		manager.kustomizationWaitMaxReadFailures = 1
+		manager.Timing.KustomizationWaitMaxReadFailures = 1
 		kubernetesClient := client.NewMockKubernetesClient()
 		kubernetesClient.DeleteResourceFunc = func(gvr schema.GroupVersionResource, namespace, name string, opts metav1.DeleteOptions) error {
 			return nil
@@ -1778,14 +1778,14 @@ func TestBaseKubernetesManager_DeleteKustomizationVerifiesChartResources(t *test
 		t.Helper()
 		mocks := setupKubernetesMocks(t)
 		manager := NewKubernetesManager(mocks.KubernetesClient, mocks.ConfigHandler)
-		manager.kustomizationWaitPollInterval = 5 * time.Millisecond
-		manager.kustomizationReconcileTimeout = 40 * time.Millisecond
-		manager.kustomizationDeletionPerEntryTimeout = 0
-		manager.kustomizationDeletionMaxExtraTimeout = 0
-		manager.kustomizationAbandonedGraceMaxExtra = 0
+		manager.Timing.KustomizationWaitPollInterval = 5 * time.Millisecond
+		manager.Timing.KustomizationReconcileTimeout = 40 * time.Millisecond
+		manager.Timing.KustomizationDeletionPerEntryTimeout = 0
+		manager.Timing.KustomizationDeletionMaxExtraTimeout = 0
+		manager.Timing.KustomizationAbandonedGraceMaxExtra = 0
 		clock := newFakeClock()
-		manager.shims.TimeNow = clock.Now
-		manager.shims.TimeSleep = clock.Sleep
+		manager.Shims.TimeNow = clock.Now
+		manager.Shims.TimeSleep = clock.Sleep
 		return manager
 	}
 
@@ -2204,11 +2204,11 @@ func TestBaseKubernetesManager_deleteKustomization_DeleteTimeoutOverride(t *test
 		t.Helper()
 		mocks := setupKubernetesMocks(t)
 		manager := NewKubernetesManager(mocks.KubernetesClient, mocks.ConfigHandler)
-		manager.kustomizationReconcileTimeout = 20 * time.Millisecond
-		manager.kustomizationWaitPollInterval = 10 * time.Millisecond
+		manager.Timing.KustomizationReconcileTimeout = 20 * time.Millisecond
+		manager.Timing.KustomizationWaitPollInterval = 10 * time.Millisecond
 		clock := newFakeClock()
-		manager.shims.TimeNow = clock.Now
-		manager.shims.TimeSleep = clock.Sleep
+		manager.Shims.TimeNow = clock.Now
+		manager.Shims.TimeSleep = clock.Sleep
 		return manager
 	}
 
@@ -2229,9 +2229,9 @@ func TestBaseKubernetesManager_deleteKustomization_DeleteTimeoutOverride(t *test
 		override := 150 * time.Millisecond
 
 		// When deleteKustomization times out
-		start := manager.shims.TimeNow()
+		start := manager.Shims.TimeNow()
 		err := manager.deleteKustomization(context.Background(), "test-kustomization", "test-namespace", nil, &override, true)
-		elapsed := manager.shims.TimeNow().Sub(start)
+		elapsed := manager.Shims.TimeNow().Sub(start)
 
 		// Then it waits out the override instead of the smaller spec.timeout
 		if err == nil {
@@ -2246,7 +2246,7 @@ func TestBaseKubernetesManager_deleteKustomization_DeleteTimeoutOverride(t *test
 		// Given an install-oriented ceiling too small for the override (a delete
 		// budget is allowed to exceed what a sane install timeout would be)
 		manager := setup(t)
-		manager.kustomizationSpecTimeoutCeiling = 50 * time.Millisecond
+		manager.Timing.KustomizationSpecTimeoutCeiling = 50 * time.Millisecond
 		kubernetesClient := client.NewMockKubernetesClient()
 		kubernetesClient.DeleteResourceFunc = func(gvr schema.GroupVersionResource, namespace, name string, opts metav1.DeleteOptions) error {
 			return nil
@@ -2258,9 +2258,9 @@ func TestBaseKubernetesManager_deleteKustomization_DeleteTimeoutOverride(t *test
 		override := 150 * time.Millisecond
 
 		// When deleteKustomization times out
-		start := manager.shims.TimeNow()
+		start := manager.Shims.TimeNow()
 		err := manager.deleteKustomization(context.Background(), "test-kustomization", "test-namespace", nil, &override, true)
-		elapsed := manager.shims.TimeNow().Sub(start)
+		elapsed := manager.Shims.TimeNow().Sub(start)
 
 		// Then the wait reaches the override, unaffected by the smaller install ceiling
 		if err == nil {
@@ -2274,7 +2274,7 @@ func TestBaseKubernetesManager_deleteKustomization_DeleteTimeoutOverride(t *test
 	t.Run("OverrideCapsAtCeiling", func(t *testing.T) {
 		// Given an override far larger than the configured ceiling
 		manager := setup(t)
-		manager.kustomizationDeleteTimeoutCeiling = 100 * time.Millisecond
+		manager.Timing.KustomizationDeleteTimeoutCeiling = 100 * time.Millisecond
 		kubernetesClient := client.NewMockKubernetesClient()
 		kubernetesClient.DeleteResourceFunc = func(gvr schema.GroupVersionResource, namespace, name string, opts metav1.DeleteOptions) error {
 			return nil
@@ -2286,9 +2286,9 @@ func TestBaseKubernetesManager_deleteKustomization_DeleteTimeoutOverride(t *test
 		override := 876000 * time.Hour
 
 		// When deleteKustomization times out
-		start := manager.shims.TimeNow()
+		start := manager.Shims.TimeNow()
 		err := manager.deleteKustomization(context.Background(), "test-kustomization", "test-namespace", nil, &override, true)
-		elapsed := manager.shims.TimeNow().Sub(start)
+		elapsed := manager.Shims.TimeNow().Sub(start)
 
 		// Then the wait is bounded by the ceiling, not the declared override
 		if err == nil {
@@ -2315,9 +2315,9 @@ func TestBaseKubernetesManager_deleteKustomization_DeleteTimeoutOverride(t *test
 		manager.client = kubernetesClient
 
 		// When deleteKustomization times out with no override
-		start := manager.shims.TimeNow()
+		start := manager.Shims.TimeNow()
 		err := manager.deleteKustomization(context.Background(), "test-kustomization", "test-namespace", nil, nil, true)
-		elapsed := manager.shims.TimeNow().Sub(start)
+		elapsed := manager.Shims.TimeNow().Sub(start)
 
 		// Then it still waits out spec.timeout, same as before this change
 		if err == nil {

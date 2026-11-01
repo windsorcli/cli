@@ -42,9 +42,9 @@ var ErrKustomizationsNotReady = errors.New("kustomizations not ready")
 // Types
 // =============================================================================
 
-// Provisioner manages the lifecycle of all infrastructure components (terraform, kubernetes, clusters).
-// It provides a unified interface for creating, initializing, and managing these infrastructure components
-// with proper dependency injection and error handling.
+// Provisioner runs the lifecycle of the terraform, kubernetes, and cluster components of a blueprint.
+// The exported fields are dependencies that NewProvisioner creates when the overrides do not set them.
+// PollInterval sets how often the readiness waits check again. Zero uses the default interval.
 type Provisioner struct {
 	configHandler config.ConfigHandler
 	shell         shell.Shell
@@ -53,12 +53,9 @@ type Provisioner struct {
 	projectRoot   string
 	configRoot    string
 	runtime       *runtime.Runtime
-	shims         *Shims
 
-	// secretPollInterval overrides how often PlaceSecrets re-checks for a pending secret's namespace;
-	// zero uses constants.DefaultKustomizationWaitPollInterval. Set small in tests to avoid real waits.
-	secretPollInterval time.Duration
-
+	Shims                *Shims
+	PollInterval         time.Duration
 	TerraformStack       terraforminfra.Stack
 	FluxStack            fluxinfra.Stack
 	Notifier             fluxinfra.Notifier
@@ -103,7 +100,7 @@ func NewProvisioner(rt *runtime.Runtime, blueprintHandler blueprint.BlueprintHan
 		projectRoot:      rt.ProjectRoot,
 		configRoot:       rt.ConfigRoot,
 		runtime:          rt,
-		shims:            NewShims(),
+		Shims:            NewShims(),
 		blueprintHandler: blueprintHandler,
 	}
 
@@ -126,6 +123,12 @@ func NewProvisioner(rt *runtime.Runtime, blueprintHandler blueprint.BlueprintHan
 		}
 		if overrides.ClusterClient != nil {
 			provisioner.ClusterClient = overrides.ClusterClient
+		}
+		if overrides.Shims != nil {
+			provisioner.Shims = overrides.Shims
+		}
+		if overrides.PollInterval > 0 {
+			provisioner.PollInterval = overrides.PollInterval
 		}
 	}
 
@@ -531,11 +534,11 @@ func (i *Provisioner) warnAboutOrphanedLocalState(currentIDs map[string]bool) er
 	return nil
 }
 
-// pollInterval returns the readiness poll interval: the configured secretPollInterval, or the
-// default kustomization wait poll interval when none is set.
+// pollInterval returns PollInterval, or the default kustomization wait poll interval when
+// PollInterval is zero.
 func (i *Provisioner) pollInterval() time.Duration {
-	if i.secretPollInterval > 0 {
-		return i.secretPollInterval
+	if i.PollInterval > 0 {
+		return i.PollInterval
 	}
 	return constants.DefaultKustomizationWaitPollInterval
 }
@@ -629,7 +632,7 @@ func (i *Provisioner) kubeconfigPresent() bool {
 	if i.configRoot == "" {
 		return false
 	}
-	_, err := i.shims.Stat(filepath.Join(i.configRoot, ".kube", "config"))
+	_, err := i.Shims.Stat(filepath.Join(i.configRoot, ".kube", "config"))
 	if err != nil && errors.Is(err, fs.ErrNotExist) {
 		return false
 	}

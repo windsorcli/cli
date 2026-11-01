@@ -31,9 +31,9 @@ func TestBaseKubernetesManager_ApplyKustomization(t *testing.T) {
 		mocks := setupKubernetesMocks(t)
 		manager := NewKubernetesManager(mocks.KubernetesClient, mocks.ConfigHandler)
 		// Use shorter timeouts for tests
-		manager.kustomizationWaitPollInterval = 50 * time.Millisecond
-		manager.kustomizationReconcileTimeout = 100 * time.Millisecond
-		manager.kustomizationReconcileSleep = 50 * time.Millisecond
+		manager.Timing.KustomizationWaitPollInterval = 50 * time.Millisecond
+		manager.Timing.KustomizationReconcileTimeout = 100 * time.Millisecond
+		manager.Timing.KustomizationReconcileSleep = 50 * time.Millisecond
 		return manager
 	}
 
@@ -57,7 +57,7 @@ func TestBaseKubernetesManager_ApplyKustomization(t *testing.T) {
 
 	t.Run("UnstructuredConversionError", func(t *testing.T) {
 		manager := setup(t)
-		manager.shims.ToUnstructured = func(obj any) (map[string]any, error) {
+		manager.Shims.ToUnstructured = func(obj any) (map[string]any, error) {
 			return nil, fmt.Errorf("forced conversion error")
 		}
 
@@ -125,8 +125,8 @@ func TestBaseKubernetesManager_ApplyKustomization(t *testing.T) {
 			return existingObj, nil
 		}
 		callCount := 0
-		originalToUnstructured := manager.shims.ToUnstructured
-		manager.shims.ToUnstructured = func(obj any) (map[string]any, error) {
+		originalToUnstructured := manager.Shims.ToUnstructured
+		manager.Shims.ToUnstructured = func(obj any) (map[string]any, error) {
 			callCount++
 			if callCount == 1 {
 				return originalToUnstructured(obj)
@@ -161,10 +161,10 @@ func TestBaseKubernetesManager_WaitForKustomizations(t *testing.T) {
 		mocks := setupKubernetesMocks(t)
 		manager := NewKubernetesManager(mocks.KubernetesClient, mocks.ConfigHandler)
 		// Use shorter timeouts for tests
-		manager.kustomizationWaitPollInterval = 50 * time.Millisecond
-		manager.kustomizationWaitMinErrorDuration = 150 * time.Millisecond
-		manager.kustomizationReconcileTimeout = 100 * time.Millisecond
-		manager.kustomizationReconcileSleep = 50 * time.Millisecond
+		manager.Timing.KustomizationWaitPollInterval = 50 * time.Millisecond
+		manager.Timing.KustomizationWaitMinErrorDuration = 150 * time.Millisecond
+		manager.Timing.KustomizationReconcileTimeout = 100 * time.Millisecond
+		manager.Timing.KustomizationReconcileSleep = 50 * time.Millisecond
 		return manager
 	}
 
@@ -389,7 +389,7 @@ func TestBaseKubernetesManager_WaitForKustomizations(t *testing.T) {
 		// rollout and this wait starting), so every list fails not-found, then the CRD lands and
 		// the kustomization is Ready — well past the short error-tolerance floor
 		manager := setup(t)
-		manager.kustomizationWaitMinErrorDuration = 150 * time.Millisecond
+		manager.Timing.KustomizationWaitMinErrorDuration = 150 * time.Millisecond
 		kubernetesClient := client.NewMockKubernetesClient()
 		calls := 0
 		kubernetesClient.ListResourcesFunc = func(gvr schema.GroupVersionResource, ns string) (*unstructured.UnstructuredList, error) {
@@ -464,7 +464,7 @@ func TestBaseKubernetesManager_WaitForKustomizations(t *testing.T) {
 		// as terminal either: their own dependency-readiness checks retry-with-backoff on
 		// any apiserver error, reserving no-retry for static errors in the object's own spec
 		manager := setup(t)
-		manager.kustomizationWaitMinErrorDuration = 150 * time.Millisecond
+		manager.Timing.KustomizationWaitMinErrorDuration = 150 * time.Millisecond
 		kubernetesClient := client.NewMockKubernetesClient()
 		calls := 0
 		kubernetesClient.ListResourcesFunc = func(gvr schema.GroupVersionResource, ns string) (*unstructured.UnstructuredList, error) {
@@ -507,7 +507,7 @@ func TestBaseKubernetesManager_WaitForKustomizations(t *testing.T) {
 		// poll (e.g. a spec.components path composed against a source that no longer has it) —
 		// a state re-polling can never resolve, unlike a raw list error
 		manager := setup(t)
-		manager.kustomizationWaitMinErrorDuration = 150 * time.Millisecond
+		manager.Timing.KustomizationWaitMinErrorDuration = 150 * time.Millisecond
 		kubernetesClient := client.NewMockKubernetesClient()
 		calls := 0
 		kubernetesClient.ListResourcesFunc = func(gvr schema.GroupVersionResource, ns string) (*unstructured.UnstructuredList, error) {
@@ -539,7 +539,7 @@ func TestBaseKubernetesManager_WaitForKustomizations(t *testing.T) {
 		if !strings.Contains(err.Error(), "crds-core") || !strings.Contains(err.Error(), "no such file or directory") {
 			t.Errorf("Expected the failure to name the kustomization and its message, got: %v", err)
 		}
-		if elapsed >= manager.kustomizationWaitMinErrorDuration {
+		if elapsed >= manager.Timing.KustomizationWaitMinErrorDuration {
 			t.Errorf("Expected an immediate failure bypassing the error-streak budget, took %s", elapsed)
 		}
 		if calls > 2 {
@@ -783,7 +783,7 @@ func TestBaseKubernetesManager_WaitForKustomizations(t *testing.T) {
 		if err == nil || !strings.Contains(err.Error(), "dry-run failed") {
 			t.Fatalf("Expected the error-budget failure, got: %v", err)
 		}
-		floor := manager.kustomizationWaitMinErrorDuration + manager.kustomizationWaitPollInterval/2
+		floor := manager.Timing.KustomizationWaitMinErrorDuration + manager.Timing.KustomizationWaitPollInterval/2
 		if elapsed < floor {
 			t.Errorf("Expected the wait to last at least %s, failed after %s", floor, elapsed)
 		}
@@ -902,7 +902,7 @@ func TestBaseKubernetesManager_WaitForKustomizations(t *testing.T) {
 		// Given ListResources fails transiently on every poll, with no recovery in sight, and
 		// an error-tolerance budget dominated by the small floor (well below the total timeout)
 		manager := setup(t)
-		manager.kustomizationWaitMinErrorDuration = 150 * time.Millisecond
+		manager.Timing.KustomizationWaitMinErrorDuration = 150 * time.Millisecond
 		kubernetesClient := client.NewMockKubernetesClient()
 		calls := 0
 		kubernetesClient.ListResourcesFunc = func(gvr schema.GroupVersionResource, ns string) (*unstructured.UnstructuredList, error) {
@@ -1432,7 +1432,7 @@ func TestBaseKubernetesManager_GetHelmReleasesForKustomization(t *testing.T) {
 			}, nil
 		}
 		manager.client = kubernetesClient
-		manager.shims.FromUnstructured = func(obj map[string]any, target any) error {
+		manager.Shims.FromUnstructured = func(obj map[string]any, target any) error {
 			return fmt.Errorf("forced conversion error")
 		}
 		_, err := manager.GetHelmReleasesForKustomization("test-kustomization", "test-namespace")
@@ -1482,7 +1482,7 @@ func TestBaseKubernetesManager_ApplyGitRepository(t *testing.T) {
 
 	t.Run("ToUnstructuredError", func(t *testing.T) {
 		manager := setup(t)
-		manager.shims.ToUnstructured = func(obj any) (map[string]any, error) {
+		manager.Shims.ToUnstructured = func(obj any) (map[string]any, error) {
 			return nil, fmt.Errorf("forced conversion error")
 		}
 
@@ -1507,7 +1507,7 @@ func TestBaseKubernetesManager_ApplyGitRepository(t *testing.T) {
 
 	t.Run("ValidateFieldsError", func(t *testing.T) {
 		manager := setup(t)
-		manager.shims.ToUnstructured = func(obj any) (map[string]any, error) {
+		manager.Shims.ToUnstructured = func(obj any) (map[string]any, error) {
 			return map[string]any{
 				"metadata": map[string]any{},
 				"spec":     map[string]any{},
@@ -1586,7 +1586,7 @@ func TestBaseKubernetesManager_ApplyGitRepository(t *testing.T) {
 			return nil, fmt.Errorf("not found")
 		}
 		manager.client = kubernetesClient
-		manager.shims.ToUnstructured = func(obj any) (map[string]any, error) {
+		manager.Shims.ToUnstructured = func(obj any) (map[string]any, error) {
 			return runtime.DefaultUnstructuredConverter.ToUnstructured(obj)
 		}
 
@@ -1643,7 +1643,7 @@ func TestBaseKubernetesManager_ApplyGitRepository(t *testing.T) {
 			return nil, fmt.Errorf("not found")
 		}
 		manager.client = kubernetesClient
-		manager.shims.ToUnstructured = func(obj any) (map[string]any, error) {
+		manager.Shims.ToUnstructured = func(obj any) (map[string]any, error) {
 			return runtime.DefaultUnstructuredConverter.ToUnstructured(obj)
 		}
 
@@ -1696,7 +1696,7 @@ func TestBaseKubernetesManager_ApplyOCIRepository(t *testing.T) {
 			return obj, nil
 		}
 		manager.client = kubernetesClient
-		manager.shims.ToUnstructured = func(obj any) (map[string]any, error) {
+		manager.Shims.ToUnstructured = func(obj any) (map[string]any, error) {
 			return map[string]any{
 				"apiVersion": "source.toolkit.fluxcd.io/v1",
 				"kind":       "OCIRepository",
@@ -1728,7 +1728,7 @@ func TestBaseKubernetesManager_ApplyOCIRepository(t *testing.T) {
 
 	t.Run("ToUnstructuredError", func(t *testing.T) {
 		manager := setup(t)
-		manager.shims.ToUnstructured = func(obj any) (map[string]any, error) {
+		manager.Shims.ToUnstructured = func(obj any) (map[string]any, error) {
 			return nil, fmt.Errorf("conversion error")
 		}
 
@@ -1753,7 +1753,7 @@ func TestBaseKubernetesManager_ApplyOCIRepository(t *testing.T) {
 
 	t.Run("ValidationError", func(t *testing.T) {
 		manager := setup(t)
-		manager.shims.ToUnstructured = func(obj any) (map[string]any, error) {
+		manager.Shims.ToUnstructured = func(obj any) (map[string]any, error) {
 			return map[string]any{
 				"metadata": map[string]any{
 					"name": "",
@@ -1782,7 +1782,7 @@ func TestBaseKubernetesManager_ApplyOCIRepository(t *testing.T) {
 
 	t.Run("ValidateFieldsError_NilObject", func(t *testing.T) {
 		manager := setup(t)
-		manager.shims.ToUnstructured = func(obj any) (map[string]any, error) {
+		manager.Shims.ToUnstructured = func(obj any) (map[string]any, error) {
 			return nil, nil
 		}
 
@@ -1807,7 +1807,7 @@ func TestBaseKubernetesManager_ApplyOCIRepository(t *testing.T) {
 
 	t.Run("ValidateFieldsError_MissingMetadata", func(t *testing.T) {
 		manager := setup(t)
-		manager.shims.ToUnstructured = func(obj any) (map[string]any, error) {
+		manager.Shims.ToUnstructured = func(obj any) (map[string]any, error) {
 			return map[string]any{
 				"spec": map[string]any{
 					"url": "oci://test-registry.com/test-image",
@@ -1928,7 +1928,7 @@ func TestBaseKubernetesManager_CheckGitRepositoryStatus(t *testing.T) {
 			}, nil
 		}
 		manager.client = kubernetesClient
-		manager.shims.FromUnstructured = func(obj map[string]any, target any) error {
+		manager.Shims.FromUnstructured = func(obj map[string]any, target any) error {
 			return fmt.Errorf("forced conversion error")
 		}
 
@@ -2081,7 +2081,7 @@ func TestBaseKubernetesManager_CheckGitRepositoryStatus(t *testing.T) {
 			}, nil
 		}
 		manager.client = kubernetesClient
-		manager.shims.FromUnstructured = func(obj map[string]any, target any) error {
+		manager.Shims.FromUnstructured = func(obj map[string]any, target any) error {
 			return fmt.Errorf("forced conversion error")
 		}
 
@@ -2192,7 +2192,7 @@ func TestBaseKubernetesManager_GetKustomizationStatus(t *testing.T) {
 			}, nil
 		}
 		manager.client = kubernetesClient
-		manager.shims.FromUnstructured = func(obj map[string]any, target any) error {
+		manager.Shims.FromUnstructured = func(obj map[string]any, target any) error {
 			return fmt.Errorf("forced conversion error")
 		}
 
@@ -2506,7 +2506,7 @@ func TestBaseKubernetesManager_describeNotReadyKustomizations(t *testing.T) {
 		// Given a diagnostic budget that is already spent before the first probe
 		mocks := setupKubernetesMocks(t)
 		manager := NewKubernetesManager(mocks.KubernetesClient, mocks.ConfigHandler)
-		manager.notReadyDescribeBudget = 0
+		manager.Timing.NotReadyDescribeBudget = 0
 		kubernetesClient := withGVRs(client.NewMockKubernetesClient())
 		called := false
 		kubernetesClient.GetResourceFunc = func(gvr schema.GroupVersionResource, ns, name string) (*unstructured.Unstructured, error) {

@@ -21,9 +21,9 @@ func TestBaseKubernetesManager_WaitForKubernetesHealthy(t *testing.T) {
 		t.Helper()
 		mocks := setupKubernetesMocks(t)
 		manager := NewKubernetesManager(mocks.KubernetesClient, mocks.ConfigHandler)
-		manager.healthCheckPollInterval = 50 * time.Millisecond
-		manager.healthCheckSettleDuration = 120 * time.Millisecond
-		manager.nodeReadyPollInterval = 50 * time.Millisecond
+		manager.Timing.HealthCheckPollInterval = 50 * time.Millisecond
+		manager.Timing.HealthCheckSettleDuration = 120 * time.Millisecond
+		manager.Timing.NodeReadyPollInterval = 50 * time.Millisecond
 		return manager
 	}
 
@@ -140,8 +140,8 @@ func TestBaseKubernetesManager_WaitForKubernetesHealthy(t *testing.T) {
 		if err != nil {
 			t.Errorf("Expected no error, got %v", err)
 		}
-		if elapsed < manager.healthCheckSettleDuration {
-			t.Errorf("Expected wait to span at least the settle duration (%v), took %v", manager.healthCheckSettleDuration, elapsed)
+		if elapsed < manager.Timing.HealthCheckSettleDuration {
+			t.Errorf("Expected wait to span at least the settle duration (%v), took %v", manager.Timing.HealthCheckSettleDuration, elapsed)
 		}
 		mu.Lock()
 		defer mu.Unlock()
@@ -188,7 +188,7 @@ func TestBaseKubernetesManager_WaitForKubernetesHealthy(t *testing.T) {
 		mu.Lock()
 		successesAfterFailure := callCount - 2
 		mu.Unlock()
-		minTicksAfterFailure := int(manager.healthCheckSettleDuration / manager.healthCheckPollInterval)
+		minTicksAfterFailure := int(manager.Timing.HealthCheckSettleDuration / manager.Timing.HealthCheckPollInterval)
 		if successesAfterFailure < minTicksAfterFailure {
 			t.Errorf("Expected at least %d successful checks after the failure to satisfy the settle window, got %d", minTicksAfterFailure, successesAfterFailure)
 		}
@@ -204,8 +204,8 @@ func TestBaseKubernetesManager_WaitForKubernetesHealthy(t *testing.T) {
 		// deadline (exactly one poll interval, by construction) has enough
 		// absolute headroom to absorb CI scheduler jitter.
 		manager := setup(t)
-		manager.healthCheckPollInterval = 150 * time.Millisecond
-		manager.healthCheckSettleDuration = 900 * time.Millisecond
+		manager.Timing.HealthCheckPollInterval = 150 * time.Millisecond
+		manager.Timing.HealthCheckSettleDuration = 900 * time.Millisecond
 		kubernetesClient := client.NewMockKubernetesClient()
 		kubernetesClient.CheckHealthFunc = func(ctx context.Context, endpoint string) error {
 			return nil
@@ -436,7 +436,7 @@ func TestBaseKubernetesManager_waitForNodesReady(t *testing.T) {
 		t.Helper()
 		mocks := setupKubernetesMocks(t)
 		manager := NewKubernetesManager(mocks.KubernetesClient, mocks.ConfigHandler)
-		manager.nodeReadyPollInterval = 50 * time.Millisecond
+		manager.Timing.NodeReadyPollInterval = 50 * time.Millisecond
 		return manager
 	}
 

@@ -82,7 +82,7 @@ type kustomizationFailedError struct {
 // ApplyKustomization creates or updates a Kustomization resource using SSA
 func (k *BaseKubernetesManager) ApplyKustomization(kustomization kustomizev1.Kustomization) error {
 	obj := &unstructured.Unstructured{}
-	unstructuredMap, err := k.shims.ToUnstructured(&kustomization)
+	unstructuredMap, err := k.Shims.ToUnstructured(&kustomization)
 	if err != nil {
 		return werror.Wrap(err, "failed to convert kustomization to unstructured")
 	}
@@ -137,16 +137,16 @@ func (k *BaseKubernetesManager) WaitForKustomizations(ctx context.Context, bluep
 	}
 
 	maxErrorDuration := time.Duration(float64(timeout) * kustomizationWaitErrorBudgetFraction)
-	if maxErrorDuration < k.kustomizationWaitMinErrorDuration {
-		maxErrorDuration = k.kustomizationWaitMinErrorDuration
+	if maxErrorDuration < k.Timing.KustomizationWaitMinErrorDuration {
+		maxErrorDuration = k.Timing.KustomizationWaitMinErrorDuration
 	}
 	failureBudget := func(name string) time.Duration {
 		budget := maxErrorDuration
 		if own := ownTimeouts[name]; own < budget {
 			budget = own
 		}
-		if budget < k.kustomizationWaitMinErrorDuration {
-			budget = k.kustomizationWaitMinErrorDuration
+		if budget < k.Timing.KustomizationWaitMinErrorDuration {
+			budget = k.Timing.KustomizationWaitMinErrorDuration
 		}
 		return budget
 	}
@@ -157,7 +157,7 @@ func (k *BaseKubernetesManager) WaitForKustomizations(ctx context.Context, bluep
 	}
 
 	timeoutChan := time.After(timeout)
-	ticker := time.NewTicker(k.kustomizationWaitPollInterval)
+	ticker := time.NewTicker(k.Timing.KustomizationWaitPollInterval)
 	defer ticker.Stop()
 
 	var errorStreakStart time.Time
@@ -211,7 +211,7 @@ func (k *BaseKubernetesManager) WaitForKustomizations(ctx context.Context, bluep
 					budget := failureBudget(name)
 					now := time.Now()
 					streak, tracking := failureStreaks[name]
-					if !tracking || now.Sub(streak.lastSeen) >= budget+k.kustomizationWaitPollInterval {
+					if !tracking || now.Sub(streak.lastSeen) >= budget+k.Timing.KustomizationWaitPollInterval {
 						streak.start = now
 					}
 					streak.lastSeen = now
@@ -260,7 +260,7 @@ func (k *BaseKubernetesManager) GetHelmReleasesForKustomization(name, namespace 
 	}
 
 	var kustomization kustomizev1.Kustomization
-	if err := k.shims.FromUnstructured(obj.UnstructuredContent(), &kustomization); err != nil {
+	if err := k.Shims.FromUnstructured(obj.UnstructuredContent(), &kustomization); err != nil {
 		return nil, werror.Wrap(err, "failed to convert kustomization")
 	}
 
@@ -287,7 +287,7 @@ func (k *BaseKubernetesManager) GetHelmReleasesForKustomization(name, namespace 
 // ApplyGitRepository creates or updates a GitRepository resource using SSA
 func (k *BaseKubernetesManager) ApplyGitRepository(repo *sourcev1.GitRepository) error {
 	obj := &unstructured.Unstructured{}
-	unstructuredMap, err := k.shims.ToUnstructured(repo)
+	unstructuredMap, err := k.Shims.ToUnstructured(repo)
 	if err != nil {
 		return werror.Wrap(err, "failed to convert gitrepository to unstructured")
 	}
@@ -314,7 +314,7 @@ func (k *BaseKubernetesManager) ApplyGitRepository(repo *sourcev1.GitRepository)
 // ApplyOCIRepository creates or updates an OCIRepository resource using SSA
 func (k *BaseKubernetesManager) ApplyOCIRepository(repo *sourcev1.OCIRepository) error {
 	obj := &unstructured.Unstructured{}
-	unstructuredMap, err := k.shims.ToUnstructured(repo)
+	unstructuredMap, err := k.Shims.ToUnstructured(repo)
 	if err != nil {
 		return werror.Wrap(err, "failed to convert ocirepository to unstructured")
 	}
@@ -353,7 +353,7 @@ func (k *BaseKubernetesManager) CheckGitRepositoryStatus() error {
 
 	for _, obj := range gitObjList.Items {
 		var gitRepo sourcev1.GitRepository
-		if err := k.shims.FromUnstructured(obj.UnstructuredContent(), &gitRepo); err != nil {
+		if err := k.Shims.FromUnstructured(obj.UnstructuredContent(), &gitRepo); err != nil {
 			return werror.Wrap(err, "failed to convert git repository %s", gitRepo.Name)
 		}
 
@@ -377,7 +377,7 @@ func (k *BaseKubernetesManager) CheckGitRepositoryStatus() error {
 
 	for _, obj := range ociObjList.Items {
 		var ociRepo sourcev1.OCIRepository
-		if err := k.shims.FromUnstructured(obj.UnstructuredContent(), &ociRepo); err != nil {
+		if err := k.Shims.FromUnstructured(obj.UnstructuredContent(), &ociRepo); err != nil {
 			return werror.Wrap(err, "failed to convert oci repository %s", ociRepo.Name)
 		}
 
@@ -406,7 +406,7 @@ func (k *BaseKubernetesManager) GetKustomizationStatus(names []string) (map[stri
 
 	for _, obj := range objList.Items {
 		var kustomizeObj kustomizev1.Kustomization
-		if err := k.shims.FromUnstructured(obj.UnstructuredContent(), &kustomizeObj); err != nil {
+		if err := k.Shims.FromUnstructured(obj.UnstructuredContent(), &kustomizeObj); err != nil {
 			return nil, werror.Wrap(err, "failed to convert kustomization %s", kustomizeObj.Name)
 		}
 
@@ -485,7 +485,7 @@ func (k *BaseKubernetesManager) describeNotReadyKustomizations(names []string, n
 	start := time.Now()
 	var stuck []string
 	for _, name := range names {
-		if time.Since(start) >= k.notReadyDescribeBudget {
+		if time.Since(start) >= k.Timing.NotReadyDescribeBudget {
 			stuck = append(stuck, name)
 			continue
 		}

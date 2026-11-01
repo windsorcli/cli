@@ -24,9 +24,9 @@ func TestBaseKubernetesManager_remediateLoadBalancerOwners(t *testing.T) {
 		t.Helper()
 		mocks := setupKubernetesMocks(t)
 		manager := NewKubernetesManager(mocks.KubernetesClient, mocks.ConfigHandler)
-		manager.kustomizationWaitPollInterval = 20 * time.Millisecond
-		manager.kustomizationReconcileTimeout = 100 * time.Millisecond
-		manager.loadBalancerTeardownTimeout = 100 * time.Millisecond
+		manager.Timing.KustomizationWaitPollInterval = 20 * time.Millisecond
+		manager.Timing.KustomizationReconcileTimeout = 100 * time.Millisecond
+		manager.Timing.LoadBalancerTeardownTimeout = 100 * time.Millisecond
 		return manager
 	}
 
@@ -427,8 +427,8 @@ func TestBaseKubernetesManager_remediateLoadBalancerOwners(t *testing.T) {
 		// Given a manager whose kustomization reconcile timeout is long but whose dedicated
 		// load balancer teardown timeout is short
 		manager := setup(t)
-		manager.kustomizationReconcileTimeout = time.Hour
-		manager.loadBalancerTeardownTimeout = 100 * time.Millisecond
+		manager.Timing.KustomizationReconcileTimeout = time.Hour
+		manager.Timing.LoadBalancerTeardownTimeout = 100 * time.Millisecond
 		kubernetesClient := client.NewMockKubernetesClient()
 		kubernetesClient.GetResourceFunc = func(gvr schema.GroupVersionResource, namespace, name string) (*unstructured.Unstructured, error) {
 			if gvr.Resource == "kustomizations" {

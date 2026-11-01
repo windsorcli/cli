@@ -27,9 +27,9 @@ func TestBaseKubernetesManager_ApplyConfigMap(t *testing.T) {
 		mocks := setupKubernetesMocks(t)
 		manager := NewKubernetesManager(mocks.KubernetesClient, mocks.ConfigHandler)
 		// Use shorter timeouts for tests
-		manager.kustomizationWaitPollInterval = 50 * time.Millisecond
-		manager.kustomizationReconcileTimeout = 100 * time.Millisecond
-		manager.kustomizationReconcileSleep = 50 * time.Millisecond
+		manager.Timing.KustomizationWaitPollInterval = 50 * time.Millisecond
+		manager.Timing.KustomizationReconcileTimeout = 100 * time.Millisecond
+		manager.Timing.KustomizationReconcileSleep = 50 * time.Millisecond
 		return manager
 	}
 
@@ -139,8 +139,8 @@ func TestBaseKubernetesManager_ApplyConfigMap(t *testing.T) {
 	t.Run("ValidateFieldsError_MissingName", func(t *testing.T) {
 		manager := setup(t)
 		// Patch shims to remove name from metadata
-		origToUnstructured := manager.shims.ToUnstructured
-		manager.shims.ToUnstructured = func(obj any) (map[string]any, error) {
+		origToUnstructured := manager.Shims.ToUnstructured
+		manager.Shims.ToUnstructured = func(obj any) (map[string]any, error) {
 			m, _ := origToUnstructured(obj)
 			if meta, ok := m["metadata"].(map[string]any); ok {
 				delete(meta, "name")
@@ -211,7 +211,7 @@ func TestBaseKubernetesManager_ApplyConfigMap(t *testing.T) {
 
 	t.Run("ToUnstructuredError", func(t *testing.T) {
 		manager := setup(t)
-		manager.shims.ToUnstructured = func(obj any) (map[string]any, error) {
+		manager.Shims.ToUnstructured = func(obj any) (map[string]any, error) {
 			return nil, fmt.Errorf("forced toUnstructured error")
 		}
 		err := manager.ApplyConfigMap("test-configmap", "test-namespace", map[string]string{"k": "v"})
@@ -251,7 +251,7 @@ func TestBaseKubernetesManager_ApplyConfigMap(t *testing.T) {
 			}, nil
 		}
 		manager.client = kubernetesClient
-		manager.shims.FromUnstructured = func(obj map[string]any, target any) error {
+		manager.Shims.FromUnstructured = func(obj map[string]any, target any) error {
 			return fmt.Errorf("forced conversion error")
 		}
 
@@ -566,9 +566,9 @@ func TestBaseKubernetesManager_ApplySecret(t *testing.T) {
 		t.Helper()
 		mocks := setupKubernetesMocks(t)
 		manager := NewKubernetesManager(mocks.KubernetesClient, mocks.ConfigHandler)
-		manager.kustomizationWaitPollInterval = 50 * time.Millisecond
-		manager.kustomizationReconcileTimeout = 100 * time.Millisecond
-		manager.kustomizationReconcileSleep = 50 * time.Millisecond
+		manager.Timing.KustomizationWaitPollInterval = 50 * time.Millisecond
+		manager.Timing.KustomizationReconcileTimeout = 100 * time.Millisecond
+		manager.Timing.KustomizationReconcileSleep = 50 * time.Millisecond
 		return manager
 	}
 

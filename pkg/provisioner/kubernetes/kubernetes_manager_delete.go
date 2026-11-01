@@ -101,13 +101,13 @@ func (k *BaseKubernetesManager) deleteKustomization(ctx context.Context, name, n
 		return werror.Wrap(err, "error deleting kustomization %s/%s", namespace, name)
 	}
 
-	start := k.shims.TimeNow()
-	waitFor := k.kustomizationReconcileTimeout
+	start := k.Shims.TimeNow()
+	waitFor := k.Timing.KustomizationReconcileTimeout
 	var lastObj *unstructured.Unstructured
 	var lastReadErr error
 	readFailures := 0
 	helmTimeoutResolved := false
-	for k.shims.TimeNow().Before(start.Add(waitFor)) {
+	for k.Shims.TimeNow().Before(start.Add(waitFor)) {
 		obj, err := k.client.GetResource(gvr, namespace, name)
 		if err != nil && isNotFoundError(err) {
 			return k.handleKustomizationDisappeared(ctx, name, namespace, lastObj, readFailures, lastReadErr, expectWaitForTermination, helmInventory, destroying)
@@ -115,11 +115,11 @@ func (k *BaseKubernetesManager) deleteKustomization(ctx context.Context, name, n
 		if err != nil {
 			readFailures++
 			lastReadErr = err
-			if readFailures > k.kustomizationWaitMaxReadFailures {
+			if readFailures > k.Timing.KustomizationWaitMaxReadFailures {
 				return werror.Wrap(err, "error checking kustomization %s/%s deletion status", namespace, name)
 			}
-			presenter.Progress(ctx, fmt.Sprintf("retrying after a read error (%d/%d)", readFailures, k.kustomizationWaitMaxReadFailures))
-			k.shims.TimeSleep(k.kustomizationWaitPollInterval)
+			presenter.Progress(ctx, fmt.Sprintf("retrying after a read error (%d/%d)", readFailures, k.Timing.KustomizationWaitMaxReadFailures))
+			k.Shims.TimeSleep(k.Timing.KustomizationWaitPollInterval)
 			continue
 		}
 		readFailures = 0
@@ -130,20 +130,20 @@ func (k *BaseKubernetesManager) deleteKustomization(ctx context.Context, name, n
 			waitFor = extendWaitFor(waitFor, k.kustomizationDeletionTimeout(size))
 		}
 		if deleteTimeoutOverride != nil {
-			waitFor = extendWaitFor(waitFor, min(*deleteTimeoutOverride, k.kustomizationDeleteTimeoutCeiling))
+			waitFor = extendWaitFor(waitFor, min(*deleteTimeoutOverride, k.Timing.KustomizationDeleteTimeoutCeiling))
 		} else {
 			if specTO, ok := specTimeout(obj); ok {
-				waitFor = extendWaitFor(waitFor, min(specTO, k.kustomizationSpecTimeoutCeiling))
+				waitFor = extendWaitFor(waitFor, min(specTO, k.Timing.KustomizationSpecTimeoutCeiling))
 			}
 			if !helmTimeoutResolved {
 				if declared, ok := k.helmReleaseUninstallTimeout(obj); ok {
-					waitFor = extendWaitFor(waitFor, min(declared, k.kustomizationSpecTimeoutCeiling))
+					waitFor = extendWaitFor(waitFor, min(declared, k.Timing.KustomizationSpecTimeoutCeiling))
 					helmTimeoutResolved = true
 				}
 			}
 		}
 
-		k.shims.TimeSleep(k.kustomizationWaitPollInterval)
+		k.Shims.TimeSleep(k.Timing.KustomizationWaitPollInterval)
 	}
 
 	if waitForTermination, ok := kustomizationDeletionPolicy(lastObj, expectWaitForTermination); !ok || waitForTermination {
@@ -151,9 +151,9 @@ func (k *BaseKubernetesManager) deleteKustomization(ctx context.Context, name, n
 			if live, _, checkErr := k.firstLiveInventoryEntry(preEntries, helmInventory, destroying); checkErr == nil && live != nil {
 				k.triggerReconcile(live)
 				presenter.Progress(ctx, fmt.Sprintf("kustomization %s/%s timed out with %s/%s still live; asked it to reconcile again", namespace, name, live.Kind, live.Name))
-				recheckDeadline := k.shims.TimeNow().Add(time.Duration(abandonedInventoryGraceChecks) * k.kustomizationWaitPollInterval)
-				for k.shims.TimeNow().Before(recheckDeadline) {
-					k.shims.TimeSleep(k.kustomizationWaitPollInterval)
+				recheckDeadline := k.Shims.TimeNow().Add(time.Duration(abandonedInventoryGraceChecks) * k.Timing.KustomizationWaitPollInterval)
+				for k.Shims.TimeNow().Before(recheckDeadline) {
+					k.Shims.TimeSleep(k.Timing.KustomizationWaitPollInterval)
 					obj, err := k.client.GetResource(gvr, namespace, name)
 					if err != nil && isNotFoundError(err) {
 						return k.handleKustomizationDisappeared(ctx, name, namespace, lastObj, readFailures, lastReadErr, expectWaitForTermination, helmInventory, destroying)
@@ -200,8 +200,8 @@ func (k *BaseKubernetesManager) handleKustomizationDisappeared(ctx context.Conte
 		return werror.New(fmt.Sprintf("kustomization %s/%s disappeared before windsor could read its inventory, so windsor cannot confirm that its resources are gone: %v", namespace, name, lastReadErr), "Find leftovers with `kubectl get pvc,svc,ingress,certificate -A | grep Terminating`, then retry.", lastReadErr)
 	}
 	entry, _, checkErr := k.describeAbandonedInventory(lastObj, expectWaitForTermination, helmInventory, destroying)
-	graceDeadline := k.shims.TimeNow().Add(k.abandonedInventoryGraceWindow(inventorySize(lastObj)))
-	for (entry != nil || checkErr != nil) && k.shims.TimeNow().Before(graceDeadline) {
+	graceDeadline := k.Shims.TimeNow().Add(k.abandonedInventoryGraceWindow(inventorySize(lastObj)))
+	for (entry != nil || checkErr != nil) && k.Shims.TimeNow().Before(graceDeadline) {
 		if errors.Is(checkErr, errUnverifiableInventory) {
 			break
 		}
@@ -209,7 +209,7 @@ func (k *BaseKubernetesManager) handleKustomizationDisappeared(ctx context.Conte
 			k.triggerReconcile(entry)
 			presenter.Progress(ctx, fmt.Sprintf("kustomization %s/%s disappeared with %s/%s still live; asked it to reconcile again", namespace, name, entry.Kind, entry.Name))
 		}
-		k.shims.TimeSleep(k.kustomizationWaitPollInterval)
+		k.Shims.TimeSleep(k.Timing.KustomizationWaitPollInterval)
 		entry, _, checkErr = k.describeAbandonedInventory(lastObj, expectWaitForTermination, helmInventory, destroying)
 	}
 	if checkErr != nil {
@@ -225,8 +225,8 @@ func (k *BaseKubernetesManager) handleKustomizationDisappeared(ctx context.Conte
 // size, capped at kustomizationDeletionMaxExtraTimeout so a corrupted or unusually
 // large count cannot stall destroy indefinitely.
 func (k *BaseKubernetesManager) kustomizationDeletionTimeout(entryCount int) time.Duration {
-	extra := scaledExtraTimeout(entryCount, k.kustomizationDeletionPerEntryTimeout, k.kustomizationDeletionMaxExtraTimeout)
-	return k.kustomizationReconcileTimeout + extra
+	extra := scaledExtraTimeout(entryCount, k.Timing.KustomizationDeletionPerEntryTimeout, k.Timing.KustomizationDeletionMaxExtraTimeout)
+	return k.Timing.KustomizationReconcileTimeout + extra
 }
 
 // abandonedInventoryGraceWindow scales DeleteKustomization's re-check window for a
@@ -234,8 +234,8 @@ func (k *BaseKubernetesManager) kustomizationDeletionTimeout(entryCount int) tim
 // so a corrupted or unusually large count cannot stall destroy indefinitely.
 // abandonedInventoryGraceChecks sets the floor.
 func (k *BaseKubernetesManager) abandonedInventoryGraceWindow(entryCount int) time.Duration {
-	base := time.Duration(abandonedInventoryGraceChecks) * k.kustomizationWaitPollInterval
-	extra := scaledExtraTimeout(entryCount, k.kustomizationDeletionPerEntryTimeout, k.kustomizationAbandonedGraceMaxExtra)
+	base := time.Duration(abandonedInventoryGraceChecks) * k.Timing.KustomizationWaitPollInterval
+	extra := scaledExtraTimeout(entryCount, k.Timing.KustomizationDeletionPerEntryTimeout, k.Timing.KustomizationAbandonedGraceMaxExtra)
 	return base + extra
 }
 
@@ -323,7 +323,7 @@ func (k *BaseKubernetesManager) triggerReconcile(entry *liveInventoryEntry) {
 	if fluxReconcileAnnotationGroups[entry.Group] {
 		key = fluxReconcileAnnotation
 	}
-	value := k.shims.TimeNow().UTC().Format(time.RFC3339Nano)
+	value := k.Shims.TimeNow().UTC().Format(time.RFC3339Nano)
 	patch := fmt.Appendf(nil, `{"metadata":{"annotations":{%q:%q}}}`, key, value)
 	opts := metav1.PatchOptions{FieldManager: "windsor-cli"}
 	_, _ = k.client.PatchResource(context.Background(), entry.gvr, entry.Namespace, entry.Name, types.MergePatchType, patch, opts)

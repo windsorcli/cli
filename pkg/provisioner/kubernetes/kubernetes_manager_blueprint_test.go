@@ -28,11 +28,11 @@ func TestBaseKubernetesManager_ApplyBlueprint(t *testing.T) {
 		t.Helper()
 		mocks := setupKubernetesMocks(t)
 		manager := NewKubernetesManager(mocks.KubernetesClient, mocks.ConfigHandler)
-		manager.shims = mocks.Shims
-		manager.shims.ToUnstructured = func(obj any) (map[string]any, error) {
+		manager.Shims = mocks.Shims
+		manager.Shims.ToUnstructured = func(obj any) (map[string]any, error) {
 			return runtime.DefaultUnstructuredConverter.ToUnstructured(obj)
 		}
-		manager.shims.FromUnstructured = func(obj map[string]any, target any) error {
+		manager.Shims.FromUnstructured = func(obj map[string]any, target any) error {
 			return runtime.DefaultUnstructuredConverter.FromUnstructured(obj, target)
 		}
 		return manager
@@ -306,10 +306,10 @@ func TestBaseKubernetesManager_ApplyBlueprint(t *testing.T) {
 			return nil, fmt.Errorf("not found")
 		}
 		manager.client = kubernetesClient
-		manager.shims.ToUnstructured = func(obj any) (map[string]any, error) {
+		manager.Shims.ToUnstructured = func(obj any) (map[string]any, error) {
 			return runtime.DefaultUnstructuredConverter.ToUnstructured(obj)
 		}
-		manager.shims.FromUnstructured = func(obj map[string]any, target any) error {
+		manager.Shims.FromUnstructured = func(obj map[string]any, target any) error {
 			return runtime.DefaultUnstructuredConverter.FromUnstructured(obj, target)
 		}
 
@@ -355,10 +355,10 @@ func TestBaseKubernetesManager_ApplyBlueprint(t *testing.T) {
 			return nil, fmt.Errorf("not found")
 		}
 		manager.client = kubernetesClient
-		manager.shims.ToUnstructured = func(obj any) (map[string]any, error) {
+		manager.Shims.ToUnstructured = func(obj any) (map[string]any, error) {
 			return runtime.DefaultUnstructuredConverter.ToUnstructured(obj)
 		}
-		manager.shims.FromUnstructured = func(obj map[string]any, target any) error {
+		manager.Shims.FromUnstructured = func(obj map[string]any, target any) error {
 			return runtime.DefaultUnstructuredConverter.FromUnstructured(obj, target)
 		}
 
@@ -403,10 +403,10 @@ func TestBaseKubernetesManager_ApplyBlueprint(t *testing.T) {
 			return nil, fmt.Errorf("not found")
 		}
 		manager.client = kubernetesClient
-		manager.shims.ToUnstructured = func(obj any) (map[string]any, error) {
+		manager.Shims.ToUnstructured = func(obj any) (map[string]any, error) {
 			return runtime.DefaultUnstructuredConverter.ToUnstructured(obj)
 		}
-		manager.shims.FromUnstructured = func(obj map[string]any, target any) error {
+		manager.Shims.FromUnstructured = func(obj map[string]any, target any) error {
 			return runtime.DefaultUnstructuredConverter.FromUnstructured(obj, target)
 		}
 
@@ -1001,11 +1001,11 @@ func TestBaseKubernetesManager_ApplyBlueprint(t *testing.T) {
 		// kustomization that sets no explicit source (falls back to the primary repository)
 		mocks := setupKubernetesMocks(t)
 		manager := NewKubernetesManager(mocks.KubernetesClient, mocks.ConfigHandler)
-		manager.shims = mocks.Shims
-		manager.shims.ToUnstructured = func(obj any) (map[string]any, error) {
+		manager.Shims = mocks.Shims
+		manager.Shims.ToUnstructured = func(obj any) (map[string]any, error) {
 			return runtime.DefaultUnstructuredConverter.ToUnstructured(obj)
 		}
-		manager.shims.FromUnstructured = func(obj map[string]any, target any) error {
+		manager.Shims.FromUnstructured = func(obj map[string]any, target any) error {
 			return runtime.DefaultUnstructuredConverter.FromUnstructured(obj, target)
 		}
 
@@ -1086,9 +1086,9 @@ func TestBaseKubernetesManager_DeleteBlueprint(t *testing.T) {
 		t.Helper()
 		mocks := setupKubernetesMocks(t)
 		manager := NewKubernetesManager(mocks.KubernetesClient, mocks.ConfigHandler)
-		manager.kustomizationWaitPollInterval = 50 * time.Millisecond
-		manager.kustomizationReconcileTimeout = 100 * time.Millisecond
-		manager.kustomizationReconcileSleep = 50 * time.Millisecond
+		manager.Timing.KustomizationWaitPollInterval = 50 * time.Millisecond
+		manager.Timing.KustomizationReconcileTimeout = 100 * time.Millisecond
+		manager.Timing.KustomizationReconcileSleep = 50 * time.Millisecond
 		return manager
 	}
 
@@ -1138,12 +1138,12 @@ func TestBaseKubernetesManager_DeleteBlueprint(t *testing.T) {
 		// smaller than how long it actually takes to delete, but which
 		// declares its own DeleteTimeout (150ms) for the destroy path
 		manager := setup(t)
-		manager.kustomizationReconcileTimeout = 20 * time.Millisecond
-		manager.kustomizationWaitPollInterval = 10 * time.Millisecond
-		manager.kustomizationReconcileSleep = 0
+		manager.Timing.KustomizationReconcileTimeout = 20 * time.Millisecond
+		manager.Timing.KustomizationWaitPollInterval = 10 * time.Millisecond
+		manager.Timing.KustomizationReconcileSleep = 0
 		clock := newFakeClock()
-		manager.shims.TimeNow = clock.Now
-		manager.shims.TimeSleep = clock.Sleep
+		manager.Shims.TimeNow = clock.Now
+		manager.Shims.TimeSleep = clock.Sleep
 
 		kubernetesClient := client.NewMockKubernetesClient()
 		kubernetesClient.DeleteResourceFunc = func(gvr schema.GroupVersionResource, namespace, name string, opts metav1.DeleteOptions) error {
@@ -1582,8 +1582,8 @@ func TestBaseKubernetesManager_DeleteBlueprint(t *testing.T) {
 		// (15ms) is much smaller than how long it actually takes to delete, but
 		// which declares its own DeleteTimeout (150ms)
 		manager := setup(t)
-		manager.kustomizationReconcileTimeout = 20 * time.Millisecond
-		manager.kustomizationWaitPollInterval = 10 * time.Millisecond
+		manager.Timing.KustomizationReconcileTimeout = 20 * time.Millisecond
+		manager.Timing.KustomizationWaitPollInterval = 10 * time.Millisecond
 
 		kubernetesClient := client.NewMockKubernetesClient()
 		kubernetesClient.ApplyResourceFunc = func(gvr schema.GroupVersionResource, obj *unstructured.Unstructured, opts metav1.ApplyOptions) (*unstructured.Unstructured, error) {
@@ -2672,10 +2672,10 @@ func TestBaseKubernetesManager_DeleteBlueprint(t *testing.T) {
 			}, nil
 		}
 		manager.client = kubernetesClient
-		manager.shims.ToUnstructured = func(obj any) (map[string]any, error) {
+		manager.Shims.ToUnstructured = func(obj any) (map[string]any, error) {
 			return runtime.DefaultUnstructuredConverter.ToUnstructured(obj)
 		}
-		manager.shims.FromUnstructured = func(obj map[string]any, target any) error {
+		manager.Shims.FromUnstructured = func(obj map[string]any, target any) error {
 			return runtime.DefaultUnstructuredConverter.FromUnstructured(obj, target)
 		}
 
@@ -2754,7 +2754,7 @@ func TestBaseKubernetesManager_applyBlueprintOCIRepository(t *testing.T) {
 
 		var repo *sourcev1.OCIRepository
 		captured = &repo
-		manager.shims.ToUnstructured = func(obj any) (map[string]any, error) {
+		manager.Shims.ToUnstructured = func(obj any) (map[string]any, error) {
 			r, ok := obj.(*sourcev1.OCIRepository)
 			if !ok {
 				return nil, fmt.Errorf("expected *sourcev1.OCIRepository, got %T", obj)
@@ -2831,11 +2831,11 @@ func TestBaseKubernetesManager_waitForResumeReconcile(t *testing.T) {
 		t.Helper()
 		mocks := setupKubernetesMocks(t)
 		manager := NewKubernetesManager(mocks.KubernetesClient, mocks.ConfigHandler)
-		manager.kustomizationWaitPollInterval = 10 * time.Millisecond
-		manager.kustomizationReconcileSleep = 30 * time.Millisecond
+		manager.Timing.KustomizationWaitPollInterval = 10 * time.Millisecond
+		manager.Timing.KustomizationReconcileSleep = 30 * time.Millisecond
 		clock := newFakeClock()
-		manager.shims.TimeNow = clock.Now
-		manager.shims.TimeSleep = clock.Sleep
+		manager.Shims.TimeNow = clock.Now
+		manager.Shims.TimeSleep = clock.Sleep
 		return manager
 	}
 

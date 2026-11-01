@@ -978,7 +978,7 @@ func TestProvisioner_Uninstall(t *testing.T) {
 func TestProvisioner_converge(t *testing.T) {
 	newProv := func(mocks *ProvisionerTestMocks, notifier *fluxinfra.MockNotifier) *Provisioner {
 		p := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{KubernetesManager: mocks.KubernetesManager, Notifier: notifier})
-		p.secretPollInterval = time.Millisecond
+		p.PollInterval = time.Millisecond
 		return p
 	}
 	converge := func(p *Provisioner, ctx context.Context, bp *blueprintv1alpha1.Blueprint, timeout time.Duration) {

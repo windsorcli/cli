@@ -296,7 +296,7 @@ func TestProvisioner_PlaceSecrets(t *testing.T) {
 			return map[string]bool{"app": true, "cdn-install": false}, nil
 		}
 		prov := newProvisioner(mocks)
-		prov.secretPollInterval = time.Millisecond
+		prov.PollInterval = time.Millisecond
 		layers := &layerRecorder{}
 		bp := &blueprintv1alpha1.Blueprint{Kustomizations: []blueprintv1alpha1.Kustomization{{Name: "app"}, {Name: "cdn-install"}}}
 
@@ -543,7 +543,7 @@ func TestProvisioner_PlaceSecrets(t *testing.T) {
 		secrets := ResolvedSecrets{"dns-install": {"hetzner-dns": {Namespaces: []string{"system-dns"}, Data: map[string]string{"token": "t"}}}}
 
 		prov := newProvisioner(mocks)
-		prov.secretPollInterval = time.Millisecond
+		prov.PollInterval = time.Millisecond
 
 		// When placing, it keeps polling and places the secret the moment its namespace appears
 		if err := prov.PlaceSecrets(context.Background(), secrets, nil, false); err != nil {
