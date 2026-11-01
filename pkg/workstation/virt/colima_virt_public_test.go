@@ -91,7 +91,7 @@ func TestColimaVirt_WriteConfig(t *testing.T) {
 		if cfg.Hostname != "windsor-local" || cfg.Runtime != "docker" || cfg.NestedVirtualization {
 			t.Errorf("Expected hostname windsor-local and runtime docker without nesting, got %+v", cfg)
 		}
-		wantMounts := []colimaConfig.Mount{{Location: "/work/project", Writable: true}}
+		wantMounts := []colimaConfig.Mount{{Location: filepath.Clean("/work/project"), Writable: true}}
 		if !reflect.DeepEqual(cfg.Mounts, wantMounts) {
 			t.Errorf("Expected mounts %+v, got %+v", wantMounts, cfg.Mounts)
 		}
