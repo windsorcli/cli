@@ -1,4 +1,4 @@
-package kubernetes
+package kubernetes_test
 
 import (
 	"context"
@@ -11,6 +11,7 @@ import (
 	sourcev1 "github.com/fluxcd/source-controller/api/v1"
 	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
 	"github.com/windsorcli/cli/pkg/constants"
+	"github.com/windsorcli/cli/pkg/provisioner/kubernetes"
 	"github.com/windsorcli/cli/pkg/provisioner/kubernetes/client"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
@@ -24,10 +25,10 @@ import (
 // =============================================================================
 
 func TestBaseKubernetesManager_ApplyBlueprint(t *testing.T) {
-	setup := func(t *testing.T) *BaseKubernetesManager {
+	setup := func(t *testing.T, kubeClient client.KubernetesClient) *kubernetes.BaseKubernetesManager {
 		t.Helper()
 		mocks := setupKubernetesMocks(t)
-		manager := NewKubernetesManager(mocks.KubernetesClient, mocks.ConfigHandler)
+		manager := kubernetes.NewKubernetesManager(kubeClient, mocks.ConfigHandler)
 		manager.Shims = mocks.Shims
 		manager.Shims.ToUnstructured = func(obj any) (map[string]any, error) {
 			return runtime.DefaultUnstructuredConverter.ToUnstructured(obj)
@@ -38,8 +39,8 @@ func TestBaseKubernetesManager_ApplyBlueprint(t *testing.T) {
 		return manager
 	}
 
-	t.Run("Success", func(t *testing.T) {
-		manager := setup(t)
+	t.Run("AppliesASourceAndAKustomization", func(t *testing.T) {
+		// Given a blueprint with one git source and one kustomization
 		kubernetesClient := client.NewMockKubernetesClient()
 		kubernetesClient.ApplyResourceFunc = func(gvr schema.GroupVersionResource, obj *unstructured.Unstructured, opts metav1.ApplyOptions) (*unstructured.Unstructured, error) {
 			return obj, nil
@@ -47,7 +48,7 @@ func TestBaseKubernetesManager_ApplyBlueprint(t *testing.T) {
 		kubernetesClient.GetResourceFunc = func(gvr schema.GroupVersionResource, ns, name string) (*unstructured.Unstructured, error) {
 			return nil, fmt.Errorf("not found")
 		}
-		manager.client = kubernetesClient
+		manager := setup(t, kubernetesClient)
 
 		blueprint := &blueprintv1alpha1.Blueprint{
 			Metadata: blueprintv1alpha1.Metadata{
@@ -67,14 +68,17 @@ func TestBaseKubernetesManager_ApplyBlueprint(t *testing.T) {
 			},
 		}
 
+		// When the blueprint is applied
 		err := manager.ApplyBlueprint(blueprint, "test-namespace")
+
+		// Then no error is returned
 		if err != nil {
 			t.Errorf("Expected no error, got %v", err)
 		}
 	})
 
 	t.Run("PreservesGitSchemeForSourceURL", func(t *testing.T) {
-		manager := setup(t)
+		// Given a source whose URL uses the git scheme
 		var appliedRepo *sourcev1.GitRepository
 		kubernetesClient := client.NewMockKubernetesClient()
 		kubernetesClient.ApplyResourceFunc = func(gvr schema.GroupVersionResource, obj *unstructured.Unstructured, opts metav1.ApplyOptions) (*unstructured.Unstructured, error) {
@@ -89,7 +93,7 @@ func TestBaseKubernetesManager_ApplyBlueprint(t *testing.T) {
 		kubernetesClient.GetResourceFunc = func(gvr schema.GroupVersionResource, ns, name string) (*unstructured.Unstructured, error) {
 			return nil, fmt.Errorf("not found")
 		}
-		manager.client = kubernetesClient
+		manager := setup(t, kubernetesClient)
 
 		blueprint := &blueprintv1alpha1.Blueprint{
 			Metadata: blueprintv1alpha1.Metadata{Name: "test-blueprint"},
@@ -98,7 +102,10 @@ func TestBaseKubernetesManager_ApplyBlueprint(t *testing.T) {
 			},
 		}
 
+		// When the blueprint is applied
 		err := manager.ApplyBlueprint(blueprint, "test-namespace")
+
+		// Then the GitRepository keeps the git URL
 		if err != nil {
 			t.Errorf("Expected no error, got %v", err)
 		}
@@ -111,7 +118,7 @@ func TestBaseKubernetesManager_ApplyBlueprint(t *testing.T) {
 	})
 
 	t.Run("PrefixesHTTPSForInvalidSourceURLScheme", func(t *testing.T) {
-		manager := setup(t)
+		// Given a source whose URL has an invalid scheme
 		var appliedRepo *sourcev1.GitRepository
 		kubernetesClient := client.NewMockKubernetesClient()
 		kubernetesClient.ApplyResourceFunc = func(gvr schema.GroupVersionResource, obj *unstructured.Unstructured, opts metav1.ApplyOptions) (*unstructured.Unstructured, error) {
@@ -126,7 +133,7 @@ func TestBaseKubernetesManager_ApplyBlueprint(t *testing.T) {
 		kubernetesClient.GetResourceFunc = func(gvr schema.GroupVersionResource, ns, name string) (*unstructured.Unstructured, error) {
 			return nil, fmt.Errorf("not found")
 		}
-		manager.client = kubernetesClient
+		manager := setup(t, kubernetesClient)
 
 		blueprint := &blueprintv1alpha1.Blueprint{
 			Metadata: blueprintv1alpha1.Metadata{Name: "test-blueprint"},
@@ -135,7 +142,10 @@ func TestBaseKubernetesManager_ApplyBlueprint(t *testing.T) {
 			},
 		}
 
+		// When the blueprint is applied
 		err := manager.ApplyBlueprint(blueprint, "test-namespace")
+
+		// Then the GitRepository URL gets an https prefix
 		if err != nil {
 			t.Errorf("Expected no error, got %v", err)
 		}
@@ -148,7 +158,7 @@ func TestBaseKubernetesManager_ApplyBlueprint(t *testing.T) {
 	})
 
 	t.Run("SuccessSkipsLocalTemplateSource", func(t *testing.T) {
-		manager := setup(t)
+		// Given a blueprint whose only source is the local template
 		kubernetesClient := client.NewMockKubernetesClient()
 		kubernetesClient.ApplyResourceFunc = func(gvr schema.GroupVersionResource, obj *unstructured.Unstructured, opts metav1.ApplyOptions) (*unstructured.Unstructured, error) {
 			return obj, nil
@@ -156,7 +166,7 @@ func TestBaseKubernetesManager_ApplyBlueprint(t *testing.T) {
 		kubernetesClient.GetResourceFunc = func(gvr schema.GroupVersionResource, ns, name string) (*unstructured.Unstructured, error) {
 			return nil, fmt.Errorf("not found")
 		}
-		manager.client = kubernetesClient
+		manager := setup(t, kubernetesClient)
 
 		blueprint := &blueprintv1alpha1.Blueprint{
 			Metadata: blueprintv1alpha1.Metadata{
@@ -174,14 +184,17 @@ func TestBaseKubernetesManager_ApplyBlueprint(t *testing.T) {
 			},
 		}
 
+		// When the blueprint is applied
 		err := manager.ApplyBlueprint(blueprint, "test-namespace")
+
+		// Then no error is returned
 		if err != nil {
 			t.Errorf("Expected no error when blueprint has only local template source, got %v", err)
 		}
 	})
 
 	t.Run("SuccessSkipsDestroyOnlyKustomizations", func(t *testing.T) {
-		manager := setup(t)
+		// Given a blueprint with one destroy-only and one regular kustomization
 		kubernetesClient := client.NewMockKubernetesClient()
 
 		var appliedKustomizations []string
@@ -196,7 +209,7 @@ func TestBaseKubernetesManager_ApplyBlueprint(t *testing.T) {
 		kubernetesClient.GetResourceFunc = func(gvr schema.GroupVersionResource, ns, name string) (*unstructured.Unstructured, error) {
 			return nil, fmt.Errorf("not found")
 		}
-		manager.client = kubernetesClient
+		manager := setup(t, kubernetesClient)
 
 		destroyOnlyTrue := true
 		blueprint := &blueprintv1alpha1.Blueprint{
@@ -214,7 +227,10 @@ func TestBaseKubernetesManager_ApplyBlueprint(t *testing.T) {
 			},
 		}
 
+		// When the blueprint is applied
 		err := manager.ApplyBlueprint(blueprint, "test-namespace")
+
+		// Then only the regular kustomization is applied
 		if err != nil {
 			t.Errorf("Expected no error, got %v", err)
 		}
@@ -228,7 +244,7 @@ func TestBaseKubernetesManager_ApplyBlueprint(t *testing.T) {
 	})
 
 	t.Run("ErrorOnCreateNamespace", func(t *testing.T) {
-		manager := setup(t)
+		// Given a client that rejects the namespace
 		kubernetesClient := client.NewMockKubernetesClient()
 		kubernetesClient.ApplyResourceFunc = func(gvr schema.GroupVersionResource, obj *unstructured.Unstructured, opts metav1.ApplyOptions) (*unstructured.Unstructured, error) {
 			if obj.GetKind() == "Namespace" {
@@ -239,7 +255,7 @@ func TestBaseKubernetesManager_ApplyBlueprint(t *testing.T) {
 		kubernetesClient.GetResourceFunc = func(gvr schema.GroupVersionResource, ns, name string) (*unstructured.Unstructured, error) {
 			return nil, fmt.Errorf("not found")
 		}
-		manager.client = kubernetesClient
+		manager := setup(t, kubernetesClient)
 
 		blueprint := &blueprintv1alpha1.Blueprint{
 			Metadata: blueprintv1alpha1.Metadata{
@@ -247,7 +263,10 @@ func TestBaseKubernetesManager_ApplyBlueprint(t *testing.T) {
 			},
 		}
 
+		// When the blueprint is applied
 		err := manager.ApplyBlueprint(blueprint, "test-namespace")
+
+		// Then the error names the namespace step
 		if err == nil {
 			t.Error("Expected error, got nil")
 		}
@@ -257,7 +276,7 @@ func TestBaseKubernetesManager_ApplyBlueprint(t *testing.T) {
 	})
 
 	t.Run("SuccessWithRepository", func(t *testing.T) {
-		manager := setup(t)
+		// Given a blueprint with a primary repository
 		kubernetesClient := client.NewMockKubernetesClient()
 		kubernetesClient.ApplyResourceFunc = func(gvr schema.GroupVersionResource, obj *unstructured.Unstructured, opts metav1.ApplyOptions) (*unstructured.Unstructured, error) {
 			return obj, nil
@@ -265,7 +284,7 @@ func TestBaseKubernetesManager_ApplyBlueprint(t *testing.T) {
 		kubernetesClient.GetResourceFunc = func(gvr schema.GroupVersionResource, ns, name string) (*unstructured.Unstructured, error) {
 			return nil, fmt.Errorf("not found")
 		}
-		manager.client = kubernetesClient
+		manager := setup(t, kubernetesClient)
 
 		blueprint := &blueprintv1alpha1.Blueprint{
 			Metadata: blueprintv1alpha1.Metadata{
@@ -282,14 +301,17 @@ func TestBaseKubernetesManager_ApplyBlueprint(t *testing.T) {
 			},
 		}
 
+		// When the blueprint is applied
 		err := manager.ApplyBlueprint(blueprint, "test-namespace")
+
+		// Then no error is returned
 		if err != nil {
 			t.Errorf("Expected no error, got %v", err)
 		}
 	})
 
 	t.Run("SuccessWithRepositoryAndSecretName", func(t *testing.T) {
-		manager := setup(t)
+		// Given a primary repository with a secret name
 		secretName := "test-secret"
 		var appliedRepo *sourcev1.GitRepository
 		kubernetesClient := client.NewMockKubernetesClient()
@@ -305,7 +327,7 @@ func TestBaseKubernetesManager_ApplyBlueprint(t *testing.T) {
 		kubernetesClient.GetResourceFunc = func(gvr schema.GroupVersionResource, ns, name string) (*unstructured.Unstructured, error) {
 			return nil, fmt.Errorf("not found")
 		}
-		manager.client = kubernetesClient
+		manager := setup(t, kubernetesClient)
 		manager.Shims.ToUnstructured = func(obj any) (map[string]any, error) {
 			return runtime.DefaultUnstructuredConverter.ToUnstructured(obj)
 		}
@@ -324,7 +346,10 @@ func TestBaseKubernetesManager_ApplyBlueprint(t *testing.T) {
 			},
 		}
 
+		// When the blueprint is applied
 		err := manager.ApplyBlueprint(blueprint, "test-namespace")
+
+		// Then the GitRepository references the secret
 		if err != nil {
 			t.Errorf("Expected no error, got %v", err)
 		}
@@ -339,7 +364,7 @@ func TestBaseKubernetesManager_ApplyBlueprint(t *testing.T) {
 	})
 
 	t.Run("SuccessWithRepositoryAndNilSecretName", func(t *testing.T) {
-		manager := setup(t)
+		// Given a primary repository with a nil secret name
 		var appliedRepo *sourcev1.GitRepository
 		kubernetesClient := client.NewMockKubernetesClient()
 		kubernetesClient.ApplyResourceFunc = func(gvr schema.GroupVersionResource, obj *unstructured.Unstructured, opts metav1.ApplyOptions) (*unstructured.Unstructured, error) {
@@ -354,7 +379,7 @@ func TestBaseKubernetesManager_ApplyBlueprint(t *testing.T) {
 		kubernetesClient.GetResourceFunc = func(gvr schema.GroupVersionResource, ns, name string) (*unstructured.Unstructured, error) {
 			return nil, fmt.Errorf("not found")
 		}
-		manager.client = kubernetesClient
+		manager := setup(t, kubernetesClient)
 		manager.Shims.ToUnstructured = func(obj any) (map[string]any, error) {
 			return runtime.DefaultUnstructuredConverter.ToUnstructured(obj)
 		}
@@ -373,7 +398,10 @@ func TestBaseKubernetesManager_ApplyBlueprint(t *testing.T) {
 			},
 		}
 
+		// When the blueprint is applied
 		err := manager.ApplyBlueprint(blueprint, "test-namespace")
+
+		// Then the GitRepository has no secret reference
 		if err != nil {
 			t.Errorf("Expected no error, got %v", err)
 		}
@@ -386,7 +414,7 @@ func TestBaseKubernetesManager_ApplyBlueprint(t *testing.T) {
 	})
 
 	t.Run("SuccessWithRepositoryAndEmptySecretName", func(t *testing.T) {
-		manager := setup(t)
+		// Given a primary repository with an empty secret name
 		emptySecretName := ""
 		var appliedRepo *sourcev1.GitRepository
 		kubernetesClient := client.NewMockKubernetesClient()
@@ -402,7 +430,7 @@ func TestBaseKubernetesManager_ApplyBlueprint(t *testing.T) {
 		kubernetesClient.GetResourceFunc = func(gvr schema.GroupVersionResource, ns, name string) (*unstructured.Unstructured, error) {
 			return nil, fmt.Errorf("not found")
 		}
-		manager.client = kubernetesClient
+		manager := setup(t, kubernetesClient)
 		manager.Shims.ToUnstructured = func(obj any) (map[string]any, error) {
 			return runtime.DefaultUnstructuredConverter.ToUnstructured(obj)
 		}
@@ -421,7 +449,10 @@ func TestBaseKubernetesManager_ApplyBlueprint(t *testing.T) {
 			},
 		}
 
+		// When the blueprint is applied
 		err := manager.ApplyBlueprint(blueprint, "test-namespace")
+
+		// Then the GitRepository has no secret reference
 		if err != nil {
 			t.Errorf("Expected no error, got %v", err)
 		}
@@ -434,7 +465,7 @@ func TestBaseKubernetesManager_ApplyBlueprint(t *testing.T) {
 	})
 
 	t.Run("ErrorOnApplyBlueprintRepository", func(t *testing.T) {
-		manager := setup(t)
+		// Given a client that rejects the primary GitRepository
 		kubernetesClient := client.NewMockKubernetesClient()
 		kubernetesClient.ApplyResourceFunc = func(gvr schema.GroupVersionResource, obj *unstructured.Unstructured, opts metav1.ApplyOptions) (*unstructured.Unstructured, error) {
 			if obj.GetKind() == "GitRepository" {
@@ -445,7 +476,7 @@ func TestBaseKubernetesManager_ApplyBlueprint(t *testing.T) {
 		kubernetesClient.GetResourceFunc = func(gvr schema.GroupVersionResource, ns, name string) (*unstructured.Unstructured, error) {
 			return nil, fmt.Errorf("not found")
 		}
-		manager.client = kubernetesClient
+		manager := setup(t, kubernetesClient)
 
 		blueprint := &blueprintv1alpha1.Blueprint{
 			Metadata: blueprintv1alpha1.Metadata{
@@ -456,7 +487,10 @@ func TestBaseKubernetesManager_ApplyBlueprint(t *testing.T) {
 			},
 		}
 
+		// When the blueprint is applied
 		err := manager.ApplyBlueprint(blueprint, "test-namespace")
+
+		// Then the error names the blueprint repository
 		if err == nil {
 			t.Error("Expected error, got nil")
 		}
@@ -466,7 +500,7 @@ func TestBaseKubernetesManager_ApplyBlueprint(t *testing.T) {
 	})
 
 	t.Run("ErrorOnApplySource", func(t *testing.T) {
-		manager := setup(t)
+		// Given a client that rejects the source GitRepository
 		kubernetesClient := client.NewMockKubernetesClient()
 		kubernetesClient.ApplyResourceFunc = func(gvr schema.GroupVersionResource, obj *unstructured.Unstructured, opts metav1.ApplyOptions) (*unstructured.Unstructured, error) {
 			if obj.GetKind() == "GitRepository" {
@@ -477,7 +511,7 @@ func TestBaseKubernetesManager_ApplyBlueprint(t *testing.T) {
 		kubernetesClient.GetResourceFunc = func(gvr schema.GroupVersionResource, ns, name string) (*unstructured.Unstructured, error) {
 			return nil, fmt.Errorf("not found")
 		}
-		manager.client = kubernetesClient
+		manager := setup(t, kubernetesClient)
 
 		blueprint := &blueprintv1alpha1.Blueprint{
 			Metadata: blueprintv1alpha1.Metadata{
@@ -491,7 +525,10 @@ func TestBaseKubernetesManager_ApplyBlueprint(t *testing.T) {
 			},
 		}
 
+		// When the blueprint is applied
 		err := manager.ApplyBlueprint(blueprint, "test-namespace")
+
+		// Then the error names the source
 		if err == nil {
 			t.Error("Expected error, got nil")
 		}
@@ -501,7 +538,7 @@ func TestBaseKubernetesManager_ApplyBlueprint(t *testing.T) {
 	})
 
 	t.Run("ErrorOnApplyConfigMap", func(t *testing.T) {
-		manager := setup(t)
+		// Given a client that rejects ConfigMaps and a kustomization with substitutions
 		kubernetesClient := client.NewMockKubernetesClient()
 		kubernetesClient.ApplyResourceFunc = func(gvr schema.GroupVersionResource, obj *unstructured.Unstructured, opts metav1.ApplyOptions) (*unstructured.Unstructured, error) {
 			if obj.GetKind() == "ConfigMap" {
@@ -512,7 +549,7 @@ func TestBaseKubernetesManager_ApplyBlueprint(t *testing.T) {
 		kubernetesClient.GetResourceFunc = func(gvr schema.GroupVersionResource, ns, name string) (*unstructured.Unstructured, error) {
 			return nil, fmt.Errorf("not found")
 		}
-		manager.client = kubernetesClient
+		manager := setup(t, kubernetesClient)
 
 		blueprint := &blueprintv1alpha1.Blueprint{
 			Metadata: blueprintv1alpha1.Metadata{
@@ -528,7 +565,10 @@ func TestBaseKubernetesManager_ApplyBlueprint(t *testing.T) {
 			},
 		}
 
+		// When the blueprint is applied
 		err := manager.ApplyBlueprint(blueprint, "test-namespace")
+
+		// Then the error names the ConfigMap
 		if err == nil {
 			t.Error("Expected error, got nil")
 		}
@@ -538,7 +578,7 @@ func TestBaseKubernetesManager_ApplyBlueprint(t *testing.T) {
 	})
 
 	t.Run("ErrorOnApplyKustomization", func(t *testing.T) {
-		manager := setup(t)
+		// Given a client that rejects Kustomizations
 		kubernetesClient := client.NewMockKubernetesClient()
 		kubernetesClient.ApplyResourceFunc = func(gvr schema.GroupVersionResource, obj *unstructured.Unstructured, opts metav1.ApplyOptions) (*unstructured.Unstructured, error) {
 			if obj.GetKind() == "Kustomization" {
@@ -549,7 +589,7 @@ func TestBaseKubernetesManager_ApplyBlueprint(t *testing.T) {
 		kubernetesClient.GetResourceFunc = func(gvr schema.GroupVersionResource, ns, name string) (*unstructured.Unstructured, error) {
 			return nil, fmt.Errorf("not found")
 		}
-		manager.client = kubernetesClient
+		manager := setup(t, kubernetesClient)
 
 		blueprint := &blueprintv1alpha1.Blueprint{
 			Metadata: blueprintv1alpha1.Metadata{
@@ -563,7 +603,10 @@ func TestBaseKubernetesManager_ApplyBlueprint(t *testing.T) {
 			},
 		}
 
+		// When the blueprint is applied
 		err := manager.ApplyBlueprint(blueprint, "test-namespace")
+
+		// Then the error names the kustomization
 		if err == nil {
 			t.Error("Expected error, got nil")
 		}
@@ -573,7 +616,7 @@ func TestBaseKubernetesManager_ApplyBlueprint(t *testing.T) {
 	})
 
 	t.Run("SuccessWithOCISource", func(t *testing.T) {
-		manager := setup(t)
+		// Given a blueprint with an untagged OCI source
 		kubernetesClient := client.NewMockKubernetesClient()
 		kubernetesClient.ApplyResourceFunc = func(gvr schema.GroupVersionResource, obj *unstructured.Unstructured, opts metav1.ApplyOptions) (*unstructured.Unstructured, error) {
 			return obj, nil
@@ -581,7 +624,7 @@ func TestBaseKubernetesManager_ApplyBlueprint(t *testing.T) {
 		kubernetesClient.GetResourceFunc = func(gvr schema.GroupVersionResource, ns, name string) (*unstructured.Unstructured, error) {
 			return nil, fmt.Errorf("not found")
 		}
-		manager.client = kubernetesClient
+		manager := setup(t, kubernetesClient)
 
 		blueprint := &blueprintv1alpha1.Blueprint{
 			Metadata: blueprintv1alpha1.Metadata{
@@ -600,14 +643,17 @@ func TestBaseKubernetesManager_ApplyBlueprint(t *testing.T) {
 			},
 		}
 
+		// When the blueprint is applied
 		err := manager.ApplyBlueprint(blueprint, "test-namespace")
+
+		// Then no error is returned
 		if err != nil {
 			t.Errorf("Expected no error, got %v", err)
 		}
 	})
 
 	t.Run("SuccessWithBlueprintConfigMaps", func(t *testing.T) {
-		manager := setup(t)
+		// Given a blueprint with one ConfigMap and one kustomization
 		configMapApplied := false
 		kustomizationApplied := false
 		var appliedKustomization kustomizev1.Kustomization
@@ -627,7 +673,7 @@ func TestBaseKubernetesManager_ApplyBlueprint(t *testing.T) {
 		kubernetesClient.GetResourceFunc = func(gvr schema.GroupVersionResource, ns, name string) (*unstructured.Unstructured, error) {
 			return nil, fmt.Errorf("not found")
 		}
-		manager.client = kubernetesClient
+		manager := setup(t, kubernetesClient)
 
 		blueprint := &blueprintv1alpha1.Blueprint{
 			Metadata: blueprintv1alpha1.Metadata{
@@ -647,7 +693,10 @@ func TestBaseKubernetesManager_ApplyBlueprint(t *testing.T) {
 			},
 		}
 
+		// When the blueprint is applied
 		err := manager.ApplyBlueprint(blueprint, "test-namespace")
+
+		// Then the ConfigMap is applied and the kustomization substitutes from it
 		if err != nil {
 			t.Errorf("Expected no error, got %v", err)
 		}
@@ -669,7 +718,7 @@ func TestBaseKubernetesManager_ApplyBlueprint(t *testing.T) {
 	})
 
 	t.Run("SuccessWithBlueprintConfigMapsAndKustomizationSubstitutions", func(t *testing.T) {
-		manager := setup(t)
+		// Given a blueprint ConfigMap and a kustomization with its own substitutions
 		commonConfigMapApplied := false
 		kustomizationConfigMapApplied := false
 		kustomizationApplied := false
@@ -695,7 +744,7 @@ func TestBaseKubernetesManager_ApplyBlueprint(t *testing.T) {
 		kubernetesClient.GetResourceFunc = func(gvr schema.GroupVersionResource, ns, name string) (*unstructured.Unstructured, error) {
 			return nil, fmt.Errorf("not found")
 		}
-		manager.client = kubernetesClient
+		manager := setup(t, kubernetesClient)
 
 		blueprint := &blueprintv1alpha1.Blueprint{
 			Metadata: blueprintv1alpha1.Metadata{
@@ -717,7 +766,10 @@ func TestBaseKubernetesManager_ApplyBlueprint(t *testing.T) {
 			},
 		}
 
+		// When the blueprint is applied
 		err := manager.ApplyBlueprint(blueprint, "test-namespace")
+
+		// Then the kustomization substitutes from both ConfigMaps
 		if err != nil {
 			t.Errorf("Expected no error, got %v", err)
 		}
@@ -755,7 +807,7 @@ func TestBaseKubernetesManager_ApplyBlueprint(t *testing.T) {
 	})
 
 	t.Run("SuccessWithMultipleBlueprintConfigMaps", func(t *testing.T) {
-		manager := setup(t)
+		// Given a blueprint with two ConfigMaps
 		configMapsApplied := make(map[string]bool)
 		var appliedKustomization kustomizev1.Kustomization
 		kubernetesClient := client.NewMockKubernetesClient()
@@ -773,7 +825,7 @@ func TestBaseKubernetesManager_ApplyBlueprint(t *testing.T) {
 		kubernetesClient.GetResourceFunc = func(gvr schema.GroupVersionResource, ns, name string) (*unstructured.Unstructured, error) {
 			return nil, fmt.Errorf("not found")
 		}
-		manager.client = kubernetesClient
+		manager := setup(t, kubernetesClient)
 
 		blueprint := &blueprintv1alpha1.Blueprint{
 			Metadata: blueprintv1alpha1.Metadata{
@@ -795,7 +847,10 @@ func TestBaseKubernetesManager_ApplyBlueprint(t *testing.T) {
 			},
 		}
 
+		// When the blueprint is applied
 		err := manager.ApplyBlueprint(blueprint, "test-namespace")
+
+		// Then the kustomization substitutes from both ConfigMaps
 		if err != nil {
 			t.Errorf("Expected no error, got %v", err)
 		}
@@ -830,7 +885,7 @@ func TestBaseKubernetesManager_ApplyBlueprint(t *testing.T) {
 	})
 
 	t.Run("SuccessWithKustomizationSubstitutions", func(t *testing.T) {
-		manager := setup(t)
+		// Given a kustomization with its own substitutions
 		kustomizationConfigMapApplied := false
 		kustomizationApplied := false
 		var appliedKustomization kustomizev1.Kustomization
@@ -850,7 +905,7 @@ func TestBaseKubernetesManager_ApplyBlueprint(t *testing.T) {
 		kubernetesClient.GetResourceFunc = func(gvr schema.GroupVersionResource, ns, name string) (*unstructured.Unstructured, error) {
 			return nil, fmt.Errorf("not found")
 		}
-		manager.client = kubernetesClient
+		manager := setup(t, kubernetesClient)
 
 		blueprint := &blueprintv1alpha1.Blueprint{
 			Metadata: blueprintv1alpha1.Metadata{
@@ -868,7 +923,10 @@ func TestBaseKubernetesManager_ApplyBlueprint(t *testing.T) {
 			},
 		}
 
+		// When the blueprint is applied
 		err := manager.ApplyBlueprint(blueprint, "test-namespace")
+
+		// Then its values ConfigMap is applied and referenced
 		if err != nil {
 			t.Errorf("Expected no error, got %v", err)
 		}
@@ -890,7 +948,7 @@ func TestBaseKubernetesManager_ApplyBlueprint(t *testing.T) {
 	})
 
 	t.Run("RegularKustomizationHasCommonMetadataLabels", func(t *testing.T) {
-		manager := setup(t)
+		// Given a blueprint with one regular kustomization
 		kubernetesClient := client.NewMockKubernetesClient()
 
 		var appliedKustomization kustomizev1.Kustomization
@@ -905,7 +963,7 @@ func TestBaseKubernetesManager_ApplyBlueprint(t *testing.T) {
 		kubernetesClient.GetResourceFunc = func(gvr schema.GroupVersionResource, ns, name string) (*unstructured.Unstructured, error) {
 			return nil, fmt.Errorf("not found")
 		}
-		manager.client = kubernetesClient
+		manager := setup(t, kubernetesClient)
 
 		blueprint := &blueprintv1alpha1.Blueprint{
 			Metadata: blueprintv1alpha1.Metadata{
@@ -926,7 +984,10 @@ func TestBaseKubernetesManager_ApplyBlueprint(t *testing.T) {
 			},
 		}
 
+		// When the blueprint is applied
 		err := manager.ApplyBlueprint(blueprint, "test-namespace")
+
+		// Then its commonMetadata carries the context labels
 		if err != nil {
 			t.Errorf("Expected no error, got %v", err)
 		}
@@ -958,7 +1019,6 @@ func TestBaseKubernetesManager_ApplyBlueprint(t *testing.T) {
 
 	t.Run("RegularKustomizationHasObjectMetaOwnershipLabels", func(t *testing.T) {
 		// Given a manager applying a blueprint with one kustomization
-		manager := setup(t)
 		kubernetesClient := client.NewMockKubernetesClient()
 
 		var appliedKustomization kustomizev1.Kustomization
@@ -973,7 +1033,7 @@ func TestBaseKubernetesManager_ApplyBlueprint(t *testing.T) {
 		kubernetesClient.GetResourceFunc = func(gvr schema.GroupVersionResource, ns, name string) (*unstructured.Unstructured, error) {
 			return nil, fmt.Errorf("not found")
 		}
-		manager.client = kubernetesClient
+		manager := setup(t, kubernetesClient)
 
 		blueprint := &blueprintv1alpha1.Blueprint{
 			Metadata: blueprintv1alpha1.Metadata{Name: "test-blueprint"},
@@ -997,18 +1057,7 @@ func TestBaseKubernetesManager_ApplyBlueprint(t *testing.T) {
 	})
 
 	t.Run("PrimaryRepositoryGetsShortIntervalVendorSourceGetsLong", func(t *testing.T) {
-		// Given a blueprint with its own primary repository, a named vendor source, and a
-		// kustomization that sets no explicit source (falls back to the primary repository)
-		mocks := setupKubernetesMocks(t)
-		manager := NewKubernetesManager(mocks.KubernetesClient, mocks.ConfigHandler)
-		manager.Shims = mocks.Shims
-		manager.Shims.ToUnstructured = func(obj any) (map[string]any, error) {
-			return runtime.DefaultUnstructuredConverter.ToUnstructured(obj)
-		}
-		manager.Shims.FromUnstructured = func(obj map[string]any, target any) error {
-			return runtime.DefaultUnstructuredConverter.FromUnstructured(obj, target)
-		}
-
+		// Given a blueprint with a primary repository, a vendor source, and a kustomization with no source
 		appliedRepos := map[string]*sourcev1.GitRepository{}
 		var appliedKust *kustomizev1.Kustomization
 		kc := client.NewMockKubernetesClient()
@@ -1030,7 +1079,7 @@ func TestBaseKubernetesManager_ApplyBlueprint(t *testing.T) {
 		kc.GetResourceFunc = func(gvr schema.GroupVersionResource, ns, name string) (*unstructured.Unstructured, error) {
 			return nil, fmt.Errorf("not found")
 		}
-		manager.client = kc
+		manager := setup(t, kc)
 
 		blueprint := &blueprintv1alpha1.Blueprint{
 			Metadata: blueprintv1alpha1.Metadata{Name: "test-blueprint"},
@@ -1051,8 +1100,7 @@ func TestBaseKubernetesManager_ApplyBlueprint(t *testing.T) {
 			t.Fatalf("Expected no error, got %v", err)
 		}
 
-		// Then the primary repository (named after the blueprint) gets the short,
-		// continuously-polled interval
+		// Then the primary repository and the kustomization get the short interval and the vendor source gets the long one
 		primaryRepo, ok := appliedRepos["test-blueprint"]
 		if !ok {
 			t.Fatal("Expected the primary repository GitRepository to be applied")
@@ -1061,7 +1109,6 @@ func TestBaseKubernetesManager_ApplyBlueprint(t *testing.T) {
 			t.Errorf("Expected primary repository interval %v, got %v", constants.DefaultFluxPrimaryRepositoryInterval, primaryRepo.Spec.Interval.Duration)
 		}
 
-		// And the named vendor source gets the long, backstop-only interval
 		vendorRepo, ok := appliedRepos["test-source"]
 		if !ok {
 			t.Fatal("Expected the vendor source GitRepository to be applied")
@@ -1070,8 +1117,6 @@ func TestBaseKubernetesManager_ApplyBlueprint(t *testing.T) {
 			t.Errorf("Expected vendor source interval %v, got %v", constants.DefaultFluxSourceInterval, vendorRepo.Spec.Interval.Duration)
 		}
 
-		// And the kustomization, which set no explicit source, resolves to the primary
-		// repository and gets its short interval too
 		if appliedKust == nil {
 			t.Fatal("Expected Kustomization to be applied")
 		}
@@ -1079,21 +1124,111 @@ func TestBaseKubernetesManager_ApplyBlueprint(t *testing.T) {
 			t.Errorf("Expected kustomization interval %v, got %v", constants.DefaultFluxPrimaryKustomizationInterval, appliedKust.Spec.Interval.Duration)
 		}
 	})
+
+	t.Run("SplitsAnOCIDigestIntoTheReference", func(t *testing.T) {
+		// Given a blueprint with an OCI source pinned by digest
+		var appliedRepo *sourcev1.OCIRepository
+		kubernetesClient := client.NewMockKubernetesClient()
+		kubernetesClient.ApplyResourceFunc = func(gvr schema.GroupVersionResource, obj *unstructured.Unstructured, opts metav1.ApplyOptions) (*unstructured.Unstructured, error) {
+			if gvr.Resource == "ocirepositories" {
+				var repo sourcev1.OCIRepository
+				if err := runtime.DefaultUnstructuredConverter.FromUnstructured(obj.Object, &repo); err == nil {
+					appliedRepo = &repo
+				}
+			}
+			return obj, nil
+		}
+		kubernetesClient.GetResourceFunc = func(gvr schema.GroupVersionResource, ns, name string) (*unstructured.Unstructured, error) {
+			return nil, fmt.Errorf("not found")
+		}
+		manager := setup(t, kubernetesClient)
+		blueprint := &blueprintv1alpha1.Blueprint{
+			Metadata: blueprintv1alpha1.Metadata{Name: "test-blueprint"},
+			Sources: []blueprintv1alpha1.Source{
+				{Name: "core", Url: "oci://ghcr.io/windsorcli/core@sha256:abcd1234abcd1234abcd1234abcd1234abcd1234abcd1234abcd1234abcd1234"},
+			},
+		}
+
+		// When the blueprint is applied
+		err := manager.ApplyBlueprint(blueprint, "system-gitops")
+
+		// Then the URL drops the digest and the reference holds the digest with no tag
+		if err != nil {
+			t.Fatalf("expected no error, got %v", err)
+		}
+		if appliedRepo == nil {
+			t.Fatal("expected an OCIRepository to be applied")
+		}
+		if appliedRepo.Spec.URL != "oci://ghcr.io/windsorcli/core" {
+			t.Errorf("expected URL 'oci://ghcr.io/windsorcli/core', got %s", appliedRepo.Spec.URL)
+		}
+		if appliedRepo.Spec.Reference == nil {
+			t.Fatalf("expected a non-nil Reference")
+		}
+		if appliedRepo.Spec.Reference.Digest != "sha256:abcd1234abcd1234abcd1234abcd1234abcd1234abcd1234abcd1234abcd1234" {
+			t.Errorf("expected Digest 'sha256:abcd...', got %q", appliedRepo.Spec.Reference.Digest)
+		}
+		if appliedRepo.Spec.Reference.Tag != "" {
+			t.Errorf("expected empty Tag for a digest reference, got %q", appliedRepo.Spec.Reference.Tag)
+		}
+	})
+
+	t.Run("SplitsTheLatestOCITagIntoTheReference", func(t *testing.T) {
+		// Given a blueprint with an OCI source tagged latest
+		var appliedRepo *sourcev1.OCIRepository
+		kubernetesClient := client.NewMockKubernetesClient()
+		kubernetesClient.ApplyResourceFunc = func(gvr schema.GroupVersionResource, obj *unstructured.Unstructured, opts metav1.ApplyOptions) (*unstructured.Unstructured, error) {
+			if gvr.Resource == "ocirepositories" {
+				var repo sourcev1.OCIRepository
+				if err := runtime.DefaultUnstructuredConverter.FromUnstructured(obj.Object, &repo); err == nil {
+					appliedRepo = &repo
+				}
+			}
+			return obj, nil
+		}
+		kubernetesClient.GetResourceFunc = func(gvr schema.GroupVersionResource, ns, name string) (*unstructured.Unstructured, error) {
+			return nil, fmt.Errorf("not found")
+		}
+		manager := setup(t, kubernetesClient)
+		blueprint := &blueprintv1alpha1.Blueprint{
+			Metadata: blueprintv1alpha1.Metadata{Name: "test-blueprint"},
+			Sources: []blueprintv1alpha1.Source{
+				{Name: "core", Url: "oci://ghcr.io/windsorcli/core:latest"},
+			},
+		}
+
+		// When the blueprint is applied
+		err := manager.ApplyBlueprint(blueprint, "system-gitops")
+
+		// Then the URL drops the tag and the reference holds it
+		if err != nil {
+			t.Fatalf("expected no error, got %v", err)
+		}
+		if appliedRepo == nil {
+			t.Fatal("expected an OCIRepository to be applied")
+		}
+		if appliedRepo.Spec.URL != "oci://ghcr.io/windsorcli/core" {
+			t.Errorf("expected URL 'oci://ghcr.io/windsorcli/core', got %s", appliedRepo.Spec.URL)
+		}
+		if appliedRepo.Spec.Reference == nil || appliedRepo.Spec.Reference.Tag != "latest" {
+			t.Errorf("expected Reference.Tag 'latest', got %+v", appliedRepo.Spec.Reference)
+		}
+	})
 }
 
 func TestBaseKubernetesManager_DeleteBlueprint(t *testing.T) {
-	setup := func(t *testing.T) *BaseKubernetesManager {
+	setup := func(t *testing.T, kubeClient client.KubernetesClient) *kubernetes.BaseKubernetesManager {
 		t.Helper()
 		mocks := setupKubernetesMocks(t)
-		manager := NewKubernetesManager(mocks.KubernetesClient, mocks.ConfigHandler)
+		manager := kubernetes.NewKubernetesManager(kubeClient, mocks.ConfigHandler)
 		manager.Timing.KustomizationWaitPollInterval = 50 * time.Millisecond
 		manager.Timing.KustomizationReconcileTimeout = 100 * time.Millisecond
 		manager.Timing.KustomizationReconcileSleep = 50 * time.Millisecond
 		return manager
 	}
 
-	t.Run("Success", func(t *testing.T) {
-		manager := setup(t)
+	t.Run("DeletesEveryKustomization", func(t *testing.T) {
+		// Given a blueprint with two kustomizations
 		kubernetesClient := client.NewMockKubernetesClient()
 
 		var deleteCalls []string
@@ -1107,7 +1242,7 @@ func TestBaseKubernetesManager_DeleteBlueprint(t *testing.T) {
 		kubernetesClient.ApplyResourceFunc = func(gvr schema.GroupVersionResource, obj *unstructured.Unstructured, opts metav1.ApplyOptions) (*unstructured.Unstructured, error) {
 			return obj, nil
 		}
-		manager.client = kubernetesClient
+		manager := setup(t, kubernetesClient)
 
 		blueprint := &blueprintv1alpha1.Blueprint{
 			Metadata: blueprintv1alpha1.Metadata{
@@ -1123,7 +1258,10 @@ func TestBaseKubernetesManager_DeleteBlueprint(t *testing.T) {
 			},
 		}
 
+		// When the blueprint is deleted
 		err := manager.DeleteBlueprint(context.Background(), blueprint, "test-namespace")
+
+		// Then both kustomizations are deleted
 		if err != nil {
 			t.Errorf("Expected no error, got %v", err)
 		}
@@ -1134,16 +1272,8 @@ func TestBaseKubernetesManager_DeleteBlueprint(t *testing.T) {
 	})
 
 	t.Run("DeleteTimeoutOverrideSurvivesDeleteLongerThanSpecTimeout", func(t *testing.T) {
-		// Given a Kustomization whose install spec.timeout (30ms) is much
-		// smaller than how long it actually takes to delete, but which
-		// declares its own DeleteTimeout (150ms) for the destroy path
-		manager := setup(t)
-		manager.Timing.KustomizationReconcileTimeout = 20 * time.Millisecond
-		manager.Timing.KustomizationWaitPollInterval = 10 * time.Millisecond
-		manager.Timing.KustomizationReconcileSleep = 0
+		// Given a kustomization that outlives its 30ms spec.timeout but sets a 150ms DeleteTimeout
 		clock := newFakeClock()
-		manager.Shims.TimeNow = clock.Now
-		manager.Shims.TimeSleep = clock.Sleep
 
 		kubernetesClient := client.NewMockKubernetesClient()
 		kubernetesClient.DeleteResourceFunc = func(gvr schema.GroupVersionResource, namespace, name string, opts metav1.DeleteOptions) error {
@@ -1152,12 +1282,6 @@ func TestBaseKubernetesManager_DeleteBlueprint(t *testing.T) {
 		var getCalls int
 		kubernetesClient.GetResourceFunc = func(gvr schema.GroupVersionResource, namespace, name string) (*unstructured.Unstructured, error) {
 			getCalls++
-			// Two calls precede DeleteKustomization's own wait loop (inventory
-			// lookup for load-balancer remediation, then the post-resume
-			// reconcile check), then the loop itself polls live for 6 more
-			// iterations (60ms of its own wait) before disappearing — past the
-			// 30ms spec.timeout-derived window a pre-fix DeleteBlueprint would
-			// have aborted at, but well inside the 150ms DeleteTimeout override.
 			if getCalls < 9 {
 				return &unstructured.Unstructured{Object: map[string]any{
 					"spec": map[string]any{"timeout": "30ms"},
@@ -1165,7 +1289,12 @@ func TestBaseKubernetesManager_DeleteBlueprint(t *testing.T) {
 			}
 			return nil, fmt.Errorf("the server could not find the requested resource")
 		}
-		manager.client = kubernetesClient
+		manager := setup(t, kubernetesClient)
+		manager.Timing.KustomizationReconcileTimeout = 20 * time.Millisecond
+		manager.Timing.KustomizationWaitPollInterval = 10 * time.Millisecond
+		manager.Timing.KustomizationReconcileSleep = 0
+		manager.Shims.TimeNow = clock.Now
+		manager.Shims.TimeSleep = clock.Sleep
 
 		blueprint := &blueprintv1alpha1.Blueprint{
 			Metadata: blueprintv1alpha1.Metadata{Name: "test-blueprint"},
@@ -1180,15 +1309,14 @@ func TestBaseKubernetesManager_DeleteBlueprint(t *testing.T) {
 		// When DeleteBlueprint deletes it
 		err := manager.DeleteBlueprint(context.Background(), blueprint, "test-namespace")
 
-		// Then it does not abort at the spec.timeout-derived window, since
-		// DeleteTimeout replaces that heuristic as the wait floor
+		// Then the DeleteTimeout sets the wait floor and the delete succeeds
 		if err != nil {
 			t.Errorf("Expected no error, got %v", err)
 		}
 	})
 
 	t.Run("SuccessSkipsDestroyFalse", func(t *testing.T) {
-		manager := setup(t)
+		// Given a blueprint where one kustomization sets destroy false
 		kubernetesClient := client.NewMockKubernetesClient()
 
 		var deleteCalls []string
@@ -1199,7 +1327,7 @@ func TestBaseKubernetesManager_DeleteBlueprint(t *testing.T) {
 		kubernetesClient.GetResourceFunc = func(gvr schema.GroupVersionResource, namespace, name string) (*unstructured.Unstructured, error) {
 			return nil, fmt.Errorf("the server could not find the requested resource")
 		}
-		manager.client = kubernetesClient
+		manager := setup(t, kubernetesClient)
 
 		destroyFalse := false
 		blueprint := &blueprintv1alpha1.Blueprint{
@@ -1218,7 +1346,10 @@ func TestBaseKubernetesManager_DeleteBlueprint(t *testing.T) {
 			},
 		}
 
+		// When the blueprint is deleted
 		err := manager.DeleteBlueprint(context.Background(), blueprint, "test-namespace")
+
+		// Then only the other kustomization is deleted
 		if err != nil {
 			t.Errorf("Expected no error, got %v", err)
 		}
@@ -1232,7 +1363,7 @@ func TestBaseKubernetesManager_DeleteBlueprint(t *testing.T) {
 	})
 
 	t.Run("SuspendsEligibleKustomizationsBeforeDeleting", func(t *testing.T) {
-		manager := setup(t)
+		// Given two eligible kustomizations and one that sets destroy false
 		kubernetesClient := client.NewMockKubernetesClient()
 
 		var events []string
@@ -1251,7 +1382,7 @@ func TestBaseKubernetesManager_DeleteBlueprint(t *testing.T) {
 		kubernetesClient.GetResourceFunc = func(gvr schema.GroupVersionResource, namespace, name string) (*unstructured.Unstructured, error) {
 			return nil, fmt.Errorf("the server could not find the requested resource")
 		}
-		manager.client = kubernetesClient
+		manager := setup(t, kubernetesClient)
 
 		destroyFalse := false
 		blueprint := &blueprintv1alpha1.Blueprint{
@@ -1263,7 +1394,10 @@ func TestBaseKubernetesManager_DeleteBlueprint(t *testing.T) {
 			},
 		}
 
+		// When the blueprint is deleted
 		err := manager.DeleteBlueprint(context.Background(), blueprint, "test-namespace")
+
+		// Then only the eligible ones are suspended, all before any delete
 		if err != nil {
 			t.Fatalf("Expected no error, got %v", err)
 		}
@@ -1299,7 +1433,7 @@ func TestBaseKubernetesManager_DeleteBlueprint(t *testing.T) {
 	})
 
 	t.Run("AbortsWhenSuspendFails", func(t *testing.T) {
-		manager := setup(t)
+		// Given a client that fails every suspend patch
 		kubernetesClient := client.NewMockKubernetesClient()
 
 		var deleteCalls []string
@@ -1310,14 +1444,17 @@ func TestBaseKubernetesManager_DeleteBlueprint(t *testing.T) {
 			deleteCalls = append(deleteCalls, name)
 			return nil
 		}
-		manager.client = kubernetesClient
+		manager := setup(t, kubernetesClient)
 
 		blueprint := &blueprintv1alpha1.Blueprint{
 			Metadata:       blueprintv1alpha1.Metadata{Name: "test-blueprint"},
 			Kustomizations: []blueprintv1alpha1.Kustomization{{Name: "test-kustomization-1"}},
 		}
 
+		// When the blueprint is deleted
 		err := manager.DeleteBlueprint(context.Background(), blueprint, "test-namespace")
+
+		// Then the destroy aborts before any delete
 		if err == nil {
 			t.Fatal("Expected error when suspend fails, got nil")
 		}
@@ -1330,7 +1467,7 @@ func TestBaseKubernetesManager_DeleteBlueprint(t *testing.T) {
 	})
 
 	t.Run("ToleratesNotFoundOnSuspend", func(t *testing.T) {
-		manager := setup(t)
+		// Given a client that reports not-found on every suspend patch
 		kubernetesClient := client.NewMockKubernetesClient()
 
 		var deleteCalls []string
@@ -1344,14 +1481,17 @@ func TestBaseKubernetesManager_DeleteBlueprint(t *testing.T) {
 		kubernetesClient.GetResourceFunc = func(gvr schema.GroupVersionResource, namespace, name string) (*unstructured.Unstructured, error) {
 			return nil, fmt.Errorf("the server could not find the requested resource")
 		}
-		manager.client = kubernetesClient
+		manager := setup(t, kubernetesClient)
 
 		blueprint := &blueprintv1alpha1.Blueprint{
 			Metadata:       blueprintv1alpha1.Metadata{Name: "test-blueprint"},
 			Kustomizations: []blueprintv1alpha1.Kustomization{{Name: "test-kustomization-1"}},
 		}
 
+		// When the blueprint is deleted
 		err := manager.DeleteBlueprint(context.Background(), blueprint, "test-namespace")
+
+		// Then the kustomization is still deleted
 		if err != nil {
 			t.Fatalf("Expected NotFound on suspend to be tolerated, got %v", err)
 		}
@@ -1361,9 +1501,7 @@ func TestBaseKubernetesManager_DeleteBlueprint(t *testing.T) {
 	})
 
 	t.Run("ResumesEachKustomizationImmediatelyBeforeDeletingIt", func(t *testing.T) {
-		// Given a blueprint with two eligible kustomizations and a client that
-		// records the ordered sequence of suspend/resume patches and deletes
-		manager := setup(t)
+		// Given two eligible kustomizations and a client that records patches and deletes in order
 		kubernetesClient := client.NewMockKubernetesClient()
 
 		var events []string
@@ -1383,7 +1521,7 @@ func TestBaseKubernetesManager_DeleteBlueprint(t *testing.T) {
 		kubernetesClient.GetResourceFunc = func(gvr schema.GroupVersionResource, namespace, name string) (*unstructured.Unstructured, error) {
 			return nil, fmt.Errorf("the server could not find the requested resource")
 		}
-		manager.client = kubernetesClient
+		manager := setup(t, kubernetesClient)
 
 		blueprint := &blueprintv1alpha1.Blueprint{
 			Metadata: blueprintv1alpha1.Metadata{Name: "test-blueprint"},
@@ -1399,10 +1537,7 @@ func TestBaseKubernetesManager_DeleteBlueprint(t *testing.T) {
 			t.Fatalf("Expected no error, got %v", err)
 		}
 
-		// Then every eligible kustomization is suspended before any delete starts
-		// (the freeze that prevents a still-active kustomization from re-creating
-		// resources mid-teardown), and each is resumed immediately before its own
-		// delete so the Flux finalizer prunes its inventory rather than orphaning it
+		// Then all suspends come first and each resume comes immediately before its delete
 		firstResume, lastSuspend := -1, -1
 		for i, e := range events {
 			if strings.HasPrefix(e, "suspend:") {
@@ -1438,9 +1573,7 @@ func TestBaseKubernetesManager_DeleteBlueprint(t *testing.T) {
 	})
 
 	t.Run("StillResumesAndDeletesAnUnrelatedKustomizationAfterAFailure", func(t *testing.T) {
-		// Given two eligible kustomizations with no DependsOn edge between them,
-		// ordered so that deleting the first fails
-		manager := setup(t)
+		// Given two independent kustomizations where the first one in destroy order fails to delete
 		kubernetesClient := client.NewMockKubernetesClient()
 
 		var events []string
@@ -1463,7 +1596,7 @@ func TestBaseKubernetesManager_DeleteBlueprint(t *testing.T) {
 		kubernetesClient.GetResourceFunc = func(gvr schema.GroupVersionResource, namespace, name string) (*unstructured.Unstructured, error) {
 			return nil, fmt.Errorf("the server could not find the requested resource")
 		}
-		manager.client = kubernetesClient
+		manager := setup(t, kubernetesClient)
 
 		blueprint := &blueprintv1alpha1.Blueprint{
 			Metadata: blueprintv1alpha1.Metadata{Name: "test-blueprint"},
@@ -1473,13 +1606,10 @@ func TestBaseKubernetesManager_DeleteBlueprint(t *testing.T) {
 			},
 		}
 
-		// When test-kustomization-2 fails to delete (no DependsOn, so the destroy
-		// walk visits the input in reverse: test-kustomization-2 then
-		// test-kustomization-1)
+		// When the blueprint is deleted
 		err := manager.DeleteBlueprint(context.Background(), blueprint, "test-namespace")
 
-		// Then the failure is surfaced, and the unrelated test-kustomization-1 is
-		// still resumed and deleted rather than left behind
+		// Then the failure is returned and the unrelated kustomization is still deleted
 		if err == nil {
 			t.Fatal("Expected error when delete fails, got nil")
 		}
@@ -1499,7 +1629,7 @@ func TestBaseKubernetesManager_DeleteBlueprint(t *testing.T) {
 	})
 
 	t.Run("SuccessWithDestroyOnlyKustomizations", func(t *testing.T) {
-		manager := setup(t)
+		// Given a ready destroy-only kustomization and a regular one
 		kubernetesClient := client.NewMockKubernetesClient()
 
 		var applyCalls []string
@@ -1541,7 +1671,7 @@ func TestBaseKubernetesManager_DeleteBlueprint(t *testing.T) {
 				},
 			}, nil
 		}
-		manager.client = kubernetesClient
+		manager := setup(t, kubernetesClient)
 
 		destroyOnlyTrue := true
 		blueprint := &blueprintv1alpha1.Blueprint{
@@ -1559,7 +1689,10 @@ func TestBaseKubernetesManager_DeleteBlueprint(t *testing.T) {
 			},
 		}
 
+		// When the blueprint is deleted
 		err := manager.DeleteBlueprint(context.Background(), blueprint, "test-namespace")
+
+		// Then the destroy-only one is applied and both are deleted
 		if err != nil {
 			t.Errorf("Expected no error, got %v", err)
 		}
@@ -1577,14 +1710,7 @@ func TestBaseKubernetesManager_DeleteBlueprint(t *testing.T) {
 	})
 
 	t.Run("DestroyOnlyDeleteTimeoutOverrideSurvivesDeleteLongerThanSpecTimeout", func(t *testing.T) {
-		// Given a destroy-only Kustomization — the backup/managed-resource teardown
-		// case DeleteBlueprint's own doc comment cites — whose install spec.timeout
-		// (15ms) is much smaller than how long it actually takes to delete, but
-		// which declares its own DeleteTimeout (150ms)
-		manager := setup(t)
-		manager.Timing.KustomizationReconcileTimeout = 20 * time.Millisecond
-		manager.Timing.KustomizationWaitPollInterval = 10 * time.Millisecond
-
+		// Given a destroy-only kustomization that outlives its 15ms spec.timeout but sets a 150ms DeleteTimeout
 		kubernetesClient := client.NewMockKubernetesClient()
 		kubernetesClient.ApplyResourceFunc = func(gvr schema.GroupVersionResource, obj *unstructured.Unstructured, opts metav1.ApplyOptions) (*unstructured.Unstructured, error) {
 			return obj, nil
@@ -1613,9 +1739,6 @@ func TestBaseKubernetesManager_DeleteBlueprint(t *testing.T) {
 		var getCalls int
 		kubernetesClient.GetResourceFunc = func(gvr schema.GroupVersionResource, namespace, name string) (*unstructured.Unstructured, error) {
 			getCalls++
-			// Stays live for 6 polls (60ms) — past the 15ms/20ms spec.timeout-
-			// and reconcile-derived window a pre-fix destroy-only delete would
-			// have aborted at — then disappears well inside the 150ms override.
 			if getCalls < 7 {
 				return &unstructured.Unstructured{Object: map[string]any{
 					"spec": map[string]any{"timeout": "15ms"},
@@ -1623,7 +1746,9 @@ func TestBaseKubernetesManager_DeleteBlueprint(t *testing.T) {
 			}
 			return nil, fmt.Errorf("the server could not find the requested resource")
 		}
-		manager.client = kubernetesClient
+		manager := setup(t, kubernetesClient)
+		manager.Timing.KustomizationReconcileTimeout = 20 * time.Millisecond
+		manager.Timing.KustomizationWaitPollInterval = 10 * time.Millisecond
 
 		destroyOnlyTrue := true
 		blueprint := &blueprintv1alpha1.Blueprint{
@@ -1640,15 +1765,14 @@ func TestBaseKubernetesManager_DeleteBlueprint(t *testing.T) {
 		// When DeleteBlueprint deletes it
 		err := manager.DeleteBlueprint(context.Background(), blueprint, "test-namespace")
 
-		// Then it does not abort at the spec.timeout-derived window, since
-		// DeleteTimeout replaces that heuristic for destroy-only kustomizations too
+		// Then the DeleteTimeout sets the wait floor and the delete succeeds
 		if err != nil {
 			t.Errorf("Expected no error, got %v", err)
 		}
 	})
 
 	t.Run("DestroyOnlyProcessedBeforeRegular", func(t *testing.T) {
-		manager := setup(t)
+		// Given a regular kustomization listed before a destroy-only one
 		kubernetesClient := client.NewMockKubernetesClient()
 
 		var operations []string
@@ -1689,7 +1813,7 @@ func TestBaseKubernetesManager_DeleteBlueprint(t *testing.T) {
 				},
 			}, nil
 		}
-		manager.client = kubernetesClient
+		manager := setup(t, kubernetesClient)
 
 		destroyOnlyTrue := true
 		blueprint := &blueprintv1alpha1.Blueprint{
@@ -1707,7 +1831,10 @@ func TestBaseKubernetesManager_DeleteBlueprint(t *testing.T) {
 			},
 		}
 
+		// When the blueprint is deleted
 		err := manager.DeleteBlueprint(context.Background(), blueprint, "test-namespace")
+
+		// Then the destroy-only one is applied and deleted before the regular one
 		if err != nil {
 			t.Errorf("Expected no error, got %v", err)
 		}
@@ -1746,7 +1873,7 @@ func TestBaseKubernetesManager_DeleteBlueprint(t *testing.T) {
 	})
 
 	t.Run("DestroyOnlyFailsWhenNotReady", func(t *testing.T) {
-		manager := setup(t)
+		// Given a destroy-only kustomization that never becomes ready
 		kubernetesClient := client.NewMockKubernetesClient()
 
 		kubernetesClient.ApplyResourceFunc = func(gvr schema.GroupVersionResource, obj *unstructured.Unstructured, opts metav1.ApplyOptions) (*unstructured.Unstructured, error) {
@@ -1776,7 +1903,7 @@ func TestBaseKubernetesManager_DeleteBlueprint(t *testing.T) {
 				},
 			}, nil
 		}
-		manager.client = kubernetesClient
+		manager := setup(t, kubernetesClient)
 
 		destroyOnlyTrue := true
 		blueprint := &blueprintv1alpha1.Blueprint{
@@ -1791,22 +1918,23 @@ func TestBaseKubernetesManager_DeleteBlueprint(t *testing.T) {
 			},
 		}
 
+		// When the blueprint is deleted
 		err := manager.DeleteBlueprint(context.Background(), blueprint, "test-namespace")
+
+		// Then the timeout error names the stuck kustomization
 		if err == nil {
 			t.Error("Expected error when destroy-only kustomization does not become ready")
 		}
 		if !strings.Contains(err.Error(), "did not become ready within timeout") {
 			t.Errorf("Expected timeout error, got %v", err)
 		}
-		// The timeout names which destroy-only kustomization is still not Ready
-		// rather than leaving the operator with a bare "cleanup may not have completed".
 		if !strings.Contains(err.Error(), "cleanup may not have completed: destroy-only") {
 			t.Errorf("Expected timeout error to name the stuck kustomization, got: %v", err)
 		}
 	})
 
 	t.Run("DestroyOnlyWithSubstitutions", func(t *testing.T) {
-		manager := setup(t)
+		// Given a destroy-only kustomization with substitutions
 		kubernetesClient := client.NewMockKubernetesClient()
 
 		var appliedConfigMaps []string
@@ -1846,7 +1974,7 @@ func TestBaseKubernetesManager_DeleteBlueprint(t *testing.T) {
 				},
 			}, nil
 		}
-		manager.client = kubernetesClient
+		manager := setup(t, kubernetesClient)
 
 		destroyOnlyTrue := true
 		blueprint := &blueprintv1alpha1.Blueprint{
@@ -1860,7 +1988,10 @@ func TestBaseKubernetesManager_DeleteBlueprint(t *testing.T) {
 			},
 		}
 
+		// When the blueprint is deleted
 		err := manager.DeleteBlueprint(context.Background(), blueprint, "test-namespace")
+
+		// Then its values ConfigMap is applied
 		if err != nil {
 			t.Errorf("Expected no error, got %v", err)
 		}
@@ -1877,7 +2008,7 @@ func TestBaseKubernetesManager_DeleteBlueprint(t *testing.T) {
 	})
 
 	t.Run("DestroyOnlyWithBlueprintConfigMaps", func(t *testing.T) {
-		manager := setup(t)
+		// Given a destroy-only kustomization and a blueprint ConfigMap
 		kubernetesClient := client.NewMockKubernetesClient()
 
 		var appliedKustomizations []map[string]any
@@ -1919,7 +2050,7 @@ func TestBaseKubernetesManager_DeleteBlueprint(t *testing.T) {
 				},
 			}, nil
 		}
-		manager.client = kubernetesClient
+		manager := setup(t, kubernetesClient)
 
 		destroyOnlyTrue := true
 		blueprint := &blueprintv1alpha1.Blueprint{
@@ -1933,7 +2064,10 @@ func TestBaseKubernetesManager_DeleteBlueprint(t *testing.T) {
 			},
 		}
 
+		// When the blueprint is deleted
 		err := manager.DeleteBlueprint(context.Background(), blueprint, "test-namespace")
+
+		// Then the destroy-only kustomization substitutes from the ConfigMap
 		if err != nil {
 			t.Errorf("Expected no error, got %v", err)
 		}
@@ -1962,7 +2096,7 @@ func TestBaseKubernetesManager_DeleteBlueprint(t *testing.T) {
 	})
 
 	t.Run("DestroyOnlyBecomesReady", func(t *testing.T) {
-		manager := setup(t)
+		// Given a destroy-only kustomization that reports ready
 		kubernetesClient := client.NewMockKubernetesClient()
 
 		deletedResources := make(map[string]bool)
@@ -1998,7 +2132,7 @@ func TestBaseKubernetesManager_DeleteBlueprint(t *testing.T) {
 				},
 			}, nil
 		}
-		manager.client = kubernetesClient
+		manager := setup(t, kubernetesClient)
 
 		destroyOnlyTrue := true
 		blueprint := &blueprintv1alpha1.Blueprint{
@@ -2011,7 +2145,10 @@ func TestBaseKubernetesManager_DeleteBlueprint(t *testing.T) {
 			},
 		}
 
+		// When the blueprint is deleted
 		err := manager.DeleteBlueprint(context.Background(), blueprint, "test-namespace")
+
+		// Then the destroy-only kustomization is deleted
 		if err != nil {
 			t.Errorf("Expected no error, got %v", err)
 		}
@@ -2022,7 +2159,7 @@ func TestBaseKubernetesManager_DeleteBlueprint(t *testing.T) {
 	})
 
 	t.Run("DestroyOnlyErrorApplyingKustomization", func(t *testing.T) {
-		manager := setup(t)
+		// Given a client that rejects the destroy-only Kustomization
 		kubernetesClient := client.NewMockKubernetesClient()
 
 		kubernetesClient.ApplyResourceFunc = func(gvr schema.GroupVersionResource, obj *unstructured.Unstructured, opts metav1.ApplyOptions) (*unstructured.Unstructured, error) {
@@ -2034,7 +2171,7 @@ func TestBaseKubernetesManager_DeleteBlueprint(t *testing.T) {
 		kubernetesClient.GetResourceFunc = func(gvr schema.GroupVersionResource, namespace, name string) (*unstructured.Unstructured, error) {
 			return nil, fmt.Errorf("not found")
 		}
-		manager.client = kubernetesClient
+		manager := setup(t, kubernetesClient)
 
 		destroyOnlyTrue := true
 		blueprint := &blueprintv1alpha1.Blueprint{
@@ -2047,7 +2184,10 @@ func TestBaseKubernetesManager_DeleteBlueprint(t *testing.T) {
 			},
 		}
 
+		// When the blueprint is deleted
 		err := manager.DeleteBlueprint(context.Background(), blueprint, "test-namespace")
+
+		// Then the error names the destroy-only apply
 		if err == nil {
 			t.Error("Expected error, got nil")
 		}
@@ -2057,7 +2197,7 @@ func TestBaseKubernetesManager_DeleteBlueprint(t *testing.T) {
 	})
 
 	t.Run("DestroyOnlyErrorDeletingKustomization", func(t *testing.T) {
-		manager := setup(t)
+		// Given a ready destroy-only kustomization whose delete fails
 		kubernetesClient := client.NewMockKubernetesClient()
 
 		kubernetesClient.ApplyResourceFunc = func(gvr schema.GroupVersionResource, obj *unstructured.Unstructured, opts metav1.ApplyOptions) (*unstructured.Unstructured, error) {
@@ -2090,7 +2230,7 @@ func TestBaseKubernetesManager_DeleteBlueprint(t *testing.T) {
 				},
 			}, nil
 		}
-		manager.client = kubernetesClient
+		manager := setup(t, kubernetesClient)
 
 		destroyOnlyTrue := true
 		blueprint := &blueprintv1alpha1.Blueprint{
@@ -2103,7 +2243,10 @@ func TestBaseKubernetesManager_DeleteBlueprint(t *testing.T) {
 			},
 		}
 
+		// When the blueprint is deleted
 		err := manager.DeleteBlueprint(context.Background(), blueprint, "test-namespace")
+
+		// Then the error names the destroy-only delete
 		if err == nil {
 			t.Error("Expected error, got nil")
 		}
@@ -2113,7 +2256,7 @@ func TestBaseKubernetesManager_DeleteBlueprint(t *testing.T) {
 	})
 
 	t.Run("DestroyOnlyErrorCreatingConfigMap", func(t *testing.T) {
-		manager := setup(t)
+		// Given a client that rejects the values ConfigMap of a destroy-only kustomization
 		kubernetesClient := client.NewMockKubernetesClient()
 
 		kubernetesClient.ApplyResourceFunc = func(gvr schema.GroupVersionResource, obj *unstructured.Unstructured, opts metav1.ApplyOptions) (*unstructured.Unstructured, error) {
@@ -2125,7 +2268,7 @@ func TestBaseKubernetesManager_DeleteBlueprint(t *testing.T) {
 		kubernetesClient.GetResourceFunc = func(gvr schema.GroupVersionResource, namespace, name string) (*unstructured.Unstructured, error) {
 			return nil, fmt.Errorf("not found")
 		}
-		manager.client = kubernetesClient
+		manager := setup(t, kubernetesClient)
 
 		destroyOnlyTrue := true
 		blueprint := &blueprintv1alpha1.Blueprint{
@@ -2139,7 +2282,10 @@ func TestBaseKubernetesManager_DeleteBlueprint(t *testing.T) {
 			},
 		}
 
+		// When the blueprint is deleted
 		err := manager.DeleteBlueprint(context.Background(), blueprint, "test-namespace")
+
+		// Then the error names the ConfigMap
 		if err == nil {
 			t.Error("Expected error, got nil")
 		}
@@ -2149,7 +2295,7 @@ func TestBaseKubernetesManager_DeleteBlueprint(t *testing.T) {
 	})
 
 	t.Run("DestroyOnlyCleansUpOnApplyFailure", func(t *testing.T) {
-		manager := setup(t)
+		// Given two destroy-only kustomizations where the second apply fails
 		kubernetesClient := client.NewMockKubernetesClient()
 
 		appliedKustomizations := []string{}
@@ -2174,7 +2320,7 @@ func TestBaseKubernetesManager_DeleteBlueprint(t *testing.T) {
 		kubernetesClient.GetResourceFunc = func(gvr schema.GroupVersionResource, namespace, name string) (*unstructured.Unstructured, error) {
 			return nil, fmt.Errorf("not found")
 		}
-		manager.client = kubernetesClient
+		manager := setup(t, kubernetesClient)
 
 		destroyOnlyTrue := true
 		blueprint := &blueprintv1alpha1.Blueprint{
@@ -2191,7 +2337,10 @@ func TestBaseKubernetesManager_DeleteBlueprint(t *testing.T) {
 			},
 		}
 
+		// When the blueprint is deleted
 		err := manager.DeleteBlueprint(context.Background(), blueprint, "test-namespace")
+
+		// Then the first one is deleted again
 		if err == nil {
 			t.Error("Expected error, got nil")
 		}
@@ -2218,7 +2367,7 @@ func TestBaseKubernetesManager_DeleteBlueprint(t *testing.T) {
 	})
 
 	t.Run("DestroyOnlyCleansUpOnConfigMapFailure", func(t *testing.T) {
-		manager := setup(t)
+		// Given two destroy-only kustomizations where the second ConfigMap fails
 		kubernetesClient := client.NewMockKubernetesClient()
 
 		appliedKustomizations := []string{}
@@ -2243,7 +2392,7 @@ func TestBaseKubernetesManager_DeleteBlueprint(t *testing.T) {
 		kubernetesClient.GetResourceFunc = func(gvr schema.GroupVersionResource, namespace, name string) (*unstructured.Unstructured, error) {
 			return nil, fmt.Errorf("not found")
 		}
-		manager.client = kubernetesClient
+		manager := setup(t, kubernetesClient)
 
 		destroyOnlyTrue := true
 		blueprint := &blueprintv1alpha1.Blueprint{
@@ -2261,7 +2410,10 @@ func TestBaseKubernetesManager_DeleteBlueprint(t *testing.T) {
 			},
 		}
 
+		// When the blueprint is deleted
 		err := manager.DeleteBlueprint(context.Background(), blueprint, "test-namespace")
+
+		// Then the first one is deleted again
 		if err == nil {
 			t.Error("Expected error, got nil")
 		}
@@ -2285,7 +2437,7 @@ func TestBaseKubernetesManager_DeleteBlueprint(t *testing.T) {
 	})
 
 	t.Run("DestroyOnlyWithDependencyOnAnotherDestroyOnly", func(t *testing.T) {
-		manager := setup(t)
+		// Given a destroy-only kustomization that depends on another destroy-only one
 		kubernetesClient := client.NewMockKubernetesClient()
 
 		var appliedKustomizations []map[string]any
@@ -2341,7 +2493,7 @@ func TestBaseKubernetesManager_DeleteBlueprint(t *testing.T) {
 				},
 			}, nil
 		}
-		manager.client = kubernetesClient
+		manager := setup(t, kubernetesClient)
 
 		destroyOnlyTrue := true
 		blueprint := &blueprintv1alpha1.Blueprint{
@@ -2359,7 +2511,10 @@ func TestBaseKubernetesManager_DeleteBlueprint(t *testing.T) {
 			},
 		}
 
+		// When the blueprint is deleted
 		err := manager.DeleteBlueprint(context.Background(), blueprint, "test-namespace")
+
+		// Then the dependency is kept on the applied object
 		if err != nil {
 			t.Errorf("Expected no error, got %v", err)
 		}
@@ -2387,7 +2542,7 @@ func TestBaseKubernetesManager_DeleteBlueprint(t *testing.T) {
 	})
 
 	t.Run("DestroyOnlyFiltersDependencyOnRegularKustomization", func(t *testing.T) {
-		manager := setup(t)
+		// Given a destroy-only kustomization that depends on a regular one
 		kubernetesClient := client.NewMockKubernetesClient()
 
 		var appliedKustomizations []map[string]any
@@ -2431,7 +2586,7 @@ func TestBaseKubernetesManager_DeleteBlueprint(t *testing.T) {
 				},
 			}, nil
 		}
-		manager.client = kubernetesClient
+		manager := setup(t, kubernetesClient)
 
 		destroyOnlyTrue := true
 		blueprint := &blueprintv1alpha1.Blueprint{
@@ -2448,7 +2603,10 @@ func TestBaseKubernetesManager_DeleteBlueprint(t *testing.T) {
 			},
 		}
 
+		// When the blueprint is deleted
 		err := manager.DeleteBlueprint(context.Background(), blueprint, "test-namespace")
+
+		// Then the dependency is removed from the applied object
 		if err != nil {
 			t.Errorf("Expected no error, got %v", err)
 		}
@@ -2475,7 +2633,7 @@ func TestBaseKubernetesManager_DeleteBlueprint(t *testing.T) {
 	})
 
 	t.Run("ErrorDeleteKustomization", func(t *testing.T) {
-		manager := setup(t)
+		// Given a client that fails every delete
 		kubernetesClient := client.NewMockKubernetesClient()
 
 		kubernetesClient.DeleteResourceFunc = func(gvr schema.GroupVersionResource, namespace, name string, opts metav1.DeleteOptions) error {
@@ -2484,7 +2642,7 @@ func TestBaseKubernetesManager_DeleteBlueprint(t *testing.T) {
 		kubernetesClient.GetResourceFunc = func(gvr schema.GroupVersionResource, namespace, name string) (*unstructured.Unstructured, error) {
 			return nil, fmt.Errorf("the server could not find the requested resource")
 		}
-		manager.client = kubernetesClient
+		manager := setup(t, kubernetesClient)
 
 		blueprint := &blueprintv1alpha1.Blueprint{
 			Metadata: blueprintv1alpha1.Metadata{
@@ -2497,7 +2655,10 @@ func TestBaseKubernetesManager_DeleteBlueprint(t *testing.T) {
 			},
 		}
 
+		// When the blueprint is deleted
 		err := manager.DeleteBlueprint(context.Background(), blueprint, "test-namespace")
+
+		// Then the error names the kustomization delete
 		if err == nil {
 			t.Error("Expected error, got nil")
 		}
@@ -2507,10 +2668,7 @@ func TestBaseKubernetesManager_DeleteBlueprint(t *testing.T) {
 	})
 
 	t.Run("AbandonedInventoryUsesCurrentDestroySettingNotStaleLiveField", func(t *testing.T) {
-		// Given a kustomization last applied with destroy:false (live object still
-		// carries deletionPolicy=MirrorPrune), whose blueprint entry now sets
-		// destroy:true, and this destroy run never re-applies it first
-		manager := setup(t)
+		// Given a live kustomization with a stale MirrorPrune policy whose blueprint entry now sets destroy true
 		kubernetesClient := client.NewMockKubernetesClient()
 		kubernetesClient.DeleteResourceFunc = func(gvr schema.GroupVersionResource, namespace, name string, opts metav1.DeleteOptions) error {
 			return nil
@@ -2529,10 +2687,6 @@ func TestBaseKubernetesManager_DeleteBlueprint(t *testing.T) {
 		kubernetesClient.GetResourceFunc = func(gvr schema.GroupVersionResource, namespace, name string) (*unstructured.Unstructured, error) {
 			if name == "test-kustomization" {
 				calls++
-				// Call 1 is remediateLoadBalancerOwners' pre-destroy inventory snapshot,
-				// calls 2-3 are waitForResumeReconcile's checks after resume, call 4 is
-				// deleteKustomization's own pre-delete snapshot, and the delete wait
-				// loop's own first check is the fifth.
 				if calls <= 5 {
 					return liveObj, nil
 				}
@@ -2543,7 +2697,7 @@ func TestBaseKubernetesManager_DeleteBlueprint(t *testing.T) {
 			}
 			return nil, fmt.Errorf("the server could not find the requested resource")
 		}
-		manager.client = kubernetesClient
+		manager := setup(t, kubernetesClient)
 
 		destroyTrue := true
 		blueprint := &blueprintv1alpha1.Blueprint{
@@ -2561,8 +2715,7 @@ func TestBaseKubernetesManager_DeleteBlueprint(t *testing.T) {
 		// When DeleteBlueprint deletes it
 		err := manager.DeleteBlueprint(context.Background(), blueprint, "test-namespace")
 
-		// Then it still reports the abandoned inventory: the current blueprint's
-		// destroy:true is trusted over the live object's stale MirrorPrune field
+		// Then the error names the abandoned inventory entry
 		if err == nil {
 			t.Fatal("Expected an error naming the abandoned inventory, got nil")
 		}
@@ -2572,13 +2725,7 @@ func TestBaseKubernetesManager_DeleteBlueprint(t *testing.T) {
 	})
 
 	t.Run("ContinuesPastAnUnrelatedFailureButSkipsAFailedKustomizationsOwnDependency", func(t *testing.T) {
-		// Pins the corrected contract: DeleteBlueprint does not abort the whole run
-		// on a single failure. Two independent kustomizations (no DependsOn between
-		// them) do not cascade-abort each other — a regression that reintroduced
-		// abort-everything would fail this test by issuing only one DeleteResource
-		// call. A kustomization's own dependency is still protected: it is never
-		// attempted, since it may be the controller the failure needs to resolve.
-		manager := setup(t)
+		// Given an unrelated kustomization and a failing one with its own dependency
 		kubernetesClient := client.NewMockKubernetesClient()
 
 		var deleteCalls []string
@@ -2592,11 +2739,8 @@ func TestBaseKubernetesManager_DeleteBlueprint(t *testing.T) {
 		kubernetesClient.GetResourceFunc = func(gvr schema.GroupVersionResource, namespace, name string) (*unstructured.Unstructured, error) {
 			return nil, fmt.Errorf("the server could not find the requested resource")
 		}
-		manager.client = kubernetesClient
+		manager := setup(t, kubernetesClient)
 
-		// second-kust depends on its-dependency; first-kust is unrelated to both.
-		// Reverse-topo destroys a dependent before its dependency, so the walk
-		// attempts second-kust before its-dependency.
 		blueprint := &blueprintv1alpha1.Blueprint{
 			Metadata: blueprintv1alpha1.Metadata{
 				Name: "test-blueprint",
@@ -2608,7 +2752,10 @@ func TestBaseKubernetesManager_DeleteBlueprint(t *testing.T) {
 			},
 		}
 
+		// When the blueprint is deleted
 		err := manager.DeleteBlueprint(context.Background(), blueprint, "test-namespace")
+
+		// Then the unrelated one is deleted and the dependency is skipped
 		if err == nil {
 			t.Fatal("Expected error, got nil")
 		}
@@ -2629,7 +2776,7 @@ func TestBaseKubernetesManager_DeleteBlueprint(t *testing.T) {
 	})
 
 	t.Run("DestroyOnlyKustomizationHasCommonMetadataLabels", func(t *testing.T) {
-		manager := setup(t)
+		// Given a ready destroy-only kustomization
 		kubernetesClient := client.NewMockKubernetesClient()
 
 		var appliedKustomization kustomizev1.Kustomization
@@ -2671,7 +2818,7 @@ func TestBaseKubernetesManager_DeleteBlueprint(t *testing.T) {
 				},
 			}, nil
 		}
-		manager.client = kubernetesClient
+		manager := setup(t, kubernetesClient)
 		manager.Shims.ToUnstructured = func(obj any) (map[string]any, error) {
 			return runtime.DefaultUnstructuredConverter.ToUnstructured(obj)
 		}
@@ -2693,7 +2840,10 @@ func TestBaseKubernetesManager_DeleteBlueprint(t *testing.T) {
 			},
 		}
 
+		// When the blueprint is deleted
 		err := manager.DeleteBlueprint(context.Background(), blueprint, "test-namespace")
+
+		// Then it carries the context labels on the object and in commonMetadata
 		if err != nil {
 			t.Errorf("Expected no error, got %v", err)
 		}
@@ -2729,207 +2879,33 @@ func TestBaseKubernetesManager_DeleteBlueprint(t *testing.T) {
 			t.Errorf("Expected ObjectMeta 'windsorcli.dev/context-id' label 'test-context-id', got '%s'", appliedKustomization.Labels["windsorcli.dev/context-id"])
 		}
 	})
-}
 
-// =============================================================================
-// Test Private Methods
-// =============================================================================
-
-func TestBaseKubernetesManager_applyBlueprintOCIRepository(t *testing.T) {
-	// setup returns a manager whose ToUnstructured shim intercepts the *sourcev1.OCIRepository
-	// applyBlueprintOCIRepository builds, capturing it into *captured so the test can inspect
-	// the Spec fields the digest/tag parsing logic actually produced.
-	setup := func(t *testing.T) (manager *BaseKubernetesManager, captured **sourcev1.OCIRepository) {
-		t.Helper()
-		mocks := setupKubernetesMocks(t)
-		manager = NewKubernetesManager(mocks.KubernetesClient, mocks.ConfigHandler)
+	t.Run("AbortStopsAfterTheFirstResumeTimeout", func(t *testing.T) {
+		// Given a failed suspend and a request timeout on every resume
+		var resumed []string
 		kubernetesClient := client.NewMockKubernetesClient()
-		kubernetesClient.GetResourceFunc = func(gvr schema.GroupVersionResource, namespace, name string) (*unstructured.Unstructured, error) {
-			return nil, fmt.Errorf("not found")
-		}
-		kubernetesClient.ApplyResourceFunc = func(gvr schema.GroupVersionResource, obj *unstructured.Unstructured, opts metav1.ApplyOptions) (*unstructured.Unstructured, error) {
-			return obj, nil
-		}
-		manager.client = kubernetesClient
-
-		var repo *sourcev1.OCIRepository
-		captured = &repo
-		manager.Shims.ToUnstructured = func(obj any) (map[string]any, error) {
-			r, ok := obj.(*sourcev1.OCIRepository)
-			if !ok {
-				return nil, fmt.Errorf("expected *sourcev1.OCIRepository, got %T", obj)
-			}
-			*captured = r
-			return map[string]any{
-				"apiVersion": "source.toolkit.fluxcd.io/v1",
-				"kind":       "OCIRepository",
-				"metadata": map[string]any{
-					"name":      r.Name,
-					"namespace": r.Namespace,
-				},
-				"spec": map[string]any{
-					"url": r.Spec.URL,
-				},
-			}, nil
-		}
-		return manager, captured
-	}
-
-	t.Run("DigestReference", func(t *testing.T) {
-		manager, captured := setup(t)
-
-		source := blueprintv1alpha1.Source{
-			Name: "core",
-			Url:  "oci://ghcr.io/windsorcli/core@sha256:abcd1234abcd1234abcd1234abcd1234abcd1234abcd1234abcd1234abcd1234",
-		}
-
-		err := manager.applyBlueprintSource(source, "system-gitops", true)
-		if err != nil {
-			t.Fatalf("expected no error, got %v", err)
-		}
-		repo := *captured
-
-		if repo.Spec.URL != "oci://ghcr.io/windsorcli/core" {
-			t.Errorf("expected URL 'oci://ghcr.io/windsorcli/core', got %s", repo.Spec.URL)
-		}
-		if repo.Spec.Reference == nil {
-			t.Fatalf("expected a non-nil Reference")
-		}
-		if repo.Spec.Reference.Digest != "sha256:abcd1234abcd1234abcd1234abcd1234abcd1234abcd1234abcd1234abcd1234" {
-			t.Errorf("expected Digest 'sha256:abcd...', got %q", repo.Spec.Reference.Digest)
-		}
-		if repo.Spec.Reference.Tag != "" {
-			t.Errorf("expected empty Tag for a digest reference, got %q", repo.Spec.Reference.Tag)
-		}
-	})
-
-	t.Run("TagReference", func(t *testing.T) {
-		manager, captured := setup(t)
-
-		source := blueprintv1alpha1.Source{
-			Name: "core",
-			Url:  "oci://ghcr.io/windsorcli/core:latest",
-		}
-
-		err := manager.applyBlueprintSource(source, "system-gitops", true)
-		if err != nil {
-			t.Fatalf("expected no error, got %v", err)
-		}
-		repo := *captured
-
-		if repo.Spec.URL != "oci://ghcr.io/windsorcli/core" {
-			t.Errorf("expected URL 'oci://ghcr.io/windsorcli/core', got %s", repo.Spec.URL)
-		}
-		if repo.Spec.Reference == nil || repo.Spec.Reference.Tag != "latest" {
-			t.Errorf("expected Reference.Tag 'latest', got %+v", repo.Spec.Reference)
-		}
-	})
-}
-
-func TestBaseKubernetesManager_waitForResumeReconcile(t *testing.T) {
-	setup := func(t *testing.T) *BaseKubernetesManager {
-		t.Helper()
-		mocks := setupKubernetesMocks(t)
-		manager := NewKubernetesManager(mocks.KubernetesClient, mocks.ConfigHandler)
-		manager.Timing.KustomizationWaitPollInterval = 10 * time.Millisecond
-		manager.Timing.KustomizationReconcileSleep = 30 * time.Millisecond
-		clock := newFakeClock()
-		manager.Shims.TimeNow = clock.Now
-		manager.Shims.TimeSleep = clock.Sleep
-		return manager
-	}
-
-	staleObj := func() *unstructured.Unstructured {
-		return &unstructured.Unstructured{Object: map[string]any{
-			"metadata": map[string]any{"generation": int64(2)},
-			"status":   map[string]any{"observedGeneration": int64(1)},
-		}}
-	}
-
-	t.Run("ReturnsAsSoonAsGenerationSettles", func(t *testing.T) {
-		// Given a Kustomization whose observedGeneration catches up on the second read
-		manager := setup(t)
-		kubernetesClient := client.NewMockKubernetesClient()
-		calls := 0
-		kubernetesClient.GetResourceFunc = func(gvr schema.GroupVersionResource, namespace, name string) (*unstructured.Unstructured, error) {
-			calls++
-			if calls >= 2 {
-				return &unstructured.Unstructured{Object: map[string]any{
-					"metadata": map[string]any{"generation": int64(2)},
-					"status":   map[string]any{"observedGeneration": int64(2)},
-				}}, nil
-			}
-			return staleObj(), nil
-		}
-		manager.client = kubernetesClient
-
-		// When waiting for the resume to settle
-		manager.waitForResumeReconcile("test-kustomization", "test-namespace")
-
-		// Then it stops polling right after the generations match
-		if calls != 2 {
-			t.Errorf("Expected exactly 2 GetResource calls before settling, got %d", calls)
-		}
-	})
-
-	t.Run("GivesUpAfterTheBudgetWithoutSettling", func(t *testing.T) {
-		// Given a Kustomization whose observedGeneration never catches up
-		manager := setup(t)
-		kubernetesClient := client.NewMockKubernetesClient()
-		kubernetesClient.GetResourceFunc = func(gvr schema.GroupVersionResource, namespace, name string) (*unstructured.Unstructured, error) {
-			return staleObj(), nil
-		}
-		manager.client = kubernetesClient
-
-		// When waiting for the resume to settle, it must return once the fake clock
-		// passes kustomizationReconcileSleep rather than loop forever
-		manager.waitForResumeReconcile("test-kustomization", "test-namespace")
-	})
-
-	t.Run("ReturnsImmediatelyOnAReadError", func(t *testing.T) {
-		// Given the Kustomization can't be read at all
-		manager := setup(t)
-		kubernetesClient := client.NewMockKubernetesClient()
-		calls := 0
-		kubernetesClient.GetResourceFunc = func(gvr schema.GroupVersionResource, namespace, name string) (*unstructured.Unstructured, error) {
-			calls++
-			return nil, fmt.Errorf("the server could not find the requested resource")
-		}
-		manager.client = kubernetesClient
-
-		// When waiting for the resume to settle
-		manager.waitForResumeReconcile("test-kustomization", "test-namespace")
-
-		// Then it gives up on the first error rather than retrying
-		if calls != 1 {
-			t.Errorf("Expected exactly 1 GetResource call before giving up on error, got %d", calls)
-		}
-	})
-}
-
-func TestBaseKubernetesManager_abortDestroy(t *testing.T) {
-	eligible := []blueprintv1alpha1.Kustomization{{Name: "crds"}, {Name: "database-install"}, {Name: "demo-resources"}}
-
-	t.Run("StopsAfterFirstRequestTimeoutRatherThanRepeatingIt", func(t *testing.T) {
-		mocks := setupKubernetesMocks(t)
-		kubernetesClient := client.NewMockKubernetesClient()
-		var attempted []string
 		kubernetesClient.PatchResourceFunc = func(ctx context.Context, gvr schema.GroupVersionResource, namespace, name string, pt types.PatchType, data []byte, opts metav1.PatchOptions) (*unstructured.Unstructured, error) {
-			attempted = append(attempted, name)
+			if string(data) == `{"spec":{"suspend":true}}` {
+				return nil, fmt.Errorf("connection refused")
+			}
+			resumed = append(resumed, name)
 			return nil, context.DeadlineExceeded
 		}
-		manager := NewKubernetesManager(kubernetesClient, mocks.ConfigHandler)
-
-		// Given a request timeout on the first un-suspend attempt
-		// When abortDestroy runs
-		err := manager.abortDestroy(eligible, "system-gitops", fmt.Errorf("original failure"))
-
-		// Then it stops instead of repeating the timeout on every remaining kustomization
-		if len(attempted) != 1 {
-			t.Fatalf("expected exactly 1 un-suspend attempt, got %d: %v", len(attempted), attempted)
+		manager := setup(t, kubernetesClient)
+		blueprint := &blueprintv1alpha1.Blueprint{
+			Metadata:       blueprintv1alpha1.Metadata{Name: "test-blueprint"},
+			Kustomizations: []blueprintv1alpha1.Kustomization{{Name: "crds"}, {Name: "database-install"}, {Name: "demo-resources"}},
 		}
-		if attempted[0] != "crds" {
-			t.Errorf("expected the first eligible kustomization attempted, got %q", attempted[0])
+
+		// When the blueprint is deleted
+		err := manager.DeleteBlueprint(context.Background(), blueprint, "system-gitops")
+
+		// Then the abort tries one resume and reports how many it left suspended
+		if len(resumed) != 1 {
+			t.Fatalf("expected exactly 1 un-suspend attempt, got %d: %v", len(resumed), resumed)
+		}
+		if resumed[0] != "crds" {
+			t.Errorf("expected the first eligible kustomization attempted, got %q", resumed[0])
 		}
 		if err == nil || !strings.Contains(err.Error(), "stopping abort cleanup after a request timeout") {
 			t.Errorf("expected an early-stop note in the joined error, got: %v", err)
@@ -2939,447 +2915,100 @@ func TestBaseKubernetesManager_abortDestroy(t *testing.T) {
 		}
 	})
 
-	t.Run("ContinuesPastANonTimeoutFailure", func(t *testing.T) {
-		mocks := setupKubernetesMocks(t)
+	t.Run("AbortContinuesPastANonTimeoutResumeFailure", func(t *testing.T) {
+		// Given a failed suspend and a non-timeout rejection on every resume
+		var resumed []string
 		kubernetesClient := client.NewMockKubernetesClient()
-		var attempted []string
 		kubernetesClient.PatchResourceFunc = func(ctx context.Context, gvr schema.GroupVersionResource, namespace, name string, pt types.PatchType, data []byte, opts metav1.PatchOptions) (*unstructured.Unstructured, error) {
-			attempted = append(attempted, name)
+			if string(data) == `{"spec":{"suspend":true}}` {
+				return nil, fmt.Errorf("connection refused")
+			}
+			resumed = append(resumed, name)
 			return nil, fmt.Errorf("conflict: object has been modified")
 		}
-		manager := NewKubernetesManager(kubernetesClient, mocks.ConfigHandler)
+		manager := setup(t, kubernetesClient)
+		blueprint := &blueprintv1alpha1.Blueprint{
+			Metadata:       blueprintv1alpha1.Metadata{Name: "test-blueprint"},
+			Kustomizations: []blueprintv1alpha1.Kustomization{{Name: "crds"}, {Name: "database-install"}, {Name: "demo-resources"}},
+		}
 
-		// Given a non-timeout rejection on every un-suspend attempt
-		// When abortDestroy runs
-		err := manager.abortDestroy(eligible, "system-gitops", fmt.Errorf("original failure"))
+		// When the blueprint is deleted
+		err := manager.DeleteBlueprint(context.Background(), blueprint, "system-gitops")
 
-		// Then it still attempts every eligible kustomization
-		if len(attempted) != len(eligible) {
-			t.Fatalf("expected all %d kustomizations attempted, got %d: %v", len(eligible), len(attempted), attempted)
+		// Then the abort tries to resume every eligible kustomization
+		if len(resumed) != 3 {
+			t.Fatalf("expected all 3 kustomizations attempted, got %d: %v", len(resumed), resumed)
 		}
 		if err == nil || strings.Contains(err.Error(), "stopping abort cleanup") {
 			t.Errorf("expected no early-stop note for a non-timeout failure, got: %v", err)
 		}
 	})
-}
 
-func TestBaseKubernetesManager_blockDependencyClosure(t *testing.T) {
-	mocks := setupKubernetesMocks(t)
-	manager := NewKubernetesManager(mocks.KubernetesClient, mocks.ConfigHandler)
-
-	t.Run("PluralizesDependenciesForMoreThanOneSkipped", func(t *testing.T) {
-		ks := []blueprintv1alpha1.Kustomization{
-			{Name: "app", DependsOn: []string{"a", "b"}},
-			{Name: "a"},
-			{Name: "b"},
+	t.Run("WarnsWithPluralWhenAFailureSkipsTwoDependencies", func(t *testing.T) {
+		// Given a kustomization that depends on two others and fails to delete
+		kubernetesClient := client.NewMockKubernetesClient()
+		kubernetesClient.DeleteResourceFunc = func(gvr schema.GroupVersionResource, namespace, name string, opts metav1.DeleteOptions) error {
+			if name == "app" {
+				return fmt.Errorf("delete error")
+			}
+			return nil
 		}
-
-		// Given a failed kustomization whose closure skips two others
-		// When blockDependencyClosure runs
+		kubernetesClient.GetResourceFunc = func(gvr schema.GroupVersionResource, namespace, name string) (*unstructured.Unstructured, error) {
+			return nil, fmt.Errorf("the server could not find the requested resource")
+		}
+		manager := setup(t, kubernetesClient)
+		blueprint := &blueprintv1alpha1.Blueprint{
+			Metadata: blueprintv1alpha1.Metadata{Name: "test-blueprint"},
+			Kustomizations: []blueprintv1alpha1.Kustomization{
+				{Name: "app", DependsOn: []string{"a", "b"}},
+				{Name: "a"},
+				{Name: "b"},
+			},
+		}
 		ctx, rec := recordProgress(t)
-		manager.blockDependencyClosure(ctx, ks, "app", map[string]bool{})
-		output := strings.Join(rec.warnings(), "\n")
+
+		// When the blueprint is deleted
+		_ = manager.DeleteBlueprint(ctx, blueprint, "test-namespace")
 
 		// Then the warning uses the plural
+		output := strings.Join(rec.warnings(), "\n")
 		if !strings.Contains(output, "skipping 2 dependencies") {
 			t.Errorf("expected plural wording for 2 skipped, got: %s", output)
 		}
 	})
 
-	t.Run("KeepsDependencySingularForExactlyOneSkipped", func(t *testing.T) {
-		ks := []blueprintv1alpha1.Kustomization{
-			{Name: "app", DependsOn: []string{"a"}},
-			{Name: "a"},
+	t.Run("WarnsWithSingularWhenAFailureSkipsOneDependency", func(t *testing.T) {
+		// Given a kustomization that depends on one other and fails to delete
+		kubernetesClient := client.NewMockKubernetesClient()
+		kubernetesClient.DeleteResourceFunc = func(gvr schema.GroupVersionResource, namespace, name string, opts metav1.DeleteOptions) error {
+			if name == "app" {
+				return fmt.Errorf("delete error")
+			}
+			return nil
 		}
-
-		// Given a failed kustomization whose closure skips exactly one other
-		// When blockDependencyClosure runs
+		kubernetesClient.GetResourceFunc = func(gvr schema.GroupVersionResource, namespace, name string) (*unstructured.Unstructured, error) {
+			return nil, fmt.Errorf("the server could not find the requested resource")
+		}
+		manager := setup(t, kubernetesClient)
+		blueprint := &blueprintv1alpha1.Blueprint{
+			Metadata: blueprintv1alpha1.Metadata{Name: "test-blueprint"},
+			Kustomizations: []blueprintv1alpha1.Kustomization{
+				{Name: "app", DependsOn: []string{"a"}},
+				{Name: "a"},
+			},
+		}
 		ctx, rec := recordProgress(t)
-		manager.blockDependencyClosure(ctx, ks, "app", map[string]bool{})
-		output := strings.Join(rec.warnings(), "\n")
+
+		// When the blueprint is deleted
+		_ = manager.DeleteBlueprint(ctx, blueprint, "test-namespace")
 
 		// Then the warning stays singular
+		output := strings.Join(rec.warnings(), "\n")
 		if !strings.Contains(output, "skipping 1 dependency ") {
 			t.Errorf("expected singular wording for 1 skipped, got: %s", output)
 		}
 		if strings.Contains(output, "dependencies") {
 			t.Errorf("expected no plural wording for 1 skipped, got: %s", output)
-		}
-	})
-}
-
-// =============================================================================
-// Test Helpers
-// =============================================================================
-
-func TestReconcileGenerationSettled(t *testing.T) {
-	t.Run("FalseForNilObject", func(t *testing.T) {
-		if reconcileGenerationSettled(nil) {
-			t.Error("Expected false for a nil object")
-		}
-	})
-
-	t.Run("FalseWhenObservedGenerationMissing", func(t *testing.T) {
-		obj := &unstructured.Unstructured{Object: map[string]any{
-			"metadata": map[string]any{"generation": int64(2)},
-		}}
-		if reconcileGenerationSettled(obj) {
-			t.Error("Expected false when status.observedGeneration is missing")
-		}
-	})
-
-	t.Run("FalseWhenObservedGenerationLagsBehind", func(t *testing.T) {
-		obj := &unstructured.Unstructured{Object: map[string]any{
-			"metadata": map[string]any{"generation": int64(3)},
-			"status":   map[string]any{"observedGeneration": int64(2)},
-		}}
-		if reconcileGenerationSettled(obj) {
-			t.Error("Expected false when observedGeneration lags generation")
-		}
-	})
-
-	t.Run("TrueWhenObservedGenerationCaughtUp", func(t *testing.T) {
-		obj := &unstructured.Unstructured{Object: map[string]any{
-			"metadata": map[string]any{"generation": int64(3)},
-			"status":   map[string]any{"observedGeneration": int64(3)},
-		}}
-		if !reconcileGenerationSettled(obj) {
-			t.Error("Expected true when observedGeneration matches generation")
-		}
-	})
-}
-
-func TestReverseTopologicalKustomizations(t *testing.T) {
-	t.Run("ReturnsEmptyForEmptyInput", func(t *testing.T) {
-		// Given an empty input slice
-		input := []blueprintv1alpha1.Kustomization{}
-
-		// When computing reverse-topological order
-		out, err := reverseTopologicalKustomizations(input)
-
-		// Then no error is returned and the output is also empty
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-		if len(out) != 0 {
-			t.Errorf("expected empty output, got %d entries", len(out))
-		}
-	})
-
-	t.Run("ReturnsSingleNodeUnchanged", func(t *testing.T) {
-		// Given a single kustomization with no dependencies
-		input := []blueprintv1alpha1.Kustomization{{Name: "only"}}
-
-		// When computing reverse-topological order
-		out, err := reverseTopologicalKustomizations(input)
-
-		// Then the single node is returned unchanged
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-		if len(out) != 1 || out[0].Name != "only" {
-			t.Errorf("expected [only], got %v", kustomizationNames(out))
-		}
-	})
-
-	t.Run("ReversesIndependentNodesByInputOrder", func(t *testing.T) {
-		// Given three independent kustomizations with no dependency relation
-		input := []blueprintv1alpha1.Kustomization{{Name: "a"}, {Name: "b"}, {Name: "c"}}
-
-		// When computing reverse-topological order
-		out, err := reverseTopologicalKustomizations(input)
-
-		// Then the output is the input reversed, matching naive slice-reverse
-		// — preserves backward compatibility for blueprints already authored
-		// in topological order.
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-		got := kustomizationNames(out)
-		want := []string{"c", "b", "a"}
-		if !equalStringSlice(got, want) {
-			t.Errorf("expected %v, got %v", want, got)
-		}
-	})
-
-	t.Run("PutsDependentBeforeDependencyWhenInputAlreadyTopological", func(t *testing.T) {
-		// Given input in apply order: dependency b first, dependent a second
-		input := []blueprintv1alpha1.Kustomization{
-			{Name: "b"},
-			{Name: "a", DependsOn: []string{"b"}},
-		}
-
-		// When computing reverse-topological order
-		out, err := reverseTopologicalKustomizations(input)
-
-		// Then a (the dependent) destroys first, then b
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-		got := kustomizationNames(out)
-		want := []string{"a", "b"}
-		if !equalStringSlice(got, want) {
-			t.Errorf("expected %v, got %v", want, got)
-		}
-	})
-
-	t.Run("PutsDependentBeforeDependencyWhenInputOutOfOrder", func(t *testing.T) {
-		// Given input in non-topological order: dependent a first, dependency b second
-		input := []blueprintv1alpha1.Kustomization{
-			{Name: "a", DependsOn: []string{"b"}},
-			{Name: "b"},
-		}
-
-		// When computing reverse-topological order
-		out, err := reverseTopologicalKustomizations(input)
-
-		// Then a still destroys before b, regardless of input ordering
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-		got := kustomizationNames(out)
-		want := []string{"a", "b"}
-		if !equalStringSlice(got, want) {
-			t.Errorf("expected %v, got %v", want, got)
-		}
-	})
-
-	t.Run("OrdersDiamondDestroyDependentsFirst", func(t *testing.T) {
-		// Given a diamond DAG:
-		//   d ← b ← a
-		//   d ← c ← a
-		// Apply order is d → b,c → a; destroy order is a → b,c → d.
-		input := []blueprintv1alpha1.Kustomization{
-			{Name: "d"},
-			{Name: "b", DependsOn: []string{"d"}},
-			{Name: "c", DependsOn: []string{"d"}},
-			{Name: "a", DependsOn: []string{"b", "c"}},
-		}
-
-		// When computing reverse-topological order
-		out, err := reverseTopologicalKustomizations(input)
-
-		// Then a destroys first, then b and c (in input order's reverse), then d
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-		got := kustomizationNames(out)
-		// Independent siblings (b, c) appear in reverse input order: c then b.
-		want := []string{"a", "c", "b", "d"}
-		if !equalStringSlice(got, want) {
-			t.Errorf("expected %v, got %v", want, got)
-		}
-	})
-
-	t.Run("HandlesDisconnectedComponents", func(t *testing.T) {
-		// Given two disconnected dependency graphs:
-		//   y ← x   (chain 1)
-		//   q ← p   (chain 2)
-		input := []blueprintv1alpha1.Kustomization{
-			{Name: "y"},
-			{Name: "x", DependsOn: []string{"y"}},
-			{Name: "q"},
-			{Name: "p", DependsOn: []string{"q"}},
-		}
-
-		// When computing reverse-topological order
-		out, err := reverseTopologicalKustomizations(input)
-
-		// Then each chain's dependent precedes its dependency, and the chains
-		// appear in reverse of input order.
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-		got := kustomizationNames(out)
-		// Forward DFS visits y, then x (already y), then q, then p (already q)
-		// → forward order [y, x, q, p]; reverse → [p, q, x, y].
-		want := []string{"p", "q", "x", "y"}
-		if !equalStringSlice(got, want) {
-			t.Errorf("expected %v, got %v", want, got)
-		}
-	})
-
-	t.Run("IgnoresMissingDependencyName", func(t *testing.T) {
-		// Given a kustomization that depends on a name not present in the slice
-		// — e.g. a destroy-only kustomization referencing a regular one that
-		// was filtered out before this call.
-		input := []blueprintv1alpha1.Kustomization{
-			{Name: "a", DependsOn: []string{"missing"}},
-			{Name: "b"},
-		}
-
-		// When computing reverse-topological order
-		out, err := reverseTopologicalKustomizations(input)
-
-		// Then the missing dep is silently ignored and the slice is reversed
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-		got := kustomizationNames(out)
-		want := []string{"b", "a"}
-		if !equalStringSlice(got, want) {
-			t.Errorf("expected %v, got %v", want, got)
-		}
-	})
-
-	t.Run("DetectsTwoNodeCycle", func(t *testing.T) {
-		// Given a two-node cycle: a depends on b, b depends on a
-		input := []blueprintv1alpha1.Kustomization{
-			{Name: "a", DependsOn: []string{"b"}},
-			{Name: "b", DependsOn: []string{"a"}},
-		}
-
-		// When computing reverse-topological order
-		_, err := reverseTopologicalKustomizations(input)
-
-		// Then an error is returned mentioning a kustomization in the cycle
-		if err == nil {
-			t.Fatalf("expected cycle error, got nil")
-		}
-		if !strings.Contains(err.Error(), "cycle") {
-			t.Errorf("expected error mentioning cycle, got %q", err.Error())
-		}
-	})
-
-	t.Run("DetectsSelfLoopOnSingleNodeAsNoOp", func(t *testing.T) {
-		// Given a single kustomization that depends on itself, the single-
-		// node fast path returns it unchanged. A self-loop on a single node
-		// does not change destroy correctness — there is nothing else to
-		// order against — so the short-circuit is intentional.
-		input := []blueprintv1alpha1.Kustomization{
-			{Name: "a", DependsOn: []string{"a"}},
-		}
-
-		// When computing reverse-topological order
-		out, err := reverseTopologicalKustomizations(input)
-
-		// Then the node is returned without a cycle error
-		if err != nil {
-			t.Fatalf("unexpected error on single self-loop: %v", err)
-		}
-		if len(out) != 1 || out[0].Name != "a" {
-			t.Errorf("expected [a], got %v", kustomizationNames(out))
-		}
-	})
-
-	t.Run("DetectsLargerCycle", func(t *testing.T) {
-		// Given a three-node cycle: a → b → c → a
-		input := []blueprintv1alpha1.Kustomization{
-			{Name: "a", DependsOn: []string{"b"}},
-			{Name: "b", DependsOn: []string{"c"}},
-			{Name: "c", DependsOn: []string{"a"}},
-		}
-
-		// When computing reverse-topological order
-		_, err := reverseTopologicalKustomizations(input)
-
-		// Then an error is returned
-		if err == nil {
-			t.Fatalf("expected cycle error, got nil")
-		}
-		if !strings.Contains(err.Error(), "cycle") {
-			t.Errorf("expected error mentioning cycle, got %q", err.Error())
-		}
-	})
-
-	t.Run("DoesNotMutateInput", func(t *testing.T) {
-		// Given an input slice
-		input := []blueprintv1alpha1.Kustomization{
-			{Name: "b"},
-			{Name: "a", DependsOn: []string{"b"}},
-		}
-		inputNames := kustomizationNames(input)
-
-		// When computing reverse-topological order
-		_, err := reverseTopologicalKustomizations(input)
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-
-		// Then the input slice is unchanged in order and identity
-		gotNames := kustomizationNames(input)
-		if !equalStringSlice(gotNames, inputNames) {
-			t.Errorf("input mutated: was %v, now %v", inputNames, gotNames)
-		}
-	})
-}
-
-func TestDependencyClosure(t *testing.T) {
-	t.Run("IncludesStartWithNoDependencies", func(t *testing.T) {
-		ks := []blueprintv1alpha1.Kustomization{{Name: "solo"}}
-
-		// Given a kustomization with no DependsOn
-		// When dependencyClosure runs
-		closure := dependencyClosure(ks, "solo")
-
-		// Then the closure is just itself
-		if len(closure) != 1 || !closure["solo"] {
-			t.Errorf("expected closure {solo}, got %v", closure)
-		}
-	})
-
-	t.Run("IncludesADirectDependency", func(t *testing.T) {
-		ks := []blueprintv1alpha1.Kustomization{
-			{Name: "app", DependsOn: []string{"controller"}},
-			{Name: "controller"},
-		}
-
-		// Given app depends on controller
-		// When dependencyClosure runs from app
-		closure := dependencyClosure(ks, "app")
-
-		// Then both are in the closure
-		if !closure["app"] || !closure["controller"] {
-			t.Errorf("expected closure {app, controller}, got %v", closure)
-		}
-	})
-
-	t.Run("FollowsATransitiveChain", func(t *testing.T) {
-		ks := []blueprintv1alpha1.Kustomization{
-			{Name: "app", DependsOn: []string{"controller"}},
-			{Name: "controller", DependsOn: []string{"crds"}},
-			{Name: "crds"},
-		}
-
-		// Given app depends on controller, which depends on crds
-		// When dependencyClosure runs from app
-		closure := dependencyClosure(ks, "app")
-
-		// Then the closure reaches all three
-		if !closure["app"] || !closure["controller"] || !closure["crds"] {
-			t.Errorf("expected closure {app, controller, crds}, got %v", closure)
-		}
-	})
-
-	t.Run("TreatsAMissingDependsOnNameAsNoEdge", func(t *testing.T) {
-		ks := []blueprintv1alpha1.Kustomization{
-			{Name: "app", DependsOn: []string{"not-in-blueprint"}},
-		}
-
-		// Given app depends on a name absent from the blueprint
-		// When dependencyClosure runs from app
-		closure := dependencyClosure(ks, "app")
-
-		// Then the closure is just app; the missing name is not followed
-		if len(closure) != 1 || !closure["app"] {
-			t.Errorf("expected closure {app}, got %v", closure)
-		}
-	})
-
-	t.Run("DoesNotIncludeAnUnrelatedKustomization", func(t *testing.T) {
-		ks := []blueprintv1alpha1.Kustomization{
-			{Name: "app", DependsOn: []string{"controller"}},
-			{Name: "controller"},
-			{Name: "unrelated"},
-		}
-
-		// Given a third kustomization with no path from app
-		// When dependencyClosure runs from app
-		closure := dependencyClosure(ks, "app")
-
-		// Then it is not in the closure
-		if closure["unrelated"] {
-			t.Errorf("expected unrelated excluded from closure, got %v", closure)
 		}
 	})
 }
