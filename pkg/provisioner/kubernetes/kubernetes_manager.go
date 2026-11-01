@@ -13,8 +13,6 @@ import (
 	"time"
 
 	helmv2 "github.com/fluxcd/helm-controller/api/v2"
-	kustomizev1 "github.com/fluxcd/kustomize-controller/api/v1"
-	sourcev1 "github.com/fluxcd/source-controller/api/v1"
 	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
 	"github.com/windsorcli/cli/internal/werror"
 	"github.com/windsorcli/cli/pkg/constants"
@@ -40,20 +38,12 @@ type KustomizationReporter interface {
 
 // KubernetesManager defines methods for Kubernetes resource management
 type KubernetesManager interface {
-	ApplyKustomization(kustomization kustomizev1.Kustomization) error
 	DeleteKustomization(ctx context.Context, name, namespace string) error
 	WaitForKustomizations(ctx context.Context, blueprint *blueprintv1alpha1.Blueprint, layers KustomizationReporter) error
-	CreateNamespace(name string) error
-	DeleteNamespace(name string) error
-	ApplyConfigMap(name, namespace string, data map[string]string) error
 	ApplySecret(name, namespace, secretType string, stringData map[string]string, owner string) error
 	PruneSecrets(desired map[string]map[string]bool) error
 	RollWorkloadsForSecret(ctx context.Context, namespace, secretName, digest string) error
 	GetHelmReleasesForKustomization(name, namespace string) ([]helmv2.HelmRelease, error)
-	ApplyGitRepository(repo *sourcev1.GitRepository) error
-	ApplyOCIRepository(repo *sourcev1.OCIRepository) error
-	CheckGitRepositoryStatus() error
-	GetKustomizationStatus(names []string) (map[string]bool, error)
 	GetKustomizationReadiness(names []string) (map[string]bool, error)
 	KustomizationExists(name, namespace string) (bool, error)
 	NamespaceExists(name string) (bool, error)
@@ -189,20 +179,6 @@ func (k *BaseKubernetesManager) CreateNamespace(name string) error {
 	}
 
 	return k.applyWithRetry(gvr, obj, opts)
-}
-
-// DeleteNamespace deletes the specified namespace using foreground deletion.
-// Foreground deletion ensures all resources in the namespace are removed before the namespace is deleted.
-// This method waits for the deletion to complete before returning. Returns nil if the namespace is deleted successfully,
-// or an error if deletion fails or times out.
-func (k *BaseKubernetesManager) DeleteNamespace(name string) error {
-	gvr := schema.GroupVersionResource{
-		Group:    "",
-		Version:  "v1",
-		Resource: "namespaces",
-	}
-
-	return k.client.DeleteResource(gvr, "", name, metav1.DeleteOptions{})
 }
 
 // NamespaceExists reports whether the named namespace exists in the cluster. Namespaces are cluster-scoped,

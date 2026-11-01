@@ -338,59 +338,6 @@ func (k *BaseKubernetesManager) ApplyOCIRepository(repo *sourcev1.OCIRepository)
 	return k.applyWithRetry(gvr, obj, opts)
 }
 
-// CheckGitRepositoryStatus checks the status of all GitRepository and OCIRepository resources
-func (k *BaseKubernetesManager) CheckGitRepositoryStatus() error {
-	gitGvr := schema.GroupVersionResource{
-		Group:    "source.toolkit.fluxcd.io",
-		Version:  "v1",
-		Resource: "gitrepositories",
-	}
-
-	gitObjList, err := k.client.ListResources(gitGvr, k.gitopsNamespace())
-	if err != nil {
-		return werror.Wrap(err, "failed to list git repositories")
-	}
-
-	for _, obj := range gitObjList.Items {
-		var gitRepo sourcev1.GitRepository
-		if err := k.Shims.FromUnstructured(obj.UnstructuredContent(), &gitRepo); err != nil {
-			return werror.Wrap(err, "failed to convert git repository %s", gitRepo.Name)
-		}
-
-		for _, condition := range gitRepo.Status.Conditions {
-			if condition.Type == "Ready" && condition.Status == "False" {
-				return fmt.Errorf("%s: %s", gitRepo.Name, condition.Message)
-			}
-		}
-	}
-
-	ociGvr := schema.GroupVersionResource{
-		Group:    "source.toolkit.fluxcd.io",
-		Version:  "v1",
-		Resource: "ocirepositories",
-	}
-
-	ociObjList, err := k.client.ListResources(ociGvr, k.gitopsNamespace())
-	if err != nil {
-		return werror.Wrap(err, "failed to list oci repositories")
-	}
-
-	for _, obj := range ociObjList.Items {
-		var ociRepo sourcev1.OCIRepository
-		if err := k.Shims.FromUnstructured(obj.UnstructuredContent(), &ociRepo); err != nil {
-			return werror.Wrap(err, "failed to convert oci repository %s", ociRepo.Name)
-		}
-
-		for _, condition := range ociRepo.Status.Conditions {
-			if condition.Type == "Ready" && condition.Status == "False" {
-				return fmt.Errorf("%s: %s", ociRepo.Name, condition.Message)
-			}
-		}
-	}
-
-	return nil
-}
-
 // GetKustomizationStatus returns a map indicating readiness for each specified kustomization in the default
 // Flux system namespace. If a kustomization is not found, its status is set to false. If any kustomization
 // has a Ready condition with Status False and a Reason in kustomizationFailureReasons, an error is

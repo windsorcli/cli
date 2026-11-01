@@ -50,33 +50,6 @@ func TestKubernetesManager_Namespaces(t *testing.T) {
 		}
 	})
 
-	t.Run("DeletesTheNamespace", func(t *testing.T) {
-		// Given a cluster with a namespace
-		f := newFixture(t)
-		f.cluster.seed(namespacesGVR, map[string]any{"apiVersion": "v1", "kind": "Namespace", "metadata": map[string]any{"name": "apps"}})
-
-		// When the namespace is deleted
-		err := f.manager.DeleteNamespace("apps")
-
-		// Then the namespace is gone
-		if err != nil || f.cluster.get(namespacesGVR, "", "apps") != nil {
-			t.Errorf("expected the namespace to be deleted, got err %v", err)
-		}
-	})
-
-	t.Run("ReturnsNotFoundWhenDeletingAMissingNamespace", func(t *testing.T) {
-		// Given an empty cluster
-		f := newFixture(t)
-
-		// When a missing namespace is deleted
-		err := f.manager.DeleteNamespace("apps")
-
-		// Then the not-found error is returned
-		if err == nil || !strings.Contains(err.Error(), "not found") {
-			t.Errorf("expected a not-found error, got %v", err)
-		}
-	})
-
 	t.Run("ReportsWhetherANamespaceExists", func(t *testing.T) {
 		// Given a cluster with one namespace
 		f := newFixture(t)

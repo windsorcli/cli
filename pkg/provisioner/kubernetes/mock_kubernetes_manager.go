@@ -8,8 +8,6 @@ import (
 	"context"
 
 	helmv2 "github.com/fluxcd/helm-controller/api/v2"
-	kustomizev1 "github.com/fluxcd/kustomize-controller/api/v1"
-	sourcev1 "github.com/fluxcd/source-controller/api/v1"
 	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
 )
 
@@ -19,23 +17,15 @@ import (
 
 // MockKubernetesManager is a mock implementation of KubernetesManager interface for testing
 type MockKubernetesManager struct {
-	ApplyKustomizationFunc              func(kustomization kustomizev1.Kustomization) error
 	DeleteKustomizationFunc             func(name, namespace string) error
 	WaitForKustomizationsFunc           func(ctx context.Context, blueprint *blueprintv1alpha1.Blueprint, layers KustomizationReporter) error
-	GetKustomizationStatusFunc          func(names []string) (map[string]bool, error)
 	GetKustomizationReadinessFunc       func(names []string) (map[string]bool, error)
-	CreateNamespaceFunc                 func(name string) error
-	DeleteNamespaceFunc                 func(name string) error
-	ApplyConfigMapFunc                  func(name, namespace string, data map[string]string) error
 	ApplySecretFunc                     func(name, namespace, secretType string, stringData map[string]string, owner string) error
 	PruneSecretsFunc                    func(desired map[string]map[string]bool) error
 	RollWorkloadsForSecretFunc          func(ctx context.Context, namespace, secretName, digest string) error
 	ApplyVersionMarkerFunc              func(namespace string, marker VersionMarker) error
 	GetVersionMarkerFunc                func(namespace string) (VersionMarker, bool, error)
 	GetHelmReleasesForKustomizationFunc func(name, namespace string) ([]helmv2.HelmRelease, error)
-	ApplyGitRepositoryFunc              func(repo *sourcev1.GitRepository) error
-	ApplyOCIRepositoryFunc              func(repo *sourcev1.OCIRepository) error
-	CheckGitRepositoryStatusFunc        func() error
 	KustomizationExistsFunc             func(name, namespace string) (bool, error)
 	NamespaceExistsFunc                 func(name string) (bool, error)
 	GetKustomizationInventoryFunc       func(name, namespace string) ([]InventoryEntry, error)
@@ -60,14 +50,6 @@ func NewMockKubernetesManager() *MockKubernetesManager {
 // Public Methods
 // =============================================================================
 
-// ApplyKustomization implements KubernetesManager interface
-func (m *MockKubernetesManager) ApplyKustomization(kustomization kustomizev1.Kustomization) error {
-	if m.ApplyKustomizationFunc != nil {
-		return m.ApplyKustomizationFunc(kustomization)
-	}
-	return nil
-}
-
 // DeleteKustomization implements KubernetesManager interface
 func (m *MockKubernetesManager) DeleteKustomization(_ context.Context, name, namespace string) error {
 	if m.DeleteKustomizationFunc != nil {
@@ -84,14 +66,6 @@ func (m *MockKubernetesManager) WaitForKustomizations(ctx context.Context, bluep
 	return nil
 }
 
-// GetKustomizationStatus implements KubernetesManager interface
-func (m *MockKubernetesManager) GetKustomizationStatus(names []string) (map[string]bool, error) {
-	if m.GetKustomizationStatusFunc != nil {
-		return m.GetKustomizationStatusFunc(names)
-	}
-	return make(map[string]bool), nil
-}
-
 // GetKustomizationReadiness implements KubernetesManager interface. The default reports every requested
 // kustomization Ready so a convergence pass returns immediately in tests that do not exercise it; tests
 // that drive convergence set GetKustomizationReadinessFunc.
@@ -104,30 +78,6 @@ func (m *MockKubernetesManager) GetKustomizationReadiness(names []string) (map[s
 		ready[n] = true
 	}
 	return ready, nil
-}
-
-// CreateNamespace implements KubernetesManager interface
-func (m *MockKubernetesManager) CreateNamespace(name string) error {
-	if m.CreateNamespaceFunc != nil {
-		return m.CreateNamespaceFunc(name)
-	}
-	return nil
-}
-
-// DeleteNamespace implements KubernetesManager interface
-func (m *MockKubernetesManager) DeleteNamespace(name string) error {
-	if m.DeleteNamespaceFunc != nil {
-		return m.DeleteNamespaceFunc(name)
-	}
-	return nil
-}
-
-// ApplyConfigMap implements KubernetesManager interface
-func (m *MockKubernetesManager) ApplyConfigMap(name, namespace string, data map[string]string) error {
-	if m.ApplyConfigMapFunc != nil {
-		return m.ApplyConfigMapFunc(name, namespace, data)
-	}
-	return nil
 }
 
 // ApplySecret implements KubernetesManager interface
@@ -178,31 +128,7 @@ func (m *MockKubernetesManager) GetHelmReleasesForKustomization(name, namespace 
 	return nil, nil
 }
 
-// ApplyGitRepository implements KubernetesManager interface
-func (m *MockKubernetesManager) ApplyGitRepository(repo *sourcev1.GitRepository) error {
-	if m.ApplyGitRepositoryFunc != nil {
-		return m.ApplyGitRepositoryFunc(repo)
-	}
-	return nil
-}
-
-// ApplyOCIRepository implements KubernetesManager interface
-func (m *MockKubernetesManager) ApplyOCIRepository(repo *sourcev1.OCIRepository) error {
-	if m.ApplyOCIRepositoryFunc != nil {
-		return m.ApplyOCIRepositoryFunc(repo)
-	}
-	return nil
-}
-
 // WaitForKustomizationDeletionProcessed waits for the specified kustomization deletion to be processed.
-
-// CheckGitRepositoryStatus checks the status of all GitRepository resources
-func (m *MockKubernetesManager) CheckGitRepositoryStatus() error {
-	if m.CheckGitRepositoryStatusFunc != nil {
-		return m.CheckGitRepositoryStatusFunc()
-	}
-	return nil
-}
 
 // KustomizationExists implements KubernetesManager interface
 func (m *MockKubernetesManager) KustomizationExists(name, namespace string) (bool, error) {

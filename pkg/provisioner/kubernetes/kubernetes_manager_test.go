@@ -199,58 +199,6 @@ func TestBaseKubernetesManager_CreateNamespace(t *testing.T) {
 	})
 }
 
-func TestBaseKubernetesManager_DeleteNamespace(t *testing.T) {
-	t.Run("Success", func(t *testing.T) {
-		kubernetesClient := client.NewMockKubernetesClient()
-		kubernetesClient.DeleteResourceFunc = func(gvr schema.GroupVersionResource, namespace, name string, opts metav1.DeleteOptions) error {
-			return nil
-		}
-		// Mock GetResource to return "not found" immediately to simulate successful deletion
-		kubernetesClient.GetResourceFunc = func(gvr schema.GroupVersionResource, namespace, name string) (*unstructured.Unstructured, error) {
-			return nil, fmt.Errorf("the server could not find the requested resource")
-		}
-		manager := newManager(setupKubernetesMocks(t), kubernetesClient)
-
-		err := manager.DeleteNamespace("test-namespace")
-		if err != nil {
-			t.Errorf("Expected no error, got %v", err)
-		}
-	})
-
-	t.Run("DeleteError", func(t *testing.T) {
-		kubernetesClient := client.NewMockKubernetesClient()
-		kubernetesClient.DeleteResourceFunc = func(gvr schema.GroupVersionResource, namespace, name string, opts metav1.DeleteOptions) error {
-			return fmt.Errorf("delete error")
-		}
-		manager := newManager(setupKubernetesMocks(t), kubernetesClient)
-
-		err := manager.DeleteNamespace("test-namespace")
-		if err == nil {
-			t.Error("Expected error, got nil")
-		}
-	})
-
-	t.Run("UsesCorrectDeleteOptions", func(t *testing.T) {
-		kubernetesClient := client.NewMockKubernetesClient()
-		var capturedOptions metav1.DeleteOptions
-		kubernetesClient.DeleteResourceFunc = func(gvr schema.GroupVersionResource, namespace, name string, opts metav1.DeleteOptions) error {
-			capturedOptions = opts
-			return nil
-		}
-		manager := newManager(setupKubernetesMocks(t), kubernetesClient)
-
-		err := manager.DeleteNamespace("test-namespace")
-		if err != nil {
-			t.Errorf("Expected no error, got %v", err)
-		}
-
-		// Verify the delete options were used (no specific policy required)
-		if capturedOptions.PropagationPolicy != nil {
-			t.Errorf("Expected no PropagationPolicy, got %+v", capturedOptions.PropagationPolicy)
-		}
-	})
-}
-
 func TestBaseKubernetesManager_NamespaceExists(t *testing.T) {
 	t.Run("ReturnsTrueWhenExists", func(t *testing.T) {
 		// Given a kubernetes manager whose client returns the namespace successfully
