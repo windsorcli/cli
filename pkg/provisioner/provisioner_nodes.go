@@ -40,13 +40,10 @@ type NodeHealthCheckOptions struct {
 // Public Methods
 // =============================================================================
 
-// UpgradeNode performs a complete per-node upgrade: captures the node's current boot ID,
-// sends the upgrade gRPC request (wait=false), waits for the node to reboot (confirmed by
-// its boot ID changing, offlineTimeout caps this phase), waits for the node to come back
-// healthy, then performs a final service health check. powercycle requests a full ACPI
-// reboot instead of the default kexec, needed on platforms (e.g. nested virtualization)
-// where kexec doesn't reliably register as an offline transition. outputFunc receives
-// status messages during the wait phases. Returns an error if any step fails or times out.
+// UpgradeNode upgrades one node to image. It records the boot ID, sends the upgrade request, waits
+// for the boot ID to change within offlineTimeout, and then waits for the node and its API server.
+// powercycle requests a full reboot instead of kexec, for platforms where kexec does not show as
+// offline. outputFunc receives status messages. It returns an error when a step fails or times out.
 func (i *Provisioner) UpgradeNode(ctx context.Context, node string, image string, offlineTimeout time.Duration, powercycle bool, outputFunc func(string)) error {
 	if err := i.ensureClusterClient(); err != nil {
 		return err
@@ -116,7 +113,6 @@ func (i *Provisioner) CheckNodeHealth(ctx context.Context, options NodeHealthChe
 			if !hasK8sCheck {
 				return werror.New("no health checks specified", noHealthChecksHint, nil)
 			}
-			// If we have k8s check, we can continue without cluster client
 		}
 
 		if i.ClusterClient != nil {

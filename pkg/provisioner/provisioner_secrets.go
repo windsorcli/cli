@@ -60,7 +60,8 @@ type pendingPlacement struct {
 // A misconfigured secret then fails the command before Windsor applies anything to the cluster.
 // A reference that resolves to nil or to an empty string returns an error with a remediation hint,
 // unless it has a ?? default. A ?? default makes the key optional. Windsor does not create a secret
-// whose keys all resolve away. The result maps each owning kustomization to its secrets for PlaceSecrets.
+// whose keys all resolve away. The shell masks each resolved value in command output, whatever its
+// source. The result maps each owning kustomization to its secrets for PlaceSecrets.
 func (i *Provisioner) ResolveSecrets(blueprint *blueprintv1alpha1.Blueprint) (ResolvedSecrets, error) {
 	if blueprint == nil {
 		return nil, fmt.Errorf("blueprint not provided")
@@ -89,9 +90,6 @@ func (i *Provisioner) ResolveSecrets(blueprint *blueprintv1alpha1.Blueprint) (Re
 					}
 					return nil, werror.New(fmt.Sprintf("resolving secret %q key %q: reference %q resolved to empty", secretName, key, ref), "Add a ?? default, for example ${... ?? ''}, to make the key optional.", nil)
 				}
-				// Mask the materialized value in command output regardless of how it was sourced —
-				// env(), a config reference, or secret() — matching the redaction secret() already
-				// gets at resolution time.
 				i.shell.RegisterSecret(s)
 				stringData[key] = s
 			}
@@ -110,27 +108,11 @@ func (i *Provisioner) ResolveSecrets(blueprint *blueprintv1alpha1.Blueprint) (Re
 	return resolved, nil
 }
 
-// PlaceSecrets materializes secrets that ResolveSecrets produced into their target namespace(s), and —
-// when prune is set — reconciles by deleting the CLI-placed secrets this context no longer wants. It runs
-// after Install. Placement is not serialized: on each round it places every secret whose target namespace
-// already exists and defers the rest, then polls, so a secret whose namespace is ready is never blocked
-// behind one whose namespace is not. This matters because kustomizations commonly depend on a secret the
-// CLI places (e.g. a cloud-controller-manager needs its token before nodes initialize and downstream
-// namespaces appear); placing the ready ones first breaks that cycle rather than deadlocking on a namespace
-// that only appears once an earlier secret is placed. For each secret it resolves the target namespace(s) —
-// the ones the entry named (gated on those existing in the cluster) or, when it named none, the namespace
-// its owning kustomization creates or deploys into (failing closed on more than one so a secret is never
-// placed by guessing) — applies an Opaque Secret into each, and rolls the workloads there that consume it,
-// keyed by a content digest, so a changed value reaches running pods rather than sitting stale. It surfaces
-// progress on the current operation naming what it is placing or waiting on, and times out naming the secrets whose
-// namespaces never appeared. As it places a secret it requests an immediate flux reconcile of the owning
-// kustomization (the secret is what that kustomization was waiting on), and while waiting it nudges the
-// dependency closure of the still-pending owners on a throttle, so a chain unblocked by a placement
-// advances in seconds rather than one flux interval per hop. When prune is set it records every
-// (namespace, secret) it placed and hands
-// that desired set to PruneSecrets, which reclaims any CLI-placed secret not in it. Pruning is gated so
-// secret reclaim mirrors Kustomization prune: on under apply's --prune and upgrade, off for the place-only
-// flows. When no kubernetes manager is configured it is a no-op only if there is also nothing to place.
+// PlaceSecrets writes the secrets that ResolveSecrets returned into their namespaces, and rolls the
+// workloads that consume each one. Each round places every secret whose namespace exists and polls
+// for the others, so a secret never waits behind another. A secret goes to the namespaces its entry
+// names, or else to the one namespace of its kustomization. prune removes placed secrets that the
+// context no longer declares. Without a kubernetes manager, it does nothing only when nothing waits.
 func (i *Provisioner) PlaceSecrets(ctx context.Context, resolved ResolvedSecrets, blueprint *blueprintv1alpha1.Blueprint, prune bool) error {
 	if i.KubernetesManager == nil {
 		if len(resolved) == 0 {
@@ -149,10 +131,11 @@ func (i *Provisioner) PlaceSecrets(ctx context.Context, resolved ResolvedSecrets
 // Private Methods
 // =============================================================================
 
-// placeSecrets places the resolved secrets as PlaceSecrets describes. It reports each secret that
-// waits for its namespace, or that it places, as progress of the owning kustomization in layers.
-// It ends the step of each kustomization that the readiness poll finds Ready. A timeout while it
-// waits for the namespaces returns an error with a remediation hint.
+// placeSecrets places the resolved secrets as PlaceSecrets describes, and reports each wait and each
+// placement as progress of the owning kustomization in layers. After a placement it reconciles the
+// owner and forces its stalled HelmReleases. While secrets wait, it nudges the frontier, as
+// nudgeFrontier describes, and ends the step of each Ready kustomization. A timeout returns an error
+// with a remediation hint.
 func (i *Provisioner) placeSecrets(ctx context.Context, layers layerReporter, resolved ResolvedSecrets, blueprint *blueprintv1alpha1.Blueprint, prune bool) error {
 	pending := make([]pendingPlacement, 0)
 	for kustomizationName, secrets := range resolved {
@@ -197,9 +180,6 @@ func (i *Provisioner) placeSecrets(ctx context.Context, layers layerReporter, re
 		}
 		pending = stillPending
 
-		// A secret we just placed is what its owner was waiting on — reconcile that owner now so it
-		// applies and re-checks readiness immediately, and force any HelmRelease it owns that had
-		// stalled for lack of the secret, rather than waiting on its scheduled interval.
 		if len(placedOwners) > 0 {
 			owners := sortedStringKeys(placedOwners)
 			i.reconcileKustomizations(ctx, owners)
@@ -208,10 +188,6 @@ func (i *Provisioner) placeSecrets(ctx context.Context, layers layerReporter, re
 		if len(pending) == 0 {
 			break
 		}
-		// Drive the DAG toward creating the still-pending namespaces by nudging only the frontier —
-		// not-Ready kustomizations whose dependencies are all Ready — once each. Already-Ready
-		// kustomizations (e.g. crds) are never touched, and a member blocked upstream is left alone
-		// until its dependency clears, so this advances the chain without churning healthy resources.
 		notReady, reconciling := i.nudgeFrontier(ctx, blueprint, nudged)
 		trackLayers(layers, convergeNames(blueprint), notReady, reconciling)
 		select {

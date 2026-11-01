@@ -101,13 +101,10 @@ func (i *Provisioner) GetVersionMarker() (kubernetes.VersionMarker, bool, error)
 	return i.KubernetesManager.GetVersionMarker(i.fluxNamespace())
 }
 
-// CheckVersionGate reads the version marker and reports how the given blueprint relates to it,
-// without deciding policy. A missing marker (pre-bootstrap, no cluster, or legacy) yields
-// MarkerFound=false so callers treat it as "nothing applied yet — proceed". When a marker exists,
-// InFlight reflects a non-idle phase and VersionMatch compares the blueprint's resolved source-ref
-// set against the applied set. Returns an error only on a real read/decode failure or when the
-// blueprint's sources cannot be reduced to an unambiguous set; callers may treat a read failure as
-// best-effort (cluster unreachable) rather than a hard stop.
+// CheckVersionGate compares the blueprint with the version marker and makes no policy decision. A
+// missing marker gives MarkerFound=false. InFlight reports a phase that is not idle, and VersionMatch
+// compares the source refs of the blueprint with the applied refs. It returns an error when the read
+// fails or the source refs of the blueprint are ambiguous.
 func (i *Provisioner) CheckVersionGate(blueprint *blueprintv1alpha1.Blueprint) (VersionGate, error) {
 	if blueprint == nil {
 		return VersionGate{}, fmt.Errorf("blueprint not provided")

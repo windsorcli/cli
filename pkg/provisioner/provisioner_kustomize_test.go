@@ -28,7 +28,7 @@ import (
 // =============================================================================
 
 func TestProvisioner_ApplyKustomize(t *testing.T) {
-	t.Run("Success", func(t *testing.T) {
+	t.Run("AppliesNamedKustomization", func(t *testing.T) {
 		// Given a provisioner with a kubernetes manager that applies successfully
 		mocks := setupProvisionerMocks(t)
 		mocks.KubernetesManager.ApplyBlueprintFunc = func(bp *blueprintv1alpha1.Blueprint, namespace string) error {
@@ -239,10 +239,12 @@ func TestProvisioner_ApplyKustomize(t *testing.T) {
 			}},
 		}}
 
-		// When applying just that kustomization, its secret is placed into the namespace it created
+		// When applying only that kustomization
 		if err := prov.ApplyKustomize(context.Background(), blueprint, "lb-install"); err != nil {
 			t.Fatalf("Expected no error, got: %v", err)
 		}
+
+		// Then its secret is placed into the namespace the kustomization created
 		if placedName != "hcloud" || placedNs != "system-lb" {
 			t.Errorf("Expected hcloud placed into system-lb, got name=%q ns=%q", placedName, placedNs)
 		}
@@ -250,7 +252,7 @@ func TestProvisioner_ApplyKustomize(t *testing.T) {
 }
 
 func TestProvisioner_ApplyKustomizeAll(t *testing.T) {
-	t.Run("Success", func(t *testing.T) {
+	t.Run("AppliesAllKustomizations", func(t *testing.T) {
 		// Given a provisioner with a kubernetes manager that applies successfully
 		mocks := setupProvisionerMocks(t)
 		mocks.KubernetesManager.ApplyBlueprintFunc = func(bp *blueprintv1alpha1.Blueprint, namespace string) error {
@@ -326,7 +328,8 @@ func TestProvisioner_ApplyKustomizeAll(t *testing.T) {
 }
 
 func TestProvisioner_Install(t *testing.T) {
-	t.Run("Success", func(t *testing.T) {
+	t.Run("InstallsBlueprint", func(t *testing.T) {
+		// Given a kubernetes manager that applies successfully
 		mocks := setupProvisionerMocks(t)
 		mocks.KubernetesManager.ApplyBlueprintFunc = func(blueprint *blueprintv1alpha1.Blueprint, namespace string) error {
 			return nil
@@ -336,9 +339,11 @@ func TestProvisioner_Install(t *testing.T) {
 		}
 		prov := provisioner.NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
 
+		// When Install is called
 		blueprint := createTestBlueprint()
 		err := prov.Install(context.Background(), blueprint, false)
 
+		// Then no error is returned
 		if err != nil {
 			t.Errorf("Expected no error, got: %v", err)
 		}
@@ -397,8 +402,7 @@ func TestProvisioner_Install(t *testing.T) {
 			t.Fatalf("Expected no error, got: %v", err)
 		}
 
-		// Then a "crds" kustomization is materialized ahead of the stack, bound to the default/project
-		// source, with the references as its components, pruning disabled and wait enabled
+		// Then a crds layer is prepended with prune off and the caller's blueprint unchanged
 		if applied == nil || len(applied.Kustomizations) != 2 {
 			t.Fatalf("expected crds kustomization prepended, got %+v", applied)
 		}
@@ -412,7 +416,6 @@ func TestProvisioner_Install(t *testing.T) {
 		if crd.Prune == nil || *crd.Prune != false || crd.Wait == nil || *crd.Wait != true {
 			t.Errorf("expected prune=false wait=true, got prune=%v wait=%v", crd.Prune, crd.Wait)
 		}
-		// And the caller's blueprint is not mutated
 		if len(blueprint.Kustomizations) != 1 {
 			t.Errorf("expected caller blueprint untouched, got %+v", blueprint.Kustomizations)
 		}
@@ -457,11 +460,14 @@ func TestProvisioner_Install(t *testing.T) {
 	})
 
 	t.Run("ErrorNilBlueprint", func(t *testing.T) {
+		// Given a provisioner
 		mocks := setupProvisionerMocks(t)
 		prov := provisioner.NewProvisioner(mocks.Runtime, mocks.BlueprintHandler)
 
+		// When Install is called
 		err := prov.Install(context.Background(), nil, false)
 
+		// Then an error is returned
 		if err == nil {
 			t.Error("Expected error for nil blueprint")
 		}
@@ -472,13 +478,16 @@ func TestProvisioner_Install(t *testing.T) {
 	})
 
 	t.Run("ErrorNilKubernetesManager", func(t *testing.T) {
+		// Given a provisioner whose kubernetes manager is nil
 		mocks := setupProvisionerMocks(t)
 		prov := provisioner.NewProvisioner(mocks.Runtime, mocks.BlueprintHandler)
 		prov.KubernetesManager = nil
 
+		// When Install is called
 		blueprint := createTestBlueprint()
 		err := prov.Install(context.Background(), blueprint, false)
 
+		// Then an error is returned
 		if err == nil {
 			t.Error("Expected error for nil kubernetes manager")
 		}
@@ -489,6 +498,7 @@ func TestProvisioner_Install(t *testing.T) {
 	})
 
 	t.Run("ErrorApplyBlueprint", func(t *testing.T) {
+		// Given a kubernetes manager whose apply fails
 		mocks := setupProvisionerMocks(t)
 		mocks.KubernetesManager.ApplyBlueprintFunc = func(blueprint *blueprintv1alpha1.Blueprint, namespace string) error {
 			return fmt.Errorf("apply blueprint failed")
@@ -498,9 +508,11 @@ func TestProvisioner_Install(t *testing.T) {
 		}
 		prov := provisioner.NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
 
+		// When Install is called
 		blueprint := createTestBlueprint()
 		err := prov.Install(context.Background(), blueprint, false)
 
+		// Then an error is returned
 		if err == nil {
 			t.Error("Expected error for apply blueprint failure")
 		}
@@ -533,10 +545,12 @@ func TestProvisioner_Install(t *testing.T) {
 			}},
 		}}
 
-		// When installing, the declared secret is placed into the namespace its kustomization created
+		// When installing
 		if err := prov.Install(context.Background(), blueprint, false); err != nil {
 			t.Fatalf("Expected no error, got: %v", err)
 		}
+
+		// Then the resolved secret is placed into the namespace the kustomization created
 		if placedName != "hcloud" || placedNs != "system-lb" || placedData["token"] != "resolved-token" {
 			t.Errorf("Expected hcloud/token placed into system-lb, got name=%q ns=%q data=%v", placedName, placedNs, placedData)
 		}
@@ -560,8 +574,9 @@ func TestProvisioner_Install(t *testing.T) {
 			}},
 		}}
 
-		// When installing, resolution fails closed before anything is applied to the cluster
+		// When installing
 		err := prov.Install(context.Background(), blueprint, false)
+		// Then a resolve error is returned before anything is applied
 		if err == nil || !strings.Contains(err.Error(), "error resolving secrets") {
 			t.Errorf("Expected resolve error, got: %v", err)
 		}
@@ -571,8 +586,7 @@ func TestProvisioner_Install(t *testing.T) {
 	})
 
 	t.Run("FailsWhenRequiredSecretResolvesToNil", func(t *testing.T) {
-		// Given a required secret reference to a value absent from configuration (resolves to nil), as
-		// when a secret() lookup fails to resolve non-interactively
+		// Given a required secret whose referenced value is absent and resolves to nil
 		mocks := setupProvisionerMocks(t)
 		mocks.ConfigHandler.(*config.MockConfigHandler).GetContextValuesFunc = func() (map[string]any, error) {
 			return map[string]any{}, nil
@@ -590,7 +604,8 @@ func TestProvisioner_Install(t *testing.T) {
 			}},
 		}}
 
-		// When installing, it fails closed rather than placing an hcloud Secret missing its token key
+		// When installing
+		// Then an error is returned and no secret is placed
 		if err := prov.Install(context.Background(), blueprint, false); err == nil {
 			t.Fatal("Expected error for a nil-resolving required secret, got nil")
 		}
@@ -618,7 +633,8 @@ func TestProvisioner_Install(t *testing.T) {
 			}},
 		}}
 
-		// When installing, the optional secret is skipped and install still succeeds
+		// When installing
+		// Then install succeeds and the optional secret is skipped
 		if err := prov.Install(context.Background(), blueprint, false); err != nil {
 			t.Fatalf("Expected no error, got: %v", err)
 		}
@@ -678,7 +694,7 @@ func TestProvisioner_InstallReadinessWait(t *testing.T) {
 
 func TestProvisioner_Prune(t *testing.T) {
 	t.Run("DelegatesToManagerWithGitopsNamespace", func(t *testing.T) {
-		// Given a provisioner capturing the prune call
+		// Given a blueprint that vendors CRDs and a manager capturing the prune call
 		mocks := setupProvisionerMocks(t)
 		var capturedNamespace string
 		var capturedBlueprint *blueprintv1alpha1.Blueprint
@@ -690,7 +706,6 @@ func TestProvisioner_Prune(t *testing.T) {
 		opts := &provisioner.Provisioner{KubernetesManager: mocks.KubernetesManager}
 		prov := provisioner.NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
 
-		// And a blueprint that vendors CRDs, so Prune must synthesize the CRD layer
 		blueprint := createTestBlueprint()
 		blueprint.Crds = []string{"example.com_widgets"}
 
@@ -699,13 +714,11 @@ func TestProvisioner_Prune(t *testing.T) {
 			t.Fatalf("Expected no error, got %v", err)
 		}
 
-		// Then it delegates to the manager against the gitops namespace
+		// Then the manager prunes in the gitops namespace with the CRD layer kept
 		if capturedNamespace != constants.DefaultGitopsNamespace {
 			t.Errorf("Expected namespace %q, got %q", constants.DefaultGitopsNamespace, capturedNamespace)
 		}
 
-		// And the captured blueprint carries the synthesized CRD layer, proving withCrdLayer
-		// was applied so the CRD kustomizations stay in the desired set and are never pruned
 		if capturedBlueprint == nil {
 			t.Fatal("Expected a blueprint to be passed to the manager")
 		}
@@ -724,17 +737,23 @@ func TestProvisioner_Prune(t *testing.T) {
 	})
 
 	t.Run("NilBlueprintReturnsError", func(t *testing.T) {
+		// Given a provisioner with a kubernetes manager
 		mocks := setupProvisionerMocks(t)
 		prov := provisioner.NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &provisioner.Provisioner{KubernetesManager: mocks.KubernetesManager})
+		// When pruning a nil blueprint
+		// Then an error is returned
 		if err := prov.Prune(context.Background(), nil); err == nil {
 			t.Error("Expected error for nil blueprint")
 		}
 	})
 
 	t.Run("NilManagerReturnsError", func(t *testing.T) {
+		// Given a provisioner whose kubernetes manager is nil
 		mocks := setupProvisionerMocks(t)
 		prov := provisioner.NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &provisioner.Provisioner{KubernetesManager: mocks.KubernetesManager})
 		prov.KubernetesManager = nil
+		// When pruning
+		// Then an error is returned
 		if err := prov.Prune(context.Background(), createTestBlueprint()); err == nil {
 			t.Error("Expected error for nil kubernetes manager")
 		}
@@ -768,17 +787,23 @@ func TestProvisioner_PrunableKustomizations(t *testing.T) {
 	})
 
 	t.Run("NilBlueprintReturnsError", func(t *testing.T) {
+		// Given a provisioner with a kubernetes manager
 		mocks := setupProvisionerMocks(t)
 		prov := provisioner.NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &provisioner.Provisioner{KubernetesManager: mocks.KubernetesManager})
+		// When listing prunable kustomizations for a nil blueprint
+		// Then an error is returned
 		if _, err := prov.PrunableKustomizations(nil); err == nil {
 			t.Error("Expected error for nil blueprint")
 		}
 	})
 
 	t.Run("NilManagerReturnsError", func(t *testing.T) {
+		// Given a provisioner whose kubernetes manager is nil
 		mocks := setupProvisionerMocks(t)
 		prov := provisioner.NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &provisioner.Provisioner{KubernetesManager: mocks.KubernetesManager})
 		prov.KubernetesManager = nil
+		// When listing prunable kustomizations
+		// Then an error is returned
 		if _, err := prov.PrunableKustomizations(createTestBlueprint()); err == nil {
 			t.Error("Expected error for nil kubernetes manager")
 		}
@@ -786,7 +811,8 @@ func TestProvisioner_PrunableKustomizations(t *testing.T) {
 }
 
 func TestProvisioner_Uninstall(t *testing.T) {
-	t.Run("Success", func(t *testing.T) {
+	t.Run("UninstallsBlueprint", func(t *testing.T) {
+		// Given a kubernetes manager that deletes successfully
 		mocks := setupProvisionerMocks(t)
 		mocks.KubernetesManager.DeleteBlueprintFunc = func(blueprint *blueprintv1alpha1.Blueprint, namespace string) error {
 			return nil
@@ -796,15 +822,18 @@ func TestProvisioner_Uninstall(t *testing.T) {
 		}
 		prov := provisioner.NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
 
+		// When Uninstall is called
 		blueprint := createTestBlueprint()
 		err := prov.Uninstall(context.Background(), blueprint)
 
+		// Then no error is returned
 		if err != nil {
 			t.Errorf("Expected no error, got: %v", err)
 		}
 	})
 
 	t.Run("SuccessWithCleanupKustomizations", func(t *testing.T) {
+		// Given a kubernetes manager that deletes successfully and one kustomization
 		mocks := setupProvisionerMocks(t)
 		mocks.KubernetesManager.DeleteBlueprintFunc = func(blueprint *blueprintv1alpha1.Blueprint, namespace string) error {
 			return nil
@@ -821,14 +850,17 @@ func TestProvisioner_Uninstall(t *testing.T) {
 			},
 		}
 
+		// When Uninstall is called
 		err := prov.Uninstall(context.Background(), blueprint)
 
+		// Then no error is returned
 		if err != nil {
 			t.Errorf("Expected no error, got: %v", err)
 		}
 	})
 
 	t.Run("SuccessSkipsDestroyFalse", func(t *testing.T) {
+		// Given one kustomization with destroy false and one with destroy unset
 		mocks := setupProvisionerMocks(t)
 		mocks.KubernetesManager.DeleteBlueprintFunc = func(blueprint *blueprintv1alpha1.Blueprint, namespace string) error {
 			return nil
@@ -851,8 +883,10 @@ func TestProvisioner_Uninstall(t *testing.T) {
 			},
 		}
 
+		// When Uninstall is called
 		err := prov.Uninstall(context.Background(), blueprint)
 
+		// Then no error is returned
 		if err != nil {
 			t.Errorf("Expected no error, got: %v", err)
 		}
@@ -881,8 +915,7 @@ func TestProvisioner_Uninstall(t *testing.T) {
 			t.Fatalf("Expected no error, got: %v", err)
 		}
 
-		// Then the synthesized crds layer is part of the destroy walk so the Flux
-		// Kustomization object is removed, with pruning left disabled so the CRDs survive
+		// Then the crds layer is destroyed with prune off so the CRDs survive
 		if deleted == nil || len(deleted.Kustomizations) != 2 {
 			t.Fatalf("expected crds kustomization included in destroy, got %+v", deleted)
 		}
@@ -896,8 +929,7 @@ func TestProvisioner_Uninstall(t *testing.T) {
 	})
 
 	t.Run("SkipsWhenKubeconfigMissing", func(t *testing.T) {
-		// A missing kubeconfig means the cluster is already gone. Uninstall must not attempt
-		// to build a client against it. See #3397.
+		// Given a context with no kubeconfig because the cluster is gone
 		mocks := setupProvisionerMocks(t)
 		mocks.Runtime.ConfigRoot = t.TempDir()
 
@@ -909,8 +941,10 @@ func TestProvisioner_Uninstall(t *testing.T) {
 		opts := &provisioner.Provisioner{KubernetesManager: mocks.KubernetesManager}
 		prov := provisioner.NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
 
+		// When Uninstall is called
 		err := prov.Uninstall(context.Background(), createTestBlueprint())
 
+		// Then DeleteBlueprint is not called and no error is returned
 		if err != nil {
 			t.Errorf("Expected no error, got: %v", err)
 		}
@@ -920,11 +954,14 @@ func TestProvisioner_Uninstall(t *testing.T) {
 	})
 
 	t.Run("ErrorNilBlueprint", func(t *testing.T) {
+		// Given a provisioner
 		mocks := setupProvisionerMocks(t)
 		prov := provisioner.NewProvisioner(mocks.Runtime, mocks.BlueprintHandler)
 
+		// When Uninstall is called
 		err := prov.Uninstall(context.Background(), nil)
 
+		// Then an error is returned
 		if err == nil {
 			t.Error("Expected error for nil blueprint")
 		}
@@ -935,13 +972,16 @@ func TestProvisioner_Uninstall(t *testing.T) {
 	})
 
 	t.Run("ErrorNilKubernetesManager", func(t *testing.T) {
+		// Given a provisioner whose kubernetes manager is nil
 		mocks := setupProvisionerMocks(t)
 		prov := provisioner.NewProvisioner(mocks.Runtime, mocks.BlueprintHandler)
 		prov.KubernetesManager = nil
 
+		// When Uninstall is called
 		blueprint := createTestBlueprint()
 		err := prov.Uninstall(context.Background(), blueprint)
 
+		// Then an error is returned
 		if err == nil {
 			t.Error("Expected error for nil kubernetes manager")
 		}
@@ -952,6 +992,7 @@ func TestProvisioner_Uninstall(t *testing.T) {
 	})
 
 	t.Run("ErrorDeleteBlueprint", func(t *testing.T) {
+		// Given a kubernetes manager whose delete fails
 		mocks := setupProvisionerMocks(t)
 		mocks.KubernetesManager.DeleteBlueprintFunc = func(blueprint *blueprintv1alpha1.Blueprint, namespace string) error {
 			return fmt.Errorf("delete blueprint failed")
@@ -961,9 +1002,11 @@ func TestProvisioner_Uninstall(t *testing.T) {
 		}
 		prov := provisioner.NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
 
+		// When Uninstall is called
 		blueprint := createTestBlueprint()
 		err := prov.Uninstall(context.Background(), blueprint)
 
+		// Then an error is returned
 		if err == nil {
 			t.Error("Expected error for delete blueprint failure")
 		}
@@ -1083,9 +1126,9 @@ func TestProvisioner_Install_Converge(t *testing.T) {
 		}
 		bp := &blueprintv1alpha1.Blueprint{Kustomizations: []blueprintv1alpha1.Kustomization{{Name: "lb-install"}}}
 
-		// When converging, it nudges the not-ready kustomization and force-reconciles its stalled HR, then
-		// returns once everything reports Ready
+		// When converging
 		converge(newProv(mocks, notifier), context.Background(), bp, time.Second)
+		// Then lb-install is reconciled and its stalled HelmRelease is force-reconciled
 		if len(reconciledK) == 0 || !slices.Contains(reconciledK[0], "lb-install") {
 			t.Errorf("expected lb-install reconciled, got %v", reconciledK)
 		}
@@ -1112,8 +1155,9 @@ func TestProvisioner_Install_Converge(t *testing.T) {
 		}
 		bp := &blueprintv1alpha1.Blueprint{Kustomizations: []blueprintv1alpha1.Kustomization{{Name: "lb-install"}}}
 
-		// When converging, it returns without nudging anything
+		// When converging
 		converge(newProv(mocks, notifier), context.Background(), bp, time.Second)
+		// Then no kustomization is reconciled
 		if nudged {
 			t.Error("expected no reconcile when everything is already Ready")
 		}
@@ -1145,8 +1189,9 @@ func TestProvisioner_Install_Converge(t *testing.T) {
 		}
 		bp := &blueprintv1alpha1.Blueprint{Kustomizations: []blueprintv1alpha1.Kustomization{{Name: "lb-install"}}}
 
-		// When converging, a healthy HelmRelease is not force-reconciled
+		// When converging
 		converge(newProv(mocks, notifier), context.Background(), bp, time.Second)
+		// Then the healthy HelmRelease is not force-reconciled
 		if forcedAny {
 			t.Error("expected healthy HelmRelease left untouched")
 		}
@@ -1172,6 +1217,7 @@ func TestProvisioner_Install_NudgeFrontier(t *testing.T) {
 	}
 
 	t.Run("NudgesOnlyNotReadyFrontierAndNeverReadyOrBlocked", func(t *testing.T) {
+		// Given crds Ready, lb-install not Ready, and gateway-install blocked on lb-install
 		mocks := setupProvisionerMocks(t)
 		mocks.KubernetesManager.GetKustomizationReadinessFunc = func(names []string) (map[string]bool, error) {
 			return map[string]bool{"crds": true, "lb-install": false, "gateway-install": false}, nil
@@ -1183,17 +1229,16 @@ func TestProvisioner_Install_NudgeFrontier(t *testing.T) {
 			return nil
 		}
 
-		// When nudging, only lb-install (not-ready, deps ready) is reconciled — not crds (Ready) nor
-		// gateway-install (blocked on not-ready lb-install)
+		// When Install converges
 		_ = newProv(mocks, notifier).Install(context.Background(), bp, false)
+		// Then only the not-ready frontier member lb-install is reconciled
 		if len(nudgedNames) != 1 || !slices.Equal(nudgedNames[0], []string{"lb-install"}) {
 			t.Errorf("expected only lb-install nudged, got %v", nudgedNames)
 		}
 	})
 
 	t.Run("DuplicateNameIsQueriedOnce", func(t *testing.T) {
-		// Given a blueprint whose crds kustomization name is declared twice (e.g. a collision
-		// with withCrdLayer's synthesized entry), all Ready
+		// Given a blueprint that declares the Ready crds kustomization twice
 		dup := &blueprintv1alpha1.Blueprint{Kustomizations: []blueprintv1alpha1.Kustomization{
 			{Name: "crds"},
 			{Name: "crds"},
@@ -1207,14 +1252,16 @@ func TestProvisioner_Install_NudgeFrontier(t *testing.T) {
 		}
 		notifier := fluxinfra.NewMockNotifier()
 
-		// When nudging, the duplicate is queried once rather than twice
+		// When Install converges
 		_ = newProv(mocks, notifier).Install(context.Background(), dup, false)
+		// Then each name is queried once
 		if len(queried) != 2 || !slices.Contains(queried, "crds") || !slices.Contains(queried, "lb-install") {
 			t.Errorf("expected [crds lb-install] queried once each, got %v", queried)
 		}
 	})
 
 	t.Run("NudgesEachFrontierMemberOnlyOnce", func(t *testing.T) {
+		// Given lb-install stays not Ready behind a Ready crds kustomization
 		mocks := setupProvisionerMocks(t)
 		mocks.KubernetesManager.GetKustomizationReadinessFunc = func(names []string) (map[string]bool, error) {
 			return map[string]bool{"crds": true, "lb-install": false, "gateway-install": false}, nil

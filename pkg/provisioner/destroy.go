@@ -161,17 +161,11 @@ func (i *Provisioner) DestroyKustomize(ctx context.Context, blueprint *blueprint
 	return nil
 }
 
-// DestroyAll destroys every infrastructure component: kustomizations first, then terraform.
-// Uninstall is a no-op when no local kubeconfig exists. See kubeconfigPresent. DestroyAll then
-// counts eligible kustomizations as SkippedClusterGone, not Destroyed. This keeps `windsor
-// destroy` idempotent after a prior run already tore the cluster down.
-//
-// Under continueOnError, any kustomize failure defers terraform. See blocksNextStage. Windsor
-// cannot tell whether a live controller is still mid-delete of a resource terraform never
-// tracked, so it never guesses.
-//
-// excludeIDs skips components in the terraform pass. Callers use this to destroy the backend
-// component last.
+// DestroyAll destroys the kustomizations, then the terraform components. When no local kubeconfig
+// exists, the cluster is gone: Uninstall does nothing and DestroyAll counts the kustomizations as
+// SkippedClusterGone, so a repeated `windsor destroy` succeeds. With continueOnError, a kustomize
+// failure defers terraform, because a controller can still be deleting a resource that terraform
+// does not track. Terraform skips the components in excludeIDs, so a caller can destroy the backend last.
 func (i *Provisioner) DestroyAll(ctx context.Context, blueprint *blueprintv1alpha1.Blueprint, continueOnError bool, excludeIDs ...string) (DestroyResult, error) {
 	var result DestroyResult
 	if blueprint == nil {
@@ -227,7 +221,7 @@ func (i *Provisioner) Teardown(ctx context.Context, blueprint *blueprintv1alpha1
 	if backendType == "kubernetes" && blueprint.Backend == "" {
 		return result, werror.New("blueprint configures terraform.backend.type=kubernetes but does not declare Blueprint.Backend", "Set backend: <cluster-component-id> at the top level of the blueprint to name the terraform component that creates the cluster.", nil)
 	}
-	if err := i.checkOrphanedLocalState(blueprint); err != nil {
+	if err := i.checkOrphanedLocalState(ctx, blueprint); err != nil {
 		return result, err
 	}
 
@@ -270,7 +264,7 @@ func (i *Provisioner) Teardown(ctx context.Context, blueprint *blueprintv1alpha1
 	}
 
 	backendComponentsBP := blueprintWithComponents(blueprint, backendComponents)
-	err = i.withBackendOverride("destroy", func() error {
+	err = i.withBackendOverride(ctx, "destroy", func() error {
 		migrationSkipped, err := i.MigrateState(ctx, backendComponentsBP)
 		if err != nil {
 			return err
@@ -314,7 +308,7 @@ func (i *Provisioner) TeardownComponent(ctx context.Context, blueprint *blueprin
 	if err := i.CheckComponentDestroyable(blueprint, componentID); err != nil {
 		return false, err
 	}
-	if err := i.checkOrphanedLocalState(blueprint); err != nil {
+	if err := i.checkOrphanedLocalState(ctx, blueprint); err != nil {
 		return false, err
 	}
 	return i.Destroy(ctx, blueprint, componentID)

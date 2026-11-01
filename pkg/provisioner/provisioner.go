@@ -10,7 +10,6 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
-	"os"
 	"path/filepath"
 	"slices"
 	"time"
@@ -165,21 +164,16 @@ func (i *Provisioner) OnTerraformPostApply(fn func(ctx context.Context, id strin
 	}
 }
 
-// Up orchestrates the high-level infrastructure deployment process. When the blueprint
-// declares a backend it pivots through local state first, then the configured backend
-// (applyWithBackendPivot) — unconfirmed, same as any other apply through this method,
-// including from cmd/apply.go and cmd/up.go; confirmation is a cmd/bootstrap.go concern, not
-// this method's. Without a declared backend it applies directly. A kubernetes backend with
-// no declared backend and no kubeconfig yet is refused with an actionable error instead of a
-// raw terraform connection failure. On a remote backend, a declared Backend that names no real
-// component is refused rather than silently treated as unset — see resolveBackendComponents.
-// Returns (halted, err); halted=true means a hook stopped after a component. The apply runs as
-// one "Applying terraform" operation, so each component shows as a step under it.
+// Up applies the terraform components and returns true when an onApply hook halts the apply. When the
+// blueprint declares a backend, Up applies the backend components with a local backend first, as
+// applyWithBackendPivot describes. Up refuses a kubernetes backend with no declared backend and no
+// kubeconfig, and a declared backend that names no component. Each component shows as a step under
+// one "Applying terraform" operation. Up does not ask for confirmation; the commands do that.
 func (i *Provisioner) Up(ctx context.Context, blueprint *blueprintv1alpha1.Blueprint, onApply ...func(ctx context.Context, id string) (bool, error)) (bool, error) {
 	if blueprint == nil {
 		return false, fmt.Errorf("blueprint not provided")
 	}
-	if err := i.checkOrphanedLocalState(blueprint); err != nil {
+	if err := i.checkOrphanedLocalState(ctx, blueprint); err != nil {
 		return false, err
 	}
 	var halted bool
@@ -204,7 +198,7 @@ func (i *Provisioner) Apply(ctx context.Context, blueprint *blueprintv1alpha1.Bl
 	if i.TerraformStack == nil {
 		return fmt.Errorf("terraform is disabled")
 	}
-	if err := i.checkOrphanedLocalState(blueprint); err != nil {
+	if err := i.checkOrphanedLocalState(ctx, blueprint); err != nil {
 		return err
 	}
 	if err := i.TerraformStack.Apply(ctx, blueprint, componentID); err != nil {
@@ -213,21 +207,11 @@ func (i *Provisioner) Apply(ctx context.Context, blueprint *blueprintv1alpha1.Bl
 	return nil
 }
 
-// MigrateState reinitializes every Terraform component's backend against the currently configured
-// backend, migrating state as needed. Used by `windsor bootstrap` after its local-first apply
-// pass to move state to the configured remote backend once that backend's underlying infrastructure
-// (e.g. the kubernetes cluster hosting the k8s backend) has been provisioned. Safe to invoke
-// directly for users who change backend config and want existing state migrated in place. The
-// blueprint parameter is required. Returns the IDs of components whose directories were missing
-// and therefore skipped; callers decide whether that is an error condition — bootstrap treats
-// any skip as anomalous (Up should have materialized every dir); pre-destroy migration discards
-// the list because un-applied components are a normal condition there.
-//
-// The skipped slice is returned alongside any error (not only on success), mirroring the
-// Stack.MigrateState contract. Dropping it on the error path would strand bootstrap without
-// the context it needs to emit "A was skipped, then B failed" in a single diagnostic — the
-// exact signal the operator needs to investigate what removed A's directory between Up and
-// MigrateState.
+// MigrateState initializes the backend of every terraform component against the configured backend
+// and migrates the state. `windsor bootstrap` calls it after the local apply, when the backend
+// infrastructure exists. It returns the IDs of the components it skipped because their directory
+// was missing, also together with an error, so that a caller can report the skip and the failure
+// together. The caller decides whether a skip is an error.
 func (i *Provisioner) MigrateState(ctx context.Context, blueprint *blueprintv1alpha1.Blueprint) ([]string, error) {
 	if blueprint == nil {
 		return nil, fmt.Errorf("blueprint not provided")
@@ -245,13 +229,10 @@ func (i *Provisioner) MigrateState(ctx context.Context, blueprint *blueprintv1al
 	return skipped, nil
 }
 
-// MigrateComponentState reinitializes a single Terraform component's backend against the
-// currently configured backend, migrating state as needed. Used by `windsor bootstrap` to
-// move only the backend component's state to remote (e.g. S3) immediately after the
-// backend infrastructure is applied with a local backend; subsequent components then init
-// directly against the configured remote backend on the next Up. Returns an error if the
-// blueprint is nil, the component is not found, terraform is disabled, or any terraform
-// operation fails.
+// MigrateComponentState initializes the backend of one terraform component against the configured
+// backend and migrates its state. `windsor bootstrap` calls it to move the state of the backend
+// component after Windsor applies it with a local backend. It returns an error when the blueprint is
+// nil, the component is missing, terraform is disabled, or a terraform operation fails.
 func (i *Provisioner) MigrateComponentState(blueprint *blueprintv1alpha1.Blueprint, componentID string) error {
 	if blueprint == nil {
 		return fmt.Errorf("blueprint not provided")
@@ -447,7 +428,7 @@ func (i *Provisioner) recoverHalfMigratedComponents(ctx context.Context, bluepri
 
 		message := fmt.Sprintf("Migrating leftover local state for %s → %s", componentID, backendType)
 		if err := presenter.Track(ctx, "terraform:"+componentID, message, func(ctx context.Context) error {
-			if err := i.withBackendOverride("local-recovery-init", func() error {
+			if err := i.withBackendOverride(ctx, "local-recovery-init", func() error {
 				return i.InitComponent(blueprint, componentID)
 			}); err != nil {
 				return werror.Wrap(err, "error resetting backend pointer")
@@ -469,17 +450,11 @@ func (i *Provisioner) recoverHalfMigratedComponents(ctx context.Context, bluepri
 	return nil
 }
 
-// checkOrphanedLocalState warns about local Terraform state under a componentID no longer in
-// the blueprint. A rename is the usual cause.
-//
-// The check does not depend on the configured backend type. A local backend can strand state
-// under an old componentID just as a remote one can.
-//
-// Call it once per operation, with the full, unsliced blueprint. It ignores any
-// terraform.backend.type override already in effect. Callers do not need to sequence it around
-// one. A disabled terraform stack has no local state to check, so this is a no-op then, not an
-// error.
-func (i *Provisioner) checkOrphanedLocalState(blueprint *blueprintv1alpha1.Blueprint) error {
+// checkOrphanedLocalState warns in ctx about local terraform state under a component ID that the
+// blueprint no longer has. A rename is the usual cause. Pass the full blueprint, once per operation.
+// The check ignores the backend type and any backend override in effect. A disabled terraform stack
+// has no local state, so the check does nothing then.
+func (i *Provisioner) checkOrphanedLocalState(ctx context.Context, blueprint *blueprintv1alpha1.Blueprint) error {
 	if blueprint == nil {
 		return fmt.Errorf("blueprint not provided")
 	}
@@ -494,25 +469,19 @@ func (i *Provisioner) checkOrphanedLocalState(blueprint *blueprintv1alpha1.Bluep
 	for _, c := range blueprint.TerraformComponents {
 		currentIDs[c.GetID()] = true
 	}
-	return i.warnAboutOrphanedLocalState(currentIDs)
+	i.warnAboutOrphanedLocalState(ctx, currentIDs)
+	return nil
 }
 
-// warnAboutOrphanedLocalState finds componentIDs with local Terraform state on disk that are no
-// longer in the blueprint. A rename is the usual cause.
-//
-// It only detects and warns. It never migrates or removes anything. An orphaned ID is just as
-// consistent with a proper destroy-then-remove as with a rename. The two look the same from an
-// on-disk ID alone. Force-copying into the shared remote backend is not safe to run unattended
-// for either case: a decommissioned component's stale local state would get published into the
-// shared backend forever, under an ID nothing will ever reference again.
-//
-// A failure to inspect local state is reported as a warning, not a returned error. This check is
-// advisory, so it must not block the apply or destroy it runs alongside.
-func (i *Provisioner) warnAboutOrphanedLocalState(currentIDs map[string]bool) error {
+// warnAboutOrphanedLocalState warns in ctx about each component ID that has local state with
+// resources but is not in currentIDs. It never migrates or removes state, because a rename and a
+// destroy-then-remove look the same on disk. A failure to read local state is also a warning, so
+// the check never blocks the operation it runs alongside.
+func (i *Provisioner) warnAboutOrphanedLocalState(ctx context.Context, currentIDs map[string]bool) {
 	localIDs, err := i.ListLocalStateComponentIDs()
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "warning: could not check for orphaned local terraform state: %v\n", err)
-		return nil
+		presenter.Warn(ctx, fmt.Sprintf("could not check for orphaned local terraform state: %v", err))
+		return
 	}
 
 	for _, componentID := range localIDs {
@@ -522,16 +491,15 @@ func (i *Provisioner) warnAboutOrphanedLocalState(currentIDs map[string]bool) er
 
 		hasLocal, err := i.HasLocalStateWithResources(componentID)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "warning: could not inspect local terraform state for %q: %v\n", componentID, err)
+			presenter.Warn(ctx, fmt.Sprintf("could not inspect local terraform state for %q: %v", componentID, err))
 			continue
 		}
 		if !hasLocal {
 			continue
 		}
 
-		fmt.Fprintf(os.Stderr, "warning: found local terraform state for %q, which is no longer in the blueprint; state was not migrated automatically — if this component was renamed, re-add it under this ID to migrate its state, or reconcile it manually\n", componentID)
+		presenter.Warn(ctx, fmt.Sprintf("found local terraform state for %q, which is no longer in the blueprint; state was not migrated automatically — if this component was renamed, re-add it under this ID to migrate its state, or reconcile it manually", componentID))
 	}
-	return nil
 }
 
 // pollInterval returns PollInterval, or the default kustomization wait poll interval when
@@ -588,13 +556,9 @@ func (i *Provisioner) ensureFluxStack() error {
 	return nil
 }
 
-// ensureNotifier initializes the flux webhook Notifier if it is not already
-// initialized. Mirrors ensureFluxStack — the Notifier is only constructed when
-// something actually calls Notify, which keeps Provisioner construction cheap
-// for commands that do not need webhook notification. The runtime and
-// KubernetesClient guards convert struct-literal misuse (a *Provisioner
-// constructed outside NewProvisioner in a test or future caller) from a
-// panic-inside-spinner into a graceful error the caller can log or swallow.
+// ensureNotifier creates the flux webhook Notifier on the first Notify call, so that commands that do
+// not notify do not build it. It returns an error, not a panic, when the runtime or KubernetesClient
+// is nil, which happens for a Provisioner that NewProvisioner did not create.
 func (i *Provisioner) ensureNotifier() error {
 	if i.Notifier != nil {
 		return nil
@@ -614,20 +578,10 @@ func (i *Provisioner) fluxNamespace() string {
 	return i.configHandler.GetString("gitops.namespace", constants.DefaultGitopsNamespace)
 }
 
-// kubeconfigPresent reports whether the context-scoped kubeconfig file exists on
-// disk. Used by destroy paths to decide whether to attempt kustomization deletion:
-// the cluster is gone (or was never bootstrapped past terraform) when the file is
-// missing, so trying to talk to its API would fail with a stat error and abort the
-// whole destroy. Treating it as a clean signal lets `windsor destroy` be idempotent
-// across partial-tear-down recoveries. Returns false when configRoot is empty —
-// without a config root we have no path to probe and the conservative answer is
-// "no cluster," which is consistent with the same scenarios that produce empty
-// configRoot (no context selected, no init).
-//
-// Only fs.ErrNotExist returns false. Permission errors and other stat failures
-// fall through as "present" so the subsequent Uninstall surfaces a clear error
-// rather than silently skipping kustomization cleanup and leaking finalizers
-// when terraform later yanks the cluster's underlying infra.
+// kubeconfigPresent reports whether the kubeconfig of the context exists. The destroy paths skip the
+// kustomizations when it does not, because the cluster is gone. An empty configRoot gives false. Only
+// fs.ErrNotExist gives false: another stat error gives true, so that Uninstall reports the error and
+// does not skip the cleanup and leave finalizers behind.
 func (i *Provisioner) kubeconfigPresent() bool {
 	if i.configRoot == "" {
 		return false

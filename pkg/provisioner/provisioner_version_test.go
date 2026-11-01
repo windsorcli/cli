@@ -43,17 +43,23 @@ func TestProvisioner_WriteVersionMarker(t *testing.T) {
 	})
 
 	t.Run("NilBlueprintReturnsError", func(t *testing.T) {
+		// Given a provisioner with a kubernetes manager
 		mocks := setupProvisionerMocks(t)
 		prov := provisioner.NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &provisioner.Provisioner{KubernetesManager: mocks.KubernetesManager})
+		// When writing the marker for a nil blueprint
+		// Then an error is returned
 		if err := prov.WriteVersionMarker(nil); err == nil {
 			t.Error("Expected error for nil blueprint")
 		}
 	})
 
 	t.Run("NilManagerReturnsError", func(t *testing.T) {
+		// Given a provisioner whose kubernetes manager is nil
 		mocks := setupProvisionerMocks(t)
 		prov := provisioner.NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &provisioner.Provisioner{KubernetesManager: mocks.KubernetesManager})
 		prov.KubernetesManager = nil
+		// When writing the marker
+		// Then an error is returned
 		if err := prov.WriteVersionMarker(createTestBlueprint()); err == nil {
 			t.Error("Expected error for nil kubernetes manager")
 		}
@@ -82,7 +88,7 @@ func TestProvisioner_BeginVersionTransition(t *testing.T) {
 			t.Fatalf("Expected no error, got %v", err)
 		}
 
-		// Then the written marker is in-flight, preserves the old applied set, and records the new target
+		// Then the marker is upgrading, keeps the old applied set, and records the target
 		if captured.Phase != kubernetes.VersionMarkerPhaseUpgrading {
 			t.Errorf("Expected phase %q, got %q", kubernetes.VersionMarkerPhaseUpgrading, captured.Phase)
 		}
@@ -96,7 +102,7 @@ func TestProvisioner_BeginVersionTransition(t *testing.T) {
 	})
 
 	t.Run("EmptyAppliedForLegacyContext", func(t *testing.T) {
-		// Given a legacy/first-upgrade context with no recorded marker
+		// Given a legacy context with no recorded marker
 		mocks := setupProvisionerMocks(t)
 		mocks.KubernetesManager.GetVersionMarkerFunc = func(namespace string) (kubernetes.VersionMarker, bool, error) {
 			return kubernetes.VersionMarker{}, false, nil
@@ -113,7 +119,7 @@ func TestProvisioner_BeginVersionTransition(t *testing.T) {
 			t.Fatalf("Expected no error, got %v", err)
 		}
 
-		// Then there is no applied set to preserve, but the target is still recorded
+		// Then the applied set is empty and the target is recorded
 		if len(captured.AppliedSources) != 0 {
 			t.Errorf("Expected empty applied set for a legacy context, got %+v", captured.AppliedSources)
 		}
@@ -130,24 +136,31 @@ func TestProvisioner_BeginVersionTransition(t *testing.T) {
 		}
 		prov := provisioner.NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &provisioner.Provisioner{KubernetesManager: mocks.KubernetesManager})
 
-		// When beginning a transition, the read error surfaces rather than writing a wrong marker
+		// When beginning a transition
+		// Then the read error is returned
 		if err := prov.BeginVersionTransition(createTestBlueprint()); err == nil {
 			t.Error("Expected an error when the current marker cannot be read")
 		}
 	})
 
 	t.Run("NilBlueprintReturnsError", func(t *testing.T) {
+		// Given a provisioner with a kubernetes manager
 		mocks := setupProvisionerMocks(t)
 		prov := provisioner.NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &provisioner.Provisioner{KubernetesManager: mocks.KubernetesManager})
+		// When beginning a transition for a nil blueprint
+		// Then an error is returned
 		if err := prov.BeginVersionTransition(nil); err == nil {
 			t.Error("Expected error for nil blueprint")
 		}
 	})
 
 	t.Run("NilManagerReturnsError", func(t *testing.T) {
+		// Given a provisioner whose kubernetes manager is nil
 		mocks := setupProvisionerMocks(t)
 		prov := provisioner.NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &provisioner.Provisioner{KubernetesManager: mocks.KubernetesManager})
 		prov.KubernetesManager = nil
+		// When beginning a transition
+		// Then an error is returned
 		if err := prov.BeginVersionTransition(createTestBlueprint()); err == nil {
 			t.Error("Expected error for nil kubernetes manager")
 		}
@@ -165,6 +178,8 @@ func TestProvisioner_GetVersionMarker(t *testing.T) {
 
 		// When the marker is read
 		_, found, err := prov.GetVersionMarker()
+
+		// Then the marker is found without error
 		if err != nil {
 			t.Fatalf("Expected no error, got %v", err)
 		}
@@ -174,7 +189,7 @@ func TestProvisioner_GetVersionMarker(t *testing.T) {
 	})
 
 	t.Run("ReturnsAbsentWithoutClusterWhenNoKubeconfig", func(t *testing.T) {
-		// Given a context whose config root has no kubeconfig (no cluster)
+		// Given a context whose config root has no kubeconfig
 		mocks := setupProvisionerMocks(t)
 		mocks.Runtime.ConfigRoot = t.TempDir()
 		called := false
@@ -200,9 +215,12 @@ func TestProvisioner_GetVersionMarker(t *testing.T) {
 	})
 
 	t.Run("NilManagerReturnsError", func(t *testing.T) {
+		// Given a provisioner whose kubernetes manager is nil
 		mocks := setupProvisionerMocks(t)
 		prov := provisioner.NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &provisioner.Provisioner{KubernetesManager: mocks.KubernetesManager})
 		prov.KubernetesManager = nil
+		// When the marker is read
+		// Then an error is returned
 		if _, _, err := prov.GetVersionMarker(); err == nil {
 			t.Error("Expected error for nil kubernetes manager")
 		}
@@ -233,7 +251,7 @@ func TestProvisioner_CheckVersionGate(t *testing.T) {
 			t.Fatalf("Expected no error, got %v", err)
 		}
 
-		// Then it reports no marker — the caller proceeds as a legacy/pre-bootstrap context
+		// Then it reports that no marker is found
 		if gate.MarkerFound {
 			t.Error("Expected MarkerFound=false when no marker is recorded")
 		}
@@ -278,7 +296,7 @@ func TestProvisioner_CheckVersionGate(t *testing.T) {
 			t.Fatalf("Expected no error, got %v", err)
 		}
 
-		// Then the version does not match — apply must redirect to upgrade
+		// Then it reports that the version does not match
 		if !gate.MarkerFound || gate.VersionMatch {
 			t.Errorf("Expected found with VersionMatch=false, got %+v", gate)
 		}
@@ -307,7 +325,7 @@ func TestProvisioner_CheckVersionGate(t *testing.T) {
 	})
 
 	t.Run("NoKubeconfigShortCircuitsToLegacy", func(t *testing.T) {
-		// Given a context with no kubeconfig (no cluster)
+		// Given a context with no kubeconfig
 		mocks := setupProvisionerMocks(t)
 		mocks.Runtime.ConfigRoot = t.TempDir()
 		mocks.KubernetesManager.GetVersionMarkerFunc = func(namespace string) (kubernetes.VersionMarker, bool, error) {
@@ -315,8 +333,10 @@ func TestProvisioner_CheckVersionGate(t *testing.T) {
 		}
 		prov := provisioner.NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &provisioner.Provisioner{KubernetesManager: mocks.KubernetesManager})
 
-		// When the gate is checked, it short-circuits to "nothing applied"
+		// When the gate is checked
 		gate, err := prov.CheckVersionGate(createTestBlueprint())
+
+		// Then it reports that no marker is found
 		if err != nil {
 			t.Fatalf("Expected no error, got %v", err)
 		}
@@ -326,22 +346,26 @@ func TestProvisioner_CheckVersionGate(t *testing.T) {
 	})
 
 	t.Run("ReadFailurePropagates", func(t *testing.T) {
-		// Given a marker read that fails (cluster unreachable)
+		// Given a marker read that fails because the cluster is unreachable
 		mocks := setupProvisionerMocks(t)
 		mocks.KubernetesManager.GetVersionMarkerFunc = func(namespace string) (kubernetes.VersionMarker, bool, error) {
 			return kubernetes.VersionMarker{}, false, fmt.Errorf("connection refused")
 		}
 		prov := provisioner.NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &provisioner.Provisioner{KubernetesManager: mocks.KubernetesManager})
 
-		// When the gate is checked, the error surfaces for the caller to treat as best-effort
+		// When the gate is checked
+		// Then the read error is returned
 		if _, err := prov.CheckVersionGate(createTestBlueprint()); err == nil {
 			t.Error("Expected an error when the marker read fails")
 		}
 	})
 
 	t.Run("NilBlueprintReturnsError", func(t *testing.T) {
+		// Given a provisioner with a kubernetes manager
 		mocks := setupProvisionerMocks(t)
 		prov := provisioner.NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &provisioner.Provisioner{KubernetesManager: mocks.KubernetesManager})
+		// When the gate is checked for a nil blueprint
+		// Then an error is returned
 		if _, err := prov.CheckVersionGate(nil); err == nil {
 			t.Error("Expected error for nil blueprint")
 		}
