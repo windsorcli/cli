@@ -26,17 +26,10 @@ import (
 // applyCommonSubstitutions extracts common substitutions from values.yaml, merges legacy special
 // variables (DOMAIN, CONTEXT, etc.) from the runtime config, and creates a ConfigMap called
 // "values-common" in the blueprint. This ConfigMap is used by kustomizations for postBuild
-// substitutions. The method combines values from the commonSubstitutions field (set via
-// SetCommonSubstitutions), values from the "common" key in substitutions from values.yaml,
-// and legacy variables extracted from the config handler.
+// substitutions. The method combines the blueprint substitutions, values from the "common" key
+// in substitutions from values.yaml, and legacy variables extracted from the config handler.
 func (c *BaseBlueprintComposer) applyCommonSubstitutions(blueprint *blueprintv1alpha1.Blueprint) {
 	mergedCommonValues := make(map[string]string)
-
-	if c.commonSubstitutions != nil {
-		for k, v := range c.commonSubstitutions {
-			mergedCommonValues[k] = v
-		}
-	}
 
 	for k, v := range blueprint.Substitutions {
 		mergedCommonValues[k] = v

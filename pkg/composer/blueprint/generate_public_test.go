@@ -1,9 +1,7 @@
 package blueprint_test
 
 import (
-	"path/filepath"
 	"reflect"
-	"sort"
 	"testing"
 
 	"github.com/windsorcli/cli/pkg/composer/blueprint"
@@ -186,32 +184,6 @@ func TestGetTerraformComponents(t *testing.T) {
 		}
 		if !reflect.DeepEqual(ids, []string{"net", "cluster"}) {
 			t.Errorf("expected [net cluster], got %v", ids)
-		}
-	})
-}
-
-func TestGetLocalTemplateData(t *testing.T) {
-	t.Run("ReturnsTheTemplateFiles", func(t *testing.T) {
-		// Given a template blueprint and one facet
-		f := newFixture(t)
-		f.project(t)
-		f.facet(t, "stack", deferredFacet)
-		h := f.mustLoad(t)
-
-		// When the local template data is read
-		data, err := h.GetLocalTemplateData()
-
-		// Then it holds each template file by its path under the template
-		if err != nil {
-			t.Fatalf("GetLocalTemplateData: %v", err)
-		}
-		var keys []string
-		for key := range data {
-			keys = append(keys, key)
-		}
-		sort.Strings(keys)
-		if !reflect.DeepEqual(keys, []string{"blueprint.yaml", filepath.Join("facets", "stack.yaml")}) {
-			t.Errorf("unexpected template files %v", keys)
 		}
 	})
 }

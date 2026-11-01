@@ -16,8 +16,8 @@ import (
 // =============================================================================
 
 func TestComposer_applyCommonSubstitutions(t *testing.T) {
-	t.Run("CreatesConfigMapFromCommonSubstitutions", func(t *testing.T) {
-		// Given a composer with common substitutions set
+	t.Run("CreatesConfigMapFromBlueprintSubstitutions", func(t *testing.T) {
+		// Given a blueprint with substitutions
 		mocks := setupComposerMocks(t)
 		mocks.ConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
 			return ""
@@ -29,11 +29,10 @@ func TestComposer_applyCommonSubstitutions(t *testing.T) {
 			return []string{}
 		}
 		composer := NewBlueprintComposer(mocks.Runtime)
-		composer.SetCommonSubstitutions(map[string]string{
+		blueprint := &blueprintv1alpha1.Blueprint{Substitutions: map[string]string{
 			"DOMAIN": "example.com",
 			"ENV":    "production",
-		})
-		blueprint := &blueprintv1alpha1.Blueprint{}
+		}}
 
 		// When applying common substitutions
 		composer.applyCommonSubstitutions(blueprint)
@@ -83,8 +82,8 @@ func TestComposer_applyCommonSubstitutions(t *testing.T) {
 		}
 	})
 
-	t.Run("MergesCommonSubstitutionsAndValuesYaml", func(t *testing.T) {
-		// Given a composer with both commonSubstitutions and values.yaml
+	t.Run("MergesBlueprintSubstitutionsAndValuesYaml", func(t *testing.T) {
+		// Given a blueprint with substitutions and values.yaml
 		mocks := setupComposerMocks(t)
 		mocks.ConfigHandler.GetContextValuesFunc = func() (map[string]any, error) {
 			return map[string]any{
@@ -96,10 +95,9 @@ func TestComposer_applyCommonSubstitutions(t *testing.T) {
 			}, nil
 		}
 		composer := NewBlueprintComposer(mocks.Runtime)
-		composer.SetCommonSubstitutions(map[string]string{
+		blueprint := &blueprintv1alpha1.Blueprint{Substitutions: map[string]string{
 			"FROM_SET": "set-value",
-		})
-		blueprint := &blueprintv1alpha1.Blueprint{}
+		}}
 
 		// When applying common substitutions
 		composer.applyCommonSubstitutions(blueprint)
@@ -143,16 +141,13 @@ func TestComposer_applyCommonSubstitutions(t *testing.T) {
 
 	t.Run("HandlesNilRuntime", func(t *testing.T) {
 		// Given a composer with nil runtime
-		composer := &BaseBlueprintComposer{
-			runtime:             nil,
-			commonSubstitutions: map[string]string{"KEY": "value"},
-		}
-		blueprint := &blueprintv1alpha1.Blueprint{}
+		composer := &BaseBlueprintComposer{}
+		blueprint := &blueprintv1alpha1.Blueprint{Substitutions: map[string]string{"KEY": "value"}}
 
 		// When applying common substitutions
 		composer.applyCommonSubstitutions(blueprint)
 
-		// Then should still create ConfigMap from commonSubstitutions
+		// Then should still create ConfigMap from the blueprint substitutions
 		if blueprint.ConfigMaps == nil {
 			t.Fatal("Expected ConfigMaps to be initialized")
 		}
@@ -167,13 +162,12 @@ func TestComposer_applyCommonSubstitutions(t *testing.T) {
 		mocks := setupComposerMocks(t)
 		mocks.Runtime.ConfigHandler = nil
 		composer := NewBlueprintComposer(mocks.Runtime)
-		composer.SetCommonSubstitutions(map[string]string{"KEY": "value"})
-		blueprint := &blueprintv1alpha1.Blueprint{}
+		blueprint := &blueprintv1alpha1.Blueprint{Substitutions: map[string]string{"KEY": "value"}}
 
 		// When applying common substitutions
 		composer.applyCommonSubstitutions(blueprint)
 
-		// Then should still create ConfigMap from commonSubstitutions
+		// Then should still create ConfigMap from the blueprint substitutions
 		common := blueprint.ConfigMaps["values-common"]
 		if common["KEY"] != "value" {
 			t.Errorf("Expected KEY='value', got '%s'", common["KEY"])
@@ -187,13 +181,12 @@ func TestComposer_applyCommonSubstitutions(t *testing.T) {
 			return nil, os.ErrNotExist
 		}
 		composer := NewBlueprintComposer(mocks.Runtime)
-		composer.SetCommonSubstitutions(map[string]string{"KEY": "value"})
-		blueprint := &blueprintv1alpha1.Blueprint{}
+		blueprint := &blueprintv1alpha1.Blueprint{Substitutions: map[string]string{"KEY": "value"}}
 
 		// When applying common substitutions
 		composer.applyCommonSubstitutions(blueprint)
 
-		// Then should still create ConfigMap from commonSubstitutions
+		// Then should still create ConfigMap from the blueprint substitutions
 		common := blueprint.ConfigMaps["values-common"]
 		if common["KEY"] != "value" {
 			t.Errorf("Expected KEY='value', got '%s'", common["KEY"])
@@ -1573,10 +1566,6 @@ func TestComposer_applyPerKustomizationSubstitutions(t *testing.T) {
 	})
 }
 
-// =============================================================================
-// Test Helpers
-// =============================================================================
-
 func TestValidPatchTargetNames(t *testing.T) {
 	t.Run("DeduplicatesNameCollidingAcrossBothMaps", func(t *testing.T) {
 		// Given a plain kustomization name that collides with a compiled FluxSystem tier name
@@ -1610,6 +1599,10 @@ func TestValidPatchTargetNames(t *testing.T) {
 		}
 	})
 }
+
+// =============================================================================
+// Test Helpers
+// =============================================================================
 
 // captureWarnings makes a JSON presenter that writes to the returned buffer the process default
 // for the test, and restores the previous default on cleanup.

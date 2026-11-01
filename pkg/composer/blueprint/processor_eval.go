@@ -22,7 +22,7 @@ import (
 // =============================================================================
 
 // requirementBlockMiss records the unsatisfied paths and the effective condition under which a
-// single requirement block applied during a ProcessFacets pass. Condition is the AND of the parent
+// single requirement block applied during a ProcessGlobally pass. Condition is the AND of the parent
 // facet's When and the block's When; an empty Condition means the paths were unconditionally
 // required. Message is the optional author-supplied context for this block.
 type requirementBlockMiss struct {

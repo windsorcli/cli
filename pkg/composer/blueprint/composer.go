@@ -25,10 +25,9 @@ import (
 
 // BaseBlueprintComposer provides the default implementation of the BlueprintComposer interface.
 type BaseBlueprintComposer struct {
-	runtime             *runtime.Runtime
-	commonSubstitutions map[string]string
-	shims               *Shims
-	excludedFacets      []ExcludedFacet
+	runtime        *runtime.Runtime
+	shims          *Shims
+	excludedFacets []ExcludedFacet
 }
 
 // CrdInstallLayer is a CRD kustomization the provisioner will synthesize: a source (empty for the
@@ -53,17 +52,15 @@ type BlueprintComposer interface {
 // =============================================================================
 
 // NewBlueprintComposer creates a new BlueprintComposer that merges multiple blueprints into one.
-// The runtime provides access to configuration and context. Optional overrides allow setting
-// common substitutions that will be applied to all kustomizations in the composed blueprint.
+// The runtime provides access to configuration and context.
 func NewBlueprintComposer(rt *runtime.Runtime) *BaseBlueprintComposer {
 	if rt == nil {
 		panic("runtime is required")
 	}
 
 	return &BaseBlueprintComposer{
-		runtime:             rt,
-		commonSubstitutions: make(map[string]string),
-		shims:               NewShims(),
+		runtime: rt,
+		shims:   NewShims(),
 	}
 }
 
@@ -192,13 +189,6 @@ func (c *BaseBlueprintComposer) SetExcludedFacets(excluded []ExcludedFacet) {
 	c.excludedFacets = excluded
 }
 
-// SetCommonSubstitutions configures substitution values that will be added to all kustomizations
-// during composition. These typically include context-wide values like cluster name, domain, or
-// environment that should be available to every kustomization's postBuild substitution.
-func (c *BaseBlueprintComposer) SetCommonSubstitutions(substitutions map[string]string) {
-	c.commonSubstitutions = substitutions
-}
-
 // CrdLayers returns the CRD kustomization layers a composed blueprint implies: the default/project
 // layer (empty source) from bp.Crds, then one per install source that vendors CRDs, alphabetically by
 // name. The composer wires the stack to these names and the provisioner materializes them, so both
@@ -226,14 +216,11 @@ func CrdLayers(bp *blueprintv1alpha1.Blueprint) []CrdInstallLayer {
 // =============================================================================
 
 // applyUserBlueprint applies the user blueprint to the composed result as an override layer.
-// The user blueprint can override existing components, add new components, or disable components
-// via enabled:false. Non-deferred expressions in the user's terraform inputs (e.g. yaml(), file(),
-// config-block refs like talos_common_docker.patches) are evaluated before merging using sourceFilePath
-// and configScope when non-nil so relative paths and config-block references resolve.
+// The user blueprint can override, add, or disable components. Before the merge, the method evaluates
+// the non-deferred expressions in the user terraform inputs with sourceFilePath and configScope.
 // The user backend applies only when the sources and facets declare no backend. A context
-// blueprint.yaml can hold a saved copy of an earlier facet backend, and that copy must not
-// override the backend that the facets declare. When the two values differ, a warning tells
-// the operator to remove the user backend.
+// blueprint.yaml can hold a saved copy of an earlier facet backend, and that copy must not override
+// the facet backend. When the two backends differ, a warning tells the operator to remove the user backend.
 func (c *BaseBlueprintComposer) applyUserBlueprint(result *blueprintv1alpha1.Blueprint, user *blueprintv1alpha1.Blueprint, sourceFilePath string, configScope map[string]any) error {
 	if user == nil {
 		return nil

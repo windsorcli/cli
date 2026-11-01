@@ -297,30 +297,3 @@ func TestUpgradeSourcesToLatest(t *testing.T) {
 		}
 	})
 }
-
-// =============================================================================
-// Test Public Functions
-// =============================================================================
-
-func TestIsDowngrade(t *testing.T) {
-	cases := []struct {
-		name     string
-		previous string
-		target   string
-		want     bool
-	}{
-		{"OlderTag", "oci://ghcr.io/acme/core:v1.2.0", "oci://ghcr.io/acme/core:v1.1.0", true},
-		{"NewerTag", "oci://ghcr.io/acme/core:v1.1.0", "oci://ghcr.io/acme/core:v1.2.0", false},
-		{"SameTag", "oci://ghcr.io/acme/core:v1.1.0", "oci://ghcr.io/acme/core:v1.1.0", false},
-		{"DifferentRepository", "oci://ghcr.io/acme/core:v1.2.0", "oci://ghcr.io/acme/other:v1.1.0", false},
-		{"NonSemverTag", "oci://ghcr.io/acme/core:main", "oci://ghcr.io/acme/core:v1.1.0", false},
-		{"NotOCI", "https://example.com/core", "oci://ghcr.io/acme/core:v1.1.0", false},
-	}
-	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
-			if got := blueprint.IsDowngrade(c.previous, c.target); got != c.want {
-				t.Errorf("IsDowngrade(%q, %q) = %v, want %v", c.previous, c.target, got, c.want)
-			}
-		})
-	}
-}

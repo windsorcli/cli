@@ -1,19 +1,19 @@
-package blueprint
+package blueprint_test
 
 import (
-	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
+	"reflect"
 	"slices"
 	"strings"
 	"testing"
 
 	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
 	"github.com/windsorcli/cli/internal/werror"
+	"github.com/windsorcli/cli/pkg/composer/blueprint"
 	"github.com/windsorcli/cli/pkg/runtime"
 	"github.com/windsorcli/cli/pkg/runtime/config"
-	"github.com/windsorcli/cli/pkg/runtime/evaluator"
 	"github.com/windsorcli/cli/pkg/runtime/shell"
 )
 
@@ -64,7 +64,7 @@ func setupComposerMocks(t *testing.T) *ComposerTestMocks {
 	return mocks
 }
 
-func createMockBlueprintLoader(sourceName string, blueprint *blueprintv1alpha1.Blueprint) BlueprintLoader {
+func createMockBlueprintLoader(sourceName string, blueprint *blueprintv1alpha1.Blueprint) blueprint.BlueprintLoader {
 	return &mockBlueprintLoaderForComposer{
 		sourceName: sourceName,
 		blueprint:  blueprint,
@@ -106,33 +106,14 @@ func TestNewBlueprintComposer(t *testing.T) {
 		mocks := setupComposerMocks(t)
 
 		// When creating a new composer
-		composer := NewBlueprintComposer(mocks.Runtime)
+		composer := blueprint.NewBlueprintComposer(mocks.Runtime)
 
-		// Then composer should be created with defaults
+		// Then composer should be created with shims
 		if composer == nil {
 			t.Fatal("Expected composer to be created")
 		}
-		if composer.runtime != mocks.Runtime {
-			t.Error("Expected runtime to be set")
-		}
-		if composer.commonSubstitutions == nil {
-			t.Error("Expected commonSubstitutions to be initialized")
-		}
-	})
-
-	t.Run("CreatesComposerWithEmptySubstitutions", func(t *testing.T) {
-		// Given a composer
-		mocks := setupComposerMocks(t)
-
-		// When creating a composer
-		composer := NewBlueprintComposer(mocks.Runtime)
-
-		// Then composer should have empty substitutions map
-		if composer.commonSubstitutions == nil {
-			t.Error("Expected substitutions map to be initialized")
-		}
-		if len(composer.commonSubstitutions) != 0 {
-			t.Error("Expected substitutions map to be empty")
+		if composer.Shims() == nil {
+			t.Error("Expected shims to be initialized")
 		}
 	})
 }
@@ -145,7 +126,7 @@ func TestComposer_Compose(t *testing.T) {
 	t.Run("ReturnsEmptyBlueprintWhenNoBlueprintLoaders", func(t *testing.T) {
 		// Given a composer with no loaders
 		mocks := setupComposerMocks(t)
-		composer := NewBlueprintComposer(mocks.Runtime)
+		composer := blueprint.NewBlueprintComposer(mocks.Runtime)
 
 		// When composing
 		result, err := composer.Compose(nil, nil, "", nil)
@@ -162,7 +143,7 @@ func TestComposer_Compose(t *testing.T) {
 	t.Run("MergesTemplateSourceWhenUserBlueprintReferencesIt", func(t *testing.T) {
 		// Given template and user loaders, with user referencing template
 		mocks := setupComposerMocks(t)
-		composer := NewBlueprintComposer(mocks.Runtime)
+		composer := blueprint.NewBlueprintComposer(mocks.Runtime)
 
 		templateBp := &blueprintv1alpha1.Blueprint{
 			Metadata: blueprintv1alpha1.Metadata{Name: "primary"},
@@ -177,7 +158,7 @@ func TestComposer_Compose(t *testing.T) {
 				{Name: "template", Install: &blueprintv1alpha1.BoolExpression{Value: &trueVal, IsExpr: false}},
 			},
 		}
-		loaders := []BlueprintLoader{
+		loaders := []blueprint.BlueprintLoader{
 			createMockBlueprintLoader("template", templateBp),
 			createMockBlueprintLoader("user", userBp),
 		}
@@ -197,7 +178,7 @@ func TestComposer_Compose(t *testing.T) {
 	t.Run("MergesSourcesInOrderFromUserBlueprint", func(t *testing.T) {
 		// Given multiple sources and user blueprint specifying order
 		mocks := setupComposerMocks(t)
-		composer := NewBlueprintComposer(mocks.Runtime)
+		composer := blueprint.NewBlueprintComposer(mocks.Runtime)
 
 		trueVal := true
 		templateBp := &blueprintv1alpha1.Blueprint{
@@ -218,7 +199,7 @@ func TestComposer_Compose(t *testing.T) {
 				{Name: "template", Install: &blueprintv1alpha1.BoolExpression{Value: &trueVal, IsExpr: false}},
 			},
 		}
-		loaders := []BlueprintLoader{
+		loaders := []blueprint.BlueprintLoader{
 			createMockBlueprintLoader("template", templateBp),
 			createMockBlueprintLoader("external", externalBp),
 			createMockBlueprintLoader("user", userBp),
@@ -239,7 +220,7 @@ func TestComposer_Compose(t *testing.T) {
 	t.Run("MergesSourcesWithInstallTrue", func(t *testing.T) {
 		// Given a user blueprint with sources that have install:true
 		mocks := setupComposerMocks(t)
-		composer := NewBlueprintComposer(mocks.Runtime)
+		composer := blueprint.NewBlueprintComposer(mocks.Runtime)
 
 		trueVal := true
 		templateBp := &blueprintv1alpha1.Blueprint{
@@ -267,7 +248,7 @@ func TestComposer_Compose(t *testing.T) {
 				{Name: "template", Install: &blueprintv1alpha1.BoolExpression{Value: &trueVal, IsExpr: false}},
 			},
 		}
-		loaders := []BlueprintLoader{
+		loaders := []blueprint.BlueprintLoader{
 			createMockBlueprintLoader("template", templateBp),
 			createMockBlueprintLoader("core", coreSourceBp),
 			createMockBlueprintLoader("user", userBp),
@@ -306,7 +287,7 @@ func TestComposer_Compose(t *testing.T) {
 		// blueprint contributing its own addon, with components stamped by source as the real
 		// composition flow stamps them (named source -> its name; primary/user -> "").
 		mocks := setupComposerMocks(t)
-		composer := NewBlueprintComposer(mocks.Runtime)
+		composer := blueprint.NewBlueprintComposer(mocks.Runtime)
 		trueVal := true
 
 		coreBp := &blueprintv1alpha1.Blueprint{
@@ -325,7 +306,7 @@ func TestComposer_Compose(t *testing.T) {
 				{Name: "addon-omni", Path: "addons/omni"},
 			},
 		}
-		loaders := []BlueprintLoader{
+		loaders := []blueprint.BlueprintLoader{
 			createMockBlueprintLoader("core", coreBp),
 			createMockBlueprintLoader("user", userBp),
 		}
@@ -359,7 +340,7 @@ func TestComposer_Compose(t *testing.T) {
 		// Given a referencing blueprint whose kustomization depends on a source kustomization, the
 		// depth reorder must keep the dependency (source, shallower) ahead of its dependent.
 		mocks := setupComposerMocks(t)
-		composer := NewBlueprintComposer(mocks.Runtime)
+		composer := blueprint.NewBlueprintComposer(mocks.Runtime)
 		trueVal := true
 
 		coreBp := &blueprintv1alpha1.Blueprint{
@@ -377,7 +358,7 @@ func TestComposer_Compose(t *testing.T) {
 				{Name: "addon-extension", Path: "addons/extension", DependsOn: []string{"addon-base"}},
 			},
 		}
-		loaders := []BlueprintLoader{
+		loaders := []blueprint.BlueprintLoader{
 			createMockBlueprintLoader("core", coreBp),
 			createMockBlueprintLoader("user", userBp),
 		}
@@ -418,7 +399,7 @@ func TestComposer_Compose(t *testing.T) {
 		}
 
 		compose := func() []string {
-			composer := NewBlueprintComposer(mocks.Runtime)
+			composer := blueprint.NewBlueprintComposer(mocks.Runtime)
 			aBp := &blueprintv1alpha1.Blueprint{
 				Metadata:       blueprintv1alpha1.Metadata{Name: "a"},
 				Sources:        []blueprintv1alpha1.Source{install("b")},
@@ -434,7 +415,7 @@ func TestComposer_Compose(t *testing.T) {
 				Sources:        []blueprintv1alpha1.Source{install("a"), install("b")},
 				Kustomizations: []blueprintv1alpha1.Kustomization{{Name: "addon-user", Path: "addons/user"}},
 			}
-			loaders := []BlueprintLoader{
+			loaders := []blueprint.BlueprintLoader{
 				createMockBlueprintLoader("a", aBp),
 				createMockBlueprintLoader("b", bBp),
 				createMockBlueprintLoader("user", userBp),
@@ -465,7 +446,7 @@ func TestComposer_Compose(t *testing.T) {
 	t.Run("DoesNotMergeSourcesWithInstallFalse", func(t *testing.T) {
 		// Given a user blueprint with a source that has install:false
 		mocks := setupComposerMocks(t)
-		composer := NewBlueprintComposer(mocks.Runtime)
+		composer := blueprint.NewBlueprintComposer(mocks.Runtime)
 
 		falseVal := false
 		trueVal := true
@@ -493,7 +474,7 @@ func TestComposer_Compose(t *testing.T) {
 				},
 			},
 		}
-		loaders := []BlueprintLoader{
+		loaders := []blueprint.BlueprintLoader{
 			createMockBlueprintLoader("template", templateBp),
 			createMockBlueprintLoader("reference", referenceSourceBp),
 			createMockBlueprintLoader("user", userBp),
@@ -517,7 +498,7 @@ func TestComposer_Compose(t *testing.T) {
 	t.Run("ComponentsCanReferenceSourcesWithInstallFalse", func(t *testing.T) {
 		// Given a template with a component referencing a source that has install:false
 		mocks := setupComposerMocks(t)
-		composer := NewBlueprintComposer(mocks.Runtime)
+		composer := blueprint.NewBlueprintComposer(mocks.Runtime)
 
 		falseVal := false
 		trueVal := true
@@ -542,7 +523,7 @@ func TestComposer_Compose(t *testing.T) {
 				{Name: "template", Install: &blueprintv1alpha1.BoolExpression{Value: &trueVal, IsExpr: false}},
 			},
 		}
-		loaders := []BlueprintLoader{
+		loaders := []blueprint.BlueprintLoader{
 			createMockBlueprintLoader("template", templateBp),
 			createMockBlueprintLoader("reference", referenceSourceBp),
 			createMockBlueprintLoader("user", userBp),
@@ -577,7 +558,7 @@ func TestComposer_Compose(t *testing.T) {
 
 	t.Run("MergesOCISourcesWhenInstallOmittedForBackwardCompat", func(t *testing.T) {
 		mocks := setupComposerMocks(t)
-		composer := NewBlueprintComposer(mocks.Runtime)
+		composer := blueprint.NewBlueprintComposer(mocks.Runtime)
 
 		templateBp := &blueprintv1alpha1.Blueprint{
 			TerraformComponents: []blueprintv1alpha1.TerraformComponent{
@@ -600,7 +581,7 @@ func TestComposer_Compose(t *testing.T) {
 				{Name: "template", Install: &blueprintv1alpha1.BoolExpression{Value: &trueVal, IsExpr: false}},
 			},
 		}
-		loaders := []BlueprintLoader{
+		loaders := []blueprint.BlueprintLoader{
 			createMockBlueprintLoader("template", templateBp),
 			createMockBlueprintLoader("core", coreSourceBp),
 			createMockBlueprintLoader("user", userBp),
@@ -627,7 +608,7 @@ func TestComposer_Compose(t *testing.T) {
 
 	t.Run("DoesNotMergeOCISourceWhenInstallFalse", func(t *testing.T) {
 		mocks := setupComposerMocks(t)
-		composer := NewBlueprintComposer(mocks.Runtime)
+		composer := blueprint.NewBlueprintComposer(mocks.Runtime)
 
 		templateBp := &blueprintv1alpha1.Blueprint{
 			TerraformComponents: []blueprintv1alpha1.TerraformComponent{
@@ -652,7 +633,7 @@ func TestComposer_Compose(t *testing.T) {
 				{Name: "template", Install: &blueprintv1alpha1.BoolExpression{Value: &trueVal, IsExpr: false}},
 			},
 		}
-		loaders := []BlueprintLoader{
+		loaders := []blueprint.BlueprintLoader{
 			createMockBlueprintLoader("template", templateBp),
 			createMockBlueprintLoader("core", coreSourceBp),
 			createMockBlueprintLoader("user", userBp),
@@ -680,7 +661,7 @@ func TestComposer_Compose(t *testing.T) {
 	t.Run("MergesMultipleSources", func(t *testing.T) {
 		// Given multiple sources in user blueprint
 		mocks := setupComposerMocks(t)
-		composer := NewBlueprintComposer(mocks.Runtime)
+		composer := blueprint.NewBlueprintComposer(mocks.Runtime)
 
 		trueVal := true
 		coreBp := &blueprintv1alpha1.Blueprint{
@@ -708,7 +689,7 @@ func TestComposer_Compose(t *testing.T) {
 				},
 			},
 		}
-		loaders := []BlueprintLoader{
+		loaders := []blueprint.BlueprintLoader{
 			createMockBlueprintLoader("core", coreBp),
 			createMockBlueprintLoader("extras", extrasBp),
 			createMockBlueprintLoader("user", userBp),
@@ -739,7 +720,7 @@ func TestComposer_Compose(t *testing.T) {
 	t.Run("UserOverridesSources", func(t *testing.T) {
 		// Given template and user loaders with user overriding template values
 		mocks := setupComposerMocks(t)
-		composer := NewBlueprintComposer(mocks.Runtime)
+		composer := blueprint.NewBlueprintComposer(mocks.Runtime)
 
 		templateBp := &blueprintv1alpha1.Blueprint{
 			TerraformComponents: []blueprintv1alpha1.TerraformComponent{
@@ -755,7 +736,7 @@ func TestComposer_Compose(t *testing.T) {
 				{Path: "vpc", Inputs: map[string]any{"region": "us-west-2"}},
 			},
 		}
-		loaders := []BlueprintLoader{
+		loaders := []blueprint.BlueprintLoader{
 			createMockBlueprintLoader("template", templateBp),
 			createMockBlueprintLoader("user", userBp),
 		}
@@ -778,7 +759,7 @@ func TestComposer_Compose(t *testing.T) {
 	t.Run("ComponentIdentifiedByNameOverPath", func(t *testing.T) {
 		// Given components with names
 		mocks := setupComposerMocks(t)
-		composer := NewBlueprintComposer(mocks.Runtime)
+		composer := blueprint.NewBlueprintComposer(mocks.Runtime)
 
 		templateBp := &blueprintv1alpha1.Blueprint{
 			TerraformComponents: []blueprintv1alpha1.TerraformComponent{
@@ -790,7 +771,7 @@ func TestComposer_Compose(t *testing.T) {
 				{Name: "main-vpc", Inputs: map[string]any{"cidr": "10.1.0.0/16"}},
 			},
 		}
-		loaders := []BlueprintLoader{
+		loaders := []blueprint.BlueprintLoader{
 			createMockBlueprintLoader("template", templateBp),
 			createMockBlueprintLoader("user", userBp),
 		}
@@ -814,14 +795,14 @@ func TestComposer_Compose(t *testing.T) {
 		// Given a template loader and a template root that the shims report as present
 		mocks := setupComposerMocks(t)
 		mocks.Runtime.TemplateRoot = filepath.Join(mocks.Runtime.ProjectRoot, "missing-template")
-		composer := NewBlueprintComposer(mocks.Runtime)
-		composer.shims.Stat = func(name string) (os.FileInfo, error) {
+		composer := blueprint.NewBlueprintComposer(mocks.Runtime)
+		composer.Shims().Stat = func(name string) (os.FileInfo, error) {
 			if name == mocks.Runtime.TemplateRoot {
 				return nil, nil
 			}
 			return os.Stat(name)
 		}
-		loaders := []BlueprintLoader{
+		loaders := []blueprint.BlueprintLoader{
 			createMockBlueprintLoader("template", &blueprintv1alpha1.Blueprint{}),
 		}
 
@@ -841,11 +822,11 @@ func TestComposer_Compose(t *testing.T) {
 		// Given a template loader and a template root that the shims report as missing
 		mocks := setupComposerMocks(t)
 		mocks.Runtime.TemplateRoot = mocks.Runtime.ProjectRoot
-		composer := NewBlueprintComposer(mocks.Runtime)
-		composer.shims.Stat = func(name string) (os.FileInfo, error) {
+		composer := blueprint.NewBlueprintComposer(mocks.Runtime)
+		composer.Shims().Stat = func(name string) (os.FileInfo, error) {
 			return nil, os.ErrNotExist
 		}
-		loaders := []BlueprintLoader{
+		loaders := []blueprint.BlueprintLoader{
 			createMockBlueprintLoader("template", &blueprintv1alpha1.Blueprint{}),
 		}
 
@@ -864,7 +845,7 @@ func TestComposer_Compose(t *testing.T) {
 	t.Run("SkipsBlueprintLoadersWithNilBlueprint", func(t *testing.T) {
 		// Given loaders where one has nil blueprint
 		mocks := setupComposerMocks(t)
-		composer := NewBlueprintComposer(mocks.Runtime)
+		composer := blueprint.NewBlueprintComposer(mocks.Runtime)
 
 		templateBp := &blueprintv1alpha1.Blueprint{
 			TerraformComponents: []blueprintv1alpha1.TerraformComponent{
@@ -878,7 +859,7 @@ func TestComposer_Compose(t *testing.T) {
 				{Name: "empty-source"},
 			},
 		}
-		loaders := []BlueprintLoader{
+		loaders := []blueprint.BlueprintLoader{
 			createMockBlueprintLoader("template", templateBp),
 			createMockBlueprintLoader("empty-source", nil),
 			createMockBlueprintLoader("user", userBp),
@@ -927,12 +908,12 @@ func TestComposer_Compose(t *testing.T) {
 		mocks.ConfigHandler.GetContextValuesFunc = func() (map[string]any, error) {
 			return map[string]any{}, nil
 		}
-		composer := NewBlueprintComposer(mocks.Runtime)
+		composer := blueprint.NewBlueprintComposer(mocks.Runtime)
 
 		templateBp := &blueprintv1alpha1.Blueprint{
 			Metadata: blueprintv1alpha1.Metadata{Name: "primary"},
 		}
-		loaders := []BlueprintLoader{
+		loaders := []blueprint.BlueprintLoader{
 			createMockBlueprintLoader("template", templateBp),
 		}
 
@@ -970,21 +951,122 @@ func TestComposer_Compose(t *testing.T) {
 		}
 		// BUILD_ID may be empty if no build-id file exists, which is fine
 	})
-}
 
-func TestComposer_SetCommonSubstitutions(t *testing.T) {
-	t.Run("SetsCommonSubstitutions", func(t *testing.T) {
-		// Given a composer
+	t.Run("NamesTheBlueprintAfterTheContext", func(t *testing.T) {
+		// Given a composer for the production context
 		mocks := setupComposerMocks(t)
-		composer := NewBlueprintComposer(mocks.Runtime)
+		mocks.Runtime.ContextName = "production"
+		composer := blueprint.NewBlueprintComposer(mocks.Runtime)
+		loaders := []blueprint.BlueprintLoader{createMockBlueprintLoader("user", &blueprintv1alpha1.Blueprint{Metadata: blueprintv1alpha1.Metadata{Name: "original"}})}
 
-		// When setting common substitutions
-		subs := map[string]string{"domain": "example.com"}
-		composer.SetCommonSubstitutions(subs)
+		// When composing
+		result, err := composer.Compose(loaders, nil, "", nil)
 
-		// Then substitutions should be set
-		if composer.commonSubstitutions["domain"] != "example.com" {
-			t.Errorf("Expected domain='example.com', got '%s'", composer.commonSubstitutions["domain"])
+		// Then the metadata names the context
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		if result.Metadata.Name != "production" || result.Metadata.Description != "Blueprint for the production context" {
+			t.Errorf("Expected context metadata, got %+v", result.Metadata)
+		}
+	})
+
+	t.Run("KeepsTheBlueprintNameWithoutAContext", func(t *testing.T) {
+		// Given a composer with no context name
+		mocks := setupComposerMocks(t)
+		mocks.Runtime.ContextName = ""
+		composer := blueprint.NewBlueprintComposer(mocks.Runtime)
+		loaders := []blueprint.BlueprintLoader{createMockBlueprintLoader("user", &blueprintv1alpha1.Blueprint{Metadata: blueprintv1alpha1.Metadata{Name: "original"}})}
+
+		// When composing
+		result, err := composer.Compose(loaders, nil, "", nil)
+
+		// Then the user blueprint name stays
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		if result.Metadata.Name != "original" {
+			t.Errorf("Expected name 'original', got %q", result.Metadata.Name)
+		}
+	})
+
+	t.Run("AcceptsAnInstalledOCISource", func(t *testing.T) {
+		// Given a user blueprint that installs an OCI source and declares a git source it does not install
+		mocks := setupComposerMocks(t)
+		composer := blueprint.NewBlueprintComposer(mocks.Runtime)
+		installed := blueprintv1alpha1.BoolExpression{Value: ptr(true)}
+		userBp := &blueprintv1alpha1.Blueprint{Sources: []blueprintv1alpha1.Source{
+			{Name: "core", Url: "oci://ghcr.io/acme/core:v1.0.0", Install: &installed},
+			{Name: "modules", Url: "https://github.com/acme/modules"},
+		}}
+
+		// When composing
+		_, err := composer.Compose([]blueprint.BlueprintLoader{createMockBlueprintLoader("user", userBp)}, nil, "", nil)
+
+		// Then no error is returned
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+	})
+
+	t.Run("RejectsAnInstalledSourceThatIsNotOCI", func(t *testing.T) {
+		// Given a user blueprint that installs a git source
+		mocks := setupComposerMocks(t)
+		composer := blueprint.NewBlueprintComposer(mocks.Runtime)
+		installed := blueprintv1alpha1.BoolExpression{Value: ptr(true)}
+		userBp := &blueprintv1alpha1.Blueprint{Sources: []blueprintv1alpha1.Source{
+			{Name: "modules", Url: "https://github.com/acme/modules", Install: &installed},
+		}}
+
+		// When composing
+		_, err := composer.Compose([]blueprint.BlueprintLoader{createMockBlueprintLoader("user", userBp)}, nil, "", nil)
+
+		// Then the error names the source and the hint asks for an OCI URL
+		if err == nil || !strings.Contains(err.Error(), `source "modules" has install: true`) {
+			t.Fatalf("Expected a non-OCI install error, got %v", err)
+		}
+		var werr *werror.WindsorError
+		if !errors.As(err, &werr) || !strings.Contains(werr.Remediation, "oci:// URL") {
+			t.Errorf("Expected remediation containing %q, got %v", "oci:// URL", werr)
+		}
+	})
+
+	t.Run("RejectsAKustomizationThatUsesACrdLayerName", func(t *testing.T) {
+		// Given a user blueprint with kustomizations named after CRD layers
+		for _, name := range []string{"crds", "crds-core"} {
+			mocks := setupComposerMocks(t)
+			composer := blueprint.NewBlueprintComposer(mocks.Runtime)
+			userBp := &blueprintv1alpha1.Blueprint{Kustomizations: []blueprintv1alpha1.Kustomization{{Name: name, Path: "x"}}}
+
+			// When composing
+			_, err := composer.Compose([]blueprint.BlueprintLoader{createMockBlueprintLoader("user", userBp)}, nil, "", nil)
+
+			// Then the name is rejected as reserved and the hint points to the crds: section
+			if err == nil || !strings.Contains(err.Error(), "reserved for the CRD layer") {
+				t.Errorf("Expected a reserved-name error for %q, got %v", name, err)
+			}
+			var werr *werror.WindsorError
+			if !errors.As(err, &werr) || !strings.Contains(werr.Remediation, "crds: section") {
+				t.Errorf("Expected remediation containing %q, got %v", "crds: section", werr)
+			}
+		}
+	})
+
+	t.Run("AllowsTheCrdsSection", func(t *testing.T) {
+		// Given CRDs declared in the crds: section next to an ordinary kustomization
+		mocks := setupComposerMocks(t)
+		composer := blueprint.NewBlueprintComposer(mocks.Runtime)
+		userBp := &blueprintv1alpha1.Blueprint{
+			Crds:           []string{"cert-manager-1.16.2"},
+			Kustomizations: []blueprintv1alpha1.Kustomization{{Name: "cert-manager", Path: "pki/cert-manager"}},
+		}
+
+		// When composing
+		_, err := composer.Compose([]blueprint.BlueprintLoader{createMockBlueprintLoader("user", userBp)}, nil, "", nil)
+
+		// Then no reserved-name error is returned
+		if err != nil && strings.Contains(err.Error(), "reserved") {
+			t.Errorf("Expected no reserved-name error, got %v", err)
 		}
 	})
 }
@@ -993,7 +1075,7 @@ func TestComposer_FilterToUserSelection(t *testing.T) {
 	t.Run("UserBlueprintDoesNotFilterKustomizations", func(t *testing.T) {
 		// Given template with multiple kustomizations and user overriding one
 		mocks := setupComposerMocks(t)
-		composer := NewBlueprintComposer(mocks.Runtime)
+		composer := blueprint.NewBlueprintComposer(mocks.Runtime)
 
 		templateBp := &blueprintv1alpha1.Blueprint{
 			Kustomizations: []blueprintv1alpha1.Kustomization{
@@ -1011,7 +1093,7 @@ func TestComposer_FilterToUserSelection(t *testing.T) {
 				{Name: "flux-system", Path: "kustomize/flux-system-custom"},
 			},
 		}
-		loaders := []BlueprintLoader{
+		loaders := []blueprint.BlueprintLoader{
 			createMockBlueprintLoader("template", templateBp),
 			createMockBlueprintLoader("user", userBp),
 		}
@@ -1046,7 +1128,7 @@ func TestComposer_FilterToUserSelection(t *testing.T) {
 	t.Run("DoesNotFilterWhenUserHasNoComponents", func(t *testing.T) {
 		// Given template with components and user with only sources
 		mocks := setupComposerMocks(t)
-		composer := NewBlueprintComposer(mocks.Runtime)
+		composer := blueprint.NewBlueprintComposer(mocks.Runtime)
 
 		templateBp := &blueprintv1alpha1.Blueprint{
 			TerraformComponents: []blueprintv1alpha1.TerraformComponent{
@@ -1060,7 +1142,7 @@ func TestComposer_FilterToUserSelection(t *testing.T) {
 				{Name: "template", Install: &blueprintv1alpha1.BoolExpression{Value: &trueVal, IsExpr: false}},
 			},
 		}
-		loaders := []BlueprintLoader{
+		loaders := []blueprint.BlueprintLoader{
 			createMockBlueprintLoader("template", templateBp),
 			createMockBlueprintLoader("user", userBp),
 		}
@@ -1080,7 +1162,7 @@ func TestComposer_FilterToUserSelection(t *testing.T) {
 	t.Run("UserBlueprintOverridesBothTerraformAndKustomizations", func(t *testing.T) {
 		// Given template with both terraform and kustomizations
 		mocks := setupComposerMocks(t)
-		composer := NewBlueprintComposer(mocks.Runtime)
+		composer := blueprint.NewBlueprintComposer(mocks.Runtime)
 
 		templateBp := &blueprintv1alpha1.Blueprint{
 			TerraformComponents: []blueprintv1alpha1.TerraformComponent{
@@ -1104,7 +1186,7 @@ func TestComposer_FilterToUserSelection(t *testing.T) {
 				{Name: "flux-system", Path: "kustomize/flux-system-custom"},
 			},
 		}
-		loaders := []BlueprintLoader{
+		loaders := []blueprint.BlueprintLoader{
 			createMockBlueprintLoader("template", templateBp),
 			createMockBlueprintLoader("user", userBp),
 		}
@@ -1149,735 +1231,32 @@ func TestComposer_FilterToUserSelection(t *testing.T) {
 	})
 }
 
-// =============================================================================
-// Test Private Methods
-// =============================================================================
-
-func TestComposer_applyUserBlueprint(t *testing.T) {
-	t.Run("ClearsRepositoryWhenUserBlueprintHasNone", func(t *testing.T) {
-		// Given a composed blueprint with repository but user blueprint has none
-		mocks := setupComposerMocks(t)
-		composer := NewBlueprintComposer(mocks.Runtime)
-
-		result := &blueprintv1alpha1.Blueprint{
-			Repository: blueprintv1alpha1.Repository{
-				Url: "http://git.test/git/project",
-			},
+func TestCrdLayers(t *testing.T) {
+	t.Run("ListsTheProjectLayerThenInstalledSourcesByName", func(t *testing.T) {
+		// Given project CRDs and three sources, one of which does not install
+		installed := blueprintv1alpha1.BoolExpression{Value: ptr(true)}
+		notInstalled := blueprintv1alpha1.BoolExpression{Value: ptr(false)}
+		bp := &blueprintv1alpha1.Blueprint{
+			Crds: []string{"project/a"},
 			Sources: []blueprintv1alpha1.Source{
-				{Name: "core", Url: "github.com/windsorcli/core"},
-			},
-		}
-		user := &blueprintv1alpha1.Blueprint{}
-
-		// When applying user blueprint
-		composer.applyUserBlueprint(result, user, "", nil)
-
-		// Then repository should be cleared, but sources should remain (no filtering)
-		if result.Repository.Url != "" {
-			t.Errorf("Expected empty repository URL, got '%s'", result.Repository.Url)
-		}
-		if len(result.Sources) != 1 {
-			t.Errorf("Expected 1 source (no filtering), got %d", len(result.Sources))
-		}
-	})
-
-	t.Run("PreservesRepositoryWhenUserBlueprintDefinesIt", func(t *testing.T) {
-		// Given a user blueprint that defines repository
-		mocks := setupComposerMocks(t)
-		composer := NewBlueprintComposer(mocks.Runtime)
-
-		result := &blueprintv1alpha1.Blueprint{
-			Repository: blueprintv1alpha1.Repository{
-				Url: "http://primary.test/repo",
-			},
-		}
-		user := &blueprintv1alpha1.Blueprint{
-			Repository: blueprintv1alpha1.Repository{
-				Url: "http://user.test/repo",
+				{Name: "zeta", Install: &installed, Crds: []string{"zeta/a"}},
+				{Name: "alpha", Install: &installed, Crds: []string{"alpha/a"}},
+				{Name: "off", Install: &notInstalled, Crds: []string{"off/a"}},
+				{Name: "none", Install: &installed},
 			},
 		}
 
-		// When applying user authority
-		composer.applyUserBlueprint(result, user, "", nil)
-
-		// Then repository should be merged (user overrides)
-		if result.Repository.Url != "http://user.test/repo" {
-			t.Errorf("Expected user repository URL, got '%s'", result.Repository.Url)
-		}
-	})
-
-	t.Run("KeepsComposedBackendOverASavedUserBackend", func(t *testing.T) {
-		// Given facets that declare backend "backend", and a context blueprint.yaml that an
-		// older CLI saved with backend "cluster"
-		mocks := setupComposerMocks(t)
-		composer := NewBlueprintComposer(mocks.Runtime)
-
-		result := &blueprintv1alpha1.Blueprint{Backend: "backend"}
-		user := &blueprintv1alpha1.Blueprint{Backend: "cluster"}
-		userPath := filepath.Join(mocks.Runtime.ProjectRoot, "contexts", "local", "blueprint.yaml")
-
-		// When applying the user blueprint
-		buf := captureWarnings(t)
-		if err := composer.applyUserBlueprint(result, user, userPath, nil); err != nil {
-			t.Fatalf("Expected no error, got %v", err)
-		}
-
-		// Then the facet backend wins
-		if result.Backend != "backend" {
-			t.Errorf("Expected backend %q, got %q", "backend", result.Backend)
-		}
-
-		// And a warning names the ignored value and tells the operator to remove the line
-		var event struct {
-			Message string `json:"message"`
-		}
-		if err := json.Unmarshal(buf.Bytes(), &event); err != nil {
-			t.Fatalf("Expected one JSON warning event, got %q: %v", buf.String(), err)
-		}
-		warning := event.Message
-		for _, want := range []string{"ignores backend: cluster, because a source or facet declares it.", "Remove backend: cluster from " + filepath.Join("contexts", "local", "blueprint.yaml") + "."} {
-			if !strings.Contains(warning, want) {
-				t.Errorf("Expected warning to contain %q, got: %q", want, warning)
-			}
-		}
-	})
-
-	t.Run("DoesNotWarnWhenUserBackendMatchesComposedBackend", func(t *testing.T) {
-		// Given a user blueprint whose backend matches the facet backend
-		mocks := setupComposerMocks(t)
-		composer := NewBlueprintComposer(mocks.Runtime)
-
-		result := &blueprintv1alpha1.Blueprint{Backend: "backend"}
-		user := &blueprintv1alpha1.Blueprint{Backend: "backend"}
-
-		// When applying the user blueprint
-		buf := captureWarnings(t)
-		if err := composer.applyUserBlueprint(result, user, "", nil); err != nil {
-			t.Fatalf("Expected no error, got %v", err)
-		}
-
-		// Then the backend is unchanged and no warning is printed
-		if result.Backend != "backend" {
-			t.Errorf("Expected backend %q, got %q", "backend", result.Backend)
-		}
-		if strings.Contains(buf.String(), "backend") {
-			t.Errorf("Expected no warning, got: %q", buf.String())
-		}
-	})
-
-	t.Run("AppliesUserBackendWhenFacetsDeclareNone", func(t *testing.T) {
-		// Given facets that declare no backend, and a user blueprint that names one
-		mocks := setupComposerMocks(t)
-		composer := NewBlueprintComposer(mocks.Runtime)
-
-		result := &blueprintv1alpha1.Blueprint{}
-		user := &blueprintv1alpha1.Blueprint{Backend: "state"}
-
-		// When applying the user blueprint
-		if err := composer.applyUserBlueprint(result, user, "", nil); err != nil {
-			t.Fatalf("Expected no error, got %v", err)
-		}
-
-		// Then the user backend applies
-		if result.Backend != "state" {
-			t.Errorf("Expected backend %q, got %q", "state", result.Backend)
-		}
-	})
-
-	t.Run("DoesNotModifyTheUserBlueprintBackend", func(t *testing.T) {
-		// Given facets that declare a backend, and a user blueprint that names another
-		mocks := setupComposerMocks(t)
-		composer := NewBlueprintComposer(mocks.Runtime)
-
-		result := &blueprintv1alpha1.Blueprint{Backend: "backend"}
-		user := &blueprintv1alpha1.Blueprint{Backend: "cluster"}
-
-		// When applying the user blueprint
-		if err := composer.applyUserBlueprint(result, user, "", nil); err != nil {
-			t.Fatalf("Expected no error, got %v", err)
-		}
-
-		// Then the loaded user blueprint keeps its own value
-		if user.Backend != "cluster" {
-			t.Errorf("Expected user backend %q, got %q", "cluster", user.Backend)
-		}
-	})
-
-	t.Run("UserBlueprintOverridesSourcesWithoutFiltering", func(t *testing.T) {
-		// Given a user blueprint that overrides a source
-		mocks := setupComposerMocks(t)
-		composer := NewBlueprintComposer(mocks.Runtime)
-
-		result := &blueprintv1alpha1.Blueprint{
-			Sources: []blueprintv1alpha1.Source{
-				{Name: "core", Url: "github.com/windsorcli/core"},
-				{Name: "extras", Url: "github.com/windsorcli/extras"},
-			},
-		}
-		user := &blueprintv1alpha1.Blueprint{
-			Sources: []blueprintv1alpha1.Source{
-				{Name: "core", Url: "github.com/user/core-fork"},
-			},
-		}
-
-		// When applying user blueprint
-		composer.applyUserBlueprint(result, user, "", nil)
-
-		// Then all sources should remain (no filtering), with user's override applied
-		if len(result.Sources) != 2 {
-			t.Errorf("Expected 2 sources (no filtering), got %d", len(result.Sources))
-		}
-		sourceMap := make(map[string]blueprintv1alpha1.Source)
-		for _, s := range result.Sources {
-			sourceMap[s.Name] = s
-		}
-		if core, exists := sourceMap["core"]; !exists {
-			t.Error("Expected source 'core' to exist")
-		} else if core.Url != "github.com/user/core-fork" {
-			t.Errorf("Expected core URL to be overridden, got '%s'", core.Url)
-		}
-		if _, exists := sourceMap["extras"]; !exists {
-			t.Error("Expected source 'extras' to remain")
-		}
-	})
-
-	t.Run("DoesNothingWhenUserIsNil", func(t *testing.T) {
-		// Given no user blueprint
-		mocks := setupComposerMocks(t)
-		composer := NewBlueprintComposer(mocks.Runtime)
-
-		result := &blueprintv1alpha1.Blueprint{
-			Repository: blueprintv1alpha1.Repository{
-				Url: "http://git.test/git/project",
-			},
-			Sources: []blueprintv1alpha1.Source{
-				{Name: "core", Url: "github.com/windsorcli/core"},
-			},
-		}
-
-		// When applying user authority with nil user
-		composer.applyUserBlueprint(result, nil, "", nil)
-
-		// Then result should remain unchanged
-		if result.Repository.Url != "http://git.test/git/project" {
-			t.Errorf("Expected repository preserved, got '%s'", result.Repository.Url)
-		}
-		if len(result.Sources) != 1 {
-			t.Errorf("Expected 1 source, got %d", len(result.Sources))
-		}
-	})
-
-	t.Run("UserBlueprintOverridesWithoutFiltering", func(t *testing.T) {
-		// Given a user blueprint that overrides a component
-		mocks := setupComposerMocks(t)
-		composer := NewBlueprintComposer(mocks.Runtime)
-
-		result := &blueprintv1alpha1.Blueprint{
-			TerraformComponents: []blueprintv1alpha1.TerraformComponent{
-				{Path: "network/vpc", Inputs: map[string]any{"region": "us-east-1"}},
-				{Path: "cluster/eks", Inputs: map[string]any{"version": "1.28"}},
-				{Path: "database/rds", Inputs: map[string]any{"instance": "db.t3.medium"}},
-			},
-		}
-		user := &blueprintv1alpha1.Blueprint{
-			TerraformComponents: []blueprintv1alpha1.TerraformComponent{
-				{Path: "cluster/eks", Inputs: map[string]any{"version": "1.29"}},
-			},
-		}
-
-		// When applying user blueprint
-		composer.applyUserBlueprint(result, user, "", nil)
-
-		// Then all components should remain, with user override applied
-		if len(result.TerraformComponents) != 3 {
-			t.Errorf("Expected 3 components (no filtering), got %d", len(result.TerraformComponents))
-		}
-		componentMap := make(map[string]blueprintv1alpha1.TerraformComponent)
-		for _, comp := range result.TerraformComponents {
-			componentMap[comp.Path] = comp
-		}
-		if eks, exists := componentMap["cluster/eks"]; !exists {
-			t.Error("Expected 'cluster/eks' component to exist")
-		} else if eks.Inputs["version"] != "1.29" {
-			t.Errorf("Expected version to be overridden to '1.29', got %v", eks.Inputs["version"])
-		}
-		if _, exists := componentMap["network/vpc"]; !exists {
-			t.Error("Expected 'network/vpc' component to remain")
-		}
-		if _, exists := componentMap["database/rds"]; !exists {
-			t.Error("Expected 'database/rds' component to remain")
-		}
-	})
-
-	t.Run("UserBlueprintCanAddNewComponents", func(t *testing.T) {
-		// Given a user blueprint that adds a new component
-		mocks := setupComposerMocks(t)
-		composer := NewBlueprintComposer(mocks.Runtime)
-
-		result := &blueprintv1alpha1.Blueprint{
-			TerraformComponents: []blueprintv1alpha1.TerraformComponent{
-				{Path: "network/vpc"},
-			},
-		}
-		user := &blueprintv1alpha1.Blueprint{
-			TerraformComponents: []blueprintv1alpha1.TerraformComponent{
-				{Path: "cluster/eks"},
-			},
-		}
-
-		// When applying user blueprint
-		composer.applyUserBlueprint(result, user, "", nil)
-
-		// Then new component should be added
-		if len(result.TerraformComponents) != 2 {
-			t.Errorf("Expected 2 components, got %d", len(result.TerraformComponents))
-		}
-		componentPaths := make(map[string]bool)
-		for _, comp := range result.TerraformComponents {
-			componentPaths[comp.Path] = true
-		}
-		if !componentPaths["network/vpc"] {
-			t.Error("Expected 'network/vpc' component to remain")
-		}
-		if !componentPaths["cluster/eks"] {
-			t.Error("Expected 'cluster/eks' component to be added")
-		}
-	})
-
-	t.Run("EvaluatesUserTerraformInputsWhenRuntimeHasEvaluator", func(t *testing.T) {
-		mocks := setupComposerMocks(t)
-		mocks.ConfigHandler.GetContextValuesFunc = func() (map[string]any, error) {
-			return map[string]any{"provider": "aws", "cluster": map[string]any{"name": "my-cluster"}}, nil
-		}
-		rt := mocks.Runtime
-		rt.Evaluator = evaluator.NewExpressionEvaluator(rt.ConfigHandler, rt.ProjectRoot, rt.TemplateRoot)
-		composer := NewBlueprintComposer(rt)
-
-		result := &blueprintv1alpha1.Blueprint{
-			TerraformComponents: []blueprintv1alpha1.TerraformComponent{
-				{Path: "network/vpc", Inputs: map[string]any{"region": "us-east-1"}},
-			},
-		}
-		user := &blueprintv1alpha1.Blueprint{
-			TerraformComponents: []blueprintv1alpha1.TerraformComponent{
-				{Path: "cluster/eks", Inputs: map[string]any{"provider_ref": "${provider}", "cluster_ref": "${cluster.name}"}},
-			},
-		}
-
-		err := composer.applyUserBlueprint(result, user, "", nil)
-
-		if err != nil {
-			t.Fatalf("Expected no error, got: %v", err)
-		}
-		componentMap := make(map[string]blueprintv1alpha1.TerraformComponent)
-		for _, comp := range result.TerraformComponents {
-			componentMap[comp.Path] = comp
-		}
-		eks, ok := componentMap["cluster/eks"]
-		if !ok {
-			t.Fatal("Expected 'cluster/eks' component after merge")
-		}
-		if eks.Inputs["provider_ref"] != "aws" {
-			t.Errorf("Expected provider_ref to be evaluated to 'aws', got %v", eks.Inputs["provider_ref"])
-		}
-		if eks.Inputs["cluster_ref"] != "my-cluster" {
-			t.Errorf("Expected cluster_ref to be evaluated to 'my-cluster', got %v", eks.Inputs["cluster_ref"])
-		}
-	})
-
-	t.Run("ErrorOnEvaluateMapFailure", func(t *testing.T) {
-		mocks := setupComposerMocks(t)
-		mockEval := evaluator.NewMockExpressionEvaluator()
-		mockEval.EvaluateMapFunc = func(values map[string]any, facetPath string, scope map[string]any, evaluateDeferred bool) (map[string]any, error) {
-			return nil, errors.New("evaluate map failed")
-		}
-		mocks.Runtime.Evaluator = mockEval
-		composer := NewBlueprintComposer(mocks.Runtime)
-
-		result := &blueprintv1alpha1.Blueprint{}
-		user := &blueprintv1alpha1.Blueprint{
-			TerraformComponents: []blueprintv1alpha1.TerraformComponent{
-				{Path: "cluster/eks", Inputs: map[string]any{"key": "value"}},
-			},
-		}
-
-		err := composer.applyUserBlueprint(result, user, "", nil)
-
-		if err == nil {
-			t.Error("Expected error when EvaluateMap fails")
-			return
-		}
-		if !strings.Contains(err.Error(), "evaluate user blueprint terraform inputs") {
-			t.Errorf("Expected error to mention terraform inputs, got: %v", err)
-		}
-	})
-}
-
-func TestComposer_dropEmptyCompositionFragments(t *testing.T) {
-	t.Run("RemovesEmptyStringFromKustomizationComponents", func(t *testing.T) {
-		mocks := setupComposerMocks(t)
-		composer := NewBlueprintComposer(mocks.Runtime)
-		blueprint := &blueprintv1alpha1.Blueprint{
-			Kustomizations: []blueprintv1alpha1.Kustomization{
-				{Name: "app", Components: []string{"a", "", "b", ""}},
-			},
-		}
-
-		composer.dropEmptyCompositionFragments(blueprint)
-
-		components := blueprint.Kustomizations[0].Components
-		if len(components) != 2 {
-			t.Errorf("Expected 2 components, got %d: %v", len(components), components)
-		}
-		if components[0] != "a" || components[1] != "b" {
-			t.Errorf("Expected [a b], got %v", components)
-		}
-	})
-
-	t.Run("RemovesEmptyKeyFromKustomizationSubstitutions", func(t *testing.T) {
-		mocks := setupComposerMocks(t)
-		composer := NewBlueprintComposer(mocks.Runtime)
-		blueprint := &blueprintv1alpha1.Blueprint{
-			Kustomizations: []blueprintv1alpha1.Kustomization{
-				{Name: "app", Substitutions: map[string]string{"key": "v", "": "placeholder"}},
-			},
-		}
-
-		composer.dropEmptyCompositionFragments(blueprint)
-
-		subs := blueprint.Kustomizations[0].Substitutions
-		if _, hasEmpty := subs[""]; hasEmpty {
-			t.Error("Expected empty key to be removed from Substitutions")
-		}
-		if subs["key"] != "v" {
-			t.Errorf("Expected key='v', got %q", subs["key"])
-		}
-	})
-
-	t.Run("RemovesEmptyKeyFromTerraformComponentInputs", func(t *testing.T) {
-		mocks := setupComposerMocks(t)
-		composer := NewBlueprintComposer(mocks.Runtime)
-		blueprint := &blueprintv1alpha1.Blueprint{
-			TerraformComponents: []blueprintv1alpha1.TerraformComponent{
-				{Path: "vpc", Inputs: map[string]any{"region": "us-east-1", "": "placeholder"}},
-			},
-		}
-
-		composer.dropEmptyCompositionFragments(blueprint)
-
-		inputs := blueprint.TerraformComponents[0].Inputs
-		if _, hasEmpty := inputs[""]; hasEmpty {
-			t.Error("Expected empty key to be removed from Inputs")
-		}
-		if inputs["region"] != "us-east-1" {
-			t.Errorf("Expected region='us-east-1', got %v", inputs["region"])
-		}
-	})
-
-	t.Run("HandlesNilBlueprint", func(t *testing.T) {
-		mocks := setupComposerMocks(t)
-		composer := NewBlueprintComposer(mocks.Runtime)
-
-		composer.dropEmptyCompositionFragments(nil)
-	})
-
-	t.Run("HandlesNilSubstitutionsAndInputs", func(t *testing.T) {
-		mocks := setupComposerMocks(t)
-		composer := NewBlueprintComposer(mocks.Runtime)
-		blueprint := &blueprintv1alpha1.Blueprint{
-			Kustomizations: []blueprintv1alpha1.Kustomization{
-				{Name: "app", Components: []string{"a"}, Substitutions: nil},
-			},
-			TerraformComponents: []blueprintv1alpha1.TerraformComponent{
-				{Path: "vpc", Inputs: nil},
-			},
-		}
-
-		composer.dropEmptyCompositionFragments(blueprint)
-
-		if blueprint.Kustomizations[0].Components[0] != "a" {
-			t.Errorf("Expected component 'a', got %q", blueprint.Kustomizations[0].Components[0])
-		}
-	})
-
-	t.Run("RemovesEmptyValueFromKustomizationSubstitutions", func(t *testing.T) {
-		mocks := setupComposerMocks(t)
-		composer := NewBlueprintComposer(mocks.Runtime)
-		blueprint := &blueprintv1alpha1.Blueprint{
-			Kustomizations: []blueprintv1alpha1.Kustomization{
-				{Name: "app", Substitutions: map[string]string{"keep": "v", "drop": ""}},
-			},
-		}
-
-		composer.dropEmptyCompositionFragments(blueprint)
-
-		subs := blueprint.Kustomizations[0].Substitutions
-		if _, hasDrop := subs["drop"]; hasDrop {
-			t.Error("Expected key with empty value to be removed from Substitutions")
-		}
-		if subs["keep"] != "v" {
-			t.Errorf("Expected keep='v', got %q", subs["keep"])
-		}
-	})
-
-	t.Run("RecursivelyPrunesNestedEmptyInTerraformInputs", func(t *testing.T) {
-		mocks := setupComposerMocks(t)
-		composer := NewBlueprintComposer(mocks.Runtime)
-		blueprint := &blueprintv1alpha1.Blueprint{
-			TerraformComponents: []blueprintv1alpha1.TerraformComponent{
-				{
-					Path: "compute",
-					Inputs: map[string]any{
-						"storage_pools": map[string]any{
-							"local":    map[string]any{"driver": "dir"},
-							"mayastor": map[string]any{"driver": "null", "source": ""},
-						},
-					},
-				},
-			},
-		}
-
-		composer.dropEmptyCompositionFragments(blueprint)
-
-		storagePools := blueprint.TerraformComponents[0].Inputs["storage_pools"].(map[string]any)
-		mayastor := storagePools["mayastor"].(map[string]any)
-		if _, hasSource := mayastor["source"]; hasSource {
-			t.Error("Expected nested empty value (source: \"\") to be pruned from Inputs")
-		}
-		if mayastor["driver"] != "null" {
-			t.Errorf("Expected driver='null', got %v", mayastor["driver"])
-		}
-	})
-
-	t.Run("PrunesConfigMapsEmptyKeysAndValues", func(t *testing.T) {
-		mocks := setupComposerMocks(t)
-		composer := NewBlueprintComposer(mocks.Runtime)
-		blueprint := &blueprintv1alpha1.Blueprint{
-			ConfigMaps: map[string]map[string]string{
-				"values-common": {"KEEP": "v", "": "empty-key", "DROP_EMPTY": ""},
-			},
-		}
-
-		composer.dropEmptyCompositionFragments(blueprint)
-
-		common := blueprint.ConfigMaps["values-common"]
-		if _, hasEmpty := common[""]; hasEmpty {
-			t.Error("Expected empty key to be removed from ConfigMap")
-		}
-		if _, hasDrop := common["DROP_EMPTY"]; hasDrop {
-			t.Error("Expected key with empty value to be removed from ConfigMap")
-		}
-		if common["KEEP"] != "v" {
-			t.Errorf("Expected KEEP='v', got %q", common["KEEP"])
-		}
-	})
-
-	t.Run("PrunesTopLevelSubstitutionsEmptyKeysAndValues", func(t *testing.T) {
-		mocks := setupComposerMocks(t)
-		composer := NewBlueprintComposer(mocks.Runtime)
-		blueprint := &blueprintv1alpha1.Blueprint{
-			Substitutions: map[string]string{
-				"keep":       "10.0.0.1",
-				"drop_empty": "",
-				"":           "empty-key",
-			},
-		}
-
-		composer.dropEmptyCompositionFragments(blueprint)
-
-		if _, hasEmpty := blueprint.Substitutions[""]; hasEmpty {
-			t.Error("Expected empty key to be removed from Substitutions")
-		}
-		if _, hasDrop := blueprint.Substitutions["drop_empty"]; hasDrop {
-			t.Error("Expected key with empty value to be removed from Substitutions")
-		}
-		if blueprint.Substitutions["keep"] != "10.0.0.1" {
-			t.Errorf("Expected keep='10.0.0.1', got %q", blueprint.Substitutions["keep"])
-		}
-	})
-}
-
-func TestComposer_setContextMetadata(t *testing.T) {
-	t.Run("SetsMetadataFromContext", func(t *testing.T) {
-		// Given a composer with a context name set
-		mocks := setupComposerMocks(t)
-		mocks.Runtime.ContextName = "production"
-		composer := NewBlueprintComposer(mocks.Runtime)
-		bp := &blueprintv1alpha1.Blueprint{
-			Metadata: blueprintv1alpha1.Metadata{
-				Name:        "original",
-				Description: "Original description",
-			},
-		}
-
-		// When setting context metadata
-		composer.setContextMetadata(bp)
-
-		// Then metadata should be updated
-		if bp.Metadata.Name != "production" {
-			t.Errorf("Expected name 'production', got '%s'", bp.Metadata.Name)
-		}
-		expectedDesc := "Blueprint for the production context"
-		if bp.Metadata.Description != expectedDesc {
-			t.Errorf("Expected description '%s', got '%s'", expectedDesc, bp.Metadata.Description)
-		}
-	})
-
-	t.Run("HandlesEmptyContextName", func(t *testing.T) {
-		// Given a composer with empty context name
-		mocks := setupComposerMocks(t)
-		mocks.Runtime.ContextName = ""
-		composer := NewBlueprintComposer(mocks.Runtime)
-		bp := &blueprintv1alpha1.Blueprint{
-			Metadata: blueprintv1alpha1.Metadata{
-				Name:        "original",
-				Description: "Original description",
-			},
-		}
-
-		// When setting context metadata
-		composer.setContextMetadata(bp)
-
-		// Then metadata should remain unchanged
-		if bp.Metadata.Name != "original" {
-			t.Errorf("Expected name 'original', got '%s'", bp.Metadata.Name)
-		}
-	})
-
-	t.Run("HandlesNilRuntime", func(t *testing.T) {
-		// Given a composer with nil runtime
-		composer := &BaseBlueprintComposer{runtime: nil}
-		bp := &blueprintv1alpha1.Blueprint{
-			Metadata: blueprintv1alpha1.Metadata{
-				Name:        "original",
-				Description: "Original description",
-			},
-		}
-
-		// When setting context metadata
-		composer.setContextMetadata(bp)
-
-		// Then metadata should remain unchanged
-		if bp.Metadata.Name != "original" {
-			t.Errorf("Expected name 'original', got '%s'", bp.Metadata.Name)
-		}
-	})
-}
-
-func TestComposer_validateSources(t *testing.T) {
-	t.Run("ReturnsNilWhenNoInstallSources", func(t *testing.T) {
-		mocks := setupComposerMocks(t)
-		composer := NewBlueprintComposer(mocks.Runtime)
-		bp := &blueprintv1alpha1.Blueprint{
-			Sources: []blueprintv1alpha1.Source{
-				{Name: "modules", Url: "github.com/org/terraform-modules", Ref: blueprintv1alpha1.Reference{Branch: "main"}},
-			},
-		}
-
-		err := composer.validateSources(bp)
-
-		if err != nil {
-			t.Errorf("Expected no error when no source has install: true, got %v", err)
-		}
-	})
-
-	t.Run("ReturnsNilWhenOCISourceHasInstallTrue", func(t *testing.T) {
-		mocks := setupComposerMocks(t)
-		composer := NewBlueprintComposer(mocks.Runtime)
-		trueVal := true
-		bp := &blueprintv1alpha1.Blueprint{
-			Sources: []blueprintv1alpha1.Source{
-				{Name: "core", Url: "oci://ghcr.io/windsorcli/core:v1.0.0", Install: &blueprintv1alpha1.BoolExpression{Value: &trueVal, IsExpr: false}},
-			},
-		}
-
-		err := composer.validateSources(bp)
-
-		if err != nil {
-			t.Errorf("Expected no error for OCI source with install: true, got %v", err)
-		}
-	})
-
-	t.Run("ReturnsErrorWhenGitSourceHasInstallTrue", func(t *testing.T) {
-		mocks := setupComposerMocks(t)
-		composer := NewBlueprintComposer(mocks.Runtime)
-		trueVal := true
-		bp := &blueprintv1alpha1.Blueprint{
-			Sources: []blueprintv1alpha1.Source{
-				{Name: "modules", Url: "github.com/org/terraform-modules", Ref: blueprintv1alpha1.Reference{Branch: "main"}, Install: &blueprintv1alpha1.BoolExpression{Value: &trueVal, IsExpr: false}},
-			},
-		}
-
-		err := composer.validateSources(bp)
-
-		if err == nil {
-			t.Error("Expected error when git source has install: true")
-		}
-		if werr := werror.Find(err); werr == nil || !strings.Contains(werr.Remediation, "oci:// URL") {
-			t.Errorf("Expected remediation containing %q, got %v", "oci:// URL", werr)
-		}
-		if !strings.Contains(err.Error(), "install: true") {
-			t.Errorf("Expected error to mention install, got: %v", err)
-		}
-		if !strings.Contains(err.Error(), "modules") {
-			t.Errorf("Expected error to mention source name, got: %v", err)
-		}
-		if !strings.Contains(err.Error(), "OCI") {
-			t.Errorf("Expected error to mention OCI, got: %v", err)
-		}
-	})
-}
-
-func TestComposer_validateReservedNames(t *testing.T) {
-	t.Run("RejectsUserKustomizationNamedCrds", func(t *testing.T) {
-		// Given a user-authored kustomization that claims the reserved CRD-layer name
-		mocks := setupComposerMocks(t)
-		composer := NewBlueprintComposer(mocks.Runtime)
-		bp := &blueprintv1alpha1.Blueprint{
-			Kustomizations: []blueprintv1alpha1.Kustomization{{Name: blueprintv1alpha1.CrdLayerName, Path: "crds"}},
-		}
-
-		// When validating
-		err := composer.validateReservedNames(bp)
-
-		// Then it is rejected as reserved
-		if err == nil || !strings.Contains(err.Error(), "reserved for the CRD layer") {
-			t.Errorf("expected reserved-name error, got %v", err)
-		}
-		if werr := werror.Find(err); werr == nil || !strings.Contains(werr.Remediation, "crds: section") {
-			t.Errorf("Expected remediation containing %q, got %v", "crds: section", werr)
-		}
-	})
-
-	t.Run("AllowsTheCrdsSectionItself", func(t *testing.T) {
-		// Given the CRD layer expressed through the crds: section (not a kustomization)
-		mocks := setupComposerMocks(t)
-		composer := NewBlueprintComposer(mocks.Runtime)
-		bp := &blueprintv1alpha1.Blueprint{
-			Crds:           []string{"cert-manager-1.16.2"},
-			Kustomizations: []blueprintv1alpha1.Kustomization{{Name: "cert-manager", Path: "pki/cert-manager"}},
-		}
-
-		// When validating
-		if err := composer.validateReservedNames(bp); err != nil {
-			t.Errorf("expected no error for crds: section, got %v", err)
-		}
-	})
-
-	t.Run("RejectsUserKustomizationInCrdsNamespace", func(t *testing.T) {
-		// Given a user-authored kustomization that claims a per-source CRD-layer name
-		mocks := setupComposerMocks(t)
-		composer := NewBlueprintComposer(mocks.Runtime)
-		bp := &blueprintv1alpha1.Blueprint{
-			Kustomizations: []blueprintv1alpha1.Kustomization{{Name: "crds-core", Path: "crds"}},
-		}
-
-		// When validating
-		err := composer.validateReservedNames(bp)
-
-		// Then the whole crds-<source> namespace is reserved
-		if err == nil || !strings.Contains(err.Error(), "reserved for the CRD layer") {
-			t.Errorf("expected reserved-name error for crds-core, got %v", err)
+		// When the CRD layers are derived
+		got := blueprint.CrdLayers(bp)
+
+		// Then the project layer comes first, then installed sources with CRDs in name order
+		want := []blueprint.CrdInstallLayer{
+			{Source: "", Refs: []string{"project/a"}},
+			{Source: "alpha", Refs: []string{"alpha/a"}},
+			{Source: "zeta", Refs: []string{"zeta/a"}},
+		}
+		if !reflect.DeepEqual(got, want) {
+			t.Errorf("expected %+v, got %+v", want, got)
 		}
 	})
 }

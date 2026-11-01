@@ -1,4 +1,4 @@
-package blueprint
+package blueprint_test
 
 import (
 	"slices"
@@ -8,6 +8,7 @@ import (
 
 	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
 	"github.com/windsorcli/cli/internal/werror"
+	"github.com/windsorcli/cli/pkg/composer/blueprint"
 	"github.com/windsorcli/cli/pkg/runtime/evaluator"
 )
 
@@ -15,11 +16,11 @@ import (
 // Test Public Methods
 // =============================================================================
 
-func TestProcessor_ProcessFacets_Substitutions(t *testing.T) {
+func TestProcessor_ProcessGlobally_Substitutions(t *testing.T) {
 	t.Run("CollectsStaticFacetSubstitutionsIntoTarget", func(t *testing.T) {
 		// Given a facet with top-level substitutions
 		mocks := setupProcessorMocks(t)
-		processor := NewBlueprintProcessor(mocks.Runtime)
+		processor := blueprint.NewBlueprintProcessor(mocks.Runtime)
 		target := &blueprintv1alpha1.Blueprint{}
 		facets := []blueprintv1alpha1.Facet{
 			{
@@ -32,7 +33,7 @@ func TestProcessor_ProcessFacets_Substitutions(t *testing.T) {
 		}
 
 		// When processing facets
-		_, err := processor.ProcessFacets(target, facets)
+		_, err := processFacets(processor, target, facets)
 
 		// Then target.Substitutions should contain the facet values
 		if err != nil {
@@ -55,7 +56,7 @@ func TestProcessor_ProcessFacets_Substitutions(t *testing.T) {
 		mocks.ConfigHandler.GetContextValuesFunc = func() (map[string]any, error) {
 			return map[string]any{}, nil
 		}
-		processor := NewBlueprintProcessor(mocks.Runtime)
+		processor := blueprint.NewBlueprintProcessor(mocks.Runtime)
 		target := &blueprintv1alpha1.Blueprint{}
 		facets := []blueprintv1alpha1.Facet{
 			{
@@ -79,7 +80,7 @@ func TestProcessor_ProcessFacets_Substitutions(t *testing.T) {
 		}
 
 		// When processing facets
-		_, err := processor.ProcessFacets(target, facets)
+		_, err := processFacets(processor, target, facets)
 
 		// Then substitution expressions should be evaluated against config scope
 		if err != nil {
@@ -96,7 +97,7 @@ func TestProcessor_ProcessFacets_Substitutions(t *testing.T) {
 	t.Run("LaterOrdinalFacetSubstitutionsOverrideEarlier", func(t *testing.T) {
 		// Given two facets with overlapping substitution keys, higher ordinal wins
 		mocks := setupProcessorMocks(t)
-		processor := NewBlueprintProcessor(mocks.Runtime)
+		processor := blueprint.NewBlueprintProcessor(mocks.Runtime)
 		target := &blueprintv1alpha1.Blueprint{}
 		lowOrdinal := 100
 		highOrdinal := 200
@@ -114,7 +115,7 @@ func TestProcessor_ProcessFacets_Substitutions(t *testing.T) {
 		}
 
 		// When processing facets
-		_, err := processor.ProcessFacets(target, facets)
+		_, err := processFacets(processor, target, facets)
 
 		// Then the higher-ordinal facet's value should win
 		if err != nil {
@@ -131,7 +132,7 @@ func TestProcessor_ProcessFacets_Substitutions(t *testing.T) {
 		mocks.ConfigHandler.GetContextValuesFunc = func() (map[string]any, error) {
 			return map[string]any{"enabled": false}, nil
 		}
-		processor := NewBlueprintProcessor(mocks.Runtime)
+		processor := blueprint.NewBlueprintProcessor(mocks.Runtime)
 		target := &blueprintv1alpha1.Blueprint{}
 		facets := []blueprintv1alpha1.Facet{
 			{
@@ -142,7 +143,7 @@ func TestProcessor_ProcessFacets_Substitutions(t *testing.T) {
 		}
 
 		// When processing facets
-		_, err := processor.ProcessFacets(target, facets)
+		_, err := processFacets(processor, target, facets)
 
 		// Then substitutions from excluded facet should not appear
 		if err != nil {
@@ -156,8 +157,8 @@ func TestProcessor_ProcessFacets_Substitutions(t *testing.T) {
 	t.Run("RecordsTraceForEachSubstitutionKey", func(t *testing.T) {
 		// Given a facet with static substitutions and a trace collector attached
 		mocks := setupProcessorMocks(t)
-		processor := NewBlueprintProcessor(mocks.Runtime)
-		tc := NewTraceCollector()
+		processor := blueprint.NewBlueprintProcessor(mocks.Runtime)
+		tc := blueprint.NewTraceCollector()
 		processor.SetTraceCollector(tc)
 		target := &blueprintv1alpha1.Blueprint{}
 		facets := []blueprintv1alpha1.Facet{
@@ -171,7 +172,7 @@ func TestProcessor_ProcessFacets_Substitutions(t *testing.T) {
 		}
 
 		// When processing facets
-		_, err := processor.ProcessFacets(target, facets)
+		_, err := processFacets(processor, target, facets)
 		tc.Finalize(target, nil, "")
 
 		// Then the trace collector should have a contribution for each substitution key
@@ -189,14 +190,14 @@ func TestProcessor_ProcessFacets_Substitutions(t *testing.T) {
 	})
 }
 
-func TestProcessor_ProcessFacets_KustomizationPath(t *testing.T) {
+func TestProcessor_ProcessGlobally_KustomizationPath(t *testing.T) {
 	t.Run("EvaluatesPathExpressionAgainstConfigScope", func(t *testing.T) {
 		// Given a facet with config block and a kustomization path expression referencing it
 		mocks := setupProcessorMocks(t)
 		mocks.ConfigHandler.GetContextValuesFunc = func() (map[string]any, error) {
 			return map[string]any{}, nil
 		}
-		processor := NewBlueprintProcessor(mocks.Runtime)
+		processor := blueprint.NewBlueprintProcessor(mocks.Runtime)
 		target := &blueprintv1alpha1.Blueprint{}
 		facets := []blueprintv1alpha1.Facet{
 			{
@@ -211,7 +212,7 @@ func TestProcessor_ProcessFacets_KustomizationPath(t *testing.T) {
 		}
 
 		// When processing facets
-		_, err := processor.ProcessFacets(target, facets)
+		_, err := processFacets(processor, target, facets)
 
 		// Then the path expression resolves against config scope
 		if err != nil {
@@ -243,7 +244,7 @@ func TestProcessor_ProcessFacets_KustomizationPath(t *testing.T) {
 		mocks.Evaluator.EvaluateFunc = realEval.Evaluate
 		mocks.Evaluator.EvaluateMapFunc = realEval.EvaluateMap
 
-		processor := NewBlueprintProcessor(mocks.Runtime)
+		processor := blueprint.NewBlueprintProcessor(mocks.Runtime)
 		target := &blueprintv1alpha1.Blueprint{}
 		facets := []blueprintv1alpha1.Facet{
 			{
@@ -255,7 +256,7 @@ func TestProcessor_ProcessFacets_KustomizationPath(t *testing.T) {
 		}
 
 		// When processing facets
-		_, err := processor.ProcessFacets(target, facets)
+		_, err := processFacets(processor, target, facets)
 
 		// Then composition refuses, naming the offending kustomization and expression
 		if err == nil {
@@ -286,7 +287,7 @@ func TestProcessor_ProcessFacets_KustomizationPath(t *testing.T) {
 		mocks.Evaluator.EvaluateFunc = realEval.Evaluate
 		mocks.Evaluator.EvaluateMapFunc = realEval.EvaluateMap
 
-		processor := NewBlueprintProcessor(mocks.Runtime)
+		processor := blueprint.NewBlueprintProcessor(mocks.Runtime)
 		target := &blueprintv1alpha1.Blueprint{}
 		facets := []blueprintv1alpha1.Facet{
 			{
@@ -298,7 +299,7 @@ func TestProcessor_ProcessFacets_KustomizationPath(t *testing.T) {
 		}
 
 		// When processing facets
-		_, err := processor.ProcessFacets(target, facets)
+		_, err := processFacets(processor, target, facets)
 
 		// Then composition refuses, naming the actual expression rather than
 		// assuming it was a terraform_output()
@@ -314,11 +315,11 @@ func TestProcessor_ProcessFacets_KustomizationPath(t *testing.T) {
 	})
 }
 
-func TestProcessor_ProcessFacets_Backend(t *testing.T) {
+func TestProcessor_ProcessGlobally_Backend(t *testing.T) {
 	t.Run("FacetBackendCopiedToTarget", func(t *testing.T) {
 		// Given a single facet naming a backend terminus
 		mocks := setupProcessorMocks(t)
-		processor := NewBlueprintProcessor(mocks.Runtime)
+		processor := blueprint.NewBlueprintProcessor(mocks.Runtime)
 		target := &blueprintv1alpha1.Blueprint{}
 		facets := []blueprintv1alpha1.Facet{
 			{
@@ -328,7 +329,7 @@ func TestProcessor_ProcessFacets_Backend(t *testing.T) {
 		}
 
 		// When processing facets
-		_, err := processor.ProcessFacets(target, facets)
+		_, err := processFacets(processor, target, facets)
 
 		// Then target.Backend should hold the facet value
 		if err != nil {
@@ -342,7 +343,7 @@ func TestProcessor_ProcessFacets_Backend(t *testing.T) {
 	t.Run("LaterOrdinalFacetBackendOverridesEarlier", func(t *testing.T) {
 		// Given two facets that both declare Backend, the higher ordinal wins
 		mocks := setupProcessorMocks(t)
-		processor := NewBlueprintProcessor(mocks.Runtime)
+		processor := blueprint.NewBlueprintProcessor(mocks.Runtime)
 		target := &blueprintv1alpha1.Blueprint{}
 		lowOrdinal := 100
 		highOrdinal := 200
@@ -360,7 +361,7 @@ func TestProcessor_ProcessFacets_Backend(t *testing.T) {
 		}
 
 		// When processing facets
-		_, err := processor.ProcessFacets(target, facets)
+		_, err := processFacets(processor, target, facets)
 
 		// Then the higher-ordinal facet's value wins
 		if err != nil {
@@ -374,14 +375,14 @@ func TestProcessor_ProcessFacets_Backend(t *testing.T) {
 	t.Run("FacetWithEmptyBackendDoesNotClearTarget", func(t *testing.T) {
 		// Given a pre-set target.Backend and a facet that does not declare Backend
 		mocks := setupProcessorMocks(t)
-		processor := NewBlueprintProcessor(mocks.Runtime)
+		processor := blueprint.NewBlueprintProcessor(mocks.Runtime)
 		target := &blueprintv1alpha1.Blueprint{Backend: "pre-existing"}
 		facets := []blueprintv1alpha1.Facet{
 			{Metadata: blueprintv1alpha1.Metadata{Name: "silent"}},
 		}
 
 		// When processing facets
-		_, err := processor.ProcessFacets(target, facets)
+		_, err := processFacets(processor, target, facets)
 
 		// Then target.Backend is preserved
 		if err != nil {
@@ -398,7 +399,7 @@ func TestProcessor_ProcessFacets_Backend(t *testing.T) {
 		mocks.ConfigHandler.GetContextValuesFunc = func() (map[string]any, error) {
 			return map[string]any{"enabled": false}, nil
 		}
-		processor := NewBlueprintProcessor(mocks.Runtime)
+		processor := blueprint.NewBlueprintProcessor(mocks.Runtime)
 		target := &blueprintv1alpha1.Blueprint{}
 		facets := []blueprintv1alpha1.Facet{
 			{
@@ -409,7 +410,7 @@ func TestProcessor_ProcessFacets_Backend(t *testing.T) {
 		}
 
 		// When processing facets
-		_, err := processor.ProcessFacets(target, facets)
+		_, err := processFacets(processor, target, facets)
 
 		// Then target.Backend stays empty
 		if err != nil {
@@ -422,7 +423,7 @@ func TestProcessor_ProcessFacets_Backend(t *testing.T) {
 
 }
 
-func TestProcessor_ProcessFacets_Crds(t *testing.T) {
+func TestProcessor_ProcessGlobally_Crds(t *testing.T) {
 	allRefs := func(bp *blueprintv1alpha1.Blueprint) []string {
 		refs := slices.Clone(bp.Crds)
 		for _, source := range bp.Sources {
@@ -440,7 +441,7 @@ func TestProcessor_ProcessFacets_Crds(t *testing.T) {
 	t.Run("RecordsCrdReference", func(t *testing.T) {
 		// Given a facet that declares a CRD reference
 		mocks := setupProcessorMocks(t)
-		processor := NewBlueprintProcessor(mocks.Runtime)
+		processor := blueprint.NewBlueprintProcessor(mocks.Runtime)
 
 		facets := []blueprintv1alpha1.Facet{
 			{
@@ -451,7 +452,7 @@ func TestProcessor_ProcessFacets_Crds(t *testing.T) {
 
 		// When processing facets
 		target := &blueprintv1alpha1.Blueprint{}
-		_, err := processor.ProcessFacets(target, facets)
+		_, err := processFacets(processor, target, facets)
 
 		// Then the reference lands on the crds: layer, not as a kustomization
 		if err != nil {
@@ -468,7 +469,7 @@ func TestProcessor_ProcessFacets_Crds(t *testing.T) {
 	t.Run("DedupesCrdAcrossFacets", func(t *testing.T) {
 		// Given two facets declaring the same CRD reference
 		mocks := setupProcessorMocks(t)
-		processor := NewBlueprintProcessor(mocks.Runtime)
+		processor := blueprint.NewBlueprintProcessor(mocks.Runtime)
 
 		facets := []blueprintv1alpha1.Facet{
 			{Metadata: blueprintv1alpha1.Metadata{Name: "cni"}, Crds: []string{"gateway-api-1.5.1"}},
@@ -477,7 +478,7 @@ func TestProcessor_ProcessFacets_Crds(t *testing.T) {
 
 		// When processing facets
 		target := &blueprintv1alpha1.Blueprint{}
-		_, err := processor.ProcessFacets(target, facets)
+		_, err := processFacets(processor, target, facets)
 
 		// Then the shared CRD reference appears exactly once
 		if err != nil {
@@ -497,7 +498,7 @@ func TestProcessor_ProcessFacets_Crds(t *testing.T) {
 	t.Run("RecordsCrdWithoutFacetKustomizations", func(t *testing.T) {
 		// Given a facet that declares a CRD reference but contributes no kustomizations
 		mocks := setupProcessorMocks(t)
-		processor := NewBlueprintProcessor(mocks.Runtime)
+		processor := blueprint.NewBlueprintProcessor(mocks.Runtime)
 
 		facets := []blueprintv1alpha1.Facet{
 			{Metadata: blueprintv1alpha1.Metadata{Name: "crd-only"}, Crds: []string{"cert-manager-1.16.2"}},
@@ -505,7 +506,7 @@ func TestProcessor_ProcessFacets_Crds(t *testing.T) {
 
 		// When processing facets
 		target := &blueprintv1alpha1.Blueprint{}
-		_, err := processor.ProcessFacets(target, facets)
+		_, err := processFacets(processor, target, facets)
 
 		// Then the CRD layer is still recorded
 		if err != nil {
@@ -517,7 +518,7 @@ func TestProcessor_ProcessFacets_Crds(t *testing.T) {
 	t.Run("ExcludesCrdsFromInactiveFacet", func(t *testing.T) {
 		// Given a facet whose 'when' is false that declares a CRD reference
 		mocks := setupProcessorMocks(t)
-		processor := NewBlueprintProcessor(mocks.Runtime)
+		processor := blueprint.NewBlueprintProcessor(mocks.Runtime)
 
 		facets := []blueprintv1alpha1.Facet{
 			{
@@ -529,7 +530,7 @@ func TestProcessor_ProcessFacets_Crds(t *testing.T) {
 
 		// When processing facets
 		target := &blueprintv1alpha1.Blueprint{}
-		_, err := processor.ProcessFacets(target, facets)
+		_, err := processFacets(processor, target, facets)
 
 		// Then no CRD reference is recorded for the excluded facet
 		if err != nil {
@@ -543,7 +544,7 @@ func TestProcessor_ProcessFacets_Crds(t *testing.T) {
 	t.Run("EmitsMultipleCrdsFromOneFacet", func(t *testing.T) {
 		// Given a facet declaring more than one CRD reference
 		mocks := setupProcessorMocks(t)
-		processor := NewBlueprintProcessor(mocks.Runtime)
+		processor := blueprint.NewBlueprintProcessor(mocks.Runtime)
 
 		facets := []blueprintv1alpha1.Facet{
 			{
@@ -557,7 +558,7 @@ func TestProcessor_ProcessFacets_Crds(t *testing.T) {
 
 		// When processing facets
 		target := &blueprintv1alpha1.Blueprint{}
-		_, err := processor.ProcessFacets(target, facets)
+		_, err := processFacets(processor, target, facets)
 
 		// Then both CRD references are recorded
 		if err != nil {
@@ -570,7 +571,7 @@ func TestProcessor_ProcessFacets_Crds(t *testing.T) {
 	t.Run("SkipsEmptyCrdReference", func(t *testing.T) {
 		// Given a facet with an empty-string CRD reference alongside a real one
 		mocks := setupProcessorMocks(t)
-		processor := NewBlueprintProcessor(mocks.Runtime)
+		processor := blueprint.NewBlueprintProcessor(mocks.Runtime)
 
 		facets := []blueprintv1alpha1.Facet{
 			{
@@ -581,7 +582,7 @@ func TestProcessor_ProcessFacets_Crds(t *testing.T) {
 
 		// When processing facets
 		target := &blueprintv1alpha1.Blueprint{}
-		_, err := processor.ProcessFacets(target, facets)
+		_, err := processFacets(processor, target, facets)
 
 		// Then the empty reference is dropped from the crds: layer
 		if err != nil {
@@ -596,7 +597,7 @@ func TestProcessor_ProcessFacets_Crds(t *testing.T) {
 	t.Run("UnionsWithBaseBlueprintCrds", func(t *testing.T) {
 		// Given a base blueprint that already carries a crds: reference on the default source
 		mocks := setupProcessorMocks(t)
-		processor := NewBlueprintProcessor(mocks.Runtime)
+		processor := blueprint.NewBlueprintProcessor(mocks.Runtime)
 
 		target := &blueprintv1alpha1.Blueprint{
 			Crds: []string{"cert-manager-1.16.2"},
@@ -607,7 +608,7 @@ func TestProcessor_ProcessFacets_Crds(t *testing.T) {
 		}
 
 		// When a facet from the same (default) source contributes another reference
-		_, err := processor.ProcessFacets(target, facets)
+		_, err := processFacets(processor, target, facets)
 
 		// Then both land in the default crds list, deduped and sorted
 		if err != nil {
@@ -627,7 +628,7 @@ func TestProcessor_ProcessFacets_Crds(t *testing.T) {
 		for _, tc := range cases {
 			t.Run(tc.driver, func(t *testing.T) {
 				mocks := setupProcessorMocks(t)
-				processor := NewBlueprintProcessor(mocks.Runtime)
+				processor := blueprint.NewBlueprintProcessor(mocks.Runtime)
 				driver := tc.driver
 				mocks.ConfigHandler.GetContextValuesFunc = func() (map[string]any, error) {
 					return map[string]any{"gateway": map[string]any{"driver": driver}}, nil
@@ -651,7 +652,7 @@ func TestProcessor_ProcessFacets_Crds(t *testing.T) {
 
 				// When processing facets for the selected driver
 				target := &blueprintv1alpha1.Blueprint{}
-				_, err := processor.ProcessFacets(target, facets)
+				_, err := processFacets(processor, target, facets)
 
 				// Then only the active driver's CRD is recorded; the other never appears
 				if err != nil {
@@ -668,7 +669,7 @@ func TestProcessor_ProcessFacets_Crds(t *testing.T) {
 	t.Run("RejectsPathTraversalCrdReference", func(t *testing.T) {
 		// Given a facet whose CRD reference contains path-traversal components
 		mocks := setupProcessorMocks(t)
-		processor := NewBlueprintProcessor(mocks.Runtime)
+		processor := blueprint.NewBlueprintProcessor(mocks.Runtime)
 
 		for _, ref := range []string{"../manifests/secrets", "nested/dir", "..", "a\\b"} {
 			facets := []blueprintv1alpha1.Facet{
@@ -677,7 +678,7 @@ func TestProcessor_ProcessFacets_Crds(t *testing.T) {
 
 			// When processing facets
 			target := &blueprintv1alpha1.Blueprint{}
-			_, err := processor.ProcessFacets(target, facets)
+			_, err := processFacets(processor, target, facets)
 
 			// Then composition fails rather than emitting a path outside crds/
 			if err == nil {
@@ -689,7 +690,7 @@ func TestProcessor_ProcessFacets_Crds(t *testing.T) {
 	t.Run("LeavesFacetsWithoutCrdsUnchanged", func(t *testing.T) {
 		// Given a facet with a kustomization and no CRD references
 		mocks := setupProcessorMocks(t)
-		processor := NewBlueprintProcessor(mocks.Runtime)
+		processor := blueprint.NewBlueprintProcessor(mocks.Runtime)
 
 		facets := []blueprintv1alpha1.Facet{
 			{
@@ -702,7 +703,7 @@ func TestProcessor_ProcessFacets_Crds(t *testing.T) {
 
 		// When processing facets
 		target := &blueprintv1alpha1.Blueprint{}
-		_, err := processor.ProcessFacets(target, facets)
+		_, err := processFacets(processor, target, facets)
 
 		// Then no crds: layer appears and dependsOn is untouched
 		if err != nil {
@@ -723,7 +724,7 @@ func TestProcessor_ProcessFacets_Crds(t *testing.T) {
 	t.Run("BindsCrdsToNamedSource", func(t *testing.T) {
 		// Given a facet from a named source that declares a CRD reference
 		mocks := setupProcessorMocks(t)
-		processor := NewBlueprintProcessor(mocks.Runtime)
+		processor := blueprint.NewBlueprintProcessor(mocks.Runtime)
 
 		facets := []blueprintv1alpha1.Facet{
 			{Metadata: blueprintv1alpha1.Metadata{Name: "addon-private-ca"}, Crds: []string{"cert-manager-1.16.2"}},
@@ -731,7 +732,7 @@ func TestProcessor_ProcessFacets_Crds(t *testing.T) {
 
 		// When processing facets for the "core" source
 		target := &blueprintv1alpha1.Blueprint{}
-		_, err := processor.ProcessFacets(target, facets, "core")
+		_, err := processFacets(processor, target, facets, "core")
 
 		// Then the ref rides with the "core" source (not the default crds list), so the provisioner
 		// installs it from core in the background
@@ -749,7 +750,7 @@ func TestProcessor_ProcessFacets_Crds(t *testing.T) {
 	t.Run("PutsDefaultSourceCrdsOnTheBlueprint", func(t *testing.T) {
 		// Given a facet from the default/primary source that declares a CRD reference
 		mocks := setupProcessorMocks(t)
-		processor := NewBlueprintProcessor(mocks.Runtime)
+		processor := blueprint.NewBlueprintProcessor(mocks.Runtime)
 
 		facets := []blueprintv1alpha1.Facet{
 			{Metadata: blueprintv1alpha1.Metadata{Name: "addon-private-ca"}, Crds: []string{"cert-manager-1.16.2"}},
@@ -757,7 +758,7 @@ func TestProcessor_ProcessFacets_Crds(t *testing.T) {
 
 		// When processing facets for the primary source
 		target := &blueprintv1alpha1.Blueprint{}
-		_, err := processor.ProcessFacets(target, facets, "primary")
+		_, err := processFacets(processor, target, facets, "primary")
 
 		// Then the ref lands on the blueprint's flat crds list (default/project source), not a named source
 		if err != nil {
@@ -774,16 +775,16 @@ func TestProcessor_ProcessFacets_Crds(t *testing.T) {
 	t.Run("SplitsCrdsAcrossSourcesByProvenance", func(t *testing.T) {
 		// Given facets from two different sources are processed into the same blueprint
 		mocks := setupProcessorMocks(t)
-		processor := NewBlueprintProcessor(mocks.Runtime)
+		processor := blueprint.NewBlueprintProcessor(mocks.Runtime)
 		target := &blueprintv1alpha1.Blueprint{}
 
 		// When each source's facets are processed in turn
-		if _, err := processor.ProcessFacets(target, []blueprintv1alpha1.Facet{
+		if _, err := processFacets(processor, target, []blueprintv1alpha1.Facet{
 			{Metadata: blueprintv1alpha1.Metadata{Name: "core-ca"}, Crds: []string{"cert-manager-1.16.2"}},
 		}, "core"); err != nil {
 			t.Fatalf("Expected no error, got %v", err)
 		}
-		if _, err := processor.ProcessFacets(target, []blueprintv1alpha1.Facet{
+		if _, err := processFacets(processor, target, []blueprintv1alpha1.Facet{
 			{Metadata: blueprintv1alpha1.Metadata{Name: "acme"}, Crds: []string{"acme-crd-2.0.0"}},
 		}, "acme-oci"); err != nil {
 			t.Fatalf("Expected no error, got %v", err)
@@ -802,7 +803,7 @@ func TestProcessor_ProcessFacets_Crds(t *testing.T) {
 	})
 }
 
-func TestProcessor_ProcessFacets_Tiers(t *testing.T) {
+func TestProcessor_ProcessGlobally_Tiers(t *testing.T) {
 	find := func(bp *blueprintv1alpha1.Blueprint, name string) (blueprintv1alpha1.Kustomization, bool) {
 		for _, k := range bp.AllKustomizations() {
 			if k.Name == name {
@@ -814,14 +815,14 @@ func TestProcessor_ProcessFacets_Tiers(t *testing.T) {
 	process := func(t *testing.T, system blueprintv1alpha1.FluxSystem) *blueprintv1alpha1.Blueprint {
 		t.Helper()
 		mocks := setupProcessorMocks(t)
-		processor := NewBlueprintProcessor(mocks.Runtime)
+		processor := blueprint.NewBlueprintProcessor(mocks.Runtime)
 		facets := []blueprintv1alpha1.Facet{{
 			Metadata:    blueprintv1alpha1.Metadata{Name: system.Name},
 			FluxSystems: []blueprintv1alpha1.FluxSystem{system},
 		}}
 		target := &blueprintv1alpha1.Blueprint{}
-		if _, err := processor.ProcessFacets(target, facets); err != nil {
-			t.Fatalf("ProcessFacets: %v", err)
+		if _, err := processFacets(processor, target, facets); err != nil {
+			t.Fatalf("ProcessGlobally: %v", err)
 		}
 		return target
 	}
@@ -1023,7 +1024,7 @@ func TestProcessor_ProcessFacets_Tiers(t *testing.T) {
 
 	t.Run("DuplicateUnnamedVariantsReturnsError", func(t *testing.T) {
 		mocks := setupProcessorMocks(t)
-		processor := NewBlueprintProcessor(mocks.Runtime)
+		processor := blueprint.NewBlueprintProcessor(mocks.Runtime)
 		facets := []blueprintv1alpha1.Facet{{
 			Metadata: blueprintv1alpha1.Metadata{Name: "gateway"},
 			FluxSystems: []blueprintv1alpha1.FluxSystem{{
@@ -1034,7 +1035,7 @@ func TestProcessor_ProcessFacets_Tiers(t *testing.T) {
 				},
 			}},
 		}}
-		_, err := processor.ProcessFacets(&blueprintv1alpha1.Blueprint{}, facets)
+		_, err := processFacets(processor, &blueprintv1alpha1.Blueprint{}, facets)
 		if err == nil {
 			t.Fatal("expected error for duplicate unnamed resources variant, got nil")
 		}
@@ -1045,7 +1046,7 @@ func TestProcessor_ProcessFacets_Tiers(t *testing.T) {
 
 	t.Run("CrossFacetSameNamedVariantDeepMerges", func(t *testing.T) {
 		mocks := setupProcessorMocks(t)
-		processor := NewBlueprintProcessor(mocks.Runtime)
+		processor := blueprint.NewBlueprintProcessor(mocks.Runtime)
 		facets := []blueprintv1alpha1.Facet{
 			{
 				Metadata: blueprintv1alpha1.Metadata{Name: "gateway-a"},
@@ -1063,8 +1064,8 @@ func TestProcessor_ProcessFacets_Tiers(t *testing.T) {
 			},
 		}
 		target := &blueprintv1alpha1.Blueprint{}
-		if _, err := processor.ProcessFacets(target, facets); err != nil {
-			t.Fatalf("ProcessFacets: %v", err)
+		if _, err := processFacets(processor, target, facets); err != nil {
+			t.Fatalf("ProcessGlobally: %v", err)
 		}
 		count := 0
 		var got blueprintv1alpha1.Kustomization
@@ -1084,7 +1085,7 @@ func TestProcessor_ProcessFacets_Tiers(t *testing.T) {
 
 	t.Run("CrossOrdinalFacetsStillMergeFluxSystem", func(t *testing.T) {
 		mocks := setupProcessorMocks(t)
-		processor := NewBlueprintProcessor(mocks.Runtime)
+		processor := blueprint.NewBlueprintProcessor(mocks.Runtime)
 		ordProvider := 200
 		ordAddon := 300
 		facets := []blueprintv1alpha1.Facet{
@@ -1107,8 +1108,8 @@ func TestProcessor_ProcessFacets_Tiers(t *testing.T) {
 			},
 		}
 		target := &blueprintv1alpha1.Blueprint{}
-		if _, err := processor.ProcessFacets(target, facets); err != nil {
-			t.Fatalf("ProcessFacets: %v", err)
+		if _, err := processFacets(processor, target, facets); err != nil {
+			t.Fatalf("ProcessGlobally: %v", err)
 		}
 		install, ok := find(target, "gateway-install")
 		if !ok || !slices.Contains(install.Components, "envoy") {
@@ -1124,7 +1125,7 @@ func TestProcessor_ProcessFacets_Tiers(t *testing.T) {
 
 	t.Run("SameOrdinalInstallDeepMerges", func(t *testing.T) {
 		mocks := setupProcessorMocks(t)
-		processor := NewBlueprintProcessor(mocks.Runtime)
+		processor := blueprint.NewBlueprintProcessor(mocks.Runtime)
 		facets := []blueprintv1alpha1.Facet{
 			{
 				Metadata: blueprintv1alpha1.Metadata{Name: "gateway-a"},
@@ -1142,8 +1143,8 @@ func TestProcessor_ProcessFacets_Tiers(t *testing.T) {
 			},
 		}
 		target := &blueprintv1alpha1.Blueprint{}
-		if _, err := processor.ProcessFacets(target, facets); err != nil {
-			t.Fatalf("ProcessFacets: %v", err)
+		if _, err := processFacets(processor, target, facets); err != nil {
+			t.Fatalf("ProcessGlobally: %v", err)
 		}
 		install, ok := find(target, "gateway-install")
 		if !ok {
@@ -1156,7 +1157,7 @@ func TestProcessor_ProcessFacets_Tiers(t *testing.T) {
 
 	t.Run("HigherOrdinalRemoveDeletesFluxSystem", func(t *testing.T) {
 		mocks := setupProcessorMocks(t)
-		processor := NewBlueprintProcessor(mocks.Runtime)
+		processor := blueprint.NewBlueprintProcessor(mocks.Runtime)
 		ordProvider := 200
 		ordRemoval := 300
 		facets := []blueprintv1alpha1.Facet{
@@ -1178,8 +1179,8 @@ func TestProcessor_ProcessFacets_Tiers(t *testing.T) {
 			},
 		}
 		target := &blueprintv1alpha1.Blueprint{}
-		if _, err := processor.ProcessFacets(target, facets); err != nil {
-			t.Fatalf("ProcessFacets: %v", err)
+		if _, err := processFacets(processor, target, facets); err != nil {
+			t.Fatalf("ProcessGlobally: %v", err)
 		}
 		if _, ok := find(target, "gateway-install"); ok {
 			t.Errorf("expected a higher-ordinal remove to delete the system, but gateway-install survived: %+v", target.AllKustomizations())
@@ -1193,7 +1194,7 @@ func TestProcessor_ProcessFacets_Tiers(t *testing.T) {
 
 	t.Run("EqualOrdinalRemoveStrategyPrecedenceDeletesFluxSystem", func(t *testing.T) {
 		mocks := setupProcessorMocks(t)
-		processor := NewBlueprintProcessor(mocks.Runtime)
+		processor := blueprint.NewBlueprintProcessor(mocks.Runtime)
 		facets := []blueprintv1alpha1.Facet{
 			{
 				Metadata: blueprintv1alpha1.Metadata{Name: "gateway-a"},
@@ -1211,8 +1212,8 @@ func TestProcessor_ProcessFacets_Tiers(t *testing.T) {
 			},
 		}
 		target := &blueprintv1alpha1.Blueprint{}
-		if _, err := processor.ProcessFacets(target, facets); err != nil {
-			t.Fatalf("ProcessFacets: %v", err)
+		if _, err := processFacets(processor, target, facets); err != nil {
+			t.Fatalf("ProcessGlobally: %v", err)
 		}
 		if _, ok := find(target, "gateway-install"); ok {
 			t.Errorf("expected equal-ordinal remove (higher strategy precedence) to delete the system, but gateway-install survived: %+v", target.AllKustomizations())
@@ -1226,7 +1227,7 @@ func TestProcessor_ProcessFacets_Tiers(t *testing.T) {
 
 	t.Run("EqualOrdinalRemoveFacetsAccumulateAndStripFieldsFromPreexistingSystem", func(t *testing.T) {
 		mocks := setupProcessorMocks(t)
-		processor := NewBlueprintProcessor(mocks.Runtime)
+		processor := blueprint.NewBlueprintProcessor(mocks.Runtime)
 		facets := []blueprintv1alpha1.Facet{
 			{
 				Metadata: blueprintv1alpha1.Metadata{Name: "remove-install-component"},
@@ -1258,8 +1259,8 @@ func TestProcessor_ProcessFacets_Tiers(t *testing.T) {
 				},
 			}},
 		}
-		if _, err := processor.ProcessFacets(target, facets); err != nil {
-			t.Fatalf("ProcessFacets: %v", err)
+		if _, err := processFacets(processor, target, facets); err != nil {
+			t.Fatalf("ProcessGlobally: %v", err)
 		}
 
 		var sys blueprintv1alpha1.FluxSystem
@@ -1359,7 +1360,7 @@ func TestProcessor_ProcessFacets_Tiers(t *testing.T) {
 	})
 }
 
-func TestProcessor_ProcessFacets_StripsFluxSystemWhen(t *testing.T) {
+func TestProcessor_ProcessGlobally_StripsFluxSystemWhen(t *testing.T) {
 	t.Run("EmittedSystemHasNoWhenAfterInclusion", func(t *testing.T) {
 		// Given a facet whose flux system is gated on composition-only derived config: talos_enabled
 		// comes from the facet's own config: block, so it exists during composition but not in the
@@ -1368,7 +1369,7 @@ func TestProcessor_ProcessFacets_StripsFluxSystemWhen(t *testing.T) {
 		mocks.ConfigHandler.GetContextValuesFunc = func() (map[string]any, error) {
 			return map[string]any{"platform": "hetzner"}, nil
 		}
-		processor := NewBlueprintProcessor(mocks.Runtime)
+		processor := blueprint.NewBlueprintProcessor(mocks.Runtime)
 		target := &blueprintv1alpha1.Blueprint{}
 		facets := []blueprintv1alpha1.Facet{{
 			Metadata: blueprintv1alpha1.Metadata{Name: "platform"},
@@ -1383,8 +1384,8 @@ func TestProcessor_ProcessFacets_StripsFluxSystemWhen(t *testing.T) {
 		}}
 
 		// When the blueprint is composed
-		if _, err := processor.ProcessFacets(target, facets); err != nil {
-			t.Fatalf("ProcessFacets: %v", err)
+		if _, err := processFacets(processor, target, facets); err != nil {
+			t.Fatalf("ProcessGlobally: %v", err)
 		}
 
 		// Then the system is included — its when evaluated true during composition — but the
@@ -1401,197 +1402,6 @@ func TestProcessor_ProcessFacets_StripsFluxSystemWhen(t *testing.T) {
 		}
 		if cni.When != "" {
 			t.Errorf("expected emitted FluxSystem.When to be stripped, got %q", cni.When)
-		}
-	})
-}
-
-// =============================================================================
-// Test Private Methods
-// =============================================================================
-
-func TestValidateSystemSecrets(t *testing.T) {
-	processor := func(t *testing.T) *BaseBlueprintProcessor {
-		return NewBlueprintProcessor(setupProcessorMocks(t).Runtime)
-	}
-
-	t.Run("AcceptsSensitivePropertyReference", func(t *testing.T) {
-		err := processor(t).validateSystemSecrets("cdn", map[string]blueprintv1alpha1.SecretEntry{"cloudflare-creds": {Data: map[string]string{"api_token": "${cdn.cloudflare_api_key}"}}})
-		if err != nil {
-			t.Errorf("Expected no error, got %v", err)
-		}
-	})
-
-	t.Run("AcceptsNonSensitiveReferenceWithOptionalDefault", func(t *testing.T) {
-		// A reference to a non-sensitive property (with a ?? default) is fine — it goes into a Secret
-		err := processor(t).validateSystemSecrets("telemetry", map[string]blueprintv1alpha1.SecretEntry{
-			"alertmanager-notification-slack": {Data: map[string]string{"url": "${telemetry.alerts.slack.webhook_url ?? ''}"}},
-		})
-		if err != nil {
-			t.Errorf("Expected no error, got %v", err)
-		}
-	})
-
-	t.Run("AcceptsDirectSecretExpression", func(t *testing.T) {
-		err := processor(t).validateSystemSecrets("telemetry", map[string]blueprintv1alpha1.SecretEntry{
-			"alertmanager-slack": {Data: map[string]string{"webhook_url": `${secret("Developer", "slack_webhooks", "url")}`}},
-		})
-		if err != nil {
-			t.Errorf("Expected no error, got %v", err)
-		}
-	})
-
-	t.Run("AcceptsHybridExpression", func(t *testing.T) {
-		// An expression embedded in surrounding text resolves to a valid secret value and is allowed
-		err := processor(t).validateSystemSecrets("cdn", map[string]blueprintv1alpha1.SecretEntry{"creds": {Data: map[string]string{"url": "https://api.example.com/${cdn.token}"}}})
-		if err != nil {
-			t.Errorf("Expected no error, got %v", err)
-		}
-	})
-
-	t.Run("RejectsPlaintextLiteral", func(t *testing.T) {
-		// A hardcoded literal would be serialized with the blueprint (git-committed), so it fails closed
-		err := processor(t).validateSystemSecrets("cdn", map[string]blueprintv1alpha1.SecretEntry{"creds": {Data: map[string]string{"token": "actual-secret-value"}}})
-		if err == nil || !strings.Contains(err.Error(), `must contain a complete ${...} expression, got "actual-secret-value"`) {
-			t.Errorf("Expected plaintext-literal error, got %v", err)
-		}
-		if werr := werror.Find(err); werr == nil || !strings.Contains(werr.Remediation, "plaintext literal") {
-			t.Errorf("Expected remediation containing %q, got %v", "plaintext literal", werr)
-		}
-	})
-
-	t.Run("RejectsUnterminatedExpression", func(t *testing.T) {
-		// A malformed, unterminated interpolation is caught at composition rather than at apply time
-		err := processor(t).validateSystemSecrets("cdn", map[string]blueprintv1alpha1.SecretEntry{"creds": {Data: map[string]string{"token": "${cdn.token"}}})
-		if err == nil || !strings.Contains(err.Error(), `must contain a complete ${...} expression, got "${cdn.token"`) {
-			t.Errorf("Expected unterminated-expression error, got %v", err)
-		}
-	})
-
-	t.Run("RejectsEntryWithNoDataKeys", func(t *testing.T) {
-		// An entry with no data keys — a genuinely empty entry, or the retired flat form whose keys the
-		// decoder silently discarded — fails loudly rather than silently placing nothing
-		err := processor(t).validateSystemSecrets("cdn", map[string]blueprintv1alpha1.SecretEntry{"creds": {Namespaces: []string{"system-dns"}}})
-		if err == nil || !strings.Contains(err.Error(), "no data keys") {
-			t.Errorf("Expected no-data-keys error, got %v", err)
-		}
-		if werr := werror.Find(err); werr == nil || !strings.Contains(werr.Remediation, "data: {<key>: <ref>}") {
-			t.Errorf("Expected remediation containing %q, got %v", "data: {<key>: <ref>}", werr)
-		}
-	})
-
-	t.Run("AcceptsTLSTypeWithCertAndKey", func(t *testing.T) {
-		err := processor(t).validateSystemSecrets("gateway", map[string]blueprintv1alpha1.SecretEntry{
-			"internal-web-tls": {Type: "kubernetes.io/tls", Data: map[string]string{"tls.crt": "${gateway.internal.tls.cert}", "tls.key": "${gateway.internal.tls.key}"}},
-		})
-		if err != nil {
-			t.Errorf("Expected no error, got %v", err)
-		}
-	})
-
-	t.Run("AcceptsTLSTypeWithOnlyOneKey", func(t *testing.T) {
-		// Another facet can supply the other key, so the per-facet check leaves the key set alone
-		err := processor(t).validateSystemSecrets("gateway", map[string]blueprintv1alpha1.SecretEntry{
-			"internal-web-tls": {Type: "kubernetes.io/tls", Data: map[string]string{"tls.crt": "${gateway.internal.tls.cert}"}},
-		})
-		if err != nil {
-			t.Errorf("Expected no error, got %v", err)
-		}
-	})
-
-	t.Run("RejectsUnsupportedType", func(t *testing.T) {
-		err := processor(t).validateSystemSecrets("gateway", map[string]blueprintv1alpha1.SecretEntry{
-			"token": {Type: "kubernetes.io/service-account-token", Data: map[string]string{"token": "${x.token}"}},
-		})
-		if err == nil || !strings.Contains(err.Error(), `unsupported type "kubernetes.io/service-account-token"`) {
-			t.Errorf("Expected unsupported-type error, got %v", err)
-		}
-	})
-}
-
-// =============================================================================
-// Test Helpers
-// =============================================================================
-
-func TestMergeSecretData(t *testing.T) {
-	t.Run("UnionsSecretsAndDataKeysWithOverlayWinning", func(t *testing.T) {
-		// Given two facets contributing secrets: a shared secret with an overlapping data key,
-		// and a secret unique to each side
-		base := map[string]blueprintv1alpha1.SecretEntry{
-			"shared":    {Data: map[string]string{"a": "1", "b": "2"}},
-			"base-only": {Data: map[string]string{"x": "9"}},
-		}
-		overlay := map[string]blueprintv1alpha1.SecretEntry{
-			"shared":       {Data: map[string]string{"b": "override", "c": "3"}},
-			"overlay-only": {Data: map[string]string{"y": "8"}},
-		}
-
-		// When merging
-		got := mergeSecretData(base, overlay)
-
-		// Then secrets union, data keys union, and overlay wins the data-key conflict
-		if got["shared"].Data["a"] != "1" || got["shared"].Data["b"] != "override" || got["shared"].Data["c"] != "3" {
-			t.Errorf("Unexpected shared secret merge: %v", got["shared"])
-		}
-		if got["base-only"].Data["x"] != "9" || got["overlay-only"].Data["y"] != "8" {
-			t.Errorf("Expected unique secrets preserved, got %v", got)
-		}
-	})
-
-	t.Run("UnionsNamespacesForASharedSecret", func(t *testing.T) {
-		// Given two facets targeting the same secret at different namespaces
-		base := map[string]blueprintv1alpha1.SecretEntry{"acme-dns": {Namespaces: []string{"system-pki"}, Data: map[string]string{"token": "${x.t}"}}}
-		overlay := map[string]blueprintv1alpha1.SecretEntry{"acme-dns": {Namespaces: []string{"system-dns", "system-pki"}, Data: map[string]string{"token": "${x.t}"}}}
-
-		// When merging
-		got := mergeSecretData(base, overlay)
-
-		// Then the namespaces union without duplicating the shared one
-		ns := got["acme-dns"].Namespaces
-		if len(ns) != 2 || !slices.Contains(ns, "system-pki") || !slices.Contains(ns, "system-dns") {
-			t.Errorf("Expected namespaces to union to [system-pki system-dns], got %v", ns)
-		}
-	})
-
-	t.Run("OverlayTypeWinsAndEmptyTypeKeepsBase", func(t *testing.T) {
-		// Given a typed base secret and an untyped overlay, plus an untyped base and a typed overlay
-		base := map[string]blueprintv1alpha1.SecretEntry{
-			"typed-base":   {Type: "kubernetes.io/tls", Data: map[string]string{"tls.crt": "${a}"}},
-			"untyped-base": {Data: map[string]string{"tls.crt": "${a}"}},
-		}
-		overlay := map[string]blueprintv1alpha1.SecretEntry{
-			"typed-base":   {Data: map[string]string{"tls.key": "${b}"}},
-			"untyped-base": {Type: "kubernetes.io/tls", Data: map[string]string{"tls.key": "${b}"}},
-		}
-
-		// When merging
-		got := mergeSecretData(base, overlay)
-
-		// Then both secrets carry the type
-		if got["typed-base"].Type != "kubernetes.io/tls" || got["untyped-base"].Type != "kubernetes.io/tls" {
-			t.Errorf("Expected both types kubernetes.io/tls, got %q and %q", got["typed-base"].Type, got["untyped-base"].Type)
-		}
-	})
-
-	t.Run("ReturnsNilWhenBothEmpty", func(t *testing.T) {
-		if got := mergeSecretData(nil, nil); got != nil {
-			t.Errorf("Expected nil, got %v", got)
-		}
-	})
-
-	t.Run("DoesNotMutateInputs", func(t *testing.T) {
-		// Given a base with a shared secret
-		base := map[string]blueprintv1alpha1.SecretEntry{"shared": {Data: map[string]string{"a": "1"}}}
-		overlay := map[string]blueprintv1alpha1.SecretEntry{"shared": {Data: map[string]string{"b": "2"}}}
-
-		// When merging
-		_ = mergeSecretData(base, overlay)
-
-		// Then the base's inner map is unchanged
-		if len(base["shared"].Data) != 1 || base["shared"].Data["a"] != "1" {
-			t.Errorf("Expected base unmutated, got %v", base)
-		}
-		if _, exists := base["shared"].Data["b"]; exists {
-			t.Error("Expected base inner map to not gain overlay key")
 		}
 	})
 }

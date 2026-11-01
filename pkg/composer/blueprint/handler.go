@@ -64,7 +64,6 @@ type BlueprintHandler interface {
 	UpgradeSourcesToLatest() ([]SourceUpgrade, error)
 	GetDeclaredSources() ([]blueprintv1alpha1.Source, error)
 	GetTerraformComponents() []blueprintv1alpha1.TerraformComponent
-	GetLocalTemplateData() (map[string][]byte, error)
 	Generate() *blueprintv1alpha1.Blueprint
 	GenerateResolved() (*blueprintv1alpha1.Blueprint, error)
 	Explain(path string) (*ExplainTrace, error)
@@ -348,18 +347,6 @@ func (h *BaseBlueprintHandler) GetTerraformComponents() []blueprintv1alpha1.Terr
 	}
 
 	return components
-}
-
-// GetLocalTemplateData returns all files collected from the template blueprint's directory.
-// This includes blueprint.yaml, schema.yaml, features, and any other template files. The data is
-// used by the artifact builder when pushing local templates to an OCI registry. Returns nil if
-// no template loader exists (e.g., when loading from OCI without a local _template).
-func (h *BaseBlueprintHandler) GetLocalTemplateData() (map[string][]byte, error) {
-	templateLoader, exists := h.sourceBlueprintLoaders["template"]
-	if !exists || templateLoader == nil {
-		return nil, nil
-	}
-	return templateLoader.GetTemplateData(), nil
 }
 
 // Generate returns the fully composed blueprint after all sources and user blueprint

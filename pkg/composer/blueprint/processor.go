@@ -1,5 +1,5 @@
 // The BlueprintProcessor is the stage that evaluates facets into blueprint components.
-// It provides ProcessFacets, which resolves config, checks requirements, and collects components.
+// It provides ProcessGlobally, which resolves config, checks requirements, and collects components.
 // It records traces and deferred paths for the components that it collects.
 // The config, collection, evaluation, and merge steps are in the processor_* companion files.
 
@@ -50,7 +50,7 @@ type ExcludedFacet struct {
 	Provides []string // terraform component IDs and kustomization names (including flux tiers) it declares
 }
 
-// collectedComponents holds the intermediate accumulation maps built during ProcessFacets before
+// collectedComponents holds the intermediate accumulation maps built during ProcessGlobally before
 // they are written to the target blueprint by applyCollectedComponents.
 type collectedComponents struct {
 	terraformByID       map[string]*blueprintv1alpha1.ConditionalTerraformComponent
@@ -74,11 +74,10 @@ type SourceFacetSet struct {
 
 // BlueprintProcessor evaluates when: conditions on facets, terraform components, and kustomizations.
 // It determines inclusion/exclusion based on boolean condition results.
-// The processor is stateless and shared across all loaders.
-// ProcessFacets returns the evaluated config scope for the loader so callers can merge
-// scopes from multiple loaders (e.g. for user overlay and final terraform input evaluation).
+// All loaders share one processor.
+// ProcessGlobally returns the evaluated config scope, which callers use for the user overlay and
+// for the final terraform input evaluation.
 type BlueprintProcessor interface {
-	ProcessFacets(target *blueprintv1alpha1.Blueprint, facets []blueprintv1alpha1.Facet, sourceName ...string) (scope map[string]any, err error)
 	ProcessGlobally(sources []SourceFacetSet) (map[string]any, error)
 }
 
@@ -87,10 +86,9 @@ type BlueprintProcessor interface {
 // =============================================================================
 
 // NewBlueprintProcessor creates a new BlueprintProcessor using the runtime's expression evaluator.
-// The evaluator is used to evaluate 'when' conditions on facets and components. Optional
-// overrides allow replacing the evaluator for testing. The processor is stateless and can
-// be shared across multiple concurrent facet processing operations. The evaluator must be
-// provided either via the runtime or as an override.
+// The evaluator evaluates the when: conditions on facets and components. The processor can be
+// shared across concurrent facet processing operations. It panics if the runtime or its evaluator
+// is nil.
 func NewBlueprintProcessor(rt *runtime.Runtime) *BaseBlueprintProcessor {
 	if rt == nil {
 		panic("runtime is required")
@@ -131,7 +129,7 @@ func (p *BaseBlueprintProcessor) SetExtraScope(scope map[string]any) {
 	}
 }
 
-// GetDeferredPaths returns a copy of deferred composed paths discovered during the last ProcessFacets call.
+// GetDeferredPaths returns a copy of deferred composed paths discovered during the last ProcessGlobally call.
 func (p *BaseBlueprintProcessor) GetDeferredPaths() map[string]bool {
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -146,16 +144,16 @@ func (p *BaseBlueprintProcessor) GetDeferredPaths() map[string]bool {
 }
 
 // ResetExcludedFacets clears the accumulated excluded-facet record. Callers invoke it once before a
-// composition's per-source ProcessFacets pass, so the set reflects only that composition. ProcessFacets
-// appends across sources rather than resetting, letting a multi-source compose accumulate one set.
+// composition, so the set reflects only that composition. ProcessGlobally appends to the record and
+// does not reset it.
 func (p *BaseBlueprintProcessor) ResetExcludedFacets() {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	p.excludedFacets = nil
 }
 
-// GetExcludedFacets returns a copy of the facets excluded by a false when: across every ProcessFacets
-// call since the last reset. Read after the per-source passes complete so the set is stable.
+// GetExcludedFacets returns a copy of the facets excluded by a false when: across every ProcessGlobally
+// call since the last reset. Read it after composition completes so the set is stable.
 func (p *BaseBlueprintProcessor) GetExcludedFacets() []ExcludedFacet {
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -165,51 +163,6 @@ func (p *BaseBlueprintProcessor) GetExcludedFacets() []ExcludedFacet {
 	out := make([]ExcludedFacet, len(p.excludedFacets))
 	copy(out, p.excludedFacets)
 	return out
-}
-
-// ProcessFacets evaluates the facets of one source into target and returns the config scope. Facets
-// sort by ordinal, then name. A facet with a true or unset when adds its config blocks and components;
-// a component when gives finer control. Entries merge by ordinal, then remove > replace > merge. Config
-// expressions see the merged block values. An operator value wins over a computed facet value. A facet
-// whose requires stay unmet fails composition. If sourceName is set, it is the Source of components
-// that have none.
-func (p *BaseBlueprintProcessor) ProcessFacets(target *blueprintv1alpha1.Blueprint, facets []blueprintv1alpha1.Facet, sourceName ...string) (map[string]any, error) {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-	p.deferredPaths = make(map[string]bool)
-	if target == nil {
-		return nil, fmt.Errorf("target blueprint cannot be nil")
-	}
-
-	if len(facets) == 0 {
-		return nil, nil
-	}
-
-	contextScope := p.buildContextScope()
-
-	sortedFacets := make([]blueprintv1alpha1.Facet, len(facets))
-	copy(sortedFacets, facets)
-	sort.Slice(sortedFacets, func(i, j int) bool {
-		oi, oj := resolvedFacetOrdinal(sortedFacets[i]), resolvedFacetOrdinal(sortedFacets[j])
-		if oi != oj {
-			return oi < oj
-		}
-		return sortedFacets[i].Metadata.Name < sortedFacets[j].Metadata.Name
-	})
-
-	var operatorOverlay map[string]any
-	if p.runtime != nil && p.runtime.ConfigHandler != nil {
-		operatorOverlay = p.runtime.ConfigHandler.GetSetValues()
-	}
-	globalScope, scope, includedFacets, err := p.resolveConfigAndInclusion(sortedFacets, contextScope, operatorOverlay)
-	if err != nil {
-		return nil, err
-	}
-
-	if err := p.emitFacetComponents(target, includedFacets, scope, sourceName...); err != nil {
-		return nil, err
-	}
-	return globalScope, nil
 }
 
 // ProcessGlobally resolves config and facet inclusion once across every source's facets, then emits
@@ -421,8 +374,8 @@ func (p *BaseBlueprintProcessor) resolveConfigAndInclusion(sortedFacets []bluepr
 // emitFacetComponents adds the components, kustomizations, flux systems, CRDs, substitutions, and
 // messages of the included facets to target, with expressions evaluated against the resolved scope.
 // sourceName is the Source of components that have none. Messages stay unevaluated, in facet order;
-// GenerateResolved renders them later, when terraform outputs exist. ProcessFacets calls it after
-// config and inclusion resolve, so cross-source composition can emit each source on its own.
+// GenerateResolved renders them later, when terraform outputs exist. ProcessGlobally calls it after
+// config and inclusion resolve, so it can emit each source on its own.
 func (p *BaseBlueprintProcessor) emitFacetComponents(target *blueprintv1alpha1.Blueprint, includedFacets []blueprintv1alpha1.Facet, scope map[string]any, sourceName ...string) error {
 	collected := collectedComponents{
 		terraformByID:       make(map[string]*blueprintv1alpha1.ConditionalTerraformComponent),

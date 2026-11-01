@@ -1,16 +1,21 @@
-package blueprint
+package blueprint_test
 
 import (
 	"errors"
 	"testing"
 
 	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
+	"github.com/windsorcli/cli/pkg/composer/blueprint"
 )
+
+// =============================================================================
+// Test Constructor
+// =============================================================================
 
 func TestNewMockBlueprintHandler(t *testing.T) {
 	t.Run("CreatesMockHandler", func(t *testing.T) {
 		// When creating a new mock handler
-		mock := NewMockBlueprintHandler()
+		mock := blueprint.NewMockBlueprintHandler()
 
 		// Then mock should be created
 		if mock == nil {
@@ -19,10 +24,14 @@ func TestNewMockBlueprintHandler(t *testing.T) {
 	})
 }
 
+// =============================================================================
+// Test Public Methods
+// =============================================================================
+
 func TestMockBlueprintHandler_LoadBlueprint(t *testing.T) {
 	t.Run("ReturnsNilWhenFuncNotSet", func(t *testing.T) {
 		// Given a mock without LoadBlueprintFunc set
-		mock := NewMockBlueprintHandler()
+		mock := blueprint.NewMockBlueprintHandler()
 
 		// When calling LoadBlueprint
 		err := mock.LoadBlueprint()
@@ -35,7 +44,7 @@ func TestMockBlueprintHandler_LoadBlueprint(t *testing.T) {
 
 	t.Run("CallsFuncWhenSet", func(t *testing.T) {
 		// Given a mock with LoadBlueprintFunc set
-		mock := NewMockBlueprintHandler()
+		mock := blueprint.NewMockBlueprintHandler()
 		called := false
 		mock.LoadBlueprintFunc = func(urls ...string) error {
 			called = true
@@ -53,7 +62,7 @@ func TestMockBlueprintHandler_LoadBlueprint(t *testing.T) {
 
 	t.Run("ReturnsErrorFromFunc", func(t *testing.T) {
 		// Given a mock with LoadBlueprintFunc that returns error
-		mock := NewMockBlueprintHandler()
+		mock := blueprint.NewMockBlueprintHandler()
 		mock.LoadBlueprintFunc = func(urls ...string) error {
 			return errors.New("load failed")
 		}
@@ -71,7 +80,7 @@ func TestMockBlueprintHandler_LoadBlueprint(t *testing.T) {
 func TestMockBlueprintHandler_Write(t *testing.T) {
 	t.Run("ReturnsNilWhenFuncNotSet", func(t *testing.T) {
 		// Given a mock without WriteFunc set
-		mock := NewMockBlueprintHandler()
+		mock := blueprint.NewMockBlueprintHandler()
 
 		// When calling Write
 		err := mock.Write()
@@ -84,7 +93,7 @@ func TestMockBlueprintHandler_Write(t *testing.T) {
 
 	t.Run("CallsFuncWhenSet", func(t *testing.T) {
 		// Given a mock with WriteFunc set
-		mock := NewMockBlueprintHandler()
+		mock := blueprint.NewMockBlueprintHandler()
 		called := false
 		mock.WriteFunc = func(overwrite ...bool) error {
 			called = true
@@ -104,7 +113,7 @@ func TestMockBlueprintHandler_Write(t *testing.T) {
 func TestMockBlueprintHandler_GetTerraformComponents(t *testing.T) {
 	t.Run("ReturnsEmptySliceWhenFuncNotSet", func(t *testing.T) {
 		// Given a mock without GetTerraformComponentsFunc set
-		mock := NewMockBlueprintHandler()
+		mock := blueprint.NewMockBlueprintHandler()
 
 		// When calling GetTerraformComponents
 		result := mock.GetTerraformComponents()
@@ -120,7 +129,7 @@ func TestMockBlueprintHandler_GetTerraformComponents(t *testing.T) {
 
 	t.Run("CallsFuncWhenSet", func(t *testing.T) {
 		// Given a mock with GetTerraformComponentsFunc set
-		mock := NewMockBlueprintHandler()
+		mock := blueprint.NewMockBlueprintHandler()
 		mock.GetTerraformComponentsFunc = func() []blueprintv1alpha1.TerraformComponent {
 			return []blueprintv1alpha1.TerraformComponent{{Path: "vpc"}}
 		}
@@ -135,47 +144,10 @@ func TestMockBlueprintHandler_GetTerraformComponents(t *testing.T) {
 	})
 }
 
-func TestMockBlueprintHandler_GetLocalTemplateData(t *testing.T) {
-	t.Run("ReturnsEmptyMapWhenFuncNotSet", func(t *testing.T) {
-		// Given a mock without GetLocalTemplateDataFunc set
-		mock := NewMockBlueprintHandler()
-
-		// When calling GetLocalTemplateData
-		result, err := mock.GetLocalTemplateData()
-
-		// Then should return empty map
-		if err != nil {
-			t.Errorf("Expected no error, got %v", err)
-		}
-		if result == nil {
-			t.Error("Expected non-nil map")
-		}
-		if len(result) != 0 {
-			t.Errorf("Expected empty map, got %d entries", len(result))
-		}
-	})
-
-	t.Run("CallsFuncWhenSet", func(t *testing.T) {
-		// Given a mock with GetLocalTemplateDataFunc set
-		mock := NewMockBlueprintHandler()
-		mock.GetLocalTemplateDataFunc = func() (map[string][]byte, error) {
-			return map[string][]byte{"test.yaml": []byte("content")}, nil
-		}
-
-		// When calling GetLocalTemplateData
-		result, _ := mock.GetLocalTemplateData()
-
-		// Then should return data from func
-		if len(result) != 1 {
-			t.Errorf("Expected 1 entry, got %d", len(result))
-		}
-	})
-}
-
 func TestMockBlueprintHandler_Generate(t *testing.T) {
 	t.Run("ReturnsNilWhenFuncNotSet", func(t *testing.T) {
 		// Given a mock without GenerateFunc set
-		mock := NewMockBlueprintHandler()
+		mock := blueprint.NewMockBlueprintHandler()
 
 		// When calling Generate
 		result := mock.Generate()
@@ -188,7 +160,7 @@ func TestMockBlueprintHandler_Generate(t *testing.T) {
 
 	t.Run("CallsFuncWhenSet", func(t *testing.T) {
 		// Given a mock with GenerateFunc set
-		mock := NewMockBlueprintHandler()
+		mock := blueprint.NewMockBlueprintHandler()
 		mock.GenerateFunc = func() *blueprintv1alpha1.Blueprint {
 			return &blueprintv1alpha1.Blueprint{Metadata: blueprintv1alpha1.Metadata{Name: "test"}}
 		}

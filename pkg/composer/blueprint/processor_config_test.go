@@ -1,14 +1,13 @@
-package blueprint
+package blueprint_test
 
 import (
 	"fmt"
-	"math"
-	"reflect"
 	"strings"
 	"testing"
 
 	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
 	"github.com/windsorcli/cli/internal/werror"
+	"github.com/windsorcli/cli/pkg/composer/blueprint"
 	"github.com/windsorcli/cli/pkg/runtime/evaluator"
 )
 
@@ -16,7 +15,7 @@ import (
 // Test Public Methods
 // =============================================================================
 
-func TestProcessor_ProcessFacets_Config(t *testing.T) {
+func TestProcessor_ProcessGlobally_Config(t *testing.T) {
 	t.Run("ResolvesTerraformInputsFromConfigBlock", func(t *testing.T) {
 		mocks := setupProcessorMocks(t)
 		mocks.ConfigHandler.GetContextValuesFunc = func() (map[string]any, error) {
@@ -28,7 +27,7 @@ func TestProcessor_ProcessFacets_Config(t *testing.T) {
 				},
 			}, nil
 		}
-		processor := NewBlueprintProcessor(mocks.Runtime)
+		processor := blueprint.NewBlueprintProcessor(mocks.Runtime)
 		target := &blueprintv1alpha1.Blueprint{}
 		facets := []blueprintv1alpha1.Facet{
 			{
@@ -58,9 +57,9 @@ func TestProcessor_ProcessFacets_Config(t *testing.T) {
 				},
 			},
 		}
-		scope, err := processor.ProcessFacets(target, facets)
+		scope, err := processFacets(processor, target, facets)
 		if err != nil {
-			t.Fatalf("ProcessFacets failed: %v", err)
+			t.Fatalf("ProcessGlobally failed: %v", err)
 		}
 		if len(target.TerraformComponents) != 1 {
 			t.Fatalf("Expected 1 terraform component, got %d", len(target.TerraformComponents))
@@ -87,7 +86,7 @@ func TestProcessor_ProcessFacets_Config(t *testing.T) {
 		mocks.ConfigHandler.GetContextValuesFunc = func() (map[string]any, error) {
 			return map[string]any{"provider": "incus", "cluster": map[string]any{"name": "mycluster"}}, nil
 		}
-		processor := NewBlueprintProcessor(mocks.Runtime)
+		processor := blueprint.NewBlueprintProcessor(mocks.Runtime)
 		target := &blueprintv1alpha1.Blueprint{}
 		facets := []blueprintv1alpha1.Facet{
 			{
@@ -112,9 +111,9 @@ func TestProcessor_ProcessFacets_Config(t *testing.T) {
 				},
 			},
 		}
-		scope, err := processor.ProcessFacets(target, facets)
+		scope, err := processFacets(processor, target, facets)
 		if err != nil {
-			t.Fatalf("ProcessFacets failed: %v", err)
+			t.Fatalf("ProcessGlobally failed: %v", err)
 		}
 		if len(target.TerraformComponents) != 1 {
 			t.Fatalf("Expected 1 terraform component, got %d", len(target.TerraformComponents))
@@ -133,7 +132,7 @@ func TestProcessor_ProcessFacets_Config(t *testing.T) {
 				"talos_common": map[string]any{"allowSchedulingOnControlPlanes": false},
 			}, nil
 		}
-		processor := NewBlueprintProcessor(mocks.Runtime)
+		processor := blueprint.NewBlueprintProcessor(mocks.Runtime)
 		target := &blueprintv1alpha1.Blueprint{}
 		facets := []blueprintv1alpha1.Facet{
 			{
@@ -164,9 +163,9 @@ func TestProcessor_ProcessFacets_Config(t *testing.T) {
 				},
 			},
 		}
-		scope, err := processor.ProcessFacets(target, facets)
+		scope, err := processFacets(processor, target, facets)
 		if err != nil {
-			t.Fatalf("ProcessFacets failed: %v", err)
+			t.Fatalf("ProcessGlobally failed: %v", err)
 		}
 		if scope["primary_node_ip"] != "10.0.0.5" {
 			t.Errorf("Expected scope primary_node_ip='10.0.0.5', got %v", scope["primary_node_ip"])
@@ -195,7 +194,7 @@ func TestProcessor_ProcessFacets_Config(t *testing.T) {
 		mocks.ConfigHandler.GetContextValuesFunc = func() (map[string]any, error) {
 			return map[string]any{"provider": "docker"}, nil
 		}
-		processor := NewBlueprintProcessor(mocks.Runtime)
+		processor := blueprint.NewBlueprintProcessor(mocks.Runtime)
 		target := &blueprintv1alpha1.Blueprint{}
 		facets := []blueprintv1alpha1.Facet{
 			{
@@ -215,9 +214,9 @@ func TestProcessor_ProcessFacets_Config(t *testing.T) {
 				},
 			},
 		}
-		scope, err := processor.ProcessFacets(target, facets)
+		scope, err := processFacets(processor, target, facets)
 		if err != nil {
-			t.Fatalf("ProcessFacets failed: %v", err)
+			t.Fatalf("ProcessGlobally failed: %v", err)
 		}
 		inputs := evalTerraformInputsWithScope(t, mocks.Runtime, target.TerraformComponents[0].Inputs, scope)
 		if inputs["val"] != "from-docker" {
@@ -230,7 +229,7 @@ func TestProcessor_ProcessFacets_Config(t *testing.T) {
 		mocks.ConfigHandler.GetContextValuesFunc = func() (map[string]any, error) {
 			return map[string]any{}, nil
 		}
-		processor := NewBlueprintProcessor(mocks.Runtime)
+		processor := blueprint.NewBlueprintProcessor(mocks.Runtime)
 		target := &blueprintv1alpha1.Blueprint{}
 		facets := []blueprintv1alpha1.Facet{
 			{
@@ -257,9 +256,9 @@ func TestProcessor_ProcessFacets_Config(t *testing.T) {
 				},
 			},
 		}
-		scope, err := processor.ProcessFacets(target, facets)
+		scope, err := processFacets(processor, target, facets)
 		if err != nil {
-			t.Fatalf("ProcessFacets failed: %v", err)
+			t.Fatalf("ProcessGlobally failed: %v", err)
 		}
 		if len(target.TerraformComponents) != 1 {
 			t.Fatalf("Expected 1 terraform component, got %d", len(target.TerraformComponents))
@@ -279,7 +278,7 @@ func TestProcessor_ProcessFacets_Config(t *testing.T) {
 		mocks.ConfigHandler.GetContextValuesFunc = func() (map[string]any, error) {
 			return map[string]any{"provider": "docker", "workstation": map[string]any{"enabled": true}}, nil
 		}
-		processor := NewBlueprintProcessor(mocks.Runtime)
+		processor := blueprint.NewBlueprintProcessor(mocks.Runtime)
 		target := &blueprintv1alpha1.Blueprint{}
 		facets := []blueprintv1alpha1.Facet{
 			{
@@ -299,9 +298,9 @@ func TestProcessor_ProcessFacets_Config(t *testing.T) {
 				},
 			},
 		}
-		scope, err := processor.ProcessFacets(target, facets)
+		scope, err := processFacets(processor, target, facets)
 		if err != nil {
-			t.Fatalf("ProcessFacets failed: %v", err)
+			t.Fatalf("ProcessGlobally failed: %v", err)
 		}
 		if len(target.TerraformComponents) != 1 {
 			t.Fatalf("Expected 1 terraform component, got %d", len(target.TerraformComponents))
@@ -321,7 +320,7 @@ func TestProcessor_ProcessFacets_Config(t *testing.T) {
 		mocks.ConfigHandler.GetContextValuesFunc = func() (map[string]any, error) {
 			return map[string]any{"provider": "incus"}, nil
 		}
-		processor := NewBlueprintProcessor(mocks.Runtime)
+		processor := blueprint.NewBlueprintProcessor(mocks.Runtime)
 		target := &blueprintv1alpha1.Blueprint{}
 		facets := []blueprintv1alpha1.Facet{
 			{
@@ -338,9 +337,9 @@ func TestProcessor_ProcessFacets_Config(t *testing.T) {
 				},
 			},
 		}
-		_, err := processor.ProcessFacets(target, facets)
+		_, err := processFacets(processor, target, facets)
 		if err != nil {
-			t.Fatalf("ProcessFacets failed: %v", err)
+			t.Fatalf("ProcessGlobally failed: %v", err)
 		}
 		if len(target.TerraformComponents) != 1 {
 			t.Fatalf("Expected 1 terraform component, got %d", len(target.TerraformComponents))
@@ -355,7 +354,7 @@ func TestProcessor_ProcessFacets_Config(t *testing.T) {
 		mocks.ConfigHandler.GetContextValuesFunc = func() (map[string]any, error) {
 			return map[string]any{"provider": "incus"}, nil
 		}
-		processor := NewBlueprintProcessor(mocks.Runtime)
+		processor := blueprint.NewBlueprintProcessor(mocks.Runtime)
 		target := &blueprintv1alpha1.Blueprint{}
 		facets := []blueprintv1alpha1.Facet{
 			{
@@ -374,9 +373,9 @@ func TestProcessor_ProcessFacets_Config(t *testing.T) {
 				},
 			},
 		}
-		scope, err := processor.ProcessFacets(target, facets)
+		scope, err := processFacets(processor, target, facets)
 		if err != nil {
-			t.Fatalf("ProcessFacets failed: %v", err)
+			t.Fatalf("ProcessGlobally failed: %v", err)
 		}
 		if len(target.TerraformComponents) != 1 {
 			t.Fatalf("Expected 1 terraform component, got %d", len(target.TerraformComponents))
@@ -392,7 +391,7 @@ func TestProcessor_ProcessFacets_Config(t *testing.T) {
 		mocks.ConfigHandler.GetContextValuesFunc = func() (map[string]any, error) {
 			return map[string]any{"provider": "incus"}, nil
 		}
-		processor := NewBlueprintProcessor(mocks.Runtime)
+		processor := blueprint.NewBlueprintProcessor(mocks.Runtime)
 		target := &blueprintv1alpha1.Blueprint{}
 		facets := []blueprintv1alpha1.Facet{
 			{
@@ -412,9 +411,9 @@ func TestProcessor_ProcessFacets_Config(t *testing.T) {
 				},
 			},
 		}
-		scope, err := processor.ProcessFacets(target, facets)
+		scope, err := processFacets(processor, target, facets)
 		if err != nil {
-			t.Fatalf("ProcessFacets failed: %v", err)
+			t.Fatalf("ProcessGlobally failed: %v", err)
 		}
 		if len(target.TerraformComponents) != 1 {
 			t.Fatalf("Expected 1 terraform component, got %d", len(target.TerraformComponents))
@@ -433,7 +432,7 @@ func TestProcessor_ProcessFacets_Config(t *testing.T) {
 		mocks.ConfigHandler.GetContextValuesFunc = func() (map[string]any, error) {
 			return map[string]any{"provider": "incus", "tag1": "x", "tag2": "y"}, nil
 		}
-		processor := NewBlueprintProcessor(mocks.Runtime)
+		processor := blueprint.NewBlueprintProcessor(mocks.Runtime)
 		target := &blueprintv1alpha1.Blueprint{}
 		facets := []blueprintv1alpha1.Facet{
 			{
@@ -453,9 +452,9 @@ func TestProcessor_ProcessFacets_Config(t *testing.T) {
 				},
 			},
 		}
-		scope, err := processor.ProcessFacets(target, facets)
+		scope, err := processFacets(processor, target, facets)
 		if err != nil {
-			t.Fatalf("ProcessFacets failed: %v", err)
+			t.Fatalf("ProcessGlobally failed: %v", err)
 		}
 		if len(target.TerraformComponents) != 1 {
 			t.Fatalf("Expected 1 terraform component, got %d", len(target.TerraformComponents))
@@ -471,7 +470,7 @@ func TestProcessor_ProcessFacets_Config(t *testing.T) {
 	})
 }
 
-func TestProcessor_ProcessFacets_ConfigBlockSameBlockSiblingRefs(t *testing.T) {
+func TestProcessor_ProcessGlobally_ConfigBlockSameBlockSiblingRefs(t *testing.T) {
 	// A config value expression must be able to read a sibling key computed in the same block,
 	// including through non-call operators (e.g. string concatenation), resolving at compose time
 	// in dependency order rather than erroring on <nil> or being left unresolved.
@@ -479,14 +478,14 @@ func TestProcessor_ProcessFacets_ConfigBlockSameBlockSiblingRefs(t *testing.T) {
 	run := func(t *testing.T, body map[string]any) (map[string]any, error) {
 		mocks := setupProcessorMocks(t)
 		mocks.ConfigHandler.GetContextValuesFunc = func() (map[string]any, error) { return map[string]any{}, nil }
-		processor := NewBlueprintProcessor(mocks.Runtime)
+		processor := blueprint.NewBlueprintProcessor(mocks.Runtime)
 		facets := []blueprintv1alpha1.Facet{{
 			Metadata: blueprintv1alpha1.Metadata{Name: "identity"},
 			Config: []blueprintv1alpha1.ConfigBlock{
 				{Name: "identity_effective", Body: map[string]any{"value": body}},
 			},
 		}}
-		return processor.ProcessFacets(&blueprintv1alpha1.Blueprint{}, facets)
+		return processFacets(processor, &blueprintv1alpha1.Blueprint{}, facets)
 	}
 
 	t.Run("SiblingReferenceViaConcatenationResolves", func(t *testing.T) {
@@ -556,7 +555,7 @@ func TestProcessor_ProcessFacets_ConfigBlockSameBlockSiblingRefs(t *testing.T) {
 		// Given two config entries with the same block name, the later reading the earlier
 		mocks := setupProcessorMocks(t)
 		mocks.ConfigHandler.GetContextValuesFunc = func() (map[string]any, error) { return map[string]any{}, nil }
-		processor := NewBlueprintProcessor(mocks.Runtime)
+		processor := blueprint.NewBlueprintProcessor(mocks.Runtime)
 		facets := []blueprintv1alpha1.Facet{{
 			Metadata: blueprintv1alpha1.Metadata{Name: "identity"},
 			Config: []blueprintv1alpha1.ConfigBlock{
@@ -564,7 +563,7 @@ func TestProcessor_ProcessFacets_ConfigBlockSameBlockSiblingRefs(t *testing.T) {
 				{Name: "identity_effective", Body: map[string]any{"value": map[string]any{"auth_url": "${identity_effective.issuer + '/auth'}"}}},
 			},
 		}}
-		scope, err := processor.ProcessFacets(&blueprintv1alpha1.Blueprint{}, facets)
+		scope, err := processFacets(processor, &blueprintv1alpha1.Blueprint{}, facets)
 		if err != nil {
 			t.Fatalf("Expected no error, got %v", err)
 		}
@@ -603,19 +602,19 @@ func TestProcessor_ProcessFacets_ConfigBlockSameBlockSiblingRefs(t *testing.T) {
 		}
 	})
 	// Note: a value referencing a deferred helper (e.g. terraform_output) is kept raw for JIT rather
-	// than surfaced as an error; that path is covered by TestProcessor_ProcessFacets_ConfigDeferredValues,
+	// than surfaced as an error; that path is covered by TestProcessor_ProcessGlobally_ConfigDeferredValues,
 	// which registers a real deferred helper and exercises this post-convergence validation.
 }
 
-// TestProcessor_ProcessFacets_ConfigBlockDeepSameBlockChain reconstructs the shape of the
-// resource-tapering config in windsorcli/core's config-talos.yaml (#3206): sibling fields chained
+// TestProcessor_ProcessGlobally_ConfigBlockDeepSameBlockChain reconstructs the shape of the
+// resource-tapering config in windsorcli/core's config-talos.yaml: sibling fields chained
 // five-plus levels deep within one config block (ratio -> factor -> a boolean derived from the
 // factor -> a boolean OR'd from two such booleans -> a when:-gated block reading the factor again).
 // A same-block convergence budget too small for the chain's depth causes a field partway through
 // the chain to freeze at a stale value instead of erroring, so a structurally-identical sibling
 // chain (the worker axis) silently resolves using a value read from a different chain (the
 // control-plane axis) instead of its own.
-func TestProcessor_ProcessFacets_ConfigBlockDeepSameBlockChain(t *testing.T) {
+func TestProcessor_ProcessGlobally_ConfigBlockDeepSameBlockChain(t *testing.T) {
 	t.Run("StructurallyIdenticalSiblingChainsResolveIndependently", func(t *testing.T) {
 		// Given two independent tiers computing a taper factor via a chained ratio -> factor ->
 		// constrained-flag -> reserve pipeline, five-plus same-block references deep, gated
@@ -629,7 +628,7 @@ func TestProcessor_ProcessFacets_ConfigBlockDeepSameBlockChain(t *testing.T) {
 				},
 			}, nil
 		}
-		processor := NewBlueprintProcessor(mocks.Runtime)
+		processor := blueprint.NewBlueprintProcessor(mocks.Runtime)
 
 		facets := []blueprintv1alpha1.Facet{
 			{
@@ -668,7 +667,7 @@ func TestProcessor_ProcessFacets_ConfigBlockDeepSameBlockChain(t *testing.T) {
 		}
 
 		// When processing
-		scope, err := processor.ProcessFacets(&blueprintv1alpha1.Blueprint{}, facets)
+		scope, err := processFacets(processor, &blueprintv1alpha1.Blueprint{}, facets)
 
 		// Then both chains converge, and the worker chain resolves using its own factor
 		if err != nil {
@@ -698,17 +697,17 @@ func TestProcessor_ProcessFacets_ConfigBlockDeepSameBlockChain(t *testing.T) {
 	})
 }
 
-// TestProcessor_ProcessFacets_ConfigBlockDerivedFromOwnBlock covers a field whose default calls a
+// TestProcessor_ProcessGlobally_ConfigBlockDerivedFromOwnBlock covers a field whose default calls a
 // function with a sibling field of the same block as an argument (e.g. cidrhost(network.cidr_block,
 // 1) inside the network block): it must resolve once the block settles, and it must still defer
 // when its own dependency (e.g. terraform_output) is not yet available.
-func TestProcessor_ProcessFacets_ConfigBlockDerivedFromOwnBlock(t *testing.T) {
+func TestProcessor_ProcessGlobally_ConfigBlockDerivedFromOwnBlock(t *testing.T) {
 	t.Run("SelfReferencingFunctionCallResolvesAgainstSettledSibling", func(t *testing.T) {
 		// Given a block whose own field derives its default from a sibling field of the same
 		// block through a function call
 		mocks := setupProcessorMocks(t)
 		mocks.ConfigHandler.GetContextValuesFunc = func() (map[string]any, error) { return map[string]any{}, nil }
-		processor := NewBlueprintProcessor(mocks.Runtime)
+		processor := blueprint.NewBlueprintProcessor(mocks.Runtime)
 		facets := []blueprintv1alpha1.Facet{{
 			Metadata: blueprintv1alpha1.Metadata{Name: "platform-vsphere"},
 			Config: []blueprintv1alpha1.ConfigBlock{
@@ -720,7 +719,7 @@ func TestProcessor_ProcessFacets_ConfigBlockDerivedFromOwnBlock(t *testing.T) {
 		}}
 
 		// When the facets are processed
-		scope, err := processor.ProcessFacets(&blueprintv1alpha1.Blueprint{}, facets)
+		scope, err := processFacets(processor, &blueprintv1alpha1.Blueprint{}, facets)
 
 		// Then gateway resolves from the block's own cidr_block, not left as literal text
 		if err != nil {
@@ -757,7 +756,7 @@ func TestProcessor_ProcessFacets_ConfigBlockDerivedFromOwnBlock(t *testing.T) {
 		mocks.Evaluator.EvaluateFunc = realEval.Evaluate
 		mocks.Evaluator.EvaluateMapFunc = realEval.EvaluateMap
 
-		processor := NewBlueprintProcessor(mocks.Runtime)
+		processor := blueprint.NewBlueprintProcessor(mocks.Runtime)
 		facets := []blueprintv1alpha1.Facet{{
 			Metadata: blueprintv1alpha1.Metadata{Name: "config-base"},
 			Config: []blueprintv1alpha1.ConfigBlock{
@@ -773,7 +772,7 @@ func TestProcessor_ProcessFacets_ConfigBlockDerivedFromOwnBlock(t *testing.T) {
 		}}
 
 		// When the facets are processed
-		scope, err := processor.ProcessFacets(&blueprintv1alpha1.Blueprint{}, facets)
+		scope, err := processFacets(processor, &blueprintv1alpha1.Blueprint{}, facets)
 
 		// Then no error surfaces, and the derived field stays deferred rather than committing
 		// a value that has lost the ability to resolve once terraform_output is available
@@ -791,14 +790,11 @@ func TestProcessor_ProcessFacets_ConfigBlockDerivedFromOwnBlock(t *testing.T) {
 	})
 }
 
-// TestProcessor_ProcessFacets_ConfigBlockWhenChainAcrossRounds covers #3209: a config block's
-// `when:` only sees the previous round's resolved scope, so a block gated on another block that
-// is itself newly-included this round needs a further outer round to see that block's value. The
-// outer round loop used to stop as soon as the included-facet set stopped changing, which for the
-// common case of facets with no facet-level `when:` is already true from round zero — so a `when:`
-// chain two or more blocks deep across different config blocks never got the extra round it needed
-// and stayed permanently (and silently) excluded.
-func TestProcessor_ProcessFacets_ConfigBlockWhenChainAcrossRounds(t *testing.T) {
+// TestProcessor_ProcessGlobally_ConfigBlockWhenChainAcrossRounds covers a `when:` chain across
+// config blocks. A block's `when:` sees only the resolved scope of the previous round. A block
+// gated on a block that is new in this round needs one more outer round to see its value. The
+// outer loop must not stop only because the set of included facets is stable.
+func TestProcessor_ProcessGlobally_ConfigBlockWhenChainAcrossRounds(t *testing.T) {
 	t.Run("CrossBlockWhenChainResolvesRegardlessOfFileOrder", func(t *testing.T) {
 		// Given a two-hop when: chain (tier_b depends on tier_a, tier_a depends on sizing) split
 		// across three facets declared in the most adversarial order — the deepest consumer first,
@@ -807,7 +803,7 @@ func TestProcessor_ProcessFacets_ConfigBlockWhenChainAcrossRounds(t *testing.T) 
 		mocks.ConfigHandler.GetContextValuesFunc = func() (map[string]any, error) {
 			return map[string]any{"cluster_resources": map[string]any{"controlplanes": map[string]any{"cpu": 100}}}, nil
 		}
-		processor := NewBlueprintProcessor(mocks.Runtime)
+		processor := blueprint.NewBlueprintProcessor(mocks.Runtime)
 		facets := []blueprintv1alpha1.Facet{
 			{
 				Metadata: blueprintv1alpha1.Metadata{Name: "a-tier-b"},
@@ -829,7 +825,7 @@ func TestProcessor_ProcessFacets_ConfigBlockWhenChainAcrossRounds(t *testing.T) 
 			},
 		}
 
-		scope, err := processor.ProcessFacets(&blueprintv1alpha1.Blueprint{}, facets)
+		scope, err := processFacets(processor, &blueprintv1alpha1.Blueprint{}, facets)
 
 		if err != nil {
 			t.Fatalf("Expected the when: chain to resolve, got: %v", err)
@@ -848,7 +844,7 @@ func TestProcessor_ProcessFacets_ConfigBlockWhenChainAcrossRounds(t *testing.T) 
 		mocks.ConfigHandler.GetContextValuesFunc = func() (map[string]any, error) {
 			return map[string]any{}, nil
 		}
-		processor := NewBlueprintProcessor(mocks.Runtime)
+		processor := blueprint.NewBlueprintProcessor(mocks.Runtime)
 		facets := []blueprintv1alpha1.Facet{
 			{
 				Metadata: blueprintv1alpha1.Metadata{Name: "oscillator"},
@@ -859,7 +855,7 @@ func TestProcessor_ProcessFacets_ConfigBlockWhenChainAcrossRounds(t *testing.T) 
 			},
 		}
 
-		_, err := processor.ProcessFacets(&blueprintv1alpha1.Blueprint{}, facets)
+		_, err := processFacets(processor, &blueprintv1alpha1.Blueprint{}, facets)
 
 		if err == nil {
 			t.Fatal("Expected an error for a when: dependency that never converges, got nil")
@@ -873,7 +869,7 @@ func TestProcessor_ProcessFacets_ConfigBlockWhenChainAcrossRounds(t *testing.T) 
 	})
 }
 
-func TestProcessor_ProcessFacets_ConfigBlockEvaluationOrder(t *testing.T) {
+func TestProcessor_ProcessGlobally_ConfigBlockEvaluationOrder(t *testing.T) {
 	// These tests pin the dependency-driven evaluation order for config blocks. The
 	// processor must evaluate a block AFTER every block it references via ${...}, no
 	// matter which facet wrote each block or in what source order the blocks appear.
@@ -890,7 +886,7 @@ func TestProcessor_ProcessFacets_ConfigBlockEvaluationOrder(t *testing.T) {
 		mocks.ConfigHandler.GetContextValuesFunc = func() (map[string]any, error) {
 			return map[string]any{}, nil
 		}
-		processor := NewBlueprintProcessor(mocks.Runtime)
+		processor := blueprint.NewBlueprintProcessor(mocks.Runtime)
 		target := &blueprintv1alpha1.Blueprint{}
 		ord100, ord200, ord300 := 100, 200, 300
 		facets := []blueprintv1alpha1.Facet{
@@ -922,9 +918,9 @@ func TestProcessor_ProcessFacets_ConfigBlockEvaluationOrder(t *testing.T) {
 				},
 			},
 		}
-		scope, err := processor.ProcessFacets(target, facets)
+		scope, err := processFacets(processor, target, facets)
 		if err != nil {
-			t.Fatalf("ProcessFacets failed: %v", err)
+			t.Fatalf("ProcessGlobally failed: %v", err)
 		}
 		talos, ok := scope["talos_common"].(map[string]any)
 		if !ok {
@@ -946,7 +942,7 @@ func TestProcessor_ProcessFacets_ConfigBlockEvaluationOrder(t *testing.T) {
 		mocks.ConfigHandler.GetContextValuesFunc = func() (map[string]any, error) {
 			return map[string]any{}, nil
 		}
-		processor := NewBlueprintProcessor(mocks.Runtime)
+		processor := blueprint.NewBlueprintProcessor(mocks.Runtime)
 		target := &blueprintv1alpha1.Blueprint{}
 		low, high := 100, 200
 		facets := []blueprintv1alpha1.Facet{
@@ -972,9 +968,9 @@ func TestProcessor_ProcessFacets_ConfigBlockEvaluationOrder(t *testing.T) {
 				},
 			},
 		}
-		scope, err := processor.ProcessFacets(target, facets)
+		scope, err := processFacets(processor, target, facets)
 		if err != nil {
-			t.Fatalf("ProcessFacets failed: %v", err)
+			t.Fatalf("ProcessGlobally failed: %v", err)
 		}
 		hyperv, ok := scope["hyperv_effective"].(map[string]any)
 		if !ok {
@@ -993,7 +989,7 @@ func TestProcessor_ProcessFacets_ConfigBlockEvaluationOrder(t *testing.T) {
 		mocks.ConfigHandler.GetContextValuesFunc = func() (map[string]any, error) {
 			return map[string]any{}, nil
 		}
-		processor := NewBlueprintProcessor(mocks.Runtime)
+		processor := blueprint.NewBlueprintProcessor(mocks.Runtime)
 		target := &blueprintv1alpha1.Blueprint{}
 		facets := []blueprintv1alpha1.Facet{
 			{
@@ -1004,7 +1000,7 @@ func TestProcessor_ProcessFacets_ConfigBlockEvaluationOrder(t *testing.T) {
 				},
 			},
 		}
-		_, err := processor.ProcessFacets(target, facets)
+		_, err := processFacets(processor, target, facets)
 		if err == nil {
 			t.Fatal("Expected error for circular references between alpha and beta")
 		}
@@ -1020,7 +1016,7 @@ func TestProcessor_ProcessFacets_ConfigBlockEvaluationOrder(t *testing.T) {
 	})
 }
 
-func TestProcessor_ProcessFacets_ConfigBlockReadsContextUnderOwnName(t *testing.T) {
+func TestProcessor_ProcessGlobally_ConfigBlockReadsContextUnderOwnName(t *testing.T) {
 	// A config block's own name must not be a blind spot: keys the block does not define
 	// itself — schema defaults and operator-set values — stay readable from inside it.
 
@@ -1033,7 +1029,7 @@ func TestProcessor_ProcessFacets_ConfigBlockReadsContextUnderOwnName(t *testing.
 				"network": map[string]any{"cidr_block": "10.5.0.0/16"},
 			}, nil
 		}
-		processor := NewBlueprintProcessor(mocks.Runtime)
+		processor := blueprint.NewBlueprintProcessor(mocks.Runtime)
 		facets := []blueprintv1alpha1.Facet{
 			{
 				Metadata: blueprintv1alpha1.Metadata{Name: "platform-base"},
@@ -1047,7 +1043,7 @@ func TestProcessor_ProcessFacets_ConfigBlockReadsContextUnderOwnName(t *testing.
 		}
 
 		// When the facets are processed
-		scope, err := processor.ProcessFacets(&blueprintv1alpha1.Blueprint{}, facets)
+		scope, err := processFacets(processor, &blueprintv1alpha1.Blueprint{}, facets)
 		if err != nil {
 			t.Fatalf("Expected no error, got %v", err)
 		}
@@ -1070,7 +1066,7 @@ func TestProcessor_ProcessFacets_ConfigBlockReadsContextUnderOwnName(t *testing.
 				"network": map[string]any{"cidr_block": "10.5.0.0/16"},
 			}, nil
 		}
-		processor := NewBlueprintProcessor(mocks.Runtime)
+		processor := blueprint.NewBlueprintProcessor(mocks.Runtime)
 		facets := []blueprintv1alpha1.Facet{
 			{
 				Metadata: blueprintv1alpha1.Metadata{Name: "platform-base"},
@@ -1086,7 +1082,7 @@ func TestProcessor_ProcessFacets_ConfigBlockReadsContextUnderOwnName(t *testing.
 		}
 
 		// When the facets are processed
-		scope, err := processor.ProcessFacets(&blueprintv1alpha1.Blueprint{}, facets)
+		scope, err := processFacets(processor, &blueprintv1alpha1.Blueprint{}, facets)
 		if err != nil {
 			t.Fatalf("Expected no error, got %v", err)
 		}
@@ -1116,7 +1112,7 @@ func TestProcessor_ProcessFacets_ConfigBlockReadsContextUnderOwnName(t *testing.
 				"network": map[string]any{"cidr_block": "10.5.0.0/16"},
 			}, nil
 		}
-		processor := NewBlueprintProcessor(mocks.Runtime)
+		processor := blueprint.NewBlueprintProcessor(mocks.Runtime)
 		facets := []blueprintv1alpha1.Facet{
 			{
 				Metadata: blueprintv1alpha1.Metadata{Name: "platform-base"},
@@ -1132,7 +1128,7 @@ func TestProcessor_ProcessFacets_ConfigBlockReadsContextUnderOwnName(t *testing.
 		}
 
 		// When the facets are processed
-		scope, err := processor.ProcessFacets(&blueprintv1alpha1.Blueprint{}, facets)
+		scope, err := processFacets(processor, &blueprintv1alpha1.Blueprint{}, facets)
 		if err != nil {
 			t.Fatalf("Expected no error, got %v", err)
 		}
@@ -1156,7 +1152,7 @@ func TestProcessor_ProcessFacets_ConfigBlockReadsContextUnderOwnName(t *testing.
 
 	t.Run("OperatorExplicitValueWinsOverUnconditionalBlockOnSingleSourcePath", func(t *testing.T) {
 		// Given an operator's own explicit value, and a block that unconditionally computes a
-		// different value for that same key, via ProcessFacets (the single-source path)
+		// different value for that same key, via ProcessGlobally (the single-source path)
 		mocks := setupProcessorMocks(t)
 		mocks.ConfigHandler.GetContextValuesFunc = func() (map[string]any, error) {
 			return map[string]any{}, nil
@@ -1165,7 +1161,7 @@ func TestProcessor_ProcessFacets_ConfigBlockReadsContextUnderOwnName(t *testing.
 			"cluster": map[string]any{"controlplanes": map[string]any{"cpu": 3}},
 		}
 		mocks.ConfigHandler.GetSetValuesFunc = func() map[string]any { return operatorValues }
-		processor := NewBlueprintProcessor(mocks.Runtime)
+		processor := blueprint.NewBlueprintProcessor(mocks.Runtime)
 		facets := []blueprintv1alpha1.Facet{
 			{
 				Metadata: blueprintv1alpha1.Metadata{Name: "cluster-sizing"},
@@ -1178,7 +1174,7 @@ func TestProcessor_ProcessFacets_ConfigBlockReadsContextUnderOwnName(t *testing.
 		}
 
 		// When the facets are processed
-		scope, err := processor.ProcessFacets(&blueprintv1alpha1.Blueprint{}, facets)
+		scope, err := processFacets(processor, &blueprintv1alpha1.Blueprint{}, facets)
 		if err != nil {
 			t.Fatalf("Expected no error, got %v", err)
 		}
@@ -1201,7 +1197,7 @@ func TestProcessor_ProcessFacets_ConfigBlockReadsContextUnderOwnName(t *testing.
 			"cluster": map[string]any{"controlplanes": map[string]any{"cpu": 3}},
 		}
 		mocks.ConfigHandler.GetSetValuesFunc = func() map[string]any { return operatorValues }
-		processor := NewBlueprintProcessor(mocks.Runtime)
+		processor := blueprint.NewBlueprintProcessor(mocks.Runtime)
 		facets := []blueprintv1alpha1.Facet{
 			{
 				Metadata: blueprintv1alpha1.Metadata{Name: "cluster-sizing"},
@@ -1217,7 +1213,7 @@ func TestProcessor_ProcessFacets_ConfigBlockReadsContextUnderOwnName(t *testing.
 		}
 
 		// When the facets are processed
-		scope, err := processor.ProcessFacets(&blueprintv1alpha1.Blueprint{}, facets)
+		scope, err := processFacets(processor, &blueprintv1alpha1.Blueprint{}, facets)
 		if err != nil {
 			t.Fatalf("Expected no error, got %v", err)
 		}
@@ -1239,7 +1235,7 @@ func TestProcessor_ProcessFacets_ConfigBlockReadsContextUnderOwnName(t *testing.
 				"ha":      false,
 			}, nil
 		}
-		processor := NewBlueprintProcessor(mocks.Runtime)
+		processor := blueprint.NewBlueprintProcessor(mocks.Runtime)
 		facets := []blueprintv1alpha1.Facet{
 			{
 				Metadata: blueprintv1alpha1.Metadata{Name: "platform-base"},
@@ -1250,7 +1246,7 @@ func TestProcessor_ProcessFacets_ConfigBlockReadsContextUnderOwnName(t *testing.
 		}
 
 		// When the facets are processed
-		scope, err := processor.ProcessFacets(&blueprintv1alpha1.Blueprint{}, facets)
+		scope, err := processFacets(processor, &blueprintv1alpha1.Blueprint{}, facets)
 		if err != nil {
 			t.Fatalf("Expected no error, got %v", err)
 		}
@@ -1262,7 +1258,7 @@ func TestProcessor_ProcessFacets_ConfigBlockReadsContextUnderOwnName(t *testing.
 	})
 }
 
-func TestProcessor_ProcessFacets_ConfigBlockGuardBlindToOwnWrite(t *testing.T) {
+func TestProcessor_ProcessGlobally_ConfigBlockGuardBlindToOwnWrite(t *testing.T) {
 	// A config block's `when:` guard must be blind to the keys that same block writes,
 	// so a "write this default only when the field is unset" guard does not cancel itself:
 	// the block's own write in one round must not flip its guard false in the next.
@@ -1273,7 +1269,7 @@ func TestProcessor_ProcessFacets_ConfigBlockGuardBlindToOwnWrite(t *testing.T) {
 		mocks.ConfigHandler.GetContextValuesFunc = func() (map[string]any, error) {
 			return map[string]any{}, nil
 		}
-		processor := NewBlueprintProcessor(mocks.Runtime)
+		processor := blueprint.NewBlueprintProcessor(mocks.Runtime)
 		facets := []blueprintv1alpha1.Facet{
 			{
 				Metadata: blueprintv1alpha1.Metadata{Name: "platform-base"},
@@ -1286,7 +1282,7 @@ func TestProcessor_ProcessFacets_ConfigBlockGuardBlindToOwnWrite(t *testing.T) {
 		}
 
 		// When the facets are processed
-		scope, err := processor.ProcessFacets(&blueprintv1alpha1.Blueprint{}, facets)
+		scope, err := processFacets(processor, &blueprintv1alpha1.Blueprint{}, facets)
 		if err != nil {
 			t.Fatalf("Expected no error, got %v", err)
 		}
@@ -1310,7 +1306,7 @@ func TestProcessor_ProcessFacets_ConfigBlockGuardBlindToOwnWrite(t *testing.T) {
 				"network": map[string]any{"cidr_block": "10.9.0.0/16"},
 			}, nil
 		}
-		processor := NewBlueprintProcessor(mocks.Runtime)
+		processor := blueprint.NewBlueprintProcessor(mocks.Runtime)
 		facets := []blueprintv1alpha1.Facet{
 			{
 				Metadata: blueprintv1alpha1.Metadata{Name: "platform-base"},
@@ -1324,7 +1320,7 @@ func TestProcessor_ProcessFacets_ConfigBlockGuardBlindToOwnWrite(t *testing.T) {
 		}
 
 		// When the facets are processed
-		scope, err := processor.ProcessFacets(&blueprintv1alpha1.Blueprint{}, facets)
+		scope, err := processFacets(processor, &blueprintv1alpha1.Blueprint{}, facets)
 		if err != nil {
 			t.Fatalf("Expected no error, got %v", err)
 		}
@@ -1348,7 +1344,7 @@ func TestProcessor_ProcessFacets_ConfigBlockGuardBlindToOwnWrite(t *testing.T) {
 		mocks.ConfigHandler.GetContextValuesFunc = func() (map[string]any, error) {
 			return map[string]any{}, nil
 		}
-		processor := NewBlueprintProcessor(mocks.Runtime)
+		processor := blueprint.NewBlueprintProcessor(mocks.Runtime)
 		low, high := 100, 200
 		facets := []blueprintv1alpha1.Facet{
 			{
@@ -1372,7 +1368,7 @@ func TestProcessor_ProcessFacets_ConfigBlockGuardBlindToOwnWrite(t *testing.T) {
 		}
 
 		// When the facets are processed
-		scope, err := processor.ProcessFacets(&blueprintv1alpha1.Blueprint{}, facets)
+		scope, err := processFacets(processor, &blueprintv1alpha1.Blueprint{}, facets)
 		if err != nil {
 			t.Fatalf("Expected no error, got %v", err)
 		}
@@ -1391,7 +1387,7 @@ func TestProcessor_ProcessFacets_ConfigBlockGuardBlindToOwnWrite(t *testing.T) {
 	})
 }
 
-func TestProcessor_ProcessFacets_ConfigDeferredValues(t *testing.T) {
+func TestProcessor_ProcessGlobally_ConfigDeferredValues(t *testing.T) {
 	t.Run("DeferredConfigBlockValuePreservesExpressionInSubstitution", func(t *testing.T) {
 		// Given a config block with a deferred helper and a substitution that
 		// references the config block value. During composition the helper is
@@ -1416,7 +1412,7 @@ func TestProcessor_ProcessFacets_ConfigDeferredValues(t *testing.T) {
 		mocks.Evaluator.EvaluateFunc = realEval.Evaluate
 		mocks.Evaluator.EvaluateMapFunc = realEval.EvaluateMap
 
-		processor := NewBlueprintProcessor(mocks.Runtime)
+		processor := blueprint.NewBlueprintProcessor(mocks.Runtime)
 		target := &blueprintv1alpha1.Blueprint{}
 		facets := []blueprintv1alpha1.Facet{
 			{
@@ -1437,9 +1433,9 @@ func TestProcessor_ProcessFacets_ConfigDeferredValues(t *testing.T) {
 			},
 		}
 
-		_, err := processor.ProcessFacets(target, facets)
+		_, err := processFacets(processor, target, facets)
 		if err != nil {
-			t.Fatalf("ProcessFacets failed: %v", err)
+			t.Fatalf("ProcessGlobally failed: %v", err)
 		}
 
 		// Then helm_registry should be marked as deferred for JIT resolution
@@ -1471,7 +1467,7 @@ func TestProcessor_ProcessFacets_ConfigDeferredValues(t *testing.T) {
 		mocks.Evaluator.EvaluateFunc = realEval.Evaluate
 		mocks.Evaluator.EvaluateMapFunc = realEval.EvaluateMap
 
-		processor := NewBlueprintProcessor(mocks.Runtime)
+		processor := blueprint.NewBlueprintProcessor(mocks.Runtime)
 		body := map[string]any{"deferred_field": "${deferred_helper()}"}
 		for i := 0; i < 30; i++ {
 			body[fmt.Sprintf("padding_%d", i)] = fmt.Sprintf("literal_%d", i)
@@ -1484,7 +1480,7 @@ func TestProcessor_ProcessFacets_ConfigDeferredValues(t *testing.T) {
 		}}
 
 		// When processing
-		_, err := processor.ProcessFacets(&blueprintv1alpha1.Blueprint{}, facets)
+		_, err := processFacets(processor, &blueprintv1alpha1.Blueprint{}, facets)
 
 		// Then the pass loop stops as soon as re-evaluation stops changing, not after burning
 		// through all 30+ keys' worth of passes on a value that can never resolve here
@@ -1493,128 +1489,6 @@ func TestProcessor_ProcessFacets_ConfigDeferredValues(t *testing.T) {
 		}
 		if calls > 20 {
 			t.Errorf("Expected the pass loop to stop quickly once stable rather than scaling with the block's 31 keys, got %d calls to the never-resolving helper", calls)
-		}
-	})
-}
-
-// =============================================================================
-// Test Helpers
-// =============================================================================
-
-func TestProcessor_mergeHelpers(t *testing.T) {
-	t.Run("deepMergeMapMergesNestedMaps", func(t *testing.T) {
-		base := map[string]any{"a": 1, "b": map[string]any{"x": 10}}
-		overlay := map[string]any{"b": map[string]any{"y": 20}, "c": 3}
-		out := deepMergeMap(base, overlay)
-		if out["a"].(int) != 1 {
-			t.Errorf("Expected a=1, got %v", out["a"])
-		}
-		if out["c"].(int) != 3 {
-			t.Errorf("Expected c=3, got %v", out["c"])
-		}
-		b := out["b"].(map[string]any)
-		if b["x"].(int) != 10 {
-			t.Errorf("Expected b.x=10, got %v", b["x"])
-		}
-		if b["y"].(int) != 20 {
-			t.Errorf("Expected b.y=20, got %v", b["y"])
-		}
-	})
-
-	t.Run("MergeScopeMapsDeepMergesSameBlockName", func(t *testing.T) {
-		globalScope := map[string]any{
-			"talos": map[string]any{"controlplanes": []any{"cp0"}, "workers": []any{"w0"}},
-		}
-		facetConfig := map[string]any{
-			"talos": map[string]any{"workers": []any{"w1", "w2"}},
-		}
-		out := MergeScopeMaps(globalScope, facetConfig)
-		talos := out["talos"].(map[string]any)
-		if _, ok := talos["controlplanes"]; !ok {
-			t.Error("Expected controlplanes from global to remain")
-		}
-		workers := talos["workers"].([]any)
-		if len(workers) != 2 {
-			t.Errorf("Expected overlay workers to overwrite, got %d", len(workers))
-		}
-	})
-
-	t.Run("OperatorOverlayConfigBlocksBuildsAnEntryForACollidingName", func(t *testing.T) {
-		globalScope := map[string]any{
-			"cluster": map[string]any{"controlplanes": map[string]any{"cpu": 7}},
-		}
-		operatorOverlay := map[string]any{
-			"cluster": map[string]any{"controlplanes": map[string]any{"cpu": 3}},
-		}
-		incoming := operatorOverlayConfigBlocks(globalScope, operatorOverlay)
-		cluster, ok := incoming["cluster"]
-		if !ok {
-			t.Fatal("Expected a synthetic entry for 'cluster'")
-		}
-		if cluster.Strategy != "merge" {
-			t.Errorf("Expected strategy 'merge', got %q", cluster.Strategy)
-		}
-		if cluster.Ordinal == nil || *cluster.Ordinal != math.MaxInt {
-			t.Errorf("Expected ordinal math.MaxInt, got %v", cluster.Ordinal)
-		}
-		if !reflect.DeepEqual(cluster.Body["value"], operatorOverlay["cluster"]) {
-			t.Errorf("Expected body value %v, got %v", operatorOverlay["cluster"], cluster.Body["value"])
-		}
-	})
-
-	t.Run("OperatorOverlayConfigBlocksSkipsNamesAbsentFromGlobalScope", func(t *testing.T) {
-		globalScope := map[string]any{
-			"cluster": map[string]any{"controlplanes": map[string]any{"cpu": 7}},
-		}
-		operatorOverlay := map[string]any{
-			"cluster":   map[string]any{"controlplanes": map[string]any{"cpu": 3}},
-			"terraform": map[string]any{"enabled": true},
-		}
-		incoming := operatorOverlayConfigBlocks(globalScope, operatorOverlay)
-		if _, exists := incoming["terraform"]; exists {
-			t.Error("Expected an operator key with no matching config block to be skipped")
-		}
-	})
-
-	t.Run("OperatorOverlayConfigBlocksHandlesNilGlobalScope", func(t *testing.T) {
-		if incoming := operatorOverlayConfigBlocks(nil, map[string]any{"cluster": map[string]any{"cpu": 3}}); incoming != nil {
-			t.Errorf("Expected nil for nil globalScope, got %v", incoming)
-		}
-	})
-
-	t.Run("OperatorOverlayConfigBlocksHandlesEmptyOverlay", func(t *testing.T) {
-		globalScope := map[string]any{"cluster": map[string]any{"cpu": 7}}
-		if incoming := operatorOverlayConfigBlocks(globalScope, nil); incoming != nil {
-			t.Errorf("Expected nil for an empty overlay, got %v", incoming)
-		}
-	})
-
-	t.Run("OperatorOverlayConfigBlocksMergedIntoScopeOverridesCollidingKeyAndKeepsSiblings", func(t *testing.T) {
-		// Given a merge helper's synthetic entry fed through the same mergeConfigBlocks
-		// pipeline every facet-vs-facet conflict already uses
-		mocks := setupProcessorMocks(t)
-		processor := NewBlueprintProcessor(mocks.Runtime)
-		globalScope := map[string]any{
-			"cluster": map[string]any{"controlplanes": map[string]any{"cpu": 7, "memory": 16}},
-		}
-		operatorOverlay := map[string]any{
-			"cluster": map[string]any{"controlplanes": map[string]any{"cpu": 3}},
-		}
-		incoming := operatorOverlayConfigBlocks(globalScope, operatorOverlay)
-
-		// When merged via mergeConfigBlocks
-		out, _, err := processor.mergeConfigBlocks(globalScope, nil, incoming)
-		if err != nil {
-			t.Fatalf("mergeConfigBlocks failed: %v", err)
-		}
-
-		// Then the operator's value wins at the colliding key, and the untouched sibling remains
-		controlplanes := out["cluster"].(map[string]any)["controlplanes"].(map[string]any)
-		if controlplanes["cpu"] != 3 {
-			t.Errorf("Expected operator cpu=3 to win, got %v", controlplanes["cpu"])
-		}
-		if controlplanes["memory"] != 16 {
-			t.Errorf("Expected untouched key memory=16 to remain, got %v", controlplanes["memory"])
 		}
 	})
 }

@@ -485,7 +485,7 @@ func TestShowBlueprint_FluxSystemSameOrdinalVariantMerge(t *testing.T) {
 }
 
 // TestShowBlueprint_FacetRequires_Satisfied verifies the success path: when every required
-// path resolves to a present, non-empty value, ProcessFacets returns no error and the
+// path resolves to a present, non-empty value, composition returns no error and the
 // blueprint renders normally.
 func TestShowBlueprint_FacetRequires_Satisfied(t *testing.T) {
 	t.Parallel()

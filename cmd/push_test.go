@@ -15,7 +15,6 @@ import (
 	"github.com/windsorcli/cli/internal/werror"
 	"github.com/windsorcli/cli/pkg/composer"
 	"github.com/windsorcli/cli/pkg/composer/artifact"
-	"github.com/windsorcli/cli/pkg/composer/blueprint"
 	"github.com/windsorcli/cli/pkg/runtime/config"
 	"github.com/windsorcli/cli/pkg/runtime/shell"
 )
@@ -61,12 +60,6 @@ func setupPushTest(t *testing.T) (*PushMocks, *Mocks) {
 		}
 	}
 	baseMocks.Runtime.ProjectRoot = tmpDir
-
-	// Mock blueprint handler
-	mockBlueprintHandler := blueprint.NewMockBlueprintHandler()
-	mockBlueprintHandler.GetLocalTemplateDataFunc = func() (map[string][]byte, error) {
-		return map[string][]byte{}, nil
-	}
 
 	// Mock artifact builder — default returns a wrapped *transport.Error so the auth-classification
 	// path in push.go (and its docker-login hint) is exercised end-to-end with a realistic shape

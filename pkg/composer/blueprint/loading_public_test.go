@@ -2,6 +2,7 @@ package blueprint_test
 
 import (
 	"errors"
+	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
@@ -381,6 +382,250 @@ func TestLoadBlueprint(t *testing.T) {
 		// Then the facet's kustomization is composed
 		if kustomization(bp, "k") == nil {
 			t.Errorf("expected kustomization k, got %+v", bp.Kustomizations)
+		}
+	})
+	t.Run("AppliesAStrategicMergePatchFromTheContextPatchesDirectory", func(t *testing.T) {
+		// Given a kustomization and a strategic merge patch in the context patches directory
+		f := newFixture(t)
+		f.project(t)
+		f.facet(t, "k", "kustomize:\n- name: k\n  path: k\n")
+		f.write(t, "contexts/local/patches/k/deployment.yaml", "apiVersion: apps/v1\nkind: Deployment\nmetadata:\n  name: web\n")
+
+		// When the blueprint is loaded
+		bp := f.mustLoad(t).Generate()
+
+		// Then the kustomization carries the patch without a target
+		k := kustomization(bp, "k")
+		if k == nil || len(k.Patches) != 1 {
+			t.Fatalf("expected one patch on kustomization k, got %+v", k)
+		}
+		if !strings.Contains(k.Patches[0].Patch, "kind: Deployment") || k.Patches[0].Target != nil {
+			t.Errorf("expected an untargeted Deployment patch, got %+v", k.Patches[0])
+		}
+	})
+
+	t.Run("TurnsAJSON6902PatchFileIntoATargetedPatch", func(t *testing.T) {
+		// Given a JSON 6902 patch file that names its target resource
+		f := newFixture(t)
+		f.project(t)
+		f.facet(t, "k", "kustomize:\n- name: k\n  path: k\n")
+		f.write(t, "contexts/local/patches/k/replicas.yml", "kind: Deployment\nmetadata:\n  name: web\n  namespace: apps\npatches:\n- op: replace\n  path: /spec/replicas\n  value: 3\n")
+
+		// When the blueprint is loaded
+		bp := f.mustLoad(t).Generate()
+
+		// Then the patch targets the named resource and holds only the operations
+		k := kustomization(bp, "k")
+		if k == nil || len(k.Patches) != 1 {
+			t.Fatalf("expected one patch on kustomization k, got %+v", k)
+		}
+		target := k.Patches[0].Target
+		if target == nil || target.Kind != "Deployment" || target.Name != "web" || target.Namespace != "apps" {
+			t.Errorf("expected a target of Deployment apps/web, got %+v", target)
+		}
+		if !strings.Contains(k.Patches[0].Patch, "/spec/replicas") || strings.Contains(k.Patches[0].Patch, "metadata") {
+			t.Errorf("expected only the patch operations, got %q", k.Patches[0].Patch)
+		}
+	})
+
+	t.Run("KeepsAnOperationsListWithoutAKindAsAPlainPatch", func(t *testing.T) {
+		// Given a patch file with a patches list but no kind
+		f := newFixture(t)
+		f.project(t)
+		f.facet(t, "k", "kustomize:\n- name: k\n  path: k\n")
+		f.write(t, "contexts/local/patches/k/ops.yaml", "patches:\n- op: remove\n  path: /spec/replicas\n")
+
+		// When the blueprint is loaded
+		bp := f.mustLoad(t).Generate()
+
+		// Then the file is kept whole as an untargeted patch
+		k := kustomization(bp, "k")
+		if k == nil || len(k.Patches) != 1 || k.Patches[0].Target != nil || !strings.HasPrefix(k.Patches[0].Patch, "patches:") {
+			t.Errorf("expected the whole file as an untargeted patch, got %+v", k)
+		}
+	})
+
+	t.Run("SkipsPatchFilesThatAreEmptyHiddenOrNotYAML", func(t *testing.T) {
+		// Given a patch directory that holds only an empty file, a hidden file, a text file, and a subdirectory
+		f := newFixture(t)
+		f.project(t)
+		f.facet(t, "k", "kustomize:\n- name: k\n  path: k\n")
+		f.write(t, "contexts/local/patches/k/empty.yaml", "  \n")
+		f.write(t, "contexts/local/patches/k/._deployment.yaml", "kind: Deployment\n")
+		f.write(t, "contexts/local/patches/k/notes.txt", "kind: Deployment\n")
+		f.write(t, "contexts/local/patches/k/nested/deployment.yaml", "kind: Deployment\n")
+		f.write(t, "contexts/local/patches/.hidden/deployment.yaml", "kind: Deployment\n")
+
+		// When the blueprint is loaded
+		bp := f.mustLoad(t).Generate()
+
+		// Then the kustomization has no patches
+		if k := kustomization(bp, "k"); k == nil || len(k.Patches) != 0 {
+			t.Errorf("expected no patches on kustomization k, got %+v", k)
+		}
+	})
+
+	t.Run("IgnoresAPatchDirectoryThatNamesNoKustomization", func(t *testing.T) {
+		// Given a patch directory whose name matches no kustomization
+		f := newFixture(t)
+		f.project(t)
+		f.facet(t, "k", "kustomize:\n- name: k\n  path: k\n")
+		f.write(t, "contexts/local/patches/missing/deployment.yaml", "kind: Deployment\n")
+
+		// When the blueprint is loaded
+		bp := f.mustLoad(t).Generate()
+
+		// Then the load succeeds and no kustomization gets the patch
+		if k := kustomization(bp, "k"); k == nil || len(k.Patches) != 0 {
+			t.Errorf("expected no patches on kustomization k, got %+v", k)
+		}
+	})
+
+	t.Run("FailsWhenAPatchFileIsMalformed", func(t *testing.T) {
+		// Given a patch file that is not valid YAML
+		f := newFixture(t)
+		f.project(t)
+		f.facet(t, "k", "kustomize:\n- name: k\n  path: k\n")
+		f.write(t, "contexts/local/patches/k/bad.yaml", "kind: [unclosed\n")
+
+		// When the blueprint is loaded
+		_, err := f.load(t)
+
+		// Then the load fails and names the patch file
+		if err == nil || !strings.Contains(err.Error(), "bad.yaml") {
+			t.Errorf("expected an error that names bad.yaml, got %v", err)
+		}
+	})
+
+	t.Run("AcceptsFluxSystemSecretsThatHoldExpressions", func(t *testing.T) {
+		// Given a flux system whose secrets hold a reference, an embedded reference, and a TLS pair
+		f := newFixture(t)
+		f.project(t)
+		f.facet(t, "cdn", "flux:\n- name: cdn\n  install: {}\n  secrets:\n    creds:\n      data:\n        token: ${cdn.token ?? ''}\n        url: https://api.example.com/${cdn.token ?? ''}\n    web-tls:\n      type: kubernetes.io/tls\n      data:\n        tls.crt: ${cdn.crt ?? ''}\n        tls.key: ${cdn.key ?? ''}\n")
+
+		// When the blueprint is loaded
+		_, err := f.load(t)
+
+		// Then the load succeeds
+		if err != nil {
+			t.Errorf("expected no error, got %v", err)
+		}
+	})
+
+	t.Run("RejectsAFluxSystemSecretThatHoldsAPlaintextValue", func(t *testing.T) {
+		// Given a flux system secret whose value is a literal
+		f := newFixture(t)
+		f.project(t)
+		f.facet(t, "cdn", "flux:\n- name: cdn\n  install: {}\n  secrets:\n    creds:\n      data:\n        token: actual-secret-value\n")
+
+		// When the blueprint is loaded
+		_, err := f.load(t)
+
+		// Then the load fails and the hint warns against a plaintext literal
+		if err == nil || !strings.Contains(err.Error(), `must contain a complete ${...} expression, got "actual-secret-value"`) {
+			t.Errorf("expected a plaintext-literal error, got %v", err)
+		}
+		if !strings.Contains(hintOf(err), "plaintext literal") {
+			t.Errorf("expected a plaintext-literal hint, got %q", hintOf(err))
+		}
+	})
+
+	t.Run("RejectsAFluxSystemSecretWithNoDataKeys", func(t *testing.T) {
+		// Given a flux system secret that declares only namespaces
+		f := newFixture(t)
+		f.project(t)
+		f.facet(t, "cdn", "flux:\n- name: cdn\n  install: {}\n  secrets:\n    creds:\n      namespaces: [system-dns]\n")
+
+		// When the blueprint is loaded
+		_, err := f.load(t)
+
+		// Then the load fails and the hint shows the data form
+		if err == nil || !strings.Contains(err.Error(), "no data keys") || !strings.Contains(hintOf(err), "data: {<key>: <ref>}") {
+			t.Errorf("expected a no-data-keys error, got %v (hint %q)", err, hintOf(err))
+		}
+	})
+
+	t.Run("RejectsAFluxSystemSecretWithAnUnsupportedType", func(t *testing.T) {
+		// Given a flux system secret with a type that Windsor does not place
+		f := newFixture(t)
+		f.project(t)
+		f.facet(t, "cdn", "flux:\n- name: cdn\n  install: {}\n  secrets:\n    token:\n      type: kubernetes.io/service-account-token\n      data:\n        token: ${cdn.token ?? ''}\n")
+
+		// When the blueprint is loaded
+		_, err := f.load(t)
+
+		// Then the load fails and names the type
+		if err == nil || !strings.Contains(err.Error(), `unsupported type "kubernetes.io/service-account-token"`) {
+			t.Errorf("expected an unsupported-type error, got %v", err)
+		}
+	})
+
+	t.Run("AcceptsFluxSystemSecretsThatReferenceSensitiveValuesOrCallSecret", func(t *testing.T) {
+		// Given secrets that reference a sensitive property or call secret(), and a TLS pair split across two facets
+		f := newFixture(t)
+		f.project(t)
+		f.write(t, "contexts/_template/schema.yaml", "$schema: https://json-schema.org/draft/2020-12/schema\ntype: object\nproperties:\n  token:\n    type: string\n    sensitive: true\n")
+		f.write(t, "contexts/local/values.yaml", "platform: docker\ntoken: s3cr3t\n")
+		f.facet(t, "cdn", "flux:\n- name: cdn\n  install: {}\n  secrets:\n    creds:\n      data:\n        token: ${token}\n        hook: '${secret(\"Developer\", \"slack\", \"url\")}'\n    web-tls:\n      type: kubernetes.io/tls\n      data:\n        tls.crt: ${token}\n")
+		f.facet(t, "cdn-key", "flux:\n- name: cdn\n  strategy: merge\n  secrets:\n    web-tls:\n      data:\n        tls.key: ${token}\n")
+
+		// When the blueprint is loaded
+		_, err := f.load(t)
+
+		// Then the load succeeds
+		if err != nil {
+			t.Errorf("expected no error, got %v", err)
+		}
+	})
+
+	t.Run("RejectsAFluxSystemSecretWithAnUnterminatedExpression", func(t *testing.T) {
+		// Given a flux system secret whose expression has no closing brace
+		f := newFixture(t)
+		f.project(t)
+		f.facet(t, "cdn", "flux:\n- name: cdn\n  install: {}\n  secrets:\n    creds:\n      data:\n        token: \"${cdn.token\"\n")
+
+		// When the blueprint is loaded
+		_, err := f.load(t)
+
+		// Then the load fails and quotes the value
+		if err == nil || !strings.Contains(err.Error(), `must contain a complete ${...} expression, got "${cdn.token"`) {
+			t.Errorf("expected an unterminated-expression error, got %v", err)
+		}
+	})
+
+	t.Run("ClearsTheSourceOfLocalTemplateComponents", func(t *testing.T) {
+		// Given a local template facet with a terraform component and a kustomization
+		f := newFixture(t)
+		f.project(t)
+		f.facet(t, "base", "terraform:\n- path: net\nkustomize:\n- name: k\n  path: k\n")
+
+		// When the blueprint is loaded
+		h := f.mustLoad(t)
+
+		// Then neither carries a source, so the component resolves to the project path
+		if k := kustomization(h.Generate(), "k"); k == nil || k.Source != "" {
+			t.Errorf("expected kustomization k without a source, got %+v", k)
+		}
+		components := h.GetTerraformComponents()
+		if len(components) != 1 || components[0].Source != "" || components[0].FullPath != filepath.Join(f.root, "terraform", "net") {
+			t.Errorf("expected one local component in the project path, got %+v", components)
+		}
+	})
+
+	t.Run("ExposesTheUserRepositoryToExpressionsWithoutTheSecretName", func(t *testing.T) {
+		// Given a user blueprint repository with a ref and a secret name, and a facet that reads it
+		f := newFixture(t)
+		f.project(t)
+		f.write(t, "contexts/local/blueprint.yaml", blueprintHeader+"metadata:\n  name: mine\nrepository:\n  url: https://github.com/acme/repo.git\n  ref:\n    branch: develop\n    tag: v1.2.3\n    semver: ~1.2\n    name: refs/heads/develop\n    commit: abc123\n  secretName: flux-system\nsources:\n- name: template\n")
+		f.facet(t, "repo", "kustomize:\n- name: k\n  path: k\n  substitutions:\n    name: ${repository.name}\n    url: ${repository.url}\n    branch: ${repository.ref.branch}\n    tag: ${repository.ref.tag}\n    semver: ${repository.ref.semver}\n    ref: ${repository.ref.name}\n    commit: ${repository.ref.commit}\n    secret: ${repository.secretName ?? 'none'}\n")
+
+		// When the blueprint is loaded
+		bp := f.mustLoad(t).Generate()
+
+		// Then the repository values resolve and the secret name is absent
+		want := map[string]string{"name": "local", "url": "https://github.com/acme/repo.git", "branch": "develop", "tag": "v1.2.3", "semver": "~1.2", "ref": "refs/heads/develop", "commit": "abc123", "secret": "none"}
+		if got := kustomization(bp, "k").Substitutions; !reflect.DeepEqual(got, want) {
+			t.Errorf("expected substitutions %v, got %v", want, got)
 		}
 	})
 }
