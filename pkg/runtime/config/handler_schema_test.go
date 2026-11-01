@@ -361,6 +361,86 @@ properties:
 		}
 	})
 
+	t.Run("AcceptsIDAtMaximumLength", func(t *testing.T) {
+		// Given a handler with no schema loaded and a 63-character id with hyphens
+		handler, _ := setupPrivateTestHandler(t)
+		id := "a" + strings.Repeat("-b", 31)
+		if len(id) != 63 {
+			t.Fatalf("Test id has %d characters, want 63", len(id))
+		}
+		handler.data = map[string]any{"id": id}
+
+		// When validating context values
+		err := handler.ValidateContextValues()
+
+		// Then it should pass, since 63 characters is the DNS label limit
+		if err != nil {
+			t.Errorf("Expected no error for a 63-character id, got %v", err)
+		}
+	})
+
+	t.Run("RejectsIDLongerThanMaximumLength", func(t *testing.T) {
+		// Given a handler with no schema loaded and a 64-character id
+		handler, _ := setupPrivateTestHandler(t)
+		handler.data = map[string]any{"id": "a" + strings.Repeat("b", 63)}
+
+		// When validating context values
+		err := handler.ValidateContextValues()
+
+		// Then it should reject the id and name the limit
+		if err == nil {
+			t.Fatal("Expected validation error for a 64-character id")
+		}
+		if !strings.Contains(err.Error(), "has 64 characters. The maximum is 63.") {
+			t.Errorf("Expected length error, got %v", err)
+		}
+	})
+
+	t.Run("AcceptsSingleCharacterID", func(t *testing.T) {
+		// Given a handler with no schema loaded and a one-letter id
+		handler, _ := setupPrivateTestHandler(t)
+		handler.data = map[string]any{"id": "a"}
+
+		// When validating context values
+		err := handler.ValidateContextValues()
+
+		// Then it should pass
+		if err != nil {
+			t.Errorf("Expected no error for a one-letter id, got %v", err)
+		}
+	})
+
+	t.Run("RejectsIDThatViolatesCharsetRules", func(t *testing.T) {
+		cases := map[string]string{
+			"LeadingHyphen":  "-plant",
+			"LeadingDigit":   "1plant",
+			"Uppercase":      "myPlant",
+			"Underscore":     "my_plant",
+			"Dot":            "my.plant",
+			"SingleHyphen":   "-",
+			"SingleDigit":    "7",
+			"TrailingHyphen": "a-",
+		}
+		for name, id := range cases {
+			t.Run(name, func(t *testing.T) {
+				// Given a handler with no schema loaded and an id that is not a DNS label
+				handler, _ := setupPrivateTestHandler(t)
+				handler.data = map[string]any{"id": id}
+
+				// When validating context values
+				err := handler.ValidateContextValues()
+
+				// Then it should reject the id
+				if err == nil {
+					t.Fatalf("Expected validation error for id %q", id)
+				}
+				if !strings.Contains(err.Error(), "Context id ") {
+					t.Errorf("Expected validation failure error, got %v", err)
+				}
+			})
+		}
+	})
+
 	t.Run("FiresCrossFieldRuleSpanningStaticAndDynamic", func(t *testing.T) {
 		handler, tmpDir := setupPrivateTestHandler(t)
 		schemaPath := filepath.Join(tmpDir, "schema.yaml")
