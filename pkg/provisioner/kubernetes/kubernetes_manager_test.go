@@ -58,7 +58,6 @@ func setupKubernetesMocks(t *testing.T, opts ...func(*KubernetesTestMocks)) *Kub
 		ConfigHandler:    mockConfigHandler,
 	}
 
-	// Apply any overrides
 	for _, opt := range opts {
 		opt(mocks)
 	}
