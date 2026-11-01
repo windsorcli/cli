@@ -1488,12 +1488,13 @@ func TestValidateSystemSecrets(t *testing.T) {
 		}
 	})
 
-	t.Run("RejectsTLSTypeWithoutKey", func(t *testing.T) {
+	t.Run("AcceptsTLSTypeWithOnlyOneKey", func(t *testing.T) {
+		// Another facet can supply the other key, so the per-facet check leaves the key set alone
 		err := processor(t).validateSystemSecrets("gateway", map[string]blueprintv1alpha1.SecretEntry{
 			"internal-web-tls": {Type: "kubernetes.io/tls", Data: map[string]string{"tls.crt": "${gateway.internal.tls.cert}"}},
 		})
-		if err == nil || !strings.Contains(err.Error(), "no tls.key data key") {
-			t.Errorf("Expected missing tls.key error, got %v", err)
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
 		}
 	})
 

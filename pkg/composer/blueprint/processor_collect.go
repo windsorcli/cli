@@ -307,7 +307,7 @@ func mergeSubstitute(k blueprintv1alpha1.Kustomization) map[string]string {
 // validateSystemSecrets checks the secrets: entries of a flux system. Each entry must have data keys
 // in the form data: {<key>: <ref>}. Each value must contain a complete ${...} expression, a reference or a secret() call.
 // It does not accept a plaintext literal, because git stores the blueprint file. A type must be Opaque or
-// kubernetes.io/tls, and a kubernetes.io/tls entry must have the tls.crt and tls.key data keys.
+// kubernetes.io/tls. ValidateComposedBlueprint checks the TLS data keys after facets merge.
 // Each error has a remediation hint.
 func (p *BaseBlueprintProcessor) validateSystemSecrets(systemName string, secrets map[string]blueprintv1alpha1.SecretEntry) error {
 	for secretName, entry := range secrets {
@@ -315,13 +315,7 @@ func (p *BaseBlueprintProcessor) validateSystemSecrets(systemName string, secret
 			return werror.New(fmt.Sprintf("secret %q in flux system %q declares no data keys", secretName, systemName), "Put the keys under data: in the form data: {<key>: <ref>}. A namespaces: selector is optional.", nil)
 		}
 		switch entry.Type {
-		case "", secretTypeOpaque:
-		case secretTypeTLS:
-			for _, key := range []string{"tls.crt", "tls.key"} {
-				if _, ok := entry.Data[key]; !ok {
-					return werror.New(fmt.Sprintf("secret %q in flux system %q has type %s but no %s data key", secretName, systemName, secretTypeTLS, key), "Set both tls.crt and tls.key under data:.", nil)
-				}
-			}
+		case "", secretTypeOpaque, secretTypeTLS:
 		default:
 			return werror.New(fmt.Sprintf("secret %q in flux system %q has unsupported type %q", secretName, systemName, entry.Type), fmt.Sprintf("Set type: to %s or %s, or remove it.", secretTypeOpaque, secretTypeTLS), nil)
 		}
