@@ -589,7 +589,7 @@ func TestBaseKubernetesManager_ApplySecret(t *testing.T) {
 		manager.client = kubernetesClient
 
 		// When applying a secret
-		err := manager.ApplySecret("cloudflare-creds", "system-dns", map[string]string{"api_token": "PLAINTEXT"}, "dns-install")
+		err := manager.ApplySecret("cloudflare-creds", "system-dns", "", map[string]string{"api_token": "PLAINTEXT"}, "dns-install")
 		if err != nil {
 			t.Fatalf("Expected no error, got %v", err)
 		}
@@ -625,7 +625,7 @@ func TestBaseKubernetesManager_ApplySecret(t *testing.T) {
 		manager.client = client.NewMockKubernetesClient()
 
 		// When applying a secret with no name, it fails validation
-		if err := manager.ApplySecret("", "system-dns", map[string]string{"k": "v"}, "dns-install"); err == nil {
+		if err := manager.ApplySecret("", "system-dns", "", map[string]string{"k": "v"}, "dns-install"); err == nil {
 			t.Error("Expected error for empty name")
 		}
 	})
@@ -645,7 +645,7 @@ func TestBaseKubernetesManager_ApplySecret(t *testing.T) {
 		manager.client = kubernetesClient
 
 		// When applying a secret with docker-username/docker-password/docker-server
-		err := manager.ApplySecret("ghcr-credentials", "pme", map[string]string{
+		err := manager.ApplySecret("ghcr-credentials", "pme", "", map[string]string{
 			"docker-username": "octocat",
 			"docker-password": "hunter2",
 			"docker-server":   "ghcr.io",
@@ -709,7 +709,7 @@ func TestBaseKubernetesManager_ApplySecret(t *testing.T) {
 		manager.client = kubernetesClient
 
 		// When applying a secret with docker-username/docker-password but no docker-server
-		err := manager.ApplySecret("ghcr-credentials", "pme", map[string]string{
+		err := manager.ApplySecret("ghcr-credentials", "pme", "", map[string]string{
 			"docker-username": "octocat",
 			"docker-password": "hunter2",
 		}, "addon-pme")
@@ -746,7 +746,7 @@ func TestBaseKubernetesManager_ApplySecret(t *testing.T) {
 
 		// When applying a secret that already carries a .dockerconfigjson
 		preEncoded := `{"auths":{"ghcr.io":{"username":"u","password":"p","auth":"dTpw"}}}`
-		err := manager.ApplySecret("ghcr-credentials", "pme", map[string]string{
+		err := manager.ApplySecret("ghcr-credentials", "pme", "", map[string]string{
 			".dockerconfigjson": preEncoded,
 		}, "addon-pme")
 		if err != nil {
@@ -778,7 +778,7 @@ func TestBaseKubernetesManager_ApplySecret(t *testing.T) {
 		manager.client = kubernetesClient
 
 		// When applying a secret with only docker-username set (no docker-password)
-		err := manager.ApplySecret("incomplete-creds", "pme", map[string]string{
+		err := manager.ApplySecret("incomplete-creds", "pme", "", map[string]string{
 			"docker-username": "octocat",
 		}, "addon-pme")
 		if err != nil {
@@ -812,7 +812,7 @@ func TestBaseKubernetesManager_ApplySecret(t *testing.T) {
 		}
 
 		// When applying a secret that triggers docker config synthesis
-		if err := manager.ApplySecret("ghcr-credentials", "pme", input, "addon-pme"); err != nil {
+		if err := manager.ApplySecret("ghcr-credentials", "pme", "", input, "addon-pme"); err != nil {
 			t.Fatalf("Expected no error, got %v", err)
 		}
 
@@ -847,7 +847,7 @@ func TestBaseKubernetesManager_ApplySecret(t *testing.T) {
 		manager.client = kubernetesClient
 
 		// When applying a secret whose docker-* keys now resolve to dockerconfigjson
-		err := manager.ApplySecret("ghcr-credentials", "pme", map[string]string{
+		err := manager.ApplySecret("ghcr-credentials", "pme", "", map[string]string{
 			"docker-username": "octocat",
 			"docker-password": "hunter2",
 		}, "addon-pme")
@@ -887,7 +887,7 @@ func TestBaseKubernetesManager_ApplySecret(t *testing.T) {
 		manager.client = kubernetesClient
 
 		// When applying a secret whose docker-* keys still resolve to dockerconfigjson
-		err := manager.ApplySecret("ghcr-credentials", "pme", map[string]string{
+		err := manager.ApplySecret("ghcr-credentials", "pme", "", map[string]string{
 			"docker-username": "octocat",
 			"docker-password": "hunter2",
 		}, "addon-pme")
@@ -919,7 +919,7 @@ func TestBaseKubernetesManager_ApplySecret(t *testing.T) {
 		manager.client = kubernetesClient
 
 		// When applying a secret whose resolved type would change
-		err := manager.ApplySecret("ghcr-credentials", "pme", map[string]string{
+		err := manager.ApplySecret("ghcr-credentials", "pme", "", map[string]string{
 			"docker-username": "octocat",
 			"docker-password": "hunter2",
 		}, "addon-pme")

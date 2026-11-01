@@ -42,6 +42,7 @@ type ResolvedSecrets map[string]map[string]ResolvedSecret
 type ResolvedSecret struct {
 	Namespaces []string
 	Data       map[string]string
+	Type       string
 }
 
 // pendingPlacement is one secret awaiting its target namespace during PlaceSecrets.
@@ -101,6 +102,7 @@ func (i *Provisioner) ResolveSecrets(blueprint *blueprintv1alpha1.Blueprint) (Re
 				resolved[k.Name][secretName] = ResolvedSecret{
 					Namespaces: slices.Clone(entry.Namespaces),
 					Data:       stringData,
+					Type:       entry.Type,
 				}
 			}
 		}
@@ -179,7 +181,7 @@ func (i *Provisioner) placeSecrets(ctx context.Context, layers layerReporter, re
 				continue
 			}
 			for _, namespace := range namespaces {
-				if err := i.KubernetesManager.ApplySecret(p.secretName, namespace, p.secret.Data, p.kustomization); err != nil {
+				if err := i.KubernetesManager.ApplySecret(p.secretName, namespace, p.secret.Type, p.secret.Data, p.kustomization); err != nil {
 					return werror.Wrap(err, "applying secret %q to namespace %q", p.secretName, namespace)
 				}
 				if err := i.KubernetesManager.RollWorkloadsForSecret(ctx, namespace, p.secretName, secretDigest(p.secret.Data)); err != nil {

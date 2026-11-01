@@ -190,6 +190,7 @@ shared across them.
 |------|------|-------------|
 | `data` | `map<string>` | Secret data: data key -> expression resolved at apply time (a '${...}' config reference, a secret() call, or an env("NAME") lookup), never a plaintext literal, and never rendered or written in plaintext. Materializes as an Opaque Secret by default; a '.dockerconfigjson' key, or 'docker-username' plus 'docker-password' (optional 'docker-server', defaulting to 'ghcr.io'), materializes as kubernetes.io/dockerconfigjson instead, for use as an imagePullSecret. |
 | `namespaces` | `array<string>` | Namespaces to place this Secret into. Empty means auto-resolve the single namespace the owning kustomization creates; each named namespace must be one that kustomization provably created. |
+| `type` | `string` | Kubernetes Secret type. Empty means the type comes from the data keys. kubernetes.io/tls needs the tls.crt and tls.key data keys. One of: `Opaque`, `kubernetes.io/tls`. |
 
 ## kustomize[]
 

@@ -52,6 +52,10 @@ type SecretEntry struct {
 	// "docker-server", defaulting to "ghcr.io"), materializes as kubernetes.io/dockerconfigjson
 	// instead, for use as an imagePullSecret — see ApplySecret/secretTypeAndData.
 	Data map[string]string `yaml:"data,omitempty"`
+
+	// Type is the Kubernetes Secret type. Empty means the type comes from the data keys. Set
+	// "kubernetes.io/tls" for a Secret that a TLS consumer reads, such as a Gateway listener.
+	Type string `yaml:"type,omitempty"`
 }
 
 // DeepCopy returns a deep copy of the SecretEntry, sharing no slice or map with the original.
@@ -59,6 +63,7 @@ func (s SecretEntry) DeepCopy() SecretEntry {
 	return SecretEntry{
 		Namespaces: slices.Clone(s.Namespaces),
 		Data:       maps.Clone(s.Data),
+		Type:       s.Type,
 	}
 }
 

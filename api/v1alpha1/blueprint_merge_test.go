@@ -2527,6 +2527,29 @@ func TestBlueprint_UpsertFluxSystem(t *testing.T) {
 			t.Errorf("expected namespaces to union to [system-pki system-dns], got %+v", got)
 		}
 	})
+
+	t.Run("KeepsSecretTypeOnNameCollision", func(t *testing.T) {
+		// Given a system whose secret sets a type
+		b := &Blueprint{
+			FluxSystems: []FluxSystem{{
+				Name:    "gateway",
+				Secrets: map[string]SecretEntry{"web-tls": {Type: "kubernetes.io/tls", Data: map[string]string{"tls.crt": "${c}"}}},
+			}},
+		}
+
+		// When a same-named system contributes the same secret without a type
+		if err := b.UpsertFluxSystem(FluxSystem{
+			Name:    "gateway",
+			Secrets: map[string]SecretEntry{"web-tls": {Data: map[string]string{"tls.key": "${k}"}}},
+		}); err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+
+		// Then the type survives
+		if got := b.FluxSystems[0].Secrets["web-tls"].Type; got != "kubernetes.io/tls" {
+			t.Errorf("expected type kubernetes.io/tls, got %q", got)
+		}
+	})
 }
 
 func TestKustomization_Decryption_DeepCopyAndMerge(t *testing.T) {

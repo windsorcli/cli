@@ -124,4 +124,41 @@ func TestValidateComposedBlueprint(t *testing.T) {
 			t.Errorf("Expected nil error (naming convention retired), got %v", err)
 		}
 	})
+
+	t.Run("TLSSecretWithBothKeysIsAccepted", func(t *testing.T) {
+		// Given a merged kubernetes.io/tls secret with both data keys
+		bp := &blueprintv1alpha1.Blueprint{
+			FluxSystems: []blueprintv1alpha1.FluxSystem{{
+				Name:    "gateway",
+				Secrets: map[string]blueprintv1alpha1.SecretEntry{"web-tls": {Type: "kubernetes.io/tls", Data: map[string]string{"tls.crt": "${c}", "tls.key": "${k}"}}},
+			}},
+		}
+
+		// When validation runs
+		// Then no error is returned
+		if err := ValidateComposedBlueprint(bp); err != nil {
+			t.Errorf("Expected nil error, got %v", err)
+		}
+	})
+
+	t.Run("TLSSecretWithoutKeyIsRejected", func(t *testing.T) {
+		// Given a merged kubernetes.io/tls secret with no tls.key
+		bp := &blueprintv1alpha1.Blueprint{
+			FluxSystems: []blueprintv1alpha1.FluxSystem{{
+				Name:    "gateway",
+				Secrets: map[string]blueprintv1alpha1.SecretEntry{"web-tls": {Type: "kubernetes.io/tls", Data: map[string]string{"tls.crt": "${c}"}}},
+			}},
+		}
+
+		// When validation runs
+		err := ValidateComposedBlueprint(bp)
+
+		// Then the error names the missing key and wraps ErrBlueprintInvalid
+		if err == nil || !strings.Contains(err.Error(), "no tls.key data key") {
+			t.Fatalf("Expected missing tls.key error, got %v", err)
+		}
+		if !errors.Is(err, ErrBlueprintInvalid) {
+			t.Errorf("Expected error to wrap ErrBlueprintInvalid, got %v", err)
+		}
+	})
 }

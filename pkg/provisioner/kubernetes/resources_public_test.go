@@ -215,7 +215,7 @@ func TestKubernetesManager_ApplySecret(t *testing.T) {
 		f := newFixture(t)
 
 		// When a secret is applied for the cluster kustomization
-		err := f.manager.ApplySecret("api-token", "apps", map[string]string{"token": "s3cret"}, "cluster")
+		err := f.manager.ApplySecret("api-token", "apps", "", map[string]string{"token": "s3cret"}, "cluster")
 
 		// Then the secret is Opaque, holds the value, and carries the context and owner labels
 		if err != nil {
@@ -234,12 +234,34 @@ func TestKubernetesManager_ApplySecret(t *testing.T) {
 		}
 	})
 
+	t.Run("WritesTheExplicitTypeWithDataUnchanged", func(t *testing.T) {
+		// Given an empty cluster
+		f := newFixture(t)
+
+		// When a TLS secret is applied with an explicit type
+		err := f.manager.ApplySecret("internal-web-tls", "system-gateway", "kubernetes.io/tls", map[string]string{"tls.crt": "CERT", "tls.key": "KEY"}, "gateway")
+
+		// Then the secret has that type and holds both keys
+		if err != nil {
+			t.Fatalf("expected no error, got %v", err)
+		}
+		secret := f.cluster.get(secretsGVR, "system-gateway", "internal-web-tls")
+		if secret.Object["type"] != "kubernetes.io/tls" {
+			t.Errorf("expected type kubernetes.io/tls, got %v", secret.Object["type"])
+		}
+		crt, _, _ := unstructured.NestedString(secret.Object, "stringData", "tls.crt")
+		key, _, _ := unstructured.NestedString(secret.Object, "stringData", "tls.key")
+		if crt != "CERT" || key != "KEY" {
+			t.Errorf("expected tls.crt and tls.key unchanged, got %q and %q", crt, key)
+		}
+	})
+
 	t.Run("BuildsADockerConfigSecretFromDockerCredentials", func(t *testing.T) {
 		// Given docker credentials without a server
 		f := newFixture(t)
 
 		// When the secret is applied
-		err := f.manager.ApplySecret("pull", "apps", map[string]string{"docker-username": "me", "docker-password": "pw", "extra": "kept"}, "cluster")
+		err := f.manager.ApplySecret("pull", "apps", "", map[string]string{"docker-username": "me", "docker-password": "pw", "extra": "kept"}, "cluster")
 
 		// Then it is a dockerconfigjson secret whose auth encodes the credentials, and other keys stay
 		if err != nil {
@@ -272,7 +294,7 @@ func TestKubernetesManager_ApplySecret(t *testing.T) {
 		f.cluster.seed(secretsGVR, map[string]any{"apiVersion": "v1", "kind": "Secret", "type": "Opaque", "metadata": map[string]any{"name": "pull", "namespace": "apps"}})
 
 		// When docker credentials are applied under the same name
-		err := f.manager.ApplySecret("pull", "apps", map[string]string{"docker-username": "me", "docker-password": "pw"}, "cluster")
+		err := f.manager.ApplySecret("pull", "apps", "", map[string]string{"docker-username": "me", "docker-password": "pw"}, "cluster")
 
 		// Then the old secret is deleted and a dockerconfigjson secret replaces it
 		if err != nil {

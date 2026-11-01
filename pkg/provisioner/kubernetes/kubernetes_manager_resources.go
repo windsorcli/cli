@@ -93,13 +93,19 @@ func (k *BaseKubernetesManager) ApplyConfigMap(name, namespace string, data map[
 }
 
 // ApplySecret creates or updates a Secret using SSA, with plaintext values in stringData that it never logs.
-// docker-username and docker-password, or a .dockerconfigjson key, give a dockerconfigjson Secret; other
-// data gives an Opaque one. Kubernetes rejects a change of Secret.type, so it deletes a Secret of another
-// type first. It sets the context labels and a secret-owner label that names owner, for PruneSecrets.
-func (k *BaseKubernetesManager) ApplySecret(name, namespace string, stringData map[string]string, owner string) error {
-	secretType, resolvedData, err := secretTypeAndData(stringData)
-	if err != nil {
-		return werror.Wrap(err, "failed to resolve secret type for %q", name)
+// A non-empty secretType sets the Secret type and keeps stringData unchanged. An empty secretType gets the
+// type from the data: docker-username and docker-password, or a .dockerconfigjson key, give a
+// dockerconfigjson Secret; other data gives an Opaque one. Kubernetes rejects a change of Secret.type, so
+// it deletes a Secret of another type first. It sets the context labels and a secret-owner label that
+// names owner, for PruneSecrets.
+func (k *BaseKubernetesManager) ApplySecret(name, namespace, secretType string, stringData map[string]string, owner string) error {
+	resolvedData := stringData
+	if secretType == "" {
+		var err error
+		secretType, resolvedData, err = secretTypeAndData(stringData)
+		if err != nil {
+			return werror.Wrap(err, "failed to resolve secret type for %q", name)
+		}
 	}
 
 	labels := k.ownershipLabels()

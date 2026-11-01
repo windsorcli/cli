@@ -17,6 +17,16 @@ import (
 )
 
 // =============================================================================
+// Constants
+// =============================================================================
+
+// secretTypeOpaque and secretTypeTLS are the Secret types a flux system secrets: entry can set.
+const (
+	secretTypeOpaque = "Opaque"
+	secretTypeTLS    = "kubernetes.io/tls" // #nosec G101 -- Secret type name, not a credential
+)
+
+// =============================================================================
 // Private Methods
 // =============================================================================
 
@@ -296,11 +306,18 @@ func mergeSubstitute(k blueprintv1alpha1.Kustomization) map[string]string {
 
 // validateSystemSecrets checks the secrets: entries of a flux system. Each entry must have data keys
 // in the form data: {<key>: <ref>}. Each value must contain a complete ${...} expression, a reference or a secret() call.
-// It does not accept a plaintext literal, because git stores the blueprint file. Each error has a remediation hint.
+// It does not accept a plaintext literal, because git stores the blueprint file. A type must be Opaque or
+// kubernetes.io/tls. ValidateComposedBlueprint checks the TLS data keys after facets merge.
+// Each error has a remediation hint.
 func (p *BaseBlueprintProcessor) validateSystemSecrets(systemName string, secrets map[string]blueprintv1alpha1.SecretEntry) error {
 	for secretName, entry := range secrets {
 		if len(entry.Data) == 0 {
 			return werror.New(fmt.Sprintf("secret %q in flux system %q declares no data keys", secretName, systemName), "Put the keys under data: in the form data: {<key>: <ref>}. A namespaces: selector is optional.", nil)
+		}
+		switch entry.Type {
+		case "", secretTypeOpaque, secretTypeTLS:
+		default:
+			return werror.New(fmt.Sprintf("secret %q in flux system %q has unsupported type %q", secretName, systemName, entry.Type), fmt.Sprintf("Set type: to %s or %s, or remove it.", secretTypeOpaque, secretTypeTLS), nil)
 		}
 		for key, ref := range entry.Data {
 			open := strings.Index(ref, "${")
@@ -347,7 +364,7 @@ func (p *BaseBlueprintProcessor) sensitivePathsInValue(value string) []string {
 }
 
 // mergeSecretData unions two secret maps (Secret name -> SecretEntry), overlay winning per data key and
-// the two entries' namespaces unioned, and nil when both are empty. Neither input is mutated. Used to
+// on a non-empty type, and the two entries' namespaces unioned, and nil when both are empty. Neither input is mutated. Used to
 // union a flux system's Secrets across facets.
 func mergeSecretData(base, overlay map[string]blueprintv1alpha1.SecretEntry) map[string]blueprintv1alpha1.SecretEntry {
 	if len(base) == 0 && len(overlay) == 0 {
@@ -369,6 +386,9 @@ func mergeSecretData(base, overlay map[string]blueprintv1alpha1.SecretEntry) map
 				merged.Data = make(map[string]string, len(entry.Data))
 			}
 			maps.Copy(merged.Data, entry.Data)
+		}
+		if entry.Type != "" {
+			merged.Type = entry.Type
 		}
 		out[name] = merged
 	}

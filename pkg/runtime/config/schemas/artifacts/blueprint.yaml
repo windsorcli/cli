@@ -762,6 +762,14 @@ properties:
                   'docker-password' (optional 'docker-server', defaulting to
                   'ghcr.io'), materializes as kubernetes.io/dockerconfigjson
                   instead, for use as an imagePullSecret.
+              type:
+                type: string
+                enum:
+                  - Opaque
+                  - kubernetes.io/tls
+                description: |
+                  Kubernetes Secret type. Empty means the type comes from the data
+                  keys. kubernetes.io/tls needs the tls.crt and tls.key data keys.
           description: |
             Kubernetes Secrets for this system, keyed by Secret name. Removing an
             entry prunes the corresponding cluster Secret on next apply; changing

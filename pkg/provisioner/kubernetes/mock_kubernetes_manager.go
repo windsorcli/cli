@@ -27,7 +27,7 @@ type MockKubernetesManager struct {
 	CreateNamespaceFunc                 func(name string) error
 	DeleteNamespaceFunc                 func(name string) error
 	ApplyConfigMapFunc                  func(name, namespace string, data map[string]string) error
-	ApplySecretFunc                     func(name, namespace string, stringData map[string]string, owner string) error
+	ApplySecretFunc                     func(name, namespace, secretType string, stringData map[string]string, owner string) error
 	PruneSecretsFunc                    func(desired map[string]map[string]bool) error
 	RollWorkloadsForSecretFunc          func(ctx context.Context, namespace, secretName, digest string) error
 	ApplyVersionMarkerFunc              func(namespace string, marker VersionMarker) error
@@ -131,9 +131,9 @@ func (m *MockKubernetesManager) ApplyConfigMap(name, namespace string, data map[
 }
 
 // ApplySecret implements KubernetesManager interface
-func (m *MockKubernetesManager) ApplySecret(name, namespace string, stringData map[string]string, owner string) error {
+func (m *MockKubernetesManager) ApplySecret(name, namespace, secretType string, stringData map[string]string, owner string) error {
 	if m.ApplySecretFunc != nil {
-		return m.ApplySecretFunc(name, namespace, stringData, owner)
+		return m.ApplySecretFunc(name, namespace, secretType, stringData, owner)
 	}
 	return nil
 }

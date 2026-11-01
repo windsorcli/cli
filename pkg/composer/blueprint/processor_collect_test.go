@@ -1478,6 +1478,34 @@ func TestValidateSystemSecrets(t *testing.T) {
 			t.Errorf("Expected remediation containing %q, got %v", "data: {<key>: <ref>}", werr)
 		}
 	})
+
+	t.Run("AcceptsTLSTypeWithCertAndKey", func(t *testing.T) {
+		err := processor(t).validateSystemSecrets("gateway", map[string]blueprintv1alpha1.SecretEntry{
+			"internal-web-tls": {Type: "kubernetes.io/tls", Data: map[string]string{"tls.crt": "${gateway.internal.tls.cert}", "tls.key": "${gateway.internal.tls.key}"}},
+		})
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+	})
+
+	t.Run("AcceptsTLSTypeWithOnlyOneKey", func(t *testing.T) {
+		// Another facet can supply the other key, so the per-facet check leaves the key set alone
+		err := processor(t).validateSystemSecrets("gateway", map[string]blueprintv1alpha1.SecretEntry{
+			"internal-web-tls": {Type: "kubernetes.io/tls", Data: map[string]string{"tls.crt": "${gateway.internal.tls.cert}"}},
+		})
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+	})
+
+	t.Run("RejectsUnsupportedType", func(t *testing.T) {
+		err := processor(t).validateSystemSecrets("gateway", map[string]blueprintv1alpha1.SecretEntry{
+			"token": {Type: "kubernetes.io/service-account-token", Data: map[string]string{"token": "${x.token}"}},
+		})
+		if err == nil || !strings.Contains(err.Error(), `unsupported type "kubernetes.io/service-account-token"`) {
+			t.Errorf("Expected unsupported-type error, got %v", err)
+		}
+	})
 }
 
 // =============================================================================
@@ -1521,6 +1549,26 @@ func TestMergeSecretData(t *testing.T) {
 		ns := got["acme-dns"].Namespaces
 		if len(ns) != 2 || !slices.Contains(ns, "system-pki") || !slices.Contains(ns, "system-dns") {
 			t.Errorf("Expected namespaces to union to [system-pki system-dns], got %v", ns)
+		}
+	})
+
+	t.Run("OverlayTypeWinsAndEmptyTypeKeepsBase", func(t *testing.T) {
+		// Given a typed base secret and an untyped overlay, plus an untyped base and a typed overlay
+		base := map[string]blueprintv1alpha1.SecretEntry{
+			"typed-base":   {Type: "kubernetes.io/tls", Data: map[string]string{"tls.crt": "${a}"}},
+			"untyped-base": {Data: map[string]string{"tls.crt": "${a}"}},
+		}
+		overlay := map[string]blueprintv1alpha1.SecretEntry{
+			"typed-base":   {Data: map[string]string{"tls.key": "${b}"}},
+			"untyped-base": {Type: "kubernetes.io/tls", Data: map[string]string{"tls.key": "${b}"}},
+		}
+
+		// When merging
+		got := mergeSecretData(base, overlay)
+
+		// Then both secrets carry the type
+		if got["typed-base"].Type != "kubernetes.io/tls" || got["untyped-base"].Type != "kubernetes.io/tls" {
+			t.Errorf("Expected both types kubernetes.io/tls, got %q and %q", got["typed-base"].Type, got["untyped-base"].Type)
 		}
 	})
 
