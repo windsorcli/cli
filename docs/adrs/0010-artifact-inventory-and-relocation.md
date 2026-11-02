@@ -119,15 +119,16 @@ call returns nothing, as it does in a Helm dry run.
 The CLI renders with the context's values as they are, and knows no blueprint's value names.
 A context that already points its chart sources at a chart registry renders the registry's URLs
 in place of each vendor's upstream. To list the upstreams, the operator overrides the
-blueprint's registry value for one run with `--set`, the flag `windsor up` takes. For core, that
-is `--set charts.registry=`. The command applies `--set` to that run only and writes nothing to
-the context. When a rendered chart source is already under `--charts-to`, the command names it
+blueprint's registry value with `--set`, in the `key=value` format that `windsor up` takes. For
+core, that is `--set charts.registry=`. `windsor up` saves its `--set` values to the context.
+This command saves nothing, because a `show` command does not change the context. When a rendered chart source is already under `--charts-to`, the command names it
 on stderr and leaves it out of `-o flux-mirror`, so Flux Mirror never copies a registry onto
 itself.
 
-A Kustomization whose substitutions include a value that does not exist before apply, such as a
-Terraform output, renders with that value left in place. The command fails only when such a
-value lands in a chart source's URL, tag, or digest, or in an image reference.
+Some substitution values do not exist before apply, such as a Terraform output. `flux build`
+renders a missing value as empty, so the CLI writes a marker value into `postBuild.substitute`
+for each one. The command fails only when a marker lands in a chart source's URL, tag, or
+digest, or in an image reference. A marker anywhere else does not change the list.
 
 ### 3. Terraform artifacts come from static evaluation of each component
 
