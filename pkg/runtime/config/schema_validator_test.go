@@ -1,4 +1,4 @@
-package config
+package config_test
 
 import (
 	"os"
@@ -6,13 +6,9 @@ import (
 	"testing"
 
 	"github.com/windsorcli/cli/internal/werror"
+	"github.com/windsorcli/cli/pkg/runtime/config"
 	"github.com/windsorcli/cli/pkg/runtime/shell"
 )
-
-// The SchemaValidatorTest is a comprehensive test suite for the SchemaValidator component.
-// It provides thorough validation of JSON Schema compliance, additionalProperties support,
-// default value extraction, and error handling across various validation scenarios.
-// The test suite ensures robust schema validation behavior for Windsor blueprint configurations.
 
 // =============================================================================
 // Test Public Methods
@@ -22,7 +18,7 @@ func TestSchemaValidator_LoadSchema(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
 		// Given a schema validator
 		mockShell := shell.NewMockShell()
-		validator := NewSchemaValidator(mockShell)
+		validator := config.NewSchemaValidator(mockShell)
 
 		// And a valid schema file
 		schemaContent := `
@@ -61,7 +57,7 @@ additionalProperties: true
 	t.Run("ErrorInvalidSchemaVersion", func(t *testing.T) {
 		// Given a schema validator
 		mockShell := shell.NewMockShell()
-		validator := NewSchemaValidator(mockShell)
+		validator := config.NewSchemaValidator(mockShell)
 
 		// And an invalid schema file
 		schemaContent := `
@@ -93,7 +89,7 @@ type: object
 	t.Run("ErrorLegacyWindsorURIPointsAtMigration", func(t *testing.T) {
 		// Given a schema validator
 		mockShell := shell.NewMockShell()
-		validator := NewSchemaValidator(mockShell)
+		validator := config.NewSchemaValidator(mockShell)
 
 		// And a schema file using the retired windsorcli dialect URI
 		schemaContent := `
@@ -126,7 +122,7 @@ type: object
 	t.Run("ErrorMissingSchemaField", func(t *testing.T) {
 		// Given a schema validator
 		mockShell := shell.NewMockShell()
-		validator := NewSchemaValidator(mockShell)
+		validator := config.NewSchemaValidator(mockShell)
 
 		// And an invalid schema file missing $schema
 		schemaContent := `
@@ -154,7 +150,7 @@ type: object
 	t.Run("ErrorFileRead", func(t *testing.T) {
 		// Given a schema validator
 		mockShell := shell.NewMockShell()
-		validator := NewSchemaValidator(mockShell)
+		validator := config.NewSchemaValidator(mockShell)
 
 		validator.Shims.ReadFile = func(path string) ([]byte, error) {
 			return nil, os.ErrNotExist
@@ -172,7 +168,7 @@ type: object
 	t.Run("MergesSchemasOnMultipleLoads", func(t *testing.T) {
 		// Given a schema validator
 		mockShell := shell.NewMockShell()
-		validator := NewSchemaValidator(mockShell)
+		validator := config.NewSchemaValidator(mockShell)
 
 		baseSchema := `$schema: https://json-schema.org/draft/2020-12/schema
 type: object
@@ -264,7 +260,7 @@ additionalProperties: false
 	t.Run("MergesRequiredArraysOnMultipleLoads", func(t *testing.T) {
 		// Given a schema validator
 		mockShell := shell.NewMockShell()
-		validator := NewSchemaValidator(mockShell)
+		validator := config.NewSchemaValidator(mockShell)
 
 		baseSchema := `$schema: https://json-schema.org/draft/2020-12/schema
 type: object
@@ -342,7 +338,7 @@ additionalProperties: false
 	t.Run("OverridesNonMergedKeywordsOnMultipleLoads", func(t *testing.T) {
 		// Given a schema validator
 		mockShell := shell.NewMockShell()
-		validator := NewSchemaValidator(mockShell)
+		validator := config.NewSchemaValidator(mockShell)
 
 		baseSchema := `$schema: https://json-schema.org/draft/2020-12/schema
 type: object
@@ -405,7 +401,7 @@ func TestSchemaValidator_ExtractDefaults(t *testing.T) {
 	t.Run("SuccessSimpleDefaults", func(t *testing.T) {
 		// Given a schema validator with loaded schema
 		mockShell := shell.NewMockShell()
-		validator := NewSchemaValidator(mockShell)
+		validator := config.NewSchemaValidator(mockShell)
 
 		validator.Schema = map[string]any{
 			"$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -443,7 +439,7 @@ func TestSchemaValidator_ExtractDefaults(t *testing.T) {
 	t.Run("SuccessNestedDefaults", func(t *testing.T) {
 		// Given a schema validator with nested schema
 		mockShell := shell.NewMockShell()
-		validator := NewSchemaValidator(mockShell)
+		validator := config.NewSchemaValidator(mockShell)
 
 		validator.Schema = map[string]any{
 			"$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -493,7 +489,7 @@ func TestSchemaValidator_Validate(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
 		// Given a schema validator with loaded schema
 		mockShell := shell.NewMockShell()
-		validator := NewSchemaValidator(mockShell)
+		validator := config.NewSchemaValidator(mockShell)
 
 		validator.Schema = map[string]any{
 			"$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -540,7 +536,7 @@ func TestSchemaValidator_Validate(t *testing.T) {
 	t.Run("ErrorMissingRequiredField", func(t *testing.T) {
 		// Given a schema validator with required fields
 		mockShell := shell.NewMockShell()
-		validator := NewSchemaValidator(mockShell)
+		validator := config.NewSchemaValidator(mockShell)
 
 		validator.Schema = map[string]any{
 			"$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -579,7 +575,7 @@ func TestSchemaValidator_Validate(t *testing.T) {
 	t.Run("ErrorTypeMismatch", func(t *testing.T) {
 		// Given a schema validator
 		mockShell := shell.NewMockShell()
-		validator := NewSchemaValidator(mockShell)
+		validator := config.NewSchemaValidator(mockShell)
 
 		validator.Schema = map[string]any{
 			"$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -617,7 +613,7 @@ func TestSchemaValidator_Validate(t *testing.T) {
 	t.Run("ErrorEnumConstraint", func(t *testing.T) {
 		// Given a schema validator with enum constraint
 		mockShell := shell.NewMockShell()
-		validator := NewSchemaValidator(mockShell)
+		validator := config.NewSchemaValidator(mockShell)
 
 		validator.Schema = map[string]any{
 			"$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -656,7 +652,7 @@ func TestSchemaValidator_Validate(t *testing.T) {
 	t.Run("OmitsErrorsFromConditionsThatEvaluatedAsDesigned", func(t *testing.T) {
 		// Given a schema with a false "if" and a passing "not", and one invalid secrets key
 		mockShell := shell.NewMockShell()
-		validator := NewSchemaValidator(mockShell)
+		validator := config.NewSchemaValidator(mockShell)
 
 		validator.Schema = map[string]any{
 			"$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -715,7 +711,7 @@ func TestSchemaValidator_Validate(t *testing.T) {
 	t.Run("ErrorNoSchemaLoaded", func(t *testing.T) {
 		// Given a schema validator with no schema loaded
 		mockShell := shell.NewMockShell()
-		validator := NewSchemaValidator(mockShell)
+		validator := config.NewSchemaValidator(mockShell)
 
 		values := map[string]any{
 			"provider": "docker",
@@ -739,7 +735,7 @@ func TestSchemaValidator_Validate(t *testing.T) {
 func TestSchemaValidator_ErrorReportingDedup(t *testing.T) {
 	t.Run("NotReportedInitially", func(t *testing.T) {
 		// Given a fresh validator
-		validator := NewSchemaValidator(shell.NewMockShell())
+		validator := config.NewSchemaValidator(shell.NewMockShell())
 
 		// Then an arbitrary error set is not considered already reported
 		if validator.ErrorsAlreadyReported([]string{"/: required: x is missing"}) {
@@ -749,7 +745,7 @@ func TestSchemaValidator_ErrorReportingDedup(t *testing.T) {
 
 	t.Run("ReportsTrueForIdenticalErrorSet", func(t *testing.T) {
 		// Given a validator that already reported a specific error set
-		validator := NewSchemaValidator(shell.NewMockShell())
+		validator := config.NewSchemaValidator(shell.NewMockShell())
 		errs := []string{"/: required: x is missing", "/cluster: const: bad value"}
 		validator.MarkErrorsReported(errs)
 
@@ -762,7 +758,7 @@ func TestSchemaValidator_ErrorReportingDedup(t *testing.T) {
 
 	t.Run("ReportsFalseForDifferentErrorSet", func(t *testing.T) {
 		// Given a validator that already reported one error set
-		validator := NewSchemaValidator(shell.NewMockShell())
+		validator := config.NewSchemaValidator(shell.NewMockShell())
 		validator.MarkErrorsReported([]string{"/: required: x is missing"})
 
 		// Then a different error set is not recognized as already reported
@@ -774,7 +770,7 @@ func TestSchemaValidator_ErrorReportingDedup(t *testing.T) {
 
 func TestFormatValidationErrors(t *testing.T) {
 	t.Run("FormatsEachErrorOnItsOwnIndentedLine", func(t *testing.T) {
-		got := FormatValidationErrors([]string{"/a: required: a is missing", "/b: const: bad value"})
+		got := config.FormatValidationErrors([]string{"/a: required: a is missing", "/b: const: bad value"})
 		want := "\n  - /a: required: a is missing\n  - /b: const: bad value"
 		if got != want {
 			t.Errorf("Expected %q, got %q", want, got)
@@ -782,7 +778,7 @@ func TestFormatValidationErrors(t *testing.T) {
 	})
 
 	t.Run("ReturnsEmptyStringForNoErrors", func(t *testing.T) {
-		if got := FormatValidationErrors(nil); got != "" {
+		if got := config.FormatValidationErrors(nil); got != "" {
 			t.Errorf("Expected empty string, got %q", got)
 		}
 	})
@@ -792,7 +788,7 @@ func TestSchemaValidator_GetSchemaDefaults(t *testing.T) {
 	t.Run("ErrorNoSchemaLoaded", func(t *testing.T) {
 		// Given a schema validator with no schema loaded
 		mockShell := shell.NewMockShell()
-		validator := NewSchemaValidator(mockShell)
+		validator := config.NewSchemaValidator(mockShell)
 
 		// When getting schema defaults
 		_, err := validator.GetSchemaDefaults()
@@ -811,7 +807,7 @@ func TestSchemaValidator_GetSchemaDefaults(t *testing.T) {
 	t.Run("SuccessNoProperties", func(t *testing.T) {
 		// Given a schema validator with schema but no properties
 		mockShell := shell.NewMockShell()
-		validator := NewSchemaValidator(mockShell)
+		validator := config.NewSchemaValidator(mockShell)
 
 		validator.Schema = map[string]any{
 			"$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -834,7 +830,7 @@ func TestSchemaValidator_GetSchemaDefaults(t *testing.T) {
 	t.Run("SuccessInvalidPropertiesType", func(t *testing.T) {
 		// Given a schema validator with invalid properties type
 		mockShell := shell.NewMockShell()
-		validator := NewSchemaValidator(mockShell)
+		validator := config.NewSchemaValidator(mockShell)
 
 		validator.Schema = map[string]any{
 			"$schema":    "https://json-schema.org/draft/2020-12/schema",
@@ -858,7 +854,7 @@ func TestSchemaValidator_GetSchemaDefaults(t *testing.T) {
 	t.Run("SuccessInvalidPropertySchema", func(t *testing.T) {
 		// Given a schema validator with invalid property schema
 		mockShell := shell.NewMockShell()
-		validator := NewSchemaValidator(mockShell)
+		validator := config.NewSchemaValidator(mockShell)
 
 		validator.Schema = map[string]any{
 			"$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -892,7 +888,7 @@ func TestSchemaValidator_GetSchemaDefaults(t *testing.T) {
 	t.Run("SuccessNestedObjectWithoutDefaults", func(t *testing.T) {
 		// Given a schema validator with nested object without defaults
 		mockShell := shell.NewMockShell()
-		validator := NewSchemaValidator(mockShell)
+		validator := config.NewSchemaValidator(mockShell)
 
 		validator.Schema = map[string]any{
 			"$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -931,12 +927,12 @@ func TestSchemaValidator_GetSchemaDefaults(t *testing.T) {
 				t.Error("Expected panic when shell is nil")
 			}
 		}()
-		_ = NewSchemaValidator(nil)
+		_ = config.NewSchemaValidator(nil)
 	})
 
 	t.Run("HandlesNestedObjectWithEmptyDefaults", func(t *testing.T) {
 		mockShell := shell.NewMockShell()
-		validator := NewSchemaValidator(mockShell)
+		validator := config.NewSchemaValidator(mockShell)
 		validator.Schema = map[string]any{
 			"$schema": "https://json-schema.org/draft/2020-12/schema",
 			"type":    "object",
@@ -968,7 +964,7 @@ func TestSchemaValidator_ValidateString(t *testing.T) {
 	t.Run("SuccessPatternMatch", func(t *testing.T) {
 		// Given a schema validator
 		mockShell := shell.NewMockShell()
-		validator := NewSchemaValidator(mockShell)
+		validator := config.NewSchemaValidator(mockShell)
 
 		validator.Schema = map[string]any{
 			"$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -1002,7 +998,7 @@ func TestSchemaValidator_ValidateString(t *testing.T) {
 	t.Run("ErrorPatternMismatch", func(t *testing.T) {
 		// Given a schema validator with pattern constraint
 		mockShell := shell.NewMockShell()
-		validator := NewSchemaValidator(mockShell)
+		validator := config.NewSchemaValidator(mockShell)
 
 		validator.Schema = map[string]any{
 			"$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -1042,7 +1038,7 @@ func TestSchemaValidator_ValidateString(t *testing.T) {
 		// surfaced this as a per-value validation error; kaptinlin rejects the pattern at schema
 		// compile time, which fails fast and stops the bad schema from ever being used.
 		mockShell := shell.NewMockShell()
-		validator := NewSchemaValidator(mockShell)
+		validator := config.NewSchemaValidator(mockShell)
 
 		validator.Schema = map[string]any{
 			"$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -1069,7 +1065,7 @@ func TestSchemaValidator_ValidateString(t *testing.T) {
 	t.Run("SuccessNonStringValue", func(t *testing.T) {
 		// Given a schema validator
 		mockShell := shell.NewMockShell()
-		validator := NewSchemaValidator(mockShell)
+		validator := config.NewSchemaValidator(mockShell)
 
 		validator.Schema = map[string]any{
 			"$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -1104,7 +1100,7 @@ func TestSchemaValidator_ValidateObject_AdditionalProperties(t *testing.T) {
 	t.Run("ErrorAdditionalPropertiesNotAllowed", func(t *testing.T) {
 		// Given a schema validator with additionalProperties: false
 		mockShell := shell.NewMockShell()
-		validator := NewSchemaValidator(mockShell)
+		validator := config.NewSchemaValidator(mockShell)
 
 		validator.Schema = map[string]any{
 			"$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -1143,7 +1139,7 @@ func TestSchemaValidator_ValidateObject_AdditionalProperties(t *testing.T) {
 	t.Run("SuccessAdditionalPropertiesAllowed", func(t *testing.T) {
 		// Given a schema validator with additionalProperties: true
 		mockShell := shell.NewMockShell()
-		validator := NewSchemaValidator(mockShell)
+		validator := config.NewSchemaValidator(mockShell)
 
 		validator.Schema = map[string]any{
 			"$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -1178,7 +1174,7 @@ func TestSchemaValidator_ValidateObject_AdditionalProperties(t *testing.T) {
 	t.Run("SuccessNoAdditionalPropertiesSpec", func(t *testing.T) {
 		// Given a schema validator without additionalProperties specified
 		mockShell := shell.NewMockShell()
-		validator := NewSchemaValidator(mockShell)
+		validator := config.NewSchemaValidator(mockShell)
 
 		validator.Schema = map[string]any{
 			"$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -1214,7 +1210,7 @@ func TestSchemaValidator_ValidateValue_EdgeCases(t *testing.T) {
 	t.Run("SuccessArrayType", func(t *testing.T) {
 		// Given a schema validator with array type
 		mockShell := shell.NewMockShell()
-		validator := NewSchemaValidator(mockShell)
+		validator := config.NewSchemaValidator(mockShell)
 
 		validator.Schema = map[string]any{
 			"$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -1247,7 +1243,7 @@ func TestSchemaValidator_ValidateValue_EdgeCases(t *testing.T) {
 	t.Run("SuccessNoTypeSpecified", func(t *testing.T) {
 		// Given a schema validator without type specified
 		mockShell := shell.NewMockShell()
-		validator := NewSchemaValidator(mockShell)
+		validator := config.NewSchemaValidator(mockShell)
 
 		validator.Schema = map[string]any{
 			"$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -1283,7 +1279,7 @@ func TestSchemaValidator_ValidateValue_EdgeCases(t *testing.T) {
 		// kaptinlin rejects the schema at compile and fails fast so a buggy schema can't quietly
 		// permit invalid data.
 		mockShell := shell.NewMockShell()
-		validator := NewSchemaValidator(mockShell)
+		validator := config.NewSchemaValidator(mockShell)
 
 		validator.Schema = map[string]any{
 			"$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -1309,7 +1305,7 @@ func TestSchemaValidator_NestedValidation(t *testing.T) {
 	t.Run("ErrorNestedObjectValidation", func(t *testing.T) {
 		// Given a schema validator with nested object validation
 		mockShell := shell.NewMockShell()
-		validator := NewSchemaValidator(mockShell)
+		validator := config.NewSchemaValidator(mockShell)
 
 		validator.Schema = map[string]any{
 			"$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -1365,7 +1361,7 @@ func TestSchemaValidator_NestedValidation(t *testing.T) {
 		// legacy validator silently ignored this and continued; kaptinlin rejects the schema
 		// at compile so malformed required specs surface immediately.
 		mockShell := shell.NewMockShell()
-		validator := NewSchemaValidator(mockShell)
+		validator := config.NewSchemaValidator(mockShell)
 
 		validator.Schema = map[string]any{
 			"$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -1390,7 +1386,7 @@ func TestSchemaValidator_NestedValidation(t *testing.T) {
 		// ErrorInvalidRequiredType — the legacy validator tolerated it; kaptinlin's compile
 		// step now catches it.
 		mockShell := shell.NewMockShell()
-		validator := NewSchemaValidator(mockShell)
+		validator := config.NewSchemaValidator(mockShell)
 
 		validator.Schema = map[string]any{
 			"$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -1415,7 +1411,7 @@ func TestSchemaValidator_ComplexSchemaInterpretation(t *testing.T) {
 	t.Run("SuccessComplexWindsorSchema", func(t *testing.T) {
 		// Given a schema validator with complex Windsor schema
 		mockShell := shell.NewMockShell()
-		validator := NewSchemaValidator(mockShell)
+		validator := config.NewSchemaValidator(mockShell)
 
 		// Complex schema content similar to what user provided
 		schemaContent := `
@@ -1572,7 +1568,7 @@ additionalProperties: false
 	t.Run("SuccessValidateComplexValues", func(t *testing.T) {
 		// Given a schema validator with complex schema
 		mockShell := shell.NewMockShell()
-		validator := NewSchemaValidator(mockShell)
+		validator := config.NewSchemaValidator(mockShell)
 
 		schemaContent := `
 $schema: https://json-schema.org/draft/2020-12/schema
@@ -1621,7 +1617,7 @@ additionalProperties: false
 	t.Run("ErrorComplexValidationFailures", func(t *testing.T) {
 		// Given a schema validator with complex schema
 		mockShell := shell.NewMockShell()
-		validator := NewSchemaValidator(mockShell)
+		validator := config.NewSchemaValidator(mockShell)
 
 		schemaContent := `
 $schema: https://json-schema.org/draft/2020-12/schema
@@ -1678,7 +1674,7 @@ func TestSchemaValidator_AdditionalProperties_Detailed(t *testing.T) {
 	t.Run("ExplicitFalse_RejectsAdditionalProperties", func(t *testing.T) {
 		// Given a schema with additionalProperties: false
 		mockShell := shell.NewMockShell()
-		validator := NewSchemaValidator(mockShell)
+		validator := config.NewSchemaValidator(mockShell)
 
 		validator.Schema = map[string]any{
 			"$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -1721,7 +1717,7 @@ func TestSchemaValidator_AdditionalProperties_Detailed(t *testing.T) {
 	t.Run("ExplicitTrue_AllowsAdditionalProperties", func(t *testing.T) {
 		// Given a schema with additionalProperties: true
 		mockShell := shell.NewMockShell()
-		validator := NewSchemaValidator(mockShell)
+		validator := config.NewSchemaValidator(mockShell)
 
 		validator.Schema = map[string]any{
 			"$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -1759,7 +1755,7 @@ func TestSchemaValidator_AdditionalProperties_Detailed(t *testing.T) {
 	t.Run("NotSpecified_DefaultAllowsAdditionalProperties", func(t *testing.T) {
 		// Given a schema WITHOUT additionalProperties specified
 		mockShell := shell.NewMockShell()
-		validator := NewSchemaValidator(mockShell)
+		validator := config.NewSchemaValidator(mockShell)
 
 		validator.Schema = map[string]any{
 			"$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -1800,7 +1796,7 @@ func TestSchemaValidator_AdditionalProperties_Detailed(t *testing.T) {
 		// defaulted to "allow"; kaptinlin's compile step catches it so a typo doesn't quietly
 		// disable additional-property enforcement.
 		mockShell := shell.NewMockShell()
-		validator := NewSchemaValidator(mockShell)
+		validator := config.NewSchemaValidator(mockShell)
 
 		validator.Schema = map[string]any{
 			"$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -1823,7 +1819,7 @@ func TestSchemaValidator_AdditionalProperties_Detailed(t *testing.T) {
 	t.Run("NestedObjectsRespectAdditionalProperties", func(t *testing.T) {
 		// Given a schema with nested objects having different additionalProperties settings
 		mockShell := shell.NewMockShell()
-		validator := NewSchemaValidator(mockShell)
+		validator := config.NewSchemaValidator(mockShell)
 
 		validator.Schema = map[string]any{
 			"$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -1889,7 +1885,7 @@ func TestSchemaValidator_AdditionalProperties_Detailed(t *testing.T) {
 	t.Run("OnlyChecksForUndefinedProperties", func(t *testing.T) {
 		// Given a schema with defined properties
 		mockShell := shell.NewMockShell()
-		validator := NewSchemaValidator(mockShell)
+		validator := config.NewSchemaValidator(mockShell)
 
 		validator.Schema = map[string]any{
 			"$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -1934,7 +1930,7 @@ func TestSchemaValidator_AdditionalProperties_Detailed(t *testing.T) {
 		// undefined key is validated against that schema. The legacy hand-rolled validator
 		// could not handle this form; kaptinlin handles it natively.
 		mockShell := shell.NewMockShell()
-		validator := NewSchemaValidator(mockShell)
+		validator := config.NewSchemaValidator(mockShell)
 
 		validator.Schema = map[string]any{
 			"$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -1975,7 +1971,7 @@ func TestSchemaValidator_AdditionalProperties_SchemaObjects(t *testing.T) {
 	t.Run("DebugRootLevelAdditionalProperties", func(t *testing.T) {
 		// Test root-level additionalProperties (like the working limitation test)
 		mockShell := shell.NewMockShell()
-		validator := NewSchemaValidator(mockShell)
+		validator := config.NewSchemaValidator(mockShell)
 
 		validator.Schema = map[string]any{
 			"$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -2022,7 +2018,7 @@ func TestSchemaValidator_AdditionalProperties_SchemaObjects(t *testing.T) {
 	t.Run("DebugDirectValidation", func(t *testing.T) {
 		// Test direct validation of the object that should fail
 		mockShell := shell.NewMockShell()
-		validator := NewSchemaValidator(mockShell)
+		validator := config.NewSchemaValidator(mockShell)
 
 		// Direct schema for the auth object
 		validator.Schema = map[string]any{
@@ -2056,7 +2052,7 @@ func TestSchemaValidator_AdditionalProperties_SchemaObjects(t *testing.T) {
 	t.Run("SuccessArbitraryKeysWithTypedValues", func(t *testing.T) {
 		// Given a schema with additionalProperties as schema object
 		mockShell := shell.NewMockShell()
-		validator := NewSchemaValidator(mockShell)
+		validator := config.NewSchemaValidator(mockShell)
 
 		validator.Schema = map[string]any{
 			"$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -2112,7 +2108,7 @@ func TestSchemaValidator_AdditionalProperties_SchemaObjects(t *testing.T) {
 	t.Run("WorkingExample_DatabasesWithValidation", func(t *testing.T) {
 		// Given a working schema for databases with arbitrary keys
 		mockShell := shell.NewMockShell()
-		validator := NewSchemaValidator(mockShell)
+		validator := config.NewSchemaValidator(mockShell)
 
 		validator.Schema = map[string]any{
 			"$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -2181,7 +2177,7 @@ func TestSchemaValidator_AdditionalProperties_SchemaObjects(t *testing.T) {
 	t.Run("ErrorArbitraryKeysInvalidValues", func(t *testing.T) {
 		// Given a schema with additionalProperties schema validation
 		mockShell := shell.NewMockShell()
-		validator := NewSchemaValidator(mockShell)
+		validator := config.NewSchemaValidator(mockShell)
 
 		validator.Schema = map[string]any{
 			"$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -2234,7 +2230,7 @@ func TestSchemaValidator_AdditionalProperties_SchemaObjects(t *testing.T) {
 	t.Run("SuccessNestedArbitraryKeys", func(t *testing.T) {
 		// Given a schema with deeply nested arbitrary keys
 		mockShell := shell.NewMockShell()
-		validator := NewSchemaValidator(mockShell)
+		validator := config.NewSchemaValidator(mockShell)
 
 		validator.Schema = map[string]any{
 			"$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -2294,7 +2290,7 @@ func TestSchemaValidator_AdditionalProperties_SchemaObjects(t *testing.T) {
 	t.Run("ErrorNestedArbitraryKeysInvalidTypes", func(t *testing.T) {
 		// Given nested arbitrary keys with type constraints
 		mockShell := shell.NewMockShell()
-		validator := NewSchemaValidator(mockShell)
+		validator := config.NewSchemaValidator(mockShell)
 
 		validator.Schema = map[string]any{
 			"$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -2333,7 +2329,7 @@ func TestSchemaValidator_AdditionalProperties_SchemaObjects(t *testing.T) {
 	t.Run("SuccessMixedDefinedAndArbitraryProperties", func(t *testing.T) {
 		// Given a schema with both defined properties and arbitrary additional properties
 		mockShell := shell.NewMockShell()
-		validator := NewSchemaValidator(mockShell)
+		validator := config.NewSchemaValidator(mockShell)
 
 		validator.Schema = map[string]any{
 			"$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -2379,7 +2375,7 @@ func TestSchemaValidator_AdditionalProperties_SchemaObjects(t *testing.T) {
 
 func TestSchemaValidator_ArrayAndIntegerValidation(t *testing.T) {
 	mockShell := shell.NewMockShell()
-	validator := NewSchemaValidator(mockShell)
+	validator := config.NewSchemaValidator(mockShell)
 
 	t.Run("ArrayValidation", func(t *testing.T) {
 		err := validator.LoadSchemaFromBytes([]byte(`$schema: https://json-schema.org/draft/2020-12/schema
@@ -2556,7 +2552,7 @@ additionalProperties:
 func TestSchemaValidator_GetSensitivePaths(t *testing.T) {
 	t.Run("NilWhenNoSchemaLoaded", func(t *testing.T) {
 		// Given a schema validator with no schema loaded
-		validator := NewSchemaValidator(shell.NewMockShell())
+		validator := config.NewSchemaValidator(shell.NewMockShell())
 
 		// When collecting sensitive paths
 		paths := validator.GetSensitivePaths()
@@ -2569,7 +2565,7 @@ func TestSchemaValidator_GetSensitivePaths(t *testing.T) {
 
 	t.Run("CollectsAtEveryDepthAndSorts", func(t *testing.T) {
 		// Given a schema with sensitive markers at depth 1 and depth 2, plus non-sensitive siblings
-		validator := NewSchemaValidator(shell.NewMockShell())
+		validator := config.NewSchemaValidator(shell.NewMockShell())
 		validator.Schema = map[string]any{
 			"$schema": "https://json-schema.org/draft/2020-12/schema",
 			"type":    "object",
@@ -2598,7 +2594,7 @@ func TestSchemaValidator_GetSensitivePaths(t *testing.T) {
 
 	t.Run("DescendsAdditionalPropertiesWithWildcard", func(t *testing.T) {
 		// Given a sensitive leaf under a free-form map region (additionalProperties)
-		validator := NewSchemaValidator(shell.NewMockShell())
+		validator := config.NewSchemaValidator(shell.NewMockShell())
 		validator.Schema = map[string]any{
 			"$schema": "https://json-schema.org/draft/2020-12/schema",
 			"type":    "object",
@@ -2633,7 +2629,7 @@ func TestSchemaValidator_GetSensitivePaths(t *testing.T) {
 
 	t.Run("FalseAndAbsentYieldNoPath", func(t *testing.T) {
 		// Given properties with sensitive:false and no sensitive marker
-		validator := NewSchemaValidator(shell.NewMockShell())
+		validator := config.NewSchemaValidator(shell.NewMockShell())
 		validator.Schema = map[string]any{
 			"$schema": "https://json-schema.org/draft/2020-12/schema",
 			"type":    "object",
@@ -2654,7 +2650,7 @@ func TestSchemaValidator_GetSensitivePaths(t *testing.T) {
 
 	t.Run("DescendsCompositionBranches", func(t *testing.T) {
 		// Given sensitive leaves nested under allOf and oneOf composition keywords
-		validator := NewSchemaValidator(shell.NewMockShell())
+		validator := config.NewSchemaValidator(shell.NewMockShell())
 		validator.Schema = map[string]any{
 			"$schema": "https://json-schema.org/draft/2020-12/schema",
 			"type":    "object",
@@ -2690,7 +2686,7 @@ func TestSchemaValidator_GetSensitivePaths(t *testing.T) {
 
 	t.Run("PatternPropertiesUseWildcard", func(t *testing.T) {
 		// Given a sensitive leaf under a patternProperties (regex-keyed map) region
-		validator := NewSchemaValidator(shell.NewMockShell())
+		validator := config.NewSchemaValidator(shell.NewMockShell())
 		validator.Schema = map[string]any{
 			"$schema": "https://json-schema.org/draft/2020-12/schema",
 			"type":    "object",
@@ -2721,7 +2717,7 @@ func TestSchemaValidator_GetSensitivePaths(t *testing.T) {
 
 	t.Run("DeduplicatesPathsFromMultipleBranches", func(t *testing.T) {
 		// Given the same sensitive path declared in two anyOf branches
-		validator := NewSchemaValidator(shell.NewMockShell())
+		validator := config.NewSchemaValidator(shell.NewMockShell())
 		validator.Schema = map[string]any{
 			"$schema": "https://json-schema.org/draft/2020-12/schema",
 			"type":    "object",
@@ -2750,7 +2746,7 @@ func TestSchemaValidator_GetSensitivePaths(t *testing.T) {
 
 	t.Run("CachesResultAndInvalidatesOnSchemaLoad", func(t *testing.T) {
 		// Given a loaded schema with one sensitive property
-		validator := NewSchemaValidator(shell.NewMockShell())
+		validator := config.NewSchemaValidator(shell.NewMockShell())
 		first := []byte(`
 $schema: https://json-schema.org/draft/2020-12/schema
 type: object
@@ -2767,7 +2763,7 @@ properties:
 		if got := strings.Join(validator.GetSensitivePaths(), ","); got != "token" {
 			t.Fatalf("Expected token, got %q", got)
 		}
-		if !validator.sensitivePathsOK {
+		if !validator.SensitivePathsOK() {
 			t.Error("Expected sensitive paths to be cached after first call")
 		}
 		if got := strings.Join(validator.GetSensitivePaths(), ","); got != "token" {
@@ -2786,7 +2782,7 @@ properties:
 		if err := validator.LoadSchemaFromBytes(second); err != nil {
 			t.Fatalf("Failed to load second schema: %v", err)
 		}
-		if validator.sensitivePathsOK {
+		if validator.SensitivePathsOK() {
 			t.Error("Expected cache to be invalidated after loading a new fragment")
 		}
 		if got := strings.Join(validator.GetSensitivePaths(), ","); got != "api_key,token" {

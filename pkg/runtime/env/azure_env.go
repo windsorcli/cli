@@ -46,18 +46,11 @@ func NewAzureEnvPrinter(shell shell.Shell, configHandler config.ConfigHandler) *
 // Public Methods
 // =============================================================================
 
-// GetEnvVars retrieves the environment variables for the Azure environment.
-// In project mode AZURE_CONFIG_DIR always points at the context's .azure dir,
-// matching how the AWS env printer scopes AWS_CONFIG_FILE — keeps `az login`
-// from contaminating the operator's global ~/.azure. In global mode it is not
-// emitted; ARM_SUBSCRIPTION_ID / ARM_TENANT_ID / ARM_ENVIRONMENT,
-// TF_VAR_region (when set), and TF_VAR_kubelogin_mode are emitted in both
-// modes — the ARM_* vars describe the target account/tenant and the TF_VAR_*
-// vars feed terraform, which runs from global shells too. TF_VAR_region is
-// omitted when azure.region is unset so consuming modules fall back to their
-// own variable defaults rather than receiving an empty string. Every emitted
-// key is registered as managed, so WindsorEnvPrinter unsets it once a context
-// switch stops this printer from emitting it.
+// GetEnvVars returns the Azure environment variables of the current context.
+// In project mode, AZURE_CONFIG_DIR points at the .azure dir of the context, so az login stays scoped.
+// Both modes set ARM_SUBSCRIPTION_ID, ARM_TENANT_ID, ARM_ENVIRONMENT, and TF_VAR_kubelogin_mode.
+// It sets TF_VAR_region only when azure.region is set, so modules use their own defaults.
+// It registers each key as managed, so WindsorEnvPrinter unsets the key when this printer stops emitting it.
 func (e *AzureEnvPrinter) GetEnvVars() (map[string]string, error) {
 	envVars := make(map[string]string)
 	global := e.shell.IsGlobal()

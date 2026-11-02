@@ -1,46 +1,20 @@
-package tools
+package tools_test
 
 import (
 	"testing"
+
+	"github.com/windsorcli/cli/pkg/runtime/tools"
 )
 
 // =============================================================================
 // Test Public Methods
 // =============================================================================
 
-// Tests for mock tools manager manifest writing
-func TestMockToolsManager_WriteManifest(t *testing.T) {
-	t.Run("WriteManifest", func(t *testing.T) {
-		// Given a mock tools manager with WriteManifestFunc set
-		mock := NewMockToolsManager()
-		mock.WriteManifestFunc = func() error {
-			return nil
-		}
-		// When WriteManifest is called
-		err := mock.WriteManifest()
-		// Then no error should be returned
-		if err != nil {
-			t.Errorf("Expected no error, got = %v", err)
-		}
-	})
-
-	t.Run("NoWriteManifestFunc", func(t *testing.T) {
-		// Given a mock tools manager without WriteManifestFunc set
-		mock := NewMockToolsManager()
-		// When WriteManifest is called
-		err := mock.WriteManifest()
-		// Then no error should be returned
-		if err != nil {
-			t.Errorf("Expected no error, got = %v", err)
-		}
-	})
-}
-
 // Tests for mock tools manager installation
 func TestMockToolsManager_Install(t *testing.T) {
 	t.Run("Install", func(t *testing.T) {
 		// Given a mock tools manager with InstallFunc set
-		mock := NewMockToolsManager()
+		mock := tools.NewMockToolsManager()
 		mock.InstallFunc = func() error {
 			return nil
 		}
@@ -54,7 +28,7 @@ func TestMockToolsManager_Install(t *testing.T) {
 
 	t.Run("NoInstallFunc", func(t *testing.T) {
 		// Given a mock tools manager without InstallFunc set
-		mock := NewMockToolsManager()
+		mock := tools.NewMockToolsManager()
 		// When Install is called
 		err := mock.Install()
 		// Then no error should be returned
@@ -68,7 +42,7 @@ func TestMockToolsManager_Install(t *testing.T) {
 func TestMockToolsManager_Check(t *testing.T) {
 	t.Run("Check", func(t *testing.T) {
 		// Given a mock tools manager with CheckFunc set
-		mock := NewMockToolsManager()
+		mock := tools.NewMockToolsManager()
 		mock.CheckFunc = func() error {
 			return nil
 		}
@@ -82,7 +56,7 @@ func TestMockToolsManager_Check(t *testing.T) {
 
 	t.Run("NoCheckFunc", func(t *testing.T) {
 		// Given a mock tools manager without CheckFunc set
-		mock := NewMockToolsManager()
+		mock := tools.NewMockToolsManager()
 		// When Check is called
 		err := mock.Check()
 		// Then no error should be returned

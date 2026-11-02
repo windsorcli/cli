@@ -33,7 +33,7 @@ const filePathRemediation = "Make sure that the file exists. A relative path res
 // passed to the Jsonnet VM as external code. Helper functions and import paths are
 // configured, then the Jsonnet is evaluated and the JSON output is unmarshaled.
 // Returns the evaluated value or an error if loading, evaluation, or parsing fails.
-func (e *expressionEvaluator) evaluateJsonnetFunction(pathArg string, config map[string]any, facetPath string) (any, error) {
+func (e *DefaultExpressionEvaluator) evaluateJsonnetFunction(pathArg string, config map[string]any, facetPath string) (any, error) {
 	var content []byte
 	var err error
 
@@ -103,7 +103,7 @@ func (e *expressionEvaluator) evaluateJsonnetFunction(pathArg string, config map
 // type checking and conversion utilities, and data manipulation functions like baseUrl
 // and removeEmptyKeys. These helpers enable safer and more expressive Jsonnet code
 // when working with configuration data and context objects.
-func (e *expressionEvaluator) buildHelperLibrary() string {
+func (e *DefaultExpressionEvaluator) buildHelperLibrary() string {
 	return `{
   get(obj, path, default=null):
     if std.findSubstr(".", path) == [] then
@@ -224,7 +224,7 @@ func (e *expressionEvaluator) buildHelperLibrary() string {
 // template data, it reads the file from the filesystem. The path is resolved relative
 // to the facetPath or project root as appropriate. Returns the file content as a
 // string or an error if the file cannot be found or read.
-func (e *expressionEvaluator) evaluateFileFunction(pathArg string, facetPath string) (any, error) {
+func (e *DefaultExpressionEvaluator) evaluateFileFunction(pathArg string, facetPath string) (any, error) {
 	var content []byte
 	var err error
 
@@ -247,7 +247,7 @@ func (e *expressionEvaluator) evaluateFileFunction(pathArg string, facetPath str
 // (scope = config + {"input": input}), and returns the result as a string without parsing YAML.
 // Used by yamlString(path, input) for Terraform variables that expect a YAML string.
 // Template expressions must use the input prefix, e.g. ${input.certSANs}, ${input.registryMirrors}.
-func (e *expressionEvaluator) evaluateYamlStringFromFile(pathArg string, facetPath string, input any) (string, error) {
+func (e *DefaultExpressionEvaluator) evaluateYamlStringFromFile(pathArg string, facetPath string, input any) (string, error) {
 	var raw []byte
 	if e.templateData != nil {
 		raw = e.lookupInTemplateData(pathArg, facetPath)
@@ -282,14 +282,12 @@ func (e *expressionEvaluator) evaluateYamlStringFromFile(pathArg string, facetPa
 	return content, nil
 }
 
-// evaluateYamlFunction parses YAML from either a file path or an inline YAML string.
-// If the argument contains a newline it is treated as inline YAML only (no file read), avoiding
-// a failed filesystem call. Otherwise template data and the filesystem are tried first; if no
-// file is found, the argument is unmarshaled as YAML. When input is non-nil, the raw content
-// is templated with scope = context + {"input": input} so ${input.xyz} and context vars (e.g.
-// provider) resolve; the result is then parsed as YAML. Returns the parsed value (map or slice)
-// or an error if the file cannot be read or the YAML is invalid.
-func (e *expressionEvaluator) evaluateYamlFunction(arg string, facetPath string, input any) (any, error) {
+// evaluateYamlFunction parses YAML from a file path or from an inline YAML string.
+// An argument that contains a newline is inline YAML, and the function reads no file.
+// Otherwise it tries the template data and the filesystem, then parses the argument as YAML.
+// When input is not nil, it templates the content with the context plus {"input": input}.
+// It returns the parsed map or slice, or an error when the file or the YAML is not valid.
+func (e *DefaultExpressionEvaluator) evaluateYamlFunction(arg string, facetPath string, input any) (any, error) {
 	var raw []byte
 	if strings.Contains(arg, "\n") {
 		raw = []byte(arg)
@@ -371,7 +369,7 @@ func (e *expressionEvaluator) evaluateYamlFunction(arg string, facetPath string,
 // templateDataLookup returns file content for the given key from templateData, trying both
 // the key as-is and with a "_template/" prefix. The loader uses unprefixed keys (relative to
 // template root); artifact bundles and tests may use "_template/"-prefixed keys.
-func (e *expressionEvaluator) templateDataLookup(key string) []byte {
+func (e *DefaultExpressionEvaluator) templateDataLookup(key string) []byte {
 	if e.templateData == nil || key == "" {
 		return nil
 	}
@@ -386,7 +384,7 @@ func (e *expressionEvaluator) templateDataLookup(key string) []byte {
 // the facet path to a relative path from the template root if available. For paths
 // that go up directories (../), it ensures the resolved path stays within the template
 // root. Returns the file content if found, or nil if not present.
-func (e *expressionEvaluator) lookupInTemplateData(pathArg string, facetPath string) []byte {
+func (e *DefaultExpressionEvaluator) lookupInTemplateData(pathArg string, facetPath string) []byte {
 	if e.templateData == nil {
 		return nil
 	}
@@ -423,16 +421,12 @@ func (e *expressionEvaluator) lookupInTemplateData(pathArg string, facetPath str
 	return nil
 }
 
-// resolvePath resolves a file path to an absolute, cleaned path using the path to the
-// file being processed (sourceFilePath) when provided. If path is already absolute
-// it is cleaned and returned. For relative paths: when sourceFilePath is non-empty
-// it is the path to the facet or blueprint file containing the expression; the
-// relative path is resolved from that file's directory. If sourceFilePath is relative
-// it is resolved against templateRoot. If the result is still relative it is resolved
-// against projectRoot. When sourceFilePath is empty (e.g. GenerateTfvars) relative
-// paths fall back to projectRoot. The result is always an absolute path when
-// projectRoot or templateRoot are set.
-func (e *expressionEvaluator) resolvePath(path string, sourceFilePath string) string {
+// resolvePath returns path cleaned, and absolute when projectRoot or templateRoot is set.
+// A relative path resolves from the directory of sourceFilePath, the file that holds the expression.
+// A relative sourceFilePath resolves against templateRoot, and a result that is still relative
+// resolves against projectRoot. When sourceFilePath is empty, path resolves against projectRoot,
+// with a leading "../" or "./" removed, or else against templateRoot.
+func (e *DefaultExpressionEvaluator) resolvePath(path string, sourceFilePath string) string {
 	path = strings.TrimSpace(path)
 
 	if filepath.IsAbs(path) {

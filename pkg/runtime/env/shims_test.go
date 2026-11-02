@@ -1,14 +1,16 @@
-package env
+package env_test
 
 import (
 	"testing"
+
+	"github.com/windsorcli/cli/pkg/runtime/env"
 )
 
 func TestNewShims(t *testing.T) {
 	t.Run("CreatesShimsWithAllFunctions", func(t *testing.T) {
 		// Given a new Shims instance
 		// When NewShims is called
-		shims := NewShims()
+		shims := env.NewShims()
 
 		// Then all shim functions should be initialized
 		if shims.Stat == nil {

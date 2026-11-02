@@ -141,13 +141,11 @@ func (sv *SchemaValidator) mergeRequired(base, overlay any) []any {
 	return merged
 }
 
-// mergeKeyword combines a single validation keyword conservatively so the most restrictive
-// constraint across fragments wins, making the merged schema independent of the order
-// fragments load in: additionalProperties collapses to false once any fragment closes the
-// object and otherwise keeps the stricter of a schema-object constraint over a bare true,
-// minimum-style bounds keep the larger value, and maximum-style bounds keep the smaller. Any
-// other keyword (including pattern and default) takes the overlay. enum is handled separately
-// by mergeEnum, which needs the containing schema to mark a disjoint intersection.
+// mergeKeyword merges one validation keyword so that the most restrictive constraint wins.
+// This makes the merged schema independent of the load order of the fragments.
+// additionalProperties becomes false when a fragment closes the object, else the schema object wins over true.
+// A minimum-style bound keeps the larger value, and a maximum-style bound keeps the smaller value.
+// Other keywords take the overlay. mergeEnum merges enum, because it needs the containing schema.
 func (sv *SchemaValidator) mergeKeyword(key string, base map[string]any, overlayVal any) any {
 	baseVal, ok := base[key]
 	if !ok {

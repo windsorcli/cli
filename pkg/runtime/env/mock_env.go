@@ -59,7 +59,6 @@ func (m *MockEnvPrinter) GetEnvVars() (map[string]string, error) {
 	if m.GetEnvVarsFunc != nil {
 		return m.GetEnvVarsFunc()
 	}
-	// Return an empty map as a placeholder
 	return map[string]string{}, nil
 }
 
@@ -69,7 +68,6 @@ func (m *MockEnvPrinter) GetAlias() (map[string]string, error) {
 	if m.GetAliasFunc != nil {
 		return m.GetAliasFunc()
 	}
-	// Return an empty map as a placeholder
 	return map[string]string{}, nil
 }
 
@@ -79,7 +77,6 @@ func (m *MockEnvPrinter) PostEnvHook(directory ...string) error {
 	if m.PostEnvHookFunc != nil {
 		return m.PostEnvHookFunc(directory...)
 	}
-	// Simulate post environment setup without doing anything real
 	return nil
 }
 

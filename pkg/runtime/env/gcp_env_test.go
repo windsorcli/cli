@@ -1,4 +1,4 @@
-package env
+package env_test
 
 import (
 	"fmt"
@@ -10,6 +10,7 @@ import (
 	"github.com/goccy/go-yaml"
 	cliconfig "github.com/windsorcli/cli/api/config/v1alpha2"
 	"github.com/windsorcli/cli/pkg/runtime/config"
+	"github.com/windsorcli/cli/pkg/runtime/env"
 )
 
 // =============================================================================
@@ -104,11 +105,11 @@ contexts:
 // =============================================================================
 
 func TestGcpEnv_GetEnvVars(t *testing.T) {
-	setup := func(t *testing.T, overrides ...*EnvTestMocks) (*GcpEnvPrinter, *EnvTestMocks) {
+	setup := func(t *testing.T, overrides ...*EnvTestMocks) (*env.GcpEnvPrinter, *EnvTestMocks) {
 		t.Helper()
 		mocks := setupGcpEnvMocks(t, overrides...)
-		printer := NewGcpEnvPrinter(mocks.Shell, mocks.ConfigHandler)
-		printer.shims = mocks.Shims
+		printer := env.NewGcpEnvPrinter(mocks.Shell, mocks.ConfigHandler)
+		printer.SetShims(mocks.Shims)
 		return printer, mocks
 	}
 
@@ -163,8 +164,8 @@ contexts:
 		if err := mocks.ConfigHandler.LoadConfigString(configStr); err != nil {
 			t.Fatalf("Failed to load config: %v", err)
 		}
-		printer := NewGcpEnvPrinter(mocks.Shell, mocks.ConfigHandler)
-		printer.shims = mocks.Shims
+		printer := env.NewGcpEnvPrinter(mocks.Shell, mocks.ConfigHandler)
+		printer.SetShims(mocks.Shims)
 
 		mocks.Shims.LookupEnv = func(key string) (string, bool) {
 			return "", false
@@ -233,8 +234,8 @@ contexts:
 		mockConfigHandler.GetConfigRootFunc = func() (string, error) {
 			return "", fmt.Errorf("error retrieving configuration root directory")
 		}
-		printer := NewGcpEnvPrinter(mocks.Shell, mocks.ConfigHandler)
-		printer.shims = mocks.Shims
+		printer := env.NewGcpEnvPrinter(mocks.Shell, mocks.ConfigHandler)
+		printer.SetShims(mocks.Shims)
 
 		_, err := printer.GetEnvVars()
 
@@ -320,8 +321,8 @@ contexts:
 		}
 		mocks.Shell.IsGlobalFunc = func() bool { return true }
 		mocks.Shims.LookupEnv = func(key string) (string, bool) { return "", false }
-		printer := NewGcpEnvPrinter(mocks.Shell, mocks.ConfigHandler)
-		printer.shims = mocks.Shims
+		printer := env.NewGcpEnvPrinter(mocks.Shell, mocks.ConfigHandler)
+		printer.SetShims(mocks.Shims)
 
 		// When GetEnvVars is called
 		envVars, err := printer.GetEnvVars()
@@ -354,8 +355,8 @@ contexts:
 			t.Fatalf("Failed to load config: %v", err)
 		}
 		mocks.ConfigHandler.SetContext("test-context")
-		printer := NewGcpEnvPrinter(mocks.Shell, mocks.ConfigHandler)
-		printer.shims = mocks.Shims
+		printer := env.NewGcpEnvPrinter(mocks.Shell, mocks.ConfigHandler)
+		printer.SetShims(mocks.Shims)
 		mocks.Shims.LookupEnv = func(key string) (string, bool) {
 			return "", false
 		}
@@ -397,8 +398,8 @@ contexts:
 		if err := mocks.ConfigHandler.LoadConfigString(configStr); err != nil {
 			t.Fatalf("Failed to load config: %v", err)
 		}
-		printer := NewGcpEnvPrinter(mocks.Shell, mocks.ConfigHandler)
-		printer.shims = mocks.Shims
+		printer := env.NewGcpEnvPrinter(mocks.Shell, mocks.ConfigHandler)
+		printer.SetShims(mocks.Shims)
 
 		mocks.Shims.LookupEnv = func(key string) (string, bool) {
 			return "", false
@@ -426,8 +427,8 @@ contexts:
 		if err := mocks.ConfigHandler.LoadConfigString(configStr); err != nil {
 			t.Fatalf("Failed to load config: %v", err)
 		}
-		printer := NewGcpEnvPrinter(mocks.Shell, mocks.ConfigHandler)
-		printer.shims = mocks.Shims
+		printer := env.NewGcpEnvPrinter(mocks.Shell, mocks.ConfigHandler)
+		printer.SetShims(mocks.Shims)
 
 		configRoot, err := mocks.ConfigHandler.GetConfigRoot()
 		if err != nil {
@@ -472,8 +473,8 @@ contexts:
 		if err := mocks.ConfigHandler.LoadConfigString(configStr); err != nil {
 			t.Fatalf("Failed to load config: %v", err)
 		}
-		printer := NewGcpEnvPrinter(mocks.Shell, mocks.ConfigHandler)
-		printer.shims = mocks.Shims
+		printer := env.NewGcpEnvPrinter(mocks.Shell, mocks.ConfigHandler)
+		printer.SetShims(mocks.Shims)
 
 		configRoot, err := mocks.ConfigHandler.GetConfigRoot()
 		if err != nil {
@@ -517,8 +518,8 @@ contexts:
 		if err := mocks.ConfigHandler.LoadConfigString(configStr); err != nil {
 			t.Fatalf("Failed to load config: %v", err)
 		}
-		printer := NewGcpEnvPrinter(mocks.Shell, mocks.ConfigHandler)
-		printer.shims = mocks.Shims
+		printer := env.NewGcpEnvPrinter(mocks.Shell, mocks.ConfigHandler)
+		printer.SetShims(mocks.Shims)
 		mocks.Shims.LookupEnv = func(key string) (string, bool) {
 			return "", false
 		}
@@ -551,8 +552,8 @@ contexts:
 		if err := mocks.ConfigHandler.LoadConfigString(configStr); err != nil {
 			t.Fatalf("Failed to load config: %v", err)
 		}
-		printer := NewGcpEnvPrinter(mocks.Shell, mocks.ConfigHandler)
-		printer.shims = mocks.Shims
+		printer := env.NewGcpEnvPrinter(mocks.Shell, mocks.ConfigHandler)
+		printer.SetShims(mocks.Shims)
 
 		mocks.Shims.LookupEnv = func(key string) (string, bool) {
 			if key == "GOOGLE_APPLICATION_CREDENTIALS" {
@@ -586,8 +587,8 @@ contexts:
 		if err := mocks.ConfigHandler.LoadConfigString(configStr); err != nil {
 			t.Fatalf("Failed to load config: %v", err)
 		}
-		printer := NewGcpEnvPrinter(mocks.Shell, mocks.ConfigHandler)
-		printer.shims = mocks.Shims
+		printer := env.NewGcpEnvPrinter(mocks.Shell, mocks.ConfigHandler)
+		printer.SetShims(mocks.Shims)
 
 		configRoot, err := mocks.ConfigHandler.GetConfigRoot()
 		if err != nil {
@@ -641,8 +642,8 @@ contexts:
 		if err := mocks.ConfigHandler.LoadConfigString(configStr); err != nil {
 			t.Fatalf("Failed to load config: %v", err)
 		}
-		printer := NewGcpEnvPrinter(mocks.Shell, mocks.ConfigHandler)
-		printer.shims = mocks.Shims
+		printer := env.NewGcpEnvPrinter(mocks.Shell, mocks.ConfigHandler)
+		printer.SetShims(mocks.Shims)
 
 		mocks.Shims.Getenv = func(key string) string {
 			if key == "WINDSOR_MANAGED_ENV" {
@@ -687,8 +688,8 @@ contexts:
 		if err := mocks.ConfigHandler.LoadConfigString(configStr); err != nil {
 			t.Fatalf("Failed to load config: %v", err)
 		}
-		printer := NewGcpEnvPrinter(mocks.Shell, mocks.ConfigHandler)
-		printer.shims = mocks.Shims
+		printer := env.NewGcpEnvPrinter(mocks.Shell, mocks.ConfigHandler)
+		printer.SetShims(mocks.Shims)
 
 		mocks.Shims.LookupEnv = func(key string) (string, bool) {
 			return "", false
@@ -727,8 +728,8 @@ contexts:
 		if err := mocks.ConfigHandler.LoadConfigString(configStr); err != nil {
 			t.Fatalf("Failed to load config: %v", err)
 		}
-		printer := NewGcpEnvPrinter(mocks.Shell, mocks.ConfigHandler)
-		printer.shims = mocks.Shims
+		printer := env.NewGcpEnvPrinter(mocks.Shell, mocks.ConfigHandler)
+		printer.SetShims(mocks.Shims)
 
 		mocks.Shims.LookupEnv = func(key string) (string, bool) {
 			return "", false

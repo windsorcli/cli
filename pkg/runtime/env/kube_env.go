@@ -54,14 +54,9 @@ func NewKubeEnvPrinter(shell shell.Shell, configHandler config.ConfigHandler) *K
 // Public Methods
 // =============================================================================
 
-// GetEnvVars constructs a map of Kubernetes environment variables by setting
-// KUBECONFIG and KUBE_CONFIG_PATH based on the configuration root directory.
-// It checks for a project-specific volume directory and returns current variables
-// if it doesn't exist. If it does, it ensures each PVC directory has a corresponding
-// "PV_" environment variable, returning the map if all are accounted for.
-// If not all volumes are accounted for, it attempts to query the Kubernetes API
-// to create environment variables for matching PVCs. If the API is unavailable,
-// it gracefully degrades by returning the basic environment variables without failing.
+// GetEnvVars returns KUBECONFIG, KUBE_CONFIG_PATH, and the PV_ variables of the pvc-* volume directories.
+// When a volume directory has no variable, it queries the Kubernetes API for the matching PVCs.
+// When the API is not available, it returns the basic variables and no error.
 func (e *KubeEnvPrinter) GetEnvVars() (map[string]string, error) {
 	envVars := make(map[string]string)
 	configRoot, err := e.configHandler.GetConfigRoot()

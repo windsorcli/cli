@@ -160,34 +160,23 @@ const (
 	secretHelperPrefix = "secret("
 )
 
-// NormalizeExpression takes any supported secret notation and returns the
-// equivalent secret("vault","item","field") function call string.
-// Returns the original string and false if the input is not a secret reference.
-//
-// Handles:
-//
-//	"secret.op.vault.item.field"  -> secret("vault","item","field")
-//	"secrets.op.vault.item.field" -> secret("vault","item","field")
-//	"secret.sops.key.path"        -> secret("sops","key.path","")
-//	"op.vault.item.field"          -> secret("vault","item","field")
-//	"sops.key.path"                -> secret("sops","key.path","")
-//	"secret(\"v\",\"i\",\"f\")"  -> unchanged (already canonical)
+// NormalizeExpression returns the secret("vault","item","field") call for a secret reference,
+// for example "secret.op.vault.item.field", "op.vault.item.field", or "secret.sops.key.path".
+// A "secrets." prefix is the same as "secret.". A sops reference becomes secret("sops","key.path","").
+// A canonical secret(...) call returns trimmed and false. A value that is not a reference returns "" and false.
 func NormalizeExpression(expr string) (string, bool) {
 	trimmed := strings.TrimSpace(expr)
 
-	// Already in canonical form
 	if strings.HasPrefix(trimmed, secretHelperPrefix) {
 		return trimmed, false
 	}
 
-	// Try secret./secrets. prefix first
 	if parts, ok := parseSecretNotationParts(trimmed); ok {
 		if rewritten, ok := rewriteNotationParts(parts); ok {
 			return rewritten, true
 		}
 	}
 
-	// Try bare op./sops. prefix (legacy)
 	if strings.HasPrefix(trimmed, "op.") || strings.HasPrefix(trimmed, "op[") {
 		parts := parseKeys(trimmed)
 		if len(parts) >= 1 && strings.EqualFold(parts[0], "op") {

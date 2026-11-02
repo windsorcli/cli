@@ -23,9 +23,12 @@ type mockDirEntry struct {
 	isDir bool
 }
 
-func (m mockDirEntry) Name() string               { return m.name }
-func (m mockDirEntry) IsDir() bool                { return m.isDir }
-func (m mockDirEntry) Type() os.FileMode          { return os.ModeDir }
+func (m mockDirEntry) Name() string { return m.name }
+
+func (m mockDirEntry) IsDir() bool { return m.isDir }
+
+func (m mockDirEntry) Type() os.FileMode { return os.ModeDir }
+
 func (m mockDirEntry) Info() (os.FileInfo, error) { return mockFileInfo{name: m.name}, nil }
 
 // mockFileInfo is a simple mock implementation of os.FileInfo
@@ -34,12 +37,17 @@ type mockFileInfo struct {
 	size int64
 }
 
-func (m mockFileInfo) Name() string       { return m.name }
-func (m mockFileInfo) Size() int64        { return m.size }
-func (m mockFileInfo) Mode() os.FileMode  { return os.ModeDir }
+func (m mockFileInfo) Name() string { return m.name }
+
+func (m mockFileInfo) Size() int64 { return m.size }
+
+func (m mockFileInfo) Mode() os.FileMode { return os.ModeDir }
+
 func (m mockFileInfo) ModTime() time.Time { return time.Time{} }
-func (m mockFileInfo) IsDir() bool        { return true }
-func (m mockFileInfo) Sys() any           { return nil }
+
+func (m mockFileInfo) IsDir() bool { return true }
+
+func (m mockFileInfo) Sys() any { return nil }
 
 // setupKubeEnvMocks creates a base mock setup for Kubernetes environment tests
 func setupKubeEnvMocks(t *testing.T, overrides ...*EnvTestMocks) *EnvTestMocks {

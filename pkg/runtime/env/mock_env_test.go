@@ -1,9 +1,11 @@
-package env
+package env_test
 
 import (
 	"fmt"
 	"reflect"
 	"testing"
+
+	"github.com/windsorcli/cli/pkg/runtime/env"
 )
 
 // =============================================================================
@@ -14,7 +16,7 @@ import (
 func TestMockEnvPrinter_NewMockEnvPrinter(t *testing.T) {
 	t.Run("CreateMockEnvPrinterWithoutContainer", func(t *testing.T) {
 		// When creating a new mock environment without an injector
-		printer := NewMockEnvPrinter()
+		printer := env.NewMockEnvPrinter()
 		// Then no error should be returned
 		if printer == nil {
 			t.Errorf("Expected printer, got nil")
@@ -26,7 +28,7 @@ func TestMockEnvPrinter_NewMockEnvPrinter(t *testing.T) {
 func TestMockEnvPrinter_GetEnvVars(t *testing.T) {
 	t.Run("DefaultGetEnvVars", func(t *testing.T) {
 		// Given a mock environment printer with default implementation
-		printer := NewMockEnvPrinter()
+		printer := env.NewMockEnvPrinter()
 
 		// When getting environment variables
 		envVars, err := printer.GetEnvVars()
@@ -43,7 +45,7 @@ func TestMockEnvPrinter_GetEnvVars(t *testing.T) {
 
 	t.Run("CustomGetEnvVars", func(t *testing.T) {
 		// Given a mock environment printer with custom implementation
-		printer := NewMockEnvPrinter()
+		printer := env.NewMockEnvPrinter()
 		expectedEnvVars := map[string]string{
 			"VAR1": "value1",
 			"VAR2": "value2",
@@ -70,7 +72,7 @@ func TestMockEnvPrinter_GetEnvVars(t *testing.T) {
 func TestMockEnvPrinter_Print(t *testing.T) {
 	t.Run("DefaultPrint", func(t *testing.T) {
 		// Given a mock environment printer with default implementation
-		printer := NewMockEnvPrinter()
+		printer := env.NewMockEnvPrinter()
 
 		// When printing
 		err := printer.Print()
@@ -83,7 +85,7 @@ func TestMockEnvPrinter_Print(t *testing.T) {
 
 	t.Run("CustomPrint", func(t *testing.T) {
 		// Given a mock environment printer with custom implementation
-		printer := NewMockEnvPrinter()
+		printer := env.NewMockEnvPrinter()
 		expectedError := fmt.Errorf("custom print error")
 		printer.PrintFunc = func() error {
 			return expectedError
@@ -103,7 +105,7 @@ func TestMockEnvPrinter_Print(t *testing.T) {
 func TestMockPrinter_GetAlias(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
 		// Given a mock environment printer with custom implementation
-		printer := NewMockEnvPrinter()
+		printer := env.NewMockEnvPrinter()
 		expectedAlias := map[string]string{"test": "echo test"}
 		printer.GetAliasFunc = func() (map[string]string, error) {
 			return expectedAlias, nil
@@ -124,7 +126,7 @@ func TestMockPrinter_GetAlias(t *testing.T) {
 
 	t.Run("NotImplemented", func(t *testing.T) {
 		// Given a mock environment printer with default implementation
-		printer := NewMockEnvPrinter()
+		printer := env.NewMockEnvPrinter()
 
 		// When getting aliases
 		alias, err := printer.GetAlias()
@@ -145,7 +147,7 @@ func TestMockPrinter_GetAlias(t *testing.T) {
 func TestMockEnvPrinter_PrintAlias(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
 		// Given a mock environment printer with custom implementation
-		printer := NewMockEnvPrinter()
+		printer := env.NewMockEnvPrinter()
 		printer.PrintAliasFunc = func() error {
 			return nil
 		}
@@ -161,7 +163,7 @@ func TestMockEnvPrinter_PrintAlias(t *testing.T) {
 
 	t.Run("NotImplemented", func(t *testing.T) {
 		// Given a mock environment printer with default implementation
-		printer := NewMockEnvPrinter()
+		printer := env.NewMockEnvPrinter()
 
 		// When printing aliases
 		err := printer.PrintAlias()
@@ -177,7 +179,7 @@ func TestMockEnvPrinter_PrintAlias(t *testing.T) {
 func TestMockEnvPrinter_PostEnvHook(t *testing.T) {
 	t.Run("DefaultPostEnvHook", func(t *testing.T) {
 		// Given a mock environment printer with default implementation
-		printer := NewMockEnvPrinter()
+		printer := env.NewMockEnvPrinter()
 
 		// When running post-env hook
 		err := printer.PostEnvHook()
@@ -190,7 +192,7 @@ func TestMockEnvPrinter_PostEnvHook(t *testing.T) {
 
 	t.Run("CustomPostEnvHook", func(t *testing.T) {
 		// Given a mock environment printer with custom implementation
-		printer := NewMockEnvPrinter()
+		printer := env.NewMockEnvPrinter()
 		expectedError := fmt.Errorf("custom post env hook error")
 		printer.PostEnvHookFunc = func(directory ...string) error {
 			return expectedError
@@ -210,7 +212,7 @@ func TestMockEnvPrinter_PostEnvHook(t *testing.T) {
 func TestMockEnvPrinter_Reset(t *testing.T) {
 	t.Run("DefaultReset", func(t *testing.T) {
 		// Given a mock environment printer with default implementation
-		printer := NewMockEnvPrinter()
+		printer := env.NewMockEnvPrinter()
 
 		// When resetting
 		printer.Reset()
@@ -220,7 +222,7 @@ func TestMockEnvPrinter_Reset(t *testing.T) {
 
 	t.Run("CustomReset", func(t *testing.T) {
 		// Given a mock environment printer with custom implementation
-		printer := NewMockEnvPrinter()
+		printer := env.NewMockEnvPrinter()
 		resetCalled := false
 		printer.ResetFunc = func() {
 			resetCalled = true
@@ -240,7 +242,7 @@ func TestMockEnvPrinter_Reset(t *testing.T) {
 func TestMockEnvPrinter_GetManagedEnv(t *testing.T) {
 	t.Run("CustomGetManagedEnv", func(t *testing.T) {
 		// Given a mock environment printer with custom implementation
-		printer := NewMockEnvPrinter()
+		printer := env.NewMockEnvPrinter()
 		expectedEnv := []string{"VAR1", "VAR2"}
 		printer.GetManagedEnvFunc = func() []string {
 			return expectedEnv
@@ -257,7 +259,7 @@ func TestMockEnvPrinter_GetManagedEnv(t *testing.T) {
 
 	t.Run("DefaultGetManagedEnv", func(t *testing.T) {
 		// Given a mock environment printer with default implementation
-		printer := NewMockEnvPrinter()
+		printer := env.NewMockEnvPrinter()
 
 		// When getting managed environment variables
 		managedEnv := printer.GetManagedEnv()
@@ -274,7 +276,7 @@ func TestMockEnvPrinter_GetManagedEnv(t *testing.T) {
 func TestMockEnvPrinter_GetManagedAlias(t *testing.T) {
 	t.Run("CustomGetManagedAlias", func(t *testing.T) {
 		// Given a mock environment printer with custom implementation
-		printer := NewMockEnvPrinter()
+		printer := env.NewMockEnvPrinter()
 		expectedAlias := []string{"alias1", "alias2"}
 		printer.GetManagedAliasFunc = func() []string {
 			return expectedAlias
@@ -291,7 +293,7 @@ func TestMockEnvPrinter_GetManagedAlias(t *testing.T) {
 
 	t.Run("DefaultGetManagedAlias", func(t *testing.T) {
 		// Given a mock environment printer with default implementation
-		printer := NewMockEnvPrinter()
+		printer := env.NewMockEnvPrinter()
 
 		// When getting managed aliases
 		managedAlias := printer.GetManagedAlias()

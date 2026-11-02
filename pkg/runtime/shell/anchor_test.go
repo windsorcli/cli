@@ -1,4 +1,4 @@
-package shell
+package shell_test
 
 import (
 	"os"
@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/windsorcli/cli/internal/werror"
+	"github.com/windsorcli/cli/pkg/runtime/shell"
 )
 
 func TestEnsureProjectAnchor(t *testing.T) {
@@ -38,7 +39,7 @@ func TestEnsureProjectAnchor(t *testing.T) {
 		tmpDir := setup(t)
 
 		// When EnsureProjectAnchor is called
-		resolved, err := EnsureProjectAnchor()
+		resolved, err := shell.EnsureProjectAnchor()
 		if err != nil {
 			t.Fatalf("Expected no error, got %v", err)
 		}
@@ -65,7 +66,7 @@ func TestEnsureProjectAnchor(t *testing.T) {
 		}
 
 		// When EnsureProjectAnchor is called
-		resolved, err := EnsureProjectAnchor()
+		resolved, err := shell.EnsureProjectAnchor()
 		if err != nil {
 			t.Fatalf("Expected no error, got %v", err)
 		}
@@ -98,7 +99,7 @@ func TestEnsureProjectAnchor(t *testing.T) {
 		}
 
 		// When EnsureProjectAnchor is called
-		resolved, err := EnsureProjectAnchor()
+		resolved, err := shell.EnsureProjectAnchor()
 		if err != nil {
 			t.Fatalf("Expected no error, got %v", err)
 		}
@@ -143,7 +144,7 @@ func TestEnsureGitRepository(t *testing.T) {
 			t.Fatalf("Failed to create .git: %v", err)
 		}
 
-		if err := EnsureGitRepository(); err != nil {
+		if err := shell.EnsureGitRepository(); err != nil {
 			t.Errorf("Expected no error with .git present, got %v", err)
 		}
 	})
@@ -155,7 +156,7 @@ func TestEnsureGitRepository(t *testing.T) {
 			t.Fatalf("Failed to create .git file: %v", err)
 		}
 
-		if err := EnsureGitRepository(); err != nil {
+		if err := shell.EnsureGitRepository(); err != nil {
 			t.Errorf("Expected no error with .git file present, got %v", err)
 		}
 	})
@@ -174,7 +175,7 @@ func TestEnsureGitRepository(t *testing.T) {
 			t.Fatalf("Failed to chdir to subdir: %v", err)
 		}
 
-		if err := EnsureGitRepository(); err != nil {
+		if err := shell.EnsureGitRepository(); err != nil {
 			t.Errorf("Expected no error walking up to parent .git, got %v", err)
 		}
 	})
@@ -183,7 +184,7 @@ func TestEnsureGitRepository(t *testing.T) {
 		// Given a directory with no .git anywhere up the walk
 		_ = setup(t)
 
-		err := EnsureGitRepository()
+		err := shell.EnsureGitRepository()
 		if err == nil {
 			t.Fatal("Expected error when no .git present, got nil")
 		}

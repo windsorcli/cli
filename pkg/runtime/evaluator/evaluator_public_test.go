@@ -1,4 +1,4 @@
-package evaluator
+package evaluator_test
 
 import (
 	"errors"
@@ -8,22 +8,23 @@ import (
 
 	"github.com/windsorcli/cli/internal/werror"
 	"github.com/windsorcli/cli/pkg/runtime/config"
+	"github.com/windsorcli/cli/pkg/runtime/evaluator"
 )
 
 // =============================================================================
 // Test Setup
 // =============================================================================
 
-func setupEvaluatorTest(t *testing.T) (ExpressionEvaluator, config.ConfigHandler, string, string) {
+func setupEvaluatorTest(t *testing.T) (evaluator.ExpressionEvaluator, config.ConfigHandler, string, string) {
 	t.Helper()
 
 	mockConfigHandler := config.NewMockConfigHandler()
 	projectRoot := "/test/project"
 	templateRoot := "/test/project/contexts/_template"
 
-	evaluator := NewExpressionEvaluator(mockConfigHandler, projectRoot, templateRoot)
+	subject := evaluator.NewExpressionEvaluator(mockConfigHandler, projectRoot, templateRoot)
 
-	return evaluator, mockConfigHandler, projectRoot, templateRoot
+	return subject, mockConfigHandler, projectRoot, templateRoot
 }
 
 // assertDeferredExpression fails the test unless result is a DeferredValue wrapping input, with no error.
@@ -33,30 +34,16 @@ func assertDeferredExpression(t *testing.T, result any, err error, input string)
 	if err != nil {
 		t.Fatalf("Expected no error, got: %v", err)
 	}
-	if !IsDeferredValue(result) {
+	if !evaluator.IsDeferredValue(result) {
 		t.Fatalf("Expected deferred value, got %T (%v)", result, result)
 	}
-	expr, ok := DeferredExpression(result)
+	expr, ok := evaluator.DeferredExpression(result)
 	if !ok {
 		t.Fatalf("Expected deferred expression to be available")
 	}
 	if expr != input {
 		t.Errorf("Expected deferred expression %q, got %q", input, expr)
 	}
-}
-
-func setupEvaluatorWithMockShims(t *testing.T) (ExpressionEvaluator, *Shims, config.ConfigHandler) {
-	t.Helper()
-
-	mockConfigHandler := config.NewMockConfigHandler()
-	mockShims := NewShims()
-	mockShims.ReadFile = func(string) ([]byte, error) { return nil, errors.New("file not found") }
-
-	evaluator := NewExpressionEvaluator(mockConfigHandler, "/test/project", "/test/template")
-	concreteEvaluator := evaluator.(*expressionEvaluator)
-	concreteEvaluator.Shims = mockShims
-
-	return evaluator, mockShims, mockConfigHandler
 }
 
 // =============================================================================
@@ -69,24 +56,24 @@ func TestNewExpressionEvaluator(t *testing.T) {
 		mockConfigHandler := config.NewMockConfigHandler()
 
 		// When creating a new evaluator
-		evaluator := NewExpressionEvaluator(mockConfigHandler, "/test/project", "/test/template")
+		subject := evaluator.NewExpressionEvaluator(mockConfigHandler, "/test/project", "/test/template")
 
 		// Then the evaluator should be created with correct dependencies
-		if evaluator == nil {
+		if subject == nil {
 			t.Fatal("Expected evaluator to be created, got nil")
 		}
 
-		concreteEvaluator := evaluator.(*expressionEvaluator)
-		if concreteEvaluator.configHandler != mockConfigHandler {
+		concreteEvaluator := subject.(*evaluator.DefaultExpressionEvaluator)
+		if concreteEvaluator.ConfigHandler() != mockConfigHandler {
 			t.Errorf("Expected evaluator.configHandler to be set correctly")
 		}
 
-		if concreteEvaluator.projectRoot != "/test/project" {
-			t.Errorf("Expected projectRoot to be '/test/project', got '%s'", concreteEvaluator.projectRoot)
+		if concreteEvaluator.ProjectRoot() != "/test/project" {
+			t.Errorf("Expected projectRoot to be '/test/project', got '%s'", concreteEvaluator.ProjectRoot())
 		}
 
-		if concreteEvaluator.templateRoot != "/test/template" {
-			t.Errorf("Expected templateRoot to be '/test/template', got '%s'", concreteEvaluator.templateRoot)
+		if concreteEvaluator.TemplateRoot() != "/test/template" {
+			t.Errorf("Expected templateRoot to be '/test/template', got '%s'", concreteEvaluator.TemplateRoot())
 		}
 
 		if concreteEvaluator.Shims == nil {
@@ -103,7 +90,7 @@ func TestNewExpressionEvaluator(t *testing.T) {
 				t.Error("Expected panic when config handler is nil")
 			}
 		}()
-		NewExpressionEvaluator(nil, "/test/project", "/test/template")
+		evaluator.NewExpressionEvaluator(nil, "/test/project", "/test/template")
 	})
 }
 
@@ -114,21 +101,21 @@ func TestNewExpressionEvaluator(t *testing.T) {
 func TestExpressionEvaluator_SetTemplateData(t *testing.T) {
 	t.Run("SetsTemplateData", func(t *testing.T) {
 		// Given an evaluator and template data
-		evaluator, _, _, _ := setupEvaluatorTest(t)
+		subject, _, _, _ := setupEvaluatorTest(t)
 		templateData := map[string][]byte{
 			"test.jsonnet": []byte(`{"key": "value"}`),
 		}
 
 		// When setting template data
-		evaluator.SetTemplateData(templateData)
+		subject.SetTemplateData(templateData)
 
 		// Then the template data should be set
-		concreteEvaluator := evaluator.(*expressionEvaluator)
-		if concreteEvaluator.templateData == nil {
+		concreteEvaluator := subject.(*evaluator.DefaultExpressionEvaluator)
+		if concreteEvaluator.TemplateData() == nil {
 			t.Fatal("Expected templateData to be set, got nil")
 		}
 
-		if string(concreteEvaluator.templateData["test.jsonnet"]) != `{"key": "value"}` {
+		if string(concreteEvaluator.TemplateData()["test.jsonnet"]) != `{"key": "value"}` {
 			t.Errorf("Expected templateData to contain test.jsonnet")
 		}
 	})
@@ -136,7 +123,7 @@ func TestExpressionEvaluator_SetTemplateData(t *testing.T) {
 
 func TestDeferredError_Error(t *testing.T) {
 	t.Run("ReturnsMessageWhenSet", func(t *testing.T) {
-		err := &DeferredError{
+		err := &evaluator.DeferredError{
 			Expression: "test",
 			Message:    "custom message",
 		}
@@ -149,7 +136,7 @@ func TestDeferredError_Error(t *testing.T) {
 	})
 
 	t.Run("ReturnsDefaultMessageWhenMessageEmpty", func(t *testing.T) {
-		err := &DeferredError{
+		err := &evaluator.DeferredError{
 			Expression: "test_expression",
 			Message:    "",
 		}
@@ -166,7 +153,7 @@ func TestDeferredError_Error(t *testing.T) {
 func TestExpressionEvaluator_Evaluate(t *testing.T) {
 	t.Run("EvaluatesSimpleExpression", func(t *testing.T) {
 		// Given an evaluator and config with a value
-		evaluator, mockConfigHandler, _, _ := setupEvaluatorTest(t)
+		subject, mockConfigHandler, _, _ := setupEvaluatorTest(t)
 		mockHandler := mockConfigHandler.(*config.MockConfigHandler)
 		mockHandler.GetContextValuesFunc = func() (map[string]any, error) {
 			return map[string]any{
@@ -175,7 +162,7 @@ func TestExpressionEvaluator_Evaluate(t *testing.T) {
 		}
 
 		// When evaluating a simple expression
-		result, err := evaluator.Evaluate("${value}", "", nil, false)
+		result, err := subject.Evaluate("${value}", "", nil, false)
 
 		// Then the result should be correct
 		if err != nil {
@@ -189,7 +176,7 @@ func TestExpressionEvaluator_Evaluate(t *testing.T) {
 
 	t.Run("EvaluatesArithmeticExpression", func(t *testing.T) {
 		// Given an evaluator and config with values
-		evaluator, mockConfigHandler, _, _ := setupEvaluatorTest(t)
+		subject, mockConfigHandler, _, _ := setupEvaluatorTest(t)
 		mockHandler := mockConfigHandler.(*config.MockConfigHandler)
 		mockHandler.GetContextValuesFunc = func() (map[string]any, error) {
 			return map[string]any{
@@ -199,7 +186,7 @@ func TestExpressionEvaluator_Evaluate(t *testing.T) {
 		}
 
 		// When evaluating an arithmetic expression
-		result, err := evaluator.Evaluate("${a + b}", "", nil, false)
+		result, err := subject.Evaluate("${a + b}", "", nil, false)
 
 		// Then the result should be correct
 		if err != nil {
@@ -213,7 +200,7 @@ func TestExpressionEvaluator_Evaluate(t *testing.T) {
 
 	t.Run("EvaluatesNestedMapAccess", func(t *testing.T) {
 		// Given an evaluator and config with nested maps
-		evaluator, configHandler, _, _ := setupEvaluatorTest(t)
+		subject, configHandler, _, _ := setupEvaluatorTest(t)
 		mockConfigHandler := configHandler.(*config.MockConfigHandler)
 		config := map[string]any{
 			"cluster": map[string]any{
@@ -227,7 +214,7 @@ func TestExpressionEvaluator_Evaluate(t *testing.T) {
 		}
 
 		// When evaluating a nested map access expression
-		result, err := evaluator.Evaluate("${cluster.workers.count}", "", nil, false)
+		result, err := subject.Evaluate("${cluster.workers.count}", "", nil, false)
 
 		// Then the result should be correct
 		if err != nil {
@@ -241,10 +228,10 @@ func TestExpressionEvaluator_Evaluate(t *testing.T) {
 
 	t.Run("ReturnsEmptyStringAsIs", func(t *testing.T) {
 		// Given an evaluator
-		evaluator, _, _, _ := setupEvaluatorTest(t)
+		subject, _, _, _ := setupEvaluatorTest(t)
 
 		// When evaluating an empty string
-		result, err := evaluator.Evaluate("", "", nil, false)
+		result, err := subject.Evaluate("", "", nil, false)
 
 		// Then it should be returned as-is
 		if err != nil {
@@ -258,10 +245,10 @@ func TestExpressionEvaluator_Evaluate(t *testing.T) {
 
 	t.Run("ReturnsErrorForEmptyExpression", func(t *testing.T) {
 		// Given an evaluator
-		evaluator, _, _, _ := setupEvaluatorTest(t)
+		subject, _, _, _ := setupEvaluatorTest(t)
 
 		// When evaluating an empty expression
-		_, err := evaluator.Evaluate("${}", "", nil, false)
+		_, err := subject.Evaluate("${}", "", nil, false)
 
 		// Then an error should be returned
 		if err == nil {
@@ -278,10 +265,10 @@ func TestExpressionEvaluator_Evaluate(t *testing.T) {
 
 	t.Run("ReturnsErrorForInvalidExpression", func(t *testing.T) {
 		// Given an evaluator
-		evaluator, _, _, _ := setupEvaluatorTest(t)
+		subject, _, _, _ := setupEvaluatorTest(t)
 
 		// When evaluating an invalid expression
-		_, err := evaluator.Evaluate("${invalid +}", "", nil, false)
+		_, err := subject.Evaluate("${invalid +}", "", nil, false)
 
 		// Then a parse error that names the expression should be returned
 		if err == nil {
@@ -298,10 +285,10 @@ func TestExpressionEvaluator_Evaluate(t *testing.T) {
 
 	t.Run("EnrichesConfigWithProjectRoot", func(t *testing.T) {
 		// Given an evaluator with project root
-		evaluator, _, _, _ := setupEvaluatorTest(t)
+		subject, _, _, _ := setupEvaluatorTest(t)
 
 		// When evaluating an expression that uses project_root
-		result, err := evaluator.Evaluate("${project_root}", "", nil, false)
+		result, err := subject.Evaluate("${project_root}", "", nil, false)
 
 		// Then project_root should be available
 		if err != nil {
@@ -315,14 +302,14 @@ func TestExpressionEvaluator_Evaluate(t *testing.T) {
 
 	t.Run("EnrichesConfigWithContextPath", func(t *testing.T) {
 		// Given an evaluator with config handler that returns config root
-		evaluator, mockConfigHandler, _, _ := setupEvaluatorTest(t)
+		subject, mockConfigHandler, _, _ := setupEvaluatorTest(t)
 		mockHandler := mockConfigHandler.(*config.MockConfigHandler)
 		mockHandler.GetConfigRootFunc = func() (string, error) {
 			return "/test/config", nil
 		}
 
 		// When evaluating an expression that uses context_path
-		result, err := evaluator.Evaluate("${context_path}", "", nil, false)
+		result, err := subject.Evaluate("${context_path}", "", nil, false)
 
 		// Then context_path should be available
 		if err != nil {
@@ -336,7 +323,7 @@ func TestExpressionEvaluator_Evaluate(t *testing.T) {
 
 	t.Run("HandlesConfigRootError", func(t *testing.T) {
 		// Given an evaluator with config handler that returns error
-		evaluator, mockConfigHandler, _, _ := setupEvaluatorTest(t)
+		subject, mockConfigHandler, _, _ := setupEvaluatorTest(t)
 		mockHandler := mockConfigHandler.(*config.MockConfigHandler)
 		mockHandler.GetConfigRootFunc = func() (string, error) {
 			return "", errors.New("config root error")
@@ -345,7 +332,7 @@ func TestExpressionEvaluator_Evaluate(t *testing.T) {
 			return map[string]any{}, nil
 		}
 		// When evaluating an expression
-		result, err := evaluator.Evaluate("value", "", nil, false)
+		result, err := subject.Evaluate("value", "", nil, false)
 
 		// Then evaluation should return the original string (no ${} means no evaluation)
 		if err != nil {
@@ -359,7 +346,7 @@ func TestExpressionEvaluator_Evaluate(t *testing.T) {
 
 	t.Run("EvaluatesBooleanEqualityExpression", func(t *testing.T) {
 		// Given an evaluator and config with values
-		evaluator, configHandler, _, _ := setupEvaluatorTest(t)
+		subject, configHandler, _, _ := setupEvaluatorTest(t)
 		mockConfigHandler := configHandler.(*config.MockConfigHandler)
 		mockConfigHandler.GetContextValuesFunc = func() (map[string]any, error) {
 			return map[string]any{
@@ -368,7 +355,7 @@ func TestExpressionEvaluator_Evaluate(t *testing.T) {
 		}
 
 		// When evaluating an equality expression
-		result, err := evaluator.Evaluate("${provider == 'aws'}", "", nil, false)
+		result, err := subject.Evaluate("${provider == 'aws'}", "", nil, false)
 
 		// Then the result should be true
 		if err != nil {
@@ -382,7 +369,7 @@ func TestExpressionEvaluator_Evaluate(t *testing.T) {
 
 	t.Run("EvaluatesBooleanInequalityExpression", func(t *testing.T) {
 		// Given an evaluator and config with values
-		evaluator, configHandler, _, _ := setupEvaluatorTest(t)
+		subject, configHandler, _, _ := setupEvaluatorTest(t)
 		mockConfigHandler := configHandler.(*config.MockConfigHandler)
 		mockConfigHandler.GetContextValuesFunc = func() (map[string]any, error) {
 			return map[string]any{
@@ -391,7 +378,7 @@ func TestExpressionEvaluator_Evaluate(t *testing.T) {
 		}
 
 		// When evaluating an inequality expression
-		result, err := evaluator.Evaluate("${provider != 'gcp'}", "", nil, false)
+		result, err := subject.Evaluate("${provider != 'gcp'}", "", nil, false)
 
 		// Then the result should be true
 		if err != nil {
@@ -405,7 +392,7 @@ func TestExpressionEvaluator_Evaluate(t *testing.T) {
 
 	t.Run("EvaluatesLogicalAndExpression", func(t *testing.T) {
 		// Given an evaluator and config with nested values
-		evaluator, configHandler, _, _ := setupEvaluatorTest(t)
+		subject, configHandler, _, _ := setupEvaluatorTest(t)
 		mockConfigHandler := configHandler.(*config.MockConfigHandler)
 		mockConfigHandler.GetContextValuesFunc = func() (map[string]any, error) {
 			return map[string]any{
@@ -417,7 +404,7 @@ func TestExpressionEvaluator_Evaluate(t *testing.T) {
 		}
 
 		// When evaluating a logical AND expression
-		result, err := evaluator.Evaluate("${provider == 'generic' && observability.enabled == true}", "", nil, false)
+		result, err := subject.Evaluate("${provider == 'generic' && observability.enabled == true}", "", nil, false)
 
 		// Then the result should be true
 		if err != nil {
@@ -431,7 +418,7 @@ func TestExpressionEvaluator_Evaluate(t *testing.T) {
 
 	t.Run("EvaluatesLogicalOrExpression", func(t *testing.T) {
 		// Given an evaluator and config with values
-		evaluator, configHandler, _, _ := setupEvaluatorTest(t)
+		subject, configHandler, _, _ := setupEvaluatorTest(t)
 		mockConfigHandler := configHandler.(*config.MockConfigHandler)
 		mockConfigHandler.GetContextValuesFunc = func() (map[string]any, error) {
 			return map[string]any{
@@ -440,7 +427,7 @@ func TestExpressionEvaluator_Evaluate(t *testing.T) {
 		}
 
 		// When evaluating a logical OR expression
-		result, err := evaluator.Evaluate("${provider == 'aws' || provider == 'azure'}", "", nil, false)
+		result, err := subject.Evaluate("${provider == 'aws' || provider == 'azure'}", "", nil, false)
 
 		// Then the result should be true
 		if err != nil {
@@ -454,7 +441,7 @@ func TestExpressionEvaluator_Evaluate(t *testing.T) {
 
 	t.Run("EvaluatesParenthesesGrouping", func(t *testing.T) {
 		// Given an evaluator and config with nested values
-		evaluator, configHandler, _, _ := setupEvaluatorTest(t)
+		subject, configHandler, _, _ := setupEvaluatorTest(t)
 		mockConfigHandler := configHandler.(*config.MockConfigHandler)
 		config := map[string]any{
 			"provider": "generic",
@@ -470,7 +457,7 @@ func TestExpressionEvaluator_Evaluate(t *testing.T) {
 		}
 
 		// When evaluating an expression with parentheses
-		result, err := evaluator.Evaluate("${provider == 'generic' && (workstation.runtime != 'docker-desktop' || loadbalancer.enabled == true)}", "", nil, false)
+		result, err := subject.Evaluate("${provider == 'generic' && (workstation.runtime != 'docker-desktop' || loadbalancer.enabled == true)}", "", nil, false)
 
 		// Then the result should be true
 		if err != nil {
@@ -484,7 +471,7 @@ func TestExpressionEvaluator_Evaluate(t *testing.T) {
 
 	t.Run("EvaluatesStringValue", func(t *testing.T) {
 		// Given an evaluator and config with string value
-		evaluator, configHandler, _, _ := setupEvaluatorTest(t)
+		subject, configHandler, _, _ := setupEvaluatorTest(t)
 		mockConfigHandler := configHandler.(*config.MockConfigHandler)
 		config := map[string]any{
 			"provider": "aws",
@@ -494,7 +481,7 @@ func TestExpressionEvaluator_Evaluate(t *testing.T) {
 		}
 
 		// When evaluating a string value expression
-		result, err := evaluator.Evaluate("${provider}", "", nil, false)
+		result, err := subject.Evaluate("${provider}", "", nil, false)
 
 		// Then the result should be the string value
 		if err != nil {
@@ -508,7 +495,7 @@ func TestExpressionEvaluator_Evaluate(t *testing.T) {
 
 	t.Run("EvaluatesIntegerValue", func(t *testing.T) {
 		// Given an evaluator and config with integer value
-		evaluator, configHandler, _, _ := setupEvaluatorTest(t)
+		subject, configHandler, _, _ := setupEvaluatorTest(t)
 		mockConfigHandler := configHandler.(*config.MockConfigHandler)
 		config := map[string]any{
 			"cluster": map[string]any{
@@ -522,7 +509,7 @@ func TestExpressionEvaluator_Evaluate(t *testing.T) {
 		}
 
 		// When evaluating an integer value expression
-		result, err := evaluator.Evaluate("${cluster.workers.count}", "", nil, false)
+		result, err := subject.Evaluate("${cluster.workers.count}", "", nil, false)
 
 		// Then the result should be the integer value
 		if err != nil {
@@ -536,7 +523,7 @@ func TestExpressionEvaluator_Evaluate(t *testing.T) {
 
 	t.Run("EvaluatesArrayAccess", func(t *testing.T) {
 		// Given an evaluator and config with array value
-		evaluator, configHandler, _, _ := setupEvaluatorTest(t)
+		subject, configHandler, _, _ := setupEvaluatorTest(t)
 		mockConfigHandler := configHandler.(*config.MockConfigHandler)
 		config := map[string]any{
 			"cluster": map[string]any{
@@ -550,7 +537,7 @@ func TestExpressionEvaluator_Evaluate(t *testing.T) {
 		}
 
 		// When evaluating an array access expression
-		result, err := evaluator.Evaluate("${cluster.workers.instance_types}", "", nil, false)
+		result, err := subject.Evaluate("${cluster.workers.instance_types}", "", nil, false)
 
 		// Then the result should be the array
 		if err != nil {
@@ -568,7 +555,7 @@ func TestExpressionEvaluator_Evaluate(t *testing.T) {
 	})
 
 	t.Run("ReturnsNilForUndefinedVariable", func(t *testing.T) {
-		evaluator, mockConfigHandler, _, _ := setupEvaluatorTest(t)
+		subject, mockConfigHandler, _, _ := setupEvaluatorTest(t)
 		mockHandler := mockConfigHandler.(*config.MockConfigHandler)
 		mockHandler.GetContextValuesFunc = func() (map[string]any, error) {
 			return map[string]any{
@@ -580,7 +567,7 @@ func TestExpressionEvaluator_Evaluate(t *testing.T) {
 			}, nil
 		}
 
-		result, err := evaluator.Evaluate("${cluster.undefined}", "", nil, false)
+		result, err := subject.Evaluate("${cluster.undefined}", "", nil, false)
 
 		if err != nil {
 			t.Fatalf("Expected no error, got: %v", err)
@@ -591,7 +578,7 @@ func TestExpressionEvaluator_Evaluate(t *testing.T) {
 	})
 
 	t.Run("ReturnsEmptyStringForUndefinedVariableInInterpolation", func(t *testing.T) {
-		evaluator, mockConfigHandler, _, _ := setupEvaluatorTest(t)
+		subject, mockConfigHandler, _, _ := setupEvaluatorTest(t)
 		mockHandler := mockConfigHandler.(*config.MockConfigHandler)
 		mockHandler.GetContextValuesFunc = func() (map[string]any, error) {
 			return map[string]any{
@@ -603,7 +590,7 @@ func TestExpressionEvaluator_Evaluate(t *testing.T) {
 			}, nil
 		}
 
-		result, err := evaluator.Evaluate("prefix-${cluster.undefined}-suffix", "", nil, false)
+		result, err := subject.Evaluate("prefix-${cluster.undefined}-suffix", "", nil, false)
 
 		if err != nil {
 			t.Fatalf("Expected no error, got: %v", err)
@@ -615,7 +602,7 @@ func TestExpressionEvaluator_Evaluate(t *testing.T) {
 	})
 
 	t.Run("DoesNotErrorForMissingNestedProperty", func(t *testing.T) {
-		evaluator, mockConfigHandler, _, _ := setupEvaluatorTest(t)
+		subject, mockConfigHandler, _, _ := setupEvaluatorTest(t)
 		mockHandler := mockConfigHandler.(*config.MockConfigHandler)
 		mockHandler.GetContextValuesFunc = func() (map[string]any, error) {
 			return map[string]any{
@@ -623,7 +610,7 @@ func TestExpressionEvaluator_Evaluate(t *testing.T) {
 			}, nil
 		}
 
-		result, err := evaluator.Evaluate("${addons.database.enabled}", "", nil, false)
+		result, err := subject.Evaluate("${addons.database.enabled}", "", nil, false)
 
 		if err != nil {
 			t.Fatalf("Expected no error for missing nested property, got: %v", err)
@@ -635,7 +622,7 @@ func TestExpressionEvaluator_Evaluate(t *testing.T) {
 	})
 
 	t.Run("DoesNotErrorForDeeplyNestedMissingProperty", func(t *testing.T) {
-		evaluator, mockConfigHandler, _, _ := setupEvaluatorTest(t)
+		subject, mockConfigHandler, _, _ := setupEvaluatorTest(t)
 		mockHandler := mockConfigHandler.(*config.MockConfigHandler)
 		mockHandler.GetContextValuesFunc = func() (map[string]any, error) {
 			return map[string]any{
@@ -645,7 +632,7 @@ func TestExpressionEvaluator_Evaluate(t *testing.T) {
 			}, nil
 		}
 
-		result, err := evaluator.Evaluate("${config.level1.level2.level3.value}", "", nil, false)
+		result, err := subject.Evaluate("${config.level1.level2.level3.value}", "", nil, false)
 
 		if err != nil {
 			t.Fatalf("Expected no error for deeply nested missing property, got: %v", err)
@@ -657,7 +644,7 @@ func TestExpressionEvaluator_Evaluate(t *testing.T) {
 	})
 
 	t.Run("DoesNotErrorWhenIntermediatePropertyIsMissing", func(t *testing.T) {
-		evaluator, mockConfigHandler, _, _ := setupEvaluatorTest(t)
+		subject, mockConfigHandler, _, _ := setupEvaluatorTest(t)
 		mockHandler := mockConfigHandler.(*config.MockConfigHandler)
 		mockHandler.GetContextValuesFunc = func() (map[string]any, error) {
 			return map[string]any{
@@ -669,7 +656,7 @@ func TestExpressionEvaluator_Evaluate(t *testing.T) {
 			}, nil
 		}
 
-		result, err := evaluator.Evaluate("${services.database.connection.host}", "", nil, false)
+		result, err := subject.Evaluate("${services.database.connection.host}", "", nil, false)
 
 		if err != nil {
 			t.Fatalf("Expected no error when intermediate property is missing, got: %v", err)
@@ -681,7 +668,7 @@ func TestExpressionEvaluator_Evaluate(t *testing.T) {
 	})
 
 	t.Run("CoalesceOperatorWorksWithMissingNestedProperty", func(t *testing.T) {
-		evaluator, mockConfigHandler, _, _ := setupEvaluatorTest(t)
+		subject, mockConfigHandler, _, _ := setupEvaluatorTest(t)
 		mockHandler := mockConfigHandler.(*config.MockConfigHandler)
 		mockHandler.GetContextValuesFunc = func() (map[string]any, error) {
 			return map[string]any{
@@ -689,7 +676,7 @@ func TestExpressionEvaluator_Evaluate(t *testing.T) {
 			}, nil
 		}
 
-		result, err := evaluator.Evaluate("${settings.database.port ?? 5432}", "", nil, false)
+		result, err := subject.Evaluate("${settings.database.port ?? 5432}", "", nil, false)
 
 		if err != nil {
 			t.Fatalf("Expected no error with coalesce operator, got: %v", err)
@@ -701,7 +688,7 @@ func TestExpressionEvaluator_Evaluate(t *testing.T) {
 	})
 
 	t.Run("CoalesceOperatorReturnsExistingValue", func(t *testing.T) {
-		evaluator, mockConfigHandler, _, _ := setupEvaluatorTest(t)
+		subject, mockConfigHandler, _, _ := setupEvaluatorTest(t)
 		mockHandler := mockConfigHandler.(*config.MockConfigHandler)
 		mockHandler.GetContextValuesFunc = func() (map[string]any, error) {
 			return map[string]any{
@@ -713,7 +700,7 @@ func TestExpressionEvaluator_Evaluate(t *testing.T) {
 			}, nil
 		}
 
-		result, err := evaluator.Evaluate("${settings.database.port ?? 5432}", "", nil, false)
+		result, err := subject.Evaluate("${settings.database.port ?? 5432}", "", nil, false)
 
 		if err != nil {
 			t.Fatalf("Expected no error with coalesce operator, got: %v", err)
@@ -725,13 +712,13 @@ func TestExpressionEvaluator_Evaluate(t *testing.T) {
 	})
 
 	t.Run("DoesNotErrorWhenRootPropertyIsMissing", func(t *testing.T) {
-		evaluator, mockConfigHandler, _, _ := setupEvaluatorTest(t)
+		subject, mockConfigHandler, _, _ := setupEvaluatorTest(t)
 		mockHandler := mockConfigHandler.(*config.MockConfigHandler)
 		mockHandler.GetContextValuesFunc = func() (map[string]any, error) {
 			return map[string]any{}, nil
 		}
 
-		result, err := evaluator.Evaluate("${nonexistent.nested.property}", "", nil, false)
+		result, err := subject.Evaluate("${nonexistent.nested.property}", "", nil, false)
 
 		if err != nil {
 			t.Fatalf("Expected no error when root property is missing, got: %v", err)
@@ -743,13 +730,13 @@ func TestExpressionEvaluator_Evaluate(t *testing.T) {
 	})
 
 	t.Run("CoalesceOperatorWorksWhenRootPropertyIsMissing", func(t *testing.T) {
-		evaluator, mockConfigHandler, _, _ := setupEvaluatorTest(t)
+		subject, mockConfigHandler, _, _ := setupEvaluatorTest(t)
 		mockHandler := mockConfigHandler.(*config.MockConfigHandler)
 		mockHandler.GetContextValuesFunc = func() (map[string]any, error) {
 			return map[string]any{}, nil
 		}
 
-		result, err := evaluator.Evaluate("${nonexistent.nested.property ?? \"default\"}", "", nil, false)
+		result, err := subject.Evaluate("${nonexistent.nested.property ?? \"default\"}", "", nil, false)
 
 		if err != nil {
 			t.Fatalf("Expected no error with coalesce on missing root property, got: %v", err)
@@ -761,7 +748,7 @@ func TestExpressionEvaluator_Evaluate(t *testing.T) {
 	})
 
 	t.Run("BooleanExpressionWithMissingPropertyReturnsFalse", func(t *testing.T) {
-		evaluator, mockConfigHandler, _, _ := setupEvaluatorTest(t)
+		subject, mockConfigHandler, _, _ := setupEvaluatorTest(t)
 		mockHandler := mockConfigHandler.(*config.MockConfigHandler)
 		mockHandler.GetContextValuesFunc = func() (map[string]any, error) {
 			return map[string]any{
@@ -769,7 +756,7 @@ func TestExpressionEvaluator_Evaluate(t *testing.T) {
 			}, nil
 		}
 
-		result, err := evaluator.Evaluate("${features.experimental.enabled ?? false}", "", nil, false)
+		result, err := subject.Evaluate("${features.experimental.enabled ?? false}", "", nil, false)
 
 		if err != nil {
 			t.Fatalf("Expected no error with boolean coalesce, got: %v", err)
@@ -781,13 +768,13 @@ func TestExpressionEvaluator_Evaluate(t *testing.T) {
 	})
 
 	t.Run("ExtractsFullExpressionWhenContainingEmptyMapLiteral", func(t *testing.T) {
-		evaluator, mockConfigHandler, _, _ := setupEvaluatorTest(t)
+		subject, mockConfigHandler, _, _ := setupEvaluatorTest(t)
 		mockHandler := mockConfigHandler.(*config.MockConfigHandler)
 		mockHandler.GetContextValuesFunc = func() (map[string]any, error) {
 			return map[string]any{}, nil
 		}
 
-		result, err := evaluator.Evaluate("${nonexistent ?? {}}", "", nil, false)
+		result, err := subject.Evaluate("${nonexistent ?? {}}", "", nil, false)
 
 		if err != nil {
 			t.Fatalf("Expected no error (brace-balanced extraction), got: %v", err)
@@ -802,9 +789,9 @@ func TestExpressionEvaluator_Evaluate(t *testing.T) {
 	})
 
 	t.Run("ReturnsErrorForUnclosedExpression", func(t *testing.T) {
-		evaluator, _, _, _ := setupEvaluatorTest(t)
+		subject, _, _, _ := setupEvaluatorTest(t)
 
-		_, err := evaluator.Evaluate("${unclosed", "", nil, false)
+		_, err := subject.Evaluate("${unclosed", "", nil, false)
 
 		if err == nil {
 			t.Error("Expected error for unclosed expression")
@@ -821,14 +808,14 @@ func TestExpressionEvaluator_Evaluate(t *testing.T) {
 	t.Run("ReturnsOriginalUnclosedErrorForAPlainLaterTypoNotProducedByNesting", func(t *testing.T) {
 		// Given a string with one expression that resolves fine and a second, independent
 		// expression that was already unclosed in the original literal input
-		evaluator, mockConfigHandler, _, _ := setupEvaluatorTest(t)
+		subject, mockConfigHandler, _, _ := setupEvaluatorTest(t)
 		mockHandler := mockConfigHandler.(*config.MockConfigHandler)
 		mockHandler.GetContextValuesFunc = func() (map[string]any, error) {
 			return map[string]any{"b": "X"}, nil
 		}
 
 		// When evaluating the string
-		_, err := evaluator.Evaluate("${b} rest ${bad", "", nil, false)
+		_, err := subject.Evaluate("${b} rest ${bad", "", nil, false)
 
 		// Then the original-input message is returned, not the nested-rescan message — the first
 		// expression resolving successfully must not misattribute the second's plain typo
@@ -847,14 +834,14 @@ func TestExpressionEvaluator_Evaluate(t *testing.T) {
 		// Given a single expression whose own result (from string()) is itself a string that
 		// still contains an unresolved, unclosed expression — the pattern a preserved/deferred
 		// value produces once embedded in a larger value and stringified
-		evaluator, mockConfigHandler, _, _ := setupEvaluatorTest(t)
+		subject, mockConfigHandler, _, _ := setupEvaluatorTest(t)
 		mockHandler := mockConfigHandler.(*config.MockConfigHandler)
 		mockHandler.GetContextValuesFunc = func() (map[string]any, error) {
 			return map[string]any{"b": "X", "raw": "${b} tail ${nope"}, nil
 		}
 
 		// When evaluating the string
-		_, err := evaluator.Evaluate("${string(raw)}", "", nil, false)
+		_, err := subject.Evaluate("${string(raw)}", "", nil, false)
 
 		// Then the nested-rescan message names the cause instead of dumping the original input
 		if err == nil {
@@ -872,7 +859,7 @@ func TestExpressionEvaluator_Evaluate(t *testing.T) {
 	})
 
 	t.Run("SingleExprStringWithNestedExpressionContinuesUntilResolved", func(t *testing.T) {
-		evaluator, mockConfigHandler, _, _ := setupEvaluatorTest(t)
+		subject, mockConfigHandler, _, _ := setupEvaluatorTest(t)
 		mockHandler := mockConfigHandler.(*config.MockConfigHandler)
 		mockHandler.GetContextValuesFunc = func() (map[string]any, error) {
 			return map[string]any{
@@ -881,7 +868,7 @@ func TestExpressionEvaluator_Evaluate(t *testing.T) {
 			}, nil
 		}
 
-		result, err := evaluator.Evaluate(" ${ref} ", "", nil, true)
+		result, err := subject.Evaluate(" ${ref} ", "", nil, true)
 
 		if err != nil {
 			t.Fatalf("Expected no error, got: %v", err)
@@ -894,9 +881,9 @@ func TestExpressionEvaluator_Evaluate(t *testing.T) {
 
 func TestExpressionEvaluator_EvaluateMap(t *testing.T) {
 	t.Run("HandlesEmptyMap", func(t *testing.T) {
-		evaluator, _, _, _ := setupEvaluatorTest(t)
+		subject, _, _, _ := setupEvaluatorTest(t)
 
-		result, err := evaluator.EvaluateMap(map[string]any{}, "", nil, false)
+		result, err := subject.EvaluateMap(map[string]any{}, "", nil, false)
 
 		if err != nil {
 			t.Fatalf("Expected no error, got: %v", err)
@@ -908,7 +895,7 @@ func TestExpressionEvaluator_EvaluateMap(t *testing.T) {
 	})
 
 	t.Run("PreservesNonStringValues", func(t *testing.T) {
-		evaluator, _, _, _ := setupEvaluatorTest(t)
+		subject, _, _, _ := setupEvaluatorTest(t)
 
 		values := map[string]any{
 			"count":   42,
@@ -917,7 +904,7 @@ func TestExpressionEvaluator_EvaluateMap(t *testing.T) {
 			"nested":  map[string]any{"key": "value"},
 		}
 
-		result, err := evaluator.EvaluateMap(values, "", nil, false)
+		result, err := subject.EvaluateMap(values, "", nil, false)
 
 		if err != nil {
 			t.Fatalf("Expected no error, got: %v", err)
@@ -941,7 +928,7 @@ func TestExpressionEvaluator_EvaluateMap(t *testing.T) {
 	})
 
 	t.Run("EvaluatesStringExpressions", func(t *testing.T) {
-		evaluator, mockConfigHandler, _, _ := setupEvaluatorTest(t)
+		subject, mockConfigHandler, _, _ := setupEvaluatorTest(t)
 		mockHandler := mockConfigHandler.(*config.MockConfigHandler)
 		mockHandler.GetContextValuesFunc = func() (map[string]any, error) {
 			return map[string]any{
@@ -954,7 +941,7 @@ func TestExpressionEvaluator_EvaluateMap(t *testing.T) {
 			"expression": "${value}",
 		}
 
-		result, err := evaluator.EvaluateMap(values, "", nil, false)
+		result, err := subject.EvaluateMap(values, "", nil, false)
 
 		if err != nil {
 			t.Fatalf("Expected no error, got: %v", err)
@@ -970,7 +957,7 @@ func TestExpressionEvaluator_EvaluateMap(t *testing.T) {
 	})
 
 	t.Run("SkipsUnresolvedExpressionsWhenEvaluateDeferredIsFalse", func(t *testing.T) {
-		mockEvaluator := NewMockExpressionEvaluator()
+		mockEvaluator := evaluator.NewMockExpressionEvaluator()
 		mockEvaluator.EvaluateMapFunc = func(values map[string]any, facetPath string, scope map[string]any, evaluateDeferred bool) (map[string]any, error) {
 			result := make(map[string]any)
 			for key, value := range values {
@@ -1003,7 +990,7 @@ func TestExpressionEvaluator_EvaluateMap(t *testing.T) {
 	})
 
 	t.Run("IncludesUnresolvedExpressionsWhenEvaluateDeferredIsTrue", func(t *testing.T) {
-		mockEvaluator := NewMockExpressionEvaluator()
+		mockEvaluator := evaluator.NewMockExpressionEvaluator()
 		mockEvaluator.EvaluateMapFunc = func(values map[string]any, facetPath string, scope map[string]any, evaluateDeferred bool) (map[string]any, error) {
 			return values, nil
 		}
@@ -1029,7 +1016,7 @@ func TestExpressionEvaluator_EvaluateMap(t *testing.T) {
 	})
 
 	t.Run("ReturnsErrorOnEvaluationFailure", func(t *testing.T) {
-		mockEvaluator := NewMockExpressionEvaluator()
+		mockEvaluator := evaluator.NewMockExpressionEvaluator()
 		mockEvaluator.EvaluateMapFunc = func(values map[string]any, facetPath string, scope map[string]any, evaluateDeferred bool) (map[string]any, error) {
 			return nil, errors.New("failed to evaluate 'bad': evaluation failed")
 		}
@@ -1054,7 +1041,7 @@ func TestExpressionEvaluator_EvaluateMap(t *testing.T) {
 	})
 
 	t.Run("HandlesMixedValueTypes", func(t *testing.T) {
-		evaluator, mockConfigHandler, _, _ := setupEvaluatorTest(t)
+		subject, mockConfigHandler, _, _ := setupEvaluatorTest(t)
 		mockHandler := mockConfigHandler.(*config.MockConfigHandler)
 		mockHandler.GetContextValuesFunc = func() (map[string]any, error) {
 			return map[string]any{
@@ -1070,7 +1057,7 @@ func TestExpressionEvaluator_EvaluateMap(t *testing.T) {
 			"evaluated": "${value}",
 		}
 
-		result, err := evaluator.EvaluateMap(values, "", nil, false)
+		result, err := subject.EvaluateMap(values, "", nil, false)
 
 		if err != nil {
 			t.Fatalf("Expected no error, got: %v", err)
@@ -1094,7 +1081,7 @@ func TestExpressionEvaluator_EvaluateMap(t *testing.T) {
 	})
 
 	t.Run("RecursivelyEvaluatesNestedMaps", func(t *testing.T) {
-		evaluator, mockConfigHandler, _, _ := setupEvaluatorTest(t)
+		subject, mockConfigHandler, _, _ := setupEvaluatorTest(t)
 		mockHandler := mockConfigHandler.(*config.MockConfigHandler)
 		mockHandler.GetContextValuesFunc = func() (map[string]any, error) {
 			return map[string]any{
@@ -1108,7 +1095,7 @@ func TestExpressionEvaluator_EvaluateMap(t *testing.T) {
 			},
 		}
 
-		result, err := evaluator.EvaluateMap(values, "", nil, false)
+		result, err := subject.EvaluateMap(values, "", nil, false)
 
 		if err != nil {
 			t.Fatalf("Expected no error, got: %v", err)
@@ -1125,7 +1112,7 @@ func TestExpressionEvaluator_EvaluateMap(t *testing.T) {
 	})
 
 	t.Run("RecursivelyEvaluatesArrays", func(t *testing.T) {
-		evaluator, mockConfigHandler, _, _ := setupEvaluatorTest(t)
+		subject, mockConfigHandler, _, _ := setupEvaluatorTest(t)
 		mockHandler := mockConfigHandler.(*config.MockConfigHandler)
 		mockHandler.GetContextValuesFunc = func() (map[string]any, error) {
 			return map[string]any{
@@ -1140,7 +1127,7 @@ func TestExpressionEvaluator_EvaluateMap(t *testing.T) {
 			},
 		}
 
-		result, err := evaluator.EvaluateMap(values, "", nil, false)
+		result, err := subject.EvaluateMap(values, "", nil, false)
 
 		if err != nil {
 			t.Fatalf("Expected no error, got: %v", err)
@@ -1165,7 +1152,7 @@ func TestExpressionEvaluator_EvaluateMap(t *testing.T) {
 	})
 
 	t.Run("PreservesDeferredExpressionsInMaps", func(t *testing.T) {
-		evaluator, _, _, _ := setupEvaluatorTest(t)
+		subject, _, _, _ := setupEvaluatorTest(t)
 
 		values := map[string]any{
 			"nested": map[string]any{
@@ -1174,7 +1161,7 @@ func TestExpressionEvaluator_EvaluateMap(t *testing.T) {
 			},
 		}
 
-		result, err := evaluator.EvaluateMap(values, "", nil, false)
+		result, err := subject.EvaluateMap(values, "", nil, false)
 
 		if err != nil {
 			t.Fatalf("Expected no error, got: %v", err)
@@ -1191,7 +1178,7 @@ func TestExpressionEvaluator_EvaluateMap(t *testing.T) {
 	})
 
 	t.Run("PreservesDeferredExpressionsInArrays", func(t *testing.T) {
-		evaluator, _, _, _ := setupEvaluatorTest(t)
+		subject, _, _, _ := setupEvaluatorTest(t)
 
 		values := map[string]any{
 			"items": []any{
@@ -1200,7 +1187,7 @@ func TestExpressionEvaluator_EvaluateMap(t *testing.T) {
 			},
 		}
 
-		result, err := evaluator.EvaluateMap(values, "", nil, false)
+		result, err := subject.EvaluateMap(values, "", nil, false)
 
 		if err != nil {
 			t.Fatalf("Expected no error, got: %v", err)
@@ -1221,7 +1208,7 @@ func TestExpressionEvaluator_EvaluateMap(t *testing.T) {
 	})
 
 	t.Run("HandlesNonDeferredErrorInNestedMap", func(t *testing.T) {
-		evaluator, _, _, _ := setupEvaluatorTest(t)
+		subject, _, _, _ := setupEvaluatorTest(t)
 
 		values := map[string]any{
 			"nested": map[string]any{
@@ -1229,7 +1216,7 @@ func TestExpressionEvaluator_EvaluateMap(t *testing.T) {
 			},
 		}
 
-		_, err := evaluator.EvaluateMap(values, "", nil, false)
+		_, err := subject.EvaluateMap(values, "", nil, false)
 
 		if err == nil {
 			t.Fatal("Expected error for invalid expression")
@@ -1237,7 +1224,7 @@ func TestExpressionEvaluator_EvaluateMap(t *testing.T) {
 	})
 
 	t.Run("HandlesNonDeferredErrorInNestedArray", func(t *testing.T) {
-		evaluator, _, _, _ := setupEvaluatorTest(t)
+		subject, _, _, _ := setupEvaluatorTest(t)
 
 		values := map[string]any{
 			"items": []any{
@@ -1245,7 +1232,7 @@ func TestExpressionEvaluator_EvaluateMap(t *testing.T) {
 			},
 		}
 
-		_, err := evaluator.EvaluateMap(values, "", nil, false)
+		_, err := subject.EvaluateMap(values, "", nil, false)
 
 		if err == nil {
 			t.Fatal("Expected error for invalid expression")
@@ -1253,14 +1240,14 @@ func TestExpressionEvaluator_EvaluateMap(t *testing.T) {
 	})
 
 	t.Run("HandlesDefaultCaseInEvaluateValue", func(t *testing.T) {
-		evaluator, _, _, _ := setupEvaluatorTest(t)
+		subject, _, _, _ := setupEvaluatorTest(t)
 
 		values := map[string]any{
 			"number": 42,
 			"bool":   true,
 		}
 
-		result, err := evaluator.EvaluateMap(values, "", nil, false)
+		result, err := subject.EvaluateMap(values, "", nil, false)
 
 		if err != nil {
 			t.Fatalf("Expected no error, got: %v", err)
@@ -1276,13 +1263,13 @@ func TestExpressionEvaluator_EvaluateMap(t *testing.T) {
 	})
 
 	t.Run("HandlesDeferredErrorInStringEvaluation", func(t *testing.T) {
-		evaluator, _, _, _ := setupEvaluatorTest(t)
+		subject, _, _, _ := setupEvaluatorTest(t)
 
 		values := map[string]any{
 			"deferred": "plain_string",
 		}
 
-		result, err := evaluator.EvaluateMap(values, "", nil, false)
+		result, err := subject.EvaluateMap(values, "", nil, false)
 
 		if err != nil {
 			t.Fatalf("Expected no error, got: %v", err)
@@ -1295,7 +1282,7 @@ func TestExpressionEvaluator_EvaluateMap(t *testing.T) {
 
 	t.Run("HandlesMapWithExpressionInEvaluatedValue", func(t *testing.T) {
 		// Given an evaluator with config that returns an expression
-		evaluator, mockConfigHandler, _, _ := setupEvaluatorTest(t)
+		subject, mockConfigHandler, _, _ := setupEvaluatorTest(t)
 		mockHandler := mockConfigHandler.(*config.MockConfigHandler)
 		mockHandler.GetContextValuesFunc = func() (map[string]any, error) {
 			return map[string]any{
@@ -1310,7 +1297,7 @@ func TestExpressionEvaluator_EvaluateMap(t *testing.T) {
 		}
 
 		// When evaluating the map (nested expressions are re-evaluated)
-		result, err := evaluator.EvaluateMap(values, "", nil, false)
+		result, err := subject.EvaluateMap(values, "", nil, false)
 		if err != nil {
 			t.Fatalf("Expected no error, got: %v", err)
 		}
@@ -1328,7 +1315,7 @@ func TestExpressionEvaluator_EvaluateMap(t *testing.T) {
 
 	t.Run("HandlesArrayWithExpressionInEvaluatedValue", func(t *testing.T) {
 		// Given an evaluator with config that returns an expression
-		evaluator, mockConfigHandler, _, _ := setupEvaluatorTest(t)
+		subject, mockConfigHandler, _, _ := setupEvaluatorTest(t)
 		mockHandler := mockConfigHandler.(*config.MockConfigHandler)
 		mockHandler.GetContextValuesFunc = func() (map[string]any, error) {
 			return map[string]any{
@@ -1343,7 +1330,7 @@ func TestExpressionEvaluator_EvaluateMap(t *testing.T) {
 		}
 
 		// When evaluating the map (nested expressions are re-evaluated)
-		result, err := evaluator.EvaluateMap(values, "", nil, false)
+		result, err := subject.EvaluateMap(values, "", nil, false)
 		if err != nil {
 			t.Fatalf("Expected no error, got: %v", err)
 		}
@@ -1360,7 +1347,7 @@ func TestExpressionEvaluator_EvaluateMap(t *testing.T) {
 	})
 
 	t.Run("MarksResultDeferredWhenEvaluatedIsStringWithExpression", func(t *testing.T) {
-		evaluator, mockConfigHandler, _, _ := setupEvaluatorTest(t)
+		subject, mockConfigHandler, _, _ := setupEvaluatorTest(t)
 		mockHandler := mockConfigHandler.(*config.MockConfigHandler)
 		mockHandler.GetContextValuesFunc = func() (map[string]any, error) {
 			return map[string]any{"foo": "${foo}"}, nil
@@ -1368,15 +1355,15 @@ func TestExpressionEvaluator_EvaluateMap(t *testing.T) {
 
 		values := map[string]any{"x": "${foo}"}
 
-		result, err := evaluator.EvaluateMap(values, "", nil, false)
+		result, err := subject.EvaluateMap(values, "", nil, false)
 
 		if err != nil {
 			t.Fatalf("Expected no error, got: %v", err)
 		}
-		if !IsDeferredValue(result["x"]) {
+		if !evaluator.IsDeferredValue(result["x"]) {
 			t.Fatalf("Expected deferred value when evaluated string still contains an expression, got %T (%v)", result["x"], result["x"])
 		}
-		expr, ok := DeferredExpression(result["x"])
+		expr, ok := evaluator.DeferredExpression(result["x"])
 		if !ok || expr != "${foo}" {
 			t.Errorf("Expected deferred expression %q, got %q (ok=%v)", "${foo}", expr, ok)
 		}
@@ -1384,7 +1371,7 @@ func TestExpressionEvaluator_EvaluateMap(t *testing.T) {
 
 	t.Run("HandlesEvaluateDeferredTrueInNestedStructures", func(t *testing.T) {
 		// Given an evaluator with config and nested map values
-		evaluator, mockConfigHandler, _, _ := setupEvaluatorTest(t)
+		subject, mockConfigHandler, _, _ := setupEvaluatorTest(t)
 		mockHandler := mockConfigHandler.(*config.MockConfigHandler)
 		mockHandler.GetContextValuesFunc = func() (map[string]any, error) {
 			return map[string]any{
@@ -1399,7 +1386,7 @@ func TestExpressionEvaluator_EvaluateMap(t *testing.T) {
 		}
 
 		// When evaluating with evaluateDeferred=true
-		result, err := evaluator.EvaluateMap(values, "", nil, true)
+		result, err := subject.EvaluateMap(values, "", nil, true)
 
 		// Then nested values should be evaluated
 		if err != nil {
@@ -1418,7 +1405,7 @@ func TestExpressionEvaluator_EvaluateMap(t *testing.T) {
 
 	t.Run("HandlesEvaluateDeferredTrueWithArray", func(t *testing.T) {
 		// Given an evaluator with config and array values
-		evaluator, mockConfigHandler, _, _ := setupEvaluatorTest(t)
+		subject, mockConfigHandler, _, _ := setupEvaluatorTest(t)
 		mockHandler := mockConfigHandler.(*config.MockConfigHandler)
 		mockHandler.GetContextValuesFunc = func() (map[string]any, error) {
 			return map[string]any{
@@ -1434,7 +1421,7 @@ func TestExpressionEvaluator_EvaluateMap(t *testing.T) {
 		}
 
 		// When evaluating with evaluateDeferred=true
-		result, err := evaluator.EvaluateMap(values, "", nil, true)
+		result, err := subject.EvaluateMap(values, "", nil, true)
 
 		// Then array values should be evaluated
 		if err != nil {
@@ -1453,14 +1440,14 @@ func TestExpressionEvaluator_EvaluateMap(t *testing.T) {
 
 	t.Run("HandlesStringEvaluationErrorWithEvaluateDeferredTrue", func(t *testing.T) {
 		// Given an evaluator and invalid expression
-		evaluator, _, _, _ := setupEvaluatorTest(t)
+		subject, _, _, _ := setupEvaluatorTest(t)
 
 		values := map[string]any{
 			"invalid": "${invalid syntax {",
 		}
 
 		// When evaluating with evaluateDeferred=true
-		_, err := evaluator.EvaluateMap(values, "", nil, true)
+		_, err := subject.EvaluateMap(values, "", nil, true)
 
 		// Then it should return an error
 		if err == nil {
@@ -1470,7 +1457,7 @@ func TestExpressionEvaluator_EvaluateMap(t *testing.T) {
 
 	t.Run("HandlesMapEvaluationErrorWithEvaluateDeferredTrue", func(t *testing.T) {
 		// Given an evaluator and nested map with invalid expression
-		evaluator, _, _, _ := setupEvaluatorTest(t)
+		subject, _, _, _ := setupEvaluatorTest(t)
 
 		values := map[string]any{
 			"nested": map[string]any{
@@ -1479,7 +1466,7 @@ func TestExpressionEvaluator_EvaluateMap(t *testing.T) {
 		}
 
 		// When evaluating with evaluateDeferred=true
-		_, err := evaluator.EvaluateMap(values, "", nil, true)
+		_, err := subject.EvaluateMap(values, "", nil, true)
 
 		// Then it should return an error
 		if err == nil {
@@ -1489,7 +1476,7 @@ func TestExpressionEvaluator_EvaluateMap(t *testing.T) {
 
 	t.Run("HandlesArrayEvaluationErrorWithEvaluateDeferredTrue", func(t *testing.T) {
 		// Given an evaluator and array with invalid expression
-		evaluator, _, _, _ := setupEvaluatorTest(t)
+		subject, _, _, _ := setupEvaluatorTest(t)
 
 		values := map[string]any{
 			"items": []any{
@@ -1498,7 +1485,7 @@ func TestExpressionEvaluator_EvaluateMap(t *testing.T) {
 		}
 
 		// When evaluating with evaluateDeferred=true
-		_, err := evaluator.EvaluateMap(values, "", nil, true)
+		_, err := subject.EvaluateMap(values, "", nil, true)
 
 		// Then it should return an error
 		if err == nil {
@@ -1508,7 +1495,7 @@ func TestExpressionEvaluator_EvaluateMap(t *testing.T) {
 
 	t.Run("HandlesStringWithEvaluateDeferredTrue", func(t *testing.T) {
 		// Given an evaluator with config
-		evaluator, mockConfigHandler, _, _ := setupEvaluatorTest(t)
+		subject, mockConfigHandler, _, _ := setupEvaluatorTest(t)
 		mockHandler := mockConfigHandler.(*config.MockConfigHandler)
 		mockHandler.GetContextValuesFunc = func() (map[string]any, error) {
 			return map[string]any{
@@ -1521,7 +1508,7 @@ func TestExpressionEvaluator_EvaluateMap(t *testing.T) {
 		}
 
 		// When evaluating with evaluateDeferred=true
-		result, err := evaluator.EvaluateMap(values, "", nil, true)
+		result, err := subject.EvaluateMap(values, "", nil, true)
 
 		// Then the value should be evaluated
 		if err != nil {
@@ -1535,14 +1522,14 @@ func TestExpressionEvaluator_EvaluateMap(t *testing.T) {
 
 	t.Run("HandlesNonDeferredErrorInStringWithEvaluateDeferredFalse", func(t *testing.T) {
 		// Given an evaluator and invalid expression
-		evaluator, _, _, _ := setupEvaluatorTest(t)
+		subject, _, _, _ := setupEvaluatorTest(t)
 
 		values := map[string]any{
 			"invalid": "${invalid syntax {",
 		}
 
 		// When evaluating with evaluateDeferred=false
-		_, err := evaluator.EvaluateMap(values, "", nil, false)
+		_, err := subject.EvaluateMap(values, "", nil, false)
 
 		// Then it should return an error
 		if err == nil {
@@ -1552,7 +1539,7 @@ func TestExpressionEvaluator_EvaluateMap(t *testing.T) {
 
 	t.Run("HandlesNonDeferredErrorInMapWithEvaluateDeferredFalse", func(t *testing.T) {
 		// Given an evaluator and nested map with invalid expression
-		evaluator, _, _, _ := setupEvaluatorTest(t)
+		subject, _, _, _ := setupEvaluatorTest(t)
 
 		values := map[string]any{
 			"nested": map[string]any{
@@ -1561,7 +1548,7 @@ func TestExpressionEvaluator_EvaluateMap(t *testing.T) {
 		}
 
 		// When evaluating with evaluateDeferred=false
-		_, err := evaluator.EvaluateMap(values, "", nil, false)
+		_, err := subject.EvaluateMap(values, "", nil, false)
 
 		// Then it should return an error
 		if err == nil {
@@ -1571,7 +1558,7 @@ func TestExpressionEvaluator_EvaluateMap(t *testing.T) {
 
 	t.Run("HandlesNonDeferredErrorInArrayWithEvaluateDeferredFalse", func(t *testing.T) {
 		// Given an evaluator and array with invalid expression
-		evaluator, _, _, _ := setupEvaluatorTest(t)
+		subject, _, _, _ := setupEvaluatorTest(t)
 
 		values := map[string]any{
 			"items": []any{
@@ -1580,7 +1567,7 @@ func TestExpressionEvaluator_EvaluateMap(t *testing.T) {
 		}
 
 		// When evaluating with evaluateDeferred=false
-		_, err := evaluator.EvaluateMap(values, "", nil, false)
+		_, err := subject.EvaluateMap(values, "", nil, false)
 
 		// Then it should return an error
 		if err == nil {
@@ -1590,7 +1577,7 @@ func TestExpressionEvaluator_EvaluateMap(t *testing.T) {
 
 	t.Run("PassesFacetPathToEvaluate", func(t *testing.T) {
 		// Given a mock evaluator that captures feature path
-		mockEvaluator := NewMockExpressionEvaluator()
+		mockEvaluator := evaluator.NewMockExpressionEvaluator()
 		var receivedPath string
 		mockEvaluator.EvaluateMapFunc = func(values map[string]any, facetPath string, scope map[string]any, evaluateDeferred bool) (map[string]any, error) {
 			receivedPath = facetPath
@@ -1618,7 +1605,7 @@ func TestExpressionEvaluator_EvaluateMap(t *testing.T) {
 
 	t.Run("HandlesInterpolatedStrings", func(t *testing.T) {
 		// Given an evaluator with config
-		evaluator, mockConfigHandler, _, _ := setupEvaluatorTest(t)
+		subject, mockConfigHandler, _, _ := setupEvaluatorTest(t)
 		mockHandler := mockConfigHandler.(*config.MockConfigHandler)
 		mockHandler.GetContextValuesFunc = func() (map[string]any, error) {
 			return map[string]any{
@@ -1631,7 +1618,7 @@ func TestExpressionEvaluator_EvaluateMap(t *testing.T) {
 		}
 
 		// When evaluating interpolated strings
-		result, err := evaluator.EvaluateMap(values, "", nil, false)
+		result, err := subject.EvaluateMap(values, "", nil, false)
 
 		// Then the interpolation should work
 		if err != nil {
@@ -1645,7 +1632,7 @@ func TestExpressionEvaluator_EvaluateMap(t *testing.T) {
 
 	t.Run("HandlesComplexTypesInExpressions", func(t *testing.T) {
 		// Given an evaluator with config containing complex types
-		evaluator, mockConfigHandler, _, _ := setupEvaluatorTest(t)
+		subject, mockConfigHandler, _, _ := setupEvaluatorTest(t)
 		mockHandler := mockConfigHandler.(*config.MockConfigHandler)
 		mockHandler.GetContextValuesFunc = func() (map[string]any, error) {
 			return map[string]any{
@@ -1660,7 +1647,7 @@ func TestExpressionEvaluator_EvaluateMap(t *testing.T) {
 		}
 
 		// When evaluating expressions with complex types
-		result, err := evaluator.EvaluateMap(values, "", nil, false)
+		result, err := subject.EvaluateMap(values, "", nil, false)
 
 		// Then complex types should be evaluated correctly
 		if err != nil {
@@ -1678,8 +1665,8 @@ func TestExpressionEvaluator_EvaluateMap(t *testing.T) {
 
 	t.Run("PreventsInfiniteLoopWithDeferredTerraformOutputInInterpolation", func(t *testing.T) {
 		// Given an evaluator with terraform_output helper that returns DeferredError
-		evaluator, _, _, _ := setupEvaluatorTest(t)
-		evaluator.Register("terraform_output", func(params []any, deferred bool) (any, error) {
+		subject, _, _, _ := setupEvaluatorTest(t)
+		subject.Register("terraform_output", func(params []any, deferred bool) (any, error) {
 			if len(params) != 2 {
 				return nil, fmt.Errorf("terraform_output() requires exactly 2 arguments")
 			}
@@ -1688,7 +1675,7 @@ func TestExpressionEvaluator_EvaluateMap(t *testing.T) {
 			if deferred {
 				return nil, fmt.Errorf("terraform outputs not available for component %s", component)
 			}
-			return nil, &DeferredError{
+			return nil, &evaluator.DeferredError{
 				Expression: fmt.Sprintf(`terraform_output("%s", "%s")`, component, key),
 				Message:    fmt.Sprintf("terraform output '%s' for component %s is deferred", key, component),
 			}
@@ -1697,17 +1684,17 @@ func TestExpressionEvaluator_EvaluateMap(t *testing.T) {
 		input := "prefix-${terraform_output('a','b')}-suffix"
 
 		// When evaluating with deferred expression
-		result, err := evaluator.Evaluate(input, "", nil, false)
+		result, err := subject.Evaluate(input, "", nil, false)
 
 		// Then the original input should be preserved
 		if err != nil {
 			t.Fatalf("Expected no error, got: %v", err)
 		}
 
-		if !IsDeferredValue(result) {
+		if !evaluator.IsDeferredValue(result) {
 			t.Fatalf("Expected deferred value, got %T", result)
 		}
-		expr, ok := DeferredExpression(result)
+		expr, ok := evaluator.DeferredExpression(result)
 		if !ok {
 			t.Fatalf("Expected deferred expression to be available")
 		}
@@ -1719,15 +1706,15 @@ func TestExpressionEvaluator_EvaluateMap(t *testing.T) {
 	t.Run("MarksFixedPointUnresolvedExpressionAsDeferred", func(t *testing.T) {
 		// Given a helper whose result, once re-scanned, is identical to the original expression
 		// (no DeferredError raised, so the loop reaches a fixed point with residual "${...}" text)
-		evaluator, _, _, _ := setupEvaluatorTest(t)
-		evaluator.Register("echoSelf", func(params []any, deferred bool) (any, error) {
+		subject, _, _, _ := setupEvaluatorTest(t)
+		subject.Register("echoSelf", func(params []any, deferred bool) (any, error) {
 			return "${echoSelf()}", nil
 		}, new(func() any))
 
 		input := "${echoSelf()}"
 
 		// When evaluating the self-referential expression
-		result, err := evaluator.Evaluate(input, "", nil, false)
+		result, err := subject.Evaluate(input, "", nil, false)
 
 		// Then it must be marked deferred rather than silently returned as resolved text
 		assertDeferredExpression(t, result, err, input)
@@ -1736,15 +1723,15 @@ func TestExpressionEvaluator_EvaluateMap(t *testing.T) {
 	t.Run("MarksSoleStructuredResultWithResidualExpressionAsDeferred", func(t *testing.T) {
 		// Given a helper that is the entire expression string and returns a structured (map) result
 		// still containing an unresolved nested expression once marshaled
-		evaluator, _, _, _ := setupEvaluatorTest(t)
-		evaluator.Register("nestedConfigSolo", func(params []any, deferred bool) (any, error) {
+		subject, _, _, _ := setupEvaluatorTest(t)
+		subject.Register("nestedConfigSolo", func(params []any, deferred bool) (any, error) {
 			return map[string]any{"key": "${still_unresolved}"}, nil
 		}, new(func() any))
 
 		input := "${nestedConfigSolo()}"
 
 		// When evaluating the sole structured-result expression
-		result, err := evaluator.Evaluate(input, "", nil, false)
+		result, err := subject.Evaluate(input, "", nil, false)
 
 		// Then it must be marked deferred rather than silently returned as a resolved structured value
 		assertDeferredExpression(t, result, err, input)
@@ -1753,15 +1740,15 @@ func TestExpressionEvaluator_EvaluateMap(t *testing.T) {
 	t.Run("MarksEmbeddedStructuredResultWithResidualExpressionAsDeferred", func(t *testing.T) {
 		// Given a helper embedded mid-string whose structured (map) result still contains an
 		// unresolved nested expression once marshaled, so the marshaled text still contains "${...}"
-		evaluator, _, _, _ := setupEvaluatorTest(t)
-		evaluator.Register("nestedConfig", func(params []any, deferred bool) (any, error) {
+		subject, _, _, _ := setupEvaluatorTest(t)
+		subject.Register("nestedConfig", func(params []any, deferred bool) (any, error) {
 			return map[string]any{"key": "${still_unresolved}"}, nil
 		}, new(func() any))
 
 		input := "prefix-${nestedConfig()}-suffix"
 
 		// When evaluating the embedded expression
-		result, err := evaluator.Evaluate(input, "", nil, false)
+		result, err := subject.Evaluate(input, "", nil, false)
 
 		// Then it must be marked deferred rather than silently returned as a resolved structured value
 		assertDeferredExpression(t, result, err, input)
@@ -1770,15 +1757,15 @@ func TestExpressionEvaluator_EvaluateMap(t *testing.T) {
 	t.Run("MarksExhaustedIterationResultWithResidualExpressionAsDeferred", func(t *testing.T) {
 		// Given a helper embedded mid-string whose result echoes its own call text verbatim, so the
 		// loop makes no progress across all 20 iterations without ever raising a DeferredError
-		evaluator, _, _, _ := setupEvaluatorTest(t)
-		evaluator.Register("echoSelfEmbedded", func(params []any, deferred bool) (any, error) {
+		subject, _, _, _ := setupEvaluatorTest(t)
+		subject.Register("echoSelfEmbedded", func(params []any, deferred bool) (any, error) {
 			return "${echoSelfEmbedded()}", nil
 		}, new(func() any))
 
 		input := "prefix-${echoSelfEmbedded()}-suffix"
 
 		// When evaluating the embedded self-referential expression
-		result, err := evaluator.Evaluate(input, "", nil, false)
+		result, err := subject.Evaluate(input, "", nil, false)
 
 		// Then it must be marked deferred rather than silently returned as resolved text
 		assertDeferredExpression(t, result, err, input)
@@ -1788,13 +1775,13 @@ func TestExpressionEvaluator_EvaluateMap(t *testing.T) {
 		// Given the same self-referential helper as the fixed-point case above, but evaluated with
 		// evaluateDeferred=true (the forced, last-chance resolution used by resolveDeferred/secrets),
 		// where there is no later retry to defer to
-		evaluator, _, _, _ := setupEvaluatorTest(t)
-		evaluator.Register("echoSelf", func(params []any, deferred bool) (any, error) {
+		subject, _, _, _ := setupEvaluatorTest(t)
+		subject.Register("echoSelf", func(params []any, deferred bool) (any, error) {
 			return "${echoSelf()}", nil
 		}, new(func() any))
 
 		// When forcing resolution
-		_, err := evaluator.Evaluate("${echoSelf()}", "", nil, true)
+		_, err := subject.Evaluate("${echoSelf()}", "", nil, true)
 
 		// Then it must fail rather than silently returning the still-unresolved text as final
 		if err == nil {
@@ -1807,8 +1794,8 @@ func TestExpressionEvaluator_EvaluateMap(t *testing.T) {
 
 	t.Run("SkipsPartiallyInterpolatedStringsWithUnresolvedExpressions", func(t *testing.T) {
 		// Given an evaluator with terraform_output helper and mixed values
-		evaluator, _, _, _ := setupEvaluatorTest(t)
-		evaluator.Register("terraform_output", func(params []any, deferred bool) (any, error) {
+		subject, _, _, _ := setupEvaluatorTest(t)
+		subject.Register("terraform_output", func(params []any, deferred bool) (any, error) {
 			if len(params) != 2 {
 				return nil, fmt.Errorf("terraform_output() requires exactly 2 arguments")
 			}
@@ -1817,7 +1804,7 @@ func TestExpressionEvaluator_EvaluateMap(t *testing.T) {
 			if deferred {
 				return nil, fmt.Errorf("terraform outputs not available for component %s", component)
 			}
-			return nil, &DeferredError{
+			return nil, &evaluator.DeferredError{
 				Expression: fmt.Sprintf(`terraform_output("%s", "%s")`, component, key),
 				Message:    fmt.Sprintf("terraform output '%s' for component %s is deferred", key, component),
 			}
@@ -1829,7 +1816,7 @@ func TestExpressionEvaluator_EvaluateMap(t *testing.T) {
 		}
 
 		// When evaluating the map
-		result, err := evaluator.EvaluateMap(values, "", nil, false)
+		result, err := subject.EvaluateMap(values, "", nil, false)
 
 		// Then deferred values should be preserved and normal values evaluated
 		if err != nil {
@@ -1840,10 +1827,10 @@ func TestExpressionEvaluator_EvaluateMap(t *testing.T) {
 		if !exists {
 			t.Error("Expected deferred value to be preserved in result")
 		}
-		if !IsDeferredValue(deferredValue) {
+		if !evaluator.IsDeferredValue(deferredValue) {
 			t.Fatalf("Expected deferred map value to be DeferredValue, got %T", deferredValue)
 		}
-		expr, ok := DeferredExpression(deferredValue)
+		expr, ok := evaluator.DeferredExpression(deferredValue)
 		if !ok {
 			t.Fatal("Expected deferred expression from map value")
 		}
@@ -1858,7 +1845,7 @@ func TestExpressionEvaluator_EvaluateMap(t *testing.T) {
 
 	t.Run("HandlesEmptyStringValues", func(t *testing.T) {
 		// Given an evaluator and values with empty strings
-		evaluator, _, _, _ := setupEvaluatorTest(t)
+		subject, _, _, _ := setupEvaluatorTest(t)
 
 		values := map[string]any{
 			"empty":    "",
@@ -1866,7 +1853,7 @@ func TestExpressionEvaluator_EvaluateMap(t *testing.T) {
 		}
 
 		// When evaluating the map
-		result, err := evaluator.EvaluateMap(values, "", nil, false)
+		result, err := subject.EvaluateMap(values, "", nil, false)
 
 		// Then empty strings should be preserved
 		if err != nil {
@@ -1886,13 +1873,13 @@ func TestExpressionEvaluator_EvaluateMap(t *testing.T) {
 
 func TestExpressionEvaluator_Evaluate_Scope(t *testing.T) {
 	t.Run("ResolvesExpressionFromScope", func(t *testing.T) {
-		evaluator, _, _, _ := setupEvaluatorTest(t)
+		subject, _, _, _ := setupEvaluatorTest(t)
 		scope := map[string]any{
 			"talos": map[string]any{
 				"controlplanes": []any{map[string]any{"hostname": "cp0"}},
 			},
 		}
-		result, err := evaluator.Evaluate("${talos.controlplanes}", "", scope, false)
+		result, err := subject.Evaluate("${talos.controlplanes}", "", scope, false)
 		if err != nil {
 			t.Fatalf("Expected no error, got: %v", err)
 		}
@@ -1903,12 +1890,12 @@ func TestExpressionEvaluator_Evaluate_Scope(t *testing.T) {
 	})
 
 	t.Run("ReturnsNilScopeUnchangedBehavior", func(t *testing.T) {
-		evaluator, mockConfigHandler, _, _ := setupEvaluatorTest(t)
+		subject, mockConfigHandler, _, _ := setupEvaluatorTest(t)
 		mockHandler := mockConfigHandler.(*config.MockConfigHandler)
 		mockHandler.GetContextValuesFunc = func() (map[string]any, error) {
 			return map[string]any{"value": 42}, nil
 		}
-		result, err := evaluator.Evaluate("${value}", "", nil, false)
+		result, err := subject.Evaluate("${value}", "", nil, false)
 		if err != nil {
 			t.Fatalf("Expected no error, got: %v", err)
 		}
@@ -1920,14 +1907,14 @@ func TestExpressionEvaluator_Evaluate_Scope(t *testing.T) {
 
 func TestExpressionEvaluator_EvaluateMap_Scope(t *testing.T) {
 	t.Run("ResolvesMapValuesFromScope", func(t *testing.T) {
-		evaluator, _, _, _ := setupEvaluatorTest(t)
+		subject, _, _, _ := setupEvaluatorTest(t)
 		scope := map[string]any{
 			"locals": map[string]any{"cluster_name": "mycluster"},
 		}
 		values := map[string]any{
 			"name": "${locals.cluster_name}",
 		}
-		result, err := evaluator.EvaluateMap(values, "", scope, false)
+		result, err := subject.EvaluateMap(values, "", scope, false)
 		if err != nil {
 			t.Fatalf("Expected no error, got: %v", err)
 		}
@@ -1937,13 +1924,13 @@ func TestExpressionEvaluator_EvaluateMap_Scope(t *testing.T) {
 	})
 
 	t.Run("NilScopeBehavesLikeEvaluateMap", func(t *testing.T) {
-		evaluator, mockConfigHandler, _, _ := setupEvaluatorTest(t)
+		subject, mockConfigHandler, _, _ := setupEvaluatorTest(t)
 		mockHandler := mockConfigHandler.(*config.MockConfigHandler)
 		mockHandler.GetContextValuesFunc = func() (map[string]any, error) {
 			return map[string]any{"x": 10}, nil
 		}
 		values := map[string]any{"a": "${x}"}
-		result, err := evaluator.EvaluateMap(values, "", nil, false)
+		result, err := subject.EvaluateMap(values, "", nil, false)
 		if err != nil {
 			t.Fatalf("Expected no error, got: %v", err)
 		}
@@ -1958,7 +1945,7 @@ func TestContainsExpression(t *testing.T) {
 		// Given a fully wrapped expression
 		// When checking if it contains an expression
 		// Then it should return true
-		if !ContainsExpression("${foo.bar}") {
+		if !evaluator.ContainsExpression("${foo.bar}") {
 			t.Error("Expected ContainsExpression to return true for fully wrapped expression")
 		}
 	})
@@ -1967,7 +1954,7 @@ func TestContainsExpression(t *testing.T) {
 		// Given a partially interpolated string
 		// When checking if it contains an expression
 		// Then it should return true
-		if !ContainsExpression("prefix-${terraform_output('x', 'y')}-suffix") {
+		if !evaluator.ContainsExpression("prefix-${terraform_output('x', 'y')}-suffix") {
 			t.Error("Expected ContainsExpression to return true for partially interpolated string")
 		}
 	})
@@ -1976,16 +1963,16 @@ func TestContainsExpression(t *testing.T) {
 		// Given a string with multiple expressions
 		// When checking if it contains an expression
 		// Then it should return true
-		if !ContainsExpression("${foo}-${bar}") {
+		if !evaluator.ContainsExpression("${foo}-${bar}") {
 			t.Error("Expected ContainsExpression to return true for string with multiple expressions")
 		}
 	})
 
 	t.Run("ReturnsTrueForExpressionWithNestedBraces", func(t *testing.T) {
-		if !ContainsExpression("${x ?? {}}") {
+		if !evaluator.ContainsExpression("${x ?? {}}") {
 			t.Error("Expected ContainsExpression to return true for expression with empty map literal")
 		}
-		if !ContainsExpression(`${[merge(a ?? {}, b ?? {}) for n in values(nodes)]}`) {
+		if !evaluator.ContainsExpression(`${[merge(a ?? {}, b ?? {}) for n in values(nodes)]}`) {
 			t.Error("Expected ContainsExpression to return true for expression with nested braces")
 		}
 	})
@@ -1994,7 +1981,7 @@ func TestContainsExpression(t *testing.T) {
 		// Given a plain string without expression
 		// When checking if it contains an expression
 		// Then it should return false
-		if ContainsExpression("plain string") {
+		if evaluator.ContainsExpression("plain string") {
 			t.Error("Expected ContainsExpression to return false for plain string")
 		}
 	})
@@ -2003,7 +1990,7 @@ func TestContainsExpression(t *testing.T) {
 		// Given a string with unclosed expression
 		// When checking if it contains an expression
 		// Then it should return false
-		if ContainsExpression("${unclosed") {
+		if evaluator.ContainsExpression("${unclosed") {
 			t.Error("Expected ContainsExpression to return false for unclosed expression")
 		}
 	})
@@ -2012,7 +1999,7 @@ func TestContainsExpression(t *testing.T) {
 		// Given a non-string value
 		// When checking if it contains an expression
 		// Then it should return false
-		if ContainsExpression(42) {
+		if evaluator.ContainsExpression(42) {
 			t.Error("Expected ContainsExpression to return false for non-string value")
 		}
 	})
@@ -2021,7 +2008,7 @@ func TestContainsExpression(t *testing.T) {
 		// Given a nil value
 		// When checking if it contains an expression
 		// Then it should return false
-		if ContainsExpression(nil) {
+		if evaluator.ContainsExpression(nil) {
 			t.Error("Expected ContainsExpression to return false for nil")
 		}
 	})
@@ -2030,7 +2017,7 @@ func TestContainsExpression(t *testing.T) {
 		// Given an empty string
 		// When checking if it contains an expression
 		// Then it should return false
-		if ContainsExpression("") {
+		if evaluator.ContainsExpression("") {
 			t.Error("Expected ContainsExpression to return false for empty string")
 		}
 	})
@@ -2043,7 +2030,7 @@ func TestContainsExpression(t *testing.T) {
 
 		// When checking if it contains an expression
 		// Then it should return true
-		if !ContainsExpression(value) {
+		if !evaluator.ContainsExpression(value) {
 			t.Error("Expected ContainsExpression to return true for map with expression")
 		}
 	})
@@ -2056,7 +2043,7 @@ func TestContainsExpression(t *testing.T) {
 
 		// When checking if it contains an expression
 		// Then it should return false
-		if ContainsExpression(value) {
+		if evaluator.ContainsExpression(value) {
 			t.Error("Expected ContainsExpression to return false for map without expression")
 		}
 	})
@@ -2071,7 +2058,7 @@ func TestContainsExpression(t *testing.T) {
 
 		// When checking if it contains an expression
 		// Then it should return true
-		if !ContainsExpression(value) {
+		if !evaluator.ContainsExpression(value) {
 			t.Error("Expected ContainsExpression to return true for nested map with expression")
 		}
 	})
@@ -2082,7 +2069,7 @@ func TestContainsExpression(t *testing.T) {
 
 		// When checking if it contains an expression
 		// Then it should return true
-		if !ContainsExpression(value) {
+		if !evaluator.ContainsExpression(value) {
 			t.Error("Expected ContainsExpression to return true for array with expression")
 		}
 	})
@@ -2093,7 +2080,7 @@ func TestContainsExpression(t *testing.T) {
 
 		// When checking if it contains an expression
 		// Then it should return false
-		if ContainsExpression(value) {
+		if evaluator.ContainsExpression(value) {
 			t.Error("Expected ContainsExpression to return false for array without expression")
 		}
 	})
@@ -2104,7 +2091,7 @@ func TestContainsExpression(t *testing.T) {
 
 		// When checking if it contains an expression
 		// Then it should return true
-		if !ContainsExpression(value) {
+		if !evaluator.ContainsExpression(value) {
 			t.Error("Expected ContainsExpression to return true for nested array with expression")
 		}
 	})
@@ -2115,7 +2102,7 @@ func TestExpressionBody(t *testing.T) {
 		// Given a single-brace expression
 		// When calling ExpressionBody
 		// Then it should return the inner body and true
-		body, ok := ExpressionBody("${ foo.bar }")
+		body, ok := evaluator.ExpressionBody("${ foo.bar }")
 		if !ok {
 			t.Error("Expected ok=true for single-brace expression")
 		}
@@ -2128,7 +2115,7 @@ func TestExpressionBody(t *testing.T) {
 		// Given a double-brace expression that has not been normalized
 		// When calling ExpressionBody
 		// Then it should return false without extracting a malformed body
-		body, ok := ExpressionBody("${{ foo.bar }}")
+		body, ok := evaluator.ExpressionBody("${{ foo.bar }}")
 		if ok {
 			t.Error("Expected ok=false for double-brace expression")
 		}
@@ -2141,7 +2128,7 @@ func TestExpressionBody(t *testing.T) {
 		// Given a plain string
 		// When calling ExpressionBody
 		// Then it should return the trimmed string and false
-		body, ok := ExpressionBody("plain")
+		body, ok := evaluator.ExpressionBody("plain")
 		if ok {
 			t.Error("Expected ok=false for plain string")
 		}
@@ -2157,13 +2144,13 @@ func TestExpressionEvaluator_SetConfigScope(t *testing.T) {
 		// published a config scope that contains it
 		mockConfigHandler := config.NewMockConfigHandler()
 		mockConfigHandler.GetContextValuesFunc = func() (map[string]any, error) { return map[string]any{}, nil }
-		evaluator := NewExpressionEvaluator(mockConfigHandler, "/project", "/template")
-		evaluator.SetConfigScope(map[string]any{
+		subject := evaluator.NewExpressionEvaluator(mockConfigHandler, "/project", "/template")
+		subject.SetConfigScope(map[string]any{
 			"grafana_effective": map[string]any{"client_secret": "grafana-oidc-dev"},
 		})
 
 		// When evaluating a reference to the computed block with a nil scope (as secret resolution does)
-		got, err := evaluator.Evaluate("${grafana_effective.client_secret}", "", nil, true)
+		got, err := subject.Evaluate("${grafana_effective.client_secret}", "", nil, true)
 		if err != nil {
 			t.Fatalf("Expected no error, got %v", err)
 		}
@@ -2178,11 +2165,11 @@ func TestExpressionEvaluator_SetConfigScope(t *testing.T) {
 		// Given a published config scope
 		mockConfigHandler := config.NewMockConfigHandler()
 		mockConfigHandler.GetContextValuesFunc = func() (map[string]any, error) { return map[string]any{}, nil }
-		evaluator := NewExpressionEvaluator(mockConfigHandler, "/project", "/template")
-		evaluator.SetConfigScope(map[string]any{"x": map[string]any{"y": "from-config-scope"}})
+		subject := evaluator.NewExpressionEvaluator(mockConfigHandler, "/project", "/template")
+		subject.SetConfigScope(map[string]any{"x": map[string]any{"y": "from-config-scope"}})
 
 		// When an explicit scope is passed, it takes precedence
-		got, err := evaluator.Evaluate("${x.y}", "", map[string]any{"x": map[string]any{"y": "from-explicit"}}, true)
+		got, err := subject.Evaluate("${x.y}", "", map[string]any{"x": map[string]any{"y": "from-explicit"}}, true)
 		if err != nil {
 			t.Fatalf("Expected no error, got %v", err)
 		}
@@ -2197,9 +2184,9 @@ func TestExpressionEvaluator_SetConfigScope(t *testing.T) {
 		mockConfigHandler.GetContextValuesFunc = func() (map[string]any, error) {
 			return map[string]any{"cluster": map[string]any{"name": "ctx"}}, nil
 		}
-		evaluator := NewExpressionEvaluator(mockConfigHandler, "/project", "/template")
+		subject := evaluator.NewExpressionEvaluator(mockConfigHandler, "/project", "/template")
 
-		got, err := evaluator.Evaluate("${cluster.name}", "", nil, true)
+		got, err := subject.Evaluate("${cluster.name}", "", nil, true)
 		if err != nil {
 			t.Fatalf("Expected no error, got %v", err)
 		}

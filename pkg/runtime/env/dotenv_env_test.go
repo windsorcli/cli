@@ -1,4 +1,4 @@
-package env
+package env_test
 
 import (
 	"bytes"
@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/windsorcli/cli/pkg/runtime/env"
 	"github.com/windsorcli/cli/pkg/runtime/evaluator"
 )
 
@@ -59,12 +60,17 @@ type fakePermFileInfo struct {
 	mode os.FileMode
 }
 
-func (f fakePermFileInfo) Name() string       { return ".env" }
-func (f fakePermFileInfo) Size() int64        { return 0 }
-func (f fakePermFileInfo) Mode() os.FileMode  { return f.mode }
+func (f fakePermFileInfo) Name() string { return ".env" }
+
+func (f fakePermFileInfo) Size() int64 { return 0 }
+
+func (f fakePermFileInfo) Mode() os.FileMode { return f.mode }
+
 func (f fakePermFileInfo) ModTime() time.Time { return time.Time{} }
-func (f fakePermFileInfo) IsDir() bool        { return false }
-func (f fakePermFileInfo) Sys() any           { return nil }
+
+func (f fakePermFileInfo) IsDir() bool { return false }
+
+func (f fakePermFileInfo) Sys() any { return nil }
 
 // writeDotEnvFixtureWithMode writes a real .env file (so ReadFile returns real
 // content) but stubs Stat to report a caller-controlled FileMode, decoupling
@@ -83,11 +89,11 @@ func writeDotEnvFixtureWithMode(t *testing.T, mocks *EnvTestMocks, content strin
 	return path
 }
 
-func setupDotEnvPrinter(t *testing.T, eval evaluator.ExpressionEvaluator) (*DotEnvEnvPrinter, *EnvTestMocks) {
+func setupDotEnvPrinter(t *testing.T, eval evaluator.ExpressionEvaluator) (*env.DotEnvEnvPrinter, *EnvTestMocks) {
 	t.Helper()
 	mocks := setupDotEnvEnvMocks(t)
-	printer := NewDotEnvEnvPrinter(mocks.Shell, mocks.ConfigHandler, eval)
-	printer.shims = mocks.Shims
+	printer := env.NewDotEnvEnvPrinter(mocks.Shell, mocks.ConfigHandler, eval)
+	printer.SetShims(mocks.Shims)
 	return printer, mocks
 }
 
@@ -101,7 +107,7 @@ func TestNewDotEnvEnvPrinter(t *testing.T) {
 		mocks := setupDotEnvEnvMocks(t)
 
 		// When creating a new DotEnvEnvPrinter
-		printer := NewDotEnvEnvPrinter(mocks.Shell, mocks.ConfigHandler, nil)
+		printer := env.NewDotEnvEnvPrinter(mocks.Shell, mocks.ConfigHandler, nil)
 
 		// Then it should be created successfully
 		if printer == nil {
@@ -120,7 +126,7 @@ func TestNewDotEnvEnvPrinter(t *testing.T) {
 				t.Error("Expected panic, got none")
 			}
 		}()
-		NewDotEnvEnvPrinter(nil, mocks.ConfigHandler, nil)
+		env.NewDotEnvEnvPrinter(nil, mocks.ConfigHandler, nil)
 	})
 
 	t.Run("PanicsWithNilConfigHandler", func(t *testing.T) {
@@ -134,7 +140,7 @@ func TestNewDotEnvEnvPrinter(t *testing.T) {
 				t.Error("Expected panic, got none")
 			}
 		}()
-		NewDotEnvEnvPrinter(mocks.Shell, nil, nil)
+		env.NewDotEnvEnvPrinter(mocks.Shell, nil, nil)
 	})
 }
 
@@ -321,8 +327,8 @@ func TestDotEnvEnvPrinter_GetEnvVars(t *testing.T) {
 		mocks.Shell.GetProjectRootFunc = func() (string, error) {
 			return "", fmt.Errorf("mock error getting project root")
 		}
-		printer := NewDotEnvEnvPrinter(mocks.Shell, mocks.ConfigHandler, nil)
-		printer.shims = mocks.Shims
+		printer := env.NewDotEnvEnvPrinter(mocks.Shell, mocks.ConfigHandler, nil)
+		printer.SetShims(mocks.Shims)
 
 		// When GetEnvVars is called
 		_, err := printer.GetEnvVars()
@@ -382,7 +388,7 @@ func TestDotEnvEnvPrinter_GetEnvVars(t *testing.T) {
 		mocks.Shims.Goos = func() string { return "linux" }
 
 		var stderr bytes.Buffer
-		printer.warningWriter = &stderr
+		printer.SetWarningWriter(&stderr)
 
 		// When GetEnvVars is called
 		if _, err := printer.GetEnvVars(); err != nil {
@@ -402,7 +408,7 @@ func TestDotEnvEnvPrinter_GetEnvVars(t *testing.T) {
 		mocks.Shims.Goos = func() string { return "linux" }
 
 		var stderr bytes.Buffer
-		printer.warningWriter = &stderr
+		printer.SetWarningWriter(&stderr)
 
 		// When GetEnvVars is called
 		if _, err := printer.GetEnvVars(); err != nil {
@@ -422,7 +428,7 @@ func TestDotEnvEnvPrinter_GetEnvVars(t *testing.T) {
 		mocks.Shims.Goos = func() string { return "windows" }
 
 		var stderr bytes.Buffer
-		printer.warningWriter = &stderr
+		printer.SetWarningWriter(&stderr)
 
 		// When GetEnvVars is called
 		if _, err := printer.GetEnvVars(); err != nil {

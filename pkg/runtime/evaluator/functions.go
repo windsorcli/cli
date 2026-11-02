@@ -20,7 +20,7 @@ import (
 
 // stringFunction returns the string(value) helper. It renders a map or a slice as YAML,
 // renders nil as an empty string, and renders other values with fmt.Sprint.
-func (e *expressionEvaluator) stringFunction() expr.Option {
+func (e *DefaultExpressionEvaluator) stringFunction() expr.Option {
 	return expr.Function(
 		"string",
 		func(params ...any) (any, error) {
@@ -48,7 +48,7 @@ func (e *expressionEvaluator) stringFunction() expr.Option {
 }
 
 // jsonnetFunction returns the jsonnet(path) helper. The Jsonnet file gets config as std.extVar("context").
-func (e *expressionEvaluator) jsonnetFunction(config map[string]any, facetPath string) expr.Option {
+func (e *DefaultExpressionEvaluator) jsonnetFunction(config map[string]any, facetPath string) expr.Option {
 	return expr.Function(
 		"jsonnet",
 		func(params ...any) (any, error) {
@@ -66,7 +66,7 @@ func (e *expressionEvaluator) jsonnetFunction(config map[string]any, facetPath s
 }
 
 // fileFunction returns the file(path) helper, which returns the raw file content as a string.
-func (e *expressionEvaluator) fileFunction(facetPath string) expr.Option {
+func (e *DefaultExpressionEvaluator) fileFunction(facetPath string) expr.Option {
 	return expr.Function(
 		"file",
 		func(params ...any) (any, error) {
@@ -84,7 +84,7 @@ func (e *expressionEvaluator) fileFunction(facetPath string) expr.Option {
 }
 
 // envFunction returns the env(name) helper. It returns nil when the variable is not set.
-func (e *expressionEvaluator) envFunction() expr.Option {
+func (e *DefaultExpressionEvaluator) envFunction() expr.Option {
 	return expr.Function(
 		"env",
 		func(params ...any) (any, error) {
@@ -105,7 +105,7 @@ func (e *expressionEvaluator) envFunction() expr.Option {
 }
 
 // yamlFunction returns the yaml(pathOrContent, input?) helper, which parses YAML from a file or a string.
-func (e *expressionEvaluator) yamlFunction(facetPath string) expr.Option {
+func (e *DefaultExpressionEvaluator) yamlFunction(facetPath string) expr.Option {
 	return expr.Function(
 		"yaml",
 		func(params ...any) (any, error) {
@@ -128,7 +128,7 @@ func (e *expressionEvaluator) yamlFunction(facetPath string) expr.Option {
 
 // yamlStringFunction returns the yamlString helper. yamlString(value) marshals value to YAML.
 // yamlString(path, input) templates the file at path with input and returns the text unparsed.
-func (e *expressionEvaluator) yamlStringFunction(facetPath string) expr.Option {
+func (e *DefaultExpressionEvaluator) yamlStringFunction(facetPath string) expr.Option {
 	return expr.Function(
 		"yamlString",
 		func(params ...any) (any, error) {
@@ -154,7 +154,7 @@ func (e *expressionEvaluator) yamlStringFunction(facetPath string) expr.Option {
 }
 
 // jsonStringFunction returns the jsonString(value) helper, which marshals value to JSON.
-func (e *expressionEvaluator) jsonStringFunction() expr.Option {
+func (e *DefaultExpressionEvaluator) jsonStringFunction() expr.Option {
 	return expr.Function(
 		"jsonString",
 		func(params ...any) (any, error) {
@@ -172,7 +172,7 @@ func (e *expressionEvaluator) jsonStringFunction() expr.Option {
 }
 
 // splitFunction returns the split(str, sep) helper, which returns the parts as a list.
-func (e *expressionEvaluator) splitFunction() expr.Option {
+func (e *DefaultExpressionEvaluator) splitFunction() expr.Option {
 	return expr.Function(
 		"split",
 		func(params ...any) (any, error) {

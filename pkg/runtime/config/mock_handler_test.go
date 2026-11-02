@@ -1,16 +1,12 @@
-package config
+package config_test
 
 import (
 	"fmt"
 	"testing"
 
 	cliconfig "github.com/windsorcli/cli/api/config/v1alpha2"
+	"github.com/windsorcli/cli/pkg/runtime/config"
 )
-
-// The MockConfigHandlerTest is a test suite for the MockConfigHandler implementation.
-// It provides comprehensive test coverage for mock config handler operations,
-// ensuring reliable testing of config-dependent functionality.
-// The MockConfigHandlerTest validates the mock implementation's behavior.
 
 // =============================================================================
 // Test Setup
@@ -22,11 +18,11 @@ func stringPtr(s string) *string {
 }
 
 // setupMockConfigHandlerMocks creates a new set of mocks for testing MockConfigHandler
-func setupMockConfigHandlerMocks(t *testing.T) *MockConfigHandler {
+func setupMockConfigHandlerMocks(t *testing.T) *config.MockConfigHandler {
 	t.Helper()
 
 	// Create mock config handler
-	mockConfigHandler := NewMockConfigHandler()
+	mockConfigHandler := config.NewMockConfigHandler()
 
 	return mockConfigHandler
 }

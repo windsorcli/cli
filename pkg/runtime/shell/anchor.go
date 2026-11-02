@@ -41,13 +41,10 @@ func EnsureGitRepository() error {
 	return werror.New("windsor init must run inside a git repository.", "Run 'git init' in the project directory, then run 'windsor init' again.", nil)
 }
 
-// EnsureProjectAnchor writes a minimal windsor.yaml in the current working
-// directory when no project file is found anywhere in the walk-up path. This
-// anchors `windsor init` to the cwd so subsequent runtime resolution does not
-// fall back to global mode and silently operate against $HOME/.config/windsor.
-// If a project file already exists at or above the cwd, this is a no-op.
-// Returns the directory holding the project file: cwd when this call created
-// it, or the ancestor directory when one already existed there.
+// EnsureProjectAnchor writes a minimal windsor.yaml in the working directory when no project file
+// exists in the walk-up path. This keeps windsor init out of global mode at $HOME/.config/windsor.
+// It does nothing when a project file exists at or above the working directory.
+// It returns the directory that holds the project file.
 func EnsureProjectAnchor() (string, error) {
 	cwd, err := os.Getwd()
 	if err != nil {

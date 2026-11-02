@@ -14,14 +14,10 @@ import (
 // Public Methods
 // =============================================================================
 
-// GetContextValues returns a merged configuration map composed of schema defaults and current config data.
-// The result provides all configuration values, with schema defaults filled in for missing keys, ensuring
-// downstream consumers (such as blueprint processing) always receive a complete set of config values.
-// If the schema validator or schema is unavailable, only the currently loaded data is returned.
-// It also ensures that cluster.controlplanes.nodes and cluster.workers.nodes are initialized as empty maps
-// even though they are not serialized to YAML, so template expressions can safely evaluate them.
-// For test contexts, schema defaults are skipped to ensure tests only use explicitly provided values,
-// unless SetApplySchemaDefaults(true) was called to opt a case onto the production composition path.
+// GetContextValues returns the current config data merged over the schema defaults.
+// Without a schema, it returns only the loaded data.
+// It sets cluster.controlplanes.nodes and cluster.workers.nodes to empty maps, so expressions can read them.
+// A test context gets no schema defaults, unless SetApplySchemaDefaults(true) was called.
 func (c *configHandler) GetContextValues() (map[string]any, error) {
 	result := make(map[string]any)
 

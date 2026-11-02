@@ -1,7 +1,9 @@
-package runtime
+package runtime_test
 
 import (
 	"testing"
+
+	"github.com/windsorcli/cli/pkg/runtime"
 )
 
 // =============================================================================
@@ -11,7 +13,7 @@ import (
 func TestNewShims(t *testing.T) {
 	t.Run("SetsSharedAndRuntimeShims", func(t *testing.T) {
 		// Given the default shims
-		s := NewShims()
+		s := runtime.NewShims()
 
 		// Then the shared shims and the OpenRoot shim are set
 		if s.Getenv == nil || s.Setenv == nil || s.LookupEnv == nil || s.MkdirAll == nil || s.Goos == nil {
@@ -27,10 +29,10 @@ func TestNewRuntime_Shims(t *testing.T) {
 	t.Run("UsesShimsOverride", func(t *testing.T) {
 		// Given a Shims override
 		mocks := setupRuntimeMocks(t)
-		override := NewShims()
+		override := runtime.NewShims()
 
 		// When NewRuntime is called with the override
-		rt := NewRuntime(&Runtime{Shell: mocks.Shell, ConfigHandler: mocks.ConfigHandler, Shims: override})
+		rt := runtime.NewRuntime(&runtime.Runtime{Shell: mocks.Shell, ConfigHandler: mocks.ConfigHandler, Shims: override})
 
 		// Then the runtime uses the override
 		if rt.Shims != override {

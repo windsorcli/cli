@@ -1,26 +1,23 @@
-package shell
+package shell_test
 
 import (
 	"fmt"
 	"testing"
 	"time"
-)
 
-// The MockShellTest is a test suite for the MockShell implementation.
-// It provides comprehensive test coverage for mock shell operations,
-// ensuring reliable testing of shell-dependent functionality.
-// The MockShellTest validates the mock implementation's behavior.
+	"github.com/windsorcli/cli/pkg/runtime/shell"
+)
 
 // =============================================================================
 // Test Setup
 // =============================================================================
 
 // setupMockShellMocks creates a new set of mocks for testing MockShell
-func setupMockShellMocks(t *testing.T) *MockShell {
+func setupMockShellMocks(t *testing.T) *shell.MockShell {
 	t.Helper()
 
 	// Create mock shell
-	mockShell := NewMockShell()
+	mockShell := shell.NewMockShell()
 
 	return mockShell
 }

@@ -49,23 +49,11 @@ func NewAwsEnvPrinter(shell shell.Shell, configHandler config.ConfigHandler) *Aw
 // Public Methods
 // =============================================================================
 
-// GetEnvVars returns the AWS env vars for the current context. In project mode
-// AWS_CONFIG_FILE and AWS_SHARED_CREDENTIALS_FILE always point at the context's
-// .aws/ so `aws configure` stays scoped to the context. AWS_PROFILE is emitted
-// only when the named profile is actually defined in the relevant AWS config:
-// the context's .aws/ in project mode, or the operator's ambient ~/.aws/ (or
-// AWS_CONFIG_FILE override) in global mode. When the profile is absent the var
-// is omitted so the AWS SDK falls through to env keys, IMDS, ECS task creds,
-// or whatever else the credential chain finds rather than failing with
-// "profile not found" against a file the named profile was never in. In
-// project mode, when some other profile is defined instead (e.g. a bare
-// `aws configure sso` named it after the SSO role rather than the context),
-// WarnOnProfileMismatch writes a non-fatal hint to warningWriter naming what
-// was expected vs. what exists. Global mode never warns on this: the ambient
-// ~/.aws/config is shared across every project the operator touches, so an
-// unrelated profile there is normal, not evidence of misconfiguration. Every
-// emitted key is registered as managed, so WindsorEnvPrinter unsets it once a
-// context switch stops this printer from emitting it.
+// GetEnvVars returns the AWS environment variables of the current context.
+// In project mode, AWS_CONFIG_FILE and AWS_SHARED_CREDENTIALS_FILE point at the .aws/ of the context.
+// It sets AWS_PROFILE only when the AWS config defines the profile, so the SDK credential chain can run.
+// In project mode, WarnOnProfileMismatch warns when a different profile exists. Global mode never warns.
+// It registers each key as managed, so WindsorEnvPrinter unsets the key when this printer stops emitting it.
 func (e *AwsEnvPrinter) GetEnvVars() (map[string]string, error) {
 	envVars := make(map[string]string)
 	global := e.shell.IsGlobal()

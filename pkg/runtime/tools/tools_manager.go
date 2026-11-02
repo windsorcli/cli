@@ -49,7 +49,6 @@ type BaseToolsManager struct {
 
 // ToolsManager checks that the tools and the cloud credentials of a Windsor command are ready.
 type ToolsManager interface {
-	WriteManifest() error
 	Install() error
 	Check() error
 	CheckRequirements(reqs Requirements) error
@@ -94,11 +93,6 @@ func AllRequirements() Requirements {
 // Public Methods
 // =============================================================================
 
-// WriteManifest is a placeholder for the tools manifest. It does nothing and returns nil.
-func (t *BaseToolsManager) WriteManifest() error {
-	return nil
-}
-
 // Install is a placeholder for the tool installation. It does nothing and returns nil.
 func (t *BaseToolsManager) Install() error {
 	return nil
@@ -112,18 +106,11 @@ func (t *BaseToolsManager) Check() error {
 	return t.CheckRequirements(AllRequirements())
 }
 
-// CheckRequirements runs only the checks the caller has opted into via reqs, AND that the
-// configHandler still gates on. The two-layer test (command-level need × project-level
-// config) means an over-broad request from the command side is harmless — `windsor up` can
-// safely request Terraform=true even on a context where terraform.enabled is false, because
-// the config gate skips the actual binary check. Under-requesting is the failure mode worth
-// guarding against: a missed Requirements field lets a stale tool reach the actual run.
-//
-// AWS tool verification lives on CheckAuth, not here. CheckRequirements fires from many
-// command paths including `windsor init` / `windsor env` — at those points the operator has
-// no obligation to have the aws CLI installed OR to be authed. Both cloud-CLI presence and
-// credential resolution belong to CheckAuth, which runs from bootstrap and from
-// `windsor check`.
+// CheckRequirements runs each check that reqs requests and that the config also enables.
+// A request that is too broad is harmless, because the config gate skips the binary check.
+// A request that is too narrow is the risk, because an outdated tool can then reach the run.
+// CheckAuth, not this method, checks the AWS CLI and the credentials.
+// Commands such as windsor init and windsor env do not need the AWS CLI.
 func (t *BaseToolsManager) CheckRequirements(reqs Requirements) error {
 	rt := t.configHandler.GetString("workstation.runtime")
 	dockerEnabled := t.configHandler.GetBool("docker.enabled", false)
@@ -194,14 +181,10 @@ func (t *BaseToolsManager) CheckAuth() error {
 	return nil
 }
 
-// CheckTerraform ensures Terraform or OpenTofu is available in the system's PATH using LookPath.
-// It checks for the configured driver command in the system's PATH and verifies its version.
-// Returns nil if found and meets the minimum version requirement, else an error indicating it is not available or outdated.
-// Exported (unlike the other check* methods) so callers that need Terraform unconditionally —
-// e.g. the composer's standard module resolver, which shells out to `terraform init` to resolve
-// git/registry-sourced modules regardless of terraform.enabled — can get the same
-// missingToolError/outdatedToolError messages as CheckRequirements without going through its
-// config-gated Terraform field.
+// CheckTerraform checks that the configured Terraform or OpenTofu command is on PATH.
+// It also checks that the version meets the minimum.
+// It is exported for callers that need Terraform when terraform.enabled is false,
+// such as the module resolver of the composer, which runs terraform init.
 func (t *BaseToolsManager) CheckTerraform() error {
 	command := t.GetTerraformCommand()
 	if _, err := t.shims.LookPath(command); err != nil {

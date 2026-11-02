@@ -1,7 +1,6 @@
 // The backend functions generate the Terraform backend configuration of a component.
 // They write the backend override file and add it to the terraform/.gitignore file of the project.
 // They convert the backend settings of the context into -backend-config arguments.
-// BackendConfigComplete reports whether the backend has all the settings it needs.
 
 package terraform
 
@@ -33,7 +32,7 @@ const unsupportedBackendRemediation = "Set terraform.backend.type to none, local
 // For the none backend, it removes the file. For local, s3, kubernetes, azurerm, and gcs, it writes the backend block.
 // Under <project>/terraform/, it also adds the file to terraform/.gitignore. A failure there is only a warning.
 // An unsupported backend type returns an error with the valid types as the hint.
-func (p *terraformProvider) GenerateBackendOverride(directory string) error {
+func (p *DefaultTerraformProvider) GenerateBackendOverride(directory string) error {
 	backend := p.configHandler.GetTerraformBackendType()
 
 	var backendConfig string
@@ -82,58 +81,6 @@ func (p *terraformProvider) GenerateBackendOverride(directory string) error {
 	return nil
 }
 
-// BackendConfigComplete reports whether the configured remote backend has
-// enough config — a backend.tfvars file or a populated nested config block —
-// for `terraform init` to even attempt connecting. Local/empty backends are
-// always complete. Lets Bootstrap's probe distinguish "we don't know where
-// the remote is yet" (first-time bootstrap) from "we know where it is but
-// can't reach it" (real warning).
-//
-// Default for unrecognized backend types is true: the predicate's job is to
-// catch the well-understood first-time-bootstrap case for the backends
-// Windsor knows about. For anything else (http, consul, remote, cos), we
-// don't know what's required — let the probe run and surface real init
-// failures via the warning path rather than silently disable detection.
-func (p *terraformProvider) BackendConfigComplete() bool {
-	backendType := p.configHandler.GetTerraformBackendType()
-	if backendType == "" || backendType == "local" {
-		return true
-	}
-
-	if _, configRoot, _, err := p.providerScope(); err == nil {
-		for _, candidate := range []string{
-			filepath.Join(configRoot, "backend.tfvars"),
-			filepath.Join(configRoot, "terraform", "backend.tfvars"),
-		} {
-			if _, err := p.Shims.Stat(candidate); err == nil {
-				return true
-			}
-		}
-	}
-
-	// Kubernetes uses the ambient kubeconfig; a nested config block is
-	// optional. Reachable from here even when cfg.Backend is nil.
-	if backendType == "kubernetes" {
-		return true
-	}
-
-	cfg := p.configHandler.GetHeader().Terraform
-	switch backendType {
-	case "azurerm":
-		return cfg != nil && cfg.Backend != nil && cfg.Backend.AzureRM != nil &&
-			cfg.Backend.AzureRM.StorageAccountName != nil &&
-			cfg.Backend.AzureRM.ContainerName != nil
-	case "s3":
-		return cfg != nil && cfg.Backend != nil && cfg.Backend.S3 != nil &&
-			cfg.Backend.S3.Bucket != nil
-	case "gcs":
-		return cfg != nil && cfg.Backend != nil && cfg.Backend.GCS != nil &&
-			cfg.Backend.GCS.Bucket != nil
-	}
-
-	return true
-}
-
 // =============================================================================
 // Private Methods
 // =============================================================================
@@ -141,7 +88,7 @@ func (p *terraformProvider) BackendConfigComplete() bool {
 // ensureBackendOverrideIgnored adds backend_override.tf to <project>/terraform/.gitignore, creating
 // the file when missing and appending the entry when absent. It does nothing when directory is outside
 // the project's terraform/ folder, because Windsor scratch folders under .windsor/ are already ignored.
-func (p *terraformProvider) ensureBackendOverrideIgnored(directory string) error {
+func (p *DefaultTerraformProvider) ensureBackendOverrideIgnored(directory string) error {
 	projectRoot, err := p.shell.GetProjectRoot()
 	if err != nil {
 		return nil
@@ -178,7 +125,7 @@ func (p *terraformProvider) ensureBackendOverrideIgnored(directory string) error
 // For a remote backend, it adds backend.tfvars from the context root or its terraform/ subdirectory, if the file exists.
 // It adds one argument for each field of the backend config block. The arguments have no shell quoting.
 // An unsupported backend type returns an error with the valid types as the hint.
-func (p *terraformProvider) generateBackendConfigArgs(projectPath, configRoot string) ([]string, error) {
+func (p *DefaultTerraformProvider) generateBackendConfigArgs(projectPath, configRoot string) ([]string, error) {
 	var backendConfigArgs []string
 	backend := p.configHandler.GetTerraformBackendType()
 
@@ -267,7 +214,7 @@ func (p *terraformProvider) generateBackendConfigArgs(projectPath, configRoot st
 // kubernetesBackendNamespace returns the configured namespace of the kubernetes backend.
 // It returns "" when the backend type is not kubernetes or the config sets no namespace.
 // Without a configured namespace, backend.tfvars or terraform's own default decides it.
-func (p *terraformProvider) kubernetesBackendNamespace() string {
+func (p *DefaultTerraformProvider) kubernetesBackendNamespace() string {
 	if p.configHandler.GetTerraformBackendType() != "kubernetes" {
 		return ""
 	}
@@ -284,7 +231,7 @@ func (p *terraformProvider) kubernetesBackendNamespace() string {
 // It traverses the resulting map, applying each key-value pair to the addArg function. Nested configuration
 // objects result in compound keys using dot notation (e.g., "s3.bucket" for a nested bucket field).
 // Returns an error if marshalling, unmarshalling, or processing fails.
-func (p *terraformProvider) processBackendConfig(backendConfig any, addArg func(key, value string)) error {
+func (p *DefaultTerraformProvider) processBackendConfig(backendConfig any, addArg func(key, value string)) error {
 	yamlData, err := p.Shims.YamlMarshal(backendConfig)
 	if err != nil {
 		return werror.Wrap(err, "error marshalling backend to YAML")

@@ -1,10 +1,11 @@
-package config
+package config_test
 
 import (
 	"strings"
 	"testing"
 
 	"github.com/goccy/go-yaml"
+	"github.com/windsorcli/cli/pkg/runtime/config"
 )
 
 func TestRenderValuesWithDescriptions(t *testing.T) {
@@ -18,7 +19,7 @@ func TestRenderValuesWithDescriptions(t *testing.T) {
 				},
 			},
 		}
-		out := RenderValuesWithDescriptions(values, schema)
+		out := config.RenderValuesWithDescriptions(values, schema)
 		if !strings.Contains(out, "# Cloud provider.") {
 			t.Errorf("expected description comment, got:\n%s", out)
 		}
@@ -29,7 +30,7 @@ func TestRenderValuesWithDescriptions(t *testing.T) {
 
 	t.Run("ScalarWithNoSchema", func(t *testing.T) {
 		values := map[string]any{"provider": "docker"}
-		out := RenderValuesWithDescriptions(values, nil)
+		out := config.RenderValuesWithDescriptions(values, nil)
 		if strings.Contains(out, "#") {
 			t.Errorf("expected no comments when schema is nil, got:\n%s", out)
 		}
@@ -49,7 +50,7 @@ func TestRenderValuesWithDescriptions(t *testing.T) {
 				},
 			},
 		}
-		out := RenderValuesWithDescriptions(values, schema)
+		out := config.RenderValuesWithDescriptions(values, schema)
 		if !strings.Contains(out, "enabled: true") {
 			t.Errorf("expected set value, got:\n%s", out)
 		}
@@ -79,7 +80,7 @@ func TestRenderValuesWithDescriptions(t *testing.T) {
 				},
 			},
 		}
-		out := RenderValuesWithDescriptions(values, schema)
+		out := config.RenderValuesWithDescriptions(values, schema)
 		if !strings.Contains(out, "gateway:") {
 			t.Errorf("expected gateway block, got:\n%s", out)
 		}
@@ -104,7 +105,7 @@ func TestRenderValuesWithDescriptions(t *testing.T) {
 				},
 			},
 		}
-		out := RenderValuesWithDescriptions(values, schema)
+		out := config.RenderValuesWithDescriptions(values, schema)
 		if !strings.Contains(out, "cni:") {
 			t.Errorf("expected cni block to appear, got:\n%s", out)
 		}
@@ -127,7 +128,7 @@ func TestRenderValuesWithDescriptions(t *testing.T) {
 				},
 			},
 		}
-		out := RenderValuesWithDescriptions(values, schema)
+		out := config.RenderValuesWithDescriptions(values, schema)
 		if !strings.Contains(out, "# Registry mirror config.") {
 			t.Errorf("expected description comment, got:\n%s", out)
 		}
@@ -145,7 +146,7 @@ func TestRenderValuesWithDescriptions(t *testing.T) {
 				"volumes": map[string]any{"type": "array", "description": "Mount paths."},
 			},
 		}
-		out := RenderValuesWithDescriptions(values, schema)
+		out := config.RenderValuesWithDescriptions(values, schema)
 		if !strings.Contains(out, "# Mount paths.") {
 			t.Errorf("expected array description, got:\n%s", out)
 		}
@@ -156,7 +157,7 @@ func TestRenderValuesWithDescriptions(t *testing.T) {
 
 	t.Run("BooleanValue", func(t *testing.T) {
 		values := map[string]any{"dev": true}
-		out := RenderValuesWithDescriptions(values, nil)
+		out := config.RenderValuesWithDescriptions(values, nil)
 		if !strings.Contains(out, "dev: true") {
 			t.Errorf("expected boolean value, got:\n%s", out)
 		}
@@ -164,21 +165,21 @@ func TestRenderValuesWithDescriptions(t *testing.T) {
 
 	t.Run("TopLevelKeysSeparatedByBlankLines", func(t *testing.T) {
 		values := map[string]any{"a": "x", "b": "y"}
-		out := RenderValuesWithDescriptions(values, nil)
+		out := config.RenderValuesWithDescriptions(values, nil)
 		if !strings.Contains(out, "\n\n") {
 			t.Errorf("expected blank line between top-level keys, got:\n%s", out)
 		}
 	})
 
 	t.Run("EmptyValues", func(t *testing.T) {
-		out := RenderValuesWithDescriptions(map[string]any{}, nil)
+		out := config.RenderValuesWithDescriptions(map[string]any{}, nil)
 		if out != "" {
 			t.Errorf("expected empty output for empty values, got:\n%s", out)
 		}
 	})
 
 	t.Run("NilValues", func(t *testing.T) {
-		out := RenderValuesWithDescriptions(nil, nil)
+		out := config.RenderValuesWithDescriptions(nil, nil)
 		if out != "" {
 			t.Errorf("expected empty output for nil values and schema, got:\n%s", out)
 		}
@@ -186,7 +187,7 @@ func TestRenderValuesWithDescriptions(t *testing.T) {
 
 	t.Run("MultiLineStringValue", func(t *testing.T) {
 		values := map[string]any{"script": "line1\nline2\nline3"}
-		out := RenderValuesWithDescriptions(values, nil)
+		out := config.RenderValuesWithDescriptions(values, nil)
 		// The output must be valid YAML — a round-trip parse must recover the original value.
 		var parsed map[string]any
 		if err := yaml.Unmarshal([]byte(out), &parsed); err != nil {
@@ -209,11 +210,11 @@ func TestRedactSensitiveValues(t *testing.T) {
 		}
 
 		// When redacting the sensitive path
-		RedactSensitiveValues(values, []string{"cdn.cloudflare_api_key"})
+		config.RedactSensitiveValues(values, []string{"cdn.cloudflare_api_key"})
 
 		// Then the value is replaced with the marker and the sibling is untouched
 		cdn := values["cdn"].(map[string]any)
-		if cdn["cloudflare_api_key"] != SensitiveRedactionMarker {
+		if cdn["cloudflare_api_key"] != config.SensitiveRedactionMarker {
 			t.Errorf("Expected redaction marker, got %v", cdn["cloudflare_api_key"])
 		}
 		if cdn["zone"] != "example.com" {
@@ -231,14 +232,14 @@ func TestRedactSensitiveValues(t *testing.T) {
 		}
 
 		// When redacting the wildcard path
-		RedactSensitiveValues(values, []string{"stores.*.token"})
+		config.RedactSensitiveValues(values, []string{"stores.*.token"})
 
 		// Then every store's token is redacted and non-sensitive siblings remain
 		stores := values["stores"].(map[string]any)
-		if stores["a"].(map[string]any)["token"] != SensitiveRedactionMarker {
+		if stores["a"].(map[string]any)["token"] != config.SensitiveRedactionMarker {
 			t.Error("Expected stores.a.token redacted")
 		}
-		if stores["b"].(map[string]any)["token"] != SensitiveRedactionMarker {
+		if stores["b"].(map[string]any)["token"] != config.SensitiveRedactionMarker {
 			t.Error("Expected stores.b.token redacted")
 		}
 		if stores["a"].(map[string]any)["url"] != "https://a" {
@@ -251,7 +252,7 @@ func TestRedactSensitiveValues(t *testing.T) {
 		values := map[string]any{"cdn": map[string]any{"zone": "example.com"}}
 
 		// When redacting a path that is not present
-		RedactSensitiveValues(values, []string{"cdn.cloudflare_api_key"})
+		config.RedactSensitiveValues(values, []string{"cdn.cloudflare_api_key"})
 
 		// Then no key is created
 		if _, exists := values["cdn"].(map[string]any)["cloudflare_api_key"]; exists {

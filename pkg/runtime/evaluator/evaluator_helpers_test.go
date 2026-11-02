@@ -1,4 +1,4 @@
-package evaluator
+package evaluator_test
 
 import (
 	"os"
@@ -6,8 +6,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/windsorcli/cli/internal/werror"
 	"github.com/windsorcli/cli/pkg/runtime/config"
+	"github.com/windsorcli/cli/pkg/runtime/evaluator"
 )
 
 // =============================================================================
@@ -16,14 +16,14 @@ import (
 
 func TestJsonnetHelper(t *testing.T) {
 	t.Run("JsonnetFunctionWithValidPath", func(t *testing.T) {
-		evaluator, _, _, _ := setupEvaluatorTest(t)
+		subject, _, _, _ := setupEvaluatorTest(t)
 		tmpDir := t.TempDir()
 		jsonnetFile := filepath.Join(tmpDir, "test.jsonnet")
 		os.WriteFile(jsonnetFile, []byte(`{"result": "success"}`), 0644)
 
 		facetPath := filepath.Join(tmpDir, "facet.yaml")
 
-		result, err := evaluator.Evaluate(`${jsonnet("test.jsonnet")}`, facetPath, nil, false)
+		result, err := subject.Evaluate(`${jsonnet("test.jsonnet")}`, facetPath, nil, false)
 
 		if err != nil {
 			t.Fatalf("Expected no error, got: %v", err)
@@ -40,9 +40,9 @@ func TestJsonnetHelper(t *testing.T) {
 	})
 
 	t.Run("JsonnetFunctionWithInvalidArguments", func(t *testing.T) {
-		evaluator, _, _, _ := setupEvaluatorTest(t)
+		subject, _, _, _ := setupEvaluatorTest(t)
 
-		_, err := evaluator.Evaluate(`${jsonnet("path1", "path2")}`, "", nil, false)
+		_, err := subject.Evaluate(`${jsonnet("path1", "path2")}`, "", nil, false)
 
 		if err == nil {
 			t.Fatal("Expected error for invalid arguments, got nil")
@@ -50,9 +50,9 @@ func TestJsonnetHelper(t *testing.T) {
 	})
 
 	t.Run("JsonnetFunctionWithNonStringArgument", func(t *testing.T) {
-		evaluator, _, _, _ := setupEvaluatorTest(t)
+		subject, _, _, _ := setupEvaluatorTest(t)
 
-		_, err := evaluator.Evaluate(`${jsonnet(42)}`, "", nil, false)
+		_, err := subject.Evaluate(`${jsonnet(42)}`, "", nil, false)
 
 		if err == nil {
 			t.Fatal("Expected error for non-string argument, got nil")
@@ -62,14 +62,14 @@ func TestJsonnetHelper(t *testing.T) {
 
 func TestFileHelper(t *testing.T) {
 	t.Run("FileFunctionWithValidPath", func(t *testing.T) {
-		evaluator, _, _, _ := setupEvaluatorTest(t)
+		subject, _, _, _ := setupEvaluatorTest(t)
 		tmpDir := t.TempDir()
 		testFile := filepath.Join(tmpDir, "test.txt")
 		os.WriteFile(testFile, []byte("file content"), 0644)
 
 		facetPath := filepath.Join(tmpDir, "facet.yaml")
 
-		result, err := evaluator.Evaluate(`${file("test.txt")}`, facetPath, nil, false)
+		result, err := subject.Evaluate(`${file("test.txt")}`, facetPath, nil, false)
 
 		if err != nil {
 			t.Fatalf("Expected no error, got: %v", err)
@@ -81,9 +81,9 @@ func TestFileHelper(t *testing.T) {
 	})
 
 	t.Run("FileFunctionWithInvalidArguments", func(t *testing.T) {
-		evaluator, _, _, _ := setupEvaluatorTest(t)
+		subject, _, _, _ := setupEvaluatorTest(t)
 
-		_, err := evaluator.Evaluate(`${file("path1", "path2")}`, "", nil, false)
+		_, err := subject.Evaluate(`${file("path1", "path2")}`, "", nil, false)
 
 		if err == nil {
 			t.Fatal("Expected error for invalid arguments, got nil")
@@ -91,297 +91,12 @@ func TestFileHelper(t *testing.T) {
 	})
 
 	t.Run("FileFunctionWithNonStringArgument", func(t *testing.T) {
-		evaluator, _, _, _ := setupEvaluatorTest(t)
+		subject, _, _, _ := setupEvaluatorTest(t)
 
-		_, err := evaluator.Evaluate(`${file(42)}`, "", nil, false)
-
-		if err == nil {
-			t.Fatal("Expected error for non-string argument, got nil")
-		}
-	})
-}
-
-func TestYamlHelper(t *testing.T) {
-	t.Run("YamlFunctionWithFilePath", func(t *testing.T) {
-		evaluator, _, _, _ := setupEvaluatorTest(t)
-		tmpDir := t.TempDir()
-		yamlContent := "key: value\nfoo: bar"
-		yamlFile := filepath.Join(tmpDir, "data.yaml")
-		os.WriteFile(yamlFile, []byte(yamlContent), 0644)
-
-		facetPath := filepath.Join(tmpDir, "facet.yaml")
-
-		result, err := evaluator.Evaluate(`${yaml("data.yaml")}`, facetPath, nil, false)
-
-		if err != nil {
-			t.Fatalf("Expected no error, got: %v", err)
-		}
-
-		m, ok := result.(map[string]any)
-		if !ok {
-			t.Fatalf("Expected result to be map, got %T", result)
-		}
-		if m["key"] != "value" || m["foo"] != "bar" {
-			t.Errorf("Expected map key:value, foo:bar, got %v", m)
-		}
-	})
-
-	t.Run("YamlFunctionWithInlineString", func(t *testing.T) {
-		evaluator, _, _, _ := setupEvaluatorTest(t)
-
-		result, err := evaluator.Evaluate(`${yaml("a: 1\nb: 2")}`, "", nil, false)
-
-		if err != nil {
-			t.Fatalf("Expected no error, got: %v", err)
-		}
-
-		m, ok := result.(map[string]any)
-		if !ok {
-			t.Fatalf("Expected result to be map, got %T", result)
-		}
-		if len(m) != 2 {
-			t.Errorf("Expected map with 2 entries, got %v", m)
-		}
-		numEq := func(v any, want int) bool {
-			switch n := v.(type) {
-			case int:
-				return n == want
-			case uint64:
-				return n == uint64(want)
-			case float64:
-				return n == float64(want)
-			default:
-				return false
-			}
-		}
-		if !numEq(m["a"], 1) || !numEq(m["b"], 2) {
-			t.Errorf("Expected map a:1, b:2, got %v", m)
-		}
-	})
-
-	t.Run("YamlFunctionWithInvalidArguments", func(t *testing.T) {
-		evaluator, _, _, _ := setupEvaluatorTest(t)
-
-		_, err := evaluator.Evaluate(`${yaml("a", "b", "c")}`, "", nil, false)
-
-		if err == nil {
-			t.Fatal("Expected error for invalid arguments, got nil")
-		}
-	})
-
-	t.Run("YamlFunctionWithNonStringArgument", func(t *testing.T) {
-		evaluator, _, _, _ := setupEvaluatorTest(t)
-
-		_, err := evaluator.Evaluate(`${yaml(42)}`, "", nil, false)
+		_, err := subject.Evaluate(`${file(42)}`, "", nil, false)
 
 		if err == nil {
 			t.Fatal("Expected error for non-string argument, got nil")
-		}
-	})
-
-	t.Run("YamlFunctionWithInvalidYaml", func(t *testing.T) {
-		evaluator, _, _, _ := setupEvaluatorTest(t)
-
-		_, err := evaluator.Evaluate(`${yaml("not: valid: yaml: [")}`, "", nil, false)
-
-		if err == nil {
-			t.Fatal("Expected error for invalid YAML, got nil")
-		}
-		if !strings.Contains(err.Error(), "yaml()") {
-			t.Errorf("Expected error to mention yaml(), got: %v", err)
-		}
-		if we := werror.Find(err); we == nil || !strings.Contains(we.Message, "cannot find the file") || we.Remediation != filePathRemediation {
-			t.Errorf("Expected a file-not-found error with the file path remediation, got %v", we)
-		}
-	})
-
-	t.Run("YamlFunctionWithInvalidInlineYamlNamesTheParseError", func(t *testing.T) {
-		evaluator, _, _, _ := setupEvaluatorTest(t)
-
-		_, err := evaluator.Evaluate(`${yaml("a:\n  b: [")}`, "", nil, false)
-
-		if err == nil {
-			t.Fatal("Expected error for invalid YAML, got nil")
-		}
-		we := werror.Find(err)
-		if we == nil || !strings.Contains(we.Message, "The yaml() helper cannot parse the YAML in its inline input") {
-			t.Errorf("Expected a parse error for the inline input, got %v", err)
-		}
-		if we != nil && we.Remediation == "" {
-			t.Error("Expected a remediation for the parse error")
-		}
-	})
-
-	t.Run("YamlFunctionWithSingleLineInline", func(t *testing.T) {
-		evaluator, _, _, _ := setupEvaluatorTest(t)
-
-		result, err := evaluator.Evaluate(`${yaml("p: q")}`, "", nil, false)
-
-		if err != nil {
-			t.Fatalf("Expected no error, got: %v", err)
-		}
-		m, ok := result.(map[string]any)
-		if !ok {
-			t.Fatalf("Expected result to be map, got %T", result)
-		}
-		if m["p"] != "q" {
-			t.Errorf("Expected map p:q, got %v", m)
-		}
-	})
-
-	t.Run("YamlFunctionReturnsArray", func(t *testing.T) {
-		evaluator, _, _, _ := setupEvaluatorTest(t)
-
-		result, err := evaluator.Evaluate(`${yaml("- a\n- b\n- c")}`, "", nil, false)
-
-		if err != nil {
-			t.Fatalf("Expected no error, got: %v", err)
-		}
-		arr, ok := result.([]any)
-		if !ok {
-			t.Fatalf("Expected result to be slice, got %T", result)
-		}
-		if len(arr) != 3 {
-			t.Errorf("Expected 3 elements, got %d", len(arr))
-		}
-		if arr[0] != "a" || arr[1] != "b" || arr[2] != "c" {
-			t.Errorf("Expected [a b c], got %v", arr)
-		}
-	})
-
-	t.Run("YamlFunctionWithTemplateData", func(t *testing.T) {
-		tmpDir := t.TempDir()
-		projectRoot := filepath.Join(tmpDir, "project")
-		templateRoot := filepath.Join(tmpDir, "project", "contexts", "_template")
-		mockConfigHandler := config.NewMockConfigHandler()
-		evaluator := NewExpressionEvaluator(mockConfigHandler, projectRoot, templateRoot)
-		templateData := map[string][]byte{
-			"_template/facets/data.yaml": []byte("from: template\ncount: 1"),
-		}
-		evaluator.SetTemplateData(templateData)
-		facetPath := filepath.Join(templateRoot, "facets", "test.yaml")
-
-		result, err := evaluator.Evaluate(`${yaml("data.yaml")}`, facetPath, nil, false)
-
-		if err != nil {
-			t.Fatalf("Expected no error, got: %v", err)
-		}
-		m, ok := result.(map[string]any)
-		if !ok {
-			t.Fatalf("Expected result to be map, got %T", result)
-		}
-		if m["from"] != "template" {
-			t.Errorf("Expected from: template, got %v", m["from"])
-		}
-	})
-
-	t.Run("YamlFunctionWithInputTemplatesContent", func(t *testing.T) {
-		template := "key: ${input.foo}\nbar: ${input.nested.baz}"
-		input := map[string]any{
-			"foo":    "value-from-input",
-			"nested": map[string]any{"baz": "qux"},
-		}
-		mockConfigHandler := config.NewMockConfigHandler()
-		mockConfigHandler.GetContextValuesFunc = func() (map[string]any, error) {
-			return map[string]any{"template": template, "input": input}, nil
-		}
-		evaluator := NewExpressionEvaluator(mockConfigHandler, "/project", "/template")
-
-		result, err := evaluator.Evaluate(`${yaml(template, input)}`, "", nil, false)
-
-		if err != nil {
-			t.Fatalf("Expected no error, got: %v", err)
-		}
-		m, ok := result.(map[string]any)
-		if !ok {
-			t.Fatalf("Expected result to be map, got %T", result)
-		}
-		if m["key"] != "value-from-input" {
-			t.Errorf("Expected key: value-from-input, got %v", m["key"])
-		}
-		if m["bar"] != "qux" {
-			t.Errorf("Expected bar: qux, got %v", m["bar"])
-		}
-	})
-
-	t.Run("YamlFunctionWithInputAndContext", func(t *testing.T) {
-		input := map[string]any{"patchVar": "from-patch-vars"}
-		templateStr := "provider: ${provider}\nclusterName: ${cluster.name}\npatchVar: ${input.patchVar}"
-		mockConfigHandler := config.NewMockConfigHandler()
-		mockConfigHandler.GetContextValuesFunc = func() (map[string]any, error) {
-			return map[string]any{
-				"provider": "aws",
-				"cluster":  map[string]any{"name": "my-cluster"},
-				"input":    input,
-				"template": templateStr,
-			}, nil
-		}
-		evaluator := NewExpressionEvaluator(mockConfigHandler, "/project", "/template")
-
-		result, err := evaluator.Evaluate(`${yaml(template, input)}`, "", nil, false)
-
-		if err != nil {
-			t.Fatalf("Expected no error, got: %v", err)
-		}
-		m, ok := result.(map[string]any)
-		if !ok {
-			t.Fatalf("Expected result to be map, got %T", result)
-		}
-		if m["provider"] != "aws" {
-			t.Errorf("Expected provider: aws, got %v", m["provider"])
-		}
-		if m["clusterName"] != "my-cluster" {
-			t.Errorf("Expected clusterName: my-cluster, got %v", m["clusterName"])
-		}
-		if m["patchVar"] != "from-patch-vars" {
-			t.Errorf("Expected patchVar: from-patch-vars, got %v", m["patchVar"])
-		}
-	})
-
-	t.Run("YamlFunctionSingleElementListAllowsMemberAccess", func(t *testing.T) {
-		inlineYAML := "- controlplane_labels: foo\n  other: bar"
-		mockConfigHandler := config.NewMockConfigHandler()
-		mockConfigHandler.GetContextValuesFunc = func() (map[string]any, error) {
-			return map[string]any{"nodesYaml": inlineYAML}, nil
-		}
-		evaluator := NewExpressionEvaluator(mockConfigHandler, "/project", "/template")
-
-		result, err := evaluator.Evaluate(`${yaml(nodesYaml).controlplane_labels}`, "", nil, false)
-
-		if err != nil {
-			t.Fatalf("Expected no error, got: %v", err)
-		}
-		if result != "foo" {
-			t.Errorf("Expected controlplane_labels to be 'foo', got %v", result)
-		}
-	})
-
-	t.Run("YamlFunctionMapRootAllowsControlplanesMemberAccess", func(t *testing.T) {
-		inlineYAML := "controlplanes:\n  - hostname: cp1\nworkers:\n  - hostname: w1\n"
-		mockConfigHandler := config.NewMockConfigHandler()
-		mockConfigHandler.GetContextValuesFunc = func() (map[string]any, error) {
-			return map[string]any{"nodesYaml": inlineYAML}, nil
-		}
-		evaluator := NewExpressionEvaluator(mockConfigHandler, "/project", "/template")
-
-		result, err := evaluator.Evaluate(`${yaml(nodesYaml).controlplanes}`, "", nil, false)
-
-		if err != nil {
-			t.Fatalf("Expected no error (avoids int(string) on .controlplanes), got: %v", err)
-		}
-		slice, ok := result.([]any)
-		if !ok {
-			t.Fatalf("Expected controlplanes to be []any, got %T", result)
-		}
-		if len(slice) != 1 {
-			t.Errorf("Expected controlplanes to have 1 element, got %d", len(slice))
-		}
-		m, ok := slice[0].(map[string]any)
-		if !ok {
-			t.Fatalf("Expected first element to be map[string]any, got %T", slice[0])
-		}
-		if m["hostname"] != "cp1" {
-			t.Errorf("Expected hostname cp1, got %v", m["hostname"])
 		}
 	})
 }
@@ -392,9 +107,9 @@ func TestYamlStringHelper(t *testing.T) {
 		mockConfigHandler.GetContextValuesFunc = func() (map[string]any, error) {
 			return map[string]any{"obj": map[string]any{"a": 1, "b": "two"}}, nil
 		}
-		evaluator := NewExpressionEvaluator(mockConfigHandler, "/project", "/template")
+		subject := evaluator.NewExpressionEvaluator(mockConfigHandler, "/project", "/template")
 
-		result, err := evaluator.Evaluate(`${yamlString(obj)}`, "", nil, false)
+		result, err := subject.Evaluate(`${yamlString(obj)}`, "", nil, false)
 
 		if err != nil {
 			t.Fatalf("Expected no error, got: %v", err)
@@ -409,13 +124,13 @@ func TestYamlStringHelper(t *testing.T) {
 	})
 
 	t.Run("YamlStringWithInvalidArgumentCount", func(t *testing.T) {
-		evaluator, _, _, _ := setupEvaluatorTest(t)
+		subject, _, _, _ := setupEvaluatorTest(t)
 
-		_, err := evaluator.Evaluate(`${yamlString()}`, "", nil, false)
+		_, err := subject.Evaluate(`${yamlString()}`, "", nil, false)
 		if err == nil {
 			t.Fatal("Expected error for zero arguments")
 		}
-		_, err = evaluator.Evaluate(`${yamlString("a", "b", "c")}`, "", nil, false)
+		_, err = subject.Evaluate(`${yamlString("a", "b", "c")}`, "", nil, false)
 		if err == nil {
 			t.Fatal("Expected error for three arguments")
 		}
@@ -428,9 +143,9 @@ func TestJsonStringHelper(t *testing.T) {
 		mockConfigHandler.GetContextValuesFunc = func() (map[string]any, error) {
 			return map[string]any{"obj": map[string]any{"a": 1, "b": "two"}}, nil
 		}
-		evaluator := NewExpressionEvaluator(mockConfigHandler, "/project", "/template")
+		subject := evaluator.NewExpressionEvaluator(mockConfigHandler, "/project", "/template")
 
-		result, err := evaluator.Evaluate(`${jsonString(obj)}`, "", nil, false)
+		result, err := subject.Evaluate(`${jsonString(obj)}`, "", nil, false)
 
 		if err != nil {
 			t.Fatalf("Expected no error, got: %v", err)
@@ -445,13 +160,13 @@ func TestJsonStringHelper(t *testing.T) {
 	})
 
 	t.Run("JsonStringWithInvalidArgumentCount", func(t *testing.T) {
-		evaluator, _, _, _ := setupEvaluatorTest(t)
+		subject, _, _, _ := setupEvaluatorTest(t)
 
-		_, err := evaluator.Evaluate(`${jsonString()}`, "", nil, false)
+		_, err := subject.Evaluate(`${jsonString()}`, "", nil, false)
 		if err == nil {
 			t.Fatal("Expected error for zero arguments")
 		}
-		_, err = evaluator.Evaluate(`${jsonString("a", "b")}`, "", nil, false)
+		_, err = subject.Evaluate(`${jsonString("a", "b")}`, "", nil, false)
 		if err == nil {
 			t.Fatal("Expected error for two arguments")
 		}
@@ -462,9 +177,9 @@ func TestJsonStringHelper(t *testing.T) {
 		mockConfigHandler.GetContextValuesFunc = func() (map[string]any, error) {
 			return map[string]any{"paths": []any{"/var/mnt/longhorn", "/var/mnt/data"}}, nil
 		}
-		evaluator := NewExpressionEvaluator(mockConfigHandler, "/project", "/template")
+		subject := evaluator.NewExpressionEvaluator(mockConfigHandler, "/project", "/template")
 
-		result, err := evaluator.Evaluate(`${jsonString(paths)}`, "", nil, false)
+		result, err := subject.Evaluate(`${jsonString(paths)}`, "", nil, false)
 
 		if err != nil {
 			t.Fatalf("Expected no error, got: %v", err)
@@ -485,9 +200,9 @@ func TestJsonStringWithMapExpr(t *testing.T) {
 		mockConfigHandler.GetContextValuesFunc = func() (map[string]any, error) {
 			return map[string]any{"paths": []any{"/var/mnt/longhorn", "/var/mnt/data"}}, nil
 		}
-		evaluator := NewExpressionEvaluator(mockConfigHandler, "/project", "/template")
+		subject := evaluator.NewExpressionEvaluator(mockConfigHandler, "/project", "/template")
 
-		result, err := evaluator.Evaluate(`${jsonString(map(paths, fromPairs([["path", #], ["allowScheduling", true]])))}`, "", nil, false)
+		result, err := subject.Evaluate(`${jsonString(map(paths, fromPairs([["path", #], ["allowScheduling", true]])))}`, "", nil, false)
 
 		if err != nil {
 			t.Fatalf("Expected no error, got: %v", err)
@@ -509,9 +224,9 @@ func TestStringHelper(t *testing.T) {
 		mockConfigHandler.GetContextValuesFunc = func() (map[string]any, error) {
 			return map[string]any{"patch": map[string]any{"cluster": map[string]any{"allowSchedulingOnControlPlanes": nil}}}, nil
 		}
-		evaluator := NewExpressionEvaluator(mockConfigHandler, "/project", "/template")
+		subject := evaluator.NewExpressionEvaluator(mockConfigHandler, "/project", "/template")
 
-		result, err := evaluator.Evaluate(`${string(patch)}`, "", nil, false)
+		result, err := subject.Evaluate(`${string(patch)}`, "", nil, false)
 
 		if err != nil {
 			t.Fatalf("Expected no error, got: %v", err)
@@ -533,9 +248,9 @@ func TestStringHelper(t *testing.T) {
 		mockConfigHandler.GetContextValuesFunc = func() (map[string]any, error) {
 			return map[string]any{"n": 42}, nil
 		}
-		evaluator := NewExpressionEvaluator(mockConfigHandler, "/project", "/template")
+		subject := evaluator.NewExpressionEvaluator(mockConfigHandler, "/project", "/template")
 
-		result, err := evaluator.Evaluate(`${string(n)}`, "", nil, false)
+		result, err := subject.Evaluate(`${string(n)}`, "", nil, false)
 
 		if err != nil {
 			t.Fatalf("Expected no error, got: %v", err)
@@ -548,9 +263,9 @@ func TestStringHelper(t *testing.T) {
 
 func TestSplitHelper(t *testing.T) {
 	t.Run("SplitFunction", func(t *testing.T) {
-		evaluator, _, _, _ := setupEvaluatorTest(t)
+		subject, _, _, _ := setupEvaluatorTest(t)
 
-		result, err := evaluator.Evaluate(`${split("a,b,c", ",")}`, "", nil, false)
+		result, err := subject.Evaluate(`${split("a,b,c", ",")}`, "", nil, false)
 
 		if err != nil {
 			t.Fatalf("Expected no error, got: %v", err)
@@ -571,9 +286,9 @@ func TestSplitHelper(t *testing.T) {
 	})
 
 	t.Run("SplitFunctionWithInvalidArguments", func(t *testing.T) {
-		evaluator, _, _, _ := setupEvaluatorTest(t)
+		subject, _, _, _ := setupEvaluatorTest(t)
 
-		_, err := evaluator.Evaluate(`${split("a,b")}`, "", nil, false)
+		_, err := subject.Evaluate(`${split("a,b")}`, "", nil, false)
 
 		if err == nil {
 			t.Fatal("Expected error for invalid arguments, got nil")
@@ -581,9 +296,9 @@ func TestSplitHelper(t *testing.T) {
 	})
 
 	t.Run("SplitFunctionWithNonStringArguments", func(t *testing.T) {
-		evaluator, _, _, _ := setupEvaluatorTest(t)
+		subject, _, _, _ := setupEvaluatorTest(t)
 
-		_, err := evaluator.Evaluate(`${split(42, ",")}`, "", nil, false)
+		_, err := subject.Evaluate(`${split(42, ",")}`, "", nil, false)
 
 		if err == nil {
 			t.Fatal("Expected error for non-string arguments, got nil")
@@ -593,10 +308,10 @@ func TestSplitHelper(t *testing.T) {
 
 func TestEnvHelper(t *testing.T) {
 	t.Run("ReturnsValueWhenSet", func(t *testing.T) {
-		evaluator, _, _, _ := setupEvaluatorTest(t)
+		subject, _, _, _ := setupEvaluatorTest(t)
 		t.Setenv("WINDSOR_TEST_ENV_TOKEN", "s3cr3t")
 
-		result, err := evaluator.Evaluate(`${env("WINDSOR_TEST_ENV_TOKEN")}`, "", nil, false)
+		result, err := subject.Evaluate(`${env("WINDSOR_TEST_ENV_TOKEN")}`, "", nil, false)
 		if err != nil {
 			t.Fatalf("Expected no error, got: %v", err)
 		}
@@ -606,10 +321,10 @@ func TestEnvHelper(t *testing.T) {
 	})
 
 	t.Run("ReturnsNilWhenUnsetSoCoalesceApplies", func(t *testing.T) {
-		evaluator, _, _, _ := setupEvaluatorTest(t)
+		subject, _, _, _ := setupEvaluatorTest(t)
 
 		// The variable is never set, so env() resolves to nil and the ?? default is used.
-		result, err := evaluator.Evaluate(`${env("WINDSOR_TEST_ENV_DEFINITELY_ABSENT") ?? "fallback"}`, "", nil, false)
+		result, err := subject.Evaluate(`${env("WINDSOR_TEST_ENV_DEFINITELY_ABSENT") ?? "fallback"}`, "", nil, false)
 		if err != nil {
 			t.Fatalf("Expected no error, got: %v", err)
 		}
@@ -619,11 +334,11 @@ func TestEnvHelper(t *testing.T) {
 	})
 
 	t.Run("PreservesExplicitEmptyStringDistinctFromUnset", func(t *testing.T) {
-		evaluator, _, _, _ := setupEvaluatorTest(t)
+		subject, _, _, _ := setupEvaluatorTest(t)
 		t.Setenv("WINDSOR_TEST_ENV_EMPTY", "")
 
 		// A set-but-empty var is a real value, so ?? does not fall through to the default.
-		result, err := evaluator.Evaluate(`${env("WINDSOR_TEST_ENV_EMPTY") ?? "fallback"}`, "", nil, false)
+		result, err := subject.Evaluate(`${env("WINDSOR_TEST_ENV_EMPTY") ?? "fallback"}`, "", nil, false)
 		if err != nil {
 			t.Fatalf("Expected no error, got: %v", err)
 		}
@@ -633,9 +348,9 @@ func TestEnvHelper(t *testing.T) {
 	})
 
 	t.Run("ErrorsOnNonStringArgument", func(t *testing.T) {
-		evaluator, _, _, _ := setupEvaluatorTest(t)
+		subject, _, _, _ := setupEvaluatorTest(t)
 
-		_, err := evaluator.Evaluate(`${env(42)}`, "", nil, false)
+		_, err := subject.Evaluate(`${env(42)}`, "", nil, false)
 		if err == nil {
 			t.Fatal("Expected error for non-string argument, got nil")
 		}
@@ -644,9 +359,9 @@ func TestEnvHelper(t *testing.T) {
 
 func TestCidrHostHelper(t *testing.T) {
 	t.Run("CidrHostWithValidInput", func(t *testing.T) {
-		evaluator, _, _, _ := setupEvaluatorTest(t)
+		subject, _, _, _ := setupEvaluatorTest(t)
 
-		result, err := evaluator.Evaluate(`${cidrhost("10.5.0.0/16", 10)}`, "", nil, false)
+		result, err := subject.Evaluate(`${cidrhost("10.5.0.0/16", 10)}`, "", nil, false)
 
 		if err != nil {
 			t.Fatalf("Expected no error, got: %v", err)
@@ -658,9 +373,9 @@ func TestCidrHostHelper(t *testing.T) {
 	})
 
 	t.Run("CidrHostWithHostnumZero", func(t *testing.T) {
-		evaluator, _, _, _ := setupEvaluatorTest(t)
+		subject, _, _, _ := setupEvaluatorTest(t)
 
-		result, err := evaluator.Evaluate(`${cidrhost("192.168.1.0/24", 0)}`, "", nil, false)
+		result, err := subject.Evaluate(`${cidrhost("192.168.1.0/24", 0)}`, "", nil, false)
 
 		if err != nil {
 			t.Fatalf("Expected no error, got: %v", err)
@@ -672,9 +387,9 @@ func TestCidrHostHelper(t *testing.T) {
 	})
 
 	t.Run("CidrHostWithInvalidArguments", func(t *testing.T) {
-		evaluator, _, _, _ := setupEvaluatorTest(t)
+		subject, _, _, _ := setupEvaluatorTest(t)
 
-		_, err := evaluator.Evaluate(`${cidrhost("10.5.0.0/16")}`, "", nil, false)
+		_, err := subject.Evaluate(`${cidrhost("10.5.0.0/16")}`, "", nil, false)
 
 		if err == nil {
 			t.Fatal("Expected error for invalid arguments, got nil")
@@ -682,9 +397,9 @@ func TestCidrHostHelper(t *testing.T) {
 	})
 
 	t.Run("CidrHostWithNonStringPrefix", func(t *testing.T) {
-		evaluator, _, _, _ := setupEvaluatorTest(t)
+		subject, _, _, _ := setupEvaluatorTest(t)
 
-		_, err := evaluator.Evaluate(`${cidrhost(42, 10)}`, "", nil, false)
+		_, err := subject.Evaluate(`${cidrhost(42, 10)}`, "", nil, false)
 
 		if err == nil {
 			t.Fatal("Expected error for non-string prefix, got nil")
@@ -692,9 +407,9 @@ func TestCidrHostHelper(t *testing.T) {
 	})
 
 	t.Run("CidrHostWithNonNumberHostnum", func(t *testing.T) {
-		evaluator, _, _, _ := setupEvaluatorTest(t)
+		subject, _, _, _ := setupEvaluatorTest(t)
 
-		_, err := evaluator.Evaluate(`${cidrhost("10.5.0.0/16", "10")}`, "", nil, false)
+		_, err := subject.Evaluate(`${cidrhost("10.5.0.0/16", "10")}`, "", nil, false)
 
 		if err == nil {
 			t.Fatal("Expected error for non-number hostnum, got nil")
@@ -702,9 +417,9 @@ func TestCidrHostHelper(t *testing.T) {
 	})
 
 	t.Run("CidrHostWithInvalidCIDR", func(t *testing.T) {
-		evaluator, _, _, _ := setupEvaluatorTest(t)
+		subject, _, _, _ := setupEvaluatorTest(t)
 
-		_, err := evaluator.Evaluate(`${cidrhost("invalid", 10)}`, "", nil, false)
+		_, err := subject.Evaluate(`${cidrhost("invalid", 10)}`, "", nil, false)
 
 		if err == nil {
 			t.Fatal("Expected error for invalid CIDR, got nil")
@@ -712,9 +427,9 @@ func TestCidrHostHelper(t *testing.T) {
 	})
 
 	t.Run("CidrHostWithOutOfRangeHostnum", func(t *testing.T) {
-		evaluator, _, _, _ := setupEvaluatorTest(t)
+		subject, _, _, _ := setupEvaluatorTest(t)
 
-		_, err := evaluator.Evaluate(`${cidrhost("10.5.0.0/16", 65536)}`, "", nil, false)
+		_, err := subject.Evaluate(`${cidrhost("10.5.0.0/16", 65536)}`, "", nil, false)
 
 		if err == nil {
 			t.Fatal("Expected error for out of range hostnum, got nil")
@@ -722,9 +437,9 @@ func TestCidrHostHelper(t *testing.T) {
 	})
 
 	t.Run("CidrHostWithIPv6", func(t *testing.T) {
-		evaluator, _, _, _ := setupEvaluatorTest(t)
+		subject, _, _, _ := setupEvaluatorTest(t)
 
-		result, err := evaluator.Evaluate(`${cidrhost("2001:db8::/96", 1)}`, "", nil, false)
+		result, err := subject.Evaluate(`${cidrhost("2001:db8::/96", 1)}`, "", nil, false)
 
 		if err != nil {
 			t.Fatalf("Expected no error, got: %v", err)
@@ -736,9 +451,9 @@ func TestCidrHostHelper(t *testing.T) {
 	})
 
 	t.Run("CidrHostWithIPv6Slash64", func(t *testing.T) {
-		evaluator, _, _, _ := setupEvaluatorTest(t)
+		subject, _, _, _ := setupEvaluatorTest(t)
 
-		result, err := evaluator.Evaluate(`${cidrhost("2001:db8::/64", 0)}`, "", nil, false)
+		result, err := subject.Evaluate(`${cidrhost("2001:db8::/64", 0)}`, "", nil, false)
 
 		if err != nil {
 			t.Fatalf("Expected no error for /64 network with hostnum 0, got: %v", err)
@@ -750,9 +465,9 @@ func TestCidrHostHelper(t *testing.T) {
 	})
 
 	t.Run("CidrHostWithIPv6OutOfRange", func(t *testing.T) {
-		evaluator, _, _, _ := setupEvaluatorTest(t)
+		subject, _, _, _ := setupEvaluatorTest(t)
 
-		_, err := evaluator.Evaluate(`${cidrhost("2001:db8::/128", 2)}`, "", nil, false)
+		_, err := subject.Evaluate(`${cidrhost("2001:db8::/128", 2)}`, "", nil, false)
 
 		if err == nil {
 			t.Fatal("Expected error for IPv6 out of range hostnum, got nil")
@@ -760,9 +475,9 @@ func TestCidrHostHelper(t *testing.T) {
 	})
 
 	t.Run("CidrHostWithHostnumExceedingMaxUint32", func(t *testing.T) {
-		evaluator, _, _, _ := setupEvaluatorTest(t)
+		subject, _, _, _ := setupEvaluatorTest(t)
 
-		_, err := evaluator.Evaluate(`${cidrhost("10.0.0.0/8", 4294967296)}`, "", nil, false)
+		_, err := subject.Evaluate(`${cidrhost("10.0.0.0/8", 4294967296)}`, "", nil, false)
 
 		if err == nil {
 			t.Fatal("Expected error for hostnum exceeding MaxUint32, got nil")
@@ -773,9 +488,9 @@ func TestCidrHostHelper(t *testing.T) {
 	})
 
 	t.Run("CidrHostWithOverflowDetection", func(t *testing.T) {
-		evaluator, _, _, _ := setupEvaluatorTest(t)
+		subject, _, _, _ := setupEvaluatorTest(t)
 
-		_, err := evaluator.Evaluate(`${cidrhost("255.255.255.0/24", 256)}`, "", nil, false)
+		_, err := subject.Evaluate(`${cidrhost("255.255.255.0/24", 256)}`, "", nil, false)
 
 		if err == nil {
 			t.Fatal("Expected error for overflow, got nil")
@@ -788,9 +503,9 @@ func TestCidrHostHelper(t *testing.T) {
 
 func TestCidrSubnetHelper(t *testing.T) {
 	t.Run("CidrSubnetWithValidInput", func(t *testing.T) {
-		evaluator, _, _, _ := setupEvaluatorTest(t)
+		subject, _, _, _ := setupEvaluatorTest(t)
 
-		result, err := evaluator.Evaluate(`${cidrsubnet("10.5.0.0/16", 8, 1)}`, "", nil, false)
+		result, err := subject.Evaluate(`${cidrsubnet("10.5.0.0/16", 8, 1)}`, "", nil, false)
 
 		if err != nil {
 			t.Fatalf("Expected no error, got: %v", err)
@@ -802,9 +517,9 @@ func TestCidrSubnetHelper(t *testing.T) {
 	})
 
 	t.Run("CidrSubnetWithNetnumZero", func(t *testing.T) {
-		evaluator, _, _, _ := setupEvaluatorTest(t)
+		subject, _, _, _ := setupEvaluatorTest(t)
 
-		result, err := evaluator.Evaluate(`${cidrsubnet("10.0.0.0/8", 8, 0)}`, "", nil, false)
+		result, err := subject.Evaluate(`${cidrsubnet("10.0.0.0/8", 8, 0)}`, "", nil, false)
 
 		if err != nil {
 			t.Fatalf("Expected no error, got: %v", err)
@@ -816,9 +531,9 @@ func TestCidrSubnetHelper(t *testing.T) {
 	})
 
 	t.Run("CidrSubnetWithInvalidArguments", func(t *testing.T) {
-		evaluator, _, _, _ := setupEvaluatorTest(t)
+		subject, _, _, _ := setupEvaluatorTest(t)
 
-		_, err := evaluator.Evaluate(`${cidrsubnet("10.5.0.0/16", 8)}`, "", nil, false)
+		_, err := subject.Evaluate(`${cidrsubnet("10.5.0.0/16", 8)}`, "", nil, false)
 
 		if err == nil {
 			t.Fatal("Expected error for invalid arguments, got nil")
@@ -826,9 +541,9 @@ func TestCidrSubnetHelper(t *testing.T) {
 	})
 
 	t.Run("CidrSubnetWithNonStringPrefix", func(t *testing.T) {
-		evaluator, _, _, _ := setupEvaluatorTest(t)
+		subject, _, _, _ := setupEvaluatorTest(t)
 
-		_, err := evaluator.Evaluate(`${cidrsubnet(42, 8, 1)}`, "", nil, false)
+		_, err := subject.Evaluate(`${cidrsubnet(42, 8, 1)}`, "", nil, false)
 
 		if err == nil {
 			t.Fatal("Expected error for non-string prefix, got nil")
@@ -836,9 +551,9 @@ func TestCidrSubnetHelper(t *testing.T) {
 	})
 
 	t.Run("CidrSubnetWithNonNumberNewbits", func(t *testing.T) {
-		evaluator, _, _, _ := setupEvaluatorTest(t)
+		subject, _, _, _ := setupEvaluatorTest(t)
 
-		_, err := evaluator.Evaluate(`${cidrsubnet("10.5.0.0/16", "8", 1)}`, "", nil, false)
+		_, err := subject.Evaluate(`${cidrsubnet("10.5.0.0/16", "8", 1)}`, "", nil, false)
 
 		if err == nil {
 			t.Fatal("Expected error for non-number newbits, got nil")
@@ -846,9 +561,9 @@ func TestCidrSubnetHelper(t *testing.T) {
 	})
 
 	t.Run("CidrSubnetWithInvalidCIDR", func(t *testing.T) {
-		evaluator, _, _, _ := setupEvaluatorTest(t)
+		subject, _, _, _ := setupEvaluatorTest(t)
 
-		_, err := evaluator.Evaluate(`${cidrsubnet("invalid", 8, 1)}`, "", nil, false)
+		_, err := subject.Evaluate(`${cidrsubnet("invalid", 8, 1)}`, "", nil, false)
 
 		if err == nil {
 			t.Fatal("Expected error for invalid CIDR, got nil")
@@ -856,9 +571,9 @@ func TestCidrSubnetHelper(t *testing.T) {
 	})
 
 	t.Run("CidrSubnetWithInvalidNewbits", func(t *testing.T) {
-		evaluator, _, _, _ := setupEvaluatorTest(t)
+		subject, _, _, _ := setupEvaluatorTest(t)
 
-		_, err := evaluator.Evaluate(`${cidrsubnet("10.5.0.0/16", 17, 1)}`, "", nil, false)
+		_, err := subject.Evaluate(`${cidrsubnet("10.5.0.0/16", 17, 1)}`, "", nil, false)
 
 		if err == nil {
 			t.Fatal("Expected error for invalid newbits, got nil")
@@ -866,9 +581,9 @@ func TestCidrSubnetHelper(t *testing.T) {
 	})
 
 	t.Run("CidrSubnetWithOutOfRangeNetnum", func(t *testing.T) {
-		evaluator, _, _, _ := setupEvaluatorTest(t)
+		subject, _, _, _ := setupEvaluatorTest(t)
 
-		_, err := evaluator.Evaluate(`${cidrsubnet("10.5.0.0/16", 8, 256)}`, "", nil, false)
+		_, err := subject.Evaluate(`${cidrsubnet("10.5.0.0/16", 8, 256)}`, "", nil, false)
 
 		if err == nil {
 			t.Fatal("Expected error for out of range netnum, got nil")
@@ -876,9 +591,9 @@ func TestCidrSubnetHelper(t *testing.T) {
 	})
 
 	t.Run("CidrSubnetWithIPv6", func(t *testing.T) {
-		evaluator, _, _, _ := setupEvaluatorTest(t)
+		subject, _, _, _ := setupEvaluatorTest(t)
 
-		result, err := evaluator.Evaluate(`${cidrsubnet("2001:db8::/64", 16, 256)}`, "", nil, false)
+		result, err := subject.Evaluate(`${cidrsubnet("2001:db8::/64", 16, 256)}`, "", nil, false)
 
 		if err != nil {
 			t.Fatalf("Expected no error, got: %v", err)
@@ -893,9 +608,9 @@ func TestCidrSubnetHelper(t *testing.T) {
 	})
 
 	t.Run("CidrSubnetWithLargeNewbits", func(t *testing.T) {
-		evaluator, _, _, _ := setupEvaluatorTest(t)
+		subject, _, _, _ := setupEvaluatorTest(t)
 
-		result, err := evaluator.Evaluate(`${cidrsubnet("2001:db8::/32", 64, 0)}`, "", nil, false)
+		result, err := subject.Evaluate(`${cidrsubnet("2001:db8::/32", 64, 0)}`, "", nil, false)
 
 		if err != nil {
 			t.Fatalf("Expected no error for /32 network with newbits=64 and netnum=0, got: %v", err)
@@ -910,9 +625,9 @@ func TestCidrSubnetHelper(t *testing.T) {
 	})
 
 	t.Run("CidrSubnetWithNonCanonicalCIDR", func(t *testing.T) {
-		evaluator, _, _, _ := setupEvaluatorTest(t)
+		subject, _, _, _ := setupEvaluatorTest(t)
 
-		result, err := evaluator.Evaluate(`${cidrsubnet("10.5.3.7/16", 8, 1)}`, "", nil, false)
+		result, err := subject.Evaluate(`${cidrsubnet("10.5.3.7/16", 8, 1)}`, "", nil, false)
 
 		if err != nil {
 			t.Fatalf("Expected no error, got: %v", err)
@@ -924,9 +639,9 @@ func TestCidrSubnetHelper(t *testing.T) {
 	})
 
 	t.Run("CidrSubnetWithOffsetExceedingMaxUint32", func(t *testing.T) {
-		evaluator, _, _, _ := setupEvaluatorTest(t)
+		subject, _, _, _ := setupEvaluatorTest(t)
 
-		_, err := evaluator.Evaluate(`${cidrsubnet("0.0.0.0/0", 0, 1)}`, "", nil, false)
+		_, err := subject.Evaluate(`${cidrsubnet("0.0.0.0/0", 0, 1)}`, "", nil, false)
 
 		if err == nil {
 			t.Fatal("Expected error for offset exceeding MaxUint32, got nil")
@@ -937,9 +652,9 @@ func TestCidrSubnetHelper(t *testing.T) {
 	})
 
 	t.Run("CidrSubnetWithOverflowDetection", func(t *testing.T) {
-		evaluator, _, _, _ := setupEvaluatorTest(t)
+		subject, _, _, _ := setupEvaluatorTest(t)
 
-		_, err := evaluator.Evaluate(`${cidrsubnet("255.255.255.0/24", 0, 1)}`, "", nil, false)
+		_, err := subject.Evaluate(`${cidrsubnet("255.255.255.0/24", 0, 1)}`, "", nil, false)
 
 		if err == nil {
 			t.Fatal("Expected error for overflow, got nil")
@@ -950,9 +665,9 @@ func TestCidrSubnetHelper(t *testing.T) {
 	})
 
 	t.Run("CidrSubnetWithIPv6OffsetOverflow", func(t *testing.T) {
-		evaluator, _, _, _ := setupEvaluatorTest(t)
+		subject, _, _, _ := setupEvaluatorTest(t)
 
-		_, err := evaluator.Evaluate(`${cidrsubnet("ffff:ffff:ffff:ffff:ffff:ffff:ffff:ff00/120", 0, 1)}`, "", nil, false)
+		_, err := subject.Evaluate(`${cidrsubnet("ffff:ffff:ffff:ffff:ffff:ffff:ffff:ff00/120", 0, 1)}`, "", nil, false)
 
 		if err == nil {
 			t.Fatal("Expected error for IPv6 offset overflow, got nil")
@@ -965,9 +680,9 @@ func TestCidrSubnetHelper(t *testing.T) {
 
 func TestCidrSubnetsHelper(t *testing.T) {
 	t.Run("CidrSubnetsWithValidInput", func(t *testing.T) {
-		evaluator, _, _, _ := setupEvaluatorTest(t)
+		subject, _, _, _ := setupEvaluatorTest(t)
 
-		result, err := evaluator.Evaluate(`${cidrsubnets("10.5.0.0/16", 8, 8)}`, "", nil, false)
+		result, err := subject.Evaluate(`${cidrsubnets("10.5.0.0/16", 8, 8)}`, "", nil, false)
 
 		if err != nil {
 			t.Fatalf("Expected no error, got: %v", err)
@@ -992,9 +707,9 @@ func TestCidrSubnetsHelper(t *testing.T) {
 	})
 
 	t.Run("CidrSubnetsWithSingleSubnet", func(t *testing.T) {
-		evaluator, _, _, _ := setupEvaluatorTest(t)
+		subject, _, _, _ := setupEvaluatorTest(t)
 
-		result, err := evaluator.Evaluate(`${cidrsubnets("10.0.0.0/8", 8)}`, "", nil, false)
+		result, err := subject.Evaluate(`${cidrsubnets("10.0.0.0/8", 8)}`, "", nil, false)
 
 		if err != nil {
 			t.Fatalf("Expected no error, got: %v", err)
@@ -1015,9 +730,9 @@ func TestCidrSubnetsHelper(t *testing.T) {
 	})
 
 	t.Run("CidrSubnetsWithInvalidArguments", func(t *testing.T) {
-		evaluator, _, _, _ := setupEvaluatorTest(t)
+		subject, _, _, _ := setupEvaluatorTest(t)
 
-		_, err := evaluator.Evaluate(`${cidrsubnets("10.5.0.0/16")}`, "", nil, false)
+		_, err := subject.Evaluate(`${cidrsubnets("10.5.0.0/16")}`, "", nil, false)
 
 		if err == nil {
 			t.Fatal("Expected error for invalid arguments, got nil")
@@ -1025,9 +740,9 @@ func TestCidrSubnetsHelper(t *testing.T) {
 	})
 
 	t.Run("CidrSubnetsWithNonStringPrefix", func(t *testing.T) {
-		evaluator, _, _, _ := setupEvaluatorTest(t)
+		subject, _, _, _ := setupEvaluatorTest(t)
 
-		_, err := evaluator.Evaluate(`${cidrsubnets(42, 8)}`, "", nil, false)
+		_, err := subject.Evaluate(`${cidrsubnets(42, 8)}`, "", nil, false)
 
 		if err == nil {
 			t.Fatal("Expected error for non-string prefix, got nil")
@@ -1035,9 +750,9 @@ func TestCidrSubnetsHelper(t *testing.T) {
 	})
 
 	t.Run("CidrSubnetsWithNonNumberNewbits", func(t *testing.T) {
-		evaluator, _, _, _ := setupEvaluatorTest(t)
+		subject, _, _, _ := setupEvaluatorTest(t)
 
-		_, err := evaluator.Evaluate(`${cidrsubnets("10.5.0.0/16", "8")}`, "", nil, false)
+		_, err := subject.Evaluate(`${cidrsubnets("10.5.0.0/16", "8")}`, "", nil, false)
 
 		if err == nil {
 			t.Fatal("Expected error for non-number newbits, got nil")
@@ -1045,9 +760,9 @@ func TestCidrSubnetsHelper(t *testing.T) {
 	})
 
 	t.Run("CidrSubnetsWithInvalidCIDR", func(t *testing.T) {
-		evaluator, _, _, _ := setupEvaluatorTest(t)
+		subject, _, _, _ := setupEvaluatorTest(t)
 
-		_, err := evaluator.Evaluate(`${cidrsubnets("invalid", 8)}`, "", nil, false)
+		_, err := subject.Evaluate(`${cidrsubnets("invalid", 8)}`, "", nil, false)
 
 		if err == nil {
 			t.Fatal("Expected error for invalid CIDR, got nil")
@@ -1055,9 +770,9 @@ func TestCidrSubnetsHelper(t *testing.T) {
 	})
 
 	t.Run("CidrSubnetsWithIPv6", func(t *testing.T) {
-		evaluator, _, _, _ := setupEvaluatorTest(t)
+		subject, _, _, _ := setupEvaluatorTest(t)
 
-		result, err := evaluator.Evaluate(`${cidrsubnets("2001:db8::/64", 16, 16)}`, "", nil, false)
+		result, err := subject.Evaluate(`${cidrsubnets("2001:db8::/64", 16, 16)}`, "", nil, false)
 
 		if err != nil {
 			t.Fatalf("Expected no error, got: %v", err)
@@ -1081,9 +796,9 @@ func TestCidrSubnetsHelper(t *testing.T) {
 	})
 
 	t.Run("CidrSubnetsWithDifferentSizes", func(t *testing.T) {
-		evaluator, _, _, _ := setupEvaluatorTest(t)
+		subject, _, _, _ := setupEvaluatorTest(t)
 
-		result, err := evaluator.Evaluate(`${cidrsubnets("10.0.0.0/8", 4, 8)}`, "", nil, false)
+		result, err := subject.Evaluate(`${cidrsubnets("10.0.0.0/8", 4, 8)}`, "", nil, false)
 
 		if err != nil {
 			t.Fatalf("Expected no error, got: %v", err)
@@ -1108,9 +823,9 @@ func TestCidrSubnetsHelper(t *testing.T) {
 	})
 
 	t.Run("CidrSubnetsWithNonCanonicalCIDR", func(t *testing.T) {
-		evaluator, _, _, _ := setupEvaluatorTest(t)
+		subject, _, _, _ := setupEvaluatorTest(t)
 
-		result, err := evaluator.Evaluate(`${cidrsubnets("10.5.3.7/16", 8, 8)}`, "", nil, false)
+		result, err := subject.Evaluate(`${cidrsubnets("10.5.3.7/16", 8, 8)}`, "", nil, false)
 
 		if err != nil {
 			t.Fatalf("Expected no error, got: %v", err)
@@ -1135,9 +850,9 @@ func TestCidrSubnetsHelper(t *testing.T) {
 	})
 
 	t.Run("CidrSubnetsWithIPv6OffsetOverflow", func(t *testing.T) {
-		evaluator, _, _, _ := setupEvaluatorTest(t)
+		subject, _, _, _ := setupEvaluatorTest(t)
 
-		_, err := evaluator.Evaluate(`${cidrsubnets("ffff:ffff:ffff:ffff:ffff:ffff:ffff:ff00/120", 0, 0)}`, "", nil, false)
+		_, err := subject.Evaluate(`${cidrsubnets("ffff:ffff:ffff:ffff:ffff:ffff:ffff:ff00/120", 0, 0)}`, "", nil, false)
 
 		if err == nil {
 			t.Fatal("Expected error for IPv6 offset overflow, got nil")
@@ -1150,9 +865,9 @@ func TestCidrSubnetsHelper(t *testing.T) {
 
 func TestCidrNetmaskHelper(t *testing.T) {
 	t.Run("CidrNetmaskWithValidInput", func(t *testing.T) {
-		evaluator, _, _, _ := setupEvaluatorTest(t)
+		subject, _, _, _ := setupEvaluatorTest(t)
 
-		result, err := evaluator.Evaluate(`${cidrnetmask("10.5.0.0/16")}`, "", nil, false)
+		result, err := subject.Evaluate(`${cidrnetmask("10.5.0.0/16")}`, "", nil, false)
 
 		if err != nil {
 			t.Fatalf("Expected no error, got: %v", err)
@@ -1164,9 +879,9 @@ func TestCidrNetmaskHelper(t *testing.T) {
 	})
 
 	t.Run("CidrNetmaskWithSlash24", func(t *testing.T) {
-		evaluator, _, _, _ := setupEvaluatorTest(t)
+		subject, _, _, _ := setupEvaluatorTest(t)
 
-		result, err := evaluator.Evaluate(`${cidrnetmask("192.168.1.0/24")}`, "", nil, false)
+		result, err := subject.Evaluate(`${cidrnetmask("192.168.1.0/24")}`, "", nil, false)
 
 		if err != nil {
 			t.Fatalf("Expected no error, got: %v", err)
@@ -1178,9 +893,9 @@ func TestCidrNetmaskHelper(t *testing.T) {
 	})
 
 	t.Run("CidrNetmaskWithSlash8", func(t *testing.T) {
-		evaluator, _, _, _ := setupEvaluatorTest(t)
+		subject, _, _, _ := setupEvaluatorTest(t)
 
-		result, err := evaluator.Evaluate(`${cidrnetmask("10.0.0.0/8")}`, "", nil, false)
+		result, err := subject.Evaluate(`${cidrnetmask("10.0.0.0/8")}`, "", nil, false)
 
 		if err != nil {
 			t.Fatalf("Expected no error, got: %v", err)
@@ -1192,9 +907,9 @@ func TestCidrNetmaskHelper(t *testing.T) {
 	})
 
 	t.Run("CidrNetmaskWithInvalidArguments", func(t *testing.T) {
-		evaluator, _, _, _ := setupEvaluatorTest(t)
+		subject, _, _, _ := setupEvaluatorTest(t)
 
-		_, err := evaluator.Evaluate(`${cidrnetmask("10.5.0.0/16", "extra")}`, "", nil, false)
+		_, err := subject.Evaluate(`${cidrnetmask("10.5.0.0/16", "extra")}`, "", nil, false)
 
 		if err == nil {
 			t.Fatal("Expected error for invalid arguments, got nil")
@@ -1202,9 +917,9 @@ func TestCidrNetmaskHelper(t *testing.T) {
 	})
 
 	t.Run("CidrNetmaskWithNonStringPrefix", func(t *testing.T) {
-		evaluator, _, _, _ := setupEvaluatorTest(t)
+		subject, _, _, _ := setupEvaluatorTest(t)
 
-		_, err := evaluator.Evaluate(`${cidrnetmask(42)}`, "", nil, false)
+		_, err := subject.Evaluate(`${cidrnetmask(42)}`, "", nil, false)
 
 		if err == nil {
 			t.Fatal("Expected error for non-string prefix, got nil")
@@ -1212,9 +927,9 @@ func TestCidrNetmaskHelper(t *testing.T) {
 	})
 
 	t.Run("CidrNetmaskWithInvalidCIDR", func(t *testing.T) {
-		evaluator, _, _, _ := setupEvaluatorTest(t)
+		subject, _, _, _ := setupEvaluatorTest(t)
 
-		_, err := evaluator.Evaluate(`${cidrnetmask("invalid")}`, "", nil, false)
+		_, err := subject.Evaluate(`${cidrnetmask("invalid")}`, "", nil, false)
 
 		if err == nil {
 			t.Fatal("Expected error for invalid CIDR, got nil")
@@ -1222,9 +937,9 @@ func TestCidrNetmaskHelper(t *testing.T) {
 	})
 
 	t.Run("CidrNetmaskWithIPv6", func(t *testing.T) {
-		evaluator, _, _, _ := setupEvaluatorTest(t)
+		subject, _, _, _ := setupEvaluatorTest(t)
 
-		_, err := evaluator.Evaluate(`${cidrnetmask("2001:db8::/32")}`, "", nil, false)
+		_, err := subject.Evaluate(`${cidrnetmask("2001:db8::/32")}`, "", nil, false)
 
 		if err == nil {
 			t.Fatal("Expected error for IPv6 CIDR, got nil")

@@ -1,4 +1,4 @@
-package shell
+package shell_test
 
 import (
 	"bufio"
@@ -6,13 +6,15 @@ import (
 	"os/exec"
 	"strings"
 	"testing"
+
+	"github.com/windsorcli/cli/pkg/runtime/shell"
 )
 
 func TestNewShims(t *testing.T) {
 	t.Run("CreatesShimsWithAllFunctions", func(t *testing.T) {
 		// Given a new Shims instance
 		// When NewShims is called
-		shims := NewShims()
+		shims := shell.NewShims()
 
 		// Then all shim functions should be initialized
 		if shims.Getwd == nil {
@@ -112,7 +114,7 @@ func TestNewShims(t *testing.T) {
 
 	t.Run("RandRead", func(t *testing.T) {
 		// Given
-		shims := NewShims()
+		shims := shell.NewShims()
 		buf := make([]byte, 32)
 
 		// When reading random bytes
@@ -146,7 +148,7 @@ func (m *mockWriter) Write(p []byte) (n int, err error) {
 func TestShims_ExecOperations(t *testing.T) {
 	t.Run("CmdOperations", func(t *testing.T) {
 		// Given
-		shims := NewShims()
+		shims := shell.NewShims()
 
 		// Use Go's built-in test binary as a reliable cross-platform command
 		cmd := shims.Command(os.Args[0], "-test.run=TestShims_ExecOperations/ThisTestDoesNotExist")
@@ -174,7 +176,7 @@ func TestShims_ExecOperations(t *testing.T) {
 
 	t.Run("PipeOperations", func(t *testing.T) {
 		// Given
-		shims := NewShims()
+		shims := shell.NewShims()
 		cmd := shims.Command(os.Args[0], "-test.run=TestShims_ExecOperations/ThisTestDoesNotExist")
 
 		// Test StdoutPipe
@@ -196,7 +198,7 @@ func TestShims_ExecOperations(t *testing.T) {
 func TestShims_TemplateOperations(t *testing.T) {
 	t.Run("TemplateOperations", func(t *testing.T) {
 		// Given
-		shims := NewShims()
+		shims := shell.NewShims()
 		tmpl := shims.NewTemplate("test")
 
 		// Test TemplateParse
@@ -214,7 +216,7 @@ func TestShims_TemplateOperations(t *testing.T) {
 
 	t.Run("TemplateParseError", func(t *testing.T) {
 		// Given
-		shims := NewShims()
+		shims := shell.NewShims()
 		tmpl := shims.NewTemplate("test")
 
 		// When parsing an invalid template
@@ -226,7 +228,7 @@ func TestShims_TemplateOperations(t *testing.T) {
 
 	t.Run("TemplateExecuteError", func(t *testing.T) {
 		// Given
-		shims := NewShims()
+		shims := shell.NewShims()
 		tmpl := shims.NewTemplate("test")
 		tmpl, err := shims.TemplateParse(tmpl, "{{.MissingField}}")
 		if err != nil {
@@ -244,7 +246,7 @@ func TestShims_TemplateOperations(t *testing.T) {
 func TestShims_ScannerOperations(t *testing.T) {
 	t.Run("ScannerOperations", func(t *testing.T) {
 		// Given
-		shims := NewShims()
+		shims := shell.NewShims()
 		scanner := bufio.NewScanner(strings.NewReader("test\n"))
 
 		// Test ScannerScan
@@ -265,7 +267,7 @@ func TestShims_ScannerOperations(t *testing.T) {
 
 	t.Run("ScannerError", func(t *testing.T) {
 		// Given
-		shims := NewShims()
+		shims := shell.NewShims()
 		r := strings.NewReader(strings.Repeat("x", bufio.MaxScanTokenSize+1))
 		scanner := bufio.NewScanner(r)
 		scanner.Split(bufio.ScanWords)

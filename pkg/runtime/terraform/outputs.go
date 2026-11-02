@@ -33,21 +33,19 @@ type terraformContext struct {
 	TerraformArgs       *TerraformArgs
 	BackendOverridePath string
 	originalEnvVars     map[string]string
-	provider            *terraformProvider
+	provider            *DefaultTerraformProvider
 }
 
 // =============================================================================
 // Public Methods
 // =============================================================================
 
-// GetTerraformOutputs retrieves Terraform outputs for the specified component by running 'terraform output -json'.
-// It sets up the appropriate environment (TF_DATA_DIR, backend override file) before executing the command.
-// If output fails initially, it attempts to initialize the module and retry, allowing outputs to be retrieved
-// even if the module hasn't been initialized yet. Returns empty map without error if outputs cannot be retrieved
-// (component not ready), enabling graceful fallback via ?? operator. Only returns error for JSON parse failures
-// indicating state corruption. Only output 'value' fields are returned. The 'output -json' command runs via the
-// non-streaming capture path so sensitive outputs are never echoed under --verbose.
-func (p *terraformProvider) GetTerraformOutputs(componentID string) (map[string]any, error) {
+// GetTerraformOutputs returns the output values of a component from 'terraform output -json'.
+// It prepares TF_DATA_DIR and the backend override, and it runs init and retries once when output fails.
+// It returns an empty map and no error when the component has no outputs, so the ?? operator can fall back.
+// It returns an error only when the JSON does not parse, which shows corrupt state.
+// It runs the command on the capture path, so --verbose never prints sensitive outputs.
+func (p *DefaultTerraformProvider) GetTerraformOutputs(componentID string) (map[string]any, error) {
 	return p.withTerraformContext(componentID, func(ctx *terraformContext) (map[string]any, error) {
 		terraformCommand := ctx.provider.toolsManager.GetTerraformCommand()
 		if terraformCommand == "" {
@@ -94,7 +92,7 @@ func (p *terraformProvider) GetTerraformOutputs(componentID string) (map[string]
 // CacheOutputs proactively fetches and caches all outputs for a component.
 // This is called after terraform apply to warm the cache, so subsequent terraform_output()
 // calls for this component will hit the cache instead of running terraform output again.
-func (p *terraformProvider) CacheOutputs(componentID string) error {
+func (p *DefaultTerraformProvider) CacheOutputs(componentID string) error {
 	outputs, err := p.GetTerraformOutputs(componentID)
 	if err != nil {
 		return err
@@ -115,7 +113,7 @@ func (p *terraformProvider) CacheOutputs(componentID string) error {
 // This invalidates cached Terraform components, output values, and scope used for input evaluation,
 // forcing them to be reloaded from the blueprint and re-set by the next composition.
 // This is useful when the blueprint has been modified or when outputs need to be refreshed.
-func (p *terraformProvider) ClearCache() {
+func (p *DefaultTerraformProvider) ClearCache() {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	p.cache = make(map[string]map[string]any)
@@ -130,7 +128,7 @@ func (p *terraformProvider) ClearCache() {
 // registerTerraformOutputHelper adds the terraform_output(component, key) helper to the evaluator.
 // Blueprint expressions use the helper to read the outputs of other components through getOutput.
 // Arguments other than two strings return an error with the usage as the hint.
-func (p *terraformProvider) registerTerraformOutputHelper(evaluator evaluator.ExpressionEvaluator) {
+func (p *DefaultTerraformProvider) registerTerraformOutputHelper(evaluator evaluator.ExpressionEvaluator) {
 	evaluator.Register("terraform_output", func(params []any, deferred bool) (any, error) {
 		if len(params) != 2 {
 			return nil, werror.New(fmt.Sprintf("terraform_output() requires exactly 2 arguments (component, key), got %d", len(params)), terraformOutputUsage, nil)
@@ -152,14 +150,13 @@ func (p *terraformProvider) registerTerraformOutputHelper(evaluator evaluator.Ex
 	}, new(func(string, string) any))
 }
 
-// getOutput retrieves a single output value for a Terraform component by key.
-// If outputs for the component are requested for the first time, all outputs are fetched from Terraform
-// and cached for subsequent requests. Cached values are used for later accesses to avoid redundant retrievals.
-// When deferred is false, this function returns a DeferredError to signal that the expression should be preserved.
-// When deferred is true, it returns the actual output value if available, or nil if the key is absent — whether
-// the component has no outputs at all or has outputs but not this key. Returning nil in both cases lets the
-// ?? operator fall back uniformly across unapplied and partial-destroy states.
-func (p *terraformProvider) getOutput(componentID, key string, expression string, deferred bool) (any, error) {
+// getOutput returns one output value of a Terraform component.
+// The first request for a component fetches all of its outputs and caches them.
+// A cached component without the key returns nil, because the cache holds the complete set.
+// When deferred is false, it returns a DeferredError so that the caller keeps the expression.
+// When deferred is true, it returns the value, or nil when the key is absent.
+// A nil value for both unapplied and partly destroyed components lets the ?? operator fall back.
+func (p *DefaultTerraformProvider) getOutput(componentID, key string, expression string, deferred bool) (any, error) {
 	if !deferred {
 		return nil, &evaluator.DeferredError{
 			Expression: expression,
@@ -173,8 +170,6 @@ func (p *terraformProvider) getOutput(componentID, key string, expression string
 			p.mu.RUnlock()
 			return value, nil
 		}
-		// Component outputs are cached as a complete set, so an absent key here
-		// is authoritative — refetching cannot reveal it.
 		p.mu.RUnlock()
 		return nil, nil
 	}
@@ -214,7 +209,7 @@ func (p *terraformProvider) getOutput(componentID, key string, expression string
 // It resolves the module path, generates the arguments, sets the env vars, and writes the backend override file.
 // It returns the context and the original env vars, so the caller can restore them after the run.
 // An unknown component ID returns an error with a hint.
-func (p *terraformProvider) prepareTerraformContext(componentID string) (*terraformContext, map[string]string, error) {
+func (p *DefaultTerraformProvider) prepareTerraformContext(componentID string) (*terraformContext, map[string]string, error) {
 	component := p.GetTerraformComponent(componentID)
 	if component == nil {
 		return nil, nil, werror.New(fmt.Sprintf("component not found: %s", componentID),
@@ -266,7 +261,7 @@ func (p *terraformProvider) prepareTerraformContext(componentID string) (*terraf
 // This pattern provides a safe way to execute Terraform operations in an isolated environment context.
 // Returns the result of the function. Returns empty map without error if context cannot be prepared
 // (component not found, etc.), enabling graceful fallback via ?? operator in expressions.
-func (p *terraformProvider) withTerraformContext(componentID string, fn func(*terraformContext) (map[string]any, error)) (map[string]any, error) {
+func (p *DefaultTerraformProvider) withTerraformContext(componentID string, fn func(*terraformContext) (map[string]any, error)) (map[string]any, error) {
 	ctx, originalEnvVars, err := p.prepareTerraformContext(componentID)
 	if err != nil {
 		return nil, werror.Wrap(err, "failed to prepare terraform context for component '%s'", componentID)
@@ -287,7 +282,7 @@ func (p *terraformProvider) withTerraformContext(componentID string, fn func(*te
 // It stores the current value of each environment variable before setting the new value, allowing
 // the caller to restore the original environment state. If setting any variable fails, it attempts
 // to restore all previously set variables before returning the error.
-func (p *terraformProvider) applyEnvVars(envVars map[string]string) (map[string]string, error) {
+func (p *DefaultTerraformProvider) applyEnvVars(envVars map[string]string) (map[string]string, error) {
 	originalEnvVars := make(map[string]string)
 	for key, value := range envVars {
 		originalValue := p.Shims.Getenv(key)
@@ -303,7 +298,7 @@ func (p *terraformProvider) applyEnvVars(envVars map[string]string) (map[string]
 // restoreEnvVar restores an environment variable to its original value or unsets it if it was empty.
 // This is used to clean up environment variables that were temporarily set for Terraform operations,
 // ensuring that the process environment is restored to its original state after operations complete.
-func (p *terraformProvider) restoreEnvVar(key, originalValue string) {
+func (p *DefaultTerraformProvider) restoreEnvVar(key, originalValue string) {
 	if originalValue != "" {
 		_ = p.Shims.Setenv(key, originalValue)
 	} else {
@@ -314,7 +309,7 @@ func (p *terraformProvider) restoreEnvVar(key, originalValue string) {
 // restoreEnvVars restores environment variables to their original values or unsets them if they were empty.
 // This iterates through the provided map of original values and restores each environment variable,
 // ensuring that all temporarily set environment variables are cleaned up after Terraform operations complete.
-func (p *terraformProvider) restoreEnvVars(originalEnvVars map[string]string) {
+func (p *DefaultTerraformProvider) restoreEnvVars(originalEnvVars map[string]string) {
 	for key, originalValue := range originalEnvVars {
 		p.restoreEnvVar(key, originalValue)
 	}

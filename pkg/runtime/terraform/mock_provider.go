@@ -20,11 +20,9 @@ type MockTerraformProvider struct {
 	GetTFDataDirFunc                 func(componentID string) (string, error)
 	GetStatePathFunc                 func(componentID string) (string, error)
 	ListLocalStateComponentIDsFunc   func() ([]string, error)
-	BackendConfigCompleteFunc        func() bool
 	GetEnvVarsFunc                   func(componentID string, interactive bool) (map[string]string, []string, *TerraformArgs, error)
 	FormatArgsForEnvFunc             func(args []string) string
 	ClearCacheFunc                   func()
-	TerraformScopedEnvKeysFunc       func() ([]string, error)
 }
 
 // FindRelativeProjectPath implements TerraformProvider.
@@ -137,16 +135,6 @@ func (m *MockTerraformProvider) ListLocalStateComponentIDs() ([]string, error) {
 	return nil, nil
 }
 
-// BackendConfigComplete implements TerraformProvider. Default is true so most
-// tests exercise the probe path; tests for the no-config short-circuit set
-// BackendConfigCompleteFunc explicitly to return false.
-func (m *MockTerraformProvider) BackendConfigComplete() bool {
-	if m.BackendConfigCompleteFunc != nil {
-		return m.BackendConfigCompleteFunc()
-	}
-	return true
-}
-
 // GetEnvVars implements TerraformProvider.
 func (m *MockTerraformProvider) GetEnvVars(componentID string, interactive bool) (map[string]string, []string, *TerraformArgs, error) {
 	if m.GetEnvVarsFunc != nil {
@@ -168,14 +156,6 @@ func (m *MockTerraformProvider) ClearCache() {
 	if m.ClearCacheFunc != nil {
 		m.ClearCacheFunc()
 	}
-}
-
-// TerraformScopedEnvKeys implements TerraformProvider.
-func (m *MockTerraformProvider) TerraformScopedEnvKeys() ([]string, error) {
-	if m.TerraformScopedEnvKeysFunc != nil {
-		return m.TerraformScopedEnvKeysFunc()
-	}
-	return nil, nil
 }
 
 // =============================================================================

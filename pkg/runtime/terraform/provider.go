@@ -24,8 +24,8 @@ import (
 // Types
 // =============================================================================
 
-// terraformProvider provides all terraform-specific operations with session caching.
-type terraformProvider struct {
+// DefaultTerraformProvider provides all terraform-specific operations with session caching.
+type DefaultTerraformProvider struct {
 	configHandler config.ConfigHandler
 	shell         shell.Shell
 	toolsManager  tools.ToolsManager
@@ -74,11 +74,9 @@ type TerraformProvider interface {
 	GetTFDataDir(componentID string) (string, error)
 	GetStatePath(componentID string) (string, error)
 	ListLocalStateComponentIDs() ([]string, error)
-	BackendConfigComplete() bool
 	GetEnvVars(componentID string, interactive bool) (map[string]string, []string, *TerraformArgs, error)
 	FormatArgsForEnv(args []string) string
 	ClearCache()
-	TerraformScopedEnvKeys() ([]string, error)
 }
 
 // =============================================================================
@@ -106,7 +104,7 @@ func NewTerraformProvider(
 		panic("evaluator is required")
 	}
 
-	provider := &terraformProvider{
+	provider := &DefaultTerraformProvider{
 		configHandler: configHandler,
 		shell:         shell,
 		toolsManager:  toolsManager,
@@ -129,7 +127,7 @@ func NewTerraformProvider(
 // working directory or the specified directory. It locates Terraform files (*.tf) and resolves
 // the path relative to "terraform" or "contexts" directory markers in the path structure.
 // Returns an empty string if no Terraform files are found, or an error if file system inspection fails.
-func (p *terraformProvider) FindRelativeProjectPath(directory ...string) (string, error) {
+func (p *DefaultTerraformProvider) FindRelativeProjectPath(directory ...string) (string, error) {
 	var currentPath string
 	if len(directory) > 0 {
 		currentPath = filepath.Clean(directory[0])
@@ -178,7 +176,7 @@ func (p *terraformProvider) FindRelativeProjectPath(directory ...string) (string
 // IsInTerraformProject checks if the current working directory is within a Terraform project.
 // A Terraform project is identified by the presence of .tf files in the current directory or parent directories.
 // Returns true if .tf files are found and a valid project path can be resolved, false otherwise.
-func (p *terraformProvider) IsInTerraformProject() bool {
+func (p *DefaultTerraformProvider) IsInTerraformProject() bool {
 	projectPath, err := p.FindRelativeProjectPath()
 	if err != nil {
 		return false
@@ -189,7 +187,7 @@ func (p *terraformProvider) IsInTerraformProject() bool {
 // GetTerraformComponent finds a terraform component by its path or name from the loaded blueprint components.
 // It searches through all Terraform components and matches against both the Path and Name fields.
 // Returns the component if found, or nil if not found.
-func (p *terraformProvider) GetTerraformComponent(componentID string) *blueprintv1alpha1.TerraformComponent {
+func (p *DefaultTerraformProvider) GetTerraformComponent(componentID string) *blueprintv1alpha1.TerraformComponent {
 	components := p.GetTerraformComponents()
 	for i := range components {
 		if components[i].Path == componentID || (components[i].Name != "" && components[i].Name == componentID) {
@@ -203,7 +201,7 @@ func (p *terraformProvider) GetTerraformComponent(componentID string) *blueprint
 // matches directory. Terraform module directories are shared on disk across contexts, so this
 // confirms directory actually belongs to the active context's blueprint before a caller treats
 // it as one of its components. Returns nil if no component resolves to directory.
-func (p *terraformProvider) GetTerraformComponentForPath(directory string) *blueprintv1alpha1.TerraformComponent {
+func (p *DefaultTerraformProvider) GetTerraformComponentForPath(directory string) *blueprintv1alpha1.TerraformComponent {
 	directory = filepath.Clean(directory)
 	components := p.GetTerraformComponents()
 	for i := range components {
@@ -220,7 +218,7 @@ func (p *terraformProvider) GetTerraformComponentForPath(directory string) *blue
 // Returns all TerraformComponent structs from blueprint.yaml with FullPath fields set.
 // Components are cached after first load to avoid repeated file I/O operations.
 // If components have been set via SetTerraformComponents, those are returned instead.
-func (p *terraformProvider) GetTerraformComponents() []blueprintv1alpha1.TerraformComponent {
+func (p *DefaultTerraformProvider) GetTerraformComponents() []blueprintv1alpha1.TerraformComponent {
 	p.mu.RLock()
 	if p.components != nil {
 		p.mu.RUnlock()
@@ -242,7 +240,7 @@ func (p *terraformProvider) GetTerraformComponents() []blueprintv1alpha1.Terrafo
 // SetTerraformComponents sets the terraform components directly, bypassing file loading.
 // This allows the provider to use in-memory components with inputs preserved from blueprint composition.
 // Components set via this method take precedence over components loaded from blueprint.yaml.
-func (p *terraformProvider) SetTerraformComponents(components []blueprintv1alpha1.TerraformComponent) {
+func (p *DefaultTerraformProvider) SetTerraformComponents(components []blueprintv1alpha1.TerraformComponent) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	p.components = components
@@ -250,7 +248,7 @@ func (p *terraformProvider) SetTerraformComponents(components []blueprintv1alpha
 
 // SetConfigScope sets the config scope (facet config blocks) used when evaluating component inputs
 // in GetEnvVars, so expressions like docker_desktop_common_patches.patchVars.common_config_patches resolve.
-func (p *terraformProvider) SetConfigScope(scope map[string]any) {
+func (p *DefaultTerraformProvider) SetConfigScope(scope map[string]any) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	p.configScope = scope
@@ -265,7 +263,7 @@ func (p *terraformProvider) SetConfigScope(scope map[string]any) {
 // a Blueprint struct, and computes the FullPath for each Terraform component based on the presence
 // of a Source field and the resolved project root. Components with a Source are located in Windsor scratch
 // space, while local components are in the project root. Returns the list of TerraformComponents found with FullPath fields set.
-func (p *terraformProvider) loadTerraformComponents() []blueprintv1alpha1.TerraformComponent {
+func (p *DefaultTerraformProvider) loadTerraformComponents() []blueprintv1alpha1.TerraformComponent {
 	contextName, configRoot, _, err := p.providerScope()
 	if err != nil {
 		return []blueprintv1alpha1.TerraformComponent{}
@@ -300,14 +298,12 @@ func (p *terraformProvider) loadTerraformComponents() []blueprintv1alpha1.Terraf
 	return blueprint.TerraformComponents
 }
 
-// resolveModulePath returns the absolute path to the Terraform module for the specified component.
-// If FullPath is already set on the component, it is used directly. Otherwise, the path is computed
-// as a fallback using the component ID (Name if present, otherwise Path) as the directory name.
-// For components with a Name or Source, the path is in Windsor scratch space (.windsor/contexts/<context>/terraform/<ID>).
-// For local components without a Name or Source, the path is in the project root (terraform/<Path>).
-// In production code, FullPath should always be set, making the fallback logic primarily for edge cases.
-// Returns the computed absolute path or an error if the required project or context root cannot be determined.
-func (p *terraformProvider) resolveModulePath(component *blueprintv1alpha1.TerraformComponent) (string, error) {
+// resolveModulePath returns the absolute path of the Terraform module of component.
+// It uses FullPath when the component sets it. Production components always set FullPath.
+// Otherwise a component with a Name or a Source resolves to .windsor/contexts/<context>/terraform/<ID>.
+// A local component without a Name or a Source resolves to terraform/<Path> under the project root.
+// It returns an error when it cannot find the project root or the context root.
+func (p *DefaultTerraformProvider) resolveModulePath(component *blueprintv1alpha1.TerraformComponent) (string, error) {
 	if component.FullPath != "" {
 		return component.FullPath, nil
 	}

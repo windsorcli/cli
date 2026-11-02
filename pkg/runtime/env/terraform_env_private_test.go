@@ -497,9 +497,7 @@ func TestTerraformEnv_GetEnvVars(t *testing.T) {
 	})
 
 	t.Run("UnsetsTerraformScopedDotEnvKeyEvenAfterFileNoLongerDeclaresIt", func(t *testing.T) {
-		// Given HYPERV_HOST was exported on a prior visit (recorded in
-		// WINDSOR_MANAGED_TERRAFORM_ENV) but terraform/.env has since been edited to no
-		// longer declare it — TerraformScopedEnvKeysFunc reflects the current, changed file
+		// Given HYPERV_HOST is in WINDSOR_MANAGED_TERRAFORM_ENV but terraform/.env no longer declares it
 		printer, mocks := setup(t)
 
 		mocks.Shims.Getenv = func(key string) string {
@@ -518,9 +516,6 @@ func TestTerraformEnv_GetEnvVars(t *testing.T) {
 		mockProvider := setupMockTerraformProvider(mocks)
 		mockProvider.FindRelativeProjectPathFunc = func(directory ...string) (string, error) {
 			return "", nil
-		}
-		mockProvider.TerraformScopedEnvKeysFunc = func() ([]string, error) {
-			return nil, nil
 		}
 		printer = setupTerraformEnvPrinter(t, mocks, mockProvider)
 

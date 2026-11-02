@@ -816,8 +816,8 @@ func noColorArgs() []string {
 // selectTerraformCommandEnv builds per-command env overrides without mutating process-wide
 // environment. TF_CLI_ARGS_* always reset to blank; TF_DATA_DIR and, when includeTFVars is
 // true, TF_VAR_* pass through from terraformVars. scopedKeys names the additional keys to pass
-// through unconditionally (contexts/<context>/terraform/.env content — see
-// TerraformProvider.TerraformScopedEnvKeys): provider credentials are needed on every terraform
+// through unconditionally (the contexts/<context>/terraform/.env keys that
+// TerraformProvider.GetEnvVars returns): provider credentials are needed on every terraform
 // invocation regardless of includeTFVars. Any other key in terraformVars is dropped, preserving
 // isolation from unrelated process state.
 func selectTerraformCommandEnv(terraformVars map[string]string, includeTFVars bool, scopedKeys []string) map[string]string {

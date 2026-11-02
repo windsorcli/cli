@@ -32,7 +32,6 @@ type EnvPrinter interface {
 	GetManagedEnv() []string
 	GetManagedAlias() []string
 	SetManagedEnv(env string)
-	SetManagedAlias(alias string)
 	Reset()
 }
 
@@ -68,19 +67,16 @@ func NewBaseEnvPrinter(shell shell.Shell, configHandler config.ConfigHandler) *B
 
 // GetEnvVars is a placeholder for retrieving environment variables.
 func (e *BaseEnvPrinter) GetEnvVars() (map[string]string, error) {
-	// Placeholder implementation
 	return map[string]string{}, nil
 }
 
 // GetAlias is a placeholder for creating an alias for a command.
 func (e *BaseEnvPrinter) GetAlias() (map[string]string, error) {
-	// Placeholder implementation
 	return map[string]string{}, nil
 }
 
 // PostEnvHook simulates running any necessary commands after the environment variables have been set.
 func (e *BaseEnvPrinter) PostEnvHook(directory ...string) error {
-	// Placeholder for post-processing logic
 	return nil
 }
 
@@ -119,14 +115,6 @@ func (e *BaseEnvPrinter) ShouldSetManagedValue(key string) bool {
 		}
 	}
 	return false
-}
-
-// SetManagedAlias sets the shell aliases that are managed by Windsor.
-func (e *BaseEnvPrinter) SetManagedAlias(alias string) {
-	if slices.Contains(e.managedAlias, alias) {
-		return
-	}
-	e.managedAlias = append(e.managedAlias, alias)
 }
 
 // Reset removes all managed environment variables and aliases.
