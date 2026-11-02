@@ -31,6 +31,7 @@ type Shims struct {
 	TalosNewClient   func(ctx context.Context, opts ...client.OptionFunc) (*client.Client, error)
 	TalosVersion     func(ctx context.Context, client *client.Client) (*machine.VersionResponse, error)
 	TalosWithNodes   func(ctx context.Context, nodes ...string) context.Context
+	TalosWithNode    func(ctx context.Context, node string) context.Context
 	TalosServiceList func(ctx context.Context, client *client.Client) (*machine.ServiceListResponse, error)
 	TalosUpgrade     func(ctx context.Context, client *client.Client, image string, powercycle bool) error
 	TalosRead        func(ctx context.Context, client *client.Client, path string) (io.ReadCloser, error)
@@ -57,6 +58,7 @@ func NewShims() *Shims {
 			return c.Version(ctx)
 		},
 		TalosWithNodes: client.WithNodes,
+		TalosWithNode:  client.WithNode,
 		TalosServiceList: func(ctx context.Context, c *client.Client) (*machine.ServiceListResponse, error) {
 			return c.ServiceList(ctx)
 		},

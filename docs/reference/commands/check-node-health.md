@@ -9,14 +9,14 @@ windsor check node-health [flags]
 
 Probe one or more cluster nodes for readiness. Useful after 'windsor upgrade' or for routine monitoring.
 
-At least one of --nodes or --k8s-endpoint must be set.
+Windsor connects through the endpoints in TALOSCONFIG and sends each request to a --nodes address, as 'talosctl -e <endpoint> -n <node>' does. At least one of --nodes or --k8s-endpoint must be set.
 
 ## Flags
 
 | Flag | Default | Description |
 |------|---------|-------------|
 | `--k8s-endpoint` | `""` | Probe the Kubernetes API at this URL, or pass without value to use the configured endpoint. |
-| `--nodes` | `[]` | Node addresses to check. |
+| `--nodes` | `[]` | Talos node addresses to check. Windsor reaches them through the TALOSCONFIG endpoints. |
 | `--ready` | `false` | Check Kubernetes node readiness in addition to Talos. |
 | `--skip-services` | `[]` | Service names to ignore (e.g., dashboard). |
 | `--timeout` | `0s` | Maximum time to wait for nodes to be ready. Default 5m. |
