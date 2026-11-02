@@ -1,4 +1,4 @@
-package cmd
+package cmd_test
 
 import (
 	"bytes"
@@ -9,6 +9,8 @@ import (
 	"strings"
 	"testing"
 
+	cliCmd "github.com/windsorcli/cli/cmd"
+
 	"github.com/windsorcli/cli/internal/werror"
 	"github.com/windsorcli/cli/pkg/provisioner/cluster"
 	"github.com/windsorcli/cli/pkg/runtime"
@@ -18,7 +20,7 @@ import (
 
 func TestCheckCmd(t *testing.T) {
 	t.Cleanup(func() {
-		rootCmd.SetContext(stdcontext.Background())
+		cliCmd.RootCmd().SetContext(stdcontext.Background())
 	})
 
 	setup := func(t *testing.T, withConfig bool) (*bytes.Buffer, *bytes.Buffer) {
@@ -41,9 +43,9 @@ func TestCheckCmd(t *testing.T) {
 		}
 
 		stdout, stderr := captureOutput(t)
-		rootCmd.SetOut(stdout)
-		rootCmd.SetErr(stderr)
-		rootCmd.SetArgs([]string{"check"})
+		cliCmd.RootCmd().SetOut(stdout)
+		cliCmd.RootCmd().SetErr(stderr)
+		cliCmd.RootCmd().SetArgs([]string{"check"})
 
 		return stdout, stderr
 	}
@@ -65,11 +67,11 @@ func TestCheckCmd(t *testing.T) {
 		}
 		mocks := setupMocks(t, &SetupOptions{ConfigHandler: mockConfigHandler})
 
-		ctx := stdcontext.WithValue(stdcontext.Background(), runtimeOverridesKey, mocks.Runtime)
-		rootCmd.SetContext(ctx)
+		ctx := stdcontext.WithValue(stdcontext.Background(), cliCmd.RuntimeOverridesKey, mocks.Runtime)
+		cliCmd.RootCmd().SetContext(ctx)
 
 		// When executing the command
-		err := Execute()
+		err := cliCmd.Execute()
 
 		// Then no error should occur
 		if err != nil {
@@ -94,11 +96,11 @@ func TestCheckCmd(t *testing.T) {
 		}
 		mocks := setupMocks(t, &SetupOptions{ConfigHandler: mockConfigHandler})
 
-		ctx := stdcontext.WithValue(stdcontext.Background(), runtimeOverridesKey, mocks.Runtime)
-		rootCmd.SetContext(ctx)
+		ctx := stdcontext.WithValue(stdcontext.Background(), cliCmd.RuntimeOverridesKey, mocks.Runtime)
+		cliCmd.RootCmd().SetContext(ctx)
 
 		// When executing the command
-		err := Execute()
+		err := cliCmd.Execute()
 
 		// Then an error should occur
 		if err == nil {
@@ -109,7 +111,7 @@ func TestCheckCmd(t *testing.T) {
 		if !strings.Contains(err.Error(), "nothing to check") {
 			t.Errorf("Expected error about init, got: %v", err)
 		}
-		if werr := werror.Find(err); werr == nil || werr.Remediation != initProjectHint {
+		if werr := werror.Find(err); werr == nil || werr.Remediation != cliCmd.InitProjectHint {
 			t.Errorf("Expected the init hint, got %+v", werr)
 		}
 	})
@@ -121,14 +123,14 @@ func TestCheckCmd(t *testing.T) {
 
 func TestCheckCmd_ErrorScenarios(t *testing.T) {
 	t.Cleanup(func() {
-		rootCmd.SetContext(stdcontext.Background())
+		cliCmd.RootCmd().SetContext(stdcontext.Background())
 	})
 
 	setup := func(t *testing.T) (*bytes.Buffer, *bytes.Buffer) {
 		t.Helper()
 		stdout, stderr := captureOutput(t)
-		rootCmd.SetOut(stdout)
-		rootCmd.SetErr(stderr)
+		cliCmd.RootCmd().SetOut(stdout)
+		cliCmd.RootCmd().SetErr(stderr)
 		return stdout, stderr
 	}
 
@@ -160,12 +162,12 @@ func TestCheckCmd_ErrorScenarios(t *testing.T) {
 			return fmt.Errorf("not trusted")
 		}
 
-		ctx := stdcontext.WithValue(stdcontext.Background(), runtimeOverridesKey, mocks.Runtime)
-		rootCmd.SetContext(ctx)
+		ctx := stdcontext.WithValue(stdcontext.Background(), cliCmd.RuntimeOverridesKey, mocks.Runtime)
+		cliCmd.RootCmd().SetContext(ctx)
 
-		rootCmd.SetArgs([]string{"check"})
+		cliCmd.RootCmd().SetArgs([]string{"check"})
 
-		err := Execute()
+		err := cliCmd.Execute()
 
 		if err == nil {
 			t.Error("Expected error when CheckTrustedDirectory fails")
@@ -188,12 +190,12 @@ func TestCheckCmd_ErrorScenarios(t *testing.T) {
 		}
 		mocks := setupMocks(t, &SetupOptions{ConfigHandler: mockConfigHandler})
 
-		ctx := stdcontext.WithValue(stdcontext.Background(), runtimeOverridesKey, mocks.Runtime)
-		rootCmd.SetContext(ctx)
+		ctx := stdcontext.WithValue(stdcontext.Background(), cliCmd.RuntimeOverridesKey, mocks.Runtime)
+		cliCmd.RootCmd().SetContext(ctx)
 
-		rootCmd.SetArgs([]string{"check"})
+		cliCmd.RootCmd().SetArgs([]string{"check"})
 
-		err := Execute()
+		err := cliCmd.Execute()
 
 		if err == nil {
 			t.Error("Expected error when LoadConfig fails")
@@ -222,12 +224,12 @@ func TestCheckCmd_ErrorScenarios(t *testing.T) {
 			return fmt.Errorf("tools check failed")
 		}
 
-		ctx := stdcontext.WithValue(stdcontext.Background(), runtimeOverridesKey, mocks.Runtime)
-		rootCmd.SetContext(ctx)
+		ctx := stdcontext.WithValue(stdcontext.Background(), cliCmd.RuntimeOverridesKey, mocks.Runtime)
+		cliCmd.RootCmd().SetContext(ctx)
 
-		rootCmd.SetArgs([]string{"check"})
+		cliCmd.RootCmd().SetArgs([]string{"check"})
 
-		err := Execute()
+		err := cliCmd.Execute()
 
 		if err == nil {
 			t.Error("Expected error when CheckTools fails")
@@ -242,7 +244,7 @@ func TestCheckCmd_ErrorScenarios(t *testing.T) {
 func TestCheckNodeHealthCmd(t *testing.T) {
 	// Cleanup: reset rootCmd context after all subtests complete
 	t.Cleanup(func() {
-		rootCmd.SetContext(stdcontext.Background())
+		cliCmd.RootCmd().SetContext(stdcontext.Background())
 	})
 
 	setup := func(t *testing.T, withConfig bool) (*bytes.Buffer, *bytes.Buffer) {
@@ -278,21 +280,21 @@ func TestCheckNodeHealthCmd(t *testing.T) {
 		}
 
 		stdout, stderr := captureOutput(t)
-		rootCmd.SetOut(stdout)
-		rootCmd.SetErr(stderr)
+		cliCmd.RootCmd().SetOut(stdout)
+		cliCmd.RootCmd().SetErr(stderr)
 
 		// Reset global command flags to avoid state leakage
-		nodeHealthTimeout = 0
-		nodeHealthNodes = []string{}
-		nodeHealthVersion = ""
-		nodeHealthWaitForReboot = false
+		*cliCmd.NodeHealthTimeout = 0
+		*cliCmd.NodeHealthNodes = []string{}
+		*cliCmd.NodeHealthVersion = ""
+		*cliCmd.NodeHealthWaitForReboot = false
 
 		// Reset command flags
-		checkNodeHealthCmd.ResetFlags()
-		checkNodeHealthCmd.Flags().DurationVar(&nodeHealthTimeout, "timeout", 0, "Maximum time to wait for nodes to be ready (default 5m)")
-		checkNodeHealthCmd.Flags().StringSliceVar(&nodeHealthNodes, "nodes", []string{}, "Nodes to check (required)")
-		checkNodeHealthCmd.Flags().StringVar(&nodeHealthVersion, "version", "", "Expected version to check against (optional)")
-		checkNodeHealthCmd.Flags().BoolVar(&nodeHealthWaitForReboot, "wait-for-reboot", false, "Poll until the Talos API goes offline (reboot started), then wait for it to come back up")
+		cliCmd.CheckNodeHealthCmd.ResetFlags()
+		cliCmd.CheckNodeHealthCmd.Flags().DurationVar(&*cliCmd.NodeHealthTimeout, "timeout", 0, "Maximum time to wait for nodes to be ready (default 5m)")
+		cliCmd.CheckNodeHealthCmd.Flags().StringSliceVar(&*cliCmd.NodeHealthNodes, "nodes", []string{}, "Nodes to check (required)")
+		cliCmd.CheckNodeHealthCmd.Flags().StringVar(&*cliCmd.NodeHealthVersion, "version", "", "Expected version to check against (optional)")
+		cliCmd.CheckNodeHealthCmd.Flags().BoolVar(&*cliCmd.NodeHealthWaitForReboot, "wait-for-reboot", false, "Poll until the Talos API goes offline (reboot started), then wait for it to come back up")
 
 		return stdout, stderr
 	}
@@ -325,14 +327,14 @@ func TestCheckNodeHealthCmd(t *testing.T) {
 			return fmt.Errorf("cluster health check failed")
 		}
 
-		ctx := stdcontext.WithValue(stdcontext.Background(), runtimeOverridesKey, mocks.Runtime)
-		rootCmd.SetContext(ctx)
+		ctx := stdcontext.WithValue(stdcontext.Background(), cliCmd.RuntimeOverridesKey, mocks.Runtime)
+		cliCmd.RootCmd().SetContext(ctx)
 
 		// Setup command args with nodes
-		rootCmd.SetArgs([]string{"check", "node-health", "--nodes", "10.0.0.1,10.0.0.2"})
+		cliCmd.RootCmd().SetArgs([]string{"check", "node-health", "--nodes", "10.0.0.1,10.0.0.2"})
 
 		// When executing the command
-		err := Execute()
+		err := cliCmd.Execute()
 
 		// Then an error should occur
 		if err == nil {
@@ -350,10 +352,10 @@ func TestCheckNodeHealthCmd(t *testing.T) {
 		_, _ = setup(t, true)
 
 		// Setup command args without nodes
-		rootCmd.SetArgs([]string{"check", "node-health"})
+		cliCmd.RootCmd().SetArgs([]string{"check", "node-health"})
 
 		// When executing the command
-		err := Execute()
+		err := cliCmd.Execute()
 
 		// Then an error should occur
 		if err == nil {
@@ -374,10 +376,10 @@ func TestCheckNodeHealthCmd(t *testing.T) {
 		_, _ = setup(t, true)
 
 		// Setup command args with empty nodes flag
-		rootCmd.SetArgs([]string{"check", "node-health", "--nodes", ""})
+		cliCmd.RootCmd().SetArgs([]string{"check", "node-health", "--nodes", ""})
 
 		// When executing the command
-		err := Execute()
+		err := cliCmd.Execute()
 
 		// Then an error should occur
 		if err == nil {
@@ -400,25 +402,25 @@ func TestCheckNodeHealthCmd(t *testing.T) {
 
 func TestCheckNodeHealthCmd_ErrorScenarios(t *testing.T) {
 	t.Cleanup(func() {
-		rootCmd.SetContext(stdcontext.Background())
-		nodeHealthTimeout = 0
-		nodeHealthNodes = []string{}
-		nodeHealthVersion = ""
-		k8sEndpoint = ""
-		checkNodeReady = false
+		cliCmd.RootCmd().SetContext(stdcontext.Background())
+		*cliCmd.NodeHealthTimeout = 0
+		*cliCmd.NodeHealthNodes = []string{}
+		*cliCmd.NodeHealthVersion = ""
+		*cliCmd.K8sEndpoint = ""
+		*cliCmd.CheckNodeReady = false
 	})
 
 	setup := func(t *testing.T) (*bytes.Buffer, *bytes.Buffer) {
 		t.Helper()
 		stdout, stderr := captureOutput(t)
-		rootCmd.SetOut(stdout)
-		rootCmd.SetErr(stderr)
+		cliCmd.RootCmd().SetOut(stdout)
+		cliCmd.RootCmd().SetErr(stderr)
 
-		nodeHealthTimeout = 0
-		nodeHealthNodes = []string{}
-		nodeHealthVersion = ""
-		k8sEndpoint = ""
-		checkNodeReady = false
+		*cliCmd.NodeHealthTimeout = 0
+		*cliCmd.NodeHealthNodes = []string{}
+		*cliCmd.NodeHealthVersion = ""
+		*cliCmd.K8sEndpoint = ""
+		*cliCmd.CheckNodeReady = false
 
 		return stdout, stderr
 	}
@@ -451,12 +453,12 @@ func TestCheckNodeHealthCmd_ErrorScenarios(t *testing.T) {
 			return fmt.Errorf("not trusted")
 		}
 
-		ctx := stdcontext.WithValue(stdcontext.Background(), runtimeOverridesKey, mocks.Runtime)
-		rootCmd.SetContext(ctx)
+		ctx := stdcontext.WithValue(stdcontext.Background(), cliCmd.RuntimeOverridesKey, mocks.Runtime)
+		cliCmd.RootCmd().SetContext(ctx)
 
-		rootCmd.SetArgs([]string{"check", "node-health", "--nodes", "10.0.0.1"})
+		cliCmd.RootCmd().SetArgs([]string{"check", "node-health", "--nodes", "10.0.0.1"})
 
-		err := Execute()
+		err := cliCmd.Execute()
 
 		if err == nil {
 			t.Error("Expected error when CheckTrustedDirectory fails")
@@ -479,12 +481,12 @@ func TestCheckNodeHealthCmd_ErrorScenarios(t *testing.T) {
 		}
 		mocks := setupMocks(t, &SetupOptions{ConfigHandler: mockConfigHandler})
 
-		ctx := stdcontext.WithValue(stdcontext.Background(), runtimeOverridesKey, mocks.Runtime)
-		rootCmd.SetContext(ctx)
+		ctx := stdcontext.WithValue(stdcontext.Background(), cliCmd.RuntimeOverridesKey, mocks.Runtime)
+		cliCmd.RootCmd().SetContext(ctx)
 
-		rootCmd.SetArgs([]string{"check", "node-health", "--nodes", "10.0.0.1"})
+		cliCmd.RootCmd().SetArgs([]string{"check", "node-health", "--nodes", "10.0.0.1"})
 
-		err := Execute()
+		err := cliCmd.Execute()
 
 		if err == nil {
 			t.Error("Expected error when LoadConfig fails")
@@ -520,12 +522,12 @@ func TestCheckNodeHealthCmd_ErrorScenarios(t *testing.T) {
 			return fmt.Errorf("cluster health check failed")
 		}
 
-		ctx := stdcontext.WithValue(stdcontext.Background(), runtimeOverridesKey, mocks.Runtime)
-		rootCmd.SetContext(ctx)
+		ctx := stdcontext.WithValue(stdcontext.Background(), cliCmd.RuntimeOverridesKey, mocks.Runtime)
+		cliCmd.RootCmd().SetContext(ctx)
 
-		rootCmd.SetArgs([]string{"check", "node-health", "--nodes", "10.0.0.1"})
+		cliCmd.RootCmd().SetArgs([]string{"check", "node-health", "--nodes", "10.0.0.1"})
 
-		err := Execute()
+		err := cliCmd.Execute()
 
 		if err == nil {
 			t.Error("Expected error when CheckNodeHealth fails")
@@ -550,12 +552,12 @@ func TestCheckNodeHealthCmd_ErrorScenarios(t *testing.T) {
 		}
 		mocks := setupMocks(t, &SetupOptions{ConfigHandler: mockConfigHandler})
 
-		ctx := stdcontext.WithValue(stdcontext.Background(), runtimeOverridesKey, mocks.Runtime)
-		rootCmd.SetContext(ctx)
+		ctx := stdcontext.WithValue(stdcontext.Background(), cliCmd.RuntimeOverridesKey, mocks.Runtime)
+		cliCmd.RootCmd().SetContext(ctx)
 
-		rootCmd.SetArgs([]string{"check", "node-health", "--nodes", "10.0.0.1", "--wait-for-reboot"})
+		cliCmd.RootCmd().SetArgs([]string{"check", "node-health", "--nodes", "10.0.0.1", "--wait-for-reboot"})
 
-		err := Execute()
+		err := cliCmd.Execute()
 
 		// TALOSCONFIG not set, so cluster client init fails — confirms the reboot code path was reached
 		if err == nil {

@@ -9,10 +9,8 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// removedContextCmd intercepts `windsor context …` and returns a migration hint
-// instead of cobra's default "unknown command". The legacy hidden group was
-// removed in v0.9.0; this stub exists only to give pre-v0.9.0 scripts an
-// actionable error message and can be deleted in v0.10.0.
+// removedContextCmd intercepts `windsor context …` and returns an error that names the replacement
+// command, instead of the cobra "unknown command" error.
 var removedContextCmd = &cobra.Command{
 	Use:                "context",
 	Short:              "Removed: use 'windsor get context' / 'windsor set context'",

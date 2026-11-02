@@ -439,15 +439,10 @@ func confirmDestroy(r io.Reader, w io.Writer, description, confirmValue string) 
 	return nil
 }
 
-// reportSkippedDestroyComponents prints a stderr warning naming any terraform
-// components whose destroy was skipped because their state was empty. Empty
-// state has two indistinguishable causes: the component was never applied
-// (legitimate skip) or the remote state was lost while cloud resources still
-// exist (silent orphan hazard — common with multi-machine config drift, manual
-// state deletion, or remote storage being wiped). The destroy can't tell the
-// two apart without comparing against the cloud, so the message names the
-// risk and points the operator at the cloud console. No-op when skipped is
-// empty.
+// reportSkippedDestroyComponents warns on w about each terraform component skipped for empty state.
+// Empty state means the component was never applied, or its remote state was lost while cloud resources
+// still exist. Destroy cannot tell these apart, so the warning names the risk and points to the cloud console.
+// It does nothing when skipped is empty.
 func reportSkippedDestroyComponents(w io.Writer, skipped []string) {
 	if len(skipped) == 0 {
 		return
@@ -476,15 +471,10 @@ func reportSkippedClusterGoneKustomizations(w io.Writer, skipped []string) {
 	}
 }
 
-// warnPreventDestroy emits a stderr warning naming any resource addresses
-// that terraform's plan -destroy flagged with `lifecycle { prevent_destroy =
-// true }`. The wrapper deliberately does not refuse — operators who run
-// `windsor destroy` typically want convergence on zero, and a partial
-// destroy that halts mid-graph leaves more mess than a destroy that surfaces
-// the protected addresses up front. Module authors who want hard protection
-// should gate their resources on TF_VAR_operation / TF_VAR_ephemeral and
-// design the destroy contract in HCL; see docs/spikes/terraform-lifecycle-hardening.md §6.2.
-// No-op when protected is empty.
+// warnPreventDestroy warns on w about each resource that plan -destroy marks with prevent_destroy = true.
+// It does not refuse, because a destroy that halts mid-graph leaves more to clean up than one that warns first.
+// A module author gates resources on TF_VAR_operation or TF_VAR_ephemeral for hard protection.
+// It does nothing when no plan has a protected resource.
 func warnPreventDestroy(w io.Writer, plans []terraforminfra.TerraformComponentPlan) {
 	var protected []string
 	for _, p := range plans {
@@ -500,12 +490,10 @@ func warnPreventDestroy(w io.Writer, plans []terraforminfra.TerraformComponentPl
 	fmt.Fprintln(w, "   the destroy may halt partway; remove the lifecycle block in HCL to enable tear-down.")
 }
 
-// warnDestroyAttributeDrift emits a stderr warning naming any destroy-behavior attribute
-// drift. plan -destroy never re-diffs these attributes against config, since the resource is
-// being removed, not updated. A stale state value can persist silently through destroy until
-// an intervening plan or apply reconciles it; see #3328. This mirrors warnPreventDestroy: it
-// warns but does not refuse, since a blocked destroy leaves more mess than a completed one.
-// No-op when no plan reports drift.
+// warnDestroyAttributeDrift warns on w about each destroy-behavior attribute that drifted from config.
+// plan -destroy does not compare these attributes with config, so a stale state value can stay through
+// destroy until a plan or apply reconciles it. Like warnPreventDestroy, it warns and does not refuse.
+// It does nothing when no plan reports drift.
 func warnDestroyAttributeDrift(w io.Writer, plans []terraforminfra.TerraformComponentPlan) {
 	var drifted []terraforminfra.DestroyAttributeDrift
 	for _, p := range plans {

@@ -1,22 +1,24 @@
-package cmd
+package cmd_test
 
 import (
 	"strings"
 	"testing"
+
+	cliCmd "github.com/windsorcli/cli/cmd"
 )
 
 func TestVersionCmd(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
 		// Given version command args
-		rootCmd.SetArgs([]string{"version"})
+		cliCmd.RootCmd().SetArgs([]string{"version"})
 
 		// And captured output
 		stdout, stderr := captureOutput(t)
-		rootCmd.SetOut(stdout)
-		rootCmd.SetErr(stderr)
+		cliCmd.RootCmd().SetOut(stdout)
+		cliCmd.RootCmd().SetErr(stderr)
 
 		// When executing the command
-		err := Execute()
+		err := cliCmd.Execute()
 
 		// Then no error should occur
 		if err != nil {
@@ -35,7 +37,7 @@ func TestVersionCmd(t *testing.T) {
 
 	t.Run("VersionCommandInitialization", func(t *testing.T) {
 		// Given a version command
-		cmd := versionCmd
+		cmd := cliCmd.VersionCmd
 
 		// Then the command should be properly configured
 		if cmd.Use != "version" {
@@ -51,20 +53,20 @@ func TestVersionCmd(t *testing.T) {
 
 	t.Run("VersionCommandWithCustomPlatform", func(t *testing.T) {
 		// Given version command args
-		rootCmd.SetArgs([]string{"version"})
+		cliCmd.RootCmd().SetArgs([]string{"version"})
 
 		// And captured output
 		stdout, stderr := captureOutput(t)
-		rootCmd.SetOut(stdout)
-		rootCmd.SetErr(stderr)
+		cliCmd.RootCmd().SetOut(stdout)
+		cliCmd.RootCmd().SetErr(stderr)
 
 		// And a custom platform
-		originalGoos := Goos
-		defer func() { Goos = originalGoos }()
-		Goos = "testos"
+		originalGoos := cliCmd.Goos
+		defer func() { cliCmd.Goos = originalGoos }()
+		cliCmd.Goos = "testos"
 
 		// When executing the command
-		err := Execute()
+		err := cliCmd.Execute()
 
 		// Then no error should occur
 		if err != nil {
@@ -88,38 +90,16 @@ func TestVersionCmd(t *testing.T) {
 // scripts that grep for these labels and supply-chain reviewers comparing
 // nightly vs tagged builds at a glance.
 func TestVersionCmd_OutputStructure(t *testing.T) {
-	rootCmd.SetArgs([]string{"version"})
+	cliCmd.RootCmd().SetArgs([]string{"version"})
 	stdout, _ := captureOutput(t)
-	rootCmd.SetOut(stdout)
-	rootCmd.SetErr(stdout)
-	if err := Execute(); err != nil {
+	cliCmd.RootCmd().SetOut(stdout)
+	cliCmd.RootCmd().SetErr(stdout)
+	if err := cliCmd.Execute(); err != nil {
 		t.Fatalf("version command: %v", err)
 	}
 	for _, label := range []string{"Version:", "Commit SHA:", "Build Date:", "Go:", "Platform:"} {
 		if !strings.Contains(stdout.String(), label) {
 			t.Errorf("expected output to contain %q, got:\n%s", label, stdout.String())
 		}
-	}
-}
-
-func TestAnnotatedVersion(t *testing.T) {
-	cases := []struct {
-		name string
-		in   string
-		want string
-	}{
-		{"taggedRelease", "0.9.0", "0.9.0"},
-		{"taggedReleaseCandidate", "0.9.0-rc.1", "0.9.0-rc.1"},
-		{"goreleaserSnapshot", "0.0.0-SNAPSHOT-abc1234", "0.0.0-SNAPSHOT-abc1234 (nightly build)"},
-		{"lowercaseSnapshot", "1.2.3-snapshot-deadbee", "1.2.3-snapshot-deadbee (nightly build)"},
-		{"devBuildUnannotated", "dev", "dev"},
-		{"emptyVersion", "", ""},
-	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			if got := annotatedVersion(tc.in); got != tc.want {
-				t.Errorf("annotatedVersion(%q) = %q, want %q", tc.in, got, tc.want)
-			}
-		})
 	}
 }

@@ -1,18 +1,20 @@
-package cmd
+package cmd_test
 
 import (
 	"bytes"
 	"context"
 	"fmt"
 	"testing"
+
+	cliCmd "github.com/windsorcli/cli/cmd"
 )
 
 func TestHookCmd(t *testing.T) {
 	setup := func(t *testing.T) (*bytes.Buffer, *bytes.Buffer) {
 		t.Helper()
 		stdout, stderr := captureOutput(t)
-		rootCmd.SetOut(stdout)
-		rootCmd.SetErr(stderr)
+		cliCmd.RootCmd().SetOut(stdout)
+		cliCmd.RootCmd().SetErr(stderr)
 		return stdout, stderr
 	}
 
@@ -22,13 +24,13 @@ func TestHookCmd(t *testing.T) {
 		mocks := setupMocks(t)
 
 		// Set up command context with runtime override
-		ctx := context.WithValue(context.Background(), runtimeOverridesKey, mocks.Runtime)
-		rootCmd.SetContext(ctx)
+		ctx := context.WithValue(context.Background(), cliCmd.RuntimeOverridesKey, mocks.Runtime)
+		cliCmd.RootCmd().SetContext(ctx)
 
-		rootCmd.SetArgs([]string{"hook", "zsh"})
+		cliCmd.RootCmd().SetArgs([]string{"hook", "zsh"})
 
 		// When executing the command
-		err := Execute()
+		err := cliCmd.Execute()
 
 		// Then no error should occur
 		if err != nil {
@@ -45,10 +47,10 @@ func TestHookCmd(t *testing.T) {
 		// Given proper output capture
 		setup(t)
 
-		rootCmd.SetArgs([]string{"hook"})
+		cliCmd.RootCmd().SetArgs([]string{"hook"})
 
 		// When executing the command without shell name
-		err := Execute()
+		err := cliCmd.Execute()
 
 		// Then an error should occur
 		if err == nil {
@@ -76,13 +78,13 @@ func TestHookCmd(t *testing.T) {
 		}
 
 		// Set up command context with runtime override
-		ctx := context.WithValue(context.Background(), runtimeOverridesKey, mocks.Runtime)
-		rootCmd.SetContext(ctx)
+		ctx := context.WithValue(context.Background(), cliCmd.RuntimeOverridesKey, mocks.Runtime)
+		cliCmd.RootCmd().SetContext(ctx)
 
-		rootCmd.SetArgs([]string{"hook", "unsupported"})
+		cliCmd.RootCmd().SetArgs([]string{"hook", "unsupported"})
 
 		// When executing the command with unsupported shell
-		err := Execute()
+		err := cliCmd.Execute()
 
 		// Then an error should occur
 		if err == nil {

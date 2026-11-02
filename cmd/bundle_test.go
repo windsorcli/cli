@@ -1,4 +1,4 @@
-package cmd
+package cmd_test
 
 import (
 	"context"
@@ -8,6 +8,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	cliCmd "github.com/windsorcli/cli/cmd"
 
 	"github.com/spf13/cobra"
 	"github.com/windsorcli/cli/pkg/composer"
@@ -99,7 +101,7 @@ func TestBundleCmdWithRuntime(t *testing.T) {
 		cmd := &cobra.Command{
 			Use:   "bundle",
 			Short: "Bundle blueprints into a .tar.gz archive",
-			RunE:  bundleCmd.RunE,
+			RunE:  cliCmd.BundleCmd.RunE,
 		}
 		cmd.Flags().StringP("output", "o", ".", "Output path for bundle archive")
 		cmd.Flags().StringP("tag", "t", "", "Tag in 'name:version' format")
@@ -107,8 +109,8 @@ func TestBundleCmdWithRuntime(t *testing.T) {
 		cmd.SetErr(io.Discard)
 
 		ctx := context.Background()
-		ctx = context.WithValue(ctx, runtimeOverridesKey, mocks.Runtime.Runtime)
-		ctx = context.WithValue(ctx, composerOverridesKey, mocks.Composer)
+		ctx = context.WithValue(ctx, cliCmd.RuntimeOverridesKey, mocks.Runtime.Runtime)
+		ctx = context.WithValue(ctx, cliCmd.ComposerOverridesKey, mocks.Composer)
 		cmd.SetContext(ctx)
 		cmd.SetArgs([]string{"--tag", "test:v1.0.0"})
 		err := cmd.Execute()
@@ -132,7 +134,7 @@ func TestBundleCmdWithRuntime(t *testing.T) {
 		cmd := &cobra.Command{
 			Use:   "bundle",
 			Short: "Bundle blueprints into a .tar.gz archive",
-			RunE:  bundleCmd.RunE,
+			RunE:  cliCmd.BundleCmd.RunE,
 		}
 		cmd.Flags().StringP("output", "o", ".", "Output path for bundle archive")
 		cmd.Flags().StringP("tag", "t", "", "Tag in 'name:version' format")
@@ -163,7 +165,7 @@ func TestBundleCmdWithRuntime(t *testing.T) {
 		cmd := &cobra.Command{
 			Use:   "bundle",
 			Short: "Bundle blueprints into a .tar.gz archive",
-			RunE:  bundleCmd.RunE,
+			RunE:  cliCmd.BundleCmd.RunE,
 		}
 		cmd.Flags().StringP("output", "o", ".", "Output path for bundle archive")
 		cmd.Flags().StringP("tag", "t", "", "Tag in 'name:version' format")
@@ -171,8 +173,8 @@ func TestBundleCmdWithRuntime(t *testing.T) {
 		cmd.SetErr(io.Discard)
 
 		ctx := context.Background()
-		ctx = context.WithValue(ctx, runtimeOverridesKey, mocks.Runtime.Runtime)
-		ctx = context.WithValue(ctx, composerOverridesKey, mocks.Composer)
+		ctx = context.WithValue(ctx, cliCmd.RuntimeOverridesKey, mocks.Runtime.Runtime)
+		ctx = context.WithValue(ctx, cliCmd.ComposerOverridesKey, mocks.Composer)
 		cmd.SetContext(ctx)
 		cmd.SetArgs([]string{"--tag", "test:v1.0.0"})
 		err := cmd.Execute()

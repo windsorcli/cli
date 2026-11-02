@@ -18,13 +18,10 @@ import (
 // Shared flag helpers for init and up
 // =============================================================================
 
-// applyWorkstationFlagOverrides maps --vm-driver and --platform flag values
-// onto a config override map. --vm-driver sets workstation.runtime (with the
-// colima-incus alias remapped to colima), and when no --platform is given the
-// platform is inferred from the driver. Once platform is resolved, it defaults
-// terraform.backend.type via defaultTerraformBackendType. Shared by
-// `windsor init`, `windsor bootstrap`, and `windsor up` to guarantee
-// consistent flag semantics across commands.
+// applyWorkstationFlagOverrides maps the --vm-driver and --platform values onto overrides.
+// --vm-driver sets workstation.runtime, and the colima-incus alias maps to colima. Without --platform,
+// the platform comes from the driver. A resolved platform sets terraform.backend.type through
+// defaultTerraformBackendType. windsor init, bootstrap, and up all use it, so the flags mean the same.
 func applyWorkstationFlagOverrides(overrides map[string]any, vmDriver, platform string) {
 	if platform != "" {
 		overrides["platform"] = platform
@@ -66,21 +63,12 @@ func defaultTerraformBackendType(overrides map[string]any) {
 	}
 }
 
-// resolveBlueprintURL determines the blueprint URL (if any) that init or up
-// should pass to Project.Initialize. An explicit --blueprint wins, then
-// --platform falls back to the default OCI URL — but only when no local
-// template root is present. A present contexts/_template directory is
-// always authoritative, because in repos like windsorcli/core the template
-// and the default OCI source are effectively the same blueprint and
-// layering them produces duplicate template/core entries. The "local"
-// context falls back to the default URL when no contexts/_template
-// directory exists, but only when allowLocalBootstrap is true — init opts
-// in to bootstrap a fresh local context, while up must not silently pull
-// from the network on a bare invocation. Returns a nil slice when the
-// caller should use whatever blueprint state is already on disk. artifactBuilder is passed to
-// resolveEffectiveBlueprintURL; nil (or a registry failure) falls back to the build-time pin.
-// When allowLocalBootstrap is false, as for up, it does not read the template root,
-// so a stat error from a bad template root cannot change the result.
+// resolveBlueprintURL returns the blueprint URL that init or up passes to Project.Initialize.
+// An explicit --blueprint wins. With allowLocalBootstrap (init), --platform or the "local" context uses
+// the default OCI URL only when templateRoot does not exist, because a local template is authoritative.
+// Without allowLocalBootstrap (up), --platform always uses the default URL, the "local" context gets
+// nil, and templateRoot is not read. A nil slice keeps the blueprint state on disk.
+// resolveEffectiveBlueprintURL uses artifactBuilder, and nil or a registry failure uses the build-time pin.
 func resolveBlueprintURL(blueprintFlag, platformFlag, contextName, templateRoot string, allowLocalBootstrap bool, artifactBuilder artifact.Artifact) ([]string, error) {
 	if blueprintFlag != "" {
 		return []string{blueprintFlag}, nil

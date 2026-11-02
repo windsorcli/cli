@@ -150,15 +150,11 @@ func configureProject(cmd *cobra.Command) (*project.Project, error) {
 	return proj, nil
 }
 
-// prepareProject creates and fully initializes a project for the given command. It delegates
-// setup through Configure to configureProject, then runs Initialize against the supplied tool
-// requirements. Each caller declares only what tools its codepath will actually exercise so
-// commands like `down` (which only needs the container runtime) don't trip checks for
-// terraform / 1password / sops they will never invoke. Pass tools.AllRequirements() when the
-// codepath depends on the blueprint and isn't statically known. Commands that need additional
-// steps between Configure and Initialize (e.g. ValidateContextValues) should not use this
-// helper — call configureProject directly instead. Teardown/read commands that must tolerate
-// a deployed-but-misordered blueprint should use prepareProjectSkipValidation instead.
+// prepareProject configures a project through configureProject and runs Initialize with reqs.
+// Each caller declares only the tools its codepath uses, so down does not check for terraform.
+// Pass tools.AllRequirements() when the codepath depends on the blueprint.
+// A command that needs a step between Configure and Initialize calls configureProject directly.
+// A teardown or read command uses prepareProjectSkipValidation.
 func prepareProject(cmd *cobra.Command, reqs tools.Requirements) (*project.Project, error) {
 	proj, err := configureProject(cmd)
 	if err != nil {
@@ -171,13 +167,9 @@ func prepareProject(cmd *cobra.Command, reqs tools.Requirements) (*project.Proje
 	return proj, nil
 }
 
-// prepareProjectSkipValidation is prepareProject with blueprint structural validation
-// disabled. Used by teardown/read commands (destroy, down, env) that must operate against a
-// deployed blueprint whose structure may not satisfy the validator's invariants — otherwise
-// an operator with a misordered backend component cannot run windsor destroy to clean up.
-// The skip is explicit at the call site so a future write/deploy command using this helper
-// would have to consciously opt out of validation rather than inheriting the behavior from a
-// generic prepareProject. Tool requirements are still honoured per-command via reqs.
+// prepareProjectSkipValidation is prepareProject without blueprint structural validation.
+// Teardown and read commands (destroy, down, env) use it, so an operator can destroy a deployed blueprint
+// that the validator rejects. reqs still sets the tool requirements of each command.
 func prepareProjectSkipValidation(cmd *cobra.Command, reqs tools.Requirements) (*project.Project, error) {
 	proj, err := configureProject(cmd)
 	if err != nil {
@@ -191,21 +183,11 @@ func prepareProjectSkipValidation(cmd *cobra.Command, reqs tools.Requirements) (
 	return proj, nil
 }
 
-// requireCloudAuth runs the cloud-credential preflight for any platform configured for the
-// current context. It is the gate before any operation that runs terraform — apply, plan,
-// destroy, up — so credential failures (expired SSO, missing profile) surface before init
-// and state migration burn several minutes against a credential set that was never going to
-// work. CheckAuth itself is platform-aware: AWS today, with azure/gcp wired in alongside as
-// they're added. Call sites that do NOT run terraform (down, env, init, kustomize-only
-// subcommands) must not call this — there is no obligation to be authed for those paths.
-// Bootstrap routes through this helper too so the calm-output pattern is uniform.
-//
-// On failure: prints CheckAuth's message to stderr, then the remediation command of its
-// WindsorError on the next line when it has one, silences cobra's "Error:" prefix on the
-// parent command tree, and returns the error so the process exits non-zero. This is a
-// flow-guidance moment ("run aws sso login"), not an exception, so the output should read
-// calmly without scary "Error:" framing or stacked "credentials are bad" prefixes — the
-// operator just needs the next step.
+// requireCloudAuth runs the cloud credential preflight for the platform of the current context.
+// Every command that runs terraform (apply, plan, destroy, up, bootstrap, upgrade) calls it before init and
+// state migration. A command that does not run terraform must not call it. On failure, it prints the
+// CheckAuth message to stderr, then the remediation of its WindsorError when it has one. It silences the
+// cobra "Error:" prefix on the parent commands and returns the error so the process exits non-zero.
 func requireCloudAuth(cmd *cobra.Command, proj *project.Project) error {
 	if err := proj.Runtime.ToolsManager.CheckAuth(); err != nil {
 		silenceErrorsOnAncestors(cmd)
@@ -263,17 +245,10 @@ func silenceErrorsOnAncestors(cmd *cobra.Command) {
 	}
 }
 
-// setupGlobalContext injects global flags and context values into the command's context.
-// It injects the logger and the presenter for --format, and propagates --no-cache to the
-// NO_CACHE environment variable that ArtifactBuilder.Pull reads — since the artifact
-// layer is already wired to honor NO_CACHE (see pkg/composer/artifact/artifact.go),
-// setting the env var is the smallest-blast-radius path that works for every command
-// without threading a flag through the project/runtime/composer construction chain.
-// An explicit --no-cache always wins; a pre-existing NO_CACHE in the environment is
-// preserved when the flag is not set. --debug and WINDSOR_DEBUG=true both enable
-// debug.Log output for the run; either one is enough. --context builds a runtime override
-// through NewRuntime, so every field (Evaluator, ToolsManager, ...) is fully hydrated, then
-// injects it under both override keys a caller might read.
+// setupGlobalContext injects the logger and the presenter for --format into the command context.
+// --no-cache sets NO_CACHE for ArtifactBuilder.Pull, and a NO_CACHE already in the environment stays
+// when the flag is not set. --debug or WINDSOR_DEBUG=true enables debug.Log output for the run.
+// --context builds a runtime through NewRuntime and injects it under both override keys.
 func setupGlobalContext(cmd *cobra.Command) error {
 	ctx := cmd.Root().Context()
 	if ctx == nil {
