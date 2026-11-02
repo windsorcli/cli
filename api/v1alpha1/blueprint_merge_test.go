@@ -744,10 +744,13 @@ func TestBlueprint_StrategicMerge(t *testing.T) {
 
 		// Then should return an error about the cycle
 		if err == nil {
-			t.Errorf("Expected error for dependency cycle, got nil")
+			t.Fatal("Expected error for dependency cycle, got nil")
 		}
-		if !strings.Contains(err.Error(), "dependency cycle detected") {
+		if !strings.Contains(err.Error(), "dependency cycle detected in terraform components") {
 			t.Errorf("Expected cycle detection error, got: %v", err)
+		}
+		if !strings.Contains(err.Error(), "component-") {
+			t.Errorf("Expected error to name a component in the cycle, got: %v", err)
 		}
 	})
 
