@@ -81,11 +81,13 @@ mirror, and it never copies.
 
 ### 2. Flux artifacts come from the rendered Kustomizations
 
-For each Kustomization the context applies, the CLI renders it the way kustomize-controller
-would: path, components, inline patches, and postBuild substitutions, with the context's
-substitution values. Rendering extends `windsor plan`'s local build with inline patches and
-Flux's envsubst rules, including `${var:=default}`. Rendering after patches means an overlay's
-replacement chart or image appears and the one it replaced does not.
+For each Kustomization the context applies, the CLI runs `flux build kustomization` with
+`--kustomization-file` and `--dry-run`. The flux CLI builds with `fluxcd/pkg/kustomize`, the
+package kustomize-controller uses. The output therefore has the path, components, inline
+patches, and postBuild substitutions applied, including `${var:=default}`. Dry-run mode reads no
+`substituteFrom` objects from a cluster. The CLI writes the context's substitution values into
+`postBuild.substitute` in the Kustomization file it passes to the flux CLI. Rendering after
+patches means an overlay's replacement chart or image appears and the one it replaced does not.
 
 The CLI reads three things from the rendered output:
 
@@ -114,16 +116,23 @@ holds the built-in APIs plus every CRD the context's render installs. A chart th
 ServiceMonitor on `monitoring.coreos.com/v1` then renders as it does in the cluster. A `lookup`
 call returns nothing, as it does in a Helm dry run.
 
-A chart registry substitution such as core's `chart_registry` is rendered empty, so the list
-names each vendor's upstream. A Kustomization whose substitutions include a value that does not
-exist before apply, such as a Terraform output, renders with that value left in place. The
-command fails only when such a value lands in a chart source's URL, tag, or digest, or in an
-image reference.
+The CLI renders with the context's values as they are, and knows no blueprint's value names.
+A context that already points its chart sources at a chart registry renders the registry's URLs
+in place of each vendor's upstream. To list the upstreams, the operator overrides the
+blueprint's registry value for one run with `--set`, the flag `windsor up` takes. For core, that
+is `--set charts.registry=`. The command applies `--set` to that run only and writes nothing to
+the context. When a rendered chart source is already under `--charts-to`, the command names it
+on stderr and leaves it out of `-o flux-mirror`, so Flux Mirror never copies a registry onto
+itself.
+
+A Kustomization whose substitutions include a value that does not exist before apply, such as a
+Terraform output, renders with that value left in place. The command fails only when such a
+value lands in a chart source's URL, tag, or digest, or in an image reference.
 
 ### 3. Terraform artifacts come from static evaluation of each component
 
 For each Terraform component the context enables, the CLI parses the module with `hcl/v2` and
-follows local `module` sources. It evaluates each `helm_release` block with `var.*` set from
+follows local `module` sources. It evaluates each resource block below with `var.*` set from
 the component's Windsor inputs and the variable defaults, and with `local.*` resolved in the
 same pass. A reference to a resource attribute or a module output evaluates as unknown.
 
@@ -132,29 +141,28 @@ same pass. A reference to a resource attribute or a module output evaluates as u
 - A `kubernetes_*` workload resource gives the images in its pod template.
 - A `kubernetes_manifest` gives its object, which the CLI reads like rendered Flux output.
 
+These resources produce charts or Kubernetes objects, so the CLI reads them the same way for any
+blueprint. The CLI reads no other resource type, because Terraform has no common attribute that
+marks an image. An image stays in the file that uses it, and the blueprint declares no second
+copy.
+
 The command fails only when an unknown value lands in a chart's repository, name, or version,
 or in an image reference. In core, this finds cilium, flux-operator, and flux-instance from
 `var.chart_repository` and the version variables.
 
-### 4. The object that declares an artifact sets its kind, and runtime images are declared
+### 4. The object that declares an artifact sets its kind, and extractors cover runtime images
 
 An artifact found through a chart source or a `helm_release` is a chart. An artifact found in a
 pod template is an image. The CLI reads no manifest to classify either.
 
-Some images appear in no manifest, because an operator chooses them at runtime. The CLI covers
-them in two ways:
+Some images appear in no manifest, because an operator chooses them at runtime. The CLI has a
+built-in extractor for each kind whose images follow from its spec. The first is FluxInstance,
+whose operator derives each controller image from `distribution` and `components`. The
+extractor runs `flux-operator build instance` on the rendered FluxInstance and reads the images
+from its output. The flux-operator CLI resolves a `distribution.version` range as the operator
+does.
 
-- A built-in extractor for each kind whose images follow from its spec. The first is
-  FluxInstance: the operator derives each controller image from `distribution` and
-  `components`. When `distribution.version` is a range, the extractor resolves it from the
-  distribution artifact, as the operator does.
-- An `images` list on a Kustomization or a Terraform component in the blueprint, for every
-  other case. Each entry is a full image reference. The list applies only when the context
-  enables its component, so facets scope it. Core's Talos node image moves here from the
-  `talos_node_image` variable.
-
-`windsor show artifacts` marks each artifact as `rendered` or `declared`. It does not read
-Renovate annotations.
+The blueprint schema does not change. The CLI does not read Renovate annotations.
 
 ### 5. Destinations follow each kind's layout
 
@@ -194,19 +202,40 @@ Core deletes `flux-mirror.yaml` and its comparison check once `-o flux-mirror` s
 blueprint that swaps its own chart sources gets the same air-gap list without writing one.
 
 The image list includes chart defaults and post-renderer changes, because the CLI renders every
-chart. It misses only an image that an operator chooses at runtime with no built-in extractor
-and no `images` entry.
+chart. It misses an image that an operator chooses at runtime when no built-in extractor
+covers the operator's kind. It also misses an image that only a Terraform resource outside
+Decision 3 names. Core's Talos node image is one, and a site copies it without this list.
 
-`windsor show artifacts` needs the kustomize CLI, like `windsor plan`. It needs network access
+`windsor show artifacts` needs the flux CLI at the minimum version `windsor plan` checks. A
+context with a FluxInstance also needs the flux-operator CLI. The command needs network access
 to pull each chart, through the Docker config for OCI charts. The CLI caches pulled charts. The
 CLI takes on the Helm v4 SDK and `fluxcd/pkg/chartutil` as dependencies.
-
-The blueprint schema gains an `images` field on Kustomizations and Terraform components.
 
 `artifact-manifest.yaml` keeps its place in the bundle as the blueprint-wide set from Renovate
 annotations. `windsor show artifacts` does not read it.
 
 ## Alternatives considered
+
+### A Kustomization render inside the CLI
+
+The CLI would extend `windsor plan`'s `kustomize build` with inline patches and its own
+envsubst. Rejected: each substitution rule the CLI gets wrong gives a wrong list with no error.
+`flux build kustomization` runs the controller's own package, and `windsor plan` already needs
+the flux CLI.
+
+### `helm template` in place of the Helm SDK
+
+The CLI would run `helm template` with the merged values, `--kube-version`, and one
+`--api-versions` flag per CRD. That keeps the Helm SDK out of the binary. Rejected: the CLI
+would then merge `valuesFrom` itself, with `targetPath`, `optional`, and helm-controller's merge
+order. That merge is the step most likely to drift from the cluster, and `fluxcd/pkg/chartutil`
+exists to do it.
+
+### A declared `images` list in the blueprint
+
+Each Kustomization and Terraform component would carry an `images` list for images that no
+rendered object names. Rejected: an image belongs in the file that uses it. A second copy in
+the blueprint can drift from the image the cluster runs, as core's `talos_node_image` pin can.
 
 ### Flux Mirror config as the source of truth
 
