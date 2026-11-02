@@ -1,9 +1,11 @@
-package v1alpha1
+package v1alpha1_test
 
 import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/windsorcli/cli/api/v1alpha1"
 
 	"github.com/goccy/go-yaml"
 )
@@ -14,7 +16,7 @@ import (
 
 func TestFacetDeepCopy(t *testing.T) {
 	t.Run("ReturnsNilForNilFacet", func(t *testing.T) {
-		var f *Facet
+		var f *v1alpha1.Facet
 		result := f.DeepCopy()
 		if result != nil {
 			t.Errorf("Expected nil, got %v", result)
@@ -22,15 +24,15 @@ func TestFacetDeepCopy(t *testing.T) {
 	})
 
 	t.Run("CreatesDeepCopyOfFacet", func(t *testing.T) {
-		original := &Facet{
+		original := &v1alpha1.Facet{
 			Kind:       "Facet",
 			ApiVersion: "blueprints.windsorcli.dev/v1alpha1",
-			Metadata: Metadata{
+			Metadata: v1alpha1.Metadata{
 				Name:        "test-facet",
 				Description: "Test facet",
 			},
 			When: "provider == 'aws'",
-			Config: []ConfigBlock{
+			Config: []v1alpha1.ConfigBlock{
 				{
 					Name: "talos",
 					When: "provider == 'incus'",
@@ -42,9 +44,9 @@ func TestFacetDeepCopy(t *testing.T) {
 					},
 				},
 			},
-			TerraformComponents: []ConditionalTerraformComponent{
+			TerraformComponents: []v1alpha1.ConditionalTerraformComponent{
 				{
-					TerraformComponent: TerraformComponent{
+					TerraformComponent: v1alpha1.TerraformComponent{
 						Path:      "network/aws-vpc",
 						DependsOn: []string{"policy-base"},
 						Inputs: map[string]any{
@@ -54,9 +56,9 @@ func TestFacetDeepCopy(t *testing.T) {
 					When: "vpc.enabled == true",
 				},
 			},
-			Kustomizations: []ConditionalKustomization{
+			Kustomizations: []v1alpha1.ConditionalKustomization{
 				{
-					Kustomization: Kustomization{
+					Kustomization: v1alpha1.Kustomization{
 						Name:       "ingress",
 						Path:       "ingress",
 						Components: []string{"nginx", "nginx/web"},
@@ -131,7 +133,7 @@ func TestFacetDeepCopy(t *testing.T) {
 
 	t.Run("PreservesBackend", func(t *testing.T) {
 		// Given a facet that names the backend terminus
-		original := &Facet{Backend: "cluster"}
+		original := &v1alpha1.Facet{Backend: "cluster"}
 
 		// When deep-copied
 		copy := original.DeepCopy()
@@ -144,9 +146,9 @@ func TestFacetDeepCopy(t *testing.T) {
 
 	t.Run("PreservesMessagesIndependently", func(t *testing.T) {
 		// Given a facet carrying post-run messages
-		original := &Facet{
-			Metadata: Metadata{Name: "test-facet"},
-			Messages: []Message{
+		original := &v1alpha1.Facet{
+			Metadata: v1alpha1.Metadata{Name: "test-facet"},
+			Messages: []v1alpha1.Message{
 				{When: "dns.public_domain != ''", Text: "delegate ${dns.public_domain}"},
 			},
 		}
@@ -168,9 +170,9 @@ func TestFacetDeepCopy(t *testing.T) {
 	})
 
 	t.Run("PreservesRequiresIndependently", func(t *testing.T) {
-		original := &Facet{
-			Metadata: Metadata{Name: "test-facet"},
-			Requires: []RequirementBlock{
+		original := &v1alpha1.Facet{
+			Metadata: v1alpha1.Metadata{Name: "test-facet"},
+			Requires: []v1alpha1.RequirementBlock{
 				{Paths: []string{"cluster.name", "dns.domain"}},
 				{
 					When:    "provider == 'aws'",
@@ -200,7 +202,7 @@ func TestFacetDeepCopy(t *testing.T) {
 
 func TestRequirementBlockDeepCopy(t *testing.T) {
 	t.Run("ReturnsNilForNilBlock", func(t *testing.T) {
-		var r *RequirementBlock
+		var r *v1alpha1.RequirementBlock
 		result := r.DeepCopy()
 		if result != nil {
 			t.Errorf("Expected nil, got %v", result)
@@ -208,7 +210,7 @@ func TestRequirementBlockDeepCopy(t *testing.T) {
 	})
 
 	t.Run("CreatesDeepCopyOfRequirementBlock", func(t *testing.T) {
-		original := &RequirementBlock{
+		original := &v1alpha1.RequirementBlock{
 			When:    "provider == 'aws'",
 			Paths:   []string{"aws.region", "aws.account_id"},
 			Message: "Set these in values.yaml",
@@ -237,7 +239,7 @@ func TestRequirementBlockUnmarshalYAML(t *testing.T) {
 	t.Run("ErrorsWhenPathsKeyMissing", func(t *testing.T) {
 		// Models a typo such as `pahts:` — the field is absent entirely, which would
 		// otherwise produce a silently-disabled requirement.
-		var f Facet
+		var f v1alpha1.Facet
 		err := yaml.Unmarshal([]byte(`requires:
   - when: provider == 'aws'
     message: missing the paths key entirely
@@ -251,7 +253,7 @@ func TestRequirementBlockUnmarshalYAML(t *testing.T) {
 	})
 
 	t.Run("ErrorsWhenPathsListEmpty", func(t *testing.T) {
-		var f Facet
+		var f v1alpha1.Facet
 		err := yaml.Unmarshal([]byte(`requires:
   - paths: []
 `), &f)
@@ -264,7 +266,7 @@ func TestRequirementBlockUnmarshalYAML(t *testing.T) {
 	})
 
 	t.Run("AcceptsValidBlock", func(t *testing.T) {
-		var f Facet
+		var f v1alpha1.Facet
 		err := yaml.Unmarshal([]byte(`requires:
   - paths:
       - cluster.name
@@ -280,7 +282,7 @@ func TestRequirementBlockUnmarshalYAML(t *testing.T) {
 
 func TestConditionalTerraformComponentDeepCopy(t *testing.T) {
 	t.Run("ReturnsNilForNilComponent", func(t *testing.T) {
-		var c *ConditionalTerraformComponent
+		var c *v1alpha1.ConditionalTerraformComponent
 		result := c.DeepCopy()
 		if result != nil {
 			t.Errorf("Expected nil, got %v", result)
@@ -288,8 +290,8 @@ func TestConditionalTerraformComponentDeepCopy(t *testing.T) {
 	})
 
 	t.Run("CreatesDeepCopyOfConditionalTerraformComponent", func(t *testing.T) {
-		original := &ConditionalTerraformComponent{
-			TerraformComponent: TerraformComponent{
+		original := &v1alpha1.ConditionalTerraformComponent{
+			TerraformComponent: v1alpha1.TerraformComponent{
 				Path:      "network/aws-vpc",
 				DependsOn: []string{"policy-base", "pki-base"},
 				Inputs: map[string]any{
@@ -322,10 +324,10 @@ func TestConditionalTerraformComponentDeepCopy(t *testing.T) {
 	})
 
 	t.Run("PreservesRequiresIndependently", func(t *testing.T) {
-		original := &ConditionalTerraformComponent{
-			TerraformComponent: TerraformComponent{Path: "network/aws-vpc"},
+		original := &v1alpha1.ConditionalTerraformComponent{
+			TerraformComponent: v1alpha1.TerraformComponent{Path: "network/aws-vpc"},
 			When:               "platform == 'aws'",
-			Requires: []RequirementBlock{
+			Requires: []v1alpha1.RequirementBlock{
 				{Paths: []string{"aws.region"}},
 				{When: "cni_effective.driver == 'cilium'", Paths: []string{"aws.cilium.role_arn"}, Message: "Set the cilium role arn."},
 			},
@@ -351,7 +353,7 @@ func TestConditionalTerraformComponentDeepCopy(t *testing.T) {
 
 func TestConditionalKustomizationDeepCopy(t *testing.T) {
 	t.Run("ReturnsNilForNilKustomization", func(t *testing.T) {
-		var k *ConditionalKustomization
+		var k *v1alpha1.ConditionalKustomization
 		result := k.DeepCopy()
 		if result != nil {
 			t.Errorf("Expected nil, got %v", result)
@@ -359,9 +361,9 @@ func TestConditionalKustomizationDeepCopy(t *testing.T) {
 	})
 
 	t.Run("CreatesDeepCopyOfConditionalKustomization", func(t *testing.T) {
-		interval := &DurationString{}
-		original := &ConditionalKustomization{
-			Kustomization: Kustomization{
+		interval := &v1alpha1.DurationString{}
+		original := &v1alpha1.ConditionalKustomization{
+			Kustomization: v1alpha1.Kustomization{
 				Name:       "ingress",
 				Path:       "ingress",
 				Components: []string{"nginx", "nginx/web"},
@@ -401,10 +403,10 @@ func TestConditionalKustomizationDeepCopy(t *testing.T) {
 	})
 
 	t.Run("PreservesRequiresIndependently", func(t *testing.T) {
-		original := &ConditionalKustomization{
-			Kustomization: Kustomization{Name: "ingress"},
+		original := &v1alpha1.ConditionalKustomization{
+			Kustomization: v1alpha1.Kustomization{Name: "ingress"},
 			When:          "ingress.enabled == true",
-			Requires: []RequirementBlock{
+			Requires: []v1alpha1.RequirementBlock{
 				{Paths: []string{"ingress.class"}},
 				{When: "ingress.tls == true", Paths: []string{"ingress.tls_secret"}, Message: "Set the TLS secret name."},
 			},
@@ -428,8 +430,8 @@ func TestConditionalKustomizationDeepCopy(t *testing.T) {
 	})
 
 	t.Run("CopiesSubstituteIndependently", func(t *testing.T) {
-		original := &ConditionalKustomization{
-			Kustomization: Kustomization{
+		original := &v1alpha1.ConditionalKustomization{
+			Kustomization: v1alpha1.Kustomization{
 				Name:       "cert-manager",
 				Path:       "pki/cert-manager",
 				Substitute: map[string]string{"region": "us-east-1"},
@@ -450,11 +452,11 @@ func TestConditionalKustomizationDeepCopy(t *testing.T) {
 
 func TestConfigBlockDeepCopy(t *testing.T) {
 	t.Run("PreservesRequiresIndependently", func(t *testing.T) {
-		original := &ConfigBlock{
+		original := &v1alpha1.ConfigBlock{
 			Name: "talos",
 			When: "platform == 'docker'",
 			Body: map[string]any{"value": "x"},
-			Requires: []RequirementBlock{
+			Requires: []v1alpha1.RequirementBlock{
 				{Paths: []string{"talos.endpoint"}},
 				{When: "talos.tls == true", Paths: []string{"talos.ca_cert"}, Message: "Set the CA cert path."},
 			},
@@ -480,25 +482,25 @@ func TestConfigBlockDeepCopy(t *testing.T) {
 
 func TestFacetYAMLTags(t *testing.T) {
 	t.Run("FacetMarshalsAndUnmarshalsYAML", func(t *testing.T) {
-		facet := Facet{
+		facet := v1alpha1.Facet{
 			Kind:       "Facet",
 			ApiVersion: "blueprints.windsorcli.dev/v1alpha1",
-			Metadata: Metadata{
+			Metadata: v1alpha1.Metadata{
 				Name:        "test-facet",
 				Description: "Test facet description",
 			},
 			When: "provider == 'aws'",
-			TerraformComponents: []ConditionalTerraformComponent{
+			TerraformComponents: []v1alpha1.ConditionalTerraformComponent{
 				{
-					TerraformComponent: TerraformComponent{
+					TerraformComponent: v1alpha1.TerraformComponent{
 						Path: "network/aws-vpc",
 					},
 					When: "vpc.enabled == true",
 				},
 			},
-			Kustomizations: []ConditionalKustomization{
+			Kustomizations: []v1alpha1.ConditionalKustomization{
 				{
-					Kustomization: Kustomization{
+					Kustomization: v1alpha1.Kustomization{
 						Name: "ingress",
 						Path: "ingress",
 					},
@@ -512,7 +514,7 @@ func TestFacetYAMLTags(t *testing.T) {
 			t.Fatalf("Failed to marshal Facet struct to YAML: %v", err)
 		}
 
-		var out Facet
+		var out v1alpha1.Facet
 		err = yaml.Unmarshal(data, &out)
 		if err != nil {
 			t.Fatalf("Failed to unmarshal YAML into Facet struct: %v", err)
@@ -543,10 +545,10 @@ func TestFacetYAMLTags(t *testing.T) {
 
 	t.Run("FacetMarshalsAndUnmarshalsBackend", func(t *testing.T) {
 		// Given a facet that names a backend terminus
-		facet := Facet{
+		facet := v1alpha1.Facet{
 			Kind:       "Facet",
 			ApiVersion: "blueprints.windsorcli.dev/v1alpha1",
-			Metadata:   Metadata{Name: "cluster-facet"},
+			Metadata:   v1alpha1.Metadata{Name: "cluster-facet"},
 			Backend:    "cluster",
 		}
 
@@ -558,7 +560,7 @@ func TestFacetYAMLTags(t *testing.T) {
 			t.Errorf("Expected YAML to contain \"backend: cluster\", got:\n%s", string(data))
 		}
 
-		var out Facet
+		var out v1alpha1.Facet
 		if err := yaml.Unmarshal(data, &out); err != nil {
 			t.Fatalf("Unmarshal failed: %v", err)
 		}
@@ -568,7 +570,7 @@ func TestFacetYAMLTags(t *testing.T) {
 	})
 
 	t.Run("FacetOmitsBackendWhenEmpty", func(t *testing.T) {
-		facet := Facet{Metadata: Metadata{Name: "no-backend"}}
+		facet := v1alpha1.Facet{Metadata: v1alpha1.Metadata{Name: "no-backend"}}
 		data, err := yaml.Marshal(&facet)
 		if err != nil {
 			t.Fatalf("Marshal failed: %v", err)
@@ -599,7 +601,7 @@ terraform:
       controlplanes: ${talos.controlplanes}
       common_patch: ${talos.common_patch}
 `)
-		var facet Facet
+		var facet v1alpha1.Facet
 		err := yaml.Unmarshal(facetYAML, &facet)
 		if err != nil {
 			t.Fatalf("Failed to unmarshal facet with config: %v", err)
@@ -627,7 +629,7 @@ terraform:
 	})
 
 	t.Run("FacetMarshalsConfig", func(t *testing.T) {
-		block := ConfigBlock{
+		block := v1alpha1.ConfigBlock{
 			Name: "talos",
 			When: "provider == 'docker'",
 			Body: map[string]any{"value": map[string]any{"controlplanes": "${cluster.controlplanes}", "workers": "${cluster.workers}"}},
@@ -659,7 +661,7 @@ terraform:
 when: provider == 'incus'
 controlplanes: ${cluster.controlplanes}
 `)
-		var block ConfigBlock
+		var block v1alpha1.ConfigBlock
 		err := yaml.Unmarshal(y, &block)
 		if err == nil {
 			t.Error("Expected error when config block value is missing")
@@ -690,7 +692,7 @@ requires:
       Observability is enabled but its endpoint/token are not set.
       See https://docs.windsorcli.dev/observability for setup details.
 `)
-		var facet Facet
+		var facet v1alpha1.Facet
 		err := yaml.Unmarshal(facetYAML, &facet)
 		if err != nil {
 			t.Fatalf("Failed to unmarshal facet with requires: %v", err)
@@ -731,11 +733,11 @@ requires:
 	})
 
 	t.Run("FacetMarshalsRequires", func(t *testing.T) {
-		facet := Facet{
+		facet := v1alpha1.Facet{
 			Kind:       "Facet",
 			ApiVersion: "blueprints.windsorcli.dev/v1alpha1",
-			Metadata:   Metadata{Name: "test"},
-			Requires: []RequirementBlock{
+			Metadata:   v1alpha1.Metadata{Name: "test"},
+			Requires: []v1alpha1.RequirementBlock{
 				{Paths: []string{"cluster.name"}},
 				{When: "provider == 'aws'", Paths: []string{"aws.region"}, Message: "Set aws.region"},
 			},
@@ -773,7 +775,7 @@ kustomize:
     timeout: 10m
 `)
 
-		var facet Facet
+		var facet v1alpha1.Facet
 		err := yaml.Unmarshal(facetYAML, &facet)
 		if err != nil {
 			t.Fatalf("Failed to unmarshal Facet with duration strings: %v", err)
@@ -817,7 +819,7 @@ requires:
 value:
   controlplanes: ${cluster.controlplanes}
 `)
-		var block ConfigBlock
+		var block v1alpha1.ConfigBlock
 		if err := yaml.Unmarshal(y, &block); err != nil {
 			t.Fatalf("Unmarshal: %v", err)
 		}
@@ -862,7 +864,7 @@ terraform:
         message: |
           Set the cilium role arn.
 `)
-		var facet Facet
+		var facet v1alpha1.Facet
 		if err := yaml.Unmarshal(y, &facet); err != nil {
 			t.Fatalf("Unmarshal: %v", err)
 		}
@@ -892,7 +894,7 @@ kustomize:
       - paths:
           - gateway.cert_arn
 `)
-		var facet Facet
+		var facet v1alpha1.Facet
 		if err := yaml.Unmarshal(y, &facet); err != nil {
 			t.Fatalf("Unmarshal: %v", err)
 		}
@@ -929,7 +931,7 @@ flux:
         when: "${x}"
         components: [internal]
 `
-		var f Facet
+		var f v1alpha1.Facet
 		if err := yaml.Unmarshal([]byte(src), &f); err != nil {
 			t.Fatalf("unmarshal: %v", err)
 		}

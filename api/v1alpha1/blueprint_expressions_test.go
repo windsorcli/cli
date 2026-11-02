@@ -1,7 +1,9 @@
-package v1alpha1
+package v1alpha1_test
 
 import (
 	"testing"
+
+	"github.com/windsorcli/cli/api/v1alpha1"
 
 	"github.com/goccy/go-yaml"
 )
@@ -15,7 +17,7 @@ func TestBoolExpression_MarshalYAML(t *testing.T) {
 		yamlData := []byte(`destroy: "${shouldDestroy}"`)
 
 		var component struct {
-			Destroy *BoolExpression `yaml:"destroy,omitempty"`
+			Destroy *v1alpha1.BoolExpression `yaml:"destroy,omitempty"`
 		}
 		err := yaml.Unmarshal(yamlData, &component)
 		if err != nil {
@@ -41,7 +43,7 @@ func TestBoolExpression_MarshalYAML(t *testing.T) {
 		}
 
 		var roundTrip struct {
-			Destroy *BoolExpression `yaml:"destroy,omitempty"`
+			Destroy *v1alpha1.BoolExpression `yaml:"destroy,omitempty"`
 		}
 		err = yaml.Unmarshal(marshaled, &roundTrip)
 		if err != nil {
@@ -63,7 +65,7 @@ func TestBoolExpression_MarshalYAML(t *testing.T) {
 		yamlData := []byte(`destroy: true`)
 
 		var component struct {
-			Destroy *BoolExpression `yaml:"destroy,omitempty"`
+			Destroy *v1alpha1.BoolExpression `yaml:"destroy,omitempty"`
 		}
 		err := yaml.Unmarshal(yamlData, &component)
 		if err != nil {
@@ -86,7 +88,7 @@ func TestBoolExpression_MarshalYAML(t *testing.T) {
 		}
 
 		var roundTrip struct {
-			Destroy *BoolExpression `yaml:"destroy,omitempty"`
+			Destroy *v1alpha1.BoolExpression `yaml:"destroy,omitempty"`
 		}
 		err = yaml.Unmarshal(marshaled, &roundTrip)
 		if err != nil {
@@ -110,7 +112,7 @@ func TestIntExpression_MarshalYAML(t *testing.T) {
 		yamlData := []byte(`parallelism: "${cluster.parallelism ?? 10}"`)
 
 		var component struct {
-			Parallelism *IntExpression `yaml:"parallelism,omitempty"`
+			Parallelism *v1alpha1.IntExpression `yaml:"parallelism,omitempty"`
 		}
 		err := yaml.Unmarshal(yamlData, &component)
 		if err != nil {
@@ -136,7 +138,7 @@ func TestIntExpression_MarshalYAML(t *testing.T) {
 		}
 
 		var roundTrip struct {
-			Parallelism *IntExpression `yaml:"parallelism,omitempty"`
+			Parallelism *v1alpha1.IntExpression `yaml:"parallelism,omitempty"`
 		}
 		err = yaml.Unmarshal(marshaled, &roundTrip)
 		if err != nil {
@@ -158,7 +160,7 @@ func TestIntExpression_MarshalYAML(t *testing.T) {
 		yamlData := []byte(`parallelism: 5`)
 
 		var component struct {
-			Parallelism *IntExpression `yaml:"parallelism,omitempty"`
+			Parallelism *v1alpha1.IntExpression `yaml:"parallelism,omitempty"`
 		}
 		err := yaml.Unmarshal(yamlData, &component)
 		if err != nil {
@@ -181,7 +183,7 @@ func TestIntExpression_MarshalYAML(t *testing.T) {
 		}
 
 		var roundTrip struct {
-			Parallelism *IntExpression `yaml:"parallelism,omitempty"`
+			Parallelism *v1alpha1.IntExpression `yaml:"parallelism,omitempty"`
 		}
 		err = yaml.Unmarshal(marshaled, &roundTrip)
 		if err != nil {
@@ -202,7 +204,7 @@ func TestIntExpression_MarshalYAML(t *testing.T) {
 
 func TestBoolExpression_IsEnabled(t *testing.T) {
 	t.Run("ReturnsTrueWhenNil", func(t *testing.T) {
-		var expr *BoolExpression
+		var expr *v1alpha1.BoolExpression
 		if !expr.IsEnabled() {
 			t.Error("Expected IsEnabled to return true when nil")
 		}
@@ -210,7 +212,7 @@ func TestBoolExpression_IsEnabled(t *testing.T) {
 
 	t.Run("ReturnsTrueWhenValueIsTrue", func(t *testing.T) {
 		trueVal := true
-		expr := &BoolExpression{Value: &trueVal, IsExpr: false}
+		expr := &v1alpha1.BoolExpression{Value: &trueVal, IsExpr: false}
 		if !expr.IsEnabled() {
 			t.Error("Expected IsEnabled to return true when value is true")
 		}
@@ -218,21 +220,21 @@ func TestBoolExpression_IsEnabled(t *testing.T) {
 
 	t.Run("ReturnsFalseWhenValueIsFalse", func(t *testing.T) {
 		falseVal := false
-		expr := &BoolExpression{Value: &falseVal, IsExpr: false}
+		expr := &v1alpha1.BoolExpression{Value: &falseVal, IsExpr: false}
 		if expr.IsEnabled() {
 			t.Error("Expected IsEnabled to return false when value is false")
 		}
 	})
 
 	t.Run("ReturnsTrueWhenIsExpression", func(t *testing.T) {
-		expr := &BoolExpression{IsExpr: true, Expr: "${some.condition ?? true}"}
+		expr := &v1alpha1.BoolExpression{IsExpr: true, Expr: "${some.condition ?? true}"}
 		if !expr.IsEnabled() {
 			t.Error("Expected IsEnabled to return true when IsExpr is true")
 		}
 	})
 
 	t.Run("ReturnsTrueWhenValueIsNilButNotExpression", func(t *testing.T) {
-		expr := &BoolExpression{Value: nil, IsExpr: false}
+		expr := &v1alpha1.BoolExpression{Value: nil, IsExpr: false}
 		if !expr.IsEnabled() {
 			t.Error("Expected IsEnabled to return true when Value is nil and not expression")
 		}
@@ -241,7 +243,7 @@ func TestBoolExpression_IsEnabled(t *testing.T) {
 
 func TestBoolExpression_IsInstalled(t *testing.T) {
 	t.Run("ReturnsFalseWhenNil", func(t *testing.T) {
-		var expr *BoolExpression
+		var expr *v1alpha1.BoolExpression
 		if expr.IsInstalled() {
 			t.Error("Expected IsInstalled to return false when nil")
 		}
@@ -249,7 +251,7 @@ func TestBoolExpression_IsInstalled(t *testing.T) {
 
 	t.Run("ReturnsTrueWhenValueIsTrue", func(t *testing.T) {
 		trueVal := true
-		expr := &BoolExpression{Value: &trueVal, IsExpr: false}
+		expr := &v1alpha1.BoolExpression{Value: &trueVal, IsExpr: false}
 		if !expr.IsInstalled() {
 			t.Error("Expected IsInstalled to return true when value is true")
 		}
@@ -257,21 +259,21 @@ func TestBoolExpression_IsInstalled(t *testing.T) {
 
 	t.Run("ReturnsFalseWhenValueIsFalse", func(t *testing.T) {
 		falseVal := false
-		expr := &BoolExpression{Value: &falseVal, IsExpr: false}
+		expr := &v1alpha1.BoolExpression{Value: &falseVal, IsExpr: false}
 		if expr.IsInstalled() {
 			t.Error("Expected IsInstalled to return false when value is false")
 		}
 	})
 
 	t.Run("ReturnsFalseWhenIsExpression", func(t *testing.T) {
-		expr := &BoolExpression{IsExpr: true, Expr: "${some.condition ?? true}"}
+		expr := &v1alpha1.BoolExpression{IsExpr: true, Expr: "${some.condition ?? true}"}
 		if expr.IsInstalled() {
 			t.Error("Expected IsInstalled to return false when IsExpr is true")
 		}
 	})
 
 	t.Run("ReturnsFalseWhenValueIsNilButNotExpression", func(t *testing.T) {
-		expr := &BoolExpression{Value: nil, IsExpr: false}
+		expr := &v1alpha1.BoolExpression{Value: nil, IsExpr: false}
 		if expr.IsInstalled() {
 			t.Error("Expected IsInstalled to return false when Value is nil and not expression")
 		}

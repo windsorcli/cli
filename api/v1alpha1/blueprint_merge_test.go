@@ -1,4 +1,4 @@
-package v1alpha1
+package v1alpha1_test
 
 import (
 	"fmt"
@@ -6,6 +6,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/windsorcli/cli/api/v1alpha1"
 
 	"github.com/goccy/go-yaml"
 )
@@ -17,8 +19,8 @@ import (
 func TestBlueprint_StrategicMerge(t *testing.T) {
 	t.Run("MergesTerraformComponentsStrategically", func(t *testing.T) {
 		// Given a base blueprint with terraform components
-		base := &Blueprint{
-			TerraformComponents: []TerraformComponent{
+		base := &v1alpha1.Blueprint{
+			TerraformComponents: []v1alpha1.TerraformComponent{
 				{
 					Path:      "network/vpc",
 					Source:    "core",
@@ -29,8 +31,8 @@ func TestBlueprint_StrategicMerge(t *testing.T) {
 		}
 
 		// And an overlay with same component (should merge) and new component (should append)
-		overlay := &Blueprint{
-			TerraformComponents: []TerraformComponent{
+		overlay := &v1alpha1.Blueprint{
+			TerraformComponents: []v1alpha1.TerraformComponent{
 				{
 					Path:      "network/vpc", // Same path+source - should merge
 					Source:    "core",
@@ -83,8 +85,8 @@ func TestBlueprint_StrategicMerge(t *testing.T) {
 
 	t.Run("MergesNamedTerraformComponentsByComponentID", func(t *testing.T) {
 		// Given a base blueprint with a named terraform component
-		base := &Blueprint{
-			TerraformComponents: []TerraformComponent{
+		base := &v1alpha1.Blueprint{
+			TerraformComponents: []v1alpha1.TerraformComponent{
 				{
 					Name:      "cluster",
 					Path:      "terraform/cluster",
@@ -96,8 +98,8 @@ func TestBlueprint_StrategicMerge(t *testing.T) {
 		}
 
 		// And an overlay with same component name (should merge) and new named component (should append)
-		overlay := &Blueprint{
-			TerraformComponents: []TerraformComponent{
+		overlay := &v1alpha1.Blueprint{
+			TerraformComponents: []v1alpha1.TerraformComponent{
 				{
 					Name:      "cluster",                  // Same name - should merge by componentID
 					Path:      "terraform/different-path", // Different path, but name takes precedence
@@ -123,8 +125,8 @@ func TestBlueprint_StrategicMerge(t *testing.T) {
 		}
 
 		// Find components by name (order may change due to dependency sorting)
-		var cluster *TerraformComponent
-		var network *TerraformComponent
+		var cluster *v1alpha1.TerraformComponent
+		var network *v1alpha1.TerraformComponent
 		for i := range base.TerraformComponents {
 			if base.TerraformComponents[i].Name == "cluster" {
 				cluster = &base.TerraformComponents[i]
@@ -183,8 +185,8 @@ func TestBlueprint_StrategicMerge(t *testing.T) {
 	})
 
 	t.Run("PreservesNestedInputOriginsAcrossDeepMergedTopLevelKeys", func(t *testing.T) {
-		base := &Blueprint{
-			TerraformComponents: []TerraformComponent{
+		base := &v1alpha1.Blueprint{
+			TerraformComponents: []v1alpha1.TerraformComponent{
 				{
 					Name:   "cluster",
 					Path:   "terraform/cluster",
@@ -201,8 +203,8 @@ func TestBlueprint_StrategicMerge(t *testing.T) {
 			},
 		}
 
-		overlay := &Blueprint{
-			TerraformComponents: []TerraformComponent{
+		overlay := &v1alpha1.Blueprint{
+			TerraformComponents: []v1alpha1.TerraformComponent{
 				{
 					Name:   "cluster",
 					Path:   "terraform/cluster",
@@ -251,8 +253,8 @@ func TestBlueprint_StrategicMerge(t *testing.T) {
 
 	t.Run("MergesNamedComponentWithUnnamedComponentByPath", func(t *testing.T) {
 		// Given a base blueprint with an unnamed component
-		base := &Blueprint{
-			TerraformComponents: []TerraformComponent{
+		base := &v1alpha1.Blueprint{
+			TerraformComponents: []v1alpha1.TerraformComponent{
 				{
 					Path:   "terraform/path",
 					Source: "core",
@@ -262,8 +264,8 @@ func TestBlueprint_StrategicMerge(t *testing.T) {
 		}
 
 		// And an overlay with a named component that has same path
-		overlay := &Blueprint{
-			TerraformComponents: []TerraformComponent{
+		overlay := &v1alpha1.Blueprint{
+			TerraformComponents: []v1alpha1.TerraformComponent{
 				{
 					Name:   "new-name",
 					Path:   "terraform/path",
@@ -284,15 +286,15 @@ func TestBlueprint_StrategicMerge(t *testing.T) {
 
 	t.Run("TerraformFiltersEmptyStringDependsOn", func(t *testing.T) {
 		// Given a base blueprint with a terraform component
-		base := &Blueprint{
-			TerraformComponents: []TerraformComponent{
+		base := &v1alpha1.Blueprint{
+			TerraformComponents: []v1alpha1.TerraformComponent{
 				{Path: "network", Source: "core", DependsOn: []string{"backend"}},
 			},
 		}
 
 		// When merging with an overlay that has an empty-string dependsOn
-		overlay := &Blueprint{
-			TerraformComponents: []TerraformComponent{
+		overlay := &v1alpha1.Blueprint{
+			TerraformComponents: []v1alpha1.TerraformComponent{
 				{Path: "network", Source: "core", DependsOn: []string{"", "security"}},
 			},
 		}
@@ -313,8 +315,8 @@ func TestBlueprint_StrategicMerge(t *testing.T) {
 
 	t.Run("MergesKustomizationsStrategically", func(t *testing.T) {
 		// Given a base blueprint with kustomizations
-		base := &Blueprint{
-			Kustomizations: []Kustomization{
+		base := &v1alpha1.Blueprint{
+			Kustomizations: []v1alpha1.Kustomization{
 				{
 					Name:       "ingress",
 					Components: []string{"nginx"},
@@ -324,8 +326,8 @@ func TestBlueprint_StrategicMerge(t *testing.T) {
 		}
 
 		// And an overlay with same kustomization (should merge) and new kustomization (should append)
-		overlay := &Blueprint{
-			Kustomizations: []Kustomization{
+		overlay := &v1alpha1.Blueprint{
+			Kustomizations: []v1alpha1.Kustomization{
 				{
 					Name:       "ingress", // Same name - should merge
 					Components: []string{"nginx/tls"},
@@ -384,8 +386,8 @@ func TestBlueprint_StrategicMerge(t *testing.T) {
 
 	t.Run("MergesKustomizationPruneWaitForceFields", func(t *testing.T) {
 		// Given a base kustomization with prune/wait/force unset
-		base := &Blueprint{
-			Kustomizations: []Kustomization{
+		base := &v1alpha1.Blueprint{
+			Kustomizations: []v1alpha1.Kustomization{
 				{Name: "crds"},
 			},
 		}
@@ -394,8 +396,8 @@ func TestBlueprint_StrategicMerge(t *testing.T) {
 		prune := false
 		wait := true
 		force := true
-		overlay := &Blueprint{
-			Kustomizations: []Kustomization{
+		overlay := &v1alpha1.Blueprint{
+			Kustomizations: []v1alpha1.Kustomization{
 				{Name: "crds", Prune: &prune, Wait: &wait, Force: &force},
 			},
 		}
@@ -417,8 +419,8 @@ func TestBlueprint_StrategicMerge(t *testing.T) {
 	})
 
 	t.Run("MergesKustomizationDestroyOnlyField", func(t *testing.T) {
-		base := &Blueprint{
-			Kustomizations: []Kustomization{
+		base := &v1alpha1.Blueprint{
+			Kustomizations: []v1alpha1.Kustomization{
 				{
 					Name:       "cleanup-job",
 					Components: []string{"base"},
@@ -427,8 +429,8 @@ func TestBlueprint_StrategicMerge(t *testing.T) {
 		}
 
 		destroyOnlyTrue := true
-		overlay := &Blueprint{
-			Kustomizations: []Kustomization{
+		overlay := &v1alpha1.Blueprint{
+			Kustomizations: []v1alpha1.Kustomization{
 				{
 					Name:        "cleanup-job",
 					DestroyOnly: &destroyOnlyTrue,
@@ -452,8 +454,8 @@ func TestBlueprint_StrategicMerge(t *testing.T) {
 	})
 
 	t.Run("MergesKustomizationEnabledField", func(t *testing.T) {
-		base := &Blueprint{
-			Kustomizations: []Kustomization{
+		base := &v1alpha1.Blueprint{
+			Kustomizations: []v1alpha1.Kustomization{
 				{
 					Name:       "observability",
 					Components: []string{"base"},
@@ -462,11 +464,11 @@ func TestBlueprint_StrategicMerge(t *testing.T) {
 		}
 
 		falseVal := false
-		overlay := &Blueprint{
-			Kustomizations: []Kustomization{
+		overlay := &v1alpha1.Blueprint{
+			Kustomizations: []v1alpha1.Kustomization{
 				{
 					Name:    "observability",
-					Enabled: &BoolExpression{Value: &falseVal, IsExpr: false},
+					Enabled: &v1alpha1.BoolExpression{Value: &falseVal, IsExpr: false},
 				},
 			},
 		}
@@ -490,8 +492,8 @@ func TestBlueprint_StrategicMerge(t *testing.T) {
 	})
 
 	t.Run("MergesTerraformComponentEnabledField", func(t *testing.T) {
-		base := &Blueprint{
-			TerraformComponents: []TerraformComponent{
+		base := &v1alpha1.Blueprint{
+			TerraformComponents: []v1alpha1.TerraformComponent{
 				{
 					Path:   "cluster/talos",
 					Source: "core",
@@ -500,11 +502,11 @@ func TestBlueprint_StrategicMerge(t *testing.T) {
 		}
 
 		falseVal := false
-		overlay := &Blueprint{
-			TerraformComponents: []TerraformComponent{
+		overlay := &v1alpha1.Blueprint{
+			TerraformComponents: []v1alpha1.TerraformComponent{
 				{
 					Path:    "cluster/talos",
-					Enabled: &BoolExpression{Value: &falseVal, IsExpr: false},
+					Enabled: &v1alpha1.BoolExpression{Value: &falseVal, IsExpr: false},
 				},
 			},
 		}
@@ -528,8 +530,8 @@ func TestBlueprint_StrategicMerge(t *testing.T) {
 	})
 
 	t.Run("MergesKustomizationSubstitutions", func(t *testing.T) {
-		base := &Blueprint{
-			Kustomizations: []Kustomization{
+		base := &v1alpha1.Blueprint{
+			Kustomizations: []v1alpha1.Kustomization{
 				{
 					Name: "observability",
 					Substitutions: map[string]string{
@@ -540,8 +542,8 @@ func TestBlueprint_StrategicMerge(t *testing.T) {
 			},
 		}
 
-		overlay := &Blueprint{
-			Kustomizations: []Kustomization{
+		overlay := &v1alpha1.Blueprint{
+			Kustomizations: []v1alpha1.Kustomization{
 				{
 					Name: "observability",
 					Substitutions: map[string]string{
@@ -570,8 +572,8 @@ func TestBlueprint_StrategicMerge(t *testing.T) {
 	})
 
 	t.Run("MergesKustomizationSubstitutionsOverwritesExisting", func(t *testing.T) {
-		base := &Blueprint{
-			Kustomizations: []Kustomization{
+		base := &v1alpha1.Blueprint{
+			Kustomizations: []v1alpha1.Kustomization{
 				{
 					Name: "app",
 					Substitutions: map[string]string{
@@ -582,8 +584,8 @@ func TestBlueprint_StrategicMerge(t *testing.T) {
 			},
 		}
 
-		overlay := &Blueprint{
-			Kustomizations: []Kustomization{
+		overlay := &v1alpha1.Blueprint{
+			Kustomizations: []v1alpha1.Kustomization{
 				{
 					Name: "app",
 					Substitutions: map[string]string{
@@ -609,16 +611,16 @@ func TestBlueprint_StrategicMerge(t *testing.T) {
 	})
 
 	t.Run("MergesKustomizationSubstitutionsIntoNilMap", func(t *testing.T) {
-		base := &Blueprint{
-			Kustomizations: []Kustomization{
+		base := &v1alpha1.Blueprint{
+			Kustomizations: []v1alpha1.Kustomization{
 				{
 					Name: "app",
 				},
 			},
 		}
 
-		overlay := &Blueprint{
-			Kustomizations: []Kustomization{
+		overlay := &v1alpha1.Blueprint{
+			Kustomizations: []v1alpha1.Kustomization{
 				{
 					Name: "app",
 					Substitutions: map[string]string{
@@ -641,16 +643,16 @@ func TestBlueprint_StrategicMerge(t *testing.T) {
 
 	t.Run("HandlesDependencyAwareInsertion", func(t *testing.T) {
 		// Given a base blueprint with ordered components
-		base := &Blueprint{
-			TerraformComponents: []TerraformComponent{
+		base := &v1alpha1.Blueprint{
+			TerraformComponents: []v1alpha1.TerraformComponent{
 				{Path: "backend", Source: "core"},
 				{Path: "network", Source: "core"},
 			},
 		}
 
 		// When adding a component that depends on existing component
-		overlay := &Blueprint{
-			TerraformComponents: []TerraformComponent{
+		overlay := &v1alpha1.Blueprint{
+			TerraformComponents: []v1alpha1.TerraformComponent{
 				{
 					Path:      "cluster",
 					Source:    "core",
@@ -674,16 +676,16 @@ func TestBlueprint_StrategicMerge(t *testing.T) {
 
 	t.Run("ReordersExistingComponentsWhenDependenciesChange", func(t *testing.T) {
 		// Given a base blueprint with components in wrong order
-		base := &Blueprint{
-			TerraformComponents: []TerraformComponent{
+		base := &v1alpha1.Blueprint{
+			TerraformComponents: []v1alpha1.TerraformComponent{
 				{Path: "gitops/flux", Source: "core", DependsOn: []string{"cluster/talos"}},
 				{Path: "cluster/talos", Source: "core", Parallelism: intExprPtr(1)},
 			},
 		}
 
 		// When strategic merging with same components but different order
-		overlay := &Blueprint{
-			TerraformComponents: []TerraformComponent{
+		overlay := &v1alpha1.Blueprint{
+			TerraformComponents: []v1alpha1.TerraformComponent{
 				{Path: "cluster/talos", Source: "core", Parallelism: intExprPtr(1)},
 				{Path: "gitops/flux", Source: "core", DependsOn: []string{"cluster/talos"}, Destroy: boolExprPtr(false)},
 			},
@@ -723,8 +725,8 @@ func TestBlueprint_StrategicMerge(t *testing.T) {
 
 	t.Run("DetectsDependencyCycles", func(t *testing.T) {
 		// Given a base blueprint with components that create a cycle
-		base := &Blueprint{
-			TerraformComponents: []TerraformComponent{
+		base := &v1alpha1.Blueprint{
+			TerraformComponents: []v1alpha1.TerraformComponent{
 				{Path: "component-a", Source: "core", DependsOn: []string{"component-b"}},
 				{Path: "component-b", Source: "core", DependsOn: []string{"component-c"}},
 				{Path: "component-c", Source: "core", DependsOn: []string{"component-a"}},
@@ -732,8 +734,8 @@ func TestBlueprint_StrategicMerge(t *testing.T) {
 		}
 
 		// When strategic merging (which triggers sorting)
-		overlay := &Blueprint{
-			TerraformComponents: []TerraformComponent{
+		overlay := &v1alpha1.Blueprint{
+			TerraformComponents: []v1alpha1.TerraformComponent{
 				{Path: "component-d", Source: "core"},
 			},
 		}
@@ -749,18 +751,47 @@ func TestBlueprint_StrategicMerge(t *testing.T) {
 		}
 	})
 
+	t.Run("DetectsKustomizationDependencyCycles", func(t *testing.T) {
+		// Given a base blueprint with kustomizations that create a cycle
+		base := &v1alpha1.Blueprint{
+			Kustomizations: []v1alpha1.Kustomization{
+				{Name: "kustomization-a", DependsOn: []string{"kustomization-b"}},
+				{Name: "kustomization-b", DependsOn: []string{"kustomization-a"}},
+			},
+		}
+		overlay := &v1alpha1.Blueprint{
+			Kustomizations: []v1alpha1.Kustomization{
+				{Name: "kustomization-c"},
+			},
+		}
+
+		// When strategic merging
+		err := base.StrategicMerge(overlay)
+
+		// Then the error names the cycle and a kustomization in it
+		if err == nil {
+			t.Fatal("Expected error for dependency cycle, got nil")
+		}
+		if !strings.Contains(err.Error(), "dependency cycle detected in kustomizations") {
+			t.Errorf("Expected kustomization cycle error, got: %v", err)
+		}
+		if !strings.Contains(err.Error(), "kustomization-") {
+			t.Errorf("Expected error to name a kustomization in the cycle, got: %v", err)
+		}
+	})
+
 	t.Run("PreservesExistingComponentsNotInOverlay", func(t *testing.T) {
 		// Given a base blueprint with existing components
-		base := &Blueprint{
-			TerraformComponents: []TerraformComponent{
+		base := &v1alpha1.Blueprint{
+			TerraformComponents: []v1alpha1.TerraformComponent{
 				{Path: "existing-component", Source: "core", Inputs: map[string]any{"key": "value"}},
 				{Path: "another-existing", Source: "core", Inputs: map[string]any{"other": "data"}},
 			},
 		}
 
 		// When strategic merging with overlay that only has one component
-		overlay := &Blueprint{
-			TerraformComponents: []TerraformComponent{
+		overlay := &v1alpha1.Blueprint{
+			TerraformComponents: []v1alpha1.TerraformComponent{
 				{Path: "new-component", Source: "core", Inputs: map[string]any{"new": "value"}},
 			},
 		}
@@ -814,8 +845,8 @@ func TestBlueprint_StrategicMerge(t *testing.T) {
 
 	t.Run("HandlesNilOverlay", func(t *testing.T) {
 		// Given a base blueprint
-		base := &Blueprint{
-			Metadata: Metadata{Name: "test"},
+		base := &v1alpha1.Blueprint{
+			Metadata: v1alpha1.Metadata{Name: "test"},
 		}
 
 		// When strategic merging with nil overlay
@@ -831,27 +862,27 @@ func TestBlueprint_StrategicMerge(t *testing.T) {
 		secretName := "base-secret"
 		updatedSecretName := "updated-secret"
 		// Given a base blueprint
-		base := &Blueprint{
-			Metadata: Metadata{
+		base := &v1alpha1.Blueprint{
+			Metadata: v1alpha1.Metadata{
 				Name:        "base",
 				Description: "base description",
 			},
-			Repository: Repository{
+			Repository: v1alpha1.Repository{
 				Url:        "base-url",
-				Ref:        Reference{Branch: "main"},
+				Ref:        v1alpha1.Reference{Branch: "main"},
 				SecretName: &secretName,
 			},
 		}
 
 		// And an overlay with updated metadata
-		overlay := &Blueprint{
-			Metadata: Metadata{
+		overlay := &v1alpha1.Blueprint{
+			Metadata: v1alpha1.Metadata{
 				Name:        "updated",
 				Description: "updated description",
 			},
-			Repository: Repository{
+			Repository: v1alpha1.Repository{
 				Url:        "updated-url",
-				Ref:        Reference{Tag: "v1.0.0"},
+				Ref:        v1alpha1.Reference{Tag: "v1.0.0"},
 				SecretName: &updatedSecretName,
 			},
 		}
@@ -884,10 +915,10 @@ func TestBlueprint_StrategicMerge(t *testing.T) {
 
 	t.Run("MergesBackendWhenOverlaySetsIt", func(t *testing.T) {
 		// Given a base blueprint without a backend declaration
-		base := &Blueprint{}
+		base := &v1alpha1.Blueprint{}
 
 		// And an overlay that names a backend component
-		overlay := &Blueprint{Backend: "cluster"}
+		overlay := &v1alpha1.Blueprint{Backend: "cluster"}
 
 		base.StrategicMerge(overlay)
 
@@ -898,10 +929,10 @@ func TestBlueprint_StrategicMerge(t *testing.T) {
 
 	t.Run("OverwritesBackendWhenOverlaySetsIt", func(t *testing.T) {
 		// Given a base blueprint with one backend
-		base := &Blueprint{Backend: "old-backend"}
+		base := &v1alpha1.Blueprint{Backend: "old-backend"}
 
 		// And an overlay that names a different backend
-		overlay := &Blueprint{Backend: "cluster"}
+		overlay := &v1alpha1.Blueprint{Backend: "cluster"}
 
 		base.StrategicMerge(overlay)
 
@@ -912,10 +943,10 @@ func TestBlueprint_StrategicMerge(t *testing.T) {
 
 	t.Run("PreservesBackendWhenOverlayLeavesItEmpty", func(t *testing.T) {
 		// Given a base blueprint with a backend
-		base := &Blueprint{Backend: "cluster"}
+		base := &v1alpha1.Blueprint{Backend: "cluster"}
 
 		// And an overlay that does not set Backend
-		overlay := &Blueprint{}
+		overlay := &v1alpha1.Blueprint{}
 
 		base.StrategicMerge(overlay)
 
@@ -927,17 +958,17 @@ func TestBlueprint_StrategicMerge(t *testing.T) {
 	t.Run("RepositoryReplacementWhenOverlayHasURL", func(t *testing.T) {
 		baseSecretName := "base-secret"
 		// Given a base blueprint with repository
-		base := &Blueprint{
-			Repository: Repository{
+		base := &v1alpha1.Blueprint{
+			Repository: v1alpha1.Repository{
 				Url:        "base-url",
-				Ref:        Reference{Branch: "main", Commit: "abc123"},
+				Ref:        v1alpha1.Reference{Branch: "main", Commit: "abc123"},
 				SecretName: &baseSecretName,
 			},
 		}
 
 		// And an overlay with only URL set (no ref, no secretName)
-		overlay := &Blueprint{
-			Repository: Repository{
+		overlay := &v1alpha1.Blueprint{
+			Repository: v1alpha1.Repository{
 				Url: "overlay-url",
 			},
 		}
@@ -963,19 +994,19 @@ func TestBlueprint_StrategicMerge(t *testing.T) {
 	t.Run("RepositoryNotReplacedWhenOverlayURLEmpty", func(t *testing.T) {
 		baseSecretName := "base-secret"
 		// Given a base blueprint with repository
-		base := &Blueprint{
-			Repository: Repository{
+		base := &v1alpha1.Blueprint{
+			Repository: v1alpha1.Repository{
 				Url:        "base-url",
-				Ref:        Reference{Branch: "main"},
+				Ref:        v1alpha1.Reference{Branch: "main"},
 				SecretName: &baseSecretName,
 			},
 		}
 
 		// And an overlay with empty URL
-		overlay := &Blueprint{
-			Repository: Repository{
+		overlay := &v1alpha1.Blueprint{
+			Repository: v1alpha1.Repository{
 				Url: "",
-				Ref: Reference{Tag: "v1.0.0"},
+				Ref: v1alpha1.Reference{Tag: "v1.0.0"},
 			},
 		}
 
@@ -996,15 +1027,15 @@ func TestBlueprint_StrategicMerge(t *testing.T) {
 
 	t.Run("MergesSourcesUniquely", func(t *testing.T) {
 		// Given a base blueprint with sources
-		base := &Blueprint{
-			Sources: []Source{
+		base := &v1alpha1.Blueprint{
+			Sources: []v1alpha1.Source{
 				{Name: "source1", Url: "url1"},
 			},
 		}
 
 		// And an overlay with overlapping and new sources
-		overlay := &Blueprint{
-			Sources: []Source{
+		overlay := &v1alpha1.Blueprint{
+			Sources: []v1alpha1.Source{
 				{Name: "source1", Url: "updated-url1"}, // Should update
 				{Name: "source2", Url: "url2"},         // Should add
 			},
@@ -1034,17 +1065,17 @@ func TestBlueprint_StrategicMerge(t *testing.T) {
 
 	t.Run("EmptyOverlayDoesNothing", func(t *testing.T) {
 		// Given a base blueprint with content
-		base := &Blueprint{
-			TerraformComponents: []TerraformComponent{
+		base := &v1alpha1.Blueprint{
+			TerraformComponents: []v1alpha1.TerraformComponent{
 				{Path: "test", Source: "core"},
 			},
-			Kustomizations: []Kustomization{
+			Kustomizations: []v1alpha1.Kustomization{
 				{Name: "test"},
 			},
 		}
 
 		// When strategic merging with empty overlay
-		overlay := &Blueprint{}
+		overlay := &v1alpha1.Blueprint{}
 		base.StrategicMerge(overlay)
 
 		// Then base should be unchanged
@@ -1058,16 +1089,16 @@ func TestBlueprint_StrategicMerge(t *testing.T) {
 
 	t.Run("KustomizationDependencyAwareInsertion", func(t *testing.T) {
 		// Given a base blueprint with ordered kustomizations
-		base := &Blueprint{
-			Kustomizations: []Kustomization{
+		base := &v1alpha1.Blueprint{
+			Kustomizations: []v1alpha1.Kustomization{
 				{Name: "policy", Path: "policy"},
 				{Name: "pki", Path: "pki"},
 			},
 		}
 
 		// When adding a kustomization that depends on existing one
-		overlay := &Blueprint{
-			Kustomizations: []Kustomization{
+		overlay := &v1alpha1.Blueprint{
+			Kustomizations: []v1alpha1.Kustomization{
 				{
 					Name:      "ingress",
 					Path:      "ingress",
@@ -1108,8 +1139,8 @@ func TestBlueprint_StrategicMerge(t *testing.T) {
 
 	t.Run("KustomizationUpdatesFieldsSelectively", func(t *testing.T) {
 		// Given a base blueprint with a kustomization
-		base := &Blueprint{
-			Kustomizations: []Kustomization{
+		base := &v1alpha1.Blueprint{
+			Kustomizations: []v1alpha1.Kustomization{
 				{
 					Name:    "test",
 					Path:    "original-path",
@@ -1120,8 +1151,8 @@ func TestBlueprint_StrategicMerge(t *testing.T) {
 		}
 
 		// When merging with partial updates
-		overlay := &Blueprint{
-			Kustomizations: []Kustomization{
+		overlay := &v1alpha1.Blueprint{
+			Kustomizations: []v1alpha1.Kustomization{
 				{
 					Name:    "test", // Same name - should merge
 					Path:    "updated-path",
@@ -1150,8 +1181,8 @@ func TestBlueprint_StrategicMerge(t *testing.T) {
 
 	t.Run("KustomizationPreservesExistingComponents", func(t *testing.T) {
 		// Given a base blueprint with kustomization that has components
-		base := &Blueprint{
-			Kustomizations: []Kustomization{
+		base := &v1alpha1.Blueprint{
+			Kustomizations: []v1alpha1.Kustomization{
 				{
 					Name:       "test",
 					Components: []string{"existing1", "existing2"},
@@ -1161,8 +1192,8 @@ func TestBlueprint_StrategicMerge(t *testing.T) {
 		}
 
 		// When merging with additional components and dependencies
-		overlay := &Blueprint{
-			Kustomizations: []Kustomization{
+		overlay := &v1alpha1.Blueprint{
+			Kustomizations: []v1alpha1.Kustomization{
 				{
 					Name:       "test",
 					Components: []string{"existing2", "new1"}, // existing2 is duplicate, new1 is new
@@ -1200,15 +1231,15 @@ func TestBlueprint_StrategicMerge(t *testing.T) {
 
 	t.Run("KustomizationFiltersEmptyStringDependsOn", func(t *testing.T) {
 		// Given a base blueprint with a kustomization
-		base := &Blueprint{
-			Kustomizations: []Kustomization{
+		base := &v1alpha1.Blueprint{
+			Kustomizations: []v1alpha1.Kustomization{
 				{Name: "test", DependsOn: []string{"dep1"}},
 			},
 		}
 
 		// When merging with an overlay that has an empty-string dependsOn
-		overlay := &Blueprint{
-			Kustomizations: []Kustomization{
+		overlay := &v1alpha1.Blueprint{
+			Kustomizations: []v1alpha1.Kustomization{
 				{Name: "test", DependsOn: []string{"", "dep2"}},
 			},
 		}
@@ -1229,8 +1260,8 @@ func TestBlueprint_StrategicMerge(t *testing.T) {
 
 	t.Run("KustomizationMultipleDependencyInsertion", func(t *testing.T) {
 		// Given a base blueprint with multiple kustomizations
-		base := &Blueprint{
-			Kustomizations: []Kustomization{
+		base := &v1alpha1.Blueprint{
+			Kustomizations: []v1alpha1.Kustomization{
 				{Name: "base", Path: "base"},
 				{Name: "pki", Path: "pki"},
 				{Name: "storage", Path: "storage"},
@@ -1238,8 +1269,8 @@ func TestBlueprint_StrategicMerge(t *testing.T) {
 		}
 
 		// When adding a kustomization that depends on multiple existing ones
-		overlay := &Blueprint{
-			Kustomizations: []Kustomization{
+		overlay := &v1alpha1.Blueprint{
+			Kustomizations: []v1alpha1.Kustomization{
 				{
 					Name:      "app",
 					Path:      "app",
@@ -1290,37 +1321,37 @@ func TestBlueprint_StrategicMerge(t *testing.T) {
 		// where pki-* components are separated by dns, but dns depends on both pki-base and ingress
 
 		// Start with a base blueprint that has some kustomizations
-		base := &Blueprint{
-			Kustomizations: []Kustomization{
+		base := &v1alpha1.Blueprint{
+			Kustomizations: []v1alpha1.Kustomization{
 				{Name: "policy-base", Path: "policy/base"},
 				{Name: "policy-resources", Path: "policy/resources", DependsOn: []string{"policy-base"}},
 			},
 		}
 
 		// Add kustomizations one by one to trigger strategic merge and sorting
-		overlay1 := &Blueprint{
-			Kustomizations: []Kustomization{
+		overlay1 := &v1alpha1.Blueprint{
+			Kustomizations: []v1alpha1.Kustomization{
 				{Name: "pki-base", Path: "pki/base", DependsOn: []string{"policy-resources"}},
 			},
 		}
 		base.StrategicMerge(overlay1)
 
-		overlay2 := &Blueprint{
-			Kustomizations: []Kustomization{
+		overlay2 := &v1alpha1.Blueprint{
+			Kustomizations: []v1alpha1.Kustomization{
 				{Name: "pki-resources", Path: "pki/resources", DependsOn: []string{"pki-base"}},
 			},
 		}
 		base.StrategicMerge(overlay2)
 
-		overlay3 := &Blueprint{
-			Kustomizations: []Kustomization{
+		overlay3 := &v1alpha1.Blueprint{
+			Kustomizations: []v1alpha1.Kustomization{
 				{Name: "ingress", Path: "ingress", DependsOn: []string{"pki-resources"}},
 			},
 		}
 		base.StrategicMerge(overlay3)
 
-		overlay4 := &Blueprint{
-			Kustomizations: []Kustomization{
+		overlay4 := &v1alpha1.Blueprint{
+			Kustomizations: []v1alpha1.Kustomization{
 				{Name: "dns", Path: "dns", DependsOn: []string{"pki-base", "ingress"}},
 			},
 		}
@@ -1363,8 +1394,8 @@ func TestBlueprint_StrategicMerge(t *testing.T) {
 
 	t.Run("MergesTopLevelSubstitutionsFromNilBase", func(t *testing.T) {
 		// Given a base blueprint with no Substitutions and an overlay with values
-		base := &Blueprint{}
-		overlay := &Blueprint{
+		base := &v1alpha1.Blueprint{}
+		overlay := &v1alpha1.Blueprint{
 			Substitutions: map[string]string{
 				"private_dns": "10.0.0.1",
 				"public_dns":  "8.8.8.8",
@@ -1388,13 +1419,13 @@ func TestBlueprint_StrategicMerge(t *testing.T) {
 
 	t.Run("OverlaySubstitutionsOverrideBase", func(t *testing.T) {
 		// Given a base blueprint with Substitutions and an overlay with overlapping key
-		base := &Blueprint{
+		base := &v1alpha1.Blueprint{
 			Substitutions: map[string]string{
 				"private_dns": "base-value",
 				"keep_me":     "unchanged",
 			},
 		}
-		overlay := &Blueprint{
+		overlay := &v1alpha1.Blueprint{
 			Substitutions: map[string]string{
 				"private_dns": "overlay-value",
 			},
@@ -1415,24 +1446,24 @@ func TestBlueprint_StrategicMerge(t *testing.T) {
 	t.Run("MergesSameNameFluxSystemsAcrossSourcesInsteadOfReplacing", func(t *testing.T) {
 		// Given a base blueprint (one source's already-composed facets) with a cert-manager
 		// system carrying an install and one resources variant
-		base := &Blueprint{
-			FluxSystems: []FluxSystem{
+		base := &v1alpha1.Blueprint{
+			FluxSystems: []v1alpha1.FluxSystem{
 				{
 					Name:      "cert-manager",
-					Install:   &Kustomization{Components: []string{"helm-release"}},
-					Resources: []FluxVariant{{Kustomization: Kustomization{Components: []string{"private-issuer/ca"}}}},
+					Install:   &v1alpha1.Kustomization{Components: []string{"helm-release"}},
+					Resources: []v1alpha1.FluxVariant{{Kustomization: v1alpha1.Kustomization{Components: []string{"private-issuer/ca"}}}},
 				},
 			},
 		}
 
 		// And an overlay (a second source's already-composed facets) contributing to the same
 		// system name with an extra install component and a new named resources variant
-		overlay := &Blueprint{
-			FluxSystems: []FluxSystem{
+		overlay := &v1alpha1.Blueprint{
+			FluxSystems: []v1alpha1.FluxSystem{
 				{
 					Name:      "cert-manager",
-					Install:   &Kustomization{Components: []string{"helm-release-extra-metrics"}},
-					Resources: []FluxVariant{{Kustomization: Kustomization{Name: "extra", Components: []string{"public-issuer"}}}},
+					Install:   &v1alpha1.Kustomization{Components: []string{"helm-release-extra-metrics"}},
+					Resources: []v1alpha1.FluxVariant{{Kustomization: v1alpha1.Kustomization{Name: "extra", Components: []string{"public-issuer"}}}},
 				},
 			},
 		}
@@ -1460,8 +1491,8 @@ func TestBlueprint_StrategicMerge(t *testing.T) {
 func TestBlueprint_StrategicMerge_Crds(t *testing.T) {
 	t.Run("UnionsOverlayRefsDeduped", func(t *testing.T) {
 		// Given a base and overlay sharing one local ref
-		base := &Blueprint{Crds: []string{"cert-manager-1.16.2"}}
-		overlay := &Blueprint{Crds: []string{"cert-manager-1.16.2", "gateway-api-1.5.1"}}
+		base := &v1alpha1.Blueprint{Crds: []string{"cert-manager-1.16.2"}}
+		overlay := &v1alpha1.Blueprint{Crds: []string{"cert-manager-1.16.2", "gateway-api-1.5.1"}}
 
 		// When merged
 		if err := base.StrategicMerge(overlay); err != nil {
@@ -1478,8 +1509,8 @@ func TestBlueprint_StrategicMerge_Crds(t *testing.T) {
 func TestBlueprint_ReplaceTerraformComponent(t *testing.T) {
 	t.Run("ReplacesExistingComponent", func(t *testing.T) {
 		// Given a base blueprint with a terraform component
-		base := &Blueprint{
-			TerraformComponents: []TerraformComponent{
+		base := &v1alpha1.Blueprint{
+			TerraformComponents: []v1alpha1.TerraformComponent{
 				{
 					Path:      "network/vpc",
 					Source:    "core",
@@ -1491,7 +1522,7 @@ func TestBlueprint_ReplaceTerraformComponent(t *testing.T) {
 		}
 
 		// When replacing with a new component
-		replacement := TerraformComponent{
+		replacement := v1alpha1.TerraformComponent{
 			Path:        "network/vpc",
 			Source:      "core",
 			Inputs:      map[string]any{"cidr": "172.16.0.0/16"},
@@ -1541,14 +1572,14 @@ func TestBlueprint_ReplaceTerraformComponent(t *testing.T) {
 
 	t.Run("AppendsNewComponent", func(t *testing.T) {
 		// Given a base blueprint with existing components
-		base := &Blueprint{
-			TerraformComponents: []TerraformComponent{
+		base := &v1alpha1.Blueprint{
+			TerraformComponents: []v1alpha1.TerraformComponent{
 				{Path: "existing", Source: "core"},
 			},
 		}
 
 		// When replacing with a component that doesn't exist
-		newComponent := TerraformComponent{
+		newComponent := v1alpha1.TerraformComponent{
 			Path:   "new-component",
 			Source: "core",
 			Inputs: map[string]any{"key": "value"},
@@ -1580,8 +1611,8 @@ func TestBlueprint_ReplaceTerraformComponent(t *testing.T) {
 
 	t.Run("MaintainsDependencyOrder", func(t *testing.T) {
 		// Given a base blueprint with ordered components
-		base := &Blueprint{
-			TerraformComponents: []TerraformComponent{
+		base := &v1alpha1.Blueprint{
+			TerraformComponents: []v1alpha1.TerraformComponent{
 				{Path: "backend", Source: "core"},
 				{Path: "network", Source: "core"},
 				{Path: "cluster", Source: "core", DependsOn: []string{"network"}},
@@ -1589,7 +1620,7 @@ func TestBlueprint_ReplaceTerraformComponent(t *testing.T) {
 		}
 
 		// When replacing network component with new dependencies
-		replacement := TerraformComponent{
+		replacement := v1alpha1.TerraformComponent{
 			Path:      "network",
 			Source:    "core",
 			DependsOn: []string{"backend", "new-dep"},
@@ -1626,8 +1657,8 @@ func TestBlueprint_ReplaceTerraformComponent(t *testing.T) {
 func TestBlueprint_ReplaceKustomization(t *testing.T) {
 	t.Run("ReplacesExistingKustomization", func(t *testing.T) {
 		// Given a base blueprint with a kustomization
-		base := &Blueprint{
-			Kustomizations: []Kustomization{
+		base := &v1alpha1.Blueprint{
+			Kustomizations: []v1alpha1.Kustomization{
 				{
 					Name:       "ingress",
 					Path:       "original-path",
@@ -1640,7 +1671,7 @@ func TestBlueprint_ReplaceKustomization(t *testing.T) {
 		}
 
 		// When replacing with a new kustomization
-		replacement := Kustomization{
+		replacement := v1alpha1.Kustomization{
 			Name:       "ingress",
 			Path:       "new-path",
 			Source:     "new-source",
@@ -1689,14 +1720,14 @@ func TestBlueprint_ReplaceKustomization(t *testing.T) {
 
 	t.Run("AppendsNewKustomization", func(t *testing.T) {
 		// Given a base blueprint with existing kustomizations
-		base := &Blueprint{
-			Kustomizations: []Kustomization{
+		base := &v1alpha1.Blueprint{
+			Kustomizations: []v1alpha1.Kustomization{
 				{Name: "existing", Path: "existing-path"},
 			},
 		}
 
 		// When replacing with a kustomization that doesn't exist
-		newKustomization := Kustomization{
+		newKustomization := v1alpha1.Kustomization{
 			Name:       "new-kustomization",
 			Path:       "new-path",
 			Components: []string{"component1"},
@@ -1732,15 +1763,15 @@ func TestBlueprint_ReplaceKustomization(t *testing.T) {
 
 	t.Run("MaintainsDependencyOrder", func(t *testing.T) {
 		// Given a base blueprint with ordered kustomizations
-		base := &Blueprint{
-			Kustomizations: []Kustomization{
+		base := &v1alpha1.Blueprint{
+			Kustomizations: []v1alpha1.Kustomization{
 				{Name: "pki", Path: "pki"},
 				{Name: "ingress", Path: "ingress", DependsOn: []string{"pki"}},
 			},
 		}
 
 		// When replacing pki with new dependencies
-		replacement := Kustomization{
+		replacement := v1alpha1.Kustomization{
 			Name:      "pki",
 			Path:      "pki",
 			DependsOn: []string{"base"},
@@ -1776,8 +1807,8 @@ func TestBlueprint_ReplaceKustomization(t *testing.T) {
 
 func TestBlueprint_RemoveTerraformComponent(t *testing.T) {
 	t.Run("RemovesInputsFromExistingComponent", func(t *testing.T) {
-		base := &Blueprint{
-			TerraformComponents: []TerraformComponent{
+		base := &v1alpha1.Blueprint{
+			TerraformComponents: []v1alpha1.TerraformComponent{
 				{
 					Path:      "network/vpc",
 					Source:    "core",
@@ -1787,7 +1818,7 @@ func TestBlueprint_RemoveTerraformComponent(t *testing.T) {
 			},
 		}
 
-		removal := TerraformComponent{
+		removal := v1alpha1.TerraformComponent{
 			Path:   "network/vpc",
 			Source: "core",
 			Inputs: map[string]any{"cidr": nil, "enable_dns": nil},
@@ -1818,8 +1849,8 @@ func TestBlueprint_RemoveTerraformComponent(t *testing.T) {
 	})
 
 	t.Run("RemovesDependenciesFromExistingComponent", func(t *testing.T) {
-		base := &Blueprint{
-			TerraformComponents: []TerraformComponent{
+		base := &v1alpha1.Blueprint{
+			TerraformComponents: []v1alpha1.TerraformComponent{
 				{
 					Path:      "network/vpc",
 					Source:    "core",
@@ -1828,7 +1859,7 @@ func TestBlueprint_RemoveTerraformComponent(t *testing.T) {
 			},
 		}
 
-		removal := TerraformComponent{
+		removal := v1alpha1.TerraformComponent{
 			Path:      "network/vpc",
 			Source:    "core",
 			DependsOn: []string{"backend", "security"},
@@ -1850,8 +1881,8 @@ func TestBlueprint_RemoveTerraformComponent(t *testing.T) {
 	})
 
 	t.Run("RemovesBothInputsAndDependencies", func(t *testing.T) {
-		base := &Blueprint{
-			TerraformComponents: []TerraformComponent{
+		base := &v1alpha1.Blueprint{
+			TerraformComponents: []v1alpha1.TerraformComponent{
 				{
 					Path:      "network/vpc",
 					Source:    "core",
@@ -1861,7 +1892,7 @@ func TestBlueprint_RemoveTerraformComponent(t *testing.T) {
 			},
 		}
 
-		removal := TerraformComponent{
+		removal := v1alpha1.TerraformComponent{
 			Path:      "network/vpc",
 			Source:    "core",
 			Inputs:    map[string]any{"cidr": nil},
@@ -1890,8 +1921,8 @@ func TestBlueprint_RemoveTerraformComponent(t *testing.T) {
 	})
 
 	t.Run("NoOpWhenComponentNotFound", func(t *testing.T) {
-		base := &Blueprint{
-			TerraformComponents: []TerraformComponent{
+		base := &v1alpha1.Blueprint{
+			TerraformComponents: []v1alpha1.TerraformComponent{
 				{
 					Path:   "existing",
 					Source: "core",
@@ -1900,7 +1931,7 @@ func TestBlueprint_RemoveTerraformComponent(t *testing.T) {
 			},
 		}
 
-		removal := TerraformComponent{
+		removal := v1alpha1.TerraformComponent{
 			Path:   "non-existent",
 			Source: "core",
 			Inputs: map[string]any{"key": nil},
@@ -1920,8 +1951,8 @@ func TestBlueprint_RemoveTerraformComponent(t *testing.T) {
 	})
 
 	t.Run("PreservesIndexFields", func(t *testing.T) {
-		base := &Blueprint{
-			TerraformComponents: []TerraformComponent{
+		base := &v1alpha1.Blueprint{
+			TerraformComponents: []v1alpha1.TerraformComponent{
 				{
 					Path:      "network/vpc",
 					Source:    "core",
@@ -1931,7 +1962,7 @@ func TestBlueprint_RemoveTerraformComponent(t *testing.T) {
 			},
 		}
 
-		removal := TerraformComponent{
+		removal := v1alpha1.TerraformComponent{
 			Path:   "network/vpc",
 			Source: "core",
 			Inputs: map[string]any{"cidr": nil},
@@ -1955,8 +1986,8 @@ func TestBlueprint_RemoveTerraformComponent(t *testing.T) {
 
 func TestBlueprint_RemoveKustomization(t *testing.T) {
 	t.Run("RemovesDependenciesFromExistingKustomization", func(t *testing.T) {
-		base := &Blueprint{
-			Kustomizations: []Kustomization{
+		base := &v1alpha1.Blueprint{
+			Kustomizations: []v1alpha1.Kustomization{
 				{
 					Name:       "ingress",
 					DependsOn:  []string{"pki", "dns", "keep_dep"},
@@ -1965,7 +1996,7 @@ func TestBlueprint_RemoveKustomization(t *testing.T) {
 			},
 		}
 
-		removal := Kustomization{
+		removal := v1alpha1.Kustomization{
 			Name:      "ingress",
 			DependsOn: []string{"pki", "dns"},
 		}
@@ -1986,8 +2017,8 @@ func TestBlueprint_RemoveKustomization(t *testing.T) {
 	})
 
 	t.Run("RemovesComponentsFromExistingKustomization", func(t *testing.T) {
-		base := &Blueprint{
-			Kustomizations: []Kustomization{
+		base := &v1alpha1.Blueprint{
+			Kustomizations: []v1alpha1.Kustomization{
 				{
 					Name:       "ingress",
 					Components: []string{"nginx", "cert-manager", "keep_component"},
@@ -1995,7 +2026,7 @@ func TestBlueprint_RemoveKustomization(t *testing.T) {
 			},
 		}
 
-		removal := Kustomization{
+		removal := v1alpha1.Kustomization{
 			Name:       "ingress",
 			Components: []string{"nginx", "cert-manager"},
 		}
@@ -2016,11 +2047,11 @@ func TestBlueprint_RemoveKustomization(t *testing.T) {
 	})
 
 	t.Run("RemovesPatchesByPath", func(t *testing.T) {
-		base := &Blueprint{
-			Kustomizations: []Kustomization{
+		base := &v1alpha1.Blueprint{
+			Kustomizations: []v1alpha1.Kustomization{
 				{
 					Name: "ingress",
-					Patches: []BlueprintPatch{
+					Patches: []v1alpha1.BlueprintPatch{
 						{Path: "patches/patch1.yaml"},
 						{Path: "patches/patch2.yaml"},
 						{Path: "patches/keep.yaml"},
@@ -2029,9 +2060,9 @@ func TestBlueprint_RemoveKustomization(t *testing.T) {
 			},
 		}
 
-		removal := Kustomization{
+		removal := v1alpha1.Kustomization{
 			Name: "ingress",
-			Patches: []BlueprintPatch{
+			Patches: []v1alpha1.BlueprintPatch{
 				{Path: "patches/patch1.yaml"},
 				{Path: "patches/patch2.yaml"},
 			},
@@ -2053,11 +2084,11 @@ func TestBlueprint_RemoveKustomization(t *testing.T) {
 	})
 
 	t.Run("RemovesPatchesByContent", func(t *testing.T) {
-		base := &Blueprint{
-			Kustomizations: []Kustomization{
+		base := &v1alpha1.Blueprint{
+			Kustomizations: []v1alpha1.Kustomization{
 				{
 					Name: "ingress",
-					Patches: []BlueprintPatch{
+					Patches: []v1alpha1.BlueprintPatch{
 						{Patch: "apiVersion: v1\nkind: Service"},
 						{Patch: "apiVersion: v1\nkind: Deployment"},
 						{Patch: "apiVersion: v1\nkind: Keep"},
@@ -2066,9 +2097,9 @@ func TestBlueprint_RemoveKustomization(t *testing.T) {
 			},
 		}
 
-		removal := Kustomization{
+		removal := v1alpha1.Kustomization{
 			Name: "ingress",
-			Patches: []BlueprintPatch{
+			Patches: []v1alpha1.BlueprintPatch{
 				{Patch: "apiVersion: v1\nkind: Service"},
 				{Patch: "apiVersion: v1\nkind: Deployment"},
 			},
@@ -2090,8 +2121,8 @@ func TestBlueprint_RemoveKustomization(t *testing.T) {
 	})
 
 	t.Run("RemovesSubstitutionsFromExistingKustomization", func(t *testing.T) {
-		base := &Blueprint{
-			Kustomizations: []Kustomization{
+		base := &v1alpha1.Blueprint{
+			Kustomizations: []v1alpha1.Kustomization{
 				{
 					Name: "ingress",
 					Substitutions: map[string]string{
@@ -2103,7 +2134,7 @@ func TestBlueprint_RemoveKustomization(t *testing.T) {
 			},
 		}
 
-		removal := Kustomization{
+		removal := v1alpha1.Kustomization{
 			Name: "ingress",
 			Substitutions: map[string]string{
 				"domain": "",
@@ -2127,8 +2158,8 @@ func TestBlueprint_RemoveKustomization(t *testing.T) {
 	})
 
 	t.Run("NoOpWhenKustomizationNotFound", func(t *testing.T) {
-		base := &Blueprint{
-			Kustomizations: []Kustomization{
+		base := &v1alpha1.Blueprint{
+			Kustomizations: []v1alpha1.Kustomization{
 				{
 					Name:       "existing",
 					Components: []string{"component1"},
@@ -2136,7 +2167,7 @@ func TestBlueprint_RemoveKustomization(t *testing.T) {
 			},
 		}
 
-		removal := Kustomization{
+		removal := v1alpha1.Kustomization{
 			Name:       "non-existent",
 			Components: []string{"component1"},
 		}
@@ -2155,8 +2186,8 @@ func TestBlueprint_RemoveKustomization(t *testing.T) {
 	})
 
 	t.Run("PreservesIndexField", func(t *testing.T) {
-		base := &Blueprint{
-			Kustomizations: []Kustomization{
+		base := &v1alpha1.Blueprint{
+			Kustomizations: []v1alpha1.Kustomization{
 				{
 					Name:       "ingress",
 					Path:       "original-path",
@@ -2166,7 +2197,7 @@ func TestBlueprint_RemoveKustomization(t *testing.T) {
 			},
 		}
 
-		removal := Kustomization{
+		removal := v1alpha1.Kustomization{
 			Name:       "ingress",
 			Components: []string{"nginx"},
 		}
@@ -2192,8 +2223,8 @@ func TestBlueprint_RemoveKustomization(t *testing.T) {
 
 func TestBlueprint_RemoveFluxSystem(t *testing.T) {
 	t.Run("RemovesDependsOnFromExistingSystem", func(t *testing.T) {
-		base := &Blueprint{
-			FluxSystems: []FluxSystem{
+		base := &v1alpha1.Blueprint{
+			FluxSystems: []v1alpha1.FluxSystem{
 				{
 					Name:      "gateway",
 					DependsOn: []string{"pki-install", "lb-install", "keep_dep"},
@@ -2201,7 +2232,7 @@ func TestBlueprint_RemoveFluxSystem(t *testing.T) {
 			},
 		}
 
-		removal := FluxSystem{
+		removal := v1alpha1.FluxSystem{
 			Name:      "gateway",
 			DependsOn: []string{"pki-install", "lb-install"},
 		}
@@ -2219,18 +2250,18 @@ func TestBlueprint_RemoveFluxSystem(t *testing.T) {
 	})
 
 	t.Run("RemovesInstallComponentsFromExistingSystem", func(t *testing.T) {
-		base := &Blueprint{
-			FluxSystems: []FluxSystem{
+		base := &v1alpha1.Blueprint{
+			FluxSystems: []v1alpha1.FluxSystem{
 				{
 					Name:    "gateway",
-					Install: &Kustomization{Components: []string{"envoy", "envoy/prometheus", "keep_component"}},
+					Install: &v1alpha1.Kustomization{Components: []string{"envoy", "envoy/prometheus", "keep_component"}},
 				},
 			},
 		}
 
-		removal := FluxSystem{
+		removal := v1alpha1.FluxSystem{
 			Name:    "gateway",
-			Install: &Kustomization{Components: []string{"envoy", "envoy/prometheus"}},
+			Install: &v1alpha1.Kustomization{Components: []string{"envoy", "envoy/prometheus"}},
 		}
 
 		err := base.RemoveFluxSystem(removal)
@@ -2246,16 +2277,16 @@ func TestBlueprint_RemoveFluxSystem(t *testing.T) {
 	})
 
 	t.Run("LeavesInstallUnchangedWhenRemovalHasNoInstall", func(t *testing.T) {
-		base := &Blueprint{
-			FluxSystems: []FluxSystem{
+		base := &v1alpha1.Blueprint{
+			FluxSystems: []v1alpha1.FluxSystem{
 				{
 					Name:    "gateway",
-					Install: &Kustomization{Components: []string{"envoy"}},
+					Install: &v1alpha1.Kustomization{Components: []string{"envoy"}},
 				},
 			},
 		}
 
-		removal := FluxSystem{
+		removal := v1alpha1.FluxSystem{
 			Name:      "gateway",
 			DependsOn: []string{"pki-install"},
 		}
@@ -2273,21 +2304,21 @@ func TestBlueprint_RemoveFluxSystem(t *testing.T) {
 	})
 
 	t.Run("DropsNamedResourcesVariant", func(t *testing.T) {
-		base := &Blueprint{
-			FluxSystems: []FluxSystem{
+		base := &v1alpha1.Blueprint{
+			FluxSystems: []v1alpha1.FluxSystem{
 				{
 					Name: "gateway",
-					Resources: []FluxVariant{
-						{Kustomization: Kustomization{Name: "internal", Components: []string{"internal"}}},
-						{Kustomization: Kustomization{Name: "external", Components: []string{"external"}}},
+					Resources: []v1alpha1.FluxVariant{
+						{Kustomization: v1alpha1.Kustomization{Name: "internal", Components: []string{"internal"}}},
+						{Kustomization: v1alpha1.Kustomization{Name: "external", Components: []string{"external"}}},
 					},
 				},
 			},
 		}
 
-		removal := FluxSystem{
+		removal := v1alpha1.FluxSystem{
 			Name:      "gateway",
-			Resources: []FluxVariant{{Kustomization: Kustomization{Name: "internal"}}},
+			Resources: []v1alpha1.FluxVariant{{Kustomization: v1alpha1.Kustomization{Name: "internal"}}},
 		}
 
 		err := base.RemoveFluxSystem(removal)
@@ -2303,20 +2334,20 @@ func TestBlueprint_RemoveFluxSystem(t *testing.T) {
 	})
 
 	t.Run("DropsUnnamedResourcesVariant", func(t *testing.T) {
-		base := &Blueprint{
-			FluxSystems: []FluxSystem{
+		base := &v1alpha1.Blueprint{
+			FluxSystems: []v1alpha1.FluxSystem{
 				{
 					Name: "dns",
-					Resources: []FluxVariant{
-						{Kustomization: Kustomization{Components: []string{"coredns"}}},
+					Resources: []v1alpha1.FluxVariant{
+						{Kustomization: v1alpha1.Kustomization{Components: []string{"coredns"}}},
 					},
 				},
 			},
 		}
 
-		removal := FluxSystem{
+		removal := v1alpha1.FluxSystem{
 			Name:      "dns",
-			Resources: []FluxVariant{{}},
+			Resources: []v1alpha1.FluxVariant{{}},
 		}
 
 		err := base.RemoveFluxSystem(removal)
@@ -2332,18 +2363,18 @@ func TestBlueprint_RemoveFluxSystem(t *testing.T) {
 	})
 
 	t.Run("NoOpWhenSystemNotFound", func(t *testing.T) {
-		base := &Blueprint{
-			FluxSystems: []FluxSystem{
+		base := &v1alpha1.Blueprint{
+			FluxSystems: []v1alpha1.FluxSystem{
 				{
 					Name:    "existing",
-					Install: &Kustomization{Components: []string{"component1"}},
+					Install: &v1alpha1.Kustomization{Components: []string{"component1"}},
 				},
 			},
 		}
 
-		removal := FluxSystem{
+		removal := v1alpha1.FluxSystem{
 			Name:    "non-existent",
-			Install: &Kustomization{Components: []string{"component1"}},
+			Install: &v1alpha1.Kustomization{Components: []string{"component1"}},
 		}
 
 		err := base.RemoveFluxSystem(removal)
@@ -2360,20 +2391,20 @@ func TestBlueprint_RemoveFluxSystem(t *testing.T) {
 	})
 
 	t.Run("PreservesIndexField", func(t *testing.T) {
-		base := &Blueprint{
-			FluxSystems: []FluxSystem{
+		base := &v1alpha1.Blueprint{
+			FluxSystems: []v1alpha1.FluxSystem{
 				{
 					Name:    "gateway",
 					Path:    "original-path",
 					Source:  "original-source",
-					Install: &Kustomization{Components: []string{"envoy"}},
+					Install: &v1alpha1.Kustomization{Components: []string{"envoy"}},
 				},
 			},
 		}
 
-		removal := FluxSystem{
+		removal := v1alpha1.FluxSystem{
 			Name:    "gateway",
-			Install: &Kustomization{Components: []string{"envoy"}},
+			Install: &v1alpha1.Kustomization{Components: []string{"envoy"}},
 		}
 
 		err := base.RemoveFluxSystem(removal)
@@ -2398,10 +2429,10 @@ func TestBlueprint_RemoveFluxSystem(t *testing.T) {
 func TestBlueprint_UpsertFluxSystem(t *testing.T) {
 	t.Run("AppendsWhenNoExistingSystemOfThatName", func(t *testing.T) {
 		// Given a blueprint with no cert-manager system yet
-		b := &Blueprint{}
+		b := &v1alpha1.Blueprint{}
 
 		// When a system is upserted
-		if err := b.UpsertFluxSystem(FluxSystem{Name: "cert-manager"}); err != nil {
+		if err := b.UpsertFluxSystem(v1alpha1.FluxSystem{Name: "cert-manager"}); err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
 
@@ -2414,24 +2445,24 @@ func TestBlueprint_UpsertFluxSystem(t *testing.T) {
 	t.Run("MergesInsteadOfReplacingOnNameCollision", func(t *testing.T) {
 		// Given a blueprint already carrying a cert-manager system with an install and one
 		// resources variant (as if written by one source's already-merged facets)
-		b := &Blueprint{
-			FluxSystems: []FluxSystem{
+		b := &v1alpha1.Blueprint{
+			FluxSystems: []v1alpha1.FluxSystem{
 				{
 					Name:      "cert-manager",
 					DependsOn: []string{"pki-base"},
-					Install:   &Kustomization{Components: []string{"helm-release"}},
-					Resources: []FluxVariant{{Kustomization: Kustomization{Components: []string{"private-issuer/ca"}}}},
+					Install:   &v1alpha1.Kustomization{Components: []string{"helm-release"}},
+					Resources: []v1alpha1.FluxVariant{{Kustomization: v1alpha1.Kustomization{Components: []string{"private-issuer/ca"}}}},
 				},
 			},
 		}
 
 		// When a second same-named system (as if from another source) is upserted, contributing
 		// an additional install component, an extra dependsOn edge, and a new resources variant
-		if err := b.UpsertFluxSystem(FluxSystem{
+		if err := b.UpsertFluxSystem(v1alpha1.FluxSystem{
 			Name:      "cert-manager",
 			DependsOn: []string{"lb-base"},
-			Install:   &Kustomization{Components: []string{"helm-release-extra-metrics"}},
-			Resources: []FluxVariant{{Kustomization: Kustomization{Name: "extra", Components: []string{"public-issuer"}}}},
+			Install:   &v1alpha1.Kustomization{Components: []string{"helm-release-extra-metrics"}},
+			Resources: []v1alpha1.FluxVariant{{Kustomization: v1alpha1.Kustomization{Name: "extra", Components: []string{"public-issuer"}}}},
 		}); err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -2455,17 +2486,17 @@ func TestBlueprint_UpsertFluxSystem(t *testing.T) {
 
 	t.Run("PreservesSecretsContributedToAnExistingSystem", func(t *testing.T) {
 		// Given a blueprint already carrying a telemetry system with no secrets (as if from a base source)
-		b := &Blueprint{
-			FluxSystems: []FluxSystem{{
+		b := &v1alpha1.Blueprint{
+			FluxSystems: []v1alpha1.FluxSystem{{
 				Name:    "telemetry",
-				Install: &Kustomization{Components: []string{"prometheus"}},
+				Install: &v1alpha1.Kustomization{Components: []string{"prometheus"}},
 			}},
 		}
 
 		// When another source's same-named system contributes a secret
-		if err := b.UpsertFluxSystem(FluxSystem{
+		if err := b.UpsertFluxSystem(v1alpha1.FluxSystem{
 			Name:    "telemetry",
-			Secrets: map[string]SecretEntry{"alertmanager-slack": {Data: map[string]string{"webhook_url": `${secret("Developer", "slack_webhooks", "url")}`}}},
+			Secrets: map[string]v1alpha1.SecretEntry{"alertmanager-slack": {Data: map[string]string{"webhook_url": `${secret("Developer", "slack_webhooks", "url")}`}}},
 		}); err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -2482,17 +2513,17 @@ func TestBlueprint_UpsertFluxSystem(t *testing.T) {
 
 	t.Run("UnionsSecretsAcrossBothSidesOnNameCollision", func(t *testing.T) {
 		// Given a system that already carries one secret
-		b := &Blueprint{
-			FluxSystems: []FluxSystem{{
+		b := &v1alpha1.Blueprint{
+			FluxSystems: []v1alpha1.FluxSystem{{
 				Name:    "telemetry",
-				Secrets: map[string]SecretEntry{"creds": {Data: map[string]string{"a": "${x.a}"}}},
+				Secrets: map[string]v1alpha1.SecretEntry{"creds": {Data: map[string]string{"a": "${x.a}"}}},
 			}},
 		}
 
 		// When a same-named system contributes another secret data key
-		if err := b.UpsertFluxSystem(FluxSystem{
+		if err := b.UpsertFluxSystem(v1alpha1.FluxSystem{
 			Name:    "telemetry",
-			Secrets: map[string]SecretEntry{"creds": {Data: map[string]string{"b": "${x.b}"}}},
+			Secrets: map[string]v1alpha1.SecretEntry{"creds": {Data: map[string]string{"b": "${x.b}"}}},
 		}); err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -2506,17 +2537,17 @@ func TestBlueprint_UpsertFluxSystem(t *testing.T) {
 
 	t.Run("UnionsSecretNamespacesAcrossBothSidesOnNameCollision", func(t *testing.T) {
 		// Given a system whose secret already targets one namespace
-		b := &Blueprint{
-			FluxSystems: []FluxSystem{{
+		b := &v1alpha1.Blueprint{
+			FluxSystems: []v1alpha1.FluxSystem{{
 				Name:    "pki",
-				Secrets: map[string]SecretEntry{"acme-dns": {Namespaces: []string{"system-pki"}, Data: map[string]string{"token": "${pki.token}"}}},
+				Secrets: map[string]v1alpha1.SecretEntry{"acme-dns": {Namespaces: []string{"system-pki"}, Data: map[string]string{"token": "${pki.token}"}}},
 			}},
 		}
 
 		// When a same-named system contributes the same secret targeting another namespace
-		if err := b.UpsertFluxSystem(FluxSystem{
+		if err := b.UpsertFluxSystem(v1alpha1.FluxSystem{
 			Name:    "pki",
-			Secrets: map[string]SecretEntry{"acme-dns": {Namespaces: []string{"system-dns"}, Data: map[string]string{"token": "${pki.token}"}}},
+			Secrets: map[string]v1alpha1.SecretEntry{"acme-dns": {Namespaces: []string{"system-dns"}, Data: map[string]string{"token": "${pki.token}"}}},
 		}); err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -2530,17 +2561,17 @@ func TestBlueprint_UpsertFluxSystem(t *testing.T) {
 
 	t.Run("KeepsSecretTypeOnNameCollision", func(t *testing.T) {
 		// Given a system whose secret sets a type
-		b := &Blueprint{
-			FluxSystems: []FluxSystem{{
+		b := &v1alpha1.Blueprint{
+			FluxSystems: []v1alpha1.FluxSystem{{
 				Name:    "gateway",
-				Secrets: map[string]SecretEntry{"web-tls": {Type: "kubernetes.io/tls", Data: map[string]string{"tls.crt": "${c}"}}},
+				Secrets: map[string]v1alpha1.SecretEntry{"web-tls": {Type: "kubernetes.io/tls", Data: map[string]string{"tls.crt": "${c}"}}},
 			}},
 		}
 
 		// When a same-named system contributes the same secret without a type
-		if err := b.UpsertFluxSystem(FluxSystem{
+		if err := b.UpsertFluxSystem(v1alpha1.FluxSystem{
 			Name:    "gateway",
-			Secrets: map[string]SecretEntry{"web-tls": {Data: map[string]string{"tls.key": "${k}"}}},
+			Secrets: map[string]v1alpha1.SecretEntry{"web-tls": {Data: map[string]string{"tls.key": "${k}"}}},
 		}); err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -2555,9 +2586,9 @@ func TestBlueprint_UpsertFluxSystem(t *testing.T) {
 func TestKustomization_Decryption_DeepCopyAndMerge(t *testing.T) {
 	t.Run("DeepCopyIndependentOfOriginal", func(t *testing.T) {
 		// Given a kustomization with decryption set
-		original := &Kustomization{
+		original := &v1alpha1.Kustomization{
 			Name:       "k",
-			Decryption: &Decryption{Provider: "sops", SecretRef: &DecryptionSecretRef{Name: "sops-age"}},
+			Decryption: &v1alpha1.Decryption{Provider: "sops", SecretRef: &v1alpha1.DecryptionSecretRef{Name: "sops-age"}},
 		}
 
 		// When deep-copied and the copy mutated
@@ -2573,7 +2604,7 @@ func TestKustomization_Decryption_DeepCopyAndMerge(t *testing.T) {
 
 	t.Run("NilDecryptionDeepCopiesToNil", func(t *testing.T) {
 		// Given a kustomization without decryption
-		original := &Kustomization{Name: "k"}
+		original := &v1alpha1.Kustomization{Name: "k"}
 
 		// When deep-copied
 		clone := original.DeepCopy()
@@ -2586,11 +2617,11 @@ func TestKustomization_Decryption_DeepCopyAndMerge(t *testing.T) {
 
 	t.Run("OverlayDecryptionWinsAndIsCopied", func(t *testing.T) {
 		// Given a base with no decryption and an overlay that sets it
-		base := Kustomization{Name: "k"}
-		overlay := Kustomization{Name: "k", Decryption: &Decryption{Provider: "sops", SecretRef: &DecryptionSecretRef{Name: "sops-age"}}}
+		base := v1alpha1.Kustomization{Name: "k"}
+		overlay := v1alpha1.Kustomization{Name: "k", Decryption: &v1alpha1.Decryption{Provider: "sops", SecretRef: &v1alpha1.DecryptionSecretRef{Name: "sops-age"}}}
 
 		// When merged
-		merged := MergeKustomizationFields(base, overlay)
+		merged := v1alpha1.MergeKustomizationFields(base, overlay)
 
 		// Then the overlay's decryption is applied
 		if merged.Decryption == nil || merged.Decryption.Provider != "sops" || merged.Decryption.SecretRef.Name != "sops-age" {
@@ -2606,11 +2637,11 @@ func TestKustomization_Decryption_DeepCopyAndMerge(t *testing.T) {
 
 	t.Run("NilOverlayDecryptionLeavesBaseIntact", func(t *testing.T) {
 		// Given a base that already has decryption and an overlay that does not set it
-		base := Kustomization{Name: "k", Decryption: &Decryption{Provider: "sops", SecretRef: &DecryptionSecretRef{Name: "sops-age"}}}
-		overlay := Kustomization{Name: "k"}
+		base := v1alpha1.Kustomization{Name: "k", Decryption: &v1alpha1.Decryption{Provider: "sops", SecretRef: &v1alpha1.DecryptionSecretRef{Name: "sops-age"}}}
+		overlay := v1alpha1.Kustomization{Name: "k"}
 
 		// When merged
-		merged := MergeKustomizationFields(base, overlay)
+		merged := v1alpha1.MergeKustomizationFields(base, overlay)
 
 		// Then the base decryption survives
 		if merged.Decryption == nil || merged.Decryption.Provider != "sops" {
@@ -2622,11 +2653,11 @@ func TestKustomization_Decryption_DeepCopyAndMerge(t *testing.T) {
 func TestKustomization_DeleteTimeout_Merge(t *testing.T) {
 	t.Run("OverlayDeleteTimeoutWins", func(t *testing.T) {
 		// Given a base with no delete timeout and an overlay that sets one
-		base := Kustomization{Name: "k"}
-		overlay := Kustomization{Name: "k", DeleteTimeout: &DurationString{Duration: 45 * time.Minute}}
+		base := v1alpha1.Kustomization{Name: "k"}
+		overlay := v1alpha1.Kustomization{Name: "k", DeleteTimeout: &v1alpha1.DurationString{Duration: 45 * time.Minute}}
 
 		// When merged
-		merged := MergeKustomizationFields(base, overlay)
+		merged := v1alpha1.MergeKustomizationFields(base, overlay)
 
 		// Then the overlay's delete timeout is applied
 		if merged.DeleteTimeout == nil || merged.DeleteTimeout.Duration != 45*time.Minute {
@@ -2636,11 +2667,11 @@ func TestKustomization_DeleteTimeout_Merge(t *testing.T) {
 
 	t.Run("NilOverlayDeleteTimeoutLeavesBaseIntact", func(t *testing.T) {
 		// Given a base that already has a delete timeout and an overlay that does not set one
-		base := Kustomization{Name: "k", DeleteTimeout: &DurationString{Duration: 45 * time.Minute}}
-		overlay := Kustomization{Name: "k"}
+		base := v1alpha1.Kustomization{Name: "k", DeleteTimeout: &v1alpha1.DurationString{Duration: 45 * time.Minute}}
+		overlay := v1alpha1.Kustomization{Name: "k"}
 
 		// When merged
-		merged := MergeKustomizationFields(base, overlay)
+		merged := v1alpha1.MergeKustomizationFields(base, overlay)
 
 		// Then the base delete timeout survives
 		if merged.DeleteTimeout == nil || merged.DeleteTimeout.Duration != 45*time.Minute {
@@ -2653,7 +2684,7 @@ func TestDeepMergeMaps_EmptyOverlayDoesNotOverwritePopulated(t *testing.T) {
 	t.Run("EmptyStringOverlayDoesNotOverwriteNonEmptyBase", func(t *testing.T) {
 		base := map[string]any{"key": "populated"}
 		overlay := map[string]any{"key": ""}
-		got := DeepMergeMaps(base, overlay)
+		got := v1alpha1.DeepMergeMaps(base, overlay)
 		if got["key"] != "populated" {
 			t.Errorf("Expected populated value preserved, got %v", got["key"])
 		}
@@ -2661,7 +2692,7 @@ func TestDeepMergeMaps_EmptyOverlayDoesNotOverwritePopulated(t *testing.T) {
 	t.Run("EmptySliceOverlayDoesNotOverwriteNonEmptyBase", func(t *testing.T) {
 		base := map[string]any{"patches": []any{"a", "b"}}
 		overlay := map[string]any{"patches": []any{}}
-		got := DeepMergeMaps(base, overlay)
+		got := v1alpha1.DeepMergeMaps(base, overlay)
 		sl, ok := got["patches"].([]any)
 		if !ok {
 			t.Fatalf("Expected []any, got %T", got["patches"])
@@ -2673,7 +2704,7 @@ func TestDeepMergeMaps_EmptyOverlayDoesNotOverwritePopulated(t *testing.T) {
 	t.Run("EmptyOverlayValueForKeyMissingInBaseIsAdded", func(t *testing.T) {
 		base := map[string]any{"a": 1}
 		overlay := map[string]any{"new_empty": "", "new_slice": []any{}, "new_map": map[string]any{}}
-		got := DeepMergeMaps(base, overlay)
+		got := v1alpha1.DeepMergeMaps(base, overlay)
 		if got["new_empty"] != "" {
 			t.Errorf("Expected new key with empty string to be added, got %v", got["new_empty"])
 		}
@@ -2687,7 +2718,7 @@ func TestDeepMergeMaps_EmptyOverlayDoesNotOverwritePopulated(t *testing.T) {
 	t.Run("EmptyOverlayOverwritesBaseKeyWithNilValue", func(t *testing.T) {
 		base := map[string]any{"key": nil}
 		overlay := map[string]any{"key": ""}
-		got := DeepMergeMaps(base, overlay)
+		got := v1alpha1.DeepMergeMaps(base, overlay)
 		if got["key"] != "" {
 			t.Errorf("Expected empty overlay to be applied when base value is nil, got %v", got["key"])
 		}
@@ -2696,21 +2727,21 @@ func TestDeepMergeMaps_EmptyOverlayDoesNotOverwritePopulated(t *testing.T) {
 
 func TestToMapStringAny(t *testing.T) {
 	t.Run("ReturnsNilForNil", func(t *testing.T) {
-		if ToMapStringAny(nil) != nil {
+		if v1alpha1.ToMapStringAny(nil) != nil {
 			t.Error("Expected nil for nil input")
 		}
 	})
 	t.Run("ReturnsNilForNonMap", func(t *testing.T) {
-		if ToMapStringAny("string") != nil {
+		if v1alpha1.ToMapStringAny("string") != nil {
 			t.Error("Expected nil for string")
 		}
-		if ToMapStringAny(42) != nil {
+		if v1alpha1.ToMapStringAny(42) != nil {
 			t.Error("Expected nil for int")
 		}
 	})
 	t.Run("ConvertsMapStringAnyIdentity", func(t *testing.T) {
 		in := map[string]any{"a": 1, "b": "x"}
-		out := ToMapStringAny(in)
+		out := v1alpha1.ToMapStringAny(in)
 		if out == nil {
 			t.Fatal("Expected non-nil map")
 		}
@@ -2723,7 +2754,7 @@ func TestToMapStringAny(t *testing.T) {
 		if err := yaml.Unmarshal([]byte("a: 1\nb: hello\nnested:\n  x: 10"), &v); err != nil {
 			t.Fatalf("Unmarshal: %v", err)
 		}
-		out := ToMapStringAny(v)
+		out := v1alpha1.ToMapStringAny(v)
 		if out == nil {
 			t.Fatal("Expected non-nil map")
 		}
@@ -2745,7 +2776,7 @@ func TestToMapStringAny(t *testing.T) {
 		if err := yaml.Unmarshal([]byte("list:\n  - 1\n  - two"), &v); err != nil {
 			t.Fatalf("Unmarshal: %v", err)
 		}
-		out := ToMapStringAny(v)
+		out := v1alpha1.ToMapStringAny(v)
 		if out == nil {
 			t.Fatal("Expected non-nil map")
 		}
@@ -2762,21 +2793,21 @@ func TestToMapStringAny(t *testing.T) {
 
 func TestToSliceAny(t *testing.T) {
 	t.Run("ReturnsNilForNil", func(t *testing.T) {
-		if ToSliceAny(nil) != nil {
+		if v1alpha1.ToSliceAny(nil) != nil {
 			t.Error("Expected nil for nil input")
 		}
 	})
 	t.Run("ReturnsNilForNonSlice", func(t *testing.T) {
-		if ToSliceAny("string") != nil {
+		if v1alpha1.ToSliceAny("string") != nil {
 			t.Error("Expected nil for string")
 		}
-		if ToSliceAny(map[string]any{}) != nil {
+		if v1alpha1.ToSliceAny(map[string]any{}) != nil {
 			t.Error("Expected nil for map")
 		}
 	})
 	t.Run("ConvertsSliceIdentity", func(t *testing.T) {
 		in := []any{1, "x", true}
-		out := ToSliceAny(in)
+		out := v1alpha1.ToSliceAny(in)
 		if out == nil {
 			t.Fatal("Expected non-nil slice")
 		}
@@ -2789,7 +2820,7 @@ func TestToSliceAny(t *testing.T) {
 		if err := yaml.Unmarshal([]byte("[1, two, 3]"), &v); err != nil {
 			t.Fatalf("Unmarshal: %v", err)
 		}
-		out := ToSliceAny(v)
+		out := v1alpha1.ToSliceAny(v)
 		if out == nil {
 			t.Fatal("Expected non-nil slice")
 		}
@@ -2804,7 +2835,7 @@ func TestToSliceAny(t *testing.T) {
 		if err := yaml.Unmarshal([]byte("- a: 1\n  b: 2\n- 3"), &v); err != nil {
 			t.Fatalf("Unmarshal: %v", err)
 		}
-		out := ToSliceAny(v)
+		out := v1alpha1.ToSliceAny(v)
 		if out == nil {
 			t.Fatal("Expected non-nil slice")
 		}
@@ -2823,50 +2854,40 @@ func TestToSliceAny(t *testing.T) {
 	})
 }
 
-// =============================================================================
-// Test Private Methods
-// =============================================================================
-
-func TestBlueprint_validateTerraformComponents(t *testing.T) {
+func TestBlueprint_ReplaceTerraformComponent_ValidatesComponentIDs(t *testing.T) {
 	t.Run("ValidatesUniqueComponentIDs", func(t *testing.T) {
-		blueprint := &Blueprint{
-			TerraformComponents: []TerraformComponent{
-				{
-					Name: "component-a",
-					Path: "path/a",
-				},
-				{
-					Name: "component-b",
-					Path: "path/b",
-				},
+		// Given a blueprint with components with unique IDs
+		blueprint := &v1alpha1.Blueprint{
+			TerraformComponents: []v1alpha1.TerraformComponent{
+				{Name: "component-a", Path: "path/a"},
+				{Name: "component-b", Path: "path/b"},
 			},
 		}
 
-		err := blueprint.validateTerraformComponents()
+		// When an unrelated component is added
+		err := blueprint.ReplaceTerraformComponent(v1alpha1.TerraformComponent{Path: "path/unrelated"})
 
+		// Then no error is returned
 		if err != nil {
 			t.Errorf("Expected no error for unique component IDs, got %v", err)
 		}
 	})
 
 	t.Run("RejectsDuplicateNames", func(t *testing.T) {
-		blueprint := &Blueprint{
-			TerraformComponents: []TerraformComponent{
-				{
-					Name: "duplicate",
-					Path: "path/a",
-				},
-				{
-					Name: "duplicate",
-					Path: "path/b",
-				},
+		// Given a blueprint with two components with the same name
+		blueprint := &v1alpha1.Blueprint{
+			TerraformComponents: []v1alpha1.TerraformComponent{
+				{Name: "duplicate", Path: "path/a"},
+				{Name: "duplicate", Path: "path/b"},
 			},
 		}
 
-		err := blueprint.validateTerraformComponents()
+		// When an unrelated component is added
+		err := blueprint.ReplaceTerraformComponent(v1alpha1.TerraformComponent{Path: "path/unrelated"})
 
+		// Then a duplicate ID error is returned
 		if err == nil {
-			t.Error("Expected error for duplicate component names, got nil")
+			t.Fatal("Expected a duplicate ID error, got nil")
 		}
 		if !strings.Contains(err.Error(), "duplicate") {
 			t.Errorf("Expected error message to contain 'duplicate', got '%s'", err.Error())
@@ -2874,21 +2895,20 @@ func TestBlueprint_validateTerraformComponents(t *testing.T) {
 	})
 
 	t.Run("RejectsDuplicatePaths", func(t *testing.T) {
-		blueprint := &Blueprint{
-			TerraformComponents: []TerraformComponent{
-				{
-					Path: "duplicate/path",
-				},
-				{
-					Path: "duplicate/path",
-				},
+		// Given a blueprint with two unnamed components with the same path
+		blueprint := &v1alpha1.Blueprint{
+			TerraformComponents: []v1alpha1.TerraformComponent{
+				{Path: "duplicate/path"},
+				{Path: "duplicate/path"},
 			},
 		}
 
-		err := blueprint.validateTerraformComponents()
+		// When an unrelated component is added
+		err := blueprint.ReplaceTerraformComponent(v1alpha1.TerraformComponent{Path: "path/unrelated"})
 
+		// Then a duplicate ID error is returned
 		if err == nil {
-			t.Error("Expected error for duplicate component paths, got nil")
+			t.Fatal("Expected a duplicate ID error, got nil")
 		}
 		if !strings.Contains(err.Error(), "duplicate") {
 			t.Errorf("Expected error message to contain 'duplicate', got '%s'", err.Error())
@@ -2896,22 +2916,20 @@ func TestBlueprint_validateTerraformComponents(t *testing.T) {
 	})
 
 	t.Run("RejectsNameMatchingPath", func(t *testing.T) {
-		blueprint := &Blueprint{
-			TerraformComponents: []TerraformComponent{
-				{
-					Name: "same-id",
-					Path: "path/a",
-				},
-				{
-					Path: "same-id",
-				},
+		// Given a blueprint with a component name that matches another component's path
+		blueprint := &v1alpha1.Blueprint{
+			TerraformComponents: []v1alpha1.TerraformComponent{
+				{Name: "same-id", Path: "path/a"},
+				{Path: "same-id"},
 			},
 		}
 
-		err := blueprint.validateTerraformComponents()
+		// When an unrelated component is added
+		err := blueprint.ReplaceTerraformComponent(v1alpha1.TerraformComponent{Path: "path/unrelated"})
 
+		// Then a duplicate ID error is returned
 		if err == nil {
-			t.Error("Expected error when component name matches another component's path, got nil")
+			t.Fatal("Expected a duplicate ID error, got nil")
 		}
 		if !strings.Contains(err.Error(), "duplicate") {
 			t.Errorf("Expected error message to contain 'duplicate', got '%s'", err.Error())
@@ -2919,23 +2937,20 @@ func TestBlueprint_validateTerraformComponents(t *testing.T) {
 	})
 
 	t.Run("RejectsSamePathWithDifferentSources", func(t *testing.T) {
-		blueprint := &Blueprint{
-			TerraformComponents: []TerraformComponent{
-				{
-					Source: "source-a",
-					Path:   "same/path",
-				},
-				{
-					Source: "source-b",
-					Path:   "same/path",
-				},
+		// Given a blueprint with two components with the same path and different sources
+		blueprint := &v1alpha1.Blueprint{
+			TerraformComponents: []v1alpha1.TerraformComponent{
+				{Source: "source-a", Path: "same/path"},
+				{Source: "source-b", Path: "same/path"},
 			},
 		}
 
-		err := blueprint.validateTerraformComponents()
+		// When an unrelated component is added
+		err := blueprint.ReplaceTerraformComponent(v1alpha1.TerraformComponent{Path: "path/unrelated"})
 
+		// Then a duplicate ID error is returned
 		if err == nil {
-			t.Error("Expected error for same path with different sources (Path must be unique regardless of Source), got nil")
+			t.Fatal("Expected a duplicate ID error, got nil")
 		}
 		if !strings.Contains(err.Error(), "duplicate") {
 			t.Errorf("Expected error message to contain 'duplicate', got '%s'", err.Error())

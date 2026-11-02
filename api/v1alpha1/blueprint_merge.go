@@ -17,6 +17,7 @@ import (
 // StrategicMerge performs a strategic merge of the provided overlay Blueprints into the receiver Blueprint.
 // This method appends to array fields, deep merges map fields, and updates scalar fields if present in the overlays.
 // It is designed for feature composition, enabling the combination of multiple features into a single blueprint.
+// Messages accumulate in order, and an identical (when, text) message appears only once.
 func (b *Blueprint) StrategicMerge(overlays ...*Blueprint) error {
 	for _, overlay := range overlays {
 		if overlay == nil {
@@ -121,8 +122,6 @@ func (b *Blueprint) StrategicMerge(overlays ...*Blueprint) error {
 			}
 		}
 
-		// Post-run messages accumulate across overlays, preserving order; identical (when, text)
-		// entries are dropped so the same note contributed by multiple sources surfaces once.
 		for _, overlayMsg := range overlay.Messages {
 			if !slices.ContainsFunc(b.Messages, func(m Message) bool { return m == overlayMsg }) {
 				b.Messages = append(b.Messages, overlayMsg)
@@ -215,14 +214,10 @@ func (b *Blueprint) RemoveKustomization(removal Kustomization) error {
 	return nil
 }
 
-// RemoveFluxSystem removes specified non-index fields from an existing FluxSystem. It finds a
-// system matching the same Name, then subtracts dependsOn entries and any install fields named in
-// removal.Install (reusing subtractKustomizationFields, since Install is itself a Kustomization
-// carrying no Name until tier compilation, so it cannot go through RemoveKustomization's by-Name
-// lookup), and drops any resources variant whose Name is named in removal.Resources (empty Name
-// matches the unnamed variant). A resources variant has no kustomize: analog — it compiles to its
-// own distinct Kustomization — so naming it is itself the field-level operation, not a whole-system
-// deletion. The index field (Name) is not affected. If no matching system exists, no action is taken.
+// RemoveFluxSystem removes the fields named in removal from the FluxSystem with the same Name.
+// It subtracts dependsOn entries and the install fields named in removal.Install.
+// It drops each resources variant whose Name appears in removal.Resources. An empty Name matches
+// the unnamed variant. Name stays unchanged, and the call does nothing when no system matches.
 func (b *Blueprint) RemoveFluxSystem(removal FluxSystem) error {
 	for i, existing := range b.FluxSystems {
 		if existing.Name != removal.Name {
@@ -250,14 +245,10 @@ func (b *Blueprint) RemoveFluxSystem(removal FluxSystem) error {
 	return nil
 }
 
-// UpsertFluxSystem merges sys into the FluxSystem with the same Name if one exists in
-// b.FluxSystems, or appends it when none does. On a match, DependsOn accumulates (union),
-// Install/Resources deep-merge via MergeFluxInstall/MergeFluxVariants, and Secrets union per data key
-// — the same field-level semantics strategicMergeKustomization already gives same-name plain
-// kustomize: entries — rather than sys wholesale-replacing what is already there. This is the path
-// StrategicMerge uses to combine FluxSystems across sources (each source's facets already merged among
-// themselves before reaching here), so a same-name collision here must not silently drop one side's
-// install/resources tiers or Secrets the way a blind replace would.
+// UpsertFluxSystem merges sys into the FluxSystem with the same Name, or appends sys when none exists.
+// On a match, DependsOn is the union of both lists, and Secrets merge per data key.
+// Install and Resources deep-merge through MergeFluxInstall and MergeFluxVariants.
+// StrategicMerge uses this to combine FluxSystems from different sources without losing either side.
 func (b *Blueprint) UpsertFluxSystem(sys FluxSystem) error {
 	for i, existing := range b.FluxSystems {
 		if existing.Name == sys.Name {
@@ -327,20 +318,12 @@ func MergeFluxVariants(existing, overlay []FluxVariant) []FluxVariant {
 	return merged
 }
 
-// MergeKustomizationFields deep-merges overlay onto base and returns the result without mutating
-// either input. Components and DependsOn accumulate, deduplicated, with Components sorted.
-// Patches accumulate. Substitutions copy in. Every other field is overridden by overlay when
-// overlay sets it.
-//
-// HealthCheckExprs accumulate, with an overlay entry replacing a base entry of the same
-// APIVersion and Kind. HealthChecks accumulate the same way, matching on APIVersion, Kind, and
-// Name. Namespace is excluded from that match, since it defaults to the kustomization's own
-// namespace and so cannot reliably distinguish one entry from another.
-//
-// Callers that need by-name matching within a Blueprint's Kustomizations list use
-// strategicMergeKustomization, which calls this once a match is found; callers merging two
-// already-matched Kustomization values directly (e.g. FluxSystem tiers, which carry no Name
-// until tier compilation) call this directly.
+// MergeKustomizationFields deep-merges overlay onto base and returns the result. Neither input changes.
+// Components and DependsOn accumulate without duplicates, and Components are sorted. Patches accumulate.
+// Substitutions copy in. For every other field, a value that overlay sets replaces the base value.
+// HealthCheckExprs and HealthChecks accumulate. An overlay HealthCheckExpr replaces a base entry with
+// the same APIVersion and Kind, and an overlay HealthCheck replaces one with the same APIVersion, Kind,
+// and Name. Namespace is not part of the match, because it defaults to the kustomization's namespace.
 func MergeKustomizationFields(base, overlay Kustomization) Kustomization {
 	existing := base
 	existing.Components = slices.Clone(base.Components)

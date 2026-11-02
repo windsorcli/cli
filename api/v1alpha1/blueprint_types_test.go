@@ -1,9 +1,11 @@
-package v1alpha1
+package v1alpha1_test
 
 import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/windsorcli/cli/api/v1alpha1"
 
 	"github.com/fluxcd/pkg/apis/kustomize"
 	"github.com/goccy/go-yaml"
@@ -13,12 +15,12 @@ import (
 // Test Helpers
 // =============================================================================
 
-func boolExprPtr(b bool) *BoolExpression {
-	return &BoolExpression{Value: &b, IsExpr: false}
+func boolExprPtr(b bool) *v1alpha1.BoolExpression {
+	return &v1alpha1.BoolExpression{Value: &b, IsExpr: false}
 }
 
-func intExprPtr(i int) *IntExpression {
-	return &IntExpression{Value: &i, IsExpr: false}
+func intExprPtr(i int) *v1alpha1.IntExpression {
+	return &v1alpha1.IntExpression{Value: &i, IsExpr: false}
 }
 
 // Helper function to check if slice contains a value
@@ -31,7 +33,7 @@ func contains(slice []string, value string) bool {
 	return false
 }
 
-func findKustomization(all []Kustomization, name string) *Kustomization {
+func findKustomization(all []v1alpha1.Kustomization, name string) *v1alpha1.Kustomization {
 	for i := range all {
 		if all[i].Name == name {
 			return &all[i]
@@ -40,7 +42,7 @@ func findKustomization(all []Kustomization, name string) *Kustomization {
 	return nil
 }
 
-func findKustomizationByName(all []Kustomization, name string) *Kustomization {
+func findKustomizationByName(all []v1alpha1.Kustomization, name string) *v1alpha1.Kustomization {
 	for i := range all {
 		if all[i].Name == name {
 			return &all[i]
@@ -49,7 +51,7 @@ func findKustomizationByName(all []Kustomization, name string) *Kustomization {
 	return nil
 }
 
-func kustomizationNames(all []Kustomization) []string {
+func kustomizationNames(all []v1alpha1.Kustomization) []string {
 	names := make([]string, len(all))
 	for i, k := range all {
 		names[i] = k.Name
@@ -64,10 +66,10 @@ func kustomizationNames(all []Kustomization) []string {
 func TestBlueprint_CrdsRenderAsScalarList(t *testing.T) {
 	t.Run("MarshalsAsFlatScalarList", func(t *testing.T) {
 		// Given a blueprint whose crds: is a flat list of local refs
-		bp := &Blueprint{
+		bp := &v1alpha1.Blueprint{
 			Kind: "Blueprint",
 			Crds: []string{"gateway-api-experimental-1.5.1", "envoy-gateway-1.7.1"},
-			Kustomizations: []Kustomization{
+			Kustomizations: []v1alpha1.Kustomization{
 				{Name: "cert-manager", Path: "pki/cert-manager", DependsOn: []string{"crds"}},
 			},
 		}
@@ -97,7 +99,7 @@ crds:
   - envoy-gateway-1.7.1
 `
 		// When unmarshaled
-		var bp Blueprint
+		var bp v1alpha1.Blueprint
 		if err := yaml.Unmarshal([]byte(doc), &bp); err != nil {
 			t.Fatalf("unmarshal: %v", err)
 		}
@@ -120,7 +122,7 @@ crds:
   - cert-manager-1.16.2
 `
 		// When unmarshaled then marshaled
-		var src Source
+		var src v1alpha1.Source
 		if err := yaml.Unmarshal([]byte(doc), &src); err != nil {
 			t.Fatalf("unmarshal: %v", err)
 		}
@@ -140,14 +142,14 @@ crds:
 func TestCrdKustomizationName(t *testing.T) {
 	t.Run("DefaultSourceTakesBaseName", func(t *testing.T) {
 		// Given the default/project source (empty name)
-		if got := CrdKustomizationName(""); got != "crds" {
+		if got := v1alpha1.CrdKustomizationName(""); got != "crds" {
 			t.Errorf("expected crds, got %q", got)
 		}
 	})
 
 	t.Run("NamedSourceIsSuffixed", func(t *testing.T) {
 		// Given a named source
-		if got := CrdKustomizationName("core"); got != "crds-core" {
+		if got := v1alpha1.CrdKustomizationName("core"); got != "crds-core" {
 			t.Errorf("expected crds-core, got %q", got)
 		}
 	})
@@ -157,13 +159,13 @@ func TestIsCrdLayerName(t *testing.T) {
 	t.Run("MatchesBaseAndNamespacedNames", func(t *testing.T) {
 		// Given the synthesized CRD layer namespace
 		for _, name := range []string{"crds", "crds-core", "crds-acme-oci"} {
-			if !IsCrdLayerName(name) {
+			if !v1alpha1.IsCrdLayerName(name) {
 				t.Errorf("expected %q to be a CRD layer name", name)
 			}
 		}
 		// And unrelated kustomization names are not in the namespace
 		for _, name := range []string{"cert-manager", "crd", "crdsuffix"} {
-			if IsCrdLayerName(name) {
+			if v1alpha1.IsCrdLayerName(name) {
 				t.Errorf("did not expect %q to be a CRD layer name", name)
 			}
 		}
@@ -172,22 +174,22 @@ func TestIsCrdLayerName(t *testing.T) {
 
 func TestIsLocalTemplateSource(t *testing.T) {
 	t.Run("ReturnsFalseForNonTemplateSource", func(t *testing.T) {
-		source := Source{Name: "other", Url: ""}
-		if IsLocalTemplateSource(source) {
+		source := v1alpha1.Source{Name: "other", Url: ""}
+		if v1alpha1.IsLocalTemplateSource(source) {
 			t.Error("Expected false for non-template source")
 		}
 	})
 
 	t.Run("ReturnsFalseForTemplateWithURL", func(t *testing.T) {
-		source := Source{Name: "template", Url: "https://github.com/example/repo.git"}
-		if IsLocalTemplateSource(source) {
+		source := v1alpha1.Source{Name: "template", Url: "https://github.com/example/repo.git"}
+		if v1alpha1.IsLocalTemplateSource(source) {
 			t.Error("Expected false for template source with URL")
 		}
 	})
 
 	t.Run("ReturnsTrueForTemplateWithEmptyURL", func(t *testing.T) {
-		source := Source{Name: "template", Url: ""}
-		if !IsLocalTemplateSource(source) {
+		source := v1alpha1.Source{Name: "template", Url: ""}
+		if !v1alpha1.IsLocalTemplateSource(source) {
 			t.Error("Expected true for template source with empty URL")
 		}
 	})
@@ -195,33 +197,33 @@ func TestIsLocalTemplateSource(t *testing.T) {
 
 func TestHasRemoteTemplateSource(t *testing.T) {
 	t.Run("ReturnsFalseForEmptySources", func(t *testing.T) {
-		if HasRemoteTemplateSource([]Source{}) {
+		if v1alpha1.HasRemoteTemplateSource([]v1alpha1.Source{}) {
 			t.Error("Expected false for empty sources")
 		}
 	})
 
 	t.Run("ReturnsFalseWhenOnlyLocalTemplate", func(t *testing.T) {
-		sources := []Source{{Name: "template", Url: ""}}
-		if HasRemoteTemplateSource(sources) {
+		sources := []v1alpha1.Source{{Name: "template", Url: ""}}
+		if v1alpha1.HasRemoteTemplateSource(sources) {
 			t.Error("Expected false when only local template")
 		}
 	})
 
 	t.Run("ReturnsTrueWhenTemplateHasURL", func(t *testing.T) {
-		sources := []Source{
+		sources := []v1alpha1.Source{
 			{Name: "template", Url: "https://github.com/example/repo.git"},
 		}
-		if !HasRemoteTemplateSource(sources) {
+		if !v1alpha1.HasRemoteTemplateSource(sources) {
 			t.Error("Expected true when template source has URL")
 		}
 	})
 
 	t.Run("ReturnsTrueWhenMultipleSourcesIncludeRemoteTemplate", func(t *testing.T) {
-		sources := []Source{
+		sources := []v1alpha1.Source{
 			{Name: "other", Url: "https://other.com/repo.git"},
 			{Name: "template", Url: "https://github.com/example/repo.git"},
 		}
-		if !HasRemoteTemplateSource(sources) {
+		if !v1alpha1.HasRemoteTemplateSource(sources) {
 			t.Error("Expected true when sources include remote template")
 		}
 	})
@@ -229,21 +231,21 @@ func TestHasRemoteTemplateSource(t *testing.T) {
 
 func TestBlueprint_DeepCopy(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
-		blueprint := &Blueprint{
-			Metadata: Metadata{
+		blueprint := &v1alpha1.Blueprint{
+			Metadata: v1alpha1.Metadata{
 				Name: "test-blueprint",
 			},
-			Sources: []Source{
+			Sources: []v1alpha1.Source{
 				{
 					Name:       "source1",
 					Url:        "https://example.com/repo1.git",
 					PathPrefix: "terraform",
-					Ref: Reference{
+					Ref: v1alpha1.Reference{
 						Branch: "main",
 					},
 				},
 			},
-			TerraformComponents: []TerraformComponent{
+			TerraformComponents: []v1alpha1.TerraformComponent{
 				{
 					Source: "source1",
 					Path:   "module/path1",
@@ -252,7 +254,7 @@ func TestBlueprint_DeepCopy(t *testing.T) {
 					},
 				},
 			},
-			Kustomizations: []Kustomization{
+			Kustomizations: []v1alpha1.Kustomization{
 				{
 					Name:       "kustomization1",
 					Path:       "kustomize/path1",
@@ -285,7 +287,7 @@ func TestBlueprint_DeepCopy(t *testing.T) {
 	})
 
 	t.Run("EmptyBlueprint", func(t *testing.T) {
-		var blueprint *Blueprint
+		var blueprint *v1alpha1.Blueprint
 		copy := blueprint.DeepCopy()
 		if copy != nil {
 			t.Errorf("Expected copy to be nil, but got non-nil")
@@ -294,7 +296,7 @@ func TestBlueprint_DeepCopy(t *testing.T) {
 
 	t.Run("PreservesBackend", func(t *testing.T) {
 		// Given a blueprint with a declared backend terminus
-		blueprint := &Blueprint{Backend: "cluster"}
+		blueprint := &v1alpha1.Blueprint{Backend: "cluster"}
 
 		// When deep-copied
 		copy := blueprint.DeepCopy()
@@ -307,7 +309,7 @@ func TestBlueprint_DeepCopy(t *testing.T) {
 
 	t.Run("DeepCopiesConfigIndependently", func(t *testing.T) {
 		// Given a blueprint with a nested config scope
-		blueprint := &Blueprint{
+		blueprint := &v1alpha1.Blueprint{
 			Config: map[string]any{
 				"cluster": map[string]any{"controlplanes": map[string]any{"cpu": 7}},
 			},
@@ -328,12 +330,12 @@ func TestBlueprint_DeepCopy(t *testing.T) {
 func TestBlueprint_DeepCopy_WithNewFields(t *testing.T) {
 	t.Run("CopiesSourceInstallField", func(t *testing.T) {
 		falseVal := false
-		blueprint := &Blueprint{
-			Sources: []Source{
+		blueprint := &v1alpha1.Blueprint{
+			Sources: []v1alpha1.Source{
 				{
 					Name:    "test-source",
 					Url:     "oci://example.com/repo:tag",
-					Install: &BoolExpression{Value: &falseVal, IsExpr: false},
+					Install: &v1alpha1.BoolExpression{Value: &falseVal, IsExpr: false},
 				},
 			},
 		}
@@ -351,9 +353,9 @@ func TestBlueprint_DeepCopy_WithNewFields(t *testing.T) {
 	})
 
 	t.Run("CopiesCrdsDeeply", func(t *testing.T) {
-		blueprint := &Blueprint{
+		blueprint := &v1alpha1.Blueprint{
 			Crds:    []string{"cert-manager-1.16.2"},
-			Sources: []Source{{Name: "core", Crds: []string{"gateway-api-1.5.1"}}},
+			Sources: []v1alpha1.Source{{Name: "core", Crds: []string{"gateway-api-1.5.1"}}},
 		}
 
 		copy := blueprint.DeepCopy()
@@ -375,14 +377,14 @@ func TestBlueprint_DeepCopy_WithNewFields(t *testing.T) {
 	})
 
 	t.Run("CopiesFluxSystemsDeeply", func(t *testing.T) {
-		blueprint := &Blueprint{
-			FluxSystems: []FluxSystem{
+		blueprint := &v1alpha1.Blueprint{
+			FluxSystems: []v1alpha1.FluxSystem{
 				{
 					Name:      "gateway",
 					DependsOn: []string{"pki-install"},
-					Install:   &Kustomization{Components: []string{"envoy"}},
-					Resources: []FluxVariant{
-						{Kustomization: Kustomization{Name: "internal", Components: []string{"internal"}}},
+					Install:   &v1alpha1.Kustomization{Components: []string{"envoy"}},
+					Resources: []v1alpha1.FluxVariant{
+						{Kustomization: v1alpha1.Kustomization{Name: "internal", Components: []string{"internal"}}},
 					},
 				},
 			},
@@ -417,11 +419,11 @@ func TestBlueprint_DeepCopy_WithNewFields(t *testing.T) {
 
 	t.Run("CopiesTerraformComponentEnabledField", func(t *testing.T) {
 		falseVal := false
-		blueprint := &Blueprint{
-			TerraformComponents: []TerraformComponent{
+		blueprint := &v1alpha1.Blueprint{
+			TerraformComponents: []v1alpha1.TerraformComponent{
 				{
 					Path:    "test/path",
-					Enabled: &BoolExpression{Value: &falseVal, IsExpr: false},
+					Enabled: &v1alpha1.BoolExpression{Value: &falseVal, IsExpr: false},
 				},
 			},
 		}
@@ -440,11 +442,11 @@ func TestBlueprint_DeepCopy_WithNewFields(t *testing.T) {
 
 	t.Run("CopiesKustomizationEnabledField", func(t *testing.T) {
 		falseVal := false
-		blueprint := &Blueprint{
-			Kustomizations: []Kustomization{
+		blueprint := &v1alpha1.Blueprint{
+			Kustomizations: []v1alpha1.Kustomization{
 				{
 					Name:    "test-kustomization",
-					Enabled: &BoolExpression{Value: &falseVal, IsExpr: false},
+					Enabled: &v1alpha1.BoolExpression{Value: &falseVal, IsExpr: false},
 				},
 			},
 		}
@@ -463,7 +465,7 @@ func TestBlueprint_DeepCopy_WithNewFields(t *testing.T) {
 
 	t.Run("CopiesTopLevelSubstitutions", func(t *testing.T) {
 		// Given a blueprint with top-level Substitutions
-		blueprint := &Blueprint{
+		blueprint := &v1alpha1.Blueprint{
 			Substitutions: map[string]string{
 				"private_dns": "10.0.0.1",
 				"public_dns":  "8.8.8.8",
@@ -491,7 +493,7 @@ func TestBlueprint_DeepCopy_WithNewFields(t *testing.T) {
 
 func TestTerraformComponent_DeepCopy(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
-		component := &TerraformComponent{
+		component := &v1alpha1.TerraformComponent{
 			Source:      "test-source",
 			Path:        "test/path",
 			FullPath:    "/full/test/path",
@@ -548,7 +550,7 @@ func TestTerraformComponent_DeepCopy(t *testing.T) {
 	})
 
 	t.Run("NilComponent", func(t *testing.T) {
-		var component *TerraformComponent
+		var component *v1alpha1.TerraformComponent
 		copy := component.DeepCopy()
 		if copy != nil {
 			t.Errorf("Expected nil copy, got non-nil")
@@ -556,7 +558,7 @@ func TestTerraformComponent_DeepCopy(t *testing.T) {
 	})
 
 	t.Run("EmptyFields", func(t *testing.T) {
-		component := &TerraformComponent{
+		component := &v1alpha1.TerraformComponent{
 			Source: "test-source",
 			Path:   "test/path",
 		}
@@ -584,7 +586,7 @@ func TestTerraformComponent_DeepCopy(t *testing.T) {
 	})
 
 	t.Run("IncludesNameInDeepCopy", func(t *testing.T) {
-		component := &TerraformComponent{
+		component := &v1alpha1.TerraformComponent{
 			Name:   "test-component",
 			Source: "test-source",
 			Path:   "test/path",
@@ -600,7 +602,7 @@ func TestTerraformComponent_DeepCopy(t *testing.T) {
 
 func TestTerraformComponent_GetID(t *testing.T) {
 	t.Run("ReturnsNameWhenPresent", func(t *testing.T) {
-		component := &TerraformComponent{
+		component := &v1alpha1.TerraformComponent{
 			Name: "my-component",
 			Path: "terraform/path",
 		}
@@ -613,7 +615,7 @@ func TestTerraformComponent_GetID(t *testing.T) {
 	})
 
 	t.Run("ReturnsPathWhenNameNotPresent", func(t *testing.T) {
-		component := &TerraformComponent{
+		component := &v1alpha1.TerraformComponent{
 			Path: "terraform/path",
 		}
 
@@ -625,7 +627,7 @@ func TestTerraformComponent_GetID(t *testing.T) {
 	})
 
 	t.Run("ReturnsPathWhenNameIsEmpty", func(t *testing.T) {
-		component := &TerraformComponent{
+		component := &v1alpha1.TerraformComponent{
 			Name: "",
 			Path: "terraform/path",
 		}
@@ -641,9 +643,9 @@ func TestTerraformComponent_GetID(t *testing.T) {
 func TestBlueprint_BackendComponentID(t *testing.T) {
 	t.Run("ReturnsBackendFieldWhenSet", func(t *testing.T) {
 		// Given Blueprint.Backend names a component in TerraformComponents
-		bp := &Blueprint{
+		bp := &v1alpha1.Blueprint{
 			Backend: "cluster",
-			TerraformComponents: []TerraformComponent{
+			TerraformComponents: []v1alpha1.TerraformComponent{
 				{Path: "vpc"},
 				{Name: "cluster", Path: "cluster/eks"},
 			},
@@ -655,8 +657,8 @@ func TestBlueprint_BackendComponentID(t *testing.T) {
 
 	t.Run("ReturnsEmptyWhenBackendUnset", func(t *testing.T) {
 		// Given Blueprint.Backend is not set, even when a component happens to be named "backend"
-		bp := &Blueprint{
-			TerraformComponents: []TerraformComponent{
+		bp := &v1alpha1.Blueprint{
+			TerraformComponents: []v1alpha1.TerraformComponent{
 				{Path: "backend"},
 				{Path: "vpc"},
 			},
@@ -667,7 +669,7 @@ func TestBlueprint_BackendComponentID(t *testing.T) {
 	})
 
 	t.Run("ReturnsEmptyWhenNilBlueprint", func(t *testing.T) {
-		var bp *Blueprint
+		var bp *v1alpha1.Blueprint
 		if got := bp.BackendComponentID(); got != "" {
 			t.Errorf("Expected empty string, got %q", got)
 		}
@@ -678,7 +680,7 @@ func TestBlueprint_BackendComponentID(t *testing.T) {
 		// holds even when it does not resolve to a declared component. The composer
 		// validation layer is responsible for rejecting unresolved references at
 		// blueprint load.
-		bp := &Blueprint{Backend: "ghost"}
+		bp := &v1alpha1.Blueprint{Backend: "ghost"}
 		if got := bp.BackendComponentID(); got != "ghost" {
 			t.Errorf("Expected \"ghost\" (unvalidated passthrough), got %q", got)
 		}
@@ -688,9 +690,9 @@ func TestBlueprint_BackendComponentID(t *testing.T) {
 func TestBlueprint_BackendComponents(t *testing.T) {
 	t.Run("ReturnsTerminusPlusAllPriorComponents", func(t *testing.T) {
 		// Given a blueprint with backend components (vpc, iam, cluster) and a non-backend one (workloads)
-		bp := &Blueprint{
+		bp := &v1alpha1.Blueprint{
 			Backend: "cluster",
-			TerraformComponents: []TerraformComponent{
+			TerraformComponents: []v1alpha1.TerraformComponent{
 				{Path: "vpc"},
 				{Path: "iam"},
 				{Name: "cluster", Path: "cluster/eks"},
@@ -711,9 +713,9 @@ func TestBlueprint_BackendComponents(t *testing.T) {
 	})
 
 	t.Run("ReturnsSingleComponentWhenBackendIsFirst", func(t *testing.T) {
-		bp := &Blueprint{
+		bp := &v1alpha1.Blueprint{
 			Backend: "backend",
-			TerraformComponents: []TerraformComponent{
+			TerraformComponents: []v1alpha1.TerraformComponent{
 				{Path: "backend"},
 				{Path: "cluster"},
 			},
@@ -727,8 +729,8 @@ func TestBlueprint_BackendComponents(t *testing.T) {
 	})
 
 	t.Run("ReturnsNilWhenBackendUnset", func(t *testing.T) {
-		bp := &Blueprint{
-			TerraformComponents: []TerraformComponent{{Path: "vpc"}, {Path: "cluster"}},
+		bp := &v1alpha1.Blueprint{
+			TerraformComponents: []v1alpha1.TerraformComponent{{Path: "vpc"}, {Path: "cluster"}},
 		}
 
 		if components := bp.BackendComponents(); components != nil {
@@ -740,9 +742,9 @@ func TestBlueprint_BackendComponents(t *testing.T) {
 		// Validation should reject this at load time, but BackendComponents returns nil
 		// when the named component is not found so a callsite that runs without
 		// validation does not panic.
-		bp := &Blueprint{
+		bp := &v1alpha1.Blueprint{
 			Backend:             "ghost",
-			TerraformComponents: []TerraformComponent{{Path: "vpc"}, {Path: "cluster"}},
+			TerraformComponents: []v1alpha1.TerraformComponent{{Path: "vpc"}, {Path: "cluster"}},
 		}
 
 		if components := bp.BackendComponents(); components != nil {
@@ -751,7 +753,7 @@ func TestBlueprint_BackendComponents(t *testing.T) {
 	})
 
 	t.Run("ReturnsNilWhenNilBlueprint", func(t *testing.T) {
-		var bp *Blueprint
+		var bp *v1alpha1.Blueprint
 		if components := bp.BackendComponents(); components != nil {
 			t.Errorf("Expected nil for nil blueprint, got %+v", components)
 		}
@@ -761,9 +763,9 @@ func TestBlueprint_BackendComponents(t *testing.T) {
 		// The returned slice holds pointers into Blueprint.TerraformComponents so callers
 		// can mutate component state in place if needed (e.g., for in-flight orchestration
 		// bookkeeping). Verify the addresses match.
-		bp := &Blueprint{
+		bp := &v1alpha1.Blueprint{
 			Backend: "cluster",
-			TerraformComponents: []TerraformComponent{
+			TerraformComponents: []v1alpha1.TerraformComponent{
 				{Path: "vpc"},
 				{Name: "cluster", Path: "cluster/eks"},
 			},
@@ -778,9 +780,9 @@ func TestBlueprint_BackendComponents(t *testing.T) {
 }
 
 func TestBlueprint_IsBackendComponent(t *testing.T) {
-	bp := &Blueprint{
+	bp := &v1alpha1.Blueprint{
 		Backend: "cluster",
-		TerraformComponents: []TerraformComponent{
+		TerraformComponents: []v1alpha1.TerraformComponent{
 			{Path: "vpc"},
 			{Path: "iam"},
 			{Name: "cluster", Path: "cluster/eks"},
@@ -821,8 +823,8 @@ func TestBlueprint_IsBackendComponent(t *testing.T) {
 	})
 
 	t.Run("ReportsFalseWhenBackendUnset", func(t *testing.T) {
-		external := &Blueprint{
-			TerraformComponents: []TerraformComponent{{Path: "vpc"}, {Path: "cluster"}},
+		external := &v1alpha1.Blueprint{
+			TerraformComponents: []v1alpha1.TerraformComponent{{Path: "vpc"}, {Path: "cluster"}},
 		}
 		if external.IsBackendComponent("vpc") {
 			t.Error("Expected non-backend membership when Backend is unset (external backend case)")
@@ -844,7 +846,7 @@ terraform:
   - path: workloads/argocd
 `)
 
-		var bp Blueprint
+		var bp v1alpha1.Blueprint
 		if err := yaml.Unmarshal(yamlData, &bp); err != nil {
 			t.Fatalf("Unmarshal failed: %v", err)
 		}
@@ -865,7 +867,7 @@ terraform:
 	})
 
 	t.Run("MarshalsBackendField", func(t *testing.T) {
-		bp := Blueprint{Backend: "cluster"}
+		bp := v1alpha1.Blueprint{Backend: "cluster"}
 		out, err := yaml.Marshal(&bp)
 		if err != nil {
 			t.Fatalf("Marshal failed: %v", err)
@@ -876,7 +878,7 @@ terraform:
 	})
 
 	t.Run("OmitsBackendFieldWhenEmpty", func(t *testing.T) {
-		bp := Blueprint{}
+		bp := v1alpha1.Blueprint{}
 		out, err := yaml.Marshal(&bp)
 		if err != nil {
 			t.Fatalf("Marshal failed: %v", err)
@@ -902,7 +904,7 @@ flux:
     resources:
       - components: [coredns, external-dns]
 `
-		var bp Blueprint
+		var bp v1alpha1.Blueprint
 		if err := yaml.Unmarshal([]byte(src), &bp); err != nil {
 			t.Fatalf("unmarshal: %v", err)
 		}
@@ -923,17 +925,17 @@ flux:
 
 func TestKustomization_DeepCopy(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
-		interval := DurationString{Duration: 5 * time.Minute}
-		retryInterval := DurationString{Duration: 2 * time.Minute}
-		timeout := DurationString{Duration: 10 * time.Minute}
-		deleteTimeout := DurationString{Duration: 45 * time.Minute}
+		interval := v1alpha1.DurationString{Duration: 5 * time.Minute}
+		retryInterval := v1alpha1.DurationString{Duration: 2 * time.Minute}
+		timeout := v1alpha1.DurationString{Duration: 10 * time.Minute}
+		deleteTimeout := v1alpha1.DurationString{Duration: 45 * time.Minute}
 		wait := true
 		force := false
 		prune := true
 		destroy := false
 		destroyOnly := true
 
-		kustomization := &Kustomization{
+		kustomization := &v1alpha1.Kustomization{
 			Name:            "test-kustomization",
 			Path:            "test/path",
 			Source:          "test-source",
@@ -944,7 +946,7 @@ func TestKustomization_DeepCopy(t *testing.T) {
 			RetryInterval:   &retryInterval,
 			Timeout:         &timeout,
 			DeleteTimeout:   &deleteTimeout,
-			Patches: []BlueprintPatch{
+			Patches: []v1alpha1.BlueprintPatch{
 				{
 					Patch: "test-patch",
 					Target: &kustomize.Selector{
@@ -1048,7 +1050,7 @@ func TestKustomization_DeepCopy(t *testing.T) {
 	})
 
 	t.Run("NilKustomization", func(t *testing.T) {
-		var kustomization *Kustomization
+		var kustomization *v1alpha1.Kustomization
 		copy := kustomization.DeepCopy()
 		if copy != nil {
 			t.Errorf("Expected nil copy, got non-nil")
@@ -1056,7 +1058,7 @@ func TestKustomization_DeepCopy(t *testing.T) {
 	})
 
 	t.Run("EmptyFields", func(t *testing.T) {
-		kustomization := &Kustomization{
+		kustomization := &v1alpha1.Kustomization{
 			Name:   "test-kustomization",
 			Path:   "test/path",
 			Source: "test-source",
@@ -1098,7 +1100,7 @@ timeout: 10m
 deleteTimeout: 45m
 `)
 
-		var k Kustomization
+		var k v1alpha1.Kustomization
 		err := yaml.Unmarshal(yamlData, &k)
 		if err != nil {
 			t.Fatalf("Failed to unmarshal Kustomization with duration strings: %v", err)
@@ -1147,7 +1149,7 @@ timeout:
   duration: 10m0s
 `)
 
-		var k Kustomization
+		var k v1alpha1.Kustomization
 		err := yaml.Unmarshal(yamlData, &k)
 		if err != nil {
 			t.Fatalf("Failed to unmarshal Kustomization with duration objects: %v", err)
@@ -1177,7 +1179,7 @@ timeout:
 		yamlData := []byte("name: test\ninterval: soon\n")
 
 		// When the kustomization is unmarshalled
-		var k Kustomization
+		var k v1alpha1.Kustomization
 		err := yaml.Unmarshal(yamlData, &k)
 
 		// Then the error names the invalid duration
@@ -1194,7 +1196,7 @@ timeout:
 		yamlData := []byte("name: test\ninterval:\n  duration: soon\n")
 
 		// When the kustomization is unmarshalled
-		var k Kustomization
+		var k v1alpha1.Kustomization
 		err := yaml.Unmarshal(yamlData, &k)
 
 		// Then the error names the invalid duration
@@ -1210,10 +1212,10 @@ timeout:
 func TestKustomization_MarshalYAML_OmitsEmptyName(t *testing.T) {
 	t.Run("UnnamedInlineFluxVariantEmitsNoName", func(t *testing.T) {
 		// Given a flux system whose install and resources variant have no explicit name
-		system := FluxSystem{
+		system := v1alpha1.FluxSystem{
 			Name:      "cni",
-			Install:   &Kustomization{Components: []string{"helm"}},
-			Resources: []FluxVariant{{Kustomization: Kustomization{Components: []string{"cilium"}}}},
+			Install:   &v1alpha1.Kustomization{Components: []string{"helm"}},
+			Resources: []v1alpha1.FluxVariant{{Kustomization: v1alpha1.Kustomization{Components: []string{"cilium"}}}},
 		}
 
 		// When marshaled to YAML
@@ -1235,7 +1237,7 @@ func TestKustomization_MarshalYAML_OmitsEmptyName(t *testing.T) {
 
 func TestSource_Install(t *testing.T) {
 	t.Run("IsNilWhenNotSet", func(t *testing.T) {
-		source := Source{
+		source := v1alpha1.Source{
 			Name: "test-source",
 			Url:  "oci://example.com/repo:tag",
 		}
@@ -1249,10 +1251,10 @@ func TestSource_Install(t *testing.T) {
 
 	t.Run("CanBeSetToFalse", func(t *testing.T) {
 		falseVal := false
-		source := Source{
+		source := v1alpha1.Source{
 			Name:    "test-source",
 			Url:     "oci://example.com/repo:tag",
-			Install: &BoolExpression{Value: &falseVal, IsExpr: false},
+			Install: &v1alpha1.BoolExpression{Value: &falseVal, IsExpr: false},
 		}
 		if source.Name != "test-source" || source.Url != "oci://example.com/repo:tag" {
 			t.Error("Expected Name and Url to be set")
@@ -1270,7 +1272,7 @@ func TestSource_Install(t *testing.T) {
 url: oci://example.com/repo:tag
 install: "${some.condition ?? true}"`)
 
-		var source Source
+		var source v1alpha1.Source
 		err := yaml.Unmarshal(yamlData, &source)
 		if err != nil {
 			t.Fatalf("Failed to unmarshal: %v", err)
@@ -1292,10 +1294,10 @@ install: "${some.condition ?? true}"`)
 
 	t.Run("PreservesValueInRoundTrip", func(t *testing.T) {
 		falseVal := false
-		source := Source{
+		source := v1alpha1.Source{
 			Name:    "test-source",
 			Url:     "oci://example.com/repo:tag",
-			Install: &BoolExpression{Value: &falseVal, IsExpr: false},
+			Install: &v1alpha1.BoolExpression{Value: &falseVal, IsExpr: false},
 		}
 
 		marshaled, err := yaml.Marshal(&source)
@@ -1303,7 +1305,7 @@ install: "${some.condition ?? true}"`)
 			t.Fatalf("Failed to marshal: %v", err)
 		}
 
-		var roundTrip Source
+		var roundTrip v1alpha1.Source
 		err = yaml.Unmarshal(marshaled, &roundTrip)
 		if err != nil {
 			t.Fatalf("Failed to unmarshal round-trip: %v", err)
@@ -1320,7 +1322,7 @@ install: "${some.condition ?? true}"`)
 
 func TestTerraformComponent_Enabled(t *testing.T) {
 	t.Run("IsNilWhenNotSet", func(t *testing.T) {
-		component := TerraformComponent{
+		component := v1alpha1.TerraformComponent{
 			Path: "test/path",
 		}
 		if component.Path != "test/path" {
@@ -1333,9 +1335,9 @@ func TestTerraformComponent_Enabled(t *testing.T) {
 
 	t.Run("CanBeSetToFalse", func(t *testing.T) {
 		falseVal := false
-		component := TerraformComponent{
+		component := v1alpha1.TerraformComponent{
 			Path:    "test/path",
-			Enabled: &BoolExpression{Value: &falseVal, IsExpr: false},
+			Enabled: &v1alpha1.BoolExpression{Value: &falseVal, IsExpr: false},
 		}
 		if component.Path != "test/path" {
 			t.Error("Expected Path to be set")
@@ -1352,7 +1354,7 @@ func TestTerraformComponent_Enabled(t *testing.T) {
 		yamlData := []byte(`path: test/path
 enabled: "${cluster.driver != ''}"`)
 
-		var component TerraformComponent
+		var component v1alpha1.TerraformComponent
 		err := yaml.Unmarshal(yamlData, &component)
 		if err != nil {
 			t.Fatalf("Failed to unmarshal: %v", err)
@@ -1374,9 +1376,9 @@ enabled: "${cluster.driver != ''}"`)
 
 	t.Run("PreservesValueInRoundTrip", func(t *testing.T) {
 		falseVal := false
-		component := TerraformComponent{
+		component := v1alpha1.TerraformComponent{
 			Path:    "test/path",
-			Enabled: &BoolExpression{Value: &falseVal, IsExpr: false},
+			Enabled: &v1alpha1.BoolExpression{Value: &falseVal, IsExpr: false},
 		}
 
 		marshaled, err := yaml.Marshal(&component)
@@ -1384,7 +1386,7 @@ enabled: "${cluster.driver != ''}"`)
 			t.Fatalf("Failed to marshal: %v", err)
 		}
 
-		var roundTrip TerraformComponent
+		var roundTrip v1alpha1.TerraformComponent
 		err = yaml.Unmarshal(marshaled, &roundTrip)
 		if err != nil {
 			t.Fatalf("Failed to unmarshal round-trip: %v", err)
@@ -1400,9 +1402,9 @@ enabled: "${cluster.driver != ''}"`)
 
 	t.Run("IsCopiedInDeepCopy", func(t *testing.T) {
 		falseVal := false
-		original := &TerraformComponent{
+		original := &v1alpha1.TerraformComponent{
 			Path:    "test/path",
-			Enabled: &BoolExpression{Value: &falseVal, IsExpr: false},
+			Enabled: &v1alpha1.BoolExpression{Value: &falseVal, IsExpr: false},
 		}
 
 		copy := original.DeepCopy()
@@ -1429,7 +1431,7 @@ enabled: "${cluster.driver != ''}"`)
 
 func TestKustomization_Enabled(t *testing.T) {
 	t.Run("IsNilWhenNotSet", func(t *testing.T) {
-		kustomization := Kustomization{
+		kustomization := v1alpha1.Kustomization{
 			Name: "test-kustomization",
 		}
 		if kustomization.Name != "test-kustomization" {
@@ -1442,9 +1444,9 @@ func TestKustomization_Enabled(t *testing.T) {
 
 	t.Run("CanBeSetToFalse", func(t *testing.T) {
 		falseVal := false
-		kustomization := Kustomization{
+		kustomization := v1alpha1.Kustomization{
 			Name:    "test-kustomization",
-			Enabled: &BoolExpression{Value: &falseVal, IsExpr: false},
+			Enabled: &v1alpha1.BoolExpression{Value: &falseVal, IsExpr: false},
 		}
 		if kustomization.Name != "test-kustomization" {
 			t.Error("Expected Name to be set")
@@ -1461,7 +1463,7 @@ func TestKustomization_Enabled(t *testing.T) {
 		yamlData := []byte(`name: test-kustomization
 enabled: "${observability.enabled ?? true}"`)
 
-		var kustomization Kustomization
+		var kustomization v1alpha1.Kustomization
 		err := yaml.Unmarshal(yamlData, &kustomization)
 		if err != nil {
 			t.Fatalf("Failed to unmarshal: %v", err)
@@ -1483,9 +1485,9 @@ enabled: "${observability.enabled ?? true}"`)
 
 	t.Run("PreservesValueInRoundTrip", func(t *testing.T) {
 		falseVal := false
-		kustomization := Kustomization{
+		kustomization := v1alpha1.Kustomization{
 			Name:    "test-kustomization",
-			Enabled: &BoolExpression{Value: &falseVal, IsExpr: false},
+			Enabled: &v1alpha1.BoolExpression{Value: &falseVal, IsExpr: false},
 		}
 
 		marshaled, err := yaml.Marshal(&kustomization)
@@ -1493,7 +1495,7 @@ enabled: "${observability.enabled ?? true}"`)
 			t.Fatalf("Failed to marshal: %v", err)
 		}
 
-		var roundTrip Kustomization
+		var roundTrip v1alpha1.Kustomization
 		err = yaml.Unmarshal(marshaled, &roundTrip)
 		if err != nil {
 			t.Fatalf("Failed to unmarshal round-trip: %v", err)
@@ -1509,9 +1511,9 @@ enabled: "${observability.enabled ?? true}"`)
 
 	t.Run("IsCopiedInDeepCopy", func(t *testing.T) {
 		falseVal := false
-		original := &Kustomization{
+		original := &v1alpha1.Kustomization{
 			Name:    "test-kustomization",
-			Enabled: &BoolExpression{Value: &falseVal, IsExpr: false},
+			Enabled: &v1alpha1.BoolExpression{Value: &falseVal, IsExpr: false},
 		}
 
 		copy := original.DeepCopy()
@@ -1539,9 +1541,9 @@ enabled: "${observability.enabled ?? true}"`)
 func TestKustomization_Secrets(t *testing.T) {
 	t.Run("DeepCopyClonesSecretsIndependently", func(t *testing.T) {
 		// Given a kustomization carrying a named secret with a data key
-		original := &Kustomization{
+		original := &v1alpha1.Kustomization{
 			Name:    "cdn-install",
-			Secrets: map[string]SecretEntry{"cloudflare-creds": {Data: map[string]string{"api_token": "${cdn.cloudflare_api_key}"}}},
+			Secrets: map[string]v1alpha1.SecretEntry{"cloudflare-creds": {Data: map[string]string{"api_token": "${cdn.cloudflare_api_key}"}}},
 		}
 
 		// When deep-copying and mutating the copy's inner data map
@@ -1562,9 +1564,9 @@ func TestKustomization_Secrets(t *testing.T) {
 
 	t.Run("SecretsNeverMarshalToYAML", func(t *testing.T) {
 		// Given a kustomization with a literal secret in its compiled carrier
-		k := Kustomization{
+		k := v1alpha1.Kustomization{
 			Name:    "cdn-install",
-			Secrets: map[string]SecretEntry{"cloudflare-creds": {Data: map[string]string{"api_token": "PLAINTEXT-SECRET"}}},
+			Secrets: map[string]v1alpha1.SecretEntry{"cloudflare-creds": {Data: map[string]string{"api_token": "PLAINTEXT-SECRET"}}},
 		}
 
 		// When marshaling to YAML
@@ -1584,9 +1586,9 @@ func TestKustomization_Secrets(t *testing.T) {
 func TestFluxSystem_Secrets(t *testing.T) {
 	t.Run("DeepCopyClonesSecretsIndependently", func(t *testing.T) {
 		// Given a flux system with a named secret carrying namespaces and a data key
-		original := &FluxSystem{
+		original := &v1alpha1.FluxSystem{
 			Name:    "cdn",
-			Secrets: map[string]SecretEntry{"cloudflare-creds": {Namespaces: []string{"system-dns"}, Data: map[string]string{"api_token": "${cdn.cloudflare_api_key}"}}},
+			Secrets: map[string]v1alpha1.SecretEntry{"cloudflare-creds": {Namespaces: []string{"system-dns"}, Data: map[string]string{"api_token": "${cdn.cloudflare_api_key}"}}},
 		}
 
 		// When deep-copying and mutating the copy's inner data map and namespaces
@@ -1623,7 +1625,7 @@ install:
 `)
 
 		// When unmarshaling
-		var system FluxSystem
+		var system v1alpha1.FluxSystem
 		if err := yaml.Unmarshal(data, &system); err != nil {
 			t.Fatalf("Unmarshal: %v", err)
 		}
@@ -1651,7 +1653,7 @@ install:
 `)
 
 		// When unmarshaling
-		var system FluxSystem
+		var system v1alpha1.FluxSystem
 		if err := yaml.Unmarshal(data, &system); err != nil {
 			t.Fatalf("Unmarshal: %v", err)
 		}
