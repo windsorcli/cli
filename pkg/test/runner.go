@@ -168,19 +168,10 @@ func (r *TestRunner) discoverTestCases(filter string) ([]testCaseWithFile, error
 	return out, nil
 }
 
-// createGenerator creates a function that generates blueprints from test values.
-// It sets up an isolated runtime environment for each test case, ensuring complete test isolation by creating
-// a fresh ConfigHandler instance and configuring the runtime to use only the _template directory. The generator
-// applies test values directly without loading any context files, ensuring tests only use explicitly provided inputs.
-// If terraformOutputs are provided, it registers a mock TerraformProvider to supply mock outputs for terraform_output()
-// expressions. This allows tests to validate blueprint composition that depends on Terraform outputs without requiring
-// actual Terraform state. The env map supplies a hermetic environment for env() expressions, resolved only
-// from these entries so composition never reads the host env; WINDSOR_CONTEXT defaults to "test" and the
-// env map overrides it. Context isolation itself comes from the fresh ConfigHandler's .WithContext("test"),
-// which outranks the .windsor/context file and the WINDSOR_CONTEXT env var in GetContext.
-// When applySchemaDefaults is true the case composes with schema defaults materialized as production does,
-// rather than the test path's default skip, so a facet that reads a schema-defaulted field resolves it.
-// Returns a function that takes test values and returns a composed blueprint or an error.
+// createGenerator returns a function that composes a blueprint from test values in an isolated runtime.
+// Each call uses a fresh ConfigHandler with context "test", reads only the _template directory, and loads
+// no context files. terraformOutputs feed a mock terraform_output(). env() reads only the env map, where
+// WINDSOR_CONTEXT defaults to "test" unless the env map sets it. applySchemaDefaults materializes schema defaults as production does.
 func (r *TestRunner) createGenerator(terraformOutputs map[string]map[string]any, env map[string]string, applySchemaDefaults bool) func(values map[string]any) (*blueprintv1alpha1.Blueprint, error) {
 	return func(values map[string]any) (*blueprintv1alpha1.Blueprint, error) {
 		freshConfigHandler := config.NewConfigHandler(r.baseShell).WithContext("test")
@@ -495,21 +486,11 @@ func normalizeTestValue(v any) any {
 	return v
 }
 
-// registerTerraformOutputHelperForMock registers a mock implementation of the terraform_output() expression helper
-// for use in test scenarios. This allows tests to provide mock Terraform output values without requiring actual
-// Terraform state or infrastructure. The helper validates that exactly two string arguments (component ID and output key)
-// are provided. Unlike production, it always evaluates immediately (ignores the deferred flag) since mock outputs
-// are always available during test execution.
-//
-// The recordReference callback (when non-nil) is invoked with each component ID the expression references. The runner
-// uses this to collect a deferred validation set: after composition completes, any referenced component absent from the
-// composed blueprint surfaces as "component not found: <name>", matching the live runtime error raised at env-var
-// building time. Validation must run after Generate() because facet processing and the composer evaluate inputs before
-// any single facet's components reach the composedBlueprint; an inline check inside the helper would false-positive on
-// same-facet sibling references. The callback is optional so helper-level unit tests need not wire it.
-//
-// If the key exists in the supplied mock outputs, the value is returned; if not, nil is returned (not an error) so the
-// ?? fallback operator continues to work for deferred wiring patterns (key absent on a registered component).
+// registerTerraformOutputHelperForMock registers a terraform_output() helper that reads mockProvider outputs.
+// It requires two string arguments, the component ID and the output key, and always evaluates at once.
+// A missing key returns nil, so the ?? fallback operator still works. recordReference, when not nil,
+// receives each referenced component ID. The runner checks these IDs after composition, because a check
+// inside the helper would reject a reference to a sibling component of the same facet.
 func registerTerraformOutputHelperForMock(mockProvider *terraform.MockTerraformProvider, eval evaluator.ExpressionEvaluator, recordReference func(componentID string)) {
 	eval.Register("terraform_output", func(params []any, deferred bool) (any, error) {
 		if len(params) != 2 {
