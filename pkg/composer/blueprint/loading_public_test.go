@@ -612,6 +612,25 @@ func TestLoadBlueprint(t *testing.T) {
 		}
 	})
 
+	t.Run("ClearsTheUserSourceOfUserBlueprintComponents", func(t *testing.T) {
+		// Given a user blueprint whose terraform component and kustomization name the user source
+		f := newFixture(t)
+		f.project(t)
+		f.write(t, "contexts/local/blueprint.yaml", blueprintHeader+"metadata:\n  name: mine\nterraform:\n- path: cluster\n  source: user\nkustomize:\n- name: app\n  path: app\n  source: user\n")
+
+		// When the blueprint is loaded
+		h := f.mustLoad(t)
+
+		// Then neither carries a source, so the component resolves to the project path
+		if k := kustomization(h.Generate(), "app"); k == nil || k.Source != "" {
+			t.Errorf("expected kustomization app without a source, got %+v", k)
+		}
+		components := h.GetTerraformComponents()
+		if len(components) != 1 || components[0].Source != "" || components[0].FullPath != filepath.Join(f.root, "terraform", "cluster") {
+			t.Errorf("expected one local component in the project path, got %+v", components)
+		}
+	})
+
 	t.Run("ExposesTheUserRepositoryToExpressionsWithoutTheSecretName", func(t *testing.T) {
 		// Given a user blueprint repository with a ref and a secret name, and a facet that reads it
 		f := newFixture(t)
