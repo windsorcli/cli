@@ -77,7 +77,7 @@ var checkNodeHealthCmd = &cobra.Command{
 	Short: "Check the health of cluster nodes.",
 	Long: `Probe one or more cluster nodes for readiness. Useful after 'windsor upgrade' or for routine monitoring.
 
-At least one of --nodes or --k8s-endpoint must be set.`,
+Windsor connects through the endpoints in TALOSCONFIG and sends each request to a --nodes address, as 'talosctl -e <endpoint> -n <node>' does. At least one of --nodes or --k8s-endpoint must be set.`,
 	Example: `# Health-check one node, polling through a reboot
 windsor check node-health --nodes=10.0.0.5 --wait-for-reboot
 
@@ -157,7 +157,7 @@ func init() {
 	checkCmd.AddCommand(checkNodeHealthCmd)
 
 	checkNodeHealthCmd.Flags().DurationVar(&nodeHealthTimeout, "timeout", 0, "Maximum time to wait for nodes to be ready. Default 5m.")
-	checkNodeHealthCmd.Flags().StringSliceVar(&nodeHealthNodes, "nodes", []string{}, "Node addresses to check.")
+	checkNodeHealthCmd.Flags().StringSliceVar(&nodeHealthNodes, "nodes", []string{}, "Talos node addresses to check. Windsor reaches them through the TALOSCONFIG endpoints.")
 	checkNodeHealthCmd.Flags().StringVar(&nodeHealthVersion, "version", "", "Expected Talos version. Reports a mismatch if set.")
 	checkNodeHealthCmd.Flags().StringVar(&k8sEndpoint, "k8s-endpoint", "", "Probe the Kubernetes API at this URL, or pass without value to use the configured endpoint.")
 	checkNodeHealthCmd.Flags().Lookup("k8s-endpoint").NoOptDefVal = "true"

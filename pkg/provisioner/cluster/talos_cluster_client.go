@@ -52,6 +52,7 @@ func NewTalosClusterClient() *TalosClusterClient {
 // meet the criteria or timeout occurs. For each node, it validates that all critical services
 // are running and healthy, and if expectedVersion is provided, verifies the node is running
 // that specific version. Services listed in skipServices are ignored during health checks.
+// Each node is reached through the talosconfig endpoints, so a node address need not be dialable.
 // The method provides detailed status output for each node during polling, showing healthy/unhealthy
 // services and version information. Returns an error with specific details about which nodes
 // failed health checks or version validation if timeout is reached.
@@ -183,8 +184,8 @@ func (c *TalosClusterClient) UpgradeNodes(ctx context.Context, nodeAddresses []s
 // generated fresh on every boot, used to confirm a genuine reboot occurred.
 const bootIDPath = "/proc/sys/kernel/random/boot_id"
 
-// CaptureNodeBootIDs reads each node's current kernel boot ID, dialing its endpoint
-// directly. A node whose boot ID can't be read (permission denied, unreachable) is
+// CaptureNodeBootIDs reads each node's current kernel boot ID through the talosconfig
+// endpoints. A node whose boot ID can't be read (permission denied, unreachable) is
 // omitted from the result rather than failing the capture outright. If the client
 // itself can't be initialized (e.g. TALOSCONFIG unset), every node is omitted.
 func (c *TalosClusterClient) CaptureNodeBootIDs(ctx context.Context, nodeAddresses []string) map[string]string {
@@ -206,15 +207,17 @@ func (c *TalosClusterClient) CaptureNodeBootIDs(ctx context.Context, nodeAddress
 	return bootIDs
 }
 
-// getNodeBootID reads a single node's kernel boot ID, dialing its endpoint directly.
+// getNodeBootID reads the kernel boot ID of one node. It connects through the talosconfig
+// endpoints and sends the request to the node as a single target, as `talosctl -n` does.
+// A new connection on each call keeps a reboot of an endpoint node from leaving a stale one.
 func (c *TalosClusterClient) getNodeBootID(ctx context.Context, nodeAddress string) (string, error) {
-	nodeClient, err := c.shims.TalosNewClient(ctx, client.WithConfig(c.config), client.WithEndpoints(nodeAddress))
+	nodeClient, err := c.shims.TalosNewClient(ctx, client.WithConfig(c.config))
 	if err != nil {
 		return "", err
 	}
 	defer c.shims.TalosClose(nodeClient)
 
-	reader, err := c.shims.TalosRead(ctx, nodeClient, bootIDPath)
+	reader, err := c.shims.TalosRead(c.shims.TalosWithNode(ctx, nodeAddress), nodeClient, bootIDPath)
 	if err != nil {
 		return "", err
 	}
@@ -503,19 +506,23 @@ func (c *TalosClusterClient) isControlPlaneNode(ctx context.Context, nodeAddress
 	return false, nil
 }
 
-// getNodeVersion gets the version of a single node, dialing its endpoint directly
-// rather than proxying through the shared client, so an unreachable node fails
-// promptly instead of the proxy masking it. Returns an error if the API call fails.
+// getNodeVersion gets the Talos version of one node. It connects through the talosconfig
+// endpoints and sends the request to the node as a single target, as `talosctl -n` does.
+// The endpoint returns an error for a node it cannot reach. Returns an error if the API call
+// fails or the response has no version.
 func (c *TalosClusterClient) getNodeVersion(ctx context.Context, nodeAddress string) (string, error) {
-	nodeClient, err := c.shims.TalosNewClient(ctx, client.WithConfig(c.config), client.WithEndpoints(nodeAddress))
+	nodeClient, err := c.shims.TalosNewClient(ctx, client.WithConfig(c.config))
 	if err != nil {
 		return "", err
 	}
 	defer c.shims.TalosClose(nodeClient)
 
-	version, err := c.shims.TalosVersion(ctx, nodeClient)
+	version, err := c.shims.TalosVersion(c.shims.TalosWithNode(ctx, nodeAddress), nodeClient)
 	if err != nil {
 		return "", err
+	}
+	if len(version.GetMessages()) == 0 || version.GetMessages()[0].GetVersion() == nil {
+		return "", fmt.Errorf("node %s returned no version", nodeAddress)
 	}
 
 	versionTag := version.Messages[0].Version.Tag

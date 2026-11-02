@@ -2,6 +2,7 @@ package cluster
 
 import (
 	"context"
+	"crypto/tls"
 	"fmt"
 	"io"
 	"net"
@@ -34,6 +35,10 @@ func setupDefaultShims() *Shims {
 	}
 
 	shims.TalosWithNodes = func(ctx context.Context, nodes ...string) context.Context {
+		return ctx
+	}
+
+	shims.TalosWithNode = func(ctx context.Context, node string) context.Context {
 		return ctx
 	}
 
@@ -77,6 +82,30 @@ func setupDefaultShims() *Shims {
 	}
 
 	return shims
+}
+
+// forwardedEndpointConfig returns a talosconfig whose only endpoint is a forwarded host port.
+func forwardedEndpointConfig() *clientconfig.Config {
+	return &clientconfig.Config{
+		Context: "test",
+		Contexts: map[string]*clientconfig.Context{
+			"test": {Endpoints: []string{"192.168.3.77:40000"}},
+		},
+	}
+}
+
+// endpointRecordingClient builds a real Talos client from opts and records its endpoints.
+// The gRPC connection is lazy, so the client dials nothing.
+func endpointRecordingClient(t *testing.T, endpoints *[]string) func(context.Context, ...talosclient.OptionFunc) (*talosclient.Client, error) {
+	t.Helper()
+	return func(ctx context.Context, opts ...talosclient.OptionFunc) (*talosclient.Client, error) {
+		c, err := talosclient.New(ctx, append(opts, talosclient.WithTLSConfig(&tls.Config{}))...)
+		if err != nil {
+			return nil, err
+		}
+		*endpoints = c.GetEndpoints()
+		return c, nil
+	}
 }
 
 // =============================================================================
@@ -679,6 +708,37 @@ func TestTalosClusterClient_getNodeBootID(t *testing.T) {
 		}
 	})
 
+	t.Run("TargetsNodeThroughConfigEndpoints", func(t *testing.T) {
+		// Given a talosconfig whose endpoint differs from the node address
+		client := setup(t)
+		client.config = forwardedEndpointConfig()
+		var endpoints []string
+		client.shims.TalosNewClient = endpointRecordingClient(t, &endpoints)
+		client.shims.TalosClose = func(c *talosclient.Client) { _ = c.Close() }
+		var target string
+		client.shims.TalosWithNode = func(ctx context.Context, node string) context.Context {
+			target = node
+			return ctx
+		}
+		client.shims.TalosRead = func(ctx context.Context, c *talosclient.Client, path string) (io.ReadCloser, error) {
+			return io.NopCloser(strings.NewReader("abc-123\n")), nil
+		}
+
+		// When the boot ID is read
+		_, err := client.getNodeBootID(context.Background(), "10.77.0.167")
+
+		// Then the client dials the talosconfig endpoint and targets the node
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		if len(endpoints) != 1 || endpoints[0] != "192.168.3.77:40000" {
+			t.Errorf("Expected endpoints [192.168.3.77:40000], got %v", endpoints)
+		}
+		if target != "10.77.0.167" {
+			t.Errorf("Expected target 10.77.0.167, got %q", target)
+		}
+	})
+
 	t.Run("NewClientError", func(t *testing.T) {
 		client := setup(t)
 		client.shims.TalosNewClient = func(ctx context.Context, opts ...talosclient.OptionFunc) (*talosclient.Client, error) {
@@ -1216,6 +1276,50 @@ func TestTalosClusterClient_getNodeVersion(t *testing.T) {
 		}
 	})
 
+	t.Run("TargetsNodeThroughConfigEndpoints", func(t *testing.T) {
+		// Given a talosconfig whose endpoint differs from the node address
+		client := setup(t)
+		client.config = forwardedEndpointConfig()
+		var endpoints []string
+		client.shims.TalosNewClient = endpointRecordingClient(t, &endpoints)
+		client.shims.TalosClose = func(c *talosclient.Client) { _ = c.Close() }
+		var target string
+		client.shims.TalosWithNode = func(ctx context.Context, node string) context.Context {
+			target = node
+			return ctx
+		}
+
+		// When the version is read
+		_, err := client.getNodeVersion(context.Background(), "10.77.0.167")
+
+		// Then the client dials the talosconfig endpoint and targets the node
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		if len(endpoints) != 1 || endpoints[0] != "192.168.3.77:40000" {
+			t.Errorf("Expected endpoints [192.168.3.77:40000], got %v", endpoints)
+		}
+		if target != "10.77.0.167" {
+			t.Errorf("Expected target 10.77.0.167, got %q", target)
+		}
+	})
+
+	t.Run("EmptyVersionResponse", func(t *testing.T) {
+		// Given a node that returns no version message
+		client := setup(t)
+		client.shims.TalosVersion = func(ctx context.Context, client *talosclient.Client) (*machine.VersionResponse, error) {
+			return &machine.VersionResponse{}, nil
+		}
+
+		// When the version is read
+		_, err := client.getNodeVersion(context.Background(), "10.0.0.1")
+
+		// Then an error names the node
+		if err == nil || !strings.Contains(err.Error(), "10.0.0.1 returned no version") {
+			t.Errorf("Expected no-version error, got %v", err)
+		}
+	})
+
 	t.Run("NewClientError", func(t *testing.T) {
 		client := setup(t)
 		client.shims.TalosNewClient = func(ctx context.Context, opts ...talosclient.OptionFunc) (*talosclient.Client, error) {
@@ -1456,6 +1560,10 @@ func TestNewShims(t *testing.T) {
 
 		if shims.TalosWithNodes == nil {
 			t.Error("Expected TalosWithNodes to be initialized")
+		}
+
+		if shims.TalosWithNode == nil {
+			t.Error("Expected TalosWithNode to be initialized")
 		}
 
 		if shims.TalosServiceList == nil {
