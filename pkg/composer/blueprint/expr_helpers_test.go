@@ -1,13 +1,15 @@
-package blueprint
+package blueprint_test
 
 import (
+	"reflect"
 	"testing"
 
+	"github.com/windsorcli/cli/pkg/composer/blueprint"
 	"github.com/windsorcli/cli/pkg/runtime/evaluator"
 )
 
 // =============================================================================
-// Test Helpers
+// Test Public Methods
 // =============================================================================
 
 func TestEvaluateWithOrigins(t *testing.T) {
@@ -30,7 +32,7 @@ func TestEvaluateWithOrigins(t *testing.T) {
 			"config.from_overlay": "facets/overlay/facet.yaml",
 		}
 
-		evaluated, err := EvaluateWithOrigins(mockEvaluator, "config", value, origins, nil, false)
+		evaluated, err := blueprint.EvaluateWithOrigins(mockEvaluator, "config", value, origins, nil, false)
 		if err != nil {
 			t.Fatalf("Expected no error, got %v", err)
 		}
@@ -52,49 +54,38 @@ func TestEvaluateWithOrigins(t *testing.T) {
 			t.Fatalf("Expected from_overlay to evaluate with overlay facet path, got %q", got)
 		}
 	})
-}
 
-func TestExpressionIsDerivedFromBlock(t *testing.T) {
-	t.Run("ReturnsTrueWhenBlockRefIsFunctionArgument", func(t *testing.T) {
-		got := expressionIsDerivedFromBlock("${string(talos_common.common_patch)}", "talos_common")
-		if !got {
-			t.Error("Expected function argument reference to be treated as derived")
+	t.Run("EvaluatesAValueAgainstTheScope", func(t *testing.T) {
+		// Given an evaluator and a scope that holds a region
+		f := newFixture(t)
+		scope := map[string]any{"region": "us-east-1"}
+
+		// When an input with no origin is evaluated
+		got, err := blueprint.EvaluateWithOrigins(f.runtime.Evaluator, "terraform.c.inputs.region", "${region}", nil, scope, false)
+
+		// Then it resolves against the scope
+		if err != nil || got != "us-east-1" {
+			t.Errorf("expected us-east-1, got %v (err=%v)", got, err)
 		}
 	})
 
-	t.Run("ReturnsTrueWhenNestedFunctionUsesBlockRef", func(t *testing.T) {
-		expr := "${len(string(talos_common.common_patch)) > 0}"
-		got := expressionIsDerivedFromBlock(expr, "talos_common")
-		if !got {
-			t.Error("Expected nested function argument reference to be treated as derived")
-		}
-	})
+	t.Run("EvaluatesEachSubKeyAgainstItsOrigin", func(t *testing.T) {
+		// Given a map input whose sub-keys come from different facets
+		f := newFixture(t)
+		f.write(t, "contexts/_template/facets/a.yaml", "")
+		f.write(t, "contexts/_template/facets/data/a.txt", "from-a")
+		origins := map[string]string{"inputs.cfg.a": f.root + "/contexts/_template/facets/a.yaml"}
+		value := map[string]any{"a": "${file('data/a.txt')}", "b": "plain"}
 
-	t.Run("ReturnsFalseForSimplePropertyRead", func(t *testing.T) {
-		got := expressionIsDerivedFromBlock("${workstation.runtime ?? 'colima'}", "workstation")
-		if got {
-			t.Error("Expected simple property reads to not be treated as derived")
-		}
-	})
+		// When the input is evaluated
+		got, err := blueprint.EvaluateWithOrigins(f.runtime.Evaluator, "inputs.cfg", value, origins, nil, false)
 
-	t.Run("ReturnsFalseForNonFunctionComparison", func(t *testing.T) {
-		got := expressionIsDerivedFromBlock("${talos_common.common_patch != nil}", "talos_common")
-		if got {
-			t.Error("Expected non-function comparisons to not be treated as derived")
+		// Then the sub-key with an origin resolves a path relative to its facet
+		if err != nil {
+			t.Fatalf("EvaluateWithOrigins: %v", err)
 		}
-	})
-
-	t.Run("ReturnsFalseWhenBlockNameDoesNotMatch", func(t *testing.T) {
-		got := expressionIsDerivedFromBlock("${string(other_block.common_patch)}", "talos_common")
-		if got {
-			t.Error("Expected references to different blocks to not be treated as derived")
-		}
-	})
-
-	t.Run("ReturnsFalseForMalformedExpression", func(t *testing.T) {
-		got := expressionIsDerivedFromBlock("${string(talos_common.common_patch)", "talos_common")
-		if got {
-			t.Error("Expected malformed expressions to not be treated as derived")
+		if !reflect.DeepEqual(got, map[string]any{"a": "from-a", "b": "plain"}) {
+			t.Errorf("unexpected value %v", got)
 		}
 	})
 }

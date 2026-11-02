@@ -1,4 +1,4 @@
-package blueprint
+package blueprint_test
 
 import (
 	"fmt"
@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
+	"github.com/windsorcli/cli/pkg/composer/blueprint"
 	"github.com/windsorcli/cli/pkg/runtime"
 	"github.com/windsorcli/cli/pkg/runtime/config"
 	"github.com/windsorcli/cli/pkg/runtime/evaluator"
@@ -73,8 +74,8 @@ func setupProcessorMocks(t *testing.T) *ProcessorTestMocks {
 }
 
 // evalTerraformInputsWithScope evaluates component inputs with the given scope (same as handler does
-// with mergedScope). Used by processor config tests because the processor no longer evaluates inputs;
-// inputs are evaluated once by the handler with the full merged config (Terraform-locals style).
+// with mergedScope). Processor config tests use it, because the handler evaluates the inputs once
+// with the full merged config, not the processor.
 func evalTerraformInputsWithScope(t *testing.T, rt *runtime.Runtime, inputs map[string]any, scope map[string]any) map[string]any {
 	t.Helper()
 	if rt == nil || rt.Evaluator == nil || inputs == nil {
@@ -97,33 +98,11 @@ func TestNewBlueprintProcessor(t *testing.T) {
 		mocks := setupProcessorMocks(t)
 
 		// When creating a new processor
-		processor := NewBlueprintProcessor(mocks.Runtime)
+		processor := blueprint.NewBlueprintProcessor(mocks.Runtime)
 
 		// Then processor should be created with defaults
 		if processor == nil {
 			t.Fatal("Expected processor to be created")
-		}
-		if processor.runtime != mocks.Runtime {
-			t.Error("Expected runtime to be set")
-		}
-		if processor.evaluator != mocks.Evaluator {
-			t.Error("Expected evaluator from runtime to be used")
-		}
-	})
-
-	t.Run("UsesRuntimeEvaluator", func(t *testing.T) {
-		// Given a processor
-		mocks := setupProcessorMocks(t)
-
-		// When creating a processor
-		processor := NewBlueprintProcessor(mocks.Runtime)
-
-		// Then processor should use runtime evaluator
-		if processor.evaluator == nil {
-			t.Error("Expected evaluator to be set")
-		}
-		if processor.evaluator != mocks.Runtime.Evaluator {
-			t.Error("Expected processor to use runtime evaluator")
 		}
 	})
 
@@ -136,7 +115,7 @@ func TestNewBlueprintProcessor(t *testing.T) {
 				t.Error("Expected panic when runtime is nil")
 			}
 		}()
-		NewBlueprintProcessor(nil)
+		blueprint.NewBlueprintProcessor(nil)
 	})
 
 	t.Run("PanicsWhenEvaluatorIsNil", func(t *testing.T) {
@@ -151,7 +130,7 @@ func TestNewBlueprintProcessor(t *testing.T) {
 				t.Error("Expected panic when evaluator is nil")
 			}
 		}()
-		NewBlueprintProcessor(mocks.Runtime)
+		blueprint.NewBlueprintProcessor(mocks.Runtime)
 	})
 }
 
@@ -159,15 +138,15 @@ func TestNewBlueprintProcessor(t *testing.T) {
 // Test Public Methods
 // =============================================================================
 
-func TestProcessor_ProcessFacets(t *testing.T) {
+func TestProcessor_ProcessGlobally(t *testing.T) {
 	t.Run("ReturnsEmptyBlueprintForNoFacets", func(t *testing.T) {
 		// Given a processor and empty facets
 		mocks := setupProcessorMocks(t)
-		processor := NewBlueprintProcessor(mocks.Runtime)
+		processor := blueprint.NewBlueprintProcessor(mocks.Runtime)
 		target := &blueprintv1alpha1.Blueprint{}
 
 		// When processing empty facets
-		_, err := processor.ProcessFacets(target, nil)
+		_, err := processFacets(processor, target, nil)
 
 		// Then should return empty blueprint
 		if err != nil {
@@ -184,7 +163,7 @@ func TestProcessor_ProcessFacets(t *testing.T) {
 	t.Run("IncludesFacetWithoutWhenCondition", func(t *testing.T) {
 		// Given a facet without when condition
 		mocks := setupProcessorMocks(t)
-		processor := NewBlueprintProcessor(mocks.Runtime)
+		processor := blueprint.NewBlueprintProcessor(mocks.Runtime)
 
 		facets := []blueprintv1alpha1.Facet{
 			{
@@ -197,7 +176,7 @@ func TestProcessor_ProcessFacets(t *testing.T) {
 
 		// When processing facets
 		target := &blueprintv1alpha1.Blueprint{}
-		_, err := processor.ProcessFacets(target, facets)
+		_, err := processFacets(processor, target, facets)
 
 		// Then facet components should be included
 		if err != nil {
@@ -214,7 +193,7 @@ func TestProcessor_ProcessFacets(t *testing.T) {
 	t.Run("IncludesFacetWhenConditionTrue", func(t *testing.T) {
 		// Given a facet with true condition
 		mocks := setupProcessorMocks(t)
-		processor := NewBlueprintProcessor(mocks.Runtime)
+		processor := blueprint.NewBlueprintProcessor(mocks.Runtime)
 
 		facets := []blueprintv1alpha1.Facet{
 			{
@@ -231,7 +210,7 @@ func TestProcessor_ProcessFacets(t *testing.T) {
 
 		// When processing facets
 		target := &blueprintv1alpha1.Blueprint{}
-		_, err := processor.ProcessFacets(target, facets)
+		_, err := processFacets(processor, target, facets)
 
 		// Then facet should be included
 		if err != nil {
@@ -244,7 +223,7 @@ func TestProcessor_ProcessFacets(t *testing.T) {
 
 	t.Run("IncludesFacetWhenConditionUsesExtraScope", func(t *testing.T) {
 		mocks := setupProcessorMocks(t)
-		processor := NewBlueprintProcessor(mocks.Runtime)
+		processor := blueprint.NewBlueprintProcessor(mocks.Runtime)
 		mocks.ConfigHandler.GetContextValuesFunc = func() (map[string]any, error) {
 			return map[string]any{"enabled": false}, nil
 		}
@@ -261,7 +240,7 @@ func TestProcessor_ProcessFacets(t *testing.T) {
 		}
 
 		target := &blueprintv1alpha1.Blueprint{}
-		_, err := processor.ProcessFacets(target, facets)
+		_, err := processFacets(processor, target, facets)
 
 		if err != nil {
 			t.Fatalf("Expected no error, got %v", err)
@@ -277,7 +256,7 @@ func TestProcessor_ProcessFacets(t *testing.T) {
 	t.Run("ExcludesFacetWhenConditionFalse", func(t *testing.T) {
 		// Given a facet with false condition
 		mocks := setupProcessorMocks(t)
-		processor := NewBlueprintProcessor(mocks.Runtime)
+		processor := blueprint.NewBlueprintProcessor(mocks.Runtime)
 
 		facets := []blueprintv1alpha1.Facet{
 			{
@@ -291,7 +270,7 @@ func TestProcessor_ProcessFacets(t *testing.T) {
 
 		// When processing facets
 		target := &blueprintv1alpha1.Blueprint{}
-		_, err := processor.ProcessFacets(target, facets)
+		_, err := processFacets(processor, target, facets)
 
 		// Then facet should be excluded
 		if err != nil {
@@ -306,7 +285,7 @@ func TestProcessor_ProcessFacets(t *testing.T) {
 		// Given one included and one when-excluded facet, the excluded one contributing a terraform
 		// component, a kustomization, and a flux system.
 		mocks := setupProcessorMocks(t)
-		processor := NewBlueprintProcessor(mocks.Runtime)
+		processor := blueprint.NewBlueprintProcessor(mocks.Runtime)
 		mocks.ConfigHandler.GetContextValuesFunc = func() (map[string]any, error) {
 			return map[string]any{"enabled": false}, nil
 		}
@@ -325,7 +304,7 @@ func TestProcessor_ProcessFacets(t *testing.T) {
 
 		// When processing
 		processor.ResetExcludedFacets()
-		if _, err := processor.ProcessFacets(&blueprintv1alpha1.Blueprint{}, facets); err != nil {
+		if _, err := processFacets(processor, &blueprintv1alpha1.Blueprint{}, facets); err != nil {
 			t.Fatalf("Expected no error, got %v", err)
 		}
 
@@ -352,7 +331,7 @@ func TestProcessor_ProcessFacets(t *testing.T) {
 
 	t.Run("ExcludesFacetWhenConditionReferencesUndefinedVariable", func(t *testing.T) {
 		mocks := setupProcessorMocks(t)
-		processor := NewBlueprintProcessor(mocks.Runtime)
+		processor := blueprint.NewBlueprintProcessor(mocks.Runtime)
 
 		facets := []blueprintv1alpha1.Facet{
 			{
@@ -369,7 +348,7 @@ func TestProcessor_ProcessFacets(t *testing.T) {
 		}
 
 		target := &blueprintv1alpha1.Blueprint{}
-		_, err := processor.ProcessFacets(target, facets)
+		_, err := processFacets(processor, target, facets)
 
 		if err != nil {
 			t.Fatalf("Expected no error, got %v", err)
@@ -381,7 +360,7 @@ func TestProcessor_ProcessFacets(t *testing.T) {
 
 	t.Run("ProcessesFacetsInSortedOrder", func(t *testing.T) {
 		mocks := setupProcessorMocks(t)
-		processor := NewBlueprintProcessor(mocks.Runtime)
+		processor := blueprint.NewBlueprintProcessor(mocks.Runtime)
 
 		facets := []blueprintv1alpha1.Facet{
 			{
@@ -400,7 +379,7 @@ func TestProcessor_ProcessFacets(t *testing.T) {
 
 		// When processing facets
 		target := &blueprintv1alpha1.Blueprint{}
-		_, err := processor.ProcessFacets(target, facets)
+		_, err := processFacets(processor, target, facets)
 
 		// Then components should be in sorted facet order (ordinal then name; both ordinal 0 so name tiebreak: a before z)
 		if err != nil {
@@ -419,7 +398,7 @@ func TestProcessor_ProcessFacets(t *testing.T) {
 
 	t.Run("ProcessesFacetsByOrdinalThenName", func(t *testing.T) {
 		mocks := setupProcessorMocks(t)
-		processor := NewBlueprintProcessor(mocks.Runtime)
+		processor := blueprint.NewBlueprintProcessor(mocks.Runtime)
 
 		ord100 := 100
 		ord200 := 200
@@ -441,7 +420,7 @@ func TestProcessor_ProcessFacets(t *testing.T) {
 		}
 
 		target := &blueprintv1alpha1.Blueprint{}
-		_, err := processor.ProcessFacets(target, facets)
+		_, err := processFacets(processor, target, facets)
 		if err != nil {
 			t.Fatalf("Expected no error, got %v", err)
 		}
@@ -455,7 +434,7 @@ func TestProcessor_ProcessFacets(t *testing.T) {
 
 	t.Run("SameNameKustomizationHigherOrdinalWins", func(t *testing.T) {
 		mocks := setupProcessorMocks(t)
-		processor := NewBlueprintProcessor(mocks.Runtime)
+		processor := blueprint.NewBlueprintProcessor(mocks.Runtime)
 
 		ord199 := 199
 		ord400 := 400
@@ -477,7 +456,7 @@ func TestProcessor_ProcessFacets(t *testing.T) {
 		}
 
 		target := &blueprintv1alpha1.Blueprint{}
-		_, err := processor.ProcessFacets(target, facets)
+		_, err := processFacets(processor, target, facets)
 		if err != nil {
 			t.Fatalf("Expected no error, got %v", err)
 		}
@@ -491,7 +470,7 @@ func TestProcessor_ProcessFacets(t *testing.T) {
 
 	t.Run("SameNameKustomizationMergesByDefault", func(t *testing.T) {
 		mocks := setupProcessorMocks(t)
-		processor := NewBlueprintProcessor(mocks.Runtime)
+		processor := blueprint.NewBlueprintProcessor(mocks.Runtime)
 
 		ord300 := 300
 		ord400 := 400
@@ -523,7 +502,7 @@ func TestProcessor_ProcessFacets(t *testing.T) {
 		}
 
 		target := &blueprintv1alpha1.Blueprint{}
-		_, err := processor.ProcessFacets(target, facets)
+		_, err := processFacets(processor, target, facets)
 		if err != nil {
 			t.Fatalf("Expected no error, got %v", err)
 		}
@@ -545,7 +524,7 @@ func TestProcessor_ProcessFacets(t *testing.T) {
 	t.Run("EvaluatesInputExpressions", func(t *testing.T) {
 		// Given a facet with input expressions and config data
 		mocks := setupProcessorMocks(t)
-		processor := NewBlueprintProcessor(mocks.Runtime)
+		processor := blueprint.NewBlueprintProcessor(mocks.Runtime)
 
 		facets := []blueprintv1alpha1.Facet{
 			{
@@ -569,7 +548,7 @@ func TestProcessor_ProcessFacets(t *testing.T) {
 
 		// When processing facets (inputs are not evaluated in processor; handler evaluates with merged scope)
 		target := &blueprintv1alpha1.Blueprint{}
-		scope, err := processor.ProcessFacets(target, facets)
+		scope, err := processFacets(processor, target, facets)
 		if err != nil {
 			t.Fatalf("Expected no error, got %v", err)
 		}
@@ -585,7 +564,7 @@ func TestProcessor_ProcessFacets(t *testing.T) {
 	t.Run("IncludesKustomizationsWithoutCondition", func(t *testing.T) {
 		// Given a facet with kustomizations
 		mocks := setupProcessorMocks(t)
-		processor := NewBlueprintProcessor(mocks.Runtime)
+		processor := blueprint.NewBlueprintProcessor(mocks.Runtime)
 
 		facets := []blueprintv1alpha1.Facet{
 			{
@@ -598,7 +577,7 @@ func TestProcessor_ProcessFacets(t *testing.T) {
 
 		// When processing facets
 		target := &blueprintv1alpha1.Blueprint{}
-		_, err := processor.ProcessFacets(target, facets)
+		_, err := processFacets(processor, target, facets)
 
 		// Then kustomization should be included
 		if err != nil {
@@ -615,7 +594,7 @@ func TestProcessor_ProcessFacets(t *testing.T) {
 	t.Run("ExcludesComponentWhenComponentConditionFalse", func(t *testing.T) {
 		// Given a facet with component-level condition
 		mocks := setupProcessorMocks(t)
-		processor := NewBlueprintProcessor(mocks.Runtime)
+		processor := blueprint.NewBlueprintProcessor(mocks.Runtime)
 
 		facets := []blueprintv1alpha1.Facet{
 			{
@@ -634,7 +613,7 @@ func TestProcessor_ProcessFacets(t *testing.T) {
 
 		// When processing facets
 		target := &blueprintv1alpha1.Blueprint{}
-		_, err := processor.ProcessFacets(target, facets)
+		_, err := processFacets(processor, target, facets)
 
 		// Then only unconditional component should be included
 		if err != nil {
@@ -651,7 +630,7 @@ func TestProcessor_ProcessFacets(t *testing.T) {
 	t.Run("ExcludesKustomizationWhenConditionFalse", func(t *testing.T) {
 		// Given a facet with conditional kustomization
 		mocks := setupProcessorMocks(t)
-		processor := NewBlueprintProcessor(mocks.Runtime)
+		processor := blueprint.NewBlueprintProcessor(mocks.Runtime)
 
 		facets := []blueprintv1alpha1.Facet{
 			{
@@ -670,7 +649,7 @@ func TestProcessor_ProcessFacets(t *testing.T) {
 
 		// When processing facets
 		target := &blueprintv1alpha1.Blueprint{}
-		_, err := processor.ProcessFacets(target, facets)
+		_, err := processFacets(processor, target, facets)
 
 		// Then only unconditional kustomization should be included
 		if err != nil {
@@ -687,7 +666,7 @@ func TestProcessor_ProcessFacets(t *testing.T) {
 	t.Run("ReturnsErrorForInvalidFacetCondition", func(t *testing.T) {
 		// Given a facet with invalid condition syntax
 		mocks := setupProcessorMocks(t)
-		processor := NewBlueprintProcessor(mocks.Runtime)
+		processor := blueprint.NewBlueprintProcessor(mocks.Runtime)
 
 		facets := []blueprintv1alpha1.Facet{
 			{
@@ -701,7 +680,7 @@ func TestProcessor_ProcessFacets(t *testing.T) {
 
 		// When processing facets
 		target := &blueprintv1alpha1.Blueprint{}
-		_, err := processor.ProcessFacets(target, facets)
+		_, err := processFacets(processor, target, facets)
 
 		// Then should return error
 		if err == nil {
@@ -712,7 +691,7 @@ func TestProcessor_ProcessFacets(t *testing.T) {
 	t.Run("ReturnsErrorForInvalidComponentCondition", func(t *testing.T) {
 		// Given a component with invalid condition syntax
 		mocks := setupProcessorMocks(t)
-		processor := NewBlueprintProcessor(mocks.Runtime)
+		processor := blueprint.NewBlueprintProcessor(mocks.Runtime)
 
 		facets := []blueprintv1alpha1.Facet{
 			{
@@ -728,7 +707,7 @@ func TestProcessor_ProcessFacets(t *testing.T) {
 
 		// When processing facets
 		target := &blueprintv1alpha1.Blueprint{}
-		_, err := processor.ProcessFacets(target, facets)
+		_, err := processFacets(processor, target, facets)
 
 		// Then should return error
 		if err == nil {
@@ -739,7 +718,7 @@ func TestProcessor_ProcessFacets(t *testing.T) {
 	t.Run("ReturnsErrorForInvalidKustomizationCondition", func(t *testing.T) {
 		// Given a kustomization with invalid condition syntax
 		mocks := setupProcessorMocks(t)
-		processor := NewBlueprintProcessor(mocks.Runtime)
+		processor := blueprint.NewBlueprintProcessor(mocks.Runtime)
 
 		facets := []blueprintv1alpha1.Facet{
 			{
@@ -755,7 +734,7 @@ func TestProcessor_ProcessFacets(t *testing.T) {
 
 		// When processing facets
 		target := &blueprintv1alpha1.Blueprint{}
-		_, err := processor.ProcessFacets(target, facets)
+		_, err := processFacets(processor, target, facets)
 
 		// Then should return error
 		if err == nil {
@@ -766,7 +745,7 @@ func TestProcessor_ProcessFacets(t *testing.T) {
 	t.Run("HandlesStringTrueConditionResult", func(t *testing.T) {
 		// Given a condition that evaluates to string "true"
 		mocks := setupProcessorMocks(t)
-		processor := NewBlueprintProcessor(mocks.Runtime)
+		processor := blueprint.NewBlueprintProcessor(mocks.Runtime)
 
 		facets := []blueprintv1alpha1.Facet{
 			{
@@ -783,7 +762,7 @@ func TestProcessor_ProcessFacets(t *testing.T) {
 
 		// When processing facets
 		target := &blueprintv1alpha1.Blueprint{}
-		_, err := processor.ProcessFacets(target, facets)
+		_, err := processFacets(processor, target, facets)
 
 		// Then facet should be included (string "true" is truthy)
 		if err != nil {
@@ -797,7 +776,7 @@ func TestProcessor_ProcessFacets(t *testing.T) {
 	t.Run("EvaluatesSubstitutionExpressions", func(t *testing.T) {
 		// Given a facet with substitution expressions
 		mocks := setupProcessorMocks(t)
-		processor := NewBlueprintProcessor(mocks.Runtime)
+		processor := blueprint.NewBlueprintProcessor(mocks.Runtime)
 
 		facets := []blueprintv1alpha1.Facet{
 			{
@@ -824,7 +803,7 @@ func TestProcessor_ProcessFacets(t *testing.T) {
 
 		// When processing facets
 		target := &blueprintv1alpha1.Blueprint{}
-		_, err := processor.ProcessFacets(target, facets)
+		_, err := processFacets(processor, target, facets)
 
 		// Then substitutions should be evaluated
 		if err != nil {
@@ -844,7 +823,7 @@ func TestProcessor_ProcessFacets(t *testing.T) {
 
 	t.Run("IncludesSubstitutionKeysForUndefinedPaths", func(t *testing.T) {
 		mocks := setupProcessorMocks(t)
-		processor := NewBlueprintProcessor(mocks.Runtime)
+		processor := blueprint.NewBlueprintProcessor(mocks.Runtime)
 
 		facets := []blueprintv1alpha1.Facet{
 			{
@@ -869,7 +848,7 @@ func TestProcessor_ProcessFacets(t *testing.T) {
 		}
 
 		target := &blueprintv1alpha1.Blueprint{}
-		_, err := processor.ProcessFacets(target, facets)
+		_, err := processFacets(processor, target, facets)
 
 		if err != nil {
 			t.Fatalf("Expected no error, got %v", err)
@@ -891,7 +870,7 @@ func TestProcessor_ProcessFacets(t *testing.T) {
 
 	t.Run("CoalesceOperatorReturnsDefaultInSubstitutions", func(t *testing.T) {
 		mocks := setupProcessorMocks(t)
-		processor := NewBlueprintProcessor(mocks.Runtime)
+		processor := blueprint.NewBlueprintProcessor(mocks.Runtime)
 
 		facets := []blueprintv1alpha1.Facet{
 			{
@@ -917,7 +896,7 @@ func TestProcessor_ProcessFacets(t *testing.T) {
 		}
 
 		target := &blueprintv1alpha1.Blueprint{}
-		_, err := processor.ProcessFacets(target, facets)
+		_, err := processFacets(processor, target, facets)
 
 		if err != nil {
 			t.Fatalf("Expected no error, got %v", err)
@@ -937,7 +916,7 @@ func TestProcessor_ProcessFacets(t *testing.T) {
 	t.Run("PreservesNonStringInputs", func(t *testing.T) {
 		// Given a facet with non-string inputs
 		mocks := setupProcessorMocks(t)
-		processor := NewBlueprintProcessor(mocks.Runtime)
+		processor := blueprint.NewBlueprintProcessor(mocks.Runtime)
 
 		facets := []blueprintv1alpha1.Facet{
 			{
@@ -959,7 +938,7 @@ func TestProcessor_ProcessFacets(t *testing.T) {
 
 		// When processing facets
 		target := &blueprintv1alpha1.Blueprint{}
-		_, err := processor.ProcessFacets(target, facets)
+		_, err := processFacets(processor, target, facets)
 
 		// Then non-string inputs should be preserved
 		if err != nil {
@@ -976,7 +955,7 @@ func TestProcessor_ProcessFacets(t *testing.T) {
 
 	t.Run("HandlesInputEvaluationError", func(t *testing.T) {
 		mocks := setupProcessorMocks(t)
-		processor := NewBlueprintProcessor(mocks.Runtime)
+		processor := blueprint.NewBlueprintProcessor(mocks.Runtime)
 
 		facets := []blueprintv1alpha1.Facet{
 			{
@@ -994,7 +973,7 @@ func TestProcessor_ProcessFacets(t *testing.T) {
 
 		// When processing facets
 		target := &blueprintv1alpha1.Blueprint{}
-		_, err := processor.ProcessFacets(target, facets)
+		_, err := processFacets(processor, target, facets)
 
 		// Then should return error for malformed expression
 		if err == nil {
@@ -1004,7 +983,7 @@ func TestProcessor_ProcessFacets(t *testing.T) {
 
 	t.Run("HandlesSubstitutionEvaluationError", func(t *testing.T) {
 		mocks := setupProcessorMocks(t)
-		processor := NewBlueprintProcessor(mocks.Runtime)
+		processor := blueprint.NewBlueprintProcessor(mocks.Runtime)
 
 		facets := []blueprintv1alpha1.Facet{
 			{
@@ -1022,7 +1001,7 @@ func TestProcessor_ProcessFacets(t *testing.T) {
 
 		// When processing facets
 		target := &blueprintv1alpha1.Blueprint{}
-		_, err := processor.ProcessFacets(target, facets)
+		_, err := processFacets(processor, target, facets)
 
 		// Then should return error for malformed expression
 		if err == nil {
@@ -1033,7 +1012,7 @@ func TestProcessor_ProcessFacets(t *testing.T) {
 	t.Run("HandlesSourceAssignment", func(t *testing.T) {
 		// Given a facet with components without source
 		mocks := setupProcessorMocks(t)
-		processor := NewBlueprintProcessor(mocks.Runtime)
+		processor := blueprint.NewBlueprintProcessor(mocks.Runtime)
 
 		facets := []blueprintv1alpha1.Facet{
 			{
@@ -1046,7 +1025,7 @@ func TestProcessor_ProcessFacets(t *testing.T) {
 
 		// When processing with sourceName
 		target := &blueprintv1alpha1.Blueprint{}
-		_, err := processor.ProcessFacets(target, facets, "test-source")
+		_, err := processFacets(processor, target, facets, "test-source")
 
 		// Then source should be assigned
 		if err != nil {
@@ -1060,7 +1039,7 @@ func TestProcessor_ProcessFacets(t *testing.T) {
 	t.Run("PreservesExistingSource", func(t *testing.T) {
 		// Given a facet with components that already have source
 		mocks := setupProcessorMocks(t)
-		processor := NewBlueprintProcessor(mocks.Runtime)
+		processor := blueprint.NewBlueprintProcessor(mocks.Runtime)
 
 		facets := []blueprintv1alpha1.Facet{
 			{
@@ -1073,7 +1052,7 @@ func TestProcessor_ProcessFacets(t *testing.T) {
 
 		// When processing with sourceName
 		target := &blueprintv1alpha1.Blueprint{}
-		_, err := processor.ProcessFacets(target, facets, "new-source")
+		_, err := processFacets(processor, target, facets, "new-source")
 
 		// Then existing source should be preserved
 		if err != nil {
@@ -1087,7 +1066,7 @@ func TestProcessor_ProcessFacets(t *testing.T) {
 	t.Run("ReturnsErrorForInvalidTerraformComponentStrategy", func(t *testing.T) {
 		// Given a facet with invalid strategy
 		mocks := setupProcessorMocks(t)
-		processor := NewBlueprintProcessor(mocks.Runtime)
+		processor := blueprint.NewBlueprintProcessor(mocks.Runtime)
 
 		facets := []blueprintv1alpha1.Facet{
 			{
@@ -1103,7 +1082,7 @@ func TestProcessor_ProcessFacets(t *testing.T) {
 
 		// When processing facets
 		target := &blueprintv1alpha1.Blueprint{}
-		_, err := processor.ProcessFacets(target, facets)
+		_, err := processFacets(processor, target, facets)
 
 		// Then should return error
 		if err == nil {
@@ -1117,7 +1096,7 @@ func TestProcessor_ProcessFacets(t *testing.T) {
 	t.Run("ReturnsErrorForInvalidKustomizationStrategy", func(t *testing.T) {
 		// Given a facet with invalid kustomization strategy
 		mocks := setupProcessorMocks(t)
-		processor := NewBlueprintProcessor(mocks.Runtime)
+		processor := blueprint.NewBlueprintProcessor(mocks.Runtime)
 
 		facets := []blueprintv1alpha1.Facet{
 			{
@@ -1133,7 +1112,7 @@ func TestProcessor_ProcessFacets(t *testing.T) {
 
 		// When processing facets
 		target := &blueprintv1alpha1.Blueprint{}
-		_, err := processor.ProcessFacets(target, facets)
+		_, err := processFacets(processor, target, facets)
 
 		// Then should return error
 		if err == nil {
@@ -1146,7 +1125,7 @@ func TestProcessor_ProcessFacets(t *testing.T) {
 
 	t.Run("RemoveStrategyDeletesBlockFromScope", func(t *testing.T) {
 		mocks := setupProcessorMocks(t)
-		processor := NewBlueprintProcessor(mocks.Runtime)
+		processor := blueprint.NewBlueprintProcessor(mocks.Runtime)
 		facets := []blueprintv1alpha1.Facet{
 			{
 				Metadata: blueprintv1alpha1.Metadata{Name: "add-cluster"},
@@ -1162,7 +1141,7 @@ func TestProcessor_ProcessFacets(t *testing.T) {
 			},
 		}
 		target := &blueprintv1alpha1.Blueprint{}
-		scope, err := processor.ProcessFacets(target, facets)
+		scope, err := processFacets(processor, target, facets)
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -1178,7 +1157,7 @@ func TestProcessor_ProcessFacets(t *testing.T) {
 		mocks.ConfigHandler.GetSetValuesFunc = func() map[string]any {
 			return map[string]any{"cluster": map[string]any{"endpoint": "operator-value"}}
 		}
-		processor := NewBlueprintProcessor(mocks.Runtime)
+		processor := blueprint.NewBlueprintProcessor(mocks.Runtime)
 		facets := []blueprintv1alpha1.Facet{
 			{
 				Metadata: blueprintv1alpha1.Metadata{Name: "add-cluster"},
@@ -1194,7 +1173,7 @@ func TestProcessor_ProcessFacets(t *testing.T) {
 			},
 		}
 		target := &blueprintv1alpha1.Blueprint{}
-		scope, err := processor.ProcessFacets(target, facets)
+		scope, err := processFacets(processor, target, facets)
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -1208,7 +1187,7 @@ func TestProcessor_ProcessFacets(t *testing.T) {
 
 	t.Run("ReturnsErrorForInvalidConfigBlockStrategy", func(t *testing.T) {
 		mocks := setupProcessorMocks(t)
-		processor := NewBlueprintProcessor(mocks.Runtime)
+		processor := blueprint.NewBlueprintProcessor(mocks.Runtime)
 		facets := []blueprintv1alpha1.Facet{
 			{
 				Metadata: blueprintv1alpha1.Metadata{Name: "invalid-config-strategy"},
@@ -1218,7 +1197,7 @@ func TestProcessor_ProcessFacets(t *testing.T) {
 			},
 		}
 		target := &blueprintv1alpha1.Blueprint{}
-		_, err := processor.ProcessFacets(target, facets)
+		_, err := processFacets(processor, target, facets)
 		if err == nil {
 			t.Error("Expected error for invalid config block strategy")
 		}
@@ -1228,12 +1207,12 @@ func TestProcessor_ProcessFacets(t *testing.T) {
 	})
 }
 
-func TestProcessor_ProcessFacets_Messages(t *testing.T) {
+func TestProcessor_ProcessGlobally_Messages(t *testing.T) {
 	t.Run("CollectsMessagesFromIncludedFacetsInOrder", func(t *testing.T) {
 		// Given two included facets with post-run messages, ordered by ordinal
 		mocks := setupProcessorMocks(t)
 		mocks.ConfigHandler.GetContextValuesFunc = func() (map[string]any, error) { return map[string]any{}, nil }
-		processor := NewBlueprintProcessor(mocks.Runtime)
+		processor := blueprint.NewBlueprintProcessor(mocks.Runtime)
 		target := &blueprintv1alpha1.Blueprint{}
 		low, high := 100, 200
 		facets := []blueprintv1alpha1.Facet{
@@ -1250,7 +1229,7 @@ func TestProcessor_ProcessFacets_Messages(t *testing.T) {
 		}
 
 		// When processing
-		if _, err := processor.ProcessFacets(target, facets); err != nil {
+		if _, err := processFacets(processor, target, facets); err != nil {
 			t.Fatalf("Expected no error, got %v", err)
 		}
 
@@ -1269,7 +1248,7 @@ func TestProcessor_ProcessFacets_Messages(t *testing.T) {
 		mocks.ConfigHandler.GetContextValuesFunc = func() (map[string]any, error) {
 			return map[string]any{"platform": "aws"}, nil
 		}
-		processor := NewBlueprintProcessor(mocks.Runtime)
+		processor := blueprint.NewBlueprintProcessor(mocks.Runtime)
 		target := &blueprintv1alpha1.Blueprint{}
 		facets := []blueprintv1alpha1.Facet{
 			{
@@ -1280,7 +1259,7 @@ func TestProcessor_ProcessFacets_Messages(t *testing.T) {
 		}
 
 		// When processing
-		if _, err := processor.ProcessFacets(target, facets); err != nil {
+		if _, err := processFacets(processor, target, facets); err != nil {
 			t.Fatalf("Expected no error, got %v", err)
 		}
 
@@ -1294,7 +1273,7 @@ func TestProcessor_ProcessFacets_Messages(t *testing.T) {
 		// Given a message whose text is an expression template
 		mocks := setupProcessorMocks(t)
 		mocks.ConfigHandler.GetContextValuesFunc = func() (map[string]any, error) { return map[string]any{}, nil }
-		processor := NewBlueprintProcessor(mocks.Runtime)
+		processor := blueprint.NewBlueprintProcessor(mocks.Runtime)
 		target := &blueprintv1alpha1.Blueprint{}
 		facets := []blueprintv1alpha1.Facet{
 			{
@@ -1306,7 +1285,7 @@ func TestProcessor_ProcessFacets_Messages(t *testing.T) {
 		}
 
 		// When processing
-		if _, err := processor.ProcessFacets(target, facets); err != nil {
+		if _, err := processFacets(processor, target, facets); err != nil {
 			t.Fatalf("Expected no error, got %v", err)
 		}
 
@@ -1326,7 +1305,7 @@ func TestProcessor_ProcessFacets_Messages(t *testing.T) {
 func TestProcessor_ExpressionEvaluation(t *testing.T) {
 	t.Run("EvaluatesDependsOnInTerraformComponents", func(t *testing.T) {
 		mocks := setupProcessorMocks(t)
-		processor := NewBlueprintProcessor(mocks.Runtime)
+		processor := blueprint.NewBlueprintProcessor(mocks.Runtime)
 
 		mocks.ConfigHandler.GetContextValuesFunc = func() (map[string]any, error) {
 			return map[string]any{
@@ -1349,7 +1328,7 @@ func TestProcessor_ExpressionEvaluation(t *testing.T) {
 		}
 
 		target := &blueprintv1alpha1.Blueprint{}
-		_, err := processor.ProcessFacets(target, facets)
+		_, err := processFacets(processor, target, facets)
 
 		if err != nil {
 			t.Fatalf("Expected no error, got %v", err)
@@ -1371,7 +1350,7 @@ func TestProcessor_ExpressionEvaluation(t *testing.T) {
 
 	t.Run("EvaluatesDependsOnInKustomizations", func(t *testing.T) {
 		mocks := setupProcessorMocks(t)
-		processor := NewBlueprintProcessor(mocks.Runtime)
+		processor := blueprint.NewBlueprintProcessor(mocks.Runtime)
 
 		mocks.ConfigHandler.GetContextValuesFunc = func() (map[string]any, error) {
 			return map[string]any{
@@ -1395,7 +1374,7 @@ func TestProcessor_ExpressionEvaluation(t *testing.T) {
 		}
 
 		target := &blueprintv1alpha1.Blueprint{}
-		_, err := processor.ProcessFacets(target, facets)
+		_, err := processFacets(processor, target, facets)
 
 		if err != nil {
 			t.Fatalf("Expected no error, got %v", err)
@@ -1417,7 +1396,7 @@ func TestProcessor_ExpressionEvaluation(t *testing.T) {
 
 	t.Run("EvaluatesComponentsInKustomizations", func(t *testing.T) {
 		mocks := setupProcessorMocks(t)
-		processor := NewBlueprintProcessor(mocks.Runtime)
+		processor := blueprint.NewBlueprintProcessor(mocks.Runtime)
 
 		mocks.ConfigHandler.GetContextValuesFunc = func() (map[string]any, error) {
 			return map[string]any{
@@ -1441,7 +1420,7 @@ func TestProcessor_ExpressionEvaluation(t *testing.T) {
 		}
 
 		target := &blueprintv1alpha1.Blueprint{}
-		_, err := processor.ProcessFacets(target, facets)
+		_, err := processFacets(processor, target, facets)
 
 		if err != nil {
 			t.Fatalf("Expected no error, got %v", err)
@@ -1463,7 +1442,7 @@ func TestProcessor_ExpressionEvaluation(t *testing.T) {
 
 	t.Run("PreservesEmptyStringsInComponents", func(t *testing.T) {
 		mocks := setupProcessorMocks(t)
-		processor := NewBlueprintProcessor(mocks.Runtime)
+		processor := blueprint.NewBlueprintProcessor(mocks.Runtime)
 
 		mocks.ConfigHandler.GetContextValuesFunc = func() (map[string]any, error) {
 			return map[string]any{
@@ -1487,7 +1466,7 @@ func TestProcessor_ExpressionEvaluation(t *testing.T) {
 		}
 
 		target := &blueprintv1alpha1.Blueprint{}
-		_, err := processor.ProcessFacets(target, facets)
+		_, err := processFacets(processor, target, facets)
 
 		if err != nil {
 			t.Fatalf("Expected no error, got %v", err)
@@ -1509,7 +1488,7 @@ func TestProcessor_ExpressionEvaluation(t *testing.T) {
 
 	t.Run("FlattensArrayExpressionsInComponents", func(t *testing.T) {
 		mocks := setupProcessorMocks(t)
-		processor := NewBlueprintProcessor(mocks.Runtime)
+		processor := blueprint.NewBlueprintProcessor(mocks.Runtime)
 
 		mocks.ConfigHandler.GetContextValuesFunc = func() (map[string]any, error) {
 			return map[string]any{
@@ -1533,7 +1512,7 @@ func TestProcessor_ExpressionEvaluation(t *testing.T) {
 		}
 
 		target := &blueprintv1alpha1.Blueprint{}
-		_, err := processor.ProcessFacets(target, facets)
+		_, err := processFacets(processor, target, facets)
 
 		if err != nil {
 			t.Fatalf("Expected no error, got %v", err)
@@ -1555,7 +1534,7 @@ func TestProcessor_ExpressionEvaluation(t *testing.T) {
 
 	t.Run("EvaluatesDestroyInTerraformComponents", func(t *testing.T) {
 		mocks := setupProcessorMocks(t)
-		processor := NewBlueprintProcessor(mocks.Runtime)
+		processor := blueprint.NewBlueprintProcessor(mocks.Runtime)
 
 		mocks.ConfigHandler.GetContextValuesFunc = func() (map[string]any, error) {
 			return map[string]any{
@@ -1578,7 +1557,7 @@ func TestProcessor_ExpressionEvaluation(t *testing.T) {
 		}
 
 		target := &blueprintv1alpha1.Blueprint{}
-		_, err := processor.ProcessFacets(target, facets)
+		_, err := processFacets(processor, target, facets)
 
 		if err != nil {
 			t.Fatalf("Expected no error, got %v", err)
@@ -1594,7 +1573,7 @@ func TestProcessor_ExpressionEvaluation(t *testing.T) {
 
 	t.Run("EvaluatesDestroyInKustomizations", func(t *testing.T) {
 		mocks := setupProcessorMocks(t)
-		processor := NewBlueprintProcessor(mocks.Runtime)
+		processor := blueprint.NewBlueprintProcessor(mocks.Runtime)
 
 		mocks.ConfigHandler.GetContextValuesFunc = func() (map[string]any, error) {
 			return map[string]any{
@@ -1618,7 +1597,7 @@ func TestProcessor_ExpressionEvaluation(t *testing.T) {
 		}
 
 		target := &blueprintv1alpha1.Blueprint{}
-		_, err := processor.ProcessFacets(target, facets)
+		_, err := processFacets(processor, target, facets)
 
 		if err != nil {
 			t.Fatalf("Expected no error, got %v", err)
@@ -1634,7 +1613,7 @@ func TestProcessor_ExpressionEvaluation(t *testing.T) {
 
 	t.Run("EvaluatesParallelismInTerraformComponents", func(t *testing.T) {
 		mocks := setupProcessorMocks(t)
-		processor := NewBlueprintProcessor(mocks.Runtime)
+		processor := blueprint.NewBlueprintProcessor(mocks.Runtime)
 
 		mocks.ConfigHandler.GetContextValuesFunc = func() (map[string]any, error) {
 			return map[string]any{
@@ -1657,7 +1636,7 @@ func TestProcessor_ExpressionEvaluation(t *testing.T) {
 		}
 
 		target := &blueprintv1alpha1.Blueprint{}
-		_, err := processor.ProcessFacets(target, facets)
+		_, err := processFacets(processor, target, facets)
 
 		if err != nil {
 			t.Fatalf("Expected no error, got %v", err)
@@ -1673,7 +1652,7 @@ func TestProcessor_ExpressionEvaluation(t *testing.T) {
 
 	t.Run("ReturnsErrorForDeferredExpressionsInDependsOn", func(t *testing.T) {
 		mocks := setupProcessorMocks(t)
-		processor := NewBlueprintProcessor(mocks.Runtime)
+		processor := blueprint.NewBlueprintProcessor(mocks.Runtime)
 
 		mocks.Evaluator.EvaluateFunc = func(expression string, facetPath string, scope map[string]any, evaluateDeferred bool) (any, error) {
 			if strings.Contains(expression, "terraform_output") {
@@ -1697,7 +1676,7 @@ func TestProcessor_ExpressionEvaluation(t *testing.T) {
 		}
 
 		target := &blueprintv1alpha1.Blueprint{}
-		_, err := processor.ProcessFacets(target, facets)
+		_, err := processFacets(processor, target, facets)
 
 		if err == nil {
 			t.Error("Expected error for deferred expression in dependsOn")
@@ -1709,7 +1688,7 @@ func TestProcessor_ExpressionEvaluation(t *testing.T) {
 
 	t.Run("ReturnsErrorForDeferredExpressionsInComponents", func(t *testing.T) {
 		mocks := setupProcessorMocks(t)
-		processor := NewBlueprintProcessor(mocks.Runtime)
+		processor := blueprint.NewBlueprintProcessor(mocks.Runtime)
 
 		mocks.Evaluator.EvaluateFunc = func(expression string, facetPath string, scope map[string]any, evaluateDeferred bool) (any, error) {
 			if strings.Contains(expression, "terraform_output") {
@@ -1734,7 +1713,7 @@ func TestProcessor_ExpressionEvaluation(t *testing.T) {
 		}
 
 		target := &blueprintv1alpha1.Blueprint{}
-		_, err := processor.ProcessFacets(target, facets)
+		_, err := processFacets(processor, target, facets)
 
 		if err == nil {
 			t.Error("Expected error for deferred expression in components")
@@ -1746,7 +1725,7 @@ func TestProcessor_ExpressionEvaluation(t *testing.T) {
 
 	t.Run("FiltersEmptyStringsFromTerraformDependsOnAfterEvaluation", func(t *testing.T) {
 		mocks := setupProcessorMocks(t)
-		processor := NewBlueprintProcessor(mocks.Runtime)
+		processor := blueprint.NewBlueprintProcessor(mocks.Runtime)
 
 		mocks.ConfigHandler.GetContextValuesFunc = func() (map[string]any, error) {
 			return map[string]any{
@@ -1769,7 +1748,7 @@ func TestProcessor_ExpressionEvaluation(t *testing.T) {
 		}
 
 		target := &blueprintv1alpha1.Blueprint{}
-		_, err := processor.ProcessFacets(target, facets)
+		_, err := processFacets(processor, target, facets)
 
 		if err != nil {
 			t.Fatalf("Expected no error, got %v", err)
@@ -1787,7 +1766,7 @@ func TestProcessor_ExpressionEvaluation(t *testing.T) {
 
 	t.Run("FiltersEmptyStringsFromKustomizationDependsOnAfterEvaluation", func(t *testing.T) {
 		mocks := setupProcessorMocks(t)
-		processor := NewBlueprintProcessor(mocks.Runtime)
+		processor := blueprint.NewBlueprintProcessor(mocks.Runtime)
 
 		mocks.ConfigHandler.GetContextValuesFunc = func() (map[string]any, error) {
 			return map[string]any{
@@ -1810,7 +1789,7 @@ func TestProcessor_ExpressionEvaluation(t *testing.T) {
 		}
 
 		target := &blueprintv1alpha1.Blueprint{}
-		_, err := processor.ProcessFacets(target, facets)
+		_, err := processFacets(processor, target, facets)
 
 		if err != nil {
 			t.Fatalf("Expected no error, got %v", err)
@@ -1828,7 +1807,7 @@ func TestProcessor_ExpressionEvaluation(t *testing.T) {
 
 	t.Run("HandlesEmptyDependsOn", func(t *testing.T) {
 		mocks := setupProcessorMocks(t)
-		processor := NewBlueprintProcessor(mocks.Runtime)
+		processor := blueprint.NewBlueprintProcessor(mocks.Runtime)
 
 		facets := []blueprintv1alpha1.Facet{
 			{
@@ -1845,7 +1824,7 @@ func TestProcessor_ExpressionEvaluation(t *testing.T) {
 		}
 
 		target := &blueprintv1alpha1.Blueprint{}
-		_, err := processor.ProcessFacets(target, facets)
+		_, err := processFacets(processor, target, facets)
 
 		if err != nil {
 			t.Fatalf("Expected no error, got %v", err)
@@ -1860,7 +1839,7 @@ func TestProcessor_ComponentConditionInheritance(t *testing.T) {
 	t.Run("TerraformComponentInheritsFacetWhenCondition", func(t *testing.T) {
 		// Given a facet with when condition and component without when
 		mocks := setupProcessorMocks(t)
-		processor := NewBlueprintProcessor(mocks.Runtime)
+		processor := blueprint.NewBlueprintProcessor(mocks.Runtime)
 
 		facets := []blueprintv1alpha1.Facet{
 			{
@@ -1880,7 +1859,7 @@ func TestProcessor_ComponentConditionInheritance(t *testing.T) {
 
 		// When processing facets
 		target := &blueprintv1alpha1.Blueprint{}
-		_, err := processor.ProcessFacets(target, facets)
+		_, err := processFacets(processor, target, facets)
 
 		// Then component should be included (inherited facet condition is true)
 		if err != nil {
@@ -1894,7 +1873,7 @@ func TestProcessor_ComponentConditionInheritance(t *testing.T) {
 	t.Run("TerraformComponentExcludedWhenInheritedFacetConditionFalse", func(t *testing.T) {
 		// Given a facet with when condition and component without when
 		mocks := setupProcessorMocks(t)
-		processor := NewBlueprintProcessor(mocks.Runtime)
+		processor := blueprint.NewBlueprintProcessor(mocks.Runtime)
 
 		facets := []blueprintv1alpha1.Facet{
 			{
@@ -1914,7 +1893,7 @@ func TestProcessor_ComponentConditionInheritance(t *testing.T) {
 
 		// When processing facets
 		target := &blueprintv1alpha1.Blueprint{}
-		_, err := processor.ProcessFacets(target, facets)
+		_, err := processFacets(processor, target, facets)
 
 		// Then component should be excluded (inherited facet condition is false)
 		if err != nil {
@@ -1928,7 +1907,7 @@ func TestProcessor_ComponentConditionInheritance(t *testing.T) {
 	t.Run("KustomizationInheritsFacetWhenCondition", func(t *testing.T) {
 		// Given a facet with when condition and kustomization without when
 		mocks := setupProcessorMocks(t)
-		processor := NewBlueprintProcessor(mocks.Runtime)
+		processor := blueprint.NewBlueprintProcessor(mocks.Runtime)
 
 		facets := []blueprintv1alpha1.Facet{
 			{
@@ -1948,7 +1927,7 @@ func TestProcessor_ComponentConditionInheritance(t *testing.T) {
 
 		// When processing facets
 		target := &blueprintv1alpha1.Blueprint{}
-		_, err := processor.ProcessFacets(target, facets)
+		_, err := processFacets(processor, target, facets)
 
 		// Then kustomization should be included (inherited facet condition is true)
 		if err != nil {
@@ -1962,7 +1941,7 @@ func TestProcessor_ComponentConditionInheritance(t *testing.T) {
 	t.Run("ComponentWithOwnWhenDoesNotInheritFacetWhen", func(t *testing.T) {
 		// Given a facet with when condition and component with its own when
 		mocks := setupProcessorMocks(t)
-		processor := NewBlueprintProcessor(mocks.Runtime)
+		processor := blueprint.NewBlueprintProcessor(mocks.Runtime)
 
 		facets := []blueprintv1alpha1.Facet{
 			{
@@ -1986,7 +1965,7 @@ func TestProcessor_ComponentConditionInheritance(t *testing.T) {
 
 		// When processing facets
 		target := &blueprintv1alpha1.Blueprint{}
-		_, err := processor.ProcessFacets(target, facets)
+		_, err := processFacets(processor, target, facets)
 
 		// Then component should be excluded (its own condition is false, even though facet condition is true)
 		if err != nil {
@@ -1997,10 +1976,6 @@ func TestProcessor_ComponentConditionInheritance(t *testing.T) {
 		}
 	})
 }
-
-// =============================================================================
-// Test Private Methods
-// =============================================================================
 
 func TestBaseBlueprintProcessor_evaluateInputs(t *testing.T) {
 	t.Run("SkipsUnresolvedExpressions", func(t *testing.T) {

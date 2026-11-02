@@ -1,13 +1,13 @@
-package blueprint
+package blueprint_test
 
 import (
 	"errors"
 	"os"
 	"strings"
 	"testing"
-	"time"
 
 	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
+	"github.com/windsorcli/cli/pkg/composer/blueprint"
 	"github.com/windsorcli/cli/pkg/runtime"
 	"github.com/windsorcli/cli/pkg/runtime/config"
 	"github.com/windsorcli/cli/pkg/runtime/shell"
@@ -17,20 +17,11 @@ import (
 // Test Setup
 // =============================================================================
 
-type mockFileInfo struct{}
-
-func (m *mockFileInfo) Name() string       { return "blueprint.yaml" }
-func (m *mockFileInfo) Size() int64        { return 0 }
-func (m *mockFileInfo) Mode() os.FileMode  { return 0644 }
-func (m *mockFileInfo) ModTime() time.Time { return time.Now() }
-func (m *mockFileInfo) IsDir() bool        { return false }
-func (m *mockFileInfo) Sys() interface{}   { return nil }
-
 type WriterTestMocks struct {
 	Shell         *shell.MockShell
 	ConfigHandler *config.MockConfigHandler
 	Runtime       *runtime.Runtime
-	Shims         *Shims
+	Shims         *blueprint.Shims
 }
 
 func setupWriterMocks(t *testing.T) *WriterTestMocks {
@@ -61,7 +52,7 @@ func setupWriterMocks(t *testing.T) *WriterTestMocks {
 		Shell:         mockShell,
 		ConfigHandler: mockConfigHandler,
 		Runtime:       rt,
-		Shims:         NewShims(),
+		Shims:         blueprint.NewShims(),
 	}
 
 	t.Cleanup(func() {
@@ -81,16 +72,13 @@ func TestNewBlueprintWriter(t *testing.T) {
 		mocks := setupWriterMocks(t)
 
 		// When creating a new writer
-		writer := NewBlueprintWriter(mocks.Runtime)
+		writer := blueprint.NewBlueprintWriter(mocks.Runtime)
 
 		// Then writer should be created with defaults
 		if writer == nil {
 			t.Fatal("Expected writer to be created")
 		}
-		if writer.runtime != mocks.Runtime {
-			t.Error("Expected runtime to be set")
-		}
-		if writer.shims == nil {
+		if writer.Shims() == nil {
 			t.Error("Expected shims to be initialized")
 		}
 	})
@@ -100,10 +88,10 @@ func TestNewBlueprintWriter(t *testing.T) {
 		mocks := setupWriterMocks(t)
 
 		// When creating a writer
-		writer := NewBlueprintWriter(mocks.Runtime)
+		writer := blueprint.NewBlueprintWriter(mocks.Runtime)
 
 		// Then writer should have default shims
-		if writer.shims == nil {
+		if writer.Shims() == nil {
 			t.Error("Expected default shims to be set")
 		}
 	})
@@ -117,17 +105,17 @@ func TestWriter_Write(t *testing.T) {
 	t.Run("WritesNewBlueprintWhenFileDoesNotExist", func(t *testing.T) {
 		// Given a writer and blueprint with no existing file
 		mocks := setupWriterMocks(t)
-		writer := NewBlueprintWriter(mocks.Runtime)
+		writer := blueprint.NewBlueprintWriter(mocks.Runtime)
 
 		var writtenPath string
 		var writtenData []byte
-		writer.shims.Stat = func(path string) (os.FileInfo, error) {
+		writer.Shims().Stat = func(path string) (os.FileInfo, error) {
 			return nil, os.ErrNotExist
 		}
-		writer.shims.MkdirAll = func(path string, perm os.FileMode) error {
+		writer.Shims().MkdirAll = func(path string, perm os.FileMode) error {
 			return nil
 		}
-		writer.shims.WriteFile = func(path string, data []byte, perm os.FileMode) error {
+		writer.Shims().WriteFile = func(path string, data []byte, perm os.FileMode) error {
 			writtenPath = path
 			writtenData = data
 			return nil
@@ -159,16 +147,16 @@ func TestWriter_Write(t *testing.T) {
 	t.Run("OmitsComposedBackendFromReferentialForm", func(t *testing.T) {
 		// Given a composed blueprint whose backend comes from the facets
 		mocks := setupWriterMocks(t)
-		writer := NewBlueprintWriter(mocks.Runtime)
+		writer := blueprint.NewBlueprintWriter(mocks.Runtime)
 
 		var writtenData []byte
-		writer.shims.Stat = func(path string) (os.FileInfo, error) {
+		writer.Shims().Stat = func(path string) (os.FileInfo, error) {
 			return nil, os.ErrNotExist
 		}
-		writer.shims.MkdirAll = func(path string, perm os.FileMode) error {
+		writer.Shims().MkdirAll = func(path string, perm os.FileMode) error {
 			return nil
 		}
-		writer.shims.WriteFile = func(path string, data []byte, perm os.FileMode) error {
+		writer.Shims().WriteFile = func(path string, data []byte, perm os.FileMode) error {
 			writtenData = data
 			return nil
 		}
@@ -195,16 +183,16 @@ func TestWriter_Write(t *testing.T) {
 		// Given a blueprint with no backend set, the omitempty tag should keep
 		// the key out of blueprint.yaml entirely.
 		mocks := setupWriterMocks(t)
-		writer := NewBlueprintWriter(mocks.Runtime)
+		writer := blueprint.NewBlueprintWriter(mocks.Runtime)
 
 		var writtenData []byte
-		writer.shims.Stat = func(path string) (os.FileInfo, error) {
+		writer.Shims().Stat = func(path string) (os.FileInfo, error) {
 			return nil, os.ErrNotExist
 		}
-		writer.shims.MkdirAll = func(path string, perm os.FileMode) error {
+		writer.Shims().MkdirAll = func(path string, perm os.FileMode) error {
 			return nil
 		}
-		writer.shims.WriteFile = func(path string, data []byte, perm os.FileMode) error {
+		writer.Shims().WriteFile = func(path string, data []byte, perm os.FileMode) error {
 			writtenData = data
 			return nil
 		}
@@ -226,16 +214,16 @@ func TestWriter_Write(t *testing.T) {
 	t.Run("WritesMinimalBlueprintWithInitURLsWhenFileDoesNotExist", func(t *testing.T) {
 		// Given a writer, no existing file, and initBlueprintURLs
 		mocks := setupWriterMocks(t)
-		writer := NewBlueprintWriter(mocks.Runtime)
+		writer := blueprint.NewBlueprintWriter(mocks.Runtime)
 
 		var writtenData []byte
-		writer.shims.Stat = func(path string) (os.FileInfo, error) {
+		writer.Shims().Stat = func(path string) (os.FileInfo, error) {
 			return nil, os.ErrNotExist
 		}
-		writer.shims.MkdirAll = func(path string, perm os.FileMode) error {
+		writer.Shims().MkdirAll = func(path string, perm os.FileMode) error {
 			return nil
 		}
-		writer.shims.WriteFile = func(path string, data []byte, perm os.FileMode) error {
+		writer.Shims().WriteFile = func(path string, data []byte, perm os.FileMode) error {
 			writtenData = data
 			return nil
 		}
@@ -273,16 +261,16 @@ func TestWriter_Write(t *testing.T) {
 	t.Run("OmitsInstallForNonOCIInitURL", func(t *testing.T) {
 		// Given a writer, no existing file, and a local path as the init URL
 		mocks := setupWriterMocks(t)
-		writer := NewBlueprintWriter(mocks.Runtime)
+		writer := blueprint.NewBlueprintWriter(mocks.Runtime)
 
 		var writtenData []byte
-		writer.shims.Stat = func(path string) (os.FileInfo, error) {
+		writer.Shims().Stat = func(path string) (os.FileInfo, error) {
 			return nil, os.ErrNotExist
 		}
-		writer.shims.MkdirAll = func(path string, perm os.FileMode) error {
+		writer.Shims().MkdirAll = func(path string, perm os.FileMode) error {
 			return nil
 		}
-		writer.shims.WriteFile = func(path string, data []byte, perm os.FileMode) error {
+		writer.Shims().WriteFile = func(path string, data []byte, perm os.FileMode) error {
 			writtenData = data
 			return nil
 		}
@@ -314,13 +302,13 @@ func TestWriter_Write(t *testing.T) {
 	t.Run("SkipsWriteWhenFileExistsAndNotOverwrite", func(t *testing.T) {
 		// Given a writer with existing file and overwrite=false
 		mocks := setupWriterMocks(t)
-		writer := NewBlueprintWriter(mocks.Runtime)
+		writer := blueprint.NewBlueprintWriter(mocks.Runtime)
 
 		writeAttempted := false
-		writer.shims.Stat = func(path string) (os.FileInfo, error) {
+		writer.Shims().Stat = func(path string) (os.FileInfo, error) {
 			return nil, nil
 		}
-		writer.shims.WriteFile = func(path string, data []byte, perm os.FileMode) error {
+		writer.Shims().WriteFile = func(path string, data []byte, perm os.FileMode) error {
 			writeAttempted = true
 			return nil
 		}
@@ -344,16 +332,16 @@ func TestWriter_Write(t *testing.T) {
 	t.Run("OverwritesWhenFileExistsAndOverwriteTrue", func(t *testing.T) {
 		// Given a writer with existing file and overwrite=true
 		mocks := setupWriterMocks(t)
-		writer := NewBlueprintWriter(mocks.Runtime)
+		writer := blueprint.NewBlueprintWriter(mocks.Runtime)
 
 		writeAttempted := false
-		writer.shims.Stat = func(path string) (os.FileInfo, error) {
+		writer.Shims().Stat = func(path string) (os.FileInfo, error) {
 			return nil, nil
 		}
-		writer.shims.MkdirAll = func(path string, perm os.FileMode) error {
+		writer.Shims().MkdirAll = func(path string, perm os.FileMode) error {
 			return nil
 		}
-		writer.shims.WriteFile = func(path string, data []byte, perm os.FileMode) error {
+		writer.Shims().WriteFile = func(path string, data []byte, perm os.FileMode) error {
 			writeAttempted = true
 			return nil
 		}
@@ -376,16 +364,16 @@ func TestWriter_Write(t *testing.T) {
 
 	t.Run("WritesMinimalWhenFileExistsAndOverwriteTrueWithInitURLs", func(t *testing.T) {
 		mocks := setupWriterMocks(t)
-		writer := NewBlueprintWriter(mocks.Runtime)
+		writer := blueprint.NewBlueprintWriter(mocks.Runtime)
 
 		var writtenData []byte
-		writer.shims.Stat = func(path string) (os.FileInfo, error) {
+		writer.Shims().Stat = func(path string) (os.FileInfo, error) {
 			return nil, nil
 		}
-		writer.shims.MkdirAll = func(path string, perm os.FileMode) error {
+		writer.Shims().MkdirAll = func(path string, perm os.FileMode) error {
 			return nil
 		}
-		writer.shims.WriteFile = func(path string, data []byte, perm os.FileMode) error {
+		writer.Shims().WriteFile = func(path string, data []byte, perm os.FileMode) error {
 			writtenData = data
 			return nil
 		}
@@ -425,7 +413,7 @@ func TestWriter_Write(t *testing.T) {
 			ConfigHandler: mocks.ConfigHandler,
 			Shell:         mocks.Shell,
 		}
-		writer := NewBlueprintWriter(rt)
+		writer := blueprint.NewBlueprintWriter(rt)
 
 		blueprint := &blueprintv1alpha1.Blueprint{
 			Metadata: blueprintv1alpha1.Metadata{Name: "test"},
@@ -443,12 +431,12 @@ func TestWriter_Write(t *testing.T) {
 	t.Run("ReturnsErrorWhenMkdirFails", func(t *testing.T) {
 		// Given a writer where MkdirAll fails
 		mocks := setupWriterMocks(t)
-		writer := NewBlueprintWriter(mocks.Runtime)
+		writer := blueprint.NewBlueprintWriter(mocks.Runtime)
 
-		writer.shims.Stat = func(path string) (os.FileInfo, error) {
+		writer.Shims().Stat = func(path string) (os.FileInfo, error) {
 			return nil, os.ErrNotExist
 		}
-		writer.shims.MkdirAll = func(path string, perm os.FileMode) error {
+		writer.Shims().MkdirAll = func(path string, perm os.FileMode) error {
 			return errors.New("mkdir failed")
 		}
 
@@ -468,15 +456,15 @@ func TestWriter_Write(t *testing.T) {
 	t.Run("ReturnsErrorWhenWriteFileFails", func(t *testing.T) {
 		// Given a writer where WriteFile fails
 		mocks := setupWriterMocks(t)
-		writer := NewBlueprintWriter(mocks.Runtime)
+		writer := blueprint.NewBlueprintWriter(mocks.Runtime)
 
-		writer.shims.Stat = func(path string) (os.FileInfo, error) {
+		writer.Shims().Stat = func(path string) (os.FileInfo, error) {
 			return nil, os.ErrNotExist
 		}
-		writer.shims.MkdirAll = func(path string, perm os.FileMode) error {
+		writer.Shims().MkdirAll = func(path string, perm os.FileMode) error {
 			return nil
 		}
-		writer.shims.WriteFile = func(path string, data []byte, perm os.FileMode) error {
+		writer.Shims().WriteFile = func(path string, data []byte, perm os.FileMode) error {
 			return errors.New("write failed")
 		}
 
@@ -496,16 +484,16 @@ func TestWriter_Write(t *testing.T) {
 	t.Run("CleansTransientFieldsBeforeWriting", func(t *testing.T) {
 		// Given a blueprint with transient fields
 		mocks := setupWriterMocks(t)
-		writer := NewBlueprintWriter(mocks.Runtime)
+		writer := blueprint.NewBlueprintWriter(mocks.Runtime)
 
 		var writtenData []byte
-		writer.shims.Stat = func(path string) (os.FileInfo, error) {
+		writer.Shims().Stat = func(path string) (os.FileInfo, error) {
 			return nil, os.ErrNotExist
 		}
-		writer.shims.MkdirAll = func(path string, perm os.FileMode) error {
+		writer.Shims().MkdirAll = func(path string, perm os.FileMode) error {
 			return nil
 		}
-		writer.shims.WriteFile = func(path string, data []byte, perm os.FileMode) error {
+		writer.Shims().WriteFile = func(path string, data []byte, perm os.FileMode) error {
 			writtenData = data
 			return nil
 		}
@@ -537,16 +525,16 @@ func TestWriter_Write(t *testing.T) {
 	t.Run("CleansKustomizationTransientFields", func(t *testing.T) {
 		// Given a blueprint with kustomization transient fields
 		mocks := setupWriterMocks(t)
-		writer := NewBlueprintWriter(mocks.Runtime)
+		writer := blueprint.NewBlueprintWriter(mocks.Runtime)
 
 		var writtenData []byte
-		writer.shims.Stat = func(path string) (os.FileInfo, error) {
+		writer.Shims().Stat = func(path string) (os.FileInfo, error) {
 			return nil, os.ErrNotExist
 		}
-		writer.shims.MkdirAll = func(path string, perm os.FileMode) error {
+		writer.Shims().MkdirAll = func(path string, perm os.FileMode) error {
 			return nil
 		}
-		writer.shims.WriteFile = func(path string, data []byte, perm os.FileMode) error {
+		writer.Shims().WriteFile = func(path string, data []byte, perm os.FileMode) error {
 			writtenData = data
 			return nil
 		}
@@ -576,12 +564,12 @@ func TestWriter_Write(t *testing.T) {
 	t.Run("OmitsSourceCrdsFromReferentialForm", func(t *testing.T) {
 		// Given a composed blueprint whose source carries CRDs derived from its facets
 		mocks := setupWriterMocks(t)
-		writer := NewBlueprintWriter(mocks.Runtime)
+		writer := blueprint.NewBlueprintWriter(mocks.Runtime)
 
 		var writtenData []byte
-		writer.shims.Stat = func(path string) (os.FileInfo, error) { return nil, os.ErrNotExist }
-		writer.shims.MkdirAll = func(path string, perm os.FileMode) error { return nil }
-		writer.shims.WriteFile = func(path string, data []byte, perm os.FileMode) error {
+		writer.Shims().Stat = func(path string) (os.FileInfo, error) { return nil, os.ErrNotExist }
+		writer.Shims().MkdirAll = func(path string, perm os.FileMode) error { return nil }
+		writer.Shims().WriteFile = func(path string, data []byte, perm os.FileMode) error {
 			writtenData = data
 			return nil
 		}
@@ -608,7 +596,7 @@ func TestWriter_Write(t *testing.T) {
 	t.Run("ReturnsErrorForNilBlueprint", func(t *testing.T) {
 		// Given a writer and nil blueprint
 		mocks := setupWriterMocks(t)
-		writer := NewBlueprintWriter(mocks.Runtime)
+		writer := blueprint.NewBlueprintWriter(mocks.Runtime)
 
 		// When writing nil blueprint
 		err := writer.Write(nil, false)
@@ -622,9 +610,9 @@ func TestWriter_Write(t *testing.T) {
 	t.Run("ReturnsErrorWhenStatFails", func(t *testing.T) {
 		// Given a writer where Stat fails with unexpected error
 		mocks := setupWriterMocks(t)
-		writer := NewBlueprintWriter(mocks.Runtime)
+		writer := blueprint.NewBlueprintWriter(mocks.Runtime)
 
-		writer.shims.Stat = func(path string) (os.FileInfo, error) {
+		writer.Shims().Stat = func(path string) (os.FileInfo, error) {
 			return nil, errors.New("unexpected stat error")
 		}
 
@@ -644,19 +632,19 @@ func TestWriter_Write(t *testing.T) {
 	t.Run("StripsValuesCommonFromConfigMaps", func(t *testing.T) {
 		// Given a blueprint with only values-common ConfigMap
 		mocks := setupWriterMocks(t)
-		writer := NewBlueprintWriter(mocks.Runtime)
+		writer := blueprint.NewBlueprintWriter(mocks.Runtime)
 
 		var marshalledBlueprint *blueprintv1alpha1.Blueprint
-		writer.shims.Stat = func(path string) (os.FileInfo, error) {
+		writer.Shims().Stat = func(path string) (os.FileInfo, error) {
 			return nil, os.ErrNotExist
 		}
-		writer.shims.MkdirAll = func(path string, perm os.FileMode) error {
+		writer.Shims().MkdirAll = func(path string, perm os.FileMode) error {
 			return nil
 		}
-		writer.shims.WriteFile = func(path string, data []byte, perm os.FileMode) error {
+		writer.Shims().WriteFile = func(path string, data []byte, perm os.FileMode) error {
 			return nil
 		}
-		writer.shims.YamlMarshal = func(v interface{}) ([]byte, error) {
+		writer.Shims().YamlMarshal = func(v interface{}) ([]byte, error) {
 			if bp, ok := v.(*blueprintv1alpha1.Blueprint); ok {
 				marshalledBlueprint = bp
 			}
@@ -690,19 +678,19 @@ func TestWriter_Write(t *testing.T) {
 
 	t.Run("StripsInstallFalseFromSources", func(t *testing.T) {
 		mocks := setupWriterMocks(t)
-		writer := NewBlueprintWriter(mocks.Runtime)
+		writer := blueprint.NewBlueprintWriter(mocks.Runtime)
 
 		var marshalledBlueprint *blueprintv1alpha1.Blueprint
-		writer.shims.Stat = func(path string) (os.FileInfo, error) {
+		writer.Shims().Stat = func(path string) (os.FileInfo, error) {
 			return nil, os.ErrNotExist
 		}
-		writer.shims.MkdirAll = func(path string, perm os.FileMode) error {
+		writer.Shims().MkdirAll = func(path string, perm os.FileMode) error {
 			return nil
 		}
-		writer.shims.WriteFile = func(path string, data []byte, perm os.FileMode) error {
+		writer.Shims().WriteFile = func(path string, data []byte, perm os.FileMode) error {
 			return nil
 		}
-		writer.shims.YamlMarshal = func(v interface{}) ([]byte, error) {
+		writer.Shims().YamlMarshal = func(v interface{}) ([]byte, error) {
 			if bp, ok := v.(*blueprintv1alpha1.Blueprint); ok {
 				marshalledBlueprint = bp
 			}

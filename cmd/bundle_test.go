@@ -68,9 +68,6 @@ func setupBundleTest(t *testing.T, opts ...*SetupOptions) *BundleMocks {
 	baseMocks.Runtime.ProjectRoot = tmpDir
 
 	mockBlueprintHandler := blueprint.NewMockBlueprintHandler()
-	mockBlueprintHandler.GetLocalTemplateDataFunc = func() (map[string][]byte, error) {
-		return map[string][]byte{}, nil
-	}
 
 	comp := composer.NewComposer(baseMocks.Runtime)
 	comp.BlueprintHandler = mockBlueprintHandler

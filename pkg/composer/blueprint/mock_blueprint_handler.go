@@ -13,7 +13,6 @@ type MockBlueprintHandler struct {
 	UpgradeSourcesToLatestFunc       func() ([]SourceUpgrade, error)
 	GetDeclaredSourcesFunc           func() ([]blueprintv1alpha1.Source, error)
 	GetTerraformComponentsFunc       func() []blueprintv1alpha1.TerraformComponent
-	GetLocalTemplateDataFunc         func() (map[string][]byte, error)
 	GenerateFunc                     func() *blueprintv1alpha1.Blueprint
 	GenerateResolvedFunc             func() (*blueprintv1alpha1.Blueprint, error)
 	ExplainFunc                      func(string) (*ExplainTrace, error)
@@ -98,14 +97,6 @@ func (m *MockBlueprintHandler) GetTerraformComponents() []blueprintv1alpha1.Terr
 		return m.GetTerraformComponentsFunc()
 	}
 	return []blueprintv1alpha1.TerraformComponent{}
-}
-
-// GetLocalTemplateData calls the mock GetLocalTemplateDataFunc if set, otherwise returns empty map.
-func (m *MockBlueprintHandler) GetLocalTemplateData() (map[string][]byte, error) {
-	if m.GetLocalTemplateDataFunc != nil {
-		return m.GetLocalTemplateDataFunc()
-	}
-	return map[string][]byte{}, nil
 }
 
 // Generate calls the mock GenerateFunc if set, otherwise returns nil.

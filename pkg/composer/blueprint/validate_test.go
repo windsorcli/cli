@@ -1,4 +1,4 @@
-package blueprint
+package blueprint_test
 
 import (
 	"errors"
@@ -7,6 +7,7 @@ import (
 
 	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
 	"github.com/windsorcli/cli/internal/werror"
+	"github.com/windsorcli/cli/pkg/composer/blueprint"
 )
 
 // =============================================================================
@@ -18,7 +19,7 @@ func TestValidateComposedBlueprint(t *testing.T) {
 		// Given a nil blueprint (e.g. LoadBlueprint never ran)
 		// When validation runs
 		// Then no error is returned — there is nothing to validate yet
-		if err := ValidateComposedBlueprint(nil); err != nil {
+		if err := blueprint.ValidateComposedBlueprint(nil); err != nil {
 			t.Errorf("Expected nil error for nil blueprint, got %v", err)
 		}
 	})
@@ -33,7 +34,7 @@ func TestValidateComposedBlueprint(t *testing.T) {
 			},
 		}
 
-		if err := ValidateComposedBlueprint(bp); err != nil {
+		if err := blueprint.ValidateComposedBlueprint(bp); err != nil {
 			t.Errorf("Expected nil error for blueprint without Backend, got %v", err)
 		}
 	})
@@ -49,7 +50,7 @@ func TestValidateComposedBlueprint(t *testing.T) {
 			},
 		}
 
-		if err := ValidateComposedBlueprint(bp); err != nil {
+		if err := blueprint.ValidateComposedBlueprint(bp); err != nil {
 			t.Errorf("Expected nil error when Backend resolves, got %v", err)
 		}
 	})
@@ -64,11 +65,11 @@ func TestValidateComposedBlueprint(t *testing.T) {
 			},
 		}
 
-		err := ValidateComposedBlueprint(bp)
+		err := blueprint.ValidateComposedBlueprint(bp)
 		if err == nil {
 			t.Fatal("Expected error when Backend does not resolve, got nil")
 		}
-		if !errors.Is(err, ErrBlueprintInvalid) {
+		if !errors.Is(err, blueprint.ErrBlueprintInvalid) {
 			t.Errorf("Expected error wrapping ErrBlueprintInvalid, got %v", err)
 		}
 		if !strings.Contains(err.Error(), `"ghost"`) {
@@ -89,7 +90,7 @@ func TestValidateComposedBlueprint(t *testing.T) {
 			},
 		}
 
-		if err := ValidateComposedBlueprint(bp); err != nil {
+		if err := blueprint.ValidateComposedBlueprint(bp); err != nil {
 			t.Errorf("Expected nil error when Backend resolves to a path-only component, got %v", err)
 		}
 	})
@@ -104,7 +105,7 @@ func TestValidateComposedBlueprint(t *testing.T) {
 			},
 		}
 
-		if err := ValidateComposedBlueprint(bp); err != nil {
+		if err := blueprint.ValidateComposedBlueprint(bp); err != nil {
 			t.Errorf("Expected nil error when Backend resolves to a Name override, got %v", err)
 		}
 	})
@@ -120,7 +121,7 @@ func TestValidateComposedBlueprint(t *testing.T) {
 			},
 		}
 
-		if err := ValidateComposedBlueprint(bp); err != nil {
+		if err := blueprint.ValidateComposedBlueprint(bp); err != nil {
 			t.Errorf("Expected nil error (naming convention retired), got %v", err)
 		}
 	})
@@ -136,7 +137,7 @@ func TestValidateComposedBlueprint(t *testing.T) {
 
 		// When validation runs
 		// Then no error is returned
-		if err := ValidateComposedBlueprint(bp); err != nil {
+		if err := blueprint.ValidateComposedBlueprint(bp); err != nil {
 			t.Errorf("Expected nil error, got %v", err)
 		}
 	})
@@ -151,14 +152,52 @@ func TestValidateComposedBlueprint(t *testing.T) {
 		}
 
 		// When validation runs
-		err := ValidateComposedBlueprint(bp)
+		err := blueprint.ValidateComposedBlueprint(bp)
 
 		// Then the error names the missing key and wraps ErrBlueprintInvalid
 		if err == nil || !strings.Contains(err.Error(), "no tls.key data key") {
 			t.Fatalf("Expected missing tls.key error, got %v", err)
 		}
-		if !errors.Is(err, ErrBlueprintInvalid) {
+		if !errors.Is(err, blueprint.ErrBlueprintInvalid) {
 			t.Errorf("Expected error to wrap ErrBlueprintInvalid, got %v", err)
+		}
+	})
+
+	t.Run("AcceptsABackendThatNamesAComponent", func(t *testing.T) {
+		// Given a blueprint whose backend names a declared component
+		bp := &blueprintv1alpha1.Blueprint{Backend: "state", TerraformComponents: []blueprintv1alpha1.TerraformComponent{{Name: "state", Path: "state"}}}
+
+		// When it is validated
+		err := blueprint.ValidateComposedBlueprint(bp)
+
+		// Then it is accepted
+		if err != nil {
+			t.Errorf("expected no error, got %v", err)
+		}
+	})
+
+	t.Run("AcceptsANilBlueprintAndAnEmptyBackend", func(t *testing.T) {
+		// Given a nil blueprint and a blueprint with no backend
+		// When both are validated
+		nilErr := blueprint.ValidateComposedBlueprint(nil)
+		emptyErr := blueprint.ValidateComposedBlueprint(&blueprintv1alpha1.Blueprint{})
+
+		// Then both are accepted
+		if nilErr != nil || emptyErr != nil {
+			t.Errorf("expected no errors, got %v and %v", nilErr, emptyErr)
+		}
+	})
+
+	t.Run("RejectsABackendThatNamesNoComponent", func(t *testing.T) {
+		// Given a blueprint whose backend names no declared component
+		bp := &blueprintv1alpha1.Blueprint{Backend: "missing"}
+
+		// When it is validated
+		err := blueprint.ValidateComposedBlueprint(bp)
+
+		// Then it is rejected as invalid
+		if !errors.Is(err, blueprint.ErrBlueprintInvalid) {
+			t.Errorf("expected ErrBlueprintInvalid, got %v", err)
 		}
 	})
 }

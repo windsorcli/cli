@@ -1879,10 +1879,6 @@ func TestProcessor_PostProcessingConditionEvaluation(t *testing.T) {
 	})
 }
 
-// =============================================================================
-// Test Helpers
-// =============================================================================
-
 func TestStrategyPrecedence(t *testing.T) {
 	t.Run("ReturnsCorrectPrecedenceForRemove", func(t *testing.T) {
 		prec := strategyPrecedence["remove"]
@@ -1919,6 +1915,10 @@ func TestStrategyPrecedence(t *testing.T) {
 		}
 	})
 }
+
+// =============================================================================
+// Test Helpers
+// =============================================================================
 
 func intPtr(i int) *int { return &i }
 

@@ -186,3 +186,17 @@ func component(bp *blueprintv1alpha1.Blueprint, id string) *blueprintv1alpha1.Te
 	}
 	return nil
 }
+
+// ptr returns a pointer to v.
+func ptr[T any](v T) *T {
+	return &v
+}
+
+// processFacets runs ProcessGlobally with facets as the one source sourceName, or "" when none.
+func processFacets(p *blueprint.BaseBlueprintProcessor, target *blueprintv1alpha1.Blueprint, facets []blueprintv1alpha1.Facet, sourceName ...string) (map[string]any, error) {
+	name := ""
+	if len(sourceName) > 0 {
+		name = sourceName[0]
+	}
+	return p.ProcessGlobally([]blueprint.SourceFacetSet{{Name: name, Target: target, Facets: facets}})
+}

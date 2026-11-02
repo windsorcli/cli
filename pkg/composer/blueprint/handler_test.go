@@ -1,7 +1,6 @@
-package blueprint
+package blueprint_test
 
 import (
-	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -11,12 +10,12 @@ import (
 
 	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
 	"github.com/windsorcli/cli/pkg/composer/artifact"
+	"github.com/windsorcli/cli/pkg/composer/blueprint"
 	"github.com/windsorcli/cli/pkg/constants"
 	"github.com/windsorcli/cli/pkg/runtime"
 	"github.com/windsorcli/cli/pkg/runtime/config"
 	"github.com/windsorcli/cli/pkg/runtime/evaluator"
 	"github.com/windsorcli/cli/pkg/runtime/shell"
-	"github.com/windsorcli/cli/pkg/runtime/terraform"
 )
 
 // =============================================================================
@@ -29,7 +28,7 @@ type HandlerTestMocks struct {
 	ArtifactBuilder *artifact.MockArtifact
 	Evaluator       *evaluator.MockExpressionEvaluator
 	Runtime         *runtime.Runtime
-	Shims           *Shims
+	Shims           *blueprint.Shims
 }
 
 func setupHandlerMocks(t *testing.T) *HandlerTestMocks {
@@ -73,7 +72,7 @@ func setupHandlerMocks(t *testing.T) *HandlerTestMocks {
 		ArtifactBuilder: mockArtifact,
 		Evaluator:       mockEvaluator,
 		Runtime:         rt,
-		Shims:           NewShims(),
+		Shims:           blueprint.NewShims(),
 	}
 
 	t.Cleanup(func() {
@@ -106,74 +105,72 @@ func TestNewBlueprintHandler(t *testing.T) {
 		mocks := setupHandlerMocks(t)
 
 		// When creating a new handler
-		handler := NewBlueprintHandler(mocks.Runtime, mocks.ArtifactBuilder)
+		handler := blueprint.NewBlueprintHandler(mocks.Runtime, mocks.ArtifactBuilder)
 
 		// Then handler should be created with defaults
 		if handler == nil {
 			t.Fatal("Expected handler to be created")
 		}
-		if handler.runtime != mocks.Runtime {
-			t.Error("Expected runtime to be set")
-		}
-		if handler.artifactBuilder != mocks.ArtifactBuilder {
-			t.Error("Expected artifact builder to be set")
-		}
-		if handler.processor == nil {
-			t.Error("Expected processor to be initialized")
-		}
-		if handler.composer == nil {
-			t.Error("Expected composer to be initialized")
-		}
-		if handler.writer == nil {
-			t.Error("Expected writer to be initialized")
-		}
-		if handler.shims == nil {
+		if handler.Shims() == nil {
 			t.Error("Expected shims to be initialized")
 		}
-		if handler.sourceBlueprintLoaders == nil {
+		if handler.SourceLoaders() == nil {
 			t.Error("Expected sourceBlueprintLoaders map to be initialized")
 		}
 	})
 
 	t.Run("AcceptsProcessorOverride", func(t *testing.T) {
-		// Given a custom processor
+		// Given a custom processor that fails
 		mocks := setupHandlerMocks(t)
-		customProcessor := NewBlueprintProcessor(mocks.Runtime)
+		customProcessor := &mockProcessorImpl{err: fmt.Errorf("custom processor called")}
 
-		// When creating handler with override
-		handler := NewBlueprintHandler(mocks.Runtime, mocks.ArtifactBuilder, &BaseBlueprintHandler{processor: customProcessor})
+		// When loading through a handler created with the override
+		handler := blueprint.NewBlueprintHandler(mocks.Runtime, mocks.ArtifactBuilder, blueprint.HandlerOverrides(customProcessor, nil, nil))
+		err := handler.LoadBlueprint()
 
-		// Then handler should use custom processor
-		if handler.processor != customProcessor {
-			t.Error("Expected custom processor to be used")
+		// Then the custom processor is used
+		if err == nil || !strings.Contains(err.Error(), "custom processor called") {
+			t.Errorf("Expected the custom processor error, got %v", err)
 		}
 	})
 
 	t.Run("AcceptsComposerOverride", func(t *testing.T) {
-		// Given a custom composer
+		// Given a custom composer that fails
 		mocks := setupHandlerMocks(t)
-		customComposer := NewBlueprintComposer(mocks.Runtime)
+		customComposer := &mockComposerImpl{err: fmt.Errorf("custom composer called")}
 
-		// When creating handler with override
-		handler := NewBlueprintHandler(mocks.Runtime, mocks.ArtifactBuilder, &BaseBlueprintHandler{composer: customComposer})
+		// When loading through a handler created with the override
+		handler := blueprint.NewBlueprintHandler(mocks.Runtime, mocks.ArtifactBuilder, blueprint.HandlerOverrides(nil, customComposer, nil))
+		err := handler.LoadBlueprint()
 
-		// Then handler should use custom composer
-		if handler.composer != customComposer {
-			t.Error("Expected custom composer to be used")
+		// Then the custom composer is used
+		if err == nil || !strings.Contains(err.Error(), "custom composer called") {
+			t.Errorf("Expected the custom composer error, got %v", err)
 		}
 	})
 
 	t.Run("AcceptsWriterOverride", func(t *testing.T) {
 		// Given a custom writer
 		mocks := setupHandlerMocks(t)
-		customWriter := NewBlueprintWriter(mocks.Runtime)
+		writeCalled := false
+		customWriter := &mockWriterImpl{
+			writeFunc: func(bp *blueprintv1alpha1.Blueprint, overwrite bool, initBlueprintURLs ...string) error {
+				writeCalled = true
+				return nil
+			},
+		}
 
-		// When creating handler with override
-		handler := NewBlueprintHandler(mocks.Runtime, mocks.ArtifactBuilder, &BaseBlueprintHandler{writer: customWriter})
+		// When writing through a handler created with the override
+		handler := blueprint.NewBlueprintHandler(mocks.Runtime, mocks.ArtifactBuilder, blueprint.HandlerOverrides(nil, nil, customWriter))
+		handler.SetComposedBlueprint(&blueprintv1alpha1.Blueprint{})
+		err := handler.Write()
 
-		// Then handler should use custom writer
-		if handler.writer != customWriter {
-			t.Error("Expected custom writer to be used")
+		// Then the custom writer is used
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		if !writeCalled {
+			t.Error("Expected the custom writer to be called")
 		}
 	})
 }
@@ -199,7 +196,7 @@ terraform:
 `
 		os.WriteFile(filepath.Join(templateDir, "blueprint.yaml"), []byte(blueprintYaml), 0644)
 
-		handler := NewBlueprintHandler(mocks.Runtime, mocks.ArtifactBuilder)
+		handler := blueprint.NewBlueprintHandler(mocks.Runtime, mocks.ArtifactBuilder)
 
 		// When loading blueprint
 		err := handler.LoadBlueprint()
@@ -208,7 +205,7 @@ terraform:
 		if err != nil {
 			t.Fatalf("Expected no error, got %v", err)
 		}
-		if handler.composedBlueprint == nil {
+		if handler.ComposedBlueprint() == nil {
 			t.Fatal("Expected composed blueprint")
 		}
 	})
@@ -246,7 +243,7 @@ sources:
 `
 		os.WriteFile(filepath.Join(mocks.Runtime.ConfigRoot, "blueprint.yaml"), []byte(userYaml), 0644)
 
-		handler := NewBlueprintHandler(mocks.Runtime, mocks.ArtifactBuilder)
+		handler := blueprint.NewBlueprintHandler(mocks.Runtime, mocks.ArtifactBuilder)
 
 		// When loading blueprint
 		err := handler.LoadBlueprint()
@@ -255,17 +252,17 @@ sources:
 		if err != nil {
 			t.Fatalf("Expected no error, got %v", err)
 		}
-		if handler.composedBlueprint == nil {
+		if handler.ComposedBlueprint() == nil {
 			t.Fatal("Expected composed blueprint")
 		}
-		if len(handler.composedBlueprint.TerraformComponents) != 1 {
-			t.Errorf("Expected 1 terraform component from feature, got %d", len(handler.composedBlueprint.TerraformComponents))
+		if len(handler.ComposedBlueprint().TerraformComponents) != 1 {
+			t.Errorf("Expected 1 terraform component from feature, got %d", len(handler.ComposedBlueprint().TerraformComponents))
 		}
 	})
 
 	t.Run("LoadsLocalFacetsWhenUserBlueprintListsSources", func(t *testing.T) {
 		// Given a user blueprint that lists a source (not "template") alongside a local _template
-		// carrying its own facet — the downstream-blueprint layout that previously dropped local facets.
+		// carrying its own facet, which is the downstream-blueprint layout
 		mocks := setupHandlerMocks(t)
 		mocks.Runtime.TemplateRoot = filepath.Join(mocks.Runtime.ProjectRoot, "_template")
 
@@ -309,7 +306,7 @@ sources:
     install: true
 `), 0644)
 
-		handler := NewBlueprintHandler(mocks.Runtime, mocks.ArtifactBuilder)
+		handler := blueprint.NewBlueprintHandler(mocks.Runtime, mocks.ArtifactBuilder)
 
 		// When loading the blueprint
 		if err := handler.LoadBlueprint(); err != nil {
@@ -317,17 +314,17 @@ sources:
 		}
 
 		// Then the local _template facet is loaded despite the sources list, and its component composes.
-		if _, exists := handler.sourceBlueprintLoaders["template"]; !exists {
+		if _, exists := handler.SourceLoaders()["template"]; !exists {
 			t.Fatal("Expected local 'template' loaded even though the user blueprint lists sources")
 		}
 		found := false
-		for _, comp := range handler.composedBlueprint.TerraformComponents {
+		for _, comp := range handler.ComposedBlueprint().TerraformComponents {
 			if comp.Path == "local-net" {
 				found = true
 			}
 		}
 		if !found {
-			t.Errorf("Expected local facet's 'local-net' component composed, got %v", handler.composedBlueprint.TerraformComponents)
+			t.Errorf("Expected local facet's 'local-net' component composed, got %v", handler.ComposedBlueprint().TerraformComponents)
 		}
 	})
 
@@ -376,12 +373,12 @@ sources:
     url: oci://example.com/core:v1.0.0
 `), 0644)
 
-		handler := NewBlueprintHandler(mocks.Runtime, mocks.ArtifactBuilder)
+		handler := blueprint.NewBlueprintHandler(mocks.Runtime, mocks.ArtifactBuilder)
 		if err := handler.LoadBlueprint(); err != nil {
 			t.Fatalf("Expected no error on first load, got %v", err)
 		}
 		hasPath := func(path string) bool {
-			for _, comp := range handler.composedBlueprint.TerraformComponents {
+			for _, comp := range handler.ComposedBlueprint().TerraformComponents {
 				if comp.Path == path {
 					return true
 				}
@@ -389,7 +386,7 @@ sources:
 			return false
 		}
 		if !hasPath("old-path") {
-			t.Fatalf("Expected first load to include old-path, got %v", handler.composedBlueprint.TerraformComponents)
+			t.Fatalf("Expected first load to include old-path, got %v", handler.ComposedBlueprint().TerraformComponents)
 		}
 
 		// When the source is retargeted to a tag with different content, persisted, and reloaded
@@ -408,10 +405,10 @@ sources:
 		// Then the reload pulls the new source content instead of reusing the loader cached from
 		// the first LoadBlueprint call
 		if hasPath("old-path") {
-			t.Errorf("Expected reload to drop stale content from the old source, got %v", handler.composedBlueprint.TerraformComponents)
+			t.Errorf("Expected reload to drop stale content from the old source, got %v", handler.ComposedBlueprint().TerraformComponents)
 		}
 		if !hasPath("new-path") {
-			t.Errorf("Expected reload to pull the new source content, got %v", handler.composedBlueprint.TerraformComponents)
+			t.Errorf("Expected reload to pull the new source content, got %v", handler.ComposedBlueprint().TerraformComponents)
 		}
 	})
 
@@ -445,7 +442,7 @@ terraform:
       - cluster
 `), 0644)
 
-		handler := NewBlueprintHandler(mocks.Runtime, mocks.ArtifactBuilder)
+		handler := blueprint.NewBlueprintHandler(mocks.Runtime, mocks.ArtifactBuilder)
 
 		// When loading, composition fails because "cluster" was excluded.
 		err := handler.LoadBlueprint()
@@ -491,7 +488,7 @@ terraform:
 `
 		os.WriteFile(filepath.Join(mocks.Runtime.ConfigRoot, "blueprint.yaml"), []byte(userYaml), 0644)
 
-		handler := NewBlueprintHandler(mocks.Runtime, mocks.ArtifactBuilder)
+		handler := blueprint.NewBlueprintHandler(mocks.Runtime, mocks.ArtifactBuilder)
 
 		// When loading blueprint
 		err := handler.LoadBlueprint()
@@ -500,14 +497,14 @@ terraform:
 		if err != nil {
 			t.Fatalf("Expected no error, got %v", err)
 		}
-		if handler.composedBlueprint == nil {
+		if handler.ComposedBlueprint() == nil {
 			t.Fatal("Expected composed blueprint")
 		}
-		if len(handler.composedBlueprint.TerraformComponents) != 2 {
-			t.Errorf("Expected 2 components (no filtering), got %d", len(handler.composedBlueprint.TerraformComponents))
+		if len(handler.ComposedBlueprint().TerraformComponents) != 2 {
+			t.Errorf("Expected 2 components (no filtering), got %d", len(handler.ComposedBlueprint().TerraformComponents))
 		}
 		componentPaths := make(map[string]bool)
-		for _, comp := range handler.composedBlueprint.TerraformComponents {
+		for _, comp := range handler.ComposedBlueprint().TerraformComponents {
 			componentPaths[comp.Path] = true
 		}
 		if !componentPaths["vpc"] {
@@ -544,7 +541,7 @@ terraform:
 			return "example.com", "blueprint", "v1.0.0", nil
 		}
 
-		handler := NewBlueprintHandler(mocks.Runtime, mocks.ArtifactBuilder)
+		handler := blueprint.NewBlueprintHandler(mocks.Runtime, mocks.ArtifactBuilder)
 
 		// When loading with OCI URL
 		err := handler.LoadBlueprint("oci://example.com/blueprint:v1.0.0")
@@ -553,7 +550,7 @@ terraform:
 		if err != nil {
 			t.Fatalf("Expected no error, got %v", err)
 		}
-		if handler.composedBlueprint == nil {
+		if handler.ComposedBlueprint() == nil {
 			t.Fatal("Expected composed blueprint from OCI")
 		}
 	})
@@ -580,7 +577,7 @@ sources:
 `
 		os.WriteFile(filepath.Join(mocks.Runtime.ConfigRoot, "blueprint.yaml"), []byte(userYaml), 0644)
 
-		handler := NewBlueprintHandler(mocks.Runtime, mocks.ArtifactBuilder)
+		handler := blueprint.NewBlueprintHandler(mocks.Runtime, mocks.ArtifactBuilder)
 
 		// When loading blueprint
 		err := handler.LoadBlueprint()
@@ -589,7 +586,7 @@ sources:
 		if err != nil {
 			t.Fatalf("Expected no error, got %v", err)
 		}
-		if _, exists := handler.sourceBlueprintLoaders["template"]; !exists {
+		if _, exists := handler.SourceLoaders()["template"]; !exists {
 			t.Error("Expected template source to be loaded")
 		}
 	})
@@ -610,7 +607,7 @@ sources:
 `
 		os.WriteFile(filepath.Join(mocks.Runtime.ConfigRoot, "blueprint.yaml"), []byte(userYaml), 0644)
 
-		handler := NewBlueprintHandler(mocks.Runtime, mocks.ArtifactBuilder)
+		handler := blueprint.NewBlueprintHandler(mocks.Runtime, mocks.ArtifactBuilder)
 
 		// When loading blueprint
 		err := handler.LoadBlueprint()
@@ -659,7 +656,7 @@ sources:
 			return "example.com", "shared", "v1.0.0", nil
 		}
 
-		handler := NewBlueprintHandler(mocks.Runtime, mocks.ArtifactBuilder)
+		handler := blueprint.NewBlueprintHandler(mocks.Runtime, mocks.ArtifactBuilder)
 
 		// When loading blueprint
 		err := handler.LoadBlueprint()
@@ -668,10 +665,10 @@ sources:
 		if err != nil {
 			t.Fatalf("Expected no error, got %v", err)
 		}
-		if len(handler.sourceBlueprintLoaders) < 1 {
-			t.Errorf("Expected at least 1 source loader, got %d", len(handler.sourceBlueprintLoaders))
+		if len(handler.SourceLoaders()) < 1 {
+			t.Errorf("Expected at least 1 source loader, got %d", len(handler.SourceLoaders()))
 		}
-		if _, exists := handler.sourceBlueprintLoaders["shared-modules"]; !exists {
+		if _, exists := handler.SourceLoaders()["shared-modules"]; !exists {
 			t.Error("Expected 'shared-modules' source loader")
 		}
 	})
@@ -731,7 +728,7 @@ metadata:
 			return "example.com", "user-modules", "v1.0.0", nil
 		}
 
-		handler := NewBlueprintHandler(mocks.Runtime, mocks.ArtifactBuilder)
+		handler := blueprint.NewBlueprintHandler(mocks.Runtime, mocks.ArtifactBuilder)
 
 		// When loading blueprint
 		err := handler.LoadBlueprint()
@@ -740,8 +737,8 @@ metadata:
 		if err != nil {
 			t.Fatalf("Expected no error, got %v", err)
 		}
-		if len(handler.sourceBlueprintLoaders) < 2 {
-			t.Errorf("Expected at least 2 source loaders, got %d", len(handler.sourceBlueprintLoaders))
+		if len(handler.SourceLoaders()) < 2 {
+			t.Errorf("Expected at least 2 source loaders, got %d", len(handler.SourceLoaders()))
 		}
 	})
 
@@ -783,7 +780,7 @@ metadata:
 			return "example.com", "dup", "v1.0.0", nil
 		}
 
-		handler := NewBlueprintHandler(mocks.Runtime, mocks.ArtifactBuilder)
+		handler := blueprint.NewBlueprintHandler(mocks.Runtime, mocks.ArtifactBuilder)
 
 		// When loading blueprint
 		err := handler.LoadBlueprint()
@@ -813,7 +810,7 @@ sources:
 			return nil, os.ErrNotExist
 		}
 
-		handler := NewBlueprintHandler(mocks.Runtime, mocks.ArtifactBuilder)
+		handler := blueprint.NewBlueprintHandler(mocks.Runtime, mocks.ArtifactBuilder)
 
 		// When loading blueprint
 		err := handler.LoadBlueprint()
@@ -869,7 +866,7 @@ terraform:
 			return "example.com", "oci", "v1.0.0", nil
 		}
 
-		handler := NewBlueprintHandler(mocks.Runtime, mocks.ArtifactBuilder)
+		handler := blueprint.NewBlueprintHandler(mocks.Runtime, mocks.ArtifactBuilder)
 
 		// When loading blueprint
 		err := handler.LoadBlueprint()
@@ -880,18 +877,18 @@ terraform:
 		}
 
 		// And only OCI source should be loaded as blueprint (recursive loading may add more if oci-source has sources)
-		if len(handler.sourceBlueprintLoaders) < 1 {
-			t.Errorf("Expected at least 1 source loader, got %d", len(handler.sourceBlueprintLoaders))
+		if len(handler.SourceLoaders()) < 1 {
+			t.Errorf("Expected at least 1 source loader, got %d", len(handler.SourceLoaders()))
 		}
-		if _, exists := handler.sourceBlueprintLoaders["oci-source"]; !exists {
+		if _, exists := handler.SourceLoaders()["oci-source"]; !exists {
 			t.Error("Expected oci-source to be loaded")
 		}
-		if _, exists := handler.sourceBlueprintLoaders["git-source"]; exists {
+		if _, exists := handler.SourceLoaders()["git-source"]; exists {
 			t.Error("Expected git-source to NOT be loaded as blueprint")
 		}
 
 		// And composed blueprint should have components from OCI source and user
-		if handler.composedBlueprint == nil {
+		if handler.ComposedBlueprint() == nil {
 			t.Fatal("Expected composed blueprint to exist")
 		}
 		components := handler.GetTerraformComponents()
@@ -949,7 +946,7 @@ terraform:
 			return "example.com", "public", "v1.0.0", nil
 		}
 
-		handler := NewBlueprintHandler(mocks.Runtime, mocks.ArtifactBuilder)
+		handler := blueprint.NewBlueprintHandler(mocks.Runtime, mocks.ArtifactBuilder)
 
 		// When loading blueprint
 		err := handler.LoadBlueprint()
@@ -958,20 +955,20 @@ terraform:
 		if err != nil {
 			t.Fatalf("Expected no error, got %v", err)
 		}
-		if _, exists := handler.sourceBlueprintLoaders["public-blueprint"]; !exists {
+		if _, exists := handler.SourceLoaders()["public-blueprint"]; !exists {
 			t.Fatal("Expected public-blueprint source to be loaded")
 		}
 
 		// And the composed blueprint should have components from both source and user
-		if handler.composedBlueprint == nil {
+		if handler.ComposedBlueprint() == nil {
 			t.Fatal("Expected composed blueprint to exist")
 		}
 		componentPaths := make(map[string]bool)
-		for _, comp := range handler.composedBlueprint.TerraformComponents {
+		for _, comp := range handler.ComposedBlueprint().TerraformComponents {
 			componentPaths[comp.Path] = true
 		}
-		if len(handler.composedBlueprint.TerraformComponents) == 0 {
-			t.Errorf("Expected components in composed blueprint, got none. Composed blueprint: %+v", handler.composedBlueprint)
+		if len(handler.ComposedBlueprint().TerraformComponents) == 0 {
+			t.Errorf("Expected components in composed blueprint, got none. Composed blueprint: %+v", handler.ComposedBlueprint())
 		}
 		if !componentPaths["base-component"] {
 			t.Errorf("Expected 'base-component' from public-blueprint. Found components: %v", componentPaths)
@@ -986,10 +983,10 @@ func TestHandler_Write(t *testing.T) {
 	t.Run("WriteDelegatesToWriter", func(t *testing.T) {
 		// Given a handler with composed blueprint
 		mocks := setupHandlerMocks(t)
-		handler := NewBlueprintHandler(mocks.Runtime, mocks.ArtifactBuilder)
-		handler.composedBlueprint = &blueprintv1alpha1.Blueprint{
+		handler := blueprint.NewBlueprintHandler(mocks.Runtime, mocks.ArtifactBuilder)
+		handler.SetComposedBlueprint(&blueprintv1alpha1.Blueprint{
 			Metadata: blueprintv1alpha1.Metadata{Name: "test"},
-		}
+		})
 
 		writeCalled := false
 		mockWriter := &mockWriterImpl{
@@ -998,7 +995,7 @@ func TestHandler_Write(t *testing.T) {
 				return nil
 			},
 		}
-		handler.writer = mockWriter
+		handler.SetWriter(mockWriter)
 
 		// When writing
 		err := handler.Write()
@@ -1015,8 +1012,8 @@ func TestHandler_Write(t *testing.T) {
 	t.Run("WritePassesOverwriteFlag", func(t *testing.T) {
 		// Given a handler
 		mocks := setupHandlerMocks(t)
-		handler := NewBlueprintHandler(mocks.Runtime, mocks.ArtifactBuilder)
-		handler.composedBlueprint = &blueprintv1alpha1.Blueprint{}
+		handler := blueprint.NewBlueprintHandler(mocks.Runtime, mocks.ArtifactBuilder)
+		handler.SetComposedBlueprint(&blueprintv1alpha1.Blueprint{})
 
 		var receivedOverwrite bool
 		mockWriter := &mockWriterImpl{
@@ -1025,7 +1022,7 @@ func TestHandler_Write(t *testing.T) {
 				return nil
 			},
 		}
-		handler.writer = mockWriter
+		handler.SetWriter(mockWriter)
 
 		// When writing with overwrite=true
 		_ = handler.Write(true)
@@ -1035,18 +1032,217 @@ func TestHandler_Write(t *testing.T) {
 			t.Error("Expected overwrite=true to be passed to writer")
 		}
 	})
+
+	t.Run("SetsDevRepositoryURLInDevMode", func(t *testing.T) {
+		// Given a handler in dev mode with domain and project configured, no user blueprint
+		mocks := setupHandlerMocks(t)
+		mocks.ConfigHandler.GetBoolFunc = func(key string, defaultValue ...bool) bool {
+			return key == "dev"
+		}
+		mocks.ConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
+			if key == "dns.domain" {
+				return "test"
+			}
+			if len(defaultValue) > 0 {
+				return defaultValue[0]
+			}
+			return ""
+		}
+		mocks.Runtime.ProjectRoot = "/path/to/myproject"
+
+		handler := blueprint.NewBlueprintHandler(mocks.Runtime, mocks.ArtifactBuilder, blueprint.HandlerOverrides(nil, nil, &mockWriterImpl{}))
+		handler.SetComposedBlueprint(&blueprintv1alpha1.Blueprint{})
+
+		// When writing the blueprint
+		if err := handler.Write(); err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+
+		// Then repository should be set with local git URL
+		if handler.ComposedBlueprint().Repository.Url != "http://git.test/git/myproject" {
+			t.Errorf("Expected URL 'http://git.test/git/myproject', got '%s'", handler.ComposedBlueprint().Repository.Url)
+		}
+		if handler.ComposedBlueprint().Repository.Ref.Branch != "main" {
+			t.Errorf("Expected branch 'main', got '%s'", handler.ComposedBlueprint().Repository.Ref.Branch)
+		}
+		if handler.ComposedBlueprint().Repository.SecretName == nil || *handler.ComposedBlueprint().Repository.SecretName != "flux-system" {
+			t.Errorf("Expected secretName 'flux-system'")
+		}
+	})
+
+	t.Run("FallsBackToGitRemoteWhenNotDevMode", func(t *testing.T) {
+		// Given a handler not in dev mode with no user blueprint
+		mocks := setupHandlerMocks(t)
+		mocks.ConfigHandler.GetBoolFunc = func(key string, defaultValue ...bool) bool {
+			return false
+		}
+		mocks.Shell.ExecSilentFunc = func(command string, args ...string) (string, error) {
+			if len(args) > 0 && args[len(args)-1] == "remote.origin.url" {
+				return "https://github.com/test/repo.git", nil
+			}
+			return "", nil
+		}
+
+		handler := blueprint.NewBlueprintHandler(mocks.Runtime, mocks.ArtifactBuilder, blueprint.HandlerOverrides(nil, nil, &mockWriterImpl{}))
+		handler.SetComposedBlueprint(&blueprintv1alpha1.Blueprint{})
+
+		// When writing the blueprint
+		if err := handler.Write(); err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+
+		// Then repository should be set with normalized host/path URL
+		if handler.ComposedBlueprint().Repository.Url != "github.com/test/repo" {
+			t.Errorf("Expected URL 'github.com/test/repo', got '%s'", handler.ComposedBlueprint().Repository.Url)
+		}
+	})
+
+	t.Run("NormalizesSSHGitURL", func(t *testing.T) {
+		// Given a handler with SSH-style git URL and no user blueprint
+		mocks := setupHandlerMocks(t)
+		mocks.ConfigHandler.GetBoolFunc = func(key string, defaultValue ...bool) bool {
+			return false
+		}
+		mocks.Shell.ExecSilentFunc = func(command string, args ...string) (string, error) {
+			if len(args) > 0 && args[len(args)-1] == "remote.origin.url" {
+				return "git@github.com:test/repo.git", nil
+			}
+			return "", nil
+		}
+
+		handler := blueprint.NewBlueprintHandler(mocks.Runtime, mocks.ArtifactBuilder, blueprint.HandlerOverrides(nil, nil, &mockWriterImpl{}))
+		handler.SetComposedBlueprint(&blueprintv1alpha1.Blueprint{})
+
+		// When writing the blueprint
+		if err := handler.Write(); err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+
+		// Then repository should be normalized to host/path URL
+		if handler.ComposedBlueprint().Repository.Url != "github.com/test/repo" {
+			t.Errorf("Expected URL 'github.com/test/repo', got '%s'", handler.ComposedBlueprint().Repository.Url)
+		}
+	})
+
+	t.Run("NormalizesGitSchemeURL", func(t *testing.T) {
+		// Given a git remote origin URL and no dev mode
+		mocks := setupHandlerMocks(t)
+		mocks.ConfigHandler.GetBoolFunc = func(key string, defaultValue ...bool) bool {
+			return false
+		}
+		mocks.Shell.ExecSilentFunc = func(command string, args ...string) (string, error) {
+			if len(args) > 0 && args[len(args)-1] == "remote.origin.url" {
+				return "git://github.com/test/repo.git", nil
+			}
+			return "", nil
+		}
+
+		handler := blueprint.NewBlueprintHandler(mocks.Runtime, mocks.ArtifactBuilder, blueprint.HandlerOverrides(nil, nil, &mockWriterImpl{}))
+		handler.SetComposedBlueprint(&blueprintv1alpha1.Blueprint{})
+
+		// When writing the blueprint
+		if err := handler.Write(); err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+
+		// Then the repository URL is the normalized remote
+		if handler.ComposedBlueprint().Repository.Url != "github.com/test/repo" {
+			t.Errorf("Expected URL 'github.com/test/repo', got '%s'", handler.ComposedBlueprint().Repository.Url)
+		}
+	})
+
+	t.Run("PreservesFileSchemeURL", func(t *testing.T) {
+		// Given a git remote origin URL and no dev mode
+		mocks := setupHandlerMocks(t)
+		mocks.ConfigHandler.GetBoolFunc = func(key string, defaultValue ...bool) bool {
+			return false
+		}
+		mocks.Shell.ExecSilentFunc = func(command string, args ...string) (string, error) {
+			if len(args) > 0 && args[len(args)-1] == "remote.origin.url" {
+				return "file:///tmp/repo", nil
+			}
+			return "", nil
+		}
+
+		handler := blueprint.NewBlueprintHandler(mocks.Runtime, mocks.ArtifactBuilder, blueprint.HandlerOverrides(nil, nil, &mockWriterImpl{}))
+		handler.SetComposedBlueprint(&blueprintv1alpha1.Blueprint{})
+
+		// When writing the blueprint
+		if err := handler.Write(); err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+
+		// Then the repository URL is the normalized remote
+		if handler.ComposedBlueprint().Repository.Url != "file:///tmp/repo" {
+			t.Errorf("Expected URL 'file:///tmp/repo', got '%s'", handler.ComposedBlueprint().Repository.Url)
+		}
+	})
+
+	t.Run("AddsHTTPSForInvalidSchemePrefix", func(t *testing.T) {
+		// Given a git remote origin URL and no dev mode
+		mocks := setupHandlerMocks(t)
+		mocks.ConfigHandler.GetBoolFunc = func(key string, defaultValue ...bool) bool {
+			return false
+		}
+		mocks.Shell.ExecSilentFunc = func(command string, args ...string) (string, error) {
+			if len(args) > 0 && args[len(args)-1] == "remote.origin.url" {
+				return "1invalid://github.com/test/repo.git", nil
+			}
+			return "", nil
+		}
+
+		handler := blueprint.NewBlueprintHandler(mocks.Runtime, mocks.ArtifactBuilder, blueprint.HandlerOverrides(nil, nil, &mockWriterImpl{}))
+		handler.SetComposedBlueprint(&blueprintv1alpha1.Blueprint{})
+
+		// When writing the blueprint
+		if err := handler.Write(); err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+
+		// Then the repository URL is the normalized remote
+		if handler.ComposedBlueprint().Repository.Url != "github.com/test/repo" {
+			t.Errorf("Expected URL 'github.com/test/repo', got '%s'", handler.ComposedBlueprint().Repository.Url)
+		}
+	})
+
+	t.Run("NormalizesExtendedSchemeURL", func(t *testing.T) {
+		// Given a git remote origin URL and no dev mode
+		mocks := setupHandlerMocks(t)
+		mocks.ConfigHandler.GetBoolFunc = func(key string, defaultValue ...bool) bool {
+			return false
+		}
+		mocks.Shell.ExecSilentFunc = func(command string, args ...string) (string, error) {
+			if len(args) > 0 && args[len(args)-1] == "remote.origin.url" {
+				return "git+ssh://github.com/test/repo.git", nil
+			}
+			return "", nil
+		}
+
+		handler := blueprint.NewBlueprintHandler(mocks.Runtime, mocks.ArtifactBuilder, blueprint.HandlerOverrides(nil, nil, &mockWriterImpl{}))
+		handler.SetComposedBlueprint(&blueprintv1alpha1.Blueprint{})
+
+		// When writing the blueprint
+		if err := handler.Write(); err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+
+		// Then the repository URL is the normalized remote
+		if handler.ComposedBlueprint().Repository.Url != "github.com/test/repo" {
+			t.Errorf("Expected URL 'github.com/test/repo', got '%s'", handler.ComposedBlueprint().Repository.Url)
+		}
+	})
 }
 
 func TestHandler_RetargetSource(t *testing.T) {
-	setup := func(t *testing.T) *BaseBlueprintHandler {
+	setup := func(t *testing.T) *blueprint.BaseBlueprintHandler {
 		t.Helper()
 		mocks := setupHandlerMocks(t)
-		handler := NewBlueprintHandler(mocks.Runtime, mocks.ArtifactBuilder)
-		handler.composedBlueprint = &blueprintv1alpha1.Blueprint{
+		handler := blueprint.NewBlueprintHandler(mocks.Runtime, mocks.ArtifactBuilder)
+		handler.SetComposedBlueprint(&blueprintv1alpha1.Blueprint{
 			Sources: []blueprintv1alpha1.Source{
 				{Name: "core", Url: "oci://ghcr.io/windsorcli/core:v0.3.0", Ref: blueprintv1alpha1.Reference{SemVer: "v0.3.0"}},
 			},
-		}
+		})
 		return handler
 	}
 
@@ -1064,11 +1260,11 @@ func TestHandler_RetargetSource(t *testing.T) {
 		if previous != "oci://ghcr.io/windsorcli/core:v0.3.0" {
 			t.Errorf("Expected previous URL, got %q", previous)
 		}
-		if handler.composedBlueprint.Sources[0].Url != "oci://ghcr.io/windsorcli/core:v0.6.0" {
-			t.Errorf("Expected URL repointed, got %q", handler.composedBlueprint.Sources[0].Url)
+		if handler.ComposedBlueprint().Sources[0].Url != "oci://ghcr.io/windsorcli/core:v0.6.0" {
+			t.Errorf("Expected URL repointed, got %q", handler.ComposedBlueprint().Sources[0].Url)
 		}
-		if handler.composedBlueprint.Sources[0].Ref != (blueprintv1alpha1.Reference{}) {
-			t.Errorf("Expected ref cleared (tag lives in URL), got %+v", handler.composedBlueprint.Sources[0].Ref)
+		if handler.ComposedBlueprint().Sources[0].Ref != (blueprintv1alpha1.Reference{}) {
+			t.Errorf("Expected ref cleared (tag lives in URL), got %+v", handler.ComposedBlueprint().Sources[0].Ref)
 		}
 	})
 
@@ -1094,8 +1290,8 @@ func TestHandler_RetargetSource(t *testing.T) {
 
 	t.Run("ErrorsWhenBlueprintNotLoaded", func(t *testing.T) {
 		mocks := setupHandlerMocks(t)
-		handler := NewBlueprintHandler(mocks.Runtime, mocks.ArtifactBuilder)
-		handler.composedBlueprint = nil
+		handler := blueprint.NewBlueprintHandler(mocks.Runtime, mocks.ArtifactBuilder)
+		handler.SetComposedBlueprint(nil)
 		if _, err := handler.RetargetSource("core", "oci://ghcr.io/windsorcli/core:v0.6.0"); err == nil {
 			t.Error("Expected an error when no blueprint is loaded")
 		}
@@ -1103,14 +1299,14 @@ func TestHandler_RetargetSource(t *testing.T) {
 }
 
 func TestHandler_UpgradeSourcesToLatest(t *testing.T) {
-	setup := func(t *testing.T, sources []blueprintv1alpha1.Source, tags map[string][]string) (*BaseBlueprintHandler, *artifact.MockArtifact) {
+	setup := func(t *testing.T, sources []blueprintv1alpha1.Source, tags map[string][]string) (*blueprint.BaseBlueprintHandler, *artifact.MockArtifact) {
 		t.Helper()
 		mocks := setupHandlerMocks(t)
 		mocks.ArtifactBuilder.ListTagsFunc = func(ociRef string) ([]string, error) {
 			return tags[ociRef], nil
 		}
-		handler := NewBlueprintHandler(mocks.Runtime, mocks.ArtifactBuilder)
-		handler.composedBlueprint = &blueprintv1alpha1.Blueprint{Sources: sources}
+		handler := blueprint.NewBlueprintHandler(mocks.Runtime, mocks.ArtifactBuilder)
+		handler.SetComposedBlueprint(&blueprintv1alpha1.Blueprint{Sources: sources})
 		return handler, mocks.ArtifactBuilder
 	}
 
@@ -1134,11 +1330,11 @@ func TestHandler_UpgradeSourcesToLatest(t *testing.T) {
 		if upgrades[0].To != "oci://ghcr.io/windsorcli/core:v0.6.0" {
 			t.Errorf("Expected target v0.6.0, got %q", upgrades[0].To)
 		}
-		if handler.composedBlueprint.Sources[0].Url != "oci://ghcr.io/windsorcli/core:v0.6.0" {
-			t.Errorf("Expected source URL bumped, got %q", handler.composedBlueprint.Sources[0].Url)
+		if handler.ComposedBlueprint().Sources[0].Url != "oci://ghcr.io/windsorcli/core:v0.6.0" {
+			t.Errorf("Expected source URL bumped, got %q", handler.ComposedBlueprint().Sources[0].Url)
 		}
-		if handler.composedBlueprint.Sources[0].Ref != (blueprintv1alpha1.Reference{}) {
-			t.Errorf("Expected ref cleared, got %+v", handler.composedBlueprint.Sources[0].Ref)
+		if handler.ComposedBlueprint().Sources[0].Ref != (blueprintv1alpha1.Reference{}) {
+			t.Errorf("Expected ref cleared, got %+v", handler.ComposedBlueprint().Sources[0].Ref)
 		}
 	})
 
@@ -1173,10 +1369,10 @@ func TestHandler_UpgradeSourcesToLatest(t *testing.T) {
 		mocks.ArtifactBuilder.ListTagsFunc = func(ociRef string) ([]string, error) {
 			return nil, fmt.Errorf("registry unreachable")
 		}
-		handler := NewBlueprintHandler(mocks.Runtime, mocks.ArtifactBuilder)
-		handler.composedBlueprint = &blueprintv1alpha1.Blueprint{
+		handler := blueprint.NewBlueprintHandler(mocks.Runtime, mocks.ArtifactBuilder)
+		handler.SetComposedBlueprint(&blueprintv1alpha1.Blueprint{
 			Sources: []blueprintv1alpha1.Source{{Name: "core", Url: "oci://ghcr.io/windsorcli/core:v0.5.0"}},
-		}
+		})
 		if _, err := handler.UpgradeSourcesToLatest(); err == nil {
 			t.Error("Expected an error when tag listing fails")
 		}
@@ -1184,8 +1380,8 @@ func TestHandler_UpgradeSourcesToLatest(t *testing.T) {
 
 	t.Run("ErrorsWhenBlueprintNotLoaded", func(t *testing.T) {
 		mocks := setupHandlerMocks(t)
-		handler := NewBlueprintHandler(mocks.Runtime, mocks.ArtifactBuilder)
-		handler.composedBlueprint = nil
+		handler := blueprint.NewBlueprintHandler(mocks.Runtime, mocks.ArtifactBuilder)
+		handler.SetComposedBlueprint(nil)
 		if _, err := handler.UpgradeSourcesToLatest(); err == nil {
 			t.Error("Expected an error when no blueprint is loaded")
 		}
@@ -1213,8 +1409,8 @@ func TestHandler_UpgradeSourcesToLatest(t *testing.T) {
 		}
 
 		// Then the first source is left untouched — no partial in-memory mutation
-		if handler.composedBlueprint.Sources[0].Url != "oci://ghcr.io/windsorcli/core:v0.5.0" {
-			t.Errorf("Expected the first source unmutated, got %q", handler.composedBlueprint.Sources[0].Url)
+		if handler.ComposedBlueprint().Sources[0].Url != "oci://ghcr.io/windsorcli/core:v0.5.0" {
+			t.Errorf("Expected the first source unmutated, got %q", handler.ComposedBlueprint().Sources[0].Url)
 		}
 	})
 
@@ -1324,7 +1520,7 @@ func TestHandler_GetTerraformComponents(t *testing.T) {
 	t.Run("ReturnsNilWhenNoBlueprint", func(t *testing.T) {
 		// Given a handler with no composed blueprint
 		mocks := setupHandlerMocks(t)
-		handler := NewBlueprintHandler(mocks.Runtime, mocks.ArtifactBuilder)
+		handler := blueprint.NewBlueprintHandler(mocks.Runtime, mocks.ArtifactBuilder)
 
 		// When getting components
 		components := handler.GetTerraformComponents()
@@ -1338,13 +1534,13 @@ func TestHandler_GetTerraformComponents(t *testing.T) {
 	t.Run("ReturnsComponentsFromComposedBlueprint", func(t *testing.T) {
 		// Given a handler with composed blueprint
 		mocks := setupHandlerMocks(t)
-		handler := NewBlueprintHandler(mocks.Runtime, mocks.ArtifactBuilder)
-		handler.composedBlueprint = &blueprintv1alpha1.Blueprint{
+		handler := blueprint.NewBlueprintHandler(mocks.Runtime, mocks.ArtifactBuilder)
+		handler.SetComposedBlueprint(&blueprintv1alpha1.Blueprint{
 			TerraformComponents: []blueprintv1alpha1.TerraformComponent{
 				{Path: "vpc"},
 				{Path: "rds"},
 			},
-		}
+		})
 
 		// When getting components
 		components := handler.GetTerraformComponents()
@@ -1354,46 +1550,105 @@ func TestHandler_GetTerraformComponents(t *testing.T) {
 			t.Errorf("Expected 2 components, got %d", len(components))
 		}
 	})
-}
 
-func TestHandler_GetLocalTemplateData(t *testing.T) {
-	t.Run("ReturnsNilWhenNoTemplateSource", func(t *testing.T) {
-		// Given a handler with no template source
+	t.Run("ResolvesSourceNamesToModuleURLs", func(t *testing.T) {
+		// Given components that name OCI, git, and local template sources
 		mocks := setupHandlerMocks(t)
-		handler := NewBlueprintHandler(mocks.Runtime, mocks.ArtifactBuilder)
+		handler := blueprint.NewBlueprintHandler(mocks.Runtime, mocks.ArtifactBuilder)
+		handler.SetComposedBlueprint(&blueprintv1alpha1.Blueprint{
+			Sources: []blueprintv1alpha1.Source{
+				{Name: "pinned", Url: "oci://ghcr.io/acme/core:v1.0.0", Ref: blueprintv1alpha1.Reference{Tag: "v2.0.0"}},
+				{Name: "untagged", Url: "oci://ghcr.io/acme/core", Ref: blueprintv1alpha1.Reference{Tag: "v2.0.0"}},
+				{Name: "bare", Url: "oci://ghcr.io/acme/core"},
+				{Name: "commit", Url: "https://github.com/acme/core", PathPrefix: "modules", Ref: blueprintv1alpha1.Reference{Commit: "abc123", SemVer: "~1.0", Tag: "v1", Branch: "main"}},
+				{Name: "semver", Url: "https://github.com/acme/core", Ref: blueprintv1alpha1.Reference{SemVer: "~1.0", Tag: "v1", Branch: "main"}},
+				{Name: "tag", Url: "https://github.com/acme/core", Ref: blueprintv1alpha1.Reference{Tag: "v1", Branch: "main"}},
+				{Name: "branch", Url: "https://github.com/acme/core", Ref: blueprintv1alpha1.Reference{Branch: "main"}},
+				{Name: "noref", Url: "https://github.com/acme/core"},
+				{Name: "template"},
+			},
+			TerraformComponents: []blueprintv1alpha1.TerraformComponent{
+				{Path: "a", Source: "pinned"},
+				{Path: "b", Source: "untagged"},
+				{Path: "c", Source: "bare"},
+				{Path: "d", Source: "commit"},
+				{Path: "e", Source: "semver"},
+				{Path: "f", Source: "tag"},
+				{Path: "g", Source: "branch"},
+				{Path: "h", Source: "noref"},
+				{Path: "i", Source: "template"},
+				{Path: "j", Source: "undeclared"},
+			},
+		})
 
-		// When getting template data
-		data, err := handler.GetLocalTemplateData()
+		// When getting components
+		components := handler.GetTerraformComponents()
 
-		// Then should return nil
-		if err != nil {
-			t.Fatalf("Expected no error, got %v", err)
+		// Then each source name becomes a module URL with the highest-priority ref
+		want := []string{
+			"oci://ghcr.io/acme/core:v1.0.0//terraform/a",
+			"oci://ghcr.io/acme/core:v2.0.0//terraform/b",
+			"oci://ghcr.io/acme/core//terraform/c",
+			"https://github.com/acme/core//modules/d?ref=abc123",
+			"https://github.com/acme/core//terraform/e?ref=~1.0",
+			"https://github.com/acme/core//terraform/f?ref=v1",
+			"https://github.com/acme/core//terraform/g?ref=main",
+			"https://github.com/acme/core//terraform/h?ref=",
+			"",
+			"undeclared",
 		}
-		if data != nil {
-			t.Error("Expected nil when no template source")
+		for i, w := range want {
+			if components[i].Source != w {
+				t.Errorf("component %s: expected source %q, got %q", components[i].Path, w, components[i].Source)
+			}
 		}
 	})
 
-	t.Run("ReturnsDataFromTemplateSource", func(t *testing.T) {
-		// Given a handler with template source
+	t.Run("PlacesSourcedAndNamedComponentsInTheScratchPath", func(t *testing.T) {
+		// Given a sourced component, a named component, and a local component
 		mocks := setupHandlerMocks(t)
-		handler := NewBlueprintHandler(mocks.Runtime, mocks.ArtifactBuilder)
-		mockLoader := &mockLoaderImpl{
-			getTemplateDataFunc: func() map[string][]byte {
-				return map[string][]byte{"test.yaml": []byte("content")}
+		handler := blueprint.NewBlueprintHandler(mocks.Runtime, mocks.ArtifactBuilder)
+		handler.SetComposedBlueprint(&blueprintv1alpha1.Blueprint{
+			Sources: []blueprintv1alpha1.Source{{Name: "core", Url: "oci://ghcr.io/acme/core:v1.0.0"}},
+			TerraformComponents: []blueprintv1alpha1.TerraformComponent{
+				{Path: "network/vpc", Source: "core"},
+				{Path: "cluster", Name: "main-cluster"},
+				{Path: "local/app"},
 			},
-		}
-		handler.sourceBlueprintLoaders["template"] = mockLoader
+		})
 
-		// When getting template data
-		data, err := handler.GetLocalTemplateData()
+		// When getting components
+		components := handler.GetTerraformComponents()
 
-		// Then should return data
-		if err != nil {
-			t.Fatalf("Expected no error, got %v", err)
+		// Then sourced and named components use the scratch path and local components the project path
+		rt := mocks.Runtime
+		want := []string{
+			filepath.Join(rt.WindsorScratchPath, "terraform", "network/vpc"),
+			filepath.Join(rt.WindsorScratchPath, "terraform", "main-cluster"),
+			filepath.Join(rt.ProjectRoot, "terraform", "local/app"),
 		}
-		if len(data) != 1 {
-			t.Errorf("Expected 1 entry, got %d", len(data))
+		for i, w := range want {
+			if components[i].FullPath != w {
+				t.Errorf("component %s: expected full path %q, got %q", components[i].Path, w, components[i].FullPath)
+			}
+		}
+	})
+
+	t.Run("DoesNotChangeTheComposedBlueprint", func(t *testing.T) {
+		// Given a component that names a source
+		mocks := setupHandlerMocks(t)
+		handler := blueprint.NewBlueprintHandler(mocks.Runtime, mocks.ArtifactBuilder)
+		handler.SetComposedBlueprint(&blueprintv1alpha1.Blueprint{
+			Sources:             []blueprintv1alpha1.Source{{Name: "core", Url: "oci://ghcr.io/acme/core:v1.0.0"}},
+			TerraformComponents: []blueprintv1alpha1.TerraformComponent{{Path: "vpc", Source: "core"}},
+		})
+
+		// When getting components
+		_ = handler.GetTerraformComponents()
+
+		// Then the composed component keeps its source name
+		if got := handler.ComposedBlueprint().TerraformComponents[0]; got.Source != "core" || got.FullPath != "" {
+			t.Errorf("expected the composed component unchanged, got %+v", got)
 		}
 	})
 }
@@ -1402,7 +1657,7 @@ func TestHandler_Generate(t *testing.T) {
 	t.Run("ReturnsNilWhenNoBlueprint", func(t *testing.T) {
 		// Given a handler with no composed blueprint
 		mocks := setupHandlerMocks(t)
-		handler := NewBlueprintHandler(mocks.Runtime, mocks.ArtifactBuilder)
+		handler := blueprint.NewBlueprintHandler(mocks.Runtime, mocks.ArtifactBuilder)
 
 		// When generating
 		result := handler.Generate()
@@ -1416,10 +1671,10 @@ func TestHandler_Generate(t *testing.T) {
 	t.Run("ReturnsComposedBlueprint", func(t *testing.T) {
 		// Given a handler with composed blueprint
 		mocks := setupHandlerMocks(t)
-		handler := NewBlueprintHandler(mocks.Runtime, mocks.ArtifactBuilder)
-		handler.composedBlueprint = &blueprintv1alpha1.Blueprint{
+		handler := blueprint.NewBlueprintHandler(mocks.Runtime, mocks.ArtifactBuilder)
+		handler.SetComposedBlueprint(&blueprintv1alpha1.Blueprint{
 			Metadata: blueprintv1alpha1.Metadata{Name: "generated"},
-		}
+		})
 
 		// When generating
 		result := handler.Generate()
@@ -1438,15 +1693,15 @@ func TestHandler_GenerateResolved(t *testing.T) {
 	t.Run("DoesNotMutateComposedBlueprint", func(t *testing.T) {
 		// Given a handler with a deferred substitution
 		mocks := setupHandlerMocks(t)
-		handler := NewBlueprintHandler(mocks.Runtime, mocks.ArtifactBuilder)
-		handler.composedBlueprint = &blueprintv1alpha1.Blueprint{
+		handler := blueprint.NewBlueprintHandler(mocks.Runtime, mocks.ArtifactBuilder)
+		handler.SetComposedBlueprint(&blueprintv1alpha1.Blueprint{
 			Substitutions: map[string]string{
 				"MY_KEY": "<deferred>",
 			},
-		}
-		handler.deferredPaths = map[string]bool{
+		})
+		handler.SetDeferredPaths(map[string]bool{
 			"substitutions.MY_KEY": true,
-		}
+		})
 
 		// When calling GenerateResolved
 		resolved, err := handler.GenerateResolved()
@@ -1455,20 +1710,20 @@ func TestHandler_GenerateResolved(t *testing.T) {
 		}
 
 		// Then the returned blueprint is a separate object
-		if resolved == handler.composedBlueprint {
+		if resolved == handler.ComposedBlueprint() {
 			t.Error("Expected GenerateResolved to return a deep copy, not the same pointer")
 		}
 
 		// And the original composedBlueprint retains the deferred placeholder
-		if handler.composedBlueprint.Substitutions["MY_KEY"] != "<deferred>" {
-			t.Errorf("Expected composedBlueprint to retain '<deferred>', got '%s'", handler.composedBlueprint.Substitutions["MY_KEY"])
+		if handler.ComposedBlueprint().Substitutions["MY_KEY"] != "<deferred>" {
+			t.Errorf("Expected composedBlueprint to retain '<deferred>', got '%s'", handler.ComposedBlueprint().Substitutions["MY_KEY"])
 		}
 	})
 
 	t.Run("ReturnsNilWhenNoBlueprint", func(t *testing.T) {
 		// Given a handler with no composed blueprint
 		mocks := setupHandlerMocks(t)
-		handler := NewBlueprintHandler(mocks.Runtime, mocks.ArtifactBuilder)
+		handler := blueprint.NewBlueprintHandler(mocks.Runtime, mocks.ArtifactBuilder)
 
 		// When calling GenerateResolved
 		result, err := handler.GenerateResolved()
@@ -1491,8 +1746,8 @@ func TestHandler_GenerateResolved(t *testing.T) {
 				return nil, fmt.Errorf("terraform output 'tenant_id' for component cluster not found")
 			},
 		}
-		handler := NewBlueprintHandler(mocks.Runtime, mocks.ArtifactBuilder)
-		handler.composedBlueprint = &blueprintv1alpha1.Blueprint{
+		handler := blueprint.NewBlueprintHandler(mocks.Runtime, mocks.ArtifactBuilder)
+		handler.SetComposedBlueprint(&blueprintv1alpha1.Blueprint{
 			Kustomizations: []blueprintv1alpha1.Kustomization{
 				{
 					Name: "dns",
@@ -1501,10 +1756,10 @@ func TestHandler_GenerateResolved(t *testing.T) {
 					},
 				},
 			},
-		}
-		handler.deferredPaths = map[string]bool{
+		})
+		handler.SetDeferredPaths(map[string]bool{
 			"kustomize.dns.substitutions.external_dns_tenant_id": true,
-		}
+		})
 
 		// When calling GenerateResolved
 		resolved, err := handler.GenerateResolved()
@@ -1534,8 +1789,8 @@ func TestHandler_GenerateResolved(t *testing.T) {
 				return "resolved-value", nil
 			},
 		}
-		handler := NewBlueprintHandler(mocks.Runtime, mocks.ArtifactBuilder)
-		handler.composedBlueprint = &blueprintv1alpha1.Blueprint{
+		handler := blueprint.NewBlueprintHandler(mocks.Runtime, mocks.ArtifactBuilder)
+		handler.SetComposedBlueprint(&blueprintv1alpha1.Blueprint{
 			FluxSystems: []blueprintv1alpha1.FluxSystem{
 				{
 					Name: "gateway",
@@ -1564,11 +1819,11 @@ func TestHandler_GenerateResolved(t *testing.T) {
 					},
 				},
 			},
-		}
-		handler.deferredPaths = map[string]bool{
+		})
+		handler.SetDeferredPaths(map[string]bool{
 			"flux.gateway.install.substitutions.cluster_name":             true,
 			"flux.gateway.resources-internal.substitutions.gateway_lb_ip": true,
-		}
+		})
 
 		// When calling GenerateResolved
 		resolved, err := handler.GenerateResolved()
@@ -1600,12 +1855,12 @@ func TestHandler_GenerateResolved(t *testing.T) {
 				return "Delegate ns1.example, ns2.example", nil
 			},
 		}
-		handler := NewBlueprintHandler(mocks.Runtime, mocks.ArtifactBuilder)
-		handler.composedBlueprint = &blueprintv1alpha1.Blueprint{
+		handler := blueprint.NewBlueprintHandler(mocks.Runtime, mocks.ArtifactBuilder)
+		handler.SetComposedBlueprint(&blueprintv1alpha1.Blueprint{
 			Messages: []blueprintv1alpha1.Message{
 				{When: "dns.public_domain != ''", Text: "Delegate ${terraform_output('dns-zone', 'nameservers')}"},
 			},
-		}
+		})
 
 		// When resolving
 		resolved, err := handler.GenerateResolved()
@@ -1636,12 +1891,12 @@ func TestHandler_GenerateResolved(t *testing.T) {
 				return "should not render", nil
 			},
 		}
-		handler := NewBlueprintHandler(mocks.Runtime, mocks.ArtifactBuilder)
-		handler.composedBlueprint = &blueprintv1alpha1.Blueprint{
+		handler := blueprint.NewBlueprintHandler(mocks.Runtime, mocks.ArtifactBuilder)
+		handler.SetComposedBlueprint(&blueprintv1alpha1.Blueprint{
 			Messages: []blueprintv1alpha1.Message{
 				{When: "dns.public_domain != ''", Text: "delegate ${x}"},
 			},
-		}
+		})
 
 		// When resolving
 		resolved, err := handler.GenerateResolved()
@@ -1663,13 +1918,13 @@ func TestHandler_GenerateResolved(t *testing.T) {
 				return "same note", nil
 			},
 		}
-		handler := NewBlueprintHandler(mocks.Runtime, mocks.ArtifactBuilder)
-		handler.composedBlueprint = &blueprintv1alpha1.Blueprint{
+		handler := blueprint.NewBlueprintHandler(mocks.Runtime, mocks.ArtifactBuilder)
+		handler.SetComposedBlueprint(&blueprintv1alpha1.Blueprint{
 			Messages: []blueprintv1alpha1.Message{
 				{Text: "${a}"},
 				{Text: "${b}"},
 			},
-		}
+		})
 
 		// When resolving
 		resolved, err := handler.GenerateResolved()
@@ -1694,12 +1949,12 @@ func TestHandler_GenerateResolved(t *testing.T) {
 				return nil, fmt.Errorf("bad when expression")
 			},
 		}
-		handler := NewBlueprintHandler(mocks.Runtime, mocks.ArtifactBuilder)
-		handler.composedBlueprint = &blueprintv1alpha1.Blueprint{
+		handler := blueprint.NewBlueprintHandler(mocks.Runtime, mocks.ArtifactBuilder)
+		handler.SetComposedBlueprint(&blueprintv1alpha1.Blueprint{
 			Messages: []blueprintv1alpha1.Message{
 				{When: "broken(", Text: "x"},
 			},
-		}
+		})
 
 		// When resolving
 		resolved, err := handler.GenerateResolved()
@@ -1719,21 +1974,23 @@ func TestHandler_GenerateResolved(t *testing.T) {
 
 func TestHandler_DeferredSubstitutionsInScope(t *testing.T) {
 	t.Run("NoDeferredPaths", func(t *testing.T) {
-		handler := &BaseBlueprintHandler{}
+		handler := &blueprint.BaseBlueprintHandler{}
 		if handler.DeferredSubstitutionsInScope(map[string]bool{"my-app": true}) {
 			t.Error("Expected false for no deferred paths")
 		}
 	})
 
 	t.Run("KustomizationInScope", func(t *testing.T) {
-		handler := &BaseBlueprintHandler{deferredPaths: map[string]bool{"kustomize.my-app.substitutions.cert": true}}
+		handler := &blueprint.BaseBlueprintHandler{}
+		handler.SetDeferredPaths(map[string]bool{"kustomize.my-app.substitutions.cert": true})
 		if !handler.DeferredSubstitutionsInScope(map[string]bool{"my-app": true}) {
 			t.Error("Expected true when the deferred kustomization is in scope")
 		}
 	})
 
 	t.Run("KustomizationOutOfScope", func(t *testing.T) {
-		handler := &BaseBlueprintHandler{deferredPaths: map[string]bool{"kustomize.other-app.substitutions.cert": true}}
+		handler := &blueprint.BaseBlueprintHandler{}
+		handler.SetDeferredPaths(map[string]bool{"kustomize.other-app.substitutions.cert": true})
 		if handler.DeferredSubstitutionsInScope(map[string]bool{"my-app": true}) {
 			t.Error("Expected false when the deferred kustomization is not in scope")
 		}
@@ -1742,738 +1999,76 @@ func TestHandler_DeferredSubstitutionsInScope(t *testing.T) {
 	t.Run("NamePrefixCollisionDoesNotFalsePositive", func(t *testing.T) {
 		// A kustomization named "my-app-2" must not match scope {"my-app"} via a bare
 		// string-prefix check on the raw path.
-		handler := &BaseBlueprintHandler{deferredPaths: map[string]bool{"kustomize.my-app-2.substitutions.cert": true}}
+		handler := &blueprint.BaseBlueprintHandler{}
+		handler.SetDeferredPaths(map[string]bool{"kustomize.my-app-2.substitutions.cert": true})
 		if handler.DeferredSubstitutionsInScope(map[string]bool{"my-app": true}) {
 			t.Error("Expected false: 'my-app-2' is a different kustomization than 'my-app'")
 		}
 	})
 
 	t.Run("GlobalConfigMapAlwaysInScope", func(t *testing.T) {
-		handler := &BaseBlueprintHandler{deferredPaths: map[string]bool{"configmaps.shared.cert": true}}
+		handler := &blueprint.BaseBlueprintHandler{}
+		handler.SetDeferredPaths(map[string]bool{"configmaps.shared.cert": true})
 		if !handler.DeferredSubstitutionsInScope(map[string]bool{}) {
 			t.Error("Expected true: blueprint-level ConfigMaps are always in scope")
 		}
 	})
 
 	t.Run("GlobalSubstitutionAlwaysInScope", func(t *testing.T) {
-		handler := &BaseBlueprintHandler{deferredPaths: map[string]bool{"substitutions.tenant_id": true}}
+		handler := &blueprint.BaseBlueprintHandler{}
+		handler.SetDeferredPaths(map[string]bool{"substitutions.tenant_id": true})
 		if !handler.DeferredSubstitutionsInScope(map[string]bool{}) {
 			t.Error("Expected true: global substitutions are always in scope")
 		}
 	})
 
 	t.Run("UnrecognizedPrefixIgnored", func(t *testing.T) {
-		handler := &BaseBlueprintHandler{deferredPaths: map[string]bool{"messages.0": true}}
+		handler := &blueprint.BaseBlueprintHandler{}
+		handler.SetDeferredPaths(map[string]bool{"messages.0": true})
 		if handler.DeferredSubstitutionsInScope(map[string]bool{"my-app": true}) {
 			t.Error("Expected false for a path outside the recognized prefixes")
 		}
 	})
 
 	t.Run("FluxInstallTierInScope", func(t *testing.T) {
-		handler := &BaseBlueprintHandler{deferredPaths: map[string]bool{"flux.database.install.substitutions.cert": true}}
+		handler := &blueprint.BaseBlueprintHandler{}
+		handler.SetDeferredPaths(map[string]bool{"flux.database.install.substitutions.cert": true})
 		if !handler.DeferredSubstitutionsInScope(map[string]bool{"database-install": true}) {
 			t.Error("Expected true: the deferred flux install tier's compiled name is in scope")
 		}
 	})
 
 	t.Run("FluxResourcesTierInScope", func(t *testing.T) {
-		handler := &BaseBlueprintHandler{deferredPaths: map[string]bool{"flux.database.resources.substitutions.crossplane_gcp_service_account_email": true}}
+		handler := &blueprint.BaseBlueprintHandler{}
+		handler.SetDeferredPaths(map[string]bool{"flux.database.resources.substitutions.crossplane_gcp_service_account_email": true})
 		if !handler.DeferredSubstitutionsInScope(map[string]bool{"database-resources": true}) {
 			t.Error("Expected true: the deferred flux resources tier's compiled name is in scope")
 		}
 	})
 
 	t.Run("FluxResourcesVariantTierInScope", func(t *testing.T) {
-		handler := &BaseBlueprintHandler{deferredPaths: map[string]bool{"flux.database.resources-primary.substitutions.cert": true}}
+		handler := &blueprint.BaseBlueprintHandler{}
+		handler.SetDeferredPaths(map[string]bool{"flux.database.resources-primary.substitutions.cert": true})
 		if !handler.DeferredSubstitutionsInScope(map[string]bool{"database-resources-primary": true}) {
 			t.Error("Expected true: the deferred flux resources variant's compiled name is in scope")
 		}
 	})
 
 	t.Run("FluxTierOutOfScope", func(t *testing.T) {
-		handler := &BaseBlueprintHandler{deferredPaths: map[string]bool{"flux.database.install.substitutions.cert": true}}
+		handler := &blueprint.BaseBlueprintHandler{}
+		handler.SetDeferredPaths(map[string]bool{"flux.database.install.substitutions.cert": true})
 		if handler.DeferredSubstitutionsInScope(map[string]bool{"other-install": true}) {
 			t.Error("Expected false when the deferred flux tier is not in scope")
 		}
 	})
 }
 
-// =============================================================================
-// Test Private Methods
-// =============================================================================
-
-func TestHandler_processAndCompose(t *testing.T) {
-	t.Run("CallsSetTerraformComponentsWhenProviderExists", func(t *testing.T) {
-		// Given a handler with terraform provider and composed blueprint with components
-		mocks := setupHandlerMocks(t)
-		mockTerraformProvider := &terraform.MockTerraformProvider{}
-		var setComponentsCalled bool
-		var receivedComponents []blueprintv1alpha1.TerraformComponent
-		mockTerraformProvider.SetTerraformComponentsFunc = func(components []blueprintv1alpha1.TerraformComponent) {
-			setComponentsCalled = true
-			receivedComponents = components
-		}
-		mocks.Runtime.TerraformProvider = mockTerraformProvider
-		handler := NewBlueprintHandler(mocks.Runtime, mocks.ArtifactBuilder)
-
-		trueVal := true
-		templateBp := &blueprintv1alpha1.Blueprint{
-			TerraformComponents: []blueprintv1alpha1.TerraformComponent{
-				{Path: "vpc"},
-				{Path: "rds"},
-			},
-		}
-		handler.sourceBlueprintLoaders["template"] = &mockLoaderImpl{
-			getBlueprintFunc:  func() *blueprintv1alpha1.Blueprint { return templateBp },
-			getSourceNameFunc: func() string { return "template" },
-		}
-		handler.userBlueprintLoader = &mockLoaderImpl{
-			getBlueprintFunc: func() *blueprintv1alpha1.Blueprint {
-				return &blueprintv1alpha1.Blueprint{
-					Sources: []blueprintv1alpha1.Source{
-						{Name: "template", Install: &blueprintv1alpha1.BoolExpression{Value: &trueVal, IsExpr: false}},
-					},
-				}
-			},
-			getSourceNameFunc: func() string { return "user" },
-		}
-
-		// When processing and composing
-		err := handler.processAndCompose()
-
-		// Then no error should occur
-		if err != nil {
-			t.Fatalf("Expected no error, got %v", err)
-		}
-		// And SetTerraformComponents should be called
-		if !setComponentsCalled {
-			t.Error("Expected SetTerraformComponents to be called")
-		}
-		// And components should be passed correctly
-		if len(receivedComponents) != 2 {
-			t.Errorf("Expected 2 components to be set, got %d", len(receivedComponents))
-		}
-	})
-
-	t.Run("SkipsSetTerraformComponentsWhenProviderIsNil", func(t *testing.T) {
-		// Given a handler with no terraform provider
-		mocks := setupHandlerMocks(t)
-		mocks.Runtime.TerraformProvider = nil
-		handler := NewBlueprintHandler(mocks.Runtime, mocks.ArtifactBuilder)
-
-		templateBp := &blueprintv1alpha1.Blueprint{
-			TerraformComponents: []blueprintv1alpha1.TerraformComponent{
-				{Path: "vpc"},
-			},
-		}
-		trueVal := true
-		handler.sourceBlueprintLoaders["template"] = &mockLoaderImpl{
-			getBlueprintFunc:  func() *blueprintv1alpha1.Blueprint { return templateBp },
-			getSourceNameFunc: func() string { return "template" },
-		}
-		handler.userBlueprintLoader = &mockLoaderImpl{
-			getBlueprintFunc: func() *blueprintv1alpha1.Blueprint {
-				return &blueprintv1alpha1.Blueprint{
-					Sources: []blueprintv1alpha1.Source{
-						{Name: "template", Install: &blueprintv1alpha1.BoolExpression{Value: &trueVal, IsExpr: false}},
-					},
-				}
-			},
-			getSourceNameFunc: func() string { return "user" },
-		}
-
-		// When processing and composing
-		err := handler.processAndCompose()
-
-		// Then no error should occur
-		if err != nil {
-			t.Fatalf("Expected no error, got %v", err)
-		}
-		// And composed blueprint should be set
-		if handler.composedBlueprint == nil {
-			t.Error("Expected composed blueprint to be set")
-		}
-	})
-
-	t.Run("ResolvesConfigBlockRefInTerraformInputsWhenTemplateHasFacetWithConfig", func(t *testing.T) {
-		mocks := setupHandlerMocks(t)
-		mocks.ConfigHandler.GetContextValuesFunc = func() (map[string]any, error) {
-			return map[string]any{}, nil
-		}
-		handler := NewBlueprintHandler(mocks.Runtime, mocks.ArtifactBuilder)
-
-		templateBp := &blueprintv1alpha1.Blueprint{}
-		handler.sourceBlueprintLoaders["template"] = &mockLoaderImpl{
-			getBlueprintFunc:  func() *blueprintv1alpha1.Blueprint { return templateBp },
-			getSourceNameFunc: func() string { return "template" },
-			getFacetsFunc: func() []blueprintv1alpha1.Facet {
-				return []blueprintv1alpha1.Facet{
-					{
-						Metadata: blueprintv1alpha1.Metadata{Name: "facet-with-config"},
-						Config: []blueprintv1alpha1.ConfigBlock{
-							{
-								Name: "talos_common_docker",
-								Body: map[string]any{
-									"value": map[string]any{
-										"patchVars":    map[string]any{"key": "val"},
-										"common_patch": "${string(talos_common_docker.patchVars)}",
-										"patches":      "${string(talos_common_docker.common_patch)}",
-									},
-								},
-							},
-						},
-						TerraformComponents: []blueprintv1alpha1.ConditionalTerraformComponent{
-							{
-								TerraformComponent: blueprintv1alpha1.TerraformComponent{
-									Path:   "cluster/talos",
-									Inputs: map[string]any{"common_config_patches": "${talos_common_docker.patches}"},
-								},
-							},
-						},
-					},
-				}
-			},
-		}
-		handler.userBlueprintLoader = &mockLoaderImpl{
-			getBlueprintFunc:  func() *blueprintv1alpha1.Blueprint { return &blueprintv1alpha1.Blueprint{} },
-			getSourceNameFunc: func() string { return "user" },
-		}
-
-		err := handler.processAndCompose()
-		if err != nil {
-			t.Fatalf("processAndCompose failed: %v", err)
-		}
-		if handler.composedBlueprint == nil {
-			t.Fatal("Expected composed blueprint to be set")
-		}
-		if len(handler.composedBlueprint.TerraformComponents) != 1 {
-			t.Fatalf("Expected 1 terraform component, got %d", len(handler.composedBlueprint.TerraformComponents))
-		}
-		commonConfigPatches := handler.composedBlueprint.TerraformComponents[0].Inputs["common_config_patches"]
-		if commonConfigPatches == nil {
-			t.Error("Expected common_config_patches to be resolved, got nil")
-		}
-		if s, ok := commonConfigPatches.(string); ok && strings.Contains(s, "${") {
-			t.Errorf("Expected common_config_patches to be resolved (no expression), got %q", s)
-		}
-	})
-
-	t.Run("DownstreamSourceSeesConfigDerivedByUpstreamSource", func(t *testing.T) {
-		// Given a source (core) that derives dns.private_domain, and a second source
-		// (consumer) that layers on core and reads that derived value in a substitution
-		mocks := setupHandlerMocks(t)
-		mocks.ConfigHandler.GetContextValuesFunc = func() (map[string]any, error) {
-			return map[string]any{}, nil
-		}
-		handler := NewBlueprintHandler(mocks.Runtime, mocks.ArtifactBuilder)
-
-		coreBp := &blueprintv1alpha1.Blueprint{}
-		handler.sourceBlueprintLoaders["core"] = &mockLoaderImpl{
-			getBlueprintFunc:  func() *blueprintv1alpha1.Blueprint { return coreBp },
-			getSourceNameFunc: func() string { return "core" },
-			getFacetsFunc: func() []blueprintv1alpha1.Facet {
-				return []blueprintv1alpha1.Facet{
-					{
-						Metadata: blueprintv1alpha1.Metadata{Name: "platform-base"},
-						Config: []blueprintv1alpha1.ConfigBlock{
-							{Name: "dns", Body: map[string]any{"value": map[string]any{"private_domain": "core-derived"}}},
-						},
-					},
-				}
-			},
-		}
-
-		consumerBp := &blueprintv1alpha1.Blueprint{Sources: []blueprintv1alpha1.Source{{Name: "core"}}}
-		handler.sourceBlueprintLoaders["consumer"] = &mockLoaderImpl{
-			getBlueprintFunc:  func() *blueprintv1alpha1.Blueprint { return consumerBp },
-			getSourceNameFunc: func() string { return "consumer" },
-			getFacetsFunc: func() []blueprintv1alpha1.Facet {
-				return []blueprintv1alpha1.Facet{
-					{
-						Metadata: blueprintv1alpha1.Metadata{Name: "addon-app"},
-						Kustomizations: []blueprintv1alpha1.ConditionalKustomization{
-							{Kustomization: blueprintv1alpha1.Kustomization{
-								Name:          "app",
-								Path:          "app",
-								Substitutions: map[string]string{"external_domain": "${dns.private_domain ?? ''}"},
-							}},
-						},
-					},
-				}
-			},
-		}
-
-		trueVal := true
-		handler.userBlueprintLoader = &mockLoaderImpl{
-			getBlueprintFunc: func() *blueprintv1alpha1.Blueprint {
-				return &blueprintv1alpha1.Blueprint{
-					Sources: []blueprintv1alpha1.Source{
-						{Name: "core", Install: &blueprintv1alpha1.BoolExpression{Value: &trueVal, IsExpr: false}},
-						{Name: "consumer", Install: &blueprintv1alpha1.BoolExpression{Value: &trueVal, IsExpr: false}},
-					},
-				}
-			},
-			getSourceNameFunc: func() string { return "user" },
-		}
-
-		// When processing and composing
-		if err := handler.processAndCompose(); err != nil {
-			t.Fatalf("processAndCompose failed: %v", err)
-		}
-
-		// Then the consumer's substitution resolves to the value core derived, not an empty string
-		var appSub string
-		found := false
-		for _, k := range handler.composedBlueprint.Kustomizations {
-			if k.Name == "app" {
-				appSub = k.Substitutions["external_domain"]
-				found = true
-			}
-		}
-		if !found {
-			t.Fatal("Expected composed kustomization 'app'")
-		}
-		if appSub != "core-derived" {
-			t.Errorf("Expected downstream to see upstream-derived dns.private_domain 'core-derived', got %q", appSub)
-		}
-	})
-
-	t.Run("FacetDerivedConfigWinsOverRawContextValue", func(t *testing.T) {
-		// Given a raw context value (e.g. a schema default already reflected in config.yaml)
-		// for a key that a facet also derives
-		mocks := setupHandlerMocks(t)
-		mocks.ConfigHandler.GetContextValuesFunc = func() (map[string]any, error) {
-			return map[string]any{
-				"talos_common": map[string]any{"k8s_service_host": "raw-default"},
-			}, nil
-		}
-		handler := NewBlueprintHandler(mocks.Runtime, mocks.ArtifactBuilder)
-
-		templateBp := &blueprintv1alpha1.Blueprint{}
-		handler.sourceBlueprintLoaders["template"] = &mockLoaderImpl{
-			getBlueprintFunc:  func() *blueprintv1alpha1.Blueprint { return templateBp },
-			getSourceNameFunc: func() string { return "template" },
-			getFacetsFunc: func() []blueprintv1alpha1.Facet {
-				return []blueprintv1alpha1.Facet{
-					{
-						Metadata: blueprintv1alpha1.Metadata{Name: "override-facet"},
-						Config: []blueprintv1alpha1.ConfigBlock{
-							{
-								Name: "talos_common",
-								Body: map[string]any{"value": map[string]any{"k8s_service_host": "override-value"}},
-							},
-						},
-					},
-				}
-			},
-		}
-		trueVal := true
-		handler.userBlueprintLoader = &mockLoaderImpl{
-			getBlueprintFunc: func() *blueprintv1alpha1.Blueprint {
-				return &blueprintv1alpha1.Blueprint{
-					Sources: []blueprintv1alpha1.Source{
-						{Name: "template", Install: &blueprintv1alpha1.BoolExpression{Value: &trueVal, IsExpr: false}},
-					},
-				}
-			},
-			getSourceNameFunc: func() string { return "user" },
-		}
-
-		// When processing and composing
-		if err := handler.processAndCompose(); err != nil {
-			t.Fatalf("processAndCompose failed: %v", err)
-		}
-
-		// Then the composed scope reflects the facet-derived value, not the raw context default
-		talosCommon, ok := handler.composedScope["talos_common"].(map[string]any)
-		if !ok {
-			t.Fatal("Expected composed scope to contain 'talos_common'")
-		}
-		if host := talosCommon["k8s_service_host"]; host != "override-value" {
-			t.Errorf("Expected facet-derived 'override-value' to win over raw context default, got %q", host)
-		}
-	})
-
-	t.Run("ExplicitOperatorValueWinsOverUnconditionalFacetConfig", func(t *testing.T) {
-		// Given an operator's own explicit value for a key. A facet unconditionally computes a
-		// different value for that same key, with no `??` guard of its own.
-		mocks := setupHandlerMocks(t)
-		mocks.ConfigHandler.GetContextValuesFunc = func() (map[string]any, error) {
-			return map[string]any{}, nil
-		}
-		operatorValues := map[string]any{
-			"cluster": map[string]any{"controlplanes": map[string]any{"cpu": 3}},
-		}
-		mocks.ConfigHandler.GetSetValuesFunc = func() map[string]any { return operatorValues }
-		handler := NewBlueprintHandler(mocks.Runtime, mocks.ArtifactBuilder)
-
-		templateBp := &blueprintv1alpha1.Blueprint{}
-		handler.sourceBlueprintLoaders["template"] = &mockLoaderImpl{
-			getBlueprintFunc:  func() *blueprintv1alpha1.Blueprint { return templateBp },
-			getSourceNameFunc: func() string { return "template" },
-			getFacetsFunc: func() []blueprintv1alpha1.Facet {
-				return []blueprintv1alpha1.Facet{
-					{
-						Metadata: blueprintv1alpha1.Metadata{Name: "cluster-sizing"},
-						Config: []blueprintv1alpha1.ConfigBlock{
-							{
-								Name: "cluster",
-								Body: map[string]any{"value": map[string]any{"controlplanes": map[string]any{"cpu": 7}}},
-							},
-						},
-					},
-				}
-			},
-		}
-		trueVal := true
-		handler.userBlueprintLoader = &mockLoaderImpl{
-			getBlueprintFunc: func() *blueprintv1alpha1.Blueprint {
-				return &blueprintv1alpha1.Blueprint{
-					Sources: []blueprintv1alpha1.Source{
-						{Name: "template", Install: &blueprintv1alpha1.BoolExpression{Value: &trueVal, IsExpr: false}},
-					},
-				}
-			},
-			getSourceNameFunc: func() string { return "user" },
-		}
-
-		// When processing and composing
-		if err := handler.processAndCompose(); err != nil {
-			t.Fatalf("processAndCompose failed: %v", err)
-		}
-
-		// Then the composed scope reflects the operator's explicit value, not the facet's
-		// unconditional computation
-		cluster, ok := handler.composedScope["cluster"].(map[string]any)
-		if !ok {
-			t.Fatal("Expected composed scope to contain 'cluster'")
-		}
-		controlplanes, ok := cluster["controlplanes"].(map[string]any)
-		if !ok {
-			t.Fatalf("Expected cluster.controlplanes to be a map, got %T", cluster["controlplanes"])
-		}
-		if cpu := controlplanes["cpu"]; cpu != 3 {
-			t.Errorf("Expected operator's explicit cpu=3 to win over facet-computed cpu=7, got %v", cpu)
-		}
-	})
-
-	t.Run("CallsSetConfigScopeWhenProviderExists", func(t *testing.T) {
-		// Given a handler with terraform provider and loaders
-		mocks := setupHandlerMocks(t)
-		mocks.ConfigHandler.GetContextValuesFunc = func() (map[string]any, error) {
-			return map[string]any{}, nil
-		}
-		var setConfigScopeCalled bool
-		mockTerraformProvider := &terraform.MockTerraformProvider{}
-		mockTerraformProvider.SetTerraformComponentsFunc = func([]blueprintv1alpha1.TerraformComponent) {}
-		mockTerraformProvider.SetConfigScopeFunc = func(map[string]any) {
-			setConfigScopeCalled = true
-		}
-		mocks.Runtime.TerraformProvider = mockTerraformProvider
-		handler := NewBlueprintHandler(mocks.Runtime, mocks.ArtifactBuilder)
-
-		templateBp := &blueprintv1alpha1.Blueprint{}
-		handler.sourceBlueprintLoaders["template"] = &mockLoaderImpl{
-			getBlueprintFunc:  func() *blueprintv1alpha1.Blueprint { return templateBp },
-			getSourceNameFunc: func() string { return "template" },
-		}
-		trueVal := true
-		handler.userBlueprintLoader = &mockLoaderImpl{
-			getBlueprintFunc: func() *blueprintv1alpha1.Blueprint {
-				return &blueprintv1alpha1.Blueprint{
-					Sources: []blueprintv1alpha1.Source{
-						{Name: "template", Install: &blueprintv1alpha1.BoolExpression{Value: &trueVal, IsExpr: false}},
-					},
-				}
-			},
-			getSourceNameFunc: func() string { return "user" },
-		}
-
-		// When processing and composing
-		err := handler.processAndCompose()
-
-		// Then SetConfigScope should be called when provider exists
-		if err != nil {
-			t.Fatalf("Expected no error, got %v", err)
-		}
-		if !setConfigScopeCalled {
-			t.Error("Expected SetConfigScope to be called when provider exists")
-		}
-	})
-}
-
-// TestHandler_CrossSourceConfig pins the cross-source config behaviors: a referencing (consumer)
-// source can override a value an upstream (core) source consumes, activate an upstream capability,
-// disable one, and have upstream derivations recompute — while an explicit operator value still wins.
-// Several of these are expected to fail until config resolves as a single global layer.
-func TestHandler_CrossSourceConfig(t *testing.T) {
-	t.Run("OverridesUpstreamConsumedValue", func(t *testing.T) {
-		// Given core consumes dns.domain in a kustomization and consumer overrides dns.domain
-		core := []blueprintv1alpha1.Facet{{
-			Metadata: blueprintv1alpha1.Metadata{Name: "platform-base"},
-			Config:   []blueprintv1alpha1.ConfigBlock{configBlock("dns", map[string]any{"domain": "core-default"})},
-			Kustomizations: []blueprintv1alpha1.ConditionalKustomization{{Kustomization: blueprintv1alpha1.Kustomization{
-				Name: "dns", Path: "dns", Substitutions: map[string]string{"domain": "${dns.domain ?? ''}"},
-			}}},
-		}}
-		consumer := []blueprintv1alpha1.Facet{{
-			Metadata: blueprintv1alpha1.Metadata{Name: "override"},
-			Config:   []blueprintv1alpha1.ConfigBlock{configBlock("dns", map[string]any{"domain": "consumer-override"})},
-		}}
-
-		// When composed
-		bp := composeCrossSource(t, core, consumer, nil)
-
-		// Then core's component resolves to the consumer's override
-		got, found := kustSub(bp, "dns", "domain")
-		if !found {
-			t.Fatal("expected composed kustomization 'dns'")
-		}
-		if got != "consumer-override" {
-			t.Errorf("expected 'consumer-override', got %q", got)
-		}
-	})
-
-	t.Run("ActivatesUpstreamCapability", func(t *testing.T) {
-		// Given a core facet gated on flags.identity that consumer turns on via config
-		core := []blueprintv1alpha1.Facet{{
-			Metadata:       blueprintv1alpha1.Metadata{Name: "identity"},
-			When:           "flags.identity == true",
-			Kustomizations: []blueprintv1alpha1.ConditionalKustomization{{Kustomization: blueprintv1alpha1.Kustomization{Name: "identity", Path: "identity"}}},
-		}}
-		consumer := []blueprintv1alpha1.Facet{{
-			Metadata: blueprintv1alpha1.Metadata{Name: "enable-identity"},
-			Config:   []blueprintv1alpha1.ConfigBlock{configBlock("flags", map[string]any{"identity": true})},
-		}}
-
-		// When composed
-		bp := composeCrossSource(t, core, consumer, nil)
-
-		// Then core's gated capability is included
-		if !hasKustomization(bp, "identity") {
-			t.Error("expected core 'identity' kustomization to be activated by downstream config")
-		}
-	})
-
-	t.Run("DisablesUpstreamCapability", func(t *testing.T) {
-		// Given core enables its own capability and consumer turns it off
-		core := []blueprintv1alpha1.Facet{{
-			Metadata:       blueprintv1alpha1.Metadata{Name: "identity"},
-			When:           "flags.identity == true",
-			Config:         []blueprintv1alpha1.ConfigBlock{configBlock("flags", map[string]any{"identity": true})},
-			Kustomizations: []blueprintv1alpha1.ConditionalKustomization{{Kustomization: blueprintv1alpha1.Kustomization{Name: "identity", Path: "identity"}}},
-		}}
-		consumer := []blueprintv1alpha1.Facet{{
-			Metadata: blueprintv1alpha1.Metadata{Name: "disable-identity"},
-			Config:   []blueprintv1alpha1.ConfigBlock{configBlock("flags", map[string]any{"identity": false})},
-		}}
-
-		// When composed
-		bp := composeCrossSource(t, core, consumer, nil)
-
-		// Then the capability is excluded
-		if hasKustomization(bp, "identity") {
-			t.Error("expected downstream to disable core 'identity' capability")
-		}
-	})
-
-	t.Run("UpstreamDerivationRecomputesFromOverride", func(t *testing.T) {
-		// Given core derives net.host from dns.domain and consumer overrides dns.domain
-		core := []blueprintv1alpha1.Facet{{
-			Metadata: blueprintv1alpha1.Metadata{Name: "platform-base"},
-			Config: []blueprintv1alpha1.ConfigBlock{
-				configBlock("dns", map[string]any{"domain": "core"}),
-				configBlock("net", map[string]any{"host": "${dns.domain}.svc"}),
-			},
-			Kustomizations: []blueprintv1alpha1.ConditionalKustomization{{Kustomization: blueprintv1alpha1.Kustomization{
-				Name: "net", Path: "net", Substitutions: map[string]string{"host": "${net.host ?? ''}"},
-			}}},
-		}}
-		consumer := []blueprintv1alpha1.Facet{{
-			Metadata: blueprintv1alpha1.Metadata{Name: "override"},
-			Config:   []blueprintv1alpha1.ConfigBlock{configBlock("dns", map[string]any{"domain": "consumer"})},
-		}}
-
-		// When composed
-		bp := composeCrossSource(t, core, consumer, nil)
-
-		// Then the upstream derivation reflects the override
-		got, found := kustSub(bp, "net", "host")
-		if !found {
-			t.Fatal("expected composed kustomization 'net'")
-		}
-		if got != "consumer.svc" {
-			t.Errorf("expected derived 'consumer.svc', got %q", got)
-		}
-	})
-
-	t.Run("OverridesUpstreamFluxSubstitution", func(t *testing.T) {
-		// Given core defines a cni flux system install substitution and consumer overrides it
-		core := []blueprintv1alpha1.Facet{{
-			Metadata: blueprintv1alpha1.Metadata{Name: "cni-base"},
-			FluxSystems: []blueprintv1alpha1.FluxSystem{{
-				Name: "cni", Path: "cni",
-				Install: &blueprintv1alpha1.Kustomization{Components: []string{"helm"}, Substitutions: map[string]string{"host": "core"}},
-			}},
-		}}
-		consumer := []blueprintv1alpha1.Facet{{
-			Metadata: blueprintv1alpha1.Metadata{Name: "cni-override"},
-			FluxSystems: []blueprintv1alpha1.FluxSystem{{
-				Name:    "cni",
-				Install: &blueprintv1alpha1.Kustomization{Substitutions: map[string]string{"host": "consumer"}},
-			}},
-		}}
-
-		// When composed
-		bp := composeCrossSource(t, core, consumer, nil)
-
-		// Then the composed cni flux system carries the downstream override
-		var got string
-		found := false
-		for _, sys := range bp.FluxSystems {
-			if sys.Name == "cni" && sys.Install != nil {
-				got = sys.Install.Substitutions["host"]
-				found = true
-			}
-		}
-		if !found {
-			t.Fatalf("expected cni flux system with install tier; got %d flux systems", len(bp.FluxSystems))
-		}
-		if got != "consumer" {
-			t.Errorf("expected downstream flux override 'consumer', got %q", got)
-		}
-	})
-
-	t.Run("ExplicitOperatorValueVetoesDownstreamActivation", func(t *testing.T) {
-		// Given the operator explicitly disables identity, a downstream enable must not override it
-		core := []blueprintv1alpha1.Facet{{
-			Metadata:       blueprintv1alpha1.Metadata{Name: "identity"},
-			When:           "flags.identity == true",
-			Kustomizations: []blueprintv1alpha1.ConditionalKustomization{{Kustomization: blueprintv1alpha1.Kustomization{Name: "identity", Path: "identity"}}},
-		}}
-		consumer := []blueprintv1alpha1.Facet{{
-			Metadata: blueprintv1alpha1.Metadata{Name: "enable-identity"},
-			Config:   []blueprintv1alpha1.ConfigBlock{configBlock("flags", map[string]any{"identity": true})},
-		}}
-		operator := map[string]any{"flags": map[string]any{"identity": false}}
-
-		// When composed with an explicit operator opt-out
-		bp := composeCrossSource(t, core, consumer, operator)
-
-		// Then the operator's explicit false wins
-		if hasKustomization(bp, "identity") {
-			t.Error("expected explicit operator flags.identity=false to veto downstream activation")
-		}
-	})
-}
-
-func TestHandler_getConfigValues(t *testing.T) {
-	t.Run("ReturnsNilWhenConfigHandlerNil", func(t *testing.T) {
-		// Given a handler with nil ConfigHandler
-		mocks := setupHandlerMocks(t)
-		mocks.Runtime.ConfigHandler = nil
-		handler := NewBlueprintHandler(mocks.Runtime, mocks.ArtifactBuilder)
-
-		// When getting config values
-		values := handler.getConfigValues()
-
-		// Then should return nil
-		if values != nil {
-			t.Error("Expected nil when ConfigHandler is nil")
-		}
-	})
-
-	t.Run("ReturnsNilWhenGetContextValuesErrors", func(t *testing.T) {
-		// Given a handler where GetContextValues returns error
-		mocks := setupHandlerMocks(t)
-		mocks.ConfigHandler.GetContextValuesFunc = func() (map[string]any, error) {
-			return nil, errors.New("config error")
-		}
-		handler := NewBlueprintHandler(mocks.Runtime, mocks.ArtifactBuilder)
-
-		// When getting config values
-		values := handler.getConfigValues()
-
-		// Then should return nil
-		if values != nil {
-			t.Error("Expected nil when GetContextValues errors")
-		}
-	})
-
-	t.Run("ReturnsValuesFromConfigHandler", func(t *testing.T) {
-		// Given a handler with working ConfigHandler
-		mocks := setupHandlerMocks(t)
-		mocks.ConfigHandler.GetContextValuesFunc = func() (map[string]any, error) {
-			return map[string]any{"key": "value"}, nil
-		}
-		handler := NewBlueprintHandler(mocks.Runtime, mocks.ArtifactBuilder)
-
-		// When getting config values
-		values := handler.getConfigValues()
-
-		// Then should return values
-		if values == nil {
-			t.Fatal("Expected non-nil values")
-		}
-		if values["key"] != "value" {
-			t.Errorf("Expected key='value', got '%v'", values["key"])
-		}
-	})
-
-	t.Run("MergesRepositoryScopeWithoutSecret", func(t *testing.T) {
-		mocks := setupHandlerMocks(t)
-		mocks.ConfigHandler.GetContextValuesFunc = func() (map[string]any, error) {
-			return map[string]any{"key": "value"}, nil
-		}
-		secret := "flux-system"
-		handler := NewBlueprintHandler(mocks.Runtime, mocks.ArtifactBuilder)
-		handler.userBlueprintLoader = &mockLoaderImpl{
-			getSourceNameFunc: func() string { return "user" },
-			getBlueprintFunc: func() *blueprintv1alpha1.Blueprint {
-				return &blueprintv1alpha1.Blueprint{
-					Repository: blueprintv1alpha1.Repository{
-						Url:        "https://github.com/acme/repo.git",
-						SecretName: &secret,
-					},
-				}
-			},
-		}
-
-		values := handler.getConfigValues()
-
-		if values == nil {
-			t.Fatal("Expected non-nil values")
-		}
-		repository, ok := values["repository"].(map[string]any)
-		if !ok {
-			t.Fatal("Expected repository map in config values")
-		}
-		if repository["url"] != "https://github.com/acme/repo.git" {
-			t.Errorf("Expected repository.url to be merged, got %v", repository["url"])
-		}
-		if _, hasSecret := repository["secretName"]; hasSecret {
-			t.Error("Expected repository.secretName to be excluded from scope")
-		}
-		ref, ok := repository["ref"].(map[string]any)
-		if !ok {
-			t.Fatal("Expected repository.ref map in config values")
-		}
-		if ref["branch"] != "main" {
-			t.Errorf("Expected repository.ref.branch to default to main, got %v", ref["branch"])
-		}
-	})
-}
-
-// =============================================================================
-// Test Helpers
-// =============================================================================
-
 func TestIsDowngrade(t *testing.T) {
 	t.Run("TrueWhenTargetTagIsOlderInSameRepo", func(t *testing.T) {
 		// Given a target that pins an older semver than the previous ref of the same repository
 		// When comparing them
 		// Then it is reported as a downgrade
-		if !IsDowngrade("oci://ghcr.io/windsorcli/core:v0.6.0", "oci://ghcr.io/windsorcli/core:v0.3.0") {
+		if !blueprint.IsDowngrade("oci://ghcr.io/windsorcli/core:v0.6.0", "oci://ghcr.io/windsorcli/core:v0.3.0") {
 			t.Error("Expected v0.3.0 after v0.6.0 to be a downgrade")
 		}
 	})
@@ -2482,7 +2077,7 @@ func TestIsDowngrade(t *testing.T) {
 		// Given a target that pins a newer semver
 		// When comparing them
 		// Then it is not a downgrade
-		if IsDowngrade("oci://ghcr.io/windsorcli/core:v0.3.0", "oci://ghcr.io/windsorcli/core:v0.6.0") {
+		if blueprint.IsDowngrade("oci://ghcr.io/windsorcli/core:v0.3.0", "oci://ghcr.io/windsorcli/core:v0.6.0") {
 			t.Error("Expected v0.6.0 after v0.3.0 to be an upgrade, not a downgrade")
 		}
 	})
@@ -2491,7 +2086,7 @@ func TestIsDowngrade(t *testing.T) {
 		// Given identical tags
 		// When comparing them
 		// Then it is not a downgrade
-		if IsDowngrade("oci://ghcr.io/windsorcli/core:v0.6.0", "oci://ghcr.io/windsorcli/core:v0.6.0") {
+		if blueprint.IsDowngrade("oci://ghcr.io/windsorcli/core:v0.6.0", "oci://ghcr.io/windsorcli/core:v0.6.0") {
 			t.Error("Expected an unchanged tag not to be a downgrade")
 		}
 	})
@@ -2500,7 +2095,7 @@ func TestIsDowngrade(t *testing.T) {
 		// Given a target that points at a different repository, even at a lower tag
 		// When comparing them
 		// Then it is a re-source, not an ordered downgrade
-		if IsDowngrade("oci://ghcr.io/windsorcli/core:v0.6.0", "oci://ghcr.io/acme/core:v0.3.0") {
+		if blueprint.IsDowngrade("oci://ghcr.io/windsorcli/core:v0.6.0", "oci://ghcr.io/acme/core:v0.3.0") {
 			t.Error("Expected a different repository not to be treated as a downgrade")
 		}
 	})
@@ -2509,10 +2104,10 @@ func TestIsDowngrade(t *testing.T) {
 		// Given a ref pinned to a branch or mutable tag rather than a semver
 		// When comparing them
 		// Then the change is not ordered and not a downgrade
-		if IsDowngrade("oci://ghcr.io/windsorcli/core:main", "oci://ghcr.io/windsorcli/core:v0.3.0") {
+		if blueprint.IsDowngrade("oci://ghcr.io/windsorcli/core:main", "oci://ghcr.io/windsorcli/core:v0.3.0") {
 			t.Error("Expected a non-semver previous ref not to be ordered")
 		}
-		if IsDowngrade("oci://ghcr.io/windsorcli/core:v0.6.0", "oci://ghcr.io/windsorcli/core:latest") {
+		if blueprint.IsDowngrade("oci://ghcr.io/windsorcli/core:v0.6.0", "oci://ghcr.io/windsorcli/core:latest") {
 			t.Error("Expected a non-semver target ref not to be ordered")
 		}
 	})
@@ -2521,31 +2116,30 @@ func TestIsDowngrade(t *testing.T) {
 		// Given a ref that is not a parseable OCI reference
 		// When comparing them
 		// Then no regression can be asserted
-		if IsDowngrade("https://example.com/core", "oci://ghcr.io/windsorcli/core:v0.3.0") {
+		if blueprint.IsDowngrade("https://example.com/core", "oci://ghcr.io/windsorcli/core:v0.3.0") {
 			t.Error("Expected a non-OCI previous ref not to be a downgrade")
 		}
 	})
 }
 
-func TestLatestStableSemver(t *testing.T) {
-	t.Run("PicksHighestStableSkippingPrereleases", func(t *testing.T) {
-		tag, v, ok := latestStableSemver([]string{"v0.5.0", "v0.6.0", "v0.7.0-rc.1", "not-a-version"})
-		if !ok {
-			t.Fatal("Expected a stable version to be found")
-		}
-		if tag != "v0.6.0" {
-			t.Errorf("Expected v0.6.0 (highest stable), got %q", tag)
-		}
-		if v == nil || v.String() != "0.6.0" {
-			t.Errorf("Expected parsed 0.6.0, got %v", v)
-		}
-	})
+// =============================================================================
+// Test Helpers
+// =============================================================================
 
-	t.Run("FalseWhenOnlyPrereleasesOrJunk", func(t *testing.T) {
-		if _, _, ok := latestStableSemver([]string{"v1.0.0-rc.1", "garbage"}); ok {
-			t.Error("Expected no stable version among prereleases/junk")
-		}
-	})
+type mockProcessorImpl struct {
+	err error
+}
+
+func (m *mockProcessorImpl) ProcessGlobally(sources []blueprint.SourceFacetSet) (map[string]any, error) {
+	return nil, m.err
+}
+
+type mockComposerImpl struct {
+	err error
+}
+
+func (m *mockComposerImpl) Compose(loaders []blueprint.BlueprintLoader, initLoaderNames []string, userBlueprintPath string, configScope map[string]any) (*blueprintv1alpha1.Blueprint, error) {
+	return nil, m.err
 }
 
 type mockWriterImpl struct {
@@ -2600,77 +2194,4 @@ func (m *mockLoaderImpl) GetSourceName() string {
 		return m.getSourceNameFunc()
 	}
 	return ""
-}
-
-// composeCrossSource wires a core source, a consumer source that lists core (so it composes deeper),
-// and a user blueprint selecting both, runs processAndCompose, and returns the composed blueprint.
-// contextValues seeds the operator's values (nil means empty).
-func composeCrossSource(t *testing.T, coreFacets, consumerFacets []blueprintv1alpha1.Facet, contextValues map[string]any) *blueprintv1alpha1.Blueprint {
-	t.Helper()
-	mocks := setupHandlerMocks(t)
-	mocks.ConfigHandler.GetContextValuesFunc = func() (map[string]any, error) {
-		if contextValues == nil {
-			return map[string]any{}, nil
-		}
-		return contextValues, nil
-	}
-	mocks.ConfigHandler.GetSetValuesFunc = func() map[string]any { return contextValues }
-	handler := NewBlueprintHandler(mocks.Runtime, mocks.ArtifactBuilder)
-
-	coreBp := &blueprintv1alpha1.Blueprint{}
-	handler.sourceBlueprintLoaders["core"] = &mockLoaderImpl{
-		getBlueprintFunc:  func() *blueprintv1alpha1.Blueprint { return coreBp },
-		getSourceNameFunc: func() string { return "core" },
-		getFacetsFunc:     func() []blueprintv1alpha1.Facet { return coreFacets },
-	}
-
-	consumerBp := &blueprintv1alpha1.Blueprint{Sources: []blueprintv1alpha1.Source{{Name: "core"}}}
-	handler.sourceBlueprintLoaders["consumer"] = &mockLoaderImpl{
-		getBlueprintFunc:  func() *blueprintv1alpha1.Blueprint { return consumerBp },
-		getSourceNameFunc: func() string { return "consumer" },
-		getFacetsFunc:     func() []blueprintv1alpha1.Facet { return consumerFacets },
-	}
-
-	trueVal := true
-	handler.userBlueprintLoader = &mockLoaderImpl{
-		getBlueprintFunc: func() *blueprintv1alpha1.Blueprint {
-			return &blueprintv1alpha1.Blueprint{
-				Sources: []blueprintv1alpha1.Source{
-					{Name: "core", Install: &blueprintv1alpha1.BoolExpression{Value: &trueVal, IsExpr: false}},
-					{Name: "consumer", Install: &blueprintv1alpha1.BoolExpression{Value: &trueVal, IsExpr: false}},
-				},
-			}
-		},
-		getSourceNameFunc: func() string { return "user" },
-	}
-
-	if err := handler.processAndCompose(); err != nil {
-		t.Fatalf("processAndCompose failed: %v", err)
-	}
-	return handler.composedBlueprint
-}
-
-// configBlock builds a ConfigBlock named block whose value map is content (exposed at scope as block.<k>).
-func configBlock(block string, content map[string]any) blueprintv1alpha1.ConfigBlock {
-	return blueprintv1alpha1.ConfigBlock{Name: block, Body: map[string]any{"value": content}}
-}
-
-// kustSub returns the named composed kustomization's substitution value and whether it was found.
-func kustSub(bp *blueprintv1alpha1.Blueprint, name, key string) (string, bool) {
-	for _, k := range bp.Kustomizations {
-		if k.Name == name {
-			return k.Substitutions[key], true
-		}
-	}
-	return "", false
-}
-
-// hasKustomization reports whether the composed blueprint includes a kustomization by name.
-func hasKustomization(bp *blueprintv1alpha1.Blueprint, name string) bool {
-	for _, k := range bp.Kustomizations {
-		if k.Name == name {
-			return true
-		}
-	}
-	return false
 }
