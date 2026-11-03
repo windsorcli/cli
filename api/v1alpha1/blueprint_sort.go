@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"slices"
 	"strings"
+
+	"github.com/windsorcli/cli/internal/werror"
 )
 
 // =============================================================================
@@ -24,9 +26,9 @@ func (b *Blueprint) sortKustomize() error {
 	for i, k := range b.Kustomizations {
 		nameToIndex[k.Name] = i
 	}
-	sorted := b.basicTopologicalSort(nameToIndex)
-	if sorted == nil {
-		return fmt.Errorf("dependency cycle detected in kustomizations")
+	sorted, err := b.basicTopologicalSort(nameToIndex)
+	if err != nil {
+		return werror.Wrap(err, "dependency cycle detected in kustomizations")
 	}
 	sorted = b.groupSimilarPrefixes(sorted, nameToIndex)
 	newKustomizations := make([]Kustomization, len(b.Kustomizations))
@@ -39,8 +41,8 @@ func (b *Blueprint) sortKustomize() error {
 
 // basicTopologicalSort computes a topological ordering of kustomizations based on dependencies.
 // Returns a slice of indices into the Kustomizations slice, ordered so dependencies precede dependents.
-// Returns nil if a cycle is detected in the dependency graph.
-func (b *Blueprint) basicTopologicalSort(nameToIndex map[string]int) []int {
+// Returns an error that names a kustomization in the cycle when the dependency graph has a cycle.
+func (b *Blueprint) basicTopologicalSort(nameToIndex map[string]int) ([]int, error) {
 	var sorted []int
 	visited := make(map[int]bool)
 	visiting := make(map[int]bool)
@@ -72,12 +74,11 @@ func (b *Blueprint) basicTopologicalSort(nameToIndex map[string]int) []int {
 	for i := range b.Kustomizations {
 		if !visited[i] {
 			if err := visit(i); err != nil {
-				fmt.Printf("Error: %v\n", err)
-				return nil
+				return nil, err
 			}
 		}
 	}
-	return sorted
+	return sorted, nil
 }
 
 // groupSimilarPrefixes returns a new ordering of kustomization indices so components with similar
@@ -164,9 +165,9 @@ func (b *Blueprint) sortTerraform() error {
 		idToIndex[component.GetID()] = i
 	}
 
-	sorted := b.terraformTopologicalSort(idToIndex)
-	if sorted == nil {
-		return fmt.Errorf("dependency cycle detected in terraform components")
+	sorted, err := b.terraformTopologicalSort(idToIndex)
+	if err != nil {
+		return werror.Wrap(err, "dependency cycle detected in terraform components")
 	}
 
 	newComponents := make([]TerraformComponent, len(b.TerraformComponents))
@@ -180,9 +181,8 @@ func (b *Blueprint) sortTerraform() error {
 // terraformTopologicalSort returns a topological ordering of Terraform components based on their dependencies.
 // It receives a mapping from component IDs to their respective indices within the TerraformComponents slice,
 // and produces a slice of indices such that all dependencies come before any component that depends on them.
-// If a cycle is detected in the dependency graph, the function returns nil. The returned slice is ordered
-// with respect to the topological sort, ensuring that all dependencies precede their dependents.
-func (b *Blueprint) terraformTopologicalSort(idToIndex map[string]int) []int {
+// Returns an error that names a component in the cycle when the dependency graph has a cycle.
+func (b *Blueprint) terraformTopologicalSort(idToIndex map[string]int) ([]int, error) {
 	var sorted []int
 	visited := make(map[int]bool)
 	visiting := make(map[int]bool)
@@ -214,11 +214,10 @@ func (b *Blueprint) terraformTopologicalSort(idToIndex map[string]int) []int {
 	for i := range b.TerraformComponents {
 		if !visited[i] {
 			if err := visit(i); err != nil {
-				fmt.Printf("Error: %v\n", err)
-				return nil
+				return nil, err
 			}
 		}
 	}
 
-	return sorted
+	return sorted, nil
 }

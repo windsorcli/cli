@@ -1,8 +1,10 @@
-package v1alpha1
+package v1alpha1_test
 
 import (
 	"testing"
 	"time"
+
+	"github.com/windsorcli/cli/api/v1alpha1"
 
 	"github.com/fluxcd/pkg/apis/kustomize"
 	"github.com/goccy/go-yaml"
@@ -15,7 +17,7 @@ import (
 
 func TestKustomization_ToFluxKustomization(t *testing.T) {
 	t.Run("BasicConversionWithDefaults", func(t *testing.T) {
-		kustomization := &Kustomization{
+		kustomization := &v1alpha1.Kustomization{
 			Name: "test-kustomization",
 			Path: "test/path",
 			Substitutions: map[string]string{
@@ -23,7 +25,7 @@ func TestKustomization_ToFluxKustomization(t *testing.T) {
 			},
 		}
 
-		result := kustomization.ToFluxKustomization("test-namespace", "default-source", []Source{}, constants.GitopsModePull)
+		result := kustomization.ToFluxKustomization("test-namespace", "default-source", []v1alpha1.Source{}, constants.GitopsModePull)
 
 		if result.Name != "test-kustomization" {
 			t.Errorf("Expected name 'test-kustomization', got '%s'", result.Name)
@@ -56,15 +58,15 @@ func TestKustomization_ToFluxKustomization(t *testing.T) {
 	})
 
 	t.Run("WithAllFieldsSet", func(t *testing.T) {
-		interval := DurationString{Duration: 5 * time.Minute}
-		retryInterval := DurationString{Duration: 2 * time.Minute}
-		timeout := DurationString{Duration: 10 * time.Minute}
+		interval := v1alpha1.DurationString{Duration: 5 * time.Minute}
+		retryInterval := v1alpha1.DurationString{Duration: 2 * time.Minute}
+		timeout := v1alpha1.DurationString{Duration: 10 * time.Minute}
 		wait := true
 		force := false
 		prune := true
 		destroy := false
 
-		kustomization := &Kustomization{
+		kustomization := &v1alpha1.Kustomization{
 			Name:          "test-kustomization",
 			Path:          "test/path",
 			Source:        "custom-source",
@@ -77,7 +79,7 @@ func TestKustomization_ToFluxKustomization(t *testing.T) {
 			Prune:         &prune,
 			Destroy:       boolExprPtr(destroy),
 			Components:    []string{"comp1", "comp2"},
-			Patches: []BlueprintPatch{
+			Patches: []v1alpha1.BlueprintPatch{
 				{
 					Patch: "apiVersion: v1\nkind: Service\nmetadata:\n  name: test",
 					Target: &kustomize.Selector{
@@ -89,7 +91,7 @@ func TestKustomization_ToFluxKustomization(t *testing.T) {
 			},
 		}
 
-		result := kustomization.ToFluxKustomization("test-namespace", "default-source", []Source{}, constants.GitopsModePull)
+		result := kustomization.ToFluxKustomization("test-namespace", "default-source", []v1alpha1.Source{}, constants.GitopsModePull)
 
 		if result.Spec.SourceRef.Name != "custom-source" {
 			t.Errorf("Expected source name 'custom-source', got '%s'", result.Spec.SourceRef.Name)
@@ -133,7 +135,7 @@ func TestKustomization_ToFluxKustomization(t *testing.T) {
 	})
 
 	t.Run("WithSubstitutions", func(t *testing.T) {
-		kustomization := &Kustomization{
+		kustomization := &v1alpha1.Kustomization{
 			Name: "test-kustomization",
 			Path: "test/path",
 			Substitutions: map[string]string{
@@ -142,7 +144,7 @@ func TestKustomization_ToFluxKustomization(t *testing.T) {
 			},
 		}
 
-		result := kustomization.ToFluxKustomization("test-namespace", "default-source", []Source{}, constants.GitopsModePull)
+		result := kustomization.ToFluxKustomization("test-namespace", "default-source", []v1alpha1.Source{}, constants.GitopsModePull)
 
 		if result.Spec.PostBuild == nil {
 			t.Fatal("Expected PostBuild to be set when there are substitutions")
@@ -156,12 +158,12 @@ func TestKustomization_ToFluxKustomization(t *testing.T) {
 	})
 
 	t.Run("WithoutSubstitutions", func(t *testing.T) {
-		kustomization := &Kustomization{
+		kustomization := &v1alpha1.Kustomization{
 			Name: "test-kustomization",
 			Path: "test/path",
 		}
 
-		result := kustomization.ToFluxKustomization("test-namespace", "default-source", []Source{}, constants.GitopsModePull)
+		result := kustomization.ToFluxKustomization("test-namespace", "default-source", []v1alpha1.Source{}, constants.GitopsModePull)
 
 		// PostBuild should not be set when there are no substitutions
 		if result.Spec.PostBuild != nil {
@@ -173,28 +175,28 @@ func TestKustomization_ToFluxKustomization(t *testing.T) {
 		configMaps := map[string]map[string]string{"values-common": {"key": "value"}}
 
 		// A normal kustomization picks up the global ConfigMaps via PostBuild.
-		normal := (&Kustomization{Name: "telemetry-base", Path: "telemetry/base"}).
-			ToFluxKustomization("test-namespace", "default-source", []Source{}, constants.GitopsModePull, configMaps)
+		normal := (&v1alpha1.Kustomization{Name: "telemetry-base", Path: "telemetry/base"}).
+			ToFluxKustomization("test-namespace", "default-source", []v1alpha1.Source{}, constants.GitopsModePull, configMaps)
 		if normal.Spec.PostBuild == nil {
 			t.Fatal("Expected PostBuild on a normal kustomization with global ConfigMaps")
 		}
 
 		// The CRD layer skips PostBuild entirely.
-		crds := (&Kustomization{Name: CrdLayerName, Path: CrdLayerName}).
-			ToFluxKustomization("test-namespace", "default-source", []Source{}, constants.GitopsModePull, configMaps)
+		crds := (&v1alpha1.Kustomization{Name: v1alpha1.CrdLayerName, Path: v1alpha1.CrdLayerName}).
+			ToFluxKustomization("test-namespace", "default-source", []v1alpha1.Source{}, constants.GitopsModePull, configMaps)
 		if crds.Spec.PostBuild != nil {
-			t.Errorf("Expected nil PostBuild for the %q layer, got %v", CrdLayerName, crds.Spec.PostBuild)
+			t.Errorf("Expected nil PostBuild for the %q layer, got %v", v1alpha1.CrdLayerName, crds.Spec.PostBuild)
 		}
 	})
 
 	t.Run("WithOCISource", func(t *testing.T) {
-		kustomization := &Kustomization{
+		kustomization := &v1alpha1.Kustomization{
 			Name:   "test-kustomization",
 			Path:   "test/path",
 			Source: "oci-source",
 		}
 
-		sources := []Source{
+		sources := []v1alpha1.Source{
 			{
 				Name: "oci-source",
 				Url:  "oci://example.com/repo",
@@ -212,13 +214,13 @@ func TestKustomization_ToFluxKustomization(t *testing.T) {
 	})
 
 	t.Run("WithGitSource", func(t *testing.T) {
-		kustomization := &Kustomization{
+		kustomization := &v1alpha1.Kustomization{
 			Name:   "test-kustomization",
 			Path:   "test/path",
 			Source: "git-source",
 		}
 
-		sources := []Source{
+		sources := []v1alpha1.Source{
 			{
 				Name: "git-source",
 				Url:  "https://example.com/repo.git",
@@ -236,12 +238,12 @@ func TestKustomization_ToFluxKustomization(t *testing.T) {
 	})
 
 	t.Run("WithEmptyPath", func(t *testing.T) {
-		kustomization := &Kustomization{
+		kustomization := &v1alpha1.Kustomization{
 			Name: "test-kustomization",
 			Path: "",
 		}
 
-		result := kustomization.ToFluxKustomization("test-namespace", "default-source", []Source{}, constants.GitopsModePull)
+		result := kustomization.ToFluxKustomization("test-namespace", "default-source", []v1alpha1.Source{}, constants.GitopsModePull)
 
 		if result.Spec.Path != "kustomize/test-kustomization" {
 			t.Errorf("Expected path 'kustomize/test-kustomization', got '%s'", result.Spec.Path)
@@ -249,12 +251,12 @@ func TestKustomization_ToFluxKustomization(t *testing.T) {
 	})
 
 	t.Run("WithPathBackslashes", func(t *testing.T) {
-		kustomization := &Kustomization{
+		kustomization := &v1alpha1.Kustomization{
 			Name: "test-kustomization",
 			Path: "test\\path\\with\\backslashes",
 		}
 
-		result := kustomization.ToFluxKustomization("test-namespace", "default-source", []Source{}, constants.GitopsModePull)
+		result := kustomization.ToFluxKustomization("test-namespace", "default-source", []v1alpha1.Source{}, constants.GitopsModePull)
 
 		if result.Spec.Path != "kustomize/test/path/with/backslashes" {
 			t.Errorf("Expected path with forward slashes, got '%s'", result.Spec.Path)
@@ -263,13 +265,13 @@ func TestKustomization_ToFluxKustomization(t *testing.T) {
 
 	t.Run("WithDestroyTrue", func(t *testing.T) {
 		destroy := true
-		kustomization := &Kustomization{
+		kustomization := &v1alpha1.Kustomization{
 			Name:    "test-kustomization",
 			Path:    "test/path",
 			Destroy: boolExprPtr(destroy),
 		}
 
-		result := kustomization.ToFluxKustomization("test-namespace", "default-source", []Source{}, constants.GitopsModePull)
+		result := kustomization.ToFluxKustomization("test-namespace", "default-source", []v1alpha1.Source{}, constants.GitopsModePull)
 
 		if result.Spec.DeletionPolicy != "WaitForTermination" {
 			t.Errorf("Expected deletion policy 'WaitForTermination', got '%s'", result.Spec.DeletionPolicy)
@@ -278,13 +280,13 @@ func TestKustomization_ToFluxKustomization(t *testing.T) {
 
 	t.Run("WithDestroyFalse", func(t *testing.T) {
 		destroy := false
-		kustomization := &Kustomization{
+		kustomization := &v1alpha1.Kustomization{
 			Name:    "test-kustomization",
 			Path:    "test/path",
 			Destroy: boolExprPtr(destroy),
 		}
 
-		result := kustomization.ToFluxKustomization("test-namespace", "default-source", []Source{}, constants.GitopsModePull)
+		result := kustomization.ToFluxKustomization("test-namespace", "default-source", []v1alpha1.Source{}, constants.GitopsModePull)
 
 		if result.Spec.DeletionPolicy != "MirrorPrune" {
 			t.Errorf("Expected deletion policy 'MirrorPrune', got '%s'", result.Spec.DeletionPolicy)
@@ -292,13 +294,13 @@ func TestKustomization_ToFluxKustomization(t *testing.T) {
 	})
 
 	t.Run("WithDestroyNil", func(t *testing.T) {
-		kustomization := &Kustomization{
+		kustomization := &v1alpha1.Kustomization{
 			Name:    "test-kustomization",
 			Path:    "test/path",
 			Destroy: nil,
 		}
 
-		result := kustomization.ToFluxKustomization("test-namespace", "default-source", []Source{}, constants.GitopsModePull)
+		result := kustomization.ToFluxKustomization("test-namespace", "default-source", []v1alpha1.Source{}, constants.GitopsModePull)
 
 		if result.Spec.DeletionPolicy != "WaitForTermination" {
 			t.Errorf("Expected deletion policy 'WaitForTermination' when Destroy is nil, got '%s'", result.Spec.DeletionPolicy)
@@ -306,13 +308,13 @@ func TestKustomization_ToFluxKustomization(t *testing.T) {
 	})
 
 	t.Run("WithEmptySourceUsesDefault", func(t *testing.T) {
-		kustomization := &Kustomization{
+		kustomization := &v1alpha1.Kustomization{
 			Name:   "test-kustomization",
 			Path:   "test/path",
 			Source: "",
 		}
 
-		result := kustomization.ToFluxKustomization("test-namespace", "default-source", []Source{}, constants.GitopsModePull)
+		result := kustomization.ToFluxKustomization("test-namespace", "default-source", []v1alpha1.Source{}, constants.GitopsModePull)
 
 		if result.Spec.SourceRef.Name != "default-source" {
 			t.Errorf("Expected source name 'default-source', got '%s'", result.Spec.SourceRef.Name)
@@ -320,12 +322,12 @@ func TestKustomization_ToFluxKustomization(t *testing.T) {
 	})
 
 	t.Run("WithTemplateSourceLocalUsesDefault", func(t *testing.T) {
-		kustomization := &Kustomization{
+		kustomization := &v1alpha1.Kustomization{
 			Name:   "test-kustomization",
 			Path:   "test/path",
 			Source: "template",
 		}
-		sources := []Source{{Name: "template", Url: ""}}
+		sources := []v1alpha1.Source{{Name: "template", Url: ""}}
 
 		result := kustomization.ToFluxKustomization("test-namespace", "default-source", sources, constants.GitopsModePull)
 
@@ -335,12 +337,12 @@ func TestKustomization_ToFluxKustomization(t *testing.T) {
 	})
 
 	t.Run("WithTemplateSourceRemoteUsesTemplate", func(t *testing.T) {
-		kustomization := &Kustomization{
+		kustomization := &v1alpha1.Kustomization{
 			Name:   "test-kustomization",
 			Path:   "test/path",
 			Source: "template",
 		}
-		sources := []Source{{Name: "template", Url: "https://github.com/example/template.git"}}
+		sources := []v1alpha1.Source{{Name: "template", Url: "https://github.com/example/template.git"}}
 
 		result := kustomization.ToFluxKustomization("test-namespace", "default-source", sources, constants.GitopsModePull)
 
@@ -350,14 +352,14 @@ func TestKustomization_ToFluxKustomization(t *testing.T) {
 	})
 
 	t.Run("WithZeroIntervalUsesDefault", func(t *testing.T) {
-		zeroInterval := DurationString{Duration: 0}
-		kustomization := &Kustomization{
+		zeroInterval := v1alpha1.DurationString{Duration: 0}
+		kustomization := &v1alpha1.Kustomization{
 			Name:     "test-kustomization",
 			Path:     "test/path",
 			Interval: &zeroInterval,
 		}
 
-		result := kustomization.ToFluxKustomization("test-namespace", "default-source", []Source{}, constants.GitopsModePull)
+		result := kustomization.ToFluxKustomization("test-namespace", "default-source", []v1alpha1.Source{}, constants.GitopsModePull)
 
 		if result.Spec.Interval.Duration != constants.DefaultFluxPrimaryKustomizationInterval {
 			t.Errorf("Expected primary-repository default interval (no explicit source set), got %v", result.Spec.Interval.Duration)
@@ -365,17 +367,17 @@ func TestKustomization_ToFluxKustomization(t *testing.T) {
 	})
 
 	t.Run("WithPatchesWithoutTarget", func(t *testing.T) {
-		kustomization := &Kustomization{
+		kustomization := &v1alpha1.Kustomization{
 			Name: "test-kustomization",
 			Path: "test/path",
-			Patches: []BlueprintPatch{
+			Patches: []v1alpha1.BlueprintPatch{
 				{
 					Patch: "apiVersion: v1\nkind: Service\nmetadata:\n  name: test",
 				},
 			},
 		}
 
-		result := kustomization.ToFluxKustomization("test-namespace", "default-source", []Source{}, constants.GitopsModePull)
+		result := kustomization.ToFluxKustomization("test-namespace", "default-source", []v1alpha1.Source{}, constants.GitopsModePull)
 
 		if len(result.Spec.Patches) != 1 {
 			t.Fatalf("Expected 1 patch, got %d", len(result.Spec.Patches))
@@ -389,17 +391,17 @@ func TestKustomization_ToFluxKustomization(t *testing.T) {
 	})
 
 	t.Run("WithEmptyPatchIgnored", func(t *testing.T) {
-		kustomization := &Kustomization{
+		kustomization := &v1alpha1.Kustomization{
 			Name: "test-kustomization",
 			Path: "test/path",
-			Patches: []BlueprintPatch{
+			Patches: []v1alpha1.BlueprintPatch{
 				{
 					Patch: "",
 				},
 			},
 		}
 
-		result := kustomization.ToFluxKustomization("test-namespace", "default-source", []Source{}, constants.GitopsModePull)
+		result := kustomization.ToFluxKustomization("test-namespace", "default-source", []v1alpha1.Source{}, constants.GitopsModePull)
 
 		if len(result.Spec.Patches) != 0 {
 			t.Errorf("Expected 0 patches (empty patch ignored), got %d", len(result.Spec.Patches))
@@ -407,12 +409,12 @@ func TestKustomization_ToFluxKustomization(t *testing.T) {
 	})
 
 	t.Run("TypeMetaAndObjectMeta", func(t *testing.T) {
-		kustomization := &Kustomization{
+		kustomization := &v1alpha1.Kustomization{
 			Name: "test-kustomization",
 			Path: "test/path",
 		}
 
-		result := kustomization.ToFluxKustomization("test-namespace", "default-source", []Source{}, constants.GitopsModePull)
+		result := kustomization.ToFluxKustomization("test-namespace", "default-source", []v1alpha1.Source{}, constants.GitopsModePull)
 
 		if result.Kind != "Kustomization" {
 			t.Errorf("Expected Kind 'Kustomization', got '%s'", result.Kind)
@@ -430,14 +432,14 @@ func TestKustomization_ToFluxKustomization(t *testing.T) {
 
 	t.Run("NamespaceFieldOverridesDefault", func(t *testing.T) {
 		// Given a kustomization that pins its own namespace
-		kustomization := &Kustomization{
+		kustomization := &v1alpha1.Kustomization{
 			Name:      "test-kustomization",
 			Path:      "test/path",
 			Namespace: "custom-ns",
 		}
 
 		// When converted with a different default namespace
-		result := kustomization.ToFluxKustomization("default-ns", "default-source", []Source{}, constants.GitopsModePull)
+		result := kustomization.ToFluxKustomization("default-ns", "default-source", []v1alpha1.Source{}, constants.GitopsModePull)
 
 		// Then the rendered Kustomization lives in the per-kustomization namespace
 		if result.Namespace != "custom-ns" {
@@ -458,13 +460,13 @@ func TestKustomization_ToFluxKustomization(t *testing.T) {
 
 	t.Run("SourceRefNamespaceStaysEmptyWhenNamespaceNotOverridden", func(t *testing.T) {
 		// Given a kustomization that does not override its namespace
-		kustomization := &Kustomization{
+		kustomization := &v1alpha1.Kustomization{
 			Name: "test-kustomization",
 			Path: "test/path",
 		}
 
 		// When converted
-		result := kustomization.ToFluxKustomization("default-ns", "default-source", []Source{}, constants.GitopsModePull)
+		result := kustomization.ToFluxKustomization("default-ns", "default-source", []v1alpha1.Source{}, constants.GitopsModePull)
 
 		// Then SourceRef.Namespace is left empty so Flux defaults it to the
 		// Kustomization's own namespace, preserving prior serialized output.
@@ -475,7 +477,7 @@ func TestKustomization_ToFluxKustomization(t *testing.T) {
 
 	t.Run("DependsOnReferencesUseDefaultNamespaceEvenWhenNamespaceOverridden", func(t *testing.T) {
 		// Given a kustomization that overrides its own namespace and has dependencies
-		kustomization := &Kustomization{
+		kustomization := &v1alpha1.Kustomization{
 			Name:      "test-kustomization",
 			Path:      "test/path",
 			Namespace: "custom-ns",
@@ -483,7 +485,7 @@ func TestKustomization_ToFluxKustomization(t *testing.T) {
 		}
 
 		// When converted
-		result := kustomization.ToFluxKustomization("default-ns", "default-source", []Source{}, constants.GitopsModePull)
+		result := kustomization.ToFluxKustomization("default-ns", "default-source", []v1alpha1.Source{}, constants.GitopsModePull)
 
 		// Then DependsOn references resolve in the default namespace, not the override.
 		// Cross-namespace dependencies are not currently supported and would require a
@@ -495,14 +497,14 @@ func TestKustomization_ToFluxKustomization(t *testing.T) {
 
 	t.Run("TargetNamespacePopulatesSpec", func(t *testing.T) {
 		// Given a kustomization that asks Flux to rewrite reconciled resource namespaces
-		kustomization := &Kustomization{
+		kustomization := &v1alpha1.Kustomization{
 			Name:            "test-kustomization",
 			Path:            "test/path",
 			TargetNamespace: "workload-ns",
 		}
 
 		// When converted
-		result := kustomization.ToFluxKustomization("default-ns", "default-source", []Source{}, constants.GitopsModePull)
+		result := kustomization.ToFluxKustomization("default-ns", "default-source", []v1alpha1.Source{}, constants.GitopsModePull)
 
 		// Then spec.targetNamespace carries through to the Flux Kustomization
 		if result.Spec.TargetNamespace != "workload-ns" {
@@ -517,11 +519,11 @@ func TestKustomization_ToFluxKustomization(t *testing.T) {
 	t.Run("DefaultIntervalIsSameRegardlessOfGitopsMode", func(t *testing.T) {
 		// Given a kustomization with no explicit Interval or Source (resolves to the
 		// blueprint's own/primary source)
-		kustomization := &Kustomization{Name: "k", Path: "p"}
+		kustomization := &v1alpha1.Kustomization{Name: "k", Path: "p"}
 
 		// When converted under both pull and push mode
-		pullResult := kustomization.ToFluxKustomization("ns", "src", []Source{}, constants.GitopsModePull)
-		pushResult := kustomization.ToFluxKustomization("ns", "src", []Source{}, constants.GitopsModePush)
+		pullResult := kustomization.ToFluxKustomization("ns", "src", []v1alpha1.Source{}, constants.GitopsModePull)
+		pushResult := kustomization.ToFluxKustomization("ns", "src", []v1alpha1.Source{}, constants.GitopsModePush)
 
 		// Then both render the same default interval: the notifier re-triggers reconciliation
 		// on every apply/up/bootstrap regardless of mode, so the interval has no reason to
@@ -537,10 +539,10 @@ func TestKustomization_ToFluxKustomization(t *testing.T) {
 	t.Run("DefaultIntervalIsShortWhenSourceResolvesToPrimaryRepository", func(t *testing.T) {
 		// Given a kustomization with no explicit Source (falls back to the blueprint's own
 		// default source, e.g. the top-level repository: field)
-		kustomization := &Kustomization{Name: "k", Path: "p"}
+		kustomization := &v1alpha1.Kustomization{Name: "k", Path: "p"}
 
 		// When converted
-		result := kustomization.ToFluxKustomization("ns", "default-source", []Source{}, constants.GitopsModePull)
+		result := kustomization.ToFluxKustomization("ns", "default-source", []v1alpha1.Source{}, constants.GitopsModePull)
 
 		// Then it gets the short, continuously-polled primary-repository default: this content
 		// is presumed live and actively pushed, not a pinned vendor dependency
@@ -552,10 +554,10 @@ func TestKustomization_ToFluxKustomization(t *testing.T) {
 	t.Run("DefaultIntervalIsLongForNamedVendorSource", func(t *testing.T) {
 		// Given a kustomization that explicitly names a vendor source distinct from the
 		// blueprint's default source
-		kustomization := &Kustomization{Name: "k", Path: "p", Source: "core"}
+		kustomization := &v1alpha1.Kustomization{Name: "k", Path: "p", Source: "core"}
 
 		// When converted
-		result := kustomization.ToFluxKustomization("ns", "default-source", []Source{}, constants.GitopsModePull)
+		result := kustomization.ToFluxKustomization("ns", "default-source", []v1alpha1.Source{}, constants.GitopsModePull)
 
 		// Then it gets the long, backstop-only default: vendor content is pinned and
 		// explicitly re-triggered, not continuously tracked
@@ -566,11 +568,11 @@ func TestKustomization_ToFluxKustomization(t *testing.T) {
 
 	t.Run("BlueprintIntervalOverrideBeatsDefault", func(t *testing.T) {
 		// Given a kustomization that explicitly sets a short Interval
-		override := DurationString{Duration: 2 * time.Minute}
-		kustomization := &Kustomization{Name: "k", Path: "p", Interval: &override}
+		override := v1alpha1.DurationString{Duration: 2 * time.Minute}
+		kustomization := &v1alpha1.Kustomization{Name: "k", Path: "p", Interval: &override}
 
 		// When converted
-		result := kustomization.ToFluxKustomization("ns", "src", []Source{}, constants.GitopsModePull)
+		result := kustomization.ToFluxKustomization("ns", "src", []v1alpha1.Source{}, constants.GitopsModePull)
 
 		// Then the user's explicit Interval wins over the default
 		if result.Spec.Interval.Duration != override.Duration {
@@ -580,10 +582,10 @@ func TestKustomization_ToFluxKustomization(t *testing.T) {
 
 	t.Run("DecryptionUnsetByDefault", func(t *testing.T) {
 		// Given a kustomization with no Decryption
-		kustomization := &Kustomization{Name: "k", Path: "p"}
+		kustomization := &v1alpha1.Kustomization{Name: "k", Path: "p"}
 
 		// When converted
-		result := kustomization.ToFluxKustomization("ns", "src", []Source{}, constants.GitopsModePull)
+		result := kustomization.ToFluxKustomization("ns", "src", []v1alpha1.Source{}, constants.GitopsModePull)
 
 		// Then spec.decryption is nil (Flux default: no decryption)
 		if result.Spec.Decryption != nil {
@@ -593,14 +595,14 @@ func TestKustomization_ToFluxKustomization(t *testing.T) {
 
 	t.Run("DecryptionThreadedIntoSpec", func(t *testing.T) {
 		// Given a kustomization declaring sops decryption via a key Secret
-		kustomization := &Kustomization{
+		kustomization := &v1alpha1.Kustomization{
 			Name:       "k",
 			Path:       "p",
-			Decryption: &Decryption{Provider: "sops", SecretRef: &DecryptionSecretRef{Name: "sops-age"}},
+			Decryption: &v1alpha1.Decryption{Provider: "sops", SecretRef: &v1alpha1.DecryptionSecretRef{Name: "sops-age"}},
 		}
 
 		// When converted
-		result := kustomization.ToFluxKustomization("ns", "src", []Source{}, constants.GitopsModePull)
+		result := kustomization.ToFluxKustomization("ns", "src", []v1alpha1.Source{}, constants.GitopsModePull)
 
 		// Then spec.decryption carries the provider and secretRef name
 		if result.Spec.Decryption == nil {
@@ -616,14 +618,14 @@ func TestKustomization_ToFluxKustomization(t *testing.T) {
 
 	t.Run("DecryptionProviderOnlyOmitsSecretRef", func(t *testing.T) {
 		// Given a kustomization with a provider but no secretRef
-		kustomization := &Kustomization{
+		kustomization := &v1alpha1.Kustomization{
 			Name:       "k",
 			Path:       "p",
-			Decryption: &Decryption{Provider: "sops"},
+			Decryption: &v1alpha1.Decryption{Provider: "sops"},
 		}
 
 		// When converted
-		result := kustomization.ToFluxKustomization("ns", "src", []Source{}, constants.GitopsModePull)
+		result := kustomization.ToFluxKustomization("ns", "src", []v1alpha1.Source{}, constants.GitopsModePull)
 
 		// Then the provider is set and secretRef stays nil
 		if result.Spec.Decryption == nil || result.Spec.Decryption.Provider != "sops" {
@@ -636,7 +638,7 @@ func TestKustomization_ToFluxKustomization(t *testing.T) {
 }
 
 func TestKustomization_HealthCheckExprs(t *testing.T) {
-	cnpgReady := HealthCheckExpr{
+	cnpgReady := v1alpha1.HealthCheckExpr{
 		APIVersion: "postgresql.cnpg.io/v1",
 		Kind:       "Cluster",
 		Current:    "status.conditions.exists(e, e.type == 'Ready' && e.status == 'True')",
@@ -654,7 +656,7 @@ healthCheckExprs:
 `)
 
 		// When unmarshaled
-		var k Kustomization
+		var k v1alpha1.Kustomization
 		if err := yaml.Unmarshal(yamlData, &k); err != nil {
 			t.Fatalf("Failed to unmarshal Kustomization with healthCheckExprs: %v", err)
 		}
@@ -684,14 +686,14 @@ healthCheckExprs:
 	t.Run("ConvertsToFluxHealthCheckExprs", func(t *testing.T) {
 		// Given a waiting kustomization with a CNPG health check
 		wait := true
-		kustomization := &Kustomization{
+		kustomization := &v1alpha1.Kustomization{
 			Name:             "identity-resources-database",
 			Wait:             &wait,
-			HealthCheckExprs: []HealthCheckExpr{cnpgReady},
+			HealthCheckExprs: []v1alpha1.HealthCheckExpr{cnpgReady},
 		}
 
 		// When converted to a Flux Kustomization
-		result := kustomization.ToFluxKustomization("system-gitops", "core", []Source{}, constants.GitopsModePull)
+		result := kustomization.ToFluxKustomization("system-gitops", "core", []v1alpha1.Source{}, constants.GitopsModePull)
 
 		// Then the expression is carried onto spec.healthCheckExprs
 		if len(result.Spec.HealthCheckExprs) != 1 {
@@ -708,10 +710,10 @@ healthCheckExprs:
 
 	t.Run("OmitsFluxHealthCheckExprsWhenUnset", func(t *testing.T) {
 		// Given a kustomization with no health check expressions
-		kustomization := &Kustomization{Name: "policy"}
+		kustomization := &v1alpha1.Kustomization{Name: "policy"}
 
 		// When converted to a Flux Kustomization
-		result := kustomization.ToFluxKustomization("system-gitops", "core", []Source{}, constants.GitopsModePull)
+		result := kustomization.ToFluxKustomization("system-gitops", "core", []v1alpha1.Source{}, constants.GitopsModePull)
 
 		// Then spec.healthCheckExprs stays nil so it is omitted from the rendered output
 		if result.Spec.HealthCheckExprs != nil {
@@ -721,7 +723,7 @@ healthCheckExprs:
 
 	t.Run("DeepCopyIndependentOfOriginal", func(t *testing.T) {
 		// Given a kustomization with a health check expression
-		original := &Kustomization{Name: "k", HealthCheckExprs: []HealthCheckExpr{cnpgReady}}
+		original := &v1alpha1.Kustomization{Name: "k", HealthCheckExprs: []v1alpha1.HealthCheckExpr{cnpgReady}}
 
 		// When deep-copied and the copy mutated
 		clone := original.DeepCopy()
@@ -735,15 +737,15 @@ healthCheckExprs:
 
 	t.Run("OverlayReplacesMatchingApiVersionAndKind", func(t *testing.T) {
 		// Given a base and an overlay gating the same resource kind
-		base := Kustomization{Name: "k", HealthCheckExprs: []HealthCheckExpr{cnpgReady}}
-		overlay := Kustomization{Name: "k", HealthCheckExprs: []HealthCheckExpr{{
+		base := v1alpha1.Kustomization{Name: "k", HealthCheckExprs: []v1alpha1.HealthCheckExpr{cnpgReady}}
+		overlay := v1alpha1.Kustomization{Name: "k", HealthCheckExprs: []v1alpha1.HealthCheckExpr{{
 			APIVersion: "postgresql.cnpg.io/v1",
 			Kind:       "Cluster",
 			Current:    "status.conditions.exists(e, e.type == 'ConsistentSystemID')",
 		}}}
 
 		// When merged
-		merged := MergeKustomizationFields(base, overlay)
+		merged := v1alpha1.MergeKustomizationFields(base, overlay)
 
 		// Then the overlay expression replaces the base one rather than duplicating it
 		if len(merged.HealthCheckExprs) != 1 {
@@ -756,15 +758,15 @@ healthCheckExprs:
 
 	t.Run("OverlayAppendsUnmatchedKindAndLeavesBaseIntact", func(t *testing.T) {
 		// Given a base gating one kind and an overlay gating another
-		base := Kustomization{Name: "k", HealthCheckExprs: []HealthCheckExpr{cnpgReady}}
-		overlay := Kustomization{Name: "k", HealthCheckExprs: []HealthCheckExpr{{
+		base := v1alpha1.Kustomization{Name: "k", HealthCheckExprs: []v1alpha1.HealthCheckExpr{cnpgReady}}
+		overlay := v1alpha1.Kustomization{Name: "k", HealthCheckExprs: []v1alpha1.HealthCheckExpr{{
 			APIVersion: "helm.toolkit.fluxcd.io/v2",
 			Kind:       "HelmRelease",
 			Current:    "status.conditions.exists(e, e.type == 'Ready' && e.status == 'True')",
 		}}}
 
 		// When merged
-		merged := MergeKustomizationFields(base, overlay)
+		merged := v1alpha1.MergeKustomizationFields(base, overlay)
 
 		// Then both gates survive and the base slice is not mutated
 		if len(merged.HealthCheckExprs) != 2 {
@@ -780,11 +782,11 @@ healthCheckExprs:
 
 	t.Run("EmptyOverlayLeavesBaseExpressions", func(t *testing.T) {
 		// Given a base with a health check and an overlay without one
-		base := Kustomization{Name: "k", HealthCheckExprs: []HealthCheckExpr{cnpgReady}}
-		overlay := Kustomization{Name: "k"}
+		base := v1alpha1.Kustomization{Name: "k", HealthCheckExprs: []v1alpha1.HealthCheckExpr{cnpgReady}}
+		overlay := v1alpha1.Kustomization{Name: "k"}
 
 		// When merged
-		merged := MergeKustomizationFields(base, overlay)
+		merged := v1alpha1.MergeKustomizationFields(base, overlay)
 
 		// Then the base expression survives
 		if len(merged.HealthCheckExprs) != 1 || merged.HealthCheckExprs[0].Current != cnpgReady.Current {
@@ -794,7 +796,7 @@ healthCheckExprs:
 }
 
 func TestKustomization_HealthChecks(t *testing.T) {
-	webhookDeployment := HealthCheckRef{
+	webhookDeployment := v1alpha1.HealthCheckRef{
 		APIVersion: "apps/v1",
 		Kind:       "Deployment",
 		Name:       "kyverno-admission-controller",
@@ -812,7 +814,7 @@ healthChecks:
 `)
 
 		// When unmarshaled
-		var k Kustomization
+		var k v1alpha1.Kustomization
 		if err := yaml.Unmarshal(yamlData, &k); err != nil {
 			t.Fatalf("Failed to unmarshal Kustomization with healthChecks: %v", err)
 		}
@@ -839,14 +841,14 @@ healthChecks:
 	t.Run("ConvertsToFluxHealthChecksAndForcesWaitFalse", func(t *testing.T) {
 		// Given a kustomization that explicitly requests Wait true, alongside a health check ref
 		wait := true
-		kustomization := &Kustomization{
+		kustomization := &v1alpha1.Kustomization{
 			Name:         "policy-install",
 			Wait:         &wait,
-			HealthChecks: []HealthCheckRef{webhookDeployment},
+			HealthChecks: []v1alpha1.HealthCheckRef{webhookDeployment},
 		}
 
 		// When converted to a Flux Kustomization
-		result := kustomization.ToFluxKustomization("system-gitops", "core", []Source{}, constants.GitopsModePull)
+		result := kustomization.ToFluxKustomization("system-gitops", "core", []v1alpha1.Source{}, constants.GitopsModePull)
 
 		// Then the reference is carried onto spec.healthChecks
 		if len(result.Spec.HealthChecks) != 1 {
@@ -869,10 +871,10 @@ healthChecks:
 
 	t.Run("OmitsFluxHealthChecksWhenUnsetAndLeavesWaitAlone", func(t *testing.T) {
 		// Given a kustomization with no health check references
-		kustomization := &Kustomization{Name: "policy"}
+		kustomization := &v1alpha1.Kustomization{Name: "policy"}
 
 		// When converted to a Flux Kustomization
-		result := kustomization.ToFluxKustomization("system-gitops", "core", []Source{}, constants.GitopsModePull)
+		result := kustomization.ToFluxKustomization("system-gitops", "core", []v1alpha1.Source{}, constants.GitopsModePull)
 
 		// Then spec.healthChecks stays nil so it is omitted from the rendered output
 		if result.Spec.HealthChecks != nil {
@@ -887,7 +889,7 @@ healthChecks:
 
 	t.Run("DeepCopyIndependentOfOriginal", func(t *testing.T) {
 		// Given a kustomization with a health check reference
-		original := &Kustomization{Name: "k", HealthChecks: []HealthCheckRef{webhookDeployment}}
+		original := &v1alpha1.Kustomization{Name: "k", HealthChecks: []v1alpha1.HealthCheckRef{webhookDeployment}}
 
 		// When deep-copied and the copy mutated
 		clone := original.DeepCopy()
@@ -901,8 +903,8 @@ healthChecks:
 
 	t.Run("OverlayReplacesMatchingReference", func(t *testing.T) {
 		// Given a base and an overlay naming the same resource
-		base := Kustomization{Name: "k", HealthChecks: []HealthCheckRef{webhookDeployment}}
-		overlay := Kustomization{Name: "k", HealthChecks: []HealthCheckRef{{
+		base := v1alpha1.Kustomization{Name: "k", HealthChecks: []v1alpha1.HealthCheckRef{webhookDeployment}}
+		overlay := v1alpha1.Kustomization{Name: "k", HealthChecks: []v1alpha1.HealthCheckRef{{
 			APIVersion: "apps/v1",
 			Kind:       "Deployment",
 			Name:       "kyverno-admission-controller",
@@ -910,7 +912,7 @@ healthChecks:
 		}}}
 
 		// When merged
-		merged := MergeKustomizationFields(base, overlay)
+		merged := v1alpha1.MergeKustomizationFields(base, overlay)
 
 		// Then the overlay reference replaces the base one rather than duplicating it
 		if len(merged.HealthChecks) != 1 {
@@ -921,15 +923,15 @@ healthChecks:
 	t.Run("OverlayReplacesMatchingReferenceRegardlessOfNamespace", func(t *testing.T) {
 		// Given a base entry with Namespace left empty (defaults to the kustomization's own
 		// namespace) and an overlay entry naming the same resource with Namespace spelled out
-		base := Kustomization{Name: "k", HealthChecks: []HealthCheckRef{{
+		base := v1alpha1.Kustomization{Name: "k", HealthChecks: []v1alpha1.HealthCheckRef{{
 			APIVersion: "apps/v1",
 			Kind:       "Deployment",
 			Name:       "kyverno-admission-controller",
 		}}}
-		overlay := Kustomization{Name: "k", HealthChecks: []HealthCheckRef{webhookDeployment}}
+		overlay := v1alpha1.Kustomization{Name: "k", HealthChecks: []v1alpha1.HealthCheckRef{webhookDeployment}}
 
 		// When merged
-		merged := MergeKustomizationFields(base, overlay)
+		merged := v1alpha1.MergeKustomizationFields(base, overlay)
 
 		// Then the two entries are recognized as the same resource and replace rather than
 		// duplicate, since Namespace does not participate in the identity match
@@ -943,8 +945,8 @@ healthChecks:
 
 	t.Run("OverlayAppendsUnmatchedReferenceAndLeavesBaseIntact", func(t *testing.T) {
 		// Given a base naming one resource and an overlay naming another
-		base := Kustomization{Name: "k", HealthChecks: []HealthCheckRef{webhookDeployment}}
-		overlay := Kustomization{Name: "k", HealthChecks: []HealthCheckRef{{
+		base := v1alpha1.Kustomization{Name: "k", HealthChecks: []v1alpha1.HealthCheckRef{webhookDeployment}}
+		overlay := v1alpha1.Kustomization{Name: "k", HealthChecks: []v1alpha1.HealthCheckRef{{
 			APIVersion: "apps/v1",
 			Kind:       "Deployment",
 			Name:       "kyverno-background-controller",
@@ -952,7 +954,7 @@ healthChecks:
 		}}}
 
 		// When merged
-		merged := MergeKustomizationFields(base, overlay)
+		merged := v1alpha1.MergeKustomizationFields(base, overlay)
 
 		// Then both references survive and the base slice is not mutated
 		if len(merged.HealthChecks) != 2 {
@@ -968,11 +970,11 @@ healthChecks:
 
 	t.Run("EmptyOverlayLeavesBaseReferences", func(t *testing.T) {
 		// Given a base with a health check reference and an overlay without one
-		base := Kustomization{Name: "k", HealthChecks: []HealthCheckRef{webhookDeployment}}
-		overlay := Kustomization{Name: "k"}
+		base := v1alpha1.Kustomization{Name: "k", HealthChecks: []v1alpha1.HealthCheckRef{webhookDeployment}}
+		overlay := v1alpha1.Kustomization{Name: "k"}
 
 		// When merged
-		merged := MergeKustomizationFields(base, overlay)
+		merged := v1alpha1.MergeKustomizationFields(base, overlay)
 
 		// Then the base reference survives
 		if len(merged.HealthChecks) != 1 || merged.HealthChecks[0].Name != webhookDeployment.Name {
@@ -983,12 +985,12 @@ healthChecks:
 
 func TestFluxSystem_TierNames(t *testing.T) {
 	t.Run("ReturnsInstallThenResourcesVariantNames", func(t *testing.T) {
-		sys := FluxSystem{
+		sys := v1alpha1.FluxSystem{
 			Name:    "cert-manager",
-			Install: &Kustomization{Components: []string{"helm-release"}},
-			Resources: []FluxVariant{
-				{Kustomization: Kustomization{Components: []string{"private-issuer/ca"}}},
-				{Kustomization: Kustomization{Name: "extra", Components: []string{"public-issuer"}}},
+			Install: &v1alpha1.Kustomization{Components: []string{"helm-release"}},
+			Resources: []v1alpha1.FluxVariant{
+				{Kustomization: v1alpha1.Kustomization{Components: []string{"private-issuer/ca"}}},
+				{Kustomization: v1alpha1.Kustomization{Name: "extra", Components: []string{"public-issuer"}}},
 			},
 		}
 
@@ -1007,7 +1009,7 @@ func TestFluxSystem_TierNames(t *testing.T) {
 	})
 
 	t.Run("ReturnsEmptyForSystemWithNoTiers", func(t *testing.T) {
-		sys := FluxSystem{Name: "empty-sys"}
+		sys := v1alpha1.FluxSystem{Name: "empty-sys"}
 
 		if names := sys.TierNames(); len(names) != 0 {
 			t.Errorf("expected no tier names for a system with no install or resources, got %v", names)
@@ -1017,7 +1019,7 @@ func TestFluxSystem_TierNames(t *testing.T) {
 	t.Run("ReturnsInstallForADeclaredTierWithNoComponents", func(t *testing.T) {
 		// A declared install tier renders even with no components: its own
 		// kustomization.yaml can carry real content (a namespace, say) on its own.
-		sys := FluxSystem{Name: "cert-manager", Install: &Kustomization{}}
+		sys := v1alpha1.FluxSystem{Name: "cert-manager", Install: &v1alpha1.Kustomization{}}
 
 		names := sys.TierNames()
 
@@ -1028,9 +1030,9 @@ func TestFluxSystem_TierNames(t *testing.T) {
 
 	t.Run("DoesNotLeakAnUnrelatedSystemsNamePrefixCollision", func(t *testing.T) {
 		// Given a system literally named "cert-manager-resources", distinct from "cert-manager"
-		sys := FluxSystem{
+		sys := v1alpha1.FluxSystem{
 			Name:    "cert-manager-resources",
-			Install: &Kustomization{Components: []string{"x"}},
+			Install: &v1alpha1.Kustomization{Components: []string{"x"}},
 		}
 
 		names := sys.TierNames()
@@ -1043,7 +1045,7 @@ func TestFluxSystem_TierNames(t *testing.T) {
 
 func TestFluxSystem_EffectivePath(t *testing.T) {
 	t.Run("ReturnsPathWhenSet", func(t *testing.T) {
-		sys := FluxSystem{Name: "cert-manager", Path: "custom-path"}
+		sys := v1alpha1.FluxSystem{Name: "cert-manager", Path: "custom-path"}
 
 		if got := sys.EffectivePath(); got != "custom-path" {
 			t.Errorf("expected %q, got %q", "custom-path", got)
@@ -1051,7 +1053,7 @@ func TestFluxSystem_EffectivePath(t *testing.T) {
 	})
 
 	t.Run("FallsBackToNameWhenPathUnset", func(t *testing.T) {
-		sys := FluxSystem{Name: "cert-manager"}
+		sys := v1alpha1.FluxSystem{Name: "cert-manager"}
 
 		if got := sys.EffectivePath(); got != "cert-manager" {
 			t.Errorf("expected %q, got %q", "cert-manager", got)
@@ -1062,12 +1064,12 @@ func TestFluxSystem_EffectivePath(t *testing.T) {
 func TestBlueprint_AllKustomizations_InstallTierTimeoutDefault(t *testing.T) {
 	t.Run("InstallTierFallsBackToInstallTimeoutDefaultWhenUnset", func(t *testing.T) {
 		// Given a flux system whose install tier sets no timeout of its own
-		bp := &Blueprint{
-			FluxSystems: []FluxSystem{
+		bp := &v1alpha1.Blueprint{
+			FluxSystems: []v1alpha1.FluxSystem{
 				{
 					Name:      "cert-manager",
-					Install:   &Kustomization{Components: []string{"helm-release"}},
-					Resources: []FluxVariant{{Kustomization: Kustomization{Components: []string{"private-issuer/ca"}}}},
+					Install:   &v1alpha1.Kustomization{Components: []string{"helm-release"}},
+					Resources: []v1alpha1.FluxVariant{{Kustomization: v1alpha1.Kustomization{Components: []string{"private-issuer/ca"}}}},
 				},
 			},
 		}
@@ -1089,11 +1091,11 @@ func TestBlueprint_AllKustomizations_InstallTierTimeoutDefault(t *testing.T) {
 
 	t.Run("ExplicitInstallTimeoutOverridesTheDefault", func(t *testing.T) {
 		// Given a flux system whose install tier sets its own timeout
-		bp := &Blueprint{
-			FluxSystems: []FluxSystem{
+		bp := &v1alpha1.Blueprint{
+			FluxSystems: []v1alpha1.FluxSystem{
 				{
 					Name:    "lb",
-					Install: &Kustomization{Components: []string{"aws-lb-controller"}, Timeout: &DurationString{Duration: 20 * time.Minute}},
+					Install: &v1alpha1.Kustomization{Components: []string{"aws-lb-controller"}, Timeout: &v1alpha1.DurationString{Duration: 20 * time.Minute}},
 				},
 			},
 		}
@@ -1113,16 +1115,16 @@ func TestBlueprint_AllKustomizations_InstallTierTimeoutDefault(t *testing.T) {
 // =============================================================================
 
 func TestCompileFluxSystemTiers_Secrets(t *testing.T) {
-	secretsMap := func() map[string]SecretEntry {
-		return map[string]SecretEntry{"cloudflare-creds": {Data: map[string]string{"api_token": "${cdn.cloudflare_api_key}"}}}
+	secretsMap := func() map[string]v1alpha1.SecretEntry {
+		return map[string]v1alpha1.SecretEntry{"cloudflare-creds": {Data: map[string]string{"api_token": "${cdn.cloudflare_api_key}"}}}
 	}
 
 	t.Run("AttachesSecretsToInstallTier", func(t *testing.T) {
 		// Given a system with an install tier, a resources tier, and secrets
-		bp := &Blueprint{FluxSystems: []FluxSystem{{
+		bp := &v1alpha1.Blueprint{FluxSystems: []v1alpha1.FluxSystem{{
 			Name:      "cdn",
-			Install:   &Kustomization{Components: []string{"cloudflared"}},
-			Resources: []FluxVariant{{Kustomization: Kustomization{Components: []string{"tunnel"}}}},
+			Install:   &v1alpha1.Kustomization{Components: []string{"cloudflared"}},
+			Resources: []v1alpha1.FluxVariant{{Kustomization: v1alpha1.Kustomization{Components: []string{"tunnel"}}}},
 			Secrets:   secretsMap(),
 		}}}
 
@@ -1145,9 +1147,9 @@ func TestCompileFluxSystemTiers_Secrets(t *testing.T) {
 
 	t.Run("FallsBackToResourcesTierWhenNoInstall", func(t *testing.T) {
 		// Given a system with only a resources tier
-		bp := &Blueprint{FluxSystems: []FluxSystem{{
+		bp := &v1alpha1.Blueprint{FluxSystems: []v1alpha1.FluxSystem{{
 			Name:      "cdn",
-			Resources: []FluxVariant{{Kustomization: Kustomization{Components: []string{"tunnel"}}}},
+			Resources: []v1alpha1.FluxVariant{{Kustomization: v1alpha1.Kustomization{Components: []string{"tunnel"}}}},
 			Secrets:   secretsMap(),
 		}}}
 

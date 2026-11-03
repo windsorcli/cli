@@ -21,24 +21,21 @@ import (
 // The block is exposed at scope root: expressions use <name> for scalar/list values, or
 // <name>.<key> when value is a map. References from terraform.inputs and kustomize.substitutions
 // use the block name (e.g. talos, platform).
+// Strategy "merge" (the default) deep-merges blocks of the same name, "replace" replaces the existing
+// block, and "remove" removes the block from scope. A higher ordinal wins on conflict.
+// Requires entries apply under the AND of facet.When, block.When, and the entry's own When.
 type ConfigBlock struct {
-	// Name identifies the block; exposed at scope root.
+	// Name identifies the block at scope root.
 	Name string `yaml:"name"`
-	// When is an expression that determines if this config block is evaluated; if empty, always evaluated when facet is active.
+	// When is an expression that gates the block. Empty means the block applies while the facet is active.
 	When string `yaml:"when,omitempty"`
-	// Strategy determines how this block is merged with blocks of the same name from other facets.
-	// Valid values are "merge" (default), "replace", and "remove". If "merge", the block is deep-merged.
-	// If "replace", the block replaces any existing block with the same name. If "remove", the block is removed from scope.
+	// Strategy is "merge" (default), "replace", or "remove".
 	Strategy string `yaml:"strategy,omitempty"`
-	// Ordinal overrides the facet ordinal for this block's merge precedence. When nil, the facet's ordinal is used.
-	// Higher ordinal means higher precedence when merging (wins on conflict).
+	// Ordinal overrides the facet ordinal for this block's merge precedence.
 	Ordinal *int `yaml:"ordinal,omitempty"`
-	// Requires lists requirement blocks scoped to this config block. When the parent facet is active and this
-	// block's optional When holds, every block in Requires is evaluated under the AND of facet.When,
-	// block.When, and each Requires entry's own When. Missing paths are aggregated alongside facet- and
-	// component-level misses in the user-facing error.
+	// Requires lists requirement blocks scoped to this config block.
 	Requires []RequirementBlock `yaml:"requires,omitempty"`
-	// Body holds the canonical content as map[string]any{"value": <content>} for merge and evaluation. Not YAML-marshaled directly.
+	// Body holds the content as {"value": <content>} for merge and evaluation, and is not marshaled.
 	Body map[string]any `yaml:"-"`
 }
 
@@ -61,6 +58,11 @@ type RequirementBlock struct {
 // Facet represents a conditional blueprint fragment that can be merged into a base blueprint.
 // Facets enable modular composition of blueprints based on user configuration values.
 // Facets inherit Repository and Sources from the base blueprint they are merged into.
+// When uses expr-lang/expr syntax, for example "platform == 'aws'". A nil Ordinal comes from the file
+// basename: config-* 100, platform-base or provider-base 199, platform-* or provider-* 200,
+// option-* or options-* 300, and addon-* or addons-* 400.
+// Unsatisfied Requires paths from every active facet are reported in one error.
+// Messages render after a successful run, interpolated against composed scope.
 type Facet struct {
 	// Kind is the facet type, following Kubernetes conventions.
 	Kind string `yaml:"kind"`
@@ -71,34 +73,25 @@ type Facet struct {
 	// Metadata includes the facet's name and description.
 	Metadata Metadata `yaml:"metadata"`
 
-	// Path is the file path where this facet was loaded from.
-	// This is used for resolving relative paths in jsonnet() and file() functions.
+	// Path is the facet's file path, used to resolve relative paths in jsonnet() and file().
 	Path string `yaml:"-"`
 
-	// Source names the blueprint source this facet came from. Set transiently during composition so a
-	// globally-resolved facet can be emitted back into its own source's blueprint; never serialized.
+	// Source names the blueprint source this facet came from during composition, and is not marshaled.
 	Source string `yaml:"-"`
 
-	// Ordinal guides the order in which this facet is applied relative to others. Higher ordinal means higher precedence when merging.
-	// When nil, the loader derives ordinal from the facet file basename (e.g. config-* 100, provider-base/platform-base 199, provider-/platform- 200, options- 300, addon-/addons- 400).
+	// Ordinal sets the merge precedence of this facet. A higher ordinal wins.
 	Ordinal *int `yaml:"ordinal,omitempty"`
 
-	// When is an expression that determines if this facet should be applied.
-	// The expression is evaluated against user configuration values via the
-	// expr-lang/expr library (NOT Google's CEL).
-	// Examples: "platform == 'aws'", "observability.enabled == true && observability.backend == 'quickwit'"
+	// When is an expression that determines if this facet applies.
 	When string `yaml:"when,omitempty"`
 
 	// Backend contributes Blueprint.Backend; the composer merges by ordinal precedence.
 	Backend string `yaml:"backend,omitempty"`
 
-	// Config is a list of named configuration blocks evaluated in blueprint context and exposed at scope root.
-	// Terraform inputs and kustomize substitutions reference <name>.<key> (e.g. talos.controlplanes), like context (cluster.*, network.*).
+	// Config is a list of named configuration blocks exposed at scope root, such as talos.controlplanes.
 	Config []ConfigBlock `yaml:"config,omitempty"`
 
-	// Requires lists input requirement blocks. When the facet is active and a block's optional When holds,
-	// every path must resolve to a present, non-empty value in the merged scope. Unsatisfied paths across
-	// every active facet are aggregated into a single user-facing error.
+	// Requires lists requirement blocks that must hold while the facet is active.
 	Requires []RequirementBlock `yaml:"requires,omitempty"`
 
 	// TerraformComponents are Terraform modules in the facet.
@@ -107,24 +100,16 @@ type Facet struct {
 	// Kustomizations are kustomization configs in the facet.
 	Kustomizations []ConditionalKustomization `yaml:"kustomize,omitempty"`
 
-	// FluxSystems are system entries (the flux: collection) contributed by this facet; each compiles
-	// to an install plus resources-variant Kustomizations.
+	// FluxSystems are the flux: entries of this facet, each compiled to install and resources Kustomizations.
 	FluxSystems []FluxSystem `yaml:"flux,omitempty"`
 
-	// Crds lists references into the vendored CRD catalog (e.g. "cert-manager-1.16.2").
-	// The composer emits one deduped kustomization per reference at kustomize/crds/<ref>
-	// and makes every kustomization in this facet depend on it.
+	// Crds lists vendored CRD references, such as "cert-manager-1.16.2", that this facet's kustomizations depend on.
 	Crds []string `yaml:"crds,omitempty"`
 
-	// Substitutions are top-level key/value pairs evaluated with facet scope and injected into
-	// values-common, making them available to all kustomizations via PostBuild substitution.
-	// Values may use expression syntax (e.g. "${dns.domain}") resolved against facet config blocks.
+	// Substitutions are key/value pairs, evaluated with facet scope, that go into values-common.
 	Substitutions map[string]string `yaml:"substitutions,omitempty"`
 
-	// Messages are operator-facing notes rendered at the end of a bootstrap/apply run. Unlike a
-	// requires: message (failure path, pre-flight, verbatim), a post-run message is on the success
-	// path, rendered after apply, and interpolated against composed scope — so its text can carry
-	// run values (e.g. terraform_output). Each entry's optional When gates it; text is the message.
+	// Messages are operator-facing notes that render at the end of a bootstrap or apply run.
 	Messages []Message `yaml:"messages,omitempty"`
 }
 
@@ -134,61 +119,51 @@ type Message struct {
 	// When is an optional expression gating whether this message renders. Empty means always.
 	When string `yaml:"when,omitempty"`
 
-	// Text is the message body. It is expression-evaluated against composed scope, so it may
-	// reference config values and run outputs (e.g. "${terraform_output('dns-zone', 'nameservers')}").
+	// Text is the message body, which may reference config values and run outputs.
 	Text string `yaml:"text"`
 }
 
 // ConditionalTerraformComponent extends TerraformComponent with conditional logic support.
+// Strategy "merge" (the default) merges into the component with the same Path and Source, and "replace"
+// replaces it. "remove" removes the values the entry sets from that component, after all merges and
+// replaces, and never changes Path or Source.
+// A higher ordinal is processed later and wins on conflict.
+// Requires entries apply under facet.When && component.When && block.When.
 type ConditionalTerraformComponent struct {
 	TerraformComponent `yaml:",inline"`
 
-	// When is an expression (expr-lang/expr) that determines if this terraform
-	// component should be applied. If empty, the component is always applied
-	// when the parent facet matches.
+	// When is an expression that gates the component. Empty means it applies while the facet is active.
 	When string `yaml:"when,omitempty"`
 
-	// Strategy determines how this component is merged into the blueprint.
-	// Valid values are "merge" (default), "replace", and "remove".
-	// If empty or "merge", the component is merged with existing components matching the same Path and Source.
-	// If "replace", the component completely replaces any existing component with the same Path and Source.
-	// If "remove", the component's non-index fields (everything except Path and Source) are removed from the
-	// matching existing component. Remove operations are always applied last after all merge/replace operations.
+	// Strategy is "merge" (default), "replace", or "remove".
 	Strategy string `yaml:"strategy,omitempty"`
 
-	// Ordinal overrides the facet ordinal for this component's merge precedence. When nil, the facet's ordinal is used.
-	// Higher ordinal means higher precedence when merging (processed later, wins on conflict).
+	// Ordinal overrides the facet ordinal for this component's merge precedence.
 	Ordinal *int `yaml:"ordinal,omitempty"`
 
-	// Requires lists requirement blocks scoped to this terraform component. Evaluated only when the
-	// parent facet is active and this component's When holds; missing paths are aggregated under the
-	// effective condition (facet.When && component.When && block.When).
+	// Requires lists requirement blocks scoped to this terraform component.
 	Requires []RequirementBlock `yaml:"requires,omitempty"`
 }
 
 // ConditionalKustomization extends Kustomization with conditional logic support.
+// Strategy "merge" (the default) merges into the kustomization with the same Name, and "replace"
+// replaces it. "remove" removes the values the entry sets from that kustomization, after all merges
+// and replaces, and never changes Name.
+// A higher ordinal is processed later and wins on conflict.
+// Requires entries apply under facet.When && kustomization.When && block.When.
 type ConditionalKustomization struct {
 	Kustomization `yaml:",inline"`
 
-	// When is an expression that determines if this kustomization should be applied.
-	// If empty, the kustomization is always applied when the parent facet matches.
+	// When is an expression that gates the kustomization. Empty means it applies while the facet is active.
 	When string `yaml:"when,omitempty"`
 
-	// Strategy determines how this kustomization is merged into the blueprint.
-	// Valid values are "merge" (default), "replace", and "remove".
-	// If empty or "merge", the kustomization is merged with existing kustomizations matching the same Name.
-	// If "replace", the kustomization completely replaces any existing kustomization with the same Name.
-	// If "remove", the kustomization's non-index fields (everything except Name) are removed from the
-	// matching existing kustomization. Remove operations are always applied last after all merge/replace operations.
+	// Strategy is "merge" (default), "replace", or "remove".
 	Strategy string `yaml:"strategy,omitempty"`
 
-	// Ordinal overrides the facet ordinal for this kustomization's merge precedence. When nil, the facet's ordinal is used.
-	// Higher ordinal means higher precedence when merging (processed later, wins on conflict).
+	// Ordinal overrides the facet ordinal for this kustomization's merge precedence.
 	Ordinal *int `yaml:"ordinal,omitempty"`
 
-	// Requires lists requirement blocks scoped to this kustomization. Evaluated only when the parent
-	// facet is active and this kustomization's When holds; missing paths are aggregated under the
-	// effective condition (facet.When && kustomization.When && block.When).
+	// Requires lists requirement blocks scoped to this kustomization.
 	Requires []RequirementBlock `yaml:"requires,omitempty"`
 }
 

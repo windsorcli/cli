@@ -54,22 +54,12 @@ func (sys FluxSystem) EffectivePath() string {
 	return sys.Path
 }
 
-// ToFluxKustomization converts a blueprint Kustomization to a Flux Kustomization.
-// It takes the default namespace for the kustomization (overridden per-kustomization
-// by k.Namespace when set), the default source name to use if no source is specified,
-// and the list of sources to determine the source kind (GitRepository or OCIRepository).
-// A Path-less k defaults to k.Name, matching FluxSystem's own path-defaulting.
-// k.TargetNamespace is passed through to spec.targetNamespace so Flux rewrites the
-// namespace of every reconciled resource. DependsOn references are always resolved
-// in the default namespace.
-// The default Interval depends on whether k resolves to the blueprint's own repository or a
-// named vendor source (see constants.FluxKustomizationInterval); mode is accepted for call-site
-// stability but no longer affects it. A blueprint-level Interval override always wins.
-// An optional configMaps argument (blueprint-level ConfigMaps such as values-common) is added to
-// postBuild.substituteFrom so they are available to all kustomizations, matching what the provisioner applies.
-// PostBuild is constructed from the kustomization's Substitutions field, except for the synthesized CRD layers
-// (IsCrdLayerName(k.Name)), which skip PostBuild entirely: vendored CRDs need no substitution and their
-// ${...} description text would otherwise fail envsubst (e.g. fluent-operator's ${record.to_json}).
+// ToFluxKustomization converts a blueprint Kustomization to a Flux Kustomization in namespace.
+// k.Namespace overrides namespace for the object, and DependsOn always resolves in namespace.
+// A Path-less k uses k.Name as its path, and an unset Interval follows the source (see
+// constants.FluxKustomizationInterval). The mode argument does not change the result.
+// The first configMaps entry adds blueprint-level ConfigMaps to postBuild.substituteFrom.
+// CRD layers get no PostBuild, because envsubst fails on the ${...} text in vendored CRDs.
 func (k *Kustomization) ToFluxKustomization(namespace string, defaultSourceName string, sources []Source, mode constants.GitopsMode, configMaps ...map[string]map[string]string) kustomizev1.Kustomization {
 	dependsOn := make([]kustomizev1.DependencyReference, len(k.DependsOn))
 	for idx, dep := range k.DependsOn {
@@ -86,30 +76,8 @@ func (k *Kustomization) ToFluxKustomization(namespace string, defaultSourceName 
 		sourceRefNamespace = namespace
 	}
 
-	sourceName := k.Source
-	if sourceName == "" {
-		sourceName = defaultSourceName
-	}
-	if sourceName == "template" && !HasRemoteTemplateSource(sources) {
-		sourceName = defaultSourceName
-	}
-
-	sourceKind := "GitRepository"
-	for _, source := range sources {
-		if source.Name == sourceName && strings.HasPrefix(source.Url, "oci://") {
-			sourceKind = "OCIRepository"
-			break
-		}
-	}
-
-	path := k.Path
-	if path == "" {
-		path = k.Name
-	}
-	path = strings.ReplaceAll(path, "\\", "/")
-	if path != "kustomize" && !strings.HasPrefix(path, "kustomize/") {
-		path = "kustomize/" + path
-	}
+	sourceName, sourceKind := k.fluxSourceRef(defaultSourceName, sources)
+	path := k.fluxPath()
 
 	interval := metav1.Duration{Duration: constants.FluxKustomizationInterval(sourceName == defaultSourceName)}
 	if k.Interval != nil && k.Interval.Duration != 0 {
@@ -150,66 +118,11 @@ func (k *Kustomization) ToFluxKustomization(namespace string, defaultSourceName 
 		deletionPolicy = "WaitForTermination"
 	}
 
-	patches := make([]kustomize.Patch, 0, len(k.Patches))
-	for _, p := range k.Patches {
-		patchContent := p.Patch
-		if patchContent == "" && p.Path == "" {
-			continue
-		}
-		var target *kustomize.Selector
-		if p.Target != nil {
-			target = &kustomize.Selector{
-				Kind:      p.Target.Kind,
-				Name:      p.Target.Name,
-				Namespace: p.Target.Namespace,
-			}
-		}
-		patches = append(patches, kustomize.Patch{
-			Patch:  patchContent,
-			Target: target,
-		})
-	}
-
+	patches := toFluxPatches(k.Patches)
 	healthCheckExprs := toFluxHealthCheckExprs(k.HealthCheckExprs)
 	healthChecks := toFluxHealthChecks(k.HealthChecks)
-
-	var postBuild *kustomizev1.PostBuild
-	if !IsCrdLayerName(k.Name) {
-		if len(k.Substitutions) > 0 {
-			configMapName := fmt.Sprintf("values-%s", k.Name)
-			postBuild = &kustomizev1.PostBuild{
-				SubstituteFrom: []kustomizev1.SubstituteReference{
-					{
-						Kind:     "ConfigMap",
-						Name:     configMapName,
-						Optional: false,
-					},
-				},
-			}
-		}
-		if len(configMaps) > 0 && len(configMaps[0]) > 0 {
-			if postBuild == nil {
-				postBuild = &kustomizev1.PostBuild{
-					SubstituteFrom: make([]kustomizev1.SubstituteReference, 0),
-				}
-			}
-			for name := range configMaps[0] {
-				postBuild.SubstituteFrom = append(postBuild.SubstituteFrom, kustomizev1.SubstituteReference{
-					Kind:     "ConfigMap",
-					Name:     name,
-					Optional: false,
-				})
-			}
-		}
-	}
-
-	var decryption *kustomizev1.Decryption
-	if k.Decryption != nil {
-		decryption = &kustomizev1.Decryption{Provider: k.Decryption.Provider}
-		if k.Decryption.SecretRef != nil {
-			decryption.SecretRef = &meta.LocalObjectReference{Name: k.Decryption.SecretRef.Name}
-		}
-	}
+	postBuild := k.fluxPostBuild(configMaps...)
+	decryption := toFluxDecryption(k.Decryption)
 
 	return kustomizev1.Kustomization{
 		TypeMeta: metav1.TypeMeta{
@@ -244,6 +157,83 @@ func (k *Kustomization) ToFluxKustomization(namespace string, defaultSourceName 
 			Decryption:       decryption,
 		},
 	}
+}
+
+// =============================================================================
+// Private Methods
+// =============================================================================
+
+// fluxSourceRef returns the source name and kind for k. An empty Source, or "template" without a
+// remote template source, resolves to defaultSourceName. An oci:// source is an OCIRepository;
+// every other source is a GitRepository.
+func (k *Kustomization) fluxSourceRef(defaultSourceName string, sources []Source) (string, string) {
+	sourceName := k.Source
+	if sourceName == "" {
+		sourceName = defaultSourceName
+	}
+	if sourceName == "template" && !HasRemoteTemplateSource(sources) {
+		sourceName = defaultSourceName
+	}
+
+	sourceKind := "GitRepository"
+	for _, source := range sources {
+		if source.Name == sourceName && strings.HasPrefix(source.Url, "oci://") {
+			sourceKind = "OCIRepository"
+			break
+		}
+	}
+	return sourceName, sourceKind
+}
+
+// fluxPath returns the slash-separated path of k under the kustomize/ directory.
+// A Path-less k uses k.Name.
+func (k *Kustomization) fluxPath() string {
+	path := k.Path
+	if path == "" {
+		path = k.Name
+	}
+	path = strings.ReplaceAll(path, "\\", "/")
+	if path != "kustomize" && !strings.HasPrefix(path, "kustomize/") {
+		path = "kustomize/" + path
+	}
+	return path
+}
+
+// fluxPostBuild returns the PostBuild substitution sources for k, or nil when there are none.
+// It lists values-<name> when k has Substitutions, then each ConfigMap in the first configMaps entry.
+// CRD layers always return nil.
+func (k *Kustomization) fluxPostBuild(configMaps ...map[string]map[string]string) *kustomizev1.PostBuild {
+	if IsCrdLayerName(k.Name) {
+		return nil
+	}
+	var postBuild *kustomizev1.PostBuild
+	if len(k.Substitutions) > 0 {
+		configMapName := fmt.Sprintf("values-%s", k.Name)
+		postBuild = &kustomizev1.PostBuild{
+			SubstituteFrom: []kustomizev1.SubstituteReference{
+				{
+					Kind:     "ConfigMap",
+					Name:     configMapName,
+					Optional: false,
+				},
+			},
+		}
+	}
+	if len(configMaps) > 0 && len(configMaps[0]) > 0 {
+		if postBuild == nil {
+			postBuild = &kustomizev1.PostBuild{
+				SubstituteFrom: make([]kustomizev1.SubstituteReference, 0),
+			}
+		}
+		for name := range configMaps[0] {
+			postBuild.SubstituteFrom = append(postBuild.SubstituteFrom, kustomizev1.SubstituteReference{
+				Kind:     "ConfigMap",
+				Name:     name,
+				Optional: false,
+			})
+		}
+	}
+	return postBuild
 }
 
 // =============================================================================
@@ -346,4 +336,41 @@ func toFluxHealthChecks(refs []HealthCheckRef) []meta.NamespacedObjectKindRefere
 		})
 	}
 	return converted
+}
+
+// toFluxPatches converts blueprint patches to Flux patches. It drops a patch that has neither
+// inline content nor a path.
+func toFluxPatches(blueprintPatches []BlueprintPatch) []kustomize.Patch {
+	patches := make([]kustomize.Patch, 0, len(blueprintPatches))
+	for _, p := range blueprintPatches {
+		patchContent := p.Patch
+		if patchContent == "" && p.Path == "" {
+			continue
+		}
+		var target *kustomize.Selector
+		if p.Target != nil {
+			target = &kustomize.Selector{
+				Kind:      p.Target.Kind,
+				Name:      p.Target.Name,
+				Namespace: p.Target.Namespace,
+			}
+		}
+		patches = append(patches, kustomize.Patch{
+			Patch:  patchContent,
+			Target: target,
+		})
+	}
+	return patches
+}
+
+// toFluxDecryption converts a blueprint Decryption to a Flux Decryption, or returns nil when d is nil.
+func toFluxDecryption(d *Decryption) *kustomizev1.Decryption {
+	if d == nil {
+		return nil
+	}
+	decryption := &kustomizev1.Decryption{Provider: d.Provider}
+	if d.SecretRef != nil {
+		decryption.SecretRef = &meta.LocalObjectReference{Name: d.SecretRef.Name}
+	}
+	return decryption
 }

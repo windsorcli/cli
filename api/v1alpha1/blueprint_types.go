@@ -34,27 +34,21 @@ func IsCrdLayerName(name string) bool {
 // =============================================================================
 
 // SecretEntry is one `secrets:` entry on a flux system tier: the data that backs a Kubernetes Secret
-// plus the namespaces it is placed into. Namespaces is optional — when omitted the target auto-resolves
-// to the single namespace the owning kustomization creates (unchanged from the original behavior); when
-// set it names the target(s) explicitly, so a system that owns more than one namespace (e.g. pki, which
-// owns system-pki and system-pki-trust) can place a secret and a single entry can fan out to several
-// namespaces. It is a plain struct decoded directly by the YAML decoder — data lives under `data:` so a
-// data key can never collide with the `namespaces:` selector.
+// plus the namespaces it is placed into. Empty Namespaces places the Secret in the single namespace
+// the owning kustomization creates. A named namespace must be one that kustomization created, so one
+// entry can fan out to several namespaces of a system such as pki.
+// Data values reference schema properties, resolve at placement, and never render in plaintext.
+// An empty Type comes from the data keys: a ".dockerconfigjson" key, or "docker-username" plus
+// "docker-password" (and an optional "docker-server", default "ghcr.io"), makes a
+// kubernetes.io/dockerconfigjson Secret. Any other data makes an Opaque Secret.
 type SecretEntry struct {
-	// Namespaces are the namespaces to place this Secret into. Empty means auto-resolve the single
-	// namespace the owning kustomization creates; each named namespace must be one that kustomization
-	// provably created.
+	// Namespaces are the namespaces to place this Secret into.
 	Namespaces []string `yaml:"namespaces,omitempty"`
 
-	// Data is the Secret's contents: data key -> reference to a schema property, resolved JIT at
-	// placement and never rendered in plaintext. Materializes as an Opaque Secret by default; a
-	// ".dockerconfigjson" key, or "docker-username" plus "docker-password" (optional
-	// "docker-server", defaulting to "ghcr.io"), materializes as kubernetes.io/dockerconfigjson
-	// instead, for use as an imagePullSecret — see ApplySecret/secretTypeAndData.
+	// Data maps each Secret data key to a reference to a schema property.
 	Data map[string]string `yaml:"data,omitempty"`
 
-	// Type is the Kubernetes Secret type. Empty means the type comes from the data keys. Set
-	// "kubernetes.io/tls" for a Secret that a TLS consumer reads, such as a Gateway listener.
+	// Type is the Kubernetes Secret type, such as "kubernetes.io/tls" for a Gateway listener.
 	Type string `yaml:"type,omitempty"`
 }
 
@@ -135,6 +129,10 @@ type HealthCheckRef struct {
 }
 
 // Blueprint is a configuration blueprint for initializing a project.
+// Crds install from the default source into the "crds" kustomization ahead of the stack. CRDs of an
+// OCI source belong to that Source instead. Substitutions may use expressions such as "${dns.domain}"
+// and go into values-common for every kustomization. TestRunner sets Config so a test case can assert
+// on it. Production composition and windsor show leave Config unset.
 type Blueprint struct {
 	// Kind is the blueprint type, following Kubernetes conventions.
 	Kind string `yaml:"kind"`
@@ -157,37 +155,25 @@ type Blueprint struct {
 	// TerraformComponents are Terraform modules in the blueprint.
 	TerraformComponents []TerraformComponent `yaml:"terraform,omitempty"`
 
-	// Crds is the flat list of vendored CRD references the blueprint installs from the default/project
-	// source (e.g. "cert-manager-1.16.2"). It is authored and asserted as a bare scalar list, the same
-	// form facets use. CRDs carried by an OCI source are not listed here — they ride with that Source
-	// (see Source.Crds) and install in the background when the source is install:true. The provisioner
-	// materializes these into the "crds" kustomization, bound to the default source, ahead of the stack.
+	// Crds lists the vendored CRD references, such as "cert-manager-1.16.2", from the default source.
 	Crds []string `yaml:"crds,omitempty"`
 
 	// Kustomizations are plain Flux Kustomization configs (the kustomize: passthrough).
 	Kustomizations []Kustomization `yaml:"kustomize,omitempty"`
 
-	// FluxSystems are system entries (the flux: collection): each compiles to an install plus
-	// resources-variant Kustomizations. Distinct from Kustomizations, which are 1:1 passthroughs.
+	// FluxSystems are the flux: entries, each compiled to install and resources Kustomizations.
 	FluxSystems []FluxSystem `yaml:"flux,omitempty"`
 
-	// Substitutions are top-level key/value pairs evaluated with facet scope and injected into
-	// values-common, making them available to all kustomizations via PostBuild substitution.
-	// Values may use expression syntax (e.g. "${dns.domain}") resolved against facet config blocks.
+	// Substitutions are key/value pairs, evaluated with facet scope, that go into values-common.
 	Substitutions map[string]string `yaml:"substitutions,omitempty"`
 
-	// ConfigMaps are standalone ConfigMaps to be created, not tied to specific kustomizations.
-	// These ConfigMaps are referenced by all kustomizations in PostBuild substitution.
+	// ConfigMaps are standalone ConfigMaps that every kustomization uses for PostBuild substitution.
 	ConfigMaps map[string]map[string]string `yaml:"configMaps,omitempty"`
 
-	// Messages are operator-facing post-run notes contributed by active facets. They carry raw
-	// text/when templates through composition; GenerateResolved evaluates each against composed
-	// scope, keeping only the when-true entries with interpolated text for the command to print.
+	// Messages are post-run notes from active facets, which GenerateResolved evaluates against composed scope.
 	Messages []Message `yaml:"messages,omitempty"`
 
-	// Config is the composed config scope: facet config: block names mapped to their fully
-	// evaluated values. TestRunner populates this field so a test case's expect:/exclude: can
-	// assert on it; production composition and windsor show leave it unset.
+	// Config maps each facet config block name to its evaluated value.
 	Config map[string]any `yaml:"config,omitempty"`
 }
 
@@ -223,6 +209,9 @@ type Repository struct {
 }
 
 // Source is an external resource referenced by a blueprint.
+// Install defaults to false. Facets can set Install with an expression, such as "${some.condition ?? true}".
+// The composer fills Crds from the source's facets. When Install is true, the provisioner installs
+// them in a background "crds-<name>" kustomization ahead of the stack.
 type Source struct {
 	// Name identifies the source.
 	Name string `yaml:"name"`
@@ -239,15 +228,10 @@ type Source struct {
 	// SecretName is the secret for source access.
 	SecretName string `yaml:"secretName,omitempty"`
 
-	// Install determines if the source should be merged (components merged into final blueprint).
-	// Defaults to false if not specified.
-	// Supports expressions in facets: use "${some.condition ?? true}" for dynamic values.
+	// Install merges the source's components into the final blueprint.
 	Install *BoolExpression `yaml:"install,omitempty"`
 
-	// Crds is the flat list of CRD references this source vendors at <source>/kustomize/crds/<ref>.
-	// Populated by the composer from the source's included facets. When the source is install:true,
-	// the provisioner materializes these into a background "crds-<name>" kustomization bound to this
-	// source, so its CRDs install ahead of the stack without the blueprint author listing them.
+	// Crds lists the CRD references this source vendors at <source>/kustomize/crds/<ref>.
 	Crds []string `yaml:"crds,omitempty"`
 }
 
@@ -284,10 +268,13 @@ type Reference struct {
 	Commit string `yaml:"commit,omitempty"`
 }
 
-// TerraformComponent defines a Terraform module in a blueprint.
+// TerraformComponent defines a Terraform module in a blueprint. Name, when set, is the component ID
+// instead of Path. An Inputs value with ${} syntax, such as "${cluster.name}", is an expression, and
+// any other value is a literal. Inputs go into tfvars files and not into the context blueprint.yaml.
+// Destroy and Enabled default to true. Parallelism maps to the terraform -parallelism flag.
+// Facets can set Destroy, Enabled, and Parallelism with expressions, such as "${cluster.destroy ?? true}".
 type TerraformComponent struct {
-	// Name of the terraform component. If provided, this becomes the unique identifier
-	// instead of Path. Used for referencing in dependencies and context variables.
+	// Name of the terraform component, which is its ID when set.
 	Name string `yaml:"name,omitempty"`
 
 	// Source of the Terraform module.
@@ -303,28 +290,18 @@ type TerraformComponent struct {
 	DependsOn []string `yaml:"dependsOn,omitempty"`
 
 	// Inputs are configuration values for the module.
-	// These values can be expressions using ${} syntax (e.g., "${cluster.name}") or literals.
-	// Values with ${} are evaluated as expressions, plain values are passed through as literals.
-	// These are used for generating tfvars files and are not written to the final context blueprint.yaml.
 	Inputs map[string]any `yaml:"inputs,omitempty"`
 
-	// Destroy determines if the component should be destroyed during down operations.
-	// Defaults to true if not specified.
-	// Supports expressions in facets: use "${cluster.destroy ?? true}" for dynamic values.
+	// Destroy determines if the component is destroyed during down operations.
 	Destroy *BoolExpression `yaml:"destroy,omitempty"`
 
 	// Parallelism limits the number of concurrent operations as Terraform walks the graph.
-	// This corresponds to the -parallelism flag in terraform apply/destroy commands.
-	// Supports expressions in facets: use "${cluster.parallelism ?? 10}" for dynamic values.
 	Parallelism *IntExpression `yaml:"parallelism,omitempty"`
 
-	// Enabled determines if the component should be included in the final blueprint.
-	// Defaults to true if not specified.
-	// Supports expressions in facets: use "${some.condition ?? true}" for dynamic values.
+	// Enabled determines if the component is included in the final blueprint.
 	Enabled *BoolExpression `yaml:"enabled,omitempty"`
 
-	// InputOrigins maps each input key to the facet file path that defined it.
-	// Used internally for resolving relative paths in deferred expression evaluation.
+	// InputOrigins maps each input key to the facet file that defined it, to resolve relative paths.
 	InputOrigins map[string]string `yaml:"-"`
 }
 
@@ -375,9 +352,13 @@ type BlueprintPatch struct {
 }
 
 // Kustomization represents a kustomization configuration.
+// An unset Namespace uses the gitops namespace. DependsOn always resolves in the gitops namespace,
+// so cross-namespace dependencies are not supported. Timeout governs install and reconcile waits,
+// and seeds the destroy wait when DeleteTimeout is unset. Destroy and Enabled default to true.
+// A DestroyOnly kustomization runs only during destroy, before the regular kustomizations.
+// Substitute and Substitutions merge during composition and go into ConfigMaps, not the context blueprint.yaml.
 type Kustomization struct {
-	// Name of the kustomization. Omitted when empty so an unnamed inline flux resources variant
-	// (a Kustomization embedded in FluxVariant) does not emit a blank name: into the composed output.
+	// Name of the kustomization, omitted when empty so an unnamed resources variant emits no name.
 	Name string `yaml:"name,omitempty"`
 
 	// Path of the kustomization. Defaults to Name.
@@ -386,13 +367,10 @@ type Kustomization struct {
 	// Source of the kustomization.
 	Source string `yaml:"source,omitempty"`
 
-	// Namespace overrides the namespace where the Flux Kustomization object itself lives.
-	// When unset, the gitops namespace is used. DependsOn references always resolve in the
-	// gitops namespace, so cross-namespace dependencies are not currently supported.
+	// Namespace overrides the namespace of the Flux Kustomization object itself.
 	Namespace string `yaml:"namespace,omitempty"`
 
-	// TargetNamespace populates spec.targetNamespace, instructing Flux to override the
-	// namespace of every resource reconciled by this kustomization.
+	// TargetNamespace sets spec.targetNamespace, so Flux overrides the namespace of every reconciled resource.
 	TargetNamespace string `yaml:"targetNamespace,omitempty"`
 
 	// DependsOn lists dependencies of this kustomization.
@@ -404,13 +382,10 @@ type Kustomization struct {
 	// RetryInterval before retrying a failed kustomization.
 	RetryInterval *DurationString `yaml:"retryInterval,omitempty"`
 
-	// Timeout for the kustomization to complete. Governs install/reconcile waits.
-	// Also seeds the destroy delete-wait floor when DeleteTimeout is unset.
+	// Timeout for the kustomization to complete.
 	Timeout *DurationString `yaml:"timeout,omitempty"`
 
-	// DeleteTimeout bounds how long destroy waits for this kustomization to delete.
-	// Set it when delete outlasts install, for example a managed database.
-	// Falls back to a Timeout-derived heuristic when unset.
+	// DeleteTimeout bounds how long destroy waits for this kustomization to delete, such as a managed database.
 	DeleteTimeout *DurationString `yaml:"deleteTimeout,omitempty"`
 
 	// Patches to apply to the kustomization.
@@ -434,41 +409,25 @@ type Kustomization struct {
 	// Components to include in the kustomization.
 	Components []string `yaml:"components,omitempty"`
 
-	// Destroy determines if the kustomization should be destroyed during down operations.
-	// Defaults to true if not specified.
-	// Supports expressions in facets: use "${cluster.destroy ?? true}" for dynamic values.
+	// Destroy determines if the kustomization is destroyed during down operations.
 	Destroy *BoolExpression `yaml:"destroy,omitempty"`
 
-	// DestroyOnly indicates that this kustomization should only run during destroy operations.
-	// When true, the kustomization is skipped during apply/up operations and only executed during destroy.
-	// Destroy-only kustomizations run before regular kustomizations during destroy, in normal dependency order.
+	// DestroyOnly skips the kustomization during apply and up, and runs it only during destroy.
 	DestroyOnly *bool `yaml:"destroyOnly,omitempty"`
 
-	// Enabled determines if the kustomization should be included in the final blueprint.
-	// Defaults to true if not specified.
-	// Supports expressions in facets: use "${some.condition ?? true}" for dynamic values.
+	// Enabled determines if the kustomization is included in the final blueprint.
 	Enabled *BoolExpression `yaml:"enabled,omitempty"`
 
-	// Substitutions contains values for post-build variable replacement,
-	// collected and stored in ConfigMaps for use by Flux postBuild substitution.
-	// All values are converted to strings as required by Flux variable substitution.
-	// These are used for generating ConfigMaps and are not written to the final context blueprint.yaml.
+	// Substitutions are string values for Flux postBuild substitution.
 	Substitutions map[string]string `yaml:"substitutions,omitempty"`
 
-	// Substitute is the preferred spelling of Substitutions; both keys merge into Substitutions
-	// during composition. It exists so `flux:` system tiers and `kustomize:` entries can spell
-	// postBuild substitutions the same short way (matching Flux's `postBuild.substitute`).
+	// Substitute is the preferred spelling of Substitutions, matching Flux's postBuild.substitute.
 	Substitute map[string]string `yaml:"substitute,omitempty"`
 
-	// Secrets carries a flux system's Secrets onto its compiled namespace-owning tier so the imperative
-	// placement step can find them after flattening: Secret name -> SecretEntry (target namespaces plus
-	// data), resolved JIT at placement, never during composition. It is yaml:"-" so it is never
-	// marshaled into show/apply output or the written blueprint, keeping secret material out of every
-	// serialized surface by construction.
+	// Secrets maps Secret names to entries on a compiled tier, and is never marshaled.
 	Secrets map[string]SecretEntry `yaml:"-"`
 
-	// Decryption configures in-cluster decryption for this kustomization's manifests, mapping to Flux's
-	// spec.decryption. Nil leaves decryption unset (Flux default: no decryption).
+	// Decryption maps to Flux's spec.decryption. Nil leaves decryption unset.
 	Decryption *Decryption `yaml:"decryption,omitempty"`
 }
 
@@ -477,6 +436,10 @@ type Kustomization struct {
 // descriptor carries identity, lifecycle, and merge fields; the Install/Resources tiers reuse the
 // Kustomization type and carry the Flux operational properties per tier. It holds no operational
 // properties itself — those belong on the tiers that produce Kustomization objects.
+// DependsOn attaches to the install tier when present, else to each resources variant, and never
+// names the implicit install edge. GlobalDependency makes every kustomization and system outside
+// this system's dependency closure depend on its terminal tier. Secrets back real Secrets with
+// values from schema properties marked sensitive, which never render in plaintext.
 type FluxSystem struct {
 	// Name identifies the system; tiers compile to "<name>-install" / "<name>-resources[-<variant>]".
 	Name string `yaml:"name"`
@@ -496,9 +459,7 @@ type FluxSystem struct {
 	// When gates the system; combined (AND) with each resources variant's own condition.
 	When string `yaml:"when,omitempty"`
 
-	// DependsOn are cross-layer edges to other systems, attached to the install tier when present
-	// (resources reach them transitively) or to each resources variant otherwise. It never names the
-	// intra-system install edge — that edge is implicit.
+	// DependsOn are cross-layer edges to other systems.
 	DependsOn []string `yaml:"dependsOn,omitempty"`
 
 	// Strategy governs how a system with this Name merges across facets (merge | replace | remove).
@@ -507,26 +468,16 @@ type FluxSystem struct {
 	// Ordinal overrides the facet's ordinal for this system's merge precedence.
 	Ordinal *int `yaml:"ordinal,omitempty"`
 
-	// GlobalDependency inverts the system's edges: when true, every kustomization and system outside
-	// this system's own dependency closure is wired to depend on its terminal tier — its resources tier
-	// if it has one, else its install tier. It lets a cluster-wide precondition (e.g. admission policies
-	// that must be enforcing before any workload lands) be declared once here rather than repeated as a
-	// dependsOn on every consumer. The closure exclusion keeps the system, and anything it depends on,
-	// from ordering after itself.
+	// GlobalDependency makes the system a precondition, such as admission policies, for the rest of the stack.
 	GlobalDependency bool `yaml:"globalDependency,omitempty"`
 
-	// Install is the controller/operator tier (at most one). Its Components/Substitute and operational
-	// fields flow to "<name>-install"; its Name/Path/DependsOn are derived by the composer.
+	// Install is the controller tier that compiles to "<name>-install". The composer sets its Name, Path, and DependsOn.
 	Install *Kustomization `yaml:"install,omitempty"`
 
 	// Resources are the custom-resource tier variants, all sharing "<path>/resources".
 	Resources []FluxVariant `yaml:"resources,omitempty"`
 
-	// Secrets declares Kubernetes Secrets for this system, keyed by Secret name; each entry carries the
-	// Secret's data (data key -> reference to a schema property marked `sensitive: true`) and, optionally,
-	// the namespaces to place it into. Unlike Substitute (plaintext ConfigMap material), Secrets back real
-	// Secrets placed into the system's namespace(s) and are resolved and materialized separately — their
-	// values are never rendered or written in plaintext.
+	// Secrets declares Kubernetes Secrets for this system, keyed by Secret name.
 	Secrets map[string]SecretEntry `yaml:"secrets,omitempty"`
 }
 
