@@ -11,11 +11,15 @@ import (
 )
 
 // =============================================================================
-// Constructor
+// Variables
 // =============================================================================
 
 // enabled tracks whether debug output is turned on for the current process.
 var enabled bool
+
+// =============================================================================
+// Constructor
+// =============================================================================
 
 // Init turns debug output on or off for the current run.
 func Init(on bool) {
@@ -25,11 +29,6 @@ func Init(on bool) {
 // =============================================================================
 // Public Methods
 // =============================================================================
-
-// Enabled reports whether debug output is currently turned on.
-func Enabled() bool {
-	return enabled
-}
 
 // Log writes one line to stderr, with the prefix "[debug]", when debug output is on.
 // It formats format and args as fmt.Sprintf does.

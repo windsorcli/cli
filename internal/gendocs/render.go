@@ -23,7 +23,7 @@ import (
 // Constants
 // =============================================================================
 
-// sourceURLPrefix is the GitHub URL prefix for the source link on a command page.
+// sourceURLPrefix is the GitHub URL prefix for the source link on a command or schema page.
 const sourceURLPrefix = "https://github.com/windsorcli/cli/blob/main/"
 
 // =============================================================================

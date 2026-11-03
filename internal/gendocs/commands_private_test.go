@@ -13,14 +13,18 @@ import (
 	"github.com/spf13/pflag"
 )
 
-// brokenWriter fails every Write with the wrapped error. Used to exercise
-// the errWriter short-circuit path.
+// =============================================================================
+// Test Setup
+// =============================================================================
+
+// brokenWriter fails every Write with the wrapped error.
 type brokenWriter struct{ err error }
 
+// Write returns the wrapped error and writes nothing.
 func (b brokenWriter) Write(p []byte) (int, error) { return 0, b.err }
 
 // =============================================================================
-// Test Public Methods
+// Test Private Methods
 // =============================================================================
 
 func TestErrWriter(t *testing.T) {

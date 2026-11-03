@@ -48,9 +48,10 @@ func TestInit(t *testing.T) {
 		// When Init is called with true
 		debug.Init(true)
 
-		// Then Enabled reports true
-		if !debug.Enabled() {
-			t.Fatal("expected Enabled to return true")
+		// Then Log writes output
+		output := captureStderr(t, func() { debug.Log("on") })
+		if output != "[debug] on\n" {
+			t.Fatalf("expected debug output, got %q", output)
 		}
 	})
 
@@ -62,9 +63,10 @@ func TestInit(t *testing.T) {
 		// When Init is called with false
 		debug.Init(false)
 
-		// Then Enabled reports false
-		if debug.Enabled() {
-			t.Fatal("expected Enabled to return false")
+		// Then Log writes nothing
+		output := captureStderr(t, func() { debug.Log("off") })
+		if output != "" {
+			t.Fatalf("expected no output, got %q", output)
 		}
 	})
 }

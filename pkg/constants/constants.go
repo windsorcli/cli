@@ -1,10 +1,15 @@
 // The constants package holds the default values of the Windsor CLI.
-// It provides the default settings, timeouts, image versions and resource values.
+// It provides the default settings, timeouts, versions and resource values.
 // It also holds the build values that the release build sets with ldflags.
+// Helpers select a default value from a config value or a source type.
 
 package constants
 
 import "time"
+
+// =============================================================================
+// Variables
+// =============================================================================
 
 // Version is the CLI version. The build sets it with ldflags.
 var Version = "dev"
@@ -16,38 +21,12 @@ var CommitSHA = "none"
 // It keeps its default value after `go build` or `go install`.
 var BuildDate = "unknown"
 
+// PinnedBlueprintURL is the blueprint URL of a release build. goreleaser sets it with ldflags.
+var PinnedBlueprintURL = ""
+
 // =============================================================================
 // Constants
 // =============================================================================
-
-// renovate: datasource=docker depName=ghcr.io/windsorcli/git-livereload-server
-const DefaultGitLiveReloadImage = "ghcr.io/windsorcli/git-livereload:v0.2.1"
-
-const DefaultGitLiveReloadRsyncInclude = "kustomize"
-
-const DefaultGitLiveReloadRsyncExclude = ".windsor,.terraform,.volumes,.venv"
-
-const DefaultGitLiveReloadRsyncProtect = "flux-system"
-
-const DefaultGitLiveReloadUsername = "local"
-
-const DefaultGitLiveReloadPassword = "local"
-
-// DefaultGitLiveReloadWebhookNodePort is the NodePort for the Flux webhook receiver (docker-desktop mode).
-const DefaultGitLiveReloadWebhookNodePort = 30292
-
-// DefaultGitLiveReloadWebhookLBPort is the LoadBalancer port for the Flux webhook receiver.
-const DefaultGitLiveReloadWebhookLBPort = 9292
-
-// DefaultGitLiveReloadWebhookPath is the webhook path with token.
-// Hook path corresponds to the webhook token "abcdef123456".
-// see: https://fluxcd.io/flux/components/notification/receivers/
-const DefaultGitLiveReloadWebhookPath = "/hook/5dc88e45e809fb0872b749c0969067e2c1fd142e17aed07573fad20553cc0c59"
-
-// renovate: datasource=github-releases depName=siderolabs/talos
-const DefaultTalosImage = "ghcr.io/siderolabs/talos:v1.14.5"
-
-const DefaultTalosAPIPort = 50000
 
 const DefaultControlPlaneCPUSchedulable = 4
 
@@ -63,14 +42,8 @@ const DefaultWorkerMemory = 8
 
 const DefaultGitopsNamespace = "system-gitops"
 
-// DefaultFluxKustomizationInterval is the reconciliation interval for Kustomizations. Flux
-// content here is pinned and explicitly triggered (the notifier re-fetches sources on every
-// apply/up/bootstrap) rather than continuously tracked, so this is an eventual-consistency
-// backstop, not the primary propagation path. A Kustomization that genuinely wants fast,
-// continuously-polled GitOps behavior should set its own interval override.
+// DefaultFluxKustomizationInterval is the backstop reconciliation interval for a Kustomization of a vendor source.
 const DefaultFluxKustomizationInterval = 1 * time.Hour
-
-const DefaultFluxKustomizationPrune = true
 
 const DefaultFluxKustomizationRetryInterval = 2 * time.Minute
 
@@ -80,137 +53,56 @@ const DefaultFluxKustomizationForce = false
 
 const DefaultFluxKustomizationTimeout = 5 * time.Minute
 
-// DefaultFluxKustomizationInstallTimeout is the timeout for a flux system's install tier
-// when the facet sets none; install tiers install controllers and need more headroom
-// than plain resources.
+// DefaultFluxKustomizationInstallTimeout is the timeout of an install tier when the facet sets none.
 const DefaultFluxKustomizationInstallTimeout = 10 * time.Minute
 
-// DefaultConvergeTimeout bounds the pass that reconciles not-ready kustomizations and forces stalled
-// HelmReleases alongside the readiness wait of an install.
+// DefaultConvergeTimeout is the time limit to reconcile stalled kustomizations and HelmReleases during an install.
 const DefaultConvergeTimeout = 5 * time.Minute
 
-// DefaultFluxSourceInterval is the reconciliation interval for flux Sources. Same rationale
-// as DefaultFluxKustomizationInterval: sources are pinned and explicitly re-fetched by the
-// notifier, so this is a backstop rather than the propagation path.
+// DefaultFluxSourceInterval is the backstop reconciliation interval for a vendor source.
 const DefaultFluxSourceInterval = 1 * time.Hour
 
-// DefaultFluxPrimaryRepositoryInterval is the reconciliation interval for the blueprint's own
-// repository (the top-level "repository:" field) as a flux Source. Unlike a named vendor
-// source, the primary repository is typically a live, actively-pushed branch rather than a
-// pinned release, and a change can land there without any windsor command running (a
-// teammate's push, a CI merge) — so flux's own Source poll is the propagation path here, not
-// just a backstop. See DefaultFluxPrimaryKustomizationInterval for why a Kustomization that
-// resolves to this same repository doesn't need the same cadence.
+// DefaultFluxPrimaryRepositoryInterval is the poll interval for the repository of the blueprint.
 const DefaultFluxPrimaryRepositoryInterval = 1 * time.Minute
 
-// DefaultFluxPrimaryKustomizationInterval is the reconciliation interval for a Kustomization
-// that resolves, explicitly or by default, to the blueprint's own repository rather than a
-// named vendor source. Unlike the Source object itself (DefaultFluxPrimaryRepositoryInterval),
-// a Kustomization's own poll is not the propagation path: kustomize-controller reconciles
-// dependent Kustomizations via a watch on the Source's revision, which the notifier keeps
-// fresh on every apply/up/bootstrap regardless of this interval — so this is purely a backstop
-// for drift correction, retrying failed reconciliations, and dependency-readiness rechecks.
-// A short interval here mainly causes needless churn: Flux's dependency-readiness check is a
-// point-in-time Ready read with no hysteresis, so a Kustomization on a 1m interval briefly
-// flipping to Reconciling can cascade DependencyNotReady retries through everything that
-// depends on it, directly or transitively.
+// DefaultFluxPrimaryKustomizationInterval is the backstop reconciliation interval for a Kustomization of the blueprint repository.
 const DefaultFluxPrimaryKustomizationInterval = 5 * time.Minute
-
-// GitopsMode is the gitops mode of a context. ToFluxKustomization accepts it, but it does not change the interval.
-// The notifier fetches the sources again on each apply, up and bootstrap, so pull and push use the same interval.
-// ParseGitopsMode changes an unknown or empty value to "pull".
-type GitopsMode string
-
-const (
-	GitopsModePull GitopsMode = "pull"
-	GitopsModePush GitopsMode = "push"
-)
-
-// ParseGitopsMode returns the GitopsMode for a config value.
-// It returns "pull" for an empty or unknown value, so a typo gives the safe mode and not an error.
-func ParseGitopsMode(s string) GitopsMode {
-	if GitopsMode(s) == GitopsModePush {
-		return GitopsModePush
-	}
-	return GitopsModePull
-}
-
-// FluxKustomizationInterval returns the default reconciliation interval for a Kustomization.
-// isPrimarySource is true when the Kustomization uses the repository of the blueprint, not a named vendor source.
-// An Interval in the blueprint overrides both defaults.
-func FluxKustomizationInterval(isPrimarySource bool) time.Duration {
-	if isPrimarySource {
-		return DefaultFluxPrimaryKustomizationInterval
-	}
-	return DefaultFluxKustomizationInterval
-}
-
-// FluxSourceInterval returns the default reconciliation interval for a GitRepository or OCIRepository.
-// isPrimary is true for the repository in the top-level "repository:" field of the blueprint.
-func FluxSourceInterval(isPrimary bool) time.Duration {
-	if isPrimary {
-		return DefaultFluxPrimaryRepositoryInterval
-	}
-	return DefaultFluxSourceInterval
-}
 
 const DefaultFluxSourceTimeout = 2 * time.Minute
 
-// Used for aggregate CLI wait (not per-resource)
+// DefaultKustomizationWaitTotalTimeout is the time limit of one CLI wait for all kustomizations.
 const DefaultKustomizationWaitTotalTimeout = 10 * time.Minute
 
-// Poll interval for CLI WaitForKustomizations
+// DefaultKustomizationWaitPollInterval is the poll interval of the CLI kustomization wait.
 const DefaultKustomizationWaitPollInterval = 5 * time.Second
 
-// Maximum number of consecutive failures before giving up
+// DefaultKustomizationWaitMaxFailures is the number of consecutive failures before the CLI wait stops.
 const DefaultKustomizationWaitMaxFailures = 5
 
-// Bounds foregroundDeleteAndWaitService's wait for a cloud-controller to release a LoadBalancer
-// Service's finalizer during destroy. Longer than a kustomization reconcile wait on purpose:
-// cloud-provider LB deprovisioning (notably on AKS) can run well past 5 minutes.
+// DefaultLoadBalancerTeardownTimeout is the time limit for a cloud controller to remove a LoadBalancer Service finalizer.
 const DefaultLoadBalancerTeardownTimeout = 15 * time.Minute
 
-// Bounds a `terraform destroy` invocation's silence, not its total runtime. Resets on every line
-// of output, so a hung or broken-auth provider call fails fast while a slow but progressing
-// teardown keeps running as long as it keeps reporting progress.
+// DefaultTerraformDestroyIdleTimeout is the time limit without output from `terraform destroy`.
 const DefaultTerraformDestroyIdleTimeout = 5 * time.Minute
 
-// Backstops a `terraform destroy` invocation against one that never stops emitting output
-// without finishing. Deliberately generous: it should not bind on any legitimately progressing
-// destroy, only on a pathological runaway.
+// DefaultTerraformDestroyAbsoluteTimeout is the total time limit of one `terraform destroy`.
 const DefaultTerraformDestroyAbsoluteTimeout = 2 * time.Hour
 
-// Bounds terraform refresh before destroy. Short on purpose: a hung refresh means the provider is unreachable.
+// DefaultTerraformRefreshTimeout is the time limit of the terraform refresh before a destroy.
 const DefaultTerraformRefreshTimeout = 2 * time.Minute
 
-// Number of times a single component's terraform destroy is attempted before the destroy fails.
-// Only a failure that returns before its timeout is retried. A timed-out attempt fails immediately.
+// DefaultTerraformDestroyRetryAttempts is the number of destroy attempts for one component.
+// Only a failure before the timeout gets a retry.
 const DefaultTerraformDestroyRetryAttempts = 2
 
-// Wait between terraform destroy retry attempts.
+// DefaultTerraformDestroyRetryBackoff is the wait between two destroy attempts.
 const DefaultTerraformDestroyRetryBackoff = 30 * time.Second
 
-// Grace period after a terraform destroy timeout interrupts the process, before a hard kill.
-// Terraform gets a chance to cancel its in-flight provider call and write a state checkpoint.
-// A SIGKILL never lands as the first signal.
+// DefaultTerraformDestroyGracePeriod is the wait between the interrupt and the kill of a timed-out destroy.
 const DefaultTerraformDestroyGracePeriod = 2 * time.Minute
 
-// Bounds the pre-destroy Kubernetes reachability preflight.
+// DefaultKubernetesReachabilityCheckTimeout is the time limit of the Kubernetes check before a destroy.
 const DefaultKubernetesReachabilityCheckTimeout = 30 * time.Second
-
-// renovate: datasource=docker depName=localstack/localstack
-const DefaultAWSLocalstackImage = "localstack/localstack:4.14.0"
-
-// renovate: datasource=docker depName=localstack/localstack-pro
-const DefaultAWSLocalstackProImage = "localstack/localstack-pro:4.14.0"
-
-// renovate: datasource=docker depName=coredns/coredns
-const DefaultDNSImage = "coredns/coredns:1.15.0"
-
-// renovate: datasource=docker depName=registry
-const RegistryDefaultImage = "registry:3.1.2"
-
-const RegistryDefaultHostPort = 5001
 
 const DefaultNetworkCIDR = "10.5.0.0/16"
 
@@ -220,12 +112,9 @@ const MinimumVersionColima = "0.9.0"
 
 const MinimumVersionDocker = "23.0.0"
 
-const MinimumVersionKubectl = "1.27.0"
-
 const MinimumVersionLima = "1.0.0"
 
-// MinimumVersionLimaIncus is the minimum limactl version when using colima with platform incus.
-// Lima 1.x can hang after "Terminal is not available"; 2.0.3+ is required for reliable colima+incus startup.
+// MinimumVersionLimaIncus is the minimum limactl version for colima with the incus platform.
 const MinimumVersionLimaIncus = "2.0.3"
 
 const MinimumVersionTerraform = "1.12.2"
@@ -242,14 +131,6 @@ const MinimumVersionAzure = "2.50.0"
 
 const MinimumVersionGCP = "400.0.0"
 
-// DefaultAKSOIDCServerID is the standard Azure AKS OIDC server ID (application ID of the
-// Microsoft-managed enterprise application "Azure Kubernetes Service AAD Server").
-// This is the same for all AKS clusters with AKS-managed Azure AD enabled.
-const DefaultAKSOIDCServerID = "6dae42f8-4368-4678-94ff-3960e28e3630"
-
-// DefaultAKSOIDCClientID is the standard Azure AKS OIDC client ID used for all AKS clusters.
-const DefaultAKSOIDCClientID = "80faf920-1908-4b52-b5ef-a8e7bedfc67a"
-
 const DefaultNodeHealthCheckTimeout = 5 * time.Minute
 
 const DefaultNodeHealthCheckPollInterval = 10 * time.Second
@@ -258,29 +139,59 @@ const DefaultNodeUpgradeTimeout = 10 * time.Minute
 
 const DefaultNodeOfflineTimeout = 3 * time.Minute
 
-// DefaultAPIServerReadyTimeout caps how long UpgradeNode waits for the kube-apiserver
-// on a control-plane node to accept connections after a reboot.
+// DefaultAPIServerReadyTimeout is the time limit for the kube-apiserver of a control-plane node after a reboot.
 const DefaultAPIServerReadyTimeout = 5 * time.Minute
 
-// DefaultAPIServerPort is the standard Kubernetes API server port.
 const DefaultAPIServerPort = 6443
 
 const DefaultOCIBlueprintURL = "oci://ghcr.io/windsorcli/core:latest"
 
 // =============================================================================
-// Variables
+// Types
 // =============================================================================
 
-// Build-time variable for pinned blueprint URL (set via ldflags)
-var PinnedBlueprintURL = ""
+// GitopsMode is the gitops mode of a context. Pull and push use the same reconciliation intervals.
+type GitopsMode string
+
+const (
+	GitopsModePull GitopsMode = "pull"
+	GitopsModePush GitopsMode = "push"
+)
 
 // =============================================================================
 // Helpers
 // =============================================================================
 
-// GetEffectiveBlueprintURL returns the pinned blueprint URL if set at build time,
-// otherwise returns the default blueprint URL. This allows for different behavior
-// between development builds (using :latest) and release builds (using pinned versions).
+// ParseGitopsMode returns the GitopsMode for a config value.
+// It returns "pull" for an empty or unknown value, so a typo gives the safe mode and not an error.
+func ParseGitopsMode(s string) GitopsMode {
+	if GitopsMode(s) == GitopsModePush {
+		return GitopsModePush
+	}
+	return GitopsModePull
+}
+
+// FluxKustomizationInterval returns the default reconciliation interval for a Kustomization.
+// isPrimarySource is true when the Kustomization uses the repository of the blueprint, not a vendor source.
+// A short interval causes DependencyNotReady retries, so this interval is longer than the source interval.
+func FluxKustomizationInterval(isPrimarySource bool) time.Duration {
+	if isPrimarySource {
+		return DefaultFluxPrimaryKustomizationInterval
+	}
+	return DefaultFluxKustomizationInterval
+}
+
+// FluxSourceInterval returns the default reconciliation interval for a GitRepository or OCIRepository.
+// isPrimary is true for the repository in the top-level "repository:" field of the blueprint.
+// A push to the blueprint repository can occur without a windsor command, so its poll interval is short.
+func FluxSourceInterval(isPrimary bool) time.Duration {
+	if isPrimary {
+		return DefaultFluxPrimaryRepositoryInterval
+	}
+	return DefaultFluxSourceInterval
+}
+
+// GetEffectiveBlueprintURL returns PinnedBlueprintURL when the build sets it, or DefaultOCIBlueprintURL.
 func GetEffectiveBlueprintURL() string {
 	if PinnedBlueprintURL != "" {
 		return PinnedBlueprintURL
