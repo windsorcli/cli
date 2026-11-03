@@ -1,7 +1,7 @@
 // The handler_schema file holds the schema and validation steps of the ConfigHandler.
 // It provides schema loading, sensitive path lookup, and validation of context values.
 // It merges the CLI fragment over every loaded schema fragment.
-// It checks the context id against DNS label rules, with or without a schema.
+// It checks the context id against DNS label rules and length, with or without a schema.
 
 package config
 
@@ -17,6 +17,9 @@ import (
 
 // contextIDRemediation is the hint for a context id that is not a valid DNS label.
 const contextIDRemediation = "Change id in values.yaml or in the --set flag, or remove it so that windsor generates one."
+
+// maxContextIDLength is the longest context id, in characters. It is the DNS label limit.
+const maxContextIDLength = 63
 
 // =============================================================================
 // Public Methods
@@ -130,11 +133,14 @@ func (c *configHandler) ValidateContextValues() error {
 
 // validateContextID checks id against DNS label rules (RFC 1123): a lowercase letter, then any
 // mix of lowercase letters, digits, and hyphens, with no leading, trailing, or repeated hyphen.
-// This keeps a user-supplied id safe to embed in a domain name (e.g. id.local). An empty id is
-// valid; GenerateContextID fills it in later.
+// The id has at most 63 characters. This keeps a user-supplied id safe to embed in a domain
+// name (e.g. id.local). An empty id is valid; GenerateContextID fills it in later.
 func validateContextID(id string) error {
 	if id == "" {
 		return nil
+	}
+	if len(id) > maxContextIDLength {
+		return werror.New(fmt.Sprintf("Context id %q has %d characters. The maximum is %d.", id, len(id), maxContextIDLength), contextIDRemediation, nil)
 	}
 	if id[0] < 'a' || id[0] > 'z' {
 		return werror.New(fmt.Sprintf("Context id %q must start with a lowercase letter (a-z).", id), contextIDRemediation, nil)

@@ -49,11 +49,14 @@ $defs:
       id:
         type: string
         pattern: ^[a-z][a-z0-9]*(-[a-z0-9]+)*$
+        maxLength: 63
         description: |
           Stable identifier for the context, distinct from its map key.
           Used for cross-context references where the key may change.
           Starts with a lowercase letter. Contains lowercase letters, digits,
           and single hyphens. Does not start, end, or repeat a hyphen.
+          Has 1 to 63 characters, the DNS label limit. A change to these
+          rules is a minor-version change.
       platform:
         type: string
         enum:
