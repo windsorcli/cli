@@ -1,4 +1,4 @@
-package env
+package env_test
 
 import (
 	"fmt"
@@ -9,6 +9,7 @@ import (
 
 	cliconfig "github.com/windsorcli/cli/api/config/v1alpha2"
 	"github.com/windsorcli/cli/pkg/runtime/config"
+	"github.com/windsorcli/cli/pkg/runtime/env"
 )
 
 // =============================================================================
@@ -57,11 +58,11 @@ contexts:
 // =============================================================================
 
 func TestAzureEnv_GetEnvVars(t *testing.T) {
-	setup := func(t *testing.T, overrides ...*EnvTestMocks) (*AzureEnvPrinter, *EnvTestMocks) {
+	setup := func(t *testing.T, overrides ...*EnvTestMocks) (*env.AzureEnvPrinter, *EnvTestMocks) {
 		t.Helper()
 		mocks := setupAzureEnvMocks(t, overrides...)
-		printer := NewAzureEnvPrinter(mocks.Shell, mocks.ConfigHandler)
-		printer.shims = mocks.Shims
+		printer := env.NewAzureEnvPrinter(mocks.Shell, mocks.ConfigHandler)
+		printer.SetShims(mocks.Shims)
 		return printer, mocks
 	}
 
@@ -120,7 +121,7 @@ func TestAzureEnv_GetEnvVars(t *testing.T) {
 		mocks := setupAzureEnvMocks(t, &EnvTestMocks{
 			ConfigHandler: mockConfigHandler,
 		})
-		printer := NewAzureEnvPrinter(mocks.Shell, mocks.ConfigHandler)
+		printer := env.NewAzureEnvPrinter(mocks.Shell, mocks.ConfigHandler)
 
 		// When GetEnvVars is called
 		_, err := printer.GetEnvVars()
@@ -182,8 +183,8 @@ contexts:
 			t.Fatalf("Failed to load config: %v", err)
 		}
 		mocks.ConfigHandler.SetContext("test-context")
-		printer := NewAzureEnvPrinter(mocks.Shell, mocks.ConfigHandler)
-		printer.shims = mocks.Shims
+		printer := env.NewAzureEnvPrinter(mocks.Shell, mocks.ConfigHandler)
+		printer.SetShims(mocks.Shims)
 
 		// When GetEnvVars is called
 		envVars, err := printer.GetEnvVars()
@@ -222,7 +223,7 @@ func TestAzureEnv_KubeloginMode(t *testing.T) {
 		t.Setenv("ACTIONS_ID_TOKEN_REQUEST_URL", "")
 	}
 
-	setupPrinter := func(t *testing.T, configStr string) (*AzureEnvPrinter, config.ConfigHandler) {
+	setupPrinter := func(t *testing.T, configStr string) (*env.AzureEnvPrinter, config.ConfigHandler) {
 		t.Helper()
 		baseMocks := setupEnvMocks(t)
 		mocks := setupAzureEnvMocks(t, &EnvTestMocks{
@@ -233,7 +234,7 @@ func TestAzureEnv_KubeloginMode(t *testing.T) {
 		if err := mocks.ConfigHandler.LoadConfigString(configStr); err != nil {
 			t.Fatalf("Failed to load config: %v", err)
 		}
-		printer := NewAzureEnvPrinter(mocks.Shell, mocks.ConfigHandler)
+		printer := env.NewAzureEnvPrinter(mocks.Shell, mocks.ConfigHandler)
 		mocks.Shims.Getenv = func(key string) string {
 			switch key {
 			case "AZURE_FEDERATED_TOKEN_FILE", "AZURE_CLIENT_SECRET", "AZURE_CLIENT_CERTIFICATE_PATH",
@@ -242,7 +243,7 @@ func TestAzureEnv_KubeloginMode(t *testing.T) {
 			}
 			return ""
 		}
-		printer.shims = mocks.Shims
+		printer.SetShims(mocks.Shims)
 		return printer, mocks.ConfigHandler
 	}
 
@@ -491,7 +492,7 @@ contexts:
 // variable consumed by core's azure-aks / azure-vnet terraform modules.
 // Mirrors the aws.region → AWS_REGION surface so config keys stay symmetric.
 func TestAzureEnv_Region(t *testing.T) {
-	setupPrinter := func(t *testing.T, configStr string) *AzureEnvPrinter {
+	setupPrinter := func(t *testing.T, configStr string) *env.AzureEnvPrinter {
 		t.Helper()
 		baseMocks := setupEnvMocks(t)
 		mocks := setupAzureEnvMocks(t, &EnvTestMocks{
@@ -501,8 +502,8 @@ func TestAzureEnv_Region(t *testing.T) {
 		if err := mocks.ConfigHandler.LoadConfigString(configStr); err != nil {
 			t.Fatalf("Failed to load config: %v", err)
 		}
-		printer := NewAzureEnvPrinter(mocks.Shell, mocks.ConfigHandler)
-		printer.shims = mocks.Shims
+		printer := env.NewAzureEnvPrinter(mocks.Shell, mocks.ConfigHandler)
+		printer.SetShims(mocks.Shims)
 		return printer
 	}
 
@@ -585,8 +586,8 @@ contexts:
 			t.Fatalf("Failed to load config: %v", err)
 		}
 		mocks.Shell.IsGlobalFunc = func() bool { return true }
-		printer := NewAzureEnvPrinter(mocks.Shell, mocks.ConfigHandler)
-		printer.shims = mocks.Shims
+		printer := env.NewAzureEnvPrinter(mocks.Shell, mocks.ConfigHandler)
+		printer.SetShims(mocks.Shims)
 
 		envVars, err := printer.GetEnvVars()
 		if err != nil {

@@ -27,7 +27,8 @@ import (
 // It finds the var files, adds the -backend-config arguments, and builds the arguments of each subcommand.
 // It adds -lock-timeout to init and to each subcommand that changes state. The default is 5m.
 // It checks terraform.lock.timeout first, so a typo gets a Windsor error, not a Terraform parse failure.
-func (p *terraformProvider) GenerateTerraformArgs(componentID string, interactive bool) (*TerraformArgs, error) {
+// The init arguments hold only backend config. Each caller of runTerraformInit adds its own policy flags.
+func (p *DefaultTerraformProvider) GenerateTerraformArgs(componentID string, interactive bool) (*TerraformArgs, error) {
 	_, configRoot, windsorScratchPath, err := p.providerScope()
 	if err != nil {
 		return nil, werror.Wrap(err, "error resolving provider scope")
@@ -73,9 +74,6 @@ func (p *terraformProvider) GenerateTerraformArgs(componentID string, interactiv
 		return nil, werror.Wrap(err, "error generating backend config args")
 	}
 
-	// InitArgs carries only configuration (backend selection + backend-config) — execution
-	// policy flags like -upgrade, -force-copy, -migrate-state, or -reconfigure are added by
-	// each caller of runTerraformInit according to the operation it's performing.
 	initArgs := []string{"-backend=true"}
 	initArgs = append(initArgs, backendConfigArgs...)
 
@@ -140,7 +138,7 @@ func (p *terraformProvider) GenerateTerraformArgs(componentID string, interactiv
 // then constructs the path as ${windsorScratchPath}/.terraform/${componentID}.
 // This path is used by Terraform to store its working directory data and state.
 // Returns the path with forward slashes or an error if scratch path lookup fails.
-func (p *terraformProvider) GetTFDataDir(componentID string) (string, error) {
+func (p *DefaultTerraformProvider) GetTFDataDir(componentID string) (string, error) {
 	_, _, windsorScratchPath, err := p.providerScope()
 	if err != nil {
 		return "", werror.Wrap(err, "error resolving provider scope")
@@ -156,13 +154,12 @@ func (p *terraformProvider) GetTFDataDir(componentID string) (string, error) {
 	return tfDataDir, nil
 }
 
-// GetEnvVars constructs the environment variables required for Terraform execution for the specified
-// component ID: base vars (TF_DATA_DIR, TF_CLI_ARGS_*, TF_VAR_context_*), contexts/<context>/terraform/.env
-// content, and TF_VAR_* from the component's own inputs (evaluated via terraform_output(); outputs from
-// other components are used only to evaluate inputs, never emitted as separate TF_VAR_* variables).
-// Returns the environment variables map, the terraform/.env key names (for callers that must pass them
-// through a narrower allowlist or track them for later cleanup), the TerraformArgs struct, and any error.
-func (p *terraformProvider) GetEnvVars(componentID string, interactive bool) (map[string]string, []string, *TerraformArgs, error) {
+// GetEnvVars returns the environment variables for a Terraform run of componentID.
+// The set holds the base variables, the contexts/<context>/terraform/.env content, and a TF_VAR_* per input.
+// Outputs of other components only evaluate inputs. They are not emitted as separate variables.
+// An input that resolves to nil is skipped, so Terraform uses its declared default and not "null".
+// It also returns the .env key names, for callers that filter or track them, and the TerraformArgs.
+func (p *DefaultTerraformProvider) GetEnvVars(componentID string, interactive bool) (map[string]string, []string, *TerraformArgs, error) {
 	terraformArgs, err := p.GenerateTerraformArgs(componentID, interactive)
 	if err != nil {
 		return nil, nil, nil, werror.Wrap(err, "error generating terraform args")
@@ -226,9 +223,6 @@ func (p *terraformProvider) GetEnvVars(componentID string, interactive bool) (ma
 					if !exists {
 						continue
 					}
-					// When a deferred terraform_output resolves to nil the dependency
-					// has not been applied yet. Skip the variable so Terraform uses its
-					// declared default rather than receiving the string "null".
 					if evaluatedValue == nil {
 						continue
 					}
@@ -251,41 +245,13 @@ func (p *terraformProvider) GetEnvVars(componentID string, interactive bool) (ma
 	return envVars, scopedKeys, terraformArgs, nil
 }
 
-// TerraformScopedEnvKeys returns the key names declared in contexts/<context>/terraform/.env,
-// without resolving any values or paying secret-resolution cost. Used to identify which
-// environment variables to unset when leaving a Terraform directory.
-func (p *terraformProvider) TerraformScopedEnvKeys() ([]string, error) {
-	_, configRoot, _, err := p.providerScope()
-	if err != nil {
-		return nil, werror.Wrap(err, "error resolving provider scope")
-	}
-
-	dotEnvPath := filepath.Join(configRoot, "terraform", ".env")
-
-	data, err := p.Shims.ReadFile(dotEnvPath)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return nil, nil
-		}
-		return nil, werror.Wrap(err, "error reading %s", dotEnvPath)
-	}
-
-	parsed := dotenv.Parse(string(data))
-	keys := make([]string, 0, len(parsed))
-	for k := range parsed {
-		keys = append(keys, k)
-	}
-
-	return keys, nil
-}
-
 // FormatArgsForEnv formats CLI arguments for use in environment variables.
 // It adds quotes around file paths and values that need them for shell compatibility, ensuring that
 // paths with spaces or special characters are properly escaped. Handles Unix absolute paths (/path),
 // relative paths (./path), and Windows drive letter paths (both D:\path and D:/path formats).
 // This is necessary because Terraform CLI arguments passed via TF_CLI_ARGS_* environment variables
 // must be properly quoted to work correctly across different shell environments.
-func (p *terraformProvider) FormatArgsForEnv(args []string) string {
+func (p *DefaultTerraformProvider) FormatArgsForEnv(args []string) string {
 	formatted := make([]string, len(args))
 	for i, arg := range args {
 		if strings.HasPrefix(arg, "-var-file=") {
@@ -314,14 +280,10 @@ func (p *terraformProvider) FormatArgsForEnv(args []string) string {
 // Private Methods
 // =============================================================================
 
-// getBaseEnvVarsForComponent returns the base environment variables for a Terraform component
-// without TF_VAR outputs from other components. This is the core set of env vars needed
-// for any Terraform operation on the component, including TF_DATA_DIR, TF_CLI_ARGS_* for all
-// Terraform commands, TF_VAR_context (context name), TF_VAR_project_root (project root path),
-// and TF_VAR_context_* variables that provide context information to Terraform.
-// These variables ensure Terraform can locate its state, use the correct backend configuration,
-// and have access to context-specific information during execution.
-func (p *terraformProvider) getBaseEnvVarsForComponent(terraformArgs *TerraformArgs) (map[string]string, error) {
+// getBaseEnvVarsForComponent returns the base environment variables of a Terraform component.
+// The set includes TF_DATA_DIR, the TF_CLI_ARGS_* variables, TF_VAR_context, TF_VAR_project_root,
+// and the TF_VAR_context_* variables. It does not include TF_VAR outputs of other components.
+func (p *DefaultTerraformProvider) getBaseEnvVarsForComponent(terraformArgs *TerraformArgs) (map[string]string, error) {
 	contextName, configRoot, _, err := p.providerScope()
 	if err != nil {
 		return nil, werror.Wrap(err, "error resolving provider scope")
@@ -359,7 +321,7 @@ func (p *terraformProvider) getBaseEnvVarsForComponent(terraformArgs *TerraformA
 // when the file is absent, and warns (without failing) on loose file permissions. Reused
 // by both the interactive shell hook and windsor up/apply/plan/destroy, since both paths
 // call GetEnvVars per component.
-func (p *terraformProvider) loadTerraformScopedEnv() (map[string]string, error) {
+func (p *DefaultTerraformProvider) loadTerraformScopedEnv() (map[string]string, error) {
 	envVars := make(map[string]string)
 
 	_, configRoot, _, err := p.providerScope()

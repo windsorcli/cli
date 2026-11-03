@@ -1,18 +1,19 @@
-package config
+package config_test
 
 import (
 	"os"
 	"path/filepath"
 	"testing"
 
+	"github.com/windsorcli/cli/pkg/runtime/config"
 	"github.com/windsorcli/cli/pkg/runtime/shell"
 )
 
 // loadArtifactValidator loads a production schema artifact from schemas/artifacts/ into a fresh
 // SchemaValidator, so tests exercise the exact JSON schema the CLI validates user config against.
-func loadArtifactValidator(t *testing.T, artifact string) *SchemaValidator {
+func loadArtifactValidator(t *testing.T, artifact string) *config.SchemaValidator {
 	t.Helper()
-	v := NewSchemaValidator(shell.NewMockShell())
+	v := config.NewSchemaValidator(shell.NewMockShell())
 	content, err := os.ReadFile(filepath.Join("schemas", "artifacts", artifact))
 	if err != nil {
 		t.Fatalf("read %s: %v", artifact, err)

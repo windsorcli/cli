@@ -1,4 +1,4 @@
-package shell
+package shell_test
 
 import (
 	"bufio"
@@ -9,29 +9,24 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
-	"sync"
 	"testing"
 	"text/template"
-)
 
-// The ShellTest is a test suite for the Shell interface and its implementations.
-// It provides comprehensive test coverage for shell operations, command execution,
-// project root detection, and environment management.
-// The ShellTest acts as a validation framework for shell functionality,
-// ensuring reliable command execution, proper error handling, and environment isolation.
+	"github.com/windsorcli/cli/pkg/runtime/shell"
+)
 
 // =============================================================================
 // Test Setup
 // =============================================================================
 
 type ShellTestMocks struct {
-	Shims  *Shims
+	Shims  *shell.Shims
 	TmpDir string
 }
 
 // setupDefaultShims creates a new Shims instance with default implementations
-func setupDefaultShims(tmpDir string) *Shims {
-	shims := NewShims()
+func setupDefaultShims(tmpDir string) *shell.Shims {
+	shims := shell.NewShims()
 
 	// Mock command execution with proper cleanup
 	shims.Command = func(name string, args ...string) *exec.Cmd {
@@ -201,10 +196,10 @@ func setupShellMocks(t *testing.T) *ShellTestMocks {
 func TestShell_NewDefaultShell(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
 		// Given a shell
-		shell := NewDefaultShell()
+		subject := shell.NewDefaultShell()
 
 		// Then it should be created
-		if shell == nil {
+		if subject == nil {
 			t.Error("Expected shell to be created")
 		}
 	})
@@ -217,47 +212,47 @@ func TestShell_NewDefaultShell(t *testing.T) {
 func TestShell_SetVerbosity(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
 		// Given a shell
-		shell := NewDefaultShell()
+		subject := shell.NewDefaultShell()
 
 		// When setting verbosity to true
-		shell.SetVerbosity(true)
+		subject.SetVerbosity(true)
 
 		// Then verbosity should be true
-		if !shell.verbose {
+		if !subject.Verbose() {
 			t.Fatalf("Expected verbosity to be true, got false")
 		}
 	})
 
 	t.Run("DisableVerbosity", func(t *testing.T) {
 		// Given a shell
-		shell := NewDefaultShell()
+		subject := shell.NewDefaultShell()
 
 		// When setting verbosity to false
-		shell.SetVerbosity(false)
+		subject.SetVerbosity(false)
 
 		// Then verbosity should be false
-		if shell.verbose {
+		if subject.Verbose() {
 			t.Fatalf("Expected verbosity to be false, got true")
 		}
 	})
 }
 
 func TestShell_GetProjectRoot(t *testing.T) {
-	setup := func(t *testing.T) (*DefaultShell, *ShellTestMocks) {
+	setup := func(t *testing.T) (*shell.DefaultShell, *ShellTestMocks) {
 		t.Helper()
 		mocks := setupShellMocks(t)
-		shell := NewDefaultShell()
-		shell.shims = mocks.Shims
-		return shell, mocks
+		subject := shell.NewDefaultShell()
+		subject.SetShims(mocks.Shims)
+		return subject, mocks
 	}
 
 	t.Run("Success", func(t *testing.T) {
 		// Given a shell with project root set
-		shell, _ := setup(t)
-		shell.projectRoot = "/test/root"
+		subject, _ := setup(t)
+		subject.SetProjectRoot("/test/root")
 
 		// When getting the project root
-		root, err := shell.GetProjectRoot()
+		root, err := subject.GetProjectRoot()
 
 		// Then it should return the expected root
 		if err != nil {
@@ -270,7 +265,7 @@ func TestShell_GetProjectRoot(t *testing.T) {
 
 	t.Run("FindsProjectRoot", func(t *testing.T) {
 		// Given a shell in a directory with windsor.yaml
-		shell, mocks := setup(t)
+		subject, mocks := setup(t)
 		mocks.Shims.Getwd = func() (string, error) {
 			return "/test/current", nil
 		}
@@ -282,7 +277,7 @@ func TestShell_GetProjectRoot(t *testing.T) {
 		}
 
 		// When getting the project root
-		root, err := shell.GetProjectRoot()
+		root, err := subject.GetProjectRoot()
 
 		// Then it should find the root directory
 		if err != nil {
@@ -295,7 +290,7 @@ func TestShell_GetProjectRoot(t *testing.T) {
 
 	t.Run("FindsProjectRootWithYml", func(t *testing.T) {
 		// Given a shell in a directory with windsor.yml
-		shell, mocks := setup(t)
+		subject, mocks := setup(t)
 		mocks.Shims.Getwd = func() (string, error) {
 			return "/test/current", nil
 		}
@@ -307,7 +302,7 @@ func TestShell_GetProjectRoot(t *testing.T) {
 		}
 
 		// When getting the project root
-		root, err := shell.GetProjectRoot()
+		root, err := subject.GetProjectRoot()
 
 		// Then it should find the root directory
 		if err != nil {
@@ -320,13 +315,13 @@ func TestShell_GetProjectRoot(t *testing.T) {
 
 	t.Run("ErrorOnGetwdFailure", func(t *testing.T) {
 		// Given a shell with failing Getwd
-		shell, mocks := setup(t)
+		subject, mocks := setup(t)
 		mocks.Shims.Getwd = func() (string, error) {
 			return "", fmt.Errorf("getwd failed")
 		}
 
 		// When getting project root
-		_, err := shell.GetProjectRoot()
+		_, err := subject.GetProjectRoot()
 
 		// Then it should return an error
 		if err == nil {
@@ -339,7 +334,7 @@ func TestShell_GetProjectRoot(t *testing.T) {
 
 	t.Run("MaxDepthExceededFallsBackToGlobalRoot", func(t *testing.T) {
 		// Given a shell in a deep directory structure without windsor.yaml/yml
-		shell, mocks := setup(t)
+		subject, mocks := setup(t)
 		originalDir := "/test/very/deep/directory/structure/without/config/file"
 		mocks.Shims.Getwd = func() (string, error) {
 			return originalDir, nil
@@ -352,7 +347,7 @@ func TestShell_GetProjectRoot(t *testing.T) {
 		}
 
 		// When getting the project root
-		root, err := shell.GetProjectRoot()
+		root, err := subject.GetProjectRoot()
 
 		// Then it should fall back to $HOME/.config/windsor in global mode
 		if err != nil {
@@ -362,14 +357,14 @@ func TestShell_GetProjectRoot(t *testing.T) {
 		if root != expected {
 			t.Errorf("Expected %s, got %s", expected, root)
 		}
-		if !shell.IsGlobal() {
+		if !subject.IsGlobal() {
 			t.Error("Expected IsGlobal() to be true when falling back")
 		}
 	})
 
 	t.Run("FallsBackToGlobalRootWhenFilesystemRootReached", func(t *testing.T) {
 		// Given a shell starting at filesystem root without windsor.yaml/yml
-		shell, mocks := setup(t)
+		subject, mocks := setup(t)
 		mocks.Shims.Getwd = func() (string, error) {
 			return "/", nil
 		}
@@ -381,7 +376,7 @@ func TestShell_GetProjectRoot(t *testing.T) {
 		}
 
 		// When getting the project root
-		root, err := shell.GetProjectRoot()
+		root, err := subject.GetProjectRoot()
 
 		// Then it should fall back to $HOME/.config/windsor in global mode
 		if err != nil {
@@ -391,14 +386,14 @@ func TestShell_GetProjectRoot(t *testing.T) {
 		if root != expected {
 			t.Errorf("Expected %s, got %s", expected, root)
 		}
-		if !shell.IsGlobal() {
+		if !subject.IsGlobal() {
 			t.Error("Expected IsGlobal() to be true when falling back")
 		}
 	})
 
 	t.Run("GlobalFallbackCreatesDirectory", func(t *testing.T) {
 		// Given a shell that will fall back to global mode
-		shell, mocks := setup(t)
+		subject, mocks := setup(t)
 		mocks.Shims.Getwd = func() (string, error) {
 			return "/", nil
 		}
@@ -417,7 +412,7 @@ func TestShell_GetProjectRoot(t *testing.T) {
 		}
 
 		// When getting the project root
-		_, err := shell.GetProjectRoot()
+		_, err := subject.GetProjectRoot()
 
 		// Then MkdirAll should be called on the global root path
 		if err != nil {
@@ -434,7 +429,7 @@ func TestShell_GetProjectRoot(t *testing.T) {
 
 	t.Run("GlobalFallbackReturnsOriginalDirWhenHomeDirFails", func(t *testing.T) {
 		// Given a shell where UserHomeDir fails during fallback
-		shell, mocks := setup(t)
+		subject, mocks := setup(t)
 		originalDir := "/some/dir"
 		mocks.Shims.Getwd = func() (string, error) {
 			return originalDir, nil
@@ -447,7 +442,7 @@ func TestShell_GetProjectRoot(t *testing.T) {
 		}
 
 		// When getting the project root
-		root, err := shell.GetProjectRoot()
+		root, err := subject.GetProjectRoot()
 
 		// Then it should return the original dir without marking global mode
 		if err != nil {
@@ -456,14 +451,14 @@ func TestShell_GetProjectRoot(t *testing.T) {
 		if root != originalDir {
 			t.Errorf("Expected %s, got %s", originalDir, root)
 		}
-		if shell.IsGlobal() {
+		if subject.IsGlobal() {
 			t.Error("Expected IsGlobal() to be false when home dir resolution fails")
 		}
 	})
 
 	t.Run("IsGlobalFalseWhenProjectFound", func(t *testing.T) {
 		// Given a shell in a directory with windsor.yaml
-		shell, mocks := setup(t)
+		subject, mocks := setup(t)
 		mocks.Shims.Getwd = func() (string, error) {
 			return "/test/current", nil
 		}
@@ -475,13 +470,13 @@ func TestShell_GetProjectRoot(t *testing.T) {
 		}
 
 		// When getting the project root
-		_, err := shell.GetProjectRoot()
+		_, err := subject.GetProjectRoot()
 
 		// Then IsGlobal() should be false
 		if err != nil {
 			t.Errorf("Expected no error, got %v", err)
 		}
-		if shell.IsGlobal() {
+		if subject.IsGlobal() {
 			t.Error("Expected IsGlobal() to be false when windsor.yaml is found")
 		}
 	})
@@ -489,7 +484,7 @@ func TestShell_GetProjectRoot(t *testing.T) {
 	t.Run("MkdirAllFailureCachesOriginalDirAndShortCircuitsSubsequentCalls", func(t *testing.T) {
 		// Given a shell that will fall back to global mode but MkdirAll fails
 		// (e.g. read-only filesystem or restrictive $HOME/.config permissions)
-		shell, mocks := setup(t)
+		subject, mocks := setup(t)
 		originalDir := "/some/dir"
 		mocks.Shims.Getwd = func() (string, error) {
 			return originalDir, nil
@@ -509,9 +504,9 @@ func TestShell_GetProjectRoot(t *testing.T) {
 		}
 
 		// When getting the project root twice
-		root1, err1 := shell.GetProjectRoot()
+		root1, err1 := subject.GetProjectRoot()
 		statCallsAfterFirst := statCalls
-		root2, err2 := shell.GetProjectRoot()
+		root2, err2 := subject.GetProjectRoot()
 
 		// Then both calls return the original dir without erroring
 		if err1 != nil {
@@ -524,7 +519,7 @@ func TestShell_GetProjectRoot(t *testing.T) {
 			t.Errorf("Expected %s on both calls, got %s and %s", originalDir, root1, root2)
 		}
 		// And global mode should not be claimed in the degraded state
-		if shell.IsGlobal() {
+		if subject.IsGlobal() {
 			t.Error("Expected IsGlobal() to be false when MkdirAll fails")
 		}
 		// And the second call should not re-traverse the directory tree
@@ -539,7 +534,7 @@ func TestShell_GetProjectRoot(t *testing.T) {
 
 	t.Run("UserHomeDirFailureCachesOriginalDirAndShortCircuitsSubsequentCalls", func(t *testing.T) {
 		// Given a shell where UserHomeDir fails during fallback
-		shell, mocks := setup(t)
+		subject, mocks := setup(t)
 		originalDir := "/some/dir"
 		mocks.Shims.Getwd = func() (string, error) {
 			return originalDir, nil
@@ -556,9 +551,9 @@ func TestShell_GetProjectRoot(t *testing.T) {
 		}
 
 		// When getting the project root twice
-		_, err1 := shell.GetProjectRoot()
+		_, err1 := subject.GetProjectRoot()
 		statCallsAfterFirst := statCalls
-		_, err2 := shell.GetProjectRoot()
+		_, err2 := subject.GetProjectRoot()
 
 		// Then neither call errors and the second short-circuits
 		if err1 != nil || err2 != nil {
@@ -569,147 +564,6 @@ func TestShell_GetProjectRoot(t *testing.T) {
 		}
 		if homeDirCalls != 1 {
 			t.Errorf("Expected UserHomeDir to be called exactly once, got %d", homeDirCalls)
-		}
-	})
-}
-
-// =============================================================================
-// Test Private Methods
-// =============================================================================
-
-// TestDefaultShell_renderEnvVarsPlain tests the renderEnvVarsPlain method
-func TestDefaultShell_renderEnvVarsPlain(t *testing.T) {
-	setup := func(t *testing.T) (*DefaultShell, *ShellTestMocks) {
-		t.Helper()
-		mocks := setupShellMocks(t)
-		shell := NewDefaultShell()
-		shell.shims = mocks.Shims
-		return shell, mocks
-	}
-
-	t.Run("RendersPlainEnvVars", func(t *testing.T) {
-		// Given a shell with environment variables
-		shell, _ := setup(t)
-		envVars := map[string]string{
-			"VAR1": "value1",
-			"VAR2": "value2",
-			"VAR3": "",
-		}
-
-		// When rendering plain environment variables
-		result := shell.renderEnvVarsPlain(envVars)
-
-		// Then the output should contain sorted KEY=value format
-		if !strings.Contains(result, "VAR1=value1\n") {
-			t.Errorf("Expected VAR1=value1, got: %s", result)
-		}
-		if !strings.Contains(result, "VAR2=value2\n") {
-			t.Errorf("Expected VAR2=value2, got: %s", result)
-		}
-		if !strings.Contains(result, "VAR3=\n") {
-			t.Errorf("Expected VAR3=, got: %s", result)
-		}
-	})
-
-	t.Run("RendersEmptyEnvVars", func(t *testing.T) {
-		// Given a shell with empty environment variables map
-		shell, _ := setup(t)
-		envVars := map[string]string{}
-
-		// When rendering plain environment variables
-		result := shell.renderEnvVarsPlain(envVars)
-
-		// Then the output should be empty
-		if result != "" {
-			t.Errorf("Expected empty output for empty env vars, got: %s", result)
-		}
-	})
-
-	t.Run("QuotesValuesWithSpecialCharacters", func(t *testing.T) {
-		// Given a shell with environment variables containing special characters
-		shell, _ := setup(t)
-		envVars := map[string]string{
-			"VAR1": `["item1","item2"]`,
-			"VAR2": `{"key": "value"}`,
-			"VAR3": "simple_value",
-			"VAR4": "value with spaces",
-			"VAR5": "value$with$dollars",
-		}
-
-		// When rendering plain environment variables
-		result := shell.renderEnvVarsPlain(envVars)
-
-		// Then values with special characters should be quoted
-		if !strings.Contains(result, "VAR1='[\"item1\",\"item2\"]'\n") {
-			t.Errorf("Expected VAR1 to be quoted, got: %s", result)
-		}
-		if !strings.Contains(result, "VAR2='{\"key\": \"value\"}'\n") {
-			t.Errorf("Expected VAR2 to be quoted, got: %s", result)
-		}
-		if !strings.Contains(result, "VAR3=simple_value\n") {
-			t.Errorf("Expected VAR3 to not be quoted, got: %s", result)
-		}
-		if !strings.Contains(result, "VAR4='value with spaces'\n") {
-			t.Errorf("Expected VAR4 to be quoted, got: %s", result)
-		}
-		if !strings.Contains(result, "VAR5='value$with$dollars'\n") {
-			t.Errorf("Expected VAR5 to be quoted, got: %s", result)
-		}
-	})
-}
-
-// TestDefaultShell_quoteValueForShell tests the quoteValueForShell method
-func TestDefaultShell_quoteValueForShell(t *testing.T) {
-	setup := func(t *testing.T) *DefaultShell {
-		t.Helper()
-		mocks := setupShellMocks(t)
-		shell := NewDefaultShell()
-		shell.shims = mocks.Shims
-		return shell
-	}
-
-	t.Run("QuotesValuesWithSpecialCharacters", func(t *testing.T) {
-		shell := setup(t)
-
-		testCases := []struct {
-			name     string
-			value    string
-			expected string
-		}{
-			{"JSONArray", `["item1","item2"]`, `'["item1","item2"]'`},
-			{"JSONObject", `{"key": "value"}`, `'{"key": "value"}'`},
-			{"WithSpaces", "value with spaces", "'value with spaces'"},
-			{"WithDollars", "value$test", "'value$test'"},
-			{"WithBrackets", "[test]", "'[test]'"},
-			{"SimpleValue", "simple", "simple"},
-		}
-
-		for _, tc := range testCases {
-			t.Run(tc.name, func(t *testing.T) {
-				result := shell.quoteValueForShell(tc.value, false)
-				if result != tc.expected {
-					t.Errorf("Expected %q, got %q", tc.expected, result)
-				}
-			})
-		}
-	})
-
-	t.Run("UsesDoubleQuotesWhenRequested", func(t *testing.T) {
-		shell := setup(t)
-
-		result := shell.quoteValueForShell("simple", true)
-		if result != `"simple"` {
-			t.Errorf("Expected \"simple\", got %q", result)
-		}
-	})
-
-	t.Run("EscapesSingleQuotesInValue", func(t *testing.T) {
-		shell := setup(t)
-
-		result := shell.quoteValueForShell("value'with'quotes", false)
-		expected := `'value'"'"'with'"'"'quotes'`
-		if result != expected {
-			t.Errorf("Expected %q, got %q", expected, result)
 		}
 	})
 }
@@ -775,36 +629,4 @@ func captureStdout(t *testing.T, f func()) string {
 	<-done
 	os.Stdout = originalStdout
 	return output.String()
-}
-
-// syncWriter wraps a bytes.Buffer with a channel signaled after every Write. A test
-// can wait on the channel instead of racing on a sleep. onWrite, when set, runs
-// before the write is recorded. Use it to place a write among other events, such
-// as a spinner pause and resume.
-type syncWriter struct {
-	mu      sync.Mutex
-	buf     bytes.Buffer
-	written chan struct{}
-	onWrite func()
-}
-
-func newSyncWriter() *syncWriter {
-	return &syncWriter{written: make(chan struct{}, 16)}
-}
-
-func (w *syncWriter) Write(p []byte) (int, error) {
-	if w.onWrite != nil {
-		w.onWrite()
-	}
-	w.mu.Lock()
-	n, err := w.buf.Write(p)
-	w.mu.Unlock()
-	w.written <- struct{}{}
-	return n, err
-}
-
-func (w *syncWriter) String() string {
-	w.mu.Lock()
-	defer w.mu.Unlock()
-	return w.buf.String()
 }

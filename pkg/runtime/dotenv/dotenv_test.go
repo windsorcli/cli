@@ -1,4 +1,4 @@
-package dotenv
+package dotenv_test
 
 import (
 	"bytes"
@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/windsorcli/cli/pkg/runtime/dotenv"
 	"github.com/windsorcli/cli/pkg/runtime/evaluator"
 )
 
@@ -20,7 +21,7 @@ func TestParse(t *testing.T) {
 		content := "HYPERV_USER=admin\nHYPERV_HOST=hyperv.local\n"
 
 		// When Parse is called
-		result := Parse(content)
+		result := dotenv.Parse(content)
 
 		// Then both keys should be present
 		if result["HYPERV_USER"] != "admin" {
@@ -36,7 +37,7 @@ func TestParse(t *testing.T) {
 		content := "# a comment\n\nVALID=yes\nNOEQUALSIGN\n"
 
 		// When Parse is called
-		result := Parse(content)
+		result := dotenv.Parse(content)
 
 		// Then only the valid key should be present
 		if len(result) != 1 || result["VALID"] != "yes" {
@@ -49,7 +50,7 @@ func TestParse(t *testing.T) {
 		content := "  SPACED_KEY  =  spaced value  \n"
 
 		// When Parse is called
-		result := Parse(content)
+		result := dotenv.Parse(content)
 
 		// Then the key and value should be trimmed
 		if _, exists := result["SPACED_KEY"]; !exists {
@@ -67,7 +68,7 @@ func TestShouldUseCache(t *testing.T) {
 		lookupEnv := func(string) (string, bool) { return "", false }
 
 		// When ShouldUseCache is called
-		result := ShouldUseCache(lookupEnv)
+		result := dotenv.ShouldUseCache(lookupEnv)
 
 		// Then it should return true
 		if !result {
@@ -80,7 +81,7 @@ func TestShouldUseCache(t *testing.T) {
 		lookupEnv := func(string) (string, bool) { return "0", true }
 
 		// When ShouldUseCache is called
-		result := ShouldUseCache(lookupEnv)
+		result := dotenv.ShouldUseCache(lookupEnv)
 
 		// Then it should return true
 		if !result {
@@ -93,7 +94,7 @@ func TestShouldUseCache(t *testing.T) {
 		lookupEnv := func(string) (string, bool) { return "1", true }
 
 		// When ShouldUseCache is called
-		result := ShouldUseCache(lookupEnv)
+		result := dotenv.ShouldUseCache(lookupEnv)
 
 		// Then it should return false
 		if result {
@@ -111,7 +112,7 @@ func TestEvaluateExpressionValue(t *testing.T) {
 		}
 
 		// When EvaluateExpressionValue is called
-		result := EvaluateExpressionValue(mockEval, `${secret("op://vault/item/field")}`)
+		result := dotenv.EvaluateExpressionValue(mockEval, `${secret("op://vault/item/field")}`)
 
 		// Then the resolved value should be returned
 		if result != "resolved-value" {
@@ -127,7 +128,7 @@ func TestEvaluateExpressionValue(t *testing.T) {
 		}
 
 		// When EvaluateExpressionValue is called
-		result := EvaluateExpressionValue(mockEval, "${bad}")
+		result := dotenv.EvaluateExpressionValue(mockEval, "${bad}")
 
 		// Then an inline error marker should be returned
 		if !strings.Contains(result, "<ERROR") {
@@ -143,7 +144,7 @@ func TestEvaluateExpressionValue(t *testing.T) {
 		}
 
 		// When EvaluateExpressionValue is called
-		result := EvaluateExpressionValue(mockEval, "${nil_expr}")
+		result := dotenv.EvaluateExpressionValue(mockEval, "${nil_expr}")
 
 		// Then an empty string should be returned
 		if result != "" {
@@ -158,7 +159,7 @@ func TestWarnOnLoosePermissions(t *testing.T) {
 		var buf bytes.Buffer
 
 		// When WarnOnLoosePermissions is called
-		WarnOnLoosePermissions(&buf, "linux", "/path/.env", os.FileMode(0644))
+		dotenv.WarnOnLoosePermissions(&buf, "linux", "/path/.env", os.FileMode(0644))
 
 		// Then a warning should be written
 		if !strings.Contains(buf.String(), "Warning") {
@@ -171,7 +172,7 @@ func TestWarnOnLoosePermissions(t *testing.T) {
 		var buf bytes.Buffer
 
 		// When WarnOnLoosePermissions is called
-		WarnOnLoosePermissions(&buf, "linux", "/path/.env", os.FileMode(0600))
+		dotenv.WarnOnLoosePermissions(&buf, "linux", "/path/.env", os.FileMode(0600))
 
 		// Then no warning should be written
 		if buf.String() != "" {
@@ -184,7 +185,7 @@ func TestWarnOnLoosePermissions(t *testing.T) {
 		var buf bytes.Buffer
 
 		// When WarnOnLoosePermissions is called
-		WarnOnLoosePermissions(&buf, "windows", "/path/.env", os.FileMode(0644))
+		dotenv.WarnOnLoosePermissions(&buf, "windows", "/path/.env", os.FileMode(0644))
 
 		// Then no warning should be written
 		if buf.String() != "" {

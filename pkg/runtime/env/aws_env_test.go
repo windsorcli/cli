@@ -1,4 +1,4 @@
-package env
+package env_test
 
 import (
 	"bytes"
@@ -12,6 +12,7 @@ import (
 	"github.com/goccy/go-yaml"
 	cliconfig "github.com/windsorcli/cli/api/config/v1alpha2"
 	"github.com/windsorcli/cli/pkg/runtime/config"
+	"github.com/windsorcli/cli/pkg/runtime/env"
 )
 
 // =============================================================================
@@ -136,11 +137,11 @@ func TestAwsEnv_GetEnvVars(t *testing.T) {
 		// that aws.profile resolves to
 		mocks := setupAwsEnvMocks(t)
 		root := withProfile(t, mocks, "[default]\nregion = us-west-2\n", "")
-		env := NewAwsEnvPrinter(mocks.Shell, mocks.ConfigHandler)
-		env.shims = mocks.Shims
+		subject := env.NewAwsEnvPrinter(mocks.Shell, mocks.ConfigHandler)
+		subject.SetShims(mocks.Shims)
 
 		// When GetEnvVars is called
-		envVars, err := env.GetEnvVars()
+		envVars, err := subject.GetEnvVars()
 		if err != nil {
 			t.Fatalf("GetEnvVars returned an error: %v", err)
 		}
@@ -172,11 +173,11 @@ contexts:
 		if err := mocks.ConfigHandler.LoadConfigString(configStr); err != nil {
 			t.Fatalf("Failed to load config: %v", err)
 		}
-		env := NewAwsEnvPrinter(mocks.Shell, mocks.ConfigHandler)
-		env.shims = mocks.Shims
+		subject := env.NewAwsEnvPrinter(mocks.Shell, mocks.ConfigHandler)
+		subject.SetShims(mocks.Shims)
 
 		// When GetEnvVars is called
-		envVars, err := env.GetEnvVars()
+		envVars, err := subject.GetEnvVars()
 		if err != nil {
 			t.Fatalf("GetEnvVars returned an error: %v", err)
 		}
@@ -208,11 +209,11 @@ contexts:
 			t.Fatalf("Failed to load config: %v", err)
 		}
 		withProfile(t, mocks, "[profile shared-ops]\nregion = us-east-1\n", "")
-		env := NewAwsEnvPrinter(mocks.Shell, mocks.ConfigHandler)
-		env.shims = mocks.Shims
+		subject := env.NewAwsEnvPrinter(mocks.Shell, mocks.ConfigHandler)
+		subject.SetShims(mocks.Shims)
 
 		// When GetEnvVars is called
-		envVars, err := env.GetEnvVars()
+		envVars, err := subject.GetEnvVars()
 		if err != nil {
 			t.Fatalf("GetEnvVars returned an error: %v", err)
 		}
@@ -252,11 +253,11 @@ contexts:
 		mocks := setupAwsEnvMocks(t)
 		mocks.Shell.IsGlobalFunc = func() bool { return true }
 		withAmbientProfile(t, "[default]\nregion = us-west-2\n")
-		env := NewAwsEnvPrinter(mocks.Shell, mocks.ConfigHandler)
-		env.shims = mocks.Shims
+		subject := env.NewAwsEnvPrinter(mocks.Shell, mocks.ConfigHandler)
+		subject.SetShims(mocks.Shims)
 
 		// When GetEnvVars is called
-		envVars, err := env.GetEnvVars()
+		envVars, err := subject.GetEnvVars()
 		if err != nil {
 			t.Fatalf("GetEnvVars returned an error: %v", err)
 		}
@@ -293,11 +294,11 @@ contexts:
 		}
 		mocks.Shell.IsGlobalFunc = func() bool { return true }
 		withAmbientProfile(t, "[profile test-context]\nregion = us-east-1\n")
-		env := NewAwsEnvPrinter(mocks.Shell, mocks.ConfigHandler)
-		env.shims = mocks.Shims
+		subject := env.NewAwsEnvPrinter(mocks.Shell, mocks.ConfigHandler)
+		subject.SetShims(mocks.Shims)
 
 		// When GetEnvVars is called
-		envVars, err := env.GetEnvVars()
+		envVars, err := subject.GetEnvVars()
 		if err != nil {
 			t.Fatalf("GetEnvVars returned an error: %v", err)
 		}
@@ -336,11 +337,11 @@ contexts:
 		mocks.Shell.IsGlobalFunc = func() bool { return true }
 		// Empty ambient config — the runner has no profile defined anywhere
 		withAmbientProfile(t, "")
-		env := NewAwsEnvPrinter(mocks.Shell, mocks.ConfigHandler)
-		env.shims = mocks.Shims
+		subject := env.NewAwsEnvPrinter(mocks.Shell, mocks.ConfigHandler)
+		subject.SetShims(mocks.Shims)
 
 		// When GetEnvVars is called
-		envVars, err := env.GetEnvVars()
+		envVars, err := subject.GetEnvVars()
 		if err != nil {
 			t.Fatalf("GetEnvVars returned an error: %v", err)
 		}
@@ -368,13 +369,13 @@ contexts:
 		}
 		mocks.Shell.IsGlobalFunc = func() bool { return true }
 		withAmbientProfile(t, "[profile some-other-project]\nregion = us-east-1\n")
-		env := NewAwsEnvPrinter(mocks.Shell, mocks.ConfigHandler)
-		env.shims = mocks.Shims
+		subject := env.NewAwsEnvPrinter(mocks.Shell, mocks.ConfigHandler)
+		subject.SetShims(mocks.Shims)
 		var stderr bytes.Buffer
-		env.warningWriter = &stderr
+		subject.SetWarningWriter(&stderr)
 
 		// When GetEnvVars is called
-		envVars, err := env.GetEnvVars()
+		envVars, err := subject.GetEnvVars()
 		if err != nil {
 			t.Fatalf("GetEnvVars returned an error: %v", err)
 		}
@@ -394,13 +395,13 @@ contexts:
 		// context's .aws/config has a profile, just not the expected one
 		mocks := setupAwsEnvMocks(t)
 		withProfile(t, mocks, "[profile AdministratorAccess-105746947080]\nregion = us-west-2\n", "")
-		env := NewAwsEnvPrinter(mocks.Shell, mocks.ConfigHandler)
-		env.shims = mocks.Shims
+		subject := env.NewAwsEnvPrinter(mocks.Shell, mocks.ConfigHandler)
+		subject.SetShims(mocks.Shims)
 		var stderr bytes.Buffer
-		env.warningWriter = &stderr
+		subject.SetWarningWriter(&stderr)
 
 		// When GetEnvVars is called
-		envVars, err := env.GetEnvVars()
+		envVars, err := subject.GetEnvVars()
 		if err != nil {
 			t.Fatalf("GetEnvVars returned an error: %v", err)
 		}
@@ -431,13 +432,13 @@ contexts:
 		if err := mocks.ConfigHandler.LoadConfigString(configStr); err != nil {
 			t.Fatalf("Failed to load config: %v", err)
 		}
-		env := NewAwsEnvPrinter(mocks.Shell, mocks.ConfigHandler)
-		env.shims = mocks.Shims
+		subject := env.NewAwsEnvPrinter(mocks.Shell, mocks.ConfigHandler)
+		subject.SetShims(mocks.Shims)
 		var stderr bytes.Buffer
-		env.warningWriter = &stderr
+		subject.SetWarningWriter(&stderr)
 
 		// When GetEnvVars is called
-		if _, err := env.GetEnvVars(); err != nil {
+		if _, err := subject.GetEnvVars(); err != nil {
 			t.Fatalf("GetEnvVars returned an error: %v", err)
 		}
 
@@ -464,8 +465,8 @@ contexts:
 			t.Fatalf("Failed to set context: %v", err)
 		}
 
-		env := NewAwsEnvPrinter(mocks.Shell, mocks.ConfigHandler)
-		env.shims = mocks.Shims
+		subject := env.NewAwsEnvPrinter(mocks.Shell, mocks.ConfigHandler)
+		subject.SetShims(mocks.Shims)
 
 		mockConfigHandler := mocks.ConfigHandler.(*config.MockConfigHandler)
 		mockConfigHandler.GetConfigRootFunc = func() (string, error) {
@@ -473,7 +474,7 @@ contexts:
 		}
 
 		// When GetEnvVars is called
-		_, err := env.GetEnvVars()
+		_, err := subject.GetEnvVars()
 
 		// Then an error should be returned
 		if err == nil {

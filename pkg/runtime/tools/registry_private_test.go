@@ -5,7 +5,6 @@ import (
 	"testing"
 
 	"github.com/windsorcli/cli/internal/werror"
-
 	"github.com/windsorcli/cli/pkg/constants"
 )
 

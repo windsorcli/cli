@@ -1,4 +1,4 @@
-package shell
+package shell_test
 
 import (
 	"fmt"
@@ -9,6 +9,7 @@ import (
 	"text/template"
 
 	"github.com/windsorcli/cli/internal/werror"
+	"github.com/windsorcli/cli/pkg/runtime/shell"
 )
 
 // =============================================================================
@@ -16,20 +17,20 @@ import (
 // =============================================================================
 
 func TestShell_InstallHook(t *testing.T) {
-	setup := func(t *testing.T) (*DefaultShell, *ShellTestMocks) {
+	setup := func(t *testing.T) (*shell.DefaultShell, *ShellTestMocks) {
 		t.Helper()
 		mocks := setupShellMocks(t)
-		shell := NewDefaultShell()
-		shell.shims = mocks.Shims
-		return shell, mocks
+		subject := shell.NewDefaultShell()
+		subject.SetShims(mocks.Shims)
+		return subject, mocks
 	}
 
 	t.Run("UnsupportedShell", func(t *testing.T) {
 		// Given a shell with an unsupported shell type
-		shell, _ := setup(t)
+		subject, _ := setup(t)
 
 		// When installing a hook for an unsupported shell
-		err := shell.InstallHook("unsupported")
+		err := subject.InstallHook("unsupported")
 
 		// Then it should return an error
 		if err == nil {
@@ -45,13 +46,13 @@ func TestShell_InstallHook(t *testing.T) {
 
 	t.Run("ExecutableError", func(t *testing.T) {
 		// Given a shell with failing Executable
-		shell, mocks := setup(t)
+		subject, mocks := setup(t)
 		mocks.Shims.Executable = func() (string, error) {
 			return "", fmt.Errorf("executable error")
 		}
 
 		// When installing a hook
-		err := shell.InstallHook("zsh")
+		err := subject.InstallHook("zsh")
 
 		// Then it should return an error
 		if err == nil {
@@ -64,7 +65,7 @@ func TestShell_InstallHook(t *testing.T) {
 
 	t.Run("TemplateCreateError", func(t *testing.T) {
 		// Given a shell with failing template creation
-		shell, mocks := setup(t)
+		subject, mocks := setup(t)
 		mocks.Shims.Executable = func() (string, error) {
 			return "/usr/bin/windsor", nil
 		}
@@ -73,7 +74,7 @@ func TestShell_InstallHook(t *testing.T) {
 		}
 
 		// When installing a hook
-		err := shell.InstallHook("zsh")
+		err := subject.InstallHook("zsh")
 
 		// Then it should return an error
 		if err == nil {
@@ -86,7 +87,7 @@ func TestShell_InstallHook(t *testing.T) {
 
 	t.Run("TemplateParseError", func(t *testing.T) {
 		// Given a shell with failing template parse
-		shell, mocks := setup(t)
+		subject, mocks := setup(t)
 		mocks.Shims.Executable = func() (string, error) {
 			return "/usr/bin/windsor", nil
 		}
@@ -95,7 +96,7 @@ func TestShell_InstallHook(t *testing.T) {
 		}
 
 		// When installing a hook
-		err := shell.InstallHook("zsh")
+		err := subject.InstallHook("zsh")
 
 		// Then it should return an error
 		if err == nil {
@@ -108,7 +109,7 @@ func TestShell_InstallHook(t *testing.T) {
 
 	t.Run("TemplateExecuteError", func(t *testing.T) {
 		// Given a shell with failing template execution
-		shell, mocks := setup(t)
+		subject, mocks := setup(t)
 		mocks.Shims.Executable = func() (string, error) {
 			return "/usr/bin/windsor", nil
 		}
@@ -117,7 +118,7 @@ func TestShell_InstallHook(t *testing.T) {
 		}
 
 		// When installing a hook
-		err := shell.InstallHook("zsh")
+		err := subject.InstallHook("zsh")
 
 		// Then it should return an error
 		if err == nil {
@@ -130,7 +131,7 @@ func TestShell_InstallHook(t *testing.T) {
 
 	t.Run("Success", func(t *testing.T) {
 		// Given a shell with working template operations
-		shell, mocks := setup(t)
+		subject, mocks := setup(t)
 		mocks.Shims.Executable = func() (string, error) {
 			return "/usr/bin/windsor", nil
 		}
@@ -151,7 +152,7 @@ func TestShell_InstallHook(t *testing.T) {
 		os.Stdout = w
 
 		// When installing a hook
-		err := shell.InstallHook("zsh")
+		err := subject.InstallHook("zsh")
 
 		// Close writer and restore stdout
 		w.Close()
@@ -171,7 +172,7 @@ func TestShell_InstallHook(t *testing.T) {
 
 	t.Run("PowerShellSuccess", func(t *testing.T) {
 		// Given a shell with working template operations
-		shell, mocks := setup(t)
+		subject, mocks := setup(t)
 		mocks.Shims.Executable = func() (string, error) {
 			return "/usr/bin/windsor", nil
 		}
@@ -193,7 +194,7 @@ func TestShell_InstallHook(t *testing.T) {
 		os.Stdout = w
 
 		// When installing a hook for PowerShell
-		err := shell.InstallHook("powershell")
+		err := subject.InstallHook("powershell")
 
 		// Close writer and restore stdout
 		w.Close()

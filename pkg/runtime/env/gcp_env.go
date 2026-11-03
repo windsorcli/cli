@@ -44,15 +44,11 @@ func NewGcpEnvPrinter(shell shell.Shell, configHandler config.ConfigHandler) *Gc
 // Public Methods
 // =============================================================================
 
-// GetEnvVars returns the GCP environment variables for the current context. Project mode
-// always sets CLOUDSDK_CONFIG. Google client libraries do not read it. GOOGLE_APPLICATION_CREDENTIALS
-// bridges the gap. Windsor tries gcp.credentials_path first, then the service-account
-// file, then the gcloud ADC file, else it leaves the variable unset. A set-but-missing
-// path breaks Google client libraries outright, so Windsor never guesses one. Global mode
-// defers to the operator's ambient gcloud setup. GOOGLE_CLOUD_PROJECT, GCLOUD_PROJECT, and
-// GOOGLE_CLOUD_QUOTA_PROJECT need a gcp: field. Windsor recomputes GOOGLE_APPLICATION_CREDENTIALS
-// on every call unless an operator's own value already occupies it. This lets a removed
-// service-account file or a switch to ADC take effect on the next command.
+// GetEnvVars returns the GCP environment variables of the current context.
+// Project mode always sets CLOUDSDK_CONFIG. Google client libraries read GOOGLE_APPLICATION_CREDENTIALS.
+// Windsor sets it from gcp.credentials_path, the service-account file, or the gcloud ADC file, in that order.
+// Windsor stat-checks the two fallback files and never guesses a path. It recomputes the value unless the operator set one.
+// GOOGLE_CLOUD_PROJECT, GCLOUD_PROJECT, and GOOGLE_CLOUD_QUOTA_PROJECT need a gcp: field.
 func (e *GcpEnvPrinter) GetEnvVars() (map[string]string, error) {
 	envVars := make(map[string]string)
 	global := e.shell.IsGlobal()

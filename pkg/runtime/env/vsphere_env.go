@@ -44,22 +44,11 @@ func NewVsphereEnvPrinter(shell shell.Shell, configHandler config.ConfigHandler)
 // Public Methods
 // =============================================================================
 
-// GetEnvVars retrieves the environment variables for the vSphere environment.
-// In project mode, VSPHERE_PERSIST_SESSION, VSPHERE_VIM_SESSION_PATH, and
-// VSPHERE_REST_SESSION_PATH are always emitted, scoping the Terraform vSphere
-// provider's SOAP/REST session cache to the context's .vsphere/ directory —
-// mirrors how AZURE_CONFIG_DIR scopes az CLI state for the Azure env printer.
-// In global mode these three are omitted so the provider falls back to its
-// own ambient defaults (~/.govmomi/sessions, ~/.govmomi/rest_sessions)
-// untouched. The remaining three env vars consumed by the provider are
-// emitted from config: VSPHERE_SERVER, VSPHERE_USER, and
-// VSPHERE_ALLOW_UNVERIFIED_SSL. Inventory pointers (datacenter, cluster,
-// datastore, network, etc.) are Terraform variable inputs wired by the facet
-// — they are not read from the environment. VSPHERE_PASSWORD must be
-// supplied via secrets or the ambient environment; plaintext passwords are
-// never written to the shell config file. Every emitted key is registered as
-// managed, so WindsorEnvPrinter unsets it once a context switch stops this
-// printer from emitting it.
+// GetEnvVars returns the vSphere environment variables of the current context.
+// In project mode, the VSPHERE_*_SESSION* variables keep the provider session cache in .vsphere/ of the context.
+// Global mode omits them, so the provider uses its ambient defaults.
+// It sets VSPHERE_SERVER, VSPHERE_USER, and VSPHERE_ALLOW_UNVERIFIED_SSL from config.
+// VSPHERE_PASSWORD comes from secrets or the environment. It registers each key as managed.
 func (e *VsphereEnvPrinter) GetEnvVars() (map[string]string, error) {
 	envVars := make(map[string]string)
 	global := e.shell.IsGlobal()

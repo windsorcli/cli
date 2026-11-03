@@ -69,14 +69,10 @@ func NewTerraformEnvPrinter(shell shell.Shell, configHandler config.ConfigHandle
 // component, its inputs, or the .env file have since changed.
 const terraformScopedEnvKeysVar = "WINDSOR_MANAGED_TERRAFORM_ENV"
 
-// GetEnvVars returns a map of environment variables for Terraform operations.
-// If not in a Terraform project directory, it unsets managed variables present in the environment.
-// Otherwise, it generates Terraform arguments for the current project, merged with any
-// contexts/<context>/terraform/.env content. Every returned key is tracked as managed so it
-// is unset cleanly when the operator leaves the directory; the full set of emitted key names
-// is additionally recorded in WINDSOR_MANAGED_TERRAFORM_ENV so getEmptyEnvVars can still unset
-// them later even if the component, its inputs, or the .env file have since changed.
-// Returns the environment variable map or an error if resolution fails.
+// GetEnvVars returns the Terraform environment variables of the current project directory.
+// It merges the contexts/<context>/terraform/.env content into the generated arguments.
+// Outside a Terraform project, it unsets the managed variables.
+// It records the emitted keys in WINDSOR_MANAGED_TERRAFORM_ENV, so a later run can unset them after a change.
 func (e *TerraformEnvPrinter) GetEnvVars() (map[string]string, error) {
 	projectPath, err := e.terraformProvider.FindRelativeProjectPath()
 	if err != nil {

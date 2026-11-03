@@ -79,10 +79,10 @@ func redactValueAtPath(node any, segments []string) {
 	}
 }
 
-// renderValuesBlock is the recursive implementation for RenderValuesWithDescriptions.
-// It accumulates output into a strings.Builder, delegating scalar and array formatting
-// to marshalKeyValue. The order parameter sets the key order at this level, and the indent
-// parameter tracks the current nesting depth.
+// renderValuesBlock renders one level of RenderValuesWithDescriptions and recurses into objects.
+// marshalKeyValue formats scalars and arrays. order sets the key order, and indent sets the depth.
+// A schema key without a value renders as a commented-out key, so users can find it.
+// An object without renderable sub-properties renders as one commented-out key.
 func renderValuesBlock(values map[string]any, schema map[string]any, order *keyOrder, indent string) string {
 	var sb strings.Builder
 
@@ -141,8 +141,6 @@ func renderValuesBlock(values map[string]any, schema map[string]any, order *keyO
 				sb.WriteString(marshalKeyValue(key, val, indent))
 			}
 		} else {
-			// Key is defined in the schema but absent from effective values — render as a
-			// commented-out reference so users can discover it without reading the schema file.
 			propType, _ := propSchema["type"].(string)
 			if propType == "object" {
 				subContent := renderValuesBlock(nil, propSchema, order.child(key), indent+"  ")
@@ -153,8 +151,6 @@ func renderValuesBlock(values map[string]any, schema map[string]any, order *keyO
 					sb.WriteString(indent + key + ":\n")
 					sb.WriteString(subContent)
 				} else {
-					// Object has no renderable sub-properties (e.g. additionalProperties-only) —
-					// show as a single commented-out key so the field remains discoverable.
 					if desc != "" {
 						sb.WriteString(indent + "# " + desc + "\n")
 					}

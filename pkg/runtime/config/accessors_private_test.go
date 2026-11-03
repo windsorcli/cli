@@ -1,0 +1,357 @@
+package config
+
+import (
+	"os"
+	"path/filepath"
+	"testing"
+)
+
+// =============================================================================
+// Test Accessors
+// =============================================================================
+
+func TestConfigHandler_Accessors(t *testing.T) {
+	t.Run("GetReturnsNilForMissingOrEmptyPath", func(t *testing.T) {
+		mocks := setupConfigMocks(t)
+		handler := NewConfigHandler(mocks.Shell)
+
+		if value := handler.Get(""); value != nil {
+			t.Errorf("Expected nil for empty path, got %v", value)
+		}
+		if value := handler.Get("missing.path"); value != nil {
+			t.Errorf("Expected nil for missing path, got %v", value)
+		}
+	})
+
+	t.Run("GetReturnsStoredAndNestedValues", func(t *testing.T) {
+		mocks := setupConfigMocks(t)
+		handler := NewConfigHandler(mocks.Shell)
+
+		if err := handler.Set("parent.child.key", "nested_value"); err != nil {
+			t.Fatalf("Expected no error setting nested value, got %v", err)
+		}
+
+		if value := handler.Get("parent.child.key"); value != "nested_value" {
+			t.Errorf("Expected nested value, got %v", value)
+		}
+	})
+
+	t.Run("GetFallsBackToSchemaDefault", func(t *testing.T) {
+		mocks := setupConfigMocks(t)
+		tmpDir, _ := mocks.Shell.GetProjectRoot()
+		handler := NewConfigHandler(mocks.Shell)
+
+		schemaDir := filepath.Join(tmpDir, "contexts", "_template")
+		if err := os.MkdirAll(schemaDir, 0755); err != nil {
+			t.Fatalf("Expected no error creating schema dir, got %v", err)
+		}
+		schemaContent := `$schema: https://json-schema.org/draft/2020-12/schema
+type: object
+properties:
+  nested:
+    type: object
+    properties:
+      key:
+        type: string
+        default: nested_default
+`
+		if err := os.WriteFile(filepath.Join(schemaDir, "schema.yaml"), []byte(schemaContent), 0644); err != nil {
+			t.Fatalf("Expected no error writing schema, got %v", err)
+		}
+		if err := handler.LoadConfig(); err != nil {
+			t.Fatalf("Expected no error loading config, got %v", err)
+		}
+
+		if value := handler.Get("nested.key"); value != "nested_default" {
+			t.Errorf("Expected schema default value, got %v", value)
+		}
+	})
+
+	t.Run("GetMergesSchemaDefaultsUnderAPartialBlock", func(t *testing.T) {
+		// Given a schema default for terraform.backend.kubernetes.namespace and a user block without it
+		mocks := setupConfigMocks(t)
+		tmpDir, _ := mocks.Shell.GetProjectRoot()
+		handler := NewConfigHandler(mocks.Shell)
+
+		schemaDir := filepath.Join(tmpDir, "contexts", "_template")
+		if err := os.MkdirAll(schemaDir, 0755); err != nil {
+			t.Fatalf("Expected no error creating schema dir, got %v", err)
+		}
+		schemaContent := `$schema: https://json-schema.org/draft/2020-12/schema
+type: object
+properties:
+  terraform:
+    type: object
+    properties:
+      backend:
+        type: object
+        properties:
+          kubernetes:
+            type: object
+            properties:
+              namespace:
+                type: string
+                default: system-terraform
+`
+		if err := os.WriteFile(filepath.Join(schemaDir, "schema.yaml"), []byte(schemaContent), 0644); err != nil {
+			t.Fatalf("Expected no error writing schema, got %v", err)
+		}
+		if err := handler.LoadConfig(); err != nil {
+			t.Fatalf("Expected no error loading config, got %v", err)
+		}
+		if err := handler.Set("terraform.backend.kubernetes.config_path", "/tmp/kubeconfig"); err != nil {
+			t.Fatalf("Expected no error setting config_path, got %v", err)
+		}
+
+		// When the block is read as a whole
+		block, ok := handler.Get("terraform.backend.kubernetes").(map[string]any)
+
+		// Then the user's key and the schema default are both present
+		if !ok {
+			t.Fatalf("Expected a map, got %T", handler.Get("terraform.backend.kubernetes"))
+		}
+		if block["config_path"] != "/tmp/kubeconfig" {
+			t.Errorf("Expected config_path to be kept, got %v", block["config_path"])
+		}
+		if block["namespace"] != "system-terraform" {
+			t.Errorf("Expected namespace default to be merged, got %v", block["namespace"])
+		}
+
+		// And a user's own namespace wins over the default
+		if err := handler.Set("terraform.backend.kubernetes.namespace", "custom"); err != nil {
+			t.Fatalf("Expected no error setting namespace, got %v", err)
+		}
+		block, _ = handler.Get("terraform.backend.kubernetes").(map[string]any)
+		if block["namespace"] != "custom" {
+			t.Errorf("Expected user namespace to win, got %v", block["namespace"])
+		}
+	})
+
+	t.Run("GetStringCoversValueAndDefault", func(t *testing.T) {
+		mocks := setupConfigMocks(t)
+		handler := NewConfigHandler(mocks.Shell)
+
+		if err := handler.Set("key", 42); err != nil {
+			t.Fatalf("Expected no error setting value, got %v", err)
+		}
+		if got := handler.GetString("key"); got != "42" {
+			t.Errorf("Expected converted string '42', got %s", got)
+		}
+		if got := handler.GetString("missing", "fallback"); got != "fallback" {
+			t.Errorf("Expected fallback string, got %s", got)
+		}
+	})
+
+	t.Run("GetIntCoversConversionsAndDefaults", func(t *testing.T) {
+		mocks := setupConfigMocks(t)
+		handler := NewConfigHandler(mocks.Shell)
+
+		if err := handler.Set("a", "42"); err != nil {
+			t.Fatalf("Expected no error setting value, got %v", err)
+		}
+		if err := handler.Set("b", uint64(7)); err != nil {
+			t.Fatalf("Expected no error setting value, got %v", err)
+		}
+		if err := handler.Set("c", "bad"); err != nil {
+			t.Fatalf("Expected no error setting value, got %v", err)
+		}
+
+		if got := handler.GetInt("a"); got != 42 {
+			t.Errorf("Expected 42, got %d", got)
+		}
+		if got := handler.GetInt("b"); got != 7 {
+			t.Errorf("Expected 7, got %d", got)
+		}
+		if got := handler.GetInt("c", 99); got != 99 {
+			t.Errorf("Expected default 99, got %d", got)
+		}
+	})
+
+	t.Run("GetBoolCoversValueAndDefault", func(t *testing.T) {
+		mocks := setupConfigMocks(t)
+		handler := NewConfigHandler(mocks.Shell)
+
+		if err := handler.Set("enabled", true); err != nil {
+			t.Fatalf("Expected no error setting value, got %v", err)
+		}
+		if got := handler.GetBool("enabled"); !got {
+			t.Error("Expected true for bool value")
+		}
+		if got := handler.GetBool("missing", true); !got {
+			t.Error("Expected default true for missing value")
+		}
+	})
+
+	t.Run("GetStringSliceConvertsInterfaceSlice", func(t *testing.T) {
+		mocks := setupConfigMocks(t)
+		handler := NewConfigHandler(mocks.Shell)
+
+		if err := handler.Set("items", []any{"x", 42, true}); err != nil {
+			t.Fatalf("Expected no error setting value, got %v", err)
+		}
+
+		items := handler.GetStringSlice("items")
+		if len(items) != 3 {
+			t.Fatalf("Expected 3 items, got %d", len(items))
+		}
+		if items[0] != "x" || items[1] != "42" || items[2] != "true" {
+			t.Errorf("Expected [x 42 true], got %v", items)
+		}
+	})
+
+	t.Run("GetStringMapConvertsMapValues", func(t *testing.T) {
+		mocks := setupConfigMocks(t)
+		handler := NewConfigHandler(mocks.Shell)
+
+		if err := handler.Set("env", map[string]any{"NUM": 42, "BOOL": true}); err != nil {
+			t.Fatalf("Expected no error setting value, got %v", err)
+		}
+
+		env := handler.GetStringMap("env")
+		if env["NUM"] != "42" || env["BOOL"] != "true" {
+			t.Errorf("Expected converted string map, got %v", env)
+		}
+	})
+
+	t.Run("GetStringMapSupportsMapStringStringAndMapAnyAny", func(t *testing.T) {
+		mocks := setupConfigMocks(t)
+		handler := NewConfigHandler(mocks.Shell).(*configHandler)
+
+		handler.data["env_string"] = map[string]string{"A": "a"}
+		envString := handler.GetStringMap("env_string")
+		if envString["A"] != "a" {
+			t.Errorf("Expected map[string]string passthrough, got %v", envString)
+		}
+
+		handler.data["env_any"] = map[any]any{"B": 2, 3: "ignored"}
+		envAny := handler.GetStringMap("env_any")
+		if envAny["B"] != "2" {
+			t.Errorf("Expected map[any]any conversion for string key, got %v", envAny)
+		}
+		if _, exists := envAny["3"]; exists {
+			t.Errorf("Expected non-string key to be ignored, got %v", envAny)
+		}
+	})
+
+	t.Run("SetValidatesPaths", func(t *testing.T) {
+		mocks := setupConfigMocks(t)
+		handler := NewConfigHandler(mocks.Shell)
+
+		if err := handler.Set("valid.path", "value"); err != nil {
+			t.Fatalf("Expected no error for valid set, got %v", err)
+		}
+		if err := handler.Set("", "value"); err == nil {
+			t.Fatal("Expected error for empty path")
+		}
+		if err := handler.Set("invalid..path", "value"); err == nil {
+			t.Fatal("Expected error for invalid path")
+		}
+	})
+
+	t.Run("SetDoesNotValidateAgainstSchema", func(t *testing.T) {
+		mocks := setupConfigMocks(t)
+		tmpDir, _ := mocks.Shell.GetProjectRoot()
+		handler := NewConfigHandler(mocks.Shell)
+
+		schemaDir := filepath.Join(tmpDir, "contexts", "_template")
+		if err := os.MkdirAll(schemaDir, 0755); err != nil {
+			t.Fatalf("Expected no error creating schema dir, got %v", err)
+		}
+		schemaContent := `$schema: https://json-schema.org/draft/2020-12/schema
+type: object
+properties:
+  allowed_key:
+    type: string
+additionalProperties: false
+`
+		if err := os.WriteFile(filepath.Join(schemaDir, "schema.yaml"), []byte(schemaContent), 0644); err != nil {
+			t.Fatalf("Expected no error writing schema, got %v", err)
+		}
+		if err := handler.LoadSchema(filepath.Join(schemaDir, "schema.yaml")); err != nil {
+			t.Fatalf("Expected no error loading schema, got %v", err)
+		}
+
+		// Schema violations surface from ValidateContextValues, not from Set.
+		if err := handler.Set("disallowed_key", "value"); err != nil {
+			t.Fatalf("Set should not validate against schema, got %v", err)
+		}
+		if err := handler.ValidateContextValues(); err == nil {
+			t.Fatal("Expected validation error from ValidateContextValues for disallowed key")
+		}
+	})
+
+	t.Run("SetAfterDeleteOfSameKeyWinsOverTheDelete", func(t *testing.T) {
+		handler, _ := setupPrivateTestHandler(t)
+
+		if err := handler.Set("provider", nil); err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		if err := handler.Set("provider", "docker"); err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+
+		if handler.pendingDeletes["provider"] {
+			t.Error("Expected the later Set to clear the pending delete")
+		}
+		if got := handler.pendingOverrides["provider"]; got != "docker" {
+			t.Errorf("Expected the later Set to win, got %v", got)
+		}
+	})
+
+	t.Run("DeleteAfterSetOfSameKeyWinsOverTheSet", func(t *testing.T) {
+		handler, _ := setupPrivateTestHandler(t)
+
+		if err := handler.Set("provider", "docker"); err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		if err := handler.Set("provider", nil); err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+
+		if _, exists := handler.pendingOverrides["provider"]; exists {
+			t.Error("Expected the later delete to clear the pending override")
+		}
+		if !handler.pendingDeletes["provider"] {
+			t.Error("Expected the delete to be pending")
+		}
+	})
+}
+
+func TestConfigHandler_AccessorTypeCoercionHelpers(t *testing.T) {
+	t.Run("ConvertStringToTypeCoversValidAndInvalidConversions", func(t *testing.T) {
+		handler, _ := setupPrivateTestHandler(t)
+
+		if got := handler.convertStringToType("true", "boolean"); got != true {
+			t.Errorf("Expected true boolean, got %v", got)
+		}
+		if got := handler.convertStringToType("42", "integer"); got != 42 {
+			t.Errorf("Expected int 42, got %v", got)
+		}
+		if got := handler.convertStringToType("3.25", "number"); got != 3.25 {
+			t.Errorf("Expected float 3.25, got %v", got)
+		}
+		if got := handler.convertStringToType("abc", "string"); got != "abc" {
+			t.Errorf("Expected string abc, got %v", got)
+		}
+		if got := handler.convertStringToType("not-bool", "boolean"); got != nil {
+			t.Errorf("Expected nil for invalid boolean conversion, got %v", got)
+		}
+		if got := handler.convertStringToType("x", "unknown"); got != nil {
+			t.Errorf("Expected nil for unknown schema type, got %v", got)
+		}
+	})
+
+	t.Run("GetIntHandlesInt64AndUint64Boundaries", func(t *testing.T) {
+		handler, _ := setupPrivateTestHandler(t)
+		maxInt64 := int64(^uint(0) >> 1)
+		handler.data["within"] = maxInt64
+		handler.data["overflow"] = uint64(^uint(0)>>1) + 1
+
+		if got := handler.GetInt("within"); got != int(maxInt64) {
+			t.Errorf("Expected within-bound int64 conversion, got %d", got)
+		}
+		if got := handler.GetInt("overflow", 77); got != 77 {
+			t.Errorf("Expected default on uint64 overflow, got %d", got)
+		}
+	})
+}

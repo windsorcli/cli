@@ -1,24 +1,21 @@
-package evaluator
+package evaluator_test
 
 import (
 	"errors"
 	"testing"
-)
 
-// The MockExpressionEvaluatorTest is a test suite for the MockExpressionEvaluator implementation.
-// It provides comprehensive test coverage for mock evaluator operations,
-// ensuring reliable testing of evaluator-dependent functionality.
-// The MockExpressionEvaluatorTest validates the mock implementation's behavior.
+	"github.com/windsorcli/cli/pkg/runtime/evaluator"
+)
 
 // =============================================================================
 // Test Setup
 // =============================================================================
 
 // setupMockEvaluatorMocks creates a new set of mocks for testing MockExpressionEvaluator
-func setupMockEvaluatorMocks(t *testing.T) *MockExpressionEvaluator {
+func setupMockEvaluatorMocks(t *testing.T) *evaluator.MockExpressionEvaluator {
 	t.Helper()
 
-	mockEvaluator := NewMockExpressionEvaluator()
+	mockEvaluator := evaluator.NewMockExpressionEvaluator()
 
 	return mockEvaluator
 }

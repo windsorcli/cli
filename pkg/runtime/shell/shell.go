@@ -170,13 +170,10 @@ func (s *DefaultShell) PrintEnvVars(envVars map[string]string, export bool) {
 // Private Methods
 // =============================================================================
 
-// fallbackToGlobal resolves the global project root at $HOME/.config/windsor,
-// creating the directory if it does not exist, and marks the shell as operating
-// in global mode. The originalDir is returned as a best-effort fallback if the
-// home directory cannot be resolved or the global directory cannot be created;
-// in those degraded cases the originalDir is cached as the project root so
-// subsequent calls do not re-traverse the directory tree or re-attempt the
-// failing operation, and global mode is left unset to signal the degraded state.
+// fallbackToGlobal returns the global project root at $HOME/.config/windsor and sets global mode.
+// It creates the directory when it does not exist.
+// When it cannot find the home directory or create the directory, it returns originalDir.
+// It then caches originalDir as the project root and does not set global mode.
 func (s *DefaultShell) fallbackToGlobal(originalDir string) (string, error) {
 	homeDir, err := s.shims.UserHomeDir()
 	if err != nil {

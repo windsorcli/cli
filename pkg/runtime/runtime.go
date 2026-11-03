@@ -92,14 +92,10 @@ type Runtime struct {
 // Constructor
 // =============================================================================
 
-// NewRuntime creates a new Runtime with ConfigHandler and Shell initialized if not already present.
-// This is the base constructor that ensures core dependencies are available.
-// If Shell is nil, it creates a new DefaultShell.
-// If ConfigHandler is nil, it creates one using the Shell.
-// The runtime also initializes envVars and aliases maps, and automatically sets up
-// ContextName, ProjectRoot, ConfigRoot, and TemplateRoot based on the current project state.
-// Optional overrides can be provided via opts to inject mocks for testing.
-// Panics if Shell or ConfigHandler cannot be initialized.
+// NewRuntime creates a Runtime and applies the non-nil values of opts as overrides.
+// It creates a DefaultShell and a config handler when opts does not supply them.
+// It sets the context name and the project, config, and template roots from the project state.
+// It panics when it cannot create the shell or the config handler.
 func NewRuntime(opts ...*Runtime) *Runtime {
 	rt := &Runtime{}
 

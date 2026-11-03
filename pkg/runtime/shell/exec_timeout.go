@@ -71,22 +71,12 @@ func (s *DefaultShell) ExecSilentWithEnvAndTimeout(command string, env map[strin
 	return s.runWithTimeout(cmd, &stdoutBuf, &stderrBuf, timeout)
 }
 
-// ExecSilentWithEnvAndIdleTimeout runs command, streaming its output so a stall can be detected
-// without bounding how long a legitimately slow but still-progressing run may take. idleTimeout
-// resets on every line the command emits; only silence for that long counts as stuck.
-// absoluteTimeout is a generous backstop against a command that keeps emitting output without
-// ever finishing. Either firing interrupts the process group first, waits up to gracePeriod for
-// the process to exit, and only then force-kills.
-//
-// Use this for a long-running command whose own duration varies with what it is acting on, and
-// whose abrupt termination can corrupt external state. `terraform destroy` is the motivating
-// case: a wall-clock timeout kills a slow-but-healthy cloud teardown as readily as a genuinely
-// hung one, and a hard kill mid-run loses its chance to write a state checkpoint and release its
-// backend lock.
-//
-// Ordinary timeout-bound commands hold no external state and have no progress output to key off
-// of. They should keep using ExecSilentWithEnvAndTimeout, which kills immediately on one flat
-// deadline.
+// ExecSilentWithEnvAndIdleTimeout runs command and streams its output to find a stall.
+// Each output line resets idleTimeout. absoluteTimeout stops a command that never finishes.
+// On either timeout, it interrupts the process group, waits up to gracePeriod, and then kills it.
+// Use it for a long command that a hard kill can damage, such as terraform destroy,
+// which must write a state checkpoint and release its backend lock.
+// Use ExecSilentWithEnvAndTimeout for other commands.
 func (s *DefaultShell) ExecSilentWithEnvAndIdleTimeout(command string, env map[string]string, args []string, idleTimeout, absoluteTimeout, gracePeriod time.Duration) (string, error) {
 	cmd := s.shims.Command(command, args...)
 	if cmd == nil {

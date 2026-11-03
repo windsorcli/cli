@@ -1,4 +1,4 @@
-package env
+package env_test
 
 import (
 	"fmt"
@@ -8,6 +8,7 @@ import (
 	"github.com/goccy/go-yaml"
 	cliconfig "github.com/windsorcli/cli/api/config/v1alpha2"
 	"github.com/windsorcli/cli/pkg/runtime/config"
+	"github.com/windsorcli/cli/pkg/runtime/env"
 )
 
 // =============================================================================
@@ -95,11 +96,11 @@ contexts:
 // =============================================================================
 
 func TestVsphereEnv_GetEnvVars(t *testing.T) {
-	setup := func(t *testing.T, overrides ...*EnvTestMocks) (*VsphereEnvPrinter, *EnvTestMocks) {
+	setup := func(t *testing.T, overrides ...*EnvTestMocks) (*env.VsphereEnvPrinter, *EnvTestMocks) {
 		t.Helper()
 		mocks := setupVsphereEnvMocks(t, overrides...)
-		printer := NewVsphereEnvPrinter(mocks.Shell, mocks.ConfigHandler)
-		printer.shims = mocks.Shims
+		printer := env.NewVsphereEnvPrinter(mocks.Shell, mocks.ConfigHandler)
+		printer.SetShims(mocks.Shims)
 		return printer, mocks
 	}
 
@@ -152,8 +153,8 @@ contexts:
 		if err := mocks.ConfigHandler.LoadConfigString(configStr); err != nil {
 			t.Fatalf("Failed to load config: %v", err)
 		}
-		printer := NewVsphereEnvPrinter(mocks.Shell, mocks.ConfigHandler)
-		printer.shims = mocks.Shims
+		printer := env.NewVsphereEnvPrinter(mocks.Shell, mocks.ConfigHandler)
+		printer.SetShims(mocks.Shims)
 
 		// When GetEnvVars is called
 		envVars, err := printer.GetEnvVars()
@@ -187,8 +188,8 @@ contexts:
 		if err := mocks.ConfigHandler.LoadConfigString(configStr); err != nil {
 			t.Fatalf("Failed to load config: %v", err)
 		}
-		printer := NewVsphereEnvPrinter(mocks.Shell, mocks.ConfigHandler)
-		printer.shims = mocks.Shims
+		printer := env.NewVsphereEnvPrinter(mocks.Shell, mocks.ConfigHandler)
+		printer.SetShims(mocks.Shims)
 
 		// When GetEnvVars is called
 		envVars, err := printer.GetEnvVars()
@@ -219,8 +220,8 @@ contexts:
 		mockConfigHandler.GetConfigRootFunc = func() (string, error) {
 			return "", fmt.Errorf("boom")
 		}
-		printer := NewVsphereEnvPrinter(mocks.Shell, mocks.ConfigHandler)
-		printer.shims = mocks.Shims
+		printer := env.NewVsphereEnvPrinter(mocks.Shell, mocks.ConfigHandler)
+		printer.SetShims(mocks.Shims)
 
 		// When GetEnvVars is called
 		_, err := printer.GetEnvVars()
@@ -270,8 +271,8 @@ contexts:
 		if err := mocks.ConfigHandler.LoadConfigString(configStr); err != nil {
 			t.Fatalf("Failed to load config: %v", err)
 		}
-		printer := NewVsphereEnvPrinter(mocks.Shell, mocks.ConfigHandler)
-		printer.shims = mocks.Shims
+		printer := env.NewVsphereEnvPrinter(mocks.Shell, mocks.ConfigHandler)
+		printer.SetShims(mocks.Shims)
 
 		// When GetEnvVars is called
 		envVars, err := printer.GetEnvVars()

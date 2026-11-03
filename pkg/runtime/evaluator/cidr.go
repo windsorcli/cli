@@ -19,7 +19,7 @@ import (
 // =============================================================================
 
 // cidrHostFunction returns the cidrhost(prefix, hostnum) helper.
-func (e *expressionEvaluator) cidrHostFunction() expr.Option {
+func (e *DefaultExpressionEvaluator) cidrHostFunction() expr.Option {
 	return expr.Function(
 		"cidrhost",
 		func(params ...any) (any, error) {
@@ -41,7 +41,7 @@ func (e *expressionEvaluator) cidrHostFunction() expr.Option {
 }
 
 // cidrSubnetFunction returns the cidrsubnet(prefix, newbits, netnum) helper.
-func (e *expressionEvaluator) cidrSubnetFunction() expr.Option {
+func (e *DefaultExpressionEvaluator) cidrSubnetFunction() expr.Option {
 	return expr.Function(
 		"cidrsubnet",
 		func(params ...any) (any, error) {
@@ -67,7 +67,7 @@ func (e *expressionEvaluator) cidrSubnetFunction() expr.Option {
 }
 
 // cidrSubnetsFunction returns the cidrsubnets(prefix, newbits...) helper.
-func (e *expressionEvaluator) cidrSubnetsFunction() expr.Option {
+func (e *DefaultExpressionEvaluator) cidrSubnetsFunction() expr.Option {
 	return expr.Function(
 		"cidrsubnets",
 		func(params ...any) (any, error) {
@@ -93,7 +93,7 @@ func (e *expressionEvaluator) cidrSubnetsFunction() expr.Option {
 }
 
 // cidrNetmaskFunction returns the cidrnetmask(prefix) helper.
-func (e *expressionEvaluator) cidrNetmaskFunction() expr.Option {
+func (e *DefaultExpressionEvaluator) cidrNetmaskFunction() expr.Option {
 	return expr.Function(
 		"cidrnetmask",
 		func(params ...any) (any, error) {
@@ -114,7 +114,7 @@ func (e *expressionEvaluator) cidrNetmaskFunction() expr.Option {
 // The prefix parameter must be a valid CIDR notation (e.g., "10.5.0.0/16"), and hostnum specifies the
 // host number within that network. Returns the IP address as a string (e.g., "10.5.0.10" for hostnum 10
 // in "10.5.0.0/16"), or an error if the prefix is invalid or the host number is out of range.
-func (e *expressionEvaluator) evaluateCidrHostFunction(prefix string, hostnum int) (string, error) {
+func (e *DefaultExpressionEvaluator) evaluateCidrHostFunction(prefix string, hostnum int) (string, error) {
 	_, ipnet, err := net.ParseCIDR(prefix)
 	if err != nil {
 		return "", werror.Wrap(err, "invalid CIDR prefix")
@@ -181,7 +181,7 @@ func (e *expressionEvaluator) evaluateCidrHostFunction(prefix string, hostnum in
 // newbits specifies how many additional bits to add for subnetting, and netnum is the subnet number.
 // Returns the new subnet CIDR as a string (e.g., "10.5.1.0/24" for cidrsubnet("10.5.0.0/16", 8, 1)),
 // or an error if the prefix is invalid or the subnet parameters are out of range.
-func (e *expressionEvaluator) evaluateCidrSubnetFunction(prefix string, newbits int, netnum int) (string, error) {
+func (e *DefaultExpressionEvaluator) evaluateCidrSubnetFunction(prefix string, newbits int, netnum int) (string, error) {
 	_, ipnet, err := net.ParseCIDR(prefix)
 	if err != nil {
 		return "", werror.Wrap(err, "invalid CIDR prefix")
@@ -253,7 +253,7 @@ func (e *expressionEvaluator) evaluateCidrSubnetFunction(prefix string, newbits 
 // a slice of integers specifying how many additional bits to add for each subnet. Returns a
 // slice of subnet CIDR strings (e.g., ["10.5.0.0/24", "10.5.1.0/24"] for cidrsubnets("10.5.0.0/16", 8, 8)),
 // or an error if the prefix is invalid or any subnet parameters are out of range.
-func (e *expressionEvaluator) evaluateCidrSubnetsFunction(prefix string, newbits []int) ([]any, error) {
+func (e *DefaultExpressionEvaluator) evaluateCidrSubnetsFunction(prefix string, newbits []int) ([]any, error) {
 	_, ipnet, err := net.ParseCIDR(prefix)
 	if err != nil {
 		return nil, werror.Wrap(err, "invalid CIDR prefix")
@@ -324,7 +324,7 @@ func (e *expressionEvaluator) evaluateCidrSubnetsFunction(prefix string, newbits
 // evaluateCidrNetmaskFunction converts a CIDR prefix to a subnet mask in dotted-decimal notation.
 // The prefix parameter must be a valid CIDR notation (e.g., "10.5.0.0/16"). Returns the subnet
 // mask as a string (e.g., "255.255.0.0" for "/16"), or an error if the prefix is invalid.
-func (e *expressionEvaluator) evaluateCidrNetmaskFunction(prefix string) (string, error) {
+func (e *DefaultExpressionEvaluator) evaluateCidrNetmaskFunction(prefix string) (string, error) {
 	_, ipnet, err := net.ParseCIDR(prefix)
 	if err != nil {
 		return "", werror.Wrap(err, "invalid CIDR prefix")

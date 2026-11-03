@@ -1,4 +1,4 @@
-package shell
+package shell_test
 
 import (
 	"fmt"
@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/windsorcli/cli/pkg/runtime/shell"
 )
 
 // =============================================================================
@@ -13,17 +15,17 @@ import (
 // =============================================================================
 
 func TestShell_GetSessionToken(t *testing.T) {
-	setup := func(t *testing.T) (*DefaultShell, *ShellTestMocks) {
+	setup := func(t *testing.T) (*shell.DefaultShell, *ShellTestMocks) {
 		t.Helper()
 		mocks := setupShellMocks(t)
-		shell := NewDefaultShell()
-		shell.shims = mocks.Shims
-		return shell, mocks
+		subject := shell.NewDefaultShell()
+		subject.SetShims(mocks.Shims)
+		return subject, mocks
 	}
 
 	t.Run("Success", func(t *testing.T) {
 		// Given a shell with session token and no reset flag
-		shell, mocks := setup(t)
+		subject, mocks := setup(t)
 		expectedToken := "test-token"
 		mocks.Shims.Getenv = func(key string) string {
 			if key == "WINDSOR_SESSION_TOKEN" {
@@ -43,7 +45,7 @@ func TestShell_GetSessionToken(t *testing.T) {
 		}
 
 		// When getting session token
-		token, err := shell.GetSessionToken()
+		token, err := subject.GetSessionToken()
 
 		// Then it should return the expected token
 		if err != nil {
@@ -56,7 +58,7 @@ func TestShell_GetSessionToken(t *testing.T) {
 
 	t.Run("NoToken", func(t *testing.T) {
 		// Given a shell with mocked operations
-		shell, mocks := setup(t)
+		subject, mocks := setup(t)
 
 		// Mock environment to return no token
 		mocks.Shims.Getenv = func(key string) string {
@@ -72,7 +74,7 @@ func TestShell_GetSessionToken(t *testing.T) {
 		}
 
 		// When getting session token
-		token, err := shell.GetSessionToken()
+		token, err := subject.GetSessionToken()
 		if err != nil {
 			t.Errorf("Expected no error, got %v", err)
 		}
@@ -85,12 +87,12 @@ func TestShell_GetSessionToken(t *testing.T) {
 
 	t.Run("ReturnsCachedToken", func(t *testing.T) {
 		// Given a shell with a cached session token
-		shell, _ := setup(t)
+		subject, _ := setup(t)
 		expectedToken := "cached-token"
-		shell.sessionToken = expectedToken
+		subject.SetSessionToken(expectedToken)
 
 		// When getting session token
-		token, err := shell.GetSessionToken()
+		token, err := subject.GetSessionToken()
 
 		// Then it should return the cached token without calling Getenv
 		if err != nil {
@@ -103,16 +105,16 @@ func TestShell_GetSessionToken(t *testing.T) {
 }
 
 func TestShell_CheckResetFlags(t *testing.T) {
-	setup := func(t *testing.T) (*DefaultShell, *ShellTestMocks) {
+	setup := func(t *testing.T) (*shell.DefaultShell, *ShellTestMocks) {
 		t.Helper()
 		mocks := setupShellMocks(t)
-		shell := NewDefaultShell()
-		shell.shims = mocks.Shims
-		return shell, mocks
+		subject := shell.NewDefaultShell()
+		subject.SetShims(mocks.Shims)
+		return subject, mocks
 	}
 
 	t.Run("Success", func(t *testing.T) {
-		shell, mocks := setup(t)
+		subject, mocks := setup(t)
 		expectedToken := "test-token"
 		mocks.Shims.Getenv = func(key string) string {
 			if key == "WINDSOR_SESSION_TOKEN" {
@@ -133,7 +135,7 @@ func TestShell_CheckResetFlags(t *testing.T) {
 			return nil
 		}
 
-		shouldReset, err := shell.CheckResetFlags()
+		shouldReset, err := subject.CheckResetFlags()
 		if err != nil {
 			t.Errorf("Expected no error, got %v", err)
 		}
@@ -143,12 +145,12 @@ func TestShell_CheckResetFlags(t *testing.T) {
 	})
 
 	t.Run("NoResetToken", func(t *testing.T) {
-		shell, mocks := setup(t)
+		subject, mocks := setup(t)
 		mocks.Shims.Getenv = func(key string) string {
 			return ""
 		}
 
-		shouldReset, err := shell.CheckResetFlags()
+		shouldReset, err := subject.CheckResetFlags()
 		if err != nil {
 			t.Errorf("Expected no error, got %v", err)
 		}
@@ -158,7 +160,7 @@ func TestShell_CheckResetFlags(t *testing.T) {
 	})
 
 	t.Run("TokenMismatch", func(t *testing.T) {
-		shell, mocks := setup(t)
+		subject, mocks := setup(t)
 		mocks.Shims.Getenv = func(key string) string {
 			if key == "WINDSOR_RESET_TOKEN" {
 				return "test-token"
@@ -172,7 +174,7 @@ func TestShell_CheckResetFlags(t *testing.T) {
 			return []string{}, nil
 		}
 
-		shouldReset, err := shell.CheckResetFlags()
+		shouldReset, err := subject.CheckResetFlags()
 		if err != nil {
 			t.Errorf("Expected no error, got %v", err)
 		}
@@ -183,7 +185,7 @@ func TestShell_CheckResetFlags(t *testing.T) {
 
 	t.Run("ErrorOnGlob", func(t *testing.T) {
 		// Given a shell with failing Glob
-		shell, mocks := setup(t)
+		subject, mocks := setup(t)
 		mocks.Shims.Getenv = func(key string) string {
 			if key == "WINDSOR_SESSION_TOKEN" {
 				return "test-token"
@@ -195,7 +197,7 @@ func TestShell_CheckResetFlags(t *testing.T) {
 		}
 
 		// When checking reset flags
-		_, err := shell.CheckResetFlags()
+		_, err := subject.CheckResetFlags()
 
 		// Then it should return an error
 		if err == nil {
@@ -208,7 +210,7 @@ func TestShell_CheckResetFlags(t *testing.T) {
 
 	t.Run("ErrorOnRemoveAll", func(t *testing.T) {
 		// Given a shell with failing RemoveAll
-		shell, mocks := setup(t)
+		subject, mocks := setup(t)
 		mocks.Shims.Getenv = func(key string) string {
 			if key == "WINDSOR_SESSION_TOKEN" {
 				return "test-token"
@@ -223,7 +225,7 @@ func TestShell_CheckResetFlags(t *testing.T) {
 		}
 
 		// When checking reset flags
-		_, err := shell.CheckResetFlags()
+		_, err := subject.CheckResetFlags()
 
 		// Then it should return an error
 		if err == nil {
@@ -236,17 +238,17 @@ func TestShell_CheckResetFlags(t *testing.T) {
 }
 
 func TestShell_WriteResetToken(t *testing.T) {
-	setup := func(t *testing.T) (*DefaultShell, *ShellTestMocks) {
+	setup := func(t *testing.T) (*shell.DefaultShell, *ShellTestMocks) {
 		t.Helper()
 		mocks := setupShellMocks(t)
-		shell := NewDefaultShell()
-		shell.shims = mocks.Shims
-		return shell, mocks
+		subject := shell.NewDefaultShell()
+		subject.SetShims(mocks.Shims)
+		return subject, mocks
 	}
 
 	t.Run("Success", func(t *testing.T) {
 		// Given a shell with mocked operations
-		shell, mocks := setup(t)
+		subject, mocks := setup(t)
 		projectRoot := "/test/project"
 		sessionToken := "test-token"
 		sessionFilePath := filepath.Join(projectRoot, ".windsor", ".session."+sessionToken)
@@ -296,7 +298,7 @@ func TestShell_WriteResetToken(t *testing.T) {
 		}
 
 		// When writing reset token
-		path, err := shell.WriteResetToken()
+		path, err := subject.WriteResetToken()
 
 		// Then it should succeed
 		if err != nil {
@@ -309,13 +311,13 @@ func TestShell_WriteResetToken(t *testing.T) {
 
 	t.Run("NoSessionToken", func(t *testing.T) {
 		// Given a shell with no session token
-		shell, mocks := setup(t)
+		subject, mocks := setup(t)
 		mocks.Shims.Getenv = func(key string) string {
 			return ""
 		}
 
 		// When writing reset token
-		path, err := shell.WriteResetToken()
+		path, err := subject.WriteResetToken()
 
 		// Then it should return empty path without error
 		if err != nil {
@@ -328,7 +330,7 @@ func TestShell_WriteResetToken(t *testing.T) {
 
 	t.Run("ErrorOnGetProjectRoot", func(t *testing.T) {
 		// Given a shell with failing GetProjectRoot
-		shell, mocks := setup(t)
+		subject, mocks := setup(t)
 		mocks.Shims.Getenv = func(key string) string {
 			if key == "WINDSOR_SESSION_TOKEN" {
 				return "test-token"
@@ -340,7 +342,7 @@ func TestShell_WriteResetToken(t *testing.T) {
 		}
 
 		// When writing reset token
-		path, err := shell.WriteResetToken()
+		path, err := subject.WriteResetToken()
 
 		// Then it should return an error
 		if err == nil {
@@ -356,7 +358,7 @@ func TestShell_WriteResetToken(t *testing.T) {
 
 	t.Run("ErrorOnMkdirAll", func(t *testing.T) {
 		// Given a shell with failing MkdirAll
-		shell, mocks := setup(t)
+		subject, mocks := setup(t)
 		mocks.Shims.Getenv = func(key string) string {
 			if key == "WINDSOR_SESSION_TOKEN" {
 				return "test-token"
@@ -377,7 +379,7 @@ func TestShell_WriteResetToken(t *testing.T) {
 		}
 
 		// When writing reset token
-		path, err := shell.WriteResetToken()
+		path, err := subject.WriteResetToken()
 
 		// Then it should return an error
 		if err == nil {
@@ -393,7 +395,7 @@ func TestShell_WriteResetToken(t *testing.T) {
 
 	t.Run("ErrorOnWriteFile", func(t *testing.T) {
 		// Given a shell with failing WriteFile
-		shell, mocks := setup(t)
+		subject, mocks := setup(t)
 		mocks.Shims.Getenv = func(key string) string {
 			if key == "WINDSOR_SESSION_TOKEN" {
 				return "test-token"
@@ -417,7 +419,7 @@ func TestShell_WriteResetToken(t *testing.T) {
 		}
 
 		// When writing reset token
-		path, err := shell.WriteResetToken()
+		path, err := subject.WriteResetToken()
 
 		// Then it should return an error
 		if err == nil {
@@ -433,17 +435,17 @@ func TestShell_WriteResetToken(t *testing.T) {
 }
 
 func TestShell_Reset(t *testing.T) {
-	setup := func(t *testing.T) (*DefaultShell, *ShellTestMocks) {
+	setup := func(t *testing.T) (*shell.DefaultShell, *ShellTestMocks) {
 		t.Helper()
 		mocks := setupShellMocks(t)
-		shell := NewDefaultShell()
-		shell.shims = mocks.Shims
-		return shell, mocks
+		subject := shell.NewDefaultShell()
+		subject.SetShims(mocks.Shims)
+		return subject, mocks
 	}
 
 	t.Run("Success", func(t *testing.T) {
 		// Given a shell with mocked operations
-		shell, mocks := setup(t)
+		subject, mocks := setup(t)
 		projectRoot := "/test/project"
 		sessionFiles := []string{
 			filepath.Join(projectRoot, ".windsor", ".session.1"),
@@ -478,24 +480,24 @@ func TestShell_Reset(t *testing.T) {
 		}
 
 		// When resetting
-		shell.Reset()
+		subject.Reset()
 	})
 
 	t.Run("ErrorOnGetProjectRoot", func(t *testing.T) {
 		// Given a shell with failing GetProjectRoot
-		shell, mocks := setup(t)
+		subject, mocks := setup(t)
 		mocks.Shims.Getwd = func() (string, error) {
 			return "", fmt.Errorf("getwd failed")
 		}
 
 		// When resetting
-		shell.Reset()
+		subject.Reset()
 		// No error expected since Reset() doesn't return error
 	})
 
 	t.Run("ErrorOnGlob", func(t *testing.T) {
 		// Given a shell with failing Glob
-		shell, mocks := setup(t)
+		subject, mocks := setup(t)
 		mocks.Shims.Getwd = func() (string, error) {
 			return "/test/project", nil
 		}
@@ -510,13 +512,13 @@ func TestShell_Reset(t *testing.T) {
 		}
 
 		// When resetting
-		shell.Reset()
+		subject.Reset()
 		// No error expected since Reset() doesn't return error
 	})
 
 	t.Run("ErrorOnRemoveAll", func(t *testing.T) {
 		// Given a shell with failing RemoveAll
-		shell, mocks := setup(t)
+		subject, mocks := setup(t)
 		mocks.Shims.Getwd = func() (string, error) {
 			return "/test/project", nil
 		}
@@ -534,13 +536,13 @@ func TestShell_Reset(t *testing.T) {
 		}
 
 		// When resetting
-		shell.Reset()
+		subject.Reset()
 		// No error expected since Reset() doesn't return error
 	})
 
 	t.Run("NoSessionFiles", func(t *testing.T) {
 		// Given a shell with no session files
-		shell, mocks := setup(t)
+		subject, mocks := setup(t)
 		mocks.Shims.Getwd = func() (string, error) {
 			return "/test/project", nil
 		}
@@ -555,13 +557,13 @@ func TestShell_Reset(t *testing.T) {
 		}
 
 		// When resetting
-		shell.Reset()
+		subject.Reset()
 		// No error expected since Reset() doesn't return error
 	})
 
 	t.Run("EnvironmentAndAliasReset", func(t *testing.T) {
 		// Given a shell with managed environment variables and aliases
-		shell, mocks := setup(t)
+		subject, mocks := setup(t)
 
 		// Mock environment variables
 		mocks.Shims.Getenv = func(key string) string {
@@ -576,7 +578,7 @@ func TestShell_Reset(t *testing.T) {
 		}
 
 		// When resetting
-		shell.Reset()
+		subject.Reset()
 
 		// Then environment variables and aliases should be unset
 		// Note: We can't directly verify the unset operations since they're system calls
@@ -585,7 +587,7 @@ func TestShell_Reset(t *testing.T) {
 
 	t.Run("EmptyEnvironmentAndAlias", func(t *testing.T) {
 		// Given a shell with empty managed environment variables and aliases
-		shell, mocks := setup(t)
+		subject, mocks := setup(t)
 
 		// Mock empty environment variables
 		mocks.Shims.Getenv = func(key string) string {
@@ -593,7 +595,7 @@ func TestShell_Reset(t *testing.T) {
 		}
 
 		// When resetting
-		shell.Reset()
+		subject.Reset()
 
 		// Then no environment variables or aliases should be unset
 		// Note: We can't directly verify the unset operations since they're system calls
@@ -602,7 +604,7 @@ func TestShell_Reset(t *testing.T) {
 
 	t.Run("QuietModeDoesNotPrintCommands", func(t *testing.T) {
 		// Given a shell with managed environment variables and aliases
-		shell, mocks := setup(t)
+		subject, mocks := setup(t)
 
 		// Mock environment variables
 		mocks.Shims.Getenv = func(key string) string {
@@ -618,7 +620,7 @@ func TestShell_Reset(t *testing.T) {
 
 		// When resetting with quiet=true
 		output := captureStdout(t, func() {
-			shell.Reset(true)
+			subject.Reset(true)
 		})
 
 		// Then no shell commands should be printed
@@ -629,7 +631,7 @@ func TestShell_Reset(t *testing.T) {
 
 	t.Run("NonQuietModePrintsCommands", func(t *testing.T) {
 		// Given a shell with managed environment variables and aliases
-		shell, mocks := setup(t)
+		subject, mocks := setup(t)
 
 		// Mock environment variables
 		mocks.Shims.Getenv = func(key string) string {
@@ -645,7 +647,7 @@ func TestShell_Reset(t *testing.T) {
 
 		// When resetting with quiet=false
 		output := captureStdout(t, func() {
-			shell.Reset(false)
+			subject.Reset(false)
 		})
 
 		// Then shell commands should be printed (platform-specific)
@@ -661,17 +663,17 @@ func TestShell_Reset(t *testing.T) {
 }
 
 func TestShell_ResetSessionToken(t *testing.T) {
-	setup := func(t *testing.T) (*DefaultShell, *ShellTestMocks) {
+	setup := func(t *testing.T) (*shell.DefaultShell, *ShellTestMocks) {
 		t.Helper()
 		mocks := setupShellMocks(t)
-		shell := NewDefaultShell()
-		shell.shims = mocks.Shims
-		return shell, mocks
+		subject := shell.NewDefaultShell()
+		subject.SetShims(mocks.Shims)
+		return subject, mocks
 	}
 
 	t.Run("Success", func(t *testing.T) {
 		// Given a shell with mocked operations
-		shell, mocks := setup(t)
+		subject, mocks := setup(t)
 		expectedToken := "test-token"
 
 		// Mock environment variable
@@ -702,7 +704,7 @@ func TestShell_ResetSessionToken(t *testing.T) {
 		}
 
 		// When getting session token
-		token, err := shell.GetSessionToken()
+		token, err := subject.GetSessionToken()
 		if err != nil {
 			t.Errorf("Expected no error, got %v", err)
 		}
@@ -711,63 +713,18 @@ func TestShell_ResetSessionToken(t *testing.T) {
 		}
 
 		// When resetting session token
-		shell.ResetSessionToken()
+		subject.ResetSessionToken()
 		mocks.Shims.Getenv = func(key string) string {
 			return "" // Simulate environment variable being unset
 		}
 
 		// Then getting session token should return a new token
-		newToken, err := shell.GetSessionToken()
+		newToken, err := subject.GetSessionToken()
 		if err != nil {
 			t.Errorf("Expected no error, got %v", err)
 		}
 		if len(newToken) != 7 {
 			t.Errorf("Expected new token length to be 7, got %d", len(newToken))
-		}
-	})
-}
-
-// =============================================================================
-// Test Private Methods
-// =============================================================================
-
-func TestShell_GenerateRandomString(t *testing.T) {
-	setup := func(t *testing.T) (*DefaultShell, *ShellTestMocks) {
-		t.Helper()
-		mocks := setupShellMocks(t)
-		shell := NewDefaultShell()
-		shell.shims = mocks.Shims
-		return shell, mocks
-	}
-
-	t.Run("Success", func(t *testing.T) {
-		shell, mocks := setup(t)
-		mocks.Shims.RandRead = func(b []byte) (n int, err error) {
-			for i := range b {
-				b[i] = byte(i % 62) // This will map to characters in the charset
-			}
-			return len(b), nil
-		}
-		result, err := shell.generateRandomString(10)
-		if err != nil {
-			t.Errorf("Expected no error, got %v", err)
-		}
-		if len(result) != 10 {
-			t.Errorf("Expected length 10, got %d", len(result))
-		}
-	})
-
-	t.Run("ErrorWhenRandReadFails", func(t *testing.T) {
-		shell, mocks := setup(t)
-		mocks.Shims.RandRead = func(b []byte) (n int, err error) {
-			return 0, fmt.Errorf("random read failed")
-		}
-		result, err := shell.generateRandomString(10)
-		if err == nil {
-			t.Errorf("Expected error, got nil")
-		}
-		if result != "" {
-			t.Errorf("Expected empty result on error, got %q", result)
 		}
 	})
 }

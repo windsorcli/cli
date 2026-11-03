@@ -1,10 +1,11 @@
-package terraform
+package terraform_test
 
 import (
 	"fmt"
 	"testing"
 
 	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
+	"github.com/windsorcli/cli/pkg/runtime/terraform"
 )
 
 // =============================================================================
@@ -14,7 +15,7 @@ import (
 func TestMockTerraformProvider_FindRelativeProjectPath(t *testing.T) {
 	t.Run("WithFuncSet", func(t *testing.T) {
 		// Given a mock provider with FindRelativeProjectPathFunc set
-		mock := &MockTerraformProvider{}
+		mock := &terraform.MockTerraformProvider{}
 		expectedPath := "test/path"
 		mock.FindRelativeProjectPathFunc = func(directory ...string) (string, error) {
 			return expectedPath, nil
@@ -34,7 +35,7 @@ func TestMockTerraformProvider_FindRelativeProjectPath(t *testing.T) {
 
 	t.Run("WithNoFuncSet", func(t *testing.T) {
 		// Given a mock provider with no FindRelativeProjectPathFunc set
-		mock := &MockTerraformProvider{}
+		mock := &terraform.MockTerraformProvider{}
 
 		// When FindRelativeProjectPath is called
 		path, err := mock.FindRelativeProjectPath()
@@ -52,7 +53,7 @@ func TestMockTerraformProvider_FindRelativeProjectPath(t *testing.T) {
 func TestMockTerraformProvider_GenerateBackendOverride(t *testing.T) {
 	t.Run("WithFuncSet", func(t *testing.T) {
 		// Given a mock provider with GenerateBackendOverrideFunc set
-		mock := &MockTerraformProvider{}
+		mock := &terraform.MockTerraformProvider{}
 		expectedErr := fmt.Errorf("mock error")
 		mock.GenerateBackendOverrideFunc = func(directory string) error {
 			return expectedErr
@@ -69,7 +70,7 @@ func TestMockTerraformProvider_GenerateBackendOverride(t *testing.T) {
 
 	t.Run("WithNoFuncSet", func(t *testing.T) {
 		// Given a mock provider with no GenerateBackendOverrideFunc set
-		mock := &MockTerraformProvider{}
+		mock := &terraform.MockTerraformProvider{}
 
 		// When GenerateBackendOverride is called
 		err := mock.GenerateBackendOverride("test/dir")
@@ -84,7 +85,7 @@ func TestMockTerraformProvider_GenerateBackendOverride(t *testing.T) {
 func TestMockTerraformProvider_GetTerraformComponent(t *testing.T) {
 	t.Run("WithFuncSet", func(t *testing.T) {
 		// Given a mock provider with GetTerraformComponentFunc set
-		mock := &MockTerraformProvider{}
+		mock := &terraform.MockTerraformProvider{}
 		expectedComponent := &blueprintv1alpha1.TerraformComponent{
 			Path: "test/path",
 		}
@@ -106,7 +107,7 @@ func TestMockTerraformProvider_GetTerraformComponent(t *testing.T) {
 
 	t.Run("WithNoFuncSet", func(t *testing.T) {
 		// Given a mock provider with no GetTerraformComponentFunc set
-		mock := &MockTerraformProvider{}
+		mock := &terraform.MockTerraformProvider{}
 
 		// When GetTerraformComponent is called
 		component := mock.GetTerraformComponent("test/path")
@@ -121,7 +122,7 @@ func TestMockTerraformProvider_GetTerraformComponent(t *testing.T) {
 func TestMockTerraformProvider_GetTerraformComponents(t *testing.T) {
 	t.Run("WithFuncSet", func(t *testing.T) {
 		// Given a mock provider with GetTerraformComponentsFunc set
-		mock := &MockTerraformProvider{}
+		mock := &terraform.MockTerraformProvider{}
 		expectedComponents := []blueprintv1alpha1.TerraformComponent{
 			{Path: "test/path1"},
 			{Path: "test/path2"},
@@ -141,7 +142,7 @@ func TestMockTerraformProvider_GetTerraformComponents(t *testing.T) {
 
 	t.Run("WithNoFuncSet", func(t *testing.T) {
 		// Given a mock provider with no GetTerraformComponentsFunc set
-		mock := &MockTerraformProvider{}
+		mock := &terraform.MockTerraformProvider{}
 
 		// When GetTerraformComponents is called
 		components := mock.GetTerraformComponents()
@@ -156,7 +157,7 @@ func TestMockTerraformProvider_GetTerraformComponents(t *testing.T) {
 func TestMockTerraformProvider_ClearCache(t *testing.T) {
 	t.Run("WithFuncSet", func(t *testing.T) {
 		// Given a mock provider with ClearCacheFunc set
-		mock := &MockTerraformProvider{}
+		mock := &terraform.MockTerraformProvider{}
 		cleared := false
 		mock.ClearCacheFunc = func() {
 			cleared = true
@@ -173,7 +174,7 @@ func TestMockTerraformProvider_ClearCache(t *testing.T) {
 
 	t.Run("WithNoFuncSet", func(t *testing.T) {
 		// Given a mock provider with no ClearCacheFunc set
-		mock := &MockTerraformProvider{}
+		mock := &terraform.MockTerraformProvider{}
 
 		// When ClearCache is called
 		// Then no panic should occur

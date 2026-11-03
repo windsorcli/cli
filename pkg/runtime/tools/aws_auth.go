@@ -50,17 +50,10 @@ func (t *BaseToolsManager) awsEnabled() bool {
 	return cfg != nil && cfg.AWS != nil
 }
 
-// checkAWSAuth verifies the AWS CLI is present at the minimum version and that
-// `aws sts get-caller-identity` resolves credentials end-to-end. When ambient SDK
-// credentials are present and the aws CLI is absent (lean CI images), defers to terraform's
-// own SDK rather than failing preflight.
-//
-// The underlying STS error is intentionally discarded in favour of awsAuthError(): the
-// raw output stacks "command execution failed" + the aws CLI's own stderr + our hint,
-// which buries the one piece of information the operator needs (the next command to run).
-// Trade-off: a network outage or IAM denial gets reported as a generic "run aws sso login"
-// hint rather than the true cause. If a debug path is needed later, route the err to a
-// verbose-only log rather than re-introducing it into the user-facing message.
+// checkAWSAuth checks the AWS CLI version and runs aws sts get-caller-identity to check the credentials.
+// When ambient SDK credentials exist and the CLI is absent, it defers to the SDK of Terraform.
+// It replaces the STS error with awsAuthError, because the raw output hides the next command to run.
+// As a result, a network failure or an IAM denial also shows the aws sso login hint.
 func (t *BaseToolsManager) checkAWSAuth() error {
 	if t.hasAmbientAWSCredentials() {
 		if _, err := t.shims.LookPath("aws"); err != nil {
@@ -80,16 +73,11 @@ func (t *BaseToolsManager) checkAWSAuth() error {
 	return nil
 }
 
-// awsContextEnv returns env vars pointing the AWS CLI/SDK at the context's profile.
-// In project mode AWS_CONFIG_FILE / AWS_SHARED_CREDENTIALS_FILE always point at the
-// context's .aws/ — they keep `aws configure` scoped to the context and are safe to emit
-// even when the files are empty (the SDK simply doesn't find a profile and falls through).
-// AWS_PROFILE is emitted only when the named profile is actually defined in the AWS config
-// the SDK will read: the context's .aws/ in project mode, or the operator's ambient
-// ~/.aws/ (or AWS_CONFIG_FILE override) in global mode. When the profile is absent the
-// var is omitted so the SDK's credential chain runs naturally (env keys, IMDS, IRSA, ECS,
-// SSO) rather than failing with "profile not found" against a file the named profile
-// was never in.
+// awsContextEnv returns the environment variables that point the AWS CLI and SDK at the context profile.
+// In project mode, AWS_CONFIG_FILE and AWS_SHARED_CREDENTIALS_FILE always point at the .aws/ of the context.
+// It sets AWS_PROFILE only when the AWS config that the SDK reads defines the profile.
+// That config is the .aws/ of the context in project mode, or the ambient config in global mode.
+// Without the profile, the SDK credential chain runs and does not fail with "profile not found".
 func (t *BaseToolsManager) awsContextEnv() (map[string]string, error) {
 	env := map[string]string{}
 	global := t.shell.IsGlobal()

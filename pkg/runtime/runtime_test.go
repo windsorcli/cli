@@ -1,4 +1,4 @@
-package runtime
+package runtime_test
 
 import (
 	"errors"
@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/windsorcli/cli/pkg/runtime"
 	"github.com/windsorcli/cli/pkg/runtime/config"
 	"github.com/windsorcli/cli/pkg/runtime/env"
 	"github.com/windsorcli/cli/pkg/runtime/secrets"
@@ -22,7 +23,7 @@ import (
 type RuntimeTestMocks struct {
 	ConfigHandler config.ConfigHandler
 	Shell         shell.Shell
-	Runtime       *Runtime
+	Runtime       *runtime.Runtime
 }
 
 // setupRuntimeMocks creates mock components for testing the Runtime with optional overrides
@@ -84,14 +85,14 @@ func setupRuntimeMocks(t *testing.T) *RuntimeTestMocks {
 		return "test-context"
 	}
 
-	rtOpts := []*Runtime{
+	rtOpts := []*runtime.Runtime{
 		{
 			Shell:         mockShell,
 			ConfigHandler: configHandler,
 		},
 	}
 
-	rt := NewRuntime(rtOpts...)
+	rt := runtime.NewRuntime(rtOpts...)
 
 	mocks := &RuntimeTestMocks{
 		ConfigHandler: configHandler,
@@ -103,20 +104,12 @@ func setupRuntimeMocks(t *testing.T) *RuntimeTestMocks {
 }
 
 type MockToolsManager struct {
-	WriteManifestFunc       func() error
 	InstallFunc             func() error
 	CheckFunc               func() error
 	CheckRequirementsFunc   func(reqs tools.Requirements) error
 	CheckAuthFunc           func() error
 	CheckTerraformFunc      func() error
 	GetTerraformCommandFunc func() string
-}
-
-func (m *MockToolsManager) WriteManifest() error {
-	if m.WriteManifestFunc != nil {
-		return m.WriteManifestFunc()
-	}
-	return nil
 }
 
 func (m *MockToolsManager) Install() error {
@@ -190,11 +183,11 @@ func TestRuntime_NewRuntime(t *testing.T) {
 			t.Error("Expected config handler to be set")
 		}
 
-		if rt.envVars == nil {
+		if rt.EnvVars() == nil {
 			t.Error("Expected envVars map to be initialized")
 		}
 
-		if rt.aliases == nil {
+		if rt.Aliases() == nil {
 			t.Error("Expected aliases map to be initialized")
 		}
 
@@ -220,7 +213,7 @@ func TestRuntime_NewRuntime(t *testing.T) {
 	t.Run("ErrorWhenContextIsNil", func(t *testing.T) {
 		// Given nil options
 		// When NewRuntime is called
-		rt := NewRuntime(nil)
+		rt := runtime.NewRuntime(nil)
 
 		// Then runtime should be created
 
@@ -233,7 +226,7 @@ func TestRuntime_NewRuntime(t *testing.T) {
 		// Given nil options
 		// When NewRuntime is called
 		// Then it should create a runtime with defaults
-		rt := NewRuntime(nil)
+		rt := runtime.NewRuntime(nil)
 		if rt == nil {
 			t.Error("Expected runtime to be created")
 		}
@@ -242,7 +235,7 @@ func TestRuntime_NewRuntime(t *testing.T) {
 	t.Run("NoErrorWhenValidRuntime", func(t *testing.T) {
 		// Given valid runtime options
 		// When NewRuntime is called
-		rt := NewRuntime(&Runtime{
+		rt := runtime.NewRuntime(&runtime.Runtime{
 			Shell:         shell.NewMockShell(),
 			ConfigHandler: config.NewMockConfigHandler(),
 		})
@@ -261,14 +254,14 @@ func TestRuntime_NewRuntime(t *testing.T) {
 			return "test"
 		}
 
-		rtOpts := []*Runtime{
+		rtOpts := []*runtime.Runtime{
 			{
 				ConfigHandler: mockConfigHandler,
 			},
 		}
 
 		// When NewRuntime is called
-		result := NewRuntime(rtOpts...)
+		result := runtime.NewRuntime(rtOpts...)
 
 		// Then shell should be created
 
@@ -288,14 +281,14 @@ func TestRuntime_NewRuntime(t *testing.T) {
 			return "/test", nil
 		}
 
-		rtOpts := []*Runtime{
+		rtOpts := []*runtime.Runtime{
 			{
 				Shell: mockShell,
 			},
 		}
 
 		// When NewRuntime is called
-		result := NewRuntime(rtOpts...)
+		result := runtime.NewRuntime(rtOpts...)
 
 		// Then config handler should be created
 
@@ -315,7 +308,7 @@ func TestRuntime_NewRuntime(t *testing.T) {
 			return "", fmt.Errorf("failed to get project root")
 		}
 
-		rtOpts := []*Runtime{
+		rtOpts := []*runtime.Runtime{
 			{
 				Shell: mockShell,
 			},
@@ -328,7 +321,7 @@ func TestRuntime_NewRuntime(t *testing.T) {
 				t.Error("Expected panic when GetProjectRoot fails")
 			}
 		}()
-		_ = NewRuntime(rtOpts...)
+		_ = runtime.NewRuntime(rtOpts...)
 	})
 
 	t.Run("ErrorWhenGetProjectRootFailsOnSecondCall", func(t *testing.T) {
@@ -344,7 +337,7 @@ func TestRuntime_NewRuntime(t *testing.T) {
 			return ""
 		}
 
-		rtOpts := []*Runtime{
+		rtOpts := []*runtime.Runtime{
 			{
 				Shell:         mockShell,
 				ConfigHandler: mockConfigHandler,
@@ -359,7 +352,7 @@ func TestRuntime_NewRuntime(t *testing.T) {
 				t.Error("Expected panic when GetProjectRoot fails")
 			}
 		}()
-		_ = NewRuntime(rtOpts...)
+		_ = runtime.NewRuntime(rtOpts...)
 	})
 
 	t.Run("DefaultsContextNameToLocalWhenEmpty", func(t *testing.T) {
@@ -374,7 +367,7 @@ func TestRuntime_NewRuntime(t *testing.T) {
 			return ""
 		}
 
-		rtOpts := []*Runtime{
+		rtOpts := []*runtime.Runtime{
 			{
 				Shell:         mockShell,
 				ConfigHandler: mockConfigHandler,
@@ -382,7 +375,7 @@ func TestRuntime_NewRuntime(t *testing.T) {
 		}
 
 		// When NewRuntime is called
-		rt := NewRuntime(rtOpts...)
+		rt := runtime.NewRuntime(rtOpts...)
 
 		// Then context name should default to "local"
 
@@ -415,7 +408,7 @@ func TestRuntime_NewRuntime(t *testing.T) {
 		mockTerraformEnv := env.NewMockEnvPrinter()
 		mockWindsorEnv := env.NewMockEnvPrinter()
 
-		rtOpts := []*Runtime{
+		rtOpts := []*runtime.Runtime{
 			{
 				Shell:         mockShell,
 				ConfigHandler: mockConfigHandler,
@@ -436,7 +429,7 @@ func TestRuntime_NewRuntime(t *testing.T) {
 		rtOpts[0].EnvPrinters.WindsorEnv = mockWindsorEnv
 
 		// When NewRuntime is called
-		rt := NewRuntime(rtOpts...)
+		rt := runtime.NewRuntime(rtOpts...)
 
 		// Then all overrides should be applied correctly
 
@@ -508,7 +501,7 @@ func TestRuntime_NewRuntime(t *testing.T) {
 		}
 
 		// When NewRuntime is called
-		rt := NewRuntime(&Runtime{
+		rt := runtime.NewRuntime(&runtime.Runtime{
 			Shell:         mockShell,
 			ConfigHandler: configHandler,
 		})
@@ -547,7 +540,7 @@ func TestRuntime_NewRuntime(t *testing.T) {
 		}
 
 		// When NewRuntime is called with Global override
-		rt := NewRuntime(&Runtime{
+		rt := runtime.NewRuntime(&runtime.Runtime{
 			Shell:         mockShell,
 			ConfigHandler: configHandler,
 			Global:        true,
@@ -784,321 +777,6 @@ func TestRuntime_initializeComponents_EdgeCases(t *testing.T) {
 		// Then no error should be returned
 		if err != nil {
 			t.Errorf("Expected nil, got: %v", err)
-		}
-	})
-}
-
-func TestRuntime_initializeSecretsProviders(t *testing.T) {
-	t.Run("InitializesSopsProviderWhenEnabled", func(t *testing.T) {
-		// Given a runtime with SOPS enabled in config
-		mocks := setupRuntimeMocks(t)
-		rt := mocks.Runtime
-
-		mockConfigHandler := mocks.ConfigHandler.(*config.MockConfigHandler)
-		mockConfigHandler.GetBoolFunc = func(key string, defaultValue ...bool) bool {
-			if key == "secrets.sops.enabled" {
-				return true
-			}
-			return false
-		}
-
-		// When initializeSecretsProviders is called
-		rt.initializeSecretsProviders()
-
-		// Then Resolver should be initialized
-		if rt.Resolver == nil {
-			t.Error("Expected Resolver to be initialized")
-		}
-	})
-
-	t.Run("InitializesOnepasswordProviderWhenVaultsConfigured", func(t *testing.T) {
-		// Given a runtime with 1Password vaults configured
-		mocks := setupRuntimeMocks(t)
-		rt := mocks.Runtime
-
-		mockConfigHandler := mocks.ConfigHandler.(*config.MockConfigHandler)
-		mockConfigHandler.GetFunc = func(key string) any {
-			if key == "secrets.onepassword.vaults" {
-				return map[string]any{
-					"personal": map[string]any{
-						"url":  "my.1password.com",
-						"name": "Personal",
-					},
-				}
-			}
-			return nil
-		}
-
-		// When initializeSecretsProviders is called
-		rt.initializeSecretsProviders()
-
-		// Then Resolver should be initialized
-		if rt.Resolver == nil {
-			t.Error("Expected Resolver to be initialized")
-		}
-	})
-
-	t.Run("SkipsProvidersWhenDisabled", func(t *testing.T) {
-		// Given a runtime with secrets providers disabled
-		mocks := setupRuntimeMocks(t)
-		rt := mocks.Runtime
-
-		mockConfigHandler := mocks.ConfigHandler.(*config.MockConfigHandler)
-		mockConfigHandler.GetBoolFunc = func(key string, defaultValue ...bool) bool {
-			return false
-		}
-
-		// When initializeSecretsProviders is called
-		rt.initializeSecretsProviders()
-
-		// Then Resolver should still be created (with empty providers)
-		if rt.Resolver == nil {
-			t.Error("Expected Resolver to be initialized even with no providers")
-		}
-	})
-
-	t.Run("DoesNotOverrideExistingResolver", func(t *testing.T) {
-		// Given a runtime with an existing Resolver
-		mocks := setupRuntimeMocks(t)
-		rt := mocks.Runtime
-
-		existingProvider := secrets.NewMockProvider()
-		existingResolver := secrets.NewResolver([]secrets.Provider{existingProvider}, mocks.Shell)
-		rt.Resolver = existingResolver
-
-		mockConfigHandler := mocks.ConfigHandler.(*config.MockConfigHandler)
-		mockConfigHandler.GetBoolFunc = func(key string, defaultValue ...bool) bool {
-			if key == "secrets.sops.enabled" {
-				return true
-			}
-			return false
-		}
-
-		// When initializeSecretsProviders is called
-		rt.initializeSecretsProviders()
-
-		// Then existing Resolver should be preserved
-		if rt.Resolver != existingResolver {
-			t.Error("Expected existing Resolver to be preserved")
-		}
-	})
-
-	t.Run("InitializesMultipleVaults", func(t *testing.T) {
-		// Given a runtime with multiple 1Password vaults configured
-		mocks := setupRuntimeMocks(t)
-		rt := mocks.Runtime
-
-		mockConfigHandler := mocks.ConfigHandler.(*config.MockConfigHandler)
-		mockConfigHandler.GetFunc = func(key string) any {
-			if key == "secrets.onepassword.vaults" {
-				return map[string]any{
-					"personal": map[string]any{
-						"url":  "my.1password.com",
-						"name": "Personal",
-					},
-					"work": map[string]any{
-						"url":  "company.1password.com",
-						"name": "Work",
-					},
-				}
-			}
-			return nil
-		}
-
-		// When initializeSecretsProviders is called
-		rt.initializeSecretsProviders()
-
-		// Then Resolver should be initialized
-		if rt.Resolver == nil {
-			t.Error("Expected Resolver to be initialized")
-		}
-	})
-
-	t.Run("HandlesEmptyVaultsMap", func(t *testing.T) {
-		// Given a runtime with empty vaults map
-		mocks := setupRuntimeMocks(t)
-		rt := mocks.Runtime
-
-		mockConfigHandler := mocks.ConfigHandler.(*config.MockConfigHandler)
-		mockConfigHandler.GetFunc = func(key string) any {
-			if key == "secrets.onepassword.vaults" {
-				return map[string]any{}
-			}
-			return nil
-		}
-
-		// When initializeSecretsProviders is called
-		rt.initializeSecretsProviders()
-
-		// Then Resolver should still be created (with empty providers)
-		if rt.Resolver == nil {
-			t.Error("Expected Resolver to be initialized even with empty vaults map")
-		}
-	})
-
-	t.Run("HandlesInvalidVaultData", func(t *testing.T) {
-		// Given a runtime with invalid vault data structure
-		mocks := setupRuntimeMocks(t)
-		rt := mocks.Runtime
-
-		mockConfigHandler := mocks.ConfigHandler.(*config.MockConfigHandler)
-		mockConfigHandler.GetFunc = func(key string) any {
-			if key == "secrets.onepassword.vaults" {
-				return map[string]any{
-					"personal": "not-a-map",
-				}
-			}
-			return nil
-		}
-
-		// When initializeSecretsProviders is called
-		rt.initializeSecretsProviders()
-
-		// Then Resolver should still be created (invalid vault data is skipped)
-		if rt.Resolver == nil {
-			t.Error("Expected Resolver to be initialized even with invalid vault data")
-		}
-	})
-
-	t.Run("HandlesVaultWithExplicitID", func(t *testing.T) {
-		// Given a runtime with vault that has explicit ID field
-		mocks := setupRuntimeMocks(t)
-		rt := mocks.Runtime
-
-		mockConfigHandler := mocks.ConfigHandler.(*config.MockConfigHandler)
-		mockConfigHandler.GetFunc = func(key string) any {
-			if key == "secrets.onepassword.vaults" {
-				return map[string]any{
-					"personal": map[string]any{
-						"id":   "custom-vault-id",
-						"url":  "my.1password.com",
-						"name": "Personal",
-					},
-				}
-			}
-			return nil
-		}
-
-		// When initializeSecretsProviders is called
-		rt.initializeSecretsProviders()
-
-		// Then Resolver should be initialized
-		if rt.Resolver == nil {
-			t.Error("Expected Resolver to be initialized")
-		}
-	})
-
-	t.Run("InitializesProvidersBeforeWindsorEnv", func(t *testing.T) {
-		// Given a runtime with vaults configured
-		mocks := setupRuntimeMocks(t)
-		rt := mocks.Runtime
-
-		mockConfigHandler := mocks.ConfigHandler.(*config.MockConfigHandler)
-		mockConfigHandler.GetFunc = func(key string) any {
-			if key == "secrets.onepassword.vaults" {
-				return map[string]any{
-					"personal": map[string]any{
-						"url":  "my.1password.com",
-						"name": "Personal",
-					},
-				}
-			}
-			return nil
-		}
-
-		// When LoadEnvironment is called
-		err := rt.LoadEnvironment(false)
-
-		// Then no error should occur
-		if err != nil {
-			t.Fatalf("Expected no error, got: %v", err)
-		}
-
-		// And Resolver should be initialized
-		if rt.Resolver == nil {
-			t.Error("Expected Resolver to be initialized")
-		}
-
-		// And WindsorEnv should be initialized with providers
-		if rt.EnvPrinters.WindsorEnv == nil {
-			t.Error("Expected WindsorEnv to be initialized")
-		}
-	})
-}
-
-func TestRuntime_loadSecrets(t *testing.T) {
-	t.Run("LoadsSecretsSuccessfully", func(t *testing.T) {
-		// Given a runtime with secrets providers
-		mocks := setupRuntimeMocks(t)
-		rt := mocks.Runtime
-
-		mockSopsProvider := secrets.NewMockProvider()
-		mockOnepasswordProvider := secrets.NewMockProvider()
-		rt.Resolver = secrets.NewResolver([]secrets.Provider{mockSopsProvider, mockOnepasswordProvider}, mocks.Shell)
-
-		// When loadSecrets is called
-		err := rt.loadSecrets()
-
-		// Then secrets should load successfully
-		if err != nil {
-			t.Fatalf("Expected no error, got: %v", err)
-		}
-	})
-
-	t.Run("HandlesSecretsProviderError", func(t *testing.T) {
-		// Given a runtime with a secrets provider that fails to load
-		mocks := setupRuntimeMocks(t)
-		rt := mocks.Runtime
-
-		mockProvider := secrets.NewMockProvider()
-		mockProvider.LoadSecretsFunc = func() error {
-			return errors.New("secrets load failed")
-		}
-		rt.Resolver = secrets.NewResolver([]secrets.Provider{mockProvider}, mocks.Shell)
-
-		// When loadSecrets is called
-		err := rt.loadSecrets()
-
-		// Then an error should be returned
-		if err == nil {
-			t.Fatal("Expected error, got nil")
-		}
-
-		if !strings.Contains(err.Error(), "secrets load failed") {
-			t.Errorf("Expected secrets load error, got: %v", err)
-		}
-	})
-
-	t.Run("HandlesNilResolver", func(t *testing.T) {
-		// Given a runtime with nil Resolver
-		mocks := setupRuntimeMocks(t)
-		rt := mocks.Runtime
-
-		rt.Resolver = nil
-
-		// When loadSecrets is called
-		err := rt.loadSecrets()
-
-		// Then no error should be returned
-		if err != nil {
-			t.Fatalf("Expected no error with nil Resolver, got: %v", err)
-		}
-	})
-
-	t.Run("HandlesSingleProvider", func(t *testing.T) {
-		// Given a runtime with a single provider
-		mocks := setupRuntimeMocks(t)
-		rt := mocks.Runtime
-
-		mockProvider := secrets.NewMockProvider()
-		rt.Resolver = secrets.NewResolver([]secrets.Provider{mockProvider}, mocks.Shell)
-
-		// When loadSecrets is called
-		err := rt.loadSecrets()
-
-		// Then no error should be returned
-		if err != nil {
-			t.Fatalf("Expected no error with single provider, got: %v", err)
 		}
 	})
 }

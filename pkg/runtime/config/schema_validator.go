@@ -302,13 +302,12 @@ func extractDefaults(schema map[string]any) map[string]any {
 	return defaults
 }
 
-// collectSensitivePaths walks a schema node, appending the dotted path of every property that
-// carries a truthy `sensitive` keyword. It mirrors extractDefaults' recursion over `properties`,
-// descends `additionalProperties`/`patternProperties` map regions with a "*" segment (their keys
-// are dynamic), and follows `allOf`/`anyOf`/`oneOf` composition branches at the same path prefix
-// (they constrain the same instance location). It does not resolve `$ref`; a sensitive leaf reached
-// only through a `$ref` is not enumerated. Duplicate paths from multiple branches are removed by
-// the caller.
+// collectSensitivePaths appends the dotted path of each property with a truthy sensitive keyword.
+// It recurses over properties as extractDefaults does. Map regions in additionalProperties
+// and patternProperties use the segment "*", because their keys are dynamic. Each pattern
+// subschema of patternProperties uses the same "*" segment.
+// It follows allOf, anyOf, and oneOf at the same prefix. It does not resolve $ref.
+// The caller removes duplicate paths.
 func collectSensitivePaths(schema map[string]any, prefix string, out *[]string) {
 	joinPath := func(segment string) string {
 		if prefix == "" {
@@ -344,8 +343,6 @@ func collectSensitivePaths(schema map[string]any, prefix string, out *[]string) 
 			collectSensitivePaths(region, path, out)
 			continue
 		}
-		// patternProperties maps each regex pattern to its own subschema; all dynamic keys
-		// collapse onto the same "*" segment.
 		for _, patternSchema := range region {
 			patternSchemaMap, ok := patternSchema.(map[string]any)
 			if !ok {

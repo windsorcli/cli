@@ -1,4 +1,4 @@
-package shell
+package shell_test
 
 import (
 	"bufio"
@@ -10,6 +10,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/windsorcli/cli/pkg/runtime/shell"
 )
 
 // =============================================================================
@@ -17,18 +19,18 @@ import (
 // =============================================================================
 
 func TestShell_ExecSilentWithTimeout(t *testing.T) {
-	setup := func(t *testing.T) (*DefaultShell, *ShellTestMocks) {
+	setup := func(t *testing.T) (*shell.DefaultShell, *ShellTestMocks) {
 		t.Helper()
 		mocks := setupShellMocks(t)
-		shell := NewDefaultShell()
-		shell.shims = mocks.Shims
-		return shell, mocks
+		subject := shell.NewDefaultShell()
+		subject.SetShims(mocks.Shims)
+		return subject, mocks
 	}
 
 	t.Run("Success", func(t *testing.T) {
-		shell, _ := setup(t)
+		subject, _ := setup(t)
 
-		out, err := shell.ExecSilentWithTimeout("test", []string{"arg"}, 5*time.Second)
+		out, err := subject.ExecSilentWithTimeout("test", []string{"arg"}, 5*time.Second)
 
 		if err != nil {
 			t.Errorf("Expected no error, got %v", err)
@@ -39,7 +41,7 @@ func TestShell_ExecSilentWithTimeout(t *testing.T) {
 	})
 
 	t.Run("Timeout", func(t *testing.T) {
-		shell, mocks := setup(t)
+		subject, mocks := setup(t)
 		mocks.Shims.CmdStart = func(cmd *exec.Cmd) error {
 			return nil
 		}
@@ -48,7 +50,7 @@ func TestShell_ExecSilentWithTimeout(t *testing.T) {
 			return nil
 		}
 
-		out, err := shell.ExecSilentWithTimeout("test", []string{"arg"}, 50*time.Millisecond)
+		out, err := subject.ExecSilentWithTimeout("test", []string{"arg"}, 50*time.Millisecond)
 
 		if err == nil {
 			t.Error("Expected timeout error, got nil")
@@ -62,7 +64,7 @@ func TestShell_ExecSilentWithTimeout(t *testing.T) {
 	})
 
 	t.Run("Error", func(t *testing.T) {
-		shell, mocks := setup(t)
+		subject, mocks := setup(t)
 		mocks.Shims.CmdStart = func(cmd *exec.Cmd) error {
 			return nil
 		}
@@ -70,7 +72,7 @@ func TestShell_ExecSilentWithTimeout(t *testing.T) {
 			return fmt.Errorf("command failed")
 		}
 
-		out, err := shell.ExecSilentWithTimeout("test", []string{"arg"}, 5*time.Second)
+		out, err := subject.ExecSilentWithTimeout("test", []string{"arg"}, 5*time.Second)
 
 		if err == nil {
 			t.Error("Expected error, got nil")
@@ -84,12 +86,12 @@ func TestShell_ExecSilentWithTimeout(t *testing.T) {
 	})
 
 	t.Run("CommandNil", func(t *testing.T) {
-		shell, mocks := setup(t)
+		subject, mocks := setup(t)
 		mocks.Shims.Command = func(name string, args ...string) *exec.Cmd {
 			return nil
 		}
 
-		output, err := shell.ExecSilentWithTimeout("test", []string{"arg"}, 5*time.Second)
+		output, err := subject.ExecSilentWithTimeout("test", []string{"arg"}, 5*time.Second)
 
 		if err == nil {
 			t.Error("Expected error, got nil")
@@ -103,8 +105,8 @@ func TestShell_ExecSilentWithTimeout(t *testing.T) {
 	})
 
 	t.Run("VerboseMode", func(t *testing.T) {
-		shell, mocks := setup(t)
-		shell.SetVerbosity(true)
+		subject, mocks := setup(t)
+		subject.SetVerbosity(true)
 
 		execCalled := false
 		mocks.Shims.Command = func(name string, args ...string) *exec.Cmd {
@@ -127,7 +129,7 @@ func TestShell_ExecSilentWithTimeout(t *testing.T) {
 		r, w, _ := os.Pipe()
 		os.Stdout = w
 
-		out, err := shell.ExecSilentWithTimeout("test", []string{"arg"}, 5*time.Second)
+		out, err := subject.ExecSilentWithTimeout("test", []string{"arg"}, 5*time.Second)
 
 		w.Close()
 		os.Stdout = oldStdout
@@ -145,7 +147,7 @@ func TestShell_ExecSilentWithTimeout(t *testing.T) {
 	})
 
 	t.Run("ErrorOnStart", func(t *testing.T) {
-		shell, mocks := setup(t)
+		subject, mocks := setup(t)
 		mocks.Shims.Command = func(name string, args ...string) *exec.Cmd {
 			return exec.Command("echo", "test")
 		}
@@ -153,7 +155,7 @@ func TestShell_ExecSilentWithTimeout(t *testing.T) {
 			return fmt.Errorf("command start failed")
 		}
 
-		out, err := shell.ExecSilentWithTimeout("test", []string{"arg"}, 5*time.Second)
+		out, err := subject.ExecSilentWithTimeout("test", []string{"arg"}, 5*time.Second)
 
 		if err == nil {
 			t.Error("Expected error, got nil")
@@ -167,7 +169,7 @@ func TestShell_ExecSilentWithTimeout(t *testing.T) {
 	})
 
 	t.Run("TimeoutNoDoubleWait", func(t *testing.T) {
-		shell, mocks := setup(t)
+		subject, mocks := setup(t)
 		waitCallCount := 0
 		mocks.Shims.CmdStart = func(cmd *exec.Cmd) error {
 			return nil
@@ -178,7 +180,7 @@ func TestShell_ExecSilentWithTimeout(t *testing.T) {
 			return nil
 		}
 
-		out, err := shell.ExecSilentWithTimeout("test", []string{"arg"}, 50*time.Millisecond)
+		out, err := subject.ExecSilentWithTimeout("test", []string{"arg"}, 50*time.Millisecond)
 
 		if err == nil {
 			t.Error("Expected timeout error, got nil")
@@ -196,20 +198,20 @@ func TestShell_ExecSilentWithTimeout(t *testing.T) {
 }
 
 func TestShell_ExecSilentWithEnvAndTimeout(t *testing.T) {
-	setup := func(t *testing.T) (*DefaultShell, *ShellTestMocks) {
+	setup := func(t *testing.T) (*shell.DefaultShell, *ShellTestMocks) {
 		t.Helper()
 		mocks := setupShellMocks(t)
-		shell := NewDefaultShell()
-		shell.shims = mocks.Shims
-		return shell, mocks
+		subject := shell.NewDefaultShell()
+		subject.SetShims(mocks.Shims)
+		return subject, mocks
 	}
 
 	t.Run("Success", func(t *testing.T) {
 		// Given a shell with mocked command execution
-		shell, _ := setup(t)
+		subject, _ := setup(t)
 
 		// When executing a command with env vars and a timeout
-		out, err := shell.ExecSilentWithEnvAndTimeout("test", map[string]string{"FOO": "bar"}, []string{"arg"}, 5*time.Second)
+		out, err := subject.ExecSilentWithEnvAndTimeout("test", map[string]string{"FOO": "bar"}, []string{"arg"}, 5*time.Second)
 
 		// Then it succeeds and returns the captured output
 		if err != nil {
@@ -222,7 +224,7 @@ func TestShell_ExecSilentWithEnvAndTimeout(t *testing.T) {
 
 	t.Run("MergesEnvVars", func(t *testing.T) {
 		// Given a shell that captures cmd.Env on run
-		shell, mocks := setup(t)
+		subject, mocks := setup(t)
 		var capturedEnv []string
 		mocks.Shims.CmdStart = func(cmd *exec.Cmd) error {
 			capturedEnv = cmd.Env
@@ -233,7 +235,7 @@ func TestShell_ExecSilentWithEnvAndTimeout(t *testing.T) {
 		}
 
 		// When executing with extra env vars
-		_, _ = shell.ExecSilentWithEnvAndTimeout("test", map[string]string{"AWS_PROFILE": "ctx"}, []string{"arg"}, 5*time.Second)
+		_, _ = subject.ExecSilentWithEnvAndTimeout("test", map[string]string{"AWS_PROFILE": "ctx"}, []string{"arg"}, 5*time.Second)
 
 		// Then the extra env var is present in the merged environment — confirming the env
 		// override actually reaches the child process rather than being silently dropped
@@ -251,7 +253,7 @@ func TestShell_ExecSilentWithEnvAndTimeout(t *testing.T) {
 
 	t.Run("Timeout", func(t *testing.T) {
 		// Given a CmdWait that sleeps past the timeout
-		shell, mocks := setup(t)
+		subject, mocks := setup(t)
 		mocks.Shims.CmdStart = func(cmd *exec.Cmd) error {
 			return nil
 		}
@@ -261,7 +263,7 @@ func TestShell_ExecSilentWithEnvAndTimeout(t *testing.T) {
 		}
 
 		// When executing with a short timeout
-		out, err := shell.ExecSilentWithEnvAndTimeout("test", nil, []string{"arg"}, 50*time.Millisecond)
+		out, err := subject.ExecSilentWithEnvAndTimeout("test", nil, []string{"arg"}, 50*time.Millisecond)
 
 		// Then a timeout error is surfaced — the env-aware variant must inherit the same
 		// process-killing safety net as ExecSilentWithTimeout, otherwise hung commands would
@@ -279,13 +281,13 @@ func TestShell_ExecSilentWithEnvAndTimeout(t *testing.T) {
 
 	t.Run("CommandNil", func(t *testing.T) {
 		// Given a Command shim that returns nil
-		shell, mocks := setup(t)
+		subject, mocks := setup(t)
 		mocks.Shims.Command = func(name string, args ...string) *exec.Cmd {
 			return nil
 		}
 
 		// When executing
-		output, err := shell.ExecSilentWithEnvAndTimeout("test", nil, []string{"arg"}, 5*time.Second)
+		output, err := subject.ExecSilentWithEnvAndTimeout("test", nil, []string{"arg"}, 5*time.Second)
 
 		// Then a command-creation error is returned
 		if err == nil {
@@ -301,17 +303,17 @@ func TestShell_ExecSilentWithEnvAndTimeout(t *testing.T) {
 }
 
 func TestShell_ExecSilentWithEnvAndIdleTimeout(t *testing.T) {
-	setup := func(t *testing.T) (*DefaultShell, *ShellTestMocks) {
+	setup := func(t *testing.T) (*shell.DefaultShell, *ShellTestMocks) {
 		t.Helper()
 		mocks := setupShellMocks(t)
-		shell := NewDefaultShell()
-		shell.shims = mocks.Shims
-		return shell, mocks
+		subject := shell.NewDefaultShell()
+		subject.SetShims(mocks.Shims)
+		return subject, mocks
 	}
 
 	t.Run("Success", func(t *testing.T) {
 		// Given a command that writes output and exits cleanly well within both timeouts
-		shell, mocks := setup(t)
+		subject, mocks := setup(t)
 		mocks.Shims.StdoutPipe = func(cmd *exec.Cmd) (io.ReadCloser, error) {
 			r, w := io.Pipe()
 			go func() {
@@ -327,7 +329,7 @@ func TestShell_ExecSilentWithEnvAndIdleTimeout(t *testing.T) {
 		}
 
 		// When executing with generous idle and absolute timeouts
-		out, err := shell.ExecSilentWithEnvAndIdleTimeout("test", map[string]string{"FOO": "bar"}, []string{"arg"}, 5*time.Second, time.Hour, time.Second)
+		out, err := subject.ExecSilentWithEnvAndIdleTimeout("test", map[string]string{"FOO": "bar"}, []string{"arg"}, 5*time.Second, time.Hour, time.Second)
 
 		// Then it succeeds and returns the captured stdout
 		if err != nil {
@@ -341,7 +343,7 @@ func TestShell_ExecSilentWithEnvAndIdleTimeout(t *testing.T) {
 	t.Run("IdleTimeoutFiresOnSustainedSilenceAndHardKillsAnUnresponsiveProcess", func(t *testing.T) {
 		// Given a process that never writes anything and ignores the interrupt, bounded so
 		// the test itself does not hang
-		shell, mocks := setup(t)
+		subject, mocks := setup(t)
 		stdoutR, stdoutW := io.Pipe()
 		stderrR, stderrW := io.Pipe()
 		mocks.Shims.StdoutPipe = func(cmd *exec.Cmd) (io.ReadCloser, error) { return stdoutR, nil }
@@ -359,13 +361,13 @@ func TestShell_ExecSilentWithEnvAndIdleTimeout(t *testing.T) {
 		}
 
 		// When executing with a short idle timeout, a long absolute timeout, and a short grace period
-		out, err := shell.ExecSilentWithEnvAndIdleTimeout("test", nil, []string{"arg"}, 50*time.Millisecond, time.Hour, 50*time.Millisecond)
+		out, err := subject.ExecSilentWithEnvAndIdleTimeout("test", nil, []string{"arg"}, 50*time.Millisecond, time.Hour, 50*time.Millisecond)
 
 		// Then the idle timeout fires, naming the silence, only after the process group was
 		// interrupted first; the eventual hard kill also targets the whole group, not just
 		// the terraform process itself, so a still-running provider-plugin subprocess does
 		// not survive orphaned
-		if err == nil || !errors.Is(err, ErrCommandTimedOut) || !strings.Contains(err.Error(), "no output for") {
+		if err == nil || !errors.Is(err, shell.ErrCommandTimedOut) || !strings.Contains(err.Error(), "no output for") {
 			t.Errorf("Expected an idle-timeout error, got %v", err)
 		}
 		if out != "" {
@@ -384,7 +386,7 @@ func TestShell_ExecSilentWithEnvAndIdleTimeout(t *testing.T) {
 		// idle timeout, but never silent for that long at a stretch. The gap between writes
 		// stays a small fraction of the idle timeout so scheduler jitter on a loaded CI
 		// runner cannot make a single gap look like a stall.
-		shell, mocks := setup(t)
+		subject, mocks := setup(t)
 		stdoutR, stdoutW := io.Pipe()
 		mocks.Shims.StdoutPipe = func(cmd *exec.Cmd) (io.ReadCloser, error) { return stdoutR, nil }
 		mocks.Shims.StderrPipe = func(cmd *exec.Cmd) (io.ReadCloser, error) {
@@ -401,7 +403,7 @@ func TestShell_ExecSilentWithEnvAndIdleTimeout(t *testing.T) {
 		}()
 
 		// When executing with an idle timeout shorter than the command's total runtime
-		out, err := shell.ExecSilentWithEnvAndIdleTimeout("test", nil, []string{"arg"}, 500*time.Millisecond, time.Hour, time.Second)
+		out, err := subject.ExecSilentWithEnvAndIdleTimeout("test", nil, []string{"arg"}, 500*time.Millisecond, time.Hour, time.Second)
 
 		// Then it succeeds: each line resets the idle window before it can expire
 		if err != nil {
@@ -415,7 +417,7 @@ func TestShell_ExecSilentWithEnvAndIdleTimeout(t *testing.T) {
 	t.Run("AbsoluteTimeoutFiresDespiteOngoingActivity", func(t *testing.T) {
 		// Given a command that keeps writing often enough to never trip the idle timeout, but
 		// runs longer than the absolute backstop
-		shell, mocks := setup(t)
+		subject, mocks := setup(t)
 		stdoutR, stdoutW := io.Pipe()
 		stderrR, stderrW := io.Pipe()
 		mocks.Shims.StdoutPipe = func(cmd *exec.Cmd) (io.ReadCloser, error) { return stdoutR, nil }
@@ -448,11 +450,11 @@ func TestShell_ExecSilentWithEnvAndIdleTimeout(t *testing.T) {
 
 		// When executing with an idle timeout the activity never lets expire, and a short
 		// absolute timeout
-		out, err := shell.ExecSilentWithEnvAndIdleTimeout("test", nil, []string{"arg"}, time.Hour, 100*time.Millisecond, 50*time.Millisecond)
+		out, err := subject.ExecSilentWithEnvAndIdleTimeout("test", nil, []string{"arg"}, time.Hour, 100*time.Millisecond, 50*time.Millisecond)
 
 		// Then the absolute backstop fires anyway, and still interrupts before it kills,
 		// surfacing whatever output was captured before the cutoff
-		if err == nil || !errors.Is(err, ErrCommandTimedOut) || !strings.Contains(err.Error(), "ran for longer than 100ms") {
+		if err == nil || !errors.Is(err, shell.ErrCommandTimedOut) || !strings.Contains(err.Error(), "ran for longer than 100ms") {
 			t.Errorf("Expected an absolute-timeout error, got %v", err)
 		}
 		if !strings.Contains(out, "still going") {
@@ -469,7 +471,7 @@ func TestShell_ExecSilentWithEnvAndIdleTimeout(t *testing.T) {
 	t.Run("ReturnsPromptlyWhenProcessExitsWithinGracePeriod", func(t *testing.T) {
 		// Given a process that exits shortly after being interrupted — honoring it cleanly,
 		// well inside a generous grace period
-		shell, mocks := setup(t)
+		subject, mocks := setup(t)
 		stdoutR, stdoutW := io.Pipe()
 		mocks.Shims.StdoutPipe = func(cmd *exec.Cmd) (io.ReadCloser, error) { return stdoutR, nil }
 		mocks.Shims.StderrPipe = func(cmd *exec.Cmd) (io.ReadCloser, error) {
@@ -487,11 +489,11 @@ func TestShell_ExecSilentWithEnvAndIdleTimeout(t *testing.T) {
 
 		// When executing with a short idle timeout and a very long grace period
 		start := time.Now()
-		_, err := shell.ExecSilentWithEnvAndIdleTimeout("test", nil, []string{"arg"}, 50*time.Millisecond, time.Hour, time.Hour)
+		_, err := subject.ExecSilentWithEnvAndIdleTimeout("test", nil, []string{"arg"}, 50*time.Millisecond, time.Hour, time.Hour)
 		elapsed := time.Since(start)
 
 		// Then the call returns once the process exits, not after the full (very long) grace period
-		if err == nil || !errors.Is(err, ErrCommandTimedOut) || !strings.Contains(err.Error(), "no output for") {
+		if err == nil || !errors.Is(err, shell.ErrCommandTimedOut) || !strings.Contains(err.Error(), "no output for") {
 			t.Errorf("Expected an idle-timeout error, got %v", err)
 		}
 		if elapsed > 500*time.Millisecond {
@@ -501,13 +503,13 @@ func TestShell_ExecSilentWithEnvAndIdleTimeout(t *testing.T) {
 
 	t.Run("CommandNil", func(t *testing.T) {
 		// Given a Command shim that returns nil
-		shell, mocks := setup(t)
+		subject, mocks := setup(t)
 		mocks.Shims.Command = func(name string, args ...string) *exec.Cmd {
 			return nil
 		}
 
 		// When executing
-		output, err := shell.ExecSilentWithEnvAndIdleTimeout("test", nil, []string{"arg"}, 5*time.Second, time.Hour, time.Second)
+		output, err := subject.ExecSilentWithEnvAndIdleTimeout("test", nil, []string{"arg"}, 5*time.Second, time.Hour, time.Second)
 
 		// Then a command-creation error is returned
 		if err == nil {
@@ -523,13 +525,13 @@ func TestShell_ExecSilentWithEnvAndIdleTimeout(t *testing.T) {
 
 	t.Run("StdoutPipeError", func(t *testing.T) {
 		// Given a StdoutPipe shim that fails
-		shell, mocks := setup(t)
+		subject, mocks := setup(t)
 		mocks.Shims.StdoutPipe = func(cmd *exec.Cmd) (io.ReadCloser, error) {
 			return nil, fmt.Errorf("boom")
 		}
 
 		// When executing
-		output, err := shell.ExecSilentWithEnvAndIdleTimeout("test", nil, []string{"arg"}, 5*time.Second, time.Hour, time.Second)
+		output, err := subject.ExecSilentWithEnvAndIdleTimeout("test", nil, []string{"arg"}, 5*time.Second, time.Hour, time.Second)
 
 		// Then the pipe error is returned directly
 		if err == nil || !strings.Contains(err.Error(), "boom") {
@@ -542,7 +544,7 @@ func TestShell_ExecSilentWithEnvAndIdleTimeout(t *testing.T) {
 
 	t.Run("StderrPipeError", func(t *testing.T) {
 		// Given a StderrPipe shim that fails
-		shell, mocks := setup(t)
+		subject, mocks := setup(t)
 		mocks.Shims.StdoutPipe = func(cmd *exec.Cmd) (io.ReadCloser, error) {
 			r, w := io.Pipe()
 			w.Close()
@@ -553,7 +555,7 @@ func TestShell_ExecSilentWithEnvAndIdleTimeout(t *testing.T) {
 		}
 
 		// When executing
-		output, err := shell.ExecSilentWithEnvAndIdleTimeout("test", nil, []string{"arg"}, 5*time.Second, time.Hour, time.Second)
+		output, err := subject.ExecSilentWithEnvAndIdleTimeout("test", nil, []string{"arg"}, 5*time.Second, time.Hour, time.Second)
 
 		// Then the pipe error is returned directly
 		if err == nil || !strings.Contains(err.Error(), "boom") {
@@ -568,7 +570,7 @@ func TestShell_ExecSilentWithEnvAndIdleTimeout(t *testing.T) {
 		// Given a stdout stream that closes cleanly but whose scanner reports an error
 		// (e.g. a line past the buffer's cap) — a still-running process must not be
 		// mistaken for a clean, silent exit
-		shell, mocks := setup(t)
+		subject, mocks := setup(t)
 		mocks.Shims.StdoutPipe = func(cmd *exec.Cmd) (io.ReadCloser, error) {
 			r, w := io.Pipe()
 			go func() { w.Close() }()
@@ -584,7 +586,7 @@ func TestShell_ExecSilentWithEnvAndIdleTimeout(t *testing.T) {
 		}
 
 		// When executing
-		output, err := shell.ExecSilentWithEnvAndIdleTimeout("test", nil, []string{"arg"}, 5*time.Second, time.Hour, time.Second)
+		output, err := subject.ExecSilentWithEnvAndIdleTimeout("test", nil, []string{"arg"}, 5*time.Second, time.Hour, time.Second)
 
 		// Then the scan error surfaces rather than being reported as a clean delete
 		if err == nil || !strings.Contains(err.Error(), "token too long") {
@@ -597,7 +599,7 @@ func TestShell_ExecSilentWithEnvAndIdleTimeout(t *testing.T) {
 
 	t.Run("CommandFailureSurfacesStderr", func(t *testing.T) {
 		// Given a command that exits non-zero after writing to both streams
-		shell, mocks := setup(t)
+		subject, mocks := setup(t)
 		stdoutR, stdoutW := io.Pipe()
 		stderrR, stderrW := io.Pipe()
 		mocks.Shims.StdoutPipe = func(cmd *exec.Cmd) (io.ReadCloser, error) { return stdoutR, nil }
@@ -615,7 +617,7 @@ func TestShell_ExecSilentWithEnvAndIdleTimeout(t *testing.T) {
 		}
 
 		// When executing
-		out, err := shell.ExecSilentWithEnvAndIdleTimeout("test", nil, []string{"arg"}, time.Second, time.Hour, time.Second)
+		out, err := subject.ExecSilentWithEnvAndIdleTimeout("test", nil, []string{"arg"}, time.Second, time.Hour, time.Second)
 
 		// Then the failure wraps CmdWait's error and surfaces captured stderr
 		if err == nil || !strings.Contains(err.Error(), "exit status 1") || !strings.Contains(err.Error(), "boom detail") {

@@ -97,14 +97,11 @@ func flattenErrorList(list *jsonschema.List) []string {
 	return errs
 }
 
-// walkList descends a flattened List, emitting one validationError per (instance-location,
-// keyword) pair. Instance locations use JSON Pointer notation rooted at "/" (e.g.
-// "/network/cidr_block"). kaptinlin scopes each evaluator's leaf to a path local to that
-// evaluator — a nested enum failure on storage.driver surfaces as "/driver" rather than
-// "/storage/driver" — so this walker carries the parent location down the recursion and joins
-// it onto each child to reconstruct the fully-qualified pointer operators expect when reading
-// the message. The walker skips a valid subtree and an "if" condition subtree. Their errors
-// come from conditions that evaluated as designed, such as a false "if" or a passing "not".
+// walkList descends a flattened List and emits one validationError per location and keyword.
+// A location is a JSON Pointer from "/", for example "/network/cidr_block".
+// kaptinlin gives each leaf a location local to its evaluator, such as "/driver" for "/storage/driver".
+// walkList carries the parent location down and joins it to each child location.
+// It skips valid subtrees and "if" condition subtrees, because those errors are expected results.
 func walkList(list *jsonschema.List, parent string, errs *[]validationError) {
 	if list.Valid || list.EvaluationPath == "/if" {
 		return
@@ -242,13 +239,10 @@ func hideStructuralRestatements(errs []validationError) []validationError {
 	return specific
 }
 
-// mergeRequiredDuplicates unions multiple "required" errors at the same location into one.
-// Several allOf/if branches routinely each declare their own required list for the same
-// object — e.g. a cluster-driver coherence check and a separate cluster-storage coherence
-// check — so kaptinlin reports "Required property 'driver' is missing" and "Required
-// properties 'storage', 'driver' are missing" as two lines restating an overlapping fact.
-// This keeps the first line's position, rewriting it to list the sorted union of names once,
-// and drops the later duplicates at that location.
+// mergeRequiredDuplicates merges the "required" errors at one location into one error.
+// Several allOf or if branches can each declare a required list for the same object,
+// and kaptinlin then reports overlapping lines.
+// It keeps the position of the first error, lists the sorted union of names, and drops the others.
 func mergeRequiredDuplicates(errs []validationError) []validationError {
 	type group struct {
 		idx   int
@@ -301,15 +295,11 @@ func formatRequiredMessage(names []string) string {
 	return fmt.Sprintf("Required properties %s are missing", strings.Join(quoted, ", "))
 }
 
-// dropRedundantRequiredCompanions removes a "type" (null) or "const" error whose location is
-// an immediate child of a "required" error naming that same field. "/cluster: required:
-// Required property 'driver' is missing" already says cluster.driver is absent, so
-// "/cluster/driver: type: Value is null but should be string" and "/cluster/driver: const:
-// Value does not match the constant value" add nothing: a null value trivially fails any
-// type or const check. Unlike focusOnSpecificViolations, this always drops the companion —
-// it does not wait for some other violation to exist elsewhere — because the required error
-// alone is already the complete, actionable statement. It returns the visible errors and the
-// dropped count.
+// dropRedundantRequiredCompanions removes a null "type" error or a "const" error on a field
+// that a "required" error on its parent already names. A null value fails each type and const check,
+// so the required error alone tells the user what to fix.
+// Unlike focusOnSpecificViolations, it drops the companion even when no other violation exists.
+// It returns the remaining errors and the number of dropped errors.
 func dropRedundantRequiredCompanions(errs []validationError) ([]validationError, int) {
 	requiredNames := make(map[string]map[string]bool)
 	for _, e := range errs {

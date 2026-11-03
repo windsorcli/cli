@@ -1,7 +1,7 @@
 //go:build windows
 // +build windows
 
-package shell
+package shell_test
 
 import (
 	"os"
@@ -9,12 +9,9 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
-)
 
-// The WindowsShellTest is a test suite for Windows-specific shell operations.
-// It provides comprehensive test coverage for PowerShell environment management,
-// project root detection, and alias handling on Windows systems.
-// The WindowsShellTest ensures reliable shell operations on Windows platforms.
+	"github.com/windsorcli/cli/pkg/runtime/shell"
+)
 
 // =============================================================================
 // Test Public Methods
@@ -22,18 +19,18 @@ import (
 
 // TestDefaultShell_ExecSudo tests the ExecSudo method on Windows: admin check and command execution.
 func TestDefaultShell_ExecSudo(t *testing.T) {
-	setup := func(t *testing.T) (*DefaultShell, *ShellTestMocks) {
+	setup := func(t *testing.T) (*shell.DefaultShell, *ShellTestMocks) {
 		t.Helper()
 		mocks := setupShellMocks(t)
-		shell := NewDefaultShell()
-		shell.shims = mocks.Shims
-		return shell, mocks
+		subject := shell.NewDefaultShell()
+		subject.SetShims(mocks.Shims)
+		return subject, mocks
 	}
 
 	t.Run("ErrorWhenNotAdmin", func(t *testing.T) {
-		shell, _ := setup(t)
+		subject, _ := setup(t)
 
-		_, err := shell.ExecSudo("msg", "cmd", "arg")
+		_, err := subject.ExecSudo("msg", "cmd", "arg")
 		if err == nil {
 			t.Fatal("Expected error when not admin")
 		}
@@ -43,12 +40,12 @@ func TestDefaultShell_ExecSudo(t *testing.T) {
 	})
 
 	t.Run("ErrorWhenAdminCheckFails", func(t *testing.T) {
-		shell, mocks := setup(t)
+		subject, mocks := setup(t)
 		mocks.Shims.Command = func(name string, args ...string) *exec.Cmd {
 			return nil
 		}
 
-		_, err := shell.ExecSudo("msg", "cmd", "arg")
+		_, err := subject.ExecSudo("msg", "cmd", "arg")
 		if err == nil {
 			t.Fatal("Expected error when admin check fails")
 		}
@@ -58,7 +55,7 @@ func TestDefaultShell_ExecSudo(t *testing.T) {
 	})
 
 	t.Run("SuccessWhenAdmin", func(t *testing.T) {
-		shell, mocks := setup(t)
+		subject, mocks := setup(t)
 		mocks.Shims.CmdRun = func(cmd *exec.Cmd) error {
 			if cmd.Stdout != nil {
 				_, _ = cmd.Stdout.Write([]byte("true"))
@@ -72,7 +69,7 @@ func TestDefaultShell_ExecSudo(t *testing.T) {
 			return nil
 		}
 
-		out, err := shell.ExecSudo("msg", "echo", "cmd-output")
+		out, err := subject.ExecSudo("msg", "echo", "cmd-output")
 		if err != nil {
 			t.Fatalf("ExecSudo: %v", err)
 		}
@@ -82,7 +79,7 @@ func TestDefaultShell_ExecSudo(t *testing.T) {
 	})
 
 	t.Run("SuccessWhenCommandIsTrue", func(t *testing.T) {
-		shell, mocks := setup(t)
+		subject, mocks := setup(t)
 		mocks.Shims.CmdRun = func(cmd *exec.Cmd) error {
 			if cmd.Stdout != nil {
 				_, _ = cmd.Stdout.Write([]byte("true"))
@@ -90,7 +87,7 @@ func TestDefaultShell_ExecSudo(t *testing.T) {
 			return nil
 		}
 
-		out, err := shell.ExecSudo("msg", "true")
+		out, err := subject.ExecSudo("msg", "true")
 		if err != nil {
 			t.Fatalf("ExecSudo: %v", err)
 		}
@@ -100,7 +97,7 @@ func TestDefaultShell_ExecSudo(t *testing.T) {
 	})
 
 	t.Run("SudoCommandUnwraps", func(t *testing.T) {
-		shell, mocks := setup(t)
+		subject, mocks := setup(t)
 		mocks.Shims.CmdRun = func(cmd *exec.Cmd) error {
 			if cmd.Stdout != nil {
 				_, _ = cmd.Stdout.Write([]byte("true"))
@@ -114,7 +111,7 @@ func TestDefaultShell_ExecSudo(t *testing.T) {
 			return nil
 		}
 
-		out, err := shell.ExecSudo("msg", "sudo", "realcmd", "arg")
+		out, err := subject.ExecSudo("msg", "sudo", "realcmd", "arg")
 		if err != nil {
 			t.Fatalf("ExecSudo: %v", err)
 		}
@@ -124,8 +121,8 @@ func TestDefaultShell_ExecSudo(t *testing.T) {
 	})
 
 	t.Run("VerbosePrintsMessage", func(t *testing.T) {
-		shell, mocks := setup(t)
-		shell.SetVerbosity(true)
+		subject, mocks := setup(t)
+		subject.SetVerbosity(true)
 		mocks.Shims.CmdRun = func(cmd *exec.Cmd) error {
 			if cmd.Stdout != nil {
 				_, _ = cmd.Stdout.Write([]byte("true"))
@@ -139,7 +136,7 @@ func TestDefaultShell_ExecSudo(t *testing.T) {
 			return nil
 		}
 
-		out, err := shell.ExecSudo("verbose-msg", "true")
+		out, err := subject.ExecSudo("verbose-msg", "true")
 		if err != nil {
 			t.Fatalf("ExecSudo: %v", err)
 		}
@@ -151,12 +148,12 @@ func TestDefaultShell_ExecSudo(t *testing.T) {
 
 // TestDefaultShell_GetProjectRoot tests the GetProjectRoot method on Windows systems
 func TestDefaultShell_GetProjectRoot(t *testing.T) {
-	setup := func(t *testing.T) (*DefaultShell, *ShellTestMocks) {
+	setup := func(t *testing.T) (*shell.DefaultShell, *ShellTestMocks) {
 		t.Helper()
 		mocks := setupShellMocks(t)
-		shell := NewDefaultShell()
-		shell.shims = mocks.Shims
-		return shell, mocks
+		subject := shell.NewDefaultShell()
+		subject.SetShims(mocks.Shims)
+		return subject, mocks
 	}
 
 	testCases := []struct {
@@ -170,7 +167,7 @@ func TestDefaultShell_GetProjectRoot(t *testing.T) {
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			// Given a shell with mocked file system
-			shell, mocks := setup(t)
+			subject, mocks := setup(t)
 			rootDir := "C:\\test\\project"
 			subDir := filepath.Join(rootDir, "subdir")
 
@@ -188,7 +185,7 @@ func TestDefaultShell_GetProjectRoot(t *testing.T) {
 			}
 
 			// When finding the project root
-			projectRoot, err := shell.GetProjectRoot()
+			projectRoot, err := subject.GetProjectRoot()
 			if err != nil {
 				t.Fatalf("GetProjectRoot returned an error: %v", err)
 			}
@@ -205,23 +202,23 @@ func TestDefaultShell_GetProjectRoot(t *testing.T) {
 
 // TestDefaultShell_UnsetEnvs tests the UnsetEnvs method on Windows systems
 func TestDefaultShell_UnsetEnvs(t *testing.T) {
-	setup := func(t *testing.T) (*DefaultShell, *ShellTestMocks) {
+	setup := func(t *testing.T) (*shell.DefaultShell, *ShellTestMocks) {
 		t.Helper()
 		mocks := setupShellMocks(t)
-		shell := NewDefaultShell()
-		shell.shims = mocks.Shims
-		return shell, mocks
+		subject := shell.NewDefaultShell()
+		subject.SetShims(mocks.Shims)
+		return subject, mocks
 	}
 
 	t.Run("UnsetEnvs", func(t *testing.T) {
 		// Given a set of environment variables to unset
-		shell, _ := setup(t)
+		subject, _ := setup(t)
 		envVars := []string{"VAR1", "VAR2", "VAR3"}
 		expectedOutput := "Remove-Item Env:VAR1\nRemove-Item Env:VAR2\nRemove-Item Env:VAR3\n"
 
 		// When capturing the output of UnsetEnvs
 		output := captureStdout(t, func() {
-			shell.UnsetEnvs(envVars)
+			subject.UnsetEnvs(envVars)
 		})
 
 		// Then the output should match the expected output
@@ -232,11 +229,11 @@ func TestDefaultShell_UnsetEnvs(t *testing.T) {
 
 	t.Run("UnsetEnvsWithEmptyList", func(t *testing.T) {
 		// Given an empty list of environment variables
-		shell, _ := setup(t)
+		subject, _ := setup(t)
 
 		// When capturing the output of UnsetEnvs
 		output := captureStdout(t, func() {
-			shell.UnsetEnvs([]string{})
+			subject.UnsetEnvs([]string{})
 		})
 
 		// Then the output should be empty
@@ -248,23 +245,23 @@ func TestDefaultShell_UnsetEnvs(t *testing.T) {
 
 // TestDefaultShell_UnsetAlias tests the UnsetAlias method on Windows systems
 func TestDefaultShell_UnsetAlias(t *testing.T) {
-	setup := func(t *testing.T) (*DefaultShell, *ShellTestMocks) {
+	setup := func(t *testing.T) (*shell.DefaultShell, *ShellTestMocks) {
 		t.Helper()
 		mocks := setupShellMocks(t)
-		shell := NewDefaultShell()
-		shell.shims = mocks.Shims
-		return shell, mocks
+		subject := shell.NewDefaultShell()
+		subject.SetShims(mocks.Shims)
+		return subject, mocks
 	}
 
 	t.Run("UnsetAlias", func(t *testing.T) {
 		// Given a set of aliases to unset
-		shell, _ := setup(t)
+		subject, _ := setup(t)
 		aliases := []string{"ALIAS1", "ALIAS2", "ALIAS3"}
 		expectedOutput := "Remove-Item Alias:ALIAS1\nRemove-Item Alias:ALIAS2\nRemove-Item Alias:ALIAS3\n"
 
 		// When capturing the output of UnsetAlias
 		output := captureStdout(t, func() {
-			shell.UnsetAlias(aliases)
+			subject.UnsetAlias(aliases)
 		})
 
 		// Then the output should match the expected output
@@ -275,11 +272,11 @@ func TestDefaultShell_UnsetAlias(t *testing.T) {
 
 	t.Run("UnsetAliasWithEmptyList", func(t *testing.T) {
 		// Given an empty list of aliases
-		shell, _ := setup(t)
+		subject, _ := setup(t)
 
 		// When capturing the output of UnsetAlias
 		output := captureStdout(t, func() {
-			shell.UnsetAlias([]string{})
+			subject.UnsetAlias([]string{})
 		})
 
 		// Then the output should be empty
@@ -291,24 +288,24 @@ func TestDefaultShell_UnsetAlias(t *testing.T) {
 
 // TestDefaultShell_RenderEnvVars tests the RenderEnvVars method on Windows systems
 func TestDefaultShell_RenderEnvVars(t *testing.T) {
-	setup := func(t *testing.T) (*DefaultShell, *ShellTestMocks) {
+	setup := func(t *testing.T) (*shell.DefaultShell, *ShellTestMocks) {
 		t.Helper()
 		mocks := setupShellMocks(t)
-		shell := NewDefaultShell()
-		shell.shims = mocks.Shims
-		return shell, mocks
+		subject := shell.NewDefaultShell()
+		subject.SetShims(mocks.Shims)
+		return subject, mocks
 	}
 
 	t.Run("RendersEnvVarsWithExport", func(t *testing.T) {
 		// Given a shell with environment variables
-		shell, _ := setup(t)
+		subject, _ := setup(t)
 		envVars := map[string]string{
 			"VAR1": "value1",
 			"VAR2": "value2",
 		}
 
 		// When rendering environment variables with export=true
-		result := shell.RenderEnvVars(envVars, true)
+		result := subject.RenderEnvVars(envVars, true)
 
 		// Then the output should contain PowerShell syntax
 		if !strings.Contains(result, "$env:VAR1='value1'") {
@@ -321,14 +318,14 @@ func TestDefaultShell_RenderEnvVars(t *testing.T) {
 
 	t.Run("RendersEnvVarsWithoutExport", func(t *testing.T) {
 		// Given a shell with environment variables
-		shell, _ := setup(t)
+		subject, _ := setup(t)
 		envVars := map[string]string{
 			"VAR1": "value1",
 			"VAR2": "value2",
 		}
 
 		// When rendering environment variables with export=false
-		result := shell.RenderEnvVars(envVars, false)
+		result := subject.RenderEnvVars(envVars, false)
 
 		// Then the output should contain plain KEY=value format
 		if !strings.Contains(result, "VAR1=value1") {
@@ -342,17 +339,17 @@ func TestDefaultShell_RenderEnvVars(t *testing.T) {
 
 // TestDefaultShell_PrintEnvVars tests the PrintEnvVars method on Windows systems
 func TestDefaultShell_PrintEnvVars(t *testing.T) {
-	setup := func(t *testing.T) (*DefaultShell, *ShellTestMocks) {
+	setup := func(t *testing.T) (*shell.DefaultShell, *ShellTestMocks) {
 		t.Helper()
 		mocks := setupShellMocks(t)
-		shell := NewDefaultShell()
-		shell.shims = mocks.Shims
-		return shell, mocks
+		subject := shell.NewDefaultShell()
+		subject.SetShims(mocks.Shims)
+		return subject, mocks
 	}
 
 	t.Run("PrintsEnvVarsWithExport", func(t *testing.T) {
 		// Given a shell with environment variables
-		shell, _ := setup(t)
+		subject, _ := setup(t)
 		envVars := map[string]string{
 			"VAR1": "value1",
 			"VAR2": "value2",
@@ -360,7 +357,7 @@ func TestDefaultShell_PrintEnvVars(t *testing.T) {
 
 		// When printing environment variables with export=true
 		output := captureStdout(t, func() {
-			shell.PrintEnvVars(envVars, true)
+			subject.PrintEnvVars(envVars, true)
 		})
 
 		// Then the output should contain PowerShell syntax
@@ -374,7 +371,7 @@ func TestDefaultShell_PrintEnvVars(t *testing.T) {
 
 	t.Run("PrintsEnvVarsWithoutExport", func(t *testing.T) {
 		// Given a shell with environment variables
-		shell, _ := setup(t)
+		subject, _ := setup(t)
 		envVars := map[string]string{
 			"VAR1": "value1",
 			"VAR2": "value2",
@@ -382,7 +379,7 @@ func TestDefaultShell_PrintEnvVars(t *testing.T) {
 
 		// When printing environment variables with export=false
 		output := captureStdout(t, func() {
-			shell.PrintEnvVars(envVars, false)
+			subject.PrintEnvVars(envVars, false)
 		})
 
 		// Then the output should contain plain KEY=value format
@@ -391,92 +388,6 @@ func TestDefaultShell_PrintEnvVars(t *testing.T) {
 		}
 		if !strings.Contains(output, "VAR2=value2") {
 			t.Errorf("Expected plain format, got: %s", output)
-		}
-	})
-}
-
-// TestDefaultShell_quoteValueForPowerShell tests the quoteValueForPowerShell method
-func TestDefaultShell_quoteValueForPowerShell(t *testing.T) {
-	setup := func(t *testing.T) *DefaultShell {
-		t.Helper()
-		mocks := setupShellMocks(t)
-		shell := NewDefaultShell()
-		shell.shims = mocks.Shims
-		return shell
-	}
-
-	t.Run("QuotesValuesWithSpecialCharacters", func(t *testing.T) {
-		shell := setup(t)
-
-		testCases := []struct {
-			name     string
-			value    string
-			expected string
-		}{
-			{"JSONArray", `["item1","item2"]`, `'["item1","item2"]'`},
-			{"JSONObject", `{"key": "value"}`, `'{"key": "value"}'`},
-			{"WithSpaces", "value with spaces", "'value with spaces'"},
-			{"WithDollars", "value$test", "'value$test'"},
-			{"WithBrackets", "[test]", "'[test]'"},
-			{"SimpleValue", "simple", "'simple'"},
-		}
-
-		for _, tc := range testCases {
-			t.Run(tc.name, func(t *testing.T) {
-				result := shell.quoteValueForPowerShell(tc.value)
-				if result != tc.expected {
-					t.Errorf("Expected %q, got %q", tc.expected, result)
-				}
-			})
-		}
-	})
-
-	t.Run("EscapesSingleQuotesByDoubling", func(t *testing.T) {
-		shell := setup(t)
-
-		result := shell.quoteValueForPowerShell("value'with'quotes")
-		expected := `'value''with''quotes'`
-		if result != expected {
-			t.Errorf("Expected %q, got %q", expected, result)
-		}
-	})
-}
-
-// TestDefaultShell_renderEnvVarsWithExport_PowerShell tests renderEnvVarsWithExport with special characters
-func TestDefaultShell_renderEnvVarsWithExport_PowerShell(t *testing.T) {
-	setup := func(t *testing.T) (*DefaultShell, *ShellTestMocks) {
-		t.Helper()
-		mocks := setupShellMocks(t)
-		shell := NewDefaultShell()
-		shell.shims = mocks.Shims
-		return shell, mocks
-	}
-
-	t.Run("QuotesValuesWithSpecialCharacters", func(t *testing.T) {
-		// Given a shell with environment variables containing special characters
-		shell, _ := setup(t)
-		envVars := map[string]string{
-			"VAR1": `["item1","item2"]`,
-			"VAR2": `{"key": "value"}`,
-			"VAR3": "simple_value",
-			"VAR4": "value with spaces",
-		}
-
-		// When rendering environment variables with export
-		result := shell.renderEnvVarsWithExport(envVars)
-
-		// Then values with special characters should be quoted with single quotes
-		if !strings.Contains(result, "$env:VAR1='[\"item1\",\"item2\"]'\n") {
-			t.Errorf("Expected VAR1 to be quoted, got: %s", result)
-		}
-		if !strings.Contains(result, "$env:VAR2='{\"key\": \"value\"}'\n") {
-			t.Errorf("Expected VAR2 to be quoted, got: %s", result)
-		}
-		if !strings.Contains(result, "$env:VAR3='simple_value'\n") {
-			t.Errorf("Expected VAR3 to be quoted, got: %s", result)
-		}
-		if !strings.Contains(result, "$env:VAR4='value with spaces'\n") {
-			t.Errorf("Expected VAR4 to be quoted, got: %s", result)
 		}
 	})
 }

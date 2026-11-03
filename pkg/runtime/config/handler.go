@@ -182,22 +182,11 @@ func (c *configHandler) GetHeader() *cliconfig.Context {
 	return &header
 }
 
-// GetContext retrieves the current context, checking (in priority order):
-// 1. The in-memory context override set by SetContextName (used by windsor test for isolation)
-// 2. The .windsor/context file (written by windsor set context / windsor init)
-// 3. The WINDSOR_CONTEXT environment variable
-// 4. The default value "local"
-// File takes precedence over env var so that commands run immediately after
-// "windsor set context" use the new context before the shell hook has a chance to update
-// the WINDSOR_CONTEXT variable in the user's shell.
-//
-// Steps 2-4 run once per handler and cache in resolvedContext. This isolates a running command
-// from a concurrent "windsor set context" changing the file mid-run. A new handler still reads
-// fresh, so a later command sees the change.
-//
-// The override field c.context and resolvedContext share one lock (resolvedContext.mu): SetContext
-// writes c.context after this handler is already in use, so reading it here needs the same
-// synchronization the cache gets.
+// GetContext returns the current context. The first source with a value wins:
+// the override of SetContextName, the .windsor/context file, WINDSOR_CONTEXT, and then "local".
+// The file wins over the variable, so a command after windsor set context uses the new context at once.
+// The handler caches the file and variable result, so a concurrent windsor set context does not change a run.
+// The override and the cache share the resolvedContext.mu lock, because SetContext can write the override.
 func (c *configHandler) GetContext() string {
 	if c.resolvedContext == nil {
 		if c.context != "" {
@@ -231,13 +220,11 @@ func (c *configHandler) GetContext() string {
 	return c.resolvedContext.value
 }
 
-// WithContext returns a new ConfigHandler that is a shallow copy of the receiver with an
-// in-memory context override applied. The override takes highest priority in GetContext,
-// bypassing the .windsor/context file and the WINDSOR_CONTEXT env var. The original handler
-// is not modified. The data map is copied shallowly to prevent aliasing. Pending
-// Set paths are not carried over: they target the receiver's own values.yaml, not the copy's.
-// The copy gets its own resolvedContext cache.
-// Use this for ephemeral overrides (e.g. windsor test) that must not touch the filesystem.
+// WithContext returns a shallow copy of the handler with an in-memory context override.
+// The override wins over the .windsor/context file and WINDSOR_CONTEXT. The receiver does not change.
+// The copy gets a shallow copy of the data map and its own resolvedContext cache.
+// It does not get the pending Set paths, because those paths target the values.yaml of the receiver.
+// Use it for overrides that must not touch the filesystem, such as windsor test.
 func (c *configHandler) WithContext(name string) ConfigHandler {
 	cp := *c
 	cp.context = name

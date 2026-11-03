@@ -1,4 +1,4 @@
-package env
+package env_test
 
 import (
 	"errors"
@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/windsorcli/cli/pkg/runtime/config"
+	"github.com/windsorcli/cli/pkg/runtime/env"
 )
 
 // =============================================================================
@@ -15,7 +16,7 @@ import (
 
 // TestTalosEnv_GetEnvVars tests the GetEnvVars method of the TalosEnvPrinter
 func TestTalosEnv_GetEnvVars(t *testing.T) {
-	setup := func(t *testing.T, clusterDriver string, platform string) (*TalosEnvPrinter, *EnvTestMocks) {
+	setup := func(t *testing.T, clusterDriver string, platform string) (*env.TalosEnvPrinter, *EnvTestMocks) {
 		t.Helper()
 
 		// Create a mock config handler
@@ -43,8 +44,8 @@ func TestTalosEnv_GetEnvVars(t *testing.T) {
 			return filepath.Join(projectRoot, "contexts", "mock-context"), nil
 		}
 
-		printer := NewTalosEnvPrinter(mocks.Shell, mocks.ConfigHandler)
-		printer.shims = mocks.Shims
+		printer := env.NewTalosEnvPrinter(mocks.Shell, mocks.ConfigHandler)
+		printer.SetShims(mocks.Shims)
 
 		return printer, mocks
 	}
@@ -151,7 +152,7 @@ func TestTalosEnv_GetEnvVars(t *testing.T) {
 		printer, _ := setup(t, "talos", "docker")
 
 		// Override the GetConfigRoot to return an error
-		printer.configHandler.(*config.MockConfigHandler).GetConfigRootFunc = func() (string, error) {
+		printer.ConfigHandler().(*config.MockConfigHandler).GetConfigRootFunc = func() (string, error) {
 			return "", errors.New("mock project root error")
 		}
 

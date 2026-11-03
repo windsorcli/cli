@@ -21,7 +21,7 @@ import (
 // The state file is stored in .tfstate/<componentID>/terraform.tfstate within the Windsor scratch path.
 // If a backend prefix is configured, it is included in the path to support multi-tenant or
 // multi-environment deployments where state files need to be namespaced.
-func (p *terraformProvider) GetStatePath(componentID string) (string, error) {
+func (p *DefaultTerraformProvider) GetStatePath(componentID string) (string, error) {
 	_, _, windsorScratchPath, err := p.providerScope()
 	if err != nil {
 		return "", werror.Wrap(err, "error resolving provider scope")
@@ -42,14 +42,12 @@ func (p *terraformProvider) GetStatePath(componentID string) (string, error) {
 	return statePath, nil
 }
 
-// ListLocalStateComponentIDs returns every componentID with a local Terraform state file on
-// disk, whether or not that componentID is still declared in the active blueprint. Used by the
-// bootstrap recovery sweep to find state stranded under a component's previous ID after a
-// rename — recoverHalfMigratedComponents only iterates the current blueprint's componentIDs, so
-// a renamed component's old state is otherwise invisible to it. Walks the same directory tree
-// GetStatePath writes into, so the two stay in sync by construction. A missing .tfstate root is
-// not an error: it just means nothing has ever applied locally.
-func (p *terraformProvider) ListLocalStateComponentIDs() ([]string, error) {
+// ListLocalStateComponentIDs returns each component ID that has a local Terraform state file.
+// It includes IDs that the active blueprint no longer declares.
+// The bootstrap recovery sweep uses it to find state left under the old ID of a renamed component.
+// It walks the directory tree that GetStatePath writes into.
+// A missing .tfstate root is not an error, because no local apply has run.
+func (p *DefaultTerraformProvider) ListLocalStateComponentIDs() ([]string, error) {
 	_, _, windsorScratchPath, err := p.providerScope()
 	if err != nil {
 		return nil, werror.Wrap(err, "error resolving provider scope")
@@ -76,7 +74,7 @@ func (p *terraformProvider) ListLocalStateComponentIDs() ([]string, error) {
 // the .tfstate root, using "/" as the separator) per directory that directly contains a
 // terraform.tfstate file. componentIDs may nest — a component's Path can itself contain
 // slashes — so this walks the full tree rather than assuming a flat, one-level layout.
-func (p *terraformProvider) walkLocalStateDir(dir, rel string, ids *[]string) error {
+func (p *DefaultTerraformProvider) walkLocalStateDir(dir, rel string, ids *[]string) error {
 	entries, err := p.Shims.ReadDir(dir)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -109,7 +107,7 @@ func (p *terraformProvider) walkLocalStateDir(dir, rel string, ids *[]string) er
 
 // providerScope resolves the active context, config root, and Windsor scratch path.
 // configHandler.GetContext() caches itself, so this needs no cache of its own.
-func (p *terraformProvider) providerScope() (contextName, configRoot, windsorScratchPath string, err error) {
+func (p *DefaultTerraformProvider) providerScope() (contextName, configRoot, windsorScratchPath string, err error) {
 	contextName = p.configHandler.GetContext()
 
 	configRoot, err = p.configHandler.GetConfigRoot()

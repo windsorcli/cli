@@ -1,24 +1,17 @@
-package shell
+package shell_test
 
 import (
 	"bufio"
 	"bytes"
-	"context"
-	"errors"
 	"fmt"
 	"io"
 	"os"
 	"os/exec"
 	"runtime"
-	"slices"
 	"strings"
-	"sync"
 	"testing"
-	"time"
 
-	"github.com/windsorcli/cli/internal/werror"
-
-	"github.com/windsorcli/cli/internal/presenter"
+	"github.com/windsorcli/cli/pkg/runtime/shell"
 )
 
 // =============================================================================
@@ -26,17 +19,17 @@ import (
 // =============================================================================
 
 func TestShell_Exec(t *testing.T) {
-	setup := func(t *testing.T) (*DefaultShell, *ShellTestMocks) {
+	setup := func(t *testing.T) (*shell.DefaultShell, *ShellTestMocks) {
 		t.Helper()
 		mocks := setupShellMocks(t)
-		shell := NewDefaultShell()
-		shell.shims = mocks.Shims
-		return shell, mocks
+		subject := shell.NewDefaultShell()
+		subject.SetShims(mocks.Shims)
+		return subject, mocks
 	}
 
 	t.Run("Success", func(t *testing.T) {
 		// Given a shell with mocked command execution
-		shell, mocks := setup(t)
+		subject, mocks := setup(t)
 		mocks.Shims.Command = func(name string, args ...string) *exec.Cmd {
 			cmd := exec.Command("echo", "test")
 			return cmd
@@ -59,7 +52,7 @@ func TestShell_Exec(t *testing.T) {
 		os.Stdout = w
 
 		// When executing a command
-		out, err := shell.Exec("test", "arg")
+		out, err := subject.Exec("test", "arg")
 
 		// Restore stdout
 		w.Close()
@@ -77,7 +70,7 @@ func TestShell_Exec(t *testing.T) {
 
 	t.Run("Error", func(t *testing.T) {
 		// Given a shell with failing command
-		shell, mocks := setup(t)
+		subject, mocks := setup(t)
 		mocks.Shims.Command = func(name string, arg ...string) *exec.Cmd {
 			cmd := exec.Command("echo", "test")
 			return cmd
@@ -90,7 +83,7 @@ func TestShell_Exec(t *testing.T) {
 		}
 
 		// When executing a command
-		out, err := shell.Exec("test", "arg")
+		out, err := subject.Exec("test", "arg")
 
 		// Then it should return an error
 		if err == nil {
@@ -106,7 +99,7 @@ func TestShell_Exec(t *testing.T) {
 
 	t.Run("ErrorOnStart", func(t *testing.T) {
 		// Given a shell with failing command start
-		shell, mocks := setup(t)
+		subject, mocks := setup(t)
 		mocks.Shims.Command = func(name string, arg ...string) *exec.Cmd {
 			cmd := exec.Command("echo", "test")
 			return cmd
@@ -116,7 +109,7 @@ func TestShell_Exec(t *testing.T) {
 		}
 
 		// When executing a command
-		out, err := shell.Exec("test", "arg")
+		out, err := subject.Exec("test", "arg")
 
 		// Then it should return an error
 		if err == nil {
@@ -135,16 +128,16 @@ func TestShell_ExecSudo(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("ExecSudo Unix implementation tested here; Windows path covered in windows_shell_test.go")
 	}
-	setup := func(t *testing.T) (*DefaultShell, *ShellTestMocks) {
+	setup := func(t *testing.T) (*shell.DefaultShell, *ShellTestMocks) {
 		t.Helper()
 		mocks := setupShellMocks(t)
-		shell := NewDefaultShell()
-		shell.shims = mocks.Shims
-		return shell, mocks
+		subject := shell.NewDefaultShell()
+		subject.SetShims(mocks.Shims)
+		return subject, mocks
 	}
 
 	t.Run("Success", func(t *testing.T) {
-		shell, mocks := setup(t)
+		subject, mocks := setup(t)
 
 		// Mock command to return test output
 		mocks.Shims.Command = func(name string, args ...string) *exec.Cmd {
@@ -168,7 +161,7 @@ func TestShell_ExecSudo(t *testing.T) {
 			return os.NewFile(0, "test"), nil
 		}
 
-		output, err := shell.ExecSudo("Running test", "test", "arg")
+		output, err := subject.ExecSudo("Running test", "test", "arg")
 		if err != nil {
 			t.Errorf("Expected no error, got: %v", err)
 		}
@@ -179,8 +172,8 @@ func TestShell_ExecSudo(t *testing.T) {
 
 	t.Run("SuccessWithVerbose", func(t *testing.T) {
 		// Given a shell with verbose mode enabled
-		shell, mocks := setup(t)
-		shell.SetVerbosity(true)
+		subject, mocks := setup(t)
+		subject.SetVerbosity(true)
 
 		// Mock command execution
 		mocks.Shims.Command = func(name string, args ...string) *exec.Cmd {
@@ -215,7 +208,7 @@ func TestShell_ExecSudo(t *testing.T) {
 		}
 
 		// When executing a sudo command
-		output, err := shell.ExecSudo("test", "command")
+		output, err := subject.ExecSudo("test", "command")
 
 		// Then it should succeed and return the expected output
 		if err != nil {
@@ -227,7 +220,7 @@ func TestShell_ExecSudo(t *testing.T) {
 	})
 
 	t.Run("SuccessWithNoTTY", func(t *testing.T) {
-		shell, mocks := setup(t)
+		subject, mocks := setup(t)
 
 		mocks.Shims.IsTerminal = func(fd int) bool {
 			return false
@@ -253,7 +246,7 @@ func TestShell_ExecSudo(t *testing.T) {
 			return nil
 		}
 
-		output, err := shell.ExecSudo("Running test", "test", "arg")
+		output, err := subject.ExecSudo("Running test", "test", "arg")
 		if err != nil {
 			t.Errorf("Expected no error, got: %v", err)
 		}
@@ -263,12 +256,12 @@ func TestShell_ExecSudo(t *testing.T) {
 	})
 
 	t.Run("ErrorOnOpenTTY", func(t *testing.T) {
-		shell, mocks := setup(t)
+		subject, mocks := setup(t)
 		mocks.Shims.OpenFile = func(name string, flag int, perm os.FileMode) (*os.File, error) {
 			return nil, fmt.Errorf("failed to open tty")
 		}
 
-		output, err := shell.ExecSudo("Running test", "test", "arg")
+		output, err := subject.ExecSudo("Running test", "test", "arg")
 		if err == nil {
 			t.Error("Expected error, got nil")
 		}
@@ -281,12 +274,12 @@ func TestShell_ExecSudo(t *testing.T) {
 	})
 
 	t.Run("ErrorOnStart", func(t *testing.T) {
-		shell, mocks := setup(t)
+		subject, mocks := setup(t)
 		mocks.Shims.CmdStart = func(cmd *exec.Cmd) error {
 			return fmt.Errorf("failed to start command")
 		}
 
-		output, err := shell.ExecSudo("Running test", "test", "arg")
+		output, err := subject.ExecSudo("Running test", "test", "arg")
 		if err == nil {
 			t.Error("Expected error, got nil")
 		}
@@ -299,7 +292,7 @@ func TestShell_ExecSudo(t *testing.T) {
 	})
 
 	t.Run("ErrorOnWait", func(t *testing.T) {
-		shell, mocks := setup(t)
+		subject, mocks := setup(t)
 
 		expectedOutput := "test output"
 		expectedErr := fmt.Errorf("wait error")
@@ -323,7 +316,7 @@ func TestShell_ExecSudo(t *testing.T) {
 			return os.NewFile(0, "test"), nil
 		}
 
-		output, err := shell.ExecSudo("test", "test", "arg")
+		output, err := subject.ExecSudo("test", "test", "arg")
 
 		if err == nil {
 			t.Error("Expected error, got nil")
@@ -338,7 +331,7 @@ func TestShell_ExecSudo(t *testing.T) {
 
 	t.Run("SudoCommand", func(t *testing.T) {
 		// Given a shell with verbose mode disabled
-		shell, mocks := setup(t)
+		subject, mocks := setup(t)
 
 		// Mock command execution
 		mocks.Shims.Command = func(name string, args ...string) *exec.Cmd {
@@ -361,7 +354,7 @@ func TestShell_ExecSudo(t *testing.T) {
 		}
 
 		// When executing a sudo command
-		output, err := shell.ExecSudo("test", "sudo", "command")
+		output, err := subject.ExecSudo("test", "sudo", "command")
 
 		// Then it should succeed and return empty output
 		if err != nil {
@@ -374,8 +367,8 @@ func TestShell_ExecSudo(t *testing.T) {
 
 	t.Run("ScrubsSecretsFromInteractiveStderr", func(t *testing.T) {
 		// Given a shell with a registered secret and a real pipe standing in for /dev/tty
-		shell, mocks := setup(t)
-		shell.RegisterSecret("supersecretvalue")
+		subject, mocks := setup(t)
+		subject.RegisterSecret("supersecretvalue")
 
 		r, w, err := os.Pipe()
 		if err != nil {
@@ -400,7 +393,7 @@ func TestShell_ExecSudo(t *testing.T) {
 		}
 
 		// When executing a sudo command
-		if _, err := shell.ExecSudo("Running test", "test", "arg"); err != nil {
+		if _, err := subject.ExecSudo("Running test", "test", "arg"); err != nil {
 			t.Fatalf("expected no error, got %v", err)
 		}
 
@@ -418,13 +411,13 @@ func TestShell_ExecSudo(t *testing.T) {
 
 	t.Run("CommandNil", func(t *testing.T) {
 		// Given a shell with Command returning nil
-		shell, mocks := setup(t)
+		subject, mocks := setup(t)
 		mocks.Shims.Command = func(name string, args ...string) *exec.Cmd {
 			return nil
 		}
 
 		// When executing a sudo command
-		output, err := shell.ExecSudo("test", "command")
+		output, err := subject.ExecSudo("test", "command")
 
 		// Then it should fail with the expected error
 		if err == nil {
@@ -440,20 +433,20 @@ func TestShell_ExecSudo(t *testing.T) {
 }
 
 func TestShell_ExecSilent(t *testing.T) {
-	setup := func(t *testing.T) (*DefaultShell, *ShellTestMocks) {
+	setup := func(t *testing.T) (*shell.DefaultShell, *ShellTestMocks) {
 		t.Helper()
 		mocks := setupShellMocks(t)
-		shell := NewDefaultShell()
-		shell.shims = mocks.Shims
-		return shell, mocks
+		subject := shell.NewDefaultShell()
+		subject.SetShims(mocks.Shims)
+		return subject, mocks
 	}
 
 	t.Run("Success", func(t *testing.T) {
 		// Given a shell with mocked command execution
-		shell, _ := setup(t)
+		subject, _ := setup(t)
 
 		// When executing a command silently
-		out, err := shell.ExecSilent("test", "arg")
+		out, err := subject.ExecSilent("test", "arg")
 
 		// Then it should succeed and return output
 		if err != nil {
@@ -466,7 +459,7 @@ func TestShell_ExecSilent(t *testing.T) {
 
 	t.Run("Error", func(t *testing.T) {
 		// Given a shell with failing command
-		shell, mocks := setup(t)
+		subject, mocks := setup(t)
 		mocks.Shims.Command = func(name string, arg ...string) *exec.Cmd {
 			cmd := exec.Command("echo", "test")
 			return cmd
@@ -476,7 +469,7 @@ func TestShell_ExecSilent(t *testing.T) {
 		}
 
 		// When executing a command silently
-		out, err := shell.ExecSilent("test", "arg")
+		out, err := subject.ExecSilent("test", "arg")
 
 		// Then it should return an error
 		if err == nil {
@@ -492,13 +485,13 @@ func TestShell_ExecSilent(t *testing.T) {
 
 	t.Run("CommandNil", func(t *testing.T) {
 		// Given a shell with Command returning nil
-		shell, mocks := setup(t)
+		subject, mocks := setup(t)
 		mocks.Shims.Command = func(name string, args ...string) *exec.Cmd {
 			return nil
 		}
 
 		// When executing a command silently
-		output, err := shell.ExecSilent("test", "arg")
+		output, err := subject.ExecSilent("test", "arg")
 
 		// Then it should return an error
 		if err == nil {
@@ -514,7 +507,7 @@ func TestShell_ExecSilent(t *testing.T) {
 
 	t.Run("StdoutPipeError", func(t *testing.T) {
 		// Given a shell with failing StdoutPipe
-		shell, mocks := setup(t)
+		subject, mocks := setup(t)
 		mocks.Shims.Command = func(name string, args ...string) *exec.Cmd {
 			return exec.Command("echo", "test")
 		}
@@ -523,7 +516,7 @@ func TestShell_ExecSilent(t *testing.T) {
 		}
 
 		// When executing a command with progress
-		output, err := shell.ExecProgress("test message", "test", "arg")
+		output, err := subject.ExecProgress("test message", "test", "arg")
 
 		// Then it should return an error
 		if err == nil {
@@ -539,7 +532,7 @@ func TestShell_ExecSilent(t *testing.T) {
 
 	t.Run("StderrPipeError", func(t *testing.T) {
 		// Given a shell with failing StderrPipe
-		shell, mocks := setup(t)
+		subject, mocks := setup(t)
 		mocks.Shims.Command = func(name string, args ...string) *exec.Cmd {
 			return exec.Command("echo", "test")
 		}
@@ -558,7 +551,7 @@ func TestShell_ExecSilent(t *testing.T) {
 		}
 
 		// When executing a command with progress
-		output, err := shell.ExecProgress("test message", "test", "arg")
+		output, err := subject.ExecProgress("test message", "test", "arg")
 
 		// Then it should return an error
 		if err == nil {
@@ -574,7 +567,7 @@ func TestShell_ExecSilent(t *testing.T) {
 
 	t.Run("CmdStartError", func(t *testing.T) {
 		// Given a shell with failing CmdStart
-		shell, mocks := setup(t)
+		subject, mocks := setup(t)
 		mocks.Shims.Command = func(name string, args ...string) *exec.Cmd {
 			return exec.Command("echo", "test")
 		}
@@ -603,7 +596,7 @@ func TestShell_ExecSilent(t *testing.T) {
 		}
 
 		// When executing a command with progress
-		output, err := shell.ExecProgress("test message", "test", "arg")
+		output, err := subject.ExecProgress("test message", "test", "arg")
 
 		// Then it should return an error
 		if err == nil {
@@ -619,20 +612,20 @@ func TestShell_ExecSilent(t *testing.T) {
 }
 
 func TestShell_ExecSilentWithEnv(t *testing.T) {
-	setup := func(t *testing.T) (*DefaultShell, *ShellTestMocks) {
+	setup := func(t *testing.T) (*shell.DefaultShell, *ShellTestMocks) {
 		t.Helper()
 		mocks := setupShellMocks(t)
-		shell := NewDefaultShell()
-		shell.shims = mocks.Shims
-		return shell, mocks
+		subject := shell.NewDefaultShell()
+		subject.SetShims(mocks.Shims)
+		return subject, mocks
 	}
 
 	t.Run("Success", func(t *testing.T) {
 		// Given a shell with mocked command execution
-		shell, _ := setup(t)
+		subject, _ := setup(t)
 
 		// When executing a command with env vars silently
-		out, err := shell.ExecSilentWithEnv("test", map[string]string{"FOO": "bar"}, "arg")
+		out, err := subject.ExecSilentWithEnv("test", map[string]string{"FOO": "bar"}, "arg")
 
 		// Then it should succeed and return output
 		if err != nil {
@@ -645,13 +638,13 @@ func TestShell_ExecSilentWithEnv(t *testing.T) {
 
 	t.Run("Error", func(t *testing.T) {
 		// Given a shell whose CmdRun returns an error
-		shell, mocks := setup(t)
+		subject, mocks := setup(t)
 		mocks.Shims.CmdRun = func(cmd *exec.Cmd) error {
 			return fmt.Errorf("command failed")
 		}
 
 		// When executing a command with env vars silently
-		out, err := shell.ExecSilentWithEnv("test", nil, "arg")
+		out, err := subject.ExecSilentWithEnv("test", nil, "arg")
 
 		// Then an error is returned and output is empty
 		if err == nil {
@@ -667,13 +660,13 @@ func TestShell_ExecSilentWithEnv(t *testing.T) {
 
 	t.Run("CommandNil", func(t *testing.T) {
 		// Given a shell whose Command shim returns nil
-		shell, mocks := setup(t)
+		subject, mocks := setup(t)
 		mocks.Shims.Command = func(name string, args ...string) *exec.Cmd {
 			return nil
 		}
 
 		// When executing a command with env vars silently
-		output, err := shell.ExecSilentWithEnv("test", nil, "arg")
+		output, err := subject.ExecSilentWithEnv("test", nil, "arg")
 
 		// Then an error about command creation is returned
 		if err == nil {
@@ -689,7 +682,7 @@ func TestShell_ExecSilentWithEnv(t *testing.T) {
 
 	t.Run("MergesEnvVars", func(t *testing.T) {
 		// Given a shell with a custom env var
-		shell, mocks := setup(t)
+		subject, mocks := setup(t)
 		var capturedEnv []string
 		mocks.Shims.CmdRun = func(cmd *exec.Cmd) error {
 			capturedEnv = cmd.Env
@@ -697,7 +690,7 @@ func TestShell_ExecSilentWithEnv(t *testing.T) {
 		}
 
 		// When executing with an extra env var
-		_, _ = shell.ExecSilentWithEnv("test", map[string]string{"CUSTOM_VAR": "custom_value"}, "arg")
+		_, _ = subject.ExecSilentWithEnv("test", map[string]string{"CUSTOM_VAR": "custom_value"}, "arg")
 
 		// Then the env var is present in the command environment
 		found := false
@@ -714,8 +707,8 @@ func TestShell_ExecSilentWithEnv(t *testing.T) {
 
 	t.Run("VerboseMode", func(t *testing.T) {
 		// Given a shell with verbose mode enabled
-		shell, mocks := setup(t)
-		shell.SetVerbosity(true)
+		subject, mocks := setup(t)
+		subject.SetVerbosity(true)
 
 		// Mock CmdRun to write output to cmd.Stdout
 		mocks.Shims.CmdRun = func(cmd *exec.Cmd) error {
@@ -733,7 +726,7 @@ func TestShell_ExecSilentWithEnv(t *testing.T) {
 		os.Stdout = w
 
 		// When executing with env vars in verbose mode
-		out, err := shell.ExecSilentWithEnv("test", map[string]string{"FOO": "bar"}, "arg")
+		out, err := subject.ExecSilentWithEnv("test", map[string]string{"FOO": "bar"}, "arg")
 
 		w.Close()
 		os.Stdout = oldStdout
@@ -750,9 +743,9 @@ func TestShell_ExecSilentWithEnv(t *testing.T) {
 
 	t.Run("VerboseModeScrubbingSecrets", func(t *testing.T) {
 		// Given a shell with verbose mode and a registered secret
-		shell, mocks := setup(t)
-		shell.SetVerbosity(true)
-		shell.RegisterSecret("s3cr3t123")
+		subject, mocks := setup(t)
+		subject.SetVerbosity(true)
+		subject.RegisterSecret("s3cr3t123")
 
 		// Mock CmdRun to write a line containing the secret
 		mocks.Shims.CmdRun = func(cmd *exec.Cmd) error {
@@ -770,7 +763,7 @@ func TestShell_ExecSilentWithEnv(t *testing.T) {
 		os.Stdout = w
 
 		// When executing in verbose mode
-		out, err := shell.ExecSilentWithEnv("test", nil, "arg")
+		out, err := subject.ExecSilentWithEnv("test", nil, "arg")
 
 		w.Close()
 		os.Stdout = oldStdout
@@ -792,20 +785,20 @@ func TestShell_ExecSilentWithEnv(t *testing.T) {
 }
 
 func TestShell_ExecCaptureWithEnv(t *testing.T) {
-	setup := func(t *testing.T) (*DefaultShell, *ShellTestMocks) {
+	setup := func(t *testing.T) (*shell.DefaultShell, *ShellTestMocks) {
 		t.Helper()
 		mocks := setupShellMocks(t)
-		shell := NewDefaultShell()
-		shell.shims = mocks.Shims
-		return shell, mocks
+		subject := shell.NewDefaultShell()
+		subject.SetShims(mocks.Shims)
+		return subject, mocks
 	}
 
 	t.Run("Success", func(t *testing.T) {
 		// Given a shell with mocked command execution
-		shell, _ := setup(t)
+		subject, _ := setup(t)
 
 		// When capturing a command's output
-		out, err := shell.ExecCaptureWithEnv("test", map[string]string{"FOO": "bar"}, "arg")
+		out, err := subject.ExecCaptureWithEnv("test", map[string]string{"FOO": "bar"}, "arg")
 
 		// Then it succeeds and returns the captured output
 		if err != nil {
@@ -818,8 +811,8 @@ func TestShell_ExecCaptureWithEnv(t *testing.T) {
 
 	t.Run("NeverStreamsEvenInVerboseMode", func(t *testing.T) {
 		// Given a shell in verbose mode whose command emits sensitive machine output
-		shell, mocks := setup(t)
-		shell.SetVerbosity(true)
+		subject, mocks := setup(t)
+		subject.SetVerbosity(true)
 		mocks.Shims.CmdRun = func(cmd *exec.Cmd) error {
 			if cmd.Stdout != nil {
 				if _, err := cmd.Stdout.Write([]byte("cluster-pki-secret\n")); err != nil {
@@ -838,7 +831,7 @@ func TestShell_ExecCaptureWithEnv(t *testing.T) {
 		os.Stdout = w
 
 		// When capturing the output in verbose mode
-		out, err := shell.ExecCaptureWithEnv("test", nil, "arg")
+		out, err := subject.ExecCaptureWithEnv("test", nil, "arg")
 
 		w.Close()
 		os.Stdout = oldStdout
@@ -858,13 +851,13 @@ func TestShell_ExecCaptureWithEnv(t *testing.T) {
 
 	t.Run("Error", func(t *testing.T) {
 		// Given a shell whose CmdRun returns an error
-		shell, mocks := setup(t)
+		subject, mocks := setup(t)
 		mocks.Shims.CmdRun = func(cmd *exec.Cmd) error {
 			return fmt.Errorf("command failed")
 		}
 
 		// When capturing output
-		out, err := shell.ExecCaptureWithEnv("test", nil, "arg")
+		out, err := subject.ExecCaptureWithEnv("test", nil, "arg")
 
 		// Then an error is returned and output is empty
 		if err == nil || !strings.Contains(err.Error(), "command failed") {
@@ -877,13 +870,13 @@ func TestShell_ExecCaptureWithEnv(t *testing.T) {
 
 	t.Run("CommandNil", func(t *testing.T) {
 		// Given a shell whose Command shim returns nil
-		shell, mocks := setup(t)
+		subject, mocks := setup(t)
 		mocks.Shims.Command = func(name string, args ...string) *exec.Cmd {
 			return nil
 		}
 
 		// When capturing output
-		output, err := shell.ExecCaptureWithEnv("test", nil, "arg")
+		output, err := subject.ExecCaptureWithEnv("test", nil, "arg")
 
 		// Then an error about command creation is returned
 		if err == nil || !strings.Contains(err.Error(), "failed to create command") {
@@ -896,17 +889,17 @@ func TestShell_ExecCaptureWithEnv(t *testing.T) {
 }
 
 func TestShell_ExecProgress(t *testing.T) {
-	setup := func(t *testing.T) (*DefaultShell, *ShellTestMocks) {
+	setup := func(t *testing.T) (*shell.DefaultShell, *ShellTestMocks) {
 		t.Helper()
 		mocks := setupShellMocks(t)
-		shell := NewDefaultShell()
-		shell.shims = mocks.Shims
-		return shell, mocks
+		subject := shell.NewDefaultShell()
+		subject.SetShims(mocks.Shims)
+		return subject, mocks
 	}
 
 	t.Run("Success", func(t *testing.T) {
 		// Given a shell with mocked operations
-		shell, mocks := setup(t)
+		subject, mocks := setup(t)
 
 		// Set expected output
 		expectedOutput := "test output\n"
@@ -943,7 +936,7 @@ func TestShell_ExecProgress(t *testing.T) {
 		}
 
 		// When executing command with progress
-		output, err := shell.ExecProgress(message, "test")
+		output, err := subject.ExecProgress(message, "test")
 
 		// Then it should succeed and return expected output
 		if err != nil {
@@ -956,8 +949,8 @@ func TestShell_ExecProgress(t *testing.T) {
 
 	t.Run("VerboseMode", func(t *testing.T) {
 		// Given a shell with verbose mode enabled
-		shell, mocks := setup(t)
-		shell.SetVerbosity(true)
+		subject, mocks := setup(t)
+		subject.SetVerbosity(true)
 
 		// Set expected output and message
 		expectedOutput := "test output\n"
@@ -988,7 +981,7 @@ func TestShell_ExecProgress(t *testing.T) {
 		var output string
 		var err error
 		stderr := captureStderr(t, func() {
-			output, err = shell.ExecProgress(message, "test")
+			output, err = subject.ExecProgress(message, "test")
 		})
 
 		// Then it should print the message, succeed, and return expected output
@@ -1005,7 +998,7 @@ func TestShell_ExecProgress(t *testing.T) {
 
 	t.Run("CommandCreationFailure", func(t *testing.T) {
 		// Given a shell with failing command creation
-		shell, mocks := setup(t)
+		subject, mocks := setup(t)
 
 		// Mock command execution to fail
 		mocks.Shims.Command = func(name string, args ...string) *exec.Cmd {
@@ -1013,7 +1006,7 @@ func TestShell_ExecProgress(t *testing.T) {
 		}
 
 		// When executing command with progress
-		output, err := shell.ExecProgress("Test Progress", "test")
+		output, err := subject.ExecProgress("Test Progress", "test")
 
 		// Then it should return an error
 		if err == nil {
@@ -1029,7 +1022,7 @@ func TestShell_ExecProgress(t *testing.T) {
 
 	t.Run("StdoutPipeFailure", func(t *testing.T) {
 		// Given a shell with failing stdout pipe
-		shell, mocks := setup(t)
+		subject, mocks := setup(t)
 
 		// Mock command execution
 		mocks.Shims.Command = func(name string, args ...string) *exec.Cmd {
@@ -1042,7 +1035,7 @@ func TestShell_ExecProgress(t *testing.T) {
 		}
 
 		// When executing command with progress
-		output, err := shell.ExecProgress("Test Progress", "test")
+		output, err := subject.ExecProgress("Test Progress", "test")
 
 		// Then it should return an error
 		if err == nil {
@@ -1058,7 +1051,7 @@ func TestShell_ExecProgress(t *testing.T) {
 
 	t.Run("StderrPipeFailure", func(t *testing.T) {
 		// Given a shell with failing stderr pipe
-		shell, mocks := setup(t)
+		subject, mocks := setup(t)
 
 		// Mock command execution
 		mocks.Shims.Command = func(name string, args ...string) *exec.Cmd {
@@ -1081,7 +1074,7 @@ func TestShell_ExecProgress(t *testing.T) {
 		}
 
 		// When executing command with progress
-		output, err := shell.ExecProgress("Test Progress", "test")
+		output, err := subject.ExecProgress("Test Progress", "test")
 
 		// Then it should return an error
 		if err == nil {
@@ -1097,7 +1090,7 @@ func TestShell_ExecProgress(t *testing.T) {
 
 	t.Run("CommandStartFailure", func(t *testing.T) {
 		// Given a shell with failing command start
-		shell, mocks := setup(t)
+		subject, mocks := setup(t)
 
 		// Mock command execution
 		mocks.Shims.Command = func(name string, args ...string) *exec.Cmd {
@@ -1127,7 +1120,7 @@ func TestShell_ExecProgress(t *testing.T) {
 		}
 
 		// When executing command with progress
-		output, err := shell.ExecProgress("Test Progress", "test")
+		output, err := subject.ExecProgress("Test Progress", "test")
 
 		// Then it should return an error
 		if err == nil {
@@ -1142,7 +1135,7 @@ func TestShell_ExecProgress(t *testing.T) {
 	})
 
 	t.Run("CommandExecutionFailure", func(t *testing.T) {
-		shell, mocks := setup(t)
+		subject, mocks := setup(t)
 
 		expectedOutput := ""
 		message := "Test Progress"
@@ -1175,7 +1168,7 @@ func TestShell_ExecProgress(t *testing.T) {
 			return fmt.Errorf("command execution error")
 		}
 
-		output, err := shell.ExecProgress(message, "test")
+		output, err := subject.ExecProgress(message, "test")
 		if err == nil {
 			t.Error("Expected error, got nil")
 		}
@@ -1188,7 +1181,7 @@ func TestShell_ExecProgress(t *testing.T) {
 	})
 
 	t.Run("StdoutScannerError", func(t *testing.T) {
-		shell, mocks := setup(t)
+		subject, mocks := setup(t)
 		message := "Test Progress"
 
 		mocks.Shims.Command = func(name string, args ...string) *exec.Cmd {
@@ -1223,7 +1216,7 @@ func TestShell_ExecProgress(t *testing.T) {
 			return fmt.Errorf("stdout scanner error")
 		}
 
-		output, err := shell.ExecProgress(message, "test")
+		output, err := subject.ExecProgress(message, "test")
 		if output != "" {
 			t.Errorf("Expected empty output, got %q", output)
 		}
@@ -1236,7 +1229,7 @@ func TestShell_ExecProgress(t *testing.T) {
 	})
 
 	t.Run("StderrScannerError", func(t *testing.T) {
-		shell, mocks := setup(t)
+		subject, mocks := setup(t)
 		message := "Test Progress"
 
 		mocks.Shims.Command = func(name string, args ...string) *exec.Cmd {
@@ -1271,7 +1264,7 @@ func TestShell_ExecProgress(t *testing.T) {
 			return fmt.Errorf("stderr scanner error")
 		}
 
-		output, err := shell.ExecProgress(message, "test")
+		output, err := subject.ExecProgress(message, "test")
 		if output != "" {
 			t.Errorf("Expected empty output, got %q", output)
 		}
@@ -1284,7 +1277,7 @@ func TestShell_ExecProgress(t *testing.T) {
 	})
 
 	t.Run("EmptyOutput", func(t *testing.T) {
-		shell, mocks := setup(t)
+		subject, mocks := setup(t)
 
 		expectedOutput := ""
 		message := "Test Progress"
@@ -1317,7 +1310,7 @@ func TestShell_ExecProgress(t *testing.T) {
 			return nil
 		}
 
-		output, err := shell.ExecProgress(message, "test")
+		output, err := subject.ExecProgress(message, "test")
 		if err != nil {
 			t.Errorf("Expected no error, got %v", err)
 		}
@@ -1327,7 +1320,7 @@ func TestShell_ExecProgress(t *testing.T) {
 	})
 
 	t.Run("MultiLineOutput", func(t *testing.T) {
-		shell, mocks := setup(t)
+		subject, mocks := setup(t)
 
 		expectedOutput := "line 1\nline 2\nline 3\n"
 		message := "Test Progress"
@@ -1361,7 +1354,7 @@ func TestShell_ExecProgress(t *testing.T) {
 			return nil
 		}
 
-		output, err := shell.ExecProgress(message, "test")
+		output, err := subject.ExecProgress(message, "test")
 		if err != nil {
 			t.Errorf("Expected no error, got %v", err)
 		}
@@ -1371,7 +1364,7 @@ func TestShell_ExecProgress(t *testing.T) {
 	})
 
 	t.Run("ScannerBehavior", func(t *testing.T) {
-		shell, mocks := setup(t)
+		subject, mocks := setup(t)
 		message := "Test Progress"
 		expectedOutput := "test output\n"
 
@@ -1397,7 +1390,7 @@ func TestShell_ExecProgress(t *testing.T) {
 		}
 
 		// When executing command with progress
-		output, err := shell.ExecProgress(message, "test")
+		output, err := subject.ExecProgress(message, "test")
 
 		// Then it should succeed and return expected output
 		if err != nil {
@@ -1410,7 +1403,7 @@ func TestShell_ExecProgress(t *testing.T) {
 
 	t.Run("EmptyStderrOnFailure", func(t *testing.T) {
 		// Given a shell with mocked operations
-		shell, mocks := setup(t)
+		subject, mocks := setup(t)
 
 		// Mock command execution
 		mocks.Shims.Command = func(name string, args ...string) *exec.Cmd {
@@ -1436,7 +1429,7 @@ func TestShell_ExecProgress(t *testing.T) {
 		}
 
 		// When executing command with progress
-		output, err := shell.ExecProgress("test progress", "test-command", "arg1", "arg2")
+		output, err := subject.ExecProgress("test progress", "test-command", "arg1", "arg2")
 
 		// Then it should return error and output
 		if err == nil {
@@ -1449,17 +1442,17 @@ func TestShell_ExecProgress(t *testing.T) {
 }
 
 func TestShell_ExecProgressWithEnv_InterruptGuard(t *testing.T) {
-	setup := func(t *testing.T) (*DefaultShell, *ShellTestMocks) {
+	setup := func(t *testing.T) (*shell.DefaultShell, *ShellTestMocks) {
 		t.Helper()
 		mocks := setupShellMocks(t)
-		shell := NewDefaultShell()
-		shell.shims = mocks.Shims
-		return shell, mocks
+		subject := shell.NewDefaultShell()
+		subject.SetShims(mocks.Shims)
+		return subject, mocks
 	}
 
 	t.Run("RegistersAndStopsAnInterruptGuardAroundTheCommand", func(t *testing.T) {
 		// Given a shell whose SignalNotify/SignalStop calls are observed
-		shell, mocks := setup(t)
+		subject, mocks := setup(t)
 
 		var notifiedSignals []os.Signal
 		var notifyCh chan<- os.Signal
@@ -1475,7 +1468,7 @@ func TestShell_ExecProgressWithEnv_InterruptGuard(t *testing.T) {
 		}
 
 		// When executing a command with progress
-		if _, err := shell.ExecProgressWithEnv("Applying test", "test", nil); err != nil {
+		if _, err := subject.ExecProgressWithEnv("Applying test", "test", nil); err != nil {
 			t.Fatalf("expected no error, got %v", err)
 		}
 
@@ -1490,7 +1483,7 @@ func TestShell_ExecProgressWithEnv_InterruptGuard(t *testing.T) {
 
 	t.Run("PlacesTheCommandInItsOwnProcessGroup", func(t *testing.T) {
 		// Given a shell that captures the command built for execution
-		shell, mocks := setup(t)
+		subject, mocks := setup(t)
 
 		var capturedCmd *exec.Cmd
 		mocks.Shims.Command = func(name string, args ...string) *exec.Cmd {
@@ -1499,7 +1492,7 @@ func TestShell_ExecProgressWithEnv_InterruptGuard(t *testing.T) {
 		}
 
 		// When executing a command with progress
-		if _, err := shell.ExecProgressWithEnv("Applying test", "test", nil); err != nil {
+		if _, err := subject.ExecProgressWithEnv("Applying test", "test", nil); err != nil {
 			t.Fatalf("expected no error, got %v", err)
 		}
 
@@ -1512,8 +1505,8 @@ func TestShell_ExecProgressWithEnv_InterruptGuard(t *testing.T) {
 
 	t.Run("VerboseModeAlsoRegistersAndStopsTheGuard", func(t *testing.T) {
 		// Given a verbose shell whose SignalNotify/SignalStop calls are observed
-		shell, mocks := setup(t)
-		shell.SetVerbosity(true)
+		subject, mocks := setup(t)
+		subject.SetVerbosity(true)
 
 		notifyCalls := 0
 		stopCalls := 0
@@ -1527,7 +1520,7 @@ func TestShell_ExecProgressWithEnv_InterruptGuard(t *testing.T) {
 		}
 
 		// When executing a command with progress in verbose mode
-		if _, err := shell.ExecProgressWithEnv("Applying test", "test", nil); err != nil {
+		if _, err := subject.ExecProgressWithEnv("Applying test", "test", nil); err != nil {
 			t.Fatalf("expected no error, got %v", err)
 		}
 
@@ -1540,7 +1533,7 @@ func TestShell_ExecProgressWithEnv_InterruptGuard(t *testing.T) {
 	t.Run("SkipsTheGuardForSudo", func(t *testing.T) {
 		// Setpgid would move a sudo child out of the terminal's foreground group.
 		// Its password prompt would then stall on SIGTTIN. The guard must not run.
-		shell, mocks := setup(t)
+		subject, mocks := setup(t)
 
 		notifyCalls := 0
 		mocks.Shims.SignalNotify = func(c chan<- os.Signal, sig ...os.Signal) { notifyCalls++ }
@@ -1550,7 +1543,7 @@ func TestShell_ExecProgressWithEnv_InterruptGuard(t *testing.T) {
 			return capturedCmd
 		}
 
-		if _, err := shell.ExecProgressWithEnv("Applying test", "sudo", nil); err != nil {
+		if _, err := subject.ExecProgressWithEnv("Applying test", "sudo", nil); err != nil {
 			t.Fatalf("expected no error, got %v", err)
 		}
 
@@ -1562,222 +1555,3 @@ func TestShell_ExecProgressWithEnv_InterruptGuard(t *testing.T) {
 		}
 	})
 }
-
-// =============================================================================
-// Test Private Methods
-// =============================================================================
-
-func TestInterruptGuard_Watch(t *testing.T) {
-	setup := func() (*interruptGuard, *syncWriter, func() int) {
-		warn := newSyncWriter()
-		var mu sync.Mutex
-		forwardCount := 0
-		g := &interruptGuard{
-			forward: func() error {
-				mu.Lock()
-				forwardCount++
-				mu.Unlock()
-				return nil
-			},
-			warn:      warn,
-			component: "cluster/aws-eks",
-		}
-		count := func() int {
-			mu.Lock()
-			defer mu.Unlock()
-			return forwardCount
-		}
-		return g, warn, count
-	}
-
-	runWatch := func(t *testing.T, g *interruptGuard, sigCh chan os.Signal, done chan struct{}) <-chan struct{} {
-		t.Helper()
-		finished := make(chan struct{})
-		go func() {
-			g.watch(sigCh, done)
-			close(finished)
-		}()
-		return finished
-	}
-
-	waitFinished := func(t *testing.T, finished <-chan struct{}) {
-		t.Helper()
-		select {
-		case <-finished:
-		case <-time.After(time.Second):
-			t.Fatal("watch did not return after done was closed")
-		}
-	}
-
-	t.Run("ReturnsWithoutForwardingWhenNoSignalArrives", func(t *testing.T) {
-		g, warn, count := setup()
-		sigCh := make(chan os.Signal, 1)
-		done := make(chan struct{})
-
-		finished := runWatch(t, g, sigCh, done)
-		close(done)
-		waitFinished(t, finished)
-
-		if count() != 0 {
-			t.Errorf("expected forward not to be called, got %d calls", count())
-		}
-		if warn.String() != "" {
-			t.Errorf("expected no warning output, got %q", warn.String())
-		}
-	})
-
-	t.Run("ForwardsOnlyTheFirstOfSeveralSignals", func(t *testing.T) {
-		g, warn, count := setup()
-		sigCh := make(chan os.Signal, 4)
-		done := make(chan struct{})
-
-		finished := runWatch(t, g, sigCh, done)
-
-		sigCh <- os.Interrupt
-		<-warn.written
-		sigCh <- os.Interrupt
-		<-warn.written
-		sigCh <- os.Interrupt
-		<-warn.written
-
-		close(done)
-		waitFinished(t, finished)
-
-		if count() != 1 {
-			t.Errorf("expected forward to be called exactly once, got %d", count())
-		}
-		lines := strings.Count(warn.String(), "\n")
-		if lines != 3 {
-			t.Errorf("expected one warning line per signal (3), got %d in %q", lines, warn.String())
-		}
-		if !strings.Contains(warn.String(), "cluster/aws-eks") {
-			t.Errorf("expected warning to mention the component, got %q", warn.String())
-		}
-	})
-
-	t.Run("SecondWarningIsDistinctFromTheFirst", func(t *testing.T) {
-		g, warn, _ := setup()
-		sigCh := make(chan os.Signal, 2)
-		done := make(chan struct{})
-
-		finished := runWatch(t, g, sigCh, done)
-
-		sigCh <- os.Interrupt
-		<-warn.written
-		sigCh <- os.Interrupt
-		<-warn.written
-
-		close(done)
-		waitFinished(t, finished)
-
-		lines := strings.Split(strings.TrimRight(warn.String(), "\n"), "\n")
-		if len(lines) != 2 {
-			t.Fatalf("expected exactly two warning lines, got %d: %q", len(lines), warn.String())
-		}
-		if lines[0] == lines[1] {
-			t.Errorf("expected a distinct follow-up warning, got the same line twice: %q", lines[0])
-		}
-		if !strings.Contains(lines[1], "corrupt") {
-			t.Errorf("expected the second warning to warn that forcing can corrupt state, got %q", lines[1])
-		}
-	})
-
-	t.Run("ReturnsPromptlyOnceDoneIsClosed", func(t *testing.T) {
-		g, _, _ := setup()
-		sigCh := make(chan os.Signal, 1)
-		done := make(chan struct{})
-
-		finished := runWatch(t, g, sigCh, done)
-		close(done)
-		waitFinished(t, finished)
-	})
-
-	t.Run("HandsTheTerminalOffAroundEachWarning", func(t *testing.T) {
-		// The console redraws its live region on a timer. An unpaused write here would
-		// get drawn over by the next frame. Each warning must hand off, then take back.
-		var mu sync.Mutex
-		var events []string
-		presenter.SetDefault(&handoffRecorder{record: func(e string) {
-			mu.Lock()
-			events = append(events, e)
-			mu.Unlock()
-		}})
-		t.Cleanup(func() { presenter.SetDefault(nil) })
-
-		warn := newSyncWriter()
-		warn.onWrite = func() {
-			mu.Lock()
-			events = append(events, "write")
-			mu.Unlock()
-		}
-		g := &interruptGuard{
-			forward:   func() error { return nil },
-			warn:      warn,
-			component: "cluster/aws-eks",
-		}
-		sigCh := make(chan os.Signal, 1)
-		done := make(chan struct{})
-
-		finished := runWatch(t, g, sigCh, done)
-		sigCh <- os.Interrupt
-		<-warn.written
-		close(done)
-		waitFinished(t, finished)
-
-		mu.Lock()
-		got := append([]string(nil), events...)
-		mu.Unlock()
-		want := []string{"pause", "write", "resume"}
-		if !slices.Equal(got, want) {
-			t.Errorf("expected %v, got %v", want, got)
-		}
-	})
-}
-
-func Test_execError(t *testing.T) {
-	cause := errors.New("exit status 1")
-
-	t.Run("KeepsStderrAfterTheCause", func(t *testing.T) {
-		// Given a failed command that wrote to stderr
-		// When execError wraps the failure
-		err := execError(cause, "permission denied")
-
-		// Then the text and the trace keep the stderr, and the cause stays in the chain
-		if err.Error() != "command execution failed: exit status 1\npermission denied" {
-			t.Errorf("Expected the cause then the stderr, got %q", err.Error())
-		}
-		if !errors.Is(err, cause) {
-			t.Error("Expected the cause to stay in the error chain")
-		}
-		crumbs := werror.Breadcrumbs(err)
-		if len(crumbs) == 0 || !strings.Contains(crumbs[len(crumbs)-1], "permission denied") {
-			t.Errorf("Expected the trace to show the stderr, got %v", crumbs)
-		}
-	})
-
-	t.Run("OmitsEmptyStderr", func(t *testing.T) {
-		// Given a failed command that wrote nothing to stderr
-		// When execError wraps the failure
-		err := execError(cause, "")
-
-		// Then the text ends with the cause
-		if err.Error() != "command execution failed: exit status 1" {
-			t.Errorf("Expected no trailing stderr, got %q", err.Error())
-		}
-	})
-}
-
-// =============================================================================
-// Test Helpers
-// =============================================================================
-
-// handoffRecorder is a presenter that records Pause and Resume calls.
-type handoffRecorder struct {
-	record func(string)
-}
-
-func (h *handoffRecorder) Emit(context.Context, presenter.Event) {}
-
-func (h *handoffRecorder) Pause() { h.record("pause") }
-
-func (h *handoffRecorder) Resume() { h.record("resume") }

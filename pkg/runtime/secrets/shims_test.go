@@ -1,14 +1,16 @@
-package secrets
+package secrets_test
 
 import (
 	"context"
 	"os"
 	"testing"
+
+	"github.com/windsorcli/cli/pkg/runtime/secrets"
 )
 
 func TestNewShims(t *testing.T) {
 	t.Run("InitializesAllShims", func(t *testing.T) {
-		shims := NewShims()
+		shims := secrets.NewShims()
 
 		// Test Stat shim
 		if shims.Stat == nil {
@@ -37,7 +39,7 @@ func TestNewShims(t *testing.T) {
 	})
 
 	t.Run("ResolveSecretHandlesNilClient", func(t *testing.T) {
-		shims := NewShims()
+		shims := secrets.NewShims()
 
 		// Test ResolveSecret with nil client
 		_, err := shims.ResolveSecret(nil, context.Background(), "test-ref")
@@ -50,7 +52,7 @@ func TestNewShims(t *testing.T) {
 	})
 
 	t.Run("StatUsesOsStat", func(t *testing.T) {
-		shims := NewShims()
+		shims := secrets.NewShims()
 
 		// Test that Stat uses os.Stat
 		_, err := shims.Stat("nonexistent-file")

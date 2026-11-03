@@ -1,23 +1,16 @@
 //go:build darwin || linux
 // +build darwin linux
 
-package shell
+package shell_test
 
 import (
 	"os"
-	"os/exec"
 	"path/filepath"
-	"strconv"
 	"strings"
-	"syscall"
 	"testing"
-	"time"
-)
 
-// The UnixShellTest is a test suite for Unix-specific shell operations.
-// It provides comprehensive test coverage for environment variable management,
-// project root detection, and alias handling on Unix-like systems.
-// The UnixShellTest ensures reliable shell operations on macOS and Linux platforms.
+	"github.com/windsorcli/cli/pkg/runtime/shell"
+)
 
 // =============================================================================
 // Test Public Methods
@@ -25,12 +18,12 @@ import (
 
 // TestDefaultShell_GetProjectRoot tests the GetProjectRoot method on Unix systems
 func TestDefaultShell_GetProjectRoot(t *testing.T) {
-	setup := func(t *testing.T) (*DefaultShell, *ShellTestMocks) {
+	setup := func(t *testing.T) (*shell.DefaultShell, *ShellTestMocks) {
 		t.Helper()
 		mocks := setupShellMocks(t)
-		shell := NewDefaultShell()
-		shell.shims = mocks.Shims
-		return shell, mocks
+		subject := shell.NewDefaultShell()
+		subject.SetShims(mocks.Shims)
+		return subject, mocks
 	}
 
 	testCases := []struct {
@@ -44,19 +37,19 @@ func TestDefaultShell_GetProjectRoot(t *testing.T) {
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			// Given a shell with mocked file system
-			shell, mocks := setup(t)
+			subject, mocks := setup(t)
 
 			// Mock the file system behavior
 			rootDir := mocks.TmpDir
 			subDir := filepath.Join(rootDir, "subdir")
 
 			// Override Getwd to return the subdirectory
-			shell.shims.Getwd = func() (string, error) {
+			subject.Shims().Getwd = func() (string, error) {
 				return subDir, nil
 			}
 
 			// Override Stat to return nil for the windsor file
-			shell.shims.Stat = func(name string) (os.FileInfo, error) {
+			subject.Shims().Stat = func(name string) (os.FileInfo, error) {
 				if name == filepath.Join(rootDir, tc.fileName) {
 					return nil, nil
 				}
@@ -64,7 +57,7 @@ func TestDefaultShell_GetProjectRoot(t *testing.T) {
 			}
 
 			// When finding the project root using the specified file
-			projectRoot, err := shell.GetProjectRoot()
+			projectRoot, err := subject.GetProjectRoot()
 			if err != nil {
 				t.Fatalf("GetProjectRoot returned an error: %v", err)
 			}
@@ -81,23 +74,23 @@ func TestDefaultShell_GetProjectRoot(t *testing.T) {
 
 // TestDefaultShell_UnsetEnvs tests the UnsetEnvs method on Unix systems
 func TestDefaultShell_UnsetEnvs(t *testing.T) {
-	setup := func(t *testing.T) (*DefaultShell, *ShellTestMocks) {
+	setup := func(t *testing.T) (*shell.DefaultShell, *ShellTestMocks) {
 		t.Helper()
 		mocks := setupShellMocks(t)
-		shell := NewDefaultShell()
-		shell.shims = mocks.Shims
-		return shell, mocks
+		subject := shell.NewDefaultShell()
+		subject.SetShims(mocks.Shims)
+		return subject, mocks
 	}
 
 	t.Run("UnsetEnvs", func(t *testing.T) {
 		// Given a set of environment variables to unset
-		shell, _ := setup(t)
+		subject, _ := setup(t)
 		envVars := []string{"VAR1", "VAR2", "VAR3"}
 		expectedOutput := "unset VAR1 VAR2 VAR3\n"
 
 		// When capturing the output of UnsetEnvs
 		output := captureStdout(t, func() {
-			shell.UnsetEnvs(envVars)
+			subject.UnsetEnvs(envVars)
 		})
 
 		// Then the output should match the expected output
@@ -108,11 +101,11 @@ func TestDefaultShell_UnsetEnvs(t *testing.T) {
 
 	t.Run("UnsetEnvsWithEmptyList", func(t *testing.T) {
 		// Given an empty list of environment variables
-		shell, _ := setup(t)
+		subject, _ := setup(t)
 
 		// When capturing the output of UnsetEnvs
 		output := captureStdout(t, func() {
-			shell.UnsetEnvs([]string{})
+			subject.UnsetEnvs([]string{})
 		})
 
 		// Then the output should be empty
@@ -124,23 +117,23 @@ func TestDefaultShell_UnsetEnvs(t *testing.T) {
 
 // TestDefaultShell_UnsetAlias tests the UnsetAlias method on Unix systems
 func TestDefaultShell_UnsetAlias(t *testing.T) {
-	setup := func(t *testing.T) (*DefaultShell, *ShellTestMocks) {
+	setup := func(t *testing.T) (*shell.DefaultShell, *ShellTestMocks) {
 		t.Helper()
 		mocks := setupShellMocks(t)
-		shell := NewDefaultShell()
-		shell.shims = mocks.Shims
-		return shell, mocks
+		subject := shell.NewDefaultShell()
+		subject.SetShims(mocks.Shims)
+		return subject, mocks
 	}
 
 	t.Run("UnsetAlias", func(t *testing.T) {
 		// Given a set of aliases to unset
-		shell, _ := setup(t)
+		subject, _ := setup(t)
 		aliases := []string{"ALIAS1", "ALIAS2", "ALIAS3"}
 		expectedOutput := "unalias ALIAS1\nunalias ALIAS2\nunalias ALIAS3\n"
 
 		// When capturing the output of UnsetAlias
 		output := captureStdout(t, func() {
-			shell.UnsetAlias(aliases)
+			subject.UnsetAlias(aliases)
 		})
 
 		// Then the output should match the expected output
@@ -151,11 +144,11 @@ func TestDefaultShell_UnsetAlias(t *testing.T) {
 
 	t.Run("UnsetAliasWithEmptyList", func(t *testing.T) {
 		// Given an empty list of aliases
-		shell, _ := setup(t)
+		subject, _ := setup(t)
 
 		// When capturing the output of UnsetAlias
 		output := captureStdout(t, func() {
-			shell.UnsetAlias([]string{})
+			subject.UnsetAlias([]string{})
 		})
 
 		// Then the output should be empty
@@ -167,17 +160,17 @@ func TestDefaultShell_UnsetAlias(t *testing.T) {
 
 // TestDefaultShell_RenderAliases tests the RenderAliases method on Unix systems
 func TestDefaultShell_RenderAliases(t *testing.T) {
-	setup := func(t *testing.T) (*DefaultShell, *ShellTestMocks) {
+	setup := func(t *testing.T) (*shell.DefaultShell, *ShellTestMocks) {
 		t.Helper()
 		mocks := setupShellMocks(t)
-		shell := NewDefaultShell()
-		shell.shims = mocks.Shims
-		return shell, mocks
+		subject := shell.NewDefaultShell()
+		subject.SetShims(mocks.Shims)
+		return subject, mocks
 	}
 
 	t.Run("RendersAliasesWithValues", func(t *testing.T) {
 		// Given a shell with aliases
-		shell, _ := setup(t)
+		subject, _ := setup(t)
 		aliases := map[string]string{
 			"ll":   "ls -la",
 			"grep": "grep --color=auto",
@@ -185,7 +178,7 @@ func TestDefaultShell_RenderAliases(t *testing.T) {
 		}
 
 		// When rendering aliases
-		result := shell.RenderAliases(aliases)
+		result := subject.RenderAliases(aliases)
 
 		// Then the output should contain sorted alias commands
 		if !strings.Contains(result, "alias cd=\"\"\n") && !strings.Contains(result, "unalias cd\n") {
@@ -201,11 +194,11 @@ func TestDefaultShell_RenderAliases(t *testing.T) {
 
 	t.Run("RendersEmptyAliases", func(t *testing.T) {
 		// Given a shell with empty aliases map
-		shell, _ := setup(t)
+		subject, _ := setup(t)
 		aliases := map[string]string{}
 
 		// When rendering aliases
-		result := shell.RenderAliases(aliases)
+		result := subject.RenderAliases(aliases)
 
 		// Then the output should be empty
 		if result != "" {
@@ -215,14 +208,14 @@ func TestDefaultShell_RenderAliases(t *testing.T) {
 
 	t.Run("RendersAliasesWithEmptyValues", func(t *testing.T) {
 		// Given a shell with aliases that have empty values
-		shell, _ := setup(t)
+		subject, _ := setup(t)
 		aliases := map[string]string{
 			"alias1": "",
 			"alias2": "",
 		}
 
 		// When rendering aliases
-		result := shell.RenderAliases(aliases)
+		result := subject.RenderAliases(aliases)
 
 		// Then the output should contain unalias commands
 		if !strings.Contains(result, "unalias") {
@@ -231,103 +224,26 @@ func TestDefaultShell_RenderAliases(t *testing.T) {
 	})
 }
 
-// TestDefaultShell_renderEnvVarsWithExport tests the renderEnvVarsWithExport method on Unix systems
-func TestDefaultShell_renderEnvVarsWithExport(t *testing.T) {
-	setup := func(t *testing.T) (*DefaultShell, *ShellTestMocks) {
-		t.Helper()
-		mocks := setupShellMocks(t)
-		shell := NewDefaultShell()
-		shell.shims = mocks.Shims
-		return shell, mocks
-	}
-
-	t.Run("RendersEnvVarsWithExport", func(t *testing.T) {
-		// Given a shell with environment variables
-		shell, _ := setup(t)
-		envVars := map[string]string{
-			"VAR1": "value1",
-			"VAR2": "value2",
-			"VAR3": "",
-		}
-
-		// When rendering environment variables with export
-		result := shell.renderEnvVarsWithExport(envVars)
-
-		// Then the output should contain sorted export commands
-		if !strings.Contains(result, "export VAR1=\"value1\"\n") {
-			t.Errorf("Expected export VAR1, got: %s", result)
-		}
-		if !strings.Contains(result, "export VAR2=\"value2\"\n") {
-			t.Errorf("Expected export VAR2, got: %s", result)
-		}
-		if !strings.Contains(result, "unset VAR3\n") {
-			t.Errorf("Expected unset VAR3, got: %s", result)
-		}
-	})
-
-	t.Run("RendersEmptyEnvVars", func(t *testing.T) {
-		// Given a shell with empty environment variables map
-		shell, _ := setup(t)
-		envVars := map[string]string{}
-
-		// When rendering environment variables with export
-		result := shell.renderEnvVarsWithExport(envVars)
-
-		// Then the output should be empty
-		if result != "" {
-			t.Errorf("Expected empty output for empty env vars, got: %s", result)
-		}
-	})
-
-	t.Run("QuotesValuesWithSpecialCharacters", func(t *testing.T) {
-		// Given a shell with environment variables containing special characters
-		shell, _ := setup(t)
-		envVars := map[string]string{
-			"VAR1": `["item1","item2"]`,
-			"VAR2": `{"key": "value"}`,
-			"VAR3": "simple_value",
-			"VAR4": "value with spaces",
-		}
-
-		// When rendering environment variables with export
-		result := shell.renderEnvVarsWithExport(envVars)
-
-		// Then values with special characters should be quoted with single quotes
-		if !strings.Contains(result, "export VAR1='[\"item1\",\"item2\"]'\n") {
-			t.Errorf("Expected VAR1 to be quoted, got: %s", result)
-		}
-		if !strings.Contains(result, "export VAR2='{\"key\": \"value\"}'\n") {
-			t.Errorf("Expected VAR2 to be quoted, got: %s", result)
-		}
-		if !strings.Contains(result, "export VAR3=\"simple_value\"\n") {
-			t.Errorf("Expected VAR3 to use double quotes, got: %s", result)
-		}
-		if !strings.Contains(result, "export VAR4='value with spaces'\n") {
-			t.Errorf("Expected VAR4 to be quoted, got: %s", result)
-		}
-	})
-}
-
 // TestDefaultShell_RenderEnvVars tests the RenderEnvVars method on Unix systems
 func TestDefaultShell_RenderEnvVars(t *testing.T) {
-	setup := func(t *testing.T) (*DefaultShell, *ShellTestMocks) {
+	setup := func(t *testing.T) (*shell.DefaultShell, *ShellTestMocks) {
 		t.Helper()
 		mocks := setupShellMocks(t)
-		shell := NewDefaultShell()
-		shell.shims = mocks.Shims
-		return shell, mocks
+		subject := shell.NewDefaultShell()
+		subject.SetShims(mocks.Shims)
+		return subject, mocks
 	}
 
 	t.Run("RendersEnvVarsWithExport", func(t *testing.T) {
 		// Given a shell with environment variables
-		shell, _ := setup(t)
+		subject, _ := setup(t)
 		envVars := map[string]string{
 			"VAR1": "value1",
 			"VAR2": "value2",
 		}
 
 		// When rendering environment variables with export=true
-		result := shell.RenderEnvVars(envVars, true)
+		result := subject.RenderEnvVars(envVars, true)
 
 		// Then the output should contain export commands
 		if !strings.Contains(result, "export") {
@@ -337,14 +253,14 @@ func TestDefaultShell_RenderEnvVars(t *testing.T) {
 
 	t.Run("RendersEnvVarsWithoutExport", func(t *testing.T) {
 		// Given a shell with environment variables
-		shell, _ := setup(t)
+		subject, _ := setup(t)
 		envVars := map[string]string{
 			"VAR1": "value1",
 			"VAR2": "value2",
 		}
 
 		// When rendering environment variables with export=false
-		result := shell.RenderEnvVars(envVars, false)
+		result := subject.RenderEnvVars(envVars, false)
 
 		// Then the output should contain plain KEY=value format
 		if !strings.Contains(result, "VAR1=value1") {
@@ -358,17 +274,17 @@ func TestDefaultShell_RenderEnvVars(t *testing.T) {
 
 // TestDefaultShell_PrintEnvVars tests the PrintEnvVars method on Unix systems
 func TestDefaultShell_PrintEnvVars(t *testing.T) {
-	setup := func(t *testing.T) (*DefaultShell, *ShellTestMocks) {
+	setup := func(t *testing.T) (*shell.DefaultShell, *ShellTestMocks) {
 		t.Helper()
 		mocks := setupShellMocks(t)
-		shell := NewDefaultShell()
-		shell.shims = mocks.Shims
-		return shell, mocks
+		subject := shell.NewDefaultShell()
+		subject.SetShims(mocks.Shims)
+		return subject, mocks
 	}
 
 	t.Run("PrintsEnvVarsWithExport", func(t *testing.T) {
 		// Given a shell with environment variables
-		shell, _ := setup(t)
+		subject, _ := setup(t)
 		envVars := map[string]string{
 			"VAR1": "value1",
 			"VAR2": "value2",
@@ -376,7 +292,7 @@ func TestDefaultShell_PrintEnvVars(t *testing.T) {
 
 		// When printing environment variables with export=true
 		output := captureStdout(t, func() {
-			shell.PrintEnvVars(envVars, true)
+			subject.PrintEnvVars(envVars, true)
 		})
 
 		// Then the output should contain export commands
@@ -387,7 +303,7 @@ func TestDefaultShell_PrintEnvVars(t *testing.T) {
 
 	t.Run("PrintsEnvVarsWithoutExport", func(t *testing.T) {
 		// Given a shell with environment variables
-		shell, _ := setup(t)
+		subject, _ := setup(t)
 		envVars := map[string]string{
 			"VAR1": "value1",
 			"VAR2": "value2",
@@ -395,7 +311,7 @@ func TestDefaultShell_PrintEnvVars(t *testing.T) {
 
 		// When printing environment variables with export=false
 		output := captureStdout(t, func() {
-			shell.PrintEnvVars(envVars, false)
+			subject.PrintEnvVars(envVars, false)
 		})
 
 		// Then the output should contain plain KEY=value format
@@ -404,124 +320,6 @@ func TestDefaultShell_PrintEnvVars(t *testing.T) {
 		}
 		if strings.Contains(output, "export") {
 			t.Errorf("Expected no export commands, got: %s", output)
-		}
-	})
-}
-
-// TestSetProcessGroup_InterruptProcessGroup verifies the real syscalls behind the
-// interrupt guard. A command in its own process group sits outside the test
-// process's signal delivery. interruptProcessGroup can still reach and terminate it.
-func TestSetProcessGroup_InterruptProcessGroup(t *testing.T) {
-	t.Run("PlacesTheChildInADifferentProcessGroupFromTheTestProcess", func(t *testing.T) {
-		cmd := exec.Command("sleep", "5")
-		setProcessGroup(cmd)
-
-		if err := cmd.Start(); err != nil {
-			t.Fatalf("failed to start test process: %v", err)
-		}
-		defer func() { _ = cmd.Process.Kill() }()
-
-		ownPgid, err := syscall.Getpgid(os.Getpid())
-		if err != nil {
-			t.Fatalf("failed to get own pgid: %v", err)
-		}
-		childPgid, err := syscall.Getpgid(cmd.Process.Pid)
-		if err != nil {
-			t.Fatalf("failed to get child pgid: %v", err)
-		}
-		if childPgid == ownPgid {
-			t.Errorf("expected child to be in its own process group, got the test process's group %d", ownPgid)
-		}
-	})
-
-	t.Run("TerminatesTheChildEvenThoughItIsInADifferentProcessGroup", func(t *testing.T) {
-		cmd := exec.Command("sleep", "5")
-		setProcessGroup(cmd)
-
-		if err := cmd.Start(); err != nil {
-			t.Fatalf("failed to start test process: %v", err)
-		}
-
-		if err := interruptProcessGroup(cmd); err != nil {
-			_ = cmd.Process.Kill()
-			t.Fatalf("interruptProcessGroup returned an error: %v", err)
-		}
-
-		waitErr := make(chan error, 1)
-		go func() { waitErr <- cmd.Wait() }()
-
-		select {
-		case err := <-waitErr:
-			if err == nil {
-				t.Error("expected the child to exit with an error from the delivered signal, got nil")
-			}
-		case <-time.After(2 * time.Second):
-			_ = cmd.Process.Kill()
-			t.Fatal("child did not exit after interruptProcessGroup")
-		}
-	})
-
-	t.Run("NoOpWhenTheProcessHasNotStarted", func(t *testing.T) {
-		cmd := exec.Command("sleep", "5")
-		if err := interruptProcessGroup(cmd); err != nil {
-			t.Errorf("expected no error for an unstarted process, got %v", err)
-		}
-	})
-}
-
-func TestKillProcessGroup(t *testing.T) {
-	t.Run("KillsAGrandchildTheChildSpawnedIntoTheSameGroup", func(t *testing.T) {
-		// A single-process kill only reaches cmd's own pid. That leaves a subprocess it forked
-		// (terraform's own provider plugins, in production) orphaned and still running. The
-		// shell here forks a grandchild sleep, in the same process group by inheritance, and
-		// writes its pid so the test can confirm killProcessGroup reaches it too.
-		pidFile := filepath.Join(t.TempDir(), "grandchild.pid")
-		cmd := exec.Command("sh", "-c", "sleep 30 & echo $! > "+pidFile+"; wait")
-		setProcessGroup(cmd)
-
-		if err := cmd.Start(); err != nil {
-			t.Fatalf("failed to start test process: %v", err)
-		}
-		defer func() { _ = cmd.Wait() }()
-
-		var grandchildPid int
-		deadline := time.Now().Add(2 * time.Second)
-		for time.Now().Before(deadline) {
-			data, err := os.ReadFile(pidFile)
-			if err == nil {
-				if pid, convErr := strconv.Atoi(strings.TrimSpace(string(data))); convErr == nil && pid > 0 {
-					grandchildPid = pid
-					break
-				}
-			}
-			time.Sleep(10 * time.Millisecond)
-		}
-		if grandchildPid == 0 {
-			_ = cmd.Process.Kill()
-			t.Fatal("grandchild pid was never written")
-		}
-
-		if err := killProcessGroup(cmd); err != nil {
-			_ = cmd.Process.Kill()
-			_ = syscall.Kill(grandchildPid, syscall.SIGKILL)
-			t.Fatalf("killProcessGroup returned an error: %v", err)
-		}
-
-		deadline = time.Now().Add(2 * time.Second)
-		for time.Now().Before(deadline) {
-			if err := syscall.Kill(grandchildPid, 0); err != nil {
-				return
-			}
-			time.Sleep(10 * time.Millisecond)
-		}
-		_ = syscall.Kill(grandchildPid, syscall.SIGKILL)
-		t.Error("expected the grandchild to be killed along with the group, but it is still alive")
-	})
-
-	t.Run("NoOpWhenTheProcessHasNotStarted", func(t *testing.T) {
-		cmd := exec.Command("sleep", "5")
-		if err := killProcessGroup(cmd); err != nil {
-			t.Errorf("expected no error for an unstarted process, got %v", err)
 		}
 	})
 }
