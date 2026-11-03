@@ -22,7 +22,7 @@ import (
 // Interfaces
 // =============================================================================
 
-// ModuleResolver processes terraform module sources and generates appropriate module configurations
+// ModuleResolver writes the shim modules and the tfvars files of the terraform components.
 type ModuleResolver interface {
 	ProcessModules() error
 	GenerateTfvars(overwrite bool) error
@@ -32,22 +32,20 @@ type ModuleResolver interface {
 // Types
 // =============================================================================
 
-// BaseModuleResolver provides common functionality for all module resolvers
+// BaseModuleResolver holds the shared dependencies and the tfvars logic of the module resolvers.
 type BaseModuleResolver struct {
 	shims            *Shims
 	runtime          *runtime.Runtime
 	blueprintHandler blueprint.BlueprintHandler
 	evaluator        evaluator.ExpressionEvaluator
-	reset            bool
 }
 
 // =============================================================================
 // Constructor
 // =============================================================================
 
-// NewBaseModuleResolver creates a new base module resolver with the provided dependencies.
-// If overrides are provided, any non-nil component in the override BaseModuleResolver will be used instead of creating a default.
-// Panics if rt, blueprintHandler, or rt.Evaluator are nil.
+// NewBaseModuleResolver creates a base module resolver from the runtime and the blueprint handler.
+// It panics if rt, blueprintHandler, or rt.Evaluator is nil.
 func NewBaseModuleResolver(rt *runtime.Runtime, blueprintHandler blueprint.BlueprintHandler) *BaseModuleResolver {
 	if rt == nil {
 		panic("runtime is required")
@@ -74,10 +72,9 @@ func NewBaseModuleResolver(rt *runtime.Runtime, blueprintHandler blueprint.Bluep
 // GenerateTfvars writes a terraform.tfvars file for each terraform component in the blueprint.
 // It evaluates the component inputs against the current configuration.
 // It does not write an input whose value still contains a deferred expression.
+// It always replaces the old tfvars files, so the overwrite argument has no effect.
 // It stops at the first evaluation or file error.
 func (h *BaseModuleResolver) GenerateTfvars(overwrite bool) error {
-	h.reset = overwrite
-
 	projectRoot := h.runtime.ProjectRoot
 
 	components := h.blueprintHandler.GetTerraformComponents()
@@ -117,19 +114,6 @@ func (h *BaseModuleResolver) GenerateTfvars(overwrite bool) error {
 // Private Methods
 // =============================================================================
 
-// validateAndSanitizePath sanitizes a file path for safe extraction by removing path traversal sequences
-// and rejecting absolute paths. Returns the cleaned path if valid, or an error if the path is unsafe.
-func (h *BaseModuleResolver) validateAndSanitizePath(path string) (string, error) {
-	cleanPath := filepath.Clean(path)
-	if strings.Contains(cleanPath, "..") {
-		return "", fmt.Errorf("path contains directory traversal sequence: %s", path)
-	}
-	if strings.HasPrefix(cleanPath, string(filepath.Separator)) || (len(cleanPath) >= 2 && cleanPath[1] == ':' && (cleanPath[0] >= 'A' && cleanPath[0] <= 'Z' || cleanPath[0] >= 'a' && cleanPath[0] <= 'z')) {
-		return "", fmt.Errorf("absolute paths are not allowed: %s", path)
-	}
-	return cleanPath, nil
-}
-
 // generateComponentTfvars writes the tfvars file for one component at
 // .windsor/contexts/<context>/terraform/<componentID>/terraform.tfvars, for local and remote components.
 // It removes the old .tfvars files in that directory first, and reads the variables from the module directory.
@@ -163,9 +147,6 @@ func (h *BaseModuleResolver) findModulePathForComponent(projectRoot string, comp
 		modulePath := component.Source
 
 		if _, err := h.shims.Stat(modulePath); err != nil {
-			if os.IsNotExist(err) {
-				_, _ = h.shims.ReadDir(filepath.Dir(modulePath))
-			}
 			return "", fmt.Errorf("module directory not found for component %s at %s", component.GetID(), modulePath)
 		}
 		return modulePath, nil
@@ -189,8 +170,8 @@ func (h *BaseModuleResolver) findModulePathForComponent(projectRoot string, comp
 	return modulePath, nil
 }
 
-// removeTfvarsFiles removes any .tfvars files directly under the specified directory.
-// This is used to ensure module directories do not retain stale tfvars prior to regeneration.
+// removeTfvarsFiles removes the .tfvars files directly under dir, so that no old tfvars stay before regeneration.
+// It does nothing if dir does not exist.
 func (h *BaseModuleResolver) removeTfvarsFiles(dir string) error {
 	if _, err := h.shims.Stat(dir); err != nil {
 		if os.IsNotExist(err) {

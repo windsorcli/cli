@@ -1,14 +1,11 @@
-package terraform
+package terraform_test
 
 import (
 	"errors"
 	"testing"
-)
 
-// The MockModuleResolverTest is a test suite for the MockModuleResolver implementation
-// It provides coverage for constructor, function field overrides, and interface compliance
-// The MockModuleResolverTest ensures correct mock behavior for dependency injection and test isolation
-// enabling reliable testing of consumers of the ModuleResolver interface
+	"github.com/windsorcli/cli/pkg/composer/terraform"
+)
 
 // =============================================================================
 // Test Public Methods
@@ -17,7 +14,7 @@ import (
 func TestMockModuleResolver_NewMockModuleResolver(t *testing.T) {
 	t.Run("CreatesMockModuleResolver", func(t *testing.T) {
 		// When creating a new mock module resolver
-		mock := NewMockModuleResolver()
+		mock := terraform.NewMockModuleResolver()
 
 		// Then the mock should not be nil
 		if mock == nil {
@@ -27,7 +24,7 @@ func TestMockModuleResolver_NewMockModuleResolver(t *testing.T) {
 }
 
 func TestMockModuleResolver_ProcessModules(t *testing.T) {
-	setup := func(t *testing.T, fn func() error) *MockModuleResolver {
+	setup := func(t *testing.T, fn func() error) *terraform.MockModuleResolver {
 		t.Helper()
 		return setupMockModuleResolver(t, &MockModuleResolverSetupOptions{ProcessModulesFunc: fn})
 	}

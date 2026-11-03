@@ -1,3 +1,8 @@
+// The OCIModuleResolver is a terraform module resolver for OCI artifact sources.
+// It pulls each OCI artifact that the terraform components use, and extracts the module of each component.
+// It writes a shim for each component that points to the extracted module.
+// The CompositeModuleResolver runs it before the StandardModuleResolver.
+
 package terraform
 
 import (
@@ -11,16 +16,11 @@ import (
 	"github.com/windsorcli/cli/pkg/runtime"
 )
 
-// The OCIModuleResolver is a terraform module resolver for OCI artifact sources.
-// It provides functionality to extract terraform modules from OCI artifacts and generate appropriate shim configurations.
-// The OCIModuleResolver acts as a specialized resolver within the terraform module system,
-// handling OCI artifact downloading, module extraction, and configuration for OCI-based terraform sources.
-
 // =============================================================================
 // Types
 // =============================================================================
 
-// OCIModuleResolver handles terraform modules from OCI artifacts
+// OCIModuleResolver handles terraform modules from OCI artifacts.
 type OCIModuleResolver struct {
 	*BaseModuleResolver
 	artifactBuilder artifact.Artifact
@@ -30,8 +30,8 @@ type OCIModuleResolver struct {
 // Constructor
 // =============================================================================
 
-// NewOCIModuleResolver creates a new OCI module resolver with the provided dependencies.
-// Panics if rt, blueprintHandler, or artifactBuilder are nil.
+// NewOCIModuleResolver creates an OCI module resolver from the runtime, the blueprint handler, and the artifact builder.
+// It panics if rt, blueprintHandler, or artifactBuilder is nil.
 func NewOCIModuleResolver(rt *runtime.Runtime, blueprintHandler blueprint.BlueprintHandler, artifactBuilder artifact.Artifact) *OCIModuleResolver {
 	if rt == nil {
 		panic("runtime is required")
@@ -63,7 +63,7 @@ func (h *OCIModuleResolver) ProcessModules() error {
 		if h.shouldHandle(component.Source) {
 			pathSeparatorIdx := strings.Index(component.Source[6:], "//")
 			if pathSeparatorIdx != -1 {
-				baseURL := component.Source[:6+pathSeparatorIdx] // oci://registry/repo:tag
+				baseURL := component.Source[:6+pathSeparatorIdx]
 				ociURLs[baseURL] = true
 			}
 		}
@@ -151,8 +151,8 @@ func (h *OCIModuleResolver) extractOCIModule(resolvedSource string, ociArtifacts
 		return "", werror.New(fmt.Sprintf("invalid resolved OCI source format, missing path separator: %s", resolvedSource), "Add a module path to the OCI source, for example oci://registry/repository:tag//terraform/module.", nil)
 	}
 
-	baseURL := resolvedSource[:6+pathSeparatorIdx]      // oci://registry/repo:tag
-	modulePath := resolvedSource[6+pathSeparatorIdx+2:] // terraform/path/to/module
+	baseURL := resolvedSource[:6+pathSeparatorIdx]
+	modulePath := resolvedSource[6+pathSeparatorIdx+2:]
 
 	registry, repository, tag, err := h.artifactBuilder.ParseOCIRef(baseURL)
 	if err != nil {
@@ -171,19 +171,9 @@ func (h *OCIModuleResolver) extractOCIModule(resolvedSource string, ociArtifacts
 	return extractedPath, nil
 }
 
-// =============================================================================
-// Private Methods
-// =============================================================================
-
-// shouldHandle determines if this resolver should handle the given source by checking
-// if the source is an OCI artifact URL. Returns true only for sources that begin with
-// the "oci://" protocol prefix, indicating they are OCI registry artifacts.
+// shouldHandle reports whether source is an OCI artifact source with the oci:// prefix.
 func (h *OCIModuleResolver) shouldHandle(source string) bool {
-	if !strings.HasPrefix(source, "oci://") {
-		return false
-	}
-
-	return true
+	return strings.HasPrefix(source, "oci://")
 }
 
 // =============================================================================
