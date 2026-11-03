@@ -2,6 +2,8 @@ package blueprint_test
 
 import (
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -1489,6 +1491,133 @@ func TestProcessor_ProcessGlobally_ConfigDeferredValues(t *testing.T) {
 		}
 		if calls > 20 {
 			t.Errorf("Expected the pass loop to stop quickly once stable rather than scaling with the block's 31 keys, got %d calls to the never-resolving helper", calls)
+		}
+	})
+}
+
+// TestProcessor_ProcessGlobally_ConfigBlockFileHelpers covers file() in a config block. The path
+// resolves from the directory of the facet that wrote the key, and the content comes from template data.
+func TestProcessor_ProcessGlobally_ConfigBlockFileHelpers(t *testing.T) {
+	setup := func(t *testing.T, templateData map[string][]byte) (*ProcessorTestMocks, string) {
+		t.Helper()
+		mocks := setupProcessorMocks(t)
+		mocks.ConfigHandler.GetContextValuesFunc = func() (map[string]any, error) {
+			return map[string]any{}, nil
+		}
+		templateRoot := filepath.Join(mocks.Runtime.ProjectRoot, "contexts", "_template")
+		realEval := evaluator.NewExpressionEvaluator(mocks.ConfigHandler, mocks.Runtime.ProjectRoot, templateRoot)
+		realEval.SetTemplateData(templateData)
+		mocks.Evaluator.EvaluateFunc = realEval.Evaluate
+		mocks.Evaluator.EvaluateMapFunc = realEval.EvaluateMap
+		return mocks, templateRoot
+	}
+
+	t.Run("ResolvesFileRelativeToFacetInLocalTemplate", func(t *testing.T) {
+		// Given a local template with the manifest on disk and in template data
+		manifest := "kind: ConfigMap\n"
+		mocks, templateRoot := setup(t, map[string][]byte{"manifests/x.yaml": []byte(manifest)})
+		manifestPath := filepath.Join(templateRoot, "manifests", "x.yaml")
+		if err := os.MkdirAll(filepath.Dir(manifestPath), 0o755); err != nil {
+			t.Fatalf("MkdirAll failed: %v", err)
+		}
+		if err := os.WriteFile(manifestPath, []byte(manifest), 0o600); err != nil {
+			t.Fatalf("WriteFile failed: %v", err)
+		}
+		processor := blueprint.NewBlueprintProcessor(mocks.Runtime)
+		facets := []blueprintv1alpha1.Facet{{
+			Metadata: blueprintv1alpha1.Metadata{Name: "config-talos"},
+			Path:     filepath.Join(templateRoot, "facets", "config-talos.yaml"),
+			Config: []blueprintv1alpha1.ConfigBlock{{
+				Name: "talos_common",
+				Body: map[string]any{"value": map[string]any{"manifest": "${file('../manifests/x.yaml')}"}},
+			}},
+		}}
+
+		// When processing the facets
+		scope, err := processFacets(processor, &blueprintv1alpha1.Blueprint{}, facets)
+
+		// Then the config key holds the manifest content
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		block, _ := scope["talos_common"].(map[string]any)
+		if block["manifest"] != manifest {
+			t.Errorf("Expected manifest %q, got %v", manifest, block["manifest"])
+		}
+	})
+
+	t.Run("ResolvesFileFromTemplateDataWithoutFilesOnDisk", func(t *testing.T) {
+		// Given template data from an OCI artifact and no template files on disk
+		manifest := "kind: ConfigMap\n"
+		mocks, _ := setup(t, map[string][]byte{"manifests/x.yaml": []byte(manifest)})
+		processor := blueprint.NewBlueprintProcessor(mocks.Runtime)
+		facets := []blueprintv1alpha1.Facet{{
+			Metadata: blueprintv1alpha1.Metadata{Name: "config-talos"},
+			Path:     "facets/config-talos.yaml",
+			Config: []blueprintv1alpha1.ConfigBlock{
+				{
+					Name: "talos_common",
+					Body: map[string]any{"value": map[string]any{"manifest": "${file('../manifests/x.yaml')}"}},
+				},
+				{
+					Name: "talos_manifest",
+					Body: map[string]any{"value": "${file('../manifests/x.yaml')}"},
+				},
+			},
+		}}
+
+		// When processing the facets
+		scope, err := processFacets(processor, &blueprintv1alpha1.Blueprint{}, facets)
+
+		// Then the map key and the scalar block both hold the manifest content
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		block, _ := scope["talos_common"].(map[string]any)
+		if block["manifest"] != manifest {
+			t.Errorf("Expected manifest %q, got %v", manifest, block["manifest"])
+		}
+		if scope["talos_manifest"] != manifest {
+			t.Errorf("Expected scalar block %q, got %v", manifest, scope["talos_manifest"])
+		}
+	})
+
+	t.Run("EachKeyResolvesRelativeToTheFacetThatWroteIt", func(t *testing.T) {
+		// Given two facets in different folders that write keys of the same config block
+		mocks, _ := setup(t, map[string][]byte{
+			"manifests/a.yaml":        []byte("a"),
+			"facets/manifests/b.yaml": []byte("b"),
+		})
+		processor := blueprint.NewBlueprintProcessor(mocks.Runtime)
+		facets := []blueprintv1alpha1.Facet{
+			{
+				Metadata: blueprintv1alpha1.Metadata{Name: "first"},
+				Path:     "facets/first.yaml",
+				Config: []blueprintv1alpha1.ConfigBlock{{
+					Name: "shared",
+					Body: map[string]any{"value": map[string]any{"a": "${file('../manifests/a.yaml')}"}},
+				}},
+			},
+			{
+				Metadata: blueprintv1alpha1.Metadata{Name: "second"},
+				Path:     "facets/nested/second.yaml",
+				Config: []blueprintv1alpha1.ConfigBlock{{
+					Name: "shared",
+					Body: map[string]any{"value": map[string]any{"b": "${file('../manifests/b.yaml')}"}},
+				}},
+			},
+		}
+
+		// When processing the facets
+		scope, err := processFacets(processor, &blueprintv1alpha1.Blueprint{}, facets)
+
+		// Then each key reads the file relative to its own facet
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		block, _ := scope["shared"].(map[string]any)
+		if block["a"] != "a" || block["b"] != "b" {
+			t.Errorf("Expected a=a and b=b, got %v", block)
 		}
 	})
 }
