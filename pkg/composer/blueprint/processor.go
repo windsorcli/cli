@@ -266,6 +266,7 @@ func (p *BaseBlueprintProcessor) resolveConfigAndInclusion(sortedFacets []bluepr
 		includedFacets = includedFacets[:0]
 		globalScope = nil
 		cfgEntries = nil
+		cfgPaths := make(configPaths)
 		pendingRequirements = make(map[string]facetRequirementMisses)
 		passScope := scope
 		if passScope == nil && contextScope != nil {
@@ -287,7 +288,7 @@ func (p *BaseBlueprintProcessor) resolveConfigAndInclusion(sortedFacets []bluepr
 				return nil, nil, nil, err
 			}
 			var errMerge error
-			globalScope, cfgEntries, errMerge = p.mergeFacetScopeIntoGlobal(facet, globalScope, cfgEntries, passScope, contextScope)
+			globalScope, cfgEntries, errMerge = p.mergeFacetScopeIntoGlobal(facet, globalScope, cfgEntries, passScope, contextScope, cfgPaths)
 			if errMerge != nil {
 				return nil, nil, nil, werror.Wrap(errMerge, "facet %s", facet.Metadata.Name)
 			}
@@ -299,12 +300,12 @@ func (p *BaseBlueprintProcessor) resolveConfigAndInclusion(sortedFacets []bluepr
 		}
 		if incoming := operatorOverlayConfigBlocks(globalScope, operatorOverlay); len(incoming) > 0 {
 			var err error
-			globalScope, cfgEntries, err = p.mergeConfigBlocks(globalScope, cfgEntries, incoming)
+			globalScope, cfgEntries, err = p.mergeConfigBlocks(globalScope, cfgEntries, incoming, cfgPaths, "")
 			if err != nil {
 				return nil, nil, nil, err
 			}
 		}
-		if err := p.evaluateGlobalScopeConfig(globalScope, contextScope); err != nil {
+		if err := p.evaluateGlobalScopeConfig(globalScope, contextScope, cfgPaths); err != nil {
 			return nil, nil, nil, err
 		}
 		mergeBase := contextScope
