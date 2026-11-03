@@ -1,4 +1,4 @@
-package project
+package project_test
 
 import (
 	"context"
@@ -13,6 +13,7 @@ import (
 	"github.com/windsorcli/cli/internal/werror"
 	"github.com/windsorcli/cli/pkg/composer"
 	"github.com/windsorcli/cli/pkg/composer/blueprint"
+	"github.com/windsorcli/cli/pkg/project"
 	"github.com/windsorcli/cli/pkg/provisioner"
 	terraforminfra "github.com/windsorcli/cli/pkg/provisioner/terraform"
 	"github.com/windsorcli/cli/pkg/runtime"
@@ -29,7 +30,7 @@ import (
 // Test Setup
 // =============================================================================
 
-// ProjectTestMocks contains all the mock dependencies for testing the Project
+// ProjectTestMocks holds the mock dependencies for Project tests.
 type ProjectTestMocks struct {
 	Runtime       *runtime.Runtime
 	ConfigHandler config.ConfigHandler
@@ -39,7 +40,7 @@ type ProjectTestMocks struct {
 	Provisioner   *provisioner.Provisioner
 }
 
-// setupProjectMocks creates mock components for testing the Project with optional overrides
+// setupProjectMocks creates the Project test mocks and applies the given overrides.
 func setupProjectMocks(t *testing.T, opts ...func(*ProjectTestMocks)) *ProjectTestMocks {
 	t.Helper()
 
@@ -97,7 +98,6 @@ func setupProjectMocks(t *testing.T, opts ...func(*ProjectTestMocks)) *ProjectTe
 
 	configHandler.GetContextValuesFunc = func() (map[string]any, error) {
 		addons := make(map[string]any)
-		// Initialize common addons with enabled: false to prevent evaluation errors
 		for _, addon := range []string{"object_store", "observability", "private_ca", "private_dns"} {
 			addons[addon] = map[string]any{"enabled": false}
 		}
@@ -157,7 +157,6 @@ func setupProjectMocks(t *testing.T, opts ...func(*ProjectTestMocks)) *ProjectTe
 		Composer:      comp,
 	}
 
-	// Apply any overrides
 	for _, opt := range opts {
 		opt(mocks)
 	}
@@ -171,10 +170,13 @@ func setupProjectMocks(t *testing.T, opts ...func(*ProjectTestMocks)) *ProjectTe
 
 func TestNewProject(t *testing.T) {
 	t.Run("CreatesProjectWithDependencies", func(t *testing.T) {
+		// Given a runtime with mock dependencies
 		mocks := setupProjectMocks(t)
 
-		proj := NewProject("test-context", &Project{Runtime: mocks.Runtime})
+		// When NewProject is called
+		proj := project.NewProject("test-context", &project.Project{Runtime: mocks.Runtime})
 
+		// Then the project has its dependencies and the given context name
 		if proj == nil {
 			t.Fatal("Expected Project to be created")
 		}
@@ -197,68 +199,84 @@ func TestNewProject(t *testing.T) {
 	})
 
 	t.Run("UsesProvidedContextName", func(t *testing.T) {
+		// Given a runtime with mock dependencies
 		mocks := setupProjectMocks(t)
 
-		proj := NewProject("custom-context", &Project{Runtime: mocks.Runtime})
+		// When NewProject is called with a custom context name
+		proj := project.NewProject("custom-context", &project.Project{Runtime: mocks.Runtime})
 
+		// Then the runtime uses the custom context name
 		if proj.Runtime.ContextName != "custom-context" {
 			t.Errorf("Expected ContextName to be 'custom-context', got: %s", proj.Runtime.ContextName)
 		}
 	})
 
 	t.Run("UsesConfigContextWhenContextNameEmpty", func(t *testing.T) {
+		// Given a config with test-context as the current context
 		mocks := setupProjectMocks(t)
 
-		proj := NewProject("", &Project{Runtime: mocks.Runtime})
+		// When NewProject is called with an empty context name
+		proj := project.NewProject("", &project.Project{Runtime: mocks.Runtime})
 
+		// Then the runtime uses the config context
 		if proj.Runtime.ContextName != "test-context" {
 			t.Errorf("Expected ContextName to be 'test-context', got: %s", proj.Runtime.ContextName)
 		}
 	})
 
 	t.Run("UsesLocalWhenContextNameAndConfigContextEmpty", func(t *testing.T) {
+		// Given a config with no current context
 		mocks := setupProjectMocks(t)
 		mockConfig := mocks.ConfigHandler.(*config.MockConfigHandler)
 		mockConfig.GetContextFunc = func() string {
 			return ""
 		}
 
-		proj := NewProject("", &Project{Runtime: mocks.Runtime})
+		// When NewProject is called with an empty context name
+		proj := project.NewProject("", &project.Project{Runtime: mocks.Runtime})
 
+		// Then the runtime uses the local context
 		if proj.Runtime.ContextName != "local" {
 			t.Errorf("Expected ContextName to be 'local', got: %s", proj.Runtime.ContextName)
 		}
 	})
 
 	t.Run("CreatesWorkstationWhenDevMode", func(t *testing.T) {
+		// Given a config in dev mode
 		mocks := setupProjectMocks(t)
 		mockConfig := mocks.ConfigHandler.(*config.MockConfigHandler)
 		mockConfig.IsDevModeFunc = func(contextName string) bool {
 			return true
 		}
 
-		proj := NewProject("test-context", &Project{Runtime: mocks.Runtime})
+		// When NewProject is called
+		proj := project.NewProject("test-context", &project.Project{Runtime: mocks.Runtime})
 
+		// Then the project has a workstation
 		if proj.Workstation == nil {
 			t.Error("Expected Workstation to be created in dev mode")
 		}
 	})
 
 	t.Run("CreatesWorkstationAndProvisionerWhenDevMode", func(t *testing.T) {
+		// Given a config in dev mode
 		mocks := setupProjectMocks(t)
 		mockConfig := mocks.ConfigHandler.(*config.MockConfigHandler)
 		mockConfig.IsDevModeFunc = func(contextName string) bool {
 			return true
 		}
 
-		proj := NewProject("test-context", &Project{Runtime: mocks.Runtime})
+		// When NewProject is called
+		proj := project.NewProject("test-context", &project.Project{Runtime: mocks.Runtime})
 
+		// Then the project has a workstation and a provisioner
 		if proj.Workstation == nil || proj.Provisioner == nil {
 			t.Fatal("Expected Workstation and Provisioner to be created in dev mode")
 		}
 	})
 
 	t.Run("CreatesWorkstationWhenWorkstationRuntimeSet", func(t *testing.T) {
+		// Given a config outside dev mode with workstation.runtime set to colima
 		mocks := setupProjectMocks(t)
 		mockConfig := mocks.ConfigHandler.(*config.MockConfigHandler)
 		mockConfig.IsDevModeFunc = func(contextName string) bool {
@@ -274,8 +292,10 @@ func TestNewProject(t *testing.T) {
 			return ""
 		}
 
-		proj := NewProject("test-context", &Project{Runtime: mocks.Runtime})
+		// When NewProject is called and then EnsureWorkstation runs
+		proj := project.NewProject("test-context", &project.Project{Runtime: mocks.Runtime})
 
+		// Then the workstation exists only after EnsureWorkstation runs
 		if proj.Workstation != nil {
 			t.Error("Expected Workstation to be nil until EnsureWorkstation resolves config")
 		}
@@ -291,14 +311,17 @@ func TestNewProject(t *testing.T) {
 	})
 
 	t.Run("SkipsWorkstationWhenNotDevMode", func(t *testing.T) {
+		// Given a config outside dev mode with no workstation runtime
 		mocks := setupProjectMocks(t)
 		mockConfig := mocks.ConfigHandler.(*config.MockConfigHandler)
 		mockConfig.IsDevModeFunc = func(contextName string) bool {
 			return false
 		}
 
-		proj := NewProject("test-context", &Project{Runtime: mocks.Runtime})
+		// When NewProject is called and then EnsureWorkstation runs
+		proj := project.NewProject("test-context", &project.Project{Runtime: mocks.Runtime})
 
+		// Then the project has no workstation
 		if proj.Workstation != nil {
 			t.Error("Expected Workstation to be nil when not in dev mode")
 		}
@@ -310,26 +333,8 @@ func TestNewProject(t *testing.T) {
 		}
 	})
 
-	t.Run("ErrorOnContextInitializationFailure", func(t *testing.T) {
-		mocks := setupProjectMocks(t)
-		mockShell := mocks.Shell.(*shell.MockShell)
-		mockShell.GetProjectRootFunc = func() (string, error) {
-			return "", fmt.Errorf("failed to get project root")
-		}
-
-		// NewRuntime will panic when GetProjectRoot fails
-		defer func() {
-			if r := recover(); r == nil {
-				t.Error("Expected NewRuntime to panic when GetProjectRoot fails")
-			}
-		}()
-		_ = runtime.NewRuntime(&runtime.Runtime{
-			Shell:       mockShell,
-			ProjectRoot: "",
-		})
-	})
-
 	t.Run("PanicsWhenShellIsNil", func(t *testing.T) {
+		// Given a runtime in dev mode with no shell
 		mocks := setupProjectMocks(t)
 		mockConfig := mocks.ConfigHandler.(*config.MockConfigHandler)
 		mockConfig.IsDevModeFunc = func(contextName string) bool {
@@ -338,44 +343,52 @@ func TestNewProject(t *testing.T) {
 
 		mocks.Runtime.Shell = nil
 
-		// NewComposer will panic when Shell is nil
+		// Then it panics
 		defer func() {
 			if r := recover(); r == nil {
 				t.Error("Expected NewComposer to panic when Shell is nil")
 			}
 		}()
-		_ = NewProject("test-context", &Project{Runtime: mocks.Runtime})
+		// When NewProject is called
+		_ = project.NewProject("test-context", &project.Project{Runtime: mocks.Runtime})
 	})
 
 	t.Run("HandlesComposerOverride", func(t *testing.T) {
+		// Given a composer override
 		mocks := setupProjectMocks(t)
 		mockComposer := composer.NewComposer(mocks.Runtime)
 
-		proj := NewProject("test-context", &Project{
+		// When NewProject is called with the override
+		proj := project.NewProject("test-context", &project.Project{
 			Runtime:  mocks.Runtime,
 			Composer: mockComposer,
 		})
 
+		// Then the project uses the composer override
 		if proj.Composer != mockComposer {
 			t.Error("Expected Composer override to be used")
 		}
 	})
 
 	t.Run("HandlesProvisionerOverride", func(t *testing.T) {
+		// Given a provisioner override
 		mocks := setupProjectMocks(t)
 		mockProvisioner := provisioner.NewProvisioner(mocks.Runtime, mocks.Composer.BlueprintHandler)
 
-		proj := NewProject("test-context", &Project{
+		// When NewProject is called with the override
+		proj := project.NewProject("test-context", &project.Project{
 			Runtime:     mocks.Runtime,
 			Provisioner: mockProvisioner,
 		})
 
+		// Then the project uses the provisioner override
 		if proj.Provisioner != mockProvisioner {
 			t.Error("Expected Provisioner override to be used")
 		}
 	})
 
 	t.Run("HandlesWorkstationOverride", func(t *testing.T) {
+		// Given a workstation override in dev mode
 		mocks := setupProjectMocks(t)
 		mockConfig := mocks.ConfigHandler.(*config.MockConfigHandler)
 		mockConfig.IsDevModeFunc = func(contextName string) bool {
@@ -387,19 +400,24 @@ func TestNewProject(t *testing.T) {
 			t.Fatal("Failed to create workstation")
 		}
 
-		proj := NewProject("test-context", &Project{
+		// When NewProject is called with the override
+		proj := project.NewProject("test-context", &project.Project{
 			Runtime:     mocks.Runtime,
 			Workstation: mockWorkstation,
 		})
 
+		// Then the project uses the workstation override
 		if proj.Workstation != mockWorkstation {
 			t.Error("Expected Workstation override to be used")
 		}
 	})
 
 	t.Run("CreatesRuntimeWhenNoOverrides", func(t *testing.T) {
-		proj := NewProject("test-context")
+		// Given no overrides
+		// When NewProject is called
+		proj := project.NewProject("test-context")
 
+		// Then the project creates its own runtime, composer, and provisioner
 		if proj == nil {
 			t.Fatal("Expected Project to be created")
 		}
@@ -415,8 +433,11 @@ func TestNewProject(t *testing.T) {
 	})
 
 	t.Run("CreatesRuntimeWhenOverridesHasNilRuntime", func(t *testing.T) {
-		proj := NewProject("test-context", &Project{Runtime: nil})
+		// Given overrides with a nil runtime
+		// When NewProject is called
+		proj := project.NewProject("test-context", &project.Project{Runtime: nil})
 
+		// Then the project creates its own runtime
 		if proj == nil {
 			t.Fatal("Expected Project to be created")
 		}
@@ -433,21 +454,49 @@ func TestNewProject(t *testing.T) {
 
 func TestProject_Configure(t *testing.T) {
 	t.Run("SuccessWithNilFlagOverrides", func(t *testing.T) {
+		// Given a project with mock dependencies
 		mocks := setupProjectMocks(t)
-		_ = NewProject("test-context", &Project{Runtime: mocks.Runtime})
+		proj := project.NewProject("test-context", &project.Project{Runtime: mocks.Runtime})
+
+		// When Configure is called with nil flag overrides
+		err := proj.Configure(nil)
+
+		// Then no error is returned
+		if err != nil {
+			t.Fatalf("expected no error, got %v", err)
+		}
 	})
 
 	t.Run("SuccessWithEmptyFlagOverrides", func(t *testing.T) {
+		// Given a project with mock dependencies
 		mocks := setupProjectMocks(t)
-		_ = NewProject("test-context", &Project{Runtime: mocks.Runtime})
+		proj := project.NewProject("test-context", &project.Project{Runtime: mocks.Runtime})
+
+		// When Configure is called with empty flag overrides
+		err := proj.Configure(map[string]any{})
+
+		// Then no error is returned
+		if err != nil {
+			t.Fatalf("expected no error, got %v", err)
+		}
 	})
 
 	t.Run("SuccessWithFlagOverrides", func(t *testing.T) {
+		// Given a project with mock dependencies
 		mocks := setupProjectMocks(t)
-		_ = NewProject("test-context", &Project{Runtime: mocks.Runtime})
+		proj := project.NewProject("test-context", &project.Project{Runtime: mocks.Runtime})
+
+		// When Configure is called with flag overrides
+		err := proj.Configure(map[string]any{"platform": "docker"})
+
+		// Then no error is returned
+		if err != nil {
+			t.Fatalf("expected no error, got %v", err)
+		}
 	})
 
 	t.Run("SetsDockerPlatformInDevModeWhenPlatformNotSet", func(t *testing.T) {
+		// Given dev mode with vm.runtime set to docker
 		mocks := setupProjectMocks(t)
 		mockConfig := mocks.ConfigHandler.(*config.MockConfigHandler)
 		mockConfig.IsDevModeFunc = func(contextName string) bool {
@@ -468,15 +517,18 @@ func TestProject_Configure(t *testing.T) {
 			return nil
 		}
 
-		proj := NewProject("test-context", &Project{Runtime: mocks.Runtime})
+		// When Configure is called
+		proj := project.NewProject("test-context", &project.Project{Runtime: mocks.Runtime})
 		_ = proj.Configure(nil)
 
+		// Then the platform is set to docker
 		if !platformSet {
 			t.Error("Expected platform to be set to 'docker' in dev mode")
 		}
 	})
 
 	t.Run("SetsIncusPlatformInDevModeWhenColimaIncus", func(t *testing.T) {
+		// Given dev mode with colima and vm.runtime set to incus
 		mocks := setupProjectMocks(t)
 		mockConfig := mocks.ConfigHandler.(*config.MockConfigHandler)
 		mockConfig.IsDevModeFunc = func(contextName string) bool {
@@ -503,15 +555,18 @@ func TestProject_Configure(t *testing.T) {
 			return nil
 		}
 
-		proj := NewProject("test-context", &Project{Runtime: mocks.Runtime})
+		// When Configure is called
+		proj := project.NewProject("test-context", &project.Project{Runtime: mocks.Runtime})
 		_ = proj.Configure(nil)
 
+		// Then the platform is set to incus
 		if !platformSet {
 			t.Error("Expected platform to be set to 'incus' in dev mode when workstation.runtime is colima and vm.runtime is incus")
 		}
 	})
 
 	t.Run("CreatesWorkstationWhenWorkstationRuntimeSetViaFlagOverrides", func(t *testing.T) {
+		// Given a config outside dev mode with no workstation runtime
 		mocks := setupProjectMocks(t)
 		mockConfig := mocks.ConfigHandler.(*config.MockConfigHandler)
 		mockConfig.IsDevModeFunc = func(contextName string) bool {
@@ -536,13 +591,15 @@ func TestProject_Configure(t *testing.T) {
 			return ""
 		}
 
-		proj := NewProject("test-context", &Project{Runtime: mocks.Runtime})
+		proj := project.NewProject("test-context", &project.Project{Runtime: mocks.Runtime})
 
 		if proj.Workstation != nil {
 			t.Fatal("Expected Workstation nil before Configure when not dev mode and workstation.runtime not set")
 		}
 
+		// When Configure sets workstation.runtime to colima
 		err := proj.Configure(map[string]any{"workstation.runtime": "colima"})
+		// Then Configure succeeds and EnsureWorkstation creates the workstation
 		if err != nil {
 			t.Errorf("Configure failed: %v", err)
 		}
@@ -553,6 +610,7 @@ func TestProject_Configure(t *testing.T) {
 	})
 
 	t.Run("SkipsDockerProviderWhenProviderAlreadySet", func(t *testing.T) {
+		// Given dev mode with the provider set to aws
 		mocks := setupProjectMocks(t)
 		mockConfig := mocks.ConfigHandler.(*config.MockConfigHandler)
 		mockConfig.IsDevModeFunc = func(contextName string) bool {
@@ -565,7 +623,8 @@ func TestProject_Configure(t *testing.T) {
 			return ""
 		}
 
-		_ = NewProject("test-context", &Project{Runtime: mocks.Runtime})
+		// When NewProject is called
+		_ = project.NewProject("test-context", &project.Project{Runtime: mocks.Runtime})
 
 		dockerSet := false
 		mockConfig.SetFunc = func(key string, value any) error {
@@ -575,12 +634,14 @@ func TestProject_Configure(t *testing.T) {
 			return nil
 		}
 
+		// Then the provider is not set to docker
 		if dockerSet {
 			t.Error("Expected provider not to be set to 'docker' when already set")
 		}
 	})
 
 	t.Run("NoErrorWhenLegacyPlatformDefaultSetterWouldFail", func(t *testing.T) {
+		// Given a config that fails to set aws.enabled
 		mocks := setupProjectMocks(t)
 		mockConfig := mocks.ConfigHandler.(*config.MockConfigHandler)
 		mockConfig.SetFunc = func(key string, value any) error {
@@ -590,26 +651,31 @@ func TestProject_Configure(t *testing.T) {
 			return nil
 		}
 
-		proj := NewProject("test-context", &Project{Runtime: mocks.Runtime})
+		proj := project.NewProject("test-context", &project.Project{Runtime: mocks.Runtime})
 
+		// When Configure is called with platform aws
 		err := proj.Configure(map[string]any{"platform": "aws"})
 
+		// Then no error is returned
 		if err != nil {
 			t.Errorf("Expected no error, got: %v", err)
 		}
 	})
 
 	t.Run("ErrorOnLoadConfigFailure", func(t *testing.T) {
+		// Given a config that fails to load
 		mocks := setupProjectMocks(t)
 		mockConfig := mocks.ConfigHandler.(*config.MockConfigHandler)
 		mockConfig.LoadConfigFunc = func() error {
 			return fmt.Errorf("load config failed")
 		}
 
-		proj := NewProject("test-context", &Project{Runtime: mocks.Runtime})
+		proj := project.NewProject("test-context", &project.Project{Runtime: mocks.Runtime})
 
+		// When Configure is called
 		err := proj.Configure(nil)
 
+		// Then an error about the config load is returned
 		if err == nil {
 			t.Error("Expected error for LoadConfig failure")
 			return
@@ -621,16 +687,19 @@ func TestProject_Configure(t *testing.T) {
 	})
 
 	t.Run("ErrorOnSetFailure", func(t *testing.T) {
+		// Given a config that fails on every set
 		mocks := setupProjectMocks(t)
 		mockConfig := mocks.ConfigHandler.(*config.MockConfigHandler)
 		mockConfig.SetFunc = func(key string, value any) error {
 			return fmt.Errorf("set failed")
 		}
 
-		proj := NewProject("test-context", &Project{Runtime: mocks.Runtime})
+		proj := project.NewProject("test-context", &project.Project{Runtime: mocks.Runtime})
 
+		// When Configure is called with a flag override
 		err := proj.Configure(map[string]any{"key": "value"})
 
+		// Then an error about the set is returned
 		if err == nil {
 			t.Error("Expected error for Set failure")
 			return
@@ -664,7 +733,7 @@ func TestProject_Configure(t *testing.T) {
 			return nil
 		}
 
-		proj := NewProject("test-context", &Project{Runtime: mocks.Runtime})
+		proj := project.NewProject("test-context", &project.Project{Runtime: mocks.Runtime})
 
 		flagOverrides := map[string]any{
 			"workstation.runtime": "colima",
@@ -674,6 +743,7 @@ func TestProject_Configure(t *testing.T) {
 		// When Configure is called with flag overrides
 		_ = proj.Configure(flagOverrides)
 
+		// Then the default config has no platform
 		_ = setDefaultConfig
 		if setDefaultConfig.Platform != "" {
 			t.Error("Expected DefaultConfig_Dev with no platform set")
@@ -698,12 +768,12 @@ func TestProject_Configure(t *testing.T) {
 			return fmt.Errorf("set default failed")
 		}
 
-		proj := NewProject("test-context", &Project{Runtime: mocks.Runtime})
+		proj := project.NewProject("test-context", &project.Project{Runtime: mocks.Runtime})
 
 		// When Configure is called
 		err := proj.Configure(nil)
 
-		// Then an error should be returned
+		// Then an error about config defaults is returned
 		if err == nil {
 			t.Error("Expected error for ApplyConfigDefaults failure")
 			return
@@ -715,6 +785,7 @@ func TestProject_Configure(t *testing.T) {
 	})
 
 	t.Run("SetsPlatformToIncusAfterLoadConfigWhenColimaIncus", func(t *testing.T) {
+		// Given dev mode with platform docker, colima, and vm.runtime incus
 		mocks := setupProjectMocks(t)
 		mockConfig := mocks.ConfigHandler.(*config.MockConfigHandler)
 		mockConfig.IsDevModeFunc = func(contextName string) bool {
@@ -744,9 +815,11 @@ func TestProject_Configure(t *testing.T) {
 			return nil
 		}
 
-		proj := NewProject("test-context", &Project{Runtime: mocks.Runtime})
+		// When Configure is called
+		proj := project.NewProject("test-context", &project.Project{Runtime: mocks.Runtime})
 		_ = proj.Configure(nil)
 
+		// Then the platform changes to incus
 		if platformSet != "incus" {
 			t.Errorf("Expected platform to be set to 'incus' after LoadConfig when workstation.runtime is 'colima' and vm.runtime is 'incus', got: %s", platformSet)
 		}
@@ -755,17 +828,21 @@ func TestProject_Configure(t *testing.T) {
 
 func TestProject_ComposeBlueprint(t *testing.T) {
 	t.Run("SuccessWhenLoadBlueprintSucceeds", func(t *testing.T) {
+		// Given a blueprint handler that loads without error
 		mocks := setupProjectMocks(t)
-		proj := NewProject("test-context", &Project{Runtime: mocks.Runtime, Composer: mocks.Composer})
+		proj := project.NewProject("test-context", &project.Project{Runtime: mocks.Runtime, Composer: mocks.Composer})
 
+		// When ComposeBlueprint is called
 		err := proj.ComposeBlueprint()
 
+		// Then no error is returned
 		if err != nil {
 			t.Errorf("Expected no error, got: %v", err)
 		}
 	})
 
 	t.Run("PassesBlueprintURLToLoadBlueprint", func(t *testing.T) {
+		// Given a blueprint handler that records its load arguments
 		mocks := setupProjectMocks(t)
 		var loadArgs []string
 		mockBlueprintHandler := blueprint.NewMockBlueprintHandler()
@@ -776,10 +853,12 @@ func TestProject_ComposeBlueprint(t *testing.T) {
 		comp := composer.NewComposer(mocks.Runtime, &composer.Composer{
 			BlueprintHandler: mockBlueprintHandler,
 		})
-		proj := NewProject("test-context", &Project{Runtime: mocks.Runtime, Composer: comp})
+		proj := project.NewProject("test-context", &project.Project{Runtime: mocks.Runtime, Composer: comp})
 
+		// When ComposeBlueprint is called with an OCI URL
 		err := proj.ComposeBlueprint("oci://ghcr.io/org/blueprint:v1")
 
+		// Then LoadBlueprint receives the OCI URL
 		if err != nil {
 			t.Errorf("Expected no error, got: %v", err)
 		}
@@ -789,15 +868,18 @@ func TestProject_ComposeBlueprint(t *testing.T) {
 	})
 
 	t.Run("ErrorOnGenerateContextIDFailure", func(t *testing.T) {
+		// Given a config that fails to generate a context ID
 		mocks := setupProjectMocks(t)
 		mockConfig := mocks.ConfigHandler.(*config.MockConfigHandler)
 		mockConfig.GenerateContextIDFunc = func() error {
 			return fmt.Errorf("generate context ID failed")
 		}
-		proj := NewProject("test-context", &Project{Runtime: mocks.Runtime, Composer: mocks.Composer})
+		proj := project.NewProject("test-context", &project.Project{Runtime: mocks.Runtime, Composer: mocks.Composer})
 
+		// When ComposeBlueprint is called
 		err := proj.ComposeBlueprint()
 
+		// Then an error about the context ID is returned
 		if err == nil {
 			t.Error("Expected error for GenerateContextID failure")
 			return
@@ -808,6 +890,7 @@ func TestProject_ComposeBlueprint(t *testing.T) {
 	})
 
 	t.Run("ErrorOnLoadBlueprintFailure", func(t *testing.T) {
+		// Given a blueprint handler that fails to load
 		mocks := setupProjectMocks(t)
 		mockBlueprintHandler := blueprint.NewMockBlueprintHandler()
 		mockBlueprintHandler.LoadBlueprintFunc = func(...string) error {
@@ -816,10 +899,12 @@ func TestProject_ComposeBlueprint(t *testing.T) {
 		comp := composer.NewComposer(mocks.Runtime, &composer.Composer{
 			BlueprintHandler: mockBlueprintHandler,
 		})
-		proj := NewProject("test-context", &Project{Runtime: mocks.Runtime, Composer: comp})
+		proj := project.NewProject("test-context", &project.Project{Runtime: mocks.Runtime, Composer: comp})
 
+		// When ComposeBlueprint is called
 		err := proj.ComposeBlueprint()
 
+		// Then the load error is returned
 		if err == nil {
 			t.Error("Expected error for LoadBlueprint failure")
 			return
@@ -832,21 +917,25 @@ func TestProject_ComposeBlueprint(t *testing.T) {
 
 func TestProject_Initialize(t *testing.T) {
 	t.Run("SuccessWithoutWorkstation", func(t *testing.T) {
+		// Given a project outside dev mode
 		mocks := setupProjectMocks(t)
-		proj := NewProject("test-context", &Project{Runtime: mocks.Runtime, Composer: mocks.Composer})
+		proj := project.NewProject("test-context", &project.Project{Runtime: mocks.Runtime, Composer: mocks.Composer})
 
+		// When Initialize is called
 		_ = proj.Initialize(false)
+		// Then Initialize completes without a panic
 
 	})
 
 	t.Run("SuccessWithWorkstation", func(t *testing.T) {
+		// Given a configured dev mode project with no network manager
 		mocks := setupProjectMocks(t)
 		mockConfig := mocks.ConfigHandler.(*config.MockConfigHandler)
 		mockConfig.IsDevModeFunc = func(contextName string) bool {
 			return true
 		}
 
-		proj := NewProject("test-context", &Project{Runtime: mocks.Runtime, Composer: mocks.Composer})
+		proj := project.NewProject("test-context", &project.Project{Runtime: mocks.Runtime, Composer: mocks.Composer})
 
 		if err := proj.Configure(nil); err != nil {
 			t.Fatalf("Failed to configure project: %v", err)
@@ -858,11 +947,14 @@ func TestProject_Initialize(t *testing.T) {
 
 		proj.Workstation.NetworkManager = nil
 
+		// When Initialize is called
 		_ = proj.Initialize(false)
+		// Then Initialize completes without a panic
 
 	})
 
 	t.Run("CallsContainerRuntimeWriteConfig", func(t *testing.T) {
+		// Given a configured dev mode project with a mock container runtime
 		mocks := setupProjectMocks(t)
 		mockConfig := mocks.ConfigHandler.(*config.MockConfigHandler)
 		mockConfig.IsDevModeFunc = func(contextName string) bool {
@@ -875,7 +967,7 @@ func TestProject_Initialize(t *testing.T) {
 			return false
 		}
 
-		proj := NewProject("test-context", &Project{Runtime: mocks.Runtime, Composer: mocks.Composer})
+		proj := project.NewProject("test-context", &project.Project{Runtime: mocks.Runtime, Composer: mocks.Composer})
 
 		if err := proj.Configure(nil); err != nil {
 			t.Fatalf("Failed to configure project: %v", err)
@@ -894,14 +986,17 @@ func TestProject_Initialize(t *testing.T) {
 		proj.Workstation.ContainerRuntime = mockContainerRuntime
 		proj.Workstation.NetworkManager = nil
 
+		// When Initialize is called
 		_ = proj.Initialize(false)
 
+		// Then the container runtime writes its config
 		if !writeConfigCalled {
 			t.Error("Expected ContainerRuntime.WriteConfig to be called")
 		}
 	})
 
 	t.Run("ErrorOnContainerRuntimeWriteConfigFailure", func(t *testing.T) {
+		// Given a dev mode project with a container runtime that fails to write config
 		mocks := setupProjectMocks(t)
 		mockConfig := mocks.ConfigHandler.(*config.MockConfigHandler)
 		mockConfig.IsDevModeFunc = func(contextName string) bool {
@@ -914,7 +1009,7 @@ func TestProject_Initialize(t *testing.T) {
 			return false
 		}
 
-		proj := NewProject("test-context", &Project{Runtime: mocks.Runtime, Composer: mocks.Composer})
+		proj := project.NewProject("test-context", &project.Project{Runtime: mocks.Runtime, Composer: mocks.Composer})
 
 		if err := proj.Configure(nil); err != nil {
 			t.Fatalf("Failed to configure project: %v", err)
@@ -931,8 +1026,10 @@ func TestProject_Initialize(t *testing.T) {
 		proj.Workstation.ContainerRuntime = mockContainerRuntime
 		proj.Workstation.NetworkManager = nil
 
+		// When Initialize is called
 		err := proj.Initialize(false)
 
+		// Then an error about the container runtime config is returned
 		if err == nil {
 			t.Error("Expected error for ContainerRuntime.WriteConfig failure")
 			return
@@ -944,24 +1041,30 @@ func TestProject_Initialize(t *testing.T) {
 	})
 
 	t.Run("SuccessWithOverwriteTrue", func(t *testing.T) {
+		// Given a project outside dev mode
 		mocks := setupProjectMocks(t)
-		proj := NewProject("test-context", &Project{Runtime: mocks.Runtime, Composer: mocks.Composer})
+		proj := project.NewProject("test-context", &project.Project{Runtime: mocks.Runtime, Composer: mocks.Composer})
 
+		// When Initialize is called with overwrite set
 		_ = proj.Initialize(true)
+		// Then Initialize completes without a panic
 
 	})
 
 	t.Run("ErrorOnGenerateContextIDFailure", func(t *testing.T) {
+		// Given a config that fails to generate a context ID
 		mocks := setupProjectMocks(t)
 		mockConfig := mocks.ConfigHandler.(*config.MockConfigHandler)
 		mockConfig.GenerateContextIDFunc = func() error {
 			return fmt.Errorf("generate context ID failed")
 		}
 
-		proj := NewProject("test-context", &Project{Runtime: mocks.Runtime, Composer: mocks.Composer})
+		proj := project.NewProject("test-context", &project.Project{Runtime: mocks.Runtime, Composer: mocks.Composer})
 
+		// When Initialize is called
 		err := proj.Initialize(false)
 
+		// Then an error about the context ID is returned
 		if err == nil {
 			t.Error("Expected error for GenerateContextID failure")
 			return
@@ -973,16 +1076,19 @@ func TestProject_Initialize(t *testing.T) {
 	})
 
 	t.Run("ErrorOnSaveConfigFailure", func(t *testing.T) {
+		// Given a config that fails to save
 		mocks := setupProjectMocks(t)
 		mockConfig := mocks.ConfigHandler.(*config.MockConfigHandler)
 		mockConfig.SaveConfigFunc = func(hasSetFlags ...bool) error {
 			return fmt.Errorf("save config failed")
 		}
 
-		proj := NewProject("test-context", &Project{Runtime: mocks.Runtime, Composer: mocks.Composer})
+		proj := project.NewProject("test-context", &project.Project{Runtime: mocks.Runtime, Composer: mocks.Composer})
 
+		// When Initialize is called
 		err := proj.Initialize(false)
 
+		// Then an error about the config save is returned
 		if err == nil {
 			t.Error("Expected error for SaveConfig failure")
 			return
@@ -994,8 +1100,9 @@ func TestProject_Initialize(t *testing.T) {
 	})
 
 	t.Run("ErrorOnLoadBlueprintFailure", func(t *testing.T) {
+		// Given a blueprint handler that fails to load
 		mocks := setupProjectMocks(t)
-		proj := NewProject("test-context", &Project{Runtime: mocks.Runtime})
+		proj := project.NewProject("test-context", &project.Project{Runtime: mocks.Runtime})
 
 		mockBlueprintHandler := blueprint.NewMockBlueprintHandler()
 		mockBlueprintHandler.LoadBlueprintFunc = func(...string) error {
@@ -1003,8 +1110,10 @@ func TestProject_Initialize(t *testing.T) {
 		}
 		proj.Composer.BlueprintHandler = mockBlueprintHandler
 
+		// When Initialize is called
 		err := proj.Initialize(false)
 
+		// Then an error about the blueprint load is returned
 		if err == nil {
 			t.Error("Expected error for LoadBlueprint failure")
 			return
@@ -1016,8 +1125,9 @@ func TestProject_Initialize(t *testing.T) {
 	})
 
 	t.Run("ErrorOnGenerateFailure", func(t *testing.T) {
+		// Given a blueprint handler that fails to write
 		mocks := setupProjectMocks(t)
-		proj := NewProject("test-context", &Project{Runtime: mocks.Runtime})
+		proj := project.NewProject("test-context", &project.Project{Runtime: mocks.Runtime})
 
 		mockBlueprintHandler := blueprint.NewMockBlueprintHandler()
 		mockBlueprintHandler.WriteFunc = func(overwrite ...bool) error {
@@ -1025,8 +1135,10 @@ func TestProject_Initialize(t *testing.T) {
 		}
 		proj.Composer.BlueprintHandler = mockBlueprintHandler
 
+		// When Initialize is called
 		err := proj.Initialize(false)
 
+		// Then an error about infrastructure generation is returned
 		if err == nil {
 			t.Error("Expected error for Generate failure")
 			return
@@ -1038,10 +1150,11 @@ func TestProject_Initialize(t *testing.T) {
 	})
 
 	t.Run("ErrorOnPrepareToolsFailure", func(t *testing.T) {
+		// Given a tools manager that fails its check
 		mocks := setupProjectMocks(t)
-		_ = NewProject("test-context", &Project{Runtime: mocks.Runtime, Composer: mocks.Composer})
+		_ = project.NewProject("test-context", &project.Project{Runtime: mocks.Runtime, Composer: mocks.Composer})
 
-		proj := NewProject("test-context", &Project{Runtime: mocks.Runtime, Composer: mocks.Composer})
+		proj := project.NewProject("test-context", &project.Project{Runtime: mocks.Runtime, Composer: mocks.Composer})
 
 		mockToolsManager := tools.NewMockToolsManager()
 		mockToolsManager.CheckFunc = func() error {
@@ -1049,8 +1162,10 @@ func TestProject_Initialize(t *testing.T) {
 		}
 		proj.Runtime.ToolsManager = mockToolsManager
 
+		// When Initialize is called
 		err := proj.Initialize(false)
 
+		// Then an error about the tools check is returned
 		if err == nil {
 			t.Error("Expected error for PrepareTools failure")
 			return
@@ -1062,18 +1177,13 @@ func TestProject_Initialize(t *testing.T) {
 	})
 }
 
-// TestProject_SetToolRequirements pins the contract for the per-command tool-requirement
-// hand-off: an unset toolRequirements pointer means "fall back to AllRequirements" (legacy
-// behavior), while a set pointer — even when its struct value is the zero Requirements —
-// means "honor the caller's narrow set". The distinction matters because `windsor init`
-// deliberately requests a near-empty Requirements set, and the dispatcher must NOT treat
-// that as equivalent to "unset" (which would re-introduce the eager-check behavior the
-// per-command refactor was meant to fix).
+// TestProject_SetToolRequirements checks that Initialize checks all tools when no requirements are set.
+// A set value, also an empty Requirements, replaces that default.
 func TestProject_SetToolRequirements(t *testing.T) {
 	t.Run("UnsetDefaultsToAllRequirements", func(t *testing.T) {
-		// Given a freshly-constructed Project with no SetToolRequirements call
+		// Given a project with no SetToolRequirements call
 		mocks := setupProjectMocks(t)
-		proj := NewProject("test-context", &Project{Runtime: mocks.Runtime, Composer: mocks.Composer})
+		proj := project.NewProject("test-context", &project.Project{Runtime: mocks.Runtime, Composer: mocks.Composer})
 
 		var observed tools.Requirements
 		mockToolsManager := tools.NewMockToolsManager()
@@ -1083,11 +1193,10 @@ func TestProject_SetToolRequirements(t *testing.T) {
 		}
 		proj.Runtime.ToolsManager = mockToolsManager
 
-		// When Initialize runs
+		// When Initialize is called
 		_ = proj.Initialize(false)
 
-		// Then the tools manager receives AllRequirements — every family enabled — preserving
-		// the historical "check everything" behavior for callers that haven't migrated.
+		// Then the tools manager receives AllRequirements
 		want := tools.AllRequirements()
 		if observed != want {
 			t.Errorf("expected unset toolRequirements to default to AllRequirements (%+v), got %+v", want, observed)
@@ -1095,15 +1204,13 @@ func TestProject_SetToolRequirements(t *testing.T) {
 	})
 
 	t.Run("SetEmptyMeansCheckNothing", func(t *testing.T) {
-		// Given a project where the caller has explicitly opted out of every check (the
-		// `windsor init` shape — a fresh-machine init must not block on tools the operator
-		// hasn't installed yet)
+		// Given a project with an empty tool requirements set
 		mocks := setupProjectMocks(t)
-		proj := NewProject("test-context", &Project{Runtime: mocks.Runtime, Composer: mocks.Composer})
+		proj := project.NewProject("test-context", &project.Project{Runtime: mocks.Runtime, Composer: mocks.Composer})
 		proj.SetToolRequirements(tools.Requirements{})
 
 		var observed tools.Requirements
-		observed.Docker = true // sentinel: prove the mock callback overwrites it
+		observed.Docker = true
 		mockToolsManager := tools.NewMockToolsManager()
 		mockToolsManager.CheckRequirementsFunc = func(reqs tools.Requirements) error {
 			observed = reqs
@@ -1111,21 +1218,19 @@ func TestProject_SetToolRequirements(t *testing.T) {
 		}
 		proj.Runtime.ToolsManager = mockToolsManager
 
-		// When Initialize runs
+		// When Initialize is called
 		_ = proj.Initialize(false)
 
-		// Then the empty Requirements is forwarded verbatim — NOT silently replaced with
-		// AllRequirements. A regression here would silently re-enable every preflight check
-		// on init.
+		// Then the tools manager receives the empty set
 		if observed != (tools.Requirements{}) {
 			t.Errorf("expected SetToolRequirements({}) to forward an empty set; got %+v", observed)
 		}
 	})
 
 	t.Run("SetNarrowForwardsExactRequest", func(t *testing.T) {
-		// Given a project with a narrow Requirements set (e.g. the `windsor down` shape)
+		// Given a project with a narrow tool requirements set
 		mocks := setupProjectMocks(t)
-		proj := NewProject("test-context", &Project{Runtime: mocks.Runtime, Composer: mocks.Composer})
+		proj := project.NewProject("test-context", &project.Project{Runtime: mocks.Runtime, Composer: mocks.Composer})
 		want := tools.Requirements{Docker: true, Colima: true, Secrets: true}
 		proj.SetToolRequirements(want)
 
@@ -1137,12 +1242,10 @@ func TestProject_SetToolRequirements(t *testing.T) {
 		}
 		proj.Runtime.ToolsManager = mockToolsManager
 
-		// When Initialize runs
+		// When Initialize is called
 		_ = proj.Initialize(false)
 
-		// Then the tools manager receives exactly the requested set — no fields silently
-		// added (which would re-introduce eager checks) or removed (which would skip a
-		// preflight the command intended to run).
+		// Then the tools manager receives the exact requested set
 		if observed != want {
 			t.Errorf("expected forwarded Requirements %+v, got %+v", want, observed)
 		}
@@ -1151,6 +1254,7 @@ func TestProject_SetToolRequirements(t *testing.T) {
 
 func TestProject_PerformCleanup(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
+		// Given a config that records the clean call
 		mocks := setupProjectMocks(t)
 		mockConfig := mocks.ConfigHandler.(*config.MockConfigHandler)
 		cleanCalled := false
@@ -1159,10 +1263,12 @@ func TestProject_PerformCleanup(t *testing.T) {
 			return nil
 		}
 
-		proj := NewProject("test-context", &Project{Runtime: mocks.Runtime})
+		proj := project.NewProject("test-context", &project.Project{Runtime: mocks.Runtime})
 
+		// When PerformCleanup is called
 		err := proj.PerformCleanup()
 
+		// Then Clean runs and no error is returned
 		if !cleanCalled {
 			t.Error("Expected Clean to be called")
 		}
@@ -1172,16 +1278,19 @@ func TestProject_PerformCleanup(t *testing.T) {
 	})
 
 	t.Run("ErrorOnCleanFailure", func(t *testing.T) {
+		// Given a config that fails to clean
 		mocks := setupProjectMocks(t)
 		mockConfig := mocks.ConfigHandler.(*config.MockConfigHandler)
 		mockConfig.CleanFunc = func() error {
 			return fmt.Errorf("clean failed")
 		}
 
-		proj := NewProject("test-context", &Project{Runtime: mocks.Runtime})
+		proj := project.NewProject("test-context", &project.Project{Runtime: mocks.Runtime})
 
+		// When PerformCleanup is called
 		err := proj.PerformCleanup()
 
+		// Then an error about the context cleanup is returned
 		if err == nil {
 			t.Error("Expected error for Clean failure")
 			return
@@ -1195,19 +1304,18 @@ func TestProject_PerformCleanup(t *testing.T) {
 	t.Run("ErrorReadingContextDir", func(t *testing.T) {
 		// Given a path where a regular file occupies the context directory slot
 		mocks := setupProjectMocks(t)
-		proj := NewProject("test-context", &Project{Runtime: mocks.Runtime})
+		proj := project.NewProject("test-context", &project.Project{Runtime: mocks.Runtime})
 
 		parent := filepath.Join(mocks.Runtime.ProjectRoot, ".windsor", "contexts")
 		if err := os.MkdirAll(parent, 0755); err != nil {
 			t.Fatalf("Failed to create parent dir: %v", err)
 		}
-		// Place a regular file where the context directory would be
 		contextPath := filepath.Join(parent, "test-context")
 		if err := os.WriteFile(contextPath, []byte("not a dir"), 0644); err != nil {
 			t.Fatalf("Failed to write file at context path: %v", err)
 		}
 
-		// When
+		// When PerformCleanup is called
 		err := proj.PerformCleanup()
 
 		// Then the error mentions the context directory
@@ -1227,12 +1335,12 @@ func TestProject_PerformCleanup(t *testing.T) {
 	t.Run("ErrorRemovingCredentials", func(t *testing.T) {
 		// Given a RemoveAll shim that fails
 		mocks := setupProjectMocks(t)
-		proj := NewProject("test-context", &Project{Runtime: mocks.Runtime})
-		proj.shims.RemoveAll = func(path string) error {
+		proj := project.NewProject("test-context", &project.Project{Runtime: mocks.Runtime})
+		proj.Shims().RemoveAll = func(path string) error {
 			return fmt.Errorf("remove failed")
 		}
 
-		// When
+		// When PerformCleanup is called
 		err := proj.PerformCleanup()
 
 		// Then the error names the credentials directory
@@ -1244,12 +1352,12 @@ func TestProject_PerformCleanup(t *testing.T) {
 	t.Run("ErrorStattingContextDir", func(t *testing.T) {
 		// Given a Stat shim that fails with an error other than not-exist
 		mocks := setupProjectMocks(t)
-		proj := NewProject("test-context", &Project{Runtime: mocks.Runtime})
-		proj.shims.Stat = func(name string) (os.FileInfo, error) {
+		proj := project.NewProject("test-context", &project.Project{Runtime: mocks.Runtime})
+		proj.Shims().Stat = func(name string) (os.FileInfo, error) {
 			return nil, os.ErrPermission
 		}
 
-		// When
+		// When PerformCleanup is called
 		err := proj.PerformCleanup()
 
 		// Then the error mentions the context directory
@@ -1261,16 +1369,16 @@ func TestProject_PerformCleanup(t *testing.T) {
 	t.Run("ErrorListingContextDir", func(t *testing.T) {
 		// Given a context directory that exists and a ReadDir shim that fails
 		mocks := setupProjectMocks(t)
-		proj := NewProject("test-context", &Project{Runtime: mocks.Runtime})
+		proj := project.NewProject("test-context", &project.Project{Runtime: mocks.Runtime})
 		contextDir := filepath.Join(mocks.Runtime.ProjectRoot, ".windsor", "contexts", "test-context")
 		if err := os.MkdirAll(contextDir, 0755); err != nil {
 			t.Fatalf("Failed to create context dir: %v", err)
 		}
-		proj.shims.ReadDir = func(name string) ([]os.DirEntry, error) {
+		proj.Shims().ReadDir = func(name string) ([]os.DirEntry, error) {
 			return nil, fmt.Errorf("readdir failed")
 		}
 
-		// When
+		// When PerformCleanup is called
 		err := proj.PerformCleanup()
 
 		// Then the error mentions the context directory
@@ -1282,7 +1390,7 @@ func TestProject_PerformCleanup(t *testing.T) {
 	t.Run("PreservesWorkstationYaml", func(t *testing.T) {
 		// Given a context dir containing workstation.yaml alongside other artifacts
 		mocks := setupProjectMocks(t)
-		proj := NewProject("test-context", &Project{Runtime: mocks.Runtime})
+		proj := project.NewProject("test-context", &project.Project{Runtime: mocks.Runtime})
 
 		contextDir := filepath.Join(mocks.Runtime.ProjectRoot, ".windsor", "contexts", "test-context")
 		if err := os.MkdirAll(contextDir, 0755); err != nil {
@@ -1297,10 +1405,10 @@ func TestProject_PerformCleanup(t *testing.T) {
 			t.Fatalf("Failed to write ephemeral.txt: %v", err)
 		}
 
-		// When
+		// When PerformCleanup is called
 		err := proj.PerformCleanup()
 
-		// Then
+		// Then workstation.yaml remains and the other files are deleted
 		if err != nil {
 			t.Errorf("Expected no error, got: %v", err)
 		}
@@ -1315,7 +1423,7 @@ func TestProject_PerformCleanup(t *testing.T) {
 	t.Run("RemovesLocalClusterCredentials", func(t *testing.T) {
 		// Given a config root holding .kube and .talos credentials alongside operator state to keep
 		mocks := setupProjectMocks(t)
-		proj := NewProject("test-context", &Project{Runtime: mocks.Runtime})
+		proj := project.NewProject("test-context", &project.Project{Runtime: mocks.Runtime})
 
 		configRoot := filepath.Join(mocks.Runtime.ProjectRoot, "contexts", "test-context")
 		kubeCfg := filepath.Join(configRoot, ".kube", "config")
@@ -1331,7 +1439,7 @@ func TestProject_PerformCleanup(t *testing.T) {
 			}
 		}
 
-		// When
+		// When PerformCleanup is called
 		if err := proj.PerformCleanup(); err != nil {
 			t.Fatalf("Expected no error, got: %v", err)
 		}
@@ -1355,9 +1463,10 @@ func TestProject_PerformCleanup(t *testing.T) {
 	t.Run("SucceedsWhenCredentialsAbsent", func(t *testing.T) {
 		// Given a config root with no .kube or .talos directories
 		mocks := setupProjectMocks(t)
-		proj := NewProject("test-context", &Project{Runtime: mocks.Runtime})
+		proj := project.NewProject("test-context", &project.Project{Runtime: mocks.Runtime})
 
-		// When cleanup runs, the missing credential dirs are a no-op rather than an error
+		// When PerformCleanup is called
+		// Then no error is returned
 		if err := proj.PerformCleanup(); err != nil {
 			t.Errorf("Expected no error when credentials are absent, got: %v", err)
 		}
@@ -1366,6 +1475,7 @@ func TestProject_PerformCleanup(t *testing.T) {
 
 func TestProject_Up(t *testing.T) {
 	t.Run("SuccessWithoutWorkstation", func(t *testing.T) {
+		// Given a project with terraform disabled
 		mocks := setupProjectMocks(t)
 		mockConfig := mocks.ConfigHandler.(*config.MockConfigHandler)
 		mockConfig.GetBoolFunc = func(key string, defaultValue ...bool) bool {
@@ -1374,10 +1484,12 @@ func TestProject_Up(t *testing.T) {
 			}
 			return false
 		}
-		proj := NewProject("test-context", &Project{Runtime: mocks.Runtime, Composer: mocks.Composer})
+		proj := project.NewProject("test-context", &project.Project{Runtime: mocks.Runtime, Composer: mocks.Composer})
 
+		// When Up is called
 		blueprint, _, err := proj.Up(context.Background())
 
+		// Then Up returns a blueprint and no error
 		if err != nil {
 			t.Errorf("Expected no error, got: %v", err)
 		}
@@ -1387,6 +1499,7 @@ func TestProject_Up(t *testing.T) {
 	})
 
 	t.Run("SuccessWithWorkstationPassesOnApplyToProvisioner", func(t *testing.T) {
+		// Given a dev mode workstation and a terraform stack that records apply hooks
 		mocks := setupProjectMocks(t)
 		mockConfig := mocks.ConfigHandler.(*config.MockConfigHandler)
 		mockConfig.IsDevModeFunc = func(contextName string) bool {
@@ -1413,7 +1526,7 @@ func TestProject_Up(t *testing.T) {
 			}
 			return false
 		}
-		proj := NewProject("test-context", &Project{
+		proj := project.NewProject("test-context", &project.Project{
 			Runtime:     mocks.Runtime,
 			Composer:    mocks.Composer,
 			Provisioner: prov,
@@ -1426,8 +1539,10 @@ func TestProject_Up(t *testing.T) {
 		}
 		proj.Workstation.NetworkManager = nil
 
+		// When Up is called
 		blueprint, _, err := proj.Up(context.Background())
 
+		// Then the provisioner receives a non-nil apply hook
 		if err != nil {
 			t.Errorf("Expected no error, got: %v", err)
 		}
@@ -1443,6 +1558,7 @@ func TestProject_Up(t *testing.T) {
 	})
 
 	t.Run("ErrorFromWorkstationUp", func(t *testing.T) {
+		// Given a dev mode workstation with a VM that fails to start
 		mocks := setupProjectMocks(t)
 		mockConfig := mocks.ConfigHandler.(*config.MockConfigHandler)
 		mockConfig.IsDevModeFunc = func(contextName string) bool {
@@ -1473,7 +1589,7 @@ func TestProject_Up(t *testing.T) {
 			}
 			return ""
 		}
-		proj := NewProject("test-context", &Project{
+		proj := project.NewProject("test-context", &project.Project{
 			Runtime:     mocks.Runtime,
 			Composer:    mocks.Composer,
 			Provisioner: prov,
@@ -1490,8 +1606,10 @@ func TestProject_Up(t *testing.T) {
 		proj.Workstation.VirtualMachine = mockVM
 		proj.Workstation.NetworkManager = nil
 
+		// When Up is called
 		_, _, err := proj.Up(context.Background())
 
+		// Then an error about the workstation start is returned
 		if err == nil {
 			t.Error("Expected error when Workstation.Up fails")
 			return
@@ -1502,10 +1620,7 @@ func TestProject_Up(t *testing.T) {
 	})
 
 	t.Run("ClusterPrivilegeHaltsApplyHookWithoutError", func(t *testing.T) {
-		// Given a blueprint with a workstation TF component (so DeferHostGuestSetup → true and the
-		// apply hook fires), where the privileged probe says cluster work is needed. The apply hook
-		// must signal halt (windsor up will not prompt for sudo); subsequent components are skipped
-		// and the cmd layer renders an operator-facing summary.
+		// Given a workstation component and a network manager that needs privilege for the cluster
 		mocks := setupProjectMocks(t)
 		mockConfig := mocks.ConfigHandler.(*config.MockConfigHandler)
 		mockConfig.IsDevModeFunc = func(contextName string) bool {
@@ -1527,7 +1642,6 @@ func TestProject_Up(t *testing.T) {
 		}
 		mockStack := terraforminfra.NewMockStack()
 		mockStack.UpFunc = func(blueprint *v1alpha1.Blueprint, onApply ...func(ctx context.Context, id string) (bool, error)) (bool, error) {
-			// Simulate the terraform stack invoking the registered onApply hook for the workstation component
 			for _, fn := range onApply {
 				haltAfter, err := fn(context.Background(), "workstation")
 				if err != nil {
@@ -1541,9 +1655,6 @@ func TestProject_Up(t *testing.T) {
 		}
 		prov := provisioner.NewProvisioner(mocks.Runtime, mocks.Composer.BlueprintHandler, &provisioner.Provisioner{TerraformStack: mockStack})
 
-		// MakeApplyHook reads workstation TF outputs to backfill workstation.dns.address; the
-		// real TerraformProvider would error here because no on-disk component exists in this
-		// in-memory test. Stub it out to return no outputs cleanly.
 		mockTF := &terraformprovider.MockTerraformProvider{}
 		mockTF.GetTerraformOutputsFunc = func(_ string) (map[string]any, error) {
 			return map[string]any{}, nil
@@ -1553,7 +1664,7 @@ func TestProject_Up(t *testing.T) {
 		mockNetwork := network.NewMockNetworkManager()
 		mockNetwork.NeedsPrivilegeForClusterFunc = func() bool { return true }
 
-		proj := NewProject("test-context", &Project{
+		proj := project.NewProject("test-context", &project.Project{
 			Runtime:     mocks.Runtime,
 			Composer:    mocks.Composer,
 			Provisioner: prov,
@@ -1566,11 +1677,10 @@ func TestProject_Up(t *testing.T) {
 		proj.Workstation.VirtualMachine = nil
 		proj.Workstation.ContainerRuntime = nil
 
-		// When proj.Up runs
+		// When Up is called
 		_, halted, err := proj.Up(context.Background())
 
-		// Then no error surfaces, halt propagates through the runApply / provisioner chain,
-		// and the workstation accumulated a required deferred-work item the cmd layer can render
+		// Then Up halts with no error and defers one required network task
 		if err != nil {
 			t.Fatalf("expected no error on halt, got: %v", err)
 		}
@@ -1584,6 +1694,7 @@ func TestProject_Up(t *testing.T) {
 	})
 
 	t.Run("ErrorFromProvisionerUp", func(t *testing.T) {
+		// Given a terraform stack that fails to apply
 		mocks := setupProjectMocks(t)
 		mockStack := terraforminfra.NewMockStack()
 		mockStack.UpFunc = func(blueprint *v1alpha1.Blueprint, onApply ...func(ctx context.Context, id string) (bool, error)) (bool, error) {
@@ -1597,14 +1708,16 @@ func TestProject_Up(t *testing.T) {
 			return false
 		}
 		prov := provisioner.NewProvisioner(mocks.Runtime, mocks.Composer.BlueprintHandler, &provisioner.Provisioner{TerraformStack: mockStack})
-		proj := NewProject("test-context", &Project{
+		proj := project.NewProject("test-context", &project.Project{
 			Runtime:     mocks.Runtime,
 			Composer:    mocks.Composer,
 			Provisioner: prov,
 		})
 
+		// When Up is called
 		_, _, err := proj.Up(context.Background())
 
+		// Then an error about the infrastructure start is returned
 		if err == nil {
 			t.Error("Expected error when Provisioner.Up fails")
 			return
@@ -1616,14 +1729,8 @@ func TestProject_Up(t *testing.T) {
 }
 
 func TestProject_Bootstrap(t *testing.T) {
-	// Two-phase dance details (override/Apply/restore/Migrate timeline, error
-	// surfacing from Apply or MigrateComponentState) are covered at the provisioner
-	// layer in TestProvisioner_Bootstrap. Tests here exercise what Project owns:
-	// workstation ordering before the provisioner call, and error wrapping.
-
 	t.Run("WorkstationStartsBeforeProvisionerUp", func(t *testing.T) {
-		// Regression guard: docker/colima/incus need the cluster up before any
-		// terraform apply runs (the kubernetes-backend storage lives in that cluster).
+		// Given a dev mode workstation with a kubernetes backend
 		mocks := setupProjectMocks(t)
 
 		mockConfig := mocks.ConfigHandler.(*config.MockConfigHandler)
@@ -1673,7 +1780,7 @@ func TestProject_Bootstrap(t *testing.T) {
 		}
 		prov := provisioner.NewProvisioner(mocks.Runtime, mocks.Composer.BlueprintHandler, &provisioner.Provisioner{TerraformStack: mockStack})
 
-		proj := NewProject("test-context", &Project{
+		proj := project.NewProject("test-context", &project.Project{
 			Runtime:     mocks.Runtime,
 			Composer:    mocks.Composer,
 			Provisioner: prov,
@@ -1695,10 +1802,12 @@ func TestProject_Bootstrap(t *testing.T) {
 		proj.Workstation.ContainerRuntime = nil
 		proj.Workstation.NetworkManager = nil
 
+		// When Bootstrap is called
 		if _, _, _, err := proj.Bootstrap(context.Background(), nil); err != nil {
 			t.Fatalf("Expected no error, got: %v", err)
 		}
 
+		// Then the workstation starts before the provisioner applies
 		var workstationIdx, upIdx = -1, -1
 		for i, step := range timeline {
 			if step == "workstation_up" && workstationIdx == -1 {
@@ -1720,9 +1829,7 @@ func TestProject_Bootstrap(t *testing.T) {
 	})
 
 	t.Run("ConfirmFiresBeforeWorkstationStart", func(t *testing.T) {
-		// Declining the plan must not trigger any privileged work — historically
-		// Workstation.Up ran before confirm, so declining still wrote /etc/resolver
-		// entries and prompted for sudo. Confirm must gate workstation startup.
+		// Given a dev mode project and a confirm callback that declines
 		mocks := setupProjectMocks(t)
 		mockConfig := mocks.ConfigHandler.(*config.MockConfigHandler)
 		mockConfig.IsDevModeFunc = func(_ string) bool { return true }
@@ -1744,7 +1851,7 @@ func TestProject_Bootstrap(t *testing.T) {
 		}
 		prov := provisioner.NewProvisioner(mocks.Runtime, mocks.Composer.BlueprintHandler, &provisioner.Provisioner{TerraformStack: mockStack})
 
-		proj := NewProject("test-context", &Project{
+		proj := project.NewProject("test-context", &project.Project{
 			Runtime:     mocks.Runtime,
 			Composer:    mocks.Composer,
 			Provisioner: prov,
@@ -1770,7 +1877,9 @@ func TestProject_Bootstrap(t *testing.T) {
 			return false
 		}
 
+		// When Bootstrap is called
 		_, applied, _, err := proj.Bootstrap(context.Background(), confirm)
+		// Then no workstation or provisioner work runs
 		if err != nil {
 			t.Fatalf("Expected no error on decline, got: %v", err)
 		}
@@ -1792,8 +1901,7 @@ func TestProject_Bootstrap(t *testing.T) {
 	})
 
 	t.Run("ConfirmDeclineReturnsBlueprintAndAppliedFalse", func(t *testing.T) {
-		// Acceptance returns applied=true; decline returns applied=false. The blueprint
-		// is returned in both cases so callers can render summaries off it.
+		// Given a blueprint handler that returns a known blueprint
 		mocks := setupProjectMocks(t)
 		expectedBP := &v1alpha1.Blueprint{
 			TerraformComponents: []v1alpha1.TerraformComponent{{Path: "marker"}},
@@ -1802,13 +1910,15 @@ func TestProject_Bootstrap(t *testing.T) {
 		mockBH.GenerateFunc = func() *v1alpha1.Blueprint { return expectedBP }
 		prov := provisioner.NewProvisioner(mocks.Runtime, mocks.Composer.BlueprintHandler)
 
-		proj := NewProject("test-context", &Project{
+		proj := project.NewProject("test-context", &project.Project{
 			Runtime:     mocks.Runtime,
 			Composer:    mocks.Composer,
 			Provisioner: prov,
 		})
 
+		// When Bootstrap is called and confirm declines
 		bp, applied, _, err := proj.Bootstrap(context.Background(), func(_ *provisioner.BootstrapSummary) bool { return false })
+		// Then Bootstrap returns the blueprint with applied set to false
 		if err != nil {
 			t.Fatalf("Expected no error on decline, got: %v", err)
 		}
@@ -1821,6 +1931,7 @@ func TestProject_Bootstrap(t *testing.T) {
 	})
 
 	t.Run("WrapsProvisionerErrorAsStartingInfrastructure", func(t *testing.T) {
+		// Given a terraform stack that fails to apply
 		mocks := setupProjectMocks(t)
 		mockConfig := mocks.ConfigHandler.(*config.MockConfigHandler)
 		mockConfig.GetBoolFunc = func(key string, defaultValue ...bool) bool {
@@ -1835,13 +1946,15 @@ func TestProject_Bootstrap(t *testing.T) {
 		}
 		prov := provisioner.NewProvisioner(mocks.Runtime, mocks.Composer.BlueprintHandler, &provisioner.Provisioner{TerraformStack: mockStack})
 
-		proj := NewProject("test-context", &Project{
+		proj := project.NewProject("test-context", &project.Project{
 			Runtime:     mocks.Runtime,
 			Composer:    mocks.Composer,
 			Provisioner: prov,
 		})
 
+		// When Bootstrap is called
 		_, _, _, err := proj.Bootstrap(context.Background(), nil)
+		// Then the error is wrapped as an infrastructure start error
 		if err == nil {
 			t.Fatal("Expected error when provisioner errors")
 		}

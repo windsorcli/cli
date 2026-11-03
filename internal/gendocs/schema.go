@@ -23,13 +23,6 @@ import (
 )
 
 // =============================================================================
-// Constants
-// =============================================================================
-
-// schemaSourceURLPrefix is the GitHub URL prefix for the source schema link.
-const schemaSourceURLPrefix = "https://github.com/windsorcli/cli/blob/main/"
-
-// =============================================================================
 // Types
 // =============================================================================
 
@@ -361,7 +354,7 @@ func writeSchemaSeeAlso(w io.Writer, seealso, sourcePath string) {
 		fmt.Fprintln(w, seealso)
 	}
 	if sourcePath != "" {
-		fmt.Fprintf(w, "- Source schema: [%s](%s%s)\n", sourcePath, schemaSourceURLPrefix, sourcePath)
+		fmt.Fprintf(w, "- Source schema: [%s](%s%s)\n", sourcePath, sourceURLPrefix, sourcePath)
 	}
 }
 

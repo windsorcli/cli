@@ -27,9 +27,7 @@ import (
 // Types
 // =============================================================================
 
-// Project orchestrates the setup and initialization of a Windsor project.
-// It coordinates context, provisioner, composer, and workstation managers
-// to provide a unified interface for project initialization and management.
+// Project holds the runtime, composer, provisioner and workstation of one context.
 type Project struct {
 	Runtime          *runtime.Runtime
 	configHandler    config.ConfigHandler
@@ -46,37 +44,24 @@ type Project struct {
 // Constructor
 // =============================================================================
 
-// NewProject creates and initializes a new Project instance with all required managers.
-// It sets up the execution context and creates provisioner and composer. A name-driven dev
-// context (local/local-*) gets its Workstation eagerly; every other context is left nil and
-// picked up later by EnsureWorkstation, once Configure() has resolved config.
-// Panics if required dependencies are nil. After creation, call Configure() to apply flag overrides.
-// Optional overrides can be provided via opts to inject mocks for testing.
-// If opts contains a Project with Runtime set, that runtime will be reused.
-// An explicit contextName also sets rt.ConfigHandler's own context, not just
-// rt.ContextName/rt.ConfigRoot, since most lookups call rt.ConfigHandler.GetContext() directly.
+// NewProject creates a Project for contextName and creates the runtime, composer and provisioner.
+// It uses the current context, or "local", when contextName is empty. A non-empty contextName also sets the context of the config handler.
+// It creates the Workstation only for a dev context. EnsureWorkstation creates it for other contexts after Configure.
+// The fields of an optional Project in opts replace the default objects. Tests use this to inject mocks.
+// It panics when the runtime has no config handler.
 func NewProject(contextName string, opts ...*Project) *Project {
-	var rt *runtime.Runtime
-
 	var overrides *Project
 	if len(opts) > 0 && opts[0] != nil {
 		overrides = opts[0]
-		if overrides.Runtime != nil {
-			rt = overrides.Runtime
-		}
 	}
 
-	if rt == nil {
-		var rtOpts []*runtime.Runtime
-		if overrides != nil && overrides.Runtime != nil {
-			rtOpts = []*runtime.Runtime{overrides.Runtime}
-		}
-		rt = runtime.NewRuntime(rtOpts...)
+	var rt *runtime.Runtime
+	if overrides != nil && overrides.Runtime != nil {
+		rt = overrides.Runtime
+	} else {
+		rt = runtime.NewRuntime()
 	}
 
-	if rt == nil {
-		panic("runtime is required")
-	}
 	if rt.ConfigHandler == nil {
 		panic("config handler is required on runtime")
 	}
@@ -130,17 +115,15 @@ func NewProject(contextName string, opts ...*Project) *Project {
 // Public Methods
 // =============================================================================
 
-// SetToolRequirements narrows which tool families Initialize will check on this project.
-// When unset, Initialize defaults to AllRequirements — the historical "check everything"
-// behavior. Commands whose codepath is statically known (e.g. `windsor down` only stops
-// the workstation, never invokes terraform) call this with a narrower set so the operator
-// is not blocked on installing tools they will not actually use.
+// SetToolRequirements sets the tool families that Initialize checks.
+// When it is not called, Initialize checks all tool families.
+// A command that does not use a tool calls it, so the operator does not have to install that tool.
 func (p *Project) SetToolRequirements(reqs tools.Requirements) {
 	p.toolRequirements = &reqs
 }
 
-// Configure resolves project configuration including defaults, file loading, migration, and override processing.
-// Loads project environment variables and returns an error if resolution or environment loading fails.
+// Configure resolves the configuration of the project with flagOverrides and loads the environment variables.
+// It returns an error when resolution or the environment load fails.
 func (p *Project) Configure(flagOverrides map[string]any) error {
 	if err := p.Runtime.ResolveConfig(flagOverrides); err != nil {
 		return err
@@ -151,18 +134,16 @@ func (p *Project) Configure(flagOverrides map[string]any) error {
 	return nil
 }
 
-// EnsureWorkstation creates Workstation if it is nil and workstation.runtime is set.
-// Call before using p.Workstation in code paths that need it (e.g. Initialize, Up, Down).
+// EnsureWorkstation creates the Workstation when it is nil and workstation.runtime is set.
+// Call it before code that uses p.Workstation.
 func (p *Project) EnsureWorkstation() {
 	if p.Workstation == nil && p.configHandler.GetString("workstation.runtime") != "" {
 		p.Workstation = workstation.NewWorkstation(p.Runtime)
 	}
 }
 
-// ComposeBlueprint loads and composes the blueprint without writing files or generating infrastructure.
-// It generates context ID if needed and loads all blueprint sources. Use this when the goal is only
-// to obtain the composed blueprint (e.g. for windsor show blueprint). It does not run Composer.Generate()
-// and thus does not write blueprint files, process terraform modules, or generate tfvars.
+// ComposeBlueprint generates the context ID and loads the blueprint from blueprintURL or the default sources.
+// It does not write files or generate infrastructure. Use it when only the composed blueprint is necessary.
 func (p *Project) ComposeBlueprint(blueprintURL ...string) error {
 	if err := p.configHandler.GenerateContextID(); err != nil {
 		return werror.Wrap(err, "failed to generate context ID")
@@ -173,12 +154,9 @@ func (p *Project) ComposeBlueprint(blueprintURL ...string) error {
 	return nil
 }
 
-// Initialize runs the complete initialization sequence for the project.
-// It prepares the workstation (creates services and assigns IPs), prepares context,
-// generates infrastructure, prepares tools, and bootstraps the environment.
-// The overwrite parameter controls whether infrastructure generation should overwrite
-// existing files. The optional blueprintURL parameter specifies the blueprint artifact
-// to load (OCI URL or local .tar.gz path). Returns an error if any step fails.
+// Initialize prepares the workstation, loads the blueprint, saves the config and generates the infrastructure files.
+// Then it prepares the tools and loads the environment. overwrite lets the generate step replace existing files.
+// blueprintURL is an optional OCI URL or local .tar.gz path. It returns an error when a step fails.
 func (p *Project) Initialize(overwrite bool, blueprintURL ...string) error {
 	p.EnsureWorkstation()
 	if p.Workstation != nil {
@@ -227,27 +205,30 @@ func (p *Project) Initialize(overwrite bool, blueprintURL ...string) error {
 	return nil
 }
 
-// Up generates the blueprint, starts the workstation if present (using PrepareForUp to defer
-// host/guest setup when a workstation Terraform component exists), runs the provisioner, and
-// returns the blueprint for use by Install/Wait.
-//
-// Returns (blueprint, halted, err). halted=true means a hook signaled a clean stop after a
-// component apply (e.g. cluster reachability needs host configuration the operator hasn't
-// done yet); err remains the path for real failures. Callers render the deferred-work
-// summary based on the halt and exit cleanly.
+// Up generates the blueprint, starts the workstation when it exists and runs the provisioner.
+// It returns the blueprint, a halt flag and an error. The halt flag is true when an apply hook stops the run cleanly.
+// The caller then shows the deferred work and exits without an error.
 func (p *Project) Up(ctx context.Context) (*blueprintv1alpha1.Blueprint, bool, error) {
-	return p.runApply(ctx, p.Provisioner.Up)
+	blueprint := p.Composer.BlueprintHandler.Generate()
+	onApply, err := p.prepareWorkstationForApply(ctx, blueprint)
+	if err != nil {
+		return nil, false, err
+	}
+	var hooks []func(context.Context, string) (bool, error)
+	if onApply != nil {
+		hooks = []func(context.Context, string) (bool, error){onApply}
+	}
+	halted, err := p.Provisioner.Up(ctx, blueprint, hooks...)
+	if err != nil {
+		return nil, false, werror.Wrap(err, "error starting infrastructure")
+	}
+	return blueprint, halted, nil
 }
 
-// Bootstrap is Up's first-run sibling. Operator confirmation runs first against a cheap
-// blueprint summary; only after acceptance does workstation prep run (so declining never
-// triggers privileged work like DNS resolver writes or sudo prompts). Then the provisioner
-// pins backend.type=local for one Up pass and migrates state to the configured remote
-// backend at the end.
-//
-// Returns (blueprint, applied, halted, err). applied=false when confirm declined; in that
-// case no workstation startup or terraform work has happened. halted=true means one of the
-// inner Up calls signaled a clean halt-after-component.
+// Bootstrap is the first run of Up. It calls confirm with a blueprint summary before it starts the workstation.
+// When the operator declines, no privileged work or terraform work runs.
+// The provisioner applies with a local backend and then migrates the state to the configured backend.
+// It returns the blueprint, an applied flag, a halt flag and an error. applied is false when confirm declines.
 func (p *Project) Bootstrap(ctx context.Context, confirm provisioner.BootstrapConfirmFn) (*blueprintv1alpha1.Blueprint, bool, bool, error) {
 	blueprint := p.Composer.BlueprintHandler.Generate()
 	if blueprint == nil {
@@ -327,41 +308,9 @@ func (p *Project) PerformCleanup() error {
 // Private Methods
 // =============================================================================
 
-// runApply runs workstation prep then dispatches to a Provisioner Up-style method (Up or
-// Bootstrap), wrapping any error as "error starting infrastructure". Propagates the halt
-// signal from the dispatched method so the caller can render the deferred-work summary.
-func (p *Project) runApply(ctx context.Context, fn func(context.Context, *blueprintv1alpha1.Blueprint, ...func(context.Context, string) (bool, error)) (bool, error)) (*blueprintv1alpha1.Blueprint, bool, error) {
-	blueprint, onApply, err := p.prepareForApply(ctx)
-	if err != nil {
-		return nil, false, err
-	}
-	var hooks []func(context.Context, string) (bool, error)
-	if onApply != nil {
-		hooks = []func(context.Context, string) (bool, error){onApply}
-	}
-	halted, err := fn(ctx, blueprint, hooks...)
-	if err != nil {
-		return nil, false, werror.Wrap(err, "error starting infrastructure")
-	}
-	return blueprint, halted, nil
-}
-
-// prepareForApply generates the blueprint and runs workstation lifecycle hooks before any
-// terraform applies. Used by Up; Bootstrap drives the two halves separately so confirmation
-// gates workstation prep.
-func (p *Project) prepareForApply(ctx context.Context) (*blueprintv1alpha1.Blueprint, func(context.Context, string) (bool, error), error) {
-	blueprint := p.Composer.BlueprintHandler.Generate()
-	onApply, err := p.prepareWorkstationForApply(ctx, blueprint)
-	if err != nil {
-		return nil, nil, err
-	}
-	return blueprint, onApply, nil
-}
-
-// prepareWorkstationForApply runs the privileged half of pre-apply setup: workstation Up
-// (DNS resolver writes, host routes, container runtime). Split out so Bootstrap can gate
-// it on operator confirmation — declining the plan must not trigger sudo prompts or
-// /etc/resolver writes.
+// prepareWorkstationForApply starts the workstation and registers its post-apply hook on the provisioner.
+// It returns the apply hook of the workstation, or nil when no workstation exists.
+// Workstation start can write DNS resolver files and ask for sudo.
 func (p *Project) prepareWorkstationForApply(ctx context.Context, blueprint *blueprintv1alpha1.Blueprint) (func(context.Context, string) (bool, error), error) {
 	p.EnsureWorkstation()
 	if p.Workstation == nil {
