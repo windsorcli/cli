@@ -16,13 +16,10 @@ import (
 // Private Methods
 // =============================================================================
 
-// validateBlueprint performs comprehensive structural validation on a composed blueprint to ensure
-// it meets integrity requirements. It checks for duplicate Terraform components (by ID), duplicate
-// Kustomizations (by name), duplicate components within Kustomization component lists, circular
-// dependencies in both Terraform and Kustomization dependency graphs, and invalid dependencies
-// (components that reference non-existent dependencies). These validations catch composition errors
-// and blueprint configuration mistakes early. Returns a slice of descriptive error messages for
-// each validation failure found, or an empty slice if the blueprint is valid.
+// validateBlueprint checks the structure of a composed blueprint and returns one message per failure.
+// It finds duplicate terraform component IDs, duplicate kustomization names, and duplicate components
+// in a kustomization. It also finds circular dependencies and dependencies on components that do not exist.
+// An empty slice means the blueprint is valid.
 func (r *TestRunner) validateBlueprint(bp *blueprintv1alpha1.Blueprint) []string {
 	var errs []string
 
@@ -92,14 +89,9 @@ func (r *TestRunner) validateDuplicateKustomizationComponents(bp *blueprintv1alp
 	return errs
 }
 
-// validateCircularDependencies checks for circular dependency chains in both Terraform components
-// and Kustomizations. It builds dependency graphs for each component type and uses depth-first search
-// to detect cycles. Circular dependencies would cause infinite loops or undefined ordering during
-// blueprint application, so they must be caught and reported. The Kustomization graph covers both
-// plain kustomize: entries and the tiers compiled from flux: systems, since dependsOn edges can
-// target or originate from either. The function validates Terraform components separately from
-// Kustomizations, as they have independent dependency graphs. Returns a slice of error messages
-// describing each circular dependency found, including the full cycle path.
+// validateCircularDependencies returns one message per dependency cycle, with the full cycle path.
+// It checks terraform components and kustomizations as separate graphs. The kustomization graph
+// includes plain kustomize: entries and the tiers compiled from flux: systems.
 func (r *TestRunner) validateCircularDependencies(bp *blueprintv1alpha1.Blueprint) []string {
 	var errs []string
 
@@ -123,14 +115,9 @@ func (r *TestRunner) validateCircularDependencies(bp *blueprintv1alpha1.Blueprin
 	return errs
 }
 
-// validateInvalidDependencies checks that all components referenced in DependsOn fields actually
-// exist in the composed blueprint. It builds sets of valid Terraform component IDs and Kustomization
-// names, then validates that every dependency reference points to an existing component. After blueprint
-// composition completes, invalid dependencies should have been filtered out by the composer's validation
-// logic, so any remaining invalid dependencies indicate a bug in the composition or validation code.
-// This check serves as a safety net to catch composition errors. Returns a slice of error messages
-// describing each invalid dependency found, identifying both the component with the invalid dependency
-// and the non-existent component it references.
+// validateInvalidDependencies returns one message per DependsOn entry that names a missing component.
+// Each message names the component and the missing dependency. The composer removes invalid
+// dependencies, so a message here shows a bug in composition.
 func (r *TestRunner) validateInvalidDependencies(bp *blueprintv1alpha1.Blueprint) []string {
 	var errs []string
 
@@ -171,13 +158,9 @@ func (r *TestRunner) validateInvalidDependencies(bp *blueprintv1alpha1.Blueprint
 // Helpers
 // =============================================================================
 
-// detectCycles performs a depth-first search to detect cycles in a dependency graph represented
-// as a map from node names to their dependency lists. It uses a recursion stack to track the current
-// path and identify back edges that indicate cycles. The validNodes set filters out references to
-// non-existent nodes (which are handled by validateInvalidDependencies). When a cycle is detected,
-// it constructs a readable cycle path showing the circular dependency chain. The nodeType parameter
-// is used in error messages to indicate whether the cycle is in Terraform components or Kustomizations.
-// Returns a slice of error messages, one for each cycle found.
+// detectCycles uses a depth-first search to find the cycles in graph and returns one message per cycle.
+// It ignores a reference to a node that is not in validNodes. Each message shows the cycle path and
+// uses nodeType to name the graph.
 func detectCycles(graph map[string][]string, validNodes map[string]struct{}, nodeType string) []string {
 	var errs []string
 	visited := make(map[string]bool)
