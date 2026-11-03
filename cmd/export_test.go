@@ -27,6 +27,9 @@ var (
 	BootstrapYes              = &bootstrapYes
 	BuildIdCmd                = buildIdCmd
 	BundleCmd                 = bundleCmd
+	ConfigureCmd              = configureCmd
+	ConfigureNetworkCmd       = configureNetworkCmd
+	ConfigureNetworkPreflight = &configureNetworkPreflight
 	CheckNodeHealthCmd        = checkNodeHealthCmd
 	CheckNodeReady            = &checkNodeReady
 	DestroyCmd                = destroyCmd
