@@ -30,19 +30,19 @@ func (k *BaseKubernetesManager) WaitForKubernetesHealthy(ctx context.Context, en
 
 	deadline, ok := ctx.Deadline()
 	if !ok {
-		deadline = k.shims.TimeNow().Add(5 * time.Minute)
+		deadline = k.Shims.TimeNow().Add(5 * time.Minute)
 	}
 
-	pollInterval := k.healthCheckPollInterval
+	pollInterval := k.Timing.HealthCheckPollInterval
 	if pollInterval == 0 {
 		pollInterval = 10 * time.Second
 	}
 
-	settleDuration := k.healthCheckSettleDuration
+	settleDuration := k.Timing.HealthCheckSettleDuration
 	if settleDuration == 0 {
 		settleDuration = 30 * time.Second
 	}
-	if remaining := deadline.Sub(k.shims.TimeNow()) - pollInterval; settleDuration > remaining {
+	if remaining := deadline.Sub(k.Shims.TimeNow()) - pollInterval; settleDuration > remaining {
 		if remaining < 0 {
 			remaining = 0
 		}
@@ -51,7 +51,7 @@ func (k *BaseKubernetesManager) WaitForKubernetesHealthy(ctx context.Context, en
 
 	var lastErr error
 	var settleSince time.Time
-	for k.shims.TimeNow().Before(deadline) {
+	for k.Shims.TimeNow().Before(deadline) {
 		select {
 		case <-ctx.Done():
 			return healthyTimeoutError(lastErr)
@@ -81,9 +81,9 @@ func (k *BaseKubernetesManager) WaitForKubernetesHealthy(ctx context.Context, en
 			}
 
 			if settleSince.IsZero() {
-				settleSince = k.shims.TimeNow()
+				settleSince = k.Shims.TimeNow()
 			}
-			if k.shims.TimeNow().Sub(settleSince) < settleDuration {
+			if k.Shims.TimeNow().Sub(settleSince) < settleDuration {
 				select {
 				case <-ctx.Done():
 					return healthyTimeoutError(lastErr)
@@ -121,7 +121,7 @@ func (k *BaseKubernetesManager) waitForNodesReady(ctx context.Context, nodeNames
 		deadline = time.Now().Add(5 * time.Minute)
 	}
 
-	pollInterval := k.nodeReadyPollInterval
+	pollInterval := k.Timing.NodeReadyPollInterval
 	if pollInterval == 0 {
 		pollInterval = 5 * time.Second
 	}

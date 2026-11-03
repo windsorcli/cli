@@ -534,14 +534,11 @@ func restoreFile(path string, snapshot []byte) error {
 	return nil
 }
 
-// checkSourceDowngrades compares each name=url spec with the declared sources of the context.
-// It runs before composition and pulls, so a refused downgrade makes no registry request.
-// A spec that moves a declared source to an older semver of the same repository is a downgrade.
-// It refuses a downgrade unless allowDowngrade is set, because Windsor does not reverse application data.
-// It rejects a malformed spec. retargetSources rejects a spec that names an undeclared source.
-//
-// It compares with the ref in blueprint.yaml, not with the running version in the cluster marker, so it needs no cluster read.
-// Thus it does not flag a move to a version below the running version when blueprint.yaml was edited by hand to a lower ref.
+// checkSourceDowngrades compares each name=url spec with the declared sources of the context, before any pull.
+// A move of a declared source to an older semver of the same repository is a downgrade, and it fails
+// unless allowDowngrade is set, because Windsor does not reverse application data. A malformed spec fails.
+// It compares with the ref in blueprint.yaml, not the running version in the cluster, so it needs no cluster
+// read and does not catch a hand-edited blueprint.yaml ref below the running version.
 func checkSourceDowngrades(cmd *cobra.Command, proj *project.Project, specs []string, allowDowngrade bool) error {
 	type change struct{ name, previous, target string }
 	targets := make([]change, 0, len(specs))

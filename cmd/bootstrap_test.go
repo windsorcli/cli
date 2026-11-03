@@ -1,14 +1,15 @@
-package cmd
+package cmd_test
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"io"
 	"os"
 	"regexp"
 	"strings"
 	"testing"
+
+	cliCmd "github.com/windsorcli/cli/cmd"
 
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
@@ -45,10 +46,10 @@ type BootstrapMocks struct {
 func setupBootstrapTest(t *testing.T, opts ...*SetupOptions) *BootstrapMocks {
 	t.Helper()
 
-	bootstrapPlatform = ""
-	bootstrapBlueprint = ""
-	bootstrapSetFlags = []string{}
-	bootstrapYes = false
+	*cliCmd.BootstrapPlatform = ""
+	*cliCmd.BootstrapBlueprint = ""
+	*cliCmd.BootstrapSetFlags = []string{}
+	*cliCmd.BootstrapYes = false
 
 	mockConfigHandler := config.NewMockConfigHandler()
 	mockConfigHandler.GetContextFunc = func() string { return "test-context" }
@@ -154,9 +155,9 @@ func TestBootstrapCmd(t *testing.T) {
 		cmd := &cobra.Command{
 			Use:   "bootstrap [context]",
 			Short: "Bootstrap a fresh Windsor environment end-to-end",
-			RunE:  bootstrapCmd.RunE,
+			RunE:  cliCmd.BootstrapCmd.RunE,
 		}
-		bootstrapCmd.Flags().VisitAll(func(flag *pflag.Flag) {
+		cliCmd.BootstrapCmd.Flags().VisitAll(func(flag *pflag.Flag) {
 			cmd.Flags().AddFlag(flag)
 		})
 		cmd.SilenceUsage = true
@@ -186,7 +187,7 @@ func TestBootstrapCmd(t *testing.T) {
 		}
 
 		cmd := createTestBootstrapCmd()
-		ctx := context.WithValue(context.Background(), projectOverridesKey, proj)
+		ctx := context.WithValue(context.Background(), cliCmd.ProjectOverridesKey, proj)
 		cmd.SetArgs([]string{"--yes"})
 		cmd.SetContext(ctx)
 
@@ -221,8 +222,8 @@ func TestBootstrapCmd(t *testing.T) {
 		}
 
 		cmd := createTestBootstrapCmd()
-		ctx := context.WithValue(context.Background(), projectOverridesKey, bareProj)
-		ctx = context.WithValue(ctx, composerOverridesKey, fullProj.Composer)
+		ctx := context.WithValue(context.Background(), cliCmd.ProjectOverridesKey, bareProj)
+		ctx = context.WithValue(ctx, cliCmd.ComposerOverridesKey, fullProj.Composer)
 		// A non-"local" context matches the actual repro and takes resolveBlueprintURL's
 		// early-return path, so this test doesn't also depend on a working ArtifactBuilder.
 		cmd.SetArgs([]string{"gcp-test", "--yes"})
@@ -259,7 +260,7 @@ func TestBootstrapCmd(t *testing.T) {
 		}
 
 		cmd := createTestBootstrapCmd()
-		ctx := context.WithValue(context.Background(), projectOverridesKey, proj)
+		ctx := context.WithValue(context.Background(), cliCmd.ProjectOverridesKey, proj)
 		cmd.SetArgs([]string{"--yes"})
 		cmd.SetContext(ctx)
 
@@ -291,7 +292,7 @@ func TestBootstrapCmd(t *testing.T) {
 		}
 
 		cmd := createTestBootstrapCmd()
-		ctx := context.WithValue(context.Background(), projectOverridesKey, proj)
+		ctx := context.WithValue(context.Background(), cliCmd.ProjectOverridesKey, proj)
 		cmd.SetArgs([]string{"--yes"})
 		cmd.SetContext(ctx)
 
@@ -319,7 +320,7 @@ func TestBootstrapCmd(t *testing.T) {
 		}
 
 		cmd := createTestBootstrapCmd()
-		ctx := context.WithValue(context.Background(), projectOverridesKey, proj)
+		ctx := context.WithValue(context.Background(), cliCmd.ProjectOverridesKey, proj)
 		cmd.SetArgs([]string{"--yes"})
 		cmd.SetContext(ctx)
 
@@ -352,7 +353,7 @@ func TestBootstrapCmd(t *testing.T) {
 		t.Cleanup(restore)
 
 		cmd := createTestBootstrapCmd()
-		ctx := context.WithValue(context.Background(), projectOverridesKey, proj)
+		ctx := context.WithValue(context.Background(), cliCmd.ProjectOverridesKey, proj)
 		cmd.SetArgs([]string{"--yes"})
 		cmd.SetContext(ctx)
 
@@ -380,7 +381,7 @@ func TestBootstrapCmd(t *testing.T) {
 		t.Cleanup(restore)
 
 		cmd := createTestBootstrapCmd()
-		ctx := context.WithValue(context.Background(), projectOverridesKey, proj)
+		ctx := context.WithValue(context.Background(), cliCmd.ProjectOverridesKey, proj)
 		cmd.SetArgs([]string{"--yes"})
 		cmd.SetContext(ctx)
 
@@ -412,7 +413,7 @@ func TestBootstrapCmd(t *testing.T) {
 		proj.Provisioner.Notifier = notifier
 
 		cmd := createTestBootstrapCmd()
-		ctx := context.WithValue(context.Background(), projectOverridesKey, proj)
+		ctx := context.WithValue(context.Background(), cliCmd.ProjectOverridesKey, proj)
 		cmd.SetArgs([]string{"--yes"})
 		cmd.SetContext(ctx)
 
@@ -447,7 +448,7 @@ func TestBootstrapCmd(t *testing.T) {
 		proj.Provisioner.Notifier = notifier
 
 		cmd := createTestBootstrapCmd()
-		ctx := context.WithValue(context.Background(), projectOverridesKey, proj)
+		ctx := context.WithValue(context.Background(), cliCmd.ProjectOverridesKey, proj)
 		cmd.SetArgs([]string{"--yes"})
 		cmd.SetContext(ctx)
 
@@ -501,7 +502,7 @@ func TestBootstrapCmd(t *testing.T) {
 		proj := newBootstrapTestProject(mocks)
 
 		cmd := createTestBootstrapCmd()
-		ctx := context.WithValue(context.Background(), projectOverridesKey, proj)
+		ctx := context.WithValue(context.Background(), cliCmd.ProjectOverridesKey, proj)
 		cmd.SetArgs([]string{"--yes"})
 		cmd.SetContext(ctx)
 
@@ -546,7 +547,7 @@ func TestBootstrapCmd(t *testing.T) {
 		proj := newBootstrapTestProject(mocks)
 
 		cmd := createTestBootstrapCmd()
-		ctx := context.WithValue(context.Background(), projectOverridesKey, proj)
+		ctx := context.WithValue(context.Background(), cliCmd.ProjectOverridesKey, proj)
 		cmd.SetArgs([]string{"--yes"})
 		cmd.SetContext(ctx)
 
@@ -594,7 +595,7 @@ func TestBootstrapCmd(t *testing.T) {
 		proj := newBootstrapTestProject(mocks)
 
 		cmd := createTestBootstrapCmd()
-		ctx := context.WithValue(context.Background(), projectOverridesKey, proj)
+		ctx := context.WithValue(context.Background(), cliCmd.ProjectOverridesKey, proj)
 		cmd.SetArgs([]string{"--yes"})
 		cmd.SetContext(ctx)
 
@@ -622,7 +623,7 @@ func TestBootstrapCmd(t *testing.T) {
 		proj := newBootstrapTestProject(mocks)
 
 		cmd := createTestBootstrapCmd()
-		ctx := context.WithValue(context.Background(), projectOverridesKey, proj)
+		ctx := context.WithValue(context.Background(), cliCmd.ProjectOverridesKey, proj)
 		cmd.SetArgs([]string{"staging", "--yes"})
 		cmd.SetContext(ctx)
 
@@ -649,7 +650,7 @@ func TestBootstrapCmd(t *testing.T) {
 		proj := newBootstrapTestProject(mocks)
 
 		cmd := createTestBootstrapCmd()
-		ctx := context.WithValue(context.Background(), projectOverridesKey, proj)
+		ctx := context.WithValue(context.Background(), cliCmd.ProjectOverridesKey, proj)
 		cmd.SetArgs([]string{"--blueprint", "oci://example.com/test:v1", "--yes"})
 		cmd.SetContext(ctx)
 
@@ -688,7 +689,7 @@ func TestBootstrapCmd(t *testing.T) {
 		proj := newBootstrapTestProject(mocks)
 
 		cmd := createTestBootstrapCmd()
-		ctx := context.WithValue(context.Background(), projectOverridesKey, proj)
+		ctx := context.WithValue(context.Background(), cliCmd.ProjectOverridesKey, proj)
 		cmd.SetArgs([]string{"--set", "cluster.driver=talos", "--yes"})
 		cmd.SetContext(ctx)
 
@@ -717,7 +718,7 @@ func TestBootstrapCmd(t *testing.T) {
 		proj := newBootstrapTestProject(mocks)
 
 		cmd := createTestBootstrapCmd()
-		ctx := context.WithValue(context.Background(), projectOverridesKey, proj)
+		ctx := context.WithValue(context.Background(), cliCmd.ProjectOverridesKey, proj)
 		cmd.SetArgs([]string{"--set", "badformat"})
 		cmd.SetContext(ctx)
 
@@ -745,7 +746,7 @@ func TestBootstrapCmd(t *testing.T) {
 		proj := newBootstrapTestProject(mocks)
 
 		cmd := createTestBootstrapCmd()
-		ctx := context.WithValue(context.Background(), projectOverridesKey, proj)
+		ctx := context.WithValue(context.Background(), cliCmd.ProjectOverridesKey, proj)
 		cmd.SetArgs([]string{})
 		cmd.SetContext(ctx)
 
@@ -770,7 +771,7 @@ func TestBootstrapCmd(t *testing.T) {
 		proj := newBootstrapTestProject(mocks)
 
 		cmd := createTestBootstrapCmd()
-		ctx := context.WithValue(context.Background(), projectOverridesKey, proj)
+		ctx := context.WithValue(context.Background(), cliCmd.ProjectOverridesKey, proj)
 		cmd.SetArgs([]string{})
 		cmd.SetContext(ctx)
 
@@ -810,7 +811,7 @@ func TestBootstrapCmd(t *testing.T) {
 		proj := newBootstrapTestProject(mocks)
 
 		cmd := createTestBootstrapCmd()
-		ctx := context.WithValue(context.Background(), projectOverridesKey, proj)
+		ctx := context.WithValue(context.Background(), cliCmd.ProjectOverridesKey, proj)
 		cmd.SetArgs([]string{})
 		cmd.SetContext(ctx)
 		cmd.SetIn(strings.NewReader("n\n"))
@@ -844,7 +845,7 @@ func TestBootstrapCmd(t *testing.T) {
 		proj := newBootstrapTestProject(mocks)
 
 		cmd := createTestBootstrapCmd()
-		ctx := context.WithValue(context.Background(), projectOverridesKey, proj)
+		ctx := context.WithValue(context.Background(), cliCmd.ProjectOverridesKey, proj)
 		cmd.SetArgs([]string{})
 		cmd.SetContext(ctx)
 		cmd.SetIn(strings.NewReader("y\ny\n"))
@@ -868,7 +869,7 @@ func TestBootstrapCmd(t *testing.T) {
 		proj := newBootstrapTestProject(mocks)
 
 		cmd := createTestBootstrapCmd()
-		ctx := context.WithValue(context.Background(), projectOverridesKey, proj)
+		ctx := context.WithValue(context.Background(), cliCmd.ProjectOverridesKey, proj)
 		cmd.SetArgs([]string{})
 		cmd.SetContext(ctx)
 		cmd.SetIn(strings.NewReader("n\n"))
@@ -898,7 +899,7 @@ func TestBootstrapCmd(t *testing.T) {
 		proj := newBootstrapTestProject(mocks)
 
 		cmd := createTestBootstrapCmd()
-		ctx := context.WithValue(context.Background(), projectOverridesKey, proj)
+		ctx := context.WithValue(context.Background(), cliCmd.ProjectOverridesKey, proj)
 		cmd.SetArgs([]string{})
 		cmd.SetContext(ctx)
 		cmd.SetIn(strings.NewReader(""))
@@ -931,7 +932,7 @@ func TestBootstrapCmd(t *testing.T) {
 		proj := newBootstrapTestProject(mocks)
 
 		cmd := createTestBootstrapCmd()
-		ctx := context.WithValue(context.Background(), projectOverridesKey, proj)
+		ctx := context.WithValue(context.Background(), cliCmd.ProjectOverridesKey, proj)
 		cmd.SetArgs([]string{"--yes"})
 		cmd.SetContext(ctx)
 		// Intentionally no stdin — --yes must bypass the prompt entirely.
@@ -957,7 +958,7 @@ func TestBootstrapCmd(t *testing.T) {
 		proj := newBootstrapTestProject(mocks)
 
 		cmd := createTestBootstrapCmd()
-		ctx := context.WithValue(context.Background(), projectOverridesKey, proj)
+		ctx := context.WithValue(context.Background(), cliCmd.ProjectOverridesKey, proj)
 		cmd.SetArgs([]string{})
 		cmd.SetContext(ctx)
 		cmd.SetIn(strings.NewReader("y\n"))
@@ -992,7 +993,7 @@ func TestBootstrapCmd(t *testing.T) {
 		proj := newBootstrapTestProject(mocks)
 
 		cmd := createTestBootstrapCmd()
-		ctx := context.WithValue(context.Background(), projectOverridesKey, proj)
+		ctx := context.WithValue(context.Background(), cliCmd.ProjectOverridesKey, proj)
 		cmd.SetArgs([]string{})
 		cmd.SetContext(ctx)
 		cmd.SetIn(strings.NewReader("n\n"))
@@ -1026,7 +1027,7 @@ func TestBootstrapCmd(t *testing.T) {
 		proj := newBootstrapTestProject(mocks)
 
 		cmd := createTestBootstrapCmd()
-		ctx := context.WithValue(context.Background(), projectOverridesKey, proj)
+		ctx := context.WithValue(context.Background(), cliCmd.ProjectOverridesKey, proj)
 		cmd.SetArgs([]string{})
 		cmd.SetContext(ctx)
 		cmd.SetIn(strings.NewReader(""))
@@ -1056,7 +1057,7 @@ func TestBootstrapCmd(t *testing.T) {
 		proj := newBootstrapTestProject(mocks)
 
 		cmd := createTestBootstrapCmd()
-		ctx := context.WithValue(context.Background(), projectOverridesKey, proj)
+		ctx := context.WithValue(context.Background(), cliCmd.ProjectOverridesKey, proj)
 		cmd.SetArgs([]string{"--yes"})
 		cmd.SetContext(ctx)
 		// No stdin — --yes must skip both confirmation prompts.
@@ -1088,7 +1089,7 @@ func TestBootstrapCmd(t *testing.T) {
 		proj := newBootstrapTestProject(mocks)
 
 		cmd := createTestBootstrapCmd()
-		ctx := context.WithValue(context.Background(), projectOverridesKey, proj)
+		ctx := context.WithValue(context.Background(), cliCmd.ProjectOverridesKey, proj)
 		cmd.SetArgs([]string{})
 		cmd.SetContext(ctx)
 		cmd.SetIn(strings.NewReader("y\n"))
@@ -1118,7 +1119,7 @@ func TestBootstrapCmd(t *testing.T) {
 		proj := newBootstrapTestProject(mocks)
 
 		cmd := createTestBootstrapCmd()
-		ctx := context.WithValue(context.Background(), projectOverridesKey, proj)
+		ctx := context.WithValue(context.Background(), cliCmd.ProjectOverridesKey, proj)
 		cmd.SetArgs([]string{})
 		cmd.SetContext(ctx)
 		cmd.SetIn(strings.NewReader("n\n"))
@@ -1148,7 +1149,7 @@ func TestBootstrapCmd(t *testing.T) {
 		proj := newBootstrapTestProject(mocks)
 
 		cmd := createTestBootstrapCmd()
-		ctx := context.WithValue(context.Background(), projectOverridesKey, proj)
+		ctx := context.WithValue(context.Background(), cliCmd.ProjectOverridesKey, proj)
 		cmd.SetArgs([]string{})
 		cmd.SetContext(ctx)
 		cmd.SetIn(strings.NewReader(""))
@@ -1160,77 +1161,6 @@ func TestBootstrapCmd(t *testing.T) {
 		}
 		if upCalled {
 			t.Error("Up must not be called when EOF declines summary-confirm in local mode")
-		}
-	})
-}
-
-func TestWarnNotReady(t *testing.T) {
-	notReady := fmt.Errorf("%w: dns not ready", provisioner.ErrKustomizationsNotReady)
-	messages := []blueprintv1alpha1.Message{{Text: "Delegate ns1.example at your registrar."}}
-
-	t.Run("WarnsForNotReadyWithMessages", func(t *testing.T) {
-		var buf strings.Builder
-		if err := warnNotReady(&buf, notReady, messages); err != nil {
-			t.Errorf("Expected nil, got %v", err)
-		}
-		if !strings.Contains(buf.String(), "dns not ready") {
-			t.Errorf("Expected a warning naming the cause, got %q", buf.String())
-		}
-	})
-
-	t.Run("ReturnsNotReadyWithoutMessages", func(t *testing.T) {
-		var buf strings.Builder
-		if err := warnNotReady(&buf, notReady, nil); !errors.Is(err, provisioner.ErrKustomizationsNotReady) {
-			t.Errorf("Expected the not-ready error, got %v", err)
-		}
-		if buf.Len() != 0 {
-			t.Errorf("Expected no warning, got %q", buf.String())
-		}
-	})
-
-	t.Run("ReturnsOtherErrors", func(t *testing.T) {
-		other := fmt.Errorf("apply failed")
-		if err := warnNotReady(io.Discard, other, messages); err != other {
-			t.Errorf("Expected the other error unchanged, got %v", err)
-		}
-	})
-
-	t.Run("ReturnsNilForNil", func(t *testing.T) {
-		if err := warnNotReady(io.Discard, nil, messages); err != nil {
-			t.Errorf("Expected nil, got %v", err)
-		}
-	})
-}
-
-func TestPrintPostRunMessages(t *testing.T) {
-	t.Run("EmptyMessagesProducesNoOutput", func(t *testing.T) {
-		var buf strings.Builder
-		printPostRunMessages(&buf, nil)
-		if buf.Len() != 0 {
-			t.Errorf("Expected no output for empty messages, got %q", buf.String())
-		}
-	})
-
-	t.Run("SingleMessageRendersUnderNotesHeader", func(t *testing.T) {
-		var buf strings.Builder
-		printPostRunMessages(&buf, []blueprintv1alpha1.Message{{Text: "Delegate ns1.example, ns2.example"}})
-		out := buf.String()
-		if !strings.Contains(out, "Notes\n") {
-			t.Errorf("Expected a Notes header, got %q", out)
-		}
-		if !strings.Contains(out, "═══") {
-			t.Errorf("Expected a divider under the header, got %q", out)
-		}
-		if !strings.Contains(out, "Delegate ns1.example, ns2.example\n") {
-			t.Errorf("Expected the message text, got %q", out)
-		}
-	})
-
-	t.Run("MultipleMessagesSeparatedByBlankLine", func(t *testing.T) {
-		var buf strings.Builder
-		printPostRunMessages(&buf, []blueprintv1alpha1.Message{{Text: "first"}, {Text: "second"}})
-		if !strings.Contains(buf.String(), "first\n\nsecond\n") {
-			t.Errorf("Expected messages separated by a blank line, got %q", buf.String())
 		}
 	})
 }

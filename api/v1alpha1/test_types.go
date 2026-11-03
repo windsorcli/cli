@@ -13,42 +13,31 @@ type TestFile struct {
 // TestCase represents a single test case with input values and expected output.
 // Each test case applies the specified values to configuration and validates
 // the resulting composed blueprint against expectations.
+// Expect and Exclude match partially: only the fields they set are checked, and Kind,
+// ApiVersion, and Metadata are ignored. env() sees only Env, never the host environment.
+// Composition skips schema defaults unless ApplySchemaDefaults is set.
 type TestCase struct {
 	// Name is the unique identifier for this test case.
 	Name string `yaml:"name"`
 
-	// Values are configuration values to apply before composing the blueprint.
-	// These override any existing configuration for the test.
+	// Values are configuration values that override the existing configuration before composition.
 	Values map[string]any `yaml:"values,omitempty"`
 
-	// Env provides environment variables visible to env() expressions during composition.
-	// Resolution is hermetic: env() sees only these entries, never the host environment.
+	// Env provides the only environment variables that env() expressions see during composition.
 	Env map[string]string `yaml:"env,omitempty"`
 
-	// TerraformOutputs provides mock terraform outputs for terraform_output() expressions.
-	// Keys are component IDs, values are maps of output key-value pairs.
-	// Example: {"network": {"vpc_id": "vpc-123", "subnet_ids": ["subnet-1", "subnet-2"]}}
+	// TerraformOutputs maps component IDs to mock outputs for terraform_output() expressions.
 	TerraformOutputs map[string]map[string]any `yaml:"terraformOutputs,omitempty"`
 
 	// Expect defines components that must be present in the composed blueprint.
-	// Uses partial matching: only specified fields are checked.
-	// Kind, ApiVersion, and Metadata are ignored for matching purposes.
 	Expect *Blueprint `yaml:"expect,omitempty"`
 
-	// Exclude defines components that must NOT be present in the composed blueprint.
-	// Uses partial matching: only specified fields are checked.
-	// Kind, ApiVersion, and Metadata are ignored for matching purposes.
+	// Exclude defines components that must not be present in the composed blueprint.
 	Exclude *Blueprint `yaml:"exclude,omitempty"`
 
-	// ExpectError indicates that blueprint composition is expected to fail with an error.
-	// If true, the test passes when composition fails and fails when composition succeeds.
-	// This is useful for testing invalid configurations that should be rejected by the framework.
+	// ExpectError makes the case pass only when composition fails.
 	ExpectError bool `yaml:"expectError,omitempty"`
 
-	// ApplySchemaDefaults composes this case with schema `default:` values materialized, as
-	// production does. The test path otherwise skips schema defaults so a facet is exercised on
-	// its own defaulting logic; set this to validate a facet that relies on a schema default
-	// (e.g. a read of network.cidr_block with no `?? <fallback>`). Off by default; other cases
-	// are unaffected.
+	// ApplySchemaDefaults composes this case with schema default: values materialized, as production does.
 	ApplySchemaDefaults bool `yaml:"applySchemaDefaults,omitempty"`
 }

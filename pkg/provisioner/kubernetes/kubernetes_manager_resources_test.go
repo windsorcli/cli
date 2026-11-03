@@ -1,4 +1,4 @@
-package kubernetes
+package kubernetes_test
 
 import (
 	"context"
@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/windsorcli/cli/pkg/provisioner/kubernetes"
 	"github.com/windsorcli/cli/pkg/provisioner/kubernetes/client"
 	"github.com/windsorcli/cli/pkg/runtime/config"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -22,19 +23,38 @@ import (
 // =============================================================================
 
 func TestBaseKubernetesManager_ApplyConfigMap(t *testing.T) {
-	setup := func(t *testing.T) *BaseKubernetesManager {
+	setup := func(t *testing.T, kubernetesClient client.KubernetesClient) *kubernetes.BaseKubernetesManager {
 		t.Helper()
 		mocks := setupKubernetesMocks(t)
-		manager := NewKubernetesManager(mocks.KubernetesClient, mocks.ConfigHandler)
-		// Use shorter timeouts for tests
-		manager.kustomizationWaitPollInterval = 50 * time.Millisecond
-		manager.kustomizationReconcileTimeout = 100 * time.Millisecond
-		manager.kustomizationReconcileSleep = 50 * time.Millisecond
+		if kubernetesClient == nil {
+			kubernetesClient = mocks.KubernetesClient
+		}
+		manager := kubernetes.NewKubernetesManager(kubernetesClient, mocks.ConfigHandler)
+		manager.Timing.KustomizationWaitPollInterval = 50 * time.Millisecond
+		manager.Timing.KustomizationReconcileTimeout = 100 * time.Millisecond
+		manager.Timing.KustomizationReconcileSleep = 50 * time.Millisecond
 		return manager
 	}
 
-	t.Run("Success", func(t *testing.T) {
-		manager := setup(t)
+	// existingConfigMap returns a client whose GetResource returns obj and that records each delete.
+	existingConfigMap := func(obj map[string]any) (*client.MockKubernetesClient, *bool) {
+		deleted := false
+		kubernetesClient := client.NewMockKubernetesClient()
+		kubernetesClient.GetResourceFunc = func(gvr schema.GroupVersionResource, ns, name string) (*unstructured.Unstructured, error) {
+			return &unstructured.Unstructured{Object: obj}, nil
+		}
+		kubernetesClient.DeleteResourceFunc = func(gvr schema.GroupVersionResource, namespace, name string, opts metav1.DeleteOptions) error {
+			deleted = true
+			return nil
+		}
+		kubernetesClient.ApplyResourceFunc = func(gvr schema.GroupVersionResource, obj *unstructured.Unstructured, opts metav1.ApplyOptions) (*unstructured.Unstructured, error) {
+			return obj, nil
+		}
+		return kubernetesClient, &deleted
+	}
+
+	t.Run("AppliesNewConfigMap", func(t *testing.T) {
+		// Given a client with no existing ConfigMap
 		kubernetesClient := client.NewMockKubernetesClient()
 		kubernetesClient.ApplyResourceFunc = func(gvr schema.GroupVersionResource, obj *unstructured.Unstructured, opts metav1.ApplyOptions) (*unstructured.Unstructured, error) {
 			return obj, nil
@@ -42,32 +62,33 @@ func TestBaseKubernetesManager_ApplyConfigMap(t *testing.T) {
 		kubernetesClient.GetResourceFunc = func(gvr schema.GroupVersionResource, ns, name string) (*unstructured.Unstructured, error) {
 			return nil, fmt.Errorf("not found")
 		}
-		manager.client = kubernetesClient
+		manager := setup(t, kubernetesClient)
 
-		data := map[string]string{
-			"key1": "value1",
-			"key2": "value2",
-		}
-		err := manager.ApplyConfigMap("test-configmap", "test-namespace", data)
+		// When a ConfigMap is applied
+		err := manager.ApplyConfigMap("test-configmap", "test-namespace", map[string]string{"key1": "value1", "key2": "value2"})
+
+		// Then no error is returned
 		if err != nil {
 			t.Errorf("Expected no error, got %v", err)
 		}
 	})
 
 	t.Run("RefusesUnresolvedExpression", func(t *testing.T) {
-		manager := setup(t)
+		// Given a client that records whether anything is applied
 		kubernetesClient := client.NewMockKubernetesClient()
 		var applied bool
 		kubernetesClient.ApplyResourceFunc = func(gvr schema.GroupVersionResource, obj *unstructured.Unstructured, opts metav1.ApplyOptions) (*unstructured.Unstructured, error) {
 			applied = true
 			return obj, nil
 		}
-		manager.client = kubernetesClient
+		manager := setup(t, kubernetesClient)
 
-		data := map[string]string{
+		// When a ConfigMap with an unresolved expression is applied
+		err := manager.ApplyConfigMap("test-configmap", "test-namespace", map[string]string{
 			"key1": "${terraform_output(\"cluster\", \"endpoint\")}",
-		}
-		err := manager.ApplyConfigMap("test-configmap", "test-namespace", data)
+		})
+
+		// Then it fails and applies nothing
 		if err == nil {
 			t.Fatal("Expected error, got nil")
 		}
@@ -79,36 +100,76 @@ func TestBaseKubernetesManager_ApplyConfigMap(t *testing.T) {
 		}
 	})
 
-	t.Run("ImmutableConfigMap", func(t *testing.T) {
-		manager := setup(t)
-		kubernetesClient := client.NewMockKubernetesClient()
-		kubernetesClient.GetResourceFunc = func(gvr schema.GroupVersionResource, ns, name string) (*unstructured.Unstructured, error) {
-			return &unstructured.Unstructured{
-				Object: map[string]any{
-					"kind":      "ConfigMap",
-					"immutable": true,
-				},
-			}, nil
-		}
-		kubernetesClient.DeleteResourceFunc = func(gvr schema.GroupVersionResource, namespace, name string, opts metav1.DeleteOptions) error {
-			return nil
-		}
-		kubernetesClient.ApplyResourceFunc = func(gvr schema.GroupVersionResource, obj *unstructured.Unstructured, opts metav1.ApplyOptions) (*unstructured.Unstructured, error) {
-			return obj, nil
-		}
-		manager.client = kubernetesClient
+	t.Run("DeletesAndRecreatesImmutableConfigMap", func(t *testing.T) {
+		// Given an existing immutable ConfigMap
+		kubernetesClient, deleted := existingConfigMap(map[string]any{"kind": "ConfigMap", "immutable": true})
+		manager := setup(t, kubernetesClient)
 
-		data := map[string]string{
-			"key1": "value1",
-		}
-		err := manager.ApplyConfigMap("test-configmap", "test-namespace", data)
+		// When the ConfigMap is applied
+		err := manager.ApplyConfigMap("test-configmap", "test-namespace", map[string]string{"key1": "value1"})
+
+		// Then the existing ConfigMap is deleted and the apply succeeds
 		if err != nil {
 			t.Errorf("Expected no error, got %v", err)
+		}
+		if !*deleted {
+			t.Error("Expected the immutable ConfigMap to be deleted")
+		}
+	})
+
+	t.Run("KeepsExistingObjectOfOtherKind", func(t *testing.T) {
+		// Given an existing object of another kind with immutable set to true
+		kubernetesClient, deleted := existingConfigMap(map[string]any{"kind": "Deployment", "immutable": true})
+		manager := setup(t, kubernetesClient)
+
+		// When the ConfigMap is applied
+		err := manager.ApplyConfigMap("test-configmap", "test-namespace", map[string]string{"k": "v"})
+
+		// Then nothing is deleted
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+		if *deleted {
+			t.Error("Expected no delete for a non-ConfigMap kind")
+		}
+	})
+
+	t.Run("KeepsConfigMapWithoutImmutableField", func(t *testing.T) {
+		// Given an existing ConfigMap with no immutable field
+		kubernetesClient, deleted := existingConfigMap(map[string]any{"kind": "ConfigMap"})
+		manager := setup(t, kubernetesClient)
+
+		// When the ConfigMap is applied
+		err := manager.ApplyConfigMap("test-configmap", "test-namespace", map[string]string{"k": "v"})
+
+		// Then nothing is deleted
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+		if *deleted {
+			t.Error("Expected no delete for a missing immutable field")
+		}
+	})
+
+	t.Run("KeepsConfigMapWithImmutableFalse", func(t *testing.T) {
+		// Given an existing ConfigMap with immutable set to false
+		kubernetesClient, deleted := existingConfigMap(map[string]any{"kind": "ConfigMap", "immutable": false})
+		manager := setup(t, kubernetesClient)
+
+		// When the ConfigMap is applied
+		err := manager.ApplyConfigMap("test-configmap", "test-namespace", map[string]string{"k": "v"})
+
+		// Then nothing is deleted
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+		if *deleted {
+			t.Error("Expected no delete for immutable false")
 		}
 	})
 
 	t.Run("ApplyError", func(t *testing.T) {
-		manager := setup(t)
+		// Given a client whose apply fails
 		kubernetesClient := client.NewMockKubernetesClient()
 		kubernetesClient.GetResourceFunc = func(gvr schema.GroupVersionResource, ns, name string) (*unstructured.Unstructured, error) {
 			return nil, fmt.Errorf("not found")
@@ -116,46 +177,71 @@ func TestBaseKubernetesManager_ApplyConfigMap(t *testing.T) {
 		kubernetesClient.ApplyResourceFunc = func(gvr schema.GroupVersionResource, obj *unstructured.Unstructured, opts metav1.ApplyOptions) (*unstructured.Unstructured, error) {
 			return nil, fmt.Errorf("apply error")
 		}
-		manager.client = kubernetesClient
+		manager := setup(t, kubernetesClient)
 
-		data := map[string]string{
-			"key1": "value1",
-		}
-		err := manager.ApplyConfigMap("test-configmap", "test-namespace", data)
+		// When the ConfigMap is applied
+		err := manager.ApplyConfigMap("test-configmap", "test-namespace", map[string]string{"key1": "value1"})
+
+		// Then the apply error is returned
 		if err == nil {
 			t.Error("Expected error, got nil")
 		}
 	})
 
-	t.Run("ValidateFieldsError_MissingData", func(t *testing.T) {
-		manager := setup(t)
-		// Remove data field by passing nil
+	t.Run("RejectsNilData", func(t *testing.T) {
+		// Given a manager
+		manager := setup(t, nil)
+
+		// When a ConfigMap with nil data is applied
 		err := manager.ApplyConfigMap("test-configmap", "test-namespace", nil)
-		if err == nil {
-			t.Error("Expected error for missing data, got nil")
+
+		// Then a validation error is returned
+		if err == nil || !strings.Contains(err.Error(), "data cannot be empty for ConfigMap") {
+			t.Errorf("Expected error containing 'data cannot be empty for ConfigMap', got %v", err)
 		}
 	})
 
-	t.Run("ValidateFieldsError_MissingName", func(t *testing.T) {
-		manager := setup(t)
-		// Patch shims to remove name from metadata
-		origToUnstructured := manager.shims.ToUnstructured
-		manager.shims.ToUnstructured = func(obj any) (map[string]any, error) {
-			m, _ := origToUnstructured(obj)
-			if meta, ok := m["metadata"].(map[string]any); ok {
-				delete(meta, "name")
-			}
-			return m, nil
+	t.Run("RejectsEmptyData", func(t *testing.T) {
+		// Given a manager
+		manager := setup(t, nil)
+
+		// When a ConfigMap with an empty data map is applied
+		err := manager.ApplyConfigMap("test-configmap", "test-namespace", map[string]string{})
+
+		// Then a validation error is returned
+		if err == nil || !strings.Contains(err.Error(), "data cannot be empty for ConfigMap") {
+			t.Errorf("Expected error containing 'data cannot be empty for ConfigMap', got %v", err)
 		}
-		// Data is present, but name will be missing
+	})
+
+	t.Run("RejectsEmptyName", func(t *testing.T) {
+		// Given a manager
+		manager := setup(t, nil)
+
+		// When a ConfigMap with an empty name is applied
 		err := manager.ApplyConfigMap("", "test-namespace", map[string]string{"k": "v"})
-		if err == nil {
-			t.Error("Expected error for missing metadata.name, got nil")
+
+		// Then a validation error is returned
+		if err == nil || !strings.Contains(err.Error(), "metadata.name cannot be empty") {
+			t.Errorf("Expected error containing 'metadata.name cannot be empty', got %v", err)
 		}
 	})
 
-	t.Run("GetResourceError_NotFound", func(t *testing.T) {
-		manager := setup(t)
+	t.Run("RejectsBlankName", func(t *testing.T) {
+		// Given a manager
+		manager := setup(t, nil)
+
+		// When a ConfigMap with a blank name is applied
+		err := manager.ApplyConfigMap(" ", "test-namespace", map[string]string{"k": "v"})
+
+		// Then a validation error is returned
+		if err == nil || !strings.Contains(err.Error(), "metadata.name cannot be empty") {
+			t.Errorf("Expected error containing 'metadata.name cannot be empty', got %v", err)
+		}
+	})
+
+	t.Run("AppliesWhenGetReturnsNotFound", func(t *testing.T) {
+		// Given a client whose get returns a not-found error
 		kubernetesClient := client.NewMockKubernetesClient()
 		kubernetesClient.GetResourceFunc = func(gvr schema.GroupVersionResource, ns, name string) (*unstructured.Unstructured, error) {
 			return nil, fmt.Errorf("not found")
@@ -163,16 +249,19 @@ func TestBaseKubernetesManager_ApplyConfigMap(t *testing.T) {
 		kubernetesClient.ApplyResourceFunc = func(gvr schema.GroupVersionResource, obj *unstructured.Unstructured, opts metav1.ApplyOptions) (*unstructured.Unstructured, error) {
 			return obj, nil
 		}
-		manager.client = kubernetesClient
-		// Should not error, just apply
+		manager := setup(t, kubernetesClient)
+
+		// When the ConfigMap is applied
 		err := manager.ApplyConfigMap("test-configmap", "test-namespace", map[string]string{"k": "v"})
+
+		// Then no error is returned
 		if err != nil {
 			t.Errorf("Expected no error, got %v", err)
 		}
 	})
 
-	t.Run("GetResourceError_Other", func(t *testing.T) {
-		manager := setup(t)
+	t.Run("AppliesWhenGetReturnsOtherError", func(t *testing.T) {
+		// Given a client whose get returns another error
 		kubernetesClient := client.NewMockKubernetesClient()
 		kubernetesClient.GetResourceFunc = func(gvr schema.GroupVersionResource, ns, name string) (*unstructured.Unstructured, error) {
 			return nil, fmt.Errorf("some error")
@@ -180,84 +269,87 @@ func TestBaseKubernetesManager_ApplyConfigMap(t *testing.T) {
 		kubernetesClient.ApplyResourceFunc = func(gvr schema.GroupVersionResource, obj *unstructured.Unstructured, opts metav1.ApplyOptions) (*unstructured.Unstructured, error) {
 			return obj, nil
 		}
-		manager.client = kubernetesClient
-		// Should not error, just apply
+		manager := setup(t, kubernetesClient)
+
+		// When the ConfigMap is applied
 		err := manager.ApplyConfigMap("test-configmap", "test-namespace", map[string]string{"k": "v"})
+
+		// Then no error is returned
 		if err != nil {
 			t.Errorf("Expected no error, got %v", err)
 		}
 	})
 
-	t.Run("DeleteResourceError_ImmutableConfigMap", func(t *testing.T) {
-		manager := setup(t)
+	t.Run("DeleteErrorOnImmutableConfigMap", func(t *testing.T) {
+		// Given an existing immutable ConfigMap whose delete fails
 		kubernetesClient := client.NewMockKubernetesClient()
 		kubernetesClient.GetResourceFunc = func(gvr schema.GroupVersionResource, ns, name string) (*unstructured.Unstructured, error) {
-			return &unstructured.Unstructured{
-				Object: map[string]any{
-					"kind":      "ConfigMap",
-					"immutable": true,
-				},
-			}, nil
+			return &unstructured.Unstructured{Object: map[string]any{"kind": "ConfigMap", "immutable": true}}, nil
 		}
 		kubernetesClient.DeleteResourceFunc = func(gvr schema.GroupVersionResource, ns, name string, opts metav1.DeleteOptions) error {
 			return fmt.Errorf("delete error")
 		}
-		manager.client = kubernetesClient
+		manager := setup(t, kubernetesClient)
+
+		// When the ConfigMap is applied
 		err := manager.ApplyConfigMap("test-configmap", "test-namespace", map[string]string{"k": "v"})
+
+		// Then the delete error is returned
 		if err == nil || !strings.Contains(err.Error(), "failed to delete immutable configmap") {
 			t.Errorf("Expected delete error, got %v", err)
 		}
 	})
 
 	t.Run("ToUnstructuredError", func(t *testing.T) {
-		manager := setup(t)
-		manager.shims.ToUnstructured = func(obj any) (map[string]any, error) {
+		// Given an existing ConfigMap and a conversion that fails
+		manager := setup(t, nil)
+		manager.Shims.ToUnstructured = func(obj any) (map[string]any, error) {
 			return nil, fmt.Errorf("forced toUnstructured error")
 		}
+
+		// When the ConfigMap is applied
 		err := manager.ApplyConfigMap("test-configmap", "test-namespace", map[string]string{"k": "v"})
+
+		// Then the conversion error is returned
 		if err == nil || !strings.Contains(err.Error(), "failed to convert") {
 			t.Errorf("Expected toUnstructured error, got %v", err)
 		}
 	})
+}
 
-	t.Run("FromUnstructuredError", func(t *testing.T) {
-		manager := func(t *testing.T) *BaseKubernetesManager {
-			mocks := setupKubernetesMocks(t)
-			manager := NewKubernetesManager(mocks.KubernetesClient, mocks.ConfigHandler)
-			return manager
-		}(t)
+func TestBaseKubernetesManager_GetKustomizationStatusReadiness(t *testing.T) {
+	// listing returns a client whose kustomization list holds one k1 item with the given Ready condition.
+	listing := func(condition map[string]any) *client.MockKubernetesClient {
 		kubernetesClient := client.NewMockKubernetesClient()
 		kubernetesClient.ListResourcesFunc = func(gvr schema.GroupVersionResource, namespace string) (*unstructured.UnstructuredList, error) {
 			return &unstructured.UnstructuredList{
-				Items: []unstructured.Unstructured{
-					{
-						Object: map[string]any{
-							"apiVersion": "kustomize.toolkit.fluxcd.io/v1",
-							"kind":       "Kustomization",
-							"metadata": map[string]any{
-								"name": "k1",
-							},
-							"status": map[string]any{
-								"conditions": []any{
-									map[string]any{
-										"type":   "Ready",
-										"status": "True",
-									},
-								},
-							},
-						},
+				Items: []unstructured.Unstructured{{
+					Object: map[string]any{
+						"apiVersion": "kustomize.toolkit.fluxcd.io/v1",
+						"kind":       "Kustomization",
+						"metadata":   map[string]any{"name": "k1"},
+						"status":     map[string]any{"conditions": []any{condition}},
 					},
-				},
+				}},
 			}, nil
 		}
-		manager.client = kubernetesClient
-		manager.shims.FromUnstructured = func(obj map[string]any, target any) error {
+		return kubernetesClient
+	}
+
+	t.Run("FromUnstructuredError", func(t *testing.T) {
+		// Given a ready kustomization and a conversion that fails
+		mocks := setupKubernetesMocks(t)
+		manager := kubernetes.NewKubernetesManager(listing(map[string]any{"type": "Ready", "status": "True"}), mocks.ConfigHandler)
+		manager.Shims.FromUnstructured = func(obj map[string]any, target any) error {
 			return fmt.Errorf("forced conversion error")
 		}
 
+		// When the status is read
 		status, err := manager.GetKustomizationStatus([]string{"k1"})
+
+		// Then the conversion error is returned with no status
 		if err == nil {
-			t.Error("Expected error, got nil")
+			t.Fatal("Expected error, got nil")
 		}
 		if !strings.Contains(err.Error(), "forced conversion error") {
 			t.Errorf("Expected error containing 'forced conversion error', got %v", err)
@@ -268,38 +360,14 @@ func TestBaseKubernetesManager_ApplyConfigMap(t *testing.T) {
 	})
 
 	t.Run("KustomizationNotReady", func(t *testing.T) {
-		manager := func(t *testing.T) *BaseKubernetesManager {
-			mocks := setupKubernetesMocks(t)
-			manager := NewKubernetesManager(mocks.KubernetesClient, mocks.ConfigHandler)
-			return manager
-		}(t)
-		kubernetesClient := client.NewMockKubernetesClient()
-		kubernetesClient.ListResourcesFunc = func(gvr schema.GroupVersionResource, namespace string) (*unstructured.UnstructuredList, error) {
-			return &unstructured.UnstructuredList{
-				Items: []unstructured.Unstructured{
-					{
-						Object: map[string]any{
-							"apiVersion": "kustomize.toolkit.fluxcd.io/v1",
-							"kind":       "Kustomization",
-							"metadata": map[string]any{
-								"name": "k1",
-							},
-							"status": map[string]any{
-								"conditions": []any{
-									map[string]any{
-										"type":   "Ready",
-										"status": "False",
-									},
-								},
-							},
-						},
-					},
-				},
-			}, nil
-		}
-		manager.client = kubernetesClient
+		// Given a kustomization whose Ready condition is False
+		mocks := setupKubernetesMocks(t)
+		manager := kubernetes.NewKubernetesManager(listing(map[string]any{"type": "Ready", "status": "False"}), mocks.ConfigHandler)
 
+		// When the status is read
 		status, err := manager.GetKustomizationStatus([]string{"k1"})
+
+		// Then the kustomization reports not ready
 		if err != nil {
 			t.Errorf("Expected no error, got %v", err)
 		}
@@ -309,42 +377,21 @@ func TestBaseKubernetesManager_ApplyConfigMap(t *testing.T) {
 	})
 
 	t.Run("KustomizationFailed", func(t *testing.T) {
-		manager := func(t *testing.T) *BaseKubernetesManager {
-			mocks := setupKubernetesMocks(t)
-			manager := NewKubernetesManager(mocks.KubernetesClient, mocks.ConfigHandler)
-			return manager
-		}(t)
-		kubernetesClient := client.NewMockKubernetesClient()
-		kubernetesClient.ListResourcesFunc = func(gvr schema.GroupVersionResource, namespace string) (*unstructured.UnstructuredList, error) {
-			return &unstructured.UnstructuredList{
-				Items: []unstructured.Unstructured{
-					{
-						Object: map[string]any{
-							"apiVersion": "kustomize.toolkit.fluxcd.io/v1",
-							"kind":       "Kustomization",
-							"metadata": map[string]any{
-								"name": "k1",
-							},
-							"status": map[string]any{
-								"conditions": []any{
-									map[string]any{
-										"type":    "Ready",
-										"status":  "False",
-										"reason":  "ReconciliationFailed",
-										"message": "kustomization failed",
-									},
-								},
-							},
-						},
-					},
-				},
-			}, nil
-		}
-		manager.client = kubernetesClient
+		// Given a kustomization whose reconcile failed
+		mocks := setupKubernetesMocks(t)
+		manager := kubernetes.NewKubernetesManager(listing(map[string]any{
+			"type":    "Ready",
+			"status":  "False",
+			"reason":  "ReconciliationFailed",
+			"message": "kustomization failed",
+		}), mocks.ConfigHandler)
 
+		// When the status is read
 		status, err := manager.GetKustomizationStatus([]string{"k1"})
+
+		// Then the failure is returned with no status
 		if err == nil {
-			t.Error("Expected error, got nil")
+			t.Fatal("Expected error, got nil")
 		}
 		if !strings.Contains(err.Error(), "kustomization k1 failed: kustomization failed") {
 			t.Errorf("Expected error containing 'kustomization k1 failed: kustomization failed', got %v", err)
@@ -355,38 +402,14 @@ func TestBaseKubernetesManager_ApplyConfigMap(t *testing.T) {
 	})
 
 	t.Run("KustomizationMissing", func(t *testing.T) {
-		manager := func(t *testing.T) *BaseKubernetesManager {
-			mocks := setupKubernetesMocks(t)
-			manager := NewKubernetesManager(mocks.KubernetesClient, mocks.ConfigHandler)
-			return manager
-		}(t)
-		kubernetesClient := client.NewMockKubernetesClient()
-		kubernetesClient.ListResourcesFunc = func(gvr schema.GroupVersionResource, namespace string) (*unstructured.UnstructuredList, error) {
-			return &unstructured.UnstructuredList{
-				Items: []unstructured.Unstructured{
-					{
-						Object: map[string]any{
-							"apiVersion": "kustomize.toolkit.fluxcd.io/v1",
-							"kind":       "Kustomization",
-							"metadata": map[string]any{
-								"name": "k1",
-							},
-							"status": map[string]any{
-								"conditions": []any{
-									map[string]any{
-										"type":   "Ready",
-										"status": "True",
-									},
-								},
-							},
-						},
-					},
-				},
-			}, nil
-		}
-		manager.client = kubernetesClient
+		// Given a list that holds k1 but not k2
+		mocks := setupKubernetesMocks(t)
+		manager := kubernetes.NewKubernetesManager(listing(map[string]any{"type": "Ready", "status": "True"}), mocks.ConfigHandler)
 
+		// When the status of k1 and k2 is read
 		status, err := manager.GetKustomizationStatus([]string{"k1", "k2"})
+
+		// Then k1 is ready and k2 is not
 		if err != nil {
 			t.Errorf("Expected no error, got %v", err)
 		}
@@ -397,280 +420,135 @@ func TestBaseKubernetesManager_ApplyConfigMap(t *testing.T) {
 			t.Errorf("Expected k2 to be not ready, got %v", status["k2"])
 		}
 	})
-
-	t.Run("ValidateFieldsError_MissingSpec", func(t *testing.T) {
-		obj := &unstructured.Unstructured{
-			Object: map[string]any{
-				"apiVersion": "v1",
-				"kind":       "Deployment",
-				"metadata": map[string]any{
-					"name": "foo",
-				},
-			},
-		}
-		err := validateFields(obj)
-		if err == nil || !strings.Contains(err.Error(), "spec is required") {
-			t.Errorf("Expected error containing 'spec is required', got %v", err)
-		}
-	})
-
-	t.Run("ValidateFieldsError_MissingMetadataName", func(t *testing.T) {
-		obj := &unstructured.Unstructured{
-			Object: map[string]any{
-				"apiVersion": "v1",
-				"kind":       "Deployment",
-				"metadata":   map[string]any{},
-				"spec":       map[string]any{},
-			},
-		}
-		err := validateFields(obj)
-		if err == nil || !strings.Contains(err.Error(), "metadata.name is required") {
-			t.Errorf("Expected error containing 'metadata.name is required', got %v", err)
-		}
-	})
-
-	t.Run("ValidateFieldsError_EmptyMetadataName", func(t *testing.T) {
-		obj := &unstructured.Unstructured{
-			Object: map[string]any{
-				"apiVersion": "v1",
-				"kind":       "Deployment",
-				"metadata": map[string]any{
-					"name": " ",
-				},
-				"spec": map[string]any{},
-			},
-		}
-		err := validateFields(obj)
-		if err == nil || !strings.Contains(err.Error(), "metadata.name cannot be empty") {
-			t.Errorf("Expected error containing 'metadata.name cannot be empty', got %v", err)
-		}
-	})
-
-	t.Run("ValidateFieldsError_ConfigMapMissingData", func(t *testing.T) {
-		obj := &unstructured.Unstructured{
-			Object: map[string]any{
-				"apiVersion": "v1",
-				"kind":       "ConfigMap",
-				"metadata": map[string]any{
-					"name": "foo",
-				},
-			},
-		}
-		err := validateFields(obj)
-		if err == nil || !strings.Contains(err.Error(), "data is required for ConfigMap") {
-			t.Errorf("Expected error containing 'data is required for ConfigMap', got %v", err)
-		}
-	})
-
-	t.Run("ValidateFieldsError_ConfigMapDataNil", func(t *testing.T) {
-		obj := &unstructured.Unstructured{
-			Object: map[string]any{
-				"apiVersion": "v1",
-				"kind":       "ConfigMap",
-				"metadata": map[string]any{
-					"name": "foo",
-				},
-				"data": nil,
-			},
-		}
-		err := validateFields(obj)
-		if err == nil || !strings.Contains(err.Error(), "data cannot be nil for ConfigMap") {
-			t.Errorf("Expected error containing 'data cannot be nil for ConfigMap', got %v", err)
-		}
-	})
-
-	t.Run("ValidateFieldsError_ConfigMapDataEmptyStringMap", func(t *testing.T) {
-		obj := &unstructured.Unstructured{
-			Object: map[string]any{
-				"apiVersion": "v1",
-				"kind":       "ConfigMap",
-				"metadata": map[string]any{
-					"name": "foo",
-				},
-				"data": map[string]string{},
-			},
-		}
-		err := validateFields(obj)
-		if err == nil || !strings.Contains(err.Error(), "data cannot be empty for ConfigMap") {
-			t.Errorf("Expected error containing 'data cannot be empty for ConfigMap', got %v", err)
-		}
-	})
-
-	t.Run("ValidateFieldsError_ConfigMapDataEmptyAnyMap", func(t *testing.T) {
-		obj := &unstructured.Unstructured{
-			Object: map[string]any{
-				"apiVersion": "v1",
-				"kind":       "ConfigMap",
-				"metadata": map[string]any{
-					"name": "foo",
-				},
-				"data": map[string]any{},
-			},
-		}
-		err := validateFields(obj)
-		if err == nil || !strings.Contains(err.Error(), "data cannot be empty for ConfigMap") {
-			t.Errorf("Expected error containing 'data cannot be empty for ConfigMap', got %v", err)
-		}
-	})
-
-	t.Run("IsImmutableConfigMap_WrongKind", func(t *testing.T) {
-		obj := &unstructured.Unstructured{
-			Object: map[string]any{
-				"kind":      "Deployment",
-				"immutable": true,
-			},
-		}
-		if isImmutableConfigMap(obj) {
-			t.Error("Expected false for non-ConfigMap kind")
-		}
-	})
-
-	t.Run("IsImmutableConfigMap_MissingField", func(t *testing.T) {
-		obj := &unstructured.Unstructured{
-			Object: map[string]any{
-				"kind": "ConfigMap",
-			},
-		}
-		if isImmutableConfigMap(obj) {
-			t.Error("Expected false for a missing immutable field")
-		}
-	})
-
-	t.Run("IsImmutableConfigMap_ImmutableFalse", func(t *testing.T) {
-		obj := &unstructured.Unstructured{
-			Object: map[string]any{
-				"kind":      "ConfigMap",
-				"immutable": false,
-			},
-		}
-		if isImmutableConfigMap(obj) {
-			t.Error("Expected false for immutable false")
-		}
-	})
-
-	t.Run("IsImmutableConfigMap_ImmutableTrue", func(t *testing.T) {
-		obj := &unstructured.Unstructured{
-			Object: map[string]any{
-				"kind":      "ConfigMap",
-				"immutable": true,
-			},
-		}
-		if !isImmutableConfigMap(obj) {
-			t.Error("Expected true for immutable true")
-		}
-	})
 }
 
 func TestBaseKubernetesManager_ApplySecret(t *testing.T) {
-	setup := func(t *testing.T) *BaseKubernetesManager {
+	setup := func(t *testing.T, kubernetesClient client.KubernetesClient) *kubernetes.BaseKubernetesManager {
 		t.Helper()
 		mocks := setupKubernetesMocks(t)
-		manager := NewKubernetesManager(mocks.KubernetesClient, mocks.ConfigHandler)
-		manager.kustomizationWaitPollInterval = 50 * time.Millisecond
-		manager.kustomizationReconcileTimeout = 100 * time.Millisecond
-		manager.kustomizationReconcileSleep = 50 * time.Millisecond
+		manager := kubernetes.NewKubernetesManager(kubernetesClient, mocks.ConfigHandler)
+		manager.Timing.KustomizationWaitPollInterval = 50 * time.Millisecond
+		manager.Timing.KustomizationReconcileTimeout = 100 * time.Millisecond
+		manager.Timing.KustomizationReconcileSleep = 50 * time.Millisecond
 		return manager
 	}
 
-	t.Run("AppliesOpaqueSecretWithStringData", func(t *testing.T) {
-		// Given a manager and a client that records the applied object
-		manager := setup(t)
+	// recording returns a client with no existing Secret that records the last applied object.
+	recording := func() (*client.MockKubernetesClient, **unstructured.Unstructured) {
 		var applied *unstructured.Unstructured
-		var appliedGVR schema.GroupVersionResource
 		kubernetesClient := client.NewMockKubernetesClient()
 		kubernetesClient.ApplyResourceFunc = func(gvr schema.GroupVersionResource, obj *unstructured.Unstructured, opts metav1.ApplyOptions) (*unstructured.Unstructured, error) {
 			applied = obj
-			appliedGVR = gvr
 			return obj, nil
 		}
 		kubernetesClient.GetResourceFunc = func(gvr schema.GroupVersionResource, ns, name string) (*unstructured.Unstructured, error) {
 			return nil, fmt.Errorf("not found")
 		}
-		manager.client = kubernetesClient
+		return kubernetesClient, &applied
+	}
 
-		// When applying a secret
+	// existingSecret returns a client whose GetResource returns obj, that records deletes and the last apply.
+	existingSecret := func(obj map[string]any) (*client.MockKubernetesClient, *bool, **unstructured.Unstructured) {
+		var deleted bool
+		var applied *unstructured.Unstructured
+		kubernetesClient := client.NewMockKubernetesClient()
+		kubernetesClient.GetResourceFunc = func(gvr schema.GroupVersionResource, ns, name string) (*unstructured.Unstructured, error) {
+			return &unstructured.Unstructured{Object: obj}, nil
+		}
+		kubernetesClient.DeleteResourceFunc = func(gvr schema.GroupVersionResource, ns, name string, opts metav1.DeleteOptions) error {
+			deleted = true
+			return nil
+		}
+		kubernetesClient.ApplyResourceFunc = func(gvr schema.GroupVersionResource, obj *unstructured.Unstructured, opts metav1.ApplyOptions) (*unstructured.Unstructured, error) {
+			applied = obj
+			return obj, nil
+		}
+		return kubernetesClient, &deleted, &applied
+	}
+
+	dockerCredentials := map[string]string{
+		"docker-username": "octocat",
+		"docker-password": "hunter2",
+	}
+
+	t.Run("AppliesOpaqueSecretWithStringData", func(t *testing.T) {
+		// Given a client that records the applied object and its resource
+		var appliedGVR schema.GroupVersionResource
+		kubernetesClient, applied := recording()
+		recordApply := kubernetesClient.ApplyResourceFunc
+		kubernetesClient.ApplyResourceFunc = func(gvr schema.GroupVersionResource, obj *unstructured.Unstructured, opts metav1.ApplyOptions) (*unstructured.Unstructured, error) {
+			appliedGVR = gvr
+			return recordApply(gvr, obj, opts)
+		}
+		manager := setup(t, kubernetesClient)
+
+		// When a secret is applied
 		err := manager.ApplySecret("cloudflare-creds", "system-dns", "", map[string]string{"api_token": "PLAINTEXT"}, "dns-install")
+
+		// Then an Opaque Secret with the plaintext in stringData and the secret-owner label is applied
 		if err != nil {
 			t.Fatalf("Expected no error, got %v", err)
 		}
-
-		// Then it applies an Opaque Secret via the secrets GVR with the plaintext under stringData
 		if appliedGVR.Resource != "secrets" {
 			t.Errorf("Expected secrets GVR, got %v", appliedGVR)
 		}
-		if applied.GetKind() != "Secret" {
-			t.Errorf("Expected kind Secret, got %q", applied.GetKind())
+		if (*applied).GetKind() != "Secret" {
+			t.Errorf("Expected kind Secret, got %q", (*applied).GetKind())
 		}
-		if applied.Object["type"] != "Opaque" {
-			t.Errorf("Expected type Opaque, got %v", applied.Object["type"])
+		if (*applied).Object["type"] != "Opaque" {
+			t.Errorf("Expected type Opaque, got %v", (*applied).Object["type"])
 		}
-		stringData, _ := applied.Object["stringData"].(map[string]string)
+		stringData, _ := (*applied).Object["stringData"].(map[string]string)
 		if stringData["api_token"] != "PLAINTEXT" {
-			t.Errorf("Expected stringData api_token=PLAINTEXT, got %v", applied.Object["stringData"])
+			t.Errorf("Expected stringData api_token=PLAINTEXT, got %v", (*applied).Object["stringData"])
 		}
-		metadata, _ := applied.Object["metadata"].(map[string]any)
+		metadata, _ := (*applied).Object["metadata"].(map[string]any)
 		if metadata["name"] != "cloudflare-creds" || metadata["namespace"] != "system-dns" {
-			t.Errorf("Unexpected metadata: %v", applied.Object["metadata"])
+			t.Errorf("Unexpected metadata: %v", (*applied).Object["metadata"])
 		}
-
-		// And it carries the secret-owner marker so PruneSecrets can reclaim it later
-		if applied.GetLabels()[secretOwnerLabel] != "dns-install" {
-			t.Errorf("Expected secret-owner label dns-install, got %v", applied.GetLabels())
+		if (*applied).GetLabels()["windsorcli.dev/secret-owner"] != "dns-install" {
+			t.Errorf("Expected secret-owner label dns-install, got %v", (*applied).GetLabels())
 		}
 	})
 
 	t.Run("EmptyNameFails", func(t *testing.T) {
 		// Given a manager
-		manager := setup(t)
-		manager.client = client.NewMockKubernetesClient()
+		manager := setup(t, client.NewMockKubernetesClient())
 
-		// When applying a secret with no name, it fails validation
-		if err := manager.ApplySecret("", "system-dns", "", map[string]string{"k": "v"}, "dns-install"); err == nil {
+		// When a secret with no name is applied
+		err := manager.ApplySecret("", "system-dns", "", map[string]string{"k": "v"}, "dns-install")
+
+		// Then a validation error is returned
+		if err == nil {
 			t.Error("Expected error for empty name")
 		}
 	})
 
 	t.Run("SynthesizesDockerConfigJSONFromDockerCredentials", func(t *testing.T) {
-		// Given a manager and a client that records the applied object
-		manager := setup(t)
-		var applied *unstructured.Unstructured
-		kubernetesClient := client.NewMockKubernetesClient()
-		kubernetesClient.ApplyResourceFunc = func(gvr schema.GroupVersionResource, obj *unstructured.Unstructured, opts metav1.ApplyOptions) (*unstructured.Unstructured, error) {
-			applied = obj
-			return obj, nil
-		}
-		kubernetesClient.GetResourceFunc = func(gvr schema.GroupVersionResource, ns, name string) (*unstructured.Unstructured, error) {
-			return nil, fmt.Errorf("not found")
-		}
-		manager.client = kubernetesClient
+		// Given a client that records the applied object
+		kubernetesClient, applied := recording()
+		manager := setup(t, kubernetesClient)
 
-		// When applying a secret with docker-username/docker-password/docker-server
+		// When a secret with docker-username, docker-password, and docker-server is applied
 		err := manager.ApplySecret("ghcr-credentials", "pme", "", map[string]string{
 			"docker-username": "octocat",
 			"docker-password": "hunter2",
 			"docker-server":   "ghcr.io",
 		}, "addon-pme")
+
+		// Then a dockerconfigjson Secret replaces the docker-* keys with a synthesized config
 		if err != nil {
 			t.Fatalf("Expected no error, got %v", err)
 		}
-
-		// Then the Secret is typed kubernetes.io/dockerconfigjson
-		if applied.Object["type"] != "kubernetes.io/dockerconfigjson" {
-			t.Errorf("Expected type kubernetes.io/dockerconfigjson, got %v", applied.Object["type"])
+		if (*applied).Object["type"] != "kubernetes.io/dockerconfigjson" {
+			t.Errorf("Expected type kubernetes.io/dockerconfigjson, got %v", (*applied).Object["type"])
 		}
-
-		// And the docker-* keys are dropped, replaced by a synthesized .dockerconfigjson
-		stringData, _ := applied.Object["stringData"].(map[string]string)
-		if _, exists := stringData["docker-username"]; exists {
-			t.Error("Expected docker-username to be dropped")
+		stringData, _ := (*applied).Object["stringData"].(map[string]string)
+		for _, key := range []string{"docker-username", "docker-password", "docker-server"} {
+			if _, exists := stringData[key]; exists {
+				t.Errorf("Expected %s to be dropped", key)
+			}
 		}
-		if _, exists := stringData["docker-password"]; exists {
-			t.Error("Expected docker-password to be dropped")
-		}
-		if _, exists := stringData["docker-server"]; exists {
-			t.Error("Expected docker-server to be dropped")
-		}
-
 		var decoded struct {
 			Auths map[string]struct {
 				Username string `json:"username"`
@@ -695,30 +573,18 @@ func TestBaseKubernetesManager_ApplySecret(t *testing.T) {
 	})
 
 	t.Run("SynthesizesDockerConfigJSONWithDefaultServer", func(t *testing.T) {
-		// Given a manager and a client that records the applied object
-		manager := setup(t)
-		var applied *unstructured.Unstructured
-		kubernetesClient := client.NewMockKubernetesClient()
-		kubernetesClient.ApplyResourceFunc = func(gvr schema.GroupVersionResource, obj *unstructured.Unstructured, opts metav1.ApplyOptions) (*unstructured.Unstructured, error) {
-			applied = obj
-			return obj, nil
-		}
-		kubernetesClient.GetResourceFunc = func(gvr schema.GroupVersionResource, ns, name string) (*unstructured.Unstructured, error) {
-			return nil, fmt.Errorf("not found")
-		}
-		manager.client = kubernetesClient
+		// Given a client that records the applied object
+		kubernetesClient, applied := recording()
+		manager := setup(t, kubernetesClient)
 
-		// When applying a secret with docker-username/docker-password but no docker-server
-		err := manager.ApplySecret("ghcr-credentials", "pme", "", map[string]string{
-			"docker-username": "octocat",
-			"docker-password": "hunter2",
-		}, "addon-pme")
+		// When a secret with docker credentials and no docker-server is applied
+		err := manager.ApplySecret("ghcr-credentials", "pme", "", dockerCredentials, "addon-pme")
+
+		// Then the synthesized config uses ghcr.io
 		if err != nil {
 			t.Fatalf("Expected no error, got %v", err)
 		}
-
-		// Then the synthesized config defaults to ghcr.io
-		stringData, _ := applied.Object["stringData"].(map[string]string)
+		stringData, _ := (*applied).Object["stringData"].(map[string]string)
 		var decoded struct {
 			Auths map[string]any `json:"auths"`
 		}
@@ -731,200 +597,135 @@ func TestBaseKubernetesManager_ApplySecret(t *testing.T) {
 	})
 
 	t.Run("PassesThroughExistingDockerConfigJSON", func(t *testing.T) {
-		// Given a manager and a client that records the applied object
-		manager := setup(t)
-		var applied *unstructured.Unstructured
-		kubernetesClient := client.NewMockKubernetesClient()
-		kubernetesClient.ApplyResourceFunc = func(gvr schema.GroupVersionResource, obj *unstructured.Unstructured, opts metav1.ApplyOptions) (*unstructured.Unstructured, error) {
-			applied = obj
-			return obj, nil
-		}
-		kubernetesClient.GetResourceFunc = func(gvr schema.GroupVersionResource, ns, name string) (*unstructured.Unstructured, error) {
-			return nil, fmt.Errorf("not found")
-		}
-		manager.client = kubernetesClient
-
-		// When applying a secret that already carries a .dockerconfigjson
+		// Given a client that records the applied object
+		kubernetesClient, applied := recording()
+		manager := setup(t, kubernetesClient)
 		preEncoded := `{"auths":{"ghcr.io":{"username":"u","password":"p","auth":"dTpw"}}}`
-		err := manager.ApplySecret("ghcr-credentials", "pme", "", map[string]string{
-			".dockerconfigjson": preEncoded,
-		}, "addon-pme")
+
+		// When a secret that already holds a .dockerconfigjson is applied
+		err := manager.ApplySecret("ghcr-credentials", "pme", "", map[string]string{".dockerconfigjson": preEncoded}, "addon-pme")
+
+		// Then the Secret is a dockerconfigjson Secret with the value unchanged
 		if err != nil {
 			t.Fatalf("Expected no error, got %v", err)
 		}
-
-		// Then the Secret is typed kubernetes.io/dockerconfigjson and the value passes through unchanged
-		if applied.Object["type"] != "kubernetes.io/dockerconfigjson" {
-			t.Errorf("Expected type kubernetes.io/dockerconfigjson, got %v", applied.Object["type"])
+		if (*applied).Object["type"] != "kubernetes.io/dockerconfigjson" {
+			t.Errorf("Expected type kubernetes.io/dockerconfigjson, got %v", (*applied).Object["type"])
 		}
-		stringData, _ := applied.Object["stringData"].(map[string]string)
+		stringData, _ := (*applied).Object["stringData"].(map[string]string)
 		if stringData[".dockerconfigjson"] != preEncoded {
 			t.Errorf("Expected .dockerconfigjson to pass through unchanged, got %q", stringData[".dockerconfigjson"])
 		}
 	})
 
 	t.Run("StaysOpaqueWhenOnlyDockerUsernameSet", func(t *testing.T) {
-		// Given a manager and a client that records the applied object
-		manager := setup(t)
-		var applied *unstructured.Unstructured
-		kubernetesClient := client.NewMockKubernetesClient()
-		kubernetesClient.ApplyResourceFunc = func(gvr schema.GroupVersionResource, obj *unstructured.Unstructured, opts metav1.ApplyOptions) (*unstructured.Unstructured, error) {
-			applied = obj
-			return obj, nil
-		}
-		kubernetesClient.GetResourceFunc = func(gvr schema.GroupVersionResource, ns, name string) (*unstructured.Unstructured, error) {
-			return nil, fmt.Errorf("not found")
-		}
-		manager.client = kubernetesClient
+		// Given a client that records the applied object
+		kubernetesClient, applied := recording()
+		manager := setup(t, kubernetesClient)
 
-		// When applying a secret with only docker-username set (no docker-password)
-		err := manager.ApplySecret("incomplete-creds", "pme", "", map[string]string{
-			"docker-username": "octocat",
-		}, "addon-pme")
+		// When a secret with docker-username and no docker-password is applied
+		err := manager.ApplySecret("incomplete-creds", "pme", "", map[string]string{"docker-username": "octocat"}, "addon-pme")
+
+		// Then the Secret stays Opaque with docker-username unchanged
 		if err != nil {
 			t.Fatalf("Expected no error, got %v", err)
 		}
-
-		// Then the Secret stays Opaque and the docker-username key is untouched
-		if applied.Object["type"] != "Opaque" {
-			t.Errorf("Expected type Opaque, got %v", applied.Object["type"])
+		if (*applied).Object["type"] != "Opaque" {
+			t.Errorf("Expected type Opaque, got %v", (*applied).Object["type"])
 		}
-		stringData, _ := applied.Object["stringData"].(map[string]string)
+		stringData, _ := (*applied).Object["stringData"].(map[string]string)
 		if stringData["docker-username"] != "octocat" {
 			t.Errorf("Expected docker-username to pass through unchanged, got %v", stringData)
 		}
 	})
 
 	t.Run("DoesNotMutateInputStringDataMap", func(t *testing.T) {
-		// Given a manager, a client, and a caller-owned stringData map
-		manager := setup(t)
-		kubernetesClient := client.NewMockKubernetesClient()
-		kubernetesClient.ApplyResourceFunc = func(gvr schema.GroupVersionResource, obj *unstructured.Unstructured, opts metav1.ApplyOptions) (*unstructured.Unstructured, error) {
-			return obj, nil
-		}
-		kubernetesClient.GetResourceFunc = func(gvr schema.GroupVersionResource, ns, name string) (*unstructured.Unstructured, error) {
-			return nil, fmt.Errorf("not found")
-		}
-		manager.client = kubernetesClient
+		// Given a caller-owned stringData map with docker credentials
+		kubernetesClient, _ := recording()
+		manager := setup(t, kubernetesClient)
 		input := map[string]string{
 			"docker-username": "octocat",
 			"docker-password": "hunter2",
 		}
 
-		// When applying a secret that triggers docker config synthesis
-		if err := manager.ApplySecret("ghcr-credentials", "pme", "", input, "addon-pme"); err != nil {
+		// When the secret is applied
+		err := manager.ApplySecret("ghcr-credentials", "pme", "", input, "addon-pme")
+
+		// Then the caller's map is unchanged
+		if err != nil {
 			t.Fatalf("Expected no error, got %v", err)
 		}
-
-		// Then the caller's original map is untouched
 		if len(input) != 2 || input["docker-username"] != "octocat" || input["docker-password"] != "hunter2" {
 			t.Errorf("Expected input map to be unmodified, got %v", input)
 		}
 	})
 
 	t.Run("DeletesAndRecreatesWhenResolvedTypeChanges", func(t *testing.T) {
-		// Given a manager and an existing Opaque Secret
-		manager := setup(t)
-		var deleted bool
-		var applied *unstructured.Unstructured
-		kubernetesClient := client.NewMockKubernetesClient()
-		kubernetesClient.GetResourceFunc = func(gvr schema.GroupVersionResource, ns, name string) (*unstructured.Unstructured, error) {
-			return &unstructured.Unstructured{
-				Object: map[string]any{
-					"kind": "Secret",
-					"type": "Opaque",
-				},
-			}, nil
-		}
-		kubernetesClient.DeleteResourceFunc = func(gvr schema.GroupVersionResource, ns, name string, opts metav1.DeleteOptions) error {
-			deleted = true
-			return nil
-		}
-		kubernetesClient.ApplyResourceFunc = func(gvr schema.GroupVersionResource, obj *unstructured.Unstructured, opts metav1.ApplyOptions) (*unstructured.Unstructured, error) {
-			applied = obj
-			return obj, nil
-		}
-		manager.client = kubernetesClient
+		// Given an existing Opaque Secret
+		kubernetesClient, deleted, applied := existingSecret(map[string]any{"kind": "Secret", "type": "Opaque"})
+		manager := setup(t, kubernetesClient)
 
-		// When applying a secret whose docker-* keys now resolve to dockerconfigjson
-		err := manager.ApplySecret("ghcr-credentials", "pme", "", map[string]string{
-			"docker-username": "octocat",
-			"docker-password": "hunter2",
-		}, "addon-pme")
+		// When a secret whose docker-* keys resolve to dockerconfigjson is applied
+		err := manager.ApplySecret("ghcr-credentials", "pme", "", dockerCredentials, "addon-pme")
+
+		// Then the existing Secret is deleted before the new type is applied
 		if err != nil {
 			t.Fatalf("Expected no error, got %v", err)
 		}
-
-		// Then the existing Secret is deleted before the new type is applied
-		if !deleted {
+		if !*deleted {
 			t.Error("Expected the existing Opaque Secret to be deleted before re-applying as dockerconfigjson")
 		}
-		if applied.Object["type"] != "kubernetes.io/dockerconfigjson" {
-			t.Errorf("Expected type kubernetes.io/dockerconfigjson, got %v", applied.Object["type"])
+		if (*applied).Object["type"] != "kubernetes.io/dockerconfigjson" {
+			t.Errorf("Expected type kubernetes.io/dockerconfigjson, got %v", (*applied).Object["type"])
 		}
 	})
 
 	t.Run("SkipsDeleteWhenResolvedTypeUnchanged", func(t *testing.T) {
-		// Given a manager and an existing dockerconfigjson Secret
-		manager := setup(t)
-		var deleted bool
-		kubernetesClient := client.NewMockKubernetesClient()
-		kubernetesClient.GetResourceFunc = func(gvr schema.GroupVersionResource, ns, name string) (*unstructured.Unstructured, error) {
-			return &unstructured.Unstructured{
-				Object: map[string]any{
-					"kind": "Secret",
-					"type": "kubernetes.io/dockerconfigjson",
-				},
-			}, nil
-		}
-		kubernetesClient.DeleteResourceFunc = func(gvr schema.GroupVersionResource, ns, name string, opts metav1.DeleteOptions) error {
-			deleted = true
-			return nil
-		}
-		kubernetesClient.ApplyResourceFunc = func(gvr schema.GroupVersionResource, obj *unstructured.Unstructured, opts metav1.ApplyOptions) (*unstructured.Unstructured, error) {
-			return obj, nil
-		}
-		manager.client = kubernetesClient
+		// Given an existing dockerconfigjson Secret
+		kubernetesClient, deleted, _ := existingSecret(map[string]any{"kind": "Secret", "type": "kubernetes.io/dockerconfigjson"})
+		manager := setup(t, kubernetesClient)
 
-		// When applying a secret whose docker-* keys still resolve to dockerconfigjson
-		err := manager.ApplySecret("ghcr-credentials", "pme", "", map[string]string{
-			"docker-username": "octocat",
-			"docker-password": "hunter2",
-		}, "addon-pme")
+		// When a secret whose docker-* keys resolve to dockerconfigjson is applied
+		err := manager.ApplySecret("ghcr-credentials", "pme", "", dockerCredentials, "addon-pme")
+
+		// Then the existing Secret is not deleted
 		if err != nil {
 			t.Fatalf("Expected no error, got %v", err)
 		}
-
-		// Then the existing Secret is left in place (SSA-merged, not deleted)
-		if deleted {
+		if *deleted {
 			t.Error("Expected no delete when the resolved type matches the existing Secret's type")
 		}
 	})
 
-	t.Run("DeleteErrorOnTypeChangeIsPropagated", func(t *testing.T) {
-		// Given a manager, an existing Opaque Secret, and a delete that fails
-		manager := setup(t)
-		kubernetesClient := client.NewMockKubernetesClient()
-		kubernetesClient.GetResourceFunc = func(gvr schema.GroupVersionResource, ns, name string) (*unstructured.Unstructured, error) {
-			return &unstructured.Unstructured{
-				Object: map[string]any{
-					"kind": "Secret",
-					"type": "Opaque",
-				},
-			}, nil
+	t.Run("SkipsDeleteWhenExistingTypeMissing", func(t *testing.T) {
+		// Given an existing Secret with no type
+		kubernetesClient, deleted, _ := existingSecret(map[string]any{"kind": "Secret"})
+		manager := setup(t, kubernetesClient)
+
+		// When an Opaque secret is applied
+		err := manager.ApplySecret("plain", "pme", "", map[string]string{"k": "v"}, "addon-pme")
+
+		// Then the existing Secret is not deleted
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
 		}
+		if *deleted {
+			t.Error("Expected no delete when the existing object has no type")
+		}
+	})
+
+	t.Run("DeleteErrorOnTypeChangeIsPropagated", func(t *testing.T) {
+		// Given an existing Opaque Secret whose delete fails
+		kubernetesClient, _, _ := existingSecret(map[string]any{"kind": "Secret", "type": "Opaque"})
 		kubernetesClient.DeleteResourceFunc = func(gvr schema.GroupVersionResource, ns, name string, opts metav1.DeleteOptions) error {
 			return fmt.Errorf("delete failed")
 		}
-		manager.client = kubernetesClient
+		manager := setup(t, kubernetesClient)
 
-		// When applying a secret whose resolved type would change
-		err := manager.ApplySecret("ghcr-credentials", "pme", "", map[string]string{
-			"docker-username": "octocat",
-			"docker-password": "hunter2",
-		}, "addon-pme")
+		// When a secret whose resolved type changes is applied
+		err := manager.ApplySecret("ghcr-credentials", "pme", "", dockerCredentials, "addon-pme")
 
-		// Then the delete error is surfaced rather than attempting the apply
+		// Then the delete error is returned
 		if err == nil {
 			t.Fatal("Expected error when delete fails, got nil")
 		}
@@ -935,14 +736,7 @@ func TestBaseKubernetesManager_ApplySecret(t *testing.T) {
 }
 
 func TestBaseKubernetesManager_PruneSecrets(t *testing.T) {
-	setup := func(t *testing.T) *BaseKubernetesManager {
-		t.Helper()
-		mocks := setupKubernetesMocks(t)
-		return NewKubernetesManager(mocks.KubernetesClient, mocks.ConfigHandler)
-	}
-
-	// secretObj builds a CLI-placed Secret list item in a namespace, carrying this context's id and the
-	// secret-owner marker — what ListResourcesByLabel would return.
+	// secretObj builds a CLI-placed Secret list item with the context id and the secret-owner label.
 	secretObj := func(name, namespace string) unstructured.Unstructured {
 		return unstructured.Unstructured{Object: map[string]any{
 			"apiVersion": "v1",
@@ -951,15 +745,17 @@ func TestBaseKubernetesManager_PruneSecrets(t *testing.T) {
 				"name":      name,
 				"namespace": namespace,
 				"labels": map[string]any{
-					"windsorcli.dev/context-id": "test-context-id",
-					secretOwnerLabel:            "pki-install",
+					"windsorcli.dev/context-id":   "test-context-id",
+					"windsorcli.dev/secret-owner": "pki-install",
 				},
 			},
 		}}
 	}
 
-	// wire makes the manager return the given secrets from the label-scoped list and capture deletions.
-	wire := func(manager *BaseKubernetesManager, items ...unstructured.Unstructured) (*[]string, *string) {
+	// setup returns a manager whose client lists items and records the selector and each delete.
+	setup := func(t *testing.T, items ...unstructured.Unstructured) (*kubernetes.BaseKubernetesManager, *[]string, *string) {
+		t.Helper()
+		mocks := setupKubernetesMocks(t)
 		deleted := []string{}
 		var selector string
 		c := client.NewMockKubernetesClient()
@@ -971,41 +767,40 @@ func TestBaseKubernetesManager_PruneSecrets(t *testing.T) {
 			deleted = append(deleted, ns+"/"+name)
 			return nil
 		}
-		manager.client = c
-		return &deleted, &selector
+		return kubernetes.NewKubernetesManager(c, mocks.ConfigHandler), &deleted, &selector
 	}
 
 	t.Run("DeletesOrphansAndKeepsDesired", func(t *testing.T) {
-		// Given the same secret placed in two namespaces (a fan-out)
-		manager := setup(t)
-		deleted, selector := wire(manager,
+		// Given the same secret placed in two namespaces
+		manager, deleted, selector := setup(t,
 			secretObj("hetzner-dns", "system-pki"),
 			secretObj("hetzner-dns", "system-dns"),
 		)
 
-		// When reconciling to a desired set that keeps only the system-pki copy (fan-out shrank)
-		desired := map[string]map[string]bool{"system-pki": {"hetzner-dns": true}}
-		if err := manager.PruneSecrets(desired); err != nil {
+		// When secrets are pruned to a desired set that keeps only the system-pki copy
+		err := manager.PruneSecrets(map[string]map[string]bool{"system-pki": {"hetzner-dns": true}})
+
+		// Then only the system-dns copy is deleted, through a context and owner scoped selector
+		if err != nil {
 			t.Fatalf("Expected no error, got %v", err)
 		}
-
-		// Then only the dropped-namespace copy is deleted
 		if len(*deleted) != 1 || (*deleted)[0] != "system-dns/hetzner-dns" {
 			t.Errorf("Expected only system-dns/hetzner-dns deleted, got %v", *deleted)
 		}
-		// And the list is scoped to this context and the CLI secret-owner marker
-		if !strings.Contains(*selector, "windsorcli.dev/context-id=test-context-id") || !strings.Contains(*selector, secretOwnerLabel) {
+		if !strings.Contains(*selector, "windsorcli.dev/context-id=test-context-id") || !strings.Contains(*selector, "windsorcli.dev/secret-owner") {
 			t.Errorf("Expected context+owner-scoped selector, got %q", *selector)
 		}
 	})
 
 	t.Run("EmptyDesiredReclaimsEveryCLISecret", func(t *testing.T) {
-		// Given CLI-placed secrets but a blueprint that now declares none
-		manager := setup(t)
-		deleted, _ := wire(manager, secretObj("a", "ns1"), secretObj("b", "ns2"))
+		// Given two CLI-placed secrets
+		manager, deleted, _ := setup(t, secretObj("a", "ns1"), secretObj("b", "ns2"))
 
-		// When reconciling to an empty desired set, every CLI-placed secret is reclaimed
-		if err := manager.PruneSecrets(map[string]map[string]bool{}); err != nil {
+		// When secrets are pruned to an empty desired set
+		err := manager.PruneSecrets(map[string]map[string]bool{})
+
+		// Then both secrets are deleted
+		if err != nil {
 			t.Fatalf("Expected no error, got %v", err)
 		}
 		if len(*deleted) != 2 {
@@ -1014,7 +809,7 @@ func TestBaseKubernetesManager_PruneSecrets(t *testing.T) {
 	})
 
 	t.Run("EmptyContextIDFailsClosed", func(t *testing.T) {
-		// Given a manager whose config handler reports no context id
+		// Given a config handler with no context id
 		mocks := setupKubernetesMocks(t, func(m *KubernetesTestMocks) {
 			m.ConfigHandler.(*config.MockConfigHandler).GetStringFunc = func(key string, defaultValue ...string) string {
 				if len(defaultValue) > 0 {
@@ -1023,17 +818,19 @@ func TestBaseKubernetesManager_PruneSecrets(t *testing.T) {
 				return ""
 			}
 		})
-		manager := NewKubernetesManager(mocks.KubernetesClient, mocks.ConfigHandler)
+		manager := kubernetes.NewKubernetesManager(mocks.KubernetesClient, mocks.ConfigHandler)
 
-		// When pruning without a context id, the guard rejects it before deleting anything
-		if err := manager.PruneSecrets(nil); err == nil {
+		// When secrets are pruned
+		err := manager.PruneSecrets(nil)
+
+		// Then an error is returned
+		if err == nil {
 			t.Error("Expected error when context id is not set")
 		}
 	})
 
 	t.Run("InvalidContextIDFailsClosed", func(t *testing.T) {
-		// Given a context id that is not a valid label value (a comma would build a
-		// malformed selector the API server rejects)
+		// Given a context id that is not a valid label value
 		mocks := setupKubernetesMocks(t, func(m *KubernetesTestMocks) {
 			m.ConfigHandler.(*config.MockConfigHandler).GetStringFunc = func(key string, defaultValue ...string) string {
 				if key == "id" {
@@ -1045,17 +842,18 @@ func TestBaseKubernetesManager_PruneSecrets(t *testing.T) {
 				return ""
 			}
 		})
-		manager := NewKubernetesManager(mocks.KubernetesClient, mocks.ConfigHandler)
 		listed := false
 		c := client.NewMockKubernetesClient()
 		c.ListResourcesByLabelFunc = func(gvr schema.GroupVersionResource, ns, labelSelector string) (*unstructured.UnstructuredList, error) {
 			listed = true
 			return &unstructured.UnstructuredList{}, nil
 		}
-		manager.client = c
+		manager := kubernetes.NewKubernetesManager(c, mocks.ConfigHandler)
 
-		// When pruning, the guard rejects the id up front, names it, and never queries the cluster
+		// When secrets are pruned
 		err := manager.PruneSecrets(nil)
+
+		// Then the error names the id and the cluster is not queried
 		if err == nil || !strings.Contains(err.Error(), "bad,id") {
 			t.Errorf("Expected error naming the invalid context id, got %v", err)
 		}
@@ -1065,8 +863,8 @@ func TestBaseKubernetesManager_PruneSecrets(t *testing.T) {
 	})
 
 	t.Run("DeleteErrorIsPropagated", func(t *testing.T) {
-		// Given the delete call fails
-		manager := setup(t)
+		// Given one CLI-placed secret whose delete fails
+		mocks := setupKubernetesMocks(t)
 		c := client.NewMockKubernetesClient()
 		c.ListResourcesByLabelFunc = func(gvr schema.GroupVersionResource, ns, labelSelector string) (*unstructured.UnstructuredList, error) {
 			return &unstructured.UnstructuredList{Items: []unstructured.Unstructured{secretObj("x", "ns")}}, nil
@@ -1074,10 +872,13 @@ func TestBaseKubernetesManager_PruneSecrets(t *testing.T) {
 		c.DeleteResourceFunc = func(gvr schema.GroupVersionResource, ns, name string, opts metav1.DeleteOptions) error {
 			return fmt.Errorf("api down")
 		}
-		manager.client = c
+		manager := kubernetes.NewKubernetesManager(c, mocks.ConfigHandler)
 
-		// When reconciling, the delete failure surfaces
-		if err := manager.PruneSecrets(map[string]map[string]bool{}); err == nil || !strings.Contains(err.Error(), "api down") {
+		// When secrets are pruned to an empty desired set
+		err := manager.PruneSecrets(map[string]map[string]bool{})
+
+		// Then the delete error is returned
+		if err == nil || !strings.Contains(err.Error(), "api down") {
 			t.Errorf("Expected delete error propagated, got %v", err)
 		}
 	})
@@ -1085,7 +886,7 @@ func TestBaseKubernetesManager_PruneSecrets(t *testing.T) {
 
 func TestBaseKubernetesManager_RollWorkloadsForSecret(t *testing.T) {
 	const secretName = "alertmanager-slack"
-	annotationKey := secretChecksumAnnotationPrefix + secretName
+	const annotationKey = "checksum.windsorcli.dev/" + secretName
 
 	// workload builds an apps/v1 workload with the given pod spec and pod-template annotations.
 	workload := func(kind, name string, podSpec map[string]any, annotations map[string]any) unstructured.Unstructured {
@@ -1102,21 +903,21 @@ func TestBaseKubernetesManager_RollWorkloadsForSecret(t *testing.T) {
 			},
 		}}
 	}
-	envRef := map[string]any{"containers": []any{map[string]any{"name": "app", "env": []any{
-		map[string]any{"name": "URL", "valueFrom": map[string]any{"secretKeyRef": map[string]any{"name": secretName, "key": "url"}}},
-	}}}}
+	envRefTo := func(name string) map[string]any {
+		return map[string]any{"containers": []any{map[string]any{"name": "app", "env": []any{
+			map[string]any{"name": "URL", "valueFrom": map[string]any{"secretKeyRef": map[string]any{"name": name, "key": "url"}}},
+		}}}}
+	}
+	envRef := envRefTo(secretName)
 	volumeRef := map[string]any{"volumes": []any{map[string]any{"name": "s", "secret": map[string]any{"secretName": secretName}}}}
 	envFromRef := map[string]any{"containers": []any{map[string]any{"name": "app", "envFrom": []any{
 		map[string]any{"secretRef": map[string]any{"name": secretName}},
 	}}}}
-	noRef := map[string]any{"containers": []any{map[string]any{"name": "app", "env": []any{
-		map[string]any{"name": "OTHER", "valueFrom": map[string]any{"secretKeyRef": map[string]any{"name": "some-other-secret", "key": "k"}}},
-	}}}}
+	noRef := envRefTo("some-other-secret")
 
-	setup := func(t *testing.T, lists map[string][]unstructured.Unstructured) (*BaseKubernetesManager, *map[string]string) {
+	setup := func(t *testing.T, lists map[string][]unstructured.Unstructured) (*kubernetes.BaseKubernetesManager, *map[string]string) {
 		t.Helper()
 		mocks := setupKubernetesMocks(t)
-		manager := NewKubernetesManager(mocks.KubernetesClient, mocks.ConfigHandler)
 		kubernetesClient := client.NewMockKubernetesClient()
 		kubernetesClient.ListResourcesFunc = func(gvr schema.GroupVersionResource, ns string) (*unstructured.UnstructuredList, error) {
 			return &unstructured.UnstructuredList{Items: lists[gvr.Resource]}, nil
@@ -1126,24 +927,48 @@ func TestBaseKubernetesManager_RollWorkloadsForSecret(t *testing.T) {
 			patched[gvr.Resource+"/"+name] = string(data)
 			return nil, nil
 		}
-		manager.client = kubernetesClient
-		return manager, &patched
+		return kubernetes.NewKubernetesManager(kubernetesClient, mocks.ConfigHandler), &patched
+	}
+
+	// patchedAnnotationKey returns the single pod-template annotation key in a rollout patch.
+	patchedAnnotationKey := func(t *testing.T, patch string) string {
+		t.Helper()
+		var decoded struct {
+			Spec struct {
+				Template struct {
+					Metadata struct {
+						Annotations map[string]string `json:"annotations"`
+					} `json:"metadata"`
+				} `json:"template"`
+			} `json:"spec"`
+		}
+		if err := json.Unmarshal([]byte(patch), &decoded); err != nil {
+			t.Fatalf("Expected a JSON patch, got %q: %v", patch, err)
+		}
+		if len(decoded.Spec.Template.Metadata.Annotations) != 1 {
+			t.Fatalf("Expected one annotation in the patch, got %v", decoded.Spec.Template.Metadata.Annotations)
+		}
+		for key := range decoded.Spec.Template.Metadata.Annotations {
+			return key
+		}
+		return ""
 	}
 
 	t.Run("RollsOnlyReferencingWorkloadsAcrossKinds", func(t *testing.T) {
-		// Given one referencing and one non-referencing workload of each kind, referencing via a different path each
+		// Given one referencing workload of each kind, each through another path, and a bystander
 		manager, patched := setup(t, map[string][]unstructured.Unstructured{
 			"deployments":  {workload("Deployment", "env-consumer", envRef, nil), workload("Deployment", "bystander", noRef, nil)},
 			"statefulsets": {workload("StatefulSet", "volume-consumer", volumeRef, nil)},
 			"daemonsets":   {workload("DaemonSet", "envfrom-consumer", envFromRef, nil)},
 		})
 
-		// When rolling workloads for the secret
-		if err := manager.RollWorkloadsForSecret(context.Background(), "system-telemetry", secretName, "digest-1"); err != nil {
+		// When workloads are rolled for the secret
+		err := manager.RollWorkloadsForSecret(context.Background(), "system-telemetry", secretName, "digest-1")
+
+		// Then each referencing workload gets the digest annotation and the bystander is not patched
+		if err != nil {
 			t.Fatalf("Expected no error, got %v", err)
 		}
-
-		// Then every referencing workload is patched with the digest annotation and the bystander is left alone
 		for _, key := range []string{"deployments/env-consumer", "statefulsets/volume-consumer", "daemonsets/envfrom-consumer"} {
 			p, ok := (*patched)[key]
 			if !ok {
@@ -1160,89 +985,90 @@ func TestBaseKubernetesManager_RollWorkloadsForSecret(t *testing.T) {
 	})
 
 	t.Run("IdempotentWhenDigestUnchanged", func(t *testing.T) {
-		// Given a referencing workload that already carries the current digest
+		// Given a referencing workload that already has the current digest
 		manager, patched := setup(t, map[string][]unstructured.Unstructured{
 			"deployments": {workload("Deployment", "env-consumer", envRef, map[string]any{annotationKey: "digest-1"})},
 		})
 
-		// When rolling with that same digest
-		if err := manager.RollWorkloadsForSecret(context.Background(), "system-telemetry", secretName, "digest-1"); err != nil {
+		// When workloads are rolled with the same digest
+		err := manager.RollWorkloadsForSecret(context.Background(), "system-telemetry", secretName, "digest-1")
+
+		// Then nothing is patched
+		if err != nil {
 			t.Fatalf("Expected no error, got %v", err)
 		}
-
-		// Then it is not patched, so unchanged content does not churn pods
 		if len(*patched) != 0 {
 			t.Errorf("Expected no patch for an unchanged digest, got %v", *patched)
+		}
+	})
+
+	t.Run("UsesShortSecretNameVerbatimInAnnotationKey", func(t *testing.T) {
+		// Given a referencing workload
+		manager, patched := setup(t, map[string][]unstructured.Unstructured{
+			"deployments": {workload("Deployment", "env-consumer", envRef, nil)},
+		})
+
+		// When workloads are rolled for the secret
+		err := manager.RollWorkloadsForSecret(context.Background(), "system-telemetry", secretName, "digest-1")
+
+		// Then the annotation key is the prefix plus the secret name
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		if got := patchedAnnotationKey(t, (*patched)["deployments/env-consumer"]); got != "checksum.windsorcli.dev/alertmanager-slack" {
+			t.Errorf("unexpected key %q", got)
+		}
+	})
+
+	t.Run("LongSecretNameKeyStaysWithinLimitDeterministicAndUnique", func(t *testing.T) {
+		// Given workloads that consume two distinct secret names longer than 63 characters
+		long := strings.Repeat("a", 80)
+		other := strings.Repeat("a", 79) + "b"
+		manager, patched := setup(t, map[string][]unstructured.Unstructured{
+			"deployments": {workload("Deployment", "long-a", envRefTo(long), nil), workload("Deployment", "long-b", envRefTo(other), nil)},
+		})
+
+		// When workloads are rolled twice for the first name and once for the other
+		var keys []string
+		for _, name := range []string{long, long, other} {
+			if err := manager.RollWorkloadsForSecret(context.Background(), "system-telemetry", name, "digest-1"); err != nil {
+				t.Fatalf("Expected no error, got %v", err)
+			}
+			workloadName := "long-a"
+			if name == other {
+				workloadName = "long-b"
+			}
+			keys = append(keys, patchedAnnotationKey(t, (*patched)["deployments/"+workloadName]))
+		}
+
+		// Then the name segment fits in 63 characters, repeats for one name, and differs across names
+		segment := strings.TrimPrefix(keys[0], "checksum.windsorcli.dev/")
+		if len(segment) > 63 {
+			t.Errorf("segment %q exceeds 63 chars (%d)", segment, len(segment))
+		}
+		if keys[0] != keys[1] {
+			t.Error("expected a deterministic key for the same name")
+		}
+		if keys[0] == keys[2] {
+			t.Error("expected distinct long names to produce distinct keys")
 		}
 	})
 
 	t.Run("ListErrorSurfaces", func(t *testing.T) {
 		// Given a client whose workload list fails
 		mocks := setupKubernetesMocks(t)
-		manager := NewKubernetesManager(mocks.KubernetesClient, mocks.ConfigHandler)
 		kubernetesClient := client.NewMockKubernetesClient()
 		kubernetesClient.ListResourcesFunc = func(gvr schema.GroupVersionResource, ns string) (*unstructured.UnstructuredList, error) {
 			return nil, fmt.Errorf("api down")
 		}
-		manager.client = kubernetesClient
+		manager := kubernetes.NewKubernetesManager(kubernetesClient, mocks.ConfigHandler)
 
-		// When rolling workloads, the API failure surfaces rather than being swallowed
-		if err := manager.RollWorkloadsForSecret(context.Background(), "system-telemetry", secretName, "digest-1"); err == nil {
+		// When workloads are rolled
+		err := manager.RollWorkloadsForSecret(context.Background(), "system-telemetry", secretName, "digest-1")
+
+		// Then the list error is returned
+		if err == nil {
 			t.Error("Expected error when listing workloads fails")
-		}
-	})
-}
-
-// =============================================================================
-// Test Helpers
-// =============================================================================
-
-func TestSecretTypeChanged(t *testing.T) {
-	t.Run("ReportsChangeWhenTypesDiffer", func(t *testing.T) {
-		obj := &unstructured.Unstructured{Object: map[string]any{"type": "Opaque"}}
-		if !secretTypeChanged(obj, "kubernetes.io/dockerconfigjson") {
-			t.Error("Expected change to be reported when types differ")
-		}
-	})
-
-	t.Run("ReportsNoChangeWhenTypesMatch", func(t *testing.T) {
-		obj := &unstructured.Unstructured{Object: map[string]any{"type": "kubernetes.io/dockerconfigjson"}}
-		if secretTypeChanged(obj, "kubernetes.io/dockerconfigjson") {
-			t.Error("Expected no change to be reported when types match")
-		}
-	})
-
-	t.Run("ReportsNoChangeWhenExistingTypeMissing", func(t *testing.T) {
-		obj := &unstructured.Unstructured{Object: map[string]any{}}
-		if secretTypeChanged(obj, "Opaque") {
-			t.Error("Expected no change to be reported when the existing object has no type")
-		}
-	})
-}
-
-func TestSecretChecksumAnnotationKey(t *testing.T) {
-	t.Run("ShortNameUsedVerbatim", func(t *testing.T) {
-		// Given a normal-length secret name, the key stays readable
-		if got := secretChecksumAnnotationKey("alertmanager-slack"); got != "checksum.windsorcli.dev/alertmanager-slack" {
-			t.Errorf("unexpected key %q", got)
-		}
-	})
-
-	t.Run("LongNameStaysWithinLimitDeterministicAndUnique", func(t *testing.T) {
-		// Given a secret name longer than the 63-char annotation name-segment limit
-		long := strings.Repeat("a", 80)
-		got := secretChecksumAnnotationKey(long)
-
-		// Then the segment after the prefix is a valid length, deterministic, and distinct per name
-		segment := strings.TrimPrefix(got, secretChecksumAnnotationPrefix)
-		if len(segment) > 63 {
-			t.Errorf("segment %q exceeds 63 chars (%d)", segment, len(segment))
-		}
-		if got != secretChecksumAnnotationKey(long) {
-			t.Error("expected a deterministic key for the same name")
-		}
-		if got == secretChecksumAnnotationKey(strings.Repeat("a", 79)+"b") {
-			t.Error("expected distinct long names to produce distinct keys")
 		}
 	})
 }

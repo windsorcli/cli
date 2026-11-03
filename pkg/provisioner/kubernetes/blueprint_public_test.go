@@ -20,17 +20,6 @@ import (
 // =============================================================================
 
 func TestKubernetesManager_Sources(t *testing.T) {
-	sourceObject := func(kind, name, readyStatus string) map[string]any {
-		return map[string]any{
-			"apiVersion": "source.toolkit.fluxcd.io/v1",
-			"kind":       kind,
-			"metadata":   map[string]any{"name": name, "namespace": "system-gitops"},
-			"status": map[string]any{"conditions": []any{map[string]any{
-				"type": "Ready", "status": readyStatus, "reason": "Fetch", "message": "fetch failed", "lastTransitionTime": "2026-01-01T00:00:00Z",
-			}}},
-		}
-	}
-
 	t.Run("WritesAGitRepository", func(t *testing.T) {
 		// Given an empty cluster
 		f := newFixture(t)
@@ -67,54 +56,6 @@ func TestKubernetesManager_Sources(t *testing.T) {
 		}
 	})
 
-	t.Run("PassesWhenNoSourceReportsNotReady", func(t *testing.T) {
-		// Given a ready GitRepository and a ready OCIRepository
-		f := newFixture(t)
-		f.cluster.seed(gitRepositoriesGVR, sourceObject("GitRepository", "core", "True"))
-		f.cluster.seed(ociRepositoriesGVR, sourceObject("OCIRepository", "addons", "True"))
-
-		// When the source status is checked
-		err := f.manager.CheckGitRepositoryStatus()
-
-		// Then no error is returned
-		if err != nil {
-			t.Errorf("expected no error, got %v", err)
-		}
-	})
-
-	t.Run("ReportsANotReadySourceByName", func(t *testing.T) {
-		// Given a ready GitRepository and a failed OCIRepository
-		f := newFixture(t)
-		f.cluster.seed(gitRepositoriesGVR, sourceObject("GitRepository", "core", "True"))
-		f.cluster.seed(ociRepositoriesGVR, sourceObject("OCIRepository", "addons", "False"))
-
-		// When the source status is checked
-		err := f.manager.CheckGitRepositoryStatus()
-
-		// Then the error is the source name and its condition message
-		if err == nil || err.Error() != "addons: fetch failed" {
-			t.Errorf("expected the OCIRepository failure, got %v", err)
-		}
-	})
-
-	t.Run("ReturnsTheListError", func(t *testing.T) {
-		// Given a cluster whose GitRepository list fails
-		f := newFixture(t)
-		f.cluster.fail = func(op string, gvr schema.GroupVersionResource, _, _ string) error {
-			if op == "list" && gvr.Resource == "gitrepositories" {
-				return errors.New("forbidden")
-			}
-			return nil
-		}
-
-		// When the source status is checked
-		err := f.manager.CheckGitRepositoryStatus()
-
-		// Then the wrapped list error is returned
-		if err == nil || err.Error() != "failed to list git repositories: forbidden" {
-			t.Errorf("expected a list error, got %v", err)
-		}
-	})
 }
 
 func TestKubernetesManager_ApplyBlueprint(t *testing.T) {

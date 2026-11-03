@@ -1,4 +1,4 @@
-package cmd
+package cmd_test
 
 import (
 	"bytes"
@@ -10,6 +10,8 @@ import (
 	"slices"
 	"strings"
 	"testing"
+
+	cliCmd "github.com/windsorcli/cli/cmd"
 
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
@@ -174,7 +176,7 @@ func seedKubeconfig(t *testing.T, mocks *ApplyMocks) {
 }
 
 func TestApplyCmd_Prune(t *testing.T) {
-	createTestApplyCmd := func() *cobra.Command { return makeApplyTestCmd(applyCmd) }
+	createTestApplyCmd := func() *cobra.Command { return makeApplyTestCmd(cliCmd.ApplyCmd) }
 
 	suppressProcessStdout(t)
 	suppressProcessStderr(t)
@@ -192,7 +194,7 @@ func TestApplyCmd_Prune(t *testing.T) {
 		var stderr bytes.Buffer
 		cmd := createTestApplyCmd()
 		cmd.SetErr(&stderr)
-		ctx := context.WithValue(context.Background(), projectOverridesKey, proj)
+		ctx := context.WithValue(context.Background(), cliCmd.ProjectOverridesKey, proj)
 		cmd.SetContext(ctx)
 		err := cmd.Execute()
 
@@ -218,7 +220,7 @@ func TestApplyCmd_Prune(t *testing.T) {
 		var stderr bytes.Buffer
 		cmd := createTestApplyCmd()
 		cmd.SetErr(&stderr)
-		ctx := context.WithValue(context.Background(), projectOverridesKey, proj)
+		ctx := context.WithValue(context.Background(), cliCmd.ProjectOverridesKey, proj)
 		cmd.SetContext(ctx)
 		err := cmd.Execute()
 
@@ -233,7 +235,7 @@ func TestApplyCmd_Prune(t *testing.T) {
 	})
 
 	t.Run("ReportsOrphansWithoutPrune", func(t *testing.T) {
-		t.Cleanup(func() { applyPruneFlag = false })
+		t.Cleanup(func() { *cliCmd.ApplyPruneFlag = false })
 		// Given a reconcile that would prune a kustomization
 		mocks := setupApplyTest(t)
 		mocks.KubernetesManager.ListPrunableKustomizationsFunc = func(bp *blueprintv1alpha1.Blueprint, namespace string) ([]string, error) {
@@ -250,7 +252,7 @@ func TestApplyCmd_Prune(t *testing.T) {
 		var stdout bytes.Buffer
 		cmd := createTestApplyCmd()
 		cmd.SetOut(&stdout)
-		ctx := context.WithValue(context.Background(), projectOverridesKey, proj)
+		ctx := context.WithValue(context.Background(), cliCmd.ProjectOverridesKey, proj)
 		cmd.SetContext(ctx)
 		err := cmd.Execute()
 
@@ -267,7 +269,7 @@ func TestApplyCmd_Prune(t *testing.T) {
 	})
 
 	t.Run("PrunesWithPruneFlag", func(t *testing.T) {
-		t.Cleanup(func() { applyPruneFlag = false })
+		t.Cleanup(func() { *cliCmd.ApplyPruneFlag = false })
 		// Given the same pending prune
 		mocks := setupApplyTest(t)
 		mocks.KubernetesManager.ListPrunableKustomizationsFunc = func(bp *blueprintv1alpha1.Blueprint, namespace string) ([]string, error) {
@@ -283,7 +285,7 @@ func TestApplyCmd_Prune(t *testing.T) {
 		// When applying with --prune
 		cmd := createTestApplyCmd()
 		cmd.SetArgs([]string{"--prune"})
-		ctx := context.WithValue(context.Background(), projectOverridesKey, proj)
+		ctx := context.WithValue(context.Background(), cliCmd.ProjectOverridesKey, proj)
 		cmd.SetContext(ctx)
 		if err := cmd.Execute(); err != nil {
 			t.Fatalf("Expected --prune to proceed, got %v", err)
@@ -315,7 +317,7 @@ func TestApplyCmd_Prune(t *testing.T) {
 
 		// When applying
 		cmd := createTestApplyCmd()
-		ctx := context.WithValue(context.Background(), projectOverridesKey, proj)
+		ctx := context.WithValue(context.Background(), cliCmd.ProjectOverridesKey, proj)
 		cmd.SetContext(ctx)
 		if err := cmd.Execute(); err != nil {
 			t.Fatalf("Expected no error, got %v", err)
@@ -331,7 +333,7 @@ func TestApplyCmd_Prune(t *testing.T) {
 	})
 
 	t.Run("NotReadyStaysFatalWithPrune", func(t *testing.T) {
-		t.Cleanup(func() { applyPruneFlag = false })
+		t.Cleanup(func() { *cliCmd.ApplyPruneFlag = false })
 		// Given a blueprint with post-run messages, a pending prune, and a readiness wait that fails
 		mocks := setupApplyTest(t)
 		mocks.BlueprintHandler.GenerateFunc = func() *blueprintv1alpha1.Blueprint {
@@ -356,7 +358,7 @@ func TestApplyCmd_Prune(t *testing.T) {
 		// When applying with --prune
 		cmd := createTestApplyCmd()
 		cmd.SetArgs([]string{"--prune"})
-		ctx := context.WithValue(context.Background(), projectOverridesKey, proj)
+		ctx := context.WithValue(context.Background(), cliCmd.ProjectOverridesKey, proj)
 		cmd.SetContext(ctx)
 		err := cmd.Execute()
 
@@ -371,7 +373,7 @@ func TestApplyCmd_Prune(t *testing.T) {
 }
 
 func TestApplyCmd(t *testing.T) {
-	createTestApplyCmd := func() *cobra.Command { return makeApplyTestCmd(applyCmd) }
+	createTestApplyCmd := func() *cobra.Command { return makeApplyTestCmd(cliCmd.ApplyCmd) }
 
 	suppressProcessStdout(t)
 	suppressProcessStderr(t)
@@ -383,7 +385,7 @@ func TestApplyCmd(t *testing.T) {
 
 		// When executing the bare apply command
 		cmd := createTestApplyCmd()
-		ctx := context.WithValue(context.Background(), projectOverridesKey, proj)
+		ctx := context.WithValue(context.Background(), cliCmd.ProjectOverridesKey, proj)
 		cmd.SetContext(ctx)
 		err := cmd.Execute()
 
@@ -400,7 +402,7 @@ func TestApplyCmd(t *testing.T) {
 
 		// When executing the bare apply command with --wait
 		cmd := createTestApplyCmd()
-		ctx := context.WithValue(context.Background(), projectOverridesKey, proj)
+		ctx := context.WithValue(context.Background(), cliCmd.ProjectOverridesKey, proj)
 		cmd.SetArgs([]string{"--wait"})
 		cmd.SetContext(ctx)
 		err := cmd.Execute()
@@ -429,7 +431,7 @@ func TestApplyCmd(t *testing.T) {
 		cmd := createTestApplyCmd()
 		var stderr strings.Builder
 		cmd.SetErr(&stderr)
-		ctx := context.WithValue(context.Background(), projectOverridesKey, proj)
+		ctx := context.WithValue(context.Background(), cliCmd.ProjectOverridesKey, proj)
 		cmd.SetContext(ctx)
 		err := cmd.Execute()
 
@@ -449,7 +451,7 @@ func TestApplyCmd(t *testing.T) {
 
 		// When executing the apply command with a stray argument
 		cmd := createTestApplyCmd()
-		ctx := context.WithValue(context.Background(), projectOverridesKey, proj)
+		ctx := context.WithValue(context.Background(), cliCmd.ProjectOverridesKey, proj)
 		cmd.SetArgs([]string{"workstation"})
 		cmd.SetContext(ctx)
 		err := cmd.Execute()
@@ -468,7 +470,7 @@ func TestApplyCmd(t *testing.T) {
 
 		// When executing the bare apply command
 		cmd := createTestApplyCmd()
-		ctx := context.WithValue(context.Background(), projectOverridesKey, proj)
+		ctx := context.WithValue(context.Background(), cliCmd.ProjectOverridesKey, proj)
 		cmd.SetContext(ctx)
 		err := cmd.Execute()
 
@@ -492,7 +494,7 @@ func TestApplyCmd(t *testing.T) {
 
 		// When executing the bare apply command
 		cmd := createTestApplyCmd()
-		ctx := context.WithValue(context.Background(), projectOverridesKey, proj)
+		ctx := context.WithValue(context.Background(), cliCmd.ProjectOverridesKey, proj)
 		cmd.SetContext(ctx)
 		err := cmd.Execute()
 
@@ -516,7 +518,7 @@ func TestApplyCmd(t *testing.T) {
 
 		// When executing the bare apply command
 		cmd := createTestApplyCmd()
-		ctx := context.WithValue(context.Background(), projectOverridesKey, proj)
+		ctx := context.WithValue(context.Background(), cliCmd.ProjectOverridesKey, proj)
 		cmd.SetContext(ctx)
 		err := cmd.Execute()
 
@@ -540,7 +542,7 @@ func TestApplyCmd(t *testing.T) {
 
 		// When executing the bare apply command with --wait
 		cmd := createTestApplyCmd()
-		ctx := context.WithValue(context.Background(), projectOverridesKey, proj)
+		ctx := context.WithValue(context.Background(), cliCmd.ProjectOverridesKey, proj)
 		cmd.SetArgs([]string{"--wait"})
 		cmd.SetContext(ctx)
 		err := cmd.Execute()
@@ -568,8 +570,8 @@ func TestApplyCmd(t *testing.T) {
 		}
 		proj := newApplyAllProject(mocks)
 
-		cmd := makeApplyTestCmd(applyCmd)
-		ctx := context.WithValue(context.Background(), projectOverridesKey, proj)
+		cmd := makeApplyTestCmd(cliCmd.ApplyCmd)
+		ctx := context.WithValue(context.Background(), cliCmd.ProjectOverridesKey, proj)
 		cmd.SetContext(ctx)
 		err := cmd.Execute()
 
@@ -586,7 +588,7 @@ func TestApplyCmd(t *testing.T) {
 }
 
 func TestApplyTerraformCmd(t *testing.T) {
-	createTestApplyTerraformCmd := func() *cobra.Command { return makeApplyTestCmd(applyTerraformCmd) }
+	createTestApplyTerraformCmd := func() *cobra.Command { return makeApplyTestCmd(cliCmd.ApplyTerraformCmd) }
 
 	suppressProcessStdout(t)
 	suppressProcessStderr(t)
@@ -598,7 +600,7 @@ func TestApplyTerraformCmd(t *testing.T) {
 
 		// When executing the apply terraform command with a component ID
 		cmd := createTestApplyTerraformCmd()
-		ctx := context.WithValue(context.Background(), projectOverridesKey, proj)
+		ctx := context.WithValue(context.Background(), cliCmd.ProjectOverridesKey, proj)
 		cmd.SetArgs([]string{"cluster"})
 		cmd.SetContext(ctx)
 		err := cmd.Execute()
@@ -616,7 +618,7 @@ func TestApplyTerraformCmd(t *testing.T) {
 
 		// When executing without a component ID
 		cmd := createTestApplyTerraformCmd()
-		ctx := context.WithValue(context.Background(), projectOverridesKey, proj)
+		ctx := context.WithValue(context.Background(), cliCmd.ProjectOverridesKey, proj)
 		cmd.SetContext(ctx)
 		err := cmd.Execute()
 
@@ -636,7 +638,7 @@ func TestApplyTerraformCmd(t *testing.T) {
 
 		// When executing the apply terraform command
 		cmd := createTestApplyTerraformCmd()
-		ctx := context.WithValue(context.Background(), projectOverridesKey, proj)
+		ctx := context.WithValue(context.Background(), cliCmd.ProjectOverridesKey, proj)
 		cmd.SetArgs([]string{"cluster"})
 		cmd.SetContext(ctx)
 		err := cmd.Execute()
@@ -660,7 +662,7 @@ func TestApplyTerraformCmd(t *testing.T) {
 
 		// When executing the apply terraform command
 		cmd := createTestApplyTerraformCmd()
-		ctx := context.WithValue(context.Background(), projectOverridesKey, proj)
+		ctx := context.WithValue(context.Background(), cliCmd.ProjectOverridesKey, proj)
 		cmd.SetArgs([]string{"nonexistent"})
 		cmd.SetContext(ctx)
 		err := cmd.Execute()
@@ -688,7 +690,7 @@ func TestApplyTerraformCmd(t *testing.T) {
 
 		// When executing the apply terraform command
 		cmd := createTestApplyTerraformCmd()
-		ctx := context.WithValue(context.Background(), projectOverridesKey, proj)
+		ctx := context.WithValue(context.Background(), cliCmd.ProjectOverridesKey, proj)
 		cmd.SetArgs([]string{"cluster"})
 		cmd.SetContext(ctx)
 		err := cmd.Execute()
@@ -712,7 +714,7 @@ func TestApplyTerraformCmd(t *testing.T) {
 		proj := newApplyProject(mocks)
 
 		cmd := createTestApplyTerraformCmd()
-		ctx := context.WithValue(context.Background(), projectOverridesKey, proj)
+		ctx := context.WithValue(context.Background(), cliCmd.ProjectOverridesKey, proj)
 		cmd.SetArgs([]string{"cluster"})
 		cmd.SetContext(ctx)
 		err := cmd.Execute()
@@ -730,15 +732,15 @@ func TestApplyTerraformCmd(t *testing.T) {
 }
 
 func TestApplyKustomizeCmd(t *testing.T) {
-	createTestApplyKustomizeCmd := func() *cobra.Command { return makeApplyTestCmd(applyKustomizeCmd) }
+	createTestApplyKustomizeCmd := func() *cobra.Command { return makeApplyTestCmd(cliCmd.ApplyKustomizeCmd) }
 
 	suppressProcessStdout(t)
 	suppressProcessStderr(t)
 
 	t.Run("HasK8sAlias", func(t *testing.T) {
 		// Matches the 'k8s' alias already on plan kustomize and destroy kustomize.
-		if !slices.Contains(applyKustomizeCmd.Aliases, "k8s") {
-			t.Errorf("expected 'k8s' alias on apply kustomize, got %v", applyKustomizeCmd.Aliases)
+		if !slices.Contains(cliCmd.ApplyKustomizeCmd.Aliases, "k8s") {
+			t.Errorf("expected 'k8s' alias on apply kustomize, got %v", cliCmd.ApplyKustomizeCmd.Aliases)
 		}
 	})
 
@@ -754,7 +756,7 @@ func TestApplyKustomizeCmd(t *testing.T) {
 
 		// When executing the apply kustomize command with no argument
 		cmd := createTestApplyKustomizeCmd()
-		ctx := context.WithValue(context.Background(), projectOverridesKey, proj)
+		ctx := context.WithValue(context.Background(), cliCmd.ProjectOverridesKey, proj)
 		cmd.SetContext(ctx)
 		err := cmd.Execute()
 
@@ -776,7 +778,7 @@ func TestApplyKustomizeCmd(t *testing.T) {
 
 		// When executing the apply kustomize command with a kustomization name
 		cmd := createTestApplyKustomizeCmd()
-		ctx := context.WithValue(context.Background(), projectOverridesKey, proj)
+		ctx := context.WithValue(context.Background(), cliCmd.ProjectOverridesKey, proj)
 		cmd.SetArgs([]string{"my-app"})
 		cmd.SetContext(ctx)
 		err := cmd.Execute()
@@ -797,7 +799,7 @@ func TestApplyKustomizeCmd(t *testing.T) {
 
 		// When executing the apply kustomize command
 		cmd := createTestApplyKustomizeCmd()
-		ctx := context.WithValue(context.Background(), projectOverridesKey, proj)
+		ctx := context.WithValue(context.Background(), cliCmd.ProjectOverridesKey, proj)
 		cmd.SetArgs([]string{"my-app"})
 		cmd.SetContext(ctx)
 		err := cmd.Execute()
@@ -823,7 +825,7 @@ func TestApplyKustomizeCmd(t *testing.T) {
 
 		// When executing the apply kustomize command with a nonexistent name
 		cmd := createTestApplyKustomizeCmd()
-		ctx := context.WithValue(context.Background(), projectOverridesKey, proj)
+		ctx := context.WithValue(context.Background(), cliCmd.ProjectOverridesKey, proj)
 		cmd.SetArgs([]string{"nonexistent"})
 		cmd.SetContext(ctx)
 		err := cmd.Execute()
@@ -855,7 +857,7 @@ func TestApplyKustomizeCmd(t *testing.T) {
 
 		// When executing apply kustomize my-app
 		cmd := createTestApplyKustomizeCmd()
-		ctx := context.WithValue(context.Background(), projectOverridesKey, proj)
+		ctx := context.WithValue(context.Background(), cliCmd.ProjectOverridesKey, proj)
 		cmd.SetArgs([]string{"my-app"})
 		cmd.SetContext(ctx)
 		err := cmd.Execute()
@@ -892,7 +894,7 @@ func TestApplyKustomizeCmd(t *testing.T) {
 
 		// When executing apply kustomize my-app
 		cmd := createTestApplyKustomizeCmd()
-		ctx := context.WithValue(context.Background(), projectOverridesKey, proj)
+		ctx := context.WithValue(context.Background(), cliCmd.ProjectOverridesKey, proj)
 		cmd.SetArgs([]string{"my-app"})
 		cmd.SetContext(ctx)
 		err := cmd.Execute()
@@ -926,7 +928,7 @@ func TestApplyKustomizeCmd(t *testing.T) {
 
 		// When executing apply kustomize with no name argument
 		cmd := createTestApplyKustomizeCmd()
-		ctx := context.WithValue(context.Background(), projectOverridesKey, proj)
+		ctx := context.WithValue(context.Background(), cliCmd.ProjectOverridesKey, proj)
 		cmd.SetContext(ctx)
 		if err := cmd.Execute(); err != nil {
 			t.Fatalf("Expected no error, got %v", err)
@@ -961,7 +963,7 @@ func TestApplyKustomizeCmd(t *testing.T) {
 
 		// When executing apply kustomize --wait with no name
 		cmd := createTestApplyKustomizeCmd()
-		ctx := context.WithValue(context.Background(), projectOverridesKey, proj)
+		ctx := context.WithValue(context.Background(), cliCmd.ProjectOverridesKey, proj)
 		cmd.SetArgs([]string{"--wait"})
 		cmd.SetContext(ctx)
 		err := cmd.Execute()
@@ -995,7 +997,7 @@ func TestApplyKustomizeCmd(t *testing.T) {
 
 		// When executing apply kustomize app-a --wait
 		cmd := createTestApplyKustomizeCmd()
-		ctx := context.WithValue(context.Background(), projectOverridesKey, proj)
+		ctx := context.WithValue(context.Background(), cliCmd.ProjectOverridesKey, proj)
 		cmd.SetArgs([]string{"app-a", "--wait"})
 		cmd.SetContext(ctx)
 		err := cmd.Execute()
@@ -1027,7 +1029,7 @@ func TestApplyKustomizeCmd(t *testing.T) {
 
 		// When executing the apply kustomize command with --wait
 		cmd := createTestApplyKustomizeCmd()
-		ctx := context.WithValue(context.Background(), projectOverridesKey, proj)
+		ctx := context.WithValue(context.Background(), cliCmd.ProjectOverridesKey, proj)
 		cmd.SetArgs([]string{"--wait"})
 		cmd.SetContext(ctx)
 		err := cmd.Execute()
@@ -1057,7 +1059,7 @@ func TestApplyKustomizeCmd(t *testing.T) {
 
 		// When executing the apply kustomize command with a name and --wait
 		cmd := createTestApplyKustomizeCmd()
-		ctx := context.WithValue(context.Background(), projectOverridesKey, proj)
+		ctx := context.WithValue(context.Background(), cliCmd.ProjectOverridesKey, proj)
 		cmd.SetArgs([]string{"my-app", "--wait"})
 		cmd.SetContext(ctx)
 		err := cmd.Execute()
@@ -1080,7 +1082,7 @@ func TestApplyKustomizeCmd(t *testing.T) {
 
 		// When executing the apply kustomize command
 		cmd := createTestApplyKustomizeCmd()
-		ctx := context.WithValue(context.Background(), projectOverridesKey, proj)
+		ctx := context.WithValue(context.Background(), cliCmd.ProjectOverridesKey, proj)
 		cmd.SetContext(ctx)
 		err := cmd.Execute()
 

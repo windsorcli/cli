@@ -1,7 +1,7 @@
 //go:build integration
 // +build integration
 
-package cmd
+package cmd_test
 
 // configure_test.go holds integration tests only (build tag: integration).
 // TestIntegration_ConfigureNetwork runs the full configure network command via runCmd with a
@@ -13,6 +13,7 @@ import (
 	"strings"
 	"testing"
 
+	cliCmd "github.com/windsorcli/cli/cmd"
 	"github.com/windsorcli/cli/pkg/composer"
 	"github.com/windsorcli/cli/pkg/composer/blueprint"
 	"github.com/windsorcli/cli/pkg/composer/terraform"
@@ -52,8 +53,8 @@ func runInitWithMocks(t *testing.T, projectRoot string) {
 	mockBH := blueprint.NewMockBlueprintHandler()
 	mockTR := terraform.NewMockModuleResolver()
 	comp := composer.NewComposer(rt, &composer.Composer{BlueprintHandler: mockBH, TerraformResolver: mockTR})
-	ctx := context.WithValue(context.Background(), runtimeOverridesKey, rt)
-	ctx = context.WithValue(ctx, composerOverridesKey, comp)
+	ctx := context.WithValue(context.Background(), cliCmd.RuntimeOverridesKey, rt)
+	ctx = context.WithValue(ctx, cliCmd.ComposerOverridesKey, comp)
 	_, _, err := runCmd(t, ctx, []string{"init", "local"})
 	if err != nil {
 		t.Fatalf("Init failed: %v", err)
@@ -77,7 +78,7 @@ func setupConfigureTest(t *testing.T) *configureTestEnv {
 	ws := workstation.NewWorkstation(rt, &workstation.Workstation{NetworkManager: network.NewMockNetworkManager()})
 	proj := project.NewProject("local", &project.Project{Runtime: rt, Workstation: ws})
 	return &configureTestEnv{
-		Ctx:     context.WithValue(context.Background(), projectOverridesKey, proj),
+		Ctx:     context.WithValue(context.Background(), cliCmd.ProjectOverridesKey, proj),
 		Proj:    proj,
 		Capture: capture,
 	}
@@ -89,19 +90,19 @@ func setupConfigureTest(t *testing.T) *configureTestEnv {
 
 func TestIntegration_ConfigureNetwork(t *testing.T) {
 	t.Run("ConfigureNetworkCommandStructure", func(t *testing.T) {
-		if configureNetworkCmd.Use != "network" {
-			t.Errorf("Expected Use to be 'network', got %s", configureNetworkCmd.Use)
+		if cliCmd.ConfigureNetworkCmd.Use != "network" {
+			t.Errorf("Expected Use to be 'network', got %s", cliCmd.ConfigureNetworkCmd.Use)
 		}
-		if configureNetworkCmd.Short == "" {
+		if cliCmd.ConfigureNetworkCmd.Short == "" {
 			t.Error("Expected non-empty Short description")
 		}
-		if configureNetworkCmd.Long == "" {
+		if cliCmd.ConfigureNetworkCmd.Long == "" {
 			t.Error("Expected non-empty Long description")
 		}
-		if !configureNetworkCmd.SilenceUsage {
+		if !cliCmd.ConfigureNetworkCmd.SilenceUsage {
 			t.Error("Expected SilenceUsage to be true")
 		}
-		dnsFlag := configureNetworkCmd.Flags().Lookup("dns-address")
+		dnsFlag := cliCmd.ConfigureNetworkCmd.Flags().Lookup("dns-address")
 		if dnsFlag == nil {
 			t.Fatal("Expected 'dns-address' flag to exist")
 		}
@@ -112,7 +113,7 @@ func TestIntegration_ConfigureNetwork(t *testing.T) {
 			t.Error("Expected 'dns-address' flag to have usage description")
 		}
 		found := false
-		for _, subCmd := range configureCmd.Commands() {
+		for _, subCmd := range cliCmd.ConfigureCmd.Commands() {
 			if subCmd.Use == "network" {
 				found = true
 				break
@@ -122,7 +123,7 @@ func TestIntegration_ConfigureNetwork(t *testing.T) {
 			t.Error("Expected 'network' to be a subcommand of configure")
 		}
 		found = false
-		for _, subCmd := range rootCmd.Commands() {
+		for _, subCmd := range cliCmd.RootCmd().Commands() {
 			if subCmd.Use == "configure" {
 				found = true
 				break
@@ -148,7 +149,7 @@ func TestIntegration_ConfigureNetwork(t *testing.T) {
 		m.WriteResetTokenFunc = func() (string, error) { return "", nil }
 		rt := runtime.NewRuntime(&runtime.Runtime{Shell: m, ProjectRoot: projectRoot})
 		proj := project.NewProject("local", &project.Project{Runtime: rt})
-		ctx := context.WithValue(context.Background(), projectOverridesKey, proj)
+		ctx := context.WithValue(context.Background(), cliCmd.ProjectOverridesKey, proj)
 		_, stderr, err := runCmd(t, ctx, []string{"configure", "network"})
 		if err != nil {
 			t.Errorf("Expected success, got error: %v", err)
@@ -164,7 +165,7 @@ func TestIntegration_ConfigureNetwork(t *testing.T) {
 		if err != nil {
 			t.Errorf("Expected success, got error: %v", err)
 		}
-		if stderr != "" && !strings.Contains(stderr, "status=done") {
+		if stderr != "" && !strings.Contains(stderr, "status=done") && !strings.Contains(stderr, "network: ") {
 			t.Errorf("Expected stderr to contain user message, got %q", stderr)
 		}
 		if env.Capture.TotalCalls() > 0 {
@@ -180,7 +181,7 @@ func TestIntegration_ConfigureNetwork(t *testing.T) {
 		if err != nil {
 			t.Errorf("Expected success, got error: %v", err)
 		}
-		if stderr != "" && !strings.Contains(stderr, "status=done") {
+		if stderr != "" && !strings.Contains(stderr, "status=done") && !strings.Contains(stderr, "network: ") {
 			t.Errorf("Expected stderr to contain user message, got %q", stderr)
 		}
 		if env.Capture.TotalCalls() > 0 {
@@ -201,9 +202,9 @@ func TestIntegration_ConfigureNetwork(t *testing.T) {
 
 	t.Run("ConfigureNetworkAdminGateBlocksConfigureWhenHelperErrors", func(t *testing.T) {
 		// Given the elevation pre-flight reports non-Admin (simulates Windows non-Admin PowerShell)
-		original := configureNetworkPreflight
-		t.Cleanup(func() { configureNetworkPreflight = original })
-		configureNetworkPreflight = func() error {
+		original := *cliCmd.ConfigureNetworkPreflight
+		t.Cleanup(func() { *cliCmd.ConfigureNetworkPreflight = original })
+		*cliCmd.ConfigureNetworkPreflight = func() error {
 			return fmt.Errorf("'windsor configure network' must be run from an Administrator PowerShell. Right-click PowerShell → Run as Administrator, then re-run")
 		}
 
@@ -227,9 +228,9 @@ func TestIntegration_ConfigureNetwork(t *testing.T) {
 	t.Run("ConfigureNetworkAdminGateDoesNotBlockDryRun", func(t *testing.T) {
 		// Given the elevation pre-flight reports non-Admin, --dry-run should still succeed
 		// (dry-run never modifies host state, so the gate must run AFTER the dry-run branch).
-		original := configureNetworkPreflight
-		t.Cleanup(func() { configureNetworkPreflight = original })
-		configureNetworkPreflight = func() error { return fmt.Errorf("not elevated") }
+		original := *cliCmd.ConfigureNetworkPreflight
+		t.Cleanup(func() { *cliCmd.ConfigureNetworkPreflight = original })
+		*cliCmd.ConfigureNetworkPreflight = func() error { return fmt.Errorf("not elevated") }
 
 		env := setupConfigureTest(t)
 

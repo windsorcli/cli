@@ -1,4 +1,4 @@
-package provisioner
+package provisioner_test
 
 import (
 	"context"
@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/windsorcli/cli/pkg/provisioner"
 
 	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
 	"github.com/windsorcli/cli/internal/werror"
@@ -29,18 +31,21 @@ func TestProvisioner_Down(t *testing.T) {
 	}
 
 	t.Run("SuccessNoopWhenNoWorkstationComponent", func(t *testing.T) {
+		// Given a blueprint without a workstation component
 		mocks := setupProvisionerMocks(t)
-		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler)
+		prov := provisioner.NewProvisioner(mocks.Runtime, mocks.BlueprintHandler)
 
-		// Blueprint without a "workstation" component — Down should be a no-op
-		err := provisioner.Down(context.Background(), createTestBlueprint())
+		// When Down is called
+		err := prov.Down(context.Background(), createTestBlueprint())
 
+		// Then no error is returned
 		if err != nil {
 			t.Errorf("Expected no error, got: %v", err)
 		}
 	})
 
 	t.Run("SuccessDestroysWorkstationComponent", func(t *testing.T) {
+		// Given a stack that records the destroyed component
 		mocks := setupProvisionerMocks(t)
 		destroyed := ""
 		mockStack := terraforminfra.NewMockStack()
@@ -48,11 +53,13 @@ func TestProvisioner_Down(t *testing.T) {
 			destroyed = componentID
 			return false, nil
 		}
-		opts := &Provisioner{TerraformStack: mockStack}
-		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
+		opts := &provisioner.Provisioner{TerraformStack: mockStack}
+		prov := provisioner.NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
 
-		err := provisioner.Down(context.Background(), createWorkstationBlueprint())
+		// When Down is called with a workstation blueprint
+		err := prov.Down(context.Background(), createWorkstationBlueprint())
 
+		// Then the workstation component is destroyed
 		if err != nil {
 			t.Errorf("Expected no error, got: %v", err)
 		}
@@ -62,11 +69,14 @@ func TestProvisioner_Down(t *testing.T) {
 	})
 
 	t.Run("ErrorNilBlueprint", func(t *testing.T) {
+		// Given a provisioner
 		mocks := setupProvisionerMocks(t)
-		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler)
+		prov := provisioner.NewProvisioner(mocks.Runtime, mocks.BlueprintHandler)
 
-		err := provisioner.Down(context.Background(), nil)
+		// When Down is called with a nil blueprint
+		err := prov.Down(context.Background(), nil)
 
+		// Then a blueprint-not-provided error is returned
 		if err == nil {
 			t.Error("Expected error for nil blueprint")
 		}
@@ -76,6 +86,7 @@ func TestProvisioner_Down(t *testing.T) {
 	})
 
 	t.Run("SuccessNoopWhenTerraformDisabled", func(t *testing.T) {
+		// Given terraform is disabled in config
 		mocks := setupProvisionerMocks(t)
 		mockConfigHandler := mocks.ConfigHandler.(*config.MockConfigHandler)
 		mockConfigHandler.GetBoolFunc = func(key string, defaultValue ...bool) bool {
@@ -87,19 +98,22 @@ func TestProvisioner_Down(t *testing.T) {
 			}
 			return false
 		}
-		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler)
+		prov := provisioner.NewProvisioner(mocks.Runtime, mocks.BlueprintHandler)
 
-		err := provisioner.Down(context.Background(), createWorkstationBlueprint())
+		// When Down is called
+		err := prov.Down(context.Background(), createWorkstationBlueprint())
 
+		// Then no error is returned and no stack is created
 		if err != nil {
 			t.Errorf("Expected no error when terraform is disabled, got: %v", err)
 		}
-		if provisioner.TerraformStack != nil {
+		if prov.TerraformStack != nil {
 			t.Error("Expected TerraformStack to remain nil when terraform is disabled")
 		}
 	})
 
 	t.Run("SuccessNoopWhenWorkstationDisabled", func(t *testing.T) {
+		// Given a workstation component that is explicitly disabled
 		mocks := setupProvisionerMocks(t)
 		destroyed := ""
 		mockStack := terraforminfra.NewMockStack()
@@ -107,16 +121,17 @@ func TestProvisioner_Down(t *testing.T) {
 			destroyed = componentID
 			return false, nil
 		}
-		opts := &Provisioner{TerraformStack: mockStack}
-		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
+		opts := &provisioner.Provisioner{TerraformStack: mockStack}
+		prov := provisioner.NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
 
-		// Blueprint with "workstation" component that is explicitly disabled
 		bp := createWorkstationBlueprint()
 		disabled := false
 		bp.TerraformComponents[len(bp.TerraformComponents)-1].Enabled = &blueprintv1alpha1.BoolExpression{Value: &disabled}
 
-		err := provisioner.Down(context.Background(), bp)
+		// When Down is called
+		err := prov.Down(context.Background(), bp)
 
+		// Then no error is returned and Destroy is not called
 		if err != nil {
 			t.Errorf("Expected no error for disabled workstation, got: %v", err)
 		}
@@ -126,16 +141,19 @@ func TestProvisioner_Down(t *testing.T) {
 	})
 
 	t.Run("ErrorWorkstationDestroyFails", func(t *testing.T) {
+		// Given a stack whose Destroy fails
 		mocks := setupProvisionerMocks(t)
 		mockStack := terraforminfra.NewMockStack()
 		mockStack.DestroyFunc = func(bp *blueprintv1alpha1.Blueprint, componentID string) (bool, error) {
 			return false, fmt.Errorf("workstation destroy failed")
 		}
-		opts := &Provisioner{TerraformStack: mockStack}
-		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
+		opts := &provisioner.Provisioner{TerraformStack: mockStack}
+		prov := provisioner.NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
 
-		err := provisioner.Down(context.Background(), createWorkstationBlueprint())
+		// When Down is called
+		err := prov.Down(context.Background(), createWorkstationBlueprint())
 
+		// Then a workstation destroy error is returned
 		if err == nil {
 			t.Error("Expected error for workstation destroy failure")
 		}
@@ -146,28 +164,34 @@ func TestProvisioner_Down(t *testing.T) {
 }
 
 func TestProvisioner_DestroyAllTerraform(t *testing.T) {
-	t.Run("Success", func(t *testing.T) {
+	t.Run("DestroysAllTerraformComponents", func(t *testing.T) {
+		// Given a stack whose DestroyAll succeeds
 		mocks := setupProvisionerMocks(t)
 		mockStack := terraforminfra.NewMockStack()
 		mockStack.DestroyAllFunc = func(bp *blueprintv1alpha1.Blueprint, _ bool, excludeIDs ...string) (terraforminfra.DestroyOutcome, error) {
 			return terraforminfra.DestroyOutcome{}, nil
 		}
-		opts := &Provisioner{KubernetesManager: mocks.KubernetesManager, TerraformStack: mockStack}
-		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
+		opts := &provisioner.Provisioner{KubernetesManager: mocks.KubernetesManager, TerraformStack: mockStack}
+		prov := provisioner.NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
 
-		_, err := provisioner.DestroyAllTerraform(context.Background(), createTestBlueprint(), false)
+		// When DestroyAllTerraform is called
+		_, err := prov.DestroyAllTerraform(context.Background(), createTestBlueprint(), false)
 
+		// Then no error is returned
 		if err != nil {
 			t.Errorf("Expected no error, got: %v", err)
 		}
 	})
 
 	t.Run("ErrorNilBlueprint", func(t *testing.T) {
+		// Given a provisioner
 		mocks := setupProvisionerMocks(t)
-		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler)
+		prov := provisioner.NewProvisioner(mocks.Runtime, mocks.BlueprintHandler)
 
-		_, err := provisioner.DestroyAllTerraform(context.Background(), nil, false)
+		// When DestroyAllTerraform is called with a nil blueprint
+		_, err := prov.DestroyAllTerraform(context.Background(), nil, false)
 
+		// Then a blueprint-not-provided error is returned
 		if err == nil {
 			t.Error("Expected error for nil blueprint")
 		}
@@ -177,6 +201,7 @@ func TestProvisioner_DestroyAllTerraform(t *testing.T) {
 	})
 
 	t.Run("ErrorWhenTerraformDisabled", func(t *testing.T) {
+		// Given terraform is disabled in config
 		mocks := setupProvisionerMocks(t)
 		mockConfigHandler := mocks.ConfigHandler.(*config.MockConfigHandler)
 		mockConfigHandler.GetBoolFunc = func(key string, defaultValue ...bool) bool {
@@ -188,10 +213,12 @@ func TestProvisioner_DestroyAllTerraform(t *testing.T) {
 			}
 			return false
 		}
-		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler)
+		prov := provisioner.NewProvisioner(mocks.Runtime, mocks.BlueprintHandler)
 
-		_, err := provisioner.DestroyAllTerraform(context.Background(), createTestBlueprint(), false)
+		// When DestroyAllTerraform is called
+		_, err := prov.DestroyAllTerraform(context.Background(), createTestBlueprint(), false)
 
+		// Then a terraform-disabled error is returned
 		if err == nil {
 			t.Error("Expected error when terraform is disabled")
 		}
@@ -201,16 +228,19 @@ func TestProvisioner_DestroyAllTerraform(t *testing.T) {
 	})
 
 	t.Run("ErrorDestroyAllFails", func(t *testing.T) {
+		// Given a stack whose DestroyAll fails
 		mocks := setupProvisionerMocks(t)
 		mockStack := terraforminfra.NewMockStack()
 		mockStack.DestroyAllFunc = func(bp *blueprintv1alpha1.Blueprint, _ bool, excludeIDs ...string) (terraforminfra.DestroyOutcome, error) {
 			return terraforminfra.DestroyOutcome{}, fmt.Errorf("terraform destroy all failed")
 		}
-		opts := &Provisioner{KubernetesManager: mocks.KubernetesManager, TerraformStack: mockStack}
-		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
+		opts := &provisioner.Provisioner{KubernetesManager: mocks.KubernetesManager, TerraformStack: mockStack}
+		prov := provisioner.NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
 
-		_, err := provisioner.DestroyAllTerraform(context.Background(), createTestBlueprint(), false)
+		// When DestroyAllTerraform is called
+		_, err := prov.DestroyAllTerraform(context.Background(), createTestBlueprint(), false)
 
+		// Then a terraform destroy error is returned
 		if err == nil {
 			t.Error("Expected error for terraform destroy all failure")
 		}
@@ -220,8 +250,7 @@ func TestProvisioner_DestroyAllTerraform(t *testing.T) {
 	})
 
 	t.Run("DoesNotGateOnKubernetesReachability", func(t *testing.T) {
-		// Provisioner runs no reachability preflight at all; an unreachable cluster only
-		// ever surfaces from the terraform refresh/destroy timeout, not an upfront block.
+		// Given an unreachable cluster and a stack that records DestroyAll
 		mocks := setupProvisionerMocks(t)
 		mocks.KubernetesManager.WaitForKubernetesHealthyFunc = func(ctx context.Context, endpoint string, outputFunc func(string), nodeNames ...string) error {
 			return fmt.Errorf("connection refused")
@@ -232,10 +261,12 @@ func TestProvisioner_DestroyAllTerraform(t *testing.T) {
 			destroyAllCalled = true
 			return terraforminfra.DestroyOutcome{}, nil
 		}
-		opts := &Provisioner{KubernetesManager: mocks.KubernetesManager, TerraformStack: mockStack}
-		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
+		opts := &provisioner.Provisioner{KubernetesManager: mocks.KubernetesManager, TerraformStack: mockStack}
+		prov := provisioner.NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
 
-		if _, err := provisioner.DestroyAllTerraform(context.Background(), createTestBlueprint(), false); err != nil {
+		// When DestroyAllTerraform is called
+		// Then no error is returned and DestroyAll runs
+		if _, err := prov.DestroyAllTerraform(context.Background(), createTestBlueprint(), false); err != nil {
 			t.Fatalf("Expected no error: Provisioner must not gate on Kubernetes reachability, got: %v", err)
 		}
 		if !destroyAllCalled {
@@ -245,26 +276,32 @@ func TestProvisioner_DestroyAllTerraform(t *testing.T) {
 }
 
 func TestProvisioner_Destroy(t *testing.T) {
-	t.Run("Success", func(t *testing.T) {
+	t.Run("DestroysRequestedComponent", func(t *testing.T) {
+		// Given a stack whose Destroy succeeds
 		mocks := setupProvisionerMocks(t)
 		mockStack := terraforminfra.NewMockStack()
 		mockStack.DestroyFunc = func(bp *blueprintv1alpha1.Blueprint, componentID string) (bool, error) { return false, nil }
-		opts := &Provisioner{KubernetesManager: mocks.KubernetesManager, TerraformStack: mockStack}
-		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
+		opts := &provisioner.Provisioner{KubernetesManager: mocks.KubernetesManager, TerraformStack: mockStack}
+		prov := provisioner.NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
 
-		_, err := provisioner.Destroy(context.Background(), createTestBlueprint(), "remote/path")
+		// When Destroy is called for a component
+		_, err := prov.Destroy(context.Background(), createTestBlueprint(), "remote/path")
 
+		// Then no error is returned
 		if err != nil {
 			t.Errorf("Expected no error, got: %v", err)
 		}
 	})
 
 	t.Run("ErrorNilBlueprint", func(t *testing.T) {
+		// Given a provisioner
 		mocks := setupProvisionerMocks(t)
-		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler)
+		prov := provisioner.NewProvisioner(mocks.Runtime, mocks.BlueprintHandler)
 
-		_, err := provisioner.Destroy(context.Background(), nil, "remote/path")
+		// When Destroy is called with a nil blueprint
+		_, err := prov.Destroy(context.Background(), nil, "remote/path")
 
+		// Then a blueprint-not-provided error is returned
 		if err == nil {
 			t.Error("Expected error for nil blueprint")
 		}
@@ -274,6 +311,7 @@ func TestProvisioner_Destroy(t *testing.T) {
 	})
 
 	t.Run("ErrorWhenTerraformDisabled", func(t *testing.T) {
+		// Given terraform is disabled in config
 		mocks := setupProvisionerMocks(t)
 		mockConfigHandler := mocks.ConfigHandler.(*config.MockConfigHandler)
 		mockConfigHandler.GetBoolFunc = func(key string, defaultValue ...bool) bool {
@@ -285,10 +323,12 @@ func TestProvisioner_Destroy(t *testing.T) {
 			}
 			return false
 		}
-		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler)
+		prov := provisioner.NewProvisioner(mocks.Runtime, mocks.BlueprintHandler)
 
-		_, err := provisioner.Destroy(context.Background(), createTestBlueprint(), "remote/path")
+		// When Destroy is called
+		_, err := prov.Destroy(context.Background(), createTestBlueprint(), "remote/path")
 
+		// Then a terraform-disabled error is returned
 		if err == nil {
 			t.Error("Expected error when terraform is disabled")
 		}
@@ -298,16 +338,19 @@ func TestProvisioner_Destroy(t *testing.T) {
 	})
 
 	t.Run("ErrorTerraformStackDestroy", func(t *testing.T) {
+		// Given a stack whose Destroy fails
 		mocks := setupProvisionerMocks(t)
 		mockStack := terraforminfra.NewMockStack()
 		mockStack.DestroyFunc = func(bp *blueprintv1alpha1.Blueprint, componentID string) (bool, error) {
 			return false, fmt.Errorf("terraform stack destroy failed")
 		}
-		opts := &Provisioner{KubernetesManager: mocks.KubernetesManager, TerraformStack: mockStack}
-		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
+		opts := &provisioner.Provisioner{KubernetesManager: mocks.KubernetesManager, TerraformStack: mockStack}
+		prov := provisioner.NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
 
-		_, err := provisioner.Destroy(context.Background(), createTestBlueprint(), "remote/path")
+		// When Destroy is called
+		_, err := prov.Destroy(context.Background(), createTestBlueprint(), "remote/path")
 
+		// Then a terraform destroy error is returned
 		if err == nil {
 			t.Error("Expected error for terraform stack destroy failure")
 		}
@@ -317,18 +360,18 @@ func TestProvisioner_Destroy(t *testing.T) {
 	})
 
 	t.Run("ReturnsSkippedWhenStateIsEmpty", func(t *testing.T) {
-		// Given the underlying stack reports the component had nothing to destroy,
-		// the provisioner must surface that signal so cmd-layer callers can tell the
-		// operator "empty state, skipped" rather than pretending a destroy ran.
+		// Given a stack that reports empty state for the component
 		mocks := setupProvisionerMocks(t)
 		mockStack := terraforminfra.NewMockStack()
 		mockStack.DestroyFunc = func(bp *blueprintv1alpha1.Blueprint, componentID string) (bool, error) {
 			return true, nil
 		}
-		opts := &Provisioner{KubernetesManager: mocks.KubernetesManager, TerraformStack: mockStack}
-		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
+		opts := &provisioner.Provisioner{KubernetesManager: mocks.KubernetesManager, TerraformStack: mockStack}
+		prov := provisioner.NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
 
-		skipped, err := provisioner.Destroy(context.Background(), createTestBlueprint(), "remote/path")
+		// When Destroy is called
+		skipped, err := prov.Destroy(context.Background(), createTestBlueprint(), "remote/path")
+		// Then skipped is true and no error is returned
 		if err != nil {
 			t.Fatalf("Expected no error, got: %v", err)
 		}
@@ -338,8 +381,7 @@ func TestProvisioner_Destroy(t *testing.T) {
 	})
 
 	t.Run("DoesNotGateOnKubernetesReachability", func(t *testing.T) {
-		// Provisioner runs no reachability preflight at all; an unreachable cluster only
-		// ever surfaces from the terraform refresh/destroy timeout, not an upfront block.
+		// Given an unreachable cluster and a stack that records Destroy
 		mocks := setupProvisionerMocks(t)
 		mocks.KubernetesManager.WaitForKubernetesHealthyFunc = func(ctx context.Context, endpoint string, outputFunc func(string), nodeNames ...string) error {
 			return fmt.Errorf("connection refused")
@@ -350,10 +392,12 @@ func TestProvisioner_Destroy(t *testing.T) {
 			destroyCalled = true
 			return false, nil
 		}
-		opts := &Provisioner{KubernetesManager: mocks.KubernetesManager, TerraformStack: mockStack}
-		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
+		opts := &provisioner.Provisioner{KubernetesManager: mocks.KubernetesManager, TerraformStack: mockStack}
+		prov := provisioner.NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
 
-		if _, err := provisioner.Destroy(context.Background(), createTestBlueprint(), "remote/path"); err != nil {
+		// When Destroy is called
+		// Then no error is returned and Destroy runs
+		if _, err := prov.Destroy(context.Background(), createTestBlueprint(), "remote/path"); err != nil {
 			t.Fatalf("Expected no error: Provisioner must not gate on Kubernetes reachability, got: %v", err)
 		}
 		if !destroyCalled {
@@ -363,25 +407,31 @@ func TestProvisioner_Destroy(t *testing.T) {
 }
 
 func TestProvisioner_DestroyKustomize(t *testing.T) {
-	t.Run("Success", func(t *testing.T) {
+	t.Run("DeletesNamedKustomization", func(t *testing.T) {
+		// Given a manager whose DeleteKustomization succeeds
 		mocks := setupProvisionerMocks(t)
 		mocks.KubernetesManager.DeleteKustomizationFunc = func(name, namespace string) error { return nil }
-		opts := &Provisioner{KubernetesManager: mocks.KubernetesManager}
-		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
+		opts := &provisioner.Provisioner{KubernetesManager: mocks.KubernetesManager}
+		prov := provisioner.NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
 
-		err := provisioner.DestroyKustomize(context.Background(), createTestBlueprint(), "test-kustomization")
+		// When DestroyKustomize is called
+		err := prov.DestroyKustomize(context.Background(), createTestBlueprint(), "test-kustomization")
 
+		// Then no error is returned
 		if err != nil {
 			t.Errorf("Expected no error, got: %v", err)
 		}
 	})
 
 	t.Run("ErrorNilBlueprint", func(t *testing.T) {
+		// Given a provisioner
 		mocks := setupProvisionerMocks(t)
-		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler)
+		prov := provisioner.NewProvisioner(mocks.Runtime, mocks.BlueprintHandler)
 
-		err := provisioner.DestroyKustomize(context.Background(), nil, "test-kustomization")
+		// When DestroyKustomize is called with a nil blueprint
+		err := prov.DestroyKustomize(context.Background(), nil, "test-kustomization")
 
+		// Then a blueprint-not-provided error is returned
 		if err == nil {
 			t.Error("Expected error for nil blueprint")
 		}
@@ -391,12 +441,15 @@ func TestProvisioner_DestroyKustomize(t *testing.T) {
 	})
 
 	t.Run("ErrorNilKubernetesManager", func(t *testing.T) {
+		// Given a provisioner with no kubernetes manager
 		mocks := setupProvisionerMocks(t)
-		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler)
-		provisioner.KubernetesManager = nil
+		prov := provisioner.NewProvisioner(mocks.Runtime, mocks.BlueprintHandler)
+		prov.KubernetesManager = nil
 
-		err := provisioner.DestroyKustomize(context.Background(), createTestBlueprint(), "test-kustomization")
+		// When DestroyKustomize is called
+		err := prov.DestroyKustomize(context.Background(), createTestBlueprint(), "test-kustomization")
 
+		// Then a manager-not-configured error is returned
 		if err == nil {
 			t.Error("Expected error for nil kubernetes manager")
 		}
@@ -406,12 +459,15 @@ func TestProvisioner_DestroyKustomize(t *testing.T) {
 	})
 
 	t.Run("ErrorNotFound", func(t *testing.T) {
+		// Given a provisioner
 		mocks := setupProvisionerMocks(t)
-		opts := &Provisioner{KubernetesManager: mocks.KubernetesManager}
-		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
+		opts := &provisioner.Provisioner{KubernetesManager: mocks.KubernetesManager}
+		prov := provisioner.NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
 
-		err := provisioner.DestroyKustomize(context.Background(), createTestBlueprint(), "nonexistent")
+		// When DestroyKustomize is called with an unknown name
+		err := prov.DestroyKustomize(context.Background(), createTestBlueprint(), "nonexistent")
 
+		// Then a not-found error with a show remediation is returned
 		if err == nil {
 			t.Error("Expected error for kustomization not found")
 		}
@@ -424,15 +480,18 @@ func TestProvisioner_DestroyKustomize(t *testing.T) {
 	})
 
 	t.Run("ErrorDeleteKustomization", func(t *testing.T) {
+		// Given a manager whose DeleteKustomization fails
 		mocks := setupProvisionerMocks(t)
 		mocks.KubernetesManager.DeleteKustomizationFunc = func(name, namespace string) error {
 			return fmt.Errorf("delete kustomization failed")
 		}
-		opts := &Provisioner{KubernetesManager: mocks.KubernetesManager}
-		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
+		opts := &provisioner.Provisioner{KubernetesManager: mocks.KubernetesManager}
+		prov := provisioner.NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
 
-		err := provisioner.DestroyKustomize(context.Background(), createTestBlueprint(), "test-kustomization")
+		// When DestroyKustomize is called
+		err := prov.DestroyKustomize(context.Background(), createTestBlueprint(), "test-kustomization")
 
+		// Then a delete kustomization error is returned
 		if err == nil {
 			t.Error("Expected error for delete kustomization failure")
 		}
@@ -442,8 +501,7 @@ func TestProvisioner_DestroyKustomize(t *testing.T) {
 	})
 
 	t.Run("SkipsWhenKubeconfigMissing", func(t *testing.T) {
-		// A missing kubeconfig means the cluster is already gone. DestroyKustomize must not
-		// attempt to build a client against it. See #3397.
+		// Given a config root with no kubeconfig, so the cluster is gone
 		mocks := setupProvisionerMocks(t)
 		mocks.Runtime.ConfigRoot = t.TempDir()
 
@@ -452,11 +510,13 @@ func TestProvisioner_DestroyKustomize(t *testing.T) {
 			deleteKustomizationCalled = true
 			return nil
 		}
-		opts := &Provisioner{KubernetesManager: mocks.KubernetesManager}
-		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
+		opts := &provisioner.Provisioner{KubernetesManager: mocks.KubernetesManager}
+		prov := provisioner.NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
 
-		err := provisioner.DestroyKustomize(context.Background(), createTestBlueprint(), "test-kustomization")
+		// When DestroyKustomize is called
+		err := prov.DestroyKustomize(context.Background(), createTestBlueprint(), "test-kustomization")
 
+		// Then no error is returned and DeleteKustomization does not run
 		if err != nil {
 			t.Errorf("Expected no error, got: %v", err)
 		}
@@ -467,46 +527,55 @@ func TestProvisioner_DestroyKustomize(t *testing.T) {
 }
 
 func TestProvisioner_DestroyAll(t *testing.T) {
-	t.Run("Success", func(t *testing.T) {
+	t.Run("DeletesBlueprintAndDestroysTerraform", func(t *testing.T) {
+		// Given a manager and a stack that both succeed
 		mocks := setupProvisionerMocks(t)
 		mocks.KubernetesManager.DeleteBlueprintFunc = func(bp *blueprintv1alpha1.Blueprint, namespace string) error { return nil }
 		mockStack := terraforminfra.NewMockStack()
 		mockStack.DestroyAllFunc = func(bp *blueprintv1alpha1.Blueprint, _ bool, excludeIDs ...string) (terraforminfra.DestroyOutcome, error) {
 			return terraforminfra.DestroyOutcome{}, nil
 		}
-		opts := &Provisioner{KubernetesManager: mocks.KubernetesManager, TerraformStack: mockStack}
-		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
+		opts := &provisioner.Provisioner{KubernetesManager: mocks.KubernetesManager, TerraformStack: mockStack}
+		prov := provisioner.NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
 
-		_, err := provisioner.DestroyAll(context.Background(), createTestBlueprint(), false)
+		// When DestroyAll is called
+		_, err := prov.DestroyAll(context.Background(), createTestBlueprint(), false)
 
+		// Then no error is returned
 		if err != nil {
 			t.Errorf("Expected no error, got: %v", err)
 		}
 	})
 
 	t.Run("SuccessNoKubernetesManager", func(t *testing.T) {
+		// Given a provisioner with no kubernetes manager
 		mocks := setupProvisionerMocks(t)
 		mockStack := terraforminfra.NewMockStack()
 		mockStack.DestroyAllFunc = func(bp *blueprintv1alpha1.Blueprint, _ bool, excludeIDs ...string) (terraforminfra.DestroyOutcome, error) {
 			return terraforminfra.DestroyOutcome{}, nil
 		}
-		opts := &Provisioner{TerraformStack: mockStack}
-		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
-		provisioner.KubernetesManager = nil
+		opts := &provisioner.Provisioner{TerraformStack: mockStack}
+		prov := provisioner.NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
+		prov.KubernetesManager = nil
 
-		_, err := provisioner.DestroyAll(context.Background(), createTestBlueprint(), false)
+		// When DestroyAll is called
+		_, err := prov.DestroyAll(context.Background(), createTestBlueprint(), false)
 
+		// Then no error is returned
 		if err != nil {
 			t.Errorf("Expected no error when kubernetes manager is nil, got: %v", err)
 		}
 	})
 
 	t.Run("ErrorNilBlueprint", func(t *testing.T) {
+		// Given a provisioner
 		mocks := setupProvisionerMocks(t)
-		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler)
+		prov := provisioner.NewProvisioner(mocks.Runtime, mocks.BlueprintHandler)
 
-		_, err := provisioner.DestroyAll(context.Background(), nil, false)
+		// When DestroyAll is called with a nil blueprint
+		_, err := prov.DestroyAll(context.Background(), nil, false)
 
+		// Then a blueprint-not-provided error is returned
 		if err == nil {
 			t.Error("Expected error for nil blueprint")
 		}
@@ -516,15 +585,18 @@ func TestProvisioner_DestroyAll(t *testing.T) {
 	})
 
 	t.Run("ErrorUninstall", func(t *testing.T) {
+		// Given a manager whose DeleteBlueprint fails
 		mocks := setupProvisionerMocks(t)
 		mocks.KubernetesManager.DeleteBlueprintFunc = func(bp *blueprintv1alpha1.Blueprint, namespace string) error {
 			return fmt.Errorf("delete blueprint failed")
 		}
-		opts := &Provisioner{KubernetesManager: mocks.KubernetesManager}
-		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
+		opts := &provisioner.Provisioner{KubernetesManager: mocks.KubernetesManager}
+		prov := provisioner.NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
 
-		_, err := provisioner.DestroyAll(context.Background(), createTestBlueprint(), false)
+		// When DestroyAll is called
+		_, err := prov.DestroyAll(context.Background(), createTestBlueprint(), false)
 
+		// Then a delete blueprint error is returned
 		if err == nil {
 			t.Error("Expected error when uninstall fails")
 		}
@@ -534,17 +606,20 @@ func TestProvisioner_DestroyAll(t *testing.T) {
 	})
 
 	t.Run("ErrorDown", func(t *testing.T) {
+		// Given a stack whose DestroyAll fails
 		mocks := setupProvisionerMocks(t)
 		mocks.KubernetesManager.DeleteBlueprintFunc = func(bp *blueprintv1alpha1.Blueprint, namespace string) error { return nil }
 		mockStack := terraforminfra.NewMockStack()
 		mockStack.DestroyAllFunc = func(bp *blueprintv1alpha1.Blueprint, _ bool, excludeIDs ...string) (terraforminfra.DestroyOutcome, error) {
 			return terraforminfra.DestroyOutcome{}, fmt.Errorf("terraform down failed")
 		}
-		opts := &Provisioner{KubernetesManager: mocks.KubernetesManager, TerraformStack: mockStack}
-		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
+		opts := &provisioner.Provisioner{KubernetesManager: mocks.KubernetesManager, TerraformStack: mockStack}
+		prov := provisioner.NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
 
-		_, err := provisioner.DestroyAll(context.Background(), createTestBlueprint(), false)
+		// When DestroyAll is called
+		_, err := prov.DestroyAll(context.Background(), createTestBlueprint(), false)
 
+		// Then the terraform error is returned
 		if err == nil {
 			t.Error("Expected error when terraform down fails")
 		}
@@ -554,9 +629,7 @@ func TestProvisioner_DestroyAll(t *testing.T) {
 	})
 
 	t.Run("RunsUninstallWhenKubeconfigPresentEvenIfStale", func(t *testing.T) {
-		// A kubeconfig that is present but stale (points at an unreachable cluster) is not
-		// proof the cluster is gone. DestroyAll must still attempt kustomize destroy and let
-		// a genuine connection failure surface as a recorded failure, never silently skip it.
+		// Given a present kubeconfig that may point at an unreachable cluster
 		mocks := setupProvisionerMocks(t)
 
 		var uninstallCalled bool
@@ -568,10 +641,12 @@ func TestProvisioner_DestroyAll(t *testing.T) {
 		mockStack.DestroyAllFunc = func(bp *blueprintv1alpha1.Blueprint, _ bool, excludeIDs ...string) (terraforminfra.DestroyOutcome, error) {
 			return terraforminfra.DestroyOutcome{}, nil
 		}
-		opts := &Provisioner{KubernetesManager: mocks.KubernetesManager, TerraformStack: mockStack}
-		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
+		opts := &provisioner.Provisioner{KubernetesManager: mocks.KubernetesManager, TerraformStack: mockStack}
+		prov := provisioner.NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
 
-		if _, err := provisioner.DestroyAll(context.Background(), createTestBlueprint(), false); err != nil {
+		// When DestroyAll is called
+		// Then DeleteBlueprint still runs
+		if _, err := prov.DestroyAll(context.Background(), createTestBlueprint(), false); err != nil {
 			t.Fatalf("expected no error, got: %v", err)
 		}
 		if !uninstallCalled {
@@ -580,10 +655,7 @@ func TestProvisioner_DestroyAll(t *testing.T) {
 	})
 
 	t.Run("SkipsUninstallWhenKubeconfigMissing", func(t *testing.T) {
-		// A missing kubeconfig means the cluster is already gone — typically a prior destroy
-		// run already tore it down. DestroyAll must not attempt to suspend or delete
-		// kustomizations against a client that can never be built, and must still proceed
-		// to the terraform layer. See #3397.
+		// Given a config root with no kubeconfig, so the cluster is gone
 		mocks := setupProvisionerMocks(t)
 		mocks.Runtime.ConfigRoot = t.TempDir()
 
@@ -598,11 +670,13 @@ func TestProvisioner_DestroyAll(t *testing.T) {
 			terraformDestroyCalled = true
 			return terraforminfra.DestroyOutcome{}, nil
 		}
-		opts := &Provisioner{KubernetesManager: mocks.KubernetesManager, TerraformStack: mockStack}
-		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
+		opts := &provisioner.Provisioner{KubernetesManager: mocks.KubernetesManager, TerraformStack: mockStack}
+		prov := provisioner.NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
 
-		result, err := provisioner.DestroyAll(context.Background(), createTestBlueprint(), false)
+		// When DestroyAll is called
+		result, err := prov.DestroyAll(context.Background(), createTestBlueprint(), false)
 
+		// Then kustomize is skipped as cluster-gone and terraform still runs
 		if err != nil {
 			t.Fatalf("expected no error, got: %v", err)
 		}
@@ -627,10 +701,7 @@ func TestProvisioner_DestroyAll(t *testing.T) {
 	})
 
 	t.Run("ContinueDefersTerraformWhenKustomizeFailsAndClusterReachable", func(t *testing.T) {
-		// Given kustomize Uninstall fails under continueOnError while the cluster is
-		// still reachable (default mock: WaitForKubernetesHealthyFunc unset ⇒ reachable).
-		// A live controller may still be mid-teardown of a cloud-backed resource
-		// terraform never tracked, so the terraform pass MUST NOT run. See #3385.
+		// Given kustomize uninstall fails while the cluster stays reachable
 		mocks := setupProvisionerMocks(t)
 		mocks.KubernetesManager.DeleteBlueprintFunc = func(bp *blueprintv1alpha1.Blueprint, namespace string) error {
 			return fmt.Errorf("destroy aborted: timeout waiting for load balancer teardown")
@@ -641,11 +712,13 @@ func TestProvisioner_DestroyAll(t *testing.T) {
 			terraformDestroyCalled = true
 			return terraforminfra.DestroyOutcome{}, nil
 		}
-		opts := &Provisioner{KubernetesManager: mocks.KubernetesManager, TerraformStack: mockStack}
-		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
+		opts := &provisioner.Provisioner{KubernetesManager: mocks.KubernetesManager, TerraformStack: mockStack}
+		prov := provisioner.NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
 
-		result, err := provisioner.DestroyAll(context.Background(), createTestBlueprint(), true)
+		// When DestroyAll runs with continueOnError
+		result, err := prov.DestroyAll(context.Background(), createTestBlueprint(), true)
 
+		// Then terraform is deferred and the kustomize failure is recorded
 		if err != nil {
 			t.Fatalf("expected continueOnError to absorb the kustomize failure, got: %v", err)
 		}
@@ -657,7 +730,7 @@ func TestProvisioner_DestroyAll(t *testing.T) {
 		}
 		var foundKustomize bool
 		for _, f := range result.Failed {
-			if f.ID == KustomizeFailureID {
+			if f.ID == provisioner.KustomizeFailureID {
 				foundKustomize = true
 			}
 		}
@@ -667,10 +740,7 @@ func TestProvisioner_DestroyAll(t *testing.T) {
 	})
 
 	t.Run("ContinueDefersTerraformWhenKustomizeFailsAndClusterUnreachable", func(t *testing.T) {
-		// Given kustomize Uninstall fails under continueOnError and the cluster is also
-		// unreachable. There is no reachability exception: unreachable is not proof the
-		// cluster is gone (a network blip, an expired credential, a control-plane restart
-		// all look identical), so terraform is deferred here too.
+		// Given kustomize uninstall fails and the cluster is unreachable
 		mocks := setupProvisionerMocks(t)
 		mocks.KubernetesManager.DeleteBlueprintFunc = func(bp *blueprintv1alpha1.Blueprint, namespace string) error {
 			return fmt.Errorf("delete blueprint failed")
@@ -684,11 +754,13 @@ func TestProvisioner_DestroyAll(t *testing.T) {
 			terraformDestroyCalled = true
 			return terraforminfra.DestroyOutcome{}, nil
 		}
-		opts := &Provisioner{KubernetesManager: mocks.KubernetesManager, TerraformStack: mockStack}
-		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
+		opts := &provisioner.Provisioner{KubernetesManager: mocks.KubernetesManager, TerraformStack: mockStack}
+		prov := provisioner.NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
 
-		result, err := provisioner.DestroyAll(context.Background(), createTestBlueprint(), true)
+		// When DestroyAll runs with continueOnError
+		result, err := prov.DestroyAll(context.Background(), createTestBlueprint(), true)
 
+		// Then terraform is still deferred
 		if err != nil {
 			t.Fatalf("expected continueOnError to absorb the kustomize failure, got: %v", err)
 		}
@@ -701,7 +773,7 @@ func TestProvisioner_DestroyAll(t *testing.T) {
 	})
 
 	t.Run("CountsEligibleKustomizationsInDestroyedOnSuccess", func(t *testing.T) {
-		// Given a blueprint with multiple eligible kustomizations and a successful Uninstall
+		// Given a blueprint with three eligible kustomizations
 		mocks := setupProvisionerMocks(t)
 		bp := &blueprintv1alpha1.Blueprint{
 			Metadata: blueprintv1alpha1.Metadata{Name: "test"},
@@ -716,18 +788,16 @@ func TestProvisioner_DestroyAll(t *testing.T) {
 		mockStack.DestroyAllFunc = func(_ *blueprintv1alpha1.Blueprint, _ bool, _ ...string) (terraforminfra.DestroyOutcome, error) {
 			return terraforminfra.DestroyOutcome{}, nil
 		}
-		opts := &Provisioner{KubernetesManager: mocks.KubernetesManager, TerraformStack: mockStack}
-		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
+		opts := &provisioner.Provisioner{KubernetesManager: mocks.KubernetesManager, TerraformStack: mockStack}
+		prov := provisioner.NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
 
-		// When DestroyAll runs and Uninstall succeeds
-		result, err := provisioner.DestroyAll(context.Background(), bp, false)
+		// When DestroyAll runs and DeleteBlueprint succeeds
+		result, err := prov.DestroyAll(context.Background(), bp, false)
 		if err != nil {
 			t.Fatalf("Expected no error, got %v", err)
 		}
 
-		// Then each eligible kustomization name appears in result.Destroyed so the
-		// summary count reflects the work that actually happened (not zero, as it did
-		// before — undercounting on mixed kustomize+terraform contexts).
+		// Then each eligible kustomization appears in result.Destroyed
 		want := map[string]bool{"dns": false, "ingress": false, "cert-manager": false}
 		for _, name := range result.Destroyed {
 			if _, ok := want[name]; ok {
@@ -742,9 +812,7 @@ func TestProvisioner_DestroyAll(t *testing.T) {
 	})
 
 	t.Run("SkipsIneligibleKustomizationsFromDestroyedCount", func(t *testing.T) {
-		// Given a blueprint with three kustomizations: one eligible, one pinned
-		// Destroy=false, and one DestroyOnly=true — DeleteBlueprint would only
-		// process the eligible one, so the count must match.
+		// Given one eligible, one Destroy=false, and one DestroyOnly kustomization
 		mocks := setupProvisionerMocks(t)
 		destroyFalse := false
 		destroyOnly := true
@@ -761,26 +829,23 @@ func TestProvisioner_DestroyAll(t *testing.T) {
 		mockStack.DestroyAllFunc = func(_ *blueprintv1alpha1.Blueprint, _ bool, _ ...string) (terraforminfra.DestroyOutcome, error) {
 			return terraforminfra.DestroyOutcome{}, nil
 		}
-		opts := &Provisioner{KubernetesManager: mocks.KubernetesManager, TerraformStack: mockStack}
-		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
+		opts := &provisioner.Provisioner{KubernetesManager: mocks.KubernetesManager, TerraformStack: mockStack}
+		prov := provisioner.NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
 
 		// When DestroyAll runs
-		result, err := provisioner.DestroyAll(context.Background(), bp, false)
+		result, err := prov.DestroyAll(context.Background(), bp, false)
 		if err != nil {
 			t.Fatalf("Expected no error, got %v", err)
 		}
 
-		// Then only the eligible kustomization name appears in result.Destroyed;
-		// the pinned-skip and destroy-only entries are excluded to mirror what
-		// DeleteBlueprint actually processes.
+		// Then only the eligible kustomization appears in result.Destroyed
 		if len(result.Destroyed) != 1 || result.Destroyed[0] != "dns" {
 			t.Errorf("Expected result.Destroyed=[dns], got %v", result.Destroyed)
 		}
 	})
 
 	t.Run("DoesNotGateOnKubernetesReachability", func(t *testing.T) {
-		// Provisioner runs no reachability preflight at all; an unreachable cluster only
-		// ever surfaces from the terraform refresh/destroy timeout, not an upfront block.
+		// Given an unreachable cluster and a stack that records DestroyAll
 		mocks := setupProvisionerMocks(t)
 		mocks.KubernetesManager.DeleteBlueprintFunc = func(bp *blueprintv1alpha1.Blueprint, namespace string) error { return nil }
 		mocks.KubernetesManager.WaitForKubernetesHealthyFunc = func(ctx context.Context, endpoint string, outputFunc func(string), nodeNames ...string) error {
@@ -792,10 +857,12 @@ func TestProvisioner_DestroyAll(t *testing.T) {
 			destroyAllCalled = true
 			return terraforminfra.DestroyOutcome{}, nil
 		}
-		opts := &Provisioner{KubernetesManager: mocks.KubernetesManager, TerraformStack: mockStack}
-		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
+		opts := &provisioner.Provisioner{KubernetesManager: mocks.KubernetesManager, TerraformStack: mockStack}
+		prov := provisioner.NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
 
-		if _, err := provisioner.DestroyAll(context.Background(), createTestBlueprint(), false); err != nil {
+		// When DestroyAll is called
+		// Then no error is returned and DestroyAll runs
+		if _, err := prov.DestroyAll(context.Background(), createTestBlueprint(), false); err != nil {
 			t.Fatalf("Expected no error: Provisioner must not gate on Kubernetes reachability, got: %v", err)
 		}
 		if !destroyAllCalled {
@@ -826,34 +893,43 @@ func TestProvisioner_CheckComponentDestroyable(t *testing.T) {
 	}
 
 	t.Run("RefusesBackendComponentOnKubernetesBackend", func(t *testing.T) {
+		// Given a kubernetes backend
 		mocks := setupProvisionerMocks(t)
 		kubernetesBackend(mocks)
-		prov := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{})
+		prov := provisioner.NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &provisioner.Provisioner{})
+		// When the backend member compute is checked
 		err := prov.CheckComponentDestroyable(bp, "compute")
+		// Then a refusal naming the backend is returned
 		if err == nil || !strings.Contains(err.Error(), "backend") {
 			t.Errorf("expected refusal naming backend, got %v", err)
 		}
 	})
 
 	t.Run("AllowsNonBackendComponentOnKubernetesBackend", func(t *testing.T) {
+		// Given a kubernetes backend
 		mocks := setupProvisionerMocks(t)
 		kubernetesBackend(mocks)
-		prov := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{})
+		prov := provisioner.NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &provisioner.Provisioner{})
+		// When the non-backend component dns is checked
+		// Then no error is returned
 		if err := prov.CheckComponentDestroyable(bp, "dns"); err != nil {
 			t.Errorf("expected non-backend component allowed, got %v", err)
 		}
 	})
 
 	t.Run("AllowsBackendComponentOnLocalBackend", func(t *testing.T) {
+		// Given the default local backend
 		mocks := setupProvisionerMocks(t)
-		prov := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{})
+		prov := provisioner.NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &provisioner.Provisioner{})
+		// When the backend member compute is checked
+		// Then no error is returned
 		if err := prov.CheckComponentDestroyable(bp, "compute"); err != nil {
 			t.Errorf("expected local backend to allow any component, got %v", err)
 		}
 	})
 
 	t.Run("RefusesWhenBackendFieldUnresolved", func(t *testing.T) {
-		// Backend membership is undeterminable; refuse rather than guess.
+		// Given a Backend field that names no component
 		unresolved := &blueprintv1alpha1.Blueprint{
 			Backend: "ghost",
 			TerraformComponents: []blueprintv1alpha1.TerraformComponent{
@@ -862,8 +938,10 @@ func TestProvisioner_CheckComponentDestroyable(t *testing.T) {
 		}
 		mocks := setupProvisionerMocks(t)
 		kubernetesBackend(mocks)
-		prov := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{})
+		prov := provisioner.NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &provisioner.Provisioner{})
+		// When compute is checked
 		err := prov.CheckComponentDestroyable(unresolved, "compute")
+		// Then a refusal naming the unresolved backend is returned
 		if err == nil || !strings.Contains(err.Error(), `"ghost"`) {
 			t.Errorf("expected refusal naming the unresolved backend, got %v", err)
 		}
@@ -891,15 +969,16 @@ func TestProvisioner_PivotToLocalIfClusterGone(t *testing.T) {
 	}
 
 	t.Run("PivotsWhenKubeconfigAbsent", func(t *testing.T) {
-		// Given a kubernetes backend and no kubeconfig — the cluster is gone, state is already local
+		// Given a kubernetes backend and no kubeconfig
 		mocks := setupProvisionerMocks(t)
 		set := false
 		kubernetesBackend(mocks, &set)
-		prov := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{})
-		prov.configRoot = t.TempDir()
+		mocks.Runtime.ConfigRoot = t.TempDir()
+		prov := provisioner.NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &provisioner.Provisioner{})
 
-		// When checking, it pivots to local without migrating
+		// When PivotToLocalIfClusterGone is called
 		pivoted, err := prov.PivotToLocalIfClusterGone()
+		// Then the backend pivots to local
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -909,7 +988,7 @@ func TestProvisioner_PivotToLocalIfClusterGone(t *testing.T) {
 	})
 
 	t.Run("DoesNotPivotWhenClusterReachable", func(t *testing.T) {
-		// Given a kubernetes backend, present kubeconfig, reachable cluster (first-run targeted destroy)
+		// Given a kubernetes backend, a kubeconfig, and a reachable cluster
 		mocks := setupProvisionerMocks(t)
 		set := false
 		kubernetesBackend(mocks, &set)
@@ -919,10 +998,12 @@ func TestProvisioner_PivotToLocalIfClusterGone(t *testing.T) {
 		mocks.KubernetesManager.WaitForKubernetesHealthyFunc = func(ctx context.Context, endpoint string, out func(string), nodes ...string) error {
 			return nil
 		}
-		prov := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{KubernetesManager: mocks.KubernetesManager})
-		prov.configRoot = dir
+		mocks.Runtime.ConfigRoot = dir
+		prov := provisioner.NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &provisioner.Provisioner{KubernetesManager: mocks.KubernetesManager})
 
+		// When PivotToLocalIfClusterGone is called
 		pivoted, err := prov.PivotToLocalIfClusterGone()
+		// Then the backend does not pivot
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -931,14 +1012,39 @@ func TestProvisioner_PivotToLocalIfClusterGone(t *testing.T) {
 		}
 	})
 
+	t.Run("PivotsWhenClusterUnreachable", func(t *testing.T) {
+		// Given a kubernetes backend, a present kubeconfig, and a cluster that fails the health check
+		mocks := setupProvisionerMocks(t)
+		set := false
+		kubernetesBackend(mocks, &set)
+		mocks.KubernetesManager.WaitForKubernetesHealthyFunc = func(ctx context.Context, endpoint string, out func(string), nodes ...string) error {
+			return fmt.Errorf("connection refused")
+		}
+		prov := provisioner.NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &provisioner.Provisioner{KubernetesManager: mocks.KubernetesManager})
+
+		// When PivotToLocalIfClusterGone is called
+		pivoted, err := prov.PivotToLocalIfClusterGone()
+
+		// Then it pivots the backend to local
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if !pivoted || !set {
+			t.Errorf("expected pivot to local when cluster unreachable, pivoted=%v set=%v", pivoted, set)
+		}
+	})
+
 	t.Run("NoOpOnLocalBackend", func(t *testing.T) {
+		// Given the default local backend
 		mocks := setupProvisionerMocks(t)
 		set := false
 		mocks.ConfigHandler.(*config.MockConfigHandler).SetFunc = func(_ string, _ any) error { set = true; return nil }
-		prov := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{})
-		prov.configRoot = t.TempDir()
+		mocks.Runtime.ConfigRoot = t.TempDir()
+		prov := provisioner.NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &provisioner.Provisioner{})
 
+		// When PivotToLocalIfClusterGone is called
 		pivoted, err := prov.PivotToLocalIfClusterGone()
+		// Then the backend does not pivot
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -970,7 +1076,7 @@ func TestProvisioner_PrepareLocalTeardown(t *testing.T) {
 	}
 
 	t.Run("PivotsToLocalAndMigratesUpFront", func(t *testing.T) {
-		// Given a kubernetes backend and a migration that succeeds (cluster up, first-run teardown)
+		// Given a kubernetes backend and a migration that succeeds
 		mocks := setupProvisionerMocks(t)
 		set := false
 		kubernetesBackend(mocks, &set)
@@ -980,10 +1086,11 @@ func TestProvisioner_PrepareLocalTeardown(t *testing.T) {
 			migrated = true
 			return nil, nil
 		}
-		prov := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{TerraformStack: mockStack})
+		prov := provisioner.NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &provisioner.Provisioner{TerraformStack: mockStack})
 
-		// When preparing, it pivots the backend to local and migrates state up front
+		// When PrepareLocalTeardown is called
 		pivoted, err := prov.PrepareLocalTeardown(context.Background(), bp)
+		// Then the backend pivots to local and state migrates
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -993,15 +1100,18 @@ func TestProvisioner_PrepareLocalTeardown(t *testing.T) {
 	})
 
 	t.Run("NoOpOnLocalBackend", func(t *testing.T) {
+		// Given the default local backend
 		mocks := setupProvisionerMocks(t)
 		set := false
 		mocks.ConfigHandler.(*config.MockConfigHandler).SetFunc = func(_ string, _ any) error { set = true; return nil }
 		migrated := false
 		mockStack := terraforminfra.NewMockStack()
 		mockStack.MigrateStateFunc = func(_ *blueprintv1alpha1.Blueprint) ([]string, error) { migrated = true; return nil, nil }
-		prov := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{TerraformStack: mockStack})
+		prov := provisioner.NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &provisioner.Provisioner{TerraformStack: mockStack})
 
+		// When PrepareLocalTeardown is called
 		pivoted, err := prov.PrepareLocalTeardown(context.Background(), bp)
+		// Then nothing pivots or migrates
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -1011,7 +1121,7 @@ func TestProvisioner_PrepareLocalTeardown(t *testing.T) {
 	})
 
 	t.Run("NoOpOnNonKubernetesRemoteBackend", func(t *testing.T) {
-		// Given a remote non-kubernetes backend (its state store isn't going away with the cluster)
+		// Given a gcs backend, whose state store outlives the cluster
 		mocks := setupProvisionerMocks(t)
 		mockCH := mocks.ConfigHandler.(*config.MockConfigHandler)
 		mockCH.GetTerraformBackendTypeFunc = func() string { return "gcs" }
@@ -1020,10 +1130,11 @@ func TestProvisioner_PrepareLocalTeardown(t *testing.T) {
 		migrated := false
 		mockStack := terraforminfra.NewMockStack()
 		mockStack.MigrateStateFunc = func(_ *blueprintv1alpha1.Blueprint) ([]string, error) { migrated = true; return nil, nil }
-		prov := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{TerraformStack: mockStack})
+		prov := provisioner.NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &provisioner.Provisioner{TerraformStack: mockStack})
 
-		// When preparing, it leaves the backend type alone so Teardown still gates the backend components
+		// When PrepareLocalTeardown is called
 		pivoted, err := prov.PrepareLocalTeardown(context.Background(), bp)
+		// Then nothing pivots or migrates
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -1033,7 +1144,7 @@ func TestProvisioner_PrepareLocalTeardown(t *testing.T) {
 	})
 
 	t.Run("AbortsAndRevertsPivotOnMigrationFailureWhileClusterReachable", func(t *testing.T) {
-		// Given a migration failure while the cluster is still up — destroying now would orphan resources
+		// Given a reachable cluster and a migration that fails
 		mocks := setupProvisionerMocks(t)
 		mockCH := mocks.ConfigHandler.(*config.MockConfigHandler)
 		mockCH.GetStringFunc = func(key string, dv ...string) string {
@@ -1062,12 +1173,12 @@ func TestProvisioner_PrepareLocalTeardown(t *testing.T) {
 		mocks.KubernetesManager.WaitForKubernetesHealthyFunc = func(ctx context.Context, endpoint string, out func(string), nodes ...string) error {
 			return nil
 		}
-		prov := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{TerraformStack: mockStack, KubernetesManager: mocks.KubernetesManager})
-		prov.configRoot = dir
+		mocks.Runtime.ConfigRoot = dir
+		prov := provisioner.NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &provisioner.Provisioner{TerraformStack: mockStack, KubernetesManager: mocks.KubernetesManager})
 
-		// When preparing, it aborts and reverts the pivot so nothing later reads a local backend with no
-		// migrated state behind it
+		// When PrepareLocalTeardown is called
 		_, err := prov.PrepareLocalTeardown(context.Background(), bp)
+		// Then it aborts and reverts the pivot to kubernetes
 		if err == nil || !strings.Contains(err.Error(), "migrate terraform state") {
 			t.Errorf("expected abort on migration failure with cluster up, got %v", err)
 		}
@@ -1077,7 +1188,7 @@ func TestProvisioner_PrepareLocalTeardown(t *testing.T) {
 	})
 
 	t.Run("ProceedsOnMigrationFailureWhenClusterGone", func(t *testing.T) {
-		// Given a migration failure but the cluster is already gone (resume) — state is already local
+		// Given no kubeconfig, so the cluster is gone, and a migration that fails
 		mocks := setupProvisionerMocks(t)
 		set := false
 		kubernetesBackend(mocks, &set)
@@ -1085,11 +1196,12 @@ func TestProvisioner_PrepareLocalTeardown(t *testing.T) {
 		mockStack.MigrateStateFunc = func(_ *blueprintv1alpha1.Blueprint) ([]string, error) {
 			return nil, fmt.Errorf("dial tcp: connection refused")
 		}
-		prov := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{TerraformStack: mockStack})
-		prov.configRoot = t.TempDir() // no kubeconfig → cluster gone
+		mocks.Runtime.ConfigRoot = t.TempDir()
+		prov := provisioner.NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &provisioner.Provisioner{TerraformStack: mockStack})
 
-		// When preparing, it pivots and proceeds against the already-migrated local state
+		// When PrepareLocalTeardown is called
 		pivoted, err := prov.PrepareLocalTeardown(context.Background(), bp)
+		// Then the backend pivots and teardown proceeds
 		if err != nil {
 			t.Fatalf("expected resume to proceed, got %v", err)
 		}
@@ -1101,14 +1213,14 @@ func TestProvisioner_PrepareLocalTeardown(t *testing.T) {
 
 func TestProvisioner_Teardown(t *testing.T) {
 	t.Run("ErrorNilBlueprint", func(t *testing.T) {
-		// checkOrphanedLocalState must fail gracefully on a nil blueprint, the same
-		// way DestroyAll/DestroyAllTerraform already do downstream, rather than
-		// panicking on blueprint.TerraformComponents.
+		// Given a provisioner
 		mocks := setupProvisionerMocks(t)
-		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler)
+		prov := provisioner.NewProvisioner(mocks.Runtime, mocks.BlueprintHandler)
 
-		_, err := provisioner.Teardown(context.Background(), nil, false, false)
+		// When Teardown is called with a nil blueprint
+		_, err := prov.Teardown(context.Background(), nil, false, false)
 
+		// Then a blueprint-not-provided error is returned
 		if err == nil {
 			t.Fatal("Expected error for nil blueprint, got nil")
 		}
@@ -1118,9 +1230,7 @@ func TestProvisioner_Teardown(t *testing.T) {
 	})
 
 	t.Run("KubernetesWithoutBackendFieldErrorsBeforeAnyDestroy", func(t *testing.T) {
-		// A kubernetes-configured backend with no Blueprint.Backend would silently
-		// fall through to plain DestroyAll, destroying the cluster while other
-		// components' state still lives in it. Refuse before any destroy runs.
+		// Given a kubernetes backend and a blueprint with no Backend field
 		mocks := setupProvisionerMocks(t)
 		bp := &blueprintv1alpha1.Blueprint{
 			TerraformComponents: []blueprintv1alpha1.TerraformComponent{
@@ -1144,9 +1254,11 @@ func TestProvisioner_Teardown(t *testing.T) {
 			destroyAllCalled = true
 			return terraforminfra.DestroyOutcome{}, nil
 		}
-		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{TerraformStack: mockStack})
+		prov := provisioner.NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &provisioner.Provisioner{TerraformStack: mockStack})
 
-		_, err := provisioner.Teardown(context.Background(), bp, true, false)
+		// When Teardown is called
+		_, err := prov.Teardown(context.Background(), bp, true, false)
+		// Then it refuses with a remediation and DestroyAll does not run
 		if err == nil {
 			t.Fatal("Expected error for kubernetes backend without Blueprint.Backend, got nil")
 		}
@@ -1165,8 +1277,7 @@ func TestProvisioner_Teardown(t *testing.T) {
 	})
 
 	t.Run("LocalBackendCollapsesToDestroyAllTerraform", func(t *testing.T) {
-		// Local backend has no remote storage; Teardown forwards to
-		// DestroyAllTerraform without any pivot.
+		// Given a local backend
 		mocks := setupProvisionerMocks(t)
 		mockCH := mocks.ConfigHandler.(*config.MockConfigHandler)
 		mockCH.GetStringFunc = func(key string, defaultValue ...string) string {
@@ -1189,9 +1300,11 @@ func TestProvisioner_Teardown(t *testing.T) {
 			destroyAllCalls++
 			return terraforminfra.DestroyOutcome{}, nil
 		}
-		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{KubernetesManager: mocks.KubernetesManager, TerraformStack: mockStack})
+		prov := provisioner.NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &provisioner.Provisioner{KubernetesManager: mocks.KubernetesManager, TerraformStack: mockStack})
 
-		if _, err := provisioner.Teardown(context.Background(), createTestBlueprint(), true, false); err != nil {
+		// When Teardown is called
+		// Then DestroyAll runs once and the backend is not overridden
+		if _, err := prov.Teardown(context.Background(), createTestBlueprint(), true, false); err != nil {
 			t.Fatalf("Expected no error, got %v", err)
 		}
 		if destroyAllCalls != 1 {
@@ -1203,9 +1316,7 @@ func TestProvisioner_Teardown(t *testing.T) {
 	})
 
 	t.Run("NoBackendFieldCollapsesToDestroyAllTerraform", func(t *testing.T) {
-		// Without Blueprint.Backend, there is no declared backend;
-		// every component uses the configured backend. Teardown forwards to
-		// DestroyAllTerraform.
+		// Given an s3 backend and a blueprint with no Backend field
 		mocks := setupProvisionerMocks(t)
 		bp := &blueprintv1alpha1.Blueprint{
 			Metadata: blueprintv1alpha1.Metadata{Name: "test"},
@@ -1240,9 +1351,11 @@ func TestProvisioner_Teardown(t *testing.T) {
 			migrateCalled = true
 			return nil, nil
 		}
-		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{KubernetesManager: mocks.KubernetesManager, TerraformStack: mockStack})
+		prov := provisioner.NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &provisioner.Provisioner{KubernetesManager: mocks.KubernetesManager, TerraformStack: mockStack})
 
-		if _, err := provisioner.Teardown(context.Background(), bp, true, false); err != nil {
+		// When Teardown is called
+		// Then DestroyAll runs with no excludes, override, or migration
+		if _, err := prov.Teardown(context.Background(), bp, true, false); err != nil {
 			t.Fatalf("Expected no error, got %v", err)
 		}
 		if setCalled {
@@ -1257,9 +1370,7 @@ func TestProvisioner_Teardown(t *testing.T) {
 	})
 
 	t.Run("WarnsAboutOrphanedLocalStateBeforeDestroying", func(t *testing.T) {
-		// windsorcli/cli#3367: `windsor destroy` never ran the orphaned-local-state
-		// check at all. Surface the same warning apply's Up already gives, before any
-		// destroy runs.
+		// Given local state with resources under a componentID not in the blueprint
 		mocks := setupProvisionerMocks(t)
 		bp := &blueprintv1alpha1.Blueprint{
 			Metadata: blueprintv1alpha1.Metadata{Name: "test"},
@@ -1287,25 +1398,25 @@ func TestProvisioner_Teardown(t *testing.T) {
 		mockStack.DestroyAllFunc = func(_ *blueprintv1alpha1.Blueprint, _ bool, _ ...string) (terraforminfra.DestroyOutcome, error) {
 			return terraforminfra.DestroyOutcome{}, nil
 		}
-		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{KubernetesManager: mocks.KubernetesManager, TerraformStack: mockStack})
+		prov := provisioner.NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &provisioner.Provisioner{KubernetesManager: mocks.KubernetesManager, TerraformStack: mockStack})
 
+		// When Teardown runs while warnings are recorded
 		var err error
-		stderrOutput := captureStderr(t, func() {
-			_, err = provisioner.Teardown(context.Background(), bp, true, false)
+		warnings := captureWarnings(t, func(ctx context.Context) {
+			_, err = prov.Teardown(ctx, bp, true, false)
 		})
 
+		// Then a warning names the orphaned componentID
 		if err != nil {
 			t.Fatalf("Expected no error, got %v", err)
 		}
-		if !strings.Contains(stderrOutput, "vpc-old") {
-			t.Errorf("Expected a warning naming the orphaned componentID, got: %q", stderrOutput)
+		if !strings.Contains(warnings, "vpc-old") {
+			t.Errorf("Expected a warning naming the orphaned componentID, got: %q", warnings)
 		}
 	})
 
 	t.Run("OrphanInspectionFailureWarnsButDoesNotBlockDestroy", func(t *testing.T) {
-		// The orphan check is advisory. A corrupted or unreadable state file under
-		// some unrelated, already-orphaned componentID must not block destroy — the
-		// tool an operator reaches for to recover from exactly this kind of drift.
+		// Given an orphaned state file that fails inspection
 		mocks := setupProvisionerMocks(t)
 		bp := &blueprintv1alpha1.Blueprint{
 			Metadata: blueprintv1alpha1.Metadata{Name: "test"},
@@ -1335,26 +1446,28 @@ func TestProvisioner_Teardown(t *testing.T) {
 			destroyAllCalled = true
 			return terraforminfra.DestroyOutcome{}, nil
 		}
-		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{KubernetesManager: mocks.KubernetesManager, TerraformStack: mockStack})
+		prov := provisioner.NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &provisioner.Provisioner{KubernetesManager: mocks.KubernetesManager, TerraformStack: mockStack})
 
+		// When Teardown runs while warnings are recorded
 		var err error
-		stderrOutput := captureStderr(t, func() {
-			_, err = provisioner.Teardown(context.Background(), bp, true, false)
+		warnings := captureWarnings(t, func(ctx context.Context) {
+			_, err = prov.Teardown(ctx, bp, true, false)
 		})
 
+		// Then DestroyAll still runs and a warning names the componentID
 		if err != nil {
 			t.Fatalf("Expected no error — an orphan-inspection failure must only warn, got %v", err)
 		}
 		if !destroyAllCalled {
 			t.Error("Expected DestroyAll to still run despite the orphan-inspection failure")
 		}
-		if !strings.Contains(stderrOutput, "vpc-old") {
-			t.Errorf("Expected a warning naming the componentID that failed inspection, got: %q", stderrOutput)
+		if !strings.Contains(warnings, "vpc-old") {
+			t.Errorf("Expected a warning naming the componentID that failed inspection, got: %q", warnings)
 		}
 	})
 
 	t.Run("RefusesUnresolvedBackendField", func(t *testing.T) {
-		// Backend names no real component; must not collapse to "no backend".
+		// Given a Backend field that names no real component
 		mocks := setupProvisionerMocks(t)
 		bp := &blueprintv1alpha1.Blueprint{
 			Backend: "backend",
@@ -1379,9 +1492,11 @@ func TestProvisioner_Teardown(t *testing.T) {
 			destroyAllCalled = true
 			return terraforminfra.DestroyOutcome{}, nil
 		}
-		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{KubernetesManager: mocks.KubernetesManager, TerraformStack: mockStack})
+		prov := provisioner.NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &provisioner.Provisioner{KubernetesManager: mocks.KubernetesManager, TerraformStack: mockStack})
 
-		_, err := provisioner.Teardown(context.Background(), bp, true, false)
+		// When Teardown is called
+		_, err := prov.Teardown(context.Background(), bp, true, false)
+		// Then it refuses and DestroyAll does not run
 		if err == nil {
 			t.Fatal("Expected error for unresolved Backend field, got nil")
 		}
@@ -1394,8 +1509,7 @@ func TestProvisioner_Teardown(t *testing.T) {
 	})
 
 	t.Run("SingleBackendComponentDestroysNonBackendThenBackend", func(t *testing.T) {
-		// Stage 1: destroy non-backend against the configured backend.
-		// Stage 2: pin local, migrate backend-component state to local, destroy the backend components against local.
+		// Given an s3 backend and a blueprint with one backend component
 		mocks := setupProvisionerMocks(t)
 		bp := &blueprintv1alpha1.Blueprint{
 			Backend:  "backend",
@@ -1437,9 +1551,11 @@ func TestProvisioner_Teardown(t *testing.T) {
 			ops = append(ops, "migrate")
 			return nil, nil
 		}
-		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{KubernetesManager: mocks.KubernetesManager, TerraformStack: mockStack})
+		prov := provisioner.NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &provisioner.Provisioner{KubernetesManager: mocks.KubernetesManager, TerraformStack: mockStack})
 
-		if _, err := provisioner.Teardown(context.Background(), bp, true, false); err != nil {
+		// When Teardown is called
+		// Then non-backend destroys first, then the backend destroys against local
+		if _, err := prov.Teardown(context.Background(), bp, true, false); err != nil {
 			t.Fatalf("Expected no error, got %v", err)
 		}
 
@@ -1469,12 +1585,7 @@ func TestProvisioner_Teardown(t *testing.T) {
 	})
 
 	t.Run("MultiComponentBackendDestroysMembersThenBackend", func(t *testing.T) {
-		// VPC + IAM + cluster as the backend components, Backend="cluster" (the last-declared
-		// member, not the first). Stage 1 destroys non-backend (workloads) against the
-		// configured backend; Stage 2a migrates all three backend components. state to
-		// local and destroys the other backend components (vpc, iam); Stage 2b
-		// destroys the backend component (cluster) alone, only after Stage 2a comes
-		// back clean.
+		// Given an s3 backend whose backend set is vpc, iam, and cluster
 		mocks := setupProvisionerMocks(t)
 		bp := &blueprintv1alpha1.Blueprint{
 			Backend:  "cluster",
@@ -1512,9 +1623,11 @@ func TestProvisioner_Teardown(t *testing.T) {
 			migrateBlueprints = append(migrateBlueprints, b)
 			return nil, nil
 		}
-		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{KubernetesManager: mocks.KubernetesManager, TerraformStack: mockStack})
+		prov := provisioner.NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &provisioner.Provisioner{KubernetesManager: mocks.KubernetesManager, TerraformStack: mockStack})
 
-		if _, err := provisioner.Teardown(context.Background(), bp, true, false); err != nil {
+		// When Teardown is called
+		// Then members destroy before the cluster, after one migration
+		if _, err := prov.Teardown(context.Background(), bp, true, false); err != nil {
 			t.Fatalf("Expected no error, got %v", err)
 		}
 
@@ -1556,11 +1669,7 @@ func TestProvisioner_Teardown(t *testing.T) {
 	})
 
 	t.Run("MultiComponentBackendMateFailureDefersBackend", func(t *testing.T) {
-		// Regression for #3355: a backend with more than one component (vpc + cluster,
-		// Backend="cluster") where a fellow backend component (vpc) fails during Stage 2a. The
-		// backend component (cluster) must NOT be destroyed in the same pass —
-		// otherwise every other backend component.s state (and any `--continue` retry)
-		// is stranded once the backend that stores it is gone.
+		// Given a backend set where the vpc member fails during Stage 2a
 		mocks := setupProvisionerMocks(t)
 		bp := &blueprintv1alpha1.Blueprint{
 			Backend:  "cluster",
@@ -1588,23 +1697,22 @@ func TestProvisioner_Teardown(t *testing.T) {
 		mockStack.DestroyAllFunc = func(b *blueprintv1alpha1.Blueprint, _ bool, excludeIDs ...string) (terraforminfra.DestroyOutcome, error) {
 			destroyAllCalls++
 			if destroyAllCalls == 1 {
-				// Stage 1: no non-backend components in this blueprint.
 				return terraforminfra.DestroyOutcome{}, nil
 			}
 			if len(excludeIDs) == 1 && excludeIDs[0] == "cluster" {
-				// Stage 2a: the fellow backend component fails.
 				return terraforminfra.DestroyOutcome{
 					Failed: []terraforminfra.ComponentFailure{{ID: "networking/vpc", Err: fmt.Errorf("network still in use")}},
 				}, nil
 			}
-			// Stage 2b would destroy the backend component alone — must not be reached.
 			stage2bCalled = true
 			return terraforminfra.DestroyOutcome{Destroyed: []string{"cluster"}}, nil
 		}
 		mockStack.MigrateStateFunc = func(_ *blueprintv1alpha1.Blueprint) ([]string, error) { return nil, nil }
-		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{KubernetesManager: mocks.KubernetesManager, TerraformStack: mockStack})
+		prov := provisioner.NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &provisioner.Provisioner{KubernetesManager: mocks.KubernetesManager, TerraformStack: mockStack})
 
-		result, err := provisioner.Teardown(context.Background(), bp, true, true)
+		// When Teardown runs with continueOnError
+		result, err := prov.Teardown(context.Background(), bp, true, true)
+		// Then the cluster is not destroyed and terraform is deferred
 		if err != nil {
 			t.Fatalf("Expected continueOnError to absorb the fellow-component failure, got %v", err)
 		}
@@ -1620,6 +1728,7 @@ func TestProvisioner_Teardown(t *testing.T) {
 	})
 
 	t.Run("Stage1FailureAbortsBeforeStage2", func(t *testing.T) {
+		// Given an s3 backend and a Stage 1 DestroyAll that fails
 		mocks := setupProvisionerMocks(t)
 		bp := &blueprintv1alpha1.Blueprint{
 			Backend:  "backend",
@@ -1653,9 +1762,11 @@ func TestProvisioner_Teardown(t *testing.T) {
 			migrateCalled = true
 			return nil, nil
 		}
-		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{KubernetesManager: mocks.KubernetesManager, TerraformStack: mockStack})
+		prov := provisioner.NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &provisioner.Provisioner{KubernetesManager: mocks.KubernetesManager, TerraformStack: mockStack})
 
-		_, err := provisioner.Teardown(context.Background(), bp, true, false)
+		// When Teardown is called
+		_, err := prov.Teardown(context.Background(), bp, true, false)
+		// Then the error is returned and Stage 2 never starts
 		if err == nil {
 			t.Fatal("Expected error from Stage 1 failure, got nil")
 		}
@@ -1671,10 +1782,7 @@ func TestProvisioner_Teardown(t *testing.T) {
 	})
 
 	t.Run("Stage2MigrationFailureAbortsBackendDestroyAndRestoresBackend", func(t *testing.T) {
-		// When the Stage 2 MigrateState fails (e.g. configured backend is intermittent),
-		// no backend destroy may run — operating against partially-migrated state could
-		// strand the operator. The deferred restore in withBackendOverride must still
-		// fire so subsequent commands see the configured backend.
+		// Given an s3 backend and a Stage 2 migration that fails
 		mocks := setupProvisionerMocks(t)
 		bp := &blueprintv1alpha1.Blueprint{
 			Backend:  "backend",
@@ -1713,9 +1821,11 @@ func TestProvisioner_Teardown(t *testing.T) {
 			ops = append(ops, "migrate-fail")
 			return nil, fmt.Errorf("configured backend unreachable")
 		}
-		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{KubernetesManager: mocks.KubernetesManager, TerraformStack: mockStack})
+		prov := provisioner.NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &provisioner.Provisioner{KubernetesManager: mocks.KubernetesManager, TerraformStack: mockStack})
 
-		_, err := provisioner.Teardown(context.Background(), bp, true, false)
+		// When Teardown is called
+		_, err := prov.Teardown(context.Background(), bp, true, false)
+		// Then no backend destroy runs and the backend is restored
 		if err == nil {
 			t.Fatal("Expected error from Stage 2 migration failure, got nil")
 		}
@@ -1725,7 +1835,6 @@ func TestProvisioner_Teardown(t *testing.T) {
 		if destroyAllCalls != 1 {
 			t.Errorf("Stage 2 backend destroy must not run when migration fails (expected 1 DestroyAll from Stage 1, got %d)", destroyAllCalls)
 		}
-		// Restore must still fire via defer.
 		var sawRestore bool
 		for _, op := range ops {
 			if op == "set:s3" {
@@ -1738,10 +1847,7 @@ func TestProvisioner_Teardown(t *testing.T) {
 	})
 
 	t.Run("BackendRestoreFailureEmitsStderrWarning", func(t *testing.T) {
-		// When the deferred Set (restore to configured backend) fails after a
-		// successful backend destroy, the call still returns nil but the operator
-		// needs to know so subsequent commands aren't surprised by a stale
-		// in-memory override.
+		// Given a backend restore that fails after a successful teardown
 		mocks := setupProvisionerMocks(t)
 		bp := &blueprintv1alpha1.Blueprint{
 			Backend:  "backend",
@@ -1773,27 +1879,27 @@ func TestProvisioner_Teardown(t *testing.T) {
 		}
 		mockStack.MigrateStateFunc = func(_ *blueprintv1alpha1.Blueprint) ([]string, error) { return nil, nil }
 
-		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{KubernetesManager: mocks.KubernetesManager, TerraformStack: mockStack})
+		prov := provisioner.NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &provisioner.Provisioner{KubernetesManager: mocks.KubernetesManager, TerraformStack: mockStack})
+		// When Teardown runs while warnings are recorded
 		var err error
-		stderrOutput := captureStderr(t, func() {
-			_, err = provisioner.Teardown(context.Background(), bp, true, false)
+		warnings := captureWarnings(t, func(ctx context.Context) {
+			_, err = prov.Teardown(ctx, bp, true, false)
 		})
 
+		// Then teardown succeeds and a warning reports about the restore failure
 		if err != nil {
 			t.Fatalf("Expected destroy to succeed despite restore failure, got %v", err)
 		}
-		if !strings.Contains(stderrOutput, "failed to restore terraform.backend.type") {
-			t.Errorf("Expected stderr warning about restore failure, got: %q", stderrOutput)
+		if !strings.Contains(warnings, "failed to restore terraform.backend.type") {
+			t.Errorf("Expected warning about restore failure, got: %q", warnings)
 		}
-		if !strings.Contains(stderrOutput, "mock restore failure") {
-			t.Errorf("Expected stderr warning to include underlying cause, got: %q", stderrOutput)
+		if !strings.Contains(warnings, "mock restore failure") {
+			t.Errorf("Expected warning to include underlying cause, got: %q", warnings)
 		}
 	})
 
 	t.Run("SkippedComponentsMergeAcrossStages", func(t *testing.T) {
-		// Stage 1's DestroyAll, Stage 2a's MigrateState, and Stage 2b's
-		// DestroyAllTerraform all independently report dir-missing
-		// components. Naive concat would double-count overlaps.
+		// Given stages that report overlapping skipped components
 		mocks := setupProvisionerMocks(t)
 		bp := &blueprintv1alpha1.Blueprint{
 			Backend:  "backend",
@@ -1827,9 +1933,11 @@ func TestProvisioner_Teardown(t *testing.T) {
 		mockStack.MigrateStateFunc = func(_ *blueprintv1alpha1.Blueprint) ([]string, error) {
 			return []string{"backend"}, nil
 		}
-		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{KubernetesManager: mocks.KubernetesManager, TerraformStack: mockStack})
+		prov := provisioner.NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &provisioner.Provisioner{KubernetesManager: mocks.KubernetesManager, TerraformStack: mockStack})
 
-		result, err := provisioner.Teardown(context.Background(), bp, true, false)
+		// When Teardown is called
+		result, err := prov.Teardown(context.Background(), bp, true, false)
+		// Then result.Skipped lists each component once in order
 		if err != nil {
 			t.Fatalf("Expected no error, got %v", err)
 		}
@@ -1845,8 +1953,7 @@ func TestProvisioner_Teardown(t *testing.T) {
 	})
 
 	t.Run("ContinueDefersTerraformWhenNonBackendHasFailures", func(t *testing.T) {
-		// Given a blueprint with a declared backend and a non-backend component whose
-		// Stage 1 destroy reported a failure under continueOnError mode
+		// Given a non-backend component that fails in Stage 1
 		mocks := setupProvisionerMocks(t)
 		bp := &blueprintv1alpha1.Blueprint{
 			Backend:  "backend",
@@ -1882,13 +1989,12 @@ func TestProvisioner_Teardown(t *testing.T) {
 			migrateCalled = true
 			return nil, nil
 		}
-		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{KubernetesManager: mocks.KubernetesManager, TerraformStack: mockStack})
+		prov := provisioner.NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &provisioner.Provisioner{KubernetesManager: mocks.KubernetesManager, TerraformStack: mockStack})
 
-		// When Teardown runs with continueOnError=true
-		result, err := provisioner.Teardown(context.Background(), bp, true, true)
+		// When Teardown runs with continueOnError
+		result, err := prov.Teardown(context.Background(), bp, true, true)
 
-		// Then no error is returned (failure is collected), terraform is deferred,
-		// and Stage 2 backend migration never engages
+		// Then terraform is deferred and Stage 2 never engages
 		if err != nil {
 			t.Fatalf("Expected continueOnError to absorb per-component failure, got %v", err)
 		}
@@ -1939,12 +2045,12 @@ func TestProvisioner_Teardown(t *testing.T) {
 			migrateCalled = true
 			return nil, nil
 		}
-		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{KubernetesManager: mocks.KubernetesManager, TerraformStack: mockStack})
+		prov := provisioner.NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &provisioner.Provisioner{KubernetesManager: mocks.KubernetesManager, TerraformStack: mockStack})
 
-		// When Teardown runs with continueOnError=true
-		result, err := provisioner.Teardown(context.Background(), bp, true, true)
+		// When Teardown runs with continueOnError
+		result, err := prov.Teardown(context.Background(), bp, true, true)
 
-		// Then terraform is attempted (Stage 2 runs) and TerraformDeferred stays false
+		// Then Stage 2 runs and TerraformDeferred stays false
 		if err != nil {
 			t.Fatalf("Expected no error, got %v", err)
 		}
@@ -1960,8 +2066,7 @@ func TestProvisioner_Teardown(t *testing.T) {
 	})
 
 	t.Run("StillDefersTerraformAfterPrepareLocalTeardownOnRemoteBackend", func(t *testing.T) {
-		// Given a gcs backend whose PrepareLocalTeardown ran first, then a non-backend
-		// destroy failure under continueOnError mode
+		// Given a gcs backend and a non-backend destroy failure
 		mocks := setupProvisionerMocks(t)
 		bp := &blueprintv1alpha1.Blueprint{
 			Backend:  "backend",
@@ -1987,16 +2092,15 @@ func TestProvisioner_Teardown(t *testing.T) {
 			}, nil
 		}
 		mockStack.MigrateStateFunc = func(_ *blueprintv1alpha1.Blueprint) ([]string, error) { return nil, nil }
-		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{KubernetesManager: mocks.KubernetesManager, TerraformStack: mockStack})
+		prov := provisioner.NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &provisioner.Provisioner{KubernetesManager: mocks.KubernetesManager, TerraformStack: mockStack})
 
-		// When PrepareLocalTeardown runs first, then Teardown with continueOnError=true
-		if _, err := provisioner.PrepareLocalTeardown(context.Background(), bp); err != nil {
+		// When PrepareLocalTeardown runs, then Teardown with continueOnError
+		if _, err := prov.PrepareLocalTeardown(context.Background(), bp); err != nil {
 			t.Fatalf("Expected no error from PrepareLocalTeardown, got %v", err)
 		}
-		result, err := provisioner.Teardown(context.Background(), bp, false, true)
+		result, err := prov.Teardown(context.Background(), bp, false, true)
 
-		// Then the backend type is untouched, terraform is still deferred, and the
-		// backend component is never destroyed alongside the failed component
+		// Then the backend type is untouched and terraform is deferred
 		if err != nil {
 			t.Fatalf("Expected continueOnError to absorb per-component failure, got %v", err)
 		}
@@ -2009,8 +2113,7 @@ func TestProvisioner_Teardown(t *testing.T) {
 	})
 
 	t.Run("ContinueCollectsLocalBackendFailures", func(t *testing.T) {
-		// Given a local backend (no declared backend) and a stack that reports per-component
-		// failures under continueOnError mode
+		// Given a local backend and a stack that reports one failure
 		mocks := setupProvisionerMocks(t)
 		mockCH := mocks.ConfigHandler.(*config.MockConfigHandler)
 		mockCH.GetStringFunc = func(key string, defaultValue ...string) string {
@@ -2032,12 +2135,12 @@ func TestProvisioner_Teardown(t *testing.T) {
 				Failed:    []terraforminfra.ComponentFailure{{ID: "iam", Err: fmt.Errorf("permission denied")}},
 			}, nil
 		}
-		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{KubernetesManager: mocks.KubernetesManager, TerraformStack: mockStack})
+		prov := provisioner.NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &provisioner.Provisioner{KubernetesManager: mocks.KubernetesManager, TerraformStack: mockStack})
 
-		// When Teardown runs with continueOnError=true
-		result, err := provisioner.Teardown(context.Background(), createTestBlueprint(), true, true)
+		// When Teardown runs with continueOnError
+		result, err := prov.Teardown(context.Background(), createTestBlueprint(), true, true)
 
-		// Then per-component failures surface in result.Failed without aborting
+		// Then the failure surfaces in result.Failed without aborting
 		if err != nil {
 			t.Fatalf("Expected continueOnError to absorb per-component failure, got %v", err)
 		}
@@ -2050,10 +2153,7 @@ func TestProvisioner_Teardown(t *testing.T) {
 	})
 
 	t.Run("ContinueDefersTerraformWhenKustomizeFailsAndClusterReachable", func(t *testing.T) {
-		// Given a declared-backend blueprint where kustomize Uninstall fails while the cluster is
-		// reachable. A live controller (e.g. Crossplane) may still be mid-teardown of a
-		// cloud-backed resource terraform never tracked, so terraform — which would destroy the
-		// cluster hosting that controller — MUST be deferred, not attempted. See #3385.
+		// Given kustomize uninstall fails while the cluster stays reachable
 		mocks := setupProvisionerMocks(t)
 		bp := &blueprintv1alpha1.Blueprint{
 			Backend:  "backend",
@@ -2077,8 +2177,6 @@ func TestProvisioner_Teardown(t *testing.T) {
 		mocks.KubernetesManager.DeleteBlueprintFunc = func(_ *blueprintv1alpha1.Blueprint, _ string) error {
 			return fmt.Errorf("destroy aborted: timeout waiting for load balancer teardown")
 		}
-		// WaitForKubernetesHealthyFunc left unset: the default mock returns nil, i.e. the
-		// cluster is reachable — the scenario this test exercises.
 		mockStack := terraforminfra.NewMockStack()
 		migrateCalled := false
 		destroyAllCalls := 0
@@ -2090,17 +2188,15 @@ func TestProvisioner_Teardown(t *testing.T) {
 			migrateCalled = true
 			return nil, nil
 		}
-		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{
+		prov := provisioner.NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &provisioner.Provisioner{
 			TerraformStack:    mockStack,
 			KubernetesManager: mocks.KubernetesManager,
 		})
 
-		// When Teardown runs the full destroy (terraformOnly=false) with continueOnError=true
-		result, err := provisioner.Teardown(context.Background(), bp, false, true)
+		// When Teardown runs the full destroy with continueOnError
+		result, err := prov.Teardown(context.Background(), bp, false, true)
 
-		// Then the kustomize failure is recorded and terraform is deferred entirely —
-		// Stage 1 itself aborts before touching terraform (via Provisioner.DestroyAll's
-		// own gate), so Stage 2/3 never run either.
+		// Then terraform is deferred and no DestroyAll runs
 		if err != nil {
 			t.Fatalf("Expected continueOnError to absorb kustomize failure, got %v", err)
 		}
@@ -2115,7 +2211,7 @@ func TestProvisioner_Teardown(t *testing.T) {
 		}
 		var foundKustomize bool
 		for _, f := range result.Failed {
-			if f.ID == KustomizeFailureID {
+			if f.ID == provisioner.KustomizeFailureID {
 				foundKustomize = true
 			}
 		}
@@ -2125,11 +2221,7 @@ func TestProvisioner_Teardown(t *testing.T) {
 	})
 
 	t.Run("ContinueDefersTerraformWhenKustomizeFailsAndClusterUnreachable", func(t *testing.T) {
-		// Given a declared-backend blueprint where kustomize Uninstall fails and the cluster
-		// also happens to be unreachable. There is no reachability exception: an unreachable
-		// cluster is not proof it's actually gone (a network blip, an expired credential, a
-		// control-plane restart all look the same), so terraform is deferred here too, exactly
-		// as it would be if the cluster were reachable.
+		// Given kustomize uninstall fails and the cluster is unreachable
 		mocks := setupProvisionerMocks(t)
 		bp := &blueprintv1alpha1.Blueprint{
 			Backend:  "backend",
@@ -2167,16 +2259,15 @@ func TestProvisioner_Teardown(t *testing.T) {
 			migrateCalled = true
 			return nil, nil
 		}
-		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{
+		prov := provisioner.NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &provisioner.Provisioner{
 			TerraformStack:    mockStack,
 			KubernetesManager: mocks.KubernetesManager,
 		})
 
-		// When Teardown runs the full destroy (terraformOnly=false) with continueOnError=true
-		result, err := provisioner.Teardown(context.Background(), bp, false, true)
+		// When Teardown runs the full destroy with continueOnError
+		result, err := prov.Teardown(context.Background(), bp, false, true)
 
-		// Then the kustomize failure is recorded and terraform is deferred, same as the
-		// reachable case.
+		// Then terraform is deferred and no DestroyAll runs
 		if err != nil {
 			t.Fatalf("Expected continueOnError to absorb kustomize failure, got %v", err)
 		}
@@ -2191,7 +2282,7 @@ func TestProvisioner_Teardown(t *testing.T) {
 		}
 		var foundKustomize bool
 		for _, f := range result.Failed {
-			if f.ID == KustomizeFailureID {
+			if f.ID == provisioner.KustomizeFailureID {
 				foundKustomize = true
 			}
 		}
@@ -2214,14 +2305,14 @@ func TestProvisioner_TeardownComponent(t *testing.T) {
 	}
 
 	t.Run("ErrorNilBlueprint", func(t *testing.T) {
-		// checkOrphanedLocalState must fail gracefully on a nil blueprint, the same
-		// way Destroy already does downstream, rather than panicking on
-		// blueprint.TerraformComponents.
+		// Given a provisioner
 		mocks := setupProvisionerMocks(t)
-		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler)
+		prov := provisioner.NewProvisioner(mocks.Runtime, mocks.BlueprintHandler)
 
-		_, err := provisioner.TeardownComponent(context.Background(), nil, "cluster")
+		// When TeardownComponent is called with a nil blueprint
+		_, err := prov.TeardownComponent(context.Background(), nil, "cluster")
 
+		// Then a blueprint-not-provided error is returned
 		if err == nil {
 			t.Fatal("Expected error for nil blueprint, got nil")
 		}
@@ -2231,10 +2322,9 @@ func TestProvisioner_TeardownComponent(t *testing.T) {
 	})
 
 	t.Run("RefusesAnyBackendComponentOnRemoteBackend", func(t *testing.T) {
-		// A backend component on any remote backend (s3, azurerm, kubernetes) is refused —
-		// destroying it in isolation would orphan state for downstream components.
 		for _, backendType := range []string{"kubernetes", "s3", "azurerm"} {
 			t.Run(backendType, func(t *testing.T) {
+				// Given a remote backend of the given type
 				mocks := setupProvisionerMocks(t)
 				mockCH := mocks.ConfigHandler.(*config.MockConfigHandler)
 				mockCH.GetStringFunc = func(key string, defaultValue ...string) string {
@@ -2252,9 +2342,11 @@ func TestProvisioner_TeardownComponent(t *testing.T) {
 					destroyCalled = true
 					return false, nil
 				}
-				provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{TerraformStack: mockStack})
+				prov := provisioner.NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &provisioner.Provisioner{TerraformStack: mockStack})
 
-				_, err := provisioner.TeardownComponent(context.Background(), bpWithBackend(), "backend")
+				// When TeardownComponent targets the backend component
+				_, err := prov.TeardownComponent(context.Background(), bpWithBackend(), "backend")
+				// Then it refuses with a full-teardown remediation
 				if err == nil {
 					t.Fatal("Expected refusal error, got nil")
 				}
@@ -2275,8 +2367,7 @@ func TestProvisioner_TeardownComponent(t *testing.T) {
 	})
 
 	t.Run("RefusesPreBackendComponentOnRemoteBackend", func(t *testing.T) {
-		// A component declared before the named backend is also a backend component
-		// and triggers the same refusal.
+		// Given an s3 backend and a component declared before the named backend
 		mocks := setupProvisionerMocks(t)
 		bp := &blueprintv1alpha1.Blueprint{
 			Backend:  "cluster",
@@ -2303,9 +2394,11 @@ func TestProvisioner_TeardownComponent(t *testing.T) {
 			destroyCalled = true
 			return false, nil
 		}
-		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{TerraformStack: mockStack})
+		prov := provisioner.NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &provisioner.Provisioner{TerraformStack: mockStack})
 
-		_, err := provisioner.TeardownComponent(context.Background(), bp, "networking/vpc")
+		// When TeardownComponent targets that component
+		_, err := prov.TeardownComponent(context.Background(), bp, "networking/vpc")
+		// Then it refuses and names the component
 		if err == nil {
 			t.Fatal("Expected refusal for a pre-backend component, got nil")
 		}
@@ -2318,8 +2411,7 @@ func TestProvisioner_TeardownComponent(t *testing.T) {
 	})
 
 	t.Run("AllowsBackendComponentOnLocalBackend", func(t *testing.T) {
-		// On a local backend there is no shared remote storage to orphan; a backend component
-		// member destroys directly.
+		// Given a local backend
 		mocks := setupProvisionerMocks(t)
 		mockCH := mocks.ConfigHandler.(*config.MockConfigHandler)
 		mockCH.GetStringFunc = func(key string, defaultValue ...string) string {
@@ -2340,9 +2432,11 @@ func TestProvisioner_TeardownComponent(t *testing.T) {
 			}
 			return false, nil
 		}
-		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{KubernetesManager: mocks.KubernetesManager, TerraformStack: mockStack})
+		prov := provisioner.NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &provisioner.Provisioner{KubernetesManager: mocks.KubernetesManager, TerraformStack: mockStack})
 
-		if _, err := provisioner.TeardownComponent(context.Background(), bpWithBackend(), "backend"); err != nil {
+		// When TeardownComponent targets the backend component
+		// Then Destroy runs directly
+		if _, err := prov.TeardownComponent(context.Background(), bpWithBackend(), "backend"); err != nil {
 			t.Fatalf("Expected no error, got %v", err)
 		}
 		if !destroyCalled {
@@ -2351,10 +2445,9 @@ func TestProvisioner_TeardownComponent(t *testing.T) {
 	})
 
 	t.Run("NonBackendComponentUsesDirectDestroyOnAnyBackend", func(t *testing.T) {
-		// Non-backend components destroy directly regardless of backend type — the
-		// configured backend still exists, no migration needed.
 		for _, backendType := range []string{"local", "kubernetes", "s3", "azurerm"} {
 			t.Run(backendType, func(t *testing.T) {
+				// Given a backend of the given type
 				mocks := setupProvisionerMocks(t)
 				mockCH := mocks.ConfigHandler.(*config.MockConfigHandler)
 				mockCH.GetStringFunc = func(key string, defaultValue ...string) string {
@@ -2385,9 +2478,11 @@ func TestProvisioner_TeardownComponent(t *testing.T) {
 					}
 					return false, nil
 				}
-				provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{KubernetesManager: mocks.KubernetesManager, TerraformStack: mockStack})
+				prov := provisioner.NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &provisioner.Provisioner{KubernetesManager: mocks.KubernetesManager, TerraformStack: mockStack})
 
-				if _, err := provisioner.TeardownComponent(context.Background(), bpWithBackend(), "cluster"); err != nil {
+				// When TeardownComponent targets a non-backend component
+				// Then Destroy runs with no migration or backend override
+				if _, err := prov.TeardownComponent(context.Background(), bpWithBackend(), "cluster"); err != nil {
 					t.Fatalf("Expected no error, got %v", err)
 				}
 				if !destroyCalled {
@@ -2404,9 +2499,7 @@ func TestProvisioner_TeardownComponent(t *testing.T) {
 	})
 
 	t.Run("WarnsAboutOrphanedLocalStateBeforeDestroying", func(t *testing.T) {
-		// windsorcli/cli#3367: a targeted `windsor destroy terraform <component>` never
-		// ran the orphaned-local-state check at all. Surface the same warning here as
-		// on a full Teardown, so a drifted componentID is flagged before destroy runs.
+		// Given local state with resources under a componentID not in the blueprint
 		mocks := setupProvisionerMocks(t)
 		mockCH := mocks.ConfigHandler.(*config.MockConfigHandler)
 		mockCH.GetStringFunc = func(key string, defaultValue ...string) string {
@@ -2426,116 +2519,20 @@ func TestProvisioner_TeardownComponent(t *testing.T) {
 			return componentID == "cluster-old", nil
 		}
 		mockStack.DestroyFunc = func(_ *blueprintv1alpha1.Blueprint, _ string) (bool, error) { return false, nil }
-		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{TerraformStack: mockStack})
+		prov := provisioner.NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &provisioner.Provisioner{TerraformStack: mockStack})
 
+		// When TeardownComponent runs while warnings are recorded
 		var err error
-		stderrOutput := captureStderr(t, func() {
-			_, err = provisioner.TeardownComponent(context.Background(), bpWithBackend(), "cluster")
+		warnings := captureWarnings(t, func(ctx context.Context) {
+			_, err = prov.TeardownComponent(ctx, bpWithBackend(), "cluster")
 		})
 
+		// Then a warning names the orphaned componentID
 		if err != nil {
 			t.Fatalf("Expected no error, got %v", err)
 		}
-		if !strings.Contains(stderrOutput, "cluster-old") {
-			t.Errorf("Expected a warning naming the orphaned componentID, got: %q", stderrOutput)
+		if !strings.Contains(warnings, "cluster-old") {
+			t.Errorf("Expected a warning naming the orphaned componentID, got: %q", warnings)
 		}
 	})
-}
-
-// =============================================================================
-// Test Private Methods
-// =============================================================================
-
-func TestProvisioner_checkKubernetesReachableForDestroy(t *testing.T) {
-	t.Run("NoOpWhenKubernetesManagerNil", func(t *testing.T) {
-		mocks := setupProvisionerMocks(t)
-		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler)
-		provisioner.KubernetesManager = nil
-
-		if err := provisioner.checkKubernetesReachableForDestroy(); err != nil {
-			t.Errorf("Expected no error, got %v", err)
-		}
-	})
-
-	t.Run("NoOpWhenKubeconfigMissing", func(t *testing.T) {
-		mocks := setupProvisionerMocks(t)
-		mocks.Runtime.ConfigRoot = t.TempDir()
-		opts := &Provisioner{KubernetesManager: mocks.KubernetesManager}
-		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
-
-		if err := provisioner.checkKubernetesReachableForDestroy(); err != nil {
-			t.Errorf("Expected no error, got %v", err)
-		}
-	})
-
-	t.Run("PassesWhenClusterReachable", func(t *testing.T) {
-		mocks := setupProvisionerMocks(t)
-		mocks.KubernetesManager.WaitForKubernetesHealthyFunc = func(ctx context.Context, endpoint string, outputFunc func(string), nodeNames ...string) error {
-			return nil
-		}
-		opts := &Provisioner{KubernetesManager: mocks.KubernetesManager}
-		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
-
-		if err := provisioner.checkKubernetesReachableForDestroy(); err != nil {
-			t.Errorf("Expected no error, got %v", err)
-		}
-	})
-
-	t.Run("ErrorWhenClusterUnreachable", func(t *testing.T) {
-		mocks := setupProvisionerMocks(t)
-		mocks.KubernetesManager.WaitForKubernetesHealthyFunc = func(ctx context.Context, endpoint string, outputFunc func(string), nodeNames ...string) error {
-			return fmt.Errorf("connection refused")
-		}
-		opts := &Provisioner{KubernetesManager: mocks.KubernetesManager}
-		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
-
-		err := provisioner.checkKubernetesReachableForDestroy()
-		if err == nil {
-			t.Fatal("Expected error, got nil")
-		}
-		if !strings.Contains(err.Error(), "kubernetes API is unreachable") {
-			t.Errorf("Expected error to name the unreachable cluster, got: %v", err)
-		}
-		if !strings.Contains(err.Error(), "connection refused") {
-			t.Errorf("Expected error to wrap the underlying cause, got: %v", err)
-		}
-	})
-}
-
-// =============================================================================
-// Test Helpers
-// =============================================================================
-
-func TestProvisioner_blocksNextStage(t *testing.T) {
-	tests := []struct {
-		name   string
-		failed []ComponentFailure
-		want   bool
-	}{
-		{
-			name:   "NoFailures",
-			failed: nil,
-			want:   false,
-		},
-		{
-			name:   "TerraformFailureBlocks",
-			failed: []ComponentFailure{{ID: "cluster", Err: fmt.Errorf("boom")}},
-			want:   true,
-		},
-		{
-			name:   "KustomizeFailureBlocks",
-			failed: []ComponentFailure{{ID: KustomizeFailureID, Err: fmt.Errorf("boom")}},
-			want:   true,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got := blocksNextStage(tt.failed)
-
-			if got != tt.want {
-				t.Errorf("blocksNextStage() = %v, want %v", got, tt.want)
-			}
-		})
-	}
 }

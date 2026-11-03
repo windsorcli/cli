@@ -398,8 +398,8 @@ func (k *BaseKubernetesManager) processDestroyOnlyKustomizations(ctx context.Con
 
 	_, endWait := presenter.Begin(ctx, "kustomize:destroy-only-wait", fmt.Sprintf("Waiting for %d destroy-only kustomization(s) to become ready", len(kustomizations)))
 
-	waitTimeout := time.After(k.kustomizationReconcileTimeout)
-	ticker := time.NewTicker(k.kustomizationWaitPollInterval)
+	waitTimeout := time.After(k.Timing.KustomizationReconcileTimeout)
+	ticker := time.NewTicker(k.Timing.KustomizationWaitPollInterval)
 	allReady := false
 	statusCheckFailed := false
 
@@ -495,7 +495,7 @@ func (k *BaseKubernetesManager) setKustomizationSuspend(name, namespace string, 
 // resumed Kustomization reaches metadata.generation. A delete during that reconcile can strand the object.
 // The wait is best effort: it returns on a read error or at the deadline, and never sleeps past the deadline.
 func (k *BaseKubernetesManager) waitForResumeReconcile(name, namespace string) {
-	deadline := k.shims.TimeNow().Add(k.kustomizationReconcileSleep)
+	deadline := k.Shims.TimeNow().Add(k.Timing.KustomizationReconcileSleep)
 	for {
 		obj, err := k.client.GetResource(kustomizationsGVR, namespace, name)
 		if err != nil {
@@ -504,11 +504,11 @@ func (k *BaseKubernetesManager) waitForResumeReconcile(name, namespace string) {
 		if reconcileGenerationSettled(obj) {
 			return
 		}
-		remaining := deadline.Sub(k.shims.TimeNow())
+		remaining := deadline.Sub(k.Shims.TimeNow())
 		if remaining <= 0 {
 			return
 		}
-		k.shims.TimeSleep(min(k.kustomizationWaitPollInterval, remaining))
+		k.Shims.TimeSleep(min(k.Timing.KustomizationWaitPollInterval, remaining))
 	}
 }
 

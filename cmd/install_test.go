@@ -1,4 +1,4 @@
-package cmd
+package cmd_test
 
 import (
 	"context"
@@ -7,6 +7,8 @@ import (
 	"os"
 	"strings"
 	"testing"
+
+	cliCmd "github.com/windsorcli/cli/cmd"
 
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
@@ -24,10 +26,10 @@ func TestInstallCmd(t *testing.T) {
 		cmd := &cobra.Command{
 			Use:   "install",
 			Short: "Install the blueprint's cluster-level services",
-			RunE:  installCmd.RunE,
+			RunE:  cliCmd.InstallCmd.RunE,
 		}
 
-		installCmd.Flags().VisitAll(func(flag *pflag.Flag) {
+		cliCmd.InstallCmd.Flags().VisitAll(func(flag *pflag.Flag) {
 			cmd.Flags().AddFlag(flag)
 		})
 
@@ -77,7 +79,7 @@ func TestInstallCmd(t *testing.T) {
 		})
 
 		cmd := createTestInstallCmd()
-		ctx := context.WithValue(context.Background(), projectOverridesKey, proj)
+		ctx := context.WithValue(context.Background(), cliCmd.ProjectOverridesKey, proj)
 		cmd.SetArgs([]string{})
 		cmd.SetContext(ctx)
 		err := cmd.Execute()
@@ -136,7 +138,7 @@ func TestInstallCmd(t *testing.T) {
 		})
 
 		cmd := createTestInstallCmd()
-		ctx := context.WithValue(context.Background(), projectOverridesKey, proj)
+		ctx := context.WithValue(context.Background(), cliCmd.ProjectOverridesKey, proj)
 		cmd.SetArgs([]string{})
 		cmd.SetContext(ctx)
 		if err := cmd.Execute(); err != nil {
@@ -188,7 +190,7 @@ func TestInstallCmd(t *testing.T) {
 		})
 
 		cmd := createTestInstallCmd()
-		ctx := context.WithValue(context.Background(), projectOverridesKey, proj)
+		ctx := context.WithValue(context.Background(), cliCmd.ProjectOverridesKey, proj)
 		cmd.SetArgs([]string{"--wait"})
 		cmd.SetContext(ctx)
 		err := cmd.Execute()
@@ -224,7 +226,7 @@ func TestInstallCmd(t *testing.T) {
 		})
 
 		cmd := createTestInstallCmd()
-		ctx := context.WithValue(context.Background(), projectOverridesKey, proj)
+		ctx := context.WithValue(context.Background(), cliCmd.ProjectOverridesKey, proj)
 		cmd.SetContext(ctx)
 		err := cmd.Execute()
 
@@ -268,7 +270,7 @@ func TestInstallCmd(t *testing.T) {
 		})
 
 		cmd := createTestInstallCmd()
-		ctx := context.WithValue(context.Background(), projectOverridesKey, proj)
+		ctx := context.WithValue(context.Background(), cliCmd.ProjectOverridesKey, proj)
 		cmd.SetContext(ctx)
 		err := cmd.Execute()
 

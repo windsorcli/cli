@@ -1,10 +1,12 @@
-package cmd
+package cmd_test
 
 import (
 	"context"
 	"os"
 	"path/filepath"
 	"testing"
+
+	cliCmd "github.com/windsorcli/cli/cmd"
 
 	"github.com/windsorcli/cli/pkg/runtime"
 	"github.com/windsorcli/cli/pkg/runtime/shell"
@@ -36,13 +38,13 @@ func TestListCmd(t *testing.T) {
 		mockShell := shell.NewMockShell()
 		mockShell.GetProjectRootFunc = func() (string, error) { return tmpDir, nil }
 		rt := runtime.NewRuntime(&runtime.Runtime{Shell: mockShell, ProjectRoot: tmpDir})
-		rootCmd.SetContext(context.WithValue(context.Background(), runtimeOverridesKey, rt))
+		cliCmd.RootCmd().SetContext(context.WithValue(context.Background(), cliCmd.RuntimeOverridesKey, rt))
 
 		stdout, stderr := captureOutput(t)
-		rootCmd.SetOut(stdout)
-		rootCmd.SetErr(stderr)
-		rootCmd.SetArgs(args)
-		if err := Execute(); err != nil {
+		cliCmd.RootCmd().SetOut(stdout)
+		cliCmd.RootCmd().SetErr(stderr)
+		cliCmd.RootCmd().SetArgs(args)
+		if err := cliCmd.Execute(); err != nil {
 			t.Fatalf("Expected no error, got %v", err)
 		}
 		return stdout.String()

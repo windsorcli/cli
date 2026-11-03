@@ -1,4 +1,4 @@
-package cmd
+package cmd_test
 
 import (
 	"bytes"
@@ -8,6 +8,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	cliCmd "github.com/windsorcli/cli/cmd"
 
 	"github.com/windsorcli/cli/pkg/runtime"
 	"github.com/windsorcli/cli/pkg/runtime/config"
@@ -46,17 +48,17 @@ func TestGetContextsCmd(t *testing.T) {
 		})
 
 		stdout, stderr := captureOutput(t)
-		rootCmd.SetOut(stdout)
-		rootCmd.SetErr(stderr)
+		cliCmd.RootCmd().SetOut(stdout)
+		cliCmd.RootCmd().SetErr(stderr)
 		return stdout, stderr
 	}
 
 	t.Run("NoContextsFound", func(t *testing.T) {
 		stdout, _ := setup(t)
 
-		rootCmd.SetArgs([]string{"get", "contexts"})
+		cliCmd.RootCmd().SetArgs([]string{"get", "contexts"})
 
-		err := Execute()
+		err := cliCmd.Execute()
 
 		if err != nil {
 			t.Errorf("Expected no error, got %v", err)
@@ -116,12 +118,12 @@ func TestGetContextsCmd(t *testing.T) {
 			t.Fatal("Failed to create runtime")
 		}
 
-		ctx := context.WithValue(context.Background(), runtimeOverridesKey, rt)
-		rootCmd.SetContext(ctx)
+		ctx := context.WithValue(context.Background(), cliCmd.RuntimeOverridesKey, rt)
+		cliCmd.RootCmd().SetContext(ctx)
 
-		rootCmd.SetArgs([]string{"get", "contexts"})
+		cliCmd.RootCmd().SetArgs([]string{"get", "contexts"})
 
-		err := Execute()
+		err := cliCmd.Execute()
 
 		if err != nil {
 			t.Errorf("Expected no error, got %v", err)
@@ -195,12 +197,12 @@ func TestGetContextsCmd(t *testing.T) {
 			t.Fatal("Failed to create runtime")
 		}
 
-		ctx := context.WithValue(context.Background(), runtimeOverridesKey, rt)
-		rootCmd.SetContext(ctx)
+		ctx := context.WithValue(context.Background(), cliCmd.RuntimeOverridesKey, rt)
+		cliCmd.RootCmd().SetContext(ctx)
 
-		rootCmd.SetArgs([]string{"get", "contexts"})
+		cliCmd.RootCmd().SetArgs([]string{"get", "contexts"})
 
-		err := Execute()
+		err := cliCmd.Execute()
 
 		if err != nil {
 			t.Errorf("Expected no error, got %v", err)
@@ -253,12 +255,12 @@ func TestGetContextsCmd(t *testing.T) {
 			t.Fatal("Failed to create runtime")
 		}
 
-		ctx := context.WithValue(context.Background(), runtimeOverridesKey, rt)
-		rootCmd.SetContext(ctx)
+		ctx := context.WithValue(context.Background(), cliCmd.RuntimeOverridesKey, rt)
+		cliCmd.RootCmd().SetContext(ctx)
 
-		rootCmd.SetArgs([]string{"get", "contexts"})
+		cliCmd.RootCmd().SetArgs([]string{"get", "contexts"})
 
-		err := Execute()
+		err := cliCmd.Execute()
 
 		if err != nil {
 			t.Errorf("Expected no error, got %v", err)
@@ -316,12 +318,12 @@ func TestGetContextsCmd(t *testing.T) {
 			t.Fatal("Failed to create runtime")
 		}
 
-		ctx := context.WithValue(context.Background(), runtimeOverridesKey, rt)
-		rootCmd.SetContext(ctx)
+		ctx := context.WithValue(context.Background(), cliCmd.RuntimeOverridesKey, rt)
+		cliCmd.RootCmd().SetContext(ctx)
 
-		rootCmd.SetArgs([]string{"get", "contexts"})
+		cliCmd.RootCmd().SetArgs([]string{"get", "contexts"})
 
-		err := Execute()
+		err := cliCmd.Execute()
 
 		if err != nil {
 			t.Errorf("Expected no error, got %v", err)
@@ -381,12 +383,12 @@ func TestGetContextsCmd(t *testing.T) {
 			t.Fatal("Failed to create runtime")
 		}
 
-		ctx := context.WithValue(context.Background(), runtimeOverridesKey, rt)
-		rootCmd.SetContext(ctx)
+		ctx := context.WithValue(context.Background(), cliCmd.RuntimeOverridesKey, rt)
+		cliCmd.RootCmd().SetContext(ctx)
 
-		rootCmd.SetArgs([]string{"get", "contexts"})
+		cliCmd.RootCmd().SetArgs([]string{"get", "contexts"})
 
-		err := Execute()
+		err := cliCmd.Execute()
 
 		if err != nil {
 			t.Errorf("Expected no error, got %v", err)
@@ -445,17 +447,17 @@ func TestGetContextCmd(t *testing.T) {
 		})
 
 		stdout, stderr := captureOutput(t)
-		rootCmd.SetOut(stdout)
-		rootCmd.SetErr(stderr)
+		cliCmd.RootCmd().SetOut(stdout)
+		cliCmd.RootCmd().SetErr(stderr)
 		return stdout, stderr
 	}
 
 	t.Run("GetCurrentContext", func(t *testing.T) {
 		stdout, _ := setup(t)
 
-		rootCmd.SetArgs([]string{"get", "context"})
+		cliCmd.RootCmd().SetArgs([]string{"get", "context"})
 
-		err := Execute()
+		err := cliCmd.Execute()
 
 		if err != nil {
 			t.Errorf("Expected no error, got %v", err)
@@ -488,13 +490,13 @@ func TestGetContextCmd(t *testing.T) {
 		}()
 		_ = runtime.NewRuntime(rtOverride)
 
-		ctx := context.WithValue(context.Background(), runtimeOverridesKey, rtOverride)
-		rootCmd.SetContext(ctx)
+		ctx := context.WithValue(context.Background(), cliCmd.RuntimeOverridesKey, rtOverride)
+		cliCmd.RootCmd().SetContext(ctx)
 
 		// Note: NewRuntime will panic, so Execute won't be reached
 		// This test needs to be updated to test for panics instead
-		rootCmd.SetArgs([]string{"get", "context"})
-		_ = Execute()
+		cliCmd.RootCmd().SetArgs([]string{"get", "context"})
+		_ = cliCmd.Execute()
 	})
 
 	t.Run("HandlesLoadConfigError", func(t *testing.T) {
@@ -509,12 +511,12 @@ func TestGetContextCmd(t *testing.T) {
 		}
 		mocks := setupMocks(t, &SetupOptions{ConfigHandler: mockConfigHandler})
 
-		ctx := context.WithValue(context.Background(), runtimeOverridesKey, mocks.Runtime)
-		rootCmd.SetContext(ctx)
+		ctx := context.WithValue(context.Background(), cliCmd.RuntimeOverridesKey, mocks.Runtime)
+		cliCmd.RootCmd().SetContext(ctx)
 
-		rootCmd.SetArgs([]string{"get", "context"})
+		cliCmd.RootCmd().SetArgs([]string{"get", "context"})
 
-		err := Execute()
+		err := cliCmd.Execute()
 
 		if err == nil {
 			t.Error("Expected error when LoadConfig fails")
@@ -528,14 +530,14 @@ func TestGetContextCmd(t *testing.T) {
 
 func TestGetContextsCmd_ErrorScenarios(t *testing.T) {
 	t.Cleanup(func() {
-		rootCmd.SetContext(context.Background())
+		cliCmd.RootCmd().SetContext(context.Background())
 	})
 
 	setup := func(t *testing.T) (*bytes.Buffer, *bytes.Buffer) {
 		t.Helper()
 		stdout, stderr := captureOutput(t)
-		rootCmd.SetOut(stdout)
-		rootCmd.SetErr(stderr)
+		cliCmd.RootCmd().SetOut(stdout)
+		cliCmd.RootCmd().SetErr(stderr)
 		return stdout, stderr
 	}
 
@@ -559,13 +561,13 @@ func TestGetContextsCmd_ErrorScenarios(t *testing.T) {
 		}()
 		_ = runtime.NewRuntime(rtOverride)
 
-		ctx := context.WithValue(context.Background(), runtimeOverridesKey, rtOverride)
-		rootCmd.SetContext(ctx)
+		ctx := context.WithValue(context.Background(), cliCmd.RuntimeOverridesKey, rtOverride)
+		cliCmd.RootCmd().SetContext(ctx)
 
 		// Note: NewRuntime will panic, so Execute won't be reached
 		// This test needs to be updated to test for panics instead
-		rootCmd.SetArgs([]string{"get", "contexts"})
-		_ = Execute()
+		cliCmd.RootCmd().SetArgs([]string{"get", "contexts"})
+		_ = cliCmd.Execute()
 	})
 
 	t.Run("HandlesGetProjectRootError", func(t *testing.T) {
@@ -576,12 +578,12 @@ func TestGetContextsCmd_ErrorScenarios(t *testing.T) {
 			return "", fmt.Errorf("project root error")
 		}
 
-		ctx := context.WithValue(context.Background(), runtimeOverridesKey, mocks.Runtime)
-		rootCmd.SetContext(ctx)
+		ctx := context.WithValue(context.Background(), cliCmd.RuntimeOverridesKey, mocks.Runtime)
+		cliCmd.RootCmd().SetContext(ctx)
 
-		rootCmd.SetArgs([]string{"get", "contexts"})
+		cliCmd.RootCmd().SetArgs([]string{"get", "contexts"})
 
-		err := Execute()
+		err := cliCmd.Execute()
 
 		if err == nil {
 			t.Error("Expected error when GetProjectRoot fails")

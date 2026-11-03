@@ -1,7 +1,7 @@
-// The virt package is a virtualization management system
-// It provides interfaces and base implementations for managing virtual machines and containers
-// It serves as the core abstraction layer for virtualization operations in the Windsor CLI
-// It supports both VM-based (Colima) and container-based (Docker) virtualization
+// The Virt is the virtualization abstraction of the workstation.
+// It provides the Virt interface and the BaseVirt that the VM and container runtimes embed.
+// ColimaVirt runs the VM, and DockerVirt and IncusVirt run the containers.
+// Each implementation runs its tool through the shell of the runtime.
 
 package virt
 
@@ -18,8 +18,7 @@ import (
 // Constants
 // =============================================================================
 
-// RETRY_WAIT is the number of seconds to wait between retries when starting or stopping a VM
-// If running in CI, no wait is performed
+// RETRY_WAIT is the number of seconds between VM retries. It is 0 when CI is "true".
 var RETRY_WAIT = func() int {
 	return map[bool]int{true: 0, false: 2}[os.Getenv("CI") == "true"]
 }()
@@ -28,7 +27,7 @@ var RETRY_WAIT = func() int {
 // Types
 // =============================================================================
 
-// VMInfo is a struct that holds the information about the VM
+// VMInfo holds the address and the resources of a VM.
 type VMInfo struct {
 	Address string
 	Arch    string
@@ -38,12 +37,7 @@ type VMInfo struct {
 	Name    string
 }
 
-type ContainerInfo struct {
-	Name    string
-	Address string
-	Labels  map[string]string
-}
-
+// BaseVirt holds the dependencies that every Virt implementation shares.
 type BaseVirt struct {
 	runtime       *runtime.Runtime
 	shell         shell.Shell
@@ -56,19 +50,19 @@ type BaseVirt struct {
 // Interfaces
 // =============================================================================
 
-// Virt defines methods for the virt operations
+// Virt starts, stops, and writes the configuration of a VM or a container runtime.
 type Virt interface {
 	Up(ctx context.Context) error
 	Down(ctx context.Context) error
 	WriteConfig() error
 }
 
-// VirtualMachine defines methods for VirtualMachine operations
+// VirtualMachine is a Virt that runs a VM.
 type VirtualMachine interface {
 	Virt
 }
 
-// ContainerRuntime defines methods for container operations
+// ContainerRuntime is a Virt that runs containers.
 type ContainerRuntime interface {
 	Virt
 }
@@ -77,7 +71,7 @@ type ContainerRuntime interface {
 // Constructor
 // =============================================================================
 
-// NewBaseVirt creates a new BaseVirt instance
+// NewBaseVirt returns a BaseVirt for rt. It panics when rt, its shell, or its config handler is nil.
 func NewBaseVirt(rt *runtime.Runtime) *BaseVirt {
 	if rt == nil {
 		panic("runtime is required")
@@ -96,9 +90,4 @@ func NewBaseVirt(rt *runtime.Runtime) *BaseVirt {
 		projectRoot:   rt.ProjectRoot,
 		shims:         NewShims(),
 	}
-}
-
-// setShims sets the shims for testing purposes
-func (v *BaseVirt) setShims(shims *Shims) {
-	v.shims = shims
 }

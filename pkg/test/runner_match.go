@@ -16,16 +16,11 @@ import (
 // Private Methods
 // =============================================================================
 
-// matchBlueprint compares the actual composed blueprint against expected blueprint structure and returns
-// a list of differences. It uses partial matching semantics: only fields explicitly specified in the expect
-// blueprint are validated, allowing tests to focus on specific aspects without asserting the entire structure.
-// The function validates Terraform components, Kustomizations, the crds: layer, and the config: scope,
-// checking for presence and matching properties. For each expected component, it searches the actual
-// blueprint, reports missing components, and compares specified properties (source, path, dependsOn, etc.);
-// each expect.crds entry must appear in the blueprint's crds: list. Each expect.config entry is matched by
-// top-level block name against bp.Config using subset semantics (see deepEqualInputsValue), so a nested
-// path like config: cluster: controlplanes: cpu: 7 checks only the keys named. Returns an empty slice if
-// all expectations are met, or a list of descriptive difference messages if mismatches are found.
+// matchBlueprint compares the composed blueprint with the expect blueprint and returns the differences.
+// It checks only the fields that expect sets. It reports each missing terraform component or
+// kustomization, and each specified property that differs. Each expect.crds entry must be in the crds:
+// list. Each expect.config entry matches bp.Config by block name with subset semantics, so
+// config: cluster: controlplanes: cpu: 7 checks only the keys it names. An empty slice means a match.
 func (r *TestRunner) matchBlueprint(bp *blueprintv1alpha1.Blueprint, expect *blueprintv1alpha1.Blueprint) []string {
 	var diffs []string
 
@@ -90,18 +85,11 @@ func (r *TestRunner) matchBlueprint(bp *blueprintv1alpha1.Blueprint, expect *blu
 	return diffs
 }
 
-// matchExclusions verifies that components specified in the exclude blueprint are NOT present in the
-// actual composed blueprint. This allows tests to assert that certain components should be excluded
-// based on test conditions (e.g., a component should not exist when a feature flag is disabled).
-// Uses partial matching: components are identified by name or path for Terraform components, and by
-// name for Kustomizations. A Kustomization exclusion that also sets components: doesn't assert the
-// whole entry is absent — the containing kustomization is expected to exist, so this asserts only
-// that those specific components are absent from it (see matchComponentExclusion); a
-// bare name: with no components: keeps whole-entry-absence semantics. Each exclude.config entry is
-// matched by top-level block name against bp.Config using the same subset semantics matchBlueprint
-// uses for expect.config; a match is a violation, a missing key or a non-matching value is not. If
-// any excluded component or config value is found in the blueprint, a descriptive error message is
-// added to the differences list. Returns an empty slice if all exclusions are satisfied.
+// matchExclusions returns a difference for each part of the exclude blueprint that the composed blueprint has.
+// Terraform components match by name or path, and kustomizations match by name. A kustomization
+// exclusion with components: requires the kustomization to exist and checks only that those components
+// are absent. A bare name: checks that the whole entry is absent. Each exclude.config entry is a
+// violation when it matches bp.Config with the subset semantics of matchBlueprint.
 func (r *TestRunner) matchExclusions(bp *blueprintv1alpha1.Blueprint, exclude *blueprintv1alpha1.Blueprint) []string {
 	var diffs []string
 
@@ -355,24 +343,11 @@ func (r *TestRunner) matchKustomization(actual *blueprintv1alpha1.Kustomization,
 	return diffs
 }
 
-// matchFluxSystem compares an actual FluxSystem against expected properties. The actual system comes
-// from bp.FluxSystems, after facet merge and when-expression evaluation. The function returns a list
-// of differences.
-//
-// The function uses partial matching. It checks only the properties set on the expect system.
-//
-// The function compares fields this way:
-//   - Path: compares against actual.EffectivePath(), the same name fallback compileFluxSystemTiers
-//     uses. A fixture that omits path: still matches.
-//   - Source, When, Strategy, DependsOn: compares the raw values the author wrote. DependsOn is the
-//     system's own cross-layer edges, not a value the composer computes.
-//   - Ordinal, GlobalDependency: compares only when the expectation sets them. GlobalDependency
-//     checks only the true direction, because false is indistinguishable from unset.
-//   - Install, Resources: delegates to matchKustomization for each Kustomization field.
-//   - Enabled, Destroy: not compared. Composition does not evaluate these fields, so they hold the
-//     raw authored expression, not a rendering outcome.
-//
-// The function returns an empty slice when all specified properties match.
+// matchFluxSystem compares a merged FluxSystem with the expect system and returns the differences.
+// It checks only the fields that expect sets. Path compares with actual.EffectivePath(), so a fixture
+// without path: still matches. Source, When, Strategy, and DependsOn compare the authored values.
+// Ordinal compares only when expect sets it. GlobalDependency checks only true, because false is the same as unset. Install and Resources use
+// matchKustomization. Enabled and Destroy are not compared, because composition does not evaluate them.
 func (r *TestRunner) matchFluxSystem(actual *blueprintv1alpha1.FluxSystem, expect blueprintv1alpha1.FluxSystem) []string {
 	var diffs []string
 	name := expect.Name
@@ -440,19 +415,11 @@ func (r *TestRunner) matchFluxSystem(actual *blueprintv1alpha1.FluxSystem, expec
 	return diffs
 }
 
-// matchFluxSystemExclusions verifies that specific parts of an actual FluxSystem (found by name) are
-// absent: the install tier when exclude.Install is set, and each named/matched resources variant in
-// exclude.Resources. Used when a fixture wants to assert a system is still partially present (e.g. its
-// install tier remains while one resources variant is gated off) rather than absent entirely, which
-// matchExclusions handles by name lookup alone before calling this. An exclude.Install or resources
-// variant that also sets components: doesn't assert the tier/variant itself is absent — it's expected
-// to exist — so this asserts only that those specific components are absent from it, the same
-// name-plus-components treatment matchExclusions gives a Kustomization exclusion (see
-// matchComponentExclusion). This narrowing applies whichever way findFluxVariant located the variant —
-// by exact name, or by its components-subset match for an unnamed variant — since either way the found
-// variant is expected to exist and only the listed components are asserted absent from it. A bare
-// install: or resources variant with no components: keeps whole-tier/whole-variant-absence semantics.
-// Returns an empty slice if every excluded part is absent.
+// matchFluxSystemExclusions returns a difference for each excluded part of a FluxSystem that is present.
+// It checks the install tier when exclude.Install is set, and each resources variant in exclude.Resources.
+// A tier or variant with components: must exist, and only those components must be absent from it.
+// This applies to a variant that findFluxVariant found by name or by components subset.
+// A bare install: or resources variant must be absent as a whole.
 func (r *TestRunner) matchFluxSystemExclusions(actual *blueprintv1alpha1.FluxSystem, exclude blueprintv1alpha1.FluxSystem) []string {
 	var diffs []string
 	name := exclude.Name

@@ -1,4 +1,4 @@
-package cmd
+package cmd_test
 
 import (
 	"context"
@@ -9,6 +9,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	cliCmd "github.com/windsorcli/cli/cmd"
 
 	"github.com/google/go-containerregistry/pkg/v1/remote/transport"
 	"github.com/spf13/cobra"
@@ -81,7 +83,7 @@ func createTestPushCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "push",
 		Short: "Push blueprints to an OCI registry",
-		RunE:  pushCmd.RunE,
+		RunE:  cliCmd.PushCmd.RunE,
 	}
 	cmd.SilenceUsage = true
 	cmd.SilenceErrors = true
@@ -102,8 +104,8 @@ func TestPushCmdWithRuntime(t *testing.T) {
 		// Given a mock composer whose ArtifactBuilder returns a wrapped *transport.Error{401}
 		pushMocks, mocks := setupPushTest(t)
 		cmd := createTestPushCmd()
-		ctx := context.WithValue(context.Background(), runtimeOverridesKey, mocks.Runtime)
-		ctx = context.WithValue(ctx, composerOverridesKey, pushMocks.Composer)
+		ctx := context.WithValue(context.Background(), cliCmd.RuntimeOverridesKey, mocks.Runtime)
+		ctx = context.WithValue(ctx, cliCmd.ComposerOverridesKey, pushMocks.Composer)
 		cmd.SetContext(ctx)
 		cmd.SetArgs([]string{"registry.example.com/repo:v1.0.0"})
 
@@ -126,8 +128,8 @@ func TestPushCmdWithRuntime(t *testing.T) {
 		// Given the same auth scenario but with a registry URL missing an explicit tag
 		pushMocks, mocks := setupPushTest(t)
 		cmd := createTestPushCmd()
-		ctx := context.WithValue(context.Background(), runtimeOverridesKey, mocks.Runtime)
-		ctx = context.WithValue(ctx, composerOverridesKey, pushMocks.Composer)
+		ctx := context.WithValue(context.Background(), cliCmd.RuntimeOverridesKey, mocks.Runtime)
+		ctx = context.WithValue(ctx, cliCmd.ComposerOverridesKey, pushMocks.Composer)
 		cmd.SetContext(ctx)
 		cmd.SetArgs([]string{"registry.example.com/repo"})
 
@@ -147,8 +149,8 @@ func TestPushCmdWithRuntime(t *testing.T) {
 		// Given the same auth scenario with an oci:// prefixed URL
 		pushMocks, mocks := setupPushTest(t)
 		cmd := createTestPushCmd()
-		ctx := context.WithValue(context.Background(), runtimeOverridesKey, mocks.Runtime)
-		ctx = context.WithValue(ctx, composerOverridesKey, pushMocks.Composer)
+		ctx := context.WithValue(context.Background(), cliCmd.RuntimeOverridesKey, mocks.Runtime)
+		ctx = context.WithValue(ctx, cliCmd.ComposerOverridesKey, pushMocks.Composer)
 		cmd.SetContext(ctx)
 		cmd.SetArgs([]string{"oci://ghcr.io/windsorcli/core:v0.0.0"})
 
@@ -171,8 +173,8 @@ func TestPushCmdWithRuntime(t *testing.T) {
 			return fmt.Errorf("network timeout: dial tcp: i/o timeout")
 		}
 		cmd := createTestPushCmd()
-		ctx := context.WithValue(context.Background(), runtimeOverridesKey, mocks.Runtime)
-		ctx = context.WithValue(ctx, composerOverridesKey, pushMocks.Composer)
+		ctx := context.WithValue(context.Background(), cliCmd.RuntimeOverridesKey, mocks.Runtime)
+		ctx = context.WithValue(ctx, cliCmd.ComposerOverridesKey, pushMocks.Composer)
 		cmd.SetContext(ctx)
 		cmd.SetArgs([]string{"registry.example.com/repo:v1.0.0"})
 
@@ -195,7 +197,7 @@ func TestPushCmdWithRuntime(t *testing.T) {
 		// Given proper setup with runtime override
 		_, mocks := setupPushTest(t)
 		cmd := createTestPushCmd()
-		ctx := context.WithValue(context.Background(), runtimeOverridesKey, mocks.Runtime)
+		ctx := context.WithValue(context.Background(), cliCmd.RuntimeOverridesKey, mocks.Runtime)
 		cmd.SetContext(ctx)
 		cmd.SetArgs([]string{})
 
@@ -215,7 +217,7 @@ func TestPushCmdWithRuntime(t *testing.T) {
 		// Given proper setup with runtime override
 		_, mocks := setupPushTest(t)
 		cmd := createTestPushCmd()
-		ctx := context.WithValue(context.Background(), runtimeOverridesKey, mocks.Runtime)
+		ctx := context.WithValue(context.Background(), cliCmd.RuntimeOverridesKey, mocks.Runtime)
 		cmd.SetContext(ctx)
 		cmd.SetArgs([]string{"invalidformat"})
 

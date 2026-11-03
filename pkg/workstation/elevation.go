@@ -5,20 +5,16 @@ package workstation
 
 import "github.com/windsorcli/cli/pkg/runtime/shell"
 
-// canElevateNonInteractivelyFunc is the swappable seam tests use to simulate the "can elevate"
-// answer without touching OS-specific internals (geteuid on unix, TokenElevation on windows).
-// Default points at the OS-specific impl in elevation_unix.go / elevation_windows.go.
+// canElevateNonInteractivelyFunc is the elevation probe. SetCanElevateNonInteractivelyForTest replaces it.
 var canElevateNonInteractivelyFunc = canElevateNonInteractivelyImpl
 
-// canElevateNonInteractively dispatches through the swappable seam so callers see the real
-// behavior in production and tests can drive specific outcomes regardless of host OS.
+// canElevateNonInteractively reports whether the process can run privileged commands without a prompt.
 func canElevateNonInteractively(sh shell.Shell) bool {
 	return canElevateNonInteractivelyFunc(sh)
 }
 
-// SetCanElevateNonInteractivelyForTest replaces the package's elevation probe for the duration
-// of a test and returns a restore function. Used by tests across platforms to simulate
-// "can elevate" / "cannot elevate" without depending on the OS-specific implementation.
+// SetCanElevateNonInteractivelyForTest replaces the elevation probe with fn and returns a function that restores it.
+// Tests on each OS use it to simulate either answer.
 func SetCanElevateNonInteractivelyForTest(fn func(shell.Shell) bool) func() {
 	original := canElevateNonInteractivelyFunc
 	canElevateNonInteractivelyFunc = fn

@@ -288,20 +288,11 @@ func printSectionHeader(w io.Writer, title string) {
 	fmt.Fprintf(w, "\n%s\n%s\n", title, strings.Repeat("═", 47))
 }
 
-// makeBootstrapConfirmFn builds the confirm callback the provisioner calls
-// with a BootstrapSummary describing what bootstrap is about to apply. The
-// summary is sourced from the blueprint and config — no terraform invocation
-// — and is rendered for the operator before they confirm.
-//
-// The returned finish func must be called once Bootstrap returns; it is a
-// no-op when the prompt has already resolved.
-//
-// Anything other than "y" or "yes" (case-insensitive) at the prompt returns
-// false — including empty input and EOF, so non-interactive callers must pass
-// --yes. Fires in both global and local project modes; the directory-level
-// cue alone isn't enough to tell an operator which components and
-// kustomizations are about to move, especially when bootstrap re-applies on
-// top of partial state.
+// makeBootstrapConfirmFn returns the confirm callback for the provisioner and a finish func.
+// The callback renders the BootstrapSummary, which comes from the blueprint and config without terraform.
+// Only "y" or "yes" (any case) confirms. Empty input and EOF decline, so a non-interactive caller must
+// pass --yes. The prompt runs in global and project modes. The caller must call finish after Bootstrap
+// returns, and finish does nothing when the prompt has already resolved.
 func makeBootstrapConfirmFn(in io.Reader, out io.Writer) (provisioner.BootstrapConfirmFn, func(error)) {
 	resolved := false
 	confirmFn := func(summary *provisioner.BootstrapSummary) bool {

@@ -106,7 +106,7 @@ type IncusRemote struct {
 // Constructor
 // =============================================================================
 
-// NewIncusVirt creates a new IncusVirt with the provided runtime and embeds ColimaVirt for VM lifecycle.
+// NewIncusVirt returns an IncusVirt for rt that embeds a ColimaVirt for the VM.
 func NewIncusVirt(rt *runtime.Runtime) *IncusVirt {
 	return &IncusVirt{
 		ColimaVirt:     NewColimaVirt(rt),
@@ -119,13 +119,9 @@ func NewIncusVirt(rt *runtime.Runtime) *IncusVirt {
 // Public Methods
 // =============================================================================
 
-// Up performs startup for the IncusVirt environment according to its current role.
-// When invoked as a VirtualMachine, it starts the Colima VM by delegating to ColimaVirt.Up()
-// if the VM is not already running. When invoked as a ContainerRuntime, and the VM is already
-// running, it creates Incus instances for all configured services. This method determines the
-// operation to perform by checking the VM's running status. It performs Incus-specific
-// initialization when running as a container runtime, such as remote repository setup and
-// instance creation. Returns an error if any step of initialization or startup fails.
+// Up starts the Colima VM through ColimaVirt.Up when the VM is not running.
+// When the VM is running, it adds the docker and ghcr remotes that Incus does not have yet.
+// Workstation calls Up once as the VirtualMachine and once as the ContainerRuntime.
 func (v *IncusVirt) Up(ctx context.Context) error {
 	info, err := v.getVMInfo()
 	vmAlreadyRunning := err == nil && info.Address != ""
@@ -137,7 +133,7 @@ func (v *IncusVirt) Up(ctx context.Context) error {
 	return v.startIncusContainers()
 }
 
-// Down stops the Colima Incus daemon and runs the parent's Down() to clean up the VM.
+// Down stops the Colima daemon and deletes the VM. Off platform incus, it only deletes the VM.
 func (v *IncusVirt) Down(ctx context.Context) error {
 	if v.configHandler.GetString("platform") != "incus" {
 		return v.ColimaVirt.Down(ctx)
@@ -158,11 +154,8 @@ func (v *IncusVirt) Down(ctx context.Context) error {
 // Private Methods
 // =============================================================================
 
-// startIncusContainers creates Incus instances for all configured services.
-// This method assumes the Colima VM is already running and has been validated.
-// It ensures required Incus remotes are configured, validates the VM state, and creates
-// instances for each service that has an Incus configuration. Network devices and
-// non-network devices are configured as specified in each service's configuration.
+// startIncusContainers checks the running VM and adds the docker and ghcr remotes to Incus.
+// Terraform in the stack creates the instances.
 func (v *IncusVirt) startIncusContainers() error {
 	info, err := v.getVMInfo()
 	if err == nil {

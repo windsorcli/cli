@@ -1,7 +1,7 @@
 //go:build integration
 // +build integration
 
-package cmd
+package cmd_test
 
 // The IntegrationTest provides integration coverage for Windsor CLI commands.
 // It runs commands with a real runtime and real project layout in a temp directory,
@@ -15,6 +15,8 @@ import (
 	"regexp"
 	"testing"
 
+	cliCmd "github.com/windsorcli/cli/cmd"
+
 	"github.com/windsorcli/cli/pkg/runtime"
 )
 
@@ -24,22 +26,22 @@ import (
 
 func TestIntegration_BuildID(t *testing.T) {
 	t.Run("BuildIDCommandConfiguration", func(t *testing.T) {
-		if buildIdCmd.Use != "build-id" {
-			t.Errorf("Expected Use to be 'build-id', got %s", buildIdCmd.Use)
+		if cliCmd.BuildIdCmd.Use != "build-id" {
+			t.Errorf("Expected Use to be 'build-id', got %s", cliCmd.BuildIdCmd.Use)
 		}
-		if buildIdCmd.Short == "" {
+		if cliCmd.BuildIdCmd.Short == "" {
 			t.Error("Expected non-empty Short description")
 		}
-		if buildIdCmd.Long == "" {
+		if cliCmd.BuildIdCmd.Long == "" {
 			t.Error("Expected non-empty Long description")
 		}
-		if !buildIdCmd.SilenceUsage {
+		if !cliCmd.BuildIdCmd.SilenceUsage {
 			t.Error("Expected SilenceUsage to be true")
 		}
 	})
 
 	t.Run("BuildIDCommandFlags", func(t *testing.T) {
-		newFlag := buildIdCmd.Flags().Lookup("new")
+		newFlag := cliCmd.BuildIdCmd.Flags().Lookup("new")
 		if newFlag == nil {
 			t.Fatal("Expected 'new' flag to exist")
 		}
@@ -53,7 +55,7 @@ func TestIntegration_BuildID(t *testing.T) {
 
 	t.Run("BuildIDIsSubcommandOfRoot", func(t *testing.T) {
 		found := false
-		for _, subCmd := range rootCmd.Commands() {
+		for _, subCmd := range cliCmd.RootCmd().Commands() {
 			if subCmd.Use == "build-id" {
 				found = true
 				break
@@ -112,7 +114,7 @@ func TestIntegration_BuildID(t *testing.T) {
 	t.Run("BuildIDWithRuntimeOverrideUsesInjectedRuntime", func(t *testing.T) {
 		SetupIntegrationProject(t, minimalWindsorYAML)
 		rt := runtime.NewRuntime()
-		ctx := context.WithValue(context.Background(), runtimeOverridesKey, rt)
+		ctx := context.WithValue(context.Background(), cliCmd.RuntimeOverridesKey, rt)
 		stdout, stderr, err := runCmd(t, ctx, []string{"build-id", "--new"})
 		assertSuccessAndNoStderr(t, err, stderr)
 		if stdout == "" {

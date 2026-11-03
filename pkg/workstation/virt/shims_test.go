@@ -1,9 +1,11 @@
-package virt
+package virt_test
 
 import (
 	"bytes"
 	"runtime"
 	"testing"
+
+	"github.com/windsorcli/cli/pkg/workstation/virt"
 )
 
 // =============================================================================
@@ -12,7 +14,7 @@ import (
 
 func TestNewShims(t *testing.T) {
 	// Given NewShims is called
-	shims := NewShims()
+	shims := virt.NewShims()
 
 	// Then all fields should be set
 	if shims.Setenv == nil {

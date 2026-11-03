@@ -1,4 +1,4 @@
-package cmd
+package cmd_test
 
 import (
 	"bytes"
@@ -10,6 +10,8 @@ import (
 	"slices"
 	"strings"
 	"testing"
+
+	cliCmd "github.com/windsorcli/cli/cmd"
 
 	kustomizev1 "github.com/fluxcd/kustomize-controller/api/v1"
 	"github.com/goccy/go-yaml"
@@ -136,16 +138,16 @@ func setupShowTest(t *testing.T, opts ...*SetupOptions) *ShowMocks {
 
 func TestShowBlueprintCmd(t *testing.T) {
 	createTestCmd := func() *cobra.Command {
-		showBlueprintJSON = false
-		showBlueprintRaw = false
+		*cliCmd.ShowBlueprintJSON = false
+		*cliCmd.ShowBlueprintRaw = false
 		cmd := &cobra.Command{
 			Use:          "blueprint",
 			Short:        "Display the fully rendered blueprint",
-			RunE:         showBlueprintCmd.RunE,
+			RunE:         cliCmd.ShowBlueprintCmd.RunE,
 			SilenceUsage: true,
 		}
 
-		showBlueprintCmd.Flags().VisitAll(func(flag *pflag.Flag) {
+		cliCmd.ShowBlueprintCmd.Flags().VisitAll(func(flag *pflag.Flag) {
 			cmd.Flags().AddFlag(flag)
 		})
 
@@ -214,7 +216,7 @@ func TestShowBlueprintCmd(t *testing.T) {
 		stdout, stderr, closePipes := setupOutput(t)
 
 		cmd := createTestCmd()
-		ctx := context.WithValue(context.Background(), projectOverridesKey, proj)
+		ctx := context.WithValue(context.Background(), cliCmd.ProjectOverridesKey, proj)
 		cmd.SetContext(ctx)
 		cmd.SetArgs([]string{})
 		_ = cmd.Execute()
@@ -260,7 +262,7 @@ func TestShowBlueprintCmd(t *testing.T) {
 		stdout, stderr, closePipes := setupOutput(t)
 
 		cmd := createTestCmd()
-		ctx := context.WithValue(context.Background(), projectOverridesKey, proj)
+		ctx := context.WithValue(context.Background(), cliCmd.ProjectOverridesKey, proj)
 		cmd.SetContext(ctx)
 		cmd.SetArgs([]string{"--json"})
 		_ = cmd.Execute()
@@ -310,7 +312,7 @@ func TestShowBlueprintCmd(t *testing.T) {
 		stdout, stderr, closePipes := setupOutput(t)
 
 		cmd := createTestCmd()
-		ctx := context.WithValue(context.Background(), projectOverridesKey, proj)
+		ctx := context.WithValue(context.Background(), cliCmd.ProjectOverridesKey, proj)
 		cmd.SetContext(ctx)
 		cmd.SetArgs([]string{"--raw"})
 		_ = cmd.Execute()
@@ -362,7 +364,7 @@ func TestShowBlueprintCmd(t *testing.T) {
 		stdout, _, closePipes := setupOutput(t)
 
 		cmd := createTestCmd()
-		ctx := context.WithValue(context.Background(), projectOverridesKey, proj)
+		ctx := context.WithValue(context.Background(), cliCmd.ProjectOverridesKey, proj)
 		cmd.SetContext(ctx)
 		cmd.SetArgs([]string{})
 		_ = cmd.Execute()
@@ -394,7 +396,7 @@ func TestShowBlueprintCmd(t *testing.T) {
 		})
 
 		cmd := createTestCmd()
-		ctx := context.WithValue(context.Background(), projectOverridesKey, proj)
+		ctx := context.WithValue(context.Background(), cliCmd.ProjectOverridesKey, proj)
 		cmd.SetContext(ctx)
 		cmd.SetArgs([]string{})
 		err := cmd.Execute()
@@ -424,7 +426,7 @@ func TestShowBlueprintCmd(t *testing.T) {
 		})
 
 		cmd := createTestCmd()
-		ctx := context.WithValue(context.Background(), projectOverridesKey, proj)
+		ctx := context.WithValue(context.Background(), cliCmd.ProjectOverridesKey, proj)
 		cmd.SetContext(ctx)
 		cmd.SetArgs([]string{})
 		err := cmd.Execute()
@@ -439,7 +441,7 @@ func TestShowBlueprintCmd(t *testing.T) {
 	})
 
 	t.Run("CommandInitialization", func(t *testing.T) {
-		cmd := showBlueprintCmd
+		cmd := cliCmd.ShowBlueprintCmd
 
 		if cmd.Use != "blueprint" {
 			t.Errorf("Expected Use to be 'blueprint', got %q", cmd.Use)
@@ -468,7 +470,7 @@ func TestShowBlueprintCmd(t *testing.T) {
 	})
 
 	t.Run("ShowCommandInitialization", func(t *testing.T) {
-		cmd := showCmd
+		cmd := cliCmd.ShowCmd
 
 		if cmd.Use != "show" {
 			t.Errorf("Expected Use to be 'show', got %q", cmd.Use)
@@ -484,15 +486,15 @@ func TestShowBlueprintCmd(t *testing.T) {
 
 func TestShowValuesCmd(t *testing.T) {
 	createTestCmd := func() *cobra.Command {
-		showValuesJSON = false
+		*cliCmd.ShowValuesJSON = false
 		cmd := &cobra.Command{
 			Use:          "values",
 			Short:        "Display the effective context values",
-			RunE:         showValuesCmd.RunE,
+			RunE:         cliCmd.ShowValuesCmd.RunE,
 			SilenceUsage: true,
 		}
 
-		showValuesCmd.Flags().VisitAll(func(flag *pflag.Flag) {
+		cliCmd.ShowValuesCmd.Flags().VisitAll(func(flag *pflag.Flag) {
 			cmd.Flags().AddFlag(flag)
 		})
 
@@ -553,7 +555,7 @@ func TestShowValuesCmd(t *testing.T) {
 		stdout, closePipes := setupOutput(t)
 
 		cmd := createTestCmd()
-		ctx := context.WithValue(context.Background(), projectOverridesKey, proj)
+		ctx := context.WithValue(context.Background(), cliCmd.ProjectOverridesKey, proj)
 		cmd.SetContext(ctx)
 		cmd.SetArgs([]string{})
 		_ = cmd.Execute()
@@ -596,7 +598,7 @@ func TestShowValuesCmd(t *testing.T) {
 		stdout, closePipes := setupOutput(t)
 
 		cmd := createTestCmd()
-		ctx := context.WithValue(context.Background(), projectOverridesKey, proj)
+		ctx := context.WithValue(context.Background(), cliCmd.ProjectOverridesKey, proj)
 		cmd.SetContext(ctx)
 		cmd.SetArgs([]string{})
 		_ = cmd.Execute()
@@ -653,7 +655,7 @@ func TestShowValuesCmd(t *testing.T) {
 		stdout, closePipes := setupOutput(t)
 
 		cmd := createTestCmd()
-		ctx := context.WithValue(context.Background(), projectOverridesKey, proj)
+		ctx := context.WithValue(context.Background(), cliCmd.ProjectOverridesKey, proj)
 		cmd.SetContext(ctx)
 		cmd.SetArgs([]string{})
 		_ = cmd.Execute()
@@ -685,7 +687,7 @@ func TestShowValuesCmd(t *testing.T) {
 		stdout, closePipes := setupOutput(t)
 
 		cmd := createTestCmd()
-		ctx := context.WithValue(context.Background(), projectOverridesKey, proj)
+		ctx := context.WithValue(context.Background(), cliCmd.ProjectOverridesKey, proj)
 		cmd.SetContext(ctx)
 		cmd.SetArgs([]string{})
 		_ = cmd.Execute()
@@ -717,7 +719,7 @@ func TestShowValuesCmd(t *testing.T) {
 		stdout, closePipes := setupOutput(t)
 
 		cmd := createTestCmd()
-		ctx := context.WithValue(context.Background(), projectOverridesKey, proj)
+		ctx := context.WithValue(context.Background(), cliCmd.ProjectOverridesKey, proj)
 		cmd.SetContext(ctx)
 		cmd.SetArgs([]string{"--json"})
 		_ = cmd.Execute()
@@ -752,7 +754,7 @@ func TestShowValuesCmd(t *testing.T) {
 		})
 
 		cmd := createTestCmd()
-		ctx := context.WithValue(context.Background(), projectOverridesKey, proj)
+		ctx := context.WithValue(context.Background(), cliCmd.ProjectOverridesKey, proj)
 		cmd.SetContext(ctx)
 		cmd.SetArgs([]string{})
 		err := cmd.Execute()
@@ -777,7 +779,7 @@ func TestShowValuesCmd(t *testing.T) {
 		})
 
 		cmd := createTestCmd()
-		ctx := context.WithValue(context.Background(), projectOverridesKey, proj)
+		ctx := context.WithValue(context.Background(), cliCmd.ProjectOverridesKey, proj)
 		cmd.SetContext(ctx)
 		cmd.SetArgs([]string{})
 		err := cmd.Execute()
@@ -792,7 +794,7 @@ func TestShowValuesCmd(t *testing.T) {
 	})
 
 	t.Run("CommandInitialization", func(t *testing.T) {
-		cmd := showValuesCmd
+		cmd := cliCmd.ShowValuesCmd
 
 		if cmd.Use != "values" {
 			t.Errorf("Expected Use to be 'values', got %q", cmd.Use)
@@ -816,15 +818,15 @@ func TestShowValuesCmd(t *testing.T) {
 
 func TestShowKustomizationCmd(t *testing.T) {
 	createTestCmd := func() *cobra.Command {
-		showKustomizationJSON = false
+		*cliCmd.ShowKustomizationJSON = false
 		cmd := &cobra.Command{
 			Use:          "kustomization",
 			Short:        "Display the Flux Kustomization resource for a component",
-			RunE:         showKustomizationCmd.RunE,
+			RunE:         cliCmd.ShowKustomizationCmd.RunE,
 			SilenceUsage: true,
 		}
 
-		showKustomizationCmd.Flags().VisitAll(func(flag *pflag.Flag) {
+		cliCmd.ShowKustomizationCmd.Flags().VisitAll(func(flag *pflag.Flag) {
 			cmd.Flags().AddFlag(flag)
 		})
 
@@ -893,7 +895,7 @@ func TestShowKustomizationCmd(t *testing.T) {
 		stdout, stderr, closePipes := setupOutput(t)
 
 		cmd := createTestCmd()
-		ctx := context.WithValue(context.Background(), projectOverridesKey, proj)
+		ctx := context.WithValue(context.Background(), cliCmd.ProjectOverridesKey, proj)
 		cmd.SetContext(ctx)
 		cmd.SetArgs([]string{"test-kustomization"})
 		_ = cmd.Execute()
@@ -944,7 +946,7 @@ func TestShowKustomizationCmd(t *testing.T) {
 		stdout, stderr, closePipes := setupOutput(t)
 
 		cmd := createTestCmd()
-		ctx := context.WithValue(context.Background(), projectOverridesKey, proj)
+		ctx := context.WithValue(context.Background(), cliCmd.ProjectOverridesKey, proj)
 		cmd.SetContext(ctx)
 		cmd.SetArgs([]string{"test-kustomization", "--json"})
 		_ = cmd.Execute()
@@ -991,7 +993,7 @@ func TestShowKustomizationCmd(t *testing.T) {
 		stdout, stderr, closePipes := setupOutput(t)
 
 		cmd := createTestCmd()
-		ctx := context.WithValue(context.Background(), projectOverridesKey, proj)
+		ctx := context.WithValue(context.Background(), cliCmd.ProjectOverridesKey, proj)
 		cmd.SetContext(ctx)
 		cmd.SetArgs([]string{})
 		_ = cmd.Execute()
@@ -1041,7 +1043,7 @@ func TestShowKustomizationCmd(t *testing.T) {
 		stdout, stderr, closePipes := setupOutput(t)
 
 		cmd := createTestCmd()
-		ctx := context.WithValue(context.Background(), projectOverridesKey, proj)
+		ctx := context.WithValue(context.Background(), cliCmd.ProjectOverridesKey, proj)
 		cmd.SetContext(ctx)
 		cmd.SetArgs([]string{"--json"})
 		_ = cmd.Execute()
@@ -1090,7 +1092,7 @@ func TestShowKustomizationCmd(t *testing.T) {
 		stdout, stderr, closePipes := setupOutput(t)
 
 		cmd := createTestCmd()
-		ctx := context.WithValue(context.Background(), projectOverridesKey, proj)
+		ctx := context.WithValue(context.Background(), cliCmd.ProjectOverridesKey, proj)
 		cmd.SetContext(ctx)
 		cmd.SetArgs([]string{"cert-manager-install"})
 		_ = cmd.Execute()
@@ -1142,7 +1144,7 @@ func TestShowKustomizationCmd(t *testing.T) {
 		})
 
 		cmd := createTestCmd()
-		ctx := context.WithValue(context.Background(), projectOverridesKey, proj)
+		ctx := context.WithValue(context.Background(), cliCmd.ProjectOverridesKey, proj)
 		cmd.SetContext(ctx)
 		cmd.SetArgs([]string{"cert-manager"})
 		err := cmd.Execute()
@@ -1177,7 +1179,7 @@ func TestShowKustomizationCmd(t *testing.T) {
 		})
 
 		cmd := createTestCmd()
-		ctx := context.WithValue(context.Background(), projectOverridesKey, proj)
+		ctx := context.WithValue(context.Background(), cliCmd.ProjectOverridesKey, proj)
 		cmd.SetContext(ctx)
 		cmd.SetArgs([]string{"empty-sys"})
 		err := cmd.Execute()
@@ -1205,7 +1207,7 @@ func TestShowKustomizationCmd(t *testing.T) {
 		})
 
 		cmd := createTestCmd()
-		ctx := context.WithValue(context.Background(), projectOverridesKey, proj)
+		ctx := context.WithValue(context.Background(), cliCmd.ProjectOverridesKey, proj)
 		cmd.SetContext(ctx)
 		cmd.SetArgs([]string{"nonexistent-kustomization"})
 		err := cmd.Execute()
@@ -1235,7 +1237,7 @@ func TestShowKustomizationCmd(t *testing.T) {
 		})
 
 		cmd := createTestCmd()
-		ctx := context.WithValue(context.Background(), projectOverridesKey, proj)
+		ctx := context.WithValue(context.Background(), cliCmd.ProjectOverridesKey, proj)
 		cmd.SetContext(ctx)
 		cmd.SetArgs([]string{"test-kustomization"})
 		err := cmd.Execute()
@@ -1265,7 +1267,7 @@ func TestShowKustomizationCmd(t *testing.T) {
 		})
 
 		cmd := createTestCmd()
-		ctx := context.WithValue(context.Background(), projectOverridesKey, proj)
+		ctx := context.WithValue(context.Background(), cliCmd.ProjectOverridesKey, proj)
 		cmd.SetContext(ctx)
 		cmd.SetArgs([]string{"test-kustomization"})
 		err := cmd.Execute()
@@ -1280,7 +1282,7 @@ func TestShowKustomizationCmd(t *testing.T) {
 	})
 
 	t.Run("CommandInitialization", func(t *testing.T) {
-		cmd := showKustomizationCmd
+		cmd := cliCmd.ShowKustomizationCmd
 
 		if cmd.Use != "kustomization [component-name]" {
 			t.Errorf("Expected Use to be 'kustomization [component-name]', got %q", cmd.Use)

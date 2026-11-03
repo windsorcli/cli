@@ -1,4 +1,4 @@
-package cmd
+package cmd_test
 
 import (
 	"bytes"
@@ -8,6 +8,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	cliCmd "github.com/windsorcli/cli/cmd"
 
 	"github.com/windsorcli/cli/internal/werror"
 	"github.com/windsorcli/cli/pkg/runtime"
@@ -44,8 +46,8 @@ func TestSetContextCmd(t *testing.T) {
 		})
 
 		stdout, stderr := captureOutput(t)
-		rootCmd.SetOut(stdout)
-		rootCmd.SetErr(stderr)
+		cliCmd.RootCmd().SetOut(stdout)
+		cliCmd.RootCmd().SetErr(stderr)
 		return stdout, stderr
 	}
 
@@ -73,12 +75,12 @@ func TestSetContextCmd(t *testing.T) {
 			return tmpDir, nil
 		}
 
-		ctx := context.WithValue(context.Background(), runtimeOverridesKey, mocks.Runtime)
-		rootCmd.SetContext(ctx)
+		ctx := context.WithValue(context.Background(), cliCmd.RuntimeOverridesKey, mocks.Runtime)
+		cliCmd.RootCmd().SetContext(ctx)
 
-		rootCmd.SetArgs([]string{"set", "context", "staging"})
+		cliCmd.RootCmd().SetArgs([]string{"set", "context", "staging"})
 
-		err := Execute()
+		err := cliCmd.Execute()
 
 		if err != nil {
 			t.Errorf("Expected no error, got %v", err)
@@ -112,11 +114,11 @@ func TestSetContextCmd(t *testing.T) {
 			return tmpDir, nil
 		}
 
-		ctx := context.WithValue(context.Background(), runtimeOverridesKey, mocks.Runtime)
-		rootCmd.SetContext(ctx)
-		rootCmd.SetArgs([]string{"set", "context", "staging"})
+		ctx := context.WithValue(context.Background(), cliCmd.RuntimeOverridesKey, mocks.Runtime)
+		cliCmd.RootCmd().SetContext(ctx)
+		cliCmd.RootCmd().SetArgs([]string{"set", "context", "staging"})
 
-		if err := Execute(); err != nil {
+		if err := cliCmd.Execute(); err != nil {
 			t.Fatalf("Expected no error, got %v", err)
 		}
 		if len(loaded) != 1 || loaded[0] != "staging" {
@@ -138,12 +140,12 @@ func TestSetContextCmd(t *testing.T) {
 			return tmpDir, nil
 		}
 
-		ctx := context.WithValue(context.Background(), runtimeOverridesKey, mocks.Runtime)
-		rootCmd.SetContext(ctx)
+		ctx := context.WithValue(context.Background(), cliCmd.RuntimeOverridesKey, mocks.Runtime)
+		cliCmd.RootCmd().SetContext(ctx)
 
-		rootCmd.SetArgs([]string{"set", "context", "nonexistent"})
+		cliCmd.RootCmd().SetArgs([]string{"set", "context", "nonexistent"})
 
-		err := Execute()
+		err := cliCmd.Execute()
 
 		if err == nil {
 			t.Error("Expected error when context does not exist")
@@ -179,13 +181,13 @@ func TestSetContextCmd(t *testing.T) {
 		}()
 		_ = runtime.NewRuntime(rtOverride)
 
-		ctx := context.WithValue(context.Background(), runtimeOverridesKey, rtOverride)
-		rootCmd.SetContext(ctx)
+		ctx := context.WithValue(context.Background(), cliCmd.RuntimeOverridesKey, rtOverride)
+		cliCmd.RootCmd().SetContext(ctx)
 
 		// Note: NewRuntime will panic, so Execute won't be reached
 		// This test needs to be updated to test for panics instead
-		rootCmd.SetArgs([]string{"set", "context", "test-context"})
-		_ = Execute()
+		cliCmd.RootCmd().SetArgs([]string{"set", "context", "test-context"})
+		_ = cliCmd.Execute()
 	})
 
 	t.Run("HandlesGetProjectRootError", func(t *testing.T) {
@@ -196,12 +198,12 @@ func TestSetContextCmd(t *testing.T) {
 			return "", fmt.Errorf("project root error")
 		}
 
-		ctx := context.WithValue(context.Background(), runtimeOverridesKey, mocks.Runtime)
-		rootCmd.SetContext(ctx)
+		ctx := context.WithValue(context.Background(), cliCmd.RuntimeOverridesKey, mocks.Runtime)
+		cliCmd.RootCmd().SetContext(ctx)
 
-		rootCmd.SetArgs([]string{"set", "context", "test-context"})
+		cliCmd.RootCmd().SetArgs([]string{"set", "context", "test-context"})
 
-		err := Execute()
+		err := cliCmd.Execute()
 
 		if err == nil {
 			t.Error("Expected error when GetProjectRoot fails")
@@ -239,12 +241,12 @@ func TestSetContextCmd(t *testing.T) {
 			return tmpDir, nil
 		}
 
-		ctx := context.WithValue(context.Background(), runtimeOverridesKey, mocks.Runtime)
-		rootCmd.SetContext(ctx)
+		ctx := context.WithValue(context.Background(), cliCmd.RuntimeOverridesKey, mocks.Runtime)
+		cliCmd.RootCmd().SetContext(ctx)
 
-		rootCmd.SetArgs([]string{"set", "context", "staging"})
+		cliCmd.RootCmd().SetArgs([]string{"set", "context", "staging"})
 
-		err := Execute()
+		err := cliCmd.Execute()
 
 		if err == nil {
 			t.Error("Expected error when LoadConfig fails")
@@ -278,12 +280,12 @@ func TestSetContextCmd(t *testing.T) {
 			return "", fmt.Errorf("write reset token failed")
 		}
 
-		ctx := context.WithValue(context.Background(), runtimeOverridesKey, mocks.Runtime)
-		rootCmd.SetContext(ctx)
+		ctx := context.WithValue(context.Background(), cliCmd.RuntimeOverridesKey, mocks.Runtime)
+		cliCmd.RootCmd().SetContext(ctx)
 
-		rootCmd.SetArgs([]string{"set", "context", "staging"})
+		cliCmd.RootCmd().SetArgs([]string{"set", "context", "staging"})
 
-		err := Execute()
+		err := cliCmd.Execute()
 
 		if err == nil {
 			t.Error("Expected error when WriteResetToken fails")
@@ -327,12 +329,12 @@ func TestSetContextCmd(t *testing.T) {
 			return "mock-reset-token", nil
 		}
 
-		ctx := context.WithValue(context.Background(), runtimeOverridesKey, mocks.Runtime)
-		rootCmd.SetContext(ctx)
+		ctx := context.WithValue(context.Background(), cliCmd.RuntimeOverridesKey, mocks.Runtime)
+		cliCmd.RootCmd().SetContext(ctx)
 
-		rootCmd.SetArgs([]string{"set", "context", "staging"})
+		cliCmd.RootCmd().SetArgs([]string{"set", "context", "staging"})
 
-		err := Execute()
+		err := cliCmd.Execute()
 
 		if err == nil {
 			t.Error("Expected error when SetContext fails")

@@ -13,8 +13,6 @@ import (
 	"time"
 
 	helmv2 "github.com/fluxcd/helm-controller/api/v2"
-	kustomizev1 "github.com/fluxcd/kustomize-controller/api/v1"
-	sourcev1 "github.com/fluxcd/source-controller/api/v1"
 	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
 	"github.com/windsorcli/cli/internal/werror"
 	"github.com/windsorcli/cli/pkg/constants"
@@ -40,20 +38,12 @@ type KustomizationReporter interface {
 
 // KubernetesManager defines methods for Kubernetes resource management
 type KubernetesManager interface {
-	ApplyKustomization(kustomization kustomizev1.Kustomization) error
 	DeleteKustomization(ctx context.Context, name, namespace string) error
 	WaitForKustomizations(ctx context.Context, blueprint *blueprintv1alpha1.Blueprint, layers KustomizationReporter) error
-	CreateNamespace(name string) error
-	DeleteNamespace(name string) error
-	ApplyConfigMap(name, namespace string, data map[string]string) error
 	ApplySecret(name, namespace, secretType string, stringData map[string]string, owner string) error
 	PruneSecrets(desired map[string]map[string]bool) error
 	RollWorkloadsForSecret(ctx context.Context, namespace, secretName, digest string) error
 	GetHelmReleasesForKustomization(name, namespace string) ([]helmv2.HelmRelease, error)
-	ApplyGitRepository(repo *sourcev1.GitRepository) error
-	ApplyOCIRepository(repo *sourcev1.OCIRepository) error
-	CheckGitRepositoryStatus() error
-	GetKustomizationStatus(names []string) (map[string]bool, error)
 	GetKustomizationReadiness(names []string) (map[string]bool, error)
 	KustomizationExists(name, namespace string) (bool, error)
 	NamespaceExists(name string) (bool, error)
@@ -68,6 +58,10 @@ type KubernetesManager interface {
 	GetVersionMarker(namespace string) (VersionMarker, bool, error)
 }
 
+// =============================================================================
+// Types
+// =============================================================================
+
 // InventoryEntry identifies one resource Flux is tracking for a Kustomization,
 // decoded from a single .status.inventory.entries[] record. The encoded form
 // flux writes is "<namespace>_<name>_<group>_<kind>"; namespace is empty for
@@ -81,37 +75,41 @@ type InventoryEntry struct {
 	Name      string
 }
 
+// Timing holds the poll intervals, timeouts, and retry limits of a BaseKubernetesManager.
+// DefaultTiming returns the production values. Tests set small values to avoid real waits.
+type Timing struct {
+	KustomizationWaitPollInterval        time.Duration
+	KustomizationWaitMaxReadFailures     int
+	KustomizationWaitMinErrorDuration    time.Duration
+	KustomizationReconcileTimeout        time.Duration
+	KustomizationReconcileSleep          time.Duration
+	KustomizationDeletionPerEntryTimeout time.Duration
+	KustomizationDeletionMaxExtraTimeout time.Duration
+	KustomizationSpecTimeoutCeiling      time.Duration
+	KustomizationDeleteTimeoutCeiling    time.Duration
+	KustomizationAbandonedGraceMaxExtra  time.Duration
+	LoadBalancerTeardownTimeout          time.Duration
+	NotReadyDescribeBudget               time.Duration
+	HealthCheckPollInterval              time.Duration
+	HealthCheckSettleDuration            time.Duration
+	NodeReadyPollInterval                time.Duration
+}
+
+// BaseKubernetesManager implements the KubernetesManager interface.
+// Shims and Timing are exported so that a caller can replace the clock and the waits.
+type BaseKubernetesManager struct {
+	Shims  *Shims
+	Timing Timing
+
+	client        client.KubernetesClient
+	configHandler config.ConfigHandler
+}
+
 // =============================================================================
 // Constructor
 // =============================================================================
 
-// BaseKubernetesManager implements KubernetesManager interface
-type BaseKubernetesManager struct {
-	shims         *Shims
-	client        client.KubernetesClient
-	configHandler config.ConfigHandler
-
-	kustomizationWaitPollInterval        time.Duration
-	kustomizationWaitMaxReadFailures     int
-	kustomizationWaitMinErrorDuration    time.Duration
-	kustomizationReconcileTimeout        time.Duration
-	kustomizationReconcileSleep          time.Duration
-	kustomizationDeletionPerEntryTimeout time.Duration
-	kustomizationDeletionMaxExtraTimeout time.Duration
-	kustomizationSpecTimeoutCeiling      time.Duration
-	kustomizationDeleteTimeoutCeiling    time.Duration
-	kustomizationAbandonedGraceMaxExtra  time.Duration
-
-	loadBalancerTeardownTimeout time.Duration
-
-	notReadyDescribeBudget time.Duration
-
-	healthCheckPollInterval   time.Duration
-	healthCheckSettleDuration time.Duration
-	nodeReadyPollInterval     time.Duration
-}
-
-// NewKubernetesManager returns a BaseKubernetesManager with the default timeouts. It panics on a nil argument.
+// NewKubernetesManager returns a BaseKubernetesManager with the default timing. It panics on a nil argument.
 // The configHandler supplies the context name and id for the ownership labels.
 func NewKubernetesManager(kubernetesClient client.KubernetesClient, configHandler config.ConfigHandler) *BaseKubernetesManager {
 	if kubernetesClient == nil {
@@ -121,28 +119,33 @@ func NewKubernetesManager(kubernetesClient client.KubernetesClient, configHandle
 		panic("config handler is required")
 	}
 
-	manager := &BaseKubernetesManager{
-		client:                               kubernetesClient,
-		configHandler:                        configHandler,
-		shims:                                NewShims(),
-		kustomizationWaitPollInterval:        constants.DefaultKustomizationWaitPollInterval,
-		kustomizationWaitMaxReadFailures:     constants.DefaultKustomizationWaitMaxFailures,
-		kustomizationWaitMinErrorDuration:    30 * time.Second,
-		kustomizationReconcileTimeout:        5 * time.Minute,
-		kustomizationReconcileSleep:          2 * time.Second,
-		kustomizationDeletionPerEntryTimeout: 3 * time.Second,
-		kustomizationDeletionMaxExtraTimeout: 20 * time.Minute,
-		kustomizationSpecTimeoutCeiling:      2 * time.Hour,
-		kustomizationDeleteTimeoutCeiling:    6 * time.Hour,
-		kustomizationAbandonedGraceMaxExtra:  3 * time.Minute,
-		loadBalancerTeardownTimeout:          constants.DefaultLoadBalancerTeardownTimeout,
-		notReadyDescribeBudget:               10 * time.Second,
-		healthCheckPollInterval:              10 * time.Second,
-		healthCheckSettleDuration:            30 * time.Second,
-		nodeReadyPollInterval:                5 * time.Second,
+	return &BaseKubernetesManager{
+		Shims:         NewShims(),
+		Timing:        DefaultTiming(),
+		client:        kubernetesClient,
+		configHandler: configHandler,
 	}
+}
 
-	return manager
+// DefaultTiming returns the poll intervals, timeouts, and retry limits that Windsor uses in production.
+func DefaultTiming() Timing {
+	return Timing{
+		KustomizationWaitPollInterval:        constants.DefaultKustomizationWaitPollInterval,
+		KustomizationWaitMaxReadFailures:     constants.DefaultKustomizationWaitMaxFailures,
+		KustomizationWaitMinErrorDuration:    30 * time.Second,
+		KustomizationReconcileTimeout:        5 * time.Minute,
+		KustomizationReconcileSleep:          2 * time.Second,
+		KustomizationDeletionPerEntryTimeout: 3 * time.Second,
+		KustomizationDeletionMaxExtraTimeout: 20 * time.Minute,
+		KustomizationSpecTimeoutCeiling:      2 * time.Hour,
+		KustomizationDeleteTimeoutCeiling:    6 * time.Hour,
+		KustomizationAbandonedGraceMaxExtra:  3 * time.Minute,
+		LoadBalancerTeardownTimeout:          constants.DefaultLoadBalancerTeardownTimeout,
+		NotReadyDescribeBudget:               10 * time.Second,
+		HealthCheckPollInterval:              10 * time.Second,
+		HealthCheckSettleDuration:            30 * time.Second,
+		NodeReadyPollInterval:                5 * time.Second,
+	}
 }
 
 // =============================================================================
@@ -176,20 +179,6 @@ func (k *BaseKubernetesManager) CreateNamespace(name string) error {
 	}
 
 	return k.applyWithRetry(gvr, obj, opts)
-}
-
-// DeleteNamespace deletes the specified namespace using foreground deletion.
-// Foreground deletion ensures all resources in the namespace are removed before the namespace is deleted.
-// This method waits for the deletion to complete before returning. Returns nil if the namespace is deleted successfully,
-// or an error if deletion fails or times out.
-func (k *BaseKubernetesManager) DeleteNamespace(name string) error {
-	gvr := schema.GroupVersionResource{
-		Group:    "",
-		Version:  "v1",
-		Resource: "namespaces",
-	}
-
-	return k.client.DeleteResource(gvr, "", name, metav1.DeleteOptions{})
 }
 
 // NamespaceExists reports whether the named namespace exists in the cluster. Namespaces are cluster-scoped,
@@ -229,7 +218,7 @@ func (k *BaseKubernetesManager) ownershipLabels() map[string]string {
 func (k *BaseKubernetesManager) applyWithRetry(gvr schema.GroupVersionResource, obj *unstructured.Unstructured, opts metav1.ApplyOptions) error {
 	existing, err := k.client.GetResource(gvr, obj.GetNamespace(), obj.GetName())
 	if err == nil {
-		applyConfig, err := k.shims.ToUnstructured(existing)
+		applyConfig, err := k.Shims.ToUnstructured(existing)
 		if err != nil {
 			return werror.Wrap(err, "failed to convert existing object to unstructured")
 		}

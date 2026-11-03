@@ -1,48 +1,26 @@
-// The docker_virt_test package is a test suite for the DockerVirt ContainerRuntime implementation.
-// It provides test coverage for Docker-native lifecycle behavior (Up, WriteConfig, Down).
-// It verifies public method behavior only in a TDD fashion.
-
-package virt
+package virt_test
 
 import (
-	"context"
 	"fmt"
-	"io"
 	"io/fs"
 	"os"
 	"strings"
 	"testing"
+
+	"github.com/windsorcli/cli/pkg/workstation/virt"
 )
 
 // =============================================================================
 // Test Setup
 // =============================================================================
 
-func setupDockerVirt(t *testing.T, opts ...func(*VirtTestMocks)) (*VirtTestMocks, *DockerVirt) {
+// setupDockerVirt returns a fixture and a DockerVirt that uses the stub shims of the fixture.
+func setupDockerVirt(t *testing.T) (*fixture, *virt.DockerVirt) {
 	t.Helper()
-	mocks := setupVirtMocks(t, opts...)
-	mocks.Runtime.ContextName = "mock-context"
-	if err := mocks.ConfigHandler.SetContext("mock-context"); err != nil {
-		t.Fatalf("Failed to set context: %v", err)
-	}
-	dockerVirt := NewDockerVirt(mocks.Runtime)
-	return mocks, dockerVirt
-}
-
-// captureStderr runs fn and returns everything it wrote to os.Stderr.
-func captureStderr(t *testing.T, fn func()) string {
-	t.Helper()
-	r, w, err := os.Pipe()
-	if err != nil {
-		t.Fatalf("Failed to create pipe: %v", err)
-	}
-	old := os.Stderr
-	os.Stderr = w
-	defer func() { os.Stderr = old }()
-	fn()
-	w.Close()
-	out, _ := io.ReadAll(r)
-	return string(out)
+	f := newFixture(t)
+	dockerVirt := virt.NewDockerVirt(f.runtime)
+	dockerVirt.SetShims(f.shims)
+	return f, dockerVirt
 }
 
 // =============================================================================
@@ -51,12 +29,11 @@ func captureStderr(t *testing.T, fn func()) string {
 
 func TestNewDockerVirt(t *testing.T) {
 	t.Run("CreatesDockerVirtWithRuntime", func(t *testing.T) {
-		// Given virt mocks
-		mocks := setupVirtMocks(t)
-		mocks.Runtime.ContextName = "mock-context"
+		// Given a runtime
+		f := newFixture(t)
 
 		// When creating DockerVirt
-		dockerVirt := NewDockerVirt(mocks.Runtime)
+		dockerVirt := virt.NewDockerVirt(f.runtime)
 
 		// Then DockerVirt should be non-nil with BaseVirt set
 		if dockerVirt == nil {
@@ -76,7 +53,7 @@ func TestNewDockerVirt(t *testing.T) {
 				t.Error("Expected panic when runtime is nil")
 			}
 		}()
-		NewDockerVirt(nil)
+		virt.NewDockerVirt(nil)
 	})
 }
 
@@ -87,10 +64,10 @@ func TestNewDockerVirt(t *testing.T) {
 func TestDockerVirt_Up(t *testing.T) {
 	t.Run("SucceedsWithNoError", func(t *testing.T) {
 		// Given a DockerVirt
-		_, dockerVirt := setupDockerVirt(t)
+		f, dockerVirt := setupDockerVirt(t)
 
 		// When calling Up
-		err := dockerVirt.Up(context.Background())
+		err := dockerVirt.Up(f.ctx)
 
 		// Then no error should be returned
 		if err != nil {
@@ -118,36 +95,35 @@ func TestDockerVirt_Down(t *testing.T) {
 	t.Run("WhenDockerHostSocketMissingSkipsCleanupSilently", func(t *testing.T) {
 		// Given a DOCKER_HOST unix socket that does not exist
 		var execCalls []string
-		mocks, dockerVirt := setupDockerVirt(t)
-		dockerVirt.shims.Getenv = func(key string) string { return "unix:///home/u/.colima/windsor-local/docker.sock" }
-		dockerVirt.shims.Stat = func(name string) (os.FileInfo, error) { return nil, fs.ErrNotExist }
-		mocks.Shell.ExecSilentFunc = func(command string, args ...string) (string, error) {
+		f, dockerVirt := setupDockerVirt(t)
+		f.shims.Getenv = func(key string) string { return "unix:///home/u/.colima/windsor-local/docker.sock" }
+		f.shims.Stat = func(name string) (os.FileInfo, error) { return nil, fs.ErrNotExist }
+		f.shell.ExecSilentFunc = func(command string, args ...string) (string, error) {
 			execCalls = append(execCalls, command+" "+strings.Join(args, " "))
 			return "", nil
 		}
 
 		// When calling Down
-		stderr := captureStderr(t, func() {
-			if err := dockerVirt.Down(context.Background()); err != nil {
-				t.Errorf("Expected nil, got %v", err)
-			}
-		})
+		err := dockerVirt.Down(f.ctx)
 
-		// Then no docker command runs and nothing is written to stderr
+		// Then no docker command runs and no event is emitted
+		if err != nil {
+			t.Errorf("Expected nil, got %v", err)
+		}
 		if len(execCalls) != 0 {
 			t.Errorf("Expected no docker calls, got %v", execCalls)
 		}
-		if stderr != "" {
-			t.Errorf("Expected no stderr output, got %q", stderr)
+		if len(f.recorder.events) != 0 {
+			t.Errorf("Expected no events, got %v", f.recorder.events)
 		}
 	})
 
 	t.Run("WhenDockerHostSocketExistsButDaemonFailsWarns", func(t *testing.T) {
 		// Given a DOCKER_HOST unix socket that exists while docker ps fails
-		mocks, dockerVirt := setupDockerVirt(t)
-		dockerVirt.shims.Getenv = func(key string) string { return "unix:///var/run/docker.sock" }
-		dockerVirt.shims.Stat = func(name string) (os.FileInfo, error) { return nil, nil }
-		mocks.Shell.ExecSilentFunc = func(command string, args ...string) (string, error) {
+		f, dockerVirt := setupDockerVirt(t)
+		f.shims.Getenv = func(key string) string { return "unix:///var/run/docker.sock" }
+		f.shims.Stat = func(name string) (os.FileInfo, error) { return nil, nil }
+		f.shell.ExecSilentFunc = func(command string, args ...string) (string, error) {
 			if command == "docker" && len(args) >= 1 && args[0] == "ps" {
 				return "", fmt.Errorf("ps failed")
 			}
@@ -155,31 +131,31 @@ func TestDockerVirt_Down(t *testing.T) {
 		}
 
 		// When calling Down
-		stderr := captureStderr(t, func() {
-			if err := dockerVirt.Down(context.Background()); err != nil {
-				t.Errorf("Expected nil, got %v", err)
-			}
-		})
+		err := dockerVirt.Down(f.ctx)
 
-		// Then the failure is reported and cleanup is not skipped
-		if !strings.Contains(stderr, "could not list containers") {
-			t.Errorf("Expected container list warning, got %q", stderr)
+		// Then the failure is a warning and Down returns nil
+		if err != nil {
+			t.Errorf("Expected nil, got %v", err)
+		}
+		warnings := f.recorder.warnings()
+		if len(warnings) != 1 || !strings.Contains(warnings[0], "could not list containers") {
+			t.Errorf("Expected one container list warning, got %q", warnings)
 		}
 	})
 
 	t.Run("WhenDockerHostIsNotUnixSocketProceedsWithCleanup", func(t *testing.T) {
 		// Given DOCKER_HOST set to a Windows named pipe and a Stat that would report not-exist
 		var execCalls []string
-		mocks, dockerVirt := setupDockerVirt(t)
-		dockerVirt.shims.Getenv = func(key string) string { return "npipe:////./pipe/docker_engine" }
-		dockerVirt.shims.Stat = func(name string) (os.FileInfo, error) { return nil, fs.ErrNotExist }
-		mocks.Shell.ExecSilentFunc = func(command string, args ...string) (string, error) {
+		f, dockerVirt := setupDockerVirt(t)
+		f.shims.Getenv = func(key string) string { return "npipe:////./pipe/docker_engine" }
+		f.shims.Stat = func(name string) (os.FileInfo, error) { return nil, fs.ErrNotExist }
+		f.shell.ExecSilentFunc = func(command string, args ...string) (string, error) {
 			execCalls = append(execCalls, command+" "+strings.Join(args, " "))
 			return "", nil
 		}
 
 		// When calling Down
-		if err := dockerVirt.Down(context.Background()); err != nil {
+		if err := dockerVirt.Down(f.ctx); err != nil {
 			t.Errorf("Expected nil, got %v", err)
 		}
 
@@ -191,8 +167,8 @@ func TestDockerVirt_Down(t *testing.T) {
 
 	t.Run("WhenNetworkListFailsReturnsNil", func(t *testing.T) {
 		// Given a DockerVirt with shell that fails on docker network ls (in removeNetworkIfExists)
-		mocks, dockerVirt := setupDockerVirt(t)
-		mocks.Shell.ExecSilentFunc = func(command string, args ...string) (string, error) {
+		f, dockerVirt := setupDockerVirt(t)
+		f.shell.ExecSilentFunc = func(command string, args ...string) (string, error) {
 			if command == "docker" && len(args) >= 2 && args[0] == "network" && args[1] == "ls" {
 				return "", fmt.Errorf("docker unavailable")
 			}
@@ -200,7 +176,7 @@ func TestDockerVirt_Down(t *testing.T) {
 		}
 
 		// When calling Down
-		err := dockerVirt.Down(context.Background())
+		err := dockerVirt.Down(f.ctx)
 
 		// Then Down returns nil (best-effort)
 		if err != nil {
@@ -210,8 +186,8 @@ func TestDockerVirt_Down(t *testing.T) {
 
 	t.Run("WhenNoWindsorNetworksReturnsNil", func(t *testing.T) {
 		// Given a DockerVirt with shell that returns no project containers and non-Windsor networks only
-		mocks, dockerVirt := setupDockerVirt(t)
-		mocks.Shell.ExecSilentFunc = func(command string, args ...string) (string, error) {
+		f, dockerVirt := setupDockerVirt(t)
+		f.shell.ExecSilentFunc = func(command string, args ...string) (string, error) {
 			if command == "docker" && len(args) >= 1 && args[0] == "ps" {
 				return "", nil
 			}
@@ -222,7 +198,7 @@ func TestDockerVirt_Down(t *testing.T) {
 		}
 
 		// When calling Down
-		err := dockerVirt.Down(context.Background())
+		err := dockerVirt.Down(f.ctx)
 
 		// Then no error (no project containers; context network not present)
 		if err != nil {
@@ -233,21 +209,21 @@ func TestDockerVirt_Down(t *testing.T) {
 	t.Run("WhenProjectContainersAndNetworkExistCleansBoth", func(t *testing.T) {
 		// Given a DockerVirt with shell that returns project container IDs and context network present
 		var execCalls []string
-		mocks, dockerVirt := setupDockerVirt(t)
-		mocks.Shell.ExecSilentFunc = func(command string, args ...string) (string, error) {
+		f, dockerVirt := setupDockerVirt(t)
+		f.shell.ExecSilentFunc = func(command string, args ...string) (string, error) {
 			call := command + " " + strings.Join(args, " ")
 			execCalls = append(execCalls, call)
 			if command == "docker" && len(args) >= 1 && args[0] == "ps" {
 				return "id1 id2", nil
 			}
 			if command == "docker" && len(args) >= 2 && args[0] == "network" && args[1] == "ls" {
-				return "bridge\nwindsor-mock-context\n", nil
+				return "bridge\nwindsor-local\n", nil
 			}
 			return "", nil
 		}
 
 		// When calling Down
-		err := dockerVirt.Down(context.Background())
+		err := dockerVirt.Down(f.ctx)
 
 		// Then no error
 		if err != nil {
@@ -259,7 +235,7 @@ func TestDockerVirt_Down(t *testing.T) {
 		hasRm := false
 		hasNetworkRm := false
 		for _, c := range execCalls {
-			if strings.Contains(c, "ps") && strings.Contains(c, "label=com.docker.compose.project=workstation-windsor-mock-context") {
+			if strings.Contains(c, "ps") && strings.Contains(c, "label=com.docker.compose.project=workstation-windsor-local") {
 				hasProjectLabel = true
 			}
 			if strings.Contains(c, "docker stop") {
@@ -287,10 +263,10 @@ func TestDockerVirt_Down(t *testing.T) {
 	})
 
 	t.Run("WhenOnlyOtherContextsWindsorNetworksExistCleansNone", func(t *testing.T) {
-		// Given a DockerVirt (context mock-context) with shell that returns other contexts' Windsor networks only
+		// Given a DockerVirt (context local) with shell that returns other contexts' Windsor networks only
 		var execCalls []string
-		mocks, dockerVirt := setupDockerVirt(t)
-		mocks.Shell.ExecSilentFunc = func(command string, args ...string) (string, error) {
+		f, dockerVirt := setupDockerVirt(t)
+		f.shell.ExecSilentFunc = func(command string, args ...string) (string, error) {
 			call := command + " " + strings.Join(args, " ")
 			execCalls = append(execCalls, call)
 			if command == "docker" && len(args) >= 1 && args[0] == "ps" {
@@ -303,7 +279,7 @@ func TestDockerVirt_Down(t *testing.T) {
 		}
 
 		// When calling Down
-		err := dockerVirt.Down(context.Background())
+		err := dockerVirt.Down(f.ctx)
 
 		// Then no error
 		if err != nil {
@@ -319,19 +295,19 @@ func TestDockerVirt_Down(t *testing.T) {
 
 	t.Run("WhenListContainersForProjectFailsReturnsNil", func(t *testing.T) {
 		// Given a DockerVirt but ps -a -q --filter label=com.docker.compose.project= fails
-		mocks, dockerVirt := setupDockerVirt(t)
-		mocks.Shell.ExecSilentFunc = func(command string, args ...string) (string, error) {
+		f, dockerVirt := setupDockerVirt(t)
+		f.shell.ExecSilentFunc = func(command string, args ...string) (string, error) {
 			if command == "docker" && len(args) >= 1 && args[0] == "ps" {
 				return "", fmt.Errorf("ps failed")
 			}
 			if command == "docker" && len(args) >= 2 && args[0] == "network" && args[1] == "ls" {
-				return "windsor-mock-context\n", nil
+				return "windsor-local\n", nil
 			}
 			return "", nil
 		}
 
 		// When calling Down
-		err := dockerVirt.Down(context.Background())
+		err := dockerVirt.Down(f.ctx)
 
 		// Then Down returns nil (best-effort; list failure is logged, network still removed if present)
 		if err != nil {
@@ -342,8 +318,8 @@ func TestDockerVirt_Down(t *testing.T) {
 	t.Run("WhenProjectVolumesExistRemovesThem", func(t *testing.T) {
 		// Given a DockerVirt with shell that returns no containers, project volumes, and no context network
 		var execCalls []string
-		mocks, dockerVirt := setupDockerVirt(t)
-		mocks.Shell.ExecSilentFunc = func(command string, args ...string) (string, error) {
+		f, dockerVirt := setupDockerVirt(t)
+		f.shell.ExecSilentFunc = func(command string, args ...string) (string, error) {
 			call := command + " " + strings.Join(args, " ")
 			execCalls = append(execCalls, call)
 			if command == "docker" && len(args) >= 1 && args[0] == "ps" {
@@ -359,7 +335,7 @@ func TestDockerVirt_Down(t *testing.T) {
 		}
 
 		// When calling Down
-		err := dockerVirt.Down(context.Background())
+		err := dockerVirt.Down(f.ctx)
 
 		// Then no error
 		if err != nil {
@@ -368,7 +344,7 @@ func TestDockerVirt_Down(t *testing.T) {
 		// And volume ls with project label was called
 		var hasVolumeLs bool
 		for _, c := range execCalls {
-			if strings.Contains(c, "volume ls") && strings.Contains(c, "label=com.docker.compose.project=workstation-windsor-mock-context") {
+			if strings.Contains(c, "volume ls") && strings.Contains(c, "label=com.docker.compose.project=workstation-windsor-local") {
 				hasVolumeLs = true
 				break
 			}
@@ -398,6 +374,35 @@ func TestDockerVirt_Down(t *testing.T) {
 			if !found {
 				t.Errorf("Expected volume rm to be called for %q", name)
 			}
+		}
+	})
+	t.Run("WhenVolumeListFailsWarnsAndContinues", func(t *testing.T) {
+		// Given a docker volume ls that fails
+		f, dockerVirt := setupDockerVirt(t)
+		var networkListed bool
+		f.shell.ExecSilentFunc = func(command string, args ...string) (string, error) {
+			if len(args) >= 2 && args[0] == "volume" && args[1] == "ls" {
+				return "", fmt.Errorf("volume ls failed")
+			}
+			if len(args) >= 2 && args[0] == "network" && args[1] == "ls" {
+				networkListed = true
+			}
+			return "", nil
+		}
+
+		// When calling Down
+		err := dockerVirt.Down(f.ctx)
+
+		// Then one volume warning shows and the network cleanup still runs
+		if err != nil {
+			t.Errorf("Expected nil, got %v", err)
+		}
+		warnings := f.recorder.warnings()
+		if len(warnings) != 1 || !strings.Contains(warnings[0], "could not list volumes for project workstation-windsor-local") {
+			t.Errorf("Expected one volume warning, got %q", warnings)
+		}
+		if !networkListed {
+			t.Error("Expected the network cleanup to run")
 		}
 	})
 }

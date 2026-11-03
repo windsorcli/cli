@@ -1,4 +1,4 @@
-package cmd
+package cmd_test
 
 import (
 	"bytes"
@@ -11,6 +11,8 @@ import (
 	"testing"
 	"time"
 
+	cliCmd "github.com/windsorcli/cli/cmd"
+
 	"github.com/spf13/cobra"
 	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
 	"github.com/windsorcli/cli/internal/werror"
@@ -22,14 +24,14 @@ import (
 )
 
 func TestUpgradeCmd(t *testing.T) {
-	createTestUpgradeCmd := func() *cobra.Command { return makeApplyTestCmd(upgradeCmd) }
+	createTestUpgradeCmd := func() *cobra.Command { return makeApplyTestCmd(cliCmd.UpgradeCmd) }
 
 	suppressProcessStdout(t)
 	suppressProcessStderr(t)
 
 	// These subtests exercise the executing path; upgrade requires --yes to mutate, so confirm it.
-	upgradeYes = true
-	t.Cleanup(func() { upgradeYes = false })
+	*cliCmd.UpgradeYes = true
+	t.Cleanup(func() { *cliCmd.UpgradeYes = false })
 
 	t.Run("PrunesAfterSuccessfulWait", func(t *testing.T) {
 		// Given an upgrade with an orphaned kustomization
@@ -47,7 +49,7 @@ func TestUpgradeCmd(t *testing.T) {
 		// When executing the bare upgrade command with --yes
 		cmd := createTestUpgradeCmd()
 		cmd.SetArgs([]string{"--yes"})
-		ctx := stdcontext.WithValue(stdcontext.Background(), projectOverridesKey, proj)
+		ctx := stdcontext.WithValue(stdcontext.Background(), cliCmd.ProjectOverridesKey, proj)
 		cmd.SetContext(ctx)
 		err := cmd.Execute()
 
@@ -87,7 +89,7 @@ func TestUpgradeCmd(t *testing.T) {
 		// When executing the upgrade
 		cmd := createTestUpgradeCmd()
 		cmd.SetArgs([]string{"--yes"})
-		ctx := stdcontext.WithValue(stdcontext.Background(), projectOverridesKey, proj)
+		ctx := stdcontext.WithValue(stdcontext.Background(), cliCmd.ProjectOverridesKey, proj)
 		cmd.SetContext(ctx)
 		if err := cmd.Execute(); err != nil {
 			t.Fatalf("Expected no error, got %v", err)
@@ -111,7 +113,7 @@ func TestUpgradeCmd(t *testing.T) {
 
 		// When executing the bare upgrade command
 		cmd := createTestUpgradeCmd()
-		ctx := stdcontext.WithValue(stdcontext.Background(), projectOverridesKey, proj)
+		ctx := stdcontext.WithValue(stdcontext.Background(), cliCmd.ProjectOverridesKey, proj)
 		cmd.SetContext(ctx)
 		if err := cmd.Execute(); err != nil {
 			t.Fatalf("Expected no error, got %v", err)
@@ -138,7 +140,7 @@ func TestUpgradeCmd(t *testing.T) {
 
 		// When executing the upgrade command
 		cmd := createTestUpgradeCmd()
-		ctx := stdcontext.WithValue(stdcontext.Background(), projectOverridesKey, proj)
+		ctx := stdcontext.WithValue(stdcontext.Background(), cliCmd.ProjectOverridesKey, proj)
 		cmd.SetContext(ctx)
 		err := cmd.Execute()
 
@@ -166,7 +168,7 @@ func TestUpgradeCmd(t *testing.T) {
 
 		// When executing the upgrade command
 		cmd := createTestUpgradeCmd()
-		ctx := stdcontext.WithValue(stdcontext.Background(), projectOverridesKey, proj)
+		ctx := stdcontext.WithValue(stdcontext.Background(), cliCmd.ProjectOverridesKey, proj)
 		cmd.SetContext(ctx)
 		err := cmd.Execute()
 
@@ -198,7 +200,7 @@ func TestUpgradeCmd(t *testing.T) {
 		// When executing the upgrade command with --yes
 		cmd := createTestUpgradeCmd()
 		cmd.SetArgs([]string{"--yes"})
-		ctx := stdcontext.WithValue(stdcontext.Background(), projectOverridesKey, proj)
+		ctx := stdcontext.WithValue(stdcontext.Background(), cliCmd.ProjectOverridesKey, proj)
 		cmd.SetContext(ctx)
 		err := cmd.Execute()
 
@@ -226,7 +228,7 @@ func TestUpgradeCmd(t *testing.T) {
 
 		// When executing the upgrade command
 		cmd := createTestUpgradeCmd()
-		ctx := stdcontext.WithValue(stdcontext.Background(), projectOverridesKey, proj)
+		ctx := stdcontext.WithValue(stdcontext.Background(), cliCmd.ProjectOverridesKey, proj)
 		cmd.SetContext(ctx)
 		err := cmd.Execute()
 
@@ -256,7 +258,7 @@ func TestUpgradeCmd(t *testing.T) {
 		// When executing the upgrade command with --yes
 		cmd := createTestUpgradeCmd()
 		cmd.SetArgs([]string{"--yes"})
-		ctx := stdcontext.WithValue(stdcontext.Background(), projectOverridesKey, proj)
+		ctx := stdcontext.WithValue(stdcontext.Background(), cliCmd.ProjectOverridesKey, proj)
 		cmd.SetContext(ctx)
 		err := cmd.Execute()
 
@@ -277,7 +279,7 @@ func TestUpgradeCmd(t *testing.T) {
 
 		// When executing the upgrade command
 		cmd := createTestUpgradeCmd()
-		ctx := stdcontext.WithValue(stdcontext.Background(), projectOverridesKey, proj)
+		ctx := stdcontext.WithValue(stdcontext.Background(), cliCmd.ProjectOverridesKey, proj)
 		cmd.SetContext(ctx)
 		err := cmd.Execute()
 
@@ -298,7 +300,7 @@ func TestUpgradeCmd(t *testing.T) {
 
 		// When executing the upgrade command
 		cmd := createTestUpgradeCmd()
-		ctx := stdcontext.WithValue(stdcontext.Background(), projectOverridesKey, proj)
+		ctx := stdcontext.WithValue(stdcontext.Background(), cliCmd.ProjectOverridesKey, proj)
 		cmd.SetContext(ctx)
 		err := cmd.Execute()
 
@@ -321,7 +323,7 @@ func TestUpgradeCmd(t *testing.T) {
 
 		// When executing the upgrade command
 		cmd := createTestUpgradeCmd()
-		ctx := stdcontext.WithValue(stdcontext.Background(), projectOverridesKey, proj)
+		ctx := stdcontext.WithValue(stdcontext.Background(), cliCmd.ProjectOverridesKey, proj)
 		cmd.SetContext(ctx)
 		err := cmd.Execute()
 
@@ -341,7 +343,7 @@ func TestUpgradeCmd(t *testing.T) {
 
 		// When executing with an unexpected argument
 		cmd := createTestUpgradeCmd()
-		ctx := stdcontext.WithValue(stdcontext.Background(), projectOverridesKey, proj)
+		ctx := stdcontext.WithValue(stdcontext.Background(), cliCmd.ProjectOverridesKey, proj)
 		cmd.SetArgs([]string{"bogus"})
 		cmd.SetContext(ctx)
 		err := cmd.Execute()
@@ -354,13 +356,13 @@ func TestUpgradeCmd(t *testing.T) {
 }
 
 func TestUpgradeCmd_Latest(t *testing.T) {
-	createTestUpgradeCmd := func() *cobra.Command { return makeApplyTestCmd(upgradeCmd) }
+	createTestUpgradeCmd := func() *cobra.Command { return makeApplyTestCmd(cliCmd.UpgradeCmd) }
 
 	suppressProcessStdout(t)
 	suppressProcessStderr(t)
 
-	upgradeYes = true
-	t.Cleanup(func() { upgradeYes = false })
+	*cliCmd.UpgradeYes = true
+	t.Cleanup(func() { *cliCmd.UpgradeYes = false })
 
 	t.Run("ResolvesLatestPersistsAndUpgrades", func(t *testing.T) {
 		// Given sources with a newer version available (implicit upgrade, no --source)
@@ -385,7 +387,7 @@ func TestUpgradeCmd_Latest(t *testing.T) {
 		var out bytes.Buffer
 		cmd := createTestUpgradeCmd()
 		cmd.SetOut(&out)
-		ctx := stdcontext.WithValue(stdcontext.Background(), projectOverridesKey, proj)
+		ctx := stdcontext.WithValue(stdcontext.Background(), cliCmd.ProjectOverridesKey, proj)
 		cmd.SetContext(ctx)
 		if err := cmd.Execute(); err != nil {
 			t.Fatalf("Expected no error, got %v", err)
@@ -412,7 +414,7 @@ func TestUpgradeCmd_Latest(t *testing.T) {
 		var out bytes.Buffer
 		cmd := createTestUpgradeCmd()
 		cmd.SetOut(&out)
-		ctx := stdcontext.WithValue(stdcontext.Background(), projectOverridesKey, proj)
+		ctx := stdcontext.WithValue(stdcontext.Background(), cliCmd.ProjectOverridesKey, proj)
 		cmd.SetContext(ctx)
 		if err := cmd.Execute(); err != nil {
 			t.Fatalf("Expected no error, got %v", err)
@@ -449,7 +451,7 @@ func TestUpgradeCmd_Latest(t *testing.T) {
 
 		// When running bare upgrade
 		cmd := createTestUpgradeCmd()
-		ctx := stdcontext.WithValue(stdcontext.Background(), projectOverridesKey, proj)
+		ctx := stdcontext.WithValue(stdcontext.Background(), cliCmd.ProjectOverridesKey, proj)
 		cmd.SetContext(ctx)
 		if err := cmd.Execute(); err != nil {
 			t.Fatalf("Expected no error, got %v", err)
@@ -481,7 +483,7 @@ func TestUpgradeCmd_Latest(t *testing.T) {
 
 		// When running bare upgrade
 		cmd := createTestUpgradeCmd()
-		ctx := stdcontext.WithValue(stdcontext.Background(), projectOverridesKey, proj)
+		ctx := stdcontext.WithValue(stdcontext.Background(), cliCmd.ProjectOverridesKey, proj)
 		cmd.SetContext(ctx)
 		err := cmd.Execute()
 
@@ -496,16 +498,16 @@ func TestUpgradeCmd_Latest(t *testing.T) {
 }
 
 func TestUpgradeCmd_Source(t *testing.T) {
-	createTestUpgradeCmd := func() *cobra.Command { return makeApplyTestCmd(upgradeCmd) }
+	createTestUpgradeCmd := func() *cobra.Command { return makeApplyTestCmd(cliCmd.UpgradeCmd) }
 
 	suppressProcessStdout(t)
 	suppressProcessStderr(t)
 
-	upgradeYes = true
-	t.Cleanup(func() { upgradeYes = false })
+	*cliCmd.UpgradeYes = true
+	t.Cleanup(func() { *cliCmd.UpgradeYes = false })
 
 	t.Run("RetargetsPersistsAndUpgrades", func(t *testing.T) {
-		t.Cleanup(func() { upgradeSources = nil })
+		t.Cleanup(func() { *cliCmd.UpgradeSources = nil })
 		// Given a declared source being bumped to a new tag
 		mocks := setupApplyTest(t)
 		var gotName, gotURL string
@@ -527,7 +529,7 @@ func TestUpgradeCmd_Source(t *testing.T) {
 		cmd := createTestUpgradeCmd()
 		cmd.SetOut(&out)
 		cmd.SetArgs([]string{"--source", "core=oci://ghcr.io/windsorcli/core:v0.6.0"})
-		ctx := stdcontext.WithValue(stdcontext.Background(), projectOverridesKey, proj)
+		ctx := stdcontext.WithValue(stdcontext.Background(), cliCmd.ProjectOverridesKey, proj)
 		cmd.SetContext(ctx)
 		if err := cmd.Execute(); err != nil {
 			t.Fatalf("Expected no error, got %v", err)
@@ -546,7 +548,7 @@ func TestUpgradeCmd_Source(t *testing.T) {
 	})
 
 	t.Run("RecomposesAfterRetargetBeforeGeneratingManifests", func(t *testing.T) {
-		t.Cleanup(func() { upgradeSources = nil })
+		t.Cleanup(func() { *cliCmd.UpgradeSources = nil })
 		// Given a retarget that persists a new source URL to blueprint.yaml
 		mocks := setupApplyTest(t)
 		var order []string
@@ -575,7 +577,7 @@ func TestUpgradeCmd_Source(t *testing.T) {
 		// When upgrading with --source
 		cmd := createTestUpgradeCmd()
 		cmd.SetArgs([]string{"--source", "core=oci://ghcr.io/windsorcli/core:v0.6.0"})
-		ctx := stdcontext.WithValue(stdcontext.Background(), projectOverridesKey, proj)
+		ctx := stdcontext.WithValue(stdcontext.Background(), cliCmd.ProjectOverridesKey, proj)
 		cmd.SetContext(ctx)
 		if err := cmd.Execute(); err != nil {
 			t.Fatalf("Expected no error, got %v", err)
@@ -603,7 +605,7 @@ func TestUpgradeCmd_Source(t *testing.T) {
 	})
 
 	t.Run("RegeneratesTerraformModulesAfterRetargetBeforeApplying", func(t *testing.T) {
-		t.Cleanup(func() { upgradeSources = nil })
+		t.Cleanup(func() { *cliCmd.UpgradeSources = nil })
 		// Given a retarget to a source version whose modules differ from the pinned version
 		mocks := setupApplyTest(t)
 		var order []string
@@ -638,7 +640,7 @@ func TestUpgradeCmd_Source(t *testing.T) {
 		// When upgrading with --source
 		cmd := createTestUpgradeCmd()
 		cmd.SetArgs([]string{"--source", "core=oci://ghcr.io/windsorcli/core:v0.6.0"})
-		ctx := stdcontext.WithValue(stdcontext.Background(), projectOverridesKey, proj)
+		ctx := stdcontext.WithValue(stdcontext.Background(), cliCmd.ProjectOverridesKey, proj)
 		cmd.SetContext(ctx)
 		if err := cmd.Execute(); err != nil {
 			t.Fatalf("Expected no error, got %v", err)
@@ -668,7 +670,7 @@ func TestUpgradeCmd_Source(t *testing.T) {
 
 		// When upgrading
 		cmd := createTestUpgradeCmd()
-		ctx := stdcontext.WithValue(stdcontext.Background(), projectOverridesKey, proj)
+		ctx := stdcontext.WithValue(stdcontext.Background(), cliCmd.ProjectOverridesKey, proj)
 		cmd.SetContext(ctx)
 		if err := cmd.Execute(); err != nil {
 			t.Fatalf("Expected no error, got %v", err)
@@ -681,7 +683,7 @@ func TestUpgradeCmd_Source(t *testing.T) {
 	})
 
 	t.Run("TerraformRegenerationFailureAbortsBeforeApplying", func(t *testing.T) {
-		t.Cleanup(func() { upgradeSources = nil })
+		t.Cleanup(func() { *cliCmd.UpgradeSources = nil })
 		// Given a retarget whose module regeneration fails
 		mocks := setupApplyTest(t)
 		mocks.BlueprintHandler.RetargetSourceFunc = func(name, url string) (string, error) {
@@ -707,7 +709,7 @@ func TestUpgradeCmd_Source(t *testing.T) {
 		// When upgrading with --source
 		cmd := createTestUpgradeCmd()
 		cmd.SetArgs([]string{"--source", "core=oci://ghcr.io/windsorcli/core:v0.6.0"})
-		ctx := stdcontext.WithValue(stdcontext.Background(), projectOverridesKey, proj)
+		ctx := stdcontext.WithValue(stdcontext.Background(), cliCmd.ProjectOverridesKey, proj)
 		cmd.SetContext(ctx)
 		err := cmd.Execute()
 
@@ -724,7 +726,7 @@ func TestUpgradeCmd_Source(t *testing.T) {
 	})
 
 	t.Run("RecomposeFailureAbortsBeforeApplying", func(t *testing.T) {
-		t.Cleanup(func() { upgradeSources = nil })
+		t.Cleanup(func() { *cliCmd.UpgradeSources = nil })
 		// Given a retarget whose recompose fails to pull the newly targeted source
 		mocks := setupApplyTest(t)
 		mocks.BlueprintHandler.RetargetSourceFunc = func(name, url string) (string, error) {
@@ -748,7 +750,7 @@ func TestUpgradeCmd_Source(t *testing.T) {
 		// When upgrading with --source
 		cmd := createTestUpgradeCmd()
 		cmd.SetArgs([]string{"--source", "core=oci://ghcr.io/windsorcli/core:v0.6.0"})
-		ctx := stdcontext.WithValue(stdcontext.Background(), projectOverridesKey, proj)
+		ctx := stdcontext.WithValue(stdcontext.Background(), cliCmd.ProjectOverridesKey, proj)
 		cmd.SetContext(ctx)
 		err := cmd.Execute()
 
@@ -765,7 +767,7 @@ func TestUpgradeCmd_Source(t *testing.T) {
 	})
 
 	t.Run("UnknownSourceAbortsBeforeWrite", func(t *testing.T) {
-		t.Cleanup(func() { upgradeSources = nil })
+		t.Cleanup(func() { *cliCmd.UpgradeSources = nil })
 		// Given a source name that is not declared
 		mocks := setupApplyTest(t)
 		persisted := false
@@ -783,7 +785,7 @@ func TestUpgradeCmd_Source(t *testing.T) {
 		// When upgrading with an undeclared --source
 		cmd := createTestUpgradeCmd()
 		cmd.SetArgs([]string{"--source", "addons=oci://ghcr.io/acme/addons:v0.5.0"})
-		ctx := stdcontext.WithValue(stdcontext.Background(), projectOverridesKey, proj)
+		ctx := stdcontext.WithValue(stdcontext.Background(), cliCmd.ProjectOverridesKey, proj)
 		cmd.SetContext(ctx)
 		err := cmd.Execute()
 
@@ -800,7 +802,7 @@ func TestUpgradeCmd_Source(t *testing.T) {
 	})
 
 	t.Run("MalformedSourceSpecIsRejected", func(t *testing.T) {
-		t.Cleanup(func() { upgradeSources = nil })
+		t.Cleanup(func() { *cliCmd.UpgradeSources = nil })
 		// Given a --source value missing the name=url separator
 		mocks := setupApplyTest(t)
 		proj := newApplyAllProject(mocks)
@@ -808,7 +810,7 @@ func TestUpgradeCmd_Source(t *testing.T) {
 		// When upgrading with the malformed spec
 		cmd := createTestUpgradeCmd()
 		cmd.SetArgs([]string{"--source", "coreonly"})
-		ctx := stdcontext.WithValue(stdcontext.Background(), projectOverridesKey, proj)
+		ctx := stdcontext.WithValue(stdcontext.Background(), cliCmd.ProjectOverridesKey, proj)
 		cmd.SetContext(ctx)
 		err := cmd.Execute()
 
@@ -825,7 +827,7 @@ func TestUpgradeCmd_Source(t *testing.T) {
 	})
 
 	t.Run("RefusesDowngradeWithoutAllowFlag", func(t *testing.T) {
-		t.Cleanup(func() { upgradeSources = nil; upgradeAllowDowngrade = false })
+		t.Cleanup(func() { *cliCmd.UpgradeSources = nil; *cliCmd.UpgradeAllowDowngrade = false })
 		// Given a declared source currently pinned newer than the requested target
 		mocks := setupApplyTest(t)
 		mocks.BlueprintHandler.GetDeclaredSourcesFunc = func() ([]blueprintv1alpha1.Source, error) {
@@ -855,7 +857,7 @@ func TestUpgradeCmd_Source(t *testing.T) {
 		cmd := createTestUpgradeCmd()
 		cmd.SetErr(&errOut)
 		cmd.SetArgs([]string{"--source", "core=oci://ghcr.io/windsorcli/core:v0.3.0"})
-		ctx := stdcontext.WithValue(stdcontext.Background(), projectOverridesKey, proj)
+		ctx := stdcontext.WithValue(stdcontext.Background(), cliCmd.ProjectOverridesKey, proj)
 		cmd.SetContext(ctx)
 		err := cmd.Execute()
 
@@ -878,7 +880,7 @@ func TestUpgradeCmd_Source(t *testing.T) {
 	})
 
 	t.Run("ProceedsWithAllowDowngrade", func(t *testing.T) {
-		t.Cleanup(func() { upgradeSources = nil; upgradeAllowDowngrade = false })
+		t.Cleanup(func() { *cliCmd.UpgradeSources = nil; *cliCmd.UpgradeAllowDowngrade = false })
 		// Given the same older target
 		mocks := setupApplyTest(t)
 		mocks.BlueprintHandler.GetDeclaredSourcesFunc = func() ([]blueprintv1alpha1.Source, error) {
@@ -901,7 +903,7 @@ func TestUpgradeCmd_Source(t *testing.T) {
 		cmd := createTestUpgradeCmd()
 		cmd.SetErr(&errOut)
 		cmd.SetArgs([]string{"--source", "core=oci://ghcr.io/windsorcli/core:v0.3.0", "--allow-downgrade"})
-		ctx := stdcontext.WithValue(stdcontext.Background(), projectOverridesKey, proj)
+		ctx := stdcontext.WithValue(stdcontext.Background(), cliCmd.ProjectOverridesKey, proj)
 		cmd.SetContext(ctx)
 		if err := cmd.Execute(); err != nil {
 			t.Fatalf("Expected --allow-downgrade to proceed, got %v", err)
@@ -917,7 +919,7 @@ func TestUpgradeCmd_Source(t *testing.T) {
 	})
 
 	t.Run("RefusesWholeOperationWhenAnySourceDowngrades", func(t *testing.T) {
-		t.Cleanup(func() { upgradeSources = nil; upgradeAllowDowngrade = false })
+		t.Cleanup(func() { *cliCmd.UpgradeSources = nil; *cliCmd.UpgradeAllowDowngrade = false })
 		// Given two declared sources, one bumped forward and one moved back
 		mocks := setupApplyTest(t)
 		mocks.BlueprintHandler.GetDeclaredSourcesFunc = func() ([]blueprintv1alpha1.Source, error) {
@@ -948,7 +950,7 @@ func TestUpgradeCmd_Source(t *testing.T) {
 			"--source", "addons=oci://ghcr.io/windsorcli/addons:v0.3.0",
 			"--source", "core=oci://ghcr.io/windsorcli/core:v0.4.0",
 		})
-		ctx := stdcontext.WithValue(stdcontext.Background(), projectOverridesKey, proj)
+		ctx := stdcontext.WithValue(stdcontext.Background(), cliCmd.ProjectOverridesKey, proj)
 		cmd.SetContext(ctx)
 		err := cmd.Execute()
 
@@ -969,16 +971,16 @@ func TestUpgradeCmd_Source(t *testing.T) {
 }
 
 func TestUpgradeCmd_Confirmation(t *testing.T) {
-	createTestUpgradeCmd := func() *cobra.Command { return makeApplyTestCmd(upgradeCmd) }
+	createTestUpgradeCmd := func() *cobra.Command { return makeApplyTestCmd(cliCmd.UpgradeCmd) }
 
 	suppressProcessStdout(t)
 	suppressProcessStderr(t)
 
 	t.Run("RefusesWithoutYes", func(t *testing.T) {
-		t.Cleanup(func() { upgradeYes = false })
-		originalIsTerminal := upgradeStdinIsTerminal
-		upgradeStdinIsTerminal = func() bool { return false }
-		t.Cleanup(func() { upgradeStdinIsTerminal = originalIsTerminal })
+		t.Cleanup(func() { *cliCmd.UpgradeYes = false })
+		originalIsTerminal := *cliCmd.UpgradeStdinIsTerminal
+		*cliCmd.UpgradeStdinIsTerminal = func() bool { return false }
+		t.Cleanup(func() { *cliCmd.UpgradeStdinIsTerminal = originalIsTerminal })
 		// Given an upgrade that would rewrite blueprint.yaml and reconcile
 		mocks := setupApplyTest(t)
 		installed := false
@@ -995,7 +997,7 @@ func TestUpgradeCmd_Confirmation(t *testing.T) {
 
 		// When upgrading without --yes
 		cmd := createTestUpgradeCmd()
-		ctx := stdcontext.WithValue(stdcontext.Background(), projectOverridesKey, proj)
+		ctx := stdcontext.WithValue(stdcontext.Background(), cliCmd.ProjectOverridesKey, proj)
 		cmd.SetContext(ctx)
 		err := cmd.Execute()
 
@@ -1015,7 +1017,7 @@ func TestUpgradeCmd_Confirmation(t *testing.T) {
 	})
 
 	t.Run("ProceedsWithYes", func(t *testing.T) {
-		t.Cleanup(func() { upgradeYes = false })
+		t.Cleanup(func() { *cliCmd.UpgradeYes = false })
 		// Given a pending prune
 		mocks := setupApplyTest(t)
 		mocks.KubernetesManager.ListPrunableKustomizationsFunc = func(bp *blueprintv1alpha1.Blueprint, namespace string) ([]string, error) {
@@ -1031,7 +1033,7 @@ func TestUpgradeCmd_Confirmation(t *testing.T) {
 		// When upgrading with --yes
 		cmd := createTestUpgradeCmd()
 		cmd.SetArgs([]string{"--yes"})
-		ctx := stdcontext.WithValue(stdcontext.Background(), projectOverridesKey, proj)
+		ctx := stdcontext.WithValue(stdcontext.Background(), cliCmd.ProjectOverridesKey, proj)
 		cmd.SetContext(ctx)
 		if err := cmd.Execute(); err != nil {
 			t.Fatalf("Expected --yes to proceed, got %v", err)
@@ -1045,7 +1047,7 @@ func TestUpgradeCmd_Confirmation(t *testing.T) {
 }
 
 func TestUpgradeCmd_Prompt(t *testing.T) {
-	createTestUpgradeCmd := func() *cobra.Command { return makeApplyTestCmd(upgradeCmd) }
+	createTestUpgradeCmd := func() *cobra.Command { return makeApplyTestCmd(cliCmd.UpgradeCmd) }
 
 	suppressProcessStdout(t)
 	suppressProcessStderr(t)
@@ -1063,12 +1065,12 @@ func TestUpgradeCmd_Prompt(t *testing.T) {
 
 	run := func(t *testing.T, input string, setup func(*ApplyMocks)) promptRun {
 		t.Helper()
-		upgradeYes = false
-		originalIsTerminal := upgradeStdinIsTerminal
-		upgradeStdinIsTerminal = func() bool { return true }
+		*cliCmd.UpgradeYes = false
+		originalIsTerminal := *cliCmd.UpgradeStdinIsTerminal
+		*cliCmd.UpgradeStdinIsTerminal = func() bool { return true }
 		t.Cleanup(func() {
-			upgradeYes = false
-			upgradeStdinIsTerminal = originalIsTerminal
+			*cliCmd.UpgradeYes = false
+			*cliCmd.UpgradeStdinIsTerminal = originalIsTerminal
 		})
 
 		mocks := setupApplyTest(t)
@@ -1114,7 +1116,7 @@ func TestUpgradeCmd_Prompt(t *testing.T) {
 		cmd := createTestUpgradeCmd()
 		cmd.SetIn(strings.NewReader(input))
 		cmd.SetErr(&stderr)
-		cmd.SetContext(stdcontext.WithValue(stdcontext.Background(), projectOverridesKey, proj))
+		cmd.SetContext(stdcontext.WithValue(stdcontext.Background(), cliCmd.ProjectOverridesKey, proj))
 		result.err = cmd.Execute()
 		result.stderr = stderr.String()
 		data, err := os.ReadFile(blueprintPath)
@@ -1247,100 +1249,35 @@ func TestUpgradeCmd_Prompt(t *testing.T) {
 	})
 }
 
-func TestUnconfirmedPrunes(t *testing.T) {
-	t.Run("NilConfirmedMeansNoPlanWasShown", func(t *testing.T) {
-		if got := unconfirmedPrunes([]string{"a"}, nil); got != nil {
-			t.Errorf("Expected nil, got %v", got)
-		}
-	})
-
-	t.Run("ReturnsNamesOutsideTheConfirmedSet", func(t *testing.T) {
-		got := unconfirmedPrunes([]string{"a", "b", "c"}, map[string]bool{"a": true})
-		if strings.Join(got, ",") != "b,c" {
-			t.Errorf("Expected b,c, got %v", got)
-		}
-	})
-
-	t.Run("EmptyConfirmedSetFlagsEveryName", func(t *testing.T) {
-		got := unconfirmedPrunes([]string{"a"}, map[string]bool{})
-		if len(got) != 1 {
-			t.Errorf("Expected the name flagged, got %v", got)
-		}
-	})
-}
-
-func TestConfirmUpgrade(t *testing.T) {
-	changes := sourceChanges{{Name: "core", From: "oci://x/core:v1", To: "oci://x/core:v2"}}
-
-	t.Run("AcceptsYesInAnyCase", func(t *testing.T) {
-		for _, answer := range []string{"y\n", "yes\n", "YES\n", "  Y  \n"} {
-			if !confirmUpgrade(strings.NewReader(answer), &bytes.Buffer{}, "local", changes, nil, nil) {
-				t.Errorf("Expected %q to confirm", answer)
-			}
-		}
-	})
-
-	t.Run("DeclinesAnythingElse", func(t *testing.T) {
-		for _, answer := range []string{"\n", "n\n", "no\n", "maybe\n", ""} {
-			if confirmUpgrade(strings.NewReader(answer), &bytes.Buffer{}, "local", changes, nil, nil) {
-				t.Errorf("Expected %q to decline", answer)
-			}
-		}
-	})
-
-	t.Run("PlanStatesNoChangesAndNothingToPrune", func(t *testing.T) {
-		var out bytes.Buffer
-		confirmUpgrade(strings.NewReader("n\n"), &out, "local", nil, nil, nil)
-
-		for _, want := range []string{"Upgrade plan for context local", "Sources: no changes", "Kustomizations to prune: none"} {
-			if !strings.Contains(out.String(), want) {
-				t.Errorf("Expected %q in the plan, got:\n%s", want, out.String())
-			}
-		}
-	})
-
-	t.Run("PlanReportsAFailedPruneListingAndStillAsks", func(t *testing.T) {
-		var out bytes.Buffer
-		confirmed := confirmUpgrade(strings.NewReader("y\n"), &out, "local", changes, nil, fmt.Errorf("cluster unreachable"))
-
-		if !strings.Contains(out.String(), "Kustomizations to prune: unknown (cluster unreachable)") {
-			t.Errorf("Expected the listing failure in the plan, got:\n%s", out.String())
-		}
-		if !confirmed {
-			t.Error("Expected the operator's yes to count even when the prune listing failed")
-		}
-	})
-}
-
 func TestUpgradeNodeCmd(t *testing.T) {
 	t.Cleanup(func() {
-		rootCmd.SetContext(stdcontext.Background())
-		upgradeNodeAddr = ""
-		upgradeNodeImage = ""
-		upgradeNodeTimeout = 0
-		upgradeNodeOfflineTimeout = 0
-		upgradeNodeRebootMode = ""
+		cliCmd.RootCmd().SetContext(stdcontext.Background())
+		*cliCmd.UpgradeNodeAddr = ""
+		*cliCmd.UpgradeNodeImage = ""
+		*cliCmd.UpgradeNodeTimeout = 0
+		*cliCmd.UpgradeNodeOfflineTimeout = 0
+		*cliCmd.UpgradeNodeRebootMode = ""
 	})
 
 	setup := func(t *testing.T) (*bytes.Buffer, *bytes.Buffer) {
 		t.Helper()
-		upgradeNodeAddr = ""
-		upgradeNodeImage = ""
-		upgradeNodeTimeout = 0
-		upgradeNodeOfflineTimeout = 0
-		upgradeNodeRebootMode = ""
+		*cliCmd.UpgradeNodeAddr = ""
+		*cliCmd.UpgradeNodeImage = ""
+		*cliCmd.UpgradeNodeTimeout = 0
+		*cliCmd.UpgradeNodeOfflineTimeout = 0
+		*cliCmd.UpgradeNodeRebootMode = ""
 
 		stdout, stderr := captureOutput(t)
-		rootCmd.SetOut(stdout)
-		rootCmd.SetErr(stderr)
+		cliCmd.RootCmd().SetOut(stdout)
+		cliCmd.RootCmd().SetErr(stderr)
 		return stdout, stderr
 	}
 
 	t.Run("MissingNodeFlag", func(t *testing.T) {
 		setup(t)
-		rootCmd.SetArgs([]string{"upgrade", "node", "--image", "img"})
+		cliCmd.RootCmd().SetArgs([]string{"upgrade", "node", "--image", "img"})
 
-		err := Execute()
+		err := cliCmd.Execute()
 
 		if err == nil {
 			t.Error("Expected error for missing --node flag, got nil")
@@ -1349,9 +1286,9 @@ func TestUpgradeNodeCmd(t *testing.T) {
 
 	t.Run("MissingImageFlag", func(t *testing.T) {
 		setup(t)
-		rootCmd.SetArgs([]string{"upgrade", "node", "--node", "10.0.0.1"})
+		cliCmd.RootCmd().SetArgs([]string{"upgrade", "node", "--node", "10.0.0.1"})
 
-		err := Execute()
+		err := cliCmd.Execute()
 
 		if err == nil {
 			t.Error("Expected error for missing --image flag, got nil")
@@ -1365,11 +1302,11 @@ func TestUpgradeNodeCmd(t *testing.T) {
 			return stdcontext.DeadlineExceeded
 		}
 
-		ctx := stdcontext.WithValue(stdcontext.Background(), runtimeOverridesKey, mocks.Runtime)
-		rootCmd.SetContext(ctx)
-		rootCmd.SetArgs([]string{"upgrade", "node", "--node", "10.0.0.1", "--image", "img"})
+		ctx := stdcontext.WithValue(stdcontext.Background(), cliCmd.RuntimeOverridesKey, mocks.Runtime)
+		cliCmd.RootCmd().SetContext(ctx)
+		cliCmd.RootCmd().SetArgs([]string{"upgrade", "node", "--node", "10.0.0.1", "--image", "img"})
 
-		err := Execute()
+		err := cliCmd.Execute()
 
 		if err == nil {
 			t.Error("Expected error, got nil")
@@ -1389,11 +1326,11 @@ func TestUpgradeNodeCmd(t *testing.T) {
 		mockConfigHandler.IsLoadedFunc = func() bool { return false }
 		mocks := setupMocks(t, &SetupOptions{ConfigHandler: mockConfigHandler})
 
-		ctx := stdcontext.WithValue(stdcontext.Background(), runtimeOverridesKey, mocks.Runtime)
-		rootCmd.SetContext(ctx)
-		rootCmd.SetArgs([]string{"upgrade", "node", "--node", "10.0.0.1", "--image", "img"})
+		ctx := stdcontext.WithValue(stdcontext.Background(), cliCmd.RuntimeOverridesKey, mocks.Runtime)
+		cliCmd.RootCmd().SetContext(ctx)
+		cliCmd.RootCmd().SetArgs([]string{"upgrade", "node", "--node", "10.0.0.1", "--image", "img"})
 
-		err := Execute()
+		err := cliCmd.Execute()
 
 		if err == nil {
 			t.Error("Expected error, got nil")
@@ -1419,11 +1356,11 @@ func TestUpgradeNodeCmd(t *testing.T) {
 		}
 		mocks := setupMocks(t, &SetupOptions{ConfigHandler: mockConfigHandler})
 
-		ctx := stdcontext.WithValue(stdcontext.Background(), runtimeOverridesKey, mocks.Runtime)
-		rootCmd.SetContext(ctx)
-		rootCmd.SetArgs([]string{"upgrade", "node", "--node", "10.0.0.1", "--image", "img"})
+		ctx := stdcontext.WithValue(stdcontext.Background(), cliCmd.RuntimeOverridesKey, mocks.Runtime)
+		cliCmd.RootCmd().SetContext(ctx)
+		cliCmd.RootCmd().SetArgs([]string{"upgrade", "node", "--node", "10.0.0.1", "--image", "img"})
 
-		err := Execute()
+		err := cliCmd.Execute()
 
 		// TALOSCONFIG not set — confirms upgrade node code path was reached
 		if err == nil {
@@ -1441,14 +1378,14 @@ func TestUpgradeNodeCmd(t *testing.T) {
 		mockConfigHandler.IsLoadedFunc = func() bool { return true }
 		mocks := setupMocks(t, &SetupOptions{ConfigHandler: mockConfigHandler})
 
-		ctx := stdcontext.WithValue(stdcontext.Background(), runtimeOverridesKey, mocks.Runtime)
-		rootCmd.SetContext(ctx)
-		rootCmd.SetArgs([]string{"upgrade", "node", "--node", "10.0.0.1", "--image", "img"})
+		ctx := stdcontext.WithValue(stdcontext.Background(), cliCmd.RuntimeOverridesKey, mocks.Runtime)
+		cliCmd.RootCmd().SetContext(ctx)
+		cliCmd.RootCmd().SetArgs([]string{"upgrade", "node", "--node", "10.0.0.1", "--image", "img"})
 
-		_ = Execute()
+		_ = cliCmd.Execute()
 
-		if upgradeNodeOfflineTimeout != constants.DefaultNodeOfflineTimeout {
-			t.Errorf("Expected default offline timeout %v, got %v", constants.DefaultNodeOfflineTimeout, upgradeNodeOfflineTimeout)
+		if *cliCmd.UpgradeNodeOfflineTimeout != constants.DefaultNodeOfflineTimeout {
+			t.Errorf("Expected default offline timeout %v, got %v", constants.DefaultNodeOfflineTimeout, *cliCmd.UpgradeNodeOfflineTimeout)
 		}
 	})
 
@@ -1459,14 +1396,14 @@ func TestUpgradeNodeCmd(t *testing.T) {
 		mockConfigHandler.IsLoadedFunc = func() bool { return true }
 		mocks := setupMocks(t, &SetupOptions{ConfigHandler: mockConfigHandler})
 
-		ctx := stdcontext.WithValue(stdcontext.Background(), runtimeOverridesKey, mocks.Runtime)
-		rootCmd.SetContext(ctx)
-		rootCmd.SetArgs([]string{"upgrade", "node", "--node", "10.0.0.1", "--image", "img", "--offline-timeout", "8m"})
+		ctx := stdcontext.WithValue(stdcontext.Background(), cliCmd.RuntimeOverridesKey, mocks.Runtime)
+		cliCmd.RootCmd().SetContext(ctx)
+		cliCmd.RootCmd().SetArgs([]string{"upgrade", "node", "--node", "10.0.0.1", "--image", "img", "--offline-timeout", "8m"})
 
-		_ = Execute()
+		_ = cliCmd.Execute()
 
-		if upgradeNodeOfflineTimeout != 8*time.Minute {
-			t.Errorf("Expected offline timeout 8m, got %v", upgradeNodeOfflineTimeout)
+		if *cliCmd.UpgradeNodeOfflineTimeout != 8*time.Minute {
+			t.Errorf("Expected offline timeout 8m, got %v", *cliCmd.UpgradeNodeOfflineTimeout)
 		}
 	})
 
@@ -1480,11 +1417,11 @@ func TestUpgradeNodeCmd(t *testing.T) {
 		}
 		mocks := setupMocks(t, &SetupOptions{ConfigHandler: mockConfigHandler})
 
-		ctx := stdcontext.WithValue(stdcontext.Background(), runtimeOverridesKey, mocks.Runtime)
-		rootCmd.SetContext(ctx)
-		rootCmd.SetArgs([]string{"upgrade", "node", "--node", "10.0.0.1", "--image", "img", "--timeout", "10m", "--offline-timeout", "15m"})
+		ctx := stdcontext.WithValue(stdcontext.Background(), cliCmd.RuntimeOverridesKey, mocks.Runtime)
+		cliCmd.RootCmd().SetContext(ctx)
+		cliCmd.RootCmd().SetArgs([]string{"upgrade", "node", "--node", "10.0.0.1", "--image", "img", "--timeout", "10m", "--offline-timeout", "15m"})
 
-		err := Execute()
+		err := cliCmd.Execute()
 
 		if err == nil {
 			t.Fatal("Expected error for offline-timeout exceeding overall timeout, got nil")
@@ -1507,11 +1444,11 @@ func TestUpgradeNodeCmd(t *testing.T) {
 		mockConfigHandler.IsLoadedFunc = func() bool { return true }
 		mocks := setupMocks(t, &SetupOptions{ConfigHandler: mockConfigHandler})
 
-		ctx := stdcontext.WithValue(stdcontext.Background(), runtimeOverridesKey, mocks.Runtime)
-		rootCmd.SetContext(ctx)
-		rootCmd.SetArgs([]string{"upgrade", "node", "--node", "10.0.0.1", "--image", "img", "--timeout", "10m", "--offline-timeout", "10m"})
+		ctx := stdcontext.WithValue(stdcontext.Background(), cliCmd.RuntimeOverridesKey, mocks.Runtime)
+		cliCmd.RootCmd().SetContext(ctx)
+		cliCmd.RootCmd().SetArgs([]string{"upgrade", "node", "--node", "10.0.0.1", "--image", "img", "--timeout", "10m", "--offline-timeout", "10m"})
 
-		err := Execute()
+		err := cliCmd.Execute()
 
 		// Guard should not fire; the command proceeds to the next failure (no TALOSCONFIG).
 		if err == nil || strings.Contains(err.Error(), "cannot exceed") {
@@ -1526,11 +1463,11 @@ func TestUpgradeNodeCmd(t *testing.T) {
 		mockConfigHandler.IsLoadedFunc = func() bool { return true }
 		mocks := setupMocks(t, &SetupOptions{ConfigHandler: mockConfigHandler})
 
-		ctx := stdcontext.WithValue(stdcontext.Background(), runtimeOverridesKey, mocks.Runtime)
-		rootCmd.SetContext(ctx)
-		rootCmd.SetArgs([]string{"upgrade", "node", "--node", "10.0.0.1", "--image", "img", "--timeout", "0", "--offline-timeout", "15m"})
+		ctx := stdcontext.WithValue(stdcontext.Background(), cliCmd.RuntimeOverridesKey, mocks.Runtime)
+		cliCmd.RootCmd().SetContext(ctx)
+		cliCmd.RootCmd().SetArgs([]string{"upgrade", "node", "--node", "10.0.0.1", "--image", "img", "--timeout", "0", "--offline-timeout", "15m"})
 
-		err := Execute()
+		err := cliCmd.Execute()
 
 		// An explicit --timeout=0 means unbounded; the guard must not fire against it.
 		if err == nil || strings.Contains(err.Error(), "cannot exceed") {
@@ -1545,11 +1482,11 @@ func TestUpgradeNodeCmd(t *testing.T) {
 		mockConfigHandler.IsLoadedFunc = func() bool { return true }
 		mocks := setupMocks(t, &SetupOptions{ConfigHandler: mockConfigHandler})
 
-		ctx := stdcontext.WithValue(stdcontext.Background(), runtimeOverridesKey, mocks.Runtime)
-		rootCmd.SetContext(ctx)
-		rootCmd.SetArgs([]string{"upgrade", "node", "--node", "10.0.0.1", "--image", "img"})
+		ctx := stdcontext.WithValue(stdcontext.Background(), cliCmd.RuntimeOverridesKey, mocks.Runtime)
+		cliCmd.RootCmd().SetContext(ctx)
+		cliCmd.RootCmd().SetArgs([]string{"upgrade", "node", "--node", "10.0.0.1", "--image", "img"})
 
-		err := Execute()
+		err := cliCmd.Execute()
 
 		// No TALOSCONFIG set — confirms the reboot-mode guard passed and the code reached UpgradeNode.
 		if err == nil || !strings.Contains(err.Error(), "node upgrade failed") {
@@ -1564,11 +1501,11 @@ func TestUpgradeNodeCmd(t *testing.T) {
 		mockConfigHandler.IsLoadedFunc = func() bool { return true }
 		mocks := setupMocks(t, &SetupOptions{ConfigHandler: mockConfigHandler})
 
-		ctx := stdcontext.WithValue(stdcontext.Background(), runtimeOverridesKey, mocks.Runtime)
-		rootCmd.SetContext(ctx)
-		rootCmd.SetArgs([]string{"upgrade", "node", "--node", "10.0.0.1", "--image", "img", "--reboot-mode", "powercycle"})
+		ctx := stdcontext.WithValue(stdcontext.Background(), cliCmd.RuntimeOverridesKey, mocks.Runtime)
+		cliCmd.RootCmd().SetContext(ctx)
+		cliCmd.RootCmd().SetArgs([]string{"upgrade", "node", "--node", "10.0.0.1", "--image", "img", "--reboot-mode", "powercycle"})
 
-		err := Execute()
+		err := cliCmd.Execute()
 
 		if err == nil || !strings.Contains(err.Error(), "node upgrade failed") {
 			t.Errorf("Expected node upgrade error (guard passed), got: %v", err)
@@ -1585,11 +1522,11 @@ func TestUpgradeNodeCmd(t *testing.T) {
 		}
 		mocks := setupMocks(t, &SetupOptions{ConfigHandler: mockConfigHandler})
 
-		ctx := stdcontext.WithValue(stdcontext.Background(), runtimeOverridesKey, mocks.Runtime)
-		rootCmd.SetContext(ctx)
-		rootCmd.SetArgs([]string{"upgrade", "node", "--node", "10.0.0.1", "--image", "img", "--reboot-mode", "reboot-now-please"})
+		ctx := stdcontext.WithValue(stdcontext.Background(), cliCmd.RuntimeOverridesKey, mocks.Runtime)
+		cliCmd.RootCmd().SetContext(ctx)
+		cliCmd.RootCmd().SetArgs([]string{"upgrade", "node", "--node", "10.0.0.1", "--image", "img", "--reboot-mode", "reboot-now-please"})
 
-		err := Execute()
+		err := cliCmd.Execute()
 
 		if err == nil {
 			t.Fatal("Expected error for invalid --reboot-mode, got nil")
@@ -1609,10 +1546,10 @@ func TestUpgradeNodeCmd(t *testing.T) {
 
 func TestUpgradeClusterCmd_RejectsInvalidRebootModeBeforeConfig(t *testing.T) {
 	t.Cleanup(func() {
-		rootCmd.SetContext(stdcontext.Background())
-		upgradeNodes = []string{}
-		upgradeImage = ""
-		upgradeRebootMode = ""
+		cliCmd.RootCmd().SetContext(stdcontext.Background())
+		*cliCmd.UpgradeNodes = []string{}
+		*cliCmd.UpgradeImage = ""
+		*cliCmd.UpgradeRebootMode = ""
 	})
 
 	mockConfigHandler := config.NewMockConfigHandler()
@@ -1623,11 +1560,11 @@ func TestUpgradeClusterCmd_RejectsInvalidRebootModeBeforeConfig(t *testing.T) {
 	}
 	mocks := setupMocks(t, &SetupOptions{ConfigHandler: mockConfigHandler})
 
-	ctx := stdcontext.WithValue(stdcontext.Background(), runtimeOverridesKey, mocks.Runtime)
-	rootCmd.SetContext(ctx)
-	rootCmd.SetArgs([]string{"upgrade", "cluster", "--nodes", "10.0.0.1", "--image", "img", "--reboot-mode", "reboot-now-please"})
+	ctx := stdcontext.WithValue(stdcontext.Background(), cliCmd.RuntimeOverridesKey, mocks.Runtime)
+	cliCmd.RootCmd().SetContext(ctx)
+	cliCmd.RootCmd().SetArgs([]string{"upgrade", "cluster", "--nodes", "10.0.0.1", "--image", "img", "--reboot-mode", "reboot-now-please"})
 
-	err := Execute()
+	err := cliCmd.Execute()
 
 	if err == nil {
 		t.Fatal("Expected error for invalid --reboot-mode, got nil")

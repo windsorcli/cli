@@ -1,13 +1,31 @@
-package kubernetes
+package kubernetes_test
 
 import (
 	"fmt"
 	"testing"
 
+	"github.com/windsorcli/cli/pkg/provisioner/kubernetes"
 	"github.com/windsorcli/cli/pkg/provisioner/kubernetes/client"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 )
+
+// =============================================================================
+// Test Setup
+// =============================================================================
+
+// inventoryKustomization returns a Kustomization whose status.inventory holds one entry per ID.
+func inventoryKustomization(ids ...string) *unstructured.Unstructured {
+	entries := make([]any, 0, len(ids))
+	for _, id := range ids {
+		entries = append(entries, map[string]any{"id": id, "v": "v1"})
+	}
+	return &unstructured.Unstructured{Object: map[string]any{
+		"status": map[string]any{
+			"inventory": map[string]any{"entries": entries},
+		},
+	}}
+}
 
 // =============================================================================
 // Test Public Methods
@@ -15,35 +33,25 @@ import (
 
 func TestBaseKubernetesManager_GetKustomizationInventory(t *testing.T) {
 	t.Run("DecodesEntriesFromInventoryStatus", func(t *testing.T) {
-		// Given a kustomization whose status carries inventory entries with the
-		// flux ID encoding "<ns>_<name>_<group>_<kind>"
+		// Given a kustomization whose inventory holds namespaced, core, and cluster-scoped entries
 		m := setupKubernetesMocks(t)
 		m.KubernetesClient.(*client.MockKubernetesClient).GetResourceFunc = func(gvr schema.GroupVersionResource, ns, name string) (*unstructured.Unstructured, error) {
-			obj := &unstructured.Unstructured{}
-			obj.Object = map[string]any{
-				"status": map[string]any{
-					"inventory": map[string]any{
-						"entries": []any{
-							map[string]any{"id": "monitoring_grafana_apps_Deployment", "v": "v1"},
-							map[string]any{"id": "monitoring_grafana-config__ConfigMap", "v": "v1"},
-							map[string]any{"id": "_admin_rbac.authorization.k8s.io_ClusterRole", "v": "v1"},
-						},
-					},
-				},
-			}
-			return obj, nil
+			return inventoryKustomization(
+				"monitoring_grafana_apps_Deployment",
+				"monitoring_grafana-config__ConfigMap",
+				"_admin_rbac.authorization.k8s.io_ClusterRole",
+			), nil
 		}
-		manager := NewKubernetesManager(m.KubernetesClient, m.ConfigHandler)
+		manager := kubernetes.NewKubernetesManager(m.KubernetesClient, m.ConfigHandler)
 
 		// When GetKustomizationInventory runs
 		entries, err := manager.GetKustomizationInventory("monitoring", "flux-system")
 
-		// Then each entry is decoded with namespace/name/group/kind set; cluster-
-		// scoped resources have empty namespace; core API objects have empty group
+		// Then each entry decodes with an empty namespace or group where the ID has none
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
-		want := []InventoryEntry{
+		want := []kubernetes.InventoryEntry{
 			{Namespace: "monitoring", Name: "grafana", Group: "apps", Kind: "Deployment"},
 			{Namespace: "monitoring", Name: "grafana-config", Group: "", Kind: "ConfigMap"},
 			{Namespace: "", Name: "admin", Group: "rbac.authorization.k8s.io", Kind: "ClusterRole"},
@@ -59,16 +67,17 @@ func TestBaseKubernetesManager_GetKustomizationInventory(t *testing.T) {
 	})
 
 	t.Run("ReturnsNilWhenKustomizationAbsent", func(t *testing.T) {
-		// Absent kustomization is not an error in the destroy-plan context — it
-		// just means "not deployed yet, nothing to destroy."
+		// Given a kustomization that does not exist
 		m := setupKubernetesMocks(t)
 		m.KubernetesClient.(*client.MockKubernetesClient).GetResourceFunc = func(gvr schema.GroupVersionResource, ns, name string) (*unstructured.Unstructured, error) {
 			return nil, fmt.Errorf("%q not found", name)
 		}
-		manager := NewKubernetesManager(m.KubernetesClient, m.ConfigHandler)
+		manager := kubernetes.NewKubernetesManager(m.KubernetesClient, m.ConfigHandler)
 
+		// When GetKustomizationInventory runs
 		entries, err := manager.GetKustomizationInventory("not-yet", "flux-system")
 
+		// Then it returns nil entries and no error
 		if err != nil {
 			t.Fatalf("expected no error for not-found, got %v", err)
 		}
@@ -78,17 +87,17 @@ func TestBaseKubernetesManager_GetKustomizationInventory(t *testing.T) {
 	})
 
 	t.Run("ReturnsEmptySliceWhenInventoryAbsent", func(t *testing.T) {
-		// Kustomization exists but has not reconciled (suspended, or never
-		// applied) — inventory is missing, but this is distinct from
-		// kustomization-not-found and we surface it as an empty slice.
+		// Given a kustomization that exists but has no inventory
 		m := setupKubernetesMocks(t)
 		m.KubernetesClient.(*client.MockKubernetesClient).GetResourceFunc = func(gvr schema.GroupVersionResource, ns, name string) (*unstructured.Unstructured, error) {
 			return &unstructured.Unstructured{Object: map[string]any{"status": map[string]any{}}}, nil
 		}
-		manager := NewKubernetesManager(m.KubernetesClient, m.ConfigHandler)
+		manager := kubernetes.NewKubernetesManager(m.KubernetesClient, m.ConfigHandler)
 
+		// When GetKustomizationInventory runs
 		entries, err := manager.GetKustomizationInventory("suspended", "flux-system")
 
+		// Then it returns an empty, non-nil slice
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -98,27 +107,17 @@ func TestBaseKubernetesManager_GetKustomizationInventory(t *testing.T) {
 	})
 
 	t.Run("DropsMalformedEntries", func(t *testing.T) {
-		// IDs without exactly four underscore-separated fields are flux malformed
-		// — skip rather than misrender.
+		// Given an inventory with one malformed ID and one well-formed ID
 		m := setupKubernetesMocks(t)
 		m.KubernetesClient.(*client.MockKubernetesClient).GetResourceFunc = func(gvr schema.GroupVersionResource, ns, name string) (*unstructured.Unstructured, error) {
-			obj := &unstructured.Unstructured{}
-			obj.Object = map[string]any{
-				"status": map[string]any{
-					"inventory": map[string]any{
-						"entries": []any{
-							map[string]any{"id": "garbage", "v": "v1"},
-							map[string]any{"id": "ns_name__Kind", "v": "v1"},
-						},
-					},
-				},
-			}
-			return obj, nil
+			return inventoryKustomization("garbage", "ns_name__Kind"), nil
 		}
-		manager := NewKubernetesManager(m.KubernetesClient, m.ConfigHandler)
+		manager := kubernetes.NewKubernetesManager(m.KubernetesClient, m.ConfigHandler)
 
+		// When GetKustomizationInventory runs
 		entries, err := manager.GetKustomizationInventory("x", "flux-system")
 
+		// Then only the well-formed entry is returned
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -128,11 +127,7 @@ func TestBaseKubernetesManager_GetKustomizationInventory(t *testing.T) {
 	})
 }
 
-// =============================================================================
-// Test Helpers
-// =============================================================================
-
-func TestDecodeInventoryID(t *testing.T) {
+func TestBaseKubernetesManager_GetKustomizationInventoryIDDecoding(t *testing.T) {
 	tests := []struct {
 		name      string
 		id        string
@@ -189,17 +184,30 @@ func TestDecodeInventoryID(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			// Given a flux inventory id
-			// When it is decoded
-			entry, ok := decodeInventoryID(tt.id)
+			// Given a kustomization whose inventory holds only this flux inventory ID
+			m := setupKubernetesMocks(t)
+			m.KubernetesClient.(*client.MockKubernetesClient).GetResourceFunc = func(gvr schema.GroupVersionResource, ns, name string) (*unstructured.Unstructured, error) {
+				return inventoryKustomization(tt.id), nil
+			}
+			manager := kubernetes.NewKubernetesManager(m.KubernetesClient, m.ConfigHandler)
 
-			// Then its fields resolve to the object the id names
-			if ok != tt.wantOK {
-				t.Fatalf("Expected ok=%v for %q, got %v", tt.wantOK, tt.id, ok)
+			// When the inventory is read
+			entries, err := manager.GetKustomizationInventory("x", "flux-system")
+
+			// Then the ID resolves to the object it names, or is dropped when malformed
+			if err != nil {
+				t.Fatalf("Expected no error, got %v", err)
 			}
 			if !tt.wantOK {
+				if len(entries) != 0 {
+					t.Fatalf("Expected %q to be dropped, got %#v", tt.id, entries)
+				}
 				return
 			}
+			if len(entries) != 1 {
+				t.Fatalf("Expected one entry for %q, got %#v", tt.id, entries)
+			}
+			entry := entries[0]
 			if entry.Namespace != tt.namespace {
 				t.Errorf("Expected namespace %q, got %q", tt.namespace, entry.Namespace)
 			}

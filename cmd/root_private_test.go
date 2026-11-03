@@ -1,0 +1,721 @@
+package cmd
+
+// The RootTest provides comprehensive test coverage for the Windsor CLI root command.
+// It provides validation of command initialization, flag handling, and context management,
+// The RootTest ensures proper command execution and context propagation,
+// verifying error handling, flag parsing, and command hierarchy.
+
+import (
+	"bytes"
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"log/slog"
+	"os"
+	"strings"
+	"testing"
+
+	"github.com/spf13/cobra"
+	"github.com/windsorcli/cli/internal/logging"
+	"github.com/windsorcli/cli/internal/presenter"
+	"github.com/windsorcli/cli/internal/werror"
+	blueprintpkg "github.com/windsorcli/cli/pkg/composer/blueprint"
+	"github.com/windsorcli/cli/pkg/project"
+	"github.com/windsorcli/cli/pkg/runtime"
+	"github.com/windsorcli/cli/pkg/runtime/config"
+	envvars "github.com/windsorcli/cli/pkg/runtime/env"
+	"github.com/windsorcli/cli/pkg/runtime/secrets"
+	"github.com/windsorcli/cli/pkg/runtime/shell"
+	"github.com/windsorcli/cli/pkg/runtime/tools"
+)
+
+// =============================================================================
+// Test Setup
+// =============================================================================
+
+type Mocks struct {
+	ConfigHandler    config.ConfigHandler
+	Shell            *shell.MockShell
+	SecretsProvider  *secrets.MockProvider
+	EnvPrinter       *envvars.MockEnvPrinter
+	ToolsManager     *tools.MockToolsManager
+	Runtime          *runtime.Runtime
+	BlueprintHandler *blueprintpkg.MockBlueprintHandler
+	TmpDir           string
+}
+
+type SetupOptions struct {
+	ConfigHandler config.ConfigHandler
+	ConfigStr     string
+	TmpDir        string
+}
+
+// setupMocks creates mock components for testing the root command
+func setupMocks(t *testing.T, opts ...*SetupOptions) *Mocks {
+	t.Helper()
+
+	// Process options with defaults
+	options := &SetupOptions{}
+	if len(opts) > 0 && opts[0] != nil {
+		options = opts[0]
+	}
+
+	// Create temporary directory for test (only if needed)
+	var tmpDir string
+	if options.TmpDir != "" {
+		tmpDir = options.TmpDir
+	} else {
+		tmpDir = t.TempDir()
+	}
+
+	// Create mock shell with all exec functions mocked to avoid waiting
+	mockShell := shell.NewMockShell()
+	mockShell.GetProjectRootFunc = func() (string, error) {
+		return tmpDir, nil
+	}
+	mockShell.CheckTrustedDirectoryFunc = func() error {
+		return nil
+	}
+	mockShell.CheckResetFlagsFunc = func() (bool, error) {
+		return false, nil
+	}
+	mockShell.ResetFunc = func(...bool) {}
+	mockShell.GetSessionTokenFunc = func() (string, error) {
+		return "mock-session-token", nil
+	}
+	mockShell.WriteResetTokenFunc = func() (string, error) {
+		return "mock-reset-token", nil
+	}
+	// Mock all exec functions to return immediately without waiting for process execution
+	mockShell.ExecFunc = func(string, ...string) (string, error) {
+		return "", nil
+	}
+	mockShell.ExecSilentFunc = func(string, ...string) (string, error) {
+		return "", nil
+	}
+	mockShell.ExecProgressFunc = func(string, string, ...string) (string, error) {
+		return "", nil
+	}
+	mockShell.ExecSudoFunc = func(string, string, ...string) (string, error) {
+		return "", nil
+	}
+
+	// Create mock secrets provider
+	mockSecretsProvider := secrets.NewMockProvider()
+
+	// Create mock env printer
+	mockEnvPrinter := envvars.NewMockEnvPrinter()
+	mockEnvPrinter.PostEnvHookFunc = func(directory ...string) error {
+		return nil
+	}
+	mockEnvPrinter.GetEnvVarsFunc = func() (map[string]string, error) {
+		return map[string]string{}, nil
+	}
+	mockEnvPrinter.GetAliasFunc = func() (map[string]string, error) {
+		return map[string]string{}, nil
+	}
+
+	// Create and register additional mock env printers
+	mockWindsorEnvPrinter := envvars.NewMockEnvPrinter()
+	mockWindsorEnvPrinter.PostEnvHookFunc = func(directory ...string) error {
+		return nil
+	}
+	mockWindsorEnvPrinter.GetEnvVarsFunc = func() (map[string]string, error) {
+		return map[string]string{}, nil
+	}
+	mockWindsorEnvPrinter.GetAliasFunc = func() (map[string]string, error) {
+		return map[string]string{}, nil
+	}
+	mockDockerEnvPrinter := envvars.NewMockEnvPrinter()
+	mockDockerEnvPrinter.PostEnvHookFunc = func(directory ...string) error {
+		return nil
+	}
+	mockDockerEnvPrinter.GetEnvVarsFunc = func() (map[string]string, error) {
+		return map[string]string{}, nil
+	}
+	mockDockerEnvPrinter.GetAliasFunc = func() (map[string]string, error) {
+		return map[string]string{}, nil
+	}
+
+	// Create config handler - always use mock for tests
+	var configHandler config.ConfigHandler
+	if options.ConfigHandler == nil {
+		configHandler = config.NewMockConfigHandler()
+		configHandler.SetContext("test-context")
+	} else {
+		configHandler = options.ConfigHandler
+	}
+	// If it's a mock config handler, set defaults to use tmpDir
+	if mockConfig, ok := configHandler.(*config.MockConfigHandler); ok {
+		if mockConfig.GetConfigRootFunc == nil {
+			mockConfig.GetConfigRootFunc = func() (string, error) {
+				return tmpDir, nil
+			}
+		}
+		if mockConfig.GetContextFunc == nil {
+			mockConfig.GetContextFunc = func() string {
+				return "test-context"
+			}
+		}
+		if mockConfig.LoadConfigFunc == nil {
+			mockConfig.LoadConfigFunc = func() error {
+				return nil
+			}
+		}
+		if mockConfig.LoadSchemaFromBytesFunc == nil {
+			mockConfig.LoadSchemaFromBytesFunc = func(data []byte) error {
+				return nil
+			}
+		}
+		if mockConfig.LoadConfigStringFunc == nil {
+			mockConfig.LoadConfigStringFunc = func(content string) error {
+				// Parse YAML content if provided
+				if content != "" {
+					// Use a simple YAML parser - for tests, just mark as loaded
+					// The actual parsing is handled by the real implementation
+					// but for mocks, we just need to succeed
+					return nil
+				}
+				return nil
+			}
+		}
+		if mockConfig.IsLoadedFunc == nil {
+			mockConfig.IsLoadedFunc = func() bool {
+				return true
+			}
+		}
+		if mockConfig.GetStringFunc == nil {
+			mockConfig.GetStringFunc = func(key string, defaultValue ...string) string {
+				// Return empty string by default instead of "mock-string" to avoid parsing errors
+				if len(defaultValue) > 0 {
+					return defaultValue[0]
+				}
+				return ""
+			}
+		}
+		if mockConfig.GetContextValuesFunc == nil {
+			mockConfig.GetContextValuesFunc = func() (map[string]any, error) {
+				addons := make(map[string]any)
+				// Initialize common addons with enabled: false to prevent evaluation errors
+				for _, addon := range []string{"object_store", "observability", "private_ca", "private_dns"} {
+					addons[addon] = map[string]any{"enabled": false}
+				}
+				return map[string]any{
+					"addons": addons,
+					"dev":    false,
+				}, nil
+			}
+		}
+	}
+
+	// Load config if ConfigStr is provided
+	if options.ConfigStr != "" {
+		if err := configHandler.LoadConfigString(options.ConfigStr); err != nil {
+			t.Fatalf("Failed to load config: %v", err)
+		}
+		if err := configHandler.SetContext("default"); err != nil {
+			t.Fatalf("Failed to set context: %v", err)
+		}
+	}
+
+	// Create mock blueprint handler
+	mockBlueprintHandler := blueprintpkg.NewMockBlueprintHandler()
+
+	// Create mock tools manager
+	mockToolsManager := tools.NewMockToolsManager()
+	mockToolsManager.CheckFunc = func() error { return nil }
+
+	// Create runtime with all mocked dependencies including env printers
+	rtOverride := &runtime.Runtime{
+		Shell:         mockShell,
+		ConfigHandler: configHandler,
+		ProjectRoot:   tmpDir,
+		ToolsManager:  mockToolsManager,
+	}
+	rtOverride.EnvPrinters.WindsorEnv = mockWindsorEnvPrinter
+	rtOverride.EnvPrinters.DockerEnv = mockDockerEnvPrinter
+	rt := runtime.NewRuntime(rtOverride)
+
+	return &Mocks{
+		ConfigHandler:    configHandler,
+		Shell:            mockShell,
+		SecretsProvider:  mockSecretsProvider,
+		EnvPrinter:       mockEnvPrinter,
+		ToolsManager:     mockToolsManager,
+		Runtime:          rt,
+		BlueprintHandler: mockBlueprintHandler,
+		TmpDir:           tmpDir,
+	}
+}
+
+// =============================================================================
+// Test Helpers
+// =============================================================================
+
+// =============================================================================
+// Test Public Methods
+// =============================================================================
+
+func TestCommandPreflight(t *testing.T) {
+	// Cleanup: reset rootCmd context and globals after all subtests complete.
+	// noCache is reset alongside verbose because both are package-level flag
+	// vars that leak across subtests if not cleared.
+	t.Cleanup(func() {
+		rootCmd.SetContext(context.Background())
+		verbose = false
+		noCache = false
+	})
+
+	// Set up mocks for all tests
+	setupMocks(t)
+
+	t.Run("SucceedsForInitCommand", func(t *testing.T) {
+		// Given an init command attached to root
+		cmd := &cobra.Command{Use: "init"}
+		rootCmd.AddCommand(cmd)
+		t.Cleanup(func() { rootCmd.RemoveCommand(cmd) })
+
+		// When running preflight
+		err := commandPreflight(cmd, []string{})
+
+		// Then no error should occur (preflight only sets up global context)
+		if err != nil {
+			t.Errorf("Expected no error for init command, got: %v", err)
+		}
+	})
+
+	t.Run("SucceedsForEnvCommandWithHookFlag", func(t *testing.T) {
+		// Given an env command with hook flag attached to root
+		cmd := &cobra.Command{Use: "env"}
+		cmd.Flags().Bool("hook", false, "hook flag")
+		cmd.Flags().Set("hook", "true")
+		rootCmd.AddCommand(cmd)
+		t.Cleanup(func() { rootCmd.RemoveCommand(cmd) })
+
+		// When running preflight
+		err := commandPreflight(cmd, []string{})
+
+		// Then no error should occur (preflight only sets up global context)
+		if err != nil {
+			t.Errorf("Expected no error for env --hook, got: %v", err)
+		}
+	})
+
+	t.Run("SetsUpGlobalContext", func(t *testing.T) {
+		// Given any command attached to root
+		cmd := &cobra.Command{Use: "test"}
+		rootCmd.AddCommand(cmd)
+		t.Cleanup(func() { rootCmd.RemoveCommand(cmd) })
+
+		// When running preflight
+		err := commandPreflight(cmd, []string{})
+
+		// Then no error should occur (preflight only sets up global context)
+		if err != nil {
+			t.Errorf("Expected no error for preflight, got: %v", err)
+		}
+
+		// And context should be set
+		if cmd.Context() == nil {
+			t.Error("Expected command context to be set")
+		}
+	})
+
+	t.Run("EnablesDebugLoggingUnderVerbose", func(t *testing.T) {
+		// Given verbose flag is set
+		verbose = true
+		cmd := &cobra.Command{Use: "test"}
+		rootCmd.AddCommand(cmd)
+		t.Cleanup(func() { rootCmd.RemoveCommand(cmd) })
+
+		// When running preflight
+		err := commandPreflight(cmd, []string{})
+
+		// Then no error should occur
+		if err != nil {
+			t.Errorf("Expected no error for preflight, got: %v", err)
+		}
+
+		// And the context logger should accept debug records
+		if cmd.Context() == nil {
+			t.Fatal("Expected command context to be set")
+		}
+		if !logging.FromContext(cmd.Context()).Enabled(cmd.Context(), slog.LevelDebug) {
+			t.Error("Expected the context logger to be enabled at debug level")
+		}
+	})
+
+	t.Run("HandlesSetupGlobalContextWithNilRootContext", func(t *testing.T) {
+		// Given a command with root that has a nil context, ensure we pass a non-nil Context
+		rootCmd.SetContext(context.TODO())
+		cmd := &cobra.Command{Use: "test"}
+		rootCmd.AddCommand(cmd)
+		t.Cleanup(func() { rootCmd.RemoveCommand(cmd) })
+
+		// When running preflight
+		err := commandPreflight(cmd, []string{})
+
+		// Then no error should occur (setupGlobalContext doesn't return errors currently)
+		if err != nil {
+			t.Errorf("Expected no error for preflight, got: %v", err)
+		}
+	})
+
+	t.Run("SetsNoCacheEnvWhenFlagTrue", func(t *testing.T) {
+		// Given the --no-cache flag is set, and NO_CACHE is unset in the environment,
+		// preflight must propagate the flag to NO_CACHE=true so ArtifactBuilder.Pull
+		// (which only reads the env var, not the flag) bypasses the disk cache.
+		original, hadOriginal := os.LookupEnv("NO_CACHE")
+		os.Unsetenv("NO_CACHE")
+		t.Cleanup(func() {
+			noCache = false
+			if hadOriginal {
+				os.Setenv("NO_CACHE", original)
+			} else {
+				os.Unsetenv("NO_CACHE")
+			}
+		})
+
+		noCache = true
+		cmd := &cobra.Command{Use: "test"}
+		rootCmd.AddCommand(cmd)
+		t.Cleanup(func() { rootCmd.RemoveCommand(cmd) })
+
+		// When running preflight
+		if err := commandPreflight(cmd, []string{}); err != nil {
+			t.Fatalf("Expected no error for preflight, got: %v", err)
+		}
+
+		// Then NO_CACHE should be set to "true" so the artifact layer bypasses the cache
+		if got := os.Getenv("NO_CACHE"); got != "true" {
+			t.Errorf("Expected NO_CACHE=true after --no-cache preflight, got %q", got)
+		}
+	})
+
+	t.Run("DoesNotTouchNoCacheEnvWhenFlagFalse", func(t *testing.T) {
+		// Given --no-cache is NOT set but the operator already exported NO_CACHE in their
+		// shell, preflight must not clobber it. The flag is purely additive: explicit
+		// flag wins, but a quiet preflight leaves the operator's environment alone.
+		original, hadOriginal := os.LookupEnv("NO_CACHE")
+		os.Setenv("NO_CACHE", "preexisting")
+		t.Cleanup(func() {
+			noCache = false
+			if hadOriginal {
+				os.Setenv("NO_CACHE", original)
+			} else {
+				os.Unsetenv("NO_CACHE")
+			}
+		})
+
+		noCache = false
+		cmd := &cobra.Command{Use: "test"}
+		rootCmd.AddCommand(cmd)
+		t.Cleanup(func() { rootCmd.RemoveCommand(cmd) })
+
+		// When running preflight
+		if err := commandPreflight(cmd, []string{}); err != nil {
+			t.Fatalf("Expected no error for preflight, got: %v", err)
+		}
+
+		// Then NO_CACHE should be untouched — preflight has no business overwriting an
+		// operator-supplied value when the flag is off
+		if got := os.Getenv("NO_CACHE"); got != "preexisting" {
+			t.Errorf("Expected NO_CACHE preserved at %q, got %q", "preexisting", got)
+		}
+	})
+}
+
+func TestRequireCloudAuth(t *testing.T) {
+	t.Run("PrintsHintToStderrAndSilencesCobraOnFailure", func(t *testing.T) {
+		// Given CheckAuth returns the per-platform hint as the error (the awsAuthHint shape:
+		// "AWS SSO session for X has likely expired. Run: aws sso login --profile X"),
+		// requireCloudAuth must (a) print that hint to the command's stderr verbatim so the
+		// operator sees the actionable next step, (b) set SilenceErrors on the command tree
+		// so cobra does not double-print "Error: AWS SSO session..." on top — credential
+		// failures are flow-guidance moments, not exceptions, and the "Error:" framing reads
+		// as panic, and (c) still return the error so the parent command exits non-zero
+		// (preserving CI / scripted exit-code semantics).
+		mocks := setupMocks(t)
+		hint := "AWS SSO session for \"test-context\" has likely expired. Run:\n  aws sso login --profile test-context"
+		mocks.ToolsManager.CheckAuthFunc = func() error { return fmt.Errorf("%s", hint) }
+		proj := project.NewProject("", &project.Project{Runtime: mocks.Runtime})
+
+		root := &cobra.Command{Use: "windsor"}
+		leaf := &cobra.Command{Use: "destroy"}
+		root.AddCommand(leaf)
+
+		var stderr strings.Builder
+		leaf.SetErr(&stderr)
+
+		err := requireCloudAuth(leaf, proj)
+		if err == nil {
+			t.Fatal("Expected requireCloudAuth to return CheckAuth's error, got nil")
+		}
+		if !strings.Contains(stderr.String(), "aws sso login --profile test-context") {
+			t.Errorf("Expected hint printed to stderr, got: %q", stderr.String())
+		}
+		// Both leaf and root must be silenced — cobra walks the chain when deciding whether
+		// to print "Error: ...", and a missed parent re-introduces the prefix.
+		if !leaf.SilenceErrors {
+			t.Error("Expected leaf cmd's SilenceErrors to be set to suppress cobra's Error: prefix")
+		}
+		if !root.SilenceErrors {
+			t.Error("Expected root cmd's SilenceErrors to be set so cobra's chain check does not re-add Error: prefix")
+		}
+	})
+
+	t.Run("PrintsTheRemediationOfAWindsorError", func(t *testing.T) {
+		// Given CheckAuth returns a WindsorError whose remediation holds the login command
+		mocks := setupMocks(t)
+		mocks.ToolsManager.CheckAuthFunc = func() error {
+			return werror.New(`The AWS SSO session for profile "test-context" has likely expired.`,
+				"Run 'aws sso login --profile test-context'.", nil)
+		}
+		proj := project.NewProject("", &project.Project{Runtime: mocks.Runtime})
+
+		leaf := &cobra.Command{Use: "destroy"}
+		var stderr strings.Builder
+		leaf.SetErr(&stderr)
+
+		// When requireCloudAuth runs
+		err := requireCloudAuth(leaf, proj)
+
+		// Then stderr shows the message and then the login command, without an error label
+		if err == nil {
+			t.Fatal("Expected requireCloudAuth to return CheckAuth's error, got nil")
+		}
+		want := "The AWS SSO session for profile \"test-context\" has likely expired.\nRun 'aws sso login --profile test-context'.\n"
+		if stderr.String() != want {
+			t.Errorf("Expected the message and the remediation, got: %q", stderr.String())
+		}
+	})
+
+	t.Run("SuccessIsSilent", func(t *testing.T) {
+		// Given CheckAuth passes, requireCloudAuth must not touch stderr or fiddle with
+		// SilenceErrors — those side effects belong only on the failure path.
+		mocks := setupMocks(t)
+		// Default mock CheckAuth returns nil.
+		proj := project.NewProject("", &project.Project{Runtime: mocks.Runtime})
+
+		leaf := &cobra.Command{Use: "destroy"}
+		var stderr strings.Builder
+		leaf.SetErr(&stderr)
+
+		if err := requireCloudAuth(leaf, proj); err != nil {
+			t.Fatalf("Expected no error on success, got %v", err)
+		}
+		if stderr.String() != "" {
+			t.Errorf("Expected no stderr output on success, got: %q", stderr.String())
+		}
+		if leaf.SilenceErrors {
+			t.Error("Expected SilenceErrors to remain unset on success — only the failure path should touch it")
+		}
+	})
+}
+
+func TestRenderError(t *testing.T) {
+	t.Cleanup(func() {
+		formatFlag = string(logging.FormatText)
+		verbose = false
+	})
+
+	t.Run("PrintsAnUntypedErrorAfterTheErrorPrefix", func(t *testing.T) {
+		// Given text format and an untyped error
+		formatFlag, verbose = string(logging.FormatText), false
+		var buf bytes.Buffer
+
+		// When the error is rendered
+		renderError(&buf, fmt.Errorf("context %q not found", "x"))
+
+		// Then the output matches the plain error line
+		if buf.String() != "error: context \"x\" not found\n" {
+			t.Errorf("unexpected output %q", buf.String())
+		}
+	})
+
+	t.Run("PrintsAWindsorErrorWithItsHint", func(t *testing.T) {
+		// Given text format and a WindsorError under a frame
+		formatFlag, verbose = string(logging.FormatText), false
+		var buf bytes.Buffer
+		err := werror.Wrap(werror.New("Context value is malformed.", "Run windsor set to fix it.", nil), "loading")
+
+		// When the error is rendered
+		renderError(&buf, err)
+
+		// Then the message and hint print without a trace
+		want := "error: Context value is malformed.\nhint: Run windsor set to fix it.\n"
+		if buf.String() != want {
+			t.Errorf("expected %q, got %q", want, buf.String())
+		}
+	})
+
+	t.Run("PrintsEveryCauseOfAJoinedError", func(t *testing.T) {
+		// Given text format and two joined WindsorErrors under a frame
+		formatFlag, verbose = string(logging.FormatText), false
+		var buf bytes.Buffer
+		err := werror.Wrap(errors.Join(werror.New("First failed.", "Fix the first.", nil), werror.New("Second failed.", "Fix the second.", nil)), "2 deletes failed")
+
+		// When the error is rendered
+		renderError(&buf, err)
+
+		// Then the full text prints, with each cause and without a single hint
+		want := "error: 2 deletes failed: First failed.\nSecond failed.\n"
+		if buf.String() != want {
+			t.Errorf("expected %q, got %q", want, buf.String())
+		}
+	})
+
+	t.Run("AddsTheTraceUnderVerbose", func(t *testing.T) {
+		// Given verbose text output and a WindsorError with a cause and a hint under a frame
+		formatFlag, verbose = string(logging.FormatText), true
+		var buf bytes.Buffer
+		err := werror.Wrap(werror.New("Apply failed.", "Run windsor plan.", fmt.Errorf("exit status 1")), "applying cluster")
+
+		// When the error is rendered
+		renderError(&buf, err)
+
+		// Then the breadcrumbs that the message does not show print under a trace heading, and the hint prints last
+		want := "error: Apply failed.\ntrace:\n  applying cluster\n  exit status 1\nhint: Run windsor plan.\n"
+		if buf.String() != want {
+			t.Errorf("expected %q, got %q", want, buf.String())
+		}
+	})
+
+	t.Run("IndentsEachLineOfAMultiLineBreadcrumb", func(t *testing.T) {
+		// Given verbose text output and a frame around a cause with two lines
+		formatFlag, verbose = string(logging.FormatText), true
+		var buf bytes.Buffer
+		err := werror.Wrap(werror.New("Load failed.", "", errors.New("bad token\n> 5 | key: [")), "loading blueprint")
+
+		// When the error is rendered
+		renderError(&buf, err)
+
+		// Then the second line of the cause is indented under the trace
+		want := "error: Load failed.\ntrace:\n  loading blueprint\n  bad token\n  > 5 | key: [\n"
+		if buf.String() != want {
+			t.Errorf("expected %q, got %q", want, buf.String())
+		}
+	})
+
+	t.Run("KeepsAFrameThatStartsTheMessage", func(t *testing.T) {
+		// Given verbose text output and a frame whose text starts the WindsorError message
+		formatFlag, verbose = string(logging.FormatText), true
+		var buf bytes.Buffer
+		err := werror.Wrap(werror.New("validating input took too long", "", nil), "validating input")
+
+		// When the error is rendered
+		renderError(&buf, err)
+
+		// Then the frame prints under the trace
+		want := "error: validating input took too long\ntrace:\n  validating input\n"
+		if buf.String() != want {
+			t.Errorf("expected %q, got %q", want, buf.String())
+		}
+	})
+
+	t.Run("OmitsTheTraceWhenTheMessageShowsEveryBreadcrumb", func(t *testing.T) {
+		// Given verbose text output and a WindsorError whose message contains its cause
+		formatFlag, verbose = string(logging.FormatText), true
+		var buf bytes.Buffer
+		err := werror.New("File is not valid YAML: [5:8] token not found", "Correct the YAML.", errors.New("[5:8] token not found"))
+
+		// When the error is rendered
+		renderError(&buf, err)
+
+		// Then no trace heading prints
+		want := "error: File is not valid YAML: [5:8] token not found\nhint: Correct the YAML.\n"
+		if buf.String() != want {
+			t.Errorf("expected %q, got %q", want, buf.String())
+		}
+	})
+
+	t.Run("WritesOneJSONLineInJSONFormat", func(t *testing.T) {
+		// Given JSON format and a WindsorError
+		formatFlag, verbose = string(logging.FormatJSON), false
+		var buf bytes.Buffer
+
+		// When the error is rendered
+		renderError(&buf, werror.New("Unknown output format.", "Use text or json.", nil))
+
+		// Then one failed event line holds the error fields
+		var line struct {
+			Kind  string            `json:"kind"`
+			Error map[string]string `json:"error"`
+		}
+		if err := json.Unmarshal(buf.Bytes(), &line); err != nil {
+			t.Fatalf("expected one JSON line, got %q: %v", buf.String(), err)
+		}
+		if line.Kind != "failed" || line.Error["message"] != "Unknown output format." || line.Error["remediation"] != "Use text or json." {
+			t.Errorf("unexpected line %+v", line)
+		}
+	})
+}
+
+func TestWithOutput(t *testing.T) {
+	t.Cleanup(func() { verbose = false })
+
+	t.Run("InjectsAPresenterAndALoggerThatRoutesIntoIt", func(t *testing.T) {
+		// Given JSON output to a buffer
+		verbose = false
+		var buf bytes.Buffer
+
+		// When output is wired and a warning is logged through the context logger
+		ctx := withOutput(context.Background(), &buf, logging.FormatJSON)
+		logging.FromContext(ctx).Warn("slow apply")
+
+		// Then the presenter is in the context and the log reached it as a JSON log event
+		if presenter.FromContext(ctx) == presenter.Discard {
+			t.Error("expected a presenter in the context")
+		}
+		if !strings.Contains(buf.String(), `"kind":"log"`) || !strings.Contains(buf.String(), "slow apply") {
+			t.Errorf("expected a JSON log event, got %q", buf.String())
+		}
+	})
+
+	t.Run("ShowsDebugLogsOnlyUnderVerbose", func(t *testing.T) {
+		// Given text output with and without --verbose
+		var quiet, loud bytes.Buffer
+		verbose = false
+		quietCtx := withOutput(context.Background(), &quiet, logging.FormatText)
+		verbose = true
+		loudCtx := withOutput(context.Background(), &loud, logging.FormatText)
+
+		// When a debug record is logged through each logger
+		logging.FromContext(quietCtx).Debug("resolving values")
+		logging.FromContext(loudCtx).Debug("resolving values")
+
+		// Then only the verbose logger writes it
+		if quiet.Len() != 0 || !strings.Contains(loud.String(), "resolving values") {
+			t.Errorf("unexpected output quiet=%q loud=%q", quiet.String(), loud.String())
+		}
+	})
+}
+
+func TestSetupGlobalContext_Format(t *testing.T) {
+	t.Cleanup(func() {
+		formatFlag = string(logging.FormatText)
+		presenter.SetDefault(nil)
+	})
+
+	t.Run("MakesTheJSONPresenterTheProcessDefault", func(t *testing.T) {
+		// Given JSON format
+		formatFlag = string(logging.FormatJSON)
+		cmd := &cobra.Command{Use: "test"}
+		rootCmd.AddCommand(cmd)
+		t.Cleanup(func() { rootCmd.RemoveCommand(cmd) })
+
+		// When the global context is set up
+		if err := setupGlobalContext(cmd); err != nil {
+			t.Fatalf("expected no error, got %v", err)
+		}
+
+		// Then the process default and the command context share the JSON presenter
+		if _, ok := presenter.Default().(*presenter.JSON); !ok {
+			t.Errorf("expected a JSON default presenter, got %T", presenter.Default())
+		}
+		if presenter.FromContext(cmd.Context()) != presenter.Default() {
+			t.Error("expected the command context to carry the default presenter")
+		}
+	})
+}

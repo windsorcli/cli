@@ -112,7 +112,7 @@ func TestProcessor_mergeHelpers(t *testing.T) {
 		incoming := operatorOverlayConfigBlocks(globalScope, operatorOverlay)
 
 		// When merged via mergeConfigBlocks
-		out, _, err := processor.mergeConfigBlocks(globalScope, nil, incoming)
+		out, _, err := processor.mergeConfigBlocks(globalScope, nil, incoming, nil, "")
 		if err != nil {
 			t.Fatalf("mergeConfigBlocks failed: %v", err)
 		}

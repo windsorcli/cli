@@ -18,6 +18,15 @@ import (
 )
 
 // =============================================================================
+// Types
+// =============================================================================
+
+// configPaths maps a config block name to the path of the facet that wrote each top-level key. The
+// key "" holds the facet path of a scalar or list value. Expressions in a key evaluate relative to
+// that facet, so file() and the other file helpers read from the facet's template data.
+type configPaths map[string]map[string]string
+
+// =============================================================================
 // Private Methods
 // =============================================================================
 
@@ -49,7 +58,8 @@ func (p *BaseBlueprintProcessor) scopeForConfigBlock(contextScope, globalScope m
 // value only when its when is true. Blocks with the same name deep-merge in list order. A higher
 // ordinal wins, then remove > replace > merge. A block's when ignores the keys that the block writes
 // (scopeBlindToBlockKeys), so a guard such as "default only when unset" tests the operator value.
-func (p *BaseBlueprintProcessor) mergeFacetScopeIntoGlobal(facet blueprintv1alpha1.Facet, globalScope map[string]any, existing map[string]*blueprintv1alpha1.ConfigBlock, evalScope, contextScope map[string]any) (map[string]any, map[string]*blueprintv1alpha1.ConfigBlock, error) {
+// It records the facet path of each key that wins the merge in paths.
+func (p *BaseBlueprintProcessor) mergeFacetScopeIntoGlobal(facet blueprintv1alpha1.Facet, globalScope map[string]any, existing map[string]*blueprintv1alpha1.ConfigBlock, evalScope, contextScope map[string]any, paths configPaths) (map[string]any, map[string]*blueprintv1alpha1.ConfigBlock, error) {
 	facetOrdinal := resolvedFacetOrdinal(facet)
 	incoming := make(map[string]*blueprintv1alpha1.ConfigBlock)
 	byName := make(map[string][]any)
@@ -148,7 +158,7 @@ func (p *BaseBlueprintProcessor) mergeFacetScopeIntoGlobal(facet blueprintv1alph
 	if len(incoming) == 0 {
 		return globalScope, existing, nil
 	}
-	mergedScope, mergedEntries, err := p.mergeConfigBlocks(globalScope, existing, incoming)
+	mergedScope, mergedEntries, err := p.mergeConfigBlocks(globalScope, existing, incoming, paths, facet.Path)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -158,8 +168,9 @@ func (p *BaseBlueprintProcessor) mergeFacetScopeIntoGlobal(facet blueprintv1alph
 // mergeConfigBlocks merges the incoming config blocks into the scope by ordinal and strategy.
 // A higher ordinal wins. Equal ordinals use remove > replace > merge. At equal ordinal and strategy,
 // merge deep-merges the new value over the old value. It returns the scope and the block entries.
+// It records facetPath in paths for each key that an incoming block writes. A nil paths records nothing.
 // A strategy that is not merge, replace, or remove returns an error with a remediation hint.
-func (p *BaseBlueprintProcessor) mergeConfigBlocks(scope map[string]any, existing, incoming map[string]*blueprintv1alpha1.ConfigBlock) (map[string]any, map[string]*blueprintv1alpha1.ConfigBlock, error) {
+func (p *BaseBlueprintProcessor) mergeConfigBlocks(scope map[string]any, existing, incoming map[string]*blueprintv1alpha1.ConfigBlock, paths configPaths, facetPath string) (map[string]any, map[string]*blueprintv1alpha1.ConfigBlock, error) {
 	out := make(map[string]any)
 	maps.Copy(out, scope)
 	if existing == nil {
@@ -203,16 +214,20 @@ func (p *BaseBlueprintProcessor) mergeConfigBlocks(scope map[string]any, existin
 		switch strategy {
 		case "remove":
 			delete(out, name)
+			paths.remove(name)
 		case "replace":
 			out[name] = rawValue
+			paths.replace(name, rawValue, facetPath)
 		case "merge":
 			exMap, exOk := asMapStringAny(out[name])
 			newMap, newOk := asMapStringAny(rawValue)
 			if exOk && newOk && rawValue != nil {
 				out[name] = deepMergeMap(exMap, newMap)
+				paths.merge(name, newMap, facetPath)
 				continue
 			}
 			out[name] = rawValue
+			paths.replace(name, rawValue, facetPath)
 		}
 	}
 	return out, merged, nil
@@ -263,7 +278,8 @@ func unstableConfigBlockNames(a, b map[string]any) []string {
 // per key, so references between its own keys converge. A key derived from its own block, such as
 // cidrhost(network.cidr_block, 1), resolves once after the block settles. After convergence, a key that
 // still fails with an error that is not deferred fails composition, so no raw ${...} reaches config.
-func (p *BaseBlueprintProcessor) evaluateGlobalScopeConfig(globalScope map[string]any, contextScope map[string]any) error {
+// Each key evaluates with the facet path that paths records for it.
+func (p *BaseBlueprintProcessor) evaluateGlobalScopeConfig(globalScope map[string]any, contextScope map[string]any, paths configPaths) error {
 	if globalScope == nil {
 		return nil
 	}
@@ -288,7 +304,7 @@ func (p *BaseBlueprintProcessor) evaluateGlobalScopeConfig(globalScope map[strin
 					continue
 				}
 				scopeWithBlock := p.scopeForConfigBlock(contextScope, globalScope, name, nil)
-				evaluated, err := p.evaluateConfigBlockValue(body, "", scopeWithBlock)
+				evaluated, err := p.evaluateConfigBlockValue(body, paths.facetPath(name, ""), scopeWithBlock)
 				if err != nil {
 					return werror.Wrap(err, "config block %q", name)
 				}
@@ -328,7 +344,7 @@ func (p *BaseBlueprintProcessor) evaluateGlobalScopeConfig(globalScope map[strin
 					}
 					nonDerivedBody[k] = v
 				}
-				evaluated := p.evaluateBlockBodyTolerant(nonDerivedBody, scopeWithBlock)
+				evaluated := p.evaluateBlockBodyTolerant(nonDerivedBody, scopeWithBlock, paths[name])
 				if normalized, ok := normalizeDeferredValue(evaluated).(map[string]any); ok {
 					evaluated = normalized
 				}
@@ -354,7 +370,7 @@ func (p *BaseBlueprintProcessor) evaluateGlobalScopeConfig(globalScope map[strin
 					if !ok || !evaluator.ContainsExpression(s) {
 						continue
 					}
-					resolved, err := p.evaluator.Evaluate(s, "", scopeWithBlock, false)
+					resolved, err := p.evaluator.Evaluate(s, paths.facetPath(name, k), scopeWithBlock, false)
 					if err != nil || resolved == nil || evaluator.IsDeferredValue(resolved) {
 						continue
 					}
@@ -393,8 +409,10 @@ func (p *BaseBlueprintProcessor) evaluateGlobalScopeConfig(globalScope map[strin
 			validationBody[k] = v
 		}
 		finalScope := p.scopeForConfigBlock(contextScope, globalScope, name, blockMap)
-		if _, err := p.evaluator.EvaluateMap(validationBody, "", finalScope, false); err != nil {
-			return werror.Wrap(err, "config block %q", name)
+		for k, v := range validationBody {
+			if _, err := p.evaluator.EvaluateMap(map[string]any{k: v}, paths.facetPath(name, k), finalScope, false); err != nil {
+				return werror.Wrap(err, "config block %q", name)
+			}
 		}
 	}
 	return nil
@@ -404,11 +422,11 @@ func (p *BaseBlueprintProcessor) evaluateGlobalScopeConfig(globalScope map[strin
 // the raw value of a key that fails. EvaluateMap would discard the whole body on the first failure,
 // such as a key that reads a sibling that has not resolved yet. A later pass resolves the kept key.
 // After the scopes converge, evaluateGlobalScopeConfig evaluates each key again and returns any error
-// that is not a deferred error.
-func (p *BaseBlueprintProcessor) evaluateBlockBodyTolerant(body map[string]any, scope map[string]any) map[string]any {
+// that is not a deferred error. Each key evaluates with its facet path from keyPaths.
+func (p *BaseBlueprintProcessor) evaluateBlockBodyTolerant(body map[string]any, scope map[string]any, keyPaths map[string]string) map[string]any {
 	evaluated := make(map[string]any, len(body))
 	for k, v := range body {
-		one, err := p.evaluator.EvaluateMap(map[string]any{k: v}, "", scope, false)
+		one, err := p.evaluator.EvaluateMap(map[string]any{k: v}, keyPaths[k], scope, false)
 		if err != nil {
 			evaluated[k] = v
 			continue
@@ -543,6 +561,54 @@ func operatorOverlayConfigBlocks(globalScope map[string]any, operatorOverlay map
 		}
 	}
 	return incoming
+}
+
+// facetPath returns the path of the facet that wrote key of the named config block. A key with no
+// record falls back to the path of the whole block. It returns "" when no facet wrote the block.
+func (c configPaths) facetPath(name, key string) string {
+	keys := c[name]
+	if path, ok := keys[key]; ok {
+		return path
+	}
+	return keys[""]
+}
+
+// replace records facetPath for every key of value under name, and drops the old records. A value
+// that is not a map records facetPath for the whole block.
+func (c configPaths) replace(name string, value any, facetPath string) {
+	if c == nil {
+		return
+	}
+	keys := map[string]string{"": facetPath}
+	if valueMap, ok := asMapStringAny(value); ok {
+		for k := range valueMap {
+			keys[k] = facetPath
+		}
+	}
+	c[name] = keys
+}
+
+// merge records facetPath for each key of value under name, and keeps the records of other keys.
+func (c configPaths) merge(name string, value map[string]any, facetPath string) {
+	if c == nil {
+		return
+	}
+	keys := c[name]
+	if keys == nil {
+		keys = make(map[string]string, len(value))
+		c[name] = keys
+	}
+	for k := range value {
+		keys[k] = facetPath
+	}
+}
+
+// remove drops the records of the named config block.
+func (c configPaths) remove(name string) {
+	if c == nil {
+		return
+	}
+	delete(c, name)
 }
 
 // mergeBlockValueOverContext overlays a config block's in-progress value on the context value under

@@ -1,7 +1,7 @@
 //go:build integration
 // +build integration
 
-package cmd
+package cmd_test
 
 // Test helpers for the cmd package. Built with -tags=integration for integration test helpers
 // (SetupIntegrationProject, runCmd, etc.); unit tests use captureOutput/setupMocks from root_test.go.
@@ -16,9 +16,11 @@ import (
 	"testing"
 	"time"
 
+	cliCmd "github.com/windsorcli/cli/cmd"
+	"github.com/windsorcli/cli/pkg/runtime/shell"
+
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
-	"github.com/windsorcli/cli/pkg/runtime/shell"
 )
 
 // =============================================================================
@@ -66,11 +68,11 @@ func captureOutputAndRestore(t *testing.T) (stdout, stderr *bytes.Buffer) {
 	t.Helper()
 	stdout = new(bytes.Buffer)
 	stderr = new(bytes.Buffer)
-	rootCmd.SetOut(stdout)
-	rootCmd.SetErr(stderr)
+	cliCmd.RootCmd().SetOut(stdout)
+	cliCmd.RootCmd().SetErr(stderr)
 	t.Cleanup(func() {
-		rootCmd.SetOut(nil)
-		rootCmd.SetErr(nil)
+		cliCmd.RootCmd().SetOut(nil)
+		cliCmd.RootCmd().SetErr(nil)
 	})
 	return stdout, stderr
 }
@@ -115,12 +117,12 @@ func resetCommandFlagValues(cmd *cobra.Command) {
 // Returns trimmed stdout string, stderr string, and Execute() error.
 func runCmd(t *testing.T, ctx context.Context, args []string) (stdout, stderr string, err error) {
 	t.Helper()
-	resetCommandFlagValues(rootCmd)
+	resetCommandFlagValues(cliCmd.RootCmd())
 	_, stderrBuf := captureOutputAndRestore(t)
 	stdoutBuf, restore := captureProcessStdout(t)
-	rootCmd.SetContext(ctx)
-	rootCmd.SetArgs(args)
-	err = Execute()
+	cliCmd.RootCmd().SetContext(ctx)
+	cliCmd.RootCmd().SetArgs(args)
+	err = cliCmd.Execute()
 	restore()
 	return strings.TrimSpace(stdoutBuf.String()), stderrBuf.String(), err
 }

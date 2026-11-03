@@ -1,4 +1,4 @@
-package cmd
+package cmd_test
 
 import (
 	"bytes"
@@ -8,6 +8,8 @@ import (
 	"os"
 	"strings"
 	"testing"
+
+	cliCmd "github.com/windsorcli/cli/cmd"
 
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
@@ -92,11 +94,11 @@ func createTestCommand() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:          "test [test-name]",
 		Short:        "Run blueprint composition tests",
-		RunE:         testCmd.RunE,
+		RunE:         cliCmd.TestCmd.RunE,
 		SilenceUsage: true,
 	}
 
-	testCmd.Flags().VisitAll(func(flag *pflag.Flag) {
+	cliCmd.TestCmd.Flags().VisitAll(func(flag *pflag.Flag) {
 		cmd.Flags().AddFlag(flag)
 	})
 
@@ -144,8 +146,8 @@ func TestTestCmd(t *testing.T) {
 		cmd := createTestCommand()
 		cmd.SetOut(stdout)
 		cmd.SetErr(stderr)
-		ctx := context.WithValue(context.Background(), projectOverridesKey, proj)
-		ctx = context.WithValue(ctx, testRunnerOverridesKey, mocks.TestRunner)
+		ctx := context.WithValue(context.Background(), cliCmd.ProjectOverridesKey, proj)
+		ctx = context.WithValue(ctx, cliCmd.TestRunnerOverridesKey, mocks.TestRunner)
 		cmd.SetContext(ctx)
 		cmd.SetArgs([]string{})
 
@@ -176,8 +178,8 @@ func TestTestCmd(t *testing.T) {
 		cmd := createTestCommand()
 		cmd.SetOut(stdout)
 		cmd.SetErr(stderr)
-		ctx := context.WithValue(context.Background(), projectOverridesKey, proj)
-		ctx = context.WithValue(ctx, testRunnerOverridesKey, mocks.TestRunner)
+		ctx := context.WithValue(context.Background(), cliCmd.ProjectOverridesKey, proj)
+		ctx = context.WithValue(ctx, cliCmd.TestRunnerOverridesKey, mocks.TestRunner)
 		cmd.SetContext(ctx)
 		cmd.SetArgs([]string{})
 
@@ -208,8 +210,8 @@ func TestTestCmd(t *testing.T) {
 		})
 
 		cmd := createTestCommand()
-		ctx := context.WithValue(context.Background(), projectOverridesKey, proj)
-		ctx = context.WithValue(ctx, testRunnerOverridesKey, mocks.TestRunner)
+		ctx := context.WithValue(context.Background(), cliCmd.ProjectOverridesKey, proj)
+		ctx = context.WithValue(ctx, cliCmd.TestRunnerOverridesKey, mocks.TestRunner)
 		cmd.SetContext(ctx)
 		cmd.SetArgs([]string{"specific-test"})
 
@@ -239,8 +241,8 @@ cases:
 		})
 
 		cmd := createTestCommand()
-		ctx := context.WithValue(context.Background(), projectOverridesKey, proj)
-		ctx = context.WithValue(ctx, testRunnerOverridesKey, mocks.TestRunner)
+		ctx := context.WithValue(context.Background(), cliCmd.ProjectOverridesKey, proj)
+		ctx = context.WithValue(ctx, cliCmd.TestRunnerOverridesKey, mocks.TestRunner)
 		cmd.SetContext(ctx)
 		cmd.SetArgs([]string{})
 
@@ -282,7 +284,7 @@ func TestTestCmd_ErrorScenarios(t *testing.T) {
 			Composer: comp,
 		})
 
-		ctx := context.WithValue(context.Background(), projectOverridesKey, proj)
+		ctx := context.WithValue(context.Background(), cliCmd.ProjectOverridesKey, proj)
 
 		cmd := createTestCommand()
 		cmd.SetContext(ctx)
@@ -311,8 +313,8 @@ func TestTestCmd_ErrorScenarios(t *testing.T) {
 		})
 
 		cmd := createTestCommand()
-		ctx := context.WithValue(context.Background(), projectOverridesKey, proj)
-		ctx = context.WithValue(ctx, testRunnerOverridesKey, mocks.TestRunner)
+		ctx := context.WithValue(context.Background(), cliCmd.ProjectOverridesKey, proj)
+		ctx = context.WithValue(ctx, cliCmd.TestRunnerOverridesKey, mocks.TestRunner)
 		cmd.SetContext(ctx)
 		cmd.SetArgs([]string{})
 
@@ -339,8 +341,8 @@ func TestTestCmd_ErrorScenarios(t *testing.T) {
 		})
 
 		cmd := createTestCommand()
-		ctx := context.WithValue(context.Background(), projectOverridesKey, proj)
-		ctx = context.WithValue(ctx, testRunnerOverridesKey, mocks.TestRunner)
+		ctx := context.WithValue(context.Background(), cliCmd.ProjectOverridesKey, proj)
+		ctx = context.WithValue(ctx, cliCmd.TestRunnerOverridesKey, mocks.TestRunner)
 		cmd.SetContext(ctx)
 		cmd.SetArgs([]string{"nonexistent-test"})
 

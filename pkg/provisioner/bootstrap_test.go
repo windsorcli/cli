@@ -1,4 +1,4 @@
-package provisioner
+package provisioner_test
 
 import (
 	"context"
@@ -6,6 +6,8 @@ import (
 	"slices"
 	"strings"
 	"testing"
+
+	"github.com/windsorcli/cli/pkg/provisioner"
 
 	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
 	"github.com/windsorcli/cli/internal/werror"
@@ -19,19 +21,19 @@ import (
 
 func TestProvisioner_Bootstrap(t *testing.T) {
 	t.Run("NilBlueprintReturnsError", func(t *testing.T) {
+		// Given a provisioner and a nil blueprint
 		mocks := setupProvisionerMocks(t)
-		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler)
+		prov := provisioner.NewProvisioner(mocks.Runtime, mocks.BlueprintHandler)
 
-		if _, err := provisioner.Bootstrap(context.Background(), nil); err == nil {
+		// When Bootstrap runs
+		// Then an error is returned
+		if _, err := prov.Bootstrap(context.Background(), nil); err == nil {
 			t.Fatal("Expected error for nil blueprint, got nil")
 		}
 	})
 
 	t.Run("KubernetesBackendWithoutBlueprintBackendCollapsesToUp", func(t *testing.T) {
-		// terraform.backend.type=kubernetes with no Blueprint.Backend and a present
-		// kubeconfig (setupProvisionerMocks seeds one by default) is the "cluster
-		// already provisioned" case — len(backendComponents) == 0 short-circuits straight to a
-		// plain apply, no local-pin/migrate dance and no fail-fast guard.
+		// Given a kubernetes backend, no Blueprint.Backend, and an existing kubeconfig
 		mocks := setupProvisionerMocks(t)
 		bp := &blueprintv1alpha1.Blueprint{
 			TerraformComponents: []blueprintv1alpha1.TerraformComponent{
@@ -60,23 +62,20 @@ func TestProvisioner_Bootstrap(t *testing.T) {
 			ops = append(ops, "up")
 			return false, nil
 		}
-		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{TerraformStack: mockStack})
+		prov := provisioner.NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &provisioner.Provisioner{TerraformStack: mockStack})
 
-		if _, err := provisioner.Bootstrap(context.Background(), bp); err != nil {
+		// When Bootstrap runs
+		// Then only a plain Up runs with no backend pinning
+		if _, err := prov.Bootstrap(context.Background(), bp); err != nil {
 			t.Fatalf("Expected no error, got %v", err)
 		}
-		// Must be a plain Up — no backend pinning, no migrate dance.
 		if len(ops) != 1 || ops[0] != "up" {
 			t.Errorf("Expected ops=[up], got %v", ops)
 		}
 	})
 
 	t.Run("RefusesKubernetesBackendWithNoBackendWhenClusterNotYetCreated", func(t *testing.T) {
-		// terraform.backend.type=kubernetes, no Blueprint.Backend, and no kubeconfig for
-		// this context is the from-zero case: the blueprint gives no backend
-		// boundary to pivot on, so applying anything would dial a cluster that cannot
-		// exist yet. Refuse up front with an actionable error instead of letting
-		// terraform's raw connection-refused surface.
+		// Given a kubernetes backend, no Blueprint.Backend, and no kubeconfig
 		mocks := setupProvisionerMocks(t)
 		bp := &blueprintv1alpha1.Blueprint{
 			TerraformComponents: []blueprintv1alpha1.TerraformComponent{
@@ -99,10 +98,12 @@ func TestProvisioner_Bootstrap(t *testing.T) {
 			upCalled = true
 			return false, nil
 		}
-		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{TerraformStack: mockStack})
-		provisioner.configRoot = t.TempDir() // no .kube/config — cluster not yet created
+		mocks.Runtime.ConfigRoot = t.TempDir()
+		prov := provisioner.NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &provisioner.Provisioner{TerraformStack: mockStack})
 
-		if _, err := provisioner.Bootstrap(context.Background(), bp); err == nil {
+		// When Bootstrap runs
+		// Then Bootstrap refuses with a backend remediation and Up does not run
+		if _, err := prov.Bootstrap(context.Background(), bp); err == nil {
 			t.Fatal("Expected error, got nil")
 		} else if we := werror.Find(err); !strings.Contains(err.Error(), "no kubeconfig") || we == nil || !strings.Contains(we.Remediation, "backend:") {
 			t.Errorf("Expected error to explain the missing backend declaration, got: %v", err)
@@ -113,9 +114,7 @@ func TestProvisioner_Bootstrap(t *testing.T) {
 	})
 
 	t.Run("EmptyBlueprintOnKubernetesBackendDoesNotTripTheGuard", func(t *testing.T) {
-		// No terraform components at all means there is nothing to apply against the
-		// cluster in the first place — the from-zero guard must not refuse a legitimate
-		// no-op just because the backend happens to be kubernetes.
+		// Given an empty blueprint on a kubernetes backend with no kubeconfig
 		mocks := setupProvisionerMocks(t)
 		bp := &blueprintv1alpha1.Blueprint{}
 		mockCH := mocks.ConfigHandler.(*config.MockConfigHandler)
@@ -129,17 +128,18 @@ func TestProvisioner_Bootstrap(t *testing.T) {
 			return ""
 		}
 		mockStack := terraforminfra.NewMockStack()
-		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{TerraformStack: mockStack})
-		provisioner.configRoot = t.TempDir() // no kubeconfig
+		mocks.Runtime.ConfigRoot = t.TempDir()
+		prov := provisioner.NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &provisioner.Provisioner{TerraformStack: mockStack})
 
-		if _, err := provisioner.Bootstrap(context.Background(), bp); err != nil {
+		// When Bootstrap runs
+		// Then no error is returned
+		if _, err := prov.Bootstrap(context.Background(), bp); err != nil {
 			t.Fatalf("Expected no error for an empty blueprint, got %v", err)
 		}
 	})
 
 	t.Run("LocalBackendCollapsesToUp", func(t *testing.T) {
-		// When terraform.backend.type is "local", Bootstrap forwards to Up
-		// without any pivot — there is no remote backend to migrate state to.
+		// Given a local backend and a blueprint that declares a backend component
 		mocks := setupProvisionerMocks(t)
 		bp := &blueprintv1alpha1.Blueprint{
 			Backend: "backend",
@@ -172,9 +172,11 @@ func TestProvisioner_Bootstrap(t *testing.T) {
 			ops = append(ops, "up")
 			return false, nil
 		}
-		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{TerraformStack: mockStack})
+		prov := provisioner.NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &provisioner.Provisioner{TerraformStack: mockStack})
 
-		_, err := provisioner.Bootstrap(context.Background(), bp)
+		// When Bootstrap runs
+		_, err := prov.Bootstrap(context.Background(), bp)
+		// Then only a plain Up runs
 		if err != nil {
 			t.Fatalf("Expected no error, got %v", err)
 		}
@@ -185,8 +187,7 @@ func TestProvisioner_Bootstrap(t *testing.T) {
 	})
 
 	t.Run("NoBackendFieldCollapsesToUp", func(t *testing.T) {
-		// Without Blueprint.Backend set, the blueprint declares no backend components.
-		// Bootstrap forwards to Up — every component uses the configured backend.
+		// Given an s3 backend and a blueprint with no Backend field
 		mocks := setupProvisionerMocks(t)
 		bp := &blueprintv1alpha1.Blueprint{
 			TerraformComponents: []blueprintv1alpha1.TerraformComponent{
@@ -218,9 +219,11 @@ func TestProvisioner_Bootstrap(t *testing.T) {
 			ops = append(ops, "up")
 			return false, nil
 		}
-		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{TerraformStack: mockStack})
+		prov := provisioner.NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &provisioner.Provisioner{TerraformStack: mockStack})
 
-		_, err := provisioner.Bootstrap(context.Background(), bp)
+		// When Bootstrap runs
+		_, err := prov.Bootstrap(context.Background(), bp)
+		// Then only a plain Up runs
 		if err != nil {
 			t.Fatalf("Expected no error, got %v", err)
 		}
@@ -231,10 +234,7 @@ func TestProvisioner_Bootstrap(t *testing.T) {
 	})
 
 	t.Run("SingleBackendComponentRunsExpectedOpSequence", func(t *testing.T) {
-		// Backend names a single component → backend components = [backend].
-		// Stage 1: set:local → migrate(backend) → up(backend) → set:configured.
-		// Stage 2: migrate(backend) — push state up.
-		// Stage 3: up(non-backend).
+		// Given an azurerm backend and a blueprint with one backend component
 		mocks := setupProvisionerMocks(t)
 		bp := &blueprintv1alpha1.Blueprint{
 			Backend: "backend",
@@ -276,9 +276,11 @@ func TestProvisioner_Bootstrap(t *testing.T) {
 			migrateBlueprints = append(migrateBlueprints, b)
 			return nil, nil
 		}
-		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{TerraformStack: mockStack})
+		prov := provisioner.NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &provisioner.Provisioner{TerraformStack: mockStack})
 
-		_, err := provisioner.Bootstrap(context.Background(), bp)
+		// When Bootstrap runs
+		_, err := prov.Bootstrap(context.Background(), bp)
+		// Then the backend is pinned local, migrated, applied, pushed, then the rest applies
 		if err != nil {
 			t.Fatalf("Expected no error, got %v", err)
 		}
@@ -316,9 +318,7 @@ func TestProvisioner_Bootstrap(t *testing.T) {
 	})
 
 	t.Run("MultiComponentBackendAllAppliedTogether", func(t *testing.T) {
-		// Backend names the last component of a multi-component backend (vpc, iam, cluster).
-		// Stage 1 Up receives the whole backend component set [vpc, iam, cluster]; Stage 3 Up receives only
-		// workloads. Both MigrateState calls operate on the full backend component set.
+		// Given an s3 backend whose Backend names the last of three components
 		mocks := setupProvisionerMocks(t)
 		bp := &blueprintv1alpha1.Blueprint{
 			Backend: "cluster",
@@ -361,9 +361,11 @@ func TestProvisioner_Bootstrap(t *testing.T) {
 			migrateBlueprints = append(migrateBlueprints, b)
 			return nil, nil
 		}
-		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{TerraformStack: mockStack})
+		prov := provisioner.NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &provisioner.Provisioner{TerraformStack: mockStack})
 
-		_, err := provisioner.Bootstrap(context.Background(), bp)
+		// When Bootstrap runs
+		_, err := prov.Bootstrap(context.Background(), bp)
+		// Then all three backend components apply together before the workloads
 		if err != nil {
 			t.Fatalf("Expected no error, got %v", err)
 		}
@@ -401,7 +403,7 @@ func TestProvisioner_Bootstrap(t *testing.T) {
 	})
 
 	t.Run("BackendOnlyBlueprintSkipsStage3", func(t *testing.T) {
-		// When every component is part of the backend, Stage 3 has nothing to apply.
+		// Given a blueprint where every component is part of the backend
 		mocks := setupProvisionerMocks(t)
 		bp := &blueprintv1alpha1.Blueprint{
 			Backend: "backend",
@@ -437,9 +439,11 @@ func TestProvisioner_Bootstrap(t *testing.T) {
 			ops = append(ops, "migrate")
 			return nil, nil
 		}
-		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{TerraformStack: mockStack})
+		prov := provisioner.NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &provisioner.Provisioner{TerraformStack: mockStack})
 
-		_, err := provisioner.Bootstrap(context.Background(), bp)
+		// When Bootstrap runs
+		_, err := prov.Bootstrap(context.Background(), bp)
+		// Then no Stage 3 Up runs after the state push
 		if err != nil {
 			t.Fatalf("Expected no error, got %v", err)
 		}
@@ -456,8 +460,7 @@ func TestProvisioner_Bootstrap(t *testing.T) {
 	})
 
 	t.Run("UpFailureInStage1RestoresBackend", func(t *testing.T) {
-		// If Stage 1 Up fails, the deferred backend restore in withBackendOverride
-		// must still fire so the configured backend is reset before Bootstrap returns.
+		// Given an azurerm backend whose Stage 1 Up fails
 		mocks := setupProvisionerMocks(t)
 		bp := &blueprintv1alpha1.Blueprint{
 			Backend: "backend",
@@ -493,14 +496,15 @@ func TestProvisioner_Bootstrap(t *testing.T) {
 			ops = append(ops, "up-fail")
 			return false, fmt.Errorf("apply blew up")
 		}
-		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{TerraformStack: mockStack})
+		prov := provisioner.NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &provisioner.Provisioner{TerraformStack: mockStack})
 
-		_, err := provisioner.Bootstrap(context.Background(), bp)
+		// When Bootstrap runs
+		_, err := prov.Bootstrap(context.Background(), bp)
+		// Then an error is returned and the configured backend is restored
 		if err == nil {
 			t.Fatal("Expected error, got nil")
 		}
 
-		// Restore (set:azurerm) must appear after the failure.
 		var sawRestore bool
 		for _, op := range ops {
 			if op == "set:azurerm" {
@@ -513,7 +517,7 @@ func TestProvisioner_Bootstrap(t *testing.T) {
 	})
 
 	t.Run("Stage2MigrateStateErrorSurfaces", func(t *testing.T) {
-		// Stage 2's push-up MigrateState error propagates as Bootstrap's return error.
+		// Given a MigrateState that fails on the Stage 2 push
 		mocks := setupProvisionerMocks(t)
 		bp := &blueprintv1alpha1.Blueprint{
 			Backend: "backend",
@@ -541,16 +545,16 @@ func TestProvisioner_Bootstrap(t *testing.T) {
 		migrateCalls := 0
 		mockStack.MigrateStateFunc = func(_ *blueprintv1alpha1.Blueprint) ([]string, error) {
 			migrateCalls++
-			// First call is Stage 1 pull (inside override) — succeeds.
-			// Second call is Stage 2 push (after override exit) — fails.
 			if migrateCalls == 2 {
 				return nil, fmt.Errorf("push failed")
 			}
 			return nil, nil
 		}
-		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{TerraformStack: mockStack})
+		prov := provisioner.NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &provisioner.Provisioner{TerraformStack: mockStack})
 
-		_, err := provisioner.Bootstrap(context.Background(), bp)
+		// When Bootstrap runs
+		_, err := prov.Bootstrap(context.Background(), bp)
+		// Then the push error is returned
 		if err == nil {
 			t.Fatal("Expected error from Stage 2 migrate failure, got nil")
 		}
@@ -560,8 +564,7 @@ func TestProvisioner_Bootstrap(t *testing.T) {
 	})
 
 	t.Run("SkippedBackendComponentAfterApplyIsAnError", func(t *testing.T) {
-		// If Stage 2's MigrateState reports a backend component skipped (its directory
-		// disappeared between Up and migrate), Bootstrap surfaces the anomaly.
+		// Given a Stage 2 MigrateState that reports the backend component skipped
 		mocks := setupProvisionerMocks(t)
 		bp := &blueprintv1alpha1.Blueprint{
 			Backend: "backend",
@@ -593,9 +596,11 @@ func TestProvisioner_Bootstrap(t *testing.T) {
 			}
 			return nil, nil
 		}
-		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{TerraformStack: mockStack})
+		prov := provisioner.NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &provisioner.Provisioner{TerraformStack: mockStack})
 
-		_, err := provisioner.Bootstrap(context.Background(), bp)
+		// When Bootstrap runs
+		_, err := prov.Bootstrap(context.Background(), bp)
+		// Then an error names the skipped component
 		if err == nil {
 			t.Fatal("Expected error for skipped-after-apply, got nil")
 		}
@@ -605,9 +610,7 @@ func TestProvisioner_Bootstrap(t *testing.T) {
 	})
 
 	t.Run("LocalStateRemovalFailureWarnsButDoesNotAbort", func(t *testing.T) {
-		// RemoveLocalState failure after a successful Stage 2 push is non-fatal —
-		// the orphaned local file is a cleanup nit, not a state-integrity problem.
-		// Bootstrap warns to stderr and proceeds to Stage 3.
+		// Given a RemoveLocalState that fails after a successful Stage 2 push
 		mocks := setupProvisionerMocks(t)
 		bp := &blueprintv1alpha1.Blueprint{
 			Backend: "backend",
@@ -649,19 +652,20 @@ func TestProvisioner_Bootstrap(t *testing.T) {
 			return fmt.Errorf("permission denied")
 		}
 
-		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{TerraformStack: mockStack})
+		prov := provisioner.NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &provisioner.Provisioner{TerraformStack: mockStack})
+		// When Bootstrap runs
 		var err error
-		stderrOutput := captureStderr(t, func() {
-			_, err = provisioner.Bootstrap(context.Background(), bp)
+		warnings := captureWarnings(t, func(ctx context.Context) {
+			_, err = prov.Bootstrap(ctx, bp)
 		})
 
+		// Then Bootstrap warns with the cause and still runs Stage 3 Up
 		if err != nil {
 			t.Fatalf("Expected no error (cleanup failure is warning-only), got %v", err)
 		}
-		if !strings.Contains(stderrOutput, "permission denied") {
-			t.Errorf("Expected stderr warning to include underlying cause, got: %q", stderrOutput)
+		if !strings.Contains(warnings, "permission denied") {
+			t.Errorf("Expected warning to include underlying cause, got: %q", warnings)
 		}
-		// Stage 3's Up must still run after the cleanup warning.
 		var sawSecondUp bool
 		upCount := 0
 		for _, op := range ops {
@@ -680,9 +684,7 @@ func TestProvisioner_Bootstrap(t *testing.T) {
 
 func TestProvisioner_Up_BackendPivot(t *testing.T) {
 	t.Run("PivotsDeclaredBackendWithoutBootstrap", func(t *testing.T) {
-		// windsor up, called directly on a from-zero context whose blueprint declares
-		// a declared backend, must run the same local-pin/migrate/apply sequence Bootstrap
-		// runs — up no longer needs bootstrap called first.
+		// Given a kubernetes backend, a declared backend component, and no kubeconfig
 		mocks := setupProvisionerMocks(t)
 		bp := &blueprintv1alpha1.Blueprint{
 			Backend: "cluster",
@@ -719,10 +721,12 @@ func TestProvisioner_Up_BackendPivot(t *testing.T) {
 			ops = append(ops, "migrate")
 			return nil, nil
 		}
-		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{TerraformStack: mockStack})
-		provisioner.configRoot = t.TempDir() // no kubeconfig — genuinely from zero
+		mocks.Runtime.ConfigRoot = t.TempDir()
+		prov := provisioner.NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &provisioner.Provisioner{TerraformStack: mockStack})
 
-		if _, err := provisioner.Up(context.Background(), bp); err != nil {
+		// When Up runs without Bootstrap
+		// Then Up runs the full local pin, migrate, and apply sequence
+		if _, err := prov.Up(context.Background(), bp); err != nil {
 			t.Fatalf("Expected no error, got %v", err)
 		}
 
@@ -738,8 +742,7 @@ func TestProvisioner_Up_BackendPivot(t *testing.T) {
 	})
 
 	t.Run("NoBackendDeclaredStillAppliesDirectlyOnceClusterExists", func(t *testing.T) {
-		// Steady state: kubeconfig present (already bootstrapped), no declared backend —
-		// Up applies directly against the configured backend, same as before this fix.
+		// Given a kubernetes backend, no declared backend, and an existing kubeconfig
 		mocks := setupProvisionerMocks(t)
 		bp := &blueprintv1alpha1.Blueprint{
 			TerraformComponents: []blueprintv1alpha1.TerraformComponent{
@@ -762,10 +765,11 @@ func TestProvisioner_Up_BackendPivot(t *testing.T) {
 			upCalled = true
 			return false, nil
 		}
-		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{TerraformStack: mockStack})
-		// setupProvisionerMocks seeds a kubeconfig by default — cluster already exists.
+		prov := provisioner.NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &provisioner.Provisioner{TerraformStack: mockStack})
 
-		if _, err := provisioner.Up(context.Background(), bp); err != nil {
+		// When Up runs
+		// Then TerraformStack.Up runs directly
+		if _, err := prov.Up(context.Background(), bp); err != nil {
 			t.Fatalf("Expected no error, got %v", err)
 		}
 		if !upCalled {
@@ -774,14 +778,7 @@ func TestProvisioner_Up_BackendPivot(t *testing.T) {
 	})
 
 	t.Run("DetectsOrphanedBackendStateDespiteTheLocalPivot", func(t *testing.T) {
-		// windsorcli/cli#3367: a backend component (e.g. "backend") round-trips
-		// through a local-backend override on every apply. Before this fix, the only
-		// orphan check ran inside recoverHalfMigratedComponents. That check bails out
-		// whenever terraform.backend.type is "local", which is true for the whole
-		// pivot. So a renamed backend component's stranded local state was
-		// invisible on exactly the runs most likely to produce it. The check now runs
-		// once, up front, against the real configured backend. The pivot's temporary
-		// override no longer affects it.
+		// Given an s3 backend and orphaned local state for a renamed backend component
 		mocks := setupProvisionerMocks(t)
 		bp := &blueprintv1alpha1.Blueprint{
 			Backend: "backend",
@@ -812,27 +809,32 @@ func TestProvisioner_Up_BackendPivot(t *testing.T) {
 		mockStack.MigrateStateFunc = func(_ *blueprintv1alpha1.Blueprint) ([]string, error) {
 			return nil, nil
 		}
-		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{TerraformStack: mockStack})
-		provisioner.configRoot = t.TempDir()
+		mocks.Runtime.ConfigRoot = t.TempDir()
+		prov := provisioner.NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &provisioner.Provisioner{TerraformStack: mockStack})
 
+		// When Up runs through the local pivot
 		var err error
-		stderrOutput := captureStderr(t, func() {
-			_, err = provisioner.Up(context.Background(), bp)
+		warnings := captureWarnings(t, func(ctx context.Context) {
+			_, err = prov.Up(ctx, bp)
 		})
 
+		// Then a warning names the orphaned component
 		if err != nil {
 			t.Fatalf("Expected no error, got %v", err)
 		}
-		if !strings.Contains(stderrOutput, "backend-old") {
-			t.Errorf("Expected a warning naming the orphaned backend componentID, got: %q", stderrOutput)
+		if !strings.Contains(warnings, "backend-old") {
+			t.Errorf("Expected a warning naming the orphaned backend componentID, got: %q", warnings)
 		}
 	})
 }
 
 func TestBuildBootstrapSummary(t *testing.T) {
 	t.Run("PopulatesContextAndBackend", func(t *testing.T) {
+		// Given an empty blueprint
 		bp := &blueprintv1alpha1.Blueprint{}
-		s := BuildBootstrapSummary(bp, "staging", "s3")
+		// When BuildBootstrapSummary runs with a context and an s3 backend
+		s := provisioner.BuildBootstrapSummary(bp, "staging", "s3")
+		// Then the summary holds the context and backend
 		if s.ContextName != "staging" {
 			t.Errorf("Expected ContextName=staging, got %q", s.ContextName)
 		}
@@ -842,14 +844,18 @@ func TestBuildBootstrapSummary(t *testing.T) {
 	})
 
 	t.Run("EmptyBackendDefaultsToLocal", func(t *testing.T) {
+		// Given an empty blueprint
 		bp := &blueprintv1alpha1.Blueprint{}
-		s := BuildBootstrapSummary(bp, "local", "")
+		// When BuildBootstrapSummary runs with an empty backend
+		s := provisioner.BuildBootstrapSummary(bp, "local", "")
+		// Then the backend type defaults to local
 		if s.BackendType != "local" {
 			t.Errorf("Expected BackendType=local when input empty, got %q", s.BackendType)
 		}
 	})
 
 	t.Run("ListsEnabledTerraformComponentsAndKustomizations", func(t *testing.T) {
+		// Given a blueprint with two terraform components and two kustomizations
 		bp := &blueprintv1alpha1.Blueprint{
 			TerraformComponents: []blueprintv1alpha1.TerraformComponent{
 				{Path: "backend"},
@@ -860,7 +866,9 @@ func TestBuildBootstrapSummary(t *testing.T) {
 				{Name: "monitoring"},
 			},
 		}
-		s := BuildBootstrapSummary(bp, "local", "s3")
+		// When BuildBootstrapSummary runs
+		s := provisioner.BuildBootstrapSummary(bp, "local", "s3")
+		// Then the summary lists all components and kustomizations in order
 		if len(s.Terraform) != 2 || s.Terraform[0].ComponentID != "backend" || s.Terraform[1].ComponentID != "cluster" {
 			t.Errorf("Expected terraform [backend, cluster], got %#v", s.Terraform)
 		}
@@ -870,8 +878,7 @@ func TestBuildBootstrapSummary(t *testing.T) {
 	})
 
 	t.Run("IncludesSynthesizedCrdLayers", func(t *testing.T) {
-		// Given a blueprint with local CRDs and an install source that vendors CRDs — the same layers
-		// `windsor plan` materializes via withCrdLayer
+		// Given a blueprint with local CRDs and an install source that vendors CRDs
 		installed := true
 		bp := &blueprintv1alpha1.Blueprint{
 			Crds: []string{"cert-manager-1.16.2"},
@@ -881,10 +888,10 @@ func TestBuildBootstrapSummary(t *testing.T) {
 			Kustomizations: []blueprintv1alpha1.Kustomization{{Name: "argocd"}},
 		}
 
-		s := BuildBootstrapSummary(bp, "local", "s3")
+		// When BuildBootstrapSummary runs
+		s := provisioner.BuildBootstrapSummary(bp, "local", "s3")
 
-		// Then the bootstrap plan lists the synthesized CRD kustomizations ahead of the stack, matching
-		// what `windsor plan` shows — operators see every CRD layer before confirming
+		// Then the summary lists the synthesized CRD layers and the regular kustomization
 		if !slices.Contains(s.Kustomize, "crds") {
 			t.Errorf("expected synthesized 'crds' layer in bootstrap summary, got %#v", s.Kustomize)
 		}
@@ -897,6 +904,7 @@ func TestBuildBootstrapSummary(t *testing.T) {
 	})
 
 	t.Run("OmitsDisabledTerraformComponents", func(t *testing.T) {
+		// Given a blueprint with one disabled terraform component
 		falseValue := false
 		disabled := &blueprintv1alpha1.BoolExpression{Value: &falseValue}
 		bp := &blueprintv1alpha1.Blueprint{
@@ -906,7 +914,9 @@ func TestBuildBootstrapSummary(t *testing.T) {
 				{Path: "cluster"},
 			},
 		}
-		s := BuildBootstrapSummary(bp, "local", "local")
+		// When BuildBootstrapSummary runs
+		s := provisioner.BuildBootstrapSummary(bp, "local", "local")
+		// Then the disabled component is not listed
 		if len(s.Terraform) != 2 {
 			t.Fatalf("Expected 2 enabled components, got %d (%#v)", len(s.Terraform), s.Terraform)
 		}
