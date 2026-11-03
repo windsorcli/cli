@@ -1,4 +1,4 @@
-package kubernetes
+package kubernetes_test
 
 import (
 	"context"
@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
+	"github.com/windsorcli/cli/pkg/provisioner/kubernetes"
 	"github.com/windsorcli/cli/pkg/provisioner/kubernetes/client"
 	"github.com/windsorcli/cli/pkg/runtime/config"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -15,16 +16,19 @@ import (
 	"k8s.io/apimachinery/pkg/runtime/schema"
 )
 
+// =============================================================================
+// Test Public Methods
+// =============================================================================
+
 func TestBaseKubernetesManager_PruneBlueprint(t *testing.T) {
-	setup := func(t *testing.T) *BaseKubernetesManager {
+	// setup returns a manager over kubeClient with real unstructured conversion shims.
+	setup := func(t *testing.T, kubeClient client.KubernetesClient) *kubernetes.BaseKubernetesManager {
 		t.Helper()
-		mocks := setupKubernetesMocks(t)
-		manager := NewKubernetesManager(mocks.KubernetesClient, mocks.ConfigHandler)
-		manager.shims = mocks.Shims
-		manager.shims.ToUnstructured = func(obj any) (map[string]any, error) {
+		manager := newManager(setupKubernetesMocks(t), kubeClient)
+		manager.Shims.ToUnstructured = func(obj any) (map[string]any, error) {
 			return runtime.DefaultUnstructuredConverter.ToUnstructured(obj)
 		}
-		manager.shims.FromUnstructured = func(obj map[string]any, target any) error {
+		manager.Shims.FromUnstructured = func(obj map[string]any, target any) error {
 			return runtime.DefaultUnstructuredConverter.FromUnstructured(obj, target)
 		}
 		return manager
@@ -52,9 +56,10 @@ func TestBaseKubernetesManager_PruneBlueprint(t *testing.T) {
 		}}
 	}
 
-	// wire makes the manager list the given items and capture deletions in order; GetResource returns
-	// not-found so DeleteKustomization's termination wait completes immediately.
-	wire := func(manager *BaseKubernetesManager, items ...unstructured.Unstructured) *[]string {
+	// wire returns a manager whose client lists items and records deletions in order. GetResource
+	// returns not-found, so the termination wait of DeleteKustomization completes at once.
+	wire := func(t *testing.T, items ...unstructured.Unstructured) (*kubernetes.BaseKubernetesManager, *[]string) {
+		t.Helper()
 		deleted := []string{}
 		c := client.NewMockKubernetesClient()
 		c.ListResourcesFunc = func(gvr schema.GroupVersionResource, ns string) (*unstructured.UnstructuredList, error) {
@@ -67,14 +72,12 @@ func TestBaseKubernetesManager_PruneBlueprint(t *testing.T) {
 		c.GetResourceFunc = func(gvr schema.GroupVersionResource, ns, name string) (*unstructured.Unstructured, error) {
 			return nil, fmt.Errorf("the server could not find the requested resource")
 		}
-		manager.client = c
-		return &deleted
+		return setup(t, c), &deleted
 	}
 
 	t.Run("PrunesOrphansAndKeepsDesired", func(t *testing.T) {
-		// Given a context with a desired kustomization and an orphan, both owned by this context
-		manager := setup(t)
-		deleted := wire(manager,
+		// Given a desired kustomization and an orphan, both owned by this context
+		manager, deleted := wire(t,
 			kustomizationObj("app", "test-context-id"),
 			kustomizationObj("old-thing", "test-context-id"),
 		)
@@ -84,15 +87,15 @@ func TestBaseKubernetesManager_PruneBlueprint(t *testing.T) {
 		ctx, rec := recordProgress(t)
 
 		// When pruning
-		if err := manager.PruneBlueprint(ctx, blueprint, "system-gitops"); err != nil {
+		err := manager.PruneBlueprint(ctx, blueprint, "system-gitops")
+
+		// Then only the orphan is deleted and a progress spinner names it
+		if err != nil {
 			t.Fatalf("Expected no error, got %v", err)
 		}
-
-		// Then only the orphan is deleted; the desired kustomization is kept
 		if len(*deleted) != 1 || (*deleted)[0] != "old-thing" {
 			t.Errorf("Expected only 'old-thing' pruned, got %v", *deleted)
 		}
-		// And an operator watching the run sees the prune in progress, not silence
 		found := false
 		for _, s := range rec.started() {
 			if strings.Contains(s, "old-thing") {
@@ -105,20 +108,20 @@ func TestBaseKubernetesManager_PruneBlueprint(t *testing.T) {
 	})
 
 	t.Run("IgnoresOtherContextsAndUnlabeledKustomizations", func(t *testing.T) {
-		// Given orphan-shaped kustomizations owned by another context and by no context
-		manager := setup(t)
-		deleted := wire(manager,
+		// Given orphans owned by another context and by no context
+		manager, deleted := wire(t,
 			kustomizationObj("other-orphan", "different-context-id"),
 			kustomizationObj("unmanaged", ""),
 		)
 		blueprint := &blueprintv1alpha1.Blueprint{Kustomizations: []blueprintv1alpha1.Kustomization{}}
 
 		// When pruning
-		if err := manager.PruneBlueprint(context.Background(), blueprint, "system-gitops"); err != nil {
+		err := manager.PruneBlueprint(context.Background(), blueprint, "system-gitops")
+
+		// Then nothing is deleted
+		if err != nil {
 			t.Fatalf("Expected no error, got %v", err)
 		}
-
-		// Then nothing is deleted — pruning is scoped to this context's labeled objects
 		if len(*deleted) != 0 {
 			t.Errorf("Expected no deletions, got %v", *deleted)
 		}
@@ -126,48 +129,53 @@ func TestBaseKubernetesManager_PruneBlueprint(t *testing.T) {
 
 	t.Run("DeletesOrphansInReverseDependencyOrder", func(t *testing.T) {
 		// Given two orphans where 'leaf' dependsOn 'base'
-		manager := setup(t)
-		deleted := wire(manager,
+		manager, deleted := wire(t,
 			kustomizationObj("base", "test-context-id"),
 			kustomizationObj("leaf", "test-context-id", "base"),
 		)
 		blueprint := &blueprintv1alpha1.Blueprint{Kustomizations: []blueprintv1alpha1.Kustomization{}}
 
 		// When pruning
-		if err := manager.PruneBlueprint(context.Background(), blueprint, "system-gitops"); err != nil {
-			t.Fatalf("Expected no error, got %v", err)
-		}
+		err := manager.PruneBlueprint(context.Background(), blueprint, "system-gitops")
 
 		// Then the dependent is deleted before its dependency
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
 		if len(*deleted) != 2 || (*deleted)[0] != "leaf" || (*deleted)[1] != "base" {
 			t.Errorf("Expected delete order [leaf base], got %v", *deleted)
 		}
 	})
 
 	t.Run("DestroyOnlyKustomizationsAreNotDesired", func(t *testing.T) {
-		// Given a live kustomization whose blueprint entry is DestroyOnly (never applied by Install)
-		manager := setup(t)
+		// Given a live kustomization whose blueprint entry is DestroyOnly
 		destroyOnly := true
-		deleted := wire(manager, kustomizationObj("backup", "test-context-id"))
+		manager, deleted := wire(t, kustomizationObj("backup", "test-context-id"))
 		blueprint := &blueprintv1alpha1.Blueprint{
 			Kustomizations: []blueprintv1alpha1.Kustomization{{Name: "backup", DestroyOnly: &destroyOnly}},
 		}
 
 		// When pruning
-		if err := manager.PruneBlueprint(context.Background(), blueprint, "system-gitops"); err != nil {
+		err := manager.PruneBlueprint(context.Background(), blueprint, "system-gitops")
+
+		// Then it is pruned as an orphan
+		if err != nil {
 			t.Fatalf("Expected no error, got %v", err)
 		}
-
-		// Then it is treated as an orphan and pruned (it is not part of the applied set)
 		if len(*deleted) != 1 || (*deleted)[0] != "backup" {
 			t.Errorf("Expected 'backup' pruned, got %v", *deleted)
 		}
 	})
 
 	t.Run("NilBlueprintReturnsError", func(t *testing.T) {
-		manager := setup(t)
-		wire(manager)
-		if err := manager.PruneBlueprint(context.Background(), nil, "system-gitops"); err == nil {
+		// Given a manager over an empty cluster
+		manager, _ := wire(t)
+
+		// When pruning a nil blueprint
+		err := manager.PruneBlueprint(context.Background(), nil, "system-gitops")
+
+		// Then it returns an error
+		if err == nil {
 			t.Error("Expected error for nil blueprint")
 		}
 	})
@@ -182,41 +190,38 @@ func TestBaseKubernetesManager_PruneBlueprint(t *testing.T) {
 				return ""
 			}
 		})
-		manager := NewKubernetesManager(mocks.KubernetesClient, mocks.ConfigHandler)
+		manager := kubernetes.NewKubernetesManager(mocks.KubernetesClient, mocks.ConfigHandler)
 		blueprint := &blueprintv1alpha1.Blueprint{Kustomizations: []blueprintv1alpha1.Kustomization{}}
 
-		// When pruning without a context id, the guard rejects it before listing anything
-		if err := manager.PruneBlueprint(context.Background(), blueprint, "system-gitops"); err == nil {
+		// When pruning
+		err := manager.PruneBlueprint(context.Background(), blueprint, "system-gitops")
+
+		// Then it returns an error
+		if err == nil {
 			t.Error("Expected error when context id is not set")
 		}
 	})
 
 	t.Run("ListResourcesErrorIsPropagated", func(t *testing.T) {
 		// Given a client whose kustomization list fails
-		manager := setup(t)
 		c := client.NewMockKubernetesClient()
 		c.ListResourcesFunc = func(gvr schema.GroupVersionResource, ns string) (*unstructured.UnstructuredList, error) {
 			return nil, fmt.Errorf("api server unreachable")
 		}
-		manager.client = c
+		manager := setup(t, c)
 		blueprint := &blueprintv1alpha1.Blueprint{Kustomizations: []blueprintv1alpha1.Kustomization{}}
 
-		// When pruning, the list failure is surfaced rather than swallowed
-		if err := manager.PruneBlueprint(context.Background(), blueprint, "system-gitops"); err == nil {
+		// When pruning
+		err := manager.PruneBlueprint(context.Background(), blueprint, "system-gitops")
+
+		// Then the list error is returned
+		if err == nil {
 			t.Error("Expected error when listing kustomizations fails")
 		}
 	})
 }
 
 func TestBaseKubernetesManager_ListPrunableKustomizations(t *testing.T) {
-	setup := func(t *testing.T) *BaseKubernetesManager {
-		t.Helper()
-		mocks := setupKubernetesMocks(t)
-		manager := NewKubernetesManager(mocks.KubernetesClient, mocks.ConfigHandler)
-		manager.shims = mocks.Shims
-		return manager
-	}
-
 	ctxItem := func(name string) unstructured.Unstructured {
 		return unstructured.Unstructured{Object: map[string]any{
 			"apiVersion": "kustomize.toolkit.fluxcd.io/v1",
@@ -229,38 +234,42 @@ func TestBaseKubernetesManager_ListPrunableKustomizations(t *testing.T) {
 		}}
 	}
 
-	wire := func(manager *BaseKubernetesManager, items ...unstructured.Unstructured) {
+	// wire returns a manager whose client lists items.
+	wire := func(t *testing.T, items ...unstructured.Unstructured) *kubernetes.BaseKubernetesManager {
+		t.Helper()
 		c := client.NewMockKubernetesClient()
 		c.ListResourcesFunc = func(gvr schema.GroupVersionResource, ns string) (*unstructured.UnstructuredList, error) {
 			return &unstructured.UnstructuredList{Items: items}, nil
 		}
-		manager.client = c
+		return newManager(setupKubernetesMocks(t), c)
 	}
 
 	t.Run("ReturnsOrphanNames", func(t *testing.T) {
 		// Given a desired kustomization and an orphan, both owned by this context
-		manager := setup(t)
-		wire(manager, ctxItem("app"), ctxItem("old-thing"))
+		manager := wire(t, ctxItem("app"), ctxItem("old-thing"))
 		blueprint := &blueprintv1alpha1.Blueprint{Kustomizations: []blueprintv1alpha1.Kustomization{{Name: "app"}}}
 
 		// When listing prunable kustomizations
 		got, err := manager.ListPrunableKustomizations(blueprint, "system-gitops")
+
+		// Then only the orphan is reported
 		if err != nil {
 			t.Fatalf("Expected no error, got %v", err)
 		}
-
-		// Then only the orphan is reported
 		if len(got) != 1 || got[0] != "old-thing" {
 			t.Errorf("Expected [old-thing], got %v", got)
 		}
 	})
 
 	t.Run("EmptyWhenNothingOrphaned", func(t *testing.T) {
-		manager := setup(t)
-		wire(manager, ctxItem("app"))
+		// Given only a desired kustomization
+		manager := wire(t, ctxItem("app"))
 		blueprint := &blueprintv1alpha1.Blueprint{Kustomizations: []blueprintv1alpha1.Kustomization{{Name: "app"}}}
 
+		// When listing prunable kustomizations
 		got, err := manager.ListPrunableKustomizations(blueprint, "system-gitops")
+
+		// Then nothing is reported
 		if err != nil {
 			t.Fatalf("Expected no error, got %v", err)
 		}
@@ -270,9 +279,14 @@ func TestBaseKubernetesManager_ListPrunableKustomizations(t *testing.T) {
 	})
 
 	t.Run("NilBlueprintReturnsError", func(t *testing.T) {
-		manager := setup(t)
-		wire(manager)
-		if _, err := manager.ListPrunableKustomizations(nil, "system-gitops"); err == nil {
+		// Given a manager over an empty cluster
+		manager := wire(t)
+
+		// When listing prunable kustomizations for a nil blueprint
+		_, err := manager.ListPrunableKustomizations(nil, "system-gitops")
+
+		// Then it returns an error
+		if err == nil {
 			t.Error("Expected error for nil blueprint")
 		}
 	})

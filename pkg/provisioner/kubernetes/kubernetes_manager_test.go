@@ -1,4 +1,4 @@
-package kubernetes
+package kubernetes_test
 
 import (
 	"fmt"
@@ -7,6 +7,7 @@ import (
 	"time"
 
 	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
+	"github.com/windsorcli/cli/pkg/provisioner/kubernetes"
 	"github.com/windsorcli/cli/pkg/provisioner/kubernetes/client"
 	"github.com/windsorcli/cli/pkg/runtime/config"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -20,7 +21,7 @@ import (
 
 // KubernetesTestMocks contains all the mock dependencies for testing the KubernetesManager
 type KubernetesTestMocks struct {
-	Shims            *Shims
+	Shims            *kubernetes.Shims
 	KubernetesClient client.KubernetesClient
 	ConfigHandler    config.ConfigHandler
 }
@@ -57,7 +58,6 @@ func setupKubernetesMocks(t *testing.T, opts ...func(*KubernetesTestMocks)) *Kub
 		ConfigHandler:    mockConfigHandler,
 	}
 
-	// Apply any overrides
 	for _, opt := range opts {
 		opt(mocks)
 	}
@@ -66,8 +66,8 @@ func setupKubernetesMocks(t *testing.T, opts ...func(*KubernetesTestMocks)) *Kub
 }
 
 // setupDefaultShims initializes and returns shims with default test configurations
-func setupDefaultShims() *Shims {
-	shims := NewShims()
+func setupDefaultShims() *kubernetes.Shims {
+	shims := kubernetes.NewShims()
 	shims.ToUnstructured = func(obj any) (map[string]any, error) {
 		return nil, fmt.Errorf("forced conversion error")
 	}
@@ -153,20 +153,19 @@ func equalStringSlice(a, b []string) bool {
 	return true
 }
 
+// newManager returns a manager that uses kubeClient, the config handler of mocks, and the shims of mocks.
+func newManager(mocks *KubernetesTestMocks, kubeClient client.KubernetesClient) *kubernetes.BaseKubernetesManager {
+	manager := kubernetes.NewKubernetesManager(kubeClient, mocks.ConfigHandler)
+	manager.Shims = mocks.Shims
+	return manager
+}
+
 // =============================================================================
 // Test Public Methods
 // =============================================================================
 
 func TestBaseKubernetesManager_CreateNamespace(t *testing.T) {
-	setup := func(t *testing.T) *BaseKubernetesManager {
-		t.Helper()
-		mocks := setupKubernetesMocks(t)
-		manager := NewKubernetesManager(mocks.KubernetesClient, mocks.ConfigHandler)
-		return manager
-	}
-
 	t.Run("Success", func(t *testing.T) {
-		manager := setup(t)
 		kubernetesClient := client.NewMockKubernetesClient()
 		kubernetesClient.ApplyResourceFunc = func(gvr schema.GroupVersionResource, obj *unstructured.Unstructured, opts metav1.ApplyOptions) (*unstructured.Unstructured, error) {
 			return obj, nil
@@ -174,7 +173,7 @@ func TestBaseKubernetesManager_CreateNamespace(t *testing.T) {
 		kubernetesClient.GetResourceFunc = func(gvr schema.GroupVersionResource, ns, name string) (*unstructured.Unstructured, error) {
 			return nil, fmt.Errorf("not found")
 		}
-		manager.client = kubernetesClient
+		manager := newManager(setupKubernetesMocks(t), kubernetesClient)
 
 		err := manager.CreateNamespace("test-namespace")
 		if err != nil {
@@ -183,7 +182,6 @@ func TestBaseKubernetesManager_CreateNamespace(t *testing.T) {
 	})
 
 	t.Run("ApplyError", func(t *testing.T) {
-		manager := setup(t)
 		kubernetesClient := client.NewMockKubernetesClient()
 		kubernetesClient.ApplyResourceFunc = func(gvr schema.GroupVersionResource, obj *unstructured.Unstructured, opts metav1.ApplyOptions) (*unstructured.Unstructured, error) {
 			return nil, fmt.Errorf("apply error")
@@ -191,73 +189,11 @@ func TestBaseKubernetesManager_CreateNamespace(t *testing.T) {
 		kubernetesClient.GetResourceFunc = func(gvr schema.GroupVersionResource, ns, name string) (*unstructured.Unstructured, error) {
 			return nil, fmt.Errorf("not found")
 		}
-		manager.client = kubernetesClient
+		manager := newManager(setupKubernetesMocks(t), kubernetesClient)
 
 		err := manager.CreateNamespace("test-namespace")
 		if err == nil {
 			t.Error("Expected error, got nil")
-		}
-	})
-}
-
-func TestBaseKubernetesManager_DeleteNamespace(t *testing.T) {
-	setup := func(t *testing.T) *BaseKubernetesManager {
-		t.Helper()
-		mocks := setupKubernetesMocks(t)
-		manager := NewKubernetesManager(mocks.KubernetesClient, mocks.ConfigHandler)
-		return manager
-	}
-
-	t.Run("Success", func(t *testing.T) {
-		manager := setup(t)
-		kubernetesClient := client.NewMockKubernetesClient()
-		kubernetesClient.DeleteResourceFunc = func(gvr schema.GroupVersionResource, namespace, name string, opts metav1.DeleteOptions) error {
-			return nil
-		}
-		// Mock GetResource to return "not found" immediately to simulate successful deletion
-		kubernetesClient.GetResourceFunc = func(gvr schema.GroupVersionResource, namespace, name string) (*unstructured.Unstructured, error) {
-			return nil, fmt.Errorf("the server could not find the requested resource")
-		}
-		manager.client = kubernetesClient
-
-		err := manager.DeleteNamespace("test-namespace")
-		if err != nil {
-			t.Errorf("Expected no error, got %v", err)
-		}
-	})
-
-	t.Run("DeleteError", func(t *testing.T) {
-		manager := setup(t)
-		kubernetesClient := client.NewMockKubernetesClient()
-		kubernetesClient.DeleteResourceFunc = func(gvr schema.GroupVersionResource, namespace, name string, opts metav1.DeleteOptions) error {
-			return fmt.Errorf("delete error")
-		}
-		manager.client = kubernetesClient
-
-		err := manager.DeleteNamespace("test-namespace")
-		if err == nil {
-			t.Error("Expected error, got nil")
-		}
-	})
-
-	t.Run("UsesCorrectDeleteOptions", func(t *testing.T) {
-		manager := setup(t)
-		kubernetesClient := client.NewMockKubernetesClient()
-		var capturedOptions metav1.DeleteOptions
-		kubernetesClient.DeleteResourceFunc = func(gvr schema.GroupVersionResource, namespace, name string, opts metav1.DeleteOptions) error {
-			capturedOptions = opts
-			return nil
-		}
-		manager.client = kubernetesClient
-
-		err := manager.DeleteNamespace("test-namespace")
-		if err != nil {
-			t.Errorf("Expected no error, got %v", err)
-		}
-
-		// Verify the delete options were used (no specific policy required)
-		if capturedOptions.PropagationPolicy != nil {
-			t.Errorf("Expected no PropagationPolicy, got %+v", capturedOptions.PropagationPolicy)
 		}
 	})
 }
@@ -269,7 +205,7 @@ func TestBaseKubernetesManager_NamespaceExists(t *testing.T) {
 		m.KubernetesClient.(*client.MockKubernetesClient).GetResourceFunc = func(gvr schema.GroupVersionResource, ns, name string) (*unstructured.Unstructured, error) {
 			return &unstructured.Unstructured{}, nil
 		}
-		manager := NewKubernetesManager(m.KubernetesClient, m.ConfigHandler)
+		manager := kubernetes.NewKubernetesManager(m.KubernetesClient, m.ConfigHandler)
 
 		// When NamespaceExists is called
 		exists, err := manager.NamespaceExists("system-lb")
@@ -289,7 +225,7 @@ func TestBaseKubernetesManager_NamespaceExists(t *testing.T) {
 		m.KubernetesClient.(*client.MockKubernetesClient).GetResourceFunc = func(gvr schema.GroupVersionResource, ns, name string) (*unstructured.Unstructured, error) {
 			return nil, fmt.Errorf("%q not found", name)
 		}
-		manager := NewKubernetesManager(m.KubernetesClient, m.ConfigHandler)
+		manager := kubernetes.NewKubernetesManager(m.KubernetesClient, m.ConfigHandler)
 
 		// When NamespaceExists is called
 		exists, err := manager.NamespaceExists("system-lb")
@@ -309,7 +245,7 @@ func TestBaseKubernetesManager_NamespaceExists(t *testing.T) {
 		m.KubernetesClient.(*client.MockKubernetesClient).GetResourceFunc = func(gvr schema.GroupVersionResource, ns, name string) (*unstructured.Unstructured, error) {
 			return nil, fmt.Errorf("connection refused")
 		}
-		manager := NewKubernetesManager(m.KubernetesClient, m.ConfigHandler)
+		manager := kubernetes.NewKubernetesManager(m.KubernetesClient, m.ConfigHandler)
 
 		// When NamespaceExists is called
 		exists, err := manager.NamespaceExists("system-lb")

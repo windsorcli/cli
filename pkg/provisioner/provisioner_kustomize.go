@@ -116,22 +116,12 @@ func (i *Provisioner) ApplyKustomizeAll(ctx context.Context, blueprint *blueprin
 	return i.Install(ctx, blueprint, false)
 }
 
-// Install applies the blueprint's kustomization layer and places its declared secrets as one unit, so
-// every command that installs kustomizations also materializes their secrets rather than re-wiring that
-// sequence itself. It first resolves the blueprint's declared Secrets to plaintext, failing before any
-// cluster mutation on a misconfigured secret; then applies all blueprint resources in order — namespace,
-// source repositories, and each kustomization — firing a best-effort flux webhook notification inside the
-// same progress scope so flux reconciles immediately instead of at the next interval (notification
-// failures never abort the install); then places the resolved secrets into the namespaces their owning
-// kustomizations create, gating each on namespace creation rather than kustomization readiness so a
-// consumer whose readiness depends on its secret cannot deadlock placement. prune reclaims CLI-placed
-// secrets this context no longer declares, mirroring kustomization prune (on for upgrade and apply
-// --prune, off otherwise). ctx is threaded into Notify and placement so a cancelled parent context
-// (e.g. Ctrl+C) tears down promptly. The install is one "Applying kustomizations" operation with one
-// child step per kustomization; secret placement shows as progress on the owning kustomization. A
-// readiness wait then runs alongside a converge pass on the same steps, and its failure returns an
-// error wrapping ErrKustomizationsNotReady. The blueprint must be provided. Returns an error if
-// resolution, apply, placement, or the wait fails.
+// Install resolves the declared secrets, applies the blueprint, notifies flux, and places the secrets.
+// It resolves first, so a bad secret fails before any change to the cluster. It places each secret
+// when its namespace exists, not when its kustomization is ready, so a consumer cannot deadlock. prune
+// removes placed secrets that the context no longer declares. Each kustomization is a step under one
+// "Applying kustomizations" operation. A failed readiness wait returns an error that wraps
+// ErrKustomizationsNotReady.
 func (i *Provisioner) Install(ctx context.Context, blueprint *blueprintv1alpha1.Blueprint, prune bool) error {
 	if blueprint == nil {
 		return fmt.Errorf("blueprint not provided")
@@ -222,19 +212,10 @@ func (i *Provisioner) PrunableKustomizations(blueprint *blueprintv1alpha1.Bluepr
 	return names, nil
 }
 
-// Uninstall orchestrates the high-level kustomization teardown process from the blueprint.
-// It initializes the kubernetes manager and deletes all blueprint kustomizations, including the
-// synthesized CRD layer (withCrdLayer) so its Flux Kustomization objects are removed symmetrically
-// with apply; the layer keeps Prune disabled, so the vendored CRDs themselves are retained.
-// DeleteBlueprint emits its own per-Kustomization progress (Start/Done/Fail spinners),
-// so this method does not wrap the call in WithProgress — doing so would suppress the
-// inner per-Kustomization output and produce a single opaque "Removing blueprint
-// resources" line that hides the long per-Kustomization waits inherent to
-// WaitForTermination-driven teardown.
-//
-// Uninstall is a no-op when no local kubeconfig exists. See kubeconfigPresent for the reasoning:
-// a missing kubeconfig means the cluster is already gone, so there is nothing to suspend or
-// delete, and building a client would only fail with a stat error.
+// Uninstall deletes the kustomizations of the blueprint, with the synthesized CRD layer. The CRD layer
+// does not prune, so the vendored CRDs stay. DeleteBlueprint reports a step per kustomization, so
+// Uninstall adds no progress of its own. Uninstall does nothing when no local kubeconfig exists,
+// because the cluster is gone.
 func (i *Provisioner) Uninstall(ctx context.Context, blueprint *blueprintv1alpha1.Blueprint) error {
 	if blueprint == nil {
 		return fmt.Errorf("blueprint not provided")
