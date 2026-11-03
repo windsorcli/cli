@@ -1,8 +1,10 @@
-package network
+package network_test
 
 import (
 	"context"
 	"testing"
+
+	"github.com/windsorcli/cli/pkg/workstation/network"
 )
 
 // =============================================================================
@@ -12,7 +14,7 @@ import (
 func TestMockNetworkManager_ConfigureHostRoute(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
 		// Given a mock network manager with successful host route configuration
-		mockManager := NewMockNetworkManager()
+		mockManager := network.NewMockNetworkManager()
 		mockManager.ConfigureHostRouteFunc = func() error {
 			return nil
 		}
@@ -28,7 +30,7 @@ func TestMockNetworkManager_ConfigureHostRoute(t *testing.T) {
 
 	t.Run("NoFuncSet", func(t *testing.T) {
 		// Given a mock network manager with no host route configuration function
-		mockManager := NewMockNetworkManager()
+		mockManager := network.NewMockNetworkManager()
 
 		// When configuring the host route
 		err := mockManager.ConfigureHostRoute(context.Background())
@@ -43,7 +45,7 @@ func TestMockNetworkManager_ConfigureHostRoute(t *testing.T) {
 func TestMockNetworkManager_ConfigureGuest(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
 		// Given a mock network manager with successful guest configuration
-		mockManager := NewMockNetworkManager()
+		mockManager := network.NewMockNetworkManager()
 		mockManager.ConfigureGuestFunc = func() error {
 			return nil
 		}
@@ -59,7 +61,7 @@ func TestMockNetworkManager_ConfigureGuest(t *testing.T) {
 
 	t.Run("NoFuncSet", func(t *testing.T) {
 		// Given a mock network manager with no guest configuration function
-		mockManager := NewMockNetworkManager()
+		mockManager := network.NewMockNetworkManager()
 
 		// When configuring the guest
 		err := mockManager.ConfigureGuest()
@@ -74,7 +76,7 @@ func TestMockNetworkManager_ConfigureGuest(t *testing.T) {
 func TestMockNetworkManager_ConfigureDNS(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
 		// Given a mock network manager with successful DNS configuration
-		mockManager := NewMockNetworkManager()
+		mockManager := network.NewMockNetworkManager()
 		mockManager.ConfigureDNSFunc = func() error {
 			return nil
 		}
@@ -90,7 +92,7 @@ func TestMockNetworkManager_ConfigureDNS(t *testing.T) {
 
 	t.Run("NoFuncSet", func(t *testing.T) {
 		// Given a mock network manager with no DNS configuration function
-		mockManager := NewMockNetworkManager()
+		mockManager := network.NewMockNetworkManager()
 
 		// When configuring DNS
 		err := mockManager.ConfigureDNS(context.Background())

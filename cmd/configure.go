@@ -128,7 +128,7 @@ windsor configure network --revert`,
 		}
 
 		if configureNetworkRevert {
-			return proj.Workstation.RevertNetwork(true)
+			return proj.Workstation.RevertNetwork(cmd.Context(), true)
 		}
 
 		dnsAddr := configureNetworkDnsAddress

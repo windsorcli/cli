@@ -23,7 +23,7 @@ import (
 // Types
 // =============================================================================
 
-// colimaNetworkManager is a concrete implementation of NetworkManager
+// ColimaNetworkManager is the NetworkManager for a Colima VM.
 type ColimaNetworkManager struct {
 	BaseNetworkManager
 	networkInterfaceProvider NetworkInterfaceProvider
@@ -33,7 +33,7 @@ type ColimaNetworkManager struct {
 // Constructor
 // =============================================================================
 
-// NewColimaNetworkManager creates a new ColimaNetworkManager
+// NewColimaNetworkManager returns a ColimaNetworkManager for rt. It panics when rt or the provider is nil.
 func NewColimaNetworkManager(rt *runtime.Runtime, networkInterfaceProvider NetworkInterfaceProvider) *ColimaNetworkManager {
 	if rt == nil {
 		panic("runtime is required")
@@ -50,8 +50,8 @@ func NewColimaNetworkManager(rt *runtime.Runtime, networkInterfaceProvider Netwo
 	return manager
 }
 
-// ConfigureGuest sets up guest traffic forwarding in a Colima environment. Reads guest address from config (workstation.address).
-// For Docker, configures iptables for the Docker bridge; for Incus, Incus network. No-op when guest address is empty.
+// ConfigureGuest forwards guest traffic in the Colima VM to the Docker bridge, or to the Incus network on platform incus.
+// It does nothing when workstation.address is empty.
 func (n *ColimaNetworkManager) ConfigureGuest() error {
 	if n.configHandler.GetString("workstation.address") == "" {
 		return nil
@@ -68,12 +68,10 @@ func (n *ColimaNetworkManager) ConfigureGuest() error {
 	return n.configureDockerForwarding(networkCIDR)
 }
 
-// RevertGuest removes the in-VM iptables FORWARD rule that ConfigureGuest installed. Probes the
-// VM for the docker bridge interface the same way ConfigureGuest does, then runs iptables -D
-// (delete) inside the VM. Idempotent: tolerates a missing rule (iptables -D returns non-zero with
-// "No chain/target/match by that name" or "does a matching rule exist") and a missing bridge
-// (revert is a no-op if the VM has been torn down and the bridge no longer exists). No-op when
-// guest address is unset.
+// RevertGuest removes the iptables FORWARD rule in the VM that ConfigureGuest installed.
+// It finds the Docker bridge as ConfigureGuest does, and then deletes the rule.
+// It returns nil when the rule, the bridge, or the VM is absent.
+// It does nothing when workstation.address is empty.
 func (n *ColimaNetworkManager) RevertGuest() error {
 	if n.configHandler.GetString("workstation.address") == "" {
 		return nil
@@ -93,7 +91,6 @@ func (n *ColimaNetworkManager) RevertGuest() error {
 		5*time.Second,
 	)
 	if err != nil {
-		// VM may already be torn down — nothing in the guest to revert.
 		return nil
 	}
 	var dockerBridgeInterface string
@@ -173,10 +170,9 @@ func (n *ColimaNetworkManager) configureIncusNetwork(networkCIDR string) error {
 }
 
 // removeForwardingRule deletes the iptables FORWARD rule that setupForwardingRule installed.
-// Mirrors setupForwardingRule's argument shape and connection path (colima ssh into the VM).
-// Idempotent: tolerates a missing rule (iptables -D returns non-zero in that case) and a missing
-// host IP (caller has already torn down the VM bridge). IP forwarding is left enabled — other
-// workloads in the VM may depend on it.
+// It returns nil when the host IP is absent, because the VM bridge is gone.
+// iptables -D exits 1 when the rule is absent, so exit code 1 is not an error.
+// IP forwarding stays on, because other workloads in the VM can need it.
 func (n *ColimaNetworkManager) removeForwardingRule(networkCIDR, outputInterface string) error {
 	cidr, err := validateCIDR(networkCIDR)
 	if err != nil {
@@ -184,7 +180,6 @@ func (n *ColimaNetworkManager) removeForwardingRule(networkCIDR, outputInterface
 	}
 	hostIP, err := n.getHostIP()
 	if err != nil {
-		// Bridge gone / VM down — nothing to revert.
 		return nil
 	}
 	contextName := n.configHandler.GetContext()
@@ -196,7 +191,6 @@ func (n *ColimaNetworkManager) removeForwardingRule(networkCIDR, outputInterface
 		10*time.Second,
 	)
 	if err != nil && !isExitCode(err, 1) {
-		// iptables -D exits 1 when the rule doesn't exist. Any other exit code is a real failure.
 		return werror.Wrap(err, "error removing iptables rule")
 	}
 	return nil
@@ -290,7 +284,7 @@ func (n *ColimaNetworkManager) getHostIP() (string, error) {
 // Interface Compliance
 // =============================================================================
 
-// Ensure ColimaNetworkManager implements NetworkManager
+// ColimaNetworkManager implements NetworkManager.
 var _ NetworkManager = (*ColimaNetworkManager)(nil)
 
 // =============================================================================

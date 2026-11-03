@@ -137,7 +137,7 @@ func TestColimaVirt_Initialize(t *testing.T) {
 		t.Helper()
 		mocks := setupColimaMocks(t)
 		colimaVirt := NewColimaVirt(mocks.Runtime)
-		colimaVirt.setShims(mocks.Shims)
+		colimaVirt.SetShims(mocks.Shims)
 		return colimaVirt, mocks
 	}
 
@@ -180,7 +180,7 @@ func TestColimaVirt_WriteConfig(t *testing.T) {
 		}
 
 		colimaVirt := NewColimaVirt(mocks.Runtime)
-		colimaVirt.setShims(mocks.Shims)
+		colimaVirt.SetShims(mocks.Shims)
 		return colimaVirt, mocks
 	}
 
@@ -314,7 +314,7 @@ func TestColimaVirt_WriteConfig(t *testing.T) {
 	t.Run("NotColimaDriver", func(t *testing.T) {
 		mocks := setupColimaMocks(t)
 		colimaVirt := NewColimaVirt(mocks.Runtime)
-		colimaVirt.setShims(mocks.Shims)
+		colimaVirt.SetShims(mocks.Shims)
 
 		if err := mocks.ConfigHandler.Set("workstation.runtime", "other"); err != nil {
 			t.Fatalf("Failed to set workstation.runtime: %v", err)
@@ -552,7 +552,7 @@ func TestColimaVirt_Up(t *testing.T) {
 		t.Helper()
 		mocks := setupColimaMocks(t)
 		colimaVirt := NewColimaVirt(mocks.Runtime)
-		colimaVirt.setShims(mocks.Shims)
+		colimaVirt.SetShims(mocks.Shims)
 		return colimaVirt, mocks
 	}
 
@@ -692,7 +692,7 @@ func TestColimaVirt_Down(t *testing.T) {
 		t.Helper()
 		mocks := setupColimaMocks(t)
 		colimaVirt := NewColimaVirt(mocks.Runtime)
-		colimaVirt.setShims(mocks.Shims)
+		colimaVirt.SetShims(mocks.Shims)
 		return colimaVirt, mocks
 	}
 
@@ -1251,203 +1251,6 @@ func TestColimaVirt_calculateVMResources(t *testing.T) {
 	})
 }
 
-// TestColimaVirt_validateVMResources tests the validateVMResources method.
-func TestColimaVirt_validateVMResources(t *testing.T) {
-	setup := func(t *testing.T) (*ColimaVirt, *VirtTestMocks) {
-		t.Helper()
-		mocks := setupColimaMocks(t)
-		colimaVirt := NewColimaVirt(mocks.Runtime)
-		colimaVirt.shims = mocks.Shims
-		return colimaVirt, mocks
-	}
-
-	t.Run("NoWarningWhenResourcesWithinLimits", func(t *testing.T) {
-		// Given a colima virt instance
-		colimaVirt, mocks := setup(t)
-
-		// And host has sufficient resources (16 cores, 32GB)
-		mocks.Shims.NumCPU = func() int { return 16 }
-		mocks.Shims.VirtualMemory = func() (*mem.VirtualMemoryStat, error) {
-			return &mem.VirtualMemoryStat{Total: 32 * 1024 * 1024 * 1024}, nil
-		}
-
-		// When validating resources that are within limits
-		oldStderr := os.Stderr
-		r, w, _ := os.Pipe()
-		os.Stderr = w
-
-		colimaVirt.validateVMResources(10, 20, 4)
-
-		w.Close()
-		var buf strings.Builder
-		_, _ = io.Copy(&buf, r)
-		os.Stderr = oldStderr
-
-		// Then no warning should be printed
-		if buf.Len() > 0 {
-			t.Errorf("expected no warning, got: %s", buf.String())
-		}
-	})
-
-	t.Run("WarningWhenCPUExceedsHostCores", func(t *testing.T) {
-		// Given a colima virt instance
-		colimaVirt, mocks := setup(t)
-
-		// And host has 10 cores
-		mocks.Shims.NumCPU = func() int { return 10 }
-		mocks.Shims.VirtualMemory = func() (*mem.VirtualMemoryStat, error) {
-			return &mem.VirtualMemoryStat{Total: 32 * 1024 * 1024 * 1024}, nil
-		}
-
-		// When validating resources with CPU exceeding host cores
-		oldStderr := os.Stderr
-		r, w, _ := os.Pipe()
-		os.Stderr = w
-
-		colimaVirt.validateVMResources(15, 10, 4)
-
-		w.Close()
-		var buf strings.Builder
-		_, _ = io.Copy(&buf, r)
-		os.Stderr = oldStderr
-
-		// Then a CPU warning should be printed
-		output := buf.String()
-		if !strings.Contains(output, "15 vCPUs") {
-			t.Errorf("expected warning about 15 vCPUs, got: %s", output)
-		}
-		if !strings.Contains(output, "10 cores") {
-			t.Errorf("expected warning mentioning 10 cores, got: %s", output)
-		}
-	})
-
-	t.Run("WarningWhenMemoryExceedsAvailable", func(t *testing.T) {
-		// Given a colima virt instance
-		colimaVirt, mocks := setup(t)
-
-		// And host has 16GB memory
-		mocks.Shims.NumCPU = func() int { return 16 }
-		mocks.Shims.VirtualMemory = func() (*mem.VirtualMemoryStat, error) {
-			return &mem.VirtualMemoryStat{Total: 16 * 1024 * 1024 * 1024}, nil
-		}
-
-		// When validating resources with memory exceeding available (16GB - 4GB reserve = 12GB available)
-		oldStderr := os.Stderr
-		r, w, _ := os.Pipe()
-		os.Stderr = w
-
-		colimaVirt.validateVMResources(8, 15, 4)
-
-		w.Close()
-		var buf strings.Builder
-		_, _ = io.Copy(&buf, r)
-		os.Stderr = oldStderr
-
-		// Then a memory warning should be printed
-		output := buf.String()
-		if !strings.Contains(output, "15GB memory") {
-			t.Errorf("expected warning about 15GB memory, got: %s", output)
-		}
-		if !strings.Contains(output, "12GB available") {
-			t.Errorf("expected warning mentioning 12GB available, got: %s", output)
-		}
-	})
-
-	t.Run("CPUWarningStillPrintsWhenVirtualMemoryFails", func(t *testing.T) {
-		// Given a colima virt instance
-		colimaVirt, mocks := setup(t)
-
-		// And VirtualMemory returns an error but CPU exceeds host cores
-		mocks.Shims.NumCPU = func() int { return 10 }
-		mocks.Shims.VirtualMemory = func() (*mem.VirtualMemoryStat, error) {
-			return nil, fmt.Errorf("mock memory retrieval error")
-		}
-
-		// When validating resources with CPU exceeding host cores
-		oldStderr := os.Stderr
-		r, w, _ := os.Pipe()
-		os.Stderr = w
-
-		colimaVirt.validateVMResources(20, 30, 4)
-
-		w.Close()
-		var buf strings.Builder
-		_, _ = io.Copy(&buf, r)
-		os.Stderr = oldStderr
-
-		// Then CPU warning should still be printed
-		output := buf.String()
-		if !strings.Contains(output, "20 vCPUs") {
-			t.Errorf("expected warning about 20 vCPUs, got: %s", output)
-		}
-		if !strings.Contains(output, "10 cores") {
-			t.Errorf("expected warning mentioning 10 cores, got: %s", output)
-		}
-
-		// And memory warning should NOT be printed (VirtualMemory failed)
-		if strings.Contains(output, "memory") {
-			t.Errorf("expected no memory warning when VirtualMemory fails, got: %s", output)
-		}
-	})
-
-	t.Run("HighMemoryValueHandledSafely", func(t *testing.T) {
-		// Given a colima virt instance
-		colimaVirt, mocks := setup(t)
-
-		// And host has very high memory (tests safe uint64 to int conversion)
-		mocks.Shims.NumCPU = func() int { return 128 }
-		mocks.Shims.VirtualMemory = func() (*mem.VirtualMemoryStat, error) {
-			return &mem.VirtualMemoryStat{Total: uint64(math.MaxInt64)}, nil
-		}
-
-		// When validating resources within limits
-		oldStderr := os.Stderr
-		r, w, _ := os.Pipe()
-		os.Stderr = w
-
-		colimaVirt.validateVMResources(64, 1000, 4)
-
-		w.Close()
-		var buf strings.Builder
-		_, _ = io.Copy(&buf, r)
-		os.Stderr = oldStderr
-
-		// Then no warning should be printed (resources within limits)
-		if buf.Len() > 0 {
-			t.Errorf("expected no warning for high memory host, got: %s", buf.String())
-		}
-	})
-
-	t.Run("LowMemoryHostClampsAvailableToZero", func(t *testing.T) {
-		// Given a colima virt instance
-		colimaVirt, mocks := setup(t)
-
-		// And host has only 2GB memory (less than 4GB reserve)
-		mocks.Shims.NumCPU = func() int { return 4 }
-		mocks.Shims.VirtualMemory = func() (*mem.VirtualMemoryStat, error) {
-			return &mem.VirtualMemoryStat{Total: 2 * 1024 * 1024 * 1024}, nil
-		}
-
-		// When validating resources
-		oldStderr := os.Stderr
-		r, w, _ := os.Pipe()
-		os.Stderr = w
-
-		colimaVirt.validateVMResources(2, 4, 4)
-
-		w.Close()
-		var buf strings.Builder
-		_, _ = io.Copy(&buf, r)
-		os.Stderr = oldStderr
-
-		// Then warning should show 0GB available, not negative
-		output := buf.String()
-		if !strings.Contains(output, "0GB available") {
-			t.Errorf("expected warning to show 0GB available (not negative), got: %s", output)
-		}
-	})
-}
-
 // TestColimaVirt_startColima tests the startColima method of the ColimaVirt component.
 func TestColimaVirt_startColima(t *testing.T) {
 	setup := func(t *testing.T) (*ColimaVirt, *VirtTestMocks) {
@@ -1601,7 +1404,7 @@ func TestColimaVirt_getProfileName(t *testing.T) {
 		t.Helper()
 		mocks := setupColimaMocks(t)
 		colimaVirt := NewColimaVirt(mocks.Runtime)
-		colimaVirt.setShims(mocks.Shims)
+		colimaVirt.SetShims(mocks.Shims)
 		return colimaVirt, mocks
 	}
 
@@ -1626,7 +1429,7 @@ func TestColimaVirt_execInVM(t *testing.T) {
 		t.Helper()
 		mocks := setupColimaMocks(t)
 		colimaVirt := NewColimaVirt(mocks.Runtime)
-		colimaVirt.setShims(mocks.Shims)
+		colimaVirt.SetShims(mocks.Shims)
 		return colimaVirt, mocks
 	}
 
@@ -1689,7 +1492,7 @@ func TestColimaVirt_execInVMQuiet(t *testing.T) {
 		t.Helper()
 		mocks := setupColimaMocks(t)
 		colimaVirt := NewColimaVirt(mocks.Runtime)
-		colimaVirt.setShims(mocks.Shims)
+		colimaVirt.SetShims(mocks.Shims)
 		return colimaVirt, mocks
 	}
 
@@ -1761,7 +1564,7 @@ func TestColimaVirt_execInVMProgress(t *testing.T) {
 		t.Helper()
 		mocks := setupColimaMocks(t)
 		colimaVirt := NewColimaVirt(mocks.Runtime)
-		colimaVirt.setShims(mocks.Shims)
+		colimaVirt.SetShims(mocks.Shims)
 		return colimaVirt, mocks
 	}
 
@@ -1839,7 +1642,7 @@ func TestColimaVirt_WriteConfig_NestedVirtualization(t *testing.T) {
 		}
 
 		colimaVirt := NewColimaVirt(mocks.Runtime)
-		colimaVirt.setShims(mocks.Shims)
+		colimaVirt.SetShims(mocks.Shims)
 		return colimaVirt, mocks
 	}
 

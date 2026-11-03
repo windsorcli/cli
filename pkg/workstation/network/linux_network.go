@@ -362,14 +362,11 @@ func (n *BaseNetworkManager) firstActiveNetworkManagerConnection() (string, erro
 	return "", fmt.Errorf("no active NetworkManager connection")
 }
 
-// unpersistLinuxHostRoute removes whichever persistent route configuration ConfigureHostRoute
-// installed: the systemd-networkd drop-in if it exists (followed by a best-effort
-// `networkctl reload` whose failure does not break revert), and the matching nmcli ipv4.routes
-// entry if NetworkManager is active. The NM removal uses the CIDR alone — NM 1.36+ (Ubuntu 22.04+,
-// Debian 12+, Fedora 40+) matches routes by destination prefix on `-ipv4.routes`, so this catches
-// stale entries whose gateway no longer matches the current workstation.address. Both branches are
-// no-ops when their backend isn't in use; nmcli non-zero exits on no-match are intentionally
-// swallowed since revert is idempotent.
+// unpersistLinuxHostRoute removes the persistent route that ConfigureHostRoute installed.
+// It removes the systemd-networkd drop-in and then runs networkctl reload, which can fail without an error.
+// When NetworkManager is active, it removes the nmcli ipv4.routes entry for the CIDR.
+// NetworkManager 1.36 and later match the entry by CIDR, so an entry with an old gateway is also removed.
+// Each branch does nothing when its backend is not in use. An nmcli exit for no match is not an error.
 func (n *BaseNetworkManager) unpersistLinuxHostRoute(networkCIDR string) error {
 	contextName := n.configHandler.GetContext()
 	if contextName == "" {

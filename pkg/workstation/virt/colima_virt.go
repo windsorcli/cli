@@ -1,7 +1,7 @@
-// The ColimaVirt is a virtual machine implementation
-// It provides VM management capabilities through the Colima interface
-// It serves as the primary VM orchestration layer for the Windsor CLI
-// It handles VM lifecycle, resource allocation, and networking for Colima-based VMs
+// The ColimaVirt is the VirtualMachine that runs the workstation VM with Colima.
+// It writes the Colima configuration, and it starts and deletes the VM of the context.
+// The VM size comes from the cluster node sizes, or from half the host resources without a cluster.
+// The profile name of the VM is windsor-<context>.
 
 package virt
 
@@ -11,7 +11,6 @@ import (
 	"fmt"
 	"math"
 	"net"
-	"os"
 	"path/filepath"
 	"strings"
 	"time"
@@ -30,17 +29,17 @@ import (
 // colimaNoAddressHint is the remediation for a Colima VM that gets no IP address after it starts.
 const colimaNoAddressHint = "Run colima list to see the VM state. Then run windsor down --clean and windsor up again."
 
-// Test hook to force memory overflow
+// testForceMemoryOverflow makes getDefaultValues use the overflow branch. Only tests set it.
 var testForceMemoryOverflow = false
 
-// Test hook to control retry attempts
+// testRetryAttempts is the number of times startColima reads the VM info. Tests lower it.
 var testRetryAttempts = 10
 
 // =============================================================================
 // Types
 // =============================================================================
 
-// ColimaVirt implements the VirtInterface and VMInterface for Colima
+// ColimaVirt is the VirtualMachine for Colima.
 type ColimaVirt struct {
 	*BaseVirt
 }
@@ -49,7 +48,7 @@ type ColimaVirt struct {
 // Constructor
 // =============================================================================
 
-// NewColimaVirt creates a new instance of ColimaVirt
+// NewColimaVirt returns a ColimaVirt for rt. It panics when rt is nil.
 func NewColimaVirt(rt *runtime.Runtime) *ColimaVirt {
 	if rt == nil {
 		panic("runtime is required")
@@ -104,10 +103,9 @@ func (v *ColimaVirt) Down(ctx context.Context) error {
 	})
 }
 
-// WriteConfig writes the Colima configuration file with VM settings
-// Generates a configuration based on the current context and system properties
-// Creates a temporary file and then renames it to the final configuration file
-// Returns an error if any step of the configuration process fails
+// WriteConfig writes ~/.colima/windsor-<context>/colima.yaml from the context and the host resources.
+// It writes a temporary file and then renames it to the final file.
+// It does nothing when workstation.runtime is not colima.
 func (v *ColimaVirt) WriteConfig() error {
 	context := v.configHandler.GetContext()
 
@@ -269,12 +267,7 @@ func (v *ColimaVirt) getVMInfo() (VMInfo, error) {
 	return vmInfo, nil
 }
 
-// getArch retrieves the architecture of the system
-// Maps the Go architecture to the Colima architecture format
-// Handles special cases for amd64 and arm64 architectures
-// Returns the architecture string in the format expected by Colima
-// getArch returns the system architecture string formatted for Colima configuration,
-// mapping standard Go architectures to their Colima equivalents using a tagged switch.
+// getArch returns the host architecture in the Colima format: x86_64 for amd64 and aarch64 for arm64.
 func (v *ColimaVirt) getArch() string {
 	switch arch := v.shims.GOARCH(); arch {
 	case "amd64":
@@ -393,14 +386,14 @@ func (v *ColimaVirt) calculateVMResources() (int, int) {
 	return cpu, memory
 }
 
-// validateVMResources compares calculated VM resources against host system resources
-// and prints warnings if the configuration exceeds available resources
+// validateVMResources compares the VM resources with the host resources.
+// It sends a warning to the default presenter when the VM needs more CPUs or memory than the host has.
 func (v *ColimaVirt) validateVMResources(cpu, memory, hostMemoryReserveGB int) {
 	hostCPU := v.BaseVirt.shims.NumCPU()
 	if cpu > hostCPU {
-		fmt.Fprintf(os.Stderr, "\033[33m⚠ Warning: Cluster configuration requires %d vCPUs, but host only has %d cores\033[0m\n",
-			cpu, hostCPU)
-		fmt.Fprintf(os.Stderr, "\033[33m  Consider reducing cluster.controlplanes.cpu or cluster.workers.cpu, or reducing node count\033[0m\n")
+		presenter.Warn(presenter.Background(), fmt.Sprintf(
+			"Cluster configuration requires %d vCPUs, but host only has %d cores.\nReduce cluster.controlplanes.cpu or cluster.workers.cpu, or reduce the node count.",
+			cpu, hostCPU))
 	}
 
 	vmStat, err := v.BaseVirt.shims.VirtualMemory()
@@ -417,17 +410,15 @@ func (v *ColimaVirt) validateVMResources(cpu, memory, hostMemoryReserveGB int) {
 	availableMemoryGB := int(math.Max(float64(hostMemoryGB-hostMemoryReserveGB), 0))
 
 	if memory > availableMemoryGB {
-		fmt.Fprintf(os.Stderr, "\033[33m⚠ Warning: Cluster configuration requires %dGB memory, but only %dGB available (host has %dGB, reserving %dGB for OS)\033[0m\n",
-			memory, availableMemoryGB, hostMemoryGB, hostMemoryReserveGB)
-		fmt.Fprintf(os.Stderr, "\033[33m  Consider reducing cluster.controlplanes.memory or cluster.workers.memory, or reducing node count\033[0m\n")
+		presenter.Warn(presenter.Background(), fmt.Sprintf(
+			"Cluster configuration requires %dGB memory, but only %dGB available (host has %dGB, reserving %dGB for OS).\nReduce cluster.controlplanes.memory or cluster.workers.memory, or reduce the node count.",
+			memory, availableMemoryGB, hostMemoryGB, hostMemoryReserveGB))
 	}
 }
 
-// executeColimaCommand executes a Colima command for the specified action and arguments, using the Windsor context profile format.
-// For "delete" actions, it appends the "--force" flag and executes the command with progress reporting when verbose,
-// or silently with a progress message when not verbose.
-// For all other actions, it executes the command with progress reporting.
-// Returns an error if the Colima command execution fails. This method is designed to be overridden by embedded types to handle specialized runtimes.
+// executeColimaCommand runs colima <action> windsor-<context> with additionalArgs and shows progress.
+// For the delete action, it adds --force.
+// It returns an error with the command output when the command fails.
 func (v *ColimaVirt) executeColimaCommand(action string, additionalArgs ...string) error {
 	contextName := v.configHandler.GetContext()
 	command := "colima"
@@ -485,7 +476,7 @@ func (v *ColimaVirt) startColima() (VMInfo, error) {
 	return VMInfo{}, werror.New("timed out waiting for Colima VM to get an IP address", colimaNoAddressHint, nil)
 }
 
-// getProvisionScripts returns the provision scripts to run in the Colima VM
+// getProvisionScripts returns the provision scripts that Colima runs in the VM.
 func (v *ColimaVirt) getProvisionScripts() []colimaConfig.Provision {
 	return []colimaConfig.Provision{
 		{
@@ -501,10 +492,8 @@ func (v *ColimaVirt) getProfileName() string {
 	return fmt.Sprintf("windsor-%s", contextName)
 }
 
-// execInVM executes a command in the VM via colima ssh silently and returns the output.
-// ExecSilent captures stdout and stderr to buffers at the Go level (cmd.Stdout and cmd.Stderr).
-// We also redirect stderr in the shell command to suppress colima ssh connection messages.
-// The command output is captured by ExecSilent and returned.
+// execInVM runs a command in the VM through colima ssh without output and returns its stdout.
+// The command discards its own stderr, so the colima ssh connection messages do not appear.
 func (v *ColimaVirt) execInVM(command string, args ...string) (string, error) {
 	profileName := v.getProfileName()
 	fullCommand := command
@@ -514,8 +503,8 @@ func (v *ColimaVirt) execInVM(command string, args ...string) (string, error) {
 	return v.shell.ExecSilent("colima", "ssh", "--profile", profileName, "--", "sh", "-c", fullCommand+" 2>/dev/null </dev/null")
 }
 
-// execInVMQuiet executes a command in the VM via colima ssh, relying on the shell's current verbosity setting.
-// Use for data queries that produce large JSON dumps.
+// execInVMQuiet runs a command in the VM through colima ssh with a timeout and returns its stdout.
+// Callers use it for queries that return large JSON documents.
 func (v *ColimaVirt) execInVMQuiet(command string, args []string, timeout time.Duration) (string, error) {
 	profileName := v.getProfileName()
 	fullCommand := command
@@ -526,7 +515,7 @@ func (v *ColimaVirt) execInVMQuiet(command string, args []string, timeout time.D
 	return output, err
 }
 
-// execInVMProgress executes a command in the VM via colima ssh with progress reporting and returns the output.
+// execInVMProgress runs a command in the VM through colima ssh, shows message as progress, and returns the output.
 func (v *ColimaVirt) execInVMProgress(message string, command string, args ...string) (string, error) {
 	profileName := v.getProfileName()
 	fullCommand := command
@@ -549,6 +538,6 @@ func ptrBool(b bool) *bool {
 // Interface Compliance
 // =============================================================================
 
-// Ensure ColimaVirt implements Virt and VirtualMachine
+// ColimaVirt implements Virt and VirtualMachine.
 var _ Virt = (*ColimaVirt)(nil)
 var _ VirtualMachine = (*ColimaVirt)(nil)

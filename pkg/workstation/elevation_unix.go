@@ -12,8 +12,7 @@ import (
 	"github.com/windsorcli/cli/pkg/runtime/shell"
 )
 
-// geteuidFunc is the seam for the unix-impl tests in elevation_unix_test.go. Cross-platform
-// tests use SetCanElevateNonInteractivelyForTest instead.
+// geteuidFunc returns the effective user ID. The unix elevation tests replace it.
 var geteuidFunc = os.Geteuid
 
 // canElevateNonInteractivelyImpl reports whether the current process can run privileged

@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"context"
 	"testing"
 
 	"github.com/windsorcli/cli/pkg/runtime"
@@ -34,7 +35,7 @@ func TestConfigureNetworkRevertBranchCallsWorkstationRevert(t *testing.T) {
 
 	// When the workstation's RevertNetwork is invoked (the cmd's --revert branch is a single
 	// pass-through call into this method, so exercising it here covers the wiring)
-	if err := ws.RevertNetwork(false); err != nil {
+	if err := ws.RevertNetwork(context.Background(), false); err != nil {
 		t.Fatalf("expected nil error, got %v", err)
 	}
 
