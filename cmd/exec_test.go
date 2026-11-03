@@ -1,4 +1,4 @@
-package cmd
+package cmd_test
 
 import (
 	"bytes"
@@ -7,6 +7,8 @@ import (
 	"io"
 	"strings"
 	"testing"
+
+	cliCmd "github.com/windsorcli/cli/cmd"
 
 	"github.com/spf13/cobra"
 	"github.com/windsorcli/cli/pkg/runtime"
@@ -17,7 +19,7 @@ import (
 
 func TestExecCmd(t *testing.T) {
 	t.Cleanup(func() {
-		rootCmd.SetContext(context.Background())
+		cliCmd.RootCmd().SetContext(context.Background())
 	})
 
 	createTestCmd := func() *cobra.Command {
@@ -27,7 +29,7 @@ func TestExecCmd(t *testing.T) {
 			Long:         "Execute a shell command with environment variables set for the application.",
 			Args:         cobra.MinimumNArgs(1),
 			SilenceUsage: true,
-			RunE:         execCmd.RunE,
+			RunE:         cliCmd.ExecCmd.RunE,
 		}
 		cmd.SetOut(io.Discard)
 		cmd.SetErr(io.Discard)
@@ -37,8 +39,8 @@ func TestExecCmd(t *testing.T) {
 	setup := func(t *testing.T) (*bytes.Buffer, *bytes.Buffer) {
 		t.Helper()
 		stdout, stderr := captureOutput(t)
-		rootCmd.SetOut(stdout)
-		rootCmd.SetErr(stderr)
+		cliCmd.RootCmd().SetOut(stdout)
+		cliCmd.RootCmd().SetErr(stderr)
 		return stdout, stderr
 	}
 
@@ -52,7 +54,7 @@ func TestExecCmd(t *testing.T) {
 
 		// When executing the exec command
 		cmd := createTestCmd()
-		ctx := context.WithValue(context.Background(), runtimeOverridesKey, mocks.Runtime)
+		ctx := context.WithValue(context.Background(), cliCmd.RuntimeOverridesKey, mocks.Runtime)
 		cmd.SetContext(ctx)
 		cmd.SetArgs([]string{"go", "version"})
 		err := cmd.Execute()
@@ -77,7 +79,7 @@ func TestExecCmd(t *testing.T) {
 
 		// When executing the exec command with multiple arguments
 		cmd := createTestCmd()
-		ctx := context.WithValue(context.Background(), runtimeOverridesKey, mocks.Runtime)
+		ctx := context.WithValue(context.Background(), cliCmd.RuntimeOverridesKey, mocks.Runtime)
 		cmd.SetContext(ctx)
 		cmd.SetArgs([]string{"test-command", "arg1", "arg2"})
 		err := cmd.Execute()
@@ -129,7 +131,7 @@ func TestExecCmd(t *testing.T) {
 		cmd := createTestCmd()
 		cmd.Flags().Bool("verbose", false, "Show verbose output")
 		cmd.Flags().Set("verbose", "true")
-		ctx := context.WithValue(context.Background(), runtimeOverridesKey, mocks.Runtime)
+		ctx := context.WithValue(context.Background(), cliCmd.RuntimeOverridesKey, mocks.Runtime)
 		cmd.SetContext(ctx)
 		cmd.SetArgs([]string{"go", "version"})
 		err := cmd.Execute()
@@ -147,14 +149,14 @@ func TestExecCmd(t *testing.T) {
 
 func TestExecCmd_ErrorScenarios(t *testing.T) {
 	t.Cleanup(func() {
-		rootCmd.SetContext(context.Background())
+		cliCmd.RootCmd().SetContext(context.Background())
 	})
 
 	setup := func(t *testing.T) (*bytes.Buffer, *bytes.Buffer) {
 		t.Helper()
 		stdout, stderr := captureOutput(t)
-		rootCmd.SetOut(stdout)
-		rootCmd.SetErr(stderr)
+		cliCmd.RootCmd().SetOut(stdout)
+		cliCmd.RootCmd().SetErr(stderr)
 		return stdout, stderr
 	}
 
@@ -178,40 +180,40 @@ func TestExecCmd_ErrorScenarios(t *testing.T) {
 		}()
 		_ = runtime.NewRuntime(rtOverride)
 
-		ctx := context.WithValue(context.Background(), runtimeOverridesKey, rtOverride)
-		rootCmd.SetContext(ctx)
+		ctx := context.WithValue(context.Background(), cliCmd.RuntimeOverridesKey, rtOverride)
+		cliCmd.RootCmd().SetContext(ctx)
 		t.Cleanup(func() {
-			rootCmd.SetContext(context.Background())
-			rootCmd.SetArgs([]string{})
-			verbose = false
+			cliCmd.RootCmd().SetContext(context.Background())
+			cliCmd.RootCmd().SetArgs([]string{})
+			*cliCmd.Verbose = false
 		})
 
 		// Note: NewRuntime will panic, so Execute won't be reached
 		// This test needs to be updated to test for panics instead
-		rootCmd.SetArgs([]string{"exec", "go", "version"})
-		_ = Execute()
+		cliCmd.RootCmd().SetArgs([]string{"exec", "go", "version"})
+		_ = cliCmd.Execute()
 	})
 
 	t.Run("HandlesCheckTrustedDirectoryError", func(t *testing.T) {
 		// Given proper output capture and mock setup with untrusted directory
 		setup(t)
 		mocks := setupMocks(t)
-		rootCmd.SetContext(context.Background())
-		verbose = false
+		cliCmd.RootCmd().SetContext(context.Background())
+		*cliCmd.Verbose = false
 		mocks.Shell.CheckTrustedDirectoryFunc = func() error {
 			return fmt.Errorf("not trusted")
 		}
 
 		// When executing the exec command
-		ctx := context.WithValue(context.Background(), runtimeOverridesKey, mocks.Runtime)
-		rootCmd.SetContext(ctx)
+		ctx := context.WithValue(context.Background(), cliCmd.RuntimeOverridesKey, mocks.Runtime)
+		cliCmd.RootCmd().SetContext(ctx)
 		t.Cleanup(func() {
-			rootCmd.SetContext(context.Background())
-			rootCmd.SetArgs([]string{})
-			verbose = false
+			cliCmd.RootCmd().SetContext(context.Background())
+			cliCmd.RootCmd().SetArgs([]string{})
+			*cliCmd.Verbose = false
 		})
-		rootCmd.SetArgs([]string{"exec", "go", "version"})
-		err := Execute()
+		cliCmd.RootCmd().SetArgs([]string{"exec", "go", "version"})
+		err := cliCmd.Execute()
 
 		// Then an error should occur
 		if err == nil {
@@ -228,22 +230,22 @@ func TestExecCmd_ErrorScenarios(t *testing.T) {
 		// Given proper output capture and mock setup with reset check failure
 		setup(t)
 		mocks := setupMocks(t)
-		rootCmd.SetContext(context.Background())
-		verbose = false
+		cliCmd.RootCmd().SetContext(context.Background())
+		*cliCmd.Verbose = false
 		mocks.Shell.CheckResetFlagsFunc = func() (bool, error) {
 			return false, fmt.Errorf("reset check failed")
 		}
 
 		// When executing the exec command
-		ctx := context.WithValue(context.Background(), runtimeOverridesKey, mocks.Runtime)
-		rootCmd.SetContext(ctx)
+		ctx := context.WithValue(context.Background(), cliCmd.RuntimeOverridesKey, mocks.Runtime)
+		cliCmd.RootCmd().SetContext(ctx)
 		t.Cleanup(func() {
-			rootCmd.SetContext(context.Background())
-			rootCmd.SetArgs([]string{})
-			verbose = false
+			cliCmd.RootCmd().SetContext(context.Background())
+			cliCmd.RootCmd().SetArgs([]string{})
+			*cliCmd.Verbose = false
 		})
-		rootCmd.SetArgs([]string{"exec", "go", "version"})
-		err := Execute()
+		cliCmd.RootCmd().SetArgs([]string{"exec", "go", "version"})
+		err := cliCmd.Execute()
 
 		// Then an error should occur
 		if err == nil {
@@ -259,8 +261,8 @@ func TestExecCmd_ErrorScenarios(t *testing.T) {
 	t.Run("HandlesLoadConfigError", func(t *testing.T) {
 		setup(t)
 		// Reset context and verbose before setting up test
-		rootCmd.SetContext(context.Background())
-		verbose = false
+		cliCmd.RootCmd().SetContext(context.Background())
+		*cliCmd.Verbose = false
 
 		mockConfigHandler := config.NewMockConfigHandler()
 		mockConfigHandler.LoadConfigFunc = func() error {
@@ -277,17 +279,17 @@ func TestExecCmd_ErrorScenarios(t *testing.T) {
 			return false, nil
 		}
 
-		ctx := context.WithValue(context.Background(), runtimeOverridesKey, mocks.Runtime)
-		rootCmd.SetContext(ctx)
+		ctx := context.WithValue(context.Background(), cliCmd.RuntimeOverridesKey, mocks.Runtime)
+		cliCmd.RootCmd().SetContext(ctx)
 		t.Cleanup(func() {
-			rootCmd.SetContext(context.Background())
-			rootCmd.SetArgs([]string{})
-			verbose = false
+			cliCmd.RootCmd().SetContext(context.Background())
+			cliCmd.RootCmd().SetArgs([]string{})
+			*cliCmd.Verbose = false
 		})
 
-		rootCmd.SetArgs([]string{"exec", "go", "version"})
+		cliCmd.RootCmd().SetArgs([]string{"exec", "go", "version"})
 
-		err := Execute()
+		err := cliCmd.Execute()
 
 		if err == nil {
 			t.Error("Expected error when LoadConfig fails")
@@ -302,8 +304,8 @@ func TestExecCmd_ErrorScenarios(t *testing.T) {
 	t.Run("HandlesLoadEnvironmentError", func(t *testing.T) {
 		setup(t)
 		// Reset context and verbose before setting up test
-		rootCmd.SetContext(context.Background())
-		verbose = false
+		cliCmd.RootCmd().SetContext(context.Background())
+		*cliCmd.Verbose = false
 		mockConfigHandler := config.NewMockConfigHandler()
 		mockConfigHandler.LoadConfigFunc = func() error {
 			return nil
@@ -330,17 +332,17 @@ func TestExecCmd_ErrorScenarios(t *testing.T) {
 			return make(map[string]string), nil
 		}
 
-		ctx := context.WithValue(context.Background(), runtimeOverridesKey, mocks.Runtime)
-		rootCmd.SetContext(ctx)
+		ctx := context.WithValue(context.Background(), cliCmd.RuntimeOverridesKey, mocks.Runtime)
+		cliCmd.RootCmd().SetContext(ctx)
 		t.Cleanup(func() {
-			rootCmd.SetContext(context.Background())
-			rootCmd.SetArgs([]string{})
-			verbose = false
+			cliCmd.RootCmd().SetContext(context.Background())
+			cliCmd.RootCmd().SetArgs([]string{})
+			*cliCmd.Verbose = false
 		})
 
-		rootCmd.SetArgs([]string{"exec", "go", "version"})
+		cliCmd.RootCmd().SetArgs([]string{"exec", "go", "version"})
 
-		err := Execute()
+		err := cliCmd.Execute()
 
 		if err != nil && !strings.Contains(err.Error(), "failed to load environment") {
 			t.Errorf("Expected error about environment loading, got: %v", err)
@@ -351,8 +353,8 @@ func TestExecCmd_ErrorScenarios(t *testing.T) {
 		setup(t)
 		mocks := setupMocks(t)
 		// Reset context and verbose before setting up test
-		rootCmd.SetContext(context.Background())
-		verbose = false
+		cliCmd.RootCmd().SetContext(context.Background())
+		*cliCmd.Verbose = false
 		mockWindsorEnvPrinter := env.NewMockEnvPrinter()
 		mockWindsorEnvPrinter.GetEnvVarsFunc = func() (map[string]string, error) {
 			return make(map[string]string), nil
@@ -367,17 +369,17 @@ func TestExecCmd_ErrorScenarios(t *testing.T) {
 			return "", nil
 		}
 
-		ctx := context.WithValue(context.Background(), runtimeOverridesKey, mocks.Runtime)
-		rootCmd.SetContext(ctx)
+		ctx := context.WithValue(context.Background(), cliCmd.RuntimeOverridesKey, mocks.Runtime)
+		cliCmd.RootCmd().SetContext(ctx)
 		t.Cleanup(func() {
-			rootCmd.SetContext(context.Background())
-			rootCmd.SetArgs([]string{})
-			verbose = false
+			cliCmd.RootCmd().SetContext(context.Background())
+			cliCmd.RootCmd().SetArgs([]string{})
+			*cliCmd.Verbose = false
 		})
 
-		rootCmd.SetArgs([]string{"exec", "--verbose", "go", "version"})
+		cliCmd.RootCmd().SetArgs([]string{"exec", "--verbose", "go", "version"})
 
-		err := Execute()
+		err := cliCmd.Execute()
 
 		if err != nil && !strings.Contains(err.Error(), "failed to execute post env hooks") && !strings.Contains(err.Error(), "failed to load environment") {
 			t.Errorf("Expected error about post env hooks or environment loading, got: %v", err)
@@ -388,8 +390,8 @@ func TestExecCmd_ErrorScenarios(t *testing.T) {
 		setup(t)
 		mocks := setupMocks(t)
 		// Reset context and verbose before setting up test
-		rootCmd.SetContext(context.Background())
-		verbose = false
+		cliCmd.RootCmd().SetContext(context.Background())
+		*cliCmd.Verbose = false
 		mockWindsorEnvPrinter := env.NewMockEnvPrinter()
 		mockWindsorEnvPrinter.GetEnvVarsFunc = func() (map[string]string, error) {
 			return make(map[string]string), nil
@@ -404,17 +406,17 @@ func TestExecCmd_ErrorScenarios(t *testing.T) {
 			return "", nil
 		}
 
-		ctx := context.WithValue(context.Background(), runtimeOverridesKey, mocks.Runtime)
-		rootCmd.SetContext(ctx)
+		ctx := context.WithValue(context.Background(), cliCmd.RuntimeOverridesKey, mocks.Runtime)
+		cliCmd.RootCmd().SetContext(ctx)
 		t.Cleanup(func() {
-			rootCmd.SetContext(context.Background())
-			rootCmd.SetArgs([]string{})
-			verbose = false
+			cliCmd.RootCmd().SetContext(context.Background())
+			cliCmd.RootCmd().SetArgs([]string{})
+			*cliCmd.Verbose = false
 		})
 
-		rootCmd.SetArgs([]string{"exec", "go", "version"})
+		cliCmd.RootCmd().SetArgs([]string{"exec", "go", "version"})
 
-		err := Execute()
+		err := cliCmd.Execute()
 
 		if err != nil {
 			t.Errorf("Expected no error when verbose is false, got: %v", err)
@@ -425,22 +427,22 @@ func TestExecCmd_ErrorScenarios(t *testing.T) {
 		// Given terraform is enabled but not in a terraform project
 		setup(t)
 		mocks := setupTerraformMocks(t, false)
-		rootCmd.SetContext(context.Background())
-		verbose = false
+		cliCmd.RootCmd().SetContext(context.Background())
+		*cliCmd.Verbose = false
 		mocks.Shell.ExecFunc = func(command string, args ...string) (string, error) {
 			return "", nil
 		}
 
 		// When executing the exec command
-		ctx := context.WithValue(context.Background(), runtimeOverridesKey, mocks.Runtime)
-		rootCmd.SetContext(ctx)
+		ctx := context.WithValue(context.Background(), cliCmd.RuntimeOverridesKey, mocks.Runtime)
+		cliCmd.RootCmd().SetContext(ctx)
 		t.Cleanup(func() {
-			rootCmd.SetContext(context.Background())
-			rootCmd.SetArgs([]string{})
-			verbose = false
+			cliCmd.RootCmd().SetContext(context.Background())
+			cliCmd.RootCmd().SetArgs([]string{})
+			*cliCmd.Verbose = false
 		})
-		rootCmd.SetArgs([]string{"exec", "go", "version"})
-		err := Execute()
+		cliCmd.RootCmd().SetArgs([]string{"exec", "go", "version"})
+		err := cliCmd.Execute()
 
 		// Then no error should occur
 		if err != nil {
@@ -452,22 +454,22 @@ func TestExecCmd_ErrorScenarios(t *testing.T) {
 		// Given terraform is enabled and in a terraform project
 		setup(t)
 		mocks := setupTerraformMocks(t, true)
-		rootCmd.SetContext(context.Background())
-		verbose = false
+		cliCmd.RootCmd().SetContext(context.Background())
+		*cliCmd.Verbose = false
 		mocks.Shell.ExecFunc = func(command string, args ...string) (string, error) {
 			return "", nil
 		}
 
 		// When executing the exec command
-		ctx := context.WithValue(context.Background(), runtimeOverridesKey, mocks.Runtime)
-		rootCmd.SetContext(ctx)
+		ctx := context.WithValue(context.Background(), cliCmd.RuntimeOverridesKey, mocks.Runtime)
+		cliCmd.RootCmd().SetContext(ctx)
 		t.Cleanup(func() {
-			rootCmd.SetContext(context.Background())
-			rootCmd.SetArgs([]string{})
-			verbose = false
+			cliCmd.RootCmd().SetContext(context.Background())
+			cliCmd.RootCmd().SetArgs([]string{})
+			*cliCmd.Verbose = false
 		})
-		rootCmd.SetArgs([]string{"exec", "go", "version"})
-		err := Execute()
+		cliCmd.RootCmd().SetArgs([]string{"exec", "go", "version"})
+		err := cliCmd.Execute()
 
 		// Then no error should occur
 		if err != nil {
@@ -479,22 +481,22 @@ func TestExecCmd_ErrorScenarios(t *testing.T) {
 		// Given proper output capture and mock setup with exec failure
 		setup(t)
 		mocks := setupMocks(t)
-		rootCmd.SetContext(context.Background())
-		verbose = false
+		cliCmd.RootCmd().SetContext(context.Background())
+		*cliCmd.Verbose = false
 		mocks.Shell.ExecFunc = func(command string, args ...string) (string, error) {
 			return "", fmt.Errorf("command execution failed")
 		}
 
 		// When executing the exec command
-		ctx := context.WithValue(context.Background(), runtimeOverridesKey, mocks.Runtime)
-		rootCmd.SetContext(ctx)
+		ctx := context.WithValue(context.Background(), cliCmd.RuntimeOverridesKey, mocks.Runtime)
+		cliCmd.RootCmd().SetContext(ctx)
 		t.Cleanup(func() {
-			rootCmd.SetContext(context.Background())
-			rootCmd.SetArgs([]string{})
-			verbose = false
+			cliCmd.RootCmd().SetContext(context.Background())
+			cliCmd.RootCmd().SetArgs([]string{})
+			*cliCmd.Verbose = false
 		})
-		rootCmd.SetArgs([]string{"exec", "go", "version"})
-		err := Execute()
+		cliCmd.RootCmd().SetArgs([]string{"exec", "go", "version"})
+		err := cliCmd.Execute()
 
 		// Then an error should occur
 		if err == nil {

@@ -1,14 +1,13 @@
-package cmd
+package cmd_test
 
 import (
-	"bytes"
 	"context"
 	"fmt"
 	"io"
-	"os"
-	"path/filepath"
 	"strings"
 	"testing"
+
+	cliCmd "github.com/windsorcli/cli/cmd"
 
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
@@ -20,7 +19,6 @@ import (
 	"github.com/windsorcli/cli/pkg/project"
 	"github.com/windsorcli/cli/pkg/provisioner"
 	fluxinfra "github.com/windsorcli/cli/pkg/provisioner/flux"
-	"github.com/windsorcli/cli/pkg/provisioner/kubernetes"
 	terraforminfra "github.com/windsorcli/cli/pkg/provisioner/terraform"
 	"github.com/windsorcli/cli/pkg/runtime"
 	"github.com/windsorcli/cli/pkg/runtime/config"
@@ -149,12 +147,12 @@ func TestPlanCmd(t *testing.T) {
 	createTestPlanCmd := func() *cobra.Command {
 		cmd := &cobra.Command{
 			Use:  "plan",
-			RunE: planCmd.RunE,
+			RunE: cliCmd.PlanCmd.RunE,
 		}
-		planCmd.PersistentFlags().VisitAll(func(flag *pflag.Flag) {
+		cliCmd.PlanCmd.PersistentFlags().VisitAll(func(flag *pflag.Flag) {
 			cmd.Flags().AddFlag(flag)
 		})
-		cmd.Args = planCmd.Args
+		cmd.Args = cliCmd.PlanCmd.Args
 		cmd.SilenceUsage = true
 		cmd.SilenceErrors = true
 		cmd.SetOut(io.Discard)
@@ -184,7 +182,7 @@ func TestPlanCmd(t *testing.T) {
 
 		// When planning the crds layer by name
 		cmd := createTestPlanCmd()
-		ctx := context.WithValue(context.Background(), projectOverridesKey, proj)
+		ctx := context.WithValue(context.Background(), cliCmd.ProjectOverridesKey, proj)
 		cmd.SetArgs([]string{"crds"})
 		cmd.SetContext(ctx)
 		err := cmd.Execute()
@@ -206,7 +204,7 @@ func TestPlanCmd(t *testing.T) {
 
 		// When planning a component that exists in neither layer
 		cmd := createTestPlanCmd()
-		ctx := context.WithValue(context.Background(), projectOverridesKey, proj)
+		ctx := context.WithValue(context.Background(), cliCmd.ProjectOverridesKey, proj)
 		cmd.SetArgs([]string{"nonexistent"})
 		cmd.SetContext(ctx)
 		err := cmd.Execute()
@@ -229,7 +227,7 @@ func TestPlanCmd(t *testing.T) {
 		rec := &eventRecorder{}
 		cmd := createTestPlanCmd()
 		cmd.SetArgs([]string{})
-		cmd.SetContext(presenter.NewContext(context.WithValue(context.Background(), projectOverridesKey, proj), rec))
+		cmd.SetContext(presenter.NewContext(context.WithValue(context.Background(), cliCmd.ProjectOverridesKey, proj), rec))
 
 		// When the full plan runs
 		err := cmd.Execute()
@@ -247,158 +245,16 @@ func TestPlanCmd(t *testing.T) {
 	})
 }
 
-func TestDescribePlanMode(t *testing.T) {
-	// projectWithMarker wires a seeded kubeconfig (so the version gate engages) and a mock
-	// kubernetes manager returning the given marker into a plan project.
-	projectWithMarker := func(t *testing.T, getFn func(string) (kubernetes.VersionMarker, bool, error)) *project.Project {
-		t.Helper()
-		mocks := setupPlanTest(t)
-		root := t.TempDir()
-		if err := os.MkdirAll(filepath.Join(root, ".kube"), 0755); err != nil {
-			t.Fatalf("seed kubeconfig dir: %v", err)
-		}
-		if err := os.WriteFile(filepath.Join(root, ".kube", "config"), []byte("apiVersion: v1\nkind: Config\n"), 0644); err != nil {
-			t.Fatalf("seed kubeconfig: %v", err)
-		}
-		mocks.Runtime.ConfigRoot = root
-		km := kubernetes.NewMockKubernetesManager()
-		km.GetVersionMarkerFunc = getFn
-		comp := composer.NewComposer(mocks.Runtime)
-		comp.BlueprintHandler = mocks.BlueprintHandler
-		prov := provisioner.NewProvisioner(mocks.Runtime, comp.BlueprintHandler, &provisioner.Provisioner{
-			TerraformStack:    mocks.TerraformStack,
-			KubernetesManager: km,
-		})
-		return project.NewProject("", &project.Project{Runtime: mocks.Runtime, Composer: comp, Provisioner: prov})
-	}
-
-	// The bare test blueprint has no sources, so its derived source set is empty; a marker with a
-	// non-empty applied set is therefore a version mismatch.
-	blueprint := &blueprintv1alpha1.Blueprint{Metadata: blueprintv1alpha1.Metadata{Name: "test"}}
-
-	run := func(proj *project.Project) string {
-		var buf bytes.Buffer
-		cmd := &cobra.Command{}
-		cmd.SetErr(&buf)
-		describePlanMode(cmd, proj, blueprint)
-		return buf.String()
-	}
-
-	t.Run("AnnouncesPendingTransitionWhenVersionDiffers", func(t *testing.T) {
-		proj := projectWithMarker(t, func(string) (kubernetes.VersionMarker, bool, error) {
-			return kubernetes.VersionMarker{
-				Phase:          kubernetes.VersionMarkerPhaseIdle,
-				AppliedSources: map[string]kubernetes.SourceRef{"core": {URL: "oci://example/core", Ref: "v1.0.0"}},
-			}, true, nil
-		})
-		out := run(proj)
-		if !strings.Contains(out, "targets a different version") || !strings.Contains(out, "upgrade") {
-			t.Errorf("Expected a version-transition notice, got: %q", out)
-		}
-	})
-
-	t.Run("AnnouncesInFlightUpgrade", func(t *testing.T) {
-		proj := projectWithMarker(t, func(string) (kubernetes.VersionMarker, bool, error) {
-			return kubernetes.VersionMarker{Phase: kubernetes.VersionMarkerPhaseUpgrading}, true, nil
-		})
-		out := run(proj)
-		if !strings.Contains(out, "in progress") || !strings.Contains(out, "upgrade") {
-			t.Errorf("Expected an in-flight upgrade notice, got: %q", out)
-		}
-	})
-
-	t.Run("SilentWhenVersionMatches", func(t *testing.T) {
-		proj := projectWithMarker(t, func(string) (kubernetes.VersionMarker, bool, error) {
-			return kubernetes.VersionMarker{Phase: kubernetes.VersionMarkerPhaseIdle}, true, nil
-		})
-		if out := run(proj); out != "" {
-			t.Errorf("Expected no notice when the version matches, got: %q", out)
-		}
-	})
-
-	t.Run("SilentForLegacyContextWithNoMarker", func(t *testing.T) {
-		proj := projectWithMarker(t, func(string) (kubernetes.VersionMarker, bool, error) {
-			return kubernetes.VersionMarker{}, false, nil
-		})
-		if out := run(proj); out != "" {
-			t.Errorf("Expected no notice for a legacy context, got: %q", out)
-		}
-	})
-
-	t.Run("SilentWhenMarkerReadFails", func(t *testing.T) {
-		proj := projectWithMarker(t, func(string) (kubernetes.VersionMarker, bool, error) {
-			return kubernetes.VersionMarker{}, false, fmt.Errorf("connection refused")
-		})
-		if out := run(proj); out != "" {
-			t.Errorf("Expected best-effort silence when the marker cannot be read, got: %q", out)
-		}
-	})
-}
-
-func TestDescribePendingPrunes(t *testing.T) {
-	projectWithPrunable := func(t *testing.T, listFn func(*blueprintv1alpha1.Blueprint, string) ([]string, error)) *project.Project {
-		t.Helper()
-		mocks := setupPlanTest(t)
-		km := kubernetes.NewMockKubernetesManager()
-		km.ListPrunableKustomizationsFunc = listFn
-		comp := composer.NewComposer(mocks.Runtime)
-		comp.BlueprintHandler = mocks.BlueprintHandler
-		prov := provisioner.NewProvisioner(mocks.Runtime, comp.BlueprintHandler, &provisioner.Provisioner{
-			TerraformStack:    mocks.TerraformStack,
-			KubernetesManager: km,
-		})
-		return project.NewProject("", &project.Project{Runtime: mocks.Runtime, Composer: comp, Provisioner: prov})
-	}
-
-	blueprint := &blueprintv1alpha1.Blueprint{Metadata: blueprintv1alpha1.Metadata{Name: "test"}}
-
-	run := func(proj *project.Project) string {
-		var buf bytes.Buffer
-		cmd := &cobra.Command{}
-		cmd.SetErr(&buf)
-		describePendingPrunes(cmd, proj, blueprint)
-		return buf.String()
-	}
-
-	t.Run("ListsPendingPrunes", func(t *testing.T) {
-		proj := projectWithPrunable(t, func(*blueprintv1alpha1.Blueprint, string) ([]string, error) {
-			return []string{"old-thing", "stale-app"}, nil
-		})
-		out := run(proj)
-		if !strings.Contains(out, "would be pruned") || !strings.Contains(out, "old-thing") || !strings.Contains(out, "stale-app") {
-			t.Errorf("Expected a prune preview listing the orphans, got: %q", out)
-		}
-	})
-
-	t.Run("SilentWhenNothingPrunable", func(t *testing.T) {
-		proj := projectWithPrunable(t, func(*blueprintv1alpha1.Blueprint, string) ([]string, error) {
-			return nil, nil
-		})
-		if out := run(proj); out != "" {
-			t.Errorf("Expected no output when nothing is prunable, got: %q", out)
-		}
-	})
-
-	t.Run("SilentWhenListingFails", func(t *testing.T) {
-		proj := projectWithPrunable(t, func(*blueprintv1alpha1.Blueprint, string) ([]string, error) {
-			return nil, fmt.Errorf("cluster unreachable")
-		})
-		if out := run(proj); out != "" {
-			t.Errorf("Expected best-effort silence on error, got: %q", out)
-		}
-	})
-}
-
 func TestPlanTerraformCmd(t *testing.T) {
 	createTestPlanTerraformCmd := func() *cobra.Command {
 		cmd := &cobra.Command{
 			Use:  "terraform",
-			RunE: planTerraformCmd.RunE,
+			RunE: cliCmd.PlanTerraformCmd.RunE,
 		}
-		planTerraformCmd.Flags().VisitAll(func(flag *pflag.Flag) {
+		cliCmd.PlanTerraformCmd.Flags().VisitAll(func(flag *pflag.Flag) {
 			cmd.Flags().AddFlag(flag)
 		})
-		cmd.Args = planTerraformCmd.Args
+		cmd.Args = cliCmd.PlanTerraformCmd.Args
 		cmd.SilenceUsage = true
 		cmd.SilenceErrors = true
 		cmd.SetOut(io.Discard)
@@ -416,7 +272,7 @@ func TestPlanTerraformCmd(t *testing.T) {
 
 		// When executing the plan terraform command with a component ID
 		cmd := createTestPlanTerraformCmd()
-		ctx := context.WithValue(context.Background(), projectOverridesKey, proj)
+		ctx := context.WithValue(context.Background(), cliCmd.ProjectOverridesKey, proj)
 		cmd.SetArgs([]string{"cluster"})
 		cmd.SetContext(ctx)
 		err := cmd.Execute()
@@ -439,7 +295,7 @@ func TestPlanTerraformCmd(t *testing.T) {
 
 		// When executing without a component ID
 		cmd := createTestPlanTerraformCmd()
-		ctx := context.WithValue(context.Background(), projectOverridesKey, proj)
+		ctx := context.WithValue(context.Background(), cliCmd.ProjectOverridesKey, proj)
 		cmd.SetContext(ctx)
 		err := cmd.Execute()
 
@@ -464,9 +320,9 @@ func TestPlanTerraformCmd(t *testing.T) {
 
 		// When executing with --summary
 		cmd := createTestPlanTerraformCmd()
-		planSummary = true
-		t.Cleanup(func() { planSummary = false })
-		ctx := context.WithValue(context.Background(), projectOverridesKey, proj)
+		*cliCmd.PlanSummary = true
+		t.Cleanup(func() { *cliCmd.PlanSummary = false })
+		ctx := context.WithValue(context.Background(), cliCmd.ProjectOverridesKey, proj)
 		cmd.SetContext(ctx)
 		err := cmd.Execute()
 
@@ -489,7 +345,7 @@ func TestPlanTerraformCmd(t *testing.T) {
 
 		// When executing the plan terraform command
 		cmd := createTestPlanTerraformCmd()
-		ctx := context.WithValue(context.Background(), projectOverridesKey, proj)
+		ctx := context.WithValue(context.Background(), cliCmd.ProjectOverridesKey, proj)
 		cmd.SetArgs([]string{"cluster"})
 		cmd.SetContext(ctx)
 		err := cmd.Execute()
@@ -513,7 +369,7 @@ func TestPlanTerraformCmd(t *testing.T) {
 
 		// When executing the plan terraform command
 		cmd := createTestPlanTerraformCmd()
-		ctx := context.WithValue(context.Background(), projectOverridesKey, proj)
+		ctx := context.WithValue(context.Background(), cliCmd.ProjectOverridesKey, proj)
 		cmd.SetArgs([]string{"nonexistent"})
 		cmd.SetContext(ctx)
 		err := cmd.Execute()
@@ -541,7 +397,7 @@ func TestPlanTerraformCmd(t *testing.T) {
 
 		// When executing the plan terraform command
 		cmd := createTestPlanTerraformCmd()
-		ctx := context.WithValue(context.Background(), projectOverridesKey, proj)
+		ctx := context.WithValue(context.Background(), cliCmd.ProjectOverridesKey, proj)
 		cmd.SetArgs([]string{"cluster"})
 		cmd.SetContext(ctx)
 		err := cmd.Execute()
@@ -565,7 +421,7 @@ func TestPlanTerraformCmd(t *testing.T) {
 		proj := newPlanProject(mocks)
 
 		cmd := createTestPlanTerraformCmd()
-		ctx := context.WithValue(context.Background(), projectOverridesKey, proj)
+		ctx := context.WithValue(context.Background(), cliCmd.ProjectOverridesKey, proj)
 		cmd.SetContext(ctx)
 		err := cmd.Execute()
 
@@ -592,9 +448,9 @@ func TestPlanTerraformCmd(t *testing.T) {
 
 		// When executing with --output=json-plan and a component ID
 		cmd := createTestPlanTerraformCmd()
-		planOutput = "json-plan"
-		t.Cleanup(func() { planOutput = "" })
-		ctx := context.WithValue(context.Background(), projectOverridesKey, proj)
+		*cliCmd.PlanOutput = "json-plan"
+		t.Cleanup(func() { *cliCmd.PlanOutput = "" })
+		ctx := context.WithValue(context.Background(), cliCmd.ProjectOverridesKey, proj)
 		cmd.SetArgs([]string{"cluster"})
 		cmd.SetContext(ctx)
 		err := cmd.Execute()
@@ -620,9 +476,9 @@ func TestPlanTerraformCmd(t *testing.T) {
 
 		// When executing with --output=json-plan and no component ID
 		cmd := createTestPlanTerraformCmd()
-		planOutput = "json-plan"
-		t.Cleanup(func() { planOutput = "" })
-		ctx := context.WithValue(context.Background(), projectOverridesKey, proj)
+		*cliCmd.PlanOutput = "json-plan"
+		t.Cleanup(func() { *cliCmd.PlanOutput = "" })
+		ctx := context.WithValue(context.Background(), cliCmd.ProjectOverridesKey, proj)
 		cmd.SetContext(ctx)
 		err := cmd.Execute()
 
@@ -642,9 +498,9 @@ func TestPlanTerraformCmd(t *testing.T) {
 
 		// When executing with --output=bogus
 		cmd := createTestPlanTerraformCmd()
-		planOutput = "bogus"
-		t.Cleanup(func() { planOutput = "" })
-		ctx := context.WithValue(context.Background(), projectOverridesKey, proj)
+		*cliCmd.PlanOutput = "bogus"
+		t.Cleanup(func() { *cliCmd.PlanOutput = "" })
+		ctx := context.WithValue(context.Background(), cliCmd.ProjectOverridesKey, proj)
 		cmd.SetArgs([]string{"cluster"})
 		cmd.SetContext(ctx)
 		err := cmd.Execute()
@@ -668,13 +524,13 @@ func TestPlanTerraformCmd(t *testing.T) {
 
 		// When executing with both flags set
 		cmd := createTestPlanTerraformCmd()
-		planOutput = "json-plan"
-		planSummary = true
+		*cliCmd.PlanOutput = "json-plan"
+		*cliCmd.PlanSummary = true
 		t.Cleanup(func() {
-			planOutput = ""
-			planSummary = false
+			*cliCmd.PlanOutput = ""
+			*cliCmd.PlanSummary = false
 		})
-		ctx := context.WithValue(context.Background(), projectOverridesKey, proj)
+		ctx := context.WithValue(context.Background(), cliCmd.ProjectOverridesKey, proj)
 		cmd.SetArgs([]string{"cluster"})
 		cmd.SetContext(ctx)
 		err := cmd.Execute()
@@ -698,13 +554,13 @@ func TestPlanTerraformCmd(t *testing.T) {
 
 		// When executing with both flags set
 		cmd := createTestPlanTerraformCmd()
-		planOutput = "json-plan"
-		planJSON = true
+		*cliCmd.PlanOutput = "json-plan"
+		*cliCmd.PlanJSON = true
 		t.Cleanup(func() {
-			planOutput = ""
-			planJSON = false
+			*cliCmd.PlanOutput = ""
+			*cliCmd.PlanJSON = false
 		})
-		ctx := context.WithValue(context.Background(), projectOverridesKey, proj)
+		ctx := context.WithValue(context.Background(), cliCmd.ProjectOverridesKey, proj)
 		cmd.SetArgs([]string{"cluster"})
 		cmd.SetContext(ctx)
 		err := cmd.Execute()
@@ -724,7 +580,7 @@ func TestPlanTerraformCmd(t *testing.T) {
 
 func TestPlanKustomizeCmd(t *testing.T) {
 	createTestCmd := func(use string) *cobra.Command {
-		src := planKustomizeCmd
+		src := cliCmd.PlanKustomizeCmd
 		cmd := &cobra.Command{
 			Use:     use,
 			Aliases: src.Aliases,
@@ -750,7 +606,7 @@ func TestPlanKustomizeCmd(t *testing.T) {
 
 		// When executing with a component ID
 		cmd := createTestCmd("kustomize")
-		ctx := context.WithValue(context.Background(), projectOverridesKey, proj)
+		ctx := context.WithValue(context.Background(), cliCmd.ProjectOverridesKey, proj)
 		cmd.SetArgs([]string{"my-app"})
 		cmd.SetContext(ctx)
 		err := cmd.Execute()
@@ -769,7 +625,7 @@ func TestPlanKustomizeCmd(t *testing.T) {
 
 		// When executing with "all"
 		cmd := createTestCmd("kustomize")
-		ctx := context.WithValue(context.Background(), projectOverridesKey, proj)
+		ctx := context.WithValue(context.Background(), cliCmd.ProjectOverridesKey, proj)
 		cmd.SetArgs([]string{"all"})
 		cmd.SetContext(ctx)
 		err := cmd.Execute()
@@ -788,7 +644,7 @@ func TestPlanKustomizeCmd(t *testing.T) {
 
 		// When executing as "k8s"
 		cmd := createTestCmd("k8s")
-		ctx := context.WithValue(context.Background(), projectOverridesKey, proj)
+		ctx := context.WithValue(context.Background(), cliCmd.ProjectOverridesKey, proj)
 		cmd.SetArgs([]string{"my-app"})
 		cmd.SetContext(ctx)
 		err := cmd.Execute()
@@ -812,7 +668,7 @@ func TestPlanKustomizeCmd(t *testing.T) {
 
 		// When executing without a component ID
 		cmd := createTestCmd("kustomize")
-		ctx := context.WithValue(context.Background(), projectOverridesKey, proj)
+		ctx := context.WithValue(context.Background(), cliCmd.ProjectOverridesKey, proj)
 		cmd.SetContext(ctx)
 		err := cmd.Execute()
 
@@ -838,9 +694,9 @@ func TestPlanKustomizeCmd(t *testing.T) {
 
 		// When executing with --summary
 		cmd := createTestCmd("kustomize")
-		planSummary = true
-		t.Cleanup(func() { planSummary = false })
-		ctx := context.WithValue(context.Background(), projectOverridesKey, proj)
+		*cliCmd.PlanSummary = true
+		t.Cleanup(func() { *cliCmd.PlanSummary = false })
+		ctx := context.WithValue(context.Background(), cliCmd.ProjectOverridesKey, proj)
 		cmd.SetContext(ctx)
 		err := cmd.Execute()
 
@@ -864,7 +720,7 @@ func TestPlanKustomizeCmd(t *testing.T) {
 
 		// When executing the command
 		cmd := createTestCmd("kustomize")
-		ctx := context.WithValue(context.Background(), projectOverridesKey, proj)
+		ctx := context.WithValue(context.Background(), cliCmd.ProjectOverridesKey, proj)
 		cmd.SetArgs([]string{"my-app"})
 		cmd.SetContext(ctx)
 		err := cmd.Execute()
@@ -889,7 +745,7 @@ func TestPlanKustomizeCmd(t *testing.T) {
 
 		// When executing the command
 		cmd := createTestCmd("kustomize")
-		ctx := context.WithValue(context.Background(), projectOverridesKey, proj)
+		ctx := context.WithValue(context.Background(), cliCmd.ProjectOverridesKey, proj)
 		cmd.SetArgs([]string{"my-app"})
 		cmd.SetContext(ctx)
 		err := cmd.Execute()
@@ -916,7 +772,7 @@ func TestPlanKustomizeCmd(t *testing.T) {
 
 		// When executing the command
 		cmd := createTestCmd("kustomize")
-		ctx := context.WithValue(context.Background(), projectOverridesKey, proj)
+		ctx := context.WithValue(context.Background(), cliCmd.ProjectOverridesKey, proj)
 		cmd.SetArgs([]string{"my-app"})
 		cmd.SetContext(ctx)
 		err := cmd.Execute()

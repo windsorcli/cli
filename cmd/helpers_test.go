@@ -1,7 +1,7 @@
 //go:build integration
 // +build integration
 
-package cmd
+package cmd_test
 
 // Test helpers for the cmd package. Built with -tags=integration for integration test helpers
 // (SetupIntegrationProject, runCmd, etc.); unit tests use captureOutput/setupMocks from root_test.go.
@@ -14,11 +14,11 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
-	"time"
+
+	cliCmd "github.com/windsorcli/cli/cmd"
 
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
-	"github.com/windsorcli/cli/pkg/runtime/shell"
 )
 
 // =============================================================================
@@ -66,11 +66,11 @@ func captureOutputAndRestore(t *testing.T) (stdout, stderr *bytes.Buffer) {
 	t.Helper()
 	stdout = new(bytes.Buffer)
 	stderr = new(bytes.Buffer)
-	rootCmd.SetOut(stdout)
-	rootCmd.SetErr(stderr)
+	cliCmd.RootCmd().SetOut(stdout)
+	cliCmd.RootCmd().SetErr(stderr)
 	t.Cleanup(func() {
-		rootCmd.SetOut(nil)
-		rootCmd.SetErr(nil)
+		cliCmd.RootCmd().SetOut(nil)
+		cliCmd.RootCmd().SetErr(nil)
 	})
 	return stdout, stderr
 }
@@ -115,12 +115,12 @@ func resetCommandFlagValues(cmd *cobra.Command) {
 // Returns trimmed stdout string, stderr string, and Execute() error.
 func runCmd(t *testing.T, ctx context.Context, args []string) (stdout, stderr string, err error) {
 	t.Helper()
-	resetCommandFlagValues(rootCmd)
+	resetCommandFlagValues(cliCmd.RootCmd())
 	_, stderrBuf := captureOutputAndRestore(t)
 	stdoutBuf, restore := captureProcessStdout(t)
-	rootCmd.SetContext(ctx)
-	rootCmd.SetArgs(args)
-	err = Execute()
+	cliCmd.RootCmd().SetContext(ctx)
+	cliCmd.RootCmd().SetArgs(args)
+	err = cliCmd.Execute()
 	restore()
 	return strings.TrimSpace(stdoutBuf.String()), stderrBuf.String(), err
 }
@@ -159,66 +159,3 @@ func assertFailureAndErrorContains(t *testing.T, err error, substring string) {
 //  2. Full mock: Use NewMockShellWithCapture(capture) and inject it via a project override. Every
 //     Exec/ExecSudo/ExecSilent/ExecSilentWithTimeout is captured and no-opped. Use when the test
 //     must not run any subprocesses (e.g. configure network tests that must not touch routes/DNS).
-
-// ShellCall records a single Exec, ExecSudo, or ExecSilent invocation (command + args).
-type ShellCall struct {
-	Command string
-	Args    []string
-}
-
-// ShellCallWithTimeout records a single ExecSilentWithTimeout invocation.
-type ShellCallWithTimeout struct {
-	Command string
-	Args    []string
-	Timeout time.Duration
-}
-
-// ShellCapture holds slices of captured shell invocations for assertion in tests.
-// Create with NewShellCapture and pass to NewMockShellWithCapture to wire a MockShell to it.
-type ShellCapture struct {
-	ExecCalls              []ShellCall
-	SudoCalls              []ShellCall
-	SilentCalls            []ShellCall
-	SilentWithTimeoutCalls []ShellCallWithTimeout
-}
-
-// NewShellCapture returns a new ShellCapture with empty slices, ready for use with NewMockShellWithCapture.
-func NewShellCapture() *ShellCapture {
-	return &ShellCapture{
-		ExecCalls:              nil,
-		SudoCalls:              nil,
-		SilentCalls:            nil,
-		SilentWithTimeoutCalls: nil,
-	}
-}
-
-// TotalCalls returns the number of captured Exec, ExecSudo, ExecSilent, and ExecSilentWithTimeout calls.
-func (c *ShellCapture) TotalCalls() int {
-	return len(c.ExecCalls) + len(c.SudoCalls) + len(c.SilentCalls) + len(c.SilentWithTimeoutCalls)
-}
-
-// NewMockShellWithCapture returns a MockShell whose Exec, ExecSudo, ExecSilent, and ExecSilentWithTimeout
-// append to capture and return "", nil. Callers can set other funcs (GetProjectRootFunc, etc.) as needed.
-func NewMockShellWithCapture(capture *ShellCapture) *shell.MockShell {
-	m := shell.NewMockShell()
-	m.ExecFunc = func(command string, args ...string) (string, error) {
-		capture.ExecCalls = append(capture.ExecCalls, ShellCall{Command: command, Args: args})
-		return "", nil
-	}
-	m.ExecSudoFunc = func(message, command string, args ...string) (string, error) {
-		capture.SudoCalls = append(capture.SudoCalls, ShellCall{Command: command, Args: args})
-		return "", nil
-	}
-	m.ExecSilentFunc = func(command string, args ...string) (string, error) {
-		capture.SilentCalls = append(capture.SilentCalls, ShellCall{Command: command, Args: args})
-		if command == "systemctl" && len(args) == 2 && args[0] == "is-active" && args[1] == "systemd-resolved" {
-			return "active", nil
-		}
-		return "", nil
-	}
-	m.ExecSilentWithTimeoutFunc = func(command string, args []string, timeout time.Duration) (string, error) {
-		capture.SilentWithTimeoutCalls = append(capture.SilentWithTimeoutCalls, ShellCallWithTimeout{Command: command, Args: args, Timeout: timeout})
-		return "", nil
-	}
-	return m
-}

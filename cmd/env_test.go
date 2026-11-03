@@ -1,4 +1,4 @@
-package cmd
+package cmd_test
 
 import (
 	"bytes"
@@ -8,6 +8,8 @@ import (
 	"os"
 	"strings"
 	"testing"
+
+	cliCmd "github.com/windsorcli/cli/cmd"
 
 	"github.com/windsorcli/cli/pkg/runtime"
 	"github.com/windsorcli/cli/pkg/runtime/config"
@@ -48,12 +50,12 @@ func restoreEnvVars(t *testing.T, envVarsBefore map[string]string) {
 
 func isolateTestState(t *testing.T) {
 	t.Helper()
-	rootCmd.SetContext(context.Background())
-	rootCmd.SetArgs([]string{})
-	rootCmd.SetOut(nil)
-	rootCmd.SetErr(nil)
-	verbose = false
-	for _, cmd := range rootCmd.Commands() {
+	cliCmd.RootCmd().SetContext(context.Background())
+	cliCmd.RootCmd().SetArgs([]string{})
+	cliCmd.RootCmd().SetOut(nil)
+	cliCmd.RootCmd().SetErr(nil)
+	*cliCmd.Verbose = false
+	for _, cmd := range cliCmd.RootCmd().Commands() {
 		cmd.SetContext(context.Background())
 		cmd.SetArgs([]string{})
 	}
@@ -62,19 +64,19 @@ func isolateTestState(t *testing.T) {
 func setupOutputCapture(t *testing.T) (*bytes.Buffer, *bytes.Buffer) {
 	t.Helper()
 	stdout, stderr := captureOutput(t)
-	rootCmd.SetOut(stdout)
-	rootCmd.SetErr(stderr)
+	cliCmd.RootCmd().SetOut(stdout)
+	cliCmd.RootCmd().SetErr(stderr)
 	return stdout, stderr
 }
 
 func setupTestContext(t *testing.T, mocks *Mocks) {
 	t.Helper()
-	rootCmd.SetContext(context.Background())
-	verbose = false
-	ctx := context.WithValue(context.Background(), runtimeOverridesKey, mocks.Runtime)
-	rootCmd.SetContext(ctx)
+	cliCmd.RootCmd().SetContext(context.Background())
+	*cliCmd.Verbose = false
+	ctx := context.WithValue(context.Background(), cliCmd.RuntimeOverridesKey, mocks.Runtime)
+	cliCmd.RootCmd().SetContext(ctx)
 	t.Cleanup(func() {
-		rootCmd.SetContext(context.Background())
+		cliCmd.RootCmd().SetContext(context.Background())
 	})
 }
 
@@ -117,9 +119,9 @@ func TestEnvCmd_ErrorScenarios_RequireOverride(t *testing.T) {
 			return false, fmt.Errorf("reset check failed")
 		}
 		setupTestContext(t, mocks)
-		rootCmd.SetArgs([]string{"env"})
-		rootCmd.SetContext(context.WithValue(context.Background(), runtimeOverridesKey, mocks.Runtime))
-		err := Execute()
+		cliCmd.RootCmd().SetArgs([]string{"env"})
+		cliCmd.RootCmd().SetContext(context.WithValue(context.Background(), cliCmd.RuntimeOverridesKey, mocks.Runtime))
+		err := cliCmd.Execute()
 		if err == nil {
 			t.Error("Expected error when HandleSessionReset fails")
 			return
@@ -136,9 +138,9 @@ func TestEnvCmd_ErrorScenarios_RequireOverride(t *testing.T) {
 		}
 		mocks := setupMocks(t, &SetupOptions{ConfigHandler: mockConfigHandler})
 		setupTestContext(t, mocks)
-		rootCmd.SetArgs([]string{"env"})
-		rootCmd.SetContext(context.WithValue(context.Background(), runtimeOverridesKey, mocks.Runtime))
-		err := Execute()
+		cliCmd.RootCmd().SetArgs([]string{"env"})
+		cliCmd.RootCmd().SetContext(context.WithValue(context.Background(), cliCmd.RuntimeOverridesKey, mocks.Runtime))
+		err := cliCmd.Execute()
 		if err == nil {
 			t.Error("Expected error when LoadConfig fails")
 			return
@@ -160,12 +162,12 @@ func TestEnvCmd_SuccessScenarios(t *testing.T) {
 		// Given proper output capture and mock setup
 		_, stderr := setupOutputCapture(t)
 		mocks := setupMocks(t)
-		ctx := context.WithValue(context.Background(), runtimeOverridesKey, mocks.Runtime)
-		rootCmd.SetContext(ctx)
+		ctx := context.WithValue(context.Background(), cliCmd.RuntimeOverridesKey, mocks.Runtime)
+		cliCmd.RootCmd().SetContext(ctx)
 
 		// When executing the command
-		rootCmd.SetArgs([]string{"env"})
-		err := Execute()
+		cliCmd.RootCmd().SetArgs([]string{"env"})
+		err := cliCmd.Execute()
 
 		// Then no error should occur
 		if err != nil {
@@ -181,12 +183,12 @@ func TestEnvCmd_SuccessScenarios(t *testing.T) {
 		// Given proper output capture and mock setup
 		_, stderr := setupOutputCapture(t)
 		mocks := setupMocks(t)
-		ctx := context.WithValue(context.Background(), runtimeOverridesKey, mocks.Runtime)
-		rootCmd.SetContext(ctx)
+		ctx := context.WithValue(context.Background(), cliCmd.RuntimeOverridesKey, mocks.Runtime)
+		cliCmd.RootCmd().SetContext(ctx)
 
 		// When executing the command with decrypt flag
-		rootCmd.SetArgs([]string{"env", "--decrypt"})
-		err := Execute()
+		cliCmd.RootCmd().SetArgs([]string{"env", "--decrypt"})
+		err := cliCmd.Execute()
 
 		// Then no error should occur
 		if err != nil {
@@ -202,12 +204,12 @@ func TestEnvCmd_SuccessScenarios(t *testing.T) {
 		// Given proper output capture and mock setup
 		_, stderr := setupOutputCapture(t)
 		mocks := setupMocks(t)
-		ctx := context.WithValue(context.Background(), runtimeOverridesKey, mocks.Runtime)
-		rootCmd.SetContext(ctx)
+		ctx := context.WithValue(context.Background(), cliCmd.RuntimeOverridesKey, mocks.Runtime)
+		cliCmd.RootCmd().SetContext(ctx)
 
 		// When executing the command with hook flag
-		rootCmd.SetArgs([]string{"env", "--hook"})
-		err := Execute()
+		cliCmd.RootCmd().SetArgs([]string{"env", "--hook"})
+		err := cliCmd.Execute()
 
 		// Then no error should occur
 		if err != nil {
@@ -227,8 +229,8 @@ func TestEnvCmd_SuccessScenarios(t *testing.T) {
 			return nil
 		}
 		mocks := setupMocks(t, &SetupOptions{ConfigHandler: mockConfigHandler})
-		ctx := context.WithValue(context.Background(), runtimeOverridesKey, mocks.Runtime)
-		rootCmd.SetContext(ctx)
+		ctx := context.WithValue(context.Background(), cliCmd.RuntimeOverridesKey, mocks.Runtime)
+		cliCmd.RootCmd().SetContext(ctx)
 
 		originalStderr := os.Stderr
 		readPipe, writePipe, pipeErr := os.Pipe()
@@ -242,8 +244,8 @@ func TestEnvCmd_SuccessScenarios(t *testing.T) {
 			_ = writePipe.Close()
 		})
 
-		rootCmd.SetArgs([]string{"env", "--hook"})
-		err := Execute()
+		cliCmd.RootCmd().SetArgs([]string{"env", "--hook"})
+		err := cliCmd.Execute()
 		if err != nil {
 			t.Fatalf("Expected success, got error: %v", err)
 		}
@@ -266,12 +268,12 @@ func TestEnvCmd_SuccessScenarios(t *testing.T) {
 		// Given proper output capture and mock setup
 		_, stderr := setupOutputCapture(t)
 		mocks := setupMocks(t)
-		ctx := context.WithValue(context.Background(), runtimeOverridesKey, mocks.Runtime)
-		rootCmd.SetContext(ctx)
+		ctx := context.WithValue(context.Background(), cliCmd.RuntimeOverridesKey, mocks.Runtime)
+		cliCmd.RootCmd().SetContext(ctx)
 
 		// When executing the command with verbose flag
-		rootCmd.SetArgs([]string{"env", "--verbose"})
-		err := Execute()
+		cliCmd.RootCmd().SetArgs([]string{"env", "--verbose"})
+		err := cliCmd.Execute()
 
 		// Then no error should occur
 		if err != nil {
@@ -287,12 +289,12 @@ func TestEnvCmd_SuccessScenarios(t *testing.T) {
 		// Given proper output capture and mock setup
 		_, stderr := setupOutputCapture(t)
 		mocks := setupMocks(t)
-		ctx := context.WithValue(context.Background(), runtimeOverridesKey, mocks.Runtime)
-		rootCmd.SetContext(ctx)
+		ctx := context.WithValue(context.Background(), cliCmd.RuntimeOverridesKey, mocks.Runtime)
+		cliCmd.RootCmd().SetContext(ctx)
 
 		// When executing the command with all flags
-		rootCmd.SetArgs([]string{"env", "--decrypt", "--hook", "--verbose"})
-		err := Execute()
+		cliCmd.RootCmd().SetArgs([]string{"env", "--decrypt", "--hook", "--verbose"})
+		err := cliCmd.Execute()
 
 		// Then no error should occur
 		if err != nil {
@@ -313,12 +315,12 @@ func TestEnvCmd_SuccessScenarios(t *testing.T) {
 			return fmt.Errorf("should not be called")
 		}
 
-		ctx := context.WithValue(context.Background(), runtimeOverridesKey, mocks.Runtime)
-		rootCmd.SetContext(ctx)
+		ctx := context.WithValue(context.Background(), cliCmd.RuntimeOverridesKey, mocks.Runtime)
+		cliCmd.RootCmd().SetContext(ctx)
 
 		// When executing env --hook
-		rootCmd.SetArgs([]string{"env", "--hook"})
-		err := Execute()
+		cliCmd.RootCmd().SetArgs([]string{"env", "--hook"})
+		err := cliCmd.Execute()
 
 		// Then it should succeed silently without running trust checks or emitting output
 		if err != nil {
@@ -347,20 +349,20 @@ func TestEnvCmd_ContextOverride(t *testing.T) {
 		// mirroring a real --context run, where setupGlobalContext sets the override on the
 		// leaf command handed to it, and rootCmd's own context never receives it
 		setupOutputCapture(t)
-		rootCmd.SetContext(context.Background())
+		cliCmd.RootCmd().SetContext(context.Background())
 
 		rootMocks := setupMocks(t)
 		rootMocks.Shell.CheckTrustedDirectoryFunc = func() error {
 			return fmt.Errorf("used the override on rootCmd's context, not envCmd's own")
 		}
-		rootCmd.SetContext(context.WithValue(context.Background(), runtimeOverridesKey, rootMocks.Runtime))
+		cliCmd.RootCmd().SetContext(context.WithValue(context.Background(), cliCmd.RuntimeOverridesKey, rootMocks.Runtime))
 
 		leafMocks := setupMocks(t)
-		envCmd.SetContext(context.WithValue(context.Background(), runtimeOverridesKey, leafMocks.Runtime))
-		t.Cleanup(func() { envCmd.SetContext(context.Background()) })
+		cliCmd.EnvCmd.SetContext(context.WithValue(context.Background(), cliCmd.RuntimeOverridesKey, leafMocks.Runtime))
+		t.Cleanup(func() { cliCmd.EnvCmd.SetContext(context.Background()) })
 
 		// When running env directly against that command
-		err := envCmd.RunE(envCmd, []string{})
+		err := cliCmd.EnvCmd.RunE(cliCmd.EnvCmd, []string{})
 
 		// Then it should succeed using envCmd's own override, not rootCmd's
 		if err != nil {
@@ -385,7 +387,7 @@ func TestEnvCmd_ErrorScenarios(t *testing.T) {
 	t.Run("HandlesNewRuntimeError", func(t *testing.T) {
 		setupOutputCapture(t)
 		isolateTestState(t)
-		defer rootCmd.SetContext(context.Background())
+		defer cliCmd.RootCmd().SetContext(context.Background())
 
 		mockShell := shell.NewMockShell()
 		mockShell.GetProjectRootFunc = func() (string, error) {
@@ -404,10 +406,10 @@ func TestEnvCmd_ErrorScenarios(t *testing.T) {
 		}()
 		_ = runtime.NewRuntime(rtOverride)
 
-		ctx := context.WithValue(context.Background(), runtimeOverridesKey, rtOverride)
-		rootCmd.SetContext(ctx)
-		rootCmd.SetArgs([]string{"env"})
-		_ = Execute()
+		ctx := context.WithValue(context.Background(), cliCmd.RuntimeOverridesKey, rtOverride)
+		cliCmd.RootCmd().SetContext(ctx)
+		cliCmd.RootCmd().SetArgs([]string{"env"})
+		_ = cliCmd.Execute()
 	})
 
 	t.Run("HandlesExecutePostEnvHooksErrorWithVerbose", func(t *testing.T) {
@@ -422,8 +424,8 @@ func TestEnvCmd_ErrorScenarios(t *testing.T) {
 		setupTestContext(t, mocks)
 
 		// When executing the command with verbose flag
-		rootCmd.SetArgs([]string{"env", "--verbose"})
-		err := Execute()
+		cliCmd.RootCmd().SetArgs([]string{"env", "--verbose"})
+		err := cliCmd.Execute()
 
 		// Then an error may be returned about post env hooks or environment loading
 		if err != nil && !strings.Contains(err.Error(), "failed to execute post env hooks") && !strings.Contains(err.Error(), "failed to load environment") {
@@ -442,13 +444,13 @@ func TestEnvCmd_ErrorScenarios(t *testing.T) {
 		mockWindsorEnv.PostEnvHookFunc = func(directory ...string) error {
 			return fmt.Errorf("hook failed")
 		}
-		envCmd.SetContext(context.WithValue(context.Background(), runtimeOverridesKey, mocks.Runtime))
-		_ = envCmd.Flags().Set("hook", "false")
-		_ = rootCmd.PersistentFlags().Set("verbose", "false")
-		t.Cleanup(func() { envCmd.SetContext(context.Background()) })
+		cliCmd.EnvCmd.SetContext(context.WithValue(context.Background(), cliCmd.RuntimeOverridesKey, mocks.Runtime))
+		_ = cliCmd.EnvCmd.Flags().Set("hook", "false")
+		_ = cliCmd.RootCmd().PersistentFlags().Set("verbose", "false")
+		t.Cleanup(func() { cliCmd.EnvCmd.SetContext(context.Background()) })
 
 		// When running env without the hook or verbose flags
-		err := envCmd.RunE(envCmd, []string{})
+		err := cliCmd.EnvCmd.RunE(cliCmd.EnvCmd, []string{})
 
 		// Then the error is returned
 		if err == nil || !strings.Contains(err.Error(), "failed to load environment") {
@@ -478,8 +480,8 @@ func TestEnvCmd_ErrorScenarios(t *testing.T) {
 		setupTestContext(t, mocks)
 
 		// When executing the command with hook flag
-		rootCmd.SetArgs([]string{"env", "--hook", "--verbose"})
-		err := Execute()
+		cliCmd.RootCmd().SetArgs([]string{"env", "--hook", "--verbose"})
+		err := cliCmd.Execute()
 
 		// Then no error should be returned
 		if err != nil {
@@ -501,8 +503,8 @@ func TestEnvCmd_ErrorScenarios(t *testing.T) {
 		setupTestContext(t, mocks)
 
 		// When executing the command with hook flag
-		rootCmd.SetArgs([]string{"env", "--hook"})
-		err := Execute()
+		cliCmd.RootCmd().SetArgs([]string{"env", "--hook"})
+		err := cliCmd.Execute()
 
 		// Then no error should be returned
 		if err != nil {
@@ -521,8 +523,8 @@ func TestEnvCmd_ErrorScenarios(t *testing.T) {
 		setupTestContext(t, mocks)
 
 		// When executing the command with hook flag
-		rootCmd.SetArgs([]string{"env", "--hook"})
-		err := Execute()
+		cliCmd.RootCmd().SetArgs([]string{"env", "--hook"})
+		err := cliCmd.Execute()
 
 		// Then no error should be returned
 		if err != nil {
@@ -541,8 +543,8 @@ func TestEnvCmd_ErrorScenarios(t *testing.T) {
 		setupTestContext(t, mocks)
 
 		// When executing the command with verbose flag
-		rootCmd.SetArgs([]string{"env", "--verbose"})
-		err := Execute()
+		cliCmd.RootCmd().SetArgs([]string{"env", "--verbose"})
+		err := cliCmd.Execute()
 
 		// Then an error may be returned about loading blueprint
 		if err != nil && !strings.Contains(err.Error(), "failed to load blueprint") {
@@ -557,8 +559,8 @@ func TestEnvCmd_ErrorScenarios(t *testing.T) {
 		setupTestContext(t, mocks)
 
 		// When executing the command
-		rootCmd.SetArgs([]string{"env"})
-		err := Execute()
+		cliCmd.RootCmd().SetArgs([]string{"env"})
+		err := cliCmd.Execute()
 
 		// Then no error should occur
 		if err != nil {
@@ -577,8 +579,8 @@ func TestEnvCmd_ErrorScenarios(t *testing.T) {
 		setupTestContext(t, mocks)
 
 		// When executing the command
-		rootCmd.SetArgs([]string{"env"})
-		err := Execute()
+		cliCmd.RootCmd().SetArgs([]string{"env"})
+		err := cliCmd.Execute()
 
 		// Then no error should occur (blueprint load may succeed or fail silently)
 		if err != nil {
@@ -597,8 +599,8 @@ func TestEnvCmd_ErrorScenarios(t *testing.T) {
 		setupTestContext(t, mocks)
 
 		// When executing the command
-		rootCmd.SetArgs([]string{"env"})
-		err := Execute()
+		cliCmd.RootCmd().SetArgs([]string{"env"})
+		err := cliCmd.Execute()
 
 		// Then no error should occur
 		if err != nil {
@@ -623,8 +625,8 @@ func TestEnvCmd_ErrorScenarios(t *testing.T) {
 		})
 
 		// When executing the command with hook flag
-		rootCmd.SetArgs([]string{"env", "--hook"})
-		err := Execute()
+		cliCmd.RootCmd().SetArgs([]string{"env", "--hook"})
+		err := cliCmd.Execute()
 
 		// Then no error should occur
 		if err != nil {
@@ -647,8 +649,8 @@ func TestEnvCmd_ErrorScenarios(t *testing.T) {
 		})
 
 		// When executing the command
-		rootCmd.SetArgs([]string{"env"})
-		err := Execute()
+		cliCmd.RootCmd().SetArgs([]string{"env"})
+		err := cliCmd.Execute()
 
 		// Then no error should occur
 		if err != nil {
@@ -673,8 +675,8 @@ func TestEnvCmd_ErrorScenarios(t *testing.T) {
 		})
 
 		// When executing the command
-		rootCmd.SetArgs([]string{"env"})
-		err := Execute()
+		cliCmd.RootCmd().SetArgs([]string{"env"})
+		err := cliCmd.Execute()
 
 		// Then no error should occur
 		if err != nil {
@@ -704,8 +706,8 @@ func TestEnvCmd_ErrorScenarios(t *testing.T) {
 		setupTestContext(t, mocks)
 
 		// When executing the command with hook flag
-		rootCmd.SetArgs([]string{"env", "--hook"})
-		err := Execute()
+		cliCmd.RootCmd().SetArgs([]string{"env", "--hook"})
+		err := cliCmd.Execute()
 
 		// Then no error should occur
 		if err != nil {
@@ -739,8 +741,8 @@ func TestEnvCmd_ErrorScenarios(t *testing.T) {
 		setupTestContext(t, mocks)
 
 		// When executing the command with hook flag
-		rootCmd.SetArgs([]string{"env", "--hook"})
-		err := Execute()
+		cliCmd.RootCmd().SetArgs([]string{"env", "--hook"})
+		err := cliCmd.Execute()
 
 		// Then no error should occur
 		if err != nil {
@@ -763,8 +765,8 @@ func TestEnvCmd_ErrorScenarios(t *testing.T) {
 		setupTestContext(t, mocks)
 
 		// When executing the command
-		rootCmd.SetArgs([]string{"env"})
-		err := Execute()
+		cliCmd.RootCmd().SetArgs([]string{"env"})
+		err := cliCmd.Execute()
 
 		// Then no error should occur
 		if err != nil {

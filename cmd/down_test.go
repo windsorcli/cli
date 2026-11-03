@@ -1,4 +1,4 @@
-package cmd
+package cmd_test
 
 import (
 	"context"
@@ -6,6 +6,8 @@ import (
 	"io"
 	"strings"
 	"testing"
+
+	cliCmd "github.com/windsorcli/cli/cmd"
 
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
@@ -82,10 +84,10 @@ func TestDownCmd(t *testing.T) {
 		cmd := &cobra.Command{
 			Use:   "down",
 			Short: "Stop the local workstation environment",
-			RunE:  downCmd.RunE,
+			RunE:  cliCmd.DownCmd.RunE,
 		}
 
-		downCmd.Flags().VisitAll(func(flag *pflag.Flag) {
+		cliCmd.DownCmd.Flags().VisitAll(func(flag *pflag.Flag) {
 			cmd.Flags().AddFlag(flag)
 		})
 
@@ -106,7 +108,7 @@ func TestDownCmd(t *testing.T) {
 		var stderrBuf strings.Builder
 		cmd := createTestDownCmd()
 		cmd.SetErr(&stderrBuf)
-		ctx := context.WithValue(context.Background(), projectOverridesKey, mocks.Project)
+		ctx := context.WithValue(context.Background(), cliCmd.ProjectOverridesKey, mocks.Project)
 		cmd.SetContext(ctx)
 		err := cmd.Execute()
 
@@ -125,7 +127,7 @@ func TestDownCmd(t *testing.T) {
 
 		// When executing the down command
 		cmd := createTestDownCmd()
-		ctx := context.WithValue(context.Background(), projectOverridesKey, mocks.Project)
+		ctx := context.WithValue(context.Background(), cliCmd.ProjectOverridesKey, mocks.Project)
 		cmd.SetContext(ctx)
 		err := cmd.Execute()
 
@@ -155,7 +157,7 @@ func TestDownCmd(t *testing.T) {
 
 		// When executing the down command
 		cmd := createTestDownCmd()
-		ctx := context.WithValue(context.Background(), projectOverridesKey, mocks.Project)
+		ctx := context.WithValue(context.Background(), cliCmd.ProjectOverridesKey, mocks.Project)
 		cmd.SetContext(ctx)
 		err := cmd.Execute()
 
@@ -177,7 +179,7 @@ func TestDownCmd(t *testing.T) {
 
 		// When executing the down command
 		cmd := createTestDownCmd()
-		ctx := context.WithValue(context.Background(), projectOverridesKey, mocks.Project)
+		ctx := context.WithValue(context.Background(), cliCmd.ProjectOverridesKey, mocks.Project)
 		cmd.SetContext(ctx)
 		err := cmd.Execute()
 
@@ -201,7 +203,7 @@ func TestDownCmd(t *testing.T) {
 
 		// When executing the down command
 		cmd := createTestDownCmd()
-		ctx := context.WithValue(context.Background(), projectOverridesKey, mocks.Project)
+		ctx := context.WithValue(context.Background(), cliCmd.ProjectOverridesKey, mocks.Project)
 		cmd.SetContext(ctx)
 		err := cmd.Execute()
 
@@ -226,7 +228,7 @@ func TestDownCmd(t *testing.T) {
 
 		// When executing the down command
 		cmd := createTestDownCmd()
-		ctx := context.WithValue(context.Background(), projectOverridesKey, mocks.Project)
+		ctx := context.WithValue(context.Background(), cliCmd.ProjectOverridesKey, mocks.Project)
 		cmd.SetContext(ctx)
 		err := cmd.Execute()
 
@@ -256,7 +258,7 @@ func TestDownCmd(t *testing.T) {
 
 		// When executing the down command
 		cmd := createTestDownCmd()
-		ctx := context.WithValue(context.Background(), projectOverridesKey, mocks.Project)
+		ctx := context.WithValue(context.Background(), cliCmd.ProjectOverridesKey, mocks.Project)
 		cmd.SetContext(ctx)
 		if err := cmd.Execute(); err != nil {
 			t.Fatalf("expected success, got: %v", err)
@@ -292,7 +294,7 @@ func TestDownCmd(t *testing.T) {
 
 		// When executing the down command (expecting an error)
 		cmd := createTestDownCmd()
-		ctx := context.WithValue(context.Background(), projectOverridesKey, mocks.Project)
+		ctx := context.WithValue(context.Background(), cliCmd.ProjectOverridesKey, mocks.Project)
 		cmd.SetContext(ctx)
 		err := cmd.Execute()
 		restore()

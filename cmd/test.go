@@ -3,9 +3,8 @@
 package cmd
 
 import (
-	"fmt"
-
 	"github.com/spf13/cobra"
+	"github.com/windsorcli/cli/internal/werror"
 	"github.com/windsorcli/cli/pkg/composer"
 	"github.com/windsorcli/cli/pkg/project"
 	"github.com/windsorcli/cli/pkg/test"
@@ -40,7 +39,7 @@ windsor test cluster-defaults`,
 		proj.Runtime.Shell.SetVerbosity(verbose)
 
 		if err := proj.Runtime.Shell.CheckTrustedDirectory(); err != nil {
-			return fmt.Errorf("not in a trusted directory. If you are in a Windsor project, run 'windsor init' to approve")
+			return werror.New("not in a trusted directory", trustDirectoryHint, err)
 		}
 
 		comp := proj.Composer
