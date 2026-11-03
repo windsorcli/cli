@@ -1,3 +1,8 @@
+// The CompositeModuleResolver is a terraform module resolver that delegates to the OCI and standard resolvers.
+// It provides the ModuleResolver that the composer uses for all terraform components.
+// Each resolver skips a component whose source it does not handle.
+// GenerateTfvars uses the shared BaseModuleResolver implementation.
+
 package terraform
 
 import (
@@ -7,15 +12,11 @@ import (
 	"github.com/windsorcli/cli/pkg/runtime"
 )
 
-// The CompositeModuleResolver is a terraform module resolver that delegates to multiple specialized resolvers.
-// It coordinates OCI and standard module resolvers, ensuring each component is processed by the appropriate resolver.
-// The CompositeModuleResolver acts as the main orchestrator, routing components to the correct resolver based on source type.
-
 // =============================================================================
 // Types
 // =============================================================================
 
-// CompositeModuleResolver handles terraform modules by delegating to specialized resolvers
+// CompositeModuleResolver handles terraform modules through the OCI and standard resolvers.
 type CompositeModuleResolver struct {
 	ociResolver      *OCIModuleResolver
 	standardResolver *StandardModuleResolver
@@ -25,7 +26,8 @@ type CompositeModuleResolver struct {
 // Constructor
 // =============================================================================
 
-// NewCompositeModuleResolver creates a new composite module resolver with all specialized resolvers.
+// NewCompositeModuleResolver creates a composite module resolver with an OCI resolver and a standard resolver.
+// It panics if rt, blueprintHandler, or artifactBuilder is nil.
 func NewCompositeModuleResolver(rt *runtime.Runtime, blueprintHandler blueprint.BlueprintHandler, artifactBuilder artifact.Artifact) *CompositeModuleResolver {
 	if rt == nil {
 		panic("runtime is required")
@@ -61,8 +63,8 @@ func (h *CompositeModuleResolver) ProcessModules() error {
 	return nil
 }
 
-// GenerateTfvars generates tfvars files for all terraform components.
-// It uses the standard resolver's GenerateTfvars method since all resolvers share the same base implementation.
+// GenerateTfvars writes the tfvars files for all terraform components through the standard resolver.
+// All resolvers share the same BaseModuleResolver implementation.
 func (h *CompositeModuleResolver) GenerateTfvars(overwrite bool) error {
 	return h.standardResolver.GenerateTfvars(overwrite)
 }

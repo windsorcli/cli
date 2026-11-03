@@ -1,6 +1,15 @@
+// The MockModuleResolver is a mock implementation of the ModuleResolver interface.
+// It provides a function field for each method of the interface.
+// A method with no function set returns nil.
+// Tests in other packages use it in place of the CompositeModuleResolver.
+
 package terraform
 
-// MockModuleResolver is a mock implementation of the ModuleResolver interface
+// =============================================================================
+// Types
+// =============================================================================
+
+// MockModuleResolver is a mock implementation of the ModuleResolver interface.
 type MockModuleResolver struct {
 	ProcessModulesFunc func() error
 	GenerateTfvarsFunc func(overwrite bool) error

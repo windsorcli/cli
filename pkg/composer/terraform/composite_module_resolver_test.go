@@ -1,9 +1,8 @@
-package terraform
+package terraform_test
 
 import (
 	"errors"
 	"fmt"
-	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -11,12 +10,8 @@ import (
 
 	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
 	"github.com/windsorcli/cli/pkg/composer/artifact"
+	"github.com/windsorcli/cli/pkg/composer/terraform"
 )
-
-// The CompositeModuleResolverTest is a test suite for the CompositeModuleResolver implementation
-// It provides comprehensive coverage for composite resolver orchestration and delegation
-// The CompositeModuleResolverTest ensures proper coordination between OCI and standard resolvers
-// enabling reliable terraform module resolution across different source types
 
 // =============================================================================
 // Test Public Methods
@@ -29,16 +24,16 @@ func TestCompositeModuleResolver_NewCompositeModuleResolver(t *testing.T) {
 		mockArtifactBuilder := artifact.NewMockArtifact()
 
 		// When creating a new composite module resolver
-		resolver := NewCompositeModuleResolver(mocks.Runtime, mocks.BlueprintHandler, mockArtifactBuilder)
+		resolver := terraform.NewCompositeModuleResolver(mocks.Runtime, mocks.BlueprintHandler, mockArtifactBuilder)
 
 		// Then it should be created successfully
 		if resolver == nil {
 			t.Fatal("Expected non-nil CompositeModuleResolver")
 		}
-		if resolver.ociResolver == nil {
+		if resolver.OciResolver() == nil {
 			t.Error("Expected ociResolver to be set")
 		}
-		if resolver.standardResolver == nil {
+		if resolver.StandardResolver() == nil {
 			t.Error("Expected standardResolver to be set")
 		}
 	})
@@ -55,7 +50,7 @@ func TestCompositeModuleResolver_NewCompositeModuleResolver(t *testing.T) {
 				t.Error("Expected panic when runtime is nil")
 			}
 		}()
-		NewCompositeModuleResolver(nil, mocks.BlueprintHandler, mockArtifactBuilder)
+		terraform.NewCompositeModuleResolver(nil, mocks.BlueprintHandler, mockArtifactBuilder)
 	})
 
 	t.Run("PanicsWhenBlueprintHandlerIsNil", func(t *testing.T) {
@@ -70,7 +65,7 @@ func TestCompositeModuleResolver_NewCompositeModuleResolver(t *testing.T) {
 				t.Error("Expected panic when blueprint handler is nil")
 			}
 		}()
-		NewCompositeModuleResolver(mocks.Runtime, nil, mockArtifactBuilder)
+		terraform.NewCompositeModuleResolver(mocks.Runtime, nil, mockArtifactBuilder)
 	})
 
 	t.Run("PanicsWhenArtifactBuilderIsNil", func(t *testing.T) {
@@ -84,20 +79,20 @@ func TestCompositeModuleResolver_NewCompositeModuleResolver(t *testing.T) {
 				t.Error("Expected panic when artifact builder is nil")
 			}
 		}()
-		NewCompositeModuleResolver(mocks.Runtime, mocks.BlueprintHandler, nil)
+		terraform.NewCompositeModuleResolver(mocks.Runtime, mocks.BlueprintHandler, nil)
 	})
 }
 
 func TestCompositeModuleResolver_ProcessModules(t *testing.T) {
-	setup := func(t *testing.T) (*CompositeModuleResolver, *TerraformTestMocks) {
+	setup := func(t *testing.T) (*terraform.CompositeModuleResolver, *TerraformTestMocks) {
 		t.Helper()
 		mocks := setupTerraformMocks(t)
 		mockArtifactBuilder := artifact.NewMockArtifact()
-		resolver := NewCompositeModuleResolver(mocks.Runtime, mocks.BlueprintHandler, mockArtifactBuilder)
+		resolver := terraform.NewCompositeModuleResolver(mocks.Runtime, mocks.BlueprintHandler, mockArtifactBuilder)
 		return resolver, mocks
 	}
 
-	setupOCIMocks := func(t *testing.T, resolver *CompositeModuleResolver, projectRoot string) *artifact.MockArtifact {
+	setupOCIMocks := func(t *testing.T, resolver *terraform.CompositeModuleResolver, projectRoot string) *artifact.MockArtifact {
 		t.Helper()
 		mockArtifactBuilder := artifact.NewMockArtifact()
 		mockArtifactBuilder.ParseOCIRefFunc = func(ociRef string) (registry, repository, tag string, err error) {
@@ -136,27 +131,23 @@ func TestCompositeModuleResolver_ProcessModules(t *testing.T) {
 			}
 			return fullModulePath, nil
 		}
-		if resolver.ociResolver != nil {
-			resolver.ociResolver.artifactBuilder = mockArtifactBuilder
+		if resolver.OciResolver() != nil {
+			resolver.OciResolver().SetArtifactBuilder(mockArtifactBuilder)
 		}
 		return mockArtifactBuilder
 	}
 
-	setupOCIResolverShims := func(resolver *CompositeModuleResolver) {
-		if resolver.ociResolver != nil {
-			resolver.ociResolver.BaseModuleResolver.shims.Copy = io.Copy
-			resolver.ociResolver.BaseModuleResolver.shims.Create = func(name string) (*os.File, error) {
-				return os.Create(name)
-			}
-			resolver.ociResolver.BaseModuleResolver.shims.MkdirAll = os.MkdirAll
-			resolver.ociResolver.BaseModuleResolver.shims.Stat = os.Stat
+	setupOCIResolverShims := func(resolver *terraform.CompositeModuleResolver) {
+		if resolver.OciResolver() != nil {
+			resolver.OciResolver().BaseModuleResolver.Shims().MkdirAll = os.MkdirAll
+			resolver.OciResolver().BaseModuleResolver.Shims().Stat = os.Stat
 		}
 	}
 
-	setupStandardResolverShims := func(resolver *CompositeModuleResolver, statFunc func(string) (os.FileInfo, error)) {
-		resolver.standardResolver.shims.MkdirAll = os.MkdirAll
+	setupStandardResolverShims := func(resolver *terraform.CompositeModuleResolver, statFunc func(string) (os.FileInfo, error)) {
+		resolver.StandardResolver().Shims().MkdirAll = os.MkdirAll
 		if statFunc != nil {
-			resolver.standardResolver.shims.Stat = statFunc
+			resolver.StandardResolver().Shims().Stat = statFunc
 		}
 	}
 
@@ -221,8 +212,8 @@ func TestCompositeModuleResolver_ProcessModules(t *testing.T) {
 		mockArtifactBuilder.PullFunc = func(refs []string) (map[string]string, error) {
 			return nil, errors.New("OCI pull error")
 		}
-		if resolver.ociResolver != nil {
-			resolver.ociResolver.artifactBuilder = mockArtifactBuilder
+		if resolver.OciResolver() != nil {
+			resolver.OciResolver().SetArtifactBuilder(mockArtifactBuilder)
 		}
 
 		// When processing modules
@@ -250,7 +241,7 @@ func TestCompositeModuleResolver_ProcessModules(t *testing.T) {
 			}
 		}
 
-		resolver.standardResolver.shims.MkdirAll = func(path string, perm os.FileMode) error {
+		resolver.StandardResolver().Shims().MkdirAll = func(path string, perm os.FileMode) error {
 			return errors.New("mkdir error")
 		}
 
@@ -288,7 +279,7 @@ func TestCompositeModuleResolver_ProcessModules(t *testing.T) {
 		mockArtifactBuilder.PullFunc = func(refs []string) (map[string]string, error) {
 			return make(map[string]string), nil
 		}
-		resolver.ociResolver.artifactBuilder = mockArtifactBuilder
+		resolver.OciResolver().SetArtifactBuilder(mockArtifactBuilder)
 
 		// When processing modules
 		err := resolver.ProcessModules()
@@ -303,11 +294,11 @@ func TestCompositeModuleResolver_ProcessModules(t *testing.T) {
 }
 
 func TestCompositeModuleResolver_GenerateTfvars(t *testing.T) {
-	setup := func(t *testing.T) (*CompositeModuleResolver, *TerraformTestMocks) {
+	setup := func(t *testing.T) (*terraform.CompositeModuleResolver, *TerraformTestMocks) {
 		t.Helper()
 		mocks := setupTerraformMocks(t)
 		mockArtifactBuilder := artifact.NewMockArtifact()
-		resolver := NewCompositeModuleResolver(mocks.Runtime, mocks.BlueprintHandler, mockArtifactBuilder)
+		resolver := terraform.NewCompositeModuleResolver(mocks.Runtime, mocks.BlueprintHandler, mockArtifactBuilder)
 		return resolver, mocks
 	}
 
@@ -343,10 +334,10 @@ func TestCompositeModuleResolver_GenerateTfvars(t *testing.T) {
 		}
 
 		// Override shims for real file operations
-		resolver.standardResolver.shims.Stat = os.Stat
-		resolver.standardResolver.shims.ReadFile = os.ReadFile
-		resolver.standardResolver.shims.MkdirAll = os.MkdirAll
-		resolver.standardResolver.shims.WriteFile = os.WriteFile
+		resolver.StandardResolver().Shims().Stat = os.Stat
+		resolver.StandardResolver().Shims().ReadFile = os.ReadFile
+		resolver.StandardResolver().Shims().MkdirAll = os.MkdirAll
+		resolver.StandardResolver().Shims().WriteFile = os.WriteFile
 
 		// When generating tfvars
 		err := resolver.GenerateTfvars(false)
@@ -389,10 +380,10 @@ func TestCompositeModuleResolver_GenerateTfvars(t *testing.T) {
 		}
 
 		// Override shims for real file operations
-		resolver.standardResolver.shims.Stat = os.Stat
-		resolver.standardResolver.shims.ReadFile = os.ReadFile
-		resolver.standardResolver.shims.MkdirAll = os.MkdirAll
-		resolver.standardResolver.shims.WriteFile = os.WriteFile
+		resolver.StandardResolver().Shims().Stat = os.Stat
+		resolver.StandardResolver().Shims().ReadFile = os.ReadFile
+		resolver.StandardResolver().Shims().MkdirAll = os.MkdirAll
+		resolver.StandardResolver().Shims().WriteFile = os.WriteFile
 
 		// When generating tfvars
 		err := resolver.GenerateTfvars(true)
@@ -419,7 +410,7 @@ func TestCompositeModuleResolver_GenerateTfvars(t *testing.T) {
 		}
 
 		// Mock standard resolver's shims to fail
-		resolver.standardResolver.shims.MkdirAll = func(path string, perm os.FileMode) error {
+		resolver.StandardResolver().Shims().MkdirAll = func(path string, perm os.FileMode) error {
 			return errors.New("generate tfvars error")
 		}
 

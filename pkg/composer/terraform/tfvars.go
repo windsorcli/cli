@@ -24,7 +24,7 @@ import (
 // Types
 // =============================================================================
 
-// VariableInfo holds metadata for a single Terraform variable
+// VariableInfo holds the metadata of one terraform variable.
 type VariableInfo struct {
 	Name        string
 	Description string
@@ -168,11 +168,9 @@ func (h *BaseModuleResolver) generateTfvarsFile(tfvarsFilePath, modulePath strin
 // Helpers
 // =============================================================================
 
-// addTfvarsHeader adds a Windsor CLI management header to the tfvars file body.
-// It includes a module source comment if provided, ensuring users are aware of CLI management and module provenance.
-// The header states plainly that the file is fully regenerated (matching generateTfvarsFile's
-// actual behavior) and names the supported override path, rather than inviting hand edits that
-// the next run silently discards — see cli#3150.
+// addTfvarsHeader adds the Windsor management header to the tfvars file body.
+// The header says that Windsor regenerates the file on each run, and names the supported override path.
+// It adds a module source line if source is not empty.
 func addTfvarsHeader(body *hclwrite.Body, source string) {
 	windsorHeaderToken := "Managed by Windsor CLI:"
 	headerComment := fmt.Sprintf("# %s this file is regenerated on every run from the blueprint's component inputs. Edits here are discarded without warning — set values via this component's `inputs:` in blueprint.yaml instead.", windsorHeaderToken)
@@ -186,9 +184,9 @@ func addTfvarsHeader(body *hclwrite.Body, source string) {
 	}
 }
 
-// writeComponentValues writes all component-provided or default variable values to the tfvars file body.
-// It comments out default values and descriptions for unset variables, and writes explicit values for set variables.
-// Handles sensitive variables and writes variables in alphabetical order by name.
+// writeComponentValues writes the component values and the variable defaults to the tfvars file body.
+// It writes a set variable as a value, and an unset variable as a commented default with its description.
+// It writes the variables in alphabetical order, and skips protected values and values set to nil.
 func writeComponentValues(body *hclwrite.Body, values map[string]any, protectedValues map[string]bool, variables []VariableInfo) {
 	sortedVariables := make([]VariableInfo, len(variables))
 	copy(sortedVariables, variables)
@@ -259,8 +257,7 @@ func writeComponentValues(body *hclwrite.Body, values map[string]any, protectedV
 }
 
 // writeHeredoc writes a multi-line string value as a heredoc assignment in the tfvars file body.
-// Used for YAML or other multi-line string values to preserve formatting.
-// Content that parses as YAML is re-serialized with clean formatting (unquoted keys) before writing.
+// It formats the content with formatHeredocContent before it writes the value.
 func writeHeredoc(body *hclwrite.Body, name string, content string) {
 	formatted := formatHeredocContent(content)
 	tokens := hclwrite.Tokens{
@@ -274,8 +271,8 @@ func writeHeredoc(body *hclwrite.Body, name string, content string) {
 	body.AppendNewline()
 }
 
-// formatHeredocContent re-serializes multi-line content as YAML when valid, producing unquoted keys
-// and consistent indentation. Returns the original string if content is not valid YAML.
+// formatHeredocContent serializes valid YAML content again, with unquoted keys and consistent indentation.
+// It returns the original string if the content is not valid YAML.
 func formatHeredocContent(content string) string {
 	var decoded any
 	if err := yaml.Unmarshal([]byte(content), &decoded); err != nil {
@@ -292,9 +289,8 @@ func formatHeredocContent(content string) string {
 	return s
 }
 
-// writeVariable writes a single variable assignment to the tfvars file body.
-// Handles descriptions, sensitive flags, multi-line strings, and object/map formatting.
-// Ensures correct HCL syntax for all supported value types.
+// writeVariable writes one variable assignment to the tfvars file body.
+// It writes the description, the sensitive flag, multi-line strings as heredocs, and objects and maps as HCL.
 func writeVariable(body *hclwrite.Body, name string, value any, variables []VariableInfo) {
 	var info *VariableInfo
 	for _, v := range variables {
@@ -337,8 +333,8 @@ func writeVariable(body *hclwrite.Body, name string, value any, variables []Vari
 	body.SetAttributeValue(name, convertToCtyValue(value))
 }
 
-// formatValue formats a Go value as a valid HCL literal string for tfvars output.
-// Handles strings, lists, maps, nested objects, and nil values with proper indentation and quoting.
+// formatValue formats a Go value as an HCL literal string for the tfvars output.
+// It formats strings, lists, maps, nested objects, and nil values with indentation and quotes.
 func formatValue(value any) string {
 	switch v := value.(type) {
 	case string:
@@ -394,8 +390,8 @@ func formatValue(value any) string {
 }
 
 // convertToCtyValue converts a Go value to a cty.Value for HCL serialization.
-// Supports strings, numbers, booleans, lists, and maps; returns NilVal for unsupported types.
-// Callers must pass values already normalized to map[string]any and []any (e.g. from evaluator output).
+// It converts strings, numbers, booleans, lists, and maps, and returns NilVal for other types.
+// Maps and lists must be map[string]any and []any, as the evaluator returns them.
 func convertToCtyValue(value any) cty.Value {
 	switch v := value.(type) {
 	case string:
@@ -466,8 +462,8 @@ func convertToCtyValue(value any) cty.Value {
 	}
 }
 
-// convertFromCtyValue converts a cty.Value to its Go representation for use in tfvars generation.
-// Handles all supported HCL types, including lists, maps, objects, and primitives.
+// convertFromCtyValue converts a cty.Value to its Go value for the tfvars output.
+// It converts lists, maps, objects, and primitive types.
 func convertFromCtyValue(val cty.Value) any {
 	if !val.IsKnown() || val.IsNull() {
 		return nil

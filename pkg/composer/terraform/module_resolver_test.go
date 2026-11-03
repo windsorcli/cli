@@ -1,10 +1,7 @@
-package terraform
+package terraform_test
 
 import (
-	"archive/tar"
-	"bytes"
 	"fmt"
-	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -13,6 +10,7 @@ import (
 	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
 	"github.com/windsorcli/cli/internal/werror"
 	"github.com/windsorcli/cli/pkg/composer/blueprint"
+	"github.com/windsorcli/cli/pkg/composer/terraform"
 	"github.com/windsorcli/cli/pkg/runtime"
 	"github.com/windsorcli/cli/pkg/runtime/config"
 	"github.com/windsorcli/cli/pkg/runtime/evaluator"
@@ -29,7 +27,7 @@ type TerraformTestMocks struct {
 	Shell            *shell.MockShell
 	ConfigHandler    config.ConfigHandler
 	BlueprintHandler *blueprint.MockBlueprintHandler
-	Shims            *Shims
+	Shims            *terraform.Shims
 	Runtime          *runtime.Runtime
 }
 
@@ -135,8 +133,8 @@ contexts:
 
 // setupDefaultShims configures safe default implementations for all shims operations
 // This eliminates the need for repetitive mocking in individual test cases
-func setupDefaultShims() *Shims {
-	shims := NewShims()
+func setupDefaultShims() *terraform.Shims {
+	shims := terraform.NewShims()
 
 	// Safe defaults for file operations
 	shims.ReadFile = func(path string) ([]byte, error) {
@@ -184,34 +182,6 @@ func setupDefaultShims() *Shims {
 		return "./relative/path", nil
 	}
 
-	shims.Chmod = func(name string, mode os.FileMode) error {
-		return nil
-	}
-
-	shims.Create = func(name string) (*os.File, error) {
-		return os.CreateTemp("", "test-file-*")
-	}
-
-	shims.Copy = func(dst io.Writer, src io.Reader) (int64, error) {
-		return 0, nil
-	}
-
-	shims.NewBytesReader = func(b []byte) *bytes.Reader {
-		return bytes.NewReader(b)
-	}
-
-	shims.NewTarReader = func(r io.Reader) TarReader {
-		return tar.NewReader(r)
-	}
-
-	shims.EOFError = func() error {
-		return io.EOF
-	}
-
-	shims.TypeDir = func() byte {
-		return tar.TypeDir
-	}
-
 	shims.JsonUnmarshal = func(data []byte, v any) error {
 		return nil
 	}
@@ -219,34 +189,14 @@ func setupDefaultShims() *Shims {
 	return shims
 }
 
-// MockTarReader provides a mock implementation for TarReader interface
-type MockTarReader struct {
-	NextFunc func() (*tar.Header, error)
-	ReadFunc func([]byte) (int, error)
-}
-
-func (m *MockTarReader) Next() (*tar.Header, error) {
-	if m.NextFunc != nil {
-		return m.NextFunc()
-	}
-	return nil, io.EOF
-}
-
-func (m *MockTarReader) Read(p []byte) (int, error) {
-	if m.ReadFunc != nil {
-		return m.ReadFunc(p)
-	}
-	return 0, io.EOF
-}
-
 type MockModuleResolverSetupOptions struct {
 	ProcessModulesFunc func() error
 }
 
-func setupMockModuleResolver(t *testing.T, opts ...*MockModuleResolverSetupOptions) *MockModuleResolver {
+func setupMockModuleResolver(t *testing.T, opts ...*MockModuleResolverSetupOptions) *terraform.MockModuleResolver {
 	t.Helper()
 
-	mock := NewMockModuleResolver()
+	mock := terraform.NewMockModuleResolver()
 	if len(opts) > 0 && opts[0] != nil {
 		if opts[0].ProcessModulesFunc != nil {
 			mock.ProcessModulesFunc = opts[0].ProcessModulesFunc
@@ -265,7 +215,7 @@ func TestBaseModuleResolver_NewBaseModuleResolver(t *testing.T) {
 		mocks := setupTerraformMocks(t)
 
 		// When creating a new base module resolver
-		resolver := NewBaseModuleResolver(mocks.Runtime, mocks.BlueprintHandler)
+		resolver := terraform.NewBaseModuleResolver(mocks.Runtime, mocks.BlueprintHandler)
 
 		// Then the resolver should be properly initialized
 		if resolver == nil {
@@ -273,18 +223,18 @@ func TestBaseModuleResolver_NewBaseModuleResolver(t *testing.T) {
 		}
 
 		// And shims should be initialized
-		if resolver.shims == nil {
+		if resolver.Shims() == nil {
 			t.Error("Expected shims to be initialized")
 		}
 
 		// And dependency fields should be set
-		if resolver.runtime.Shell == nil {
+		if resolver.Runtime().Shell == nil {
 			t.Error("Expected shell to be set")
 		}
-		if resolver.blueprintHandler == nil {
+		if resolver.BlueprintHandler() == nil {
 			t.Error("Expected blueprintHandler to be set")
 		}
-		if resolver.runtime.ConfigHandler == nil {
+		if resolver.Runtime().ConfigHandler == nil {
 			t.Error("Expected configHandler to be set")
 		}
 	})
@@ -294,10 +244,10 @@ func TestBaseModuleResolver_NewBaseModuleResolver(t *testing.T) {
 		mocks := setupTerraformMocks(t)
 
 		// When creating a resolver
-		resolver := NewBaseModuleResolver(mocks.Runtime, mocks.BlueprintHandler)
+		resolver := terraform.NewBaseModuleResolver(mocks.Runtime, mocks.BlueprintHandler)
 
 		// Then the resolver should have default shims
-		if resolver.shims == nil {
+		if resolver.Shims() == nil {
 			t.Fatal("Expected shims to be set")
 		}
 	})
@@ -308,10 +258,10 @@ func TestBaseModuleResolver_NewBaseModuleResolver(t *testing.T) {
 // =============================================================================
 
 func TestBaseModuleResolver_GenerateTfvars(t *testing.T) {
-	setup := func(t *testing.T) (*BaseModuleResolver, *TerraformTestMocks) {
+	setup := func(t *testing.T) (*terraform.BaseModuleResolver, *TerraformTestMocks) {
 		t.Helper()
 		mocks := setupTerraformMocks(t)
-		resolver := NewBaseModuleResolver(mocks.Runtime, mocks.BlueprintHandler)
+		resolver := terraform.NewBaseModuleResolver(mocks.Runtime, mocks.BlueprintHandler)
 		return resolver, mocks
 	}
 
@@ -996,8 +946,8 @@ variable "disabled" { type = bool }`
 		}
 
 		// Mock ReadDir to return error when removing tfvars files
-		originalReadDir := resolver.shims.ReadDir
-		resolver.shims.ReadDir = func(path string) ([]os.DirEntry, error) {
+		originalReadDir := resolver.Shims().ReadDir
+		resolver.Shims().ReadDir = func(path string) ([]os.DirEntry, error) {
 			normalizedPath := filepath.Clean(path)
 			normalizedModuleDir := filepath.Clean(moduleDir)
 			if normalizedPath == normalizedModuleDir {
@@ -1046,8 +996,8 @@ variable "disabled" { type = bool }`
 		moduleDir := filepath.Join(projectRoot, ".windsor", "contexts", "local", "terraform", "local-module")
 
 		// Mock Stat to return non-NotExist error for the module directory
-		originalStat := resolver.shims.Stat
-		resolver.shims.Stat = func(path string) (os.FileInfo, error) {
+		originalStat := resolver.Shims().Stat
+		resolver.Shims().Stat = func(path string) (os.FileInfo, error) {
 			normalizedPath := filepath.Clean(path)
 			normalizedModuleDir := filepath.Clean(moduleDir)
 			if normalizedPath == normalizedModuleDir {
@@ -1086,7 +1036,7 @@ variable "disabled" { type = bool }`
 		}
 
 		// Mock ReadDir to return error
-		resolver.shims.ReadDir = func(name string) ([]os.DirEntry, error) {
+		resolver.Shims().ReadDir = func(name string) ([]os.DirEntry, error) {
 			if strings.Contains(name, "contexts") {
 				return nil, fmt.Errorf("readdir error")
 			}
@@ -1119,7 +1069,7 @@ variable "disabled" { type = bool }`
 		}
 
 		// Mock RemoveAll to return error
-		resolver.shims.RemoveAll = func(path string) error {
+		resolver.Shims().RemoveAll = func(path string) error {
 			if strings.HasSuffix(path, ".tfvars") {
 				return fmt.Errorf("remove error")
 			}
@@ -1272,8 +1222,8 @@ variable "nested_map" { type = object({ inner = object({ deep = object({ value =
 		}
 
 		// Mock MkdirAll to return error
-		originalMkdirAll := resolver.shims.MkdirAll
-		resolver.shims.MkdirAll = func(path string, perm os.FileMode) error {
+		originalMkdirAll := resolver.Shims().MkdirAll
+		resolver.Shims().MkdirAll = func(path string, perm os.FileMode) error {
 			if path == variablesDir {
 				return fmt.Errorf("mkdir error")
 			}
@@ -1303,7 +1253,7 @@ variable "nested_map" { type = object({ inner = object({ deep = object({ value =
 		}
 
 		// Mock WriteFile to return error
-		resolver.shims.WriteFile = func(path string, data []byte, perm os.FileMode) error {
+		resolver.Shims().WriteFile = func(path string, data []byte, perm os.FileMode) error {
 			if strings.HasSuffix(path, ".tfvars") {
 				return fmt.Errorf("write error")
 			}
@@ -1457,9 +1407,9 @@ variable "cluster_name" { type = string }`
 		}
 
 		// Mock Stat to return non-NotExist error
-		originalStat := resolver.shims.Stat
+		originalStat := resolver.Shims().Stat
 		callCount := 0
-		resolver.shims.Stat = func(path string) (os.FileInfo, error) {
+		resolver.Shims().Stat = func(path string) (os.FileInfo, error) {
 			callCount++
 			// removeTfvarsFiles calls Stat on the directory
 			if callCount > 1 && path == variablesDir {
@@ -1693,7 +1643,7 @@ variable "cluster_name" { type = string }`
 			}
 			return result, nil
 		}
-		resolver.evaluator = mockEvaluator
+		resolver.SetEvaluator(mockEvaluator)
 
 		projectRoot, _ := mocks.Shell.GetProjectRootFunc()
 		moduleDir := filepath.Join(projectRoot, ".windsor", "contexts", "local", "terraform", "test-module")
@@ -1714,10 +1664,10 @@ variable "cluster_name" { type = string }`
 			}
 		}
 
-		resolver.shims.Stat = os.Stat
-		resolver.shims.ReadFile = os.ReadFile
-		resolver.shims.MkdirAll = os.MkdirAll
-		resolver.shims.WriteFile = os.WriteFile
+		resolver.Shims().Stat = os.Stat
+		resolver.Shims().ReadFile = os.ReadFile
+		resolver.Shims().MkdirAll = os.MkdirAll
+		resolver.Shims().WriteFile = os.WriteFile
 
 		// When generating tfvars
 		err := resolver.GenerateTfvars(false)
@@ -1739,209 +1689,6 @@ variable "cluster_name" { type = string }`
 		}
 		if strings.Contains(contentStr, "vpc_id") {
 			t.Error("Expected tfvars to NOT contain deferred vpc_id")
-		}
-	})
-
-}
-
-// =============================================================================
-// Test Private Methods
-// =============================================================================
-
-func TestBaseModuleResolver_evaluateInputs(t *testing.T) {
-	t.Run("HandlesNilEvaluator", func(t *testing.T) {
-		mocks := setupTerraformMocks(t)
-		mocks.Runtime.Evaluator = nil
-		inputs := map[string]any{
-			"key1": "value1",
-			"key2": 42,
-		}
-
-		// When evaluator is nil, callers should check before calling EvaluateMap
-		// This test verifies the expected behavior when nil check is done
-		if mocks.Runtime.Evaluator == nil {
-			result := inputs
-			if len(result) != len(inputs) {
-				t.Errorf("Expected %d inputs, got %d", len(inputs), len(result))
-			}
-
-			if result["key1"] != "value1" {
-				t.Errorf("Expected key1 to be 'value1', got %v", result["key1"])
-			}
-
-			if result["key2"] != 42 {
-				t.Errorf("Expected key2 to be 42, got %v", result["key2"])
-			}
-		}
-	})
-
-	t.Run("PreservesNonStringValues", func(t *testing.T) {
-		mocks := setupTerraformMocks(t)
-		configHandler := config.NewMockConfigHandler()
-		testEvaluator := evaluator.NewExpressionEvaluator(configHandler, "/test/project", "/test/template")
-		mocks.Runtime.Evaluator = testEvaluator
-		inputs := map[string]any{
-			"count":   42,
-			"enabled": true,
-			"tags":    []string{"a", "b"},
-			"nested":  map[string]any{"key": "value"},
-		}
-
-		result, err := mocks.Runtime.Evaluator.EvaluateMap(inputs, "", nil, true)
-
-		if err != nil {
-			t.Fatalf("Expected no error, got: %v", err)
-		}
-
-		if result["count"] != 42 {
-			t.Errorf("Expected count to be 42, got %v", result["count"])
-		}
-
-		if result["enabled"] != true {
-			t.Errorf("Expected enabled to be true, got %v", result["enabled"])
-		}
-
-		if tags, ok := result["tags"].([]string); !ok || len(tags) != 2 {
-			t.Errorf("Expected tags to be preserved, got %v", result["tags"])
-		}
-	})
-
-	t.Run("EvaluatesStringExpressions", func(t *testing.T) {
-		mocks := setupTerraformMocks(t)
-		configHandler := config.NewMockConfigHandler()
-		configHandler.GetContextValuesFunc = func() (map[string]any, error) {
-			return map[string]any{
-				"value": 42,
-			}, nil
-		}
-		testEvaluator := evaluator.NewExpressionEvaluator(configHandler, "/test/project", "/test/template")
-		mocks.Runtime.Evaluator = testEvaluator
-		inputs := map[string]any{
-			"plain":      "plainstring",
-			"expression": "${value}",
-		}
-
-		result, err := mocks.Runtime.Evaluator.EvaluateMap(inputs, "", nil, true)
-
-		if err != nil {
-			t.Fatalf("Expected no error, got: %v", err)
-		}
-
-		if result["plain"] != "plainstring" {
-			t.Errorf("Expected plain to be 'plainstring', got %v", result["plain"])
-		}
-
-		if result["expression"] != 42 {
-			t.Errorf("Expected expression to be 42, got %v", result["expression"])
-		}
-	})
-
-	t.Run("ReturnsErrorOnEvaluationFailure", func(t *testing.T) {
-		mocks := setupTerraformMocks(t)
-		mockEvaluator := evaluator.NewMockExpressionEvaluator()
-		mockEvaluator.EvaluateMapFunc = func(values map[string]any, featurePath string, scope map[string]any, evaluateDeferred bool) (map[string]any, error) {
-			return nil, fmt.Errorf("failed to evaluate 'bad': evaluation failed")
-		}
-		mocks.Runtime.Evaluator = mockEvaluator
-		inputs := map[string]any{
-			"bad": "${invalid}",
-		}
-
-		result, err := mocks.Runtime.Evaluator.EvaluateMap(inputs, "", nil, true)
-
-		if err == nil {
-			t.Fatal("Expected error on evaluation failure")
-		}
-
-		if result != nil {
-			t.Error("Expected nil result on error")
-		}
-
-		if !strings.Contains(err.Error(), "failed to evaluate") {
-			t.Errorf("Expected error message to contain 'failed to evaluate', got: %v", err)
-		}
-	})
-
-	t.Run("HandlesEmptyInputs", func(t *testing.T) {
-		mocks := setupTerraformMocks(t)
-		configHandler := config.NewMockConfigHandler()
-		testEvaluator := evaluator.NewExpressionEvaluator(configHandler, "/test/project", "/test/template")
-		mocks.Runtime.Evaluator = testEvaluator
-		inputs := map[string]any{}
-
-		result, err := mocks.Runtime.Evaluator.EvaluateMap(inputs, "", nil, true)
-
-		if err != nil {
-			t.Fatalf("Expected no error, got: %v", err)
-		}
-
-		if len(result) != 0 {
-			t.Errorf("Expected empty result, got %d entries", len(result))
-		}
-	})
-
-	t.Run("HandlesMixedInputs", func(t *testing.T) {
-		mocks := setupTerraformMocks(t)
-		configHandler := config.NewMockConfigHandler()
-		configHandler.GetContextValuesFunc = func() (map[string]any, error) {
-			return map[string]any{
-				"value": "evaluated",
-			}, nil
-		}
-		testEvaluator := evaluator.NewExpressionEvaluator(configHandler, "/test/project", "/test/template")
-		mocks.Runtime.Evaluator = testEvaluator
-		inputs := map[string]any{
-			"string":    "plain",
-			"number":    42,
-			"boolean":   true,
-			"array":     []string{"a", "b"},
-			"evaluated": "${value}",
-		}
-
-		result, err := mocks.Runtime.Evaluator.EvaluateMap(inputs, "", nil, true)
-
-		if err != nil {
-			t.Fatalf("Expected no error, got: %v", err)
-		}
-
-		if result["string"] != "plain" {
-			t.Errorf("Expected string to be 'plain', got %v", result["string"])
-		}
-
-		if result["number"] != 42 {
-			t.Errorf("Expected number to be 42, got %v", result["number"])
-		}
-
-		if result["boolean"] != true {
-			t.Errorf("Expected boolean to be true, got %v", result["boolean"])
-		}
-
-		if result["evaluated"] != "evaluated" {
-			t.Errorf("Expected evaluated to be 'evaluated', got %v", result["evaluated"])
-		}
-	})
-
-	t.Run("AlwaysUsesEvaluateDeferredTrue", func(t *testing.T) {
-		mocks := setupTerraformMocks(t)
-		mockEvaluator := evaluator.NewMockExpressionEvaluator()
-		var receivedEvaluateDeferred bool
-		mockEvaluator.EvaluateMapFunc = func(values map[string]any, featurePath string, scope map[string]any, evaluateDeferred bool) (map[string]any, error) {
-			receivedEvaluateDeferred = evaluateDeferred
-			return values, nil
-		}
-		mocks.Runtime.Evaluator = mockEvaluator
-		inputs := map[string]any{
-			"test": "value",
-		}
-
-		_, err := mocks.Runtime.Evaluator.EvaluateMap(inputs, "", nil, true)
-
-		if err != nil {
-			t.Fatalf("Expected no error, got: %v", err)
-		}
-
-		if !receivedEvaluateDeferred {
-			t.Error("Expected evaluateDeferred to be true")
 		}
 	})
 }
