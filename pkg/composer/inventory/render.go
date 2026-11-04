@@ -43,8 +43,10 @@ const deferredMarker = "windsor-deferred-value"
 
 // renderedObject is one Kubernetes object from a render and the Kustomization that produced it.
 // parent names the object that an extractor derived it from.
+// A Terraform object has no Kustomization and names the file of its resource.
 type renderedObject struct {
 	kustomization string
+	file          string
 	object        map[string]any
 	parent        string
 }
@@ -99,7 +101,7 @@ func (l *BaseLister) renderKustomization(blueprint *blueprintv1alpha1.Blueprint,
 		}
 	}
 
-	sourceRoot, err := l.sourceRoot(blueprint, k)
+	sourceRoot, err := l.sourceRoot(blueprint, k.Source, "kustomization "+k.Name)
 	if err != nil {
 		return nil, err
 	}
@@ -139,10 +141,9 @@ func (l *BaseLister) renderKustomization(blueprint *blueprintv1alpha1.Blueprint,
 	return rendered, nil
 }
 
-// sourceRoot returns the local directory that holds the source of k. An oci:// source resolves to
-// its directory in the OCI cache. Every other source resolves to the project root.
-func (l *BaseLister) sourceRoot(blueprint *blueprintv1alpha1.Blueprint, k blueprintv1alpha1.Kustomization) (string, error) {
-	sourceName := k.Source
+// sourceRoot returns the local directory that holds the source sourceName of owner. An oci://
+// source resolves to its directory in the OCI cache. Every other source resolves to the project root.
+func (l *BaseLister) sourceRoot(blueprint *blueprintv1alpha1.Blueprint, sourceName, owner string) (string, error) {
 	if sourceName == "" || (sourceName == "template" && !blueprintv1alpha1.HasRemoteTemplateSource(blueprint.Sources)) {
 		sourceName = blueprint.Metadata.Name
 	}
@@ -152,7 +153,7 @@ func (l *BaseLister) sourceRoot(blueprint *blueprintv1alpha1.Blueprint, k bluepr
 		}
 		registry, repository, tag, err := l.artifactBuilder.ParseOCIRef(source.Url)
 		if err != nil {
-			return "", werror.Wrap(err, "failed to parse source %q of kustomization %q", source.Name, k.Name)
+			return "", werror.Wrap(err, "failed to parse source %q of %s", source.Name, owner)
 		}
 		return l.artifactBuilder.GetCacheDir(registry, repository, tag)
 	}

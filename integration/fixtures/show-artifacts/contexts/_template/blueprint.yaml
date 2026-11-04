@@ -2,9 +2,13 @@ kind: Blueprint
 apiVersion: blueprints.windsorcli.dev/v1alpha1
 metadata:
   name: show-artifacts
-  description: Show artifacts integration fixture with chart sources and a pod template
+  description: Show artifacts integration fixture with chart sources, pod templates and a Terraform module
 substitutions:
   chart_registry: ""
+terraform:
+  - path: apps/worker
+    inputs:
+      image_registry: registry.example.com/tf
 kustomize:
   - name: apps
     path: apps

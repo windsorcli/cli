@@ -1,6 +1,7 @@
 // The Lister is the artifact inventory of one context.
 // It provides the list of charts, images and blueprints that a composed blueprint pulls.
-// It renders each Flux Kustomization with the flux CLI and reads the source objects and pod templates.
+// It renders each Flux Kustomization with the flux CLI and reads each Terraform component with hcl/v2.
+// It reads the chart sources, the helm_release charts and the pod templates.
 // It gives each artifact a destination from --charts-to and the docker.registries mirrors.
 
 package inventory
@@ -195,9 +196,10 @@ func (l *BaseLister) List(blueprint *blueprintv1alpha1.Blueprint, opts Options) 
 // Private Methods
 // =============================================================================
 
-// listFromRender renders each Kustomization that the context applies, runs the extractors on the
-// rendered objects, renders each HelmRelease chart, and reads the chart sources and images. It
-// needs the flux CLI only when the blueprint has a Kustomization to render.
+// listFromRender renders each Kustomization that the context applies and reads each enabled
+// Terraform component. It runs the extractors on the objects, renders each HelmRelease chart, and
+// reads the chart sources and images. It needs the flux CLI only when the blueprint has a
+// Kustomization to render.
 func (l *BaseLister) listFromRender(blueprint *blueprintv1alpha1.Blueprint, result *Result) ([]Entry, error) {
 	var targets []blueprintv1alpha1.Kustomization
 	for _, k := range blueprint.AllKustomizations() {
@@ -206,15 +208,13 @@ func (l *BaseLister) listFromRender(blueprint *blueprintv1alpha1.Blueprint, resu
 		}
 		targets = append(targets, k)
 	}
-	if len(targets) == 0 {
-		return nil, nil
-	}
-
-	if err := l.checkFlux(); err != nil {
-		return nil, err
-	}
 
 	var objects []renderedObject
+	if len(targets) > 0 {
+		if err := l.checkFlux(); err != nil {
+			return nil, err
+		}
+	}
 	for _, k := range targets {
 		rendered, err := l.renderKustomization(blueprint, k)
 		if err != nil {
@@ -222,6 +222,12 @@ func (l *BaseLister) listFromRender(blueprint *blueprintv1alpha1.Blueprint, resu
 		}
 		objects = append(objects, rendered...)
 	}
+
+	tfObjects, tfCharts, err := l.listFromTerraform(blueprint, objects, result)
+	if err != nil {
+		return nil, err
+	}
+	objects = append(objects, tfObjects...)
 
 	extracted, err := l.runExtractors(objects)
 	if err != nil {
@@ -235,6 +241,7 @@ func (l *BaseLister) listFromRender(blueprint *blueprintv1alpha1.Blueprint, resu
 	}
 
 	entries, notes := scanObjects(objects)
+	entries = append(tfCharts, entries...)
 	result.Notes = append(result.Notes, notes...)
 	if err := checkDeferred(entries); err != nil {
 		return nil, err
@@ -253,10 +260,10 @@ func (l *BaseLister) runExtractors(objects []renderedObject) ([]renderedObject, 
 			}
 			out, err := extractor.Extract(obj.object)
 			if err != nil {
-				return nil, werror.Wrap(err, "failed to extract the images of %s in kustomization %q", obj.id(), obj.kustomization)
+				return nil, werror.Wrap(err, "failed to extract the images of %s in %s", obj.id(), obj.where())
 			}
 			for _, o := range out {
-				derived = append(derived, renderedObject{kustomization: obj.kustomization, object: o, parent: obj.id()})
+				derived = append(derived, renderedObject{kustomization: obj.kustomization, file: obj.file, object: o, parent: obj.id()})
 			}
 		}
 	}
@@ -284,7 +291,7 @@ func (l *BaseLister) renderHelmReleases(objects []renderedObject, result *Result
 			continue
 		}
 		if strings.Contains(chart.Upstream(), deferredMarker) {
-			result.Notes = append(result.Notes, fmt.Sprintf("%s in kustomization %q does not render, so the list has no images from chart %s.", hr.id(), hr.kustomization, chart.Upstream()))
+			result.Notes = append(result.Notes, fmt.Sprintf("%s in %s does not render, so the list has no images from chart %s.", hr.id(), hr.where(), chart.Upstream()))
 			continue
 		}
 
@@ -294,11 +301,11 @@ func (l *BaseLister) renderHelmReleases(objects []renderedObject, result *Result
 		}
 		out, err := l.chartRenderer.Render(ChartRequest{Chart: chart, HelmRelease: hr.object, Objects: raw})
 		if err != nil {
-			return nil, werror.Wrap(err, "failed to render %s in kustomization %q", hr.id(), hr.kustomization)
+			return nil, werror.Wrap(err, "failed to render %s in %s", hr.id(), hr.where())
 		}
 		rendered := make([]renderedObject, 0, len(out))
 		for _, o := range out {
-			rendered = append(rendered, renderedObject{kustomization: hr.kustomization, object: o, parent: hr.id()})
+			rendered = append(rendered, renderedObject{kustomization: hr.kustomization, file: hr.file, object: o, parent: hr.id()})
 		}
 		extracted, err := l.runExtractors(rendered)
 		if err != nil {
@@ -339,8 +346,8 @@ func checkDeferred(entries []Entry) error {
 	for _, e := range entries {
 		if strings.Contains(e.Reference+e.Name+e.Version+e.Digest, deferredMarker) {
 			return werror.New(
-				fmt.Sprintf("the %s of %s in kustomization %q uses a value that is not known before apply", e.Kind, e.Source.Object, e.Source.Kustomization),
-				"Give the substitution a value that does not come from a Terraform output.", nil)
+				fmt.Sprintf("the %s of %s in %s uses a value that is not known before apply", e.Kind, e.Source.Object, e.Source.where()),
+				"Set the value from a source other than a Terraform output.", nil)
 		}
 	}
 	return nil

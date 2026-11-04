@@ -7,7 +7,7 @@ description: "List the charts and images that the context pulls."
 windsor show artifacts [flags]
 ```
 
-Print every chart, image and blueprint that the current context pulls, with a destination for each. The command renders each Flux Kustomization offline with the flux CLI, then pulls and renders each HelmRelease chart. It copies nothing. A chart goes to the --charts-to registry under its chart name and version. An image goes to the docker.registries mirror of its host. A --set value applies to this command only and is not saved.
+Print every chart, image and blueprint that the current context pulls, with a destination for each. The command renders each Flux Kustomization offline with the flux CLI and reads each Terraform module without running Terraform. It then pulls and renders each chart. It copies nothing. A chart goes to the --charts-to registry under its chart name and version. An image goes to the docker.registries mirror of its host. A --set value applies to this command only and is not saved.
 
 ## Flags
 

@@ -75,6 +75,7 @@ func TestShowArtifacts_ListsChartsAndImages(t *testing.T) {
 		"image docker.io/library/nginx":                    "",
 		"image registry.k8s.io/ingress-nginx/controller":   "",
 		"image ghcr.io/stefanprodan/podinfo":               "",
+		"image registry.example.com/tf/worker":             "",
 	}
 	for key, dest := range want {
 		if d, ok := got[key]; !ok || d != dest {
@@ -103,8 +104,11 @@ func TestShowArtifacts_FluxMirrorLeavesOutChartsInTheRegistry(t *testing.T) {
 	if !strings.Contains(out, "apiVersion: mirror.plugin.fluxcd.io/v1beta1") || !strings.Contains(out, "name: ingress-nginx") {
 		t.Errorf("expected a Flux Mirror config with the HTTP chart, got:\n%s", out)
 	}
-	if strings.Contains(out, "podinfo") {
+	if strings.Contains(out, "source: registry.example.com/windsor/podinfo") {
 		t.Errorf("expected the chart in the registry to stay out of the config, got:\n%s", out)
+	}
+	if !strings.Contains(out, "source: ghcr.io/stefanprodan/charts/podinfo") {
+		t.Errorf("expected the Terraform chart from its upstream in the config, got:\n%s", out)
 	}
 	if !strings.Contains(string(stderr), "podinfo:6.9.2 is already in registry.example.com/windsor") {
 		t.Errorf("expected stderr to name the chart in the registry, got: %s", stderr)

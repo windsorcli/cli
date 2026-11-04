@@ -41,10 +41,24 @@ func (o renderedObject) id() string {
 
 // source returns the Source of an entry that o declares. A derived object names its parent.
 func (o renderedObject) source() Source {
+	object := o.id()
 	if o.parent != "" {
-		return Source{Kustomization: o.kustomization, Object: o.parent}
+		object = o.parent
 	}
-	return Source{Kustomization: o.kustomization, Object: o.id()}
+	return Source{Kustomization: o.kustomization, Object: object, File: o.file}
+}
+
+// where names the Kustomization or the Terraform file that declares o, for a message.
+func (o renderedObject) where() string {
+	return o.source().where()
+}
+
+// where names the Terraform file of s, or its Kustomization, for a message.
+func (s Source) where() string {
+	if s.File != "" {
+		return s.File
+	}
+	return fmt.Sprintf("kustomization %q", s.Kustomization)
 }
 
 // =============================================================================
@@ -137,7 +151,7 @@ func ociChartEntry(obj renderedObject) (Entry, string) {
 		Source:    obj.source(),
 	}
 	if entry.Version == "" {
-		return entry, fmt.Sprintf("%s in kustomization %q has no ref.tag, so the chart has no destination.", obj.id(), obj.kustomization)
+		return entry, fmt.Sprintf("%s in %s has no ref.tag, so the chart has no destination.", obj.id(), obj.where())
 	}
 	return entry, ""
 }
@@ -159,7 +173,7 @@ func helmReleaseChartEntry(obj renderedObject, index map[string]renderedObject) 
 	sourceID := objectID(sourceKind, sourceNamespace, sourceName)
 	source, found := index[sourceID]
 	if !found {
-		return Entry{}, false, fmt.Sprintf("%s in kustomization %q uses %s, which no rendered Kustomization holds.", obj.id(), obj.kustomization, sourceID)
+		return Entry{}, false, fmt.Sprintf("%s in %s uses %s, which no rendered Kustomization holds.", obj.id(), obj.kustomization, sourceID)
 	}
 
 	version := nestedString(obj.object, "spec", "chart", "spec", "version")
@@ -170,9 +184,9 @@ func helmReleaseChartEntry(obj renderedObject, index map[string]renderedObject) 
 		entry.Transport = TransportGit
 		entry.Reference = url
 		entry.Version = gitRevision(source.object)
-		return entry, true, fmt.Sprintf("%s in kustomization %q builds chart %q from Git, so the chart has no destination.", obj.id(), obj.kustomization, chart)
+		return entry, true, fmt.Sprintf("%s in %s builds chart %q from Git, so the chart has no destination.", obj.id(), obj.kustomization, chart)
 	case sourceKind != "HelmRepository":
-		return Entry{}, false, fmt.Sprintf("%s in kustomization %q uses a %s, which the inventory does not read.", obj.id(), obj.kustomization, sourceKind)
+		return Entry{}, false, fmt.Sprintf("%s in %s uses a %s, which the inventory does not read.", obj.id(), obj.kustomization, sourceKind)
 	case nestedString(source.object, "spec", "type") == "oci" || strings.HasPrefix(url, "oci://"):
 		entry.Transport = TransportOCI
 		entry.Reference = strings.TrimSuffix(strings.TrimPrefix(url, "oci://"), "/") + "/" + chart
@@ -181,7 +195,7 @@ func helmReleaseChartEntry(obj renderedObject, index map[string]renderedObject) 
 		entry.Reference = strings.TrimSuffix(url, "/")
 	}
 	if !isExactVersion(version) {
-		return entry, true, fmt.Sprintf("%s in kustomization %q does not pin chart %q to one version, so the chart has no destination.", obj.id(), obj.kustomization, chart)
+		return entry, true, fmt.Sprintf("%s in %s does not pin chart %q to one version, so the chart has no destination.", obj.id(), obj.kustomization, chart)
 	}
 	return entry, true, ""
 }
