@@ -196,21 +196,55 @@ func TestBaseBlueprintProcessor_evaluateSubstitutions(t *testing.T) {
 
 func TestEvaluateSubstitutions_RejectsSensitiveReference(t *testing.T) {
 	t.Run("RejectsSensitiveReferenceWholeAndEmbedded", func(t *testing.T) {
-		// Given substitutions that reference a sensitive property whole-string and embedded
+		// Given substitutions that reference a sensitive property in bare, embedded, and compound expressions
 		mocks := setupProcessorMocks(t)
 		mocks.ConfigHandler.IsSensitivePathFunc = func(path string) bool { return path == "cdn.cloudflare_api_key" }
 		processor := NewBlueprintProcessor(mocks.Runtime)
 
 		// Then each form fails closed before the value is resolved
 		for name, value := range map[string]string{
-			"Whole":       "${cdn.cloudflare_api_key}",
-			"Prefixed":    "https://api.example.com/${cdn.cloudflare_api_key}",
-			"Suffixed":    "${cdn.cloudflare_api_key}-suffix",
-			"MidSentence": "token=${cdn.cloudflare_api_key};v=1",
+			"Whole":        "${cdn.cloudflare_api_key}",
+			"Prefixed":     "https://api.example.com/${cdn.cloudflare_api_key}",
+			"Suffixed":     "${cdn.cloudflare_api_key}-suffix",
+			"MidSentence":  "token=${cdn.cloudflare_api_key};v=1",
+			"Concatenated": "${'Bearer ' + cdn.cloudflare_api_key}",
+			"FunctionArg":  "${upper(cdn.cloudflare_api_key)}",
+			"Conditional":  "${cdn.enabled ? cdn.cloudflare_api_key : ''}",
+			"Bracket":      `${cdn["cloudflare_api_key"]}`,
+			"Optional":     "${cdn?.cloudflare_api_key ?? ''}",
 		} {
 			_, _, err := processor.evaluateSubstitutions(map[string]string{"FOO": value}, "", nil)
 			if err == nil || !strings.Contains(err.Error(), "references sensitive property") {
 				t.Errorf("%s: expected sensitive-substitution error for %q, got %v", name, value, err)
+			}
+		}
+	})
+
+	t.Run("AllowsSensitiveReferenceThatOnlyFeedsABoolean", func(t *testing.T) {
+		// Given substitutions that use a sensitive property only in a condition, comparison, or not
+		mocks := setupProcessorMocks(t)
+		mocks.ConfigHandler.IsSensitivePathFunc = func(path string) bool { return path == "cdn.cloudflare_api_key" }
+		mocks.ConfigHandler.GetContextValuesFunc = func() (map[string]any, error) {
+			return map[string]any{"cdn": map[string]any{"cloudflare_api_key": "s3cr3t"}}, nil
+		}
+		processor := NewBlueprintProcessor(mocks.Runtime)
+
+		// When evaluating each one
+		for name, tc := range map[string]struct{ value, want string }{
+			"TernaryCondition": {"${(cdn.cloudflare_api_key ?? '') != '' ? 'supplied' : 'generated'}", "supplied"},
+			"Comparison":       {"${cdn.cloudflare_api_key == ''}", "false"},
+			"LogicalOperator":  {"${cdn.cloudflare_api_key != nil && true}", "true"},
+			"Not":              {"${not (cdn.cloudflare_api_key startsWith 'x')}", "true"},
+		} {
+			result, _, err := processor.evaluateSubstitutions(map[string]string{"FOO": tc.value}, "", nil)
+
+			// Then the guard does not fire and the value resolves
+			if err != nil {
+				t.Errorf("%s: expected no error for %q, got %v", name, tc.value, err)
+				continue
+			}
+			if result["FOO"] != tc.want {
+				t.Errorf("%s: expected %q, got %q", name, tc.want, result["FOO"])
 			}
 		}
 	})

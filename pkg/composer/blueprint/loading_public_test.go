@@ -4,6 +4,7 @@ import (
 	"errors"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 
@@ -233,6 +234,49 @@ func TestLoadBlueprint(t *testing.T) {
 		// Then the load fails, names the sensitive property, and hints at the secrets: key
 		if !strings.Contains(hintOf(err), "secrets: key") || !strings.Contains(err.Error(), `references sensitive property "token"`) {
 			t.Errorf("expected a sensitive-property error, got %v", err)
+		}
+	})
+
+	t.Run("RejectsASensitiveValueInsideASubstitutionExpression", func(t *testing.T) {
+		// Given a substitution that uses a sensitive schema property inside a larger expression
+		f := newFixture(t)
+		f.project(t)
+		f.write(t, "contexts/_template/schema.yaml", "$schema: https://json-schema.org/draft/2020-12/schema\ntype: object\nproperties:\n  hetzner:\n    type: object\n    properties:\n      token:\n        type: string\n        sensitive: true\n")
+		f.write(t, "contexts/local/values.yaml", "platform: docker\nhetzner:\n  token: s3cr3t-token\n")
+		f.facet(t, "leak", "kustomize:\n- name: leak\n  path: leak\n  substitutions:\n    auth: ${'Bearer ' + hetzner.token}\n")
+
+		// When the blueprint is loaded
+		_, err := f.load(t)
+
+		// Then the load fails and names the sensitive property
+		if err == nil || !strings.Contains(err.Error(), `references sensitive property "hetzner.token"`) {
+			t.Errorf("expected a sensitive-property error, got %v", err)
+		}
+	})
+
+	t.Run("RegistersSensitiveValuesWithTheShell", func(t *testing.T) {
+		// Given a sensitive property set in values.yaml and a sensitive property set by facet config
+		f := newFixture(t)
+		f.project(t)
+		f.write(t, "contexts/_template/schema.yaml", "$schema: https://json-schema.org/draft/2020-12/schema\ntype: object\nproperties:\n  token:\n    type: string\n    sensitive: true\n  cdn:\n    type: object\n    properties:\n      key:\n        type: string\n        sensitive: true\n      zone:\n        type: string\n")
+		f.write(t, "contexts/local/values.yaml", "platform: docker\ntoken: values-secret-1\n")
+		f.facet(t, "cdn", "config:\n- name: cdn\n  value:\n    key: facet-secret-2\n    zone: example.com\n")
+		var registered []string
+		f.shell.RegisterSecretFunc = func(value string) { registered = append(registered, value) }
+
+		// When the blueprint is loaded
+		if _, err := f.load(t); err != nil {
+			t.Fatalf("LoadBlueprint: %v", err)
+		}
+
+		// Then both sensitive values are registered and the plain value is not
+		for _, want := range []string{"values-secret-1", "facet-secret-2"} {
+			if !slices.Contains(registered, want) {
+				t.Errorf("expected %q to be registered, got %v", want, registered)
+			}
+		}
+		if slices.Contains(registered, "example.com") {
+			t.Errorf("expected the plain value not to be registered, got %v", registered)
 		}
 	})
 
