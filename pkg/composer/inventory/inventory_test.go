@@ -13,6 +13,7 @@ import (
 	"github.com/windsorcli/cli/pkg/runtime"
 	"github.com/windsorcli/cli/pkg/runtime/config"
 	"github.com/windsorcli/cli/pkg/runtime/shell"
+	sigsyaml "sigs.k8s.io/yaml"
 )
 
 // =============================================================================
@@ -129,7 +130,33 @@ func newLister(m *mocks) *inventory.BaseLister {
 	lister := inventory.NewLister(m.runtime, m.artifactBuilder)
 	lister.SetShims(m.shims)
 	lister.SetExtractors([]inventory.Extractor{})
+	lister.SetChartRenderer(&fakeRenderer{})
 	return lister
+}
+
+type fakeRenderer struct {
+	requests []inventory.ChartRequest
+	out      map[string]string
+	err      error
+}
+
+func (f *fakeRenderer) Render(req inventory.ChartRequest) ([]map[string]any, error) {
+	f.requests = append(f.requests, req)
+	if f.err != nil {
+		return nil, f.err
+	}
+	return decode(f.out[req.Chart.Name]), nil
+}
+
+func decode(data string) []map[string]any {
+	var objects []map[string]any
+	for _, doc := range strings.Split(data, "\n---\n") {
+		var obj map[string]any
+		if err := sigsyaml.Unmarshal([]byte(doc), &obj); err == nil && len(obj) > 0 {
+			objects = append(objects, obj)
+		}
+	}
+	return objects
 }
 
 func testBlueprint() *blueprintv1alpha1.Blueprint {
@@ -478,6 +505,66 @@ spec: {url: "oci://ghcr.io/org/other", ref: {tag: 2.0.0}}
 		}
 		if len(result.Notes) != 0 {
 			t.Errorf("expected no notes, got %v", result.Notes)
+		}
+	})
+
+	t.Run("ReadsImagesFromRenderedCharts", func(t *testing.T) {
+		// Given a chart whose output holds a Deployment and a nested HelmRelease
+		m := setupMocks(t)
+		lister := newLister(m)
+		renderer := &fakeRenderer{out: map[string]string{
+			"ingress-nginx": `kind: Deployment
+metadata: {name: controller, namespace: system-ingress}
+spec: {template: {spec: {containers: [{image: "registry.k8s.io/ingress-nginx/controller:v1.15.1"}]}}}
+---
+kind: OCIRepository
+metadata: {name: nested, namespace: system-ingress}
+spec: {url: "oci://ghcr.io/org/nested", ref: {tag: 1.0.0}}
+---
+kind: HelmRelease
+metadata: {name: nested, namespace: system-ingress}
+spec: {chartRef: {kind: OCIRepository, name: nested}}`,
+			"nested": `kind: Job
+metadata: {name: hook, namespace: system-ingress}
+spec: {template: {spec: {containers: [{image: "ghcr.io/org/hook:2.0.0"}]}}}`,
+		}}
+		lister.SetChartRenderer(renderer)
+
+		// When List is called
+		result, err := lister.List(testBlueprint(), inventory.Options{})
+
+		// Then each chart renders once and its images name the HelmRelease
+		if err != nil {
+			t.Fatalf("expected no error, got %v", err)
+		}
+		controller := findEntry(result.Inventory.Artifacts, inventory.KindImage, "registry.k8s.io/ingress-nginx/controller")
+		if controller == nil || controller.Source.Object != "HelmRelease/system-ingress/ingress-nginx" {
+			t.Errorf("unexpected controller entry: %+v", controller)
+		}
+		hook := findEntry(result.Inventory.Artifacts, inventory.KindImage, "ghcr.io/org/hook")
+		if hook == nil || hook.Source.Object != "HelmRelease/system-ingress/nested" {
+			t.Errorf("unexpected hook entry: %+v", hook)
+		}
+		if findEntry(result.Inventory.Artifacts, inventory.KindChart, "ghcr.io/org/nested") == nil {
+			t.Error("expected the nested chart")
+		}
+		if len(renderer.requests) != 2 || renderer.requests[0].Chart.Transport != inventory.TransportHTTP || len(renderer.requests[0].Objects) == 0 {
+			t.Errorf("unexpected render requests: %+v", renderer.requests)
+		}
+	})
+
+	t.Run("ReturnsChartRenderError", func(t *testing.T) {
+		// Given a chart that fails to render
+		m := setupMocks(t)
+		lister := newLister(m)
+		lister.SetChartRenderer(&fakeRenderer{err: errors.New("pull failed")})
+
+		// When List is called
+		_, err := lister.List(testBlueprint(), inventory.Options{})
+
+		// Then the error names the HelmRelease
+		if err == nil || !strings.Contains(err.Error(), "HelmRelease/system-ingress/ingress-nginx") {
+			t.Fatalf("expected a render error, got %v", err)
 		}
 	})
 

@@ -100,6 +100,7 @@ type BaseLister struct {
 	artifactBuilder artifact.Artifact
 	shims           *Shims
 	extractors      []Extractor
+	chartRenderer   ChartRenderer
 }
 
 // =============================================================================
@@ -138,10 +139,16 @@ func NewLister(rt *runtime.Runtime, artifactBuilder artifact.Artifact, opts ...*
 		if opts[0].extractors != nil {
 			lister.extractors = opts[0].extractors
 		}
+		if opts[0].chartRenderer != nil {
+			lister.chartRenderer = opts[0].chartRenderer
+		}
 	}
 
 	if lister.extractors == nil {
 		lister.extractors = []Extractor{NewFluxInstanceExtractor(rt, lister.shims)}
+	}
+	if lister.chartRenderer == nil {
+		lister.chartRenderer = NewHelmRenderer(rt, lister.shims)
 	}
 
 	return lister
@@ -189,8 +196,8 @@ func (l *BaseLister) List(blueprint *blueprintv1alpha1.Blueprint, opts Options) 
 // =============================================================================
 
 // listFromRender renders each Kustomization that the context applies, runs the extractors on the
-// rendered objects, and reads the chart sources and images. It needs the flux CLI only when the
-// blueprint has a Kustomization to render.
+// rendered objects, renders each HelmRelease chart, and reads the chart sources and images. It
+// needs the flux CLI only when the blueprint has a Kustomization to render.
 func (l *BaseLister) listFromRender(blueprint *blueprintv1alpha1.Blueprint, result *Result) ([]Entry, error) {
 	var targets []blueprintv1alpha1.Kustomization
 	for _, k := range blueprint.AllKustomizations() {
@@ -222,6 +229,11 @@ func (l *BaseLister) listFromRender(blueprint *blueprintv1alpha1.Blueprint, resu
 	}
 	objects = append(objects, extracted...)
 
+	objects, err = l.renderHelmReleases(objects, result)
+	if err != nil {
+		return nil, err
+	}
+
 	entries, notes := scanObjects(objects)
 	result.Notes = append(result.Notes, notes...)
 	if err := checkDeferred(entries); err != nil {
@@ -249,6 +261,53 @@ func (l *BaseLister) runExtractors(objects []renderedObject) ([]renderedObject, 
 		}
 	}
 	return derived, nil
+}
+
+// renderHelmReleases renders the chart of each HelmRelease in objects and appends the result,
+// with the objects that the extractors derive from it. A HelmRelease in a chart's output renders
+// in turn. A chart with no exact version or from Git does not render, and the scan notes it.
+// A chart with a deferred value gives a note.
+func (l *BaseLister) renderHelmReleases(objects []renderedObject, result *Result) ([]renderedObject, error) {
+	done := make(map[string]bool)
+	for i := 0; i < len(objects); i++ {
+		hr := objects[i]
+		if kind, _ := hr.object["kind"].(string); kind != "HelmRelease" || done[hr.id()] {
+			continue
+		}
+		done[hr.id()] = true
+
+		chart, ok := releaseChart(hr, indexObjects(objects))
+		if !ok {
+			continue
+		}
+		if chart.Transport == TransportGit || !isExactVersion(chart.Version) {
+			continue
+		}
+		if strings.Contains(chart.Upstream(), deferredMarker) {
+			result.Notes = append(result.Notes, fmt.Sprintf("%s in kustomization %q does not render, so the list has no images from chart %s.", hr.id(), hr.kustomization, chart.Upstream()))
+			continue
+		}
+
+		raw := make([]map[string]any, len(objects))
+		for j, o := range objects {
+			raw[j] = o.object
+		}
+		out, err := l.chartRenderer.Render(ChartRequest{Chart: chart, HelmRelease: hr.object, Objects: raw})
+		if err != nil {
+			return nil, werror.Wrap(err, "failed to render %s in kustomization %q", hr.id(), hr.kustomization)
+		}
+		rendered := make([]renderedObject, 0, len(out))
+		for _, o := range out {
+			rendered = append(rendered, renderedObject{kustomization: hr.kustomization, object: o, parent: hr.id()})
+		}
+		extracted, err := l.runExtractors(rendered)
+		if err != nil {
+			return nil, err
+		}
+		objects = append(objects, rendered...)
+		objects = append(objects, extracted...)
+	}
+	return objects, nil
 }
 
 // =============================================================================
