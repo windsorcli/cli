@@ -18,6 +18,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/apimachinery/pkg/watch"
 )
 
 // =============================================================================
@@ -1706,6 +1707,83 @@ func TestBaseKubernetesManager_DeleteBlueprint(t *testing.T) {
 
 		if len(deleteCalls) != 2 {
 			t.Errorf("Expected 2 delete calls (destroy-only + regular), got %d", len(deleteCalls))
+		}
+	})
+
+	t.Run("DestroyOnlyBecomesReadyFromAWatchEvent", func(t *testing.T) {
+		// Given a destroy-only kustomization that a watch event reports Ready
+		kubernetesClient := client.NewMockKubernetesClient()
+		var deleteCalls []string
+		kubernetesClient.DeleteResourceFunc = func(gvr schema.GroupVersionResource, namespace, name string, opts metav1.DeleteOptions) error {
+			deleteCalls = append(deleteCalls, name)
+			return nil
+		}
+		kubernetesClient.GetResourceFunc = func(gvr schema.GroupVersionResource, namespace, name string) (*unstructured.Unstructured, error) {
+			return nil, fmt.Errorf("the server could not find the requested resource")
+		}
+		kubernetesClient.ListResourcesFunc = func(gvr schema.GroupVersionResource, namespace string) (*unstructured.UnstructuredList, error) {
+			return &unstructured.UnstructuredList{}, nil
+		}
+		events := watch.NewFakeWithChanSize(1, false)
+		events.Add(&unstructured.Unstructured{Object: map[string]any{
+			"metadata": map[string]any{"name": "cleanup"},
+			"status":   map[string]any{"conditions": []any{map[string]any{"type": "Ready", "status": "True"}}},
+		}})
+		kubernetesClient.WatchResourcesFunc = func(context.Context, schema.GroupVersionResource, string, string) (watch.Interface, error) {
+			return events, nil
+		}
+		manager := setup(t, kubernetesClient)
+		manager.Timing.KustomizationWaitPollInterval = time.Hour
+		manager.Timing.KustomizationReconcileTimeout = time.Minute
+		destroyOnlyTrue := true
+		blueprint := &blueprintv1alpha1.Blueprint{
+			Metadata:       blueprintv1alpha1.Metadata{Name: "test-blueprint"},
+			Kustomizations: []blueprintv1alpha1.Kustomization{{Name: "cleanup", DestroyOnly: &destroyOnlyTrue}},
+		}
+
+		// When the blueprint is deleted
+		err := manager.DeleteBlueprint(context.Background(), blueprint, "test-namespace")
+
+		// Then the event ends the wait and the destroy-only kustomization is deleted
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		if len(deleteCalls) != 1 || deleteCalls[0] != "cleanup" {
+			t.Errorf("Expected one delete of cleanup, got %v", deleteCalls)
+		}
+	})
+
+	t.Run("DestroyOnlyFailsOnAFailureWatchEvent", func(t *testing.T) {
+		// Given a destroy-only kustomization that a watch event reports as BuildFailed
+		kubernetesClient := client.NewMockKubernetesClient()
+		kubernetesClient.GetResourceFunc = func(gvr schema.GroupVersionResource, namespace, name string) (*unstructured.Unstructured, error) {
+			return nil, fmt.Errorf("the server could not find the requested resource")
+		}
+		events := watch.NewFakeWithChanSize(1, false)
+		events.Modify(&unstructured.Unstructured{Object: map[string]any{
+			"metadata": map[string]any{"name": "cleanup"},
+			"status": map[string]any{"conditions": []any{map[string]any{
+				"type": "Ready", "status": "False", "reason": "BuildFailed", "message": "kustomize build failed",
+			}}},
+		}})
+		kubernetesClient.WatchResourcesFunc = func(context.Context, schema.GroupVersionResource, string, string) (watch.Interface, error) {
+			return events, nil
+		}
+		manager := setup(t, kubernetesClient)
+		manager.Timing.KustomizationWaitPollInterval = time.Hour
+		manager.Timing.KustomizationReconcileTimeout = time.Minute
+		destroyOnlyTrue := true
+		blueprint := &blueprintv1alpha1.Blueprint{
+			Metadata:       blueprintv1alpha1.Metadata{Name: "test-blueprint"},
+			Kustomizations: []blueprintv1alpha1.Kustomization{{Name: "cleanup", DestroyOnly: &destroyOnlyTrue}},
+		}
+
+		// When the blueprint is deleted
+		err := manager.DeleteBlueprint(context.Background(), blueprint, "test-namespace")
+
+		// Then the destroy fails with the build error
+		if err == nil || !strings.Contains(err.Error(), "kustomize build failed") {
+			t.Fatalf("Expected the build failure, got %v", err)
 		}
 	})
 

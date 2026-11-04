@@ -16,6 +16,7 @@ import (
 	"github.com/windsorcli/cli/internal/werror"
 	"github.com/windsorcli/cli/pkg/composer/artifact"
 	"github.com/windsorcli/cli/pkg/runtime"
+	"github.com/windsorcli/cli/pkg/runtime/config"
 )
 
 // =============================================================================
@@ -452,6 +453,7 @@ func (h *BaseBlueprintHandler) processAndCompose() error {
 
 	loadersToProcess, loaderNames := h.loadersWithBlueprints()
 
+	h.registerSensitiveValues(h.getConfigValues())
 	collectedScopes, err := h.processSourceFacets(loadersToProcess, loaderNames, repositoryScope)
 	if err != nil {
 		return err
@@ -472,6 +474,8 @@ func (h *BaseBlueprintHandler) processAndCompose() error {
 			mergedScope = MergeScopeMaps(mergedScope, scope)
 		}
 	}
+
+	h.registerSensitiveValues(mergedScope)
 
 	userPath := ""
 	if h.userBlueprintLoader != nil {
@@ -516,6 +520,18 @@ func (h *BaseBlueprintHandler) processAndCompose() error {
 	}
 
 	return nil
+}
+
+// registerSensitiveValues registers each value in scope at a schema path with sensitive: true as a
+// shell secret, so the shell scrubs it from command output. It does nothing without a config handler
+// or a shell.
+func (h *BaseBlueprintHandler) registerSensitiveValues(scope map[string]any) {
+	if h.runtime == nil || h.runtime.ConfigHandler == nil || h.runtime.Shell == nil {
+		return
+	}
+	for _, value := range config.SensitiveValues(scope, h.runtime.ConfigHandler.GetSensitivePaths()) {
+		h.runtime.Shell.RegisterSecret(value)
+	}
 }
 
 // loadersWithBlueprints returns the source loaders that hold a blueprint, then the user loader when it

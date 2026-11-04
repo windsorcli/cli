@@ -12,8 +12,10 @@ import (
 	"strings"
 
 	"github.com/spf13/cobra"
+	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
 	"github.com/windsorcli/cli/internal/presenter"
 	"github.com/windsorcli/cli/internal/werror"
+	"github.com/windsorcli/cli/pkg/project"
 	"github.com/windsorcli/cli/pkg/provisioner"
 	fluxinfra "github.com/windsorcli/cli/pkg/provisioner/flux"
 	"github.com/windsorcli/cli/pkg/provisioner/stacklock"
@@ -41,18 +43,13 @@ var (
 // destroyCmd destroys every component of the context, or one component in both layers.
 // It requests all tool requirements, because the blueprint decides which layers run.
 // It skips validation, so that a broken setup can still be destroyed.
-// For a full destroy, it does these steps before the confirmation prompt:
-//   - It validates the backend component names.
-//   - It checks the cloud credentials, because the destroy plan needs them.
-//   - For a kubernetes backend, it moves all state to a local backend, so no step uses the backend that the destroy removes.
-//   - It plans the destroy, and stops when it cannot plan a component.
-//
+// For a full destroy, it calls destroyAll.
 // For one terraform component, it checks the credentials before the plan.
 // It uses the local state when the cluster of the kubernetes backend is gone. If not, it refuses a backend component before terraform init runs.
 var destroyCmd = &cobra.Command{
 	Use:   "destroy [component]",
 	Short: "Destroy live infrastructure.",
-	Long: `Destroy live infrastructure. With no argument, removes every Flux kustomization, then every Terraform component. With a component name, destroys that component across both layers (Terraform and/or Kustomize).
+	Long: `Destroy live infrastructure. With no argument, removes every Flux kustomization, then every Terraform component. With a component name, destroys that component across both layers (Terraform and/or Kustomize). In a workstation context, 'windsor down --destroy' runs this destroy and then deletes the workstation.
 
 Every form requires confirmation. Either type the context or component name at the prompt, or pass --confirm=<expected> to satisfy the gate non-interactively (CI-safe). The --confirm value must match the prompt token exactly; mismatches abort the operation.
 
@@ -99,46 +96,7 @@ windsor destroy --confirm=local --continue`,
 		blueprint := proj.Composer.BlueprintHandler.Generate()
 
 		if len(args) == 0 {
-			if err := proj.Provisioner.ValidateBackendComponents(blueprint); err != nil {
-				return err
-			}
-			if err := requireCloudAuth(cmd, proj); err != nil {
-				return err
-			}
-			if _, err := proj.Provisioner.PrepareLocalTeardown(cmd.Context(), blueprint); err != nil {
-				return err
-			}
-			var summary *provisioner.DestroyPlanSummary
-			if err := presenter.Track(cmd.Context(), "plan:destroy", "Generating destroy plan", func(context.Context) error {
-				var planErr error
-				summary, planErr = proj.Provisioner.PlanDestroyAll(blueprint)
-				return planErr
-			}); err != nil {
-				return werror.Wrap(err, "error generating destroy plan")
-			}
-			tuiplan.DestroySummary(os.Stdout, summary.Terraform, summary.Kustomize, os.Getenv("NO_COLOR") != "")
-
-			warnPreventDestroy(cmd.ErrOrStderr(), summary.Terraform)
-			warnDestroyAttributeDrift(cmd.ErrOrStderr(), summary.Terraform)
-
-			if err := failOnDestroyPlanErrors(summary.Terraform); err != nil {
-				return err
-			}
-
-			contextName := proj.Runtime.ContextName
-			desc := fmt.Sprintf("This will permanently destroy all infrastructure in context %q.", contextName)
-			if err := resolveDestroyConfirmation(cmd.InOrStdin(), cmd.ErrOrStderr(), desc, contextName); err != nil {
-				return err
-			}
-			return stacklock.With(cmd.Context(), proj.Runtime, "destroy", lockTimeout, func() error {
-				result, err := proj.Provisioner.Teardown(cmd.Context(), blueprint, false, destroyContinue)
-				reportSkippedDestroyComponents(cmd.ErrOrStderr(), result.Skipped)
-				reportSkippedClusterGoneKustomizations(cmd.ErrOrStderr(), result.SkippedClusterGone)
-				if err != nil {
-					return werror.Wrap(err, "error destroying all components")
-				}
-				return finishContinueDestroy(cmd.ErrOrStderr(), result)
-			})
+			return destroyAll(cmd, proj, blueprint)
 		}
 
 		componentID := args[0]
@@ -422,6 +380,57 @@ windsor destroy kustomize --confirm=local`,
 // =============================================================================
 // Private Methods
 // =============================================================================
+
+// destroyAll destroys every component of the context: first every Flux kustomization, then every Terraform component.
+// It runs these steps before the confirmation prompt:
+//   - It validates the backend component names.
+//   - It checks the cloud credentials, because the destroy plan needs them.
+//   - For a kubernetes backend, it moves all state to a local backend, so no step uses the backend that the destroy removes.
+//   - It plans the destroy, and stops when it cannot plan a component.
+//
+// It reads --confirm and --continue from destroyConfirm and destroyContinue. 'windsor destroy' and 'windsor down --destroy' both call it.
+func destroyAll(cmd *cobra.Command, proj *project.Project, blueprint *blueprintv1alpha1.Blueprint) error {
+	if err := proj.Provisioner.ValidateBackendComponents(blueprint); err != nil {
+		return err
+	}
+	if err := requireCloudAuth(cmd, proj); err != nil {
+		return err
+	}
+	if _, err := proj.Provisioner.PrepareLocalTeardown(cmd.Context(), blueprint); err != nil {
+		return err
+	}
+	var summary *provisioner.DestroyPlanSummary
+	if err := presenter.Track(cmd.Context(), "plan:destroy", "Generating destroy plan", func(context.Context) error {
+		var planErr error
+		summary, planErr = proj.Provisioner.PlanDestroyAll(blueprint)
+		return planErr
+	}); err != nil {
+		return werror.Wrap(err, "error generating destroy plan")
+	}
+	tuiplan.DestroySummary(os.Stdout, summary.Terraform, summary.Kustomize, os.Getenv("NO_COLOR") != "")
+
+	warnPreventDestroy(cmd.ErrOrStderr(), summary.Terraform)
+	warnDestroyAttributeDrift(cmd.ErrOrStderr(), summary.Terraform)
+
+	if err := failOnDestroyPlanErrors(summary.Terraform); err != nil {
+		return err
+	}
+
+	contextName := proj.Runtime.ContextName
+	desc := fmt.Sprintf("This will permanently destroy all infrastructure in context %q.", contextName)
+	if err := resolveDestroyConfirmation(cmd.InOrStdin(), cmd.ErrOrStderr(), desc, contextName); err != nil {
+		return err
+	}
+	return stacklock.With(cmd.Context(), proj.Runtime, "destroy", lockTimeout, func() error {
+		result, err := proj.Provisioner.Teardown(cmd.Context(), blueprint, false, destroyContinue)
+		reportSkippedDestroyComponents(cmd.ErrOrStderr(), result.Skipped)
+		reportSkippedClusterGoneKustomizations(cmd.ErrOrStderr(), result.SkippedClusterGone)
+		if err != nil {
+			return werror.Wrap(err, "error destroying all components")
+		}
+		return finishContinueDestroy(cmd.ErrOrStderr(), result)
+	})
+}
 
 // confirmDestroy prompts the user to type confirmValue to proceed with a destructive operation.
 // It prints a description of what will be destroyed and the expected confirmation token.

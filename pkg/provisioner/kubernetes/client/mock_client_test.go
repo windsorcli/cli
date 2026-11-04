@@ -10,6 +10,7 @@ import (
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/apimachinery/pkg/watch"
 )
 
 // =============================================================================
@@ -48,6 +49,55 @@ func TestMockKubernetesClient_GetResource(t *testing.T) {
 		}
 		if err != nil {
 			t.Errorf("Expected nil, got %v", err)
+		}
+	})
+}
+
+func TestMockKubernetesClient_WatchResources(t *testing.T) {
+	setup := func(t *testing.T) *MockKubernetesClient {
+		t.Helper()
+		return NewMockKubernetesClient()
+	}
+	gvr := schema.GroupVersionResource{Group: "g", Version: "v", Resource: "r"}
+
+	t.Run("FuncSet", func(t *testing.T) {
+		// Given a mock with WatchResourcesFunc set
+		client := setup(t)
+		fake := watch.NewFake()
+		var gotVersion string
+		client.WatchResourcesFunc = func(_ context.Context, _ schema.GroupVersionResource, _, resourceVersion string) (watch.Interface, error) {
+			gotVersion = resourceVersion
+			return fake, nil
+		}
+
+		// When WatchResources is called
+		res, err := client.WatchResources(context.Background(), gvr, "ns", "42")
+
+		// Then it returns the watch from the func and passes the resource version
+		if err != nil {
+			t.Fatalf("Expected nil, got %v", err)
+		}
+		if res != fake {
+			t.Errorf("Expected the fake watch, got %v", res)
+		}
+		if gotVersion != "42" {
+			t.Errorf("Expected resource version 42, got %q", gotVersion)
+		}
+	})
+
+	t.Run("FuncNotSet", func(t *testing.T) {
+		// Given a mock without WatchResourcesFunc
+		client := setup(t)
+
+		// When WatchResources is called
+		res, err := client.WatchResources(context.Background(), gvr, "ns", "")
+
+		// Then it returns a watch whose channel is closed
+		if err != nil {
+			t.Fatalf("Expected nil, got %v", err)
+		}
+		if _, open := <-res.ResultChan(); open {
+			t.Error("Expected a closed result channel")
 		}
 	})
 }

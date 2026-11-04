@@ -14,6 +14,17 @@ import (
 )
 
 // =============================================================================
+// Variables
+// =============================================================================
+
+// booleanBinaryOperators are the expr-lang binary operators that give a boolean result.
+var booleanBinaryOperators = map[string]bool{
+	"==": true, "!=": true, "<": true, ">": true, "<=": true, ">=": true,
+	"and": true, "&&": true, "or": true, "||": true,
+	"in": true, "matches": true, "contains": true, "startsWith": true, "endsWith": true,
+}
+
+// =============================================================================
 // Helpers
 // =============================================================================
 
@@ -152,6 +163,56 @@ func extractExprASTRefs(s string) []string {
 		searchStart = end + 1
 	}
 	return refs
+}
+
+// extractValueRefs returns the scope reference paths whose values can reach the result of the ${...}
+// expressions in s. It skips a reference that only feeds a boolean: the condition of a ternary, an
+// operand of a comparison or logical operator, or the operand of a not. Each expression that does not
+// parse is skipped. Paths are deduplicated in discovery order.
+func extractValueRefs(s string) []string {
+	var refs []string
+	seen := make(map[string]bool)
+	searchStart := 0
+	for {
+		idx := strings.Index(s[searchStart:], "${")
+		if idx == -1 {
+			break
+		}
+		start := searchStart + idx
+		end := findExprEnd(s, start)
+		if end == -1 {
+			break
+		}
+		if tree, err := parser.Parse(s[start+2 : end]); err == nil {
+			walkASTForValueRefs(tree.Node, &refs, seen)
+		}
+		searchStart = end + 1
+	}
+	return refs
+}
+
+// walkASTForValueRefs collects the reference paths of node whose values can reach its result. A
+// ternary gives only its branches, and a boolean operator gives nothing. Every other node gives all
+// of its references through walkASTForRefs.
+func walkASTForValueRefs(node ast.Node, refs *[]string, seen map[string]bool) {
+	switch n := node.(type) {
+	case *ast.ConditionalNode:
+		walkASTForValueRefs(n.Exp1, refs, seen)
+		walkASTForValueRefs(n.Exp2, refs, seen)
+	case *ast.BinaryNode:
+		if booleanBinaryOperators[n.Operator] {
+			return
+		}
+		walkASTForValueRefs(n.Left, refs, seen)
+		walkASTForValueRefs(n.Right, refs, seen)
+	case *ast.UnaryNode:
+		if n.Operator == "not" || n.Operator == "!" {
+			return
+		}
+		walkASTForValueRefs(n.Node, refs, seen)
+	default:
+		walkASTForRefs(node, refs, seen)
+	}
 }
 
 // walkASTForRefs recursively walks an expr-lang AST node, collecting scope variable reference

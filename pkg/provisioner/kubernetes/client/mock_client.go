@@ -11,6 +11,7 @@ import (
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/apimachinery/pkg/watch"
 )
 
 // =============================================================================
@@ -22,6 +23,7 @@ type MockKubernetesClient struct {
 	GetResourceFunc          func(gvr schema.GroupVersionResource, namespace, name string) (*unstructured.Unstructured, error)
 	ListResourcesFunc        func(gvr schema.GroupVersionResource, namespace string) (*unstructured.UnstructuredList, error)
 	ListResourcesByLabelFunc func(gvr schema.GroupVersionResource, namespace, labelSelector string) (*unstructured.UnstructuredList, error)
+	WatchResourcesFunc       func(ctx context.Context, gvr schema.GroupVersionResource, namespace, resourceVersion string) (watch.Interface, error)
 	ApplyResourceFunc        func(gvr schema.GroupVersionResource, obj *unstructured.Unstructured, opts metav1.ApplyOptions) (*unstructured.Unstructured, error)
 	DeleteResourceFunc       func(gvr schema.GroupVersionResource, namespace, name string, opts metav1.DeleteOptions) error
 	ResourceForFunc          func(gvk schema.GroupVersionKind) (schema.GroupVersionResource, error)
@@ -67,6 +69,14 @@ func (m *MockKubernetesClient) ListResourcesByLabel(gvr schema.GroupVersionResou
 		return m.ListResourcesByLabelFunc(gvr, namespace, labelSelector)
 	}
 	return &unstructured.UnstructuredList{}, nil
+}
+
+// WatchResources implements KubernetesClient interface. Without WatchResourcesFunc it returns a closed watch.
+func (m *MockKubernetesClient) WatchResources(ctx context.Context, gvr schema.GroupVersionResource, namespace, resourceVersion string) (watch.Interface, error) {
+	if m.WatchResourcesFunc != nil {
+		return m.WatchResourcesFunc(ctx, gvr, namespace, resourceVersion)
+	}
+	return watch.NewEmptyWatch(), nil
 }
 
 // ApplyResource implements KubernetesClient interface

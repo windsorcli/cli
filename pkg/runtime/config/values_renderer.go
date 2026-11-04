@@ -43,9 +43,61 @@ func RedactSensitiveValues(values map[string]any, sensitivePaths []string) map[s
 	return values
 }
 
+// SensitiveValues returns the scalar values that values holds at each sensitive path, as strings.
+// A "*" path segment matches any single key. A map or list at a sensitive path gives each scalar
+// inside it. Absent paths and nil values give nothing.
+func SensitiveValues(values map[string]any, sensitivePaths []string) []string {
+	var out []string
+	for _, path := range sensitivePaths {
+		collectValuesAtPath(values, parsePath(path), &out)
+	}
+	return out
+}
+
 // =============================================================================
 // Private Functions
 // =============================================================================
+
+// collectValuesAtPath appends each scalar under the node that segments address to out. A "*" segment
+// matches every key at that level.
+func collectValuesAtPath(node any, segments []string, out *[]string) {
+	if len(segments) == 0 {
+		collectScalars(node, out)
+		return
+	}
+	current, ok := node.(map[string]any)
+	if !ok {
+		return
+	}
+	if segments[0] == "*" {
+		for _, child := range current {
+			collectValuesAtPath(child, segments[1:], out)
+		}
+		return
+	}
+	if child, exists := current[segments[0]]; exists {
+		collectValuesAtPath(child, segments[1:], out)
+	}
+}
+
+// collectScalars appends every non-nil scalar in node to out, and walks into maps and lists.
+func collectScalars(node any, out *[]string) {
+	switch v := node.(type) {
+	case nil:
+	case map[string]any:
+		for _, child := range v {
+			collectScalars(child, out)
+		}
+	case []any:
+		for _, child := range v {
+			collectScalars(child, out)
+		}
+	case string:
+		*out = append(*out, v)
+	default:
+		*out = append(*out, fmt.Sprint(v))
+	}
+}
 
 // redactValueAtPath overwrites the leaf addressed by segments with SensitiveRedactionMarker. A "*"
 // segment matches every key at that level: as the final segment it redacts each existing value,
