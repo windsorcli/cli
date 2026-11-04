@@ -16,3 +16,8 @@ func (x *BaseLister) SetShims(v *Shims) {
 func (x *BaseLister) SetExtractors(v []Extractor) {
 	x.extractors = v
 }
+
+// SetChartRenderer sets the chartRenderer field of the BaseLister.
+func (x *BaseLister) SetChartRenderer(v ChartRenderer) {
+	x.chartRenderer = v
+}

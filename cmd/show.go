@@ -46,7 +46,7 @@ Unresolved deferred values render as '<deferred>' by default in 'blueprint' and 
 var showArtifactsCmd = &cobra.Command{
 	Use:   "artifacts",
 	Short: "List the charts and images that the context pulls.",
-	Long:  `Print every chart, image and blueprint that the current context pulls, with a destination for each. The command renders each Flux Kustomization offline with the flux CLI and copies nothing. A chart goes to the --charts-to registry under its chart name and version. An image goes to the docker.registries mirror of its host. A --set value applies to this command only and is not saved.`,
+	Long:  `Print every chart, image and blueprint that the current context pulls, with a destination for each. The command renders each Flux Kustomization offline with the flux CLI, then pulls and renders each HelmRelease chart. It copies nothing. A chart goes to the --charts-to registry under its chart name and version. An image goes to the docker.registries mirror of its host. A --set value applies to this command only and is not saved.`,
 	Example: `# List the artifacts of the current context as YAML
 windsor show artifacts
 

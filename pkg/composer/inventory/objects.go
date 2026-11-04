@@ -54,10 +54,9 @@ func (o renderedObject) source() Source {
 // scanObjects returns the chart and image entries of objects, and a note for each chart source
 // that it cannot pin to one version or resolve to a repository.
 func scanObjects(objects []renderedObject) ([]Entry, []string) {
-	index := make(map[string]renderedObject)
+	index := indexObjects(objects)
 	chartRefs := make(map[string]bool)
 	for _, obj := range objects {
-		index[obj.id()] = obj
 		if kind, _ := obj.object["kind"].(string); kind == "HelmRelease" {
 			if ref := chartRefID(obj); ref != "" {
 				chartRefs[ref] = true
@@ -97,6 +96,31 @@ func scanObjects(objects []renderedObject) ([]Entry, []string) {
 		}
 	}
 	return entries, notes
+}
+
+// releaseChart returns the chart entry of a HelmRelease. A spec.chartRef names an OCIRepository in
+// index, and a spec.chart names a HelmRepository or GitRepository in index. It returns false when
+// the source is not in index.
+func releaseChart(hr renderedObject, index map[string]renderedObject) (Entry, bool) {
+	if ref := chartRefID(hr); ref != "" {
+		source, found := index[ref]
+		if !found {
+			return Entry{}, false
+		}
+		entry, _ := ociChartEntry(source)
+		return entry, true
+	}
+	entry, ok, _ := helmReleaseChartEntry(hr, index)
+	return entry, ok
+}
+
+// indexObjects returns objects by their id. A later object with the same id replaces an earlier one.
+func indexObjects(objects []renderedObject) map[string]renderedObject {
+	index := make(map[string]renderedObject, len(objects))
+	for _, obj := range objects {
+		index[obj.id()] = obj
+	}
+	return index
 }
 
 // ociChartEntry returns the chart entry of an OCIRepository. The chart name is the last path

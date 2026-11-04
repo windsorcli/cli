@@ -18,6 +18,7 @@ import (
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/apimachinery/pkg/watch"
 	"k8s.io/client-go/discovery"
 	"k8s.io/client-go/discovery/cached/memory"
 	"k8s.io/client-go/dynamic"
@@ -48,6 +49,7 @@ type KubernetesClient interface {
 	GetResource(gvr schema.GroupVersionResource, namespace, name string) (*unstructured.Unstructured, error)
 	ListResources(gvr schema.GroupVersionResource, namespace string) (*unstructured.UnstructuredList, error)
 	ListResourcesByLabel(gvr schema.GroupVersionResource, namespace, labelSelector string) (*unstructured.UnstructuredList, error)
+	WatchResources(ctx context.Context, gvr schema.GroupVersionResource, namespace, resourceVersion string) (watch.Interface, error)
 	ApplyResource(gvr schema.GroupVersionResource, obj *unstructured.Unstructured, opts metav1.ApplyOptions) (*unstructured.Unstructured, error)
 	DeleteResource(gvr schema.GroupVersionResource, namespace, name string, opts metav1.DeleteOptions) error
 	ResourceFor(gvk schema.GroupVersionKind) (schema.GroupVersionResource, error)
@@ -131,6 +133,16 @@ func (c *DynamicKubernetesClient) ListResourcesByLabel(gvr schema.GroupVersionRe
 	ctx, cancel := context.WithTimeout(context.Background(), requestTimeout)
 	defer cancel()
 	return cli.Resource(gvr).Namespace(namespace).List(ctx, metav1.ListOptions{LabelSelector: labelSelector})
+}
+
+// WatchResources opens a watch on the resources in a namespace, from resourceVersion.
+// An empty resourceVersion starts from the current state. The watch stops when ctx ends.
+func (c *DynamicKubernetesClient) WatchResources(ctx context.Context, gvr schema.GroupVersionResource, namespace, resourceVersion string) (watch.Interface, error) {
+	cli, _, err := c.ensureClient()
+	if err != nil {
+		return nil, err
+	}
+	return cli.Resource(gvr).Namespace(namespace).Watch(ctx, metav1.ListOptions{ResourceVersion: resourceVersion})
 }
 
 // ApplyResource applies a resource using server-side apply

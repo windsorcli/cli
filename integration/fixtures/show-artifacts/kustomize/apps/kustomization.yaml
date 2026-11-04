@@ -4,4 +4,5 @@ resources:
   - oci-repository.yaml
   - helm-repository.yaml
   - helm-release.yaml
+  - podinfo-release.yaml
   - deployment.yaml

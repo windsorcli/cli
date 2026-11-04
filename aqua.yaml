@@ -12,14 +12,14 @@ registries:
     ref: v4.581.1 # renovate: depName=aquaproj/aqua-registry
 packages:
 - name: siderolabs/talos@v1.14.5
-- name: siderolabs/omni/omnictl@v1.13.1
+- name: siderolabs/omni/omnictl@v1.13.2
 - name: siderolabs/omni/omni@v1.13.2
 - name: kubernetes/kubectl@v1.34.3 # renovate: ignore
 - name: go-task/task@v3.54.0
 - name: golang/go@go1.27.3
 - name: getsops/sops@v3.11.0
 - name: docker/cli@v27.4.1
-- name: docker/compose@v5.6.1
+- name: docker/compose@v5.7.0
 - name: google/go-jsonnet@v0.22.0
 - name: mikefarah/yq@v4.54.1
 - name: goreleaser/goreleaser@v2.19.0
