@@ -11,7 +11,6 @@ import (
 	"fmt"
 	"slices"
 	"strings"
-	"time"
 
 	kustomizev1 "github.com/fluxcd/kustomize-controller/api/v1"
 	meta "github.com/fluxcd/pkg/apis/meta"
@@ -331,10 +330,11 @@ func (k *BaseKubernetesManager) contextOrphanKustomizations(blueprint *blueprint
 
 // processDestroyOnlyKustomizations applies all destroy-only kustomizations, waits for all to become ready, then deletes all.
 // This approach ensures dependencies remain available while Flux reconciles dependent kustomizations.
+// The wait follows a watch and fails at once on a list error or on a failure Reason of a named kustomization.
 // Returns a slice of errors encountered during the process, which may be empty if no errors occurred.
 func (k *BaseKubernetesManager) processDestroyOnlyKustomizations(ctx context.Context, kustomizations []blueprintv1alpha1.Kustomization, blueprint *blueprintv1alpha1.Blueprint, namespace, defaultSourceName string) []error {
 	mode := k.gitopsMode()
-	var errors []error
+	var errs []error
 
 	destroyOnlyNames := make(map[string]bool)
 	for _, kust := range kustomizations {
@@ -347,14 +347,14 @@ func (k *BaseKubernetesManager) processDestroyOnlyKustomizations(ctx context.Con
 		if len(kustomization.Substitutions) > 0 {
 			configMapName := fmt.Sprintf("values-%s", kustomization.Name)
 			if err := k.ApplyConfigMap(configMapName, namespace, kustomization.Substitutions); err != nil {
-				errors = append(errors, werror.Wrap(err, "failed to create ConfigMap for destroy-only kustomization %s", kustomization.Name))
+				errs = append(errs, werror.Wrap(err, "failed to create ConfigMap for destroy-only kustomization %s", kustomization.Name))
 				for i := len(appliedKustomizations) - 1; i >= 0; i-- {
 					appliedKust := appliedKustomizations[i]
 					if deleteErr := k.deleteKustomization(ctx, appliedKust.Name, namespace, nil, kustomizationDeleteTimeout(appliedKust), true); deleteErr != nil {
-						errors = append(errors, werror.Wrap(deleteErr, "failed to delete failed destroy-only kustomization %s", appliedKust.Name))
+						errs = append(errs, werror.Wrap(deleteErr, "failed to delete failed destroy-only kustomization %s", appliedKust.Name))
 					}
 				}
-				return errors
+				return errs
 			}
 		}
 
@@ -378,14 +378,14 @@ func (k *BaseKubernetesManager) processDestroyOnlyKustomizations(ctx context.Con
 		if err := k.ApplyKustomization(fluxKustomization); err != nil {
 			failure := werror.Wrap(err, "failed to apply destroy-only kustomization %s", kustomization.Name)
 			end(failure)
-			errors = append(errors, failure)
+			errs = append(errs, failure)
 			for i := len(appliedKustomizations) - 1; i >= 0; i-- {
 				appliedKust := appliedKustomizations[i]
 				if deleteErr := k.deleteKustomization(ctx, appliedKust.Name, namespace, nil, kustomizationDeleteTimeout(appliedKust), true); deleteErr != nil {
-					errors = append(errors, werror.Wrap(deleteErr, "failed to delete failed destroy-only kustomization %s", appliedKust.Name))
+					errs = append(errs, werror.Wrap(deleteErr, "failed to delete failed destroy-only kustomization %s", appliedKust.Name))
 				}
 			}
-			return errors
+			return errs
 		}
 		end(nil)
 		appliedKustomizations = append(appliedKustomizations, kustomization)
@@ -398,46 +398,39 @@ func (k *BaseKubernetesManager) processDestroyOnlyKustomizations(ctx context.Con
 
 	_, endWait := presenter.Begin(ctx, "kustomize:destroy-only-wait", fmt.Sprintf("Waiting for %d destroy-only kustomization(s) to become ready", len(kustomizations)))
 
-	waitTimeout := time.After(k.Timing.KustomizationReconcileTimeout)
-	ticker := time.NewTicker(k.Timing.KustomizationWaitPollInterval)
-	allReady := false
-	statusCheckFailed := false
-
-waitLoop:
-	for !allReady {
-		select {
-		case <-waitTimeout:
-			break waitLoop
-		case <-ticker.C:
-			status, err := k.GetKustomizationStatus(kustomizationNames)
-			if err != nil {
-				errors = append(errors, werror.Wrap(err, "destroy-only kustomizations failed"))
-				statusCheckFailed = true
-				break waitLoop
+	check := func(byName map[string]*unstructured.Unstructured) (bool, error) {
+		allReady := true
+		for _, name := range kustomizationNames {
+			ready, pending, failed := kustomizationConditionStatus(byName[name])
+			if failed != nil {
+				return false, failed
 			}
-			allReady = true
-			for _, name := range kustomizationNames {
-				if !status[name] {
-					allReady = false
-					break
-				}
+			if pending != nil {
+				return false, pending
 			}
+			allReady = allReady && ready
 		}
+		return allReady, nil
 	}
-	ticker.Stop()
+	onError := func(err error) error {
+		return werror.Wrap(err, "failed to list kustomizations")
+	}
+	waitErr := k.watchKustomizations(ctx, k.Timing.KustomizationReconcileTimeout, check, onError)
 
-	if !allReady {
+	if waitErr != nil {
 		endWait(fmt.Errorf("destroy-only kustomizations did not become ready"))
-		if !statusCheckFailed {
-			errors = append(errors, fmt.Errorf("destroy-only kustomizations did not become ready within timeout - cleanup may not have completed%s", k.describeNotReadyKustomizations(kustomizationNames, k.gitopsNamespace())))
+		if errors.Is(waitErr, errKustomizationWaitTimeout) {
+			errs = append(errs, fmt.Errorf("destroy-only kustomizations did not become ready within timeout - cleanup may not have completed%s", k.describeNotReadyKustomizations(kustomizationNames, k.gitopsNamespace())))
+		} else {
+			errs = append(errs, werror.Wrap(waitErr, "destroy-only kustomizations failed"))
 		}
 		for i := len(kustomizations) - 1; i >= 0; i-- {
 			kustomization := kustomizations[i]
 			if deleteErr := k.deleteKustomization(ctx, kustomization.Name, namespace, nil, kustomizationDeleteTimeout(kustomization), true); deleteErr != nil {
-				errors = append(errors, werror.Wrap(deleteErr, "failed to delete failed destroy-only kustomization %s", kustomization.Name))
+				errs = append(errs, werror.Wrap(deleteErr, "failed to delete failed destroy-only kustomization %s", kustomization.Name))
 			}
 		}
-		return errors
+		return errs
 	}
 	endWait(nil)
 
@@ -447,13 +440,13 @@ waitLoop:
 		if err := k.deleteKustomization(opCtx, kustomization.Name, namespace, nil, kustomizationDeleteTimeout(kustomization), true); err != nil {
 			failure := werror.Wrap(err, "failed to delete destroy-only kustomization %s", kustomization.Name)
 			end(failure)
-			errors = append(errors, failure)
+			errs = append(errs, failure)
 		} else {
 			end(nil)
 		}
 	}
 
-	return errors
+	return errs
 }
 
 // applyBlueprintSource applies a blueprint Source as a GitRepository or OCIRepository resource.

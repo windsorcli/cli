@@ -20,6 +20,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 	utiljson "k8s.io/apimachinery/pkg/util/json"
+	"k8s.io/apimachinery/pkg/watch"
 )
 
 // =============================================================================
@@ -207,6 +208,11 @@ func matchesSelector(labels map[string]string, selector string) bool {
 		}
 	}
 	return true
+}
+
+// WatchResources returns a closed watch, so a watch-based wait lists again on each poll tick.
+func (c *fakeCluster) WatchResources(ctx context.Context, gvr schema.GroupVersionResource, namespace, resourceVersion string) (watch.Interface, error) {
+	return watch.NewEmptyWatch(), nil
 }
 
 func (c *fakeCluster) ApplyResource(gvr schema.GroupVersionResource, obj *unstructured.Unstructured, opts metav1.ApplyOptions) (*unstructured.Unstructured, error) {

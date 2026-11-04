@@ -20,6 +20,7 @@ import (
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/apimachinery/pkg/watch"
 )
 
 // =============================================================================
@@ -663,7 +664,7 @@ func TestBaseKubernetesManager_WaitForKustomizations(t *testing.T) {
 		if err == nil || !strings.Contains(err.Error(), "dry-run failed") {
 			t.Fatalf("Expected the error-budget failure, got: %v", err)
 		}
-		floor := manager.Timing.KustomizationWaitMinErrorDuration + manager.Timing.KustomizationWaitPollInterval/2
+		floor := manager.Timing.KustomizationWaitMinErrorDuration
 		if elapsed < floor {
 			t.Errorf("Expected the wait to last at least %s, failed after %s", floor, elapsed)
 		}
@@ -894,6 +895,218 @@ func TestBaseKubernetesManager_WaitForKustomizations(t *testing.T) {
 		// Then the wait returns the context error
 		if err != context.Canceled {
 			t.Errorf("expected context.Canceled, got: %v", err)
+		}
+	})
+
+	t.Run("BecomesReadyFromAWatchEventWithoutAPollTick", func(t *testing.T) {
+		// Given a listed kustomization that is not Ready and a watch that reports it Ready
+		kubernetesClient := client.NewMockKubernetesClient()
+		listCalls := 0
+		kubernetesClient.ListResourcesFunc = func(gvr schema.GroupVersionResource, ns string) (*unstructured.UnstructuredList, error) {
+			listCalls++
+			list := listOf(kustomizationListItem("app", "False", "", ""))
+			list.SetResourceVersion("41")
+			return list, nil
+		}
+		events := watch.NewFakeWithChanSize(1, false)
+		ready := kustomizationListItem("app", "True", "", "")
+		events.Modify(&ready)
+		var watchedVersion string
+		kubernetesClient.WatchResourcesFunc = func(_ context.Context, _ schema.GroupVersionResource, _, resourceVersion string) (watch.Interface, error) {
+			watchedVersion = resourceVersion
+			return events, nil
+		}
+		manager := setup(t, kubernetesClient)
+		manager.Timing.KustomizationWaitPollInterval = time.Hour
+		blueprint := &blueprintv1alpha1.Blueprint{Kustomizations: []blueprintv1alpha1.Kustomization{withTimeout("app", time.Minute)}}
+
+		// When the wait runs
+		err := wait(manager, blueprint)
+
+		// Then the event completes the wait after one list, and the watch starts at the list version
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		if listCalls != 1 {
+			t.Errorf("Expected 1 list call, got %d", listCalls)
+		}
+		if watchedVersion != "41" {
+			t.Errorf("Expected the watch to start at resource version 41, got %q", watchedVersion)
+		}
+		if !events.IsStopped() {
+			t.Error("Expected the wait to stop the watch")
+		}
+	})
+
+	t.Run("BuildFailedWatchEventFailsImmediately", func(t *testing.T) {
+		// Given a watch that reports a BuildFailed condition
+		kubernetesClient := client.NewMockKubernetesClient()
+		kubernetesClient.ListResourcesFunc = func(gvr schema.GroupVersionResource, ns string) (*unstructured.UnstructuredList, error) {
+			return listOf(kustomizationListItem("app", "False", "", "")), nil
+		}
+		events := watch.NewFakeWithChanSize(1, false)
+		failed := kustomizationListItem("app", "False", meta.BuildFailedReason, "kustomize build failed")
+		events.Modify(&failed)
+		kubernetesClient.WatchResourcesFunc = func(context.Context, schema.GroupVersionResource, string, string) (watch.Interface, error) {
+			return events, nil
+		}
+		manager := setup(t, kubernetesClient)
+		manager.Timing.KustomizationWaitPollInterval = time.Hour
+		blueprint := &blueprintv1alpha1.Blueprint{Kustomizations: []blueprintv1alpha1.Kustomization{withTimeout("app", time.Minute)}}
+
+		// When the wait runs
+		err := wait(manager, blueprint)
+
+		// Then the wait fails with the build error
+		if err == nil || !strings.Contains(err.Error(), "kustomize build failed") {
+			t.Fatalf("Expected the build failure, got %v", err)
+		}
+	})
+
+	t.Run("ReconnectsWithANewListAfterTheWatchCloses", func(t *testing.T) {
+		// Given a first watch that closes and a second list that reports Ready
+		kubernetesClient := client.NewMockKubernetesClient()
+		listCalls := 0
+		kubernetesClient.ListResourcesFunc = func(gvr schema.GroupVersionResource, ns string) (*unstructured.UnstructuredList, error) {
+			listCalls++
+			if listCalls == 1 {
+				return listOf(kustomizationListItem("app", "False", "", "")), nil
+			}
+			return listOf(kustomizationListItem("app", "True", "", "")), nil
+		}
+		watchCalls := 0
+		kubernetesClient.WatchResourcesFunc = func(context.Context, schema.GroupVersionResource, string, string) (watch.Interface, error) {
+			watchCalls++
+			closed := watch.NewFake()
+			closed.Stop()
+			return closed, nil
+		}
+		manager := setup(t, kubernetesClient)
+		blueprint := &blueprintv1alpha1.Blueprint{Kustomizations: []blueprintv1alpha1.Kustomization{withTimeout("app", time.Minute)}}
+
+		// When the wait runs
+		err := wait(manager, blueprint)
+
+		// Then the wait lists again and succeeds
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		if listCalls != 2 || watchCalls != 1 {
+			t.Errorf("Expected 2 list calls and 1 watch call, got %d and %d", listCalls, watchCalls)
+		}
+	})
+
+	t.Run("ReconnectsWithANewListAfterAnExpiredWatch", func(t *testing.T) {
+		// Given a first watch that reports an expired resource version
+		kubernetesClient := client.NewMockKubernetesClient()
+		listCalls := 0
+		kubernetesClient.ListResourcesFunc = func(gvr schema.GroupVersionResource, ns string) (*unstructured.UnstructuredList, error) {
+			listCalls++
+			if listCalls == 1 {
+				return listOf(kustomizationListItem("app", "False", "", "")), nil
+			}
+			return listOf(kustomizationListItem("app", "True", "", "")), nil
+		}
+		expired := watch.NewFakeWithChanSize(1, false)
+		expired.Error(&metav1.Status{Status: metav1.StatusFailure, Code: 410, Reason: metav1.StatusReasonExpired})
+		kubernetesClient.WatchResourcesFunc = func(context.Context, schema.GroupVersionResource, string, string) (watch.Interface, error) {
+			return expired, nil
+		}
+		manager := setup(t, kubernetesClient)
+		blueprint := &blueprintv1alpha1.Blueprint{Kustomizations: []blueprintv1alpha1.Kustomization{withTimeout("app", time.Minute)}}
+
+		// When the wait runs
+		err := wait(manager, blueprint)
+
+		// Then the wait stops the expired watch, lists again, and succeeds
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		if listCalls != 2 {
+			t.Errorf("Expected 2 list calls, got %d", listCalls)
+		}
+		if !expired.IsStopped() {
+			t.Error("Expected the expired watch to be stopped")
+		}
+	})
+
+	t.Run("FallsBackToAListWhenTheWatchCannotOpen", func(t *testing.T) {
+		// Given a watch that fails to open and a second list that reports Ready
+		kubernetesClient := client.NewMockKubernetesClient()
+		listCalls := 0
+		kubernetesClient.ListResourcesFunc = func(gvr schema.GroupVersionResource, ns string) (*unstructured.UnstructuredList, error) {
+			listCalls++
+			if listCalls == 1 {
+				return listOf(kustomizationListItem("app", "False", "", "")), nil
+			}
+			return listOf(kustomizationListItem("app", "True", "", "")), nil
+		}
+		kubernetesClient.WatchResourcesFunc = func(context.Context, schema.GroupVersionResource, string, string) (watch.Interface, error) {
+			return nil, fmt.Errorf("watch refused")
+		}
+		manager := setup(t, kubernetesClient)
+		blueprint := &blueprintv1alpha1.Blueprint{Kustomizations: []blueprintv1alpha1.Kustomization{withTimeout("app", time.Minute)}}
+
+		// When the wait runs
+		err := wait(manager, blueprint)
+
+		// Then the next poll tick lists again and the wait succeeds
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		if listCalls != 2 {
+			t.Errorf("Expected 2 list calls, got %d", listCalls)
+		}
+	})
+
+	t.Run("ReconciliationFailedBudgetExpiresWhileTheWatchIsQuiet", func(t *testing.T) {
+		// Given a ReconciliationFailed kustomization and an open watch that sends no events
+		kubernetesClient := client.NewMockKubernetesClient()
+		kubernetesClient.ListResourcesFunc = func(gvr schema.GroupVersionResource, ns string) (*unstructured.UnstructuredList, error) {
+			return listOf(kustomizationListItem("app", "False", meta.ReconciliationFailedReason, "dry-run failed")), nil
+		}
+		quiet := watch.NewFake()
+		kubernetesClient.WatchResourcesFunc = func(context.Context, schema.GroupVersionResource, string, string) (watch.Interface, error) {
+			return quiet, nil
+		}
+		manager := setup(t, kubernetesClient)
+		blueprint := &blueprintv1alpha1.Blueprint{Kustomizations: []blueprintv1alpha1.Kustomization{withTimeout("app", time.Minute)}}
+
+		// When the wait runs
+		err := wait(manager, blueprint)
+
+		// Then a poll tick checks the cached state and the failure budget ends the wait
+		if err == nil || !strings.Contains(err.Error(), "dry-run failed") {
+			t.Fatalf("Expected the error-budget failure, got %v", err)
+		}
+	})
+
+	t.Run("ContextCancelledDuringAWatchStopsTheWatch", func(t *testing.T) {
+		// Given an open watch that sends no events and a context that ends during the wait
+		kubernetesClient := client.NewMockKubernetesClient()
+		kubernetesClient.ListResourcesFunc = func(gvr schema.GroupVersionResource, ns string) (*unstructured.UnstructuredList, error) {
+			return listOf(kustomizationListItem("app", "False", "", "")), nil
+		}
+		quiet := watch.NewFake()
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+		kubernetesClient.WatchResourcesFunc = func(context.Context, schema.GroupVersionResource, string, string) (watch.Interface, error) {
+			time.AfterFunc(20*time.Millisecond, cancel)
+			return quiet, nil
+		}
+		manager := setup(t, kubernetesClient)
+		manager.Timing.KustomizationWaitPollInterval = time.Hour
+		blueprint := &blueprintv1alpha1.Blueprint{Kustomizations: []blueprintv1alpha1.Kustomization{withTimeout("app", time.Minute)}}
+
+		// When the wait runs
+		err := manager.WaitForKustomizations(ctx, blueprint, presenter.NewGroup(ctx, "kustomization:"))
+
+		// Then the wait returns the context error and stops the watch
+		if err != context.Canceled {
+			t.Fatalf("Expected context.Canceled, got %v", err)
+		}
+		if !quiet.IsStopped() {
+			t.Error("Expected the wait to stop the watch")
 		}
 	})
 
