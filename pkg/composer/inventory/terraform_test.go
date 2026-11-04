@@ -419,6 +419,7 @@ resource "helm_release" "app" {
     name  = "image.repository"
     value = aws_ecr_repository.app.repository_url
   }
+  set_list = [{ name = "image.pullSecrets", value = ["one", "two"] }]
 }
 
 resource "helm_release" "counted" {
@@ -459,6 +460,9 @@ resource "helm_release" "counted" {
 		}
 		values := renderer.requests[0].HelmRelease["spec"].(map[string]any)["values"].(map[string]any)
 		image, _ := values["image"].(map[string]any)
+		if secrets, _ := image["pullSecrets"].([]any); len(secrets) != 2 || secrets[1] != "two" {
+			t.Errorf("expected the set_list entry, got %v", image["pullSecrets"])
+		}
 		if values["replicas"] != int64(3) || image["repository"] != "windsor-deferred-value" {
 			t.Errorf("unexpected set values %v", values)
 		}

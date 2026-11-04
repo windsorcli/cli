@@ -450,7 +450,7 @@ func terraformChart(repository, chart, version string) (Entry, bool) {
 }
 
 // releaseValuesFromHCL merges the values documents of a helm_release in order, then applies each
-// set and set_sensitive entry, as the Helm provider does. An unknown set value becomes the deferred
+// set, set_sensitive and set_list entry, as the Helm provider does. An unknown set value becomes the deferred
 // marker. It reports true when a values document is not known. A values document or set entry
 // that does not parse is an error.
 func releaseValuesFromHCL(body *hclsyntax.Body, ctx *hcl.EvalContext) (map[string]any, bool, error) {
@@ -487,7 +487,11 @@ func releaseValuesFromHCL(body *hclsyntax.Body, ctx *hcl.EvalContext) (map[strin
 			}
 		}
 	}
-	if attr, ok := body.Attributes["set_sensitive"]; ok {
+	for _, field := range []string{"set_sensitive", "set_list"} {
+		attr, ok := body.Attributes[field]
+		if !ok {
+			continue
+		}
 		if list, ok := ctyToGo(evalValue(attr.Expr, ctx), deferredMarker).([]any); ok {
 			for _, item := range list {
 				if m, ok := item.(map[string]any); ok {
@@ -497,7 +501,7 @@ func releaseValuesFromHCL(body *hclsyntax.Body, ctx *hcl.EvalContext) (map[strin
 		}
 	}
 	for _, b := range body.Blocks {
-		if b.Type != "set" && b.Type != "set_sensitive" {
+		if b.Type != "set" && b.Type != "set_sensitive" && b.Type != "set_list" {
 			continue
 		}
 		m := make(map[string]any)
@@ -512,6 +516,13 @@ func releaseValuesFromHCL(body *hclsyntax.Body, ctx *hcl.EvalContext) (map[strin
 			continue
 		}
 		value := fmt.Sprint(set["value"])
+		if list, ok := set["value"].([]any); ok {
+			items := make([]string, len(list))
+			for i, item := range list {
+				items[i] = fmt.Sprint(item)
+			}
+			value = "{" + strings.Join(items, ",") + "}"
+		}
 		var err error
 		switch t, _ := set["type"].(string); t {
 		case "string":
