@@ -7,6 +7,7 @@ package kubernetes
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"slices"
 	"strings"
@@ -23,6 +24,7 @@ import (
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/apimachinery/pkg/watch"
 )
 
 // =============================================================================
@@ -34,6 +36,9 @@ const kustomizationWaitErrorBudgetFraction = 0.25
 
 // kustomizationWaitMessageLimit caps the length of a failure message in a progress line.
 const kustomizationWaitMessageLimit = 200
+
+// errKustomizationWaitTimeout signals that watchKustomizations reached its timeout.
+var errKustomizationWaitTimeout = errors.New("kustomization wait timed out")
 
 // kustomizationsGVR is the Flux Kustomization resource.
 var kustomizationsGVR = schema.GroupVersionResource{
@@ -107,11 +112,11 @@ func (k *BaseKubernetesManager) ApplyKustomization(kustomization kustomizev1.Kus
 }
 
 // WaitForKustomizations waits until each Kustomization is Ready, within the timeout of the longest
-// dependency chain. It returns ctx.Err() on cancellation. BuildFailed and ArtifactFailed fail at once.
-// List errors and ReconciliationFailed fail after an error budget: a quarter of the total, or the own
-// timeout of the Kustomization when that is shorter, and never less than the minimum. It reports one
-// step per Kustomization to layers, starting each when its dependencies are Ready and failing the one
-// that fails the wait.
+// dependency chain. It follows a watch on the Kustomizations and returns ctx.Err() on cancellation.
+// BuildFailed and ArtifactFailed fail at once. List errors and ReconciliationFailed fail after an
+// error budget: a quarter of the total, or the own timeout of the Kustomization when that is shorter,
+// and never less than the minimum. It reports one step per Kustomization to layers, starting each
+// when its dependencies are Ready and failing the one that fails the wait.
 func (k *BaseKubernetesManager) WaitForKustomizations(ctx context.Context, blueprint *blueprintv1alpha1.Blueprint, layers KustomizationReporter) error {
 	if blueprint == nil {
 		return fmt.Errorf("blueprint not provided")
@@ -156,91 +161,77 @@ func (k *BaseKubernetesManager) WaitForKustomizations(ctx context.Context, bluep
 		dependsOn[kustomization.Name] = kustomization.DependsOn
 	}
 
-	timeoutChan := time.After(timeout)
-	ticker := time.NewTicker(k.Timing.KustomizationWaitPollInterval)
-	defer ticker.Stop()
-
 	var errorStreakStart time.Time
 	readyKustomizations := make(map[string]bool, len(kustomizationNames))
 	failureStreaks := make(map[string]kustomizationFailureStreak, len(kustomizationNames))
 
-	for {
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		case <-timeoutChan:
-			return fmt.Errorf("timeout waiting for kustomizations%s", k.describeNotReadyKustomizations(kustomizationNames, k.gitopsNamespace()))
-		case <-ticker.C:
-			objList, err := k.client.ListResources(kustomizationsGVR, k.gitopsNamespace())
-			if err != nil && isNotFoundError(err) {
-				errorStreakStart = time.Time{}
+	check := func(byName map[string]*unstructured.Unstructured) (bool, error) {
+		errorStreakStart = time.Time{}
+		for _, name := range kustomizationNames {
+			if readyKustomizations[name] {
 				continue
 			}
-			if err != nil {
-				if errorStreakStart.IsZero() {
-					errorStreakStart = time.Now()
+			obj, exists := byName[name]
+			if !exists {
+				continue
+			}
+			ready, pending, failed := kustomizationConditionStatus(obj)
+			if failed != nil {
+				layers.Fail(name, failed)
+				return false, werror.Wrap(failed, "kustomization will not become ready")
+			}
+			if pending != nil {
+				budget := failureBudget(name)
+				now := time.Now()
+				streak, tracking := failureStreaks[name]
+				if !tracking || now.Sub(streak.lastSeen) >= budget+k.Timing.KustomizationWaitPollInterval {
+					streak.start = now
 				}
-				if time.Since(errorStreakStart) >= maxErrorDuration {
-					return werror.Wrap(err, "kustomization readiness checks failing for over %s", maxErrorDuration)
+				streak.lastSeen = now
+				failureStreaks[name] = streak
+				layers.Progress(name, kustomizationFailureText(pending))
+				if now.Sub(streak.start) >= budget {
+					layers.Fail(name, pending)
+					return false, werror.Wrap(pending, "kustomization failing for over %s", budget)
 				}
 				continue
 			}
-			if objList == nil {
-				objList = &unstructured.UnstructuredList{}
-			}
-
-			byName := make(map[string]*unstructured.Unstructured, len(objList.Items))
-			for i := range objList.Items {
-				byName[objList.Items[i].GetName()] = &objList.Items[i]
-			}
-
-			for _, name := range kustomizationNames {
-				if readyKustomizations[name] {
-					continue
-				}
-				obj, exists := byName[name]
-				if !exists {
-					continue
-				}
-				ready, pending, failed := kustomizationConditionStatus(obj)
-				if failed != nil {
-					layers.Fail(name, failed)
-					return werror.Wrap(failed, "kustomization will not become ready")
-				}
-				if pending != nil {
-					budget := failureBudget(name)
-					now := time.Now()
-					streak, tracking := failureStreaks[name]
-					if !tracking || now.Sub(streak.lastSeen) >= budget+k.Timing.KustomizationWaitPollInterval {
-						streak.start = now
-					}
-					streak.lastSeen = now
-					failureStreaks[name] = streak
-					layers.Progress(name, kustomizationFailureText(pending))
-					if now.Sub(streak.start) >= budget {
-						layers.Fail(name, pending)
-						return werror.Wrap(pending, "kustomization failing for over %s", budget)
-					}
-					continue
-				}
-				if ready {
-					delete(failureStreaks, name)
-					readyKustomizations[name] = true
-					layers.Done(name)
-				}
-			}
-
-			errorStreakStart = time.Time{}
-			if len(readyKustomizations) == len(kustomizationNames) {
-				return nil
-			}
-			for _, name := range kustomizationNames {
-				if !readyKustomizations[name] && dependenciesReady(dependsOn[name], kustomizationNames, readyKustomizations) {
-					layers.Start(name)
-				}
+			if ready {
+				delete(failureStreaks, name)
+				readyKustomizations[name] = true
+				layers.Done(name)
 			}
 		}
+		if len(readyKustomizations) == len(kustomizationNames) {
+			return true, nil
+		}
+		for _, name := range kustomizationNames {
+			if !readyKustomizations[name] && dependenciesReady(dependsOn[name], kustomizationNames, readyKustomizations) {
+				layers.Start(name)
+			}
+		}
+		return false, nil
 	}
+
+	onError := func(err error) error {
+		if isNotFoundError(err) {
+			errorStreakStart = time.Time{}
+			return nil
+		}
+		if errorStreakStart.IsZero() {
+			errorStreakStart = time.Now()
+		}
+		if time.Since(errorStreakStart) >= maxErrorDuration {
+			return werror.Wrap(err, "kustomization readiness checks failing for over %s", maxErrorDuration)
+		}
+		return nil
+	}
+
+	err := k.watchKustomizations(ctx, timeout, check, onError)
+	if errors.Is(err, errKustomizationWaitTimeout) {
+		return fmt.Errorf("timeout waiting for kustomizations%s", k.describeNotReadyKustomizations(kustomizationNames, k.gitopsNamespace()))
+	}
+	return err
 }
 
 // GetHelmReleasesForKustomization gets HelmReleases associated with a Kustomization
@@ -455,6 +446,93 @@ func (k *BaseKubernetesManager) describeNotReadyKustomizations(names []string, n
 // Error returns the name, reason, and message of the failed Kustomization.
 func (e *kustomizationFailedError) Error() string {
 	return fmt.Sprintf("kustomization %s failed (%s): %s", e.name, e.reason, e.message)
+}
+
+// watchKustomizations calls check on the Kustomizations in the gitops namespace until check reports done or fails.
+// It fills a cache with a List, then follows a Watch from the resource version of that list.
+// It calls check after each list, after each watch event, and on each poll tick, so a time budget in check expires.
+// A closed watch or a watch error event makes it list and watch again on the next poll tick.
+// It passes each list or watch-open error to onError, and retries on the next tick when onError returns nil.
+// It returns ctx.Err() on cancellation and errKustomizationWaitTimeout when the timeout elapses.
+func (k *BaseKubernetesManager) watchKustomizations(ctx context.Context, timeout time.Duration, check func(map[string]*unstructured.Unstructured) (bool, error), onError func(error) error) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	namespace := k.gitopsNamespace()
+	timeoutChan := time.After(timeout)
+	ticker := time.NewTicker(k.Timing.KustomizationWaitPollInterval)
+	defer ticker.Stop()
+
+	cache := map[string]*unstructured.Unstructured{}
+	var stream watch.Interface
+	defer func() {
+		if stream != nil {
+			stream.Stop()
+		}
+	}()
+
+	refresh := func() (bool, error) {
+		list, err := k.client.ListResources(kustomizationsGVR, namespace)
+		if err != nil {
+			return false, onError(err)
+		}
+		if list == nil {
+			list = &unstructured.UnstructuredList{}
+		}
+		clear(cache)
+		for i := range list.Items {
+			cache[list.Items[i].GetName()] = &list.Items[i]
+		}
+		if done, err := check(cache); done || err != nil {
+			return done, err
+		}
+		opened, err := k.client.WatchResources(ctx, kustomizationsGVR, namespace, list.GetResourceVersion())
+		if err != nil {
+			return false, onError(err)
+		}
+		stream = opened
+		return false, nil
+	}
+
+	done, err := refresh()
+	for err == nil && !done {
+		var events <-chan watch.Event
+		if stream != nil {
+			events = stream.ResultChan()
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-timeoutChan:
+			return errKustomizationWaitTimeout
+		case event, open := <-events:
+			if !open || event.Type == watch.Error {
+				stream.Stop()
+				stream = nil
+				continue
+			}
+			obj, ok := event.Object.(*unstructured.Unstructured)
+			if !ok {
+				continue
+			}
+			switch event.Type {
+			case watch.Added, watch.Modified:
+				cache[obj.GetName()] = obj
+			case watch.Deleted:
+				delete(cache, obj.GetName())
+			default:
+				continue
+			}
+			done, err = check(cache)
+		case <-ticker.C:
+			if stream == nil {
+				done, err = refresh()
+			} else {
+				done, err = check(cache)
+			}
+		}
+	}
+	return err
 }
 
 // getHelmRelease gets a HelmRelease by name and namespace
