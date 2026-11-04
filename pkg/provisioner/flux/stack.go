@@ -12,7 +12,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"strconv"
 	"strings"
 
 	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
@@ -22,17 +21,6 @@ import (
 	"github.com/windsorcli/cli/pkg/runtime"
 	"github.com/windsorcli/cli/pkg/tui"
 	sigsyaml "sigs.k8s.io/yaml"
-)
-
-// =============================================================================
-// Constants
-// =============================================================================
-
-// minFluxMajor and minFluxMinor define the minimum supported flux CLI version (v2.3.0).
-// flux diff kustomization --kustomization-file was introduced in v2.3.0.
-const (
-	minFluxMajor = 2
-	minFluxMinor = 3
 )
 
 // =============================================================================
@@ -122,10 +110,7 @@ func (s *FluxStack) PlanAll(blueprint *blueprintv1alpha1.Blueprint) error {
 		return nil
 	}
 
-	if _, err := s.shims.LookPath("flux"); err != nil {
-		return werror.New("flux CLI is required for 'plan kustomize'", "Install the flux CLI from https://fluxcd.io/flux/installation/.", nil)
-	}
-	if err := s.checkFluxVersion(); err != nil {
+	if err := s.runtime.ToolsManager.CheckFlux(); err != nil {
 		return err
 	}
 
@@ -146,10 +131,7 @@ func (s *FluxStack) Plan(blueprint *blueprintv1alpha1.Blueprint, componentID str
 		return fmt.Errorf("blueprint not provided")
 	}
 
-	if _, err := s.shims.LookPath("flux"); err != nil {
-		return werror.New("flux CLI is required for 'plan kustomize'", "Install the flux CLI from https://fluxcd.io/flux/installation/.", nil)
-	}
-	if err := s.checkFluxVersion(); err != nil {
+	if err := s.runtime.ToolsManager.CheckFlux(); err != nil {
 		return err
 	}
 
@@ -407,41 +389,6 @@ func (s *FluxStack) runFluxDiff(name string, args ...string) error {
 	}
 	fmt.Fprintln(os.Stderr, "No changes.")
 	return nil
-}
-
-// checkFluxVersion checks that the installed flux CLI is at least minFluxMajor.minFluxMinor.
-// It runs "flux version --client" and parses the "flux: vX.Y.Z" line. An older flux CLI
-// returns an error with a remediation hint.
-func (s *FluxStack) checkFluxVersion() error {
-	out, err := s.runtime.Shell.ExecSilent("flux", "version", "--client")
-	if err != nil {
-		return werror.Wrap(err, "failed to get flux version")
-	}
-	for _, line := range strings.Split(out, "\n") {
-		line = strings.TrimSpace(line)
-		if !strings.HasPrefix(line, "flux:") {
-			continue
-		}
-		parts := strings.Fields(line)
-		if len(parts) < 2 {
-			break
-		}
-		ver := strings.TrimPrefix(parts[1], "v")
-		segments := strings.SplitN(ver, ".", 3)
-		if len(segments) < 2 {
-			break
-		}
-		major, err1 := strconv.Atoi(segments[0])
-		minor, err2 := strconv.Atoi(segments[1])
-		if err1 != nil || err2 != nil {
-			break
-		}
-		if major > minFluxMajor || (major == minFluxMajor && minor >= minFluxMinor) {
-			return nil
-		}
-		return werror.New(fmt.Sprintf("flux CLI v%d.%d or later is required (found v%s)", minFluxMajor, minFluxMinor, ver), "Upgrade the flux CLI from https://fluxcd.io/flux/installation/.", nil)
-	}
-	return fmt.Errorf("could not determine flux CLI version from output: %q", out)
 }
 
 // captureKustomizeBuild renders the kustomize manifests for a kustomization that does

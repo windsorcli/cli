@@ -14,6 +14,7 @@ import (
 	"github.com/windsorcli/cli/pkg/runtime"
 	"github.com/windsorcli/cli/pkg/runtime/config"
 	"github.com/windsorcli/cli/pkg/runtime/shell"
+	"github.com/windsorcli/cli/pkg/runtime/tools"
 )
 
 // =============================================================================
@@ -74,6 +75,7 @@ type mocks struct {
 	configHandler   *config.MockConfigHandler
 	artifactBuilder *artifact.MockArtifact
 	shims           *inventory.Shims
+	toolsManager    *tools.MockToolsManager
 	fluxArgs        [][]string
 	files           map[string]string
 }
@@ -83,9 +85,6 @@ func setupMocks(t *testing.T) *mocks {
 	m := &mocks{files: make(map[string]string)}
 
 	m.shell = shell.NewMockShell()
-	m.shell.ExecSilentFunc = func(command string, args ...string) (string, error) {
-		return "flux: v2.9.3\n", nil
-	}
 	m.shell.ExecCaptureWithEnvFunc = func(command string, env map[string]string, args ...string) (string, error) {
 		m.fluxArgs = append(m.fluxArgs, append([]string{command}, args...))
 		return renderedInstall, nil
@@ -109,7 +108,6 @@ func setupMocks(t *testing.T) *mocks {
 	}
 
 	m.shims = inventory.NewShims()
-	m.shims.LookPath = func(file string) (string, error) { return "/usr/bin/" + file, nil }
 	m.shims.MkdirTemp = func(dir, pattern string) (string, error) { return "/tmp/inventory", nil }
 	m.shims.RemoveAll = func(path string) error { return nil }
 	m.shims.WriteFile = func(name string, data []byte, perm os.FileMode) error {
@@ -117,11 +115,14 @@ func setupMocks(t *testing.T) *mocks {
 		return nil
 	}
 
+	m.toolsManager = tools.NewMockToolsManager()
+
 	m.runtime = &runtime.Runtime{
 		ContextName:   "local",
 		ProjectRoot:   "/project",
 		ConfigHandler: m.configHandler,
 		Shell:         m.shell,
+		ToolsManager:  m.toolsManager,
 	}
 	return m
 }
@@ -292,9 +293,9 @@ func TestBaseLister_List(t *testing.T) {
 	})
 
 	t.Run("SkipsDestroyOnlyKustomizations", func(t *testing.T) {
-		// Given only a destroy-only Kustomization
+		// Given only a destroy-only Kustomization and no flux CLI
 		m := setupMocks(t)
-		m.shims.LookPath = func(file string) (string, error) { return "", errors.New("not found") }
+		m.toolsManager.CheckFluxFunc = func() error { return errors.New("flux not found") }
 		lister := newLister(m)
 		bp := testBlueprint()
 		destroyOnly := true
@@ -482,33 +483,22 @@ spec: {url: "oci://ghcr.io/org/other", ref: {tag: 2.0.0}}
 		}
 	})
 
-	t.Run("FailsWithoutFlux", func(t *testing.T) {
-		// Given no flux CLI
+	t.Run("ReturnsTheFluxCheckError", func(t *testing.T) {
+		// Given a flux CLI check that fails
 		m := setupMocks(t)
-		m.shims.LookPath = func(file string) (string, error) { return "", errors.New("not found") }
+		checkErr := errors.New("flux CLI too old")
+		m.toolsManager.CheckFluxFunc = func() error { return checkErr }
 		lister := newLister(m)
 
 		// When List is called
 		_, err := lister.List(testBlueprint(), inventory.Options{})
 
-		// Then the error asks for the flux CLI
-		if err == nil || !strings.Contains(err.Error(), "flux CLI is required") {
-			t.Fatalf("expected a missing flux error, got %v", err)
+		// Then the check error returns and nothing renders
+		if !errors.Is(err, checkErr) {
+			t.Fatalf("expected the flux check error, got %v", err)
 		}
-	})
-
-	t.Run("FailsWithAnOldFlux", func(t *testing.T) {
-		// Given flux v2.2
-		m := setupMocks(t)
-		m.shell.ExecSilentFunc = func(command string, args ...string) (string, error) { return "flux: v2.2.0\n", nil }
-		lister := newLister(m)
-
-		// When List is called
-		_, err := lister.List(testBlueprint(), inventory.Options{})
-
-		// Then the error names the minimum version
-		if err == nil || !strings.Contains(err.Error(), "v2.3 or later") {
-			t.Fatalf("expected a version error, got %v", err)
+		if len(m.fluxArgs) != 0 {
+			t.Errorf("expected no render, got %v", m.fluxArgs)
 		}
 	})
 

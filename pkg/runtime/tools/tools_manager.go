@@ -54,6 +54,8 @@ type ToolsManager interface {
 	CheckRequirements(reqs Requirements) error
 	CheckAuth() error
 	CheckTerraform() error
+	CheckFlux() error
+	CheckFluxOperator() error
 	GetTerraformCommand() string
 }
 
@@ -205,6 +207,18 @@ func (t *BaseToolsManager) CheckTerraform() error {
 	return nil
 }
 
+// CheckFlux checks that the flux CLI is on PATH and meets the minimum version.
+// Commands that render or diff Flux Kustomizations call it before they run flux.
+func (t *BaseToolsManager) CheckFlux() error {
+	return t.checkToolVersion("flux", "version", "--client")
+}
+
+// CheckFluxOperator checks that the flux-operator CLI is on PATH and meets the minimum version.
+// The minimum version is the first release with the build instance command.
+func (t *BaseToolsManager) CheckFluxOperator() error {
+	return t.checkToolVersion("flux-operator", "--version")
+}
+
 // GetTerraformCommand returns the terraform command to use (terraform or tofu) based on configuration.
 // Defaults to "terraform" if not specified in the root-level terraform config.
 // Accepts case-insensitive driver values and "tofu" as an alias for "opentofu".
@@ -223,6 +237,26 @@ func (t *BaseToolsManager) GetTerraformCommand() string {
 // =============================================================================
 // Private Methods
 // =============================================================================
+
+// checkToolVersion looks up command on PATH, runs it with versionArgs, and compares the first
+// dotted version in the output with the minimum version in the tool registry.
+func (t *BaseToolsManager) checkToolVersion(command string, versionArgs ...string) error {
+	if _, err := t.shims.LookPath(command); err != nil {
+		return missingToolError(command)
+	}
+	out, err := t.shell.ExecSilentWithTimeout(command, versionArgs, 5*time.Second)
+	if err != nil {
+		return werror.Wrap(err, "%s version check failed", command)
+	}
+	version := extractVersion(out)
+	if version == "" {
+		return fmt.Errorf("failed to extract %s version from output %q", command, out)
+	}
+	if compareVersion(version, toolRegistry[command].minVersion) < 0 {
+		return outdatedToolError(command, version)
+	}
+	return nil
+}
 
 // getTerraformDriver returns the terraform driver from root config, or detects which CLI is available.
 // If not specified in config, it checks for "terraform" first, then "tofu", defaulting to "terraform" if neither is found.

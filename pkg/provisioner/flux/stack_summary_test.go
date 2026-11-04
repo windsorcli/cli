@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
+	"github.com/windsorcli/cli/internal/werror"
 	"github.com/windsorcli/cli/pkg/provisioner/kubernetes"
 )
 
@@ -177,13 +178,10 @@ func TestFluxStack_PlanSummary(t *testing.T) {
 	})
 
 	t.Run("ReturnsDegradedRowsAndHintWhenFluxNotInstalled", func(t *testing.T) {
-		// Given flux CLI is not on PATH
+		// Given a flux CLI check that fails
 		m := setupFluxMocks(t)
-		m.shims.LookPath = func(file string) (string, error) {
-			if file == "flux" {
-				return "", fmt.Errorf("not found")
-			}
-			return "/usr/bin/" + file, nil
+		m.toolsManager.CheckFluxFunc = func() error {
+			return werror.New("Flux CLI >= 2.3.0 is required but was not found on PATH.", "Install Flux CLI from https://fluxcd.io/flux/installation/.", nil)
 		}
 		m.kubernetesManager.KustomizationExistsFunc = func(name, namespace string) (bool, error) {
 			return true, nil // existing — would need flux
@@ -208,15 +206,9 @@ func TestFluxStack_PlanSummary(t *testing.T) {
 		if len(hints) == 0 {
 			t.Error("expected at least one hint when flux is missing")
 		}
-		found := false
-		for _, h := range hints {
-			if strings.Contains(h, "flux") {
-				found = true
-				break
-			}
-		}
-		if !found {
-			t.Errorf("expected flux hint, got %v", hints)
+		want := "Flux CLI >= 2.3.0 is required but was not found on PATH. Windsor cannot show kustomize diffs for existing clusters.\nInstall Flux CLI from https://fluxcd.io/flux/installation/."
+		if hints[0] != want {
+			t.Errorf("expected hint %q, got %q", want, hints[0])
 		}
 	})
 

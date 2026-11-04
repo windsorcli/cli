@@ -119,6 +119,12 @@ const MinimumVersionLimaIncus = "2.0.3"
 
 const MinimumVersionTerraform = "1.12.2"
 
+// MinimumVersionFlux is the first flux release with the --kustomization-file flag.
+const MinimumVersionFlux = "2.3.0"
+
+// MinimumVersionFluxOperator is the first flux-operator release with the build instance command.
+const MinimumVersionFluxOperator = "0.20.0"
+
 const MinimumVersion1Password = "2.15.0"
 
 const MinimumVersionKubelogin = "0.1.7"

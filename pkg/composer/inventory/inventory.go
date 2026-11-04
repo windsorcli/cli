@@ -203,7 +203,7 @@ func (l *BaseLister) listFromRender(blueprint *blueprintv1alpha1.Blueprint, resu
 		return nil, nil
 	}
 
-	if err := l.checkFlux(); err != nil {
+	if err := l.runtime.ToolsManager.CheckFlux(); err != nil {
 		return nil, err
 	}
 
