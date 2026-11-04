@@ -336,29 +336,16 @@ func (p *BaseBlueprintProcessor) isSensitivePath(path string) bool {
 	return p.runtime != nil && p.runtime.ConfigHandler != nil && p.runtime.ConfigHandler.IsSensitivePath(path)
 }
 
-// sensitivePathsInValue returns the sensitive config paths referenced as bare "${path}" interpolation
-// segments anywhere in value — whole-string ("${cdn.key}") or embedded ("https://x/${cdn.key}",
-// "${cdn.key}-suffix"). A segment whose inner text is not a plain config path (it contains operators,
-// a function call, or quotes) can't be resolved to a single sensitive property and is skipped, so a
-// sensitive path used inside a larger expression remains the one uncaught form.
+// sensitivePathsInValue returns the sensitive config paths that the ${...} expressions in value
+// reference. It parses each expression and checks every member path in it, so it finds a bare
+// reference ("${cdn.key}"), an embedded one ("https://x/${cdn.key}"), and one inside a larger
+// expression ("${'Bearer ' + cdn.key}"). It skips an expression that does not parse.
 func (p *BaseBlueprintProcessor) sensitivePathsInValue(value string) []string {
 	var found []string
-	rest := value
-	for {
-		start := strings.Index(rest, "${")
-		if start < 0 {
-			break
+	for _, ref := range extractExprASTRefs(value) {
+		if p.isSensitivePath(ref) {
+			found = append(found, ref)
 		}
-		rest = rest[start+2:]
-		end := strings.Index(rest, "}")
-		if end < 0 {
-			break
-		}
-		inner := strings.TrimSpace(rest[:end])
-		if inner != "" && !strings.ContainsAny(inner, "(){}\"' \t\n\r") && p.isSensitivePath(inner) {
-			found = append(found, inner)
-		}
-		rest = rest[end+1:]
 	}
 	return found
 }

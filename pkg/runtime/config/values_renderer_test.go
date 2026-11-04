@@ -1,6 +1,7 @@
 package config_test
 
 import (
+	"slices"
 	"strings"
 	"testing"
 
@@ -257,6 +258,71 @@ func TestRedactSensitiveValues(t *testing.T) {
 		// Then no key is created
 		if _, exists := values["cdn"].(map[string]any)["cloudflare_api_key"]; exists {
 			t.Error("Expected absent sensitive key to not be fabricated")
+		}
+	})
+}
+
+func TestSensitiveValues(t *testing.T) {
+	t.Run("ReturnsValueAtExactPathOnly", func(t *testing.T) {
+		// Given values with a sensitive leaf and a sibling
+		values := map[string]any{
+			"cdn": map[string]any{"key": "SUPERSECRET", "zone": "example.com"},
+		}
+
+		// When collecting the values at the sensitive path
+		got := config.SensitiveValues(values, []string{"cdn.key"})
+
+		// Then only the sensitive value is returned
+		if !slices.Equal(got, []string{"SUPERSECRET"}) {
+			t.Errorf("Expected [SUPERSECRET], got %v", got)
+		}
+	})
+
+	t.Run("ReturnsValuesAcrossWildcardKeys", func(t *testing.T) {
+		// Given a dynamic-key map with a sensitive leaf under each entry
+		values := map[string]any{
+			"stores": map[string]any{
+				"a": map[string]any{"token": "atok", "url": "https://a"},
+				"b": map[string]any{"token": "btok"},
+			},
+		}
+
+		// When collecting the values at the wildcard path
+		got := config.SensitiveValues(values, []string{"stores.*.token"})
+
+		// Then each store's token is returned
+		slices.Sort(got)
+		if !slices.Equal(got, []string{"atok", "btok"}) {
+			t.Errorf("Expected [atok btok], got %v", got)
+		}
+	})
+
+	t.Run("ReturnsEveryScalarUnderAStructuredValue", func(t *testing.T) {
+		// Given a sensitive path that holds a map with a list and a number
+		values := map[string]any{
+			"creds": map[string]any{"keys": []any{"k1", "k2"}, "port": 8443},
+		}
+
+		// When collecting the values at the sensitive path
+		got := config.SensitiveValues(values, []string{"creds"})
+
+		// Then every scalar inside it is returned as a string
+		slices.Sort(got)
+		if !slices.Equal(got, []string{"8443", "k1", "k2"}) {
+			t.Errorf("Expected [8443 k1 k2], got %v", got)
+		}
+	})
+
+	t.Run("IgnoresAbsentAndNilValues", func(t *testing.T) {
+		// Given values without the sensitive key and with a nil sensitive value
+		values := map[string]any{"cdn": map[string]any{"zone": "example.com", "token": nil}}
+
+		// When collecting the values at the sensitive paths
+		got := config.SensitiveValues(values, []string{"cdn.key", "cdn.token", "missing.path"})
+
+		// Then nothing is returned
+		if len(got) != 0 {
+			t.Errorf("Expected no values, got %v", got)
 		}
 	})
 }
