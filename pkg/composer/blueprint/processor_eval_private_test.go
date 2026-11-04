@@ -220,6 +220,35 @@ func TestEvaluateSubstitutions_RejectsSensitiveReference(t *testing.T) {
 		}
 	})
 
+	t.Run("AllowsSensitiveReferenceThatOnlyFeedsABoolean", func(t *testing.T) {
+		// Given substitutions that use a sensitive property only in a condition, comparison, or not
+		mocks := setupProcessorMocks(t)
+		mocks.ConfigHandler.IsSensitivePathFunc = func(path string) bool { return path == "cdn.cloudflare_api_key" }
+		mocks.ConfigHandler.GetContextValuesFunc = func() (map[string]any, error) {
+			return map[string]any{"cdn": map[string]any{"cloudflare_api_key": "s3cr3t"}}, nil
+		}
+		processor := NewBlueprintProcessor(mocks.Runtime)
+
+		// When evaluating each one
+		for name, tc := range map[string]struct{ value, want string }{
+			"TernaryCondition": {"${(cdn.cloudflare_api_key ?? '') != '' ? 'supplied' : 'generated'}", "supplied"},
+			"Comparison":       {"${cdn.cloudflare_api_key == ''}", "false"},
+			"LogicalOperator":  {"${cdn.cloudflare_api_key != nil && true}", "true"},
+			"Not":              {"${not (cdn.cloudflare_api_key startsWith 'x')}", "true"},
+		} {
+			result, _, err := processor.evaluateSubstitutions(map[string]string{"FOO": tc.value}, "", nil)
+
+			// Then the guard does not fire and the value resolves
+			if err != nil {
+				t.Errorf("%s: expected no error for %q, got %v", name, tc.value, err)
+				continue
+			}
+			if result["FOO"] != tc.want {
+				t.Errorf("%s: expected %q, got %q", name, tc.want, result["FOO"])
+			}
+		}
+	})
+
 	t.Run("AllowsNonSensitiveReference", func(t *testing.T) {
 		// Given a substitution referencing a non-sensitive property
 		mocks := setupProcessorMocks(t)

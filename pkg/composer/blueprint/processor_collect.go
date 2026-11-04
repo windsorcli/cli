@@ -336,13 +336,14 @@ func (p *BaseBlueprintProcessor) isSensitivePath(path string) bool {
 	return p.runtime != nil && p.runtime.ConfigHandler != nil && p.runtime.ConfigHandler.IsSensitivePath(path)
 }
 
-// sensitivePathsInValue returns the sensitive config paths that the ${...} expressions in value
-// reference. It parses each expression and checks every member path in it, so it finds a bare
-// reference ("${cdn.key}"), an embedded one ("https://x/${cdn.key}"), and one inside a larger
-// expression ("${'Bearer ' + cdn.key}"). It skips an expression that does not parse.
+// sensitivePathsInValue returns the sensitive config paths whose values can reach the result of the
+// ${...} expressions in value. It finds a bare reference ("${cdn.key}"), an embedded one
+// ("https://x/${cdn.key}"), and one inside a larger expression ("${'Bearer ' + cdn.key}"). It allows a
+// path that only feeds a boolean, such as the condition in "${cdn.key != nil ? 'a' : 'b'}". It skips an
+// expression that does not parse.
 func (p *BaseBlueprintProcessor) sensitivePathsInValue(value string) []string {
 	var found []string
-	for _, ref := range extractExprASTRefs(value) {
+	for _, ref := range extractValueRefs(value) {
 		if p.isSensitivePath(ref) {
 			found = append(found, ref)
 		}
