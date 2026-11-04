@@ -12,6 +12,7 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
 	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
+	"github.com/windsorcli/cli/internal/werror"
 	"github.com/windsorcli/cli/pkg/composer"
 	"github.com/windsorcli/cli/pkg/composer/blueprint"
 	"github.com/windsorcli/cli/pkg/project"
@@ -88,6 +89,8 @@ func TestDownCmd(t *testing.T) {
 		}
 
 		cliCmd.DownCmd.Flags().VisitAll(func(flag *pflag.Flag) {
+			_ = flag.Value.Set(flag.DefValue)
+			flag.Changed = false
 			cmd.Flags().AddFlag(flag)
 		})
 
@@ -309,6 +312,138 @@ func TestDownCmd(t *testing.T) {
 		want := "Run 'windsor configure network --revert'"
 		if !strings.Contains(stderrBuf.String(), want) {
 			t.Errorf("expected stderr to contain %q despite teardown error, got: %q", want, stderrBuf.String())
+		}
+	})
+
+	t.Run("DestroyFlagDestroysBeforeWorkstationTeardown", func(t *testing.T) {
+		// Given a workstation context and down --destroy with a matching --confirm
+		mocks := setupDestroyTest(t)
+		var steps []string
+		mocks.KubernetesManager.DeleteBlueprintFunc = func(*blueprintv1alpha1.Blueprint, string) error {
+			steps = append(steps, "kustomize")
+			return nil
+		}
+		mocks.TerraformStack.DestroyAllFunc = func(*blueprintv1alpha1.Blueprint, bool, ...string) (terraforminfra.DestroyOutcome, error) {
+			steps = append(steps, "terraform")
+			return terraforminfra.DestroyOutcome{}, nil
+		}
+		mockVirt := virt.NewMockVirt()
+		mockVirt.DownFunc = func() error {
+			steps = append(steps, "vm")
+			return nil
+		}
+		proj := newDestroyProject(mocks)
+		proj.Workstation = workstation.NewWorkstation(mocks.Runtime, &workstation.Workstation{VirtualMachine: mockVirt})
+
+		// When executing the down command
+		cmd := createTestDownCmd()
+		cmd.SetArgs([]string{"--destroy", "--confirm=test-context"})
+		cmd.SetContext(context.WithValue(context.Background(), cliCmd.ProjectOverridesKey, proj))
+		err := cmd.Execute()
+
+		// Then the destroy runs in full before the VM goes
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		want := "kustomize,terraform,vm"
+		if got := strings.Join(steps, ","); got != want {
+			t.Errorf("Expected steps %q, got %q", want, got)
+		}
+	})
+
+	t.Run("DestroyFailureKeepsWorkstation", func(t *testing.T) {
+		// Given down --destroy where a kustomization fails to delete
+		mocks := setupDestroyTest(t)
+		mocks.KubernetesManager.DeleteBlueprintFunc = func(*blueprintv1alpha1.Blueprint, string) error {
+			return fmt.Errorf("kustomization stalled")
+		}
+		vmDown := false
+		mockVirt := virt.NewMockVirt()
+		mockVirt.DownFunc = func() error {
+			vmDown = true
+			return nil
+		}
+		proj := newDestroyProject(mocks)
+		proj.Workstation = workstation.NewWorkstation(mocks.Runtime, &workstation.Workstation{VirtualMachine: mockVirt})
+
+		// When executing the down command
+		cmd := createTestDownCmd()
+		cmd.SetArgs([]string{"--destroy", "--confirm=test-context"})
+		cmd.SetContext(context.WithValue(context.Background(), cliCmd.ProjectOverridesKey, proj))
+		err := cmd.Execute()
+
+		// Then the destroy error surfaces and the VM stays
+		if err == nil || !strings.Contains(err.Error(), "kustomization stalled") {
+			t.Fatalf("Expected the destroy error, got %v", err)
+		}
+		if vmDown {
+			t.Error("Expected the VM to stay after a failed destroy")
+		}
+	})
+
+	t.Run("DestroyFlagWithMismatchedConfirmKeepsWorkstation", func(t *testing.T) {
+		// Given down --destroy with a --confirm that does not match the context
+		mocks := setupDestroyTest(t)
+		vmDown := false
+		mockVirt := virt.NewMockVirt()
+		mockVirt.DownFunc = func() error {
+			vmDown = true
+			return nil
+		}
+		proj := newDestroyProject(mocks)
+		proj.Workstation = workstation.NewWorkstation(mocks.Runtime, &workstation.Workstation{VirtualMachine: mockVirt})
+
+		// When executing the down command
+		cmd := createTestDownCmd()
+		cmd.SetArgs([]string{"--destroy", "--confirm=wrong-context"})
+		cmd.SetContext(context.WithValue(context.Background(), cliCmd.ProjectOverridesKey, proj))
+		err := cmd.Execute()
+
+		// Then the confirmation fails and the VM stays
+		if err == nil || !strings.Contains(err.Error(), "confirmation failed") {
+			t.Fatalf("Expected a confirmation error, got %v", err)
+		}
+		if vmDown {
+			t.Error("Expected the VM to stay after a failed confirmation")
+		}
+	})
+
+	t.Run("RefusesDestroyFlagsWithoutDestroy", func(t *testing.T) {
+		for _, arg := range []string{"--confirm=test-context", "--continue"} {
+			t.Run(arg, func(t *testing.T) {
+				// Given down with a destroy flag but no --destroy
+				mocks := setupDownTest(t)
+
+				// When executing the down command
+				cmd := createTestDownCmd()
+				cmd.SetArgs([]string{arg})
+				cmd.SetContext(context.WithValue(context.Background(), cliCmd.ProjectOverridesKey, mocks.Project))
+				err := cmd.Execute()
+
+				// Then it refuses with a remediation that names --destroy
+				we := werror.Find(err)
+				if we == nil || !strings.Contains(we.Remediation, "--destroy") {
+					t.Errorf("Expected a remediation that names --destroy, got %v", err)
+				}
+			})
+		}
+	})
+
+	t.Run("DestroyFlagWithoutWorkstationFails", func(t *testing.T) {
+		// Given down --destroy in a context with no workstation
+		mocks := setupDestroyTest(t)
+		proj := newDestroyProject(mocks)
+
+		// When executing the down command
+		cmd := createTestDownCmd()
+		cmd.SetArgs([]string{"--destroy", "--confirm=test-context"})
+		cmd.SetContext(context.WithValue(context.Background(), cliCmd.ProjectOverridesKey, proj))
+		err := cmd.Execute()
+
+		// Then it refuses and points at windsor destroy
+		we := werror.Find(err)
+		if we == nil || !strings.Contains(we.Remediation, "windsor destroy") {
+			t.Errorf("Expected a remediation that names windsor destroy, got %v", err)
 		}
 	})
 }

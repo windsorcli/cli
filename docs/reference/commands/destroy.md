@@ -7,7 +7,7 @@ description: "Destroy live infrastructure."
 windsor destroy [component]
 ```
 
-Destroy live infrastructure. With no argument, removes every Flux kustomization, then every Terraform component. With a component name, destroys that component across both layers (Terraform and/or Kustomize).
+Destroy live infrastructure. With no argument, removes every Flux kustomization, then every Terraform component. With a component name, destroys that component across both layers (Terraform and/or Kustomize). In a workstation context, 'windsor down --destroy' runs this destroy and then deletes the workstation.
 
 Every form requires confirmation. Either type the context or component name at the prompt, or pass --confirm=<expected> to satisfy the gate non-interactively (CI-safe). The --confirm value must match the prompt token exactly; mismatches abort the operation.
 
