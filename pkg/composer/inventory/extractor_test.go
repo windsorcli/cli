@@ -2,6 +2,7 @@ package inventory_test
 
 import (
 	"errors"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -63,7 +64,7 @@ func TestFluxInstanceExtractor_Extract(t *testing.T) {
 		if len(objects) != 1 || objects[0]["kind"] != "Deployment" {
 			t.Errorf("unexpected objects: %v", objects)
 		}
-		if strings.Join(gotArgs, " ") != "flux-operator build instance -f /tmp/inventory/flux-instance.yaml" {
+		if filepath.ToSlash(strings.Join(gotArgs, " ")) != "flux-operator build instance -f /tmp/inventory/flux-instance.yaml" {
 			t.Errorf("unexpected args: %v", gotArgs)
 		}
 		if !strings.Contains(m.files["/tmp/inventory/flux-instance.yaml"], "kind: FluxInstance") {
