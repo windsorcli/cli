@@ -3,6 +3,7 @@ package inventory_test
 import (
 	"errors"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -113,7 +114,7 @@ func setupMocks(t *testing.T) *mocks {
 	m.shims.MkdirTemp = func(dir, pattern string) (string, error) { return "/tmp/inventory", nil }
 	m.shims.RemoveAll = func(path string) error { return nil }
 	m.shims.WriteFile = func(name string, data []byte, perm os.FileMode) error {
-		m.files[name] = string(data)
+		m.files[filepath.ToSlash(name)] = string(data)
 		return nil
 	}
 
@@ -276,7 +277,7 @@ func TestBaseLister_List(t *testing.T) {
 		}
 
 		// Then flux renders in dry-run mode with the values inline
-		args := strings.Join(m.fluxArgs[0], " ")
+		args := filepath.ToSlash(strings.Join(m.fluxArgs[0], " "))
 		for _, want := range []string{"flux build kustomization csi-install", "--path /project/kustomize/csi/install", "--dry-run", "--in-memory-build"} {
 			if !strings.Contains(args, want) {
 				t.Errorf("expected %q in %q", want, args)
@@ -308,7 +309,7 @@ func TestBaseLister_List(t *testing.T) {
 		if err != nil {
 			t.Fatalf("expected no error, got %v", err)
 		}
-		if !strings.Contains(strings.Join(m.fluxArgs[0], " "), "--path /project/.windsor/cache/oci/core/kustomize/csi/install") {
+		if !strings.Contains(filepath.ToSlash(strings.Join(m.fluxArgs[0], " ")), "--path /project/.windsor/cache/oci/core/kustomize/csi/install") {
 			t.Errorf("expected the cache path, got %v", m.fluxArgs[0])
 		}
 		core := findEntry(result.Inventory.Artifacts, inventory.KindBlueprint, "ghcr.io/windsorcli/core")
@@ -633,7 +634,7 @@ spec: {template: {spec: {containers: [{image: "ghcr.io/org/hook:2.0.0"}]}}}`,
 		// Given an artifact-manifest.yaml in the OCI cache and none in the project root
 		m := setupMocks(t)
 		m.shims.ReadFile = func(name string) ([]byte, error) {
-			if name == "/project/.windsor/cache/oci/core/artifact-manifest.yaml" {
+			if filepath.ToSlash(name) == "/project/.windsor/cache/oci/core/artifact-manifest.yaml" {
 				return []byte(`version: v1alpha1
 artifacts:
 - type: docker
