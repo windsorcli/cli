@@ -811,7 +811,7 @@ func TestInit_WritesHeaderKeysFirstInValues(t *testing.T) {
 
 // TestInit_UninitializedContextFailsLaterCommands verifies that a context left by a failed init,
 // with values.yaml and no blueprint.yaml or template, makes show blueprint, plan, and up fail and
-// tell the operator to run init. Before the fix, these commands composed an empty blueprint.
+// tell the operator to run init. Recovery commands such as unlock still run on that context.
 func TestInit_UninitializedContextFailsLaterCommands(t *testing.T) {
 	t.Parallel()
 	dir, env := helpers.CopyFixtureOnly(t, "uninitialized-context")
@@ -837,5 +837,8 @@ func TestInit_UninitializedContextFailsLaterCommands(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(dir, "contexts", "broken", "blueprint.yaml")); err == nil {
 		t.Error("expected no blueprint.yaml for the broken context after the failed commands")
+	}
+	if _, stderr, err := helpers.RunCLI(dir, []string{"unlock", "--force", "--context", "broken"}, env); err != nil {
+		t.Errorf("unlock: expected success for an uninitialized context, got %v\nstderr: %s", err, stderr)
 	}
 }

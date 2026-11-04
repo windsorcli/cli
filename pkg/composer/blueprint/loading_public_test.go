@@ -55,6 +55,26 @@ func TestLoadBlueprint(t *testing.T) {
 		}
 	})
 
+	t.Run("SkipValidationLoadsAContextWithNoBlueprintSource", func(t *testing.T) {
+		// Given a context that init did not finish, loaded the way teardown commands load it
+		f := newFixture(t)
+		f.write(t, "windsor.yaml", "version: v1alpha1\n")
+		f.write(t, "contexts/local/values.yaml", "platform: incus\n")
+		if err := f.config.LoadConfig(); err != nil {
+			t.Fatalf("LoadConfig: %v", err)
+		}
+		h := blueprint.NewBlueprintHandler(f.runtime, f.artifact)
+		h.SetSkipValidation(true)
+
+		// When the blueprint is loaded
+		err := h.LoadBlueprint()
+
+		// Then the load succeeds, so destroy, down, and unlock still run
+		if err != nil {
+			t.Fatalf("expected no error with validation skipped, got %v", err)
+		}
+	})
+
 	t.Run("LoadsAUserBlueprintWithoutATemplate", func(t *testing.T) {
 		// Given a context with blueprint.yaml and no template
 		f := newFixture(t)

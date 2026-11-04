@@ -147,9 +147,10 @@ func (h *BaseBlueprintHandler) hasLocalTemplate() bool {
 // blueprint.yaml in the context directory, and no local _template. Init writes blueprint.yaml only
 // after composition succeeds, so this state follows an init that failed or never ran. Without
 // the check, the context composes as an empty blueprint. The check is off when
-// allowUninitialized is set or the runtime has no config root.
+// allowUninitialized or skipValidation is set, or the runtime has no config root. Teardown
+// commands skip validation, so they still run on such a context.
 func (h *BaseBlueprintHandler) checkInitialized() error {
-	if h.allowUninitialized || h.runtime == nil || h.runtime.ConfigRoot == "" {
+	if h.allowUninitialized || h.skipValidation || h.runtime == nil || h.runtime.ConfigRoot == "" {
 		return nil
 	}
 	if len(h.initBlueprintURLs) > 0 || h.hasLocalTemplate() {

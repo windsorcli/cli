@@ -181,14 +181,15 @@ func (h *BaseBlueprintHandler) LoadBlueprint(blueprintURL ...string) error {
 }
 
 // SetAllowUninitialized lets LoadBlueprint compose a context that has no blueprint source when
-// allow is true. The default is false. Only init sets it, because init composes a context before
-// it writes blueprint.yaml.
+// allow is true. The default is false. Init sets it, because init composes a context before it
+// writes blueprint.yaml. LoadBlueprintIfTerraformProject sets it, because env and exec need only
+// the env vars of a context.
 func (h *BaseBlueprintHandler) SetAllowUninitialized(allow bool) {
 	h.allowUninitialized = allow
 }
 
-// SetSkipValidation turns off structural validation in LoadBlueprint when skip is true. The default
-// is false. Teardown commands (destroy, down, env) set it, so an operator can still tear down or
+// SetSkipValidation turns off structural validation and the uninitialized-context check in
+// LoadBlueprint when skip is true. The default is false. Teardown commands (destroy, down, env) set it, so an operator can still tear down or
 // inspect a blueprint that fails validation. Deploy commands keep validation, so a structural mistake
 // shows when it is made. Destroy order does not depend on validation, because the destroy paths do
 // not use blueprint position.
