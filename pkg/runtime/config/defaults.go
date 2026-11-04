@@ -41,7 +41,8 @@ func DefaultTerraformBackendTypeForPlatform(platform string) string {
 // InitNodeDefaults returns the node entries that windsor init writes, keyed by config path.
 // Only a Hyper-V context with both gateways on NodePort gets entries, because its NAT switch serves no DHCP.
 // Control plane N gets cidrhost(network.cidr_block, 9+N), and worker N gets cidrhost(network.cidr_block, 19+N).
-// A pool that already has nodes gets no entries. The worker count is 1 when it is not set.
+// With more than 10 control planes, the workers start after the last control plane, so no two nodes share an address.
+// A pool that already has nodes gets no entries. A pool count is 1 when it is not set.
 func InitNodeDefaults(values map[string]any) map[string]any {
 	defaults := map[string]any{}
 	if platform, _ := getValueByPathFromMap(values, parsePath("platform")).(string); platform != "hyperv" {
@@ -54,8 +55,9 @@ func InitNodeDefaults(values map[string]any) map[string]any {
 	if cidrBlock == "" {
 		cidrBlock = constants.DefaultNetworkCIDR
 	}
-	addNodePoolDefaults(defaults, values, cidrBlock, "controlplanes", "controlplane", 9)
-	addNodePoolDefaults(defaults, values, cidrBlock, "workers", "worker", 19)
+	controlPlaneCount := nodePoolCount(values, "controlplanes")
+	addNodePoolDefaults(defaults, values, cidrBlock, "controlplanes", "controlplane", controlPlaneCount, 9)
+	addNodePoolDefaults(defaults, values, cidrBlock, "workers", "worker", nodePoolCount(values, "workers"), max(19, 9+controlPlaneCount))
 	return defaults
 }
 
@@ -73,13 +75,9 @@ func gatewayServiceType(values map[string]any, gateway string) string {
 
 // addNodePoolDefaults adds one entry per position of a pool that has no nodes yet.
 // Position N gets the host at offset+N in cidrBlock. A position outside cidrBlock gets no entry.
-func addNodePoolDefaults(defaults, values map[string]any, cidrBlock, pool, prefix string, offset int) {
+func addNodePoolDefaults(defaults, values map[string]any, cidrBlock, pool, prefix string, count, offset int) {
 	if nodes, ok := getValueByPathFromMap(values, parsePath("cluster."+pool+".nodes")).(map[string]any); ok && len(nodes) > 0 {
 		return
-	}
-	count, ok := intValue(getValueByPathFromMap(values, parsePath("cluster."+pool+".count")))
-	if !ok {
-		count = 1
 	}
 	for position := 1; position <= count; position++ {
 		address, ok := cidrHost(cidrBlock, offset+position)
@@ -91,6 +89,14 @@ func addNodePoolDefaults(defaults, values map[string]any, cidrBlock, pool, prefi
 			"endpoint": address + ":50000",
 		}
 	}
+}
+
+// nodePoolCount returns cluster.<pool>.count, or 1 when it is not set.
+func nodePoolCount(values map[string]any, pool string) int {
+	if count, ok := intValue(getValueByPathFromMap(values, parsePath("cluster."+pool+".count"))); ok {
+		return count
+	}
+	return 1
 }
 
 // cidrHost returns host number hostnum of an IPv4 cidrBlock, or false when the host is outside it.

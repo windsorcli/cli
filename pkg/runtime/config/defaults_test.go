@@ -1,6 +1,7 @@
 package config_test
 
 import (
+	"fmt"
 	"reflect"
 	"testing"
 
@@ -95,6 +96,32 @@ func TestInitNodeDefaults(t *testing.T) {
 				"cluster.controlplanes.nodes.controlplane-1": node("192.168.50.10"),
 				"cluster.controlplanes.nodes.controlplane-2": node("192.168.50.11"),
 			},
+		},
+		{
+			name: "WorkersStartAfterElevenControlPlanes",
+			values: map[string]any{
+				"platform": "hyperv",
+				"gateway":  nodePort,
+				"cluster":  map[string]any{"controlplanes": map[string]any{"count": 11}, "workers": map[string]any{"count": 0}},
+			},
+			want: func() map[string]any {
+				want := map[string]any{}
+				for n := 1; n <= 11; n++ {
+					want[fmt.Sprintf("cluster.controlplanes.nodes.controlplane-%d", n)] = node(fmt.Sprintf("10.5.0.%d", 9+n))
+				}
+				return want
+			}(),
+		},
+		{
+			name: "WorkerFollowsLastOfElevenControlPlanes",
+			values: map[string]any{
+				"platform": "hyperv",
+				"gateway":  nodePort,
+				"cluster": map[string]any{
+					"controlplanes": map[string]any{"count": 11, "nodes": map[string]any{"cp": node("10.5.0.99")}},
+				},
+			},
+			want: map[string]any{"cluster.workers.nodes.worker-1": node("10.5.0.21")},
 		},
 		{
 			name: "PoolWithNodesKeepsItsNodes",
