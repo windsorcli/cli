@@ -54,6 +54,47 @@ func TestShowArtifacts_ListsChartsAndImages(t *testing.T) {
 	}
 }
 
+func TestShowArtifacts_AllListsTheArtifactManifest(t *testing.T) {
+	t.Parallel()
+	dir, env := helpers.CopyFixtureOnly(t, "show-artifacts")
+	helpers.MarkAsGitRepo(t, dir)
+	if _, stderr, err := helpers.RunCLI(dir, []string{"init", "local"}, env); err != nil {
+		t.Fatalf("init local: %v\nstderr: %s", err, stderr)
+	}
+	env = append(env, "WINDSOR_CONTEXT=local")
+	stdout, stderr, err := helpers.RunCLI(dir, []string{"show", "artifacts", "--all", "--charts-to", "registry.example.com/windsor"}, env)
+	if err != nil {
+		t.Fatalf("show artifacts --all: %v\nstderr: %s", err, stderr)
+	}
+	var inv struct {
+		Artifacts []struct {
+			Kind        string `yaml:"kind"`
+			Reference   string `yaml:"reference"`
+			Destination string `yaml:"destination"`
+		} `yaml:"artifacts"`
+	}
+	if err := yaml.Unmarshal(stdout, &inv); err != nil {
+		t.Fatalf("parse artifacts YAML: %v\n%s", err, stdout)
+	}
+	got := make(map[string]string)
+	for _, a := range inv.Artifacts {
+		got[a.Kind+" "+a.Reference] = a.Destination
+	}
+	want := map[string]string{
+		"chart https://charts.jetstack.io":               "registry.example.com/windsor/cert-manager:1.16.0",
+		"chart registry-1.docker.io/bitnamicharts/redis": "registry.example.com/windsor/redis:20.6.1",
+		"image ghcr.io/example/worker":                   "",
+	}
+	for key, dest := range want {
+		if d, ok := got[key]; !ok || d != dest {
+			t.Errorf("expected %s with destination %q, got %v", key, dest, got)
+		}
+	}
+	if len(got) != len(want) {
+		t.Errorf("expected only the docker and helm entries of the manifest, got %v", got)
+	}
+}
+
 func TestShowArtifacts_FluxMirrorLeavesOutChartsInTheRegistry(t *testing.T) {
 	t.Parallel()
 	skipIfFluxNotInstalled(t)
