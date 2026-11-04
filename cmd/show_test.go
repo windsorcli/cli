@@ -1309,3 +1309,150 @@ func TestShowKustomizationCmd(t *testing.T) {
 		}
 	})
 }
+
+func TestShowArtifactsCmd(t *testing.T) {
+	createTestCmd := func() *cobra.Command {
+		*cliCmd.ShowArtifactsOutput = "yaml"
+		*cliCmd.ShowArtifactsChartsTo = ""
+		*cliCmd.ShowArtifactsAll = false
+		*cliCmd.ShowArtifactsSetFlags = []string{}
+		cmd := &cobra.Command{
+			Use:          "artifacts",
+			RunE:         cliCmd.ShowArtifactsCmd.RunE,
+			SilenceUsage: true,
+		}
+		cliCmd.ShowArtifactsCmd.Flags().VisitAll(func(flag *pflag.Flag) {
+			cmd.Flags().AddFlag(flag)
+		})
+		cmd.SetOut(io.Discard)
+		cmd.SetErr(io.Discard)
+		return cmd
+	}
+
+	captureStdout := func(t *testing.T) func() string {
+		t.Helper()
+		old := os.Stdout
+		r, w, _ := os.Pipe()
+		os.Stdout = w
+		buf := new(bytes.Buffer)
+		done := make(chan struct{})
+		go func() {
+			io.Copy(buf, r)
+			close(done)
+		}()
+		t.Cleanup(func() { os.Stdout = old })
+		return func() string {
+			w.Close()
+			<-done
+			os.Stdout = old
+			return buf.String()
+		}
+	}
+
+	setupProject := func(t *testing.T) *project.Project {
+		t.Helper()
+		mocks := setupShowTest(t)
+		mocks.BlueprintHandler.GenerateFunc = func() *blueprintv1alpha1.Blueprint {
+			return &blueprintv1alpha1.Blueprint{
+				Metadata: blueprintv1alpha1.Metadata{Name: "test-blueprint"},
+				Sources:  []blueprintv1alpha1.Source{{Name: "core", Url: "oci://ghcr.io/windsorcli/core:v0.9.0"}},
+			}
+		}
+		comp := composer.NewComposer(mocks.Runtime)
+		comp.BlueprintHandler = mocks.BlueprintHandler
+		return project.NewProject("", &project.Project{Runtime: mocks.Runtime, Composer: comp})
+	}
+
+	t.Run("SuccessWithYAMLOutput", func(t *testing.T) {
+		// Given a blueprint with an oci:// source and no Kustomizations
+		proj := setupProject(t)
+		cmd := createTestCmd()
+		cmd.SetContext(context.WithValue(context.Background(), cliCmd.ProjectOverridesKey, proj))
+		cmd.SetArgs([]string{})
+		readStdout := captureStdout(t)
+
+		// When the command runs
+		err := cmd.Execute()
+		output := readStdout()
+
+		// Then the inventory lists the blueprint artifact
+		if err != nil {
+			t.Fatalf("expected no error, got %v", err)
+		}
+		if !strings.Contains(output, "kind: blueprint") || !strings.Contains(output, "reference: ghcr.io/windsorcli/core") {
+			t.Errorf("expected the blueprint entry, got:\n%s", output)
+		}
+	})
+
+	t.Run("SuccessWithListOutput", func(t *testing.T) {
+		// Given a blueprint with an oci:// source
+		proj := setupProject(t)
+		cmd := createTestCmd()
+		cmd.SetContext(context.WithValue(context.Background(), cliCmd.ProjectOverridesKey, proj))
+		cmd.SetArgs([]string{"-o", "list", "--set", "charts.registry="})
+		readStdout := captureStdout(t)
+
+		// When the command runs with -o list and a --set value
+		err := cmd.Execute()
+		output := readStdout()
+
+		// Then each line holds an empty destination and the upstream
+		if err != nil {
+			t.Fatalf("expected no error, got %v", err)
+		}
+		if output != "\tghcr.io/windsorcli/core:v0.9.0\n" {
+			t.Errorf("unexpected output %q", output)
+		}
+	})
+
+	t.Run("SuccessWithFluxMirrorOutput", func(t *testing.T) {
+		// Given a blueprint with no charts
+		proj := setupProject(t)
+		cmd := createTestCmd()
+		cmd.SetContext(context.WithValue(context.Background(), cliCmd.ProjectOverridesKey, proj))
+		cmd.SetArgs([]string{"-o", "flux-mirror"})
+		readStdout := captureStdout(t)
+
+		// When the command runs with -o flux-mirror
+		err := cmd.Execute()
+		output := readStdout()
+
+		// Then a Flux Mirror config is printed
+		if err != nil {
+			t.Fatalf("expected no error, got %v", err)
+		}
+		if !strings.Contains(output, "apiVersion: mirror.plugin.fluxcd.io/v1beta1") || !strings.Contains(output, "kind: Config") {
+			t.Errorf("expected a Flux Mirror config, got:\n%s", output)
+		}
+	})
+
+	t.Run("RejectsAnUnknownOutputFormat", func(t *testing.T) {
+		// Given an unknown output format
+		cmd := createTestCmd()
+		cmd.SetContext(context.Background())
+		cmd.SetArgs([]string{"-o", "json"})
+
+		// When the command runs
+		err := cmd.Execute()
+
+		// Then an error names the format
+		if err == nil || !strings.Contains(err.Error(), `invalid output format "json"`) {
+			t.Fatalf("expected an output format error, got %v", err)
+		}
+	})
+
+	t.Run("RejectsAMalformedSetFlag", func(t *testing.T) {
+		// Given a --set value with no equals sign
+		cmd := createTestCmd()
+		cmd.SetContext(context.Background())
+		cmd.SetArgs([]string{"--set", "charts.registry"})
+
+		// When the command runs
+		err := cmd.Execute()
+
+		// Then an error names the entry
+		if err == nil || !strings.Contains(err.Error(), "invalid --set format") {
+			t.Fatalf("expected a --set format error, got %v", err)
+		}
+	})
+}

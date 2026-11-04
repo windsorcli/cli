@@ -134,7 +134,8 @@ func commandPreflight(cmd *cobra.Command, args []string) error {
 // configureProject creates the project for the command and configures it.
 // It reads test overrides from the command context, sets the shell verbosity and checks that the directory is trusted.
 // Commands that need more steps after Configure, such as ComposeBlueprint, call this function directly.
-func configureProject(cmd *cobra.Command) (*project.Project, error) {
+// The first flagOverrides entry holds in-memory config overrides, such as --set values.
+func configureProject(cmd *cobra.Command, flagOverrides ...map[string]any) (*project.Project, error) {
 	var opts []*project.Project
 	if overridesVal := cmd.Context().Value(projectOverridesKey); overridesVal != nil {
 		opts = []*project.Project{overridesVal.(*project.Project)}
@@ -144,7 +145,11 @@ func configureProject(cmd *cobra.Command) (*project.Project, error) {
 	if err := proj.Runtime.Shell.CheckTrustedDirectory(); err != nil {
 		return nil, werror.New("not in a trusted directory", trustDirectoryHint, err)
 	}
-	if err := proj.Configure(nil); err != nil {
+	var overrides map[string]any
+	if len(flagOverrides) > 0 {
+		overrides = flagOverrides[0]
+	}
+	if err := proj.Configure(overrides); err != nil {
 		return nil, err
 	}
 	return proj, nil
