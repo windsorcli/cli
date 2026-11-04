@@ -13,6 +13,7 @@ Unresolved deferred values render as '<deferred>' by default in 'blueprint' and 
 
 ## Subcommands
 
+- [`windsor show artifacts`](show-artifacts.md) — List the charts and images that the context pulls.
 - [`windsor show blueprint`](show-blueprint.md) — Display the fully rendered blueprint.
 - [`windsor show kustomization`](show-kustomization.md) — Display the Flux Kustomization resource for a component.
 - [`windsor show values`](show-values.md) — Display the effective context values.

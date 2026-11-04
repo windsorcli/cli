@@ -1,5 +1,5 @@
 // The show command displays the rendered resources of a context.
-// It provides the show blueprint, show kustomization and show values subcommands.
+// It provides the show artifacts, show blueprint, show kustomization and show values subcommands.
 
 package cmd
 
@@ -15,6 +15,7 @@ import (
 	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
 	"github.com/windsorcli/cli/internal/werror"
 	blueprintcomposer "github.com/windsorcli/cli/pkg/composer/blueprint"
+	"github.com/windsorcli/cli/pkg/composer/inventory"
 	"github.com/windsorcli/cli/pkg/constants"
 	"github.com/windsorcli/cli/pkg/project"
 	"github.com/windsorcli/cli/pkg/runtime/config"
@@ -24,6 +25,10 @@ var showBlueprintJSON bool
 var showBlueprintRaw bool
 var showKustomizationJSON bool
 var showValuesJSON bool
+var showArtifactsChartsTo string
+var showArtifactsOutput string
+var showArtifactsAll bool
+var showArtifactsSetFlags []string
 
 var showCmd = &cobra.Command{
 	Use:   "show",
@@ -35,6 +40,88 @@ Unresolved deferred values render as '<deferred>' by default in 'blueprint' and 
 		"docs.seealso": "[`explain`](explain.md), [`plan`](plan.md)\n" +
 			"[Blueprint reference](../blueprint.md), [Configuration reference](../configuration.md)",
 		"docs.source": "cmd/show.go",
+	},
+}
+
+var showArtifactsCmd = &cobra.Command{
+	Use:   "artifacts",
+	Short: "List the charts and images that the context pulls.",
+	Long:  `Print every chart, image and blueprint that the current context pulls, with a destination for each. The command renders each Flux Kustomization offline with the flux CLI and copies nothing. A chart goes to the --charts-to registry under its chart name and version. An image goes to the docker.registries mirror of its host. A --set value applies to this command only and is not saved.`,
+	Example: `# List the artifacts of the current context as YAML
+windsor show artifacts
+
+# Copy every chart and image with Flux Mirror
+windsor show artifacts --charts-to registry.example.com/windsor -o flux-mirror | flux mirror sync -
+
+# List the vendor upstreams of a core context that already uses a chart registry
+windsor show artifacts --set charts.registry= --charts-to registry.example.com/windsor
+
+# List the blueprint-wide set from each source's artifact-manifest.yaml
+windsor show artifacts --all -o list`,
+	Annotations: map[string]string{
+		"docs.seealso": "[`bundle`](bundle.md), [`plan`](plan.md)\n" +
+			"[Blueprint reference](../blueprint.md)",
+		"docs.source": "cmd/show.go",
+	},
+	Args:         cobra.NoArgs,
+	SilenceUsage: true,
+	RunE: func(cmd *cobra.Command, args []string) error {
+		switch showArtifactsOutput {
+		case "yaml", "flux-mirror", "list":
+		default:
+			return werror.New(fmt.Sprintf("invalid output format %q", showArtifactsOutput), "Set -o to yaml, flux-mirror or list.", nil)
+		}
+		overrides := make(map[string]any)
+		for _, setFlag := range showArtifactsSetFlags {
+			parts := strings.SplitN(setFlag, "=", 2)
+			if len(parts) != 2 {
+				return werror.New(fmt.Sprintf("invalid --set format: %s", setFlag), setFormatHint, nil)
+			}
+			overrides[parts[0]] = parts[1]
+		}
+
+		proj, err := configureProject(cmd, overrides)
+		if err != nil {
+			return err
+		}
+		if err := proj.ComposeBlueprint(); err != nil {
+			return err
+		}
+		blueprint := proj.Composer.BlueprintHandler.Generate()
+		if blueprint == nil {
+			return fmt.Errorf("failed to generate blueprint")
+		}
+		display, _ := blueprintcomposer.RenderForDisplay(blueprint, false, proj.Composer.BlueprintHandler.GetDeferredPaths()).(*blueprintv1alpha1.Blueprint)
+
+		lister := inventory.NewLister(proj.Runtime, proj.Composer.ArtifactBuilder)
+		result, err := lister.List(display, inventory.Options{ChartsTo: showArtifactsChartsTo, All: showArtifactsAll})
+		if err != nil {
+			return err
+		}
+		notes := result.Notes
+
+		switch showArtifactsOutput {
+		case "flux-mirror":
+			cfg, mirrorNotes, err := inventory.FluxMirror(result.Inventory, showArtifactsChartsTo)
+			if err != nil {
+				return err
+			}
+			notes = append(notes, mirrorNotes...)
+			if err := outputResource(cfg, false, "flux mirror config"); err != nil {
+				return err
+			}
+		case "list":
+			fmt.Print(inventory.ListLines(result.Inventory))
+		default:
+			if err := outputResource(result.Inventory, false, "artifacts"); err != nil {
+				return err
+			}
+		}
+
+		for _, note := range notes {
+			fmt.Fprintln(os.Stderr, note)
+		}
+		return nil
 	},
 }
 
@@ -178,6 +265,11 @@ func init() {
 	showBlueprintCmd.Flags().BoolVar(&showBlueprintRaw, "raw", false, "Keep deferred expressions as text instead of <deferred>.")
 	showKustomizationCmd.Flags().BoolVar(&showKustomizationJSON, "json", false, "Output as JSON instead of YAML.")
 	showValuesCmd.Flags().BoolVar(&showValuesJSON, "json", false, "Output as JSON instead of YAML.")
+	showArtifactsCmd.Flags().StringVar(&showArtifactsChartsTo, "charts-to", "", "Chart registry for chart destinations, e.g. registry.example.com/windsor.")
+	showArtifactsCmd.Flags().StringVarP(&showArtifactsOutput, "output", "o", "yaml", "Output format: yaml, flux-mirror or list.")
+	showArtifactsCmd.Flags().BoolVar(&showArtifactsAll, "all", false, "List the blueprint-wide set from each source's artifact-manifest.yaml.")
+	showArtifactsCmd.Flags().StringSliceVar(&showArtifactsSetFlags, "set", []string{}, "Override a config value for this command, e.g. --set charts.registry=. May be repeated.")
+	showCmd.AddCommand(showArtifactsCmd)
 	showCmd.AddCommand(showBlueprintCmd)
 	showCmd.AddCommand(showKustomizationCmd)
 	showCmd.AddCommand(showValuesCmd)
