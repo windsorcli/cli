@@ -1,8 +1,8 @@
 // The StackLock is a single-writer advisory lock scoped to one (projectRoot, contextName).
 // It provides a process-coordination point for windsor operations that mutate infrastructure,
 // preventing two concurrent invocations from interleaving before terraform's per-state lock
-// can engage. The current implementation is a local flock-backed adapter; s3, kubernetes,
-// and azurerm backends slot in behind the same interface.
+// can engage. The only implementation is a local flock on one machine. It does not
+// coordinate separate machines or CI runners that share remote state.
 
 package stacklock
 
@@ -62,8 +62,8 @@ const lockInfoPerm = 0o600
 // =============================================================================
 
 // Mode distinguishes writer (Exclusive) from reader (Shared) acquisition.
-// Only Exclusive is supported today; Shared is reserved for read-only plan operations
-// (§7.3 of the terraform-lifecycle-hardening spike).
+// Acquire takes every lock as Exclusive. Shared is reserved, and plan cannot use it: plan
+// runs terraform init and writes into the context's TF_DATA_DIR, so two plans would race.
 type Mode int
 
 const (

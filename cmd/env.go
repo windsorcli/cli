@@ -10,6 +10,7 @@ import (
 	"github.com/windsorcli/cli/internal/werror"
 	"github.com/windsorcli/cli/pkg/composer"
 	"github.com/windsorcli/cli/pkg/runtime"
+	"github.com/windsorcli/cli/pkg/runtime/shell"
 )
 
 var envCmd = &cobra.Command{
@@ -28,7 +29,10 @@ eval "$(windsor env)"
 eval "$(windsor env --decrypt)"
 
 # Show what would be exported
-windsor env`,
+windsor env
+
+# tcsh
+eval "` + "`" + `windsor env --shell tcsh` + "`" + `"`,
 	Annotations: map[string]string{
 		"docs.seealso": "[`hook`](hook.md), [`exec`](exec.md)",
 		"docs.source":  "cmd/env.go",
@@ -37,6 +41,11 @@ windsor env`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		hook, _ := cmd.Flags().GetBool("hook")
 		decrypt, _ := cmd.Flags().GetBool("decrypt")
+		shellName, _ := cmd.Flags().GetString("shell")
+		if shellName != "" && shellName != "tcsh" {
+			return werror.New(fmt.Sprintf("Windsor cannot print env for the shell %q.", shellName),
+				"Use --shell tcsh, or omit --shell for POSIX output.", nil)
+		}
 
 		if !hook && os.Getenv("NO_CACHE") == "" {
 			if err := os.Setenv("NO_CACHE", "true"); err != nil {
@@ -70,7 +79,8 @@ windsor env`,
 			return werror.New("not in a trusted directory", trustDirectoryHint, err)
 		}
 
-		if err := rt.HandleSessionReset(); err != nil {
+		staleEnvs, staleAliases := rt.ManagedNames()
+		if err := rt.HandleSessionReset(shellName == "tcsh"); err != nil {
 			if hook {
 				return nil
 			}
@@ -111,7 +121,13 @@ windsor env`,
 			}
 		}
 
-		if hook {
+		if shellName == "tcsh" {
+			var aliases map[string]string
+			if hook {
+				aliases = rt.GetAliases()
+			}
+			outputFunc(shell.RenderCsh(shell.WithRemoved(rt.GetEnvVars(), staleEnvs), shell.WithRemoved(aliases, staleAliases)))
+		} else if hook {
 			if rt.Shell != nil && len(rt.GetEnvVars()) > 0 {
 				outputFunc(rt.Shell.RenderEnvVars(rt.GetEnvVars(), true))
 			}
@@ -131,6 +147,7 @@ windsor env`,
 // init registers the env command and its flags with the root command.
 func init() {
 	envCmd.Flags().Bool("decrypt", false, "Decrypt secrets before exporting env vars.")
+	envCmd.Flags().String("shell", "", "Print setenv commands for the given shell instead of POSIX export commands. Only tcsh is supported.")
 	envCmd.Flags().Bool("hook", false, "Non-fatal mode: suppress warnings and exit 0 on errors so a misconfigured project never breaks the prompt. The shell hook installed by 'windsor hook' invokes 'windsor env --decrypt --hook' automatically.")
 	rootCmd.AddCommand(envCmd)
 }

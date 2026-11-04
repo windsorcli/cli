@@ -210,6 +210,9 @@ func (p *Project) Initialize(overwrite bool, blueprintURL ...string) error {
 // The caller then shows the deferred work and exits without an error.
 func (p *Project) Up(ctx context.Context) (*blueprintv1alpha1.Blueprint, bool, error) {
 	blueprint := p.Composer.BlueprintHandler.Generate()
+	if blueprint == nil {
+		return nil, false, fmt.Errorf("blueprint not loaded")
+	}
 	onApply, err := p.prepareWorkstationForApply(ctx, blueprint)
 	if err != nil {
 		return nil, false, err

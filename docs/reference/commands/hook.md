@@ -9,7 +9,7 @@ windsor hook <shell>
 
 Print init code that wires 'windsor env' into your shell. The hook re-runs 'windsor env --hook' whenever your prompt fires, exporting Windsor's per-context environment variables automatically when you cd into a project.
 
-Supported shells: zsh, bash, powershell.
+Supported shells: zsh, bash, tcsh, powershell.
 
 Add the output to your shell's rc file (or evaluate it directly during shell startup) so the hook installs on every new session.
 
@@ -19,6 +19,9 @@ Add the output to your shell's rc file (or evaluate it directly during shell sta
 # zsh / bash
 eval "$(windsor hook zsh)"
 eval "$(windsor hook bash)"
+
+# tcsh
+eval "`windsor hook tcsh`"
 
 # powershell
 windsor hook powershell | Out-String | Invoke-Expression

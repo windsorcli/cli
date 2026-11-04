@@ -42,6 +42,7 @@ type BaseBlueprintHandler struct {
 	traceCollector         TraceCollector
 	initBlueprintURLs      []string
 	skipValidation         bool
+	allowUninitialized     bool
 }
 
 // SourceUpgrade records one source moved to a newer version by UpgradeSourcesToLatest.
@@ -60,6 +61,7 @@ type SourceUpgrade struct {
 type BlueprintHandler interface {
 	LoadBlueprint(blueprintURL ...string) error
 	SetSkipValidation(skip bool)
+	SetAllowUninitialized(allow bool)
 	Write(overwrite ...bool) error
 	RetargetSource(name, url string) (string, error)
 	UpgradeSourcesToLatest() ([]SourceUpgrade, error)
@@ -131,7 +133,8 @@ func (h *BaseBlueprintHandler) SetTraceCollector(tc TraceCollector) {
 // LoadBlueprint runs the full pipeline: it loads the init blueprints from blueprintURL, the user
 // blueprint, and all sources, nested sources included. It then processes the facets of each source
 // and composes one blueprint, with the user blueprint applied last. Each call clears the loaded
-// sources first, so a call after RetargetSource pulls every source again.
+// sources first, so a call after RetargetSource pulls every source again. It returns an error
+// for a context that init did not finish, unless SetAllowUninitialized is set.
 func (h *BaseBlueprintHandler) LoadBlueprint(blueprintURL ...string) error {
 	h.initBlueprintURLs = blueprintURL
 	h.deferredPathsMu.Lock()
@@ -149,6 +152,10 @@ func (h *BaseBlueprintHandler) LoadBlueprint(blueprintURL ...string) error {
 
 	if err := h.loadSources(); err != nil {
 		return werror.Wrap(err, "failed to load sources")
+	}
+
+	if err := h.checkInitialized(); err != nil {
+		return err
 	}
 
 	if h.runtime != nil && h.runtime.Evaluator != nil {
@@ -174,8 +181,16 @@ func (h *BaseBlueprintHandler) LoadBlueprint(blueprintURL ...string) error {
 	return nil
 }
 
-// SetSkipValidation turns off structural validation in LoadBlueprint when skip is true. The default
-// is false. Teardown commands (destroy, down, env) set it, so an operator can still tear down or
+// SetAllowUninitialized lets LoadBlueprint compose a context that has no blueprint source when
+// allow is true. The default is false. Init sets it, because init composes a context before it
+// writes blueprint.yaml. LoadBlueprintIfTerraformProject sets it, because env and exec need only
+// the env vars of a context.
+func (h *BaseBlueprintHandler) SetAllowUninitialized(allow bool) {
+	h.allowUninitialized = allow
+}
+
+// SetSkipValidation turns off structural validation and the uninitialized-context check in
+// LoadBlueprint when skip is true. The default is false. Teardown commands (destroy, down, env) set it, so an operator can still tear down or
 // inspect a blueprint that fails validation. Deploy commands keep validation, so a structural mistake
 // shows when it is made. Destroy order does not depend on validation, because the destroy paths do
 // not use blueprint position.
