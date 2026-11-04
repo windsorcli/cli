@@ -72,18 +72,22 @@ func TestFluxInstanceExtractor_Extract(t *testing.T) {
 		}
 	})
 
-	t.Run("FailsWithoutFluxOperator", func(t *testing.T) {
-		// Given no flux-operator CLI
+	t.Run("ReturnsTheFluxOperatorCheckError", func(t *testing.T) {
+		// Given a flux-operator CLI check that fails
 		m := setupMocks(t)
-		m.shims.LookPath = func(file string) (string, error) { return "", errors.New("not found") }
+		checkErr := errors.New("flux-operator CLI too old")
+		m.toolsManager.CheckFluxOperatorFunc = func() error { return checkErr }
 		extractor := inventory.NewFluxInstanceExtractor(m.runtime, m.shims)
 
 		// When Extract is called
 		_, err := extractor.Extract(fluxInstance())
 
-		// Then the error asks for the flux-operator CLI
-		if err == nil || !strings.Contains(err.Error(), "flux-operator CLI is required") {
-			t.Fatalf("expected a missing CLI error, got %v", err)
+		// Then the check error returns and flux-operator does not run
+		if !errors.Is(err, checkErr) {
+			t.Fatalf("expected the flux-operator check error, got %v", err)
+		}
+		if len(m.fluxArgs) != 0 {
+			t.Errorf("expected no build, got %v", m.fluxArgs)
 		}
 	})
 

@@ -7,11 +7,9 @@ package inventory
 
 import (
 	"bytes"
-	"fmt"
 	"io"
 	"path/filepath"
 	"sort"
-	"strconv"
 	"strings"
 
 	kustomizev1 "github.com/fluxcd/kustomize-controller/api/v1"
@@ -27,12 +25,6 @@ import (
 // =============================================================================
 // Constants
 // =============================================================================
-
-// minFluxMajor and minFluxMinor are the minimum flux CLI version, the same that windsor plan checks.
-const (
-	minFluxMajor = 2
-	minFluxMinor = 3
-)
 
 // deferredMarker replaces a substitution value that is not known before apply.
 const deferredMarker = "windsor-deferred-value"
@@ -54,38 +46,6 @@ type renderedObject struct {
 // =============================================================================
 // Private Methods
 // =============================================================================
-
-// checkFlux returns an error with a remediation hint when the flux CLI is missing or older than v2.3.
-func (l *BaseLister) checkFlux() error {
-	if _, err := l.shims.LookPath("flux"); err != nil {
-		return werror.New("the flux CLI is required for 'show artifacts'", "Install the flux CLI from https://fluxcd.io/flux/installation/.", nil)
-	}
-	out, err := l.runtime.Shell.ExecSilent("flux", "version", "--client")
-	if err != nil {
-		return werror.Wrap(err, "failed to get flux version")
-	}
-	for _, line := range strings.Split(out, "\n") {
-		fields := strings.Fields(strings.TrimSpace(line))
-		if len(fields) < 2 || fields[0] != "flux:" {
-			continue
-		}
-		ver := strings.TrimPrefix(fields[1], "v")
-		segments := strings.SplitN(ver, ".", 3)
-		if len(segments) < 2 {
-			break
-		}
-		major, err1 := strconv.Atoi(segments[0])
-		minor, err2 := strconv.Atoi(segments[1])
-		if err1 != nil || err2 != nil {
-			break
-		}
-		if major > minFluxMajor || (major == minFluxMajor && minor >= minFluxMinor) {
-			return nil
-		}
-		return werror.New(fmt.Sprintf("flux CLI v%d.%d or later is required (found v%s)", minFluxMajor, minFluxMinor, ver), "Upgrade the flux CLI from https://fluxcd.io/flux/installation/.", nil)
-	}
-	return fmt.Errorf("could not determine flux CLI version from output: %q", out)
-}
 
 // renderKustomization writes the Flux Kustomization for k to a temporary file and runs
 // flux build kustomization --dry-run --in-memory-build on its path in the source root.

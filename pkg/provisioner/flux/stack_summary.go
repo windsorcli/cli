@@ -90,11 +90,8 @@ func (s *FluxStack) PlanSummary(blueprint *blueprintv1alpha1.Blueprint) ([]Kusto
 	var hints []string
 
 	fluxMissing := false
-	if _, err := s.shims.LookPath("flux"); err != nil {
-		hints = append(hints, "flux CLI not found — install to see kustomize diffs for existing clusters\nhttps://fluxcd.io/flux/installation/")
-		fluxMissing = true
-	} else if err := s.checkFluxVersion(); err != nil {
-		hints = append(hints, err.Error())
+	if err := s.runtime.ToolsManager.CheckFlux(); err != nil {
+		hints = append(hints, fluxHint(err))
 		fluxMissing = true
 	}
 
@@ -134,12 +131,7 @@ func (s *FluxStack) PlanComponentSummary(blueprint *blueprintv1alpha1.Blueprint,
 		return result
 	}
 
-	fluxMissing := false
-	if _, err := s.shims.LookPath("flux"); err != nil {
-		fluxMissing = true
-	} else if err := s.checkFluxVersion(); err != nil {
-		fluxMissing = true
-	}
+	fluxMissing := s.runtime.ToolsManager.CheckFlux() != nil
 
 	kustomizeMissing := false
 	if _, err := s.shims.LookPath("kustomize"); err != nil {
@@ -329,6 +321,16 @@ func (s *FluxStack) captureFluxDiff(args ...string) (string, error) {
 // =============================================================================
 // Helpers
 // =============================================================================
+
+// fluxHint returns the plan hint for a failed flux CLI check: the message, the effect on the plan,
+// and the remediation on its own line.
+func fluxHint(err error) string {
+	hint := strings.TrimSuffix(err.Error(), ".") + ". Windsor cannot show kustomize diffs for existing clusters."
+	if we := werror.Find(err); we != nil && we.Remediation != "" {
+		hint += "\n" + we.Remediation
+	}
+	return hint
+}
 
 // KustomizationDestroyEligible mirrors the gate inside DeleteBlueprint so the
 // destroy-plan set matches the destroy-execute set. DestroyOnly kustomizations

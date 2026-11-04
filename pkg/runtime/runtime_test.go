@@ -150,6 +150,14 @@ func (m *MockToolsManager) CheckTerraform() error {
 	return nil
 }
 
+func (m *MockToolsManager) CheckFlux() error {
+	return nil
+}
+
+func (m *MockToolsManager) CheckFluxOperator() error {
+	return nil
+}
+
 func (m *MockToolsManager) GetTerraformCommand() string {
 	if m.GetTerraformCommandFunc != nil {
 		return m.GetTerraformCommandFunc()
@@ -189,6 +197,10 @@ func TestRuntime_NewRuntime(t *testing.T) {
 
 		if rt.Aliases() == nil {
 			t.Error("Expected aliases map to be initialized")
+		}
+
+		if rt.ToolsManager == nil {
+			t.Error("Expected tools manager to be created")
 		}
 
 		if rt.ContextName != "test-context" {

@@ -211,7 +211,7 @@ func (l *BaseLister) listFromRender(blueprint *blueprintv1alpha1.Blueprint, resu
 
 	var objects []renderedObject
 	if len(targets) > 0 {
-		if err := l.checkFlux(); err != nil {
+		if err := l.runtime.ToolsManager.CheckFlux(); err != nil {
 			return nil, err
 		}
 	}
