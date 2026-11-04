@@ -808,3 +808,46 @@ func TestInit_WritesHeaderKeysFirstInValues(t *testing.T) {
 		t.Errorf("expected id, platform, then the header keys, with addons last; got %v", keys)
 	}
 }
+
+// TestInit_HypervNodePortWritesNodeAddresses verifies that init writes one control plane and one worker
+// with explicit addresses for a Hyper-V context with both gateways on NodePort.
+func TestInit_HypervNodePortWritesNodeAddresses(t *testing.T) {
+	t.Parallel()
+	dir, env := helpers.CopyFixtureOnly(t, "default")
+	helpers.MarkAsGitRepo(t, dir)
+
+	_, stderr, err := helpers.RunCLI(dir, []string{"init", "bench", "--platform", "hyperv", "--set", "gateway.service_type=NodePort", "--set", "network.cidr_block=10.9.0.0/16"}, env)
+	if err != nil {
+		t.Fatalf("init bench --platform hyperv: %v\nstderr: %s", err, stderr)
+	}
+
+	values := readYAMLFile(t, filepath.Join(dir, "contexts", "bench", "values.yaml"))
+	want := map[string]any{
+		"controlplanes": map[string]any{"controlplane-1": map[string]any{"node": "10.9.0.10", "endpoint": "10.9.0.10:50000"}},
+		"workers":       map[string]any{"worker-1": map[string]any{"node": "10.9.0.20", "endpoint": "10.9.0.20:50000"}},
+	}
+	for pool, wantNodes := range want {
+		nodes, _ := getPathValue(values, "cluster", pool, "nodes")
+		if !reflect.DeepEqual(nodes, wantNodes) {
+			t.Errorf("expected cluster.%s.nodes %v, got %v", pool, wantNodes, nodes)
+		}
+	}
+}
+
+// TestInit_HypervLoadBalancerWritesNoNodeAddresses verifies that init writes no node entries for a Hyper-V
+// context whose gateways are not on NodePort.
+func TestInit_HypervLoadBalancerWritesNoNodeAddresses(t *testing.T) {
+	t.Parallel()
+	dir, env := helpers.CopyFixtureOnly(t, "default")
+	helpers.MarkAsGitRepo(t, dir)
+
+	_, stderr, err := helpers.RunCLI(dir, []string{"init", "bench", "--platform", "hyperv"}, env)
+	if err != nil {
+		t.Fatalf("init bench --platform hyperv: %v\nstderr: %s", err, stderr)
+	}
+
+	values := readYAMLFile(t, filepath.Join(dir, "contexts", "bench", "values.yaml"))
+	if nodes, ok := getPathValue(values, "cluster", "controlplanes", "nodes"); ok {
+		t.Errorf("expected no control plane nodes, got %v", nodes)
+	}
+}

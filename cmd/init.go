@@ -42,6 +42,7 @@ var (
 // initCmd creates a context or initializes it again.
 // It makes the current directory a project first, so that init does not fall back to global mode and change $HOME.
 // It saves the config, with the platform, the --set values and the context ID, after validation and before blueprint composition.
+// The save also writes the platform init defaults, for example the node addresses of a Hyper-V NAT context.
 // A failed facet requires check then leaves a values.yaml that the user can complete before the next run.
 // The save comes after validation, because it removes the deprecated provider key.
 // It requests only the secrets tools, so that init works on a new machine before docker, terraform or kubelogin are installed.
@@ -172,6 +173,10 @@ windsor init staging --platform=aws --aws-profile=staging`,
 
 		if err := proj.Runtime.ConfigHandler.ValidateContextValues(); err != nil {
 			return werror.Wrap(err, "invalid configuration")
+		}
+
+		if err := proj.Runtime.ApplyInitDefaults(); err != nil {
+			return werror.Wrap(err, "failed to apply init defaults")
 		}
 
 		hasSetFlags := len(initSetFlags) > 0

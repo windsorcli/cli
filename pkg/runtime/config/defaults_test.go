@@ -1,6 +1,7 @@
 package config_test
 
 import (
+	"reflect"
 	"testing"
 
 	"github.com/windsorcli/cli/pkg/runtime/config"
@@ -55,6 +56,83 @@ func TestDefaultTerraformBackendTypeForPlatform(t *testing.T) {
 		t.Run(tc.platform, func(t *testing.T) {
 			if got := config.DefaultTerraformBackendTypeForPlatform(tc.platform); got != tc.want {
 				t.Errorf("Expected platform %q to map to %q, got %q", tc.platform, tc.want, got)
+			}
+		})
+	}
+}
+
+func TestInitNodeDefaults(t *testing.T) {
+	nodePort := map[string]any{"service_type": "NodePort"}
+	node := func(address string) map[string]any {
+		return map[string]any{"node": address, "endpoint": address + ":50000"}
+	}
+
+	testCases := []struct {
+		name   string
+		values map[string]any
+		want   map[string]any
+	}{
+		{
+			name:   "HypervNodePortGetsOneControlPlaneAndOneWorker",
+			values: map[string]any{"platform": "hyperv", "gateway": nodePort},
+			want: map[string]any{
+				"cluster.controlplanes.nodes.controlplane-1": node("10.5.0.10"),
+				"cluster.workers.nodes.worker-1":             node("10.5.0.20"),
+			},
+		},
+		{
+			name: "HypervPerGatewayNodePortUsesCIDRBlockAndCounts",
+			values: map[string]any{
+				"platform": "hyperv",
+				"gateway":  map[string]any{"external": nodePort, "internal": nodePort},
+				"network":  map[string]any{"cidr_block": "192.168.50.0/24"},
+				"cluster": map[string]any{
+					"controlplanes": map[string]any{"count": 2},
+					"workers":       map[string]any{"count": "0"},
+				},
+			},
+			want: map[string]any{
+				"cluster.controlplanes.nodes.controlplane-1": node("192.168.50.10"),
+				"cluster.controlplanes.nodes.controlplane-2": node("192.168.50.11"),
+			},
+		},
+		{
+			name: "PoolWithNodesKeepsItsNodes",
+			values: map[string]any{
+				"platform": "hyperv",
+				"gateway":  nodePort,
+				"cluster":  map[string]any{"controlplanes": map[string]any{"nodes": map[string]any{"cp": node("10.5.0.99")}}},
+			},
+			want: map[string]any{"cluster.workers.nodes.worker-1": node("10.5.0.20")},
+		},
+		{
+			name:   "HostOutsideCIDRBlockGetsNoEntry",
+			values: map[string]any{"platform": "hyperv", "gateway": nodePort, "network": map[string]any{"cidr_block": "10.5.0.0/28"}},
+			want:   map[string]any{"cluster.controlplanes.nodes.controlplane-1": node("10.5.0.10")},
+		},
+		{
+			name: "OneGatewayOnLoadBalancerGetsNothing",
+			values: map[string]any{
+				"platform": "hyperv",
+				"gateway":  map[string]any{"service_type": "NodePort", "internal": map[string]any{"service_type": "LoadBalancer"}},
+			},
+			want: map[string]any{},
+		},
+		{
+			name:   "HypervLoadBalancerGetsNothing",
+			values: map[string]any{"platform": "hyperv"},
+			want:   map[string]any{},
+		},
+		{
+			name:   "OtherPlatformGetsNothing",
+			values: map[string]any{"platform": "vsphere", "gateway": nodePort},
+			want:   map[string]any{},
+		},
+	}
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := config.InitNodeDefaults(tc.values); !reflect.DeepEqual(got, tc.want) {
+				t.Errorf("Expected %v, got %v", tc.want, got)
 			}
 		})
 	}

@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"maps"
 	"os"
+	"slices"
 
 	"github.com/windsorcli/cli/internal/werror"
 	"github.com/windsorcli/cli/pkg/runtime/config"
@@ -95,6 +96,22 @@ func (rt *Runtime) ResolveConfig(flagOverrides map[string]any) error {
 			if err := rt.ConfigHandler.Set("platform", "incus"); err != nil {
 				return werror.Wrap(err, "failed to set platform to incus")
 			}
+		}
+	}
+	return nil
+}
+
+// ApplyInitDefaults sets the platform values that windsor init writes into values.yaml.
+// It sets only the paths that config.InitNodeDefaults returns, so explicit values stay as they are.
+func (rt *Runtime) ApplyInitDefaults() error {
+	values, err := rt.ConfigHandler.GetContextValues()
+	if err != nil {
+		return werror.Wrap(err, "failed to read context values")
+	}
+	defaults := config.InitNodeDefaults(values)
+	for _, path := range slices.Sorted(maps.Keys(defaults)) {
+		if err := rt.ConfigHandler.Set(path, defaults[path]); err != nil {
+			return werror.Wrap(err, "failed to set %s", path)
 		}
 	}
 	return nil

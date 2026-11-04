@@ -205,6 +205,91 @@ func TestRuntime_ResolveConfig(t *testing.T) {
 	})
 }
 
+func TestRuntime_ApplyInitDefaults(t *testing.T) {
+	t.Run("SetsHypervNodePortNodes", func(t *testing.T) {
+		// Given a Hyper-V context with both gateways on NodePort
+		mocks := setupRuntimeMocks(t)
+		handler := mocks.ConfigHandler.(*config.MockConfigHandler)
+		store := setupConfigStore(handler, nil)
+		handler.GetContextValuesFunc = func() (map[string]any, error) {
+			return map[string]any{"platform": "hyperv", "gateway": map[string]any{"service_type": "NodePort"}}, nil
+		}
+
+		// When ApplyInitDefaults is called
+		err := mocks.Runtime.ApplyInitDefaults()
+
+		// Then one control plane and one worker are set
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		want := map[string]any{
+			"cluster.controlplanes.nodes.controlplane-1": map[string]any{"node": "10.5.0.10", "endpoint": "10.5.0.10:50000"},
+			"cluster.workers.nodes.worker-1":             map[string]any{"node": "10.5.0.20", "endpoint": "10.5.0.20:50000"},
+		}
+		if !reflect.DeepEqual(store, want) {
+			t.Errorf("Expected %v, got %v", want, store)
+		}
+	})
+
+	t.Run("SetsNothingForOtherContexts", func(t *testing.T) {
+		// Given an AWS context
+		mocks := setupRuntimeMocks(t)
+		handler := mocks.ConfigHandler.(*config.MockConfigHandler)
+		store := setupConfigStore(handler, nil)
+		handler.GetContextValuesFunc = func() (map[string]any, error) {
+			return map[string]any{"platform": "aws"}, nil
+		}
+
+		// When ApplyInitDefaults is called
+		err := mocks.Runtime.ApplyInitDefaults()
+
+		// Then no value is set
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		if len(store) != 0 {
+			t.Errorf("Expected no values, got %v", store)
+		}
+	})
+
+	t.Run("ErrorWhenContextValuesFail", func(t *testing.T) {
+		// Given a config handler that fails to read the context values
+		mocks := setupRuntimeMocks(t)
+		handler := mocks.ConfigHandler.(*config.MockConfigHandler)
+		handler.GetContextValuesFunc = func() (map[string]any, error) {
+			return nil, fmt.Errorf("bad schema")
+		}
+
+		// When ApplyInitDefaults is called
+		err := mocks.Runtime.ApplyInitDefaults()
+
+		// Then the error is returned with a breadcrumb
+		if err == nil || !strings.Contains(err.Error(), "failed to read context values: bad schema") {
+			t.Errorf("Expected the context values error, got %v", err)
+		}
+	})
+
+	t.Run("ErrorWhenSetFails", func(t *testing.T) {
+		// Given a Hyper-V NodePort context and a config handler that fails to set a value
+		mocks := setupRuntimeMocks(t)
+		handler := mocks.ConfigHandler.(*config.MockConfigHandler)
+		handler.GetContextValuesFunc = func() (map[string]any, error) {
+			return map[string]any{"platform": "hyperv", "gateway": map[string]any{"service_type": "NodePort"}}, nil
+		}
+		handler.SetFunc = func(key string, value any) error {
+			return fmt.Errorf("invalid value")
+		}
+
+		// When ApplyInitDefaults is called
+		err := mocks.Runtime.ApplyInitDefaults()
+
+		// Then the error names the first path
+		if err == nil || !strings.Contains(err.Error(), "failed to set cluster.controlplanes.nodes.controlplane-1") {
+			t.Errorf("Expected the set error, got %v", err)
+		}
+	})
+}
+
 func TestRuntime_SaveConfig(t *testing.T) {
 	t.Run("SavesWorkstationStateThenValues", func(t *testing.T) {
 		// Given a runtime whose config handler records save calls
