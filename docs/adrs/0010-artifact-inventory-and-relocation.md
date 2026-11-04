@@ -1,7 +1,7 @@
 # ADR 0010 — Artifact inventory: list what a context pulls and where each artifact goes
 
 - Status: Proposed. Supersedes the single HelmRepository patch proposed in cli#3376.
-- Date: 2026-10-28
+- Date: 2026-10-28; amended 2026-11-04 (Decision 8)
 - Deciders: Ryan VanGundy
 - Surfaced while designing core's chart registry
   ([core ADR 0020](https://github.com/windsorcli/core/blob/main/docs/adr/0020-helm-chart-registry.md)),
@@ -197,6 +197,51 @@ its one source, and Flux builds it from one artifact, so a component from the ov
 cannot join a core Kustomization. Setting `source` on the overlay's entry would move the whole
 Kustomization, core's paths included.
 
+### 8. `windsor bundle` generates the manifest with the same lister
+
+`windsor bundle` writes `artifact-manifest.yaml` by running the lister of Decisions 2 and 3 at
+publish time. It no longer scans Renovate annotations. Renovate keeps its comments to bump
+versions, and the CLI does not parse them. A consumer reads the manifest and needs neither the
+flux CLI nor network access.
+
+At publish time, `windsor bundle` does these steps:
+
+1. List the render profiles: one for each `platform` value that a facet `when` condition names,
+   and one with no platform.
+2. For each profile, compose the blueprint with the blueprint's default and test values, and run
+   the lister. A deferred value stays deferred.
+3. Resolve a digest for each entry. An OCI image or chart gets the manifest digest from its
+   registry. An HTTP chart gets the sha256 of the tarball that the render pulled. An entry with a
+   deferred reference gets `deferred: true` and no digest.
+4. Merge the profiles. The key is kind, reference, and version. Union the `usedBy` names (the
+   Kustomization or Terraform component that declares the entry) and the `platforms`.
+5. Write the manifest at schema `v1alpha2` and sort the entries.
+
+At consume time, `windsor show artifacts` does these steps:
+
+1. Read the manifest of each source.
+2. Compose the context's blueprint and take the names of its active Kustomizations and Terraform
+   components.
+3. Keep each entry whose `usedBy` names an active component.
+4. Compute destinations as in Decision 5, and print the result as in Decision 1.
+
+`--render` keeps the path of Decision 2 for a user who wants to check the manifest against the
+context. `--all` prints every entry of the manifests without the filter. A `v1alpha1` manifest
+has no `usedBy`, so the reader falls back to the render and prints a note.
+
+`-o cyclonedx` prints the result as a CycloneDX document. Each component carries its version,
+digest, a package URL, and the object that declares it. The SBOM of a deployment is the filtered
+list. The SBOM of a release is the full manifest.
+
+Three questions stay open:
+
+- Whether a boolean facet toggle needs its own render profile. The `usedBy` filter handles the
+  toggle at consume time. Rendering only by platform covers core today.
+- How the manifest carries an artifact that no rendered object names, such as core's Talos node
+  image. Options are a Terraform extractor or a short declared `extra` list.
+- Whether `windsor bundle --no-resolve` writes a manifest without digests and registry calls.
+  It would still need the flux CLI.
+
 ## Consequences
 
 Core deletes `flux-mirror.yaml` and its comparison check once `-o flux-mirror` ships. Any
@@ -212,8 +257,13 @@ context with a FluxInstance also needs the flux-operator CLI. The command needs 
 to pull each chart, through the Docker config for OCI charts. The CLI caches pulled charts. The
 CLI takes on the Helm v4 SDK and `fluxcd/pkg/chartutil` as dependencies.
 
-`artifact-manifest.yaml` keeps its place in the bundle as the blueprint-wide set from Renovate
-annotations. `windsor show artifacts` does not read it.
+`windsor bundle` needs the flux CLI, the flux-operator CLI when a render produces a FluxInstance,
+network access, and registry credentials. The publisher carries that cost once, and a consumer
+carries none. A publish step that runs offline cannot produce a full manifest.
+
+`artifact-manifest.yaml` changes from a blueprint-wide set that Renovate annotations imply to the
+output of the lister. The schema moves to `v1alpha2`, with `digest`, `usedBy`, `platforms`, and
+`deferred` on each entry. The annotation scan in `pkg/composer/artifact` is removed.
 
 ## Alternatives considered
 
@@ -252,6 +302,17 @@ The CLI would scan Renovate annotations in the files each active Kustomization a
 component reaches. Rejected: an annotation records what an author pinned, not what the context
 runs. It misses chart defaults and post-renderer changes. An overlay that replaces an image by
 patching values leaves the old annotation in the base file, so both images appear.
+
+### Keep the annotation scan and check it against a render
+
+`windsor bundle` would keep scanning annotations, and CI would render a test context and fail
+when the manifest misses an artifact. Rejected: it keeps two mechanisms that must agree, and the
+manifest stays without digests and without chart defaults.
+
+### A manifest that authors write by hand
+
+Each blueprint would commit its `artifact-manifest.yaml`. Rejected for the reason in "A declared
+`images` list in the blueprint": a second copy of a pin drifts from the file that uses it.
 
 ### Terraform plan JSON
 
