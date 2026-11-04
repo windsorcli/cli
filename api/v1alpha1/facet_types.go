@@ -39,19 +39,18 @@ type ConfigBlock struct {
 	Body map[string]any `yaml:"-"`
 }
 
-// RequirementBlock declares a set of scope paths that must resolve to present,
-// non-empty values for the parent facet's activation to be well-formed. When is
-// optional and gates the block; if empty, the paths are required whenever the
-// parent facet is active. Message is optional context surfaced in the
-// aggregated error alongside the missing paths.
+// RequirementBlock declares a rule that the parent facet's inputs must meet. A block with Paths
+// requires each path to resolve to a present, non-empty value. A block without Paths rejects a
+// combination of values: it fails whenever its When is true, and the error shows its Message.
+// When gates the block; if empty, the block applies whenever the parent facet is active.
 type RequirementBlock struct {
 	// When is an expression gating this block. Empty means always required while the parent facet is active.
 	When string `yaml:"when,omitempty"`
 
 	// Paths are dotted scope keys whose values must be present and non-empty.
-	Paths []string `yaml:"paths"`
+	Paths []string `yaml:"paths,omitempty"`
 
-	// Message is optional author-supplied context surfaced under this block's heading in the aggregated error.
+	// Message is author-supplied context for the aggregated error. A block without Paths requires it.
 	Message string `yaml:"message,omitempty"`
 }
 
@@ -61,7 +60,7 @@ type RequirementBlock struct {
 // When uses expr-lang/expr syntax, for example "platform == 'aws'". A nil Ordinal comes from the file
 // basename: config-* 100, platform-base or provider-base 199, platform-* or provider-* 200,
 // option-* or options-* 300, and addon-* or addons-* 400.
-// Unsatisfied Requires paths from every active facet are reported in one error.
+// Unmet Requires blocks from every active facet are reported in one error.
 // Messages render after a successful run, interpolated against composed scope.
 type Facet struct {
 	// Kind is the facet type, following Kubernetes conventions.
@@ -241,17 +240,19 @@ func (c *ConfigBlock) MarshalYAML() (any, error) {
 	return out, nil
 }
 
-// UnmarshalYAML enforces that paths is present and non-empty. A block with no paths would silently
-// disable requirement checking and defeat the feature's purpose, so the most likely cause (a typo
-// like `pahts:`) is surfaced as a parse-time error instead of a downstream surprise.
+// UnmarshalYAML rejects a block that has neither when nor paths, because it checks nothing. It
+// also rejects a block without paths that has no message, because its error would have no text.
 func (r *RequirementBlock) UnmarshalYAML(unmarshal func(any) error) error {
 	type rawRequirementBlock RequirementBlock
 	var raw rawRequirementBlock
 	if err := unmarshal(&raw); err != nil {
 		return err
 	}
-	if len(raw.Paths) == 0 {
-		return fmt.Errorf("requirement block: paths is required and must contain at least one entry")
+	if len(raw.Paths) == 0 && raw.When == "" {
+		return fmt.Errorf("requirement block: set when, paths, or both")
+	}
+	if len(raw.Paths) == 0 && raw.Message == "" {
+		return fmt.Errorf("requirement block: message is required on a block without paths")
 	}
 	*r = RequirementBlock(raw)
 	return nil

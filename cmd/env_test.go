@@ -69,6 +69,21 @@ func setupOutputCapture(t *testing.T) (*bytes.Buffer, *bytes.Buffer) {
 	return stdout, stderr
 }
 
+// resetEnvFlags sets the env command flags back to their defaults, because cobra keeps flag values between runs.
+func resetEnvFlags(t *testing.T) {
+	t.Helper()
+	envCmd, _, err := cliCmd.RootCmd().Find([]string{"env"})
+	if err != nil {
+		t.Fatalf("find env command: %v", err)
+	}
+	for _, name := range []string{"shell", "hook", "decrypt"} {
+		if f := envCmd.Flags().Lookup(name); f != nil {
+			_ = f.Value.Set(f.DefValue)
+			f.Changed = false
+		}
+	}
+}
+
 func setupTestContext(t *testing.T, mocks *Mocks) {
 	t.Helper()
 	cliCmd.RootCmd().SetContext(context.Background())
@@ -218,6 +233,67 @@ func TestEnvCmd_SuccessScenarios(t *testing.T) {
 		// And stderr should be empty
 		if stderr.String() != "" {
 			t.Error("Expected empty stderr")
+		}
+	})
+
+	t.Run("SuccessWithShellTcsh", func(t *testing.T) {
+		// Given a runtime with one env var and one alias
+		stdout, _ := setupOutputCapture(t)
+		mocks := setupMocks(t)
+		printer := env.NewMockEnvPrinter()
+		printer.GetEnvVarsFunc = func() (map[string]string, error) {
+			return map[string]string{"WINDSOR_CONTEXT": "local"}, nil
+		}
+		printer.GetAliasFunc = func() (map[string]string, error) {
+			return map[string]string{"k": "kubectl"}, nil
+		}
+		mocks.Runtime.EnvPrinters.WindsorEnv = printer
+		ctx := context.WithValue(context.Background(), cliCmd.RuntimeOverridesKey, mocks.Runtime)
+		cliCmd.RootCmd().SetContext(ctx)
+		t.Cleanup(func() { resetEnvFlags(t) })
+
+		// When executing the command with hook and shell tcsh
+		cliCmd.RootCmd().SetArgs([]string{"env", "--hook", "--shell", "tcsh"})
+		err := cliCmd.Execute()
+
+		// Then the output uses tcsh syntax
+		if err != nil {
+			t.Fatalf("Expected success, got error: %v", err)
+		}
+		if !strings.Contains(stdout.String(), "setenv WINDSOR_CONTEXT 'local';") {
+			t.Errorf("Expected setenv line, got: %q", stdout.String())
+		}
+		if !strings.Contains(stdout.String(), "alias k 'kubectl';") {
+			t.Errorf("Expected tcsh alias line, got: %q", stdout.String())
+		}
+		if strings.Contains(stdout.String(), "export ") {
+			t.Errorf("Expected no POSIX export lines, got: %q", stdout.String())
+		}
+	})
+
+	t.Run("ShellTcshUnsetsStaleManagedNames", func(t *testing.T) {
+		// Given a shell that a previous run set OLD_VAR and old_alias in
+		stdout, _ := setupOutputCapture(t)
+		mocks := setupMocks(t)
+		t.Setenv("WINDSOR_MANAGED_ENV", "OLD_VAR")
+		t.Setenv("WINDSOR_MANAGED_ALIAS", "old_alias")
+		ctx := context.WithValue(context.Background(), cliCmd.RuntimeOverridesKey, mocks.Runtime)
+		cliCmd.RootCmd().SetContext(ctx)
+		t.Cleanup(func() { resetEnvFlags(t) })
+
+		// When executing the command with hook and shell tcsh
+		cliCmd.RootCmd().SetArgs([]string{"env", "--hook", "--shell", "tcsh"})
+		err := cliCmd.Execute()
+
+		// Then the output removes the stale names in tcsh syntax
+		if err != nil {
+			t.Fatalf("Expected success, got error: %v", err)
+		}
+		if !strings.Contains(stdout.String(), "unsetenv OLD_VAR;") {
+			t.Errorf("Expected unsetenv for the stale env var, got: %q", stdout.String())
+		}
+		if !strings.Contains(stdout.String(), "unalias old_alias;") {
+			t.Errorf("Expected unalias for the stale alias, got: %q", stdout.String())
 		}
 	})
 
@@ -410,6 +486,24 @@ func TestEnvCmd_ErrorScenarios(t *testing.T) {
 		cliCmd.RootCmd().SetContext(ctx)
 		cliCmd.RootCmd().SetArgs([]string{"env"})
 		_ = cliCmd.Execute()
+	})
+
+	t.Run("RejectsUnknownShell", func(t *testing.T) {
+		// Given a runtime and an env command with an unknown shell
+		setupOutputCapture(t)
+		mocks := setupMocks(t)
+		ctx := context.WithValue(context.Background(), cliCmd.RuntimeOverridesKey, mocks.Runtime)
+		cliCmd.RootCmd().SetContext(ctx)
+		t.Cleanup(func() { resetEnvFlags(t) })
+
+		// When executing the command
+		cliCmd.RootCmd().SetArgs([]string{"env", "--shell", "csh"})
+		err := cliCmd.Execute()
+
+		// Then the command fails and names the shell
+		if err == nil || !strings.Contains(err.Error(), `Windsor cannot print env for the shell "csh".`) {
+			t.Errorf("Expected unknown shell error, got: %v", err)
+		}
 	})
 
 	t.Run("HandlesExecutePostEnvHooksErrorWithVerbose", func(t *testing.T) {

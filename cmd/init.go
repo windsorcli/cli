@@ -187,6 +187,7 @@ windsor init staging --platform=aws --aws-profile=staging`,
 			return err
 		}
 		proj.SetToolRequirements(tools.Requirements{Secrets: true})
+		proj.Composer.BlueprintHandler.SetAllowUninitialized(true)
 		if err := proj.Initialize(initReset, blueprintURL...); err != nil {
 			return err
 		}

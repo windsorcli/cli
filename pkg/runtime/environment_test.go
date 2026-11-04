@@ -55,6 +55,34 @@ func TestRuntime_HandleSessionReset(t *testing.T) {
 		}
 	})
 
+	t.Run("PassesQuietToReset", func(t *testing.T) {
+		// Given a runtime with no session token
+		t.Cleanup(func() {
+			os.Unsetenv("NO_CACHE")
+		})
+		t.Setenv("WINDSOR_SESSION_TOKEN", "")
+		mocks := setupRuntimeMocks(t)
+		mockShell := mocks.Shell.(*shell.MockShell)
+		var gotQuiet []bool
+		mockShell.ResetFunc = func(quiet ...bool) {
+			gotQuiet = quiet
+		}
+		mockShell.CheckResetFlagsFunc = func() (bool, error) {
+			return false, nil
+		}
+
+		// When HandleSessionReset is called with quiet
+		err := mocks.Runtime.HandleSessionReset(true)
+
+		// Then Reset receives quiet
+		if err != nil {
+			t.Fatalf("Expected no error, got: %v", err)
+		}
+		if len(gotQuiet) != 1 || !gotQuiet[0] {
+			t.Errorf("Expected Reset(true), got Reset(%v)", gotQuiet)
+		}
+	})
+
 	t.Run("PreservesExplicitNoCacheFalseOnReset", func(t *testing.T) {
 		// Given a caller that explicitly opted back into caching (e.g. `NO_CACHE=false windsor
 		// exec -- ...`), and no session token — so a reset is still triggered
@@ -497,6 +525,38 @@ func TestRuntime_GetAliases(t *testing.T) {
 
 		if len(rt.Aliases()) != len(original) {
 			t.Error("Expected original to be unchanged")
+		}
+	})
+}
+
+func TestRuntime_ManagedNames(t *testing.T) {
+	t.Run("SplitsManagedLists", func(t *testing.T) {
+		// Given managed env and alias lists with spaces and empty entries
+		t.Setenv("WINDSOR_MANAGED_ENV", "A, B,,C")
+		t.Setenv("WINDSOR_MANAGED_ALIAS", "k")
+		mocks := setupRuntimeMocks(t)
+
+		// When the managed names are read
+		envs, aliases := mocks.Runtime.ManagedNames()
+
+		// Then each list holds its names
+		if strings.Join(envs, ",") != "A,B,C" || strings.Join(aliases, ",") != "k" {
+			t.Errorf("Expected [A B C] and [k], got %v and %v", envs, aliases)
+		}
+	})
+
+	t.Run("ReturnsNothingWhenUnset", func(t *testing.T) {
+		// Given no managed lists
+		t.Setenv("WINDSOR_MANAGED_ENV", "")
+		t.Setenv("WINDSOR_MANAGED_ALIAS", "")
+		mocks := setupRuntimeMocks(t)
+
+		// When the managed names are read
+		envs, aliases := mocks.Runtime.ManagedNames()
+
+		// Then both lists are empty
+		if len(envs) != 0 || len(aliases) != 0 {
+			t.Errorf("Expected no names, got %v and %v", envs, aliases)
 		}
 	})
 }

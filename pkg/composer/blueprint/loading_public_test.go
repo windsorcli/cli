@@ -15,17 +15,58 @@ import (
 // =============================================================================
 
 func TestLoadBlueprint(t *testing.T) {
-	t.Run("ComposesADefaultBlueprintWithoutATemplate", func(t *testing.T) {
-		// Given a project with no template and no user blueprint
+	t.Run("ComposesADefaultBlueprintWhenUninitializedIsAllowed", func(t *testing.T) {
+		// Given a project with no template and no user blueprint, loaded the way init loads it
 		f := newFixture(t)
 		f.write(t, "windsor.yaml", "version: v1alpha1\n")
+		if err := f.config.LoadConfig(); err != nil {
+			t.Fatalf("LoadConfig: %v", err)
+		}
+		h := blueprint.NewBlueprintHandler(f.runtime, f.artifact)
+		h.SetAllowUninitialized(true)
 
 		// When the blueprint is loaded
-		bp := f.mustLoad(t).Generate()
+		if err := h.LoadBlueprint(); err != nil {
+			t.Fatalf("LoadBlueprint: %v", err)
+		}
+		bp := h.Generate()
 
 		// Then a default blueprint with no components is composed
 		if bp.Metadata.Name != "default" || len(bp.Kustomizations) != 0 || len(bp.TerraformComponents) != 0 {
 			t.Errorf("expected an empty default blueprint, got %+v", bp)
+		}
+	})
+
+	t.Run("FailsForAContextWithNoBlueprintSource", func(t *testing.T) {
+		// Given a context that init did not finish: values but no template and no user blueprint
+		f := newFixture(t)
+		f.write(t, "windsor.yaml", "version: v1alpha1\n")
+		f.write(t, "contexts/local/values.yaml", "platform: incus\n")
+
+		// When the blueprint is loaded
+		_, err := f.load(t)
+
+		// Then the load fails and tells the operator to run init
+		if err == nil || !strings.Contains(err.Error(), "has no blueprint") {
+			t.Fatalf("expected an uninitialized context error, got %v", err)
+		}
+		if hint := hintOf(err); !strings.Contains(hint, "windsor init") {
+			t.Errorf("expected a hint to run windsor init, got %q", hint)
+		}
+	})
+
+	t.Run("LoadsAUserBlueprintWithoutATemplate", func(t *testing.T) {
+		// Given a context with blueprint.yaml and no template
+		f := newFixture(t)
+		f.write(t, "windsor.yaml", "version: v1alpha1\n")
+		f.write(t, "contexts/local/blueprint.yaml", blueprintHeader+"metadata:\n  name: local\n")
+
+		// When the blueprint is loaded
+		_, err := f.load(t)
+
+		// Then the load succeeds
+		if err != nil {
+			t.Fatalf("expected no error for an initialized context, got %v", err)
 		}
 	})
 

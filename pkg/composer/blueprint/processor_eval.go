@@ -1,7 +1,7 @@
 // The processor_eval file holds the expression evaluation steps of the BlueprintProcessor.
 // It provides the evaluation of when conditions, substitutions, and typed expressions.
 // It checks the requires blocks of each facet and of its config blocks.
-// It builds the RequirementsError for the required values that are not set.
+// It builds the RequirementsError for the required values that are not set and for the values that conflict.
 
 package blueprint
 
@@ -24,7 +24,8 @@ import (
 // requirementBlockMiss records the unsatisfied paths and the effective condition under which a
 // single requirement block applied during a ProcessGlobally pass. Condition is the AND of the parent
 // facet's When and the block's When; an empty Condition means the paths were unconditionally
-// required. Message is the optional author-supplied context for this block.
+// required. Message is the optional author-supplied context for this block. A miss with no Paths
+// is a conflict: the block has no paths and its When is true, and Message explains the conflict.
 type requirementBlockMiss struct {
 	Condition string
 	Message   string
@@ -331,18 +332,15 @@ func (p *BaseBlueprintProcessor) evaluateRequirements(facet blueprintv1alpha1.Fa
 // evaluateRequirementBlocks walks blocks against scope and returns the unsatisfied entries.
 // parentWhens are the chain of parent-level when expressions (facet.When, optionally
 // component.When) that are composed with each block's own When into the miss's effective condition.
-// A block is skipped when its own When evaluates to false. Empty parts in parentWhens are dropped
-// by combineConditions, so callers may pass an unset When (e.g. an empty facet.When) without
-// special-casing.
+// A block is skipped when its own When evaluates to false. A block without paths whose When holds
+// is a conflict miss with no Paths. Empty parts in parentWhens are dropped by combineConditions, so
+// callers may pass an unset When (e.g. an empty facet.When) without special-casing.
 func (p *BaseBlueprintProcessor) evaluateRequirementBlocks(blocks []blueprintv1alpha1.RequirementBlock, scope map[string]any, facetPath, facetName string, parentWhens ...string) ([]requirementBlockMiss, error) {
 	if len(blocks) == 0 {
 		return nil, nil
 	}
 	var misses []requirementBlockMiss
 	for _, block := range blocks {
-		if len(block.Paths) == 0 {
-			continue
-		}
 		applies := true
 		if block.When != "" {
 			ok, err := p.evaluateCondition(block.When, facetPath, scope)
@@ -352,6 +350,13 @@ func (p *BaseBlueprintProcessor) evaluateRequirementBlocks(blocks []blueprintv1a
 			applies = ok
 		}
 		if !applies {
+			continue
+		}
+		if len(block.Paths) == 0 {
+			misses = append(misses, requirementBlockMiss{
+				Condition: combineConditions(append(parentWhens, block.When)...),
+				Message:   block.Message,
+			})
 			continue
 		}
 		var missing []string
@@ -430,15 +435,16 @@ func combineConditions(parts ...string) string {
 	return strings.Join(nonEmpty, " && ")
 }
 
-// formatRequirementsError renders the user-facing aggregated error for unsatisfied facet
-// requirements. Paths are listed alphabetically, deduplicated across facets, with any
-// author-supplied messages attached underneath. Conditions are deliberately not surfaced —
-// the message field is the right place for an author to explain why a value is needed; raw
-// when-expressions leak engine detail and confuse operators. The word "facet" is intentionally
-// absent from the rendered output.
+// formatRequirementsError renders the user-facing aggregated error for unmet facet requirements.
+// Missing paths are listed alphabetically, deduplicated across facets, with any author-supplied
+// messages attached underneath. Conflict messages follow in a separate section. Conditions are
+// deliberately not surfaced — the message field is the right place for an author to explain why a
+// value is needed; raw when-expressions leak engine detail and confuse operators. The word "facet"
+// is intentionally absent from the rendered output.
 func formatRequirementsError(pending map[string]facetRequirementMisses) error {
 	pathMessages := make(map[string][]string)
 	var pathOrder []string
+	var conflicts []string
 	addMessage := func(path, msg string) {
 		if _, exists := pathMessages[path]; !exists {
 			pathOrder = append(pathOrder, path)
@@ -460,6 +466,12 @@ func formatRequirementsError(pending map[string]facetRequirementMisses) error {
 	sort.Strings(names)
 	for _, name := range names {
 		for _, miss := range pending[name].Misses {
+			if len(miss.Paths) == 0 {
+				if !slices.Contains(conflicts, miss.Message) {
+					conflicts = append(conflicts, miss.Message)
+				}
+				continue
+			}
 			for _, p := range miss.Paths {
 				addMessage(p, miss.Message)
 			}
@@ -469,9 +481,38 @@ func formatRequirementsError(pending map[string]facetRequirementMisses) error {
 	sort.Strings(pathOrder)
 
 	var b strings.Builder
+	if len(pathOrder) > 0 {
+		writeMissingPaths(&b, pathOrder, pathMessages)
+	}
+	if len(conflicts) > 0 {
+		if b.Len() > 0 {
+			trimmed := strings.TrimRight(b.String(), "\n")
+			b.Reset()
+			b.WriteString(trimmed)
+			b.WriteString("\n\n")
+		}
+		b.WriteString("these values conflict:\n\n")
+		for _, msg := range conflicts {
+			for i, line := range strings.Split(strings.TrimRight(msg, "\n"), "\n") {
+				if i == 0 {
+					b.WriteString("  - ")
+				} else {
+					b.WriteString("    ")
+				}
+				b.WriteString(line)
+				b.WriteByte('\n')
+			}
+		}
+	}
+	return &RequirementsError{Message: strings.TrimRight(b.String(), "\n")}
+}
+
+// writeMissingPaths writes the missing-values section of the requirements error to b. It lists each
+// path as a bullet, then a Notes section with the author messages of each path that has any.
+func writeMissingPaths(b *strings.Builder, pathOrder []string, pathMessages map[string][]string) {
 	b.WriteString("the following required values are not set in values.yaml:\n\n")
 	for _, path := range pathOrder {
-		fmt.Fprintf(&b, "  - %s\n", path)
+		fmt.Fprintf(b, "  - %s\n", path)
 	}
 
 	hasNotes := false
@@ -481,23 +522,23 @@ func formatRequirementsError(pending map[string]facetRequirementMisses) error {
 			break
 		}
 	}
-	if hasNotes {
-		b.WriteString("\nNotes:\n\n")
-		for _, path := range pathOrder {
-			msgs := pathMessages[path]
-			if len(msgs) == 0 {
-				continue
-			}
-			fmt.Fprintf(&b, "  %s:\n", path)
-			for _, msg := range msgs {
-				for _, line := range strings.Split(strings.TrimRight(msg, "\n"), "\n") {
-					b.WriteString("    ")
-					b.WriteString(line)
-					b.WriteByte('\n')
-				}
-			}
-			b.WriteByte('\n')
-		}
+	if !hasNotes {
+		return
 	}
-	return &RequirementsError{Message: strings.TrimRight(b.String(), "\n")}
+	b.WriteString("\nNotes:\n\n")
+	for _, path := range pathOrder {
+		msgs := pathMessages[path]
+		if len(msgs) == 0 {
+			continue
+		}
+		fmt.Fprintf(b, "  %s:\n", path)
+		for _, msg := range msgs {
+			for _, line := range strings.Split(strings.TrimRight(msg, "\n"), "\n") {
+				b.WriteString("    ")
+				b.WriteString(line)
+				b.WriteByte('\n')
+			}
+		}
+		b.WriteByte('\n')
+	}
 }

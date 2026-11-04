@@ -1,5 +1,5 @@
 // The shell hooks are the scripts that run windsor env on each prompt or directory change.
-// It provides a hook script for zsh, bash, fish, tcsh, elvish, and PowerShell.
+// It provides a hook script for zsh, bash, fish, tcsh, and PowerShell.
 // InstallHook renders the hook for one shell with the path of the Windsor binary.
 // The user evaluates the output in the shell profile to install the hook.
 
@@ -57,10 +57,7 @@ var shellHooks = map[string]string{
 		`,
 	"tcsh": `
 		alias precmd '_windsor_hook';
-		alias _windsor_hook 'eval eval "$("{{.SelfPath}}" env --decrypt --hook)"; export tcsh"
-		`,
-	"elvish": `
-		eval (eval "$("{{.SelfPath}}" env --decrypt --hook)"; export elvish | slurp)
+		alias _windsor_hook 'eval "` + "`" + `'"'"'{{.SelfPath}}'"'"' env --decrypt --hook --shell tcsh` + "`" + `"';
 		`,
 	"powershell": `
 		$originalPromptFunction = Get-Item function:\prompt -ErrorAction SilentlyContinue
@@ -103,7 +100,7 @@ func (s *DefaultShell) InstallHook(shellName string) error {
 	hookCommand, ok := shellHooks[shellName]
 	if !ok {
 		return werror.New(fmt.Sprintf("Windsor has no hook for the shell %q.", shellName),
-			"Use one of these shells: bash, zsh, fish, tcsh, elvish, or powershell.", nil)
+			"Use one of these shells: bash, zsh, fish, tcsh, or powershell.", nil)
 	}
 
 	selfPath, err := s.shims.Executable()

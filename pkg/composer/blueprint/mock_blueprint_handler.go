@@ -8,6 +8,7 @@ import (
 type MockBlueprintHandler struct {
 	LoadBlueprintFunc                func(...string) error
 	SetSkipValidationFunc            func(skip bool)
+	SetAllowUninitializedFunc        func(allow bool)
 	WriteFunc                        func(overwrite ...bool) error
 	RetargetSourceFunc               func(name, url string) (string, error)
 	UpgradeSourcesToLatestFunc       func() ([]SourceUpgrade, error)
@@ -57,6 +58,13 @@ func (m *MockBlueprintHandler) SetSkipValidation(skip bool) {
 // is not set). Test-only accessor.
 func (m *MockBlueprintHandler) SkipValidation() bool {
 	return m.skipValidation
+}
+
+// SetAllowUninitialized calls the mock SetAllowUninitializedFunc if set.
+func (m *MockBlueprintHandler) SetAllowUninitialized(allow bool) {
+	if m.SetAllowUninitializedFunc != nil {
+		m.SetAllowUninitializedFunc(allow)
+	}
 }
 
 // Write calls the mock WriteFunc if set, otherwise returns nil.

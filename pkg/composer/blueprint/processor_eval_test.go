@@ -283,6 +283,110 @@ func TestProcessor_ProcessGlobally_Requires(t *testing.T) {
 		}
 	})
 
+	t.Run("ConflictBlockFailsWhenTrue", func(t *testing.T) {
+		// Given a block without paths whose when is true
+		mocks := setupProcessorMocks(t)
+		mocks.ConfigHandler.GetContextValuesFunc = func() (map[string]any, error) {
+			return map[string]any{"gateway": map[string]any{
+				"driver":   "cilium",
+				"internal": map[string]any{"node_ports": map[string]any{"3010": 30310}},
+			}}, nil
+		}
+		processor := blueprint.NewBlueprintProcessor(mocks.Runtime)
+		target := &blueprintv1alpha1.Blueprint{}
+		facets := []blueprintv1alpha1.Facet{
+			{
+				Metadata: blueprintv1alpha1.Metadata{Name: "option-gateway"},
+				Requires: []blueprintv1alpha1.RequirementBlock{
+					{
+						When:    "gateway.driver == 'cilium' && len(gateway.internal.node_ports ?? {}) > 0",
+						Message: "gateway.<name>.node_ports needs gateway.driver envoy.",
+					},
+				},
+			},
+		}
+
+		// When the facets are processed
+		_, err := processFacets(processor, target, facets)
+
+		// Then the error shows the message under the conflict heading only
+		if err == nil {
+			t.Fatal("Expected conflict error, got nil")
+		}
+		want := "these values conflict:\n\n  - gateway.<name>.node_ports needs gateway.driver envoy."
+		if err.Error() != want {
+			t.Errorf("Expected %q, got %q", want, err.Error())
+		}
+	})
+
+	t.Run("ConflictBlockSkippedWhenFalse", func(t *testing.T) {
+		// Given a block without paths whose when is false
+		mocks := setupProcessorMocks(t)
+		mocks.ConfigHandler.GetContextValuesFunc = func() (map[string]any, error) {
+			return map[string]any{"gateway": map[string]any{"driver": "envoy"}}, nil
+		}
+		processor := blueprint.NewBlueprintProcessor(mocks.Runtime)
+		target := &blueprintv1alpha1.Blueprint{}
+		facets := []blueprintv1alpha1.Facet{
+			{
+				Metadata: blueprintv1alpha1.Metadata{Name: "option-gateway"},
+				Requires: []blueprintv1alpha1.RequirementBlock{
+					{When: "gateway.driver == 'cilium'", Message: "cilium is not supported here."},
+				},
+			},
+		}
+
+		// When the facets are processed
+		_, err := processFacets(processor, target, facets)
+
+		// Then composition succeeds
+		if err != nil {
+			t.Fatalf("Expected no error when the conflict when is false, got %v", err)
+		}
+	})
+
+	t.Run("MissingAndConflictSectionsBothRender", func(t *testing.T) {
+		// Given one facet with a missing path and another with a true conflict block
+		mocks := setupProcessorMocks(t)
+		mocks.ConfigHandler.GetContextValuesFunc = func() (map[string]any, error) {
+			return map[string]any{"platform": "aws"}, nil
+		}
+		processor := blueprint.NewBlueprintProcessor(mocks.Runtime)
+		target := &blueprintv1alpha1.Blueprint{}
+		facets := []blueprintv1alpha1.Facet{
+			{
+				Metadata: blueprintv1alpha1.Metadata{Name: "facet-a"},
+				Requires: []blueprintv1alpha1.RequirementBlock{
+					{Paths: []string{"aws.region"}, Message: "Set the AWS region."},
+				},
+			},
+			{
+				Metadata: blueprintv1alpha1.Metadata{Name: "facet-b"},
+				Requires: []blueprintv1alpha1.RequirementBlock{
+					{When: "platform == 'aws'", Message: "This option does not run on aws."},
+				},
+			},
+		}
+
+		// When the facets are processed
+		_, err := processFacets(processor, target, facets)
+
+		// Then the error lists the missing section and then the conflict section
+		if err == nil {
+			t.Fatal("Expected aggregated error, got nil")
+		}
+		want := "the following required values are not set in values.yaml:\n\n" +
+			"  - aws.region\n\n" +
+			"Notes:\n\n" +
+			"  aws.region:\n" +
+			"    Set the AWS region.\n\n" +
+			"these values conflict:\n\n" +
+			"  - This option does not run on aws."
+		if err.Error() != want {
+			t.Errorf("Expected:\n%s\ngot:\n%s", want, err.Error())
+		}
+	})
+
 	t.Run("SelfReferenceSatisfiedAcrossRounds", func(t *testing.T) {
 		// A lone facet requiring a path only its own config block produces is the same shape as
 		// FacetOwnConfigSatisfiesItsRequiresAcrossRounds above, just without a second facet to keep

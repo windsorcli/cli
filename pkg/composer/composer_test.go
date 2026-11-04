@@ -394,14 +394,21 @@ func TestLoadBlueprintIfTerraformProject(t *testing.T) {
 			loadCalled = true
 			return nil
 		}
+		allowUninitialized := false
+		mocks.BlueprintHandler.SetAllowUninitializedFunc = func(allow bool) {
+			allowUninitialized = allow
+		}
 
 		// When LoadBlueprintIfTerraformProject is called
 		overrideComposer := &Composer{BlueprintHandler: mocks.BlueprintHandler}
 		err := LoadBlueprintIfTerraformProject(mocks.Runtime, true, overrideComposer)
 
-		// Then LoadBlueprint is called with validation skipped
+		// Then LoadBlueprint is called with validation skipped and an uninitialized context allowed
 		if err != nil {
 			t.Fatalf("Expected no error, got %v", err)
+		}
+		if !allowUninitialized {
+			t.Error("Expected SetAllowUninitialized(true) to be called")
 		}
 		if !loadCalled {
 			t.Error("Expected LoadBlueprint to be called inside a terraform project")
