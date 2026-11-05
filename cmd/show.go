@@ -43,12 +43,12 @@ Unresolved deferred values render as '<deferred>' by default in 'blueprint' and 
 
 var showArtifactsCmd = &cobra.Command{
 	Use:   "artifacts",
-	Short: "List the charts and images that the context pulls.",
-	Long:  `Print every chart, image and blueprint that the current context pulls, with a destination for each. The command reads each oci:// blueprint source. It copies nothing. A chart goes to the --charts-to registry under its chart name and version. An image goes to the docker.registries mirror of its host.`,
+	Short: "List the blueprint artifacts that the context pulls.",
+	Long:  `Print each oci:// blueprint source that the current context pulls. The command copies nothing. Use -o flux-mirror or -o list to give the list to a relocation tool.`,
 	Example: `# List the artifacts of the current context as YAML
 windsor show artifacts
 
-# Copy every chart and image with Flux Mirror
+# Write a Flux Mirror config for the context
 windsor show artifacts --charts-to registry.example.com/windsor -o flux-mirror | flux mirror sync -
 
 # List each destination and upstream on one line
