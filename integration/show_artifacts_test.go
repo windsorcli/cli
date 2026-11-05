@@ -80,6 +80,7 @@ func TestShowArtifacts_ListsTheArtifactTagsOfTheProject(t *testing.T) {
 	want := map[string]string{
 		"chart https://charts.jetstack.io v1.17.0": "registry.example.com/windsor/cert-manager:v1.17.0",
 		"image ghcr.io/example/worker 1.2.3":       "",
+		"image ghcr.io/example/tooling 2.0.0":      "",
 	}
 	if len(got) != len(want) {
 		t.Errorf("expected %v, got %v", want, got)

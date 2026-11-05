@@ -241,8 +241,8 @@ func TestScanTags(t *testing.T) {
 }
 
 func TestScanTagsDir(t *testing.T) {
-	t.Run("ReadsKustomizeAndTerraformFilesAndSkipsTheRest", func(t *testing.T) {
-		// Given a source tree with tags in kustomize, terraform, a .terraform cache and a template
+	t.Run("ReadsSourceFilesFacetsAndValuesAndSkipsTheRest", func(t *testing.T) {
+		// Given a source tree with tags in kustomize, terraform, facets, values, a bundled template and a .terraform cache
 		root := t.TempDir()
 		write := func(rel, content string) {
 			path := filepath.Join(root, filepath.FromSlash(rel))
@@ -256,17 +256,25 @@ func TestScanTagsDir(t *testing.T) {
 		write("kustomize/a/values.yaml", "# artifact: type=image name=ghcr.io/example/a\nimage: ghcr.io/example/a:v1\n")
 		write("terraform/b/main.tf", "# artifact: type=image name=ghcr.io/example/b\ndefault = \"v2\"\n")
 		write("terraform/b/.terraform/modules/c.tf", "# artifact: type=image name=ghcr.io/example/c\ndefault = \"v3\"\n")
-		write("contexts/_template/values.yaml", "# artifact: type=image name=ghcr.io/example/d\nimage: ghcr.io/example/d:v4\n")
+		write("contexts/_template/facets/f.yaml", "# artifact: type=image name=ghcr.io/example/d\nimage: ghcr.io/example/d:v4\n")
+		write("contexts/prod/values.yaml", "# artifact: type=image name=ghcr.io/example/e\nimage: ghcr.io/example/e:v5\n")
+		write("_template/facets/g.yaml", "# artifact: type=image name=ghcr.io/example/f\nimage: ghcr.io/example/f:v6\n")
+		write("contexts/prod/notes.txt", "# artifact: type=image name=ghcr.io/example/g\nimage: ghcr.io/example/g:v7\n")
 
 		// When the tree is scanned
 		tags, err := artifact.ScanTagsDir(root)
 
-		// Then only the kustomize and terraform tags are returned, sorted by file
+		// Then the tags of the source, facet and values files are returned, sorted by file
 		if err != nil {
 			t.Fatalf("expected no error, got %v", err)
 		}
-		if len(tags) != 2 || tags[0].File != "kustomize/a/values.yaml" || tags[1].File != "terraform/b/main.tf" {
-			t.Fatalf("unexpected tags %+v", tags)
+		want := []string{"_template/facets/g.yaml", "contexts/_template/facets/f.yaml", "contexts/prod/values.yaml", "kustomize/a/values.yaml", "terraform/b/main.tf"}
+		var got []string
+		for _, tag := range tags {
+			got = append(got, tag.File)
+		}
+		if strings.Join(got, ",") != strings.Join(want, ",") {
+			t.Fatalf("expected files %v, got %v", want, got)
 		}
 	})
 

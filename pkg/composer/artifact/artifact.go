@@ -225,19 +225,20 @@ func (a *ArtifactBuilder) refreshArtifactManifest() error {
 
 // generateArtifactManifest scans every bundled file for Renovate annotations
 // and returns a YAML-encoded ArtifactManifest capturing the pinned artifacts.
-// Only kustomize and terraform sources are scanned, since those are the paths
-// where blueprint authors declare external dependencies. It also checks the
-// artifact tags of those files and returns an error for a malformed tag.
+// Only kustomize and terraform sources are scanned for Renovate annotations.
+// It also checks the artifact tags of those files, of the facets and of the
+// values files, and returns an error for a malformed tag.
 func (a *ArtifactBuilder) generateArtifactManifest() ([]byte, error) {
 	entries := make([]ManifestEntry, 0)
 	for path, info := range a.files {
-		if !isScannablePath(path) {
-			continue
+		if isTagPath(path) {
+			if _, err := ScanTags(path, info.Content); err != nil {
+				return nil, err
+			}
 		}
-		if _, err := ScanTags(path, info.Content); err != nil {
-			return nil, err
+		if isScannablePath(path) {
+			entries = append(entries, scanRenovateAnnotations(path, info.Content)...)
 		}
-		entries = append(entries, scanRenovateAnnotations(path, info.Content)...)
 	}
 	sortManifestEntries(entries)
 	entries = dedupeManifestEntries(entries)

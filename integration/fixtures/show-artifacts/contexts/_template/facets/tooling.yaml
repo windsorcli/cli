@@ -1,0 +1,10 @@
+kind: Facet
+apiVersion: blueprints.windsorcli.dev/v1alpha1
+metadata:
+  name: tooling
+  description: Pins a tooling image for the artifact list
+config:
+  - name: tooling
+    value:
+      # artifact: type=image name=ghcr.io/example/tooling
+      image: ghcr.io/example/tooling:2.0.0
