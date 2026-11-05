@@ -12,8 +12,6 @@ type MockToolsManager struct {
 	CheckRequirementsFunc   func(reqs Requirements) error
 	CheckAuthFunc           func() error
 	CheckTerraformFunc      func() error
-	CheckFluxFunc           func() error
-	CheckFluxOperatorFunc   func() error
 	GetTerraformCommandFunc func() string
 }
 
@@ -72,22 +70,6 @@ func (m *MockToolsManager) CheckAuth() error {
 func (m *MockToolsManager) CheckTerraform() error {
 	if m.CheckTerraformFunc != nil {
 		return m.CheckTerraformFunc()
-	}
-	return nil
-}
-
-// CheckFlux calls the mock CheckFluxFunc if set, otherwise returns nil.
-func (m *MockToolsManager) CheckFlux() error {
-	if m.CheckFluxFunc != nil {
-		return m.CheckFluxFunc()
-	}
-	return nil
-}
-
-// CheckFluxOperator calls the mock CheckFluxOperatorFunc if set, otherwise returns nil.
-func (m *MockToolsManager) CheckFluxOperator() error {
-	if m.CheckFluxOperatorFunc != nil {
-		return m.CheckFluxOperatorFunc()
 	}
 	return nil
 }

@@ -46,16 +46,6 @@ var toolRegistry = map[string]toolInfo{
 		minVersion: constants.MinimumVersionTerraform,
 		download:   "https://opentofu.org/docs/intro/install/",
 	},
-	"flux": {
-		name:       "Flux CLI",
-		minVersion: constants.MinimumVersionFlux,
-		download:   "https://fluxcd.io/flux/installation/",
-	},
-	"flux-operator": {
-		name:       "Flux Operator CLI",
-		minVersion: constants.MinimumVersionFluxOperator,
-		download:   "https://fluxoperator.dev/docs/guides/install/",
-	},
 	"op": {
 		name:       "1Password CLI",
 		minVersion: constants.MinimumVersion1Password,

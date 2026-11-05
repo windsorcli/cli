@@ -14,7 +14,6 @@ import (
 	"github.com/windsorcli/cli/pkg/runtime"
 	"github.com/windsorcli/cli/pkg/runtime/config"
 	"github.com/windsorcli/cli/pkg/runtime/shell"
-	"github.com/windsorcli/cli/pkg/runtime/tools"
 )
 
 // =============================================================================
@@ -56,7 +55,6 @@ type fluxMocks struct {
 	configHandler     *config.MockConfigHandler
 	kubernetesManager *kubernetes.MockKubernetesManager
 	shims             *Shims
-	toolsManager      *tools.MockToolsManager
 	runtime           *runtime.Runtime
 }
 
@@ -65,6 +63,9 @@ func setupFluxMocks(t *testing.T) *fluxMocks {
 
 	mockShell := shell.NewMockShell()
 	mockShell.ExecSilentFunc = func(command string, args ...string) (string, error) {
+		if command == "flux" && len(args) > 0 && args[0] == "version" {
+			return "flux: v2.4.0\n", nil
+		}
 		return "", nil
 	}
 	mockShell.ExecProgressFunc = func(message, command string, args ...string) (string, error) {
@@ -94,12 +95,9 @@ func setupFluxMocks(t *testing.T) *fluxMocks {
 		return "", nil
 	}
 
-	mockToolsManager := tools.NewMockToolsManager()
-
 	rt := &runtime.Runtime{
 		Shell:         mockShell,
 		ConfigHandler: mockConfigHandler,
-		ToolsManager:  mockToolsManager,
 		ProjectRoot:   t.TempDir(),
 	}
 
@@ -108,7 +106,6 @@ func setupFluxMocks(t *testing.T) *fluxMocks {
 		configHandler:     mockConfigHandler,
 		kubernetesManager: mockKubernetesManager,
 		shims:             shims,
-		toolsManager:      mockToolsManager,
 		runtime:           rt,
 	}
 }
@@ -190,19 +187,69 @@ func TestFluxStack_Plan(t *testing.T) {
 		}
 	})
 
-	t.Run("ReturnsTheFluxCheckError", func(t *testing.T) {
-		// Given a flux CLI check that fails
+	t.Run("ErrorFluxNotInstalled", func(t *testing.T) {
+		// Given a stack where flux is not on the PATH
 		m := setupFluxMocks(t)
-		checkErr := werror.New("Flux CLI 2.1.0 is below the minimum required version 2.3.0.", "Upgrade Flux CLI.", nil)
-		m.toolsManager.CheckFluxFunc = func() error { return checkErr }
+		m.shims.LookPath = func(file string) (string, error) {
+			return "", fmt.Errorf("executable file not found in $PATH")
+		}
 		s := newTestFluxStack(m)
 
 		// When Plan is called
 		err := s.Plan(testBlueprint(), "my-app")
 
-		// Then the check error returns
-		if err != checkErr {
-			t.Errorf("expected the flux check error, got %v", err)
+		// Then an error mentioning the install URL is returned
+		if err == nil {
+			t.Fatal("expected error, got nil")
+		}
+		if !strings.Contains(err.Error(), "flux CLI is required") {
+			t.Errorf("expected install hint in error, got %v", err)
+		}
+		if we := werror.Find(err); we == nil || !strings.Contains(we.Remediation, "fluxcd.io/flux/installation") {
+			t.Errorf("Expected a remediation that names fluxcd.io/flux/installation, got: %v", err)
+		}
+	})
+
+	t.Run("ErrorFluxVersionTooOld", func(t *testing.T) {
+		// Given a stack where flux is installed but below the minimum version
+		m := setupFluxMocks(t)
+		m.shell.ExecSilentFunc = func(command string, args ...string) (string, error) {
+			return "flux: v2.1.0\n", nil
+		}
+		s := newTestFluxStack(m)
+
+		// When Plan is called
+		err := s.Plan(testBlueprint(), "my-app")
+
+		// Then an error mentioning the required version is returned
+		if err == nil {
+			t.Fatal("expected error, got nil")
+		}
+		if !strings.Contains(err.Error(), "v2.3 or later is required") {
+			t.Errorf("expected version requirement in error, got %v", err)
+		}
+		if we := werror.Find(err); we == nil || !strings.Contains(we.Remediation, "Upgrade the flux CLI") {
+			t.Errorf("Expected a remediation that names Upgrade the flux CLI, got: %v", err)
+		}
+	})
+
+	t.Run("ErrorCannotGetFluxVersion", func(t *testing.T) {
+		// Given a stack where flux version check fails
+		m := setupFluxMocks(t)
+		m.shell.ExecSilentFunc = func(command string, args ...string) (string, error) {
+			return "", fmt.Errorf("flux: command not found")
+		}
+		s := newTestFluxStack(m)
+
+		// When Plan is called
+		err := s.Plan(testBlueprint(), "my-app")
+
+		// Then an error is returned
+		if err == nil {
+			t.Fatal("expected error, got nil")
+		}
+		if !strings.Contains(err.Error(), "failed to get flux version") {
+			t.Errorf("expected version fetch error, got %v", err)
 		}
 	})
 

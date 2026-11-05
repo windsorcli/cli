@@ -70,11 +70,9 @@ var (
 	PlanSummary               = &planSummary
 	PlanTerraformCmd          = planTerraformCmd
 	PushCmd                   = pushCmd
-	ShowArtifactsAll          = &showArtifactsAll
 	ShowArtifactsChartsTo     = &showArtifactsChartsTo
 	ShowArtifactsCmd          = showArtifactsCmd
 	ShowArtifactsOutput       = &showArtifactsOutput
-	ShowArtifactsSetFlags     = &showArtifactsSetFlags
 	ShowBlueprintCmd          = showBlueprintCmd
 	ShowBlueprintJSON         = &showBlueprintJSON
 	ShowBlueprintRaw          = &showBlueprintRaw

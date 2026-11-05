@@ -1314,8 +1314,6 @@ func TestShowArtifactsCmd(t *testing.T) {
 	createTestCmd := func() *cobra.Command {
 		*cliCmd.ShowArtifactsOutput = "yaml"
 		*cliCmd.ShowArtifactsChartsTo = ""
-		*cliCmd.ShowArtifactsAll = false
-		*cliCmd.ShowArtifactsSetFlags = []string{}
 		cmd := &cobra.Command{
 			Use:          "artifacts",
 			RunE:         cliCmd.ShowArtifactsCmd.RunE,
@@ -1389,10 +1387,10 @@ func TestShowArtifactsCmd(t *testing.T) {
 		proj := setupProject(t)
 		cmd := createTestCmd()
 		cmd.SetContext(context.WithValue(context.Background(), cliCmd.ProjectOverridesKey, proj))
-		cmd.SetArgs([]string{"-o", "list", "--set", "charts.registry="})
+		cmd.SetArgs([]string{"-o", "list"})
 		readStdout := captureStdout(t)
 
-		// When the command runs with -o list and a --set value
+		// When the command runs with -o list
 		err := cmd.Execute()
 		output := readStdout()
 
@@ -1438,21 +1436,6 @@ func TestShowArtifactsCmd(t *testing.T) {
 		// Then an error names the format
 		if err == nil || !strings.Contains(err.Error(), `invalid output format "json"`) {
 			t.Fatalf("expected an output format error, got %v", err)
-		}
-	})
-
-	t.Run("RejectsAMalformedSetFlag", func(t *testing.T) {
-		// Given a --set value with no equals sign
-		cmd := createTestCmd()
-		cmd.SetContext(context.Background())
-		cmd.SetArgs([]string{"--set", "charts.registry"})
-
-		// When the command runs
-		err := cmd.Execute()
-
-		// Then an error names the entry
-		if err == nil || !strings.Contains(err.Error(), "invalid --set format") {
-			t.Fatalf("expected a --set format error, got %v", err)
 		}
 	})
 }
