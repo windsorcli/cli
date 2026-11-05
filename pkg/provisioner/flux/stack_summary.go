@@ -94,7 +94,7 @@ func (s *FluxStack) PlanSummary(blueprint *blueprintv1alpha1.Blueprint) ([]Kusto
 		hints = append(hints, "flux CLI not found — install to see kustomize diffs for existing clusters\nhttps://fluxcd.io/flux/installation/")
 		fluxMissing = true
 	} else if err := s.checkFluxVersion(); err != nil {
-		hints = append(hints, err.Error())
+		hints = append(hints, fluxHint(err))
 		fluxMissing = true
 	}
 
@@ -329,6 +329,15 @@ func (s *FluxStack) captureFluxDiff(args ...string) (string, error) {
 // =============================================================================
 // Helpers
 // =============================================================================
+
+// fluxHint returns the plan hint for a failed flux version check, with its remediation on its own line.
+func fluxHint(err error) string {
+	hint := err.Error()
+	if we := werror.Find(err); we != nil && we.Remediation != "" {
+		hint += "\n" + we.Remediation
+	}
+	return hint
+}
 
 // KustomizationDestroyEligible mirrors the gate inside DeleteBlueprint so the
 // destroy-plan set matches the destroy-execute set. DestroyOnly kustomizations

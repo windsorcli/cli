@@ -220,6 +220,30 @@ func TestFluxStack_PlanSummary(t *testing.T) {
 		}
 	})
 
+	t.Run("GivesTheUpgradeURLWhenFluxIsOutdated", func(t *testing.T) {
+		// Given a flux CLI older than the minimum version
+		m := setupFluxMocks(t)
+		m.shell.ExecSilentFunc = func(command string, args ...string) (string, error) {
+			return "flux: v2.1.0\n", nil
+		}
+		s := newTestFluxStack(m)
+
+		// When PlanSummary is called
+		_, hints := s.PlanSummary(testBlueprint())
+
+		// Then the hint names the found version and gives the upgrade URL
+		found := false
+		for _, h := range hints {
+			if strings.Contains(h, "found v2.1.0") && strings.Contains(h, "\nUpgrade the flux CLI from https://fluxcd.io/flux/installation/.") {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Errorf("expected an outdated flux hint with the upgrade URL, got %v", hints)
+		}
+	})
+
 	t.Run("RecordsErrorWhenFluxDiffFails", func(t *testing.T) {
 		// Given an existing kustomization where flux diff fails with a non-1 exit code
 		m := setupFluxMocks(t)
