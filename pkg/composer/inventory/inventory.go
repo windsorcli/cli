@@ -1,6 +1,6 @@
 // The Lister is the artifact inventory of one context.
 // It provides the list of charts, images and blueprints that a composed blueprint pulls.
-// It renders each Flux Kustomization with the flux CLI and reads the source objects and pod templates.
+// It reads each oci:// blueprint source of the blueprint. It does not render manifests.
 // It gives each artifact a destination from --charts-to and the docker.registries mirrors.
 
 package inventory
@@ -11,8 +11,6 @@ import (
 	"strings"
 
 	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
-	"github.com/windsorcli/cli/internal/werror"
-	"github.com/windsorcli/cli/pkg/composer/artifact"
 	"github.com/windsorcli/cli/pkg/runtime"
 )
 
@@ -85,7 +83,6 @@ type Source struct {
 // Options holds the settings of one List call.
 type Options struct {
 	ChartsTo string
-	All      bool
 }
 
 // Result is the inventory and the notes that List writes for the operator.
@@ -96,11 +93,15 @@ type Result struct {
 
 // BaseLister is the default Lister.
 type BaseLister struct {
-	runtime         *runtime.Runtime
-	artifactBuilder artifact.Artifact
-	shims           *Shims
-	extractors      []Extractor
-	chartRenderer   ChartRenderer
+	runtime *runtime.Runtime
+}
+
+// imageReference is a container image reference split into its parts.
+// repository holds the registry host, and Docker Hub images use docker.io.
+type imageReference struct {
+	repository string
+	tag        string
+	digest     string
 }
 
 // =============================================================================
@@ -116,52 +117,20 @@ type Lister interface {
 // Constructor
 // =============================================================================
 
-// NewLister creates a BaseLister with the built-in extractors. It panics if rt or artifactBuilder is nil.
-// A non-nil field in an opts entry replaces the default.
-func NewLister(rt *runtime.Runtime, artifactBuilder artifact.Artifact, opts ...*BaseLister) *BaseLister {
+// NewLister creates a BaseLister. It panics if rt is nil.
+func NewLister(rt *runtime.Runtime) *BaseLister {
 	if rt == nil {
 		panic("runtime is required")
 	}
-	if artifactBuilder == nil {
-		panic("artifact builder is required")
-	}
-
-	lister := &BaseLister{
-		runtime:         rt,
-		artifactBuilder: artifactBuilder,
-		shims:           NewShims(),
-	}
-
-	if len(opts) > 0 && opts[0] != nil {
-		if opts[0].shims != nil {
-			lister.shims = opts[0].shims
-		}
-		if opts[0].extractors != nil {
-			lister.extractors = opts[0].extractors
-		}
-		if opts[0].chartRenderer != nil {
-			lister.chartRenderer = opts[0].chartRenderer
-		}
-	}
-
-	if lister.extractors == nil {
-		lister.extractors = []Extractor{NewFluxInstanceExtractor(rt, lister.shims)}
-	}
-	if lister.chartRenderer == nil {
-		lister.chartRenderer = NewHelmRenderer(rt, lister.shims)
-	}
-
-	return lister
+	return &BaseLister{runtime: rt}
 }
 
 // =============================================================================
 // Public Methods
 // =============================================================================
 
-// List returns the artifacts of blueprint. Without opts.All it renders every Kustomization the
-// context applies and reads the rendered objects. With opts.All it reads the artifact-manifest.yaml
-// of each blueprint source. Each entry gets a destination, and the entries are unique and sorted.
-// A deferred value in a chart source or an image reference is an error.
+// List returns the artifacts of blueprint. It lists each oci:// blueprint source.
+// Each entry gets a destination, and the entries are unique and sorted.
 func (l *BaseLister) List(blueprint *blueprintv1alpha1.Blueprint, opts Options) (*Result, error) {
 	if blueprint == nil {
 		return nil, fmt.Errorf("blueprint not provided")
@@ -169,18 +138,7 @@ func (l *BaseLister) List(blueprint *blueprintv1alpha1.Blueprint, opts Options) 
 
 	result := &Result{Inventory: Inventory{Version: InventoryVersion, Context: l.runtime.ContextName}}
 
-	var entries []Entry
-	var err error
-	if opts.All {
-		entries, err = l.listFromManifests(blueprint, result)
-	} else {
-		entries, err = l.listFromRender(blueprint, result)
-	}
-	if err != nil {
-		return nil, err
-	}
-
-	entries = append(entries, blueprintEntries(blueprint)...)
+	entries := blueprintEntries(blueprint)
 
 	mirrors := l.imageMirrors()
 	for i := range entries {
@@ -189,125 +147,6 @@ func (l *BaseLister) List(blueprint *blueprintv1alpha1.Blueprint, opts Options) 
 
 	result.Inventory.Artifacts = sortEntries(dedupeEntries(entries))
 	return result, nil
-}
-
-// =============================================================================
-// Private Methods
-// =============================================================================
-
-// listFromRender renders each Kustomization that the context applies, runs the extractors on the
-// rendered objects, renders each HelmRelease chart, and reads the chart sources and images. It
-// needs the flux CLI only when the blueprint has a Kustomization to render.
-func (l *BaseLister) listFromRender(blueprint *blueprintv1alpha1.Blueprint, result *Result) ([]Entry, error) {
-	var targets []blueprintv1alpha1.Kustomization
-	for _, k := range blueprint.AllKustomizations() {
-		if k.DestroyOnly != nil && *k.DestroyOnly {
-			continue
-		}
-		targets = append(targets, k)
-	}
-	if len(targets) == 0 {
-		return nil, nil
-	}
-
-	if err := l.runtime.ToolsManager.CheckFlux(); err != nil {
-		return nil, err
-	}
-
-	var objects []renderedObject
-	for _, k := range targets {
-		rendered, err := l.renderKustomization(blueprint, k)
-		if err != nil {
-			return nil, err
-		}
-		objects = append(objects, rendered...)
-	}
-
-	extracted, err := l.runExtractors(objects)
-	if err != nil {
-		return nil, err
-	}
-	objects = append(objects, extracted...)
-
-	objects, err = l.renderHelmReleases(objects, result)
-	if err != nil {
-		return nil, err
-	}
-
-	entries, notes := scanObjects(objects)
-	result.Notes = append(result.Notes, notes...)
-	if err := checkDeferred(entries); err != nil {
-		return nil, err
-	}
-	return entries, nil
-}
-
-// runExtractors returns the objects that each extractor derives from a rendered object of its kind.
-// Each derived object keeps the Kustomization of its parent and names the parent as its object.
-func (l *BaseLister) runExtractors(objects []renderedObject) ([]renderedObject, error) {
-	var derived []renderedObject
-	for _, obj := range objects {
-		for _, extractor := range l.extractors {
-			if !extractor.Matches(obj.object) {
-				continue
-			}
-			out, err := extractor.Extract(obj.object)
-			if err != nil {
-				return nil, werror.Wrap(err, "failed to extract the images of %s in kustomization %q", obj.id(), obj.kustomization)
-			}
-			for _, o := range out {
-				derived = append(derived, renderedObject{kustomization: obj.kustomization, object: o, parent: obj.id()})
-			}
-		}
-	}
-	return derived, nil
-}
-
-// renderHelmReleases renders the chart of each HelmRelease in objects and appends the result,
-// with the objects that the extractors derive from it. A HelmRelease in a chart's output renders
-// in turn. A chart with no exact version or from Git does not render, and the scan notes it.
-// A chart with a deferred value gives a note.
-func (l *BaseLister) renderHelmReleases(objects []renderedObject, result *Result) ([]renderedObject, error) {
-	done := make(map[string]bool)
-	for i := 0; i < len(objects); i++ {
-		hr := objects[i]
-		if kind, _ := hr.object["kind"].(string); kind != "HelmRelease" || done[hr.id()] {
-			continue
-		}
-		done[hr.id()] = true
-
-		chart, ok := releaseChart(hr, indexObjects(objects))
-		if !ok {
-			continue
-		}
-		if chart.Transport == TransportGit || !isExactVersion(chart.Version) {
-			continue
-		}
-		if strings.Contains(chart.Upstream(), deferredMarker) {
-			result.Notes = append(result.Notes, fmt.Sprintf("%s in kustomization %q does not render, so the list has no images from chart %s.", hr.id(), hr.kustomization, chart.Upstream()))
-			continue
-		}
-
-		raw := make([]map[string]any, len(objects))
-		for j, o := range objects {
-			raw[j] = o.object
-		}
-		out, err := l.chartRenderer.Render(ChartRequest{Chart: chart, HelmRelease: hr.object, Objects: raw})
-		if err != nil {
-			return nil, werror.Wrap(err, "failed to render %s in kustomization %q", hr.id(), hr.kustomization)
-		}
-		rendered := make([]renderedObject, 0, len(out))
-		for _, o := range out {
-			rendered = append(rendered, renderedObject{kustomization: hr.kustomization, object: o, parent: hr.id()})
-		}
-		extracted, err := l.runExtractors(rendered)
-		if err != nil {
-			return nil, err
-		}
-		objects = append(objects, rendered...)
-		objects = append(objects, extracted...)
-	}
-	return objects, nil
 }
 
 // =============================================================================
@@ -332,18 +171,6 @@ func blueprintEntries(blueprint *blueprintv1alpha1.Blueprint) []Entry {
 		})
 	}
 	return entries
-}
-
-// checkDeferred returns an error for the first entry whose upstream holds the deferred marker.
-func checkDeferred(entries []Entry) error {
-	for _, e := range entries {
-		if strings.Contains(e.Reference+e.Name+e.Version+e.Digest, deferredMarker) {
-			return werror.New(
-				fmt.Sprintf("the %s of %s in kustomization %q uses a value that is not known before apply", e.Kind, e.Source.Object, e.Source.Kustomization),
-				"Give the substitution a value that does not come from a Terraform output.", nil)
-		}
-	}
-	return nil
 }
 
 // dedupeEntries keeps the first entry for each kind, reference, name, version and digest.
@@ -377,4 +204,40 @@ func sortEntries(entries []Entry) []Entry {
 		return a.Version < b.Version
 	})
 	return entries
+}
+
+// parseImageReference splits an image reference into repository, tag and digest. A reference
+// with no registry host gets docker.io, and a one-segment Docker Hub path gets library/.
+func parseImageReference(ref string) imageReference {
+	var out imageReference
+	if at := strings.Index(ref, "@"); at >= 0 {
+		out.digest = ref[at+1:]
+		ref = ref[:at]
+	}
+	if colon := strings.LastIndex(ref, ":"); colon > strings.LastIndex(ref, "/") {
+		out.tag = ref[colon+1:]
+		ref = ref[:colon]
+	}
+	first, rest, hasSlash := strings.Cut(ref, "/")
+	if !hasSlash || (!strings.ContainsAny(first, ".:") && first != "localhost") {
+		first, rest = "docker.io", ref
+	}
+	if first == "docker.io" && !strings.Contains(rest, "/") {
+		rest = "library/" + rest
+	}
+	out.repository = first + "/" + rest
+	return out
+}
+
+// isExactVersion reports whether version names one chart version and not a semver range.
+func isExactVersion(version string) bool {
+	if version == "" || strings.ContainsAny(version, "<>=~^*|, ") {
+		return false
+	}
+	for _, part := range strings.Split(version, ".") {
+		if part == "x" || part == "X" {
+			return false
+		}
+	}
+	return true
 }

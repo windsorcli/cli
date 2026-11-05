@@ -14,11 +14,8 @@ import (
 // Constants
 // =============================================================================
 
-// DeferredPlaceholder replaces a deferred value in display output.
-const DeferredPlaceholder = "<deferred>"
-
-// deferredPlaceholder is the package-local name of DeferredPlaceholder.
-const deferredPlaceholder = DeferredPlaceholder
+// deferredPlaceholder replaces a deferred value in display output.
+const deferredPlaceholder = "<deferred>"
 
 // =============================================================================
 // Helpers
