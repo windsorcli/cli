@@ -1,7 +1,7 @@
 # ADR 0010 — Artifact inventory: list what a context pulls and where each artifact goes
 
 - Status: Proposed. Supersedes the single HelmRepository patch proposed in cli#3376.
-- Date: 2026-10-28; amended 2026-11-04 (Decision 8)
+- Date: 2026-10-28; amended 2026-11-04 (Decisions 3 and 8)
 - Deciders: Ryan VanGundy
 - Surfaced while designing core's chart registry
   ([core ADR 0020](https://github.com/windsorcli/core/blob/main/docs/adr/0020-helm-chart-registry.md)),
@@ -70,10 +70,9 @@ Flux Mirror or any tool that reads the list.
 windsor show artifacts --charts-to registry.example.com/windsor -o flux-mirror | flux mirror sync -
 ```
 
-`-o yaml` (the default) prints the `artifact-manifest.yaml` schema with a `destination` field
-added. `-o flux-mirror` prints a Flux Mirror `v1beta1` config. `-o list` prints one
+`-o yaml` (the default) prints one YAML entry per artifact with a `destination` field. `-o flux-mirror` prints a Flux Mirror `v1beta1` config. `-o list` prints one
 `destination<TAB>upstream` line per artifact for other tools. `--all` prints the blueprint-wide
-set from each source's `artifact-manifest.yaml`, regardless of context, for a publisher
+set from each source's manifest (Decision 8), regardless of context, for a publisher
 building a full set.
 
 The command is not named `mirror`. It covers charts, which go to a chart registry rather than a
@@ -130,26 +129,53 @@ renders a missing value as empty, so the CLI writes a marker value into `postBui
 for each one. The command fails only when a marker lands in a chart source's URL, tag, or
 digest, or in an image reference. A marker anywhere else does not change the list.
 
-### 3. Terraform artifacts come from static evaluation of each component
+### 3. Terraform artifacts come from a declared subset of each component
 
-For each Terraform component the context enables, the CLI parses the module with `hcl/v2` and
-follows local `module` sources. It evaluates each resource block below with `var.*` set from
-the component's Windsor inputs and the variable defaults, and with `local.*` resolved in the
-same pass. A reference to a resource attribute or a module output evaluates as unknown.
+For each Terraform component the context enables, the lister parses the `.tf` files in the
+component's directory with `hcl/v2`. It does not evaluate the Terraform language. It reads a
+value only when the value is in the readable subset:
 
-- A `helm_release` gives its repository, chart, version, `values`, and `set` entries. The CLI
-  renders the chart as in Decision 2.
-- A `kubernetes_*` workload resource gives the images in its pod template.
-- A `kubernetes_manifest` gives its object, which the CLI reads like rendered Flux output.
+- A literal.
+- `var.<name>`, set from the component's Windsor input or, when no input is set, from the
+  variable's default.
+- `local.<name>`, when the local's expression is in the readable subset.
+- An object, a tuple, or a string template whose parts are all in the readable subset.
+- `yamlencode(...)` or `jsonencode(...)` of a value in the readable subset.
 
-These resources produce charts or Kubernetes objects, so the CLI reads them the same way for any
-blueprint. The CLI reads no other resource type, because Terraform has no common attribute that
-marks an image. An image stays in the file that uses it, and the blueprint declares no second
-copy.
+Every other expression is unreadable: a function call outside the list, a conditional, a `for`
+expression, a resource attribute, a module output, and a value under `count` or `for_each`. The
+lister reads three resource types:
 
-The command fails only when an unknown value lands in a chart's repository, name, or version,
-or in an image reference. In core, this finds cilium, flux-operator, and flux-instance from
-`var.chart_repository` and the version variables.
+- A `helm_release` gives its `repository`, `chart`, and `version`. Its `values` documents pass to
+  the chart render of Decision 2. A key whose value is unreadable is left out, so the chart's
+  default applies to that key.
+- A `kubernetes_*` workload resource gives the `image` of each container in its pod template.
+- A `kubernetes_manifest` gives its `manifest` object, which the lister reads like rendered Flux
+  output.
+
+The command fails when a chart's `repository`, `chart`, or `version`, or a container's `image`,
+is unreadable. The message names the file and the attribute, and tells the author to set the
+value from a variable. The lister does not follow `module` blocks. A module that installs a
+chart puts that `helm_release` in the component's own directory.
+
+The subset is a contract between the CLI and a blueprint author. An author keeps each artifact
+reference readable, and the CLI does not have to know the rest of the Terraform language. The
+version stays in the file that uses it, under its Renovate comment.
+
+In core, the subset gives:
+
+- cilium, flux-operator, and flux-instance from `var.chart_repository` and the version variables.
+- The flux-instance `distribution.version` from `var.flux_version`, so the FluxInstance extractor
+  of Decision 4 resolves the controller images that the context runs.
+- `alpine/k8s` from `var.ready_gate_image` in `kubernetes_job_v1.flux_ready_gate`.
+
+Three values are unreadable in core, and none of them changes the list:
+
+- The cilium `values` document is a `merge` of conditionals. The chart renders with its defaults,
+  which pin the same image tags. The repositories are the upstream ones, which a mirror needs.
+- The flux-instance `components` comes from a `concat` of conditionals. The chart's default
+  component set applies.
+- The release namespace refers to a resource attribute. The namespace does not change an image.
 
 ### 4. The object that declares an artifact sets its kind, and extractors cover runtime images
 
@@ -197,12 +223,26 @@ its one source, and Flux builds it from one artifact, so a component from the ov
 cannot join a core Kustomization. Setting `source` on the overlay's entry would move the whole
 Kustomization, core's paths included.
 
-### 8. `windsor bundle` generates the manifest with the same lister
+### 8. `windsor bundle` publishes the manifest as a CycloneDX BOM
 
-`windsor bundle` writes `artifact-manifest.yaml` by running the lister of Decisions 2 and 3 at
-publish time. It no longer scans Renovate annotations. Renovate keeps its comments to bump
-versions, and the CLI does not parse them. A consumer reads the manifest and needs neither the
-flux CLI nor network access.
+`windsor bundle` writes `artifact-manifest.cdx.json` at the root of the blueprint artifact. The
+file is a [CycloneDX](https://cyclonedx.org) 1.6 BOM, so SBOM tools read it without the CLI.
+`windsor bundle` builds it by running the lister of Decisions 2 and 3 at publish time. It no
+longer scans Renovate annotations. Renovate keeps its comments to bump versions, and the CLI does
+not parse them. A consumer reads the BOM and needs neither the flux CLI nor network access.
+
+The BOM maps the lister's entries as follows:
+
+- An image is a `container` component. A chart and a Terraform component are `application`
+  components.
+- An OCI image or chart has the package URL `pkg:oci/<name>@<digest>?repository_url=<path>&tag=<tag>`.
+  An HTTP chart has `pkg:generic/<name>@<version>?download_url=<tarball>`, because the package URL
+  specification has no chart type.
+- The digest is in `hashes` as SHA-256. An HTTP chart has the hash of its tarball.
+- Each Kustomization and Terraform component is an `application` component with a `bom-ref`. Its
+  `dependsOn` entry in `dependencies` lists the artifacts that it declares.
+- A component that only some facets activate has `scope: optional`.
+- A reference that stays deferred has a `windsor:deferred` property and no digest.
 
 At publish time, `windsor bundle` does these steps:
 
@@ -211,36 +251,33 @@ At publish time, `windsor bundle` does these steps:
 2. For each profile, compose the blueprint with the blueprint's default and test values, and run
    the lister. A deferred value stays deferred.
 3. Resolve a digest for each entry. An OCI image or chart gets the manifest digest from its
-   registry. An HTTP chart gets the sha256 of the tarball that the render pulled. An entry with a
-   deferred reference gets `deferred: true` and no digest.
-4. Merge the profiles. The key is kind, reference, and version. Union the `usedBy` names (the
-   Kustomization or Terraform component that declares the entry) and the `platforms`.
-5. Write the manifest at schema `v1alpha2` and sort the entries.
+   registry. An HTTP chart gets the sha256 of the tarball that the render pulled.
+4. Merge the profiles. The key is the package URL. Union the `dependsOn` edges.
+5. Write the BOM with sorted components. When the registry supports the OCI 1.1 referrers API,
+   also attach the BOM to the artifact with `artifactType: application/vnd.cyclonedx+json`.
 
 At consume time, `windsor show artifacts` does these steps:
 
-1. Read the manifest of each source.
+1. Read the BOM of each source.
 2. Compose the context's blueprint and take the names of its active Kustomizations and Terraform
    components.
-3. Keep each entry whose `usedBy` names an active component.
+3. Keep each artifact that an active component depends on.
 4. Compute destinations as in Decision 5, and print the result as in Decision 1.
 
-`--render` keeps the path of Decision 2 for a user who wants to check the manifest against the
-context. `--all` prints every entry of the manifests without the filter. A `v1alpha1` manifest
-has no `usedBy`, so the reader falls back to the render and prints a note.
-
-`-o cyclonedx` prints the result as a CycloneDX document. Each component carries its version,
-digest, a package URL, and the object that declares it. The SBOM of a deployment is the filtered
-list. The SBOM of a release is the full manifest.
+`--render` keeps the path of Decision 2 for a user who wants to check the BOM against the
+context. `--all` prints every artifact of the BOMs without the filter. A source that has only the
+older `artifact-manifest.yaml` cannot be filtered, so the reader renders instead and prints a
+note. `-o cyclonedx` prints the filtered result as a BOM. The SBOM of a deployment is that
+result, and the SBOM of a release is the full file.
 
 Three questions stay open:
 
-- Whether a boolean facet toggle needs its own render profile. The `usedBy` filter handles the
+- Whether a boolean facet toggle needs its own render profile. The `dependsOn` filter handles the
   toggle at consume time. Rendering only by platform covers core today.
-- How the manifest carries an artifact that no rendered object names, such as core's Talos node
-  image. Options are a Terraform extractor or a short declared `extra` list.
-- Whether `windsor bundle --no-resolve` writes a manifest without digests and registry calls.
-  It would still need the flux CLI.
+- How the BOM carries an artifact that no rendered object names, such as core's Talos node
+  image. Options are a Terraform extractor or a short declared list.
+- Whether `windsor bundle --no-resolve` writes a BOM without digests and registry calls. It
+  would still need the flux CLI.
 
 ## Consequences
 
@@ -249,8 +286,8 @@ blueprint that swaps its own chart sources gets the same air-gap list without wr
 
 The image list includes chart defaults and post-renderer changes, because the CLI renders every
 chart. It misses an image that an operator chooses at runtime when no built-in extractor
-covers the operator's kind. It also misses an image that only a Terraform resource outside
-Decision 3 names. Core's Talos node image is one, and a site copies it without this list.
+covers the operator's kind. It also misses an image that only a Terraform resource that
+Decision 3 does not read. Core's Talos node image is one, and a site copies it without this list.
 
 `windsor show artifacts` needs the flux CLI at the minimum version `windsor plan` checks. A
 context with a FluxInstance also needs the flux-operator CLI. The command needs network access
@@ -261,9 +298,18 @@ CLI takes on the Helm v4 SDK and `fluxcd/pkg/chartutil` as dependencies.
 network access, and registry credentials. The publisher carries that cost once, and a consumer
 carries none. A publish step that runs offline cannot produce a full manifest.
 
-`artifact-manifest.yaml` changes from a blueprint-wide set that Renovate annotations imply to the
-output of the lister. The schema moves to `v1alpha2`, with `digest`, `usedBy`, `platforms`, and
-`deferred` on each entry. The annotation scan in `pkg/composer/artifact` is removed.
+`artifact-manifest.yaml` is replaced by `artifact-manifest.cdx.json`, which the lister generates.
+The annotation scan in `pkg/composer/artifact` is removed. The CLI takes on a CycloneDX library
+as a dependency.
+
+The Terraform read is small enough to test in full, and a new core module cannot make it grow.
+A blueprint that computes an artifact reference with a function gets an error, not a wrong list.
+The author moves that reference to a variable.
+
+An artifact under `count` or `for_each`, or in a nested module, is not listed. An unreadable
+`values` key can hide an image that only that key selects. The chart default then decides the
+image, and the list can differ from what the cluster runs. The air-gap acceptance test catches
+that case.
 
 ## Alternatives considered
 
@@ -303,6 +349,12 @@ component reaches. Rejected: an annotation records what an author pinned, not wh
 runs. It misses chart defaults and post-renderer changes. An overlay that replaces an image by
 patching values leaves the old annotation in the base file, so both images appear.
 
+### A custom manifest schema
+
+The CLI would keep its own `artifact-manifest.yaml` and add `digest`, `usedBy`, and `platforms`.
+Rejected: no SBOM tool reads it, and CycloneDX already has components, hashes, a dependency
+graph, and a scope.
+
 ### Keep the annotation scan and check it against a render
 
 `windsor bundle` would keep scanning annotations, and CI would render a test context and fail
@@ -313,6 +365,22 @@ manifest stays without digests and without chart defaults.
 
 Each blueprint would commit its `artifact-manifest.yaml`. Rejected for the reason in "A declared
 `images` list in the blueprint": a second copy of a pin drifts from the file that uses it.
+
+### Static evaluation of the Terraform language
+
+The lister would evaluate each module with Terraform's function library, `count`, `for_each`,
+and local modules. Rejected: no Go library exports
+Terraform's evaluator. Terraform and OpenTofu keep it under `internal/`, and the copy in tflint
+is under the Business Source License. The CLI would maintain its own copy of the language
+semantics. That copy grows with each module a blueprint adds, and a semantic gap gives a wrong
+list with no error.
+
+### Renovate annotations for Terraform only
+
+The lister would take Terraform artifacts from the Renovate annotations in each enabled
+component's directory, and render everything else. Rejected: Decision 8 removes the annotation
+scan, so the BOM has one mechanism. An annotation also records the default, not a component
+input that overrides it.
 
 ### Terraform plan JSON
 
