@@ -583,6 +583,150 @@ func TestToolsManager_CheckTerraform(t *testing.T) {
 	})
 }
 
+func TestToolsManager_CheckFlux(t *testing.T) {
+	setup := func(t *testing.T, output string, execErr error) (*Mocks, *tools.BaseToolsManager) {
+		t.Helper()
+		mocks := setupMocks(t)
+		mocks.Shims.LookPath = func(name string) (string, error) { return "/usr/bin/" + name, nil }
+		mocks.Shell.ExecSilentWithTimeoutFunc = func(command string, args []string, timeout time.Duration) (string, error) {
+			if command != "flux" || strings.Join(args, " ") != "version --client" {
+				return "", fmt.Errorf("unexpected command %s %v", command, args)
+			}
+			return output, execErr
+		}
+		toolsManager := tools.NewToolsManager(mocks.ConfigHandler, mocks.Shell)
+		toolsManager.SetShims(mocks.Shims)
+		return mocks, toolsManager
+	}
+
+	t.Run("SucceedsAtTheMinimumVersion", func(t *testing.T) {
+		// Given flux at the minimum version
+		_, toolsManager := setup(t, "flux: v"+constants.MinimumVersionFlux+"\n", nil)
+
+		// When CheckFlux is called
+		err := toolsManager.CheckFlux()
+
+		// Then no error is returned
+		if err != nil {
+			t.Errorf("expected no error, got %v", err)
+		}
+	})
+
+	t.Run("ReturnsAnInstallHintWhenFluxIsMissing", func(t *testing.T) {
+		// Given no flux on PATH
+		mocks, toolsManager := setup(t, "", nil)
+		mocks.Shims.LookPath = func(name string) (string, error) { return "", exec.ErrNotFound }
+
+		// When CheckFlux is called
+		err := toolsManager.CheckFlux()
+
+		// Then the error names the minimum version and the install page
+		we := werror.Find(err)
+		if we == nil || !strings.Contains(we.Message, "Flux CLI >= "+constants.MinimumVersionFlux) || !strings.Contains(we.Remediation, "fluxcd.io/flux/installation") {
+			t.Errorf("expected a missing flux error with an install hint, got %v", err)
+		}
+	})
+
+	t.Run("ReturnsAnUpgradeHintWhenFluxIsOld", func(t *testing.T) {
+		// Given flux v2.2.0
+		_, toolsManager := setup(t, "flux: v2.2.0\n", nil)
+
+		// When CheckFlux is called
+		err := toolsManager.CheckFlux()
+
+		// Then the error names the found and minimum versions
+		we := werror.Find(err)
+		if we == nil || !strings.Contains(we.Message, "Flux CLI 2.2.0 is below the minimum required version "+constants.MinimumVersionFlux) || !strings.Contains(we.Remediation, "Upgrade Flux CLI") {
+			t.Errorf("expected an outdated flux error with an upgrade hint, got %v", err)
+		}
+	})
+
+	t.Run("ReturnsAnErrorWhenTheVersionCommandFails", func(t *testing.T) {
+		// Given a flux version command that fails
+		_, toolsManager := setup(t, "", fmt.Errorf("exit status 1"))
+
+		// When CheckFlux is called
+		err := toolsManager.CheckFlux()
+
+		// Then the error names the failed version check
+		if err == nil || !strings.Contains(err.Error(), "flux version check failed") {
+			t.Errorf("expected a version check error, got %v", err)
+		}
+	})
+
+	t.Run("ReturnsAnErrorWhenTheOutputHasNoVersion", func(t *testing.T) {
+		// Given flux version output without a version
+		_, toolsManager := setup(t, "flux: dev\n", nil)
+
+		// When CheckFlux is called
+		err := toolsManager.CheckFlux()
+
+		// Then the error names the unreadable output
+		if err == nil || !strings.Contains(err.Error(), "failed to extract flux version") {
+			t.Errorf("expected a version extraction error, got %v", err)
+		}
+	})
+}
+
+func TestToolsManager_CheckFluxOperator(t *testing.T) {
+	setup := func(t *testing.T, output string) (*Mocks, *tools.BaseToolsManager) {
+		t.Helper()
+		mocks := setupMocks(t)
+		mocks.Shims.LookPath = func(name string) (string, error) { return "/usr/bin/" + name, nil }
+		mocks.Shell.ExecSilentWithTimeoutFunc = func(command string, args []string, timeout time.Duration) (string, error) {
+			if command != "flux-operator" || strings.Join(args, " ") != "--version" {
+				return "", fmt.Errorf("unexpected command %s %v", command, args)
+			}
+			return output, nil
+		}
+		toolsManager := tools.NewToolsManager(mocks.ConfigHandler, mocks.Shell)
+		toolsManager.SetShims(mocks.Shims)
+		return mocks, toolsManager
+	}
+
+	t.Run("SucceedsAtTheMinimumVersion", func(t *testing.T) {
+		// Given flux-operator at the minimum version
+		_, toolsManager := setup(t, "flux-operator version "+constants.MinimumVersionFluxOperator+"\n")
+
+		// When CheckFluxOperator is called
+		err := toolsManager.CheckFluxOperator()
+
+		// Then no error is returned
+		if err != nil {
+			t.Errorf("expected no error, got %v", err)
+		}
+	})
+
+	t.Run("ReturnsAnInstallHintWhenFluxOperatorIsMissing", func(t *testing.T) {
+		// Given no flux-operator on PATH
+		mocks, toolsManager := setup(t, "")
+		mocks.Shims.LookPath = func(name string) (string, error) { return "", exec.ErrNotFound }
+
+		// When CheckFluxOperator is called
+		err := toolsManager.CheckFluxOperator()
+
+		// Then the error names the minimum version and the install page
+		we := werror.Find(err)
+		if we == nil || !strings.Contains(we.Message, "Flux Operator CLI >= "+constants.MinimumVersionFluxOperator) || !strings.Contains(we.Remediation, "fluxoperator.dev/docs/guides/install") {
+			t.Errorf("expected a missing flux-operator error with an install hint, got %v", err)
+		}
+	})
+
+	t.Run("ReturnsAnUpgradeHintWhenFluxOperatorIsOld", func(t *testing.T) {
+		// Given flux-operator v0.19.0, which has no build instance command
+		_, toolsManager := setup(t, "flux-operator version v0.19.0\n")
+
+		// When CheckFluxOperator is called
+		err := toolsManager.CheckFluxOperator()
+
+		// Then the error names the found and minimum versions
+		we := werror.Find(err)
+		if we == nil || !strings.Contains(we.Message, "Flux Operator CLI 0.19.0 is below the minimum required version "+constants.MinimumVersionFluxOperator) {
+			t.Errorf("expected an outdated flux-operator error, got %v", err)
+		}
+	})
+}
+
 // Tests for GetTerraformCommand functionality
 func TestToolsManager_GetTerraformCommand(t *testing.T) {
 	setup := func(t *testing.T) (*Mocks, *tools.BaseToolsManager) {
