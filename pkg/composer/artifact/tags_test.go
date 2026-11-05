@@ -157,6 +157,22 @@ func TestScanTags(t *testing.T) {
 		}
 	})
 
+	t.Run("AcceptsAVersionWithASlashWhenTheTagHasAName", func(t *testing.T) {
+		// Given an image tag with a name above a version that contains a slash
+		content := []byte("# artifact: type=image name=ghcr.io/example/app\nversion: 2024/01/01\n")
+
+		// When the content is scanned
+		tags, err := artifact.ScanTags("kustomize/app/values.yaml", content)
+
+		// Then the value is the version
+		if err != nil {
+			t.Fatalf("expected no error, got %v", err)
+		}
+		if len(tags) != 1 || tags[0].Version != "2024/01/01" {
+			t.Fatalf("unexpected tags %+v", tags)
+		}
+	})
+
 	t.Run("IgnoresABlockComment", func(t *testing.T) {
 		// Given a tag inside a block comment
 		content := []byte("/* artifact: type=image name=ghcr.io/example/app */\nversion = \"v1\"\n")

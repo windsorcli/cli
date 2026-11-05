@@ -184,7 +184,7 @@ func (t *ArtifactTag) bind(value string) error {
 	if idx <= strings.LastIndex(ref, "/") {
 		idx = -1
 	}
-	if idx < 0 && strings.Contains(ref, "/") {
+	if idx < 0 && t.Name == "" && strings.Contains(ref, "/") {
 		return fmt.Errorf("the artifact tag value %q has no tag", value)
 	}
 	if idx >= 0 {
