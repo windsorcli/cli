@@ -11,6 +11,8 @@ Clear stale stack lock information for the current context.
 
 The lock frees itself when its holder exits, including after a crash, an OOM kill, or a CI cancellation. A crash can leave holder details behind, and this command removes them. If a running process still holds the lock, the command names it and exits with an error. Stop that process to free the lock.
 
+The lock covers one checkout on one machine. It does not stop a run on another machine or CI runner.
+
 ## Flags
 
 | Flag | Default | Description |

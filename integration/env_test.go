@@ -410,3 +410,36 @@ func TestEnv_ContextFileEnablesSops(t *testing.T) {
 		t.Errorf("expected the SOPS provider to refuse the plaintext file, got:\n%s", stderr)
 	}
 }
+
+// TestEnv_ShellTcshPrintsSetenv verifies that `windsor env --shell tcsh` prints setenv commands
+// that tcsh can evaluate, and no POSIX export commands.
+func TestEnv_ShellTcshPrintsSetenv(t *testing.T) {
+	t.Parallel()
+	dir, env := helpers.PrepareFixture(t, "default")
+
+	stdout, stderr, err := helpers.RunCLI(dir, []string{"env", "--shell", "tcsh"}, env)
+	if err != nil {
+		t.Fatalf("env --shell tcsh: %v\nstderr: %s", err, stderr)
+	}
+	if !strings.Contains(string(stdout), "setenv WINDSOR_CONTEXT 'local';") {
+		t.Errorf("expected a setenv line for WINDSOR_CONTEXT, got:\n%s", stdout)
+	}
+	if strings.Contains(string(stdout), "export ") {
+		t.Errorf("expected no export lines, got:\n%s", stdout)
+	}
+}
+
+// TestEnv_ShellRejectsUnknownShell verifies that `windsor env --shell` fails for a shell that has
+// no env output format.
+func TestEnv_ShellRejectsUnknownShell(t *testing.T) {
+	t.Parallel()
+	dir, env := helpers.PrepareFixture(t, "default")
+
+	_, stderr, err := helpers.RunCLI(dir, []string{"env", "--shell", "csh"}, env)
+	if err == nil {
+		t.Fatal("expected env --shell csh to fail")
+	}
+	if !strings.Contains(string(stderr), `the shell "csh"`) {
+		t.Errorf("expected stderr to name the shell, got: %s", stderr)
+	}
+}

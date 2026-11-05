@@ -1498,6 +1498,24 @@ func TestProject_Up(t *testing.T) {
 		}
 	})
 
+	t.Run("FailsBeforeWorkstationWhenBlueprintNotLoaded", func(t *testing.T) {
+		// Given a handler with no composed blueprint
+		mocks := setupProjectMocks(t)
+		mockBH := mocks.Composer.BlueprintHandler.(*blueprint.MockBlueprintHandler)
+		mockBH.GenerateFunc = func() *v1alpha1.Blueprint {
+			return nil
+		}
+		proj := project.NewProject("test-context", &project.Project{Runtime: mocks.Runtime, Composer: mocks.Composer})
+
+		// When Up is called
+		_, _, err := proj.Up(context.Background())
+
+		// Then Up fails before it prepares the workstation or runs the provisioner
+		if err == nil || !strings.Contains(err.Error(), "blueprint not loaded") {
+			t.Errorf("Expected blueprint not loaded error, got: %v", err)
+		}
+	})
+
 	t.Run("SuccessWithWorkstationPassesOnApplyToProvisioner", func(t *testing.T) {
 		// Given a dev mode workstation and a terraform stack that records apply hooks
 		mocks := setupProjectMocks(t)

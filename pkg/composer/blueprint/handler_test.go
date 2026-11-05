@@ -126,6 +126,7 @@ func TestNewBlueprintHandler(t *testing.T) {
 
 		// When loading through a handler created with the override
 		handler := blueprint.NewBlueprintHandler(mocks.Runtime, mocks.ArtifactBuilder, blueprint.HandlerOverrides(customProcessor, nil, nil))
+		handler.SetAllowUninitialized(true)
 		err := handler.LoadBlueprint()
 
 		// Then the custom processor is used
@@ -141,6 +142,7 @@ func TestNewBlueprintHandler(t *testing.T) {
 
 		// When loading through a handler created with the override
 		handler := blueprint.NewBlueprintHandler(mocks.Runtime, mocks.ArtifactBuilder, blueprint.HandlerOverrides(nil, customComposer, nil))
+		handler.SetAllowUninitialized(true)
 		err := handler.LoadBlueprint()
 
 		// Then the custom composer is used

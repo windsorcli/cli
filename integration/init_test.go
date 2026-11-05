@@ -808,3 +808,37 @@ func TestInit_WritesHeaderKeysFirstInValues(t *testing.T) {
 		t.Errorf("expected id, platform, then the header keys, with addons last; got %v", keys)
 	}
 }
+
+// TestInit_UninitializedContextFailsLaterCommands verifies that a context left by a failed init,
+// with values.yaml and no blueprint.yaml or template, makes show blueprint, plan, and up fail and
+// tell the operator to run init. Recovery commands such as unlock still run on that context.
+func TestInit_UninitializedContextFailsLaterCommands(t *testing.T) {
+	t.Parallel()
+	dir, env := helpers.CopyFixtureOnly(t, "uninitialized-context")
+	helpers.MarkAsGitRepo(t, dir)
+	if _, stderr, err := helpers.RunCLI(dir, []string{"init", "staging"}, env); err != nil {
+		t.Fatalf("init staging: %v\nstderr: %s", err, stderr)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "contexts", "staging", "blueprint.yaml")); err != nil {
+		t.Fatalf("expected init to write blueprint.yaml for staging: %v", err)
+	}
+	for _, args := range [][]string{{"show", "blueprint"}, {"plan"}, {"up"}} {
+		_, stderr, err := helpers.RunCLI(dir, append(args, "--context", "broken"), env)
+		if err == nil {
+			t.Errorf("%s: expected failure for an uninitialized context, got success", strings.Join(args, " "))
+			continue
+		}
+		if !strings.Contains(string(stderr), `The context "broken" has no blueprint.`) {
+			t.Errorf("%s: expected the uninitialized context error, got: %s", strings.Join(args, " "), stderr)
+		}
+		if !strings.Contains(string(stderr), "windsor init broken") {
+			t.Errorf("%s: expected a hint to run windsor init broken, got: %s", strings.Join(args, " "), stderr)
+		}
+	}
+	if _, err := os.Stat(filepath.Join(dir, "contexts", "broken", "blueprint.yaml")); err == nil {
+		t.Error("expected no blueprint.yaml for the broken context after the failed commands")
+	}
+	if _, stderr, err := helpers.RunCLI(dir, []string{"unlock", "--force", "--context", "broken"}, env); err != nil {
+		t.Errorf("unlock: expected success for an uninitialized context, got %v\nstderr: %s", err, stderr)
+	}
+}

@@ -7,6 +7,7 @@ package runtime
 
 import (
 	"maps"
+	"strings"
 
 	"github.com/windsorcli/cli/internal/werror"
 	"github.com/windsorcli/cli/pkg/runtime/env"
@@ -20,8 +21,8 @@ import (
 // HandleSessionReset resets the managed env vars when the shell sets a reset flag or WINDSOR_SESSION_TOKEN is not set.
 // A reset sets NO_CACHE to "true" only if NO_CACHE is not set, so an explicit NO_CACHE=false stays.
 // This is necessary because commands such as `windsor exec` have no session token, so each run resets.
-// A reset also clears the Terraform output cache.
-func (rt *Runtime) HandleSessionReset() error {
+// A reset also clears the Terraform output cache. When quiet is true, the reset does not print the unset commands.
+func (rt *Runtime) HandleSessionReset(quiet ...bool) error {
 	hasSessionToken := rt.Shims.Getenv("WINDSOR_SESSION_TOKEN") != ""
 	shouldReset, err := rt.Shell.CheckResetFlags()
 	if err != nil {
@@ -31,7 +32,7 @@ func (rt *Runtime) HandleSessionReset() error {
 		shouldReset = true
 	}
 	if shouldReset {
-		rt.Shell.Reset()
+		rt.Shell.Reset(quiet...)
 		if _, noCacheSet := rt.Shims.LookupEnv("NO_CACHE"); !noCacheSet {
 			if err := rt.Shims.Setenv("NO_CACHE", "true"); err != nil {
 				return werror.Wrap(err, "failed to set NO_CACHE")
@@ -118,6 +119,12 @@ func (rt *Runtime) GetAliases() map[string]string {
 	result := make(map[string]string)
 	maps.Copy(result, rt.aliases)
 	return result
+}
+
+// ManagedNames returns the env var and alias names that WINDSOR_MANAGED_ENV and WINDSOR_MANAGED_ALIAS list.
+// These are the names that the previous windsor env run set in the shell.
+func (rt *Runtime) ManagedNames() (envs, aliases []string) {
+	return splitNames(rt.Shims.Getenv("WINDSOR_MANAGED_ENV")), splitNames(rt.Shims.Getenv("WINDSOR_MANAGED_ALIAS"))
 }
 
 // =============================================================================
@@ -234,4 +241,15 @@ func getNestedString(values map[string]any, path ...string) string {
 	}
 	str, _ := current.(string)
 	return str
+}
+
+// splitNames returns the names in a comma-separated list, without spaces and empty entries.
+func splitNames(list string) []string {
+	var names []string
+	for name := range strings.SplitSeq(list, ",") {
+		if name = strings.TrimSpace(name); name != "" {
+			names = append(names, name)
+		}
+	}
+	return names
 }

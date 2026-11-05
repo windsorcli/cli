@@ -170,6 +170,52 @@ func TestShell_InstallHook(t *testing.T) {
 		}
 	})
 
+	t.Run("TcshRequestsCshEnvOutput", func(t *testing.T) {
+		// Given a shell with the real template operations
+		subject, mocks := setup(t)
+		real := shell.NewShims()
+		mocks.Shims.NewTemplate = real.NewTemplate
+		mocks.Shims.TemplateParse = real.TemplateParse
+		mocks.Shims.TemplateExecute = real.TemplateExecute
+		mocks.Shims.Executable = func() (string, error) {
+			return "/usr/local/bin/windsor", nil
+		}
+		oldStdout := os.Stdout
+		r, w, _ := os.Pipe()
+		os.Stdout = w
+
+		// When installing a hook for tcsh
+		err := subject.InstallHook("tcsh")
+		w.Close()
+		os.Stdout = oldStdout
+		output, _ := io.ReadAll(r)
+
+		// Then the hook evaluates tcsh output through backtick substitution
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		want := "alias _windsor_hook 'eval \"`'\"'\"'/usr/local/bin/windsor'\"'\"' env --decrypt --hook --shell tcsh`\"';"
+		if !strings.Contains(string(output), want) {
+			t.Errorf("Expected output to contain %q, got %q", want, output)
+		}
+		if strings.Contains(string(output), "$(") {
+			t.Errorf("Expected no POSIX command substitution, got %q", output)
+		}
+	})
+
+	t.Run("ElvishIsUnsupported", func(t *testing.T) {
+		// Given a shell
+		subject, _ := setup(t)
+
+		// When installing a hook for elvish
+		err := subject.InstallHook("elvish")
+
+		// Then it fails as an unsupported shell
+		if err == nil || !strings.Contains(err.Error(), `Windsor has no hook for the shell "elvish".`) {
+			t.Errorf("Expected unsupported shell error, got: %v", err)
+		}
+	})
+
 	t.Run("PowerShellSuccess", func(t *testing.T) {
 		// Given a shell with working template operations
 		subject, mocks := setup(t)

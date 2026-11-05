@@ -77,9 +77,10 @@ properties:
     description: |
       Input-requirement blocks for the facet as a whole. When the facet is
       active and a block's optional 'when' holds, every path in that block
-      must resolve to a present, non-empty value in the merged scope.
-      Windsor aggregates unsatisfied paths across every active facet into
-      one user-facing error.
+      must resolve to a present, non-empty value in the merged scope. A
+      block without paths rejects a combination of values: it fails when
+      its 'when' holds. Windsor aggregates the unmet blocks across every
+      active facet into one user-facing error.
     items:
       $ref: '#/$defs/requirementBlock'
   terraform:
@@ -236,19 +237,21 @@ $defs:
           $ref: '#/$defs/requirementBlock'
   requirementBlock:
     type: object
-    required:
-      - paths
     additionalProperties: false
     description: |
-      Declares scope paths that must resolve to present, non-empty values
-      for the parent facet's activation to be well-formed.
+      Declares a rule for the parent facet's inputs. A block with paths
+      lists scope paths that must resolve to present, non-empty values. A
+      block without paths rejects a combination of values: it fails when
+      its 'when' holds, and the error shows its message under the heading
+      "these values conflict". The parser rejects a block that has neither
+      'when' nor paths, and a block without paths that has no message.
     properties:
       when:
         type: string
         description: |
-          Optional expression gating this requirement. Empty means the
-          paths are required whenever the parent (facet, config block, or
-          component) is active.
+          Expression gating this requirement. Empty means the block
+          applies whenever the parent (facet, config block, or component)
+          is active. Required on a block without paths.
       paths:
         type: array
         minItems: 1
@@ -256,12 +259,14 @@ $defs:
           type: string
         description: |
           Dotted scope keys whose values must be present and non-empty.
-          Required; the parser rejects an empty list.
+          Omit to make the block reject the combination that 'when'
+          describes.
       message:
         type: string
         description: |
-          Optional author-supplied context surfaced under this block's
-          heading in the aggregated error.
+          Author-supplied context for the aggregated error. Shown under
+          each missing path, or as the conflict text on a block without
+          paths. Required on a block without paths.
   conditionalTerraformComponent:
     type: object
     additionalProperties: true
@@ -369,6 +374,8 @@ examples:
       - paths:
           - observability.backend
         message: Observability is enabled; choose a backend (quickwit, victoriametrics).
+      - when: "observability.backend == 'quickwit' && platform == 'docker'"
+        message: The quickwit backend does not run on the docker platform.
     kustomize:
       - name: observability
         path: addons/observability

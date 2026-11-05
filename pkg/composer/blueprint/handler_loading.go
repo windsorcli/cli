@@ -7,6 +7,7 @@ package blueprint
 
 import (
 	"errors"
+	"fmt"
 	"sort"
 	"strings"
 	"sync"
@@ -140,6 +141,30 @@ func (h *BaseBlueprintHandler) hasLocalTemplate() bool {
 	}
 	_, err := h.shims.Stat(h.runtime.TemplateRoot)
 	return err == nil
+}
+
+// checkInitialized returns an error when the context has no blueprint source: no init URL, no
+// blueprint.yaml in the context directory, and no local _template. Init writes blueprint.yaml only
+// after composition succeeds, so this state follows an init that failed or never ran. Without
+// the check, the context composes as an empty blueprint. The check is off when
+// allowUninitialized or skipValidation is set, or the runtime has no config root. Teardown
+// commands skip validation, so they still run on such a context.
+func (h *BaseBlueprintHandler) checkInitialized() error {
+	if h.allowUninitialized || h.skipValidation || h.runtime == nil || h.runtime.ConfigRoot == "" {
+		return nil
+	}
+	if len(h.initBlueprintURLs) > 0 || h.hasLocalTemplate() {
+		return nil
+	}
+	if h.userBlueprintLoader != nil && h.userBlueprintLoader.GetBlueprint() != nil {
+		return nil
+	}
+	contextName := h.runtime.ContextName
+	return werror.New(
+		fmt.Sprintf("The context %q has no blueprint.", contextName),
+		fmt.Sprintf("Run windsor init %s, and fix any error that it shows.", contextName),
+		nil,
+	)
 }
 
 // loadUser initializes and loads the user blueprint from the config root directory. The user

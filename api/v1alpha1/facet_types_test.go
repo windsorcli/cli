@@ -236,32 +236,76 @@ func TestRequirementBlockDeepCopy(t *testing.T) {
 }
 
 func TestRequirementBlockUnmarshalYAML(t *testing.T) {
-	t.Run("ErrorsWhenPathsKeyMissing", func(t *testing.T) {
-		// Models a typo such as `pahts:` — the field is absent entirely, which would
-		// otherwise produce a silently-disabled requirement.
+	t.Run("ErrorsWhenNeitherWhenNorPaths", func(t *testing.T) {
+		// Given a block with only a message, which checks nothing
 		var f v1alpha1.Facet
+
+		// When the facet is parsed
 		err := yaml.Unmarshal([]byte(`requires:
-  - when: provider == 'aws'
-    message: missing the paths key entirely
+  - message: checks nothing
 `), &f)
+
+		// Then parsing fails with an authoring error
 		if err == nil {
-			t.Fatal("Expected error when paths is missing, got nil")
+			t.Fatal("Expected error when when and paths are both missing, got nil")
 		}
-		if !strings.Contains(err.Error(), "paths is required") {
-			t.Errorf("Expected error to mention 'paths is required', got: %v", err)
+		if !strings.Contains(err.Error(), "set when, paths, or both") {
+			t.Errorf("Expected error to name when and paths, got: %v", err)
 		}
 	})
 
-	t.Run("ErrorsWhenPathsListEmpty", func(t *testing.T) {
+	t.Run("ErrorsWhenPathsListEmptyAndNoWhen", func(t *testing.T) {
+		// Given a block with an empty paths list and no when
 		var f v1alpha1.Facet
+
+		// When the facet is parsed
 		err := yaml.Unmarshal([]byte(`requires:
   - paths: []
 `), &f)
+
+		// Then parsing fails with an authoring error
 		if err == nil {
 			t.Fatal("Expected error when paths is empty, got nil")
 		}
-		if !strings.Contains(err.Error(), "paths is required") {
-			t.Errorf("Expected error to mention 'paths is required', got: %v", err)
+		if !strings.Contains(err.Error(), "set when, paths, or both") {
+			t.Errorf("Expected error to name when and paths, got: %v", err)
+		}
+	})
+
+	t.Run("ErrorsWhenNoPathsAndNoMessage", func(t *testing.T) {
+		// Given a conflict block with a when and no message
+		var f v1alpha1.Facet
+
+		// When the facet is parsed
+		err := yaml.Unmarshal([]byte(`requires:
+  - when: platform == 'aws'
+`), &f)
+
+		// Then parsing fails because the conflict error would have no text
+		if err == nil {
+			t.Fatal("Expected error when message is missing on a block without paths, got nil")
+		}
+		if !strings.Contains(err.Error(), "message is required") {
+			t.Errorf("Expected error to mention 'message is required', got: %v", err)
+		}
+	})
+
+	t.Run("AcceptsConflictBlock", func(t *testing.T) {
+		// Given a block with a when and a message and no paths
+		var f v1alpha1.Facet
+
+		// When the facet is parsed
+		err := yaml.Unmarshal([]byte(`requires:
+  - when: gateway.driver == 'cilium'
+    message: gateway.<name>.node_ports needs gateway.driver envoy.
+`), &f)
+
+		// Then the block parses with no paths
+		if err != nil {
+			t.Fatalf("Expected no error for conflict block, got: %v", err)
+		}
+		if len(f.Requires) != 1 || len(f.Requires[0].Paths) != 0 || f.Requires[0].Message == "" {
+			t.Errorf("Expected one requires entry with a message and no paths, got: %+v", f.Requires)
 		}
 	})
 

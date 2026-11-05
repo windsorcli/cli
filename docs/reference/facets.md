@@ -26,7 +26,7 @@ blueprint that references it; see the Composition order reference.
 | `kustomize` | `array<object>` | Kustomizations contributed by this facet. Each entry extends the blueprint's Kustomization fields with conditional fields (when, strategy, ordinal, requires). Deprecated alias of 'flux:'; both keys are accepted and merge into the same list. |
 | `messages` | `array<object>` | Operator-facing notes rendered at the end of a bootstrap/apply run. Unlike a requires: message (failure path, pre-flight, verbatim), a post-run message is on the success path, rendered after apply, and interpolated against composed scope — so its text can carry run values (e.g. terraform_output). |
 | `ordinal` | `integer` | Merge precedence relative to other facets in the same blueprint. Higher ordinal wins on conflict (processed later). Default by file-name prefix: 'config-*' 100, 'provider-*'/'platform-*' with '-base' 199, other 'provider-*'/'platform-*' 200, 'option-*'/'options-*' 300, 'addon-*'/'addons-*' 400, otherwise 0. Ordinal does not cross a source boundary: a blueprint's facets always compose after the facets of the sources it references, whatever ordinal either side sets. |
-| `requires` | `array<object>` | Input-requirement blocks for the facet as a whole. When the facet is active and a block's optional 'when' holds, every path in that block must resolve to a present, non-empty value in the merged scope. Windsor aggregates unsatisfied paths across every active facet into one user-facing error. |
+| `requires` | `array<object>` | Input-requirement blocks for the facet as a whole. When the facet is active and a block's optional 'when' holds, every path in that block must resolve to a present, non-empty value in the merged scope. A block without paths rejects a combination of values: it fails when its 'when' holds. Windsor aggregates the unmet blocks across every active facet into one user-facing error. |
 | `substitutions` | `map<string>` | Top-level key/value pairs evaluated with facet scope and injected into 'values-common', making them available to every kustomization via PostBuild substitution. Values may use expression syntax (e.g. '${dns.domain}') resolved against active facet config blocks. |
 | `terraform` | `array<object>` | Terraform components contributed by this facet. Each entry extends the blueprint's TerraformComponent fields with conditional fields (when, strategy, ordinal, requires). |
 | `when` | `string` | Expression that gates the facet. Evaluated against merged configuration values; the facet is applied only when the expression yields true. Examples: "platform == 'aws'", "observability.enabled == true && observability.backend == 'quickwit'". Empty 'when' means the facet always applies. |
@@ -53,9 +53,9 @@ blueprint that references it; see the Composition order reference.
 
 | Field | Type | Description |
 |------|------|-------------|
-| `paths` | `array<string>` | Dotted scope keys whose values must be present and non-empty. Required; the parser rejects an empty list. **(required)** |
-| `message` | `string` | Optional author-supplied context surfaced under this block's heading in the aggregated error. |
-| `when` | `string` | Optional expression gating this requirement. Empty means the paths are required whenever the parent (facet, config block, or component) is active. |
+| `message` | `string` | Author-supplied context for the aggregated error. Shown under each missing path, or as the conflict text on a block without paths. Required on a block without paths. |
+| `paths` | `array<string>` | Dotted scope keys whose values must be present and non-empty. Omit to make the block reject the combination that 'when' describes. |
+| `when` | `string` | Expression gating this requirement. Empty means the block applies whenever the parent (facet, config block, or component) is active. Required on a block without paths. |
 
 ## kustomize[]
 
@@ -70,9 +70,9 @@ blueprint that references it; see the Composition order reference.
 
 | Field | Type | Description |
 |------|------|-------------|
-| `paths` | `array<string>` | Dotted scope keys whose values must be present and non-empty. Required; the parser rejects an empty list. **(required)** |
-| `message` | `string` | Optional author-supplied context surfaced under this block's heading in the aggregated error. |
-| `when` | `string` | Optional expression gating this requirement. Empty means the paths are required whenever the parent (facet, config block, or component) is active. |
+| `message` | `string` | Author-supplied context for the aggregated error. Shown under each missing path, or as the conflict text on a block without paths. Required on a block without paths. |
+| `paths` | `array<string>` | Dotted scope keys whose values must be present and non-empty. Omit to make the block reject the combination that 'when' describes. |
+| `when` | `string` | Expression gating this requirement. Empty means the block applies whenever the parent (facet, config block, or component) is active. Required on a block without paths. |
 
 ## messages[]
 
@@ -85,9 +85,9 @@ blueprint that references it; see the Composition order reference.
 
 | Field | Type | Description |
 |------|------|-------------|
-| `paths` | `array<string>` | Dotted scope keys whose values must be present and non-empty. Required; the parser rejects an empty list. **(required)** |
-| `message` | `string` | Optional author-supplied context surfaced under this block's heading in the aggregated error. |
-| `when` | `string` | Optional expression gating this requirement. Empty means the paths are required whenever the parent (facet, config block, or component) is active. |
+| `message` | `string` | Author-supplied context for the aggregated error. Shown under each missing path, or as the conflict text on a block without paths. Required on a block without paths. |
+| `paths` | `array<string>` | Dotted scope keys whose values must be present and non-empty. Omit to make the block reject the combination that 'when' describes. |
+| `when` | `string` | Expression gating this requirement. Empty means the block applies whenever the parent (facet, config block, or component) is active. Required on a block without paths. |
 
 ## terraform[]
 
@@ -102,9 +102,9 @@ blueprint that references it; see the Composition order reference.
 
 | Field | Type | Description |
 |------|------|-------------|
-| `paths` | `array<string>` | Dotted scope keys whose values must be present and non-empty. Required; the parser rejects an empty list. **(required)** |
-| `message` | `string` | Optional author-supplied context surfaced under this block's heading in the aggregated error. |
-| `when` | `string` | Optional expression gating this requirement. Empty means the paths are required whenever the parent (facet, config block, or component) is active. |
+| `message` | `string` | Author-supplied context for the aggregated error. Shown under each missing path, or as the conflict text on a block without paths. Required on a block without paths. |
+| `paths` | `array<string>` | Dotted scope keys whose values must be present and non-empty. Omit to make the block reject the combination that 'when' describes. |
+| `when` | `string` | Expression gating this requirement. Empty means the block applies whenever the parent (facet, config block, or component) is active. Required on a block without paths. |
 
 ## Examples
 
@@ -142,6 +142,8 @@ requires:
   - message: Observability is enabled; choose a backend (quickwit, victoriametrics).
     paths:
       - observability.backend
+  - message: The quickwit backend does not run on the docker platform.
+    when: observability.backend == 'quickwit' && platform == 'docker'
 kustomize:
   - name: observability
     path: addons/observability

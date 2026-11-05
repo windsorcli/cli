@@ -20,6 +20,7 @@ and config paths derived from the current context.
 |------|---------|-------------|
 | `--decrypt` | `false` | Decrypt secrets before exporting env vars. |
 | `--hook` | `false` | Non-fatal mode: suppress warnings and exit 0 on errors so a misconfigured project never breaks the prompt. The shell hook installed by 'windsor hook' invokes 'windsor env --decrypt --hook' automatically. |
+| `--shell` | `""` | Print setenv commands for the given shell instead of POSIX export commands. Only tcsh is supported. |
 
 ## Examples
 
@@ -32,6 +33,9 @@ eval "$(windsor env --decrypt)"
 
 # Show what would be exported
 windsor env
+
+# tcsh
+eval "`windsor env --shell tcsh`"
 ```
 
 ## See also
