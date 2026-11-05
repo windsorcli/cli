@@ -93,7 +93,7 @@ type Runtime struct {
 // =============================================================================
 
 // NewRuntime creates a Runtime and applies the non-nil values of opts as overrides.
-// It creates a DefaultShell and a config handler when opts does not supply them.
+// It creates a DefaultShell, a config handler, and a tools manager when opts does not supply them.
 // It sets the context name and the project, config, and template roots from the project state.
 // It panics when it cannot create the shell or the config handler.
 func NewRuntime(opts ...*Runtime) *Runtime {
@@ -198,6 +198,7 @@ func NewRuntime(opts ...*Runtime) *Runtime {
 	if rt.ConfigHandler == nil {
 		panic("config handler is required")
 	}
+	rt.initializeToolsManager()
 
 	if rt.envVars == nil {
 		rt.envVars = make(map[string]string)

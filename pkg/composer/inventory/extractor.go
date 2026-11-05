@@ -58,11 +58,10 @@ func (e *FluxInstanceExtractor) Matches(obj map[string]any) bool {
 
 // Extract writes obj to a temporary file, runs flux-operator build instance on it, and returns
 // the objects it prints. The flux-operator CLI pulls the distribution artifact, so it needs
-// network access. A missing flux-operator CLI returns an error with a remediation hint.
+// network access. A missing or outdated flux-operator CLI returns an error with a remediation hint.
 func (e *FluxInstanceExtractor) Extract(obj map[string]any) ([]map[string]any, error) {
-	if _, err := e.shims.LookPath("flux-operator"); err != nil {
-		return nil, werror.New("the flux-operator CLI is required to list the images of a FluxInstance",
-			"Install the flux-operator CLI from https://fluxoperator.dev/docs/guides/install/.", nil)
+	if err := e.runtime.ToolsManager.CheckFluxOperator(); err != nil {
+		return nil, err
 	}
 
 	data, err := sigsyaml.Marshal(obj)
