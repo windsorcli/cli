@@ -31,7 +31,7 @@ const (
 )
 
 // artifactTagPattern matches an artifact tag comment in YAML (`# artifact: ...`) or HCL (`// artifact: ...`).
-var artifactTagPattern = regexp.MustCompile(`(?:#|//)\s*artifact:\s*(.*)$`)
+var artifactTagPattern = regexp.MustCompile(`(?:#|//)\s*artifact:\s+(\w+=\S.*)$`)
 
 // versionLinePattern splits a `key: value` or `key = value` line into its value.
 var versionLinePattern = regexp.MustCompile(`^\s*(?:-\s*)?[\w.-]+\s*[:=]\s*(.+)$`)
@@ -183,6 +183,12 @@ func (t *ArtifactTag) bind(value string) error {
 	idx := strings.LastIndex(ref, ":")
 	if idx <= strings.LastIndex(ref, "/") {
 		idx = -1
+	}
+	if idx < 0 && digest != "" && strings.Contains(ref, "/") {
+		if t.Name == "" {
+			t.Name = ref
+		}
+		return nil
 	}
 	if idx < 0 && t.Name == "" && strings.Contains(ref, "/") {
 		return fmt.Errorf("the artifact tag value %q has no tag", value)

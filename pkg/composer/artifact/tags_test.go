@@ -173,6 +173,35 @@ func TestScanTags(t *testing.T) {
 		}
 	})
 
+	t.Run("AcceptsADigestOnlyReference", func(t *testing.T) {
+		// Given a tag above an image reference that has a digest and no tag
+		content := []byte("# artifact: type=image\nimage: ghcr.io/example/app@sha256:abc123\n")
+
+		// When the content is scanned
+		tags, err := artifact.ScanTags("kustomize/app/values.yaml", content)
+
+		// Then the name and digest are set and the version is empty
+		if err != nil {
+			t.Fatalf("expected no error, got %v", err)
+		}
+		if tags[0].Name != "ghcr.io/example/app" || tags[0].Digest != "sha256:abc123" || tags[0].Version != "" {
+			t.Fatalf("unexpected tag %+v", tags[0])
+		}
+	})
+
+	t.Run("IgnoresACommentThatIsNotATag", func(t *testing.T) {
+		// Given a comment that has the word artifact and a colon, but no key=value pair
+		content := []byte("# artifact: the build output goes to dist/\nversion: v1\n")
+
+		// When the content is scanned
+		tags, err := artifact.ScanTags("terraform/app/main.tf", content)
+
+		// Then there are no tags and no error
+		if err != nil || len(tags) != 0 {
+			t.Fatalf("expected no tags and no error, got %+v, %v", tags, err)
+		}
+	})
+
 	t.Run("IgnoresABlockComment", func(t *testing.T) {
 		// Given a tag inside a block comment
 		content := []byte("/* artifact: type=image name=ghcr.io/example/app */\nversion = \"v1\"\n")
