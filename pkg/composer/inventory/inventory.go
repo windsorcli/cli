@@ -1,6 +1,6 @@
 // The Lister is the artifact inventory of one context.
 // It provides the list of charts, images and blueprints that a composed blueprint pulls.
-// It reads each oci:// blueprint source of the blueprint. It does not render manifests.
+// It reads the artifact tags in the project and in each oci:// blueprint source. It does not render manifests.
 // It gives each artifact a destination from --charts-to and the docker.registries mirrors.
 
 package inventory
@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
+	"github.com/windsorcli/cli/pkg/composer/artifact"
 	"github.com/windsorcli/cli/pkg/runtime"
 )
 
@@ -93,7 +94,8 @@ type Result struct {
 
 // BaseLister is the default Lister.
 type BaseLister struct {
-	runtime *runtime.Runtime
+	runtime         *runtime.Runtime
+	artifactBuilder artifact.Artifact
 }
 
 // imageReference is a container image reference split into its parts.
@@ -117,19 +119,23 @@ type Lister interface {
 // Constructor
 // =============================================================================
 
-// NewLister creates a BaseLister. It panics if rt is nil.
-func NewLister(rt *runtime.Runtime) *BaseLister {
+// NewLister creates a BaseLister. It panics if rt or artifactBuilder is nil.
+func NewLister(rt *runtime.Runtime, artifactBuilder artifact.Artifact) *BaseLister {
 	if rt == nil {
 		panic("runtime is required")
 	}
-	return &BaseLister{runtime: rt}
+	if artifactBuilder == nil {
+		panic("artifact builder is required")
+	}
+	return &BaseLister{runtime: rt, artifactBuilder: artifactBuilder}
 }
 
 // =============================================================================
 // Public Methods
 // =============================================================================
 
-// List returns the artifacts of blueprint. It lists each oci:// blueprint source.
+// List returns the artifacts of blueprint: each oci:// blueprint source, and each chart and image
+// that an artifact tag names in the project and in the cache of each oci:// source.
 // Each entry gets a destination, and the entries are unique and sorted.
 func (l *BaseLister) List(blueprint *blueprintv1alpha1.Blueprint, opts Options) (*Result, error) {
 	if blueprint == nil {
@@ -139,6 +145,13 @@ func (l *BaseLister) List(blueprint *blueprintv1alpha1.Blueprint, opts Options) 
 	result := &Result{Inventory: Inventory{Version: InventoryVersion, Context: l.runtime.ContextName}}
 
 	entries := blueprintEntries(blueprint)
+
+	tagEntries, notes, err := l.tagEntries(blueprint)
+	if err != nil {
+		return nil, err
+	}
+	entries = append(entries, tagEntries...)
+	result.Notes = append(result.Notes, notes...)
 
 	mirrors := l.imageMirrors()
 	for i := range entries {

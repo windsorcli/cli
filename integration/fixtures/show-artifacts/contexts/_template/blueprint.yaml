@@ -2,4 +2,4 @@ kind: Blueprint
 apiVersion: blueprints.windsorcli.dev/v1alpha1
 metadata:
   name: show-artifacts
-  description: Show artifacts integration fixture with no artifact sources
+  description: Show artifacts integration fixture with tagged artifacts in the project
