@@ -1445,6 +1445,20 @@ func TestArtifactBuilder_generateArtifactManifest(t *testing.T) {
 		}
 	})
 
+	t.Run("MalformedArtifactTag_ReturnsError", func(t *testing.T) {
+		// Given a builder with a bundled file whose artifact tag has no value to bind to
+		builder := setup(t)
+		builder.files["kustomize/app/values.yaml"] = FileInfo{Content: []byte("# artifact: type=image name=ghcr.io/example/app\n")}
+
+		// When the manifest is generated
+		_, err := builder.generateArtifactManifest()
+
+		// Then the error names the file and line
+		if err == nil || !strings.Contains(err.Error(), "kustomize/app/values.yaml:1") {
+			t.Errorf("expected an error that names the file, got %v", err)
+		}
+	})
+
 	t.Run("YamlMarshalFailure_ReturnsError", func(t *testing.T) {
 		// Given a builder whose YAML marshal shim fails
 		builder := setup(t)

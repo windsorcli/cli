@@ -1,13 +1,13 @@
 ---
 title: "windsor show artifacts"
-description: "List the blueprint artifacts that the context pulls."
+description: "List the charts and images that the context pulls."
 ---
 
 ```sh
 windsor show artifacts [flags]
 ```
 
-Print each oci:// blueprint source that the current context pulls. The command copies nothing. Use -o flux-mirror or -o list to give the list to a relocation tool.
+Print each chart and image that an artifact tag names in the project and in each oci:// blueprint source, and each oci:// blueprint source. The command copies nothing. Use -o flux-mirror or -o list to give the list to a relocation tool.
 
 ## Flags
 

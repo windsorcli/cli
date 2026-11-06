@@ -43,8 +43,8 @@ Unresolved deferred values render as '<deferred>' by default in 'blueprint' and 
 
 var showArtifactsCmd = &cobra.Command{
 	Use:   "artifacts",
-	Short: "List the blueprint artifacts that the context pulls.",
-	Long:  `Print each oci:// blueprint source that the current context pulls. The command copies nothing. Use -o flux-mirror or -o list to give the list to a relocation tool.`,
+	Short: "List the charts and images that the context pulls.",
+	Long:  `Print each chart and image that an artifact tag names in the project and in each oci:// blueprint source, and each oci:// blueprint source. The command copies nothing. Use -o flux-mirror or -o list to give the list to a relocation tool.`,
 	Example: `# List the artifacts of the current context as YAML
 windsor show artifacts
 
@@ -79,7 +79,7 @@ windsor show artifacts -o list`,
 		}
 		display, _ := blueprintcomposer.RenderForDisplay(blueprint, false, proj.Composer.BlueprintHandler.GetDeferredPaths()).(*blueprintv1alpha1.Blueprint)
 
-		lister := inventory.NewLister(proj.Runtime)
+		lister := inventory.NewLister(proj.Runtime, proj.Composer.ArtifactBuilder)
 		result, err := lister.List(display, inventory.Options{ChartsTo: showArtifactsChartsTo})
 		if err != nil {
 			return err

@@ -1,0 +1,14 @@
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: app
+spec:
+  chart:
+    spec:
+      chart: cert-manager
+      # artifact: type=chart name=cert-manager repo=https://charts.jetstack.io
+      version: v1.17.0
+  values:
+    image:
+      # artifact: type=image name=ghcr.io/example/worker
+      repository: ghcr.io/example/worker:1.2.3
