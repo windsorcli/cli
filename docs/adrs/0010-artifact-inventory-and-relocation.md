@@ -6,7 +6,7 @@
 - Surfaced while designing core's chart registry
   ([core ADR 0020](https://github.com/windsorcli/core/blob/main/docs/adr/0020-helm-chart-registry.md)),
   which needs a list of every chart a context installs.
-- The cross-repo contract is sdlc ADR 0001 (chart registry contract), sections 3 to 7.
+- The cross-repo contract is sdlc ADR 0001 (chart registry contract), sections 3 to 6.
 
 ## Context
 
@@ -23,8 +23,8 @@ The list is the missing piece. The CLI can build it in two ways:
   Terraform defaults, and run an extractor for each operator kind. Each mechanism is large and
   none is complete. Operators select images at runtime, Terraform modules compute values, and the
   Talos node image appears in no manifest.
-- It can read a comment tag that the blueprint author puts on each artifact reference. A policy
-  and CI find a reference that has no tag.
+- It can read a comment tag that the blueprint author puts on each artifact reference. CI in
+  registry mode finds a reference that has no tag.
 
 This ADR uses the tags. The CLI renders nothing, evaluates no Terraform, and runs no extractor.
 
@@ -110,7 +110,7 @@ facets and values files.
 
 The scan reads whole sources. It does not filter by the Kustomizations and Terraform components
 that the context enables. An artifact of a disabled facet is in the list. A site copies a few
-extra artifacts, and the policy of Decision 5 allows a few extra references.
+extra artifacts.
 
 ### 4. Destinations follow each kind's layout
 
@@ -123,22 +123,10 @@ extra artifacts, and the policy of Decision 5 allows a few extra references.
 - A chart whose tag names a repository under `--charts-to` stays out of `-o flux-mirror`, and the
   command names it on stderr, so Flux Mirror never copies a registry onto itself.
 
-### 5. The CLI writes the list to a ConfigMap for the policy
+### 5. The CLI writes no artifact list into the cluster
 
-Core's Kyverno policy rejects a Pod image or chart source that the list does not name. The CLI
-writes the list of the context as the ConfigMap `windsor-artifacts` in the namespace
-`system-policy`. The list has the tags of `core` and of each blueprint that uses `core`. A
-blueprint adds tags and no policy.
-
-The CLI applies the ConfigMap each time it applies the blueprint, before the Kustomizations, so
-the policy never reads an older list than the manifests it checks. The data format is in
-[sdlc ADR 0001 section 4](https://github.com/windsorcli/sdlc/blob/main/adrs/0001-chart-registry-contract.md):
-
-- `images` and `charts` are each a sorted JSON array of strings with no duplicates.
-- An image entry is `<registry>/<repository>:<tag>`. The CLI adds `docker.io` and `library/` when
-  the reference has no registry. The entry has no digest. A digest-only image gives
-  `<registry>/<repository>@<digest>`.
-- A chart entry is `<chart name>:<chart version>`, with no repository.
+The registry contents are the list, as sdlc ADR 0001 section 6 states. A relocated context
+enforces its own registries, and the CLI applies no ConfigMap for a policy.
 
 ### 6. Flux Mirror output selects exact tags
 
@@ -176,13 +164,13 @@ blueprint that tags its artifacts gets the same air-gap list without writing one
 `windsor show artifacts` needs no `flux` CLI and no network access. It reads files that the
 context already has. It is fast and its output is the same on every machine.
 
-The list is only as complete as the tags. The policy and CI find a missing tag on a Pod or a
-chart. Nothing finds a missing tag on an artifact that is not a Pod, such as core's Talos node
-image. An operator that selects an image at runtime needs that image tagged by hand, and the
-policy rejects it until then.
+The list is only as complete as the tags. CI in registry mode finds a missing tag on a chart or
+an image that a Pod pulls, because the pull fails. Nothing finds a missing tag on an artifact that
+no Pod pulls, such as core's Talos node image. An operator that selects an image at runtime needs
+that image tagged by hand, and the pull fails until then.
 
 A tag records the pinned version, not the version a cluster runs. A chart default or a value
-that overrides a tag is not in the list. The policy catches an image that differs from a tag.
+that overrides a tag is not in the list. CI in registry mode catches an image that differs from a tag, because the registry does not hold it.
 
 The scan reads whole sources, so the list includes artifacts of disabled facets.
 
