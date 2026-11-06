@@ -179,6 +179,52 @@ func TestBaseLister_List(t *testing.T) {
 		}
 	})
 
+	t.Run("ListsTheBlueprintsAndTagsOfNestedSources", func(t *testing.T) {
+		// Given a composed blueprint whose sources hold a parent blueprint and a blueprint it declares
+		m := setupMocks(t)
+		parent, child := t.TempDir(), t.TempDir()
+		writeFile(t, parent, "kustomize/base/values.yaml", "# artifact: type=image name=ghcr.io/example/parent\nimage: ghcr.io/example/parent:1.0.0\n")
+		writeFile(t, child, "_template/facets/tools.yaml", "# artifact: type=image name=ghcr.io/example/child\nimage: ghcr.io/example/child:2.0.0\n")
+		dirs := map[string]string{"parent": parent, "child": child}
+		m.artifactBuilder.ParseOCIRefFunc = func(ref string) (string, string, string, error) {
+			name := strings.TrimPrefix(ref, "oci://ghcr.io/windsorcli/")
+			name, tag, _ := strings.Cut(name, ":")
+			return "ghcr.io", "windsorcli/" + name, tag, nil
+		}
+		m.artifactBuilder.GetCacheDirFunc = func(registry, repository, tag string) (string, error) {
+			return dirs[strings.TrimPrefix(repository, "windsorcli/")], nil
+		}
+		lister := inventory.NewLister(m.runtime, m.artifactBuilder)
+		blueprint := &blueprintv1alpha1.Blueprint{
+			Sources: []blueprintv1alpha1.Source{
+				{Name: "parent", Url: "oci://ghcr.io/windsorcli/parent:v1.0.0"},
+				{Name: "child", Url: "oci://ghcr.io/windsorcli/child:v2.0.0"},
+			},
+		}
+
+		// When List is called
+		result, err := lister.List(blueprint, inventory.Options{})
+
+		// Then both blueprints are entries, and the tags of each cache directory are entries
+		if err != nil {
+			t.Fatalf("expected no error, got %v", err)
+		}
+		got := make(map[string]bool)
+		for _, e := range result.Inventory.Artifacts {
+			got[string(e.Kind)+" "+e.Reference+" "+e.Version] = true
+		}
+		for _, key := range []string{
+			"blueprint ghcr.io/windsorcli/parent v1.0.0",
+			"blueprint ghcr.io/windsorcli/child v2.0.0",
+			"image ghcr.io/example/parent 1.0.0",
+			"image ghcr.io/example/child 2.0.0",
+		} {
+			if !got[key] {
+				t.Errorf("expected %q in %v", key, got)
+			}
+		}
+	})
+
 	t.Run("NotesASourceWhoseTagsItCannotRead", func(t *testing.T) {
 		// Given a Git source and an oci:// source that is not in the cache
 		m := setupMocks(t)
