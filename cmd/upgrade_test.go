@@ -15,6 +15,7 @@ import (
 
 	"github.com/spf13/cobra"
 	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
+	"github.com/windsorcli/cli/internal/presenter"
 	"github.com/windsorcli/cli/internal/werror"
 	"github.com/windsorcli/cli/pkg/composer/blueprint"
 	"github.com/windsorcli/cli/pkg/composer/terraform"
@@ -495,6 +496,64 @@ func TestUpgradeCmd_Latest(t *testing.T) {
 			t.Errorf("Expected a resolution error, got: %v", err)
 		}
 	})
+
+	t.Run("ReportsTheChangelogOfAnUpgradedSource", func(t *testing.T) {
+		// Given an upgrade of core whose new version sets a changelog URL after the recompose
+		mocks := setupApplyTest(t)
+		mocks.BlueprintHandler.UpgradeSourcesToLatestFunc = func() ([]blueprint.SourceUpgrade, error) {
+			return []blueprint.SourceUpgrade{{Name: "core", From: "oci://ghcr.io/windsorcli/core:v0.5.0", To: "oci://ghcr.io/windsorcli/core:v0.6.0"}}, nil
+		}
+		var order []string
+		mocks.BlueprintHandler.LoadBlueprintFunc = func(...string) error {
+			order = append(order, "load")
+			return nil
+		}
+		mocks.BlueprintHandler.AddChangelogUrlsFunc = func(changes []blueprint.SourceUpgrade) []blueprint.SourceUpgrade {
+			order = append(order, "changelog")
+			changes[0].ChangelogUrl = "https://github.com/windsorcli/core/releases"
+			return changes
+		}
+		proj := newApplyAllProject(mocks)
+		rec := &eventRecorder{}
+
+		// When running bare upgrade
+		cmd := createTestUpgradeCmd()
+		cmd.SetContext(presenter.NewContext(stdcontext.WithValue(stdcontext.Background(), cliCmd.ProjectOverridesKey, proj), rec))
+		if err := cmd.Execute(); err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+
+		// Then the changelog URL is reported once, after the new versions load
+		want := "See https://github.com/windsorcli/core/releases for the changes in core."
+		if msgs := rec.messages(); len(msgs) != 1 || msgs[0] != want {
+			t.Errorf("Expected the message %q, got %v", want, msgs)
+		}
+		if len(order) < 2 || order[len(order)-1] != "changelog" || order[len(order)-2] != "load" {
+			t.Errorf("Expected the changelog lookup right after the recompose, got %v", order)
+		}
+	})
+
+	t.Run("ReportsNoChangelogWhenTheSourceSetsNone", func(t *testing.T) {
+		// Given an upgrade of core whose new version sets no changelog URL
+		mocks := setupApplyTest(t)
+		mocks.BlueprintHandler.UpgradeSourcesToLatestFunc = func() ([]blueprint.SourceUpgrade, error) {
+			return []blueprint.SourceUpgrade{{Name: "core", From: "oci://ghcr.io/windsorcli/core:v0.5.0", To: "oci://ghcr.io/windsorcli/core:v0.6.0"}}, nil
+		}
+		proj := newApplyAllProject(mocks)
+		rec := &eventRecorder{}
+
+		// When running bare upgrade
+		cmd := createTestUpgradeCmd()
+		cmd.SetContext(presenter.NewContext(stdcontext.WithValue(stdcontext.Background(), cliCmd.ProjectOverridesKey, proj), rec))
+		if err := cmd.Execute(); err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+
+		// Then no changelog message is emitted
+		if msgs := rec.messages(); len(msgs) != 0 {
+			t.Errorf("Expected no messages, got %v", msgs)
+		}
+	})
 }
 
 func TestUpgradeCmd_Source(t *testing.T) {
@@ -505,6 +564,40 @@ func TestUpgradeCmd_Source(t *testing.T) {
 
 	*cliCmd.UpgradeYes = true
 	t.Cleanup(func() { *cliCmd.UpgradeYes = false })
+
+	t.Run("ReportsTheChangelogOfARetargetedSource", func(t *testing.T) {
+		t.Cleanup(func() { *cliCmd.UpgradeSources = nil })
+		// Given a retarget of core to a version that sets a changelog URL
+		mocks := setupApplyTest(t)
+		mocks.BlueprintHandler.RetargetSourceFunc = func(name, url string) (string, error) {
+			return "oci://ghcr.io/windsorcli/core:v0.5.0", nil
+		}
+		var gotTo string
+		mocks.BlueprintHandler.AddChangelogUrlsFunc = func(changes []blueprint.SourceUpgrade) []blueprint.SourceUpgrade {
+			gotTo = changes[0].To
+			changes[0].ChangelogUrl = "https://github.com/windsorcli/core/releases"
+			return changes
+		}
+		proj := newApplyAllProject(mocks)
+		rec := &eventRecorder{}
+
+		// When upgrading with --source
+		cmd := createTestUpgradeCmd()
+		cmd.SetArgs([]string{"--source", "core=oci://ghcr.io/windsorcli/core:v0.6.0"})
+		cmd.SetContext(presenter.NewContext(stdcontext.WithValue(stdcontext.Background(), cliCmd.ProjectOverridesKey, proj), rec))
+		if err := cmd.Execute(); err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+
+		// Then the changelog of the retarget version is reported
+		if gotTo != "oci://ghcr.io/windsorcli/core:v0.6.0" {
+			t.Errorf("Expected the changelog lookup for the retarget URL, got %q", gotTo)
+		}
+		want := "See https://github.com/windsorcli/core/releases for the changes in core."
+		if msgs := rec.messages(); len(msgs) != 1 || msgs[0] != want {
+			t.Errorf("Expected the message %q, got %v", want, msgs)
+		}
+	})
 
 	t.Run("RetargetsPersistsAndUpgrades", func(t *testing.T) {
 		t.Cleanup(func() { *cliCmd.UpgradeSources = nil })

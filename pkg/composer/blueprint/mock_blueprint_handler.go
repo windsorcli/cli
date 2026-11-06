@@ -12,6 +12,7 @@ type MockBlueprintHandler struct {
 	WriteFunc                        func(overwrite ...bool) error
 	RetargetSourceFunc               func(name, url string) (string, error)
 	UpgradeSourcesToLatestFunc       func() ([]SourceUpgrade, error)
+	AddChangelogUrlsFunc             func(changes []SourceUpgrade) []SourceUpgrade
 	GetDeclaredSourcesFunc           func() ([]blueprintv1alpha1.Source, error)
 	GetTerraformComponentsFunc       func() []blueprintv1alpha1.TerraformComponent
 	GenerateFunc                     func() *blueprintv1alpha1.Blueprint
@@ -89,6 +90,14 @@ func (m *MockBlueprintHandler) UpgradeSourcesToLatest() ([]SourceUpgrade, error)
 		return m.UpgradeSourcesToLatestFunc()
 	}
 	return nil, nil
+}
+
+// AddChangelogUrls calls the mock AddChangelogUrlsFunc if set, otherwise returns changes unchanged.
+func (m *MockBlueprintHandler) AddChangelogUrls(changes []SourceUpgrade) []SourceUpgrade {
+	if m.AddChangelogUrlsFunc != nil {
+		return m.AddChangelogUrlsFunc(changes)
+	}
+	return changes
 }
 
 // GetDeclaredSources calls the mock GetDeclaredSourcesFunc if set, otherwise returns nil.
