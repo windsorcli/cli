@@ -130,9 +130,15 @@ writes the list of the context as the ConfigMap `windsor-artifacts` in the names
 `system-policy`. The list has the tags of `core` and of each blueprint that uses `core`. A
 blueprint adds tags and no policy.
 
-The CLI writes the ConfigMap in the same step that applies the blueprint, so the policy never
-reads an older list than the manifests it checks. The data keys and the line format are open
-(see the end of this ADR).
+The CLI applies the ConfigMap each time it applies the blueprint, before the Kustomizations, so
+the policy never reads an older list than the manifests it checks. The data format is in
+[sdlc ADR 0001 section 4](https://github.com/windsorcli/sdlc/blob/main/adrs/0001-chart-registry-contract.md):
+
+- `images` and `charts` are each a sorted JSON array of strings with no duplicates.
+- An image entry is `<registry>/<repository>:<tag>`. The CLI adds `docker.io` and `library/` when
+  the reference has no registry. The entry has no digest. A digest-only image gives
+  `<registry>/<repository>@<digest>`.
+- A chart entry is `<chart name>:<chart version>`, with no repository.
 
 ### 6. Flux Mirror output selects exact tags
 
@@ -145,6 +151,8 @@ credentials from the Docker config, and a site that needs `hosts` merges its own
 
 ### 7. `windsor bundle` publishes the same list as a CycloneDX BOM
 
+This decision ships in a later release. In v0.10.0, `windsor bundle` still writes
+`artifact-manifest.yaml`, and it fails on a malformed tag. From the later release,
 `windsor bundle` writes `artifact-manifest.cdx.json` at the root of the blueprint artifact. The
 file is a [CycloneDX](https://cyclonedx.org) 1.6 BOM, so SBOM tools read it without the CLI. It
 replaces `artifact-manifest.yaml`. `windsor bundle` builds it from the tag scan of Decision 2, so
@@ -180,16 +188,7 @@ The scan reads whole sources, so the list includes artifacts of disabled facets.
 
 The CLI removes the Flux render, the Helm chart render, the FluxInstance extractor, and the
 flux-operator dependency that the first version of `windsor show artifacts` needed. It takes on a
-CycloneDX library as a dependency for Decision 7.
-
-## Open questions
-
-- The data keys and line format of the `windsor-artifacts` ConfigMap. A proposal: the keys
-  `images` and `charts`, each with one `name:version` line per artifact, where a chart's name is
-  `<repo>/<name>`. Core's policy and this CLI must agree on it, so sdlc ADR 0001 section 4 needs
-  to state it.
-- Whether the ConfigMap holds the digest when a tag line has one. The contract says the policy
-  ignores a digest.
+CycloneDX library as a dependency when Decision 7 ships.
 
 ## Alternatives considered
 
