@@ -27,17 +27,18 @@ import (
 
 // BlueprintMetadata represents the complete metadata embedded in artifacts
 type BlueprintMetadata struct {
-	Name        string        `json:"name"`
-	Description string        `json:"description,omitempty"`
-	Version     string        `json:"version,omitempty"`
-	Author      string        `json:"author,omitempty"`
-	Tags        []string      `json:"tags,omitempty"`
-	Homepage    string        `json:"homepage,omitempty"`
-	License     string        `json:"license,omitempty"`
-	CliVersion  string        `json:"cliVersion,omitempty"`
-	Timestamp   string        `json:"timestamp"`
-	Git         GitProvenance `json:"git"`
-	Builder     BuilderInfo   `json:"builder"`
+	Name         string        `json:"name"`
+	Description  string        `json:"description,omitempty"`
+	Version      string        `json:"version,omitempty"`
+	Author       string        `json:"author,omitempty"`
+	Tags         []string      `json:"tags,omitempty"`
+	Homepage     string        `json:"homepage,omitempty"`
+	ChangelogUrl string        `json:"changelogUrl,omitempty"`
+	License      string        `json:"license,omitempty"`
+	CliVersion   string        `json:"cliVersion,omitempty"`
+	Timestamp    string        `json:"timestamp"`
+	Git          GitProvenance `json:"git"`
+	Builder      BuilderInfo   `json:"builder"`
 }
 
 // GitProvenance contains git repository information for traceability
@@ -55,14 +56,15 @@ type BuilderInfo struct {
 
 // BlueprintMetadataInput represents the input metadata from contexts/_template/metadata.yaml
 type BlueprintMetadataInput struct {
-	Name        string   `yaml:"name"`
-	Description string   `yaml:"description,omitempty"`
-	Version     string   `yaml:"version,omitempty"`
-	Author      string   `yaml:"author,omitempty"`
-	Tags        []string `yaml:"tags,omitempty"`
-	Homepage    string   `yaml:"homepage,omitempty"`
-	License     string   `yaml:"license,omitempty"`
-	CliVersion  string   `yaml:"cliVersion,omitempty"`
+	Name         string   `yaml:"name"`
+	Description  string   `yaml:"description,omitempty"`
+	Version      string   `yaml:"version,omitempty"`
+	Author       string   `yaml:"author,omitempty"`
+	Tags         []string `yaml:"tags,omitempty"`
+	Homepage     string   `yaml:"homepage,omitempty"`
+	ChangelogUrl string   `yaml:"changelogUrl,omitempty"`
+	License      string   `yaml:"license,omitempty"`
+	CliVersion   string   `yaml:"cliVersion,omitempty"`
 }
 
 // FileInfo holds file content and permission information
@@ -435,16 +437,17 @@ func (a *ArtifactBuilder) generateMetadata(input BlueprintMetadataInput, name, v
 	}
 
 	metadata := BlueprintMetadata{
-		Name:        name,
-		Description: input.Description,
-		Version:     version,
-		Author:      input.Author,
-		Tags:        input.Tags,
-		Homepage:    input.Homepage,
-		License:     input.License,
-		Timestamp:   time.Now().UTC().Format(time.RFC3339),
-		Git:         gitProvenance,
-		Builder:     builderInfo,
+		Name:         name,
+		Description:  input.Description,
+		Version:      version,
+		Author:       input.Author,
+		Tags:         input.Tags,
+		Homepage:     input.Homepage,
+		ChangelogUrl: input.ChangelogUrl,
+		License:      input.License,
+		Timestamp:    time.Now().UTC().Format(time.RFC3339),
+		Git:          gitProvenance,
+		Builder:      builderInfo,
 	}
 
 	if input.CliVersion != "" {

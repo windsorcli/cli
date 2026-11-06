@@ -14,6 +14,7 @@ compatibility before loading the blueprint.
 |------|------|-------------|
 | `name` | `string` | Blueprint name. Required for bundling and pushing. **(required)** |
 | `author` | `string` | Author or maintainer of the blueprint. |
+| `changelogUrl` | `string` | URL to the blueprint's changelog or release notes. 'windsor upgrade' prints it for each source that moves to a version that sets it. |
 | `cliVersion` | `string` | Semver constraint for the required CLI version. When set, the CLI validates that its current version satisfies this constraint before loading the blueprint. Examples: '>=0.9.0', '~0.9.0', '>=0.9.0 <0.10.0'. If the constraint is not satisfied, blueprint loading fails with an explanatory error. |
 | `description` | `string` | One-line description of the blueprint. |
 | `homepage` | `string` | URL to the blueprint's homepage or documentation. |
@@ -32,6 +33,7 @@ tags:
   - infrastructure
   - kubernetes
 homepage: https://example.com/my-blueprint
+changelogUrl: https://example.com/my-blueprint/releases
 license: MIT
 cliVersion: ">=0.9.0"
 ```

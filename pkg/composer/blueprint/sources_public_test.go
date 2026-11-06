@@ -297,3 +297,70 @@ func TestUpgradeSourcesToLatest(t *testing.T) {
 		}
 	})
 }
+
+func TestAddChangelogUrls(t *testing.T) {
+	const nextURL = "oci://ghcr.io/acme/core:v1.1.0"
+
+	t.Run("SetsTheChangelogUrlFromTheCachedMetadata", func(t *testing.T) {
+		// Given a cached core v1.1.0 artifact whose metadata.yaml sets changelogUrl
+		f := newFixture(t)
+		f.withCoreSource(t)
+		h := f.mustLoad(t)
+		f.publish(t, nextURL, map[string]string{"metadata.yaml": "name: core\nchangelogUrl: https://github.com/acme/core/releases\n"})
+
+		// When the changelog URLs are added to the upgrade of core
+		got := h.AddChangelogUrls([]blueprint.SourceUpgrade{{Name: "core", From: coreURL, To: nextURL}})
+
+		// Then the upgrade carries the changelog URL of the new version
+		want := []blueprint.SourceUpgrade{{Name: "core", From: coreURL, To: nextURL, ChangelogUrl: "https://github.com/acme/core/releases"}}
+		if !reflect.DeepEqual(got, want) {
+			t.Errorf("expected %+v, got %+v", want, got)
+		}
+	})
+
+	t.Run("LeavesTheChangelogUrlEmptyWhenTheMetadataSetsNone", func(t *testing.T) {
+		// Given a cached core v1.1.0 artifact whose metadata.yaml has no changelogUrl
+		f := newFixture(t)
+		f.withCoreSource(t)
+		h := f.mustLoad(t)
+		f.publish(t, nextURL, map[string]string{"metadata.yaml": "name: core\n"})
+
+		// When the changelog URLs are added to the upgrade of core
+		got := h.AddChangelogUrls([]blueprint.SourceUpgrade{{Name: "core", From: coreURL, To: nextURL}})
+
+		// Then the changelog URL is empty
+		if len(got) != 1 || got[0].ChangelogUrl != "" {
+			t.Errorf("expected one upgrade with no changelog URL, got %+v", got)
+		}
+	})
+
+	t.Run("LeavesTheChangelogUrlEmptyWhenTheArtifactIsNotCached", func(t *testing.T) {
+		// Given no cached artifact for core v1.1.0
+		f := newFixture(t)
+		f.withCoreSource(t)
+		h := f.mustLoad(t)
+
+		// When the changelog URLs are added to the upgrade of core
+		got := h.AddChangelogUrls([]blueprint.SourceUpgrade{{Name: "core", From: coreURL, To: nextURL}})
+
+		// Then the changelog URL is empty
+		if len(got) != 1 || got[0].ChangelogUrl != "" {
+			t.Errorf("expected one upgrade with no changelog URL, got %+v", got)
+		}
+	})
+
+	t.Run("LeavesTheChangelogUrlEmptyForASourceThatIsNotOCI", func(t *testing.T) {
+		// Given a change to a git source
+		f := newFixture(t)
+		f.withCoreSource(t)
+		h := f.mustLoad(t)
+
+		// When the changelog URLs are added to that change
+		got := h.AddChangelogUrls([]blueprint.SourceUpgrade{{Name: "core", From: coreURL, To: "https://github.com/acme/core.git"}})
+
+		// Then the changelog URL is empty
+		if len(got) != 1 || got[0].ChangelogUrl != "" {
+			t.Errorf("expected one change with no changelog URL, got %+v", got)
+		}
+	})
+}
