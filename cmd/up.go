@@ -40,7 +40,7 @@ var upCmd = &cobra.Command{
 	Short: "Bring up the local workstation environment.",
 	Long: `Start the workstation VM, run Terraform components, then install the Flux blueprint. Workstation contexts only — for non-workstation contexts, use 'windsor apply'. If the current context has no workstation, up exits with a hint and does no work.
 
-Waits until every kustomization is Ready, and fails when one does not become Ready.
+Waits until every kustomization is Ready. Up fails when a kustomization fails: a BuildFailed or ArtifactFailed condition, or a failed HelmRelease. Up also fails when a kustomization is still in progress at the end of the wait. If the blueprint declares post-run notes, up gives a warning for a kustomization in progress, and does not fail.
 
 If any host-side network or DNS configuration was deferred (because it requires sudo / elevation), up prints a follow-up command as the last section of its output.`,
 	Example: `# Bring up the workstation

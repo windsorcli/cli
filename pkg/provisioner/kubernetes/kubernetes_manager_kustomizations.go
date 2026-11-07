@@ -40,6 +40,10 @@ const kustomizationWaitMessageLimit = 200
 // errKustomizationWaitTimeout signals that watchKustomizations reached its timeout.
 var errKustomizationWaitTimeout = errors.New("kustomization wait timed out")
 
+// ErrKustomizationFailed marks a WaitForKustomizations error from a Kustomization that will not become
+// Ready without a change. A BuildFailed or ArtifactFailed condition and a failed HelmRelease match it.
+var ErrKustomizationFailed = errors.New("kustomization failed")
+
 // kustomizationsGVR is the Flux Kustomization resource.
 var kustomizationsGVR = schema.GroupVersionResource{
 	Group:    "kustomize.toolkit.fluxcd.io",
@@ -59,6 +63,16 @@ var kustomizationFailureReasons = map[string]kustomizationFailureKind{
 	meta.ReconciliationFailedReason: kustomizationFailurePending,
 }
 
+// helmReleaseFailureReasons holds each Ready=False reason of a HelmRelease that counts as a failure.
+var helmReleaseFailureReasons = map[string]bool{
+	helmv2.InstallFailedReason:   true,
+	helmv2.UpgradeFailedReason:   true,
+	helmv2.TestFailedReason:      true,
+	helmv2.RollbackFailedReason:  true,
+	helmv2.UninstallFailedReason: true,
+	helmv2.ArtifactFailedReason:  true,
+}
+
 // =============================================================================
 // Types
 // =============================================================================
@@ -73,11 +87,13 @@ type kustomizationFailureStreak struct {
 // reasons are ones kustomize-controller retries on its own.
 type kustomizationFailureKind int
 
-// kustomizationFailedError signals a Ready condition with a Reason in kustomizationFailureReasons.
+// kustomizationFailedError signals a Ready condition with a Reason in kustomizationFailureReasons,
+// or a failed HelmRelease of the Kustomization. hard is true when the Kustomization will not recover.
 type kustomizationFailedError struct {
 	name    string
 	reason  string
 	message string
+	hard    bool
 }
 
 // =============================================================================
@@ -115,8 +131,12 @@ func (k *BaseKubernetesManager) ApplyKustomization(kustomization kustomizev1.Kus
 // dependency chain. It follows a watch on the Kustomizations and returns ctx.Err() on cancellation.
 // BuildFailed and ArtifactFailed fail at once. List errors and ReconciliationFailed fail after an
 // error budget: a quarter of the total, or the own timeout of the Kustomization when that is shorter,
-// and never less than the minimum. It reports one step per Kustomization to layers, starting each
-// when its dependencies are Ready and failing the one that fails the wait.
+// and never less than the minimum. At the timeout, or when ReconciliationFailed uses up its budget, a
+// failed HelmRelease of a Kustomization that is not Ready fails the wait as a hard failure.
+// Otherwise the timeout error names each Kustomization that is not Ready.
+// A BuildFailed, ArtifactFailed, or HelmRelease failure matches ErrKustomizationFailed.
+// It reports one step per Kustomization to layers, starting each when its dependencies are Ready
+// and failing the one that fails the wait.
 func (k *BaseKubernetesManager) WaitForKustomizations(ctx context.Context, blueprint *blueprintv1alpha1.Blueprint, layers KustomizationReporter) error {
 	if blueprint == nil {
 		return fmt.Errorf("blueprint not provided")
@@ -228,8 +248,23 @@ func (k *BaseKubernetesManager) WaitForKustomizations(ctx context.Context, bluep
 	}
 
 	err := k.watchKustomizations(ctx, timeout, check, onError)
-	if errors.Is(err, errKustomizationWaitTimeout) {
-		return fmt.Errorf("timeout waiting for kustomizations%s", k.describeNotReadyKustomizations(kustomizationNames, k.gitopsNamespace()))
+	timedOut := errors.Is(err, errKustomizationWaitTimeout)
+	var retryable *kustomizationFailedError
+	if timedOut || (errors.As(err, &retryable) && !retryable.hard) {
+		describeDeadline := time.Now().Add(k.Timing.NotReadyDescribeBudget)
+		notReady := make([]string, 0, len(kustomizationNames))
+		for _, name := range kustomizationNames {
+			if !readyKustomizations[name] {
+				notReady = append(notReady, name)
+			}
+		}
+		if failed := k.failedHelmRelease(notReady, k.gitopsNamespace(), describeDeadline); failed != nil {
+			layers.Fail(failed.name, failed)
+			return werror.Wrap(failed, "kustomization will not become ready")
+		}
+		if timedOut {
+			return fmt.Errorf("timeout waiting for kustomizations%s", k.describeNotReadyKustomizations(kustomizationNames, k.gitopsNamespace(), describeDeadline))
+		}
 	}
 	return err
 }
@@ -248,6 +283,9 @@ func (k *BaseKubernetesManager) GetHelmReleasesForKustomization(name, namespace 
 			return []helmv2.HelmRelease{}, nil
 		}
 		return nil, werror.Wrap(err, "failed to get kustomization")
+	}
+	if obj == nil {
+		return []helmv2.HelmRelease{}, nil
 	}
 
 	var kustomization kustomizev1.Kustomization
@@ -417,13 +455,12 @@ func (k *BaseKubernetesManager) KustomizationExists(name, namespace string) (boo
 
 // describeNotReadyKustomizations returns a ": name (condition), ..." suffix for each named Kustomization
 // that is not Ready, with its most useful status condition. It returns "" when all are Ready.
-// A Kustomization that it cannot read, or that it reaches after notReadyDescribeBudget, shows its name only.
-// The budget exists because the API can be slow after a wait times out.
-func (k *BaseKubernetesManager) describeNotReadyKustomizations(names []string, namespace string) string {
-	start := time.Now()
+// A Kustomization that it cannot read, or that it reaches after the deadline, shows its name only.
+// The deadline exists because the API can be slow after a wait times out.
+func (k *BaseKubernetesManager) describeNotReadyKustomizations(names []string, namespace string, deadline time.Time) string {
 	var stuck []string
 	for _, name := range names {
-		if time.Since(start) >= k.Timing.NotReadyDescribeBudget {
+		if !time.Now().Before(deadline) {
 			stuck = append(stuck, name)
 			continue
 		}
@@ -446,6 +483,38 @@ func (k *BaseKubernetesManager) describeNotReadyKustomizations(names []string, n
 // Error returns the name, reason, and message of the failed Kustomization.
 func (e *kustomizationFailedError) Error() string {
 	return fmt.Sprintf("kustomization %s failed (%s): %s", e.name, e.reason, e.message)
+}
+
+// Is reports whether target is ErrKustomizationFailed and the failure is hard.
+func (e *kustomizationFailedError) Is(target error) bool {
+	return e.hard && target == ErrKustomizationFailed
+}
+
+// failedHelmRelease returns the first failed HelmRelease of the named Kustomizations, as a hard
+// failure of the Kustomization that applies it. It returns nil when no HelmRelease failed.
+// It skips a Kustomization that it cannot read. It stops at the deadline, because the API can be
+// slow after a wait times out.
+func (k *BaseKubernetesManager) failedHelmRelease(names []string, namespace string, deadline time.Time) *kustomizationFailedError {
+	for _, name := range names {
+		if !time.Now().Before(deadline) {
+			return nil
+		}
+		releases, err := k.GetHelmReleasesForKustomization(name, namespace)
+		if err != nil {
+			continue
+		}
+		for _, release := range releases {
+			if reason, message, failed := helmReleaseFailure(release); failed {
+				return &kustomizationFailedError{
+					name:    name,
+					reason:  reason,
+					message: fmt.Sprintf("HelmRelease %s/%s: %s", release.Namespace, release.Name, message),
+					hard:    true,
+				}
+			}
+		}
+	}
+	return nil
 }
 
 // watchKustomizations calls check on the Kustomizations in the gitops namespace until check reports done or fails.
@@ -632,6 +701,23 @@ func dependenciesReady(deps, waitSet []string, ready map[string]bool) bool {
 	return true
 }
 
+// helmReleaseFailure reports whether a HelmRelease failed, with the reason and message of the
+// failure. A HelmRelease fails when its Stalled condition is True, or when its Ready condition is
+// False with a Reason in helmReleaseFailureReasons. The message is on one line.
+func helmReleaseFailure(release helmv2.HelmRelease) (reason, message string, failed bool) {
+	for _, cond := range release.Status.Conditions {
+		if cond.Type == meta.StalledCondition && cond.Status == metav1.ConditionTrue {
+			return cond.Reason, strings.Join(strings.Fields(cond.Message), " "), true
+		}
+	}
+	for _, cond := range release.Status.Conditions {
+		if cond.Type == meta.ReadyCondition && cond.Status == metav1.ConditionFalse && helmReleaseFailureReasons[cond.Reason] {
+			return cond.Reason, strings.Join(strings.Fields(cond.Message), " "), true
+		}
+	}
+	return "", "", false
+}
+
 // kustomizationFailureText renders a kustomization failure as "reason: message" on one line, with the
 // message cut to kustomizationWaitMessageLimit.
 func kustomizationFailureText(failure *kustomizationFailedError) string {
@@ -744,6 +830,7 @@ func kustomizationConditionStatus(obj *unstructured.Unstructured) (ready bool, p
 				message, _ := condMap["message"].(string)
 				failedErr := &kustomizationFailedError{name: obj.GetName(), reason: reason, message: message}
 				if kind == kustomizationFailureHard {
+					failedErr.hard = true
 					return false, nil, failedErr
 				}
 				return false, failedErr, nil

@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"slices"
 	"strings"
+	"time"
 
 	kustomizev1 "github.com/fluxcd/kustomize-controller/api/v1"
 	meta "github.com/fluxcd/pkg/apis/meta"
@@ -420,7 +421,7 @@ func (k *BaseKubernetesManager) processDestroyOnlyKustomizations(ctx context.Con
 	if waitErr != nil {
 		endWait(fmt.Errorf("destroy-only kustomizations did not become ready"))
 		if errors.Is(waitErr, errKustomizationWaitTimeout) {
-			errs = append(errs, fmt.Errorf("destroy-only kustomizations did not become ready within timeout - cleanup may not have completed%s", k.describeNotReadyKustomizations(kustomizationNames, k.gitopsNamespace())))
+			errs = append(errs, fmt.Errorf("destroy-only kustomizations did not become ready within timeout - cleanup may not have completed%s", k.describeNotReadyKustomizations(kustomizationNames, k.gitopsNamespace(), time.Now().Add(k.Timing.NotReadyDescribeBudget))))
 		} else {
 			errs = append(errs, werror.Wrap(waitErr, "destroy-only kustomizations failed"))
 		}

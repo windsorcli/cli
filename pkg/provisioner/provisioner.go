@@ -37,6 +37,10 @@ import (
 // ErrKustomizationsNotReady marks an Install or ApplyKustomize error from a kustomization that did not become Ready.
 var ErrKustomizationsNotReady = errors.New("kustomizations not ready")
 
+// ErrKustomizationFailed marks an Install or ApplyKustomize error from a kustomization that will not
+// become Ready without a change. An error that matches it also matches ErrKustomizationsNotReady.
+var ErrKustomizationFailed = kubernetes.ErrKustomizationFailed
+
 // =============================================================================
 // Types
 // =============================================================================

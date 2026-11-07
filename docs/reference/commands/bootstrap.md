@@ -7,7 +7,7 @@ description: "Bootstrap a fresh environment end-to-end."
 windsor bootstrap [context] [flags]
 ```
 
-First-run setup for a context: applies Terraform, installs the Flux blueprint, migrates state to the configured remote backend, and waits for kustomizations. When the blueprint declares post-run notes describing a manual step, a wait that does not converge is reported as a warning rather than a failure; otherwise a wait failure is fatal.
+First-run setup for a context: applies Terraform, installs the Flux blueprint, migrates state to the configured remote backend, and waits for kustomizations. Bootstrap fails when a kustomization fails: a BuildFailed or ArtifactFailed condition, or a failed HelmRelease. Bootstrap also fails when a kustomization is still in progress at the end of the wait. If the blueprint declares post-run notes, bootstrap gives a warning for a kustomization in progress, and does not fail.
 
 When the blueprint declares a backend Terraform component, bootstrap runs a two-phase apply to resolve the chicken-and-egg case where the remote backend (S3 bucket, DynamoDB table, etc.) lives in infrastructure Terraform must create first:
 

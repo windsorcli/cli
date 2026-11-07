@@ -2,6 +2,7 @@ package kubernetes_test
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"slices"
 	"strings"
@@ -460,6 +461,9 @@ func TestBaseKubernetesManager_WaitForKustomizations(t *testing.T) {
 		if !strings.Contains(err.Error(), "crds-core") || !strings.Contains(err.Error(), "no such file or directory") {
 			t.Errorf("Expected the failure to name the kustomization and its message, got: %v", err)
 		}
+		if !errors.Is(err, kubernetes.ErrKustomizationFailed) {
+			t.Errorf("Expected the failure to match ErrKustomizationFailed, got: %v", err)
+		}
 		if elapsed >= manager.Timing.KustomizationWaitMinErrorDuration {
 			t.Errorf("Expected an immediate failure bypassing the error-streak budget, took %s", elapsed)
 		}
@@ -520,6 +524,9 @@ func TestBaseKubernetesManager_WaitForKustomizations(t *testing.T) {
 		if !strings.Contains(err.Error(), "boom") {
 			t.Errorf("Expected the underlying message surfaced, got: %v", err)
 		}
+		if !errors.Is(err, kubernetes.ErrKustomizationFailed) {
+			t.Errorf("Expected the failure to match ErrKustomizationFailed, got: %v", err)
+		}
 	})
 
 	t.Run("ReconciliationFailedRecoversWithinBudgetSucceeds", func(t *testing.T) {
@@ -573,6 +580,9 @@ func TestBaseKubernetesManager_WaitForKustomizations(t *testing.T) {
 		}
 		if strings.Contains(err.Error(), "timeout waiting for kustomizations") {
 			t.Errorf("Expected the error-budget path, not the generic timeout error, got: %v", err)
+		}
+		if errors.Is(err, kubernetes.ErrKustomizationFailed) {
+			t.Errorf("Expected a retryable failure not to match ErrKustomizationFailed, got: %v", err)
 		}
 	})
 
@@ -1124,12 +1134,15 @@ func TestBaseKubernetesManager_WaitForKustomizations(t *testing.T) {
 		// When the wait runs
 		err := wait(manager, blueprint)
 
-		// Then a timeout error names the stuck kustomization
+		// Then a timeout error names the stuck kustomization and does not report a failure
 		if err == nil {
 			t.Fatal("Expected timeout error, got nil")
 		}
 		if !strings.Contains(err.Error(), "test-kustomization") {
 			t.Errorf("Expected timeout error to name the stuck kustomization, got: %v", err)
+		}
+		if errors.Is(err, kubernetes.ErrKustomizationFailed) {
+			t.Errorf("Expected a kustomization in progress not to match ErrKustomizationFailed, got: %v", err)
 		}
 	})
 
@@ -1196,6 +1209,211 @@ func TestBaseKubernetesManager_WaitForKustomizations(t *testing.T) {
 		}
 		if !strings.Contains(err.Error(), "dns") || !strings.Contains(err.Error(), "pki-base") {
 			t.Errorf("Expected both kustomizations named, got: %v", err)
+		}
+	})
+
+	// withHelmRelease returns a GetResource func that serves each kustomization with one HelmRelease
+	// in its inventory, and that HelmRelease with the given conditions.
+	withHelmRelease := func(conditions ...map[string]any) func(schema.GroupVersionResource, string, string) (*unstructured.Unstructured, error) {
+		return func(gvr schema.GroupVersionResource, ns, name string) (*unstructured.Unstructured, error) {
+			if gvr.Resource == "helmreleases" {
+				items := make([]any, len(conditions))
+				for i, c := range conditions {
+					items[i] = c
+				}
+				return &unstructured.Unstructured{Object: map[string]any{
+					"apiVersion": "helm.toolkit.fluxcd.io/v2",
+					"kind":       "HelmRelease",
+					"metadata":   map[string]any{"name": name, "namespace": ns},
+					"status":     map[string]any{"conditions": items},
+				}}, nil
+			}
+			item := kustomizationListItem(name, "False", "HealthCheckFailed", "health check failed")
+			item.Object["status"].(map[string]any)["inventory"] = map[string]any{
+				"entries": []any{map[string]any{"id": "observability_grafana_helm.toolkit.fluxcd.io_HelmRelease"}},
+			}
+			return &item, nil
+		}
+	}
+	condition := func(condType, status, reason, message string) map[string]any {
+		return map[string]any{"type": condType, "status": status, "reason": reason, "message": message, "lastTransitionTime": "2026-11-06T00:00:00Z"}
+	}
+
+	t.Run("TimeoutWithAFailedHelmReleaseFailsTheKustomization", func(t *testing.T) {
+		// Given a kustomization that never becomes Ready, with a HelmRelease that failed to install
+		kubernetesClient := client.NewMockKubernetesClient()
+		kubernetesClient.ListResourcesFunc = func(gvr schema.GroupVersionResource, ns string) (*unstructured.UnstructuredList, error) {
+			return listOf(kustomizationListItem("observability", "False", "HealthCheckFailed", "health check failed")), nil
+		}
+		kubernetesClient.GetResourceFunc = withHelmRelease(condition("Ready", "False", "InstallFailed", "image pull\nfailed"))
+		manager := setup(t, kubernetesClient)
+		blueprint := &blueprintv1alpha1.Blueprint{Kustomizations: []blueprintv1alpha1.Kustomization{
+			withTimeout("observability", 50*time.Millisecond),
+		}}
+
+		// When the wait times out
+		err := wait(manager, blueprint)
+
+		// Then the error matches ErrKustomizationFailed and names the kustomization and the HelmRelease
+		if !errors.Is(err, kubernetes.ErrKustomizationFailed) {
+			t.Fatalf("Expected an error that matches ErrKustomizationFailed, got: %v", err)
+		}
+		for _, want := range []string{"observability", "InstallFailed", "HelmRelease observability/grafana", "image pull failed"} {
+			if !strings.Contains(err.Error(), want) {
+				t.Errorf("Expected the error to contain %q, got: %v", want, err)
+			}
+		}
+	})
+
+	t.Run("ExhaustedBudgetWithAFailedHelmReleaseFailsTheKustomization", func(t *testing.T) {
+		// Given a kustomization with a HelmRelease that failed to install, and a second kustomization
+		// that reports ReconciliationFailed until its error budget runs out
+		kubernetesClient := client.NewMockKubernetesClient()
+		kubernetesClient.ListResourcesFunc = func(gvr schema.GroupVersionResource, ns string) (*unstructured.UnstructuredList, error) {
+			return listOf(
+				kustomizationListItem("observability", "False", "HealthCheckFailed", "health check failed"),
+				kustomizationListItem("dashboards", "False", meta.ReconciliationFailedReason, "no matches for kind"),
+			), nil
+		}
+		kubernetesClient.GetResourceFunc = withHelmRelease(condition("Ready", "False", "InstallFailed", "install failed"))
+		manager := setup(t, kubernetesClient)
+		blueprint := &blueprintv1alpha1.Blueprint{Kustomizations: []blueprintv1alpha1.Kustomization{
+			withTimeout("observability", 5*time.Second),
+			withTimeout("dashboards", time.Second),
+		}}
+
+		// When the wait fails on the error budget
+		err := wait(manager, blueprint)
+
+		// Then the error matches ErrKustomizationFailed and names the failed HelmRelease
+		if !errors.Is(err, kubernetes.ErrKustomizationFailed) {
+			t.Fatalf("Expected an error that matches ErrKustomizationFailed, got: %v", err)
+		}
+		if !strings.Contains(err.Error(), "HelmRelease observability/grafana") || !strings.Contains(err.Error(), "InstallFailed") {
+			t.Errorf("Expected the failed HelmRelease named, got: %v", err)
+		}
+		if strings.Contains(err.Error(), "timeout waiting for kustomizations") {
+			t.Errorf("Expected the error-budget path, not the generic timeout error, got: %v", err)
+		}
+	})
+
+	t.Run("TimeoutWithAStalledHelmReleaseFailsTheKustomization", func(t *testing.T) {
+		// Given a kustomization that never becomes Ready, with a Stalled HelmRelease
+		kubernetesClient := client.NewMockKubernetesClient()
+		kubernetesClient.ListResourcesFunc = func(gvr schema.GroupVersionResource, ns string) (*unstructured.UnstructuredList, error) {
+			return listOf(kustomizationListItem("observability", "False", "HealthCheckFailed", "health check failed")), nil
+		}
+		kubernetesClient.GetResourceFunc = withHelmRelease(
+			condition("Ready", "False", "UpgradeFailed", "upgrade failed"),
+			condition("Stalled", "True", "RetriesExceeded", "retries exhausted"),
+		)
+		manager := setup(t, kubernetesClient)
+		blueprint := &blueprintv1alpha1.Blueprint{Kustomizations: []blueprintv1alpha1.Kustomization{
+			withTimeout("observability", 50*time.Millisecond),
+		}}
+
+		// When the wait times out
+		err := wait(manager, blueprint)
+
+		// Then the error matches ErrKustomizationFailed and reports the Stalled reason
+		if !errors.Is(err, kubernetes.ErrKustomizationFailed) {
+			t.Fatalf("Expected an error that matches ErrKustomizationFailed, got: %v", err)
+		}
+		if !strings.Contains(err.Error(), "RetriesExceeded") || !strings.Contains(err.Error(), "retries exhausted") {
+			t.Errorf("Expected the Stalled reason and message, got: %v", err)
+		}
+	})
+
+	t.Run("TimeoutWithAProgressingHelmReleaseIsNotAFailure", func(t *testing.T) {
+		// Given a kustomization that never becomes Ready, with a HelmRelease that is still in progress
+		kubernetesClient := client.NewMockKubernetesClient()
+		kubernetesClient.ListResourcesFunc = func(gvr schema.GroupVersionResource, ns string) (*unstructured.UnstructuredList, error) {
+			return listOf(kustomizationListItem("observability", "False", "HealthCheckFailed", "health check failed")), nil
+		}
+		kubernetesClient.GetResourceFunc = withHelmRelease(condition("Ready", "Unknown", "Progressing", "installing"))
+		manager := setup(t, kubernetesClient)
+		blueprint := &blueprintv1alpha1.Blueprint{Kustomizations: []blueprintv1alpha1.Kustomization{
+			withTimeout("observability", 50*time.Millisecond),
+		}}
+
+		// When the wait times out
+		err := wait(manager, blueprint)
+
+		// Then the error is the timeout error, which does not match ErrKustomizationFailed
+		if err == nil {
+			t.Fatal("Expected a timeout error, got nil")
+		}
+		if errors.Is(err, kubernetes.ErrKustomizationFailed) {
+			t.Errorf("Expected a HelmRelease in progress not to match ErrKustomizationFailed, got: %v", err)
+		}
+		if !strings.Contains(err.Error(), "timeout waiting for kustomizations") {
+			t.Errorf("Expected the timeout error, got: %v", err)
+		}
+	})
+
+	t.Run("TimeoutSharesOneDescribeBudgetAcrossTheHelmReleaseCheck", func(t *testing.T) {
+		// Given a slow API and a HelmRelease check that uses up the whole describe budget
+		kubernetesClient := client.NewMockKubernetesClient()
+		kubernetesClient.ListResourcesFunc = func(gvr schema.GroupVersionResource, ns string) (*unstructured.UnstructuredList, error) {
+			return listOf(kustomizationListItem("observability", "False", "HealthCheckFailed", "health check failed")), nil
+		}
+		serve := withHelmRelease(condition("Ready", "Unknown", "Progressing", "installing"))
+		calls := 0
+		kubernetesClient.GetResourceFunc = func(gvr schema.GroupVersionResource, ns, name string) (*unstructured.Unstructured, error) {
+			calls++
+			time.Sleep(60 * time.Millisecond)
+			return serve(gvr, ns, name)
+		}
+		manager := setup(t, kubernetesClient)
+		manager.Timing.NotReadyDescribeBudget = 50 * time.Millisecond
+		blueprint := &blueprintv1alpha1.Blueprint{Kustomizations: []blueprintv1alpha1.Kustomization{
+			withTimeout("observability", 50*time.Millisecond),
+		}}
+
+		// When the wait times out
+		err := wait(manager, blueprint)
+
+		// Then the timeout description makes no API call of its own
+		if err == nil || !strings.Contains(err.Error(), "timeout waiting for kustomizations") {
+			t.Fatalf("Expected the timeout error, got: %v", err)
+		}
+		if calls != 2 {
+			t.Errorf("Expected 2 GetResource calls from the HelmRelease check only, got %d", calls)
+		}
+	})
+
+	t.Run("TimeoutSkipsTheHelmReleasesOfAReadyKustomization", func(t *testing.T) {
+		// Given a Ready kustomization with a failed HelmRelease, and a kustomization that never becomes Ready
+		kubernetesClient := client.NewMockKubernetesClient()
+		kubernetesClient.ListResourcesFunc = func(gvr schema.GroupVersionResource, ns string) (*unstructured.UnstructuredList, error) {
+			return listOf(
+				kustomizationListItem("ready", "True", "", ""),
+				kustomizationListItem("stuck", "False", "", ""),
+			), nil
+		}
+		failed := withHelmRelease(condition("Ready", "False", "InstallFailed", "install failed"))
+		kubernetesClient.GetResourceFunc = func(gvr schema.GroupVersionResource, ns, name string) (*unstructured.Unstructured, error) {
+			if gvr.Resource == "kustomizations" && name == "stuck" {
+				item := kustomizationListItem(name, "False", "", "")
+				return &item, nil
+			}
+			return failed(gvr, ns, name)
+		}
+		manager := setup(t, kubernetesClient)
+		blueprint := &blueprintv1alpha1.Blueprint{Kustomizations: []blueprintv1alpha1.Kustomization{
+			withTimeout("ready", 50*time.Millisecond),
+			withTimeout("stuck", 50*time.Millisecond),
+		}}
+
+		// When the wait times out
+		err := wait(manager, blueprint)
+
+		// Then only the kustomization that is not Ready counts, and the error is the timeout error
+		if err == nil {
+			t.Fatal("Expected a timeout error, got nil")
+		}
+		if errors.Is(err, kubernetes.ErrKustomizationFailed) {
+			t.Errorf("Expected the HelmRelease of a Ready kustomization to be skipped, got: %v", err)
 		}
 	})
 
@@ -1486,6 +1704,26 @@ func TestBaseKubernetesManager_GetHelmReleasesForKustomization(t *testing.T) {
 		}
 		if !strings.Contains(err.Error(), "failed to get helm release") {
 			t.Errorf("Expected get resource error, got: %v", err)
+		}
+	})
+
+	t.Run("NilKustomizationReturnsNoReleases", func(t *testing.T) {
+		// Given a client that returns no kustomization object and no error
+		kubernetesClient := client.NewMockKubernetesClient()
+		kubernetesClient.GetResourceFunc = func(gvr schema.GroupVersionResource, ns, name string) (*unstructured.Unstructured, error) {
+			return nil, nil
+		}
+		manager := setup(t, kubernetesClient)
+
+		// When the HelmReleases are requested
+		releases, err := manager.GetHelmReleasesForKustomization("test-kustomization", "test-namespace")
+
+		// Then no error and no releases are returned
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+		if len(releases) != 0 {
+			t.Errorf("Expected 0 releases, got %d", len(releases))
 		}
 	})
 
