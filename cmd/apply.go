@@ -29,7 +29,9 @@ var applyCmd = &cobra.Command{
 
 For workstation contexts, prefer 'windsor up' — it does the same work plus VM management.
 
-Waits until every kustomization is Ready, and fails when one does not become Ready. Pass --prune to also remove kustomizations the blueprint no longer declares, once the new set is Ready.`,
+Waits until every kustomization is Ready. Apply fails when a kustomization fails: a BuildFailed or ArtifactFailed condition, or a failed HelmRelease. Apply also fails when a kustomization is still in progress at the end of the wait. If the blueprint declares post-run notes and --prune is not set, apply gives a warning for a kustomization in progress, and does not fail.
+
+Pass --prune to also remove kustomizations the blueprint no longer declares, once the new set is Ready.`,
 	Example: `# Apply everything
 windsor apply
 

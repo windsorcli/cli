@@ -479,6 +479,61 @@ func TestUpCmd(t *testing.T) {
 		}
 	})
 
+	t.Run("InProgressIsAWarningWhenBlueprintHasMessages", func(t *testing.T) {
+		// Given a blueprint with post-run messages and a wait that times out on a kustomization in progress
+		mocks := setupUpTest(t)
+		mocks.BlueprintHandler.GenerateResolvedFunc = func() (*blueprintv1alpha1.Blueprint, error) {
+			return &blueprintv1alpha1.Blueprint{
+				Metadata: blueprintv1alpha1.Metadata{Name: "test"},
+				Messages: []blueprintv1alpha1.Message{{Text: "Delegate ns1.example at your registrar."}},
+			}, nil
+		}
+		mocks.KubernetesManager.WaitForKustomizationsFunc = func(ctx context.Context, blueprint *blueprintv1alpha1.Blueprint, layers kubernetes.KustomizationReporter) error {
+			return fmt.Errorf("timeout waiting for kustomizations: dns")
+		}
+		proj := newUpTestProject(mocks, true)
+
+		// When executing the up command
+		cmd := createTestUpCmd()
+		ctx := context.WithValue(context.Background(), cliCmd.ProjectOverridesKey, proj)
+		cmd.SetContext(ctx)
+		err := cmd.Execute()
+
+		// Then up succeeds
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+	})
+
+	t.Run("FailedKustomizationFailsWhenBlueprintHasMessages", func(t *testing.T) {
+		// Given a blueprint with post-run messages and a wait that fails on a BuildFailed kustomization
+		mocks := setupUpTest(t)
+		mocks.BlueprintHandler.GenerateResolvedFunc = func() (*blueprintv1alpha1.Blueprint, error) {
+			return &blueprintv1alpha1.Blueprint{
+				Metadata: blueprintv1alpha1.Metadata{Name: "test"},
+				Messages: []blueprintv1alpha1.Message{{Text: "Delegate ns1.example at your registrar."}},
+			}, nil
+		}
+		mocks.KubernetesManager.WaitForKustomizationsFunc = func(ctx context.Context, blueprint *blueprintv1alpha1.Blueprint, layers kubernetes.KustomizationReporter) error {
+			return fmt.Errorf("%w: kustomization observability failed (BuildFailed)", kubernetes.ErrKustomizationFailed)
+		}
+		proj := newUpTestProject(mocks, true)
+
+		// When executing the up command
+		cmd := createTestUpCmd()
+		ctx := context.WithValue(context.Background(), cliCmd.ProjectOverridesKey, proj)
+		cmd.SetContext(ctx)
+		err := cmd.Execute()
+
+		// Then up fails and names the failed kustomization
+		if err == nil {
+			t.Fatal("Expected an error, got nil")
+		}
+		if !strings.Contains(err.Error(), "observability") {
+			t.Errorf("Expected the error to name the kustomization, got: %v", err)
+		}
+	})
+
 	t.Run("CheckAuthFailureBlocksUpBeforeProjectUp", func(t *testing.T) {
 		// Given expired credentials, up must fail at preflight before kicking off the
 		// workstation/terraform path.

@@ -21,6 +21,7 @@ import (
 
 func TestWarnNotReady(t *testing.T) {
 	notReady := fmt.Errorf("%w: dns not ready", provisioner.ErrKustomizationsNotReady)
+	failed := fmt.Errorf("%w: %w", provisioner.ErrKustomizationsNotReady, fmt.Errorf("%w: observability BuildFailed", provisioner.ErrKustomizationFailed))
 	messages := []blueprintv1alpha1.Message{{Text: "Delegate ns1.example at your registrar."}}
 
 	t.Run("WarnsForNotReadyWithMessages", func(t *testing.T) {
@@ -40,6 +41,22 @@ func TestWarnNotReady(t *testing.T) {
 		}
 		if buf.Len() != 0 {
 			t.Errorf("Expected no warning, got %q", buf.String())
+		}
+	})
+
+	t.Run("ReturnsFailedWithMessages", func(t *testing.T) {
+		var buf strings.Builder
+		if err := warnNotReady(&buf, failed, messages); !errors.Is(err, provisioner.ErrKustomizationFailed) {
+			t.Errorf("Expected the failed error, got %v", err)
+		}
+		if buf.Len() != 0 {
+			t.Errorf("Expected no warning, got %q", buf.String())
+		}
+	})
+
+	t.Run("ReturnsFailedWithoutMessages", func(t *testing.T) {
+		if err := warnNotReady(io.Discard, failed, nil); !errors.Is(err, provisioner.ErrKustomizationFailed) {
+			t.Errorf("Expected the failed error, got %v", err)
 		}
 	})
 

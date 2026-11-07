@@ -689,6 +689,29 @@ func TestProvisioner_InstallReadinessWait(t *testing.T) {
 		if !errors.Is(err, provisioner.ErrKustomizationsNotReady) || !strings.Contains(err.Error(), "wait failed") {
 			t.Errorf("Expected a not-ready error wrapping the cause, got %v", err)
 		}
+		if errors.Is(err, provisioner.ErrKustomizationFailed) {
+			t.Errorf("Expected a wait failure that is not hard not to match ErrKustomizationFailed, got %v", err)
+		}
+	})
+
+	t.Run("KeepsAHardWaitFailureMatchable", func(t *testing.T) {
+		// Given a kubernetes manager whose readiness wait fails with a hard kustomization failure
+		mocks := setupProvisionerMocks(t)
+		mocks.KubernetesManager.WaitForKustomizationsFunc = func(ctx context.Context, blueprint *blueprintv1alpha1.Blueprint, layers kubernetes.KustomizationReporter) error {
+			return fmt.Errorf("%w: observability BuildFailed", kubernetes.ErrKustomizationFailed)
+		}
+		prov := provisioner.NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &provisioner.Provisioner{KubernetesManager: mocks.KubernetesManager})
+
+		// When installing
+		err := prov.Install(context.Background(), createTestBlueprint(), false)
+
+		// Then the error matches both ErrKustomizationsNotReady and ErrKustomizationFailed
+		if !errors.Is(err, provisioner.ErrKustomizationsNotReady) {
+			t.Errorf("Expected the error to match ErrKustomizationsNotReady, got %v", err)
+		}
+		if !errors.Is(err, provisioner.ErrKustomizationFailed) {
+			t.Errorf("Expected the error to match ErrKustomizationFailed, got %v", err)
+		}
 	})
 }
 
