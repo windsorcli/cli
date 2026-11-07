@@ -251,18 +251,19 @@ func (k *BaseKubernetesManager) WaitForKustomizations(ctx context.Context, bluep
 	timedOut := errors.Is(err, errKustomizationWaitTimeout)
 	var retryable *kustomizationFailedError
 	if timedOut || (errors.As(err, &retryable) && !retryable.hard) {
+		describeDeadline := time.Now().Add(k.Timing.NotReadyDescribeBudget)
 		notReady := make([]string, 0, len(kustomizationNames))
 		for _, name := range kustomizationNames {
 			if !readyKustomizations[name] {
 				notReady = append(notReady, name)
 			}
 		}
-		if failed := k.failedHelmRelease(notReady, k.gitopsNamespace()); failed != nil {
+		if failed := k.failedHelmRelease(notReady, k.gitopsNamespace(), describeDeadline); failed != nil {
 			layers.Fail(failed.name, failed)
 			return werror.Wrap(failed, "kustomization will not become ready")
 		}
 		if timedOut {
-			return fmt.Errorf("timeout waiting for kustomizations%s", k.describeNotReadyKustomizations(kustomizationNames, k.gitopsNamespace()))
+			return fmt.Errorf("timeout waiting for kustomizations%s", k.describeNotReadyKustomizations(kustomizationNames, k.gitopsNamespace(), describeDeadline))
 		}
 	}
 	return err
@@ -454,13 +455,12 @@ func (k *BaseKubernetesManager) KustomizationExists(name, namespace string) (boo
 
 // describeNotReadyKustomizations returns a ": name (condition), ..." suffix for each named Kustomization
 // that is not Ready, with its most useful status condition. It returns "" when all are Ready.
-// A Kustomization that it cannot read, or that it reaches after notReadyDescribeBudget, shows its name only.
-// The budget exists because the API can be slow after a wait times out.
-func (k *BaseKubernetesManager) describeNotReadyKustomizations(names []string, namespace string) string {
-	start := time.Now()
+// A Kustomization that it cannot read, or that it reaches after the deadline, shows its name only.
+// The deadline exists because the API can be slow after a wait times out.
+func (k *BaseKubernetesManager) describeNotReadyKustomizations(names []string, namespace string, deadline time.Time) string {
 	var stuck []string
 	for _, name := range names {
-		if time.Since(start) >= k.Timing.NotReadyDescribeBudget {
+		if !time.Now().Before(deadline) {
 			stuck = append(stuck, name)
 			continue
 		}
@@ -492,12 +492,11 @@ func (e *kustomizationFailedError) Is(target error) bool {
 
 // failedHelmRelease returns the first failed HelmRelease of the named Kustomizations, as a hard
 // failure of the Kustomization that applies it. It returns nil when no HelmRelease failed.
-// It skips a Kustomization that it cannot read. It stops after NotReadyDescribeBudget, because
-// the API can be slow after a wait times out.
-func (k *BaseKubernetesManager) failedHelmRelease(names []string, namespace string) *kustomizationFailedError {
-	start := time.Now()
+// It skips a Kustomization that it cannot read. It stops at the deadline, because the API can be
+// slow after a wait times out.
+func (k *BaseKubernetesManager) failedHelmRelease(names []string, namespace string, deadline time.Time) *kustomizationFailedError {
 	for _, name := range names {
-		if time.Since(start) >= k.Timing.NotReadyDescribeBudget {
+		if !time.Now().Before(deadline) {
 			return nil
 		}
 		releases, err := k.GetHelmReleasesForKustomization(name, namespace)

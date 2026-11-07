@@ -1351,6 +1351,37 @@ func TestBaseKubernetesManager_WaitForKustomizations(t *testing.T) {
 		}
 	})
 
+	t.Run("TimeoutSharesOneDescribeBudgetAcrossTheHelmReleaseCheck", func(t *testing.T) {
+		// Given a slow API and a HelmRelease check that uses up the whole describe budget
+		kubernetesClient := client.NewMockKubernetesClient()
+		kubernetesClient.ListResourcesFunc = func(gvr schema.GroupVersionResource, ns string) (*unstructured.UnstructuredList, error) {
+			return listOf(kustomizationListItem("observability", "False", "HealthCheckFailed", "health check failed")), nil
+		}
+		serve := withHelmRelease(condition("Ready", "Unknown", "Progressing", "installing"))
+		calls := 0
+		kubernetesClient.GetResourceFunc = func(gvr schema.GroupVersionResource, ns, name string) (*unstructured.Unstructured, error) {
+			calls++
+			time.Sleep(60 * time.Millisecond)
+			return serve(gvr, ns, name)
+		}
+		manager := setup(t, kubernetesClient)
+		manager.Timing.NotReadyDescribeBudget = 50 * time.Millisecond
+		blueprint := &blueprintv1alpha1.Blueprint{Kustomizations: []blueprintv1alpha1.Kustomization{
+			withTimeout("observability", 50*time.Millisecond),
+		}}
+
+		// When the wait times out
+		err := wait(manager, blueprint)
+
+		// Then the timeout description makes no API call of its own
+		if err == nil || !strings.Contains(err.Error(), "timeout waiting for kustomizations") {
+			t.Fatalf("Expected the timeout error, got: %v", err)
+		}
+		if calls != 2 {
+			t.Errorf("Expected 2 GetResource calls from the HelmRelease check only, got %d", calls)
+		}
+	})
+
 	t.Run("TimeoutSkipsTheHelmReleasesOfAReadyKustomization", func(t *testing.T) {
 		// Given a Ready kustomization with a failed HelmRelease, and a kustomization that never becomes Ready
 		kubernetesClient := client.NewMockKubernetesClient()
