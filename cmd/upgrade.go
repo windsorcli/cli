@@ -15,6 +15,7 @@ import (
 
 	"github.com/spf13/cobra"
 	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
+	"github.com/windsorcli/cli/internal/presenter"
 	"github.com/windsorcli/cli/internal/werror"
 	"github.com/windsorcli/cli/pkg/composer"
 	"github.com/windsorcli/cli/pkg/composer/blueprint"
@@ -147,6 +148,8 @@ windsor upgrade cluster --nodes=10.0.0.5 --image=ghcr.io/siderolabs/installer:v1
 		if blueprint == nil {
 			return abort(fmt.Errorf("blueprint is not available"))
 		}
+		changes = proj.Composer.BlueprintHandler.AddChangelogUrls(changes)
+		reportChangelogs(cmd.Context(), changes)
 
 		var confirmedPrune map[string]bool
 		if interactive {
@@ -460,6 +463,15 @@ func printSourceChanges(w io.Writer, changes sourceChanges, retargeted bool) {
 	}
 	for _, c := range changes {
 		fmt.Fprintf(w, "%s %s from %s to %s\n", verb, c.Name, c.From, c.To)
+	}
+}
+
+// reportChangelogs emits one presenter message for each change that has a changelog URL.
+func reportChangelogs(ctx context.Context, changes sourceChanges) {
+	for _, c := range changes {
+		if c.ChangelogUrl != "" {
+			presenter.Message(ctx, fmt.Sprintf("See %s for the changes in %s.", c.ChangelogUrl, c.Name))
+		}
 	}
 }
 

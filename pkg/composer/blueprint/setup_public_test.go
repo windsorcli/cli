@@ -65,6 +65,14 @@ func newFixture(t *testing.T) *fixture {
 		return out, nil
 	}
 	f.artifact.ListTagsFunc = func(string) ([]string, error) { return f.tags, nil }
+	f.artifact.GetCacheDirFunc = func(registry, repository, tag string) (string, error) {
+		ref := "oci://" + artifact.FormatOCIRef(registry, repository, tag)
+		dir, ok := f.sources[ref]
+		if !ok {
+			return "", fmt.Errorf("no artifact cached for %s", ref)
+		}
+		return dir, nil
+	}
 	eval.Register("terraform_output", func(params []any, deferred bool) (any, error) {
 		component, key := fmt.Sprint(params[0]), fmt.Sprint(params[1])
 		if !deferred {

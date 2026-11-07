@@ -2167,12 +2167,13 @@ func TestArtifactBuilder_generateMetadata(t *testing.T) {
 		}
 
 		input := BlueprintMetadataInput{
-			Description: "Test description",
-			Author:      "Test Author",
-			Tags:        []string{"test", "example"},
-			Homepage:    "https://example.com",
-			License:     "MIT",
-			CliVersion:  ">=1.0.0",
+			Description:  "Test description",
+			Author:       "Test Author",
+			Tags:         []string{"test", "example"},
+			Homepage:     "https://example.com",
+			ChangelogUrl: "https://example.com/releases",
+			License:      "MIT",
+			CliVersion:   ">=1.0.0",
 		}
 
 		// When generating metadata
@@ -2193,6 +2194,28 @@ func TestArtifactBuilder_generateMetadata(t *testing.T) {
 		}
 		if generatedMetadata.CliVersion != ">=1.0.0" {
 			t.Errorf("Expected cliVersion to be '>=1.0.0', got '%s'", generatedMetadata.CliVersion)
+		}
+		if generatedMetadata.ChangelogUrl != "https://example.com/releases" {
+			t.Errorf("Expected changelogUrl to be 'https://example.com/releases', got '%s'", generatedMetadata.ChangelogUrl)
+		}
+	})
+
+	t.Run("OmitsChangelogUrlWhenInputSetsNone", func(t *testing.T) {
+		// Given a builder that marshals real YAML and input metadata with no changelogUrl
+		builder, mocks := setup(t)
+		mocks.Shims.YamlMarshal = func(data any) ([]byte, error) {
+			return yaml.Marshal(data)
+		}
+
+		// When generating metadata
+		metadata, err := builder.generateMetadata(BlueprintMetadataInput{Description: "Test description"}, "testapp", "1.0.0")
+
+		// Then the generated metadata has no changelogUrl key
+		if err != nil {
+			t.Fatalf("Expected success, got error: %v", err)
+		}
+		if strings.Contains(string(metadata), "changelogUrl") {
+			t.Errorf("Expected no changelogUrl key, got:\n%s", metadata)
 		}
 	})
 

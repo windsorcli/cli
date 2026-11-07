@@ -8,6 +8,7 @@ package blueprint
 import (
 	"errors"
 	"fmt"
+	"path/filepath"
 	"strings"
 	"sync"
 
@@ -46,10 +47,12 @@ type BaseBlueprintHandler struct {
 }
 
 // SourceUpgrade records one source moved to a newer version by UpgradeSourcesToLatest.
+// ChangelogUrl comes from the metadata.yaml of the To version, and is empty when that file sets none.
 type SourceUpgrade struct {
-	Name string
-	From string
-	To   string
+	Name         string
+	From         string
+	To           string
+	ChangelogUrl string
 }
 
 // =============================================================================
@@ -65,6 +68,7 @@ type BlueprintHandler interface {
 	Write(overwrite ...bool) error
 	RetargetSource(name, url string) (string, error)
 	UpgradeSourcesToLatest() ([]SourceUpgrade, error)
+	AddChangelogUrls(changes []SourceUpgrade) []SourceUpgrade
 	GetDeclaredSources() ([]blueprintv1alpha1.Source, error)
 	GetTerraformComponents() []blueprintv1alpha1.TerraformComponent
 	Generate() *blueprintv1alpha1.Blueprint
@@ -300,6 +304,18 @@ func (h *BaseBlueprintHandler) UpgradeSourcesToLatest() ([]SourceUpgrade, error)
 	return upgrades, nil
 }
 
+// AddChangelogUrls returns changes with ChangelogUrl set from the metadata.yaml of each To version.
+// It reads only the artifact cache, so call it after LoadBlueprint pulls the new versions.
+// A change keeps an empty ChangelogUrl when its source is not OCI, is not in the cache, or sets no changelogUrl.
+func (h *BaseBlueprintHandler) AddChangelogUrls(changes []SourceUpgrade) []SourceUpgrade {
+	result := make([]SourceUpgrade, len(changes))
+	for i, c := range changes {
+		c.ChangelogUrl = h.cachedChangelogUrl(c.To)
+		result[i] = c
+	}
+	return result
+}
+
 // IsDowngrade reports whether targetURL pins an older stable semver than previousURL for the same
 // OCI repository. It returns false when either URL is not a parseable OCI reference, when the two
 // reference different repositories (a re-source is not an ordered version change), or when either
@@ -451,6 +467,31 @@ func (h *BaseBlueprintHandler) GetConfigScope() map[string]any {
 // =============================================================================
 // Private Methods
 // =============================================================================
+
+// cachedChangelogUrl returns the changelogUrl of the cached metadata.yaml of ociURL.
+// It returns an empty string when ociURL is not OCI, or the cache has no readable metadata.yaml.
+func (h *BaseBlueprintHandler) cachedChangelogUrl(ociURL string) string {
+	if h.artifactBuilder == nil || !strings.HasPrefix(ociURL, "oci://") {
+		return ""
+	}
+	registry, repository, tag, err := h.artifactBuilder.ParseOCIRef(ociURL)
+	if err != nil {
+		return ""
+	}
+	cacheDir, err := h.artifactBuilder.GetCacheDir(registry, repository, tag)
+	if err != nil || cacheDir == "" {
+		return ""
+	}
+	data, err := h.shims.ReadFile(filepath.Join(cacheDir, "metadata.yaml"))
+	if err != nil {
+		return ""
+	}
+	var meta artifact.BlueprintMetadataInput
+	if err := h.shims.YamlUnmarshal(data, &meta); err != nil {
+		return ""
+	}
+	return meta.ChangelogUrl
+}
 
 // processAndCompose processes the facets of every loaded source and composes the result. It processes
 // the loaders in dependency order, and each source sees the scope of the sources before it. It merges

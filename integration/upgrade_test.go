@@ -167,6 +167,47 @@ func TestUpgrade_RetargetRegeneratesTerraformModules(t *testing.T) {
 	}
 }
 
+func TestUpgrade_SourceReportsChangelogOfNewVersion(t *testing.T) {
+	t.Parallel()
+	dir, env := helpers.CopyFixtureOnly(t, "upgrade-retarget")
+	helpers.MarkAsGitRepo(t, dir)
+	seedCoreArtifact(t, dir, "v0.1.0", "cluster_endpoint")
+	seedCoreArtifact(t, dir, "v0.2.0", "k8s_service_host")
+	seedCoreMetadata(t, dir, "v0.2.0", "name: core\nversion: v0.2.0\nchangelogUrl: https://github.com/windsorcli/core/releases\n")
+	if _, stderr, err := helpers.RunCLI(dir, []string{"init", "local"}, env); err != nil {
+		t.Fatalf("init local: %v\nstderr: %s", err, stderr)
+	}
+	env = append(env, "WINDSOR_CONTEXT=local")
+
+	// The new version sets changelogUrl, so upgrade reports it before reconcile fails without a cluster.
+	_, stderr, _ := helpers.RunCLI(dir, []string{"upgrade", "--source", "core=oci://ghcr.io/windsorcli/core:v0.2.0", "--yes"}, env)
+	if !strings.Contains(string(stderr), "See https://github.com/windsorcli/core/releases for the changes in core.") {
+		t.Errorf("expected the changelog of core v0.2.0, got: %s", stderr)
+	}
+}
+
+func TestUpgrade_SourceReportsNoChangelogWhenMetadataSetsNone(t *testing.T) {
+	t.Parallel()
+	dir, env := helpers.CopyFixtureOnly(t, "upgrade-retarget")
+	helpers.MarkAsGitRepo(t, dir)
+	seedCoreArtifact(t, dir, "v0.1.0", "cluster_endpoint")
+	seedCoreArtifact(t, dir, "v0.2.0", "k8s_service_host")
+	seedCoreMetadata(t, dir, "v0.2.0", "name: core\nversion: v0.2.0\n")
+	if _, stderr, err := helpers.RunCLI(dir, []string{"init", "local"}, env); err != nil {
+		t.Fatalf("init local: %v\nstderr: %s", err, stderr)
+	}
+	env = append(env, "WINDSOR_CONTEXT=local")
+
+	// The new version sets no changelogUrl, so upgrade prints no changelog line.
+	stdout, stderr, _ := helpers.RunCLI(dir, []string{"upgrade", "--source", "core=oci://ghcr.io/windsorcli/core:v0.2.0", "--yes"}, env)
+	if !strings.Contains(string(stdout), "Retargeted core") {
+		t.Fatalf("expected the retarget report, got stdout: %s\nstderr: %s", stdout, stderr)
+	}
+	if strings.Contains(string(stderr), "for the changes in core") {
+		t.Errorf("expected no changelog line, got: %s", stderr)
+	}
+}
+
 func TestUpgrade_AcceptsYesFlag(t *testing.T) {
 	t.Parallel()
 	dir, env := helpers.CopyFixtureOnly(t, "plan")
@@ -378,5 +419,15 @@ func seedCoreArtifact(t *testing.T, dir, tag, variable string) {
 	}
 	if err := tw.Close(); err != nil {
 		t.Fatalf("close artifact.tar: %v", err)
+	}
+}
+
+// seedCoreMetadata writes content as the metadata.yaml of the cached core artifact at tag, where a
+// pull extracts it.
+func seedCoreMetadata(t *testing.T, dir, tag, content string) {
+	t.Helper()
+	path := filepath.Join(dir, ".windsor", "cache", "oci", "ghcr.io_windsorcli_core_"+tag, "metadata.yaml")
+	if err := os.WriteFile(path, []byte(content), 0644); err != nil {
+		t.Fatalf("write metadata.yaml: %v", err)
 	}
 }

@@ -339,6 +339,17 @@ func (r *eventRecorder) operations() []string {
 	return ops
 }
 
+// messages returns the text of the narrative messages, in order.
+func (r *eventRecorder) messages() []string {
+	var msgs []string
+	for _, e := range r.events {
+		if e.Kind == presenter.KindMessage {
+			msgs = append(msgs, e.Message)
+		}
+	}
+	return msgs
+}
+
 // captureOutput creates buffers for stdout and stderr and returns them along with a cleanup function
 func captureOutput(t *testing.T) (*bytes.Buffer, *bytes.Buffer) {
 	t.Helper()
