@@ -57,7 +57,7 @@ var (
 var bootstrapCmd = &cobra.Command{
 	Use:   "bootstrap [context]",
 	Short: "Bootstrap a fresh environment end-to-end.",
-	Long: `First-run setup for a context: applies Terraform, installs the Flux blueprint, migrates state to the configured remote backend, and waits for kustomizations. When the blueprint declares post-run notes describing a manual step, a wait that does not converge is reported as a warning rather than a failure; otherwise a wait failure is fatal.
+	Long: `First-run setup for a context: applies Terraform, installs the Flux blueprint, migrates state to the configured remote backend, and waits for kustomizations. Bootstrap fails when a kustomization fails: a BuildFailed or ArtifactFailed condition, or a failed HelmRelease. Bootstrap also fails when a kustomization is still in progress at the end of the wait. If the blueprint declares post-run notes, bootstrap gives a warning for a kustomization in progress, and does not fail.
 
 When the blueprint declares a backend Terraform component, bootstrap runs a two-phase apply to resolve the chicken-and-egg case where the remote backend (S3 bucket, DynamoDB table, etc.) lives in infrastructure Terraform must create first:
 
@@ -254,11 +254,16 @@ windsor bootstrap prod --yes`,
 	},
 }
 
-// warnNotReady writes a warning to w and returns nil when err reports kustomizations that are not
-// Ready and the blueprint declares post-run messages, which describe a manual step a kustomization
-// may legitimately wait on (e.g. delegating nameservers). It returns err unchanged otherwise.
+// warnNotReady writes a warning to w and returns nil when err reports a kustomization that is still
+// in progress and the blueprint declares post-run messages. A post-run message describes a manual
+// step that a kustomization can wait on, such as a nameserver delegation. A failed kustomization does
+// not wait on a manual step, so warnNotReady returns an err that matches ErrKustomizationFailed.
+// It returns err unchanged in all other cases.
 func warnNotReady(w io.Writer, err error, messages []blueprintv1alpha1.Message) error {
 	if err == nil || !errors.Is(err, provisioner.ErrKustomizationsNotReady) || len(messages) == 0 {
+		return err
+	}
+	if errors.Is(err, provisioner.ErrKustomizationFailed) {
 		return err
 	}
 	fmt.Fprintf(w, "⚠ Applied; some kustomizations are not yet ready: %v\n", err)

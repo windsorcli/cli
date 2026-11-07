@@ -276,6 +276,42 @@ func TestBootstrapCmd(t *testing.T) {
 		}
 	})
 
+	t.Run("FailedKustomizationIsFatalWhenBlueprintHasMessages", func(t *testing.T) {
+		// Given a blueprint with a post-run message and a wait that fails on an ArtifactFailed kustomization
+		mocks := setupBootstrapTest(t)
+		proj := newBootstrapTestProject(mocks)
+
+		withMessages := &blueprintv1alpha1.Blueprint{
+			Metadata: blueprintv1alpha1.Metadata{Name: "test"},
+			Messages: []blueprintv1alpha1.Message{{Text: "Delegate ns1.example, ns2.example at your registrar."}},
+		}
+		mocks.BlueprintHandler.GenerateResolvedFunc = func() (*blueprintv1alpha1.Blueprint, error) { return withMessages, nil }
+		markerWritten := false
+		mocks.KubernetesManager.WaitForKustomizationsFunc = func(ctx context.Context, blueprint *blueprintv1alpha1.Blueprint, layers kubernetes.KustomizationReporter) error {
+			return fmt.Errorf("%w: kustomization gitops/flux failed (ArtifactFailed)", kubernetes.ErrKustomizationFailed)
+		}
+		mocks.KubernetesManager.ApplyVersionMarkerFunc = func(namespace string, marker kubernetes.VersionMarker) error {
+			markerWritten = true
+			return nil
+		}
+
+		cmd := createTestBootstrapCmd()
+		ctx := context.WithValue(context.Background(), cliCmd.ProjectOverridesKey, proj)
+		cmd.SetArgs([]string{"--yes"})
+		cmd.SetContext(ctx)
+
+		// When executing bootstrap
+		err := cmd.Execute()
+
+		// Then bootstrap fails and does not write the version marker
+		if err == nil {
+			t.Fatal("Expected a failed kustomization to be fatal when messages exist, got nil")
+		}
+		if markerWritten {
+			t.Error("Expected version marker NOT to be written when a kustomization failed")
+		}
+	})
+
 	t.Run("WaitFailureIsFatalWithoutMessages", func(t *testing.T) {
 		// Given a blueprint with no post-run messages and a wait that fails — no declared manual step,
 		// so the failure is genuine (e.g. ImagePullBackOff) and must not be demoted to a warning

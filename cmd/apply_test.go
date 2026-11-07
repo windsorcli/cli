@@ -444,6 +444,40 @@ func TestApplyCmd(t *testing.T) {
 		}
 	})
 
+	t.Run("FailedKustomizationFailsWhenBlueprintHasMessages", func(t *testing.T) {
+		// Given a blueprint with post-run messages and a wait that fails on a failed HelmRelease
+		mocks := setupApplyTest(t)
+		mocks.BlueprintHandler.GenerateFunc = func() *blueprintv1alpha1.Blueprint {
+			return &blueprintv1alpha1.Blueprint{
+				Metadata: blueprintv1alpha1.Metadata{Name: "test"},
+				Messages: []blueprintv1alpha1.Message{{Text: "Delegate ns1.example at your registrar."}},
+			}
+		}
+		mocks.KubernetesManager.WaitForKustomizationsFunc = func(ctx context.Context, bp *blueprintv1alpha1.Blueprint, layers kubernetes.KustomizationReporter) error {
+			return fmt.Errorf("%w: kustomization observability failed (InstallFailed)", kubernetes.ErrKustomizationFailed)
+		}
+		proj := newApplyAllProject(mocks)
+
+		// When applying
+		cmd := createTestApplyCmd()
+		var stderr strings.Builder
+		cmd.SetErr(&stderr)
+		ctx := context.WithValue(context.Background(), cliCmd.ProjectOverridesKey, proj)
+		cmd.SetContext(ctx)
+		err := cmd.Execute()
+
+		// Then apply fails and does not warn
+		if err == nil {
+			t.Fatal("Expected an error, got nil")
+		}
+		if !strings.Contains(err.Error(), "observability") {
+			t.Errorf("Expected the error to name the kustomization, got: %v", err)
+		}
+		if strings.Contains(stderr.String(), "not yet ready") {
+			t.Errorf("Expected no not-ready warning, got %q", stderr.String())
+		}
+	})
+
 	t.Run("ErrorUnexpectedArgs", func(t *testing.T) {
 		// Given a bare apply command with an unexpected positional argument
 		mocks := setupApplyTest(t)
