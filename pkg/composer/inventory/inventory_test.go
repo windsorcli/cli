@@ -320,15 +320,15 @@ func TestBaseLister_ImageMirrors(t *testing.T) {
 		}
 	})
 
-	t.Run("UsesTheHostnameWithTheRegistryPort", func(t *testing.T) {
-		// Given a workstation cache that is keyed by a different host
-		registries := map[string]any{"registry-1.docker.io": map[string]any{"local": "docker.io", "remote": "https://registry-1.docker.io", "hostname": "registry-1.docker.test"}}
+	t.Run("UsesTheLocalHostAsTheUpstream", func(t *testing.T) {
+		// Given an entry whose images name a different host than its key
+		registries := map[string]any{"registry-1.docker.io": map[string]any{"local": "docker.io", "endpoint": "harbor.example.com/docker"}}
 
 		// When the images are listed
 		result := setup(t, registries, "docker.io/library/nginx")
 
-		// Then the destination uses the local host and the registry port
-		if got := destination(t, result, "docker.io/library/nginx"); got != "registry-1.docker.test:5000/library/nginx:1.0.0" {
+		// Then the image of the local host goes to the endpoint
+		if got := destination(t, result, "docker.io/library/nginx"); got != "harbor.example.com/docker/library/nginx:1.0.0" {
 			t.Errorf("got destination %q", got)
 		}
 	})
@@ -365,16 +365,32 @@ func TestBaseLister_ImageMirrors(t *testing.T) {
 		}
 	})
 
-	t.Run("IgnoresHostport", func(t *testing.T) {
-		// Given a workstation cache that sets a host port
-		registries := map[string]any{"ghcr.io": map[string]any{"hostname": "ghcr.test", "hostport": uint64(5002)}}
+	t.Run("GivesNoDestinationToAnEntryWithOnlyAHostname", func(t *testing.T) {
+		// Given a pull-through cache with a hostname and no endpoint
+		registries := map[string]any{"ghcr.io": map[string]any{"remote": "https://ghcr.io", "hostname": "ghcr.test", "hostport": 5002}}
 
 		// When the images are listed
 		result := setup(t, registries, "ghcr.io/example/worker")
 
-		// Then the destination uses the workstation registry port
-		if got := destination(t, result, "ghcr.io/example/worker"); got != "ghcr.test:5000/example/worker:1.0.0" {
-			t.Errorf("got destination %q", got)
+		// Then the image has no destination
+		if got := destination(t, result, "ghcr.io/example/worker"); got != "" {
+			t.Errorf("expected no destination, got %q", got)
+		}
+	})
+
+	t.Run("DoesNotUseTheCatchAllForAnEntryWithNoEndpoint", func(t *testing.T) {
+		// Given a pull-through cache with no endpoint and a catch-all entry
+		registries := map[string]any{
+			"ghcr.io": map[string]any{"remote": "https://ghcr.io", "hostname": "ghcr.test"},
+			"*":       map[string]any{"endpoint": "harbor.example.com/all"},
+		}
+
+		// When the images are listed
+		result := setup(t, registries, "ghcr.io/example/worker")
+
+		// Then the image has no destination
+		if got := destination(t, result, "ghcr.io/example/worker"); got != "" {
+			t.Errorf("expected no destination, got %q", got)
 		}
 	})
 

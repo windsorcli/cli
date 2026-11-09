@@ -18,12 +18,8 @@ import (
 // Constants
 // =============================================================================
 
-const (
-	// allRegistriesKey is the docker.registries key for each registry with no entry.
-	allRegistriesKey = "*"
-	// workstationRegistryPort is the port of the registry containers on a workstation.
-	workstationRegistryPort = 5000
-)
+// allRegistriesKey is the docker.registries key for each registry with no entry.
+const allRegistriesKey = "*"
 
 // =============================================================================
 // Private Methods
@@ -31,7 +27,7 @@ const (
 
 // imageMirrors returns the mirror location for each upstream registry host in docker.registries.
 // The upstream host is the entry's local value, or its key. The key * applies to each host with no entry.
-// An entry with no mirror location is left out.
+// An entry with no mirror location gives its host an empty location, so the key * does not apply to that host.
 // It returns an error when two entries give different mirror locations to one upstream host.
 func (l *BaseLister) imageMirrors() (map[string]string, error) {
 	registries, _ := l.runtime.ConfigHandler.Get("docker.registries").(map[string]any)
@@ -44,21 +40,21 @@ func (l *BaseLister) imageMirrors() (map[string]string, error) {
 	for _, key := range keys {
 		entry, _ := registries[key].(map[string]any)
 		mirror := mirrorLocation(entry)
-		if mirror == "" {
-			continue
-		}
 		upstream := key
 		if local, _ := entry["local"].(string); local != "" {
 			upstream = hostOf(local)
 		}
-		if other, ok := mirrors[upstream]; ok && other != mirror {
+		other, ok := mirrors[upstream]
+		if ok && other != "" && mirror != "" && other != mirror {
 			return nil, werror.New(
 				fmt.Sprintf("The docker.registries entries give host %s two mirrors: %s and %s.", upstream, other, mirror),
 				"Set one mirror for each upstream registry host.",
 				nil,
 			)
 		}
-		mirrors[upstream] = mirror
+		if mirror != "" || !ok {
+			mirrors[upstream] = mirror
+		}
 	}
 	return mirrors, nil
 }
@@ -68,17 +64,10 @@ func (l *BaseLister) imageMirrors() (map[string]string, error) {
 // =============================================================================
 
 // mirrorLocation returns the host, port and path that receive the images of entry.
-// The endpoint value, without its scheme, comes first. The hostname value with the workstation registry port comes next.
-// An entry with neither value has no mirror location.
+// The location is the endpoint value without its scheme. An entry with no endpoint has no mirror location.
 func mirrorLocation(entry map[string]any) string {
-	if endpoint, _ := entry["endpoint"].(string); endpoint != "" {
-		return strings.TrimSuffix(stripScheme(endpoint), "/")
-	}
-	hostname, _ := entry["hostname"].(string)
-	if hostname == "" {
-		return ""
-	}
-	return fmt.Sprintf("%s:%d", hostOf(hostname), workstationRegistryPort)
+	endpoint, _ := entry["endpoint"].(string)
+	return strings.TrimSuffix(stripScheme(endpoint), "/")
 }
 
 // checkDestinations returns an error when two different images have the same destination.
@@ -119,9 +108,9 @@ func destinationFor(e Entry, chartsTo string, mirrors map[string]string) string 
 		host, path, _ := strings.Cut(e.Reference, "/")
 		mirror, ok := mirrors[host]
 		if !ok {
-			mirror, ok = mirrors[allRegistriesKey]
+			mirror = mirrors[allRegistriesKey]
 		}
-		if !ok || hostOf(mirror) == host {
+		if mirror == "" || hostOf(mirror) == host {
 			return ""
 		}
 		dest := mirror + "/" + path
