@@ -118,8 +118,11 @@ extra artifacts.
   Mirror both write. The CLI does not read a chart registry from blueprint values, since the
   key's name belongs to the blueprint's schema. Core passes its `charts.registry` value.
 - An image goes to the mirror the context's `docker.registries` configures for its upstream
-  host, under its upstream path and tag. An image whose host has no mirror is listed with no
-  destination. `-o flux-mirror` leaves it out and names it on stderr.
+  host, under its upstream path and tag. An entry is a mirror when it sets `endpoint` or
+  `hostname`. The key `*` applies to each host with no entry. The command fails when two
+  different images have the same destination.
+- An image with no mirror is listed with no destination. `-o flux-mirror` leaves it out and
+  names it on stderr.
 - A chart whose tag names a repository under `--charts-to` stays out of `-o flux-mirror`, and the
   command names it on stderr, so Flux Mirror never copies a registry onto itself.
 

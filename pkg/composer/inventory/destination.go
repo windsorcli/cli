@@ -2,58 +2,111 @@
 // It provides the chart registry layout and the image mirror layout.
 // A chart goes to <charts-to>/<chart name>:<chart version>, the layout that helm push writes.
 // An image goes to the docker.registries mirror of its upstream host, under its upstream path and tag.
+// Two different images must not have the same destination.
 
 package inventory
 
 import (
 	"fmt"
+	"sort"
 	"strings"
+
+	"github.com/windsorcli/cli/internal/werror"
+)
+
+// =============================================================================
+// Constants
+// =============================================================================
+
+const (
+	// allRegistriesKey is the docker.registries key for each registry with no entry.
+	allRegistriesKey = "*"
+	// workstationRegistryPort is the port of the registry containers on a workstation.
+	workstationRegistryPort = 5000
 )
 
 // =============================================================================
 // Private Methods
 // =============================================================================
 
-// imageMirrors returns the mirror host for each upstream registry host in docker.registries.
-// The upstream host is the entry's local value, or its key. The mirror host is the entry's
-// hostname value, or its key, with :hostport when set. A value with a URL scheme counts as its host.
-// An entry whose mirror is its upstream is left out.
-func (l *BaseLister) imageMirrors() map[string]string {
+// imageMirrors returns the mirror location for each upstream registry host in docker.registries.
+// The upstream host is the entry's local value, or its key. The key * applies to each host with no entry.
+// An entry with no mirror location is left out.
+// It returns an error when two entries give different mirror locations to one upstream host.
+func (l *BaseLister) imageMirrors() (map[string]string, error) {
 	registries, _ := l.runtime.ConfigHandler.Get("docker.registries").(map[string]any)
+	keys := make([]string, 0, len(registries))
+	for key := range registries {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
 	mirrors := make(map[string]string)
-	for key, raw := range registries {
-		entry, _ := raw.(map[string]any)
+	for _, key := range keys {
+		entry, _ := registries[key].(map[string]any)
+		mirror := mirrorLocation(entry)
+		if mirror == "" {
+			continue
+		}
 		upstream := key
 		if local, _ := entry["local"].(string); local != "" {
 			upstream = hostOf(local)
 		}
-		mirror := key
-		if hostname, _ := entry["hostname"].(string); hostname != "" {
-			mirror = hostOf(hostname)
+		if other, ok := mirrors[upstream]; ok && other != mirror {
+			return nil, werror.New(
+				fmt.Sprintf("The docker.registries entries give host %s two mirrors: %s and %s.", upstream, other, mirror),
+				"Set one mirror for each upstream registry host.",
+				nil,
+			)
 		}
-		switch port := entry["hostport"].(type) {
-		case int:
-			if port != 0 {
-				mirror = fmt.Sprintf("%s:%d", mirror, port)
-			}
-		case float64:
-			if port != 0 {
-				mirror = fmt.Sprintf("%s:%d", mirror, int(port))
-			}
-		}
-		if mirror != upstream {
-			mirrors[upstream] = mirror
-		}
+		mirrors[upstream] = mirror
 	}
-	return mirrors
+	return mirrors, nil
 }
 
 // =============================================================================
 // Helpers
 // =============================================================================
 
+// mirrorLocation returns the host, port and path that receive the images of entry.
+// The endpoint value, without its scheme, comes first. The hostname value with the workstation registry port comes next.
+// An entry with neither value has no mirror location.
+func mirrorLocation(entry map[string]any) string {
+	if endpoint, _ := entry["endpoint"].(string); endpoint != "" {
+		return strings.TrimSuffix(stripScheme(endpoint), "/")
+	}
+	hostname, _ := entry["hostname"].(string)
+	if hostname == "" {
+		return ""
+	}
+	return fmt.Sprintf("%s:%d", hostOf(hostname), workstationRegistryPort)
+}
+
+// checkDestinations returns an error when two different images have the same destination.
+// It ignores the digest of a destination, because a relocation tool writes by tag.
+// Two images with the same digest are the same image.
+func checkDestinations(entries []Entry) error {
+	images := make(map[string]Entry)
+	for _, e := range entries {
+		if e.Kind != KindImage || e.Destination == "" {
+			continue
+		}
+		destination, _, _ := strings.Cut(e.Destination, "@")
+		other, ok := images[destination]
+		if ok && other.Reference != e.Reference && (e.Digest == "" || other.Digest != e.Digest) {
+			return werror.New(
+				fmt.Sprintf("Images %s and %s have the same destination %s.", other.Reference, e.Reference, destination),
+				"Give one upstream registry a docker.registries entry with a different path.",
+				nil,
+			)
+		}
+		images[destination] = e
+	}
+	return nil
+}
+
 // destinationFor returns the destination of e. A chart with an exact version goes under chartsTo.
-// An image with a mirror for its host goes to that mirror. Every other entry has no destination.
+// An image with a mirror for its host goes to that mirror. An image already on its mirror host has no destination.
+// Every other entry has no destination.
 func destinationFor(e Entry, chartsTo string, mirrors map[string]string) string {
 	switch e.Kind {
 	case KindChart:
@@ -66,6 +119,9 @@ func destinationFor(e Entry, chartsTo string, mirrors map[string]string) string 
 		host, path, _ := strings.Cut(e.Reference, "/")
 		mirror, ok := mirrors[host]
 		if !ok {
+			mirror, ok = mirrors[allRegistriesKey]
+		}
+		if !ok || hostOf(mirror) == host {
 			return ""
 		}
 		dest := mirror + "/" + path
@@ -87,11 +143,16 @@ func normalizeRegistry(registry string) string {
 
 // hostOf returns the host of value. It removes a URL scheme and any path.
 func hostOf(value string) string {
-	if _, rest, found := strings.Cut(value, "://"); found {
-		value = rest
-	}
-	host, _, _ := strings.Cut(value, "/")
+	host, _, _ := strings.Cut(stripScheme(value), "/")
 	return host
+}
+
+// stripScheme returns value without its URL scheme.
+func stripScheme(value string) string {
+	if _, rest, found := strings.Cut(value, "://"); found {
+		return rest
+	}
+	return value
 }
 
 // isUnderRegistry reports whether the OCI repository of e is in registry.
