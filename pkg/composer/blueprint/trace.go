@@ -24,14 +24,15 @@ import (
 // metadata resolved at record time so no retroactive YAML reparsing is needed. ScopeRefs
 // are pre-extracted from expressions during recording.
 type TraceContribution struct {
-	FacetPath     string
-	SourceName    string
-	Ordinal       int
-	Strategy      string
-	Line          int
-	RawValue      any
-	RawComponents []string
-	ScopeRefs     []string
+	FacetPath      string
+	SourceName     string
+	Ordinal        int
+	Strategy       string
+	Line           int
+	RawValue       any
+	RawComponents  []string
+	ComponentLines map[string]int
+	ScopeRefs      []string
 }
 
 // ConfigBlockRecord records a config block value for scope reference resolution. ScopeRefs
@@ -284,6 +285,7 @@ func (c *DefaultTraceCollector) traceToContribution(tc TraceContribution) Explai
 		Ordinal:         tc.Ordinal,
 		Strategy:        tc.Strategy,
 		RawComponents:   tc.RawComponents,
+		componentLines:  tc.ComponentLines,
 		preComputedRefs: tc.ScopeRefs,
 	}
 

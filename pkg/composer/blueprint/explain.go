@@ -71,6 +71,7 @@ type ExplainContribution struct {
 	Effective       bool
 	ScopeRefs       []ExplainScopeRef
 	RawComponents   []string
+	componentLines  map[string]int
 	preComputedRefs []string
 }
 
@@ -121,6 +122,7 @@ func (h *BaseBlueprintHandler) Explain(pathStr string) (*ExplainTrace, error) {
 
 // ParseExplainPath parses a path into an ExplainPath. The forms are terraform.<componentID>.inputs.<key>,
 // kustomize.<name>.substitutions.<key>, kustomize.<name>.components, configMaps.<name>.<key>, and substitutions.<key>.
+// A kustomize <name> can be a plain kustomization or a compiled flux tier.
 // It returns an error if the path is empty. A path with an unknown root or a wrong form
 // returns an error with a remediation hint that shows the correct form.
 func ParseExplainPath(path string) (ExplainPath, error) {
@@ -193,14 +195,28 @@ func findTerraformComponent(bp *blueprintv1alpha1.Blueprint, id string) *bluepri
 	return nil
 }
 
-// findKustomization finds a kustomization by name in the blueprint.
+// findKustomization finds a plain kustomization or a compiled flux tier by name in the blueprint.
+// The result is a copy, because AllKustomizations compiles the flux tiers on each call.
 func findKustomization(bp *blueprintv1alpha1.Blueprint, name string) *blueprintv1alpha1.Kustomization {
-	for i := range bp.Kustomizations {
-		if bp.Kustomizations[i].Name == name {
-			return &bp.Kustomizations[i]
+	all := bp.AllKustomizations()
+	for i := range all {
+		if all[i].Name == name {
+			return &all[i]
 		}
 	}
 	return nil
+}
+
+// contributionEntryLine returns the facet line of one component list entry. It uses the line recorded
+// for a flux tier, then the line of a named component block, then the line of the contribution.
+func contributionEntryLine(c ExplainContribution, componentType, componentName, entry string) int {
+	if line := c.componentLines[entry]; line > 0 {
+		return line
+	}
+	if line := findComponentValueLine(c.AbsFacetPath, componentType, componentName, entry); line > 0 {
+		return line
+	}
+	return c.Line
 }
 
 // buildComponentContributions maps each resolved component entry back to the facet that
@@ -221,10 +237,7 @@ func buildComponentContributions(resolved []string, provenance []ExplainContribu
 			}
 			for _, raw := range c.RawComponents {
 				if raw == entry {
-					line := findComponentValueLine(c.AbsFacetPath, componentType, componentName, entry)
-					if line == 0 {
-						line = c.Line
-					}
+					line := contributionEntryLine(c, componentType, componentName, entry)
 					matched = &ExplainContribution{
 						SourceName:   c.SourceName,
 						FacetPath:    c.FacetPath,
@@ -250,10 +263,7 @@ func buildComponentContributions(resolved []string, provenance []ExplainContribu
 				}
 				for _, raw := range c.RawComponents {
 					if strings.HasPrefix(raw, "${") && matchesExpressionEntry(raw, entry) {
-						line := findComponentValueLine(c.AbsFacetPath, componentType, componentName, entry)
-						if line == 0 {
-							line = c.Line
-						}
+						line := contributionEntryLine(c, componentType, componentName, entry)
 						matched = &ExplainContribution{
 							SourceName:   c.SourceName,
 							FacetPath:    c.FacetPath,
