@@ -3,6 +3,7 @@ package inventory_test
 import (
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -98,6 +99,26 @@ func TestNewLister(t *testing.T) {
 // Test Public Methods
 // =============================================================================
 
+// fakeTrace proves the value on unusedLine unused and gives note for noteLine.
+type fakeTrace struct {
+	unusedLine int
+	noteLine   int
+	note       string
+}
+
+// UnusedFacetValue implements inventory.FacetTrace.
+func (f fakeTrace) UnusedFacetValue(_ string, line int) (bool, string) {
+	if line == f.noteLine {
+		return false, f.note
+	}
+	return line == f.unusedLine, ""
+}
+
+// terraformTag is a Terraform file body with one artifact tag for the image ghcr.io/example/<name>.
+func terraformTag(name string) string {
+	return "# artifact: type=image name=ghcr.io/example/" + name + "\nlocals {\n  image = \"ghcr.io/example/" + name + ":v1\"\n}\n"
+}
+
 func TestBaseLister_List(t *testing.T) {
 	t.Run("ListsEachOCIBlueprintSource", func(t *testing.T) {
 		// Given a blueprint with two oci:// sources, a duplicate and a Git source
@@ -113,7 +134,7 @@ func TestBaseLister_List(t *testing.T) {
 		}
 
 		// When List is called
-		result, err := lister.List(blueprint, inventory.Options{ChartsTo: "registry.example.com/windsor"})
+		result, err := lister.List(blueprint, inventory.Options{All: true, ChartsTo: "registry.example.com/windsor"})
 
 		// Then the inventory holds one sorted entry for each oci:// source, with no destination
 		if err != nil {
@@ -153,7 +174,7 @@ func TestBaseLister_List(t *testing.T) {
 		}
 
 		// When List is called with a chart registry
-		result, err := lister.List(blueprint, inventory.Options{ChartsTo: "registry.example.com/windsor"})
+		result, err := lister.List(blueprint, inventory.Options{All: true, ChartsTo: "registry.example.com/windsor"})
 
 		// Then each tag is an entry, and each chart has a destination in the chart layout
 		if err != nil {
@@ -196,7 +217,7 @@ func TestBaseLister_List(t *testing.T) {
 				blueprint := &blueprintv1alpha1.Blueprint{Metadata: blueprintv1alpha1.Metadata{Name: "app"}}
 
 				// When List is called
-				result, err := lister.List(blueprint, inventory.Options{})
+				result, err := lister.List(blueprint, inventory.Options{All: true})
 
 				// Then the one entry has NoReferrers
 				if err != nil {
@@ -233,7 +254,7 @@ func TestBaseLister_List(t *testing.T) {
 		}
 
 		// When List is called
-		result, err := lister.List(blueprint, inventory.Options{})
+		result, err := lister.List(blueprint, inventory.Options{All: true})
 
 		// Then both blueprints are entries, and the tags of each cache directory are entries
 		if err != nil {
@@ -267,7 +288,7 @@ func TestBaseLister_List(t *testing.T) {
 		}
 
 		// When List is called
-		result, err := lister.List(blueprint, inventory.Options{})
+		result, err := lister.List(blueprint, inventory.Options{All: true})
 
 		// Then a note names each source
 		if err != nil {
@@ -276,6 +297,187 @@ func TestBaseLister_List(t *testing.T) {
 		notes := strings.Join(result.Notes, "\n")
 		if !strings.Contains(notes, `Source "git" is not an oci:// source`) || !strings.Contains(notes, `Source "core" is not in the cache`) {
 			t.Errorf("expected a note for each source, got %q", notes)
+		}
+	})
+
+	t.Run("LeavesOutAFacetTagThatTheTraceProvesUnused", func(t *testing.T) {
+		// Given a facet with two tags and a trace that proves one unused and cannot resolve the other
+		m := setupMocks(t)
+		project := t.TempDir()
+		writeFile(t, project, "contexts/_template/facets/f.yaml", "# artifact: type=image name=ghcr.io/example/idle\nidle: v1\n# artifact: type=image name=ghcr.io/example/open\nopen: v1\n")
+		m.runtime.ProjectRoot = project
+		trace := fakeTrace{unusedLine: 2, noteLine: 4, note: "cannot resolve"}
+		lister := inventory.NewLister(m.runtime, m.artifactBuilder)
+
+		// When the list is made with the trace
+		result, err := lister.List(&blueprintv1alpha1.Blueprint{Metadata: blueprintv1alpha1.Metadata{Name: "project"}}, inventory.Options{Trace: trace})
+
+		// Then the unused tag is absent, the other tag stays, and the note appears
+		if err != nil {
+			t.Fatalf("expected no error, got %v", err)
+		}
+		if got := len(result.Inventory.Artifacts); got != 1 || result.Inventory.Artifacts[0].Reference != "ghcr.io/example/open" {
+			t.Errorf("expected only the open image, got %+v", result.Inventory.Artifacts)
+		}
+		if len(result.Notes) != 1 || result.Notes[0] != "cannot resolve" {
+			t.Errorf("expected one note, got %q", result.Notes)
+		}
+	})
+
+	t.Run("IgnoresTheTraceWithAll", func(t *testing.T) {
+		// Given a facet tag that the trace proves unused
+		m := setupMocks(t)
+		project := t.TempDir()
+		writeFile(t, project, "contexts/_template/facets/f.yaml", "# artifact: type=image name=ghcr.io/example/idle\nidle: v1\n")
+		m.runtime.ProjectRoot = project
+		lister := inventory.NewLister(m.runtime, m.artifactBuilder)
+
+		// When the list is made for whole sources
+		result, err := lister.List(&blueprintv1alpha1.Blueprint{Metadata: blueprintv1alpha1.Metadata{Name: "project"}}, inventory.Options{All: true, Trace: fakeTrace{unusedLine: 2}})
+
+		// Then the tag stays
+		if err != nil {
+			t.Fatalf("expected no error, got %v", err)
+		}
+		if len(result.Inventory.Artifacts) != 1 {
+			t.Errorf("expected the image, got %+v", result.Inventory.Artifacts)
+		}
+	})
+
+	t.Run("ListsOnlyTheTagsOfTheFilesThatTheBlueprintUses", func(t *testing.T) {
+		// Given a project and a cached source with used and unused files
+		m := setupMocks(t)
+		project, core := t.TempDir(), t.TempDir()
+		tag := func(name string) string {
+			return "# artifact: type=image name=ghcr.io/example/" + name + "\nimage: ghcr.io/example/" + name + ":v1\n"
+		}
+		writeFile(t, project, "kustomize/app/values.yaml", tag("app"))
+		writeFile(t, project, "kustomize/unused/values.yaml", tag("project-unused"))
+		writeFile(t, project, "contexts/_template/facets/f.yaml", tag("facet"))
+		writeFile(t, core, "kustomize/telemetry/install/kustomization.yaml", "resources: []\n")
+		writeFile(t, core, "kustomize/telemetry/install/fluentbit/kustomization.yaml", "kind: Component\n")
+		writeFile(t, core, "kustomize/telemetry/install/fluentbit/release.yaml", tag("fluentbit"))
+		writeFile(t, core, "kustomize/telemetry/install/filebeat/kustomization.yaml", "kind: Component\n")
+		writeFile(t, core, "kustomize/telemetry/install/filebeat/release.yaml", tag("filebeat"))
+		writeFile(t, core, "kustomize/plain/values.yaml", tag("plain"))
+		writeFile(t, core, "kustomize/disabled/values.yaml", tag("disabled"))
+		writeFile(t, core, "terraform/cni/cilium/variables.tf", terraformTag("cilium"))
+		writeFile(t, core, "modules/net/main.tf", terraformTag("prefixed"))
+		m.runtime.ProjectRoot = project
+		m.artifactBuilder.GetCacheDirFunc = func(registry, repository, tag string) (string, error) { return core, nil }
+		lister := inventory.NewLister(m.runtime, m.artifactBuilder)
+		off := false
+		blueprint := &blueprintv1alpha1.Blueprint{
+			Metadata: blueprintv1alpha1.Metadata{Name: "app"},
+			Sources: []blueprintv1alpha1.Source{
+				{Name: "core", Url: "oci://ghcr.io/windsorcli/core:v0.9.0"},
+				{Name: "prefixed", Url: "oci://ghcr.io/windsorcli/core:v0.9.0", PathPrefix: "modules"},
+			},
+			Kustomizations: []blueprintv1alpha1.Kustomization{
+				{Name: "app"},
+				{Name: "plain", Source: "core"},
+				{Name: "disabled", Source: "core", Enabled: &blueprintv1alpha1.BoolExpression{Value: &off}},
+			},
+			FluxSystems: []blueprintv1alpha1.FluxSystem{{
+				Name:    "telemetry",
+				Source:  "core",
+				Install: &blueprintv1alpha1.Kustomization{Components: []string{"fluentbit"}},
+			}},
+			TerraformComponents: []blueprintv1alpha1.TerraformComponent{
+				{Path: "cni/cilium", Source: "core"},
+				{Path: "net", Source: "prefixed"},
+			},
+		}
+
+		// When List is called without All
+		result, err := lister.List(blueprint, inventory.Options{})
+
+		// Then only the used files and the always-read directories give entries
+		if err != nil {
+			t.Fatalf("expected no error, got %v", err)
+		}
+		got := make(map[string]bool)
+		for _, e := range result.Inventory.Artifacts {
+			if e.Kind == inventory.KindImage {
+				got[strings.TrimPrefix(e.Reference, "ghcr.io/example/")] = true
+			}
+		}
+		want := map[string]bool{"app": true, "facet": true, "fluentbit": true, "plain": true, "cilium": true, "prefixed": true}
+		if !reflect.DeepEqual(got, want) {
+			t.Errorf("expected %v, got %v", want, got)
+		}
+		if len(result.Notes) != 0 {
+			t.Errorf("expected no notes, got %v", result.Notes)
+		}
+	})
+
+	t.Run("ListsWholeSourcesWithAll", func(t *testing.T) {
+		// Given a project with a kustomize directory that the blueprint does not use
+		m := setupMocks(t)
+		project := t.TempDir()
+		writeFile(t, project, "kustomize/unused/values.yaml", "# artifact: type=image name=ghcr.io/example/unused\nimage: ghcr.io/example/unused:v1\n")
+		m.runtime.ProjectRoot = project
+		lister := inventory.NewLister(m.runtime, m.artifactBuilder)
+
+		// When List is called with All
+		result, err := lister.List(&blueprintv1alpha1.Blueprint{}, inventory.Options{All: true})
+
+		// Then the tag of the unused directory is an entry
+		if err != nil {
+			t.Fatalf("expected no error, got %v", err)
+		}
+		if len(result.Inventory.Artifacts) != 1 || result.Inventory.Artifacts[0].Reference != "ghcr.io/example/unused" {
+			t.Errorf("expected the unused image, got %v", result.Inventory.Artifacts)
+		}
+	})
+
+	t.Run("NotesAnEntryWhoseSourceTheBlueprintDoesNotDefine", func(t *testing.T) {
+		// Given entries that name undefined sources, and an entry whose declared source has no cache
+		m := setupMocks(t)
+		m.runtime.ProjectRoot = t.TempDir()
+		lister := inventory.NewLister(m.runtime, m.artifactBuilder)
+		blueprint := &blueprintv1alpha1.Blueprint{
+			Metadata:            blueprintv1alpha1.Metadata{Name: "app"},
+			Sources:             []blueprintv1alpha1.Source{{Name: "core", Url: "oci://ghcr.io/windsorcli/core:v0.9.0"}},
+			Kustomizations:      []blueprintv1alpha1.Kustomization{{Name: "a", Source: "ghost"}, {Name: "b", Source: "core"}},
+			TerraformComponents: []blueprintv1alpha1.TerraformComponent{{Path: "net", Source: "phantom"}},
+		}
+
+		// When List is called
+		result, err := lister.List(blueprint, inventory.Options{})
+
+		// Then a note names each undefined source, and the declared source has one note
+		if err != nil {
+			t.Fatalf("expected no error, got %v", err)
+		}
+		notes := strings.Join(result.Notes, "\n")
+		if !strings.Contains(notes, `Kustomization "a" names the source "ghost"`) || !strings.Contains(notes, `Terraform component "net" names the source "phantom"`) {
+			t.Errorf("expected a note for each undefined source, got %q", notes)
+		}
+		if strings.Count(notes, `"core"`) != 1 {
+			t.Errorf("expected one note for the source with no cache, got %q", notes)
+		}
+	})
+
+	t.Run("PrefixesAScanNoteWithItsSource", func(t *testing.T) {
+		// Given a kustomization whose path is not in the project
+		m := setupMocks(t)
+		m.runtime.ProjectRoot = t.TempDir()
+		lister := inventory.NewLister(m.runtime, m.artifactBuilder)
+		blueprint := &blueprintv1alpha1.Blueprint{
+			Metadata:       blueprintv1alpha1.Metadata{Name: "app"},
+			Kustomizations: []blueprintv1alpha1.Kustomization{{Name: "lost"}},
+		}
+
+		// When List is called
+		result, err := lister.List(blueprint, inventory.Options{})
+
+		// Then the note names the source and the path
+		if err != nil {
+			t.Fatalf("expected no error, got %v", err)
+		}
+		if notes := strings.Join(result.Notes, "\n"); !strings.Contains(notes, `Source "app"`) || !strings.Contains(notes, `"kustomize/lost"`) {
+			t.Errorf("expected a note that names the source and the path, got %q", notes)
 		}
 	})
 
@@ -288,7 +490,7 @@ func TestBaseLister_List(t *testing.T) {
 		lister := inventory.NewLister(m.runtime, m.artifactBuilder)
 
 		// When List is called
-		_, err := lister.List(&blueprintv1alpha1.Blueprint{}, inventory.Options{})
+		_, err := lister.List(&blueprintv1alpha1.Blueprint{}, inventory.Options{All: true})
 
 		// Then the error names the file
 		if err == nil || !strings.Contains(err.Error(), "kustomize/app/values.yaml") {
@@ -302,7 +504,7 @@ func TestBaseLister_List(t *testing.T) {
 		lister := inventory.NewLister(m.runtime, m.artifactBuilder)
 
 		// When List is called with no blueprint
-		_, err := lister.List(nil, inventory.Options{})
+		_, err := lister.List(nil, inventory.Options{All: true})
 
 		// Then an error is returned
 		if err == nil {
@@ -495,7 +697,7 @@ func listTagged(t *testing.T, registries map[string]any, tags ...string) (*inven
 	writeFile(t, project, "kustomize/app/values.yaml", content.String())
 	m.runtime.ProjectRoot = project
 	lister := inventory.NewLister(m.runtime, m.artifactBuilder)
-	return lister.List(&blueprintv1alpha1.Blueprint{Metadata: blueprintv1alpha1.Metadata{Name: "app"}}, inventory.Options{})
+	return lister.List(&blueprintv1alpha1.Blueprint{Metadata: blueprintv1alpha1.Metadata{Name: "app"}}, inventory.Options{All: true})
 }
 
 func TestCheckDestinationDigests(t *testing.T) {

@@ -156,7 +156,7 @@ func (p *BaseBlueprintProcessor) collectTerraformComponents(
 // so `windsor explain` can name the facet, source, and line of each value.
 func (p *BaseBlueprintProcessor) recordKustomizationTraces(name string, rawComponents []string, rawSubstitutions map[string]string, facetPath, sourceName string, ordinal int, strategy string) {
 	for sk, sv := range rawSubstitutions {
-		p.recordTrace("kustomize."+name+".substitutions."+sk, TraceContribution{
+		p.recordTrace(kustomizeSubstitutionPrefix(name)+sk, TraceContribution{
 			FacetPath:  facetPath,
 			SourceName: sourceName,
 			Ordinal:    ordinal,
@@ -173,6 +173,29 @@ func (p *BaseBlueprintProcessor) recordKustomizationTraces(name string, rawCompo
 			Strategy:      strategy,
 			Line:          yamlNodeLine(facetPath, "kustomize", namedItem(name), "components"),
 			RawComponents: slices.Clone(rawComponents),
+		})
+	}
+}
+
+// recordFluxTraces records the source of each substitution and component of one tier of a flux system.
+// The substitution paths start with substitutionPrefix.
+func (p *BaseBlueprintProcessor) recordFluxTraces(substitutionPrefix string, tier blueprintv1alpha1.Kustomization, facetPath, sourceName string, ordinal int, strategy string) {
+	for key, value := range mergeSubstitute(tier) {
+		p.recordTrace(substitutionPrefix+key, TraceContribution{
+			FacetPath:  facetPath,
+			SourceName: sourceName,
+			Ordinal:    ordinal,
+			Strategy:   strategy,
+			RawValue:   value,
+		})
+	}
+	if len(tier.Components) > 0 {
+		p.recordTrace(strings.TrimSuffix(substitutionPrefix, "substitutions.")+"components", TraceContribution{
+			FacetPath:     facetPath,
+			SourceName:    sourceName,
+			Ordinal:       ordinal,
+			Strategy:      strategy,
+			RawComponents: slices.Clone(tier.Components),
 		})
 	}
 }
@@ -198,7 +221,7 @@ func (p *BaseBlueprintProcessor) collectKustomizations(facet blueprintv1alpha1.F
 
 		processed := k
 		processed.When = componentWhen
-		if err := p.evalKustomizationSubstitutions(&processed.Kustomization, facet.Path, "kustomize."+processed.Name+".substitutions.", facetScope); err != nil {
+		if err := p.evalKustomizationSubstitutions(&processed.Kustomization, facet.Path, kustomizeSubstitutionPrefix(processed.Name), facetScope); err != nil {
 			return werror.Wrap(err, "error evaluating substitutions for kustomization '%s'", processed.Name)
 		}
 		if evaluator.ContainsExpression(processed.Path) {
@@ -263,7 +286,7 @@ func (p *BaseBlueprintProcessor) collectKustomizations(facet blueprintv1alpha1.F
 			return p.updateKustomizationEntry(entry.Name, &entry, strategy, kustomizationByName, facetScope)
 		}
 
-		p.recordKustomizationTraces(processed.Name, k.Components, k.Substitutions, facet.Path, sn, effectiveOrdinal, strategy)
+		p.recordKustomizationTraces(processed.Name, k.Components, mergeSubstitute(k.Kustomization), facet.Path, sn, effectiveOrdinal, strategy)
 		if err := addEntry(processed); err != nil {
 			return err
 		}
@@ -383,6 +406,16 @@ func mergeSecretData(base, overlay map[string]blueprintv1alpha1.SecretEntry) map
 	return out
 }
 
+// kustomizeSubstitutionPrefix returns the composed-path prefix of the substitutions of a kustomization.
+func kustomizeSubstitutionPrefix(name string) string {
+	return "kustomize." + name + ".substitutions."
+}
+
+// fluxInstallSubstitutionPrefix returns the composed-path prefix of the install tier substitutions of a flux system.
+func fluxInstallSubstitutionPrefix(systemName string) string {
+	return "flux." + systemName + ".install.substitutions."
+}
+
 // fluxResourcesSubstitutionPrefix returns the deferred-path prefix for a flux system's resources
 // tier substitutions, scoped per resources variant (empty variantName for the unnamed variant) so
 // two variants sharing a substitution key name don't collide on the same deferred-path entry.
@@ -454,6 +487,11 @@ func (p *BaseBlueprintProcessor) collectFluxSystems(facet blueprintv1alpha1.Face
 			strategy = "merge"
 		}
 
+		fluxSourceName := ""
+		if len(sourceName) > 0 {
+			fluxSourceName = sourceName[0]
+		}
+
 		deps, err := p.evalDropEmpty(system.DependsOn, facet.Path, facetScope)
 		if err != nil {
 			return werror.Wrap(err, "error evaluating dependsOn for system '%s'", system.Name)
@@ -461,13 +499,14 @@ func (p *BaseBlueprintProcessor) collectFluxSystems(facet blueprintv1alpha1.Face
 		system.DependsOn = deps
 
 		if system.Install != nil {
+			p.recordFluxTraces(fluxInstallSubstitutionPrefix(system.Name), *system.Install, facet.Path, fluxSourceName, effectiveOrdinal, strategy)
 			comps, err := p.evalDropEmpty(system.Install.Components, facet.Path, facetScope)
 			if err != nil {
 				return werror.Wrap(err, "error evaluating install components for system '%s'", system.Name)
 			}
 			installCopy := *system.Install.DeepCopy()
 			installCopy.Components = comps
-			if err := p.evalKustomizationSubstitutions(&installCopy, facet.Path, "flux."+system.Name+".install.substitutions.", facetScope); err != nil {
+			if err := p.evalKustomizationSubstitutions(&installCopy, facet.Path, fluxInstallSubstitutionPrefix(system.Name), facetScope); err != nil {
 				return werror.Wrap(err, "error evaluating install substitutions for system '%s'", system.Name)
 			}
 			system.Install = &installCopy
@@ -484,6 +523,7 @@ func (p *BaseBlueprintProcessor) collectFluxSystems(facet blueprintv1alpha1.Face
 			if !include {
 				continue
 			}
+			p.recordFluxTraces(fluxResourcesSubstitutionPrefix(system.Name, v.Name), v.Kustomization, facet.Path, fluxSourceName, effectiveOrdinal, strategy)
 			comps, err := p.evalDropEmpty(v.Components, facet.Path, facetScope)
 			if err != nil {
 				return werror.Wrap(err, "error evaluating resources components for system '%s'", system.Name)

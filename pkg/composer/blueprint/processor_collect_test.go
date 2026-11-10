@@ -1,6 +1,8 @@
 package blueprint_test
 
 import (
+	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
@@ -186,6 +188,89 @@ func TestProcessor_ProcessGlobally_Substitutions(t *testing.T) {
 		tracePublic, errPublic := tc.GetTrace("substitutions.public_dns")
 		if errPublic != nil || tracePublic == nil {
 			t.Errorf("Expected trace for substitutions.public_dns, got err=%v trace=%v", errPublic, tracePublic)
+		}
+	})
+}
+
+func TestProcessor_ProcessGlobally_FluxSystemTrace(t *testing.T) {
+	t.Run("MakesAConfigKeyUsedThroughFluxSubstitutions", func(t *testing.T) {
+		// Given a facet file with a config block that only a flux system reads
+		dir := t.TempDir()
+		facetPath := filepath.Join(dir, "storage.yaml")
+		content := "kind: Facet\nconfig:\n  - name: images\n    value:\n      agent: v1\n      idle: v2\n"
+		if err := os.WriteFile(facetPath, []byte(content), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		mocks := setupProcessorMocks(t)
+		mocks.ConfigHandler.GetContextValuesFunc = func() (map[string]any, error) { return map[string]any{}, nil }
+		processor := blueprint.NewBlueprintProcessor(mocks.Runtime)
+		tc := blueprint.NewTraceCollector()
+		processor.SetTraceCollector(tc)
+		target := &blueprintv1alpha1.Blueprint{}
+		facets := []blueprintv1alpha1.Facet{{
+			Path:     facetPath,
+			Metadata: blueprintv1alpha1.Metadata{Name: "storage"},
+			Config:   []blueprintv1alpha1.ConfigBlock{{Name: "images", Body: map[string]any{"value": map[string]any{"agent": "v1", "idle": "v2"}}}},
+			FluxSystems: []blueprintv1alpha1.FluxSystem{{
+				Name:    "csi",
+				Install: &blueprintv1alpha1.Kustomization{Substitutions: map[string]string{"agent_tag": "${images.agent}"}},
+			}},
+		}}
+
+		// When the facets compose and the trace finishes
+		if _, err := processFacets(processor, target, facets); err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		tc.Finalize(target, nil, "")
+
+		// Then the trace keeps the key that the substitution reads and removes the other key
+		if unused, note := tc.UnusedFacetValue(facetPath, 5); unused || note != "" {
+			t.Errorf("Expected the agent key to be used, got unused=%v note=%q", unused, note)
+		}
+		if unused, note := tc.UnusedFacetValue(facetPath, 6); !unused || note != "" {
+			t.Errorf("Expected the idle key to be unused, got unused=%v note=%q", unused, note)
+		}
+	})
+}
+
+func TestProcessor_ProcessGlobally_ConfigRoundTrace(t *testing.T) {
+	t.Run("KeepsOnlyTheBlocksOfTheLastRound", func(t *testing.T) {
+		// Given a block that is active in the first config round and not in the last round
+		dir := t.TempDir()
+		facetPath := filepath.Join(dir, "images.yaml")
+		content := "kind: Facet\nconfig:\n  - name: images\n    when: (arch.value ?? 'amd64') == 'amd64'\n    value:\n      tag: v1\n  - name: images\n    when: (arch.value ?? 'amd64') == 'arm64'\n    value:\n      tag: develop\n  - name: arch\n    value:\n      value: arm64\n"
+		if err := os.WriteFile(facetPath, []byte(content), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		mocks := setupProcessorMocks(t)
+		mocks.ConfigHandler.GetContextValuesFunc = func() (map[string]any, error) { return map[string]any{}, nil }
+		processor := blueprint.NewBlueprintProcessor(mocks.Runtime)
+		tc := blueprint.NewTraceCollector()
+		processor.SetTraceCollector(tc)
+		target := &blueprintv1alpha1.Blueprint{}
+		facets := []blueprintv1alpha1.Facet{{
+			Path:     facetPath,
+			Metadata: blueprintv1alpha1.Metadata{Name: "images"},
+			Config: []blueprintv1alpha1.ConfigBlock{
+				{Name: "images", When: "(arch.value ?? 'amd64') == 'amd64'", Body: map[string]any{"value": map[string]any{"tag": "v1"}}},
+				{Name: "images", When: "(arch.value ?? 'amd64') == 'arm64'", Body: map[string]any{"value": map[string]any{"tag": "develop"}}},
+				{Name: "arch", Body: map[string]any{"value": map[string]any{"value": "arm64"}}},
+			},
+			Substitutions: map[string]string{"tag": "${images.tag}"},
+		}}
+
+		// When the facets compose and the trace finishes
+		if _, err := processFacets(processor, target, facets); err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		tc.Finalize(target, nil, "")
+
+		// Then the trace removes the value of the first round and keeps the value of the last round
+		if unused, note := tc.UnusedFacetValue(facetPath, 6); !unused || note != "" {
+			t.Errorf("Expected v1 to be unused, got unused=%v note=%q", unused, note)
+		}
+		if unused, note := tc.UnusedFacetValue(facetPath, 10); unused || note != "" {
+			t.Errorf("Expected develop to be used, got unused=%v note=%q", unused, note)
 		}
 	})
 }

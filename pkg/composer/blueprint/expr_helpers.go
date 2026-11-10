@@ -137,32 +137,66 @@ func buildMemberPath(n *ast.MemberNode) string {
 	}
 }
 
+// forEachExpr calls visit with the source of each ${...} expression in s, in order. It stops at an
+// expression with no end and returns false.
+func forEachExpr(s string, visit func(expr string)) bool {
+	searchStart := 0
+	for {
+		idx := strings.Index(s[searchStart:], "${")
+		if idx == -1 {
+			return true
+		}
+		start := searchStart + idx
+		end := findExprEnd(s, start)
+		if end == -1 {
+			return false
+		}
+		visit(s[start+2 : end])
+		searchStart = end + 1
+	}
+}
+
 // extractExprASTRefs parses each ${...} expression in s using the expr-lang parser and walks the
 // AST to find all scope variable reference paths. Returns deduplicated dotted paths in discovery order.
 func extractExprASTRefs(s string) []string {
 	var refs []string
 	seen := make(map[string]bool)
-	searchStart := 0
-	for {
-		idx := strings.Index(s[searchStart:], "${")
-		if idx == -1 {
-			break
+	forEachExpr(s, func(expr string) {
+		if tree, err := parser.Parse(expr); err == nil {
+			walkASTForRefs(tree.Node, &refs, seen)
 		}
-		start := searchStart + idx
-		end := findExprEnd(s, start)
-		if end == -1 {
-			break
-		}
-		exprContent := s[start+2 : end]
-		tree, err := parser.Parse(exprContent)
-		if err != nil {
-			searchStart = end + 1
-			continue
+	})
+	return refs
+}
+
+// exprScopeRefs returns the scope references of the ${...} expressions in s. It returns false when
+// an expression has no end, does not parse, or calls jsonnet, because a Jsonnet file reads the whole
+// scope and the expression does not name what it reads.
+func exprScopeRefs(s string) ([]string, bool) {
+	var refs []string
+	seen := make(map[string]bool)
+	resolved := true
+	complete := forEachExpr(s, func(expr string) {
+		tree, err := parser.Parse(expr)
+		if err != nil || callsJsonnet(tree.Node) {
+			resolved = false
+			return
 		}
 		walkASTForRefs(tree.Node, &refs, seen)
-		searchStart = end + 1
-	}
-	return refs
+	})
+	return refs, complete && resolved
+}
+
+// callsJsonnet reports whether node holds a call of the jsonnet helper.
+func callsJsonnet(node ast.Node) bool {
+	return ast.Find(node, func(candidate ast.Node) bool {
+		call, ok := candidate.(*ast.CallNode)
+		if !ok {
+			return false
+		}
+		callee, ok := call.Callee.(*ast.IdentifierNode)
+		return ok && callee.Value == "jsonnet"
+	}) != nil
 }
 
 // extractValueRefs returns the scope reference paths whose values can reach the result of the ${...}
@@ -172,22 +206,11 @@ func extractExprASTRefs(s string) []string {
 func extractValueRefs(s string) []string {
 	var refs []string
 	seen := make(map[string]bool)
-	searchStart := 0
-	for {
-		idx := strings.Index(s[searchStart:], "${")
-		if idx == -1 {
-			break
-		}
-		start := searchStart + idx
-		end := findExprEnd(s, start)
-		if end == -1 {
-			break
-		}
-		if tree, err := parser.Parse(s[start+2 : end]); err == nil {
+	forEachExpr(s, func(expr string) {
+		if tree, err := parser.Parse(expr); err == nil {
 			walkASTForValueRefs(tree.Node, &refs, seen)
 		}
-		searchStart = end + 1
-	}
+	})
 	return refs
 }
 

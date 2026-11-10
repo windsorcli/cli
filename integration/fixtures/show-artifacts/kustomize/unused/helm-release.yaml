@@ -1,0 +1,9 @@
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: unused
+spec:
+  values:
+    image:
+      # artifact: type=image name=ghcr.io/example/unused
+      tag: 9.9.9

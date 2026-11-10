@@ -155,10 +155,15 @@ func ScanTagsDir(root string) ([]ArtifactTag, error) {
 func isTagPath(path string) bool {
 	for _, dir := range tagRoots {
 		if strings.HasPrefix(path, dir+"/") {
-			return strings.HasSuffix(path, ".yaml") || strings.HasSuffix(path, ".yml") || strings.HasSuffix(path, ".tf")
+			return hasTagExtension(path)
 		}
 	}
 	return false
+}
+
+// hasTagExtension reports whether the file at path is a YAML or Terraform file.
+func hasTagExtension(path string) bool {
+	return strings.HasSuffix(path, ".yaml") || strings.HasSuffix(path, ".yml") || strings.HasSuffix(path, ".tf")
 }
 
 // parseTag reads the key=value pairs of a tag body and checks them.

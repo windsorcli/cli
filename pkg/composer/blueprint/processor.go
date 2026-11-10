@@ -255,6 +255,11 @@ func (p *BaseBlueprintProcessor) resolveConfigAndInclusion(sortedFacets []bluepr
 	var globalScope map[string]any
 	var prevGlobalScope map[string]any
 	var cfgEntries map[string]*blueprintv1alpha1.ConfigBlock
+	facetPaths := make([]string, 0, len(sortedFacets))
+	for _, facet := range sortedFacets {
+		p.recordFacetTrace(facet.Path)
+		facetPaths = append(facetPaths, facet.Path)
+	}
 	includedFacets := make([]blueprintv1alpha1.Facet, 0, len(sortedFacets))
 	prevIncludedSet := make(map[string]bool)
 	pendingRequirements := make(map[string]facetRequirementMisses)
@@ -262,6 +267,7 @@ func (p *BaseBlueprintProcessor) resolveConfigAndInclusion(sortedFacets []bluepr
 	converged := false
 	var unstableNames []string
 	for range make([]struct{}, maxFacetRounds) {
+		p.resetConfigTrace(facetPaths)
 		prevGlobalScope = globalScope
 		includedFacets = includedFacets[:0]
 		globalScope = nil
@@ -461,6 +467,20 @@ func (p *BaseBlueprintProcessor) emitFacetComponents(target *blueprintv1alpha1.B
 func (p *BaseBlueprintProcessor) recordTrace(composedPath string, tc TraceContribution) {
 	if p.traceCollector != nil {
 		p.traceCollector.RecordContribution(composedPath, tc)
+	}
+}
+
+// resetConfigTrace removes the config block records of the facets from the trace collector when set.
+func (p *BaseBlueprintProcessor) resetConfigTrace(facetPaths []string) {
+	if p.traceCollector != nil {
+		p.traceCollector.ResetConfigBlocks(facetPaths)
+	}
+}
+
+// recordFacetTrace records the path of a loaded facet to the trace collector when set.
+func (p *BaseBlueprintProcessor) recordFacetTrace(facetPath string) {
+	if p.traceCollector != nil {
+		p.traceCollector.RecordFacet(facetPath)
 	}
 }
 
