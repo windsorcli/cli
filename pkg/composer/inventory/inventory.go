@@ -153,12 +153,18 @@ func (l *BaseLister) List(blueprint *blueprintv1alpha1.Blueprint, opts Options) 
 	entries = append(entries, tagEntries...)
 	result.Notes = append(result.Notes, notes...)
 
-	mirrors := l.imageMirrors()
+	mirrors, err := l.imageMirrors()
+	if err != nil {
+		return nil, err
+	}
 	for i := range entries {
 		entries[i].Destination = destinationFor(entries[i], opts.ChartsTo, mirrors)
 	}
 
 	result.Inventory.Artifacts = sortEntries(dedupeEntries(entries))
+	if err := checkDestinations(result.Inventory.Artifacts); err != nil {
+		return nil, err
+	}
 	return result, nil
 }
 

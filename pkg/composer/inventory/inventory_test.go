@@ -280,3 +280,223 @@ func TestBaseLister_List(t *testing.T) {
 		}
 	})
 }
+
+// =============================================================================
+// Test Mirrors
+// =============================================================================
+
+func TestBaseLister_ImageMirrors(t *testing.T) {
+	setup := func(t *testing.T, registries map[string]any, images ...string) *inventory.Result {
+		t.Helper()
+		result, err := listImages(t, registries, images...)
+		if err != nil {
+			t.Fatalf("expected no error, got %v", err)
+		}
+		return result
+	}
+	destination := func(t *testing.T, result *inventory.Result, reference string) string {
+		t.Helper()
+		for _, e := range result.Inventory.Artifacts {
+			if e.Reference == reference {
+				return e.Destination
+			}
+		}
+		t.Fatalf("expected an entry for %s, got %+v", reference, result.Inventory.Artifacts)
+		return ""
+	}
+
+	t.Run("UsesTheEndpointWithoutItsScheme", func(t *testing.T) {
+		for _, endpoint := range []string{"harbor.example.com:8443/windsor", "http://harbor.example.com:8443/windsor", "https://harbor.example.com:8443/windsor/"} {
+			// Given an entry with an endpoint
+			registries := map[string]any{"ghcr.io": map[string]any{"endpoint": endpoint}}
+
+			// When the images are listed
+			result := setup(t, registries, "ghcr.io/example/worker")
+
+			// Then the destination is under the endpoint without its scheme
+			if got := destination(t, result, "ghcr.io/example/worker"); got != "harbor.example.com:8443/windsor/example/worker:1.0.0" {
+				t.Errorf("endpoint %s: got destination %q", endpoint, got)
+			}
+		}
+	})
+
+	t.Run("UsesTheLocalHostAsTheUpstream", func(t *testing.T) {
+		// Given an entry whose images name a different host than its key
+		registries := map[string]any{"registry-1.docker.io": map[string]any{"local": "docker.io", "endpoint": "harbor.example.com/docker"}}
+
+		// When the images are listed
+		result := setup(t, registries, "docker.io/library/nginx")
+
+		// Then the image of the local host goes to the endpoint
+		if got := destination(t, result, "docker.io/library/nginx"); got != "harbor.example.com/docker/library/nginx:1.0.0" {
+			t.Errorf("got destination %q", got)
+		}
+	})
+
+	t.Run("UsesTheCatchAllForAHostWithNoEntry", func(t *testing.T) {
+		// Given a catch-all entry and an entry for one host
+		registries := map[string]any{
+			"*":       map[string]any{"endpoint": "harbor.example.com/all"},
+			"ghcr.io": map[string]any{"endpoint": "harbor.example.com/ghcr"},
+		}
+
+		// When the images are listed
+		result := setup(t, registries, "ghcr.io/example/worker", "quay.io/example/agent")
+
+		// Then the entry of the host comes first, and the catch-all applies to the other host
+		if got := destination(t, result, "ghcr.io/example/worker"); got != "harbor.example.com/ghcr/example/worker:1.0.0" {
+			t.Errorf("got destination %q", got)
+		}
+		if got := destination(t, result, "quay.io/example/agent"); got != "harbor.example.com/all/example/agent:1.0.0" {
+			t.Errorf("got destination %q", got)
+		}
+	})
+
+	t.Run("DoesNotUseTheKeyAsAMirror", func(t *testing.T) {
+		// Given an entry with no endpoint and no hostname
+		registries := map[string]any{"ghcr.io": map[string]any{"remote": "https://ghcr.io"}}
+
+		// When the images are listed
+		result := setup(t, registries, "ghcr.io/example/worker")
+
+		// Then the image has no destination
+		if got := destination(t, result, "ghcr.io/example/worker"); got != "" {
+			t.Errorf("expected no destination, got %q", got)
+		}
+	})
+
+	t.Run("GivesNoDestinationToAnEntryWithOnlyAHostname", func(t *testing.T) {
+		// Given a pull-through cache with a hostname and no endpoint
+		registries := map[string]any{"ghcr.io": map[string]any{"remote": "https://ghcr.io", "hostname": "ghcr.test", "hostport": 5002}}
+
+		// When the images are listed
+		result := setup(t, registries, "ghcr.io/example/worker")
+
+		// Then the image has no destination
+		if got := destination(t, result, "ghcr.io/example/worker"); got != "" {
+			t.Errorf("expected no destination, got %q", got)
+		}
+	})
+
+	t.Run("DoesNotUseTheCatchAllForAnEntryWithNoEndpoint", func(t *testing.T) {
+		// Given a pull-through cache with no endpoint and a catch-all entry
+		registries := map[string]any{
+			"ghcr.io": map[string]any{"remote": "https://ghcr.io", "hostname": "ghcr.test"},
+			"*":       map[string]any{"endpoint": "harbor.example.com/all"},
+		}
+
+		// When the images are listed
+		result := setup(t, registries, "ghcr.io/example/worker")
+
+		// Then the image has no destination
+		if got := destination(t, result, "ghcr.io/example/worker"); got != "" {
+			t.Errorf("expected no destination, got %q", got)
+		}
+	})
+
+	t.Run("GivesNoDestinationToAnImageOnItsMirrorHost", func(t *testing.T) {
+		// Given a catch-all entry and an image already on the mirror host
+		registries := map[string]any{"*": map[string]any{"endpoint": "harbor.example.com/windsor"}}
+
+		// When the images are listed
+		result := setup(t, registries, "harbor.example.com/team/app")
+
+		// Then the image has no destination
+		if got := destination(t, result, "harbor.example.com/team/app"); got != "" {
+			t.Errorf("expected no destination, got %q", got)
+		}
+	})
+
+	t.Run("FailsWhenTwoEntriesGiveOneHostDifferentMirrors", func(t *testing.T) {
+		// Given two entries that name one upstream host
+		registries := map[string]any{
+			"docker.io":            map[string]any{"endpoint": "a.example.com"},
+			"registry-1.docker.io": map[string]any{"local": "docker.io", "endpoint": "b.example.com"},
+		}
+
+		// When the images are listed
+		_, err := listImages(t, registries, "docker.io/library/nginx")
+
+		// Then the error names the host
+		if err == nil || !strings.Contains(err.Error(), "docker.io") {
+			t.Fatalf("expected an error that names the host, got %v", err)
+		}
+	})
+
+	t.Run("FailsWhenTwoImagesHaveTheSameDestination", func(t *testing.T) {
+		// Given one catch-all entry and two images with the same path on different hosts
+		registries := map[string]any{"*": map[string]any{"endpoint": "harbor.example.com"}}
+
+		// When the images are listed
+		_, err := listImages(t, registries, "ghcr.io/example/worker", "quay.io/example/worker")
+
+		// Then the error names the destination
+		if err == nil || !strings.Contains(err.Error(), "harbor.example.com/example/worker:1.0.0") {
+			t.Fatalf("expected an error that names the destination, got %v", err)
+		}
+	})
+}
+
+// listImages lists a project that tags each image at version 1.0.0, with registries as docker.registries.
+func listImages(t *testing.T, registries map[string]any, images ...string) (*inventory.Result, error) {
+	t.Helper()
+	tags := make([]string, 0, len(images))
+	for _, image := range images {
+		tags = append(tags, "# artifact: type=image name="+image+"\nimage: "+image+":1.0.0\n")
+	}
+	return listTagged(t, registries, tags...)
+}
+
+// listTagged lists a project that holds tags, with registries as docker.registries.
+func listTagged(t *testing.T, registries map[string]any, tags ...string) (*inventory.Result, error) {
+	t.Helper()
+	m := setupMocks(t)
+	m.configHandler.GetFunc = func(key string) any {
+		if key == "docker.registries" {
+			return registries
+		}
+		return nil
+	}
+	project := t.TempDir()
+	var content strings.Builder
+	for _, tag := range tags {
+		content.WriteString(tag)
+	}
+	writeFile(t, project, "kustomize/app/values.yaml", content.String())
+	m.runtime.ProjectRoot = project
+	lister := inventory.NewLister(m.runtime, m.artifactBuilder)
+	return lister.List(&blueprintv1alpha1.Blueprint{Metadata: blueprintv1alpha1.Metadata{Name: "app"}}, inventory.Options{})
+}
+
+func TestCheckDestinationDigests(t *testing.T) {
+	list := func(t *testing.T, tags ...string) error {
+		t.Helper()
+		_, err := listTagged(t, map[string]any{"*": map[string]any{"endpoint": "harbor.example.com"}}, tags...)
+		return err
+	}
+	worker := func(host, digest string) string {
+		return "# artifact: type=image name=" + host + "/example/worker\nimage: " + host + "/example/worker:1.0.0@" + digest + "\n"
+	}
+
+	t.Run("FailsWhenImagesDifferOnlyByDigest", func(t *testing.T) {
+		// Given two images with one tag and different digests on different hosts
+		// When the images are listed
+		err := list(t, worker("ghcr.io", "sha256:"+strings.Repeat("a", 64)), worker("quay.io", "sha256:"+strings.Repeat("b", 64)))
+
+		// Then the images collide at the tag
+		if err == nil {
+			t.Fatal("expected an error")
+		}
+	})
+
+	t.Run("AllowsOneImageOnTwoHosts", func(t *testing.T) {
+		// Given one image on two hosts, with one digest
+		// When the images are listed
+		err := list(t, worker("ghcr.io", "sha256:"+strings.Repeat("a", 64)), worker("quay.io", "sha256:"+strings.Repeat("a", 64)))
+
+		// Then the images do not collide
+		if err != nil {
+			t.Fatalf("expected no error, got %v", err)
+		}
+	})
+}
