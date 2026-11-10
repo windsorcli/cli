@@ -88,6 +88,25 @@ func TestFluxMirror(t *testing.T) {
 		}
 	})
 
+	t.Run("IncludesReferrersUnlessTheImageHasNoReferrers", func(t *testing.T) {
+		// Given one image with referrers and one image with no referrers
+		inv := inventory.Inventory{Artifacts: []inventory.Entry{
+			{Kind: inventory.KindImage, Transport: inventory.TransportOCI, Reference: "docker.elastic.co/beats/filebeat", Version: "9.0.0", Destination: "mirror.test:5000/beats/filebeat:9.0.0", NoReferrers: true},
+			{Kind: inventory.KindImage, Transport: inventory.TransportOCI, Reference: "quay.io/coreos/etcd", Version: "v3.7.2", Destination: "mirror.test:5000/coreos/etcd:v3.7.2"},
+		}}
+
+		// When FluxMirror is called
+		cfg, _, err := inventory.FluxMirror(inv, "")
+
+		// Then only the image with no referrers turns off includeReferrers
+		if err != nil {
+			t.Fatalf("expected no error, got %v", err)
+		}
+		if len(cfg.Artifacts) != 2 || cfg.Artifacts[0].IncludeReferrers || !cfg.Artifacts[1].IncludeReferrers {
+			t.Fatalf("unexpected artifacts: %+v", cfg.Artifacts)
+		}
+	})
+
 	t.Run("NeedsChartsToForCharts", func(t *testing.T) {
 		// Given an inventory with charts
 		inv := testInventory()

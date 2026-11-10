@@ -63,6 +63,7 @@ type Inventory struct {
 
 // Entry is one external artifact.
 // Reference is the repository without a scheme or tag for OCI, and the repository URL for HTTP and Git.
+// NoReferrers is true when an artifact tag has referrers=false.
 type Entry struct {
 	Kind        Kind      `yaml:"kind"`
 	Transport   Transport `yaml:"transport"`
@@ -71,6 +72,7 @@ type Entry struct {
 	Version     string    `yaml:"version,omitempty"`
 	Digest      string    `yaml:"digest,omitempty"`
 	Destination string    `yaml:"destination,omitempty"`
+	NoReferrers bool      `yaml:"noReferrers,omitempty"`
 	Source      Source    `yaml:"source"`
 }
 
@@ -193,15 +195,17 @@ func blueprintEntries(blueprint *blueprintv1alpha1.Blueprint) []Entry {
 }
 
 // dedupeEntries keeps the first entry for each kind, reference, name, version and digest.
+// The entry that it keeps has NoReferrers when one of its duplicates has NoReferrers.
 func dedupeEntries(entries []Entry) []Entry {
-	seen := make(map[string]bool)
+	seen := make(map[string]int)
 	out := make([]Entry, 0, len(entries))
 	for _, e := range entries {
 		key := strings.Join([]string{string(e.Kind), e.Reference, e.Name, e.Version, e.Digest}, "\x00")
-		if seen[key] {
+		if i, ok := seen[key]; ok {
+			out[i].NoReferrers = out[i].NoReferrers || e.NoReferrers
 			continue
 		}
-		seen[key] = true
+		seen[key] = len(out)
 		out = append(out, e)
 	}
 	return out

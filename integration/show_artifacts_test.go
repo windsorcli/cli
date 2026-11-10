@@ -68,6 +68,7 @@ func TestShowArtifacts_ListsTheArtifactTagsOfTheProject(t *testing.T) {
 			Reference   string `yaml:"reference"`
 			Version     string `yaml:"version"`
 			Destination string `yaml:"destination"`
+			NoReferrers bool   `yaml:"noReferrers"`
 		} `yaml:"artifacts"`
 	}
 	if err := yaml.Unmarshal(stdout, &inv); err != nil {
@@ -76,6 +77,9 @@ func TestShowArtifacts_ListsTheArtifactTagsOfTheProject(t *testing.T) {
 	got := make(map[string]string)
 	for _, a := range inv.Artifacts {
 		got[a.Kind+" "+a.Reference+" "+a.Version] = a.Destination
+		if want := a.Reference == "ghcr.io/example/tooling"; a.NoReferrers != want {
+			t.Errorf("expected noReferrers %v for %s, got %v", want, a.Reference, a.NoReferrers)
+		}
 	}
 	want := map[string]string{
 		"chart https://charts.jetstack.io v1.17.0": "registry.example.com/windsor/cert-manager:v1.17.0",
