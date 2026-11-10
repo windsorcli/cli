@@ -65,7 +65,7 @@ windsor show artifacts --charts-to registry.example.com/windsor -o flux-mirror |
 ```
 
 `-o yaml` (the default) prints one YAML entry per artifact with a `destination` field.
-`-o flux-mirror` prints a Flux Mirror `v1beta1` config. `-o list` prints one
+`-o flux-mirror` prints a Flux Mirror `v1beta2` config. `-o list` prints one
 `destination<TAB>upstream` line per artifact for other tools.
 
 The command is not named `mirror`. It covers charts, which go to a chart registry rather than a
