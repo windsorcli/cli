@@ -36,7 +36,7 @@ func TestShowArtifacts_PrintsEachOutputFormat(t *testing.T) {
 	if err != nil {
 		t.Fatalf("show artifacts -o flux-mirror: %v\nstderr: %s", err, stderr)
 	}
-	if out := string(stdout); !strings.Contains(out, "apiVersion: mirror.plugin.fluxcd.io/v1beta1") {
+	if out := string(stdout); !strings.Contains(out, "apiVersion: mirror.plugin.fluxcd.io/v1beta2") {
 		t.Errorf("expected a Flux Mirror config, got:\n%s", out)
 	}
 

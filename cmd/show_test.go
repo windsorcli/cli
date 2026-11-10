@@ -1419,7 +1419,7 @@ func TestShowArtifactsCmd(t *testing.T) {
 		if err != nil {
 			t.Fatalf("expected no error, got %v", err)
 		}
-		if !strings.Contains(output, "apiVersion: mirror.plugin.fluxcd.io/v1beta1") || !strings.Contains(output, "kind: Config") {
+		if !strings.Contains(output, "apiVersion: mirror.plugin.fluxcd.io/v1beta2") || !strings.Contains(output, "kind: Config") {
 			t.Errorf("expected a Flux Mirror config, got:\n%s", output)
 		}
 	})

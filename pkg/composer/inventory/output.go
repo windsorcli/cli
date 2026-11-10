@@ -16,7 +16,7 @@ import (
 // =============================================================================
 
 // FluxMirrorAPIVersion is the apiVersion of the Flux Mirror config that FluxMirror writes.
-const FluxMirrorAPIVersion = "mirror.plugin.fluxcd.io/v1beta1"
+const FluxMirrorAPIVersion = "mirror.plugin.fluxcd.io/v1beta2"
 
 // =============================================================================
 // Types
