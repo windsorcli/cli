@@ -36,6 +36,9 @@ var artifactTagPattern = regexp.MustCompile(`(?:#|//)\s*artifact:\s+(\w+=\S.*)$`
 // versionLinePattern splits a `key: value` or `key = value` line into its value.
 var versionLinePattern = regexp.MustCompile(`^\s*(?:-\s*)?[\w.-]+\s*[:=]\s*(.+)$`)
 
+// referrersPattern matches the referrers attribute of a tag body. It also matches an empty value.
+var referrersPattern = regexp.MustCompile(`(?:^|\s)referrers=(\S*)`)
+
 // tagRoots are the directories of a source that the scan reads. The contexts directory holds the
 // facets and values files of a project. The _template directory holds them in a bundled source.
 var tagRoots = []string{"kustomize", "terraform", "contexts", "_template"}
@@ -46,13 +49,14 @@ var tagRoots = []string{"kustomize", "terraform", "contexts", "_template"}
 
 // ArtifactTag is one chart or image that an `artifact` tag names.
 type ArtifactTag struct {
-	Type    ArtifactTagType
-	Name    string
-	Repo    string
-	Version string
-	Digest  string
-	File    string
-	Line    int
+	Type        ArtifactTagType
+	Name        string
+	Repo        string
+	Version     string
+	Digest      string
+	NoReferrers bool
+	File        string
+	Line        int
 }
 
 // =============================================================================
@@ -63,7 +67,7 @@ type ArtifactTag struct {
 // binds to the next line that is not blank and not a comment. A tag at the end of a line binds to
 // that line. The value is the last scalar on the bound line, and an @sha256 suffix gives the digest.
 // It returns an error for a tag with no value, an unknown type, no name and no full image reference,
-// or a chart with no repo.
+// a chart with no repo, a referrers value that is not true or false, or a chart with referrers.
 func ScanTags(filePath string, content []byte) ([]ArtifactTag, error) {
 	lines := strings.Split(string(content), "\n")
 	var tags []ArtifactTag
@@ -180,6 +184,15 @@ func parseTag(body string) (ArtifactTag, error) {
 		if !strings.HasPrefix(tag.Repo, "https://") && !strings.HasPrefix(tag.Repo, "http://") && !strings.HasPrefix(tag.Repo, "oci://") {
 			return tag, fmt.Errorf("the artifact tag for chart %q needs a repo that starts with https:// or oci://", tag.Name)
 		}
+	}
+	if m := referrersPattern.FindStringSubmatch(body); m != nil {
+		if tag.Type == ArtifactTagChart {
+			return tag, fmt.Errorf("the artifact tag for chart %q has referrers, and only an image tag can have referrers", tag.Name)
+		}
+		if m[1] != "true" && m[1] != "false" {
+			return tag, fmt.Errorf("the artifact tag has referrers %q, and the value must be true or false", m[1])
+		}
+		tag.NoReferrers = m[1] == "false"
 	}
 	return tag, nil
 }

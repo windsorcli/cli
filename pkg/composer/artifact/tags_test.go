@@ -189,6 +189,34 @@ func TestScanTags(t *testing.T) {
 		}
 	})
 
+	t.Run("ReadsTheReferrersAttribute", func(t *testing.T) {
+		cases := map[string]struct {
+			attribute string
+			want      bool
+		}{
+			"False":  {attribute: " referrers=false", want: true},
+			"True":   {attribute: " referrers=true", want: false},
+			"Absent": {attribute: "", want: false},
+		}
+		for name, tc := range cases {
+			t.Run(name, func(t *testing.T) {
+				// Given an image tag with or without the referrers attribute
+				content := []byte("# artifact: type=image name=docker.elastic.co/beats/filebeat" + tc.attribute + "\nimage: docker.elastic.co/beats/filebeat:9.0.0\n")
+
+				// When the content is scanned
+				tags, err := artifact.ScanTags("kustomize/app/values.yaml", content)
+
+				// Then NoReferrers is true only for referrers=false
+				if err != nil {
+					t.Fatalf("expected no error, got %v", err)
+				}
+				if len(tags) != 1 || tags[0].NoReferrers != tc.want {
+					t.Fatalf("expected NoReferrers %v, got %+v", tc.want, tags)
+				}
+			})
+		}
+	})
+
 	t.Run("IgnoresACommentThatIsNotATag", func(t *testing.T) {
 		// Given a comment that has the word artifact and a colon, but no key=value pair
 		content := []byte("# artifact: the build output goes to dist/\nversion: v1\n")
@@ -224,6 +252,9 @@ func TestScanTags(t *testing.T) {
 			"ChartWithBadRepoScheme":      "# artifact: type=chart name=redis repo=charts.example.com\nversion: 1.0.0\n",
 			"NoValueLine":                 "# artifact: type=image name=a/b\n",
 			"ReferenceWithoutTag":         "# artifact: type=image\nimage: ghcr.io/example/app\n",
+			"InvalidReferrers":            "# artifact: type=image name=a/b referrers=maybe\nimage: a/b:1\n",
+			"EmptyReferrers":              "# artifact: type=image name=a/b referrers=\nimage: a/b:1\n",
+			"ChartWithReferrers":          "# artifact: type=chart name=redis repo=https://charts.example.com referrers=false\nversion: 1.0.0\n",
 		}
 		for name, content := range cases {
 			t.Run(name, func(t *testing.T) {

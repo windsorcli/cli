@@ -73,7 +73,7 @@ mirror, and it never copies.
 
 ### 2. An `artifact` tag names each artifact
 
-The tag is a comment, `# artifact: type=<image|chart> [name=<name>] [repo=<chart repository URL>]`,
+The tag is a comment, `# artifact: type=<image|chart> [name=<name>] [repo=<chart repository URL>] [referrers=<true|false>]`,
 in YAML or HCL, with `#` or `//`. A block comment is not a tag. The syntax is in sdlc ADR 0001,
 section 3.
 
@@ -91,9 +91,12 @@ version: v1.17.0
 - An image `name` is the full repository with the registry. It MAY be omitted when the value is a
   full reference. A chart `name` is the `Chart.yaml` name, and `repo` is an `https://` Helm
   repository or an `oci://` path.
+- `referrers` applies only to an image and defaults to `true`. With `referrers=false`, the Flux
+  Mirror config sets `includeReferrers: false` for that image. Use it for a registry that fails the
+  referrers check. When two tags name the same image, `false` wins.
 - One tag names one artifact.
-- A tag with no value, an unknown `type`, no `name` and no full reference, or a chart with no
-  `repo` is an error. `windsor show artifacts` and `windsor bundle` both fail on it and name the
+- A tag with no value, an unknown `type`, no `name` and no full reference, a chart with no `repo`,
+  a `referrers` value that is not `true` or `false`, or a chart with `referrers` is an error. `windsor show artifacts` and `windsor bundle` both fail on it and name the
   file and line.
 - A new function in the scanner of `pkg/composer/artifact` reads the tag. It shares the file
   filter of the Renovate scan. The Renovate scan stays for tools that a cluster does not pull.

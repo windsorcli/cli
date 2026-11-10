@@ -84,9 +84,9 @@ func (e Entry) Upstream() string {
 
 // FluxMirror returns the Flux Mirror config of inv and a note for each artifact it leaves out.
 // It writes an HTTP chart as a charts entry with an exact version, and an OCI chart or image as an
-// artifacts entry that selects ^<tag>$ and includes referrers. It leaves out an artifact with no
-// destination or no tag, and a chart whose upstream is already in chartsTo. It needs chartsTo
-// when inv has a chart.
+// artifacts entry that selects ^<tag>$. The entry includes referrers unless the artifact has
+// NoReferrers. It leaves out an artifact with no destination or no tag, and a chart whose upstream
+// is already in chartsTo. It needs chartsTo when inv has a chart.
 func FluxMirror(inv Inventory, chartsTo string) (FluxMirrorConfig, []string, error) {
 	registry := normalizeRegistry(chartsTo)
 	cfg := FluxMirrorConfig{APIVersion: FluxMirrorAPIVersion, Kind: "Config"}
@@ -120,7 +120,7 @@ func FluxMirror(inv Inventory, chartsTo string) (FluxMirrorConfig, []string, err
 			Source:           e.Reference,
 			Destination:      destination,
 			Selector:         FluxMirrorSelector{Regex: FluxMirrorRegex{Pattern: "^" + regexp.QuoteMeta(e.Version) + "$"}},
-			IncludeReferrers: true,
+			IncludeReferrers: !e.NoReferrers,
 		})
 	}
 	return cfg, notes, nil

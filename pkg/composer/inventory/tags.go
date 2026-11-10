@@ -91,7 +91,7 @@ func tagEntry(sourceName string, tag artifact.ArtifactTag) Entry {
 	source := Source{Object: "source/" + sourceName, File: tag.File}
 	if tag.Type == artifact.ArtifactTagImage {
 		ref := parseImageReference(tag.Name)
-		return Entry{Kind: KindImage, Transport: TransportOCI, Reference: ref.repository, Version: tag.Version, Digest: tag.Digest, Source: source}
+		return Entry{Kind: KindImage, Transport: TransportOCI, Reference: ref.repository, Version: tag.Version, Digest: tag.Digest, NoReferrers: tag.NoReferrers, Source: source}
 	}
 	entry := Entry{Kind: KindChart, Name: tag.Name, Version: tag.Version, Source: source}
 	if strings.HasPrefix(tag.Repo, "oci://") {

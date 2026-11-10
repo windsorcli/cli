@@ -179,6 +179,36 @@ func TestBaseLister_List(t *testing.T) {
 		}
 	})
 
+	t.Run("KeepsNoReferrersWhenTwoTagsNameTheSameImage", func(t *testing.T) {
+		cases := map[string][2]string{
+			"FalseFirst": {" referrers=false", ""},
+			"FalseLast":  {"", " referrers=false"},
+		}
+		for name, attributes := range cases {
+			t.Run(name, func(t *testing.T) {
+				// Given two tags for the same image, and only one has referrers=false
+				m := setupMocks(t)
+				project := t.TempDir()
+				writeFile(t, project, "kustomize/a/values.yaml", "# artifact: type=image name=docker.elastic.co/beats/filebeat"+attributes[0]+"\nimage: docker.elastic.co/beats/filebeat:9.0.0\n")
+				writeFile(t, project, "kustomize/b/values.yaml", "# artifact: type=image name=docker.elastic.co/beats/filebeat"+attributes[1]+"\nimage: docker.elastic.co/beats/filebeat:9.0.0\n")
+				m.runtime.ProjectRoot = project
+				lister := inventory.NewLister(m.runtime, m.artifactBuilder)
+				blueprint := &blueprintv1alpha1.Blueprint{Metadata: blueprintv1alpha1.Metadata{Name: "app"}}
+
+				// When List is called
+				result, err := lister.List(blueprint, inventory.Options{})
+
+				// Then the one entry has NoReferrers
+				if err != nil {
+					t.Fatalf("expected no error, got %v", err)
+				}
+				if len(result.Inventory.Artifacts) != 1 || !result.Inventory.Artifacts[0].NoReferrers {
+					t.Fatalf("expected one entry with NoReferrers, got %+v", result.Inventory.Artifacts)
+				}
+			})
+		}
+	})
+
 	t.Run("ListsTheBlueprintsAndTagsOfNestedSources", func(t *testing.T) {
 		// Given a composed blueprint whose sources hold a parent blueprint and a blueprint it declares
 		m := setupMocks(t)

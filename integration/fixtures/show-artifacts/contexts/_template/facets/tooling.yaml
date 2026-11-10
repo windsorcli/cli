@@ -6,5 +6,5 @@ metadata:
 config:
   - name: tooling
     value:
-      # artifact: type=image name=ghcr.io/example/tooling
+      # artifact: type=image name=ghcr.io/example/tooling referrers=false
       image: ghcr.io/example/tooling:2.0.0
