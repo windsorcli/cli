@@ -19,6 +19,10 @@ import (
 // equals the given string value.
 type namedItem string
 
+// seqIndex is a path segment type that selects a sequence item by its 0-based position. Use it
+// when one facet can declare several blocks with the same name.
+type seqIndex int
+
 // mapKeyLine is a terminal path segment that returns the line of the KEY node (not the value)
 // for a mapping entry. Use instead of a plain string when the target is a block value whose
 // value node starts on the next line.
@@ -65,7 +69,8 @@ func yamlComponentEntryLine(filePath, componentType, componentName, value string
 
 // yamlNodeLine parses a facet YAML file into an AST and navigates to the node identified by
 // the given path segments. String segments select mapping keys; namedItem segments match
-// sequence entries that are mappings with a "name" key equal to the given value; mapKeyLine
+// sequence entries that are mappings with a "name" key equal to the given value; seqIndex
+// selects a sequence entry by position; mapKeyLine
 // returns the line of a mapping key (terminal); seqEntryMatch is terminal. Returns the
 // 1-based line number of the target node, or 0 if the path cannot be resolved.
 func yamlNodeLine(filePath string, segments ...interface{}) int {
@@ -86,6 +91,8 @@ func yamlNodeLine(filePath string, segments ...interface{}) int {
 			node = astMapValue(node, s)
 		case namedItem:
 			node = astNamedItem(node, string(s))
+		case seqIndex:
+			node = astSeqItem(node, int(s))
 		case mapKeyLine:
 			return astMapKeyLine(node, string(s))
 		case seqEntryMatch:
@@ -160,6 +167,15 @@ func astNamedItem(node ast.Node, name string) ast.Node {
 		}
 	}
 	return nil
+}
+
+// astSeqItem returns the sequence item at index, or nil when node is not a sequence or index is out of range.
+func astSeqItem(node ast.Node, index int) ast.Node {
+	seq, ok := node.(*ast.SequenceNode)
+	if !ok || index < 0 || index >= len(seq.Values) {
+		return nil
+	}
+	return seq.Values[index]
 }
 
 // astAllNamedItems returns all sequence items (mappings) whose "name" key equals the given value.

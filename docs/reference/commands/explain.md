@@ -18,6 +18,8 @@ Path patterns:
     configMaps.<name>.<key>                          A blueprint-level ConfigMap entry.
     substitutions.<key>                              A blueprint-level substitution.
 
+For a flux system, <name> is a compiled tier name, such as demo-install or demo-resources-extra.
+
 Status markers in the output:
 
     (deferred)  value depends on a terraform output not yet available

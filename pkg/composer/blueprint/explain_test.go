@@ -330,6 +330,22 @@ func TestExplain(t *testing.T) {
 		}
 	})
 
+	t.Run("ReturnsNotFoundForAnUnknownFluxTier", func(t *testing.T) {
+		// Given a blueprint with a flux system
+		bp := &blueprintv1alpha1.Blueprint{
+			FluxSystems: []blueprintv1alpha1.FluxSystem{{Name: "demo", Install: &blueprintv1alpha1.Kustomization{}}},
+		}
+		h := setupExplainHandler(t, bp, nil, nil, nil)
+
+		// When explaining a tier that the system does not compile
+		_, err := h.Explain("kustomize.demo-resources-missing.substitutions.color")
+
+		// Then the error names the tier
+		if err == nil || !strings.Contains(err.Error(), `kustomization "demo-resources-missing" not found`) {
+			t.Errorf("Expected a not found error, got %v", err)
+		}
+	})
+
 	t.Run("ResolvesExpressionTerraformInput", func(t *testing.T) {
 		// Given a trace collector with an expression-derived input
 		bp := &blueprintv1alpha1.Blueprint{

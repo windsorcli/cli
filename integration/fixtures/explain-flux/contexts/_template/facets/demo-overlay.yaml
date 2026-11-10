@@ -1,0 +1,15 @@
+kind: Facet
+apiVersion: blueprints.windsorcli.dev/v1alpha1
+metadata:
+  name: demo-overlay
+  description: Merges into the demo flux system at a higher ordinal
+ordinal: 200
+
+flux:
+
+- name: demo
+  install:
+    components:
+    - metrics
+    substitutions:
+      greeting: goodbye

@@ -1,6 +1,7 @@
 package v1alpha1_test
 
 import (
+	"slices"
 	"testing"
 	"time"
 
@@ -979,6 +980,28 @@ healthChecks:
 		// Then the base reference survives
 		if len(merged.HealthChecks) != 1 || merged.HealthChecks[0].Name != webhookDeployment.Name {
 			t.Errorf("Expected base reference preserved, got %+v", merged.HealthChecks)
+		}
+	})
+}
+
+func TestFluxSystem_TierNameMethods(t *testing.T) {
+	t.Run("MatchTheCompiledTierNames", func(t *testing.T) {
+		// Given a system with an install tier, a named variant, and an unnamed variant
+		sys := v1alpha1.FluxSystem{
+			Name:    "demo",
+			Install: &v1alpha1.Kustomization{},
+			Resources: []v1alpha1.FluxVariant{
+				{Kustomization: v1alpha1.Kustomization{Name: "extra"}},
+				{},
+			},
+		}
+
+		// When computing each tier name
+		got := []string{sys.InstallTierName(), sys.ResourcesTierName("extra"), sys.ResourcesTierName("")}
+
+		// Then the names match the compiled tiers
+		if want := sys.TierNames(); !slices.Equal(got, want) {
+			t.Errorf("Expected %v, got %v", want, got)
 		}
 	})
 }

@@ -1,0 +1,21 @@
+kind: Facet
+apiVersion: blueprints.windsorcli.dev/v1alpha1
+metadata:
+  name: demo
+  description: Declares the demo flux system
+ordinal: 100
+
+flux:
+
+- name: demo
+  install:
+    components:
+    - helm-release
+    substitutions:
+      greeting: hello
+  resources:
+  - name: extra
+    components:
+    - issuer
+    substitutions:
+      color: blue
