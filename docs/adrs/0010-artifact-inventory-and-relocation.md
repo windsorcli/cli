@@ -65,7 +65,7 @@ windsor show artifacts --charts-to registry.example.com/windsor -o flux-mirror |
 ```
 
 `-o yaml` (the default) prints one YAML entry per artifact with a `destination` field.
-`-o flux-mirror` prints a Flux Mirror `v1beta2` config. The config needs Flux Mirror v0.11.0 or
+`-o flux-mirror` prints a Flux Mirror `v1beta2` config. The config needs Flux Mirror v0.16.0 or
 later. `-o list` prints one `destination<TAB>upstream` line per artifact for other tools.
 
 The command is not named `mirror`. It covers charts, which go to a chart registry rather than a
@@ -137,11 +137,12 @@ enforces its own registries, and the CLI applies no ConfigMap for a policy.
 ### 6. Flux Mirror output selects exact tags
 
 `-o flux-mirror` writes HTTP charts as `charts` entries with an exact `version`. It writes OCI
-charts and images as `artifacts` entries whose `selector.regex.pattern` is `^<tag>$` with the
-tag escaped, and sets `includeReferrers: true` so signatures and SBOMs travel with each artifact.
-An exact tag pattern avoids Flux Mirror's semver selector, which treats `v0.25.0` and `0.25.0` as
-equal and copies whichever it sorts first. The output has no `hosts` section. Flux Mirror reads
-credentials from the Docker config, and a site that needs `hosts` merges its own.
+charts and images as `artifacts` entries whose `selector.tags` lists the one tag. It sets
+`includeReferrers: true` so signatures and SBOMs travel with each artifact. With a tags selector,
+Flux Mirror does not list the tags of the source repository. That listing is slow on a repository
+with many tags, such as `docker.elastic.co`. No semver match runs either, so Flux Mirror never
+copies a sibling tag such as `v0.25.0` for `0.25.0`. The output has no `hosts` section. Flux
+Mirror reads credentials from the Docker config, and a site that needs `hosts` merges its own.
 
 ### 7. `windsor bundle` publishes the same list as a CycloneDX BOM
 

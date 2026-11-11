@@ -4,6 +4,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/goccy/go-yaml"
 	"github.com/windsorcli/cli/pkg/composer/inventory"
 )
 
@@ -72,11 +73,20 @@ func TestFluxMirror(t *testing.T) {
 			t.Fatalf("expected 2 artifacts, got %+v", cfg.Artifacts)
 		}
 		openebs := cfg.Artifacts[0]
-		if openebs.Source != "ghcr.io/openebs/charts/openebs" || openebs.Destination != "registry.example.com/windsor/openebs" || openebs.Selector.Regex.Pattern != `^4\.6\.2$` || !openebs.IncludeReferrers {
+		if openebs.Source != "ghcr.io/openebs/charts/openebs" || openebs.Destination != "registry.example.com/windsor/openebs" || len(openebs.Selector.Tags) != 1 || openebs.Selector.Tags[0] != "4.6.2" || !openebs.IncludeReferrers {
 			t.Errorf("unexpected chart artifact: %+v", openebs)
 		}
 		if cfg.Artifacts[1].Destination != "mirror.test:5000/coreos/etcd" {
 			t.Errorf("unexpected image artifact: %+v", cfg.Artifacts[1])
+		}
+
+		// And the YAML selector is a tags list with no regex
+		out, err := yaml.Marshal(cfg)
+		if err != nil {
+			t.Fatalf("expected no marshal error, got %v", err)
+		}
+		if !strings.Contains(string(out), "tags:\n    - 4.6.2\n") || strings.Contains(string(out), "regex") {
+			t.Errorf("expected a tags selector, got:\n%s", out)
 		}
 
 		// And each left-out artifact gives a note
