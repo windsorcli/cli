@@ -271,11 +271,22 @@ func writeHeredoc(body *hclwrite.Body, name string, content string) {
 	body.AppendNewline()
 }
 
-// formatHeredocContent serializes valid YAML content again, with unquoted keys and consistent indentation.
-// It returns the original string if the content is not valid YAML.
+// formatHeredocContent serializes YAML maps and lists again, with unquoted keys and consistent indentation.
+// It returns the original string in these conditions:
+//   - The content is not valid YAML.
+//   - The content decodes to a scalar. YAML folds the lines of plain multi-line text into one line.
+//   - A line is a "---" document marker. yaml.Unmarshal decodes only the first document.
 func formatHeredocContent(content string) string {
+	if hasDocumentMarker(content) {
+		return content
+	}
 	var decoded any
 	if err := yaml.Unmarshal([]byte(content), &decoded); err != nil {
+		return content
+	}
+	switch decoded.(type) {
+	case map[string]any, map[any]any, []any:
+	default:
 		return content
 	}
 	out, err := yaml.Marshal(decoded)
@@ -287,6 +298,17 @@ func formatHeredocContent(content string) string {
 		return content
 	}
 	return s
+}
+
+// hasDocumentMarker reports whether a line of content starts a YAML document with "---".
+func hasDocumentMarker(content string) bool {
+	for _, line := range strings.Split(content, "\n") {
+		line = strings.TrimRight(line, " \t\r")
+		if line == "---" || strings.HasPrefix(line, "--- ") {
+			return true
+		}
+	}
+	return false
 }
 
 // writeVariable writes one variable assignment to the tfvars file body.

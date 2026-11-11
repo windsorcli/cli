@@ -354,11 +354,62 @@ func TestBaseModuleResolver_GenerateTfvars(t *testing.T) {
 		}
 
 		// When generating tfvars
-		err := resolver.GenerateTfvars(false)
+		if err := resolver.GenerateTfvars(false); err != nil {
+			t.Fatalf("Expected no error, got: %v", err)
+		}
 
-		// Then it should succeed and use heredoc format
+		// Then the heredoc keeps each line of the string
+		data, err := os.ReadFile(filepath.Join(variablesDir, "terraform.tfvars"))
 		if err != nil {
-			t.Errorf("Expected no error, got: %v", err)
+			t.Fatalf("Failed to read generated tfvars: %v", err)
+		}
+		content := string(data)
+		if !strings.Contains(content, "config = <<EOF\nline1\nline2\nline3\nEOF") {
+			t.Errorf("Expected heredoc with each line, got:\n%s", content)
+		}
+	})
+
+	t.Run("KeepsEveryDocumentOfMultiDocumentString", func(t *testing.T) {
+		// Given a resolver with a string input that holds two YAML documents
+		resolver, mocks := setup(t)
+
+		patches := "machine:\n  install:\n    disk: /dev/sda\n---\napiVersion: v1alpha1\nkind: RegistryMirrorConfig\nname: docker.io"
+		mocks.BlueprintHandler.GetTerraformComponentsFunc = func() []blueprintv1alpha1.TerraformComponent {
+			projectRoot, _ := mocks.Shell.GetProjectRootFunc()
+			return []blueprintv1alpha1.TerraformComponent{
+				{
+					Path:   "test-module",
+					Source: "git::https://github.com/test/module.git",
+					Inputs: map[string]any{
+						"config_patches": patches,
+					},
+					FullPath: filepath.Join(projectRoot, "terraform", "test-module"),
+				},
+			}
+		}
+
+		projectRoot, _ := mocks.Shell.GetProjectRootFunc()
+		variablesDir := filepath.Join(projectRoot, ".windsor", "contexts", "local", "terraform", "test-module")
+		if err := os.MkdirAll(variablesDir, 0755); err != nil {
+			t.Fatalf("Failed to create dir: %v", err)
+		}
+		if err := os.WriteFile(filepath.Join(variablesDir, "variables.tf"), []byte(`variable "config_patches" { type = string }`), 0644); err != nil {
+			t.Fatalf("Failed to write variables.tf: %v", err)
+		}
+
+		// When generating tfvars
+		if err := resolver.GenerateTfvars(false); err != nil {
+			t.Fatalf("Expected no error, got: %v", err)
+		}
+
+		// Then the heredoc holds both documents and the document marker
+		data, err := os.ReadFile(filepath.Join(variablesDir, "terraform.tfvars"))
+		if err != nil {
+			t.Fatalf("Failed to read generated tfvars: %v", err)
+		}
+		content := string(data)
+		if !strings.Contains(content, "config_patches = <<EOF\n"+patches+"\nEOF") {
+			t.Errorf("Expected heredoc with both documents, got:\n%s", content)
 		}
 	})
 
