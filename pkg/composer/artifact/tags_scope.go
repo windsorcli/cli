@@ -91,20 +91,11 @@ type scopedScan struct {
 // =============================================================================
 
 // ScanTagsScoped returns the artifact tags in the files of root that scope uses, and notes for the
-// operator. It always reads the contexts, _template and kustomize/crds directories. File paths are
-// relative to root.
-//
-// For a kustomization, it reads Dir and each component directory. It does not enter a subdirectory
-// that has its own kustomization file, unless an entry reaches it. It follows local entries of the
-// fields that name files, also ../ entries, and it reads a file that an entry names. A directory with
-// no kustomization file gets a generated one from Flux, so the scan reads all of that directory.
-//
-// For a Terraform component, it reads the component directory and each local module. It does not
-// enter a subdirectory that has .tf files, unless a module block reaches it.
-//
-// A name that holds an expression widens the scan and gives a note. A component name widens the scan
-// to each directory under Dir. A kustomization path widens it to the kustomize directory, and a
-// Terraform path to the Terraform root. A path that the source does not hold gives a note.
+// operator. File paths are relative to root. It always reads the contexts, _template and
+// kustomize/crds directories. For each kustomization and Terraform component, it reads the directory
+// and follows its local entries and modules. It does not enter a subdirectory that is its own root,
+// unless an entry reaches it. A name that holds an expression widens the scan and gives a note. A
+// path that the source does not hold gives a note.
 func ScanTagsScoped(root string, scope TagScope) ([]ArtifactTag, []string, error) {
 	scan := &scopedScan{fsys: os.DirFS(root), files: make(map[string]bool), seen: make(map[string]bool)}
 	for _, dir := range scopedWholeDirs {
