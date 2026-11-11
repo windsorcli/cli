@@ -69,6 +69,25 @@ func scanFiles(t *testing.T, files map[string]string, scope artifact.TagScope) (
 // =============================================================================
 
 func TestScanTagsScoped(t *testing.T) {
+	t.Run("ReadsTfvarsFilesUnderContexts", func(t *testing.T) {
+		// Given a tag in a .tfvars file under contexts and an empty scope
+		files := map[string]string{
+			"contexts/local/terraform/comp.tfvars": "# artifact: type=image name=ghcr.io/example/vars\nv = \"2.5.0\"\n",
+		}
+
+		// When the scope is scanned
+		got, notes := scanFiles(t, files, artifact.TagScope{})
+
+		// Then the .tfvars file is read
+		want := []string{"contexts/local/terraform/comp.tfvars"}
+		if !reflect.DeepEqual(got, want) {
+			t.Errorf("expected %v, got %v", want, got)
+		}
+		if notes != "" {
+			t.Errorf("expected no notes, got %q", notes)
+		}
+	})
+
 	t.Run("ReadsSelectedComponentsAndSkipsTheOthers", func(t *testing.T) {
 		// Given a kustomization with one selected component and one other component
 		files := map[string]string{

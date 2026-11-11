@@ -107,8 +107,8 @@ version: v1.17.0
 
 The CLI scans the blueprint's own source in the project root and the OCI cache of each `oci://`
 source, nested sources included. For a typical context, that is the blueprint and `core`. In each
-source, it reads the `.yaml`, `.yml`, and `.tf` files that the composed blueprint of the context
-uses. The composed blueprint already has the result of each facet `when` condition, so the list
+source, it reads the `.yaml`, `.yml`, `.tf`, and `.tfvars` files that the composed blueprint of the
+context uses. The composed blueprint already has the result of each facet `when` condition, so the list
 follows the context.
 
 The scan renders nothing, evaluates no Terraform, and reads no operator spec. It reads the plain

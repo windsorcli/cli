@@ -309,6 +309,34 @@ func TestScanTagsDir(t *testing.T) {
 		}
 	})
 
+	t.Run("ReadsTfvarsFilesWithAnUnquotedVersionAndSkipsTfvarsJSON", func(t *testing.T) {
+		// Given a context with a tag in a .tfvars file and a tag-like line in a .tfvars.json file
+		root := t.TempDir()
+		for rel, content := range map[string]string{
+			"contexts/local/terraform/comp.tfvars":      "# artifact: type=image name=ghcr.io/example/vars\nv = \"2.5.0\"\n",
+			"contexts/local/terraform/comp.tfvars.json": "# artifact: type=image name=ghcr.io/example/json\n\"v\": \"3.0.0\"\n",
+		} {
+			path := filepath.Join(root, filepath.FromSlash(rel))
+			if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+				t.Fatal(err)
+			}
+		}
+
+		// When the tree is scanned
+		tags, err := artifact.ScanTagsDir(root)
+
+		// Then only the .tfvars tag is returned, and its version has no quotes
+		if err != nil {
+			t.Fatalf("expected no error, got %v", err)
+		}
+		if len(tags) != 1 || tags[0].Name != "ghcr.io/example/vars" || tags[0].Version != "2.5.0" || tags[0].Line != 2 {
+			t.Fatalf("expected one tag for ghcr.io/example/vars at version 2.5.0 on line 2, got %+v", tags)
+		}
+	})
+
 	t.Run("ReturnsNoTagsForARootWithoutSourceDirectories", func(t *testing.T) {
 		// Given an empty root
 		// When the root is scanned

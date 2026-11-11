@@ -85,6 +85,7 @@ func TestShowArtifacts_ListsTheArtifactTagsOfTheProject(t *testing.T) {
 		"chart https://charts.jetstack.io v1.17.0": "registry.example.com/windsor/cert-manager:v1.17.0",
 		"image ghcr.io/example/worker 1.2.3":       "",
 		"image ghcr.io/example/tooling 2.0.0":      "",
+		"image ghcr.io/example/vars 2.5.0":         "",
 	}
 	if len(got) != len(want) {
 		t.Errorf("expected %v, got %v", want, got)
@@ -115,12 +116,15 @@ func TestShowArtifacts_ScopesTheListToTheBlueprintUnlessAll(t *testing.T) {
 	if out := string(stdout); strings.Contains(out, "ghcr.io/example/idle") || !strings.Contains(out, "ghcr.io/example/tooling") {
 		t.Errorf("expected the used facet image and not the idle facet image, got:\n%s", out)
 	}
+	if out := string(stdout); !strings.Contains(out, "ghcr.io/example/vars") {
+		t.Errorf("expected the image of the .tfvars tag, got:\n%s", out)
+	}
 
 	stdout, stderr, err = helpers.RunCLI(dir, []string{"show", "artifacts", "--all"}, env)
 	if err != nil {
 		t.Fatalf("show artifacts --all: %v\nstderr: %s", err, stderr)
 	}
-	if out := string(stdout); !strings.Contains(out, "ghcr.io/example/unused") || !strings.Contains(out, "ghcr.io/example/worker") || !strings.Contains(out, "ghcr.io/example/idle") {
+	if out := string(stdout); !strings.Contains(out, "ghcr.io/example/unused") || !strings.Contains(out, "ghcr.io/example/worker") || !strings.Contains(out, "ghcr.io/example/idle") || !strings.Contains(out, "ghcr.io/example/vars") {
 		t.Errorf("expected every image, got:\n%s", out)
 	}
 }
