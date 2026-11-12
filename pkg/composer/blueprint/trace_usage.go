@@ -235,7 +235,7 @@ func composedValuePrefixes(bp *blueprintv1alpha1.Blueprint) []string {
 	}
 	for _, sys := range bp.FluxSystems {
 		if sys.Enabled.IsEnabled() {
-			prefixes = append(prefixes, "flux."+sys.Name+".")
+			prefixes = append(prefixes, "kustomize."+sys.InstallTierName()+".", "kustomize."+sys.ResourcesTierName(""))
 		}
 	}
 	return prefixes
@@ -344,9 +344,11 @@ func targetOfPath(doc map[string]any, path []any) (facetTarget, bool) {
 	case section == "kustomize" && len(path) >= 4 && isSubstitutionKey(path[2]):
 		return contributedTarget(kustomizeSubstitutionPrefix(itemName(doc, path[:2])), path[3:])
 	case section == "flux" && len(path) >= 5 && path[2] == "install" && isSubstitutionKey(path[3]):
-		return contributedTarget(fluxInstallSubstitutionPrefix(itemName(doc, path[:2])), path[4:])
+		system := blueprintv1alpha1.FluxSystem{Name: itemName(doc, path[:2])}
+		return contributedTarget(kustomizeSubstitutionPrefix(system.InstallTierName()), path[4:])
 	case section == "flux" && len(path) >= 6 && path[2] == "resources" && isSubstitutionKey(path[4]):
-		return contributedTarget(fluxResourcesSubstitutionPrefix(itemName(doc, path[:2]), itemName(doc, path[:4])), path[5:])
+		system := blueprintv1alpha1.FluxSystem{Name: itemName(doc, path[:2])}
+		return contributedTarget(kustomizeSubstitutionPrefix(system.ResourcesTierName(itemName(doc, path[:4]))), path[5:])
 	}
 	return facetTarget{}, false
 }

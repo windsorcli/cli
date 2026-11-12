@@ -43,6 +43,20 @@ func (sys FluxSystem) TierNames() []string {
 	return names
 }
 
+// InstallTierName returns the compiled Kustomization name of the system's install tier.
+func (sys FluxSystem) InstallTierName() string {
+	return sys.Name + "-install"
+}
+
+// ResourcesTierName returns the compiled Kustomization name of a resources variant.
+// An empty variantName selects the unnamed variant.
+func (sys FluxSystem) ResourcesTierName(variantName string) string {
+	if variantName == "" {
+		return sys.Name + "-resources"
+	}
+	return sys.Name + "-resources-" + variantName
+}
+
 // EffectivePath returns the system's Path. If Path is empty, it returns the Name.
 // This is the single source for the default that compileFluxSystemTiers applies to each tier.
 // Use this method, not the Path field, to read a system's path outside tier compilation.
@@ -247,9 +261,8 @@ func (k *Kustomization) fluxPostBuild(configMaps ...map[string]map[string]string
 // The system's Secrets attach to its namespace-owning tier — the install tier when declared, else
 // the first resources tier (out[0]).
 func compileFluxSystemTiers(sys FluxSystem) []Kustomization {
-	name := sys.Name
 	base := sys.EffectivePath()
-	installName := name + "-install"
+	installName := sys.InstallTierName()
 
 	var out []Kustomization
 
@@ -266,12 +279,8 @@ func compileFluxSystemTiers(sys FluxSystem) []Kustomization {
 	}
 
 	for _, v := range sys.Resources {
-		variantName := name + "-resources"
-		if v.Name != "" {
-			variantName += "-" + v.Name
-		}
 		k := *v.Kustomization.DeepCopy()
-		k.Name = variantName
+		k.Name = sys.ResourcesTierName(v.Name)
 		k.Path = path.Join(base, "resources")
 		if sys.Install != nil {
 			k.DependsOn = append([]string{installName}, v.DependsOn...)

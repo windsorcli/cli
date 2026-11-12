@@ -287,6 +287,64 @@ func TestExplain(t *testing.T) {
 	})
 }
 
+func TestExplainFluxTiers(t *testing.T) {
+	run := func(t *testing.T, path string) (string, string, error) {
+		t.Helper()
+		dir, env := helpers.PrepareFixture(t, "explain-flux")
+		env = append(env, "WINDSOR_CONTEXT=default")
+		stdout, stderr, err := helpers.RunCLI(dir, []string{"explain", path}, env)
+		return string(stdout), string(stderr), err
+	}
+
+	t.Run("InstallTierSubstitutionMergedFromTwoFacets", func(t *testing.T) {
+		t.Parallel()
+		stdout, stderr, err := run(t, "kustomize.demo-install.substitutions.greeting")
+		if err != nil {
+			t.Fatalf("explain failed: %v\nstderr: %s", err, stderr)
+		}
+		assertExplainOutput(t, stdout, explainExpectation{
+			header:         "kustomize.demo-install.substitutions.greeting = goodbye",
+			sourceContains: "demo-overlay.yaml:15",
+		})
+	})
+
+	t.Run("ResourcesTierSubstitution", func(t *testing.T) {
+		t.Parallel()
+		stdout, stderr, err := run(t, "kustomize.demo-resources-extra.substitutions.color")
+		if err != nil {
+			t.Fatalf("explain failed: %v\nstderr: %s", err, stderr)
+		}
+		assertExplainOutput(t, stdout, explainExpectation{
+			header:         "kustomize.demo-resources-extra.substitutions.color = blue",
+			sourceContains: "demo.yaml:21",
+		})
+	})
+
+	t.Run("InstallTierComponents", func(t *testing.T) {
+		t.Parallel()
+		stdout, stderr, err := run(t, "kustomize.demo-install.components")
+		if err != nil {
+			t.Fatalf("explain failed: %v\nstderr: %s", err, stderr)
+		}
+		for _, want := range []string{"helm-release", "demo.yaml:13", "metrics", "demo-overlay.yaml:13"} {
+			if !strings.Contains(stdout, want) {
+				t.Errorf("want %q in output:\n%s", want, stdout)
+			}
+		}
+	})
+
+	t.Run("UnknownTierFails", func(t *testing.T) {
+		t.Parallel()
+		_, stderr, err := run(t, "kustomize.demo-resources-missing.substitutions.color")
+		if err == nil {
+			t.Fatal("expected failure for a tier that does not exist")
+		}
+		if !strings.Contains(stderr, `kustomization "demo-resources-missing" not found`) {
+			t.Errorf("stderr should name the missing tier; got:\n%s", stderr)
+		}
+	})
+}
+
 // explainExpectation defines expected content of windsor explain output.
 type explainExpectation struct {
 	header             string

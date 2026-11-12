@@ -277,8 +277,8 @@ func TestDefaultTraceCollector_UnusedFacetValue(t *testing.T) {
 		cases := map[string]string{
 			"direct:v1":  "terraform.cluster/talos.inputs.image",
 			"app:v1":     "kustomize.app.substitutions.image",
-			"install:v1": "flux.csi.install.substitutions.image",
-			"extra:v1":   "flux.csi.resources-extra.substitutions.image",
+			"install:v1": "kustomize.csi-install.substitutions.image",
+			"extra:v1":   "kustomize.csi-resources-extra.substitutions.image",
 			"global:v1":  "substitutions.image",
 		}
 		for value, composedPath := range cases {

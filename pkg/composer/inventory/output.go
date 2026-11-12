@@ -1,13 +1,12 @@
 // The output encoders turn an Inventory into the formats that relocation tools read.
 // It provides the Flux Mirror config and the destination<TAB>upstream line format.
-// The Flux Mirror config selects exact tags, so a semver selector never picks a sibling tag.
+// The Flux Mirror config names each exact tag, so Flux Mirror lists no source repository tags.
 // An artifact with no destination, or one that is already in the chart registry, stays out of the config.
 
 package inventory
 
 import (
 	"fmt"
-	"regexp"
 	"strings"
 )
 
@@ -38,7 +37,7 @@ type FluxMirrorChart struct {
 	Version     string `yaml:"version"`
 }
 
-// FluxMirrorArtifact copies the tags that its selector matches from one OCI repository to another.
+// FluxMirrorArtifact copies the tags that its selector names from one OCI repository to another.
 type FluxMirrorArtifact struct {
 	Source           string             `yaml:"source"`
 	Destination      string             `yaml:"destination"`
@@ -46,14 +45,9 @@ type FluxMirrorArtifact struct {
 	IncludeReferrers bool               `yaml:"includeReferrers"`
 }
 
-// FluxMirrorSelector selects tags by a regular expression.
+// FluxMirrorSelector selects an exact list of tags.
 type FluxMirrorSelector struct {
-	Regex FluxMirrorRegex `yaml:"regex"`
-}
-
-// FluxMirrorRegex holds the tag pattern of a selector.
-type FluxMirrorRegex struct {
-	Pattern string `yaml:"pattern"`
+	Tags []string `yaml:"tags"`
 }
 
 // =============================================================================
@@ -84,9 +78,9 @@ func (e Entry) Upstream() string {
 
 // FluxMirror returns the Flux Mirror config of inv and a note for each artifact it leaves out.
 // It writes an HTTP chart as a charts entry with an exact version, and an OCI chart or image as an
-// artifacts entry that selects ^<tag>$. The entry includes referrers unless the artifact has
-// NoReferrers. It leaves out an artifact with no destination or no tag, and a chart whose upstream
-// is already in chartsTo. It needs chartsTo when inv has a chart.
+// artifacts entry whose selector.tags holds its one tag. The entry includes referrers unless the
+// artifact has NoReferrers. It leaves out an artifact with no destination or no tag, and a chart
+// whose upstream is already in chartsTo. It needs chartsTo when inv has a chart.
 func FluxMirror(inv Inventory, chartsTo string) (FluxMirrorConfig, []string, error) {
 	registry := normalizeRegistry(chartsTo)
 	cfg := FluxMirrorConfig{APIVersion: FluxMirrorAPIVersion, Kind: "Config"}
@@ -119,7 +113,7 @@ func FluxMirror(inv Inventory, chartsTo string) (FluxMirrorConfig, []string, err
 		cfg.Artifacts = append(cfg.Artifacts, FluxMirrorArtifact{
 			Source:           e.Reference,
 			Destination:      destination,
-			Selector:         FluxMirrorSelector{Regex: FluxMirrorRegex{Pattern: "^" + regexp.QuoteMeta(e.Version) + "$"}},
+			Selector:         FluxMirrorSelector{Tags: []string{e.Version}},
 			IncludeReferrers: !e.NoReferrers,
 		})
 	}

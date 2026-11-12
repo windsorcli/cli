@@ -1,6 +1,8 @@
 package blueprint_test
 
 import (
+	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
 	"slices"
@@ -8,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/goccy/go-yaml"
 	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
 	"github.com/windsorcli/cli/internal/werror"
 	"github.com/windsorcli/cli/pkg/composer/blueprint"
@@ -272,6 +275,199 @@ func TestProcessor_ProcessGlobally_ConfigRoundTrace(t *testing.T) {
 		if unused, note := tc.UnusedFacetValue(facetPath, 10); unused || note != "" {
 			t.Errorf("Expected develop to be used, got unused=%v note=%q", unused, note)
 		}
+	})
+}
+
+func TestProcessor_ProcessGlobally_FluxTraces(t *testing.T) {
+	setup := func(t *testing.T, facetFiles ...string) *blueprint.DefaultTraceCollector {
+		t.Helper()
+		mocks := setupProcessorMocks(t)
+		processor := blueprint.NewBlueprintProcessor(mocks.Runtime)
+		collector := blueprint.NewTraceCollector()
+		processor.SetTraceCollector(collector)
+		target := &blueprintv1alpha1.Blueprint{}
+		facets := make([]blueprintv1alpha1.Facet, 0, len(facetFiles))
+		for i, content := range facetFiles {
+			path := filepath.Join(t.TempDir(), fmt.Sprintf("facet-%d.yaml", i))
+			if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+				t.Fatalf("Expected facet file to be written, got %v", err)
+			}
+			var facet blueprintv1alpha1.Facet
+			if err := yaml.Unmarshal([]byte(content), &facet); err != nil {
+				t.Fatalf("Expected facet to parse, got %v", err)
+			}
+			facet.Path = path
+			facet.Metadata.Name = fmt.Sprintf("facet-%d", i)
+			facets = append(facets, facet)
+		}
+		if _, err := processFacets(processor, target, facets, "template"); err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		collector.Finalize(target, nil, "")
+		return collector
+	}
+
+	assertEffective := func(t *testing.T, trace *blueprint.ExplainTrace, wantValue, wantFile string, wantLine int) {
+		t.Helper()
+		if trace.Value != wantValue {
+			t.Errorf("Expected value %q, got %q", wantValue, trace.Value)
+		}
+		for _, c := range trace.Contributions {
+			if !c.Effective {
+				continue
+			}
+			if c.FacetPath != wantFile || c.Line != wantLine {
+				t.Errorf("Expected effective source %s:%d, got %s:%d", wantFile, wantLine, c.FacetPath, c.Line)
+			}
+			return
+		}
+		t.Errorf("Expected an effective contribution, got %+v", trace.Contributions)
+	}
+
+	demoFacet := `flux:
+- name: demo
+  install:
+    components:
+    - helm-release
+    substitutions:
+      greeting: hello
+  resources:
+  - name: extra
+    components:
+    - issuer
+    substitutions:
+      color: blue
+  - components:
+    - unnamed
+    substitute:
+      shade: dark
+`
+
+	overlayFacet := `ordinal: 200
+flux:
+- name: demo
+  install:
+    components:
+    - metrics
+    substitutions:
+      greeting: goodbye
+`
+
+	t.Run("TracesSubstitutionsOfASingleFacet", func(t *testing.T) {
+		// Given one facet with a flux system
+		collector := setup(t, demoFacet)
+
+		// When explaining the substitutions of the compiled tiers
+		install, installErr := collector.GetTrace("kustomize.demo-install.substitutions.greeting")
+		extra, extraErr := collector.GetTrace("kustomize.demo-resources-extra.substitutions.color")
+
+		// Then each trace has the value and its facet line
+		if installErr != nil || extraErr != nil {
+			t.Fatalf("Expected traces, got %v and %v", installErr, extraErr)
+		}
+		assertEffective(t, install, "hello", "facet-0.yaml", 7)
+		assertEffective(t, extra, "blue", "facet-0.yaml", 13)
+	})
+
+	t.Run("TracesTheSubstituteAliasOfAnUnnamedVariant", func(t *testing.T) {
+		// Given a facet with an unnamed resources variant that uses substitute
+		collector := setup(t, demoFacet)
+
+		// When explaining the substitution of the unnamed tier
+		trace, err := collector.GetTrace("kustomize.demo-resources.substitutions.shade")
+
+		// Then the trace has the value and its facet line
+		if err != nil {
+			t.Fatalf("Expected a trace, got %v", err)
+		}
+		assertEffective(t, trace, "dark", "facet-0.yaml", 17)
+	})
+
+	t.Run("TracesEachComponentToItsLine", func(t *testing.T) {
+		// Given one facet with tier components
+		collector := setup(t, demoFacet)
+
+		// When explaining the components of a resources tier
+		trace, err := collector.GetTrace("kustomize.demo-resources-extra.components")
+
+		// Then the component has its own facet line
+		if err != nil {
+			t.Fatalf("Expected a trace, got %v", err)
+		}
+		if len(trace.Contributions) != 1 || trace.Contributions[0].Expression != "issuer" || trace.Contributions[0].Line != 11 {
+			t.Errorf("Expected issuer at line 11, got %+v", trace.Contributions)
+		}
+	})
+
+	t.Run("TracesValuesThatTwoFacetsMergeIntoOneSystem", func(t *testing.T) {
+		// Given two facets that merge into one flux system
+		collector := setup(t, demoFacet, overlayFacet)
+
+		// When explaining a substitution and the components of the install tier
+		substitution, substitutionErr := collector.GetTrace("kustomize.demo-install.substitutions.greeting")
+		components, componentsErr := collector.GetTrace("kustomize.demo-install.components")
+
+		// Then the higher ordinal wins and both facets are sources
+		if substitutionErr != nil || componentsErr != nil {
+			t.Fatalf("Expected traces, got %v and %v", substitutionErr, componentsErr)
+		}
+		assertEffective(t, substitution, "goodbye", "facet-1.yaml", 8)
+		if len(substitution.Contributions) != 2 {
+			t.Errorf("Expected 2 contributions, got %+v", substitution.Contributions)
+		}
+		got := map[string]string{}
+		for _, c := range components.Contributions {
+			got[c.Expression] = fmt.Sprintf("%s:%d", c.FacetPath, c.Line)
+		}
+		want := map[string]string{"helm-release": "facet-0.yaml:5", "metrics": "facet-1.yaml:6"}
+		if !maps.Equal(got, want) {
+			t.Errorf("Expected component sources %v, got %v", want, got)
+		}
+	})
+
+	t.Run("FindsTheLineOfTheActiveVariantWhenAnEarlierOneIsFiltered", func(t *testing.T) {
+		// Given two unnamed variants and a when condition that filters the first
+		collector := setup(t, `flux:
+- name: demo
+  resources:
+  - when: "1 == 2"
+    substitutions:
+      key: first
+  - substitutions:
+      key: second
+`)
+
+		// When explaining the key of the unnamed tier
+		trace, err := collector.GetTrace("kustomize.demo-resources.substitutions.key")
+
+		// Then the line is in the active variant
+		if err != nil {
+			t.Fatalf("Expected a trace, got %v", err)
+		}
+		assertEffective(t, trace, "second", "facet-0.yaml", 8)
+	})
+
+	t.Run("FindsTheLineInASecondBlockWithTheSameName", func(t *testing.T) {
+		// Given a facet that declares the same system in two blocks
+		collector := setup(t, `flux:
+- name: demo
+  install:
+    substitutions:
+      first: one
+- name: demo
+  install:
+    substitutions:
+      second: two
+`)
+
+		// When explaining the key that only the second block sets
+		trace, err := collector.GetTrace("kustomize.demo-install.substitutions.second")
+
+		// Then the line is in the second block
+		if err != nil {
+			t.Fatalf("Expected a trace, got %v", err)
+		}
+		assertEffective(t, trace, "two", "facet-0.yaml", 9)
 	})
 }
 
