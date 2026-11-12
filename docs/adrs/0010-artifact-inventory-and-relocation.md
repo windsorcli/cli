@@ -1,7 +1,8 @@
 # ADR 0010 — Artifact inventory: list what a context pulls and where each artifact goes
 
 - Status: Proposed. Supersedes the single HelmRepository patch proposed in cli#3376.
-- Date: 2026-10-28; revised 2026-11-05 (artifact tags replace rendering)
+- Date: 2026-10-28; revised 2026-11-05 (artifact tags replace rendering); revised 2026-11-12
+  (blueprint sources follow the image mirrors, and `registries` replaces `docker.registries`)
 - Deciders: Ryan VanGundy
 - Surfaced while designing core's chart registry
   ([core ADR 0020](https://github.com/windsorcli/core/blob/main/docs/adr/0020-helm-chart-registry.md)),
@@ -39,9 +40,9 @@ scanner works offline and needs no rendering. This ADR reuses it for the `artifa
 
 Core ADR 0020 puts every chart at `<chart registry>/<chart name>:<chart version>`, the reference
 `helm push` writes, and swaps the Flux source objects to point there. Images use containerd's
-per-host mirrors (`docker.registries`), which keep the upstream path and leave manifests alone. A
-mirror maps a host, not a repository, so an image cannot move into the flat chart layout. The
-two kinds need different destinations from the same list.
+per-host mirrors (`registries`, Decision 9), which keep the upstream path and leave manifests
+alone. A mirror maps a host, not a repository, so an image cannot move into the flat chart
+layout. The two kinds need different destinations from the same list.
 
 ### cli#3376
 
@@ -57,7 +58,8 @@ manifests, so the CLI has no chart rewrite to do.
 
 The command prints every artifact that a tag names in the files that the current context uses
 (Decision 3): kind (`chart` or `image`), upstream reference, version, destination when one is
-configured, and the file that declares it. It copies nothing. Copying stays with Flux Mirror or
+configured, and the file that declares it. It also lists each `oci://` blueprint source as kind
+`blueprint` (Decision 8). It copies nothing. Copying stays with Flux Mirror or
 any tool that reads the list.
 
 ```sh
@@ -168,10 +170,11 @@ not use.
 - A chart goes to `<--charts-to>/<chart name>:<chart version>`, the layout `helm push` and Flux
   Mirror both write. The CLI does not read a chart registry from blueprint values, since the
   key's name belongs to the blueprint's schema. Core passes its `charts.registry` value.
-- An image goes to the mirror the context's `docker.registries` configures for its upstream
+- An image goes to the mirror the context's `registries` configures for its upstream
   host, under its upstream path and tag. An entry is a mirror only when it sets `endpoint`.
   The key `*` applies to each host with no entry. The command fails when two
   different images have the same destination.
+- A blueprint source goes to the same mirror as an image from its host (Decision 8).
 - An image with no mirror is listed with no destination. `-o flux-mirror` leaves it out and
   names it on stderr.
 - A chart whose tag names a repository under `--charts-to` stays out of `-o flux-mirror`, and the
@@ -211,6 +214,63 @@ the BOM and `windsor show artifacts` read one source.
 `windsor bundle` makes no registry calls and has no render step. The BOM has no graph from a
 Kustomization to its artifacts, because the tag scan does not know which component a tag serves.
 
+### 8. Blueprint sources follow the image mirrors
+
+A copy of a blueprint artifact is not sufficient. Two clients pull an `oci://` source from the
+literal `sources[].url`:
+
+- The CLI pulls each source into its OCI cache, nested sources included. The Terraform module
+  resolver reads modules from that cache, so Terraform pulls nothing itself.
+- Flux source-controller pulls the `OCIRepository` that the CLI applies for each source.
+
+The CLI loads sources before it composes the blueprint, so a blueprint value cannot redirect them.
+Core's `charts.registry` works because core writes its own chart sources. The CLI writes the
+blueprint `OCIRepository`, so the CLI does this redirect.
+
+A blueprint source is a full OCI reference with a host and a path, like an image. Thus it uses
+the image rule of Decision 4:
+
+- A blueprint entry goes to the mirror that `registries` configures for its upstream host,
+  under its upstream path and tag. The check for two images with one destination also covers
+  blueprint entries.
+- `-o flux-mirror` writes a blueprint entry as an `artifacts` entry with `selector.tags: [<tag>]`
+  and `includeReferrers: true`. Signatures and SBOMs travel with the artifact.
+- A source with no exact tag, such as a digest only or a `semver` range, gets no config entry.
+  The command names it on stderr, as for an image with no tag.
+
+When the context has a mirror for the host of an `oci://` source, the CLI pulls from the mirror:
+
+- The CLI rewrites the URL at the pull in `pkg/composer/artifact`. Direct sources, nested sources,
+  and Terraform modules all go through this pull.
+- The CLI sets the mirror URL in `spec.url` of the `OCIRepository`. When the mirror endpoint uses
+  `http://`, the CLI also sets `spec.insecure: true`.
+- The composed blueprint, the OCI cache key, `windsor show blueprint`, and the inventory keep the
+  upstream URL. Thus `windsor show artifacts` still names the source to copy from.
+- A digest stays valid, because Flux Mirror copies the artifact byte for byte.
+
+A `registries` entry with `endpoint` turns the redirect on for its host, for images and
+blueprint sources together. An entry with no `endpoint` turns it off. A workstation registry proxy
+sets no `endpoint`, so it does not change a pull.
+
+### 9. A top-level `registries` key replaces `docker.registries`
+
+The `docker.registries` map now does three jobs. Its `remote` and `hostport` fields configure the
+workstation registry containers. Its `endpoint` field sets the containerd mirror on the cluster
+nodes, and Decisions 4 and 8 read it for image and blueprint destinations. Only the first job
+belongs to Docker. Thus the map moves to a top-level `registries` key, with the same entries and
+fields. The cli config API types `endpoint` on the new key.
+
+`endpoint` is new in v0.10.0. The rename ships in the same release, so registry mode starts on
+`registries`. The deprecation path is:
+
+1. The CLI reads `registries`. When only `docker.registries` is set, the CLI reads it and gives a
+   warning that names `registries`. A context that sets both keys fails.
+2. The CLI gives one `registries` map to the composed values. A facet reads `registries`, whatever
+   key the user wrote.
+3. Core moves its facets, its schema, and its tests to `registries`. `windsor init` writes
+   `registries`.
+4. A later release removes `docker.registries`.
+
 ## Consequences
 
 Core deletes `flux-mirror.yaml` and its comparison check once `-o flux-mirror` ships. Any
@@ -232,6 +292,15 @@ The default list holds the tags of the files that the context uses, each tag in 
 composed blueprint uses. A tag on a facet value that no composed value reads is not in the list, so
 a facet author MUST put the tag on the value that the blueprint consumes. A site that enables
 another component syncs again first.
+
+A site configures one mirror for each upstream host, and images and blueprint sources share it. A
+context cannot redirect the images of a host and keep its blueprint sources on the upstream. The
+host that runs the CLI MUST reach the mirror at the address in `endpoint`. On an air-gapped site
+that host is inside the network. A workstation can fail when the endpoint name resolves only in
+the cluster.
+
+A context that sets `docker.registries` keeps working until the later release removes it, and
+each command gives the warning until the user moves the map.
 
 The CLI removes the Flux render, the Helm chart render, the FluxInstance extractor, and the
 flux-operator dependency that the first version of `windsor show artifacts` needed. It takes on a
@@ -277,6 +346,18 @@ re-runs. The CLI's job is the list.
 ### One composer patch over every HelmRepository (cli#3376)
 
 Rejected, for the reasons in Context.
+
+### A separate key for the blueprint source registry
+
+A CLI key in `windsor.yaml`, with a `--blueprints-to` flag, would name the registry for blueprint
+sources. Rejected: it usually holds the same registry as `registries`. A user who sets one
+and forgets the other gets a failed pull.
+
+### Mirror URLs written in `sources[].url`
+
+The user would write the mirror URL into the blueprint of each context. Rejected: it does not reach
+nested sources. The inventory would also read the mirror as the upstream, so Flux Mirror would copy
+the registry onto itself.
 
 ## References
 
