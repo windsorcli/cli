@@ -128,6 +128,7 @@ func (p *BaseBlueprintProcessor) collectTerraformComponents(
 		if len(sourceName) > 0 {
 			sn = sourceName[0]
 		}
+		entryKey := traceEntryKey(sn, "terraform", componentID)
 		for k, v := range tc.Inputs {
 			composedPath := "terraform." + componentID + ".inputs." + k
 			p.recordTrace(composedPath, TraceContribution{
@@ -137,17 +138,18 @@ func (p *BaseBlueprintProcessor) collectTerraformComponents(
 				Strategy:   strategy,
 				Line:       yamlNodeLine(facet.Path, "terraform", namedItem(componentID), "inputs", k),
 				RawValue:   deepCopyValue(v),
+				Entry:      entryKey,
 			})
 		}
 
-		if _, exists := terraformByID[componentID]; !exists {
+		previous := terraformByID[componentID]
+		if previous == nil {
 			processed.Strategy = strategy
 			terraformByID[componentID] = &processed
-		} else {
-			if err := p.updateTerraformComponentEntry(componentID, &processed, strategy, terraformByID, facetScope); err != nil {
-				return err
-			}
+		} else if err := p.updateTerraformComponentEntry(componentID, &processed, strategy, terraformByID, facetScope); err != nil {
+			return err
 		}
+		settleEntryTrace(p, entryKey, previous, &processed, terraformByID[componentID])
 	}
 	return nil
 }
@@ -155,6 +157,7 @@ func (p *BaseBlueprintProcessor) collectTerraformComponents(
 // recordKustomizationTraces records the source of each substitution and component of a kustomization,
 // so `windsor explain` can name the facet, source, and line of each value.
 func (p *BaseBlueprintProcessor) recordKustomizationTraces(name string, rawComponents []string, rawSubstitutions map[string]string, facetPath, sourceName string, ordinal int, strategy string) {
+	entryKey := traceEntryKey(sourceName, "kustomize", name)
 	for sk, sv := range rawSubstitutions {
 		p.recordTrace(kustomizeSubstitutionPrefix(name)+sk, TraceContribution{
 			FacetPath:  facetPath,
@@ -163,6 +166,7 @@ func (p *BaseBlueprintProcessor) recordKustomizationTraces(name string, rawCompo
 			Strategy:   strategy,
 			Line:       yamlNodeLine(facetPath, "kustomize", namedItem(name), "substitutions", sk),
 			RawValue:   deepCopyValue(sv),
+			Entry:      entryKey,
 		})
 	}
 	if len(rawComponents) > 0 {
@@ -173,6 +177,7 @@ func (p *BaseBlueprintProcessor) recordKustomizationTraces(name string, rawCompo
 			Strategy:      strategy,
 			Line:          yamlNodeLine(facetPath, "kustomize", namedItem(name), "components"),
 			RawComponents: slices.Clone(rawComponents),
+			Entry:         entryKey,
 		})
 	}
 }
@@ -253,14 +258,17 @@ func (p *BaseBlueprintProcessor) collectKustomizations(facet blueprintv1alpha1.F
 		}
 
 		addEntry := func(entry blueprintv1alpha1.ConditionalKustomization) error {
-			if _, exists := kustomizationByName[entry.Name]; !exists {
+			previous := kustomizationByName[entry.Name]
+			if previous == nil {
 				entry.Strategy = strategy
 				stored := new(blueprintv1alpha1.ConditionalKustomization)
 				*stored = entry
 				kustomizationByName[entry.Name] = stored
-				return nil
+			} else if err := p.updateKustomizationEntry(entry.Name, &entry, strategy, kustomizationByName, facetScope); err != nil {
+				return err
 			}
-			return p.updateKustomizationEntry(entry.Name, &entry, strategy, kustomizationByName, facetScope)
+			settleEntryTrace(p, traceEntryKey(sn, "kustomize", entry.Name), previous, &entry, kustomizationByName[entry.Name])
+			return nil
 		}
 
 		p.recordKustomizationTraces(processed.Name, k.Components, mergeSubstitute(k.Kustomization), facet.Path, sn, effectiveOrdinal, strategy)
@@ -476,7 +484,7 @@ func (p *BaseBlueprintProcessor) collectFluxSystems(facet blueprintv1alpha1.Face
 				return werror.Wrap(err, "error evaluating install substitutions for system '%s'", system.Name)
 			}
 
-			p.recordFluxTierTraces(system.InstallTierName(), []any{"flux", seqIndex(systemIndex), "install"}, *system.Install, comps, facet.Path, sourceName, effectiveOrdinal, strategy)
+			p.recordFluxTierTraces(system.Name, system.InstallTierName(), []any{"flux", seqIndex(systemIndex), "install"}, *system.Install, comps, facet.Path, sourceName, effectiveOrdinal, strategy)
 			system.Install = &installCopy
 		}
 
@@ -524,7 +532,7 @@ func (p *BaseBlueprintProcessor) collectFluxSystems(facet blueprintv1alpha1.Face
 				return werror.Wrap(err, "error evaluating resources substitutions for system '%s'", system.Name)
 			}
 
-			p.recordFluxTierTraces(variantKey, []any{"flux", seqIndex(systemIndex), "resources", seqIndex(variantIndex)}, v.Kustomization, comps, facet.Path, sourceName, effectiveOrdinal, strategy)
+			p.recordFluxTierTraces(system.Name, variantKey, []any{"flux", seqIndex(systemIndex), "resources", seqIndex(variantIndex)}, v.Kustomization, comps, facet.Path, sourceName, effectiveOrdinal, strategy)
 			evaluatedResources = append(evaluatedResources, evalV)
 		}
 		system.Resources = evaluatedResources
@@ -532,14 +540,18 @@ func (p *BaseBlueprintProcessor) collectFluxSystems(facet blueprintv1alpha1.Face
 		system.Strategy = strategy
 		system.When = ""
 
-		if _, exists := fluxSystemByName[system.Name]; !exists {
+		previous := fluxSystemByName[system.Name]
+		if previous == nil {
 			stored := system
 			fluxSystemByName[system.Name] = &stored
-			continue
-		}
-		if err := p.updateFluxSystemEntry(system.Name, &system, strategy, fluxSystemByName); err != nil {
+		} else if err := p.updateFluxSystemEntry(system.Name, &system, strategy, fluxSystemByName); err != nil {
 			return err
 		}
+		sn := ""
+		if len(sourceName) > 0 {
+			sn = sourceName[0]
+		}
+		settleEntryTrace(p, traceEntryKey(sn, "flux", system.Name), previous, &system, fluxSystemByName[system.Name])
 	}
 	return nil
 }
@@ -547,7 +559,7 @@ func (p *BaseBlueprintProcessor) collectFluxSystems(facet blueprintv1alpha1.Face
 // recordFluxTierTraces records the source of each substitution and component of one compiled flux tier
 // under its kustomize.<tier> path. The tierPath segments locate the tier in the facet file. The raw value
 // holds the unevaluated tier, and components holds its evaluated list. It does nothing without a collector.
-func (p *BaseBlueprintProcessor) recordFluxTierTraces(tier string, tierPath []any, raw blueprintv1alpha1.Kustomization, components []string, facetPath string, sourceName []string, ordinal int, strategy string) {
+func (p *BaseBlueprintProcessor) recordFluxTierTraces(system, tier string, tierPath []any, raw blueprintv1alpha1.Kustomization, components []string, facetPath string, sourceName []string, ordinal int, strategy string) {
 	if p.traceCollector == nil {
 		return
 	}
@@ -555,6 +567,7 @@ func (p *BaseBlueprintProcessor) recordFluxTierTraces(tier string, tierPath []an
 	if len(sourceName) > 0 {
 		sn = sourceName[0]
 	}
+	entryKey := traceEntryKey(sn, "flux", system)
 	for key, value := range mergeSubstitute(raw) {
 		field := "substitutions"
 		if _, ok := raw.Substitute[key]; ok {
@@ -567,6 +580,7 @@ func (p *BaseBlueprintProcessor) recordFluxTierTraces(tier string, tierPath []an
 			Strategy:   strategy,
 			Line:       yamlNodeLine(facetPath, slices.Concat(tierPath, []any{field, key})...),
 			RawValue:   value,
+			Entry:      entryKey,
 		})
 	}
 	if len(raw.Components) == 0 {
@@ -584,6 +598,7 @@ func (p *BaseBlueprintProcessor) recordFluxTierTraces(tier string, tierPath []an
 		Line:           yamlNodeLine(facetPath, slices.Concat(tierPath, []any{"components"})...),
 		RawComponents:  slices.Clone(raw.Components),
 		ComponentLines: lines,
+		Entry:          entryKey,
 	})
 }
 

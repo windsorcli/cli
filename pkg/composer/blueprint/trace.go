@@ -23,7 +23,8 @@ import (
 // TraceContribution records a single per-key contribution from a facet during composition.
 // Recorded at the per-key level (e.g. "terraform.networking.inputs.domain_name") with all
 // metadata resolved at record time so no retroactive YAML reparsing is needed. ScopeRefs
-// are pre-extracted from expressions during recording.
+// are pre-extracted from expressions during recording. Entry names the merged entry that holds
+// the key, so SettleEntry can discard the contribution when the merge drops that entry.
 type TraceContribution struct {
 	FacetPath      string
 	SourceName     string
@@ -34,6 +35,9 @@ type TraceContribution struct {
 	RawComponents  []string
 	ComponentLines map[string]int
 	ScopeRefs      []string
+	Entry          string
+	generation     int
+	discarded      bool
 }
 
 // ConfigBlockRecord records a config block value for scope reference resolution. ScopeRefs
@@ -59,6 +63,7 @@ type DefaultTraceCollector struct {
 	facets        map[string]bool
 
 	blueprintValues []any
+	generations     map[string]int
 
 	blueprint    *blueprintv1alpha1.Blueprint
 	scope        map[string]any
@@ -81,6 +86,7 @@ type TraceCollector interface {
 	ResetConfigBlocks(facetPaths []string)
 	RecordFacet(facetPath string)
 	RecordBlueprintValue(value any)
+	SettleEntry(entry string, keepExisting, keepNew bool)
 	Finalize(bp *blueprintv1alpha1.Blueprint, scope map[string]any, templateRoot string)
 	GetTrace(pathStr string) (*ExplainTrace, error)
 }
@@ -95,6 +101,7 @@ func NewTraceCollector() *DefaultTraceCollector {
 		contributions: make(map[string][]TraceContribution),
 		configBlocks:  make(map[string][]ConfigBlockRecord),
 		facets:        make(map[string]bool),
+		generations:   make(map[string]int),
 	}
 }
 
@@ -110,8 +117,31 @@ func (c *DefaultTraceCollector) RecordContribution(composedPath string, tc Trace
 		tc.ScopeRefs = extractRefsFromValue(tc.RawValue)
 	}
 	c.mu.Lock()
+	tc.generation = c.generations[tc.Entry]
 	c.contributions[composedPath] = append(c.contributions[composedPath], tc)
 	c.mu.Unlock()
+}
+
+// SettleEntry applies the result of one merge to the contributions of entry. New contributions are
+// those recorded since the last call for entry, and existing contributions are all the others.
+// It discards each group that the merge did not keep. Thread-safe.
+func (c *DefaultTraceCollector) SettleEntry(entry string, keepExisting, keepNew bool) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	current := c.generations[entry]
+	for path := range c.contributions {
+		records := c.contributions[path]
+		for i := range records {
+			if records[i].Entry != entry {
+				continue
+			}
+			isNew := records[i].generation == current
+			if (isNew && !keepNew) || (!isNew && !keepExisting) {
+				records[i].discarded = true
+			}
+		}
+	}
+	c.generations[entry] = current + 1
 }
 
 // RecordConfigBlock stores a config block value and pre-extracts scope references, nested
@@ -210,29 +240,22 @@ func (c *DefaultTraceCollector) GetTrace(pathStr string) (*ExplainTrace, error) 
 		}
 		trace.Value = formatValue(v)
 		composedPath := fmt.Sprintf("terraform.%s.inputs.%s", p.Segment, p.Key)
-		trace.Contributions = c.buildContributions(composedPath)
+		trace.Contributions = c.buildContributions(composedPath, true)
 
 	case ExplainPathKindKustomizeSubstitution:
 		k := findKustomization(bp, p.Segment)
 		if k == nil {
 			return nil, fmt.Errorf("kustomization %q not found in blueprint", p.Segment)
 		}
-		if k.Substitutions == nil {
-			trace.Value = ""
-			composedPath := fmt.Sprintf("kustomize.%s.substitutions.%s", p.Segment, p.Key)
-			trace.Contributions = c.buildContributions(composedPath)
-			return trace, nil
-		}
+		composedPath := fmt.Sprintf("kustomize.%s.substitutions.%s", p.Segment, p.Key)
 		val, ok := k.Substitutions[p.Key]
 		if !ok {
 			trace.Value = ""
-			composedPath := fmt.Sprintf("kustomize.%s.substitutions.%s", p.Segment, p.Key)
-			trace.Contributions = c.buildContributions(composedPath)
+			trace.Contributions = c.buildContributions(composedPath, false)
 			return trace, nil
 		}
 		trace.Value = val
-		composedPath := fmt.Sprintf("kustomize.%s.substitutions.%s", p.Segment, p.Key)
-		trace.Contributions = c.buildContributions(composedPath)
+		trace.Contributions = c.buildContributions(composedPath, true)
 
 	case ExplainPathKindKustomizeComponents:
 		k := findKustomization(bp, p.Segment)
@@ -259,10 +282,9 @@ func (c *DefaultTraceCollector) GetTrace(pathStr string) (*ExplainTrace, error) 
 		trace.Contributions = []ExplainContribution{{SourceName: "composition (runtime config)", Effective: true}}
 
 	case ExplainPathKindSubstitution:
-		if bp.Substitutions != nil {
-			trace.Value = bp.Substitutions[p.Key]
-		}
-		trace.Contributions = c.buildContributions("substitutions." + p.Key)
+		val, ok := bp.Substitutions[p.Key]
+		trace.Value = val
+		trace.Contributions = c.buildContributions("substitutions."+p.Key, ok)
 
 	default:
 		return nil, errors.New("unknown path kind")
@@ -278,10 +300,11 @@ func (c *DefaultTraceCollector) GetTrace(pathStr string) (*ExplainTrace, error) 
 // =============================================================================
 
 // buildContributions converts recorded TraceContributions into ExplainContributions, sorts
-// by ordinal, and marks the effective contributor.
-func (c *DefaultTraceCollector) buildContributions(composedPath string) []ExplainContribution {
+// by ordinal, and marks the effective contributor. valuePresent reports whether the composed
+// entry holds the key.
+func (c *DefaultTraceCollector) buildContributions(composedPath string, valuePresent bool) []ExplainContribution {
 	contribs := c.toExplainContributions(composedPath)
-	return markEffective(contribs)
+	return markEffective(contribs, valuePresent)
 }
 
 // toExplainContributions converts recorded TraceContributions for a path into ExplainContributions
@@ -325,6 +348,7 @@ func (c *DefaultTraceCollector) traceToContribution(tc TraceContribution) Explai
 		Strategy:        tc.Strategy,
 		RawComponents:   tc.RawComponents,
 		componentLines:  tc.ComponentLines,
+		Discarded:       tc.discarded,
 		preComputedRefs: tc.ScopeRefs,
 	}
 
@@ -603,13 +627,12 @@ func collectNestedExprPaths(m map[string]any, prefix string) []string {
 	return out
 }
 
-// markEffective determines which contribution produced the final composed value and sets its
-// Effective flag. Contributions are sorted by ascending ordinal to ensure deterministic results
-// regardless of goroutine scheduling during parallel facet processing. A replace strategy resets
-// the effective index; for merge, the highest-ordinal contributor that defines the key wins.
-// Returns a placeholder when contributions are empty.
-func markEffective(contributions []ExplainContribution) []ExplainContribution {
-	if len(contributions) == 0 {
+// markEffective sets the Effective flag of the contribution that produced the composed value. It
+// sorts by ascending ordinal and considers only contributions that survive the merge. The
+// highest-ordinal survivor that defines the key wins. Without valuePresent, no contribution is
+// effective. With a value and no survivor, the composed blueprint is the effective source.
+func markEffective(contributions []ExplainContribution, valuePresent bool) []ExplainContribution {
+	if len(contributions) == 0 && !valuePresent {
 		return []ExplainContribution{{SourceName: "composed blueprint"}}
 	}
 	sort.SliceStable(contributions, func(i, j int) bool {
@@ -618,6 +641,9 @@ func markEffective(contributions []ExplainContribution) []ExplainContribution {
 	effectiveIdx := -1
 	for i := range contributions {
 		c := &contributions[i]
+		if !c.survivesMerge() {
+			continue
+		}
 		if c.Strategy == "replace" {
 			effectiveIdx = i
 		} else if c.HasValue {
@@ -626,8 +652,12 @@ func markEffective(contributions []ExplainContribution) []ExplainContribution {
 			effectiveIdx = i
 		}
 	}
-	if effectiveIdx >= 0 {
-		contributions[effectiveIdx].Effective = true
+	if !valuePresent {
+		return contributions
 	}
+	if effectiveIdx < 0 {
+		return append(contributions, ExplainContribution{SourceName: "composed blueprint", Effective: true})
+	}
+	contributions[effectiveIdx].Effective = true
 	return contributions
 }
