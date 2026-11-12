@@ -117,6 +117,37 @@ func TestFluxMirror(t *testing.T) {
 		}
 	})
 
+	t.Run("WritesBlueprintsAsArtifacts", func(t *testing.T) {
+		// Given a tagged blueprint and a blueprint with only a digest, both with a destination
+		inv := inventory.Inventory{Artifacts: []inventory.Entry{
+			{Kind: inventory.KindBlueprint, Transport: inventory.TransportOCI, Reference: "ghcr.io/windsorcli/core", Version: "v0.9.0", Destination: "mirror.test:5000/windsorcli/core:v0.9.0"},
+			{Kind: inventory.KindBlueprint, Transport: inventory.TransportOCI, Reference: "ghcr.io/windsorcli/extra", Digest: "sha256:abc", Destination: "mirror.test:5000/windsorcli/extra@sha256:abc"},
+		}}
+
+		// When FluxMirror is called
+		cfg, notes, err := inventory.FluxMirror(inv, "")
+
+		// Then the tagged blueprint selects its tag with referrers
+		if err != nil {
+			t.Fatalf("expected no error, got %v", err)
+		}
+		want := inventory.FluxMirrorArtifact{
+			Source:           "ghcr.io/windsorcli/core",
+			Destination:      "mirror.test:5000/windsorcli/core",
+			Selector:         inventory.FluxMirrorSelector{Tags: []string{"v0.9.0"}},
+			IncludeReferrers: true,
+		}
+		if len(cfg.Artifacts) != 1 || cfg.Artifacts[0].Source != want.Source || cfg.Artifacts[0].Destination != want.Destination ||
+			len(cfg.Artifacts[0].Selector.Tags) != 1 || cfg.Artifacts[0].Selector.Tags[0] != "v0.9.0" || !cfg.Artifacts[0].IncludeReferrers {
+			t.Fatalf("expected %+v, got %+v", want, cfg.Artifacts)
+		}
+
+		// And the blueprint with no tag gives a note
+		if joined := strings.Join(notes, "\n"); !strings.Contains(joined, "blueprint ghcr.io/windsorcli/extra@sha256:abc has no tag") {
+			t.Errorf("expected a note for the untagged blueprint, got:\n%s", joined)
+		}
+	})
+
 	t.Run("NeedsChartsToForCharts", func(t *testing.T) {
 		// Given an inventory with charts
 		inv := testInventory()

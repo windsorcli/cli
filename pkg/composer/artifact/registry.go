@@ -25,6 +25,7 @@ import (
 	"github.com/google/go-containerregistry/pkg/v1/types"
 	"github.com/windsorcli/cli/internal/werror"
 	"github.com/windsorcli/cli/pkg/constants"
+	"github.com/windsorcli/cli/pkg/runtime/config"
 )
 
 // =============================================================================
@@ -353,17 +354,22 @@ func (a *ArtifactBuilder) createOCIArtifactImage(layer v1.Layer, repoName, tagNa
 }
 
 // downloadOCIArtifact downloads the OCI artifact at registry/repository:tag and returns the data of its first layer.
+// When the context has a mirror for registry, it downloads the artifact from the mirror.
 // It uses the Docker keychain for private registries. If the registry rejects those credentials, it tries again without credentials.
 // The retry lets a public artifact pull when the Docker config has old or limited tokens.
 // In verbose mode, a successful retry writes a note to stderr that names the registry.
 // If the retry also fails, it returns the keychain error.
 func (a *ArtifactBuilder) downloadOCIArtifact(registry, repository, tag string) ([]byte, error) {
-	ref := FormatOCIRef(registry, repository, tag)
+	ref, opts, err := a.pullReference(registry, repository, tag)
+	if err != nil {
+		return nil, err
+	}
 
-	parsedRef, err := a.shims.ParseReference(ref)
+	parsedRef, err := a.shims.ParseReference(ref, opts...)
 	if err != nil {
 		return nil, werror.Wrap(err, "failed to parse reference %s", ref)
 	}
+	registry, _, _ = strings.Cut(ref, "/")
 
 	img, err := a.shims.RemoteImage(parsedRef, remote.WithAuthFromKeychain(authn.DefaultKeychain))
 	if err != nil && IsAuthenticationError(err) {
@@ -400,6 +406,26 @@ func (a *ArtifactBuilder) downloadOCIArtifact(registry, repository, tag string) 
 	}
 
 	return data, nil
+}
+
+// pullReference returns the reference that a pull of registry/repository:tag reads, and its parse options.
+// When the context has a mirror for registry, the reference is on the mirror, and an http mirror adds name.Insecure.
+// The cache key of the artifact keeps the upstream reference.
+func (a *ArtifactBuilder) pullReference(registry, repository, tag string) (string, []name.Option, error) {
+	ref := FormatOCIRef(registry, repository, tag)
+	if a.runtime == nil || a.runtime.ConfigHandler == nil {
+		return ref, nil, nil
+	}
+	mirrors, err := config.NewMirrors(a.runtime.ConfigHandler.GetHeader().Registries)
+	if err != nil {
+		return "", nil, err
+	}
+	url, insecure := mirrors.OCIURL("oci://" + ref)
+	ref = strings.TrimPrefix(url, "oci://")
+	if insecure {
+		return ref, []name.Option{name.Insecure}, nil
+	}
+	return ref, nil, nil
 }
 
 // =============================================================================

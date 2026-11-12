@@ -64,6 +64,7 @@ type ConfigHandler interface {
 	GetSchema() map[string]any
 	GetContextValues() (map[string]any, error)
 	GetSetValues() map[string]any
+	CheckRegistriesKeys() (bool, error)
 	SetApplySchemaDefaults(enabled bool)
 	GetSensitivePaths() []string
 	IsSensitivePath(path string) bool
@@ -168,6 +169,7 @@ func (c *configHandler) SetDefault(context cliconfig.Context) error {
 
 // GetHeader decodes the handler's data into the v1alpha2 header. Keys the header does not define
 // are left out. It returns an empty header when the data does not decode.
+// When the data sets only docker.registries, Registries holds the docker.registries entries.
 func (c *configHandler) GetHeader() *cliconfig.Context {
 	contextData, err := c.shims.YamlMarshal(c.data)
 	if err != nil {
@@ -177,6 +179,10 @@ func (c *configHandler) GetHeader() *cliconfig.Context {
 	var header cliconfig.Context
 	if err := c.shims.YamlUnmarshal(contextData, &header); err != nil {
 		return &cliconfig.Context{}
+	}
+
+	if len(header.Registries) == 0 && header.Docker != nil && len(header.Docker.Registries) > 0 {
+		header.Registries = header.Docker.Registries
 	}
 
 	return &header

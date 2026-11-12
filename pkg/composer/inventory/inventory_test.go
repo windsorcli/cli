@@ -7,6 +7,9 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/goccy/go-yaml"
+
+	cliconfig "github.com/windsorcli/cli/api/config/v1alpha2"
 	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
 	"github.com/windsorcli/cli/pkg/composer/artifact"
 	"github.com/windsorcli/cli/pkg/composer/inventory"
@@ -667,9 +670,61 @@ func TestBaseLister_ImageMirrors(t *testing.T) {
 			t.Fatalf("expected an error that names the destination, got %v", err)
 		}
 	})
+
+	t.Run("GivesABlueprintTheMirrorOfItsHost", func(t *testing.T) {
+		// Given a mirror for ghcr.io and an oci:// blueprint source on ghcr.io
+		m := setupMocks(t)
+		setRegistries(t, m.configHandler, map[string]any{"ghcr.io": map[string]any{"endpoint": "http://mirror.test:5000"}})
+		lister := inventory.NewLister(m.runtime, m.artifactBuilder)
+		blueprint := &blueprintv1alpha1.Blueprint{Sources: []blueprintv1alpha1.Source{{Name: "core", Url: "oci://ghcr.io/windsorcli/core:v0.9.0"}}}
+
+		// When List is called
+		result, err := lister.List(blueprint, inventory.Options{All: true})
+
+		// Then the blueprint goes to the mirror and keeps its upstream reference
+		if err != nil {
+			t.Fatalf("expected no error, got %v", err)
+		}
+		if got := destination(t, result, "ghcr.io/windsorcli/core"); got != "mirror.test:5000/windsorcli/core:v0.9.0" {
+			t.Errorf("got destination %q", got)
+		}
+	})
+
+	t.Run("FailsWhenAnImageAndABlueprintHaveTheSameDestination", func(t *testing.T) {
+		// Given a catch-all mirror, an image, and a blueprint with one path and tag on two hosts
+		m := setupMocks(t)
+		setRegistries(t, m.configHandler, map[string]any{"*": map[string]any{"endpoint": "harbor.example.com"}})
+		project := t.TempDir()
+		writeFile(t, project, "kustomize/app/values.yaml", "# artifact: type=image name=quay.io/windsorcli/core\nimage: quay.io/windsorcli/core:v0.9.0\n")
+		m.runtime.ProjectRoot = project
+		lister := inventory.NewLister(m.runtime, m.artifactBuilder)
+		blueprint := &blueprintv1alpha1.Blueprint{Sources: []blueprintv1alpha1.Source{{Name: "core", Url: "oci://ghcr.io/windsorcli/core:v0.9.0"}}}
+
+		// When List is called
+		_, err := lister.List(blueprint, inventory.Options{All: true})
+
+		// Then the error names the destination
+		if err == nil || !strings.Contains(err.Error(), "harbor.example.com/windsorcli/core") {
+			t.Errorf("expected an error that names the destination, got %v", err)
+		}
+	})
 }
 
-// listImages lists a project that tags each image at version 1.0.0, with registries as docker.registries.
+// setRegistries makes the header of handler hold registries as its registries map.
+func setRegistries(t *testing.T, handler *config.MockConfigHandler, registries map[string]any) {
+	t.Helper()
+	data, err := yaml.Marshal(map[string]any{"registries": registries})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var header cliconfig.Context
+	if err := yaml.Unmarshal(data, &header); err != nil {
+		t.Fatal(err)
+	}
+	handler.GetHeaderFunc = func() *cliconfig.Context { return &header }
+}
+
+// listImages lists a project that tags each image at version 1.0.0, with registries as the registries map.
 func listImages(t *testing.T, registries map[string]any, images ...string) (*inventory.Result, error) {
 	t.Helper()
 	tags := make([]string, 0, len(images))
@@ -679,16 +734,11 @@ func listImages(t *testing.T, registries map[string]any, images ...string) (*inv
 	return listTagged(t, registries, tags...)
 }
 
-// listTagged lists a project that holds tags, with registries as docker.registries.
+// listTagged lists a project that holds tags, with registries as the registries map.
 func listTagged(t *testing.T, registries map[string]any, tags ...string) (*inventory.Result, error) {
 	t.Helper()
 	m := setupMocks(t)
-	m.configHandler.GetFunc = func(key string) any {
-		if key == "docker.registries" {
-			return registries
-		}
-		return nil
-	}
+	setRegistries(t, m.configHandler, registries)
 	project := t.TempDir()
 	var content strings.Builder
 	for _, tag := range tags {

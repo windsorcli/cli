@@ -31,6 +31,7 @@ func (rt *Runtime) ApplyConfigDefaults(flagOverrides ...map[string]any) error {
 
 // ResolveConfig runs the config pipeline one time for a command. The steps are:
 //   - Set the pre-load defaults, load the config from disk, and set the post-load defaults.
+//   - Fail when the context sets both registries and docker.registries. Warn when it sets only docker.registries.
 //   - Set the flag overrides. A legacy "provider" override sets the platform.
 //   - Set the DNS defaults of a workstation, and in dev mode change a colima and incus vm.runtime to platform incus.
 func (rt *Runtime) ResolveConfig(flagOverrides map[string]any) error {
@@ -57,6 +58,13 @@ func (rt *Runtime) ResolveConfig(flagOverrides map[string]any) error {
 	}
 	if err := rt.ConfigHandler.LoadConfig(); err != nil {
 		return werror.Wrap(err, "failed to load config")
+	}
+	legacyRegistries, err := rt.ConfigHandler.CheckRegistriesKeys()
+	if err != nil {
+		return err
+	}
+	if legacyRegistries {
+		fmt.Fprintln(os.Stderr, "\033[33mWarning: docker.registries is deprecated. Move the map to the top-level registries key.\033[0m")
 	}
 	if err := rt.setConfigDefaults(preLoadOverrides); err != nil {
 		return werror.Wrap(err, "failed to apply post-load config defaults")

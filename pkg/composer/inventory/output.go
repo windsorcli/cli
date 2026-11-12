@@ -77,8 +77,8 @@ func (e Entry) Upstream() string {
 // =============================================================================
 
 // FluxMirror returns the Flux Mirror config of inv and a note for each artifact it leaves out.
-// It writes an HTTP chart as a charts entry with an exact version, and an OCI chart or image as an
-// artifacts entry whose selector.tags holds its one tag. The entry includes referrers unless the
+// It writes an HTTP chart as a charts entry with an exact version, and an OCI chart, an image, or a
+// blueprint as an artifacts entry whose selector.tags holds its one tag. The entry includes referrers unless the
 // artifact has NoReferrers. It leaves out an artifact with no destination or no tag, and a chart
 // whose upstream is already in chartsTo. It needs chartsTo when inv has a chart.
 func FluxMirror(inv Inventory, chartsTo string) (FluxMirrorConfig, []string, error) {
@@ -88,9 +88,6 @@ func FluxMirror(inv Inventory, chartsTo string) (FluxMirrorConfig, []string, err
 	for _, e := range inv.Artifacts {
 		if e.Kind == KindChart && registry == "" {
 			return FluxMirrorConfig{}, nil, fmt.Errorf("-o flux-mirror needs --charts-to, because the context pulls chart %s", e.Upstream())
-		}
-		if e.Kind == KindBlueprint {
-			continue
 		}
 		if isUnderRegistry(e, registry) {
 			notes = append(notes, fmt.Sprintf("Chart %s is already in %s, so the config leaves it out.", e.Upstream(), registry))

@@ -1197,6 +1197,35 @@ func TestMockConfigHandler_LoadSchemaFromBytes(t *testing.T) {
 }
 
 // TestMockConfigHandler_GetContextValues tests the GetContextValues method of MockConfigHandler
+func TestMockConfigHandler_CheckRegistriesKeys(t *testing.T) {
+	t.Run("CallsTheFunc", func(t *testing.T) {
+		// Given a mock with CheckRegistriesKeysFunc set
+		mockConfigHandler := setupMockConfigHandlerMocks(t)
+		mockConfigHandler.CheckRegistriesKeysFunc = func() (bool, error) { return true, nil }
+
+		// When CheckRegistriesKeys is called
+		legacy, err := mockConfigHandler.CheckRegistriesKeys()
+
+		// Then it returns the result of the func
+		if !legacy || err != nil {
+			t.Errorf("got legacy %v, err %v", legacy, err)
+		}
+	})
+
+	t.Run("ReturnsFalseByDefault", func(t *testing.T) {
+		// Given a mock with no CheckRegistriesKeysFunc
+		mockConfigHandler := setupMockConfigHandlerMocks(t)
+
+		// When CheckRegistriesKeys is called
+		legacy, err := mockConfigHandler.CheckRegistriesKeys()
+
+		// Then it reports no deprecated key and no error
+		if legacy || err != nil {
+			t.Errorf("got legacy %v, err %v", legacy, err)
+		}
+	})
+}
+
 func TestMockConfigHandler_GetContextValues(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
 		// Given a mock config handler with GetContextValuesFunc set

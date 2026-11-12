@@ -2,6 +2,8 @@ package runtime_test
 
 import (
 	"fmt"
+	"io"
+	"os"
 	"reflect"
 	"strings"
 	"testing"
@@ -36,6 +38,22 @@ func setupConfigStore(handler *config.MockConfigHandler, initial map[string]any)
 		return nil
 	}
 	return store
+}
+
+// captureStderr returns what fn writes to os.Stderr.
+func captureStderr(t *testing.T, fn func()) string {
+	t.Helper()
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	original := os.Stderr
+	os.Stderr = w
+	defer func() { os.Stderr = original }()
+	fn()
+	_ = w.Close()
+	out, _ := io.ReadAll(r)
+	return string(out)
 }
 
 // =============================================================================
@@ -180,6 +198,44 @@ func TestRuntime_ResolveConfig(t *testing.T) {
 		// Then the load error is returned with a breadcrumb
 		if err == nil || !strings.Contains(err.Error(), "failed to load config: bad yaml") {
 			t.Errorf("Expected the load config error, got %v", err)
+		}
+	})
+
+	t.Run("ErrorWhenBothRegistriesKeysAreSet", func(t *testing.T) {
+		// Given a context that sets registries and docker.registries
+		mocks := setupRuntimeMocks(t)
+		handler := mocks.ConfigHandler.(*config.MockConfigHandler)
+		setupConfigStore(handler, nil)
+		handler.CheckRegistriesKeysFunc = func() (bool, error) {
+			return false, fmt.Errorf("The context sets both registries and docker.registries.")
+		}
+
+		// When ResolveConfig is called
+		err := mocks.Runtime.ResolveConfig(nil)
+
+		// Then the error names both keys
+		if err == nil || !strings.Contains(err.Error(), "both registries and docker.registries") {
+			t.Errorf("Expected the registries keys error, got %v", err)
+		}
+	})
+
+	t.Run("WarnsWhenOnlyDockerRegistriesIsSet", func(t *testing.T) {
+		// Given a context that sets only docker.registries
+		mocks := setupRuntimeMocks(t)
+		handler := mocks.ConfigHandler.(*config.MockConfigHandler)
+		setupConfigStore(handler, nil)
+		handler.CheckRegistriesKeysFunc = func() (bool, error) { return true, nil }
+
+		// When ResolveConfig is called
+		var err error
+		stderr := captureStderr(t, func() { err = mocks.Runtime.ResolveConfig(nil) })
+
+		// Then the command goes on and the warning names registries
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		if !strings.Contains(stderr, "docker.registries is deprecated") || !strings.Contains(stderr, "top-level registries key") {
+			t.Errorf("Expected the docker.registries warning, got %q", stderr)
 		}
 	})
 

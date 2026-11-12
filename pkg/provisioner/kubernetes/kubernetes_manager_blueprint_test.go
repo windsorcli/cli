@@ -9,10 +9,12 @@ import (
 
 	kustomizev1 "github.com/fluxcd/kustomize-controller/api/v1"
 	sourcev1 "github.com/fluxcd/source-controller/api/v1"
+	cliconfig "github.com/windsorcli/cli/api/config/v1alpha2"
 	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
 	"github.com/windsorcli/cli/pkg/constants"
 	"github.com/windsorcli/cli/pkg/provisioner/kubernetes"
 	"github.com/windsorcli/cli/pkg/provisioner/kubernetes/client"
+	"github.com/windsorcli/cli/pkg/runtime/config"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -26,9 +28,14 @@ import (
 // =============================================================================
 
 func TestBaseKubernetesManager_ApplyBlueprint(t *testing.T) {
-	setup := func(t *testing.T, kubeClient client.KubernetesClient) *kubernetes.BaseKubernetesManager {
+	setup := func(t *testing.T, kubeClient client.KubernetesClient, registries ...map[string]cliconfig.Registry) *kubernetes.BaseKubernetesManager {
 		t.Helper()
 		mocks := setupKubernetesMocks(t)
+		if len(registries) > 0 {
+			mocks.ConfigHandler.(*config.MockConfigHandler).GetHeaderFunc = func() *cliconfig.Context {
+				return &cliconfig.Context{Registries: registries[0]}
+			}
+		}
 		manager := kubernetes.NewKubernetesManager(kubeClient, mocks.ConfigHandler)
 		manager.Shims = mocks.Shims
 		manager.Shims.ToUnstructured = func(obj any) (map[string]any, error) {
@@ -1171,6 +1178,80 @@ func TestBaseKubernetesManager_ApplyBlueprint(t *testing.T) {
 		}
 		if appliedRepo.Spec.Reference.Tag != "" {
 			t.Errorf("expected empty Tag for a digest reference, got %q", appliedRepo.Spec.Reference.Tag)
+		}
+	})
+
+	t.Run("PointsAnOCISourceAtItsMirror", func(t *testing.T) {
+		for _, tc := range []struct {
+			endpoint string
+			insecure bool
+		}{{"https://harbor.example.com/windsor", false}, {"http://harbor.example.com/windsor", true}} {
+			// Given a mirror for ghcr.io and an OCI source on ghcr.io
+			var appliedRepo *sourcev1.OCIRepository
+			kubernetesClient := client.NewMockKubernetesClient()
+			kubernetesClient.ApplyResourceFunc = func(gvr schema.GroupVersionResource, obj *unstructured.Unstructured, opts metav1.ApplyOptions) (*unstructured.Unstructured, error) {
+				if gvr.Resource == "ocirepositories" {
+					var repo sourcev1.OCIRepository
+					if err := runtime.DefaultUnstructuredConverter.FromUnstructured(obj.Object, &repo); err == nil {
+						appliedRepo = &repo
+					}
+				}
+				return obj, nil
+			}
+			kubernetesClient.GetResourceFunc = func(gvr schema.GroupVersionResource, ns, name string) (*unstructured.Unstructured, error) {
+				return nil, fmt.Errorf("not found")
+			}
+			endpoint := tc.endpoint
+			manager := setup(t, kubernetesClient, map[string]cliconfig.Registry{"ghcr.io": {Endpoint: &endpoint}})
+			blueprint := &blueprintv1alpha1.Blueprint{
+				Metadata: blueprintv1alpha1.Metadata{Name: "test-blueprint"},
+				Sources:  []blueprintv1alpha1.Source{{Name: "core", Url: "oci://ghcr.io/windsorcli/core:v1.2.0"}},
+			}
+
+			// When the blueprint is applied
+			err := manager.ApplyBlueprint(blueprint, "system-gitops")
+
+			// Then the URL names the mirror, the tag stays, and an http mirror is insecure
+			if err != nil {
+				t.Fatalf("expected no error, got %v", err)
+			}
+			if appliedRepo == nil {
+				t.Fatal("expected an OCIRepository to be applied")
+			}
+			if appliedRepo.Spec.URL != "oci://harbor.example.com/windsor/windsorcli/core" {
+				t.Errorf("%s: expected the mirror URL, got %s", tc.endpoint, appliedRepo.Spec.URL)
+			}
+			if appliedRepo.Spec.Reference == nil || appliedRepo.Spec.Reference.Tag != "v1.2.0" {
+				t.Errorf("%s: expected Reference.Tag v1.2.0, got %+v", tc.endpoint, appliedRepo.Spec.Reference)
+			}
+			if appliedRepo.Spec.Insecure != tc.insecure {
+				t.Errorf("%s: expected insecure %v, got %v", tc.endpoint, tc.insecure, appliedRepo.Spec.Insecure)
+			}
+		}
+	})
+
+	t.Run("ErrorWhenTheRegistriesGiveOneHostTwoMirrors", func(t *testing.T) {
+		// Given two entries that give ghcr.io different mirrors
+		kubernetesClient := client.NewMockKubernetesClient()
+		kubernetesClient.GetResourceFunc = func(gvr schema.GroupVersionResource, ns, name string) (*unstructured.Unstructured, error) {
+			return nil, fmt.Errorf("not found")
+		}
+		local, first, second := "ghcr.io", "a.example.com", "b.example.com"
+		manager := setup(t, kubernetesClient, map[string]cliconfig.Registry{
+			"ghcr.io": {Endpoint: &first},
+			"other":   {Local: &local, Endpoint: &second},
+		})
+		blueprint := &blueprintv1alpha1.Blueprint{
+			Metadata: blueprintv1alpha1.Metadata{Name: "test-blueprint"},
+			Sources:  []blueprintv1alpha1.Source{{Name: "core", Url: "oci://ghcr.io/windsorcli/core:v1.2.0"}},
+		}
+
+		// When the blueprint is applied
+		err := manager.ApplyBlueprint(blueprint, "system-gitops")
+
+		// Then the registries error is returned
+		if err == nil || !strings.Contains(err.Error(), "two mirrors") {
+			t.Errorf("expected the two mirrors error, got %v", err)
 		}
 	})
 

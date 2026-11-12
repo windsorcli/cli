@@ -166,7 +166,7 @@ func (e *VirtEnvPrinter) GetAlias() (map[string]string, error) {
 // getRegistryURL returns the configured Docker registry URL with port.
 // Priority:
 //  1. docker.registry_url setting (with port from registry config if needed)
-//  2. First non-mirror registry from docker.registries
+//  2. First local registry in registries, an entry with no remote, no endpoint, and a key other than *
 //
 // Returns empty string if no registry is configured.
 func (e *VirtEnvPrinter) getRegistryURL() (string, error) {
@@ -175,26 +175,23 @@ func (e *VirtEnvPrinter) getRegistryURL() (string, error) {
 		if _, _, err := net.SplitHostPort(registryURL); err == nil {
 			return registryURL, nil
 		}
-		config := e.configHandler.GetHeader()
-		if config.Docker != nil && config.Docker.Registries != nil {
-			if registryConfig, exists := config.Docker.Registries[registryURL]; exists {
-				if registryConfig.HostPort != nil && *registryConfig.HostPort != 0 {
-					return fmt.Sprintf("%s:%d", registryURL, *registryConfig.HostPort), nil
-				}
+		if registryConfig, exists := e.configHandler.GetHeader().Registries[registryURL]; exists {
+			if registryConfig.HostPort != nil && *registryConfig.HostPort != 0 {
+				return fmt.Sprintf("%s:%d", registryURL, *registryConfig.HostPort), nil
 			}
 		}
 		return registryURL, nil
 	}
 
-	config := e.configHandler.GetHeader()
-	if config.Docker != nil && config.Docker.Registries != nil {
-		for url, registryConfig := range config.Docker.Registries {
-			if registryConfig.Remote == nil || *registryConfig.Remote == "" {
-				if registryConfig.HostPort != nil && *registryConfig.HostPort != 0 {
-					return fmt.Sprintf("%s:%d", url, *registryConfig.HostPort), nil
-				}
-				return fmt.Sprintf("%s:5000", url), nil
+	for url, registryConfig := range e.configHandler.GetHeader().Registries {
+		if url == config.AllRegistriesKey || (registryConfig.Endpoint != nil && *registryConfig.Endpoint != "") {
+			continue
+		}
+		if registryConfig.Remote == nil || *registryConfig.Remote == "" {
+			if registryConfig.HostPort != nil && *registryConfig.HostPort != 0 {
+				return fmt.Sprintf("%s:%d", url, *registryConfig.HostPort), nil
 			}
+			return fmt.Sprintf("%s:5000", url), nil
 		}
 	}
 

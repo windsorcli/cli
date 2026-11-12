@@ -17,6 +17,7 @@ import (
 // GetContextValues returns the current config data merged over the schema defaults.
 // Without a schema, it returns only the loaded data.
 // It sets cluster.controlplanes.nodes and cluster.workers.nodes to empty maps, so expressions can read them.
+// When the data sets only docker.registries, it also sets registries to a copy of that map.
 // A test context gets no schema defaults, unless SetApplySchemaDefaults(true) was called.
 func (c *configHandler) GetContextValues() (map[string]any, error) {
 	result := make(map[string]any)
@@ -34,6 +35,7 @@ func (c *configHandler) GetContextValues() (map[string]any, error) {
 	c.applyPlatformDerivedDefaults(result)
 	c.applyWorkstationDefaults(result)
 	c.ensureClusterStructure(result)
+	mergeRegistries(result)
 
 	return result, nil
 }
@@ -41,8 +43,11 @@ func (c *configHandler) GetContextValues() (map[string]any, error) {
 // GetSetValues returns a deep copy of the values the operator has explicitly set (values.yaml,
 // context, workstation), without schema defaults or derived values. Composition pins these above
 // facet config so an operator's explicit value wins over a facet's — including a downstream facet's.
+// When the data sets only docker.registries, the copy also sets registries to that map.
 func (c *configHandler) GetSetValues() map[string]any {
-	return deepCopyValue(c.data).(map[string]any)
+	values := deepCopyValue(c.data).(map[string]any)
+	mergeRegistries(values)
+	return values
 }
 
 // =============================================================================
