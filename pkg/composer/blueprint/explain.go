@@ -8,6 +8,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
+	"sort"
 	"strings"
 
 	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
@@ -59,6 +61,7 @@ type ExplainScopeRef struct {
 // the shortened display form. Line is the 1-based line number of the specific key (or the
 // component definition if the key is not locatable). Effective is true when this contribution
 // produced the final composed value; false means it was overridden by a higher-ordinal facet.
+// Discarded is true when the merge dropped the entry of this contribution, so it cannot be effective.
 type ExplainContribution struct {
 	SourceName      string
 	FacetPath       string
@@ -69,6 +72,7 @@ type ExplainContribution struct {
 	Expression      string
 	HasValue        bool
 	Effective       bool
+	Discarded       bool
 	ScopeRefs       []ExplainScopeRef
 	RawComponents   []string
 	componentLines  map[string]int
@@ -221,12 +225,14 @@ func contributionEntryLine(c ExplainContribution, componentType, componentName, 
 
 // buildComponentContributions maps each resolved component entry back to the facet that
 // contributed it. For each entry in the composed components list, the provenance records are
-// scanned to find a facet whose RawComponents contains a matching value. All contributions
+// scanned to find a facet whose RawComponents contains a matching value. It scans only the
+// contributions that survive the merge, and the highest ordinal wins. All contributions
 // are marked effective since each list entry is independently contributed.
 func buildComponentContributions(resolved []string, provenance []ExplainContribution, componentType, componentName string) []ExplainContribution {
 	if len(resolved) == 0 {
 		return nil
 	}
+	provenance = survivingContributions(provenance)
 	var result []ExplainContribution
 	for _, entry := range resolved {
 		var matched *ExplainContribution
@@ -294,6 +300,28 @@ func buildComponentContributions(resolved []string, provenance []ExplainContribu
 		}
 	}
 	return result
+}
+
+// survivesMerge reports whether c can be the source of a composed value. A contribution that the
+// merge discarded cannot, and a remove descriptor only takes values away.
+func (c ExplainContribution) survivesMerge() bool {
+	return !c.Discarded && c.Strategy != "remove"
+}
+
+// survivingContributions returns the contributions that survive the merge, in the order of
+// precedence: highest ordinal first, and the latest record first at equal ordinals.
+func survivingContributions(contributions []ExplainContribution) []ExplainContribution {
+	surviving := make([]ExplainContribution, 0, len(contributions))
+	for _, c := range contributions {
+		if c.survivesMerge() {
+			surviving = append(surviving, c)
+		}
+	}
+	slices.Reverse(surviving)
+	sort.SliceStable(surviving, func(i, j int) bool {
+		return surviving[i].Ordinal > surviving[j].Ordinal
+	})
+	return surviving
 }
 
 // getNestedValue traverses nested maps to resolve a dotted key path.

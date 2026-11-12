@@ -617,6 +617,32 @@ func accumulateMapKeys[K comparable, V any](m1, m2 map[K]V) map[K]V {
 	return result
 }
 
+// traceEntryKey returns the name of one merged entry in the trace collector. The key holds the
+// source, because each source merges its facets on its own.
+func traceEntryKey(source, kind, name string) string {
+	return source + "/" + kind + "/" + name
+}
+
+// settleEntryTrace tells the trace collector which contributions survive one merge of an entry.
+// previous is the entry before the merge, incoming is the entry that the facet added, and result
+// is the entry after the merge. A merge that stores incoming drops the earlier contributions. A
+// merge that keeps previous drops the new contributions. No result drops both.
+func settleEntryTrace[E any](p *BaseBlueprintProcessor, entryKey string, previous, incoming, result *E) {
+	if p.traceCollector == nil {
+		return
+	}
+	keepExisting, keepNew := true, true
+	switch {
+	case result == nil:
+		keepExisting, keepNew = false, false
+	case result == incoming:
+		keepExisting = false
+	case result == previous:
+		keepNew = false
+	}
+	p.traceCollector.SettleEntry(entryKey, keepExisting, keepNew)
+}
+
 // partitionByStrategy sorts the entries by key and splits them into removals, replaces, and merges by
 // strategy. An empty strategy means merge. kind names the entry type in the error for an unknown
 // strategy.
