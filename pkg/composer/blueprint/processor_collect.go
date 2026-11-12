@@ -156,7 +156,7 @@ func (p *BaseBlueprintProcessor) collectTerraformComponents(
 // so `windsor explain` can name the facet, source, and line of each value.
 func (p *BaseBlueprintProcessor) recordKustomizationTraces(name string, rawComponents []string, rawSubstitutions map[string]string, facetPath, sourceName string, ordinal int, strategy string) {
 	for sk, sv := range rawSubstitutions {
-		p.recordTrace("kustomize."+name+".substitutions."+sk, TraceContribution{
+		p.recordTrace(kustomizeSubstitutionPrefix(name)+sk, TraceContribution{
 			FacetPath:  facetPath,
 			SourceName: sourceName,
 			Ordinal:    ordinal,
@@ -198,7 +198,7 @@ func (p *BaseBlueprintProcessor) collectKustomizations(facet blueprintv1alpha1.F
 
 		processed := k
 		processed.When = componentWhen
-		if err := p.evalKustomizationSubstitutions(&processed.Kustomization, facet.Path, "kustomize."+processed.Name+".substitutions.", facetScope); err != nil {
+		if err := p.evalKustomizationSubstitutions(&processed.Kustomization, facet.Path, kustomizeSubstitutionPrefix(processed.Name), facetScope); err != nil {
 			return werror.Wrap(err, "error evaluating substitutions for kustomization '%s'", processed.Name)
 		}
 		if evaluator.ContainsExpression(processed.Path) {
@@ -263,7 +263,7 @@ func (p *BaseBlueprintProcessor) collectKustomizations(facet blueprintv1alpha1.F
 			return p.updateKustomizationEntry(entry.Name, &entry, strategy, kustomizationByName, facetScope)
 		}
 
-		p.recordKustomizationTraces(processed.Name, k.Components, k.Substitutions, facet.Path, sn, effectiveOrdinal, strategy)
+		p.recordKustomizationTraces(processed.Name, k.Components, mergeSubstitute(k.Kustomization), facet.Path, sn, effectiveOrdinal, strategy)
 		if err := addEntry(processed); err != nil {
 			return err
 		}
@@ -381,6 +381,11 @@ func mergeSecretData(base, overlay map[string]blueprintv1alpha1.SecretEntry) map
 		out[name] = merged
 	}
 	return out
+}
+
+// kustomizeSubstitutionPrefix returns the composed-path prefix of the substitutions of a kustomization.
+func kustomizeSubstitutionPrefix(name string) string {
+	return "kustomize." + name + ".substitutions."
 }
 
 // fluxResourcesSubstitutionPrefix returns the deferred-path prefix for a flux system's resources

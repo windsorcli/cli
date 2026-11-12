@@ -1,6 +1,6 @@
 // The Lister is the artifact inventory of one context.
 // It provides the list of charts, images and blueprints that a composed blueprint pulls.
-// It reads the artifact tags in the project and in each oci:// blueprint source. It does not render manifests.
+// It reads the artifact tags of the files that the composed blueprint uses. It does not render manifests.
 // It gives each artifact a destination from --charts-to and the docker.registries mirrors.
 
 package inventory
@@ -84,8 +84,12 @@ type Source struct {
 }
 
 // Options holds the settings of one List call.
+// All selects the artifact tags of whole sources, also of the files that the blueprint does not use.
+// Trace removes the artifact tags of facet values that the blueprint does not use. It is optional.
 type Options struct {
 	ChartsTo string
+	All      bool
+	Trace    FacetTrace
 }
 
 // Result is the inventory and the notes that List writes for the operator.
@@ -112,6 +116,13 @@ type imageReference struct {
 // Interfaces
 // =============================================================================
 
+// FacetTrace tells which values of a facet the composed blueprint uses.
+// UnusedFacetValue returns true only when the trace proves that the blueprint does not use the value
+// on the line. It returns a note when the trace cannot resolve the value.
+type FacetTrace interface {
+	UnusedFacetValue(facetPath string, line int) (bool, string)
+}
+
 // Lister lists the external artifacts of a composed blueprint.
 type Lister interface {
 	List(blueprint *blueprintv1alpha1.Blueprint, opts Options) (*Result, error)
@@ -137,7 +148,8 @@ func NewLister(rt *runtime.Runtime, artifactBuilder artifact.Artifact) *BaseList
 // =============================================================================
 
 // List returns the artifacts of blueprint: each oci:// blueprint source, and each chart and image
-// that an artifact tag names in the project and in the cache of each oci:// source.
+// that an artifact tag names in the files that blueprint uses, in the project and in the cache of
+// each oci:// source. With opts.All, it reads whole sources.
 // Each entry gets a destination, and the entries are unique and sorted.
 func (l *BaseLister) List(blueprint *blueprintv1alpha1.Blueprint, opts Options) (*Result, error) {
 	if blueprint == nil {
@@ -148,7 +160,7 @@ func (l *BaseLister) List(blueprint *blueprintv1alpha1.Blueprint, opts Options) 
 
 	entries := blueprintEntries(blueprint)
 
-	tagEntries, notes, err := l.tagEntries(blueprint)
+	tagEntries, notes, err := l.tagEntries(blueprint, opts)
 	if err != nil {
 		return nil, err
 	}

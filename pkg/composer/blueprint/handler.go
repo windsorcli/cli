@@ -127,7 +127,7 @@ func NewBlueprintHandler(rt *runtime.Runtime, artifactBuilder artifact.Artifact,
 // Public Methods
 // =============================================================================
 
-// SetTraceCollector enables opt-in trace collection for the explain command. When set, the
+// SetTraceCollector enables opt-in trace collection for windsor explain and windsor show artifacts. When set, the
 // collector is propagated to the processor at the start of composition so expression scope
 // references and nested paths are recorded during facet processing. Pass nil to disable.
 func (h *BaseBlueprintHandler) SetTraceCollector(tc TraceCollector) {
@@ -509,6 +509,8 @@ func (h *BaseBlueprintHandler) processAndCompose() error {
 
 	loadersToProcess, loaderNames := h.loadersWithBlueprints()
 
+	h.recordBlueprintValues(loadersToProcess)
+
 	h.registerSensitiveValues(h.getConfigValues())
 	collectedScopes, err := h.processSourceFacets(loadersToProcess, loaderNames, repositoryScope)
 	if err != nil {
@@ -576,6 +578,32 @@ func (h *BaseBlueprintHandler) processAndCompose() error {
 	}
 
 	return nil
+}
+
+// recordBlueprintValues gives the trace collector the raw inputs, substitutions, components and
+// ConfigMaps of each blueprint file, because their expressions can read config blocks. It does
+// nothing without a trace collector.
+func (h *BaseBlueprintHandler) recordBlueprintValues(loaders []BlueprintLoader) {
+	if h.traceCollector == nil {
+		return
+	}
+	for _, loader := range loaders {
+		bp := loader.GetBlueprint()
+		if bp == nil {
+			continue
+		}
+		for _, t := range bp.TerraformComponents {
+			h.traceCollector.RecordBlueprintValue(t.Inputs)
+		}
+		for _, k := range bp.AllKustomizations() {
+			h.traceCollector.RecordBlueprintValue(mergeSubstitute(k))
+			h.traceCollector.RecordBlueprintValue(k.Components)
+		}
+		h.traceCollector.RecordBlueprintValue(bp.Substitutions)
+		for _, configMap := range bp.ConfigMaps {
+			h.traceCollector.RecordBlueprintValue(configMap)
+		}
+	}
 }
 
 // registerSensitiveValues registers each value in scope at a schema path with sensitive: true as a

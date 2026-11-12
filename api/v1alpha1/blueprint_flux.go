@@ -91,7 +91,7 @@ func (k *Kustomization) ToFluxKustomization(namespace string, defaultSourceName 
 	}
 
 	sourceName, sourceKind := k.fluxSourceRef(defaultSourceName, sources)
-	path := k.fluxPath()
+	path := k.FluxPath()
 
 	interval := metav1.Duration{Duration: constants.FluxKustomizationInterval(sourceName == defaultSourceName)}
 	if k.Interval != nil && k.Interval.Duration != 0 {
@@ -173,6 +173,20 @@ func (k *Kustomization) ToFluxKustomization(namespace string, defaultSourceName 
 	}
 }
 
+// FluxPath returns the slash-separated path of k under the kustomize/ directory.
+// A Path-less k uses k.Name.
+func (k *Kustomization) FluxPath() string {
+	path := k.Path
+	if path == "" {
+		path = k.Name
+	}
+	path = strings.ReplaceAll(path, "\\", "/")
+	if path != "kustomize" && !strings.HasPrefix(path, "kustomize/") {
+		path = "kustomize/" + path
+	}
+	return path
+}
+
 // =============================================================================
 // Private Methods
 // =============================================================================
@@ -197,20 +211,6 @@ func (k *Kustomization) fluxSourceRef(defaultSourceName string, sources []Source
 		}
 	}
 	return sourceName, sourceKind
-}
-
-// fluxPath returns the slash-separated path of k under the kustomize/ directory.
-// A Path-less k uses k.Name.
-func (k *Kustomization) fluxPath() string {
-	path := k.Path
-	if path == "" {
-		path = k.Name
-	}
-	path = strings.ReplaceAll(path, "\\", "/")
-	if path != "kustomize" && !strings.HasPrefix(path, "kustomize/") {
-		path = "kustomize/" + path
-	}
-	return path
 }
 
 // fluxPostBuild returns the PostBuild substitution sources for k, or nil when there are none.

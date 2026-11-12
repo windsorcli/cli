@@ -55,8 +55,8 @@ manifests, so the CLI has no chart rewrite to do.
 
 ### 1. `windsor show artifacts` lists the tagged artifacts of a context
 
-The command prints every artifact that a tag names in the blueprint sources of the current
-context: kind (`chart` or `image`), upstream reference, version, destination when one is
+The command prints every artifact that a tag names in the files that the current context uses
+(Decision 3): kind (`chart` or `image`), upstream reference, version, destination when one is
 configured, and the file that declares it. It copies nothing. Copying stays with Flux Mirror or
 any tool that reads the list.
 
@@ -103,17 +103,65 @@ version: v1.17.0
 - Renovate reads the same tag through a regex `customManagers` entry, so one tag gives the list
   and the version updates.
 
-### 3. The scan covers every source of the context
+### 3. The scan covers the files that the composed blueprint uses
 
 The CLI scans the blueprint's own source in the project root and the OCI cache of each `oci://`
-source, nested sources included. For a typical context, that is the blueprint and `core`. It reads
-the `.yaml`, `.yml`, and `.tf` files under `kustomize/`, `terraform/`, and `contexts/` in the
-project, and under `kustomize/`, `terraform/`, and `_template/` in a bundled source. This covers
-facets and values files.
+source, nested sources included. For a typical context, that is the blueprint and `core`. In each
+source, it reads the `.yaml`, `.yml`, `.tf`, and `.tfvars` files that the composed blueprint of the
+context uses. The composed blueprint already has the result of each facet `when` condition, so the list
+follows the context.
 
-The scan reads whole sources. It does not filter by the Kustomizations and Terraform components
-that the context enables. An artifact of a disabled facet is in the list. A site copies a few
-extra artifacts.
+The scan renders nothing, evaluates no Terraform, and reads no operator spec. It reads the plain
+paths in the blueprint, the fields of `kustomization.yaml` files that name other files, and the
+`source` of Terraform `module` blocks:
+
+- For each kustomization and each `flux:` tier, the scan starts at `kustomize/<path>` in the source
+  that the entry names. It reads that directory and each selected component directory. It does not
+  enter a subdirectory that has its own kustomization file, unless an entry reaches it. It follows
+  local entries of `resources`, `components`, `bases`, patch paths, `transformers`, `generators`,
+  `validators`, and `replacements`, also `../` entries. It reads patch files in a reached directory.
+  Flux generates a kustomization for a directory that has none, so the scan reads all of that
+  directory.
+- For each Terraform component, the scan starts at `terraform/<path>` in its source, or at the
+  `pathPrefix` of that source. It reads that directory and each local module. It does not enter a
+  subdirectory that has `.tf` files, unless a `module` block reaches it.
+- An entry with `enabled: false` adds no files.
+- The scan always reads all of `contexts/` in the project, all of `_template/` in a bundled source,
+  and all of `kustomize/crds/` in each source. These directories hold facets, values files, and the
+  CRD catalog. A facet can install an image that a catalog entry tags, with no kustomization.
+- The list holds a tag in a facet file only when the composed blueprint uses the tagged value,
+  directly or through a `config` block. The CLI reads this from the composition trace of
+  `windsor explain`. A facet tag MUST be on a value that the composed blueprint uses.
+
+Under-including causes a failed pull, and over-including costs copy time. Thus a name that the CLI
+cannot resolve MUST NOT remove a tag silently. A path or a component name with a `${` expression
+widens the scan to the whole directory and gives a note on stderr. A name that the source does not
+hold, and a file that the scan cannot parse, give a note on stderr. The composer fails on a deferred
+kustomization path or component name, so an unresolved name reaches the scan only as literal text
+in a blueprint.
+
+The same rule applies to a facet tag. The trace walks the raw expressions of each input and
+substitution of an enabled entry, each `flux:` tier, and each blueprint file, and it follows each
+reference through the `config` blocks that are active in the last config round. A literal value
+that another active block overrides is not used. When the trace
+cannot resolve a facet tag, the CLI MUST list it and give a note on stderr. A tag on a list item
+below a key, an expression that does not parse, and a `jsonnet()` call are not resolved, because
+the walk cannot name the value that they read. A composition error stops the command, so the CLI
+never filters from a partial trace.
+
+`windsor show artifacts --all` reads whole sources: the `kustomize/`, `terraform/`, and `contexts/`
+directories in the project, and the `kustomize/`, `terraform/`, and `_template/` directories in a
+bundled source. `windsor bundle` also reads whole sources, because a bundle is not specific to one
+context.
+
+The earlier whole-source scan was too large for a site to copy. A CI run on the default core
+context copied 170 artifacts in 37.5 minutes, including Elastic images that the context does not
+enable.
+
+A site MUST sync with the same values and host architecture as the deployment, or sync the `--all`
+output. Composition fills `workstation.arch` from the host, so an arm64 host can select other images
+than an amd64 deployment. A site MUST sync again before it enables a component that the context did
+not use.
 
 ### 4. Destinations follow each kind's layout
 
@@ -179,7 +227,11 @@ that image tagged by hand, and the pull fails until then.
 A tag records the pinned version, not the version a cluster runs. A chart default or a value
 that overrides a tag is not in the list. CI in registry mode catches an image that differs from a tag, because the registry does not hold it.
 
-The scan reads whole sources, so the list includes artifacts of disabled facets.
+The default list holds the tags of the files that the context uses, each tag in `contexts/`,
+`_template/`, and `kustomize/crds/` outside a facet file, and each facet tag on a value that the
+composed blueprint uses. A tag on a facet value that no composed value reads is not in the list, so
+a facet author MUST put the tag on the value that the blueprint consumes. A site that enables
+another component syncs again first.
 
 The CLI removes the Flux render, the Helm chart render, the FluxInstance extractor, and the
 flux-operator dependency that the first version of `windsor show artifacts` needed. It takes on a

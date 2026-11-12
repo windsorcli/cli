@@ -85,6 +85,7 @@ func TestShowArtifacts_ListsTheArtifactTagsOfTheProject(t *testing.T) {
 		"chart https://charts.jetstack.io v1.17.0": "registry.example.com/windsor/cert-manager:v1.17.0",
 		"image ghcr.io/example/worker 1.2.3":       "",
 		"image ghcr.io/example/tooling 2.0.0":      "",
+		"image ghcr.io/example/vars 2.5.0":         "",
 	}
 	if len(got) != len(want) {
 		t.Errorf("expected %v, got %v", want, got)
@@ -93,6 +94,38 @@ func TestShowArtifacts_ListsTheArtifactTagsOfTheProject(t *testing.T) {
 		if d, ok := got[key]; !ok || d != dest {
 			t.Errorf("expected %s with destination %q, got %v", key, dest, got)
 		}
+	}
+}
+
+func TestShowArtifacts_ScopesTheListToTheBlueprintUnlessAll(t *testing.T) {
+	t.Parallel()
+	dir, env := helpers.CopyFixtureOnly(t, "show-artifacts")
+	helpers.MarkAsGitRepo(t, dir)
+	if _, stderr, err := helpers.RunCLI(dir, []string{"init", "local"}, env); err != nil {
+		t.Fatalf("init local: %v\nstderr: %s", err, stderr)
+	}
+	env = append(env, "WINDSOR_CONTEXT=local")
+
+	stdout, stderr, err := helpers.RunCLI(dir, []string{"show", "artifacts"}, env)
+	if err != nil {
+		t.Fatalf("show artifacts: %v\nstderr: %s", err, stderr)
+	}
+	if out := string(stdout); strings.Contains(out, "ghcr.io/example/unused") || !strings.Contains(out, "ghcr.io/example/worker") {
+		t.Errorf("expected the used image and not the unused image, got:\n%s", out)
+	}
+	if out := string(stdout); strings.Contains(out, "ghcr.io/example/idle") || !strings.Contains(out, "ghcr.io/example/tooling") {
+		t.Errorf("expected the used facet image and not the idle facet image, got:\n%s", out)
+	}
+	if out := string(stdout); !strings.Contains(out, "ghcr.io/example/vars") {
+		t.Errorf("expected the image of the .tfvars tag, got:\n%s", out)
+	}
+
+	stdout, stderr, err = helpers.RunCLI(dir, []string{"show", "artifacts", "--all"}, env)
+	if err != nil {
+		t.Fatalf("show artifacts --all: %v\nstderr: %s", err, stderr)
+	}
+	if out := string(stdout); !strings.Contains(out, "ghcr.io/example/unused") || !strings.Contains(out, "ghcr.io/example/worker") || !strings.Contains(out, "ghcr.io/example/idle") || !strings.Contains(out, "ghcr.io/example/vars") {
+		t.Errorf("expected every image, got:\n%s", out)
 	}
 }
 

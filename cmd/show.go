@@ -27,6 +27,7 @@ var showKustomizationJSON bool
 var showValuesJSON bool
 var showArtifactsChartsTo string
 var showArtifactsOutput string
+var showArtifactsAll bool
 
 var showCmd = &cobra.Command{
 	Use:   "show",
@@ -44,7 +45,7 @@ Unresolved deferred values render as '<deferred>' by default in 'blueprint' and 
 var showArtifactsCmd = &cobra.Command{
 	Use:   "artifacts",
 	Short: "List the charts and images that the context pulls.",
-	Long:  `Print each chart and image that an artifact tag names in the project and in each oci:// blueprint source, and each oci:// blueprint source. The command copies nothing. Use -o flux-mirror or -o list to give the list to a relocation tool.`,
+	Long:  `Print each chart and image that an artifact tag names in the files that the composed blueprint uses, and each oci:// blueprint source. The command reads the blueprint paths, the resources and components of each kustomization file, and local Terraform modules. It also reads all of contexts/, _template/ and kustomize/crds/, and it lists a tag in a facet only when the blueprint uses the tagged value. Use --all to read whole sources. The command copies nothing. Use -o flux-mirror or -o list to give the list to a relocation tool.`,
 	Example: `# List the artifacts of the current context as YAML
 windsor show artifacts
 
@@ -52,7 +53,10 @@ windsor show artifacts
 windsor show artifacts --charts-to registry.example.com/windsor -o flux-mirror | flux mirror sync -
 
 # List each destination and upstream on one line
-windsor show artifacts -o list`,
+windsor show artifacts -o list
+
+# List the artifact tags of whole sources
+windsor show artifacts --all`,
 	Annotations: map[string]string{
 		"docs.seealso": "[`bundle`](bundle.md), [`plan`](plan.md)\n" +
 			"[Blueprint reference](../blueprint.md)",
@@ -70,6 +74,12 @@ windsor show artifacts -o list`,
 		if err != nil {
 			return err
 		}
+		var trace inventory.FacetTrace
+		if bh, ok := proj.Composer.BlueprintHandler.(*blueprintcomposer.BaseBlueprintHandler); ok && !showArtifactsAll {
+			collector := blueprintcomposer.NewTraceCollector()
+			bh.SetTraceCollector(collector)
+			trace = collector
+		}
 		if err := proj.ComposeBlueprint(); err != nil {
 			return err
 		}
@@ -80,7 +90,7 @@ windsor show artifacts -o list`,
 		display, _ := blueprintcomposer.RenderForDisplay(blueprint, false, proj.Composer.BlueprintHandler.GetDeferredPaths()).(*blueprintv1alpha1.Blueprint)
 
 		lister := inventory.NewLister(proj.Runtime, proj.Composer.ArtifactBuilder)
-		result, err := lister.List(display, inventory.Options{ChartsTo: showArtifactsChartsTo})
+		result, err := lister.List(display, inventory.Options{ChartsTo: showArtifactsChartsTo, All: showArtifactsAll, Trace: trace})
 		if err != nil {
 			return err
 		}
@@ -253,6 +263,7 @@ func init() {
 	showValuesCmd.Flags().BoolVar(&showValuesJSON, "json", false, "Output as JSON instead of YAML.")
 	showArtifactsCmd.Flags().StringVar(&showArtifactsChartsTo, "charts-to", "", "Chart registry for chart destinations, e.g. registry.example.com/windsor.")
 	showArtifactsCmd.Flags().StringVarP(&showArtifactsOutput, "output", "o", "yaml", "Output format: yaml, flux-mirror or list.")
+	showArtifactsCmd.Flags().BoolVar(&showArtifactsAll, "all", false, "Read the artifact tags of whole sources, also of the files that the blueprint does not use.")
 	showCmd.AddCommand(showArtifactsCmd)
 	showCmd.AddCommand(showBlueprintCmd)
 	showCmd.AddCommand(showKustomizationCmd)

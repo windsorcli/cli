@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -55,10 +56,16 @@ type DefaultTraceCollector struct {
 	mu            sync.Mutex
 	contributions map[string][]TraceContribution
 	configBlocks  map[string][]ConfigBlockRecord
+	facets        map[string]bool
+
+	blueprintValues []any
 
 	blueprint    *blueprintv1alpha1.Blueprint
 	scope        map[string]any
 	templateRoot string
+
+	usageOnce sync.Once
+	usage     *facetValueUsage
 }
 
 // =============================================================================
@@ -67,10 +74,13 @@ type DefaultTraceCollector struct {
 
 // TraceCollector records per-key contributions and config blocks during blueprint composition,
 // then provides trace queries after finalization. Implementations are set on the processor
-// before composition begins and are only active when the explain command is running.
+// before composition begins. They are active only for windsor explain and windsor show artifacts.
 type TraceCollector interface {
 	RecordContribution(composedPath string, tc TraceContribution)
 	RecordConfigBlock(configPath string, record ConfigBlockRecord)
+	ResetConfigBlocks(facetPaths []string)
+	RecordFacet(facetPath string)
+	RecordBlueprintValue(value any)
 	Finalize(bp *blueprintv1alpha1.Blueprint, scope map[string]any, templateRoot string)
 	GetTrace(pathStr string) (*ExplainTrace, error)
 }
@@ -84,6 +94,7 @@ func NewTraceCollector() *DefaultTraceCollector {
 	return &DefaultTraceCollector{
 		contributions: make(map[string][]TraceContribution),
 		configBlocks:  make(map[string][]ConfigBlockRecord),
+		facets:        make(map[string]bool),
 	}
 }
 
@@ -131,6 +142,34 @@ func (c *DefaultTraceCollector) RecordConfigBlock(configPath string, record Conf
 	}
 	c.mu.Lock()
 	c.configBlocks[configPath] = append(c.configBlocks[configPath], record)
+	c.mu.Unlock()
+}
+
+// ResetConfigBlocks removes the config block records of the facets at facetPaths. Composition calls
+// it before each config round, because a block that is active in an early round can be inactive in
+// the last round. Thread-safe.
+func (c *DefaultTraceCollector) ResetConfigBlocks(facetPaths []string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	for key, records := range c.configBlocks {
+		c.configBlocks[key] = slices.DeleteFunc(records, func(record ConfigBlockRecord) bool {
+			return slices.Contains(facetPaths, record.FacetPath)
+		})
+	}
+}
+
+// RecordFacet stores the path of a facet that composition loaded, also when its when is false. Thread-safe.
+func (c *DefaultTraceCollector) RecordFacet(facetPath string) {
+	c.mu.Lock()
+	c.facets[facetPath] = true
+	c.mu.Unlock()
+}
+
+// RecordBlueprintValue stores a raw value of a blueprint file. A blueprint file is not a facet, so
+// it has no contribution, but its expressions can read config blocks. Thread-safe.
+func (c *DefaultTraceCollector) RecordBlueprintValue(value any) {
+	c.mu.Lock()
+	c.blueprintValues = append(c.blueprintValues, value)
 	c.mu.Unlock()
 }
 

@@ -99,7 +99,7 @@ func ScanTags(filePath string, content []byte) ([]ArtifactTag, error) {
 	return tags, nil
 }
 
-// ScanTagsDir returns the artifact tags in the .yaml, .yml and .tf files under the kustomize,
+// ScanTagsDir returns the artifact tags in the .yaml, .yml, .tf and .tfvars files under the kustomize,
 // terraform, contexts and _template directories of root. This covers facets and values files.
 // A root with none of these directories gives no tags. File paths are relative to root.
 func ScanTagsDir(root string) ([]ArtifactTag, error) {
@@ -150,15 +150,21 @@ func ScanTagsDir(root string) ([]ArtifactTag, error) {
 // Helpers
 // =============================================================================
 
-// isTagPath reports whether the tag scan reads the file at path. It accepts YAML and Terraform
-// files under the kustomize, terraform, contexts and _template directories.
+// isTagPath reports whether the tag scan reads the file at path. It accepts YAML, Terraform and
+// tfvars files under the kustomize, terraform, contexts and _template directories.
 func isTagPath(path string) bool {
 	for _, dir := range tagRoots {
 		if strings.HasPrefix(path, dir+"/") {
-			return strings.HasSuffix(path, ".yaml") || strings.HasSuffix(path, ".yml") || strings.HasSuffix(path, ".tf")
+			return hasTagExtension(path)
 		}
 	}
 	return false
+}
+
+// hasTagExtension reports whether the file at path is a YAML, Terraform or tfvars file.
+// It does not accept .tfvars.json, because JSON has no comments and cannot hold a tag.
+func hasTagExtension(path string) bool {
+	return strings.HasSuffix(path, ".yaml") || strings.HasSuffix(path, ".yml") || strings.HasSuffix(path, ".tf") || strings.HasSuffix(path, ".tfvars")
 }
 
 // parseTag reads the key=value pairs of a tag body and checks them.

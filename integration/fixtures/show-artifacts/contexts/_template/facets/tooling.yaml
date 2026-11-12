@@ -8,3 +8,9 @@ config:
     value:
       # artifact: type=image name=ghcr.io/example/tooling referrers=false
       image: ghcr.io/example/tooling:2.0.0
+  - name: idle
+    value:
+      # artifact: type=image name=ghcr.io/example/idle
+      image: ghcr.io/example/idle:3.0.0
+substitutions:
+  tooling_image: ${tooling.image}
