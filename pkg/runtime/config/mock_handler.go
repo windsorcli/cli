@@ -38,6 +38,7 @@ type MockConfigHandler struct {
 	GetSchemaFunc               func() map[string]any
 	GetContextValuesFunc        func() (map[string]any, error)
 	GetSetValuesFunc            func() map[string]any
+	CheckRegistriesKeysFunc     func() (bool, error)
 	SetApplySchemaDefaultsFunc  func(enabled bool)
 	GetSensitivePathsFunc       func() []string
 	IsSensitivePathFunc         func(path string) bool
@@ -307,6 +308,14 @@ func (m *MockConfigHandler) GetSetValues() map[string]any {
 		return m.GetSetValuesFunc()
 	}
 	return nil
+}
+
+// CheckRegistriesKeys calls the mock CheckRegistriesKeysFunc if set, otherwise returns false and no error.
+func (m *MockConfigHandler) CheckRegistriesKeys() (bool, error) {
+	if m.CheckRegistriesKeysFunc != nil {
+		return m.CheckRegistriesKeysFunc()
+	}
+	return false, nil
 }
 
 // SetApplySchemaDefaults calls the mock SetApplySchemaDefaultsFunc if set, otherwise is a no-op

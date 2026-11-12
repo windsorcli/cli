@@ -132,6 +132,62 @@ contexts:
 		}
 	})
 
+	t.Run("ReadsTheTopLevelRegistries", func(t *testing.T) {
+		// Given a VirtEnvPrinter with a local registry in the top-level registries key
+		printer, mocks := setup(t)
+		configStr := `
+version: v1alpha1
+contexts:
+  test-context:
+    registries:
+      registry.test:
+        hostport: 5002
+`
+		if err := mocks.ConfigHandler.LoadConfigString(configStr); err != nil {
+			t.Fatalf("Failed to load config: %v", err)
+		}
+
+		// When getting the registry URL
+		url, err := printer.getRegistryURL()
+
+		// Then the URL comes from the registries entry
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+		if url != "registry.test:5002" {
+			t.Errorf("Expected URL 'registry.test:5002', got %q", url)
+		}
+	})
+
+	t.Run("SkipsMirrorEntries", func(t *testing.T) {
+		// Given registries that hold only a catch-all mirror and a host mirror
+		printer, mocks := setup(t)
+		configStr := `
+version: v1alpha1
+contexts:
+  test-context:
+    registries:
+      "*":
+        endpoint: http://mirror.test:5000
+      ghcr.io:
+        endpoint: mirror.test:5000
+`
+		if err := mocks.ConfigHandler.LoadConfigString(configStr); err != nil {
+			t.Fatalf("Failed to load config: %v", err)
+		}
+
+		// When getting the registry URL
+		url, err := printer.getRegistryURL()
+
+		// Then no mirror entry is a local registry
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+		if url != "" {
+			t.Errorf("Expected no registry URL, got %q", url)
+		}
+	})
+
 	t.Run("EmptyRegistryURL", func(t *testing.T) {
 		// Given a VirtEnvPrinter with no registry URL but with registries config
 		printer, mocks := setup(t)

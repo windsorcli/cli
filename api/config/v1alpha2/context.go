@@ -26,22 +26,23 @@ var schema []byte
 
 // Context holds the settings the CLI reads from a context.
 type Context struct {
-	ID          string            `yaml:"id,omitempty"`
-	Platform    string            `yaml:"platform,omitempty"`
-	Dev         *bool             `yaml:"dev,omitempty"`
-	Environment map[string]string `yaml:"environment,omitempty"`
-	Secrets     *Secrets          `yaml:"secrets,omitempty"`
-	AWS         *AWS              `yaml:"aws,omitempty"`
-	Azure       *Azure            `yaml:"azure,omitempty"`
-	GCP         *GCP              `yaml:"gcp,omitempty"`
-	VSphere     *VSphere          `yaml:"vsphere,omitempty"`
-	Terraform   *Terraform        `yaml:"terraform,omitempty"`
-	Workstation *Workstation      `yaml:"workstation,omitempty"`
-	DNS         *DNS              `yaml:"dns,omitempty"`
-	Network     *Network          `yaml:"network,omitempty"`
-	Cluster     *Cluster          `yaml:"cluster,omitempty"`
-	Docker      *Docker           `yaml:"docker,omitempty"`
-	GitOps      *GitOps           `yaml:"gitops,omitempty"`
+	ID          string              `yaml:"id,omitempty"`
+	Platform    string              `yaml:"platform,omitempty"`
+	Dev         *bool               `yaml:"dev,omitempty"`
+	Environment map[string]string   `yaml:"environment,omitempty"`
+	Secrets     *Secrets            `yaml:"secrets,omitempty"`
+	AWS         *AWS                `yaml:"aws,omitempty"`
+	Azure       *Azure              `yaml:"azure,omitempty"`
+	GCP         *GCP                `yaml:"gcp,omitempty"`
+	VSphere     *VSphere            `yaml:"vsphere,omitempty"`
+	Terraform   *Terraform          `yaml:"terraform,omitempty"`
+	Workstation *Workstation        `yaml:"workstation,omitempty"`
+	DNS         *DNS                `yaml:"dns,omitempty"`
+	Network     *Network            `yaml:"network,omitempty"`
+	Cluster     *Cluster            `yaml:"cluster,omitempty"`
+	Docker      *Docker             `yaml:"docker,omitempty"`
+	Registries  map[string]Registry `yaml:"registries,omitempty"`
+	GitOps      *GitOps             `yaml:"gitops,omitempty"`
 }
 
 // Secrets holds the secret providers the CLI reads.
@@ -175,6 +176,7 @@ type Cluster struct {
 }
 
 // Docker holds the docker settings the CLI reads.
+// Registries is the deprecated location of the top-level registries map.
 type Docker struct {
 	Enabled     *bool               `yaml:"enabled,omitempty"`
 	RegistryURL *string             `yaml:"registry_url,omitempty"`
@@ -182,9 +184,12 @@ type Docker struct {
 }
 
 // Registry holds the registry fields the CLI reads, keyed by registry host.
+// Local replaces the key as the upstream host. Endpoint is the mirror of the upstream host.
 type Registry struct {
 	Remote   *string `yaml:"remote,omitempty"`
+	Local    *string `yaml:"local,omitempty"`
 	HostPort *int    `yaml:"hostport,omitempty"`
+	Endpoint *string `yaml:"endpoint,omitempty"`
 }
 
 // GitOps holds the GitOps settings the CLI reads.

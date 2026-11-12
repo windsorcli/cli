@@ -34,6 +34,7 @@ system-managed and not covered here.
 | `network` | `object` | Cluster network configuration. |
 | `platform` | `string` | Target deployment platform. Selects platform-specific facets and drives backend type inference. When --platform/--vm-driver on init/up/bootstrap set the platform and terraform.backend.type is otherwise unset, the backend defaults per platform: aws -> s3; azure -> azurerm; gcp -> gcs; metal, docker, incus, hetzner, hyperv, vsphere, proxmox -> kubernetes (the cluster stores its own components' state as Secrets; hetzner defaults here too because its Object Storage keys can't be provisioned via API). An explicit --set terraform.backend.type=... always wins. One of: `none`, `docker`, `incus`, `metal`, `hetzner`, `aws`, `azure`, `gcp`, `hyperv`, `vsphere`, `proxmox`. |
 | `provider` | `string` | Deprecated alias for 'platform'. New configs should use 'platform'; the loader still reads 'provider' for backwards compatibility. |
+| `registries` | `map<object>` | Map of upstream registry host to registry configuration. The key '*' applies to each host with no entry. An entry with 'endpoint' is a mirror: cluster nodes pull the images of its host from the mirror, and the CLI and Flux pull the oci:// blueprint sources of its host from the mirror. |
 | `secrets` | `object` | Secrets provider configuration. Supported providers are SOPS and 1Password. |
 | `terraform` | `object` | Per-context Terraform settings (state backend, lock policy, timeout). |
 | `vm` | `object` | Workstation VM settings. Applies to colima / colima-incus / docker- desktop driver choices; ignored when the workstation runs directly on Docker without a VM. |
@@ -92,16 +93,17 @@ system-managed and not covered here.
 | Field | Type | Description |
 |------|------|-------------|
 | `enabled` | `boolean` | Whether to start Docker-managed services (DNS, git livereload, registry proxies) on workstation up. |
-| `registries` | `map<object>` | Map of registry alias to local-proxy configuration. The runtime creates a registry proxy container per entry when the workstation is enabled. |
+| `registries` | `map<object>` | Deprecated location of the context-level 'registries' map. The CLI reads it when the context does not set 'registries', and gives a warning. A context that sets both keys fails. |
 | `registry_url` | `string` | Primary container registry URL. |
 
 #### contexts{}.docker.registries{}
 
 | Field | Type | Description |
 |------|------|-------------|
+| `endpoint` | `string` | Mirror of the upstream host, as an optional http or https scheme, a host, an optional port, and an optional path. The default scheme is https. An http scheme sets insecure on the OCIRepository of each blueprint source of the host. |
 | `hostname` | `string` | Local hostname for the proxy container. |
 | `hostport` | `integer` | Local port for the proxy container. |
-| `local` | `string` | Local proxy URL. |
+| `local` | `string` | Upstream host that the entry applies to. The default is the key. |
 | `remote` | `string` | Remote (upstream) registry URL. |
 
 ### contexts{}.gcp
@@ -146,6 +148,16 @@ system-managed and not covered here.
 |------|------|-------------|
 | `end` | `string` | Last IP in the range (inclusive). |
 | `start` | `string` | First IP in the range (inclusive). |
+
+### contexts{}.registries{}
+
+| Field | Type | Description |
+|------|------|-------------|
+| `endpoint` | `string` | Mirror of the upstream host, as an optional http or https scheme, a host, an optional port, and an optional path. The default scheme is https. An http scheme sets insecure on the OCIRepository of each blueprint source of the host. |
+| `hostname` | `string` | Local hostname for the proxy container. |
+| `hostport` | `integer` | Local port for the proxy container. |
+| `local` | `string` | Upstream host that the entry applies to. The default is the key. |
+| `remote` | `string` | Remote (upstream) registry URL. |
 
 ### contexts{}.secrets
 

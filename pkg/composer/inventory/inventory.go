@@ -1,7 +1,7 @@
 // The Lister is the artifact inventory of one context.
 // It provides the list of charts, images and blueprints that a composed blueprint pulls.
 // It reads the artifact tags of the files that the composed blueprint uses. It does not render manifests.
-// It gives each artifact a destination from --charts-to and the docker.registries mirrors.
+// It gives each artifact a destination from --charts-to and the registries mirrors.
 
 package inventory
 
@@ -13,6 +13,7 @@ import (
 	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
 	"github.com/windsorcli/cli/pkg/composer/artifact"
 	"github.com/windsorcli/cli/pkg/runtime"
+	"github.com/windsorcli/cli/pkg/runtime/config"
 )
 
 // =============================================================================
@@ -167,7 +168,7 @@ func (l *BaseLister) List(blueprint *blueprintv1alpha1.Blueprint, opts Options) 
 	entries = append(entries, tagEntries...)
 	result.Notes = append(result.Notes, notes...)
 
-	mirrors, err := l.imageMirrors()
+	mirrors, err := config.NewMirrors(l.runtime.ConfigHandler.GetHeader().Registries)
 	if err != nil {
 		return nil, err
 	}

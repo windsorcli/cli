@@ -20,6 +20,7 @@ import (
 	"github.com/windsorcli/cli/internal/presenter"
 	"github.com/windsorcli/cli/internal/werror"
 	"github.com/windsorcli/cli/pkg/constants"
+	"github.com/windsorcli/cli/pkg/runtime/config"
 	runtimegit "github.com/windsorcli/cli/pkg/runtime/git"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
@@ -551,6 +552,7 @@ func (k *BaseKubernetesManager) applyBlueprintGitRepository(source blueprintv1al
 // isPrimary selects the short, continuously-polled interval default for the blueprint's own
 // repository rather than the long pinned-vendor-source default; see constants.FluxSourceInterval.
 // Checks for a "@sha256:<hex>" digest before the tag split, since the digest also has a colon.
+// When the context has a mirror for the source host, spec.url names the mirror, and an http mirror sets spec.insecure.
 func (k *BaseKubernetesManager) applyBlueprintOCIRepository(source blueprintv1alpha1.Source, namespace string, isPrimary bool) error {
 	ociURL := source.Url
 	var ref *sourcev1.OCIRepositoryRef
@@ -583,6 +585,12 @@ func (k *BaseKubernetesManager) applyBlueprintOCIRepository(source blueprintv1al
 		}
 	}
 
+	mirrors, err := config.NewMirrors(k.configHandler.GetHeader().Registries)
+	if err != nil {
+		return err
+	}
+	ociURL, insecure := mirrors.OCIURL(ociURL)
+
 	ociRepo := &sourcev1.OCIRepository{
 		TypeMeta: metav1.TypeMeta{
 			Kind:       "OCIRepository",
@@ -601,6 +609,7 @@ func (k *BaseKubernetesManager) applyBlueprintOCIRepository(source blueprintv1al
 				Duration: constants.DefaultFluxSourceTimeout,
 			},
 			Reference: ref,
+			Insecure:  insecure,
 		},
 	}
 

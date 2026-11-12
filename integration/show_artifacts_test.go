@@ -4,6 +4,8 @@
 package integration
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -151,5 +153,114 @@ func TestShowArtifacts_FailsWhenNotInTrustedDirectory(t *testing.T) {
 	}
 	if !strings.Contains(string(stderr), "trusted") {
 		t.Errorf("expected stderr to mention 'trusted', got: %s", stderr)
+	}
+}
+
+func TestShowArtifacts_GivesImagesTheRegistriesMirror(t *testing.T) {
+	t.Parallel()
+	dir, env := helpers.CopyFixtureOnly(t, "show-artifacts")
+	helpers.MarkAsGitRepo(t, dir)
+	if _, stderr, err := helpers.RunCLI(dir, []string{"init", "local", "--set", "registries[ghcr.io].endpoint=http://mirror.test:5000"}, env); err != nil {
+		t.Fatalf("init local: %v\nstderr: %s", err, stderr)
+	}
+	values, err := os.ReadFile(filepath.Join(dir, "contexts", "local", "values.yaml"))
+	if err != nil {
+		t.Fatalf("read values.yaml: %v", err)
+	}
+	if !strings.Contains(string(values), "\nregistries:\n") || strings.Contains(string(values), "docker:") {
+		t.Errorf("expected init to write the top-level registries key, got:\n%s", values)
+	}
+	env = append(env, "WINDSOR_CONTEXT=local")
+
+	stdout, stderr, err := helpers.RunCLI(dir, []string{"show", "artifacts", "-o", "list", "--charts-to", "registry.example.com/windsor"}, env)
+	if err != nil {
+		t.Fatalf("show artifacts: %v\nstderr: %s", err, stderr)
+	}
+	if out := string(stdout); !strings.Contains(out, "mirror.test:5000/example/worker:1.2.3\tghcr.io/example/worker:1.2.3") {
+		t.Errorf("expected the image on the mirror, got:\n%s", out)
+	}
+	if strings.Contains(string(stderr), "docker.registries") {
+		t.Errorf("expected no docker.registries warning, got: %s", stderr)
+	}
+}
+
+func TestShowArtifacts_ReadsDockerRegistriesWithAWarning(t *testing.T) {
+	t.Parallel()
+	dir, env := helpers.CopyFixtureOnly(t, "show-artifacts")
+	helpers.MarkAsGitRepo(t, dir)
+	if _, stderr, err := helpers.RunCLI(dir, []string{"init", "local"}, env); err != nil {
+		t.Fatalf("init local: %v\nstderr: %s", err, stderr)
+	}
+	appendValues(t, dir, "docker:\n  registries:\n    ghcr.io:\n      endpoint: mirror.test:5000\n")
+	env = append(env, "WINDSOR_CONTEXT=local")
+
+	stdout, stderr, err := helpers.RunCLI(dir, []string{"show", "artifacts", "-o", "list", "--charts-to", "registry.example.com/windsor"}, env)
+	if err != nil {
+		t.Fatalf("show artifacts: %v\nstderr: %s", err, stderr)
+	}
+	if out := string(stdout); !strings.Contains(out, "mirror.test:5000/example/worker:1.2.3\tghcr.io/example/worker:1.2.3") {
+		t.Errorf("expected the image on the mirror, got:\n%s", out)
+	}
+	if !strings.Contains(string(stderr), "docker.registries is deprecated") || !strings.Contains(string(stderr), "top-level registries key") {
+		t.Errorf("expected the docker.registries warning, got: %s", stderr)
+	}
+}
+
+func TestShowArtifacts_FailsWhenBothRegistriesKeysAreSet(t *testing.T) {
+	t.Parallel()
+	dir, env := helpers.CopyFixtureOnly(t, "show-artifacts")
+	helpers.MarkAsGitRepo(t, dir)
+	if _, stderr, err := helpers.RunCLI(dir, []string{"init", "local"}, env); err != nil {
+		t.Fatalf("init local: %v\nstderr: %s", err, stderr)
+	}
+	appendValues(t, dir, "registries:\n  ghcr.io:\n    endpoint: mirror.test:5000\ndocker:\n  registries:\n    quay.io:\n      endpoint: mirror.test:5000\n")
+	env = append(env, "WINDSOR_CONTEXT=local")
+
+	_, stderr, err := helpers.RunCLI(dir, []string{"show", "artifacts"}, env)
+	if err == nil {
+		t.Fatal("expected failure but command succeeded")
+	}
+	if !strings.Contains(string(stderr), "both registries and docker.registries") {
+		t.Errorf("expected stderr to name both keys, got: %s", stderr)
+	}
+}
+
+// appendValues appends content to the values.yaml of the local context in dir.
+func appendValues(t *testing.T, dir, content string) {
+	t.Helper()
+	path := filepath.Join(dir, "contexts", "local", "values.yaml")
+	existing, err := os.ReadFile(path)
+	if err != nil && !os.IsNotExist(err) {
+		t.Fatalf("read values.yaml: %v", err)
+	}
+	if err := os.WriteFile(path, append(existing, []byte("\n"+content)...), 0o600); err != nil {
+		t.Fatalf("write values.yaml: %v", err)
+	}
+}
+
+func TestShowValues_GivesFacetsOneRegistriesMap(t *testing.T) {
+	t.Parallel()
+	dir, env := helpers.CopyFixtureOnly(t, "show-artifacts")
+	helpers.MarkAsGitRepo(t, dir)
+	if _, stderr, err := helpers.RunCLI(dir, []string{"init", "local"}, env); err != nil {
+		t.Fatalf("init local: %v\nstderr: %s", err, stderr)
+	}
+	appendValues(t, dir, "docker:\n  registries:\n    ghcr.io:\n      endpoint: mirror.test:5000\n")
+	env = append(env, "WINDSOR_CONTEXT=local")
+
+	stdout, stderr, err := helpers.RunCLI(dir, []string{"show", "values", "--json"}, env)
+	if err != nil {
+		t.Fatalf("show values: %v\nstderr: %s", err, stderr)
+	}
+	var values struct {
+		Registries map[string]struct {
+			Endpoint string `yaml:"endpoint"`
+		} `yaml:"registries"`
+	}
+	if err := yaml.Unmarshal(stdout, &values); err != nil {
+		t.Fatalf("parse values JSON: %v\n%s", err, stdout)
+	}
+	if got := values.Registries["ghcr.io"].Endpoint; got != "mirror.test:5000" {
+		t.Errorf("expected registries to hold the docker.registries entry, got:\n%s", stdout)
 	}
 }

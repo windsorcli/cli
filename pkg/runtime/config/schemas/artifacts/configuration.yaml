@@ -109,6 +109,8 @@ $defs:
         $ref: '#/$defs/vsphere'
       docker:
         $ref: '#/$defs/docker'
+      registries:
+        $ref: '#/$defs/registries'
       git:
         $ref: '#/$defs/git'
       terraform:
@@ -288,27 +290,43 @@ $defs:
         type: string
         description: Primary container registry URL.
       registries:
-        type: object
+        $ref: '#/$defs/registries'
         description: |
-          Map of registry alias to local-proxy configuration. The runtime
-          creates a registry proxy container per entry when the workstation
-          is enabled.
-        additionalProperties:
-          type: object
-          additionalProperties: false
-          properties:
-            remote:
-              type: string
-              description: Remote (upstream) registry URL.
-            local:
-              type: string
-              description: Local proxy URL.
-            hostname:
-              type: string
-              description: Local hostname for the proxy container.
-            hostport:
-              type: integer
-              description: Local port for the proxy container.
+          Deprecated location of the context-level 'registries' map. The CLI
+          reads it when the context does not set 'registries', and gives a
+          warning. A context that sets both keys fails.
+        deprecated: true
+  registries:
+    type: object
+    description: |
+      Map of upstream registry host to registry configuration. The key '*'
+      applies to each host with no entry. An entry with 'endpoint' is a
+      mirror: cluster nodes pull the images of its host from the mirror, and
+      the CLI and Flux pull the oci:// blueprint sources of its host from
+      the mirror.
+    additionalProperties:
+      type: object
+      additionalProperties: false
+      properties:
+        remote:
+          type: string
+          description: Remote (upstream) registry URL.
+        local:
+          type: string
+          description: Upstream host that the entry applies to. The default is the key.
+        hostname:
+          type: string
+          description: Local hostname for the proxy container.
+        hostport:
+          type: integer
+          description: Local port for the proxy container.
+        endpoint:
+          type: string
+          description: |
+            Mirror of the upstream host, as an optional http or https scheme,
+            a host, an optional port, and an optional path. The default scheme
+            is https. An http scheme sets insecure on the OCIRepository of
+            each blueprint source of the host.
   git:
     type: object
     additionalProperties: false

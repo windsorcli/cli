@@ -189,6 +189,34 @@ func TestArtifactBuilder_Pull(t *testing.T) {
 		}
 	})
 
+	t.Run("PullsFromTheMirrorAndKeepsTheUpstreamCacheKey", func(t *testing.T) {
+		// Given a mirror for registry.example.com
+		builder, mocks := setup(t)
+		setMirror(mocks, "registry.example.com", "mirror.test:5000")
+		var parsed []string
+		mocks.Shims.ParseReference = func(ref string, opts ...name.Option) (name.Reference, error) {
+			parsed = append(parsed, ref)
+			return nil, nil
+		}
+
+		// When Pull is called with an upstream reference
+		artifacts, err := builder.Pull([]string{"oci://registry.example.com/my-repo:v1.0.0"})
+
+		// Then the download reads the mirror
+		if err != nil {
+			t.Fatalf("expected no error, got %v", err)
+		}
+		if len(parsed) != 1 || parsed[0] != "mirror.test:5000/my-repo:v1.0.0" {
+			t.Errorf("expected the mirror reference, got %v", parsed)
+		}
+
+		// And the cache key and directory keep the upstream reference
+		cacheDir, ok := artifacts["registry.example.com/my-repo:v1.0.0"]
+		if !ok || !strings.HasSuffix(cacheDir, "registry.example.com_my-repo_v1.0.0") {
+			t.Errorf("expected the upstream cache key, got %v", artifacts)
+		}
+	})
+
 	t.Run("MultipleOCIReferencesDifferentArtifacts", func(t *testing.T) {
 		// Given an ArtifactBuilder with mocks
 		builder, mocks := setup(t)

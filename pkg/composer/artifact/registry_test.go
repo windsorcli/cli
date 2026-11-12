@@ -19,13 +19,24 @@ import (
 	"github.com/google/go-containerregistry/pkg/v1/remote/transport"
 	"github.com/google/go-containerregistry/pkg/v1/static"
 	"github.com/google/go-containerregistry/pkg/v1/types"
+	cliconfig "github.com/windsorcli/cli/api/config/v1alpha2"
 	"github.com/windsorcli/cli/internal/werror"
 	"github.com/windsorcli/cli/pkg/constants"
+	"github.com/windsorcli/cli/pkg/runtime/config"
 )
 
 // =============================================================================
 // Test Setup
 // =============================================================================
+
+// setMirror gives the runtime of mocks a registries entry for host with endpoint as its mirror.
+func setMirror(mocks *ArtifactMocks, host, endpoint string) {
+	handler := config.NewMockConfigHandler()
+	handler.GetHeaderFunc = func() *cliconfig.Context {
+		return &cliconfig.Context{Registries: map[string]cliconfig.Registry{host: {Endpoint: &endpoint}}}
+	}
+	mocks.Runtime.ConfigHandler = handler
+}
 
 // setTestCliVersion temporarily overrides constants.Version for the duration of the calling test,
 // restoring the original value via t.Cleanup. constants.Version is process-global, not per-test
@@ -1592,6 +1603,56 @@ func TestArtifactBuilder_downloadOCIArtifact(t *testing.T) {
 		}
 		if !strings.Contains(err.Error(), "failed to get image") {
 			t.Errorf("expected remote image error, got %v", err)
+		}
+	})
+
+	t.Run("PullsFromTheMirrorOfTheRegistry", func(t *testing.T) {
+		for _, tc := range []struct {
+			endpoint string
+			insecure bool
+		}{{"https://harbor.example.com/windsor", false}, {"http://harbor.example.com/windsor", true}} {
+			// Given a mirror for registry.example.com
+			builder, mocks := setup(t)
+			setMirror(mocks, "registry.example.com", tc.endpoint)
+			var parsed string
+			var options int
+			mocks.Shims.ParseReference = func(ref string, opts ...name.Option) (name.Reference, error) {
+				parsed, options = ref, len(opts)
+				return nil, fmt.Errorf("stop")
+			}
+
+			// When downloadOCIArtifact is called
+			_, _ = builder.downloadOCIArtifact("registry.example.com", "modules", "v1.0.0")
+
+			// Then it reads the mirror, and an http mirror is insecure
+			if parsed != "harbor.example.com/windsor/modules:v1.0.0" {
+				t.Errorf("%s: expected the mirror reference, got %q", tc.endpoint, parsed)
+			}
+			if (options == 1) != tc.insecure {
+				t.Errorf("%s: expected insecure %v, got %d options", tc.endpoint, tc.insecure, options)
+			}
+		}
+	})
+
+	t.Run("ErrorWhenTheRegistriesGiveOneHostTwoMirrors", func(t *testing.T) {
+		// Given two entries that give registry.example.com different mirrors
+		builder, mocks := setup(t)
+		handler := config.NewMockConfigHandler()
+		local, first, second := "registry.example.com", "a.example.com", "b.example.com"
+		handler.GetHeaderFunc = func() *cliconfig.Context {
+			return &cliconfig.Context{Registries: map[string]cliconfig.Registry{
+				"registry.example.com": {Endpoint: &first},
+				"other":                {Local: &local, Endpoint: &second},
+			}}
+		}
+		mocks.Runtime.ConfigHandler = handler
+
+		// When downloadOCIArtifact is called
+		_, err := builder.downloadOCIArtifact("registry.example.com", "modules", "v1.0.0")
+
+		// Then it returns the registries error
+		if err == nil || !strings.Contains(err.Error(), "two mirrors") {
+			t.Errorf("expected the two mirrors error, got %v", err)
 		}
 	})
 

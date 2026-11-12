@@ -200,10 +200,40 @@ properties:
             remote:
               type: string
               description: Upstream registry URL. A registry without one is a local registry.
+            local:
+              type: string
+              description: Upstream host that the entry applies to. The default is the key.
             hostport:
               type: integer
               description: Host port of a local registry.
-        description: Registries, keyed by registry host.
+            endpoint:
+              type: string
+              description: >-
+                Mirror of the upstream host, as an optional http or https scheme, a host, an optional
+                port, and an optional path. The default scheme is https.
+        description: Deprecated. Use the top-level registries key.
+  registries:
+    type: object
+    additionalProperties:
+      type: object
+      properties:
+        remote:
+          type: string
+          description: Upstream registry URL. A registry without one is a local registry.
+        local:
+          type: string
+          description: Upstream host that the entry applies to. The default is the key.
+        hostport:
+          type: integer
+          description: Host port of a local registry.
+        endpoint:
+          type: string
+          description: >-
+            Mirror of the upstream host, as an optional http or https scheme, a host, an optional
+            port, and an optional path. The default scheme is https.
+    description: >-
+      Registries, keyed by upstream registry host. The key * applies to each host with no entry.
+      An entry with endpoint is a mirror for the images and blueprint sources of its host.
   gitops:
     type: object
     properties:
