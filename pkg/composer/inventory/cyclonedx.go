@@ -22,16 +22,23 @@ import (
 // CycloneDX returns inv as a CycloneDX 1.6 BOM in JSON. An image is a container component, a chart is
 // an application component, and a blueprint is a data component. An OCI artifact has a pkg:oci package
 // URL, with the digest as the version when the entry has one. An HTTP chart has a pkg:generic package
-// URL with the repository as its download_url. When name is not empty, the BOM metadata names the
-// blueprint with name and version.
+// URL with the repository as its download_url. Each package URL is a unique bom-ref, so CycloneDX keeps
+// the first entry for a package URL and drops the next ones. When name is not empty, the BOM metadata
+// names the blueprint with name and version.
 func CycloneDX(inv Inventory, name, version string) ([]byte, error) {
 	bom := cdx.NewBOM()
 	if name != "" {
 		bom.Metadata = &cdx.Metadata{Component: &cdx.Component{Type: cdx.ComponentTypeData, Name: name, Version: version}}
 	}
 	components := make([]cdx.Component, 0, len(inv.Artifacts))
+	seen := make(map[string]bool)
 	for _, e := range inv.Artifacts {
-		components = append(components, bomComponent(e))
+		component := bomComponent(e)
+		if seen[component.BOMRef] {
+			continue
+		}
+		seen[component.BOMRef] = true
+		components = append(components, component)
 	}
 	bom.Components = &components
 
