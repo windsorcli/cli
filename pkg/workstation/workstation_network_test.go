@@ -608,6 +608,126 @@ func TestWorkstation_PrepareForUp(t *testing.T) {
 	})
 }
 
+func TestWorkstation_RestoreClusterRoute(t *testing.T) {
+	setup := func(t *testing.T, backend string, routeMissing bool) (*WorkstationTestMocks, *workstation.Workstation, *[]string) {
+		t.Helper()
+		mocks := setupWorkstationMocks(t)
+		mocks.ConfigHandler.(*config.MockConfigHandler).GetTerraformBackendTypeFunc = func() string { return backend }
+		var calls []string
+		mocks.NetworkManager.NeedsPrivilegeForClusterFunc = func() bool { return routeMissing }
+		mocks.NetworkManager.ConfigureGuestFunc = func() error { calls = append(calls, "guest"); return nil }
+		mocks.NetworkManager.ConfigureHostRouteFunc = func() error { calls = append(calls, "route"); return nil }
+		ws := workstation.NewWorkstation(mocks.Runtime, &workstation.Workstation{NetworkManager: mocks.NetworkManager})
+		ws.DeferHostGuestSetup = true
+		return mocks, ws, &calls
+	}
+
+	t.Run("DoesNothingWhenBackendIsNotKubernetes", func(t *testing.T) {
+		// Given a local backend and a missing host route
+		_, ws, calls := setup(t, "local", true)
+
+		// When the route check runs
+		reachable, err := ws.RestoreClusterRoute(context.Background())
+
+		// Then it continues without network calls or deferred work
+		if err != nil || !reachable {
+			t.Fatalf("Expected reachable and no error, got %v, %v", reachable, err)
+		}
+		if len(*calls) != 0 || ws.DeferredWork() != nil {
+			t.Errorf("Expected no calls and no deferred work, got %v, %v", *calls, ws.DeferredWork())
+		}
+	})
+
+	t.Run("DoesNothingWhenHostGuestSetupIsNotDeferred", func(t *testing.T) {
+		// Given a kubernetes backend and a workstation that configures the network in Up
+		_, ws, calls := setup(t, "kubernetes", true)
+		ws.DeferHostGuestSetup = false
+
+		// When the route check runs
+		reachable, err := ws.RestoreClusterRoute(context.Background())
+
+		// Then it continues without network calls
+		if err != nil || !reachable {
+			t.Fatalf("Expected reachable and no error, got %v, %v", reachable, err)
+		}
+		if len(*calls) != 0 {
+			t.Errorf("Expected no calls, got %v", *calls)
+		}
+	})
+
+	t.Run("DoesNothingWhenRouteIsPresent", func(t *testing.T) {
+		// Given a kubernetes backend and a host route that is present
+		_, ws, calls := setup(t, "kubernetes", false)
+
+		// When the route check runs
+		reachable, err := ws.RestoreClusterRoute(context.Background())
+
+		// Then it continues without network calls
+		if err != nil || !reachable {
+			t.Fatalf("Expected reachable and no error, got %v, %v", reachable, err)
+		}
+		if len(*calls) != 0 {
+			t.Errorf("Expected no calls, got %v", *calls)
+		}
+	})
+
+	t.Run("AddsRouteWhenElevationNeedsNoPrompt", func(t *testing.T) {
+		// Given a missing host route and cached sudo credentials
+		_, ws, calls := setup(t, "kubernetes", true)
+		t.Cleanup(workstation.SetCanElevateNonInteractivelyForTest(func(_ shell.Shell) bool { return true }))
+
+		// When the route check runs
+		reachable, err := ws.RestoreClusterRoute(context.Background())
+
+		// Then it configures the guest and the host route and continues
+		if err != nil || !reachable {
+			t.Fatalf("Expected reachable and no error, got %v, %v", reachable, err)
+		}
+		if !reflect.DeepEqual(*calls, []string{"guest", "route"}) {
+			t.Errorf("Expected guest then route, got %v", *calls)
+		}
+		if ws.DeferredWork() != nil {
+			t.Errorf("Expected no deferred work, got %v", ws.DeferredWork())
+		}
+	})
+
+	t.Run("StopsWithConfigureNetworkWhenElevationNeedsPrompt", func(t *testing.T) {
+		// Given a missing host route and no cached sudo credentials
+		_, ws, calls := setup(t, "kubernetes", true)
+		t.Cleanup(workstation.SetCanElevateNonInteractivelyForTest(func(_ shell.Shell) bool { return false }))
+
+		// When the route check runs
+		reachable, err := ws.RestoreClusterRoute(context.Background())
+
+		// Then it stops, makes no network calls, and defers 'windsor configure network' as required work
+		if err != nil || reachable {
+			t.Fatalf("Expected not reachable and no error, got %v, %v", reachable, err)
+		}
+		if len(*calls) != 0 {
+			t.Errorf("Expected no calls, got %v", *calls)
+		}
+		want := []workstation.DeferredWorkItem{{Required: true, Command: "windsor configure network"}}
+		if !reflect.DeepEqual(ws.DeferredWork(), want) {
+			t.Errorf("Expected %v, got %v", want, ws.DeferredWork())
+		}
+	})
+
+	t.Run("ReturnsErrorWhenHostRouteFails", func(t *testing.T) {
+		// Given cached sudo credentials and a host route step that fails
+		mocks, ws, _ := setup(t, "kubernetes", true)
+		t.Cleanup(workstation.SetCanElevateNonInteractivelyForTest(func(_ shell.Shell) bool { return true }))
+		mocks.NetworkManager.ConfigureHostRouteFunc = func() error { return fmt.Errorf("route add failed") }
+
+		// When the route check runs
+		_, err := ws.RestoreClusterRoute(context.Background())
+
+		// Then the error names the host route step
+		if err == nil || !strings.Contains(err.Error(), "error configuring host route") {
+			t.Errorf("Expected host route error, got %v", err)
+		}
+	})
+}
+
 func TestWorkstation_RevertNetwork(t *testing.T) {
 	t.Run("NoOpWhenNetworkManagerNil", func(t *testing.T) {
 		// Given a workstation without a NetworkManager

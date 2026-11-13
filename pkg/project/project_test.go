@@ -1711,6 +1711,56 @@ func TestProject_Up(t *testing.T) {
 		}
 	})
 
+	t.Run("HaltsBeforeTerraformWhenClusterRouteNeedsPrivilege", func(t *testing.T) {
+		// Given a kubernetes backend, a missing host route, and no cached sudo credentials
+		mocks := setupProjectMocks(t)
+		mockConfig := mocks.ConfigHandler.(*config.MockConfigHandler)
+		mockConfig.IsDevModeFunc = func(contextName string) bool { return true }
+		mockConfig.GetBoolFunc = func(key string, defaultValue ...bool) bool { return key == "terraform.enabled" }
+		mockConfig.GetTerraformBackendTypeFunc = func() string { return "kubernetes" }
+		mockBH := mocks.Composer.BlueprintHandler.(*blueprint.MockBlueprintHandler)
+		mockBH.GenerateFunc = func() *v1alpha1.Blueprint {
+			return &v1alpha1.Blueprint{TerraformComponents: []v1alpha1.TerraformComponent{{Path: "workstation"}}}
+		}
+		stackRan := false
+		mockStack := terraforminfra.NewMockStack()
+		mockStack.UpFunc = func(blueprint *v1alpha1.Blueprint, onApply ...func(ctx context.Context, id string) (bool, error)) (bool, error) {
+			stackRan = true
+			return false, nil
+		}
+		prov := provisioner.NewProvisioner(mocks.Runtime, mocks.Composer.BlueprintHandler, &provisioner.Provisioner{TerraformStack: mockStack})
+		proj := project.NewProject("test-context", &project.Project{
+			Runtime:     mocks.Runtime,
+			Composer:    mocks.Composer,
+			Provisioner: prov,
+		})
+		if err := proj.Configure(nil); err != nil {
+			t.Fatalf("Configure: %v", err)
+		}
+		mockNM := network.NewMockNetworkManager()
+		mockNM.NeedsPrivilegeForClusterFunc = func() bool { return true }
+		proj.Workstation.NetworkManager = mockNM
+		t.Cleanup(workstation.SetCanElevateNonInteractivelyForTest(func(_ shell.Shell) bool { return false }))
+
+		// When Up is called
+		_, halted, err := proj.Up(context.Background())
+
+		// Then Up halts without an error, Terraform does not run, and the deferred work names the command
+		if err != nil {
+			t.Fatalf("Expected no error, got: %v", err)
+		}
+		if !halted {
+			t.Error("Expected Up to halt")
+		}
+		if stackRan {
+			t.Error("Expected Terraform not to run")
+		}
+		items := proj.Workstation.DeferredWork()
+		if len(items) != 1 || !items[0].Required || items[0].Command != "windsor configure network" {
+			t.Errorf("Expected one required 'windsor configure network' item, got %v", items)
+		}
+	})
+
 	t.Run("ErrorFromProvisionerUp", func(t *testing.T) {
 		// Given a terraform stack that fails to apply
 		mocks := setupProjectMocks(t)

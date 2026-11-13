@@ -61,6 +61,9 @@ func setupDefaultShims() *Shims {
 		Stat: func(name string) (os.FileInfo, error) {
 			return nil, nil
 		},
+		ReadFile: func(name string) ([]byte, error) {
+			return nil, os.ErrNotExist
+		},
 		YamlMarshal: func(v any) ([]byte, error) {
 			return yaml.Marshal(v)
 		},

@@ -12,6 +12,7 @@ import (
 	colimaConfig "github.com/abiosoft/colima/config"
 	"github.com/goccy/go-yaml"
 	"github.com/shirou/gopsutil/mem"
+	"github.com/windsorcli/cli/internal/werror"
 	"github.com/windsorcli/cli/pkg/workstation/virt"
 )
 
@@ -296,6 +297,53 @@ func TestColimaVirt_Up(t *testing.T) {
 		}
 	})
 
+	t.Run("ReusesARunningVMWithTheSameMount", func(t *testing.T) {
+		// Given a running VM whose Lima instance mounts the project root
+		f, colimaVirt := setupColimaVirt(t)
+		f.shell.ExecSilentWithTimeoutFunc = func(string, []string, time.Duration) (string, error) {
+			return `{"address":"192.168.5.2"}`, nil
+		}
+		writeLimaConfig(t, f, "mounts:\n  - location: /cache/colima\n  - location: /work/project/\n    writable: true\n")
+
+		// When starting the VM
+		err := colimaVirt.Up(f.ctx)
+
+		// Then the VM is reused without an error
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		if f.values["workstation.address"] != "192.168.5.2" {
+			t.Errorf("Expected workstation.address 192.168.5.2, got %v", f.values["workstation.address"])
+		}
+	})
+
+	t.Run("ReturnsErrorWhenRunningMountDiffers", func(t *testing.T) {
+		// Given a running VM whose Lima instance mounts an old project root
+		f, colimaVirt := setupColimaVirt(t)
+		f.shell.ExecSilentWithTimeoutFunc = func(string, []string, time.Duration) (string, error) {
+			return `{"address":"192.168.5.2"}`, nil
+		}
+		writeLimaConfig(t, f, "mounts:\n  - location: /work/old-project/\n    writable: true\n")
+
+		// When starting the VM
+		err := colimaVirt.Up(f.ctx)
+
+		// Then the error names the mount and tells the operator to restart the VM
+		var wErr *werror.WindsorError
+		if !errors.As(err, &wErr) {
+			t.Fatalf("Expected a WindsorError, got %v", err)
+		}
+		if wantPath := filepath.Clean("/work/project"); !strings.Contains(wErr.Error(), wantPath) {
+			t.Errorf("Expected the error to name %s, got %q", wantPath, wErr.Error())
+		}
+		if !strings.Contains(wErr.Remediation, "colima stop windsor-local") {
+			t.Errorf("Expected the remediation to name colima stop windsor-local, got %q", wErr.Remediation)
+		}
+		if _, set := f.values["workstation.address"]; set {
+			t.Error("Expected workstation.address not to be set")
+		}
+	})
+
 	t.Run("StartsTheVMWhenItIsNotRunning", func(t *testing.T) {
 		// Given no running VM, and a VM that gets an address after colima start
 		f, colimaVirt := setupColimaVirt(t)
@@ -352,6 +400,53 @@ func TestColimaVirt_Up(t *testing.T) {
 		wantSteps := []string{"applying:Creating Colima VM", "failed:Creating Colima VM"}
 		if !reflect.DeepEqual(f.recorder.steps(), wantSteps) {
 			t.Errorf("Expected steps %v, got %v", wantSteps, f.recorder.steps())
+		}
+	})
+	t.Run("ReturnsUnlockHintWhenLimaDiskIsLocked", func(t *testing.T) {
+		// Given no running VM and a colima start that fails on a stale Lima disk lock
+		f, colimaVirt := setupColimaVirt(t)
+		f.shell.ExecSilentWithTimeoutFunc = func(string, []string, time.Duration) (string, error) {
+			return "", errors.New("profile not found")
+		}
+		f.shell.ExecProgressFunc = func(string, string, ...string) (string, error) {
+			return "level=error msg=\"[hostagent] could not attach disk `colima-windsor-local`: in use by instance `colima-windsor-local`\"", errors.New("exit status 1")
+		}
+
+		// When starting the VM
+		err := colimaVirt.Up(f.ctx)
+
+		// Then the remediation is the limactl disk unlock command with the disk name and the Lima home
+		var wErr *werror.WindsorError
+		if !errors.As(err, &wErr) {
+			t.Fatalf("Expected a WindsorError, got %v", err)
+		}
+		limaHome := filepath.Join(f.home, ".colima", "_lima")
+		want := "LIMA_HOME=" + limaHome + " limactl disk unlock colima-windsor-local"
+		if !strings.Contains(wErr.Remediation, want) {
+			t.Errorf("Expected the remediation to contain %q, got %q", want, wErr.Remediation)
+		}
+	})
+
+	t.Run("UsesTheProfileDiskWhenLimaDoesNotNameTheDisk", func(t *testing.T) {
+		// Given a colima start that fails with a disk lock and no disk name
+		f, colimaVirt := setupColimaVirt(t)
+		f.shell.ExecSilentWithTimeoutFunc = func(string, []string, time.Duration) (string, error) {
+			return "", errors.New("profile not found")
+		}
+		f.shell.ExecProgressFunc = func(string, string, ...string) (string, error) {
+			return "in use by instance", errors.New("exit status 1")
+		}
+
+		// When starting the VM
+		err := colimaVirt.Up(f.ctx)
+
+		// Then the remediation names the data disk of the profile
+		var wErr *werror.WindsorError
+		if !errors.As(err, &wErr) {
+			t.Fatalf("Expected a WindsorError, got %v", err)
+		}
+		if !strings.Contains(wErr.Remediation, "limactl disk unlock colima-windsor-local") {
+			t.Errorf("Expected the remediation to name colima-windsor-local, got %q", wErr.Remediation)
 		}
 	})
 }

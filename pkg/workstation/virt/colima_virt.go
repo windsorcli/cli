@@ -12,6 +12,7 @@ import (
 	"math"
 	"net"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"time"
 
@@ -28,6 +29,18 @@ import (
 
 // colimaNoAddressHint is the remediation for a Colima VM that gets no IP address after it starts.
 const colimaNoAddressHint = "Run colima list to see the VM state. Then run windsor down --clean and windsor up again."
+
+// colimaMountMismatchHint is the remediation for a running Colima VM whose mounts differ from colima.yaml.
+// The placeholder is the profile name.
+const colimaMountMismatchHint = "Run 'colima stop %s' to stop the VM. Then run 'windsor up' again to start it with the new mount."
+
+// colimaDiskLockHint is the remediation for a Lima data disk that a stopped instance still locks.
+// The placeholders are the Lima home directory and the disk name.
+const colimaDiskLockHint = "Run 'LIMA_HOME=%s limactl disk unlock %s' to remove the stale lock. Then run 'windsor up' again."
+
+// limaDiskLockPattern matches the disk name in the Lima error "could not attach disk `<name>`".
+// Lima quotes the name with backquotes or with double quotes, and the colima log can escape the double quotes.
+var limaDiskLockPattern = regexp.MustCompile("could not attach disk \\\\?[`\"]([A-Za-z0-9._-]+)\\\\?[`\"]")
 
 // testForceMemoryOverflow makes getDefaultValues use the overflow branch. Only tests set it.
 var testForceMemoryOverflow = false
@@ -66,12 +79,16 @@ func NewColimaVirt(rt *runtime.Runtime) *ColimaVirt {
 // Up starts the Colima VM and configures its network settings.
 // It initializes the VM with the appropriate configuration and waits for it to become ready.
 // If the VM is already running, it skips the start operation and reuses the existing VM.
+// It returns an error with a remediation when the mounts of the running VM differ from colima.yaml.
 // The VM address is set in the configuration handler for later use.
 // Kills stuck processes before starting if VM is not already running to prevent vmnet/daemon issues.
 // Returns an error if the VM fails to start or if the address cannot be set.
 func (v *ColimaVirt) Up(ctx context.Context) error {
 	info, err := v.getVMInfo()
 	if err == nil && info.Address != "" {
+		if err := v.checkRunningMounts(); err != nil {
+			return err
+		}
 		if err := v.configHandler.Set("workstation.address", info.Address); err != nil {
 			return werror.Wrap(err, "failed to set VM address in config handler")
 		}
@@ -221,6 +238,48 @@ func colimaMountsForProjectRoot(projectRoot string) []colimaConfig.Mount {
 	return []colimaConfig.Mount{
 		{Location: location, Writable: true},
 	}
+}
+
+// checkRunningMounts compares the mounts of colima.yaml with the mounts of the running VM.
+// It reads the running mounts from the Lima instance file ~/.colima/_lima/colima-<profile>/lima.yaml.
+// It returns an error with a remediation when a mount of colima.yaml is not in the running VM.
+// It returns nil when it cannot read or parse the Lima instance file.
+func (v *ColimaVirt) checkRunningMounts() error {
+	wanted := colimaMountsForProjectRoot(v.BaseVirt.projectRoot)
+	if len(wanted) == 0 {
+		return nil
+	}
+	homeDir, err := v.BaseVirt.shims.UserHomeDir()
+	if err != nil {
+		return nil
+	}
+	profileName := v.getProfileName()
+	data, err := v.BaseVirt.shims.ReadFile(filepath.Join(homeDir, ".colima", "_lima", "colima-"+profileName, "lima.yaml"))
+	if err != nil {
+		return nil
+	}
+	var limaConfig struct {
+		Mounts []struct {
+			Location string `yaml:"location"`
+		} `yaml:"mounts"`
+	}
+	if err := v.BaseVirt.shims.YamlUnmarshal(data, &limaConfig); err != nil {
+		return nil
+	}
+	running := make(map[string]bool, len(limaConfig.Mounts))
+	for _, mount := range limaConfig.Mounts {
+		running[filepath.Clean(mount.Location)] = true
+	}
+	for _, mount := range wanted {
+		if !running[mount.Location] {
+			return werror.New(
+				fmt.Sprintf("the running Colima VM does not mount %s", mount.Location),
+				fmt.Sprintf(colimaMountMismatchHint, profileName),
+				nil,
+			)
+		}
+	}
+	return nil
 }
 
 // getVMInfo returns the information about the Colima VM
@@ -442,6 +501,7 @@ func (v *ColimaVirt) executeColimaCommand(action string, additionalArgs ...strin
 // startColima starts the Colima VM and returns the VM info after the VM gets an IP address.
 // It runs colima start, then gets the VM info again until the VM has an address or the attempts end.
 // If colima start fails, the error includes the command output.
+// When Lima reports a disk in use by an instance, the error has the limactl disk unlock command as its remediation.
 // If the VM gets no address, it returns an error with a remediation hint.
 func (v *ColimaVirt) startColima() (VMInfo, error) {
 	contextName := v.configHandler.GetContext()
@@ -451,6 +511,20 @@ func (v *ColimaVirt) startColima() (VMInfo, error) {
 
 	output, err := v.shell.ExecProgress(fmt.Sprintf("Running %s", command), command, args...)
 	if err != nil {
+		if disk, locked := lockedLimaDisk(output); locked {
+			if disk == "" {
+				disk = "colima-" + v.getProfileName()
+			}
+			limaHome := filepath.Join("~", ".colima", "_lima")
+			if homeDir, homeErr := v.BaseVirt.shims.UserHomeDir(); homeErr == nil {
+				limaHome = filepath.Join(homeDir, ".colima", "_lima")
+			}
+			return VMInfo{}, werror.New(
+				fmt.Sprintf("Lima has a stale lock on the disk %s", disk),
+				fmt.Sprintf(colimaDiskLockHint, limaHome, disk),
+				werror.Wrap(err, "failed to run %s %v, output: %s", command, args, output),
+			)
+		}
 		return VMInfo{}, werror.Wrap(err, "failed to run %s %v, output: %s", command, args, output)
 	}
 
@@ -528,6 +602,19 @@ func (v *ColimaVirt) execInVMProgress(message string, command string, args ...st
 // =============================================================================
 // Helpers
 // =============================================================================
+
+// lockedLimaDisk reports whether output has the Lima error for a disk that an instance locks.
+// It returns the disk name from "could not attach disk", or "" when the output does not name the disk.
+func lockedLimaDisk(output string) (string, bool) {
+	if !strings.Contains(output, "in use by instance") {
+		return "", false
+	}
+	match := limaDiskLockPattern.FindStringSubmatch(output)
+	if match == nil {
+		return "", true
+	}
+	return match[1], true
+}
 
 // ptrBool returns a pointer to b.
 func ptrBool(b bool) *bool {

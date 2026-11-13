@@ -356,6 +356,37 @@ func (w *Workstation) MakeApplyHook() func(ctx context.Context, componentID stri
 	}
 }
 
+// RestoreClusterRoute makes sure that the host can reach a cluster that holds the Terraform state.
+// It does nothing when DeferHostGuestSetup is false, when the backend is not kubernetes, or when the route is present.
+// When Windsor can elevate without a prompt, it configures the guest and the host route and returns true.
+// Otherwise it adds a required DeferredWorkItem and returns false, so the caller stops before Terraform runs.
+// It never prompts for sudo.
+func (w *Workstation) RestoreClusterRoute(ctx context.Context) (bool, error) {
+	if !w.DeferHostGuestSetup || w.NetworkManager == nil {
+		return true, nil
+	}
+	if w.configHandler.GetTerraformBackendType() != "kubernetes" {
+		return true, nil
+	}
+	if !w.NetworkManager.NeedsPrivilegeForCluster() {
+		return true, nil
+	}
+	if !canElevateNonInteractively(w.shell) {
+		w.appendDeferredWork(DeferredWorkItem{
+			Required: true,
+			Command:  "windsor configure network",
+		})
+		return false, nil
+	}
+	if err := w.NetworkManager.ConfigureGuest(); err != nil {
+		return false, werror.Wrap(err, "error configuring guest")
+	}
+	if err := w.NetworkManager.ConfigureHostRoute(ctx); err != nil {
+		return false, werror.Wrap(err, "error configuring host route")
+	}
+	return true, nil
+}
+
 // FlushDNS flushes the DNS cache when DNS is fully configured.
 // It is a no-op when the network manager is absent or DNS domain/address are not set.
 func (w *Workstation) FlushDNS(ctx context.Context) error {
