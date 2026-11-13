@@ -205,7 +205,8 @@ func (h *BaseBlueprintHandler) SetSkipValidation(skip bool) {
 // Write persists the blueprint to blueprint.yaml in the config root directory. It always writes
 // the referential form (metadata, repository, sources only). If overwrite is true, an existing
 // file is replaced; if false or omitted, the file is only written if it does not already exist,
-// preserving user modifications.
+// preserving user modifications. It leaves out a repository that holds only dev-mode defaults,
+// because Windsor derives those from the project directory name on every run.
 func (h *BaseBlueprintHandler) Write(overwrite ...bool) error {
 	shouldOverwrite := false
 	if len(overwrite) > 0 {
@@ -214,7 +215,14 @@ func (h *BaseBlueprintHandler) Write(overwrite ...bool) error {
 
 	h.setRepositoryDefaults()
 
-	return h.writer.Write(h.composedBlueprint, shouldOverwrite, h.initBlueprintURLs...)
+	toWrite := h.composedBlueprint
+	if toWrite != nil && h.isDevDefaultRepository(toWrite.Repository) {
+		withoutRepository := *toWrite
+		withoutRepository.Repository = blueprintv1alpha1.Repository{}
+		toWrite = &withoutRepository
+	}
+
+	return h.writer.Write(toWrite, shouldOverwrite, h.initBlueprintURLs...)
 }
 
 // RetargetSource repoints an already-declared source to a new tagged OCI URL and returns the
