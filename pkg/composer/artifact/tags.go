@@ -36,6 +36,9 @@ var artifactTagPattern = regexp.MustCompile(`(?:#|//)\s*artifact:\s+(\w+=\S.*)$`
 // versionLinePattern splits a `key: value` or `key = value` line into its value.
 var versionLinePattern = regexp.MustCompile(`^\s*(?:-\s*)?[\w.-]+\s*[:=]\s*(.+)$`)
 
+// tagKeyValuePattern splits one key=value pair of a tag body. A value can hold colons but no whitespace.
+var tagKeyValuePattern = regexp.MustCompile(`(\w+)=(\S+)`)
+
 // referrersPattern matches the referrers attribute of a tag body. It also matches an empty value.
 var referrersPattern = regexp.MustCompile(`(?:^|\s)referrers=(\S*)`)
 
@@ -170,7 +173,7 @@ func hasTagExtension(path string) bool {
 // parseTag reads the key=value pairs of a tag body and checks them.
 func parseTag(body string) (ArtifactTag, error) {
 	var tag ArtifactTag
-	for _, kv := range renovateKeyValuePattern.FindAllStringSubmatch(body, -1) {
+	for _, kv := range tagKeyValuePattern.FindAllStringSubmatch(body, -1) {
 		switch kv[1] {
 		case "type":
 			tag.Type = ArtifactTagType(kv[2])
@@ -270,4 +273,13 @@ func scalarOf(line string) string {
 		value = strings.Trim(fields[len(fields)-1], `"',`)
 	}
 	return value
+}
+
+// splitTagAndDigest splits an @sha256: suffix from value. It returns the value without the suffix and
+// the digest. The digest is empty when value has no suffix.
+func splitTagAndDigest(value string) (string, string) {
+	if idx := strings.Index(value, "@sha256:"); idx >= 0 {
+		return value[:idx], value[idx+1:]
+	}
+	return value, ""
 }

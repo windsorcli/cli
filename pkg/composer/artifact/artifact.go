@@ -87,6 +87,7 @@ type ArtifactBuilder struct {
 	runtime     *runtime.Runtime
 	tarballPath string
 	metadata    BlueprintMetadataInput
+	bomWriter   BOMWriter
 }
 
 // =============================================================================
@@ -203,54 +204,42 @@ func (a *ArtifactBuilder) Bundle() error {
 		return err
 	}
 
-	manifestYAML, err := a.generateArtifactManifest()
-	if err != nil {
-		return werror.Wrap(err, "failed to generate artifact manifest")
-	}
-	return a.addFile(ManifestFileName, manifestYAML, 0644)
+	return a.refreshArtifactManifest()
+}
+
+// SetBOMWriter sets the writer of the artifact manifest. With no writer, Bundle checks the artifact
+// tags and writes no manifest.
+func (a *ArtifactBuilder) SetBOMWriter(writer BOMWriter) {
+	a.bomWriter = writer
 }
 
 // =============================================================================
 // Private Methods
 // =============================================================================
 
-// refreshArtifactManifest generates the artifact manifest again and replaces the bundled copy.
-// Write and Push call it after they resolve the name and version.
-// The first manifest from Bundle has an empty name and version.
+// refreshArtifactManifest scans the artifact tags of the bundled files and replaces the artifact
+// manifest. Write and Push call it again after they resolve the name and version, because the
+// manifest from Bundle has an empty name and version. It returns an error for a malformed tag.
 func (a *ArtifactBuilder) refreshArtifactManifest() error {
-	manifestYAML, err := a.generateArtifactManifest()
+	var tags []ArtifactTag
+	for path, info := range a.files {
+		if !isTagPath(path) {
+			continue
+		}
+		found, err := ScanTags(path, info.Content)
+		if err != nil {
+			return werror.Wrap(err, "failed to generate artifact manifest")
+		}
+		tags = append(tags, found...)
+	}
+	if a.bomWriter == nil {
+		return nil
+	}
+	bom, err := a.bomWriter(a.metadata.Name, a.metadata.Version, tags)
 	if err != nil {
 		return werror.Wrap(err, "failed to generate artifact manifest")
 	}
-	return a.addFile(ManifestFileName, manifestYAML, 0644)
-}
-
-// generateArtifactManifest scans every bundled file for Renovate annotations
-// and returns a YAML-encoded ArtifactManifest capturing the pinned artifacts.
-// Only kustomize and terraform sources are scanned for Renovate annotations.
-// It also checks the artifact tags of those files, of the facets and of the
-// values files, and returns an error for a malformed tag.
-func (a *ArtifactBuilder) generateArtifactManifest() ([]byte, error) {
-	entries := make([]ManifestEntry, 0)
-	for path, info := range a.files {
-		if isTagPath(path) {
-			if _, err := ScanTags(path, info.Content); err != nil {
-				return nil, err
-			}
-		}
-		if isScannablePath(path) {
-			entries = append(entries, scanRenovateAnnotations(path, info.Content)...)
-		}
-	}
-	sortManifestEntries(entries)
-	entries = dedupeManifestEntries(entries)
-
-	manifest := ArtifactManifest{
-		Version:   ManifestVersion,
-		Blueprint: Provenance{Name: a.metadata.Name, Version: a.metadata.Version},
-		Artifacts: entries,
-	}
-	return a.shims.YamlMarshal(&manifest)
+	return a.addFile(BOMFileName, bom, 0644)
 }
 
 // walkAndProcessFiles walks the top directory of each processor pattern and sends each file to its processor.

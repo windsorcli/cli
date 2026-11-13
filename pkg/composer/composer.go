@@ -13,6 +13,7 @@ import (
 	"github.com/windsorcli/cli/internal/werror"
 	"github.com/windsorcli/cli/pkg/composer/artifact"
 	"github.com/windsorcli/cli/pkg/composer/blueprint"
+	"github.com/windsorcli/cli/pkg/composer/inventory"
 	"github.com/windsorcli/cli/pkg/composer/terraform"
 	"github.com/windsorcli/cli/pkg/runtime"
 	"github.com/windsorcli/cli/pkg/runtime/config"
@@ -53,6 +54,7 @@ type Composer struct {
 // NewComposer creates and initializes a new Composer instance with the provided execution context.
 // It sets up all required resource handlers—artifact builder, blueprint handler, and terraform resolver.
 // If overrides are provided, any non-nil component in the override Composer will be used instead of creating a default.
+// It gives an ArtifactBuilder the inventory BOM writer, so a bundle holds the CycloneDX BOM of its artifact tags.
 // Panics if runtime or any required dependencies are nil.
 func NewComposer(rt *runtime.Runtime, opts ...*Composer) *Composer {
 	if rt == nil {
@@ -93,6 +95,9 @@ func NewComposer(rt *runtime.Runtime, opts ...*Composer) *Composer {
 
 	if composer.ArtifactBuilder == nil {
 		composer.ArtifactBuilder = artifact.NewArtifactBuilder(rt)
+	}
+	if builder, ok := composer.ArtifactBuilder.(*artifact.ArtifactBuilder); ok {
+		builder.SetBOMWriter(inventory.BundleBOM)
 	}
 
 	if composer.BlueprintHandler == nil {

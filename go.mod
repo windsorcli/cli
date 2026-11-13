@@ -4,6 +4,7 @@ go 1.27.0
 
 require (
 	github.com/1password/onepassword-sdk-go v0.4.1
+	github.com/CycloneDX/cyclonedx-go v0.12.0
 	github.com/Masterminds/semver/v3 v3.5.0
 	github.com/abiosoft/colima v0.10.3
 	github.com/expr-lang/expr v1.17.8
@@ -18,6 +19,7 @@ require (
 	github.com/google/go-jsonnet v0.22.0
 	github.com/hashicorp/hcl/v2 v2.25.0
 	github.com/kaptinlin/jsonschema v0.9.10
+	github.com/package-url/packageurl-go v0.1.7
 	github.com/shirou/gopsutil v3.21.11+incompatible
 	github.com/siderolabs/talos/pkg/machinery v1.14.5
 	github.com/spf13/cobra v1.10.2
