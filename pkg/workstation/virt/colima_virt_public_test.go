@@ -333,8 +333,8 @@ func TestColimaVirt_Up(t *testing.T) {
 		if !errors.As(err, &wErr) {
 			t.Fatalf("Expected a WindsorError, got %v", err)
 		}
-		if !strings.Contains(wErr.Error(), "/work/project") {
-			t.Errorf("Expected the error to name /work/project, got %q", wErr.Error())
+		if wantPath := filepath.Clean("/work/project"); !strings.Contains(wErr.Error(), wantPath) {
+			t.Errorf("Expected the error to name %s, got %q", wantPath, wErr.Error())
 		}
 		if !strings.Contains(wErr.Remediation, "colima stop windsor-local") {
 			t.Errorf("Expected the remediation to name colima stop windsor-local, got %q", wErr.Remediation)
