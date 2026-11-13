@@ -82,6 +82,23 @@ func setupHandlerMocks(t *testing.T) *HandlerTestMocks {
 	return mocks
 }
 
+// setDevModeMocks puts the config handler in dev mode with dns.domain "test" and sets the project root.
+func setDevModeMocks(mocks *HandlerTestMocks, projectRoot string) {
+	mocks.ConfigHandler.GetBoolFunc = func(key string, defaultValue ...bool) bool {
+		return key == "dev"
+	}
+	mocks.ConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
+		if key == "dns.domain" {
+			return "test"
+		}
+		if len(defaultValue) > 0 {
+			return defaultValue[0]
+		}
+		return ""
+	}
+	mocks.Runtime.ProjectRoot = projectRoot
+}
+
 // setTestCliVersion temporarily overrides constants.Version for the duration of the calling test,
 // restoring the original value via t.Cleanup. constants.Version is process-global, not per-test
 // state — any test using this helper, and any sibling subtest in this package that reads
@@ -1072,6 +1089,97 @@ func TestHandler_Write(t *testing.T) {
 		}
 	})
 
+	t.Run("OmitsDevDefaultRepositoryFromWrittenBlueprint", func(t *testing.T) {
+		// Given a handler in dev mode with no repository on the composed blueprint
+		mocks := setupHandlerMocks(t)
+		setDevModeMocks(mocks, "/path/to/myproject")
+
+		var written *blueprintv1alpha1.Blueprint
+		mockWriter := &mockWriterImpl{
+			writeFunc: func(bp *blueprintv1alpha1.Blueprint, overwrite bool, initBlueprintURLs ...string) error {
+				written = bp
+				return nil
+			},
+		}
+		handler := blueprint.NewBlueprintHandler(mocks.Runtime, mocks.ArtifactBuilder, blueprint.HandlerOverrides(nil, nil, mockWriter))
+		handler.SetComposedBlueprint(&blueprintv1alpha1.Blueprint{Metadata: blueprintv1alpha1.Metadata{Name: "test"}})
+
+		// When writing the blueprint
+		if err := handler.Write(); err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+
+		// Then the writer receives no repository
+		if written == nil {
+			t.Fatal("Expected writer to receive a blueprint")
+		}
+		if written.Repository.Url != "" {
+			t.Errorf("Expected no repository URL in written blueprint, got '%s'", written.Repository.Url)
+		}
+		if written.Metadata.Name != "test" {
+			t.Errorf("Expected metadata name 'test', got '%s'", written.Metadata.Name)
+		}
+	})
+
+	t.Run("KeepsUserRepositoryInWrittenBlueprintInDevMode", func(t *testing.T) {
+		// Given a handler in dev mode with a repository URL that the user sets
+		mocks := setupHandlerMocks(t)
+		setDevModeMocks(mocks, "/path/to/myproject")
+
+		var written *blueprintv1alpha1.Blueprint
+		mockWriter := &mockWriterImpl{
+			writeFunc: func(bp *blueprintv1alpha1.Blueprint, overwrite bool, initBlueprintURLs ...string) error {
+				written = bp
+				return nil
+			},
+		}
+		handler := blueprint.NewBlueprintHandler(mocks.Runtime, mocks.ArtifactBuilder, blueprint.HandlerOverrides(nil, nil, mockWriter))
+		handler.SetComposedBlueprint(&blueprintv1alpha1.Blueprint{
+			Repository: blueprintv1alpha1.Repository{Url: "https://github.com/acme/infra"},
+		})
+
+		// When writing the blueprint
+		if err := handler.Write(); err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+
+		// Then the writer receives the user repository
+		if written == nil || written.Repository.Url != "https://github.com/acme/infra" {
+			t.Errorf("Expected user repository URL in written blueprint, got %+v", written)
+		}
+	})
+
+	t.Run("KeepsDevRepositoryWithCustomRefInWrittenBlueprint", func(t *testing.T) {
+		// Given a handler in dev mode with the dev URL and a branch that the user sets
+		mocks := setupHandlerMocks(t)
+		setDevModeMocks(mocks, "/path/to/myproject")
+
+		var written *blueprintv1alpha1.Blueprint
+		mockWriter := &mockWriterImpl{
+			writeFunc: func(bp *blueprintv1alpha1.Blueprint, overwrite bool, initBlueprintURLs ...string) error {
+				written = bp
+				return nil
+			},
+		}
+		handler := blueprint.NewBlueprintHandler(mocks.Runtime, mocks.ArtifactBuilder, blueprint.HandlerOverrides(nil, nil, mockWriter))
+		handler.SetComposedBlueprint(&blueprintv1alpha1.Blueprint{
+			Repository: blueprintv1alpha1.Repository{
+				Url: "http://git.test/git/myproject",
+				Ref: blueprintv1alpha1.Reference{Branch: "feature"},
+			},
+		})
+
+		// When writing the blueprint
+		if err := handler.Write(); err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+
+		// Then the writer receives the repository with the custom branch
+		if written == nil || written.Repository.Ref.Branch != "feature" {
+			t.Errorf("Expected repository with branch 'feature' in written blueprint, got %+v", written)
+		}
+	})
+
 	t.Run("FallsBackToGitRemoteWhenNotDevMode", func(t *testing.T) {
 		// Given a handler not in dev mode with no user blueprint
 		mocks := setupHandlerMocks(t)
@@ -1687,6 +1795,75 @@ func TestHandler_Generate(t *testing.T) {
 		}
 		if result.Metadata.Name != "generated" {
 			t.Errorf("Expected name='generated', got '%s'", result.Metadata.Name)
+		}
+	})
+
+	t.Run("ReplacesDevRepositoryURLAfterDirectoryRename", func(t *testing.T) {
+		// Given a dev-mode project directory that the user renamed from oldname to newname
+		mocks := setupHandlerMocks(t)
+		setDevModeMocks(mocks, "/path/to/newname")
+		handler := blueprint.NewBlueprintHandler(mocks.Runtime, mocks.ArtifactBuilder)
+		handler.SetComposedBlueprint(&blueprintv1alpha1.Blueprint{
+			Repository: blueprintv1alpha1.Repository{
+				Url: "http://git.test/git/oldname",
+				Ref: blueprintv1alpha1.Reference{Branch: "main"},
+			},
+		})
+
+		// When generating
+		result := handler.Generate()
+
+		// Then the repository URL uses the current directory name
+		if result.Repository.Url != "http://git.test/git/newname" {
+			t.Errorf("Expected URL 'http://git.test/git/newname', got '%s'", result.Repository.Url)
+		}
+		if result.Repository.Ref.Branch != "main" {
+			t.Errorf("Expected branch 'main', got '%s'", result.Repository.Ref.Branch)
+		}
+	})
+
+	t.Run("KeepsNonDevRepositoryURLInDevMode", func(t *testing.T) {
+		// Given dev mode and repository URLs that do not have the dev form
+		for _, url := range []string{
+			"https://github.com/acme/infra",
+			"http://git.example/git/oldname",
+			"http://git.test/git/group/oldname",
+		} {
+			mocks := setupHandlerMocks(t)
+			setDevModeMocks(mocks, "/path/to/newname")
+			handler := blueprint.NewBlueprintHandler(mocks.Runtime, mocks.ArtifactBuilder)
+			handler.SetComposedBlueprint(&blueprintv1alpha1.Blueprint{
+				Repository: blueprintv1alpha1.Repository{Url: url},
+			})
+
+			// When generating
+			result := handler.Generate()
+
+			// Then the repository URL is unchanged
+			if result.Repository.Url != url {
+				t.Errorf("Expected URL '%s', got '%s'", url, result.Repository.Url)
+			}
+		}
+	})
+
+	t.Run("KeepsDevRepositoryURLOutsideDevMode", func(t *testing.T) {
+		// Given a project outside dev mode with a dev-form repository URL
+		mocks := setupHandlerMocks(t)
+		mocks.ConfigHandler.GetBoolFunc = func(key string, defaultValue ...bool) bool {
+			return false
+		}
+		mocks.Runtime.ProjectRoot = "/path/to/newname"
+		handler := blueprint.NewBlueprintHandler(mocks.Runtime, mocks.ArtifactBuilder)
+		handler.SetComposedBlueprint(&blueprintv1alpha1.Blueprint{
+			Repository: blueprintv1alpha1.Repository{Url: "http://git.test/git/oldname"},
+		})
+
+		// When generating
+		result := handler.Generate()
+
+		// Then the repository URL is unchanged
+		if result.Repository.Url != "http://git.test/git/oldname" {
+			t.Errorf("Expected URL 'http://git.test/git/oldname', got '%s'", result.Repository.Url)
 		}
 	})
 }

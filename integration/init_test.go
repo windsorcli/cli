@@ -842,3 +842,42 @@ func TestInit_UninitializedContextFailsLaterCommands(t *testing.T) {
 		t.Errorf("unlock: expected success for an uninitialized context, got %v\nstderr: %s", err, stderr)
 	}
 }
+
+// TestInit_DevRepositoryFollowsProjectDirectoryName verifies that init leaves the dev repository
+// out of blueprint.yaml, and that a stale dev URL from an earlier directory name uses the current name.
+func TestInit_DevRepositoryFollowsProjectDirectoryName(t *testing.T) {
+	t.Parallel()
+	dir, env := helpers.CopyFixtureOnly(t, "default")
+	helpers.MarkAsGitRepo(t, dir)
+
+	_, stderr, err := helpers.RunCLI(dir, []string{"init", "local-dev", "--platform", "docker"}, env)
+	if err != nil {
+		t.Fatalf("init local-dev --platform docker: %v\nstderr: %s", err, stderr)
+	}
+
+	blueprintPath := filepath.Join(dir, "contexts", "local-dev", "blueprint.yaml")
+	if repo, ok := getPathValue(readYAMLFile(t, blueprintPath), "repository"); ok {
+		t.Errorf("expected no repository in blueprint.yaml for dev context, got %v", repo)
+	}
+
+	content, err := os.ReadFile(blueprintPath)
+	if err != nil {
+		t.Fatalf("read blueprint.yaml: %v", err)
+	}
+	stale := "repository:\n  url: http://git.test/git/oldname\n  ref:\n    branch: main\n"
+	if err := os.WriteFile(blueprintPath, append(content, []byte(stale)...), 0644); err != nil {
+		t.Fatalf("write blueprint.yaml: %v", err)
+	}
+
+	stdout, stderr, err := helpers.RunCLI(dir, []string{"show", "blueprint"}, env)
+	if err != nil {
+		t.Fatalf("show blueprint: %v\nstderr: %s", err, stderr)
+	}
+	want := "http://git.test/git/" + filepath.Base(dir)
+	if !strings.Contains(string(stdout), want) {
+		t.Errorf("expected show blueprint to contain %q, got:\n%s", want, stdout)
+	}
+	if strings.Contains(string(stdout), "git/oldname") {
+		t.Errorf("expected show blueprint not to contain the stale URL, got:\n%s", stdout)
+	}
+}

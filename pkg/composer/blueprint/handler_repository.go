@@ -73,15 +73,14 @@ func (h *BaseBlueprintHandler) getEffectiveRepository() blueprintv1alpha1.Reposi
 }
 
 // resolveRepositoryDefaults applies URL/ref/secret defaults to repository metadata.
+// In dev mode, an empty URL or a URL of the form http://git.<dns.domain>/git/<name> becomes the
+// dev URL for the current project directory. The workstation serves only that directory name, so
+// a URL with an earlier directory name cannot work after the user renames the project directory.
 // When includeSecret is false, SecretName is always removed from the returned value.
 func (h *BaseBlueprintHandler) resolveRepositoryDefaults(repo blueprintv1alpha1.Repository, includeSecret bool) blueprintv1alpha1.Repository {
 	devMode := h.runtime != nil && h.runtime.ConfigHandler != nil && h.runtime.ConfigHandler.GetBool("dev")
-	if repo.Url == "" && devMode && h.runtime != nil && h.runtime.ConfigHandler != nil {
-		domain := h.runtime.ConfigHandler.GetString("dns.domain", "test")
-		folder := filepath.Base(h.runtime.ProjectRoot)
-		if domain != "" && folder != "" && folder != "." {
-			repo.Url = fmt.Sprintf("http://git.%s/git/%s", domain, folder)
-		}
+	if devURL := h.devRepositoryURL(); devURL != "" && (repo.Url == "" || h.isDevRepositoryURL(repo.Url)) {
+		repo.Url = devURL
 	}
 	if repo.Url == "" && h.runtime != nil && h.runtime.Shell != nil {
 		if gitURL, err := h.runtime.Shell.ExecSilent("git", "config", "--get", "remote.origin.url"); err == nil && gitURL != "" {
@@ -101,8 +100,57 @@ func (h *BaseBlueprintHandler) resolveRepositoryDefaults(repo blueprintv1alpha1.
 	return repo
 }
 
+// devRepositoryURL returns http://git.<dns.domain>/git/<project directory name> in dev mode.
+// It returns an empty string outside dev mode or when the domain or directory name is empty.
+func (h *BaseBlueprintHandler) devRepositoryURL() string {
+	prefix := h.devRepositoryURLPrefix()
+	if prefix == "" {
+		return ""
+	}
+	folder := filepath.Base(h.runtime.ProjectRoot)
+	if folder == "" || folder == "." || folder == string(filepath.Separator) {
+		return ""
+	}
+	return prefix + folder
+}
+
+// devRepositoryURLPrefix returns http://git.<dns.domain>/git/ in dev mode, else an empty string.
+func (h *BaseBlueprintHandler) devRepositoryURLPrefix() string {
+	if h.runtime == nil || h.runtime.ConfigHandler == nil || !h.runtime.ConfigHandler.GetBool("dev") {
+		return ""
+	}
+	domain := h.runtime.ConfigHandler.GetString("dns.domain", "test")
+	if domain == "" {
+		return ""
+	}
+	return fmt.Sprintf("http://git.%s/git/", domain)
+}
+
+// isDevRepositoryURL reports whether url has the form http://git.<dns.domain>/git/<name> in dev mode.
+// The name is one path segment, because the workstation serves each repository at the top level.
+func (h *BaseBlueprintHandler) isDevRepositoryURL(url string) bool {
+	prefix := h.devRepositoryURLPrefix()
+	if prefix == "" || !strings.HasPrefix(url, prefix) {
+		return false
+	}
+	name := strings.TrimPrefix(url, prefix)
+	return name != "" && !strings.Contains(name, "/")
+}
+
+// isDevDefaultRepository reports whether repo holds only the values that dev mode derives on
+// every run: the dev URL, the main branch, and no secret or the flux-system secret.
+func (h *BaseBlueprintHandler) isDevDefaultRepository(repo blueprintv1alpha1.Repository) bool {
+	if !h.isDevRepositoryURL(repo.Url) {
+		return false
+	}
+	if repo.Ref != (blueprintv1alpha1.Reference{Branch: "main"}) {
+		return false
+	}
+	return repo.SecretName == nil || *repo.SecretName == "flux-system"
+}
+
 // setRepositoryDefaults sets default repository values on the composed blueprint when
-// Repository.Url is empty. In dev mode uses http://git.<dns.domain>/git/<project>;
+// Repository.Url is empty or, in dev mode, a dev URL. In dev mode uses http://git.<dns.domain>/git/<project>;
 // otherwise uses git remote origin URL. Also sets Ref.Branch to main and, in dev mode,
 // SecretName to flux-system when not already set.
 func (h *BaseBlueprintHandler) setRepositoryDefaults() {
