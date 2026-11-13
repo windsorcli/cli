@@ -206,8 +206,9 @@ func (p *Project) Initialize(overwrite bool, blueprintURL ...string) error {
 }
 
 // Up generates the blueprint, starts the workstation when it exists and runs the provisioner.
-// It returns the blueprint, a halt flag and an error. The halt flag is true when an apply hook stops the run cleanly.
-// The caller then shows the deferred work and exits without an error.
+// Before the provisioner runs, it restores the host route to a cluster that holds the Terraform state.
+// It returns the blueprint, a halt flag and an error. The halt flag is true when an apply hook stops the run cleanly,
+// or when the host route needs a privileged step. The caller then shows the deferred work and exits without an error.
 func (p *Project) Up(ctx context.Context) (*blueprintv1alpha1.Blueprint, bool, error) {
 	blueprint := p.Composer.BlueprintHandler.Generate()
 	if blueprint == nil {
@@ -216,6 +217,15 @@ func (p *Project) Up(ctx context.Context) (*blueprintv1alpha1.Blueprint, bool, e
 	onApply, err := p.prepareWorkstationForApply(ctx, blueprint)
 	if err != nil {
 		return nil, false, err
+	}
+	if p.Workstation != nil {
+		reachable, err := p.Workstation.RestoreClusterRoute(ctx)
+		if err != nil {
+			return nil, false, werror.Wrap(err, "error restoring host route")
+		}
+		if !reachable {
+			return blueprint, true, nil
+		}
 	}
 	var hooks []func(context.Context, string) (bool, error)
 	if onApply != nil {

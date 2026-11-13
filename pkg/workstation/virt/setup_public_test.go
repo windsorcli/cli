@@ -4,6 +4,8 @@ import (
 	"context"
 	"io"
 	"log/slog"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -149,4 +151,16 @@ func (r *recorder) warnings() []string {
 // commandLine joins a command and its arguments with spaces.
 func commandLine(command string, args ...string) string {
 	return strings.TrimSpace(command + " " + strings.Join(args, " "))
+}
+
+// writeLimaConfig writes content as the lima.yaml of the Lima instance of the context "local" in the home of f.
+func writeLimaConfig(t *testing.T, f *fixture, content string) {
+	t.Helper()
+	dir := filepath.Join(f.home, ".colima", "_lima", "colima-windsor-local")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatalf("Failed to create %s: %v", dir, err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "lima.yaml"), []byte(content), 0o600); err != nil {
+		t.Fatalf("Failed to write lima.yaml: %v", err)
+	}
 }
