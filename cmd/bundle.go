@@ -19,7 +19,9 @@ var bundleCmd = &cobra.Command{
 
 Uses metadata.yaml ('name', 'version') to derive the output filename when --tag is not given. If neither is set, --tag is required.
 
-When --output is a directory, the filename is derived from the tag.`,
+When --output is a directory, the filename is derived from the tag.
+
+The archive holds artifact-manifest.cdx.json, a CycloneDX 1.6 BOM of each chart and image that an artifact tag names. The BOM comes from the same tag scan as 'windsor show artifacts'.`,
 	Example: `# Bundle using metadata.yaml for name/version, into the current directory
 windsor bundle
 

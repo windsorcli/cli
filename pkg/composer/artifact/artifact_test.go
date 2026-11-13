@@ -694,9 +694,6 @@ description: A test project
 		builder, _ := setup(t)
 
 		builder.shims.YamlMarshal = func(data any) ([]byte, error) {
-			if _, ok := data.(*ArtifactManifest); ok {
-				return []byte("version: v1alpha1\nartifacts: []\n"), nil
-			}
 			return nil, fmt.Errorf("marshal error")
 		}
 
@@ -1153,27 +1150,6 @@ func TestArtifactBuilder_Bundle_EmitsArtifactManifest(t *testing.T) {
 		mocks := setupArtifactMocks(t)
 		builder := NewArtifactBuilder(mocks.Runtime)
 		builder.shims = mocks.Shims
-		return builder, mocks
-	}
-
-	t.Run("BundleWithKustomizeAndTerraformAnnotations_WritesManifestFile", func(t *testing.T) {
-		// Given a builder whose kustomize and terraform sources contain
-		// Renovate annotations pinning both a helm chart and a docker image
-		builder, mocks := setup(t)
-		useRealYAMLShims(mocks.Shims)
-
-		kustomizeYAML := []byte(`  chart:
-    spec:
-      chart: longhorn
-      # renovate: datasource=helm depName=longhorn helmRepo=https://charts.longhorn.io
-      version: 1.11.1
-`)
-		terraformTF := []byte(`variable "cilium_version" {
-  # renovate: datasource=helm depName=cilium helmRepo=https://helm.cilium.io
-  default = "1.16.3"
-}
-`)
-
 		mocks.Shims.Stat = func(name string) (os.FileInfo, error) {
 			if name == "kustomize" || name == "terraform" {
 				return &mockFileInfo{name: name, isDir: true}, nil
@@ -1194,104 +1170,59 @@ func TestArtifactBuilder_Bundle_EmitsArtifactManifest(t *testing.T) {
 		mocks.Shims.ReadFile = func(name string) ([]byte, error) {
 			switch {
 			case strings.HasSuffix(name, "helm-release.yaml"):
-				return kustomizeYAML, nil
+				return []byte("# artifact: type=chart name=longhorn repo=https://charts.longhorn.io\nversion: 1.11.1\n"), nil
 			case strings.HasSuffix(name, "variables.tf"):
-				return terraformTF, nil
+				return []byte("default = \"ghcr.io/example/app:v1.0.0\" # artifact: type=image\n"), nil
 			}
 			return nil, fmt.Errorf("unexpected read: %s", name)
 		}
 		mocks.Shims.FilepathRel = func(basepath, targpath string) (string, error) {
 			return filepath.Base(targpath), nil
 		}
+		return builder, mocks
+	}
+
+	t.Run("WritesTheBOMOfTheArtifactTags", func(t *testing.T) {
+		// Given a builder with a BOM writer and bundled files with a chart tag and an image tag
+		builder, _ := setup(t)
+		var got []ArtifactTag
+		builder.SetBOMWriter(func(name, version string, tags []ArtifactTag) ([]byte, error) {
+			got = tags
+			return []byte("{}"), nil
+		})
 
 		// When bundling
 		if err := builder.Bundle(); err != nil {
 			t.Fatalf("expected no error, got %v", err)
 		}
 
-		// Then artifact-manifest.yaml is present in the bundle
-		info, ok := builder.files[ManifestFileName]
+		// Then the BOM is in the bundle
+		info, ok := builder.files[BOMFileName]
 		if !ok {
-			t.Fatalf("expected %q in bundle files", ManifestFileName)
+			t.Fatalf("expected %q in bundle files", BOMFileName)
+		}
+		if string(info.Content) != "{}" {
+			t.Errorf("BOM content: got %q", info.Content)
 		}
 
-		// And its content parses back to a manifest containing both annotations
-		var manifest ArtifactManifest
-		if err := mocks.Shims.YamlUnmarshal(info.Content, &manifest); err != nil {
-			t.Fatalf("unmarshal manifest: %v", err)
-		}
-		if manifest.Version != ManifestVersion {
-			t.Errorf("manifest.Version: got %q", manifest.Version)
-		}
-		if len(manifest.Artifacts) != 2 {
-			t.Fatalf("artifacts: got %d, want 2", len(manifest.Artifacts))
-		}
-
-		// And each annotation produced the expected helm entry
-		foundCilium, foundLonghorn := false, false
-		for _, e := range manifest.Artifacts {
-			if e.Type != ArtifactTypeHelm {
-				t.Errorf("unexpected type %q for reference %q", e.Type, e.Reference)
-			}
-			switch e.Reference {
-			case "cilium":
-				foundCilium = true
-				if e.Version != "1.16.3" {
-					t.Errorf("cilium.Version: got %q", e.Version)
-				}
-			case "longhorn":
-				foundLonghorn = true
-				if e.Version != "1.11.1" {
-					t.Errorf("longhorn.Version: got %q", e.Version)
-				}
-			}
-		}
-		if !foundCilium || !foundLonghorn {
-			t.Errorf("expected both cilium and longhorn entries, got cilium=%v longhorn=%v", foundCilium, foundLonghorn)
+		// And the writer received both tags
+		if len(got) != 2 {
+			t.Fatalf("tags: got %d, want 2", len(got))
 		}
 	})
 
-	t.Run("BundleWithNoAnnotations_WritesEmptyManifest", func(t *testing.T) {
-		// Given a builder whose sources contain no Renovate annotations
-		builder, mocks := setup(t)
-		useRealYAMLShims(mocks.Shims)
-
-		mocks.Shims.Stat = func(name string) (os.FileInfo, error) {
-			if name == "kustomize" {
-				return &mockFileInfo{name: "kustomize", isDir: true}, nil
-			}
-			return nil, os.ErrNotExist
-		}
-		mocks.Shims.Walk = func(root string, fn filepath.WalkFunc) error {
-			if root == "kustomize" {
-				fn("kustomize", &mockFileInfo{name: "kustomize", isDir: true}, nil)
-				fn("kustomize/plain.yaml", &mockFileInfo{name: "plain.yaml", isDir: false}, nil)
-			}
-			return nil
-		}
-		mocks.Shims.ReadFile = func(name string) ([]byte, error) {
-			return []byte("apiVersion: v1\nkind: ConfigMap\n"), nil
-		}
-		mocks.Shims.FilepathRel = func(basepath, targpath string) (string, error) {
-			return filepath.Base(targpath), nil
-		}
+	t.Run("WritesNoBOMWithoutAWriter", func(t *testing.T) {
+		// Given a builder with no BOM writer
+		builder, _ := setup(t)
 
 		// When bundling
 		if err := builder.Bundle(); err != nil {
 			t.Fatalf("expected no error, got %v", err)
 		}
 
-		// Then the manifest is written with an empty artifacts list
-		info, ok := builder.files[ManifestFileName]
-		if !ok {
-			t.Fatalf("expected %q in bundle files", ManifestFileName)
-		}
-		var manifest ArtifactManifest
-		if err := mocks.Shims.YamlUnmarshal(info.Content, &manifest); err != nil {
-			t.Fatalf("unmarshal manifest: %v", err)
-		}
-		if len(manifest.Artifacts) != 0 {
-			t.Errorf("expected no artifacts, got %d", len(manifest.Artifacts))
+		// Then the bundle holds no BOM
+		if _, ok := builder.files[BOMFileName]; ok {
+			t.Errorf("expected no %q in bundle files", BOMFileName)
 		}
 	})
 }
@@ -1367,91 +1298,54 @@ func TestArtifactBuilder_AddFile(t *testing.T) {
 	})
 }
 
-func TestArtifactBuilder_generateArtifactManifest(t *testing.T) {
+func TestArtifactBuilder_refreshArtifactManifest(t *testing.T) {
 	setup := func(t *testing.T) *ArtifactBuilder {
 		t.Helper()
 		mocks := setupArtifactMocks(t)
 		builder := NewArtifactBuilder(mocks.Runtime)
 		builder.shims = mocks.Shims
-		builder.shims.YamlMarshal = yaml.Marshal
-		builder.shims.YamlUnmarshal = yaml.Unmarshal
 		return builder
 	}
 
-	t.Run("EmptyFileSet_ProducesManifestWithNoArtifacts", func(t *testing.T) {
-		// Given a builder whose bundle has accumulated no files
+	t.Run("PassesTheTagsOfTagPathsAndTheMetadata", func(t *testing.T) {
+		// Given a builder with a name, a version, a tagged kustomize file and a tagged file outside the tag roots
 		builder := setup(t)
+		builder.metadata.Name = "testbp"
+		builder.metadata.Version = "v1.2.3"
+		builder.files["kustomize/app.yaml"] = FileInfo{Content: []byte("image: ghcr.io/example/app:v1.0.0 # artifact: type=image\n")}
+		builder.files["_template/values.yaml"] = FileInfo{Content: []byte("image: ghcr.io/example/other:v2.0.0 # artifact: type=image\n")}
+		builder.files["metadata.yaml"] = FileInfo{Content: []byte("image: ghcr.io/example/skip:v1.0.0 # artifact: type=image\n")}
+		var gotName, gotVersion string
+		var gotTags []ArtifactTag
+		builder.SetBOMWriter(func(name, version string, tags []ArtifactTag) ([]byte, error) {
+			gotName, gotVersion, gotTags = name, version, tags
+			return []byte("bom"), nil
+		})
 
-		// When the manifest is generated
-		data, err := builder.generateArtifactManifest()
-		if err != nil {
+		// When the manifest is refreshed
+		if err := builder.refreshArtifactManifest(); err != nil {
 			t.Fatalf("expected no error, got %v", err)
 		}
 
-		// Then the manifest carries the current schema version and an empty
-		// artifact list rather than omitting the key
-		var m ArtifactManifest
-		if err := yaml.Unmarshal(data, &m); err != nil {
-			t.Fatalf("unmarshal: %v", err)
+		// Then the writer gets the name, the version and the tags of the tag roots only
+		if gotName != "testbp" || gotVersion != "v1.2.3" {
+			t.Errorf("metadata: got %q %q", gotName, gotVersion)
 		}
-		if m.Version != ManifestVersion {
-			t.Errorf("Version: got %q, want %q", m.Version, ManifestVersion)
+		if len(gotTags) != 2 {
+			t.Errorf("tags: got %d, want 2", len(gotTags))
 		}
-		if len(m.Artifacts) != 0 {
-			t.Errorf("Artifacts: got %d, want 0", len(m.Artifacts))
-		}
-	})
-
-	t.Run("MixedPaths_OnlyScansKustomizeAndTerraform", func(t *testing.T) {
-		// Given a bundle containing annotated YAML under kustomize/, a
-		// plain terraform file under terraform/, and a YAML sitting under
-		// _template/ that also carries a Renovate annotation
-		builder := setup(t)
-		builder.addFile(
-			"kustomize/helm-release.yaml",
-			[]byte("# renovate: datasource=helm depName=cilium helmRepo=https://helm.cilium.io\nversion: 1.16.3\n"),
-			0644,
-		)
-		builder.addFile(
-			"terraform/main.tf",
-			[]byte("# renovate: datasource=github-releases depName=flux package=fluxcd/flux2\ndefault = \"v2.3.0\"\n"),
-			0644,
-		)
-		builder.addFile(
-			"_template/metadata.yaml",
-			[]byte("# renovate: datasource=docker depName=shouldnotappear\ntag: v1.0.0\n"),
-			0644,
-		)
-
-		// When the manifest is generated
-		data, err := builder.generateArtifactManifest()
-		if err != nil {
-			t.Fatalf("expected no error, got %v", err)
-		}
-
-		// Then the _template path is excluded and only kustomize + terraform
-		// entries appear in the manifest
-		var m ArtifactManifest
-		if err := yaml.Unmarshal(data, &m); err != nil {
-			t.Fatalf("unmarshal: %v", err)
-		}
-		if len(m.Artifacts) != 2 {
-			t.Fatalf("Artifacts: got %d, want 2 (templates must be excluded)", len(m.Artifacts))
-		}
-		for _, a := range m.Artifacts {
-			if strings.HasPrefix(a.Source.File, "_template/") {
-				t.Errorf("unexpected _template entry in manifest: %+v", a)
-			}
+		if string(builder.files[BOMFileName].Content) != "bom" {
+			t.Errorf("BOM content: got %q", builder.files[BOMFileName].Content)
 		}
 	})
 
 	t.Run("MalformedArtifactTag_ReturnsError", func(t *testing.T) {
-		// Given a builder with a bundled file whose artifact tag has no value to bind to
+		// Given a builder with no BOM writer and a bundled file whose artifact tag has no value to bind to
 		builder := setup(t)
 		builder.files["kustomize/app/values.yaml"] = FileInfo{Content: []byte("# artifact: type=image name=ghcr.io/example/app\n")}
 
-		// When the manifest is generated
-		_, err := builder.generateArtifactManifest()
+		// When the manifest is refreshed
+		err := builder.refreshArtifactManifest()
 
 		// Then the error names the file and line
 		if err == nil || !strings.Contains(err.Error(), "kustomize/app/values.yaml:1") {
@@ -1459,41 +1353,19 @@ func TestArtifactBuilder_generateArtifactManifest(t *testing.T) {
 		}
 	})
 
-	t.Run("YamlMarshalFailure_ReturnsError", func(t *testing.T) {
-		// Given a builder whose YAML marshal shim fails
+	t.Run("WriterFailure_ReturnsError", func(t *testing.T) {
+		// Given a builder whose BOM writer fails
 		builder := setup(t)
-		builder.shims.YamlMarshal = func(any) ([]byte, error) {
+		builder.SetBOMWriter(func(string, string, []ArtifactTag) ([]byte, error) {
 			return nil, errors.New("boom")
-		}
+		})
 
-		// When the manifest is generated
-		_, err := builder.generateArtifactManifest()
+		// When the manifest is refreshed
+		err := builder.refreshArtifactManifest()
 
-		// Then the marshal error is propagated
+		// Then the writer error is propagated
 		if err == nil || !strings.Contains(err.Error(), "boom") {
-			t.Errorf("expected marshal error, got %v", err)
-		}
-	})
-
-	t.Run("MetadataProvenance_PopulatesBlueprintFields", func(t *testing.T) {
-		// Given a builder whose metadata carries a blueprint name and version
-		builder := setup(t)
-		builder.metadata.Name = "testbp"
-		builder.metadata.Version = "v1.2.3"
-
-		// When the manifest is generated
-		data, err := builder.generateArtifactManifest()
-		if err != nil {
-			t.Fatalf("expected no error, got %v", err)
-		}
-
-		// Then the Provenance block reflects the builder's metadata
-		var m ArtifactManifest
-		if err := yaml.Unmarshal(data, &m); err != nil {
-			t.Fatalf("unmarshal: %v", err)
-		}
-		if m.Blueprint.Name != "testbp" || m.Blueprint.Version != "v1.2.3" {
-			t.Errorf("Blueprint: got %+v, want {testbp v1.2.3}", m.Blueprint)
+			t.Errorf("expected writer error, got %v", err)
 		}
 	})
 }

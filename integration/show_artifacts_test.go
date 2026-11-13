@@ -49,6 +49,14 @@ func TestShowArtifacts_PrintsEachOutputFormat(t *testing.T) {
 	if out := string(stdout); !strings.Contains(out, "registry.example.com/windsor/cert-manager:v1.17.0") {
 		t.Errorf("expected the chart destination, got %q", out)
 	}
+
+	stdout, stderr, err = helpers.RunCLI(dir, []string{"show", "artifacts", "-o", "cyclonedx"}, env)
+	if err != nil {
+		t.Fatalf("show artifacts -o cyclonedx: %v\nstderr: %s", err, stderr)
+	}
+	if out := string(stdout); !strings.Contains(out, `"specVersion": "1.6"`) || !strings.Contains(out, "pkg:generic/cert-manager@v1.17.0") {
+		t.Errorf("expected a CycloneDX BOM with the chart, got:\n%s", out)
+	}
 }
 
 func TestShowArtifacts_ListsTheArtifactTagsOfTheProject(t *testing.T) {

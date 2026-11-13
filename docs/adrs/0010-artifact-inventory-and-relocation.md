@@ -2,7 +2,8 @@
 
 - Status: Proposed. Supersedes the single HelmRepository patch proposed in cli#3376.
 - Date: 2026-10-28; revised 2026-11-05 (artifact tags replace rendering); revised 2026-11-12
-  (blueprint sources follow the image mirrors, and `registries` replaces `docker.registries`)
+  (blueprint sources follow the image mirrors, and `registries` replaces `docker.registries`);
+  revised 2026-11-13 (the CycloneDX BOM ships in v0.10.0)
 - Deciders: Ryan VanGundy
 - Surfaced while designing core's chart registry
   ([core ADR 0020](https://github.com/windsorcli/core/blob/main/docs/adr/0020-helm-chart-registry.md)),
@@ -31,10 +32,11 @@ This ADR uses the tags. The CLI renders nothing, evaluates no Terraform, and run
 
 ### What the CLI has today
 
-`windsor bundle` writes `artifact-manifest.yaml` into every blueprint artifact
-(`pkg/composer/artifact`). It scans Renovate comments in `kustomize/` and `terraform/` and
-records each artifact's type, transport, reference, version, digest, and declaring file. The
-scanner works offline and needs no rendering. This ADR reuses it for the `artifact` tag.
+Before v0.10.0, `windsor bundle` wrote `artifact-manifest.yaml` into every blueprint artifact
+(`pkg/composer/artifact`). It scanned Renovate comments in `kustomize/` and `terraform/` and
+recorded each artifact's type, transport, reference, version, digest, and declaring file. The
+scanner worked offline and needed no rendering. This ADR keeps that approach for the `artifact`
+tag, and Decision 7 replaces the file.
 
 ### Charts and images go to different places
 
@@ -69,6 +71,7 @@ windsor show artifacts --charts-to registry.example.com/windsor -o flux-mirror |
 `-o yaml` (the default) prints one YAML entry per artifact with a `destination` field.
 `-o flux-mirror` prints a Flux Mirror `v1beta2` config. The config needs Flux Mirror v0.16.0 or
 later. `-o list` prints one `destination<TAB>upstream` line per artifact for other tools.
+`-o cyclonedx` prints the CycloneDX BOM of Decision 7.
 
 The command is not named `mirror`. It covers charts, which go to a chart registry rather than a
 mirror, and it never copies.
@@ -100,8 +103,7 @@ version: v1.17.0
 - A tag with no value, an unknown `type`, no `name` and no full reference, a chart with no `repo`,
   a `referrers` value that is not `true` or `false`, or a chart with `referrers` is an error. `windsor show artifacts` and `windsor bundle` both fail on it and name the
   file and line.
-- A new function in the scanner of `pkg/composer/artifact` reads the tag. It shares the file
-  filter of the Renovate scan. The Renovate scan stays for tools that a cluster does not pull.
+- The tag scanner of `pkg/composer/artifact` reads the tag. It replaces the Renovate scan.
 - Renovate reads the same tag through a regex `customManagers` entry, so one tag gives the list
   and the version updates.
 
@@ -197,22 +199,29 @@ Mirror reads credentials from the Docker config, and a site that needs `hosts` m
 
 ### 7. `windsor bundle` publishes the same list as a CycloneDX BOM
 
-This decision ships in a later release. In v0.10.0, `windsor bundle` still writes
-`artifact-manifest.yaml`, and it fails on a malformed tag. From the later release,
-`windsor bundle` writes `artifact-manifest.cdx.json` at the root of the blueprint artifact. The
-file is a [CycloneDX](https://cyclonedx.org) 1.6 BOM, so SBOM tools read it without the CLI. It
-replaces `artifact-manifest.yaml`. `windsor bundle` builds it from the tag scan of Decision 2, so
-the BOM and `windsor show artifacts` read one source.
+This decision ships in v0.10.0. `windsor bundle` writes `artifact-manifest.cdx.json` at the root
+of the blueprint artifact. The file is a [CycloneDX](https://cyclonedx.org) 1.6 BOM, so SBOM tools
+read it without the CLI. `windsor bundle` writes no `artifact-manifest.yaml`. It builds the BOM
+from the tag scan of Decision 2 over the whole bundled source, the scope of `--all` in Decision 3.
+Thus the BOM and `windsor show artifacts` read one source. `windsor show artifacts -o cyclonedx`
+prints the same BOM for the scope that the command reads.
 
-- An image is a `container` component, and a chart is an `application` component.
-- An OCI image or chart has the package URL `pkg:oci/<name>?repository_url=<path>&tag=<tag>`,
-  with the digest as the version when the tag line gives one. An HTTP chart has
-  `pkg:generic/<name>@<version>?download_url=<repository>`, because the package URL
-  specification has no chart type.
+- An image is a `container` component, a chart is an `application` component, and a blueprint
+  source is a `data` component.
+- An OCI image, chart or blueprint has the package URL
+  `pkg:oci/<name>?repository_url=<path>&tag=<tag>`, with the digest as the version when the tag
+  line gives one. An HTTP chart has `pkg:generic/<name>@<version>?download_url=<repository>`,
+  because the package URL specification has no chart type. The package URL is also the `bom-ref`.
 - A digest, when the tag line gives one, is in `hashes` as SHA-256.
+- The metadata of the bundle BOM names the blueprint and its version. The BOM has no serial
+  number and no timestamp, so the same source gives the same file.
 
-`windsor bundle` makes no registry calls and has no render step. The BOM has no graph from a
-Kustomization to its artifacts, because the tag scan does not know which component a tag serves.
+`windsor bundle` makes no registry calls and has no render step. It fails on a malformed tag. The
+BOM has no graph from a Kustomization to its artifacts, because the tag scan does not know which
+component a tag serves. A bundle holds `contexts/_template` and not the other context
+directories, so its BOM leaves out a tag in a context directory that `--all` reads in the project.
+The BOM of a bundle lists the tags of its own files only. An `oci://` source has its own BOM in
+its own artifact.
 
 ### 8. Blueprint sources follow the image mirrors
 
@@ -303,8 +312,8 @@ A context that sets `docker.registries` keeps working until the later release re
 each command gives the warning until the user moves the map.
 
 The CLI removes the Flux render, the Helm chart render, the FluxInstance extractor, and the
-flux-operator dependency that the first version of `windsor show artifacts` needed. It takes on a
-CycloneDX library as a dependency when Decision 7 ships.
+flux-operator dependency that the first version of `windsor show artifacts` needed. It also
+removes the Renovate scan. It takes on the CycloneDX and package URL libraries as dependencies.
 
 ## Alternatives considered
 

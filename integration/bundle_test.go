@@ -6,13 +6,14 @@ package integration
 import (
 	"archive/tar"
 	"compress/gzip"
+	"encoding/json"
 	"io"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"testing"
 
-	"github.com/goccy/go-yaml"
 	"github.com/windsorcli/cli/integration/helpers"
 )
 
@@ -20,29 +21,23 @@ import (
 // Test Helpers
 // =============================================================================
 
-// extractedManifest is a lightweight mirror of the real ArtifactManifest shape
-// used only for integration-side assertions. It avoids importing the internal
-// pkg/composer/artifact package, keeping integration tests decoupled.
-type extractedManifest struct {
-	Version   string `yaml:"version"`
-	Artifacts []struct {
-		Type       string `yaml:"type"`
-		Transport  string `yaml:"transport"`
-		Reference  string `yaml:"reference"`
-		Version    string `yaml:"version,omitempty"`
-		Digest     string `yaml:"digest,omitempty"`
-		Repository string `yaml:"repository,omitempty"`
-		Source     struct {
-			File       string `yaml:"file"`
-			Datasource string `yaml:"datasource"`
-		} `yaml:"source"`
-	} `yaml:"artifacts"`
+// extractedBOM is the part of a CycloneDX BOM that the integration tests check.
+type extractedBOM struct {
+	SpecVersion string `json:"specVersion"`
+	Components  []struct {
+		Type    string `json:"type"`
+		Name    string `json:"name"`
+		Version string `json:"version"`
+		Purl    string `json:"purl"`
+		Hashes  []struct {
+			Alg     string `json:"alg"`
+			Content string `json:"content"`
+		} `json:"hashes"`
+	} `json:"components"`
 }
 
-// readManifestFromBundle opens a gzipped tar bundle and returns the parsed
-// artifact-manifest.yaml contents. It fails the test when the manifest entry
-// is missing or malformed, which are both correctness regressions.
-func readManifestFromBundle(t *testing.T, bundlePath string) extractedManifest {
+// readBundleEntries opens a gzipped tar bundle and returns the content of each entry by name.
+func readBundleEntries(t *testing.T, bundlePath string) map[string][]byte {
 	t.Helper()
 	f, err := os.Open(bundlePath)
 	if err != nil {
@@ -56,40 +51,60 @@ func readManifestFromBundle(t *testing.T, bundlePath string) extractedManifest {
 	}
 	defer gz.Close()
 
+	entries := make(map[string][]byte)
 	tr := tar.NewReader(gz)
 	for {
 		hdr, err := tr.Next()
 		if err == io.EOF {
-			break
+			return entries
 		}
 		if err != nil {
 			t.Fatalf("tar next: %v", err)
 		}
-		if hdr.Name != "artifact-manifest.yaml" {
-			continue
-		}
 		data, err := io.ReadAll(tr)
 		if err != nil {
-			t.Fatalf("read manifest entry: %v", err)
+			t.Fatalf("read entry %s: %v", hdr.Name, err)
 		}
-		var m extractedManifest
-		if err := yaml.Unmarshal(data, &m); err != nil {
-			t.Fatalf("unmarshal manifest: %v\ncontent: %s", err, data)
-		}
-		return m
+		entries[hdr.Name] = data
 	}
-	t.Fatal("artifact-manifest.yaml not present in bundle")
-	return extractedManifest{}
+}
+
+// decodeBOM decodes data as a CycloneDX BOM and fails the test on an error.
+func decodeBOM(t *testing.T, data []byte) extractedBOM {
+	t.Helper()
+	var bom extractedBOM
+	if err := json.Unmarshal(data, &bom); err != nil {
+		t.Fatalf("unmarshal BOM: %v\ncontent: %s", err, data)
+	}
+	return bom
+}
+
+// readBOMFromBundle returns the artifact-manifest.cdx.json of a bundle. It fails the test when the
+// bundle has no BOM.
+func readBOMFromBundle(t *testing.T, bundlePath string) extractedBOM {
+	t.Helper()
+	data, ok := readBundleEntries(t, bundlePath)["artifact-manifest.cdx.json"]
+	if !ok {
+		t.Fatal("artifact-manifest.cdx.json not present in bundle")
+	}
+	return decodeBOM(t, data)
+}
+
+// purls returns the sorted package URLs of the components of bom.
+func purls(bom extractedBOM) []string {
+	out := make([]string, 0, len(bom.Components))
+	for _, c := range bom.Components {
+		out = append(out, c.Purl)
+	}
+	sort.Strings(out)
+	return out
 }
 
 // =============================================================================
 // Integration Tests
 // =============================================================================
 
-// Success path — bundle a fixture whose kustomize and terraform sources carry
-// Renovate annotations and confirm that artifact-manifest.yaml is embedded in
-// the tar.gz with the expected entries, digests, and transports.
-func TestBundle_EmitsArtifactManifestWithRenovatePins(t *testing.T) {
+func TestBundle_WritesTheCycloneDXBOMOfTheArtifactTags(t *testing.T) {
 	t.Parallel()
 	dir, env := helpers.PrepareFixture(t, "bundle")
 
@@ -99,48 +114,29 @@ func TestBundle_EmitsArtifactManifestWithRenovatePins(t *testing.T) {
 		t.Fatalf("bundle: %v\nstderr: %s", err, stderr)
 	}
 
-	manifest := readManifestFromBundle(t, outPath)
-
-	if manifest.Version == "" {
-		t.Errorf("expected non-empty manifest version")
+	if _, ok := readBundleEntries(t, outPath)["artifact-manifest.yaml"]; ok {
+		t.Error("expected no artifact-manifest.yaml in the bundle")
 	}
-	if len(manifest.Artifacts) < 3 {
-		t.Fatalf("expected at least 3 entries (helm + docker + github-release), got %d", len(manifest.Artifacts))
+	bom := readBOMFromBundle(t, outPath)
+	if bom.SpecVersion != "1.6" {
+		t.Errorf("expected CycloneDX 1.6, got %q", bom.SpecVersion)
 	}
-
-	var sawHelm, sawDocker, sawGitHub bool
-	for _, a := range manifest.Artifacts {
-		switch a.Type {
-		case "helm":
-			if a.Reference == "cert-manager" && a.Version == "1.20.1" && a.Transport == "oci" {
-				sawHelm = true
-			}
-		case "docker":
-			if strings.Contains(a.Reference, "cert-manager-controller") &&
-				a.Digest == "sha256:9f9556b4b131554694c67c8229d231b1f7d69b882b5f061a56bafa465f3b22fc" &&
-				a.Transport == "oci" {
-				sawDocker = true
-			}
-		case "github-release":
-			if a.Reference == "fluxcd/flux2" && a.Version == "v2.3.0" && a.Transport == "tarball" {
-				sawGitHub = true
-			}
+	want := []string{
+		"pkg:generic/cert-manager@1.20.1?download_url=https:%2F%2Fcharts.jetstack.io",
+		"pkg:oci/cert-manager-controller@sha256:9f9556b4b131554694c67c8229d231b1f7d69b882b5f061a56bafa465f3b22fc?repository_url=quay.io%2Fjetstack%2Fcert-manager-controller&tag=v1.20.1",
+		"pkg:oci/installer?repository_url=ghcr.io%2Fsiderolabs%2Finstaller&tag=v1.11.5",
+	}
+	if got := purls(bom); strings.Join(got, "\n") != strings.Join(want, "\n") {
+		t.Errorf("expected package URLs:\n%s\ngot:\n%s", strings.Join(want, "\n"), strings.Join(got, "\n"))
+	}
+	for _, c := range bom.Components {
+		if c.Name == "quay.io/jetstack/cert-manager-controller" && (len(c.Hashes) != 1 || c.Hashes[0].Alg != "SHA-256") {
+			t.Errorf("expected a SHA-256 hash for the digest, got %+v", c.Hashes)
 		}
-	}
-	if !sawHelm {
-		t.Errorf("missing expected helm entry for cert-manager@1.20.1")
-	}
-	if !sawDocker {
-		t.Errorf("missing expected docker entry for cert-manager-controller with digest")
-	}
-	if !sawGitHub {
-		t.Errorf("missing expected github-release entry for fluxcd/flux2")
 	}
 }
 
-// Edge path — bundle runs successfully when there are no annotations to scan;
-// the manifest is still emitted, but with an empty artifacts list.
-func TestBundle_EmitsEmptyManifestWhenNoAnnotationsPresent(t *testing.T) {
+func TestBundle_WritesAnEmptyBOMWhenNoArtifactTagsArePresent(t *testing.T) {
 	t.Parallel()
 	dir, env := helpers.PrepareFixture(t, "default")
 
@@ -150,9 +146,40 @@ func TestBundle_EmitsEmptyManifestWhenNoAnnotationsPresent(t *testing.T) {
 		t.Fatalf("bundle: %v\nstderr: %s", err, stderr)
 	}
 
-	manifest := readManifestFromBundle(t, outPath)
-	if len(manifest.Artifacts) != 0 {
-		t.Errorf("expected empty artifacts list, got %d entries", len(manifest.Artifacts))
+	if bom := readBOMFromBundle(t, outPath); len(bom.Components) != 0 {
+		t.Errorf("expected no components, got %d", len(bom.Components))
+	}
+}
+
+func TestBundle_WritesTheSameArtifactsAsShowArtifactsAll(t *testing.T) {
+	t.Parallel()
+	dir, env := helpers.CopyFixtureOnly(t, "show-artifacts")
+	helpers.MarkAsGitRepo(t, dir)
+	if _, stderr, err := helpers.RunCLI(dir, []string{"init", "local"}, env); err != nil {
+		t.Fatalf("init local: %v\nstderr: %s", err, stderr)
+	}
+	env = append(env, "WINDSOR_CONTEXT=local")
+	if err := os.Remove(filepath.Join(dir, "contexts", "local", "terraform", "comp.tfvars")); err != nil {
+		t.Fatalf("remove the context values file, which a bundle does not hold: %v", err)
+	}
+
+	stdout, stderr, err := helpers.RunCLI(dir, []string{"show", "artifacts", "--all", "-o", "cyclonedx"}, env)
+	if err != nil {
+		t.Fatalf("show artifacts --all -o cyclonedx: %v\nstderr: %s", err, stderr)
+	}
+	shown := decodeBOM(t, stdout)
+
+	outPath := filepath.Join(dir, "out.tar.gz")
+	if _, stderr, err := helpers.RunCLI(dir, []string{"bundle", "-t", "show-artifacts:v1.0.0", "-o", outPath}, env); err != nil {
+		t.Fatalf("bundle: %v\nstderr: %s", err, stderr)
+	}
+	bundled := readBOMFromBundle(t, outPath)
+
+	if len(shown.Components) == 0 {
+		t.Fatal("expected components from show artifacts")
+	}
+	if got, want := purls(bundled), purls(shown); strings.Join(got, "\n") != strings.Join(want, "\n") {
+		t.Errorf("expected the bundle BOM to match show artifacts --all.\nbundle:\n%s\nshow:\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))
 	}
 }
 

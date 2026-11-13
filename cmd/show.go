@@ -45,7 +45,7 @@ Unresolved deferred values render as '<deferred>' by default in 'blueprint' and 
 var showArtifactsCmd = &cobra.Command{
 	Use:   "artifacts",
 	Short: "List the charts and images that the context pulls.",
-	Long:  `Print each chart and image that an artifact tag names in the files that the composed blueprint uses, and each oci:// blueprint source. The command reads the blueprint paths, the resources and components of each kustomization file, and local Terraform modules. It also reads all of contexts/, _template/ and kustomize/crds/, and it lists a tag in a facet only when the blueprint uses the tagged value. Use --all to read whole sources. The command copies nothing. Use -o flux-mirror or -o list to give the list to a relocation tool.`,
+	Long:  `Print each chart and image that an artifact tag names in the files that the composed blueprint uses, and each oci:// blueprint source. The command reads the blueprint paths, the resources and components of each kustomization file, and local Terraform modules. It also reads all of contexts/, _template/ and kustomize/crds/, and it lists a tag in a facet only when the blueprint uses the tagged value. Use --all to read whole sources. The command copies nothing. Use -o flux-mirror or -o list to give the list to a relocation tool. Use -o cyclonedx to print a CycloneDX 1.6 BOM.`,
 	Example: `# List the artifacts of the current context as YAML
 windsor show artifacts
 
@@ -56,7 +56,10 @@ windsor show artifacts --charts-to registry.example.com/windsor -o flux-mirror |
 windsor show artifacts -o list
 
 # List the artifact tags of whole sources
-windsor show artifacts --all`,
+windsor show artifacts --all
+
+# Print the CycloneDX BOM that windsor bundle writes
+windsor show artifacts --all -o cyclonedx`,
 	Annotations: map[string]string{
 		"docs.seealso": "[`bundle`](bundle.md), [`plan`](plan.md)\n" +
 			"[Blueprint reference](../blueprint.md)",
@@ -66,9 +69,9 @@ windsor show artifacts --all`,
 	SilenceUsage: true,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		switch showArtifactsOutput {
-		case "yaml", "flux-mirror", "list":
+		case "yaml", "flux-mirror", "list", "cyclonedx":
 		default:
-			return werror.New(fmt.Sprintf("invalid output format %q", showArtifactsOutput), "Set -o to yaml, flux-mirror or list.", nil)
+			return werror.New(fmt.Sprintf("invalid output format %q", showArtifactsOutput), "Set -o to yaml, flux-mirror, list or cyclonedx.", nil)
 		}
 		proj, err := configureProject(cmd)
 		if err != nil {
@@ -108,6 +111,12 @@ windsor show artifacts --all`,
 			}
 		case "list":
 			fmt.Print(inventory.ListLines(result.Inventory))
+		case "cyclonedx":
+			bom, err := inventory.CycloneDX(result.Inventory, "", "")
+			if err != nil {
+				return err
+			}
+			fmt.Print(string(bom))
 		default:
 			if err := outputResource(result.Inventory, false, "artifacts"); err != nil {
 				return err
@@ -262,7 +271,7 @@ func init() {
 	showKustomizationCmd.Flags().BoolVar(&showKustomizationJSON, "json", false, "Output as JSON instead of YAML.")
 	showValuesCmd.Flags().BoolVar(&showValuesJSON, "json", false, "Output as JSON instead of YAML.")
 	showArtifactsCmd.Flags().StringVar(&showArtifactsChartsTo, "charts-to", "", "Chart registry for chart destinations, e.g. registry.example.com/windsor.")
-	showArtifactsCmd.Flags().StringVarP(&showArtifactsOutput, "output", "o", "yaml", "Output format: yaml, flux-mirror or list.")
+	showArtifactsCmd.Flags().StringVarP(&showArtifactsOutput, "output", "o", "yaml", "Output format: yaml, flux-mirror, list or cyclonedx.")
 	showArtifactsCmd.Flags().BoolVar(&showArtifactsAll, "all", false, "Read the artifact tags of whole sources, also of the files that the blueprint does not use.")
 	showCmd.AddCommand(showArtifactsCmd)
 	showCmd.AddCommand(showBlueprintCmd)
