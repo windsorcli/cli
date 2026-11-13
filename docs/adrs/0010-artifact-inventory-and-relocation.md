@@ -213,7 +213,8 @@ prints the same BOM for the scope that the command reads.
   `pkg:oci/<name>?repository_url=<path>&tag=<tag>`, with the digest as the version when the tag
   line gives one. An HTTP chart has `pkg:generic/<name>@<version>?download_url=<repository>`,
   because the package URL specification has no chart type. The package URL is also the `bom-ref`
-  of a component at the top of the BOM.
+  of a component at the top of the BOM, so each level of the BOM has one component for each
+  package URL. A chart wins over an image tag with the same reference.
 - A digest, when the tag line gives one, is in `hashes` as SHA-256.
 - The metadata of the bundle BOM names the blueprint and its version. The BOM has no serial
   number and no timestamp, so the same source gives the same file.

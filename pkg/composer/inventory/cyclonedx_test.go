@@ -177,6 +177,29 @@ func TestCycloneDX(t *testing.T) {
 		}
 	})
 
+	t.Run("KeepsOneComponentForEachPackageURL", func(t *testing.T) {
+		// Given a chart and an image tag that name the same OCI repository and tag
+		tree := flatTree(inventory.Inventory{Artifacts: []inventory.Entry{
+			{Kind: inventory.KindChart, Transport: inventory.TransportOCI, Reference: "ghcr.io/fluent/helm-charts/fluent-operator", Name: "fluent-operator", Version: "4.3.0"},
+			{Kind: inventory.KindImage, Transport: inventory.TransportOCI, Reference: "ghcr.io/fluent/helm-charts/fluent-operator", Version: "4.3.0"},
+		}})
+
+		// When CycloneDX is called
+		data, err := inventory.CycloneDX(tree, "", "")
+		if err != nil {
+			t.Fatalf("expected no error, got %v", err)
+		}
+
+		// Then the BOM has one component, the chart, so each bom-ref is unique
+		bom := decodeBOM(t, data)
+		if len(bom.Components) != 1 {
+			t.Fatalf("expected 1 component, got %+v", bom.Components)
+		}
+		if bom.Components[0].Type != "application" {
+			t.Errorf("expected the chart component, got %+v", bom.Components[0])
+		}
+	})
+
 	t.Run("OmitsMetadataWithNoName", func(t *testing.T) {
 		// Given an empty tree
 		tree := inventory.SourceTree{}

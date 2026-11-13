@@ -21,7 +21,8 @@ import (
 
 // CycloneDX returns tree as a CycloneDX 1.6 BOM in JSON. An image is a container component, a chart is
 // an application component, and a source is a data component that holds the components of the source.
-// A nested component has the source names and a slash in front of its bom-ref. When name is not empty,
+// A nested component has the source names and a slash in front of its bom-ref, and each level keeps
+// one component for each package URL. When name is not empty,
 // the BOM metadata names the blueprint with name and version.
 func CycloneDX(tree SourceTree, name, version string) ([]byte, error) {
 	bom := cdx.NewBOM()
@@ -66,7 +67,8 @@ func BundleBOMWriter(builder artifact.Artifact) artifact.BOMWriter {
 // treeComponents returns the components of tree: a data component for each source, then a component
 // for each artifact. The components of a source are its children, with the source name in front of
 // each bom-ref. A source read from the BOM of its artifact gives the components of that BOM after its sources.
-// Of two sources with one package URL, only the first is a component, so each bom-ref stays unique.
+// Of two sources or artifacts with one package URL, only the first is a component, so each bom-ref stays
+// unique. A chart sorts before an image, so a chart wins over an image tag with the same reference.
 func treeComponents(tree SourceTree) []cdx.Component {
 	components := make([]cdx.Component, 0, len(tree.Sources)+len(tree.Artifacts))
 	seen := make(map[string]bool)
@@ -85,7 +87,12 @@ func treeComponents(tree SourceTree) []cdx.Component {
 		return append(components, *tree.bom...)
 	}
 	for _, e := range tree.Artifacts {
-		components = append(components, bomComponent(e))
+		component := bomComponent(e)
+		if seen[component.BOMRef] {
+			continue
+		}
+		seen[component.BOMRef] = true
+		components = append(components, component)
 	}
 	return components
 }
