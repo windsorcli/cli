@@ -153,7 +153,7 @@ func NewLister(rt *runtime.Runtime, artifactBuilder artifact.Artifact) *BaseList
 // that an artifact tag names in the files that blueprint uses, in the project and in the cache of
 // each oci:// source. With opts.All, it reads whole sources.
 // Each entry gets a destination, and the entries are unique and sorted. The tree of the result
-// nests the tags of each source under that source.
+// groups the tags of each source under that source.
 func (l *BaseLister) List(blueprint *blueprintv1alpha1.Blueprint, opts Options) (*Result, error) {
 	if blueprint == nil {
 		return nil, fmt.Errorf("blueprint not provided")

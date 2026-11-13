@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"testing"
 
@@ -30,7 +31,30 @@ type testBOM struct {
 			Version string `json:"version"`
 		} `json:"component"`
 	} `json:"metadata"`
-	Components []testComponent `json:"components"`
+	Components   []testComponent `json:"components"`
+	Dependencies []struct {
+		Ref       string   `json:"ref"`
+		DependsOn []string `json:"dependsOn"`
+	} `json:"dependencies"`
+}
+
+// dependsOn returns the bom-refs that ref depends on in bom, and false when bom has no entry for ref.
+func (b testBOM) dependsOn(ref string) ([]string, bool) {
+	for _, d := range b.Dependencies {
+		if d.Ref == ref {
+			return d.DependsOn, true
+		}
+	}
+	return nil, false
+}
+
+// refs returns the bom-ref of each component of b, in order.
+func (b testBOM) refs() []string {
+	out := make([]string, 0, len(b.Components))
+	for _, c := range b.Components {
+		out = append(out, c.BOMRef)
+	}
+	return out
 }
 
 // testComponent is the part of a CycloneDX component that the tests check.
@@ -46,6 +70,14 @@ type testComponent struct {
 		Content string `json:"content"`
 	} `json:"hashes"`
 }
+
+// Package URLs of the tests.
+const (
+	corePurl    = "pkg:oci/core?repository_url=ghcr.io%2Fwindsorcli%2Fcore&tag=v0.9.0"
+	basePurl    = "pkg:oci/base?repository_url=ghcr.io%2Fwindsorcli%2Fbase&tag=v1.0.0"
+	busyboxPurl = "pkg:oci/busybox?repository_url=docker.io%2Flibrary%2Fbusybox&tag=1.37"
+	etcdPurl    = "pkg:oci/etcd?repository_url=quay.io%2Fcoreos%2Fetcd&tag=v3.7.2"
+)
 
 // decodeBOM decodes data as a CycloneDX BOM and fails the test on an error.
 func decodeBOM(t *testing.T, data []byte) testBOM {
@@ -239,7 +271,7 @@ func TestCycloneDX(t *testing.T) {
 		}
 	})
 
-	t.Run("NestsTheArtifactsOfEachSourceWithPrefixedRefs", func(t *testing.T) {
+	t.Run("ListsEachArtifactOnceAndTheSourcesThatPullIt", func(t *testing.T) {
 		// Given a tree in which the blueprint and core both pull busybox, and core names base
 		busybox := inventory.Entry{Kind: inventory.KindImage, Transport: inventory.TransportOCI, Reference: "docker.io/library/busybox", Version: "1.37"}
 		etcd := inventory.Entry{Kind: inventory.KindImage, Transport: inventory.TransportOCI, Reference: "quay.io/coreos/etcd", Version: "v3.7.2"}
@@ -263,29 +295,36 @@ func TestCycloneDX(t *testing.T) {
 			t.Fatalf("expected no error, got %v", err)
 		}
 
-		// Then core is at the top, before busybox, and holds base and its own busybox
+		// Then the BOM lists each artifact once, sources first, in the order of the walk, with no nested components
 		bom := decodeBOM(t, data)
-		busyboxPurl := "pkg:oci/busybox?repository_url=docker.io%2Flibrary%2Fbusybox&tag=1.37"
-		basePurl := "pkg:oci/base?repository_url=ghcr.io%2Fwindsorcli%2Fbase&tag=v1.0.0"
-		etcdPurl := "pkg:oci/etcd?repository_url=quay.io%2Fcoreos%2Fetcd&tag=v3.7.2"
-		if len(bom.Components) != 2 || bom.Components[0].Name != "ghcr.io/windsorcli/core" || bom.Components[1].BOMRef != busyboxPurl {
-			t.Fatalf("expected core and busybox at the top, got %+v", bom.Components)
+		want := []string{corePurl, basePurl, etcdPurl, busyboxPurl}
+		if got := bom.refs(); strings.Join(got, " ") != strings.Join(want, " ") {
+			t.Fatalf("expected components %v, got %v", want, got)
 		}
-		core := bom.Components[0]
-		if len(core.Components) != 2 {
-			t.Fatalf("expected two components under core, got %+v", core.Components)
+		for _, c := range bom.Components {
+			if len(c.Components) != 0 || c.BOMRef != c.Purl {
+				t.Errorf("expected a flat component with its package URL as bom-ref, got %+v", c)
+			}
 		}
 
-		// And each nested bom-ref has the source names in front, and the package URL does not change
-		base, nestedBusybox := core.Components[0], core.Components[1]
-		if base.BOMRef != "core/"+basePurl || base.Purl != basePurl {
-			t.Errorf("expected base with a core prefix, got %+v", base)
-		}
-		if nestedBusybox.BOMRef != "core/"+busyboxPurl || nestedBusybox.Purl != busyboxPurl {
-			t.Errorf("expected busybox with a core prefix, got %+v", nestedBusybox)
-		}
-		if len(base.Components) != 1 || base.Components[0].BOMRef != "core/base/"+etcdPurl || base.Components[0].Purl != etcdPurl {
-			t.Errorf("expected etcd with a core/base prefix, got %+v", base.Components)
+		// And the graph tells that app and core both pull busybox, and that base pulls etcd
+		for ref, wantDeps := range map[string][]string{
+			"app":       {corePurl, busyboxPurl},
+			corePurl:    {basePurl, busyboxPurl},
+			basePurl:    {etcdPurl},
+			busyboxPurl: nil,
+			etcdPurl:    nil,
+		} {
+			got, ok := bom.dependsOn(ref)
+			if !ok {
+				t.Errorf("expected a dependencies entry for %s", ref)
+				continue
+			}
+			sortedWant := append([]string(nil), wantDeps...)
+			sort.Strings(sortedWant)
+			if strings.Join(got, " ") != strings.Join(sortedWant, " ") {
+				t.Errorf("%s: expected dependsOn %v, got %v", ref, sortedWant, got)
+			}
 		}
 	})
 }
@@ -333,8 +372,8 @@ func TestBundleBOMWriter(t *testing.T) {
 		}
 	})
 
-	t.Run("NestsTheBOMOfASourceArtifact", func(t *testing.T) {
-		// Given a bundled blueprint that names core, and a cached core artifact that holds a BOM with a nested source
+	t.Run("AddsTheComponentsAndEdgesOfASourceBOM", func(t *testing.T) {
+		// Given a bundled blueprint that names core, and a cached core artifact whose BOM names base
 		coreTree := inventory.SourceTree{
 			Artifacts: []inventory.Entry{{Kind: inventory.KindImage, Transport: inventory.TransportOCI, Reference: "quay.io/coreos/etcd", Version: "v3.7.2"}},
 			Sources: []inventory.SourceTree{{
@@ -361,29 +400,31 @@ func TestBundleBOMWriter(t *testing.T) {
 			t.Fatalf("expected no error, got %v", err)
 		}
 
-		// Then the writer pulls core only, and core is a data component with its tag
+		// Then the writer pulls core only, and the BOM lists core, base and both images once
 		if len(pulled) != 1 || pulled[0] != "oci://ghcr.io/windsorcli/core:v0.9.0" {
 			t.Errorf("expected one pull of core, got %v", pulled)
 		}
 		bom := decodeBOM(t, data)
-		if len(bom.Components) != 1 {
-			t.Fatalf("expected core only at the top, got %+v", bom.Components)
+		want := []string{corePurl, basePurl, busyboxPurl, etcdPurl}
+		if got := bom.refs(); strings.Join(got, " ") != strings.Join(want, " ") {
+			t.Fatalf("expected components %v, got %v", want, got)
 		}
-		core := bom.Components[0]
-		if core.Type != "data" || core.Name != "ghcr.io/windsorcli/core" || core.Version != "v0.9.0" {
-			t.Errorf("expected the core data component, got %+v", core)
+		if bom.Components[0].Type != "data" || bom.Components[0].Version != "v0.9.0" {
+			t.Errorf("expected the core data component, got %+v", bom.Components[0])
 		}
 
-		// And the components of the core BOM nest under core with a core prefix, at every depth
-		if len(core.Components) != 2 {
-			t.Fatalf("expected base and etcd under core, got %+v", core.Components)
+		// And app pulls core, core pulls what the core BOM says it pulls, and base keeps its edge
+		for ref, wantDeps := range map[string]string{
+			"app":    corePurl,
+			corePurl: basePurl + " " + etcdPurl,
+			basePurl: busyboxPurl,
+		} {
+			if got, _ := bom.dependsOn(ref); strings.Join(got, " ") != wantDeps {
+				t.Errorf("%s: expected dependsOn %q, got %v", ref, wantDeps, got)
+			}
 		}
-		base := core.Components[0]
-		if !strings.HasPrefix(base.BOMRef, "core/pkg:oci/base") || len(base.Components) != 1 || !strings.HasPrefix(base.Components[0].BOMRef, "core/base/pkg:oci/busybox") {
-			t.Errorf("expected base and busybox with prefixes, got %+v", base)
-		}
-		if !strings.HasPrefix(core.Components[1].BOMRef, "core/pkg:oci/etcd") {
-			t.Errorf("expected etcd with a core prefix, got %+v", core.Components[1])
+		if _, ok := bom.dependsOn("core"); ok {
+			t.Error("expected no entry for the metadata bom-ref of the core BOM")
 		}
 	})
 
@@ -404,19 +445,16 @@ func TestBundleBOMWriter(t *testing.T) {
 			t.Fatalf("expected no error, got %v", err)
 		}
 
-		// Then core holds base and its scanned image
+		// Then core pulls base and its scanned image, and base pulls core back
 		bom := decodeBOM(t, data)
-		if len(bom.Components) != 1 || len(bom.Components[0].Components) != 2 {
-			t.Fatalf("expected core with two components, got %+v", bom.Components)
+		if got := bom.refs(); strings.Join(got, " ") != strings.Join([]string{corePurl, basePurl, etcdPurl}, " ") {
+			t.Fatalf("expected core, base and etcd, got %v", got)
 		}
-		base, etcd := bom.Components[0].Components[0], bom.Components[0].Components[1]
-		if !strings.HasPrefix(etcd.BOMRef, "core/pkg:oci/etcd") {
-			t.Errorf("expected the scanned etcd image under core, got %+v", etcd)
+		if got, _ := bom.dependsOn(corePurl); strings.Join(got, " ") != basePurl+" "+etcdPurl {
+			t.Errorf("expected core to pull base and etcd, got %v", got)
 		}
-
-		// And the walk stops at core under base, because core is already above it
-		if len(base.Components) != 1 || base.Components[0].Name != "ghcr.io/windsorcli/core" || len(base.Components[0].Components) != 0 {
-			t.Errorf("expected core with no children under base, got %+v", base.Components)
+		if got, _ := bom.dependsOn(basePurl); strings.Join(got, " ") != corePurl {
+			t.Errorf("expected base to pull core, got %v", got)
 		}
 		if len(pulled) != 2 {
 			t.Errorf("expected pulls of core and base, got %v", pulled)
@@ -445,14 +483,13 @@ func TestBundleBOMWriter(t *testing.T) {
 			t.Fatalf("expected no error, got %v", err)
 		}
 
-		// Then core holds base, with its scanned image, before the components of the core BOM
+		// Then core pulls base and the etcd image of its BOM, and base pulls its scanned image
 		bom := decodeBOM(t, data)
-		core := bom.Components[0]
-		if len(core.Components) != 2 || core.Components[0].Name != "ghcr.io/windsorcli/base" || !strings.HasPrefix(core.Components[1].BOMRef, "core/pkg:oci/etcd") {
-			t.Fatalf("expected base and etcd under core, got %+v", core.Components)
+		if got, _ := bom.dependsOn(corePurl); strings.Join(got, " ") != basePurl+" "+etcdPurl {
+			t.Errorf("expected core to pull base and etcd, got %v", got)
 		}
-		if base := core.Components[0]; len(base.Components) != 1 || !strings.HasPrefix(base.Components[0].BOMRef, "core/base/pkg:oci/busybox") {
-			t.Errorf("expected busybox under base, got %+v", base.Components)
+		if got, _ := bom.dependsOn(basePurl); strings.Join(got, " ") != busyboxPurl {
+			t.Errorf("expected base to pull busybox, got %v", got)
 		}
 	})
 
@@ -511,6 +548,79 @@ func TestBundleBOMWriter(t *testing.T) {
 		// Then it does not fail
 		if err != nil {
 			t.Errorf("expected no error, got %v", err)
+		}
+	})
+
+	t.Run("KeepsTheBundleAuthoritativeOverASourceBOM", func(t *testing.T) {
+		// Given a core BOM that claims an edge from the bundle, an edge from the bundle image, an edge to a
+		// missing ref, a different version of the bundle image, and a nested component with no bom-ref
+		coreBOM := `{"bomFormat":"CycloneDX","specVersion":"1.6","version":1,
+			"metadata":{"component":{"bom-ref":"core","type":"data","name":"core"}},
+			"components":[
+				{"bom-ref":"` + busyboxPurl + `","type":"container","name":"evil","version":"6.6.6","purl":"` + busyboxPurl + `"},
+				{"bom-ref":"` + basePurl + `","type":"data","name":"ghcr.io/windsorcli/base","purl":"` + basePurl + `",
+					"components":[{"type":"container","name":"quay.io/coreos/etcd","purl":"` + etcdPurl + `"}]}],
+			"dependencies":[
+				{"ref":"core","dependsOn":["` + basePurl + `","pkg:oci/missing"]},
+				{"ref":"app","dependsOn":["` + basePurl + `"]},
+				{"ref":"` + busyboxPurl + `","dependsOn":["` + basePurl + `"]}]}`
+		coreDir := t.TempDir()
+		writeArtifactTar(t, coreDir, map[string]string{"artifact-manifest.cdx.json": coreBOM})
+		var pulled []string
+		writer := inventory.BundleBOMWriter(bundleBuilder(map[string]string{"core": coreDir}, &pulled))
+		tags := []artifact.ArtifactTag{{Type: artifact.ArtifactTagImage, Name: "docker.io/library/busybox", Version: "1.37", File: "kustomize/a.yaml", Line: 1}}
+
+		// When the writer is called
+		data, err := writer("app", "v1.0.0", tags, []byte("sources:\n- name: core\n  url: oci://ghcr.io/windsorcli/core:v0.9.0\n"))
+		if err != nil {
+			t.Fatalf("expected no error, got %v", err)
+		}
+
+		// Then the bundle image keeps its own name and version
+		bom := decodeBOM(t, data)
+		for _, c := range bom.Components {
+			if c.BOMRef == busyboxPurl && (c.Name != "docker.io/library/busybox" || c.Version != "1.37") {
+				t.Errorf("expected the bundle busybox component, got %+v", c)
+			}
+		}
+
+		// And the source BOM adds no edge from the bundle or its image, and no edge to a missing ref
+		if got, _ := bom.dependsOn("app"); strings.Join(got, " ") != busyboxPurl+" "+corePurl {
+			t.Errorf("expected app to pull core and busybox only, got %v", got)
+		}
+		if got, _ := bom.dependsOn(busyboxPurl); len(got) != 0 {
+			t.Errorf("expected busybox to pull nothing, got %v", got)
+		}
+		if got, _ := bom.dependsOn(corePurl); strings.Join(got, " ") != basePurl {
+			t.Errorf("expected core to pull base only, got %v", got)
+		}
+
+		// And the nested component uses its package URL as bom-ref, with an edge from its parent
+		if got, _ := bom.dependsOn(basePurl); strings.Join(got, " ") != etcdPurl {
+			t.Errorf("expected base to pull etcd, got %v", got)
+		}
+	})
+
+	t.Run("ReturnsErrorForTooManySources", func(t *testing.T) {
+		// Given a bundled blueprint that names more sources than the limit
+		dir := t.TempDir()
+		writeArtifactTar(t, dir, map[string]string{"metadata.yaml": "name: s\n"})
+		dirs := make(map[string]string)
+		var blueprint strings.Builder
+		blueprint.WriteString("sources:\n")
+		for i := 0; i <= 256; i++ {
+			dirs[fmt.Sprintf("s%d", i)] = dir
+			fmt.Fprintf(&blueprint, "- name: s%d\n  url: oci://ghcr.io/windsorcli/s%d:v1\n", i, i)
+		}
+		var pulled []string
+		writer := inventory.BundleBOMWriter(bundleBuilder(dirs, &pulled))
+
+		// When the writer is called
+		_, err := writer("app", "v1.0.0", nil, []byte(blueprint.String()))
+
+		// Then it fails and names the limit
+		if err == nil || !strings.Contains(err.Error(), "limit of 256 sources") {
+			t.Errorf("expected a source limit error, got %v", err)
 		}
 	})
 

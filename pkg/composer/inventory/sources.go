@@ -1,5 +1,5 @@
 // The source tree is the artifacts of a blueprint, grouped by the oci:// source that declares them.
-// It provides the nesting of the CycloneDX BOM, in which each source holds the artifacts of its files.
+// It provides the dependencies graph of the CycloneDX BOM, in which each source pulls the artifacts of its files.
 // The bundle reader builds the tree from the BOM in each source artifact, or from a tag scan of an older artifact.
 // The Lister builds the tree from the cached _template/blueprint.yaml of each source.
 
@@ -27,6 +27,9 @@ import (
 // maxSourceDepth is the deepest nesting of oci:// sources that windsor bundle reads.
 const maxSourceDepth = 16
 
+// maxSources is the largest number of different oci:// sources that windsor bundle reads.
+const maxSources = 256
+
 // =============================================================================
 // Types
 // =============================================================================
@@ -38,7 +41,7 @@ type SourceTree struct {
 	Entry     Entry
 	Artifacts []Entry
 	Sources   []SourceTree
-	bom       *[]cdx.Component
+	bom       *cdx.BOM
 }
 
 // bundleReader builds the source trees of windsor bundle and pulls each source that is not in the cache.
@@ -95,12 +98,12 @@ func (r bundleReader) sourceTrees(sources []blueprintv1alpha1.Source, path []str
 			return nil, werror.Wrap(err, "failed to read the sources of source %q", source.Name)
 		}
 		if bom != nil {
-			components, err := decodeComponents(bom)
+			decoded, err := decodeBOM(bom)
 			if err != nil {
 				return nil, werror.Wrap(err, "failed to decode the BOM of source %q", source.Name)
 			}
-			tree.bom = &components
-			nested = sourcesNotIn(nested, components)
+			tree.bom = &decoded
+			nested = sourcesNotIn(nested, decoded)
 		} else {
 			tags, err := artifact.ScanTagsDir(dir)
 			if err != nil {
@@ -118,10 +121,13 @@ func (r bundleReader) sourceTrees(sources []blueprintv1alpha1.Source, path []str
 }
 
 // pull puts source in the OCI cache, when it is not there yet, and returns its cache directory.
-// It pulls each URL once for the life of r.
+// It pulls each URL once for the life of r, and fails at more than maxSources different URLs.
 func (r bundleReader) pull(source blueprintv1alpha1.Source) (string, error) {
 	if dir, ok := r.pulled[source.Url]; ok {
 		return dir, nil
+	}
+	if len(r.pulled) >= maxSources {
+		return "", fmt.Errorf("source %q is one source more than the limit of %d sources", source.Name, maxSources)
 	}
 	if _, err := r.builder.Pull([]string{source.Url}); err != nil {
 		return "", werror.Wrap(err, "failed to pull source %q from %s", source.Name, source.Url)
@@ -162,7 +168,7 @@ func (l *BaseLister) sourceTree(blueprint *blueprintv1alpha1.Blueprint, roots []
 	for _, root := range roots[1:] {
 		nested, err := readSources(root.dir)
 		if err != nil {
-			notes = append(notes, fmt.Sprintf("Source %q: the BOM does not nest its sources, because %v.", root.name, err))
+			notes = append(notes, fmt.Sprintf("Source %q: the BOM does not tell which sources it pulls, because %v.", root.name, err))
 			continue
 		}
 		for _, source := range ociSources(nested) {
@@ -233,10 +239,14 @@ func parseSources(data []byte) ([]blueprintv1alpha1.Source, error) {
 	return sources, nil
 }
 
-// sourcesNotIn returns the oci:// sources in sources that have no data component in components.
-// A BOM that does not nest the sources of its blueprint thus gets a tree for each of them.
-func sourcesNotIn(sources []blueprintv1alpha1.Source, components []cdx.Component) []blueprintv1alpha1.Source {
+// sourcesNotIn returns the oci:// sources in sources that have no data component in bom.
+// A BOM that does not list the sources of its blueprint thus gets a tree for each of them.
+func sourcesNotIn(sources []blueprintv1alpha1.Source, bom cdx.BOM) []blueprintv1alpha1.Source {
 	held := make(map[string]bool)
+	var components []cdx.Component
+	if bom.Components != nil {
+		components = flatComponents(*bom.Components)
+	}
 	for _, c := range components {
 		if c.Type == cdx.ComponentTypeData {
 			held[c.PackageURL] = true

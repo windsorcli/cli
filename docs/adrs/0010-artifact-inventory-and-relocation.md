@@ -3,7 +3,7 @@
 - Status: Proposed. Supersedes the single HelmRepository patch proposed in cli#3376.
 - Date: 2026-10-28; revised 2026-11-05 (artifact tags replace rendering); revised 2026-11-12
   (blueprint sources follow the image mirrors, and `registries` replaces `docker.registries`);
-  revised 2026-11-13 (the CycloneDX BOM ships in v0.10.0 and nests the BOM of each `oci://`
+  revised 2026-11-13 (the CycloneDX BOM ships in v0.10.0 and lists the artifacts of each `oci://`
   source)
 - Deciders: Ryan VanGundy
 - Surfaced while designing core's chart registry
@@ -212,14 +212,15 @@ prints the same BOM for the scope that the command reads.
 - An OCI image, chart or blueprint has the package URL
   `pkg:oci/<name>?repository_url=<path>&tag=<tag>`, with the digest as the version when the tag
   line gives one. An HTTP chart has `pkg:generic/<name>@<version>?download_url=<repository>`,
-  because the package URL specification has no chart type. The package URL is also the `bom-ref`
-  of a component at the top of the BOM, so each level of the BOM has one component for each
-  package URL. A chart wins over an image tag with the same reference.
+  because the package URL specification has no chart type. The package URL is also the `bom-ref`,
+  so the BOM has one component for each package URL. A chart wins over an image tag with the same
+  reference.
 - A digest, when the tag line gives one, is in `hashes` as SHA-256.
-- The metadata of the bundle BOM names the blueprint and its version. The BOM has no serial
-  number and no timestamp, so the same source gives the same file.
+- The metadata of the bundle BOM names the blueprint and its version, with the blueprint name as
+  its `bom-ref`. The BOM has no serial number and no timestamp, so the same source gives the same
+  file.
 
-`windsor bundle` has no render step. It fails on a malformed tag. The BOM has no graph from a
+`windsor bundle` has no render step. It fails on a malformed tag. The BOM has no edge from a
 Kustomization to its artifacts, because the tag scan does not know which component a tag serves. A
 bundle holds `contexts/_template` and not the other context directories, so its BOM leaves out a
 tag in a context directory that `--all` reads in the project.
@@ -229,35 +230,44 @@ sources. A site that copies a blueprint that consumes core reads one BOM:
 
 - Each `oci://` source in the `_template/blueprint.yaml` of the bundle is a `data` component with
   the tag of its URL. When the URL gives a digest, the component has that digest, as an image does.
-- The components of a source are children of its `data` component, in `components[].components`.
-  The CLI reads them from `artifact-manifest.cdx.json` in the source artifact. That BOM nests the
-  sources of the source, so the nesting continues to every depth.
-- An artifact that an older CLI wrote has no BOM. For such a source, the CLI builds the children
-  from a tag scan of the whole cached source and from the `oci://` sources of its
-  `_template/blueprint.yaml`. A source BOM can lack a source that its blueprint names, because the
-  first v0.10.0 BOM listed its own tags only. The CLI builds that child in the same way.
-- The CLI does not descend into a source that is already above it in the tree. It fails when
-  sources nest more than 16 deep, because a pulled artifact chooses the sources below it.
-- Two sources with one URL are one component, because their bom-refs would be equal.
+- The components of a source come from `artifact-manifest.cdx.json` in the source artifact. That
+  BOM lists the sources of the source, so the list continues to every depth.
+- The `dependencies` graph tells which blueprint pulls each component. The blueprint depends on its
+  own artifacts and on each source. A source depends on the artifacts and the sources that its BOM
+  gives to its own blueprint. The CLI copies the other edges of a source BOM as they are.
+- An artifact that an older CLI wrote has no BOM. For such a source, the CLI reads the tags of the
+  whole cached source and the `oci://` sources of its `_template/blueprint.yaml`. A source BOM can
+  lack a source that its blueprint names, because the first v0.10.0 BOM listed its own tags only.
+  The CLI reads that source in the same way.
+- A pulled artifact chooses the sources below it and writes its own BOM, so the CLI limits what it
+  takes from a source. It stops at a source that is already above it in the walk. It fails when
+  sources nest more than 16 deep, or when a bundle reads more than 256 sources. A component of the
+  bundle wins over a source component with the same `bom-ref`. A source BOM gives only edges
+  between its own components, and none from a component of the bundle. The CLI drops an edge to a
+  `bom-ref` that is not a component.
 - A source that is not `oci://` is not in the BOM, as in Decision 1. Flux pulls it, and the CLI has
   no cache for it.
 
-A bom-ref MUST be unique in a BOM, but one artifact can occur in the bundle and in a source. The
-CLI puts the source name in front of the bom-ref of each nested component: `core/pkg:oci/...` one
-level down, and `core/base/pkg:oci/...` two levels down. A component at the top keeps its package
-URL as its bom-ref. The package URL field does not change, so a scanner still matches each
-component. The alternative, one component for each package URL, was rejected. The first
-occurrence would win, and the BOM would no longer show that core also pulls the artifact.
+When the bundle and core pull one image, the BOM has one component and two edges to it. A scanner
+reads the flat component list and matches each package URL. A copy tool reads the same list. A
+tool that needs to know where an artifact comes from reads the graph.
+
+Nested components (`components[].components`) were rejected. CycloneDX defines nesting as an
+assembly: the child is part of the parent. A blueprint artifact does not hold the images that it
+pulls. Nesting also repeats an artifact under each source that pulls it, so its bom-refs need a
+source prefix to stay unique. A tool that reads only the top level also misses the nested
+components.
 
 A published BOM MUST NOT leave out a source without a sign. Thus `windsor bundle` pulls each
 `oci://` source that is not in the OCI cache, through the pull that other commands use, mirrors
 included. A failed pull stops the bundle and names the source. These pulls are the only registry
 calls of `windsor bundle`.
 
-`windsor show artifacts -o cyclonedx` nests in the same way. A source is a child of each source
-whose cached `_template/blueprint.yaml` names it, and a source that no other source names is at the
-top. Each source holds the tags of its own files in the scope of the command. The `-o yaml`,
-`-o list`, and `-o flux-mirror` outputs stay flat, and the facet filter of Decision 3 still applies.
+`windsor show artifacts -o cyclonedx` gives the same graph. A source depends on each source whose
+name its cached `_template/blueprint.yaml` gives, and on the tags of its own files in the scope of
+the command. The output has no metadata, so it has no edges from the project. The `-o yaml`,
+`-o list`, and `-o flux-mirror` outputs stay as they are, and the facet filter of Decision 3 still
+applies.
 
 ### 8. Blueprint sources follow the image mirrors
 

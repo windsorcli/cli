@@ -59,7 +59,7 @@ func TestShowArtifacts_PrintsEachOutputFormat(t *testing.T) {
 	}
 }
 
-func TestShowArtifacts_NestsTheTagsOfEachSourceInTheCycloneDXBOM(t *testing.T) {
+func TestShowArtifacts_TellsWhichSourcePullsEachArtifactInTheCycloneDXBOM(t *testing.T) {
 	t.Parallel()
 	dir, env := helpers.CopyFixtureOnly(t, "show-artifacts")
 	helpers.MarkAsGitRepo(t, dir)
@@ -86,21 +86,15 @@ func TestShowArtifacts_NestsTheTagsOfEachSourceInTheCycloneDXBOM(t *testing.T) {
 		t.Fatalf("show artifacts --all -o cyclonedx: %v\nstderr: %s", err, stderr)
 	}
 	bom := decodeBOM(t, stdout)
-	var core *extractedComponent
-	for i := range bom.Components {
-		if bom.Components[i].Name == "ghcr.io/windsorcli/core" {
-			core = &bom.Components[i]
-		}
-		if bom.Components[i].Name == "quay.io/coreos/etcd" {
-			t.Error("expected the etcd image of core under core, not at the top")
-		}
+	found := false
+	for _, c := range bom.Components {
+		found = found || c.BOMRef == etcdImagePurl
 	}
-	if core == nil {
-		t.Fatalf("expected a component for core, got %+v", bom.Components)
+	if !found {
+		t.Errorf("expected the etcd image of core, got %+v", bom.Components)
 	}
-	etcdPurl := "pkg:oci/etcd?repository_url=quay.io%2Fcoreos%2Fetcd&tag=v3.7.2"
-	if len(core.Components) != 1 || core.Components[0].BOMRef != "core/"+etcdPurl {
-		t.Errorf("expected the etcd image under core, got %+v", core.Components)
+	if deps := bom.dependsOn(coreSourcePurl); strings.Join(deps, " ") != etcdImagePurl {
+		t.Errorf("expected core to pull etcd, got %v", deps)
 	}
 
 	stdout, stderr, err = helpers.RunCLI(dir, []string{"show", "artifacts", "--all"}, env)

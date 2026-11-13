@@ -10,6 +10,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 	"testing"
@@ -23,8 +24,28 @@ import (
 
 // extractedBOM is the part of a CycloneDX BOM that the integration tests check.
 type extractedBOM struct {
-	SpecVersion string               `json:"specVersion"`
-	Components  []extractedComponent `json:"components"`
+	SpecVersion  string               `json:"specVersion"`
+	Components   []extractedComponent `json:"components"`
+	Dependencies []struct {
+		Ref       string   `json:"ref"`
+		DependsOn []string `json:"dependsOn"`
+	} `json:"dependencies"`
+}
+
+// Package URLs of the source tests.
+const (
+	coreSourcePurl = "pkg:oci/core?repository_url=ghcr.io%2Fwindsorcli%2Fcore&tag=v0.1.0"
+	etcdImagePurl  = "pkg:oci/etcd?repository_url=quay.io%2Fcoreos%2Fetcd&tag=v3.7.2"
+)
+
+// dependsOn returns the bom-refs that ref depends on in bom.
+func (b extractedBOM) dependsOn(ref string) []string {
+	for _, d := range b.Dependencies {
+		if d.Ref == ref {
+			return d.DependsOn
+		}
+	}
+	return nil
 }
 
 // extractedComponent is the part of a CycloneDX component that the integration tests check.
@@ -235,7 +256,7 @@ func TestBundle_WritesTheSameArtifactsAsShowArtifactsAll(t *testing.T) {
 	}
 }
 
-func TestBundle_NestsTheBOMOfEachOCISource(t *testing.T) {
+func TestBundle_ListsTheArtifactsOfEachOCISource(t *testing.T) {
 	t.Parallel()
 	dir, env := helpers.PrepareFixture(t, "bundle")
 	writeProjectFile(t, dir, "contexts/_template/blueprint.yaml", "kind: Blueprint\napiVersion: blueprints.windsorcli.dev/v1alpha1\nmetadata:\n  name: bundle-it\nsources:\n  - name: core\n    url: oci://ghcr.io/windsorcli/core:v0.1.0\n")
@@ -252,18 +273,24 @@ func TestBundle_NestsTheBOMOfEachOCISource(t *testing.T) {
 	}
 
 	bom := readBOMFromBundle(t, outPath)
-	var core *extractedComponent
-	for i := range bom.Components {
-		if bom.Components[i].Name == "ghcr.io/windsorcli/core" {
-			core = &bom.Components[i]
+	got := make(map[string]extractedComponent)
+	for _, c := range bom.Components {
+		if len(c.Components) != 0 {
+			t.Errorf("expected no nested components, got %+v", c)
 		}
+		got[c.BOMRef] = c
 	}
-	if core == nil || core.Type != "data" || core.Version != "v0.1.0" {
-		t.Fatalf("expected a data component for core v0.1.0, got %+v", bom.Components)
+	if core, ok := got[coreSourcePurl]; !ok || core.Type != "data" || core.Version != "v0.1.0" {
+		t.Errorf("expected a data component for core v0.1.0, got %+v", bom.Components)
 	}
-	etcdPurl := "pkg:oci/etcd?repository_url=quay.io%2Fcoreos%2Fetcd&tag=v3.7.2"
-	if len(core.Components) != 1 || core.Components[0].BOMRef != "core/"+etcdPurl || core.Components[0].Purl != etcdPurl {
-		t.Errorf("expected the etcd image of the core BOM under core, got %+v", core.Components)
+	if _, ok := got[etcdImagePurl]; !ok {
+		t.Errorf("expected the etcd image of the core BOM, got %+v", bom.Components)
+	}
+	if deps := bom.dependsOn("bundle-it"); !slices.Contains(deps, coreSourcePurl) {
+		t.Errorf("expected the bundle to pull core, got %v", deps)
+	}
+	if deps := bom.dependsOn(coreSourcePurl); strings.Join(deps, " ") != etcdImagePurl {
+		t.Errorf("expected core to pull etcd, got %v", deps)
 	}
 }
 

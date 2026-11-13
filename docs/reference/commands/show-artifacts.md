@@ -7,7 +7,7 @@ description: "List the charts and images that the context pulls."
 windsor show artifacts [flags]
 ```
 
-Print each chart and image that an artifact tag names in the files that the composed blueprint uses, and each oci:// blueprint source. The command reads the blueprint paths, the resources and components of each kustomization file, and local Terraform modules. It also reads all of contexts/, _template/ and kustomize/crds/, and it lists a tag in a facet only when the blueprint uses the tagged value. Use --all to read whole sources. The command copies nothing. Use -o flux-mirror or -o list to give the list to a relocation tool. Use -o cyclonedx to print a CycloneDX 1.6 BOM, in which each oci:// source holds the artifacts of its files.
+Print each chart and image that an artifact tag names in the files that the composed blueprint uses, and each oci:// blueprint source. The command reads the blueprint paths, the resources and components of each kustomization file, and local Terraform modules. It also reads all of contexts/, _template/ and kustomize/crds/, and it lists a tag in a facet only when the blueprint uses the tagged value. Use --all to read whole sources. The command copies nothing. Use -o flux-mirror or -o list to give the list to a relocation tool. Use -o cyclonedx to print a CycloneDX 1.6 BOM, with a dependencies graph that tells which source pulls each artifact.
 
 ## Flags
 
