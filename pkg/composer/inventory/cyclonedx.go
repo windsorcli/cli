@@ -1,17 +1,17 @@
-// The CycloneDX encoder turns an Inventory into a CycloneDX 1.6 BOM.
+// The CycloneDX encoder turns a SourceTree into a CycloneDX 1.6 BOM.
 // It provides the BOM that windsor show artifacts prints with -o cyclonedx and that windsor bundle writes.
-// Each artifact is one component with a package URL, and a digest is a SHA-256 hash.
-// The BOM has no serial number and no timestamp, so the same inventory always gives the same bytes.
+// Each artifact is one component with a package URL, and each oci:// source nests the components of its files.
+// The BOM has no serial number and no timestamp, so the same tree always gives the same bytes.
 
 package inventory
 
 import (
 	"bytes"
-	"sort"
 	"strings"
 
 	cdx "github.com/CycloneDX/cyclonedx-go"
 	"github.com/package-url/packageurl-go"
+	"github.com/windsorcli/cli/internal/werror"
 	"github.com/windsorcli/cli/pkg/composer/artifact"
 )
 
@@ -19,20 +19,16 @@ import (
 // Public Methods
 // =============================================================================
 
-// CycloneDX returns inv as a CycloneDX 1.6 BOM in JSON. An image is a container component, a chart is
-// an application component, and a blueprint is a data component. An OCI artifact has a pkg:oci package
-// URL, with the digest as the version when the entry has one. An HTTP chart has a pkg:generic package
-// URL with the repository as its download_url. When name is not empty, the BOM metadata names the
-// blueprint with name and version.
-func CycloneDX(inv Inventory, name, version string) ([]byte, error) {
+// CycloneDX returns tree as a CycloneDX 1.6 BOM in JSON. An image is a container component, a chart is
+// an application component, and a source is a data component that holds the components of the source.
+// A nested component has the source names and a slash in front of its bom-ref. When name is not empty,
+// the BOM metadata names the blueprint with name and version.
+func CycloneDX(tree SourceTree, name, version string) ([]byte, error) {
 	bom := cdx.NewBOM()
 	if name != "" {
 		bom.Metadata = &cdx.Metadata{Component: &cdx.Component{Type: cdx.ComponentTypeData, Name: name, Version: version}}
 	}
-	components := make([]cdx.Component, 0, len(inv.Artifacts))
-	for _, e := range inv.Artifacts {
-		components = append(components, bomComponent(e))
-	}
+	components := treeComponents(tree)
 	bom.Components = &components
 
 	var buf bytes.Buffer
@@ -45,27 +41,82 @@ func CycloneDX(inv Inventory, name, version string) ([]byte, error) {
 	return buf.Bytes(), nil
 }
 
-// BundleBOM returns the CycloneDX BOM of the artifact tags of one blueprint source. It gives the same
-// components as CycloneDX for the inventory of those tags. The artifact builder of windsor bundle
-// calls it with the name and version of the blueprint.
-func BundleBOM(name, version string, tags []artifact.ArtifactTag) ([]byte, error) {
-	sort.SliceStable(tags, func(i, j int) bool {
-		if tags[i].File != tags[j].File {
-			return tags[i].File < tags[j].File
+// BundleBOMWriter returns the BOM writer of windsor bundle. The writer lists the artifact tags of the
+// bundle and nests each oci:// source of the bundled blueprint, with the components of that source.
+// It pulls each source that is not in the cache through builder, once for all calls, and fails when a pull fails.
+func BundleBOMWriter(builder artifact.Artifact) artifact.BOMWriter {
+	reader := bundleReader{builder: builder, pulled: make(map[string]string), built: make(map[string]SourceTree)}
+	return func(name, version string, tags []artifact.ArtifactTag, blueprint []byte) ([]byte, error) {
+		sources, err := parseSources(blueprint)
+		if err != nil {
+			return nil, werror.Wrap(err, "failed to read the sources of the bundled blueprint")
 		}
-		return tags[i].Line < tags[j].Line
-	})
-	entries := make([]Entry, 0, len(tags))
-	for _, tag := range tags {
-		entries = append(entries, tagEntry(name, tag))
+		tree := SourceTree{Artifacts: tagArtifacts(name, tags)}
+		if tree.Sources, err = reader.sourceTrees(sources, nil); err != nil {
+			return nil, err
+		}
+		return CycloneDX(tree, name, version)
 	}
-	inv := Inventory{Version: InventoryVersion, Artifacts: sortEntries(dedupeEntries(entries))}
-	return CycloneDX(inv, name, version)
 }
 
 // =============================================================================
 // Helpers
 // =============================================================================
+
+// treeComponents returns the components of tree: a data component for each source, then a component
+// for each artifact. The components of a source are its children, with the source name in front of
+// each bom-ref. A source read from the BOM of its artifact gives the components of that BOM after its sources.
+// Of two sources with one package URL, only the first is a component, so each bom-ref stays unique.
+func treeComponents(tree SourceTree) []cdx.Component {
+	components := make([]cdx.Component, 0, len(tree.Sources)+len(tree.Artifacts))
+	seen := make(map[string]bool)
+	for _, source := range sortTrees(tree.Sources) {
+		component := bomComponent(source.Entry)
+		if seen[component.BOMRef] {
+			continue
+		}
+		seen[component.BOMRef] = true
+		if children := prefixRefs(treeComponents(source), source.Name); len(children) > 0 {
+			component.Components = &children
+		}
+		components = append(components, component)
+	}
+	if tree.bom != nil {
+		return append(components, *tree.bom...)
+	}
+	for _, e := range tree.Artifacts {
+		components = append(components, bomComponent(e))
+	}
+	return components
+}
+
+// prefixRefs returns a copy of components in which each bom-ref, at every depth, starts with prefix and a slash.
+func prefixRefs(components []cdx.Component, prefix string) []cdx.Component {
+	out := make([]cdx.Component, len(components))
+	for i, c := range components {
+		if c.BOMRef != "" {
+			c.BOMRef = prefix + "/" + c.BOMRef
+		}
+		if c.Components != nil {
+			children := prefixRefs(*c.Components, prefix)
+			c.Components = &children
+		}
+		out[i] = c
+	}
+	return out
+}
+
+// decodeComponents returns the components of the CycloneDX BOM in data.
+func decodeComponents(data []byte) ([]cdx.Component, error) {
+	var bom cdx.BOM
+	if err := cdx.NewBOMDecoder(bytes.NewReader(data), cdx.BOMFileFormatJSON).Decode(&bom); err != nil {
+		return nil, err
+	}
+	if bom.Components == nil {
+		return []cdx.Component{}, nil
+	}
+	return *bom.Components, nil
+}
 
 // bomComponent returns the CycloneDX component of e. The package URL is also the bom-ref.
 // An entry with a digest and no version has the digest as its component version.

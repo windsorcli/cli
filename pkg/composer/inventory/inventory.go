@@ -93,9 +93,10 @@ type Options struct {
 	Trace    FacetTrace
 }
 
-// Result is the inventory and the notes that List writes for the operator.
+// Result is the inventory, its source tree, and the notes that List writes for the operator.
 type Result struct {
 	Inventory Inventory
+	Tree      SourceTree
 	Notes     []string
 }
 
@@ -151,7 +152,8 @@ func NewLister(rt *runtime.Runtime, artifactBuilder artifact.Artifact) *BaseList
 // List returns the artifacts of blueprint: each oci:// blueprint source, and each chart and image
 // that an artifact tag names in the files that blueprint uses, in the project and in the cache of
 // each oci:// source. With opts.All, it reads whole sources.
-// Each entry gets a destination, and the entries are unique and sorted.
+// Each entry gets a destination, and the entries are unique and sorted. The tree of the result
+// nests the tags of each source under that source.
 func (l *BaseLister) List(blueprint *blueprintv1alpha1.Blueprint, opts Options) (*Result, error) {
 	if blueprint == nil {
 		return nil, fmt.Errorf("blueprint not provided")
@@ -161,7 +163,7 @@ func (l *BaseLister) List(blueprint *blueprintv1alpha1.Blueprint, opts Options) 
 
 	entries := blueprintEntries(blueprint)
 
-	tagEntries, notes, err := l.tagEntries(blueprint, opts)
+	tagEntries, roots, notes, err := l.tagEntries(blueprint, opts)
 	if err != nil {
 		return nil, err
 	}
@@ -176,6 +178,9 @@ func (l *BaseLister) List(blueprint *blueprintv1alpha1.Blueprint, opts Options) 
 		entries[i].Destination = destinationFor(entries[i], opts.ChartsTo, mirrors)
 	}
 
+	tree, treeNotes := l.sourceTree(blueprint, roots, entries)
+	result.Tree = tree
+	result.Notes = append(result.Notes, treeNotes...)
 	result.Inventory.Artifacts = sortEntries(dedupeEntries(entries))
 	if err := checkDestinations(result.Inventory.Artifacts); err != nil {
 		return nil, err
@@ -191,18 +196,9 @@ func (l *BaseLister) List(blueprint *blueprintv1alpha1.Blueprint, opts Options) 
 func blueprintEntries(blueprint *blueprintv1alpha1.Blueprint) []Entry {
 	var entries []Entry
 	for _, source := range blueprint.Sources {
-		if !strings.HasPrefix(source.Url, "oci://") {
-			continue
+		if strings.HasPrefix(source.Url, "oci://") {
+			entries = append(entries, sourceEntry(source))
 		}
-		ref := parseImageReference(strings.TrimPrefix(source.Url, "oci://"))
-		entries = append(entries, Entry{
-			Kind:      KindBlueprint,
-			Transport: TransportOCI,
-			Reference: ref.repository,
-			Version:   ref.tag,
-			Digest:    ref.digest,
-			Source:    Source{Object: "source/" + source.Name},
-		})
 	}
 	return entries
 }

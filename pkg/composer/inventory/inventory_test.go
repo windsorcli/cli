@@ -238,6 +238,7 @@ func TestBaseLister_List(t *testing.T) {
 		m := setupMocks(t)
 		parent, child := t.TempDir(), t.TempDir()
 		writeFile(t, parent, "kustomize/base/values.yaml", "# artifact: type=image name=ghcr.io/example/parent\nimage: ghcr.io/example/parent:1.0.0\n")
+		writeFile(t, parent, "_template/blueprint.yaml", "sources:\n- name: child\n  url: oci://ghcr.io/windsorcli/child:v2.0.0\n")
 		writeFile(t, child, "_template/facets/tools.yaml", "# artifact: type=image name=ghcr.io/example/child\nimage: ghcr.io/example/child:2.0.0\n")
 		dirs := map[string]string{"parent": parent, "child": child}
 		m.artifactBuilder.ParseOCIRefFunc = func(ref string) (string, string, string, error) {
@@ -276,6 +277,56 @@ func TestBaseLister_List(t *testing.T) {
 			if !got[key] {
 				t.Errorf("expected %q in %v", key, got)
 			}
+		}
+
+		// And the tree nests the child under the parent that names it, each with its own image
+		if len(result.Tree.Sources) != 1 || result.Tree.Sources[0].Name != "parent" {
+			t.Fatalf("expected parent at the top, got %+v", result.Tree.Sources)
+		}
+		parentTree := result.Tree.Sources[0]
+		if len(parentTree.Artifacts) != 1 || parentTree.Artifacts[0].Reference != "ghcr.io/example/parent" {
+			t.Errorf("expected the parent image under parent, got %+v", parentTree.Artifacts)
+		}
+		if len(parentTree.Sources) != 1 || parentTree.Sources[0].Name != "child" {
+			t.Fatalf("expected child under parent, got %+v", parentTree.Sources)
+		}
+		childTree := parentTree.Sources[0]
+		if childTree.Entry.Reference != "ghcr.io/windsorcli/child" || len(childTree.Artifacts) != 1 || childTree.Artifacts[0].Reference != "ghcr.io/example/child" {
+			t.Errorf("expected the child image under child, got %+v", childTree)
+		}
+	})
+
+	t.Run("PutsASourceLoopAtTheTop", func(t *testing.T) {
+		// Given two cached sources that each name the other
+		m := setupMocks(t)
+		first, second := t.TempDir(), t.TempDir()
+		writeFile(t, first, "_template/blueprint.yaml", "sources:\n- name: second\n  url: oci://ghcr.io/windsorcli/second:v1\n")
+		writeFile(t, second, "_template/blueprint.yaml", "sources:\n- name: first\n  url: oci://ghcr.io/windsorcli/first:v1\n")
+		dirs := map[string]string{"first": first, "second": second}
+		m.artifactBuilder.GetCacheDirFunc = func(registry, repository, tag string) (string, error) {
+			return dirs[strings.TrimPrefix(repository, "windsorcli/")], nil
+		}
+		lister := inventory.NewLister(m.runtime, m.artifactBuilder)
+		blueprint := &blueprintv1alpha1.Blueprint{
+			Sources: []blueprintv1alpha1.Source{
+				{Name: "first", Url: "oci://ghcr.io/windsorcli/first:v1"},
+				{Name: "second", Url: "oci://ghcr.io/windsorcli/second:v1"},
+			},
+		}
+
+		// When List is called
+		result, err := lister.List(blueprint, inventory.Options{All: true})
+		if err != nil {
+			t.Fatalf("expected no error, got %v", err)
+		}
+
+		// Then the first source is at the top, and the walk stops where the loop closes
+		if len(result.Tree.Sources) != 1 || result.Tree.Sources[0].Name != "first" {
+			t.Fatalf("expected first at the top, got %+v", result.Tree.Sources)
+		}
+		loop := result.Tree.Sources[0].Sources[0].Sources[0]
+		if loop.Name != "first" || len(loop.Sources) != 0 {
+			t.Errorf("expected the walk to stop at first, got %+v", loop)
 		}
 	})
 

@@ -59,6 +59,59 @@ func TestShowArtifacts_PrintsEachOutputFormat(t *testing.T) {
 	}
 }
 
+func TestShowArtifacts_NestsTheTagsOfEachSourceInTheCycloneDXBOM(t *testing.T) {
+	t.Parallel()
+	dir, env := helpers.CopyFixtureOnly(t, "show-artifacts")
+	helpers.MarkAsGitRepo(t, dir)
+	blueprintPath := filepath.Join(dir, "contexts", "_template", "blueprint.yaml")
+	blueprint, err := os.ReadFile(blueprintPath)
+	if err != nil {
+		t.Fatalf("read blueprint: %v", err)
+	}
+	blueprint = append(blueprint, []byte("sources:\n  - name: core\n    url: oci://ghcr.io/windsorcli/core:v0.1.0\n")...)
+	if err := os.WriteFile(blueprintPath, blueprint, 0644); err != nil {
+		t.Fatalf("write blueprint: %v", err)
+	}
+	seedSourceArtifact(t, dir, "core", "v0.1.0", map[string]string{
+		"metadata.yaml":              "name: core\nversion: v0.1.0\n",
+		"kustomize/etcd/values.yaml": "image: quay.io/coreos/etcd:v3.7.2 # artifact: type=image\n",
+	})
+	if _, stderr, err := helpers.RunCLI(dir, []string{"init", "local"}, env); err != nil {
+		t.Fatalf("init local: %v\nstderr: %s", err, stderr)
+	}
+	env = append(env, "WINDSOR_CONTEXT=local")
+
+	stdout, stderr, err := helpers.RunCLI(dir, []string{"show", "artifacts", "--all", "-o", "cyclonedx"}, env)
+	if err != nil {
+		t.Fatalf("show artifacts --all -o cyclonedx: %v\nstderr: %s", err, stderr)
+	}
+	bom := decodeBOM(t, stdout)
+	var core *extractedComponent
+	for i := range bom.Components {
+		if bom.Components[i].Name == "ghcr.io/windsorcli/core" {
+			core = &bom.Components[i]
+		}
+		if bom.Components[i].Name == "quay.io/coreos/etcd" {
+			t.Error("expected the etcd image of core under core, not at the top")
+		}
+	}
+	if core == nil {
+		t.Fatalf("expected a component for core, got %+v", bom.Components)
+	}
+	etcdPurl := "pkg:oci/etcd?repository_url=quay.io%2Fcoreos%2Fetcd&tag=v3.7.2"
+	if len(core.Components) != 1 || core.Components[0].BOMRef != "core/"+etcdPurl {
+		t.Errorf("expected the etcd image under core, got %+v", core.Components)
+	}
+
+	stdout, stderr, err = helpers.RunCLI(dir, []string{"show", "artifacts", "--all"}, env)
+	if err != nil {
+		t.Fatalf("show artifacts --all: %v\nstderr: %s", err, stderr)
+	}
+	if !strings.Contains(string(stdout), "reference: quay.io/coreos/etcd") {
+		t.Errorf("expected the flat inventory to list the etcd image, got:\n%s", stdout)
+	}
+}
+
 func TestShowArtifacts_ListsTheArtifactTagsOfTheProject(t *testing.T) {
 	t.Parallel()
 	dir, env := helpers.CopyFixtureOnly(t, "show-artifacts")

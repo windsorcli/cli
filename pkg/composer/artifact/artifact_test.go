@@ -1186,7 +1186,7 @@ func TestArtifactBuilder_Bundle_EmitsArtifactManifest(t *testing.T) {
 		// Given a builder with a BOM writer and bundled files with a chart tag and an image tag
 		builder, _ := setup(t)
 		var got []ArtifactTag
-		builder.SetBOMWriter(func(name, version string, tags []ArtifactTag) ([]byte, error) {
+		builder.SetBOMWriter(func(name, version string, tags []ArtifactTag, _ []byte) ([]byte, error) {
 			got = tags
 			return []byte("{}"), nil
 		})
@@ -1308,17 +1308,19 @@ func TestArtifactBuilder_refreshArtifactManifest(t *testing.T) {
 	}
 
 	t.Run("PassesTheTagsOfTagPathsAndTheMetadata", func(t *testing.T) {
-		// Given a builder with a name, a version, a tagged kustomize file and a tagged file outside the tag roots
+		// Given a builder with a name, a version, a bundled blueprint, a tagged kustomize file and a tagged file outside the tag roots
 		builder := setup(t)
 		builder.metadata.Name = "testbp"
 		builder.metadata.Version = "v1.2.3"
 		builder.files["kustomize/app.yaml"] = FileInfo{Content: []byte("image: ghcr.io/example/app:v1.0.0 # artifact: type=image\n")}
 		builder.files["_template/values.yaml"] = FileInfo{Content: []byte("image: ghcr.io/example/other:v2.0.0 # artifact: type=image\n")}
 		builder.files["metadata.yaml"] = FileInfo{Content: []byte("image: ghcr.io/example/skip:v1.0.0 # artifact: type=image\n")}
+		builder.files["_template/blueprint.yaml"] = FileInfo{Content: []byte("sources: []\n")}
 		var gotName, gotVersion string
 		var gotTags []ArtifactTag
-		builder.SetBOMWriter(func(name, version string, tags []ArtifactTag) ([]byte, error) {
-			gotName, gotVersion, gotTags = name, version, tags
+		var gotBlueprint []byte
+		builder.SetBOMWriter(func(name, version string, tags []ArtifactTag, blueprint []byte) ([]byte, error) {
+			gotName, gotVersion, gotTags, gotBlueprint = name, version, tags, blueprint
 			return []byte("bom"), nil
 		})
 
@@ -1327,12 +1329,15 @@ func TestArtifactBuilder_refreshArtifactManifest(t *testing.T) {
 			t.Fatalf("expected no error, got %v", err)
 		}
 
-		// Then the writer gets the name, the version and the tags of the tag roots only
+		// Then the writer gets the name, the version, the blueprint and the tags of the tag roots only
 		if gotName != "testbp" || gotVersion != "v1.2.3" {
 			t.Errorf("metadata: got %q %q", gotName, gotVersion)
 		}
 		if len(gotTags) != 2 {
 			t.Errorf("tags: got %d, want 2", len(gotTags))
+		}
+		if string(gotBlueprint) != "sources: []\n" {
+			t.Errorf("blueprint: got %q", gotBlueprint)
 		}
 		if string(builder.files[BOMFileName].Content) != "bom" {
 			t.Errorf("BOM content: got %q", builder.files[BOMFileName].Content)
@@ -1356,7 +1361,7 @@ func TestArtifactBuilder_refreshArtifactManifest(t *testing.T) {
 	t.Run("WriterFailure_ReturnsError", func(t *testing.T) {
 		// Given a builder whose BOM writer fails
 		builder := setup(t)
-		builder.SetBOMWriter(func(string, string, []ArtifactTag) ([]byte, error) {
+		builder.SetBOMWriter(func(string, string, []ArtifactTag, []byte) ([]byte, error) {
 			return nil, errors.New("boom")
 		})
 
