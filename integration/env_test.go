@@ -128,15 +128,12 @@ func TestDotEnv_ContextEnvironmentKeyOverridesDotEnv(t *testing.T) {
 	t.Parallel()
 	dir, env := helpers.CopyFixtureOnly(t, "default")
 
-	windsorYamlPath := filepath.Join(dir, "windsor.yaml")
-	windsorYaml := `version: v1alpha1
-contexts:
-  local:
-    environment:
-      SHARED_VAR: from-windsor-yaml
-`
-	if err := os.WriteFile(windsorYamlPath, []byte(windsorYaml), 0644); err != nil {
-		t.Fatalf("write windsor.yaml: %v", err)
+	valuesYaml := "environment:\n  SHARED_VAR: from-windsor-yaml\n"
+	if err := os.MkdirAll(filepath.Join(dir, "contexts", "local"), 0755); err != nil {
+		t.Fatalf("mkdir context: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "contexts", "local", "values.yaml"), []byte(valuesYaml), 0644); err != nil {
+		t.Fatalf("write values.yaml: %v", err)
 	}
 	helpers.MarkAsGitRepo(t, dir)
 	if _, stderr, err := helpers.RunCLI(dir, []string{"init"}, env); err != nil {
@@ -254,19 +251,17 @@ func TestAzureEnv_UnsetOnContextSwitchAway(t *testing.T) {
 	t.Parallel()
 	dir, env := helpers.CopyFixtureOnly(t, "default")
 
-	windsorYamlPath := filepath.Join(dir, "windsor.yaml")
-	windsorYaml := `version: v1alpha1
-contexts:
-  local: {}
-  azure-test:
-    platform: azure
-    azure:
-      subscription_id: "11111111-1111-1111-1111-111111111111"
-      tenant_id: "22222222-2222-2222-2222-222222222222"
-      region: eastus2
+	azureValues := `platform: azure
+azure:
+  subscription_id: "11111111-1111-1111-1111-111111111111"
+  tenant_id: "22222222-2222-2222-2222-222222222222"
+  region: eastus2
 `
-	if err := os.WriteFile(windsorYamlPath, []byte(windsorYaml), 0644); err != nil {
-		t.Fatalf("write windsor.yaml: %v", err)
+	if err := os.MkdirAll(filepath.Join(dir, "contexts", "azure-test"), 0755); err != nil {
+		t.Fatalf("mkdir context: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "contexts", "azure-test", "values.yaml"), []byte(azureValues), 0644); err != nil {
+		t.Fatalf("write values.yaml: %v", err)
 	}
 	helpers.MarkAsGitRepo(t, dir)
 	if _, stderr, err := helpers.RunCLI(dir, []string{"init"}, env); err != nil {
@@ -355,7 +350,7 @@ func TestEnv_SurfacesErrorWithoutHookAndStaysSilentWithHook(t *testing.T) {
 		t.Fatalf("mkdir context dir: %v", err)
 	}
 	files := map[string]string{
-		"windsor.yaml": "secrets:\n  sops:\n    enabled: true\nenvironment:\n  DB_PASSWORD: ${secret(\"sops\", \"database.password\", \"\")}\n",
+		"values.yaml":  "secrets:\n  sops:\n    enabled: true\nenvironment:\n  DB_PASSWORD: ${secret(\"sops\", \"database.password\", \"\")}\n",
 		"secrets.yaml": "database:\n  password: hunter2\n",
 	}
 	for name, content := range files {
@@ -382,7 +377,7 @@ func TestEnv_SurfacesErrorWithoutHookAndStaysSilentWithHook(t *testing.T) {
 	}
 }
 
-// TestEnv_ContextFileEnablesSops verifies that secrets.sops.enabled in the per-context windsor.yaml
+// TestEnv_ContextFileEnablesSops verifies that secrets.sops.enabled in the per-context values.yaml
 // registers the SOPS provider. The plaintext secrets file makes a registered provider refuse it,
 // which proves the provider was reached.
 func TestEnv_ContextFileEnablesSops(t *testing.T) {
@@ -393,8 +388,8 @@ func TestEnv_ContextFileEnablesSops(t *testing.T) {
 		t.Fatalf("mkdir context dir: %v", err)
 	}
 	contextConfig := "secrets:\n  sops:\n    enabled: true\nenvironment:\n  DB_PASSWORD: ${secret(\"sops\", \"database.password\", \"\")}\n"
-	if err := os.WriteFile(filepath.Join(contextDir, "windsor.yaml"), []byte(contextConfig), 0600); err != nil {
-		t.Fatalf("write context windsor.yaml: %v", err)
+	if err := os.WriteFile(filepath.Join(contextDir, "values.yaml"), []byte(contextConfig), 0600); err != nil {
+		t.Fatalf("write context values.yaml: %v", err)
 	}
 	if err := os.WriteFile(filepath.Join(contextDir, "secrets.yaml"), []byte("database:\n  password: hunter2\n"), 0600); err != nil {
 		t.Fatalf("write secrets.yaml: %v", err)

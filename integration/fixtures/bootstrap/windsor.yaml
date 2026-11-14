@@ -1,3 +1,1 @@
-version: v1alpha1
-contexts:
-  staging: {}
+version: v1alpha2

@@ -49,7 +49,7 @@ var (
 var initCmd = &cobra.Command{
 	Use:   "init [context]",
 	Short: "Scaffold or re-initialize a Windsor context.",
-	Long: `Scaffold a Windsor project. Writes windsor.yaml at the project root if missing, creates contexts/<context>/, and adds the current directory to the trusted-folders list. Re-running on an existing context updates configuration; pass --reset to overwrite generated files and clean .terraform.
+	Long: `Scaffold a Windsor project. Stops before writing anything when the project holds v1alpha1 files; run 'windsor migrate' first. Writes windsor.yaml at the project root if missing, creates contexts/<context>/, and adds the current directory to the trusted-folders list. Re-running on an existing context updates configuration; pass --reset to overwrite generated files and clean .terraform.
 
 If no context is given, the current context is used; if none is set, 'local' is used.
 
@@ -74,6 +74,7 @@ windsor init staging --platform=aws --aws-profile=staging`,
 			rtOpts = []*runtime.Runtime{overridesVal.(*runtime.Runtime)}
 		}
 
+		var projectRoot string
 		if len(rtOpts) == 0 {
 			if err := shell.EnsureGitRepository(); err != nil {
 				return err
@@ -82,8 +83,18 @@ windsor init staging --platform=aws --aws-profile=staging`,
 			if err != nil {
 				return werror.Wrap(err, "failed to initialize project")
 			}
+			projectRoot = anchorDir
 			if cwd, err := os.Getwd(); err == nil && anchorDir != cwd {
 				fmt.Fprintf(os.Stderr, "Windsor uses the existing project at %s.\n", anchorDir)
+			}
+		}
+
+		if len(rtOpts) > 0 && rtOpts[0].Shell != nil {
+			projectRoot, _ = rtOpts[0].Shell.GetProjectRoot()
+		}
+		if projectRoot != "" {
+			if err := requireMigratedProject(projectRoot); err != nil {
+				return err
 			}
 		}
 
