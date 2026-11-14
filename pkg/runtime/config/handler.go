@@ -56,6 +56,7 @@ type ConfigHandler interface {
 	SetContext(context string) error
 	GetConfigRoot() (string, error)
 	GetWindsorScratchPath() (string, error)
+	GetBasePath() (string, error)
 	Clean() error
 	IsLoaded() bool
 	GenerateContextID() error
@@ -102,6 +103,9 @@ type configHandler struct {
 	// resolvedContext memoizes GetContext's file/env/default lookup; see GetContext.
 	resolvedContext *contextCache
 
+	// base memoizes the base directory of the project; see GetBasePath.
+	base *baseCache
+
 	// stringSets keeps the original string of each value Set converted; see reconvertStringSets.
 	stringSets map[string]stringSet
 }
@@ -122,6 +126,14 @@ type contextCache struct {
 	value    string
 }
 
+// baseCache memoizes the base directory of one project root. It is a pointer so a copy of the
+// handler shares the value that the original loaded.
+type baseCache struct {
+	mu   sync.Mutex
+	root string
+	path string
+}
+
 // =============================================================================
 // Constructor
 // =============================================================================
@@ -137,6 +149,7 @@ func NewConfigHandler(shell shell.Shell) ConfigHandler {
 		shims:           NewShims(),
 		data:            make(map[string]any),
 		resolvedContext: &contextCache{},
+		base:            &baseCache{},
 	}
 
 	handler.schemaValidator = NewSchemaValidator(shell)
@@ -312,8 +325,21 @@ func (c *configHandler) GetConfigRoot() (string, error) {
 		return "", err
 	}
 
-	configRoot := filepath.Join(projectRoot, contextDirName, context)
-	return configRoot, nil
+	basePath, err := c.basePath(projectRoot)
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(basePath, contextDirName, context), nil
+}
+
+// GetBasePath returns the absolute base directory of the project: the project root, or paths.base of
+// the root file. The first call reads and validates the root file, and later calls return the stored path.
+func (c *configHandler) GetBasePath() (string, error) {
+	projectRoot, err := c.shell.GetProjectRoot()
+	if err != nil {
+		return "", err
+	}
+	return c.basePath(projectRoot)
 }
 
 // GetWindsorScratchPath retrieves the windsor scratch directory path based on the current context

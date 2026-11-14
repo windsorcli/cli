@@ -37,6 +37,7 @@ type Composer struct {
 	shell         shell.Shell
 	evaluator     evaluator.ExpressionEvaluator
 	projectRoot   string
+	basePath      string
 	configRoot    string
 	templateRoot  string
 	shims         *Shims
@@ -75,6 +76,7 @@ func NewComposer(rt *runtime.Runtime, opts ...*Composer) *Composer {
 		shell:         rt.Shell,
 		evaluator:     rt.Evaluator,
 		projectRoot:   rt.ProjectRoot,
+		basePath:      rt.Base(),
 		configRoot:    rt.ConfigRoot,
 		templateRoot:  rt.TemplateRoot,
 		shims:         NewShims(),
@@ -242,7 +244,7 @@ func (r *Composer) writeLocalGitignores() error {
 		return werror.Wrap(err, "failed to stat .volumes")
 	}
 
-	contextsDir := filepath.Join(r.projectRoot, "contexts")
+	contextsDir := filepath.Join(r.basePath, "contexts")
 	entries, err := r.shims.ReadDir(contextsDir)
 	if err != nil {
 		if os.IsNotExist(err) {

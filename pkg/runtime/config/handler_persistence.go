@@ -105,8 +105,13 @@ func (c *configHandler) LoadConfigForContext(contextName string) error {
 
 	hasLoadedFiles := false
 
+	basePath, err := c.loadBasePath(projectRoot)
+	if err != nil {
+		return err
+	}
+
 	if c.schemaValidator != nil && c.schemaValidator.Schema == nil {
-		schemaPath := filepath.Join(projectRoot, "contexts", "_template", "schema.yaml")
+		schemaPath := filepath.Join(basePath, "contexts", "_template", "schema.yaml")
 		if _, err := c.shims.Stat(schemaPath); err == nil {
 			if err := c.LoadSchema(schemaPath); err != nil {
 				return werror.Wrap(err, "error loading schema")
@@ -114,7 +119,7 @@ func (c *configHandler) LoadConfigForContext(contextName string) error {
 		}
 	}
 
-	rootValues, rootLoaded, err := c.typed.LoadRoot(projectRoot, contextName)
+	rootValues, rootLoaded, err := c.typed.LoadRoot(projectRoot, basePath, contextName)
 	if err != nil {
 		return err
 	}
@@ -134,7 +139,7 @@ func (c *configHandler) LoadConfigForContext(contextName string) error {
 		c.data = c.deepMerge(c.data, rootValues)
 	}
 
-	contextValues, contextLoaded, err := c.typed.LoadContext(projectRoot, contextName)
+	contextValues, contextLoaded, err := c.typed.LoadContext(basePath, contextName)
 	if err != nil {
 		return err
 	}
@@ -153,7 +158,7 @@ func (c *configHandler) LoadConfigForContext(contextName string) error {
 		c.data = c.deepMerge(c.data, workstationValues)
 	}
 
-	valuesData, valuesLoaded, err := c.values.Load(projectRoot, contextName)
+	valuesData, valuesLoaded, err := c.values.Load(basePath, contextName)
 	if err != nil {
 		return err
 	}
@@ -184,22 +189,26 @@ func (c *configHandler) IsNewContext() (bool, error) {
 		return false, werror.Wrap(err, "error retrieving project root")
 	}
 	contextName := c.GetContext()
+	basePath, err := c.basePath(projectRoot)
+	if err != nil {
+		return false, err
+	}
 
-	rootValues, _, err := c.typed.LoadRoot(projectRoot, contextName)
+	rootValues, _, err := c.typed.LoadRoot(projectRoot, basePath, contextName)
 	if err != nil {
 		return false, err
 	}
 	if rootValues != nil {
 		return false, nil
 	}
-	_, contextLoaded, err := c.typed.LoadContext(projectRoot, contextName)
+	_, contextLoaded, err := c.typed.LoadContext(basePath, contextName)
 	if err != nil {
 		return false, err
 	}
 	if contextLoaded {
 		return false, nil
 	}
-	_, valuesLoaded, err := c.values.Load(projectRoot, contextName)
+	_, valuesLoaded, err := c.values.Load(basePath, contextName)
 	if err != nil {
 		return false, err
 	}
@@ -231,13 +240,18 @@ func (c *configHandler) SaveConfig(overwrite ...bool) error {
 		}
 	}
 
+	basePath, err := c.basePath(projectRoot)
+	if err != nil {
+		return err
+	}
+
 	deletes := make([]string, 0, len(c.pendingDeletes))
 	for key := range c.pendingDeletes {
 		deletes = append(deletes, key)
 	}
 
 	wrote, err := c.values.Save(
-		projectRoot,
+		basePath,
 		c.GetContext(),
 		c.dataWithoutRootEnvironment(),
 		c.pendingOverrides,
@@ -311,6 +325,33 @@ func (c *configHandler) SaveWorkstationState() error {
 // =============================================================================
 // Private Methods
 // =============================================================================
+
+// loadBasePath reads the root file, validates paths.base, and stores the result for later calls.
+func (c *configHandler) loadBasePath(projectRoot string) (string, error) {
+	basePath, err := c.typed.LoadBasePath(projectRoot)
+	if err != nil {
+		return "", err
+	}
+	if c.base != nil {
+		c.base.mu.Lock()
+		c.base.root, c.base.path = projectRoot, basePath
+		c.base.mu.Unlock()
+	}
+	return basePath, nil
+}
+
+// basePath returns the stored base directory of projectRoot, and loads it when none is stored.
+func (c *configHandler) basePath(projectRoot string) (string, error) {
+	if c.base != nil {
+		c.base.mu.Lock()
+		root, stored := c.base.root, c.base.path
+		c.base.mu.Unlock()
+		if stored != "" && root == projectRoot {
+			return stored, nil
+		}
+	}
+	return c.loadBasePath(projectRoot)
+}
 
 // getPersistencePolicyInput builds policy input for persistence ownership decisions.
 func (c *configHandler) getPersistencePolicyInput() persistencePolicyInput {

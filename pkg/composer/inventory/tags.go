@@ -71,7 +71,7 @@ func (l *BaseLister) tagEntries(blueprint *blueprintv1alpha1.Blueprint, opts Opt
 // oci:// source. The local template source is the project itself. A source that is not oci://, or
 // whose cache directory is missing, gives a note.
 func (l *BaseLister) sourceRoots(blueprint *blueprintv1alpha1.Blueprint) ([]sourceRoot, []string, error) {
-	roots := []sourceRoot{{name: blueprint.Metadata.Name, dir: l.runtime.ProjectRoot}}
+	roots := []sourceRoot{{name: blueprint.Metadata.Name, dir: l.runtime.Base()}}
 	var notes []string
 	for _, source := range blueprint.Sources {
 		if blueprintv1alpha1.IsLocalTemplateSource(source) {

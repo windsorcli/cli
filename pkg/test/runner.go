@@ -61,6 +61,7 @@ type TestRunner struct {
 	projectRoot         string
 	baseShell           shell.Shell
 	baseProjectRoot     string
+	basePath            string
 	artifactBuilder     artifact.Artifact
 	DefaultBlueprintURL string
 	RunFunc             func(filter string) ([]TestResult, error)
@@ -83,6 +84,7 @@ func NewTestRunner(rt *runtime.Runtime, artifactBuilder artifact.Artifact) *Test
 		projectRoot:     rt.ProjectRoot,
 		baseShell:       rt.Shell,
 		baseProjectRoot: rt.ProjectRoot,
+		basePath:        rt.Base(),
 		artifactBuilder: artifactBuilder,
 		shims:           shims.NewShims(),
 	}
@@ -140,7 +142,7 @@ func (r *TestRunner) runTestCases(testCasesWithFiles []testCaseWithFile) ([]Test
 // that match the filter. An empty filter matches all test cases. It returns an error when discovery or
 // parsing fails. When it finds no test file, or no test case matches the filter, the error has a remediation hint.
 func (r *TestRunner) discoverTestCases(filter string) ([]testCaseWithFile, error) {
-	testsDir := filepath.Join(r.projectRoot, "contexts", "_template", "tests")
+	testsDir := filepath.Join(r.basePath, "contexts", "_template", "tests")
 	testFiles, err := r.discoverTestFiles(testsDir)
 	if err != nil {
 		return nil, werror.Wrap(err, "failed to discover test files")
@@ -181,13 +183,14 @@ func (r *TestRunner) createGenerator(terraformOutputs map[string]map[string]any,
 			Shell:         r.baseShell,
 			ConfigHandler: freshConfigHandler,
 			ProjectRoot:   r.baseProjectRoot,
+			BasePath:      r.basePath,
 			ContextName:   "test",
-			ConfigRoot:    filepath.Join(r.baseProjectRoot, "contexts", "_template"),
-			TemplateRoot:  filepath.Join(r.baseProjectRoot, "contexts", "_template"),
+			ConfigRoot:    filepath.Join(r.basePath, "contexts", "_template"),
+			TemplateRoot:  filepath.Join(r.basePath, "contexts", "_template"),
 		})
 
 		if rt.ConfigHandler != nil {
-			schemaPath := filepath.Join(r.baseProjectRoot, "contexts", "_template", "schema.yaml")
+			schemaPath := filepath.Join(r.basePath, "contexts", "_template", "schema.yaml")
 			if err := rt.ConfigHandler.LoadSchema(schemaPath); err != nil {
 				if !errors.Is(err, os.ErrNotExist) {
 					return nil, werror.Wrap(err, "failed to load schema")
@@ -253,7 +256,7 @@ func (r *TestRunner) createGenerator(terraformOutputs map[string]map[string]any,
 		}
 		var initURLs []string
 		if defaultURL != "" && defaultURL != SkipDefaultBlueprintURL {
-			templateRoot := filepath.Join(r.baseProjectRoot, "contexts", "_template")
+			templateRoot := filepath.Join(r.basePath, "contexts", "_template")
 			if _, err := r.shims.Stat(templateRoot); err == nil {
 				initURLs = nil
 			} else {

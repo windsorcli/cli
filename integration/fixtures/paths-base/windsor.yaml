@@ -1,0 +1,5 @@
+version: v1alpha2
+environment:
+  ROOT_VAR: from-root
+paths:
+  base: infra

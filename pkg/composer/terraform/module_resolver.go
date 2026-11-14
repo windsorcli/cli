@@ -143,7 +143,7 @@ func (h *BaseModuleResolver) generateComponentTfvars(projectRoot string, compone
 func (h *BaseModuleResolver) findModulePathForComponent(projectRoot string, component blueprintv1alpha1.TerraformComponent) (string, error) {
 	componentID := component.GetID()
 
-	if filepath.IsAbs(component.Source) && (strings.Contains(component.Source, filepath.Join("contexts", "_template")) || strings.HasPrefix(component.Source, filepath.Join(projectRoot, "terraform"))) {
+	if filepath.IsAbs(component.Source) && (strings.Contains(component.Source, filepath.Join("contexts", "_template")) || strings.HasPrefix(component.Source, filepath.Join(h.runtime.Base(), "terraform"))) {
 		modulePath := component.Source
 
 		if _, err := h.shims.Stat(modulePath); err != nil {
@@ -157,7 +157,7 @@ func (h *BaseModuleResolver) findModulePathForComponent(projectRoot string, comp
 	if useScratchPath {
 		modulePath = filepath.Join(projectRoot, ".windsor", "contexts", h.runtime.ContextName, "terraform", componentID)
 	} else {
-		modulePath = filepath.Join(projectRoot, "terraform", componentID)
+		modulePath = filepath.Join(h.runtime.Base(), "terraform", componentID)
 	}
 
 	if _, err := h.shims.Stat(modulePath); err != nil {

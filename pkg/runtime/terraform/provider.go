@@ -295,12 +295,20 @@ func (p *DefaultTerraformProvider) loadTerraformComponents() []blueprintv1alpha1
 			if useScratchPath {
 				component.FullPath = filepath.Join(windsorScratchPath, "terraform", componentID)
 			} else {
-				component.FullPath = filepath.Join(projectRoot, "terraform", componentID)
+				component.FullPath = filepath.Join(p.basePath(projectRoot), "terraform", componentID)
 			}
 		}
 	}
 
 	return blueprint.TerraformComponents
+}
+
+// basePath returns the base directory of the project, or projectRoot when the config handler has none.
+func (p *DefaultTerraformProvider) basePath(projectRoot string) string {
+	if basePath, err := p.configHandler.GetBasePath(); err == nil && basePath != "" {
+		return basePath
+	}
+	return projectRoot
 }
 
 // resolveModulePath returns the absolute path of the Terraform module of component.
@@ -328,5 +336,5 @@ func (p *DefaultTerraformProvider) resolveModulePath(component *blueprintv1alpha
 	if err != nil {
 		return "", err
 	}
-	return filepath.Join(projectRoot, "terraform", componentID), nil
+	return filepath.Join(p.basePath(projectRoot), "terraform", componentID), nil
 }

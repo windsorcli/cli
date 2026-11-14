@@ -35,7 +35,7 @@ func (p *DefaultTerraformProvider) SharedBackendContexts() []string {
 	if err != nil {
 		return nil
 	}
-	entries, err := p.Shims.ReadDir(filepath.Join(projectRoot, "contexts"))
+	entries, err := p.Shims.ReadDir(filepath.Join(p.basePath(projectRoot), "contexts"))
 	if err != nil {
 		return nil
 	}

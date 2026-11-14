@@ -268,6 +268,6 @@ func (h *BaseBlueprintHandler) resolveComponentFullPath(component *blueprintv1al
 	if useScratchPath {
 		component.FullPath = filepath.Join(h.runtime.WindsorScratchPath, "terraform", componentID)
 	} else {
-		component.FullPath = filepath.Join(h.runtime.ProjectRoot, "terraform", componentID)
+		component.FullPath = filepath.Join(h.runtime.Base(), "terraform", componentID)
 	}
 }

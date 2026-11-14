@@ -103,6 +103,7 @@ type BaseKubernetesManager struct {
 
 	client        client.KubernetesClient
 	configHandler config.ConfigHandler
+	basePrefix    string
 }
 
 // =============================================================================
@@ -151,6 +152,12 @@ func DefaultTiming() Timing {
 // =============================================================================
 // Public Methods
 // =============================================================================
+
+// SetBasePrefix sets the base directory, relative to the project root, that goes in front of the
+// kustomize path of the project's own git source. With no prefix, the manager writes the path as the blueprint names it.
+func (k *BaseKubernetesManager) SetBasePrefix(basePrefix string) {
+	k.basePrefix = basePrefix
+}
 
 // CreateNamespace creates a new namespace
 func (k *BaseKubernetesManager) CreateNamespace(name string) error {
