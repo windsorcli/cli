@@ -18,18 +18,6 @@ import (
 // Test Helpers
 // =============================================================================
 
-// pathsLayout names the source directories of a paths fixture, relative to the project root.
-type pathsLayout struct {
-	fixture   string
-	terraform string
-	kustomize string
-	contexts  string
-}
-
-var pathsLayouts = []pathsLayout{
-	{fixture: "paths-base", terraform: "infra/terraform", kustomize: "infra/kustomize", contexts: "infra/contexts"},
-}
-
 // skipIfKustomizeNotInstalled skips the test when the kustomize CLI is absent.
 func skipIfKustomizeNotInstalled(t *testing.T) {
 	t.Helper()
@@ -44,173 +32,164 @@ func skipIfKustomizeNotInstalled(t *testing.T) {
 // Integration Tests
 // =============================================================================
 
-func TestPaths_InitWritesValuesInTheConfiguredContextsDirectory(t *testing.T) {
-	for _, layout := range pathsLayouts {
-		t.Run(layout.fixture, func(t *testing.T) {
-			t.Parallel()
-			dir, env := helpers.CopyFixtureOnly(t, layout.fixture)
-			helpers.MarkAsGitRepo(t, dir)
+func TestPaths_InitWritesValuesUnderBase(t *testing.T) {
+	t.Parallel()
+	dir, env := helpers.CopyFixtureOnly(t, "paths-base")
+	helpers.MarkAsGitRepo(t, dir)
 
-			_, stderr, err := helpers.RunCLI(dir, []string{"init", "local"}, env)
-			if err != nil {
-				t.Fatalf("init local: %v\nstderr: %s", err, stderr)
-			}
+	_, stderr, err := helpers.RunCLI(dir, []string{"init", "local"}, env)
+	if err != nil {
+		t.Fatalf("init local: %v\nstderr: %s", err, stderr)
+	}
 
-			valuesPath := filepath.Join(dir, filepath.FromSlash(layout.contexts), "local", "values.yaml")
-			if _, err := os.Stat(valuesPath); err != nil {
-				t.Errorf("expected values.yaml at %s: %v", valuesPath, err)
-			}
-			if _, err := os.Stat(filepath.Join(dir, "contexts")); err == nil {
-				t.Error("expected no contexts directory at the project root")
-			}
-		})
+	if _, err := os.Stat(filepath.Join(dir, "infra", "contexts", "local", "values.yaml")); err != nil {
+		t.Errorf("expected values.yaml under infra/contexts: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "contexts")); err == nil {
+		t.Error("expected no contexts directory at the project root")
 	}
 }
 
 func TestPaths_EnvReadsRootAndContextValues(t *testing.T) {
-	for _, layout := range pathsLayouts {
-		t.Run(layout.fixture, func(t *testing.T) {
-			t.Parallel()
-			dir, env := helpers.PrepareFixture(t, layout.fixture)
-			contextValues := filepath.Join(dir, filepath.FromSlash(layout.contexts), "local", "values.yaml")
-			if err := os.WriteFile(contextValues, []byte("environment:\n  CONTEXT_VAR: from-context\n"), 0644); err != nil {
-				t.Fatalf("write values.yaml: %v", err)
-			}
-			env = append(env, "WINDSOR_CONTEXT=local")
+	t.Parallel()
+	dir, env := helpers.PrepareFixture(t, "paths-base")
+	contextValues := filepath.Join(dir, "infra", "contexts", "local", "values.yaml")
+	if err := os.WriteFile(contextValues, []byte("environment:\n  CONTEXT_VAR: from-context\n"), 0644); err != nil {
+		t.Fatalf("write values.yaml: %v", err)
+	}
+	env = append(env, "WINDSOR_CONTEXT=local")
 
-			stdout, stderr, err := helpers.RunCLI(dir, []string{"env"}, env)
-			if err != nil {
-				t.Fatalf("env: %v\nstderr: %s", err, stderr)
-			}
+	stdout, stderr, err := helpers.RunCLI(dir, []string{"env"}, env)
+	if err != nil {
+		t.Fatalf("env: %v\nstderr: %s", err, stderr)
+	}
 
-			for _, want := range []string{"ROOT_VAR=from-root", "CONTEXT_VAR=from-context"} {
-				if !strings.Contains(string(stdout), want) {
-					t.Errorf("expected %s in output, got:\n%s", want, stdout)
-				}
-			}
-		})
+	for _, want := range []string{"ROOT_VAR=from-root", "CONTEXT_VAR=from-context"} {
+		if !strings.Contains(string(stdout), want) {
+			t.Errorf("expected %s in output, got:\n%s", want, stdout)
+		}
 	}
 }
 
-func TestPaths_EnvInjectsTerraformDotEnvInsideTheConfiguredTerraformDirectory(t *testing.T) {
-	for _, layout := range pathsLayouts {
-		t.Run(layout.fixture, func(t *testing.T) {
-			t.Parallel()
-			dir, env := helpers.PrepareFixture(t, layout.fixture)
-			dotEnvPath := filepath.Join(dir, filepath.FromSlash(layout.contexts), "local", "terraform", ".env")
-			if err := os.MkdirAll(filepath.Dir(dotEnvPath), 0750); err != nil {
-				t.Fatal(err)
-			}
-			if err := os.WriteFile(dotEnvPath, []byte("HYPERV_HOST=hyperv.local\n"), 0600); err != nil {
-				t.Fatal(err)
-			}
-			env = append(env, "WINDSOR_CONTEXT=local")
+func TestPaths_EnvInjectsTerraformDotEnvInsideTheTerraformDirectory(t *testing.T) {
+	t.Parallel()
+	dir, env := helpers.PrepareFixture(t, "paths-base")
+	dotEnvPath := filepath.Join(dir, "infra", "contexts", "local", "terraform", ".env")
+	if err := os.MkdirAll(filepath.Dir(dotEnvPath), 0750); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(dotEnvPath, []byte("HYPERV_HOST=hyperv.local\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	env = append(env, "WINDSOR_CONTEXT=local")
 
-			componentDir := filepath.Join(dir, filepath.FromSlash(layout.terraform), "null")
-			stdout, stderr, err := helpers.RunCLI(componentDir, []string{"env"}, env)
-			if err != nil {
-				t.Fatalf("env: %v\nstderr: %s", err, stderr)
-			}
+	stdout, stderr, err := helpers.RunCLI(filepath.Join(dir, "infra", "terraform", "null"), []string{"env"}, env)
+	if err != nil {
+		t.Fatalf("env: %v\nstderr: %s", err, stderr)
+	}
 
-			if !strings.Contains(string(stdout), "HYPERV_HOST=hyperv.local") {
-				t.Errorf("expected HYPERV_HOST=hyperv.local in output, got:\n%s", stdout)
-			}
-		})
+	if !strings.Contains(string(stdout), "HYPERV_HOST=hyperv.local") {
+		t.Errorf("expected HYPERV_HOST=hyperv.local in output, got:\n%s", stdout)
 	}
 }
 
 func TestPaths_BundleWritesTheStandardArchiveLayout(t *testing.T) {
-	for _, layout := range pathsLayouts {
-		t.Run(layout.fixture, func(t *testing.T) {
-			t.Parallel()
-			dir, env := helpers.PrepareFixture(t, layout.fixture)
-			outPath := filepath.Join(dir, "out.tar.gz")
+	t.Parallel()
+	dir, env := helpers.PrepareFixture(t, "paths-base")
+	outPath := filepath.Join(dir, "out.tar.gz")
 
-			_, stderr, err := helpers.RunCLI(dir, []string{"bundle", "-t", "paths:v0.0.1", "-o", outPath}, env)
-			if err != nil {
-				t.Fatalf("bundle: %v\nstderr: %s", err, stderr)
-			}
+	_, stderr, err := helpers.RunCLI(dir, []string{"bundle", "-t", "paths:v0.0.1", "-o", outPath}, env)
+	if err != nil {
+		t.Fatalf("bundle: %v\nstderr: %s", err, stderr)
+	}
 
-			entries := readBundleEntries(t, outPath)
-			for _, want := range []string{"_template/blueprint.yaml", "kustomize/app/kustomization.yaml", "terraform/null/main.tf"} {
-				if _, ok := entries[want]; !ok {
-					t.Errorf("expected %s in the archive", want)
-				}
-			}
-			for name := range entries {
-				for _, moved := range []string{"infra/"} {
-					if strings.HasPrefix(name, moved) {
-						t.Errorf("archive entry %s keeps the project directory", name)
-					}
-				}
-			}
-		})
+	entries := readBundleEntries(t, outPath)
+	for _, want := range []string{"_template/blueprint.yaml", "kustomize/app/kustomization.yaml", "terraform/null/main.tf"} {
+		if _, ok := entries[want]; !ok {
+			t.Errorf("expected %s in the archive", want)
+		}
+	}
+	for name := range entries {
+		if strings.HasPrefix(name, "infra/") {
+			t.Errorf("archive entry %s keeps the base directory", name)
+		}
 	}
 }
 
-func TestPaths_PlanTerraformReadsTheConfiguredTerraformDirectory(t *testing.T) {
-	for _, layout := range pathsLayouts {
-		t.Run(layout.fixture, func(t *testing.T) {
-			t.Parallel()
-			dir, env := helpers.CopyFixtureOnly(t, layout.fixture)
-			helpers.MarkAsGitRepo(t, dir)
-			if _, stderr, err := helpers.RunCLI(dir, []string{"init", "local"}, env); err != nil {
-				t.Fatalf("init local: %v\nstderr: %s", err, stderr)
-			}
-			env = append(env, "WINDSOR_CONTEXT=local")
+func TestPaths_PlanTerraformReadsTheTerraformDirectoryUnderBase(t *testing.T) {
+	t.Parallel()
+	dir, env := helpers.CopyFixtureOnly(t, "paths-base")
+	helpers.MarkAsGitRepo(t, dir)
+	if _, stderr, err := helpers.RunCLI(dir, []string{"init", "local"}, env); err != nil {
+		t.Fatalf("init local: %v\nstderr: %s", err, stderr)
+	}
+	env = append(env, "WINDSOR_CONTEXT=local")
 
-			_, stderr, err := helpers.RunCLI(dir, []string{"plan", "terraform", "null"}, env)
+	_, stderr, err := helpers.RunCLI(dir, []string{"plan", "terraform", "null"}, env)
 
-			if err != nil {
-				t.Fatalf("plan terraform null: %v\nstderr: %s", err, stderr)
-			}
-		})
+	if err != nil {
+		t.Fatalf("plan terraform null: %v\nstderr: %s", err, stderr)
 	}
 }
 
-func TestPaths_ShowKustomizationMapsThePathToTheConfiguredDirectory(t *testing.T) {
-	for _, layout := range pathsLayouts {
-		t.Run(layout.fixture, func(t *testing.T) {
-			t.Parallel()
-			dir, env := helpers.PrepareFixture(t, layout.fixture)
-			env = append(env, "WINDSOR_CONTEXT=local")
+func TestPaths_ShowKustomizationMapsThePathUnderBase(t *testing.T) {
+	t.Parallel()
+	dir, env := helpers.PrepareFixture(t, "paths-base")
+	env = append(env, "WINDSOR_CONTEXT=local")
 
-			stdout, stderr, err := helpers.RunCLI(dir, []string{"show", "kustomization", "app"}, env)
-			if err != nil {
-				t.Fatalf("show kustomization app: %v\nstderr: %s", err, stderr)
-			}
+	stdout, stderr, err := helpers.RunCLI(dir, []string{"show", "kustomization", "app"}, env)
+	if err != nil {
+		t.Fatalf("show kustomization app: %v\nstderr: %s", err, stderr)
+	}
 
-			var k struct {
-				Spec struct {
-					Path string `yaml:"path"`
-				} `yaml:"spec"`
-			}
-			if err := yaml.Unmarshal(stdout, &k); err != nil {
-				t.Fatalf("parse kustomization YAML: %v\nstdout: %s", err, stdout)
-			}
-			if want := layout.kustomize + "/app"; k.Spec.Path != want {
-				t.Errorf("expected spec.path %s, got %q", want, k.Spec.Path)
-			}
-		})
+	var k struct {
+		Spec struct {
+			Path string `yaml:"path"`
+		} `yaml:"spec"`
+	}
+	if err := yaml.Unmarshal(stdout, &k); err != nil {
+		t.Fatalf("parse kustomization YAML: %v\nstdout: %s", err, stdout)
+	}
+	if k.Spec.Path != "infra/kustomize/app" {
+		t.Errorf("expected spec.path infra/kustomize/app, got %q", k.Spec.Path)
 	}
 }
 
-func TestPaths_PlanKustomizeBuildsFromTheConfiguredKustomizeDirectory(t *testing.T) {
+func TestPaths_PlanKustomizeBuildsFromTheKustomizeDirectoryUnderBase(t *testing.T) {
+	t.Parallel()
 	skipIfFluxNotInstalled(t)
 	skipIfKustomizeNotInstalled(t)
-	for _, layout := range pathsLayouts {
-		t.Run(layout.fixture, func(t *testing.T) {
+	dir, env := helpers.PrepareFixture(t, "paths-base")
+	env = append(env, "WINDSOR_CONTEXT=local")
+
+	stdout, stderr, err := helpers.RunCLI(dir, []string{"plan", "kustomize", "app"}, env)
+
+	if err != nil {
+		t.Fatalf("plan kustomize app: %v\nstderr: %s", err, stderr)
+	}
+	if !strings.Contains(string(stdout), "kind: ConfigMap") {
+		t.Errorf("expected the built ConfigMap in the plan, got:\n%s", stdout)
+	}
+}
+
+func TestPaths_ShowArtifactsFindsTagsUnderBase(t *testing.T) {
+	for _, args := range [][]string{{"show", "artifacts"}, {"show", "artifacts", "--all"}} {
+		t.Run(strings.Join(args, "-"), func(t *testing.T) {
 			t.Parallel()
-			dir, env := helpers.PrepareFixture(t, layout.fixture)
+			dir, env := helpers.PrepareFixture(t, "paths-base")
+			tagged := "images:\n  - name: ghcr.io/example/app # artifact: type=image name=ghcr.io/example/app\n    tag: 1.0.0\n"
+			if err := os.WriteFile(filepath.Join(dir, "infra", "kustomize", "app", "values.yaml"), []byte(tagged), 0644); err != nil {
+				t.Fatal(err)
+			}
 			env = append(env, "WINDSOR_CONTEXT=local")
 
-			stdout, stderr, err := helpers.RunCLI(dir, []string{"plan", "kustomize", "app"}, env)
+			stdout, stderr, err := helpers.RunCLI(dir, args, env)
 
 			if err != nil {
-				t.Fatalf("plan kustomize app: %v\nstderr: %s", err, stderr)
+				t.Fatalf("%v: %v\nstderr: %s", args, err, stderr)
 			}
-			if !strings.Contains(string(stdout), "kind: ConfigMap") {
-				t.Errorf("expected the built ConfigMap in the plan, got:\n%s", stdout)
+			if !strings.Contains(string(stdout), "reference: ghcr.io/example/app") {
+				t.Errorf("expected the tagged image in the output, got:\n%s", stdout)
 			}
 		})
 	}
@@ -241,29 +220,6 @@ func TestPaths_RejectsAnInvalidPathsBlock(t *testing.T) {
 			}
 			if !strings.Contains(string(stderr), "paths") {
 				t.Errorf("expected stderr to name the paths block, got: %s", stderr)
-			}
-		})
-	}
-}
-
-func TestPaths_ShowArtifactsFindsTagsUnderBase(t *testing.T) {
-	for _, args := range [][]string{{"show", "artifacts"}, {"show", "artifacts", "--all"}} {
-		t.Run(strings.Join(args, "-"), func(t *testing.T) {
-			t.Parallel()
-			dir, env := helpers.PrepareFixture(t, "paths-base")
-			tagged := "images:\n  - name: ghcr.io/example/app # artifact: type=image name=ghcr.io/example/app\n    tag: 1.0.0\n"
-			if err := os.WriteFile(filepath.Join(dir, "infra", "kustomize", "app", "values.yaml"), []byte(tagged), 0644); err != nil {
-				t.Fatal(err)
-			}
-			env = append(env, "WINDSOR_CONTEXT=local")
-
-			stdout, stderr, err := helpers.RunCLI(dir, args, env)
-
-			if err != nil {
-				t.Fatalf("%v: %v\nstderr: %s", args, err, stderr)
-			}
-			if !strings.Contains(string(stdout), "reference: ghcr.io/example/app") {
-				t.Errorf("expected the tagged image in the output, got:\n%s", stdout)
 			}
 		})
 	}
