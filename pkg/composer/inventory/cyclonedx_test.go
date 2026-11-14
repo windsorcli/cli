@@ -350,7 +350,7 @@ func TestBundleBOMWriter(t *testing.T) {
 			{Type: artifact.ArtifactTagImage, Name: "docker.io/library/busybox", Version: "1.37", File: "_template/values.yaml", Line: 9},
 		}
 		var pulled []string
-		writer := inventory.BundleBOMWriter(bundleBuilder(nil, &pulled))
+		writer := inventory.BundleBOMWriter(bundleBuilder(nil, &pulled), nil)
 
 		// When the writer is called
 		data, err := writer("core", "v1.0.0", tags, nil)
@@ -402,7 +402,7 @@ func TestBundleBOMWriter(t *testing.T) {
 		coreDir := t.TempDir()
 		writeArtifactTar(t, coreDir, map[string]string{"artifact-manifest.cdx.json": string(coreBOM)})
 		var pulled []string
-		writer := inventory.BundleBOMWriter(bundleBuilder(map[string]string{"core": coreDir}, &pulled))
+		writer := inventory.BundleBOMWriter(bundleBuilder(map[string]string{"core": coreDir}, &pulled), nil)
 		blueprint := []byte("sources:\n- name: template\n- name: core\n  url: oci://ghcr.io/windsorcli/core:v0.9.0\n- name: git\n  url: https://github.com/example/git\n")
 
 		// When the writer is called
@@ -448,7 +448,7 @@ func TestBundleBOMWriter(t *testing.T) {
 		writeArtifactTar(t, baseDir, map[string]string{"metadata.yaml": "name: base\n"})
 		writeFile(t, baseDir, "_template/blueprint.yaml", "sources:\n- name: core\n  url: oci://ghcr.io/windsorcli/core:v0.9.0\n")
 		var pulled []string
-		writer := inventory.BundleBOMWriter(bundleBuilder(map[string]string{"core": coreDir, "base": baseDir}, &pulled))
+		writer := inventory.BundleBOMWriter(bundleBuilder(map[string]string{"core": coreDir, "base": baseDir}, &pulled), nil)
 
 		// When the writer is called
 		data, err := writer("app", "v1.0.0", nil, []byte("sources:\n- name: core\n  url: oci://ghcr.io/windsorcli/core:v0.9.0\n"))
@@ -486,7 +486,7 @@ func TestBundleBOMWriter(t *testing.T) {
 		writeArtifactTar(t, baseDir, map[string]string{"metadata.yaml": "name: base\n"})
 		writeFile(t, baseDir, "kustomize/app/values.yaml", "image: docker.io/library/busybox:1.37 # artifact: type=image\n")
 		var pulled []string
-		writer := inventory.BundleBOMWriter(bundleBuilder(map[string]string{"core": coreDir, "base": baseDir}, &pulled))
+		writer := inventory.BundleBOMWriter(bundleBuilder(map[string]string{"core": coreDir, "base": baseDir}, &pulled), nil)
 
 		// When the writer is called
 		data, err := writer("app", "v1.0.0", nil, []byte("sources:\n- name: core\n  url: oci://ghcr.io/windsorcli/core:v0.9.0\n"))
@@ -510,7 +510,7 @@ func TestBundleBOMWriter(t *testing.T) {
 		writeArtifactTar(t, coreDir, map[string]string{"metadata.yaml": "name: core\n"})
 		writeDigest(t, coreDir, coreDigestHex)
 		var pulled []string
-		writer := inventory.BundleBOMWriter(bundleBuilder(map[string]string{"core": coreDir}, &pulled))
+		writer := inventory.BundleBOMWriter(bundleBuilder(map[string]string{"core": coreDir}, &pulled), nil)
 
 		// When the writer is called
 		data, err := writer("app", "v1.0.0", nil, []byte("sources:\n- name: core\n  url: oci://ghcr.io/windsorcli/core:v0.9.0\n"))
@@ -545,7 +545,7 @@ func TestBundleBOMWriter(t *testing.T) {
 		writeArtifactTar(t, coreDir, map[string]string{"artifact-manifest.cdx.json": string(coreBOM)})
 		writeFile(t, coreDir, "_template/blueprint.yaml", "sources:\n- name: base\n  url: oci://ghcr.io/windsorcli/base:v1.0.0\n")
 		var pulled []string
-		writer := inventory.BundleBOMWriter(bundleBuilder(map[string]string{"core": coreDir}, &pulled))
+		writer := inventory.BundleBOMWriter(bundleBuilder(map[string]string{"core": coreDir}, &pulled), nil)
 
 		// When the writer is called
 		data, err := writer("app", "v1.0.0", nil, []byte("sources:\n- name: core\n  url: oci://ghcr.io/windsorcli/core:v0.9.0\n"))
@@ -578,7 +578,7 @@ func TestBundleBOMWriter(t *testing.T) {
 		writeDigest(t, baseDir, baseDigestHex)
 		writeFile(t, baseDir, "kustomize/app/values.yaml", "image: quay.io/coreos/etcd:v3.7.2 # artifact: type=image\n")
 		var pulled []string
-		writer := inventory.BundleBOMWriter(bundleBuilder(map[string]string{"core": coreDir, "base": baseDir}, &pulled))
+		writer := inventory.BundleBOMWriter(bundleBuilder(map[string]string{"core": coreDir, "base": baseDir}, &pulled), nil)
 		blueprint := []byte("sources:\n- name: core\n  url: oci://ghcr.io/windsorcli/core:v0.9.0\n- name: zbase\n  url: oci://ghcr.io/windsorcli/base:v1.0.0\n")
 
 		// When the writer is called
@@ -611,7 +611,7 @@ func TestBundleBOMWriter(t *testing.T) {
 		coreDir := t.TempDir()
 		writeArtifactTar(t, coreDir, map[string]string{"metadata.yaml": "name: core\n"})
 		var pulled []string
-		writer := inventory.BundleBOMWriter(bundleBuilder(map[string]string{"core": coreDir}, &pulled))
+		writer := inventory.BundleBOMWriter(bundleBuilder(map[string]string{"core": coreDir}, &pulled), nil)
 		blueprint := []byte("sources:\n- name: core\n  url: oci://ghcr.io/windsorcli/core:v0.9.0\n- name: core-b\n  url: oci://ghcr.io/windsorcli/core:v0.9.0\n")
 
 		// When the writer is called
@@ -639,7 +639,7 @@ func TestBundleBOMWriter(t *testing.T) {
 			dirs[fmt.Sprintf("s%d", i)] = dir
 		}
 		var pulled []string
-		writer := inventory.BundleBOMWriter(bundleBuilder(dirs, &pulled))
+		writer := inventory.BundleBOMWriter(bundleBuilder(dirs, &pulled), nil)
 
 		// When the writer is called
 		_, err := writer("app", "v1.0.0", nil, []byte("sources:\n- name: s0\n  url: oci://ghcr.io/windsorcli/s0:v1\n"))
@@ -653,7 +653,7 @@ func TestBundleBOMWriter(t *testing.T) {
 	t.Run("ReadsOnlyTheNameAndURLOfEachSource", func(t *testing.T) {
 		// Given a bundled blueprint whose source has an install expression
 		var pulled []string
-		writer := inventory.BundleBOMWriter(bundleBuilder(nil, &pulled))
+		writer := inventory.BundleBOMWriter(bundleBuilder(nil, &pulled), nil)
 
 		// When the writer is called
 		_, err := writer("app", "v1.0.0", nil, []byte("sources:\n- name: git\n  url: https://github.com/example/git\n  install: ${a.b ?? true}\n"))
@@ -680,7 +680,7 @@ func TestBundleBOMWriter(t *testing.T) {
 		coreDir := t.TempDir()
 		writeArtifactTar(t, coreDir, map[string]string{"artifact-manifest.cdx.json": coreBOM})
 		var pulled []string
-		writer := inventory.BundleBOMWriter(bundleBuilder(map[string]string{"core": coreDir}, &pulled))
+		writer := inventory.BundleBOMWriter(bundleBuilder(map[string]string{"core": coreDir}, &pulled), nil)
 		tags := []artifact.ArtifactTag{{Type: artifact.ArtifactTagImage, Name: "docker.io/library/busybox", Version: "1.37", File: "kustomize/a.yaml", Line: 1}}
 
 		// When the writer is called
@@ -726,7 +726,7 @@ func TestBundleBOMWriter(t *testing.T) {
 			fmt.Fprintf(&blueprint, "- name: s%d\n  url: oci://ghcr.io/windsorcli/s%d:v1\n", i, i)
 		}
 		var pulled []string
-		writer := inventory.BundleBOMWriter(bundleBuilder(dirs, &pulled))
+		writer := inventory.BundleBOMWriter(bundleBuilder(dirs, &pulled), nil)
 
 		// When the writer is called
 		_, err := writer("app", "v1.0.0", nil, []byte(blueprint.String()))
@@ -744,7 +744,7 @@ func TestBundleBOMWriter(t *testing.T) {
 		builder.PullFunc = func([]string) (map[string]string, error) {
 			return nil, errors.New("unauthorized")
 		}
-		writer := inventory.BundleBOMWriter(builder)
+		writer := inventory.BundleBOMWriter(builder, nil)
 
 		// When the writer is called for a blueprint that names core
 		_, err := writer("app", "v1.0.0", nil, []byte("sources:\n- name: core\n  url: oci://ghcr.io/windsorcli/core:v0.9.0\n"))
@@ -758,7 +758,7 @@ func TestBundleBOMWriter(t *testing.T) {
 	t.Run("ReturnsErrorForAMalformedBlueprint", func(t *testing.T) {
 		// Given a bundled blueprint that does not parse
 		var pulled []string
-		writer := inventory.BundleBOMWriter(bundleBuilder(nil, &pulled))
+		writer := inventory.BundleBOMWriter(bundleBuilder(nil, &pulled), nil)
 
 		// When the writer is called
 		_, err := writer("app", "v1.0.0", nil, []byte("sources: [\n"))
@@ -766,6 +766,118 @@ func TestBundleBOMWriter(t *testing.T) {
 		// Then it returns an error
 		if err == nil {
 			t.Error("expected an error")
+		}
+	})
+
+	t.Run("WritesTheRegistryDigestOfEachTagWithNoDigest", func(t *testing.T) {
+		// Given an image tagged in two files, an HTTP chart, a pinned image and a chart with a version range
+		tags := []artifact.ArtifactTag{
+			{Type: artifact.ArtifactTagImage, Name: "busybox", Version: "1.37", File: "a.yaml", Line: 1},
+			{Type: artifact.ArtifactTagImage, Name: "docker.io/library/busybox", Version: "1.37", File: "b.yaml", Line: 1},
+			{Type: artifact.ArtifactTagChart, Name: "ingress-nginx", Repo: "https://kubernetes.github.io/ingress-nginx", Version: "4.15.1", File: "c.yaml", Line: 1},
+			{Type: artifact.ArtifactTagImage, Name: "quay.io/coreos/etcd", Version: "v3.7.2", Digest: "sha256:" + baseDigestHex, File: "d.yaml", Line: 1},
+			{Type: artifact.ArtifactTagChart, Name: "openebs", Repo: "oci://ghcr.io/openebs/charts", Version: "4.x", File: "e.yaml", Line: 1},
+		}
+		lookup := &fakeDigests{digests: map[string]string{
+			"docker.io/library/busybox:1.37":                    "sha256:" + coreDigestHex,
+			"https://kubernetes.github.io/ingress-nginx:4.15.1": "sha256:" + coreDigestHex,
+		}}
+		var pulled []string
+		writer := inventory.BundleBOMWriter(bundleBuilder(nil, &pulled), lookup)
+
+		// When the writer is called
+		data, err := writer("app", "v1.0.0", tags, nil)
+		if err != nil {
+			t.Fatalf("expected no error, got %v", err)
+		}
+
+		// Then the writer looks up busybox and the HTTP chart once each, and nothing else
+		if got := strings.Join(lookup.sortedCalls(), " "); got != "docker.io/library/busybox:1.37 https://kubernetes.github.io/ingress-nginx:4.15.1" {
+			t.Errorf("expected one lookup of busybox and of ingress-nginx, got %s", got)
+		}
+
+		// And busybox has the digest in its package URL and its hashes, and the HTTP chart has it in its hashes
+		bom := decodeBOM(t, data)
+		hashes := make(map[string]string)
+		for _, c := range bom.Components {
+			if len(c.Hashes) == 1 {
+				hashes[c.Purl] = c.Hashes[0].Content
+			}
+		}
+		busybox := "pkg:oci/busybox@sha256:" + coreDigestHex + "?repository_url=docker.io%2Flibrary%2Fbusybox&tag=1.37"
+		ingress := "pkg:generic/ingress-nginx@4.15.1?download_url=https:%2F%2Fkubernetes.github.io%2Fingress-nginx"
+		if hashes[busybox] != coreDigestHex || hashes[ingress] != coreDigestHex {
+			t.Errorf("expected the looked-up digest for busybox and ingress-nginx, got %v", hashes)
+		}
+		if len(bom.Components) != 4 {
+			t.Errorf("expected one busybox component and four in all, got %v", bom.refs())
+		}
+	})
+
+	t.Run("LooksUpTheTagsOfASourceWithNoBOM", func(t *testing.T) {
+		// Given a cached core artifact with no BOM, whose files tag one image
+		coreDir := t.TempDir()
+		writeArtifactTar(t, coreDir, map[string]string{"metadata.yaml": "name: core\n"})
+		writeFile(t, coreDir, "kustomize/etcd/values.yaml", "image: quay.io/coreos/etcd:v3.7.2 # artifact: type=image\n")
+		lookup := &fakeDigests{digests: map[string]string{"quay.io/coreos/etcd:v3.7.2": "sha256:" + baseDigestHex}}
+		var pulled []string
+		writer := inventory.BundleBOMWriter(bundleBuilder(map[string]string{"core": coreDir}, &pulled), lookup)
+
+		// When the writer is called for a blueprint that names core
+		data, err := writer("app", "v1.0.0", nil, []byte("sources:\n- name: core\n  url: oci://ghcr.io/windsorcli/core:v0.9.0\n"))
+		if err != nil {
+			t.Fatalf("expected no error, got %v", err)
+		}
+
+		// Then the etcd image of core has the looked-up digest
+		want := "pkg:oci/etcd@sha256:" + baseDigestHex + "?repository_url=quay.io%2Fcoreos%2Fetcd&tag=v3.7.2"
+		if refs := decodeBOM(t, data).refs(); !slices.Contains(refs, want) {
+			t.Errorf("expected %s, got %v", want, refs)
+		}
+	})
+
+	t.Run("ReadsNoDigestForTheComponentsOfASourceBOM", func(t *testing.T) {
+		// Given a cached core artifact whose BOM lists an image with no digest
+		coreBOM, err := inventory.CycloneDX(inventory.SourceTree{Artifacts: []inventory.Entry{
+			{Kind: inventory.KindImage, Transport: inventory.TransportOCI, Reference: "quay.io/coreos/etcd", Version: "v3.7.2"},
+		}}, "core", "v0.9.0")
+		if err != nil {
+			t.Fatal(err)
+		}
+		coreDir := t.TempDir()
+		writeArtifactTar(t, coreDir, map[string]string{"artifact-manifest.cdx.json": string(coreBOM)})
+		lookup := &fakeDigests{}
+		var pulled []string
+		writer := inventory.BundleBOMWriter(bundleBuilder(map[string]string{"core": coreDir}, &pulled), lookup)
+
+		// When the writer is called for a blueprint that names core
+		data, err := writer("app", "v1.0.0", nil, []byte("sources:\n- name: core\n  url: oci://ghcr.io/windsorcli/core:v0.9.0\n"))
+		if err != nil {
+			t.Fatalf("expected no error, got %v", err)
+		}
+
+		// Then the writer looks up nothing, and the BOM keeps the component of core as it is
+		if len(lookup.calls) != 0 {
+			t.Errorf("expected no lookup, got %v", lookup.calls)
+		}
+		if refs := decodeBOM(t, data).refs(); !slices.Contains(refs, etcdPurl) {
+			t.Errorf("expected %s, got %v", etcdPurl, refs)
+		}
+	})
+
+	t.Run("ReturnsErrorWhenADigestLookupFails", func(t *testing.T) {
+		// Given a tag whose registry does not answer
+		tags := []artifact.ArtifactTag{{Type: artifact.ArtifactTagImage, Name: "ghcr.io/example/app", Version: "1.0.0", File: "a.yaml", Line: 1}}
+		lookup := &fakeDigests{err: errors.New("connection refused")}
+		var pulled []string
+		writer := inventory.BundleBOMWriter(bundleBuilder(nil, &pulled), lookup)
+
+		// When the writer is called
+		_, err := writer("app", "v1.0.0", tags, nil)
+
+		// Then the error names the artifact and the cause
+		if err == nil || !strings.Contains(err.Error(), "image ghcr.io/example/app:1.0.0") || !strings.Contains(err.Error(), "connection refused") {
+			t.Errorf("expected a lookup error that names the image, got %v", err)
 		}
 	})
 }

@@ -4,7 +4,7 @@
 - Date: 2026-10-28; revised 2026-11-05 (artifact tags replace rendering); revised 2026-11-12
   (blueprint sources follow the image mirrors, and `registries` replaces `docker.registries`);
   revised 2026-11-13 (the CycloneDX BOM ships in v0.10.0 and lists the artifacts of each `oci://`
-  source)
+  source, and `windsor bundle` reads the digest of each tag from its registry)
 - Deciders: Ryan VanGundy
 - Surfaced while designing core's chart registry
   ([core ADR 0020](https://github.com/windsorcli/core/blob/main/docs/adr/0020-helm-chart-registry.md)),
@@ -210,12 +210,17 @@ prints the same BOM for the scope that the command reads.
 - An image is a `container` component, a chart is an `application` component, and a blueprint
   source is a `data` component.
 - An OCI image, chart or blueprint has the package URL
-  `pkg:oci/<name>?repository_url=<path>&tag=<tag>`, with the digest as the version when the tag
-  line gives one. An HTTP chart has `pkg:generic/<name>@<version>?download_url=<repository>`,
+  `pkg:oci/<name>?repository_url=<path>&tag=<tag>`, with the digest as the version when the
+  artifact has one. An HTTP chart has `pkg:generic/<name>@<version>?download_url=<repository>`,
   because the package URL specification has no chart type. The package URL is also the `bom-ref`,
   so the BOM has one component for each package URL. A chart wins over an image tag with the same
   reference.
-- A digest, when the tag line gives one, is in `hashes` as SHA-256.
+- A digest, when the artifact has one, is in `hashes` as SHA-256.
+- `windsor bundle` gives a digest to each chart and image tag with an exact version and no
+  `@sha256` suffix. It reads the digest of the manifest or index of an OCI artifact from its
+  registry. It reads the digest of an HTTP chart from the `index.yaml` of its repository, or
+  hashes the chart archive when the index gives none. A digest that the tag line gives wins, and
+  the CLI reads nothing for it. A failed lookup stops the bundle and names the artifact.
 - The metadata of the bundle BOM names the blueprint and its version, with the blueprint name as
   its `bom-ref`. The BOM has no serial number and no timestamp, so the same source gives the same
   file.
@@ -265,10 +270,19 @@ components.
 
 A published BOM MUST NOT leave out a source without a sign. Thus `windsor bundle` pulls each
 `oci://` source that is not in the OCI cache, through the pull that other commands use, mirrors
-included. A failed pull stops the bundle and names the source. These pulls are the only registry
-calls of `windsor bundle`.
+included. A failed pull stops the bundle and names the source. These pulls and the digest lookups
+are the only registry calls of `windsor bundle`.
 
-`windsor show artifacts -o cyclonedx` gives the same graph. A source depends on each source whose
+The digest records the artifact that each tag names when the bundle is made. A site that copies
+the artifacts by these digests holds the artifacts that the BOM lists, and its cluster pulls them.
+A tag can move, so a site that pulls by tag from the upstream can get another artifact. Only a
+digest on the tag line prevents that. The CLI does not compare the BOM with a running cluster.
+
+A chart with a version range, a chart in a Git repository, and a component that the CLI reads
+from a source BOM get no lookup. A source BOM keeps the digests that its own bundle wrote.
+
+`windsor show artifacts -o cyclonedx` gives the same graph. It reads no digest from a registry, so
+its components have a digest only when the tag line gives one. A source depends on each source whose
 name its cached `_template/blueprint.yaml` gives, and on the tags of its own files in the scope of
 the command. The output has no metadata, so it has no edges from the project. The `-o yaml`,
 `-o list`, and `-o flux-mirror` outputs stay as they are, and the facet filter of Decision 3 still
@@ -379,9 +393,10 @@ The CLI removes the Flux render, the Helm chart render, the FluxInstance extract
 flux-operator dependency that the first version of `windsor show artifacts` needed. It also
 removes the Renovate scan. It takes on the CycloneDX and package URL libraries as dependencies.
 
-`windsor bundle` of a blueprint with `oci://` sources needs registry access when the cache does
-not hold those sources. A CI job that bundles such a blueprint MUST have read credentials for each
-source registry. In return, a site copies the artifacts of a bundle from one BOM.
+`windsor bundle` needs access to the registry of each tagged artifact and to each Helm repository,
+to read the digests. It needs registry access for `oci://` sources when the cache does not hold
+them. A CI job that bundles a blueprint MUST have read credentials for each of these registries.
+`windsor bundle` does not work without network access. In return, a site copies the artifacts of a bundle from one BOM.
 
 ## Alternatives considered
 
@@ -435,6 +450,19 @@ and forgets the other gets a failed pull.
 The user would write the mirror URL into the blueprint of each context. Rejected: it does not reach
 nested sources. The inventory would also read the mirror as the upstream, so Flux Mirror would copy
 the registry onto itself.
+
+### Digests from a running cluster
+
+CI would read the images on each node and the Flux sources after `windsor up`, compare them with
+the tags, and write the observed digests into the tag lines. Rejected: it needs a cluster, a CI
+script, and a new input format for the CLI. It sees only the artifacts that one run of one
+context pulls.
+
+### Digest pins written by Renovate
+
+Renovate would add an `@sha256` suffix to each tag line and update it with each version. Rejected:
+each tag line then holds a digest that a person must review on every bump, and an HTTP chart
+gets no digest.
 
 ## References
 

@@ -6,8 +6,13 @@ package integration
 import (
 	"archive/tar"
 	"compress/gzip"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"io"
+	"io/fs"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"slices"
@@ -15,7 +20,12 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/google/go-containerregistry/pkg/name"
+	"github.com/google/go-containerregistry/pkg/registry"
+	"github.com/google/go-containerregistry/pkg/v1/random"
+	"github.com/google/go-containerregistry/pkg/v1/remote"
 	"github.com/windsorcli/cli/integration/helpers"
+	"github.com/windsorcli/cli/pkg/composer/artifact"
 )
 
 // =============================================================================
@@ -62,6 +72,99 @@ type extractedComponent struct {
 		Alg     string `json:"alg"`
 		Content string `json:"content"`
 	} `json:"hashes"`
+}
+
+// taggedArtifacts is a local registry and a local Helm repository that serve the artifacts that a project tags.
+// digests holds the digest of each served artifact, keyed by <name>:<version>.
+type taggedArtifacts struct {
+	registry string
+	charts   string
+	digests  map[string]string
+}
+
+// serveTaggedArtifacts starts a local registry and a local Helm repository, and points the tags of the project
+// in dir at them. It replaces the ghcr.io/example, ghcr.io/siderolabs and charts.jetstack.io names in the
+// project files. Then it pushes an image for each image tag with no digest, and indexes each HTTP chart tag.
+func serveTaggedArtifacts(t *testing.T, dir string) taggedArtifacts {
+	t.Helper()
+	registryServer := httptest.NewServer(registry.New())
+	t.Cleanup(registryServer.Close)
+	served := taggedArtifacts{registry: strings.TrimPrefix(registryServer.URL, "http://"), digests: make(map[string]string)}
+	index := map[string][]map[string]string{}
+	chartServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/index.yaml" {
+			http.NotFound(w, r)
+			return
+		}
+		data, _ := json.Marshal(map[string]any{"apiVersion": "v1", "entries": index})
+		_, _ = w.Write(data)
+	}))
+	t.Cleanup(chartServer.Close)
+	served.charts = chartServer.URL
+
+	replacer := strings.NewReplacer(
+		"ghcr.io/example/", served.registry+"/example/",
+		"ghcr.io/siderolabs/", served.registry+"/siderolabs/",
+		"https://charts.jetstack.io", served.charts,
+	)
+	err := filepath.WalkDir(dir, func(path string, d fs.DirEntry, err error) error {
+		if err != nil || d.IsDir() || !slices.Contains([]string{".yaml", ".yml", ".tf", ".tfvars"}, filepath.Ext(path)) {
+			return err
+		}
+		data, err := os.ReadFile(path)
+		if err != nil {
+			return err
+		}
+		return os.WriteFile(path, []byte(replacer.Replace(string(data))), 0644)
+	})
+	if err != nil {
+		t.Fatalf("rewrite the tags: %v", err)
+	}
+
+	tags, err := artifact.ScanTagsDir(dir)
+	if err != nil {
+		t.Fatalf("scan the tags: %v", err)
+	}
+	for _, tag := range tags {
+		key := tag.Name + ":" + tag.Version
+		switch {
+		case tag.Digest != "" || served.digests[key] != "":
+		case tag.Type == artifact.ArtifactTagChart && tag.Repo == served.charts:
+			sum := sha256.Sum256([]byte(key))
+			served.digests[key] = "sha256:" + hex.EncodeToString(sum[:])
+			index[tag.Name] = append(index[tag.Name], map[string]string{"version": tag.Version, "digest": hex.EncodeToString(sum[:])})
+		case tag.Type == artifact.ArtifactTagImage && strings.HasPrefix(tag.Name, served.registry+"/"):
+			img, err := random.Image(64, 1)
+			if err != nil {
+				t.Fatal(err)
+			}
+			ref, err := name.ParseReference(key)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := remote.Write(ref, img); err != nil {
+				t.Fatalf("push %s: %v", key, err)
+			}
+			digest, err := img.Digest()
+			if err != nil {
+				t.Fatal(err)
+			}
+			served.digests[key] = digest.String()
+		}
+	}
+	return served
+}
+
+// withoutDigest returns purl with no @<version> part.
+func withoutDigest(purl string) string {
+	head, query, _ := strings.Cut(purl, "?")
+	if at := strings.Index(head, "@"); at >= 0 && strings.HasPrefix(purl, "pkg:oci/") {
+		head = head[:at]
+	}
+	if query == "" {
+		return head
+	}
+	return head + "?" + query
 }
 
 // seedSourceArtifact writes a cached ghcr.io/windsorcli/<name>:<tag> artifact into the OCI cache of
@@ -182,6 +285,7 @@ func purls(bom extractedBOM) []string {
 func TestBundle_WritesTheCycloneDXBOMOfTheArtifactTags(t *testing.T) {
 	t.Parallel()
 	dir, env := helpers.PrepareFixture(t, "bundle")
+	served := serveTaggedArtifacts(t, dir)
 
 	outPath := filepath.Join(dir, "out.tar.gz")
 	_, stderr, err := helpers.RunCLI(dir, []string{"bundle", "-t", "bundle-it:v1.0.0", "-o", outPath}, env)
@@ -196,18 +300,46 @@ func TestBundle_WritesTheCycloneDXBOMOfTheArtifactTags(t *testing.T) {
 	if bom.SpecVersion != "1.6" {
 		t.Errorf("expected CycloneDX 1.6, got %q", bom.SpecVersion)
 	}
+	escape := func(s string) string { return strings.ReplaceAll(s, "/", "%2F") }
+	installer := served.registry + "/siderolabs/installer"
+	installerDigest := served.digests[installer+":v1.11.5"]
 	want := []string{
-		"pkg:generic/cert-manager@1.20.1?download_url=https:%2F%2Fcharts.jetstack.io",
+		"pkg:generic/cert-manager@1.20.1?download_url=" + escape(served.charts),
 		"pkg:oci/cert-manager-controller@sha256:9f9556b4b131554694c67c8229d231b1f7d69b882b5f061a56bafa465f3b22fc?repository_url=quay.io%2Fjetstack%2Fcert-manager-controller&tag=v1.20.1",
-		"pkg:oci/installer?repository_url=ghcr.io%2Fsiderolabs%2Finstaller&tag=v1.11.5",
+		"pkg:oci/installer@" + installerDigest + "?repository_url=" + escape(installer) + "&tag=v1.11.5",
 	}
+	sort.Strings(want)
 	if got := purls(bom); strings.Join(got, "\n") != strings.Join(want, "\n") {
 		t.Errorf("expected package URLs:\n%s\ngot:\n%s", strings.Join(want, "\n"), strings.Join(got, "\n"))
 	}
+	wantHashes := map[string]string{
+		"cert-manager": served.digests["cert-manager:1.20.1"],
+		"quay.io/jetstack/cert-manager-controller": "sha256:9f9556b4b131554694c67c8229d231b1f7d69b882b5f061a56bafa465f3b22fc",
+		installer: installerDigest,
+	}
 	for _, c := range bom.Components {
-		if c.Name == "quay.io/jetstack/cert-manager-controller" && (len(c.Hashes) != 1 || c.Hashes[0].Alg != "SHA-256") {
-			t.Errorf("expected a SHA-256 hash for the digest, got %+v", c.Hashes)
+		if len(c.Hashes) != 1 || c.Hashes[0].Alg != "SHA-256" || "sha256:"+c.Hashes[0].Content != wantHashes[c.Name] {
+			t.Errorf("expected the SHA-256 hash %s for %s, got %+v", wantHashes[c.Name], c.Name, c.Hashes)
 		}
+	}
+}
+
+func TestBundle_FailsWhenADigestCannotBeRead(t *testing.T) {
+	t.Parallel()
+	dir, env := helpers.PrepareFixture(t, "bundle")
+	serveTaggedArtifacts(t, dir)
+	writeProjectFile(t, dir, "kustomize/extra.yaml", "image: 127.0.0.1:1/example/app:1.0.0 # artifact: type=image\n")
+
+	outPath := filepath.Join(dir, "out.tar.gz")
+	_, stderr, err := helpers.RunCLI(dir, []string{"bundle", "-t", "bundle-it:v1.0.0", "-o", outPath}, env)
+	if err == nil {
+		t.Fatal("expected bundle to fail when the digest of a tag cannot be read")
+	}
+	if !strings.Contains(string(stderr), "image 127.0.0.1:1/example/app:1.0.0") {
+		t.Errorf("expected stderr to name the image, got: %s", stderr)
+	}
+	if _, statErr := os.Stat(outPath); statErr == nil {
+		t.Error("expected no bundle file")
 	}
 }
 
@@ -237,6 +369,7 @@ func TestBundle_WritesTheSameArtifactsAsShowArtifactsAll(t *testing.T) {
 	if err := os.Remove(filepath.Join(dir, "contexts", "local", "terraform", "comp.tfvars")); err != nil {
 		t.Fatalf("remove the context values file, which a bundle does not hold: %v", err)
 	}
+	serveTaggedArtifacts(t, dir)
 
 	stdout, stderr, err := helpers.RunCLI(dir, []string{"show", "artifacts", "--all", "-o", "cyclonedx"}, env)
 	if err != nil {
@@ -253,7 +386,14 @@ func TestBundle_WritesTheSameArtifactsAsShowArtifactsAll(t *testing.T) {
 	if len(shown.Components) == 0 {
 		t.Fatal("expected components from show artifacts")
 	}
-	if got, want := purls(bundled), purls(shown); strings.Join(got, "\n") != strings.Join(want, "\n") {
+	var got, want []string
+	for _, purl := range purls(bundled) {
+		got = append(got, withoutDigest(purl))
+	}
+	for _, purl := range purls(shown) {
+		want = append(want, withoutDigest(purl))
+	}
+	if strings.Join(got, "\n") != strings.Join(want, "\n") {
 		t.Errorf("expected the bundle BOM to match show artifacts --all.\nbundle:\n%s\nshow:\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))
 	}
 }
@@ -261,6 +401,7 @@ func TestBundle_WritesTheSameArtifactsAsShowArtifactsAll(t *testing.T) {
 func TestBundle_ListsTheArtifactsOfEachOCISource(t *testing.T) {
 	t.Parallel()
 	dir, env := helpers.PrepareFixture(t, "bundle")
+	serveTaggedArtifacts(t, dir)
 	writeProjectFile(t, dir, "contexts/_template/blueprint.yaml", "kind: Blueprint\napiVersion: blueprints.windsorcli.dev/v1alpha1\nmetadata:\n  name: bundle-it\nsources:\n  - name: core\n    url: oci://ghcr.io/windsorcli/core:v0.1.0\n")
 	coreBOM := `{"bomFormat":"CycloneDX","specVersion":"1.6","version":1,"components":[` +
 		`{"bom-ref":"pkg:oci/etcd?repository_url=quay.io%2Fcoreos%2Fetcd&tag=v3.7.2","type":"container","name":"quay.io/coreos/etcd","version":"v3.7.2","purl":"pkg:oci/etcd?repository_url=quay.io%2Fcoreos%2Fetcd&tag=v3.7.2"}]}`
