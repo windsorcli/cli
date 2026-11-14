@@ -443,3 +443,50 @@ func TestEnv_ShellRejectsUnknownShell(t *testing.T) {
 		t.Errorf("expected stderr to name the shell, got: %s", stderr)
 	}
 }
+
+// TestEnv_RootEnvironmentMergesWithContextEnvironment verifies that a variable in the
+// v1alpha2 root environment map reaches `windsor env`, that a context value in
+// values.yaml overrides the root value for the same name, and that a root expression
+// evaluates in the scope of the active context.
+func TestEnv_RootEnvironmentMergesWithContextEnvironment(t *testing.T) {
+	t.Parallel()
+	dir, env := helpers.CopyFixtureOnly(t, "default")
+
+	rootYaml := `version: v1alpha2
+environment:
+  ROOT_ONLY: from-root
+  SHARED_VAR: from-root
+  CONTEXT_NAME: ${context}
+`
+	if err := os.WriteFile(filepath.Join(dir, "windsor.yaml"), []byte(rootYaml), 0644); err != nil {
+		t.Fatalf("write windsor.yaml: %v", err)
+	}
+	helpers.MarkAsGitRepo(t, dir)
+	if _, stderr, err := helpers.RunCLI(dir, []string{"init"}, env); err != nil {
+		t.Fatalf("windsor init: %v\nstderr: %s", err, stderr)
+	}
+
+	valuesPath := filepath.Join(dir, "contexts", "local", "values.yaml")
+	existing, err := os.ReadFile(valuesPath)
+	if err != nil {
+		t.Fatalf("read values.yaml: %v", err)
+	}
+	values := string(existing) + "\nenvironment:\n  SHARED_VAR: from-context\n"
+	if err := os.WriteFile(valuesPath, []byte(values), 0644); err != nil {
+		t.Fatalf("write values.yaml: %v", err)
+	}
+
+	stdout, stderr, err := helpers.RunCLI(dir, []string{"env"}, env)
+	if err != nil {
+		t.Fatalf("env: %v\nstderr: %s", err, stderr)
+	}
+	out := string(stdout)
+	for _, want := range []string{"ROOT_ONLY=from-root", "SHARED_VAR=from-context", "CONTEXT_NAME=local"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("expected %q in output, got:\n%s", want, out)
+		}
+	}
+	if strings.Contains(out, "SHARED_VAR=from-root") {
+		t.Errorf("expected the context value to override the root value, got:\n%s", out)
+	}
+}

@@ -86,6 +86,10 @@ type configHandler struct {
 	workstation     *workstationSource
 	data            map[string]any
 
+	// rootEnvironment holds the root-file environment layer from the last load. SaveConfig omits
+	// these entries from a full values.yaml write so the context does not freeze root values.
+	rootEnvironment map[string]any
+
 	// pendingOverrides and pendingDeletes feed SaveConfig's patch write.
 	pendingOverrides map[string]any
 	pendingDeletes   map[string]bool

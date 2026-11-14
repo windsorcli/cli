@@ -76,7 +76,8 @@ func (c *configHandler) LoadConfigString(content string) error {
 }
 
 // LoadConfig loads and merges all configuration sources for the current context into the internal data map.
-// It performs the following actions, in order: loads schema defaults (if available); merges root windsor.yaml
+// It performs the following actions, in order: loads schema defaults (if available); merges the v1alpha2 root
+// environment map; merges root windsor.yaml
 // context section (if it exists); merges any context-specific windsor.yaml/yml file; then merges values.yaml for
 // dynamic fields, validating values.yaml against the loaded schema (if one is present). All configuration is
 // accumulated into one map structure, and v1alpha1 values convert into the v1alpha2 header. If any file is loaded,
@@ -119,6 +120,15 @@ func (c *configHandler) LoadConfigForContext(contextName string) error {
 	}
 	if rootLoaded {
 		hasLoadedFiles = true
+	}
+	rootEnvironment, err := c.typed.LoadRootEnvironment(projectRoot)
+	if err != nil {
+		return err
+	}
+	c.rootEnvironment = nil
+	if rootEnvironment != nil {
+		c.rootEnvironment, _ = rootEnvironment["environment"].(map[string]any)
+		c.data = c.deepMerge(c.data, rootEnvironment)
 	}
 	if rootValues != nil {
 		c.data = c.deepMerge(c.data, rootValues)
@@ -229,7 +239,7 @@ func (c *configHandler) SaveConfig(overwrite ...bool) error {
 	wrote, err := c.values.Save(
 		projectRoot,
 		c.GetContext(),
-		c.data,
+		c.dataWithoutRootEnvironment(),
 		c.pendingOverrides,
 		deletes,
 		shouldOverwrite,
@@ -244,6 +254,39 @@ func (c *configHandler) SaveConfig(overwrite ...bool) error {
 	}
 
 	return nil
+}
+
+// dataWithoutRootEnvironment returns the config data minus the environment entries that come only
+// from the root file. An entry stays when its value differs from the root value, or when a Set call
+// wrote it. The method returns c.data itself when the root file has no environment.
+func (c *configHandler) dataWithoutRootEnvironment() map[string]any {
+	if len(c.rootEnvironment) == 0 {
+		return c.data
+	}
+	environment, _ := c.data["environment"].(map[string]any)
+	if environment == nil {
+		return c.data
+	}
+	pending, _ := c.pendingOverrides["environment"].(map[string]any)
+	kept := make(map[string]any, len(environment))
+	for name, value := range environment {
+		rootValue, fromRoot := c.rootEnvironment[name]
+		_, set := pending[name]
+		if fromRoot && rootValue == value && !set {
+			continue
+		}
+		kept[name] = value
+	}
+	data := make(map[string]any, len(c.data))
+	for key, value := range c.data {
+		data[key] = value
+	}
+	if len(kept) == 0 {
+		delete(data, "environment")
+	} else {
+		data["environment"] = kept
+	}
+	return data
 }
 
 // SaveWorkstationState extracts workstation-managed keys from config data and writes them

@@ -460,3 +460,30 @@ func TestIsNewContext(t *testing.T) {
 		})
 	}
 }
+
+func TestSaveConfig_RootEnvironment(t *testing.T) {
+	t.Run("OmitsRootEnvironmentFromANewValuesFile", func(t *testing.T) {
+		// Given a root environment, a context override of one key, and a Set of another
+		f := newFixture(t)
+		f.write(t, "windsor.yaml", "version: v1alpha2\nenvironment:\n  ROOT_ONLY: a\n  OVERRIDDEN: b\n  SET_SAME: c\n")
+		f.write(t, "contexts/local/values.yaml", "environment:\n  OVERRIDDEN: other\n")
+		f.load(t)
+		_ = f.handler.Set("environment.SET_SAME", "c")
+		_ = f.handler.SetContext("prod")
+
+		// When a new context saves its full config
+		if err := f.handler.SaveConfig(); err != nil {
+			t.Fatalf("SaveConfig: %v", err)
+		}
+
+		// Then values.yaml keeps the explicit and differing entries, and omits the root-only one
+		got := f.readYAML(t, "contexts/prod/values.yaml")
+		env, _ := got["environment"].(map[string]any)
+		if _, ok := env["ROOT_ONLY"]; ok {
+			t.Errorf("expected ROOT_ONLY to stay out of values.yaml, got %v", got)
+		}
+		if env["OVERRIDDEN"] != "other" || env["SET_SAME"] != "c" {
+			t.Errorf("expected the context entries to persist, got %v", got)
+		}
+	})
+}

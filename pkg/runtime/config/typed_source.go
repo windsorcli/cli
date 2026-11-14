@@ -90,6 +90,32 @@ func (s *typedSource) LoadRoot(projectRoot string, contextName string) (map[stri
 	return rootConfig.Contexts[contextName], true, nil
 }
 
+// LoadRootEnvironment returns the environment map of a v1alpha2 root file as a config layer, in the
+// form {"environment": {...}}. It returns nil when the file is missing, is not v1alpha2, or has no
+// environment key. A read error fails the call. LoadRoot validates the file first, so this method does not validate it again.
+func (s *typedSource) LoadRootEnvironment(projectRoot string) (map[string]any, error) {
+	rootConfigPath := filepath.Join(projectRoot, "windsor.yaml")
+	if _, err := s.shims.Stat(rootConfigPath); err != nil {
+		return nil, nil
+	}
+	fileData, err := s.shims.ReadFile(rootConfigPath)
+	if err != nil {
+		return nil, werror.Wrap(err, "error reading root config file")
+	}
+	var root v1alpha2.Root
+	if err := s.shims.YamlUnmarshal(fileData, &root); err != nil {
+		return nil, werror.Wrap(err, "error unmarshalling root config")
+	}
+	if root.Version != v1alpha2.Version || len(root.Environment) == 0 {
+		return nil, nil
+	}
+	environment := make(map[string]any, len(root.Environment))
+	for name, value := range root.Environment {
+		environment[name] = value
+	}
+	return map[string]any{"environment": environment}, nil
+}
+
 // LoadContext loads legacy context-level windsor.yaml or windsor.yml for a context.
 func (s *typedSource) LoadContext(projectRoot, contextName string) (map[string]any, bool, error) {
 	contextConfigDir := filepath.Join(projectRoot, "contexts", contextName)
