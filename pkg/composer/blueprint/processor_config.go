@@ -101,28 +101,7 @@ func (p *BaseBlueprintProcessor) mergeFacetScopeIntoGlobal(facet blueprintv1alph
 		if rawValue == nil {
 			rawValue = make(map[string]any)
 		}
-		if vm, ok := asMapStringAny(rawValue); ok {
-			p.recordConfigTrace("config."+block.Name, ConfigBlockRecord{
-				FacetPath: facet.Path,
-				Line:      yamlNodeLine(facet.Path, "config", namedItem(block.Name)),
-				RawValue:  deepCopyValue(rawValue),
-			})
-			for key, val := range vm {
-				configPath := "config." + block.Name + "." + key
-				p.recordConfigTrace(configPath, ConfigBlockRecord{
-					FacetPath: facet.Path,
-					Line:      yamlNodeLine(facet.Path, "config", namedItem(block.Name), "value", mapKeyLine(key)),
-					RawValue:  deepCopyValue(val),
-				})
-			}
-		} else {
-			configPath := "config." + block.Name
-			p.recordConfigTrace(configPath, ConfigBlockRecord{
-				FacetPath: facet.Path,
-				Line:      yamlNodeLine(facet.Path, "config", namedItem(block.Name)),
-				RawValue:  deepCopyValue(rawValue),
-			})
-		}
+		p.recordConfigBlockTraces(facet.Path, block.Name, rawValue)
 		byName[block.Name] = append(byName[block.Name], rawValue)
 	}
 	for _, name := range nameOrder {
@@ -163,6 +142,30 @@ func (p *BaseBlueprintProcessor) mergeFacetScopeIntoGlobal(facet blueprintv1alph
 		return nil, nil, err
 	}
 	return mergedScope, mergedEntries, nil
+}
+
+// recordConfigBlockTraces records the facet line and raw value of a config block and of each of its
+// top-level keys. It does nothing without a trace collector, because each line lookup parses the facet file.
+func (p *BaseBlueprintProcessor) recordConfigBlockTraces(facetPath, blockName string, rawValue any) {
+	if p.traceCollector == nil {
+		return
+	}
+	p.recordConfigTrace("config."+blockName, ConfigBlockRecord{
+		FacetPath: facetPath,
+		Line:      yamlNodeLine(facetPath, "config", namedItem(blockName)),
+		RawValue:  deepCopyValue(rawValue),
+	})
+	vm, ok := asMapStringAny(rawValue)
+	if !ok {
+		return
+	}
+	for key, val := range vm {
+		p.recordConfigTrace("config."+blockName+"."+key, ConfigBlockRecord{
+			FacetPath: facetPath,
+			Line:      yamlNodeLine(facetPath, "config", namedItem(blockName), "value", mapKeyLine(key)),
+			RawValue:  deepCopyValue(val),
+		})
+	}
 }
 
 // mergeConfigBlocks merges the incoming config blocks into the scope by ordinal and strategy.
