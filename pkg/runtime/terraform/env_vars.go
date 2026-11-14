@@ -74,6 +74,8 @@ func (p *DefaultTerraformProvider) GenerateTerraformArgs(componentID string, int
 		return nil, werror.Wrap(err, "error generating backend config args")
 	}
 
+	legacyField, legacyValue := p.legacyBackendKey(actualComponentID)
+
 	initArgs := []string{"-backend=true"}
 	initArgs = append(initArgs, backendConfigArgs...)
 
@@ -130,6 +132,8 @@ func (p *DefaultTerraformProvider) GenerateTerraformArgs(componentID string, int
 		PlanDestroyArgs:     planDestroyArgs,
 		BackendConfig:       strings.Join(backendConfigArgs, " "),
 		KubernetesNamespace: p.kubernetesBackendNamespace(),
+		LegacyKeyField:      legacyField,
+		LegacyKeyValue:      legacyValue,
 	}, nil
 }
 
@@ -372,15 +376,20 @@ func (p *DefaultTerraformProvider) loadTerraformScopedEnv() (map[string]string, 
 // sanitizeForK8s ensures a string is compatible with Kubernetes naming conventions by converting
 // to lowercase, replacing invalid characters, and trimming to a maximum length of 63 characters.
 func sanitizeForK8s(input string) string {
-	sanitized := strings.ToLower(input)
-	sanitized = regexp.MustCompile(`[_]+`).ReplaceAllString(sanitized, "-")
-	sanitized = regexp.MustCompile(`[^a-z0-9-]`).ReplaceAllString(sanitized, "-")
-	sanitized = regexp.MustCompile(`-+`).ReplaceAllString(sanitized, "-")
-	sanitized = strings.Trim(sanitized, "-")
+	sanitized := cleanK8sName(input)
 	if len(sanitized) > 63 {
 		sanitized = sanitized[:63]
 	}
 	return sanitized
+}
+
+// cleanK8sName lowercases input and replaces invalid characters like sanitizeForK8s, with no length limit.
+func cleanK8sName(input string) string {
+	sanitized := strings.ToLower(input)
+	sanitized = regexp.MustCompile(`[_]+`).ReplaceAllString(sanitized, "-")
+	sanitized = regexp.MustCompile(`[^a-z0-9-]`).ReplaceAllString(sanitized, "-")
+	sanitized = regexp.MustCompile(`-+`).ReplaceAllString(sanitized, "-")
+	return strings.Trim(sanitized, "-")
 }
 
 // shouldUseTFVarCache reports whether TF_VAR cache reuse should be applied for this deferred expression.

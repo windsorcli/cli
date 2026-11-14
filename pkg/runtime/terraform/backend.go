@@ -24,6 +24,12 @@ const backendOverrideFileName = "backend_override.tf"
 // unsupportedBackendRemediation tells the operator which backend types are valid.
 const unsupportedBackendRemediation = "Set terraform.backend.type to none, local, s3, kubernetes, azurerm, or gcs."
 
+// autoPrefixRemediation tells the operator how to restore the context ID.
+const autoPrefixRemediation = "Run windsor init to generate the context ID, or set id in the context config."
+
+// kubernetesSecretSuffixLimit is the longest secret_suffix that the kubernetes backend accepts.
+const kubernetesSecretSuffixLimit = 63
+
 // =============================================================================
 // Public Methods
 // =============================================================================
@@ -153,7 +159,14 @@ func (p *DefaultTerraformProvider) generateBackendConfigArgs(projectPath, config
 		backendConfigArgs = append(backendConfigArgs, fmt.Sprintf("-backend-config=%s", filepath.ToSlash(absBackendTfvarsPath)))
 	}
 
-	prefix := p.configHandler.GetString("terraform.backend.prefix", "")
+	segment, err := p.autoPrefixSegment()
+	if err != nil {
+		return nil, err
+	}
+	keyField, keyValue, err := p.backendKey(backend, projectPath, segment)
+	if err != nil {
+		return nil, err
+	}
 
 	switch backend {
 	case "none":
@@ -166,8 +179,7 @@ func (p *DefaultTerraformProvider) generateBackendConfigArgs(projectPath, config
 		addBackendConfigArg("path", filepath.ToSlash(statePath))
 	case "s3":
 		appendBackendTfvars()
-		keyPath := fmt.Sprintf("%s%s", prefix, filepath.ToSlash(filepath.Join(projectPath, "terraform.tfstate")))
-		addBackendConfigArg("key", keyPath)
+		addBackendConfigArg(keyField, keyValue)
 		if backend, ok := p.configHandler.Get("terraform.backend.s3").(map[string]any); ok {
 			if err := p.processBackendConfig(backend, addBackendConfigArg); err != nil {
 				return nil, werror.Wrap(err, "error processing S3 backend config")
@@ -175,12 +187,7 @@ func (p *DefaultTerraformProvider) generateBackendConfigArgs(projectPath, config
 		}
 	case "kubernetes":
 		appendBackendTfvars()
-		secretSuffix := projectPath
-		if prefix != "" {
-			secretSuffix = fmt.Sprintf("%s-%s", strings.ReplaceAll(prefix, "/", "-"), secretSuffix)
-		}
-		secretSuffix = sanitizeForK8s(secretSuffix)
-		addBackendConfigArg("secret_suffix", secretSuffix)
+		addBackendConfigArg(keyField, keyValue)
 		if backend, ok := p.configHandler.Get("terraform.backend.kubernetes").(map[string]any); ok {
 			if err := p.processBackendConfig(backend, addBackendConfigArg); err != nil {
 				return nil, werror.Wrap(err, "error processing Kubernetes backend config")
@@ -188,8 +195,7 @@ func (p *DefaultTerraformProvider) generateBackendConfigArgs(projectPath, config
 		}
 	case "azurerm":
 		appendBackendTfvars()
-		keyPath := fmt.Sprintf("%s%s", prefix, filepath.ToSlash(filepath.Join(projectPath, "terraform.tfstate")))
-		addBackendConfigArg("key", keyPath)
+		addBackendConfigArg(keyField, keyValue)
 		if backend, ok := p.configHandler.Get("terraform.backend.azurerm").(map[string]any); ok {
 			if err := p.processBackendConfig(backend, addBackendConfigArg); err != nil {
 				return nil, werror.Wrap(err, "error processing AzureRM backend config")
@@ -197,8 +203,7 @@ func (p *DefaultTerraformProvider) generateBackendConfigArgs(projectPath, config
 		}
 	case "gcs":
 		appendBackendTfvars()
-		prefixPath := fmt.Sprintf("%s%s", prefix, filepath.ToSlash(projectPath))
-		addBackendConfigArg("prefix", prefixPath)
+		addBackendConfigArg(keyField, keyValue)
 		if backend, ok := p.configHandler.Get("terraform.backend.gcs").(map[string]any); ok {
 			if err := p.processBackendConfig(backend, addBackendConfigArg); err != nil {
 				return nil, werror.Wrap(err, "error processing GCS backend config")
@@ -209,6 +214,71 @@ func (p *DefaultTerraformProvider) generateBackendConfigArgs(projectPath, config
 	}
 
 	return backendConfigArgs, nil
+}
+
+// autoPrefixSegment returns the context segment that terraform.backend.auto_prefix adds to a remote
+// backend key, such as "staging-w8k2x9q/". It returns "" when the option is off or the backend is
+// local or none. It returns an error with a remediation when the context name or ID is empty.
+func (p *DefaultTerraformProvider) autoPrefixSegment() (string, error) {
+	switch p.configHandler.GetTerraformBackendType() {
+	case "s3", "kubernetes", "azurerm", "gcs":
+	default:
+		return "", nil
+	}
+	if !p.configHandler.GetBool("terraform.backend.auto_prefix", false) {
+		return "", nil
+	}
+	contextName := strings.ReplaceAll(p.configHandler.GetContext(), "/", "-")
+	id := p.configHandler.GetString("id", "")
+	if contextName == "" || id == "" {
+		return "", werror.New("terraform.backend.auto_prefix needs a context name and a context ID", autoPrefixRemediation, nil)
+	}
+	return contextName + "-" + id + "/", nil
+}
+
+// backendKey returns the backend-config field name and value that select the state of a component.
+// The value is the terraform.backend.prefix, then segment, then the component path. The fields are
+// key for s3 and azurerm, prefix for gcs, and secret_suffix for kubernetes. It returns empty strings
+// for local and none. A kubernetes suffix longer than 63 characters with a segment returns an error.
+func (p *DefaultTerraformProvider) backendKey(backend, projectPath, segment string) (string, string, error) {
+	prefix := p.configHandler.GetString("terraform.backend.prefix", "")
+	switch backend {
+	case "s3", "azurerm":
+		return "key", fmt.Sprintf("%s%s%s", prefix, segment, filepath.ToSlash(filepath.Join(projectPath, "terraform.tfstate"))), nil
+	case "gcs":
+		return "prefix", fmt.Sprintf("%s%s%s", prefix, segment, filepath.ToSlash(projectPath)), nil
+	case "kubernetes":
+		suffix := projectPath
+		if segment != "" {
+			suffix = fmt.Sprintf("%s-%s", strings.TrimSuffix(segment, "/"), suffix)
+		}
+		if prefix != "" {
+			suffix = fmt.Sprintf("%s-%s", strings.ReplaceAll(prefix, "/", "-"), suffix)
+		}
+		if segment != "" {
+			if full := cleanK8sName(suffix); len(full) > kubernetesSecretSuffixLimit {
+				return "", "", werror.New(
+					fmt.Sprintf("kubernetes secret suffix %q is longer than %d characters", full, kubernetesSecretSuffixLimit),
+					"Shorten terraform.backend.prefix or the component path, or use a shorter context name.", nil)
+			}
+		}
+		return "secret_suffix", sanitizeForK8s(suffix), nil
+	}
+	return "", "", nil
+}
+
+// legacyBackendKey returns the field and value of the backend key without the auto-prefix segment.
+// It returns empty strings when terraform.backend.auto_prefix is off, because the key is then the legacy key.
+func (p *DefaultTerraformProvider) legacyBackendKey(projectPath string) (string, string) {
+	segment, err := p.autoPrefixSegment()
+	if err != nil || segment == "" {
+		return "", ""
+	}
+	field, value, err := p.backendKey(p.configHandler.GetTerraformBackendType(), projectPath, "")
+	if err != nil {
+		return "", ""
+	}
+	return field, value
 }
 
 // kubernetesBackendNamespace returns the configured namespace of the kubernetes backend.

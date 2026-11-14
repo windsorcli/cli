@@ -881,3 +881,34 @@ func TestInit_DevRepositoryFollowsProjectDirectoryName(t *testing.T) {
 		t.Errorf("expected show blueprint not to contain the stale URL, got:\n%s", stdout)
 	}
 }
+
+// TestInit_NewContextGetsAutoPrefix verifies that init writes terraform.backend.auto_prefix for a new
+// context and leaves an existing context without the key, so its state key does not change.
+func TestInit_NewContextGetsAutoPrefix(t *testing.T) {
+	t.Parallel()
+	dir, env := helpers.CopyFixtureOnly(t, "default")
+	helpers.MarkAsGitRepo(t, dir)
+
+	if _, stderr, err := helpers.RunCLI(dir, []string{"init", "staging"}, env); err != nil {
+		t.Fatalf("init staging: %v\nstderr: %s", err, stderr)
+	}
+	values := readYAMLFile(t, filepath.Join(dir, "contexts", "staging", "values.yaml"))
+	if got, ok := getPathValue(values, "terraform", "backend", "auto_prefix"); !ok || got != true {
+		t.Errorf("expected terraform.backend.auto_prefix=true for a new context, got %v", got)
+	}
+
+	valuesPath := filepath.Join(dir, "contexts", "legacy", "values.yaml")
+	if err := os.MkdirAll(filepath.Dir(valuesPath), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(valuesPath, []byte("terraform:\n  backend:\n    type: s3\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if _, stderr, err := helpers.RunCLI(dir, []string{"init", "legacy"}, env); err != nil {
+		t.Fatalf("init legacy: %v\nstderr: %s", err, stderr)
+	}
+	values = readYAMLFile(t, valuesPath)
+	if got, ok := getPathValue(values, "terraform", "backend", "auto_prefix"); ok {
+		t.Errorf("expected no auto_prefix for an existing context, got %v", got)
+	}
+}

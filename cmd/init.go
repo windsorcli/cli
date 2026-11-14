@@ -114,7 +114,15 @@ windsor init staging --platform=aws --aws-profile=staging`,
 			}
 		}
 
+		isNewContext, err := rt.ConfigHandler.IsNewContext()
+		if err != nil {
+			return werror.Wrap(err, "failed to check whether the context exists")
+		}
+
 		flagOverrides := make(map[string]any)
+		if isNewContext {
+			flagOverrides["terraform.backend.auto_prefix"] = true
+		}
 		applyWorkstationFlagOverrides(flagOverrides, initVmDriver, initPlatform)
 		if initBackend != "" {
 			flagOverrides["terraform.backend.type"] = initBackend

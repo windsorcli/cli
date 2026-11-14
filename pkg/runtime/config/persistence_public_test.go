@@ -425,3 +425,38 @@ func TestGetHeader(t *testing.T) {
 		}
 	})
 }
+
+func TestIsNewContext(t *testing.T) {
+	cases := []struct {
+		name  string
+		files map[string]string
+		want  bool
+	}{
+		{"TrueWhenNoSourceHoldsTheContext", map[string]string{}, true},
+		{"TrueWhenRootFileHasOnlyOtherContexts", map[string]string{"windsor.yaml": "version: v1alpha1\ncontexts:\n  other:\n    platform: aws\n"}, true},
+		{"FalseWhenValuesFileExists", map[string]string{"contexts/prod/values.yaml": "platform: aws\n"}, false},
+		{"FalseWhenContextFileExists", map[string]string{"contexts/prod/windsor.yaml": "platform: aws\n"}, false},
+		{"FalseWhenRootFileHasTheContext", map[string]string{"windsor.yaml": "version: v1alpha1\ncontexts:\n  prod:\n    platform: aws\n"}, false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			// Given a project with the listed config files
+			f := newFixture(t)
+			for path, content := range tc.files {
+				f.write(t, path, content)
+			}
+			_ = f.handler.SetContext("prod")
+
+			// When the handler is asked whether the context is new
+			got, err := f.handler.IsNewContext()
+
+			// Then the answer follows the files
+			if err != nil {
+				t.Fatalf("IsNewContext: %v", err)
+			}
+			if got != tc.want {
+				t.Errorf("expected %v, got %v", tc.want, got)
+			}
+		})
+	}
+}

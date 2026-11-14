@@ -112,6 +112,7 @@ type Terraform struct {
 type TerraformBackend struct {
 	Type       *string         `yaml:"type,omitempty"`
 	Prefix     *string         `yaml:"prefix,omitempty"`
+	AutoPrefix *bool           `yaml:"auto_prefix,omitempty"`
 	S3         *S3Backend      `yaml:"s3,omitempty"`
 	AzureRM    *AzureRMBackend `yaml:"azurerm,omitempty"`
 	GCS        *GCSBackend     `yaml:"gcs,omitempty"`

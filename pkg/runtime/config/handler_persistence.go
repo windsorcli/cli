@@ -162,6 +162,40 @@ func (c *configHandler) LoadConfigForContext(contextName string) error {
 	return nil
 }
 
+// IsNewContext reports whether no config source holds the current context. The sources are the context
+// entry in the root windsor.yaml, the context windsor.yaml or windsor.yml, and contexts/<name>/values.yaml.
+// It reads the files and does not change the loaded config. Call it before SaveConfig.
+func (c *configHandler) IsNewContext() (bool, error) {
+	if c.shell == nil {
+		return false, fmt.Errorf("shell not initialized")
+	}
+	projectRoot, err := c.shell.GetProjectRoot()
+	if err != nil {
+		return false, werror.Wrap(err, "error retrieving project root")
+	}
+	contextName := c.GetContext()
+
+	rootValues, _, err := c.typed.LoadRoot(projectRoot, contextName)
+	if err != nil {
+		return false, err
+	}
+	if rootValues != nil {
+		return false, nil
+	}
+	_, contextLoaded, err := c.typed.LoadContext(projectRoot, contextName)
+	if err != nil {
+		return false, err
+	}
+	if contextLoaded {
+		return false, nil
+	}
+	_, valuesLoaded, err := c.values.Load(projectRoot, contextName)
+	if err != nil {
+		return false, err
+	}
+	return !valuesLoaded, nil
+}
+
 // SaveConfig writes the current configuration to values.yaml for the context, creating the root
 // windsor.yaml first if missing. A missing values.yaml gets the full config; an existing one is
 // patched at Set-touched paths when overwrite is true, and left alone otherwise. A successful

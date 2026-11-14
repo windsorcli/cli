@@ -33,6 +33,7 @@ type MockConfigHandler struct {
 	GetWindsorScratchPathFunc   func() (string, error)
 	CleanFunc                   func() error
 	GenerateContextIDFunc       func() error
+	IsNewContextFunc            func() (bool, error)
 	LoadSchemaFunc              func(schemaPath string) error
 	LoadSchemaFromBytesFunc     func(schemaContent []byte) error
 	GetSchemaFunc               func() map[string]any
@@ -268,6 +269,14 @@ func (m *MockConfigHandler) GenerateContextID() error {
 		return m.GenerateContextIDFunc()
 	}
 	return nil
+}
+
+// IsNewContext calls the mock IsNewContextFunc if set, otherwise returns false
+func (m *MockConfigHandler) IsNewContext() (bool, error) {
+	if m.IsNewContextFunc != nil {
+		return m.IsNewContextFunc()
+	}
+	return false, nil
 }
 
 // LoadSchema calls the mock LoadSchemaFunc if set, otherwise returns an error
