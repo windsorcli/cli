@@ -32,7 +32,7 @@ windsor show artifacts -o list
 # List the artifact tags of whole sources
 windsor show artifacts --all
 
-# Print the CycloneDX BOM that windsor bundle writes
+# Print the CycloneDX BOM of whole sources, without the digests that windsor bundle reads
 windsor show artifacts --all -o cyclonedx
 ```
 

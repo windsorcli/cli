@@ -83,7 +83,9 @@ func CycloneDX(tree SourceTree, name, version string) ([]byte, error) {
 // BundleBOMWriter returns the BOM writer of windsor bundle. The writer lists the artifact tags of the
 // bundle, each oci:// source of the bundled blueprint, and the components of each source.
 // It pulls each source that is not in the cache through builder, once for all calls, and fails when a pull fails.
-func BundleBOMWriter(builder artifact.Artifact) artifact.BOMWriter {
+// Each tag with an exact version and no digest gets its digest from digests, and a failed lookup fails the
+// writer. A nil digests reads no digest.
+func BundleBOMWriter(builder artifact.Artifact, digests DigestLookup) artifact.BOMWriter {
 	reader := bundleReader{builder: builder, pulled: make(map[string]string), built: make(map[string]SourceTree)}
 	return func(name, version string, tags []artifact.ArtifactTag, blueprint []byte) ([]byte, error) {
 		sources, err := parseSources(blueprint)
@@ -93,6 +95,11 @@ func BundleBOMWriter(builder artifact.Artifact) artifact.BOMWriter {
 		tree := SourceTree{Artifacts: tagArtifacts(name, tags)}
 		if tree.Sources, err = reader.sourceTrees(sources, nil); err != nil {
 			return nil, err
+		}
+		if digests != nil {
+			if tree, err = resolveDigests(tree, digests); err != nil {
+				return nil, err
+			}
 		}
 		return CycloneDX(tree, name, version)
 	}

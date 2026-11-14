@@ -97,7 +97,7 @@ func NewComposer(rt *runtime.Runtime, opts ...*Composer) *Composer {
 		composer.ArtifactBuilder = artifact.NewArtifactBuilder(rt)
 	}
 	if builder, ok := composer.ArtifactBuilder.(*artifact.ArtifactBuilder); ok {
-		builder.SetBOMWriter(inventory.BundleBOMWriter(builder))
+		builder.SetBOMWriter(inventory.BundleBOMWriter(builder, inventory.NewRegistryDigests()))
 	}
 
 	if composer.BlueprintHandler == nil {
