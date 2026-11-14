@@ -13,7 +13,7 @@ Uses metadata.yaml ('name', 'version') to derive the output filename when --tag 
 
 When --output is a directory, the filename is derived from the tag.
 
-The archive holds artifact-manifest.cdx.json, a CycloneDX 1.6 BOM of each chart and image that an artifact tag names. The BOM comes from the same tag scan as 'windsor show artifacts'.
+The archive holds artifact-manifest.cdx.json, a CycloneDX BOM of the charts and images of the blueprint and its oci:// sources. The command pulls each uncached source.
 
 ## Flags
 

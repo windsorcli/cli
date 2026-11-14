@@ -112,7 +112,7 @@ windsor show artifacts --all -o cyclonedx`,
 		case "list":
 			fmt.Print(inventory.ListLines(result.Inventory))
 		case "cyclonedx":
-			bom, err := inventory.CycloneDX(result.Inventory, "", "")
+			bom, err := inventory.CycloneDX(result.Tree, "", "")
 			if err != nil {
 				return err
 			}

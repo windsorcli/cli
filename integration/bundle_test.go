@@ -10,6 +10,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 	"testing"
@@ -23,17 +24,91 @@ import (
 
 // extractedBOM is the part of a CycloneDX BOM that the integration tests check.
 type extractedBOM struct {
-	SpecVersion string `json:"specVersion"`
-	Components  []struct {
-		Type    string `json:"type"`
-		Name    string `json:"name"`
-		Version string `json:"version"`
-		Purl    string `json:"purl"`
-		Hashes  []struct {
-			Alg     string `json:"alg"`
-			Content string `json:"content"`
-		} `json:"hashes"`
-	} `json:"components"`
+	SpecVersion  string               `json:"specVersion"`
+	Components   []extractedComponent `json:"components"`
+	Dependencies []struct {
+		Ref       string   `json:"ref"`
+		DependsOn []string `json:"dependsOn"`
+	} `json:"dependencies"`
+}
+
+// Package URLs and digests of the source tests.
+const (
+	coreSourcePurl = "pkg:oci/core?repository_url=ghcr.io%2Fwindsorcli%2Fcore&tag=v0.1.0"
+	coreDigestHex  = "4444444444444444444444444444444444444444444444444444444444444444"
+	coreDigestPurl = "pkg:oci/core@sha256:" + coreDigestHex + "?repository_url=ghcr.io%2Fwindsorcli%2Fcore&tag=v0.1.0"
+	etcdImagePurl  = "pkg:oci/etcd?repository_url=quay.io%2Fcoreos%2Fetcd&tag=v3.7.2"
+)
+
+// dependsOn returns the bom-refs that ref depends on in bom.
+func (b extractedBOM) dependsOn(ref string) []string {
+	for _, d := range b.Dependencies {
+		if d.Ref == ref {
+			return d.DependsOn
+		}
+	}
+	return nil
+}
+
+// extractedComponent is the part of a CycloneDX component that the integration tests check.
+type extractedComponent struct {
+	BOMRef     string               `json:"bom-ref"`
+	Type       string               `json:"type"`
+	Name       string               `json:"name"`
+	Version    string               `json:"version"`
+	Purl       string               `json:"purl"`
+	Components []extractedComponent `json:"components"`
+	Hashes     []struct {
+		Alg     string `json:"alg"`
+		Content string `json:"content"`
+	} `json:"hashes"`
+}
+
+// seedSourceArtifact writes a cached ghcr.io/windsorcli/<name>:<tag> artifact into the OCI cache of
+// the project in dir. The artifact.tar holds files, and the cache directory holds them extracted, as
+// after a pull.
+func seedSourceArtifact(t *testing.T, dir, name, tag string, files map[string]string) {
+	t.Helper()
+	cacheDir := filepath.Join(dir, ".windsor", "cache", "oci", "ghcr.io_windsorcli_"+name+"_"+tag)
+	if err := os.MkdirAll(cacheDir, 0755); err != nil {
+		t.Fatalf("create cache dir: %v", err)
+	}
+	f, err := os.Create(filepath.Join(cacheDir, "artifact.tar"))
+	if err != nil {
+		t.Fatalf("create artifact.tar: %v", err)
+	}
+	defer f.Close()
+	tw := tar.NewWriter(f)
+	for entry, content := range files {
+		if err := tw.WriteHeader(&tar.Header{Name: entry, Mode: 0644, Size: int64(len(content))}); err != nil {
+			t.Fatalf("write tar header %s: %v", entry, err)
+		}
+		if _, err := tw.Write([]byte(content)); err != nil {
+			t.Fatalf("write tar entry %s: %v", entry, err)
+		}
+		path := filepath.Join(cacheDir, filepath.FromSlash(entry))
+		if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
+			t.Fatalf("create dir for %s: %v", entry, err)
+		}
+		if err := os.WriteFile(path, []byte(content), 0644); err != nil {
+			t.Fatalf("write %s: %v", entry, err)
+		}
+	}
+	if err := tw.Close(); err != nil {
+		t.Fatalf("close artifact.tar: %v", err)
+	}
+}
+
+// writeProjectFile writes content to the path rel under dir, and creates the parent directories.
+func writeProjectFile(t *testing.T, dir, rel, content string) {
+	t.Helper()
+	path := filepath.Join(dir, filepath.FromSlash(rel))
+	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
+		t.Fatalf("create dir for %s: %v", rel, err)
+	}
+	if err := os.WriteFile(path, []byte(content), 0644); err != nil {
+		t.Fatalf("write %s: %v", rel, err)
+	}
 }
 
 // readBundleEntries opens a gzipped tar bundle and returns the content of each entry by name.
@@ -180,6 +255,67 @@ func TestBundle_WritesTheSameArtifactsAsShowArtifactsAll(t *testing.T) {
 	}
 	if got, want := purls(bundled), purls(shown); strings.Join(got, "\n") != strings.Join(want, "\n") {
 		t.Errorf("expected the bundle BOM to match show artifacts --all.\nbundle:\n%s\nshow:\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))
+	}
+}
+
+func TestBundle_ListsTheArtifactsOfEachOCISource(t *testing.T) {
+	t.Parallel()
+	dir, env := helpers.PrepareFixture(t, "bundle")
+	writeProjectFile(t, dir, "contexts/_template/blueprint.yaml", "kind: Blueprint\napiVersion: blueprints.windsorcli.dev/v1alpha1\nmetadata:\n  name: bundle-it\nsources:\n  - name: core\n    url: oci://ghcr.io/windsorcli/core:v0.1.0\n")
+	coreBOM := `{"bomFormat":"CycloneDX","specVersion":"1.6","version":1,"components":[` +
+		`{"bom-ref":"pkg:oci/etcd?repository_url=quay.io%2Fcoreos%2Fetcd&tag=v3.7.2","type":"container","name":"quay.io/coreos/etcd","version":"v3.7.2","purl":"pkg:oci/etcd?repository_url=quay.io%2Fcoreos%2Fetcd&tag=v3.7.2"}]}`
+	seedSourceArtifact(t, dir, "core", "v0.1.0", map[string]string{
+		"metadata.yaml":              "name: core\nversion: v0.1.0\n",
+		"artifact-manifest.cdx.json": coreBOM,
+	})
+	writeProjectFile(t, dir, ".windsor/cache/oci/ghcr.io_windsorcli_core_v0.1.0/digest", "sha256:"+coreDigestHex)
+
+	outPath := filepath.Join(dir, "out.tar.gz")
+	if _, stderr, err := helpers.RunCLI(dir, []string{"bundle", "-t", "bundle-it:v1.0.0", "-o", outPath}, env); err != nil {
+		t.Fatalf("bundle: %v\nstderr: %s", err, stderr)
+	}
+
+	bom := readBOMFromBundle(t, outPath)
+	got := make(map[string]extractedComponent)
+	for _, c := range bom.Components {
+		if len(c.Components) != 0 {
+			t.Errorf("expected no nested components, got %+v", c)
+		}
+		got[c.BOMRef] = c
+	}
+	core, ok := got[coreDigestPurl]
+	if !ok || core.Type != "data" || core.Version != "v0.1.0" {
+		t.Fatalf("expected a data component for core v0.1.0 with its digest, got %+v", bom.Components)
+	}
+	if len(core.Hashes) != 1 || core.Hashes[0].Content != coreDigestHex {
+		t.Errorf("expected the digest of the cached pull, got %+v", core.Hashes)
+	}
+	if _, ok := got[etcdImagePurl]; !ok {
+		t.Errorf("expected the etcd image of the core BOM, got %+v", bom.Components)
+	}
+	if deps := bom.dependsOn("bundle-it"); !slices.Contains(deps, coreDigestPurl) {
+		t.Errorf("expected the bundle to pull core, got %v", deps)
+	}
+	if deps := bom.dependsOn(coreDigestPurl); strings.Join(deps, " ") != etcdImagePurl {
+		t.Errorf("expected core to pull etcd, got %v", deps)
+	}
+}
+
+func TestBundle_FailsWhenASourceCannotBePulled(t *testing.T) {
+	t.Parallel()
+	dir, env := helpers.PrepareFixture(t, "bundle")
+	writeProjectFile(t, dir, "contexts/_template/blueprint.yaml", "kind: Blueprint\napiVersion: blueprints.windsorcli.dev/v1alpha1\nmetadata:\n  name: bundle-it\nsources:\n  - name: core\n    url: oci://127.0.0.1:1/windsorcli/core:v0.1.0\n")
+
+	outPath := filepath.Join(dir, "out.tar.gz")
+	_, stderr, err := helpers.RunCLI(dir, []string{"bundle", "-t", "bundle-it:v1.0.0", "-o", outPath}, env)
+	if err == nil {
+		t.Fatal("expected bundle to fail when a source cannot be pulled")
+	}
+	if !strings.Contains(string(stderr), `source "core"`) {
+		t.Errorf("expected stderr to name the source, got: %s", stderr)
+	}
+	if _, statErr := os.Stat(outPath); statErr == nil {
+		t.Error("expected no bundle file")
 	}
 }
 

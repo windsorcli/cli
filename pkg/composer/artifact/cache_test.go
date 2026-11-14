@@ -189,6 +189,66 @@ func TestArtifactBuilder_Pull(t *testing.T) {
 		}
 	})
 
+	t.Run("WritesTheManifestDigestOfThePulledArtifact", func(t *testing.T) {
+		// Given an ArtifactBuilder with mocks
+		builder, _ := setup(t)
+
+		// When Pull is called with one OCI reference
+		artifacts, err := builder.Pull([]string{"oci://registry.example.com/my-repo:v1.0.0"})
+		if err != nil {
+			t.Fatalf("expected no error, got %v", err)
+		}
+
+		// Then the cache holds the digest of the pulled image
+		digest, err := ReadCachedDigest(artifacts["registry.example.com/my-repo:v1.0.0"])
+		if err != nil {
+			t.Fatalf("expected no error, got %v", err)
+		}
+		if digest != "sha256:"+testImageDigestHex {
+			t.Errorf("expected the image digest, got %q", digest)
+		}
+	})
+
+	t.Run("ReturnsErrorAndLeavesNoCacheWhenTheDigestWriteFails", func(t *testing.T) {
+		// Given a cache whose digest file cannot be created
+		builder, mocks := setup(t)
+		create := mocks.Shims.Create
+		mocks.Shims.Create = func(path string) (io.WriteCloser, error) {
+			if filepath.Base(path) == digestFilename {
+				return nil, fmt.Errorf("disk full")
+			}
+			return create(path)
+		}
+
+		// When Pull is called
+		_, err := builder.Pull([]string{"oci://registry.example.com/my-repo:v1.0.0"})
+
+		// Then it fails, and the next validation finds no cache
+		if err == nil || !strings.Contains(err.Error(), "failed to write the digest file") {
+			t.Fatalf("expected a digest write error, got %v", err)
+		}
+		cacheDir, _ := builder.GetCacheDir("registry.example.com", "my-repo", "v1.0.0")
+		if builder.validateOCIDiskCache(cacheDir) == nil {
+			t.Error("expected no valid cache after the failed write")
+		}
+	})
+
+	t.Run("ReturnsErrorWhenTheImageDigestFails", func(t *testing.T) {
+		// Given an image whose digest cannot be computed
+		builder, mocks := setup(t)
+		mocks.Shims.ImageDigest = func(img v1.Image) (v1.Hash, error) {
+			return v1.Hash{}, fmt.Errorf("bad manifest")
+		}
+
+		// When Pull is called
+		_, err := builder.Pull([]string{"oci://registry.example.com/my-repo:v1.0.0"})
+
+		// Then it fails
+		if err == nil || !strings.Contains(err.Error(), "failed to get image digest") {
+			t.Errorf("expected a digest error, got %v", err)
+		}
+	})
+
 	t.Run("PullsFromTheMirrorAndKeepsTheUpstreamCacheKey", func(t *testing.T) {
 		// Given a mirror for registry.example.com
 		builder, mocks := setup(t)
@@ -1453,7 +1513,7 @@ func TestArtifactBuilder_extractArtifactToCache(t *testing.T) {
 			return fmt.Errorf("mkdir error")
 		}
 
-		err := builder.extractArtifactToCache(testTar, testExtractionDir)
+		err := builder.extractArtifactToCache(testTar, "", testExtractionDir)
 
 		if err == nil {
 			t.Error("Expected error, got nil")
@@ -1484,7 +1544,7 @@ func TestArtifactBuilder_extractArtifactToCache(t *testing.T) {
 		if err != nil {
 			t.Fatalf("Failed to get cache dir: %v", err)
 		}
-		err = builder.extractArtifactToCache(testTar, cacheDir)
+		err = builder.extractArtifactToCache(testTar, "", cacheDir)
 
 		if err == nil {
 			t.Error("Expected error, got nil")
@@ -1516,7 +1576,7 @@ func TestArtifactBuilder_extractArtifactToCache(t *testing.T) {
 		if err != nil {
 			t.Fatalf("Failed to get cache dir: %v", err)
 		}
-		err = builder.extractArtifactToCache(testTar, cacheDir)
+		err = builder.extractArtifactToCache(testTar, "", cacheDir)
 
 		if err == nil {
 			t.Error("Expected error, got nil")
@@ -1540,7 +1600,7 @@ func TestArtifactBuilder_extractArtifactToCache(t *testing.T) {
 		if err != nil {
 			t.Fatalf("Failed to get cache dir: %v", err)
 		}
-		err = builder.extractArtifactToCache(testTar, cacheDir)
+		err = builder.extractArtifactToCache(testTar, "", cacheDir)
 
 		if err != nil {
 			t.Errorf("Expected no error, got %v", err)
@@ -1577,7 +1637,7 @@ func TestArtifactBuilder_extractArtifactToCache(t *testing.T) {
 		if err != nil {
 			t.Fatalf("Failed to get cache dir: %v", err)
 		}
-		err = builder.extractArtifactToCache(testTar, cacheDir)
+		err = builder.extractArtifactToCache(testTar, "", cacheDir)
 
 		if err == nil {
 			t.Error("Expected error, got nil")
@@ -1609,7 +1669,7 @@ func TestArtifactBuilder_extractArtifactToCache(t *testing.T) {
 		if err != nil {
 			t.Fatalf("Failed to get cache dir: %v", err)
 		}
-		err = builder.extractArtifactToCache(testTar, cacheDir)
+		err = builder.extractArtifactToCache(testTar, "", cacheDir)
 
 		if err == nil {
 			t.Error("Expected error, got nil")
@@ -1645,7 +1705,7 @@ func TestArtifactBuilder_extractArtifactToCache(t *testing.T) {
 			"terraform/module/main.tf": []byte("resource \"test\" {}"),
 		})
 
-		err = builder.extractArtifactToCache(testTar, cacheDir)
+		err = builder.extractArtifactToCache(testTar, "", cacheDir)
 
 		if err == nil {
 			t.Error("Expected error, got nil")
@@ -1687,7 +1747,7 @@ func TestArtifactBuilder_extractArtifactToCache(t *testing.T) {
 			"terraform/module/main.tf": []byte("resource \"test\" {}"),
 		})
 
-		err = builder.extractArtifactToCache(testTar, cacheDir)
+		err = builder.extractArtifactToCache(testTar, "", cacheDir)
 
 		if err == nil {
 			t.Error("Expected error, got nil")
@@ -1714,7 +1774,7 @@ func TestArtifactBuilder_extractArtifactToCache(t *testing.T) {
 		if err != nil {
 			t.Fatalf("Failed to get cache dir: %v", err)
 		}
-		err = builder.extractArtifactToCache(testTar, cacheDir)
+		err = builder.extractArtifactToCache(testTar, "", cacheDir)
 
 		if err == nil {
 			t.Error("Expected error, got nil")
@@ -1757,7 +1817,7 @@ func TestArtifactBuilder_extractArtifactToCache(t *testing.T) {
 			"terraform/module/main.tf": []byte("resource \"test\" {}"),
 		})
 
-		err = builder.extractArtifactToCache(testTar, cacheDir)
+		err = builder.extractArtifactToCache(testTar, "", cacheDir)
 
 		if err == nil {
 			t.Error("Expected error, got nil")

@@ -3,7 +3,8 @@
 - Status: Proposed. Supersedes the single HelmRepository patch proposed in cli#3376.
 - Date: 2026-10-28; revised 2026-11-05 (artifact tags replace rendering); revised 2026-11-12
   (blueprint sources follow the image mirrors, and `registries` replaces `docker.registries`);
-  revised 2026-11-13 (the CycloneDX BOM ships in v0.10.0)
+  revised 2026-11-13 (the CycloneDX BOM ships in v0.10.0 and lists the artifacts of each `oci://`
+  source)
 - Deciders: Ryan VanGundy
 - Surfaced while designing core's chart registry
   ([core ADR 0020](https://github.com/windsorcli/core/blob/main/docs/adr/0020-helm-chart-registry.md)),
@@ -215,15 +216,63 @@ prints the same BOM for the scope that the command reads.
   so the BOM has one component for each package URL. A chart wins over an image tag with the same
   reference.
 - A digest, when the tag line gives one, is in `hashes` as SHA-256.
-- The metadata of the bundle BOM names the blueprint and its version. The BOM has no serial
-  number and no timestamp, so the same source gives the same file.
+- The metadata of the bundle BOM names the blueprint and its version, with the blueprint name as
+  its `bom-ref`. The BOM has no serial number and no timestamp, so the same source gives the same
+  file.
 
-`windsor bundle` makes no registry calls and has no render step. It fails on a malformed tag. The
-BOM has no graph from a Kustomization to its artifacts, because the tag scan does not know which
-component a tag serves. A bundle holds `contexts/_template` and not the other context
-directories, so its BOM leaves out a tag in a context directory that `--all` reads in the project.
-The BOM of a bundle lists the tags of its own files only. An `oci://` source has its own BOM in
-its own artifact.
+`windsor bundle` has no render step. It fails on a malformed tag. The BOM has no edge from a
+Kustomization to its artifacts, because the tag scan does not know which component a tag serves. A
+bundle holds `contexts/_template` and not the other context directories, so its BOM leaves out a
+tag in a context directory that `--all` reads in the project.
+
+A bundle BOM lists each artifact that the bundle can pull, also the artifacts of its `oci://`
+sources. A site that copies a blueprint that consumes core reads one BOM:
+
+- Each `oci://` source in the `_template/blueprint.yaml` of the bundle is a `data` component with
+  the tag of its URL. The component has the digest of the URL, or else the manifest digest that
+  the pull wrote to the `digest` file of the cache. A tag can move, so this digest names the exact
+  artifact that the bundle read. A cache from an older CLI has no `digest` file, and the component
+  then has no digest.
+- A source in a source BOM matches a source of the blueprint by its package URL with no version.
+  A digest thus does not make the bundle read one source twice, or list it twice.
+- The components of a source come from `artifact-manifest.cdx.json` in the source artifact. That
+  BOM lists the sources of the source, so the list continues to every depth.
+- The `dependencies` graph tells which blueprint pulls each component. The blueprint depends on its
+  own artifacts and on each source. A source depends on the artifacts and the sources that its BOM
+  gives to its own blueprint. The CLI copies the other edges of a source BOM as they are.
+- An artifact that an older CLI wrote has no BOM. For such a source, the CLI reads the tags of the
+  whole cached source and the `oci://` sources of its `_template/blueprint.yaml`. A source BOM can
+  lack a source that its blueprint names, because the first v0.10.0 BOM listed its own tags only.
+  The CLI reads that source in the same way.
+- A pulled artifact chooses the sources below it and writes its own BOM, so the CLI limits what it
+  takes from a source. It stops at a source that is already above it in the walk. It fails when
+  sources nest more than 16 deep, or when a bundle reads more than 256 sources. A component of the
+  bundle wins over a source component with the same `bom-ref`. A source BOM gives only edges
+  between its own components, and none from a component of the bundle. The CLI drops an edge to a
+  `bom-ref` that is not a component.
+- A source that is not `oci://` is not in the BOM, as in Decision 1. Flux pulls it, and the CLI has
+  no cache for it.
+
+When the bundle and core pull one image, the BOM has one component and two edges to it. A scanner
+reads the flat component list and matches each package URL. A copy tool reads the same list. A
+tool that needs to know where an artifact comes from reads the graph.
+
+Nested components (`components[].components`) were rejected. CycloneDX defines nesting as an
+assembly: the child is part of the parent. A blueprint artifact does not hold the images that it
+pulls. Nesting also repeats an artifact under each source that pulls it, so its bom-refs need a
+source prefix to stay unique. A tool that reads only the top level also misses the nested
+components.
+
+A published BOM MUST NOT leave out a source without a sign. Thus `windsor bundle` pulls each
+`oci://` source that is not in the OCI cache, through the pull that other commands use, mirrors
+included. A failed pull stops the bundle and names the source. These pulls are the only registry
+calls of `windsor bundle`.
+
+`windsor show artifacts -o cyclonedx` gives the same graph. A source depends on each source whose
+name its cached `_template/blueprint.yaml` gives, and on the tags of its own files in the scope of
+the command. The output has no metadata, so it has no edges from the project. The `-o yaml`,
+`-o list`, and `-o flux-mirror` outputs stay as they are, and the facet filter of Decision 3 still
+applies.
 
 ### 8. Blueprint sources follow the image mirrors
 
@@ -316,6 +365,10 @@ each command gives the warning until the user moves the map.
 The CLI removes the Flux render, the Helm chart render, the FluxInstance extractor, and the
 flux-operator dependency that the first version of `windsor show artifacts` needed. It also
 removes the Renovate scan. It takes on the CycloneDX and package URL libraries as dependencies.
+
+`windsor bundle` of a blueprint with `oci://` sources needs registry access when the cache does
+not hold those sources. A CI job that bundles such a blueprint MUST have read credentials for each
+source registry. In return, a site copies the artifacts of a bundle from one BOM.
 
 ## Alternatives considered
 

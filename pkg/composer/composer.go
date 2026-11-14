@@ -54,7 +54,7 @@ type Composer struct {
 // NewComposer creates and initializes a new Composer instance with the provided execution context.
 // It sets up all required resource handlers—artifact builder, blueprint handler, and terraform resolver.
 // If overrides are provided, any non-nil component in the override Composer will be used instead of creating a default.
-// It gives an ArtifactBuilder the inventory BOM writer, so a bundle holds the CycloneDX BOM of its artifact tags.
+// It gives an ArtifactBuilder the inventory BOM writer, so a bundle holds the CycloneDX BOM of its artifact tags and sources.
 // Panics if runtime or any required dependencies are nil.
 func NewComposer(rt *runtime.Runtime, opts ...*Composer) *Composer {
 	if rt == nil {
@@ -97,7 +97,7 @@ func NewComposer(rt *runtime.Runtime, opts ...*Composer) *Composer {
 		composer.ArtifactBuilder = artifact.NewArtifactBuilder(rt)
 	}
 	if builder, ok := composer.ArtifactBuilder.(*artifact.ArtifactBuilder); ok {
-		builder.SetBOMWriter(inventory.BundleBOM)
+		builder.SetBOMWriter(inventory.BundleBOMWriter(builder))
 	}
 
 	if composer.BlueprintHandler == nil {

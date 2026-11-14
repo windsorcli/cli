@@ -37,11 +37,11 @@ type sourceRoot struct {
 // tagEntries returns the entries of the artifact tags in the project and in each oci:// source of
 // blueprint. By default it reads the files that blueprint uses. When all is true, it reads whole
 // sources. A source with no cache directory, or that is not oci://, gives a note. With a trace, it
-// leaves out each facet tag on a value that blueprint does not use.
-func (l *BaseLister) tagEntries(blueprint *blueprintv1alpha1.Blueprint, opts Options) ([]Entry, []string, error) {
+// leaves out each facet tag on a value that blueprint does not use. It also returns the roots that it read.
+func (l *BaseLister) tagEntries(blueprint *blueprintv1alpha1.Blueprint, opts Options) ([]Entry, []sourceRoot, []string, error) {
 	roots, notes, err := l.sourceRoots(blueprint)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 	if !opts.All {
 		notes = append(notes, addScopes(blueprint, roots)...)
@@ -50,7 +50,7 @@ func (l *BaseLister) tagEntries(blueprint *blueprintv1alpha1.Blueprint, opts Opt
 	for _, root := range roots {
 		tags, rootNotes, err := scanRoot(root, opts.All)
 		if err != nil {
-			return nil, nil, werror.Wrap(err, "failed to read the artifact tags of source %q", root.name)
+			return nil, nil, nil, werror.Wrap(err, "failed to read the artifact tags of source %q", root.name)
 		}
 		for _, note := range rootNotes {
 			notes = append(notes, fmt.Sprintf("Source %q: %s", root.name, note))
@@ -64,7 +64,7 @@ func (l *BaseLister) tagEntries(blueprint *blueprintv1alpha1.Blueprint, opts Opt
 			entries = append(entries, tagEntry(root.name, tag))
 		}
 	}
-	return entries, notes, nil
+	return entries, roots, notes, nil
 }
 
 // sourceRoots returns the project root, named for the blueprint, and the cache directory of each

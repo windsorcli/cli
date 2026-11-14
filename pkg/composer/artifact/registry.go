@@ -359,15 +359,15 @@ func (a *ArtifactBuilder) createOCIArtifactImage(layer v1.Layer, repoName, tagNa
 // The retry lets a public artifact pull when the Docker config has old or limited tokens.
 // In verbose mode, a successful retry writes a note to stderr that names the registry.
 // If the retry also fails, it returns the keychain error.
-func (a *ArtifactBuilder) downloadOCIArtifact(registry, repository, tag string) ([]byte, error) {
+func (a *ArtifactBuilder) downloadOCIArtifact(registry, repository, tag string) ([]byte, string, error) {
 	ref, opts, err := a.pullReference(registry, repository, tag)
 	if err != nil {
-		return nil, err
+		return nil, "", err
 	}
 
 	parsedRef, err := a.shims.ParseReference(ref, opts...)
 	if err != nil {
-		return nil, werror.Wrap(err, "failed to parse reference %s", ref)
+		return nil, "", werror.Wrap(err, "failed to parse reference %s", ref)
 	}
 	registry, _, _ = strings.Cut(ref, "/")
 
@@ -381,31 +381,36 @@ func (a *ArtifactBuilder) downloadOCIArtifact(registry, repository, tag string) 
 		}
 	}
 	if err != nil {
-		return nil, werror.Wrap(err, "failed to get image")
+		return nil, "", werror.Wrap(err, "failed to get image")
+	}
+
+	digest, err := a.shims.ImageDigest(img)
+	if err != nil {
+		return nil, "", werror.Wrap(err, "failed to get image digest")
 	}
 
 	layers, err := a.shims.ImageLayers(img)
 	if err != nil {
-		return nil, werror.Wrap(err, "failed to get image layers")
+		return nil, "", werror.Wrap(err, "failed to get image layers")
 	}
 
 	if len(layers) == 0 {
-		return nil, fmt.Errorf("no layers found in image")
+		return nil, "", fmt.Errorf("no layers found in image")
 	}
 
 	layer := layers[0]
 	reader, err := a.shims.LayerUncompressed(layer)
 	if err != nil {
-		return nil, werror.Wrap(err, "failed to get layer reader")
+		return nil, "", werror.Wrap(err, "failed to get layer reader")
 	}
 	defer reader.Close()
 
 	data, err := a.shims.ReadAll(reader)
 	if err != nil {
-		return nil, werror.Wrap(err, "failed to read layer data")
+		return nil, "", werror.Wrap(err, "failed to read layer data")
 	}
 
-	return data, nil
+	return data, digest.String(), nil
 }
 
 // pullReference returns the reference that a pull of registry/repository:tag reads, and its parse options.

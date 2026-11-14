@@ -218,8 +218,9 @@ func (a *ArtifactBuilder) SetBOMWriter(writer BOMWriter) {
 // =============================================================================
 
 // refreshArtifactManifest scans the artifact tags of the bundled files and replaces the artifact
-// manifest. Write and Push call it again after they resolve the name and version, because the
-// manifest from Bundle has an empty name and version. It returns an error for a malformed tag.
+// manifest. It gives the BOM writer the bundled _template/blueprint.yaml, which names the sources.
+// Write and Push call it again after they resolve the name and version, because the manifest from
+// Bundle has an empty name and version. It returns an error for a malformed tag.
 func (a *ArtifactBuilder) refreshArtifactManifest() error {
 	var tags []ArtifactTag
 	for path, info := range a.files {
@@ -235,7 +236,11 @@ func (a *ArtifactBuilder) refreshArtifactManifest() error {
 	if a.bomWriter == nil {
 		return nil
 	}
-	bom, err := a.bomWriter(a.metadata.Name, a.metadata.Version, tags)
+	var blueprint []byte
+	if info, ok := a.files["_template/blueprint.yaml"]; ok {
+		blueprint = info.Content
+	}
+	bom, err := a.bomWriter(a.metadata.Name, a.metadata.Version, tags, blueprint)
 	if err != nil {
 		return werror.Wrap(err, "failed to generate artifact manifest")
 	}
