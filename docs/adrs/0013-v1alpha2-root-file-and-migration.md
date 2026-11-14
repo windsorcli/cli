@@ -109,20 +109,37 @@ before blueprints load.
 
 ### 3. Root `paths`
 
-`paths` has three keys: `terraform`, `kustomize`, and `contexts`. Each is a path relative to the
-project root. The defaults are `terraform`, `kustomize`, and `contexts`. The setting is
-project-wide and never per context.
+`paths` has four keys: `base`, `terraform`, `kustomize`, and `contexts`. Each is a path relative
+to the project root, except that `terraform`, `kustomize`, and `contexts` are relative to `base`.
+The default of `base` is the project root. The defaults of the other three are `terraform`,
+`kustomize`, and `contexts`. The setting is project-wide and never per context.
+
+This example moves all three source directories under one directory:
+
+```yaml
+version: v1alpha2
+paths:
+  base: infra
+```
+
+It gives `infra/terraform`, `infra/kustomize`, and `infra/contexts`.
 
 Validation. The CLI MUST reject a value that:
 
 - is empty, absolute, or contains a `..` element;
-- resolves, after cleaning, to the project root, or to a path inside `.windsor/`;
-- equals or contains another configured path.
+- resolves, after cleaning, to a path inside `.windsor/`;
+- for `terraform`, `kustomize`, or `contexts`, resolves to `base` itself;
+- for `terraform`, `kustomize`, or `contexts`, equals or contains another one of these three.
 
-The CLI resolves symbolic links when it checks that a path stays inside the project root.
+`base` MAY be unset, which means the project root. A set `base` MUST NOT resolve to the project
+root, because the default already does. The overlap rule does not apply to `base`, which contains
+the other three by design. The CLI resolves symbolic links when it checks that every path stays
+inside the project root.
 
 What stays fixed:
 
+- `windsor.yaml` and `.windsor/` stay at the project root. `base` moves the three source
+  directories only.
 - `.windsor/` is the CLI's state directory. It MUST NOT move. Users do not edit it, and tools
   find the active context through it.
 - `_template` is the name of the template directory. Its location is `<paths.contexts>/_template`,
@@ -130,8 +147,9 @@ What stays fixed:
 - The name `values.yaml` and the `contexts/<name>` layout under the configured directory.
 
 One resolver owns every project directory. The runtime builds it from the root file once per
-command, and exposes `Terraform()`, `Kustomize()`, `Contexts()`, `ContextDir(name)`, and
-`TemplateDir()`, each returning an absolute path. No other package builds these paths. A test
+command, and exposes `Base()`, `Terraform()`, `Kustomize()`, `Contexts()`, `ContextDir(name)`, and
+`TemplateDir()`, each returning an absolute path. `Terraform()`, `Kustomize()`, and `Contexts()`
+return `base` joined with their key. No other package builds these paths. A test
 MUST fail when a `filepath.Join` call outside the resolver uses one of the three literals. The
 same test covers the string constants in `composer/artifact`.
 
@@ -232,7 +250,8 @@ needs. After that, a v1alpha1 root file fails the load with the message from poi
    v1alpha2 writes in `EnsureRoot` and `EnsureProjectAnchor`.
 2. Root `environment`, and the move of `terraform.driver` to the merged config.
 3. `windsor migrate` and the load notice. This step is independent of step 2.
-4. Root `paths` and the resolver, alone.
+4. Root `paths` and the resolver, alone. The `Paths` type in `api/config/v1alpha2/root.go` gains
+   `Base string` with `yaml:"base,omitempty"` in this step, with the rules. Step 1 does not add it.
 
 Each step ships with unit tests and, for `windsor migrate` and the `paths` keys, integration
 tests.
@@ -246,6 +265,11 @@ tests.
   directory would break the shared `terraform/` and `kustomize/` sources.
 - **Let `paths` move `.windsor/`.** Rejected: the state directory needs one known location, and
   nothing a user edits lives there.
+- **Only the three keys, no `base`.** Rejected: a project that keeps all three under one
+  directory, as the example in point 1 does, repeats that directory three times and can leave one
+  out by mistake. Other tools (Hugo, Jekyll, Ansible, Nx) use per-kind directory keys, and
+  Terraform and Terragrunt use a separate setting to move the whole working tree. A base plus
+  per-kind keys is less common, but the combination is additive and breaks nothing.
 - **A key for the template directory.** Rejected: the template belongs with the contexts, and a
   second key allows a split layout with no use.
 - **Name the command `windsor upgrade --config`.** Rejected: `upgrade` moves a blueprint between
