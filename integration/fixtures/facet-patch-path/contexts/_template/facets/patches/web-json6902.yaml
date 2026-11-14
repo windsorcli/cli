@@ -1,0 +1,9 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: web
+  namespace: apps
+patches:
+- op: add
+  path: /metadata/labels/tier
+  value: frontend

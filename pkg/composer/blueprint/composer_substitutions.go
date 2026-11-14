@@ -257,58 +257,9 @@ func buildFluxTierMap(blueprint *blueprintv1alpha1.Blueprint) map[string]*bluepr
 	return tierMap
 }
 
-// parsePatch parses a patch file and returns a BlueprintPatch. It detects whether the patch is
-// a strategic merge patch (standard Kubernetes YAML) or a JSON 6902 patch (with a patches field).
-// For JSON 6902 patches, it extracts the target selector from the resource metadata.
-// Returns nil if the patch data is empty or whitespace-only.
+// parsePatch parses a patch file and returns a BlueprintPatch. See parsePatchData for the rules.
 func (c *BaseBlueprintComposer) parsePatch(data []byte, path string) (*blueprintv1alpha1.BlueprintPatch, error) {
-	if len(strings.TrimSpace(string(data))) == 0 {
-		return nil, nil
-	}
-
-	var patchContent map[string]any
-	if err := c.shims.YamlUnmarshal(data, &patchContent); err != nil {
-		return nil, werror.Wrap(err, "failed to parse patch file %s", path)
-	}
-
-	if len(patchContent) == 0 {
-		return nil, nil
-	}
-
-	if patches, ok := patchContent["patches"].([]any); ok {
-		kind, hasKind := patchContent["kind"].(string)
-		if !hasKind || kind == "" {
-			return &blueprintv1alpha1.BlueprintPatch{
-				Patch: string(data),
-			}, nil
-		}
-
-		jsonPatchOps, err := c.shims.YamlMarshal(patches)
-		if err != nil {
-			return nil, werror.Wrap(err, "failed to marshal JSON patch operations")
-		}
-
-		target := &kustomize.Selector{
-			Kind: kind,
-		}
-		if metadata, ok := patchContent["metadata"].(map[string]any); ok {
-			if name, ok := metadata["name"].(string); ok {
-				target.Name = name
-			}
-			if namespace, ok := metadata["namespace"].(string); ok {
-				target.Namespace = namespace
-			}
-		}
-
-		return &blueprintv1alpha1.BlueprintPatch{
-			Patch:  string(jsonPatchOps),
-			Target: target,
-		}, nil
-	}
-
-	return &blueprintv1alpha1.BlueprintPatch{
-		Patch: string(data),
-	}, nil
+	return parsePatchData(c.shims, data, path)
 }
 
 // applyPerKustomizationSubstitutions extracts per-kustomization substitutions from values.yaml
@@ -365,4 +316,62 @@ func (c *BaseBlueprintComposer) applyPerKustomizationSubstitutions(blueprint *bl
 	}
 
 	return nil
+}
+
+// =============================================================================
+// Helpers
+// =============================================================================
+
+// parsePatchData parses a patch file and returns a BlueprintPatch. It detects whether the patch is
+// a strategic merge patch (standard Kubernetes YAML) or a JSON 6902 patch (with a patches field).
+// For JSON 6902 patches, it extracts the target selector from the resource metadata.
+// Returns nil if the patch data is empty or whitespace-only. The loader and the composer share it.
+func parsePatchData(shims *Shims, data []byte, path string) (*blueprintv1alpha1.BlueprintPatch, error) {
+	if len(strings.TrimSpace(string(data))) == 0 {
+		return nil, nil
+	}
+
+	var patchContent map[string]any
+	if err := shims.YamlUnmarshal(data, &patchContent); err != nil {
+		return nil, werror.Wrap(err, "failed to parse patch file %s", path)
+	}
+
+	if len(patchContent) == 0 {
+		return nil, nil
+	}
+
+	if patches, ok := patchContent["patches"].([]any); ok {
+		kind, hasKind := patchContent["kind"].(string)
+		if !hasKind || kind == "" {
+			return &blueprintv1alpha1.BlueprintPatch{
+				Patch: string(data),
+			}, nil
+		}
+
+		jsonPatchOps, err := shims.YamlMarshal(patches)
+		if err != nil {
+			return nil, werror.Wrap(err, "failed to marshal JSON patch operations")
+		}
+
+		target := &kustomize.Selector{
+			Kind: kind,
+		}
+		if metadata, ok := patchContent["metadata"].(map[string]any); ok {
+			if name, ok := metadata["name"].(string); ok {
+				target.Name = name
+			}
+			if namespace, ok := metadata["namespace"].(string); ok {
+				target.Namespace = namespace
+			}
+		}
+
+		return &blueprintv1alpha1.BlueprintPatch{
+			Patch:  string(jsonPatchOps),
+			Target: target,
+		}, nil
+	}
+
+	return &blueprintv1alpha1.BlueprintPatch{
+		Patch: string(data),
+	}, nil
 }
