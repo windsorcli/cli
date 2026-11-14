@@ -170,26 +170,28 @@ func (a *ArtifactBuilder) Write(outputPath string, tag string) (string, error) {
 }
 
 // Bundle collects the project files for the artifact and adds the artifact manifest.
-// It copies contexts/_template to _template, and copies the kustomize and terraform directories.
+// It reads contexts/_template, kustomize, and terraform under the base directory of the project and
+// writes them at the archive root as _template, kustomize, and terraform.
 // It does not copy the terraform files that shouldSkipTerraformFile excludes.
 func (a *ArtifactBuilder) Bundle() error {
+	base := a.runtime.Base()
 	processors := []PathProcessor{
 		{
-			Pattern: "contexts/_template",
+			Pattern: filepath.Join(base, "contexts", "_template"),
 			Handler: func(relPath string, data []byte, mode os.FileMode) error {
 				artifactPath := "_template/" + filepath.ToSlash(relPath)
 				return a.addFile(artifactPath, data, mode)
 			},
 		},
 		{
-			Pattern: "kustomize",
+			Pattern: filepath.Join(base, "kustomize"),
 			Handler: func(relPath string, data []byte, mode os.FileMode) error {
 				artifactPath := "kustomize/" + filepath.ToSlash(relPath)
 				return a.addFile(artifactPath, data, mode)
 			},
 		},
 		{
-			Pattern: "terraform",
+			Pattern: filepath.Join(base, "terraform"),
 			Handler: func(relPath string, data []byte, mode os.FileMode) error {
 				if a.shouldSkipTerraformFile(filepath.Base(relPath)) {
 					return nil
@@ -254,8 +256,7 @@ func (a *ArtifactBuilder) refreshArtifactManifest() error {
 func (a *ArtifactBuilder) walkAndProcessFiles(processors []PathProcessor) error {
 	dirSet := make(map[string]bool)
 	for _, processor := range processors {
-		dir := strings.Split(processor.Pattern, "/")[0]
-		dirSet[dir] = true
+		dirSet[walkRoot(processor.Pattern)] = true
 	}
 
 	for dir := range dirSet {
@@ -307,6 +308,15 @@ func (a *ArtifactBuilder) findMatchingProcessor(path string, processors []PathPr
 		}
 	}
 	return nil
+}
+
+// walkRoot returns the directory that the walk starts at for a processor pattern. An absolute
+// pattern is the directory itself. A relative pattern starts at its first path element.
+func walkRoot(pattern string) string {
+	if filepath.IsAbs(pattern) {
+		return pattern
+	}
+	return strings.Split(pattern, "/")[0]
 }
 
 // shouldSkipTerraformFile determines if a terraform file should be excluded from bundling

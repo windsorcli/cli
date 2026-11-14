@@ -4,7 +4,9 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"path"
 	"path/filepath"
+	"strings"
 
 	"github.com/windsorcli/cli/api/config/v1alpha2"
 	"github.com/windsorcli/cli/internal/werror"
@@ -47,7 +49,7 @@ func newTypedSource(shims *Shims) *typedSource {
 // every key of the context map. A v1alpha1 root file, or a root file with no version, loads as
 // before. A v1alpha2 root file MUST hold only version, environment, and paths, and MUST NOT sit
 // beside a contexts/<name>/windsor.yaml or windsor.yml. Any other version value fails the load.
-func (s *typedSource) LoadRoot(projectRoot string, contextName string) (map[string]any, bool, error) {
+func (s *typedSource) LoadRoot(projectRoot, basePath, contextName string) (map[string]any, bool, error) {
 	rootConfigPath := filepath.Join(projectRoot, "windsor.yaml")
 	if _, err := s.shims.Stat(rootConfigPath); err != nil {
 		return nil, false, nil
@@ -70,7 +72,7 @@ func (s *typedSource) LoadRoot(projectRoot string, contextName string) (map[stri
 		if err := s.validateRoot(rootConfigPath, fileData, rootKeys); err != nil {
 			return nil, false, err
 		}
-		if err := s.rejectContextFiles(rootConfigPath, projectRoot); err != nil {
+		if err := s.rejectContextFiles(rootConfigPath, basePath); err != nil {
 			return nil, false, err
 		}
 		return nil, true, nil
@@ -116,9 +118,38 @@ func (s *typedSource) LoadRootEnvironment(projectRoot string) (map[string]any, e
 	return map[string]any{"environment": environment}, nil
 }
 
+// LoadBasePath returns the absolute base directory of the project. It is projectRoot unless a v1alpha2
+// root file sets paths.base. It fails when paths.base is absolute, has a .. element, is inside .windsor,
+// is the project root, or resolves through a symbolic link to a place outside the project root.
+func (s *typedSource) LoadBasePath(projectRoot string) (string, error) {
+	rootPath := filepath.Join(projectRoot, "windsor.yaml")
+	data, err := s.shims.ReadFile(rootPath)
+	if err != nil {
+		if errors.Is(err, fs.ErrNotExist) {
+			return projectRoot, nil
+		}
+		return "", werror.Wrap(err, "error reading root config file")
+	}
+	var root v1alpha2.Root
+	if err := s.shims.YamlUnmarshal(data, &root); err != nil {
+		return "", werror.Wrap(err, "error unmarshalling root config")
+	}
+	if root.Version != v1alpha2.Version || root.Paths == nil || root.Paths.Base == "" {
+		return projectRoot, nil
+	}
+	if err := validateBase(root.Paths.Base); err != nil {
+		return "", werror.New(fmt.Sprintf("The paths.base of %s is invalid. %s", rootPath, err), "Set a relative directory inside the project, or remove the key.", err)
+	}
+	base := filepath.Join(projectRoot, filepath.FromSlash(root.Paths.Base))
+	if err := s.checkBaseSymlinks(projectRoot, base); err != nil {
+		return "", werror.New(fmt.Sprintf("The paths.base of %s is invalid. %s", rootPath, err), "Set a relative directory inside the project, or remove the key.", err)
+	}
+	return base, nil
+}
+
 // LoadContext loads legacy context-level windsor.yaml or windsor.yml for a context.
-func (s *typedSource) LoadContext(projectRoot, contextName string) (map[string]any, bool, error) {
-	contextConfigDir := filepath.Join(projectRoot, "contexts", contextName)
+func (s *typedSource) LoadContext(basePath, contextName string) (map[string]any, bool, error) {
+	contextConfigDir := filepath.Join(basePath, "contexts", contextName)
 	yamlPath := filepath.Join(contextConfigDir, "windsor.yaml")
 	ymlPath := filepath.Join(contextConfigDir, "windsor.yml")
 
@@ -179,6 +210,13 @@ func (s *typedSource) validateRoot(rootPath string, fileData []byte, rootKeys ma
 			fmt.Sprintf("The v1alpha2 root file %s has the key %q. The root file cannot hold per-context values.", rootPath, "contexts"),
 			"Run 'windsor migrate' to move the values into contexts/<name>/values.yaml.", nil)
 	}
+	if block, ok := rootKeys["paths"].(map[string]any); ok {
+		if base, isText := block["base"].(string); isText && base == "" {
+			return werror.New(
+				fmt.Sprintf("The v1alpha2 root file %s sets paths.base to an empty value.", rootPath),
+				"Set a relative directory, or remove the key.", nil)
+		}
+	}
 	var root v1alpha2.Root
 	if err := s.shims.YamlUnmarshalStrict(fileData, &root); err != nil {
 		return werror.New(
@@ -190,8 +228,8 @@ func (s *typedSource) validateRoot(rootPath string, fileData []byte, rootKeys ma
 
 // rejectContextFiles fails when a contexts/<name>/windsor.yaml or windsor.yml exists. A v1alpha2
 // root file does not read these files, so their settings would stop applying without notice.
-func (s *typedSource) rejectContextFiles(rootPath, projectRoot string) error {
-	contextsDir := filepath.Join(projectRoot, "contexts")
+func (s *typedSource) rejectContextFiles(rootPath, basePath string) error {
+	contextsDir := filepath.Join(basePath, "contexts")
 	entries, err := s.shims.ReadDir(contextsDir)
 	if err != nil {
 		if errors.Is(err, fs.ErrNotExist) {
@@ -215,9 +253,57 @@ func (s *typedSource) rejectContextFiles(rootPath, projectRoot string) error {
 	return nil
 }
 
+// checkBaseSymlinks fails when base resolves through a symbolic link to a place outside the resolved
+// project root. A base that does not exist is checked through its nearest existing parent.
+func (s *typedSource) checkBaseSymlinks(projectRoot, base string) error {
+	root, err := s.shims.EvalSymlinks(projectRoot)
+	if err != nil {
+		return nil
+	}
+	tail := ""
+	for current := base; ; {
+		resolved, err := s.shims.EvalSymlinks(current)
+		if err == nil {
+			resolved = filepath.Join(resolved, tail)
+			if rel, err := filepath.Rel(root, resolved); err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+				return fmt.Errorf("paths.base resolves through a symbolic link to %s, which is outside the project root", resolved)
+			}
+			return nil
+		}
+		parent := filepath.Dir(current)
+		if parent == current {
+			return nil
+		}
+		tail = filepath.Join(filepath.Base(current), tail)
+		current = parent
+	}
+}
+
 // =============================================================================
 // Helpers
 // =============================================================================
+
+// validateBase rejects an absolute base, a base with a .. element, a base inside .windsor, and a
+// base that resolves to the project root.
+func validateBase(base string) error {
+	slashed := strings.ReplaceAll(base, "\\", "/")
+	if filepath.IsAbs(base) || strings.HasPrefix(slashed, "/") || (len(slashed) > 1 && slashed[1] == ':') {
+		return fmt.Errorf("paths.base is %q, and the path MUST be relative", base)
+	}
+	for _, element := range strings.Split(slashed, "/") {
+		if element == ".." {
+			return fmt.Errorf("paths.base is %q, and the path MUST NOT contain '..'", base)
+		}
+	}
+	cleaned := path.Clean(slashed)
+	if cleaned == ".windsor" || strings.HasPrefix(cleaned, ".windsor/") {
+		return fmt.Errorf("paths.base is %q, and the path MUST NOT be inside .windsor", base)
+	}
+	if cleaned == "." {
+		return fmt.Errorf("paths.base resolves to the project root. Remove it, because the default already is the project root")
+	}
+	return nil
+}
 
 // convertV1alpha1 converts merged v1alpha1 values into the v1alpha2 header in place. It moves
 // provider to platform when platform is empty, and removes provider.

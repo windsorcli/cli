@@ -54,7 +54,14 @@ windsor get context
 			return werror.Wrap(err, "failed to get project root")
 		}
 
-		contextDir := filepath.Join(projectRoot, "contexts", contextName)
+		basePath, err := rt.ConfigHandler.GetBasePath()
+		if err != nil {
+			return err
+		}
+		if basePath == "" {
+			basePath = projectRoot
+		}
+		contextDir := filepath.Join(basePath, "contexts", contextName)
 		if _, err := os.Stat(contextDir); os.IsNotExist(err) {
 			return werror.New(fmt.Sprintf("context %q not found", contextName), fmt.Sprintf("Run windsor init %s to create it.", contextName), nil)
 		} else if err != nil {

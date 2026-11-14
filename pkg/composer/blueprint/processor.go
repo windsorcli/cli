@@ -450,15 +450,17 @@ func (p *BaseBlueprintProcessor) emitFacetComponents(target *blueprintv1alpha1.B
 			if len(sourceName) > 0 {
 				sn = sourceName[0]
 			}
-			for key, rawVal := range facet.Substitutions {
-				p.recordTrace("substitutions."+key, TraceContribution{
-					FacetPath:  facet.Path,
-					SourceName: sn,
-					Ordinal:    facetOrd,
-					Strategy:   "merge",
-					Line:       yamlNodeLine(facet.Path, "substitutions", key),
-					RawValue:   deepCopyValue(rawVal),
-				})
+			if p.traceCollector != nil {
+				for key, rawVal := range facet.Substitutions {
+					p.recordTrace("substitutions."+key, TraceContribution{
+						FacetPath:  facet.Path,
+						SourceName: sn,
+						Ordinal:    facetOrd,
+						Strategy:   "merge",
+						Line:       yamlNodeLine(facet.Path, "substitutions", key),
+						RawValue:   deepCopyValue(rawVal),
+					})
+				}
 			}
 			for key, isDeferred := range deferredKeys {
 				if isDeferred {

@@ -494,7 +494,7 @@ func (s *TerraformStack) resolveComponentPaths(blueprint *blueprintv1alpha1.Blue
 		if useScratchPath {
 			componentCopy.FullPath = filepath.Join(projectRoot, ".windsor", "contexts", s.runtime.ContextName, "terraform", componentID)
 		} else {
-			componentCopy.FullPath = filepath.Join(projectRoot, "terraform", componentID)
+			componentCopy.FullPath = filepath.Join(s.runtime.Base(), "terraform", componentID)
 		}
 
 		componentCopy.FullPath = filepath.FromSlash(componentCopy.FullPath)
