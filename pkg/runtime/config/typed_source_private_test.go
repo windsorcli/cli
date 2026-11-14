@@ -7,6 +7,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/windsorcli/cli/pkg/runtime/paths"
+
 	"github.com/windsorcli/cli/internal/werror"
 )
 
@@ -50,7 +52,7 @@ contexts:
 			t.Fatalf("Expected no error writing root config, got %v", err)
 		}
 
-		contextMap, found, err := source.LoadRoot(projectRoot, "local")
+		contextMap, found, err := source.LoadRoot(paths.Default(projectRoot), "local")
 		if err != nil {
 			t.Fatalf("Expected no error, got %v", err)
 		}
@@ -76,7 +78,7 @@ func TestTypedSource_LoadRootVersions(t *testing.T) {
 				t.Fatalf("Expected no error writing %s, got %v", path, err)
 			}
 		}
-		return newTypedSource(NewShims()).LoadRoot(projectRoot, "local")
+		return newTypedSource(NewShims()).LoadRoot(paths.Default(projectRoot), "local")
 	}
 
 	t.Run("LoadsV1alpha1RootWithContextsAndTerraformDriver", func(t *testing.T) {
@@ -141,7 +143,7 @@ func TestTypedSource_LoadRootVersions(t *testing.T) {
 		if err := os.WriteFile(filepath.Join(projectRoot, "windsor.yaml"), []byte("version: v1alpha2\n"), 0644); err != nil {
 			t.Fatalf("Expected no error writing the root, got %v", err)
 		}
-		_, found, err := newTypedSource(NewShims()).LoadRoot(projectRoot, "local")
+		_, found, err := newTypedSource(NewShims()).LoadRoot(paths.Default(projectRoot), "local")
 		if err != nil || !found {
 			t.Fatalf("Expected the root to load, got found=%v err=%v", found, err)
 		}
@@ -197,7 +199,7 @@ func TestTypedSource_LoadContext(t *testing.T) {
 			t.Fatalf("Expected no error writing context windsor.yaml, got %v", err)
 		}
 
-		contextMap, found, err := source.LoadContext(projectRoot, contextName)
+		contextMap, found, err := source.LoadContext(paths.Default(projectRoot), contextName)
 		if err != nil {
 			t.Fatalf("Expected no error, got %v", err)
 		}
@@ -221,7 +223,7 @@ func TestTypedSource_LoadContext(t *testing.T) {
 			t.Fatalf("Expected no error writing context windsor.yml, got %v", err)
 		}
 
-		contextMap, found, err := source.LoadContext(projectRoot, contextName)
+		contextMap, found, err := source.LoadContext(paths.Default(projectRoot), contextName)
 		if err != nil {
 			t.Fatalf("Expected no error, got %v", err)
 		}

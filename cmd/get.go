@@ -6,7 +6,6 @@ package cmd
 import (
 	"fmt"
 	"os"
-	"path/filepath"
 	"sort"
 	"strings"
 	"text/tabwriter"
@@ -15,6 +14,7 @@ import (
 	"github.com/windsorcli/cli/internal/werror"
 	"github.com/windsorcli/cli/pkg/runtime"
 	"github.com/windsorcli/cli/pkg/runtime/config"
+	"github.com/windsorcli/cli/pkg/runtime/paths"
 )
 
 // getCmd represents the get command group
@@ -56,8 +56,12 @@ var getContextsCmd = &cobra.Command{
 		if err != nil {
 			return werror.Wrap(err, "failed to get project root")
 		}
+		resolver, err := paths.Load(projectRoot, nil)
+		if err != nil {
+			return err
+		}
 
-		contextsDir := filepath.Join(projectRoot, "contexts")
+		contextsDir := resolver.Contexts()
 		entries, err := os.ReadDir(contextsDir)
 		if err != nil {
 			if os.IsNotExist(err) {

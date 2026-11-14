@@ -26,10 +26,6 @@ import (
 // expressionMarker starts a blueprint expression. A path or a component name that holds it is not resolved.
 const expressionMarker = "${"
 
-// scopedWholeDirs are the directories of a source that the scoped scan always reads in full.
-// The kustomize/crds directory is the CRD catalog. A cluster can use a catalog entry with no kustomization.
-var scopedWholeDirs = []string{"contexts", "_template", "kustomize/crds"}
-
 // kustomizationFileNames are the names of a Kustomize root file.
 var kustomizationFileNames = []string{"kustomization.yaml", "kustomization.yml", "Kustomization"}
 
@@ -38,7 +34,9 @@ var kustomizationFileNames = []string{"kustomization.yaml", "kustomization.yml",
 // =============================================================================
 
 // TagScope lists the paths of one source that a composed blueprint uses.
+// A zero Layout means ArchiveLayout.
 type TagScope struct {
+	Layout         Layout
 	Kustomizations []KustomizationScope
 	Terraform      []TerraformScope
 }
@@ -80,10 +78,11 @@ type kustomizationFile struct {
 
 // scopedScan holds the state of one ScanTagsScoped call.
 type scopedScan struct {
-	fsys  fs.FS
-	files map[string]bool
-	seen  map[string]bool
-	notes []string
+	fsys         fs.FS
+	kustomizeDir string
+	files        map[string]bool
+	seen         map[string]bool
+	notes        []string
 }
 
 // =============================================================================
@@ -97,8 +96,12 @@ type scopedScan struct {
 // unless an entry reaches it. A name that holds an expression widens the scan and gives a note. A
 // path that the source does not hold gives a note.
 func ScanTagsScoped(root string, scope TagScope) ([]ArtifactTag, []string, error) {
-	scan := &scopedScan{fsys: os.DirFS(root), files: make(map[string]bool), seen: make(map[string]bool)}
-	for _, dir := range scopedWholeDirs {
+	layout := scope.Layout
+	if layout == (Layout{}) {
+		layout = ArchiveLayout
+	}
+	scan := &scopedScan{fsys: os.DirFS(root), files: make(map[string]bool), seen: make(map[string]bool), kustomizeDir: layout.Kustomize}
+	for _, dir := range layout.WholeDirs() {
 		if err := scan.addTree(dir, noBoundary); err != nil {
 			return nil, nil, err
 		}
@@ -128,7 +131,7 @@ func ScanTagsScoped(root string, scope TagScope) ([]ArtifactTag, []string, error
 func (s *scopedScan) addKustomization(k KustomizationScope) error {
 	if strings.Contains(k.Dir, expressionMarker) {
 		s.notef("Kustomization %q has the path %q, which the CLI cannot resolve, so the scan reads the whole kustomize directory.", k.Name, k.Dir)
-		return s.addEveryKustomizeDir("kustomize")
+		return s.addEveryKustomizeDir(s.kustomizeDir)
 	}
 	dir := path.Clean(k.Dir)
 	exists, err := s.isDir(dir)

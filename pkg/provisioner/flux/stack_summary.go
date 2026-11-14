@@ -241,7 +241,7 @@ func (s *FluxStack) planOneKustomizeSummary(blueprint *blueprintv1alpha1.Bluepri
 	}
 
 	sourceRoot := s.resolveSourceRoot(blueprint, k)
-	fluxK := k.ToFluxKustomization(namespace, blueprint.Metadata.Name, blueprint.Sources, s.gitopsMode())
+	fluxK := kubernetes.FluxKustomization(&k, s.runtime.ProjectPaths(), namespace, blueprint.Metadata.Name, blueprint.Sources, s.gitopsMode())
 	localPath := filepath.Join(sourceRoot, fluxK.Spec.Path)
 
 	if exists {

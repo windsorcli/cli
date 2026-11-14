@@ -9,6 +9,7 @@ import (
 	"github.com/goccy/go-yaml/ast"
 	"github.com/goccy/go-yaml/parser"
 	"github.com/windsorcli/cli/internal/werror"
+	"github.com/windsorcli/cli/pkg/runtime/paths"
 )
 
 // The ValuesSource is a configuration source for context values.yaml files.
@@ -51,8 +52,8 @@ func newValuesSource(shims *Shims, schemaValidator *SchemaValidator, policy *per
 // =============================================================================
 
 // Load loads values.yaml for a context and emits schema-validation warnings when invalid.
-func (s *valuesSource) Load(projectRoot, contextName string) (map[string]any, bool, error) {
-	valuesPath := filepath.Join(projectRoot, "contexts", contextName, "values.yaml")
+func (s *valuesSource) Load(resolver *paths.Resolver, contextName string) (map[string]any, bool, error) {
+	valuesPath := filepath.Join(resolver.ContextDir(contextName), "values.yaml")
 	if _, err := s.shims.Stat(valuesPath); err != nil {
 		return nil, false, nil
 	}
@@ -82,7 +83,7 @@ func (s *valuesSource) Load(projectRoot, contextName string) (map[string]any, bo
 // wrote reports whether a write actually happened, so a caller tracking pending writes knows
 // whether they were consumed or are still outstanding.
 func (s *valuesSource) Save(
-	projectRoot string,
+	resolver *paths.Resolver,
 	contextName string,
 	data map[string]any,
 	overrides map[string]any,
@@ -90,7 +91,7 @@ func (s *valuesSource) Save(
 	overwrite bool,
 	input persistencePolicyInput,
 ) (wrote bool, err error) {
-	contextDir := filepath.Join(projectRoot, "contexts", contextName)
+	contextDir := resolver.ContextDir(contextName)
 	if err := s.shims.MkdirAll(contextDir, 0755); err != nil {
 		return false, werror.Wrap(err, "error creating context directory")
 	}

@@ -259,7 +259,7 @@ func (h *BaseBlueprintHandler) getSourceRef(source blueprintv1alpha1.Source) str
 // resolveComponentFullPath computes and sets the absolute filesystem path where a terraform
 // component's module will be located. Named components or those with a Source are placed in
 // the Windsor scratch directory under contexts/<context>/terraform/<name|path>. Local components
-// without a source are resolved to the project's terraform/<path> directory. This path is used
+// without a source are resolved to <terraform directory>/<path>. This path is used
 // by module resolvers and the terraform provisioner to locate module files.
 func (h *BaseBlueprintHandler) resolveComponentFullPath(component *blueprintv1alpha1.TerraformComponent) {
 	componentID := component.GetID()
@@ -268,6 +268,6 @@ func (h *BaseBlueprintHandler) resolveComponentFullPath(component *blueprintv1al
 	if useScratchPath {
 		component.FullPath = filepath.Join(h.runtime.WindsorScratchPath, "terraform", componentID)
 	} else {
-		component.FullPath = filepath.Join(h.runtime.ProjectRoot, "terraform", componentID)
+		component.FullPath = filepath.Join(h.runtime.ProjectPaths().Terraform(), componentID)
 	}
 }

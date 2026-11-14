@@ -886,7 +886,7 @@ description: A test project
 		// Given a builder with failing Walk operation
 		builder, mocks := setup(t)
 		mocks.Shims.Stat = func(name string) (os.FileInfo, error) {
-			if name == "contexts" || name == "kustomize" || name == "terraform" {
+			if name == filepath.Join(mocks.Runtime.ProjectRoot, "contexts") || name == filepath.Join(mocks.Runtime.ProjectRoot, "kustomize") || name == filepath.Join(mocks.Runtime.ProjectRoot, "terraform") {
 				return &mockFileInfo{name: name, isDir: true}, nil
 			}
 			return nil, os.ErrNotExist
@@ -1037,7 +1037,7 @@ func TestArtifactBuilder_Bundle(t *testing.T) {
 
 		// Mock directory structure
 		mocks.Shims.Stat = func(name string) (os.FileInfo, error) {
-			if name == "contexts" || name == "kustomize" || name == "terraform" {
+			if name == filepath.Join(mocks.Runtime.ProjectRoot, "contexts") || name == filepath.Join(mocks.Runtime.ProjectRoot, "kustomize") || name == filepath.Join(mocks.Runtime.ProjectRoot, "terraform") {
 				return &mockFileInfo{name: name, isDir: true}, nil
 			}
 			return nil, os.ErrNotExist
@@ -1045,15 +1045,15 @@ func TestArtifactBuilder_Bundle(t *testing.T) {
 
 		mocks.Shims.Walk = func(root string, fn filepath.WalkFunc) error {
 			switch root {
-			case "contexts":
-				fn("contexts/_template", &mockFileInfo{name: "_template", isDir: true}, nil)
-				fn("contexts/_template/test.jsonnet", &mockFileInfo{name: "test.jsonnet", isDir: false}, nil)
-			case "kustomize":
-				fn("kustomize", &mockFileInfo{name: "kustomize", isDir: true}, nil)
-				fn("kustomize/kustomization.yaml", &mockFileInfo{name: "kustomization.yaml", isDir: false}, nil)
-			case "terraform":
-				fn("terraform", &mockFileInfo{name: "terraform", isDir: true}, nil)
-				fn("terraform/main.tf", &mockFileInfo{name: "main.tf", isDir: false}, nil)
+			case filepath.Join(mocks.Runtime.ProjectRoot, "contexts/_template"):
+				fn(filepath.Join(mocks.Runtime.ProjectRoot, "contexts/_template"), &mockFileInfo{name: "_template", isDir: true}, nil)
+				fn(filepath.Join(mocks.Runtime.ProjectRoot, "contexts/_template/test.jsonnet"), &mockFileInfo{name: "test.jsonnet", isDir: false}, nil)
+			case filepath.Join(mocks.Runtime.ProjectRoot, "kustomize"):
+				fn(filepath.Join(mocks.Runtime.ProjectRoot, "kustomize"), &mockFileInfo{name: "kustomize", isDir: true}, nil)
+				fn(filepath.Join(mocks.Runtime.ProjectRoot, "kustomize/kustomization.yaml"), &mockFileInfo{name: "kustomization.yaml", isDir: false}, nil)
+			case filepath.Join(mocks.Runtime.ProjectRoot, "terraform"):
+				fn(filepath.Join(mocks.Runtime.ProjectRoot, "terraform"), &mockFileInfo{name: "terraform", isDir: true}, nil)
+				fn(filepath.Join(mocks.Runtime.ProjectRoot, "terraform/main.tf"), &mockFileInfo{name: "main.tf", isDir: false}, nil)
 			default:
 				// No-op for other roots
 			}
@@ -1066,7 +1066,7 @@ func TestArtifactBuilder_Bundle(t *testing.T) {
 
 		mocks.Shims.FilepathRel = func(basepath, targpath string) (string, error) {
 			if strings.Contains(targpath, "_template") {
-				return strings.TrimPrefix(targpath, "contexts/_template/"), nil
+				return filepath.Base(targpath), nil
 			}
 			return filepath.Base(targpath), nil
 		}
@@ -1091,16 +1091,16 @@ func TestArtifactBuilder_Bundle(t *testing.T) {
 
 		// Mock only kustomize directory exists
 		mocks.Shims.Stat = func(name string) (os.FileInfo, error) {
-			if name == "kustomize" {
+			if name == filepath.Join(mocks.Runtime.ProjectRoot, "kustomize") {
 				return &mockFileInfo{name: "kustomize", isDir: true}, nil
 			}
 			return nil, os.ErrNotExist
 		}
 
 		mocks.Shims.Walk = func(root string, fn filepath.WalkFunc) error {
-			if root == "kustomize" {
-				fn("kustomize", &mockFileInfo{name: "kustomize", isDir: true}, nil)
-				fn("kustomize/kustomization.yaml", &mockFileInfo{name: "kustomization.yaml", isDir: false}, nil)
+			if root == filepath.Join(mocks.Runtime.ProjectRoot, "kustomize") {
+				fn(filepath.Join(mocks.Runtime.ProjectRoot, "kustomize"), &mockFileInfo{name: "kustomize", isDir: true}, nil)
+				fn(filepath.Join(mocks.Runtime.ProjectRoot, "kustomize/kustomization.yaml"), &mockFileInfo{name: "kustomization.yaml", isDir: false}, nil)
 			}
 			return nil
 		}
@@ -1127,7 +1127,7 @@ func TestArtifactBuilder_Bundle(t *testing.T) {
 		builder, mocks := setup(t)
 
 		mocks.Shims.Stat = func(name string) (os.FileInfo, error) {
-			if name == "kustomize" {
+			if name == filepath.Join(mocks.Runtime.ProjectRoot, "kustomize") {
 				return &mockFileInfo{name: "kustomize", isDir: true}, nil
 			}
 			return nil, os.ErrNotExist
@@ -1158,19 +1158,19 @@ func TestArtifactBuilder_Bundle_EmitsArtifactManifest(t *testing.T) {
 		builder := NewArtifactBuilder(mocks.Runtime)
 		builder.shims = mocks.Shims
 		mocks.Shims.Stat = func(name string) (os.FileInfo, error) {
-			if name == "kustomize" || name == "terraform" {
+			if name == filepath.Join(mocks.Runtime.ProjectRoot, "kustomize") || name == filepath.Join(mocks.Runtime.ProjectRoot, "terraform") {
 				return &mockFileInfo{name: name, isDir: true}, nil
 			}
 			return nil, os.ErrNotExist
 		}
 		mocks.Shims.Walk = func(root string, fn filepath.WalkFunc) error {
 			switch root {
-			case "kustomize":
-				fn("kustomize", &mockFileInfo{name: "kustomize", isDir: true}, nil)
-				fn("kustomize/helm-release.yaml", &mockFileInfo{name: "helm-release.yaml", isDir: false}, nil)
-			case "terraform":
-				fn("terraform", &mockFileInfo{name: "terraform", isDir: true}, nil)
-				fn("terraform/variables.tf", &mockFileInfo{name: "variables.tf", isDir: false}, nil)
+			case filepath.Join(mocks.Runtime.ProjectRoot, "kustomize"):
+				fn(filepath.Join(mocks.Runtime.ProjectRoot, "kustomize"), &mockFileInfo{name: "kustomize", isDir: true}, nil)
+				fn(filepath.Join(mocks.Runtime.ProjectRoot, "kustomize/helm-release.yaml"), &mockFileInfo{name: "helm-release.yaml", isDir: false}, nil)
+			case filepath.Join(mocks.Runtime.ProjectRoot, "terraform"):
+				fn(filepath.Join(mocks.Runtime.ProjectRoot, "terraform"), &mockFileInfo{name: "terraform", isDir: true}, nil)
+				fn(filepath.Join(mocks.Runtime.ProjectRoot, "terraform/variables.tf"), &mockFileInfo{name: "variables.tf", isDir: false}, nil)
 			}
 			return nil
 		}

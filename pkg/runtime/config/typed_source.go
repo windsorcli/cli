@@ -8,6 +8,7 @@ import (
 
 	"github.com/windsorcli/cli/api/config/v1alpha2"
 	"github.com/windsorcli/cli/internal/werror"
+	"github.com/windsorcli/cli/pkg/runtime/paths"
 )
 
 // The TypedSource is a configuration source for the root windsor.yaml and the v1alpha1 context files.
@@ -47,8 +48,8 @@ func newTypedSource(shims *Shims) *typedSource {
 // every key of the context map. A v1alpha1 root file, or a root file with no version, loads as
 // before. A v1alpha2 root file MUST hold only version, environment, and paths, and MUST NOT sit
 // beside a contexts/<name>/windsor.yaml or windsor.yml. Any other version value fails the load.
-func (s *typedSource) LoadRoot(projectRoot string, contextName string) (map[string]any, bool, error) {
-	rootConfigPath := filepath.Join(projectRoot, "windsor.yaml")
+func (s *typedSource) LoadRoot(resolver *paths.Resolver, contextName string) (map[string]any, bool, error) {
+	rootConfigPath := filepath.Join(resolver.ProjectRoot(), paths.RootFileName)
 	if _, err := s.shims.Stat(rootConfigPath); err != nil {
 		return nil, false, nil
 	}
@@ -70,7 +71,7 @@ func (s *typedSource) LoadRoot(projectRoot string, contextName string) (map[stri
 		if err := s.validateRoot(rootConfigPath, fileData, rootKeys); err != nil {
 			return nil, false, err
 		}
-		if err := s.rejectContextFiles(rootConfigPath, projectRoot); err != nil {
+		if err := s.rejectContextFiles(rootConfigPath, resolver); err != nil {
 			return nil, false, err
 		}
 		return nil, true, nil
@@ -117,8 +118,8 @@ func (s *typedSource) LoadRootEnvironment(projectRoot string) (map[string]any, e
 }
 
 // LoadContext loads legacy context-level windsor.yaml or windsor.yml for a context.
-func (s *typedSource) LoadContext(projectRoot, contextName string) (map[string]any, bool, error) {
-	contextConfigDir := filepath.Join(projectRoot, "contexts", contextName)
+func (s *typedSource) LoadContext(resolver *paths.Resolver, contextName string) (map[string]any, bool, error) {
+	contextConfigDir := resolver.ContextDir(contextName)
 	yamlPath := filepath.Join(contextConfigDir, "windsor.yaml")
 	ymlPath := filepath.Join(contextConfigDir, "windsor.yml")
 
@@ -179,6 +180,9 @@ func (s *typedSource) validateRoot(rootPath string, fileData []byte, rootKeys ma
 			fmt.Sprintf("The v1alpha2 root file %s has the key %q. The root file cannot hold per-context values.", rootPath, "contexts"),
 			"Run 'windsor migrate' to move the values into contexts/<name>/values.yaml.", nil)
 	}
+	if err := rejectEmptyPaths(rootPath, rootKeys["paths"]); err != nil {
+		return err
+	}
 	var root v1alpha2.Root
 	if err := s.shims.YamlUnmarshalStrict(fileData, &root); err != nil {
 		return werror.New(
@@ -190,8 +194,8 @@ func (s *typedSource) validateRoot(rootPath string, fileData []byte, rootKeys ma
 
 // rejectContextFiles fails when a contexts/<name>/windsor.yaml or windsor.yml exists. A v1alpha2
 // root file does not read these files, so their settings would stop applying without notice.
-func (s *typedSource) rejectContextFiles(rootPath, projectRoot string) error {
-	contextsDir := filepath.Join(projectRoot, "contexts")
+func (s *typedSource) rejectContextFiles(rootPath string, resolver *paths.Resolver) error {
+	contextsDir := resolver.Contexts()
 	entries, err := s.shims.ReadDir(contextsDir)
 	if err != nil {
 		if errors.Is(err, fs.ErrNotExist) {
@@ -218,6 +222,23 @@ func (s *typedSource) rejectContextFiles(rootPath, projectRoot string) error {
 // =============================================================================
 // Helpers
 // =============================================================================
+
+// rejectEmptyPaths fails when the paths block of the root file sets a key to an empty string. The
+// typed decode cannot tell an empty value from a missing key, so this check reads the raw map.
+func rejectEmptyPaths(rootPath string, raw any) error {
+	block, ok := raw.(map[string]any)
+	if !ok {
+		return nil
+	}
+	for key, value := range block {
+		if text, isText := value.(string); isText && text == "" {
+			return werror.New(
+				fmt.Sprintf("The v1alpha2 root file %s sets paths.%s to an empty value.", rootPath, key),
+				"Set a relative directory, or remove the key.", nil)
+		}
+	}
+	return nil
+}
 
 // convertV1alpha1 converts merged v1alpha1 values into the v1alpha2 header in place. It moves
 // provider to platform when platform is empty, and removes provider.

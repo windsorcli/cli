@@ -238,7 +238,7 @@ func (s *FluxStack) planOne(blueprint *blueprintv1alpha1.Blueprint, k blueprintv
 	}
 
 	sourceRoot := s.resolveSourceRoot(blueprint, k)
-	fluxK := k.ToFluxKustomization(namespace, blueprint.Metadata.Name, blueprint.Sources, s.gitopsMode())
+	fluxK := kubernetes.FluxKustomization(&k, s.runtime.ProjectPaths(), namespace, blueprint.Metadata.Name, blueprint.Sources, s.gitopsMode())
 	localPath := filepath.Join(sourceRoot, fluxK.Spec.Path)
 
 	if exists {
@@ -484,7 +484,7 @@ func (s *FluxStack) encodeKustomizationsJSON(w io.Writer, blueprint *blueprintv1
 
 	var results []entry
 	for _, k := range targets {
-		fluxK := k.ToFluxKustomization(namespace, blueprint.Metadata.Name, blueprint.Sources, s.gitopsMode())
+		fluxK := kubernetes.FluxKustomization(&k, s.runtime.ProjectPaths(), namespace, blueprint.Metadata.Name, blueprint.Sources, s.gitopsMode())
 		sourceRoot := s.resolveSourceRoot(blueprint, k)
 		localPath := filepath.Join(sourceRoot, fluxK.Spec.Path)
 

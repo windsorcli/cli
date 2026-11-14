@@ -246,9 +246,9 @@ func (a *ArtifactBuilder) extractTarEntries(tarReader TarReader, destDir string)
 			return werror.Wrap(err, "invalid path in tar archive")
 		}
 
-		if !strings.HasPrefix(sanitizedPath, "_template/") &&
-			!strings.HasPrefix(sanitizedPath, "kustomize/") &&
-			!strings.HasPrefix(sanitizedPath, "terraform/") &&
+		if !strings.HasPrefix(sanitizedPath, archiveTemplateDir+"/") &&
+			!strings.HasPrefix(sanitizedPath, archiveKustomizeDir+"/") &&
+			!strings.HasPrefix(sanitizedPath, archiveTerraformDir+"/") &&
 			sanitizedPath != "metadata.yaml" {
 			if header.Typeflag != tar.TypeDir {
 				if _, err := io.Copy(io.Discard, tarReader); err != nil {

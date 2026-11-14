@@ -18,7 +18,9 @@ import (
 	"github.com/windsorcli/cli/pkg/composer/inventory"
 	"github.com/windsorcli/cli/pkg/constants"
 	"github.com/windsorcli/cli/pkg/project"
+	"github.com/windsorcli/cli/pkg/provisioner/kubernetes"
 	"github.com/windsorcli/cli/pkg/runtime/config"
+	"github.com/windsorcli/cli/pkg/runtime/paths"
 )
 
 var showBlueprintJSON bool
@@ -217,7 +219,7 @@ windsor show kustomization dns --json`,
 
 		namespace := proj.Runtime.ConfigHandler.GetString("gitops.namespace", constants.DefaultGitopsNamespace)
 		mode := constants.ParseGitopsMode(proj.Runtime.ConfigHandler.GetString("gitops.mode", ""))
-		fluxKustomization := buildFluxKustomization(blueprint, &kustomization, namespace, mode)
+		fluxKustomization := buildFluxKustomization(blueprint, &kustomization, proj.Runtime.ProjectPaths(), namespace, mode)
 		resource := blueprintcomposer.RenderForDisplay(fluxKustomization, true, deferredPaths)
 
 		if err := outputResource(resource, showKustomizationJSON, "kustomization"); err != nil {
@@ -408,7 +410,7 @@ func getValues(cmd *cobra.Command) (map[string]any, map[string]any, error) {
 // match what the kubernetes manager applies to the cluster. The mode parameter ensures
 // `windsor show` renders the same default Interval that ApplyBlueprint would write, so the
 // displayed manifest does not drift from the applied manifest across gitops modes.
-func buildFluxKustomization(blueprint *blueprintv1alpha1.Blueprint, kustomization *blueprintv1alpha1.Kustomization, namespace string, mode constants.GitopsMode) kustomizev1.Kustomization {
+func buildFluxKustomization(blueprint *blueprintv1alpha1.Blueprint, kustomization *blueprintv1alpha1.Kustomization, resolver *paths.Resolver, namespace string, mode constants.GitopsMode) kustomizev1.Kustomization {
 	defaultSourceName := blueprint.Metadata.Name
-	return kustomization.ToFluxKustomization(namespace, defaultSourceName, blueprint.Sources, mode, blueprint.ConfigMaps)
+	return kubernetes.FluxKustomization(kustomization, resolver, namespace, defaultSourceName, blueprint.Sources, mode, blueprint.ConfigMaps)
 }

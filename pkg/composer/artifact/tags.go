@@ -42,10 +42,6 @@ var tagKeyValuePattern = regexp.MustCompile(`(\w+)=(\S+)`)
 // referrersPattern matches the referrers attribute of a tag body. It also matches an empty value.
 var referrersPattern = regexp.MustCompile(`(?:^|\s)referrers=(\S*)`)
 
-// tagRoots are the directories of a source that the scan reads. The contexts directory holds the
-// facets and values files of a project. The _template directory holds them in a bundled source.
-var tagRoots = []string{"kustomize", "terraform", "contexts", "_template"}
-
 // =============================================================================
 // Types
 // =============================================================================
@@ -105,10 +101,18 @@ func ScanTags(filePath string, content []byte) ([]ArtifactTag, error) {
 // ScanTagsDir returns the artifact tags in the .yaml, .yml, .tf and .tfvars files under the kustomize,
 // terraform, contexts and _template directories of root. This covers facets and values files.
 // A root with none of these directories gives no tags. File paths are relative to root.
+// It reads the root at ArchiveLayout, the layout of a bundle and of every consumed source.
 func ScanTagsDir(root string) ([]ArtifactTag, error) {
+	return ScanTagsDirIn(root, ArchiveLayout)
+}
+
+// ScanTagsDirIn is ScanTagsDir for a root with the given layout. The contexts directory holds the
+// facets and values files of a project. The template directory holds them in a bundled source.
+func ScanTagsDirIn(root string, layout Layout) ([]ArtifactTag, error) {
 	fsys := os.DirFS(root)
+	roots := layout.Roots()
 	var tags []ArtifactTag
-	for _, dir := range tagRoots {
+	for _, dir := range roots {
 		err := fs.WalkDir(fsys, dir, func(path string, d fs.DirEntry, err error) error {
 			if err != nil {
 				if errors.Is(err, fs.ErrNotExist) {
@@ -122,7 +126,7 @@ func ScanTagsDir(root string) ([]ArtifactTag, error) {
 				}
 				return nil
 			}
-			if !isTagPath(path) {
+			if !isTagPathIn(path, roots) {
 				return nil
 			}
 			content, err := fs.ReadFile(fsys, path)
@@ -156,7 +160,12 @@ func ScanTagsDir(root string) ([]ArtifactTag, error) {
 // isTagPath reports whether the tag scan reads the file at path. It accepts YAML, Terraform and
 // tfvars files under the kustomize, terraform, contexts and _template directories.
 func isTagPath(path string) bool {
-	for _, dir := range tagRoots {
+	return isTagPathIn(path, ArchiveLayout.Roots())
+}
+
+// isTagPathIn is isTagPath for the given scan roots.
+func isTagPathIn(path string, roots []string) bool {
+	for _, dir := range roots {
 		if strings.HasPrefix(path, dir+"/") {
 			return hasTagExtension(path)
 		}

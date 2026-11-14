@@ -6,7 +6,6 @@ package terraform
 
 import (
 	"fmt"
-	"path/filepath"
 	"sort"
 	"strings"
 
@@ -35,7 +34,7 @@ func (p *DefaultTerraformProvider) SharedBackendContexts() []string {
 	if err != nil {
 		return nil
 	}
-	entries, err := p.Shims.ReadDir(filepath.Join(projectRoot, "contexts"))
+	entries, err := p.Shims.ReadDir(p.projectPaths(projectRoot).Contexts())
 	if err != nil {
 		return nil
 	}

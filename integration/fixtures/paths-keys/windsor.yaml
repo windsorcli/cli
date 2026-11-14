@@ -1,0 +1,7 @@
+version: v1alpha2
+environment:
+  ROOT_VAR: from-root
+paths:
+  terraform: tf
+  kustomize: k8s
+  contexts: ctx

@@ -76,7 +76,7 @@ func setupTerraformEnvPrinter(t *testing.T, mocks *EnvTestMocks, provider terraf
 // Individual functions can be overridden by setting them on the returned mock.
 func setupMockTerraformProvider(mocks *EnvTestMocks) *terraform.MockTerraformProvider {
 	testEvaluator := evaluator.NewExpressionEvaluator(mocks.ConfigHandler, "/test/project", "/test/template")
-	realProvider := terraform.NewTerraformProvider(mocks.ConfigHandler, mocks.Shell, mocks.ToolsManager, testEvaluator)
+	realProvider := terraform.NewTerraformProvider(mocks.ConfigHandler, mocks.Shell, mocks.ToolsManager, testEvaluator, nil)
 
 	// Set up the real provider's Shims to use the test's mocked functions
 	// Use reflection to access the exported Shims field on the concrete type
@@ -649,7 +649,7 @@ func TestTerraformEnv_GetEnvVars(t *testing.T) {
 
 		// Update the real provider's Shims to use the test's mocked Stat function
 		testEvaluator := evaluator.NewExpressionEvaluator(mocks.ConfigHandler, "/test/project", "/test/template")
-		realProvider := terraform.NewTerraformProvider(mocks.ConfigHandler, mocks.Shell, mocks.ToolsManager, testEvaluator)
+		realProvider := terraform.NewTerraformProvider(mocks.ConfigHandler, mocks.Shell, mocks.ToolsManager, testEvaluator, nil)
 		rvProvider := reflect.ValueOf(realProvider)
 		if rvProvider.Kind() == reflect.Ptr {
 			shimsField := rvProvider.Elem().FieldByName("Shims")
@@ -1558,7 +1558,7 @@ terraform:
 		// Override GenerateTerraformArgs to manually construct args with parallelism
 		// since the real provider's GetTerraformComponent loads from blueprint.yaml
 		testEvaluator := evaluator.NewExpressionEvaluator(mocks.ConfigHandler, "/test/project", "/test/template")
-		realProvider := terraform.NewTerraformProvider(mocks.ConfigHandler, mocks.Shell, mocks.ToolsManager, testEvaluator)
+		realProvider := terraform.NewTerraformProvider(mocks.ConfigHandler, mocks.Shell, mocks.ToolsManager, testEvaluator, nil)
 		rvProvider := reflect.ValueOf(realProvider)
 		if rvProvider.Kind() == reflect.Ptr {
 			shimsField := rvProvider.Elem().FieldByName("Shims")
@@ -1985,7 +1985,7 @@ terraform:
 		}
 		// Override GenerateTerraformArgs to manually construct args with parallelism
 		testEvaluator := evaluator.NewExpressionEvaluator(mocks.ConfigHandler, "/test/project", "/test/template")
-		realProvider := terraform.NewTerraformProvider(mocks.ConfigHandler, mocks.Shell, mocks.ToolsManager, testEvaluator)
+		realProvider := terraform.NewTerraformProvider(mocks.ConfigHandler, mocks.Shell, mocks.ToolsManager, testEvaluator, nil)
 		rvProvider := reflect.ValueOf(realProvider)
 		if rvProvider.Kind() == reflect.Ptr {
 			shimsField := rvProvider.Elem().FieldByName("Shims")

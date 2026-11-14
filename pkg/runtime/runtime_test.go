@@ -3,6 +3,7 @@ package runtime_test
 import (
 	"errors"
 	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -162,6 +163,46 @@ func (m *MockToolsManager) GetTerraformCommand() string {
 // =============================================================================
 
 func TestRuntime_NewRuntime(t *testing.T) {
+	t.Run("BuildsThePathResolverFromTheRootFile", func(t *testing.T) {
+		// Given a project whose root file sets paths.base
+		root := t.TempDir()
+		if err := os.WriteFile(filepath.Join(root, "windsor.yaml"), []byte("version: v1alpha2\npaths:\n  base: infra\n"), 0644); err != nil {
+			t.Fatal(err)
+		}
+		mocks := setupRuntimeMocks(t)
+
+		// When the runtime is created for that root
+		rt := runtime.NewRuntime(&runtime.Runtime{Shell: mocks.Shell, ConfigHandler: mocks.ConfigHandler, ProjectRoot: root, ContextName: "dev"})
+
+		// Then the resolver and the context roots follow the paths block
+		if got, want := rt.ProjectPaths().Terraform(), filepath.Join(root, "infra", "terraform"); got != want {
+			t.Errorf("Terraform: got %q, want %q", got, want)
+		}
+		if got, want := rt.ConfigRoot, filepath.Join(root, "infra", "contexts", "dev"); got != want {
+			t.Errorf("ConfigRoot: got %q, want %q", got, want)
+		}
+		if got, want := rt.TemplateRoot, filepath.Join(root, "infra", "contexts", "_template"); got != want {
+			t.Errorf("TemplateRoot: got %q, want %q", got, want)
+		}
+	})
+
+	t.Run("FallsBackToTheDefaultLayoutOnAnInvalidPathsBlock", func(t *testing.T) {
+		// Given a root file with an invalid paths block
+		root := t.TempDir()
+		if err := os.WriteFile(filepath.Join(root, "windsor.yaml"), []byte("version: v1alpha2\npaths:\n  base: ../up\n"), 0644); err != nil {
+			t.Fatal(err)
+		}
+		mocks := setupRuntimeMocks(t)
+
+		// When the runtime is created
+		rt := runtime.NewRuntime(&runtime.Runtime{Shell: mocks.Shell, ConfigHandler: mocks.ConfigHandler, ProjectRoot: root, ContextName: "dev"})
+
+		// Then the runtime holds the default layout, and the config handler reports the error on load
+		if got, want := rt.ProjectPaths().Contexts(), filepath.Join(root, "contexts"); got != want {
+			t.Errorf("Contexts: got %q, want %q", got, want)
+		}
+	})
+
 	t.Run("CreatesContextWithDependencies", func(t *testing.T) {
 		// Given a runtime with dependencies
 		mocks := setupRuntimeMocks(t)

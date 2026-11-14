@@ -170,31 +170,33 @@ func (a *ArtifactBuilder) Write(outputPath string, tag string) (string, error) {
 }
 
 // Bundle collects the project files for the artifact and adds the artifact manifest.
-// It copies contexts/_template to _template, and copies the kustomize and terraform directories.
+// It reads the template, kustomize, and terraform directories through the project path resolver and
+// writes them at the fixed archive layout: _template/, kustomize/, and terraform/ at the archive root.
 // It does not copy the terraform files that shouldSkipTerraformFile excludes.
 func (a *ArtifactBuilder) Bundle() error {
+	resolver := a.runtime.ProjectPaths()
 	processors := []PathProcessor{
 		{
-			Pattern: "contexts/_template",
+			Pattern: resolver.TemplateDir(),
 			Handler: func(relPath string, data []byte, mode os.FileMode) error {
-				artifactPath := "_template/" + filepath.ToSlash(relPath)
+				artifactPath := archiveTemplateDir + "/" + filepath.ToSlash(relPath)
 				return a.addFile(artifactPath, data, mode)
 			},
 		},
 		{
-			Pattern: "kustomize",
+			Pattern: resolver.Kustomize(),
 			Handler: func(relPath string, data []byte, mode os.FileMode) error {
-				artifactPath := "kustomize/" + filepath.ToSlash(relPath)
+				artifactPath := archiveKustomizeDir + "/" + filepath.ToSlash(relPath)
 				return a.addFile(artifactPath, data, mode)
 			},
 		},
 		{
-			Pattern: "terraform",
+			Pattern: resolver.Terraform(),
 			Handler: func(relPath string, data []byte, mode os.FileMode) error {
 				if a.shouldSkipTerraformFile(filepath.Base(relPath)) {
 					return nil
 				}
-				artifactPath := "terraform/" + filepath.ToSlash(relPath)
+				artifactPath := archiveTerraformDir + "/" + filepath.ToSlash(relPath)
 				return a.addFile(artifactPath, data, mode)
 			},
 		},
@@ -237,7 +239,7 @@ func (a *ArtifactBuilder) refreshArtifactManifest() error {
 		return nil
 	}
 	var blueprint []byte
-	if info, ok := a.files["_template/blueprint.yaml"]; ok {
+	if info, ok := a.files[archiveTemplateDir+"/blueprint.yaml"]; ok {
 		blueprint = info.Content
 	}
 	bom, err := a.bomWriter(a.metadata.Name, a.metadata.Version, tags, blueprint)
@@ -254,8 +256,7 @@ func (a *ArtifactBuilder) refreshArtifactManifest() error {
 func (a *ArtifactBuilder) walkAndProcessFiles(processors []PathProcessor) error {
 	dirSet := make(map[string]bool)
 	for _, processor := range processors {
-		dir := strings.Split(processor.Pattern, "/")[0]
-		dirSet[dir] = true
+		dirSet[walkRoot(processor.Pattern)] = true
 	}
 
 	for dir := range dirSet {
@@ -307,6 +308,15 @@ func (a *ArtifactBuilder) findMatchingProcessor(path string, processors []PathPr
 		}
 	}
 	return nil
+}
+
+// walkRoot returns the directory that the walk starts at for a processor pattern. An absolute
+// pattern is the directory itself. A relative pattern starts at its first path element.
+func walkRoot(pattern string) string {
+	if filepath.IsAbs(pattern) {
+		return pattern
+	}
+	return strings.Split(pattern, "/")[0]
 }
 
 // shouldSkipTerraformFile determines if a terraform file should be excluded from bundling
@@ -370,7 +380,7 @@ func (a *ArtifactBuilder) parseTagAndResolveMetadata(repoName, tag string) (stri
 		}
 	}
 
-	metadataFileInfo, hasMetadata := a.files["_template/metadata.yaml"]
+	metadataFileInfo, hasMetadata := a.files[archiveTemplateDir+"/metadata.yaml"]
 	var input BlueprintMetadataInput
 
 	if hasMetadata {
@@ -479,7 +489,7 @@ func (a *ArtifactBuilder) createTarball(w io.Writer, metadata []byte) error {
 	}
 
 	for path, fileInfo := range a.files {
-		if path == "_template/metadata.yaml" {
+		if path == archiveTemplateDir+"/metadata.yaml" {
 			continue
 		}
 

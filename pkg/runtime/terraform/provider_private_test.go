@@ -104,7 +104,7 @@ func setupMocks(t *testing.T, opts ...*SetupOptions) *Mocks {
 		testEvaluator = evaluator.NewExpressionEvaluator(configHandler, "/test/project", "/test/template")
 	}
 
-	provider := NewTerraformProvider(configHandler, mockShell, toolsManager, testEvaluator)
+	provider := NewTerraformProvider(configHandler, mockShell, toolsManager, testEvaluator, nil)
 	concreteProvider := provider.(*DefaultTerraformProvider)
 
 	if options.BlueprintYAML != "" {
@@ -187,7 +187,7 @@ func TestNewTerraformProvider(t *testing.T) {
 		}
 
 		// When creating a provider with evaluator
-		provider := NewTerraformProvider(configHandler, mockShell, toolsManager, mockEvaluator)
+		provider := NewTerraformProvider(configHandler, mockShell, toolsManager, mockEvaluator, nil)
 
 		// Then Register should be called with terraform_output
 		if provider == nil {
@@ -210,7 +210,7 @@ func TestNewTerraformProvider(t *testing.T) {
 		toolsManager := tools.NewMockToolsManager()
 		testEvaluator := evaluator.NewExpressionEvaluator(configHandler, "/test/project", "/test/template")
 
-		provider := NewTerraformProvider(configHandler, mockShell, toolsManager, testEvaluator)
+		provider := NewTerraformProvider(configHandler, mockShell, toolsManager, testEvaluator, nil)
 		concreteProvider := provider.(*DefaultTerraformProvider)
 
 		if provider == nil {

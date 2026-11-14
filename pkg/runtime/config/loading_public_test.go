@@ -2,6 +2,7 @@ package config_test
 
 import (
 	"errors"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -512,6 +513,105 @@ func TestLoadConfig_RootEnvironment(t *testing.T) {
 		// Then the context is still new
 		if err != nil || !isNew {
 			t.Errorf("expected a new context, got isNew=%v err=%v", isNew, err)
+		}
+	})
+}
+
+func TestLoadConfig_RootPaths(t *testing.T) {
+	t.Run("ReadsContextValuesFromTheConfiguredContextsDirectory", func(t *testing.T) {
+		// Given a root file with paths.base and values in the moved contexts directory
+		f := newFixture(t)
+		f.write(t, "windsor.yaml", "version: v1alpha2\npaths:\n  base: infra\n")
+		f.write(t, "infra/contexts/local/values.yaml", "environment:\n  REGION: moved\n")
+		f.write(t, "contexts/local/values.yaml", "environment:\n  REGION: standard\n")
+
+		// When config is loaded
+		f.load(t)
+
+		// Then the moved directory supplies the values
+		if got := f.handler.GetStringMap("environment")["REGION"]; got != "moved" {
+			t.Errorf("expected the moved values, got %q", got)
+		}
+	})
+
+	t.Run("GetConfigRootFollowsTheContextsKey", func(t *testing.T) {
+		// Given a root file with a per-key contexts path
+		f := newFixture(t)
+		f.write(t, "windsor.yaml", "version: v1alpha2\npaths:\n  contexts: ctx\n")
+		f.load(t)
+
+		// When the config root is read
+		got, err := f.handler.GetConfigRoot()
+
+		// Then it sits under the configured directory
+		if err != nil {
+			t.Fatalf("GetConfigRoot: %v", err)
+		}
+		if want := filepath.Join(f.root, "ctx", "local"); got != want {
+			t.Errorf("got %q, want %q", got, want)
+		}
+	})
+
+	t.Run("SaveConfigWritesValuesInTheConfiguredDirectory", func(t *testing.T) {
+		// Given a root file with paths.base and a loaded config
+		f := newFixture(t)
+		f.write(t, "windsor.yaml", "version: v1alpha2\npaths:\n  base: infra\n")
+		f.load(t)
+		if err := f.handler.Set("environment.REGION", "saved"); err != nil {
+			t.Fatalf("Set: %v", err)
+		}
+
+		// When the config is saved
+		if err := f.handler.SaveConfig(); err != nil {
+			t.Fatalf("SaveConfig: %v", err)
+		}
+
+		// Then values.yaml is in the moved directory only
+		if !f.exists("infra/contexts/local/values.yaml") || f.exists("contexts/local/values.yaml") {
+			t.Errorf("expected values.yaml under infra/contexts only")
+		}
+	})
+
+	t.Run("RejectsAnInvalidPathsBlock", func(t *testing.T) {
+		// Given a root file whose paths block goes up a directory
+		f := newFixture(t)
+		f.write(t, "windsor.yaml", "version: v1alpha2\npaths:\n  base: ../up\n")
+
+		// When config is loaded
+		err := f.handler.LoadConfig()
+
+		// Then the load fails and names the key
+		if err == nil || !strings.Contains(err.Error(), "paths.base") {
+			t.Fatalf("expected an error that names paths.base, got %v", err)
+		}
+	})
+
+	t.Run("RejectsAnEmptyPathsValue", func(t *testing.T) {
+		// Given a root file that sets a paths key to an empty string
+		f := newFixture(t)
+		f.write(t, "windsor.yaml", "version: v1alpha2\npaths:\n  terraform: \"\"\n")
+
+		// When config is loaded
+		err := f.handler.LoadConfig()
+
+		// Then the load fails and names the key
+		if err == nil || !strings.Contains(err.Error(), "paths.terraform") {
+			t.Fatalf("expected an error that names paths.terraform, got %v", err)
+		}
+	})
+
+	t.Run("RejectsContextFilesInTheConfiguredDirectory", func(t *testing.T) {
+		// Given a v1alpha2 root with a moved contexts directory that holds a v1alpha1 context file
+		f := newFixture(t)
+		f.write(t, "windsor.yaml", "version: v1alpha2\npaths:\n  base: infra\n")
+		f.write(t, "infra/contexts/local/windsor.yaml", "provider: aws\n")
+
+		// When config is loaded
+		err := f.handler.LoadConfig()
+
+		// Then the load fails and names the file in the moved directory
+		if err == nil || !strings.Contains(err.Error(), filepath.Join("infra", "contexts", "local", "windsor.yaml")) {
+			t.Fatalf("expected an error that names the context file, got %v", err)
 		}
 	})
 }

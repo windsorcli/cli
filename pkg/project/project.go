@@ -76,7 +76,7 @@ func NewProject(contextName string, opts ...*Project) *Project {
 	}
 
 	rt.ContextName = contextName
-	rt.ConfigRoot = filepath.Join(rt.ProjectRoot, "contexts", contextName)
+	rt.ConfigRoot = rt.ProjectPaths().ContextDir(contextName)
 
 	var comp *composer.Composer
 	if overrides != nil && overrides.Composer != nil {

@@ -13,6 +13,7 @@ import (
 
 	cliconfig "github.com/windsorcli/cli/api/config/v1alpha2"
 	"github.com/windsorcli/cli/internal/werror"
+	"github.com/windsorcli/cli/pkg/runtime/paths"
 	"github.com/windsorcli/cli/pkg/runtime/shell"
 )
 
@@ -102,6 +103,9 @@ type configHandler struct {
 	// resolvedContext memoizes GetContext's file/env/default lookup; see GetContext.
 	resolvedContext *contextCache
 
+	// projectPaths memoizes the path resolver of the project root; see resolver.
+	projectPaths *pathsCache
+
 	// stringSets keeps the original string of each value Set converted; see reconvertStringSets.
 	stringSets map[string]stringSet
 }
@@ -122,6 +126,14 @@ type contextCache struct {
 	value    string
 }
 
+// pathsCache memoizes the path resolver of one project root. It is a pointer so a copy of the
+// handler shares the resolver that the original loaded.
+type pathsCache struct {
+	mu       sync.Mutex
+	root     string
+	resolver *paths.Resolver
+}
+
 // =============================================================================
 // Constructor
 // =============================================================================
@@ -137,6 +149,7 @@ func NewConfigHandler(shell shell.Shell) ConfigHandler {
 		shims:           NewShims(),
 		data:            make(map[string]any),
 		resolvedContext: &contextCache{},
+		projectPaths:    &pathsCache{},
 	}
 
 	handler.schemaValidator = NewSchemaValidator(shell)
@@ -312,8 +325,11 @@ func (c *configHandler) GetConfigRoot() (string, error) {
 		return "", err
 	}
 
-	configRoot := filepath.Join(projectRoot, contextDirName, context)
-	return configRoot, nil
+	resolver, err := c.resolver(projectRoot)
+	if err != nil {
+		return "", err
+	}
+	return resolver.ContextDir(context), nil
 }
 
 // GetWindsorScratchPath retrieves the windsor scratch directory path based on the current context
