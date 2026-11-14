@@ -1,5 +1,5 @@
-// The layout file names the source directories of a tree that the artifact code reads or writes.
-// It provides the fixed bundle names, ProjectBase, and the scan roots for a base directory.
+// The layout file joins the source directory names with a base directory for the artifact code.
+// It provides ProjectBase and the scan roots for a base directory.
 // A bundle and every consumed source have an empty base. A project has the base of its root file.
 // Every directory name is joined with the base, so one prefix describes both layouts.
 
@@ -9,17 +9,6 @@ import (
 	"path"
 
 	"github.com/windsorcli/cli/pkg/runtime/paths"
-)
-
-// =============================================================================
-// Constants
-// =============================================================================
-
-const (
-	archiveKustomizeDir = "kustomize"
-	archiveTerraformDir = "terraform"
-	archiveContextsDir  = "contexts"
-	archiveTemplateDir  = "_template"
 )
 
 // =============================================================================
@@ -38,7 +27,7 @@ func ProjectBase(resolver *paths.Resolver) string {
 
 // TerraformDir returns the terraform directory under base, relative to the tree root.
 func TerraformDir(base string) string {
-	return path.Join(base, archiveTerraformDir)
+	return path.Join(base, paths.TerraformDirName)
 }
 
 // =============================================================================
@@ -49,10 +38,10 @@ func TerraformDir(base string) string {
 // the facets and values files of a project. The _template directory holds them in a bundled source.
 func scanRoots(base string) []string {
 	return []string{
-		path.Join(base, archiveKustomizeDir),
-		path.Join(base, archiveTerraformDir),
-		path.Join(base, archiveContextsDir),
-		path.Join(base, archiveTemplateDir),
+		path.Join(base, paths.KustomizeDirName),
+		path.Join(base, paths.TerraformDirName),
+		path.Join(base, paths.ContextsDirName),
+		path.Join(base, paths.TemplateDirName),
 	}
 }
 
@@ -60,8 +49,8 @@ func scanRoots(base string) []string {
 // kustomize/crds directory is the CRD catalog. A cluster can use a catalog entry with no kustomization.
 func wholeDirs(base string) []string {
 	return []string{
-		path.Join(base, archiveContextsDir),
-		path.Join(base, archiveTemplateDir),
-		path.Join(base, archiveKustomizeDir, "crds"),
+		path.Join(base, paths.ContextsDirName),
+		path.Join(base, paths.TemplateDirName),
+		path.Join(base, paths.KustomizeDirName, "crds"),
 	}
 }

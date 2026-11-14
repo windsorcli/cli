@@ -18,6 +18,7 @@ import (
 	"github.com/windsorcli/cli/internal/werror"
 	"github.com/windsorcli/cli/pkg/constants"
 	"github.com/windsorcli/cli/pkg/runtime"
+	"github.com/windsorcli/cli/pkg/runtime/paths"
 	"github.com/windsorcli/cli/pkg/runtime/shell"
 )
 
@@ -179,14 +180,14 @@ func (a *ArtifactBuilder) Bundle() error {
 		{
 			Pattern: resolver.TemplateDir(),
 			Handler: func(relPath string, data []byte, mode os.FileMode) error {
-				artifactPath := archiveTemplateDir + "/" + filepath.ToSlash(relPath)
+				artifactPath := paths.TemplateDirName + "/" + filepath.ToSlash(relPath)
 				return a.addFile(artifactPath, data, mode)
 			},
 		},
 		{
 			Pattern: resolver.Kustomize(),
 			Handler: func(relPath string, data []byte, mode os.FileMode) error {
-				artifactPath := archiveKustomizeDir + "/" + filepath.ToSlash(relPath)
+				artifactPath := paths.KustomizeDirName + "/" + filepath.ToSlash(relPath)
 				return a.addFile(artifactPath, data, mode)
 			},
 		},
@@ -196,7 +197,7 @@ func (a *ArtifactBuilder) Bundle() error {
 				if a.shouldSkipTerraformFile(filepath.Base(relPath)) {
 					return nil
 				}
-				artifactPath := archiveTerraformDir + "/" + filepath.ToSlash(relPath)
+				artifactPath := paths.TerraformDirName + "/" + filepath.ToSlash(relPath)
 				return a.addFile(artifactPath, data, mode)
 			},
 		},
@@ -239,7 +240,7 @@ func (a *ArtifactBuilder) refreshArtifactManifest() error {
 		return nil
 	}
 	var blueprint []byte
-	if info, ok := a.files[archiveTemplateDir+"/blueprint.yaml"]; ok {
+	if info, ok := a.files[paths.TemplateDirName+"/blueprint.yaml"]; ok {
 		blueprint = info.Content
 	}
 	bom, err := a.bomWriter(a.metadata.Name, a.metadata.Version, tags, blueprint)
@@ -380,7 +381,7 @@ func (a *ArtifactBuilder) parseTagAndResolveMetadata(repoName, tag string) (stri
 		}
 	}
 
-	metadataFileInfo, hasMetadata := a.files[archiveTemplateDir+"/metadata.yaml"]
+	metadataFileInfo, hasMetadata := a.files[paths.TemplateDirName+"/metadata.yaml"]
 	var input BlueprintMetadataInput
 
 	if hasMetadata {
@@ -489,7 +490,7 @@ func (a *ArtifactBuilder) createTarball(w io.Writer, metadata []byte) error {
 	}
 
 	for path, fileInfo := range a.files {
-		if path == archiveTemplateDir+"/metadata.yaml" {
+		if path == paths.TemplateDirName+"/metadata.yaml" {
 			continue
 		}
 

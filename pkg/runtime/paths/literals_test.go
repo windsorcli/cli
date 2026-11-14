@@ -22,11 +22,9 @@ var sourceDirLiterals = []string{"terraform", "kustomize", "contexts"}
 // source directories: the .windsor scratch path and the context directory, which holds its own terraform subdirectory.
 var exemptBases = []string{"scratch", "configroot", "contextdir"}
 
-// allowedFiles may hold the literals. The resolver defines the default names. The artifact layout
-// file defines the fixed names of the bundle layout.
+// allowedFiles may hold the literals. Only the resolver defines the directory names.
 var allowedFiles = map[string]bool{
-	"pkg/runtime/paths/paths.go":      true,
-	"pkg/composer/artifact/layout.go": true,
+	"pkg/runtime/paths/paths.go": true,
 }
 
 // nonTestGoFiles parses each non-test Go file under pkg and cmd, keyed by its slash path from the repo root.

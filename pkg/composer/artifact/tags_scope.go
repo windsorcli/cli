@@ -16,6 +16,7 @@ import (
 	"strings"
 
 	"github.com/goccy/go-yaml"
+	"github.com/windsorcli/cli/pkg/runtime/paths"
 	"github.com/windsorcli/cli/pkg/runtime/terraform"
 )
 
@@ -95,7 +96,7 @@ type scopedScan struct {
 // unless an entry reaches it. A name that holds an expression widens the scan and gives a note. A
 // path that the source does not hold gives a note.
 func ScanTagsScoped(root string, scope TagScope) ([]ArtifactTag, []string, error) {
-	scan := &scopedScan{fsys: os.DirFS(root), files: make(map[string]bool), seen: make(map[string]bool), kustomizeDir: path.Join(scope.Base, archiveKustomizeDir)}
+	scan := &scopedScan{fsys: os.DirFS(root), files: make(map[string]bool), seen: make(map[string]bool), kustomizeDir: path.Join(scope.Base, paths.KustomizeDirName)}
 	for _, dir := range wholeDirs(scope.Base) {
 		if err := scan.addTree(dir, noBoundary); err != nil {
 			return nil, nil, err
