@@ -172,15 +172,12 @@ func (p *BaseBlueprintProcessor) GetExcludedFacets() []ExcludedFacet {
 	return out
 }
 
-// ProcessGlobally resolves config and facet inclusion once across every source's facets, then emits
-// each source's included components into its own target blueprint. Facets are ranked by a
-// depth-adjusted ordinal so a deeper source's config wins over a shallower one's for the same key,
-// while derivations resolve against the final merged scope and an upstream facet's when: sees a
-// downstream source's config. Returns the resolved global scope. An operator's explicit raw value
-// always wins over a facet's computed value for the same key — see resolveConfigAndInclusion.
-// A source's kustomization and flux system removals also apply to the target of each source with
-// a lower depth, so a facet can remove fields that a shallower source contributes. A source with
-// no facets still receives these removals.
+// ProcessGlobally resolves config and facet inclusion once across all sources, then emits each
+// source's included components into its own target. A depth-adjusted ordinal ranks the facets, so a
+// deeper source's config wins for the same key. Derivations resolve against the final merged scope.
+// An operator's explicit raw value always wins over a facet's computed value (resolveConfigAndInclusion).
+// Each source's removals also apply to shallower sources (applyRemovalsToShallowerSources).
+// It returns the resolved global scope.
 func (p *BaseBlueprintProcessor) ProcessGlobally(sources []SourceFacetSet) (map[string]any, error) {
 	p.mu.Lock()
 	defer p.mu.Unlock()

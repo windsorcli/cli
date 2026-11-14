@@ -22,26 +22,6 @@ func (f *fixture) publishCore(t *testing.T, blueprintBody string, facets map[str
 	f.publish(t, coreURL, files)
 }
 
-// fluxTier returns the compiled kustomization called name in bp, from a kustomization or a flux
-// system tier, or nil.
-func fluxTier(bp *blueprintv1alpha1.Blueprint, name string) *blueprintv1alpha1.Kustomization {
-	for _, k := range bp.AllKustomizations() {
-		if k.Name == name {
-			return &k
-		}
-	}
-	return nil
-}
-
-// patchPaths returns the path of each patch of k.
-func patchPaths(k *blueprintv1alpha1.Kustomization) []string {
-	var paths []string
-	for _, p := range k.Patches {
-		paths = append(paths, p.Path)
-	}
-	return paths
-}
-
 // =============================================================================
 // Test Public Methods
 // =============================================================================
@@ -172,4 +152,28 @@ func TestLoadBlueprint_RemovalsAcrossSources(t *testing.T) {
 			t.Errorf("expected components [a b], got %v", k.Components)
 		}
 	})
+}
+
+// =============================================================================
+// Test Helpers
+// =============================================================================
+
+// fluxTier returns the compiled kustomization called name in bp, from a kustomization or a flux
+// system tier, or nil.
+func fluxTier(bp *blueprintv1alpha1.Blueprint, name string) *blueprintv1alpha1.Kustomization {
+	for _, k := range bp.AllKustomizations() {
+		if k.Name == name {
+			return &k
+		}
+	}
+	return nil
+}
+
+// patchPaths returns the path of each patch of k.
+func patchPaths(k *blueprintv1alpha1.Kustomization) []string {
+	var paths []string
+	for _, p := range k.Patches {
+		paths = append(paths, p.Path)
+	}
+	return paths
 }
