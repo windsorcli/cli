@@ -162,7 +162,7 @@ windsor bootstrap prod --yes`,
 			return werror.Wrap(err, "invalid configuration")
 		}
 
-		blueprintURL, err := resolveBlueprintURL(bootstrapBlueprint, bootstrapPlatform, proj.Runtime.ContextName, proj.Runtime.TemplateRoot, true, proj.Composer.ArtifactBuilder)
+		blueprintURL, err := resolveBlueprintURL(cmd.Context(), bootstrapBlueprint, bootstrapPlatform, proj.Runtime.ContextName, proj.Runtime.TemplateRoot, true, proj.Composer.ArtifactBuilder)
 		if err != nil {
 			return err
 		}

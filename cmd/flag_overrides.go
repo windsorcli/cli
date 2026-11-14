@@ -4,10 +4,12 @@
 package cmd
 
 import (
+	"context"
 	"fmt"
 	"os"
 
 	"github.com/Masterminds/semver/v3"
+	"github.com/windsorcli/cli/internal/logging"
 	"github.com/windsorcli/cli/internal/werror"
 	"github.com/windsorcli/cli/pkg/composer/artifact"
 	"github.com/windsorcli/cli/pkg/constants"
@@ -69,7 +71,7 @@ func defaultTerraformBackendType(overrides map[string]any) {
 // Without allowLocalBootstrap (up), --platform always uses the default URL, the "local" context gets
 // nil, and templateRoot is not read. A nil slice keeps the blueprint state on disk.
 // resolveEffectiveBlueprintURL uses artifactBuilder, and nil or a registry failure uses the build-time pin.
-func resolveBlueprintURL(blueprintFlag, platformFlag, contextName, templateRoot string, allowLocalBootstrap bool, artifactBuilder artifact.Artifact) ([]string, error) {
+func resolveBlueprintURL(ctx context.Context, blueprintFlag, platformFlag, contextName, templateRoot string, allowLocalBootstrap bool, artifactBuilder artifact.Artifact) ([]string, error) {
 	if blueprintFlag != "" {
 		return []string{blueprintFlag}, nil
 	}
@@ -81,14 +83,14 @@ func resolveBlueprintURL(blueprintFlag, platformFlag, contextName, templateRoot 
 				return nil, werror.Wrap(err, "error checking template root")
 			}
 		}
-		return []string{resolveEffectiveBlueprintURL(artifactBuilder)}, nil
+		return []string{resolveEffectiveBlueprintURL(ctx, artifactBuilder)}, nil
 	}
 	if !allowLocalBootstrap || contextName != "local" {
 		return nil, nil
 	}
 	if _, err := os.Stat(templateRoot); err != nil {
 		if os.IsNotExist(err) {
-			return []string{resolveEffectiveBlueprintURL(artifactBuilder)}, nil
+			return []string{resolveEffectiveBlueprintURL(ctx, artifactBuilder)}, nil
 		}
 		return nil, werror.Wrap(err, "error checking template root")
 	}
@@ -97,11 +99,15 @@ func resolveBlueprintURL(blueprintFlag, platformFlag, contextName, templateRoot 
 
 // resolveEffectiveBlueprintURL returns the highest core tag this CLI is compatible with, falling
 // back to the build-time pin on any failure (nil builder, unreachable registry, no compatible
-// tag) — bootstrap must never block on the network. Also falls back when the pin itself isn't a
+// tag) — bootstrap must never block on the network. The tag lookups read the registries mirror
+// of the context, so a site with no internet access finds the tags that its mirror holds. The
+// returned URL stays on the upstream host. A failed lookup writes a debug log line to the logger
+// in ctx, which shows under --verbose. A warning would repeat on every init of a site whose
+// mirror holds only the pinned tag. Also falls back when the pin itself isn't a
 // concrete version (a dev build's mutable :latest): there's nothing to walk "newer than," and
 // substituting the highest tagged release for an unreleased :latest can resolve to older or
 // inconsistent content.
-func resolveEffectiveBlueprintURL(artifactBuilder artifact.Artifact) string {
+func resolveEffectiveBlueprintURL(ctx context.Context, artifactBuilder artifact.Artifact) string {
 	pinned := constants.GetEffectiveBlueprintURL()
 	if artifactBuilder == nil {
 		return pinned
@@ -116,13 +122,16 @@ func resolveEffectiveBlueprintURL(artifactBuilder artifact.Artifact) string {
 	}
 	urlPrefix := fmt.Sprintf("oci://%s/%s", registry, repository)
 
+	logger := logging.FromContext(ctx)
 	tags, err := artifactBuilder.ListTags(pinned)
 	if err != nil {
+		logger.Debug("Blueprint tag lookup failed. Using the pinned version.", "url", urlPrefix, "pinned", pinnedTag, "error", err)
 		return pinned
 	}
 
 	resolvedTag, _, ok, err := artifact.ResolveCompatibleTag(artifactBuilder, urlPrefix, tags)
 	if err != nil || !ok {
+		logger.Debug("No compatible blueprint tag found. Using the pinned version.", "url", urlPrefix, "pinned", pinnedTag, "error", err)
 		return pinned
 	}
 

@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -2728,6 +2729,151 @@ func TestValidateCliVersion(t *testing.T) {
 		}
 		if !strings.Contains(err.Error(), "does not satisfy required constraint") {
 			t.Errorf("Expected error to contain 'does not satisfy required constraint', got: %v", err)
+		}
+	})
+}
+
+// airGappedBuilder returns an ArtifactBuilder for a site with no internet access. Its registries send
+// registry.example.com to endpoint. The fake registry holds mirrorTags, each with a cliVersion
+// annotation of constraint, and answers only on the mirror host. It records the scheme of every
+// reference that the lookups use.
+func airGappedBuilder(t *testing.T, endpoint, constraint string, mirrorTags []string) (*ArtifactBuilder, *[]string) {
+	t.Helper()
+	mocks := setupArtifactMocks(t)
+	setMirror(mocks, "registry.example.com", endpoint)
+	builder := NewArtifactBuilder(mocks.Runtime)
+	builder.shims = mocks.Shims
+	mirrorHost, _, _ := strings.Cut(strings.TrimPrefix(strings.TrimPrefix(endpoint, "https://"), "http://"), "/")
+	var schemes []string
+	builder.shims.NewRepository = func(repo string, opts ...name.Option) (name.Repository, error) {
+		return name.NewRepository(repo, opts...)
+	}
+	builder.shims.ParseReference = func(ref string, opts ...name.Option) (name.Reference, error) {
+		return name.ParseReference(ref, opts...)
+	}
+	builder.shims.RemoteList = func(repo name.Repository, options ...remote.Option) ([]string, error) {
+		schemes = append(schemes, repo.Scheme())
+		if repo.RegistryStr() != mirrorHost {
+			return nil, fmt.Errorf("no route to host %s", repo.RegistryStr())
+		}
+		return mirrorTags, nil
+	}
+	builder.shims.RemoteImage = func(ref name.Reference, options ...remote.Option) (v1.Image, error) {
+		schemes = append(schemes, ref.Context().Scheme())
+		if ref.Context().RegistryStr() != mirrorHost || !slices.Contains(mirrorTags, ref.Identifier()) {
+			return nil, fmt.Errorf("no route to %s", ref.Name())
+		}
+		return &mockImageWithManifest{
+			manifestFunc: func() (*v1.Manifest, error) {
+				return &v1.Manifest{Annotations: map[string]string{CliVersionAnnotationKey: constraint}}, nil
+			},
+		}, nil
+	}
+	return builder, &schemes
+}
+
+func TestArtifactBuilder_AirGappedTagLookups(t *testing.T) {
+	const upstream = "oci://registry.example.com/windsorcli/core"
+
+	t.Run("MirrorWithOnlyThePinnedTagResolvesThePinnedTag", func(t *testing.T) {
+		// Given a mirror that holds only the pinned tag
+		setTestCliVersion(t, "0.10.0")
+		builder, _ := airGappedBuilder(t, "https://harbor.example.com/windsor", ">=0.9.0", []string{"v0.9.0"})
+
+		// When the lookups list the tags and pick the compatible one from the upstream reference
+		tags, err := builder.ListTags(upstream + ":v0.9.0")
+		if err != nil {
+			t.Fatalf("expected the mirror to list tags, got %v", err)
+		}
+		tag, _, ok, err := ResolveCompatibleTag(builder, upstream, tags)
+
+		// Then the pinned tag is the highest compatible tag
+		if err != nil || !ok || tag != "v0.9.0" {
+			t.Errorf("expected v0.9.0, got tag=%q ok=%v err=%v", tag, ok, err)
+		}
+	})
+
+	t.Run("MirrorWithANewerCompatibleTagResolvesTheNewerTag", func(t *testing.T) {
+		// Given a mirror that holds the pinned tag and a newer compatible tag
+		setTestCliVersion(t, "0.10.0")
+		builder, _ := airGappedBuilder(t, "https://harbor.example.com/windsor", ">=0.9.0", []string{"v0.9.0", "v0.9.3"})
+
+		// When the lookups run against the upstream reference
+		tags, err := builder.ListTags(upstream + ":v0.9.0")
+		if err != nil {
+			t.Fatalf("expected the mirror to list tags, got %v", err)
+		}
+		tag, _, ok, err := ResolveCompatibleTag(builder, upstream, tags)
+
+		// Then the newer tag wins, and the caller keeps the upstream prefix for the URL it writes
+		if err != nil || !ok || tag != "v0.9.3" {
+			t.Errorf("expected v0.9.3, got tag=%q ok=%v err=%v", tag, ok, err)
+		}
+	})
+
+	t.Run("HttpMirrorUsesAnInsecureConnection", func(t *testing.T) {
+		// Given an http mirror
+		setTestCliVersion(t, "0.10.0")
+		builder, schemes := airGappedBuilder(t, "http://harbor.example.com/windsor", ">=0.9.0", []string{"v0.9.0"})
+
+		// When the lookups run
+		tags, err := builder.ListTags(upstream + ":v0.9.0")
+		if err != nil {
+			t.Fatalf("expected the mirror to list tags, got %v", err)
+		}
+		if _, _, ok, err := ResolveCompatibleTag(builder, upstream, tags); err != nil || !ok {
+			t.Fatalf("expected a compatible tag, got ok=%v err=%v", ok, err)
+		}
+
+		// Then the tag list and the manifest read both use http
+		if len(*schemes) != 2 || (*schemes)[0] != "http" || (*schemes)[1] != "http" {
+			t.Errorf("expected two http lookups, got %v", *schemes)
+		}
+	})
+
+	t.Run("HttpsMirrorUsesASecureConnection", func(t *testing.T) {
+		setTestCliVersion(t, "0.10.0")
+		builder, schemes := airGappedBuilder(t, "https://harbor.example.com/windsor", ">=0.9.0", []string{"v0.9.0"})
+		if _, err := builder.ListTags(upstream + ":v0.9.0"); err != nil {
+			t.Fatalf("expected the mirror to list tags, got %v", err)
+		}
+		if len(*schemes) != 1 || (*schemes)[0] != "https" {
+			t.Errorf("expected one https lookup, got %v", *schemes)
+		}
+	})
+
+	t.Run("HostWithNoMirrorStillGoesUpstream", func(t *testing.T) {
+		// Given a mirror for a different host
+		builder, _ := airGappedBuilder(t, "https://harbor.example.com/windsor", "", []string{"v0.9.0"})
+
+		// When listing tags for a host with no mirror
+		_, err := builder.ListTags("oci://ghcr.io/windsorcli/core:v0.9.0")
+
+		// Then the lookup reaches ghcr.io, which the air-gapped fake refuses
+		if err == nil || !strings.Contains(err.Error(), "ghcr.io") {
+			t.Errorf("expected an upstream failure for ghcr.io, got %v", err)
+		}
+	})
+
+	t.Run("VerifyCliVersionCompatibilityPullsFromTheMirror", func(t *testing.T) {
+		// Given a mirror and a pull that records the reference it parses
+		mocks := setupArtifactMocks(t)
+		setMirror(mocks, "registry.example.com", "http://harbor.example.com/windsor")
+		builder := NewArtifactBuilder(mocks.Runtime)
+		builder.shims = mocks.Shims
+		var parsed string
+		var options int
+		builder.shims.ParseReference = func(ref string, opts ...name.Option) (name.Reference, error) {
+			parsed, options = ref, len(opts)
+			return nil, fmt.Errorf("stop")
+		}
+
+		// When the compatibility check runs
+		_ = builder.VerifyCliVersionCompatibility(upstream + ":v0.9.0")
+
+		// Then the pull reads the mirror, insecurely
+		if parsed != "harbor.example.com/windsor/windsorcli/core:v0.9.0" || options != 1 {
+			t.Errorf("expected an insecure mirror pull, got %q with %d options", parsed, options)
 		}
 	})
 }
