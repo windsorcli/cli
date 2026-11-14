@@ -424,3 +424,94 @@ func TestLoadConfigString(t *testing.T) {
 		}
 	})
 }
+
+func TestLoadConfig_RootEnvironment(t *testing.T) {
+	t.Run("LoadsRootEnvironmentIntoTheMergedMap", func(t *testing.T) {
+		// Given a v1alpha2 root file with an environment map
+		f := newFixture(t)
+		f.write(t, "windsor.yaml", "version: v1alpha2\nenvironment:\n  REGION: us-east-2\n  TEAM: core\n")
+
+		// When config is loaded
+		f.load(t)
+
+		// Then the root variables are in the merged map
+		got := f.handler.GetStringMap("environment")
+		if got["REGION"] != "us-east-2" || got["TEAM"] != "core" {
+			t.Errorf("expected root variables, got %v", got)
+		}
+	})
+
+	t.Run("ContextEnvironmentOverridesRootPerKey", func(t *testing.T) {
+		// Given a root variable and a context that overrides one of two
+		f := newFixture(t)
+		f.write(t, "windsor.yaml", "version: v1alpha2\nenvironment:\n  REGION: us-east-2\n  TEAM: core\n")
+		f.write(t, "contexts/local/values.yaml", "environment:\n  REGION: eu-west-1\n  EXTRA: yes\n")
+
+		// When config is loaded
+		f.load(t)
+
+		// Then the context wins for REGION, and the other root and context keys stay
+		got := f.handler.GetStringMap("environment")
+		if got["REGION"] != "eu-west-1" || got["TEAM"] != "core" || got["EXTRA"] != "yes" {
+			t.Errorf("expected per-key merge, got %v", got)
+		}
+	})
+
+	t.Run("EmptyContextValueOverridesRootValue", func(t *testing.T) {
+		// Given a context that sets a root variable to the empty string
+		f := newFixture(t)
+		f.write(t, "windsor.yaml", "version: v1alpha2\nenvironment:\n  REGION: us-east-2\n")
+		f.write(t, "contexts/local/values.yaml", "environment:\n  REGION: \"\"\n")
+
+		// When config is loaded
+		f.load(t)
+
+		// Then the empty value replaces the root value and the key stays set
+		got, ok := f.handler.GetStringMap("environment")["REGION"]
+		if !ok || got != "" {
+			t.Errorf("expected an empty REGION, got %q (present=%v)", got, ok)
+		}
+	})
+
+	t.Run("KeepsExpressionsUnevaluated", func(t *testing.T) {
+		// Given a root value that holds an expression
+		f := newFixture(t)
+		f.write(t, "windsor.yaml", "version: v1alpha2\nenvironment:\n  TOKEN: ${secret.value}\n")
+
+		// When config is loaded
+		f.load(t)
+
+		// Then the loader leaves the text for windsor env to evaluate in the context scope
+		if got := f.handler.GetStringMap("environment")["TOKEN"]; got != "${secret.value}" {
+			t.Errorf("expected the raw expression, got %q", got)
+		}
+	})
+
+	t.Run("IgnoresEnvironmentInAV1alpha1Root", func(t *testing.T) {
+		// Given a v1alpha1 root file with a top-level environment key
+		f := newFixture(t)
+		f.write(t, "windsor.yaml", "version: v1alpha1\nenvironment:\n  REGION: us-east-2\n")
+
+		// When config is loaded
+		f.load(t)
+
+		// Then the loader does not read it
+		if got := f.handler.GetStringMap("environment"); len(got) != 0 {
+			t.Errorf("expected no environment, got %v", got)
+		}
+	})
+
+	t.Run("RootEnvironmentAloneDoesNotMakeTheContextExist", func(t *testing.T) {
+		// Given a root file with an environment and no context files
+		f := newFixture(t)
+		f.write(t, "windsor.yaml", "version: v1alpha2\nenvironment:\n  REGION: us-east-2\n")
+
+		// When the handler checks for a new context
+		isNew, err := f.handler.IsNewContext()
+
+		// Then the context is still new
+		if err != nil || !isNew {
+			t.Errorf("expected a new context, got isNew=%v err=%v", isNew, err)
+		}
+	})
+}

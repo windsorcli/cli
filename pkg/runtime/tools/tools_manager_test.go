@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
-	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -609,15 +608,10 @@ func TestToolsManager_GetTerraformCommand(t *testing.T) {
 	t.Run("ReturnsTofuWhenDriverIsOpentofu", func(t *testing.T) {
 		// Given a tools manager with opentofu driver configured
 		mocks, toolsManager := setup(t)
-		tmpDir := t.TempDir()
-		mocks.Shell.GetProjectRootFunc = func() (string, error) {
-			return tmpDir, nil
-		}
-		windsorYaml := filepath.Join(tmpDir, "windsor.yaml")
-		if err := os.WriteFile(windsorYaml, []byte(`terraform:
+		if err := mocks.ConfigHandler.LoadConfigString(`terraform:
   driver: opentofu
-`), 0644); err != nil {
-			t.Fatalf("Failed to write windsor.yaml: %v", err)
+`); err != nil {
+			t.Fatalf("Failed to load config: %v", err)
 		}
 		// When GetTerraformCommand is called
 		command := toolsManager.GetTerraformCommand()
@@ -630,15 +624,10 @@ func TestToolsManager_GetTerraformCommand(t *testing.T) {
 	t.Run("ReturnsTofuWhenDriverIsTofu", func(t *testing.T) {
 		// Given a tools manager with tofu driver configured (alias)
 		mocks, toolsManager := setup(t)
-		tmpDir := t.TempDir()
-		mocks.Shell.GetProjectRootFunc = func() (string, error) {
-			return tmpDir, nil
-		}
-		windsorYaml := filepath.Join(tmpDir, "windsor.yaml")
-		if err := os.WriteFile(windsorYaml, []byte(`terraform:
+		if err := mocks.ConfigHandler.LoadConfigString(`terraform:
   driver: tofu
-`), 0644); err != nil {
-			t.Fatalf("Failed to write windsor.yaml: %v", err)
+`); err != nil {
+			t.Fatalf("Failed to load config: %v", err)
 		}
 		// When GetTerraformCommand is called
 		command := toolsManager.GetTerraformCommand()
@@ -651,15 +640,10 @@ func TestToolsManager_GetTerraformCommand(t *testing.T) {
 	t.Run("ReturnsTofuWhenDriverIsOpenTofu", func(t *testing.T) {
 		// Given a tools manager with OpenTofu driver configured (case variation)
 		mocks, toolsManager := setup(t)
-		tmpDir := t.TempDir()
-		mocks.Shell.GetProjectRootFunc = func() (string, error) {
-			return tmpDir, nil
-		}
-		windsorYaml := filepath.Join(tmpDir, "windsor.yaml")
-		if err := os.WriteFile(windsorYaml, []byte(`terraform:
+		if err := mocks.ConfigHandler.LoadConfigString(`terraform:
   driver: OpenTofu
-`), 0644); err != nil {
-			t.Fatalf("Failed to write windsor.yaml: %v", err)
+`); err != nil {
+			t.Fatalf("Failed to load config: %v", err)
 		}
 		// When GetTerraformCommand is called
 		command := toolsManager.GetTerraformCommand()
@@ -672,15 +656,10 @@ func TestToolsManager_GetTerraformCommand(t *testing.T) {
 	t.Run("ReturnsTofuWhenDriverIsOPENTOFU", func(t *testing.T) {
 		// Given a tools manager with OPENTOFU driver configured (uppercase)
 		mocks, toolsManager := setup(t)
-		tmpDir := t.TempDir()
-		mocks.Shell.GetProjectRootFunc = func() (string, error) {
-			return tmpDir, nil
-		}
-		windsorYaml := filepath.Join(tmpDir, "windsor.yaml")
-		if err := os.WriteFile(windsorYaml, []byte(`terraform:
+		if err := mocks.ConfigHandler.LoadConfigString(`terraform:
   driver: OPENTOFU
-`), 0644); err != nil {
-			t.Fatalf("Failed to write windsor.yaml: %v", err)
+`); err != nil {
+			t.Fatalf("Failed to load config: %v", err)
 		}
 		// When GetTerraformCommand is called
 		command := toolsManager.GetTerraformCommand()
@@ -693,15 +672,10 @@ func TestToolsManager_GetTerraformCommand(t *testing.T) {
 	t.Run("ReturnsTofuWhenDriverIsTOFU", func(t *testing.T) {
 		// Given a tools manager with TOFU driver configured (uppercase alias)
 		mocks, toolsManager := setup(t)
-		tmpDir := t.TempDir()
-		mocks.Shell.GetProjectRootFunc = func() (string, error) {
-			return tmpDir, nil
-		}
-		windsorYaml := filepath.Join(tmpDir, "windsor.yaml")
-		if err := os.WriteFile(windsorYaml, []byte(`terraform:
+		if err := mocks.ConfigHandler.LoadConfigString(`terraform:
   driver: TOFU
-`), 0644); err != nil {
-			t.Fatalf("Failed to write windsor.yaml: %v", err)
+`); err != nil {
+			t.Fatalf("Failed to load config: %v", err)
 		}
 		// When GetTerraformCommand is called
 		command := toolsManager.GetTerraformCommand()
@@ -714,15 +688,10 @@ func TestToolsManager_GetTerraformCommand(t *testing.T) {
 	t.Run("ReturnsTerraformWhenDriverIsTerraform", func(t *testing.T) {
 		// Given a tools manager with terraform driver configured
 		mocks, toolsManager := setup(t)
-		tmpDir := t.TempDir()
-		mocks.Shell.GetProjectRootFunc = func() (string, error) {
-			return tmpDir, nil
-		}
-		windsorYaml := filepath.Join(tmpDir, "windsor.yaml")
-		if err := os.WriteFile(windsorYaml, []byte(`terraform:
+		if err := mocks.ConfigHandler.LoadConfigString(`terraform:
   driver: terraform
-`), 0644); err != nil {
-			t.Fatalf("Failed to write windsor.yaml: %v", err)
+`); err != nil {
+			t.Fatalf("Failed to load config: %v", err)
 		}
 		// When GetTerraformCommand is called
 		command := toolsManager.GetTerraformCommand()
@@ -735,15 +704,10 @@ func TestToolsManager_GetTerraformCommand(t *testing.T) {
 	t.Run("ReturnsTerraformWhenDriverNotConfigured", func(t *testing.T) {
 		// Given a tools manager with no driver configured
 		mocks, toolsManager := setup(t)
-		tmpDir := t.TempDir()
-		mocks.Shell.GetProjectRootFunc = func() (string, error) {
-			return tmpDir, nil
-		}
-		windsorYaml := filepath.Join(tmpDir, "windsor.yaml")
-		if err := os.WriteFile(windsorYaml, []byte(`contexts:
+		if err := mocks.ConfigHandler.LoadConfigString(`contexts:
   test: {}
-`), 0644); err != nil {
-			t.Fatalf("Failed to write windsor.yaml: %v", err)
+`); err != nil {
+			t.Fatalf("Failed to load config: %v", err)
 		}
 		mocks.Shims.LookPath = func(name string) (string, error) {
 			if name == "terraform" {

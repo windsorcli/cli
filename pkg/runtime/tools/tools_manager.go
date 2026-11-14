@@ -7,11 +7,9 @@ package tools
 
 import (
 	"fmt"
-	"os"
 	"strings"
 	"time"
 
-	"github.com/goccy/go-yaml"
 	"github.com/windsorcli/cli/internal/werror"
 	"github.com/windsorcli/cli/pkg/constants"
 	"github.com/windsorcli/cli/pkg/runtime/config"
@@ -206,7 +204,7 @@ func (t *BaseToolsManager) CheckTerraform() error {
 }
 
 // GetTerraformCommand returns the terraform command to use (terraform or tofu) based on configuration.
-// Defaults to "terraform" if not specified in the root-level terraform config.
+// Defaults to "terraform" if terraform.driver is not set in the context config.
 // Accepts case-insensitive driver values and "tofu" as an alias for "opentofu".
 func (t *BaseToolsManager) GetTerraformCommand() string {
 	if t.configHandler == nil {
@@ -224,38 +222,11 @@ func (t *BaseToolsManager) GetTerraformCommand() string {
 // Private Methods
 // =============================================================================
 
-// getTerraformDriver returns the terraform driver from root config, or detects which CLI is available.
-// If not specified in config, it checks for "terraform" first, then "tofu", defaulting to "terraform" if neither is found.
+// getTerraformDriver returns terraform.driver from the merged context config, or detects which CLI
+// is available. Detection checks for "terraform" first, then "tofu", and defaults to "terraform".
 func (t *BaseToolsManager) getTerraformDriver() string {
-	if t.shell == nil {
-		return t.detectTerraformDriver()
-	}
-	projectRoot, err := t.shell.GetProjectRoot()
-	if err != nil {
-		return t.detectTerraformDriver()
-	}
-	root, err := os.OpenRoot(projectRoot)
-	if err != nil {
-		return t.detectTerraformDriver()
-	}
-	defer root.Close()
-	if _, err := root.Stat("windsor.yaml"); err != nil {
-		return t.detectTerraformDriver()
-	}
-	fileData, err := root.ReadFile("windsor.yaml")
-	if err != nil {
-		return t.detectTerraformDriver()
-	}
-	var rootConfig struct {
-		Terraform struct {
-			Driver string `yaml:"driver,omitempty"`
-		} `yaml:"terraform,omitempty"`
-	}
-	if err := yaml.Unmarshal(fileData, &rootConfig); err != nil {
-		return t.detectTerraformDriver()
-	}
-	if rootConfig.Terraform.Driver != "" {
-		return rootConfig.Terraform.Driver
+	if driver := t.configHandler.GetString("terraform.driver"); driver != "" {
+		return driver
 	}
 	return t.detectTerraformDriver()
 }
