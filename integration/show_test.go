@@ -397,11 +397,7 @@ func TestShowKustomization_RemovesFieldsThatASourceContributes(t *testing.T) {
 func TestShowKustomization_KeepsSourceFieldsWhenRemovalConditionIsFalse(t *testing.T) {
 	t.Parallel()
 	dir, env := prepareRemovalFixture(t)
-	values, err := os.ReadFile(filepath.Join(dir, "contexts", "local", "values.yaml"))
-	if err != nil {
-		t.Fatalf("read values.yaml: %v", err)
-	}
-	writeProjectFile(t, dir, "contexts/local/values.yaml", string(values)+"web:\n  strip: false\n")
+	appendValues(t, dir, "web:\n  strip: false\n")
 
 	web := showKustomizationComponents(t, dir, env, "web")
 	if !slices.Contains(web, "app") || !slices.Contains(web, "debug") {

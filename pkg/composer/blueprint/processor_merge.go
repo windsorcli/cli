@@ -428,7 +428,7 @@ func (p *BaseBlueprintProcessor) applyCollectedComponents(target *blueprintv1alp
 	if err != nil {
 		return err
 	}
-	kustomizationRemovals, kustomizationReplaces, kustomizationMerges, err := partitionByStrategy(collected.kustomizationByName, "kustomization",
+	_, kustomizationReplaces, kustomizationMerges, err := partitionByStrategy(collected.kustomizationByName, "kustomization",
 		func(e *blueprintv1alpha1.ConditionalKustomization) (string, blueprintv1alpha1.Kustomization) {
 			return e.Strategy, e.Kustomization
 		})
@@ -472,13 +472,11 @@ func (p *BaseBlueprintProcessor) applyCollectedComponents(target *blueprintv1alp
 		}
 	}
 
-	for _, removal := range kustomizationRemovals {
-		if err := target.RemoveKustomization(removal); err != nil {
-			return werror.Wrap(err, "error removing kustomization '%s'", removal.Name)
-		}
+	if err := applyFluxSystems(target, collected.fluxSystemByName); err != nil {
+		return err
 	}
 
-	return applyFluxSystems(target, collected.fluxSystemByName)
+	return applyRemovals(target, collected.removals())
 }
 
 // dropExcludedEntries re-evaluates the when: condition of each collected terraform component and
@@ -649,6 +647,22 @@ func sortedKeys[V any](m map[string]V) []string {
 	return keys
 }
 
+// applyRemovals applies the kustomization and flux system removals to target. A removal has no
+// effect when target has no entry with the same name.
+func applyRemovals(target *blueprintv1alpha1.Blueprint, removals sourceRemovals) error {
+	for _, removal := range removals.kustomizations {
+		if err := target.RemoveKustomization(removal); err != nil {
+			return werror.Wrap(err, "error removing kustomization '%s'", removal.Name)
+		}
+	}
+	for _, removal := range removals.fluxSystems {
+		if err := target.RemoveFluxSystem(removal); err != nil {
+			return werror.Wrap(err, "error removing flux system '%s'", removal.Name)
+		}
+	}
+	return nil
+}
+
 // applyRemovalsToShallowerSources applies the removals of each source to the target of each source
 // with a lower depth. A source with a higher depth composes later and overrides a source with a
 // lower depth. Thus a facet can remove the kustomization and flux system fields that an earlier
@@ -663,15 +677,8 @@ func applyRemovalsToShallowerSources(sources []SourceFacetSet, removalsBySource 
 			if other.Depth >= src.Depth || other.Target == nil {
 				continue
 			}
-			for _, removal := range removals.kustomizations {
-				if err := other.Target.RemoveKustomization(removal); err != nil {
-					return werror.Wrap(err, "error removing kustomization '%s' from source '%s'", removal.Name, other.Name)
-				}
-			}
-			for _, removal := range removals.fluxSystems {
-				if err := other.Target.RemoveFluxSystem(removal); err != nil {
-					return werror.Wrap(err, "error removing flux system '%s' from source '%s'", removal.Name, other.Name)
-				}
+			if err := applyRemovals(other.Target, removals); err != nil {
+				return werror.Wrap(err, "error applying removals to source '%s'", other.Name)
 			}
 		}
 	}
@@ -708,13 +715,7 @@ func settleEntryTrace[E any](p *BaseBlueprintProcessor, entryKey string, previou
 // strategy. An empty strategy means merge. kind names the entry type in the error for an unknown
 // strategy.
 func partitionByStrategy[E any, T any](entries map[string]*E, kind string, split func(*E) (string, T)) (removals, replaces, merges []T, err error) {
-	keys := make([]string, 0, len(entries))
-	for key := range entries {
-		keys = append(keys, key)
-	}
-	sort.Strings(keys)
-
-	for _, key := range keys {
+	for _, key := range sortedKeys(entries) {
 		strategy, item := split(entries[key])
 		if strategy == "" {
 			strategy = "merge"
@@ -735,36 +736,18 @@ func partitionByStrategy[E any, T any](entries map[string]*E, kind string, split
 }
 
 // applyFluxSystems writes the collected flux systems to target in name order, clearing each one's
-// strategy and ordinal. Systems with the remove strategy are removed after all others are written.
+// strategy and ordinal. It skips the systems with the remove strategy, because applyRemovals applies
+// them after all other writes.
 func applyFluxSystems(target *blueprintv1alpha1.Blueprint, fluxSystemByName map[string]*blueprintv1alpha1.FluxSystem) error {
-	var fluxRemovals []blueprintv1alpha1.FluxSystem
-
-	fluxKeys := make([]string, 0, len(fluxSystemByName))
-	for key := range fluxSystemByName {
-		fluxKeys = append(fluxKeys, key)
-	}
-	sort.Strings(fluxKeys)
-	for _, key := range fluxKeys {
+	for _, key := range sortedKeys(fluxSystemByName) {
 		sys := *fluxSystemByName[key]
-		strategy := sys.Strategy
-		if strategy == "" {
-			strategy = "merge"
+		if sys.Strategy == "remove" {
+			continue
 		}
 		sys.Strategy = ""
 		sys.Ordinal = nil
-
-		if strategy == "remove" {
-			fluxRemovals = append(fluxRemovals, sys)
-			continue
-		}
 		if err := target.UpsertFluxSystem(sys); err != nil {
 			return werror.Wrap(err, "error writing flux system '%s'", key)
-		}
-	}
-
-	for _, removal := range fluxRemovals {
-		if err := target.RemoveFluxSystem(removal); err != nil {
-			return werror.Wrap(err, "error removing flux system '%s'", removal.Name)
 		}
 	}
 	return nil

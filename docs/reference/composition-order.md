@@ -45,14 +45,16 @@ meet at the merge in step 3.
 ## Removals across sources
 
 A kustomization or flux system entry with `strategy: remove` also applies
-to the sources that compose before its own source. Thus a facet can remove
-a component, a patch, a dependency, or an install-tier field that a source
-contributes.
+to the sources that Windsor processes before its own source. Thus a facet
+can remove a component, a patch, a dependency, or an install-tier field
+that a source contributes.
 
-- Windsor composes the sources in dependency order. Sources with no
-  dependency between them sort by name, and your own blueprint is last.
+- Windsor processes the facets of the sources in dependency order. Sources
+  with no dependency between them sort by name, and your own blueprint is
+  last. This order can differ from the merge order in step 3.
 - A removal deletes only the fields that it names. The other fields stay.
-- A removal has no effect on a source that composes after its own source.
+- A removal has no effect on a source that Windsor processes after its own
+  source.
 - Inside one source, the ordinal rules decide first. Only a removal that
   wins in its own source applies to the other sources.
 
