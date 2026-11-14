@@ -26,10 +26,9 @@ import (
 // sourceRoot is a directory that holds the files of one blueprint source.
 // scope lists the paths of the source that the composed blueprint uses.
 type sourceRoot struct {
-	name     string
-	dir      string
-	resolver *paths.Resolver
-	scope    artifact.TagScope
+	name  string
+	dir   string
+	scope artifact.TagScope
 }
 
 // =============================================================================
@@ -46,7 +45,7 @@ func (l *BaseLister) tagEntries(blueprint *blueprintv1alpha1.Blueprint, opts Opt
 		return nil, nil, nil, err
 	}
 	if !opts.All {
-		notes = append(notes, addScopes(blueprint, roots, l.runtime.ProjectPaths())...)
+		notes = append(notes, addScopes(blueprint, roots)...)
 	}
 	var entries []Entry
 	for _, root := range roots {
@@ -69,18 +68,11 @@ func (l *BaseLister) tagEntries(blueprint *blueprintv1alpha1.Blueprint, opts Opt
 	return entries, roots, notes, nil
 }
 
-// sourceRoots returns the project root, named for the blueprint, and the cache directory of each
+// sourceRoots returns the project base directory, named for the blueprint, and the cache directory of each
 // oci:// source. The local template source is the project itself. A source that is not oci://, or
 // whose cache directory is missing, gives a note.
 func (l *BaseLister) sourceRoots(blueprint *blueprintv1alpha1.Blueprint) ([]sourceRoot, []string, error) {
-	resolver := l.runtime.ProjectPaths()
-	kustomize := resolver.RelSlash(resolver.Kustomize())
-	roots := []sourceRoot{{
-		name:     blueprint.Metadata.Name,
-		dir:      l.runtime.ProjectRoot,
-		resolver: resolver,
-		scope:    artifact.TagScope{KustomizeDir: kustomize, WholeDirs: []string{resolver.RelSlash(resolver.Contexts()), kustomize + "/crds"}},
-	}}
+	roots := []sourceRoot{{name: blueprint.Metadata.Name, dir: l.runtime.ProjectPaths().Base()}}
 	var notes []string
 	for _, source := range blueprint.Sources {
 		if blueprintv1alpha1.IsLocalTemplateSource(source) {
@@ -115,15 +107,7 @@ func (l *BaseLister) sourceRoots(blueprint *blueprintv1alpha1.Blueprint) ([]sour
 // tags of the scope of root when all is false.
 func scanRoot(root sourceRoot, all bool) ([]artifact.ArtifactTag, []string, error) {
 	if all {
-		if root.resolver == nil {
-			tags, err := artifact.ScanTagsDir(root.dir)
-			return tags, nil, err
-		}
-		tags, err := artifact.ScanTagsDirIn(root.dir, []string{
-			root.resolver.RelSlash(root.resolver.Kustomize()),
-			root.resolver.RelSlash(root.resolver.Terraform()),
-			root.resolver.RelSlash(root.resolver.Contexts()),
-		})
+		tags, err := artifact.ScanTagsDir(root.dir)
 		return tags, nil, err
 	}
 	return artifact.ScanTagsScoped(root.dir, root.scope)
@@ -159,7 +143,7 @@ func appendNewNotes(notes, added []string) []string {
 // addScopes sets the scope of each root from the kustomizations and the Terraform components of
 // blueprint. It leaves out an entry that is disabled. It returns a note for an entry whose source
 // the blueprint does not define. A source in blueprint.Sources with no root already has a note.
-func addScopes(blueprint *blueprintv1alpha1.Blueprint, roots []sourceRoot, resolver *paths.Resolver) []string {
+func addScopes(blueprint *blueprintv1alpha1.Blueprint, roots []sourceRoot) []string {
 	var notes []string
 	for _, k := range blueprint.AllKustomizations() {
 		if !k.Enabled.IsEnabled() {
@@ -170,11 +154,7 @@ func addScopes(blueprint *blueprintv1alpha1.Blueprint, roots []sourceRoot, resol
 			notes = append(notes, note)
 		}
 		if root != nil {
-			dir := k.FluxPath()
-			if root == &roots[0] {
-				dir = resolver.RebaseKustomize(dir)
-			}
-			root.scope.Kustomizations = append(root.scope.Kustomizations, artifact.KustomizationScope{Name: k.Name, Dir: dir, Components: k.Components})
+			root.scope.Kustomizations = append(root.scope.Kustomizations, artifact.KustomizationScope{Name: k.Name, Dir: k.FluxPath(), Components: k.Components})
 		}
 	}
 	for _, t := range blueprint.TerraformComponents {
@@ -186,11 +166,7 @@ func addScopes(blueprint *blueprintv1alpha1.Blueprint, roots []sourceRoot, resol
 			notes = append(notes, note)
 		}
 		if root != nil {
-			terraformDir := terraformRoot(blueprint, t.Source)
-			if root == &roots[0] {
-				terraformDir = root.resolver.RelSlash(root.resolver.Terraform())
-			}
-			root.scope.Terraform = append(root.scope.Terraform, artifact.TerraformScope{Name: t.GetID(), Root: terraformDir, Path: strings.ReplaceAll(t.Path, "\\", "/")})
+			root.scope.Terraform = append(root.scope.Terraform, artifact.TerraformScope{Name: t.GetID(), Root: terraformRoot(blueprint, t.Source), Path: strings.ReplaceAll(t.Path, "\\", "/")})
 		}
 	}
 	return notes

@@ -245,3 +245,26 @@ func TestPaths_RejectsAnInvalidPathsBlock(t *testing.T) {
 		})
 	}
 }
+
+func TestPaths_ShowArtifactsFindsTagsUnderBase(t *testing.T) {
+	for _, args := range [][]string{{"show", "artifacts"}, {"show", "artifacts", "--all"}} {
+		t.Run(strings.Join(args, "-"), func(t *testing.T) {
+			t.Parallel()
+			dir, env := helpers.PrepareFixture(t, "paths-base")
+			tagged := "images:\n  - name: ghcr.io/example/app # artifact: type=image name=ghcr.io/example/app\n    tag: 1.0.0\n"
+			if err := os.WriteFile(filepath.Join(dir, "infra", "kustomize", "app", "values.yaml"), []byte(tagged), 0644); err != nil {
+				t.Fatal(err)
+			}
+			env = append(env, "WINDSOR_CONTEXT=local")
+
+			stdout, stderr, err := helpers.RunCLI(dir, args, env)
+
+			if err != nil {
+				t.Fatalf("%v: %v\nstderr: %s", args, err, stderr)
+			}
+			if !strings.Contains(string(stdout), "reference: ghcr.io/example/app") {
+				t.Errorf("expected the tagged image in the output, got:\n%s", stdout)
+			}
+		})
+	}
+}

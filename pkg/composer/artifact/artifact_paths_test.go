@@ -90,69 +90,6 @@ func TestArtifactBuilder_Bundle_ProjectPaths(t *testing.T) {
 	})
 }
 
-func TestScanTagsDirIn(t *testing.T) {
-	tag := "# artifact: type=image name=ghcr.io/example/app\nimage: ghcr.io/example/app:1.0.0\n"
-
-	t.Run("ScansTheProjectLayout", func(t *testing.T) {
-		// Given a project with moved directories and a tag in the moved kustomize directory
-		root := t.TempDir()
-		writeTree(t, root, map[string]string{"infra/kustomize/app/values.yaml": tag})
-		resolver, err := paths.New(root, &v1alpha2.Paths{Base: "infra"}, nil)
-		if err != nil {
-			t.Fatal(err)
-		}
-
-		// When a scan of the project directories runs the root
-		tags, err := ScanTagsDirIn(root, []string{resolver.RelSlash(resolver.Kustomize())})
-
-		// Then the tag is found with a root-relative file path
-		if err != nil || len(tags) != 1 || tags[0].File != "infra/kustomize/app/values.yaml" {
-			t.Fatalf("got %v, %v", tags, err)
-		}
-	})
-
-	t.Run("ArchiveLayoutIgnoresTheProjectDirectories", func(t *testing.T) {
-		// Given the same tree
-		root := t.TempDir()
-		writeTree(t, root, map[string]string{"infra/kustomize/app/values.yaml": tag})
-
-		// When the bundle directories scan the root
-		tags, err := ScanTagsDir(root)
-
-		// Then it finds nothing, because a consumed source has the standard layout
-		if err != nil || len(tags) != 0 {
-			t.Fatalf("got %v, %v", tags, err)
-		}
-	})
-}
-
-func TestScanTagsScoped_ProjectLayout(t *testing.T) {
-	t.Run("ReadsTheMovedKustomizationDirectory", func(t *testing.T) {
-		// Given a project with a tagged kustomization in the moved kustomize directory
-		root := t.TempDir()
-		writeTree(t, root, map[string]string{
-			"infra/kustomize/app/kustomization.yaml": "resources:\n  - values.yaml\n",
-			"infra/kustomize/app/values.yaml":        "# artifact: type=image name=ghcr.io/example/app\nimage: ghcr.io/example/app:1.0.0\n",
-		})
-		resolver, err := paths.New(root, &v1alpha2.Paths{Base: "infra"}, nil)
-		if err != nil {
-			t.Fatal(err)
-		}
-		scope := TagScope{
-			KustomizeDir:   resolver.RelSlash(resolver.Kustomize()),
-			Kustomizations: []KustomizationScope{{Name: "app", Dir: resolver.RebaseKustomize("kustomize/app")}},
-		}
-
-		// When the scoped scan runs
-		tags, _, err := ScanTagsScoped(root, scope)
-
-		// Then it finds the tag
-		if err != nil || len(tags) != 1 {
-			t.Fatalf("got %v, %v", tags, err)
-		}
-	})
-}
-
 // =============================================================================
 // Test Helpers
 // =============================================================================
