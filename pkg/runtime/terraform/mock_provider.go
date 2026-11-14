@@ -22,6 +22,7 @@ type MockTerraformProvider struct {
 	ListLocalStateComponentIDsFunc   func() ([]string, error)
 	GetEnvVarsFunc                   func(componentID string, interactive bool) (map[string]string, []string, *TerraformArgs, error)
 	FormatArgsForEnvFunc             func(args []string) string
+	SharedBackendContextsFunc        func() []string
 	ClearCacheFunc                   func()
 }
 
@@ -149,6 +150,14 @@ func (m *MockTerraformProvider) FormatArgsForEnv(args []string) string {
 		return m.FormatArgsForEnvFunc(args)
 	}
 	return ""
+}
+
+// SharedBackendContexts implements TerraformProvider.
+func (m *MockTerraformProvider) SharedBackendContexts() []string {
+	if m.SharedBackendContextsFunc != nil {
+		return m.SharedBackendContextsFunc()
+	}
+	return nil
 }
 
 // ClearCache implements TerraformProvider.

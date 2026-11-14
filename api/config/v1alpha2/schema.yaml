@@ -111,6 +111,9 @@ properties:
             type: string
           prefix:
             type: string
+          auto_prefix:
+            type: boolean
+            description: Add <context>-<id>/ after prefix in the state key, so contexts that share a backend keep separate state.
           s3:
             type: object
             properties:

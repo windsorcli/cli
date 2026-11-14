@@ -41,6 +41,8 @@ type DefaultTerraformProvider struct {
 // TerraformArgs contains all the CLI arguments needed for terraform operations.
 // It does not include environment variable formatting - that is handled by the env printer.
 // KubernetesNamespace is the namespace the config sets for the kubernetes backend, and empty when none is set.
+// LegacyKeyField and LegacyKeyValue name the backend key without the auto-prefix segment. Both are empty
+// when terraform.backend.auto_prefix is off.
 type TerraformArgs struct {
 	TFDataDir           string
 	InitArgs            []string
@@ -52,6 +54,8 @@ type TerraformArgs struct {
 	PlanDestroyArgs     []string
 	BackendConfig       string
 	KubernetesNamespace string
+	LegacyKeyField      string
+	LegacyKeyValue      string
 }
 
 // =============================================================================
@@ -76,6 +80,7 @@ type TerraformProvider interface {
 	ListLocalStateComponentIDs() ([]string, error)
 	GetEnvVars(componentID string, interactive bool) (map[string]string, []string, *TerraformArgs, error)
 	FormatArgsForEnv(args []string) string
+	SharedBackendContexts() []string
 	ClearCache()
 }
 

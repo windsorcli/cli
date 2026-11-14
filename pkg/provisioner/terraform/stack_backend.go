@@ -1,4 +1,5 @@
-// The backend functions of the TerraformStack handle a change of the kubernetes backend namespace.
+// The backend functions of the TerraformStack handle a change of the kubernetes backend namespace
+// and the turn-on of terraform.backend.auto_prefix.
 // A write operation moves the state of a component with terraform init -migrate-state.
 // A plan reads the state from the namespace in the backend pointer and writes nothing to the cluster.
 
@@ -54,9 +55,56 @@ func (s *TerraformStack) kubernetesNamespaceChange(terraformVars map[string]stri
 	return previous, true
 }
 
+// autoPrefixKeyChange returns the legacy key value when the backend pointer of a component holds the
+// legacy key and the configured key adds the auto-prefix segment. The bool is false when the option is
+// off, the pointer is missing, the backend type differs, or the pointer holds any other key.
+// A key that differs for any other reason is left to terraform, which refuses it.
+func (s *TerraformStack) autoPrefixKeyChange(terraformVars map[string]string, terraformArgs *envvars.TerraformArgs) (string, bool) {
+	if terraformArgs == nil || terraformArgs.LegacyKeyField == "" {
+		return "", false
+	}
+	pointerPath := s.backendPointerPath(terraformVars)
+	if pointerPath == "" {
+		return "", false
+	}
+	data, err := s.shims.ReadFile(pointerPath)
+	if err != nil {
+		return "", false
+	}
+	var pointer struct {
+		Backend struct {
+			Type   string         `json:"type"`
+			Config map[string]any `json:"config"`
+		} `json:"backend"`
+	}
+	if err := json.Unmarshal(data, &pointer); err != nil || pointer.Backend.Type != s.runtime.ConfigHandler.GetTerraformBackendType() {
+		return "", false
+	}
+	current, _ := pointer.Backend.Config[terraformArgs.LegacyKeyField].(string)
+	if current != terraformArgs.LegacyKeyValue {
+		return "", false
+	}
+	argPrefix := "-backend-config=" + terraformArgs.LegacyKeyField + "="
+	for _, arg := range terraformArgs.InitArgs {
+		if value, ok := strings.CutPrefix(arg, argPrefix); ok && value != current {
+			return current, true
+		}
+	}
+	return "", false
+}
+
 // =============================================================================
 // Helpers
 // =============================================================================
+
+// withBackendArg returns a copy of initArgs with the backend-config argument field set to value.
+func withBackendArg(initArgs []string, field, value string) []string {
+	argPrefix := "-backend-config=" + field + "="
+	out := slices.DeleteFunc(slices.Clone(initArgs), func(arg string) bool {
+		return strings.HasPrefix(arg, argPrefix)
+	})
+	return append(out, argPrefix+value)
+}
 
 // withBackendNamespace returns a copy of initArgs with the namespace backend-config argument set to namespace.
 func withBackendNamespace(initArgs []string, namespace string) []string {

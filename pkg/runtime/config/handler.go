@@ -59,6 +59,7 @@ type ConfigHandler interface {
 	Clean() error
 	IsLoaded() bool
 	GenerateContextID() error
+	IsNewContext() (bool, error)
 	LoadSchema(schemaPath string) error
 	LoadSchemaFromBytes(schemaContent []byte) error
 	GetSchema() map[string]any

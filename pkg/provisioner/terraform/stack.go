@@ -63,6 +63,7 @@ type TerraformStack struct {
 	postApply              []func(ctx context.Context, id string) error
 	initCache              map[initCacheKey]struct{}
 	initCacheMu            sync.Mutex
+	sharedBackendWarning   sync.Once
 	destroyRetryAttempts   int
 	destroyRetryBackoff    time.Duration
 	destroyIdleTimeout     time.Duration
@@ -72,12 +73,14 @@ type TerraformStack struct {
 
 // initCacheKey identifies a previously-completed `terraform init`. Four
 // dimensions distinguish whether re-init is a no-op: component, configured
-// backend, kubernetes backend namespace, migrate-state flag.
+// backend, kubernetes backend namespace, migrate-state flag. A read-only init
+// that reads state at the legacy key sets legacyKey.
 type initCacheKey struct {
 	componentID  string
 	backendType  string
 	namespace    string
 	migrateState bool
+	legacyKey    bool
 }
 
 // ComponentFailure is a per-component error captured during continue-on-error
@@ -183,6 +186,7 @@ func (s *TerraformStack) Up(ctx context.Context, blueprint *blueprintv1alpha1.Bl
 
 	postApply := s.postApply
 	s.postApply = nil
+	s.warnSharedBackend(ctx)
 
 	currentDir, err := s.shims.Getwd()
 	if err != nil {
@@ -298,6 +302,7 @@ func (s *TerraformStack) Apply(ctx context.Context, blueprint *blueprintv1alpha1
 		return fmt.Errorf("component ID not provided")
 	}
 
+	s.warnSharedBackend(ctx)
 	component, terraformVars, scopedKeys, terraformArgs, cleanup, err := s.prepareComponentOp(blueprint, componentID)
 	if err != nil {
 		return err
@@ -597,13 +602,27 @@ func (s *TerraformStack) initComponent(ctx context.Context, component *blueprint
 	migrateState := slices.Contains(extraFlags, "-migrate-state")
 	previous, namespaceChanged := s.kubernetesNamespaceChange(terraformVars, terraformArgs)
 	movingState := false
-	if namespaceChanged && readOnly {
+	legacyKeyValue, keyChanged := s.autoPrefixKeyChange(terraformVars, terraformArgs)
+	movingKey := false
+	if keyChanged && readOnly {
 		extraFlags = append(slices.Clone(extraFlags), "-reconfigure")
+		backendArgs = withBackendArg(backendArgs, terraformArgs.LegacyKeyField, legacyKeyValue)
+	} else if keyChanged && !migrateState {
+		extraFlags = append(slices.Clone(extraFlags), "-migrate-state", "-force-copy")
+		migrateState = true
+		movingKey = true
+	}
+	if namespaceChanged && readOnly {
+		if !keyChanged {
+			extraFlags = append(slices.Clone(extraFlags), "-reconfigure")
+		}
 		backendArgs = withBackendNamespace(backendArgs, previous)
 		namespace = previous
 	} else if namespaceChanged && !migrateState {
 		extraFlags = append(slices.Clone(extraFlags), "-migrate-state", "-force-copy")
 		migrateState = true
+		movingState = true
+	} else if namespaceChanged && movingKey {
 		movingState = true
 	}
 
@@ -612,6 +631,7 @@ func (s *TerraformStack) initComponent(ctx context.Context, component *blueprint
 		backendType:  s.runtime.ConfigHandler.GetTerraformBackendType(),
 		namespace:    namespace,
 		migrateState: migrateState,
+		legacyKey:    keyChanged && readOnly,
 	}
 	s.initCacheMu.Lock()
 	_, hit := s.initCache[key]
@@ -639,6 +659,9 @@ func (s *TerraformStack) initComponent(ctx context.Context, component *blueprint
 	if movingState {
 		presenter.Message(ctx, fmt.Sprintf("Moved terraform state of %s from namespace %s to %s", component.Path, previous, namespace))
 	}
+	if movingKey {
+		presenter.Message(ctx, fmt.Sprintf("Moved terraform state of %s to the context-prefixed key", component.Path))
+	}
 
 	s.initCacheMu.Lock()
 	if s.initCache == nil {
@@ -647,6 +670,15 @@ func (s *TerraformStack) initComponent(ctx context.Context, component *blueprint
 	s.initCache[key] = struct{}{}
 	s.initCacheMu.Unlock()
 	return nil
+}
+
+// warnSharedBackend warns once per process about contexts that share this context's backend keys.
+func (s *TerraformStack) warnSharedBackend(ctx context.Context) {
+	s.sharedBackendWarning.Do(func() {
+		for _, warning := range s.runtime.TerraformProvider.SharedBackendContexts() {
+			presenter.Warn(ctx, warning)
+		}
+	})
 }
 
 // clearStaleBackendPointer removes the per-component backend pointer file when it records a
