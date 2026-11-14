@@ -567,6 +567,28 @@ func (p *BaseBlueprintProcessor) accumulateFluxSystemRemovals(existing, new blue
 	return accumulated
 }
 
+// removals returns the remove-strategy kustomization and flux system entries in collected, in name
+// order. Each entry is a removal that won the merge in its source. The returned entries have no
+// strategy and no ordinal.
+func (c collectedComponents) removals() sourceRemovals {
+	var out sourceRemovals
+	for _, name := range sortedKeys(c.kustomizationByName) {
+		if entry := c.kustomizationByName[name]; entry.Strategy == "remove" {
+			out.kustomizations = append(out.kustomizations, entry.Kustomization)
+		}
+	}
+	for _, name := range sortedKeys(c.fluxSystemByName) {
+		sys := *c.fluxSystemByName[name]
+		if sys.Strategy != "remove" {
+			continue
+		}
+		sys.Strategy = ""
+		sys.Ordinal = nil
+		out.fluxSystems = append(out.fluxSystems, sys)
+	}
+	return out
+}
+
 // kustomizationOrZero dereferences k, or returns a zero-value Kustomization when k is nil.
 func kustomizationOrZero(k *blueprintv1alpha1.Kustomization) blueprintv1alpha1.Kustomization {
 	if k == nil {
@@ -615,6 +637,45 @@ func accumulateMapKeys[K comparable, V any](m1, m2 map[K]V) map[K]V {
 		result[k] = zero
 	}
 	return result
+}
+
+// sortedKeys returns the keys of m in ascending order.
+func sortedKeys[V any](m map[string]V) []string {
+	keys := make([]string, 0, len(m))
+	for key := range m {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	return keys
+}
+
+// applyRemovalsToShallowerSources applies the removals of each source to the target of each source
+// with a lower depth. A source with a higher depth composes later and overrides a source with a
+// lower depth. Thus a facet can remove the kustomization and flux system fields that an earlier
+// source contributes. A removal has no effect on a target with no matching entry.
+func applyRemovalsToShallowerSources(sources []SourceFacetSet, removalsBySource map[string]sourceRemovals) error {
+	for _, src := range sources {
+		removals, ok := removalsBySource[src.Name]
+		if !ok {
+			continue
+		}
+		for _, other := range sources {
+			if other.Depth >= src.Depth || other.Target == nil {
+				continue
+			}
+			for _, removal := range removals.kustomizations {
+				if err := other.Target.RemoveKustomization(removal); err != nil {
+					return werror.Wrap(err, "error removing kustomization '%s' from source '%s'", removal.Name, other.Name)
+				}
+			}
+			for _, removal := range removals.fluxSystems {
+				if err := other.Target.RemoveFluxSystem(removal); err != nil {
+					return werror.Wrap(err, "error removing flux system '%s' from source '%s'", removal.Name, other.Name)
+				}
+			}
+		}
+	}
+	return nil
 }
 
 // traceEntryKey returns the name of one merged entry in the trace collector. The key holds the

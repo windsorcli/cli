@@ -1,0 +1,10 @@
+kind: Blueprint
+apiVersion: blueprints.windsorcli.dev/v1alpha1
+metadata:
+  name: facet-remove-across-sources
+  description: "Facet strategy remove across sources integration fixture"
+
+sources:
+
+- name: core
+  url: oci://ghcr.io/windsorcli/core:v0.1.0

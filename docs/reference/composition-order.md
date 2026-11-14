@@ -42,6 +42,20 @@ are never in the same sort, so the ordinal table cannot rank a source's
 facets against yours — they are evaluated in separate passes and only
 meet at the merge in step 3.
 
+## Removals across sources
+
+A kustomization or flux system entry with `strategy: remove` also applies
+to the sources that compose before its own source. Thus a facet can remove
+a component, a patch, a dependency, or an install-tier field that a source
+contributes.
+
+- Windsor composes the sources in dependency order. Sources with no
+  dependency between them sort by name, and your own blueprint is last.
+- A removal deletes only the fields that it names. The other fields stay.
+- A removal has no effect on a source that composes after its own source.
+- Inside one source, the ordinal rules decide first. Only a removal that
+  wins in its own source applies to the other sources.
+
 ## Source depth
 
 Depth is distance in the reference graph:

@@ -58,6 +58,13 @@ type collectedComponents struct {
 	fluxSystemByName    map[string]*blueprintv1alpha1.FluxSystem
 }
 
+// sourceRemovals holds the kustomization and flux system removals that win in one source, in name
+// order. ProcessGlobally applies them to the targets of the sources with a lower depth.
+type sourceRemovals struct {
+	kustomizations []blueprintv1alpha1.Kustomization
+	fluxSystems    []blueprintv1alpha1.FluxSystem
+}
+
 // SourceFacetSet is one source's contribution to global composition: its name, its dependency depth
 // (deeper/referencing sources override shallower ones), the blueprint to emit its components into, and
 // its facets.
@@ -171,6 +178,9 @@ func (p *BaseBlueprintProcessor) GetExcludedFacets() []ExcludedFacet {
 // while derivations resolve against the final merged scope and an upstream facet's when: sees a
 // downstream source's config. Returns the resolved global scope. An operator's explicit raw value
 // always wins over a facet's computed value for the same key — see resolveConfigAndInclusion.
+// A source's kustomization and flux system removals also apply to the target of each source with
+// a lower depth, so a facet can remove fields that a shallower source contributes. A source with
+// no facets still receives these removals.
 func (p *BaseBlueprintProcessor) ProcessGlobally(sources []SourceFacetSet) (map[string]any, error) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -214,14 +224,21 @@ func (p *BaseBlueprintProcessor) ProcessGlobally(sources []SourceFacetSet) (map[
 	for _, f := range included {
 		includedBySource[f.Source] = append(includedBySource[f.Source], f)
 	}
+	removalsBySource := make(map[string]sourceRemovals)
 	for _, src := range sources {
 		facets := includedBySource[src.Name]
 		if len(facets) == 0 {
 			continue
 		}
-		if err := p.emitFacetComponents(src.Target, facets, scope, src.Name); err != nil {
+		removals, err := p.emitFacetComponents(src.Target, facets, scope, src.Name)
+		if err != nil {
 			return nil, err
 		}
+		removalsBySource[src.Name] = removals
+	}
+
+	if err := applyRemovalsToShallowerSources(sources, removalsBySource); err != nil {
+		return nil, err
 	}
 
 	return globalScope, nil
@@ -382,8 +399,9 @@ func (p *BaseBlueprintProcessor) resolveConfigAndInclusion(sortedFacets []bluepr
 // messages of the included facets to target, with expressions evaluated against the resolved scope.
 // sourceName is the Source of components that have none. Messages stay unevaluated, in facet order;
 // GenerateResolved renders them later, when terraform outputs exist. ProcessGlobally calls it after
-// config and inclusion resolve, so it can emit each source on its own.
-func (p *BaseBlueprintProcessor) emitFacetComponents(target *blueprintv1alpha1.Blueprint, includedFacets []blueprintv1alpha1.Facet, scope map[string]any, sourceName ...string) error {
+// config and inclusion resolve, so it can emit each source on its own. It returns the kustomization
+// and flux system removals that won the merge and that it applied to target.
+func (p *BaseBlueprintProcessor) emitFacetComponents(target *blueprintv1alpha1.Blueprint, includedFacets []blueprintv1alpha1.Facet, scope map[string]any, sourceName ...string) (sourceRemovals, error) {
 	collected := collectedComponents{
 		terraformByID:       make(map[string]*blueprintv1alpha1.ConditionalTerraformComponent),
 		kustomizationByName: make(map[string]*blueprintv1alpha1.ConditionalKustomization),
@@ -395,23 +413,23 @@ func (p *BaseBlueprintProcessor) emitFacetComponents(target *blueprintv1alpha1.B
 		if len(facet.Crds) > 0 {
 			evaluated, err := p.evaluateStringSlice(facet.Crds, facet.Path, scope)
 			if err != nil {
-				return werror.Wrap(err, "error evaluating crds for facet '%s'", facet.Metadata.Name)
+				return sourceRemovals{}, werror.Wrap(err, "error evaluating crds for facet '%s'", facet.Metadata.Name)
 			}
 			facet.Crds = slices.DeleteFunc(evaluated, func(s string) bool { return s == "" })
 			for _, ref := range facet.Crds {
 				if err := validateCrdRef(ref); err != nil {
-					return werror.Wrap(err, "facet %q", facet.Metadata.Name)
+					return sourceRemovals{}, werror.Wrap(err, "facet %q", facet.Metadata.Name)
 				}
 			}
 		}
 		if err := p.collectTerraformComponents(facet, sourceName, collected.terraformByID, scope); err != nil {
-			return err
+			return sourceRemovals{}, err
 		}
 		if err := p.collectKustomizations(facet, sourceName, collected.kustomizationByName, scope); err != nil {
-			return err
+			return sourceRemovals{}, err
 		}
 		if err := p.collectFluxSystems(facet, sourceName, collected.fluxSystemByName, scope); err != nil {
-			return err
+			return sourceRemovals{}, err
 		}
 		for _, ref := range facet.Crds {
 			crdRefs[ref] = struct{}{}
@@ -423,7 +441,7 @@ func (p *BaseBlueprintProcessor) emitFacetComponents(target *blueprintv1alpha1.B
 		if len(facet.Substitutions) > 0 {
 			evaluated, deferredKeys, err := p.evaluateSubstitutions(facet.Substitutions, facet.Path, scope)
 			if err != nil {
-				return werror.Wrap(err, "error evaluating substitutions for facet '%s'", facet.Metadata.Name)
+				return sourceRemovals{}, werror.Wrap(err, "error evaluating substitutions for facet '%s'", facet.Metadata.Name)
 			}
 			if target.Substitutions == nil {
 				target.Substitutions = make(map[string]string)
@@ -460,7 +478,10 @@ func (p *BaseBlueprintProcessor) emitFacetComponents(target *blueprintv1alpha1.B
 
 	setCrdLayer(target, crdRefs, resolveSourceName(sourceName))
 
-	return p.applyCollectedComponents(target, collected, scope)
+	if err := p.applyCollectedComponents(target, collected, scope); err != nil {
+		return sourceRemovals{}, err
+	}
+	return collected.removals(), nil
 }
 
 // recordTrace records a per-key contribution to the trace collector when set.

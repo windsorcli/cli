@@ -1,0 +1,22 @@
+kind: Facet
+apiVersion: blueprints.windsorcli.dev/v1alpha1
+metadata:
+  name: remove-core-fields
+  description: Removes fields from a kustomization and a flux system that the core source contributes.
+
+kustomize:
+
+- name: web
+  when: web.strip ?? true
+  strategy: remove
+  components:
+  - debug
+
+flux:
+
+- name: gateway
+  when: web.strip ?? true
+  strategy: remove
+  install:
+    components:
+    - envoy-metrics
